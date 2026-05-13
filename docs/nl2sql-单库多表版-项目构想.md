@@ -6,7 +6,7 @@
 
 在这一阶段，系统的使用模式是：
 
-1. 系统后台配置了多个数据源（例如 MySQL 订单库、PostgreSQL 用户库、Oracle 财务库）。
+1. 系统后台配置了多个 MySQL 数据源（例如订单库、用户库、财务库）。MVP 阶段只支持 MySQL，后续再扩展 PostgreSQL、Oracle 等数据库。
 2. 员工在使用时，**必须通过界面下拉框明确选择"当前要查询的数据库/业务域"**。
 3. 用户输入大白话，大模型仅在**当前选定的单库范围内**，进行多表联合查询，生成 SQL，并返回数据或图表。
 
@@ -93,8 +93,7 @@
         ▼                     ▼                     ▼
 ┌──────────────┐   ┌──────────────┐   ┌──────────────────┐
 │  向量数据库   │   │  业务数据库   │   │  大模型 API      │
-│ (Milvus/     │   │ (MySQL/PG/   │   │ (GPT/Claude/    │
-│  Chroma)     │   │  Oracle)     │   │  私有部署)       │
+│ (Milvus)     │   │ (MySQL)      │   │ (Qwen/千问 API)  │
 └──────────────┘   └──────────────┘   └──────────────────┘
 ```
 
@@ -176,8 +175,8 @@
 
 ### 3.3 数据接入与预处理层
 
-- 注册多个异构数据源，提取单库的 Schema。
-- 将单库 Schema 与对应的 `skills.md` 解析后，写入向量数据库（如 Milvus / Chroma）。
+- 注册多个 MySQL 数据源，提取单库的 Schema。
+- 将单库 Schema 与对应的 `skills.md` 解析后，写入 Milvus 向量数据库。
 - **数据源连接安全要求**（详见第 10 节）。
 
 ### 3.4 语义理解与召回层 (Schema RAG)
@@ -233,7 +232,7 @@
 
 ### 4.3 引入阶段
 
-- **阶段一（MVP）**：仅用向量检索，因为表数量少，先跑通链路。
+- **阶段一（MVP）**：直接接入 Milvus，采用向量检索召回 Top 5-10 张相关表，保证核心 RAG 链路从一开始就是最终形态。
 - **阶段二**：引入 BM25 + 向量的 Hybrid Search，支撑 200+ 张表。
 - **阶段三**：引入模板召回，结合历史高频查询优化召回质量。
 
@@ -251,9 +250,9 @@
 
 | 阶段 | 推荐模型 | 说明 |
 |------|----------|------|
-| MVP 本地部署 | `bge-base-zh-v1.5`（BAAI） | 开源免费，768 维，中文语义理解优秀，可本地 GPU 推理 |
-| MVP 备选（API） | OpenAI `text-embedding-3-small` | 1536 维，效果好但有 API 成本 |
-| 生产环境 | `bge-large-zh-v1.5` 或 `m3e-large` | 更高精度，适合表数量 500+ 的场景 |
+| MVP 与生产默认 | 千问 Embedding 模型 | 与 SQL 生成模型同一厂商，接口风格统一，中文语义效果稳定 |
+
+> 具体模型名在实现时通过配置项 `QWEN_EMBEDDING_MODEL` 注入，默认优先选择阿里云百炼/通义千问平台当前推荐的通用文本向量模型。
 
 **分块策略**：
 
@@ -277,7 +276,7 @@
 | **表访问白名单** | 仅允许当前数据源中已启用的表 | 与后台配置的表启用列表比对 |
 | **敏感字段过滤** | 禁止查询被标记为"敏感"的字段（如身份证号、工资） | 与字段 Tag 的"敏感"标签比对 |
 
-**AST 解析工具选型**：统一使用 Python 的 **`sqlglot`**，支持 MySQL、PostgreSQL、Oracle 等多种数据库方言。SQL 校验在 Python AI 服务层完成（与 SQL 生成、执行同层），避免跨语言传递 AST。
+**AST 解析工具选型**：统一使用 Python 的 **`sqlglot`**，MVP 阶段只启用 MySQL 方言校验。SQL 校验在 Python AI 服务层完成（与 SQL 生成、执行同层），避免跨语言传递 AST。
 
 ### 5.2 SQL 执行沙箱约束
 
@@ -336,13 +335,14 @@ LLM 生成 SQL
 
 ## 6. 多轮对话设计
 
-### 6.1 MVP 阶段策略：上下文透传，LLM 自主判断
+### 6.1 MVP 阶段策略：长期记忆 + 当前会话上下文
 
-**决策：MVP 阶段支持多轮对话，但采用最简实现方案。**
+**决策：MVP 阶段支持当前会话多轮对话，并建设用户长期记忆；不做跨会话上下文拼接。**
 
-- **前端**：维护当前会话的对话历史（`conversationHistory`），每次请求将最近 N 轮（建议 N=5）对话一并发送给后端。
-- **Java 网关**：透传 `conversationHistory` 给 Python AI 服务。
-- **Python AI 服务**：将 `conversationHistory` 注入到 LLM 的 Prompt 中，由 LLM 自主判断是否需要引用上文。
+- **当前会话上下文**：前端和 Java 网关维护当前 `conversationId` 下最近 N 轮对话（建议 N=5），每次请求透传给 Python AI 服务。
+- **长期记忆**：系统沉淀用户常用数据源、常问指标、偏好的维度、常用筛选条件、常用图表类型等轻量记忆，用于后续 Prompt 个性化和默认参数推荐。
+- **不做跨会话上下文**：新会话不会自动携带旧会话的自然语言问答上下文，避免把上一次数据源、时间范围或业务口径错误带入新问题。
+- **Python AI 服务**：将当前会话上下文和长期记忆摘要注入到 LLM 的 Prompt 中，由 LLM 自主判断是否需要引用。
 
 **示例：**
 
@@ -363,8 +363,9 @@ AI 第 1 轮：上月订单总额为 1,234,567 元。[使用了 order_info.total
 当对话轮数增多，Token 可能超出限制，采用以下裁剪策略（优先级从高到低）：
 
 1. **保留最近 3 轮完整对话**（用户问题 + AI 回答摘要 + 使用的 SQL）
-2. **更早的对话只保留摘要**（由上一轮 AI 回答的"口径说明"字段充当摘要）
+2. **更早的当前会话对话只保留摘要**（由上一轮 AI 回答的"口径说明"字段充当摘要）
 3. **当前问题的 Schema Context 始终保留**（不能裁剪召回的表结构）
+4. **长期记忆只注入摘要**，不注入历史完整问答文本。
 
 ### 6.3 会话管理
 
@@ -374,6 +375,7 @@ AI 第 1 轮：上月订单总额为 1,234,567 元。[使用了 order_info.total
 | **会话持久化** | 存储在数据库的 `conversation` 表中，支持用户查看历史会话 |
 | **会话过期** | 超过 24 小时无交互自动过期 |
 | **切换数据源** | 用户切换数据源时，自动创建新会话（避免跨库上下文污染） |
+| **长期记忆范围** | 跨会话保留用户偏好和常用指标，但不保留跨会话问答上下文 |
 
 ---
 
@@ -456,6 +458,7 @@ AI 第 1 轮：上月订单总额为 1,234,567 元。[使用了 order_info.total
 | `sql_generation` | 生成 SQL | `question`, `schema`, `skills_md`, `field_confidence`, `few_shot_templates`, `conversationHistory`, `error_message`(重试时) |
 | `chart_generation` | 生成 Echarts 配置 | `question`, `sql`, `data_preview`, `column_types` |
 | `intent_recognition` | 意图识别 | `question`, `conversationHistory` |
+| `memory_extraction` | 提取用户长期记忆 | `question`, `sql`, `used_tables`, `used_fields`, `chart_type` |
 
 ### 8.3 Token 预算控制
 
@@ -466,7 +469,7 @@ AI 第 1 轮：上月订单总额为 1,234,567 元。[使用了 order_info.total
 | 1（必须保留） | 用户问题 + 召回的 Schema | 1500 Token |
 | 2（尽量保留） | skills.md 关键段落 | 1000 Token |
 | 3（空间允许才加） | Few-shot SQL 模板 | 800 Token |
-| 4（空间允许才加） | 历史对话上下文 | 500 Token |
+| 4（空间允许才加） | 当前会话上下文 + 长期记忆摘要 | 500 Token |
 | 5（剩余空间） | 可信度详情 | 200 Token |
 
 如果总 Token 超出预算，从优先级最低的部分开始裁剪。
@@ -505,7 +508,8 @@ skills.md 被修改并保存
 异步执行向量化：
   1. 解析 skills.md 的各段落
   2. 对每个段落生成 Embedding
-  3. 更新向量数据库中的对应记录
+  3. 调用千问 Embedding 模型生成向量
+  4. 更新 Milvus 中的对应记录
     │
     ▼
 任务状态更新为 COMPLETED / FAILED
@@ -796,7 +800,7 @@ Python AI 服务：
 
 ## 19. `skills.md` 模板示例（针对单库）
 
-```md
+````md
 # 数据库：trade_db (交易域)
 
 ## 核心表说明
@@ -840,7 +844,38 @@ FROM (
 ) t
 WHERE consecutive_days >= 3
 ```
+````
 
+
+---
+
+### 19.1 `skills.md` 模板化添加流程
+
+后续不允许用户从空白文档随意编写 `skills.md`。系统提供标准模板，分析师在后台按模板填写，系统再保存为知识库版本并触发向量化。
+
+**标准模块：**
+
+| 模块 | 必填 | 说明 |
+|------|------|------|
+| 数据库基本信息 | 是 | 数据库名称、业务域、负责人、适用范围 |
+| 核心业务流程 | 是 | 用自然语言描述该库覆盖的业务流程 |
+| 核心表说明 | 是 | 标记事实表、维度表、流水表、配置表 |
+| 关键关联规则 | 是 | 明确 Join Path，避免模型自行猜关联 |
+| 指标口径定义 | 是 | GMV、订单数、退款率等核心指标的唯一算法 |
+| 字段防坑说明 | 是 | 废弃字段、易混字段、敏感字段、不推荐字段 |
+| 枚举值解释 | 否 | 状态码、类型码、渠道码等字段的业务含义 |
+| 常见问题模板 | 否 | 高频自然语言问题及对应 MySQL SQL |
+| 图表偏好 | 否 | 某类指标默认推荐柱状图、折线图或饼图 |
+
+**添加流程：**
+
+1. 分析师在后台选择数据源，点击"新增 skills 模板"。
+2. 系统根据该数据源的表和字段自动生成模板骨架。
+3. 分析师补充业务流程、指标口径、Join 规则和防坑说明。
+4. 系统保存为 `knowledge_doc_version` 新版本。
+5. 系统按模块切分为 `knowledge_chunk`，调用千问 Embedding 模型生成向量。
+6. 向量写入 Milvus，并带上 `datasource_id`、`chunk_type`、`version_no` 等 metadata。
+7. 新版本向量化完成后再切换为生效版本，避免半更新状态影响线上查询。
 
 ---
 
@@ -912,34 +947,36 @@ WHERE consecutive_days >= 3
 
 ### 阶段一：核心链路贯通（MVP 验证期）
 
-**目标**：不搞复杂的系统管理，先证明"大模型 + skills.md"能在一个单库中稳定生成复杂 SQL 并查出正确数据。
+**目标**：证明"千问模型 + Milvus Schema RAG + skills.md"能在一个 MySQL 单库中稳定生成复杂 SQL，查出正确数据，并给出图表推荐。
 
 - **后端架构搭建**：
   - **Java (Spring Boot)**：搭建项目骨架，实现用户鉴权、数据源管理 CRUD、前端接口代理。
   - **Python (FastAPI + LangGraph)**：搭建 AI 服务，定义 State、Nodes 和自我修复循环。
   - **服务通信**：Java 通过内部 HTTP（RestTemplate）调用 Python AI 服务。
 - **核心任务**：
-  - 在 Python 端用 LangGraph 编写一个极简的有向图：`生成SQL → 校验并执行 → 如果报错带着错误信息回去重写`。
+  - 在 Python 端用 LangGraph 编写核心有向图：`Schema召回 → 生成SQL → 校验并执行 → 如果报错带着错误信息回去重写 → 图表生成`。
+  - 接入 Milvus，完成 Schema 与 `skills.md` 的向量化、写入和按 `datasource_id` 隔离召回。
   - SQL 安全拦截：基于 `sqlglot` 实现基本的 AST 校验（仅允许 SELECT）。
   - SQL 执行沙箱：强制只读事务 + LIMIT 10000 + 超时 30 秒。
-  - 硬编码读取本地的 `skills.md` 文件和数据库 Schema（不做向量检索）。
+  - 接入千问 LLM 和千问 Embedding 模型。
+  - 生成 ECharts Option，支持图表推荐和导出。
 - **前端任务**：
-  - 开发极简的"对话问答框"和"数据表格展示"页面。
+  - 开发"对话问答框"、"数据表格展示"和"图表展示/导出"页面。
   - 支持数据源下拉切换。
 - **阶段复用说明**：
   - Java 的鉴权、数据源管理、前端代理层在后续阶段**直接复用**。
   - Python 的 LangGraph 有向图结构**直接复用**，后续阶段仅增加/修改节点。
   - SQL 安全拦截器**直接复用**，后续阶段增加更多校验规则。
-- **阶段产出**：一个能通过自然语言查出单库数据、能自我纠错、具备基本安全防护的 AI 服务。
+- **阶段产出**：一个能通过自然语言查出 MySQL 单库数据、能自我纠错、能推荐图表、具备基本安全防护的 AI 服务。
 
-### 阶段二：引入 Schema RAG 与动态配置（进阶拓展期）
+### 阶段二：强化 Schema RAG 与动态配置（进阶拓展期）
 
-**目标**：解决单库表太多导致大模型幻觉的问题，引入向量数据库，并将静态配置转为动态系统管理。
+**目标**：在阶段一 Milvus 向量召回基础上，强化混合检索能力，并将静态配置转为动态系统管理。
 
 - **后端任务**：
-  - 接入向量数据库（如 Milvus / Chroma）。
-  - 开发 Schema 自动拉取与向量化脚本（将几百张表的注释、`skills.md` 存入向量库）。
-  - **核心逻辑**：在 LangGraph 中增加 `Schema_Retriever_Node`，实现"自然语言提问 → 向量检索召回 Top 5 相关表 → 拼装 Prompt → 生成 SQL"的 RAG 完整链路。
+  - 优化 Milvus 集合结构、索引参数和向量重建任务。
+  - 开发 Schema 自动拉取与增量向量化脚本（将几百张表的注释、`skills.md` 存入向量库）。
+  - **核心逻辑**：增强 `Schema_Retriever_Node`，实现"自然语言提问 → Milvus 向量检索 + 关键词召回 → Top 5-10 相关表 → 拼装 Prompt → 生成 SQL"的 RAG 完整链路。
   - 开发后台管理接口：支持在页面上配置数据库连接、在线编辑 `skills.md`（含版本管理）。
   - Prompt 模板从硬编码迁移到数据库存储。
 - **前端任务**：
@@ -950,21 +987,20 @@ WHERE consecutive_days >= 3
   - 阶段一的 SQL 安全拦截器和沙箱约束**直接复用**。
 - **阶段产出**：能够支撑单库 200+ 张表检索的 NL2SQL 系统，且具备后台配置能力。
 
-### 阶段三：可信度闭环与图表可视化（用户体验期）
+### 阶段三：可信度闭环与长期记忆（用户体验期）
 
-**目标**：解决"AI 胡说八道"和"展示干瘪"的问题，建立字段 Tag、可信度体系以及丰富的图表。
+**目标**：解决"AI 胡说八道"和用户偏好无法沉淀的问题，建立字段 Tag、可信度体系、用户长期记忆和更完整的反馈闭环。
 
 - **后端任务**：
   - 设计并创建数据表，用于存储"字段 Tag"、"字段可信度评分"和"用户反馈记录"。
   - 修改 Prompt 逻辑，在生成 SQL 时强行注入"优先使用高可信字段"的规则。
-  - 增加 `Data_Visualizer_Node`（LLM 生成 Echarts Option）。
-  - 实现多轮对话的上下文透传和裁剪策略。
+  - 优化 `Data_Visualizer_Node` 的图表生成稳定性。
+  - 实现当前会话上下文裁剪策略和用户长期记忆沉淀。
 - **前端任务**：
-  - 对话框结果区增加自动生成的 Echarts 图表展示（支持手动切换图表类型）。
   - 结果区下方增加"赞/踩"反馈按钮及原因弹窗。
   - 开发后台"字段 Tag 打标工作台"和"用户反馈审核中心"页面。
-  - 实现多轮对话的前端交互（历史消息展示、上下文追问）。
-- **阶段产出**：带有图表展示、可人工纠错、可信度动态升降、支持多轮对话的完整闭环问答系统。
+  - 实现长期记忆偏好展示与清理入口。
+- **阶段产出**：带有图表展示、可人工纠错、可信度动态升降、支持长期记忆的完整闭环问答系统。
 
 ### 阶段四：单库治理与血缘沉淀（企业级深化期）
 
@@ -1022,21 +1058,33 @@ WHERE consecutive_days >= 3
 | Java-Python 通信协议 | 内部 HTTP（RestTemplate/Feign），生产环境须 HTTPS/mTLS | 简单可靠，内网延迟可忽略 |
 | Java-Python 超时 | Java 端 120s，Python 端 100s 总时间预算 | 覆盖 3 次重试最坏情况（~105s） |
 | Python 服务状态 | 请求级无状态，连接池有状态（限实例数） | 每次请求由 Java 传入上下文；连接池跨请求复用，需限制实例数防连接膨胀 |
-| SQL AST 解析工具 | sqlglot (Python) | 支持多数据库方言，与 Python AI 服务同层 |
-| 向量数据库 | 阶段一不接入，阶段二优先 Chroma，后续数据量扩大再迁移 Milvus | Chroma 部署轻、适合毕业设计和 MVP；Milvus 适合生产大规模向量检索 |
-| MVP 多轮对话 | 支持，采用上下文透传方案 | 体验不会太差，实现简单 |
+| SQL AST 解析工具 | sqlglot (Python)，MVP 仅启用 MySQL 方言 | 与 SQL 生成、执行同层，便于自修复和血缘解析 |
+| 向量数据库 | Milvus | 项目从 MVP 起直接采用生产级向量库，避免后续向量库迁移成本 |
+| LLM 模型 | 通义千问 / Qwen | 统一使用千问模型生成 SQL、解释和图表配置 |
+| Embedding 模型 | 千问 Embedding 模型 | 与 LLM 同一厂商，接口和鉴权统一 |
+| Python 执行模式 | 方案 A：Python 直连业务库执行 SQL | Python 能拿到执行错误并在 LangGraph 内闭环自修复；通过只读账号、AES 加密、mTLS、审计日志降低风险 |
+| MVP 多轮对话 | 支持当前会话上下文 + 长期记忆，不做跨会话问答上下文拼接 | 既保留用户偏好沉淀，又避免跨会话口径污染 |
+| MVP 图表能力 | 支持图表推荐和导出 | 作为用户体验和答辩展示重点，纳入第一阶段 |
 | 可信度模型 | 0-100 数值评分 | 比等级更精细，便于动态调整 |
 | 反馈降级机制 | 审核队列，非直接生效 | 防恶意/误操作 |
 | SQL 执行沙箱 | 只读账号 + LIMIT + 超时 | 多层防护，任何一层都能兜底 |
 | Prompt 管理 | 数据库存储 + 版本管理 | 可在线修改，可回滚 |
 | Skills.md 存储 | 数据库而非文件系统 | 便于版本管理、权限控制、多环境同步 |
 | 密码存储 | AES-256 加密 | 安全合规 |
+| 查询结果缓存 | 不缓存 SQL 查询结果 | 避免相似问题、相对时间和权限差异导致错误复用 |
 
 ---
 
 ## 24. 落地补充设计：系统元数据库表
 
-前面章节已经定义了业务流程与功能模块。为了进入开发阶段，系统还需要一套独立的"平台管理库"，用于保存用户、权限、数据源、元数据、知识库、Prompt、审计日志、反馈、血缘和成本统计。该管理库建议使用 MySQL 8，不与被查询的业务库混用。
+前面章节已经定义了业务流程与功能模块。为了进入开发阶段，系统还需要一套独立的"平台管理库"，用于保存用户、权限、数据源、元数据、知识库、Prompt、审计日志、反馈、血缘和成本统计。该管理库选择 **MySQL 8**，不与被查询的业务库混用。
+
+选择 MySQL 8 作为平台管理库的理由：
+
+- 项目 MVP 的业务查询库也限定为 MySQL，管理库和业务库的驱动、连接池、备份方式可以复用。
+- MySQL 对用户、权限、审计、配置、任务状态这类事务型数据足够稳定。
+- Spring Boot + MyBatis-Plus + Flyway 对 MySQL 的支持成熟，开发和部署成本低。
+- 后续如果业务查询侧扩展 PostgreSQL/Oracle，平台管理库仍可保持 MySQL，不需要随业务库类型变化。
 
 ### 24.1 用户、角色与权限表
 
@@ -1108,6 +1156,9 @@ WHERE consecutive_days >= 3
 | `query_lineage_column` | 字段级血缘 | `id`, `query_task_id`, `source_table`, `source_column`, `expression`, `alias_name` |
 | `llm_usage_log` | 模型调用成本 | `id`, `query_task_id`, `provider`, `model`, `prompt_tokens`, `completion_tokens`, `cost_amount`, `created_at` |
 | `quota_policy` | 查询配额策略 | `id`, `subject_type`, `subject_id`, `daily_query_limit`, `monthly_cost_limit`, `enabled` |
+| `user_memory` | 用户长期记忆 | `id`, `user_id`, `memory_type`, `memory_key`, `memory_value`, `confidence`, `updated_at` |
+
+`user_memory` 只记录用户偏好和常用上下文，例如常用数据源、常问指标、常用时间范围、偏好的图表类型，不保存跨会话完整问答内容。
 
 ---
 
@@ -1165,27 +1216,35 @@ WHERE consecutive_days >= 3
 | ORM | MyBatis-Plus | CRUD 开发效率高，适合管理后台 |
 | 管理数据库 | MySQL 8 | 保存平台元数据，不与业务库混用 |
 | 数据库迁移 | Flyway | 管理平台库的 Schema 版本演进，与 Spring Boot 集成良好 |
-| 缓存 | Redis | 存 JWT 黑名单、查询状态、短期会话缓存、相似查询结果缓存 |
+| 缓存 | Redis | 存 JWT 黑名单、查询任务状态、短期会话状态、限流计数，不缓存 SQL 查询结果 |
 | Python AI 服务 | FastAPI + LangGraph | FastAPI 做服务接口，LangGraph 编排 NL2SQL 节点 |
-| SQL 解析 | sqlglot | 负责 SQL AST 校验、方言适配、血缘解析 |
-| Embedding 模型 | `bge-base-zh-v1.5`（本地）或 `text-embedding-3-small`（API） | 中文语义理解优秀，详见第 4.5 节 |
-| 向量库 | 阶段一不用；阶段二 Chroma | Chroma 部署简单，适合 MVP；生产可替换 Milvus |
-| 全文检索 | 阶段一不用；阶段二再评估 OpenSearch | 初期先降低系统复杂度 |
-| 模型接入 | 抽象 `LLMProvider` 接口 | 支持后续替换 OpenAI、Claude、通义、私有模型 |
+| SQL 解析 | sqlglot | 负责 MySQL AST 校验、LIMIT 注入、血缘解析 |
+| LLM 模型 | 通义千问 / Qwen | 用于 SQL 生成、SQL 修复、口径解释、图表配置生成 |
+| Embedding 模型 | 千问 Embedding 模型 | 用于 Schema、字段、skills.md 的向量化 |
+| 向量库 | Milvus | 阶段一直接接入，避免后续迁移 |
+| 全文检索 | 阶段一不用；阶段二再评估 OpenSearch | 初期先用 Milvus 向量召回，后续再增强 Hybrid Search |
+| 模型接入 | `QwenProvider` + 通用 `LLMProvider` 接口 | MVP 默认千问，保留后续替换能力 |
 | 定时任务 | Spring Scheduler | Schema 同步和审计统计先用简单方案 |
 | 部署 | Docker Compose | 本地和演示环境可一键启动 |
 
-### 26.1 阶段一明确不做
+### 26.1 阶段一边界
 
-阶段一只验证核心链路，以下能力延后：
+阶段一纳入以下能力：
 
-- Schema RAG 向量召回。
-- 图表自动生成。
-- 多轮对话复杂裁剪。
+- Milvus Schema RAG 向量召回。
+- 图表推荐和导出。
+- 当前会话多轮上下文。
+- 用户长期记忆的基础沉淀。
+
+阶段一暂不做以下能力：
+
+- 跨会话问答上下文拼接。
 - 字段可信度自动升降。
 - 血缘图谱可视化。
 - 成本看板。
 - Prompt 在线编辑。
+- PostgreSQL/Oracle 等非 MySQL 数据源。
+- SQL 查询结果缓存。
 
 ---
 
@@ -1250,6 +1309,12 @@ WHERE consecutive_days >= 3
   "usedTables": ["refund_record", "order_info"],
   "usedFields": ["refund_record.actual_refund", "order_info.region"],
   "explanation": "退款金额取 actual_refund，且 refund_status = 'SUCCESS'",
+  "chartOption": {
+    "title": { "text": "华东区上月退款金额" },
+    "xAxis": { "type": "category", "data": ["华东"] },
+    "yAxis": { "type": "value" },
+    "series": [{ "type": "bar", "data": [123456.78] }]
+  },
   "elapsedMs": 8420
 }
 ```
@@ -1279,12 +1344,15 @@ WHERE consecutive_days >= 3
 | 登录鉴权 | 用户登录、JWT 鉴权、角色识别 |
 | 数据源管理 | 新增 MySQL 数据源、测试连接、保存只读账号 |
 | Schema 拉取 | 自动读取表、字段、注释并保存到管理库 |
-| 知识文件 | 支持本地或数据库中的单份 `skills.md` |
+| Milvus 向量库 | Schema 与 `skills.md` 向量化、按数据源隔离召回 |
+| 知识文件 | 支持基于模板创建和维护单份 `skills.md` |
 | NL2SQL | 自然语言生成 SQL，失败后最多自我修复 3 次 |
 | SQL 安全 | 仅允许 SELECT，拦截危险函数，强制 LIMIT |
 | SQL 执行 | 只读账号执行、30 秒超时、返回表格数据 |
+| 图表生成 | 基于查询结果生成 ECharts Option，支持 PNG 导出 |
+| 长期记忆 | 记录用户常用数据源、常问指标和图表偏好，不拼接跨会话问答上下文 |
 | 审计日志 | 记录用户、问题、SQL、执行状态、耗时 |
-| 前端页面 | 数据源下拉、提问框、结果表格、错误提示 |
+| 前端页面 | 数据源下拉、提问框、结果表格、图表区域、错误提示 |
 
 ### 28.2 阶段一验收指标
 
@@ -1300,6 +1368,8 @@ WHERE consecutive_days >= 3
 | 单次查询响应时间 | 简单查询 95% 在 15 秒内返回，复杂查询 95% 在 60 秒内返回 |
 | 自我修复成功率 | 首次执行失败的查询中，至少 60% 能在 3 次重试内修复成功 |
 | Prompt 注入拦截率 | 10 个预设注入攻击样本 100% 被拦截或无害化 |
+| 图表生成可用率 | 20 个预设问题中至少 15 个能生成可渲染 ECharts Option |
+| 向量召回命中率 | 20 个预设问题中至少 16 个召回人工标注的核心表 |
 
 ### 28.3 演示数据集建议
 
@@ -1399,28 +1469,26 @@ interface DoneData {
 |--------|----------|----------|-----|----------|
 | **Schema 元数据缓存** | Java 本地 + Redis | 表/字段元信息、Tag、可信度 | 10 分钟 | Schema 同步完成后主动失效 |
 | **数据源连接信息缓存** | Java 本地 | JDBC URL、只读账号 | 5 分钟 | 数据源配置修改后主动失效 |
-| **相似查询结果缓存** | Redis | 查询结果（SQL + 数据） | 5 分钟 | 对应数据源的 Schema 变更后失效 |
 | **Prompt 模板缓存** | Java 本地 | 当前激活的 Prompt 模板 | 5 分钟 | 模板修改后主动失效 |
 | **向量检索结果缓存** | Python 本地 | 问题→召回表的映射 | 3 分钟 | 向量库重建后失效 |
 
-### 30.2 相似查询缓存命中策略
+### 30.2 查询结果缓存策略
 
-高频问题（如"今天订单总额"）每天可能被不同用户问几十次，每次都走完整 LLM 链路浪费成本。
+MVP 阶段明确 **不缓存 SQL 查询结果**。原因是自然语言问题中经常包含相对时间、隐含权限、用户部门范围和实时业务数据，直接复用历史结果容易返回过期或越权数据。
 
-**命中规则**：
+允许缓存的内容仅限：
 
-1. 同一 `datasourceId` 下，计算新问题与缓存中已有问题的语义相似度。
-2. 相似度 > 0.95 且缓存未过期 → 直接返回缓存结果，标记为"缓存命中"。
-3. 相似度 0.85-0.95 → 不命中缓存，但将缓存中的 SQL 作为 Few-shot 参考注入 Prompt，提升生成质量。
-4. 相似度 < 0.85 → 完全不使用缓存。
+- Schema 元数据。
+- Prompt 模板。
+- 数据源连接配置。
+- 短期向量召回结果。
+- 查询任务状态。
 
-**缓存 Key 设计**：`cache:query:{datasourceId}:{questionEmbeddingHash}`
+不允许缓存的内容：
 
-**注意事项**：
-
-- 含时间相对词的问题（"今天"、"上个月"）需要将时间解析为绝对值后再计算相似度，避免"昨天的今天"命中"今天的今天"。
-- 缓存命中时，响应中标注 `"fromCache": true`，前端可展示"来自缓存"提示。
-- 用户可以在前端勾选"强制重新查询"跳过缓存。
+- SQL 执行结果数据。
+- 带用户权限过滤后的明细数据。
+- 敏感字段脱敏前结果。
 
 ### 30.3 缓存预热
 
@@ -1432,11 +1500,13 @@ interface DoneData {
 
 ---
 
-## 31. SQL 方言适配策略
+## 31. 数据库支持边界与后续方言适配
 
 ### 31.1 问题背景
 
-系统支持 MySQL、PostgreSQL、Oracle 三种数据库，但它们在语法上存在显著差异：
+MVP 阶段只支持 MySQL。原因是 NL2SQL 的主要难点已经集中在 Schema 召回、业务口径、SQL 安全、权限和图表生成上，如果一开始同时支持多种数据库，会显著放大方言适配和测试成本。
+
+后续扩展 PostgreSQL、Oracle 等数据库时，需要处理不同数据库之间的语法差异：
 
 | 功能 | MySQL | PostgreSQL | Oracle |
 |------|-------|------------|--------|
@@ -1447,37 +1517,22 @@ interface DoneData {
 | 条件表达式 | `IF()` / `CASE WHEN` | `CASE WHEN` | `CASE WHEN` / `DECODE()` |
 | 类型转换 | `CAST()` / 隐式转换 | `CAST()` / `::type` | `TO_NUMBER()` / `TO_CHAR()` |
 
-### 31.2 适配方案
+### 31.2 后续适配方案
 
-采用 **"方言感知生成"** 策略，而非"生成后转译"：
+后续采用 **"方言感知生成"** 策略，而非"生成后转译"：
 
 1. **Prompt 注入数据库类型**：在 `sql_generation` Prompt 模板中，注入当前数据源的 `db_type`（如 `你正在为 PostgreSQL 数据库生成 SQL`）。
 2. **方言专属 Few-shot**：`skills.md` 中的 SQL 模板按方言分组，生成时只注入当前方言的模板。
 3. **sqlglot 方言校验**：AST 校验时指定目标方言（`sqlglot.parse(sql, dialect="postgres")`），确保生成的 SQL 在目标数据库上语法合法。
 4. **兜底转译**：如果 LLM 生成了错误方言的 SQL（如对 PostgreSQL 生成了 MySQL 的 `LIMIT` 语法），sqlglot 尝试自动转译；转译失败则走重试流程。
 
-### 31.3 skills.md 方言模板组织方式
+### 31.3 MVP MySQL 约束
 
-```md
-## 复杂查询模板 (Few-shot)
-
-### 分页查询
-#### MySQL
-```sql
-SELECT * FROM order_info WHERE status = 2 ORDER BY created_at DESC LIMIT 10 OFFSET 20
-```
-#### PostgreSQL
-```sql
-SELECT * FROM order_info WHERE status = 2 ORDER BY created_at DESC LIMIT 10 OFFSET 20
-```
-#### Oracle
-```sql
-SELECT * FROM order_info WHERE status = 2 ORDER BY created_at DESC
-OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY
-```
-```
-
-> **MVP 阶段简化**：阶段一仅支持 MySQL，不需要方言适配。阶段二接入 PostgreSQL 时再启用方言感知机制。
+- 数据源配置页面只开放 MySQL 类型。
+- `sql_generation` Prompt 明确要求生成 MySQL SQL。
+- `sqlglot` 解析时固定使用 MySQL 方言。
+- `skills.md` 模板只维护 MySQL SQL 示例。
+- PostgreSQL、Oracle 相关模板不进入 MVP 文档和系统配置，避免干扰模型生成。
 
 ---
 
@@ -1631,6 +1686,20 @@ services:
       timeout: 3s
       retries: 5
 
+  milvus:
+    image: milvusdb/milvus:latest
+    command: ["milvus", "run", "standalone"]
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
   java-gateway:
     build: ./backend-java
     ports:
@@ -1645,6 +1714,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      milvus:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 30s
@@ -1657,24 +1728,26 @@ services:
       - "8000:8000"
     environment:
       - LLM_API_KEY=${LLM_API_KEY}
+      - QWEN_MODEL=${QWEN_MODEL}
+      - QWEN_EMBEDDING_MODEL=${QWEN_EMBEDDING_MODEL}
       - AES_SECRET_KEY=${AES_SECRET_KEY}
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+    depends_on:
+      milvus:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  # 阶段二引入
-  # chroma:
-  #   image: chromadb/chroma:latest
-  #   ports:
-  #     - "8001:8000"
-
 volumes:
   mysql_data:
+  milvus_data:
 ```
 
-**启动顺序**：MySQL → Redis → Python AI → Java Gateway（通过 `depends_on` + `healthcheck` 保证）。
+**启动顺序**：MySQL → Redis → Milvus → Python AI → Java Gateway（通过 `depends_on` + `healthcheck` 保证）。
 
 ### 33.4 环境变量管理
 
@@ -1683,11 +1756,15 @@ volumes:
 | 变量名 | 用途 | 必填 |
 |--------|------|------|
 | `DB_PASSWORD` | 管理库密码 | 是 |
-| `LLM_API_KEY` | 大模型 API Key | 是 |
+| `LLM_API_KEY` | 千问 API Key | 是 |
+| `QWEN_MODEL` | 千问 SQL/解释/图表生成模型名 | 是 |
+| `QWEN_EMBEDDING_MODEL` | 千问 Embedding 模型名 | 是 |
 | `AES_SECRET_KEY` | 数据源密码加密密钥 | 是 |
 | `JWT_SECRET` | JWT 签名密钥 | 是 |
 | `MYSQL_ROOT_PASSWORD` | MySQL root 密码（仅 Docker） | 是 |
 | `PYTHON_SERVICE_URL` | Python 服务地址 | 是（默认 `http://localhost:8000`） |
+| `MILVUS_HOST` | Milvus 地址 | 是 |
+| `MILVUS_PORT` | Milvus 端口 | 是 |
 | `MAX_DB_CONNECTIONS` | 全局数据库连接数上限 | 否（默认 50） |
 | `DAILY_QUERY_LIMIT` | 用户每日查询配额 | 否（默认 100） |
 
