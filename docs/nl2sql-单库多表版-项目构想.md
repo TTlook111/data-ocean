@@ -79,13 +79,13 @@
 └─────────────────────────────┼────────────────────────────────────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                 Python AI 服务（FastAPI + LangGraph）                │
+│        Python AI 服务（Python 3.13 + FastAPI + LangGraph + LlamaIndex）│
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌────────────┐ │
 │  │ Schema RAG   │ │ SQL 生成     │ │ SQL 执行     │ │ 图表生成   │ │
-│  │ 向量召回     │ │ (LLM)       │ │ (沙箱)       │ │ (LLM)     │ │
+│  │(LlamaIndex)  │ │ (LLM)       │ │ (沙箱)       │ │ (LLM)     │ │
 │  └──────────────┘ └──────────────┘ └──────────────┘ └────────────┘ │
 │              ┌─────────────────────────────────────┐                 │
-│              │        LangGraph 有向图编排          │                 │
+│              │        LangGraph Agent 工作流编排     │                 │
 │              └─────────────────────────────────────┘                 │
 └─────────────────────────────┬────────────────────────────────────────┘
                               │
@@ -123,7 +123,7 @@
 
 **Java 调 Python 的具体方式：**
 
-- **协议**：内部 HTTP（Spring Boot 用 `RestTemplate` 或 `OpenFeign` 调 Python 的 FastAPI）。**安全要求**：生产环境必须使用 HTTPS 或 mTLS 加密传输，防止数据库凭据在内网被嗅探；审计日志中禁止记录请求体中的密码字段
+- **协议**：内部 HTTP（Spring Boot 统一使用 `OpenFeign` 调 Python 的 FastAPI）。**安全要求**：生产环境必须使用 HTTPS 或 mTLS 加密传输，防止数据库凭据在内网被嗅探；审计日志中禁止记录请求体中的密码字段
 - **调用时机**：仅在"问答查询"场景下 Java 才调 Python；后台管理功能（数据源配置、skills.md 编辑、可信度调整等）纯 Java 完成
 - **超时设置**：Java 端设置 **120 秒超时**（考虑最坏情况：3 次重试 × 每次 ~35 秒 ≈ 105 秒），超时后返回友好提示。Python 端内部也设置总时间预算 100 秒，超时则停止重试并返回已有结果或错误信息
 - **Python 请求级无状态**：Python AI 服务不持有用户 Session，每次请求由 Java 传入必要的上下文（用户 ID、选中的数据源 ID、权限范围等）。但 Python 会跨请求缓存数据库连接池（以 `datasourceId` 为 key），因此需限制 Python 实例数（建议单实例或少量实例），防止连接数膨胀。详见第 10 节连接池配置
@@ -159,7 +159,7 @@
       > **安全说明**：`dbPassword` 使用 AES 加密传输（前缀 `encrypted:`），生产环境 Java→Python 通信必须走 HTTPS 或 mTLS；审计日志中对该字段做脱敏处理，禁止明文记录。
 
 3. Python AI 服务（LangGraph 有向图）：
-   a. Schema_Retriever_Node → 向量库召回相关表
+   a. Schema_Retriever_Node → 通过 LlamaIndex 从 Milvus 召回相关表
    b. SQL_Generator_Node → LLM 生成 SQL
    c. SQL_Validator_Node → AST 安全校验
    d. SQL_Executor_Node → 直连数据库执行
@@ -194,7 +194,7 @@
 
 - **状态 (State)**：维护用户的原始问题、当前选中的数据库、召回的 Schema、生成的 SQL、执行报错信息、重试次数以及**历史对话摘要**。**注意：State 的作用域仅限于单次请求内部**（从 Java 发起调用到 Python 返回结果），请求结束后 State 即释放，不跨请求持久化。历史对话上下文由前端维护，每次请求时透传
 - **节点 (Nodes)**：
-  1. `Schema_Retriever_Node`：去向量库召回相关的表结构和 `skills.md`。
+  1. `Schema_Retriever_Node`：调用 LlamaIndex Query/Retriever，从 Milvus 召回相关的表结构和 `skills.md`。
   2. `SQL_Generator_Node`：大模型根据 Schema 写出 SQL。
   3. `SQL_Validator_Node`：基于 AST 解析，进行安全校验（详见第 5 节）。
   4. `SQL_Executor_Node`：在沙箱中执行 SQL。如果报错，提取 Error Message。
@@ -232,10 +232,20 @@
 
 **融合方式**：三路召回的结果按加权分数排序，取 Top 5-10。权重初期可配置（如语义 0.5、关键词 0.3、模板 0.2），后续根据用户反馈自动调优。
 
+**RAG 框架选型：LlamaIndex**
+
+Python 端 RAG 层统一使用 **LlamaIndex** 封装索引、Retriever、向量库适配与后续重排序逻辑。LangGraph 不直接操作 Milvus，而是在 `Schema_Retriever_Node` 中调用 LlamaIndex 的检索接口，拿到标准化的 `RetrievedSchemaContext` 后再进入 SQL 生成节点。
+
+这样拆分后职责更清晰：
+
+- **LlamaIndex**：负责 Schema/字段/`skills.md` 的 Document/Node 建模、Milvus VectorStore 适配、TopK 召回、Hybrid Search 和 Rerank 扩展。
+- **Milvus**：负责底层向量存储与检索，不承载业务编排逻辑。
+- **LangGraph**：负责 Agent 状态流转、自我修复、取消、超时和节点间条件跳转。
+
 ### 4.3 引入阶段
 
-- **阶段一（MVP）**：直接接入 Milvus，采用向量检索召回 Top 5-10 张相关表，保证核心 RAG 链路从一开始就是最终形态。
-- **阶段二**：引入 BM25 + 向量的 Hybrid Search，支撑 200+ 张表。
+- **阶段一（MVP）**：通过 LlamaIndex 接入 Milvus，采用向量检索召回 Top 5-10 张相关表，保证核心 RAG 链路从一开始就是最终形态。
+- **阶段二**：在 LlamaIndex Retriever 层封装 Milvus BM25 稀疏检索 + Dense 向量检索的 Hybrid Search，支撑 200+ 张表。除非后续存在独立全文检索、日志检索或复杂查询 DSL 需求，否则不额外引入 OpenSearch，避免 MVP 运维复杂度上升。
 - **阶段三**：引入模板召回，结合历史高频查询优化召回质量。
 
 ### 4.4 向量库数据源隔离
@@ -252,15 +262,20 @@
 
 | 阶段 | 推荐模型 | 说明 |
 |------|----------|------|
-| MVP 与生产默认 | 千问 Embedding 模型 | 与 SQL 生成模型同一厂商，接口风格统一，中文语义效果稳定 |
+| MVP 与生产默认 | `text-embedding-v4` | 通用中文 RAG 场景优先，默认 1024 维；如追求更高召回精度可配置为 1536/2048 维，但要同步重建 Milvus Collection |
 
-> 具体模型名在实现时通过配置项 `QWEN_EMBEDDING_MODEL` 注入，默认优先选择阿里云百炼/通义千问平台当前推荐的通用文本向量模型。
+> 具体模型名在实现时通过配置项 `QWEN_EMBEDDING_MODEL` 注入。向量维度通过 `EMBEDDING_DIMENSION` 固定配置，Collection 创建后不要动态变更；需要变更维度时，新建 Collection 并全量重建索引。
 
 **分块策略**：
 
 - **表级分块**：每张表生成一条向量，内容为 `表名 + 表注释 + 所有字段名及注释`（适合表数量 < 100）。
 - **字段组分块**：大表按 10 个字段一组切分，每组生成一条向量（适合单表字段数 > 50）。
 - **skills.md 段落分块**：按 `##` 二级标题切分，每段独立向量化。
+
+**重排序策略**：
+
+- MVP 阶段先采用 Milvus 分数排序 + 规则加权（表名/字段名命中、可信字段命中、废弃字段惩罚）。
+- 当召回候选超过 20 个 chunk 或出现 Top 表命中不稳定时，再引入 `qwen3-rerank` 一类重排序模型，将 Top 20 重排为 Top 5-10，避免一开始增加模型调用成本。
 
 ---
 
@@ -277,8 +292,12 @@
 | **子查询嵌套深度** | 最大 3 层 | 防止生成过于复杂导致数据库性能问题 |
 | **表访问白名单** | 仅允许当前数据源中已启用的表 | 与后台配置的表启用列表比对 |
 | **敏感字段过滤** | 禁止查询被标记为"敏感"的字段（如身份证号、工资） | 与字段 Tag 的"敏感"标签比对 |
+| **星号查询限制** | 禁止 `SELECT *` | 避免绕过敏感字段与列级授权 |
+| **行级权限注入** | 对命中的表自动追加 `row_filter_expression` | 例如部门用户只能查询 `region = '华东'` 的数据 |
 
 **AST 解析工具选型**：统一使用 Python 的 **`sqlglot`**，MVP 阶段只启用 MySQL 方言校验。SQL 校验在 Python AI 服务层完成（与 SQL 生成、执行同层），避免跨语言传递 AST。
+
+**权限执行原则**：行列级权限必须在 SQL AST 层强制执行，不能只写入 Prompt。Java 在调用 Python 时传入当前用户的 `allowedTables`、`deniedColumns`、`maskColumns`、`rowFilters`；Python 在 `SQL_Validator_Node` 中解析 SQL 后做表字段白名单校验，并在执行前把行级过滤条件注入到对应表的 `WHERE` 或子查询中。校验失败时直接拒绝执行，不进入自我修复循环。
 
 ### 5.2 SQL 执行沙箱约束
 
@@ -512,7 +531,7 @@ skills.md 被修改并保存
 异步执行向量化：
   1. 解析 skills.md 的各段落
   2. 对每个段落生成 Embedding
-  3. 调用千问 Embedding 模型生成向量
+  3. 调用 `text-embedding-v4` 生成向量
   4. 更新 Milvus 中的对应记录
     │
     ▼
@@ -877,7 +896,7 @@ WHERE consecutive_days >= 3
 2. 系统根据该数据源的表和字段自动生成模板骨架。
 3. 分析师补充业务流程、指标口径、Join 规则和防坑说明。
 4. 系统保存为 `knowledge_doc_version` 新版本。
-5. 系统按模块切分为 `knowledge_chunk`，调用千问 Embedding 模型生成向量。
+5. 系统按模块切分为 `knowledge_chunk`，调用 `text-embedding-v4` 生成向量。
 6. 向量写入 Milvus，并带上 `datasource_id`、`chunk_type`、`version_no` 等 metadata。
 7. 新版本向量化完成后再切换为生效版本，避免半更新状态影响线上查询。
 
@@ -951,36 +970,36 @@ WHERE consecutive_days >= 3
 
 ### 阶段一：核心链路贯通（MVP 验证期）
 
-**目标**：证明"千问模型 + Milvus Schema RAG + skills.md"能在一个 MySQL 单库中稳定生成复杂 SQL，查出正确数据，并给出图表推荐。
+**目标**：证明"千问模型 + LlamaIndex Schema RAG + Milvus + skills.md"能在一个 MySQL 单库中稳定生成复杂 SQL，查出正确数据，并给出图表推荐。
 
 - **后端架构搭建**：
   - **Java (Spring Boot)**：搭建项目骨架，实现用户鉴权、数据源管理 CRUD、前端接口代理。
-  - **Python (FastAPI + LangGraph)**：搭建 AI 服务，定义 State、Nodes 和自我修复循环。
-  - **服务通信**：Java 通过内部 HTTP（RestTemplate）调用 Python AI 服务。
+  - **Python (Python 3.13 + FastAPI + LangGraph + LlamaIndex)**：搭建 AI 服务，定义 Agent State、Nodes、RAG Retriever 和自我修复循环。
+  - **服务通信**：Java 通过内部 HTTP（OpenFeign）调用 Python AI 服务。
 - **核心任务**：
-  - 在 Python 端用 LangGraph 编写核心有向图：`Schema召回 → 生成SQL → 校验并执行 → 如果报错带着错误信息回去重写 → 图表生成`。
-  - 接入 Milvus，完成 Schema 与 `skills.md` 的向量化、写入和按 `datasource_id` 隔离召回。
+  - 在 Python 端用 LangGraph 编写 Agent 工作流：`Schema召回 → 生成SQL → 校验并执行 → 如果报错带着错误信息回去重写 → 图表生成`。
+  - 使用 LlamaIndex 接入 Milvus，完成 Schema 与 `skills.md` 的向量化、写入和按 `datasource_id` 隔离召回。
   - SQL 安全拦截：基于 `sqlglot` 实现基本的 AST 校验（仅允许 SELECT）。
   - SQL 执行沙箱：强制只读事务 + LIMIT 10000 + 超时 30 秒。
-  - 接入千问 LLM 和千问 Embedding 模型。
+  - 接入千问 LLM 和 `text-embedding-v4`。
   - 生成 ECharts Option，支持图表推荐和导出。
 - **前端任务**：
   - 开发"对话问答框"、"数据表格展示"和"图表展示/导出"页面。
   - 支持数据源下拉切换。
 - **阶段复用说明**：
   - Java 的鉴权、数据源管理、前端代理层在后续阶段**直接复用**。
-  - Python 的 LangGraph 有向图结构**直接复用**，后续阶段仅增加/修改节点。
+  - Python 的 LangGraph Agent 工作流结构**直接复用**，后续阶段仅增加/修改节点。
   - SQL 安全拦截器**直接复用**，后续阶段增加更多校验规则。
 - **阶段产出**：一个能通过自然语言查出 MySQL 单库数据、能自我纠错、能推荐图表、具备基本安全防护的 AI 服务。
 
 ### 阶段二：强化 Schema RAG 与动态配置（进阶拓展期）
 
-**目标**：在阶段一 Milvus 向量召回基础上，强化混合检索能力，并将静态配置转为动态系统管理。
+**目标**：在阶段一 LlamaIndex + Milvus 向量召回基础上，强化混合检索能力，并将静态配置转为动态系统管理。
 
 - **后端任务**：
-  - 优化 Milvus 集合结构、索引参数和向量重建任务。
+  - 优化 LlamaIndex Node 结构、Milvus Collection 结构、索引参数和向量重建任务。
   - 开发 Schema 自动拉取与增量向量化脚本（将几百张表的注释、`skills.md` 存入向量库）。
-  - **核心逻辑**：增强 `Schema_Retriever_Node`，实现"自然语言提问 → Milvus 向量检索 + 关键词召回 → Top 5-10 相关表 → 拼装 Prompt → 生成 SQL"的 RAG 完整链路。
+  - **核心逻辑**：增强 `Schema_Retriever_Node`，实现"自然语言提问 → LlamaIndex Retriever → Milvus 向量检索 + 关键词召回 → Top 5-10 相关表 → 拼装 Prompt → 生成 SQL"的 RAG 完整链路。
   - 开发后台管理接口：支持在页面上配置数据库连接、在线编辑 `skills.md`（含版本管理）。
   - Prompt 模板从硬编码迁移到数据库存储。
 - **前端任务**：
@@ -1059,13 +1078,14 @@ WHERE consecutive_days >= 3
 | 决策项 | 决策 | 理由 |
 |--------|------|------|
 | 前端调用方式 | 统一调 Java，Java 代理调 Python | 统一入口、统一鉴权、前端简单 |
-| Java-Python 通信协议 | 内部 HTTP（RestTemplate/Feign），生产环境须 HTTPS/mTLS | 简单可靠，内网延迟可忽略 |
+| Java-Python 通信协议 | 内部 HTTP（OpenFeign），生产环境须 HTTPS/mTLS | 声明式客户端，便于统一超时、鉴权 Header、日志脱敏和错误处理 |
 | Java-Python 超时 | Java 端 120s，Python 端 100s 总时间预算 | 覆盖 3 次重试最坏情况（~105s） |
 | Python 服务状态 | 请求级无状态，连接池有状态（限实例数） | 每次请求由 Java 传入上下文；连接池跨请求复用，需限制实例数防连接膨胀 |
 | SQL AST 解析工具 | sqlglot (Python)，MVP 仅启用 MySQL 方言 | 与 SQL 生成、执行同层，便于自修复和血缘解析 |
+| RAG 框架 | LlamaIndex | 统一封装 Schema/skills 的索引、Retriever、Milvus 适配、Hybrid Search 和 Rerank |
 | 向量数据库 | Milvus | 项目从 MVP 起直接采用生产级向量库，避免后续向量库迁移成本 |
 | LLM 模型 | 通义千问 / Qwen | 统一使用千问模型生成 SQL、解释和图表配置 |
-| Embedding 模型 | 千问 Embedding 模型 | 与 LLM 同一厂商，接口和鉴权统一 |
+| Embedding 模型 | `text-embedding-v4`，维度固定配置 | 与 LLM 同一厂商，接口和鉴权统一；Collection 维度变更需全量重建 |
 | Python 执行模式 | 方案 A：Python 直连业务库执行 SQL | Python 能拿到执行错误并在 LangGraph 内闭环自修复；通过只读账号、AES 加密、mTLS、审计日志降低风险 |
 | MVP 多轮对话 | 支持当前会话上下文 + 长期记忆，不做跨会话问答上下文拼接 | 既保留用户偏好沉淀，又避免跨会话口径污染 |
 | MVP 图表能力 | 支持图表推荐和导出 | 作为用户体验和答辩展示重点，纳入第一阶段 |
@@ -1132,9 +1152,12 @@ WHERE consecutive_days >= 3
 | `knowledge_doc` | `skills.md` 主文档 | `id`, `datasource_id`, `title`, `content`, `current_version`, `status`, `updated_by` |
 | `knowledge_doc_version` | 知识库版本 | `id`, `doc_id`, `version_no`, `content`, `change_summary`, `created_by`, `created_at` |
 | `knowledge_chunk` | 知识切片 | `id`, `doc_id`, `version_no`, `chunk_type`, `chunk_text`, `related_table`, `related_column`, `vector_status` |
+| `vector_index_item` | 向量记录映射 | `id`, `datasource_id`, `chunk_type`, `source_table`, `source_column`, `source_id`, `collection_name`, `vector_id`, `embedding_model`, `embedding_dimension`, `content_hash`, `version_no`, `status`, `indexed_at` |
 | `vector_index_task` | 向量化任务 | `id`, `datasource_id`, `target_type`, `target_id`, `status`, `started_at`, `finished_at`, `error_message` |
 | `prompt_template` | Prompt 模板 | `id`, `template_code`, `template_name`, `scenario`, `content`, `current_version`, `enabled` |
 | `prompt_template_version` | Prompt 版本 | `id`, `template_id`, `version_no`, `content`, `change_summary`, `created_by`, `created_at` |
+
+> `vector_index_item` 用来把平台库中的表、字段、知识切片与 Milvus 中的 `vector_id` 建立可追踪关系。否则后续做增量更新、删除数据源、排查召回命中原因时，只能依赖 Milvus metadata，运维和调试成本会很高。
 
 ### 24.5 字段治理、可信度与反馈表
 
@@ -1155,6 +1178,7 @@ WHERE consecutive_days >= 3
 | `conversation` | 会话 | `id`, `user_id`, `datasource_id`, `title`, `created_at`, `updated_at` |
 | `message` | 对话消息 | `id`, `conversation_id`, `role`, `content`, `created_at` |
 | `query_task` | 单次查询任务 | `id`, `conversation_id`, `user_id`, `datasource_id`, `question`, `status`, `generated_sql`, `error_message`, `elapsed_ms` |
+| `query_task_event` | 查询任务事件流 | `id`, `query_task_id`, `event_type`, `stage`, `event_data`, `sequence_no`, `created_at` |
 | `query_audit_log` | 审计日志 | `id`, `query_task_id`, `user_id`, `datasource_id`, `sql_text`, `used_tables`, `used_fields`, `row_count`, `success`, `created_at` |
 | `query_lineage_table` | 表级血缘 | `id`, `query_task_id`, `source_table`, `target_name`, `relation_type` |
 | `query_lineage_column` | 字段级血缘 | `id`, `query_task_id`, `source_table`, `source_column`, `expression`, `alias_name` |
@@ -1163,6 +1187,8 @@ WHERE consecutive_days >= 3
 | `user_memory` | 用户长期记忆 | `id`, `user_id`, `memory_type`, `memory_key`, `memory_value`, `confidence`, `updated_at` |
 
 `user_memory` 只记录用户偏好和常用上下文，例如常用数据源、常问指标、常用时间范围、偏好的图表类型，不保存跨会话完整问答内容。
+
+> `query_task_event` 是 SSE 降级轮询的基础表。Java 转发 Python 事件时同步落库，前端断线重连或改用 `GET /api/query/tasks/{id}` 时，可以恢复完整进度和最终结果，而不是只能依赖内存中的任务状态。
 
 ---
 
@@ -1213,20 +1239,27 @@ WHERE consecutive_days >= 3
 | 模块 | MVP 选型 | 说明 |
 |------|----------|------|
 | 前端框架 | Vue 3 + Vite + TypeScript | 生态成熟，适合后台管理和问答端 |
+| 前端路由 | Vue Router | 区分员工问答端、后台治理端和权限受控页面 |
+| 前端状态 | Pinia | 保存登录态、当前数据源、会话状态、SSE 任务状态 |
+| 前端请求 | Axios + EventSource | 普通 API 使用 Axios；SSE 使用原生 EventSource 或封装库，统一处理重连和一次性 streamToken |
 | UI 组件 | Element Plus | 表格、表单、弹窗、权限后台开发效率高 |
 | 图表 | ECharts | 满足柱状图、折线图、饼图、关系图 |
-| Java 后端 | Spring Boot 3 | 负责鉴权、管理端 CRUD、审计、网关代理 |
+| Java 后端 | Spring Boot 3.x + JDK 17 | 负责鉴权、管理端 CRUD、审计、网关代理；Spring Boot 3 体系要求至少 JDK 17 |
 | Java 权限 | Spring Security + JWT | 简单清晰，适合前后端分离 |
 | ORM | MyBatis-Plus | CRUD 开发效率高，适合管理后台 |
 | 管理数据库 | MySQL 8 | 保存平台元数据，不与业务库混用 |
 | 数据库迁移 | Flyway | 管理平台库的 Schema 版本演进，与 Spring Boot 集成良好 |
 | 缓存 | Redis | 存 JWT 黑名单、查询任务状态、短期会话状态、限流计数，不缓存 SQL 查询结果 |
-| Python AI 服务 | FastAPI + LangGraph | FastAPI 做服务接口，LangGraph 编排 NL2SQL 节点 |
+| Java 内部 HTTP 客户端 | OpenFeign | Java 调 Python 统一使用声明式客户端，便于集中配置超时、重试、鉴权 Header 与错误解码 |
+| Python AI 服务 | Python 3.13 + FastAPI + LangGraph | FastAPI 做服务接口，LangGraph 编排 NL2SQL Agent 工作流 |
+| Python RAG 框架 | LlamaIndex | 封装 Schema/字段/`skills.md` 的索引、Retriever、Milvus 适配、Hybrid Search 与 Rerank |
+| Python 数据库访问 | SQLAlchemy 2.x + PyMySQL | 管理连接池、只读事务、超时和多数据源连接缓存 |
+| Python SSE | `sse-starlette` 或 FastAPI `StreamingResponse` | 对外输出标准 SSE 事件，Java 只做鉴权、任务记录和事件转发 |
 | SQL 解析 | sqlglot | 负责 MySQL AST 校验、LIMIT 注入、血缘解析 |
-| LLM 模型 | 通义千问 / Qwen | 用于 SQL 生成、SQL 修复、口径解释、图表配置生成 |
-| Embedding 模型 | 千问 Embedding 模型 | 用于 Schema、字段、skills.md 的向量化 |
-| 向量库 | Milvus | 阶段一直接接入，避免后续迁移 |
-| 全文检索 | 阶段一不用；阶段二再评估 OpenSearch | 初期先用 Milvus 向量召回，后续再增强 Hybrid Search |
+| LLM 模型 | 通义千问 / Qwen，默认通过配置指定 | 用于 SQL 生成、SQL 修复、口径解释、图表配置生成；模型名不要写死在代码中 |
+| Embedding 模型 | `text-embedding-v4` | 用于 Schema、字段、skills.md 的向量化，维度固定配置 |
+| 向量库 | Milvus 2.x Standalone | 阶段一直接接入，避免后续迁移；Docker 镜像必须锁定具体版本 |
+| 全文检索 | 阶段一不用；阶段二优先 Milvus BM25 Hybrid | 初期先用 Milvus 向量召回，后续在同一向量库内增强 Hybrid Search；暂不引入 OpenSearch |
 | 模型接入 | `QwenProvider` + 通用 `LLMProvider` 接口 | MVP 默认千问，保留后续替换能力 |
 | 定时任务 | Spring Scheduler | Schema 同步和审计统计先用简单方案 |
 | 部署 | Docker Compose | 本地和演示环境可一键启动 |
@@ -1235,7 +1268,7 @@ WHERE consecutive_days >= 3
 
 阶段一纳入以下能力：
 
-- Milvus Schema RAG 向量召回。
+- LlamaIndex + Milvus Schema RAG 向量召回。
 - 图表推荐和导出。
 - 当前会话多轮上下文。
 - 用户长期记忆的基础沉淀。
@@ -1444,16 +1477,23 @@ NL2SQL 场景是典型的"请求-流式响应"模式，不需要双向通信，S
 1. 前端 `POST /api/query/ask` → Java 立即返回 `{ "taskId": "q_xxx" }`（HTTP 202 Accepted）
 2. 前端随即建立 SSE 连接：`GET /api/query/stream/{taskId}`
 3. Java 内部触发 Python AI 服务处理，Python 通过 SSE 流式返回中间状态
-4. Java 将 Python 的 SSE 事件转发给前端
+4. Java 将 Python 的 SSE 事件转发给前端，同时写入 `query_task_event`
 5. 处理完成后发送 `event: done`，前端关闭 SSE 连接
 
 **降级方案**：如果客户端不支持 SSE（如某些企业内网代理），前端可退化为轮询 `GET /api/query/tasks/{taskId}`（每 2 秒一次）。
+
+**鉴权与重连约束**：
+
+- 浏览器 `EventSource` 不方便自定义 `Authorization` Header，因此 SSE 鉴权优先复用登录 Cookie；如果前端坚持只用 Bearer Token，则采用 `GET /api/query/stream/{taskId}?streamToken=一次性短期令牌`，令牌由 `POST /api/query/ask` 返回，有效期建议 60 秒且只能绑定当前用户与 taskId 使用一次。
+- SSE 事件必须携带递增 `id`，前端断线重连时通过 `Last-Event-ID` 续传；Java 依据 `query_task_event.sequence_no` 补发缺失事件。
+- Java 层必须校验 taskId 归属当前用户，避免用户猜测 taskId 读取他人查询结果。
 
 ### 29.5 SSE 消息格式定义
 
 ```typescript
 // 前端 TypeScript 类型定义
 interface SSEEvent {
+  id: number;
   event: 'stage' | 'sql' | 'result' | 'chart' | 'error' | 'done';
   data: StageData | SqlData | ResultData | ChartData | ErrorData | DoneData;
 }
@@ -1701,14 +1741,55 @@ services:
       timeout: 3s
       retries: 5
 
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.25
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - etcd_data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+    command: minio server /minio_data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
   milvus:
-    image: milvusdb/milvus:latest
+    image: milvusdb/milvus:v2.6.15
     command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
     ports:
       - "19530:19530"
       - "9091:9091"
     volumes:
       - milvus_data:/var/lib/milvus
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
       interval: 30s
@@ -1759,10 +1840,14 @@ services:
 
 volumes:
   mysql_data:
+  etcd_data:
+  minio_data:
   milvus_data:
 ```
 
-**启动顺序**：MySQL → Redis → Milvus → Python AI → Java Gateway（通过 `depends_on` + `healthcheck` 保证）。
+**启动顺序**：MySQL/Redis/etcd/MinIO → Milvus → Python AI → Java Gateway（通过 `depends_on` + `healthcheck` 保证）。
+
+> Docker 镜像禁止使用 `latest`，统一锁定明确版本。Milvus Standalone 仍依赖 etcd 和对象存储能力，开发环境可用内置/本地化组件，但 Compose 文档里要显式写出依赖，避免换机器启动失败。实际落地时建议直接以 Milvus 官方对应版本的 `milvus-standalone-docker-compose.yml` 为基准，再合并进本项目服务。
 
 ### 33.4 环境变量管理
 
@@ -1773,7 +1858,8 @@ volumes:
 | `DB_PASSWORD` | 管理库密码 | 是 |
 | `LLM_API_KEY` | 千问 API Key | 是 |
 | `QWEN_MODEL` | 千问 SQL/解释/图表生成模型名 | 是 |
-| `QWEN_EMBEDDING_MODEL` | 千问 Embedding 模型名 | 是 |
+| `QWEN_EMBEDDING_MODEL` | Embedding 模型名，默认 `text-embedding-v4` | 是 |
+| `EMBEDDING_DIMENSION` | 向量维度，默认 1024 | 是 |
 | `AES_SECRET_KEY` | 数据源密码加密密钥 | 是 |
 | `JWT_SECRET` | JWT 签名密钥 | 是 |
 | `MYSQL_ROOT_PASSWORD` | MySQL root 密码（仅 Docker） | 是 |
