@@ -39,7 +39,7 @@ Agent 生成 SQL 后，系统通过 AST 解析校验 SQL 安全性，拦截非 S
 
 1. **Given** 用户有行级过滤规则 region='华东', **When** SQL 通过校验, **Then** 自动在对应表的 WHERE 中注入过滤条件
 2. **Given** SQL 中查询了用户无权限的字段, **When** 经过列级校验, **Then** 拒绝执行并提示"无权访问该字段"
-3. **Given** SQL 中查询了敏感字段, **When** 经过校验, **Then** 标记该字段需要脱敏处理
+3. **Given** SQL 中查询了敏感字段, **When** 经过校验, **Then** Python 标记需脱敏字段（返回 maskedFields 列表），实际脱敏由 Java 网关层在返回前端前执行
 
 ---
 

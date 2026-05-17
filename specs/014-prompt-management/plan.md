@@ -57,7 +57,7 @@ backend/src/main/java/com/dataocean/module/prompt/
 backend/src/main/resources/db/migration/
 └── V10__create_prompt_tables.sql
 
-ai-service/dataocean/prompt/
+python-service/dataocean/prompt/
 ├── router.py              # /internal/prompts/{template_code}
 ├── service.py             # 模板获取 + 缓存
 ├── renderer.py            # 变量渲染 + Token 预算裁剪

@@ -41,7 +41,7 @@ SQL 安全沙箱是系统的最后安全防线，使用 sqlglot 对 AI 生成的
 ## Project Structure
 
 ```text
-ai-service/dataocean/sandbox/
+python-service/dataocean/sandbox/
 ├── __init__.py
 ├── router.py              # FastAPI 路由
 ├── validator.py           # SQL AST 校验主逻辑

@@ -63,7 +63,7 @@ backend/src/main/java/com/dataocean/module/permission/
 backend/src/main/resources/db/migration/
 └── V11__create_permission_tables.sql
 
-ai-service/dataocean/security/
+python-service/dataocean/security/
 ├── permission_injector.py             # SQL AST 权限注入
 └── input_sanitizer.py                 # Prompt 注入防护预处理
 ```

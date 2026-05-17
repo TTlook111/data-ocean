@@ -49,7 +49,7 @@ backend/src/main/java/com/dataocean/common/
     ├── QueryCancelController.java     # POST /api/query/tasks/{id}/cancel
     └── QueryCancelService.java        # 通知 Python 取消
 
-ai-service/dataocean/resilience/
+python-service/dataocean/resilience/
 ├── health.py                          # GET /health, GET /internal/health
 ├── cancellation.py                    # CancellationToken 管理
 ├── timeout_budget.py                  # 100s 总时间预算分配

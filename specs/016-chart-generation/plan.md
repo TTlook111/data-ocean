@@ -34,7 +34,7 @@
 ## Project Structure
 
 ```text
-ai-service/dataocean/chart/
+python-service/dataocean/chart/
 ├── router.py                  # /internal/chart/generate
 ├── service.py                 # 图表生成主逻辑
 ├── data_aggregator.py         # 数据聚合（>50行时）

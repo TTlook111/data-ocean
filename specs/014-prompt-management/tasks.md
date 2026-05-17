@@ -27,7 +27,7 @@
 - [ ] T011 [US1] 创建 Service 接口 `backend/src/main/java/com/dataocean/module/prompt/service/PromptTemplateService.java`，定义 listTemplates(), getTemplate(code), updateTemplate(code, request), getVersionHistory(code), rollback(code, request), getActiveContent(code) 方法签名
 - [ ] T012 [US1] 创建 Service 实现 `backend/src/main/java/com/dataocean/module/prompt/service/PromptTemplateServiceImpl.java`，实现 listTemplates（分页查询所有模板）和 getTemplate（按 template_code 查询含活跃版本内容）
 - [ ] T013 [US1] 在 PromptTemplateServiceImpl 中实现 updateTemplate 方法：创建新版本记录（version_no +1, is_active=true）、将旧活跃版本设为 is_active=false、更新 prompt_template.current_version，使用 @Transactional 保证原子性，乐观锁处理并发冲突
-- [ ] T014 [US1] 创建 Controller `backend/src/main/java/com/dataocean/module/prompt/controller/PromptTemplateController.java`，实现 GET /api/admin/prompts（列表）、GET /api/admin/prompts/{code}（详情）、PUT /api/admin/prompts/{code}（更新）、GET /api/admin/prompts/{code}/versions（版本历史）、POST /api/admin/prompts/{code}/rollback（回滚）
+- [ ] T014 [US1] 创建 Controller `backend/src/main/java/com/dataocean/module/prompt/controller/PromptTemplateController.java`，实现 GET /api/admin/prompt-templates（列表）、GET /api/admin/prompt-templates/{code}（详情）、PUT /api/admin/prompt-templates/{code}（更新）、GET /api/admin/prompt-templates/{code}/versions（版本历史）、POST /api/admin/prompt-templates/{code}/rollback（回滚）
 
 ## Phase 4: User Story 2 (P2) — 管理员回滚 Prompt 版本
 

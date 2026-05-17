@@ -105,6 +105,6 @@ interface QualityScore {
 | 003-datasource | /api/admin/datasources/* |
 | 005-metadata | /api/admin/metadata/*, /api/admin/governance/* |
 | 007-skills | /api/admin/skills/* |
-| 008-prompt | /api/admin/prompts/* |
+| 008-prompt | /api/admin/prompt-templates/* |
 | 010-field-tag-confidence | /api/admin/field-tags/*, /api/admin/field-confidence/*, /api/admin/feedback-reviews/* |
 | 011-lineage-audit | /api/admin/audit-logs/*, /api/admin/lineage/* |

@@ -7,7 +7,7 @@
 
 - [ ] T001 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V6__create_knowledge_tables.sql`，包含 knowledge_doc、knowledge_doc_version、knowledge_chunk、knowledge_review_task、vector_index_task 五张表的 DDL
 - [ ] T002 创建 Java 包结构 `backend/src/main/java/com/dataocean/module/knowledge/`，包含 controller/service/mapper/entity/dto/enums/feign 子包和对应的空类骨架
-- [ ] T003 创建 Python 包结构 `ai-service/dataocean/knowledge/`，包含 `__init__.py`、`router.py`、`service.py`、`schema.py` 和 `prompts/` 目录
+- [ ] T003 创建 Python 包结构 `python-service/dataocean/knowledge/`，包含 `__init__.py`、`router.py`、`service.py`、`schema.py` 和 `prompts/` 目录
 
 ## Phase 2: Foundational — Java CRUD + 状态流转
 
@@ -36,10 +36,10 @@
 **Goal**: 系统基于元数据快照生成 skills.md 草稿
 **Independent Test**: 生成的草稿包含所有必填模块（文档来源、核心表、Join Path、指标口径、字段防坑），且引用的表字段在快照中存在
 
-- [ ] T017 [US1] 创建 Jinja2 Prompt 模板 `ai-service/dataocean/knowledge/prompts/skills_md_template.j2`，模板变量包含：tables（表名+注释+字段列表）、foreign_keys、indexes、confidence_scores；输出结构包含：文档来源、核心表说明、Join Path、指标候选、字段防坑
-- [ ] T018 [US1] 实现 Python schema `ai-service/dataocean/knowledge/schema.py`，定义 GenerateDraftRequest（snapshot_id、datasource_id、tables_metadata）和 GenerateDraftResponse（content、generation_source、warnings）Pydantic 模型
-- [ ] T019 [US1] 实现 Python service `ai-service/dataocean/knowledge/service.py`，包含 generate_draft 方法：接收快照元数据 → 填充 Jinja2 模板 → 调用 Qwen API（dashscope SDK）→ 解析返回的 Markdown → 标记无注释字段为"待人工确认"
-- [ ] T020 [US1] 实现 Python router `ai-service/dataocean/knowledge/router.py`，暴露 POST /internal/knowledge/generate-draft 接口
+- [ ] T017 [US1] 创建 Jinja2 Prompt 模板 `python-service/dataocean/knowledge/prompts/skills_md_template.j2`，模板变量包含：tables（表名+注释+字段列表）、foreign_keys、indexes、confidence_scores；输出结构包含：文档来源、核心表说明、Join Path、指标候选、字段防坑
+- [ ] T018 [US1] 实现 Python schema `python-service/dataocean/knowledge/schema.py`，定义 GenerateDraftRequest（snapshot_id、datasource_id、tables_metadata）和 GenerateDraftResponse（content、generation_source、warnings）Pydantic 模型
+- [ ] T019 [US1] 实现 Python service `python-service/dataocean/knowledge/service.py`，包含 generate_draft 方法：接收快照元数据 → 填充 Jinja2 模板 → 调用 Qwen API（dashscope SDK）→ 解析返回的 Markdown → 标记无注释字段为"待人工确认"
+- [ ] T020 [US1] 实现 Python router `python-service/dataocean/knowledge/router.py`，暴露 POST /internal/knowledge/generate-draft 接口
 - [ ] T021 [US1] 实现 Java Feign 客户端 `backend/src/main/java/com/dataocean/module/knowledge/feign/PythonKnowledgeClient.java`，调用 Python 的 /internal/knowledge/generate-draft 接口
 - [ ] T022 [US1] 在 KnowledgeDocService 中添加 generateDraft 方法：读取指定 snapshot_id 的元数据 → 通过 Feign 调用 Python 生成草稿 → 创建 knowledge_doc_version（generation_source=AI_GENERATED）→ 返回草稿内容
 - [ ] T023 [US1] 在 Controller 中添加接口 POST /api/knowledge/docs/{id}/generate-draft，接收 snapshot_id 参数

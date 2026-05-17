@@ -23,7 +23,7 @@
 
 - [ ] T008 [US1] 在 AuditLogService 中添加 updateFeedback 方法：用户对查询结果点赞/踩后，更新对应 query_audit_log 的 user_feedback 字段
 - [ ] T009 [US1] 实现审计日志查询 DTO `backend/src/main/java/com/dataocean/module/audit/dto/AuditLogQueryRequest.java`：包含 userId、datasourceId、startTime、endTime、isSuccess、isSlow、keyword（模糊搜索 question）、pageNo、pageSize
-- [ ] T010 [US1] 实现 `backend/src/main/java/com/dataocean/module/audit/controller/AuditLogController.java`：GET /api/audit/logs（多维度筛选分页查询）、GET /api/audit/logs/{id}（详情）、GET /api/audit/logs/export（导出 CSV，按查询条件筛选）
+- [ ] T010 [US1] 实现 `backend/src/main/java/com/dataocean/module/audit/controller/AuditLogController.java`：GET /api/admin/audit-logs（多维度筛选分页查询）、GET /api/admin/audit-logs/{id}（详情）、GET /api/admin/audit-logs/export（导出 CSV，按查询条件筛选）
 
 ## Phase 4: User Story 2 (P2) — 血缘解析
 
@@ -47,9 +47,9 @@
 
 ## Phase 6: 管理功能
 
-- [ ] T020 实现慢查询列表接口：在 AuditLogController 中添加 GET /api/audit/slow-queries（筛选 is_slow=true 的记录，按 execution_time_ms 降序，分页返回）
-- [ ] T021 实现审计统计接口：在 AuditLogController 中添加 GET /api/audit/stats（接收 datasourceId 和时间范围，返回查询总数、成功率、平均耗时、慢查询占比）
-- [ ] T022 实现模板提升接口：在 AuditLogController 中添加 POST /api/audit/logs/{id}/promote-template（管理员将高频成功查询提升为查询模板，记录 question + sql_text 到模板表）
+- [ ] T020 实现慢查询列表接口：在 AuditLogController 中添加 GET /api/admin/audit-logs/slow-queries（筛选 is_slow=true 的记录，按 execution_time_ms 降序，分页返回）
+- [ ] T021 实现审计统计接口：在 AuditLogController 中添加 GET /api/admin/audit-logs/stats（接收 datasourceId 和时间范围，返回查询总数、成功率、平均耗时、慢查询占比）
+- [ ] T022 实现模板提升接口：在 AuditLogController 中添加 POST /api/admin/audit-logs/{id}/promote-template（管理员将高频成功查询提升为查询模板，记录 question + sql_text 到模板表）
 - [ ] T023 实现数据清理定时任务 `backend/src/main/java/com/dataocean/module/audit/service/AuditCleanupJob.java`：@Scheduled(cron="0 0 2 * * ?") 每天凌晨 2 点执行，删除 created_at 早于 retention-days 天的 query_audit_log、query_lineage_table、query_lineage_column 记录，按批次删除（每批 1000 条）避免锁表
 
 ## Phase 7: Polish & Cross-Cutting

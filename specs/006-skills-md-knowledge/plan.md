@@ -79,7 +79,7 @@ backend/src/main/java/com/dataocean/module/knowledge/
 ### Python (ai-service)
 
 ```text
-ai-service/dataocean/knowledge/
+python-service/dataocean/knowledge/
 ├── router.py
 ├── service.py
 ├── schema.py
