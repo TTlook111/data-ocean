@@ -6,7 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DataOcean — 企业级 NL2SQL 智能数据查询与治理平台（毕业设计项目）。让业务人员通过自然语言查询企业数据库，AI 生成 SQL 并返回表格/图表结果，核心强调元数据治理驱动的可信查询。
 
-当前阶段：设计与前端原型阶段，尚未进入后端实现。
+当前阶段：设计与规格文档阶段，尚未进入可运行工程实现。
+
+当前仓库状态（2026-05-17）：
+- `docs/` 与 `specs/` 已包含项目构想、设计文档和 17 个模块规格。
+- `frontend/`、`backend/`、`python-service/` 目前是占位目录，尚未包含 `package.json`、`pom.xml`、`pyproject.toml` 等可运行工程脚手架。
+- 仓库根目录当前没有 `docker-compose.yml`，不要假设 Docker 一键启动命令已经可用。
+- 后续实现时应先检查目标目录内的实际配置文件，再运行对应启动、测试或构建命令。
 
 MVP 范围：多数据源接入，限定单库多表查询（用户每次选择一个 MySQL 数据源，在该库内多表联合查询）。
 
@@ -85,9 +91,9 @@ Milvus 2.x (向量库) / MySQL 8 (业务库+管理库) / Redis (缓存) / Qwen L
 ## Project Structure
 
 ```
-frontend/              — Vue 3 前端项目
-backend/               — Spring Boot Java 网关层
-python-service/        — Python AI 服务 (FastAPI + LangGraph + LlamaIndex)
+frontend/              — Vue 3 前端项目占位目录
+backend/               — Spring Boot Java 网关层占位目录
+python-service/        — Python AI 服务占位目录 (FastAPI + LangGraph + LlamaIndex)
 docs/                  — 项目设计文档
 specs/                 — 模块规格说明（17 个模块）
 .specify/              — Spec Kit 配置与模板
@@ -138,6 +144,8 @@ specs/                 — 模块规格说明（17 个模块）
 
 ## Development Commands
 
+当前仓库尚未创建可运行脚手架。下面是 MVP 目标命令，只有在对应配置文件存在后才应执行。
+
 ```bash
 # 前端
 cd frontend && npm install && npm run dev
@@ -152,6 +160,13 @@ cd python-service && uv run fastapi dev
 docker compose up -d
 ```
 
+当前阶段常用检查命令：
+
+```bash
+rg --files
+git status --short
+```
+
 ## Conventions
 
 - Java 包名: com.dataocean.*
@@ -162,6 +177,6 @@ docker compose up -d
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-at specs/001-user-module/plan.md
+shell commands, and other important information, read the relevant module plan
+under specs/<module>/plan.md. The first module plan is specs/001-user-module/plan.md.
 <!-- SPECKIT END -->
