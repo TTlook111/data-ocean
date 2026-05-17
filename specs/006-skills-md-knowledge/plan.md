@@ -76,7 +76,7 @@ backend/src/main/java/com/dataocean/module/knowledge/
     └── PythonKnowledgeClient.java
 ```
 
-### Python (ai-service)
+### Python (python-service)
 
 ```text
 python-service/dataocean/knowledge/

@@ -19,7 +19,7 @@ SQL 安全沙箱是系统的最后安全防线，使用 sqlglot 对 AI 生成的
 
 **Testing**: pytest, 大量 SQL 用例覆盖
 
-**Target Platform**: Docker Compose (ai-service container)
+**Target Platform**: Docker Compose (python-service container)
 
 **Performance Goals**: 校验 < 50ms, 执行超时 30s
 

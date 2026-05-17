@@ -92,5 +92,5 @@ python-service/dataocean/prompt/
 - **版本管理策略**: 每次 PUT 保存自动创建新版本，version_no 递增，新版本自动设为 active
 - **回滚实现**: 不复制内容创建新版本，而是直接将目标版本设为 active（简单高效）
 - **乐观锁**: prompt_template 表增加 version 字段，防止并发编辑冲突
-- **Python 获取方式**: Python 通过 OpenFeign 反向调用 Java 内部 API（保持 Java 为唯一数据源）
+- **Python 获取方式**: Python 通过 httpx 调用 Java 内部 API `/internal/prompts/{template_code}`（保持 Java 为唯一数据源）
 - **Token 计算**: 使用 tiktoken cl100k_base 编码（与 Qwen 兼容），预算超出时从最低优先级开始截断

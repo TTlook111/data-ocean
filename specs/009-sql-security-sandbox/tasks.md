@@ -46,7 +46,7 @@
 
 - [ ] T019 [US3] 实现 `python-service/dataocean/sandbox/executor.py`：execute 方法接收 validated_sql、datasource_id、connection_config、mask_columns，从 pool_manager 获取 engine → 开启只读事务（SET TRANSACTION READ ONLY）→ 设置超时（SET max_execution_time={MAX_EXECUTION_TIME*1000}）→ 执行 SQL → 返回 ExecutionResult（rows、columns、execution_time_ms、row_count）
 - [ ] T020 [US3] 在 executor.py 中实现超时自动终止：使用 asyncio.wait_for 包裹 SQL 执行，超时后获取 connection_id 并执行 KILL QUERY {id}，返回 ExecutionResult(success=False, error="查询超时，已自动终止")
-- [ ] T021 [US3] 在 executor.py 中实现敏感字段脱敏：执行完成后，对 mask_columns 中标记的字段值进行脱敏处理（中间字符替换为 *，保留首尾各 1-2 字符）
+- [ ] T021 [US3] 在 executor.py 中实现敏感字段标记：执行完成后，根据 mask_columns 在 ExecutionResult 中返回 maskedFields 列表（不修改结果数据，脱敏由 Java 网关层统一处理）
 - [ ] T022 [US3] 在 executor.py 中实现连接池繁忙处理：get_engine 超时（pool_timeout）时捕获异常，返回 ExecutionResult(success=False, error="系统繁忙，请稍后重试")
 
 ## Phase 6: API 路由

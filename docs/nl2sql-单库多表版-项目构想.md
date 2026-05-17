@@ -60,7 +60,7 @@
 - **元数据正确性治理**：对采集到的元数据做完整性、一致性、准确性、时效性和可追溯性校验。元数据未通过治理前，只能作为后台候选信息，不能进入 `skills.md` 发布版本和 RAG 向量库。
 - **元数据画像**：AI 对全库进行结构化理解，识别事实表、维度表、流水表、配置表、核心 Join Path、疑似指标字段、疑似废弃字段和敏感字段。
 - **知识生成与审核**：系统基于元数据画像生成 `skills.md` 草稿，分析师补充业务流程、指标口径和防坑说明，审核通过后发布。
-- **RAG 准入控制**：只有状态为 `NORMAL` 或 `RECOMMENDED`、且通过审核的表字段和知识切片才允许进入向量库；`DEPRECATED`、`SENSITIVE`、`BLOCKED` 默认不召回。
+- **RAG 准入控制**：只有状态为 `NORMAL`、`RECOMMENDED` 或 `SENSITIVE`（标记脱敏）、且通过审核的表字段和知识切片才允许进入向量库；`DEPRECATED`、`BLOCKED` 默认不召回。`SENSITIVE` 字段可召回但必须携带 maskColumns 标记，查询结果由 Java 网关层统一脱敏后返回。
 - **基于血缘的查询自愈**：通过大模型生成的 SQL 记录，自动逆向解析并沉淀出"单库表级/字段级血缘"。当数据库某张表的字段发生类型变更或被删除时，系统通过血缘图谱立刻告警，并提示重新生成/审核对应的 `skills.md` 片段，防止下一次问答报错。
 - **治理探针与废弃隔离**：在 Tag 体系中设立"废弃/敏感/不推荐"标签。对于历史遗留的脏表和脏字段，通过治理工作台将其隔离，在 RAG 召回时直接屏蔽，避免污染大模型的上下文。
 
@@ -1724,8 +1724,8 @@ MVP 阶段建议优先完成以下能力：
 | `GET` | `/api/admin/prompt-templates` | 查看 Prompt 模板 |
 | `PUT` | `/api/admin/prompt-templates/{id}` | 更新 Prompt 模板 |
 | `POST` | `/api/feedback` | 提交查询反馈 |
-| `GET` | `/api/admin/feedback` | 查看待审核反馈 |
-| `POST` | `/api/admin/feedback/{id}/review` | 审核反馈 |
+| `GET` | `/api/admin/feedback-reviews` | 查看待审核反馈 |
+| `POST` | `/api/admin/feedback-reviews/{id}/review` | 审核反馈 |
 | `GET` | `/api/admin/audit-logs` | 查询审计日志 |
 
 ---

@@ -24,7 +24,7 @@
 
 **Performance Goals**: 连接测试响应 < 5s, 数据源列表查询 < 500ms
 
-**Constraints**: 密码必须加密存储, 只读账号强制校验
+**Constraints**: 密码必须加密存储, 强制填写只读账号（MVP 不验证实际写权限，安全由 SQL 沙箱保证）
 
 **Scale/Scope**: MVP 阶段，支持 50+ 数据源管理
 
@@ -33,7 +33,7 @@
 | Principle | Status | Notes |
 |-----------|--------|-------|
 | I. 元数据治理优先 | ✅ PASS | 数据源是元数据采集的前置条件 |
-| II. SQL 安全与只读执行 | ✅ PASS | 强制只读账号，连接测试仅 SELECT 1 |
+| II. SQL 安全与只读执行 | ✅ PASS | 要求填写只读账号，连接测试仅 SELECT 1，实际安全由 SQL 沙箱保证 |
 | III. 三层分离架构 | ✅ PASS | 纯 Java 层，前端调 Java API |
 | IV. RAG 准入控制 | N/A | 数据源模块不直接涉及 RAG |
 | V. 可信度驱动生成 | N/A | 不涉及 |
