@@ -4,6 +4,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -11,13 +12,13 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
-import java.util.List;
 import java.util.UUID;
 
 @Component
 public class JwtTokenProvider {
 
     private final SecretKey secretKey;
+    @Getter
     private final long expirationSeconds;
 
     public JwtTokenProvider(@Value("${jwt.secret}") String secret,
@@ -69,10 +70,6 @@ public class JwtTokenProvider {
         return version == null ? 0L : version.longValue();
     }
 
-    public long getExpirationSeconds() {
-        return expirationSeconds;
-    }
-
     public Claims parseClaims(String token) {
         return Jwts.parser()
                 .verifyWith(secretKey)
@@ -95,11 +92,5 @@ public class JwtTokenProvider {
             throw new IllegalArgumentException("令牌密钥长度至少需要 32 字节才能用于 HS256");
         }
         return Keys.hmacShaKeyFor(bytes);
-    }
-
-    @SuppressWarnings("unchecked")
-    public List<String> getRoles(String token) {
-        Object roles = parseClaims(token).get("roles");
-        return roles instanceof List<?> list ? list.stream().map(String::valueOf).toList() : List.of();
     }
 }
