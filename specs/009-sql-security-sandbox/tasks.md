@@ -52,7 +52,7 @@
 ## Phase 6: API 路由
 
 - [ ] T023 实现 Pydantic 模型 `python-service/dataocean/sandbox/schema.py`：ValidateRequest（sql、datasource_id、allowed_tables、row_filters、denied_columns、mask_columns）、ValidateResponse（passed、issues、rewritten_sql、masked_fields）、ExecuteRequest（sql、datasource_id、connection_config、mask_columns）、ExecuteResponse（success、rows、columns、execution_time_ms、row_count、error）
-- [ ] T024 实现路由 `python-service/dataocean/sandbox/router.py`：POST /internal/sandbox/validate（校验+改写，返回 ValidateResponse）、POST /internal/sandbox/execute（沙箱执行，返回 ExecuteResponse）
+- [ ] T024 实现路由 `python-service/dataocean/sandbox/router.py`：POST /internal/sql/validate（校验+改写，返回 ValidateResponse）、POST /internal/sql/execute（沙箱执行，返回 ExecuteResponse）
 
 ## Phase 7: Polish & Cross-Cutting
 
