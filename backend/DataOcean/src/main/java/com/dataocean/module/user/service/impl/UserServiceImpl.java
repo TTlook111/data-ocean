@@ -207,6 +207,7 @@ public class UserServiceImpl implements UserService {
                 .phone(user.getPhone())
                 .departmentId(user.getDepartmentId())
                 .departmentName(department == null ? null : department.getDeptName())
+                .roleIds(roles.stream().map(SysRole::getId).toList())
                 .roleNames(roles.stream().map(SysRole::getRoleName).toList())
                 .roleCodes(roles.stream().map(SysRole::getRoleCode).toList())
                 .status(user.getStatus())

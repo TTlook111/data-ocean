@@ -16,6 +16,14 @@ export interface LoginResult {
   permissions: string[]
 }
 
+export interface CurrentUser {
+  id: number
+  username: string
+  realName: string
+  roles: string[]
+  permissions: string[]
+}
+
 interface ApiResult<T> {
   code: number
   message: string
@@ -24,5 +32,15 @@ interface ApiResult<T> {
 
 export async function login(payload: LoginPayload) {
   const { data } = await http.post<ApiResult<LoginResult>>('/api/auth/login', payload)
+  return data
+}
+
+export async function logout() {
+  const { data } = await http.post<ApiResult<null>>('/api/auth/logout')
+  return data
+}
+
+export async function me() {
+  const { data } = await http.get<ApiResult<CurrentUser>>('/api/auth/me')
   return data
 }

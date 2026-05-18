@@ -5,9 +5,9 @@ import { useAuthStore } from '../stores/auth'
 const auth = useAuthStore()
 const router = useRouter()
 
-function logout() {
-  auth.logout()
-  router.replace('/login')
+async function logout() {
+  await auth.logout()
+  await router.replace('/login')
 }
 </script>
 
@@ -17,6 +17,11 @@ function logout() {
       <p class="eyebrow">DataOcean</p>
       <h1>欢迎回来，{{ auth.user?.realName || auth.user?.username || '管理员' }}</h1>
       <p>用户模块已接入登录、JWT 会话、角色和部门基础能力。</p>
+      <nav>
+        <RouterLink to="/admin/users">用户管理</RouterLink>
+        <RouterLink to="/admin/roles">角色管理</RouterLink>
+        <RouterLink to="/admin/departments">部门管理</RouterLink>
+      </nav>
       <button type="button" @click="logout">退出登录</button>
     </section>
   </main>
@@ -55,6 +60,24 @@ h1 {
 
 p {
   color: #68776f;
+}
+
+nav {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+a {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  border-radius: 6px;
+  color: #1d2c3e;
+  background: #eef2f7;
+  font-weight: 800;
 }
 
 button {

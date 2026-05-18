@@ -3,10 +3,9 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import type { CSSProperties } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Eye, EyeOff, Languages, LogIn, Sparkles, UserPlus } from 'lucide-vue-next'
+import { Eye, EyeOff, Languages, LogIn, Sparkles } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 
-type AuthMode = 'login' | 'register'
 type Locale = 'zh' | 'en'
 
 interface Mascot {
@@ -16,94 +15,60 @@ interface Mascot {
   x: number
   y: number
   baseRotate: number
-  clickMood: 'surprised' | 'blink'
 }
 
 const textMap = {
   zh: {
     illustration: '登录插画',
-    formArea: '账号表单',
+    formArea: '登录表单',
     language: '中文',
     style: 'Playful',
     brandLine: '你的数据海洋',
     stageTitle: '从自然语言开始探索',
     loginTitle: '欢迎回来！',
     loginSubtitle: '请输入你的账号信息',
-    registerTitle: '创建账号',
-    registerSubtitle: '填写信息开始使用 DataOcean',
-    modeLabel: '登录注册切换',
-    login: '登录',
-    register: '注册',
     account: '账号',
-    accountPlaceholder: '请输入账号',
-    realName: '昵称',
-    realNamePlaceholder: '请输入昵称',
+    accountPlaceholder: '请输入公司分配的账号',
     password: '密码',
     passwordPlaceholder: '请输入密码',
-    confirmPassword: '确认密码',
-    confirmPasswordPlaceholder: '请再次输入密码',
     showPassword: '显示密码',
     hidePassword: '隐藏密码',
     remember: '30天内记住我',
     forgot: '忘记密码？',
+    login: '登录',
     loggingIn: '登录中...',
-    registering: '注册中...',
-    noAccount: '没有账号？',
-    hasAccount: '已有账号？',
-    goRegister: '去注册',
-    goLogin: '去登录',
     needLoginFields: '请输入账号和密码',
-    needRegisterFields: '请输入账号、昵称和密码',
-    passwordMismatch: '两次输入的密码不一致',
     loginSuccess: '登录成功',
     loginFailed: '登录失败，请检查账号或服务状态',
-    registerUnavailable: '注册接口还没有接入后端',
   },
   en: {
     illustration: 'Login illustration',
-    formArea: 'Account form',
+    formArea: 'Login form',
     language: 'English',
     style: 'Playful',
     brandLine: 'Your data ocean',
     stageTitle: 'Explore from natural language',
     loginTitle: 'Welcome back!',
     loginSubtitle: 'Enter your account details',
-    registerTitle: 'Create account',
-    registerSubtitle: 'Fill in your details to start using DataOcean',
-    modeLabel: 'Login and register switch',
-    login: 'Login',
-    register: 'Register',
     account: 'Account',
-    accountPlaceholder: 'Enter account',
-    realName: 'Name',
-    realNamePlaceholder: 'Enter display name',
+    accountPlaceholder: 'Enter your company-issued account',
     password: 'Password',
     passwordPlaceholder: 'Enter password',
-    confirmPassword: 'Confirm password',
-    confirmPasswordPlaceholder: 'Enter password again',
     showPassword: 'Show password',
     hidePassword: 'Hide password',
     remember: 'Remember me for 30 days',
     forgot: 'Forgot password?',
+    login: 'Login',
     loggingIn: 'Logging in...',
-    registering: 'Registering...',
-    noAccount: 'No account?',
-    hasAccount: 'Already have one?',
-    goRegister: 'Register',
-    goLogin: 'Login',
     needLoginFields: 'Enter account and password',
-    needRegisterFields: 'Enter account, name, and password',
-    passwordMismatch: 'Passwords do not match',
     loginSuccess: 'Logged in',
     loginFailed: 'Login failed. Check account or service status',
-    registerUnavailable: 'Register API is not connected yet',
   },
 }
 
 const router = useRouter()
 const authStore = useAuthStore()
 const stageRef = ref<HTMLElement | null>(null)
-const authMode = ref<AuthMode>('login')
 const locale = ref<Locale>('zh')
 const showPassword = ref(false)
 const loading = ref(false)
@@ -117,20 +82,17 @@ const pointer = reactive({
 })
 const form = reactive({
   username: 'admin',
-  realName: '',
   password: '',
-  confirmPassword: '',
 })
 
 const mascots: Mascot[] = [
-  { id: 'orange', className: 'orange', eyeMode: 'dot', x: 22, y: 74, baseRotate: -1, clickMood: 'surprised' },
-  { id: 'violet', className: 'violet', eyeMode: 'white', x: 40, y: 51, baseRotate: 4, clickMood: 'blink' },
-  { id: 'charcoal', className: 'charcoal', eyeMode: 'white', x: 60, y: 58, baseRotate: 2, clickMood: 'blink' },
-  { id: 'yellow', className: 'yellow', eyeMode: 'dot', x: 78, y: 68, baseRotate: 0, clickMood: 'surprised' },
+  { id: 'violet', className: 'violet', eyeMode: 'white', x: 40, y: 51, baseRotate: 4 },
+  { id: 'orange', className: 'orange', eyeMode: 'dot', x: 22, y: 74, baseRotate: -1 },
+  { id: 'charcoal', className: 'charcoal', eyeMode: 'white', x: 60, y: 58, baseRotate: 2 },
+  { id: 'yellow', className: 'yellow', eyeMode: 'dot', x: 78, y: 68, baseRotate: 0 },
 ]
 
 const copy = computed(() => textMap[locale.value])
-const isLogin = computed(() => authMode.value === 'login')
 const sceneStyle = computed(
   () =>
     ({
@@ -143,11 +105,6 @@ const sceneStyle = computed(
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
-}
-
-function setMode(mode: AuthMode) {
-  authMode.value = mode
-  showPassword.value = false
 }
 
 function toggleLocale() {
@@ -196,7 +153,7 @@ function pupilStyle(mascot: Mascot) {
   const dx = pointer.stageX - centerX
   const dy = pointer.stageY - centerY
   const length = Math.max(Math.hypot(dx, dy), 1)
-  const distance = pointer.pressed ? 6 : 4.4
+  const distance = 4.4
 
   return {
     '--pupil-x': `${(dx / length) * distance}px`,
@@ -205,19 +162,7 @@ function pupilStyle(mascot: Mascot) {
   } as CSSProperties
 }
 
-function expressionClass(mascot: Mascot) {
-  return pointer.pressed ? mascot.clickMood : 'calm'
-}
-
 async function submit() {
-  if (isLogin.value) {
-    await submitLogin()
-    return
-  }
-  submitRegister()
-}
-
-async function submitLogin() {
   if (!form.username.trim() || !form.password.trim()) {
     ElMessage.warning(copy.value.needLoginFields)
     return
@@ -243,18 +188,6 @@ async function submitLogin() {
   } finally {
     loading.value = false
   }
-}
-
-function submitRegister() {
-  if (!form.username.trim() || !form.realName.trim() || !form.password.trim()) {
-    ElMessage.warning(copy.value.needRegisterFields)
-    return
-  }
-  if (form.password !== form.confirmPassword) {
-    ElMessage.warning(copy.value.passwordMismatch)
-    return
-  }
-  ElMessage.info(copy.value.registerUnavailable)
 }
 
 onMounted(() => {
@@ -294,7 +227,7 @@ onUnmounted(() => {
           v-for="mascot in mascots"
           :key="mascot.id"
           class="mascot"
-          :class="[mascot.className, mascot.eyeMode, expressionClass(mascot)]"
+          :class="[mascot.className, mascot.eyeMode]"
           :style="mascotStyle(mascot)"
         >
           <span class="eye eye-left" :style="pupilStyle(mascot)">
@@ -322,28 +255,14 @@ onUnmounted(() => {
         </div>
 
         <header class="form-heading">
-          <h2>{{ isLogin ? copy.loginTitle : copy.registerTitle }}</h2>
-          <p>{{ isLogin ? copy.loginSubtitle : copy.registerSubtitle }}</p>
+          <h2>{{ copy.loginTitle }}</h2>
+          <p>{{ copy.loginSubtitle }}</p>
         </header>
 
         <form class="login-form" @submit.prevent="submit">
-          <div class="segment-tabs" :aria-label="copy.modeLabel">
-            <button type="button" :class="{ active: isLogin }" @click="setMode('login')">
-              {{ copy.login }}
-            </button>
-            <button type="button" :class="{ active: !isLogin }" @click="setMode('register')">
-              {{ copy.register }}
-            </button>
-          </div>
-
           <label class="field">
             <span>{{ copy.account }}</span>
             <input v-model="form.username" type="text" autocomplete="username" :placeholder="copy.accountPlaceholder" />
-          </label>
-
-          <label v-if="!isLogin" class="field">
-            <span>{{ copy.realName }}</span>
-            <input v-model="form.realName" type="text" autocomplete="name" :placeholder="copy.realNamePlaceholder" />
           </label>
 
           <label class="field">
@@ -362,17 +281,7 @@ onUnmounted(() => {
             </div>
           </label>
 
-          <label v-if="!isLogin" class="field">
-            <span>{{ copy.confirmPassword }}</span>
-            <input
-              v-model="form.confirmPassword"
-              :type="showPassword ? 'text' : 'password'"
-              autocomplete="new-password"
-              :placeholder="copy.confirmPasswordPlaceholder"
-            />
-          </label>
-
-          <div v-if="isLogin" class="form-tools">
+          <div class="form-tools">
             <label class="remember">
               <input v-model="remember" type="checkbox" />
               <span>{{ copy.remember }}</span>
@@ -381,19 +290,9 @@ onUnmounted(() => {
           </div>
 
           <button class="submit-button" type="submit" :disabled="loading">
-            <LogIn v-if="isLogin" :size="18" />
-            <UserPlus v-else :size="18" />
-            <span>
-              {{ loading ? (isLogin ? copy.loggingIn : copy.registering) : isLogin ? copy.login : copy.register }}
-            </span>
+            <LogIn :size="18" />
+            <span>{{ loading ? copy.loggingIn : copy.login }}</span>
           </button>
-
-          <p class="mode-hint">
-            <span>{{ isLogin ? copy.noAccount : copy.hasAccount }}</span>
-            <button type="button" @click="setMode(isLogin ? 'register' : 'login')">
-              {{ isLogin ? copy.goRegister : copy.goLogin }}
-            </button>
-          </p>
         </form>
       </div>
     </section>
@@ -405,7 +304,6 @@ onUnmounted(() => {
   --ink: #101827;
   --muted: #6c7280;
   --line: #e6e7ec;
-  --purple: #6f35f2;
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(460px, 1fr) minmax(460px, 1fr);
@@ -556,7 +454,7 @@ onUnmounted(() => {
 
 .orange {
   --body: #ff9969;
-  z-index: 1;
+  z-index: 4;
   left: 1%;
   width: 43%;
   height: 39%;
@@ -565,7 +463,7 @@ onUnmounted(() => {
 
 .violet {
   --body: #7043ef;
-  z-index: 3;
+  z-index: 2;
   left: 29%;
   width: 32%;
   height: 92%;
@@ -574,7 +472,7 @@ onUnmounted(() => {
 
 .charcoal {
   --body: #252525;
-  z-index: 4;
+  z-index: 5;
   left: 54%;
   width: 23%;
   height: 70%;
@@ -584,7 +482,7 @@ onUnmounted(() => {
 
 .yellow {
   --body: #f0df55;
-  z-index: 5;
+  z-index: 6;
   left: 68%;
   width: 30%;
   height: 56%;
@@ -609,6 +507,10 @@ onUnmounted(() => {
   overflow: hidden;
   box-shadow: 0 3px 6px rgba(0, 0, 0, 0.18);
   transition: transform 120ms ease;
+}
+
+.pressed .eye {
+  transform: scale(1.18);
 }
 
 .eye-left {
@@ -689,15 +591,6 @@ onUnmounted(() => {
   left: calc(42% + 32px);
 }
 
-.surprised .eye {
-  transform: scale(1.08);
-}
-
-.blink .eye i {
-  height: 3px;
-  border-radius: 999px;
-}
-
 .mouth {
   position: absolute;
   left: 50%;
@@ -708,14 +601,6 @@ onUnmounted(() => {
   border-radius: 0 0 999px 999px;
   transform: translateX(-50%);
   transition: width 140ms ease, height 140ms ease, border 140ms ease;
-}
-
-.yellow.surprised .mouth {
-  top: 50%;
-  width: 24px;
-  height: 24px;
-  border: 4px solid #2f3338;
-  border-radius: 50%;
 }
 
 .form-panel {
@@ -776,37 +661,6 @@ onUnmounted(() => {
 .login-form {
   display: grid;
   gap: 18px;
-}
-
-.segment-tabs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.segment-tabs button,
-.submit-button,
-.text-button,
-.mode-hint button {
-  border: 0;
-  cursor: pointer;
-}
-
-.segment-tabs button {
-  height: 46px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: #303641;
-  background: #ffffff;
-  font-weight: 900;
-  box-shadow: 0 5px 16px rgba(12, 18, 28, 0.04);
-}
-
-.segment-tabs button.active {
-  color: #ffffff;
-  border-color: #101827;
-  background: #101827;
-  box-shadow: 0 13px 26px rgba(16, 24, 39, 0.16);
 }
 
 .field {
@@ -891,6 +745,12 @@ onUnmounted(() => {
   accent-color: #6f35f2;
 }
 
+.text-button,
+.submit-button {
+  border: 0;
+  cursor: pointer;
+}
+
 .text-button {
   color: #6f35f2;
   background: transparent;
@@ -914,24 +774,6 @@ onUnmounted(() => {
 .submit-button:disabled {
   cursor: wait;
   opacity: 0.68;
-}
-
-.mode-hint {
-  margin: -2px 0 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: #6c7280;
-  font-size: 15px;
-  font-weight: 800;
-}
-
-.mode-hint button {
-  padding: 0;
-  color: #6f35f2;
-  background: transparent;
-  font-weight: 950;
 }
 
 @media (max-width: 980px) {
@@ -1059,7 +901,6 @@ onUnmounted(() => {
     gap: 15px;
   }
 
-  .segment-tabs button,
   .field input,
   .submit-button {
     height: 52px;

@@ -16,6 +16,7 @@ public class UserVO {
     private String phone;
     private Long departmentId;
     private String departmentName;
+    private List<Long> roleIds;
     private List<String> roleNames;
     private List<String> roleCodes;
     private Integer status;
