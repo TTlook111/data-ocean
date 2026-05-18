@@ -71,6 +71,12 @@
 - [ ] T031 实现空结果处理：查询结果为空时展示"未查询到数据，建议换个问法"
 - [ ] T032 实现快速连续发送防护：前一个查询未完成时禁用发送按钮并展示 loading 状态
 
+## Phase 9: Conversation Enhancement
+
+- [ ] T033 [Frontend] 在 conversation store 中实现会话标题自动生成：首次提问后取问题前 20 字作为标题，调用 PUT /api/conversations/{id}/title 更新
+- [ ] T034 [Frontend] 在 HistoryPanel 中添加搜索框，调用 GET /api/conversations?keyword=xxx 模糊搜索会话
+- [ ] T035 在 Java 后端 ConversationController 中添加 PUT /api/conversations/{id}/title 和 GET /api/conversations?keyword= 接口
+
 ## Dependencies
 
 ```

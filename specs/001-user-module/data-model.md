@@ -25,6 +25,7 @@ sys_role (N) >──< sys_permission (M)  [via sys_role_permission]
 | last_login_at | DATETIME | | 最后登录时间 |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW() | 创建时间 |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW() ON UPDATE | 更新时间 |
+| password_changed | TINYINT | NOT NULL, DEFAULT 0 | 是否已修改初始密码（0=未修改，1=已修改） |
 | deleted | TINYINT | NOT NULL, DEFAULT 0 | 逻辑删除标记 |
 
 ### sys_role

@@ -236,3 +236,97 @@
   "message": "不允许删除超级管理员"
 }
 ```
+
+---
+
+## POST /api/admin/users/{id}/reset-password
+
+管理员重置指定用户密码，生成 8 位随机临时密码，用户下次登录需强制修改。
+
+**Response 200**:
+```json
+{
+  "code": 200,
+  "data": {
+    "tempPassword": "aB3xK9mQ"
+  },
+  "message": "密码重置成功，请将临时密码告知用户"
+}
+```
+
+**Response 404** (用户不存在):
+```json
+{
+  "code": 404,
+  "message": "用户不存在"
+}
+```
+
+---
+
+## PUT /api/auth/password
+
+已登录用户修改自身密码（需验证旧密码）。
+
+**Request**:
+```json
+{
+  "oldPassword": "OldPass123",
+  "newPassword": "NewPass456"
+}
+```
+
+**Response 200**:
+```json
+{
+  "code": 200,
+  "message": "密码修改成功，请重新登录"
+}
+```
+
+**Response 400** (旧密码错误):
+```json
+{
+  "code": 400,
+  "message": "旧密码不正确"
+}
+```
+
+**Response 400** (密码复杂度不满足):
+```json
+{
+  "code": 400,
+  "message": "密码长度至少8位，必须包含字母和数字"
+}
+```
+
+---
+
+## PUT /api/auth/profile
+
+已登录用户修改自身个人资料。
+
+**Request**:
+```json
+{
+  "realName": "张三丰",
+  "email": "zhangsanfeng@example.com",
+  "phone": "13900139000"
+}
+```
+
+**Response 200**:
+```json
+{
+  "code": 200,
+  "message": "个人资料更新成功"
+}
+```
+
+**Response 400** (校验失败):
+```json
+{
+  "code": 400,
+  "message": "邮箱格式不正确"
+}
+```
