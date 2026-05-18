@@ -197,3 +197,7 @@ under specs/<module>/plan.md.
 - Keep project-related downloaded/generated files under `D:\Java_study\GraduationProject` unless they are required by developer tooling such as Claude Code or Codex.
 - Before introducing any new Docker container or infrastructure service, tell the user what container is needed and why, then wait for confirmation.
 - Local Docker currently has MySQL, Redis, Elasticsearch, Kibana, RabbitMQ, Nacos, and Seata containers available. Treat exact local credentials as private local notes, not repository documentation.
+
+## Database Rules
+
+- Do not create database-level foreign key constraints. Keep relation id fields such as `department_id`, `user_id`, and `role_id` on business tables, add indexes where needed, and enforce relationship validity in service-layer business logic.

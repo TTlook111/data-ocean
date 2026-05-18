@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS sys_department (
     status TINYINT NOT NULL DEFAULT 1,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_sys_department_code UNIQUE (dept_code),
-    CONSTRAINT fk_sys_department_parent FOREIGN KEY (parent_id) REFERENCES sys_department (id)
+    INDEX idx_sys_department_parent (parent_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS sys_role (
@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS sys_user (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted TINYINT NOT NULL DEFAULT 0,
     CONSTRAINT uk_sys_user_username UNIQUE (username),
-    CONSTRAINT fk_sys_user_department FOREIGN KEY (department_id) REFERENCES sys_department (id),
     INDEX idx_sys_user_department (department_id),
     INDEX idx_sys_user_status (status),
     INDEX idx_sys_user_created_at (created_at)
@@ -54,8 +53,8 @@ CREATE TABLE IF NOT EXISTS sys_user_role (
     user_id BIGINT NOT NULL,
     role_id BIGINT NOT NULL,
     CONSTRAINT uk_sys_user_role UNIQUE (user_id, role_id),
-    CONSTRAINT fk_sys_user_role_user FOREIGN KEY (user_id) REFERENCES sys_user (id),
-    CONSTRAINT fk_sys_user_role_role FOREIGN KEY (role_id) REFERENCES sys_role (id)
+    INDEX idx_sys_user_role_user (user_id),
+    INDEX idx_sys_user_role_role (role_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS sys_role_permission (
@@ -63,6 +62,6 @@ CREATE TABLE IF NOT EXISTS sys_role_permission (
     role_id BIGINT NOT NULL,
     permission_id BIGINT NOT NULL,
     CONSTRAINT uk_sys_role_permission UNIQUE (role_id, permission_id),
-    CONSTRAINT fk_sys_role_permission_role FOREIGN KEY (role_id) REFERENCES sys_role (id),
-    CONSTRAINT fk_sys_role_permission_permission FOREIGN KEY (permission_id) REFERENCES sys_permission (id)
+    INDEX idx_sys_role_permission_role (role_id),
+    INDEX idx_sys_role_permission_permission (permission_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
