@@ -1,4 +1,4 @@
-# CLAUDE.md
+﻿# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -184,3 +184,9 @@ For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the relevant module plan
 under specs/<module>/plan.md.
 <!-- SPECKIT END -->
+
+## Local Tool Paths
+
+- Maven: `D:\tool\apache-maven-3.6.1`
+- When Maven is needed on this machine, use `D:\tool\apache-maven-3.6.1\bin\mvn.cmd` or add `D:\tool\apache-maven-3.6.1\bin` to `PATH` for the current shell session.
+- Backend Maven project path: `backend\DataOcean`
