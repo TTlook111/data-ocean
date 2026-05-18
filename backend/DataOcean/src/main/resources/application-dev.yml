@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: optional:file:./config/application-local.yml
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:dataocean}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${DB_USERNAME:root}

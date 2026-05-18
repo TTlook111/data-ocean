@@ -41,6 +41,7 @@ Desktop.ini
 # Environment and secrets
 .env
 .env.*
+backend/**/config/application-local.yml
 !.env.example
 !.env.*.example
 !.env.template
