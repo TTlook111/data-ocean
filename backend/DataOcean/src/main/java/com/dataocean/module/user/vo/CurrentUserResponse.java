@@ -1,4 +1,4 @@
-package com.dataocean.module.user.dto;
+package com.dataocean.module.user.vo;
 
 import lombok.Builder;
 import lombok.Data;
@@ -7,11 +7,8 @@ import java.util.List;
 
 @Data
 @Builder
-public class LoginResponse {
-    private String token;
-    private String tokenType;
-    private Long expiresIn;
-    private Long userId;
+public class CurrentUserResponse {
+    private Long id;
     private String username;
     private String realName;
     private List<String> roles;

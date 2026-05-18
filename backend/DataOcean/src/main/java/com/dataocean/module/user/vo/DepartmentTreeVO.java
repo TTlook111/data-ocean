@@ -1,4 +1,4 @@
-package com.dataocean.module.user.dto;
+package com.dataocean.module.user.vo;
 
 import lombok.Builder;
 import lombok.Data;

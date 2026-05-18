@@ -88,11 +88,11 @@ public class JwtTokenProvider {
                 return Keys.hmacShaKeyFor(decoded);
             }
         } catch (RuntimeException ignored) {
-            // Plain text development secrets are accepted below.
+            // 本地开发允许使用明文密钥，后续会按 UTF-8 字节处理。
         }
         byte[] bytes = secret.getBytes(StandardCharsets.UTF_8);
         if (bytes.length < 32) {
-            throw new IllegalArgumentException("jwt.secret must be at least 32 bytes for HS256");
+            throw new IllegalArgumentException("令牌密钥长度至少需要 32 字节才能用于 HS256");
         }
         return Keys.hmacShaKeyFor(bytes);
     }

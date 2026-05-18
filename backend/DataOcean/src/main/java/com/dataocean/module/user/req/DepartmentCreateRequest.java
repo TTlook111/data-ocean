@@ -1,4 +1,4 @@
-package com.dataocean.module.user.dto;
+package com.dataocean.module.user.req;
 
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;

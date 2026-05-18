@@ -200,4 +200,10 @@ under specs/<module>/plan.md.
 
 ## Database Rules
 
-- Do not create database-level foreign key constraints. Keep relation id fields such as `department_id`, `user_id`, and `role_id` on business tables, add indexes where needed, and enforce relationship validity in service-layer business logic.
+- 不创建数据库级外键约束。业务表保留 `department_id`、`user_id`、`role_id` 等关联字段，按需添加普通索引，关系有效性统一在 service 层业务逻辑中校验。
+
+## Backend Layering Rules
+
+- 请求对象放在 `req`，查询对象放在 `query`，返回/视图对象放在 `vo`，实体放在 `entity`，Mapper 放在 `mapper`，Controller 放在 `controller`，Service 接口放在 `service`，实现类放在 `service.impl`。
+- 每个 service 都必须在 `service` 下暴露接口，实现类放在 `service.impl`，并使用 `*ServiceImpl` 后缀。
+- 抛出异常的提示、代码注释、日志消息都使用中文。日志中不要输出密码、JWT 原文、密钥等敏感值。

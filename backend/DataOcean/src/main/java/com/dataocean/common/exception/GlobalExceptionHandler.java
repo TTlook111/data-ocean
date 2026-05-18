@@ -2,6 +2,7 @@ package com.dataocean.common.exception;
 
 import com.dataocean.common.result.Result;
 import jakarta.validation.ConstraintViolationException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
+@Slf4j
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
@@ -21,6 +23,7 @@ public class GlobalExceptionHandler {
         if (status == null || status.is1xxInformational() || status.is2xxSuccessful() || status.is3xxRedirection()) {
             status = HttpStatus.BAD_REQUEST;
         }
+        log.warn("业务异常已处理 code={} message={}", exception.getCode(), exception.getMessage());
         return ResponseEntity.status(status).body(Result.error(exception.getCode(), exception.getMessage()));
     }
 
@@ -29,30 +32,35 @@ public class GlobalExceptionHandler {
     public Result<Void> handleValidationException(MethodArgumentNotValidException exception) {
         FieldError fieldError = exception.getBindingResult().getFieldError();
         String message = fieldError == null ? "请求参数不合法" : fieldError.getDefaultMessage();
+        log.warn("请求参数校验失败 message={}", message);
         return Result.error(400, message);
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> handleConstraintViolation(ConstraintViolationException exception) {
+        log.warn("约束校验失败 message={}", exception.getMessage());
         return Result.error(400, exception.getMessage());
     }
 
     @ExceptionHandler(AuthenticationException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public Result<Void> handleAuthenticationException(AuthenticationException exception) {
+        log.warn("认证异常已处理 type={}", exception.getClass().getSimpleName());
         return Result.error(401, "认证失败");
     }
 
     @ExceptionHandler(AccessDeniedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Result<Void> handleAccessDeniedException(AccessDeniedException exception) {
+        log.warn("访问拒绝异常已处理 message={}", exception.getMessage());
         return Result.error(403, "无访问权限");
     }
 
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Result<Void> handleException(Exception exception) {
+        log.error("未处理异常", exception);
         return Result.error(500, "服务器内部错误");
     }
 }

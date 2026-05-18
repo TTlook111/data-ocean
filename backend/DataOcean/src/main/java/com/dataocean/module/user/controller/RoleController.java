@@ -4,6 +4,7 @@ import com.dataocean.common.result.Result;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.service.RoleService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +15,7 @@ import java.util.List;
 @RestController
 @RequestMapping({"/api/admin/roles", "/api/roles"})
 @RequiredArgsConstructor
+@Slf4j
 public class RoleController {
 
     private final RoleService roleService;
@@ -21,6 +23,7 @@ public class RoleController {
     @GetMapping
     @PreAuthorize("hasAnyAuthority('role:view', 'user:manage')")
     public Result<List<SysRole>> listRoles() {
+        log.debug("收到角色列表查询请求");
         return Result.success(roleService.listEnabledRoles());
     }
 }

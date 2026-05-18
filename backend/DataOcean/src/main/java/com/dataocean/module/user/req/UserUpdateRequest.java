@@ -1,4 +1,4 @@
-package com.dataocean.module.user.dto;
+package com.dataocean.module.user.req;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
