@@ -1,19 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Eye, EyeOff, Languages, Sparkles } from 'lucide-vue-next'
+import { Eye, EyeOff, Languages, LogIn, Sparkles } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 
 interface Mascot {
   id: string
   className: string
-  label: string
+  title: string
   x: number
   y: number
-  color: string
   eye: 'light' | 'dark'
-  mood: 'calm' | 'smile' | 'surprise'
+  mood: 'calm' | 'happy' | 'wow'
 }
 
 const router = useRouter()
@@ -29,62 +28,16 @@ const form = reactive({
 })
 
 const mascots = ref<Mascot[]>([
-  {
-    id: 'orange',
-    className: 'orange',
-    label: 'asker',
-    x: 24,
-    y: 68,
-    color: '#ffb26f',
-    eye: 'dark',
-    mood: 'calm',
-  },
-  {
-    id: 'violet',
-    className: 'violet',
-    label: 'schema',
-    x: 42,
-    y: 39,
-    color: '#8c76f6',
-    eye: 'light',
-    mood: 'calm',
-  },
-  {
-    id: 'ink',
-    className: 'ink',
-    label: 'guard',
-    x: 61,
-    y: 51,
-    color: '#2b2d30',
-    eye: 'light',
-    mood: 'calm',
-  },
-  {
-    id: 'yellow',
-    className: 'yellow',
-    label: 'answer',
-    x: 76,
-    y: 64,
-    color: '#eadf5d',
-    eye: 'dark',
-    mood: 'calm',
-  },
+  { id: 'sprout', className: 'sprout', title: 'ask', x: 25, y: 67, eye: 'dark', mood: 'calm' },
+  { id: 'violet', className: 'violet', title: 'sql', x: 43, y: 42, eye: 'light', mood: 'calm' },
+  { id: 'charcoal', className: 'charcoal', title: 'safe', x: 61, y: 53, eye: 'light', mood: 'calm' },
+  { id: 'sunny', className: 'sunny', title: 'ok', x: 77, y: 63, eye: 'dark', mood: 'calm' },
 ])
 
-const pointerStyle = computed(() => ({
-  '--mx': `${pointer.x}px`,
-  '--my': `${pointer.y}px`,
-}))
-
 function updatePointer(event: PointerEvent) {
-  if (!stageRef.value) {
-    pointer.x = event.clientX
-    pointer.y = event.clientY
-    return
-  }
-  const rect = stageRef.value.getBoundingClientRect()
-  pointer.x = event.clientX - rect.left
-  pointer.y = event.clientY - rect.top
+  const rect = stageRef.value?.getBoundingClientRect()
+  pointer.x = rect ? event.clientX - rect.left : event.clientX
+  pointer.y = rect ? event.clientY - rect.top : event.clientY
 }
 
 function handlePointerDown(event: PointerEvent) {
@@ -92,7 +45,7 @@ function handlePointerDown(event: PointerEvent) {
   pointer.pressed = true
   mascots.value = mascots.value.map((mascot, index) => ({
     ...mascot,
-    mood: index % 2 === 0 ? 'surprise' : 'smile',
+    mood: index % 2 === 0 ? 'wow' : 'happy',
   }))
 }
 
@@ -102,16 +55,16 @@ function handlePointerUp() {
 }
 
 function eyeTransform(mascot: Mascot) {
-  if (!stageRef.value) {
+  const rect = stageRef.value?.getBoundingClientRect()
+  if (!rect) {
     return 'translate(0px, 0px)'
   }
-  const rect = stageRef.value.getBoundingClientRect()
   const mascotX = (mascot.x / 100) * rect.width
   const mascotY = (mascot.y / 100) * rect.height
   const dx = pointer.x - mascotX
   const dy = pointer.y - mascotY
   const length = Math.max(Math.hypot(dx, dy), 1)
-  const distance = pointer.pressed ? 5 : 3.4
+  const distance = pointer.pressed ? 5.2 : 3.5
   return `translate(${(dx / length) * distance}px, ${(dy / length) * distance}px)`
 }
 
@@ -120,6 +73,7 @@ async function submit() {
     ElMessage.warning('请输入账号和密码')
     return
   }
+
   loading.value = true
   try {
     await authStore.login({ username: form.username.trim(), password: form.password })
@@ -145,8 +99,8 @@ async function submit() {
 onMounted(() => {
   window.addEventListener('pointermove', updatePointer)
   window.addEventListener('pointerup', handlePointerUp)
-  pointer.x = window.innerWidth * 0.25
-  pointer.y = window.innerHeight * 0.45
+  pointer.x = window.innerWidth * 0.24
+  pointer.y = window.innerHeight * 0.5
 })
 
 onUnmounted(() => {
@@ -156,115 +110,124 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="login-page" :class="{ pressed: pointer.pressed }" :style="pointerStyle">
+  <main class="login-page" :class="{ pressed: pointer.pressed }">
     <section
       ref="stageRef"
       class="story-stage"
-      aria-label="DataOcean login mascots"
+      aria-label="DataOcean login illustration"
       @pointerdown="handlePointerDown"
     >
-      <div class="sky" />
-      <div class="paper-plane" />
-      <div class="vine vine-a" />
-      <div class="vine vine-b" />
-      <div class="hydrangea hydrangea-a" />
-      <div class="hydrangea hydrangea-b" />
-      <div class="hydrangea hydrangea-c" />
-
       <div class="brand-mark">
-        <span class="brand-dot" />
-        <div>
-          <strong>DataOcean</strong>
-          <span>可信数据入口</span>
+        <span class="brand-icon" />
+        <strong>DataOcean</strong>
+      </div>
+
+      <div class="stage-title">
+        <span>NL2SQL 工作台</span>
+        <h1>自然语言查询入口</h1>
+      </div>
+
+      <div class="flower-field" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+        <i />
+        <i />
+      </div>
+      <div class="paper-plane" aria-hidden="true" />
+      <div class="wall-sheet" aria-hidden="true" />
+
+      <div class="mascot-line" aria-hidden="true">
+        <div
+          v-for="mascot in mascots"
+          :key="mascot.id"
+          class="mascot"
+          :class="[mascot.className, mascot.mood]"
+        >
+          <span class="mascot-tag">{{ mascot.title }}</span>
+          <span class="eye left" :class="mascot.eye">
+            <i :style="{ transform: eyeTransform(mascot) }" />
+          </span>
+          <span class="eye right" :class="mascot.eye">
+            <i :style="{ transform: eyeTransform(mascot) }" />
+          </span>
+          <span class="mouth" />
         </div>
-      </div>
-
-      <div class="stage-copy">
-        <p>NL2SQL</p>
-        <h1>让数据查询<br />像提问一样自然</h1>
-      </div>
-
-      <div
-        v-for="mascot in mascots"
-        :key="mascot.id"
-        class="mascot"
-        :class="[mascot.className, mascot.mood]"
-      >
-        <span class="mascot-label">{{ mascot.label }}</span>
-        <span class="eye left" :class="mascot.eye">
-          <i :style="{ transform: eyeTransform(mascot) }" />
-        </span>
-        <span class="eye right" :class="mascot.eye">
-          <i :style="{ transform: eyeTransform(mascot) }" />
-        </span>
-        <span class="mouth" />
       </div>
     </section>
 
     <section class="login-panel" aria-label="登录表单">
-      <div class="mode-row">
-        <span><Languages :size="14" /> 中文</span>
-        <span><Sparkles :size="14" /> Playful</span>
-      </div>
-
-      <div class="form-heading">
-        <p>欢迎回来！</p>
-        <h2>请输入你的账号信息</h2>
-      </div>
-
-      <form class="login-form" @submit.prevent="submit">
-        <div class="segment">
-          <button type="button" class="active">登录</button>
-          <button type="button">注册</button>
+      <div class="panel-inner">
+        <div class="mode-row">
+          <span><Languages :size="14" /> 中文</span>
+          <span><Sparkles :size="14" /> 轻快</span>
         </div>
 
-        <label>
-          <span>账号</span>
-          <input v-model="form.username" type="text" autocomplete="username" placeholder="admin" />
-        </label>
+        <header class="form-heading">
+          <p>欢迎回来！</p>
+          <h2>登录你的 DataOcean 工作台</h2>
+        </header>
 
-        <label>
-          <span>密码</span>
-          <div class="password-input">
-            <input
-              v-model="form.password"
-              :type="showPassword ? 'text' : 'password'"
-              autocomplete="current-password"
-              placeholder="请输入密码"
-            />
-            <button type="button" :aria-label="showPassword ? '隐藏密码' : '显示密码'" @click="showPassword = !showPassword">
-              <EyeOff v-if="showPassword" :size="18" />
-              <Eye v-else :size="18" />
-            </button>
+        <form class="login-form" @submit.prevent="submit">
+          <div class="segment" aria-label="登录注册切换">
+            <button type="button" class="active">登录</button>
+            <button type="button">注册</button>
           </div>
-        </label>
 
-        <div class="form-tools">
-          <label class="checkbox">
-            <input v-model="remember" type="checkbox" />
-            <span>30天内记住我</span>
+          <label>
+            <span>账号</span>
+            <input v-model="form.username" type="text" autocomplete="username" placeholder="请输入账号" />
           </label>
-          <button type="button" class="link-button">忘记密码？</button>
-        </div>
 
-        <button class="submit-button" type="submit" :disabled="loading">
-          {{ loading ? '登录中...' : '登录' }}
-        </button>
-      </form>
+          <label>
+            <span>密码</span>
+            <div class="password-input">
+              <input
+                v-model="form.password"
+                :type="showPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                placeholder="请输入密码"
+              />
+              <button type="button" :aria-label="showPassword ? '隐藏密码' : '显示密码'" @click="showPassword = !showPassword">
+                <EyeOff v-if="showPassword" :size="18" />
+                <Eye v-else :size="18" />
+              </button>
+            </div>
+          </label>
+
+          <div class="form-tools">
+            <label class="checkbox">
+              <input v-model="remember" type="checkbox" />
+              <span>30 天内记住我</span>
+            </label>
+            <button type="button" class="link-button">忘记密码？</button>
+          </div>
+
+          <button class="submit-button" type="submit" :disabled="loading">
+            <LogIn :size="18" />
+            <span>{{ loading ? '登录中...' : '登录' }}</span>
+          </button>
+        </form>
+      </div>
     </section>
   </main>
 </template>
 
 <style scoped>
 .login-page {
-  --ink: #1e2b39;
-  --muted: #6f7a72;
-  --line: rgba(43, 62, 55, 0.14);
-  --leaf: #84b63f;
+  --ink: #1d2b35;
+  --muted: #6d7a72;
+  --line: rgba(63, 84, 72, 0.15);
+  --sky: #8ed8ee;
+  --leaf: #8bbd41;
+  --paper: #fff5dc;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(420px, 1.05fr) minmax(420px, 0.95fr);
-  background: #fbfcf4;
+  grid-template-columns: minmax(500px, 1.05fr) minmax(460px, 0.95fr);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 86% 12%, rgba(117, 194, 222, 0.2), transparent 28%),
+    linear-gradient(120deg, #f9fbf0 0%, #fffdf5 58%, #f4f8ee 100%);
   overflow: hidden;
 }
 
@@ -274,198 +237,209 @@ onUnmounted(() => {
   overflow: hidden;
   cursor: default;
   background:
-    linear-gradient(rgba(255, 248, 223, 0.62) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 248, 223, 0.62) 1px, transparent 1px),
-    radial-gradient(circle at 5% 18%, rgba(165, 217, 77, 0.5), transparent 24%),
-    radial-gradient(circle at 22% 10%, rgba(126, 204, 232, 0.8), transparent 26%),
-    linear-gradient(160deg, #8bd5ec 0%, #fff5cf 42%, #fffaf0 100%);
-  background-size:
-    34px 34px,
-    34px 34px,
-    auto,
-    auto,
-    auto;
+    radial-gradient(circle at 27% 11%, rgba(255, 255, 255, 0.98) 0 22px, transparent 23px),
+    radial-gradient(circle at 31% 10%, rgba(255, 255, 255, 0.96) 0 34px, transparent 35px),
+    radial-gradient(circle at 37% 12%, rgba(255, 255, 255, 0.98) 0 24px, transparent 25px),
+    linear-gradient(178deg, #8dd8ef 0%, #cdeec8 31%, #fff6db 70%, #fffaf0 100%);
 }
 
 .story-stage::before {
   content: "";
   position: absolute;
-  inset: 9% 8% 0 21%;
-  border-radius: 42px 42px 0 0;
+  inset: 0;
   background:
-    linear-gradient(120deg, rgba(242, 179, 64, 0.22), transparent 22%),
-    linear-gradient(90deg, rgba(181, 148, 67, 0.12) 1px, transparent 1px),
-    linear-gradient(#fff5d6, #fff9e8);
-  background-size: auto, 28px 28px, auto;
-  box-shadow:
-    inset 0 0 0 1px rgba(171, 152, 105, 0.12),
-    0 28px 90px rgba(95, 122, 85, 0.18);
-  transform: rotate(0.4deg);
+    linear-gradient(rgba(255, 255, 255, 0.22) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.2) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8), transparent 72%);
 }
 
 .story-stage::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
+  left: -4%;
+  right: -4%;
   bottom: 0;
   height: 18%;
   background:
-    linear-gradient(90deg, rgba(134, 177, 72, 0.34), transparent 18%),
-    linear-gradient(180deg, transparent, rgba(254, 243, 192, 0.9));
-}
-
-.sky {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 26% 10%, rgba(255, 255, 255, 0.95) 0 20px, transparent 22px),
-    radial-gradient(circle at 31% 9%, rgba(255, 255, 255, 0.95) 0 30px, transparent 32px),
-    radial-gradient(circle at 36% 11%, rgba(255, 255, 255, 0.95) 0 22px, transparent 24px),
-    linear-gradient(115deg, transparent 0 61%, rgba(255, 255, 255, 0.85) 61.2% 61.5%, transparent 61.7%);
-  opacity: 0.78;
+    radial-gradient(ellipse at 18% 0%, rgba(140, 184, 63, 0.44), transparent 40%),
+    linear-gradient(180deg, rgba(255, 247, 212, 0), #f4e8ba 74%);
 }
 
 .brand-mark {
   position: absolute;
-  top: 46px;
-  left: 54px;
-  z-index: 3;
+  top: 44px;
+  left: 52px;
+  z-index: 8;
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 15px;
-  border: 1px solid rgba(255, 255, 255, 0.48);
+  gap: 11px;
+  min-height: 42px;
+  padding: 0 15px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.3);
-  color: #29404f;
-  backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.42);
+  color: #25404f;
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 32px rgba(77, 119, 104, 0.13);
 }
 
-.brand-dot {
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  background: linear-gradient(135deg, #9dccff, #94c957);
-  box-shadow: 0 8px 22px rgba(89, 139, 139, 0.22);
-}
-
-.brand-mark strong,
-.brand-mark span {
-  display: block;
+.brand-icon {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.65), transparent 38%),
+    linear-gradient(135deg, #78c5f2, #9ac74d 58%, #f6d45c);
 }
 
 .brand-mark strong {
-  line-height: 1.1;
+  font-size: 16px;
+  line-height: 1;
 }
 
-.brand-mark span {
-  color: rgba(42, 64, 79, 0.68);
-  font-size: 12px;
-}
-
-.stage-copy {
+.stage-title {
   position: absolute;
-  top: 16%;
-  left: 12%;
-  z-index: 3;
-  color: #1e3441;
+  top: 18%;
+  left: 11%;
+  z-index: 8;
 }
 
-.stage-copy p {
-  margin: 0 0 12px;
-  color: #6a9546;
-  font-weight: 800;
-  letter-spacing: 0;
+.stage-title span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: #56763a;
+  background: rgba(255, 255, 255, 0.5);
+  font-size: 13px;
+  font-weight: 900;
 }
 
-.stage-copy h1 {
-  margin: 0;
-  font-size: clamp(32px, 4vw, 58px);
-  line-height: 1.12;
+.stage-title h1 {
+  margin: 12px 0 0;
+  max-width: 320px;
+  color: #203745;
+  font-size: clamp(28px, 2.6vw, 38px);
+  line-height: 1.16;
   letter-spacing: 0;
-  text-shadow: 0 2px 0 rgba(255, 255, 255, 0.78);
+  text-shadow: 0 2px 0 rgba(255, 255, 255, 0.65);
+}
+
+.wall-sheet {
+  position: absolute;
+  z-index: 1;
+  top: 20%;
+  right: 8%;
+  bottom: 9%;
+  width: 52%;
+  border-radius: 34px 34px 10px 10px;
+  background:
+    radial-gradient(circle at 16% 16%, rgba(240, 180, 61, 0.16), transparent 18%),
+    linear-gradient(90deg, rgba(192, 169, 105, 0.1) 1px, transparent 1px),
+    linear-gradient(#fff7df, #fffaf0);
+  background-size: auto, 30px 30px, auto;
+  box-shadow:
+    inset 0 0 0 1px rgba(158, 137, 91, 0.1),
+    0 34px 80px rgba(84, 112, 80, 0.16);
+  transform: rotate(0.7deg);
 }
 
 .paper-plane {
   position: absolute;
-  top: 21%;
-  left: 17%;
-  z-index: 3;
+  top: 42%;
+  left: 14%;
+  z-index: 6;
   width: 58px;
-  height: 30px;
-  clip-path: polygon(0 45%, 100% 0, 74% 100%, 56% 62%);
-  background: #fff;
-  box-shadow: 0 6px 20px rgba(56, 94, 102, 0.2);
-  transform: rotate(-16deg);
+  height: 34px;
+  clip-path: polygon(0 47%, 100% 0, 72% 100%, 55% 62%);
+  background:
+    linear-gradient(135deg, #fff 0 42%, #d7ecff 43% 55%, #fff 56%);
+  filter: drop-shadow(0 11px 18px rgba(60, 94, 103, 0.2));
+  transform: rotate(-14deg);
 }
 
-.vine {
+.flower-field {
   position: absolute;
-  z-index: 2;
-  border-radius: 999px;
-  background: rgba(126, 151, 80, 0.46);
-  transform-origin: top;
+  z-index: 4;
+  top: 25%;
+  left: -58px;
+  width: 208px;
+  height: 400px;
+  background:
+    radial-gradient(circle at 32% 18%, #9bc849 0 27px, transparent 28px),
+    radial-gradient(circle at 52% 34%, #79ad31 0 40px, transparent 41px),
+    radial-gradient(circle at 30% 47%, #a6d353 0 38px, transparent 39px),
+    radial-gradient(circle at 58% 62%, #83ba3e 0 34px, transparent 35px),
+    radial-gradient(circle at 22% 72%, #9ccf4e 0 48px, transparent 49px);
+  filter: drop-shadow(0 22px 28px rgba(75, 114, 56, 0.18));
+  opacity: 0.92;
 }
 
-.vine-a {
-  top: 7%;
-  right: 20%;
-  width: 7px;
-  height: 170px;
-  transform: rotate(18deg);
-}
-
-.vine-b {
-  top: 5%;
-  right: 15%;
-  width: 5px;
-  height: 120px;
-  transform: rotate(-11deg);
-}
-
-.hydrangea {
+.flower-field i {
   position: absolute;
-  z-index: 2;
-  width: 96px;
-  height: 96px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 35% 35%, #d7ecff 0 8px, transparent 9px),
-    radial-gradient(circle at 55% 28%, #a9d4ff 0 10px, transparent 11px),
-    radial-gradient(circle at 64% 56%, #6baae7 0 13px, transparent 14px),
-    radial-gradient(circle at 34% 64%, #3d82d5 0 15px, transparent 16px),
-    #8dc6f4;
-  filter: drop-shadow(0 12px 18px rgba(64, 122, 80, 0.18));
+    radial-gradient(circle at 34% 30%, #e9f5ff 0 8px, transparent 9px),
+    radial-gradient(circle at 58% 28%, #b8ddff 0 10px, transparent 11px),
+    radial-gradient(circle at 67% 58%, #69a9e8 0 12px, transparent 13px),
+    radial-gradient(circle at 35% 63%, #3e82d8 0 14px, transparent 15px),
+    #86c6f4;
 }
 
-.hydrangea-a {
-  top: 14%;
-  left: 3%;
+.flower-field i:nth-child(1) {
+  top: 4px;
+  left: 72px;
 }
 
-.hydrangea-b {
-  top: 25%;
-  left: 10%;
-  transform: scale(0.85);
+.flower-field i:nth-child(2) {
+  top: 86px;
+  left: 118px;
+  transform: scale(0.88);
 }
 
-.hydrangea-c {
-  top: 34%;
-  left: -2%;
-  transform: scale(1.12);
+.flower-field i:nth-child(3) {
+  top: 158px;
+  left: 52px;
+  transform: scale(1.08);
+}
+
+.flower-field i:nth-child(4) {
+  top: 240px;
+  left: 104px;
+  transform: scale(0.82);
+}
+
+.flower-field i:nth-child(5) {
+  top: 318px;
+  left: 42px;
+  transform: scale(0.92);
+}
+
+.mascot-line {
+  position: absolute;
+  z-index: 7;
+  inset: auto 6% 8% 5%;
+  height: min(44vw, 505px);
+  min-height: 342px;
 }
 
 .mascot {
   position: absolute;
-  z-index: 5;
+  bottom: 0;
   display: block;
-  border-radius: 44px 44px 0 0;
   background: var(--body);
-  box-shadow: inset -12px -12px 0 rgba(0, 0, 0, 0.04);
+  border-radius: 42px 42px 0 0;
+  box-shadow:
+    inset -12px -12px 0 rgba(0, 0, 0, 0.05),
+    0 18px 34px rgba(51, 65, 58, 0.13);
   transition:
     transform 180ms ease,
-    border-radius 180ms ease;
+    border-radius 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .mascot::before {
@@ -473,80 +447,84 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(circle at 26% 18%, rgba(255, 255, 255, 0.25), transparent 22%);
+  background: radial-gradient(circle at 25% 15%, rgba(255, 255, 255, 0.28), transparent 23%);
   pointer-events: none;
 }
 
-.mascot-label {
+.mascot-tag {
   position: absolute;
   left: 50%;
-  bottom: -30px;
+  bottom: -28px;
   transform: translateX(-50%);
-  color: rgba(32, 47, 55, 0.48);
+  color: rgba(34, 48, 56, 0.45);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 900;
 }
 
-.orange {
-  --body: #ffad74;
-  left: 8%;
-  bottom: 10%;
-  width: clamp(170px, 27vw, 305px);
-  height: clamp(140px, 24vw, 245px);
+.sprout {
+  --body: #ffad78;
+  left: 2%;
+  width: clamp(176px, 28vw, 318px);
+  height: clamp(142px, 23vw, 238px);
   border-radius: 999px 999px 0 0;
 }
 
 .violet {
-  --body: #8067f2;
-  left: 27%;
-  bottom: 10%;
-  width: clamp(145px, 20vw, 245px);
-  height: clamp(330px, 50vw, 520px);
-  transform: rotate(4deg);
+  --body: #7563ea;
+  left: 28%;
+  width: clamp(136px, 18vw, 224px);
+  height: clamp(286px, 44vw, 470px);
+  transform: rotate(3.5deg);
 }
 
-.ink {
-  --body: #2d3031;
+.charcoal {
+  --body: #2e3131;
   left: 52%;
-  bottom: 10%;
-  width: clamp(110px, 16vw, 170px);
-  height: clamp(260px, 38vw, 390px);
-  transform: rotate(2deg);
-  box-shadow: inset -10px -10px 0 rgba(255, 255, 255, 0.03);
+  width: clamp(102px, 14vw, 158px);
+  height: clamp(230px, 34vw, 356px);
+  transform: rotate(1.5deg);
+  box-shadow:
+    inset -10px -10px 0 rgba(255, 255, 255, 0.03),
+    0 18px 34px rgba(51, 65, 58, 0.13);
 }
 
-.yellow {
-  --body: #efe15f;
-  left: 64%;
-  bottom: 10%;
-  width: clamp(132px, 18vw, 205px);
-  height: clamp(210px, 30vw, 320px);
+.sunny {
+  --body: #efe16a;
+  left: 65%;
+  width: clamp(126px, 17vw, 198px);
+  height: clamp(194px, 28vw, 300px);
   border-radius: 999px 999px 0 0;
 }
 
 .pressed .violet {
-  transform: rotate(4deg) translateY(-8px);
+  transform: rotate(3.5deg) translateY(-10px);
 }
 
-.pressed .ink {
-  transform: rotate(2deg) translateY(4px);
+.pressed .charcoal {
+  transform: rotate(1.5deg) translateY(6px);
+}
+
+.pressed .sprout,
+.pressed .sunny {
+  transform: translateY(-5px);
 }
 
 .eye {
   position: absolute;
-  top: 34%;
-  width: 23px;
-  height: 23px;
+  top: 33%;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: #fff;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
 }
 
 .eye.dark {
-  width: 15px;
-  height: 15px;
-  background: #2a3034;
+  width: 16px;
+  height: 16px;
+  background: #283036;
+  box-shadow: none;
 }
 
 .eye.left {
@@ -557,74 +535,79 @@ onUnmounted(() => {
   left: calc(42% + 34px);
 }
 
-.orange .eye {
-  top: 45%;
+.sprout .eye {
+  top: 48%;
 }
 
-.orange .eye.left {
+.sprout .eye.left {
   left: 46%;
 }
 
-.orange .eye.right {
-  left: calc(46% + 22px);
+.sprout .eye.right {
+  left: calc(46% + 23px);
 }
 
-.yellow .eye {
+.sunny .eye {
   top: 29%;
 }
 
-.yellow .eye.left {
-  left: 43%;
+.sunny .eye.left {
+  left: 42%;
 }
 
-.yellow .eye.right {
-  left: calc(43% + 27px);
+.sunny .eye.right {
+  left: calc(42% + 29px);
 }
 
 .eye i {
   position: absolute;
   left: 7px;
   top: 7px;
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: #262d34;
-  transition: transform 80ms linear;
+  background: #222a31;
+  transition: transform 75ms linear;
 }
 
 .eye.dark i {
   left: 4px;
   top: 4px;
-  width: 7px;
-  height: 7px;
-  background: #111821;
+  width: 8px;
+  height: 8px;
+  background: #0d141a;
 }
 
 .mouth {
   position: absolute;
-  left: 42%;
+  left: 43%;
   top: 46%;
-  width: 86px;
-  height: 24px;
-  border-bottom: 5px solid #39404a;
+  width: 76px;
+  height: 21px;
+  border-bottom: 5px solid #384048;
   transform: translateX(-2px);
 }
 
-.orange .mouth,
+.sprout .mouth,
 .violet .mouth,
-.ink .mouth {
+.charcoal .mouth {
   opacity: 0;
 }
 
-.mascot.smile .mouth {
+.mascot.happy .mouth {
   opacity: 1;
-  width: 64px;
-  height: 32px;
-  border-bottom-color: #fff;
+  width: 58px;
+  height: 30px;
+  border-bottom-color: currentColor;
   border-radius: 0 0 50% 50%;
 }
 
-.mascot.surprise .mouth {
+.charcoal.happy .mouth,
+.violet.happy .mouth {
+  border-bottom-color: #fff;
+}
+
+.mascot.wow .mouth {
   opacity: 1;
   width: 24px;
   height: 24px;
@@ -632,25 +615,34 @@ onUnmounted(() => {
   border-radius: 50%;
 }
 
+.charcoal.wow .mouth,
+.violet.wow .mouth {
+  border-color: #fff;
+}
+
 .login-panel {
   position: relative;
-  z-index: 10;
+  z-index: 12;
   min-height: 100vh;
   display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  padding: clamp(28px, 7vw, 84px);
+  padding: clamp(32px, 6vw, 86px);
   background:
-    radial-gradient(circle at 84% 12%, rgba(116, 198, 228, 0.15), transparent 26%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(250, 252, 245, 0.96));
-  box-shadow: -28px 0 80px rgba(78, 90, 78, 0.12);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(250, 252, 245, 0.96)),
+    radial-gradient(circle at 88% 10%, rgba(117, 194, 222, 0.14), transparent 28%);
+  box-shadow: -30px 0 80px rgba(72, 91, 76, 0.12);
+}
+
+.panel-inner {
+  width: min(100%, 500px);
 }
 
 .mode-row {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: 10px;
+  margin-bottom: 30px;
 }
 
 .mode-row span {
@@ -658,46 +650,49 @@ onUnmounted(() => {
   align-items: center;
   gap: 7px;
   min-height: 32px;
-  padding: 0 14px;
-  border: 1px solid #e6eadc;
+  padding: 0 13px;
+  border: 1px solid #e2eadb;
   border-radius: 999px;
-  color: #50724d;
-  background: rgba(255, 255, 255, 0.75);
+  color: #577a48;
+  background: rgba(255, 255, 255, 0.74);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 900;
 }
 
 .form-heading {
-  margin-bottom: 28px;
+  margin-bottom: 30px;
 }
 
 .form-heading p {
   margin: 0;
-  color: #1f2b38;
-  font-size: clamp(32px, 4vw, 46px);
-  font-weight: 900;
-  line-height: 1.05;
+  color: #172536;
+  font-size: clamp(34px, 4vw, 48px);
+  font-weight: 950;
+  line-height: 1.08;
   letter-spacing: 0;
 }
 
 .form-heading h2 {
-  margin: 14px 0 0;
-  color: #79847d;
+  margin: 12px 0 0;
+  color: #748176;
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0;
 }
 
 .login-form {
   display: grid;
-  gap: 17px;
+  gap: 18px;
 }
 
 .segment {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  margin-bottom: 4px;
+  padding: 4px;
+  border: 1px solid #e3eadf;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
 }
 
 .segment button,
@@ -708,46 +703,50 @@ onUnmounted(() => {
 }
 
 .segment button {
-  height: 48px;
-  border: 1px solid #dfe7dc;
+  height: 42px;
   border-radius: 8px;
-  color: #59645f;
-  background: rgba(255, 255, 255, 0.72);
-  font-weight: 800;
+  color: #65716b;
+  background: transparent;
+  font-weight: 900;
 }
 
 .segment button.active {
   color: #fff;
   background: #182536;
-  border-color: #182536;
-  box-shadow: 0 14px 30px rgba(28, 39, 55, 0.16);
+  box-shadow: 0 12px 25px rgba(24, 37, 54, 0.14);
 }
 
 .login-form label {
   display: grid;
   gap: 9px;
-  color: #202c38;
-  font-weight: 800;
+  color: #20303c;
+  font-weight: 900;
 }
 
 .login-form input[type="text"],
 .login-form input[type="password"] {
   width: 100%;
   height: 54px;
-  border: 1px solid #dde7da;
-  border-radius: 8px;
+  border: 1px solid #dce6d9;
+  border-radius: 10px;
   padding: 0 16px;
   color: #22313e;
-  background: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.86);
   outline: none;
   transition:
     border-color 160ms ease,
-    box-shadow 160ms ease;
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.login-form input::placeholder {
+  color: #a2aaa2;
 }
 
 .login-form input:focus {
-  border-color: #91c95f;
-  box-shadow: 0 0 0 4px rgba(145, 201, 95, 0.15);
+  border-color: #8fbd4d;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(143, 189, 77, 0.14);
 }
 
 .password-input {
@@ -755,22 +754,27 @@ onUnmounted(() => {
 }
 
 .password-input input {
-  padding-right: 50px;
+  padding-right: 52px;
 }
 
 .password-input button {
   position: absolute;
   top: 50%;
-  right: 12px;
-  width: 34px;
-  height: 34px;
+  right: 11px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   border: 0;
-  color: #718077;
+  border-radius: 8px;
+  color: #6f7d75;
   background: transparent;
   transform: translateY(-50%);
   cursor: pointer;
+}
+
+.password-input button:hover {
+  background: #f0f5e9;
 }
 
 .form-tools {
@@ -778,7 +782,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #65736f;
+  color: #66756d;
   font-size: 14px;
 }
 
@@ -787,28 +791,32 @@ onUnmounted(() => {
   grid-template-columns: none;
   align-items: center;
   gap: 9px !important;
-  font-weight: 700 !important;
+  font-weight: 800 !important;
 }
 
 .checkbox input {
   width: 18px;
   height: 18px;
-  accent-color: #86b957;
+  accent-color: #84b63f;
 }
 
 .link-button {
-  color: #6d8a48;
+  color: #60813f;
   background: transparent;
-  font-weight: 800;
+  font-weight: 900;
 }
 
 .submit-button {
-  height: 52px;
-  border-radius: 8px;
+  height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 10px;
   color: #fff;
   background: #182536;
-  font-weight: 900;
-  box-shadow: 0 16px 34px rgba(24, 37, 54, 0.16);
+  font-weight: 950;
+  box-shadow: 0 18px 34px rgba(24, 37, 54, 0.18);
 }
 
 .submit-button:disabled {
@@ -816,84 +824,159 @@ onUnmounted(() => {
   opacity: 0.68;
 }
 
-@media (max-width: 920px) {
+@media (max-width: 980px) {
   .login-page {
     grid-template-columns: 1fr;
+    overflow: auto;
   }
 
   .story-stage {
-    min-height: 45vh;
+    min-height: 400px;
   }
 
-  .stage-copy {
+  .stage-title {
+    top: 88px;
+  }
+
+  .stage-title h1 {
+    font-size: 30px;
+  }
+
+  .wall-sheet {
     top: 18%;
+    right: 5%;
+    width: 54%;
+  }
+
+  .flower-field {
+    top: 22%;
+    transform: scale(0.76);
+    transform-origin: top left;
+  }
+
+  .mascot-line {
+    height: 280px;
+    min-height: 280px;
+    bottom: 34px;
   }
 
   .login-panel {
     min-height: auto;
-    box-shadow: 0 -20px 60px rgba(78, 90, 78, 0.12);
+    box-shadow: 0 -20px 60px rgba(72, 91, 76, 0.1);
   }
 }
 
 @media (max-width: 560px) {
   .story-stage {
-    min-height: 280px;
+    min-height: 285px;
   }
 
   .brand-mark {
-    top: 18px;
-    left: 18px;
-    z-index: 8;
-    padding: 8px 10px;
+    top: 20px;
+    left: 20px;
+    min-height: 38px;
   }
 
-  .brand-dot {
-    width: 20px;
-    height: 20px;
-  }
-
-  .stage-copy {
+  .stage-title {
     display: none;
   }
 
-  .hydrangea {
-    transform: scale(0.56);
+  .flower-field,
+  .paper-plane,
+  .wall-sheet {
+    display: none;
   }
 
-  .orange {
-    left: 4%;
-    bottom: 28px;
-    width: 150px;
-    height: 120px;
+  .mascot-line {
+    inset: auto 12px 18px 12px;
+    height: 146px;
+    min-height: 146px;
+  }
+
+  .sprout {
+    left: 0;
+    width: 124px;
+    height: 88px;
   }
 
   .violet {
     left: 30%;
-    bottom: 28px;
-    width: 112px;
-    height: 218px;
+    width: 78px;
+    height: 142px;
   }
 
-  .ink {
-    left: 53%;
-    bottom: 28px;
-    width: 88px;
-    height: 186px;
+  .charcoal {
+    left: 54%;
+    width: 64px;
+    height: 122px;
   }
 
-  .yellow {
-    left: 64%;
-    bottom: 28px;
-    width: 124px;
-    height: 168px;
+  .sunny {
+    left: 67%;
+    width: 92px;
+    height: 108px;
   }
 
-  .mascot-label {
-    bottom: -25px;
+  .mascot-tag {
+    display: none;
+  }
+
+  .eye {
+    width: 18px;
+    height: 18px;
+  }
+
+  .eye i {
+    left: 5px;
+    top: 5px;
+    width: 7px;
+    height: 7px;
+  }
+
+  .eye.dark {
+    width: 13px;
+    height: 13px;
+  }
+
+  .eye.dark i {
+    left: 3px;
+    top: 3px;
+  }
+
+  .eye.right {
+    left: calc(42% + 24px);
   }
 
   .login-panel {
-    padding: 28px 20px 34px;
+    padding: 26px 20px 34px;
+  }
+
+  .mode-row {
+    justify-content: flex-start;
+    margin-bottom: 20px;
+  }
+
+  .form-heading p {
+    font-size: 30px;
+  }
+
+  .form-heading {
+    margin-bottom: 22px;
+  }
+
+  .login-form {
+    gap: 14px;
+  }
+
+  .login-form input[type="text"],
+  .login-form input[type="password"],
+  .submit-button {
+    height: 52px;
+  }
+
+  .form-tools {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

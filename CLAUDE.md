@@ -187,8 +187,8 @@ under specs/<module>/plan.md.
 
 ## Local Tool Paths
 
-- Maven: `D:\tool\apache-maven-3.6.1`
-- When Maven is needed on this machine, use `D:\tool\apache-maven-3.6.1\bin\mvn.cmd` or add `D:\tool\apache-maven-3.6.1\bin` to `PATH` for the current shell session.
+- Maven: `D:\tool\apache-maven-3.9.16`
+- When Maven is needed on this machine, use `D:\tool\apache-maven-3.9.16\bin\mvn.cmd` or add `D:\tool\apache-maven-3.9.16\bin` to `PATH` for the current shell session.
 - Backend Maven project path: `backend\DataOcean`
 
 ## Local Environment Rules
