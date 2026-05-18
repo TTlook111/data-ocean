@@ -1,10 +1,10 @@
 package com.dataocean.module.user.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.user.query.UserQueryRequest;
-import com.dataocean.module.user.req.UserCreateRequest;
-import com.dataocean.module.user.req.UserUpdateRequest;
-import com.dataocean.module.user.vo.UserVO;
+import com.dataocean.module.user.entity.query.UserQueryRequest;
+import com.dataocean.module.user.entity.req.UserCreateRequest;
+import com.dataocean.module.user.entity.req.UserUpdateRequest;
+import com.dataocean.module.user.entity.vo.UserVO;
 
 public interface UserService {
 

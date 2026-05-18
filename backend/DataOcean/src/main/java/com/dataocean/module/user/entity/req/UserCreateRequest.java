@@ -1,4 +1,4 @@
-package com.dataocean.module.user.req;
+package com.dataocean.module.user.entity.req;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;

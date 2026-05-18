@@ -2,9 +2,9 @@ package com.dataocean.module.user.controller;
 
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.LoginUser;
-import com.dataocean.module.user.vo.CurrentUserResponse;
-import com.dataocean.module.user.req.LoginRequest;
-import com.dataocean.module.user.vo.LoginResponse;
+import com.dataocean.module.user.entity.vo.CurrentUserResponse;
+import com.dataocean.module.user.entity.req.LoginRequest;
+import com.dataocean.module.user.entity.vo.LoginResponse;
 import com.dataocean.module.user.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;

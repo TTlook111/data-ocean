@@ -1,4 +1,4 @@
-package com.dataocean.module.user.query;
+package com.dataocean.module.user.entity.query;
 
 import lombok.Data;
 

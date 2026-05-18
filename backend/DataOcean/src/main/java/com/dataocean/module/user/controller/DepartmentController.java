@@ -1,8 +1,8 @@
 package com.dataocean.module.user.controller;
 
 import com.dataocean.common.result.Result;
-import com.dataocean.module.user.req.DepartmentCreateRequest;
-import com.dataocean.module.user.vo.DepartmentTreeVO;
+import com.dataocean.module.user.entity.req.DepartmentCreateRequest;
+import com.dataocean.module.user.entity.vo.DepartmentTreeVO;
 import com.dataocean.module.user.service.DepartmentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

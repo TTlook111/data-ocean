@@ -1,4 +1,4 @@
-﻿# CLAUDE.md
+# CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -204,6 +204,6 @@ under specs/<module>/plan.md.
 
 ## Backend Layering Rules
 
-- 请求对象放在 `req`，查询对象放在 `query`，返回/视图对象放在 `vo`，实体放在 `entity`，Mapper 放在 `mapper`，Controller 放在 `controller`，Service 接口放在 `service`，实现类放在 `service.impl`。
+- 实体相关对象统一收拢在 `entity` 下：数据库实体直接放 `entity`，请求对象放 `entity.req`，查询对象放 `entity.query`，返回/视图对象放 `entity.vo`；Mapper 放在 `mapper`，Controller 放在 `controller`，Service 接口放在 `service`，实现类放在 `service.impl`。
 - 每个 service 都必须在 `service` 下暴露接口，实现类放在 `service.impl`，并使用 `*ServiceImpl` 后缀。
 - 抛出异常的提示、代码注释、日志消息都使用中文。日志中不要输出密码、JWT 原文、密钥等敏感值。

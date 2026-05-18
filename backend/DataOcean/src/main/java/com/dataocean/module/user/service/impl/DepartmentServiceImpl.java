@@ -2,8 +2,8 @@ package com.dataocean.module.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.user.req.DepartmentCreateRequest;
-import com.dataocean.module.user.vo.DepartmentTreeVO;
+import com.dataocean.module.user.entity.req.DepartmentCreateRequest;
+import com.dataocean.module.user.entity.vo.DepartmentTreeVO;
 import com.dataocean.module.user.entity.SysDepartment;
 import com.dataocean.module.user.entity.SysUser;
 import com.dataocean.module.user.mapper.DepartmentMapper;
