@@ -55,6 +55,12 @@
 - [ ] T024 确保 DatasourceSecretService 的日志中不输出明文密码，加密/解密方法中对入参做非空校验
 - [ ] T025 在 DatasourceService.deleteDatasource 中实现删除约束检查：有 PUBLISHED 快照或关联 skills.md 的数据源禁止删除，返回明确错误信息
 
+## Phase 8: Health Check & Pool Notification
+
+- [ ] T029 在 Java 后端创建 DatasourceHealthCheckScheduler（@Scheduled 每 5 分钟），对所有启用的数据源执行 SELECT 1，记录结果到 datasource_health_check 表，连续 3 次失败标记数据源为异常状态
+- [ ] T030 在 DatasourceService 的 disable/updatePassword 方法中，调用 Python 内部 API DELETE /internal/sql/pools/{datasourceId} 通知销毁连接池
+- [ ] T031 [Frontend] 在数据源列表页添加健康状态列（绿色/黄色/红色指示灯），异常数据源标红并显示最后检测时间
+
 ## Dependencies
 
 ```

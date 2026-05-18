@@ -47,6 +47,11 @@
 
 - [ ] T017 创建发布事件监听器占位 `backend/src/main/java/com/dataocean/module/versioning/event/SnapshotPublishedEventListener.java`，使用 @EventListener 监听 SnapshotPublishedEvent，当前仅记录日志，后续模块（skills.md 生成）实现具体逻辑
 
+## Phase 9: Snapshot Notifications
+
+- [ ] T020 在快照发布时（publishSnapshot）通过 NotificationService 通知所有引用该数据源 skills.md 的分析师："数据源 X 的元数据快照已更新，请检查 skills.md 是否需要同步更新"
+- [ ] T021 [Frontend] 在快照详情页添加"快照内容概览"面板：展示该快照包含的表数量、字段数量、质量分、核心表列表
+
 ## Dependencies
 
 ```

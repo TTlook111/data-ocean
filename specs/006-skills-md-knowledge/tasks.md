@@ -64,6 +64,12 @@
 - [ ] T030 实现 DTO 类 `backend/src/main/java/com/dataocean/module/knowledge/dto/` 下所有 VO 和 Request 类，确保 Controller 不直接暴露 Entity
 - [ ] T031 添加接口参数校验（@Valid + Spring Validation 注解），包括 content 非空、snapshot_id 存在性校验
 
+## Phase 9: Preview & Dashboard
+
+- [ ] T036 在 Java 后端添加 POST /api/admin/knowledge-docs/{id}/preview-chunks 接口：模拟切片逻辑，返回该版本会被切成哪些 chunks（chunk_text + related_table），供作者预览 RAG 效果
+- [ ] T037 [Frontend] 在 Skills 编辑器中添加"RAG 预览"侧边栏：展示当前内容切片后的 chunks 列表
+- [ ] T038 [Frontend] 创建 Skills 状态总览页面 `frontend/src/views/admin/knowledge/KnowledgeDashboard.vue`：按数据源展示 skills.md 状态（草稿/待审核/已发布/需更新）
+
 ## Dependencies
 
 ```

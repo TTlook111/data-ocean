@@ -63,6 +63,12 @@
 - [ ] T026 实现连接池耗尽处理：数据库连接池满时返回"系统繁忙，请稍后再试"而非技术错误
 - [ ] T027 实现多组件同时故障时的优先级错误返回：Python 不可用 > Milvus 降级 > LLM 超时，返回最关键的错误信息
 
+## Phase 8: Service Health Dashboard
+
+- [ ] T028 在 Java 后端添加 GET /api/admin/system/health 接口：返回各服务当前健康状态（Python 服务、Milvus、Redis、MySQL）、最后检查时间、连续失败次数
+- [ ] T029 [Frontend] 创建服务健康状态页面 `frontend/src/views/admin/system/ServiceHealth.vue`：展示各服务状态（绿/黄/红）、最后检查时间、历史可用率
+- [ ] T030 在 HealthCheckScheduler 中，当服务状态变更时（可用→不可用 或 不可用→恢复），通过 NotificationService 发送通知给超级管理员
+
 ## Dependencies
 
 ```

@@ -58,6 +58,13 @@
 - [ ] T025 在 AuditLogService.recordAudit 中确保异步写入失败时不影响主流程：添加 @Async 异常处理，失败时仅记录 error 日志
 - [ ] T026 为 query_audit_log 表添加按月分表策略注释（MyBatis-Plus 分表插件配置），当单表超过 500 万行时启用
 
+## Phase 9: Alerts & Cost Dashboard
+
+- [ ] T031 在 Java 后端创建 alert_rule 表（id, metric, threshold, operator, notification_type, enabled）和 AlertService：支持配置告警规则（如错误率>20%、慢查询数>10/小时）
+- [ ] T032 创建 AlertCheckScheduler（@Scheduled 每 10 分钟），检查各指标是否触发告警规则，触发时写入 sys_notification
+- [ ] T033 [Frontend] 在审计页面添加"LLM 成本"标签页：按天/周/月展示 Token 消耗、API 调用次数、预估费用（从 llm_usage_log 聚合）
+- [ ] T034 [Frontend] 在系统设置中添加"告警规则"配置页面：管理告警规则的增删改查和启用/禁用
+
 ## Dependencies
 
 ```

@@ -56,6 +56,11 @@
 - [ ] T022 在 config.py 中添加所有可配置项的环境变量文档注释，并在 `python-service/.env.example` 中列出所有 RAG 相关环境变量
 - [ ] T023 在 router.py 中添加 GET /internal/rag/health 健康检查接口，返回 Milvus 连接状态和 Collection 统计信息
 
+## Phase 8: Manual Re-vectorize
+
+- [ ] T024 在 Python 路由中确保 POST /internal/rag/vectorize 支持 force=true 参数（强制全量重建，忽略增量逻辑）
+- [ ] T025 [Frontend] 在数据源详情页或 skills.md 管理页添加"重新向量化"按钮，调用 Java → Python 触发全量重建
+
 ## Dependencies
 
 ```

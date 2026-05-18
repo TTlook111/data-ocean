@@ -50,6 +50,13 @@
 - [ ] T022 添加接口参数校验：score 范围 0-100、tagCode 非空且在预定义列表中、feedback_type 枚举校验、同一用户同一字段每天限频校验
 - [ ] T023 在 FieldTagService 中添加标签与 column_meta 关联校验：打标前检查 column_meta_id 是否存在，不存在则返回 404
 
+## Phase 8: Bulk Operations & Trend
+
+- [ ] T028 在 Java 后端添加 GET /api/admin/fields/{fieldId}/confidence-trend?days=30 接口：返回该字段可信度分数的时序数据（从 field_confidence_event 聚合）
+- [ ] T029 在 Java 后端添加 POST /api/admin/fields/import-tags 接口：接收 CSV 文件（column_id, tag_code），批量导入字段标签
+- [ ] T030 在 Java 后端添加 POST /api/admin/fields/auto-tag 接口：根据字段名模式匹配自动打标（如 *_amount → 金额类, *_time/*_date → 时间类, *_status → 状态类）
+- [ ] T031 [Frontend] 在可信度看板中为每个字段添加"趋势"按钮，点击弹出可信度变化折线图
+
 ## Dependencies
 
 ```

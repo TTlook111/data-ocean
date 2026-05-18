@@ -60,6 +60,12 @@
 - [ ] T026 在 executor.py 中添加结果集大小检查：row_count 超过 MAX_RESULT_ROWS 时截断并在响应中标记 truncated=true
 - [ ] T027 在 router.py 中添加 GET /internal/sandbox/health 健康检查接口，返回连接池状态（活跃池数量、总连接数、各池使用率）
 
+## Phase 8: Pool Management API
+
+- [ ] T028 在 router.py 中添加 GET /internal/sql/pools/dashboard 接口：返回所有活跃连接池的详细状态（datasource_id、active_connections、idle_connections、pool_size、last_used_at、created_at）
+- [ ] T029 在 router.py 中添加 POST /internal/sql/pools/{datasourceId}/reset 接口：强制销毁并重建指定数据源的连接池
+- [ ] T030 [Frontend] 在系统设置或数据源详情页添加"连接池状态"面板，展示各数据源的连接池使用率
+
 ## Dependencies
 
 ```

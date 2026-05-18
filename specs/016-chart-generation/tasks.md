@@ -54,6 +54,11 @@
 - [ ] T017 实现前端图表降级展示：chartOption 为 null 或渲染失败时，隐藏图表区域只展示 ResultTable，不报错不弹窗
 - [ ] T018 实现饼图数据超 10 类时的前端聚合：保留 Top 9 + "其他"合并项
 
+## Phase 8: Data Export
+
+- [ ] T019 [Frontend] 在 ResultTable 组件中添加"导出 CSV"按钮：将当前表格数据转为 CSV 格式（含表头），触发浏览器下载
+- [ ] T020 [Frontend] 在导出时处理大数据集：超过 10000 行时提示"数据量较大，仅导出前 10000 行"
+
 ## Dependencies
 
 ```

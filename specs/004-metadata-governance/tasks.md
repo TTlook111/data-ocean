@@ -58,6 +58,12 @@
 
 - [ ] T025 创建治理控制器 `backend/src/main/java/com/dataocean/module/governance/controller/MetadataGovernanceController.java`，实现：POST /api/admin/governance/quality-check（触发质量校验）、GET /api/admin/governance/issues（问题清单列表，支持按快照/状态/严重级别筛选分页）、PUT /api/admin/governance/issues/{id}/handle（处理单个问题）、PUT /api/admin/governance/issues/batch-handle（批量处理）、PUT /api/admin/governance/issues/{id}/assign（分派问题）、PUT /api/admin/governance/status（更新治理状态）、POST /api/admin/governance/review/submit（提交审核）、POST /api/admin/governance/review/approve（审核通过）、POST /api/admin/governance/review/reject（审核驳回）
 
+## Phase 9: Auto-assign & Quality Trend
+
+- [ ] T030 在 QualityIssueService 中实现自动分派逻辑：根据 db_table_meta.owner_user_id 自动将问题分派给表负责人，无负责人的分派给数据源 owner
+- [ ] T031 在 Java 后端创建 quality_score_history 表（datasource_id, snapshot_id, score, dimension_scores, created_at），每次质量校验完成后记录历史分数
+- [ ] T032 添加 GET /api/admin/governance/quality-trend?datasourceId=&days=30 接口，返回质量分时序数据供前端图表渲染
+
 ## Dependencies
 
 ```

@@ -56,6 +56,12 @@
 - [ ] T022 在 Java Controller 中实现模板预览功能：接收示例变量 JSON，调用 Jinja2 风格的简单替换逻辑返回渲染结果（或调用 Python 预览接口）
 - [ ] T023 在 PromptTemplateServiceImpl 中添加 getActiveContent(code) 方法供 Java 内部 API 调用（Python 通过此接口获取模板），路径 GET /internal/prompts/{code}/active
 
+## Phase 9: Prompt Effectiveness Tracking
+
+- [ ] T028 在 Python Agent 每次调用 LLM 时，将使用的 prompt_template_code 和 version_no 写入 AgentState，最终返回给 Java
+- [ ] T029 在 Java 审计日志（query_audit_log）中新增 prompt_versions 字段（JSON），记录本次查询使用的各 Prompt 版本
+- [ ] T030 [Frontend] 在 Prompt 管理页面添加"效果分析"标签页：按版本展示查询成功率、平均耗时、用户反馈正向率
+
 ## Dependencies
 
 ```

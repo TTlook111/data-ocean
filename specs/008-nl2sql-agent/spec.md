@@ -76,6 +76,7 @@ Agent 在生成 SQL 时，根据字段可信度优先选择高可信字段，避
 - **FR-008**: 系统 MUST 返回结果中包含使用的表、字段、SQL、图表配置
 - **FR-009**: Query_Rewriter MUST 解析时间表达式（"上个月"→具体日期范围）、消解多轮指代、提取意图（维度/指标/筛选/排序）
 - **FR-010**: Query_Rewriter MUST 将改写后的结构化查询意图传递给 Schema_Retriever，提升召回精度
+- **FR-011**: Java 网关 MUST 持久化会话消息到 conversation/message 表，页面刷新后可恢复上下文
 
 ### Key Entities
 

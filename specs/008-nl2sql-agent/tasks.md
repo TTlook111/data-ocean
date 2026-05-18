@@ -58,6 +58,17 @@
 - [ ] T024 在 router.py 中添加请求参数校验：question 非空且长度 <= 500、datasource_id 必填、chat_history 最多 5 轮
 - [ ] T025 在 graph.py 执行完成后组装最终 ExecuteResponse：包含 sql、data_rows、columns、chart_config、used_tables（从 schema_context 提取）、used_fields、explanation（从 LLM 响应提取）
 
+## Phase 8: Conversation Persistence (Java Side)
+
+- [ ] T026 在 Java 后端 ConversationService 中实现会话消息持久化：每次查询请求时保存 user message，收到 Python 结果后保存 assistant message（含 SQL、图表、解释）
+- [ ] T027 在 Java 后端实现 GET /api/conversations/{id}/messages 接口，返回该会话的所有消息（分页），前端刷新后可恢复完整对话上下文
+- [ ] T028 在前端 conversation store 的初始化逻辑中，如果 conversationId 存在则从后端加载历史消息恢复状态
+
+## Phase 9: UX Enhancements
+
+- [ ] T029 在 Data_Visualizer_Node 完成后，调用 LLM 生成 2-3 个推荐追问问题（基于当前查询结果和数据特征），写入 ExecuteResponse.suggestedQuestions
+- [ ] T030 在 SQL_Generator_Node 生成 SQL 后、执行前，基于 SQL 复杂度（JOIN 数量、子查询层数、涉及表数）估算执行时间范围，通过 SSE 推送给前端展示
+
 ## Dependencies
 
 ```

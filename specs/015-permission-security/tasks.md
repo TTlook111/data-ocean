@@ -60,6 +60,13 @@
 - [ ] T026 实现 governance_status 联动：表的 governance_status 为 BLOCKED 时自动加入 deniedTables，无需额外配置权限
 - [ ] T027 实现结果级控制：根据 can_export 控制前端导出按钮显示，根据 can_view_sql 控制是否返回完整 SQL 文本
 
+## Phase 8: Role Assignment & Department Inheritance
+
+- [ ] T031 在 Java 后端 RoleService 中实现 assignRoleToUser、removeRoleFromUser、listUsersByRole 方法
+- [ ] T032 在 RoleController 中添加 POST /api/admin/roles/{roleId}/users、DELETE /api/admin/roles/{roleId}/users/{userId}、GET /api/admin/roles/{roleId}/users 接口
+- [ ] T033 在 PermissionCalculator 中实现部门继承逻辑：查询用户所属部门的 datasource_access 记录，与用户直接授权和角色授权合并（取并集）
+- [ ] T034 [Frontend] 在角色管理页面添加"成员管理"标签页：展示该角色下的用户列表，支持添加/移除用户
+
 ## Dependencies
 
 ```
