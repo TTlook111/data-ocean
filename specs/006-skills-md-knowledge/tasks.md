@@ -5,7 +5,7 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V6__create_knowledge_tables.sql`，包含 knowledge_doc、knowledge_doc_version、knowledge_chunk、knowledge_review_task、vector_index_task 五张表的 DDL
+- [ ] T001 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V7__create_knowledge_tables.sql`，包含 knowledge_doc、knowledge_doc_version、knowledge_chunk、knowledge_review_task、vector_index_task 五张表的 DDL
 - [ ] T002 创建 Java 包结构 `backend/src/main/java/com/dataocean/module/knowledge/`，包含 controller/service/mapper/entity/dto/enums/feign 子包和对应的空类骨架
 - [ ] T003 创建 Python 包结构 `python-service/dataocean/knowledge/`，包含 `__init__.py`、`router.py`、`service.py`、`schema.py` 和 `prompts/` 目录
 

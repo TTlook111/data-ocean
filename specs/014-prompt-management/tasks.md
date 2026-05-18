@@ -5,7 +5,7 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V10__create_prompt_tables.sql`，建表 prompt_template（id, template_code, template_name, scenario, content, current_version, enabled, version, created_at, updated_at）和 prompt_template_version（id, template_id, version_no, content, change_summary, is_active, created_by, created_at）
+- [ ] T001 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V14__create_prompt_tables.sql`，建表 prompt_template（id, template_code, template_name, scenario, content, current_version, enabled, version, created_at, updated_at）和 prompt_template_version（id, template_id, version_no, content, change_summary, is_active, created_by, created_at）
 - [ ] T002 创建 Java 包结构目录 `backend/src/main/java/com/dataocean/module/prompt/`，包含 controller/, service/, mapper/, entity/, dto/ 子包
 
 ## Phase 2: Foundational — Java 模板 CRUD

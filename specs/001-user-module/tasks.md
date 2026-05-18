@@ -29,11 +29,11 @@
 **Goal**: 用户通过账号密码登录系统，系统颁发 Token，退出登录时 Token 失效
 **Independent Test**: 用户登录后能访问受保护接口，退出后再访问返回 401
 
-- [X] T024 [US2] 创建 JWT 工具类 `backend/src/main/java/com/dataocean/common/security/JwtTokenProvider.java`，实现 generateToken、validateToken、getUsernameFromToken、getExpiration 方法，Token 有效期从配置读取
-- [X] T021 [US2] 创建 JWT 认证过滤器 `backend/src/main/java/com/dataocean/common/security/JwtAuthenticationFilter.java`，从 Authorization Header 提取 Token，校验有效性并设置 SecurityContext，同时检查 Redis 黑名单
-- [X] T022 [US2] 创建 UserDetailsService 实现 `backend/src/main/java/com/dataocean/common/security/UserDetailsServiceImpl.java`，从数据库加载用户信息和权限列表
-- [X] T023 [US2] 创建 Spring Security 配置类 `backend/src/main/java/com/dataocean/common/config/SecurityConfig.java`，配置无状态会话、JWT 过滤器链、公开路径（/api/auth/login）、其余路径需认证
-- [X] T024 [US2] 创建登录请求 DTO `backend/src/main/java/com/dataocean/module/user/dto/LoginRequest.java`，字段：username（@NotBlank）、password（@NotBlank）
+- [X] T016 [US2] 创建 JWT 工具类 `backend/src/main/java/com/dataocean/common/security/JwtTokenProvider.java`，实现 generateToken、validateToken、getUsernameFromToken、getExpiration 方法，Token 有效期从配置读取
+- [X] T017 [US2] 创建 JWT 认证过滤器 `backend/src/main/java/com/dataocean/common/security/JwtAuthenticationFilter.java`，从 Authorization Header 提取 Token，校验有效性并设置 SecurityContext，同时检查 Redis 黑名单
+- [X] T018 [US2] 创建 UserDetailsService 实现 `backend/src/main/java/com/dataocean/common/security/UserDetailsServiceImpl.java`，从数据库加载用户信息和权限列表
+- [X] T019 [US2] 创建 Spring Security 配置类 `backend/src/main/java/com/dataocean/common/config/SecurityConfig.java`，配置无状态会话、JWT 过滤器链、公开路径（/api/auth/login）、其余路径需认证
+- [X] T020 [US2] 创建登录请求 DTO `backend/src/main/java/com/dataocean/module/user/dto/LoginRequest.java`，字段：username（@NotBlank）、password（@NotBlank）
 - [X] T021 [US2] 创建登录响应 DTO `backend/src/main/java/com/dataocean/module/user/dto/LoginResponse.java`，字段：token、tokenType、expiresIn、userId、username、realName、roles
 - [X] T022 [US2] 创建认证服务 `backend/src/main/java/com/dataocean/module/user/service/AuthService.java`，实现 login（验证密码、检查状态、生成 Token、更新最后登录时间）和 logout（Token 加入 Redis 黑名单）方法
 - [X] T023 [US2] 创建认证控制器 `backend/src/main/java/com/dataocean/module/user/controller/AuthController.java`，POST /api/auth/login 和 POST /api/auth/logout 接口
@@ -44,16 +44,16 @@
 **Goal**: 管理员创建用户并分配角色，使该用户能登录系统
 **Independent Test**: 创建用户后，该用户能成功登录系统并看到其角色对应的功能菜单
 
-- [X] T021 [P] [US1] 创建用户实体类 `backend/src/main/java/com/dataocean/module/user/entity/SysUser.java`，使用 MyBatis-Plus 注解映射 sys_user 表，包含逻辑删除和自动填充配置
-- [X] T022 [P] [US1] 创建角色实体类 `backend/src/main/java/com/dataocean/module/user/entity/SysRole.java`
-- [X] T023 [P] [US1] 创建部门实体类 `backend/src/main/java/com/dataocean/module/user/entity/SysDepartment.java`
-- [X] T024 [P] [US1] 创建关联实体类 `backend/src/main/java/com/dataocean/module/user/entity/SysUserRole.java`、`SysPermission.java`、`SysRolePermission.java`
-- [X] T025 [P] [US1] 创建 Mapper 接口 `backend/src/main/java/com/dataocean/module/user/mapper/UserMapper.java`、`RoleMapper.java`、`DepartmentMapper.java`、`UserRoleMapper.java`、`RolePermissionMapper.java`
-- [X] T026 [US1] 创建用户创建请求 DTO `backend/src/main/java/com/dataocean/module/user/dto/UserCreateRequest.java`，字段：username、password、realName、email、phone、departmentId、roleIds，含 JSR-303 校验注解
-- [X] T027 [US1] 创建用户更新请求 DTO `backend/src/main/java/com/dataocean/module/user/dto/UserUpdateRequest.java`，字段：realName、email、phone、departmentId、roleIds
-- [X] T028 [US1] 创建用户视图对象 `backend/src/main/java/com/dataocean/module/user/dto/UserVO.java`，字段：id、username、realName、email、phone、departmentName、roleNames、status、lastLoginAt、createdAt
-- [X] T029 [US1] 创建用户服务 `backend/src/main/java/com/dataocean/module/user/service/UserService.java`，实现 createUser（校验用户名唯一、BCrypt 加密密码、保存用户、绑定角色）、updateUser、deleteUser（逻辑删除，超级管理员不可删）、getUserById
-- [X] T030 [US1] 创建用户管理控制器 `backend/src/main/java/com/dataocean/module/user/controller/UserController.java`，实现 POST /api/admin/users、PUT /api/admin/users/{id}、DELETE /api/admin/users/{id}、GET /api/admin/users/{id} 接口，需 @PreAuthorize("hasAuthority('user:manage')")
+- [X] T029 [P] [US1] 创建用户实体类 `backend/src/main/java/com/dataocean/module/user/entity/SysUser.java`，使用 MyBatis-Plus 注解映射 sys_user 表，包含逻辑删除和自动填充配置
+- [X] T026 [P] [US1] 创建角色实体类 `backend/src/main/java/com/dataocean/module/user/entity/SysRole.java`
+- [X] T027 [P] [US1] 创建部门实体类 `backend/src/main/java/com/dataocean/module/user/entity/SysDepartment.java`
+- [X] T028 [P] [US1] 创建关联实体类 `backend/src/main/java/com/dataocean/module/user/entity/SysUserRole.java`、`SysPermission.java`、`SysRolePermission.java`
+- [X] T029 [P] [US1] 创建 Mapper 接口 `backend/src/main/java/com/dataocean/module/user/mapper/UserMapper.java`、`RoleMapper.java`、`DepartmentMapper.java`、`UserRoleMapper.java`、`RolePermissionMapper.java`
+- [X] T034 [US1] 创建用户创建请求 DTO `backend/src/main/java/com/dataocean/module/user/dto/UserCreateRequest.java`，字段：username、password、realName、email、phone、departmentId、roleIds，含 JSR-303 校验注解
+- [X] T031 [US1] 创建用户更新请求 DTO `backend/src/main/java/com/dataocean/module/user/dto/UserUpdateRequest.java`，字段：realName、email、phone、departmentId、roleIds
+- [X] T032 [US1] 创建用户视图对象 `backend/src/main/java/com/dataocean/module/user/dto/UserVO.java`，字段：id、username、realName、email、phone、departmentName、roleNames、status、lastLoginAt、createdAt
+- [X] T033 [US1] 创建用户服务 `backend/src/main/java/com/dataocean/module/user/service/UserService.java`，实现 createUser（校验用户名唯一、BCrypt 加密密码、保存用户、绑定角色）、updateUser、deleteUser（逻辑删除，超级管理员不可删）、getUserById
+- [X] T034 [US1] 创建用户管理控制器 `backend/src/main/java/com/dataocean/module/user/controller/UserController.java`，实现 POST /api/admin/users、PUT /api/admin/users/{id}、DELETE /api/admin/users/{id}、GET /api/admin/users/{id} 接口，需 @PreAuthorize("hasAuthority('user:manage')")
 
 ## Phase 5: User Story 3 (P2) — 用户状态管理
 

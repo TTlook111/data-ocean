@@ -5,7 +5,7 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V11__create_permission_tables.sql`，建表 datasource_access（id, subject_type, subject_id, datasource_id, can_query, can_export, can_view_sql, created_at, updated_at）和 datasource_access_policy（id, datasource_id, subject_type, subject_id, table_name, column_name, access_type, row_filter_expression, mask_strategy, created_at, updated_at）
+- [ ] T001 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V15__create_permission_tables.sql`，建表 datasource_access（id, subject_type, subject_id, datasource_id, can_query, can_export, can_view_sql, created_at, updated_at）和 datasource_access_policy（id, datasource_id, subject_type, subject_id, table_name, column_name, access_type, row_filter_expression, mask_strategy, created_at, updated_at）
 - [ ] T002 创建 Java 包结构目录 `backend/src/main/java/com/dataocean/module/permission/`，包含 controller/, service/, mapper/, entity/, dto/, enums/ 子包
 - [ ] T003 [P] 创建枚举类 `backend/src/main/java/com/dataocean/module/permission/enums/SubjectType.java`，定义 USER, ROLE, DEPARTMENT
 - [ ] T004 [P] 创建枚举类 `backend/src/main/java/com/dataocean/module/permission/enums/MaskStrategy.java`，定义 PHONE, ID_CARD, EMAIL, BANK_CARD, NAME 及各自的脱敏规则描述

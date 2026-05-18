@@ -58,7 +58,7 @@
 
 - [ ] T025 在 validator.py 中添加 SQL 注入二次防护：校验 SQL 中不包含注释符号（--、/**/）和多语句分隔符（;），作为 Prompt 注入的兜底防线
 - [ ] T026 在 executor.py 中添加结果集大小检查：row_count 超过 MAX_RESULT_ROWS 时截断并在响应中标记 truncated=true
-- [ ] T027 在 router.py 中添加 GET /internal/sandbox/health 健康检查接口，返回连接池状态（活跃池数量、总连接数、各池使用率）
+- [ ] T027 在 router.py 中添加 GET /internal/sql/health 健康检查接口，返回连接池状态（活跃池数量、总连接数、各池使用率）
 
 ## Phase 8: Pool Management API
 
