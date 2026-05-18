@@ -66,7 +66,7 @@ Agent 在生成 SQL 时，根据字段可信度优先选择高可信字段，避
 
 ### Functional Requirements
 
-- **FR-001**: 系统 MUST 使用 LangGraph 编排 Agent 工作流（Schema_Retriever → SQL_Generator → SQL_Validator → SQL_Executor → Data_Visualizer）
+- **FR-001**: 系统 MUST 使用 LangGraph 编排 Agent 工作流（Query_Rewriter → Schema_Retriever → SQL_Generator → SQL_Validator → SQL_Executor → Data_Visualizer）
 - **FR-002**: 系统 MUST 在 SQL 执行失败时自动重试，最多 3 次
 - **FR-003**: 系统 MUST 将字段可信度信息注入 SQL 生成 Prompt
 - **FR-004**: 系统 MUST 支持用户取消正在执行的查询
@@ -74,6 +74,8 @@ Agent 在生成 SQL 时，根据字段可信度优先选择高可信字段，避
 - **FR-006**: 系统 MUST 在 SQL_Validator 校验不通过时直接返回安全告警，不进入重试
 - **FR-007**: 系统 MUST 设置总时间预算 100 秒，超时停止重试
 - **FR-008**: 系统 MUST 返回结果中包含使用的表、字段、SQL、图表配置
+- **FR-009**: Query_Rewriter MUST 解析时间表达式（"上个月"→具体日期范围）、消解多轮指代、提取意图（维度/指标/筛选/排序）
+- **FR-010**: Query_Rewriter MUST 将改写后的结构化查询意图传递给 Schema_Retriever，提升召回精度
 
 ### Key Entities
 

@@ -43,9 +43,10 @@ UNIQUE INDEX: (template_id, version_no)
 
 | template_code | template_name | scenario |
 |---------------|---------------|----------|
+| query_rewrite | 问题理解与改写 | rewrite |
 | sql_generation | SQL 生成 | query |
 | chart_generation | 图表生成 | chart |
-| intent_recognition | 意图识别 | intent |
+| intent_recognition | 意图识别（简单/复杂判断） | intent |
 | schema_retrieval_query | Schema 检索查询改写 | retrieval |
 | memory_extraction | 记忆提取 | memory |
 

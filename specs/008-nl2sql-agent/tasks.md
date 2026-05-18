@@ -10,22 +10,24 @@
 
 ## Phase 2: Foundational — LangGraph 图骨架
 
-- [ ] T003 实现 `python-service/dataocean/agent/state.py`：定义 AgentState TypedDict，包含字段 question、datasource_id、schema_context（召回结果）、generated_sql、validation_result、execution_result、visualization、error_message、retry_count、current_node、start_time、task_id、cancelled、confidence_scores、chat_history
-- [ ] T004 实现 `python-service/dataocean/agent/schema.py`：定义 Pydantic 模型——ExecuteRequest（task_id、datasource_id、question、confidence_scores、permissions、chat_history）、ExecuteResponse（task_id、status、sql、data_rows、columns、chart_config、used_tables、used_fields、explanation）、ProgressEvent（task_id、node、status、message、timestamp）
-- [ ] T005 实现 `python-service/dataocean/agent/graph.py`：使用 LangGraph StateGraph 定义节点（schema_retriever、sql_generator、sql_validator、sql_executor、data_visualizer）和边，条件路由逻辑：validator 失败→直接返回安全告警；executor 失败且 retry_count<3→回到 sql_generator；executor 失败且 retry_count>=3→返回错误；每个节点入口检查 cancelled 标记和总时间预算
+- [ ] T003 实现 `python-service/dataocean/agent/state.py`：定义 AgentState TypedDict，包含字段 question、rewritten_query（改写后的结构化查询）、extracted_intent（提取的意图：dimensions/metrics/filters/sort）、datasource_id、schema_context（召回结果）、generated_sql、validation_result、execution_result、visualization、error_message、retry_count、current_node、start_time、task_id、cancelled、confidence_scores、chat_history
+- [ ] T004 实现 `python-service/dataocean/agent/schema.py`：定义 Pydantic 模型——ExecuteRequest（task_id、datasource_id、question、confidence_scores、permissions、chat_history、user_memory）、ExecuteResponse（task_id、status、sql、data_rows、columns、chart_config、used_tables、used_fields、explanation、rewritten_query）、ProgressEvent（task_id、node、status、message、timestamp）、RewrittenQuery（original、rewritten、intent: QueryIntent）、QueryIntent（dimensions、metrics、filters、time_range、sort、is_ambiguous）
+- [ ] T005 实现 `python-service/dataocean/agent/graph.py`：使用 LangGraph StateGraph 定义节点（query_rewriter、schema_retriever、sql_generator、sql_validator、sql_executor、data_visualizer）和边，条件路由逻辑：rewriter 判断问题无法理解→直接返回提示；validator 失败→直接返回安全告警；executor 失败且 retry_count<3→回到 sql_generator；executor 失败且 retry_count>=3→返回错误；每个节点入口检查 cancelled 标记和总时间预算
 
-## Phase 3: User Story 1 (P1) — 各节点实现
+## Phase 3: User Story 1 (P1) — 问题改写与各节点实现
 
 **Goal**: 用户自然语言提问并获得查询结果
 **Independent Test**: 输入一个明确的业务问题，系统返回正确的数据表格和图表
 
-- [ ] T006 [US1] 实现 `python-service/dataocean/agent/nodes/schema_retriever.py`：调用 007 模块 POST /internal/rag/retrieve（传入 datasource_id、question、confidence_scores），将返回的 RetrieveResponse 写入 state.schema_context；若召回为空则设置 error_message="未找到相关数据表"并终止
-- [ ] T007 [US1] 创建 SQL 生成 Prompt 模板 `python-service/dataocean/agent/prompts/sql_generation.j2`：包含角色设定（MySQL SQL 专家）、召回的表结构和字段（含可信度标注）、Join Path、指标口径、约束规则（仅 SELECT、禁止 SELECT *、必须指定具体字段）、用户问题、历史对话上下文；若有重试则包含上次错误信息
-- [ ] T008 [US1] 实现 `python-service/dataocean/agent/nodes/sql_generator.py`：从 state 读取 schema_context + question + chat_history + error_message → 填充 Jinja2 模板 → 调用 Qwen API（dashscope SDK）→ 从 LLM 响应中提取 SQL（正则匹配 ```sql 代码块）→ 写入 state.generated_sql
-- [ ] T009 [US1] 实现 `python-service/dataocean/agent/nodes/sql_validator.py`：调用 009 模块 POST /internal/sandbox/validate（传入 sql、datasource_id、permissions），将校验结果写入 state.validation_result；校验不通过时设置 error_message 为拒绝原因
-- [ ] T010 [US1] 实现 `python-service/dataocean/agent/nodes/sql_executor.py`：调用 009 模块 POST /internal/sandbox/execute（传入 validated_sql、datasource_id），将执行结果（data_rows、columns、execution_time_ms）写入 state.execution_result；执行失败时 retry_count += 1 并设置 error_message
-- [ ] T011 [US1] 创建图表生成 Prompt 模板 `python-service/dataocean/agent/prompts/visualization.j2`：包含数据列信息、前 10 行样本数据、要求输出 ECharts option JSON（包含 title、xAxis、yAxis、series），根据数据特征选择图表类型（折线/柱状/饼图）
-- [ ] T012 [US1] 实现 `python-service/dataocean/agent/nodes/data_visualizer.py`：从 state.execution_result 读取数据 → 填充 visualization.j2 模板 → 调用 Qwen API → 解析返回的 JSON 为 ECharts option → 写入 state.visualization；若数据行数为 0 则跳过图表生成
+- [ ] T006 [US1] 创建问题改写 Prompt 模板 `python-service/dataocean/agent/prompts/query_rewrite.j2`：包含角色设定（查询意图分析专家）、当前日期（用于解析相对时间）、用户原始问题、历史对话上下文（用于指代消解）、用户长期记忆（常用指标/维度）；要求输出 JSON：{ rewritten_query, intent: { dimensions, metrics, filters, time_range, sort }, is_ambiguous, clarification_hint }
+- [ ] T007 [US1] 实现 `python-service/dataocean/agent/nodes/query_rewriter.py`：从 state 读取 question + chat_history + user_memory → 填充 query_rewrite.j2 → 调用 Qwen API → 解析返回 JSON → 写入 state.rewritten_query 和 state.extracted_intent；若 is_ambiguous=true 且无法自动消解则设置 error_message 为 clarification_hint 并终止
+- [ ] T008 [US1] 实现 `python-service/dataocean/agent/nodes/schema_retriever.py`：使用 state.rewritten_query（而非原始 question）调用 007 模块 POST /internal/rag/retrieve（传入 datasource_id、rewritten_query、extracted_intent.metrics、confidence_scores），将返回的 RetrieveResponse 写入 state.schema_context；若召回为空则设置 error_message="未找到相关数据表"并终止
+- [ ] T009 [US1] 创建 SQL 生成 Prompt 模板 `python-service/dataocean/agent/prompts/sql_generation.j2`：包含角色设定（MySQL SQL 专家）、改写后的结构化查询意图（维度/指标/筛选/时间范围/排序）、召回的表结构和字段（含可信度标注）、Join Path、指标口径、约束规则（仅 SELECT、禁止 SELECT *、必须指定具体字段）、历史对话上下文；若有重试则包含上次错误信息
+- [ ] T010 [US1] 实现 `python-service/dataocean/agent/nodes/sql_generator.py`：从 state 读取 rewritten_query + extracted_intent + schema_context + chat_history + error_message → 填充 sql_generation.j2 → 调用 Qwen API → 从 LLM 响应中提取 SQL（正则匹配 ```sql 代码块）→ 写入 state.generated_sql
+- [ ] T011 [US1] 实现 `python-service/dataocean/agent/nodes/sql_validator.py`：调用 009 模块 POST /internal/sandbox/validate（传入 sql、datasource_id、permissions），将校验结果写入 state.validation_result；校验不通过时设置 error_message 为拒绝原因
+- [ ] T012 [US1] 实现 `python-service/dataocean/agent/nodes/sql_executor.py`：调用 009 模块 POST /internal/sandbox/execute（传入 validated_sql、datasource_id），将执行结果（data_rows、columns、execution_time_ms）写入 state.execution_result；执行失败时 retry_count += 1 并设置 error_message
+- [ ] T013 [US1] 创建图表生成 Prompt 模板 `python-service/dataocean/agent/prompts/visualization.j2`：包含数据列信息、前 10 行样本数据、要求输出 ECharts option JSON（包含 title、xAxis、yAxis、series），根据数据特征选择图表类型（折线/柱状/饼图）
+- [ ] T014 [US1] 实现 `python-service/dataocean/agent/nodes/data_visualizer.py`：从 state.execution_result 读取数据 → 填充 visualization.j2 模板 → 调用 Qwen API → 解析返回的 JSON 为 ECharts option → 写入 state.visualization；若数据行数为 0 则跳过图表生成
 
 ## Phase 4: User Story 2 (P1) — 可信度驱动
 

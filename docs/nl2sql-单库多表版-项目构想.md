@@ -195,13 +195,14 @@
       > **安全说明**：`dbPassword` 使用 AES 加密传输（前缀 `encrypted:`），生产环境 Java→Python 通信必须走 HTTPS 或 mTLS；审计日志中对该字段做脱敏处理，禁止明文记录。
 
 3. Python AI 服务（LangGraph 有向图）：
-   a. Schema_Retriever_Node → 通过 LlamaIndex 从 Milvus 召回相关表
-   b. SQL_Generator_Node → LLM 生成 SQL
-   c. SQL_Validator_Node → AST 安全校验
-   d. SQL_Executor_Node → 直连数据库执行
-   e. (若报错 → 回到 b 重试，最多 3 次)
-   f. Data_Visualizer_Node → LLM 生成 Echarts 配置
-   g. 返回: { "sql": "...", "data": [...], "chartOption": {...}, "usedTables": [...], "usedFields": [...] }
+   a. Query_Rewriter_Node → 解析时间表达式、消解多轮指代、提取意图（维度/指标/筛选/排序）、改写为结构化查询
+   b. Schema_Retriever_Node → 使用改写后的查询通过 LlamaIndex 从 Milvus 召回相关表
+   c. SQL_Generator_Node → LLM 基于改写意图 + 召回 Schema 生成 SQL
+   d. SQL_Validator_Node → AST 安全校验
+   e. SQL_Executor_Node → 直连数据库执行
+   f. (若报错 → 回到 c 重试，最多 3 次)
+   g. Data_Visualizer_Node → LLM 生成 Echarts 配置
+   h. 返回: { "sql": "...", "data": [...], "chartOption": {...}, "usedTables": [...], "usedFields": [...], "rewrittenQuery": "..." }
 
 4. Java 收到结果后：
    a. 更新字段可信度正向反馈（被成功使用的字段 +1）
@@ -231,13 +232,14 @@
 抛弃传统的 Java 线性调用，我们引入 **LangGraph** 构建带状态（Stateful）和自我纠错循环（Cyclic）的智能体工作流。
 整个 NL2SQL 过程被定义为一个有向图（Graph），包含：
 
-- **状态 (State)**：维护用户的原始问题、当前选中的数据库、召回的 Schema、生成的 SQL、执行报错信息、重试次数以及**历史对话摘要**。**注意：State 的作用域仅限于单次请求内部**（从 Java 发起调用到 Python 返回结果），请求结束后 State 即释放，不跨请求持久化。历史对话上下文由前端维护，每次请求时透传
+- **状态 (State)**：维护用户的原始问题、改写后的结构化查询、当前选中的数据库、召回的 Schema、生成的 SQL、执行报错信息、重试次数以及**历史对话摘要**。**注意：State 的作用域仅限于单次请求内部**（从 Java 发起调用到 Python 返回结果），请求结束后 State 即释放，不跨请求持久化。历史对话上下文由前端维护，每次请求时透传
 - **节点 (Nodes)**：
-  1. `Schema_Retriever_Node`：调用 LlamaIndex Query/Retriever，从 Milvus 召回已治理、已发布的表结构、字段画像和 `skills.md`。
-  2. `SQL_Generator_Node`：大模型根据 Schema 写出 SQL。
-  3. `SQL_Validator_Node`：基于 AST 解析，进行安全校验（详见第 5 节）。
-  4. `SQL_Executor_Node`：在沙箱中执行 SQL。如果报错，提取 Error Message。
-  5. `Data_Visualizer_Node`：大模型根据执行成功的数据，决定画什么图（Echarts Option）。
+  1. `Query_Rewriter_Node`：对用户原始问题进行理解和改写——解析时间表达式（"上个月"→具体日期范围）、消解多轮对话指代（结合 chat_history）、提取查询意图（维度、指标、筛选条件、排序方式）、将模糊问题改写为结构化查询描述。改写结果同时用于提升 RAG 召回精度和 SQL 生成准确率。
+  2. `Schema_Retriever_Node`：使用改写后的结构化查询调用 LlamaIndex Query/Retriever，从 Milvus 召回已治理、已发布的表结构、字段画像和 `skills.md`。
+  3. `SQL_Generator_Node`：大模型根据改写意图 + 召回 Schema + 可信度信息写出 SQL。
+  4. `SQL_Validator_Node`：基于 AST 解析，进行安全校验（详见第 5 节）。
+  5. `SQL_Executor_Node`：在沙箱中执行 SQL。如果报错，提取 Error Message。
+  6. `Data_Visualizer_Node`：大模型根据执行成功的数据，决定画什么图（Echarts Option）。
 - **条件边 (Conditional Edges)**：
   - `SQL_Validator_Node` 校验后，如果**不通过**（非 SELECT / 含危险函数）→ 直接返回安全告警给用户，不执行。
   - `SQL_Executor_Node` 执行后，如果**成功** → 流转到 `Data_Visualizer_Node`。
@@ -519,10 +521,11 @@ AI 第 1 轮：上月订单总额为 1,234,567 元。[使用了 order_info.total
 
 | 模板名 | 用途 | 注入变量 |
 |--------|------|----------|
-| `schema_retrieval_query` | 将用户问题改写为检索查询 | `question`, `conversationHistory` |
-| `sql_generation` | 生成 SQL | `question`, `schema`, `skills_md`, `field_confidence`, `few_shot_templates`, `conversationHistory`, `error_message`(重试时) |
+| `query_rewrite` | 问题理解与改写：解析时间表达式、消解指代、提取意图、输出结构化查询 | `question`, `conversationHistory`, `currentDate`, `userMemory` |
+| `schema_retrieval_query` | 将改写后的结构化查询转为向量检索 query | `rewrittenQuery`, `extractedEntities` |
+| `sql_generation` | 生成 SQL | `rewrittenQuery`, `schema`, `skills_md`, `field_confidence`, `few_shot_templates`, `conversationHistory`, `error_message`(重试时) |
 | `chart_generation` | 生成 Echarts 配置 | `question`, `sql`, `data_preview`, `column_types` |
-| `intent_recognition` | 意图识别 | `question`, `conversationHistory` |
+| `intent_recognition` | 意图识别（判断简单/复杂查询，用于模型降级） | `question`, `conversationHistory` |
 | `memory_extraction` | 提取用户长期记忆 | `question`, `sql`, `used_tables`, `used_fields`, `chart_type` |
 
 ### 8.3 Token 预算控制

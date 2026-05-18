@@ -49,12 +49,14 @@ python-service/dataocean/agent/
 ├── state.py               # AgentState 定义
 ├── nodes/
 │   ├── __init__.py
+│   ├── query_rewriter.py      # 问题理解与改写
 │   ├── schema_retriever.py    # 调用 RAG 模块
 │   ├── sql_generator.py       # LLM 生成 SQL
 │   ├── sql_validator.py       # 调用安全校验模块
 │   ├── sql_executor.py        # 调用沙箱执行
 │   └── data_visualizer.py     # 生成 ECharts 配置
 ├── prompts/
+│   ├── query_rewrite.j2       # 问题改写 Prompt 模板
 │   ├── sql_generation.j2      # SQL 生成 Prompt 模板
 │   └── visualization.j2       # 图表生成 Prompt 模板
 ├── sse.py                 # SSE 事件推送
@@ -66,14 +68,15 @@ python-service/dataocean/agent/
 ## Implementation Phases
 
 ### Phase 1: LangGraph 图骨架
-- AgentState 定义 (问题, 数据源, 召回结果, SQL, 错误, 重试次数, 当前节点)
+- AgentState 定义 (问题, 改写后问题, 数据源, 召回结果, SQL, 错误, 重试次数, 当前节点)
 - LangGraph StateGraph 定义 (节点 + 边 + 条件路由)
 - 条件路由: Validator 失败 → 直接拒绝; Executor 失败 → 重试或放弃
 - 总时间预算 100s 控制
 
 ### Phase 2: 各节点实现
-- Schema_Retriever: 调用 007 模块 /internal/rag/retrieve
-- SQL_Generator: 构造 Prompt (召回上下文 + 可信度 + 历史对话) → Qwen API
+- Query_Rewriter: 解析时间表达式、消解多轮指代、提取意图（维度/指标/筛选/排序）、改写为结构化查询
+- Schema_Retriever: 使用改写后的查询调用 007 模块 /internal/rag/retrieve
+- SQL_Generator: 构造 Prompt (召回上下文 + 可信度 + 改写意图 + 历史对话) → Qwen API
 - SQL_Validator: 调用 009 模块校验接口
 - SQL_Executor: 调用 009 模块执行接口
 - Data_Visualizer: 基于查询结果调用 LLM 生成 ECharts option

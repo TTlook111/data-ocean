@@ -29,6 +29,7 @@ Java 网关层 (Spring Boot 3.x + JDK 17)
     │ 内部 HTTP (OpenFeign → FastAPI)
     ▼
 Python AI 服务 (Python 3.13 + FastAPI + LangGraph + LlamaIndex)
+  - Query Rewrite (时间解析/指代消解/意图提取)
   - Schema RAG (LlamaIndex + Milvus)
   - SQL 生成 (LLM via Qwen API)
   - SQL 安全校验 (sqlglot AST)
@@ -42,7 +43,8 @@ Milvus 2.x (向量库) / MySQL 8 (业务库+管理库) / Redis (缓存) / Qwen L
 关键设计决策：
 - Java 负责所有管理类 CRUD 和鉴权，Python 仅在"问答查询"场景被调用
 - Python 请求级无状态，上下文由 Java 每次传入
-- LangGraph 编排 Agent 工作流（Schema_Retriever → SQL_Generator → SQL_Validator → SQL_Executor → Data_Visualizer），失败最多重试 3 次
+- LangGraph 编排 Agent 工作流（Query_Rewriter → Schema_Retriever → SQL_Generator → SQL_Validator → SQL_Executor → Data_Visualizer），失败最多重试 3 次
+- Query_Rewriter 负责时间解析、指代消解、意图提取，改写后的结构化查询同时提升 RAG 召回和 SQL 生成质量
 - LlamaIndex 封装 RAG 层（向量检索 + BM25 + 模板召回的 Hybrid Search）
 - 行列级权限在 SQL AST 层强制执行，不依赖 Prompt
 - 查询结果不缓存（避免相似问题、相对时间和权限差异导致错误复用）
