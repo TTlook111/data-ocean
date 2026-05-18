@@ -74,3 +74,10 @@ T018 → T021
 ## Implementation Strategy
 
 MVP-first: Phase 1-3 完成 Java 侧模板 CRUD 和版本管理（管理员可用），Phase 4 补充回滚能力，Phase 5 初始化默认数据，Phase 6 实现 Python 消费端（查询流程可用），Phase 7 完善预览和内部 API。Java 和 Python 可并行开发（Phase 2-4 与 Phase 6 并行）。
+
+## Phase 8: Frontend Pages
+
+- [ ] T024 [P] [Frontend] 创建 API 层 `frontend/src/api/admin/prompt.ts`：模板列表、获取/更新模板、版本历史、回滚、预览
+- [ ] T025 [Frontend] 创建 Prompt 模板列表页面 `frontend/src/views/admin/prompt/PromptList.vue`：模板名称/场景/当前版本/状态
+- [ ] T026 [Frontend] 创建 Prompt 编辑器页面 `frontend/src/views/admin/prompt/PromptEditor.vue`：代码编辑器（支持 {{变量}} 高亮）、变量面板、预览渲染结果
+- [ ] T027 [Frontend] 创建版本历史页面 `frontend/src/views/admin/prompt/PromptVersions.vue`：版本列表、内容对比、回滚按钮

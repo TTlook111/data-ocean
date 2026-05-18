@@ -84,3 +84,10 @@ MVP-first approach:
 3. 然后接入 Python AI 生成（Phase 4），提升效率
 4. 向量化触发（Phase 6）依赖 007 模块接口，可先 mock 调用
 5. 版本管理（Phase 5）和权限（Phase 7）最后完善
+
+## Phase 8: Frontend Pages
+
+- [ ] T032 [P] [Frontend] 创建 API 层 `frontend/src/api/admin/knowledge.ts`：获取/更新文档、生成草稿、提交审核、发布、回滚、版本列表
+- [ ] T033 [Frontend] 创建 Skills 编辑器页面 `frontend/src/views/admin/knowledge/SkillsEditor.vue`：集成 md-editor-v3 Markdown 编辑器、实时预览、保存草稿
+- [ ] T034 [Frontend] 创建版本列表页面 `frontend/src/views/admin/knowledge/VersionList.vue`：版本号/状态/审核人/创建时间、对比按钮、回滚按钮
+- [ ] T035 [Frontend] 创建审核页面 `frontend/src/views/admin/knowledge/ReviewPage.vue`：待审核列表、内容预览、通过/驳回操作

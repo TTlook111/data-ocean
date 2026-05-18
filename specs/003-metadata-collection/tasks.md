@@ -75,3 +75,11 @@ T019 → T020 (统计采集器先于统计服务)
 ## Implementation Strategy
 
 MVP-first: Phase 3（全量同步核心）是最高优先级，确保能从数据库采集完整的 Schema 信息。统计信息采集（Phase 4）作为可选增强，差异对比（Phase 5）和定时同步（Phase 6）可并行开发。采集器采用策略模式，每个 Collector 独立可测试，由 SchemaCollectionService 统一编排。
+
+## Phase 8: Frontend Pages
+
+- [ ] T027 [P] [Frontend] 创建 API 层 `frontend/src/api/admin/metadata.ts`：触发同步、查看任务状态、快照列表、表详情、差异对比
+- [ ] T028 [Frontend] 创建同步任务页面 `frontend/src/views/admin/metadata/SyncTask.vue`：触发全量同步按钮、任务进度展示、历史任务列表
+- [ ] T029 [Frontend] 创建快照列表页面 `frontend/src/views/admin/metadata/SnapshotList.vue`：快照编号/状态/表数量/质量分/创建时间
+- [ ] T030 [Frontend] 创建表浏览器页面 `frontend/src/views/admin/metadata/TableExplorer.vue`：左侧表列表、右侧字段详情（类型/注释/空值率/索引）
+- [ ] T031 [Frontend] 创建快照差异页面 `frontend/src/views/admin/metadata/SnapshotDiff.vue`：选择两个快照对比，展示新增/删除/变更的表和字段

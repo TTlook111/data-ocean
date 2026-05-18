@@ -74,3 +74,10 @@ T013, T016, T020, T024 → T025 (所有 Service 先于 Controller)
 ## Implementation Strategy
 
 MVP-first: Phase 3（质量校验引擎）是核心，五个 Checker 可并行开发。Phase 4（问题清单）紧随其后，确保校验结果可管理。Phase 5（治理状态）是 RAG 准入的基础。规则引擎 MVP 使用策略模式硬编码，不引入 Drools 等重型框架。治理状态直接存储在 003 模块的 db_table_meta/db_column_meta 表中，不额外建表。
+
+## Phase 8: Frontend Pages
+
+- [ ] T026 [P] [Frontend] 创建 API 层 `frontend/src/api/admin/governance.ts`：触发质量校验、问题列表、问题处理、治理状态变更
+- [ ] T027 [Frontend] 创建质量看板页面 `frontend/src/views/admin/governance/QualityDashboard.vue`：各数据源质量分雷达图、问题趋势折线图、治理完成率
+- [ ] T028 [Frontend] 创建问题清单页面 `frontend/src/views/admin/governance/IssueList.vue`：按维度/严重级别/状态筛选、分派负责人、批量确认/驳回
+- [ ] T029 [Frontend] 创建治理状态编辑器 `frontend/src/views/admin/governance/StatusEditor.vue`：表/字段列表 + 状态下拉（NORMAL/RECOMMENDED/DEPRECATED/SENSITIVE/BLOCKED）+ 批量操作

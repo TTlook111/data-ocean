@@ -77,3 +77,10 @@ MVP-first approach:
 3. LLM 成本和配额（Phase 5）可与审计并行开发
 4. 管理功能（Phase 6）最后完善，提供运维可观测性
 5. 审计写入必须异步化，绝不能阻塞查询主流程
+
+## Phase 8: Frontend Pages
+
+- [ ] T027 [P] [Frontend] 创建 API 层 `frontend/src/api/admin/audit.ts`：审计日志查询/导出、慢查询列表、血缘查询
+- [ ] T028 [Frontend] 创建审计日志页面 `frontend/src/views/admin/audit/AuditLogList.vue`：按用户/数据源/时间/状态筛选、分页、导出 CSV
+- [ ] T029 [Frontend] 创建慢查询页面 `frontend/src/views/admin/audit/SlowQueryList.vue`：执行超过 5s 的查询列表、SQL 详情、优化建议入口
+- [ ] T030 [Frontend] 创建血缘查看页面 `frontend/src/views/admin/audit/LineageViewer.vue`：表级/字段级依赖关系列表、受影响查询数

@@ -66,3 +66,8 @@ T008 → T017 (事件类先于监听器)
 ## Implementation Strategy
 
 MVP-first: Phase 3（状态流转 + 发布）是核心，确保快照能走完 DRAFT→PUBLISHED 的完整生命周期。发布操作的事务原子性（新发布+旧过期）是关键技术点。Phase 4（版本历史）复用 003 模块的差异对比能力，不重复实现。Phase 5（紧急撤回）作为安全兜底。使用 Spring ApplicationEvent 解耦发布通知，下游模块（skills.md 生成、RAG 向量化）通过监听事件触发。
+
+## Phase 8: Frontend Pages
+
+- [ ] T018 [P] [Frontend] 创建快照生命周期页面 `frontend/src/views/admin/metadata/SnapshotLifecycle.vue`：状态流转可视化（DRAFT→CHECKING→APPROVED→PUBLISHED→EXPIRED）、发布/撤回按钮
+- [ ] T019 [Frontend] 创建版本历史页面 `frontend/src/views/admin/metadata/VersionHistory.vue`：时间线展示所有快照、对比按钮、审核日志

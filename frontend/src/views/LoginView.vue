@@ -3,22 +3,108 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import type { CSSProperties } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Eye, EyeOff, Languages, LogIn, Sparkles } from 'lucide-vue-next'
+import { Eye, EyeOff, Languages, LogIn, Sparkles, UserPlus } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 
+type AuthMode = 'login' | 'register'
+type Locale = 'zh' | 'en'
+
 interface Mascot {
-  id: string
+  id: 'orange' | 'violet' | 'charcoal' | 'yellow'
   className: string
   eyeMode: 'white' | 'dot'
   x: number
   y: number
   baseRotate: number
-  clickMood: 'smile' | 'surprised' | 'blink'
+  clickMood: 'surprised' | 'blink'
+}
+
+const textMap = {
+  zh: {
+    illustration: '登录插画',
+    formArea: '账号表单',
+    language: '中文',
+    style: 'Playful',
+    brandLine: '你的数据海洋',
+    stageTitle: '从自然语言开始探索',
+    loginTitle: '欢迎回来！',
+    loginSubtitle: '请输入你的账号信息',
+    registerTitle: '创建账号',
+    registerSubtitle: '填写信息开始使用 DataOcean',
+    modeLabel: '登录注册切换',
+    login: '登录',
+    register: '注册',
+    account: '账号',
+    accountPlaceholder: '请输入账号',
+    realName: '昵称',
+    realNamePlaceholder: '请输入昵称',
+    password: '密码',
+    passwordPlaceholder: '请输入密码',
+    confirmPassword: '确认密码',
+    confirmPasswordPlaceholder: '请再次输入密码',
+    showPassword: '显示密码',
+    hidePassword: '隐藏密码',
+    remember: '30天内记住我',
+    forgot: '忘记密码？',
+    loggingIn: '登录中...',
+    registering: '注册中...',
+    noAccount: '没有账号？',
+    hasAccount: '已有账号？',
+    goRegister: '去注册',
+    goLogin: '去登录',
+    needLoginFields: '请输入账号和密码',
+    needRegisterFields: '请输入账号、昵称和密码',
+    passwordMismatch: '两次输入的密码不一致',
+    loginSuccess: '登录成功',
+    loginFailed: '登录失败，请检查账号或服务状态',
+    registerUnavailable: '注册接口还没有接入后端',
+  },
+  en: {
+    illustration: 'Login illustration',
+    formArea: 'Account form',
+    language: 'English',
+    style: 'Playful',
+    brandLine: 'Your data ocean',
+    stageTitle: 'Explore from natural language',
+    loginTitle: 'Welcome back!',
+    loginSubtitle: 'Enter your account details',
+    registerTitle: 'Create account',
+    registerSubtitle: 'Fill in your details to start using DataOcean',
+    modeLabel: 'Login and register switch',
+    login: 'Login',
+    register: 'Register',
+    account: 'Account',
+    accountPlaceholder: 'Enter account',
+    realName: 'Name',
+    realNamePlaceholder: 'Enter display name',
+    password: 'Password',
+    passwordPlaceholder: 'Enter password',
+    confirmPassword: 'Confirm password',
+    confirmPasswordPlaceholder: 'Enter password again',
+    showPassword: 'Show password',
+    hidePassword: 'Hide password',
+    remember: 'Remember me for 30 days',
+    forgot: 'Forgot password?',
+    loggingIn: 'Logging in...',
+    registering: 'Registering...',
+    noAccount: 'No account?',
+    hasAccount: 'Already have one?',
+    goRegister: 'Register',
+    goLogin: 'Login',
+    needLoginFields: 'Enter account and password',
+    needRegisterFields: 'Enter account, name, and password',
+    passwordMismatch: 'Passwords do not match',
+    loginSuccess: 'Logged in',
+    loginFailed: 'Login failed. Check account or service status',
+    registerUnavailable: 'Register API is not connected yet',
+  },
 }
 
 const router = useRouter()
 const authStore = useAuthStore()
 const stageRef = ref<HTMLElement | null>(null)
+const authMode = ref<AuthMode>('login')
+const locale = ref<Locale>('zh')
 const showPassword = ref(false)
 const loading = ref(false)
 const remember = ref(true)
@@ -31,16 +117,20 @@ const pointer = reactive({
 })
 const form = reactive({
   username: 'admin',
+  realName: '',
   password: '',
+  confirmPassword: '',
 })
 
 const mascots: Mascot[] = [
-  { id: 'orange', className: 'orange', eyeMode: 'dot', x: 24, y: 72, baseRotate: -1, clickMood: 'surprised' },
+  { id: 'orange', className: 'orange', eyeMode: 'dot', x: 22, y: 74, baseRotate: -1, clickMood: 'surprised' },
   { id: 'violet', className: 'violet', eyeMode: 'white', x: 40, y: 51, baseRotate: 4, clickMood: 'blink' },
-  { id: 'charcoal', className: 'charcoal', eyeMode: 'white', x: 60, y: 58, baseRotate: 2, clickMood: 'smile' },
+  { id: 'charcoal', className: 'charcoal', eyeMode: 'white', x: 60, y: 58, baseRotate: 2, clickMood: 'blink' },
   { id: 'yellow', className: 'yellow', eyeMode: 'dot', x: 78, y: 68, baseRotate: 0, clickMood: 'surprised' },
 ]
 
+const copy = computed(() => textMap[locale.value])
+const isLogin = computed(() => authMode.value === 'login')
 const sceneStyle = computed(
   () =>
     ({
@@ -53,6 +143,15 @@ const sceneStyle = computed(
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
+}
+
+function setMode(mode: AuthMode) {
+  authMode.value = mode
+  showPassword.value = false
+}
+
+function toggleLocale() {
+  locale.value = locale.value === 'zh' ? 'en' : 'zh'
 }
 
 function updatePointer(event: PointerEvent) {
@@ -111,8 +210,16 @@ function expressionClass(mascot: Mascot) {
 }
 
 async function submit() {
+  if (isLogin.value) {
+    await submitLogin()
+    return
+  }
+  submitRegister()
+}
+
+async function submitLogin() {
   if (!form.username.trim() || !form.password.trim()) {
-    ElMessage.warning('请输入账号和密码')
+    ElMessage.warning(copy.value.needLoginFields)
     return
   }
 
@@ -122,7 +229,7 @@ async function submit() {
     if (!remember.value) {
       sessionStorage.setItem('dataocean_session_only', '1')
     }
-    ElMessage.success('登录成功')
+    ElMessage.success(copy.value.loginSuccess)
     await router.replace('/admin')
   } catch (error: unknown) {
     const message =
@@ -131,11 +238,23 @@ async function submit() {
       'response' in error &&
       typeof (error as { response?: { data?: { message?: string } } }).response?.data?.message === 'string'
         ? (error as { response: { data: { message: string } } }).response.data.message
-        : '登录失败，请检查账号或服务状态'
+        : copy.value.loginFailed
     ElMessage.error(message)
   } finally {
     loading.value = false
   }
+}
+
+function submitRegister() {
+  if (!form.username.trim() || !form.realName.trim() || !form.password.trim()) {
+    ElMessage.warning(copy.value.needRegisterFields)
+    return
+  }
+  if (form.password !== form.confirmPassword) {
+    ElMessage.warning(copy.value.passwordMismatch)
+    return
+  }
+  ElMessage.info(copy.value.registerUnavailable)
 }
 
 onMounted(() => {
@@ -158,15 +277,15 @@ onUnmounted(() => {
 
 <template>
   <main class="login-page" :class="{ pressed: pointer.pressed }">
-    <section ref="stageRef" class="character-stage" aria-label="登录插画">
+    <section ref="stageRef" class="character-stage" :aria-label="copy.illustration">
       <div class="brand-chip">
         <span />
         <strong>DataOcean</strong>
       </div>
 
       <div class="stage-copy">
-        <p>你的数据海洋</p>
-        <h1>从自然语言开始探索</h1>
+        <p>{{ copy.brandLine }}</p>
+        <h1>{{ copy.stageTitle }}</h1>
       </div>
 
       <div class="mascot-scene" :style="sceneStyle" aria-hidden="true">
@@ -184,70 +303,97 @@ onUnmounted(() => {
           <span class="eye eye-right" :style="pupilStyle(mascot)">
             <i />
           </span>
-          <span class="mouth" />
+          <span v-if="mascot.id === 'yellow'" class="mouth" />
         </div>
       </div>
     </section>
 
-    <section class="form-panel" aria-label="登录表单">
+    <section class="form-panel" :aria-label="copy.formArea">
       <div class="form-shell">
         <div class="mode-row">
-          <button type="button">
+          <button type="button" @click="toggleLocale">
             <Languages :size="14" />
-            <span>中文</span>
+            <span>{{ copy.language }}</span>
           </button>
           <button type="button">
             <Sparkles :size="14" />
-            <span>Playful</span>
+            <span>{{ copy.style }}</span>
           </button>
         </div>
 
         <header class="form-heading">
-          <h2>欢迎回来！</h2>
-          <p>请输入你的账号信息</p>
+          <h2>{{ isLogin ? copy.loginTitle : copy.registerTitle }}</h2>
+          <p>{{ isLogin ? copy.loginSubtitle : copy.registerSubtitle }}</p>
         </header>
 
         <form class="login-form" @submit.prevent="submit">
-          <div class="segment-tabs" aria-label="登录注册切换">
-            <button type="button" class="active">登录</button>
-            <button type="button">注册</button>
+          <div class="segment-tabs" :aria-label="copy.modeLabel">
+            <button type="button" :class="{ active: isLogin }" @click="setMode('login')">
+              {{ copy.login }}
+            </button>
+            <button type="button" :class="{ active: !isLogin }" @click="setMode('register')">
+              {{ copy.register }}
+            </button>
           </div>
 
           <label class="field">
-            <span>账号</span>
-            <input v-model="form.username" type="text" autocomplete="username" placeholder="请输入账号" />
+            <span>{{ copy.account }}</span>
+            <input v-model="form.username" type="text" autocomplete="username" :placeholder="copy.accountPlaceholder" />
+          </label>
+
+          <label v-if="!isLogin" class="field">
+            <span>{{ copy.realName }}</span>
+            <input v-model="form.realName" type="text" autocomplete="name" :placeholder="copy.realNamePlaceholder" />
           </label>
 
           <label class="field">
-            <span>密码</span>
+            <span>{{ copy.password }}</span>
             <div class="password-field">
               <input
                 v-model="form.password"
                 :type="showPassword ? 'text' : 'password'"
                 autocomplete="current-password"
-                placeholder="请输入密码"
+                :placeholder="copy.passwordPlaceholder"
               />
-              <button type="button" :aria-label="showPassword ? '隐藏密码' : '显示密码'" @click="showPassword = !showPassword">
+              <button type="button" :aria-label="showPassword ? copy.hidePassword : copy.showPassword" @click="showPassword = !showPassword">
                 <EyeOff v-if="showPassword" :size="19" />
                 <Eye v-else :size="19" />
               </button>
             </div>
           </label>
 
-          <div class="form-tools">
+          <label v-if="!isLogin" class="field">
+            <span>{{ copy.confirmPassword }}</span>
+            <input
+              v-model="form.confirmPassword"
+              :type="showPassword ? 'text' : 'password'"
+              autocomplete="new-password"
+              :placeholder="copy.confirmPasswordPlaceholder"
+            />
+          </label>
+
+          <div v-if="isLogin" class="form-tools">
             <label class="remember">
               <input v-model="remember" type="checkbox" />
-              <span>30天内记住我</span>
+              <span>{{ copy.remember }}</span>
             </label>
-            <button type="button" class="text-button">忘记密码？</button>
+            <button type="button" class="text-button">{{ copy.forgot }}</button>
           </div>
 
           <button class="submit-button" type="submit" :disabled="loading">
-            <LogIn :size="18" />
-            <span>{{ loading ? '登录中...' : '登录' }}</span>
+            <LogIn v-if="isLogin" :size="18" />
+            <UserPlus v-else :size="18" />
+            <span>
+              {{ loading ? (isLogin ? copy.loggingIn : copy.registering) : isLogin ? copy.login : copy.register }}
+            </span>
           </button>
 
-          <button type="button" class="register-link">没有账号？ 去注册</button>
+          <p class="mode-hint">
+            <span>{{ isLogin ? copy.noAccount : copy.hasAccount }}</span>
+            <button type="button" @click="setMode(isLogin ? 'register' : 'login')">
+              {{ isLogin ? copy.goRegister : copy.goLogin }}
+            </button>
+          </p>
         </form>
       </div>
     </section>
@@ -410,14 +556,16 @@ onUnmounted(() => {
 
 .orange {
   --body: #ff9969;
+  z-index: 1;
   left: 1%;
-  width: 45%;
-  height: 43%;
+  width: 43%;
+  height: 39%;
   border-radius: 999px 999px 0 0;
 }
 
 .violet {
   --body: #7043ef;
+  z-index: 3;
   left: 29%;
   width: 32%;
   height: 92%;
@@ -426,6 +574,7 @@ onUnmounted(() => {
 
 .charcoal {
   --body: #252525;
+  z-index: 4;
   left: 54%;
   width: 23%;
   height: 70%;
@@ -435,6 +584,7 @@ onUnmounted(() => {
 
 .yellow {
   --body: #f0df55;
+  z-index: 5;
   left: 68%;
   width: 30%;
   height: 56%;
@@ -458,6 +608,7 @@ onUnmounted(() => {
   background: #ffffff;
   overflow: hidden;
   box-shadow: 0 3px 6px rgba(0, 0, 0, 0.18);
+  transition: transform 120ms ease;
 }
 
 .eye-left {
@@ -511,11 +662,11 @@ onUnmounted(() => {
 }
 
 .orange .eye-left {
-  left: 43%;
+  left: 44%;
 }
 
 .orange .eye-right {
-  left: calc(43% + 26px);
+  left: calc(44% + 26px);
 }
 
 .violet .eye {
@@ -538,43 +689,8 @@ onUnmounted(() => {
   left: calc(42% + 32px);
 }
 
-.mouth {
-  position: absolute;
-  left: 50%;
-  top: 48%;
-  width: 56px;
-  height: 18px;
-  border-bottom: 4px solid currentColor;
-  border-radius: 0 0 999px 999px;
-  color: #2f3338;
-  opacity: 0;
-  transform: translateX(-50%);
-  transition: opacity 140ms ease, width 140ms ease, height 140ms ease, border 140ms ease;
-}
-
-.charcoal .mouth,
-.violet .mouth {
-  color: #ffffff;
-}
-
-.yellow .mouth {
-  top: 50%;
-  width: 72px;
-  opacity: 1;
-}
-
-.smile .mouth {
-  opacity: 1;
-  width: 60px;
-  height: 28px;
-}
-
-.surprised .mouth {
-  opacity: 1;
-  width: 24px;
-  height: 24px;
-  border: 4px solid currentColor;
-  border-radius: 50%;
+.surprised .eye {
+  transform: scale(1.08);
 }
 
 .blink .eye i {
@@ -582,10 +698,24 @@ onUnmounted(() => {
   border-radius: 999px;
 }
 
-.blink .mouth {
-  opacity: 1;
-  width: 50px;
+.mouth {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 72px;
+  height: 18px;
+  border-bottom: 4px solid #2f3338;
+  border-radius: 0 0 999px 999px;
+  transform: translateX(-50%);
+  transition: width 140ms ease, height 140ms ease, border 140ms ease;
+}
+
+.yellow.surprised .mouth {
+  top: 50%;
+  width: 24px;
   height: 24px;
+  border: 4px solid #2f3338;
+  border-radius: 50%;
 }
 
 .form-panel {
@@ -657,7 +787,7 @@ onUnmounted(() => {
 .segment-tabs button,
 .submit-button,
 .text-button,
-.register-link {
+.mode-hint button {
   border: 0;
   cursor: pointer;
 }
@@ -786,13 +916,22 @@ onUnmounted(() => {
   opacity: 0.68;
 }
 
-.register-link {
-  height: 50px;
-  border: 1px solid var(--line);
-  border-radius: 13px;
+.mode-hint {
+  margin: -2px 0 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #6c7280;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.mode-hint button {
+  padding: 0;
   color: #6f35f2;
-  background: #ffffff;
-  font-weight: 900;
+  background: transparent;
+  font-weight: 950;
 }
 
 @media (max-width: 980px) {
@@ -892,7 +1031,7 @@ onUnmounted(() => {
   }
 
   .orange .eye-right {
-    left: calc(43% + 20px);
+    left: calc(44% + 20px);
   }
 
   .yellow .eye-right {
@@ -900,10 +1039,6 @@ onUnmounted(() => {
   }
 
   .mouth {
-    width: 38px;
-  }
-
-  .yellow .mouth {
     width: 42px;
   }
 

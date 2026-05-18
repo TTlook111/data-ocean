@@ -68,3 +68,10 @@ MVP-first approach:
 3. 然后做用户反馈（Phase 4），接入 Redis 限频
 4. 最后做审核和群体阈值（Phase 5），完成闭环
 5. 可信度数据通过 API 暴露给 Python 层，供 RAG 重排和 SQL 生成使用
+
+## Phase 7: Frontend Pages
+
+- [ ] T024 [P] [Frontend] 创建 API 层 `frontend/src/api/admin/field.ts`：字段标签 CRUD、可信度查询、反馈审核
+- [ ] T025 [Frontend] 创建字段标签管理页面 `frontend/src/views/admin/field/FieldTagManager.vue`：按数据源/表筛选字段、批量打标、标签类型下拉
+- [ ] T026 [Frontend] 创建可信度看板页面 `frontend/src/views/admin/field/ConfidenceDashboard.vue`：分数分布柱状图、低可信字段列表、趋势变化
+- [ ] T027 [Frontend] 创建反馈审核队列页面 `frontend/src/views/admin/field/FeedbackReview.vue`：待审核反馈列表、用户/字段/原因、通过/驳回操作

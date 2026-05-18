@@ -71,3 +71,9 @@ T021 → T022-T023 (权限 Service 先于用户端 Controller)
 ## Implementation Strategy
 
 MVP-first: Phase 3（数据源 CRUD + 加密 + 连接测试）是核心，确保管理员能安全地添加和测试数据源。Phase 5（用户端选择）与 Phase 4（状态管理）可并行开发。加密服务和连接测试服务作为独立组件优先实现，被核心 Service 组合调用。
+
+## Phase 7: Frontend Pages
+
+- [ ] T026 [P] [Frontend] 创建 API 层 `frontend/src/api/admin/datasource.ts`：CRUD、测试连接、状态切换接口
+- [ ] T027 [Frontend] 创建数据源列表页面 `frontend/src/views/admin/datasource/DatasourceList.vue`：表格展示（名称/类型/状态/最后检测时间）+ 启用禁用开关 + 测试连接按钮
+- [ ] T028 [Frontend] 创建数据源表单弹窗 `frontend/src/views/admin/datasource/DatasourceForm.vue`：填写 JDBC URL/主机/端口/库名/只读账号/密码，提交前调用测试连接

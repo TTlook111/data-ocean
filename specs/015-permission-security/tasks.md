@@ -78,3 +78,9 @@ T023 → T024
 ## Implementation Strategy
 
 MVP-first: Phase 1-2 实现数据源级访问控制（最基本的安全保障），Phase 3 实现行列级策略配置（Java 侧），Phase 4 实现 Python AST 注入（SQL 层强制执行），Phase 5 实现结果脱敏。Java 和 Python 可并行开发（Phase 2-3 与 Phase 4 并行），通过 PermissionContext JSON 契约对接。
+
+## Phase 8: Frontend Pages
+
+- [ ] T028 [P] [Frontend] 创建 API 层 `frontend/src/api/admin/permission.ts`：数据源访问授权、行列级策略 CRUD
+- [ ] T029 [Frontend] 创建访问控制页面 `frontend/src/views/admin/permission/AccessControl.vue`：数据源×角色矩阵（can_query/can_export/can_view_sql 勾选）
+- [ ] T030 [Frontend] 创建策略编辑器页面 `frontend/src/views/admin/permission/PolicyEditor.vue`：选择数据源→表→配置列级权限（允许/禁止/脱敏）和行级过滤表达式

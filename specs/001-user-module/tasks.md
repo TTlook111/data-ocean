@@ -95,3 +95,13 @@ T029 → T035-T036 (用户 CRUD 先于列表查询)
 ## Implementation Strategy
 
 MVP-first: 先完成 JWT 鉴权（US2）确保安全基础可用，再实现用户 CRUD（US1），最后补充状态管理（US3）和列表查询（US4）。角色和部门管理作为辅助功能并行开发。所有 Phase 2 的基础设施任务可并行执行。
+
+## Phase 8: Frontend Pages
+
+- [ ] T041 [P] [Frontend] 创建登录页面 `frontend/src/views/login/LoginPage.vue`：用户名密码表单、调用 /api/auth/login、JWT 存储到 localStorage、登录成功跳转
+- [ ] T042 [P] [Frontend] 创建 Auth Store `frontend/src/stores/auth.ts`：管理 token、用户信息、角色权限列表，提供 login/logout/fetchUserInfo actions
+- [ ] T043 [P] [Frontend] 创建路由守卫 `frontend/src/router/guards.ts`：未登录跳转登录页、按角色权限控制 /admin/* 路由访问
+- [ ] T044 [P] [Frontend] 创建 API 层 `frontend/src/api/auth.ts`（login/logout/me）和 `frontend/src/api/admin/user.ts`（CRUD）
+- [ ] T045 [Frontend] 创建用户管理页面 `frontend/src/views/admin/user/UserList.vue`：Element Plus 表格 + 筛选条件（用户名/部门/状态）+ 分页 + 新增/编辑弹窗
+- [ ] T046 [Frontend] 创建角色管理页面 `frontend/src/views/admin/user/RoleList.vue`：角色列表、权限分配
+- [ ] T047 [Frontend] 创建部门管理页面 `frontend/src/views/admin/user/DepartmentTree.vue`：树形结构展示、新增/删除部门
