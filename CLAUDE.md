@@ -190,3 +190,10 @@ under specs/<module>/plan.md.
 - Maven: `D:\tool\apache-maven-3.6.1`
 - When Maven is needed on this machine, use `D:\tool\apache-maven-3.6.1\bin\mvn.cmd` or add `D:\tool\apache-maven-3.6.1\bin` to `PATH` for the current shell session.
 - Backend Maven project path: `backend\DataOcean`
+
+## Local Environment Rules
+
+- Do not add project downloads, generated assets, dependency caches, exported files, or temporary project files to `C:\`.
+- Keep project-related downloaded/generated files under `D:\Java_study\GraduationProject` unless they are required by developer tooling such as Claude Code or Codex.
+- Before introducing any new Docker container or infrastructure service, tell the user what container is needed and why, then wait for confirmation.
+- Local Docker currently has MySQL, Redis, Elasticsearch, Kibana, RabbitMQ, Nacos, and Seata containers available. Treat exact local credentials as private local notes, not repository documentation.
