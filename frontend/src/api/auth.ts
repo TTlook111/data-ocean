@@ -12,6 +12,7 @@ export interface LoginResult {
   userId: number
   username: string
   realName: string
+  passwordChanged: boolean
   roles: string[]
   permissions: string[]
 }
@@ -20,6 +21,7 @@ export interface CurrentUser {
   id: number
   username: string
   realName: string
+  passwordChanged: boolean
   roles: string[]
   permissions: string[]
 }
@@ -42,5 +44,15 @@ export async function logout() {
 
 export async function me() {
   const { data } = await http.get<ApiResult<CurrentUser>>('/api/auth/me')
+  return data
+}
+
+export interface ChangePasswordPayload {
+  oldPassword: string
+  newPassword: string
+}
+
+export async function changePassword(payload: ChangePasswordPayload) {
+  const { data } = await http.put<ApiResult<null>>('/api/auth/password', payload)
   return data
 }

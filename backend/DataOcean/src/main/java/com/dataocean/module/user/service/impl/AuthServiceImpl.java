@@ -5,7 +5,10 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.JwtTokenProvider;
 import com.dataocean.common.security.LoginUser;
 import com.dataocean.common.security.UserDetailsServiceImpl;
+import com.dataocean.module.user.entity.req.ChangePasswordRequest;
 import com.dataocean.module.user.entity.req.LoginRequest;
+import com.dataocean.module.user.entity.req.ProfileUpdateRequest;
+import com.dataocean.module.user.entity.vo.CurrentUserResponse;
 import com.dataocean.module.user.entity.vo.LoginResponse;
 import com.dataocean.module.user.entity.SysUser;
 import com.dataocean.module.user.mapper.UserMapper;
@@ -26,6 +29,7 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +41,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final StringRedisTemplate stringRedisTemplate;
+    private static final Pattern PASSWORD_COMPLEXITY = Pattern.compile("^(?=.*[a-zA-Z])(?=.*\\d).{8,32}$");
 
     @Value("${security.login.max-attempts}")
     private int maxAttempts;
@@ -84,6 +89,7 @@ public class AuthServiceImpl implements AuthService {
                 .userId(loginUser.getUserId())
                 .username(loginUser.getUsername())
                 .realName(loginUser.getRealName())
+                .passwordChanged(isPasswordChanged(user))
                 .roles(loginUser.getRoles())
                 .permissions(loginUser.getPermissions())
                 .build();
@@ -114,6 +120,61 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(401, "未登录");
         }
         return loginUser;
+    }
+
+    @Override
+    public CurrentUserResponse currentUserInfo() {
+        LoginUser loginUser = currentUser();
+        SysUser user = requireCurrentUserEntity(loginUser.getUserId());
+        log.debug("当前登录用户信息查询完成 userId={} username={}", user.getId(), user.getUsername());
+        return CurrentUserResponse.builder()
+                .id(loginUser.getUserId())
+                .username(loginUser.getUsername())
+                .realName(user.getRealName())
+                .passwordChanged(isPasswordChanged(user))
+                .roles(loginUser.getRoles())
+                .permissions(loginUser.getPermissions())
+                .build();
+    }
+
+    @Transactional
+    @Override
+    public void changePassword(ChangePasswordRequest request) {
+        LoginUser loginUser = currentUser();
+        SysUser user = requireCurrentUserEntity(loginUser.getUserId());
+        log.info("用户发起修改密码 userId={} username={}", user.getId(), user.getUsername());
+        if (!passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash())) {
+            log.warn("用户修改密码失败：旧密码不正确 userId={} username={}", user.getId(), user.getUsername());
+            throw new BusinessException("旧密码不正确");
+        }
+        validatePasswordComplexity(request.getNewPassword());
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())) {
+            throw new BusinessException("新密码不能与旧密码相同");
+        }
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.setPasswordChanged(1);
+        userMapper.updateById(user);
+        stringRedisTemplate.opsForValue().increment(tokenVersionKey(user.getId()));
+        log.info("用户修改密码成功，已刷新令牌版本 userId={} username={}", user.getId(), user.getUsername());
+    }
+
+    @Transactional
+    @Override
+    public void updateProfile(ProfileUpdateRequest request) {
+        LoginUser loginUser = currentUser();
+        SysUser user = requireCurrentUserEntity(loginUser.getUserId());
+        log.info("用户发起个人资料修改 userId={} username={}", user.getId(), user.getUsername());
+        if (request.getRealName() != null) {
+            user.setRealName(request.getRealName());
+        }
+        if (request.getEmail() != null) {
+            user.setEmail(request.getEmail());
+        }
+        if (request.getPhone() != null) {
+            user.setPhone(request.getPhone());
+        }
+        userMapper.updateById(user);
+        log.info("用户个人资料修改成功 userId={} username={}", user.getId(), user.getUsername());
     }
 
     private void recordFailedLogin(SysUser user) {
@@ -152,6 +213,25 @@ public class AuthServiceImpl implements AuthService {
 
     private String failedLoginKey(String username) {
         return "login:fail:" + username;
+    }
+
+    private SysUser requireCurrentUserEntity(Long userId) {
+        SysUser user = userMapper.selectById(userId);
+        if (user == null) {
+            log.warn("当前登录用户不存在 userId={}", userId);
+            throw new BusinessException(401, "当前登录用户不存在");
+        }
+        return user;
+    }
+
+    private void validatePasswordComplexity(String password) {
+        if (!PASSWORD_COMPLEXITY.matcher(password).matches()) {
+            throw new BusinessException("新密码需为8-32位且至少包含字母和数字");
+        }
+    }
+
+    private boolean isPasswordChanged(SysUser user) {
+        return Integer.valueOf(1).equals(user.getPasswordChanged());
     }
 
     private String extractToken(String authorizationHeader) {

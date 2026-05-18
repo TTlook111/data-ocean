@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import LoginPage from '../views/login/LoginPage.vue'
 import AdminHomeView from '../views/AdminHomeView.vue'
+import ChangePassword from '../views/profile/ChangePassword.vue'
 import DepartmentTree from '../views/admin/user/DepartmentTree.vue'
 import RoleList from '../views/admin/user/RoleList.vue'
 import UserList from '../views/admin/user/UserList.vue'
@@ -17,6 +18,11 @@ const router = createRouter({
       path: '/login',
       name: 'login',
       component: LoginPage,
+    },
+    {
+      path: '/change-password',
+      name: 'change-password',
+      component: ChangePassword,
     },
     {
       path: '/admin',

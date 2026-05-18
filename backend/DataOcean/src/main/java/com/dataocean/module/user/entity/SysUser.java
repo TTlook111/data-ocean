@@ -22,6 +22,7 @@ public class SysUser {
     private Long id;
     private String username;
     private String passwordHash;
+    private Integer passwordChanged;
     private String realName;
     private String email;
     private String phone;

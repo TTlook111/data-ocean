@@ -2,6 +2,7 @@ package com.dataocean.module.user.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.user.entity.vo.ResetPasswordResponse;
 import com.dataocean.module.user.entity.req.StatusUpdateRequest;
 import com.dataocean.module.user.entity.req.UserCreateRequest;
 import com.dataocean.module.user.entity.query.UserQueryRequest;
@@ -72,5 +73,12 @@ public class UserController {
         log.debug("收到删除用户请求 userId={}", id);
         userService.deleteUser(id);
         return Result.success("删除成功", null);
+    }
+
+    @PostMapping("/{id}/reset-password")
+    public Result<ResetPasswordResponse> resetPassword(@PathVariable Long id) {
+        log.debug("收到重置用户密码请求 userId={}", id);
+        String tempPassword = userService.resetPassword(id);
+        return Result.success("密码重置成功", new ResetPasswordResponse(tempPassword));
     }
 }

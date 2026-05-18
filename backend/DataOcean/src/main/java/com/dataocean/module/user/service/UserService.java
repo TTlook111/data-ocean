@@ -19,4 +19,6 @@ public interface UserService {
     Page<UserVO> listUsers(UserQueryRequest request);
 
     void updateStatus(Long id, Integer status);
+
+    String resetPassword(Long id);
 }

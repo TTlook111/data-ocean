@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.Set;
 
@@ -38,6 +39,11 @@ public class UserServiceImpl implements UserService {
     private final UserRoleMapper userRoleMapper;
     private final PasswordEncoder passwordEncoder;
     private final StringRedisTemplate stringRedisTemplate;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
+    private static final char[] TEMP_PASSWORD_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz".toCharArray();
+    private static final char[] TEMP_PASSWORD_DIGITS = "23456789".toCharArray();
+    private static final char[] TEMP_PASSWORD_CHARS =
+            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789".toCharArray();
 
     @Transactional
     @Override
@@ -51,6 +57,7 @@ public class UserServiceImpl implements UserService {
         SysUser user = new SysUser();
         user.setUsername(request.getUsername());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setPasswordChanged(0);
         user.setRealName(request.getRealName());
         user.setEmail(request.getEmail());
         user.setPhone(request.getPhone());
@@ -143,6 +150,21 @@ public class UserServiceImpl implements UserService {
                 id, user.getUsername(), oldStatus, status);
     }
 
+    @Transactional
+    @Override
+    public String resetPassword(Long id) {
+        log.info("开始重置用户密码 userId={}", id);
+        SysUser user = requireUser(id);
+        String tempPassword = generateTempPassword();
+        user.setPasswordHash(passwordEncoder.encode(tempPassword));
+        user.setPasswordChanged(0);
+        userMapper.updateById(user);
+        stringRedisTemplate.delete("login:fail:" + user.getUsername());
+        stringRedisTemplate.opsForValue().increment(tokenVersionKey(id));
+        log.info("用户密码重置成功，已刷新令牌版本 userId={} username={}", id, user.getUsername());
+        return tempPassword;
+    }
+
     private SysUser requireUser(Long id) {
         SysUser user = userMapper.selectById(id);
         if (user == null) {
@@ -194,6 +216,22 @@ public class UserServiceImpl implements UserService {
 
     private String tokenVersionKey(Long userId) {
         return "user:token-version:" + userId;
+    }
+
+    private String generateTempPassword() {
+        char[] password = new char[8];
+        password[0] = TEMP_PASSWORD_LETTERS[SECURE_RANDOM.nextInt(TEMP_PASSWORD_LETTERS.length)];
+        password[1] = TEMP_PASSWORD_DIGITS[SECURE_RANDOM.nextInt(TEMP_PASSWORD_DIGITS.length)];
+        for (int i = 2; i < password.length; i++) {
+            password[i] = TEMP_PASSWORD_CHARS[SECURE_RANDOM.nextInt(TEMP_PASSWORD_CHARS.length)];
+        }
+        for (int i = password.length - 1; i > 0; i--) {
+            int j = SECURE_RANDOM.nextInt(i + 1);
+            char temp = password[i];
+            password[i] = password[j];
+            password[j] = temp;
+        }
+        return new String(password);
     }
 
     private UserVO toVO(SysUser user) {

@@ -82,14 +82,14 @@
 
 ## Phase 9: Password & Profile
 
-- [ ] T048 [Frontend] 创建修改密码页面 `frontend/src/views/profile/ChangePassword.vue`：旧密码 + 新密码 + 确认密码表单
-- [ ] T049 在 AuthService 中添加 changePassword 方法：验证旧密码正确 → 校验新密码复杂度 → BCrypt 加密 → 更新 → 设置 password_changed=true
-- [ ] T050 在 AuthController 中添加 PUT /api/auth/password 接口
-- [ ] T051 在 UserService 中添加 resetPassword 方法：生成 8 位随机临时密码 → BCrypt 加密 → 更新 → 设置 password_changed=false
-- [ ] T052 在 UserController 中添加 POST /api/admin/users/{id}/reset-password 接口，返回临时密码
-- [ ] T053 在 AuthController 中添加 PUT /api/auth/profile 接口，允许用户修改自己的 realName/email/phone
-- [ ] T054 [Frontend] 在路由守卫中检查 password_changed 字段，为 false 时强制跳转修改密码页
-- [ ] T055 在 UserCreateRequest 和 changePassword 中添加密码复杂度校验：正则 ^(?=.*[a-zA-Z])(?=.*\d).{8,32}$
+- [X] T048 [Frontend] 创建修改密码页面 `frontend/src/views/profile/ChangePassword.vue`：旧密码 + 新密码 + 确认密码表单
+- [X] T049 在 AuthService 中添加 changePassword 方法：验证旧密码正确 → 校验新密码复杂度 → BCrypt 加密 → 更新 → 设置 password_changed=true
+- [X] T050 在 AuthController 中添加 PUT /api/auth/password 接口
+- [X] T051 在 UserService 中添加 resetPassword 方法：生成 8 位随机临时密码 → BCrypt 加密 → 更新 → 设置 password_changed=false
+- [X] T052 在 UserController 中添加 POST /api/admin/users/{id}/reset-password 接口，返回临时密码
+- [X] T053 在 AuthController 中添加 PUT /api/auth/profile 接口，允许用户修改自己的 realName/email/phone
+- [X] T054 [Frontend] 在路由守卫中检查 password_changed 字段，为 false 时强制跳转修改密码页
+- [X] T055 在 UserCreateRequest 和 changePassword 中添加密码复杂度校验：正则 ^(?=.*[a-zA-Z])(?=.*\d).{8,32}$
 
 ## Dependencies
 

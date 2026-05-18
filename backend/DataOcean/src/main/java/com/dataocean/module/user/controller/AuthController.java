@@ -1,9 +1,10 @@
 package com.dataocean.module.user.controller;
 
 import com.dataocean.common.result.Result;
-import com.dataocean.common.security.LoginUser;
+import com.dataocean.module.user.entity.req.ChangePasswordRequest;
 import com.dataocean.module.user.entity.vo.CurrentUserResponse;
 import com.dataocean.module.user.entity.req.LoginRequest;
+import com.dataocean.module.user.entity.req.ProfileUpdateRequest;
 import com.dataocean.module.user.entity.vo.LoginResponse;
 import com.dataocean.module.user.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,14 +41,22 @@ public class AuthController {
 
     @GetMapping("/me")
     public Result<CurrentUserResponse> me() {
-        LoginUser user = authService.currentUser();
-        log.debug("当前登录用户解析完成 userId={} username={}", user.getUserId(), user.getUsername());
-        return Result.success(CurrentUserResponse.builder()
-                .id(user.getUserId())
-                .username(user.getUsername())
-                .realName(user.getRealName())
-                .roles(user.getRoles())
-                .permissions(user.getPermissions())
-                .build());
+        CurrentUserResponse user = authService.currentUserInfo();
+        log.debug("当前登录用户解析完成 userId={} username={}", user.getId(), user.getUsername());
+        return Result.success(user);
+    }
+
+    @PutMapping("/password")
+    public Result<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        log.debug("收到修改密码请求");
+        authService.changePassword(request);
+        return Result.success("密码修改成功，请重新登录", null);
+    }
+
+    @PutMapping("/profile")
+    public Result<Void> updateProfile(@Valid @RequestBody ProfileUpdateRequest request) {
+        log.debug("收到个人资料修改请求");
+        authService.updateProfile(request);
+        return Result.success("个人资料修改成功", null);
     }
 }
