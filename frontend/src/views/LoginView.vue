@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import type { CSSProperties } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Eye, EyeOff, Languages, LogIn, Sparkles } from 'lucide-vue-next'
@@ -8,11 +9,11 @@ import { useAuthStore } from '../stores/auth'
 interface Mascot {
   id: string
   className: string
-  title: string
+  eyeMode: 'white' | 'dot'
   x: number
   y: number
-  eye: 'light' | 'dark'
-  mood: 'calm' | 'happy' | 'wow'
+  baseRotate: number
+  clickMood: 'smile' | 'surprised' | 'blink'
 }
 
 const router = useRouter()
@@ -21,51 +22,92 @@ const stageRef = ref<HTMLElement | null>(null)
 const showPassword = ref(false)
 const loading = ref(false)
 const remember = ref(true)
-const pointer = reactive({ x: 0, y: 0, pressed: false })
+const pointer = reactive({
+  stageX: 0,
+  stageY: 0,
+  normalizedX: 0,
+  normalizedY: 0,
+  pressed: false,
+})
 const form = reactive({
   username: 'admin',
   password: '',
 })
 
-const mascots = ref<Mascot[]>([
-  { id: 'sprout', className: 'sprout', title: 'ask', x: 25, y: 67, eye: 'dark', mood: 'calm' },
-  { id: 'violet', className: 'violet', title: 'sql', x: 43, y: 42, eye: 'light', mood: 'calm' },
-  { id: 'charcoal', className: 'charcoal', title: 'safe', x: 61, y: 53, eye: 'light', mood: 'calm' },
-  { id: 'sunny', className: 'sunny', title: 'ok', x: 77, y: 63, eye: 'dark', mood: 'calm' },
-])
+const mascots: Mascot[] = [
+  { id: 'orange', className: 'orange', eyeMode: 'dot', x: 24, y: 72, baseRotate: -1, clickMood: 'surprised' },
+  { id: 'violet', className: 'violet', eyeMode: 'white', x: 40, y: 51, baseRotate: 4, clickMood: 'blink' },
+  { id: 'charcoal', className: 'charcoal', eyeMode: 'white', x: 60, y: 58, baseRotate: 2, clickMood: 'smile' },
+  { id: 'yellow', className: 'yellow', eyeMode: 'dot', x: 78, y: 68, baseRotate: 0, clickMood: 'surprised' },
+]
+
+const sceneStyle = computed(
+  () =>
+    ({
+      '--scene-rotate-x': `${clamp(-pointer.normalizedY * 5, -8, 8)}deg`,
+      '--scene-rotate-y': `${clamp(pointer.normalizedX * 6, -8, 8)}deg`,
+      '--scene-shift-x': `${pointer.normalizedX * 8}px`,
+      '--scene-shift-y': `${pointer.normalizedY * 6}px`,
+    }) as CSSProperties,
+)
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
 
 function updatePointer(event: PointerEvent) {
   const rect = stageRef.value?.getBoundingClientRect()
-  pointer.x = rect ? event.clientX - rect.left : event.clientX
-  pointer.y = rect ? event.clientY - rect.top : event.clientY
+  pointer.stageX = rect ? event.clientX - rect.left : event.clientX
+  pointer.stageY = rect ? event.clientY - rect.top : event.clientY
+  pointer.normalizedX = clamp((event.clientX / Math.max(window.innerWidth, 1) - 0.5) * 2, -1, 1)
+  pointer.normalizedY = clamp((event.clientY / Math.max(window.innerHeight, 1) - 0.5) * 2, -1, 1)
 }
 
 function handlePointerDown(event: PointerEvent) {
   updatePointer(event)
   pointer.pressed = true
-  mascots.value = mascots.value.map((mascot, index) => ({
-    ...mascot,
-    mood: index % 2 === 0 ? 'wow' : 'happy',
-  }))
 }
 
 function handlePointerUp() {
   pointer.pressed = false
-  mascots.value = mascots.value.map((mascot) => ({ ...mascot, mood: 'calm' }))
 }
 
-function eyeTransform(mascot: Mascot) {
+function seedPointer() {
   const rect = stageRef.value?.getBoundingClientRect()
-  if (!rect) {
-    return 'translate(0px, 0px)'
-  }
-  const mascotX = (mascot.x / 100) * rect.width
-  const mascotY = (mascot.y / 100) * rect.height
-  const dx = pointer.x - mascotX
-  const dy = pointer.y - mascotY
+  pointer.stageX = rect ? rect.width * 0.62 : window.innerWidth * 0.3
+  pointer.stageY = rect ? rect.height * 0.48 : window.innerHeight * 0.48
+  pointer.normalizedX = -0.12
+  pointer.normalizedY = -0.04
+}
+
+function mascotStyle(mascot: Mascot) {
+  const bodyTilt = clamp(pointer.normalizedX * 7 + pointer.normalizedY * 2, -10, 10)
+  return {
+    '--base-rotate': `${mascot.baseRotate}deg`,
+    '--body-tilt': `${bodyTilt}deg`,
+  } as CSSProperties
+}
+
+function pupilStyle(mascot: Mascot) {
+  const rect = stageRef.value?.getBoundingClientRect()
+  const width = rect?.width || Math.max(window.innerWidth * 0.5, 1)
+  const height = rect?.height || Math.max(window.innerHeight, 1)
+  const centerX = (mascot.x / 100) * width
+  const centerY = (mascot.y / 100) * height
+  const dx = pointer.stageX - centerX
+  const dy = pointer.stageY - centerY
   const length = Math.max(Math.hypot(dx, dy), 1)
-  const distance = pointer.pressed ? 5.2 : 3.5
-  return `translate(${(dx / length) * distance}px, ${(dy / length) * distance}px)`
+  const distance = pointer.pressed ? 6 : 4.4
+
+  return {
+    '--pupil-x': `${(dx / length) * distance}px`,
+    '--pupil-y': `${(dy / length) * distance}px`,
+    '--pupil-rotate': `${Math.atan2(dy, dx) * (180 / Math.PI)}deg`,
+  } as CSSProperties
+}
+
+function expressionClass(mascot: Mascot) {
+  return pointer.pressed ? mascot.clickMood : 'calm'
 }
 
 async function submit() {
@@ -97,91 +139,88 @@ async function submit() {
 }
 
 onMounted(() => {
+  seedPointer()
   window.addEventListener('pointermove', updatePointer)
+  window.addEventListener('pointerdown', handlePointerDown)
   window.addEventListener('pointerup', handlePointerUp)
-  pointer.x = window.innerWidth * 0.24
-  pointer.y = window.innerHeight * 0.5
+  window.addEventListener('pointercancel', handlePointerUp)
+  window.addEventListener('blur', handlePointerUp)
 })
 
 onUnmounted(() => {
   window.removeEventListener('pointermove', updatePointer)
+  window.removeEventListener('pointerdown', handlePointerDown)
   window.removeEventListener('pointerup', handlePointerUp)
+  window.removeEventListener('pointercancel', handlePointerUp)
+  window.removeEventListener('blur', handlePointerUp)
 })
 </script>
 
 <template>
   <main class="login-page" :class="{ pressed: pointer.pressed }">
-    <section
-      ref="stageRef"
-      class="story-stage"
-      aria-label="DataOcean login illustration"
-      @pointerdown="handlePointerDown"
-    >
-      <div class="brand-mark">
-        <span class="brand-icon" />
+    <section ref="stageRef" class="character-stage" aria-label="登录插画">
+      <div class="brand-chip">
+        <span />
         <strong>DataOcean</strong>
       </div>
 
-      <div class="stage-title">
-        <span>NL2SQL 工作台</span>
-        <h1>自然语言查询入口</h1>
+      <div class="stage-copy">
+        <p>你的数据海洋</p>
+        <h1>从自然语言开始探索</h1>
       </div>
 
-      <div class="flower-field" aria-hidden="true">
-        <i />
-        <i />
-        <i />
-        <i />
-        <i />
-      </div>
-      <div class="paper-plane" aria-hidden="true" />
-      <div class="wall-sheet" aria-hidden="true" />
-
-      <div class="mascot-line" aria-hidden="true">
+      <div class="mascot-scene" :style="sceneStyle" aria-hidden="true">
+        <div class="stage-floor" />
         <div
           v-for="mascot in mascots"
           :key="mascot.id"
           class="mascot"
-          :class="[mascot.className, mascot.mood]"
+          :class="[mascot.className, mascot.eyeMode, expressionClass(mascot)]"
+          :style="mascotStyle(mascot)"
         >
-          <span class="mascot-tag">{{ mascot.title }}</span>
-          <span class="eye left" :class="mascot.eye">
-            <i :style="{ transform: eyeTransform(mascot) }" />
+          <span class="eye eye-left" :style="pupilStyle(mascot)">
+            <i />
           </span>
-          <span class="eye right" :class="mascot.eye">
-            <i :style="{ transform: eyeTransform(mascot) }" />
+          <span class="eye eye-right" :style="pupilStyle(mascot)">
+            <i />
           </span>
           <span class="mouth" />
         </div>
       </div>
     </section>
 
-    <section class="login-panel" aria-label="登录表单">
-      <div class="panel-inner">
+    <section class="form-panel" aria-label="登录表单">
+      <div class="form-shell">
         <div class="mode-row">
-          <span><Languages :size="14" /> 中文</span>
-          <span><Sparkles :size="14" /> 轻快</span>
+          <button type="button">
+            <Languages :size="14" />
+            <span>中文</span>
+          </button>
+          <button type="button">
+            <Sparkles :size="14" />
+            <span>Playful</span>
+          </button>
         </div>
 
         <header class="form-heading">
-          <p>欢迎回来！</p>
-          <h2>登录你的 DataOcean 工作台</h2>
+          <h2>欢迎回来！</h2>
+          <p>请输入你的账号信息</p>
         </header>
 
         <form class="login-form" @submit.prevent="submit">
-          <div class="segment" aria-label="登录注册切换">
+          <div class="segment-tabs" aria-label="登录注册切换">
             <button type="button" class="active">登录</button>
             <button type="button">注册</button>
           </div>
 
-          <label>
+          <label class="field">
             <span>账号</span>
             <input v-model="form.username" type="text" autocomplete="username" placeholder="请输入账号" />
           </label>
 
-          <label>
+          <label class="field">
             <span>密码</span>
-            <div class="password-input">
+            <div class="password-field">
               <input
                 v-model="form.password"
                 :type="showPassword ? 'text' : 'password'"
@@ -189,24 +228,26 @@ onUnmounted(() => {
                 placeholder="请输入密码"
               />
               <button type="button" :aria-label="showPassword ? '隐藏密码' : '显示密码'" @click="showPassword = !showPassword">
-                <EyeOff v-if="showPassword" :size="18" />
-                <Eye v-else :size="18" />
+                <EyeOff v-if="showPassword" :size="19" />
+                <Eye v-else :size="19" />
               </button>
             </div>
           </label>
 
           <div class="form-tools">
-            <label class="checkbox">
+            <label class="remember">
               <input v-model="remember" type="checkbox" />
-              <span>30 天内记住我</span>
+              <span>30天内记住我</span>
             </label>
-            <button type="button" class="link-button">忘记密码？</button>
+            <button type="button" class="text-button">忘记密码？</button>
           </div>
 
           <button class="submit-button" type="submit" :disabled="loading">
             <LogIn :size="18" />
             <span>{{ loading ? '登录中...' : '登录' }}</span>
           </button>
+
+          <button type="button" class="register-link">没有账号？ 去注册</button>
         </form>
       </div>
     </section>
@@ -215,216 +256,133 @@ onUnmounted(() => {
 
 <style scoped>
 .login-page {
-  --ink: #1d2b35;
-  --muted: #6d7a72;
-  --line: rgba(63, 84, 72, 0.15);
-  --sky: #8ed8ee;
-  --leaf: #8bbd41;
-  --paper: #fff5dc;
+  --ink: #101827;
+  --muted: #6c7280;
+  --line: #e6e7ec;
+  --purple: #6f35f2;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(500px, 1.05fr) minmax(460px, 0.95fr);
+  grid-template-columns: minmax(460px, 1fr) minmax(460px, 1fr);
   color: var(--ink);
-  background:
-    radial-gradient(circle at 86% 12%, rgba(117, 194, 222, 0.2), transparent 28%),
-    linear-gradient(120deg, #f9fbf0 0%, #fffdf5 58%, #f4f8ee 100%);
+  background: #ffffff;
   overflow: hidden;
 }
 
-.story-stage {
+.character-stage {
   position: relative;
   min-height: 100vh;
   overflow: hidden;
-  cursor: default;
   background:
-    radial-gradient(circle at 27% 11%, rgba(255, 255, 255, 0.98) 0 22px, transparent 23px),
-    radial-gradient(circle at 31% 10%, rgba(255, 255, 255, 0.96) 0 34px, transparent 35px),
-    radial-gradient(circle at 37% 12%, rgba(255, 255, 255, 0.98) 0 24px, transparent 25px),
-    linear-gradient(178deg, #8dd8ef 0%, #cdeec8 31%, #fff6db 70%, #fffaf0 100%);
+    linear-gradient(rgba(255, 255, 255, 0.075) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.075) 1px, transparent 1px),
+    linear-gradient(135deg, #5524d6 0%, #7439f4 48%, #4a1ab1 100%);
+  background-size: 30px 30px, 30px 30px, auto;
 }
 
-.story-stage::before {
+.character-stage::before {
   content: "";
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.22) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.2) 1px, transparent 1px);
-  background-size: 36px 36px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8), transparent 72%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 36%),
+    repeating-linear-gradient(0deg, transparent 0 94px, rgba(214, 191, 255, 0.08) 95px 96px);
+  pointer-events: none;
 }
 
-.story-stage::after {
+.character-stage::after {
   content: "";
   position: absolute;
-  left: -4%;
-  right: -4%;
-  bottom: 0;
-  height: 18%;
-  background:
-    radial-gradient(ellipse at 18% 0%, rgba(140, 184, 63, 0.44), transparent 40%),
-    linear-gradient(180deg, rgba(255, 247, 212, 0), #f4e8ba 74%);
+  right: -18px;
+  top: 50%;
+  z-index: 5;
+  width: 44px;
+  height: 68px;
+  border-radius: 999px 0 0 999px;
+  background: rgba(255, 255, 255, 0.86);
+  transform: translateY(-50%);
 }
 
-.brand-mark {
+.brand-chip {
   position: absolute;
-  top: 44px;
+  top: 46px;
   left: 52px;
-  z-index: 8;
+  z-index: 6;
   display: inline-flex;
   align-items: center;
-  gap: 11px;
-  min-height: 42px;
-  padding: 0 15px;
-  border: 1px solid rgba(255, 255, 255, 0.58);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.42);
-  color: #25404f;
+  gap: 12px;
+  height: 44px;
+  padding: 0 17px 0 13px;
+  border: 1px solid rgba(226, 211, 255, 0.32);
+  border-radius: 13px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(14px);
-  box-shadow: 0 14px 32px rgba(77, 119, 104, 0.13);
+  box-shadow: 0 16px 34px rgba(25, 7, 80, 0.16);
 }
 
-.brand-icon {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.65), transparent 38%),
-    linear-gradient(135deg, #78c5f2, #9ac74d 58%, #f6d45c);
+.brand-chip span {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 10px 0 18px rgba(255, 255, 255, 0.18);
 }
 
-.brand-mark strong {
-  font-size: 16px;
-  line-height: 1;
+.brand-chip strong {
+  font-size: 17px;
+  letter-spacing: 0;
 }
 
-.stage-title {
+.stage-copy {
   position: absolute;
-  top: 18%;
-  left: 11%;
-  z-index: 8;
+  top: 15%;
+  left: 12%;
+  z-index: 6;
+  max-width: 430px;
+  color: #ffffff;
 }
 
-.stage-title span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 30px;
-  padding: 0 12px;
-  border-radius: 999px;
-  color: #56763a;
-  background: rgba(255, 255, 255, 0.5);
-  font-size: 13px;
+.stage-copy p {
+  margin: 0 0 15px;
+  font-size: 20px;
   font-weight: 900;
+  color: rgba(255, 255, 255, 0.74);
 }
 
-.stage-title h1 {
-  margin: 12px 0 0;
-  max-width: 320px;
-  color: #203745;
-  font-size: clamp(28px, 2.6vw, 38px);
+.stage-copy h1 {
+  margin: 0;
+  font-size: 44px;
   line-height: 1.16;
   letter-spacing: 0;
-  text-shadow: 0 2px 0 rgba(255, 255, 255, 0.65);
+  text-shadow: 0 3px 0 rgba(10, 7, 40, 0.28);
 }
 
-.wall-sheet {
+.mascot-scene {
   position: absolute;
-  z-index: 1;
-  top: 20%;
+  left: 6%;
   right: 8%;
-  bottom: 9%;
-  width: 52%;
-  border-radius: 34px 34px 10px 10px;
-  background:
-    radial-gradient(circle at 16% 16%, rgba(240, 180, 61, 0.16), transparent 18%),
-    linear-gradient(90deg, rgba(192, 169, 105, 0.1) 1px, transparent 1px),
-    linear-gradient(#fff7df, #fffaf0);
-  background-size: auto, 30px 30px, auto;
-  box-shadow:
-    inset 0 0 0 1px rgba(158, 137, 91, 0.1),
-    0 34px 80px rgba(84, 112, 80, 0.16);
-  transform: rotate(0.7deg);
-}
-
-.paper-plane {
-  position: absolute;
-  top: 42%;
-  left: 14%;
-  z-index: 6;
-  width: 58px;
-  height: 34px;
-  clip-path: polygon(0 47%, 100% 0, 72% 100%, 55% 62%);
-  background:
-    linear-gradient(135deg, #fff 0 42%, #d7ecff 43% 55%, #fff 56%);
-  filter: drop-shadow(0 11px 18px rgba(60, 94, 103, 0.2));
-  transform: rotate(-14deg);
-}
-
-.flower-field {
-  position: absolute;
-  z-index: 4;
-  top: 25%;
-  left: -58px;
-  width: 208px;
-  height: 400px;
-  background:
-    radial-gradient(circle at 32% 18%, #9bc849 0 27px, transparent 28px),
-    radial-gradient(circle at 52% 34%, #79ad31 0 40px, transparent 41px),
-    radial-gradient(circle at 30% 47%, #a6d353 0 38px, transparent 39px),
-    radial-gradient(circle at 58% 62%, #83ba3e 0 34px, transparent 35px),
-    radial-gradient(circle at 22% 72%, #9ccf4e 0 48px, transparent 49px);
-  filter: drop-shadow(0 22px 28px rgba(75, 114, 56, 0.18));
-  opacity: 0.92;
-}
-
-.flower-field i {
-  position: absolute;
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 34% 30%, #e9f5ff 0 8px, transparent 9px),
-    radial-gradient(circle at 58% 28%, #b8ddff 0 10px, transparent 11px),
-    radial-gradient(circle at 67% 58%, #69a9e8 0 12px, transparent 13px),
-    radial-gradient(circle at 35% 63%, #3e82d8 0 14px, transparent 15px),
-    #86c6f4;
-}
-
-.flower-field i:nth-child(1) {
-  top: 4px;
-  left: 72px;
-}
-
-.flower-field i:nth-child(2) {
-  top: 86px;
-  left: 118px;
-  transform: scale(0.88);
-}
-
-.flower-field i:nth-child(3) {
-  top: 158px;
-  left: 52px;
-  transform: scale(1.08);
-}
-
-.flower-field i:nth-child(4) {
-  top: 240px;
-  left: 104px;
-  transform: scale(0.82);
-}
-
-.flower-field i:nth-child(5) {
-  top: 318px;
-  left: 42px;
-  transform: scale(0.92);
-}
-
-.mascot-line {
-  position: absolute;
+  bottom: 8%;
   z-index: 7;
-  inset: auto 6% 8% 5%;
-  height: min(44vw, 505px);
-  min-height: 342px;
+  height: 54%;
+  min-height: 380px;
+  transform:
+    perspective(900px)
+    translate3d(var(--scene-shift-x), var(--scene-shift-y), 0)
+    rotateX(var(--scene-rotate-x))
+    rotateY(var(--scene-rotate-y));
+  transform-style: preserve-3d;
+  transition: transform 180ms ease-out;
+}
+
+.stage-floor {
+  position: absolute;
+  left: 0;
+  right: 1%;
+  bottom: 0;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 24px 48px rgba(18, 8, 70, 0.22);
 }
 
 .mascot {
@@ -432,14 +390,13 @@ onUnmounted(() => {
   bottom: 0;
   display: block;
   background: var(--body);
-  border-radius: 42px 42px 0 0;
-  box-shadow:
-    inset -12px -12px 0 rgba(0, 0, 0, 0.05),
-    0 18px 34px rgba(51, 65, 58, 0.13);
+  transform-origin: 50% 100%;
+  transform: rotate(calc(var(--base-rotate) + var(--body-tilt)));
   transition:
-    transform 180ms ease,
-    border-radius 180ms ease,
-    box-shadow 180ms ease;
+    transform 190ms ease-out,
+    border-radius 160ms ease,
+    filter 160ms ease;
+  filter: drop-shadow(0 22px 22px rgba(22, 8, 70, 0.24));
 }
 
 .mascot::before {
@@ -447,167 +404,172 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: radial-gradient(circle at 25% 15%, rgba(255, 255, 255, 0.28), transparent 23%);
+  background: linear-gradient(115deg, rgba(255, 255, 255, 0.2), transparent 42%);
   pointer-events: none;
 }
 
-.mascot-tag {
-  position: absolute;
-  left: 50%;
-  bottom: -28px;
-  transform: translateX(-50%);
-  color: rgba(34, 48, 56, 0.45);
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.sprout {
-  --body: #ffad78;
-  left: 2%;
-  width: clamp(176px, 28vw, 318px);
-  height: clamp(142px, 23vw, 238px);
+.orange {
+  --body: #ff9969;
+  left: 1%;
+  width: 45%;
+  height: 43%;
   border-radius: 999px 999px 0 0;
 }
 
 .violet {
-  --body: #7563ea;
-  left: 28%;
-  width: clamp(136px, 18vw, 224px);
-  height: clamp(286px, 44vw, 470px);
-  transform: rotate(3.5deg);
+  --body: #7043ef;
+  left: 29%;
+  width: 32%;
+  height: 92%;
+  border-radius: 18px 18px 0 0;
 }
 
 .charcoal {
-  --body: #2e3131;
-  left: 52%;
-  width: clamp(102px, 14vw, 158px);
-  height: clamp(230px, 34vw, 356px);
-  transform: rotate(1.5deg);
-  box-shadow:
-    inset -10px -10px 0 rgba(255, 255, 255, 0.03),
-    0 18px 34px rgba(51, 65, 58, 0.13);
+  --body: #252525;
+  left: 54%;
+  width: 23%;
+  height: 70%;
+  border-radius: 10px 10px 0 0;
+  filter: drop-shadow(0 22px 22px rgba(22, 8, 70, 0.32));
 }
 
-.sunny {
-  --body: #efe16a;
-  left: 65%;
-  width: clamp(126px, 17vw, 198px);
-  height: clamp(194px, 28vw, 300px);
+.yellow {
+  --body: #f0df55;
+  left: 68%;
+  width: 30%;
+  height: 56%;
   border-radius: 999px 999px 0 0;
 }
 
-.pressed .violet {
-  transform: rotate(3.5deg) translateY(-10px);
-}
-
-.pressed .charcoal {
-  transform: rotate(1.5deg) translateY(6px);
-}
-
-.pressed .sprout,
-.pressed .sunny {
-  transform: translateY(-5px);
+.pressed .orange,
+.pressed .yellow {
+  filter: drop-shadow(0 28px 26px rgba(22, 8, 70, 0.22));
 }
 
 .eye {
+  --pupil-x: 0px;
+  --pupil-y: 0px;
+  --pupil-rotate: 0deg;
   position: absolute;
-  top: 33%;
-  width: 24px;
-  height: 24px;
+  top: 28%;
+  width: 25px;
+  height: 25px;
   border-radius: 50%;
-  background: #fff;
+  background: #ffffff;
   overflow: hidden;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.18);
 }
 
-.eye.dark {
-  width: 16px;
-  height: 16px;
-  background: #283036;
-  box-shadow: none;
-}
-
-.eye.left {
+.eye-left {
   left: 42%;
 }
 
-.eye.right {
+.eye-right {
   left: calc(42% + 34px);
-}
-
-.sprout .eye {
-  top: 48%;
-}
-
-.sprout .eye.left {
-  left: 46%;
-}
-
-.sprout .eye.right {
-  left: calc(46% + 23px);
-}
-
-.sunny .eye {
-  top: 29%;
-}
-
-.sunny .eye.left {
-  left: 42%;
-}
-
-.sunny .eye.right {
-  left: calc(42% + 29px);
 }
 
 .eye i {
   position: absolute;
-  left: 7px;
-  top: 7px;
-  width: 9px;
-  height: 9px;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: #222a31;
-  transition: transform 75ms linear;
+  background: #1f2933;
+  transform: translate(calc(-50% + var(--pupil-x)), calc(-50% + var(--pupil-y))) rotate(var(--pupil-rotate));
+  transition: transform 75ms linear, height 120ms ease;
 }
 
-.eye.dark i {
-  left: 4px;
-  top: 4px;
-  width: 8px;
-  height: 8px;
-  background: #0d141a;
+.eye i::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.dot .eye {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.dot .eye i {
+  width: 15px;
+  height: 15px;
+  background: #303136;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.orange .eye {
+  top: 46%;
+}
+
+.orange .eye-left {
+  left: 43%;
+}
+
+.orange .eye-right {
+  left: calc(43% + 26px);
+}
+
+.violet .eye {
+  top: 17%;
+}
+
+.charcoal .eye {
+  top: 22%;
+}
+
+.yellow .eye {
+  top: 29%;
+}
+
+.yellow .eye-left {
+  left: 42%;
+}
+
+.yellow .eye-right {
+  left: calc(42% + 32px);
 }
 
 .mouth {
   position: absolute;
-  left: 43%;
-  top: 46%;
-  width: 76px;
-  height: 21px;
-  border-bottom: 5px solid #384048;
-  transform: translateX(-2px);
-}
-
-.sprout .mouth,
-.violet .mouth,
-.charcoal .mouth {
+  left: 50%;
+  top: 48%;
+  width: 56px;
+  height: 18px;
+  border-bottom: 4px solid currentColor;
+  border-radius: 0 0 999px 999px;
+  color: #2f3338;
   opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 140ms ease, width 140ms ease, height 140ms ease, border 140ms ease;
 }
 
-.mascot.happy .mouth {
+.charcoal .mouth,
+.violet .mouth {
+  color: #ffffff;
+}
+
+.yellow .mouth {
+  top: 50%;
+  width: 72px;
   opacity: 1;
-  width: 58px;
-  height: 30px;
-  border-bottom-color: currentColor;
-  border-radius: 0 0 50% 50%;
 }
 
-.charcoal.happy .mouth,
-.violet.happy .mouth {
-  border-bottom-color: #fff;
+.smile .mouth {
+  opacity: 1;
+  width: 60px;
+  height: 28px;
 }
 
-.mascot.wow .mouth {
+.surprised .mouth {
   opacity: 1;
   width: 24px;
   height: 24px;
@@ -615,69 +577,70 @@ onUnmounted(() => {
   border-radius: 50%;
 }
 
-.charcoal.wow .mouth,
-.violet.wow .mouth {
-  border-color: #fff;
+.blink .eye i {
+  height: 3px;
+  border-radius: 999px;
 }
 
-.login-panel {
-  position: relative;
-  z-index: 12;
+.blink .mouth {
+  opacity: 1;
+  width: 50px;
+  height: 24px;
+}
+
+.form-panel {
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(32px, 6vw, 86px);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(250, 252, 245, 0.96)),
-    radial-gradient(circle at 88% 10%, rgba(117, 194, 222, 0.14), transparent 28%);
-  box-shadow: -30px 0 80px rgba(72, 91, 76, 0.12);
+  padding: 64px;
+  background: #ffffff;
 }
 
-.panel-inner {
-  width: min(100%, 500px);
+.form-shell {
+  width: 100%;
+  max-width: 500px;
 }
 
 .mode-row {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-bottom: 30px;
+  gap: 12px;
+  margin-bottom: 28px;
 }
 
-.mode-row span {
+.mode-row button {
+  height: 34px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-height: 32px;
-  padding: 0 13px;
-  border: 1px solid #e2eadb;
+  border: 1px solid #ece7f6;
   border-radius: 999px;
-  color: #577a48;
-  background: rgba(255, 255, 255, 0.74);
-  font-size: 13px;
-  font-weight: 900;
+  padding: 0 15px;
+  color: #6041b9;
+  background: #fbf8ff;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(95, 68, 153, 0.07);
 }
 
 .form-heading {
-  margin-bottom: 30px;
-}
-
-.form-heading p {
-  margin: 0;
-  color: #172536;
-  font-size: clamp(34px, 4vw, 48px);
-  font-weight: 950;
-  line-height: 1.08;
-  letter-spacing: 0;
+  margin-bottom: 28px;
 }
 
 .form-heading h2 {
-  margin: 12px 0 0;
-  color: #748176;
-  font-size: 16px;
-  font-weight: 800;
+  margin: 0;
+  font-size: 36px;
+  line-height: 1.18;
   letter-spacing: 0;
+}
+
+.form-heading p {
+  margin: 13px 0 0;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .login-form {
@@ -685,125 +648,124 @@ onUnmounted(() => {
   gap: 18px;
 }
 
-.segment {
+.segment-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
-  padding: 4px;
-  border: 1px solid #e3eadf;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.62);
 }
 
-.segment button,
+.segment-tabs button,
 .submit-button,
-.link-button {
+.text-button,
+.register-link {
   border: 0;
   cursor: pointer;
 }
 
-.segment button {
-  height: 42px;
-  border-radius: 8px;
-  color: #65716b;
-  background: transparent;
+.segment-tabs button {
+  height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: #303641;
+  background: #ffffff;
   font-weight: 900;
+  box-shadow: 0 5px 16px rgba(12, 18, 28, 0.04);
 }
 
-.segment button.active {
-  color: #fff;
-  background: #182536;
-  box-shadow: 0 12px 25px rgba(24, 37, 54, 0.14);
+.segment-tabs button.active {
+  color: #ffffff;
+  border-color: #101827;
+  background: #101827;
+  box-shadow: 0 13px 26px rgba(16, 24, 39, 0.16);
 }
 
-.login-form label {
+.field {
   display: grid;
   gap: 9px;
-  color: #20303c;
+  color: #141a24;
+  font-size: 15px;
   font-weight: 900;
 }
 
-.login-form input[type="text"],
-.login-form input[type="password"] {
+.field input {
   width: 100%;
   height: 54px;
-  border: 1px solid #dce6d9;
-  border-radius: 10px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
   padding: 0 16px;
-  color: #22313e;
-  background: rgba(255, 255, 255, 0.86);
+  color: var(--ink);
+  background: #ffffff;
   outline: none;
-  transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    background 160ms ease;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.login-form input::placeholder {
-  color: #a2aaa2;
+.field input::placeholder {
+  color: #a7acb7;
 }
 
-.login-form input:focus {
-  border-color: #8fbd4d;
-  background: #fff;
-  box-shadow: 0 0 0 4px rgba(143, 189, 77, 0.14);
+.field input:focus {
+  border-color: #7752f4;
+  box-shadow: 0 0 0 4px rgba(119, 82, 244, 0.12);
 }
 
-.password-input {
+.password-field {
   position: relative;
 }
 
-.password-input input {
-  padding-right: 52px;
+.password-field input {
+  padding-right: 54px;
 }
 
-.password-input button {
+.password-field button {
   position: absolute;
   top: 50%;
-  right: 11px;
-  width: 36px;
-  height: 36px;
+  right: 10px;
+  width: 38px;
+  height: 38px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 8px;
-  color: #6f7d75;
+  border-radius: 10px;
+  color: #7b8190;
   background: transparent;
   transform: translateY(-50%);
   cursor: pointer;
 }
 
-.password-input button:hover {
-  background: #f0f5e9;
+.password-field button:hover {
+  color: #101827;
+  background: #f5f3fb;
 }
 
 .form-tools {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  color: #66756d;
-  font-size: 14px;
+  gap: 16px;
+  color: #5f6673;
+  font-size: 15px;
 }
 
-.checkbox {
-  display: flex !important;
-  grid-template-columns: none;
+.remember {
+  display: inline-flex;
   align-items: center;
-  gap: 9px !important;
-  font-weight: 800 !important;
+  gap: 10px;
+  min-width: 0;
+  font-weight: 800;
 }
 
-.checkbox input {
-  width: 18px;
-  height: 18px;
-  accent-color: #84b63f;
+.remember input {
+  width: 19px;
+  height: 19px;
+  margin: 0;
+  accent-color: #6f35f2;
 }
 
-.link-button {
-  color: #60813f;
+.text-button {
+  color: #6f35f2;
   background: transparent;
   font-weight: 900;
+  white-space: nowrap;
 }
 
 .submit-button {
@@ -812,11 +774,11 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  border-radius: 10px;
-  color: #fff;
-  background: #182536;
+  border-radius: 13px;
+  color: #ffffff;
+  background: #101827;
   font-weight: 950;
-  box-shadow: 0 18px 34px rgba(24, 37, 54, 0.18);
+  box-shadow: 0 18px 34px rgba(16, 24, 39, 0.18);
 }
 
 .submit-button:disabled {
@@ -824,101 +786,85 @@ onUnmounted(() => {
   opacity: 0.68;
 }
 
+.register-link {
+  height: 50px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  color: #6f35f2;
+  background: #ffffff;
+  font-weight: 900;
+}
+
 @media (max-width: 980px) {
   .login-page {
+    min-height: 100vh;
     grid-template-columns: 1fr;
     overflow: auto;
   }
 
-  .story-stage {
-    min-height: 400px;
+  .character-stage {
+    min-height: 430px;
   }
 
-  .stage-title {
-    top: 88px;
+  .character-stage::after {
+    display: none;
   }
 
-  .stage-title h1 {
-    font-size: 30px;
+  .stage-copy {
+    top: 100px;
+    left: 40px;
   }
 
-  .wall-sheet {
-    top: 18%;
-    right: 5%;
-    width: 54%;
+  .stage-copy h1 {
+    font-size: 34px;
   }
 
-  .flower-field {
-    top: 22%;
-    transform: scale(0.76);
-    transform-origin: top left;
+  .mascot-scene {
+    left: 40px;
+    right: 40px;
+    bottom: 32px;
+    height: 250px;
+    min-height: 250px;
   }
 
-  .mascot-line {
-    height: 280px;
-    min-height: 280px;
-    bottom: 34px;
-  }
-
-  .login-panel {
+  .form-panel {
     min-height: auto;
-    box-shadow: 0 -20px 60px rgba(72, 91, 76, 0.1);
+    padding: 42px 32px 52px;
   }
 }
 
 @media (max-width: 560px) {
-  .story-stage {
-    min-height: 285px;
+  .character-stage {
+    min-height: 330px;
   }
 
-  .brand-mark {
-    top: 20px;
+  .brand-chip {
+    top: 22px;
     left: 20px;
-    min-height: 38px;
+    height: 40px;
   }
 
-  .stage-title {
-    display: none;
+  .stage-copy {
+    top: 82px;
+    left: 22px;
+    right: 22px;
   }
 
-  .flower-field,
-  .paper-plane,
-  .wall-sheet {
-    display: none;
+  .stage-copy p {
+    margin-bottom: 8px;
+    font-size: 16px;
   }
 
-  .mascot-line {
-    inset: auto 12px 18px 12px;
-    height: 146px;
-    min-height: 146px;
+  .stage-copy h1 {
+    font-size: 28px;
   }
 
-  .sprout {
-    left: 0;
-    width: 124px;
-    height: 88px;
-  }
-
-  .violet {
-    left: 30%;
-    width: 78px;
-    height: 142px;
-  }
-
-  .charcoal {
-    left: 54%;
-    width: 64px;
-    height: 122px;
-  }
-
-  .sunny {
-    left: 67%;
-    width: 92px;
-    height: 108px;
-  }
-
-  .mascot-tag {
-    display: none;
+  .mascot-scene {
+    left: 18px;
+    right: 18px;
+    bottom: 24px;
+    height: 165px;
+    min-height: 165px;
   }
 
   .eye {
@@ -927,49 +873,59 @@ onUnmounted(() => {
   }
 
   .eye i {
-    left: 5px;
-    top: 5px;
-    width: 7px;
-    height: 7px;
+    width: 8px;
+    height: 8px;
   }
 
-  .eye.dark {
-    width: 13px;
-    height: 13px;
+  .dot .eye {
+    width: 19px;
+    height: 19px;
   }
 
-  .eye.dark i {
-    left: 3px;
-    top: 3px;
+  .dot .eye i {
+    width: 11px;
+    height: 11px;
   }
 
-  .eye.right {
+  .eye-right {
     left: calc(42% + 24px);
   }
 
-  .login-panel {
-    padding: 26px 20px 34px;
+  .orange .eye-right {
+    left: calc(43% + 20px);
+  }
+
+  .yellow .eye-right {
+    left: calc(42% + 22px);
+  }
+
+  .mouth {
+    width: 38px;
+  }
+
+  .yellow .mouth {
+    width: 42px;
+  }
+
+  .form-panel {
+    padding: 30px 20px 38px;
   }
 
   .mode-row {
     justify-content: flex-start;
-    margin-bottom: 20px;
-  }
-
-  .form-heading p {
-    font-size: 30px;
-  }
-
-  .form-heading {
     margin-bottom: 22px;
   }
 
-  .login-form {
-    gap: 14px;
+  .form-heading h2 {
+    font-size: 30px;
   }
 
-  .login-form input[type="text"],
-  .login-form input[type="password"],
+  .login-form {
+    gap: 15px;
+  }
+
+  .segment-tabs button,
+  .field input,
   .submit-button {
     height: 52px;
   }
@@ -977,6 +933,7 @@ onUnmounted(() => {
   .form-tools {
     align-items: flex-start;
     flex-direction: column;
+    gap: 10px;
   }
 }
 </style>
