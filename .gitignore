@@ -47,6 +47,7 @@ Desktop.ini
 !.env.*.template
 
 # Frontend (Vue/Vite)
+.npm-cache/
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
@@ -64,6 +65,7 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Java / Maven backend
+.m2/
 backend/**/target/
 backend/**/out/
 backend/**/.flattened-pom.xml
@@ -95,6 +97,7 @@ python-service/.ipynb_checkpoints/
 python-service/**/*.ipynb_checkpoints/
 
 # Local databases and generated data
+.playwright-cli/
 *.db
 *.sqlite
 *.sqlite3
