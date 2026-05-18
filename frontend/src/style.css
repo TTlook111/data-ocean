@@ -1,9 +1,33 @@
 :root {
+  --do-sky: #86d2ec;
+  --do-sky-soft: #dff6fb;
+  --do-hydrangea: #2f7fd3;
+  --do-hydrangea-soft: #e6f1fb;
+  --do-leaf: #75a914;
+  --do-leaf-deep: #4f7d12;
+  --do-cream: #fff3d6;
+  --do-paper: #fffaf0;
+  --do-warm: #d9a231;
+  --do-ink: #172332;
+  --do-muted: #67727d;
+  --do-line: rgba(55, 85, 92, 0.14);
+  --do-surface: rgba(255, 255, 255, 0.82);
+  --do-shadow: 0 20px 54px rgba(58, 104, 118, 0.16);
+  --el-color-primary: var(--do-hydrangea);
+  --el-color-primary-light-3: #6caee6;
+  --el-color-primary-light-5: #9cccf0;
+  --el-color-primary-light-7: #c7e3f7;
+  --el-color-primary-light-8: #d9eefb;
+  --el-color-primary-light-9: var(--do-hydrangea-soft);
+  --el-color-primary-dark-2: #1f5f9f;
+  --el-color-success: var(--do-leaf);
+  --el-color-warning: var(--do-warm);
+  --el-border-radius-base: 6px;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Microsoft YaHei", sans-serif;
-  color: #243041;
-  background: #f8fbf3;
+  color: var(--do-ink);
+  background: var(--do-paper);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -33,4 +57,67 @@ input {
 a {
   color: inherit;
   text-decoration: none;
+}
+
+.post-login-page {
+  min-height: 100vh;
+  color: var(--do-ink);
+  background:
+    linear-gradient(180deg, rgba(134, 210, 236, 0.38) 0%, rgba(255, 243, 214, 0.5) 36%, rgba(255, 250, 240, 0.96) 100%),
+    linear-gradient(90deg, rgba(117, 169, 20, 0.12) 0%, transparent 26%, rgba(47, 127, 211, 0.1) 100%);
+}
+
+.post-login-page .page-header p,
+.post-login-page .eyebrow {
+  color: var(--do-leaf-deep);
+}
+
+.post-login-page .el-table,
+.post-login-page .el-card,
+.post-login-page .el-dialog,
+.post-login-page .department-tree,
+.post-login-page .toolbar {
+  border: 1px solid var(--do-line);
+  box-shadow: var(--do-shadow);
+}
+
+.post-login-page .el-table,
+.post-login-page .el-card,
+.post-login-page .el-dialog,
+.post-login-page .department-tree {
+  background: var(--do-surface);
+  backdrop-filter: blur(12px);
+}
+
+.post-login-page .el-table th.el-table__cell {
+  background: rgba(223, 246, 251, 0.86);
+  color: var(--do-ink);
+}
+
+.post-login-page .el-input__wrapper,
+.post-login-page .el-select__wrapper,
+.post-login-page .el-tree-select__wrapper {
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 0 0 1px var(--do-line) inset;
+}
+
+.post-login-page .el-input__wrapper.is-focus,
+.post-login-page .el-select__wrapper.is-focused,
+.post-login-page .el-tree-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--do-hydrangea) inset, 0 0 0 4px rgba(47, 127, 211, 0.12);
+}
+
+.post-login-page .el-button--primary {
+  --el-button-bg-color: var(--do-hydrangea);
+  --el-button-border-color: var(--do-hydrangea);
+  --el-button-hover-bg-color: #1f6fbf;
+  --el-button-hover-border-color: #1f6fbf;
+  --el-button-active-bg-color: #1a5f9f;
+  --el-button-active-border-color: #1a5f9f;
+}
+
+.post-login-page .el-tag--success {
+  --el-tag-bg-color: rgba(117, 169, 20, 0.13);
+  --el-tag-border-color: rgba(117, 169, 20, 0.26);
+  --el-tag-text-color: var(--do-leaf-deep);
 }

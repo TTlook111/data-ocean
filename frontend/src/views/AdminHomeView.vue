@@ -12,7 +12,7 @@ async function logout() {
 </script>
 
 <template>
-  <main class="admin-home">
+  <main class="admin-home post-login-page">
     <section class="admin-panel">
       <p class="eyebrow">DataOcean</p>
       <h1>欢迎回来，{{ auth.user?.realName || auth.user?.username || '管理员' }}</h1>
@@ -34,32 +34,33 @@ async function logout() {
   place-items: center;
   padding: 32px;
   background:
-    radial-gradient(circle at 12% 18%, rgba(151, 210, 235, 0.35), transparent 28%),
-    linear-gradient(135deg, #f7fbec 0%, #fef7df 48%, #eef8ff 100%);
+    linear-gradient(180deg, rgba(134, 210, 236, 0.42) 0%, rgba(255, 243, 214, 0.62) 46%, rgba(255, 250, 240, 0.98) 100%),
+    linear-gradient(90deg, rgba(117, 169, 20, 0.18) 0%, transparent 30%, rgba(47, 127, 211, 0.16) 100%);
 }
 
 .admin-panel {
   width: min(560px, 100%);
   padding: 34px;
-  border: 1px solid rgba(67, 95, 85, 0.15);
+  border: 1px solid var(--do-line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 24px 80px rgba(83, 108, 94, 0.18);
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+  backdrop-filter: blur(12px);
 }
 
 .eyebrow {
   margin: 0 0 10px;
-  color: #65914c;
+  color: var(--do-leaf-deep);
   font-weight: 700;
 }
 
 h1 {
   margin: 0 0 12px;
-  color: #1d2c3e;
+  color: var(--do-ink);
 }
 
 p {
-  color: #68776f;
+  color: var(--do-muted);
 }
 
 nav {
@@ -75,9 +76,14 @@ a {
   align-items: center;
   padding: 0 14px;
   border-radius: 6px;
-  color: #1d2c3e;
-  background: #eef2f7;
+  color: var(--do-ink);
+  background: var(--do-hydrangea-soft);
   font-weight: 800;
+}
+
+a:hover {
+  color: #fff;
+  background: var(--do-hydrangea);
 }
 
 button {
@@ -87,7 +93,7 @@ button {
   border: 0;
   border-radius: 6px;
   color: #fff;
-  background: #1d2c3e;
+  background: var(--do-ink);
   cursor: pointer;
 }
 </style>

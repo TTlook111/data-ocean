@@ -65,7 +65,7 @@ onMounted(fetchDepartments)
 </script>
 
 <template>
-  <main class="admin-page">
+  <main class="admin-page post-login-page">
     <header class="page-header">
       <div>
         <p>部门管理</p>
@@ -127,7 +127,6 @@ onMounted(fetchDepartments)
 .admin-page {
   min-height: 100vh;
   padding: 28px;
-  background: #f6f7fb;
 }
 
 .page-header {
@@ -139,19 +138,21 @@ onMounted(fetchDepartments)
 
 .page-header p {
   margin: 0 0 6px;
-  color: #6f35f2;
+  color: var(--do-leaf-deep);
   font-weight: 800;
 }
 
 .page-header h1 {
   margin: 0;
   font-size: 28px;
+  color: var(--do-ink);
 }
 
 .department-tree {
   min-height: 420px;
   padding: 16px;
   border-radius: 8px;
+  background: var(--do-surface);
 }
 
 .tree-node {

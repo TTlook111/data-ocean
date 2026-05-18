@@ -1,5 +1,5 @@
 <template>
-  <div class="change-password-container">
+  <div class="change-password-container post-login-page">
     <el-card class="change-password-card">
       <template #header>
         <h2>修改密码</h2>
@@ -119,21 +119,24 @@ async function handleSubmit() {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background-color: #f5f7fa;
+  padding: 24px;
 }
 
 .change-password-card {
   width: 480px;
+  max-width: 100%;
+  border-radius: 8px;
 }
 
 .change-password-card h2 {
   margin: 0;
   font-size: 20px;
+  color: var(--do-ink);
 }
 
 .forced-tip {
   margin: 8px 0 0;
-  color: #e6a23c;
+  color: var(--do-warm);
   font-size: 14px;
 }
 </style>

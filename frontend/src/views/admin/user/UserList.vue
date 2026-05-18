@@ -144,7 +144,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="admin-page">
+  <main class="admin-page post-login-page">
     <header class="page-header">
       <div>
         <p>用户管理</p>
@@ -254,7 +254,6 @@ onMounted(async () => {
 .admin-page {
   min-height: 100vh;
   padding: 28px;
-  background: #f6f7fb;
 }
 
 .page-header {
@@ -266,13 +265,14 @@ onMounted(async () => {
 
 .page-header p {
   margin: 0 0 6px;
-  color: #6f35f2;
+  color: var(--do-leaf-deep);
   font-weight: 800;
 }
 
 .page-header h1 {
   margin: 0;
   font-size: 28px;
+  color: var(--do-ink);
 }
 
 .toolbar {
@@ -280,6 +280,10 @@ onMounted(async () => {
   grid-template-columns: repeat(5, minmax(120px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(255, 250, 240, 0.76);
+  backdrop-filter: blur(12px);
 }
 
 .role-tag {
