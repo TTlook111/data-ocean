@@ -35,12 +35,6 @@ async function handleCompare() {
   }
 }
 
-function riskType(changeType: string) {
-  if (changeType.includes('REMOVED')) return 'danger'
-  if (changeType.includes('TYPE')) return 'warning'
-  return 'info'
-}
-
 onMounted(fetchSnapshots)
 </script>
 

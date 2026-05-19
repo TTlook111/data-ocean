@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { UserRound } from 'lucide-vue-next'
+import { ArrowLeft, Settings, UserRound } from 'lucide-vue-next'
 import { me, updateProfile } from '../../api/auth'
 import { useAuthStore } from '../../stores/auth'
 
@@ -26,6 +26,22 @@ const rules: FormRules = {
 
 const displayName = () => auth.currentUser?.realName || auth.user?.realName || form.realName || '用户'
 const roleText = () => auth.user?.roles?.length ? auth.user.roles.join(' / ') : '—'
+const canEnterAdmin = computed(() =>
+  auth.hasAnyPermission([
+    'admin:view',
+    'datasource:manage',
+    'metadata:manage',
+    'skills:manage',
+    'prompt:manage',
+    'field:manage',
+    'feedback:review',
+    'audit:view',
+    'user:manage',
+    'role:manage',
+    'role:view',
+    'department:manage',
+  ]),
+)
 
 async function fetchProfile() {
   loading.value = true
@@ -65,6 +81,17 @@ onMounted(fetchProfile)
 
 <template>
   <main class="profile-page post-login-page">
+    <nav class="profile-nav">
+      <RouterLink to="/query">
+        <ArrowLeft :size="16" />
+        返回问答
+      </RouterLink>
+      <RouterLink v-if="canEnterAdmin" to="/admin">
+        <Settings :size="16" />
+        后台管理
+      </RouterLink>
+    </nav>
+
     <section class="profile-panel" v-loading="loading">
       <header class="profile-header">
         <div class="profile-avatar">
@@ -107,8 +134,36 @@ onMounted(fetchProfile)
 
 <style scoped>
 .profile-page {
+  min-height: 100vh;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 18px;
+  padding: 32px 24px;
+  background:
+    linear-gradient(180deg, rgba(189, 232, 248, 0.44) 0, rgba(245, 251, 239, 0.76) 300px, var(--do-bg) 100%),
+    var(--do-bg);
+}
+
+.profile-nav {
+  width: min(680px, 100%);
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-nav a {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  color: var(--do-primary-strong);
+  background: var(--do-surface);
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .profile-panel {

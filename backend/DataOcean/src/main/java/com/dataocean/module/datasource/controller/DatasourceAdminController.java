@@ -2,7 +2,6 @@ package com.dataocean.module.datasource.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
-import com.dataocean.common.security.LoginUser;
 import com.dataocean.module.datasource.entity.query.DatasourceQuery;
 import com.dataocean.module.datasource.entity.dto.DatasourceAccessGrantDTO;
 import com.dataocean.module.datasource.entity.dto.DatasourceCreateDTO;
@@ -18,7 +17,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -54,10 +52,9 @@ public class DatasourceAdminController {
     }
 
     @PostMapping
-    public Result<DatasourceVO> createDatasource(@Valid @RequestBody DatasourceCreateDTO request,
-                                                 @AuthenticationPrincipal LoginUser loginUser) {
+    public Result<DatasourceVO> createDatasource(@Valid @RequestBody DatasourceCreateDTO request) {
         log.debug("收到创建数据源请求 name={} host={} database={}", request.getName(), request.getHost(), request.getDatabaseName());
-        return Result.success("创建成功", datasourceService.createDatasource(request, loginUser.getUserId()));
+        return Result.success("创建成功", datasourceService.createDatasource(request));
     }
 
     @PutMapping("/{id}")
@@ -92,9 +89,8 @@ public class DatasourceAdminController {
 
     @PostMapping("/{id}/access")
     public Result<Map<String, Integer>> grantAccess(@PathVariable Long id,
-                                                    @Valid @RequestBody DatasourceAccessGrantDTO request,
-                                                    @AuthenticationPrincipal LoginUser loginUser) {
-        int granted = accessService.grantAccess(id, request, loginUser.getUserId());
+                                                    @Valid @RequestBody DatasourceAccessGrantDTO request) {
+        int granted = accessService.grantAccess(id, request);
         return Result.success("授权成功", Map.of("granted", granted));
     }
 

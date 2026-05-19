@@ -8,13 +8,13 @@ import java.util.List;
 
 public interface DatasourceAccessService {
 
-    int grantAccess(Long datasourceId, DatasourceAccessGrantDTO request, Long grantedBy);
+    int grantAccess(Long datasourceId, DatasourceAccessGrantDTO request);
 
     void revokeAccess(Long datasourceId, Long userId);
 
     List<DatasourceAccessVO> listAccess(Long datasourceId);
 
-    List<DatasourceSimpleVO> listAccessibleDatasources(Long userId);
+    List<DatasourceSimpleVO> listAccessibleDatasources();
 
-    boolean checkAccess(Long datasourceId, Long userId);
+    boolean checkAccess(Long datasourceId);
 }

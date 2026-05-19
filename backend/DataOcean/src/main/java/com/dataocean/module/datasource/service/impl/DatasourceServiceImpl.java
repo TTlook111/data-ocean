@@ -3,6 +3,7 @@ package com.dataocean.module.datasource.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.security.UserContext;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceHealthCheck;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
@@ -42,7 +43,7 @@ public class DatasourceServiceImpl implements DatasourceService {
 
     @Transactional
     @Override
-    public DatasourceVO createDatasource(DatasourceCreateDTO request, Long creatorId) {
+    public DatasourceVO createDatasource(DatasourceCreateDTO request) {
         ensureUnique(request.getHost(), request.getPort(), request.getDatabaseName(), null);
         DatasourceConnectionTestVO testResult = connectionService.testConnection(
                 request.getHost(),
@@ -57,7 +58,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         }
 
         Datasource datasource = new Datasource();
-        applyCreateFields(datasource, request, creatorId);
+        applyCreateFields(datasource, request);
         try {
             datasourceMapper.insert(datasource);
         } catch (DuplicateKeyException exception) {
@@ -209,7 +210,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         return result;
     }
 
-    private void applyCreateFields(Datasource datasource, DatasourceCreateDTO request, Long creatorId) {
+    private void applyCreateFields(Datasource datasource, DatasourceCreateDTO request) {
         datasource.setName(request.getName());
         datasource.setDescription(request.getDescription());
         datasource.setDbType(Datasource.DB_TYPE_MYSQL);
@@ -219,7 +220,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         datasource.setCharset(resolveCharset(request.getCharset()));
         datasource.setStatus(Datasource.STATUS_ENABLED);
         datasource.setHealthStatus(Datasource.HEALTH_HEALTHY);
-        datasource.setCreatorId(creatorId);
+        datasource.setCreatorId(UserContext.currentUserId());
         datasource.setDeleted(0L);
     }
 

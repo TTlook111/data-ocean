@@ -64,7 +64,7 @@ async function submit() {
   try {
     await authStore.login({ username: form.username.trim(), password: form.password })
     ElMessage.success('登录成功')
-    await router.replace('/admin')
+    await router.replace('/query')
   } catch (error: unknown) {
     const message =
       typeof error === 'object' &&

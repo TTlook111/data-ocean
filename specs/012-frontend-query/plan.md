@@ -69,9 +69,9 @@ src/
 - getters: currentDatasource, enabledDatasources
 
 ### conversation store
-- state: currentSessionId, messages[] (max 5 recent), sessions[]
-- actions: createSession(datasourceId), addMessage(msg), clearSession()
-- getters: recentContext (last 5 messages for API request)
+- state: currentDatasourceId, currentSessionId, messagesBySession, sessionsByDatasource
+- actions: loadSessions(datasourceId), createSession(datasourceId), selectSession(sessionId), addMessage(msg), clearCurrentInput()
+- getters: currentDatasourceSessions, currentMessages, recentContext (当前会话最近 5 条消息)
 
 ### queryTask store
 - state: currentTaskId, status (idle/pending/streaming/done/error), progress{}, result{}
@@ -108,7 +108,8 @@ src/
 - 实现 MessageList 和 MessageItem
 - conversation store 维护最近 5 条消息
 - 每次查询请求携带 recentContext
-- 切换数据源时自动创建新会话
+- 切换数据源时加载目标数据源的历史会话列表，清空当前输入态，不携带上一数据源上下文
+- 新建对话必须绑定当前选中数据源，历史列表只展示当前数据源下的会话
 - 实现 FeedbackButtons：赞直接提交，踩弹出原因选择
 - 实现 ExportButtons：CSV（前端生成）、PNG（ECharts getDataURL）
 

@@ -1,6 +1,7 @@
 package com.dataocean.module.metadata.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.security.UserContext;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
@@ -62,13 +63,22 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
     private SchemaCollectionServiceImpl self;
 
     @Override
-    public Long executeFullSync(Long datasourceId, Long triggeredBy, boolean includeStatistics) {
+    public Long executeFullSync(Long datasourceId, boolean includeStatistics) {
+        return startFullSync(datasourceId, SchemaSyncTask.TRIGGER_MANUAL, UserContext.currentUserId(), includeStatistics);
+    }
+
+    @Override
+    public Long executeScheduledFullSync(Long datasourceId, boolean includeStatistics) {
+        return startFullSync(datasourceId, SchemaSyncTask.TRIGGER_SCHEDULED, null, includeStatistics);
+    }
+
+    private Long startFullSync(Long datasourceId, String triggerType, Long triggeredBy, boolean includeStatistics) {
         SchemaSyncTask running = syncTaskService.getLatestTask(datasourceId);
         if (running != null && SchemaSyncTask.STATUS_RUNNING.equals(running.getStatus())) {
             throw new BusinessException(409, "该数据源已有同步任务运行中");
         }
 
-        SchemaSyncTask task = syncTaskService.createTask(datasourceId, SchemaSyncTask.TRIGGER_MANUAL, triggeredBy);
+        SchemaSyncTask task = syncTaskService.createTask(datasourceId, triggerType, triggeredBy);
         self.doSyncAsync(datasourceId, task, includeStatistics);
         return task.getId();
     }

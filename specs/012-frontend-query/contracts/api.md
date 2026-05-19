@@ -5,6 +5,7 @@
 ## Base URL
 
 - 查询: `/api/query/*`
+- 会话: `/api/conversations/*`
 - 数据源: `/api/datasources/*`
 - 反馈: `/api/feedback/*`
 - 认证: `/api/auth/*`
@@ -147,7 +148,7 @@ data: {"code":"SQL_VALIDATION_FAILED","message":"SQL 包含不允许的操作","
 
 ## 会话 API
 
-### POST /api/query/sessions
+### POST /api/conversations
 
 创建新会话。
 
@@ -171,11 +172,13 @@ data: {"code":"SQL_VALIDATION_FAILED","message":"SQL 包含不允许的操作","
 
 ---
 
-### GET /api/query/sessions
+### GET /api/conversations
 
-获取用户的历史会话列表。
+获取用户在指定数据源下的历史会话列表。
 
 **Query Parameters**:
+- `datasourceId` (long, required) — 当前选中的数据源 ID
+- `keyword` (string, optional) — 按标题或问题内容搜索
 - `page` (int, default 1)
 - `pageSize` (int, default 20)
 
@@ -189,6 +192,7 @@ data: {"code":"SQL_VALIDATION_FAILED","message":"SQL 包含不允许的操作","
         "sessionId": "sess_abc123",
         "datasourceId": 1,
         "datasourceName": "订单库",
+        "title": "上月订单总额",
         "messageCount": 4,
         "lastQuestion": "按部门拆分看看",
         "lastMessageAt": "2026-05-15T14:35:00",

@@ -1,6 +1,4 @@
 package com.dataocean.module.user.service;
-
-import com.dataocean.common.security.LoginUser;
 import com.dataocean.module.user.entity.dto.ChangePasswordDTO;
 import com.dataocean.module.user.entity.dto.LoginDTO;
 import com.dataocean.module.user.entity.dto.ProfileUpdateDTO;
@@ -12,8 +10,6 @@ public interface AuthService {
     LoginVO login(LoginDTO request);
 
     void logout(String authorizationHeader);
-
-    LoginUser currentUser();
 
     CurrentUserVO currentUserInfo();
 

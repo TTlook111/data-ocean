@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { Table2, Key, Hash } from 'lucide-vue-next'
+import { Table2, Key } from 'lucide-vue-next'
 import { getSnapshotDetail, type TableMetaItem, type ColumnMetaItem } from '../../../api/admin/metadata'
 
 const route = useRoute()

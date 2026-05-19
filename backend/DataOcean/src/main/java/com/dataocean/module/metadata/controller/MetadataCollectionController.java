@@ -3,7 +3,6 @@ package com.dataocean.module.metadata.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
-import com.dataocean.common.security.LoginUser;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
@@ -24,7 +23,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -54,9 +52,8 @@ public class MetadataCollectionController {
     private final DatasourceMapper datasourceMapper;
 
     @PostMapping("/sync")
-    public Result<Map<String, Long>> triggerSync(@Valid @RequestBody SyncTriggerDTO request,
-                                    @AuthenticationPrincipal LoginUser loginUser) {
-        Long taskId = collectionService.executeFullSync(request.getDatasourceId(), loginUser.getUserId(), request.getIncludeStatistics());
+    public Result<Map<String, Long>> triggerSync(@Valid @RequestBody SyncTriggerDTO request) {
+        Long taskId = collectionService.executeFullSync(request.getDatasourceId(), request.getIncludeStatistics());
         return Result.success("同步任务已触发", Map.of("taskId", taskId));
     }
 

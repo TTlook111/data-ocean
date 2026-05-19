@@ -32,7 +32,7 @@ public class AutoSyncScheduler {
 
         for (Datasource ds : datasources) {
             try {
-                collectionService.executeFullSync(ds.getId(), null, false);
+                collectionService.executeScheduledFullSync(ds.getId(), false);
                 log.info("定时同步已触发 datasourceId={} name={}", ds.getId(), ds.getName());
             } catch (Exception e) {
                 log.error("定时同步触发失败 datasourceId={}", ds.getId(), e);

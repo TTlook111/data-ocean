@@ -10,7 +10,7 @@ import com.dataocean.module.datasource.entity.vo.DatasourceVO;
 
 public interface DatasourceService {
 
-    DatasourceVO createDatasource(DatasourceCreateDTO request, Long creatorId);
+    DatasourceVO createDatasource(DatasourceCreateDTO request);
 
     DatasourceVO updateDatasource(Long id, DatasourceUpdateDTO request);
 

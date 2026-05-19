@@ -2,6 +2,7 @@ package com.dataocean.module.datasource.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.security.UserContext;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceAccess;
 import com.dataocean.module.datasource.entity.dto.DatasourceAccessGrantDTO;
@@ -33,9 +34,10 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
 
     @Transactional
     @Override
-    public int grantAccess(Long datasourceId, DatasourceAccessGrantDTO request, Long grantedBy) {
+    public int grantAccess(Long datasourceId, DatasourceAccessGrantDTO request) {
         requireDatasource(datasourceId);
         validateUsers(request.getUserIds());
+        Long grantedBy = UserContext.currentUserId();
         int granted = 0;
         for (Long userId : Set.copyOf(request.getUserIds())) {
             DatasourceAccess access = accessMapper.selectOne(new LambdaQueryWrapper<DatasourceAccess>()
@@ -81,13 +83,13 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
     }
 
     @Override
-    public List<DatasourceSimpleVO> listAccessibleDatasources(Long userId) {
-        return datasourceMapper.selectAccessibleByUserId(userId);
+    public List<DatasourceSimpleVO> listAccessibleDatasources() {
+        return datasourceMapper.selectAccessibleByUserId(UserContext.currentUserId());
     }
 
     @Override
-    public boolean checkAccess(Long datasourceId, Long userId) {
-        Long count = accessMapper.countEnabledAccess(datasourceId, userId);
+    public boolean checkAccess(Long datasourceId) {
+        Long count = accessMapper.countEnabledAccess(datasourceId, UserContext.currentUserId());
         return count > 0;
     }
 

@@ -47,11 +47,11 @@
 **Goal**: 第一轮问"上月订单总额"，第二轮问"按部门拆分"，系统能理解关联
 **Independent Test**: 连续提问时系统结合上文生成新 SQL
 
-- [ ] T022 [US3] 创建 conversation store `frontend/src/stores/conversation.ts`，实现 state(currentSessionId, messages[], sessions[]), actions(createSession, addMessage, clearSession), getters(recentContext — 最近 5 条消息)
+- [ ] T022 [US3] 创建 conversation store `frontend/src/stores/conversation.ts`，实现 state(currentDatasourceId, currentSessionId, messagesBySession, sessionsByDatasource), actions(loadSessions, createSession, selectSession, addMessage, clearCurrentInput), getters(currentDatasourceSessions, recentContext — 当前会话最近 5 条消息)
 - [ ] T023 [US3] 创建消息项组件 `frontend/src/components/query/MessageItem.vue`，区分 user/assistant 角色样式，assistant 消息包含结果面板
 - [ ] T024 [US3] 创建消息列表组件 `frontend/src/components/query/MessageList.vue`，渲染多轮对话消息，自动滚动到底部
 - [ ] T025 [US3] 修改 queryTask store 的 submitQuery action，每次请求携带 conversation store 的 recentContext
-- [ ] T026 [US3] 在 DataSourceSelector 切换数据源时调用 conversation.createSession(datasourceId) 创建新会话并清空上下文
+- [ ] T026 [US3] 在 DataSourceSelector 切换数据源时调用 conversation.loadSessions(datasourceId)，只展示目标数据源历史并清空当前输入态；新建对话时再调用 conversation.createSession(datasourceId)
 
 ## Phase 6: User Story 4 (P2) — 用户反馈
 
@@ -74,8 +74,8 @@
 ## Phase 9: Conversation Enhancement
 
 - [ ] T033 [Frontend] 在 conversation store 中实现会话标题自动生成：首次提问后取问题前 20 字作为标题，调用 PUT /api/conversations/{id}/title 更新
-- [ ] T034 [Frontend] 在 HistoryPanel 中添加搜索框，调用 GET /api/conversations?keyword=xxx 模糊搜索会话
-- [ ] T035 在 Java 后端 ConversationController 中添加 PUT /api/conversations/{id}/title 和 GET /api/conversations?keyword= 接口
+- [ ] T034 [Frontend] 在 HistoryPanel 中添加搜索框，调用 GET /api/conversations?datasourceId=xxx&keyword=xxx 搜索当前数据源会话
+- [ ] T035 在 Java 后端 ConversationController 中添加 PUT /api/conversations/{id}/title 和 GET /api/conversations?datasourceId=&keyword= 接口
 
 ## Dependencies
 

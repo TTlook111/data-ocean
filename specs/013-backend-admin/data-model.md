@@ -11,6 +11,7 @@ interface MenuState {
   collapsed: boolean
   activeMenu: string
   openKeys: string[]
+  hasAdminEntry: boolean
 }
 
 interface MenuItem {
@@ -40,6 +41,8 @@ const adminMenus: MenuItem[] = [
   { key: 'roles', label: '角色权限', icon: 'Lock', route: '/admin/roles', permission: 'role:manage' },
 ]
 ```
+
+右上角用户菜单中的“后台管理”入口根据当前用户权限动态显示。判定规则：用户拥有 `*`，或至少拥有一个后台功能权限（如 `admin:view`、`datasource:manage`、`metadata:manage`、`skills:manage`、`prompt:manage`、`field:manage`、`feedback:review`、`audit:view`、`user:manage`、`role:manage`）时展示；否则普通用户只看到个人资料、修改密码和退出登录。
 
 ### DataTable Generic Types
 

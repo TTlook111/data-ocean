@@ -7,6 +7,15 @@ export const useAuthStore = defineStore('auth', {
     user: JSON.parse(localStorage.getItem('dataocean_user') || 'null') as LoginResult | null,
     currentUser: JSON.parse(localStorage.getItem('dataocean_current_user') || 'null') as CurrentUser | null,
   }),
+  getters: {
+    permissions: (state) => state.currentUser?.permissions || state.user?.permissions || [],
+    hasPermission(): (permission: string) => boolean {
+      return (permission: string) => this.permissions.includes('*') || this.permissions.includes(permission)
+    },
+    hasAnyPermission(): (permissions: string[]) => boolean {
+      return (permissions: string[]) => this.permissions.includes('*') || permissions.some((permission) => this.permissions.includes(permission))
+    },
+  },
   actions: {
     async login(payload: LoginPayload) {
       const result = await login(payload)

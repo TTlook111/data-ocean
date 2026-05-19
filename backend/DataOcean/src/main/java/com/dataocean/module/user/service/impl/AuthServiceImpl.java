@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.JwtTokenProvider;
 import com.dataocean.common.security.LoginUser;
+import com.dataocean.common.security.UserContext;
 import com.dataocean.common.security.UserDetailsServiceImpl;
 import com.dataocean.module.user.entity.dto.ChangePasswordDTO;
 import com.dataocean.module.user.entity.dto.LoginDTO;
@@ -17,8 +18,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -113,17 +112,8 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public LoginUser currentUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !(authentication.getPrincipal() instanceof LoginUser loginUser)) {
-            throw new BusinessException(401, "未登录");
-        }
-        return loginUser;
-    }
-
-    @Override
     public CurrentUserVO currentUserInfo() {
-        LoginUser loginUser = currentUser();
+        LoginUser loginUser = UserContext.currentUser();
         SysUser user = requireCurrentUserEntity(loginUser.getUserId());
         log.debug("当前登录用户信息查询完成 userId={} username={}", user.getId(), user.getUsername());
         return CurrentUserVO.builder()
@@ -141,7 +131,7 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     @Override
     public void changePassword(ChangePasswordDTO request) {
-        LoginUser loginUser = currentUser();
+        LoginUser loginUser = UserContext.currentUser();
         SysUser user = requireCurrentUserEntity(loginUser.getUserId());
         log.info("用户发起修改密码 userId={} username={}", user.getId(), user.getUsername());
         if (!passwordEncoder.matches(request.getOldPassword(), user.getPasswordHash())) {
@@ -162,7 +152,7 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     @Override
     public void updateProfile(ProfileUpdateDTO request) {
-        LoginUser loginUser = currentUser();
+        LoginUser loginUser = UserContext.currentUser();
         SysUser user = requireCurrentUserEntity(loginUser.getUserId());
         log.info("用户发起个人资料修改 userId={} username={}", user.getId(), user.getUsername());
         if (request.getRealName() != null) {

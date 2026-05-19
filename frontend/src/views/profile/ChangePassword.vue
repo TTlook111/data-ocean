@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { KeyRound } from 'lucide-vue-next'
+import { ArrowLeft, KeyRound } from 'lucide-vue-next'
 import { changePassword } from '../../api/auth'
 import { useAuthStore } from '../../stores/auth'
 
@@ -72,6 +72,11 @@ async function handleSubmit() {
 
 <template>
   <main class="change-pwd-page post-login-page">
+    <RouterLink v-if="!isForced" class="top-back-link" to="/query">
+      <ArrowLeft :size="16" />
+      返回问答
+    </RouterLink>
+
     <section class="pwd-panel">
       <header class="panel-header">
         <span class="panel-icon">
@@ -112,10 +117,30 @@ async function handleSubmit() {
 
 <style scoped>
 .change-pwd-page {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  padding-top: 40px;
+  min-height: 100vh;
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 18px;
+  padding: 32px 24px;
+  background:
+    linear-gradient(180deg, rgba(189, 232, 248, 0.44) 0, rgba(245, 251, 239, 0.76) 300px, var(--do-bg) 100%),
+    var(--do-bg);
+}
+
+.top-back-link {
+  width: min(520px, 100%);
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  color: var(--do-primary-strong);
+  background: var(--do-surface);
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .pwd-panel {

@@ -45,9 +45,11 @@ interface Datasource {
 
 ```typescript
 interface ConversationState {
+  currentDatasourceId: number | null
   currentSessionId: string | null
-  messages: Message[]
-  sessions: SessionSummary[]
+  messagesBySession: Record<string, Message[]>
+  sessionsByDatasource: Record<number, SessionSummary[]>
+  searchKeyword: string
 }
 
 interface Message {
@@ -63,11 +65,15 @@ interface SessionSummary {
   sessionId: string
   datasourceId: number
   datasourceName: string
+  title: string
   messageCount: number
+  lastQuestion?: string
   lastMessageAt: string
   createdAt: string
 }
 ```
+
+会话状态以 `datasourceId` 为第一层分组。左侧历史栏只读取 `sessionsByDatasource[currentDatasourceId]`，切换数据源时必须同步切换 `currentDatasourceId` 并清空当前输入态，不能继续使用上一数据源的 `currentSessionId` 或上下文。
 
 ### QueryTask State
 
@@ -199,5 +205,25 @@ interface QueryTaskResponse {
   progress: ProgressStep[]
   result?: QueryResult
   error?: string
+}
+```
+
+### GET /api/conversations
+
+```typescript
+// Request query
+interface ConversationListQuery {
+  datasourceId: number
+  keyword?: string
+  page?: number
+  pageSize?: number
+}
+
+// Response
+interface ConversationListResponse {
+  records: SessionSummary[]
+  total: number
+  page: number
+  pageSize: number
 }
 ```

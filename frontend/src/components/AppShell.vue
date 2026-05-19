@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Building2,
   ChevronLeft,
+  ChevronDown,
   Database,
   LayoutDashboard,
   LogOut,
@@ -11,6 +12,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
+  UserCog,
   UserRound,
   Users,
 } from 'lucide-vue-next'
@@ -56,6 +58,21 @@ const displayName = computed(() => auth.currentUser?.realName || auth.user?.real
 const roleText = computed(() => (auth.user?.roles?.length ? auth.user.roles.join(' / ') : 'DataOcean'))
 const currentTitle = computed(() => String(route.meta.title || matchedMenuItem.value?.label || 'DataOcean'))
 const currentSection = computed(() => String(route.meta.section || '工作台'))
+const adminPermissionCodes = [
+  'admin:view',
+  'datasource:manage',
+  'metadata:manage',
+  'skills:manage',
+  'prompt:manage',
+  'field:manage',
+  'feedback:review',
+  'audit:view',
+  'user:manage',
+  'role:manage',
+  'role:view',
+  'department:manage',
+]
+const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPermissionCodes.some((code) => permissions.value.includes(code)))
 
 const visibleGroups = computed(() =>
   menuGroups
@@ -78,6 +95,24 @@ function canView(permission?: string) {
 async function logout() {
   await auth.logout()
   await router.replace('/login')
+}
+
+function handleUserCommand(command: string) {
+  if (command === 'admin') {
+    router.push('/admin')
+    return
+  }
+  if (command === 'profile') {
+    router.push('/profile')
+    return
+  }
+  if (command === 'password') {
+    router.push('/change-password')
+    return
+  }
+  if (command === 'logout') {
+    logout()
+  }
 }
 </script>
 
@@ -123,17 +158,34 @@ async function logout() {
           <h1>{{ currentTitle }}</h1>
         </div>
 
-        <div class="topbar-user">
-          <RouterLink class="user-pill" to="/profile">
+        <el-dropdown class="topbar-user" trigger="click" @command="handleUserCommand">
+          <button class="user-pill" type="button">
             <span>{{ displayName.slice(0, 1) }}</span>
             <strong>{{ displayName }}</strong>
             <small>{{ roleText }}</small>
-          </RouterLink>
-          <button class="logout-button" type="button" @click="logout">
-            <LogOut :size="17" />
-            <span>退出</span>
+            <ChevronDown class="user-chevron" :size="15" />
           </button>
-        </div>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-if="canEnterAdmin" command="admin">
+                <UserCog :size="15" />
+                后台管理
+              </el-dropdown-item>
+              <el-dropdown-item command="profile">
+                <UserRound :size="15" />
+                个人资料
+              </el-dropdown-item>
+              <el-dropdown-item command="password">
+                <ShieldCheck :size="15" />
+                修改密码
+              </el-dropdown-item>
+              <el-dropdown-item divided command="logout">
+                <LogOut :size="15" />
+                退出登录
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </header>
 
       <section class="app-content">
