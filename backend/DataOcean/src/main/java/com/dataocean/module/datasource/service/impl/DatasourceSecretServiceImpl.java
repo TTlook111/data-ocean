@@ -29,7 +29,7 @@ public class DatasourceSecretServiceImpl implements DatasourceSecretService {
     private final byte[] keyBytes;
 
     public DatasourceSecretServiceImpl(
-            @Value("${dataocean.datasource.encrypt-key:${DATAOCEAN_ENCRYPT_KEY:dataocean-local-dev-32byte-key!!}}")
+            @Value("${dataocean.datasource.encrypt-key:${DATAOCEAN_ENCRYPT_KEY:}}")
             String configuredKey) {
         this.keyBytes = normalizeKey(configuredKey);
         log.info("初始化数据源 AES-GCM 加密服务 keyLength={}", this.keyBytes.length);

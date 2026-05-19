@@ -9,5 +9,6 @@ spring:
 
 dataocean:
   datasource:
+    encrypt-key: 12345678901234567890123456789012
     health-check:
       enabled: false

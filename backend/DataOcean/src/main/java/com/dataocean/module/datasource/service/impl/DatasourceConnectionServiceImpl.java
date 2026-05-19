@@ -91,12 +91,19 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
     }
 
     private String jdbcUrl(String host, Integer port, String databaseName, String charset) {
-        String resolvedCharset = StringUtils.hasText(charset) ? charset : "utf8mb4";
+        String resolvedEncoding = resolveJdbcEncoding(charset);
         return "jdbc:mysql://" + host + ":" + port + "/" + databaseName
                 + "?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
                 + "&connectTimeout=" + CONNECT_TIMEOUT_MS
                 + "&socketTimeout=" + CONNECT_TIMEOUT_MS
-                + "&characterEncoding=" + resolvedCharset;
+                + "&characterEncoding=" + resolvedEncoding;
+    }
+
+    private String resolveJdbcEncoding(String charset) {
+        if (!StringUtils.hasText(charset) || "utf8mb4".equalsIgnoreCase(charset)) {
+            return "utf8";
+        }
+        return charset;
     }
 
     private void recordHealthCheck(Long datasourceId, String checkType, DatasourceConnectionTestResult result) {

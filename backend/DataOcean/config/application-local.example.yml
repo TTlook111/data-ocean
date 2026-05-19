@@ -12,3 +12,7 @@ spring:
 jwt:
   secret: change-me-to-a-local-secret-at-least-32-bytes
   expiration: 86400
+
+dataocean:
+  datasource:
+    encrypt-key: change-me-to-a-32-byte-secret-key
