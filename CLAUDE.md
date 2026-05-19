@@ -114,6 +114,12 @@ specs/                 — 模块规格说明（17 个模块，含 spec/plan/tas
 | 016 | 图表生成 | Python + Frontend | specs/016-chart-generation/ |
 | 017 | 错误处理与降级 | Java + Python | specs/017-error-degradation/ |
 
+## Current Development Status
+
+- 001 用户模块：已完成前后端基础联调，包含登录、强制改密、用户管理、失败锁定、角色列表、部门树、个人资料、重置密码、退出登录等流程。
+- 002 数据源管理：已完成前后端基础联调，包含数据源列表、连接测试、授权列表、启用/禁用，以及查询端按权限/状态展示可用数据源。
+- 联调截图按功能保存到 `output/playwright/`，后续每联调完成一个功能都要继续截图，便于用户验证完整性。
+
 ## Key Internal APIs
 
 | 服务间调用 | 路径 | 说明 |
@@ -178,6 +184,8 @@ docker compose up -d
 - 环境变量: QWEN_API_KEY, QWEN_MODEL, QWEN_EMBEDDING_MODEL, EMBEDDING_DIMENSION, MILVUS_HOST, REDIS_HOST
 - Python 单实例部署（MVP），CancellationToken 在 dataocean/agent/cancellation.py 中统一管理
 - 权限注入统一由 009 模块 rewriter.py 执行，015 模块只负责权限数据 CRUD 和传递
+- 重要模块开发完成后，同步更新 `CLAUDE.md` 和必要的 `README.md` 内容，保证文档跟着实际开发进度走。
+- 前后端联调时，每验证一个用户可见功能都要保留截图证据，截图命名要能看出模块和功能。
 
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
@@ -197,6 +205,7 @@ under specs/<module>/plan.md.
 - Keep project-related downloaded/generated files under `D:\Java_study\GraduationProject` unless they are required by developer tooling such as Claude Code or Codex.
 - Before introducing any new Docker container or infrastructure service, tell the user what container is needed and why, then wait for confirmation.
 - Local Docker currently has MySQL, Redis, Elasticsearch, Kibana, RabbitMQ, Nacos, and Seata containers available. Treat exact local credentials as private local notes, not repository documentation.
+- 本项目当前没有 Figma 原型，默认不要使用 Figma 相关 workflow 或 skills。前端排版改造优先使用 `dataocean-admin-ui-layout` skill，并参考成熟管理后台布局进行本地实现和截图验证。
 
 ## Database Rules
 
