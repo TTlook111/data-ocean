@@ -2,14 +2,13 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Eye, EyeOff, Languages, LogIn, Sparkles } from 'lucide-vue-next'
+import { Eye, EyeOff, LogIn } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const showPassword = ref(false)
 const loading = ref(false)
-const remember = ref(true)
 const pointerActive = ref(false)
 const sceneStyle = reactive<Record<string, string>>({
   '--eye-x': '0px',
@@ -64,9 +63,6 @@ async function submit() {
   loading.value = true
   try {
     await authStore.login({ username: form.username.trim(), password: form.password })
-    if (!remember.value) {
-      sessionStorage.setItem('dataocean_session_only', '1')
-    }
     ElMessage.success('登录成功')
     await router.replace('/admin')
   } catch (error: unknown) {
@@ -106,7 +102,6 @@ async function submit() {
       </div>
 
       <div class="monster-scene" aria-hidden="true">
-        <span class="moon"></span>
         <span class="monster monster-orange">
           <i class="eye eye-left"><em></em></i>
           <i class="eye eye-right"><em></em></i>
@@ -129,17 +124,6 @@ async function submit() {
     </section>
 
     <section class="login-panel" aria-label="登录表单">
-      <div class="panel-tools" aria-hidden="true">
-        <span>
-          <Languages :size="15" />
-          中文
-        </span>
-        <span>
-          <Sparkles :size="15" />
-          Playful
-        </span>
-      </div>
-
       <div class="form-shell">
         <header class="form-heading">
           <h2>欢迎回来！</h2>
@@ -167,14 +151,6 @@ async function submit() {
               </button>
             </div>
           </label>
-
-          <div class="form-tools">
-            <label class="remember">
-              <input v-model="remember" type="checkbox" />
-              <span>30天内记住我</span>
-            </label>
-            <a href="javascript:void(0)">忘记密码?</a>
-          </div>
 
           <button class="submit-button" type="submit" :disabled="loading">
             <LogIn :size="18" />
@@ -283,16 +259,6 @@ async function submit() {
   bottom: 70px;
   z-index: 2;
   height: 470px;
-}
-
-.moon {
-  position: absolute;
-  right: -88px;
-  top: 170px;
-  width: 120px;
-  height: 68px;
-  border-radius: 60px;
-  background: rgba(255, 255, 255, 0.82);
 }
 
 .monster {
@@ -470,29 +436,6 @@ async function submit() {
   background: #fff;
 }
 
-.panel-tools {
-  position: absolute;
-  top: 220px;
-  right: 110px;
-  display: flex;
-  gap: 12px;
-}
-
-.panel-tools span {
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 15px;
-  border: 1px solid #ede6ff;
-  border-radius: 999px;
-  color: #5f3bdc;
-  background: #fff;
-  box-shadow: 0 12px 30px rgba(91, 49, 210, 0.08);
-  font-size: 14px;
-  font-weight: 900;
-}
-
 .form-shell {
   width: 100%;
   max-width: 500px;
@@ -581,35 +524,6 @@ async function submit() {
 .password-field button:hover {
   color: #4c1d95;
   background: #f5f3ff;
-}
-
-.form-tools {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  color: #475569;
-  font-size: 14px;
-}
-
-.remember {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-  font-weight: 900;
-}
-
-.remember input {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: #7c3aed;
-}
-
-.form-tools a {
-  color: #6d28d9;
-  font-weight: 900;
 }
 
 .submit-button {
