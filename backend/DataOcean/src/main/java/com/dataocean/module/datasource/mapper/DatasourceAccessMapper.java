@@ -27,4 +27,16 @@ public interface DatasourceAccessMapper extends BaseMapper<DatasourceAccess> {
             ORDER BY a.granted_at DESC, a.id DESC
             """)
     List<DatasourceAccessVO> selectAccessList(@Param("datasourceId") Long datasourceId);
+
+    @Select("""
+            SELECT COUNT(*)
+            FROM datasource_access a
+            JOIN datasource d ON d.id = a.datasource_id
+            WHERE a.datasource_id = #{datasourceId}
+              AND a.user_id = #{userId}
+              AND d.status = 1
+              AND d.deleted = 0
+              AND (a.expires_at IS NULL OR a.expires_at > NOW())
+            """)
+    Long countEnabledAccess(@Param("datasourceId") Long datasourceId, @Param("userId") Long userId);
 }

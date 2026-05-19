@@ -87,12 +87,7 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
 
     @Override
     public boolean checkAccess(Long datasourceId, Long userId) {
-        Long count = accessMapper.selectCount(new LambdaQueryWrapper<DatasourceAccess>()
-                .eq(DatasourceAccess::getDatasourceId, datasourceId)
-                .eq(DatasourceAccess::getUserId, userId)
-                .and(wrapper -> wrapper.isNull(DatasourceAccess::getExpiresAt)
-                        .or()
-                        .gt(DatasourceAccess::getExpiresAt, LocalDateTime.now())));
+        Long count = accessMapper.countEnabledAccess(datasourceId, userId);
         return count > 0;
     }
 

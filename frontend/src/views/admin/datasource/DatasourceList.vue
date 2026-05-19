@@ -377,8 +377,8 @@ async function testFormConnection() {
     .catch(() => false)
   if (valid === false) return
 
-  if (!form.password && editingId.value && connectionDirty.value) {
-    ElMessage.warning('测试新连接需填写密码；保存时可留空沿用原密码')
+  if (editingId.value && !form.password) {
+    ElMessage.warning('测试连接需填写密码；保存时可留空沿用原密码')
     return
   }
 
@@ -390,7 +390,7 @@ async function testFormConnection() {
       databaseName: form.databaseName,
       charset: form.charset,
       username: form.username,
-      password: form.password || 'placeholder',
+      password: form.password || '',
     })
     if (result.data.success) {
       testedOk.value = true
