@@ -2,7 +2,7 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Database, Eye, EyeOff, LockKeyhole, LogIn, MessageSquareText, ShieldCheck } from 'lucide-vue-next'
+import { Eye, EyeOff, Languages, LogIn, Sparkles } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
@@ -10,21 +10,50 @@ const authStore = useAuthStore()
 const showPassword = ref(false)
 const loading = ref(false)
 const remember = ref(true)
+const pointerActive = ref(false)
+const sceneStyle = reactive<Record<string, string>>({
+  '--eye-x': '0px',
+  '--eye-y': '0px',
+  '--small-eye-x': '0px',
+  '--small-eye-y': '0px',
+  '--eye-scale': '1',
+  '--orange-tilt': '0deg',
+  '--purple-tilt': '3deg',
+  '--black-tilt': '0deg',
+  '--yellow-tilt': '0deg',
+})
 const form = reactive({
   username: 'admin',
   password: '',
 })
 
-const capabilities = [
-  { label: '数据源治理', icon: Database },
-  { label: '权限管控', icon: ShieldCheck },
-  { label: '自然语言查询', icon: MessageSquareText },
-]
+function handlePointerMove(event: PointerEvent) {
+  const viewportWidth = window.innerWidth || 1
+  const viewportHeight = window.innerHeight || 1
+  const x = Math.max(-1, Math.min(1, (event.clientX / viewportWidth - 0.5) * 2))
+  const y = Math.max(-1, Math.min(1, (event.clientY / viewportHeight - 0.5) * 2))
 
-const platformMetrics = [
-  { value: '权限', label: '按角色与部门控制访问范围' },
-  { value: '数据源', label: '集中维护业务库连接状态' },
-]
+  sceneStyle['--eye-x'] = `${Math.round(x * 7)}px`
+  sceneStyle['--eye-y'] = `${Math.round(y * 5)}px`
+  sceneStyle['--small-eye-x'] = `${Math.round(x * 4)}px`
+  sceneStyle['--small-eye-y'] = `${Math.round(y * 3)}px`
+  sceneStyle['--orange-tilt'] = `${(x * 2.6).toFixed(2)}deg`
+  sceneStyle['--purple-tilt'] = `${(3 + x * 2.2).toFixed(2)}deg`
+  sceneStyle['--black-tilt'] = `${(x * 1.7).toFixed(2)}deg`
+  sceneStyle['--yellow-tilt'] = `${(x * 2.4).toFixed(2)}deg`
+}
+
+function activatePointer() {
+  pointerActive.value = true
+  sceneStyle['--eye-scale'] = '1.18'
+}
+
+function releasePointer() {
+  window.setTimeout(() => {
+    pointerActive.value = false
+    sceneStyle['--eye-scale'] = '1'
+  }, 120)
+}
 
 async function submit() {
   if (!form.username.trim() || !form.password.trim()) {
@@ -56,63 +85,71 @@ async function submit() {
 </script>
 
 <template>
-  <main class="login-page">
+  <main
+    class="login-page"
+    :class="{ 'is-pointer-down': pointerActive }"
+    :style="sceneStyle"
+    @pointermove="handlePointerMove"
+    @pointerdown="activatePointer"
+    @pointerup="releasePointer"
+    @pointerleave="releasePointer"
+  >
     <section class="login-visual" aria-label="DataOcean 平台说明">
-      <div class="brand-row">
-        <span>DO</span>
+      <div class="brand-pill">
+        <span></span>
         <strong>DataOcean</strong>
       </div>
 
       <div class="visual-copy">
-        <p>企业级 NL2SQL 数据治理平台</p>
-        <h1>让业务人员在可信数据边界内，直接提出问题。</h1>
-        <span>统一管理账号权限、数据源授权与问答入口，把自然语言查询放在可控、可追溯的流程里。</span>
+        <p>你的数据海洋</p>
+        <h1>从自然语言开始探索</h1>
       </div>
 
-      <div class="platform-card">
-        <div class="platform-illustration" aria-hidden="true">
-          <span class="sky"></span>
-          <span class="leaf leaf-one"></span>
-          <span class="leaf leaf-two"></span>
-          <span class="paper-plane"></span>
-          <span class="data-card data-card-one">
-            <Database :size="18" />
-            数据源
-          </span>
-          <span class="data-card data-card-two">
-            <ShieldCheck :size="18" />
-            授权
-          </span>
-          <span class="query-line"></span>
-        </div>
-        <div class="platform-metrics">
-          <span v-for="item in platformMetrics" :key="item.value">
-            <strong>{{ item.value }}</strong>
-            <small>{{ item.label }}</small>
-          </span>
-        </div>
-      </div>
-
-      <div class="capability-row">
-        <span v-for="item in capabilities" :key="item.label">
-          <component :is="item.icon" :size="16" />
-          {{ item.label }}
+      <div class="monster-scene" aria-hidden="true">
+        <span class="moon"></span>
+        <span class="monster monster-orange">
+          <i class="eye eye-left"><em></em></i>
+          <i class="eye eye-right"><em></em></i>
         </span>
+        <span class="monster monster-purple">
+          <i class="eye eye-left"><em></em></i>
+          <i class="eye eye-right"><em></em></i>
+        </span>
+        <span class="monster monster-black">
+          <i class="eye eye-left"><em></em></i>
+          <i class="eye eye-right"><em></em></i>
+        </span>
+        <span class="monster monster-yellow">
+          <i class="eye eye-left"><em></em></i>
+          <i class="eye eye-right"><em></em></i>
+          <b class="mouth"></b>
+        </span>
+        <span class="ground-line"></span>
       </div>
     </section>
 
     <section class="login-panel" aria-label="登录表单">
+      <div class="panel-tools" aria-hidden="true">
+        <span>
+          <Languages :size="15" />
+          中文
+        </span>
+        <span>
+          <Sparkles :size="15" />
+          Playful
+        </span>
+      </div>
+
       <div class="form-shell">
         <header class="form-heading">
-          <p>欢迎回来</p>
-          <h2>登录 DataOcean</h2>
-          <span>使用平台账号进入 Web 管理端与问答端。</span>
+          <h2>欢迎回来！</h2>
+          <span>请输入你的账号信息</span>
         </header>
 
         <form class="login-form" @submit.prevent="submit">
           <label class="field">
             <span>账号</span>
-            <input v-model="form.username" type="text" autocomplete="username" placeholder="请输入公司分配的账号" />
+            <input v-model="form.username" type="text" autocomplete="username" placeholder="请输入账号" />
           </label>
 
           <label class="field">
@@ -134,12 +171,9 @@ async function submit() {
           <div class="form-tools">
             <label class="remember">
               <input v-model="remember" type="checkbox" />
-              <span>30 天内记住我</span>
+              <span>30天内记住我</span>
             </label>
-            <span class="security-note">
-              <LockKeyhole :size="15" />
-              JWT 安全会话
-            </span>
+            <a href="javascript:void(0)">忘记密码?</a>
           </div>
 
           <button class="submit-button" type="submit" :disabled="loading">
@@ -154,269 +188,335 @@ async function submit() {
 
 <style scoped>
 .login-page {
+  --eye-x: 0px;
+  --eye-y: 0px;
+  --small-eye-x: 0px;
+  --small-eye-y: 0px;
+  --eye-scale: 1;
+  --orange-tilt: 0deg;
+  --purple-tilt: 3deg;
+  --black-tilt: 0deg;
+  --yellow-tilt: 0deg;
   min-height: 100vh;
   min-width: 1120px;
   display: grid;
-  grid-template-columns: minmax(560px, 1.08fr) minmax(460px, 0.92fr);
-  color: var(--do-ink);
-  background:
-    linear-gradient(180deg, rgba(189, 232, 248, 0.78) 0, rgba(255, 247, 227, 0.82) 50%, #f7fbf2 100%);
+  grid-template-columns: minmax(560px, 1fr) minmax(560px, 1fr);
+  color: #0f172a;
+  background: #fff;
 }
 
 .login-visual {
+  position: relative;
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 34px;
-  padding: 44px 56px;
+  overflow: hidden;
+  padding: 46px 52px;
+  color: #fff;
   background:
-    linear-gradient(180deg, rgba(189, 232, 248, 0.7) 0, rgba(255, 247, 227, 0.68) 62%, rgba(246, 251, 239, 0.96) 100%);
-  border-right: 1px solid rgba(190, 210, 176, 0.8);
+    linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(160deg, #7b3ff4 0%, #6d2ee8 42%, #3c12a4 100%);
+  background-size: 30px 30px, 30px 30px, auto;
 }
 
-.brand-row {
+.login-visual::before {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 71% 7%, rgba(255, 255, 255, 0.14), transparent 18%),
+    radial-gradient(circle at 18% 75%, rgba(255, 136, 91, 0.16), transparent 24%);
+  content: "";
+}
+
+.brand-pill {
+  position: relative;
+  z-index: 2;
+  width: max-content;
+  height: 44px;
   display: inline-flex;
   align-items: center;
   gap: 12px;
+  padding: 0 14px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 18px 40px rgba(30, 12, 110, 0.18);
 }
 
-.brand-row span {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
+.brand-pill span {
+  width: 24px;
+  height: 24px;
   border-radius: 8px;
-  color: #fff;
-  background: linear-gradient(135deg, #4d8fdc 0%, #6aa84f 100%);
-  font-weight: 900;
+  background: rgba(255, 255, 255, 0.28);
 }
 
-.brand-row strong {
+.brand-pill strong {
   font-size: 18px;
+  line-height: 1;
 }
 
 .visual-copy {
-  max-width: 720px;
+  position: relative;
+  z-index: 2;
+  margin: 46px 0 0 34px;
 }
 
 .visual-copy p {
-  margin: 0 0 14px;
-  color: var(--do-primary-strong);
+  margin: 0 0 12px;
+  color: #ddd2ff;
+  font-size: 20px;
   font-weight: 900;
 }
 
 .visual-copy h1 {
   margin: 0;
-  color: #1d3c34;
-  font-size: 42px;
-  line-height: 1.18;
+  max-width: 560px;
+  font-size: 46px;
+  line-height: 1.16;
+  letter-spacing: 0;
+  text-shadow: 0 8px 24px rgba(42, 13, 128, 0.28);
 }
 
-.visual-copy span {
+.monster-scene {
+  position: absolute;
+  left: 44px;
+  right: 40px;
+  bottom: 70px;
+  z-index: 2;
+  height: 470px;
+}
+
+.moon {
+  position: absolute;
+  right: -88px;
+  top: 170px;
+  width: 120px;
+  height: 68px;
+  border-radius: 60px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.monster {
+  position: absolute;
+  bottom: 0;
   display: block;
-  max-width: 640px;
-  margin-top: 18px;
-  color: #526653;
-  font-size: 16px;
-  line-height: 1.8;
+  box-shadow: 0 18px 32px rgba(28, 6, 96, 0.22);
+  transform-origin: 50% 100%;
+  transition: transform 140ms ease-out;
 }
 
-.platform-card {
-  width: min(720px, 100%);
-  display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(220px, 0.72fr);
-  align-items: center;
-  gap: 18px;
-  padding: 22px;
-  border: 1px solid rgba(77, 143, 220, 0.22);
-  border-radius: 8px;
-  background: rgba(255, 253, 246, 0.76);
-  box-shadow: var(--do-shadow);
-}
-
-.platform-illustration {
-  position: relative;
-  min-height: 270px;
+.eye {
+  position: absolute;
+  width: 24px;
+  height: 24px;
   overflow: hidden;
-  border: 1px solid rgba(190, 210, 176, 0.7);
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, #bde8f8 0, #eaf7ff 42%, #fff7e3 43%, #fffaf0 100%);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 5px rgba(20, 20, 40, 0.18);
+  transform: scale(var(--eye-scale));
+  transition: transform 120ms ease-out;
 }
 
-.sky {
+.eye em {
   position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(ellipse at 22% 18%, rgba(255, 255, 255, 0.95) 0 18px, transparent 19px),
-    radial-gradient(ellipse at 33% 15%, rgba(255, 255, 255, 0.92) 0 24px, transparent 25px),
-    radial-gradient(ellipse at 70% 16%, rgba(255, 255, 255, 0.78) 0 22px, transparent 23px);
+  top: calc(50% - 4px + var(--eye-y));
+  left: calc(50% - 4px + var(--eye-x));
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #273244;
+  transition: top 120ms ease-out, left 120ms ease-out;
 }
 
-.leaf {
+.monster-orange {
+  z-index: 5;
+  left: 4px;
+  width: 266px;
+  height: 194px;
+  border-radius: 150px 150px 0 0;
+  background: linear-gradient(135deg, #ffad75 0%, #ff8b5d 100%);
+  transform: rotate(var(--orange-tilt));
+}
+
+.monster-orange .eye {
+  top: 90px;
+  width: 15px;
+  height: 15px;
+  background: #273244;
+  transform: translate(var(--small-eye-x), var(--small-eye-y)) scale(var(--eye-scale));
+}
+
+.monster-orange .eye em {
+  display: none;
+}
+
+.monster-orange .eye-left {
+  left: 122px;
+}
+
+.monster-orange .eye-right {
+  left: 148px;
+}
+
+.monster-purple {
+  z-index: 2;
+  left: 190px;
+  bottom: 0;
+  width: 198px;
+  height: 450px;
+  border-radius: 18px 18px 0 0;
+  background: linear-gradient(155deg, #8d65fb 0%, #6d36dc 100%);
+  transform: rotate(var(--purple-tilt));
+}
+
+.monster-purple .eye-left {
+  right: 92px;
+  top: 82px;
+}
+
+.monster-purple .eye-right {
+  right: 58px;
+  top: 84px;
+}
+
+.monster-black {
+  z-index: 4;
+  left: 332px;
+  bottom: 2px;
+  width: 144px;
+  height: 340px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(140deg, #3a3a3d 0%, #121212 100%);
+  transform: rotate(var(--black-tilt));
+}
+
+.monster-black .eye-left {
+  left: 58px;
+  top: 76px;
+}
+
+.monster-black .eye-right {
+  left: 92px;
+  top: 78px;
+}
+
+.monster-yellow {
+  z-index: 6;
+  left: 416px;
+  width: 188px;
+  height: 272px;
+  border-radius: 106px 106px 0 0;
+  background: linear-gradient(145deg, #fff06f 0%, #f3df3e 100%);
+  transform: rotate(var(--yellow-tilt));
+}
+
+.monster-yellow .eye {
+  top: 82px;
+  width: 15px;
+  height: 15px;
+  background: #273244;
+  transform: translate(var(--small-eye-x), var(--small-eye-y)) scale(var(--eye-scale));
+}
+
+.monster-yellow .eye em {
+  display: none;
+}
+
+.monster-yellow .eye-left {
+  left: 80px;
+}
+
+.monster-yellow .eye-right {
+  left: 112px;
+}
+
+.monster-yellow .mouth {
   position: absolute;
-  left: -36px;
-  border-radius: 56% 44% 58% 42%;
-  background: rgba(106, 168, 79, 0.82);
-  box-shadow:
-    28px 24px 0 rgba(128, 190, 64, 0.78),
-    54px -2px 0 rgba(106, 168, 79, 0.64),
-    86px 34px 0 rgba(77, 143, 220, 0.72),
-    112px 8px 0 rgba(77, 143, 220, 0.62);
+  left: 58px;
+  top: 132px;
+  width: 82px;
+  height: 26px;
+  border-bottom: 4px solid #343942;
+  border-radius: 0 0 42px 42px;
+  transition: width 120ms ease-out, height 120ms ease-out, border 120ms ease-out, border-radius 120ms ease-out,
+    left 120ms ease-out, top 120ms ease-out;
 }
 
-.leaf-one {
-  top: 72px;
-  width: 86px;
-  height: 70px;
+.login-page.is-pointer-down .monster-yellow .mouth {
+  left: 88px;
+  top: 132px;
+  width: 22px;
+  height: 22px;
+  border: 4px solid #343942;
+  border-radius: 50%;
 }
 
-.leaf-two {
-  top: 150px;
-  width: 72px;
-  height: 58px;
-  opacity: 0.86;
-}
-
-.paper-plane {
+.ground-line {
   position: absolute;
-  top: 116px;
-  left: 128px;
-  width: 0;
-  height: 0;
-  border-top: 11px solid transparent;
-  border-bottom: 11px solid transparent;
-  border-left: 34px solid #fff;
-  filter: drop-shadow(0 3px 4px rgba(77, 143, 220, 0.16));
-  transform: rotate(-18deg);
-}
-
-.data-card {
-  position: absolute;
-  right: 34px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 132px;
-  height: 44px;
-  padding: 0 13px;
-  border: 1px solid rgba(77, 143, 220, 0.22);
-  border-radius: 8px;
-  color: var(--do-ink);
-  background: rgba(255, 253, 246, 0.92);
-  font-weight: 900;
-  box-shadow: 0 12px 26px rgba(77, 143, 220, 0.12);
-}
-
-.data-card-one {
-  top: 96px;
-}
-
-.data-card-two {
-  top: 154px;
-  right: 70px;
-  color: var(--do-accent-strong);
-}
-
-.query-line {
-  position: absolute;
-  right: 46px;
-  bottom: 36px;
-  width: 210px;
-  height: 48px;
-  border: solid rgba(106, 168, 79, 0.42);
-  border-width: 0 0 3px 3px;
-  border-radius: 0 0 0 46px;
-}
-
-.platform-metrics {
-  display: grid;
-  gap: 12px;
-}
-
-.platform-metrics span {
-  min-height: 88px;
-  display: grid;
-  align-content: center;
-  padding: 16px;
-  border: 1px solid rgba(190, 210, 176, 0.72);
-  border-radius: 8px;
-  background: rgba(255, 250, 240, 0.9);
-}
-
-.platform-metrics strong {
-  color: var(--do-primary-strong);
-  font-size: 26px;
-}
-
-.platform-metrics small {
-  margin-top: 7px;
-  color: var(--do-muted);
-  line-height: 1.5;
-}
-
-.capability-row {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.capability-row span {
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 12px;
-  border: 1px solid rgba(77, 143, 220, 0.22);
-  border-radius: 8px;
-  color: #355b42;
-  background: rgba(255, 253, 246, 0.74);
-  font-size: 13px;
-  font-weight: 800;
+  left: 0;
+  right: 22px;
+  bottom: 0;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(248, 233, 110, 0.55);
 }
 
 .login-panel {
   min-height: 100vh;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 56px;
-  background: rgba(255, 253, 246, 0.92);
+  background: #fff;
+}
+
+.panel-tools {
+  position: absolute;
+  top: 220px;
+  right: 110px;
+  display: flex;
+  gap: 12px;
+}
+
+.panel-tools span {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 15px;
+  border: 1px solid #ede6ff;
+  border-radius: 999px;
+  color: #5f3bdc;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(91, 49, 210, 0.08);
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .form-shell {
   width: 100%;
-  max-width: 430px;
-  padding: 30px;
-  border: 1px solid rgba(190, 210, 176, 0.74);
-  border-radius: 8px;
-  background: #fffdf6;
-  box-shadow: var(--do-shadow);
+  max-width: 500px;
+  margin-top: 34px;
 }
 
 .form-heading {
   margin-bottom: 28px;
 }
 
-.form-heading p {
-  margin: 0 0 8px;
-  color: var(--do-primary);
-  font-size: 13px;
-  font-weight: 900;
-}
-
 .form-heading h2 {
   margin: 0;
-  font-size: 32px;
-  line-height: 1.2;
+  color: #020617;
+  font-size: 38px;
+  line-height: 1.18;
+  letter-spacing: 0;
 }
 
 .form-heading span {
   display: block;
-  margin-top: 10px;
-  color: var(--do-muted);
-  line-height: 1.6;
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 16px;
+  font-weight: 800;
 }
 
 .login-form {
@@ -426,31 +526,32 @@ async function submit() {
 
 .field {
   display: grid;
-  gap: 9px;
-  color: var(--do-ink);
+  gap: 10px;
+  color: #0f172a;
   font-size: 14px;
   font-weight: 900;
 }
 
 .field input {
   width: 100%;
-  height: 46px;
-  border: 1px solid var(--do-line-strong);
-  border-radius: 8px;
-  padding: 0 13px;
-  color: var(--do-ink);
+  height: 54px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0 16px;
+  color: #020617;
   background: #fff;
   outline: none;
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .field input::placeholder {
-  color: #9aa796;
+  color: #a5b4c5;
+  font-weight: 800;
 }
 
 .field input:focus {
-  border-color: var(--do-primary);
-  box-shadow: 0 0 0 4px rgba(77, 143, 220, 0.16);
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.1);
 }
 
 .password-field {
@@ -458,28 +559,28 @@ async function submit() {
 }
 
 .password-field input {
-  padding-right: 48px;
+  padding-right: 50px;
 }
 
 .password-field button {
   position: absolute;
   top: 50%;
-  right: 6px;
-  width: 36px;
-  height: 36px;
+  right: 12px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 7px;
-  color: var(--do-muted);
+  border-radius: 8px;
+  color: #64748b;
   background: transparent;
   transform: translateY(-50%);
   cursor: pointer;
 }
 
 .password-field button:hover {
-  color: var(--do-ink);
-  background: var(--do-soft);
+  color: #4c1d95;
+  background: #f5f3ff;
 }
 
 .form-tools {
@@ -487,48 +588,47 @@ async function submit() {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  color: var(--do-muted);
+  color: #475569;
   font-size: 14px;
 }
 
-.remember,
-.security-note {
+.remember {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
-  font-weight: 800;
+  font-weight: 900;
 }
 
 .remember input {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
   margin: 0;
-  accent-color: var(--do-primary);
+  accent-color: #7c3aed;
 }
 
-.security-note {
-  color: var(--do-accent-strong);
-  white-space: nowrap;
+.form-tools a {
+  color: #6d28d9;
+  font-weight: 900;
 }
 
 .submit-button {
-  height: 46px;
+  height: 54px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 9px;
+  gap: 10px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   color: #fff;
-  background: var(--do-primary);
+  background: #111827;
   font-weight: 900;
-  box-shadow: 0 14px 24px rgba(77, 143, 220, 0.22);
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.16);
   cursor: pointer;
 }
 
 .submit-button:hover {
-  background: var(--do-primary-strong);
+  background: #020617;
 }
 
 .submit-button:disabled {

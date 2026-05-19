@@ -16,9 +16,10 @@
 ```
 flows/
 ├── README.md
+├── page-api-wiring.md       — 页面-接口布线图（页面长什么样+调哪些接口+什么时机）
 ├── e2e-journeys.md          — 跨模块端到端用户旅程
-├── 001-user-module.md       — 用户模块所有页面交互简报
-└── 002-datasource.md        — 数据源模块所有页面交互简报
+├── 001-user-module.md       — 用户模块所有页面交互简报（状态/交互/细节）
+└── 002-datasource.md        — 数据源模块所有页面交互简报（状态/交互/细节）
 ```
 
 ## 如何使用
