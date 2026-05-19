@@ -35,8 +35,7 @@ public class StatisticsCollector {
     }
 
     public BigDecimal collectNullRate(Connection connection, String tableName, String columnName) {
-        String sql = "SELECT COUNT(*) AS total, SUM(CASE WHEN `%s` IS NULL THEN 1 ELSE 0 END) AS null_count FROM `%s` LIMIT 1000"
-                .formatted(columnName, tableName);
+        String sql = "SELECT COUNT(*) AS total, SUM(CASE WHEN `" + escapeIdentifier(columnName) + "` IS NULL THEN 1 ELSE 0 END) AS null_count FROM (SELECT `" + escapeIdentifier(columnName) + "` FROM `" + escapeIdentifier(tableName) + "` LIMIT 1000) t";
         try (Statement stmt = connection.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             if (rs.next()) {
@@ -55,8 +54,9 @@ public class StatisticsCollector {
     public List<Map<String, Object>> collectTopNValues(Connection connection, String tableName,
                                                        String columnName, int n) {
         List<Map<String, Object>> result = new ArrayList<>();
-        String sql = "SELECT `%s` AS val, COUNT(*) AS cnt FROM `%s` WHERE `%s` IS NOT NULL GROUP BY `%s` ORDER BY cnt DESC LIMIT %d"
-                .formatted(columnName, tableName, columnName, columnName, n);
+        String col = escapeIdentifier(columnName);
+        String tbl = escapeIdentifier(tableName);
+        String sql = "SELECT `" + col + "` AS val, COUNT(*) AS cnt FROM `" + tbl + "` WHERE `" + col + "` IS NOT NULL GROUP BY `" + col + "` ORDER BY cnt DESC LIMIT " + n;
         try (Statement stmt = connection.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
@@ -69,6 +69,23 @@ public class StatisticsCollector {
             log.warn("获取字段 {}.{} TopN值失败", tableName, columnName, e);
         }
         return result;
+    }
+
+    public Long collectDistinctCount(Connection connection, String tableName, String columnName) {
+        String sql = "SELECT COUNT(DISTINCT `" + escapeIdentifier(columnName) + "`) AS cnt FROM `" + escapeIdentifier(tableName) + "`";
+        try (Statement stmt = connection.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (rs.next()) {
+                return rs.getLong("cnt");
+            }
+        } catch (SQLException e) {
+            log.warn("获取字段 {}.{} 去重计数失败", tableName, columnName, e);
+        }
+        return null;
+    }
+
+    private String escapeIdentifier(String identifier) {
+        return identifier.replace("`", "``");
     }
 
     private String getCatalog(Connection connection) {

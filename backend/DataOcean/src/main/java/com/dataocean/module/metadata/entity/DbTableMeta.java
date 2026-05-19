@@ -27,6 +27,7 @@ public class DbTableMeta {
     private Long rowCountEstimate;
     private Long dataSizeBytes;
     private Long indexSizeBytes;
+    private String indexesInfo;
     private String governanceStatus;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

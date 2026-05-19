@@ -26,7 +26,9 @@ import org.springframework.util.StringUtils;
 
 import java.security.SecureRandom;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -123,8 +125,50 @@ public class UserServiceImpl implements UserService {
                 .eq(request.getStatus() != null, SysUser::getStatus, request.getStatus())
                 .orderByDesc(SysUser::getCreatedAt);
         Page<SysUser> userPage = userMapper.selectPage(new Page<>(request.resolvedPage(), request.resolvedPageSize()), wrapper);
+
+        List<SysUser> users = userPage.getRecords();
+        if (users.isEmpty()) {
+            Page<UserVO> result = new Page<>(userPage.getCurrent(), userPage.getSize(), userPage.getTotal());
+            result.setRecords(List.of());
+            return result;
+        }
+
+        Set<Long> deptIds = users.stream().map(SysUser::getDepartmentId).filter(id -> id != null).collect(Collectors.toSet());
+        Map<Long, String> deptNameMap = deptIds.isEmpty() ? Map.of() :
+                departmentMapper.selectBatchIds(deptIds).stream()
+                        .collect(Collectors.toMap(SysDepartment::getId, SysDepartment::getDeptName));
+
+        List<Long> userIds = users.stream().map(SysUser::getId).toList();
+        List<SysUserRole> userRoles = userRoleMapper.selectList(
+                new LambdaQueryWrapper<SysUserRole>().in(SysUserRole::getUserId, userIds));
+        Set<Long> roleIds = userRoles.stream().map(SysUserRole::getRoleId).collect(Collectors.toSet());
+        Map<Long, SysRole> roleMap = roleIds.isEmpty() ? Map.of() :
+                roleMapper.selectBatchIds(roleIds).stream()
+                        .collect(Collectors.toMap(SysRole::getId, r -> r));
+        Map<Long, List<SysRole>> userRoleMap = userRoles.stream()
+                .filter(ur -> roleMap.containsKey(ur.getRoleId()))
+                .collect(Collectors.groupingBy(SysUserRole::getUserId,
+                        Collectors.mapping(ur -> roleMap.get(ur.getRoleId()), Collectors.toList())));
+
         Page<UserVO> result = new Page<>(userPage.getCurrent(), userPage.getSize(), userPage.getTotal());
-        result.setRecords(userPage.getRecords().stream().map(this::toVO).toList());
+        result.setRecords(users.stream().map(user -> {
+            List<SysRole> roles = userRoleMap.getOrDefault(user.getId(), List.of());
+            return UserVO.builder()
+                    .id(user.getId())
+                    .username(user.getUsername())
+                    .realName(user.getRealName())
+                    .email(user.getEmail())
+                    .phone(user.getPhone())
+                    .departmentId(user.getDepartmentId())
+                    .departmentName(user.getDepartmentId() == null ? null : deptNameMap.get(user.getDepartmentId()))
+                    .roleIds(roles.stream().map(SysRole::getId).toList())
+                    .roleNames(roles.stream().map(SysRole::getRoleName).toList())
+                    .roleCodes(roles.stream().map(SysRole::getRoleCode).toList())
+                    .status(user.getStatus())
+                    .lastLoginAt(user.getLastLoginAt())
+                    .createdAt(user.getCreatedAt())
+                    .build();
+        }).toList());
         return result;
     }
 

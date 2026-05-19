@@ -10,6 +10,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Component
@@ -48,6 +49,9 @@ public class TableCollector {
     private void enrichFromInformationSchema(Connection connection, String catalog, List<DbTableMeta> tables) throws SQLException {
         if (tables.isEmpty()) return;
 
+        Map<String, DbTableMeta> tableMap = tables.stream()
+                .collect(java.util.stream.Collectors.toMap(DbTableMeta::getTableName, t -> t));
+
         String sql = "SELECT TABLE_NAME, TABLE_COMMENT, ENGINE, TABLE_COLLATION, TABLE_ROWS, DATA_LENGTH, INDEX_LENGTH FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?";
 
         try (var pstmt = connection.prepareStatement(sql)) {
@@ -55,24 +59,22 @@ public class TableCollector {
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
                     String tableName = rs.getString("TABLE_NAME");
-                    tables.stream()
-                            .filter(t -> t.getTableName().equals(tableName))
-                            .findFirst()
-                            .ifPresent(t -> {
-                                try {
-                                    String comment = rs.getString("TABLE_COMMENT");
-                                    if (comment != null && !comment.isEmpty()) {
-                                        t.setTableComment(comment);
-                                    }
-                                    t.setEngine(rs.getString("ENGINE"));
-                                    t.setTableCharset(rs.getString("TABLE_COLLATION"));
-                                    t.setRowCountEstimate(rs.getLong("TABLE_ROWS"));
-                                    t.setDataSizeBytes(rs.getLong("DATA_LENGTH"));
-                                    t.setIndexSizeBytes(rs.getLong("INDEX_LENGTH"));
-                                } catch (SQLException e) {
-                                    log.warn("读取表 {} 的扩展信息失败", tableName, e);
-                                }
-                            });
+                    DbTableMeta t = tableMap.get(tableName);
+                    if (t != null) {
+                        try {
+                            String comment = rs.getString("TABLE_COMMENT");
+                            if (comment != null && !comment.isEmpty()) {
+                                t.setTableComment(comment);
+                            }
+                            t.setEngine(rs.getString("ENGINE"));
+                            t.setTableCharset(rs.getString("TABLE_COLLATION"));
+                            t.setRowCountEstimate(rs.getLong("TABLE_ROWS"));
+                            t.setDataSizeBytes(rs.getLong("DATA_LENGTH"));
+                            t.setIndexSizeBytes(rs.getLong("INDEX_LENGTH"));
+                        } catch (SQLException e) {
+                            log.warn("读取表 {} 的扩展信息失败", tableName, e);
+                        }
+                    }
                 }
             }
         }

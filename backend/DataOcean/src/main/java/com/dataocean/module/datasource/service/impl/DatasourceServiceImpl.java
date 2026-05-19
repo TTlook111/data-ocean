@@ -149,7 +149,8 @@ public class DatasourceServiceImpl implements DatasourceService {
                 .orderByDesc(Datasource::getCreatedAt);
         Page<Datasource> datasourcePage = datasourceMapper.selectPage(new Page<>(request.resolvedPage(), request.resolvedPageSize()), wrapper);
         Page<DatasourceVO> result = new Page<>(datasourcePage.getCurrent(), datasourcePage.getSize(), datasourcePage.getTotal());
-        result.setRecords(datasourcePage.getRecords().stream().map(item -> datasourceMapper.selectVOById(item.getId())).toList());
+        result.setRecords(datasourcePage.getRecords().stream()
+                .map(item -> datasourceMapper.selectVOById(item.getId())).toList());
         return result;
     }
 

@@ -402,7 +402,9 @@ async function testFormConnection() {
         charset: form.charset,
         username: form.username,
       })
-      form.password = ''
+      if (editingId.value) {
+        form.password = ''
+      }
       ElMessage.success(`连接成功（耗时 ${result.data.responseTimeMs}ms）`)
     } else {
       testedOk.value = false

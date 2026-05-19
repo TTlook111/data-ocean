@@ -54,10 +54,10 @@ public class MetadataCollectionController {
     private final DatasourceMapper datasourceMapper;
 
     @PostMapping("/sync")
-    public Result<Void> triggerSync(@Valid @RequestBody SyncTriggerRequest request,
+    public Result<Map<String, Long>> triggerSync(@Valid @RequestBody SyncTriggerRequest request,
                                     @AuthenticationPrincipal LoginUser loginUser) {
-        collectionService.executeFullSync(request.getDatasourceId(), loginUser.getUserId(), request.getIncludeStatistics());
-        return Result.success("同步任务已触发", null);
+        Long taskId = collectionService.executeFullSync(request.getDatasourceId(), loginUser.getUserId(), request.getIncludeStatistics());
+        return Result.success("同步任务已触发", Map.of("taskId", taskId));
     }
 
     @GetMapping("/sync-tasks")

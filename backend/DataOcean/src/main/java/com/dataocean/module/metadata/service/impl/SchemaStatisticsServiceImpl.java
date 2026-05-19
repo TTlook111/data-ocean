@@ -75,11 +75,16 @@ public class SchemaStatisticsServiceImpl implements SchemaStatisticsService {
                         column.setNullRate(nullRate);
                     }
 
+                    Long distinctCount = statisticsCollector.collectDistinctCount(
+                            connection, table.getTableName(), column.getColumnName());
+                    if (distinctCount != null) {
+                        column.setDistinctCount(distinctCount);
+                    }
+
                     List<Map<String, Object>> topN = statisticsCollector.collectTopNValues(
                             connection, table.getTableName(), column.getColumnName(), 20);
                     if (!topN.isEmpty()) {
                         column.setEnumTopValues(objectMapper.writeValueAsString(topN));
-                        column.setDistinctCount((long) topN.size());
                     }
 
                     columnMetaMapper.updateById(column);

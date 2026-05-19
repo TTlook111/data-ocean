@@ -7,6 +7,7 @@ import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.metadata.collector.ColumnCollector;
+import com.dataocean.module.metadata.collector.IndexCollector;
 import com.dataocean.module.metadata.collector.RelationCollector;
 import com.dataocean.module.metadata.collector.TableCollector;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
@@ -21,8 +22,11 @@ import com.dataocean.module.metadata.service.SchemaCollectionService;
 import com.dataocean.module.metadata.service.SchemaSnapshotService;
 import com.dataocean.module.metadata.service.SchemaStatisticsService;
 import com.dataocean.module.metadata.service.SchemaSyncTaskService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -46,21 +50,31 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
     private final TableCollector tableCollector;
     private final ColumnCollector columnCollector;
     private final RelationCollector relationCollector;
+    private final IndexCollector indexCollector;
     private final DbTableMetaMapper tableMetaMapper;
     private final DbColumnMetaMapper columnMetaMapper;
     private final TableRelationMapper relationMapper;
     private final SchemaStatisticsService statisticsService;
+    private final ObjectMapper objectMapper;
 
-    @Async
+    @Lazy
+    @Autowired
+    private SchemaCollectionServiceImpl self;
+
     @Override
-    public void executeFullSync(Long datasourceId, Long triggeredBy, boolean includeStatistics) {
+    public Long executeFullSync(Long datasourceId, Long triggeredBy, boolean includeStatistics) {
         SchemaSyncTask running = syncTaskService.getLatestTask(datasourceId);
         if (running != null && SchemaSyncTask.STATUS_RUNNING.equals(running.getStatus())) {
-            log.warn("数据源 {} 已有同步任务运行中，跳过本次触发", datasourceId);
-            return;
+            throw new BusinessException(409, "该数据源已有同步任务运行中");
         }
 
         SchemaSyncTask task = syncTaskService.createTask(datasourceId, SchemaSyncTask.TRIGGER_MANUAL, triggeredBy);
+        self.doSyncAsync(datasourceId, task, includeStatistics);
+        return task.getId();
+    }
+
+    @Async
+    public void doSyncAsync(Long datasourceId, SchemaSyncTask task, boolean includeStatistics) {
         try {
             syncTaskService.updateStatus(task.getId(), SchemaSyncTask.STATUS_RUNNING, null);
             doSync(datasourceId, task, includeStatistics);
@@ -104,6 +118,15 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
 
             for (int i = 0; i < tables.size(); i++) {
                 DbTableMeta table = tables.get(i);
+
+                List<IndexCollector.IndexInfo> indexes = indexCollector.collect(connection, table.getTableName());
+                if (!indexes.isEmpty()) {
+                    try {
+                        table.setIndexesInfo(objectMapper.writeValueAsString(indexes));
+                    } catch (Exception e) {
+                        log.warn("序列化索引信息失败 table={}", table.getTableName(), e);
+                    }
+                }
                 tableMetaMapper.insert(table);
 
                 List<DbColumnMeta> columns = columnCollector.collect(
