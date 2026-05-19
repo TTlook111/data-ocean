@@ -153,7 +153,7 @@ onMounted(fetchDepartments)
   min-height: 420px;
   padding: 16px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
 

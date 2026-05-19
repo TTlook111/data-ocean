@@ -125,7 +125,7 @@ onMounted(fetchDatasources)
 
 .datasource-option.selected {
   border-color: var(--do-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16), var(--do-shadow);
+  box-shadow: 0 0 0 3px rgba(77, 143, 220, 0.16), var(--do-shadow);
 }
 
 .icon-box {
@@ -168,19 +168,8 @@ onMounted(fetchDatasources)
   padding: 14px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
 
-@media (max-width: 680px) {
-  .page-header,
-  .query-footer {
-    grid-template-columns: 1fr;
-    align-items: stretch;
-  }
-
-  .page-header {
-    display: grid;
-  }
-}
 </style>

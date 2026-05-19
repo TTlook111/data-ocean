@@ -429,7 +429,7 @@ onMounted(fetchDatasources)
   gap: 12px;
   padding: 14px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
 
@@ -459,15 +459,4 @@ small {
   margin-bottom: 14px;
 }
 
-@media (max-width: 900px) {
-  .toolbar {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .page-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 12px;
-  }
-}
 </style>

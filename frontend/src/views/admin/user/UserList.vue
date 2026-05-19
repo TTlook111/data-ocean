@@ -294,7 +294,7 @@ onMounted(async () => {
   gap: 12px;
   padding: 14px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
 
@@ -307,9 +307,4 @@ onMounted(async () => {
   margin-top: 16px;
 }
 
-@media (max-width: 900px) {
-  .toolbar {
-    grid-template-columns: 1fr 1fr;
-  }
-}
 </style>

@@ -101,7 +101,7 @@ onMounted(fetchProfile)
   padding: 24px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
 
