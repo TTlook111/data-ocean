@@ -136,7 +136,7 @@ async function handleSubmit() {
 
 .forced-tip {
   margin: 8px 0 0;
-  color: var(--do-warm);
+  color: var(--do-warning);
   font-size: 14px;
 }
 </style>

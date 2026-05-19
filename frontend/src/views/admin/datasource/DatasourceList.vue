@@ -260,6 +260,7 @@ onMounted(fetchDatasources)
       <div>
         <p>数据源管理</p>
         <h1>业务库接入与授权</h1>
+        <span class="header-subtitle">管理可查询业务库的连接配置、健康状态和用户授权范围。</span>
       </div>
       <el-button type="primary" @click="openCreate">
         <PlugZap :size="16" />
@@ -305,7 +306,7 @@ onMounted(fetchDatasources)
       </el-table-column>
       <el-table-column prop="lastCheckTime" label="最后检测" min-width="180" />
       <el-table-column prop="creatorName" label="创建人" min-width="110" />
-      <el-table-column label="操作" width="330" fixed="right">
+      <el-table-column label="操作" width="330">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="success" @click="testSaved(row)">
@@ -399,8 +400,8 @@ onMounted(fetchDatasources)
 
 <style scoped>
 .admin-page {
-  min-height: 100vh;
-  padding: 28px;
+  display: grid;
+  gap: 16px;
 }
 
 .page-header {
@@ -412,25 +413,24 @@ onMounted(fetchDatasources)
 
 .page-header p {
   margin: 0 0 6px;
-  color: var(--do-leaf-deep);
+  color: var(--do-primary);
   font-weight: 800;
 }
 
 .page-header h1 {
   margin: 0;
   color: var(--do-ink);
-  font-size: 28px;
+  font-size: 24px;
 }
 
 .toolbar {
   display: grid;
   grid-template-columns: minmax(180px, 1.5fr) minmax(120px, 1fr) minmax(120px, 1fr) auto;
   gap: 12px;
-  margin-bottom: 16px;
   padding: 14px;
   border-radius: 8px;
-  background: rgba(255, 250, 240, 0.76);
-  backdrop-filter: blur(12px);
+  background: #fff;
+  box-shadow: var(--do-shadow);
 }
 
 .connection-text {

@@ -28,6 +28,7 @@ onMounted(fetchDatasources)
         <div>
           <p>问答端</p>
           <h1>选择本次查询的数据源</h1>
+          <span class="header-subtitle">每次自然语言查询限定在一个已授权、已启用的数据源内执行。</span>
         </div>
         <el-button :loading="loading" @click="fetchDatasources">
           <RefreshCw :size="16" />
@@ -73,13 +74,12 @@ onMounted(fetchDatasources)
 
 <style scoped>
 .query-page {
-  min-height: 100vh;
-  padding: 28px;
+  display: grid;
 }
 
 .query-shell {
-  max-width: 980px;
-  margin: 0 auto;
+  display: grid;
+  gap: 16px;
 }
 
 .page-header {
@@ -87,18 +87,17 @@ onMounted(fetchDatasources)
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 18px;
 }
 
 .page-header p {
   margin: 0 0 6px;
-  color: var(--do-leaf-deep);
+  color: var(--do-primary);
   font-weight: 800;
 }
 
 .page-header h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: 24px;
   color: var(--do-ink);
 }
 
@@ -125,8 +124,8 @@ onMounted(fetchDatasources)
 }
 
 .datasource-option.selected {
-  border-color: var(--do-hydrangea);
-  box-shadow: 0 0 0 3px rgba(47, 127, 211, 0.16), var(--do-shadow);
+  border-color: var(--do-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16), var(--do-shadow);
 }
 
 .icon-box {
@@ -135,8 +134,8 @@ onMounted(fetchDatasources)
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: var(--do-hydrangea);
-  background: var(--do-hydrangea-soft);
+  color: var(--do-primary);
+  background: var(--do-primary-soft);
 }
 
 .datasource-option strong,
@@ -166,11 +165,10 @@ onMounted(fetchDatasources)
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 12px;
-  margin-top: 18px;
   padding: 14px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  background: #fff;
   box-shadow: var(--do-shadow);
 }
 

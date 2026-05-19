@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import LoginPage from '../views/login/LoginPage.vue'
+import AppShell from '../components/AppShell.vue'
 import AdminHomeView from '../views/AdminHomeView.vue'
 import ChangePassword from '../views/profile/ChangePassword.vue'
 import ProfileView from '../views/profile/ProfileView.vue'
@@ -28,43 +29,52 @@ const router = createRouter({
       component: ChangePassword,
     },
     {
-      path: '/profile',
-      name: 'profile',
-      component: ProfileView,
-    },
-    {
-      path: '/query',
-      name: 'query',
-      component: QueryDatasourceView,
-    },
-    {
-      path: '/admin',
-      name: 'admin',
-      component: AdminHomeView,
-    },
-    {
-      path: '/admin/users',
-      name: 'admin-users',
-      component: UserList,
-      meta: { permission: 'user:manage' },
-    },
-    {
-      path: '/admin/roles',
-      name: 'admin-roles',
-      component: RoleList,
-      meta: { permission: 'role:view' },
-    },
-    {
-      path: '/admin/departments',
-      name: 'admin-departments',
-      component: DepartmentTree,
-      meta: { permission: 'department:manage' },
-    },
-    {
-      path: '/admin/datasources',
-      name: 'admin-datasources',
-      component: DatasourceList,
-      meta: { permission: 'datasource:manage' },
+      path: '/',
+      component: AppShell,
+      children: [
+        {
+          path: 'profile',
+          name: 'profile',
+          component: ProfileView,
+          meta: { title: '个人资料', section: '个人中心' },
+        },
+        {
+          path: 'query',
+          name: 'query',
+          component: QueryDatasourceView,
+          meta: { title: '问答端数据源', section: '智能查询' },
+        },
+        {
+          path: 'admin',
+          name: 'admin',
+          component: AdminHomeView,
+          meta: { title: '工作台概览', section: '工作台' },
+        },
+        {
+          path: 'admin/users',
+          name: 'admin-users',
+          component: UserList,
+          meta: { title: '用户管理', section: '治理管理', permission: 'user:manage' },
+        },
+        {
+          path: 'admin/roles',
+          name: 'admin-roles',
+          component: RoleList,
+          meta: { title: '角色管理', section: '治理管理', permission: 'role:view' },
+        },
+        {
+          path: 'admin/departments',
+          name: 'admin-departments',
+          component: DepartmentTree,
+          meta: { title: '部门管理', section: '治理管理', permission: 'department:manage' },
+        },
+        {
+          path: 'admin/datasources',
+          name: 'admin-datasources',
+          component: DatasourceList,
+          meta: { title: '数据源管理', section: '治理管理', permission: 'datasource:manage' },
+        },
+      ],
     },
   ],
 })

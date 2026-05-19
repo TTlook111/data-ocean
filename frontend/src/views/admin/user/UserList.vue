@@ -160,6 +160,7 @@ onMounted(async () => {
       <div>
         <p>用户管理</p>
         <h1>账号、角色与状态</h1>
+        <span class="header-subtitle">集中维护平台用户、部门归属、角色授权和账号状态。</span>
       </div>
       <el-button type="primary" @click="openCreate">新增用户</el-button>
     </header>
@@ -199,7 +200,7 @@ onMounted(async () => {
         </template>
       </el-table-column>
       <el-table-column prop="lastLoginAt" label="最后登录" min-width="180" />
-      <el-table-column label="操作" width="340" fixed="right">
+      <el-table-column label="操作" width="340">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="warning" @click="changeStatus(row, row.status === 1 ? 2 : 1)">
@@ -264,8 +265,8 @@ onMounted(async () => {
 
 <style scoped>
 .admin-page {
-  min-height: 100vh;
-  padding: 28px;
+  display: grid;
+  gap: 16px;
 }
 
 .page-header {
@@ -277,13 +278,13 @@ onMounted(async () => {
 
 .page-header p {
   margin: 0 0 6px;
-  color: var(--do-leaf-deep);
+  color: var(--do-primary);
   font-weight: 800;
 }
 
 .page-header h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: 24px;
   color: var(--do-ink);
 }
 
@@ -291,11 +292,10 @@ onMounted(async () => {
   display: grid;
   grid-template-columns: repeat(5, minmax(120px, 1fr));
   gap: 12px;
-  margin-bottom: 16px;
   padding: 14px;
   border-radius: 8px;
-  background: rgba(255, 250, 240, 0.76);
-  backdrop-filter: blur(12px);
+  background: #fff;
+  box-shadow: var(--do-shadow);
 }
 
 .role-tag {

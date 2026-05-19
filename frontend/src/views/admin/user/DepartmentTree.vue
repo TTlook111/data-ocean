@@ -70,6 +70,7 @@ onMounted(fetchDepartments)
       <div>
         <p>部门管理</p>
         <h1>组织结构</h1>
+        <span class="header-subtitle">维护组织层级，供用户归属和权限范围使用。</span>
       </div>
       <el-button type="primary" @click="openCreate()">新增部门</el-button>
     </header>
@@ -125,8 +126,8 @@ onMounted(fetchDepartments)
 
 <style scoped>
 .admin-page {
-  min-height: 100vh;
-  padding: 28px;
+  display: grid;
+  gap: 16px;
 }
 
 .page-header {
@@ -138,13 +139,13 @@ onMounted(fetchDepartments)
 
 .page-header p {
   margin: 0 0 6px;
-  color: var(--do-leaf-deep);
+  color: var(--do-primary);
   font-weight: 800;
 }
 
 .page-header h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: 24px;
   color: var(--do-ink);
 }
 
@@ -152,7 +153,8 @@ onMounted(fetchDepartments)
   min-height: 420px;
   padding: 16px;
   border-radius: 8px;
-  background: var(--do-surface);
+  background: #fff;
+  box-shadow: var(--do-shadow);
 }
 
 .tree-node {

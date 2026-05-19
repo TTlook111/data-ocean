@@ -64,8 +64,9 @@ onMounted(fetchProfile)
         <div>
           <p>个人资料</p>
           <h1>账号资料维护</h1>
+          <span class="header-subtitle">维护个人基础信息，密码修改会重新登录。</span>
         </div>
-        <RouterLink to="/admin">返回后台首页</RouterLink>
+        <RouterLink to="/admin">返回工作台</RouterLink>
       </header>
 
       <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
@@ -92,20 +93,16 @@ onMounted(fetchProfile)
 
 <style scoped>
 .profile-page {
-  min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: 28px;
 }
 
 .profile-panel {
-  width: min(620px, 100%);
+  width: min(720px, 100%);
   padding: 24px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
-  background: var(--do-surface);
+  background: #fff;
   box-shadow: var(--do-shadow);
-  backdrop-filter: blur(12px);
 }
 
 .page-header {
@@ -118,7 +115,7 @@ onMounted(fetchProfile)
 
 .page-header p {
   margin: 0 0 6px;
-  color: var(--do-leaf-deep);
+  color: var(--do-primary);
   font-weight: 800;
 }
 
@@ -130,7 +127,7 @@ onMounted(fetchProfile)
 
 .page-header a,
 .text-link {
-  color: var(--do-hydrangea);
+  color: var(--do-primary);
   font-weight: 800;
 }
 
