@@ -41,6 +41,12 @@ security:
     max-attempts: ${LOGIN_MAX_ATTEMPTS:5}
     lock-duration: ${LOGIN_LOCK_DURATION:1800}
 
+dataocean:
+  metadata:
+    auto-sync:
+      enabled: ${METADATA_AUTO_SYNC_ENABLED:false}
+      cron: ${METADATA_AUTO_SYNC_CRON:0 0 2 * * ?}
+
 logging:
   level:
     com.dataocean: INFO

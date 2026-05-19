@@ -9,6 +9,10 @@ import DepartmentTree from '../views/admin/user/DepartmentTree.vue'
 import DatasourceList from '../views/admin/datasource/DatasourceList.vue'
 import RoleList from '../views/admin/user/RoleList.vue'
 import UserList from '../views/admin/user/UserList.vue'
+import SyncTask from '../views/admin/metadata/SyncTask.vue'
+import SnapshotList from '../views/admin/metadata/SnapshotList.vue'
+import TableExplorer from '../views/admin/metadata/TableExplorer.vue'
+import SnapshotDiff from '../views/admin/metadata/SnapshotDiff.vue'
 import { setupRouterGuards } from './guards'
 
 const router = createRouter({
@@ -73,6 +77,30 @@ const router = createRouter({
           name: 'admin-datasources',
           component: DatasourceList,
           meta: { title: '数据源管理', section: '治理管理', permission: 'datasource:manage' },
+        },
+        {
+          path: 'admin/metadata/sync',
+          name: 'admin-metadata-sync',
+          component: SyncTask,
+          meta: { title: '同步任务', section: '元数据管理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'admin/metadata/snapshots',
+          name: 'admin-metadata-snapshots',
+          component: SnapshotList,
+          meta: { title: '快照列表', section: '元数据管理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'admin/metadata/tables',
+          name: 'admin-metadata-tables',
+          component: TableExplorer,
+          meta: { title: '表浏览器', section: '元数据管理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'admin/metadata/diff',
+          name: 'admin-metadata-diff',
+          component: SnapshotDiff,
+          meta: { title: '快照差异', section: '元数据管理', permission: 'metadata:manage' },
         },
       ],
     },

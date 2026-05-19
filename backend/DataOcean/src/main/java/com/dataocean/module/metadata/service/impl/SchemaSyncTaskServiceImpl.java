@@ -1,0 +1,73 @@
+package com.dataocean.module.metadata.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.dataocean.module.metadata.entity.SchemaSyncTask;
+import com.dataocean.module.metadata.mapper.SchemaSyncTaskMapper;
+import com.dataocean.module.metadata.service.SchemaSyncTaskService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+
+@Service
+@RequiredArgsConstructor
+public class SchemaSyncTaskServiceImpl implements SchemaSyncTaskService {
+
+    private final SchemaSyncTaskMapper syncTaskMapper;
+
+    @Transactional
+    @Override
+    public SchemaSyncTask createTask(Long datasourceId, String triggerType, Long triggeredBy) {
+        SchemaSyncTask task = new SchemaSyncTask();
+        task.setDatasourceId(datasourceId);
+        task.setTriggerType(triggerType);
+        task.setTriggeredBy(triggeredBy);
+        task.setStatus(SchemaSyncTask.STATUS_PENDING);
+        task.setProgressCurrent(0);
+        syncTaskMapper.insert(task);
+        return task;
+    }
+
+    @Transactional
+    @Override
+    public void updateStatus(Long taskId, String status, String errorMessage) {
+        SchemaSyncTask task = syncTaskMapper.selectById(taskId);
+        task.setStatus(status);
+        task.setErrorMessage(errorMessage);
+        if (SchemaSyncTask.STATUS_RUNNING.equals(status)) {
+            task.setStartedAt(LocalDateTime.now());
+        }
+        if (SchemaSyncTask.STATUS_SUCCESS.equals(status) || SchemaSyncTask.STATUS_FAILED.equals(status)) {
+            task.setFinishedAt(LocalDateTime.now());
+        }
+        syncTaskMapper.updateById(task);
+    }
+
+    @Transactional
+    @Override
+    public void updateProgress(Long taskId, Integer total, Integer current) {
+        SchemaSyncTask task = syncTaskMapper.selectById(taskId);
+        task.setProgressTotal(total);
+        task.setProgressCurrent(current);
+        syncTaskMapper.updateById(task);
+    }
+
+    @Transactional
+    @Override
+    public void linkSnapshot(Long taskId, Long snapshotId) {
+        SchemaSyncTask task = syncTaskMapper.selectById(taskId);
+        task.setSnapshotId(snapshotId);
+        syncTaskMapper.updateById(task);
+    }
+
+    @Override
+    public SchemaSyncTask getLatestTask(Long datasourceId) {
+        return syncTaskMapper.selectOne(
+                new LambdaQueryWrapper<SchemaSyncTask>()
+                        .eq(SchemaSyncTask::getDatasourceId, datasourceId)
+                        .orderByDesc(SchemaSyncTask::getCreatedAt)
+                        .last("LIMIT 1")
+        );
+    }
+}
