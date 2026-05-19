@@ -556,7 +556,6 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 18px;
 }
 
 .page-header p {
@@ -572,19 +571,13 @@ onMounted(async () => {
 }
 
 .toolbar {
-  display: grid;
   grid-template-columns: repeat(4, minmax(120px, 1fr)) auto auto;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 8px;
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
 }
 
 .table-shell {
   min-height: 360px;
   border: 1px solid var(--do-line);
-  border-radius: 8px;
+  border-radius: var(--do-radius-lg);
   background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }

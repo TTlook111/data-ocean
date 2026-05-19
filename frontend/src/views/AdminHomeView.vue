@@ -3,9 +3,7 @@ import { computed } from 'vue'
 import {
   Building2,
   Database,
-  FileSearch,
   KeyRound,
-  LayoutDashboard,
   MessageSquareText,
   ShieldCheck,
   UserRound,
@@ -66,10 +64,6 @@ const quickEntries = computed(() => {
   return entries
 })
 
-const governanceFeatures = [
-  { icon: FileSearch, title: '元数据治理', desc: '采集、校验、审核发布，驱动可信查询' },
-  { icon: LayoutDashboard, title: '查询审计', desc: '全链路追踪，字段可信度动态调整' },
-]
 </script>
 
 <template>
@@ -287,7 +281,7 @@ const governanceFeatures = [
   gap: 14px;
   padding: 18px;
   border: 1px solid var(--do-line);
-  border-radius: 10px;
+  border-radius: var(--do-radius-lg);
   background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
@@ -297,32 +291,32 @@ const governanceFeatures = [
   height: 44px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
+  border-radius: var(--do-radius);
 }
 
 .status-icon.blue {
-  color: var(--do-primary);
-  background: var(--do-primary-soft);
+  color: var(--do-tone-blue);
+  background: var(--do-tone-blue-bg);
 }
 
 .status-icon.green {
-  color: var(--do-accent-strong);
-  background: #eff9e9;
+  color: var(--do-tone-green);
+  background: var(--do-tone-green-bg);
 }
 
 .status-icon.orange {
-  color: #b9811e;
-  background: #fff4d6;
+  color: var(--do-tone-orange);
+  background: var(--do-tone-orange-bg);
 }
 
 .status-icon.purple {
-  color: #7c3aed;
-  background: #f3eeff;
+  color: var(--do-tone-purple);
+  background: var(--do-tone-purple-bg);
 }
 
 .status-icon.sky {
-  color: #2f73bd;
-  background: #eaf7ff;
+  color: var(--do-tone-sky);
+  background: var(--do-tone-sky-bg);
 }
 
 .status-card strong {
@@ -352,15 +346,16 @@ const governanceFeatures = [
   gap: 14px;
   padding: 20px;
   border: 1px solid var(--do-line);
-  border-radius: 10px;
+  border-radius: var(--do-radius-lg);
   background: var(--do-surface);
   box-shadow: var(--do-shadow);
-  transition: transform 160ms ease, border-color 160ms ease;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .entry-card:hover {
   border-color: var(--do-primary);
   transform: translateY(-2px);
+  box-shadow: var(--do-shadow-hover);
 }
 
 .entry-icon {
@@ -368,24 +363,24 @@ const governanceFeatures = [
   height: 48px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
-  color: var(--do-primary);
-  background: var(--do-primary-soft);
+  border-radius: var(--do-radius);
+  color: var(--do-tone-blue);
+  background: var(--do-tone-blue-bg);
 }
 
 .entry-card.green .entry-icon {
-  color: var(--do-accent-strong);
-  background: #eff9e9;
+  color: var(--do-tone-green);
+  background: var(--do-tone-green-bg);
 }
 
 .entry-card.sky .entry-icon {
-  color: #2f73bd;
-  background: #eaf7ff;
+  color: var(--do-tone-sky);
+  background: var(--do-tone-sky-bg);
 }
 
 .entry-card.cream .entry-icon {
-  color: #b9811e;
-  background: #fff4d6;
+  color: var(--do-tone-orange);
+  background: var(--do-tone-orange-bg);
 }
 
 .entry-card strong {
@@ -405,7 +400,7 @@ const governanceFeatures = [
   grid-column: span 2;
   padding: 20px;
   border: 1px solid var(--do-line);
-  border-radius: 10px;
+  border-radius: var(--do-radius-lg);
   background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }

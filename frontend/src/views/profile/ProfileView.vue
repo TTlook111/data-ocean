@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { UserRound } from 'lucide-vue-next'
 import { me, updateProfile } from '../../api/auth'
+import { useAuthStore } from '../../stores/auth'
 
+const auth = useAuthStore()
 const loading = ref(false)
 const saving = ref(false)
 const formRef = ref<FormInstance>()
@@ -20,6 +23,9 @@ const rules: FormRules = {
   ],
   email: [{ type: 'email', message: '邮箱格式不正确', trigger: 'blur' }],
 }
+
+const displayName = () => auth.currentUser?.realName || auth.user?.realName || form.realName || '用户'
+const roleText = () => auth.user?.roles?.length ? auth.user.roles.join(' / ') : '—'
 
 async function fetchProfile() {
   loading.value = true
@@ -48,7 +54,7 @@ async function saveProfile() {
       phone: form.phone,
     })
     ElMessage.success('个人资料已更新')
-    await fetchProfile()
+    await auth.fetchUserInfo()
   } finally {
     saving.value = false
   }
@@ -60,78 +66,120 @@ onMounted(fetchProfile)
 <template>
   <main class="profile-page post-login-page">
     <section class="profile-panel" v-loading="loading">
-      <header class="page-header">
-        <div>
-          <p>个人资料</p>
-          <h1>账号资料维护</h1>
-          <span class="header-subtitle">维护个人基础信息，密码修改会重新登录。</span>
+      <header class="profile-header">
+        <div class="profile-avatar">
+          <span>{{ displayName().slice(0, 1) }}</span>
         </div>
-        <RouterLink to="/admin">返回工作台</RouterLink>
+        <div class="profile-meta">
+          <h2>{{ displayName() }}</h2>
+          <p>{{ roleText() }}</p>
+        </div>
+        <RouterLink class="pwd-link" to="/change-password">修改密码</RouterLink>
       </header>
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
-        <el-form-item label="登录账号">
-          <el-input v-model="form.username" disabled />
-        </el-form-item>
-        <el-form-item label="真实姓名" prop="realName">
-          <el-input v-model="form.realName" />
-        </el-form-item>
-        <el-form-item label="邮箱" prop="email">
-          <el-input v-model="form.email" />
-        </el-form-item>
-        <el-form-item label="手机号">
-          <el-input v-model="form.phone" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="saving" @click="saveProfile">保存资料</el-button>
-          <RouterLink class="text-link" to="/change-password">修改密码</RouterLink>
-        </el-form-item>
-      </el-form>
+      <div class="profile-form-area">
+        <div class="form-section-title">
+          <UserRound :size="16" />
+          <span>基本信息</span>
+        </div>
+
+        <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
+          <el-form-item label="登录账号">
+            <el-input v-model="form.username" disabled />
+          </el-form-item>
+          <el-form-item label="真实姓名" prop="realName">
+            <el-input v-model="form.realName" />
+          </el-form-item>
+          <el-form-item label="邮箱" prop="email">
+            <el-input v-model="form.email" placeholder="选填" />
+          </el-form-item>
+          <el-form-item label="手机号">
+            <el-input v-model="form.phone" placeholder="选填" />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="saving" @click="saveProfile">保存修改</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
     </section>
   </main>
 </template>
 
 <style scoped>
 .profile-page {
-  display: grid;
+  display: flex;
+  justify-content: center;
 }
 
 .profile-panel {
-  width: min(720px, 100%);
-  padding: 24px;
+  width: min(680px, 100%);
   border: 1px solid var(--do-line);
-  border-radius: 8px;
+  border-radius: var(--do-radius-lg);
   background: var(--do-surface);
   box-shadow: var(--do-shadow);
+  overflow: hidden;
 }
 
-.page-header {
-  display: flex;
+.profile-header {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
-  margin-bottom: 22px;
+  padding: 24px 28px;
+  background: linear-gradient(135deg, rgba(189,232,248,0.5) 0, rgba(246,251,239,0.7) 100%);
+  border-bottom: 1px solid var(--do-line);
 }
 
-.page-header p {
-  margin: 0 0 6px;
-  color: var(--do-primary);
-  font-weight: 800;
+.profile-avatar span {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--do-primary), var(--do-accent));
+  font-size: 22px;
+  font-weight: 900;
 }
 
-.page-header h1 {
+.profile-meta h2 {
   margin: 0;
-  font-size: 26px;
+  font-size: 20px;
   color: var(--do-ink);
 }
 
-.page-header a,
-.text-link {
-  color: var(--do-primary);
-  font-weight: 800;
+.profile-meta p {
+  margin: 4px 0 0;
+  color: var(--do-muted);
+  font-size: 13px;
 }
 
-.text-link {
-  margin-left: 12px;
+.pwd-link {
+  padding: 6px 14px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  color: var(--do-primary);
+  font-size: 13px;
+  font-weight: 700;
+  background: var(--do-surface);
+  transition: border-color 160ms;
+}
+
+.pwd-link:hover {
+  border-color: var(--do-primary);
+}
+
+.profile-form-area {
+  padding: 24px 28px;
+}
+
+.form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  color: var(--do-primary);
+  font-size: 13px;
+  font-weight: 900;
 }
 </style>

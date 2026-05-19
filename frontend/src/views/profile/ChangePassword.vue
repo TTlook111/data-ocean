@@ -1,55 +1,8 @@
-<template>
-  <div class="change-password-container post-login-page">
-    <el-card class="change-password-card">
-      <template #header>
-        <h2>修改密码</h2>
-        <p v-if="isForced" class="forced-tip">首次登录请修改初始密码后继续使用系统</p>
-      </template>
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-width="100px"
-        @submit.prevent="handleSubmit"
-      >
-        <el-form-item label="旧密码" prop="oldPassword">
-          <el-input
-            v-model="form.oldPassword"
-            type="password"
-            show-password
-            placeholder="请输入旧密码"
-          />
-        </el-form-item>
-        <el-form-item label="新密码" prop="newPassword">
-          <el-input
-            v-model="form.newPassword"
-            type="password"
-            show-password
-            placeholder="8-32位，至少包含字母和数字"
-          />
-        </el-form-item>
-        <el-form-item label="确认密码" prop="confirmPassword">
-          <el-input
-            v-model="form.confirmPassword"
-            type="password"
-            show-password
-            placeholder="请再次输入新密码"
-          />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="loading" @click="handleSubmit">
-            确认修改
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { reactive, ref, computed } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { KeyRound } from 'lucide-vue-next'
 import { changePassword } from '../../api/auth'
 import { useAuthStore } from '../../stores/auth'
 
@@ -105,38 +58,122 @@ async function handleSubmit() {
     ElMessage.success('密码修改成功，请重新登录')
     await authStore.logout()
     router.push('/login')
-  } catch (err: any) {
-    ElMessage.error(err.response?.data?.message || '密码修改失败')
+  } catch (err: unknown) {
+    const msg =
+      typeof err === 'object' && err !== null && 'response' in err
+        ? (err as { response?: { data?: { message?: string } } }).response?.data?.message
+        : undefined
+    ElMessage.error(msg || '密码修改失败')
   } finally {
     loading.value = false
   }
 }
 </script>
 
+<template>
+  <main class="change-pwd-page post-login-page">
+    <section class="pwd-panel">
+      <header class="panel-header">
+        <span class="panel-icon">
+          <KeyRound :size="22" />
+        </span>
+        <div>
+          <h2>修改密码</h2>
+          <p v-if="isForced" class="forced-tip">首次登录请修改初始密码后继续使用系统</p>
+          <p v-else class="subtitle">定期修改密码有助于保障账号安全。修改成功后需重新登录。</p>
+        </div>
+      </header>
+
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-width="96px"
+        class="pwd-form"
+        @submit.prevent="handleSubmit"
+      >
+        <el-form-item label="当前密码" prop="oldPassword">
+          <el-input v-model="form.oldPassword" type="password" show-password placeholder="请输入当前密码" />
+        </el-form-item>
+        <el-form-item label="新密码" prop="newPassword">
+          <el-input v-model="form.newPassword" type="password" show-password placeholder="8-32位，至少包含字母和数字" />
+        </el-form-item>
+        <el-form-item label="确认密码" prop="confirmPassword">
+          <el-input v-model="form.confirmPassword" type="password" show-password placeholder="请再次输入新密码" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :loading="loading" @click="handleSubmit">确认修改</el-button>
+          <RouterLink v-if="!isForced" class="back-link" to="/profile">返回个人资料</RouterLink>
+        </el-form-item>
+      </el-form>
+    </section>
+  </main>
+</template>
+
 <style scoped>
-.change-password-container {
+.change-pwd-page {
   display: flex;
   justify-content: center;
+  align-items: flex-start;
+  padding-top: 40px;
+}
+
+.pwd-panel {
+  width: min(520px, 100%);
+  padding: 28px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
+
+.panel-header {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 14px;
   align-items: center;
-  min-height: 100vh;
-  padding: 24px;
+  margin-bottom: 24px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--do-line);
 }
 
-.change-password-card {
-  width: 480px;
-  max-width: 100%;
-  border-radius: 8px;
+.panel-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--do-primary);
+  background: var(--do-primary-soft);
 }
 
-.change-password-card h2 {
+.panel-header h2 {
   margin: 0;
   font-size: 20px;
   color: var(--do-ink);
 }
 
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--do-muted);
+  font-size: 13px;
+}
+
 .forced-tip {
-  margin: 8px 0 0;
-  color: var(--do-warning);
-  font-size: 14px;
+  margin: 4px 0 0;
+  color: var(--do-warning, #c08a24);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pwd-form {
+  max-width: 420px;
+}
+
+.back-link {
+  margin-left: 12px;
+  color: var(--do-primary);
+  font-size: 13px;
+  font-weight: 700;
 }
 </style>

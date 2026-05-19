@@ -186,7 +186,7 @@ onMounted(fetchDatasources)
   min-height: 176px;
   padding: 16px;
   border: 1px solid var(--do-line);
-  border-radius: 8px;
+  border-radius: var(--do-radius-lg);
   background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
@@ -211,7 +211,7 @@ onMounted(fetchDatasources)
 
 .datasource-option:hover {
   border-color: var(--do-primary);
-  box-shadow: 0 14px 30px rgba(77, 143, 220, 0.16);
+  box-shadow: var(--do-shadow-hover);
   transform: translateY(-2px);
 }
 

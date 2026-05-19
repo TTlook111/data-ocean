@@ -817,19 +817,13 @@ onMounted(async () => {
 }
 
 .toolbar {
-  display: grid;
   grid-template-columns: minmax(180px, 1.5fr) minmax(130px, 1fr) minmax(150px, 1fr) auto auto;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 8px;
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
 }
 
 .table-shell {
   min-height: 360px;
   border: 1px solid var(--do-line);
-  border-radius: 8px;
+  border-radius: var(--do-radius-lg);
   background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
