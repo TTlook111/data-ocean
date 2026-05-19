@@ -15,4 +15,10 @@ async def internal_health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@internal_router.delete("/sql/pools/{datasource_id}")
+async def destroy_sql_pool(datasource_id: int) -> dict[str, str | int]:
+    # Actual SQLAlchemy pool management lands with the NL2SQL execution module.
+    return {"status": "ok", "datasourceId": datasource_id}
+
+
 app.include_router(internal_router)

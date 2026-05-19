@@ -6,3 +6,8 @@ spring:
     password:
   flyway:
     enabled: false
+
+dataocean:
+  datasource:
+    health-check:
+      enabled: false

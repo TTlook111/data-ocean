@@ -3,6 +3,7 @@ import LoginPage from '../views/login/LoginPage.vue'
 import AdminHomeView from '../views/AdminHomeView.vue'
 import ChangePassword from '../views/profile/ChangePassword.vue'
 import DepartmentTree from '../views/admin/user/DepartmentTree.vue'
+import DatasourceList from '../views/admin/datasource/DatasourceList.vue'
 import RoleList from '../views/admin/user/RoleList.vue'
 import UserList from '../views/admin/user/UserList.vue'
 import { setupRouterGuards } from './guards'
@@ -46,6 +47,12 @@ const router = createRouter({
       name: 'admin-departments',
       component: DepartmentTree,
       meta: { permission: 'department:manage' },
+    },
+    {
+      path: '/admin/datasources',
+      name: 'admin-datasources',
+      component: DatasourceList,
+      meta: { permission: 'datasource:manage' },
     },
   ],
 })

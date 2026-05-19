@@ -12,7 +12,7 @@
 
 **Language/Version**: Java 17 (Spring Boot 3.x)
 
-**Primary Dependencies**: Spring Boot 3.x, MyBatis-Plus, HikariCP, Jasypt (AES-256), MySQL Connector/J
+**Primary Dependencies**: Spring Boot 3.x, MyBatis-Plus, MySQL Connector/J, JDK JCE AES-GCM
 
 **Storage**: MySQL 8 (平台管理库)
 
@@ -71,15 +71,15 @@ backend/src/main/java/com/dataocean/module/datasource/
     └── DatasourceSimpleVO.java             # 用户端精简视图
 
 backend/src/main/resources/db/migration/
-└── V3__create_datasource_tables.sql
+└── V4__create_datasource_tables.sql
 ```
 
 ## Implementation Phases
 
 ### Phase 1: 核心 CRUD + 密码加密
 
-1. 创建数据库表（Flyway V3）
-2. 实现 AES-256 加解密工具类（基于 Jasypt）
+1. 创建数据库表（Flyway V4）
+2. 实现 AES-256-GCM 加解密服务（基于 JDK JCE，密钥从 `DATAOCEAN_ENCRYPT_KEY` 读取）
 3. 实现 Datasource 实体和 Mapper
 4. 实现 DatasourceService（增删改查）
 5. 实现 DatasourceAdminController

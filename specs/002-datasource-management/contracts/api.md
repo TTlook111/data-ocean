@@ -42,7 +42,7 @@
 
 **Errors**:
 - 400: 参数校验失败
-- 409: 相同 host+port+database 已存在（警告，非阻止）
+- 409: 相同 host+port+database 已存在（阻止保存）
 
 ---
 

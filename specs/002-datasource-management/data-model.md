@@ -17,8 +17,9 @@
 | database_name | VARCHAR(100) | NO | | 数据库名 |
 | charset | VARCHAR(20) | NO | 'utf8mb4' | 字符集 |
 | status | TINYINT | NO | 1 | 1=启用, 0=禁用 |
+| health_status | VARCHAR(20) | NO | 'UNKNOWN' | UNKNOWN/HEALTHY/UNHEALTHY，连接健康状态 |
 | creator_id | BIGINT | NO | | 创建人 |
-| deleted | TINYINT | NO | 0 | 逻辑删除 |
+| deleted | BIGINT | NO | 0 | 逻辑删除，0=未删除，删除后写入本记录 id 以释放唯一键 |
 | created_at | DATETIME | NO | CURRENT_TIMESTAMP | 创建时间 |
 | updated_at | DATETIME | NO | CURRENT_TIMESTAMP ON UPDATE | 更新时间 |
 
@@ -26,6 +27,7 @@
 - PRIMARY KEY (id)
 - UNIQUE INDEX `uk_host_port_db` (host, port, database_name, deleted)
 - INDEX `idx_status` (status)
+- INDEX `idx_health_status` (health_status)
 
 ---
 
@@ -102,6 +104,18 @@ datasource 1 ──── N metadata_snapshot (003模块)
 
 - 启用 → 禁用: 管理员手动禁用，前台不可见，通知 Python 销毁连接池
 - 禁用 → 启用: 管理员手动启用，需重新通过连接测试
+
+### datasource.health_status
+
+```
+UNKNOWN → HEALTHY
+UNKNOWN/HEALTHY → UNHEALTHY
+UNHEALTHY → HEALTHY
+```
+
+- 手动或定时连接测试成功后标记为 HEALTHY
+- 连续 3 次定时检测失败后标记为 UNHEALTHY
+- health_status 不改变启用/禁用状态，仅用于健康展示和告警
 
 ### 删除约束
 

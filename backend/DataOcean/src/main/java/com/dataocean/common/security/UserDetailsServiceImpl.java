@@ -44,7 +44,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         List<String> permissions = userMapper.selectPermissionCodesByUserId(user.getId());
         if (permissions.contains("*")) {
             // 将通配权限展开为当前方法鉴权实际使用的权限码。
-            permissions = List.of("*", "user:manage", "role:view", "department:manage");
+            permissions = List.of("*", "user:manage", "role:view", "department:manage", "datasource:manage");
         }
 
         List<SimpleGrantedAuthority> authorities = new ArrayList<>();
