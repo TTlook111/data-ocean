@@ -1,4 +1,4 @@
-package com.dataocean.module.user.entity.req;
+package com.dataocean.module.user.entity.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -10,7 +10,7 @@ import lombok.Data;
 import java.util.List;
 
 @Data
-public class UserCreateRequest {
+public class UserCreateDTO {
     @NotBlank(message = "用户名不能为空")
     @Pattern(regexp = "^[A-Za-z0-9_]{4,50}$", message = "用户名需为4-50位字母、数字或下划线")
     private String username;

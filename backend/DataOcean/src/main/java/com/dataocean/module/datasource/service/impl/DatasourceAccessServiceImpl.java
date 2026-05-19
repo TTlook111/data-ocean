@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceAccess;
-import com.dataocean.module.datasource.entity.req.DatasourceAccessGrantRequest;
+import com.dataocean.module.datasource.entity.dto.DatasourceAccessGrantDTO;
 import com.dataocean.module.datasource.entity.vo.DatasourceAccessVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceSimpleVO;
 import com.dataocean.module.datasource.mapper.DatasourceAccessMapper;
@@ -33,7 +33,7 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
 
     @Transactional
     @Override
-    public int grantAccess(Long datasourceId, DatasourceAccessGrantRequest request, Long grantedBy) {
+    public int grantAccess(Long datasourceId, DatasourceAccessGrantDTO request, Long grantedBy) {
         requireDatasource(datasourceId);
         validateUsers(request.getUserIds());
         int granted = 0;

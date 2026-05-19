@@ -1,7 +1,7 @@
 package com.dataocean.module.user.controller;
 
 import com.dataocean.common.result.Result;
-import com.dataocean.module.user.entity.req.DepartmentCreateRequest;
+import com.dataocean.module.user.entity.dto.DepartmentCreateDTO;
 import com.dataocean.module.user.entity.vo.DepartmentTreeVO;
 import com.dataocean.module.user.service.DepartmentService;
 import jakarta.validation.Valid;
@@ -36,7 +36,7 @@ public class DepartmentController {
 
     @PostMapping
     @PreAuthorize("hasAuthority('department:manage')")
-    public Result<Map<String, Long>> createDepartment(@Valid @RequestBody DepartmentCreateRequest request) {
+    public Result<Map<String, Long>> createDepartment(@Valid @RequestBody DepartmentCreateDTO request) {
         log.debug("收到创建部门请求 deptCode={} parentId={}", request.getDeptCode(), request.getParentId());
         Long id = departmentService.createDepartment(request);
         return Result.success("创建成功", Map.of("id", id));

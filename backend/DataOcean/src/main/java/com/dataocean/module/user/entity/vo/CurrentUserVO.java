@@ -7,7 +7,7 @@ import java.util.List;
 
 @Data
 @Builder
-public class CurrentUserResponse {
+public class CurrentUserVO {
     private Long id;
     private String username;
     private String realName;

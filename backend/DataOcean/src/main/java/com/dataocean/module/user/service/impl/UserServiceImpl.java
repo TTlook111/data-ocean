@@ -3,9 +3,9 @@ package com.dataocean.module.user.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.user.entity.req.UserCreateRequest;
-import com.dataocean.module.user.entity.query.UserQueryRequest;
-import com.dataocean.module.user.entity.req.UserUpdateRequest;
+import com.dataocean.module.user.entity.dto.UserCreateDTO;
+import com.dataocean.module.user.entity.query.UserQuery;
+import com.dataocean.module.user.entity.dto.UserUpdateDTO;
 import com.dataocean.module.user.entity.vo.UserVO;
 import com.dataocean.module.user.entity.SysDepartment;
 import com.dataocean.module.user.entity.SysRole;
@@ -49,7 +49,7 @@ public class UserServiceImpl implements UserService {
 
     @Transactional
     @Override
-    public Long createUser(UserCreateRequest request) {
+    public Long createUser(UserCreateDTO request) {
         log.info("开始创建用户 username={} departmentId={} roleIds={}",
                 request.getUsername(), request.getDepartmentId(), request.getRoleIds());
         ensureUsernameAvailable(request.getUsername());
@@ -74,7 +74,7 @@ public class UserServiceImpl implements UserService {
 
     @Transactional
     @Override
-    public void updateUser(Long id, UserUpdateRequest request) {
+    public void updateUser(Long id, UserUpdateDTO request) {
         log.info("开始更新用户 userId={} departmentId={} roleIds={}", id, request.getDepartmentId(), request.getRoleIds());
         SysUser user = requireUser(id);
         validateDepartment(request.getDepartmentId());
@@ -114,7 +114,7 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public Page<UserVO> listUsers(UserQueryRequest request) {
+    public Page<UserVO> listUsers(UserQuery request) {
         log.debug("查询用户列表 username={} realName={} departmentId={} status={} page={} pageSize={}",
                 request.getUsername(), request.getRealName(), request.getDepartmentId(), request.getStatus(),
                 request.resolvedPage(), request.resolvedPageSize());

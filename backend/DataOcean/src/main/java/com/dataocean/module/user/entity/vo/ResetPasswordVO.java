@@ -5,6 +5,6 @@ import lombok.Data;
 
 @Data
 @AllArgsConstructor
-public class ResetPasswordResponse {
+public class ResetPasswordVO {
     private String tempPassword;
 }

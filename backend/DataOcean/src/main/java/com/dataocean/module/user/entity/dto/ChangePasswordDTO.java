@@ -1,11 +1,11 @@
-package com.dataocean.module.user.entity.req;
+package com.dataocean.module.user.entity.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
 @Data
-public class ChangePasswordRequest {
+public class ChangePasswordDTO {
 
     @NotBlank(message = "旧密码不能为空")
     private String oldPassword;

@@ -10,7 +10,7 @@ import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.entity.DbTableMeta;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.entity.SchemaSyncTask;
-import com.dataocean.module.metadata.entity.req.SyncTriggerRequest;
+import com.dataocean.module.metadata.entity.dto.SyncTriggerDTO;
 import com.dataocean.module.metadata.entity.vo.SchemaDiffVO;
 import com.dataocean.module.metadata.entity.vo.SnapshotVO;
 import com.dataocean.module.metadata.entity.vo.SyncTaskVO;
@@ -54,7 +54,7 @@ public class MetadataCollectionController {
     private final DatasourceMapper datasourceMapper;
 
     @PostMapping("/sync")
-    public Result<Map<String, Long>> triggerSync(@Valid @RequestBody SyncTriggerRequest request,
+    public Result<Map<String, Long>> triggerSync(@Valid @RequestBody SyncTriggerDTO request,
                                     @AuthenticationPrincipal LoginUser loginUser) {
         Long taskId = collectionService.executeFullSync(request.getDatasourceId(), loginUser.getUserId(), request.getIncludeStatistics());
         return Result.success("同步任务已触发", Map.of("taskId", taskId));

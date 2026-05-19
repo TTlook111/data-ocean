@@ -5,11 +5,11 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.JwtTokenProvider;
 import com.dataocean.common.security.LoginUser;
 import com.dataocean.common.security.UserDetailsServiceImpl;
-import com.dataocean.module.user.entity.req.ChangePasswordRequest;
-import com.dataocean.module.user.entity.req.LoginRequest;
-import com.dataocean.module.user.entity.req.ProfileUpdateRequest;
-import com.dataocean.module.user.entity.vo.CurrentUserResponse;
-import com.dataocean.module.user.entity.vo.LoginResponse;
+import com.dataocean.module.user.entity.dto.ChangePasswordDTO;
+import com.dataocean.module.user.entity.dto.LoginDTO;
+import com.dataocean.module.user.entity.dto.ProfileUpdateDTO;
+import com.dataocean.module.user.entity.vo.CurrentUserVO;
+import com.dataocean.module.user.entity.vo.LoginVO;
 import com.dataocean.module.user.entity.SysUser;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.service.AuthService;
@@ -50,7 +50,7 @@ public class AuthServiceImpl implements AuthService {
     private long lockDurationSeconds;
 
     @Override
-    public LoginResponse login(LoginRequest request) {
+    public LoginVO login(LoginDTO request) {
         log.info("用户登录尝试 username={}", request.getUsername());
         SysUser user = userMapper.selectOne(new LambdaQueryWrapper<SysUser>()
                 .eq(SysUser::getUsername, request.getUsername())
@@ -81,7 +81,7 @@ public class AuthServiceImpl implements AuthService {
         long tokenVersion = ensureTokenVersion(user.getId());
         String token = jwtTokenProvider.generateToken(loginUser, tokenVersion);
         log.info("用户登录成功 userId={} username={} roles={}", user.getId(), user.getUsername(), loginUser.getRoles());
-        return LoginResponse.builder()
+        return LoginVO.builder()
                 .token(token)
                 .tokenType("Bearer")
                 .expiresIn(jwtTokenProvider.getExpirationSeconds())
@@ -122,11 +122,11 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
-    public CurrentUserResponse currentUserInfo() {
+    public CurrentUserVO currentUserInfo() {
         LoginUser loginUser = currentUser();
         SysUser user = requireCurrentUserEntity(loginUser.getUserId());
         log.debug("当前登录用户信息查询完成 userId={} username={}", user.getId(), user.getUsername());
-        return CurrentUserResponse.builder()
+        return CurrentUserVO.builder()
                 .id(loginUser.getUserId())
                 .username(loginUser.getUsername())
                 .realName(user.getRealName())
@@ -140,7 +140,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Transactional
     @Override
-    public void changePassword(ChangePasswordRequest request) {
+    public void changePassword(ChangePasswordDTO request) {
         LoginUser loginUser = currentUser();
         SysUser user = requireCurrentUserEntity(loginUser.getUserId());
         log.info("用户发起修改密码 userId={} username={}", user.getId(), user.getUsername());
@@ -161,7 +161,7 @@ public class AuthServiceImpl implements AuthService {
 
     @Transactional
     @Override
-    public void updateProfile(ProfileUpdateRequest request) {
+    public void updateProfile(ProfileUpdateDTO request) {
         LoginUser loginUser = currentUser();
         SysUser user = requireCurrentUserEntity(loginUser.getUserId());
         log.info("用户发起个人资料修改 userId={} username={}", user.getId(), user.getUsername());

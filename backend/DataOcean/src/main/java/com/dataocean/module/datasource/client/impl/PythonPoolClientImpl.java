@@ -1,6 +1,6 @@
-package com.dataocean.module.datasource.service.impl;
+package com.dataocean.module.datasource.client.impl;
 
-import com.dataocean.module.datasource.service.PythonPoolClient;
+import com.dataocean.module.datasource.client.PythonPoolClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;

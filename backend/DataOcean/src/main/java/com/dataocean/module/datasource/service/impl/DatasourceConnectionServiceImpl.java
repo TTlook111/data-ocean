@@ -2,7 +2,7 @@ package com.dataocean.module.datasource.service.impl;
 
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceHealthCheck;
-import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestResult;
+import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestVO;
 import com.dataocean.module.datasource.mapper.DatasourceHealthCheckMapper;
 import com.dataocean.module.datasource.service.DatasourceConnectionService;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +25,7 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
     private final DatasourceHealthCheckMapper healthCheckMapper;
 
     @Override
-    public DatasourceConnectionTestResult testConnection(String host,
+    public DatasourceConnectionTestVO testConnection(String host,
                                                          Integer port,
                                                          String databaseName,
                                                          String charset,
@@ -35,8 +35,8 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
     }
 
     @Override
-    public DatasourceConnectionTestResult testConnection(Datasource datasource, String username, String password, String checkType) {
-        DatasourceConnectionTestResult result = executeTest(
+    public DatasourceConnectionTestVO testConnection(Datasource datasource, String username, String password, String checkType) {
+        DatasourceConnectionTestVO result = executeTest(
                 datasource.getId(),
                 datasource.getHost(),
                 datasource.getPort(),
@@ -49,7 +49,7 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
         return result;
     }
 
-    private DatasourceConnectionTestResult executeTest(Long datasourceId,
+    private DatasourceConnectionTestVO executeTest(Long datasourceId,
                                                        String host,
                                                        Integer port,
                                                        String databaseName,
@@ -58,7 +58,7 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
                                                        String password,
                                                        String checkType) {
         long started = System.nanoTime();
-        DatasourceConnectionTestResult result;
+        DatasourceConnectionTestVO result;
         try (Connection connection = DriverManager.getConnection(
                 jdbcUrl(host, port, databaseName, charset),
                 username,
@@ -67,7 +67,7 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
              ResultSet resultSet = statement.executeQuery("SELECT 1")) {
             resultSet.next();
             long elapsedMs = elapsedMs(started);
-            result = DatasourceConnectionTestResult.builder()
+            result = DatasourceConnectionTestVO.builder()
                     .success(true)
                     .responseTimeMs(elapsedMs)
                     .serverVersion(connection.getMetaData().getDatabaseProductVersion())
@@ -77,7 +77,7 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
             long elapsedMs = Math.min(elapsedMs(started), CONNECT_TIMEOUT_MS);
             log.warn("数据源连接测试失败 datasourceId={} host={} port={} database={} reason={}",
                     datasourceId, host, port, databaseName, exception.getMessage());
-            result = DatasourceConnectionTestResult.builder()
+            result = DatasourceConnectionTestVO.builder()
                     .success(false)
                     .responseTimeMs(elapsedMs)
                     .serverVersion(null)
@@ -106,7 +106,7 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
         return charset;
     }
 
-    private void recordHealthCheck(Long datasourceId, String checkType, DatasourceConnectionTestResult result) {
+    private void recordHealthCheck(Long datasourceId, String checkType, DatasourceConnectionTestVO result) {
         DatasourceHealthCheck check = new DatasourceHealthCheck();
         check.setDatasourceId(datasourceId);
         check.setCheckType(checkType);

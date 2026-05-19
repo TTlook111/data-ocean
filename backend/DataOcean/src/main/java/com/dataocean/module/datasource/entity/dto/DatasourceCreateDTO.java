@@ -1,4 +1,4 @@
-package com.dataocean.module.datasource.entity.req;
+package com.dataocean.module.datasource.entity.dto;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -9,7 +9,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
-public class DatasourceCreateRequest {
+public class DatasourceCreateDTO {
 
     @NotBlank(message = "数据源名称不能为空")
     @Size(max = 100, message = "数据源名称不能超过100位")

@@ -213,6 +213,8 @@ under specs/<module>/plan.md.
 
 ## Backend Layering Rules
 
-- 实体相关对象统一收拢在 `entity` 下：数据库实体直接放 `entity`，请求对象放 `entity.req`，查询对象放 `entity.query`，返回/视图对象放 `entity.vo`；Mapper 放在 `mapper`，Controller 放在 `controller`，Service 接口放在 `service`，实现类放在 `service.impl`。
+- 实体相关对象统一收拢在 `entity` 下：数据库实体直接放 `entity`，请求/传递参数放 `entity.dto`（类名后缀 `*DTO`），查询对象放 `entity.query`（类名后缀 `*Query`），返回/视图对象放 `entity.vo`（类名后缀 `*VO`）。
+- Mapper 放在 `mapper`，Controller 放在 `controller`，Service 接口放在 `service`，实现类放在 `service.impl`。
+- 外部服务调用客户端（如 PythonPoolClient）放在模块内的 `client` 包，实现类放 `client.impl`，不要混入 `service` 包。
 - 每个 service 都必须在 `service` 下暴露接口，实现类放在 `service.impl`，并使用 `*ServiceImpl` 后缀。
 - 抛出异常的提示、代码注释、日志消息都使用中文。日志中不要输出密码、JWT 原文、密钥等敏感值。

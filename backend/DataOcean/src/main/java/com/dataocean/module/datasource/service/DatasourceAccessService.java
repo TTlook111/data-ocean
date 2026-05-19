@@ -1,6 +1,6 @@
 package com.dataocean.module.datasource.service;
 
-import com.dataocean.module.datasource.entity.req.DatasourceAccessGrantRequest;
+import com.dataocean.module.datasource.entity.dto.DatasourceAccessGrantDTO;
 import com.dataocean.module.datasource.entity.vo.DatasourceAccessVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceSimpleVO;
 
@@ -8,7 +8,7 @@ import java.util.List;
 
 public interface DatasourceAccessService {
 
-    int grantAccess(Long datasourceId, DatasourceAccessGrantRequest request, Long grantedBy);
+    int grantAccess(Long datasourceId, DatasourceAccessGrantDTO request, Long grantedBy);
 
     void revokeAccess(Long datasourceId, Long userId);
 

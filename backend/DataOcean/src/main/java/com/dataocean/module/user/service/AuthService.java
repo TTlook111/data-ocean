@@ -1,23 +1,23 @@
 package com.dataocean.module.user.service;
 
 import com.dataocean.common.security.LoginUser;
-import com.dataocean.module.user.entity.req.ChangePasswordRequest;
-import com.dataocean.module.user.entity.req.LoginRequest;
-import com.dataocean.module.user.entity.req.ProfileUpdateRequest;
-import com.dataocean.module.user.entity.vo.CurrentUserResponse;
-import com.dataocean.module.user.entity.vo.LoginResponse;
+import com.dataocean.module.user.entity.dto.ChangePasswordDTO;
+import com.dataocean.module.user.entity.dto.LoginDTO;
+import com.dataocean.module.user.entity.dto.ProfileUpdateDTO;
+import com.dataocean.module.user.entity.vo.CurrentUserVO;
+import com.dataocean.module.user.entity.vo.LoginVO;
 
 public interface AuthService {
 
-    LoginResponse login(LoginRequest request);
+    LoginVO login(LoginDTO request);
 
     void logout(String authorizationHeader);
 
     LoginUser currentUser();
 
-    CurrentUserResponse currentUserInfo();
+    CurrentUserVO currentUserInfo();
 
-    void changePassword(ChangePasswordRequest request);
+    void changePassword(ChangePasswordDTO request);
 
-    void updateProfile(ProfileUpdateRequest request);
+    void updateProfile(ProfileUpdateDTO request);
 }

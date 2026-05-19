@@ -1,11 +1,11 @@
 package com.dataocean.module.user.controller;
 
 import com.dataocean.common.result.Result;
-import com.dataocean.module.user.entity.req.ChangePasswordRequest;
-import com.dataocean.module.user.entity.vo.CurrentUserResponse;
-import com.dataocean.module.user.entity.req.LoginRequest;
-import com.dataocean.module.user.entity.req.ProfileUpdateRequest;
-import com.dataocean.module.user.entity.vo.LoginResponse;
+import com.dataocean.module.user.entity.dto.ChangePasswordDTO;
+import com.dataocean.module.user.entity.vo.CurrentUserVO;
+import com.dataocean.module.user.entity.dto.LoginDTO;
+import com.dataocean.module.user.entity.dto.ProfileUpdateDTO;
+import com.dataocean.module.user.entity.vo.LoginVO;
 import com.dataocean.module.user.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -27,7 +27,7 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/login")
-    public Result<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
+    public Result<LoginVO> login(@Valid @RequestBody LoginDTO request) {
         log.debug("收到登录请求 username={}", request.getUsername());
         return Result.success(authService.login(request));
     }
@@ -40,21 +40,21 @@ public class AuthController {
     }
 
     @GetMapping("/me")
-    public Result<CurrentUserResponse> me() {
-        CurrentUserResponse user = authService.currentUserInfo();
+    public Result<CurrentUserVO> me() {
+        CurrentUserVO user = authService.currentUserInfo();
         log.debug("当前登录用户解析完成 userId={} username={}", user.getId(), user.getUsername());
         return Result.success(user);
     }
 
     @PutMapping("/password")
-    public Result<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+    public Result<Void> changePassword(@Valid @RequestBody ChangePasswordDTO request) {
         log.debug("收到修改密码请求");
         authService.changePassword(request);
         return Result.success("密码修改成功，请重新登录", null);
     }
 
     @PutMapping("/profile")
-    public Result<Void> updateProfile(@Valid @RequestBody ProfileUpdateRequest request) {
+    public Result<Void> updateProfile(@Valid @RequestBody ProfileUpdateDTO request) {
         log.debug("收到个人资料修改请求");
         authService.updateProfile(request);
         return Result.success("个人资料修改成功", null);

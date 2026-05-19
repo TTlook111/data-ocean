@@ -6,11 +6,11 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceHealthCheck;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
-import com.dataocean.module.datasource.entity.query.DatasourceQueryRequest;
-import com.dataocean.module.datasource.entity.req.DatasourceCreateRequest;
-import com.dataocean.module.datasource.entity.req.DatasourceTestRequest;
-import com.dataocean.module.datasource.entity.req.DatasourceUpdateRequest;
-import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestResult;
+import com.dataocean.module.datasource.entity.query.DatasourceQuery;
+import com.dataocean.module.datasource.entity.dto.DatasourceCreateDTO;
+import com.dataocean.module.datasource.entity.dto.DatasourceTestDTO;
+import com.dataocean.module.datasource.entity.dto.DatasourceUpdateDTO;
+import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceVO;
 import com.dataocean.module.datasource.mapper.DatasourceHealthCheckMapper;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
@@ -18,7 +18,7 @@ import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
 import com.dataocean.module.datasource.service.DatasourceConnectionService;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.datasource.service.DatasourceService;
-import com.dataocean.module.datasource.service.PythonPoolClient;
+import com.dataocean.module.datasource.client.PythonPoolClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -42,9 +42,9 @@ public class DatasourceServiceImpl implements DatasourceService {
 
     @Transactional
     @Override
-    public DatasourceVO createDatasource(DatasourceCreateRequest request, Long creatorId) {
+    public DatasourceVO createDatasource(DatasourceCreateDTO request, Long creatorId) {
         ensureUnique(request.getHost(), request.getPort(), request.getDatabaseName(), null);
-        DatasourceConnectionTestResult testResult = connectionService.testConnection(
+        DatasourceConnectionTestVO testResult = connectionService.testConnection(
                 request.getHost(),
                 request.getPort(),
                 request.getDatabaseName(),
@@ -78,7 +78,7 @@ public class DatasourceServiceImpl implements DatasourceService {
 
     @Transactional
     @Override
-    public DatasourceVO updateDatasource(Long id, DatasourceUpdateRequest request) {
+    public DatasourceVO updateDatasource(Long id, DatasourceUpdateDTO request) {
         Datasource datasource = requireDatasource(id);
         DatasourceSecret secret = requireSecret(id);
         ensureUnique(request.getHost(), request.getPort(), request.getDatabaseName(), id);
@@ -86,7 +86,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         String passwordForTest = StringUtils.hasText(request.getPassword())
                 ? request.getPassword()
                 : secretService.decrypt(secret.getEncryptedPassword());
-        DatasourceConnectionTestResult testResult = connectionService.testConnection(
+        DatasourceConnectionTestVO testResult = connectionService.testConnection(
                 request.getHost(),
                 request.getPort(),
                 request.getDatabaseName(),
@@ -140,7 +140,7 @@ public class DatasourceServiceImpl implements DatasourceService {
     }
 
     @Override
-    public Page<DatasourceVO> listDatasources(DatasourceQueryRequest request) {
+    public Page<DatasourceVO> listDatasources(DatasourceQuery request) {
         LambdaQueryWrapper<Datasource> wrapper = new LambdaQueryWrapper<Datasource>()
                 .eq(Datasource::getDeleted, 0L)
                 .like(StringUtils.hasText(request.getName()), Datasource::getName, request.getName())
@@ -163,7 +163,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         }
         if (Integer.valueOf(Datasource.STATUS_ENABLED).equals(status)) {
             DatasourceSecret secret = requireSecret(id);
-            DatasourceConnectionTestResult result = connectionService.testConnection(
+            DatasourceConnectionTestVO result = connectionService.testConnection(
                     datasource,
                     secret.getUsername(),
                     secretService.decrypt(secret.getEncryptedPassword()),
@@ -183,7 +183,7 @@ public class DatasourceServiceImpl implements DatasourceService {
     }
 
     @Override
-    public DatasourceConnectionTestResult testConnection(DatasourceTestRequest request) {
+    public DatasourceConnectionTestVO testConnection(DatasourceTestDTO request) {
         return connectionService.testConnection(
                 request.getHost(),
                 request.getPort(),
@@ -195,10 +195,10 @@ public class DatasourceServiceImpl implements DatasourceService {
     }
 
     @Override
-    public DatasourceConnectionTestResult testSavedConnection(Long id) {
+    public DatasourceConnectionTestVO testSavedConnection(Long id) {
         Datasource datasource = requireDatasource(id);
         DatasourceSecret secret = requireSecret(id);
-        DatasourceConnectionTestResult result = connectionService.testConnection(
+        DatasourceConnectionTestVO result = connectionService.testConnection(
                 datasource,
                 secret.getUsername(),
                 secretService.decrypt(secret.getEncryptedPassword()),
@@ -209,7 +209,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         return result;
     }
 
-    private void applyCreateFields(Datasource datasource, DatasourceCreateRequest request, Long creatorId) {
+    private void applyCreateFields(Datasource datasource, DatasourceCreateDTO request, Long creatorId) {
         datasource.setName(request.getName());
         datasource.setDescription(request.getDescription());
         datasource.setDbType(Datasource.DB_TYPE_MYSQL);
@@ -268,7 +268,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         return secret;
     }
 
-    private void recordManualHealth(Long datasourceId, DatasourceConnectionTestResult result) {
+    private void recordManualHealth(Long datasourceId, DatasourceConnectionTestVO result) {
         DatasourceHealthCheck check = new DatasourceHealthCheck();
         check.setDatasourceId(datasourceId);
         check.setCheckType(DatasourceHealthCheck.TYPE_MANUAL);

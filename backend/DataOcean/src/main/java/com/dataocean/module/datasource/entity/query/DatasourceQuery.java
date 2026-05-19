@@ -3,7 +3,7 @@ package com.dataocean.module.datasource.entity.query;
 import lombok.Data;
 
 @Data
-public class DatasourceQueryRequest {
+public class DatasourceQuery {
 
     private String name;
     private Integer status;

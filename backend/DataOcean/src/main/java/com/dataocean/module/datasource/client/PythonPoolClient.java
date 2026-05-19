@@ -1,4 +1,4 @@
-package com.dataocean.module.datasource.service;
+package com.dataocean.module.datasource.client;
 
 public interface PythonPoolClient {
 

@@ -3,7 +3,7 @@ package com.dataocean.module.user.entity.query;
 import lombok.Data;
 
 @Data
-public class UserQueryRequest {
+public class UserQuery {
     private String username;
     private String realName;
     private Long departmentId;

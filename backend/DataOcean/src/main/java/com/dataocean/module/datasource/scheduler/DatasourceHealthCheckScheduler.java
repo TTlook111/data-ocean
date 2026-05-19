@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceHealthCheck;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
-import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestResult;
+import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestVO;
 import com.dataocean.module.datasource.mapper.DatasourceHealthCheckMapper;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
@@ -51,7 +51,7 @@ public class DatasourceHealthCheckScheduler {
             log.warn("跳过健康检查：数据源凭证不存在 datasourceId={}", datasource.getId());
             return;
         }
-        DatasourceConnectionTestResult result = connectionService.testConnection(
+        DatasourceConnectionTestVO result = connectionService.testConnection(
                 datasource,
                 secret.getUsername(),
                 secretService.decrypt(secret.getEncryptedPassword()),

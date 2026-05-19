@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class DatasourceConnectionTestResult {
+public class DatasourceConnectionTestVO {
 
     private Boolean success;
     private Long responseTimeMs;

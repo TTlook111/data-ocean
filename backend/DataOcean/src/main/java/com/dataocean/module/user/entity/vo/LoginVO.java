@@ -7,7 +7,7 @@ import java.util.List;
 
 @Data
 @Builder
-public class LoginResponse {
+public class LoginVO {
     private String token;
     private String tokenType;
     private Long expiresIn;

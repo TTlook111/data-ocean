@@ -1,4 +1,4 @@
-package com.dataocean.module.datasource.entity.req;
+package com.dataocean.module.datasource.entity.dto;
 
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -9,7 +9,7 @@ import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
-public class DatasourceTestRequest {
+public class DatasourceTestDTO {
 
     @NotBlank(message = "主机不能为空")
     @Size(max = 255, message = "主机不能超过255位")

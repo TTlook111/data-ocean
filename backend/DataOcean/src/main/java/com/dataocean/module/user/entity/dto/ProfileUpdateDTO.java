@@ -1,11 +1,11 @@
-package com.dataocean.module.user.entity.req;
+package com.dataocean.module.user.entity.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
 @Data
-public class ProfileUpdateRequest {
+public class ProfileUpdateDTO {
 
     @Size(min = 2, max = 50, message = "真实姓名需为2-50位")
     private String realName;

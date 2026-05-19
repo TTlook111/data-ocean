@@ -2,7 +2,7 @@ package com.dataocean.module.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.user.entity.req.DepartmentCreateRequest;
+import com.dataocean.module.user.entity.dto.DepartmentCreateDTO;
 import com.dataocean.module.user.entity.vo.DepartmentTreeVO;
 import com.dataocean.module.user.entity.SysDepartment;
 import com.dataocean.module.user.entity.SysUser;
@@ -61,7 +61,7 @@ public class DepartmentServiceImpl implements DepartmentService {
 
     @Transactional
     @Override
-    public Long createDepartment(DepartmentCreateRequest request) {
+    public Long createDepartment(DepartmentCreateDTO request) {
         log.info("开始创建部门 deptCode={} deptName={} parentId={}",
                 request.getDeptCode(), request.getDeptName(), request.getParentId());
         if (request.getParentId() != null && departmentMapper.selectById(request.getParentId()) == null) {
