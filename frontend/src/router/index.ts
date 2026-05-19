@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router'
 import LoginPage from '../views/login/LoginPage.vue'
 import AdminHomeView from '../views/AdminHomeView.vue'
 import ChangePassword from '../views/profile/ChangePassword.vue'
+import ProfileView from '../views/profile/ProfileView.vue'
+import QueryDatasourceView from '../views/query/QueryDatasourceView.vue'
 import DepartmentTree from '../views/admin/user/DepartmentTree.vue'
 import DatasourceList from '../views/admin/datasource/DatasourceList.vue'
 import RoleList from '../views/admin/user/RoleList.vue'
@@ -24,6 +26,16 @@ const router = createRouter({
       path: '/change-password',
       name: 'change-password',
       component: ChangePassword,
+    },
+    {
+      path: '/profile',
+      name: 'profile',
+      component: ProfileView,
+    },
+    {
+      path: '/query',
+      name: 'query',
+      component: QueryDatasourceView,
     },
     {
       path: '/admin',

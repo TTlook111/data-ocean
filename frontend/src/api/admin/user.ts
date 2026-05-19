@@ -99,6 +99,11 @@ export async function updateUserStatus(id: number, status: number) {
   return data
 }
 
+export async function resetUserPassword(id: number) {
+  const { data } = await http.post<ApiResult<{ tempPassword: string }>>(`/api/admin/users/${id}/reset-password`)
+  return data
+}
+
 export async function listRoles() {
   const { data } = await http.get<ApiResult<RoleItem[]>>('/api/admin/roles')
   return data

@@ -21,6 +21,8 @@ export interface CurrentUser {
   id: number
   username: string
   realName: string
+  email?: string
+  phone?: string
   passwordChanged: boolean
   roles: string[]
   permissions: string[]
@@ -54,5 +56,16 @@ export interface ChangePasswordPayload {
 
 export async function changePassword(payload: ChangePasswordPayload) {
   const { data } = await http.put<ApiResult<null>>('/api/auth/password', payload)
+  return data
+}
+
+export interface ProfilePayload {
+  realName?: string
+  email?: string
+  phone?: string
+}
+
+export async function updateProfile(payload: ProfilePayload) {
+  const { data } = await http.put<ApiResult<null>>('/api/auth/profile', payload)
   return data
 }

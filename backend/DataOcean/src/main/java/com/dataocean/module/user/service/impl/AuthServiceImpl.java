@@ -49,7 +49,6 @@ public class AuthServiceImpl implements AuthService {
     @Value("${security.login.lock-duration}")
     private long lockDurationSeconds;
 
-    @Transactional
     @Override
     public LoginResponse login(LoginRequest request) {
         log.info("用户登录尝试 username={}", request.getUsername());
@@ -131,6 +130,8 @@ public class AuthServiceImpl implements AuthService {
                 .id(loginUser.getUserId())
                 .username(loginUser.getUsername())
                 .realName(user.getRealName())
+                .email(user.getEmail())
+                .phone(user.getPhone())
                 .passwordChanged(isPasswordChanged(user))
                 .roles(loginUser.getRoles())
                 .permissions(loginUser.getPermissions())

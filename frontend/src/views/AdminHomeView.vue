@@ -22,6 +22,8 @@ async function logout() {
         <RouterLink to="/admin/roles">角色管理</RouterLink>
         <RouterLink to="/admin/departments">部门管理</RouterLink>
         <RouterLink to="/admin/datasources">数据源管理</RouterLink>
+        <RouterLink to="/query">问答端数据源</RouterLink>
+        <RouterLink to="/profile">个人资料</RouterLink>
       </nav>
       <button type="button" @click="logout">退出登录</button>
     </section>

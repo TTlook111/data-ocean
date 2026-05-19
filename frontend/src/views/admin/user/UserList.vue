@@ -7,6 +7,7 @@ import {
   listDepartments,
   listRoles,
   listUsers,
+  resetUserPassword,
   updateUser,
   updateUserStatus,
   type DepartmentNode,
@@ -132,6 +133,16 @@ async function removeUser(user: UserItem) {
   await fetchUsers()
 }
 
+async function resetPassword(user: UserItem) {
+  await ElMessageBox.confirm(`确定重置用户「${user.username}」的密码吗？`, '重置密码', {
+    type: 'warning',
+  })
+  const result = await resetUserPassword(user.id)
+  await ElMessageBox.alert(`临时密码：${result.data.tempPassword}`, '密码重置成功', {
+    confirmButtonText: '我已记录',
+  })
+}
+
 function search() {
   query.page = 1
   fetchUsers()
@@ -188,13 +199,14 @@ onMounted(async () => {
         </template>
       </el-table-column>
       <el-table-column prop="lastLoginAt" label="最后登录" min-width="180" />
-      <el-table-column label="操作" width="260" fixed="right">
+      <el-table-column label="操作" width="340" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="warning" @click="changeStatus(row, row.status === 1 ? 2 : 1)">
             {{ row.status === 1 ? '禁用' : '启用' }}
           </el-button>
           <el-button v-if="row.status === 3" link type="warning" @click="changeStatus(row, 1)">解锁</el-button>
+          <el-button link type="primary" @click="resetPassword(row)">重置密码</el-button>
           <el-button link type="danger" @click="removeUser(row)">删除</el-button>
         </template>
       </el-table-column>

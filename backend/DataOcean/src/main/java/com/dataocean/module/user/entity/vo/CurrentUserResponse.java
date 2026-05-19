@@ -11,6 +11,8 @@ public class CurrentUserResponse {
     private Long id;
     private String username;
     private String realName;
+    private String email;
+    private String phone;
     private Boolean passwordChanged;
     private List<String> roles;
     private List<String> permissions;
