@@ -3,6 +3,8 @@ import { http } from './http'
 export interface LoginPayload {
   username: string
   password: string
+  captchaKey: string
+  captchaCode: string
 }
 
 export interface LoginResult {
@@ -32,6 +34,16 @@ interface ApiResult<T> {
   code: number
   message: string
   data: T
+}
+
+export interface CaptchaResult {
+  captchaKey: string
+  captchaImage: string
+}
+
+export async function getCaptcha() {
+  const { data } = await http.get<ApiResult<CaptchaResult>>('/api/auth/captcha')
+  return data
 }
 
 export async function login(payload: LoginPayload) {

@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Eye, EyeOff, LogIn } from 'lucide-vue-next'
+import { Eye, EyeOff, LogIn, RefreshCw } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
+import { getCaptcha } from '../api/auth'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const showPassword = ref(false)
 const loading = ref(false)
 const pointerActive = ref(false)
+const captchaImage = ref('')
+const captchaKey = ref('')
 const sceneStyle = reactive<Record<string, string>>({
   '--eye-x': '0px',
   '--eye-y': '0px',
@@ -24,7 +27,20 @@ const sceneStyle = reactive<Record<string, string>>({
 const form = reactive({
   username: 'admin',
   password: '',
+  captchaCode: '',
 })
+
+async function refreshCaptcha() {
+  try {
+    const res = await getCaptcha()
+    if (res.data) {
+      captchaKey.value = res.data.captchaKey
+      captchaImage.value = res.data.captchaImage
+    }
+  } catch {
+    ElMessage.error('获取验证码失败')
+  }
+}
 
 function handlePointerMove(event: PointerEvent) {
   const viewportWidth = window.innerWidth || 1
@@ -59,10 +75,19 @@ async function submit() {
     ElMessage.warning('请输入账号和密码')
     return
   }
+  if (!form.captchaCode.trim()) {
+    ElMessage.warning('请输入验证码')
+    return
+  }
 
   loading.value = true
   try {
-    await authStore.login({ username: form.username.trim(), password: form.password })
+    await authStore.login({
+      username: form.username.trim(),
+      password: form.password,
+      captchaKey: captchaKey.value,
+      captchaCode: form.captchaCode.trim()
+    })
     ElMessage.success('登录成功')
     await router.replace('/query')
   } catch (error: unknown) {
@@ -74,10 +99,14 @@ async function submit() {
         ? (error as { response: { data: { message: string } } }).response.data.message
         : '登录失败，请检查账号或服务状态'
     ElMessage.error(message)
+    form.captchaCode = ''
+    refreshCaptcha()
   } finally {
     loading.value = false
   }
 }
+
+onMounted(refreshCaptcha)
 </script>
 
 <template>
@@ -148,6 +177,30 @@ async function submit() {
               <button type="button" :aria-label="showPassword ? '隐藏密码' : '显示密码'" @click="showPassword = !showPassword">
                 <EyeOff v-if="showPassword" :size="19" />
                 <Eye v-else :size="19" />
+              </button>
+            </div>
+          </label>
+
+          <label class="field">
+            <span>验证码</span>
+            <div class="captcha-field">
+              <input
+                v-model="form.captchaCode"
+                type="text"
+                autocomplete="off"
+                placeholder="请输入验证码"
+                maxlength="4"
+              />
+              <img
+                v-if="captchaImage"
+                :src="captchaImage"
+                alt="验证码"
+                class="captcha-img"
+                @click="refreshCaptcha"
+                title="点击刷新验证码"
+              />
+              <button type="button" class="captcha-refresh" aria-label="刷新验证码" @click="refreshCaptcha">
+                <RefreshCw :size="16" />
               </button>
             </div>
           </label>
@@ -522,6 +575,61 @@ async function submit() {
 }
 
 .password-field button:hover {
+  color: #4c1d95;
+  background: #f5f3ff;
+}
+
+.captcha-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.captcha-field input {
+  flex: 1;
+  height: 54px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0 16px;
+  color: #020617;
+  background: #fff;
+  outline: none;
+  font-size: 16px;
+  letter-spacing: 2px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.captcha-field input::placeholder {
+  color: #a5b4c5;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.captcha-field input:focus {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.1);
+}
+
+.captcha-img {
+  height: 48px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+}
+
+.captcha-refresh {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: #64748b;
+  background: transparent;
+  cursor: pointer;
+}
+
+.captcha-refresh:hover {
   color: #4c1d95;
   background: #f5f3ff;
 }

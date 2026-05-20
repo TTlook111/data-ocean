@@ -7,6 +7,8 @@ import com.dataocean.module.user.entity.dto.LoginDTO;
 import com.dataocean.module.user.entity.dto.ProfileUpdateDTO;
 import com.dataocean.module.user.entity.vo.LoginVO;
 import com.dataocean.module.user.service.AuthService;
+import com.dataocean.module.user.service.CaptchaService;
+import com.dataocean.module.user.entity.vo.CaptchaVO;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final CaptchaService captchaService;
+
+    @GetMapping("/captcha")
+    public Result<CaptchaVO> captcha() {
+        return Result.success(captchaService.generate());
+    }
 
     @PostMapping("/login")
     public Result<LoginVO> login(@Valid @RequestBody LoginDTO request) {

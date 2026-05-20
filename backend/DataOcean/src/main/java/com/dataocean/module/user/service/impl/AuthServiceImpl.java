@@ -14,6 +14,7 @@ import com.dataocean.module.user.entity.vo.LoginVO;
 import com.dataocean.module.user.entity.SysUser;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.service.AuthService;
+import com.dataocean.module.user.service.CaptchaService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -40,6 +41,7 @@ public class AuthServiceImpl implements AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
     private final StringRedisTemplate stringRedisTemplate;
+    private final CaptchaService captchaService;
     private static final Pattern PASSWORD_COMPLEXITY = Pattern.compile("^(?=.*[a-zA-Z])(?=.*\\d).{8,32}$");
 
     @Value("${security.login.max-attempts}")
@@ -50,6 +52,11 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public LoginVO login(LoginDTO request) {
+        // 验证码校验（在密码校验之前，避免暴力枚举）
+        if (!captchaService.verify(request.getCaptchaKey(), request.getCaptchaCode())) {
+            throw new BusinessException(400, "验证码错误或已过期");
+        }
+
         log.info("用户登录尝试 username={}", request.getUsername());
         SysUser user = userMapper.selectOne(new LambdaQueryWrapper<SysUser>()
                 .eq(SysUser::getUsername, request.getUsername())
