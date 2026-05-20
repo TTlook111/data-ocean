@@ -3,15 +3,19 @@ import { computed, ref, type Component } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Building2,
+  Calendar,
   ChevronLeft,
   ChevronDown,
   Database,
+  FolderSync,
+  History,
   LayoutDashboard,
   LogOut,
   MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
+  Table2,
   UserCog,
   UserRound,
   Users,
@@ -45,6 +49,15 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '角色管理', to: '/admin/roles', icon: ShieldCheck, permission: 'role:view' },
       { label: '部门管理', to: '/admin/departments', icon: Building2, permission: 'department:manage' },
       { label: '数据源管理', to: '/admin/datasources', icon: Database, permission: 'datasource:manage' },
+    ],
+  },
+  {
+    label: '元数据管理',
+    items: [
+      { label: '同步任务', to: '/admin/metadata/sync', icon: FolderSync, permission: 'metadata:manage' },
+      { label: '快照列表', to: '/admin/metadata/snapshots', icon: History, permission: 'metadata:manage' },
+      { label: '表浏览器', to: '/admin/metadata/tables', icon: Table2, permission: 'metadata:manage' },
+      { label: '同步调度', to: '/admin/metadata/schedule', icon: Calendar, permission: 'metadata:manage' },
     ],
   },
   {

@@ -13,6 +13,7 @@ import SyncTask from '../views/admin/metadata/SyncTask.vue'
 import SnapshotList from '../views/admin/metadata/SnapshotList.vue'
 import TableExplorer from '../views/admin/metadata/TableExplorer.vue'
 import SnapshotDiff from '../views/admin/metadata/SnapshotDiff.vue'
+import SyncSchedule from '../views/admin/metadata/SyncSchedule.vue'
 import { setupRouterGuards } from './guards'
 
 const router = createRouter({
@@ -101,6 +102,12 @@ const router = createRouter({
           name: 'admin-metadata-diff',
           component: SnapshotDiff,
           meta: { title: '快照差异', section: '元数据管理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'metadata/schedule',
+          name: 'admin-metadata-schedule',
+          component: SyncSchedule,
+          meta: { title: '同步调度', section: '元数据管理', permission: 'metadata:manage' },
         },
       ],
     },

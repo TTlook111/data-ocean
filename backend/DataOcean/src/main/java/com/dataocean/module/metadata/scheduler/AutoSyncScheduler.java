@@ -4,25 +4,68 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.metadata.service.SchemaCollectionService;
+import com.dataocean.module.system.service.SysConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
 import java.util.List;
+import java.util.concurrent.ScheduledFuture;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-@ConditionalOnProperty(name = "dataocean.metadata.auto-sync.enabled", havingValue = "true", matchIfMissing = false)
 public class AutoSyncScheduler {
+
+    private static final String KEY_ENABLED = "metadata.auto-sync.enabled";
+    private static final String KEY_CRON = "metadata.auto-sync.cron";
+    private static final String DEFAULT_CRON = "0 0 2 * * ?";
 
     private final DatasourceMapper datasourceMapper;
     private final SchemaCollectionService collectionService;
+    private final SysConfigService configService;
+    private final TaskScheduler taskScheduler;
 
-    @Scheduled(cron = "${dataocean.metadata.auto-sync.cron:0 0 2 * * ?}")
-    public void executeAutoSync() {
+    private volatile ScheduledFuture<?> scheduledFuture;
+    private volatile String currentCron;
+
+    @PostConstruct
+    public void init() {
+        refresh();
+    }
+
+    public synchronized void refresh() {
+        String enabled = configService.getValue(KEY_ENABLED, "false");
+        String cron = configService.getValue(KEY_CRON, DEFAULT_CRON);
+
+        if (scheduledFuture != null) {
+            scheduledFuture.cancel(false);
+            scheduledFuture = null;
+        }
+
+        if (!"true".equalsIgnoreCase(enabled)) {
+            log.info("元数据自动同步已禁用");
+            currentCron = null;
+            return;
+        }
+
+        currentCron = cron;
+        scheduledFuture = taskScheduler.schedule(this::executeAutoSync, new CronTrigger(cron));
+        log.info("元数据自动同步已启用，cron={}", cron);
+    }
+
+    public String getCurrentCron() {
+        return currentCron;
+    }
+
+    public boolean isRunning() {
+        return scheduledFuture != null && !scheduledFuture.isCancelled();
+    }
+
+    private void executeAutoSync() {
         log.info("开始执行定时元数据同步");
         List<Datasource> datasources = datasourceMapper.selectList(
                 new LambdaQueryWrapper<Datasource>()
