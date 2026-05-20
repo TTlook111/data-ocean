@@ -14,6 +14,9 @@ import SnapshotList from '../views/admin/metadata/SnapshotList.vue'
 import TableExplorer from '../views/admin/metadata/TableExplorer.vue'
 import SnapshotDiff from '../views/admin/metadata/SnapshotDiff.vue'
 import SyncSchedule from '../views/admin/metadata/SyncSchedule.vue'
+import QualityDashboard from '../views/admin/governance/QualityDashboard.vue'
+import IssueList from '../views/admin/governance/IssueList.vue'
+import StatusEditor from '../views/admin/governance/StatusEditor.vue'
 import { setupRouterGuards } from './guards'
 
 const router = createRouter({
@@ -108,6 +111,24 @@ const router = createRouter({
           name: 'admin-metadata-schedule',
           component: SyncSchedule,
           meta: { title: '同步调度', section: '元数据管理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'governance/quality',
+          name: 'admin-governance-quality',
+          component: QualityDashboard,
+          meta: { title: '质量看板', section: '元数据治理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'governance/issues',
+          name: 'admin-governance-issues',
+          component: IssueList,
+          meta: { title: '问题清单', section: '元数据治理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'governance/status',
+          name: 'admin-governance-status',
+          component: StatusEditor,
+          meta: { title: '治理状态', section: '元数据治理', permission: 'metadata:manage' },
         },
       ],
     },

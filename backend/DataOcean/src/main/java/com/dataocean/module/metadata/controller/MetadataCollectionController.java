@@ -108,6 +108,26 @@ public class MetadataCollectionController {
         return Result.success(detail);
     }
 
+    @GetMapping("/snapshots/{id}/tables")
+    public Result<List<DbTableMeta>> listSnapshotTables(@PathVariable Long id) {
+        List<DbTableMeta> tables = tableMetaMapper.selectList(
+                new LambdaQueryWrapper<DbTableMeta>()
+                        .eq(DbTableMeta::getSnapshotId, id)
+                        .orderByAsc(DbTableMeta::getTableName));
+        return Result.success(tables);
+    }
+
+    @GetMapping("/snapshots/{id}/tables/{tableName}/columns")
+    public Result<List<DbColumnMeta>> listSnapshotTableColumns(@PathVariable Long id,
+                                                               @PathVariable String tableName) {
+        List<DbColumnMeta> columns = columnMetaMapper.selectList(
+                new LambdaQueryWrapper<DbColumnMeta>()
+                        .eq(DbColumnMeta::getSnapshotId, id)
+                        .eq(DbColumnMeta::getTableName, tableName)
+                        .orderByAsc(DbColumnMeta::getOrdinalPosition));
+        return Result.success(columns);
+    }
+
     @GetMapping("/snapshots/diff")
     public Result<SchemaDiffVO> diffSnapshots(@RequestParam Long oldId, @RequestParam Long newId) {
         return Result.success(diffService.compareSnapshots(oldId, newId));

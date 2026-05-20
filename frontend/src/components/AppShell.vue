@@ -2,10 +2,12 @@
 import { computed, ref, type Component } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
+  Activity,
   Building2,
   Calendar,
   ChevronLeft,
   ChevronDown,
+  ClipboardList,
   Database,
   FolderSync,
   History,
@@ -15,6 +17,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
+  ShieldAlert,
   Table2,
   UserCog,
   UserRound,
@@ -58,6 +61,14 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '快照列表', to: '/admin/metadata/snapshots', icon: History, permission: 'metadata:manage' },
       { label: '表浏览器', to: '/admin/metadata/tables', icon: Table2, permission: 'metadata:manage' },
       { label: '同步调度', to: '/admin/metadata/schedule', icon: Calendar, permission: 'metadata:manage' },
+    ],
+  },
+  {
+    label: '元数据治理',
+    items: [
+      { label: '质量看板', to: '/admin/governance/quality', icon: Activity, permission: 'metadata:manage' },
+      { label: '问题清单', to: '/admin/governance/issues', icon: ClipboardList, permission: 'metadata:manage' },
+      { label: '治理状态', to: '/admin/governance/status', icon: ShieldAlert, permission: 'metadata:manage' },
     ],
   },
   {
