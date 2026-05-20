@@ -20,6 +20,7 @@ public class DatasourceCreateDTO {
 
     @NotBlank(message = "主机不能为空")
     @Size(max = 255, message = "主机不能超过255位")
+    @Pattern(regexp = "^[A-Za-z0-9.-]+$", message = "主机只能包含字母、数字、点或连字符")
     private String host;
 
     @NotNull(message = "端口不能为空")
@@ -29,6 +30,7 @@ public class DatasourceCreateDTO {
 
     @NotBlank(message = "数据库名不能为空")
     @Size(max = 100, message = "数据库名不能超过100位")
+    @Pattern(regexp = "^[A-Za-z0-9_-]+$", message = "数据库名只能包含字母、数字、下划线或连字符")
     private String databaseName;
 
     @Pattern(regexp = "^[A-Za-z0-9_\\-]{1,20}$", message = "字符集格式不正确")

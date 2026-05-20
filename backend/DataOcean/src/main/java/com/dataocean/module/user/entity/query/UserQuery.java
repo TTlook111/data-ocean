@@ -1,5 +1,6 @@
 package com.dataocean.module.user.entity.query;
 
+import com.dataocean.common.pagination.PageRequest;
 import lombok.Data;
 
 @Data
@@ -14,13 +15,10 @@ public class UserQuery {
 
     public Long resolvedPage() {
         Long current = page != null ? page : pageNum;
-        return current == null || current < 1 ? 1L : current;
+        return PageRequest.page(current);
     }
 
     public Long resolvedPageSize() {
-        if (pageSize == null || pageSize < 1) {
-            return 20L;
-        }
-        return Math.min(pageSize, 100L);
+        return PageRequest.size(pageSize);
     }
 }

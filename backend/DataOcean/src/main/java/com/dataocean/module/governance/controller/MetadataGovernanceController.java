@@ -1,6 +1,7 @@
 package com.dataocean.module.governance.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.pagination.PageRequest;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.governance.entity.MetadataQualityRule;
@@ -69,7 +70,8 @@ public class MetadataGovernanceController {
             @RequestParam(required = false) String tableName,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.success(qualityIssueService.listIssues(snapshotId, dimension, severity, status, tableName, page, size));
+        return Result.success(qualityIssueService.listIssues(snapshotId, dimension, severity, status, tableName,
+                (int) PageRequest.page(page), (int) PageRequest.size(size)));
     }
 
     @PatchMapping("/quality-issues/{issueId}/status")
@@ -135,6 +137,7 @@ public class MetadataGovernanceController {
             @RequestParam(required = false) String tableName,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.success(reviewService.listRecords(snapshotId, tableName, page, size));
+        return Result.success(reviewService.listRecords(snapshotId, tableName,
+                (int) PageRequest.page(page), (int) PageRequest.size(size)));
     }
 }

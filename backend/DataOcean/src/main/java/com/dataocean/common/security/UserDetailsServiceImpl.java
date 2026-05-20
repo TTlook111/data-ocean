@@ -3,6 +3,7 @@ package com.dataocean.common.security;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.mapper.PermissionMapper;
 import com.dataocean.module.user.mapper.RoleMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
 
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
+    private final PermissionMapper permissionMapper;
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
@@ -43,8 +45,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         List<String> roleCodes = roles.stream().map(SysRole::getRoleCode).toList();
         List<String> permissions = userMapper.selectPermissionCodesByUserId(user.getId());
         if (permissions.contains("*")) {
-            // 将通配权限展开为当前方法鉴权实际使用的权限码。
-            permissions = List.of("*", "user:manage", "role:view", "department:manage", "datasource:manage");
+            permissions = permissionMapper.selectAllPermissionCodes();
         }
 
         List<SimpleGrantedAuthority> authorities = new ArrayList<>();

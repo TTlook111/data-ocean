@@ -2,6 +2,7 @@ package com.dataocean.module.metadata.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.pagination.PageRequest;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
@@ -61,7 +62,7 @@ public class MetadataCollectionController {
     public Result<Page<SyncTaskVO>> listSyncTasks(@RequestParam(required = false) Long datasourceId,
                                                   @RequestParam(defaultValue = "1") Integer page,
                                                   @RequestParam(defaultValue = "20") Integer size) {
-        Page<SchemaSyncTask> pageParam = new Page<>(page, size);
+        Page<SchemaSyncTask> pageParam = new Page<>(PageRequest.page(page), PageRequest.size(size));
         LambdaQueryWrapper<SchemaSyncTask> wrapper = new LambdaQueryWrapper<SchemaSyncTask>()
                 .eq(datasourceId != null, SchemaSyncTask::getDatasourceId, datasourceId)
                 .orderByDesc(SchemaSyncTask::getCreatedAt);
@@ -77,7 +78,7 @@ public class MetadataCollectionController {
     public Result<Page<SnapshotVO>> listSnapshots(@RequestParam(required = false) Long datasourceId,
                                                   @RequestParam(defaultValue = "1") Integer page,
                                                   @RequestParam(defaultValue = "20") Integer size) {
-        Page<MetadataSnapshot> pageParam = new Page<>(page, size);
+        Page<MetadataSnapshot> pageParam = new Page<>(PageRequest.page(page), PageRequest.size(size));
         LambdaQueryWrapper<MetadataSnapshot> wrapper = new LambdaQueryWrapper<MetadataSnapshot>()
                 .eq(datasourceId != null, MetadataSnapshot::getDatasourceId, datasourceId)
                 .orderByDesc(MetadataSnapshot::getCreatedAt);
