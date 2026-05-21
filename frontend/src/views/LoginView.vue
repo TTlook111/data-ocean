@@ -2,7 +2,7 @@
 import { reactive, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Eye, EyeOff, LogIn, RefreshCw } from 'lucide-vue-next'
+import { Eye, EyeOff, LogIn } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 import { getCaptcha } from '../api/auth'
 
@@ -194,14 +194,10 @@ onMounted(refreshCaptcha)
               <img
                 v-if="captchaImage"
                 :src="captchaImage"
-                alt="验证码"
+                alt="验证码，点击刷新"
                 class="captcha-img"
                 @click="refreshCaptcha"
-                title="点击刷新验证码"
               />
-              <button type="button" class="captcha-refresh" aria-label="刷新验证码" @click="refreshCaptcha">
-                <RefreshCw :size="16" />
-              </button>
             </div>
           </label>
 
@@ -615,23 +611,11 @@ onMounted(refreshCaptcha)
   border-radius: 8px;
   cursor: pointer;
   border: 1px solid #e2e8f0;
+  transition: opacity 150ms;
 }
 
-.captcha-refresh {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 8px;
-  color: #64748b;
-  background: transparent;
-  cursor: pointer;
-}
-
-.captcha-refresh:hover {
-  color: #4c1d95;
-  background: #f5f3ff;
+.captcha-img:hover {
+  opacity: 0.7;
 }
 
 .submit-button {

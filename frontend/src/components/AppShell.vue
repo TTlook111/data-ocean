@@ -6,13 +6,13 @@ import {
   Building2,
   Calendar,
   ChevronLeft,
-  ChevronDown,
   ClipboardList,
   Database,
   FolderSync,
   GitBranch,
   History,
   LayoutDashboard,
+  LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
@@ -36,6 +36,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const collapsed = ref(false)
+const drawerVisible = ref(false)
 
 const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
   {
@@ -119,6 +120,7 @@ function canView(permission?: string) {
 }
 
 function handleUserCommand(command: string) {
+  drawerVisible.value = false
   if (command === 'admin') {
     router.push('/admin')
     return
@@ -130,6 +132,10 @@ function handleUserCommand(command: string) {
   if (command === 'password') {
     router.push('/change-password')
     return
+  }
+  if (command === 'logout') {
+    auth.logout()
+    router.push('/login')
   }
 }
 </script>
@@ -176,31 +182,46 @@ function handleUserCommand(command: string) {
           <h1>{{ currentTitle }}</h1>
         </div>
 
-        <el-dropdown class="topbar-user" trigger="click" @command="handleUserCommand">
-          <button class="user-pill" type="button">
-            <span>{{ displayName.slice(0, 1) }}</span>
-            <strong>{{ displayName }}</strong>
-            <small>{{ roleText }}</small>
-            <ChevronDown class="user-chevron" :size="15" />
-          </button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">
-                <UserRound :size="15" />
-                个人资料
-              </el-dropdown-item>
-              <el-dropdown-item v-if="canEnterAdmin" command="admin">
-                <UserCog :size="15" />
-                后台管理
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <button class="user-pill" type="button" @click="drawerVisible = true">
+          <span class="user-avatar">{{ displayName.slice(0, 1) }}</span>
+          <strong>{{ displayName }}</strong>
+        </button>
       </header>
 
       <section class="app-content">
         <RouterView />
       </section>
     </main>
+
+    <el-drawer v-model="drawerVisible" direction="rtl" size="280px" :show-close="false">
+      <template #header>
+        <div class="drawer-profile">
+          <div class="drawer-avatar">{{ displayName.slice(0, 1) }}</div>
+          <div class="drawer-info">
+            <strong>{{ displayName }}</strong>
+            <small>{{ roleText }}</small>
+          </div>
+        </div>
+      </template>
+      <nav class="drawer-nav">
+        <button class="drawer-item" @click="handleUserCommand('profile')">
+          <UserRound :size="18" />
+          <span>个人资料</span>
+        </button>
+        <button v-if="canEnterAdmin" class="drawer-item" @click="handleUserCommand('admin')">
+          <UserCog :size="18" />
+          <span>后台管理</span>
+        </button>
+        <button class="drawer-item" @click="handleUserCommand('password')">
+          <ShieldCheck :size="18" />
+          <span>修改密码</span>
+        </button>
+        <div class="drawer-divider"></div>
+        <button class="drawer-item drawer-item--danger" @click="handleUserCommand('logout')">
+          <LogOut :size="18" />
+          <span>退出登录</span>
+        </button>
+      </nav>
+    </el-drawer>
   </div>
 </template>
