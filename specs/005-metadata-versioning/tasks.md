@@ -5,52 +5,52 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V6__create_versioning_tables.sql`，包含 snapshot_audit_log 表的 DDL（字段：id、snapshot_id、action、old_status、new_status、operator_id、remark、created_at），含 snapshot_id 索引
+- [X] T001 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V6__create_versioning_tables.sql`，包含 snapshot_audit_log 表的 DDL（字段：id、snapshot_id、action、old_status、new_status、operator_id、remark、created_at），含 snapshot_id 索引
 
 ## Phase 2: Foundational — 实体与 Mapper
 
-- [ ] T002 [P] 创建快照审计日志实体类 `backend/src/main/java/com/dataocean/module/versioning/entity/SnapshotAuditLog.java`，字段：id、snapshotId、action（CREATE/STATUS_CHANGE/PUBLISH/EXPIRE/REVOKE）、oldStatus、newStatus、operatorId、remark、createdAt
-- [ ] T003 [P] 创建快照状态枚举 `backend/src/main/java/com/dataocean/module/versioning/entity/SnapshotStatus.java`，值：DRAFT、CHECKING、ISSUE_FOUND、APPROVED、PUBLISHED、EXPIRED，包含合法流转路径校验方法 canTransitionTo(targetStatus)
-- [ ] T004 [P] 创建 Mapper 接口 `backend/src/main/java/com/dataocean/module/versioning/mapper/SnapshotAuditLogMapper.java`
+- [X] T002 [P] 创建快照审计日志实体类 `backend/src/main/java/com/dataocean/module/versioning/entity/SnapshotAuditLog.java`，字段：id、snapshotId、action（CREATE/STATUS_CHANGE/PUBLISH/EXPIRE/REVOKE）、oldStatus、newStatus、operatorId、remark、createdAt
+- [X] T003 [P] 创建快照状态枚举 `backend/src/main/java/com/dataocean/module/versioning/entity/SnapshotStatus.java`，值：DRAFT、CHECKING、ISSUE_FOUND、APPROVED、PUBLISHED、EXPIRED，包含合法流转路径校验方法 canTransitionTo(targetStatus)
+- [X] T004 [P] 创建 Mapper 接口 `backend/src/main/java/com/dataocean/module/versioning/mapper/SnapshotAuditLogMapper.java`
 
 ## Phase 3: User Story 1 (P1) — 快照审核与发布
 
 **Goal**: 管理员审核并发布元数据快照，使其成为 skills.md 生成和 RAG 的依据
 **Independent Test**: 发布快照后，skills.md 生成功能能引用该快照；未发布的快照无法被引用
 
-- [ ] T005 [US1] 创建审计日志服务 `backend/src/main/java/com/dataocean/module/versioning/service/SnapshotAuditLogService.java`，实现：recordStatusChange(snapshotId, oldStatus, newStatus, operatorId, remark)、listAuditLogs(snapshotId)
-- [ ] T006 [US1] 创建快照生命周期服务 `backend/src/main/java/com/dataocean/module/versioning/service/SnapshotLifecycleService.java`，实现 changeStatus(snapshotId, targetStatus, operatorId, remark) 方法：校验当前状态是否允许流转到目标状态（使用 SnapshotStatus.canTransitionTo）→ 执行前置条件检查 → 更新快照状态 → 记录审计日志。前置条件规则：APPROVED→PUBLISHED 需检查无未解决 HIGH 问题；CHECKING→APPROVED 需质量校验通过
-- [ ] T007 [US1] 创建快照发布服务 `backend/src/main/java/com/dataocean/module/versioning/service/SnapshotPublishService.java`，实现 publishSnapshot(snapshotId, operatorId) 方法：@Transactional 内执行——查询同数据源当前 PUBLISHED 快照 → 旧快照状态改为 EXPIRED → 新快照状态改为 PUBLISHED → 记录两条审计日志 → 发布 Spring ApplicationEvent（SnapshotPublishedEvent）
-- [ ] T008 [US1] 创建发布事件类 `backend/src/main/java/com/dataocean/module/versioning/event/SnapshotPublishedEvent.java`，字段：snapshotId、datasourceId、operatorId、publishedAt
-- [ ] T009 [US1] 创建过期事件类 `backend/src/main/java/com/dataocean/module/versioning/event/SnapshotExpiredEvent.java`，字段：snapshotId、datasourceId、expiredAt、replacedBySnapshotId
-- [ ] T010 [US1] 创建状态变更请求 DTO `backend/src/main/java/com/dataocean/module/versioning/dto/SnapshotStatusChangeRequest.java`，字段：targetStatus、remark
+- [X] T005 [US1] 创建审计日志服务 `backend/src/main/java/com/dataocean/module/versioning/service/SnapshotAuditLogService.java`，实现：recordStatusChange(snapshotId, oldStatus, newStatus, operatorId, remark)、listAuditLogs(snapshotId)
+- [X] T006 [US1] 创建快照生命周期服务 `backend/src/main/java/com/dataocean/module/versioning/service/SnapshotLifecycleService.java`，实现 changeStatus(snapshotId, targetStatus, operatorId, remark) 方法：校验当前状态是否允许流转到目标状态（使用 SnapshotStatus.canTransitionTo）→ 执行前置条件检查 → 更新快照状态 → 记录审计日志。前置条件规则：APPROVED→PUBLISHED 需检查无未解决 HIGH 问题；CHECKING→APPROVED 需质量校验通过
+- [X] T007 [US1] 创建快照发布服务 `backend/src/main/java/com/dataocean/module/versioning/service/SnapshotPublishService.java`，实现 publishSnapshot(snapshotId, operatorId) 方法：@Transactional 内执行——查询同数据源当前 PUBLISHED 快照 → 旧快照状态改为 EXPIRED → 新快照状态改为 PUBLISHED → 记录两条审计日志 → 发布 Spring ApplicationEvent（SnapshotPublishedEvent）
+- [X] T008 [US1] 创建发布事件类 `backend/src/main/java/com/dataocean/module/versioning/event/SnapshotPublishedEvent.java`，字段：snapshotId、datasourceId、operatorId、publishedAt
+- [X] T009 [US1] 创建过期事件类 `backend/src/main/java/com/dataocean/module/versioning/event/SnapshotExpiredEvent.java`，字段：snapshotId、datasourceId、expiredAt、replacedBySnapshotId
+- [X] T010 [US1] 创建状态变更请求 DTO `backend/src/main/java/com/dataocean/module/versioning/dto/SnapshotStatusChangeRequest.java`，字段：targetStatus、remark
 
 ## Phase 4: User Story 2 (P2) — 版本历史与对比
 
 **Goal**: 管理员查看某个数据源的所有历史快照，了解元数据演变过程
 **Independent Test**: 能看到所有历史快照及其状态、创建时间、质量分
 
-- [ ] T011 [US2] 创建版本历史视图对象 `backend/src/main/java/com/dataocean/module/versioning/dto/SnapshotVersionHistoryVO.java`，字段：id、snapshotNo、publishStatus、qualityScore、tableCount、columnCount、createdAt、approvedBy、publishedAt
-- [ ] T012 [US2] 创建审计日志视图对象 `backend/src/main/java/com/dataocean/module/versioning/dto/SnapshotAuditLogVO.java`，字段：id、action、oldStatus、newStatus、operatorName、remark、createdAt
-- [ ] T013 [US2] 在 SnapshotLifecycleService 中添加 listVersionHistory(datasourceId, pageNum, pageSize) 方法，按 created_at DESC 返回该数据源所有快照的版本历史
-- [ ] T014 [US2] 在 SnapshotLifecycleService 中添加 compareVersions(oldSnapshotId, newSnapshotId) 方法，复用 003 模块的 SchemaDiffService.compareSnapshots 实现跨版本对比
+- [X] T011 [US2] 创建版本历史视图对象 `backend/src/main/java/com/dataocean/module/versioning/dto/SnapshotVersionHistoryVO.java`，字段：id、snapshotNo、publishStatus、qualityScore、tableCount、columnCount、createdAt、approvedBy、publishedAt
+- [X] T012 [US2] 创建审计日志视图对象 `backend/src/main/java/com/dataocean/module/versioning/dto/SnapshotAuditLogVO.java`，字段：id、action、oldStatus、newStatus、operatorName、remark、createdAt
+- [X] T013 [US2] 在 SnapshotLifecycleService 中添加 listVersionHistory(datasourceId, pageNum, pageSize) 方法，按 created_at DESC 返回该数据源所有快照的版本历史
+- [X] T014 [US2] 在 SnapshotLifecycleService 中添加 compareVersions(oldSnapshotId, newSnapshotId) 方法，复用 003 模块的 SchemaDiffService.compareSnapshots 实现跨版本对比
 
 ## Phase 5: 紧急撤回
 
-- [ ] T015 在 SnapshotPublishService 中添加 revokeSnapshot(snapshotId, operatorId, reason) 方法：校验当前状态为 PUBLISHED → 状态改为 APPROVED → 记录审计日志（action=REVOKE）→ 检查是否有基于该快照生成的 skills.md，如有则标记 skills.md 需重新审核（写入告警记录）
+- [X] T015 在 SnapshotPublishService 中添加 revokeSnapshot(snapshotId, operatorId, reason) 方法：校验当前状态为 PUBLISHED → 状态改为 APPROVED → 记录审计日志（action=REVOKE）→ 检查是否有基于该快照生成的 skills.md，如有则标记 skills.md 需重新审核（写入告警记录）
 
 ## Phase 6: API 层
 
-- [ ] T016 创建版本管理控制器 `backend/src/main/java/com/dataocean/module/versioning/controller/SnapshotVersionController.java`，实现：GET /api/admin/snapshots/{datasourceId}/history（版本历史列表）、GET /api/admin/snapshots/{id}/audit-logs（审计日志）、PUT /api/admin/snapshots/{id}/status（状态流转）、POST /api/admin/snapshots/{id}/publish（发布）、POST /api/admin/snapshots/{id}/revoke（撤回）、GET /api/admin/snapshots/compare（版本对比，参数 oldId 和 newId）
+- [X] T016 创建版本管理控制器 `backend/src/main/java/com/dataocean/module/versioning/controller/SnapshotVersionController.java`，实现：GET /api/admin/snapshots/{datasourceId}/history（版本历史列表）、GET /api/admin/snapshots/{id}/audit-logs（审计日志）、PUT /api/admin/snapshots/{id}/status（状态流转）、POST /api/admin/snapshots/{id}/publish（发布）、POST /api/admin/snapshots/{id}/revoke（撤回）、GET /api/admin/snapshots/compare（版本对比，参数 oldId 和 newId）
 
 ## Phase 7: 事件监听集成
 
-- [ ] T017 创建发布事件监听器占位 `backend/src/main/java/com/dataocean/module/versioning/event/SnapshotPublishedEventListener.java`，使用 @EventListener 监听 SnapshotPublishedEvent，当前仅记录日志，后续模块（skills.md 生成）实现具体逻辑
+- [X] T017 创建发布事件监听器占位 `backend/src/main/java/com/dataocean/module/versioning/event/SnapshotPublishedEventListener.java`，使用 @EventListener 监听 SnapshotPublishedEvent，当前仅记录日志，后续模块（skills.md 生成）实现具体逻辑
 
 ## Phase 9: Snapshot Notifications
 
-- [ ] T020 在快照发布时（publishSnapshot）通过 NotificationService 通知所有引用该数据源 skills.md 的分析师："数据源 X 的元数据快照已更新，请检查 skills.md 是否需要同步更新"
-- [ ] T021 [Frontend] 在快照详情页添加"快照内容概览"面板：展示该快照包含的表数量、字段数量、质量分、核心表列表
+- [X] T020 在快照发布时（publishSnapshot）通过 NotificationService 通知所有引用该数据源 skills.md 的分析师："数据源 X 的元数据快照已更新，请检查 skills.md 是否需要同步更新"
+- [X] T021 [Frontend] 在快照详情页添加"快照内容概览"面板：展示该快照包含的表数量、字段数量、质量分、核心表列表
 
 ## Dependencies
 
@@ -74,5 +74,5 @@ MVP-first: Phase 3（状态流转 + 发布）是核心，确保快照能走完 D
 
 ## Phase 8: Frontend Pages
 
-- [ ] T018 [P] [Frontend] 创建快照生命周期页面 `frontend/src/views/admin/metadata/SnapshotLifecycle.vue`：状态流转可视化（DRAFT→CHECKING→APPROVED→PUBLISHED→EXPIRED）、发布/撤回按钮
-- [ ] T019 [Frontend] 创建版本历史页面 `frontend/src/views/admin/metadata/VersionHistory.vue`：时间线展示所有快照、对比按钮、审核日志
+- [X] T018 [P] [Frontend] 创建快照生命周期页面 `frontend/src/views/admin/metadata/SnapshotLifecycle.vue`：状态流转可视化（DRAFT→CHECKING→APPROVED→PUBLISHED→EXPIRED）、发布/撤回按钮
+- [X] T019 [Frontend] 创建版本历史页面 `frontend/src/views/admin/metadata/VersionHistory.vue`：时间线展示所有快照、对比按钮、审核日志

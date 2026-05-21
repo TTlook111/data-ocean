@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Database,
   FolderSync,
+  GitBranch,
   History,
   LayoutDashboard,
   LogOut,
@@ -22,6 +23,7 @@ import {
   UserCog,
   UserRound,
   Users,
+  Workflow,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 
@@ -69,6 +71,13 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '质量看板', to: '/admin/governance/quality', icon: Activity, permission: 'metadata:manage' },
       { label: '问题清单', to: '/admin/governance/issues', icon: ClipboardList, permission: 'metadata:manage' },
       { label: '治理状态', to: '/admin/governance/status', icon: ShieldAlert, permission: 'metadata:manage' },
+    ],
+  },
+  {
+    label: '版本管理',
+    items: [
+      { label: '快照生命周期', to: '/admin/metadata/lifecycle', icon: Workflow, permission: 'metadata:manage' },
+      { label: '版本历史', to: '/admin/metadata/version-history', icon: GitBranch, permission: 'metadata:manage' },
     ],
   },
   {

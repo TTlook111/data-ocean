@@ -17,6 +17,8 @@ import SyncSchedule from '../views/admin/metadata/SyncSchedule.vue'
 import QualityDashboard from '../views/admin/governance/QualityDashboard.vue'
 import IssueList from '../views/admin/governance/IssueList.vue'
 import StatusEditor from '../views/admin/governance/StatusEditor.vue'
+import SnapshotLifecycle from '../views/admin/metadata/SnapshotLifecycle.vue'
+import VersionHistory from '../views/admin/metadata/VersionHistory.vue'
 import { setupRouterGuards } from './guards'
 
 const router = createRouter({
@@ -129,6 +131,18 @@ const router = createRouter({
           name: 'admin-governance-status',
           component: StatusEditor,
           meta: { title: '治理状态', section: '元数据治理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'metadata/lifecycle',
+          name: 'admin-metadata-lifecycle',
+          component: SnapshotLifecycle,
+          meta: { title: '快照生命周期', section: '版本管理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'metadata/version-history',
+          name: 'admin-metadata-version-history',
+          component: VersionHistory,
+          meta: { title: '版本历史', section: '版本管理', permission: 'metadata:manage' },
         },
       ],
     },

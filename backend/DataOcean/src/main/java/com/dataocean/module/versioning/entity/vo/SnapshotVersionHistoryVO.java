@@ -1,0 +1,22 @@
+package com.dataocean.module.versioning.entity.vo;
+
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+@Data
+public class SnapshotVersionHistoryVO {
+
+    private Long snapshotId;
+    private Integer snapshotVersion;
+    private String status;
+    private BigDecimal qualityScore;
+    private Integer tableCount;
+    private Integer columnCount;
+    private String schemaHash;
+    private LocalDateTime createdAt;
+    private LocalDateTime publishedAt;
+    private LocalDateTime expiredAt;
+    private String reviewedBy;
+}
