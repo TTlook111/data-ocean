@@ -9,7 +9,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 @EnableFeignClients
 @EnableScheduling
-@EnableAsync
+@EnableAsync(proxyTargetClass = true)
 public class DataOceanApplication {
 
     public static void main(String[] args) {
