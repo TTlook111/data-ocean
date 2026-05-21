@@ -1,37 +1,116 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { Table2, Key } from 'lucide-vue-next'
-import { getSnapshotDetail, type TableMetaItem, type ColumnMetaItem } from '../../../api/admin/metadata'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { RefreshCw, Table2, Key } from 'lucide-vue-next'
+import {
+  getSnapshotDetail,
+  listSnapshots,
+  type SnapshotItem,
+  type TableMetaItem,
+  type ColumnMetaItem,
+} from '../../../api/admin/metadata'
 
 const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
+const snapshotLoading = ref(false)
+const snapshots = ref<SnapshotItem[]>([])
+const selectedSnapshotId = ref<number>()
 const tables = ref<TableMetaItem[]>([])
 const columns = ref<ColumnMetaItem[]>([])
 const selectedTable = ref<string>('')
 
-const snapshotId = computed(() => Number(route.query.snapshotId) || 0)
+const selectedSnapshot = computed(() => snapshots.value.find((item) => item.id === selectedSnapshotId.value))
 
 const filteredColumns = computed(() =>
   columns.value.filter(c => c.tableName === selectedTable.value)
 )
 
+function statusType(status?: string) {
+  const map: Record<string, string> = {
+    DRAFT: 'info',
+    CHECKING: 'warning',
+    ISSUE_FOUND: 'danger',
+    APPROVED: 'success',
+    PUBLISHED: 'success',
+    EXPIRED: 'info',
+  }
+  return map[status || ''] || 'info'
+}
+
+function snapshotLabel(snapshot: SnapshotItem) {
+  const score = snapshot.qualityScore != null ? ` / ${snapshot.qualityScore}分` : ''
+  return `${snapshot.datasourceName} v${snapshot.snapshotVersion}${score}`
+}
+
+async function fetchSnapshots() {
+  snapshotLoading.value = true
+  try {
+    const res = await listSnapshots({ page: 1, size: 50 })
+    snapshots.value = res.data?.records ?? []
+    const routeSnapshotId = Number(route.query.snapshotId) || undefined
+    if (routeSnapshotId && snapshots.value.some((item) => item.id === routeSnapshotId)) {
+      selectedSnapshotId.value = routeSnapshotId
+    } else if (!selectedSnapshotId.value && snapshots.value.length) {
+      selectedSnapshotId.value = snapshots.value[0].id
+    }
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.message || '获取快照列表失败')
+  } finally {
+    snapshotLoading.value = false
+  }
+}
+
 async function fetchDetail() {
-  if (!snapshotId.value) return
+  if (!selectedSnapshotId.value) {
+    tables.value = []
+    columns.value = []
+    selectedTable.value = ''
+    return
+  }
   loading.value = true
   try {
-    const res = await getSnapshotDetail(snapshotId.value)
+    const res = await getSnapshotDetail(selectedSnapshotId.value)
     tables.value = res.data?.tables ?? []
     columns.value = res.data?.columns ?? []
     if (tables.value.length > 0) {
       selectedTable.value = tables.value[0].tableName
+    } else {
+      selectedTable.value = ''
     }
+  } catch (error: any) {
+    tables.value = []
+    columns.value = []
+    selectedTable.value = ''
+    ElMessage.error(error?.response?.data?.message || '获取快照详情失败')
   } finally {
     loading.value = false
   }
 }
 
-onMounted(fetchDetail)
+function handleSnapshotChange() {
+  if (selectedSnapshotId.value) {
+    router.replace({ query: { ...route.query, snapshotId: selectedSnapshotId.value } })
+  }
+  fetchDetail()
+}
+
+onMounted(async () => {
+  await fetchSnapshots()
+  await fetchDetail()
+})
+
+watch(
+  () => route.query.snapshotId,
+  (value) => {
+    const nextId = Number(value) || undefined
+    if (nextId && nextId !== selectedSnapshotId.value) {
+      selectedSnapshotId.value = nextId
+      fetchDetail()
+    }
+  },
+)
 </script>
 
 <template>
@@ -40,9 +119,33 @@ onMounted(fetchDetail)
       <div>
         <p>元数据管理</p>
         <h1>表浏览器</h1>
-        <span class="header-subtitle">查看快照中的表和字段详情</span>
+        <span class="header-subtitle">选择一个采集快照，查看其中的表结构、字段、统计信息和治理状态</span>
       </div>
+      <el-button :icon="RefreshCw" :loading="loading || snapshotLoading" @click="fetchDetail">刷新</el-button>
     </header>
+
+    <section class="snapshot-toolbar">
+      <el-select
+        v-model="selectedSnapshotId"
+        placeholder="选择快照"
+        filterable
+        :loading="snapshotLoading"
+        style="width: 360px"
+        @change="handleSnapshotChange"
+      >
+        <el-option v-for="snapshot in snapshots" :key="snapshot.id" :label="snapshotLabel(snapshot)" :value="snapshot.id">
+          <span class="snapshot-option-main">{{ snapshot.datasourceName }} v{{ snapshot.snapshotVersion }}</span>
+          <el-tag :type="statusType(snapshot.status)" size="small">{{ snapshot.status }}</el-tag>
+        </el-option>
+      </el-select>
+
+      <div v-if="selectedSnapshot" class="snapshot-summary">
+        <el-tag :type="statusType(selectedSnapshot.status)" size="small">{{ selectedSnapshot.status }}</el-tag>
+        <span>{{ selectedSnapshot.tableCount }} 张表</span>
+        <span>{{ selectedSnapshot.columnCount }} 个字段</span>
+        <span>质量分 {{ selectedSnapshot.qualityScore ?? '-' }}</span>
+      </div>
+    </section>
 
     <div class="explorer-layout" v-loading="loading">
       <aside class="table-list">
@@ -53,7 +156,11 @@ onMounted(fetchDetail)
           <span class="table-name">{{ t.tableName }}</span>
           <span class="row-count" v-if="t.rowCountEstimate">~{{ t.rowCountEstimate }}</span>
         </div>
-        <el-empty v-if="!tables.length" description="暂无表数据" :image-size="60" />
+        <el-empty
+          v-if="!tables.length"
+          :description="selectedSnapshotId ? '当前快照暂无表数据' : '请选择快照后查看表数据'"
+          :image-size="60"
+        />
       </aside>
 
       <section class="column-detail">
@@ -90,10 +197,33 @@ onMounted(fetchDetail)
 
 <style scoped>
 .table-explorer-page { display: grid; gap: 16px; }
-.page-header { }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
 .page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
 .header-subtitle { font-size: 13px; color: var(--do-muted); }
+.snapshot-toolbar {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-surface);
+}
+.snapshot-option-main {
+  display: inline-block;
+  min-width: 190px;
+}
+.snapshot-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--do-muted);
+  font-size: 13px;
+}
 
 .explorer-layout { display: flex; gap: 0; border: 1px solid var(--do-line); border-radius: 8px; background: var(--do-surface); min-height: 600px; }
 .table-list { width: 280px; border-right: 1px solid var(--do-line); padding: 12px; overflow-y: auto; max-height: calc(100vh - 220px); }

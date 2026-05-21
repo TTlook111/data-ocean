@@ -6,14 +6,12 @@ import {
   ChevronDown,
   Database,
   History,
-  LogOut,
   MessageSquarePlus,
   MessageSquareText,
   RefreshCw,
   Search,
   SendHorizontal,
   Settings,
-  ShieldCheck,
   UserRound,
 } from 'lucide-vue-next'
 import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource'
@@ -216,11 +214,6 @@ async function fetchDatasources() {
   }
 }
 
-async function logout() {
-  await auth.logout()
-  await router.replace('/login')
-}
-
 function handleUserCommand(command: string) {
   if (command === 'admin') {
     router.push('/admin')
@@ -229,13 +222,6 @@ function handleUserCommand(command: string) {
   if (command === 'profile') {
     router.push('/profile')
     return
-  }
-  if (command === 'password') {
-    router.push('/change-password')
-    return
-  }
-  if (command === 'logout') {
-    logout()
   }
 }
 
@@ -337,21 +323,13 @@ onMounted(fetchDatasources)
           </button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="canEnterAdmin" command="admin">
-                <Settings :size="15" />
-                后台管理
-              </el-dropdown-item>
               <el-dropdown-item command="profile">
                 <UserRound :size="15" />
                 个人资料
               </el-dropdown-item>
-              <el-dropdown-item command="password">
-                <ShieldCheck :size="15" />
-                修改密码
-              </el-dropdown-item>
-              <el-dropdown-item divided command="logout">
-                <LogOut :size="15" />
-                退出登录
+              <el-dropdown-item v-if="canEnterAdmin" command="admin">
+                <Settings :size="15" />
+                后台管理
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>

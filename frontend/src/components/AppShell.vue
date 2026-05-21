@@ -13,8 +13,6 @@ import {
   GitBranch,
   History,
   LayoutDashboard,
-  LogOut,
-  MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
@@ -44,7 +42,6 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
     label: '工作台',
     items: [
       { label: '概览', to: '/admin', icon: LayoutDashboard },
-      { label: '问答端', to: '/query', icon: MessageSquareText },
     ],
   },
   {
@@ -79,10 +76,6 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '快照生命周期', to: '/admin/metadata/lifecycle', icon: Workflow, permission: 'metadata:manage' },
       { label: '版本历史', to: '/admin/metadata/version-history', icon: GitBranch, permission: 'metadata:manage' },
     ],
-  },
-  {
-    label: '个人',
-    items: [{ label: '个人资料', to: '/profile', icon: UserRound }],
   },
 ]
 
@@ -125,11 +118,6 @@ function canView(permission?: string) {
   return permissions.value.includes('*') || permissions.value.includes(permission)
 }
 
-async function logout() {
-  await auth.logout()
-  await router.replace('/login')
-}
-
 function handleUserCommand(command: string) {
   if (command === 'admin') {
     router.push('/admin')
@@ -142,9 +130,6 @@ function handleUserCommand(command: string) {
   if (command === 'password') {
     router.push('/change-password')
     return
-  }
-  if (command === 'logout') {
-    logout()
   }
 }
 </script>
@@ -200,21 +185,13 @@ function handleUserCommand(command: string) {
           </button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item v-if="canEnterAdmin" command="admin">
-                <UserCog :size="15" />
-                后台管理
-              </el-dropdown-item>
               <el-dropdown-item command="profile">
                 <UserRound :size="15" />
                 个人资料
               </el-dropdown-item>
-              <el-dropdown-item command="password">
-                <ShieldCheck :size="15" />
-                修改密码
-              </el-dropdown-item>
-              <el-dropdown-item divided command="logout">
-                <LogOut :size="15" />
-                退出登录
+              <el-dropdown-item v-if="canEnterAdmin" command="admin">
+                <UserCog :size="15" />
+                后台管理
               </el-dropdown-item>
             </el-dropdown-menu>
           </template>
