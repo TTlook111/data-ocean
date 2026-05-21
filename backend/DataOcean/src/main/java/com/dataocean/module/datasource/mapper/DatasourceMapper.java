@@ -83,4 +83,16 @@ public interface DatasourceMapper extends BaseMapper<Datasource> {
             ORDER BY d.name ASC, d.id ASC
             """)
     List<DatasourceSimpleVO> selectAccessibleByUserId(@Param("userId") Long userId);
+
+    @Select("""
+            SELECT d.id,
+                   d.name,
+                   d.description,
+                   d.database_name AS databaseName
+            FROM datasource d
+            WHERE d.status = 1
+              AND d.deleted = 0
+            ORDER BY d.name ASC, d.id ASC
+            """)
+    List<DatasourceSimpleVO> selectEnabledSimple();
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CheckCircle, Clock, Play, Send, RotateCcw } from 'lucide-vue-next'
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'

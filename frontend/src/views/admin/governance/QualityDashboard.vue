@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Activity, Play } from 'lucide-vue-next'
+import { Play } from 'lucide-vue-next'
 import {
   triggerQualityCheck,
   listQualityRules,

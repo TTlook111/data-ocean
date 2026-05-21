@@ -84,13 +84,27 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
 
     @Override
     public List<DatasourceSimpleVO> listAccessibleDatasources() {
+        if (hasAllPermission()) {
+            return datasourceMapper.selectEnabledSimple();
+        }
         return datasourceMapper.selectAccessibleByUserId(UserContext.currentUserId());
     }
 
     @Override
     public boolean checkAccess(Long datasourceId) {
+        if (hasAllPermission()) {
+            Datasource datasource = datasourceMapper.selectOne(new LambdaQueryWrapper<Datasource>()
+                    .eq(Datasource::getId, datasourceId)
+                    .eq(Datasource::getStatus, Datasource.STATUS_ENABLED)
+                    .eq(Datasource::getDeleted, 0L));
+            return datasource != null;
+        }
         Long count = accessMapper.countEnabledAccess(datasourceId, UserContext.currentUserId());
         return count > 0;
+    }
+
+    private boolean hasAllPermission() {
+        return UserContext.currentPermissions().contains("*");
     }
 
     private void updateExisting(Long datasourceId, Long userId, LocalDateTime expiresAt, Long grantedBy) {

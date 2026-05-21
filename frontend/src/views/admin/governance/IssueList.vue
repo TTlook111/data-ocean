@@ -6,7 +6,6 @@ import {
   listQualityIssues,
   handleIssue,
   batchHandleIssues,
-  assignIssue,
   type QualityIssueItem
 } from '../../../api/admin/governance'
 import { listSnapshots } from '../../../api/admin/metadata'
