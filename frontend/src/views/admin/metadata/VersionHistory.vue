@@ -175,7 +175,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.version-history-page { max-width: 1100px; }
+.version-history-page { display: grid; gap: 16px; }
 .toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .compare-bar { display: flex; align-items: center; gap: 8px; }
 .compare-arrow { color: var(--do-muted); font-size: 13px; }

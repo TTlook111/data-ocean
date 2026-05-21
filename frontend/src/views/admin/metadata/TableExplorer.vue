@@ -89,14 +89,14 @@ onMounted(fetchDetail)
 </template>
 
 <style scoped>
-.table-explorer-page { padding: 24px; }
-.page-header { margin-bottom: 20px; }
+.table-explorer-page { display: grid; gap: 16px; }
+.page-header { }
 .page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
 .page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
 .header-subtitle { font-size: 13px; color: var(--do-muted); }
 
-.explorer-layout { display: flex; gap: 16px; border: 1px solid var(--do-line); border-radius: 8px; background: var(--do-surface); min-height: 500px; }
-.table-list { width: 240px; border-right: 1px solid var(--do-line); padding: 12px; overflow-y: auto; max-height: 600px; }
+.explorer-layout { display: flex; gap: 0; border: 1px solid var(--do-line); border-radius: 8px; background: var(--do-surface); min-height: 600px; }
+.table-list { width: 280px; border-right: 1px solid var(--do-line); padding: 12px; overflow-y: auto; max-height: calc(100vh - 220px); }
 .table-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .table-item:hover { background: var(--do-primary-soft); }
 .table-item.active { background: var(--do-primary-soft); color: var(--do-primary); font-weight: 500; }

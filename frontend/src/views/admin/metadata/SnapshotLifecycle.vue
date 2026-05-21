@@ -208,7 +208,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.lifecycle-page { max-width: 1200px; }
+.lifecycle-page { display: grid; gap: 16px; }
 .toolbar { margin-bottom: 16px; }
 .status-flow { margin-bottom: 20px; }
 .flow-steps {

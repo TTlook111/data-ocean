@@ -194,12 +194,12 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.issue-page { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+.issue-page { display: grid; gap: 16px; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
 .page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
 .page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
 .header-subtitle { font-size: 13px; color: var(--do-muted); }
-.toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
 .batch-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 8px 12px; background: var(--do-primary-soft); border-radius: 6px; font-size: 13px; }
 .table-shell { border: 1px solid var(--do-line); border-radius: 8px; overflow: hidden; background: var(--do-surface); }
 .pager { margin-top: 16px; justify-content: flex-end; }

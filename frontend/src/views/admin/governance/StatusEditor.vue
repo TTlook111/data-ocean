@@ -151,12 +151,12 @@ onMounted(fetchSnapshots)
 </template>
 
 <style scoped>
-.status-page { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+.status-page { display: grid; gap: 16px; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
 .page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
 .page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
 .header-subtitle { font-size: 13px; color: var(--do-muted); }
-.toolbar { margin-bottom: 16px; }
+.toolbar { }
 
 .split-layout { display: flex; gap: 16px; }
 .table-list-panel {
@@ -164,7 +164,7 @@ onMounted(fetchSnapshots)
   background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px;
 }
 .table-list-panel h3 { margin: 0 0 12px; font-size: 14px; }
-.table-items { max-height: 500px; overflow-y: auto; }
+.table-items { max-height: calc(100vh - 280px); overflow-y: auto; }
 .table-item {
   display: flex; justify-content: space-between; align-items: center;
   padding: 8px 10px; border-radius: 4px; cursor: pointer; margin-bottom: 4px;

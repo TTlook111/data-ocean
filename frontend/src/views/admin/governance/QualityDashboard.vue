@@ -146,17 +146,17 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.quality-page { padding: 24px; }
-.page-header { margin-bottom: 20px; }
+.quality-page { display: grid; gap: 16px; }
+.page-header { }
 .page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
 .page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
 .header-subtitle { font-size: 13px; color: var(--do-muted); }
 
-.check-panel { display: flex; align-items: center; margin-bottom: 24px; }
+.check-panel { display: flex; align-items: center; }
 
 .result-panel {
   background: var(--do-surface); border: 1px solid var(--do-line);
-  border-radius: 8px; padding: 24px; margin-bottom: 24px;
+  border-radius: 8px; padding: 24px;
 }
 .score-card { text-align: center; margin-bottom: 20px; }
 .score-main { font-size: 48px; font-weight: 700; }

@@ -146,7 +146,6 @@ onMounted(fetchStats)
 .admin-home {
   display: grid;
   gap: 20px;
-  max-width: 1200px;
 }
 
 .page-header {

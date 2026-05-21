@@ -108,12 +108,12 @@ onMounted(fetchSnapshots)
 </template>
 
 <style scoped>
-.snapshot-diff-page { padding: 24px; }
-.page-header { margin-bottom: 20px; }
+.snapshot-diff-page { display: grid; gap: 16px; }
+.page-header { }
 .page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
 .page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
 .header-subtitle { font-size: 13px; color: var(--do-muted); }
-.compare-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.compare-bar { display: flex; align-items: center; gap: 12px; }
 .diff-result { border: 1px solid var(--do-line); border-radius: 8px; background: var(--do-surface); padding: 20px; }
 .diff-section { margin-bottom: 20px; }
 .diff-section h4 { margin: 0 0 10px; font-size: 14px; color: var(--do-ink); }

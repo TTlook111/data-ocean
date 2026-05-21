@@ -351,10 +351,7 @@ a {
 .app-content {
   min-width: 0;
   flex: 1;
-  padding: var(--do-space-xl);
-  max-width: 1400px;
-  margin-left: auto;
-  margin-right: auto;
+  padding: 20px 28px;
   width: 100%;
 }
 

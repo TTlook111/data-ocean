@@ -103,8 +103,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.snapshot-list-page { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+.snapshot-list-page { display: grid; gap: 16px; }
+.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
 .page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
 .page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
 .header-subtitle { font-size: 13px; color: var(--do-muted); }
