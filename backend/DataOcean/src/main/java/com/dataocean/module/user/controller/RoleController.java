@@ -12,6 +12,15 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
+/**
+ * 角色管理控制器。
+ * <p>
+ * 提供角色列表查询的 REST API 端点。
+ * 同时映射管理端路径 /api/admin/roles 和通用路径 /api/roles。
+ * </p>
+ *
+ * @author DataOcean
+ */
 @RestController
 @RequestMapping({"/api/admin/roles", "/api/roles"})
 @RequiredArgsConstructor
@@ -20,6 +29,15 @@ public class RoleController {
 
     private final RoleService roleService;
 
+    /**
+     * 查询启用状态的角色列表。
+     * <p>
+     * 用于用户管理页面的角色下拉选择等场景。
+     * 需要 role:view 或 user:manage 权限。
+     * </p>
+     *
+     * @return 启用状态的角色列表
+     */
     @GetMapping
     @PreAuthorize("hasAnyAuthority('role:view', 'user:manage')")
     public Result<List<SysRole>> listRoles() {

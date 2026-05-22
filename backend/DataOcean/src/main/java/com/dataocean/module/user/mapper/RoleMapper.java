@@ -8,9 +8,27 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+/**
+ * 角色数据访问层接口。
+ * <p>
+ * 对应数据库表 sys_role，继承 MyBatis-Plus BaseMapper 提供基础 CRUD 能力，
+ * 并扩展自定义 SQL 查询指定用户所拥有的角色列表。
+ * </p>
+ *
+ * @author DataOcean
+ */
 @Mapper
 public interface RoleMapper extends BaseMapper<SysRole> {
 
+    /**
+     * 根据用户 ID 查询该用户关联的所有角色。
+     * <p>
+     * 通过 sys_user_role 中间表联查 sys_role，按角色 ID 升序排列。
+     * </p>
+     *
+     * @param userId 用户 ID
+     * @return 该用户关联的角色列表
+     */
     @Select("""
             SELECT r.*
             FROM sys_role r

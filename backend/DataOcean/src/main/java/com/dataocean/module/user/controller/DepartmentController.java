@@ -19,6 +19,15 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 部门管理控制器。
+ * <p>
+ * 提供部门树查询、创建和删除的 REST API 端点。
+ * 同时映射管理端路径 /api/admin/departments 和通用路径 /api/departments。
+ * </p>
+ *
+ * @author DataOcean
+ */
 @RestController
 @RequestMapping({"/api/admin/departments", "/api/departments"})
 @RequiredArgsConstructor
@@ -27,6 +36,15 @@ public class DepartmentController {
 
     private final DepartmentService departmentService;
 
+    /**
+     * 查询部门树结构。
+     * <p>
+     * 返回所有启用状态的部门，按层级组装为树形结构。
+     * 需要 department:manage 或 user:manage 权限。
+     * </p>
+     *
+     * @return 部门树根节点列表
+     */
     @GetMapping("/tree")
     @PreAuthorize("hasAnyAuthority('department:manage', 'user:manage')")
     public Result<List<DepartmentTreeVO>> tree() {
@@ -34,6 +52,15 @@ public class DepartmentController {
         return Result.success(departmentService.tree());
     }
 
+    /**
+     * 创建新部门。
+     * <p>
+     * 需要 department:manage 权限。
+     * </p>
+     *
+     * @param request 部门创建请求参数（含部门名称、编码、上级部门 ID 等）
+     * @return 新创建部门的 ID
+     */
     @PostMapping
     @PreAuthorize("hasAuthority('department:manage')")
     public Result<Map<String, Long>> createDepartment(@Valid @RequestBody DepartmentCreateDTO request) {
@@ -42,6 +69,16 @@ public class DepartmentController {
         return Result.success("创建成功", Map.of("id", id));
     }
 
+    /**
+     * 删除部门。
+     * <p>
+     * 仅允许删除空部门（无子部门且无关联用户）。
+     * 需要 department:manage 权限。
+     * </p>
+     *
+     * @param id 部门 ID
+     * @return 操作结果
+     */
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('department:manage')")
     public Result<Void> deleteDepartment(@PathVariable Long id) {

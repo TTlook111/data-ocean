@@ -4,6 +4,12 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.dataocean.module.metadata.entity.DbTableMeta;
 import org.apache.ibatis.annotations.Mapper;
 
+/**
+ * 数据库表元数据 Mapper 接口。
+ * <p>
+ * 继承 MyBatis-Plus BaseMapper，提供表元数据的基础 CRUD 操作。
+ * </p>
+ */
 @Mapper
 public interface DbTableMetaMapper extends BaseMapper<DbTableMeta> {
 }

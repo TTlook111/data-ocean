@@ -23,6 +23,13 @@ import java.sql.DriverManager;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Schema 统计信息采集服务实现类。
+ * <p>
+ * 连接业务数据源，逐表逐字段采集统计信息（行数、空值率、去重计数、TopN 值），
+ * 并将结果更新到对应的表/字段元数据记录中。
+ * </p>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -36,14 +43,19 @@ public class SchemaStatisticsServiceImpl implements SchemaStatisticsService {
     private final StatisticsCollector statisticsCollector;
     private final ObjectMapper objectMapper;
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void collectStatistics(Long datasourceId, Long snapshotId) {
+        // 获取数据源连接信息
         Datasource datasource = datasourceMapper.selectById(datasourceId);
         DatasourceSecret secret = secretMapper.selectOne(
                 new LambdaQueryWrapper<DatasourceSecret>()
                         .eq(DatasourceSecret::getDatasourceId, datasourceId)
         );
 
+        // 构建 JDBC 连接 URL
         String jdbcUrl = "jdbc:mysql://%s:%d/%s?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=%s"
                 .formatted(datasource.getHost(), datasource.getPort(),
                         datasource.getDatabaseName(), datasource.getCharset());
@@ -51,36 +63,44 @@ public class SchemaStatisticsServiceImpl implements SchemaStatisticsService {
         try (Connection connection = DriverManager.getConnection(
                 jdbcUrl, secret.getUsername(), secretService.decrypt(secret.getEncryptedPassword()))) {
 
+            // 查询该快照下的所有表
             List<DbTableMeta> tables = tableMetaMapper.selectList(
                     new LambdaQueryWrapper<DbTableMeta>()
                             .eq(DbTableMeta::getSnapshotId, snapshotId)
             );
 
+            // 逐表采集统计信息
             for (DbTableMeta table : tables) {
+                // 采集表行数估算
                 Long rowCount = statisticsCollector.collectRowCount(connection, table.getTableName());
                 if (rowCount != null) {
                     table.setRowCountEstimate(rowCount);
                     tableMetaMapper.updateById(table);
                 }
 
+                // 查询该表下的所有字段
                 List<DbColumnMeta> columns = columnMetaMapper.selectList(
                         new LambdaQueryWrapper<DbColumnMeta>()
                                 .eq(DbColumnMeta::getTableMetaId, table.getId())
                 );
 
+                // 逐字段采集统计信息
                 for (DbColumnMeta column : columns) {
+                    // 采集空值率
                     BigDecimal nullRate = statisticsCollector.collectNullRate(
                             connection, table.getTableName(), column.getColumnName());
                     if (nullRate != null) {
                         column.setNullRate(nullRate);
                     }
 
+                    // 采集去重计数
                     Long distinctCount = statisticsCollector.collectDistinctCount(
                             connection, table.getTableName(), column.getColumnName());
                     if (distinctCount != null) {
                         column.setDistinctCount(distinctCount);
                     }
 
+                    // 采集 TopN 高频值
                     List<Map<String, Object>> topN = statisticsCollector.collectTopNValues(
                             connection, table.getTableName(), column.getColumnName(), 20);
                     if (!topN.isEmpty()) {

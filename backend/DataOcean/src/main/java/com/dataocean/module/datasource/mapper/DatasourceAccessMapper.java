@@ -9,9 +9,27 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+/**
+ * 数据源访问授权 Mapper 接口
+ * <p>
+ * 提供对 datasource_access 表的基础 CRUD 操作，
+ * 以及自定义的授权列表查询和有效授权计数方法。
+ * </p>
+ *
+ * @author dataocean
+ */
 @Mapper
 public interface DatasourceAccessMapper extends BaseMapper<DatasourceAccess> {
 
+    /**
+     * 查询指定数据源的授权用户列表
+     * <p>
+     * 关联 sys_user 表获取用户名和真实姓名，按授权时间倒序排列。
+     * </p>
+     *
+     * @param datasourceId 数据源 ID
+     * @return 授权用户视图对象列表
+     */
     @Select("""
             SELECT a.id,
                    a.datasource_id AS datasourceId,
@@ -28,6 +46,17 @@ public interface DatasourceAccessMapper extends BaseMapper<DatasourceAccess> {
             """)
     List<DatasourceAccessVO> selectAccessList(@Param("datasourceId") Long datasourceId);
 
+    /**
+     * 统计用户对指定数据源的有效授权数量
+     * <p>
+     * 有效授权需满足：数据源已启用且未删除，授权未过期。
+     * 返回值大于 0 表示用户有权访问该数据源。
+     * </p>
+     *
+     * @param datasourceId 数据源 ID
+     * @param userId       用户 ID
+     * @return 有效授权记录数
+     */
     @Select("""
             SELECT COUNT(*)
             FROM datasource_access a
