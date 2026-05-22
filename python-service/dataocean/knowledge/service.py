@@ -59,14 +59,22 @@ async def generate_draft(request: GenerateDraftRequest) -> GenerateDraftResponse
 
 
 async def _call_llm(prompt: str) -> str:
-    """调用 Qwen API 生成内容
+    """调用 Qwen API 生成内容（含重试机制）
+
+    最多重试 2 次（共 3 次尝试），每次重试间隔递增。
+    超时或网络错误时自动重试，其他错误直接抛出。
 
     Args:
         prompt: 完整的 Prompt 文本
 
     Returns:
         LLM 生成的 Markdown 内容
+
+    Raises:
+        httpx.HTTPStatusError: API 返回非 2xx 状态码且重试耗尽
+        httpx.TimeoutException: 请求超时且重试耗尽
     """
+    import asyncio
     import os
 
     import httpx
@@ -74,25 +82,44 @@ async def _call_llm(prompt: str) -> str:
     api_key = os.getenv("QWEN_API_KEY")
     model = os.getenv("QWEN_MODEL", "qwen-plus")
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(
-            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "你是一个数据库文档专家，负责根据数据库元数据生成结构化的 skills.md 业务知识文档。",
+    max_retries = 2
+    last_exception = None
+
+    for attempt in range(max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "你是一个数据库文档专家，负责根据数据库元数据生成结构化的 skills.md 业务知识文档。",
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 0.3,
                     },
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.3,
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as e:
+            last_exception = e
+            if attempt < max_retries:
+                wait_seconds = (attempt + 1) * 5
+                logger.warning(
+                    "LLM 调用失败，%d 秒后重试 attempt=%d/%d reason=%s",
+                    wait_seconds, attempt + 1, max_retries + 1, str(e),
+                )
+                await asyncio.sleep(wait_seconds)
+            else:
+                logger.error("LLM 调用重试耗尽 attempts=%d", max_retries + 1)
+                raise
+
+    raise last_exception  # type: ignore
 
 
 def _check_missing_comments(tables: list) -> list[str]:

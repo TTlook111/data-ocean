@@ -213,9 +213,10 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
      * <p>
      * 实现逻辑：
      * 1. 校验状态为 APPROVED
-     * 2. 更新为 PUBLISHED
-     * 3. 切分文档内容为 chunks
-     * 4. 创建向量化任务
+     * 2. 发布前校验引用字段的治理状态
+     * 3. 更新为 PUBLISHED
+     * 4. 切分文档内容为 chunks
+     * 5. 创建向量化任务
      * </p>
      */
     @Transactional
@@ -227,6 +228,8 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         if (!DocStatus.APPROVED.name().equals(doc.getStatus())) {
             throw new BusinessException("只有审核通过的文档才能发布");
         }
+        // 发布前校验：检查引用字段的治理状态
+        validateBeforePublish(doc);
         // 更新文档状态为已发布
         doc.setStatus(DocStatus.PUBLISHED.name());
         doc.setUpdatedBy(UserContext.currentUserId());
@@ -259,6 +262,17 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
                 new LambdaQueryWrapper<DbTableMeta>()
                         .eq(DbTableMeta::getDatasourceId, doc.getDatasourceId()));
 
+        // 一次性查询该数据源下所有字段，按 tableMetaId 分组（避免 N+1 查询）
+        List<Long> tableIds = tables.stream().map(DbTableMeta::getId).toList();
+        Map<Long, List<DbColumnMeta>> columnsByTable = Map.of();
+        if (!tableIds.isEmpty()) {
+            List<DbColumnMeta> allColumns = dbColumnMetaMapper.selectList(
+                    new LambdaQueryWrapper<DbColumnMeta>()
+                            .in(DbColumnMeta::getTableMetaId, tableIds));
+            columnsByTable = allColumns.stream()
+                    .collect(java.util.stream.Collectors.groupingBy(DbColumnMeta::getTableMetaId));
+        }
+
         // 组装表元数据列表（含字段信息）
         List<Map<String, Object>> tablesMetadata = new ArrayList<>();
         for (DbTableMeta table : tables) {
@@ -266,10 +280,8 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
             tableMap.put("table_name", table.getTableName());
             tableMap.put("table_comment", table.getTableComment());
 
-            // 查询该表的字段列表
-            List<DbColumnMeta> columns = dbColumnMetaMapper.selectList(
-                    new LambdaQueryWrapper<DbColumnMeta>()
-                            .eq(DbColumnMeta::getTableMetaId, table.getId()));
+            // 从预加载的分组中获取字段列表
+            List<DbColumnMeta> columns = columnsByTable.getOrDefault(table.getId(), List.of());
             List<Map<String, Object>> columnList = new ArrayList<>();
             for (DbColumnMeta col : columns) {
                 Map<String, Object> colMap = new HashMap<>();
@@ -329,6 +341,40 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
 
         log.info("AI 草稿生成成功 docId={} versionNo={}", docId, version.getVersionNo());
         return draftContent;
+    }
+
+    /**
+     * 发布前校验：检查文档引用的表字段治理状态。
+     * <p>
+     * 查询该数据源下所有字段的治理状态，如果存在 DEPRECATED 或 BLOCKED 状态的字段
+     * 被文档内容引用（字段名出现在文档中），则阻止发布。
+     * </p>
+     *
+     * @param doc 文档实体
+     * @throws BusinessException 存在不合规引用时抛出
+     */
+    private void validateBeforePublish(KnowledgeDoc doc) {
+        String content = doc.getContent();
+        if (!StringUtils.hasText(content)) {
+            return;
+        }
+        // 查询该数据源下所有治理状态为 DEPRECATED 或 BLOCKED 的字段
+        List<DbColumnMeta> blockedColumns = dbColumnMetaMapper.selectList(
+                new LambdaQueryWrapper<DbColumnMeta>()
+                        .eq(DbColumnMeta::getDatasourceId, doc.getDatasourceId())
+                        .in(DbColumnMeta::getGovernanceStatus, List.of("DEPRECATED", "BLOCKED")));
+
+        // 检查文档内容中是否引用了这些字段
+        List<String> violations = new ArrayList<>();
+        for (DbColumnMeta col : blockedColumns) {
+            if (content.contains(col.getColumnName())) {
+                violations.add(col.getTableName() + "." + col.getColumnName()
+                        + "（状态：" + col.getGovernanceStatus() + "）");
+            }
+        }
+        if (!violations.isEmpty()) {
+            throw new BusinessException("发布失败：文档引用了已废弃或已阻断的字段 — " + String.join("、", violations));
+        }
     }
 
     /**
@@ -393,22 +439,26 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
 
         // 按 Markdown 二级标题拆分（(?m) 启用多行模式使 ^ 匹配行首）
         String[] sections = content.split("(?m)(?=^## )", -1);
+        List<KnowledgeChunk> chunks = new ArrayList<>();
         for (String section : sections) {
             String trimmed = section.trim();
             if (trimmed.isEmpty()) {
                 continue;
             }
-            // 构建切片实体
-            KnowledgeChunk chunk = KnowledgeChunk.builder()
+            // 构建切片实体，根据内容推断类型
+            chunks.add(KnowledgeChunk.builder()
                     .docId(doc.getId())
                     .versionNo(doc.getCurrentVersion())
-                    .chunkType(ChunkType.TABLE_DESC.name())
+                    .chunkType(inferChunkType(trimmed))
                     .chunkText(trimmed)
                     .reviewStatus(ReviewStatus.APPROVED.name())
-                    .build();
+                    .build());
+        }
+        // 批量插入所有切片
+        for (KnowledgeChunk chunk : chunks) {
             knowledgeChunkMapper.insert(chunk);
         }
-        log.info("文档切片完成 docId={} chunkCount={}", doc.getId(), sections.length);
+        log.info("文档切片完成 docId={} chunkCount={}", doc.getId(), chunks.size());
     }
 
     /**

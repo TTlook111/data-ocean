@@ -2,7 +2,7 @@ package com.dataocean.module.knowledge.client.impl;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
-import lombok.RequiredArgsConstructor;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
@@ -21,17 +21,14 @@ import java.util.Map;
  * <p>
  * 通过 HTTP POST 请求调用 Python AI 服务生成 skills.md 草稿。
  * AI 生成可能较慢，超时设置为 120 秒。
- * 调用失败时抛出 BusinessException，由上层统一处理。
+ * RestClient 在初始化时创建一次，后续复用同一实例。
  * </p>
  *
- * @author dataocean
+ * @author DataOcean
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
-
-    private final RestClient.Builder restClientBuilder;
 
     /** Python AI 服务的基础 URL */
     @Value("${dataocean.python-service.base-url:http://localhost:8000}")
@@ -39,6 +36,25 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
 
     /** AI 生成请求超时时间（毫秒） */
     private static final int TIMEOUT_MS = 120_000;
+
+    /** 复用的 RestClient 实例 */
+    private RestClient restClient;
+
+    /**
+     * 初始化 RestClient 实例（仅创建一次）
+     */
+    @PostConstruct
+    void init() {
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(TIMEOUT_MS);
+        requestFactory.setReadTimeout(TIMEOUT_MS);
+
+        this.restClient = RestClient.builder()
+                .requestFactory(requestFactory)
+                .baseUrl(pythonServiceBaseUrl)
+                .build();
+        log.info("PythonKnowledgeClient 初始化完成 baseUrl={} timeout={}ms", pythonServiceBaseUrl, TIMEOUT_MS);
+    }
 
     /**
      * {@inheritDoc}
@@ -59,17 +75,9 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
         try {
             log.info("调用 Python 服务生成 skills.md 草稿 snapshotId={} datasourceId={}", snapshotId, datasourceId);
 
-            // 配置超时的请求工厂（AI 生成可能较慢，设置 120 秒超时）
-            SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-            requestFactory.setConnectTimeout(TIMEOUT_MS);
-            requestFactory.setReadTimeout(TIMEOUT_MS);
-
-            // 发送 POST 请求到 Python 服务
-            Map<String, Object> response = restClientBuilder
-                    .requestFactory(requestFactory)
-                    .build()
-                    .post()
-                    .uri(pythonServiceBaseUrl + "/internal/knowledge/generate-draft")
+            // 使用预初始化的 RestClient 发送请求
+            Map<String, Object> response = restClient.post()
+                    .uri("/internal/knowledge/generate-draft")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
                     .retrieve()
@@ -82,7 +90,6 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
             log.info("Python 服务生成 skills.md 草稿成功 snapshotId={}", snapshotId);
             return response;
         } catch (BusinessException e) {
-            // 业务异常直接向上抛出
             throw e;
         } catch (Exception e) {
             log.error("调用 Python 服务生成草稿失败 snapshotId={} reason={}", snapshotId, e.getMessage(), e);

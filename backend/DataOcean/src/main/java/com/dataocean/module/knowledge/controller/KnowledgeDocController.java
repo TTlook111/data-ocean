@@ -190,6 +190,22 @@ public class KnowledgeDocController {
     }
 
     /**
+     * 版本对比（行级差异）
+     *
+     * @param id 文档 ID
+     * @param v1 版本号 1
+     * @param v2 版本号 2
+     * @return 行级差异列表
+     */
+    @GetMapping("/{id}/versions/diff")
+    public Result<List<Map<String, Object>>> diffVersions(@PathVariable Long id,
+                                                           @RequestParam Integer v1,
+                                                           @RequestParam Integer v2) {
+        log.debug("收到版本对比请求 docId={} v1={} v2={}", id, v1, v2);
+        return Result.success(knowledgeVersionService.diffVersions(id, v1, v2));
+    }
+
+    /**
      * 回滚到指定版本
      *
      * @param id      文档 ID

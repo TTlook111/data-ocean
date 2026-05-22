@@ -3,6 +3,7 @@ package com.dataocean.module.knowledge.service;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 知识文档版本管理业务接口。
@@ -59,4 +60,14 @@ public interface KnowledgeVersionService {
      * @return 新创建的版本号
      */
     Integer rollback(Long docId, Integer targetVersionNo);
+
+    /**
+     * 对比两个版本的内容差异（行级 diff）。
+     *
+     * @param docId 文档 ID
+     * @param v1    版本号 1
+     * @param v2    版本号 2
+     * @return 行级差异列表，每个元素包含 type（ADD/DELETE/EQUAL）和 content
+     */
+    List<Map<String, Object>> diffVersions(Long docId, Integer v1, Integer v2);
 }

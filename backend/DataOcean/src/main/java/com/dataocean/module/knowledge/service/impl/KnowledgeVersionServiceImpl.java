@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 知识文档版本管理业务实现类。
@@ -137,5 +138,75 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
 
         log.info("文档版本回滚成功 docId={} fromVersion={} newVersion={}", docId, targetVersionNo, newVersionNo);
         return newVersionNo;
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：逐行对比两个版本的内容，标记新增、删除和相同的行。
+     * 使用简单的最长公共子序列（LCS）算法实现行级 diff。
+     * </p>
+     */
+    @Override
+    public List<Map<String, Object>> diffVersions(Long docId, Integer v1, Integer v2) {
+        // 获取两个版本的内容
+        KnowledgeDocVersion version1 = getVersion(docId, v1);
+        KnowledgeDocVersion version2 = getVersion(docId, v2);
+
+        String[] lines1 = (version1.getContent() != null ? version1.getContent() : "").split("\n", -1);
+        String[] lines2 = (version2.getContent() != null ? version2.getContent() : "").split("\n", -1);
+
+        // 使用 LCS 算法计算行级差异
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+        int[][] lcs = buildLcsTable(lines1, lines2);
+        buildDiff(lines1, lines2, lcs, lines1.length, lines2.length, result);
+
+        return result;
+    }
+
+    /**
+     * 构建 LCS（最长公共子序列）表。
+     *
+     * @param lines1 版本 1 的行数组
+     * @param lines2 版本 2 的行数组
+     * @return LCS 动态规划表
+     */
+    private int[][] buildLcsTable(String[] lines1, String[] lines2) {
+        int m = lines1.length;
+        int n = lines2.length;
+        int[][] dp = new int[m + 1][n + 1];
+        for (int i = 1; i <= m; i++) {
+            for (int j = 1; j <= n; j++) {
+                if (lines1[i - 1].equals(lines2[j - 1])) {
+                    dp[i][j] = dp[i - 1][j - 1] + 1;
+                } else {
+                    dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+                }
+            }
+        }
+        return dp;
+    }
+
+    /**
+     * 根据 LCS 表回溯生成 diff 结果。
+     *
+     * @param lines1 版本 1 的行数组
+     * @param lines2 版本 2 的行数组
+     * @param lcs    LCS 动态规划表
+     * @param i      当前行索引（版本 1）
+     * @param j      当前行索引（版本 2）
+     * @param result diff 结果列表
+     */
+    private void buildDiff(String[] lines1, String[] lines2, int[][] lcs, int i, int j, List<Map<String, Object>> result) {
+        if (i > 0 && j > 0 && lines1[i - 1].equals(lines2[j - 1])) {
+            buildDiff(lines1, lines2, lcs, i - 1, j - 1, result);
+            result.add(Map.of("type", "EQUAL", "content", lines1[i - 1]));
+        } else if (j > 0 && (i == 0 || lcs[i][j - 1] >= lcs[i - 1][j])) {
+            buildDiff(lines1, lines2, lcs, i, j - 1, result);
+            result.add(Map.of("type", "ADD", "content", lines2[j - 1]));
+        } else if (i > 0 && (j == 0 || lcs[i][j - 1] < lcs[i - 1][j])) {
+            buildDiff(lines1, lines2, lcs, i - 1, j, result);
+            result.add(Map.of("type", "DELETE", "content", lines1[i - 1]));
+        }
     }
 }
