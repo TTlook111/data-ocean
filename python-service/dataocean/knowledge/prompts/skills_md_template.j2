@@ -1,0 +1,50 @@
+请根据以下数据库元数据，生成一份结构化的 skills.md 业务知识文档。
+
+## 数据库元数据
+
+### 表信息
+{% for table in tables %}
+#### {{ table.table_name }}{% if table.table_comment %} — {{ table.table_comment }}{% endif %}
+
+| 字段名 | 类型 | 注释 | 主键 | 可信度 |
+|--------|------|------|------|--------|
+{% for col in table.columns %}
+| {{ col.column_name }} | {{ col.column_type }} | {{ col.column_comment or '（无注释）' }} | {{ '是' if col.is_primary_key else '' }} | {{ col.confidence_score or '-' }} |
+{% endfor %}
+
+{% endfor %}
+
+### 外键关系
+{% for fk in foreign_keys %}
+- {{ fk.source_table }}.{{ fk.source_column }} → {{ fk.target_table }}.{{ fk.target_column }}
+{% endfor %}
+
+### 索引信息
+{% for idx in indexes %}
+- {{ idx.table_name }}: {{ idx.index_name }} ({{ idx.columns | join(', ') }}){% if idx.is_unique %} [唯一]{% endif %}
+
+{% endfor %}
+
+---
+
+请按以下结构输出 skills.md：
+
+## 1. 文档来源
+说明本文档基于哪个数据源和快照版本生成。
+
+## 2. 核心表说明
+列出每张表的业务含义、核心字段用途、数据量级估算。
+
+## 3. Join Path（关联路径）
+列出常用的表关联路径，说明关联条件和业务含义。
+
+## 4. 指标口径
+列出可从这些表中计算的常见业务指标，包含计算公式和注意事项。
+
+## 5. 字段防坑指南
+列出容易误用的字段、易混淆的字段对、需要特殊处理的字段（如枚举值含义、时间字段时区等）。
+
+注意：
+- 对于无注释的字段，请基于字段名和类型推测用途，并在说明后标注"（待人工确认）"
+- 优先使用可信度高的字段
+- 输出纯 Markdown 格式，不要包含代码块标记

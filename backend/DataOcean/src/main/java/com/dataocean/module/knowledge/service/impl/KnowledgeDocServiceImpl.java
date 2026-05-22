@@ -1,0 +1,464 @@
+package com.dataocean.module.knowledge.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.security.UserContext;
+import com.dataocean.module.knowledge.entity.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.KnowledgeDoc;
+import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.KnowledgeReviewTask;
+import com.dataocean.module.knowledge.enums.ChunkType;
+import com.dataocean.module.knowledge.enums.DocStatus;
+import com.dataocean.module.knowledge.enums.GenerationSource;
+import com.dataocean.module.knowledge.enums.ReviewStatus;
+import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
+import com.dataocean.module.knowledge.service.KnowledgeDocService;
+import com.dataocean.module.knowledge.service.VectorIndexTaskService;
+import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
+import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.entity.DbTableMeta;
+import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
+import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
+import com.dataocean.module.metadata.mapper.TableRelationMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * 知识文档管理业务实现类。
+ * <p>
+ * 实现 {@link KnowledgeDocService} 接口，提供文档 CRUD、状态流转、AI 草稿生成等完整管理功能。
+ * 文档生命周期：DRAFT → PENDING_REVIEW → APPROVED → PUBLISHED。
+ * 发布时自动切分 chunks 并创建向量化任务。
+ * </p>
+ *
+ * @author DataOcean
+ */
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class KnowledgeDocServiceImpl implements KnowledgeDocService {
+
+    private final KnowledgeDocMapper knowledgeDocMapper;
+    private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
+    private final KnowledgeChunkMapper knowledgeChunkMapper;
+    private final KnowledgeReviewTaskMapper knowledgeReviewTaskMapper;
+    private final VectorIndexTaskService vectorIndexTaskService;
+    private final PythonKnowledgeClient pythonKnowledgeClient;
+    private final DbTableMetaMapper dbTableMetaMapper;
+    private final DbColumnMetaMapper dbColumnMetaMapper;
+    private final TableRelationMapper tableRelationMapper;
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：使用 LambdaQueryWrapper 动态条件查询，支持按 datasourceId 和 status 筛选。
+     * </p>
+     */
+    @Override
+    public Page<KnowledgeDoc> listDocs(Long datasourceId, String status, Integer page, Integer pageSize) {
+        log.debug("查询知识文档列表 datasourceId={} status={} page={} pageSize={}", datasourceId, status, page, pageSize);
+        // 构建动态查询条件
+        LambdaQueryWrapper<KnowledgeDoc> wrapper = new LambdaQueryWrapper<KnowledgeDoc>()
+                .eq(datasourceId != null, KnowledgeDoc::getDatasourceId, datasourceId)
+                .eq(StringUtils.hasText(status), KnowledgeDoc::getStatus, status)
+                .orderByDesc(KnowledgeDoc::getCreatedAt);
+        return knowledgeDocMapper.selectPage(new Page<>(page, pageSize), wrapper);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public KnowledgeDoc getDocById(Long id) {
+        return requireDoc(id);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：创建文档，初始状态 DRAFT，currentVersion=0。
+     * </p>
+     */
+    @Transactional
+    @Override
+    public Long createDoc(Long datasourceId, String title, String content) {
+        log.info("创建知识文档 datasourceId={} title={}", datasourceId, title);
+        // 构建文档实体，初始状态为草稿
+        KnowledgeDoc doc = KnowledgeDoc.builder()
+                .datasourceId(datasourceId)
+                .title(title)
+                .content(content)
+                .currentVersion(0)
+                .status(DocStatus.DRAFT.name())
+                .updatedBy(UserContext.currentUserId())
+                .deleted(0)
+                .build();
+        knowledgeDocMapper.insert(doc);
+        log.info("知识文档创建成功 docId={} title={}", doc.getId(), title);
+        return doc.getId();
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：乐观锁校验，设置 entity 的 version 字段后 updateById，
+     * MyBatis-Plus 自动处理版本比对，更新失败抛出业务异常。
+     * </p>
+     */
+    @Transactional
+    @Override
+    public void updateDoc(Long id, String title, String content, Integer version) {
+        log.info("编辑知识文档 docId={} version={}", id, version);
+        KnowledgeDoc doc = requireDoc(id);
+        // 设置乐观锁版本号（MyBatis-Plus @Version 自动处理 WHERE version = ?）
+        doc.setVersion(version);
+        doc.setTitle(title);
+        doc.setContent(content);
+        doc.setUpdatedBy(UserContext.currentUserId());
+        // updateById 返回影响行数，为 0 表示乐观锁冲突
+        int rows = knowledgeDocMapper.updateById(doc);
+        if (rows == 0) {
+            throw new BusinessException("文档已被其他人修改，请刷新后重试");
+        }
+        log.info("知识文档编辑成功 docId={}", id);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：校验状态为 DRAFT，更新为 PENDING_REVIEW。
+     * </p>
+     */
+    @Transactional
+    @Override
+    public void submitReview(Long id) {
+        log.info("提交文档审核 docId={}", id);
+        KnowledgeDoc doc = requireDoc(id);
+        // 校验当前状态必须为草稿
+        if (!DocStatus.DRAFT.name().equals(doc.getStatus())) {
+            throw new BusinessException("只有草稿状态的文档才能提交审核");
+        }
+        doc.setStatus(DocStatus.PENDING_REVIEW.name());
+        doc.setUpdatedBy(UserContext.currentUserId());
+        knowledgeDocMapper.updateById(doc);
+        log.info("文档已提交审核 docId={}", id);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：校验状态为 PENDING_REVIEW，更新为 APPROVED，创建审核任务记录。
+     * </p>
+     */
+    @Transactional
+    @Override
+    public void approve(Long id, String comment) {
+        log.info("审核通过文档 docId={}", id);
+        KnowledgeDoc doc = requireDoc(id);
+        // 校验当前状态必须为待审核
+        if (!DocStatus.PENDING_REVIEW.name().equals(doc.getStatus())) {
+            throw new BusinessException("只有待审核状态的文档才能审核");
+        }
+        // 更新文档状态为审核通过
+        doc.setStatus(DocStatus.APPROVED.name());
+        doc.setReviewStatus(ReviewStatus.APPROVED.name());
+        doc.setUpdatedBy(UserContext.currentUserId());
+        knowledgeDocMapper.updateById(doc);
+        // 创建审核任务记录
+        createReviewTask(doc, ReviewStatus.APPROVED.name(), comment);
+        log.info("文档审核通过 docId={}", id);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：校验状态为 PENDING_REVIEW，更新为 DRAFT，创建审核任务记录。
+     * </p>
+     */
+    @Transactional
+    @Override
+    public void reject(Long id, String comment) {
+        log.info("审核拒绝文档 docId={}", id);
+        KnowledgeDoc doc = requireDoc(id);
+        // 校验当前状态必须为待审核
+        if (!DocStatus.PENDING_REVIEW.name().equals(doc.getStatus())) {
+            throw new BusinessException("只有待审核状态的文档才能审核");
+        }
+        // 更新文档状态回退为草稿
+        doc.setStatus(DocStatus.DRAFT.name());
+        doc.setReviewStatus(ReviewStatus.REJECTED.name());
+        doc.setUpdatedBy(UserContext.currentUserId());
+        knowledgeDocMapper.updateById(doc);
+        // 创建审核任务记录
+        createReviewTask(doc, ReviewStatus.REJECTED.name(), comment);
+        log.info("文档审核拒绝 docId={}", id);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：
+     * 1. 校验状态为 APPROVED
+     * 2. 更新为 PUBLISHED
+     * 3. 切分文档内容为 chunks
+     * 4. 创建向量化任务
+     * </p>
+     */
+    @Transactional
+    @Override
+    public void publish(Long id) {
+        log.info("发布知识文档 docId={}", id);
+        KnowledgeDoc doc = requireDoc(id);
+        // 校验当前状态必须为审核通过
+        if (!DocStatus.APPROVED.name().equals(doc.getStatus())) {
+            throw new BusinessException("只有审核通过的文档才能发布");
+        }
+        // 更新文档状态为已发布
+        doc.setStatus(DocStatus.PUBLISHED.name());
+        doc.setUpdatedBy(UserContext.currentUserId());
+        knowledgeDocMapper.updateById(doc);
+        // 切分文档内容为 chunks
+        splitAndSaveChunks(doc);
+        // 创建向量化任务
+        vectorIndexTaskService.createTask(doc.getDatasourceId(), "DOC", doc.getId());
+        log.info("知识文档发布成功 docId={}", id);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：
+     * 1. 校验文档存在性
+     * 2. 从元数据表中读取快照关联的表和字段信息
+     * 3. 调用 Python AI 服务生成草稿
+     * 4. 创建新版本记录并同步更新文档主表
+     * </p>
+     */
+    @Transactional
+    @Override
+    public String generateDraft(Long docId, Long snapshotId) {
+        log.info("生成 AI 草稿 docId={} snapshotId={}", docId, snapshotId);
+        KnowledgeDoc doc = requireDoc(docId);
+
+        // 读取该数据源下的表元数据
+        List<DbTableMeta> tables = dbTableMetaMapper.selectList(
+                new LambdaQueryWrapper<DbTableMeta>()
+                        .eq(DbTableMeta::getDatasourceId, doc.getDatasourceId()));
+
+        // 组装表元数据列表（含字段信息）
+        List<Map<String, Object>> tablesMetadata = new ArrayList<>();
+        for (DbTableMeta table : tables) {
+            Map<String, Object> tableMap = new HashMap<>();
+            tableMap.put("table_name", table.getTableName());
+            tableMap.put("table_comment", table.getTableComment());
+
+            // 查询该表的字段列表
+            List<DbColumnMeta> columns = dbColumnMetaMapper.selectList(
+                    new LambdaQueryWrapper<DbColumnMeta>()
+                            .eq(DbColumnMeta::getTableMetaId, table.getId()));
+            List<Map<String, Object>> columnList = new ArrayList<>();
+            for (DbColumnMeta col : columns) {
+                Map<String, Object> colMap = new HashMap<>();
+                colMap.put("column_name", col.getColumnName());
+                colMap.put("column_type", col.getDataType());
+                colMap.put("column_comment", col.getColumnComment());
+                colMap.put("is_primary_key", col.getIsPrimaryKey() != null && col.getIsPrimaryKey() == 1);
+                columnList.add(colMap);
+            }
+            tableMap.put("columns", columnList);
+            tablesMetadata.add(tableMap);
+        }
+
+        // 查询外键关系
+        List<TableRelation> relations = tableRelationMapper.selectList(
+                new LambdaQueryWrapper<TableRelation>()
+                        .eq(TableRelation::getDatasourceId, doc.getDatasourceId()));
+        List<Map<String, Object>> foreignKeys = new ArrayList<>();
+        for (TableRelation rel : relations) {
+            Map<String, Object> fk = new HashMap<>();
+            fk.put("source_table", rel.getSourceTable());
+            fk.put("source_column", rel.getSourceColumn());
+            fk.put("target_table", rel.getTargetTable());
+            fk.put("target_column", rel.getTargetColumn());
+            foreignKeys.add(fk);
+        }
+
+        // 调用 Python AI 服务生成草稿
+        String draftContent;
+        try {
+            Map<String, Object> result = pythonKnowledgeClient.generateDraft(
+                    snapshotId, doc.getDatasourceId(), tablesMetadata, foreignKeys, List.of());
+            draftContent = (String) result.get("content");
+        } catch (Exception e) {
+            log.error("AI 草稿生成失败 docId={} snapshotId={}", docId, snapshotId, e);
+            throw new BusinessException("AI 草稿生成失败：" + e.getMessage());
+        }
+
+        // 创建新版本记录
+        KnowledgeDocVersion version = KnowledgeDocVersion.builder()
+                .docId(docId)
+                .datasourceId(doc.getDatasourceId())
+                .metadataSnapshotId(snapshotId)
+                .versionNo((doc.getCurrentVersion() == null ? 0 : doc.getCurrentVersion()) + 1)
+                .content(draftContent)
+                .generationSource(GenerationSource.AI_GENERATED.name())
+                .changeSummary("AI 自动生成草稿")
+                .createdBy(UserContext.currentUserId())
+                .build();
+        knowledgeDocVersionMapper.insert(version);
+
+        // 同步更新文档主表
+        doc.setContent(draftContent);
+        doc.setCurrentVersion(version.getVersionNo());
+        doc.setUpdatedBy(UserContext.currentUserId());
+        knowledgeDocMapper.updateById(doc);
+
+        log.info("AI 草稿生成成功 docId={} versionNo={}", docId, version.getVersionNo());
+        return draftContent;
+    }
+
+    /**
+     * 根据 ID 查询文档，不存在则抛出业务异常。
+     *
+     * @param id 文档 ID
+     * @return 文档实体
+     * @throws BusinessException 文档不存在时抛出
+     */
+    private KnowledgeDoc requireDoc(Long id) {
+        KnowledgeDoc doc = knowledgeDocMapper.selectById(id);
+        if (doc == null) {
+            throw new BusinessException("文档不存在");
+        }
+        return doc;
+    }
+
+    /**
+     * 创建审核任务记录。
+     *
+     * @param doc          文档实体
+     * @param reviewStatus 审核状态
+     * @param comment      审核意见
+     */
+    private void createReviewTask(KnowledgeDoc doc, String reviewStatus, String comment) {
+        // 查询当前版本记录 ID
+        KnowledgeDocVersion currentVersion = knowledgeDocVersionMapper.selectOne(
+                new LambdaQueryWrapper<KnowledgeDocVersion>()
+                        .eq(KnowledgeDocVersion::getDocId, doc.getId())
+                        .eq(KnowledgeDocVersion::getVersionNo, doc.getCurrentVersion()));
+        Long docVersionId = currentVersion != null ? currentVersion.getId() : null;
+
+        KnowledgeReviewTask reviewTask = KnowledgeReviewTask.builder()
+                .docVersionId(docVersionId)
+                .reviewerId(UserContext.currentUserId())
+                .reviewStatus(reviewStatus)
+                .reviewComment(comment)
+                .submittedAt(LocalDateTime.now())
+                .reviewedAt(LocalDateTime.now())
+                .build();
+        knowledgeReviewTaskMapper.insert(reviewTask);
+    }
+
+    /**
+     * 切分文档内容为知识切片并保存。
+     * <p>
+     * 按 Markdown 二级标题（##）拆分文档内容，每个段落作为一个独立切片。
+     * 切片类型默认为 TABLE_DESC，后续可根据内容特征细化分类。
+     * </p>
+     *
+     * @param doc 文档实体
+     */
+    private void splitAndSaveChunks(KnowledgeDoc doc) {
+        String content = doc.getContent();
+        if (!StringUtils.hasText(content)) {
+            return;
+        }
+        // 先删除该文档已有的切片（重新生成）
+        knowledgeChunkMapper.delete(
+                new LambdaQueryWrapper<KnowledgeChunk>()
+                        .eq(KnowledgeChunk::getDocId, doc.getId()));
+
+        // 按 Markdown 二级标题拆分（(?m) 启用多行模式使 ^ 匹配行首）
+        String[] sections = content.split("(?m)(?=^## )", -1);
+        for (String section : sections) {
+            String trimmed = section.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            // 构建切片实体
+            KnowledgeChunk chunk = KnowledgeChunk.builder()
+                    .docId(doc.getId())
+                    .versionNo(doc.getCurrentVersion())
+                    .chunkType(ChunkType.TABLE_DESC.name())
+                    .chunkText(trimmed)
+                    .reviewStatus(ReviewStatus.APPROVED.name())
+                    .build();
+            knowledgeChunkMapper.insert(chunk);
+        }
+        log.info("文档切片完成 docId={} chunkCount={}", doc.getId(), sections.length);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：模拟切片，按 Markdown 二级标题拆分文档内容，
+     * 返回每个切片的文本和类型，不写入数据库。
+     * </p>
+     */
+    @Override
+    public List<Map<String, String>> previewChunks(Long docId) {
+        KnowledgeDoc doc = requireDoc(docId);
+        String content = doc.getContent();
+        List<Map<String, String>> result = new ArrayList<>();
+        if (!StringUtils.hasText(content)) {
+            return result;
+        }
+        // 按 Markdown 二级标题拆分
+        String[] sections = content.split("(?m)(?=^## )", -1);
+        for (String section : sections) {
+            String trimmed = section.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            // 根据标题内容推断切片类型
+            String chunkType = inferChunkType(trimmed);
+            result.add(Map.of("chunk_text", trimmed, "chunk_type", chunkType));
+        }
+        return result;
+    }
+
+    /**
+     * 根据切片内容推断切片类型。
+     * <p>
+     * 通过匹配标题关键词判断切片属于哪种类型。
+     * </p>
+     *
+     * @param chunkText 切片文本
+     * @return 切片类型字符串
+     */
+    private String inferChunkType(String chunkText) {
+        String lowerText = chunkText.toLowerCase();
+        if (lowerText.contains("join") || lowerText.contains("关联")) {
+            return ChunkType.JOIN_PATH.name();
+        } else if (lowerText.contains("指标") || lowerText.contains("metric")) {
+            return ChunkType.METRIC.name();
+        } else if (lowerText.contains("防坑") || lowerText.contains("注意")) {
+            return ChunkType.FIELD_NOTE.name();
+        }
+        return ChunkType.TABLE_DESC.name();
+    }
+}
+

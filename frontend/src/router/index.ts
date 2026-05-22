@@ -19,6 +19,10 @@ import IssueList from '../views/admin/governance/IssueList.vue'
 import StatusEditor from '../views/admin/governance/StatusEditor.vue'
 import SnapshotLifecycle from '../views/admin/metadata/SnapshotLifecycle.vue'
 import VersionHistory from '../views/admin/metadata/VersionHistory.vue'
+import SkillsEditor from '../views/admin/knowledge/SkillsEditor.vue'
+import VersionList from '../views/admin/knowledge/VersionList.vue'
+import ReviewPage from '../views/admin/knowledge/ReviewPage.vue'
+import KnowledgeDashboard from '../views/admin/knowledge/KnowledgeDashboard.vue'
 import { setupRouterGuards } from './guards'
 
 const router = createRouter({
@@ -143,6 +147,30 @@ const router = createRouter({
           name: 'admin-metadata-version-history',
           component: VersionHistory,
           meta: { title: '版本历史', section: '版本管理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'knowledge',
+          name: 'admin-knowledge',
+          component: KnowledgeDashboard,
+          meta: { title: '知识库总览', section: '知识库管理', permission: 'knowledge:manage' },
+        },
+        {
+          path: 'knowledge/editor/:id?',
+          name: 'admin-knowledge-editor',
+          component: SkillsEditor,
+          meta: { title: 'Skills 编辑器', section: '知识库管理', permission: 'knowledge:manage' },
+        },
+        {
+          path: 'knowledge/versions/:id',
+          name: 'admin-knowledge-versions',
+          component: VersionList,
+          meta: { title: '版本历史', section: '知识库管理', permission: 'knowledge:manage' },
+        },
+        {
+          path: 'knowledge/review',
+          name: 'admin-knowledge-review',
+          component: ReviewPage,
+          meta: { title: '知识审核', section: '知识库管理', permission: 'knowledge:manage' },
         },
       ],
     },
