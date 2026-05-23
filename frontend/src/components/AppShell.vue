@@ -24,6 +24,7 @@ import {
   Workflow,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
+import { roleCodesLabel } from '../utils/enumLabels'
 
 interface MenuItem {
   label: string
@@ -82,7 +83,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
 
 const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
-const roleText = computed(() => (auth.user?.roles?.length ? auth.user.roles.join(' / ') : 'DataOcean'))
+const roleText = computed(() => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, 'DataOcean'))
 const currentTitle = computed(() => String(route.meta.title || matchedMenuItem.value?.label || 'DataOcean'))
 const currentSection = computed(() => String(route.meta.section || '工作台'))
 const adminPermissionCodes = [
@@ -148,7 +149,7 @@ function handleUserCommand(command: string) {
           <span class="brand-mark">DO</span>
           <span class="brand-copy">
             <strong>DataOcean</strong>
-            <small>NL2SQL Governance</small>
+            <small>智能查询治理平台</small>
           </span>
         </RouterLink>
         <button class="sidebar-toggle" type="button" @click="collapsed = !collapsed">

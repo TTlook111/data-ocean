@@ -14,6 +14,7 @@ import {
 } from '../../../api/admin/knowledge'
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
+import { knowledgeStatusLabel, knowledgeStatusType } from '../../../utils/enumLabels'
 
 const route = useRoute()
 const router = useRouter()
@@ -200,10 +201,10 @@ onMounted(() => {
       <el-select v-model="datasourceId" placeholder="选择数据源" :disabled="!isNew" style="width: 200px">
         <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
       </el-select>
-      <el-tag v-if="!isNew" :type="status === 'DRAFT' ? 'info' : status === 'PENDING_REVIEW' ? 'warning' : status === 'APPROVED' ? 'success' : status === 'PUBLISHED' ? '' : 'danger'" size="small">
-        {{ status }}
+      <el-tag v-if="!isNew" :type="knowledgeStatusType(status)" size="small">
+        {{ knowledgeStatusLabel(status) }}
       </el-tag>
-      <span v-if="!isNew" class="version-badge">v{{ version }}</span>
+      <span v-if="!isNew" class="version-badge">版本 {{ version }}</span>
     </section>
 
     <section class="editor-body">
@@ -232,7 +233,7 @@ onMounted(() => {
       </p>
       <el-select v-model="selectedSnapshotId" placeholder="选择快照" style="width: 100%">
         <el-option v-for="s in snapshots" :key="s.id" :value="s.id"
-                   :label="`快照 #${s.id} - ${s.datasourceName} (v${s.snapshotVersion})`" />
+                   :label="`快照 #${s.id} - ${s.datasourceName}（版本 ${s.snapshotVersion}）`" />
       </el-select>
       <template #footer>
         <el-button @click="generateDialogVisible = false">取消</el-button>
@@ -293,4 +294,3 @@ onMounted(() => {
   font-family: inherit;
 }
 </style>
-

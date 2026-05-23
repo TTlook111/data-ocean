@@ -9,6 +9,7 @@ import {
   type VersionHistoryItem
 } from '../../../api/admin/versioning'
 import type { SchemaDiffResult } from '../../../api/admin/metadata'
+import { snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
 
 const loading = ref(false)
 const datasources = ref<DatasourceItem[]>([])
@@ -22,16 +23,6 @@ const compareLoading = ref(false)
 const diffResult = ref<SchemaDiffResult | null>(null)
 const compareOldId = ref<number | undefined>()
 const compareNewId = ref<number | undefined>()
-
-const statusLabels: Record<string, string> = {
-  DRAFT: '草稿', CHECKING: '校验中', ISSUE_FOUND: '存在问题',
-  APPROVED: '已审核', PUBLISHED: '已发布', EXPIRED: '已过期'
-}
-
-const statusTypes: Record<string, string> = {
-  DRAFT: 'info', CHECKING: 'warning', ISSUE_FOUND: 'danger',
-  APPROVED: '', PUBLISHED: 'success', EXPIRED: 'info'
-}
 
 async function fetchDatasources() {
   const res = await listDatasources({ page: 1, pageSize: 200 })
@@ -97,11 +88,11 @@ onMounted(() => {
 
       <div class="compare-bar" v-if="history.length >= 2">
         <el-select v-model="compareOldId" placeholder="旧版本" style="width: 150px" size="small">
-          <el-option v-for="h in history" :key="h.snapshotId" :label="'v' + h.snapshotVersion" :value="h.snapshotId" />
+          <el-option v-for="h in history" :key="h.snapshotId" :label="`版本 ${h.snapshotVersion}`" :value="h.snapshotId" />
         </el-select>
-        <span class="compare-arrow">vs</span>
+        <span class="compare-arrow">对比</span>
         <el-select v-model="compareNewId" placeholder="新版本" style="width: 150px" size="small">
-          <el-option v-for="h in history" :key="h.snapshotId" :label="'v' + h.snapshotVersion" :value="h.snapshotId" />
+          <el-option v-for="h in history" :key="h.snapshotId" :label="`版本 ${h.snapshotVersion}`" :value="h.snapshotId" />
         </el-select>
         <el-button size="small" type="primary" @click="openCompare">
           <GitCompare :size="14" /> 对比
@@ -117,9 +108,9 @@ onMounted(() => {
           <div class="timeline-dot" :class="'dot-' + item.status.toLowerCase().replace('_','-')"></div>
           <div class="timeline-content">
             <div class="timeline-header">
-              <strong>v{{ item.snapshotVersion }}</strong>
-              <el-tag :type="statusTypes[item.status] || 'info'" size="small">
-                {{ statusLabels[item.status] || item.status }}
+              <strong>版本 {{ item.snapshotVersion }}</strong>
+              <el-tag :type="snapshotStatusType(item.status)" size="small">
+                {{ snapshotStatusLabel(item.status) }}
               </el-tag>
               <span class="timeline-time">{{ item.createdAt }}</span>
             </div>

@@ -12,6 +12,7 @@ import {
   type ColumnMetaItem
 } from '../../../api/admin/governance'
 import { listSnapshots } from '../../../api/admin/metadata'
+import { governanceStatusLabel } from '../../../utils/enumLabels'
 
 const loading = ref(false)
 const snapshots = ref<Array<{ id: number; snapshotVersion: number }>>([])
@@ -57,7 +58,7 @@ async function changeTableStatus(tableName: string, newStatus: string) {
   if (!selectedSnapshotId.value) return
   try {
     await updateTableGovernanceStatus(selectedSnapshotId.value, tableName, { governanceStatus: newStatus })
-    ElMessage.success(`表 ${tableName} 状态已更新为 ${newStatus}`)
+    ElMessage.success(`表 ${tableName} 状态已更新为${governanceStatusLabel(newStatus)}`)
     fetchTables()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '更新失败')
@@ -102,7 +103,7 @@ onMounted(fetchSnapshots)
 
     <section class="toolbar">
       <el-select v-model="selectedSnapshotId" placeholder="选择快照" style="width: 220px" @change="fetchTables">
-        <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} v${s.snapshotVersion}`" />
+        <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} 版本 ${s.snapshotVersion}`" />
       </el-select>
     </section>
 
@@ -117,7 +118,7 @@ onMounted(fetchSnapshots)
             <span class="table-name">{{ t.tableName }}</span>
             <el-select :model-value="t.governanceStatus" size="small" style="width: 110px"
                        @change="(v: string) => changeTableStatus(t.tableName, v)">
-              <el-option v-for="s in statusOptions" :key="s" :value="s" :label="s" />
+              <el-option v-for="s in statusOptions" :key="s" :value="s" :label="governanceStatusLabel(s)" />
             </el-select>
           </div>
           <el-empty v-if="!tables.length" description="暂无数据" :image-size="60" />
@@ -129,7 +130,7 @@ onMounted(fetchSnapshots)
         <div class="column-header">
           <h3>{{ selectedTable }} 字段</h3>
           <div class="batch-actions">
-            <el-button size="small" @click="batchSetColumns('NORMAL')">全部设为 NORMAL</el-button>
+            <el-button size="small" @click="batchSetColumns('NORMAL')">全部设为正常可用</el-button>
             <el-button size="small" type="warning" @click="batchSetColumns('DEPRECATED')">全部废弃</el-button>
           </div>
         </div>
@@ -140,7 +141,7 @@ onMounted(fetchSnapshots)
             <template #default="{ row }">
               <el-select :model-value="row.governanceStatus" size="small"
                          @change="(v: string) => changeColumnStatus(row.id, v)">
-                <el-option v-for="s in statusOptions" :key="s" :value="s" :label="s" />
+                <el-option v-for="s in statusOptions" :key="s" :value="s" :label="governanceStatusLabel(s)" />
               </el-select>
             </template>
           </el-table-column>

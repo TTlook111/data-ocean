@@ -16,6 +16,7 @@ import {
 } from 'lucide-vue-next'
 import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource'
 import { useAuthStore } from '../../stores/auth'
+import { roleCodesLabel } from '../../utils/enumLabels'
 
 interface LocalMessage {
   id: string
@@ -62,7 +63,7 @@ const questionInputRef = ref<HTMLTextAreaElement>()
 const permissions = computed(() => auth.currentUser?.permissions || auth.user?.permissions || [])
 const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPermissionCodes.some((code) => permissions.value.includes(code)))
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
-const roleText = computed(() => (auth.user?.roles?.length ? auth.user.roles.join(' / ') : '普通用户'))
+const roleText = computed(() => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, '普通用户'))
 const selectedDatasource = computed(() => datasources.value.find((item) => item.id === selectedId.value))
 const datasourceSessions = computed(() =>
   sessions
@@ -235,7 +236,7 @@ onMounted(fetchDatasources)
         <span>DO</span>
         <div>
           <strong>DataOcean</strong>
-          <small>AI Query</small>
+          <small>智能问答</small>
         </div>
       </RouterLink>
 

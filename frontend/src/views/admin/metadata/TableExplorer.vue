@@ -10,6 +10,7 @@ import {
   type TableMetaItem,
   type ColumnMetaItem,
 } from '../../../api/admin/metadata'
+import { snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,21 +28,9 @@ const filteredColumns = computed(() =>
   columns.value.filter(c => c.tableName === selectedTable.value)
 )
 
-function statusType(status?: string) {
-  const map: Record<string, string> = {
-    DRAFT: 'info',
-    CHECKING: 'warning',
-    ISSUE_FOUND: 'danger',
-    APPROVED: 'success',
-    PUBLISHED: 'success',
-    EXPIRED: 'info',
-  }
-  return map[status || ''] || 'info'
-}
-
 function snapshotLabel(snapshot: SnapshotItem) {
   const score = snapshot.qualityScore != null ? ` / ${snapshot.qualityScore}分` : ''
-  return `${snapshot.datasourceName} v${snapshot.snapshotVersion}${score}`
+  return `${snapshot.datasourceName} 版本 ${snapshot.snapshotVersion}${score}`
 }
 
 async function fetchSnapshots() {
@@ -134,13 +123,15 @@ watch(
         @change="handleSnapshotChange"
       >
         <el-option v-for="snapshot in snapshots" :key="snapshot.id" :label="snapshotLabel(snapshot)" :value="snapshot.id">
-          <span class="snapshot-option-main">{{ snapshot.datasourceName }} v{{ snapshot.snapshotVersion }}</span>
-          <el-tag :type="statusType(snapshot.status)" size="small">{{ snapshot.status }}</el-tag>
+          <span class="snapshot-option-main">{{ snapshot.datasourceName }} 版本 {{ snapshot.snapshotVersion }}</span>
+          <el-tag :type="snapshotStatusType(snapshot.status)" size="small">{{ snapshotStatusLabel(snapshot.status) }}</el-tag>
         </el-option>
       </el-select>
 
       <div v-if="selectedSnapshot" class="snapshot-summary">
-        <el-tag :type="statusType(selectedSnapshot.status)" size="small">{{ selectedSnapshot.status }}</el-tag>
+        <el-tag :type="snapshotStatusType(selectedSnapshot.status)" size="small">
+          {{ snapshotStatusLabel(selectedSnapshot.status) }}
+        </el-tag>
         <span>{{ selectedSnapshot.tableCount }} 张表</span>
         <span>{{ selectedSnapshot.columnCount }} 个字段</span>
         <span>质量分 {{ selectedSnapshot.qualityScore ?? '-' }}</span>

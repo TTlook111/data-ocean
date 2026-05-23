@@ -10,6 +10,7 @@ import {
   type QualityRule
 } from '../../../api/admin/governance'
 import { listSnapshots } from '../../../api/admin/metadata'
+import { qualityDimensionLabel, severityLabel } from '../../../utils/enumLabels'
 
 const loading = ref(false)
 const checkLoading = ref(false)
@@ -17,16 +18,6 @@ const selectedSnapshotId = ref<number | undefined>()
 const snapshots = ref<Array<{ id: number; datasourceName?: string; snapshotVersion: number; qualityScore?: number }>>([])
 const checkResult = ref<QualityCheckResult | null>(null)
 const rules = ref<QualityRule[]>([])
-
-const dimensionLabels: Record<string, string> = {
-  COMPLETENESS: '完整性',
-  ACCURACY: '准确性',
-  CONSISTENCY: '一致性',
-  TIMELINESS: '时效性',
-  TRACEABILITY: '可追溯性'
-}
-
-const severityLabels: Record<string, string> = { HIGH: '高', MEDIUM: '中', LOW: '低' }
 
 async function fetchSnapshots() {
   const res = await listSnapshots({ page: 1, size: 50 })
@@ -87,7 +78,7 @@ onMounted(() => {
     <section class="check-panel">
       <el-select v-model="selectedSnapshotId" placeholder="选择快照" style="width: 300px">
         <el-option v-for="s in snapshots" :key="s.id" :value="s.id"
-                   :label="`#${s.id} v${s.snapshotVersion} ${s.qualityScore != null ? '(' + s.qualityScore + '分)' : ''}`" />
+                   :label="`快照 #${s.id} 版本 ${s.snapshotVersion} ${s.qualityScore != null ? '(' + s.qualityScore + '分)' : ''}`" />
       </el-select>
       <el-button type="primary" :loading="checkLoading" @click="runCheck" style="margin-left: 12px">
         <Play :size="16" style="margin-right: 6px" />执行质量校验
@@ -106,7 +97,7 @@ onMounted(() => {
       <div class="dimension-grid">
         <div v-for="(score, dim) in checkResult.dimensionScores" :key="dim" class="dim-card">
           <div class="dim-score" :style="{ color: scoreColor(score) }">{{ score }}</div>
-          <div class="dim-label">{{ dimensionLabels[dim] || dim }}</div>
+          <div class="dim-label">{{ qualityDimensionLabel(String(dim)) }}</div>
         </div>
       </div>
 
@@ -124,12 +115,12 @@ onMounted(() => {
       <el-table :data="rules" stripe size="small">
         <el-table-column prop="ruleName" label="规则名称" width="200" />
         <el-table-column prop="dimension" label="维度" width="120">
-          <template #default="{ row }">{{ dimensionLabels[row.dimension] || row.dimension }}</template>
+          <template #default="{ row }">{{ qualityDimensionLabel(row.dimension) }}</template>
         </el-table-column>
         <el-table-column prop="severity" label="级别" width="80">
           <template #default="{ row }">
             <el-tag :type="row.severity === 'HIGH' ? 'danger' : row.severity === 'MEDIUM' ? 'warning' : 'info'" size="small">
-              {{ severityLabels[row.severity] }}
+              {{ severityLabel(row.severity) }}
             </el-tag>
           </template>
         </el-table-column>

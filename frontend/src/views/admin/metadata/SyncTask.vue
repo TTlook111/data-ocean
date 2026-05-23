@@ -9,6 +9,7 @@ import {
   type SyncTriggerPayload
 } from '../../../api/admin/metadata'
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { syncStatusLabel, syncStatusType, syncTriggerLabel } from '../../../utils/enumLabels'
 
 const loading = ref(false)
 const syncLoading = ref(false)
@@ -68,20 +69,6 @@ async function handleSync() {
   }
 }
 
-function statusType(status: string) {
-  const map: Record<string, string> = {
-    PENDING: 'info', RUNNING: 'warning', SUCCESS: 'success', FAILED: 'danger', TIMEOUT: 'danger'
-  }
-  return map[status] || 'info'
-}
-
-function statusLabel(status: string) {
-  const map: Record<string, string> = {
-    PENDING: '等待中', RUNNING: '运行中', SUCCESS: '成功', FAILED: '失败', TIMEOUT: '超时'
-  }
-  return map[status] || status
-}
-
 onMounted(() => {
   fetchTasks()
   fetchDatasources()
@@ -114,12 +101,12 @@ onMounted(() => {
         <el-table-column prop="datasourceName" label="数据源" width="160" />
         <el-table-column prop="triggerType" label="触发方式" width="100">
           <template #default="{ row }">
-            {{ row.triggerType === 'MANUAL' ? '手动' : '定时' }}
+            {{ syncTriggerLabel(row.triggerType) }}
           </template>
         </el-table-column>
         <el-table-column prop="status" label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+            <el-tag :type="syncStatusType(row.status)" size="small">{{ syncStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="进度" width="120">

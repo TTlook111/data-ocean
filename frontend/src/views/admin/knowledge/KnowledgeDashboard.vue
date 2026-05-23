@@ -9,6 +9,7 @@ import {
   type KnowledgeDocQuery
 } from '../../../api/admin/knowledge'
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { knowledgeStatusLabel, knowledgeStatusType } from '../../../utils/enumLabels'
 
 const router = useRouter()
 const loading = ref(false)
@@ -41,21 +42,6 @@ const stats = computed(() => {
     draft: all.filter(d => d.status === 'DRAFT').length
   }
 })
-
-function statusType(status: string) {
-  const map: Record<string, string> = {
-    DRAFT: 'info',
-    PENDING_REVIEW: 'warning',
-    APPROVED: 'success',
-    PUBLISHED: '',
-    DEPRECATED: 'danger'
-  }
-  return map[status] ?? 'info'
-}
-
-function statusLabel(status: string) {
-  return statusOptions.find(o => o.value === status)?.label || status
-}
 
 function extractError(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'response' in error) {
@@ -164,11 +150,11 @@ onMounted(() => {
         </el-table-column>
         <el-table-column prop="status" label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+            <el-tag :type="knowledgeStatusType(row.status)" size="small">{{ knowledgeStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="currentVersion" label="版本" width="80">
-          <template #default="{ row }">v{{ row.currentVersion }}</template>
+          <template #default="{ row }">版本 {{ row.currentVersion }}</template>
         </el-table-column>
         <el-table-column prop="updatedAt" label="更新时间" width="170" />
         <el-table-column label="操作" width="140" fixed="right">

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { RefreshCw, Eye } from 'lucide-vue-next'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
 
 const router = useRouter()
 const loading = ref(false)
@@ -31,14 +32,6 @@ async function fetchSnapshots() {
 async function fetchDatasources() {
   const res = await listDatasources({ page: 1, pageSize: 200 })
   datasources.value = res.data?.records ?? []
-}
-
-function statusType(status: string) {
-  const map: Record<string, string> = {
-    DRAFT: 'info', CHECKING: 'warning', ISSUE_FOUND: 'danger',
-    APPROVED: 'success', PUBLISHED: 'success', EXPIRED: 'info'
-  }
-  return map[status] || 'info'
 }
 
 function viewDetail(id: number) {
@@ -75,7 +68,7 @@ onMounted(() => {
         <el-table-column prop="datasourceName" label="数据源" width="160" />
         <el-table-column prop="status" label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" size="small">{{ row.status }}</el-tag>
+            <el-tag :type="snapshotStatusType(row.status)" size="small">{{ snapshotStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="tableCount" label="表数量" width="90" />

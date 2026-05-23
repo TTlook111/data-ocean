@@ -4,6 +4,7 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowLeft, Settings, UserRound } from 'lucide-vue-next'
 import { me, updateProfile } from '../../api/auth'
 import { useAuthStore } from '../../stores/auth'
+import { roleCodesLabel } from '../../utils/enumLabels'
 
 const auth = useAuthStore()
 const loading = ref(false)
@@ -25,7 +26,7 @@ const rules: FormRules = {
 }
 
 const displayName = () => auth.currentUser?.realName || auth.user?.realName || form.realName || '用户'
-const roleText = () => auth.user?.roles?.length ? auth.user.roles.join(' / ') : '—'
+const roleText = () => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, '—')
 const canEnterAdmin = computed(() =>
   auth.hasAnyPermission([
     'admin:view',

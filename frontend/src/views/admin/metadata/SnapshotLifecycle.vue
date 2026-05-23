@@ -12,6 +12,12 @@ import {
   type VersionHistoryItem,
   type AuditLogItem
 } from '../../../api/admin/versioning'
+import {
+  auditActionLabel,
+  snapshotStatusLabel,
+  snapshotStatusLabels,
+  snapshotStatusType,
+} from '../../../utils/enumLabels'
 
 const loading = ref(false)
 const datasources = ref<DatasourceItem[]>([])
@@ -25,15 +31,7 @@ const auditLogs = ref<AuditLogItem[]>([])
 const auditLoading = ref(false)
 const auditSnapshotId = ref<number>(0)
 
-const statusLabels: Record<string, string> = {
-  DRAFT: '草稿', CHECKING: '校验中', ISSUE_FOUND: '存在问题',
-  APPROVED: '已审核', PUBLISHED: '已发布', EXPIRED: '已过期'
-}
-
-const statusTypes: Record<string, string> = {
-  DRAFT: 'info', CHECKING: 'warning', ISSUE_FOUND: 'danger',
-  APPROVED: '', PUBLISHED: 'success', EXPIRED: 'info'
-}
+const statusFlow = ['DRAFT', 'CHECKING', 'ISSUE_FOUND', 'APPROVED', 'PUBLISHED', 'EXPIRED']
 
 async function fetchDatasources() {
   const res = await listDatasources({ page: 1, pageSize: 200 })
@@ -53,7 +51,7 @@ async function fetchHistory() {
 }
 
 async function handlePublish(item: VersionHistoryItem) {
-  await ElMessageBox.confirm(`确认发布快照 v${item.snapshotVersion}？发布后旧版本将自动过期。`, '确认发布')
+  await ElMessageBox.confirm(`确认发布快照版本 ${item.snapshotVersion}？发布后旧版本将自动过期。`, '确认发布')
   try {
     await publishSnapshot(item.snapshotId)
     ElMessage.success('发布成功')
@@ -129,9 +127,9 @@ onMounted(() => {
 
     <section class="status-flow">
       <div class="flow-steps">
-        <div class="flow-step" v-for="s in ['DRAFT','CHECKING','ISSUE_FOUND','APPROVED','PUBLISHED','EXPIRED']" :key="s">
+        <div class="flow-step" v-for="s in statusFlow" :key="s">
           <div class="step-dot" :class="'dot-' + s.toLowerCase().replace('_','-')"></div>
-          <span class="step-label">{{ statusLabels[s] }}</span>
+          <span class="step-label">{{ snapshotStatusLabels[s] }}</span>
         </div>
       </div>
     </section>
@@ -141,12 +139,12 @@ onMounted(() => {
       <el-empty v-else-if="!loading && history.length === 0" description="暂无快照记录" />
       <el-table v-else :data="history" border stripe>
         <el-table-column label="版本" width="80" align="center">
-          <template #default="{ row }">v{{ row.snapshotVersion }}</template>
+          <template #default="{ row }">版本 {{ row.snapshotVersion }}</template>
         </el-table-column>
         <el-table-column label="状态" width="120" align="center">
           <template #default="{ row }">
-            <el-tag :type="statusTypes[row.status] || 'info'" size="small">
-              {{ statusLabels[row.status] || row.status }}
+            <el-tag :type="snapshotStatusType(row.status)" size="small">
+              {{ snapshotStatusLabel(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -192,10 +190,12 @@ onMounted(() => {
 
     <el-dialog v-model="auditDialogVisible" title="操作日志" width="650px">
       <el-table :data="auditLogs" v-loading="auditLoading" border size="small">
-        <el-table-column label="操作" prop="action" width="140" />
+        <el-table-column label="操作" width="140">
+          <template #default="{ row }">{{ auditActionLabel(row.action) }}</template>
+        </el-table-column>
         <el-table-column label="状态变更" width="180">
           <template #default="{ row }">
-            <span v-if="row.oldStatus">{{ statusLabels[row.oldStatus] || row.oldStatus }} → {{ statusLabels[row.newStatus] || row.newStatus }}</span>
+            <span v-if="row.oldStatus">{{ snapshotStatusLabel(row.oldStatus) }} → {{ snapshotStatusLabel(row.newStatus) }}</span>
             <span v-else>-</span>
           </template>
         </el-table-column>

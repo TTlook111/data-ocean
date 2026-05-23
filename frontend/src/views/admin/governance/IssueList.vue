@@ -9,6 +9,12 @@ import {
   type QualityIssueItem
 } from '../../../api/admin/governance'
 import { listSnapshots } from '../../../api/admin/metadata'
+import {
+  issueStatusLabel,
+  issueStatusType,
+  qualityDimensionLabel,
+  severityLabel,
+} from '../../../utils/enumLabels'
 
 const loading = ref(false)
 const issues = ref<QualityIssueItem[]>([])
@@ -49,12 +55,6 @@ const statusOptions = [
   { label: '自动关闭', value: 'AUTO_CLOSED' }
 ]
 
-const statusType = (s: string) => {
-  const map: Record<string, string> = { OPEN: 'warning', CONFIRMED: '', RESOLVED: 'success', REJECTED: 'info', AUTO_CLOSED: 'info' }
-  return map[s] || ''
-}
-const statusLabel = (s: string) => statusOptions.find(o => o.value === s)?.label || s
-const dimLabel = (d: string) => dimensionOptions.find(o => o.value === d)?.label || d
 const sevType = (s: string) => s === 'HIGH' ? 'danger' : s === 'MEDIUM' ? 'warning' : 'info'
 
 async function fetchSnapshots() {
@@ -129,7 +129,7 @@ onMounted(async () => {
 
     <section class="toolbar">
       <el-select v-model="query.snapshotId" placeholder="选择快照" style="width: 180px" @change="fetchIssues">
-        <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} v${s.snapshotVersion}`" />
+        <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} 版本 ${s.snapshotVersion}`" />
       </el-select>
       <el-select v-model="query.dimension" style="width: 120px" @change="fetchIssues">
         <el-option v-for="o in dimensionOptions" :key="o.value" :label="o.label" :value="o.value" />
@@ -157,17 +157,17 @@ onMounted(async () => {
           <template #default="{ row }">{{ row.columnName || '-' }}</template>
         </el-table-column>
         <el-table-column prop="dimension" label="维度" width="90">
-          <template #default="{ row }">{{ dimLabel(row.dimension) }}</template>
+          <template #default="{ row }">{{ qualityDimensionLabel(row.dimension) }}</template>
         </el-table-column>
         <el-table-column prop="severity" label="级别" width="70">
           <template #default="{ row }">
-            <el-tag :type="sevType(row.severity)" size="small">{{ row.severity === 'HIGH' ? '高' : row.severity === 'MEDIUM' ? '中' : '低' }}</el-tag>
+            <el-tag :type="sevType(row.severity)" size="small">{{ severityLabel(row.severity) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="issueDescription" label="问题描述" show-overflow-tooltip />
         <el-table-column prop="status" label="状态" width="90">
           <template #default="{ row }">
-            <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+            <el-tag :type="issueStatusType(row.status)" size="small">{{ issueStatusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">

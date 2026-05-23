@@ -107,7 +107,7 @@ onMounted(() => {
         <div class="review-card-header" @click="toggleExpand(doc.id)">
           <div class="review-card-info">
             <h3>{{ doc.title }}</h3>
-            <span class="review-meta">版本 v{{ doc.currentVersion }} · 更新于 {{ doc.updatedAt }}</span>
+            <span class="review-meta">版本 {{ doc.currentVersion }} · 更新于 {{ doc.updatedAt }}</span>
           </div>
           <div class="review-card-actions">
             <el-button type="success" size="small" @click.stop="handleApprove(doc)">

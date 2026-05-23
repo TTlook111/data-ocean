@@ -10,6 +10,12 @@ import {
   type KnowledgeDocItem,
   type KnowledgeVersionItem
 } from '../../../api/admin/knowledge'
+import {
+  generationSourceLabel,
+  generationSourceType,
+  knowledgeStatusLabel,
+  knowledgeStatusType,
+} from '../../../utils/enumLabels'
 
 const route = useRoute()
 const docId = Number(route.params.id)
@@ -20,31 +26,6 @@ const versions = ref<KnowledgeVersionItem[]>([])
 const previewVisible = ref(false)
 const previewContent = ref('')
 const previewVersion = ref(0)
-
-const sourceOptions: Record<string, string> = {
-  MANUAL: '人工编辑',
-  AI_GENERATED: 'AI 生成',
-  ROLLBACK: '版本回滚'
-}
-
-const sourceType = (s: string) => {
-  const map: Record<string, string> = { MANUAL: '', AI_GENERATED: 'success', ROLLBACK: 'warning' }
-  return map[s] ?? 'info'
-}
-
-const reviewStatusLabel = (s: string) => {
-  const map: Record<string, string> = {
-    DRAFT: '草稿', PENDING_REVIEW: '待审核', APPROVED: '已通过', REJECTED: '已驳回'
-  }
-  return map[s] ?? s
-}
-
-const reviewStatusType = (s: string) => {
-  const map: Record<string, string> = {
-    DRAFT: 'info', PENDING_REVIEW: 'warning', APPROVED: 'success', REJECTED: 'danger'
-  }
-  return map[s] ?? 'info'
-}
 
 function extractError(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'response' in error) {
@@ -84,7 +65,7 @@ function showPreview(v: KnowledgeVersionItem) {
 async function handleRollback(targetVersionNo: number) {
   try {
     await ElMessageBox.confirm(
-      `确认回滚到版本 v${targetVersionNo}？将基于该版本创建新版本。`,
+      `确认回滚到版本 ${targetVersionNo}？将基于该版本创建新版本。`,
       '版本回滚'
     )
     await rollbackVersion(docId, targetVersionNo)
@@ -110,7 +91,7 @@ onMounted(() => {
         <p>知识库管理</p>
         <h1>版本历史</h1>
         <span class="header-subtitle">
-          {{ doc ? `${doc.title} — 当前版本 v${doc.currentVersion}` : '加载中...' }}
+          {{ doc ? `${doc.title} — 当前版本 ${doc.currentVersion}` : '加载中...' }}
         </span>
       </div>
       <el-button :icon="RefreshCw" @click="fetchVersions">刷新</el-button>
@@ -119,19 +100,19 @@ onMounted(() => {
     <section class="table-shell">
       <el-table :data="versions" v-loading="loading" stripe>
         <el-table-column prop="versionNo" label="版本号" width="90">
-          <template #default="{ row }">v{{ row.versionNo }}</template>
+          <template #default="{ row }">版本 {{ row.versionNo }}</template>
         </el-table-column>
         <el-table-column prop="generationSource" label="生成来源" width="120">
           <template #default="{ row }">
-            <el-tag :type="sourceType(row.generationSource)" size="small">
-              {{ sourceOptions[row.generationSource] || row.generationSource }}
+            <el-tag :type="generationSourceType(row.generationSource)" size="small">
+              {{ generationSourceLabel(row.generationSource) }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="reviewStatus" label="审核状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="reviewStatusType(row.reviewStatus)" size="small">
-              {{ reviewStatusLabel(row.reviewStatus) }}
+            <el-tag :type="knowledgeStatusType(row.reviewStatus)" size="small">
+              {{ knowledgeStatusLabel(row.reviewStatus) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -150,7 +131,7 @@ onMounted(() => {
       </el-table>
     </section>
 
-    <el-dialog v-model="previewVisible" :title="`版本 v${previewVersion} 内容`" width="700px">
+    <el-dialog v-model="previewVisible" :title="`版本 ${previewVersion} 内容`" width="700px">
       <div class="version-preview-content">
         <pre>{{ previewContent }}</pre>
       </div>
