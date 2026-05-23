@@ -1,18 +1,16 @@
 """Schema RAG 语义检索器
 
-使用 Milvus 向量相似度搜索，强制注入 datasource_id 和准入过滤条件。
+使用 Milvus 向量相似度搜索，强制注入 datasource_id、快照和准入过滤条件。
 """
 
 import logging
-
-from pymilvus import Collection
-
-from dataocean.core.config import settings
 
 from .milvus_client import connect_milvus, get_collection
 from .schema import RetrievedSchema, RetrieveRequest
 
 logger = logging.getLogger(__name__)
+
+RAG_ELIGIBLE_STATUSES = ("NORMAL", "RECOMMENDED")
 
 
 async def retrieve_from_milvus(
@@ -32,9 +30,6 @@ async def retrieve_from_milvus(
     Returns:
         检索结果列表（未重排）
     """
-    if not request.datasource_id:
-        raise ValueError("datasource_id 为必填参数，不允许查询全部数据源")
-
     try:
         connect_milvus()
         collection = get_collection()
@@ -43,11 +38,13 @@ async def retrieve_from_milvus(
         logger.error("Milvus 连接/加载失败: %s", e)
         raise
 
-    # 构建强制过滤表达式（数据源隔离 + 准入控制）
+    # 构建强制过滤表达式（数据源隔离 + 生效快照 + 准入控制）
+    eligible_statuses = ", ".join(f'"{status}"' for status in RAG_ELIGIBLE_STATUSES)
     filter_expr = (
         f'datasource_id == {request.datasource_id} '
+        f'and snapshot_id == {request.active_snapshot_id} '
         f'and review_status == "APPROVED" '
-        f'and governance_status in ["NORMAL", "RECOMMENDED"]'
+        f"and governance_status in [{eligible_statuses}]"
     )
 
     # 执行向量搜索
@@ -64,6 +61,8 @@ async def retrieve_from_milvus(
             "related_column",
             "snapshot_id",
             "knowledge_version_no",
+            "governance_status",
+            "review_status",
         ],
     )
 
@@ -79,9 +78,13 @@ async def retrieve_from_milvus(
                     if entity.get("related_column")
                     else [],
                     score=hit.score,
+                    relevance_score=hit.score,
                     chunk_type=entity.get("chunk_type", ""),
                     source_version=entity.get("knowledge_version_no", 0),
+                    snapshot_id=entity.get("snapshot_id"),
                     chunk_text=entity.get("chunk_text", ""),
+                    governance_status=entity.get("governance_status", ""),
+                    review_status=entity.get("review_status", ""),
                 )
             )
 

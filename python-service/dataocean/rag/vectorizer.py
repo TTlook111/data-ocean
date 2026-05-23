@@ -4,6 +4,7 @@
 """
 
 import logging
+from time import perf_counter
 
 from pymilvus import Collection
 
@@ -31,15 +32,21 @@ async def vectorize_chunks(
         chunks: 切片列表
         force: 是否强制全量重建
     """
+    start = perf_counter()
     if not chunks:
-        return VectorizeResponse()
+        return VectorizeResponse(duration_ms=_elapsed_ms(start))
 
     try:
         connect_milvus()
         collection = get_collection()
     except Exception as e:
         logger.error("Milvus 连接失败: %s", e)
-        return VectorizeResponse(failed_count=len(chunks), errors=[f"Milvus 连接失败: {e}"])
+        return VectorizeResponse(
+            status="FAILED",
+            failed_count=len(chunks),
+            errors=[f"Milvus 连接失败: {e}"],
+            duration_ms=_elapsed_ms(start),
+        )
 
     # 强制模式：先删除该数据源的旧向量
     if force:
@@ -51,7 +58,12 @@ async def vectorize_chunks(
         embeddings = await embed_texts(texts)
     except Exception as e:
         logger.error("Embedding 生成失败: %s", e)
-        return VectorizeResponse(failed_count=len(chunks), errors=[f"Embedding 失败: {e}"])
+        return VectorizeResponse(
+            status="FAILED",
+            failed_count=len(chunks),
+            errors=[f"Embedding 失败: {e}"],
+            duration_ms=_elapsed_ms(start),
+        )
 
     # 组装写入数据
     entities = [
@@ -71,10 +83,19 @@ async def vectorize_chunks(
         collection.insert(entities)
         collection.flush()
         logger.info("向量写入成功 datasource_id=%d count=%d", datasource_id, len(chunks))
-        return VectorizeResponse(success_count=len(chunks))
+        return VectorizeResponse(
+            status="COMPLETED",
+            success_count=len(chunks),
+            duration_ms=_elapsed_ms(start),
+        )
     except Exception as e:
         logger.error("Milvus 写入失败: %s", e)
-        return VectorizeResponse(failed_count=len(chunks), errors=[f"写入失败: {e}"])
+        return VectorizeResponse(
+            status="FAILED",
+            failed_count=len(chunks),
+            errors=[f"写入失败: {e}"],
+            duration_ms=_elapsed_ms(start),
+        )
 
 
 def switch_version(
@@ -82,23 +103,29 @@ def switch_version(
     datasource_id: int,
     new_snapshot_id: int,
     old_snapshot_id: int,
+    expected_count: int,
 ) -> None:
     """版本切换：验证新版本写入完成后删除旧版本向量"""
-    new_count = collection.query(
+    actual_count = _count_vectors(
+        collection,
         expr=f"datasource_id == {datasource_id} and snapshot_id == {new_snapshot_id}",
-        output_fields=["count(*)"],
     )
-    if new_count:
-        collection.delete(
-            expr=f"datasource_id == {datasource_id} and snapshot_id == {old_snapshot_id}"
+    if actual_count != expected_count:
+        raise ValueError(
+            f"新版本向量数量不一致 expected={expected_count} actual={actual_count}"
         )
-        collection.flush()
-        logger.info(
-            "版本切换完成 datasource_id=%d old=%d new=%d",
-            datasource_id,
-            old_snapshot_id,
-            new_snapshot_id,
-        )
+
+    collection.delete(
+        expr=f"datasource_id == {datasource_id} and snapshot_id == {old_snapshot_id}"
+    )
+    collection.flush()
+    logger.info(
+        "版本切换完成 datasource_id=%d old=%d new=%d count=%d",
+        datasource_id,
+        old_snapshot_id,
+        new_snapshot_id,
+        actual_count,
+    )
 
 
 def cleanup_old_versions(
@@ -121,3 +148,19 @@ def _delete_by_datasource(collection: Collection, datasource_id: int) -> None:
     collection.delete(expr=f"datasource_id == {datasource_id}")
     collection.flush()
     logger.info("已删除数据源向量 datasource_id=%d", datasource_id)
+
+
+def _count_vectors(collection: Collection, expr: str) -> int:
+    """查询 Milvus 聚合数量，兼容不同 pymilvus 返回键名。"""
+    rows = collection.query(expr=expr, output_fields=["count(*)"])
+    if not rows:
+        return 0
+    row = rows[0]
+    for key in ("count(*)", "count"):
+        if key in row:
+            return int(row[key])
+    return 0
+
+
+def _elapsed_ms(start: float) -> int:
+    return int((perf_counter() - start) * 1000)

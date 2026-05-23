@@ -5,6 +5,7 @@ Milvus 异常时自动切换到降级方案。
 """
 
 import logging
+from time import perf_counter
 
 from dataocean.core.config import settings
 
@@ -29,6 +30,7 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
 
     Milvus 异常时自动降级。
     """
+    start = perf_counter()
     try:
         # 1. 生成问题向量
         question_embedding = await embed_single(request.question)
@@ -37,23 +39,46 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
         raw_results = await retrieve_from_milvus(question_embedding, request)
 
         if not raw_results:
-            return RetrieveResponse(message="未找到相关数据表，请换个问法")
+            return _response(message="未找到相关数据表，请换个问法", start=start)
 
         # 3. 规则加权重排
         ranked_results = rerank(raw_results, request)
 
         # 4. 相似度阈值过滤
-        threshold = settings.similarity_threshold
+        threshold = request.min_score if request.min_score is not None else settings.similarity_threshold
         filtered = [r for r in ranked_results if r.score >= threshold]
 
         if not filtered:
-            return RetrieveResponse(message="未找到相关数据表，请换个问法")
+            return _response(message="未找到相关数据表，请换个问法", start=start)
 
-        return RetrieveResponse(results=filtered)
+        return _response(results=filtered, total_found=len(ranked_results), start=start)
 
     except ValueError as e:
         logger.error("检索参数错误: %s", e)
-        return RetrieveResponse(message=str(e))
+        return _response(message=str(e), start=start)
     except Exception as e:
         logger.error("RAG 检索异常，触发降级: %s", e)
-        return fallback_retrieve(request.datasource_id)
+        response = fallback_retrieve(request.datasource_id, request.fallback_chunks)
+        response.retrieval_time_ms = _elapsed_ms(start)
+        return response
+
+
+def _response(
+    *,
+    results: list | None = None,
+    total_found: int = 0,
+    message: str = "",
+    start: float,
+) -> RetrieveResponse:
+    result_items = results or []
+    return RetrieveResponse(
+        results=result_items,
+        total_found=total_found or len(result_items),
+        returned=len(result_items),
+        message=message,
+        retrieval_time_ms=_elapsed_ms(start),
+    )
+
+
+def _elapsed_ms(start: float) -> int:
+    return int((perf_counter() - start) * 1000)

@@ -27,7 +27,34 @@ def get_collection() -> Collection:
 def ping() -> bool:
     """健康检查"""
     try:
+        connect_milvus()
         utility.list_collections()
         return True
     except Exception:
         return False
+
+
+def health_status() -> dict:
+    """返回 Milvus 和 Collection 的详细健康状态。"""
+    try:
+        connect_milvus()
+        collection_exists = utility.has_collection(settings.milvus_collection_name)
+        total_vectors = 0
+        if collection_exists:
+            collection = get_collection()
+            total_vectors = collection.num_entities
+        return {
+            "status": "healthy",
+            "milvusConnected": True,
+            "collectionExists": collection_exists,
+            "totalVectors": total_vectors,
+        }
+    except Exception as exc:
+        logger.warning("Milvus 健康检查失败: %s", exc)
+        return {
+            "status": "unhealthy",
+            "milvusConnected": False,
+            "collectionExists": False,
+            "totalVectors": 0,
+            "error": str(exc),
+        }
