@@ -15,6 +15,11 @@ public enum ChunkType {
     /** 类型描述 */
     private final String description;
 
+    /**
+     * 构造方法
+     *
+     * @param description 类型描述
+     */
     ChunkType(String description) {
         this.description = description;
     }

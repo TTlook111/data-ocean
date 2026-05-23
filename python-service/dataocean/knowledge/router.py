@@ -1,4 +1,8 @@
-"""知识库模块路由"""
+"""知识库模块路由
+
+提供 skills.md 草稿生成的 HTTP 接口。
+路由前缀由 main.py 统一挂载时指定（/internal/knowledge）。
+"""
 
 import logging
 
@@ -9,7 +13,7 @@ from .service import generate_draft
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/internal/knowledge", tags=["knowledge"])
+router = APIRouter()
 
 
 @router.post("/generate-draft", response_model=GenerateDraftResponse)

@@ -15,6 +15,11 @@ public enum VectorTaskStatus {
     /** 状态描述 */
     private final String description;
 
+    /**
+     * 构造方法
+     *
+     * @param description 状态描述
+     */
     VectorTaskStatus(String description) {
         this.description = description;
     }

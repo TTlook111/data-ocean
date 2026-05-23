@@ -1,15 +1,22 @@
-"""知识库草稿生成服务"""
+"""知识库草稿生成服务
 
+基于元数据快照调用 LLM 生成结构化的 skills.md 业务知识文档。
+"""
+
+import asyncio
 import logging
 from pathlib import Path
 
+import httpx
 from jinja2 import Template
+
+from dataocean.core.config import settings
+from dataocean.core.exceptions import LLMException
 
 from .schema import GenerateDraftRequest, GenerateDraftResponse
 
 logger = logging.getLogger(__name__)
 
-# Prompt 模板路径
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
@@ -71,17 +78,8 @@ async def _call_llm(prompt: str) -> str:
         LLM 生成的 Markdown 内容
 
     Raises:
-        httpx.HTTPStatusError: API 返回非 2xx 状态码且重试耗尽
-        httpx.TimeoutException: 请求超时且重试耗尽
+        LLMException: 重试耗尽后抛出
     """
-    import asyncio
-    import os
-
-    import httpx
-
-    api_key = os.getenv("DASHSCOPE_API_KEY")
-    model = os.getenv("QWEN_MODEL", "qwen-plus")
-
     max_retries = 2
     last_exception = None
 
@@ -90,9 +88,9 @@ async def _call_llm(prompt: str) -> str:
             async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
                     "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}"},
+                    headers={"Authorization": f"Bearer {settings.dashscope_api_key}"},
                     json={
-                        "model": model,
+                        "model": settings.qwen_model,
                         "messages": [
                             {
                                 "role": "system",
@@ -117,9 +115,9 @@ async def _call_llm(prompt: str) -> str:
                 await asyncio.sleep(wait_seconds)
             else:
                 logger.error("LLM 调用重试耗尽 attempts=%d", max_retries + 1)
-                raise
+                raise LLMException("AI 草稿生成失败：重试耗尽")
 
-    raise last_exception  # type: ignore
+    raise LLMException("AI 草稿生成失败")
 
 
 def _check_missing_comments(tables: list) -> list[str]:

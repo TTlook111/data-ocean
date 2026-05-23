@@ -14,6 +14,11 @@ public enum GenerationSource {
     /** 来源描述 */
     private final String description;
 
+    /**
+     * 构造方法
+     *
+     * @param description 来源描述
+     */
     GenerationSource(String description) {
         this.description = description;
     }

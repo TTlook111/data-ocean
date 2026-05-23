@@ -16,6 +16,11 @@ public enum DocStatus {
     /** 状态描述 */
     private final String description;
 
+    /**
+     * 构造方法
+     *
+     * @param description 状态描述
+     */
     DocStatus(String description) {
         this.description = description;
     }
