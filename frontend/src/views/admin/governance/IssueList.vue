@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshCw } from 'lucide-vue-next'
 import {
@@ -56,6 +56,12 @@ const statusOptions = [
 ]
 
 const sevType = (s: string) => s === 'HIGH' ? 'danger' : s === 'MEDIUM' ? 'warning' : 'info'
+const issueSummary = computed(() => ({
+  high: issues.value.filter((item) => item.severity === 'HIGH').length,
+  open: issues.value.filter((item) => item.status === 'OPEN').length,
+  confirmed: issues.value.filter((item) => item.status === 'CONFIRMED').length,
+  resolved: issues.value.filter((item) => item.status === 'RESOLVED').length,
+}))
 
 async function fetchSnapshots() {
   const res = await listSnapshots({ page: 1, size: 50 })
@@ -143,6 +149,13 @@ onMounted(async () => {
       <el-input v-model="query.tableName" placeholder="表名筛选" clearable style="width: 150px" @clear="fetchIssues" @keyup.enter="fetchIssues" />
     </section>
 
+    <section class="status-strip issue-strip">
+      <span class="metric-chip danger">高危 {{ issueSummary.high }}</span>
+      <span class="metric-chip">待处理 {{ issueSummary.open }}</span>
+      <span class="metric-chip">已确认 {{ issueSummary.confirmed }}</span>
+      <span class="metric-chip success">已解决 {{ issueSummary.resolved }}</span>
+    </section>
+
     <section class="batch-bar" v-if="selectedIds.length">
       <span>已选 {{ selectedIds.length }} 项</span>
       <el-button size="small" @click="doBatchHandle('CONFIRMED')">批量确认</el-button>
@@ -152,9 +165,15 @@ onMounted(async () => {
     <section class="table-shell">
       <el-table :data="issues" v-loading="loading" stripe @selection-change="onSelectionChange">
         <el-table-column type="selection" width="40" />
-        <el-table-column prop="tableName" label="表" width="140" />
+        <el-table-column prop="tableName" label="表" width="160" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span class="table-code">{{ row.tableName }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="columnName" label="字段" width="120">
-          <template #default="{ row }">{{ row.columnName || '-' }}</template>
+          <template #default="{ row }">
+            <span class="column-code">{{ row.columnName || '-' }}</span>
+          </template>
         </el-table-column>
         <el-table-column prop="dimension" label="维度" width="90">
           <template #default="{ row }">{{ qualityDimensionLabel(row.dimension) }}</template>
@@ -164,7 +183,11 @@ onMounted(async () => {
             <el-tag :type="sevType(row.severity)" size="small">{{ severityLabel(row.severity) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="issueDescription" label="问题描述" show-overflow-tooltip />
+        <el-table-column prop="issueDescription" label="问题描述" min-width="260" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span class="issue-description">{{ row.issueDescription }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="issueStatusType(row.status)" size="small">{{ issueStatusLabel(row.status) }}</el-tag>
@@ -198,9 +221,38 @@ onMounted(async () => {
 .page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
 .page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
 .header-subtitle { font-size: 13px; color: var(--do-muted); }
-.toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.issue-strip {
+  justify-content: flex-start;
+  box-shadow: none;
+}
+.metric-chip.danger {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+.metric-chip.success {
+  color: #15803d;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
 .batch-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 8px 12px; background: var(--do-primary-soft); border-radius: 6px; font-size: 13px; }
-.table-shell { border: 1px solid var(--do-line); border-radius: 8px; overflow: hidden; background: var(--do-surface); }
+.table-shell {
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
+.issue-description {
+  color: #334155;
+  font-size: 13px;
+}
 .pager { margin-top: 16px; justify-content: flex-end; }
 .muted-text { color: var(--do-muted); font-size: 12px; }
 </style>

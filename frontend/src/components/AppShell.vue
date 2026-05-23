@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ClipboardList,
   Database,
+  FileText,
   FolderSync,
   GitBranch,
   History,
@@ -79,6 +80,14 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '版本历史', to: '/admin/metadata/version-history', icon: GitBranch, permission: 'metadata:manage' },
     ],
   },
+  {
+    label: '知识库管理',
+    items: [
+      { label: '知识库总览', to: '/admin/knowledge', icon: FileText, permission: 'knowledge:manage' },
+      { label: '文档编辑器', to: '/admin/knowledge/editor', icon: ClipboardList, permission: 'knowledge:manage' },
+      { label: '知识审核', to: '/admin/knowledge/review', icon: ShieldCheck, permission: 'knowledge:manage' },
+    ],
+  },
 ]
 
 const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
@@ -99,6 +108,7 @@ const adminPermissionCodes = [
   'role:manage',
   'role:view',
   'department:manage',
+  'knowledge:manage',
 ]
 const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPermissionCodes.some((code) => permissions.value.includes(code)))
 
@@ -112,12 +122,19 @@ const visibleGroups = computed(() =>
 )
 
 const matchedMenuItem = computed(() =>
-  menuGroups.flatMap((group) => group.items).find((item) => route.path === item.to || route.path.startsWith(`${item.to}/`)),
+  menuGroups
+    .flatMap((group) => group.items)
+    .filter((item) => route.path === item.to || route.path.startsWith(`${item.to}/`))
+    .sort((a, b) => b.to.length - a.to.length)[0],
 )
 
 function canView(permission?: string) {
   if (!permission) return true
   return permissions.value.includes('*') || permissions.value.includes(permission)
+}
+
+function isActiveMenu(item: MenuItem) {
+  return matchedMenuItem.value?.to === item.to
 }
 
 function handleUserCommand(command: string) {
@@ -165,7 +182,7 @@ function handleUserCommand(command: string) {
             v-for="item in group.items"
             :key="item.to"
             class="nav-item"
-            :class="{ active: route.path === item.to }"
+            :class="{ active: isActiveMenu(item) }"
             :to="item.to"
             :title="collapsed ? item.label : undefined"
           >

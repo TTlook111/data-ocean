@@ -3,11 +3,14 @@ import { computed, ref, onMounted } from 'vue'
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   Database,
   GitBranch,
   Layers,
   MessageSquareText,
+  RefreshCw,
+  ShieldAlert,
   Table2,
   Users,
 } from 'lucide-vue-next'
@@ -21,6 +24,22 @@ const stats = ref<DashboardStats | null>(null)
 const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
 const isAdmin = computed(() => permissions.value.includes('*'))
+const issueTotal = computed(() => stats.value ? stats.value.openIssues + stats.value.resolvedIssues : 0)
+const issueResolutionRate = computed(() => issueTotal.value ? Math.round((stats.value!.resolvedIssues / issueTotal.value) * 100) : 0)
+const snapshotPublishRate = computed(() => stats.value?.totalSnapshots ? Math.round((stats.value.publishedSnapshots / stats.value.totalSnapshots) * 100) : 0)
+const qualityLabel = computed(() => {
+  const score = stats.value?.avgQualityScore
+  if (score == null) return '暂无评分'
+  if (score >= 80) return '质量稳定'
+  if (score >= 60) return '需要关注'
+  return '优先治理'
+})
+const qualityTone = computed(() => {
+  const score = stats.value?.avgQualityScore ?? 0
+  if (score >= 80) return 'good'
+  if (score >= 60) return 'warn'
+  return 'bad'
+})
 
 const actionLabels: Record<string, string> = {
   PUBLISH: '发布', EXPIRE: '过期', REVOKE: '撤回', STATUS_TRANSITION: '状态变更'
@@ -41,18 +60,37 @@ onMounted(fetchStats)
 
 <template>
   <main class="admin-home post-login-page">
-    <header class="page-header">
-      <div>
-        <p>工作台</p>
+    <header class="home-header">
+      <div class="home-title">
+        <span>工作台</span>
         <h1>{{ displayName }}，欢迎回来</h1>
-        <span class="header-subtitle" v-if="isAdmin">平台数据概览，一目了然</span>
-        <span class="header-subtitle" v-else>选择数据源，用自然语言探索你的业务数据</span>
       </div>
-      <RouterLink class="hero-action" to="/query">
-        <MessageSquareText :size="16" />
-        开始查询
-      </RouterLink>
+      <div class="header-actions">
+        <el-button v-if="isAdmin" :icon="RefreshCw" :loading="loading" @click="fetchStats">刷新</el-button>
+        <RouterLink class="hero-action" to="/query">
+          <MessageSquareText :size="16" />
+          开始查询
+        </RouterLink>
+      </div>
     </header>
+
+    <section v-if="isAdmin && stats" class="ops-strip">
+      <article class="ops-card" :class="`tone-${qualityTone}`">
+        <span>治理健康</span>
+        <strong>{{ stats.avgQualityScore ?? '-' }}</strong>
+        <small>{{ qualityLabel }}</small>
+      </article>
+      <article class="ops-card">
+        <span>快照发布率</span>
+        <strong>{{ snapshotPublishRate }}%</strong>
+        <small>{{ stats.publishedSnapshots }} / {{ stats.totalSnapshots }} 个快照</small>
+      </article>
+      <article class="ops-card">
+        <span>问题解决率</span>
+        <strong>{{ issueResolutionRate }}%</strong>
+        <small>{{ stats.resolvedIssues }} / {{ issueTotal }} 条问题</small>
+      </article>
+    </section>
 
     <section v-if="isAdmin && stats" class="stats-grid" v-loading="loading">
       <article class="stat-card">
@@ -115,6 +153,33 @@ onMounted(fetchStats)
       </article>
     </section>
 
+    <section v-if="isAdmin && stats" class="priority-grid">
+      <RouterLink class="priority-card urgent" to="/admin/governance/issues">
+        <span class="priority-icon"><ShieldAlert :size="18" /></span>
+        <div>
+          <strong>{{ stats.openIssues }} 条待处理问题</strong>
+          <small>按严重级别推进治理闭环</small>
+        </div>
+        <ArrowRight :size="16" />
+      </RouterLink>
+      <RouterLink class="priority-card" to="/admin/metadata/lifecycle">
+        <span class="priority-icon"><GitBranch :size="18" /></span>
+        <div>
+          <strong>{{ stats.publishedSnapshots }} 个已发布快照</strong>
+          <small>管理快照发布、过期和撤回</small>
+        </div>
+        <ArrowRight :size="16" />
+      </RouterLink>
+      <RouterLink class="priority-card" to="/admin/metadata/tables">
+        <span class="priority-icon"><Table2 :size="18" /></span>
+        <div>
+          <strong>{{ stats.totalTables }} 张可查询表</strong>
+          <small>查看字段、空值率和主键状态</small>
+        </div>
+        <ArrowRight :size="16" />
+      </RouterLink>
+    </section>
+
     <section v-if="isAdmin && stats?.recentActivities?.length" class="activity-section">
       <h3>最近操作</h3>
       <div class="activity-list">
@@ -148,19 +213,88 @@ onMounted(fetchStats)
   gap: 20px;
 }
 
-.page-header {
+.home-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 24px 28px;
+  gap: 18px;
+}
+
+.home-title {
+  min-width: 0;
+}
+
+.home-title span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--do-primary-strong);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.home-title h1 {
+  margin: 0;
+  color: var(--do-ink);
+  font-size: 24px;
+  line-height: 1.25;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.ops-strip {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr;
+  gap: 14px;
+}
+
+.ops-card {
+  min-height: 92px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 16px 18px;
   border: 1px solid var(--do-line);
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(189, 232, 248, 0.9) 0%, rgba(246, 251, 239, 0.95) 100%);
+  border-radius: 10px;
+  background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
 
-.page-header p { margin: 0 0 4px; color: var(--do-primary-strong); font-size: 13px; font-weight: 700; }
-.page-header h1 { margin: 0 0 6px; font-size: 22px; color: var(--do-ink); }
+.ops-card span {
+  color: var(--do-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ops-card strong {
+  color: var(--do-ink);
+  font-size: 26px;
+  line-height: 1.15;
+}
+
+.ops-card small {
+  color: var(--do-muted);
+  font-size: 12px;
+}
+
+.ops-card.tone-good {
+  border-color: #bbf7d0;
+  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 90%);
+}
+
+.ops-card.tone-warn {
+  border-color: #fde68a;
+  background: linear-gradient(135deg, #fffbeb 0%, #ffffff 90%);
+}
+
+.ops-card.tone-bad {
+  border-color: #fecaca;
+  background: linear-gradient(135deg, #fef2f2 0%, #ffffff 90%);
+}
 
 .hero-action {
   display: inline-flex; align-items: center; gap: 6px;
@@ -181,9 +315,9 @@ onMounted(fetchStats)
   padding: 18px 16px;
   border: 1px solid var(--do-line); border-radius: 10px;
   background: var(--do-surface); box-shadow: var(--do-shadow);
-  transition: transform 150ms, box-shadow 150ms;
+  transition: border-color 150ms, box-shadow 150ms;
 }
-.stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.06); }
+.stat-card:hover { border-color: var(--do-line-strong); box-shadow: var(--do-shadow-hover); }
 
 .stat-icon {
   width: 42px; height: 42px; display: grid; place-items: center;
@@ -204,6 +338,65 @@ onMounted(fetchStats)
 .score-good { color: #67c23a; }
 .score-warn { color: #e6a23c; }
 .score-bad { color: #f56c6c; }
+
+.priority-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.priority-card {
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+  transition: border-color 150ms, box-shadow 150ms;
+}
+
+.priority-card:hover {
+  border-color: var(--do-primary);
+  box-shadow: var(--do-shadow-hover);
+}
+
+.priority-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--do-primary-strong);
+  background: #eaf4ff;
+}
+
+.priority-card.urgent .priority-icon {
+  color: #b45309;
+  background: #fff7ed;
+}
+
+.priority-card strong,
+.priority-card small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.priority-card strong {
+  color: var(--do-ink);
+  font-size: 14px;
+}
+
+.priority-card small {
+  margin-top: 4px;
+  color: var(--do-muted);
+  font-size: 12px;
+}
 
 .activity-section {
   padding: 20px; border: 1px solid var(--do-line); border-radius: 10px;
@@ -236,8 +429,11 @@ onMounted(fetchStats)
 
 @media (max-width: 1100px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  .ops-strip,
+  .priority-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
   .stats-grid { grid-template-columns: 1fr; }
+  .home-header { align-items: flex-start; flex-direction: column; }
 }
 </style>

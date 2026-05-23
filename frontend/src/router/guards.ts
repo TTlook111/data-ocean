@@ -13,6 +13,7 @@ const adminPermissions = [
   'role:manage',
   'role:view',
   'department:manage',
+  'knowledge:manage',
 ]
 
 function hasPermission(user: { permissions?: string[] } | null, permission: string) {

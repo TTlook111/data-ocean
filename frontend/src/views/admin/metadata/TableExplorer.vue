@@ -21,8 +21,17 @@ const selectedSnapshotId = ref<number>()
 const tables = ref<TableMetaItem[]>([])
 const columns = ref<ColumnMetaItem[]>([])
 const selectedTable = ref<string>('')
+const tableKeyword = ref('')
 
 const selectedSnapshot = computed(() => snapshots.value.find((item) => item.id === selectedSnapshotId.value))
+const filteredTables = computed(() => {
+  const keyword = tableKeyword.value.trim().toLowerCase()
+  if (!keyword) return tables.value
+  return tables.value.filter((item) =>
+    item.tableName.toLowerCase().includes(keyword) ||
+    (item.tableComment || '').toLowerCase().includes(keyword),
+  )
+})
 
 const filteredColumns = computed(() =>
   columns.value.filter(c => c.tableName === selectedTable.value)
@@ -140,7 +149,11 @@ watch(
 
     <div class="explorer-layout" v-loading="loading">
       <aside class="table-list">
-        <div class="table-item" v-for="t in tables" :key="t.id"
+        <div class="table-list-header">
+          <strong>数据表</strong>
+          <el-input v-model="tableKeyword" size="small" clearable placeholder="搜索表名或注释" />
+        </div>
+        <div class="table-item" v-for="t in filteredTables" :key="t.id"
              :class="{ active: t.tableName === selectedTable }"
              @click="selectedTable = t.tableName">
           <Table2 :size="14" />
@@ -148,8 +161,8 @@ watch(
           <span class="row-count" v-if="t.rowCountEstimate">~{{ t.rowCountEstimate }}</span>
         </div>
         <el-empty
-          v-if="!tables.length"
-          :description="selectedSnapshotId ? '当前快照暂无表数据' : '请选择快照后查看表数据'"
+          v-if="!filteredTables.length"
+          :description="tables.length ? '没有匹配的数据表' : selectedSnapshotId ? '当前快照暂无表数据' : '请选择快照后查看表数据'"
           :image-size="60"
         />
       </aside>
@@ -163,13 +176,15 @@ watch(
           <el-table-column prop="ordinalPosition" label="#" width="50" />
           <el-table-column prop="columnName" label="字段名" width="180">
             <template #default="{ row }">
-              <span style="display: inline-flex; align-items: center; gap: 4px">
+              <span class="column-name-cell">
                 <Key v-if="row.isPrimaryKey" :size="12" style="color: var(--do-accent)" />
-                {{ row.columnName }}
+                <span class="column-code">{{ row.columnName }}</span>
               </span>
             </template>
           </el-table-column>
-          <el-table-column prop="dataType" label="类型" width="140" />
+          <el-table-column prop="dataType" label="类型" width="140">
+            <template #default="{ row }"><span class="column-code">{{ row.dataType }}</span></template>
+          </el-table-column>
           <el-table-column prop="isNullable" label="可空" width="60">
             <template #default="{ row }">{{ row.isNullable ? '是' : '否' }}</template>
           </el-table-column>
@@ -216,15 +231,56 @@ watch(
   font-size: 13px;
 }
 
-.explorer-layout { display: flex; gap: 0; border: 1px solid var(--do-line); border-radius: 8px; background: var(--do-surface); min-height: 600px; }
-.table-list { width: 280px; border-right: 1px solid var(--do-line); padding: 12px; overflow-y: auto; max-height: calc(100vh - 220px); }
+.explorer-layout {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-surface);
+  min-height: 600px;
+  box-shadow: var(--do-shadow);
+  overflow: hidden;
+}
+.table-list { width: 304px; border-right: 1px solid var(--do-line); padding: 12px; overflow-y: auto; max-height: calc(100vh - 220px); }
+.table-list-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  margin: -12px -12px 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--do-line);
+  background: var(--do-surface);
+}
+.table-list-header strong {
+  color: var(--do-ink);
+  font-size: 13px;
+}
 .table-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .table-item:hover { background: var(--do-primary-soft); }
 .table-item.active { background: var(--do-primary-soft); color: var(--do-primary); font-weight: 500; }
-.table-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.table-name {
+  flex: 1;
+  overflow: hidden;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .row-count { font-size: 11px; color: var(--do-muted); }
 .column-detail { flex: 1; padding: 16px; overflow-x: auto; }
 .detail-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
-.detail-header h3 { margin: 0; font-size: 16px; }
+.detail-header h3 {
+  margin: 0;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 16px;
+}
 .col-count { font-size: 12px; color: var(--do-muted); }
+.column-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
 </style>

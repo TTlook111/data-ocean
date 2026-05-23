@@ -137,6 +137,16 @@ onMounted(() => {
 
     <section class="table-shell">
       <el-table :data="docs" v-loading="loading" stripe>
+        <template #empty>
+          <div class="do-empty-state knowledge-empty">
+            <span class="do-empty-icon"><FileText :size="22" /></span>
+            <h3>还没有知识文档</h3>
+            <p>可以先新建一份文档，或从已治理的元数据快照沉淀 skills.md 内容。</p>
+            <el-button type="primary" @click="goCreate">
+              <Plus :size="15" style="margin-right: 6px" />新建文档
+            </el-button>
+          </div>
+        </template>
         <el-table-column prop="title" label="标题" min-width="180" show-overflow-tooltip>
           <template #default="{ row }">
             <FileText :size="14" style="margin-right: 6px; vertical-align: middle; color: var(--do-primary)" />
@@ -159,10 +169,10 @@ onMounted(() => {
         <el-table-column prop="updatedAt" label="更新时间" width="170" />
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="goEdit(row.id)">
+            <el-button link type="primary" size="small" title="编辑文档" aria-label="编辑文档" @click="goEdit(row.id)">
               <Pencil :size="14" />
             </el-button>
-            <el-button link size="small" @click="goVersions(row.id)">
+            <el-button link size="small" title="查看版本" aria-label="查看版本" @click="goVersions(row.id)">
               <Eye :size="14" />
             </el-button>
           </template>
@@ -191,13 +201,28 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  box-shadow: var(--do-shadow);
 }
 .stat-value { font-size: 26px; font-weight: 600; color: var(--do-ink); }
 .stat-label { font-size: 12px; color: var(--do-muted); }
 .stat-published .stat-value { color: var(--do-primary); }
 .stat-pending .stat-value { color: #e6a23c; }
 .stat-draft .stat-value { color: #909399; }
-.toolbar { display: flex; gap: 12px; }
-.table-shell { border: 1px solid var(--do-line); border-radius: 8px; overflow: hidden; background: var(--do-surface); }
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.table-shell {
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
+.knowledge-empty {
+  min-height: 260px;
+}
 .pager { margin-top: 16px; justify-content: flex-end; }
 </style>

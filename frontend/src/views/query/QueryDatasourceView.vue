@@ -3,9 +3,11 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
+  BarChart3,
   ChevronDown,
   Database,
   History,
+  ListChecks,
   MessageSquarePlus,
   MessageSquareText,
   RefreshCw,
@@ -46,6 +48,7 @@ const adminPermissionCodes = [
   'role:manage',
   'role:view',
   'department:manage',
+  'knowledge:manage',
 ]
 
 const router = useRouter()
@@ -65,6 +68,12 @@ const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPer
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
 const roleText = computed(() => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, '普通用户'))
 const selectedDatasource = computed(() => datasources.value.find((item) => item.id === selectedId.value))
+const exampleQuestions = [
+  '统计最近30天订单金额趋势',
+  '找出销售额最高的10个客户',
+  '查看库存低于安全线的商品',
+  '按部门汇总本月费用',
+]
 const datasourceSessions = computed(() =>
   sessions
     .filter((session) => session.datasourceId === selectedId.value)
@@ -139,6 +148,12 @@ function startNewSession() {
   }
   question.value = ''
   createSession(selectedId.value)
+  focusQuestionInput()
+}
+
+function applyExample(text: string) {
+  if (!selectedId.value) return
+  question.value = text
   focusQuestionInput()
 }
 
@@ -345,6 +360,29 @@ onMounted(fetchDatasources)
         </div>
 
         <div v-else class="message-list">
+          <section class="workspace-brief">
+            <div class="brief-main">
+              <span class="brief-kicker">当前上下文</span>
+              <h2>{{ selectedDatasource?.databaseName || selectedDatasource?.name }}</h2>
+              <p>{{ selectedDatasource?.description || '当前会话限定在此数据源。' }}</p>
+            </div>
+            <div class="brief-metrics">
+              <span class="metric-chip"><Database :size="14" />{{ datasources.length }} 个可用数据源</span>
+              <span class="metric-chip"><History :size="14" />{{ datasourceSessions.length }} 个当前库会话</span>
+            </div>
+          </section>
+
+          <section class="example-strip" aria-label="示例问题">
+            <button
+              v-for="item in exampleQuestions"
+              :key="item"
+              type="button"
+              @click="applyExample(item)"
+            >
+              {{ item }}
+            </button>
+          </section>
+
           <article
             v-for="message in activeMessages"
             :key="message.id"
@@ -360,6 +398,17 @@ onMounted(fetchDatasources)
               <small>{{ formatTime(message.createdAt) }}</small>
             </div>
           </article>
+
+          <section class="result-preview">
+            <div class="result-tabs">
+              <span class="active"><ListChecks :size="14" />表格结果</span>
+              <span><MessageSquareText :size="14" />SQL</span>
+              <span><BarChart3 :size="14" />图表</span>
+            </div>
+            <div class="result-empty">
+              <strong>暂无查询结果</strong>
+            </div>
+          </section>
         </div>
       </section>
 
@@ -388,7 +437,7 @@ onMounted(fetchDatasources)
   grid-template-columns: 292px minmax(0, 1fr);
   color: var(--do-ink);
   background:
-    linear-gradient(180deg, rgba(189, 232, 248, 0.42) 0, rgba(245, 251, 239, 0.76) 320px, var(--do-bg) 100%),
+    linear-gradient(180deg, rgba(238, 248, 255, 0.92) 0, rgba(248, 250, 252, 0.86) 320px, var(--do-bg) 100%),
     var(--do-bg);
 }
 
@@ -401,7 +450,7 @@ onMounted(fetchDatasources)
   gap: 16px;
   padding: 16px;
   border-right: 1px solid var(--do-line);
-  background: rgba(255, 253, 246, 0.86);
+  background: rgba(248, 251, 255, 0.92);
   backdrop-filter: blur(18px);
 }
 
@@ -611,8 +660,8 @@ onMounted(fetchDatasources)
   justify-content: space-between;
   gap: 18px;
   padding: 0 24px;
-  border-bottom: 1px solid rgba(190, 210, 176, 0.72);
-  background: rgba(255, 253, 246, 0.84);
+  border-bottom: 1px solid var(--do-line);
+  background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(14px);
 }
 
@@ -695,8 +744,80 @@ onMounted(fetchDatasources)
 .message-list {
   width: min(920px, 100%);
   display: grid;
-  gap: 18px;
+  gap: 14px;
   margin: 0 auto;
+}
+
+.workspace-brief {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+  padding: 18px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
+
+.brief-main {
+  min-width: 0;
+}
+
+.brief-kicker {
+  color: var(--do-primary-strong);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.brief-main h2 {
+  margin: 5px 0 6px;
+  overflow: hidden;
+  color: var(--do-ink);
+  font-size: 18px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brief-main p {
+  max-width: 620px;
+  margin: 0;
+  color: var(--do-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.brief-metrics {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.example-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.example-strip button {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  color: #334155;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.example-strip button:hover {
+  border-color: var(--do-primary);
+  color: var(--do-primary-strong);
+  box-shadow: 0 0 0 3px rgba(77, 143, 220, 0.1);
 }
 
 .message-item {
@@ -737,7 +858,58 @@ onMounted(fetchDatasources)
   border: 1px solid var(--do-line);
   border-radius: 8px;
   background: var(--do-surface);
-  box-shadow: 0 8px 18px rgba(77, 143, 220, 0.08);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.result-preview {
+  margin-top: 2px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+  overflow: hidden;
+}
+
+.result-tabs {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--do-line);
+  background: #f8fafc;
+}
+
+.result-tabs span {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--do-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.result-tabs span.active {
+  color: var(--do-primary-strong);
+  background: #eaf4ff;
+}
+
+.result-empty {
+  min-height: 112px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  color: var(--do-muted);
+  font-size: 13px;
+}
+
+.result-empty strong {
+  color: var(--do-ink);
+  font-size: 14px;
 }
 
 .message-bubble p {
@@ -793,7 +965,7 @@ onMounted(fetchDatasources)
   padding: 12px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
-  background: rgba(255, 253, 246, 0.94);
+  background: rgba(255, 255, 255, 0.96);
   box-shadow: var(--do-shadow);
 }
 
@@ -810,9 +982,7 @@ onMounted(fetchDatasources)
   line-height: 1.55;
 }
 
-.chat-composer textarea::placeholder {
-  color: #8da083;
-}
+.chat-composer textarea::placeholder { color: #94a3b8; }
 
 .chat-composer button {
   min-width: 92px;

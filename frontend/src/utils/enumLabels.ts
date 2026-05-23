@@ -86,6 +86,7 @@ export const qualityDimensionLabels: Record<string, string> = {
   ACCURACY: '准确性',
   CONSISTENCY: '一致性',
   TIMELINESS: '时效性',
+  TRACEABILITY: '可追溯性',
   VALIDITY: '有效性',
   UNIQUENESS: '唯一性',
 }
