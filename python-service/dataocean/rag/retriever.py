@@ -3,6 +3,7 @@
 使用 Milvus 向量相似度搜索，强制注入 datasource_id、快照和准入过滤条件。
 """
 
+import asyncio
 import logging
 
 from .milvus_client import connect_milvus, get_collection
@@ -31,9 +32,13 @@ async def retrieve_from_milvus(
         检索结果列表（未重排）
     """
     try:
-        connect_milvus()
-        collection = get_collection()
-        collection.load()
+        def _connect_and_load():
+            connect_milvus()
+            col = get_collection()
+            col.load()
+            return col
+
+        collection = await asyncio.to_thread(_connect_and_load)
     except Exception as e:
         logger.error("Milvus 连接/加载失败: %s", e)
         raise
@@ -47,24 +52,27 @@ async def retrieve_from_milvus(
         f"and governance_status in [{eligible_statuses}]"
     )
 
-    # 执行向量搜索
-    results = collection.search(
-        data=[question_embedding],
-        anns_field="embedding",
-        param={"metric_type": "IP", "params": {"nprobe": 16}},
-        limit=request.top_k * 2,  # 多召回一些，后续重排再截断
-        expr=filter_expr,
-        output_fields=[
-            "chunk_type",
-            "chunk_text",
-            "related_table",
-            "related_column",
-            "snapshot_id",
-            "knowledge_version_no",
-            "governance_status",
-            "review_status",
-        ],
-    )
+    # 执行向量搜索（pymilvus 是同步 SDK，需在线程中执行避免阻塞事件循环）
+    def _search():
+        return collection.search(
+            data=[question_embedding],
+            anns_field="embedding",
+            param={"metric_type": "IP", "params": {"nprobe": 16}},
+            limit=request.top_k * 2,
+            expr=filter_expr,
+            output_fields=[
+                "chunk_type",
+                "chunk_text",
+                "related_table",
+                "related_column",
+                "snapshot_id",
+                "knowledge_version_no",
+                "governance_status",
+                "review_status",
+            ],
+        )
+
+    results = await asyncio.to_thread(_search)
 
     # 转换为 RetrievedSchema
     retrieved = []
@@ -74,7 +82,10 @@ async def retrieve_from_milvus(
             retrieved.append(
                 RetrievedSchema(
                     table_name=entity.get("related_table", ""),
-                    columns=entity.get("related_column", "").split(",")
+                    columns=[
+                        col for col in entity.get("related_column", "").split(",")
+                        if col.strip()
+                    ]
                     if entity.get("related_column")
                     else [],
                     score=hit.score,

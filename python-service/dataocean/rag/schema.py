@@ -301,9 +301,9 @@ class RetrieveResponse(RagBaseModel):
 
     @model_validator(mode="after")
     def fill_counts(self) -> "RetrieveResponse":
-        if self.results and not self.total_found:
+        if self.results and self.total_found == 0:
             self.total_found = len(self.results)
-        if self.results and not self.returned:
+        if self.results and self.returned == 0:
             self.returned = len(self.results)
         if self.degraded and self.message and not self.degrade_reason:
             self.degrade_reason = self.message

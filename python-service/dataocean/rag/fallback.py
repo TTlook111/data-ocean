@@ -10,6 +10,15 @@ from .schema import RetrievedSchema, RetrieveResponse
 logger = logging.getLogger(__name__)
 
 
+def _first_non_none(d: dict, *keys) -> any:
+    """从字典中按优先级取第一个非 None 的值（允许 0、空字符串等 falsy 值）。"""
+    for key in keys:
+        val = d.get(key)
+        if val is not None:
+            return val
+    return None
+
+
 def fallback_retrieve(
     datasource_id: int, fallback_chunks: list[dict] | None = None
 ) -> RetrieveResponse:
@@ -29,13 +38,9 @@ def fallback_retrieve(
         for chunk in fallback_chunks[:5]:  # 最多取 5 条
             chunk_type = chunk.get("chunk_type") or chunk.get("chunkType")
             if chunk_type in {"TABLE_DESC", "CORE_TABLE", "SCHEMA"}:
-                table_name = (
-                    chunk.get("related_table")
-                    or chunk.get("relatedTable")
-                    or chunk.get("table_name")
-                    or chunk.get("tableName")
-                    or ""
-                )
+                table_name = _first_non_none(
+                    chunk, "related_table", "relatedTable", "table_name", "tableName"
+                ) or ""
                 results.append(
                     RetrievedSchema(
                         table_name=table_name,
@@ -43,18 +48,21 @@ def fallback_retrieve(
                         score=0.5,
                         relevance_score=0.5,
                         chunk_type=chunk_type,
-                        source_version=chunk.get("knowledge_version_no")
-                        or chunk.get("knowledgeVersionNo")
-                        or 0,
-                        snapshot_id=chunk.get("snapshot_id")
-                        or chunk.get("snapshotId")
-                        or chunk.get("metadata_snapshot_id")
-                        or chunk.get("metadataSnapshotId"),
-                        chunk_text=chunk.get("chunk_text") or chunk.get("chunkText") or "",
-                        governance_status=chunk.get("governance_status")
-                        or chunk.get("governanceStatus")
-                        or "",
-                        review_status=chunk.get("review_status") or chunk.get("reviewStatus") or "",
+                        source_version=_first_non_none(
+                            chunk, "knowledge_version_no", "knowledgeVersionNo"
+                        ) or 0,
+                        snapshot_id=_first_non_none(
+                            chunk, "snapshot_id", "snapshotId", "metadata_snapshot_id", "metadataSnapshotId"
+                        ),
+                        chunk_text=_first_non_none(
+                            chunk, "chunk_text", "chunkText"
+                        ) or "",
+                        governance_status=_first_non_none(
+                            chunk, "governance_status", "governanceStatus"
+                        ) or "",
+                        review_status=_first_non_none(
+                            chunk, "review_status", "reviewStatus"
+                        ) or "",
                     )
                 )
 

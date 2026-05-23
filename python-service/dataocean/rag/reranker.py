@@ -9,8 +9,6 @@
 
 import logging
 
-from dataocean.core.config import settings
-
 from .schema import RetrievedSchema, RetrieveRequest
 
 logger = logging.getLogger(__name__)
@@ -57,11 +55,11 @@ def rerank(
     # 按加权分数降序排列
     scored_results.sort(key=lambda x: x[0], reverse=True)
 
-    # 截断到 top_k
-    top_k = min(request.top_k, settings.rag_top_k)
+    # 截断到 top_k，将加权分数写入 score 但保留 relevance_score 为原始 Milvus 分数
+    top_k = request.top_k
     final_results = []
-    for score, item in scored_results[:top_k]:
-        item.score = round(score, 4)
+    for weighted_score, item in scored_results[:top_k]:
+        item.score = round(weighted_score, 4)
         final_results.append(item)
 
     logger.info(

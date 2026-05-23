@@ -3,6 +3,7 @@
 提供向量化写入、语义检索、健康检查和数据清理的 HTTP 接口。
 """
 
+import asyncio
 import logging
 from time import perf_counter
 
@@ -59,32 +60,40 @@ async def retrieve(request: RetrieveRequest) -> RetrieveResponse:
 @router.delete("/vectors/{datasource_id}")
 async def delete_vectors_by_datasource(datasource_id: int) -> DeleteVectorsResponse:
     """按数据源删除所有向量"""
-    return _delete_vectors(DeleteVectorsRequest(datasource_id=datasource_id))
+    return await _delete_vectors(DeleteVectorsRequest(datasource_id=datasource_id))
 
 
 @router.delete("/vectors", response_model=DeleteVectorsResponse)
 async def delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsResponse:
     """按数据源和/或快照批量删除向量"""
-    return _delete_vectors(request)
+    return await _delete_vectors(request)
 
 
-def _delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsResponse:
+async def _delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsResponse:
     start = perf_counter()
     try:
-        connect_milvus()
-        collection = get_collection()
         expr_parts = []
         if request.datasource_id is not None:
             expr_parts.append(f"datasource_id == {request.datasource_id}")
         if request.snapshot_id is not None:
             expr_parts.append(f"snapshot_id == {request.snapshot_id}")
+        if not expr_parts:
+            raise ValueError("至少需要提供 datasource_id 或 snapshot_id")
         expr = " and ".join(expr_parts)
 
-        before = _count_entities(collection, expr)
-        collection.delete(expr=expr)
-        collection.flush()
+        def _do_delete() -> int:
+            connect_milvus()
+            collection = get_collection()
+            before = _count_entities(collection, expr)
+            collection.delete(expr=expr)
+            collection.flush()
+            return before
+
+        before = await asyncio.to_thread(_do_delete)
         logger.info("已删除向量 expr=%s count=%d", expr, before)
         return DeleteVectorsResponse(deleted_count=before, duration_ms=_elapsed_ms(start))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error("删除向量失败: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -93,7 +102,7 @@ def _delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsResponse:
 @router.get("/health")
 async def health() -> dict:
     """RAG 健康检查（含 Milvus 连接状态）"""
-    return health_status()
+    return await asyncio.to_thread(health_status)
 
 
 def _count_entities(collection, expr: str) -> int:

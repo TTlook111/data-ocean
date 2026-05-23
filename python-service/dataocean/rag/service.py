@@ -66,14 +66,14 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
 def _response(
     *,
     results: list | None = None,
-    total_found: int = 0,
+    total_found: int | None = None,
     message: str = "",
     start: float,
 ) -> RetrieveResponse:
     result_items = results or []
     return RetrieveResponse(
         results=result_items,
-        total_found=total_found or len(result_items),
+        total_found=total_found if total_found is not None else len(result_items),
         returned=len(result_items),
         message=message,
         retrieval_time_ms=_elapsed_ms(start),

@@ -1,4 +1,3 @@
-import asyncio
 import unittest
 from unittest.mock import patch
 
@@ -60,7 +59,7 @@ class FakeCollection:
         self.flushed = True
 
 
-class RagContractTest(unittest.TestCase):
+class RagContractTest(unittest.IsolatedAsyncioTestCase):
     def test_models_accept_java_camel_case_payloads(self) -> None:
         retrieve = RetrieveRequest.model_validate(
             {
@@ -157,7 +156,7 @@ class RagContractTest(unittest.TestCase):
         self.assertEqual(response.results[0].table_name, "orders")
         self.assertEqual(response.results[0].snapshot_id, 5)
 
-    def test_retriever_injects_datasource_snapshot_and_admission_filters(self) -> None:
+    async def test_retriever_injects_datasource_snapshot_and_admission_filters(self) -> None:
         request = RetrieveRequest.model_validate(
             {
                 "datasourceId": 10,
@@ -171,7 +170,7 @@ class RagContractTest(unittest.TestCase):
         with patch("dataocean.rag.retriever.connect_milvus"), patch(
             "dataocean.rag.retriever.get_collection", return_value=collection
         ):
-            results = asyncio.run(retrieve_from_milvus([0.1, 0.2], request))
+            results = await retrieve_from_milvus([0.1, 0.2], request)
 
         self.assertIn("datasource_id == 10", collection.search_expr)
         self.assertIn("snapshot_id == 5", collection.search_expr)

@@ -3,6 +3,7 @@
 将 chunks 批量 embedding 后写入 Milvus。
 """
 
+import asyncio
 import logging
 from time import perf_counter
 
@@ -37,8 +38,11 @@ async def vectorize_chunks(
         return VectorizeResponse(duration_ms=_elapsed_ms(start))
 
     try:
-        connect_milvus()
-        collection = get_collection()
+        def _connect():
+            connect_milvus()
+            return get_collection()
+
+        collection = await asyncio.to_thread(_connect)
     except Exception as e:
         logger.error("Milvus 连接失败: %s", e)
         return VectorizeResponse(
@@ -50,7 +54,7 @@ async def vectorize_chunks(
 
     # 强制模式：先删除该数据源的旧向量
     if force:
-        _delete_by_datasource(collection, datasource_id)
+        await asyncio.to_thread(_delete_by_datasource, collection, datasource_id)
 
     # 批量生成 embedding
     texts = [chunk.chunk_text for chunk in chunks]
@@ -62,6 +66,16 @@ async def vectorize_chunks(
             status="FAILED",
             failed_count=len(chunks),
             errors=[f"Embedding 失败: {e}"],
+            duration_ms=_elapsed_ms(start),
+        )
+
+    if len(embeddings) != len(chunks):
+        msg = f"Embedding 数量不匹配: chunks={len(chunks)} embeddings={len(embeddings)}"
+        logger.error(msg)
+        return VectorizeResponse(
+            status="FAILED",
+            failed_count=len(chunks),
+            errors=[msg],
             duration_ms=_elapsed_ms(start),
         )
 
@@ -80,8 +94,11 @@ async def vectorize_chunks(
     ]
 
     try:
-        collection.insert(entities)
-        collection.flush()
+        def _do_insert():
+            collection.insert(entities)
+            collection.flush()
+
+        await asyncio.to_thread(_do_insert)
         logger.info("向量写入成功 datasource_id=%d count=%d", datasource_id, len(chunks))
         return VectorizeResponse(
             status="COMPLETED",
