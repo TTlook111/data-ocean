@@ -77,8 +77,10 @@ public class SecurityConfig {
                         .requestMatchers("/api/datasources/**").authenticated()
                         .requestMatchers("/api/admin/**").authenticated()
                         .requestMatchers("/api/**").authenticated()
-                        // 其他请求（如静态资源、健康检查）放行
-                        .anyRequest().permitAll()
+                        // 静态资源和错误页面放行
+                        .requestMatchers("/error", "/favicon.ico").permitAll()
+                        // 其他请求默认需要认证（防止 Actuator 等端点意外暴露）
+                        .anyRequest().authenticated()
                 )
                 // 自定义异常处理：未认证和无权限时返回 JSON 格式错误信息
                 .exceptionHandling(exception -> exception

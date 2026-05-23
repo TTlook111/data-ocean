@@ -1,4 +1,5 @@
 import type { Router } from 'vue-router'
+import { useAuthStore } from '../stores/auth'
 
 const adminPermissions = [
   'admin:view',
@@ -26,11 +27,9 @@ function hasAdminAccess(user: { permissions?: string[] } | null) {
 
 export function setupRouterGuards(router: Router) {
   router.beforeEach((to) => {
-    const token = localStorage.getItem('dataocean_token')
-    const user = JSON.parse(localStorage.getItem('dataocean_user') || 'null') as {
-      passwordChanged?: boolean
-      permissions?: string[]
-    } | null
+    const auth = useAuthStore()
+    const token = auth.token
+    const user = auth.user as { passwordChanged?: boolean; permissions?: string[] } | null
 
     if (to.path === '/login') {
       return token ? '/query' : true
@@ -54,7 +53,7 @@ export function setupRouterGuards(router: Router) {
 
     const requiredPermission = to.meta.permission as string | undefined
     if (requiredPermission && !hasPermission(user, requiredPermission)) {
-      return to.path.startsWith('/admin') ? '/query' : '/admin'
+      return '/query'
     }
 
     return true

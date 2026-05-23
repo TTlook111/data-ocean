@@ -1,29 +1,30 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import LoginPage from '../views/login/LoginPage.vue'
-import AppShell from '../components/AppShell.vue'
-import AdminHomeView from '../views/AdminHomeView.vue'
-import ChangePassword from '../views/profile/ChangePassword.vue'
-import ProfileView from '../views/profile/ProfileView.vue'
-import QueryDatasourceView from '../views/query/QueryDatasourceView.vue'
-import DepartmentTree from '../views/admin/user/DepartmentTree.vue'
-import DatasourceList from '../views/admin/datasource/DatasourceList.vue'
-import RoleList from '../views/admin/user/RoleList.vue'
-import UserList from '../views/admin/user/UserList.vue'
-import SyncTask from '../views/admin/metadata/SyncTask.vue'
-import SnapshotList from '../views/admin/metadata/SnapshotList.vue'
-import TableExplorer from '../views/admin/metadata/TableExplorer.vue'
-import SnapshotDiff from '../views/admin/metadata/SnapshotDiff.vue'
-import SyncSchedule from '../views/admin/metadata/SyncSchedule.vue'
-import QualityDashboard from '../views/admin/governance/QualityDashboard.vue'
-import IssueList from '../views/admin/governance/IssueList.vue'
-import StatusEditor from '../views/admin/governance/StatusEditor.vue'
-import SnapshotLifecycle from '../views/admin/metadata/SnapshotLifecycle.vue'
-import VersionHistory from '../views/admin/metadata/VersionHistory.vue'
-import SkillsEditor from '../views/admin/knowledge/SkillsEditor.vue'
-import VersionList from '../views/admin/knowledge/VersionList.vue'
-import ReviewPage from '../views/admin/knowledge/ReviewPage.vue'
-import KnowledgeDashboard from '../views/admin/knowledge/KnowledgeDashboard.vue'
 import { setupRouterGuards } from './guards'
+
+const LoginPage = () => import('../views/login/LoginPage.vue')
+const AppShell = () => import('../components/AppShell.vue')
+const AdminHomeView = () => import('../views/AdminHomeView.vue')
+const ChangePassword = () => import('../views/profile/ChangePassword.vue')
+const ProfileView = () => import('../views/profile/ProfileView.vue')
+const QueryDatasourceView = () => import('../views/query/QueryDatasourceView.vue')
+const DepartmentTree = () => import('../views/admin/user/DepartmentTree.vue')
+const DatasourceList = () => import('../views/admin/datasource/DatasourceList.vue')
+const RoleList = () => import('../views/admin/user/RoleList.vue')
+const UserList = () => import('../views/admin/user/UserList.vue')
+const SyncTask = () => import('../views/admin/metadata/SyncTask.vue')
+const SnapshotList = () => import('../views/admin/metadata/SnapshotList.vue')
+const TableExplorer = () => import('../views/admin/metadata/TableExplorer.vue')
+const SnapshotDiff = () => import('../views/admin/metadata/SnapshotDiff.vue')
+const SyncSchedule = () => import('../views/admin/metadata/SyncSchedule.vue')
+const QualityDashboard = () => import('../views/admin/governance/QualityDashboard.vue')
+const IssueList = () => import('../views/admin/governance/IssueList.vue')
+const StatusEditor = () => import('../views/admin/governance/StatusEditor.vue')
+const SnapshotLifecycle = () => import('../views/admin/metadata/SnapshotLifecycle.vue')
+const VersionHistory = () => import('../views/admin/metadata/VersionHistory.vue')
+const SkillsEditor = () => import('../views/admin/knowledge/SkillsEditor.vue')
+const VersionList = () => import('../views/admin/knowledge/VersionList.vue')
+const ReviewPage = () => import('../views/admin/knowledge/ReviewPage.vue')
+const KnowledgeDashboard = () => import('../views/admin/knowledge/KnowledgeDashboard.vue')
 
 const router = createRouter({
   history: createWebHistory(),

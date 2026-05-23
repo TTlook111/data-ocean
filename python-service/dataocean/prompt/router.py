@@ -4,7 +4,7 @@
 - GET /{template_code} — 获取指定编码的 Prompt 模板
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
 
@@ -12,4 +12,4 @@ router = APIRouter()
 @router.get("/{template_code}")
 async def get_prompt_template(template_code: str) -> dict[str, str]:
     """获取 Prompt 模板（待实现）"""
-    return {"status": "not_implemented", "code": template_code}
+    raise HTTPException(status_code=501, detail="Prompt 模板管理尚未实现")

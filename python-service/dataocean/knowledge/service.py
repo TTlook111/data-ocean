@@ -19,6 +19,29 @@ logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
+# 模块级缓存：模板和 httpx client
+_template_cache: Template | None = None
+_http_client: httpx.AsyncClient | None = None
+
+_MAX_WARNINGS = 50
+
+
+def _get_template() -> Template:
+    """获取缓存的 Jinja2 模板"""
+    global _template_cache
+    if _template_cache is None:
+        template_path = PROMPTS_DIR / "skills_md_template.j2"
+        _template_cache = Template(template_path.read_text(encoding="utf-8"))
+    return _template_cache
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    """获取复用的 httpx AsyncClient"""
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=float(settings.llm_timeout))
+    return _http_client
+
 
 async def generate_draft(request: GenerateDraftRequest) -> GenerateDraftResponse:
     """基于元数据快照生成 skills.md 草稿
@@ -36,8 +59,7 @@ async def generate_draft(request: GenerateDraftRequest) -> GenerateDraftResponse
     )
 
     # 加载 Jinja2 Prompt 模板
-    template_path = PROMPTS_DIR / "skills_md_template.j2"
-    template = Template(template_path.read_text(encoding="utf-8"))
+    template = _get_template()
 
     # 填充模板变量
     prompt = template.render(
@@ -84,25 +106,31 @@ async def _call_llm(prompt: str) -> str:
 
     for attempt in range(max_retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=float(settings.llm_timeout)) as client:
-                response = await client.post(
-                    f"{settings.dashscope_base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {settings.dashscope_api_key}"},
-                    json={
-                        "model": settings.qwen_model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "你是一个数据库文档专家，负责根据数据库元数据生成结构化的 skills.md 业务知识文档。",
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": settings.llm_temperature,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                return data["choices"][0]["message"]["content"]
+            client = _get_http_client()
+            response = await client.post(
+                f"{settings.dashscope_base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.dashscope_api_key}"},
+                json={
+                    "model": settings.qwen_model,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "你是一个数据库文档专家，负责根据数据库元数据生成结构化的 skills.md 业务知识文档。",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": settings.llm_temperature,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            choices = data.get("choices")
+            if not choices or not isinstance(choices, list):
+                raise LLMException("LLM 响应格式异常：缺少 choices 字段")
+            content = choices[0].get("message", {}).get("content")
+            if not content:
+                raise LLMException("LLM 响应格式异常：content 为空")
+            return content
         except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as e:
             if attempt < max_retries:
                 wait_seconds = (attempt + 1) * 5
@@ -119,14 +147,21 @@ async def _call_llm(prompt: str) -> str:
 
 
 def _check_missing_comments(tables: list) -> list[str]:
-    """检查无注释的表和字段，生成警告列表"""
+    """检查无注释的表和字段，生成警告列表（最多 _MAX_WARNINGS 条）"""
     warnings = []
     for table in tables:
+        if len(warnings) >= _MAX_WARNINGS:
+            remaining = sum(1 for t in tables for c in t.columns if not c.column_comment) - len(warnings)
+            if remaining > 0:
+                warnings.append(f"...及其他 {remaining} 个字段无注释")
+            break
         if not table.table_comment:
             warnings.append(
                 f"表 {table.table_name} 无注释，AI 已基于字段推测用途（待人工确认）"
             )
         for col in table.columns:
+            if len(warnings) >= _MAX_WARNINGS:
+                break
             if not col.column_comment:
                 warnings.append(
                     f"字段 {table.table_name}.{col.column_name} 无注释（待人工确认）"

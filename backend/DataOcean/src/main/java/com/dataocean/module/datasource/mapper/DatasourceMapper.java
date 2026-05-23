@@ -10,6 +10,8 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+import java.util.List;
+
 /**
  * 数据源 Mapper 接口。
  * <p>
@@ -99,6 +101,48 @@ public interface DatasourceMapper extends BaseMapper<Datasource> {
               AND d.deleted = 0
             """)
     DatasourceVO selectVOById(@Param("id") Long id);
+
+    /**
+     * 批量查询数据源详情视图（避免 N+1 查询）。
+     *
+     * @param ids 数据源 ID 列表
+     * @return 数据源详情视图列表
+     */
+    @Select("""
+            <script>
+            SELECT d.id,
+                   d.name,
+                   d.description,
+                   d.db_type AS dbType,
+                   d.host,
+                   d.port,
+                   d.database_name AS databaseName,
+                   d.charset,
+                   d.status,
+                   d.health_status AS healthStatus,
+                   s.username,
+                   u.real_name AS creatorName,
+                   hc.success AS lastCheckSuccess,
+                   hc.checked_at AS lastCheckTime,
+                   d.created_at AS createdAt
+            FROM datasource d
+            LEFT JOIN datasource_secret s ON s.datasource_id = d.id
+            LEFT JOIN sys_user u ON u.id = d.creator_id
+            LEFT JOIN datasource_health_check hc ON hc.id = (
+                SELECT h.id
+                FROM datasource_health_check h
+                WHERE h.datasource_id = d.id
+                ORDER BY h.checked_at DESC, h.id DESC
+                LIMIT 1
+            )
+            WHERE d.deleted = 0
+              AND d.id IN
+              <foreach item="id" collection="ids" open="(" separator="," close=")">
+                #{id}
+              </foreach>
+            </script>
+            """)
+    List<DatasourceVO> selectVOByIds(@Param("ids") List<Long> ids);
 
     /**
      * 查询指定用户已授权访问的启用数据源。

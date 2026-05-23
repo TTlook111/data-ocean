@@ -28,6 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 数据源管理服务实现类
@@ -191,10 +194,15 @@ public class DatasourceServiceImpl implements DatasourceService {
                 .orderByDesc(Datasource::getCreatedAt);
         // 执行分页查询
         Page<Datasource> datasourcePage = datasourceMapper.selectPage(new Page<>(request.resolvedPage(), request.resolvedPageSize()), wrapper);
-        // 转换为 VO 分页结果
+        // 批量转换为 VO 分页结果（避免 N+1 查询）
         Page<DatasourceVO> result = new Page<>(datasourcePage.getCurrent(), datasourcePage.getSize(), datasourcePage.getTotal());
-        result.setRecords(datasourcePage.getRecords().stream()
-                .map(item -> datasourceMapper.selectVOById(item.getId())).toList());
+        List<Long> ids = datasourcePage.getRecords().stream().map(Datasource::getId).toList();
+        if (!ids.isEmpty()) {
+            List<DatasourceVO> voList = datasourceMapper.selectVOByIds(ids);
+            // 保持与分页查询一致的排序
+            Map<Long, DatasourceVO> voMap = voList.stream().collect(Collectors.toMap(DatasourceVO::getId, v -> v));
+            result.setRecords(ids.stream().map(voMap::get).filter(Objects::nonNull).toList());
+        }
         return result;
     }
 

@@ -1,11 +1,21 @@
 import { defineStore } from 'pinia'
 import { login, logout, me, type CurrentUser, type LoginPayload, type LoginResult } from '../api/auth'
 
+function safeJsonParse<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    localStorage.removeItem(key)
+    return null
+  }
+}
+
 export const useAuthStore = defineStore('auth', {
   state: () => ({
     token: localStorage.getItem('dataocean_token') || '',
-    user: JSON.parse(localStorage.getItem('dataocean_user') || 'null') as LoginResult | null,
-    currentUser: JSON.parse(localStorage.getItem('dataocean_current_user') || 'null') as CurrentUser | null,
+    user: safeJsonParse<LoginResult>('dataocean_user'),
+    currentUser: safeJsonParse<CurrentUser>('dataocean_current_user'),
   }),
   getters: {
     permissions: (state) => state.currentUser?.permissions || state.user?.permissions || [],

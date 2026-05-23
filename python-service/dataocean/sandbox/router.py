@@ -5,7 +5,7 @@
 - POST /execute — SQL 沙箱执行（只读连接，强制 LIMIT，超时 30s）
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
 
@@ -13,10 +13,10 @@ router = APIRouter()
 @router.post("/validate")
 async def validate_sql() -> dict[str, str]:
     """SQL 安全校验（待实现）"""
-    return {"status": "not_implemented"}
+    raise HTTPException(status_code=501, detail="SQL 安全校验尚未实现")
 
 
 @router.post("/execute")
 async def execute_sql() -> dict[str, str]:
     """SQL 沙箱执行（待实现）"""
-    return {"status": "not_implemented"}
+    raise HTTPException(status_code=501, detail="SQL 沙箱执行尚未实现")

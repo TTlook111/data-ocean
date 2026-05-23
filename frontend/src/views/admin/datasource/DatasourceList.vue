@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   CircleCheck,
@@ -558,6 +558,10 @@ function resetFilters() {
 onMounted(async () => {
   await fetchDatasources()
   filtersReady.value = true
+})
+
+onBeforeUnmount(() => {
+  window.clearTimeout(filterTimer)
 })
 </script>
 

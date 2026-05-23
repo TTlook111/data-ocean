@@ -142,7 +142,10 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
                 + "?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
                 + "&connectTimeout=" + CONNECT_TIMEOUT_MS
                 + "&socketTimeout=" + CONNECT_TIMEOUT_MS
-                + "&characterEncoding=" + resolvedEncoding;
+                + "&characterEncoding=" + resolvedEncoding
+                + "&allowLoadLocalInfile=false"
+                + "&autoDeserialize=false"
+                + "&allowUrlInLocalInfile=false";
     }
 
     /**

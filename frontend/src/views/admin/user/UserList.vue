@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { RotateCcw, Search } from 'lucide-vue-next'
 import {
@@ -351,10 +351,13 @@ async function resetPassword(user: UserItem) {
   try {
     const result = await resetUserPassword(user.id)
     const password = result.data.tempPassword
+    const escaped = password.replace(/[&<>"']/g, (c: string) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] || c
+    )
     await ElMessageBox.alert(
       `<div class="temp-password-dialog">
         <p>临时密码</p>
-        <strong>${password}</strong>
+        <strong>${escaped}</strong>
       </div>`,
       '密码重置成功',
       {
@@ -390,6 +393,10 @@ onMounted(async () => {
   await fetchOptions()
   await fetchUsers()
   filtersReady.value = true
+})
+
+onBeforeUnmount(() => {
+  window.clearTimeout(filterTimer)
 })
 </script>
 

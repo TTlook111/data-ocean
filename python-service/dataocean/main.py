@@ -4,6 +4,7 @@
 """
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -20,21 +21,38 @@ from dataocean.prompt.router import router as prompt_router
 
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """应用生命周期管理"""
+    setup_logging(settings.log_level)
+    _validate_config()
+    logger.info("DataOcean AI Service 启动完成")
+    yield
+    # 关闭 httpx client 等资源
+    from dataocean.knowledge.service import _http_client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
+    logger.info("DataOcean AI Service 已关闭")
+
+
+def _validate_config() -> None:
+    """启动时校验关键配置"""
+    missing = []
+    if not settings.dashscope_api_key:
+        missing.append("DASHSCOPE_API_KEY")
+    if not settings.milvus_host:
+        missing.append("MILVUS_HOST")
+    if missing:
+        logger.warning("以下关键配置缺失，相关功能将不可用: %s", ", ".join(missing))
+
+
 app = FastAPI(
     title="DataOcean AI Service",
     version="0.1.0",
     description="NL2SQL 智能数据查询平台 — Python AI 服务层",
+    lifespan=lifespan,
 )
-
-
-# === 生命周期事件 ===
-
-
-@app.on_event("startup")
-async def on_startup() -> None:
-    """服务启动时初始化日志和配置"""
-    setup_logging(settings.log_level)
-    logger.info("DataOcean AI Service 启动完成")
 
 
 # === 全局异常处理 ===
@@ -45,6 +63,13 @@ async def service_exception_handler(request: Request, exc: ServiceException) -> 
     """统一处理业务异常，返回标准错误格式"""
     logger.warning("业务异常 path=%s message=%s", request.url.path, exc.message)
     return JSONResponse(status_code=exc.code, content={"message": exc.message})
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """兜底异常处理，防止堆栈信息泄露"""
+    logger.error("未处理异常 path=%s error=%s", request.url.path, exc, exc_info=True)
+    return JSONResponse(status_code=500, content={"message": "服务内部错误"})
 
 
 # === 健康检查 ===
