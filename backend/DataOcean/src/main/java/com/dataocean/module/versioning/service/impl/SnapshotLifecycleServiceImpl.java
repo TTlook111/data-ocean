@@ -24,6 +24,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * 快照生命周期服务实现。
+ * <p>
+ * 管理快照状态机、发布前置条件、版本历史聚合和快照差异比较。
+ * </p>
+ */
 @Service
 @RequiredArgsConstructor
 public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
@@ -35,6 +41,9 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
     private final SnapshotAuditLogService auditLogService;
     private final UserService userService;
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public void changeStatus(Long snapshotId, String targetStatus, Long operatorId, String reason) {
@@ -68,6 +77,9 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
                 "STATUS_TRANSITION", oldStatus, targetStatus, operatorId, reason);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public Page<SnapshotVersionHistoryVO> listVersionHistory(Long datasourceId, int page, int size) {
         Page<MetadataSnapshot> snapshotPage = snapshotMapper.selectPage(
@@ -85,11 +97,17 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
         return result;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public SchemaDiffVO compareVersions(Long oldSnapshotId, Long newSnapshotId) {
         return schemaDiffService.compareSnapshots(oldSnapshotId, newSnapshotId);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public MetadataSnapshot getPublishedSnapshot(Long datasourceId) {
         return snapshotMapper.selectOne(

@@ -9,6 +9,12 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 元数据治理审核记录实体。
+ * <p>
+ * 记录表、字段治理状态调整和质量问题处理等人工审核动作。
+ * </p>
+ */
 @Data
 @TableName("metadata_review_record")
 public class MetadataReviewRecord {

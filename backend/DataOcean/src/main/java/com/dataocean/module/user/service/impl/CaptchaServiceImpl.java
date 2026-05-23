@@ -15,6 +15,12 @@ import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 登录验证码服务实现。
+ * <p>
+ * 使用 Redis 保存验证码答案和过期时间，验证码校验后立即删除以防重复使用。
+ * </p>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -29,6 +35,9 @@ public class CaptchaServiceImpl implements CaptchaService {
     private static final int HEIGHT = 48;
     private static final String CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public CaptchaVO generate() {
         String code = randomCode();
@@ -44,6 +53,9 @@ public class CaptchaServiceImpl implements CaptchaService {
         return vo;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public boolean verify(String captchaKey, String captchaCode) {
         if (captchaKey == null || captchaCode == null) {

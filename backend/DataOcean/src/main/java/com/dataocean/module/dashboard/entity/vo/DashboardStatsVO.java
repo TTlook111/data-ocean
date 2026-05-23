@@ -4,6 +4,12 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * 管理端首页统计视图对象。
+ * <p>
+ * 用于承载平台规模、快照发布、质量问题和近期操作记录等看板指标。
+ * </p>
+ */
 @Data
 public class DashboardStatsVO {
 
@@ -19,6 +25,9 @@ public class DashboardStatsVO {
     private Double avgQualityScore;
     private List<RecentActivity> recentActivities;
 
+    /**
+     * 首页近期活动视图对象。
+     */
     @Data
     public static class RecentActivity {
         private String type;

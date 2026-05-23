@@ -13,8 +13,19 @@ import java.util.List;
  */
 public interface QualityChecker {
 
+    /**
+     * 获取当前校验器负责的质量维度。
+     *
+     * @return 质量维度编码
+     */
     String getDimension();
 
+    /**
+     * 执行质量校验并返回发现的问题。
+     *
+     * @param context 本次校验所需的快照元数据和规则上下文
+     * @return 质量问题列表
+     */
     List<MetadataQualityIssue> check(CheckContext context);
 
     /**

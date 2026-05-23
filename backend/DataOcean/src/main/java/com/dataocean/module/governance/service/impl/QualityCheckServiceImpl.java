@@ -29,6 +29,12 @@ import java.math.RoundingMode;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * 元数据质量校验服务实现。
+ * <p>
+ * 负责加载快照元数据、调用各维度校验器、持久化质量问题并计算质量得分。
+ * </p>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -51,6 +57,9 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             MetadataQualityRule.DIM_TRACEABILITY, new BigDecimal("0.10")
     );
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions, List<String> tableNames) {
@@ -98,7 +107,7 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         // 计算质量分
         boolean isFullCheck = targetDimensions.size() == DIMENSION_WEIGHTS.size();
         Map<String, BigDecimal> dimensionScores = calculateDimensionScores(allIssues, rules, targetDimensions);
-        BigDecimal totalScore = calculateTotalScore(dimensionScores, targetDimensions);
+        BigDecimal totalScore = calculateTotalScore(dimensionScores);
 
         // 仅全量校验时更新快照质量分和状态
         if (isFullCheck) {
@@ -177,7 +186,7 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         return scores;
     }
 
-    private BigDecimal calculateTotalScore(Map<String, BigDecimal> dimensionScores, Set<String> checkedDimensions) {
+    private BigDecimal calculateTotalScore(Map<String, BigDecimal> dimensionScores) {
         BigDecimal total = BigDecimal.ZERO;
         BigDecimal totalWeight = BigDecimal.ZERO;
         for (Map.Entry<String, BigDecimal> entry : dimensionScores.entrySet()) {

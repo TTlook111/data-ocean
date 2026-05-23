@@ -5,6 +5,9 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/**
+ * 快照版本历史视图对象。
+ */
 @Data
 public class SnapshotVersionHistoryVO {
 

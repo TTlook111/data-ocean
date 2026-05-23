@@ -9,6 +9,12 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 元数据质量问题实体。
+ * <p>
+ * 记录质量校验过程中发现的问题、严重级别、处理状态、负责人和解决信息。
+ * </p>
+ */
 @Data
 @TableName("metadata_quality_issue")
 public class MetadataQualityIssue {

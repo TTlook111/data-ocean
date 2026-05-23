@@ -31,6 +31,12 @@ import java.util.Date;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
+/**
+ * 认证服务实现。
+ * <p>
+ * 处理验证码校验、登录失败锁定、JWT 签发与黑名单、密码修改和个人资料更新。
+ * </p>
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -50,6 +56,9 @@ public class AuthServiceImpl implements AuthService {
     @Value("${security.login.lock-duration}")
     private long lockDurationSeconds;
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public LoginVO login(LoginDTO request) {
         // 验证码校验（在密码校验之前，避免暴力枚举）
@@ -100,6 +109,9 @@ public class AuthServiceImpl implements AuthService {
                 .build();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void logout(String authorizationHeader) {
         String token = extractToken(authorizationHeader);
@@ -118,6 +130,9 @@ public class AuthServiceImpl implements AuthService {
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public CurrentUserVO currentUserInfo() {
         LoginUser loginUser = UserContext.currentUser();
@@ -135,6 +150,9 @@ public class AuthServiceImpl implements AuthService {
                 .build();
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public void changePassword(ChangePasswordDTO request) {
@@ -156,6 +174,9 @@ public class AuthServiceImpl implements AuthService {
         log.info("用户修改密码成功，已刷新令牌版本 userId={} username={}", user.getId(), user.getUsername());
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public void updateProfile(ProfileUpdateDTO request) {

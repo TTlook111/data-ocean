@@ -7,6 +7,9 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * 质量问题批量处理请求参数。
+ */
 @Data
 public class IssueBatchHandleDTO {
 

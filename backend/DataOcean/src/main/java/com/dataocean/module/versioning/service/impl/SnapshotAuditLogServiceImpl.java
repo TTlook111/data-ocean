@@ -10,15 +10,21 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 
+/**
+ * 快照审计日志服务实现。
+ */
 @Service
 @RequiredArgsConstructor
 public class SnapshotAuditLogServiceImpl implements SnapshotAuditLogService {
 
     private final SnapshotAuditLogMapper auditLogMapper;
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void recordStatusChange(Long snapshotId, Long datasourceId, String action,
-                                   String oldStatus, String newStatus, Long operatorId, String reason) {
+                                    String oldStatus, String newStatus, Long operatorId, String reason) {
         SnapshotAuditLog log = new SnapshotAuditLog();
         log.setSnapshotId(snapshotId);
         log.setDatasourceId(datasourceId);
@@ -31,6 +37,9 @@ public class SnapshotAuditLogServiceImpl implements SnapshotAuditLogService {
         auditLogMapper.insert(log);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public Page<SnapshotAuditLog> listAuditLogs(Long snapshotId, int page, int size) {
         return auditLogMapper.selectPage(
@@ -41,6 +50,9 @@ public class SnapshotAuditLogServiceImpl implements SnapshotAuditLogService {
         );
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public Page<SnapshotAuditLog> listByDatasource(Long datasourceId, String action, int page, int size) {
         LambdaQueryWrapper<SnapshotAuditLog> wrapper = new LambdaQueryWrapper<SnapshotAuditLog>()

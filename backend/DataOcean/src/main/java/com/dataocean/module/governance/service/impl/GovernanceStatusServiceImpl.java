@@ -17,6 +17,12 @@ import org.springframework.util.CollectionUtils;
 
 import java.util.*;
 
+/**
+ * 元数据治理状态服务实现。
+ * <p>
+ * 负责校验治理状态、更新表字段快照数据，并写入治理审核记录。
+ * </p>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -26,11 +32,12 @@ public class GovernanceStatusServiceImpl implements GovernanceStatusService {
     private final DbColumnMetaMapper columnMetaMapper;
     private final MetadataReviewRecordMapper reviewRecordMapper;
 
-    // RAG 准入状态白名单
-    private static final Set<String> RAG_ELIGIBLE = Set.of("NORMAL", "RECOMMENDED", "SENSITIVE");
     private static final Set<String> VALID_STATUSES = Set.of(
             "DISCOVERED", "NORMAL", "RECOMMENDED", "DEPRECATED", "SENSITIVE", "BLOCKED");
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public Map<String, String> updateTableStatus(Long snapshotId, String tableName,
@@ -61,6 +68,9 @@ public class GovernanceStatusServiceImpl implements GovernanceStatusService {
         return result;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public Map<String, String> updateColumnStatus(Long snapshotId, Long columnId,
@@ -90,6 +100,9 @@ public class GovernanceStatusServiceImpl implements GovernanceStatusService {
         return result;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public Map<String, Object> batchUpdateColumnStatus(Long snapshotId, String tableName,
@@ -122,11 +135,6 @@ public class GovernanceStatusServiceImpl implements GovernanceStatusService {
         int excluded = CollectionUtils.isEmpty(excludeColumns) ? 0 : excludeColumns.size();
         log.info("批量字段状态变更 snapshot={} table={} updated={} excluded={}", snapshotId, tableName, updated, excluded);
         return Map.of("updated", updated, "excluded", excluded);
-    }
-
-    @Override
-    public boolean isEligibleForRag(String governanceStatus) {
-        return RAG_ELIGIBLE.contains(governanceStatus);
     }
 
     private void validateStatus(String status) {

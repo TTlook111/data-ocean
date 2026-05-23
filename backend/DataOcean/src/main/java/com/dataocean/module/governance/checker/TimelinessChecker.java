@@ -3,7 +3,6 @@ package com.dataocean.module.governance.checker;
 import com.dataocean.module.governance.entity.MetadataQualityIssue;
 import com.dataocean.module.governance.entity.MetadataQualityRule;
 import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -24,11 +23,17 @@ public class TimelinessChecker implements QualityChecker {
     // 快照超过此天数视为过期
     private static final long SNAPSHOT_EXPIRE_DAYS = 7;
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String getDimension() {
         return MetadataQualityRule.DIM_TIMELINESS;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<MetadataQualityIssue> check(CheckContext context) {
         List<MetadataQualityIssue> issues = new ArrayList<>();

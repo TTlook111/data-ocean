@@ -27,11 +27,17 @@ public class AccuracyChecker implements QualityChecker {
     // 枚举字段的 distinct_count 阈值：超过此值认为不是枚举
     private static final long ENUM_DISTINCT_THRESHOLD = 50;
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String getDimension() {
         return MetadataQualityRule.DIM_ACCURACY;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<MetadataQualityIssue> check(CheckContext context) {
         List<MetadataQualityIssue> issues = new ArrayList<>();

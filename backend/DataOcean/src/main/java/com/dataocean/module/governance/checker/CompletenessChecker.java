@@ -21,11 +21,17 @@ import java.util.stream.Collectors;
 @Component
 public class CompletenessChecker implements QualityChecker {
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String getDimension() {
         return MetadataQualityRule.DIM_COMPLETENESS;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<MetadataQualityIssue> check(CheckContext context) {
         List<MetadataQualityIssue> issues = new ArrayList<>();

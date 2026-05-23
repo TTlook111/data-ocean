@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 快照审计日志视图对象。
+ */
 @Data
 public class SnapshotAuditLogVO {
 

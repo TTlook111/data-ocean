@@ -213,7 +213,7 @@ public class UserServiceImpl implements UserService {
         // 批量查询部门名称，避免 N+1 查询
         Set<Long> deptIds = users.stream().map(SysUser::getDepartmentId).filter(id -> id != null).collect(Collectors.toSet());
         Map<Long, String> deptNameMap = deptIds.isEmpty() ? Map.of() :
-                departmentMapper.selectBatchIds(deptIds).stream()
+                departmentMapper.selectByIds(deptIds).stream()
                         .collect(Collectors.toMap(SysDepartment::getId, SysDepartment::getDeptName));
 
         // 批量查询用户角色关联，避免 N+1 查询
@@ -222,7 +222,7 @@ public class UserServiceImpl implements UserService {
                 new LambdaQueryWrapper<SysUserRole>().in(SysUserRole::getUserId, userIds));
         Set<Long> roleIds = userRoles.stream().map(SysUserRole::getRoleId).collect(Collectors.toSet());
         Map<Long, SysRole> roleMap = roleIds.isEmpty() ? Map.of() :
-                roleMapper.selectBatchIds(roleIds).stream()
+                roleMapper.selectByIds(roleIds).stream()
                         .collect(Collectors.toMap(SysRole::getId, r -> r));
         // 按用户 ID 分组角色列表
         Map<Long, List<SysRole>> userRoleMap = userRoles.stream()

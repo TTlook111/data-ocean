@@ -8,6 +8,12 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * 管理端首页看板控制器。
+ * <p>
+ * 聚合用户、数据源、快照、治理问题和近期活动等概览指标。
+ * </p>
+ */
 @RestController
 @RequestMapping("/api/admin/dashboard")
 @RequiredArgsConstructor
@@ -15,6 +21,11 @@ public class DashboardController {
 
     private final DashboardService dashboardService;
 
+    /**
+     * 获取管理端首页统计数据。
+     *
+     * @return 首页统计视图
+     */
     @GetMapping("/stats")
     public Result<DashboardStatsVO> getStats() {
         return Result.success(dashboardService.getStats());

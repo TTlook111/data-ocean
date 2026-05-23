@@ -25,11 +25,17 @@ public class TraceabilityChecker implements QualityChecker {
 
     private static final Pattern FK_PATTERN = Pattern.compile(".*_id$", Pattern.CASE_INSENSITIVE);
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String getDimension() {
         return MetadataQualityRule.DIM_TRACEABILITY;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<MetadataQualityIssue> check(CheckContext context) {
         List<MetadataQualityIssue> issues = new ArrayList<>();

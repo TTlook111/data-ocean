@@ -10,6 +10,12 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+/**
+ * 元数据质量规则实体。
+ * <p>
+ * 定义各治理维度的内置或自定义校验规则，以及问题严重级别和扣分值。
+ * </p>
+ */
 @Data
 @TableName("metadata_quality_rule")
 public class MetadataQualityRule {

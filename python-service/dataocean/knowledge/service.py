@@ -68,7 +68,7 @@ async def generate_draft(request: GenerateDraftRequest) -> GenerateDraftResponse
 async def _call_llm(prompt: str) -> str:
     """调用 Qwen API 生成内容（含重试机制）
 
-    最多重试 2 次（共 3 次尝试），每次重试间隔递增。
+    最多重试 settings.llm_max_retries 次，每次重试间隔递增。
     超时或网络错误时自动重试，其他错误直接抛出。
 
     Args:
@@ -80,14 +80,13 @@ async def _call_llm(prompt: str) -> str:
     Raises:
         LLMException: 重试耗尽后抛出
     """
-    max_retries = 2
-    last_exception = None
+    max_retries = settings.llm_max_retries
 
     for attempt in range(max_retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            async with httpx.AsyncClient(timeout=float(settings.llm_timeout)) as client:
                 response = await client.post(
-                    "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+                    f"{settings.dashscope_base_url}/chat/completions",
                     headers={"Authorization": f"Bearer {settings.dashscope_api_key}"},
                     json={
                         "model": settings.qwen_model,
@@ -98,14 +97,13 @@ async def _call_llm(prompt: str) -> str:
                             },
                             {"role": "user", "content": prompt},
                         ],
-                        "temperature": 0.3,
+                        "temperature": settings.llm_temperature,
                     },
                 )
                 response.raise_for_status()
                 data = response.json()
                 return data["choices"][0]["message"]["content"]
         except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as e:
-            last_exception = e
             if attempt < max_retries:
                 wait_seconds = (attempt + 1) * 5
                 logger.warning(

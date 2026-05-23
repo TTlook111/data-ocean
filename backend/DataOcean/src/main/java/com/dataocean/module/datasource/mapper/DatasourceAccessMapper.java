@@ -18,6 +18,7 @@ import java.util.List;
  *
  * @author dataocean
  */
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 @Mapper
 public interface DatasourceAccessMapper extends BaseMapper<DatasourceAccess> {
 

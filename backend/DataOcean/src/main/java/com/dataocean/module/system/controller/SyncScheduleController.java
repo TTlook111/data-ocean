@@ -12,6 +12,12 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * 元数据自动同步计划控制器。
+ * <p>
+ * 提供自动同步开关、cron 表达式查询和更新接口。
+ * </p>
+ */
 @RestController
 @RequestMapping("/api/admin/system")
 @RequiredArgsConstructor
@@ -21,6 +27,11 @@ public class SyncScheduleController {
     private final SysConfigService configService;
     private final AutoSyncScheduler autoSyncScheduler;
 
+    /**
+     * 查询当前自动同步计划。
+     *
+     * @return 自动同步配置和运行状态
+     */
     @GetMapping("/sync-schedule")
     public Result<SyncScheduleVO> getSchedule() {
         SyncScheduleVO vo = new SyncScheduleVO();
@@ -30,6 +41,12 @@ public class SyncScheduleController {
         return Result.success(vo);
     }
 
+    /**
+     * 更新自动同步计划。
+     *
+     * @param dto 自动同步配置
+     * @return 更新后的自动同步配置和运行状态
+     */
     @PutMapping("/sync-schedule")
     public Result<SyncScheduleVO> updateSchedule(@Valid @RequestBody SyncScheduleDTO dto) {
         if (StringUtils.hasText(dto.getCron())) {

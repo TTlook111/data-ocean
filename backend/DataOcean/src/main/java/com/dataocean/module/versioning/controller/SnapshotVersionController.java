@@ -22,6 +22,12 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.stream.Collectors;
 
+/**
+ * 元数据快照版本控制器。
+ * <p>
+ * 提供快照状态流转、发布、撤回、版本历史、当前发布版本、审计日志和版本对比接口。
+ * </p>
+ */
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
@@ -33,14 +39,27 @@ public class SnapshotVersionController {
     private final SnapshotAuditLogService auditLogService;
     private final UserService userService;
 
+    /**
+     * 变更快照状态。
+     *
+     * @param snapshotId 快照 ID
+     * @param request    状态变更请求
+     * @return 操作结果
+     */
     @PatchMapping("/snapshots/{snapshotId}/status")
     public Result<Void> changeStatus(@PathVariable Long snapshotId,
-                                     @Valid @RequestBody SnapshotStatusChangeDTO request) {
+                                      @Valid @RequestBody SnapshotStatusChangeDTO request) {
         Long operatorId = UserContext.currentUserId();
         lifecycleService.changeStatus(snapshotId, request.getTargetStatus(), operatorId, request.getReason());
         return Result.success();
     }
 
+    /**
+     * 发布快照版本。
+     *
+     * @param snapshotId 快照 ID
+     * @return 操作结果
+     */
     @PostMapping("/snapshots/{snapshotId}/publish")
     public Result<Void> publish(@PathVariable Long snapshotId) {
         Long operatorId = UserContext.currentUserId();
@@ -48,9 +67,16 @@ public class SnapshotVersionController {
         return Result.success();
     }
 
+    /**
+     * 撤回已发布快照。
+     *
+     * @param snapshotId 快照 ID
+     * @param request    撤回请求，必须包含原因
+     * @return 操作结果
+     */
     @PostMapping("/snapshots/{snapshotId}/revoke")
     public Result<Void> revoke(@PathVariable Long snapshotId,
-                               @RequestBody SnapshotStatusChangeDTO request) {
+                                @RequestBody SnapshotStatusChangeDTO request) {
         if (request.getReason() == null || request.getReason().isBlank()) {
             return Result.error(400, "撤回操作必须填写原因");
         }
@@ -59,6 +85,14 @@ public class SnapshotVersionController {
         return Result.success();
     }
 
+    /**
+     * 查询数据源快照版本历史。
+     *
+     * @param datasourceId 数据源 ID
+     * @param page         页码
+     * @param size         每页条数
+     * @return 快照版本历史分页列表
+     */
     @GetMapping("/datasources/{datasourceId}/version-history")
     public Result<Page<SnapshotVersionHistoryVO>> versionHistory(
             @PathVariable Long datasourceId,
@@ -67,6 +101,12 @@ public class SnapshotVersionController {
         return Result.success(lifecycleService.listVersionHistory(datasourceId, page, size));
     }
 
+    /**
+     * 查询数据源当前已发布快照。
+     *
+     * @param datasourceId 数据源 ID
+     * @return 当前已发布快照；不存在时返回 null
+     */
     @GetMapping("/datasources/{datasourceId}/published-snapshot")
     public Result<SnapshotVersionHistoryVO> publishedSnapshot(@PathVariable Long datasourceId) {
         MetadataSnapshot snapshot = lifecycleService.getPublishedSnapshot(datasourceId);
@@ -84,6 +124,14 @@ public class SnapshotVersionController {
         return Result.success(vo);
     }
 
+    /**
+     * 查询指定快照的审计日志。
+     *
+     * @param snapshotId 快照 ID
+     * @param page       页码
+     * @param size       每页条数
+     * @return 审计日志分页列表
+     */
     @GetMapping("/snapshots/{snapshotId}/audit-logs")
     public Result<Page<SnapshotAuditLogVO>> auditLogs(
             @PathVariable Long snapshotId,
@@ -94,6 +142,15 @@ public class SnapshotVersionController {
         return Result.success(voPage);
     }
 
+    /**
+     * 查询数据源维度的快照审计日志。
+     *
+     * @param datasourceId 数据源 ID
+     * @param action       可选操作类型
+     * @param page         页码
+     * @param size         每页条数
+     * @return 审计日志分页列表
+     */
     @GetMapping("/datasources/{datasourceId}/audit-logs")
     public Result<Page<SnapshotAuditLogVO>> datasourceAuditLogs(
             @PathVariable Long datasourceId,
@@ -105,9 +162,16 @@ public class SnapshotVersionController {
         return Result.success(voPage);
     }
 
+    /**
+     * 对比两个快照版本的结构差异。
+     *
+     * @param snapshotId         基准快照 ID
+     * @param compareSnapshotId  对比快照 ID
+     * @return 快照差异结果
+     */
     @GetMapping("/snapshots/{snapshotId}/diff/{compareSnapshotId}")
     public Result<SchemaDiffVO> compareVersions(@PathVariable Long snapshotId,
-                                                @PathVariable Long compareSnapshotId) {
+                                                 @PathVariable Long compareSnapshotId) {
         return Result.success(lifecycleService.compareVersions(snapshotId, compareSnapshotId));
     }
 

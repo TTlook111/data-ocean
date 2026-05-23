@@ -19,9 +19,16 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * 元数据质量问题服务实现。
+ * <p>
+ * 提供质量问题筛选查询、状态流转、批量处理和负责人分派能力。
+ * </p>
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -36,6 +43,9 @@ public class QualityIssueServiceImpl implements QualityIssueService {
     private static final Set<String> VALID_FROM_CONFIRMED = Set.of(
             MetadataQualityIssue.STATUS_RESOLVED, MetadataQualityIssue.STATUS_REJECTED);
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional(readOnly = true)
     @Override
     public Page<QualityIssueVO> listIssues(Long snapshotId, String dimension, String severity,
@@ -53,21 +63,24 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         // 批量查询 assignee 姓名，避免 N+1
         Set<Long> assigneeIds = issuePage.getRecords().stream()
                 .map(MetadataQualityIssue::getAssigneeId)
-                .filter(id -> id != null)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
         Map<Long, String> nameMap = new HashMap<>();
         if (!assigneeIds.isEmpty()) {
-            List<SysUser> users = userMapper.selectBatchIds(assigneeIds);
+            List<SysUser> users = userMapper.selectByIds(assigneeIds);
             for (SysUser u : users) {
                 nameMap.put(u.getId(), u.getRealName());
             }
         }
 
         Page<QualityIssueVO> voPage = new Page<>(issuePage.getCurrent(), issuePage.getSize(), issuePage.getTotal());
-        voPage.setRecords(issuePage.getRecords().stream().map(i -> toVO(i, nameMap)).toList());
+        voPage.setRecords(issuePage.getRecords().stream().map(issue -> toVO(issue, nameMap)).toList());
         return voPage;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public void handleIssue(Long issueId, String targetStatus, String resolutionNote, Long operatorId) {
@@ -90,6 +103,9 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         log.info("问题状态变更 issueId={} {} → {}", issueId, oldStatus, targetStatus);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public int batchHandle(List<Long> issueIds, String targetStatus, Long operatorId) {
@@ -105,6 +121,9 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         return updated;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public void assignIssue(Long issueId, Long assigneeId) {

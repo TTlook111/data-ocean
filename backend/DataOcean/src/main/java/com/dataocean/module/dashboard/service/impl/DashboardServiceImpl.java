@@ -7,9 +7,7 @@ import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.governance.entity.MetadataQualityIssue;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
-import com.dataocean.module.metadata.entity.DbTableMeta;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
-import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.versioning.entity.SnapshotAuditLog;
@@ -17,11 +15,16 @@ import com.dataocean.module.versioning.mapper.SnapshotAuditLogMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 管理端首页看板服务实现。
+ * <p>
+ * 从用户、数据源、元数据快照、质量问题和快照审计日志中汇总概览指标。
+ * </p>
+ */
 @Service
 @RequiredArgsConstructor
 public class DashboardServiceImpl implements DashboardService {
@@ -29,10 +32,12 @@ public class DashboardServiceImpl implements DashboardService {
     private final UserMapper userMapper;
     private final DatasourceMapper datasourceMapper;
     private final MetadataSnapshotMapper snapshotMapper;
-    private final DbTableMetaMapper tableMetaMapper;
     private final MetadataQualityIssueMapper qualityIssueMapper;
     private final SnapshotAuditLogMapper auditLogMapper;
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public DashboardStatsVO getStats() {
         DashboardStatsVO stats = new DashboardStatsVO();

@@ -8,6 +8,12 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+/**
+ * 数据源创建请求参数。
+ * <p>
+ * 描述新增 MySQL 数据源所需的连接信息和只读账号凭据。
+ * </p>
+ */
 @Data
 public class DatasourceCreateDTO {
 

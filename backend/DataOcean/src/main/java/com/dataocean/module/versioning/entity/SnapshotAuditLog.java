@@ -7,6 +7,12 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 快照审计日志实体。
+ * <p>
+ * 记录快照发布、撤回、过期和状态流转等版本生命周期操作。
+ * </p>
+ */
 @Data
 @TableName("snapshot_audit_log")
 public class SnapshotAuditLog {

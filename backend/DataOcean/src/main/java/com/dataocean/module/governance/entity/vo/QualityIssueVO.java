@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 质量问题列表视图对象。
+ */
 @Data
 public class QualityIssueVO {
 

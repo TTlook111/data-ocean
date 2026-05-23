@@ -8,6 +8,12 @@ import lombok.Data;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 数据源访问授权请求参数。
+ * <p>
+ * 支持一次为多个用户授予指定数据源的访问权限，并可设置授权过期时间。
+ * </p>
+ */
 @Data
 public class DatasourceAccessGrantDTO {
 

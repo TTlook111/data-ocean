@@ -5,6 +5,12 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * 批量治理状态更新请求参数。
+ * <p>
+ * 用于将表下字段统一更新为指定治理状态，并支持排除部分字段。
+ * </p>
+ */
 @Data
 public class BatchGovernanceStatusDTO {
 

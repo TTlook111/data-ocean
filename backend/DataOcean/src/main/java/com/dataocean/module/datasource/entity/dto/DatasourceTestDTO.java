@@ -8,6 +8,12 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+/**
+ * 数据源连接测试请求参数。
+ * <p>
+ * 用于在不保存数据源的情况下验证连接配置是否可用。
+ * </p>
+ */
 @Data
 public class DatasourceTestDTO {
 

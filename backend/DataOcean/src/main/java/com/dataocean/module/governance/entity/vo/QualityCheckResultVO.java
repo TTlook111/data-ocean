@@ -5,6 +5,9 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.util.Map;
 
+/**
+ * 质量校验结果视图对象。
+ */
 @Data
 public class QualityCheckResultVO {
 

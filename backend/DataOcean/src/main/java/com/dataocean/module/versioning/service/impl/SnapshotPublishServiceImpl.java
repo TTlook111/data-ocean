@@ -4,7 +4,6 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
-import com.dataocean.module.versioning.entity.SnapshotStatus;
 import com.dataocean.module.versioning.event.SnapshotExpiredEvent;
 import com.dataocean.module.versioning.event.SnapshotPublishedEvent;
 import com.dataocean.module.versioning.service.SnapshotAuditLogService;
@@ -17,6 +16,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 快照发布服务实现。
+ * <p>
+ * 发布新快照时自动过期同一数据源旧发布版本，并记录审计日志和发布生命周期事件。
+ * </p>
+ */
 @Service
 @RequiredArgsConstructor
 public class SnapshotPublishServiceImpl implements SnapshotPublishService {
@@ -25,6 +30,9 @@ public class SnapshotPublishServiceImpl implements SnapshotPublishService {
     private final SnapshotAuditLogService auditLogService;
     private final ApplicationEventPublisher eventPublisher;
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public void publishSnapshot(Long snapshotId, Long operatorId) {
@@ -72,6 +80,9 @@ public class SnapshotPublishServiceImpl implements SnapshotPublishService {
                 datasourceId, operatorId, previousSnapshotId));
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public void revokeSnapshot(Long snapshotId, Long operatorId, String reason) {

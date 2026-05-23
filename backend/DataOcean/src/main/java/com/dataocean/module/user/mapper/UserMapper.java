@@ -17,6 +17,7 @@ import java.util.List;
  *
  * @author DataOcean
  */
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 @Mapper
 public interface UserMapper extends BaseMapper<SysUser> {
 

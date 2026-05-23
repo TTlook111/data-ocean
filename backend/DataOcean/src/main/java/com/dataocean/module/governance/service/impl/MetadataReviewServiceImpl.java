@@ -19,6 +19,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * 元数据治理审核记录服务实现。
+ * <p>
+ * 查询审核记录时批量补齐操作人姓名，供管理端展示。
+ * </p>
+ */
 @Service
 @RequiredArgsConstructor
 public class MetadataReviewServiceImpl implements MetadataReviewService {
@@ -26,6 +32,9 @@ public class MetadataReviewServiceImpl implements MetadataReviewService {
     private final MetadataReviewRecordMapper reviewRecordMapper;
     private final UserMapper userMapper;
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional(readOnly = true)
     @Override
     public Page<ReviewRecordVO> listRecords(Long snapshotId, String tableName, int page, int size) {
@@ -42,14 +51,14 @@ public class MetadataReviewServiceImpl implements MetadataReviewService {
                 .collect(Collectors.toSet());
         Map<Long, String> nameMap = new HashMap<>();
         if (!operatorIds.isEmpty()) {
-            List<SysUser> users = userMapper.selectBatchIds(operatorIds);
+            List<SysUser> users = userMapper.selectByIds(operatorIds);
             for (SysUser u : users) {
                 nameMap.put(u.getId(), u.getRealName());
             }
         }
 
         Page<ReviewRecordVO> voPage = new Page<>(recordPage.getCurrent(), recordPage.getSize(), recordPage.getTotal());
-        voPage.setRecords(recordPage.getRecords().stream().map(r -> toVO(r, nameMap)).toList());
+        voPage.setRecords(recordPage.getRecords().stream().map(record -> toVO(record, nameMap)).toList());
         return voPage;
     }
 

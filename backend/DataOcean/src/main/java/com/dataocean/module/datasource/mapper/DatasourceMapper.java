@@ -10,9 +10,22 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
+/**
+ * 数据源 Mapper 接口。
+ * <p>
+ * 提供 datasource 表基础 CRUD，以及数据源详情、授权可见数据源和依赖资源统计查询。
+ * </p>
+ */
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 @Mapper
 public interface DatasourceMapper extends BaseMapper<Datasource> {
 
+    /**
+     * 检查当前平台库中指定表是否存在。
+     *
+     * @param tableName 表名
+     * @return 匹配表数量
+     */
     @Select("""
             SELECT COUNT(*)
             FROM information_schema.tables
@@ -21,6 +34,12 @@ public interface DatasourceMapper extends BaseMapper<Datasource> {
             """)
     Long tableExists(@Param("tableName") String tableName);
 
+    /**
+     * 统计数据源已发布快照数量。
+     *
+     * @param datasourceId 数据源 ID
+     * @return 已发布快照数量
+     */
     @Select("""
             SELECT COUNT(*)
             FROM metadata_snapshot
@@ -29,6 +48,12 @@ public interface DatasourceMapper extends BaseMapper<Datasource> {
             """)
     Long countPublishedSnapshots(@Param("datasourceId") Long datasourceId);
 
+    /**
+     * 统计数据源下可用的知识文档数量。
+     *
+     * @param datasourceId 数据源 ID
+     * @return 已审核或已发布且未删除的知识文档数量
+     */
     @Select("""
             SELECT COUNT(*)
             FROM knowledge_doc
@@ -38,6 +63,12 @@ public interface DatasourceMapper extends BaseMapper<Datasource> {
             """)
     Long countActiveKnowledgeDocs(@Param("datasourceId") Long datasourceId);
 
+    /**
+     * 查询数据源详情视图。
+     *
+     * @param id 数据源 ID
+     * @return 数据源详情视图，数据源不存在时返回 null
+     */
     @Select("""
             SELECT d.id,
                    d.name,
@@ -69,6 +100,12 @@ public interface DatasourceMapper extends BaseMapper<Datasource> {
             """)
     DatasourceVO selectVOById(@Param("id") Long id);
 
+    /**
+     * 查询指定用户已授权访问的启用数据源。
+     *
+     * @param userId 用户 ID
+     * @return 用户可访问的数据源简要列表
+     */
     @Select("""
             SELECT d.id,
                    d.name,
@@ -80,10 +117,15 @@ public interface DatasourceMapper extends BaseMapper<Datasource> {
               AND d.status = 1
               AND d.deleted = 0
               AND (a.expires_at IS NULL OR a.expires_at > NOW())
-            ORDER BY d.name ASC, d.id ASC
+            ORDER BY d.name, d.id
             """)
     List<DatasourceSimpleVO> selectAccessibleByUserId(@Param("userId") Long userId);
 
+    /**
+     * 查询所有启用且未删除的数据源简要信息。
+     *
+     * @return 启用数据源简要列表
+     */
     @Select("""
             SELECT d.id,
                    d.name,
@@ -92,7 +134,7 @@ public interface DatasourceMapper extends BaseMapper<Datasource> {
             FROM datasource d
             WHERE d.status = 1
               AND d.deleted = 0
-            ORDER BY d.name ASC, d.id ASC
+            ORDER BY d.name, d.id
             """)
     List<DatasourceSimpleVO> selectEnabledSimple();
 }

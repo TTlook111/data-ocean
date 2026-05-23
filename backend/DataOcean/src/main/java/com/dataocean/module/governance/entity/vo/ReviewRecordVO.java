@@ -4,6 +4,9 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+/**
+ * 治理审核记录视图对象。
+ */
 @Data
 public class ReviewRecordVO {
 

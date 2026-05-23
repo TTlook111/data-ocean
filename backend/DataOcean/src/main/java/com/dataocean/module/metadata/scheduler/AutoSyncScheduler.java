@@ -15,6 +15,12 @@ import jakarta.annotation.PostConstruct;
 import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 
+/**
+ * 元数据自动同步调度器。
+ * <p>
+ * 根据系统配置动态注册或取消定时同步任务，对启用的数据源触发定时全量采集。
+ * </p>
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -30,13 +36,18 @@ public class AutoSyncScheduler {
     private final TaskScheduler taskScheduler;
 
     private volatile ScheduledFuture<?> scheduledFuture;
-    private volatile String currentCron;
 
+    /**
+     * 应用启动后根据配置初始化自动同步任务。
+     */
     @PostConstruct
     public void init() {
         refresh();
     }
 
+    /**
+     * 重新加载自动同步配置并刷新调度任务。
+     */
     public synchronized void refresh() {
         String enabled = configService.getValue(KEY_ENABLED, "false");
         String cron = configService.getValue(KEY_CRON, DEFAULT_CRON);
@@ -48,19 +59,18 @@ public class AutoSyncScheduler {
 
         if (!"true".equalsIgnoreCase(enabled)) {
             log.info("元数据自动同步已禁用");
-            currentCron = null;
             return;
         }
 
-        currentCron = cron;
         scheduledFuture = taskScheduler.schedule(this::executeAutoSync, new CronTrigger(cron));
         log.info("元数据自动同步已启用，cron={}", cron);
     }
 
-    public String getCurrentCron() {
-        return currentCron;
-    }
-
+    /**
+     * 判断自动同步任务是否正在运行。
+     *
+     * @return true 表示已注册有效调度任务
+     */
     public boolean isRunning() {
         return scheduledFuture != null && !scheduledFuture.isCancelled();
     }

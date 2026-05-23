@@ -20,11 +20,17 @@ import java.util.stream.Collectors;
 @Component
 public class ConsistencyChecker implements QualityChecker {
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public String getDimension() {
         return MetadataQualityRule.DIM_CONSISTENCY;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<MetadataQualityIssue> check(CheckContext context) {
         List<MetadataQualityIssue> issues = new ArrayList<>();

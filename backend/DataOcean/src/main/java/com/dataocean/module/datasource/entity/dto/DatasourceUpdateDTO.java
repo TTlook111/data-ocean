@@ -8,6 +8,12 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+/**
+ * 数据源更新请求参数。
+ * <p>
+ * 用于修改已保存数据源的展示信息、连接信息和可选密码。
+ * </p>
+ */
 @Data
 public class DatasourceUpdateDTO {
 

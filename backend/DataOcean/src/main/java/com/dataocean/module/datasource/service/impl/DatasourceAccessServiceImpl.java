@@ -23,6 +23,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * 数据源访问授权服务实现。
+ * <p>
+ * 负责管理员授权、撤销授权，以及普通用户可访问数据源的权限判断。
+ * </p>
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -32,6 +38,9 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
     private final DatasourceAccessMapper accessMapper;
     private final UserMapper userMapper;
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public int grantAccess(Long datasourceId, DatasourceAccessGrantDTO request) {
@@ -66,6 +75,9 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
         return granted;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public void revokeAccess(Long datasourceId, Long userId) {
@@ -76,12 +88,18 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
         log.info("数据源授权已撤销 datasourceId={} userId={}", datasourceId, userId);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<DatasourceAccessVO> listAccess(Long datasourceId) {
         requireDatasource(datasourceId);
         return accessMapper.selectAccessList(datasourceId);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<DatasourceSimpleVO> listAccessibleDatasources() {
         if (hasAllPermission()) {
@@ -90,6 +108,9 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
         return datasourceMapper.selectAccessibleByUserId(UserContext.currentUserId());
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public boolean checkAccess(Long datasourceId) {
         if (hasAllPermission()) {

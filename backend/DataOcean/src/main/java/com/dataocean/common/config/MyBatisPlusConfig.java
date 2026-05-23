@@ -54,6 +54,11 @@ public class MyBatisPlusConfig {
     public MetaObjectHandler metaObjectHandler() {
         log.info("配置 MyBatis-Plus 审计字段自动填充");
         return new MetaObjectHandler() {
+            /**
+             * 插入实体时填充创建时间和更新时间。
+             *
+             * @param metaObject 当前待插入实体的元对象
+             */
             @Override
             public void insertFill(MetaObject metaObject) {
                 // 插入时同时填充创建时间和更新时间
@@ -62,6 +67,11 @@ public class MyBatisPlusConfig {
                 strictInsertFill(metaObject, "updatedAt", LocalDateTime.class, now);
             }
 
+            /**
+             * 更新实体时刷新更新时间。
+             *
+             * @param metaObject 当前待更新实体的元对象
+             */
             @Override
             public void updateFill(MetaObject metaObject) {
                 // 更新时只填充更新时间

@@ -17,6 +17,7 @@ import java.util.List;
  *
  * @author DataOcean
  */
+@SuppressWarnings({"SqlNoDataSourceInspection", "SqlResolve"})
 @Mapper
 public interface RoleMapper extends BaseMapper<SysRole> {
 
@@ -34,7 +35,7 @@ public interface RoleMapper extends BaseMapper<SysRole> {
             FROM sys_role r
             JOIN sys_user_role ur ON ur.role_id = r.id
             WHERE ur.user_id = #{userId}
-            ORDER BY r.id ASC
+            ORDER BY r.id
             """)
     List<SysRole> selectByUserId(@Param("userId") Long userId);
 }

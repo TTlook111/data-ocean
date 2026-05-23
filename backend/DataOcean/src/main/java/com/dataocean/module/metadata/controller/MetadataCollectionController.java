@@ -37,6 +37,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 元数据采集管理控制器。
+ * <p>
+ * 提供同步任务触发、同步任务查询、快照列表、快照详情和快照差异对比接口。
+ * </p>
+ */
 @RestController
 @RequestMapping("/api/admin/metadata")
 @RequiredArgsConstructor
@@ -52,15 +58,29 @@ public class MetadataCollectionController {
     private final DbColumnMetaMapper columnMetaMapper;
     private final DatasourceMapper datasourceMapper;
 
+    /**
+     * 手动触发元数据同步任务。
+     *
+     * @param request 同步触发请求
+     * @return 新建同步任务 ID
+     */
     @PostMapping("/sync")
     public Result<Map<String, Long>> triggerSync(@Valid @RequestBody SyncTriggerDTO request) {
         Long taskId = collectionService.executeFullSync(request.getDatasourceId(), request.getIncludeStatistics());
         return Result.success("同步任务已触发", Map.of("taskId", taskId));
     }
 
+    /**
+     * 分页查询元数据同步任务。
+     *
+     * @param datasourceId 可选数据源 ID
+     * @param page         页码
+     * @param size         每页条数
+     * @return 同步任务分页列表
+     */
     @GetMapping("/sync-tasks")
     public Result<Page<SyncTaskVO>> listSyncTasks(@RequestParam(required = false) Long datasourceId,
-                                                  @RequestParam(defaultValue = "1") Integer page,
+                                                   @RequestParam(defaultValue = "1") Integer page,
                                                   @RequestParam(defaultValue = "20") Integer size) {
         Page<SchemaSyncTask> pageParam = new Page<>(PageRequest.page(page), PageRequest.size(size));
         LambdaQueryWrapper<SchemaSyncTask> wrapper = new LambdaQueryWrapper<SchemaSyncTask>()
@@ -74,9 +94,17 @@ public class MetadataCollectionController {
         return Result.success(voPage);
     }
 
+    /**
+     * 分页查询元数据快照。
+     *
+     * @param datasourceId 可选数据源 ID
+     * @param page         页码
+     * @param size         每页条数
+     * @return 快照分页列表
+     */
     @GetMapping("/snapshots")
     public Result<Page<SnapshotVO>> listSnapshots(@RequestParam(required = false) Long datasourceId,
-                                                  @RequestParam(defaultValue = "1") Integer page,
+                                                   @RequestParam(defaultValue = "1") Integer page,
                                                   @RequestParam(defaultValue = "20") Integer size) {
         Page<MetadataSnapshot> pageParam = new Page<>(PageRequest.page(page), PageRequest.size(size));
         LambdaQueryWrapper<MetadataSnapshot> wrapper = new LambdaQueryWrapper<MetadataSnapshot>()
@@ -90,6 +118,12 @@ public class MetadataCollectionController {
         return Result.success(voPage);
     }
 
+    /**
+     * 查询快照详情。
+     *
+     * @param id 快照 ID
+     * @return 快照、表和字段元数据详情
+     */
     @GetMapping("/snapshots/{id}")
     public Result<Map<String, Object>> getSnapshotDetail(@PathVariable Long id) {
         MetadataSnapshot snapshot = snapshotMapper.selectById(id);
@@ -109,6 +143,12 @@ public class MetadataCollectionController {
         return Result.success(detail);
     }
 
+    /**
+     * 查询快照中的表元数据。
+     *
+     * @param id 快照 ID
+     * @return 表元数据列表
+     */
     @GetMapping("/snapshots/{id}/tables")
     public Result<List<DbTableMeta>> listSnapshotTables(@PathVariable Long id) {
         List<DbTableMeta> tables = tableMetaMapper.selectList(
@@ -118,9 +158,16 @@ public class MetadataCollectionController {
         return Result.success(tables);
     }
 
+    /**
+     * 查询快照中指定表的字段元数据。
+     *
+     * @param id        快照 ID
+     * @param tableName 表名
+     * @return 字段元数据列表
+     */
     @GetMapping("/snapshots/{id}/tables/{tableName}/columns")
     public Result<List<DbColumnMeta>> listSnapshotTableColumns(@PathVariable Long id,
-                                                               @PathVariable String tableName) {
+                                                                @PathVariable String tableName) {
         List<DbColumnMeta> columns = columnMetaMapper.selectList(
                 new LambdaQueryWrapper<DbColumnMeta>()
                         .eq(DbColumnMeta::getSnapshotId, id)
@@ -129,6 +176,13 @@ public class MetadataCollectionController {
         return Result.success(columns);
     }
 
+    /**
+     * 对比两个元数据快照的结构差异。
+     *
+     * @param oldId 旧快照 ID
+     * @param newId 新快照 ID
+     * @return 快照差异结果
+     */
     @GetMapping("/snapshots/diff")
     public Result<SchemaDiffVO> diffSnapshots(@RequestParam Long oldId, @RequestParam Long newId) {
         return Result.success(diffService.compareSnapshots(oldId, newId));
