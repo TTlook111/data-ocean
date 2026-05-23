@@ -79,7 +79,7 @@ async def _call_llm(prompt: str) -> str:
 
     import httpx
 
-    api_key = os.getenv("QWEN_API_KEY")
+    api_key = os.getenv("DASHSCOPE_API_KEY")
     model = os.getenv("QWEN_MODEL", "qwen-plus")
 
     max_retries = 2
