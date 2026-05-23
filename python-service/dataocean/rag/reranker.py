@@ -55,12 +55,11 @@ def rerank(
     # 按加权分数降序排列
     scored_results.sort(key=lambda x: x[0], reverse=True)
 
-    # 截断到 top_k，将加权分数写入 score 但保留 relevance_score 为原始 Milvus 分数
+    # 截断到 top_k，使用 model_copy 避免修改原始对象的 score
     top_k = request.top_k
     final_results = []
     for weighted_score, item in scored_results[:top_k]:
-        item.score = round(weighted_score, 4)
-        final_results.append(item)
+        final_results.append(item.model_copy(update={"score": round(weighted_score, 4)}))
 
     logger.info(
         "重排完成 input=%d output=%d top_score=%.4f",

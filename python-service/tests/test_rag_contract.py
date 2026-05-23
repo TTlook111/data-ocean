@@ -6,6 +6,7 @@ from dataocean.rag.retriever import retrieve_from_milvus
 from dataocean.rag.schema import (
     DeleteVectorsRequest,
     DeleteVectorsResponse,
+    RetrievedSchema,
     RetrieveRequest,
     RetrieveResponse,
     VectorizeRequest,
@@ -191,6 +192,38 @@ class RagContractTest(unittest.IsolatedAsyncioTestCase):
         switch_version(collection, 10, 5, 4, expected_count=2)
         self.assertEqual(collection.deleted_expr, "datasource_id == 10 and snapshot_id == 4")
         self.assertTrue(collection.flushed)
+
+    def test_first_non_none_preserves_falsy_zero(self) -> None:
+        from dataocean.rag.fallback import _first_non_none
+
+        # 值为 0 时应返回 0，不跳过
+        self.assertEqual(_first_non_none({"a": 0, "b": 5}, "a", "b"), 0)
+        # 值为空字符串时应返回空字符串，不跳过
+        self.assertEqual(_first_non_none({"a": "", "b": "x"}, "a", "b"), "")
+        # 值为 None 时应跳过
+        self.assertEqual(_first_non_none({"a": None, "b": 5}, "a", "b"), 5)
+        # 所有键都不存在时返回 None
+        self.assertIsNone(_first_non_none({}, "a", "b"))
+
+    def test_reranker_does_not_mutate_original_scores(self) -> None:
+        from dataocean.rag.reranker import rerank
+
+        request = RetrieveRequest.model_validate(
+            {"datasourceId": 1, "query": "orders", "topK": 5, "activeSnapshotId": 1}
+        )
+        item = RetrievedSchema(
+            table_name="orders", score=0.8, chunk_type="TABLE_DESC", chunk_text="orders table"
+        )
+        original_score = item.score
+
+        results = rerank([item], request)
+
+        # 原始对象的 score 不应被修改
+        self.assertEqual(item.score, original_score)
+        # 返回的新对象 score 应包含加权（表名命中 +0.2）
+        self.assertAlmostEqual(results[0].score, 1.0, places=3)
+        # relevance_score 保持原始值
+        self.assertAlmostEqual(results[0].relevance_score, 0.8, places=3)
 
 
 if __name__ == "__main__":
