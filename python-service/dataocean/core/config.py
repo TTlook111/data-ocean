@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     milvus_host: str = "localhost"
     milvus_port: int = 19530
 
+    # RAG 配置
+    rag_top_k: int = 10
+    similarity_threshold: float = 0.6
+    milvus_collection_name: str = "schema_knowledge"
+    embedding_batch_size: int = 25
+
     # Redis
     redis_host: str = "localhost"
     redis_port: int = 6379
