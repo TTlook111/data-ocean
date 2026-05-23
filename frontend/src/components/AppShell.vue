@@ -226,13 +226,13 @@ function handleUserCommand(command: string) {
           <UserRound :size="18" />
           <span>个人资料</span>
         </button>
-        <button v-if="canEnterAdmin" class="drawer-item" @click="handleUserCommand('admin')">
-          <UserCog :size="18" />
-          <span>后台管理</span>
-        </button>
         <button class="drawer-item" @click="handleUserCommand('password')">
           <ShieldCheck :size="18" />
           <span>修改密码</span>
+        </button>
+        <button v-if="canEnterAdmin" class="drawer-item" @click="handleUserCommand('admin')">
+          <UserCog :size="18" />
+          <span>后台管理</span>
         </button>
         <div class="drawer-divider"></div>
         <button class="drawer-item drawer-item--danger" @click="handleUserCommand('logout')">

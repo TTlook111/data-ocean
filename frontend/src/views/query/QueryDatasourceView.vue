@@ -4,16 +4,17 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   BarChart3,
-  ChevronDown,
   Database,
   History,
+  LogOut,
   ListChecks,
   MessageSquarePlus,
   MessageSquareText,
   RefreshCw,
   Search,
   SendHorizontal,
-  Settings,
+  ShieldCheck,
+  UserCog,
   UserRound,
 } from 'lucide-vue-next'
 import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource'
@@ -60,6 +61,7 @@ const selectedId = ref<number>()
 const activeSessionId = ref<string>()
 const question = ref('')
 const keyword = ref('')
+const drawerVisible = ref(false)
 const sessions = reactive<LocalSession[]>([])
 const questionInputRef = ref<HTMLTextAreaElement>()
 
@@ -231,6 +233,7 @@ async function fetchDatasources() {
 }
 
 function handleUserCommand(command: string) {
+  drawerVisible.value = false
   if (command === 'admin') {
     router.push('/admin')
     return
@@ -238,6 +241,14 @@ function handleUserCommand(command: string) {
   if (command === 'profile') {
     router.push('/profile')
     return
+  }
+  if (command === 'password') {
+    router.push('/change-password')
+    return
+  }
+  if (command === 'logout') {
+    auth.logout()
+    router.push('/login')
   }
 }
 
@@ -328,28 +339,13 @@ onMounted(fetchDatasources)
           <h1>{{ selectedDatasource ? selectedDatasource.name : '请选择数据源' }}</h1>
         </div>
 
-        <el-dropdown trigger="click" @command="handleUserCommand">
-          <button class="query-user" type="button">
-            <span>{{ displayName.slice(0, 1) }}</span>
-            <div>
-              <strong>{{ displayName }}</strong>
-              <small>{{ roleText }}</small>
-            </div>
-            <ChevronDown :size="15" />
-          </button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item command="profile">
-                <UserRound :size="15" />
-                个人资料
-              </el-dropdown-item>
-              <el-dropdown-item v-if="canEnterAdmin" command="admin">
-                <Settings :size="15" />
-                后台管理
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
+        <button class="query-user" type="button" @click="drawerVisible = true">
+          <span>{{ displayName.slice(0, 1) }}</span>
+          <div>
+            <strong>{{ displayName }}</strong>
+            <small>{{ roleText }}</small>
+          </div>
+        </button>
       </header>
 
       <section class="chat-surface">
@@ -427,6 +423,37 @@ onMounted(fetchDatasources)
         </button>
       </footer>
     </section>
+
+    <el-drawer v-model="drawerVisible" direction="rtl" size="280px" :show-close="false">
+      <template #header>
+        <div class="drawer-profile">
+          <div class="drawer-avatar">{{ displayName.slice(0, 1) }}</div>
+          <div class="drawer-info">
+            <strong>{{ displayName }}</strong>
+            <small>{{ roleText }}</small>
+          </div>
+        </div>
+      </template>
+      <nav class="drawer-nav">
+        <button class="drawer-item" @click="handleUserCommand('profile')">
+          <UserRound :size="18" />
+          <span>个人资料</span>
+        </button>
+        <button class="drawer-item" @click="handleUserCommand('password')">
+          <ShieldCheck :size="18" />
+          <span>修改密码</span>
+        </button>
+        <button v-if="canEnterAdmin" class="drawer-item" @click="handleUserCommand('admin')">
+          <UserCog :size="18" />
+          <span>后台管理</span>
+        </button>
+        <div class="drawer-divider"></div>
+        <button class="drawer-item drawer-item--danger" @click="handleUserCommand('logout')">
+          <LogOut :size="18" />
+          <span>退出登录</span>
+        </button>
+      </nav>
+    </el-drawer>
   </main>
 </template>
 
@@ -694,10 +721,10 @@ onMounted(fetchDatasources)
 .query-user {
   height: 44px;
   display: grid;
-  grid-template-columns: 32px auto 16px;
+  grid-template-columns: 32px auto;
   align-items: center;
   gap: 10px;
-  padding: 5px 10px 5px 6px;
+  padding: 5px 14px 5px 6px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
   color: var(--do-ink);
@@ -716,8 +743,14 @@ onMounted(fetchDatasources)
 }
 
 .query-user strong,
-.query-user small {
+.query-user small,
+.drawer-info strong,
+.drawer-info small {
   display: block;
+}
+
+.query-user strong,
+.query-user small {
   max-width: 150px;
   overflow: hidden;
   text-align: left;
@@ -733,6 +766,73 @@ onMounted(fetchDatasources)
 .query-user small {
   color: var(--do-muted);
   font-size: 11px;
+}
+
+.drawer-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.drawer-avatar {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--do-primary), var(--do-accent));
+  font-weight: 900;
+  font-size: 18px;
+}
+
+.drawer-info strong {
+  color: var(--do-ink);
+  font-size: 15px;
+}
+
+.drawer-info small {
+  color: var(--do-muted);
+  font-size: 12px;
+}
+
+.drawer-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 0;
+}
+
+.drawer-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--do-ink);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 150ms;
+}
+
+.drawer-item:hover {
+  background: var(--do-bg);
+}
+
+.drawer-item--danger {
+  color: #ef4444;
+}
+
+.drawer-item--danger:hover {
+  background: #fef2f2;
+}
+
+.drawer-divider {
+  height: 1px;
+  margin: 8px 16px;
+  background: var(--do-line);
 }
 
 .chat-surface {
@@ -1000,10 +1100,6 @@ onMounted(fetchDatasources)
 .chat-composer button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
-}
-
-:deep(.el-dropdown-menu__item) {
-  gap: 8px;
 }
 
 @media (max-width: 1180px) {
