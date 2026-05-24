@@ -289,6 +289,7 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
                 colMap.put("column_type", col.getDataType());
                 colMap.put("column_comment", col.getColumnComment());
                 colMap.put("is_primary_key", col.getIsPrimaryKey() != null && col.getIsPrimaryKey() == 1);
+                colMap.put("confidence_score", col.getConfidenceScore());
                 columnList.add(colMap);
             }
             tableMap.put("columns", columnList);
@@ -511,4 +512,3 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         return ChunkType.TABLE_DESC.name();
     }
 }
-
