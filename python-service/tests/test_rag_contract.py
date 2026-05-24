@@ -11,7 +11,7 @@ from dataocean.rag.schema import (
     RetrieveResponse,
     VectorizeRequest,
 )
-from dataocean.rag.vectorizer import switch_version
+from dataocean.rag.vectorizer import _switch_doc_version, switch_version
 
 
 class FakeHit:
@@ -83,8 +83,10 @@ class RagContractTest(unittest.IsolatedAsyncioTestCase):
                 "datasourceId": 10,
                 "taskId": 100,
                 "targetType": "KNOWLEDGE_DOC",
+                "docId": 99,
                 "metadataSnapshotId": 5,
                 "knowledgeVersionNo": 3,
+                "previousVersionNo": 2,
                 "chunks": [
                     {
                         "sourceId": 201,
@@ -98,8 +100,10 @@ class RagContractTest(unittest.IsolatedAsyncioTestCase):
             }
         )
         self.assertEqual(vectorize.datasource_id, 10)
+        self.assertEqual(vectorize.doc_id, 99)
         self.assertEqual(vectorize.snapshot_id, 5)
         self.assertEqual(vectorize.version_no, 3)
+        self.assertEqual(vectorize.previous_version_no, 2)
         self.assertEqual(vectorize.chunks[0].related_table, "orders")
 
     def test_response_serializes_contract_aliases(self) -> None:
@@ -133,6 +137,11 @@ class RagContractTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(delete_request.datasource_id, 10)
         self.assertEqual(delete_request.snapshot_id, 5)
+        scoped_delete_request = DeleteVectorsRequest.model_validate(
+            {"datasourceId": 10, "docId": 99, "knowledgeVersionNo": 3}
+        )
+        self.assertEqual(scoped_delete_request.doc_id, 99)
+        self.assertEqual(scoped_delete_request.version_no, 3)
         delete_response = DeleteVectorsResponse(deleted_count=12, duration_ms=20)
         self.assertEqual(delete_response.model_dump(by_alias=True)["deletedCount"], 12)
 
@@ -191,6 +200,24 @@ class RagContractTest(unittest.IsolatedAsyncioTestCase):
 
         switch_version(collection, 10, 5, 4, expected_count=2)
         self.assertEqual(collection.deleted_expr, "datasource_id == 10 and snapshot_id == 4")
+        self.assertTrue(collection.flushed)
+
+    def test_switch_doc_version_deletes_only_previous_doc_version(self) -> None:
+        collection = FakeCollection(count=2)
+
+        _switch_doc_version(
+            collection,
+            datasource_id=10,
+            doc_id=99,
+            new_version_no=3,
+            old_version_no=2,
+            expected_count=2,
+        )
+
+        self.assertEqual(
+            collection.deleted_expr,
+            "datasource_id == 10 and doc_id == 99 and knowledge_version_no == 2",
+        )
         self.assertTrue(collection.flushed)
 
     def test_first_non_none_preserves_falsy_zero(self) -> None:

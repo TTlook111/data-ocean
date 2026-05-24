@@ -2,7 +2,7 @@
 
 ## Milvus Collection Schema
 
-### Collection: `schema_vectors`
+### Collection: `schema_knowledge`
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -10,8 +10,9 @@
 | vector | FLOAT_VECTOR (dim=1024) | Embedding 向量 |
 | datasource_id | INT64 (partition key) | 数据源ID，分区键 |
 | chunk_type | VARCHAR(30) | SCHEMA / KNOWLEDGE |
-| source_id | INT64 | 来源记录ID (knowledge_chunk.id 或 metadata_table.id) |
-| metadata_snapshot_id | INT64 | 元数据快照ID |
+| doc_id | INT64 | skills.md 文档ID，用于同一文档版本替换 |
+| source_id | INT64 | 来源切片ID (knowledge_chunk.id) |
+| snapshot_id | INT64 | 元数据快照ID |
 | knowledge_version_no | INT32 | 知识版本号 (chunk_type=KNOWLEDGE 时有值) |
 | table_name | VARCHAR(200) | 关联表名 |
 | governance_status | VARCHAR(20) | NORMAL / RECOMMENDED / DEPRECATED / BLOCKED |
@@ -22,6 +23,16 @@
 
 **Index**: IVF_FLAT on `vector` field, nlist=128
 **Partition**: By `datasource_id`
+
+### Version Replacement Rule
+
+向量写入以 `(datasource_id, doc_id, knowledge_version_no)` 作为文档版本作用域：
+
+1. Java 发布或回滚 skills.md 时传入 `docId`、`metadataSnapshotId`、`knowledgeVersionNo` 和 `previousVersionNo`。
+2. Python 先写入新版本向量并 flush。
+3. Python 查询新版本向量数量，必须等于请求中的 chunk 数。
+4. 校验通过后删除同一 `(datasource_id, doc_id, previousVersionNo)` 的旧向量。
+5. 校验失败时清理本次新写入的半成品向量，但不删除旧向量；Java 任务标记 FAILED，RAG 仍可继续召回上一版。
 
 ---
 

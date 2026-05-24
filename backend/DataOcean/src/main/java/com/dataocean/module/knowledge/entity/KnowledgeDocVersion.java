@@ -39,6 +39,9 @@ public class KnowledgeDocVersion {
     /** 关联的元数据快照ID */
     private Long metadataSnapshotId;
 
+    /** 该版本生成时的依赖快照 JSON */
+    private String dependencySnapshot;
+
     /** 版本号 */
     private Integer versionNo;
 

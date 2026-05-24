@@ -42,7 +42,7 @@ public interface KnowledgeDocService {
     /**
      * 创建知识文档。
      * <p>
-     * 新文档初始状态为 DRAFT，currentVersion 为 0。
+     * 新文档初始状态为 DRAFT，并创建 versionNo=1 的初始版本。
      * </p>
      *
      * @param datasourceId 数据源 ID
@@ -63,7 +63,7 @@ public interface KnowledgeDocService {
      * @param content 新内容
      * @param version 前端传入的版本号（乐观锁）
      */
-    void updateDoc(Long id, String title, String content, Integer version);
+    void updateDoc(Long id, String title, String content, Integer version, String changeSummary);
 
     /**
      * 提交审核（DRAFT → PENDING_REVIEW）。

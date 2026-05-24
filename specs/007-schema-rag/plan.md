@@ -84,6 +84,13 @@ python-service/dataocean/rag/
 - 旧版本向量延迟清理
 - 按 datasource_id 批量删除
 
+### Phase 5: skills.md 版本替换闭环
+- Java vector_index_task 携带 `docId`、`metadataSnapshotId`、`knowledgeVersionNo`、`previousVersionNo`
+- `/internal/rag/vectorize` 接收文档版本上下文，写入新版本向量时写入 `doc_id` 和 `source_id`
+- 新版本写入成功并校验数量后，删除同一文档的上一版向量
+- 若新版本写入失败或数量不一致，清理本次半成品向量但不删除旧版本向量，由 Java 将任务标记 FAILED
+- `force=true` 仅清理同一 doc 的向量；缺少 doc_id 时才退化为 datasource 级重建
+
 ## Complexity Tracking
 
 无违规项。

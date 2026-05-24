@@ -22,6 +22,8 @@ async def vectorize_chunks(
     snapshot_id: int,
     version_no: int,
     chunks: list[ChunkItem],
+    doc_id: int | None = None,
+    previous_version_no: int | None = None,
     force: bool = False,
 ) -> VectorizeResponse:
     """将 chunks 向量化写入 Milvus
@@ -31,6 +33,8 @@ async def vectorize_chunks(
         snapshot_id: 快照 ID
         version_no: 版本号
         chunks: 切片列表
+        doc_id: 知识文档 ID
+        previous_version_no: 新版本写入成功后待清理的上一版
         force: 是否强制全量重建
     """
     start = perf_counter()
@@ -52,9 +56,12 @@ async def vectorize_chunks(
             duration_ms=_elapsed_ms(start),
         )
 
-    # 强制模式：先删除该数据源的旧向量
+    # 强制模式：同一文档重建时先删该文档，缺少 doc_id 时才退化为数据源级重建。
     if force:
-        await asyncio.to_thread(_delete_by_datasource, collection, datasource_id)
+        if doc_id is not None:
+            await asyncio.to_thread(_delete_by_doc, collection, datasource_id, doc_id)
+        else:
+            await asyncio.to_thread(_delete_by_datasource, collection, datasource_id)
 
     # 批量生成 embedding
     texts = [chunk.chunk_text for chunk in chunks]
@@ -84,6 +91,8 @@ async def vectorize_chunks(
         [datasource_id] * len(chunks),          # datasource_id
         [snapshot_id] * len(chunks),            # snapshot_id
         [version_no] * len(chunks),             # knowledge_version_no
+        [doc_id or 0] * len(chunks),            # doc_id
+        [c.source_id or 0 for c in chunks],     # source_id
         [c.chunk_type for c in chunks],         # chunk_type
         [c.governance_status for c in chunks],  # governance_status
         [c.review_status for c in chunks],      # review_status
@@ -97,6 +106,19 @@ async def vectorize_chunks(
         def _do_insert():
             collection.insert(entities)
             collection.flush()
+            try:
+                if doc_id is not None and previous_version_no is not None and previous_version_no != version_no:
+                    _switch_doc_version(
+                        collection,
+                        datasource_id,
+                        doc_id,
+                        version_no,
+                        previous_version_no,
+                        len(chunks),
+                    )
+            except Exception:
+                _delete_doc_version(collection, datasource_id, doc_id, version_no)
+                raise
 
         await asyncio.to_thread(_do_insert)
         logger.info("向量写入成功 datasource_id=%d count=%d", datasource_id, len(chunks))
@@ -157,6 +179,75 @@ def cleanup_old_versions(
         "旧版本清理完成 datasource_id=%d keep_snapshot=%d",
         datasource_id,
         current_snapshot_id,
+    )
+
+
+def _switch_doc_version(
+    collection: Collection,
+    datasource_id: int,
+    doc_id: int,
+    new_version_no: int,
+    old_version_no: int,
+    expected_count: int,
+) -> None:
+    """验证文档新版本向量数量后删除旧版本向量。"""
+    actual_count = _count_vectors(
+        collection,
+        expr=(
+            f"datasource_id == {datasource_id} "
+            f"and doc_id == {doc_id} "
+            f"and knowledge_version_no == {new_version_no}"
+        ),
+    )
+    if actual_count != expected_count:
+        raise ValueError(
+            f"新版本向量数量不一致 expected={expected_count} actual={actual_count}"
+        )
+
+    collection.delete(
+        expr=(
+            f"datasource_id == {datasource_id} "
+            f"and doc_id == {doc_id} "
+            f"and knowledge_version_no == {old_version_no}"
+        )
+    )
+    collection.flush()
+    logger.info(
+        "文档版本切换完成 datasource_id=%d doc_id=%d old=%d new=%d count=%d",
+        datasource_id,
+        doc_id,
+        old_version_no,
+        new_version_no,
+        actual_count,
+    )
+
+
+def _delete_by_doc(collection: Collection, datasource_id: int, doc_id: int) -> None:
+    """按数据源和文档 ID 删除所有向量"""
+    collection.delete(expr=f"datasource_id == {datasource_id} and doc_id == {doc_id}")
+    collection.flush()
+    logger.info("已删除文档向量 datasource_id=%d doc_id=%d", datasource_id, doc_id)
+
+
+def _delete_doc_version(
+    collection: Collection, datasource_id: int, doc_id: int | None, version_no: int
+) -> None:
+    """删除本次写入失败的文档版本向量。"""
+    if doc_id is None:
+        return
+    collection.delete(
+        expr=(
+            f"datasource_id == {datasource_id} "
+            f"and doc_id == {doc_id} "
+            f"and knowledge_version_no == {version_no}"
+        )
+    )
+    collection.flush()
+    logger.warning(
+        "已清理失败的新版本向量 datasource_id=%d doc_id=%d version_no=%d",
+        datasource_id,
+        doc_id,
+        version_no,
     )
 
 

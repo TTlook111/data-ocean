@@ -37,6 +37,7 @@ UNIQUE INDEX: (datasource_id, deleted) — 每个数据源仅一份 skills.md
 | doc_id | BIGINT | FK → knowledge_doc.id, NOT NULL | 所属文档 |
 | datasource_id | BIGINT | NOT NULL | 冗余数据源ID，便于查询 |
 | metadata_snapshot_id | BIGINT | FK, NOT NULL | 绑定的元数据快照 |
+| dependency_snapshot | LONGTEXT(JSON) | | 该版本生成时依赖的输入快照，包含数据源连接摘要、metadata_snapshot 版本、schema_hash、质量分和可信度来源 |
 | version_no | INT | NOT NULL | 版本号（递增） |
 | content | MEDIUMTEXT | NOT NULL | Markdown 全文内容 |
 | generation_source | VARCHAR(20) | NOT NULL | AI_GENERATED / MANUAL / ROLLBACK |
@@ -90,7 +91,9 @@ INDEX: (vector_status)
 | datasource_id | BIGINT | NOT NULL | 数据源ID |
 | target_type | VARCHAR(30) | NOT NULL | KNOWLEDGE_DOC / METADATA_SCHEMA |
 | target_id | BIGINT | NOT NULL | 目标记录ID |
-| target_version_no | INT | | 目标版本号 |
+| metadata_snapshot_id | BIGINT | | 本次向量化绑定的元数据快照 |
+| knowledge_version_no | INT | | 本次向量化的 skills.md 版本号 |
+| previous_version_no | INT | | 新版本写入成功后待清理的上一版 skills.md 版本号 |
 | status | VARCHAR(20) | NOT NULL, DEFAULT 'PENDING' | PENDING/PROCESSING/COMPLETED/FAILED |
 | retry_count | INT | NOT NULL, DEFAULT 0 | 重试次数 |
 | max_retry | INT | NOT NULL, DEFAULT 3 | 最大重试 |
@@ -100,6 +103,13 @@ INDEX: (vector_status)
 | created_at | DATETIME | NOT NULL, DEFAULT NOW() | 创建时间 |
 
 INDEX: (status, created_at) — 定时任务扫描用
+INDEX: (target_id, knowledge_version_no) — 定位文档版本向量任务
+
+> 发布或回滚时，Java 会先把当前版本切成 `knowledge_chunk`，再创建带版本上下文的 `vector_index_task`。
+> 调度器调用 007 的 `/internal/rag/vectorize`，Python 在新版本写入并校验数量后，按
+> `(datasource_id, doc_id, previous_version_no)` 删除旧版本向量；失败时旧版本保留，避免 RAG 空窗。
+> 人工编辑内容会创建新的 `knowledge_doc_version`，因此用户修改 skills.md 后再次发布，会按新版本号重新切片并替换上一版向量。
+> `dependency_snapshot` 记录这版文档生成依赖：数据源连接摘要、凭证加密版本、元数据快照版本、schema_hash、质量分，以及字段可信度来源；它不保存密码明文。
 
 ## State Transitions
 

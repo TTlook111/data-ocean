@@ -39,6 +39,15 @@ public class VectorIndexTask {
     /** 目标对象ID */
     private Long targetId;
 
+    /** 关联的元数据快照ID */
+    private Long metadataSnapshotId;
+
+    /** 待写入 RAG 的知识文档版本号 */
+    private Integer knowledgeVersionNo;
+
+    /** 新版本写入成功后需要清理的上一版知识文档版本号 */
+    private Integer previousVersionNo;
+
     /** 任务状态（参见 VectorTaskStatus 枚举） */
     private String status;
 

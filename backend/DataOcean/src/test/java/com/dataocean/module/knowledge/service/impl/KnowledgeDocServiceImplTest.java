@@ -11,6 +11,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
+import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.entity.DbTableMeta;
 import com.dataocean.module.metadata.entity.TableRelation;
@@ -53,6 +54,8 @@ class KnowledgeDocServiceImplTest {
     private VectorIndexTaskService vectorIndexTaskService;
     @Mock
     private PythonKnowledgeClient pythonKnowledgeClient;
+    @Mock
+    private KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
     @Mock
     private DbTableMetaMapper dbTableMetaMapper;
     @Mock
@@ -104,6 +107,8 @@ class KnowledgeDocServiceImplTest {
         when(tableRelationMapper.selectList(any(Wrapper.class))).thenReturn(List.<TableRelation>of());
         when(pythonKnowledgeClient.generateDraft(eq(snapshotId), eq(datasourceId), anyList(), anyList(), anyList()))
                 .thenReturn(Map.of("content", "generated skills"));
+        when(dependencySnapshotBuilder.build(eq(datasourceId), eq(snapshotId), eq("AI_GENERATED"), any()))
+                .thenReturn("{}");
 
         String content = knowledgeDocService.generateDraft(docId, snapshotId);
 

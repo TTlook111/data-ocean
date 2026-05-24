@@ -13,7 +13,7 @@
 
 - [X] T004 [P] 实现 `python-service/dataocean/rag/milvus_client.py`：pymilvus 连接管理（连接池、健康检查 ping 方法、自动重连），提供 get_collection 方法
 - [X] T005 [P] 实现 `python-service/dataocean/rag/embedder.py`：封装 dashscope text-embedding-v4 调用，支持单条和批量 embedding（batch_size=25），返回 List[List[float]]，包含重试逻辑（最多 3 次，指数退避）
-- [X] T006 创建 Milvus Collection 初始化脚本 `python-service/dataocean/rag/init_collection.py`：定义 schema_knowledge Collection（字段：vector_id、datasource_id、snapshot_id、knowledge_version_no、chunk_type、governance_status、review_status、chunk_text、related_table、related_column、embedding），创建 IVF_FLAT 索引，metric_type=IP
+- [X] T006 创建 Milvus Collection 初始化脚本 `python-service/dataocean/rag/init_collection.py`：定义 schema_knowledge Collection（字段：vector_id、datasource_id、snapshot_id、knowledge_version_no、doc_id、source_id、chunk_type、governance_status、review_status、chunk_text、related_table、related_column、embedding），创建 IVF_FLAT 索引，metric_type=IP
 
 ## Phase 3: User Story 2 (P1) — 向量化写入
 
@@ -60,6 +60,13 @@
 
 - [X] T024 在 Python 路由中确保 POST /internal/rag/vectorize 支持 force=true 参数（强制全量重建，忽略增量逻辑）
 - [X] T025 [Frontend] 在数据源详情页或 skills.md 管理页添加"重新向量化"按钮，调用 Java → Python 触发全量重建
+
+## Phase 9: Versioned skills.md Replacement
+
+- [X] T026 在 VectorizeRequest 中支持 docId 和 previousVersionNo，ChunkItem.sourceId 对应 knowledge_chunk.id
+- [X] T027 在 Milvus schema 中增加 doc_id 和 source_id，用于按文档版本精确删除旧向量
+- [X] T028 在 vectorizer.py 中实现文档级版本替换：新版本数量校验通过后删除同 doc 的 previousVersionNo
+- [X] T029 扩展 DELETE /internal/rag/vectors 支持 datasourceId + docId + knowledgeVersionNo 精确删除
 
 ## Dependencies
 

@@ -40,6 +40,8 @@ async def vectorize(request: VectorizeRequest) -> VectorizeResponse:
         snapshot_id=request.snapshot_id,
         version_no=request.version_no,
         chunks=request.chunks,
+        doc_id=request.doc_id,
+        previous_version_no=request.previous_version_no,
         force=request.force,
     )
     response.task_id = request.task_id
@@ -77,8 +79,12 @@ async def _delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsRespons
             expr_parts.append(f"datasource_id == {request.datasource_id}")
         if request.snapshot_id is not None:
             expr_parts.append(f"snapshot_id == {request.snapshot_id}")
+        if request.doc_id is not None:
+            expr_parts.append(f"doc_id == {request.doc_id}")
+        if request.version_no is not None:
+            expr_parts.append(f"knowledge_version_no == {request.version_no}")
         if not expr_parts:
-            raise ValueError("至少需要提供 datasource_id 或 snapshot_id")
+            raise ValueError("至少需要提供 datasource_id、snapshot_id、doc_id 或 knowledge_version_no")
         expr = " and ".join(expr_parts)
 
         def _do_delete() -> int:

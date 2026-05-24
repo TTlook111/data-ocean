@@ -19,6 +19,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.KnowledgeDocService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
+import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.entity.DbTableMeta;
 import com.dataocean.module.metadata.entity.TableRelation;
@@ -58,6 +59,7 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     private final KnowledgeReviewTaskMapper knowledgeReviewTaskMapper;
     private final VectorIndexTaskService vectorIndexTaskService;
     private final PythonKnowledgeClient pythonKnowledgeClient;
+    private final KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
     private final DbTableMetaMapper dbTableMetaMapper;
     private final DbColumnMetaMapper dbColumnMetaMapper;
     private final TableRelationMapper tableRelationMapper;
@@ -90,7 +92,7 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     /**
      * {@inheritDoc}
      * <p>
-     * 实现逻辑：创建文档，初始状态 DRAFT，currentVersion=0。
+     * 实现逻辑：创建文档，初始状态 DRAFT，并创建初始版本。
      * </p>
      */
     @Transactional
@@ -101,13 +103,27 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         KnowledgeDoc doc = KnowledgeDoc.builder()
                 .datasourceId(datasourceId)
                 .title(title)
-                .content(content)
-                .currentVersion(0)
+                .content(content == null ? "" : content)
+                .currentVersion(1)
                 .status(DocStatus.DRAFT.name())
                 .updatedBy(UserContext.currentUserId())
                 .deleted(0)
                 .build();
         knowledgeDocMapper.insert(doc);
+        KnowledgeDocVersion initialVersion = KnowledgeDocVersion.builder()
+                .docId(doc.getId())
+                .datasourceId(datasourceId)
+                .dependencySnapshot(dependencySnapshotBuilder.build(
+                        datasourceId,
+                        null,
+                        GenerationSource.MANUAL.name()))
+                .versionNo(1)
+                .content(content == null ? "" : content)
+                .generationSource(GenerationSource.MANUAL.name())
+                .changeSummary("初始创建")
+                .createdBy(UserContext.currentUserId())
+                .build();
+        knowledgeDocVersionMapper.insert(initialVersion);
         log.info("知识文档创建成功 docId={} title={}", doc.getId(), title);
         return doc.getId();
     }
@@ -121,18 +137,52 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
      */
     @Transactional
     @Override
-    public void updateDoc(Long id, String title, String content, Integer version) {
+    public void updateDoc(Long id, String title, String content, Integer version, String changeSummary) {
         log.info("编辑知识文档 docId={} version={}", id, version);
         KnowledgeDoc doc = requireDoc(id);
+        String normalizedContent = content == null ? "" : content;
+        boolean contentChanged = !java.util.Objects.equals(doc.getContent(), normalizedContent);
+        Integer nextVersionNo = contentChanged
+                ? (doc.getCurrentVersion() == null ? 0 : doc.getCurrentVersion()) + 1
+                : doc.getCurrentVersion();
+        KnowledgeDocVersion currentVersion = null;
+        if (contentChanged && doc.getCurrentVersion() != null && doc.getCurrentVersion() > 0) {
+            currentVersion = knowledgeDocVersionMapper.selectOne(
+                    new LambdaQueryWrapper<KnowledgeDocVersion>()
+                            .eq(KnowledgeDocVersion::getDocId, doc.getId())
+                            .eq(KnowledgeDocVersion::getVersionNo, doc.getCurrentVersion()));
+        }
         // 设置乐观锁版本号（MyBatis-Plus @Version 自动处理 WHERE version = ?）
         doc.setVersion(version);
         doc.setTitle(title);
-        doc.setContent(content);
+        doc.setContent(normalizedContent);
+        doc.setCurrentVersion(nextVersionNo);
+        if (contentChanged) {
+            doc.setStatus(DocStatus.DRAFT.name());
+            doc.setReviewStatus(null);
+        }
         doc.setUpdatedBy(UserContext.currentUserId());
         // updateById 返回影响行数，为 0 表示乐观锁冲突
         int rows = knowledgeDocMapper.updateById(doc);
         if (rows == 0) {
             throw new BusinessException("文档已被其他人修改，请刷新后重试");
+        }
+        if (contentChanged) {
+            KnowledgeDocVersion newVersion = KnowledgeDocVersion.builder()
+                    .docId(doc.getId())
+                    .datasourceId(doc.getDatasourceId())
+                    .metadataSnapshotId(currentVersion == null ? null : currentVersion.getMetadataSnapshotId())
+                    .dependencySnapshot(dependencySnapshotBuilder.build(
+                            doc.getDatasourceId(),
+                            currentVersion == null ? null : currentVersion.getMetadataSnapshotId(),
+                            GenerationSource.MANUAL.name()))
+                    .versionNo(nextVersionNo)
+                    .content(normalizedContent)
+                    .generationSource(GenerationSource.MANUAL.name())
+                    .changeSummary(StringUtils.hasText(changeSummary) ? changeSummary : "人工编辑")
+                    .createdBy(UserContext.currentUserId())
+                    .build();
+            knowledgeDocVersionMapper.insert(newVersion);
         }
         log.info("知识文档编辑成功 docId={}", id);
     }
@@ -224,6 +274,9 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     public void publish(Long id) {
         log.info("发布知识文档 docId={}", id);
         KnowledgeDoc doc = requireDoc(id);
+        Integer previousPublishedVersionNo = findCurrentPublishedVersionNo(doc.getId());
+        boolean rebuildCurrentVersion = previousPublishedVersionNo != null
+                && previousPublishedVersionNo.equals(doc.getCurrentVersion());
         // 校验当前状态必须为审核通过
         if (!DocStatus.APPROVED.name().equals(doc.getStatus())) {
             throw new BusinessException("只有审核通过的文档才能发布");
@@ -235,9 +288,16 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         doc.setUpdatedBy(UserContext.currentUserId());
         knowledgeDocMapper.updateById(doc);
         // 切分文档内容为 chunks
-        splitAndSaveChunks(doc);
-        // 创建向量化任务
-        vectorIndexTaskService.createTask(doc.getDatasourceId(), "DOC", doc.getId());
+        KnowledgeDocVersion currentVersion = requireVersion(doc.getId(), doc.getCurrentVersion());
+        splitAndSaveChunks(doc, currentVersion.getMetadataSnapshotId());
+        // 创建带版本上下文的向量化任务；新版本写入成功后再清理旧版本向量。
+        vectorIndexTaskService.createTask(
+                doc.getDatasourceId(),
+                "DOC",
+                doc.getId(),
+                currentVersion.getMetadataSnapshotId(),
+                doc.getCurrentVersion(),
+                rebuildCurrentVersion ? doc.getCurrentVersion() : previousPublishedVersionNo);
         log.info("知识文档发布成功 docId={}", id);
     }
 
@@ -312,13 +372,17 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
 
         // 调用 Python AI 服务生成草稿
         String draftContent;
+        Map<String, Object> result;
         try {
-            Map<String, Object> result = pythonKnowledgeClient.generateDraft(
+            result = pythonKnowledgeClient.generateDraft(
                     snapshotId, doc.getDatasourceId(), tablesMetadata, foreignKeys, List.of());
             draftContent = (String) result.get("content");
         } catch (Exception e) {
             log.error("AI 草稿生成失败 docId={} snapshotId={}", docId, snapshotId, e);
             throw new BusinessException("AI 草稿生成失败：" + e.getMessage());
+        }
+        if (!StringUtils.hasText(draftContent)) {
+            throw new BusinessException("AI 草稿生成失败：内容为空");
         }
 
         // 创建新版本记录
@@ -326,6 +390,11 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
                 .docId(docId)
                 .datasourceId(doc.getDatasourceId())
                 .metadataSnapshotId(snapshotId)
+                .dependencySnapshot(dependencySnapshotBuilder.build(
+                        doc.getDatasourceId(),
+                        snapshotId,
+                        GenerationSource.AI_GENERATED.name(),
+                        Map.of("warnings", resultWarnings(result))))
                 .versionNo((doc.getCurrentVersion() == null ? 0 : doc.getCurrentVersion()) + 1)
                 .content(draftContent)
                 .generationSource(GenerationSource.AI_GENERATED.name())
@@ -344,6 +413,14 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         return draftContent;
     }
 
+    private List<?> resultWarnings(Map<String, Object> result) {
+        Object warnings = result.get("warnings");
+        if (warnings instanceof List<?> list) {
+            return list;
+        }
+        return List.of();
+    }
+
     /**
      * 发布前校验：检查文档引用的表字段治理状态。
      * <p>
@@ -357,7 +434,7 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     private void validateBeforePublish(KnowledgeDoc doc) {
         String content = doc.getContent();
         if (!StringUtils.hasText(content)) {
-            return;
+            throw new BusinessException("文档内容为空，无法发布到 RAG");
         }
         // 查询该数据源下所有治理状态为 DEPRECATED 或 BLOCKED 的字段
         List<DbColumnMeta> blockedColumns = dbColumnMetaMapper.selectList(
@@ -391,6 +468,33 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
             throw new BusinessException("文档不存在");
         }
         return doc;
+    }
+
+    private KnowledgeDocVersion requireVersion(Long docId, Integer versionNo) {
+        KnowledgeDocVersion version = knowledgeDocVersionMapper.selectOne(
+                new LambdaQueryWrapper<KnowledgeDocVersion>()
+                        .eq(KnowledgeDocVersion::getDocId, docId)
+                        .eq(KnowledgeDocVersion::getVersionNo, versionNo));
+        if (version == null) {
+            throw new BusinessException("文档版本不存在，无法发布到 RAG");
+        }
+        if (version.getMetadataSnapshotId() == null) {
+            throw new BusinessException("文档版本缺少元数据快照，无法发布到 RAG");
+        }
+        return version;
+    }
+
+    private Integer findCurrentPublishedVersionNo(Long docId) {
+        List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeChunk>()
+                        .eq(KnowledgeChunk::getDocId, docId)
+                        .eq(KnowledgeChunk::getVectorStatus, "INDEXED")
+                        .orderByDesc(KnowledgeChunk::getVersionNo)
+                        .last("LIMIT 1"));
+        if (chunks.isEmpty()) {
+            return null;
+        }
+        return chunks.get(0).getVersionNo();
     }
 
     /**
@@ -428,7 +532,7 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
      *
      * @param doc 文档实体
      */
-    private void splitAndSaveChunks(KnowledgeDoc doc) {
+    private void splitAndSaveChunks(KnowledgeDoc doc, Long metadataSnapshotId) {
         String content = doc.getContent();
         if (!StringUtils.hasText(content)) {
             return;
@@ -436,7 +540,8 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         // 先删除该文档已有的切片（重新生成）
         knowledgeChunkMapper.delete(
                 new LambdaQueryWrapper<KnowledgeChunk>()
-                        .eq(KnowledgeChunk::getDocId, doc.getId()));
+                        .eq(KnowledgeChunk::getDocId, doc.getId())
+                        .eq(KnowledgeChunk::getVersionNo, doc.getCurrentVersion()));
 
         // 按 Markdown 二级标题拆分（(?m) 启用多行模式使 ^ 匹配行首）
         String[] sections = content.split("(?m)(?=^## )", -1);
@@ -450,14 +555,19 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
             chunks.add(KnowledgeChunk.builder()
                     .docId(doc.getId())
                     .versionNo(doc.getCurrentVersion())
+                    .metadataSnapshotId(metadataSnapshotId)
                     .chunkType(inferChunkType(trimmed))
                     .chunkText(trimmed)
                     .reviewStatus(ReviewStatus.APPROVED.name())
+                    .vectorStatus("PENDING")
                     .build());
         }
         // 批量插入所有切片
         for (KnowledgeChunk chunk : chunks) {
             knowledgeChunkMapper.insert(chunk);
+        }
+        if (chunks.isEmpty()) {
+            throw new BusinessException("文档内容无法切分为 RAG 知识片段");
         }
         log.info("文档切片完成 docId={} chunkCount={}", doc.getId(), chunks.size());
     }

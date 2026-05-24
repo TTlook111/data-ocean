@@ -88,7 +88,12 @@ public class KnowledgeDocController {
     @PutMapping("/{id}")
     public Result<Void> updateDoc(@PathVariable Long id, @Valid @RequestBody KnowledgeDocUpdateDTO request) {
         log.debug("收到编辑知识文档请求 docId={} version={}", id, request.getVersion());
-        knowledgeDocService.updateDoc(id, request.getTitle(), request.getContent(), request.getVersion());
+        knowledgeDocService.updateDoc(
+                id,
+                request.getTitle(),
+                request.getContent(),
+                request.getVersion(),
+                request.getChangeSummary());
         return Result.success("更新成功", null);
     }
 

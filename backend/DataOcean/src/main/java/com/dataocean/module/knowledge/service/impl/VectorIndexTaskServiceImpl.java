@@ -36,12 +36,26 @@ public class VectorIndexTaskServiceImpl implements VectorIndexTaskService {
     @Transactional
     @Override
     public Long createTask(Long datasourceId, String targetType, Long targetId) {
+        return createTask(datasourceId, targetType, targetId, null, null, null);
+    }
+
+    @Transactional
+    @Override
+    public Long createTask(Long datasourceId,
+                           String targetType,
+                           Long targetId,
+                           Long metadataSnapshotId,
+                           Integer knowledgeVersionNo,
+                           Integer previousVersionNo) {
         log.info("创建向量化任务 datasourceId={} targetType={} targetId={}", datasourceId, targetType, targetId);
         // 构建任务实体，初始状态为 PENDING
         VectorIndexTask task = VectorIndexTask.builder()
                 .datasourceId(datasourceId)
                 .targetType(targetType)
                 .targetId(targetId)
+                .metadataSnapshotId(metadataSnapshotId)
+                .knowledgeVersionNo(knowledgeVersionNo)
+                .previousVersionNo(previousVersionNo)
                 .status(VectorTaskStatus.PENDING.name())
                 .build();
         vectorIndexTaskMapper.insert(task);

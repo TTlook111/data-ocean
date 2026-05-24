@@ -30,6 +30,8 @@ def create_collection() -> None:
         FieldSchema(name="datasource_id", dtype=DataType.INT64),
         FieldSchema(name="snapshot_id", dtype=DataType.INT64),
         FieldSchema(name="knowledge_version_no", dtype=DataType.INT32),
+        FieldSchema(name="doc_id", dtype=DataType.INT64),
+        FieldSchema(name="source_id", dtype=DataType.INT64),
         FieldSchema(name="chunk_type", dtype=DataType.VARCHAR, max_length=50),
         FieldSchema(name="governance_status", dtype=DataType.VARCHAR, max_length=30),
         FieldSchema(name="review_status", dtype=DataType.VARCHAR, max_length=30),

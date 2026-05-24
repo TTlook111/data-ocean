@@ -1,6 +1,13 @@
 package com.dataocean.module.knowledge.scheduler;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.knowledge.client.PythonRagClient;
+import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.VectorIndexTask;
+import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
+import com.dataocean.module.knowledge.enums.ReviewStatus;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -8,6 +15,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * 向量化任务定时调度器
@@ -24,13 +33,14 @@ import java.util.List;
 public class VectorIndexTaskScheduler {
 
     private final VectorIndexTaskService vectorIndexTaskService;
+    private final KnowledgeChunkMapper knowledgeChunkMapper;
+    private final PythonRagClient pythonRagClient;
 
     /**
      * 定时扫描并处理待向量化任务
      * <p>
      * 每 5 分钟执行一次，查询所有 PENDING 状态的任务，
      * 逐个标记为 PROCESSING 后调用向量化接口。
-     * MVP 阶段暂时只更新状态为 COMPLETED，待 007 模块就绪后接入实际调用。
      * </p>
      */
     @Scheduled(fixedDelay = 300000)
@@ -45,9 +55,7 @@ public class VectorIndexTaskScheduler {
             try {
                 // 标记为处理中
                 vectorIndexTaskService.markProcessing(task.getId());
-                // TODO: 调用 007 模块 /internal/rag/vectorize 接口
-                // pythonRagClient.vectorize(task.getDatasourceId(), task.getTargetType(), task.getTargetId());
-                // MVP 阶段暂时直接标记为完成
+                processTask(task);
                 vectorIndexTaskService.markCompleted(task.getId());
                 log.info("向量化任务处理完成 taskId={} targetType={} targetId={}",
                         task.getId(), task.getTargetType(), task.getTargetId());
@@ -57,5 +65,65 @@ public class VectorIndexTaskScheduler {
                 vectorIndexTaskService.markFailed(task.getId(), e.getMessage());
             }
         }
+    }
+
+    private void processTask(VectorIndexTask task) {
+        if (!"DOC".equals(task.getTargetType()) && !"KNOWLEDGE_DOC".equals(task.getTargetType())) {
+            throw new BusinessException("暂不支持的向量化目标类型：" + task.getTargetType());
+        }
+        if (task.getMetadataSnapshotId() == null || task.getKnowledgeVersionNo() == null) {
+            throw new BusinessException("向量化任务缺少快照或版本上下文，请重新发布 skills.md");
+        }
+
+        List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeChunk>()
+                        .eq(KnowledgeChunk::getDocId, task.getTargetId())
+                        .eq(KnowledgeChunk::getVersionNo, task.getKnowledgeVersionNo())
+                        .eq(KnowledgeChunk::getReviewStatus, ReviewStatus.APPROVED.name())
+                        .orderByAsc(KnowledgeChunk::getId));
+        if (chunks.isEmpty()) {
+            throw new BusinessException("未找到可向量化的已审核知识切片");
+        }
+
+        boolean forceRebuild = Objects.equals(task.getPreviousVersionNo(), task.getKnowledgeVersionNo());
+        Map<String, Object> response = pythonRagClient.vectorize(task, chunks, forceRebuild);
+        String status = String.valueOf(response.getOrDefault("status", ""));
+        int vectorizedCount = toInt(firstPresent(response, "vectorizedCount", "successCount", "success_count"));
+        if (!"COMPLETED".equals(status) || vectorizedCount != chunks.size()) {
+            throw new BusinessException("RAG 向量化未完成，status=" + status + " vectorizedCount=" + vectorizedCount);
+        }
+
+        knowledgeChunkMapper.update(null,
+                new LambdaUpdateWrapper<KnowledgeChunk>()
+                        .eq(KnowledgeChunk::getDocId, task.getTargetId())
+                        .eq(KnowledgeChunk::getVersionNo, task.getKnowledgeVersionNo())
+                        .set(KnowledgeChunk::getVectorStatus, "INDEXED"));
+        if (task.getPreviousVersionNo() != null
+                && !Objects.equals(task.getPreviousVersionNo(), task.getKnowledgeVersionNo())) {
+            knowledgeChunkMapper.update(null,
+                    new LambdaUpdateWrapper<KnowledgeChunk>()
+                            .eq(KnowledgeChunk::getDocId, task.getTargetId())
+                            .eq(KnowledgeChunk::getVersionNo, task.getPreviousVersionNo())
+                            .set(KnowledgeChunk::getVectorStatus, "SUPERSEDED"));
+        }
+    }
+
+    private Object firstPresent(Map<String, Object> response, String... keys) {
+        for (String key : keys) {
+            if (response.containsKey(key)) {
+                return response.get(key);
+            }
+        }
+        return null;
+    }
+
+    private int toInt(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            return Integer.parseInt(text);
+        }
+        return 0;
     }
 }

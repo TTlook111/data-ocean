@@ -57,6 +57,11 @@
 - [X] T026 实现实体类 `backend/src/main/java/com/dataocean/module/knowledge/entity/VectorIndexTask.java` 和对应 Mapper，状态枚举 PENDING/PROCESSING/COMPLETED/FAILED
 - [X] T027 实现 `backend/src/main/java/com/dataocean/module/knowledge/service/VectorIndexTaskService.java`，包含创建任务、更新状态、查询待处理任务方法
 - [X] T028 实现定时任务（@Scheduled 每 5 分钟）扫描 status=PENDING 的 vector_index_task，通过 Feign 调用 007 模块的 /internal/rag/vectorize 接口，更新任务状态为 PROCESSING/COMPLETED/FAILED
+- [X] T028a 补充 vector_index_task 的版本上下文字段：metadata_snapshot_id、knowledge_version_no、previous_version_no，发布/回滚时记录新旧版本关系
+- [X] T028b 调度器调用 Python RAG 后，仅在返回 COMPLETED 且写入数量等于 chunk 数时标记任务完成；成功后将新版本 chunk 置为 INDEXED，旧版本 chunk 置为 SUPERSEDED
+- [X] T028c 回滚创建新版本后同步重新生成该版本 knowledge_chunk，再创建向量化任务，避免任务找不到切片
+- [X] T028d 人工编辑 skills.md 内容时创建新的 MANUAL 版本，发布时以新版本替换上一版 RAG 向量
+- [X] T028e 在 knowledge_doc_version 记录 dependency_snapshot，追踪 skills.md 生成依赖的数据源连接摘要、元数据快照、schema_hash 和字段可信度来源
 
 ## Phase 7: Polish & Cross-Cutting
 

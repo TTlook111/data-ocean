@@ -98,6 +98,16 @@ class VectorizeRequest(RagBaseModel):
         validation_alias=AliasChoices("version_no", "versionNo", "knowledge_version_no", "knowledgeVersionNo"),
         serialization_alias="knowledgeVersionNo",
     )
+    doc_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("doc_id", "docId", "source_doc_id", "sourceDocId"),
+        serialization_alias="docId",
+    )
+    previous_version_no: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("previous_version_no", "previousVersionNo"),
+        serialization_alias="previousVersionNo",
+    )
     chunks: list[ChunkItem]
     force: bool = False
     task_id: int | None = Field(
@@ -325,11 +335,28 @@ class DeleteVectorsRequest(RagBaseModel):
         validation_alias=AliasChoices("snapshot_id", "snapshotId", "metadata_snapshot_id", "metadataSnapshotId"),
         serialization_alias="snapshotId",
     )
+    doc_id: int | None = Field(
+        default=None,
+        gt=0,
+        validation_alias=AliasChoices("doc_id", "docId"),
+        serialization_alias="docId",
+    )
+    version_no: int | None = Field(
+        default=None,
+        ge=0,
+        validation_alias=AliasChoices("version_no", "versionNo", "knowledge_version_no", "knowledgeVersionNo"),
+        serialization_alias="knowledgeVersionNo",
+    )
 
     @model_validator(mode="after")
     def require_filter(self) -> "DeleteVectorsRequest":
-        if self.datasource_id is None and self.snapshot_id is None:
-            raise ValueError("至少需要提供 datasourceId 或 snapshotId")
+        if (
+            self.datasource_id is None
+            and self.snapshot_id is None
+            and self.doc_id is None
+            and self.version_no is None
+        ):
+            raise ValueError("至少需要提供 datasourceId、snapshotId、docId 或 knowledgeVersionNo")
         return self
 
 

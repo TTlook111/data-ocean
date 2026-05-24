@@ -28,6 +28,13 @@ public interface VectorIndexTaskService {
      */
     Long createTask(Long datasourceId, String targetType, Long targetId);
 
+    Long createTask(Long datasourceId,
+                    String targetType,
+                    Long targetId,
+                    Long metadataSnapshotId,
+                    Integer knowledgeVersionNo,
+                    Integer previousVersionNo);
+
     /**
      * 查询待处理的任务列表。
      *
