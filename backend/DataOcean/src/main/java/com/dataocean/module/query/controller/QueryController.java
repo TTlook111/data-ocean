@@ -55,6 +55,12 @@ public class QueryController {
             throw new BusinessException("无权访问该数据源");
         }
 
+        // 校验数据源已发布元数据快照（前置校验，避免产生无效任务）
+        MetadataSnapshot snapshot = schemaSnapshotService.getPublishedSnapshot(request.getDatasourceId());
+        if (snapshot == null) {
+            throw new BusinessException("该数据源尚未发布元数据快照，请先完成元数据治理");
+        }
+
         // 获取或创建会话
         Long conversationId = conversationService.getOrCreateConversation(
                 userId, request.getDatasourceId(), request.getConversationId(), request.getQuestion());
@@ -64,12 +70,6 @@ public class QueryController {
 
         // 提交查询任务
         String taskId = queryTaskService.submitQuery(userId, request.getDatasourceId(), request.getQuestion(), conversationId);
-
-        // 查询数据源当前已发布的元数据快照
-        MetadataSnapshot snapshot = schemaSnapshotService.getPublishedSnapshot(request.getDatasourceId());
-        if (snapshot == null) {
-            throw new BusinessException("该数据源尚未发布元数据快照，请先完成元数据治理");
-        }
 
         // 异步触发 Python Agent 执行
         pythonAgentClient.executeAsync(taskId, request.getDatasourceId(), userId,
