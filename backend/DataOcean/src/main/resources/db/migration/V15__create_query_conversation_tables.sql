@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS query_task (
     task_id VARCHAR(50) NOT NULL COMMENT '任务唯一标识（UUID）',
     user_id BIGINT NOT NULL COMMENT '提交用户 ID',
     datasource_id BIGINT NOT NULL COMMENT '数据源 ID',
+    conversation_id BIGINT COMMENT '关联的会话 ID',
     question TEXT NOT NULL COMMENT '用户自然语言问题',
     rewritten_query TEXT COMMENT '改写后的结构化查询',
     status VARCHAR(20) NOT NULL DEFAULT 'PROCESSING' COMMENT '任务状态：PROCESSING/COMPLETED/FAILED/CANCELLED/TIMEOUT',

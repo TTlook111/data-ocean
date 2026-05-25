@@ -73,6 +73,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .createdAt(LocalDateTime.now())
                 .build();
         conversationMessageMapper.insert(message);
+        touchConversation(conversationId);
     }
 
     /**
@@ -90,6 +91,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .createdAt(LocalDateTime.now())
                 .build();
         conversationMessageMapper.insert(message);
+        touchConversation(conversationId);
     }
 
     /**
@@ -121,6 +123,17 @@ public class ConversationServiceImpl implements ConversationService {
                 .eq(datasourceId != null, Conversation::getDatasourceId, datasourceId)
                 .orderByDesc(Conversation::getUpdatedAt);
         return conversationMapper.selectList(wrapper);
+    }
+
+    /**
+     * 更新会话的 updated_at 时间戳。
+     */
+    private void touchConversation(Long conversationId) {
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation != null) {
+            conversation.setUpdatedAt(LocalDateTime.now());
+            conversationMapper.updateById(conversation);
+        }
     }
 
     /**

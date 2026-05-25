@@ -118,14 +118,18 @@ specs/                 — 模块规格说明（17 个模块，含 spec/plan/tas
 
 - 001 用户模块：已完成前后端基础联调，包含登录、强制改密、用户管理、失败锁定、角色列表、部门树、个人资料、重置密码、退出登录等流程。
 - 002 数据源管理：已完成前后端基础联调，包含数据源列表、连接测试、授权列表、启用/禁用，以及查询端按权限/状态展示可用数据源。
+- 008 NL2SQL Agent：核心完成。LangGraph 工作流（6 节点 + 条件路由 + 重试/超时/取消）、Prompt 模板、SSE 推送、Java 端任务管理和会话持久化。前端已接入提交/轮询/结果展示。
+- 009 SQL 安全沙箱：核心完成。AST 校验引擎（6 条规则链 + 注入检测）、AST 改写（行过滤/列检查/LIMIT 注入）、连接池管理、沙箱执行器（只读事务 + KILL QUERY 超时终止）。
+- 008/009 端到端链路：Java 提交 → Python Agent → RAG 召回 → SQL 生成 → AST 校验改写 → 沙箱执行 → 结果回写。当前卡点：SQL 执行需要数据源连接配置（Java 已传明文密码），待真实数据源验证。
+- 待 012 模块完善：刷新后历史恢复、SSE 实时进度条、取消按钮 UI、ECharts 图表渲染、完整历史搜索。
 - 联调截图按功能保存到 `output/playwright/`，后续每联调完成一个功能都要继续截图，便于用户验证完整性。
 
 ## Key Internal APIs
 
 | 服务间调用 | 路径 | 说明 |
 |-----------|------|------|
-| Java → Python | POST /internal/query/execute | 发起 NL2SQL 查询 |
-| Java → Python | POST /internal/tasks/{taskId}/cancel | 取消查询 |
+| Java → Python | POST /internal/query/execute | 发起 NL2SQL 查询（SSE 流） |
+| Java → Python | POST /internal/query/tasks/{taskId}/cancel | 取消查询 |
 | Java → Python | POST /internal/rag/retrieve | RAG 召回 |
 | Java → Python | POST /internal/rag/vectorize | 触发向量化 |
 | Java → Python | POST /internal/sql/validate | SQL 安全校验 |
@@ -139,10 +143,11 @@ specs/                 — 模块规格说明（17 个模块，含 spec/plan/tas
 |------|------|------|
 | POST | /api/auth/login | 登录返回 JWT |
 | GET | /api/auth/me | 当前用户信息 |
-| POST | /api/query/ask | 发起查询（异步，返回 taskId） |
-| GET | /api/query/stream/{taskId} | SSE 流式进度 |
-| GET | /api/query/tasks/{id} | 轮询降级方案 |
-| POST | /api/query/tasks/{id}/cancel | 取消查询 |
+| POST | /api/query/ask | 发起查询（异步，返回 taskId + conversationId） |
+| GET | /api/query/tasks/{taskId} | 查询任务结果（轮询） |
+| POST | /api/query/tasks/{taskId}/cancel | 取消查询 |
+| GET | /api/query/conversations | 用户会话列表 |
+| GET | /api/query/conversations/{id}/messages | 会话消息列表 |
 | GET | /api/datasources | 用户可访问的数据源列表 |
 | POST | /api/admin/datasources | 新增数据源 |
 | GET | /api/admin/users | 用户列表 |

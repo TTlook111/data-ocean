@@ -30,6 +30,9 @@ public class QueryTask {
     /** 数据源 ID */
     private Long datasourceId;
 
+    /** 关联的会话 ID */
+    private Long conversationId;
+
     /** 用户自然语言问题 */
     private String question;
 

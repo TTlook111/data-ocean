@@ -48,6 +48,7 @@ public class QueryTaskServiceImpl implements QueryTaskService {
                 .taskId(taskId)
                 .userId(userId)
                 .datasourceId(datasourceId)
+                .conversationId(conversationId)
                 .question(question)
                 .status(QueryTaskStatus.PROCESSING.name())
                 .retryCount(0)
