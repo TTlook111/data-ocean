@@ -136,4 +136,19 @@ public class ConversationServiceImpl implements ConversationService {
                 .createdAt(msg.getCreatedAt())
                 .build();
     }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public List<ConversationMessageVO> getRecentMessages(Long conversationId, int limit) {
+        List<ConversationMessage> messages = conversationMessageMapper.selectList(
+                new LambdaQueryWrapper<ConversationMessage>()
+                        .eq(ConversationMessage::getConversationId, conversationId)
+                        .orderByDesc(ConversationMessage::getCreatedAt)
+                        .last("LIMIT " + limit));
+        // 反转为正序
+        java.util.Collections.reverse(messages);
+        return messages.stream().map(this::toVO).toList();
+    }
 }

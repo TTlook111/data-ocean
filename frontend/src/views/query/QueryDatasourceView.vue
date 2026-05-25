@@ -29,6 +29,7 @@ interface LocalMessage {
   createdAt: string
   taskId?: string
   status?: string
+  queryResult?: import('../../api/query').QueryTaskResult
 }
 
 interface LocalSession {
@@ -37,6 +38,7 @@ interface LocalSession {
   title: string
   updatedAt: string
   messages: LocalMessage[]
+  conversationId?: number
 }
 
 const adminPermissionCodes = [
@@ -91,6 +93,16 @@ const datasourceSessions = computed(() =>
 )
 const activeSession = computed(() => sessions.find((session) => session.id === activeSessionId.value))
 const activeMessages = computed(() => activeSession.value?.messages || [])
+const latestResult = computed(() => {
+  const msgs = activeMessages.value
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i].role === 'assistant' && msgs[i].queryResult) {
+      return msgs[i].queryResult
+    }
+  }
+  return null
+})
+const resultTab = ref<'table' | 'sql' | 'chart'>('table')
 
 async function focusQuestionInput() {
   await nextTick()
@@ -204,24 +216,27 @@ async function sendQuestion() {
   focusQuestionInput()
 
   try {
-    // 提交查询到后端
+    // 提交查询到后端，传入 conversationId 串联多轮对话
     const askResult = await submitQuery({
       datasourceId: selectedId.value,
       question: text,
+      conversationId: session.conversationId,
     })
     const taskId = askResult.data.taskId
+    // 保存后端返回的 conversationId
+    session.conversationId = askResult.data.conversationId
 
-    // 轮询任务结果
+    // 轮询任务结果（最多 60 次 × 2 秒 = 120 秒，与后端超时对齐）
     const result = await pollTaskResult(taskId)
     const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
     if (assistantMsg) {
       assistantMsg.taskId = taskId
       assistantMsg.status = result.status
+      assistantMsg.queryResult = result
       if (result.status === 'COMPLETED') {
         assistantMsg.content = result.sqlExplanation || '查询完成'
-        if (result.sql) {
-          assistantMsg.content += `\n\n\`\`\`sql\n${result.sql}\n\`\`\``
-        }
+      } else if (result.status === 'TIMEOUT') {
+        assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
       } else {
         assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
       }
@@ -235,7 +250,7 @@ async function sendQuestion() {
   }
 }
 
-async function pollTaskResult(taskId: string, maxAttempts = 30, intervalMs = 2000) {
+async function pollTaskResult(taskId: string, maxAttempts = 60, intervalMs = 2000) {
   for (let i = 0; i < maxAttempts; i++) {
     const res = await getTaskResult(taskId)
     const task = res.data
@@ -244,7 +259,7 @@ async function pollTaskResult(taskId: string, maxAttempts = 30, intervalMs = 200
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs))
   }
-  return { status: 'TIMEOUT', errorMessage: '查询超时，请稍后查看结果' } as any
+  return { status: 'TIMEOUT', errorMessage: '查询仍在执行中，可稍后从历史任务查看结果' } as any
 }
 
 function extractError(error: unknown, fallback: string): string {
@@ -457,12 +472,40 @@ onMounted(fetchDatasources)
 
           <section class="result-preview">
             <div class="result-tabs">
-              <span class="active"><ListChecks :size="14" />表格结果</span>
-              <span><MessageSquareText :size="14" />SQL</span>
-              <span><BarChart3 :size="14" />图表</span>
+              <span :class="{ active: resultTab === 'table' }" @click="resultTab = 'table'"><ListChecks :size="14" />表格结果</span>
+              <span :class="{ active: resultTab === 'sql' }" @click="resultTab = 'sql'"><MessageSquareText :size="14" />SQL</span>
+              <span :class="{ active: resultTab === 'chart' }" @click="resultTab = 'chart'"><BarChart3 :size="14" />图表</span>
             </div>
-            <div class="result-empty">
+
+            <div v-if="!latestResult" class="result-empty">
               <strong>暂无查询结果</strong>
+            </div>
+
+            <div v-else-if="resultTab === 'table'" class="result-table-wrap">
+              <div v-if="latestResult.data && latestResult.data.length" class="result-meta">
+                <small>共 {{ latestResult.rowCount || latestResult.data.length }} 行 · 耗时 {{ latestResult.totalTimeMs }}ms</small>
+                <small v-if="latestResult.usedTables?.length">使用表：{{ latestResult.usedTables.join(', ') }}</small>
+              </div>
+              <el-table v-if="latestResult.data && latestResult.data.length" :data="latestResult.data" border stripe max-height="320" size="small">
+                <el-table-column v-for="col in (latestResult.columns || [])" :key="col.name" :prop="col.name" :label="col.comment || col.name" min-width="120" />
+              </el-table>
+              <div v-else class="result-empty"><strong>查询完成但无数据返回</strong></div>
+            </div>
+
+            <div v-else-if="resultTab === 'sql'" class="result-sql-wrap">
+              <pre v-if="latestResult.sql" class="sql-block">{{ latestResult.sql }}</pre>
+              <p v-if="latestResult.sqlExplanation" class="sql-explanation">{{ latestResult.sqlExplanation }}</p>
+              <div v-if="!latestResult.sql" class="result-empty"><strong>无 SQL</strong></div>
+            </div>
+
+            <div v-else-if="resultTab === 'chart'" class="result-chart-wrap">
+              <div v-if="latestResult.chartConfig" class="chart-placeholder">图表配置已生成（ECharts 渲染待接入）</div>
+              <div v-else class="result-empty"><strong>无图表数据</strong></div>
+            </div>
+
+            <div v-if="latestResult?.suggestedQuestions?.length" class="suggested-questions">
+              <small>推荐追问：</small>
+              <button v-for="q in latestResult.suggestedQuestions" :key="q" type="button" @click="applyExample(q)">{{ q }}</button>
             </div>
           </section>
         </div>

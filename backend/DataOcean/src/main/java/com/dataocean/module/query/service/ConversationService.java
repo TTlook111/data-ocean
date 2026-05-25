@@ -61,4 +61,13 @@ public interface ConversationService {
      * @return 会话列表
      */
     List<?> listConversations(Long userId, Long datasourceId);
+
+    /**
+     * 获取会话最近 N 条消息（内部调用，不校验权限）。
+     *
+     * @param conversationId 会话 ID
+     * @param limit          最大条数
+     * @return 消息列表（按时间正序）
+     */
+    List<ConversationMessageVO> getRecentMessages(Long conversationId, int limit);
 }

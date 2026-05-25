@@ -88,7 +88,8 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         requestBody.put("connectionConfig", connectionConfig);
         requestBody.put("userPermissions", Map.of("allowedTables", List.of(), "rowFilters", List.of(),
                 "deniedColumns", List.of(), "maskColumns", List.of()));
-        requestBody.put("conversationHistory", List.of());
+        // 从会话中获取最近 5 轮对话作为上下文
+        requestBody.put("conversationHistory", buildConversationHistory(conversationId));
 
         try {
             // 调用 Python SSE 接口并消费流
@@ -191,6 +192,31 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             log.info("已通知 Python 取消任务 taskId={}", taskId);
         } catch (Exception e) {
             log.warn("通知 Python 取消任务失败 taskId={} reason={}", taskId, e.getMessage());
+        }
+    }
+
+    /**
+     * 构建最近 5 轮对话历史（排除当前刚保存的用户消息）。
+     */
+    private List<Map<String, String>> buildConversationHistory(Long conversationId) {
+        if (conversationId == null) {
+            return List.of();
+        }
+        try {
+            // 获取最近 10 条消息（5 轮 = 10 条 user+assistant）
+            var messages = conversationService.getRecentMessages(conversationId, 10);
+            List<Map<String, String>> history = new java.util.ArrayList<>();
+            for (var msg : messages) {
+                history.add(Map.of("role", msg.getRole(), "content", msg.getContent()));
+            }
+            // 去掉最后一条（当前刚保存的 user 消息，避免重复）
+            if (!history.isEmpty() && "user".equals(history.get(history.size() - 1).get("role"))) {
+                history.remove(history.size() - 1);
+            }
+            return history;
+        } catch (Exception e) {
+            log.warn("获取对话历史失败 conversationId={}", conversationId, e);
+            return List.of();
         }
     }
 
