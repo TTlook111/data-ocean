@@ -145,6 +145,9 @@ public class QueryTaskServiceImpl implements QueryTaskService {
         }
     }
 
+    /**
+     * 根据 taskId 查询任务，不存在则抛出业务异常。
+     */
     private QueryTask findByTaskId(String taskId) {
         QueryTask task = queryTaskMapper.selectOne(
                 new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
@@ -154,6 +157,9 @@ public class QueryTaskServiceImpl implements QueryTaskService {
         return task;
     }
 
+    /**
+     * 将查询任务实体转换为前端展示 VO，反序列化 JSON 字段。
+     */
     @SuppressWarnings("unchecked")
     private QueryTaskVO toVO(QueryTask task) {
         try {

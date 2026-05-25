@@ -11,10 +11,12 @@ class AgentConfig:
 
     @property
     def qwen_model(self) -> str:
+        """LLM 模型名称"""
         return settings.qwen_model
 
     @property
     def qwen_api_key(self) -> str:
+        """LLM API 密钥"""
         return settings.dashscope_api_key
 
     @property
@@ -34,10 +36,12 @@ class AgentConfig:
 
     @property
     def llm_temperature(self) -> float:
+        """LLM 生成温度参数"""
         return settings.llm_temperature
 
     @property
     def dashscope_base_url(self) -> str:
+        """DashScope API 基础 URL"""
         return settings.dashscope_base_url
 
 

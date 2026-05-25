@@ -87,7 +87,6 @@ class AgentState(TypedDict, total=False):
     used_columns: list[str]
 
     # Data Visualizer 输出
-    # Data Visualizer 输出
     chart_config: dict
     suggested_questions: list[str]
 

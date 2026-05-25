@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# 活跃的后台 Agent 任务引用，防止被 GC 回收，并支持取消时终止
 _active_tasks: dict[str, asyncio.Task] = {}
 
 

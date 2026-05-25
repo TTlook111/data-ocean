@@ -122,6 +122,9 @@ public class ConversationServiceImpl implements ConversationService {
         return conversationMapper.selectList(wrapper);
     }
 
+    /**
+     * 将会话消息实体转换为前端展示 VO。
+     */
     private ConversationMessageVO toVO(ConversationMessage msg) {
         return ConversationMessageVO.builder()
                 .id(msg.getId())
