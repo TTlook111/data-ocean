@@ -76,6 +76,10 @@ class ExecuteRequest(BaseModel):
         default_factory=dict,
         validation_alias=AliasChoices("confidence_scores", "confidenceScores"),
     )
+    connection_config: dict | None = Field(
+        default=None,
+        validation_alias=AliasChoices("connection_config", "connectionConfig"),
+    )
 
 
 class ColumnMeta(BaseModel):

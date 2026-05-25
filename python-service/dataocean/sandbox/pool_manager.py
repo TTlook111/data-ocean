@@ -58,8 +58,10 @@ def get_engine(datasource_id: int, connection_config: dict):
         if total_connections >= sandbox_config.pool_max_global:
             raise RuntimeError("系统繁忙，连接池已满，请稍后重试")
 
-        # 解密密码
-        password = _decrypt_password(connection_config.get("encrypted_password", ""))
+        # 优先使用明文密码（Java 侧已解密），否则尝试解密 encrypted_password
+        password = connection_config.get("password", "")
+        if not password:
+            password = _decrypt_password(connection_config.get("encrypted_password", ""))
         host = connection_config.get("host", "localhost")
         port = connection_config.get("port", 3306)
         database = connection_config.get("database", "")

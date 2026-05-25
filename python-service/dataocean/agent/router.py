@@ -64,6 +64,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
             "user_permissions": request.user_permissions.model_dump(),
             "active_snapshot_id": request.active_snapshot_id,
             "confidence_scores": request.confidence_scores,
+            "connection_config": request.connection_config,
             "rewritten_query": "",
             "extracted_intent": {},
             "schema_context": [],

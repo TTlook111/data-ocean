@@ -42,6 +42,9 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private final QueryTaskService queryTaskService;
     private final ConversationService conversationService;
     private final ObjectMapper objectMapper;
+    private final com.dataocean.module.datasource.mapper.DatasourceMapper datasourceMapper;
+    private final com.dataocean.module.datasource.mapper.DatasourceSecretMapper datasourceSecretMapper;
+    private final com.dataocean.module.datasource.service.DatasourceSecretService datasourceSecretService;
 
     private RestClient restClient;
 
@@ -73,12 +76,16 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                              Long conversationId, Long activeSnapshotId) {
         log.info("触发 Agent 执行 taskId={} datasourceId={}", taskId, datasourceId);
 
+        // 查询数据源连接信息，Java 侧解密密码后以明文传给 Python 内网服务
+        Map<String, Object> connectionConfig = buildConnectionConfig(datasourceId);
+
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("taskId", taskId);
         requestBody.put("datasourceId", datasourceId);
         requestBody.put("userId", userId);
         requestBody.put("question", question);
         requestBody.put("activeSnapshotId", activeSnapshotId);
+        requestBody.put("connectionConfig", connectionConfig);
         requestBody.put("userPermissions", Map.of("allowedTables", List.of(), "rowFilters", List.of(),
                 "deniedColumns", List.of(), "maskColumns", List.of()));
         requestBody.put("conversationHistory", List.of());
@@ -185,5 +192,37 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         } catch (Exception e) {
             log.warn("通知 Python 取消任务失败 taskId={} reason={}", taskId, e.getMessage());
         }
+    }
+
+    /**
+     * 构建数据源连接配置，Java 侧解密密码后以明文传给 Python 内网服务。
+     */
+    private Map<String, Object> buildConnectionConfig(Long datasourceId) {
+        var datasource = datasourceMapper.selectById(datasourceId);
+        if (datasource == null) {
+            return Map.of();
+        }
+
+        var secret = datasourceSecretMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<
+                        com.dataocean.module.datasource.entity.DatasourceSecret>()
+                        .eq(com.dataocean.module.datasource.entity.DatasourceSecret::getDatasourceId, datasourceId));
+
+        String plainPassword = "";
+        if (secret != null && secret.getEncryptedPassword() != null) {
+            try {
+                plainPassword = datasourceSecretService.decrypt(secret.getEncryptedPassword());
+            } catch (Exception e) {
+                log.error("数据源密码解密失败 datasourceId={}", datasourceId, e);
+            }
+        }
+
+        Map<String, Object> config = new HashMap<>();
+        config.put("host", datasource.getHost());
+        config.put("port", datasource.getPort());
+        config.put("database", datasource.getDatabaseName());
+        config.put("username", secret != null ? secret.getUsername() : "");
+        config.put("password", plainPassword);
+        return config;
     }
 }

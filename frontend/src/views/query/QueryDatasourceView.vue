@@ -18,6 +18,7 @@ import {
   UserRound,
 } from 'lucide-vue-next'
 import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource'
+import { submitQuery, getTaskResult } from '../../api/query'
 import { useAuthStore } from '../../stores/auth'
 import { roleCodesLabel } from '../../utils/enumLabels'
 
@@ -26,6 +27,8 @@ interface LocalMessage {
   role: 'user' | 'assistant'
   content: string
   createdAt: string
+  taskId?: string
+  status?: string
 }
 
 interface LocalSession {
@@ -114,7 +117,7 @@ function createSession(datasourceId: number, title = '新的对话') {
       {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
-        content: '已进入当前数据源的对话空间。你可以直接问业务问题，我会在后续 NL2SQL 查询接口接入后返回 SQL、表格和图表。',
+        content: '已进入当前数据源的对话空间。你可以直接用中文描述想查的数据，例如"上月销售额最高的10个产品"。',
         createdAt: now,
       },
     ],
@@ -168,31 +171,88 @@ function selectSession(sessionId: string) {
   focusQuestionInput()
 }
 
-function sendQuestion() {
+async function sendQuestion() {
   const text = question.value.trim()
   if (!selectedId.value || !text) return
 
   const session = activeSession.value || createSession(selectedId.value)
   const now = new Date().toISOString()
+
+  // 添加用户消息
   session.messages.push({
     id: `user-${Date.now()}`,
     role: 'user',
     content: text,
     createdAt: now,
   })
+
+  // 添加加载中的助手消息
+  const assistantMsgId = `assistant-${Date.now() + 1}`
   session.messages.push({
-    id: `assistant-${Date.now() + 1}`,
+    id: assistantMsgId,
     role: 'assistant',
-    content: '查询链路正在按模块接入中。当前已固定为“数据源作用域会话”：这条问题会留在当前数据源的历史里，后续会携带 datasourceId、conversationId 和最近上下文提交给 NL2SQL 接口。',
+    content: '正在查询中...',
     createdAt: now,
+    status: 'loading',
   })
+
   if (session.title === '新的对话') {
     session.title = text.length > 20 ? `${text.slice(0, 20)}...` : text
   }
   session.updatedAt = now
   question.value = ''
-  ElMessage.info('已记录到当前数据源会话，等待查询接口接入')
   focusQuestionInput()
+
+  try {
+    // 提交查询到后端
+    const askResult = await submitQuery({
+      datasourceId: selectedId.value,
+      question: text,
+    })
+    const taskId = askResult.data.taskId
+
+    // 轮询任务结果
+    const result = await pollTaskResult(taskId)
+    const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
+    if (assistantMsg) {
+      assistantMsg.taskId = taskId
+      assistantMsg.status = result.status
+      if (result.status === 'COMPLETED') {
+        assistantMsg.content = result.sqlExplanation || '查询完成'
+        if (result.sql) {
+          assistantMsg.content += `\n\n\`\`\`sql\n${result.sql}\n\`\`\``
+        }
+      } else {
+        assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
+      }
+    }
+  } catch (error: unknown) {
+    const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
+    if (assistantMsg) {
+      assistantMsg.status = 'error'
+      assistantMsg.content = extractError(error, '查询提交失败，请检查网络连接')
+    }
+  }
+}
+
+async function pollTaskResult(taskId: string, maxAttempts = 30, intervalMs = 2000) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const res = await getTaskResult(taskId)
+    const task = res.data
+    if (task.status !== 'PROCESSING') {
+      return task
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+  return { status: 'TIMEOUT', errorMessage: '查询超时，请稍后查看结果' } as any
+}
+
+function extractError(error: unknown, fallback: string): string {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const msg = (error as any).response?.data?.message
+    if (typeof msg === 'string') return msg
+  }
+  return fallback
 }
 
 function handleEnter(event: KeyboardEvent) {
