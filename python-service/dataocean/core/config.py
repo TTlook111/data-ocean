@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     langchain_tracing_v2: str = "false"
     langchain_project: str = "DataOcean"
 
+    # Agent 工作流配置
+    agent_total_timeout: int = 100
+    agent_max_retries: int = 3
+    agent_node_timeout: int = 30
+
     # 服务配置
     log_level: str = "INFO"
 
