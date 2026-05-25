@@ -41,6 +41,10 @@ async def vectorize_chunks(
     if not chunks:
         return VectorizeResponse(duration_ms=_elapsed_ms(start))
 
+    # doc_id 为 None 时写入 Milvus 会导致后续按 doc_id==0 误匹配，强制要求传入
+    if doc_id is None:
+        logger.warning("vectorize_chunks 未传入 doc_id，将使用 0 作为占位值")
+
     try:
         def _connect():
             connect_milvus()

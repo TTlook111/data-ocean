@@ -8,7 +8,6 @@ import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
 import com.dataocean.module.knowledge.entity.KnowledgeReviewTask;
-import com.dataocean.module.knowledge.enums.ChunkType;
 import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.enums.GenerationSource;
 import com.dataocean.module.knowledge.enums.ReviewStatus;
@@ -19,6 +18,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.KnowledgeDocService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
+import com.dataocean.module.knowledge.support.KnowledgeChunkSplitter;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.entity.DbTableMeta;
@@ -60,6 +60,7 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     private final VectorIndexTaskService vectorIndexTaskService;
     private final PythonKnowledgeClient pythonKnowledgeClient;
     private final KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
+    private final KnowledgeChunkSplitter knowledgeChunkSplitter;
     private final DbTableMetaMapper dbTableMetaMapper;
     private final DbColumnMetaMapper dbColumnMetaMapper;
     private final TableRelationMapper tableRelationMapper;
@@ -289,7 +290,9 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         knowledgeDocMapper.updateById(doc);
         // 切分文档内容为 chunks
         KnowledgeDocVersion currentVersion = requireVersion(doc.getId(), doc.getCurrentVersion());
-        splitAndSaveChunks(doc, currentVersion.getMetadataSnapshotId());
+        knowledgeChunkSplitter.splitAndSave(
+                doc.getId(), doc.getCurrentVersion(),
+                currentVersion.getMetadataSnapshotId(), doc.getContent());
         // 创建带版本上下文的向量化任务；新版本写入成功后再清理旧版本向量。
         vectorIndexTaskService.createTask(
                 doc.getDatasourceId(),
@@ -524,55 +527,6 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     }
 
     /**
-     * 切分文档内容为知识切片并保存。
-     * <p>
-     * 按 Markdown 二级标题（##）拆分文档内容，每个段落作为一个独立切片。
-     * 切片类型默认为 TABLE_DESC，后续可根据内容特征细化分类。
-     * </p>
-     *
-     * @param doc 文档实体
-     */
-    private void splitAndSaveChunks(KnowledgeDoc doc, Long metadataSnapshotId) {
-        String content = doc.getContent();
-        if (!StringUtils.hasText(content)) {
-            return;
-        }
-        // 先删除该文档已有的切片（重新生成）
-        knowledgeChunkMapper.delete(
-                new LambdaQueryWrapper<KnowledgeChunk>()
-                        .eq(KnowledgeChunk::getDocId, doc.getId())
-                        .eq(KnowledgeChunk::getVersionNo, doc.getCurrentVersion()));
-
-        // 按 Markdown 二级标题拆分（(?m) 启用多行模式使 ^ 匹配行首）
-        String[] sections = content.split("(?m)(?=^## )", -1);
-        List<KnowledgeChunk> chunks = new ArrayList<>();
-        for (String section : sections) {
-            String trimmed = section.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            // 构建切片实体，根据内容推断类型
-            chunks.add(KnowledgeChunk.builder()
-                    .docId(doc.getId())
-                    .versionNo(doc.getCurrentVersion())
-                    .metadataSnapshotId(metadataSnapshotId)
-                    .chunkType(inferChunkType(trimmed))
-                    .chunkText(trimmed)
-                    .reviewStatus(ReviewStatus.APPROVED.name())
-                    .vectorStatus("PENDING")
-                    .build());
-        }
-        // 批量插入所有切片
-        for (KnowledgeChunk chunk : chunks) {
-            knowledgeChunkMapper.insert(chunk);
-        }
-        if (chunks.isEmpty()) {
-            throw new BusinessException("文档内容无法切分为 RAG 知识片段");
-        }
-        log.info("文档切片完成 docId={} chunkCount={}", doc.getId(), chunks.size());
-    }
-
-    /**
      * {@inheritDoc}
      * <p>
      * 实现逻辑：模拟切片，按 Markdown 二级标题拆分文档内容，
@@ -582,43 +536,6 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     @Override
     public List<Map<String, String>> previewChunks(Long docId) {
         KnowledgeDoc doc = requireDoc(docId);
-        String content = doc.getContent();
-        List<Map<String, String>> result = new ArrayList<>();
-        if (!StringUtils.hasText(content)) {
-            return result;
-        }
-        // 按 Markdown 二级标题拆分
-        String[] sections = content.split("(?m)(?=^## )", -1);
-        for (String section : sections) {
-            String trimmed = section.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            // 根据标题内容推断切片类型
-            String chunkType = inferChunkType(trimmed);
-            result.add(Map.of("chunk_text", trimmed, "chunk_type", chunkType));
-        }
-        return result;
-    }
-
-    /**
-     * 根据切片内容推断切片类型。
-     * <p>
-     * 通过匹配标题关键词判断切片属于哪种类型。
-     * </p>
-     *
-     * @param chunkText 切片文本
-     * @return 切片类型字符串
-     */
-    private String inferChunkType(String chunkText) {
-        String lowerText = chunkText.toLowerCase();
-        if (lowerText.contains("join") || lowerText.contains("关联")) {
-            return ChunkType.JOIN_PATH.name();
-        } else if (lowerText.contains("指标") || lowerText.contains("metric")) {
-            return ChunkType.METRIC.name();
-        } else if (lowerText.contains("防坑") || lowerText.contains("注意")) {
-            return ChunkType.FIELD_NOTE.name();
-        }
-        return ChunkType.TABLE_DESC.name();
+        return knowledgeChunkSplitter.preview(doc.getContent());
     }
 }

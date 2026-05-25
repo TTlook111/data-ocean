@@ -72,7 +72,6 @@ public class KnowledgeDependencySnapshotBuilder {
         if (secret != null) {
             data.put("credential", Map.of(
                     "id", secret.getId(),
-                    "username", secret.getUsername(),
                     "encryptVersion", secret.getEncryptVersion(),
                     "updatedAt", formatTime(secret.getUpdatedAt())));
         }

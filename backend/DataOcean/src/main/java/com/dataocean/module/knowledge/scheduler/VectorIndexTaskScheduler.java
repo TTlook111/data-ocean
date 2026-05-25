@@ -85,6 +85,7 @@ public class VectorIndexTaskScheduler {
             throw new BusinessException("未找到可向量化的已审核知识切片");
         }
 
+        // 同版本号意味着重新发布同一版本（如内容未变但需要重建向量），需先清理再写入
         boolean forceRebuild = Objects.equals(task.getPreviousVersionNo(), task.getKnowledgeVersionNo());
         Map<String, Object> response = pythonRagClient.vectorize(task, chunks, forceRebuild);
         String status = String.valueOf(response.getOrDefault("status", ""));
@@ -122,7 +123,12 @@ public class VectorIndexTaskScheduler {
             return number.intValue();
         }
         if (value instanceof String text && !text.isBlank()) {
-            return Integer.parseInt(text);
+            try {
+                return Integer.parseInt(text);
+            } catch (NumberFormatException e) {
+                log.warn("Python 返回的向量化数量无法解析为整数: {}", text);
+                return 0;
+            }
         }
         return 0;
     }

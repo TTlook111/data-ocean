@@ -11,6 +11,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
+import com.dataocean.module.knowledge.support.KnowledgeChunkSplitter;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.entity.DbTableMeta;
@@ -56,6 +57,8 @@ class KnowledgeDocServiceImplTest {
     private PythonKnowledgeClient pythonKnowledgeClient;
     @Mock
     private KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
+    @Mock
+    private KnowledgeChunkSplitter knowledgeChunkSplitter;
     @Mock
     private DbTableMetaMapper dbTableMetaMapper;
     @Mock

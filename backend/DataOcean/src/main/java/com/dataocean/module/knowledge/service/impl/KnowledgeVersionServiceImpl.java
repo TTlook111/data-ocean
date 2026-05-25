@@ -3,25 +3,20 @@ package com.dataocean.module.knowledge.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
-import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
-import com.dataocean.module.knowledge.enums.ChunkType;
 import com.dataocean.module.knowledge.enums.GenerationSource;
-import com.dataocean.module.knowledge.enums.ReviewStatus;
-import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
+import com.dataocean.module.knowledge.support.KnowledgeChunkSplitter;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -41,9 +36,9 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
 
     private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
     private final KnowledgeDocMapper knowledgeDocMapper;
-    private final KnowledgeChunkMapper knowledgeChunkMapper;
     private final VectorIndexTaskService vectorIndexTaskService;
     private final KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
+    private final KnowledgeChunkSplitter knowledgeChunkSplitter;
 
     /**
      * {@inheritDoc}
@@ -149,7 +144,9 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
 
         // 查询文档获取数据源 ID，创建向量化任务
         KnowledgeDoc doc = knowledgeDocMapper.selectById(docId);
-        splitAndSaveChunks(doc, targetVersion.getMetadataSnapshotId());
+        knowledgeChunkSplitter.splitAndSave(
+                doc.getId(), doc.getCurrentVersion(),
+                targetVersion.getMetadataSnapshotId(), doc.getContent());
         vectorIndexTaskService.createTask(
                 doc.getDatasourceId(),
                 "DOC",
@@ -160,57 +157,6 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
 
         log.info("文档版本回滚成功 docId={} fromVersion={} newVersion={}", docId, targetVersionNo, newVersionNo);
         return newVersionNo;
-    }
-
-    private void splitAndSaveChunks(KnowledgeDoc doc, Long metadataSnapshotId) {
-        String content = doc.getContent();
-        if (!StringUtils.hasText(content)) {
-            throw new BusinessException("回滚后的文档内容为空，无法重新向量化");
-        }
-        knowledgeChunkMapper.delete(
-                new LambdaQueryWrapper<KnowledgeChunk>()
-                        .eq(KnowledgeChunk::getDocId, doc.getId())
-                        .eq(KnowledgeChunk::getVersionNo, doc.getCurrentVersion()));
-
-        String[] sections = content.split("(?m)(?=^## )", -1);
-        List<KnowledgeChunk> chunks = new ArrayList<>();
-        for (String section : sections) {
-            String trimmed = section.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            chunks.add(KnowledgeChunk.builder()
-                    .docId(doc.getId())
-                    .versionNo(doc.getCurrentVersion())
-                    .metadataSnapshotId(metadataSnapshotId)
-                    .chunkType(inferChunkType(trimmed))
-                    .chunkText(trimmed)
-                    .reviewStatus(ReviewStatus.APPROVED.name())
-                    .vectorStatus("PENDING")
-                    .build());
-        }
-        for (KnowledgeChunk chunk : chunks) {
-            knowledgeChunkMapper.insert(chunk);
-        }
-        if (chunks.isEmpty()) {
-            throw new BusinessException("回滚后的文档内容无法切分为 RAG 知识片段");
-        }
-        log.info("回滚版本切片完成 docId={} versionNo={} chunkCount={}",
-                doc.getId(), doc.getCurrentVersion(), chunks.size());
-    }
-
-    private String inferChunkType(String chunkText) {
-        String lowerText = chunkText.toLowerCase();
-        if (lowerText.contains("join") || lowerText.contains("关联")) {
-            return ChunkType.JOIN_PATH.name();
-        }
-        if (lowerText.contains("指标") || lowerText.contains("metric")) {
-            return ChunkType.METRIC.name();
-        }
-        if (lowerText.contains("防坑") || lowerText.contains("注意")) {
-            return ChunkType.FIELD_NOTE.name();
-        }
-        return ChunkType.TABLE_DESC.name();
     }
 
     /**
