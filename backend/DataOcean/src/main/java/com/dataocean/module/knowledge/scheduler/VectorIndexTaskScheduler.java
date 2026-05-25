@@ -67,6 +67,12 @@ public class VectorIndexTaskScheduler {
         }
     }
 
+    /**
+     * 处理单个向量化任务：查询切片、调用 Python RAG 服务、更新切片状态。
+     *
+     * @param task 向量化任务实体
+     * @throws BusinessException 任务类型不支持、缺少上下文、切片为空或向量化未完成时抛出
+     */
     private void processTask(VectorIndexTask task) {
         if (!"DOC".equals(task.getTargetType()) && !"KNOWLEDGE_DOC".equals(task.getTargetType())) {
             throw new BusinessException("暂不支持的向量化目标类型：" + task.getTargetType());
@@ -109,6 +115,13 @@ public class VectorIndexTaskScheduler {
         }
     }
 
+    /**
+     * 从响应 Map 中按优先级查找第一个存在的键对应的值。
+     *
+     * @param response Python 服务响应
+     * @param keys     按优先级排列的候选键名
+     * @return 第一个匹配的值，全部不存在则返回 null
+     */
     private Object firstPresent(Map<String, Object> response, String... keys) {
         for (String key : keys) {
             if (response.containsKey(key)) {
@@ -118,6 +131,15 @@ public class VectorIndexTaskScheduler {
         return null;
     }
 
+    /**
+     * 将任意类型的值安全转换为 int。
+     * <p>
+     * 支持 Number 和 String 类型，解析失败时返回 0 并记录警告日志。
+     * </p>
+     *
+     * @param value 待转换的值
+     * @return 转换后的整数值，无法转换时返回 0
+     */
     private int toInt(Object value) {
         if (value instanceof Number number) {
             return number.intValue();

@@ -32,6 +32,9 @@ public class PythonRagClientImpl implements PythonRagClient {
 
     private RestClient restClient;
 
+    /**
+     * 初始化 RestClient，配置连接和读取超时。
+     */
     @PostConstruct
     void init() {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
@@ -45,6 +48,13 @@ public class PythonRagClientImpl implements PythonRagClient {
         log.info("PythonRagClient 初始化完成 baseUrl={} timeout={}ms", pythonServiceBaseUrl, TIMEOUT_MS);
     }
 
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 组装请求体并调用 Python /internal/rag/vectorize 接口，
+     * 超时时间 120 秒，失败时抛出 BusinessException。
+     * </p>
+     */
     @Override
     public Map<String, Object> vectorize(VectorIndexTask task, List<KnowledgeChunk> chunks, boolean forceRebuild) {
         Map<String, Object> requestBody = new HashMap<>();
@@ -86,6 +96,9 @@ public class PythonRagClientImpl implements PythonRagClient {
         }
     }
 
+    /**
+     * 将 KnowledgeChunk 实体转换为 Python 服务所需的请求载荷格式。
+     */
     private Map<String, Object> toChunkPayload(KnowledgeChunk chunk) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("sourceId", chunk.getId());

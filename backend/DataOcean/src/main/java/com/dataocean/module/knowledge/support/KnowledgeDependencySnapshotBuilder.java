@@ -30,10 +30,27 @@ public class KnowledgeDependencySnapshotBuilder {
     private final DatasourceMapper datasourceMapper;
     private final DatasourceSecretMapper datasourceSecretMapper;
 
+    /**
+     * 构建依赖快照 JSON（无额外信息）。
+     *
+     * @param datasourceId     数据源 ID
+     * @param snapshotId       元数据快照 ID，可为 null
+     * @param generationSource 生成来源（AI_GENERATED / MANUAL / ROLLBACK）
+     * @return JSON 字符串
+     */
     public String build(Long datasourceId, Long snapshotId, String generationSource) {
         return build(datasourceId, snapshotId, generationSource, Map.of());
     }
 
+    /**
+     * 构建依赖快照 JSON，包含数据源连接摘要、元数据快照版本和可信度来源。
+     *
+     * @param datasourceId     数据源 ID
+     * @param snapshotId       元数据快照 ID，可为 null
+     * @param generationSource 生成来源（AI_GENERATED / MANUAL / ROLLBACK）
+     * @param extra            额外附加信息（如 AI 生成时的 warnings）
+     * @return JSON 字符串
+     */
     public String build(Long datasourceId, Long snapshotId, String generationSource, Map<String, Object> extra) {
         Map<String, Object> dependency = new LinkedHashMap<>();
         dependency.put("schemaVersion", 1);
@@ -49,6 +66,9 @@ public class KnowledgeDependencySnapshotBuilder {
         return toJson(dependency);
     }
 
+    /**
+     * 构建数据源连接依赖摘要（不含密码和用户名等敏感信息）。
+     */
     private Map<String, Object> datasourceDependency(Long datasourceId) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("id", datasourceId);
@@ -78,6 +98,9 @@ public class KnowledgeDependencySnapshotBuilder {
         return data;
     }
 
+    /**
+     * 构建元数据快照依赖摘要。
+     */
     private Map<String, Object> metadataSnapshotDependency(Long snapshotId) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("id", snapshotId);
@@ -97,10 +120,16 @@ public class KnowledgeDependencySnapshotBuilder {
         return data;
     }
 
+    /**
+     * 格式化时间为 ISO 字符串，null 安全。
+     */
     private String formatTime(LocalDateTime time) {
         return time == null ? null : time.toString();
     }
 
+    /**
+     * 将依赖 Map 序列化为 JSON 字符串。
+     */
     private String toJson(Map<String, Object> dependency) {
         try {
             return OBJECT_MAPPER.writeValueAsString(dependency);

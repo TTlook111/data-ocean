@@ -416,6 +416,9 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         return draftContent;
     }
 
+    /**
+     * 从 AI 生成结果中安全提取 warnings 列表。
+     */
     private List<?> resultWarnings(Map<String, Object> result) {
         Object warnings = result.get("warnings");
         if (warnings instanceof List<?> list) {
@@ -473,6 +476,14 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         return doc;
     }
 
+    /**
+     * 根据文档 ID 和版本号查询版本记录，不存在或缺少快照则抛出业务异常。
+     *
+     * @param docId     文档 ID
+     * @param versionNo 版本号
+     * @return 版本实体
+     * @throws BusinessException 版本不存在或缺少元数据快照时抛出
+     */
     private KnowledgeDocVersion requireVersion(Long docId, Integer versionNo) {
         KnowledgeDocVersion version = knowledgeDocVersionMapper.selectOne(
                 new LambdaQueryWrapper<KnowledgeDocVersion>()
@@ -487,6 +498,15 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         return version;
     }
 
+    /**
+     * 查找文档当前已发布到 RAG 的版本号。
+     * <p>
+     * 通过查询 vector_status=INDEXED 的最新切片版本号来确定。
+     * </p>
+     *
+     * @param docId 文档 ID
+     * @return 当前已发布的版本号，未发布过则返回 null
+     */
     private Integer findCurrentPublishedVersionNo(Long docId) {
         List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectList(
                 new LambdaQueryWrapper<KnowledgeChunk>()
