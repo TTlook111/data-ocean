@@ -10,6 +10,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from urllib.parse import quote_plus
 
 from .config import sandbox_config
 
@@ -65,7 +66,8 @@ def get_engine(datasource_id: int, connection_config: dict):
         username = connection_config.get("username", "")
 
         pool_size = sandbox_config.pool_max_per_source
-        url = f"mysql+pymysql://{username}:{password}@{host}:{port}/{database}?charset=utf8mb4"
+        # URL quote 密码和用户名，防止含 @/:# 等特殊字符时连接串解析失败
+        url = f"mysql+pymysql://{quote_plus(username)}:{quote_plus(password)}@{host}:{port}/{database}?charset=utf8mb4"
 
         engine = create_engine(
             url,

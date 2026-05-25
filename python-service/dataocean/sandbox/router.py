@@ -35,7 +35,7 @@ async def validate_sql_endpoint(request: ValidateRequest) -> ValidateResponse:
     if not validation.passed:
         return ValidateResponse(
             passed=False,
-            issues=validation.reasons,
+            violations=validation.reasons,
         )
 
     # 第二步：AST 改写（注入行过滤、列检查、LIMIT）
@@ -53,13 +53,13 @@ async def validate_sql_endpoint(request: ValidateRequest) -> ValidateResponse:
     if not rewrite_result.success:
         return ValidateResponse(
             passed=False,
-            issues=[rewrite_result.denied_reason],
+            violations=[rewrite_result.denied_reason],
         )
 
     return ValidateResponse(
         passed=True,
         rewritten_sql=rewrite_result.rewritten_sql,
-        masked_fields=rewrite_result.masked_fields,
+        masked_columns=rewrite_result.masked_fields,
     )
 
 
@@ -77,13 +77,14 @@ async def execute_sql_endpoint(request: ExecuteRequest) -> ExecuteResponse:
 
     return ExecuteResponse(
         success=result.success,
-        rows=result.rows if result.success else None,
+        data=result.rows if result.success else None,
         columns=result.columns if result.success else None,
         row_count=result.row_count,
         execution_time_ms=result.execution_time_ms,
         error=result.error or None,
+        error_type=result.error_type or None,
         truncated=result.truncated,
-        masked_fields=result.masked_fields,
+        masked_columns=result.masked_fields,
     )
 
 
@@ -103,3 +104,20 @@ async def health() -> dict:
         "activePools": len(pools),
         "pools": pools,
     }
+
+
+@router.get("/pools/dashboard")
+async def pools_dashboard() -> dict:
+    """连接池详细状态面板"""
+    pools = get_pool_status()
+    return {
+        "activePools": len(pools),
+        "pools": pools,
+    }
+
+
+@router.post("/pools/{datasource_id}/reset")
+async def reset_pool(datasource_id: int) -> dict:
+    """强制销毁并重建指定数据源的连接池（重建在下次请求时自动触发）"""
+    destroy_pool(datasource_id)
+    return {"datasourceId": datasource_id, "reset": True, "message": "连接池已销毁，下次查询时自动重建"}

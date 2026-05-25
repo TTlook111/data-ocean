@@ -40,9 +40,9 @@ class ValidateResponse(BaseModel):
     """SQL 校验响应"""
 
     passed: bool
-    issues: list[str] = Field(default_factory=list)
+    violations: list[str] = Field(default_factory=list)
     rewritten_sql: str | None = Field(default=None, serialization_alias="rewrittenSql")
-    masked_fields: list[str] = Field(default_factory=list, serialization_alias="maskedFields")
+    masked_columns: list[str] = Field(default_factory=list, serialization_alias="maskedColumns")
 
 
 class ConnectionConfig(BaseModel):
@@ -76,10 +76,11 @@ class ExecuteResponse(BaseModel):
     """SQL 执行响应"""
 
     success: bool
-    rows: list[dict] | None = None
+    data: list[dict] | None = None
     columns: list[dict] | None = None
     row_count: int = Field(default=0, serialization_alias="rowCount")
     execution_time_ms: int = Field(default=0, serialization_alias="executionTimeMs")
     error: str | None = None
+    error_type: str | None = Field(default=None, serialization_alias="errorType")
     truncated: bool = False
-    masked_fields: list[str] = Field(default_factory=list, serialization_alias="maskedFields")
+    masked_columns: list[str] = Field(default_factory=list, serialization_alias="maskedColumns")
