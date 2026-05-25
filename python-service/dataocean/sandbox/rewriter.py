@@ -1,8 +1,4 @@
-"""SQL AST 改写器
-
-在 AST 层强制注入行级过滤、列级访问控制和 LIMIT 限制。
-改写后重新生成 SQL 并验证语法正确性。
-"""
+"""SQL AST rewriter for row filters, column access checks, masking hints, and LIMIT."""
 
 from __future__ import annotations
 
@@ -11,6 +7,7 @@ from dataclasses import dataclass, field
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.optimizer.scope import traverse_scope
 
 from .config import sandbox_config
 
@@ -19,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RewriteResult:
-    """改写结果"""
+    """Result of rewriting a validated SQL statement."""
 
     success: bool
     rewritten_sql: str = ""
@@ -33,136 +30,204 @@ def rewrite(
     denied_columns: dict[str, list[str]] | None = None,
     mask_columns: dict[str, list[str]] | None = None,
 ) -> RewriteResult:
-    """执行完整的 SQL 改写流程
-
-    Args:
-        sql: 已通过校验的 SQL
-        row_filters: 行级过滤 {table_name: [condition_expr]}
-        denied_columns: 禁止访问的列 {table_name: [column_name]}
-        mask_columns: 需脱敏的列 {table_name: [column_name]}
-
-    Returns:
-        RewriteResult 包含改写后的 SQL 和脱敏字段列表
-    """
+    """Rewrite validated SQL and apply hard permission checks."""
     try:
         tree = sqlglot.parse_one(sql, dialect="mysql")
     except sqlglot.errors.ParseError as e:
         return RewriteResult(success=False, denied_reason=f"SQL 解析失败：{e}")
 
-    # 列级访问检查（拒绝则直接返回）
     if denied_columns:
         denied = _check_column_access(tree, denied_columns)
         if denied:
             return RewriteResult(success=False, denied_reason=denied)
 
-    # 行级过滤注入
     if row_filters:
         try:
             tree = _inject_row_filters(tree, row_filters)
         except ValueError as e:
             return RewriteResult(success=False, denied_reason=str(e))
 
-    # 强制 LIMIT 注入
     tree = _inject_limit(tree)
-
-    # 标记敏感字段
     masked_fields = _mark_sensitive_columns(tree, mask_columns or {})
-
-    # 生成改写后的 SQL
     rewritten_sql = tree.sql(dialect="mysql")
 
-    # 重新解析验证语法正确性
     try:
         sqlglot.parse_one(rewritten_sql, dialect="mysql")
     except sqlglot.errors.ParseError as e:
-        logger.error("改写后 SQL 语法验证失败 sql=%s error=%s", rewritten_sql[:100], e)
+        logger.error("Rewritten SQL failed parse validation sql=%s error=%s", rewritten_sql[:100], e)
         return RewriteResult(success=False, denied_reason=f"改写后 SQL 语法异常：{e}")
 
     return RewriteResult(success=True, rewritten_sql=rewritten_sql, masked_fields=masked_fields)
 
 
-def _inject_row_filters(tree: exp.Select, row_filters: dict[str, list[str]]) -> exp.Select:
-    """注入行级过滤条件到 WHERE 子句"""
-    for table_name, conditions in row_filters.items():
-        for condition_str in conditions:
-            try:
-                condition_expr = sqlglot.parse_one(condition_str, dialect="mysql", into=exp.Condition)
-                tree = tree.where(condition_expr, copy=False)
-            except Exception:
-                # 尝试使用 condition() 解析
+def _inject_row_filters(tree: exp.Expression, row_filters: dict[str, list[str]]) -> exp.Expression:
+    """Inject row filters only into scopes that actually reference the target table."""
+    normalized_filters = {table_name.lower(): conditions for table_name, conditions in row_filters.items()}
+
+    for scope in traverse_scope(tree):
+        table_refs = _scope_table_refs(scope)
+        if not table_refs or not isinstance(scope.expression, exp.Select):
+            continue
+
+        for alias, table_name in table_refs:
+            conditions = normalized_filters.get(table_name)
+            if not conditions:
+                continue
+
+            for condition_str in conditions:
                 try:
-                    condition_expr = sqlglot.condition(condition_str, dialect="mysql")
-                    tree = tree.where(condition_expr, copy=False)
-                except Exception:
-                    logger.error("行级过滤条件无法解析 table=%s condition=%s", table_name, condition_str)
-                    raise ValueError(f"行级过滤条件语法错误：{condition_str}")
+                    condition_expr = _parse_condition(condition_str)
+                    condition_expr = _qualify_condition(condition_expr, table_name, alias)
+                    scope.expression.where(condition_expr, copy=False)
+                except Exception as exc:
+                    logger.error(
+                        "Unable to parse row filter table=%s condition=%s error=%s",
+                        table_name,
+                        condition_str,
+                        exc,
+                    )
+                    raise ValueError(f"行级过滤条件语法错误：{condition_str}") from exc
+
     return tree
 
 
-def _check_column_access(tree: exp.Select, denied_columns: dict[str, list[str]]) -> str:
-    """检查 SQL 中是否引用了禁止访问的列，返回拒绝原因或空字符串"""
-    # 构建精确匹配集合（必须带表名前缀才匹配）
-    denied_full_refs: set[str] = set()
-    for table, cols in denied_columns.items():
-        for col in cols:
-            denied_full_refs.add(f"{table.lower()}.{col.lower()}")
+def _parse_condition(condition_str: str) -> exp.Expression:
+    """Parse a row-filter condition expression."""
+    try:
+        return sqlglot.parse_one(condition_str, dialect="mysql", into=exp.Condition)
+    except Exception:
+        return sqlglot.condition(condition_str, dialect="mysql")
 
-    for col_node in tree.find_all(exp.Column):
-        col_name = col_node.name.lower()
-        table_name = col_node.table.lower() if col_node.table else ""
 
-        if table_name:
-            # 有表名前缀时精确匹配
-            full_ref = f"{table_name}.{col_name}"
-            if full_ref in denied_full_refs:
-                return f"无权访问字段：{full_ref}"
-        else:
-            # 无表名前缀时，检查是否任何表的该列被禁止
-            for denied_ref in denied_full_refs:
-                if denied_ref.endswith(f".{col_name}"):
-                    return f"无权访问字段：{col_name}（匹配 {denied_ref}）"
+def _qualify_condition(condition_expr: exp.Expression, table_name: str, alias: str) -> exp.Expression:
+    """Bind row-filter columns to the concrete alias used by the query scope."""
+    table_name = table_name.lower()
+    alias = alias.lower()
+
+    for col_node in condition_expr.find_all(exp.Column):
+        qualifier = col_node.table.lower() if col_node.table else ""
+        if not qualifier:
+            col_node.set("table", exp.to_identifier(alias))
+        elif qualifier == table_name and alias != table_name:
+            col_node.set("table", exp.to_identifier(alias))
+        elif qualifier not in {table_name, alias}:
+            raise ValueError(f"行级过滤条件引用了未知表别名：{qualifier}")
+
+    return condition_expr
+
+
+def _check_column_access(tree: exp.Expression, denied_columns: dict[str, list[str]]) -> str:
+    """Return a denial reason if SQL references any denied column."""
+    denied_by_table = _normalize_column_map(denied_columns)
+
+    for scope in traverse_scope(tree):
+        alias_map = _scope_alias_map(scope)
+        scope_tables = set(alias_map.values())
+
+        for col_node in scope.columns:
+            col_name = col_node.name.lower()
+            qualifier = col_node.table.lower() if col_node.table else ""
+
+            if qualifier:
+                real_table = alias_map.get(qualifier, qualifier)
+                if col_name in denied_by_table.get(real_table, set()):
+                    return f"无权访问字段：{real_table}.{col_name}"
+                continue
+
+            if len(scope_tables) == 1:
+                real_table = next(iter(scope_tables))
+                if col_name in denied_by_table.get(real_table, set()):
+                    return f"无权访问字段：{real_table}.{col_name}"
+                continue
+
+            for table_name, cols in denied_by_table.items():
+                if col_name in cols:
+                    return f"无权访问字段：{table_name}.{col_name}"
 
     return ""
 
 
-def _mark_sensitive_columns(tree: exp.Select, mask_columns: dict[str, list[str]]) -> list[str]:
-    """标记需要脱敏的字段列表"""
+def _mark_sensitive_columns(tree: exp.Expression, mask_columns: dict[str, list[str]]) -> list[str]:
+    """Return fully-qualified fields that should be masked by the Java gateway."""
     if not mask_columns:
         return []
 
-    mask_set: set[str] = set()
-    for table, cols in mask_columns.items():
-        for col in cols:
-            mask_set.add(f"{table.lower()}.{col.lower()}")
-            mask_set.add(col.lower())
-
+    mask_by_table = _normalize_column_map(mask_columns)
     masked: list[str] = []
-    for col_node in tree.find_all(exp.Column):
-        col_name = col_node.name.lower()
-        table_name = col_node.table.lower() if col_node.table else ""
-        full_ref = f"{table_name}.{col_name}" if table_name else col_name
 
-        if full_ref in mask_set or col_name in mask_set:
-            masked.append(full_ref or col_name)
+    for scope in traverse_scope(tree):
+        alias_map = _scope_alias_map(scope)
+        scope_tables = set(alias_map.values())
 
-    return list(set(masked))
+        for col_node in scope.columns:
+            col_name = col_node.name.lower()
+            qualifier = col_node.table.lower() if col_node.table else ""
+
+            if qualifier:
+                real_table = alias_map.get(qualifier, qualifier)
+                if col_name in mask_by_table.get(real_table, set()):
+                    masked.append(f"{real_table}.{col_name}")
+                continue
+
+            if len(scope_tables) == 1:
+                real_table = next(iter(scope_tables))
+                if col_name in mask_by_table.get(real_table, set()):
+                    masked.append(f"{real_table}.{col_name}")
+                continue
+
+            for table_name, cols in mask_by_table.items():
+                if col_name in cols:
+                    masked.append(f"{table_name}.{col_name}")
+
+    return sorted(set(masked))
 
 
-def _inject_limit(tree: exp.Select) -> exp.Select:
-    """强制注入或修正 LIMIT"""
+def _inject_limit(tree: exp.Expression) -> exp.Expression:
+    """Inject or cap only the outer SELECT LIMIT."""
+    if not isinstance(tree, exp.Select):
+        return tree
+
     max_rows = sandbox_config.max_result_rows
-    limit_node = tree.find(exp.Limit)
+    limit_node = tree.args.get("limit")
 
     if limit_node is None:
-        tree = tree.limit(max_rows, copy=False)
-    else:
-        try:
-            limit_expr = limit_node.expression
-            if isinstance(limit_expr, exp.Literal):
-                current_value = int(limit_expr.this)
-                if current_value > max_rows:
-                    limit_node.set("expression", exp.Literal.number(max_rows))
-        except (ValueError, TypeError):
-            pass
+        return tree.limit(max_rows, copy=False)
+
+    try:
+        limit_expr = limit_node.expression
+        if isinstance(limit_expr, exp.Literal):
+            current_value = int(limit_expr.this)
+            if current_value > max_rows:
+                limit_node.set("expression", exp.Literal.number(max_rows))
+    except (ValueError, TypeError):
+        pass
 
     return tree
+
+
+def _normalize_column_map(column_map: dict[str, list[str]]) -> dict[str, set[str]]:
+    """Normalize permission maps to lowercase table -> lowercase column set."""
+    normalized: dict[str, set[str]] = {}
+    for table, cols in column_map.items():
+        normalized.setdefault(table.lower(), set()).update(col.lower() for col in cols)
+    return normalized
+
+
+def _scope_table_refs(scope) -> list[tuple[str, str]]:
+    """Return (alias_or_name, real_table_name) pairs for concrete tables in one scope."""
+    refs: list[tuple[str, str]] = []
+    for alias, (_, source) in scope.selected_sources.items():
+        if isinstance(source, exp.Table):
+            table_name = source.name.lower()
+            if table_name:
+                refs.append((alias.lower(), table_name))
+    return refs
+
+
+def _scope_alias_map(scope) -> dict[str, str]:
+    """Map aliases and table names in a scope to real physical table names."""
+    aliases: dict[str, str] = {}
+    for alias, table_name in _scope_table_refs(scope):
+        aliases[alias] = table_name
+        aliases[table_name] = table_name
+    return aliases
