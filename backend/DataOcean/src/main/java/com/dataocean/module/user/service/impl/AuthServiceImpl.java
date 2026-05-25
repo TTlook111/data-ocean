@@ -49,6 +49,10 @@ public class AuthServiceImpl implements AuthService {
     private final StringRedisTemplate stringRedisTemplate;
     private final CaptchaService captchaService;
     private static final Pattern PASSWORD_COMPLEXITY = Pattern.compile("^(?=.*[a-zA-Z])(?=.*\\d).{8,32}$");
+    private static final String TOKEN_VERSION_PREFIX = "user:token-version:";
+    private static final String FAILED_LOGIN_PREFIX = "login:fail:";
+    private static final String AUTO_LOCK_MARKER_PREFIX = "login:auto-lock:";
+    private static final String AUTO_LOCK_TTL_PREFIX = "login:auto-lock:ttl:";
 
     @Value("${security.login.max-attempts}")
     private int maxAttempts;
@@ -79,8 +83,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(403, "账号已被禁用");
         }
         if (Integer.valueOf(SysUser.STATUS_LOCKED).equals(user.getStatus())) {
-            log.warn("用户登录被拒绝：账号已锁定 userId={} username={}", user.getId(), user.getUsername());
-            throw new BusinessException(403, "账号已被锁定");
+            unlockIfAutomaticLockExpired(user);
         }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
@@ -205,6 +208,8 @@ public class AuthServiceImpl implements AuthService {
         if (attempts != null && attempts >= maxAttempts) {
             user.setStatus(SysUser.STATUS_LOCKED);
             userMapper.updateById(user);
+            stringRedisTemplate.opsForValue().set(autoLockTtlKey(user.getUsername()), "1", lockDurationSeconds, TimeUnit.SECONDS);
+            stringRedisTemplate.opsForValue().set(autoLockMarkerKey(user.getUsername()), String.valueOf(user.getId()));
             // 令牌版本号是让用户已签发令牌全部失效的统一开关。
             stringRedisTemplate.opsForValue().increment(tokenVersionKey(user.getId()));
             log.warn("用户连续登录失败后被锁定 userId={} username={} lockDurationSeconds={}",
@@ -214,6 +219,32 @@ public class AuthServiceImpl implements AuthService {
 
     private void clearFailedLogin(String username) {
         stringRedisTemplate.delete(failedLoginKey(username));
+    }
+
+    private void unlockIfAutomaticLockExpired(SysUser user) {
+        Boolean autoLocked = stringRedisTemplate.hasKey(autoLockMarkerKey(user.getUsername()));
+        if (!Boolean.TRUE.equals(autoLocked)) {
+            log.warn("用户登录被拒绝：账号已锁定 userId={} username={}", user.getId(), user.getUsername());
+            throw new BusinessException(403, "账号已被锁定");
+        }
+
+        Long remainingSeconds = stringRedisTemplate.getExpire(autoLockTtlKey(user.getUsername()), TimeUnit.SECONDS);
+        if (remainingSeconds != null && remainingSeconds > 0) {
+            log.warn("用户登录被拒绝：账号自动锁定未到期 userId={} username={} remainingSeconds={}",
+                    user.getId(), user.getUsername(), remainingSeconds);
+            throw new BusinessException(403, "账号已被锁定，请" + formatRemainingLockTime(remainingSeconds) + "后再试");
+        }
+
+        user.setStatus(SysUser.STATUS_NORMAL);
+        userMapper.updateById(user);
+        clearLoginLock(user.getUsername());
+        log.info("用户自动锁定已到期，已恢复正常状态 userId={} username={}", user.getId(), user.getUsername());
+    }
+
+    private void clearLoginLock(String username) {
+        stringRedisTemplate.delete(failedLoginKey(username));
+        stringRedisTemplate.delete(autoLockTtlKey(username));
+        stringRedisTemplate.delete(autoLockMarkerKey(username));
     }
 
     private long ensureTokenVersion(Long userId) {
@@ -227,11 +258,19 @@ public class AuthServiceImpl implements AuthService {
     }
 
     private String tokenVersionKey(Long userId) {
-        return "user:token-version:" + userId;
+        return TOKEN_VERSION_PREFIX + userId;
     }
 
     private String failedLoginKey(String username) {
-        return "login:fail:" + username;
+        return FAILED_LOGIN_PREFIX + username;
+    }
+
+    private String autoLockMarkerKey(String username) {
+        return AUTO_LOCK_MARKER_PREFIX + username;
+    }
+
+    private String autoLockTtlKey(String username) {
+        return AUTO_LOCK_TTL_PREFIX + username;
     }
 
     private SysUser requireCurrentUserEntity(Long userId) {
@@ -251,6 +290,11 @@ public class AuthServiceImpl implements AuthService {
 
     private boolean isPasswordChanged(SysUser user) {
         return Integer.valueOf(1).equals(user.getPasswordChanged());
+    }
+
+    private String formatRemainingLockTime(long seconds) {
+        long minutes = Math.max(1, (seconds + 59) / 60);
+        return minutes + "分钟";
     }
 
     private String extractToken(String authorizationHeader) {

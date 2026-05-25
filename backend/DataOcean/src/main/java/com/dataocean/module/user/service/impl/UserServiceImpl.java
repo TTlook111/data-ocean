@@ -61,6 +61,9 @@ public class UserServiceImpl implements UserService {
     /** 临时密码完整字符集（字母+数字） */
     private static final char[] TEMP_PASSWORD_CHARS =
             "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789".toCharArray();
+    private static final String FAILED_LOGIN_PREFIX = "login:fail:";
+    private static final String AUTO_LOCK_MARKER_PREFIX = "login:auto-lock:";
+    private static final String AUTO_LOCK_TTL_PREFIX = "login:auto-lock:ttl:";
 
     /**
      * {@inheritDoc}
@@ -279,9 +282,9 @@ public class UserServiceImpl implements UserService {
         }
         user.setStatus(status);
         userMapper.updateById(user);
+        clearLoginLock(user.getUsername());
         // 禁用或锁定时需要使已签发 JWT 失效并清除失败计数
         if (Integer.valueOf(SysUser.STATUS_DISABLED).equals(status) || Integer.valueOf(SysUser.STATUS_LOCKED).equals(status)) {
-            stringRedisTemplate.delete("login:fail:" + user.getUsername());
             // 递增令牌版本号，使该用户已签发的 JWT 立即失效
             stringRedisTemplate.opsForValue().increment(tokenVersionKey(id));
         }
@@ -312,7 +315,7 @@ public class UserServiceImpl implements UserService {
         user.setPasswordChanged(0);
         userMapper.updateById(user);
         // 清除登录失败计数
-        stringRedisTemplate.delete("login:fail:" + user.getUsername());
+        stringRedisTemplate.delete(failedLoginKey(user.getUsername()));
         // 递增令牌版本号，使已签发 JWT 失效
         stringRedisTemplate.opsForValue().increment(tokenVersionKey(id));
         log.info("用户密码重置成功，已刷新令牌版本 userId={} username={}", id, user.getUsername());
@@ -422,6 +425,24 @@ public class UserServiceImpl implements UserService {
      */
     private String tokenVersionKey(Long userId) {
         return "user:token-version:" + userId;
+    }
+
+    private String failedLoginKey(String username) {
+        return FAILED_LOGIN_PREFIX + username;
+    }
+
+    private String autoLockMarkerKey(String username) {
+        return AUTO_LOCK_MARKER_PREFIX + username;
+    }
+
+    private String autoLockTtlKey(String username) {
+        return AUTO_LOCK_TTL_PREFIX + username;
+    }
+
+    private void clearLoginLock(String username) {
+        stringRedisTemplate.delete(failedLoginKey(username));
+        stringRedisTemplate.delete(autoLockTtlKey(username));
+        stringRedisTemplate.delete(autoLockMarkerKey(username));
     }
 
     /**
