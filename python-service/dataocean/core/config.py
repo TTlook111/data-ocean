@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     agent_max_retries: int = 3
     agent_node_timeout: int = 30
 
+    # SQL 沙箱配置
+    sandbox_max_execution_time: int = 30
+    sandbox_max_result_rows: int = 10000
+    sandbox_max_subquery_depth: int = 3
+    sandbox_pool_max_per_source: int = 10
+    sandbox_pool_max_global: int = 50
+    sandbox_pool_idle_timeout: int = 1800
+    sandbox_pool_wait_timeout: int = 5
+    aes_secret_key: str = ""
+
     # 服务配置
     log_level: str = "INFO"
 

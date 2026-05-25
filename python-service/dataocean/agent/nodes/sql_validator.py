@@ -1,36 +1,26 @@
 """SQL 安全校验节点
 
-调用 009 模块的 SQL 安全校验逻辑。
-当 009 模块完整实现后，此节点将调用其内部函数进行 AST 校验。
-当前阶段使用基础的关键词检查作为临时方案。
+调用 009 模块的 AST 校验引擎和改写器，
+对 AI 生成的 SQL 进行安全校验和权限注入。
 """
 
 from __future__ import annotations
 
 import logging
-import re
+
+from dataocean.sandbox.validator import validate
+from dataocean.sandbox.rewriter import rewrite
 
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
 
-# 禁止的 SQL 关键词（非 SELECT 操作）
-_FORBIDDEN_KEYWORDS = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|EXEC|EXECUTE)\b",
-    re.IGNORECASE,
-)
-
-# 禁止的危险函数
-_DANGEROUS_FUNCTIONS = re.compile(
-    r"\b(SLEEP|BENCHMARK|LOAD_FILE|INTO\s+OUTFILE|INTO\s+DUMPFILE)\b",
-    re.IGNORECASE,
-)
-
 
 async def run_sql_validator(state: AgentState) -> AgentState:
-    """执行 SQL 安全校验"""
+    """执行 SQL 安全校验：AST 规则链 + 权限改写"""
     generated_sql = state.get("generated_sql", "")
     task_id = state.get("task_id", "")
+    permissions = state.get("user_permissions", {})
 
     logger.info("SQL 校验 task_id=%s sql=%s", task_id, generated_sql[:80])
 
@@ -47,47 +37,78 @@ async def run_sql_validator(state: AgentState) -> AgentState:
             "current_node": "SQL_VALIDATOR",
         }
 
-    violations = []
+    # 提取权限信息
+    allowed_tables = permissions.get("allowed_tables", permissions.get("allowedTables", []))
 
-    # 检查是否为 SELECT 语句
-    stripped = generated_sql.strip().upper()
-    if not stripped.startswith("SELECT"):
-        violations.append("仅允许 SELECT 查询")
-
-    # 检查禁止的关键词
-    forbidden_match = _FORBIDDEN_KEYWORDS.search(generated_sql)
-    if forbidden_match:
-        violations.append(f"包含禁止的操作：{forbidden_match.group()}")
-
-    # 检查危险函数
-    dangerous_match = _DANGEROUS_FUNCTIONS.search(generated_sql)
-    if dangerous_match:
-        violations.append(f"包含危险函数：{dangerous_match.group()}")
-
-    if violations:
-        level = "DANGEROUS" if dangerous_match else "REJECT"
-        logger.warning("SQL 校验不通过 task_id=%s violations=%s", task_id, violations)
+    # 第一步：AST 安全校验
+    validation = validate(generated_sql, allowed_tables or None)
+    if not validation.passed:
+        reasons = validation.reasons
+        level = "DANGEROUS" if any("危险" in r for r in reasons) else "REJECT"
+        logger.warning("SQL 校验不通过 task_id=%s reasons=%s", task_id, reasons)
         return {
             **state,
             "validation_result": {
                 "valid": False,
                 "rewritten_sql": None,
-                "violations": violations,
+                "violations": reasons,
                 "level": level,
             },
-            "error_message": f"SQL 安全校验不通过：{'; '.join(violations)}",
+            "error_message": f"SQL 安全校验不通过：{'; '.join(reasons)}",
             "current_node": "SQL_VALIDATOR",
         }
 
-    logger.info("SQL 校验通过 task_id=%s", task_id)
+    # 第二步：AST 改写（行过滤、列检查、LIMIT 注入）
+    row_filters: dict[str, list[str]] = {}
+    for rf in permissions.get("row_filters", permissions.get("rowFilters", [])):
+        table = rf.get("table_name", rf.get("tableName", ""))
+        condition = rf.get("condition", "")
+        if table and condition:
+            row_filters.setdefault(table, []).append(condition)
+
+    denied_columns: dict[str, list[str]] = {}
+    for col_ref in permissions.get("denied_columns", permissions.get("deniedColumns", [])):
+        if "." in col_ref:
+            table, col = col_ref.split(".", 1)
+            denied_columns.setdefault(table, []).append(col)
+
+    mask_columns: dict[str, list[str]] = {}
+    for mc in permissions.get("mask_columns", permissions.get("maskColumns", [])):
+        table = mc.get("table_name", mc.get("tableName", ""))
+        col = mc.get("column_name", mc.get("columnName", ""))
+        if table and col:
+            mask_columns.setdefault(table, []).append(col)
+
+    rewrite_result = rewrite(
+        sql=generated_sql,
+        row_filters=row_filters or None,
+        denied_columns=denied_columns or None,
+        mask_columns=mask_columns or None,
+    )
+
+    if not rewrite_result.success:
+        return {
+            **state,
+            "validation_result": {
+                "valid": False,
+                "rewritten_sql": None,
+                "violations": [rewrite_result.denied_reason],
+                "level": "REJECT",
+            },
+            "error_message": rewrite_result.denied_reason,
+            "current_node": "SQL_VALIDATOR",
+        }
+
+    logger.info("SQL 校验通过 task_id=%s rewritten=%s", task_id, rewrite_result.rewritten_sql[:80])
 
     return {
         **state,
         "validation_result": {
             "valid": True,
-            "rewritten_sql": generated_sql,
+            "rewritten_sql": rewrite_result.rewritten_sql,
             "violations": [],
             "level": "PASS",
+            "masked_fields": rewrite_result.masked_fields,
         },
         "current_node": "SQL_VALIDATOR",
     }
