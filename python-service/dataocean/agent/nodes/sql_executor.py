@@ -2,13 +2,12 @@
 
 调用 009 模块的 SQL 沙箱执行逻辑。
 当 009 模块完整实现后，此节点将调用其内部函数执行 SQL。
-当前阶段使用 SQLAlchemy 直接执行只读查询作为临时方案。
+当前阶段返回 NOT_IMPLEMENTED 错误，明确告知调用方沙箱尚未接入。
 """
 
 from __future__ import annotations
 
 import logging
-import time
 
 from ..state import AgentState
 
@@ -18,8 +17,8 @@ logger = logging.getLogger(__name__)
 async def run_sql_executor(state: AgentState) -> AgentState:
     """执行 SQL 查询
 
-    当前为临时实现：直接返回空结果。
-    待 009 模块沙箱执行功能就绪后，将调用其内部接口执行 SQL。
+    当前 009 模块沙箱执行功能尚未就绪，返回明确的未实现错误。
+    待 009 模块完成后，将通过 datasource_id 获取只读连接并执行 SQL。
     """
     validation_result = state.get("validation_result", {})
     sql = validation_result.get("rewritten_sql", "") or state.get("generated_sql", "")
@@ -41,24 +40,17 @@ async def run_sql_executor(state: AgentState) -> AgentState:
             "current_node": "SQL_EXECUTOR",
         }
 
-    start = time.time()
-
-    # TODO: 接入 009 模块沙箱执行
-    # 当前返回占位结果，表示执行成功但无数据
-    # 实际实现时将通过 datasource_id 获取只读连接并执行 SQL
-    elapsed_ms = int((time.time() - start) * 1000)
-
-    logger.info("SQL 执行完成 task_id=%s elapsed=%dms", task_id, elapsed_ms)
-
+    # 009 模块沙箱执行尚未接入，返回明确的未实现错误
     return {
         **state,
         "execution_result": {
             "columns": [],
             "data_rows": [],
             "row_count": 0,
-            "execution_time_ms": elapsed_ms,
-            "error": None,
+            "execution_time_ms": 0,
+            "error": "SQL 沙箱执行模块尚未接入，请等待 009 模块就绪",
         },
+        "error_message": "SQL 沙箱执行模块尚未接入",
         "used_tables": _extract_tables(sql),
         "used_columns": [],
         "current_node": "SQL_EXECUTOR",

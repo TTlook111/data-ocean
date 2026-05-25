@@ -25,16 +25,18 @@ public interface QueryTaskService {
      * 查询任务结果。
      *
      * @param taskId 任务 ID
+     * @param userId 当前用户 ID（用于权限校验）
      * @return 任务结果 VO
      */
-    QueryTaskVO getTaskResult(String taskId);
+    QueryTaskVO getTaskResult(String taskId, Long userId);
 
     /**
      * 取消查询任务。
      *
      * @param taskId 任务 ID
+     * @param userId 当前用户 ID（用于权限校验）
      */
-    void cancelTask(String taskId);
+    void cancelTask(String taskId, Long userId);
 
     /**
      * 更新任务结果（Python 回调或 SSE 完成后调用）。

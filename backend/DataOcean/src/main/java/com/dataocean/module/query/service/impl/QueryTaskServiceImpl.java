@@ -61,8 +61,8 @@ public class QueryTaskServiceImpl implements QueryTaskService {
      * {@inheritDoc}
      */
     @Override
-    public QueryTaskVO getTaskResult(String taskId) {
-        QueryTask task = findByTaskId(taskId);
+    public QueryTaskVO getTaskResult(String taskId, Long userId) {
+        QueryTask task = findByTaskIdAndUser(taskId, userId);
         return toVO(task);
     }
 
@@ -71,15 +71,16 @@ public class QueryTaskServiceImpl implements QueryTaskService {
      */
     @Transactional
     @Override
-    public void cancelTask(String taskId) {
-        log.info("取消查询任务 taskId={}", taskId);
-        QueryTask task = findByTaskId(taskId);
+    public void cancelTask(String taskId, Long userId) {
+        log.info("取消查询任务 taskId={} userId={}", taskId, userId);
+        QueryTask task = findByTaskIdAndUser(taskId, userId);
         if (!QueryTaskStatus.PROCESSING.name().equals(task.getStatus())) {
             throw new BusinessException("任务已完成，无法取消");
         }
         queryTaskMapper.update(null,
                 new LambdaUpdateWrapper<QueryTask>()
                         .eq(QueryTask::getTaskId, taskId)
+                        .eq(QueryTask::getUserId, userId)
                         .set(QueryTask::getStatus, QueryTaskStatus.CANCELLED.name())
                         .set(QueryTask::getCompletedAt, LocalDateTime.now()));
     }
@@ -153,6 +154,20 @@ public class QueryTaskServiceImpl implements QueryTaskService {
                 new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
         if (task == null) {
             throw new BusinessException("查询任务不存在");
+        }
+        return task;
+    }
+
+    /**
+     * 根据 taskId 和 userId 查询任务，校验归属后返回。
+     */
+    private QueryTask findByTaskIdAndUser(String taskId, Long userId) {
+        QueryTask task = queryTaskMapper.selectOne(
+                new LambdaQueryWrapper<QueryTask>()
+                        .eq(QueryTask::getTaskId, taskId)
+                        .eq(QueryTask::getUserId, userId));
+        if (task == null) {
+            throw new BusinessException("查询任务不存在或无权访问");
         }
         return task;
     }
