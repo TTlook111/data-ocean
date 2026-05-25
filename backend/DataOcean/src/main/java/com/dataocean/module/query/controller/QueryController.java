@@ -92,11 +92,15 @@ public class QueryController {
 
     /**
      * 取消查询任务。
+     * <p>
+     * 同时更新 Java 侧状态并通知 Python Agent 停止执行。
+     * </p>
      */
     @PostMapping("/tasks/{taskId}/cancel")
     public Result<Void> cancelTask(@PathVariable String taskId) {
         Long userId = UserContext.currentUserId();
         queryTaskService.cancelTask(taskId, userId);
+        pythonAgentClient.cancelTask(taskId);
         return Result.success("任务已取消", null);
     }
 

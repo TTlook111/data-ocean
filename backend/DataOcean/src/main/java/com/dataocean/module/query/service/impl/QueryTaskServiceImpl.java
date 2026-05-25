@@ -34,7 +34,6 @@ public class QueryTaskServiceImpl implements QueryTaskService {
 
     private final QueryTaskMapper queryTaskMapper;
     private final ObjectMapper objectMapper;
-    private final com.dataocean.module.query.client.PythonAgentClient pythonAgentClient;
 
     /**
      * {@inheritDoc}
@@ -78,9 +77,7 @@ public class QueryTaskServiceImpl implements QueryTaskService {
         if (!QueryTaskStatus.PROCESSING.name().equals(task.getStatus())) {
             throw new BusinessException("任务已完成，无法取消");
         }
-        // 通知 Python 侧停止执行
-        pythonAgentClient.cancelTask(taskId);
-        // 更新 Java 侧任务状态
+        // 更新 Java 侧任务状态（Python 侧取消由 Controller 层协调）
         queryTaskMapper.update(null,
                 new LambdaUpdateWrapper<QueryTask>()
                         .eq(QueryTask::getTaskId, taskId)
