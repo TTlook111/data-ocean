@@ -164,4 +164,24 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             log.warn("保存助手消息失败 taskId={}", taskId, e);
         }
     }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 调用 Python /internal/query/tasks/{taskId}/cancel 通知 Agent 停止执行。
+     * 调用失败不影响 Java 侧状态更新。
+     * </p>
+     */
+    @Override
+    public void cancelTask(String taskId) {
+        try {
+            restClient.post()
+                    .uri("/internal/query/tasks/{taskId}/cancel", taskId)
+                    .retrieve()
+                    .toBodilessEntity();
+            log.info("已通知 Python 取消任务 taskId={}", taskId);
+        } catch (Exception e) {
+            log.warn("通知 Python 取消任务失败 taskId={} reason={}", taskId, e.getMessage());
+        }
+    }
 }

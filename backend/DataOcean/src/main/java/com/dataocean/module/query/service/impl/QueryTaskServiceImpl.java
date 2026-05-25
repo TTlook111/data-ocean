@@ -34,6 +34,7 @@ public class QueryTaskServiceImpl implements QueryTaskService {
 
     private final QueryTaskMapper queryTaskMapper;
     private final ObjectMapper objectMapper;
+    private final com.dataocean.module.query.client.PythonAgentClient pythonAgentClient;
 
     /**
      * {@inheritDoc}
@@ -77,6 +78,9 @@ public class QueryTaskServiceImpl implements QueryTaskService {
         if (!QueryTaskStatus.PROCESSING.name().equals(task.getStatus())) {
             throw new BusinessException("任务已完成，无法取消");
         }
+        // 通知 Python 侧停止执行
+        pythonAgentClient.cancelTask(taskId);
+        // 更新 Java 侧任务状态
         queryTaskMapper.update(null,
                 new LambdaUpdateWrapper<QueryTask>()
                         .eq(QueryTask::getTaskId, taskId)
@@ -92,6 +96,12 @@ public class QueryTaskServiceImpl implements QueryTaskService {
     @Override
     public void updateTaskResult(String taskId, String resultJson) {
         log.info("更新查询任务结果 taskId={}", taskId);
+        // 如果任务已被取消，不再覆盖状态
+        QueryTask existing = findByTaskId(taskId);
+        if (QueryTaskStatus.CANCELLED.name().equals(existing.getStatus())) {
+            log.info("任务已取消，跳过结果回写 taskId={}", taskId);
+            return;
+        }
         try {
             Map<String, Object> result = objectMapper.readValue(resultJson, new TypeReference<>() {});
             String status = (String) result.getOrDefault("status", "FAILED");

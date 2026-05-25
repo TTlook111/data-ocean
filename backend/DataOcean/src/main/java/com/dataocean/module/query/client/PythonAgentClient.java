@@ -25,4 +25,11 @@ public interface PythonAgentClient {
      */
     void executeAsync(String taskId, Long datasourceId, Long userId, String question,
                       Long conversationId, Long activeSnapshotId);
+
+    /**
+     * 通知 Python 侧取消正在执行的任务。
+     *
+     * @param taskId 任务 ID
+     */
+    void cancelTask(String taskId);
 }

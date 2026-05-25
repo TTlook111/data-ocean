@@ -1,8 +1,11 @@
 package com.dataocean.module.query.controller;
 
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
+import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.service.SchemaSnapshotService;
 import com.dataocean.module.query.client.PythonAgentClient;
 import com.dataocean.module.query.entity.dto.QueryAskDTO;
 import com.dataocean.module.query.entity.vo.ConversationMessageVO;
@@ -33,6 +36,7 @@ public class QueryController {
     private final ConversationService conversationService;
     private final PythonAgentClient pythonAgentClient;
     private final DatasourceAccessService datasourceAccessService;
+    private final SchemaSnapshotService schemaSnapshotService;
 
     /**
      * 提交查询（异步，返回 taskId）。
@@ -47,7 +51,9 @@ public class QueryController {
                 userId, request.getDatasourceId(), request.getQuestion().substring(0, Math.min(50, request.getQuestion().length())));
 
         // 校验用户是否有权访问该数据源
-        datasourceAccessService.checkAccess(request.getDatasourceId());
+        if (!datasourceAccessService.checkAccess(request.getDatasourceId())) {
+            throw new BusinessException("无权访问该数据源");
+        }
 
         // 获取或创建会话
         Long conversationId = conversationService.getOrCreateConversation(
@@ -59,9 +65,15 @@ public class QueryController {
         // 提交查询任务
         String taskId = queryTaskService.submitQuery(userId, request.getDatasourceId(), request.getQuestion(), conversationId);
 
+        // 查询数据源当前已发布的元数据快照
+        MetadataSnapshot snapshot = schemaSnapshotService.getPublishedSnapshot(request.getDatasourceId());
+        if (snapshot == null) {
+            throw new BusinessException("该数据源尚未发布元数据快照，请先完成元数据治理");
+        }
+
         // 异步触发 Python Agent 执行
         pythonAgentClient.executeAsync(taskId, request.getDatasourceId(), userId,
-                request.getQuestion(), conversationId, 0L);
+                request.getQuestion(), conversationId, snapshot.getId());
 
         return Result.success("查询已提交", Map.of(
                 "taskId", taskId,
