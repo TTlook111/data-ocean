@@ -103,9 +103,11 @@ public class PythonAgentClientImpl implements PythonAgentClient {
 
             // 回写任务结果
             if (finalResult != null) {
-                queryTaskService.updateTaskResult(taskId, finalResult);
-                // 保存助手消息到会话
-                saveAssistantMessageFromResult(conversationId, taskId, finalResult);
+                boolean updated = queryTaskService.updateTaskResult(taskId, finalResult);
+                // 仅在实际更新时保存助手消息（任务已取消则跳过）
+                if (updated) {
+                    saveAssistantMessageFromResult(conversationId, taskId, finalResult);
+                }
             } else {
                 queryTaskService.updateTaskResult(taskId, "{\"status\":\"FAILED\",\"error\":\"Agent 未返回最终结果\"}");
             }

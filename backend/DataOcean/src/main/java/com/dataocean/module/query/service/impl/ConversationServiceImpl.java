@@ -40,7 +40,8 @@ public class ConversationServiceImpl implements ConversationService {
     public Long getOrCreateConversation(Long userId, Long datasourceId, Long conversationId, String firstQuestion) {
         if (conversationId != null) {
             Conversation existing = conversationMapper.selectById(conversationId);
-            if (existing != null && existing.getUserId().equals(userId)) {
+            if (existing != null && existing.getUserId().equals(userId)
+                    && existing.getDatasourceId().equals(datasourceId)) {
                 return existing.getId();
             }
         }

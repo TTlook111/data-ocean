@@ -91,13 +91,13 @@ public class QueryTaskServiceImpl implements QueryTaskService {
      */
     @Transactional
     @Override
-    public void updateTaskResult(String taskId, String resultJson) {
+    public boolean updateTaskResult(String taskId, String resultJson) {
         log.info("更新查询任务结果 taskId={}", taskId);
         // 如果任务已被取消，不再覆盖状态
         QueryTask existing = findByTaskId(taskId);
         if (QueryTaskStatus.CANCELLED.name().equals(existing.getStatus())) {
             log.info("任务已取消，跳过结果回写 taskId={}", taskId);
-            return;
+            return false;
         }
         try {
             Map<String, Object> result = objectMapper.readValue(resultJson, new TypeReference<>() {});
@@ -142,6 +142,7 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             }
 
             queryTaskMapper.update(null, wrapper);
+            return true;
         } catch (Exception e) {
             log.error("更新查询任务结果失败 taskId={}", taskId, e);
             queryTaskMapper.update(null,
@@ -150,6 +151,7 @@ public class QueryTaskServiceImpl implements QueryTaskService {
                             .set(QueryTask::getStatus, QueryTaskStatus.FAILED.name())
                             .set(QueryTask::getErrorMessage, "结果解析失败：" + e.getMessage())
                             .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+            return false;
         }
     }
 

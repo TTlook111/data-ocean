@@ -40,9 +40,13 @@ public interface QueryTaskService {
 
     /**
      * 更新任务结果（Python 回调或 SSE 完成后调用）。
+     * <p>
+     * 如果任务已被取消则跳过更新。
+     * </p>
      *
      * @param taskId 任务 ID
      * @param result 结果 JSON
+     * @return true 表示实际更新了结果，false 表示任务已取消被跳过
      */
-    void updateTaskResult(String taskId, String result);
+    boolean updateTaskResult(String taskId, String result);
 }
