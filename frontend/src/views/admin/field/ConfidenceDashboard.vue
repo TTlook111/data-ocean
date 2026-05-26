@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { TrendingUp, Settings } from 'lucide-vue-next'
+import * as echarts from 'echarts'
 import {
   batchGetConfidence,
   adminSetConfidence,
@@ -17,6 +18,8 @@ const showSetDialog = ref(false)
 const trendData = ref<ConfidenceTrendPoint[]>([])
 const currentFieldId = ref<number>(0)
 const setForm = ref({ score: 50, reason: '' })
+const chartRef = ref<HTMLDivElement | null>(null)
+let chartInstance: echarts.ECharts | null = null
 
 const levelLabel = (level: string) => {
   switch (level) {
@@ -52,9 +55,65 @@ async function openTrend(columnMetaId: number) {
     const res = await getConfidenceTrend(columnMetaId, 30)
     trendData.value = res.data ?? []
     showTrendDialog.value = true
+    await nextTick()
+    renderChart()
   } catch (e: any) {
     ElMessage.error(e.response?.data?.message || '获取趋势数据失败')
   }
+}
+
+function renderChart() {
+  if (!chartRef.value || !trendData.value.length) return
+  if (chartInstance) {
+    chartInstance.dispose()
+  }
+  chartInstance = echarts.init(chartRef.value)
+  const xData = trendData.value.map(p => p.time?.substring(0, 16) || '')
+  const yData = trendData.value.map(p => p.cumulativeScore)
+  chartInstance.setOption({
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: any) => {
+        const point = trendData.value[params[0].dataIndex]
+        const delta = point.deltaScore > 0 ? `+${point.deltaScore}` : `${point.deltaScore}`
+        return `${params[0].axisValue}<br/>分数: ${point.cumulativeScore}<br/>变化: ${delta}<br/>事件: ${point.eventType}`
+      }
+    },
+    grid: { left: 50, right: 20, top: 30, bottom: 40 },
+    xAxis: {
+      type: 'category',
+      data: xData,
+      axisLabel: { rotate: 30, fontSize: 11 }
+    },
+    yAxis: {
+      type: 'value',
+      min: 0,
+      max: 100,
+      name: '可信度分数'
+    },
+    series: [{
+      type: 'line',
+      data: yData,
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 6,
+      lineStyle: { color: '#4d8fdc', width: 2 },
+      itemStyle: { color: '#4d8fdc' },
+      areaStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: 'rgba(77, 143, 220, 0.3)' },
+          { offset: 1, color: 'rgba(77, 143, 220, 0.02)' }
+        ])
+      },
+      markLine: {
+        silent: true,
+        data: [
+          { yAxis: 70, lineStyle: { color: '#67c23a', type: 'dashed' }, label: { formatter: 'HIGH' } },
+          { yAxis: 40, lineStyle: { color: '#e6a23c', type: 'dashed' }, label: { formatter: 'MEDIUM' } }
+        ]
+      }
+    }]
+  })
 }
 
 function openSetDialog(columnMetaId: number, currentScore: number) {
@@ -133,21 +192,8 @@ onMounted(() => {
       <el-empty v-if="!confidenceList.length && !loading" description="暂无可信度数据" />
     </section>
 
-    <el-dialog v-model="showTrendDialog" title="可信度趋势（近30天）" width="600px">
-      <div v-if="trendData.length">
-        <el-table :data="trendData" size="small" max-height="400">
-          <el-table-column prop="time" label="时间" width="180" />
-          <el-table-column prop="eventType" label="事件类型" width="180" />
-          <el-table-column prop="deltaScore" label="变化" width="80">
-            <template #default="{ row }">
-              <span :style="{ color: row.deltaScore > 0 ? '#67c23a' : '#f56c6c' }">
-                {{ row.deltaScore > 0 ? '+' : '' }}{{ row.deltaScore }}
-              </span>
-            </template>
-          </el-table-column>
-          <el-table-column prop="cumulativeScore" label="累计分数" width="100" />
-        </el-table>
-      </div>
+    <el-dialog v-model="showTrendDialog" title="可信度趋势（近30天）" width="680px" @closed="chartInstance?.dispose()">
+      <div v-if="trendData.length" ref="chartRef" class="trend-chart"></div>
       <el-empty v-else description="暂无趋势数据" />
     </el-dialog>
 
@@ -182,4 +228,5 @@ onMounted(() => {
 .stat-card.medium .stat-value { color: #e6a23c; }
 .stat-card.low .stat-value { color: #f56c6c; }
 .content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; }
+.trend-chart { width: 100%; height: 360px; }
 </style>

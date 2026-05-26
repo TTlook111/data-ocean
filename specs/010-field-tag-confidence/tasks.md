@@ -55,7 +55,7 @@
 - [X] T028 在 Java 后端添加 GET /api/admin/fields/{fieldId}/confidence-trend?days=30 接口
 - [X] T029 在 Java 后端添加 POST /api/admin/fields/import-tags 接口：接收 CSV 文件批量导入字段标签
 - [X] T030 在 Java 后端添加 POST /api/admin/fields/auto-tag 接口：根据字段名模式匹配自动打标
-- [ ] T031 [Frontend] 在可信度看板中为每个字段添加"趋势"按钮，点击弹出可信度变化折线图（已在 ConfidenceDashboard.vue 中实现表格形式趋势展示）
+- [X] T031 [Frontend] 在可信度看板中为每个字段添加"趋势"按钮，点击弹出可信度变化折线图（ECharts 实现）
 
 ## Dependencies
 
