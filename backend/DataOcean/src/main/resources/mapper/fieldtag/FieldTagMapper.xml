@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dataocean.module.fieldtag.mapper.FieldTagMapper">
+
+    <!-- 批量插入字段标签 -->
+    <insert id="batchInsert" parameterType="java.util.List">
+        INSERT INTO field_tag (column_meta_id, tag_code, tag_name, source, created_by, created_at)
+        VALUES
+        <foreach collection="tags" item="tag" separator=",">
+            (#{tag.columnMetaId}, #{tag.tagCode}, #{tag.tagName}, #{tag.source}, #{tag.createdBy}, NOW())
+        </foreach>
+    </insert>
+
+</mapper>

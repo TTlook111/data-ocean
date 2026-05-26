@@ -19,6 +19,9 @@ import {
   ShieldCheck,
   ShieldAlert,
   Table2,
+  Tag,
+  TrendingUp,
+  MessageSquare,
   UserCog,
   UserRound,
   Users,
@@ -88,6 +91,14 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '知识审核', to: '/admin/knowledge/review', icon: ShieldCheck, permission: 'knowledge:manage' },
     ],
   },
+  {
+    label: '字段治理',
+    items: [
+      { label: '字段标签', to: '/admin/field/tags', icon: Tag, permission: 'field-tag:manage' },
+      { label: '可信度看板', to: '/admin/field/confidence', icon: TrendingUp, permission: 'field-tag:manage' },
+      { label: '反馈审核', to: '/admin/field/feedback-review', icon: MessageSquare, permission: 'field-tag:manage' },
+    ],
+  },
 ]
 
 const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
@@ -102,6 +113,7 @@ const adminPermissionCodes = [
   'skills:manage',
   'prompt:manage',
   'field:manage',
+  'field-tag:manage',
   'feedback:review',
   'audit:view',
   'user:manage',

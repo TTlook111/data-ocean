@@ -25,6 +25,9 @@ const SkillsEditor = () => import('../views/admin/knowledge/SkillsEditor.vue')
 const VersionList = () => import('../views/admin/knowledge/VersionList.vue')
 const ReviewPage = () => import('../views/admin/knowledge/ReviewPage.vue')
 const KnowledgeDashboard = () => import('../views/admin/knowledge/KnowledgeDashboard.vue')
+const FieldTagManager = () => import('../views/admin/field/FieldTagManager.vue')
+const ConfidenceDashboard = () => import('../views/admin/field/ConfidenceDashboard.vue')
+const FeedbackReview = () => import('../views/admin/field/FeedbackReview.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -172,6 +175,24 @@ const router = createRouter({
           name: 'admin-knowledge-review',
           component: ReviewPage,
           meta: { title: '知识审核', section: '知识库管理', permission: 'knowledge:manage' },
+        },
+        {
+          path: 'field/tags',
+          name: 'admin-field-tags',
+          component: FieldTagManager,
+          meta: { title: '字段标签', section: '字段治理', permission: 'field-tag:manage' },
+        },
+        {
+          path: 'field/confidence',
+          name: 'admin-field-confidence',
+          component: ConfidenceDashboard,
+          meta: { title: '可信度看板', section: '字段治理', permission: 'field-tag:manage' },
+        },
+        {
+          path: 'field/feedback-review',
+          name: 'admin-field-feedback-review',
+          component: FeedbackReview,
+          meta: { title: '反馈审核', section: '字段治理', permission: 'field-tag:manage' },
         },
       ],
     },
