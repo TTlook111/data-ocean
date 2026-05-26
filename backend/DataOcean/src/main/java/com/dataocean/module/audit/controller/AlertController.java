@@ -5,6 +5,7 @@ import com.dataocean.common.result.Result;
 import com.dataocean.module.audit.entity.AlertRule;
 import com.dataocean.module.audit.entity.dto.AlertRuleDTO;
 import com.dataocean.module.audit.service.AlertRuleService;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/admin/alert-rules")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('audit:view')")
+@AdminAuditLog
 @Slf4j
 public class AlertController {
 

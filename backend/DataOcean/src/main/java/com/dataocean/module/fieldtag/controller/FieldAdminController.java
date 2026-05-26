@@ -4,6 +4,7 @@ import com.dataocean.common.result.Result;
 import com.dataocean.module.fieldtag.entity.vo.ConfidenceTrendPointVO;
 import com.dataocean.module.fieldtag.service.ConfidenceTrendService;
 import com.dataocean.module.fieldtag.service.FieldTagService;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -29,6 +30,7 @@ import java.util.Map;
 @RequestMapping("/api/admin/fields")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('field-tag:manage')")
+@AdminAuditLog
 @Slf4j
 public class FieldAdminController {
 

@@ -6,6 +6,7 @@ import com.dataocean.module.fieldtag.entity.dto.BatchTagRequestDTO;
 import com.dataocean.module.fieldtag.entity.dto.FieldTagRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.FieldTagVO;
 import com.dataocean.module.fieldtag.service.FieldTagService;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +33,7 @@ import java.util.Map;
 @RequestMapping("/api/field-tags")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('field-tag:manage')")
+@AdminAuditLog
 @Slf4j
 public class FieldTagController {
 

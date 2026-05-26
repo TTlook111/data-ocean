@@ -6,6 +6,7 @@ import com.dataocean.module.audit.entity.dto.AuditLogQueryDTO;
 import com.dataocean.module.audit.entity.vo.AuditLogVO;
 import com.dataocean.module.audit.entity.vo.AuditStatsVO;
 import com.dataocean.module.audit.service.AuditLogService;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/admin/audit-logs")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('audit:view')")
+@AdminAuditLog
 @Slf4j
 public class AuditLogController {
 

@@ -13,6 +13,7 @@ import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceVO;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
 import com.dataocean.module.datasource.service.DatasourceService;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +45,7 @@ import java.util.Map;
 @RequestMapping("/api/admin/datasources")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('datasource:manage')")
+@AdminAuditLog
 @Slf4j
 public class DatasourceAdminController {
 

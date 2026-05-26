@@ -18,7 +18,8 @@ import java.time.LocalDateTime;
 /**
  * 管理端操作日志 AOP 切面
  * <p>
- * 自动记录所有 /api/admin/* 接口的调用信息。
+ * 自动记录标注了 @AdminAuditLog 的 Controller 的所有方法调用。
+ * 新增管理端 Controller 时只需加上 @AdminAuditLog 注解即可。
  * </p>
  */
 @Aspect
@@ -30,18 +31,9 @@ public class OperationLogAspect {
     private final OperationLogService operationLogService;
 
     /**
-     * 环绕通知：仅拦截管理端 Controller（路径含 /api/admin 的 Controller）
+     * 环绕通知：拦截所有标注了 @AdminAuditLog 的 Controller 方法
      */
-    @Around("("
-            + "execution(* com.dataocean.module.datasource.controller.DatasourceAdminController.*(..)) || "
-            + "execution(* com.dataocean.module.user.controller.*.*(..)) || "
-            + "execution(* com.dataocean.module.fieldtag.controller.FieldTagController.*(..)) || "
-            + "execution(* com.dataocean.module.fieldtag.controller.FieldAdminController.*(..)) || "
-            + "execution(* com.dataocean.module.fieldtag.controller.FeedbackReviewController.*(..)) || "
-            + "execution(* com.dataocean.module.audit.controller.AuditLogController.*(..)) || "
-            + "execution(* com.dataocean.module.audit.controller.AlertController.*(..)) || "
-            + "execution(* com.dataocean.module.system.controller.OperationLogController.*(..))"
-            + ")")
+    @Around("@within(com.dataocean.module.system.aspect.AdminAuditLog)")
     public Object logOperation(ProceedingJoinPoint joinPoint) throws Throwable {
         ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         if (attrs == null) {

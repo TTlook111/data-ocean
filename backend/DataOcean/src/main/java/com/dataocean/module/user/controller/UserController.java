@@ -9,6 +9,7 @@ import com.dataocean.module.user.entity.query.UserQuery;
 import com.dataocean.module.user.entity.dto.UserUpdateDTO;
 import com.dataocean.module.user.entity.vo.UserVO;
 import com.dataocean.module.user.service.UserService;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,6 +40,7 @@ import java.util.Map;
 @RequestMapping("/api/admin/users")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('user:manage')")
+@AdminAuditLog
 @Slf4j
 public class UserController {
 

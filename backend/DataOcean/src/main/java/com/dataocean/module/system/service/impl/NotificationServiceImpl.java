@@ -58,17 +58,23 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     /**
-     * 标记通知为已读
+     * 标记通知为已读（校验通知归属当前用户）
      *
      * @param id 通知ID
      */
     @Override
     public void markAsRead(Long id) {
+        Long userId = UserContext.currentUserId();
         SysNotification notification = notificationMapper.selectById(id);
-        if (notification != null) {
-            notification.setIsRead(true);
-            notificationMapper.updateById(notification);
+        if (notification == null) {
+            return;
         }
+        // 校验通知归属：必须是发给当前用户的，或者是全局通知
+        if (notification.getTargetUserId() != null && !notification.getTargetUserId().equals(userId)) {
+            return;
+        }
+        notification.setIsRead(true);
+        notificationMapper.updateById(notification);
     }
 
     /**

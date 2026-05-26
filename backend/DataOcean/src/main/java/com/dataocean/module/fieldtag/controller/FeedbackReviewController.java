@@ -5,6 +5,7 @@ import com.dataocean.common.result.Result;
 import com.dataocean.module.fieldtag.entity.dto.FeedbackReviewRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.FeedbackVO;
 import com.dataocean.module.fieldtag.service.FeedbackReviewService;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/feedback-reviews")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('field-tag:manage')")
+@AdminAuditLog
 @Slf4j
 public class FeedbackReviewController {
 

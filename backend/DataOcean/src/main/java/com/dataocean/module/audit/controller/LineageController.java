@@ -7,6 +7,7 @@ import com.dataocean.module.audit.entity.vo.LineageTableVO;
 import com.dataocean.module.audit.service.LineageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -15,11 +16,13 @@ import java.util.List;
  * 血缘查询控制器
  * <p>
  * 提供表级和字段级血缘查询、变更影响分析 API。
+ * 需要登录用户才能访问。
  * </p>
  */
 @RestController
 @RequestMapping("/api/lineage")
 @RequiredArgsConstructor
+@PreAuthorize("isAuthenticated()")
 @Slf4j
 public class LineageController {
 
