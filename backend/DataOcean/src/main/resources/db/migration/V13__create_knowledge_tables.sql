@@ -92,9 +92,14 @@ CREATE TABLE vector_index_task (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='向量化任务表';
 
 -- 添加知识库管理权限
-INSERT INTO sys_permission (permission_code, permission_name, description, created_at, updated_at)
-VALUES ('knowledge:manage', '知识库管理', '管理 skills.md 文档的编辑、审核和发布', NOW(), NOW());
+INSERT INTO sys_permission (permission_code, permission_name, module, description)
+VALUES ('knowledge:manage', '知识库管理', 'knowledge', '管理 skills.md 文档的编辑、审核和发布')
+ON DUPLICATE KEY UPDATE
+    permission_name = VALUES(permission_name),
+    module = VALUES(module),
+    description = VALUES(description);
 
 -- 为管理员角色绑定知识库管理权限
 INSERT INTO sys_role_permission (role_id, permission_id)
-SELECT 1, id FROM sys_permission WHERE permission_code = 'knowledge:manage';
+SELECT 5, id FROM sys_permission WHERE permission_code = 'knowledge:manage'
+ON DUPLICATE KEY UPDATE role_id = VALUES(role_id);

@@ -13,7 +13,10 @@ import com.dataocean.module.fieldtag.mapper.FieldConfidenceEventMapper;
 import com.dataocean.module.fieldtag.mapper.UserFeedbackMapper;
 import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.fieldtag.service.UserFeedbackService;
+import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
+import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.mapper.QueryTaskMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -50,6 +53,7 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
     private final FeedbackReviewMapper reviewMapper;
     private final FieldConfidenceEventMapper eventMapper;
     private final DbColumnMetaMapper dbColumnMetaMapper;
+    private final QueryTaskMapper queryTaskMapper;
     private final ConfidenceCalculator confidenceCalculator;
     private final StringRedisTemplate stringRedisTemplate;
     private final ApplicationEventPublisher eventPublisher;
@@ -66,9 +70,11 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
                 && !UserFeedback.TYPE_DISLIKE.equals(request.getFeedbackType())) {
             throw new BusinessException("无效的反馈类型，仅支持 LIKE/DISLIKE");
         }
-        if (dbColumnMetaMapper.selectById(request.getColumnMetaId()) == null) {
+        DbColumnMeta column = dbColumnMetaMapper.selectById(request.getColumnMetaId());
+        if (column == null) {
             throw new BusinessException("字段不存在");
         }
+        validateFeedbackTarget(request.getQueryTaskId(), userId, column);
         Long sameFeedbackCount = feedbackMapper.selectCount(
                 new LambdaQueryWrapper<UserFeedback>()
                         .eq(UserFeedback::getUserId, userId)
@@ -127,6 +133,16 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
             feedbackMapper.insert(feedback);
         } catch (DuplicateKeyException e) {
             throw new BusinessException("该反馈已提交，请勿重复操作");
+        }
+    }
+
+    private void validateFeedbackTarget(Long queryTaskId, Long userId, DbColumnMeta column) {
+        QueryTask task = queryTaskMapper.selectById(queryTaskId);
+        if (task == null || !userId.equals(task.getUserId())) {
+            throw new BusinessException("查询任务不存在或无权反馈");
+        }
+        if (!task.getDatasourceId().equals(column.getDatasourceId())) {
+            throw new BusinessException("字段不属于本次查询的数据源");
         }
     }
 

@@ -35,6 +35,7 @@ const canEnterAdmin = computed(() =>
     'skills:manage',
     'prompt:manage',
     'field:manage',
+    'field-tag:manage',
     'feedback:review',
     'audit:view',
     'user:manage',
