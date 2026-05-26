@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, nextTick, ref, onMounted, watch } from 'vue'
 import {
   Activity,
   AlertTriangle,
@@ -16,10 +16,13 @@ import {
 } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 import { getDashboardStats, type DashboardStats } from '../api/admin/dashboard'
+import { useGsapMotion } from '../composables/useGsapMotion'
 
 const auth = useAuthStore()
 const loading = ref(false)
 const stats = ref<DashboardStats | null>(null)
+const homeRef = ref<HTMLElement | null>(null)
+const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(homeRef)
 
 const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
@@ -55,11 +58,36 @@ async function fetchStats() {
   finally { loading.value = false }
 }
 
-onMounted(fetchStats)
+onMounted(() => {
+  withContext(() => {
+    reveal('.home-header, .user-guide', {
+      y: 14,
+      stagger: 0.05,
+    })
+  })
+  fetchStats()
+})
+
+watch(stats, async (value) => {
+  if (!value) return
+  await nextTick()
+  revealAfterTick('.ops-card, .stat-card, .priority-card, .activity-item', {
+    y: 14,
+    stagger: 0.035,
+  })
+})
+
+watch(loading, (value, oldValue) => {
+  if (!oldValue || value) return
+  const grid = homeRef.value?.querySelector('.stats-grid')
+  if (grid) {
+    lift(grid, { y: 8, duration: 0.22, scale: 1 })
+  }
+})
 </script>
 
 <template>
-  <main class="admin-home post-login-page">
+  <main ref="homeRef" class="admin-home post-login-page">
     <header class="home-header">
       <div class="home-title">
         <span>工作台</span>

@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Tag, RefreshCw, Upload } from 'lucide-vue-next'
+import { Tag, RefreshCw } from 'lucide-vue-next'
 import {
   listPredefinedTags,
   getFieldTags,
-  addFieldTag,
   batchAddFieldTags,
-  removeFieldTag,
   autoTagByPattern,
   type PredefinedTag,
   type FieldTagVO
@@ -94,11 +92,6 @@ async function confirmBatchTag() {
 async function viewColumnTags(columnId: number) {
   const res = await getFieldTags(columnId)
   currentColumnTags.value = res.data ?? []
-}
-
-async function handleRemoveTag(tagId: number) {
-  await removeFieldTag(tagId)
-  ElMessage.success('标签已移除')
 }
 
 async function handleAutoTag() {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -19,6 +19,7 @@ import {
 } from 'lucide-vue-next'
 import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource'
 import { submitQuery, getTaskResult } from '../../api/query'
+import { useGsapMotion } from '../../composables/useGsapMotion'
 import { useAuthStore } from '../../stores/auth'
 import { roleCodesLabel } from '../../utils/enumLabels'
 
@@ -69,6 +70,8 @@ const keyword = ref('')
 const drawerVisible = ref(false)
 const sessions = reactive<LocalSession[]>([])
 const questionInputRef = ref<HTMLTextAreaElement>()
+const workspaceRef = ref<HTMLElement | null>(null)
+const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(workspaceRef)
 
 const permissions = computed(() => auth.currentUser?.permissions || auth.user?.permissions || [])
 const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPermissionCodes.some((code) => permissions.value.includes(code)))
@@ -155,6 +158,10 @@ function selectDatasource(id: number) {
   }
   selectedId.value = id
   ensureSession(id)
+  revealAfterTick('.workspace-brief, .example-strip, .message-item, .result-preview', {
+    y: 14,
+    stagger: 0.04,
+  })
   focusQuestionInput()
 }
 
@@ -197,6 +204,7 @@ async function sendQuestion() {
     content: text,
     createdAt: now,
   })
+  await animateNewMessages()
 
   // 添加加载中的助手消息
   const assistantMsgId = `assistant-${Date.now() + 1}`
@@ -207,6 +215,7 @@ async function sendQuestion() {
     createdAt: now,
     status: 'loading',
   })
+  await animateNewMessages()
 
   if (session.title === '新的对话') {
     session.title = text.length > 20 ? `${text.slice(0, 20)}...` : text
@@ -240,13 +249,31 @@ async function sendQuestion() {
       } else {
         assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
       }
+      await animateMessageUpdate(assistantMsgId)
     }
   } catch (error: unknown) {
     const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
     if (assistantMsg) {
       assistantMsg.status = 'error'
       assistantMsg.content = extractError(error, '查询提交失败，请检查网络连接')
+      await animateMessageUpdate(assistantMsgId)
     }
+  }
+}
+
+async function animateNewMessages() {
+  await nextTick()
+  const lastMessage = workspaceRef.value?.querySelector('.message-item:last-of-type')
+  if (lastMessage) {
+    lift(lastMessage, { y: 14, duration: 0.26 })
+  }
+}
+
+async function animateMessageUpdate(messageId: string) {
+  await nextTick()
+  const assistantBubble = workspaceRef.value?.querySelector(`[data-message-id="${messageId}"] .message-bubble`)
+  if (assistantBubble) {
+    lift(assistantBubble, { y: 6, scale: 1, duration: 0.22 })
   }
 }
 
@@ -327,11 +354,50 @@ function handleUserCommand(command: string) {
   }
 }
 
-onMounted(fetchDatasources)
+onMounted(() => {
+  withContext(() => {
+    reveal('.query-brand, .sidebar-block, .query-topbar, .chat-surface, .chat-composer', {
+      y: 16,
+      stagger: 0.045,
+    })
+  })
+  fetchDatasources()
+})
+
+watch(
+  () => datasources.value.length,
+  () => {
+    revealAfterTick('.datasource-row', {
+      y: 8,
+      duration: 0.28,
+      stagger: 0.025,
+    })
+  },
+)
+
+watch(
+  () => datasourceSessions.value.length,
+  () => {
+    revealAfterTick('.history-row', {
+      y: 8,
+      duration: 0.24,
+      stagger: 0.022,
+    })
+  },
+)
+
+watch(resultTab, () => {
+  nextTick(() => {
+    const resultBody = workspaceRef.value?.querySelector('.result-preview > div:not(.result-tabs)')
+    if (resultBody) {
+      lift(resultBody, { y: 6, duration: 0.22, scale: 1 })
+    }
+  })
+})
 </script>
 
 <template>
-  <main class="query-workspace post-login-page">
+  <main ref="workspaceRef" class="query-workspace post-login-page">
     <aside class="query-sidebar">
       <RouterLink class="query-brand" to="/query" aria-label="DataOcean 智能问答">
         <span>DO</span>
@@ -459,6 +525,7 @@ onMounted(fetchDatasources)
             :key="message.id"
             class="message-item"
             :class="message.role"
+            :data-message-id="message.id"
           >
             <span class="message-avatar">
               <UserRound v-if="message.role === 'user'" :size="16" />

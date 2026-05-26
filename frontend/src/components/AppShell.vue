@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, type Component } from 'vue'
+import { computed, nextTick, onMounted, ref, watch, type Component } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Activity,
@@ -28,6 +28,7 @@ import {
   Workflow,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
+import { useGsapMotion } from '../composables/useGsapMotion'
 import { roleCodesLabel } from '../utils/enumLabels'
 
 interface MenuItem {
@@ -42,6 +43,9 @@ const router = useRouter()
 const auth = useAuthStore()
 const collapsed = ref(false)
 const drawerVisible = ref(false)
+const shellRef = ref<HTMLElement | null>(null)
+const contentRef = ref<HTMLElement | null>(null)
+const { gsap, lift, reveal, withContext } = useGsapMotion(shellRef)
 
 const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
   {
@@ -168,10 +172,47 @@ function handleUserCommand(command: string) {
     router.push('/login')
   }
 }
+
+onMounted(() => {
+  withContext(() => {
+    reveal('.sidebar-brand, .nav-section, .app-topbar', {
+      y: 14,
+      stagger: 0.045,
+    })
+    reveal('.nav-item', {
+      y: 8,
+      duration: 0.34,
+      stagger: 0.022,
+    })
+  })
+})
+
+watch(
+  () => route.fullPath,
+  async () => {
+    await nextTick()
+    if (contentRef.value) {
+      lift(contentRef.value, { duration: 0.24, y: 10, scale: 1 })
+    }
+  },
+)
+
+watch(collapsed, async () => {
+  await nextTick()
+  if (!shellRef.value) return
+  gsap.from(shellRef.value.querySelectorAll('.nav-item'), {
+    autoAlpha: 0,
+    x: collapsed.value ? -8 : 8,
+    duration: 0.2,
+    ease: 'power2.out',
+    stagger: 0.012,
+    clearProps: 'transform,opacity,visibility',
+  })
+})
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'is-collapsed': collapsed }">
+  <div ref="shellRef" class="app-shell" :class="{ 'is-collapsed': collapsed }">
     <aside class="app-sidebar">
       <div class="sidebar-brand">
         <RouterLink to="/admin" class="brand-link" aria-label="DataOcean 工作台">
@@ -218,7 +259,7 @@ function handleUserCommand(command: string) {
         </button>
       </header>
 
-      <section class="app-content">
+      <section ref="contentRef" class="app-content">
         <RouterView />
       </section>
     </main>
