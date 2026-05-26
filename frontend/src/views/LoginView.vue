@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue'
+import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Eye, EyeOff, LogIn } from 'lucide-vue-next'
+import { gsap } from 'gsap'
 import { useAuthStore } from '../stores/auth'
 import { getCaptcha } from '../api/auth'
 
@@ -13,22 +14,24 @@ const loading = ref(false)
 const pointerActive = ref(false)
 const captchaImage = ref('')
 const captchaKey = ref('')
-const sceneStyle = reactive<Record<string, string>>({
-  '--eye-x': '0px',
-  '--eye-y': '0px',
-  '--small-eye-x': '0px',
-  '--small-eye-y': '0px',
-  '--eye-scale': '1',
-  '--orange-tilt': '0deg',
-  '--purple-tilt': '3deg',
-  '--black-tilt': '0deg',
-  '--yellow-tilt': '0deg',
-})
+const loginPageRef = ref<HTMLElement | null>(null)
 const form = reactive({
   username: 'admin',
   password: '',
   captchaCode: '',
 })
+
+let motionContext: gsap.Context | undefined
+let introTimeline: gsap.core.Timeline | undefined
+const ambientTweens: gsap.core.Tween[] = []
+
+function reduceMotion() {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+}
+
+function rootElement() {
+  return loginPageRef.value
+}
 
 async function refreshCaptcha() {
   try {
@@ -43,40 +46,228 @@ async function refreshCaptcha() {
 }
 
 function handlePointerMove(event: PointerEvent) {
+  const root = rootElement()
+  if (!root || reduceMotion()) return
+
   const viewportWidth = window.innerWidth || 1
   const viewportHeight = window.innerHeight || 1
   const x = Math.max(-1, Math.min(1, (event.clientX / viewportWidth - 0.5) * 2))
   const y = Math.max(-1, Math.min(1, (event.clientY / viewportHeight - 0.5) * 2))
 
-  sceneStyle['--eye-x'] = `${Math.round(x * 7)}px`
-  sceneStyle['--eye-y'] = `${Math.round(y * 5)}px`
-  sceneStyle['--small-eye-x'] = `${Math.round(x * 4)}px`
-  sceneStyle['--small-eye-y'] = `${Math.round(y * 3)}px`
-  sceneStyle['--orange-tilt'] = `${(x * 2.6).toFixed(2)}deg`
-  sceneStyle['--purple-tilt'] = `${(3 + x * 2.2).toFixed(2)}deg`
-  sceneStyle['--black-tilt'] = `${(x * 1.7).toFixed(2)}deg`
-  sceneStyle['--yellow-tilt'] = `${(x * 2.4).toFixed(2)}deg`
+  gsap.to(root, {
+    '--eye-x': `${Math.round(x * 7)}px`,
+    '--eye-y': `${Math.round(y * 5)}px`,
+    '--small-eye-x': `${Math.round(x * 4)}px`,
+    '--small-eye-y': `${Math.round(y * 3)}px`,
+    '--orange-tilt': `${(x * 2.6).toFixed(2)}deg`,
+    '--purple-tilt': `${(3 + x * 2.2).toFixed(2)}deg`,
+    '--black-tilt': `${(x * 1.7).toFixed(2)}deg`,
+    '--yellow-tilt': `${(x * 2.4).toFixed(2)}deg`,
+    duration: 0.28,
+    ease: 'power3.out',
+    overwrite: 'auto',
+  })
+
+  gsap.to(root.querySelector('.visual-copy'), {
+    x: x * 7,
+    y: y * 4,
+    duration: 0.55,
+    ease: 'power3.out',
+    overwrite: 'auto',
+  })
 }
 
 function activatePointer() {
   pointerActive.value = true
-  sceneStyle['--eye-scale'] = '1.18'
+  const root = rootElement()
+  if (!root || reduceMotion()) return
+  gsap.to(root, {
+    '--eye-scale': 1.18,
+    duration: 0.18,
+    ease: 'back.out(2)',
+    overwrite: 'auto',
+  })
 }
 
 function releasePointer() {
   window.setTimeout(() => {
     pointerActive.value = false
-    sceneStyle['--eye-scale'] = '1'
+    const root = rootElement()
+    if (!root || reduceMotion()) return
+    gsap.to(root, {
+      '--eye-scale': 1,
+      duration: 0.2,
+      ease: 'power2.out',
+      overwrite: 'auto',
+    })
   }, 120)
 }
 
+function animateFieldFocus(event: FocusEvent) {
+  if (reduceMotion()) return
+  const field = (event.currentTarget as HTMLElement).closest('.field')
+  if (!field) return
+  gsap.to(field, {
+    y: -2,
+    duration: 0.2,
+    ease: 'power2.out',
+    overwrite: 'auto',
+  })
+}
+
+function animateFieldBlur(event: FocusEvent) {
+  if (reduceMotion()) return
+  const field = (event.currentTarget as HTMLElement).closest('.field')
+  if (!field) return
+  gsap.to(field, {
+    y: 0,
+    duration: 0.2,
+    ease: 'power2.out',
+    overwrite: 'auto',
+  })
+}
+
+function pulseSubmit() {
+  const root = rootElement()
+  const button = root?.querySelector('.submit-button')
+  if (!button || reduceMotion()) return
+  gsap.fromTo(
+    button,
+    { scale: 0.98 },
+    {
+      scale: 1,
+      duration: 0.28,
+      ease: 'back.out(3)',
+      clearProps: 'transform',
+    },
+  )
+}
+
+function shakeForm() {
+  const root = rootElement()
+  const formShell = root?.querySelector('.form-shell')
+  if (!formShell || reduceMotion()) return
+  gsap.fromTo(
+    formShell,
+    { x: -8 },
+    {
+      x: 0,
+      duration: 0.42,
+      ease: 'elastic.out(1, 0.34)',
+      clearProps: 'transform',
+    },
+  )
+}
+
+function setupLoginMotion() {
+  const root = rootElement()
+  if (!root) return
+
+  if (reduceMotion()) {
+    gsap.set(root, { autoAlpha: 1 })
+    return
+  }
+
+  motionContext = gsap.context(() => {
+    introTimeline = gsap.timeline({
+      defaults: {
+        ease: 'power3.out',
+      },
+    })
+
+    introTimeline
+      .from('.login-visual', {
+        clipPath: 'inset(0 10% 0 0)',
+        duration: 0.72,
+        ease: 'power3.inOut',
+        clearProps: 'clipPath',
+      })
+      .from('.login-panel', {
+        autoAlpha: 0,
+        x: 26,
+        duration: 0.58,
+      }, '<0.08')
+      .from('.brand-pill', {
+        autoAlpha: 0,
+        y: -18,
+        scale: 0.96,
+        duration: 0.42,
+      }, '<0.1')
+      .from('.visual-copy p, .visual-copy h1', {
+        autoAlpha: 0,
+        y: 24,
+        duration: 0.56,
+        stagger: 0.08,
+      }, '<0.05')
+      .from('.monster', {
+        autoAlpha: 0,
+        y: 74,
+        scale: 0.92,
+        duration: 0.78,
+        ease: 'back.out(1.35)',
+        stagger: {
+          each: 0.07,
+          from: 'end',
+        },
+        clearProps: 'transform,opacity,visibility',
+      }, '<0.15')
+      .from('.ground-line', {
+        scaleX: 0,
+        transformOrigin: 'left center',
+        duration: 0.48,
+        clearProps: 'transform',
+      }, '<0.24')
+      .from('.form-heading, .field, .submit-button', {
+        autoAlpha: 0,
+        y: 18,
+        duration: 0.42,
+        stagger: 0.055,
+        clearProps: 'transform,opacity,visibility',
+      }, '<0.06')
+
+    ambientTweens.push(
+      gsap.to(root, {
+        '--orange-float': '-8px',
+        duration: 3.8,
+        ease: 'sine.inOut',
+        repeat: -1,
+        yoyo: true,
+      }),
+      gsap.to(root, {
+        '--purple-float': '-12px',
+        duration: 5.2,
+        ease: 'sine.inOut',
+        repeat: -1,
+        yoyo: true,
+      }),
+      gsap.to(root, {
+        '--black-float': '-7px',
+        duration: 4.6,
+        ease: 'sine.inOut',
+        repeat: -1,
+        yoyo: true,
+      }),
+      gsap.to(root, {
+        '--yellow-float': '-10px',
+        duration: 4.2,
+        ease: 'sine.inOut',
+        repeat: -1,
+        yoyo: true,
+      }),
+    )
+  }, root)
+}
+
 async function submit() {
+  pulseSubmit()
   if (!form.username.trim() || !form.password.trim()) {
     ElMessage.warning('请输入账号和密码')
+    shakeForm()
     return
   }
   if (!form.captchaCode.trim()) {
     ElMessage.warning('请输入验证码')
+    shakeForm()
     return
   }
 
@@ -99,6 +290,7 @@ async function submit() {
         ? (error as { response: { data: { message: string } } }).response.data.message
         : '登录失败，请检查账号或服务状态'
     ElMessage.error(message)
+    shakeForm()
     form.captchaCode = ''
     refreshCaptcha()
   } finally {
@@ -106,14 +298,23 @@ async function submit() {
   }
 }
 
-onMounted(refreshCaptcha)
+onMounted(() => {
+  setupLoginMotion()
+  refreshCaptcha()
+})
+
+onUnmounted(() => {
+  introTimeline?.kill()
+  ambientTweens.forEach((tween) => tween.kill())
+  motionContext?.revert()
+})
 </script>
 
 <template>
   <main
+    ref="loginPageRef"
     class="login-page"
     :class="{ 'is-pointer-down': pointerActive }"
-    :style="sceneStyle"
     @pointermove="handlePointerMove"
     @pointerdown="activatePointer"
     @pointerup="releasePointer"
@@ -162,7 +363,14 @@ onMounted(refreshCaptcha)
         <form class="login-form" @submit.prevent="submit">
           <label class="field">
             <span>账号</span>
-            <input v-model="form.username" type="text" autocomplete="username" placeholder="请输入账号" />
+            <input
+              v-model="form.username"
+              type="text"
+              autocomplete="username"
+              placeholder="请输入账号"
+              @focus="animateFieldFocus"
+              @blur="animateFieldBlur"
+            />
           </label>
 
           <label class="field">
@@ -173,6 +381,8 @@ onMounted(refreshCaptcha)
                 :type="showPassword ? 'text' : 'password'"
                 autocomplete="current-password"
                 placeholder="请输入密码"
+                @focus="animateFieldFocus"
+                @blur="animateFieldBlur"
               />
               <button type="button" :aria-label="showPassword ? '隐藏密码' : '显示密码'" @click="showPassword = !showPassword">
                 <EyeOff v-if="showPassword" :size="19" />
@@ -190,6 +400,8 @@ onMounted(refreshCaptcha)
                 autocomplete="off"
                 placeholder="请输入验证码"
                 maxlength="4"
+                @focus="animateFieldFocus"
+                @blur="animateFieldBlur"
               />
               <img
                 v-if="captchaImage"
@@ -222,6 +434,10 @@ onMounted(refreshCaptcha)
   --purple-tilt: 3deg;
   --black-tilt: 0deg;
   --yellow-tilt: 0deg;
+  --orange-float: 0px;
+  --purple-float: 0px;
+  --black-float: 0px;
+  --yellow-float: 0px;
   min-height: 100vh;
   min-width: 1120px;
   display: grid;
@@ -316,7 +532,7 @@ onMounted(refreshCaptcha)
   display: block;
   box-shadow: 0 18px 32px rgba(28, 6, 96, 0.22);
   transform-origin: 50% 100%;
-  transition: transform 140ms ease-out;
+  will-change: transform;
 }
 
 .eye {
@@ -328,7 +544,6 @@ onMounted(refreshCaptcha)
   background: #fff;
   box-shadow: 0 2px 5px rgba(20, 20, 40, 0.18);
   transform: scale(var(--eye-scale));
-  transition: transform 120ms ease-out;
 }
 
 .eye em {
@@ -339,7 +554,6 @@ onMounted(refreshCaptcha)
   height: 8px;
   border-radius: 50%;
   background: #273244;
-  transition: top 120ms ease-out, left 120ms ease-out;
 }
 
 .monster-orange {
@@ -349,7 +563,7 @@ onMounted(refreshCaptcha)
   height: 194px;
   border-radius: 150px 150px 0 0;
   background: linear-gradient(135deg, #ffad75 0%, #ff8b5d 100%);
-  transform: rotate(var(--orange-tilt));
+  transform: translateY(var(--orange-float)) rotate(var(--orange-tilt));
 }
 
 .monster-orange .eye {
@@ -380,7 +594,7 @@ onMounted(refreshCaptcha)
   height: 450px;
   border-radius: 18px 18px 0 0;
   background: linear-gradient(155deg, #8d65fb 0%, #6d36dc 100%);
-  transform: rotate(var(--purple-tilt));
+  transform: translateY(var(--purple-float)) rotate(var(--purple-tilt));
 }
 
 .monster-purple .eye-left {
@@ -401,7 +615,7 @@ onMounted(refreshCaptcha)
   height: 340px;
   border-radius: 8px 8px 0 0;
   background: linear-gradient(140deg, #3a3a3d 0%, #121212 100%);
-  transform: rotate(var(--black-tilt));
+  transform: translateY(var(--black-float)) rotate(var(--black-tilt));
 }
 
 .monster-black .eye-left {
@@ -421,7 +635,7 @@ onMounted(refreshCaptcha)
   height: 272px;
   border-radius: 106px 106px 0 0;
   background: linear-gradient(145deg, #fff06f 0%, #f3df3e 100%);
-  transform: rotate(var(--yellow-tilt));
+  transform: translateY(var(--yellow-float)) rotate(var(--yellow-tilt));
 }
 
 .monster-yellow .eye {
@@ -452,8 +666,6 @@ onMounted(refreshCaptcha)
   height: 26px;
   border-bottom: 4px solid #343942;
   border-radius: 0 0 42px 42px;
-  transition: width 120ms ease-out, height 120ms ease-out, border 120ms ease-out, border-radius 120ms ease-out,
-    left 120ms ease-out, top 120ms ease-out;
 }
 
 .login-page.is-pointer-down .monster-yellow .mouth {
@@ -522,6 +734,7 @@ onMounted(refreshCaptcha)
   color: #0f172a;
   font-size: 14px;
   font-weight: 900;
+  will-change: transform;
 }
 
 .field input {
@@ -631,6 +844,7 @@ onMounted(refreshCaptcha)
   font-weight: 900;
   box-shadow: 0 18px 34px rgba(15, 23, 42, 0.16);
   cursor: pointer;
+  transform-origin: center;
 }
 
 .submit-button:hover {
