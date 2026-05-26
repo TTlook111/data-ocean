@@ -42,6 +42,8 @@ security:
     lock-duration: ${LOGIN_LOCK_DURATION:1800}
 
 dataocean:
+  internal:
+    token: ${INTERNAL_TOKEN:dataocean-internal-default}
   metadata:
     auto-sync:
       enabled: ${METADATA_AUTO_SYNC_ENABLED:false}

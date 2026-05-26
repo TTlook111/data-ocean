@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Search, Download } from 'lucide-vue-next'
+import { Search } from 'lucide-vue-next'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
 import { listAuditLogs, getAuditStats, type AuditLogVO, type AuditStatsVO } from '../../../api/admin/audit'
 

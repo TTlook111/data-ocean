@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.*;
  * </p>
  */
 @RestController
-@RequestMapping("/api/quotas")
+@RequestMapping("/api/admin/quotas")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('audit:view')")
 @Slf4j

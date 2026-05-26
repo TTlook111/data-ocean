@@ -139,6 +139,6 @@ export async function toggleAlertRule(id: number) {
 
 // LLM 使用统计
 export async function getLlmUsageStats(days = 30) {
-  const { data } = await http.get<ApiResult<LlmUsageStatsVO>>('/api/quotas/llm-usage', { params: { days } })
+  const { data } = await http.get<ApiResult<LlmUsageStatsVO>>('/api/admin/quotas/llm-usage', { params: { days } })
   return data
 }

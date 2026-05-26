@@ -3,6 +3,8 @@ package com.dataocean.module.query.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.audit.service.AuditLogService;
+import com.dataocean.module.audit.service.LineageService;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 import com.dataocean.module.query.enums.QueryTaskStatus;
@@ -34,6 +36,8 @@ public class QueryTaskServiceImpl implements QueryTaskService {
 
     private final QueryTaskMapper queryTaskMapper;
     private final ObjectMapper objectMapper;
+    private final AuditLogService auditLogService;
+    private final LineageService lineageService;
 
     /**
      * {@inheritDoc}
@@ -143,6 +147,15 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             }
 
             queryTaskMapper.update(null, wrapper);
+
+            // 异步写入审计日志和血缘数据
+            auditLogService.recordAudit(existing.getId());
+            String usedTablesJson = result.containsKey("usedTables")
+                    ? objectMapper.writeValueAsString(result.get("usedTables")) : null;
+            String usedColumnsJson = result.containsKey("usedColumns")
+                    ? objectMapper.writeValueAsString(result.get("usedColumns")) : null;
+            lineageService.saveLineage(existing.getId(), usedTablesJson, usedColumnsJson);
+
             return true;
         } catch (Exception e) {
             log.error("更新查询任务结果失败 taskId={}", taskId, e);

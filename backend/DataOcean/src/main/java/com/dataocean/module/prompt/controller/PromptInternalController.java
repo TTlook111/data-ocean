@@ -3,6 +3,7 @@ package com.dataocean.module.prompt.controller;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.prompt.service.PromptTemplateService;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,8 +28,26 @@ public class PromptInternalController {
 
     private final PromptTemplateService promptTemplateService;
 
+    private static final String UNSAFE_DEFAULT_TOKEN = "dataocean-internal-default";
+
     @Value("${dataocean.internal.token:dataocean-internal-default}")
     private String internalToken;
+
+    @Value("${spring.profiles.active:default}")
+    private String activeProfile;
+
+    /**
+     * 启动时校验：非 dev 环境禁止使用默认 token
+     */
+    @PostConstruct
+    void validateTokenConfig() {
+        if (UNSAFE_DEFAULT_TOKEN.equals(internalToken) && !"dev".equals(activeProfile)) {
+            throw new IllegalStateException("生产环境必须显式配置 dataocean.internal.token，禁止使用默认值");
+        }
+        if (UNSAFE_DEFAULT_TOKEN.equals(internalToken)) {
+            log.warn("内部接口使用默认 token，仅限开发环境使用");
+        }
+    }
 
     /**
      * 获取活跃版本的模板内容

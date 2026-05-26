@@ -120,6 +120,13 @@ function renderChart() {
   })
 }
 
+function disposeChart() {
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
+}
+
 function openSetDialog(columnMetaId: number, currentScore: number) {
   currentFieldId.value = columnMetaId
   setForm.value = { score: currentScore, reason: '' }
@@ -197,7 +204,7 @@ onMounted(() => {
       <el-empty v-if="!confidenceList.length && !loading" description="暂无可信度数据" />
     </section>
 
-    <el-dialog v-model="showTrendDialog" title="可信度趋势（近30天）" width="680px" @closed="chartInstance?.dispose()">
+    <el-dialog v-model="showTrendDialog" title="可信度趋势（近30天）" width="680px" @closed="disposeChart">
       <div v-if="trendData.length" ref="chartRef" class="trend-chart"></div>
       <el-empty v-else description="暂无趋势数据" />
     </el-dialog>

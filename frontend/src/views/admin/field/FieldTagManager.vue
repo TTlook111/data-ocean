@@ -16,7 +16,7 @@ import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 
 const loading = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
-const { reveal, revealAfterTick, withContext } = useGsapMotion(pageRef)
+const { reveal, withContext } = useGsapMotion(pageRef)
 const predefinedTags = ref<PredefinedTag[]>([])
 const columns = ref<ColumnMetaItem[]>([])
 const selectedColumnIds = ref<number[]>([])
