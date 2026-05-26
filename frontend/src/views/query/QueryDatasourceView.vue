@@ -72,6 +72,7 @@ const selectedId = ref<number>()
 const activeSessionId = ref<string>()
 const question = ref('')
 const keyword = ref('')
+const isQuerying = ref(false)
 const drawerVisible = ref(false)
 const sessions = reactive<LocalSession[]>([])
 const questionInputRef = ref<HTMLTextAreaElement>()
@@ -272,7 +273,8 @@ function selectSession(sessionId: string) {
 
 async function sendQuestion() {
   const text = question.value.trim()
-  if (!selectedId.value || !text) return
+  if (!selectedId.value || !text || isQuerying.value) return
+  isQuerying.value = true
 
   const session = activeSession.value || createSession(selectedId.value)
   const now = new Date().toISOString()
@@ -338,6 +340,8 @@ async function sendQuestion() {
       assistantMsg.content = extractError(error, '查询提交失败，请检查网络连接')
       await animateMessageUpdate(assistantMsgId)
     }
+  } finally {
+    isQuerying.value = false
   }
 }
 
@@ -378,7 +382,7 @@ function extractError(error: unknown, fallback: string): string {
 }
 
 function handleEnter(event: KeyboardEvent) {
-  if (event.shiftKey) return
+  if (event.shiftKey || isQuerying.value) return
   event.preventDefault()
   sendQuestion()
 }
@@ -692,9 +696,9 @@ watch(resultTab, () => {
           :placeholder="selectedId ? '向当前数据源提问，例如：上个月销售额最高的10个产品' : '请先选择左侧数据源'"
           @keydown.enter="handleEnter"
         ></textarea>
-        <button type="button" :disabled="!selectedId || !question.trim()" @click="sendQuestion">
+        <button type="button" :disabled="!selectedId || !question.trim() || isQuerying" @click="sendQuestion">
           <SendHorizontal :size="18" />
-          <span>发送</span>
+          <span>{{ isQuerying ? '查询中...' : '发送' }}</span>
         </button>
       </footer>
     </section>
