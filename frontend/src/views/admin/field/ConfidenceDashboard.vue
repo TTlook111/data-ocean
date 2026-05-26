@@ -3,6 +3,7 @@ import { ref, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { TrendingUp, Settings } from 'lucide-vue-next'
 import * as echarts from 'echarts'
+import { useGsapMotion } from '../../../composables/useGsapMotion'
 import {
   batchGetConfidence,
   adminSetConfidence,
@@ -10,6 +11,9 @@ import {
   type ConfidenceVO,
   type ConfidenceTrendPoint
 } from '../../../api/admin/field'
+
+const pageRef = ref<HTMLElement | null>(null)
+const { reveal, withContext } = useGsapMotion(pageRef)
 
 const loading = ref(false)
 const confidenceList = ref<ConfidenceVO[]>([])
@@ -134,12 +138,13 @@ async function confirmSetScore() {
 }
 
 onMounted(() => {
+  withContext(() => { reveal('.page-header, .content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
   fetchConfidenceList()
 })
 </script>
 
 <template>
-  <main class="confidence-page post-login-page">
+  <main ref="pageRef" class="confidence-page post-login-page">
     <header class="page-header">
       <div>
         <p>字段治理</p>

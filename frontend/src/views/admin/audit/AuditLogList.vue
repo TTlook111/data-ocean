@@ -2,9 +2,13 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Download } from 'lucide-vue-next'
+import { useGsapMotion } from '../../../composables/useGsapMotion'
 import { listAuditLogs, getAuditStats, type AuditLogVO, type AuditStatsVO } from '../../../api/admin/audit'
 
 const loading = ref(false)
+const pageRef = ref<HTMLElement | null>(null)
+const { reveal, withContext } = useGsapMotion(pageRef)
+
 const logs = ref<AuditLogVO[]>([])
 const total = ref(0)
 const stats = ref<AuditStatsVO | null>(null)
@@ -48,13 +52,14 @@ function handleSearch() {
 }
 
 onMounted(() => {
+  withContext(() => { reveal('.page-header, .content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
   fetchLogs()
   fetchStats()
 })
 </script>
 
 <template>
-  <main class="audit-page post-login-page">
+  <main ref="pageRef" class="audit-page post-login-page">
     <header class="page-header">
       <div>
         <p>审计管理</p>

@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Tag, RefreshCw } from 'lucide-vue-next'
+import { useGsapMotion } from '../../../composables/useGsapMotion'
 import {
   listPredefinedTags,
   getFieldTags,
@@ -14,6 +15,8 @@ import { listSnapshotTables, listSnapshotTableColumns, type ColumnMetaItem } fro
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 
 const loading = ref(false)
+const pageRef = ref<HTMLElement | null>(null)
+const { reveal, revealAfterTick, withContext } = useGsapMotion(pageRef)
 const predefinedTags = ref<PredefinedTag[]>([])
 const columns = ref<ColumnMetaItem[]>([])
 const selectedColumnIds = ref<number[]>([])
@@ -114,6 +117,9 @@ async function handleAutoTag() {
 }
 
 onMounted(async () => {
+  withContext(() => {
+    reveal('.page-header, .toolbar, .content-panel', { y: 14, stagger: 0.06 })
+  })
   await fetchPredefinedTags()
   await fetchSnapshots()
   if (query.snapshotId) await fetchTables()
@@ -121,7 +127,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="field-tag-page post-login-page">
+  <main ref="pageRef" class="field-tag-page post-login-page">
     <header class="page-header">
       <div>
         <p>字段治理</p>

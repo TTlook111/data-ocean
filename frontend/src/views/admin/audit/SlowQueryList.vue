@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useGsapMotion } from '../../../composables/useGsapMotion'
 import { listSlowQueries, type AuditLogVO } from '../../../api/admin/audit'
 
 const loading = ref(false)
+const pageRef = ref<HTMLElement | null>(null)
+const { reveal, withContext } = useGsapMotion(pageRef)
+
 const logs = ref<AuditLogVO[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -19,11 +23,14 @@ async function fetchData() {
   }
 }
 
-onMounted(() => fetchData())
+onMounted(() => {
+  withContext(() => { reveal('.page-header, .content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
+  fetchData()
+})
 </script>
 
 <template>
-  <main class="slow-query-page post-login-page">
+  <main ref="pageRef" class="slow-query-page post-login-page">
     <header class="page-header">
       <div>
         <p>审计管理</p>

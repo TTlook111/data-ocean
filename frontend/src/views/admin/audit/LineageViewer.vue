@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from 'lucide-vue-next'
+import { useGsapMotion } from '../../../composables/useGsapMotion'
 import { queryTableLineage, queryColumnLineage, analyzeImpact, type LineageTableVO, type LineageColumnVO, type ImpactAnalysisVO } from '../../../api/admin/audit'
 
 const tableName = ref('')
+const pageRef = ref<HTMLElement | null>(null)
+const { reveal, withContext } = useGsapMotion(pageRef)
+
 const columnName = ref('')
 const tableLineage = ref<LineageTableVO[]>([])
 const columnLineage = ref<LineageColumnVO[]>([])
@@ -34,10 +38,14 @@ async function searchColumnLineage() {
     impact.value = impactRes.data ?? null
   } finally { loading.value = false }
 }
+
+onMounted(() => {
+  withContext(() => { reveal('.page-header, .content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
+})
 </script>
 
 <template>
-  <main class="lineage-page post-login-page">
+  <main ref="pageRef" class="lineage-page post-login-page">
     <header class="page-header">
       <div>
         <p>审计管理</p>

@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CheckCircle, XCircle } from 'lucide-vue-next'
+import { useGsapMotion } from '../../../composables/useGsapMotion'
 import {
   listPendingReviews,
   approveFeedback,
@@ -10,6 +11,9 @@ import {
 } from '../../../api/admin/field'
 
 const loading = ref(false)
+const pageRef = ref<HTMLElement | null>(null)
+const { reveal, withContext } = useGsapMotion(pageRef)
+
 const reviews = ref<FeedbackVO[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -66,12 +70,13 @@ function handlePageChange(p: number) {
 }
 
 onMounted(() => {
+  withContext(() => { reveal('.page-header, .content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
   fetchReviews()
 })
 </script>
 
 <template>
-  <main class="feedback-review-page post-login-page">
+  <main ref="pageRef" class="feedback-review-page post-login-page">
     <header class="page-header">
       <div>
         <p>字段治理</p>
