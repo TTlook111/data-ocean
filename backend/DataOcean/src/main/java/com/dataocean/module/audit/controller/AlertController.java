@@ -1,19 +1,16 @@
 package com.dataocean.module.audit.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.audit.entity.AlertRule;
 import com.dataocean.module.audit.entity.dto.AlertRuleDTO;
-import com.dataocean.module.audit.mapper.AlertRuleMapper;
+import com.dataocean.module.audit.service.AlertRuleService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
-
-import java.time.LocalDateTime;
 
 /**
  * 告警规则控制器
@@ -28,17 +25,14 @@ import java.time.LocalDateTime;
 @Slf4j
 public class AlertController {
 
-    private final AlertRuleMapper alertRuleMapper;
+    private final AlertRuleService alertRuleService;
 
     /** 告警规则列表 */
     @GetMapping
     public Result<Page<AlertRule>> listRules(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
-        Page<AlertRule> result = alertRuleMapper.selectPage(
-                new Page<>(page, pageSize),
-                new LambdaQueryWrapper<AlertRule>().orderByDesc(AlertRule::getCreatedAt));
-        return Result.success(result);
+        return Result.success(alertRuleService.listRules(page, pageSize));
     }
 
     /** 创建告警规则 */
@@ -46,35 +40,21 @@ public class AlertController {
     public Result<AlertRule> createRule(@Valid @RequestBody AlertRuleDTO dto) {
         AlertRule rule = new AlertRule();
         BeanUtils.copyProperties(dto, rule);
-        rule.setCreatedAt(LocalDateTime.now());
-        rule.setUpdatedAt(LocalDateTime.now());
-        alertRuleMapper.insert(rule);
-        return Result.success("创建成功", rule);
+        return Result.success("创建成功", alertRuleService.createRule(rule));
     }
 
     /** 更新告警规则 */
     @PutMapping("/{id}")
     public Result<AlertRule> updateRule(@PathVariable Long id, @Valid @RequestBody AlertRuleDTO dto) {
-        AlertRule rule = alertRuleMapper.selectById(id);
-        if (rule == null) {
-            return Result.error(404, "告警规则不存在");
-        }
+        AlertRule rule = new AlertRule();
         BeanUtils.copyProperties(dto, rule);
-        rule.setUpdatedAt(LocalDateTime.now());
-        alertRuleMapper.updateById(rule);
-        return Result.success("更新成功", rule);
+        return Result.success("更新成功", alertRuleService.updateRule(id, rule));
     }
 
     /** 启用/禁用告警规则 */
     @PatchMapping("/{id}/toggle")
     public Result<Void> toggleRule(@PathVariable Long id) {
-        AlertRule rule = alertRuleMapper.selectById(id);
-        if (rule == null) {
-            return Result.error(404, "告警规则不存在");
-        }
-        rule.setEnabled(!Boolean.TRUE.equals(rule.getEnabled()));
-        rule.setUpdatedAt(LocalDateTime.now());
-        alertRuleMapper.updateById(rule);
-        return Result.success(rule.getEnabled() ? "已启用" : "已禁用", null);
+        alertRuleService.toggleRule(id);
+        return Result.success("操作成功", null);
     }
 }

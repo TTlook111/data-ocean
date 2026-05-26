@@ -54,16 +54,34 @@ public class LlmUsageServiceImpl implements LlmUsageService {
     @Override
     public LlmUsageStatsVO getUsageStats(int days) {
         LocalDateTime startTime = LocalDateTime.now().minusDays(days);
-        List<LlmUsageLog> logs = usageLogMapper.selectList(
+        LambdaQueryWrapper<LlmUsageLog> baseWrapper = new LambdaQueryWrapper<LlmUsageLog>()
+                .ge(LlmUsageLog::getCreatedAt, startTime);
+        // 使用 count 查询总调用次数，避免全量加载
+        Long totalCalls = usageLogMapper.selectCount(baseWrapper);
+
+        // 聚合 Token 和费用：只查需要的字段
+        List<Object> tokenList = usageLogMapper.selectObjs(
                 new LambdaQueryWrapper<LlmUsageLog>()
+                        .select(LlmUsageLog::getTotalTokens)
                         .ge(LlmUsageLog::getCreatedAt, startTime)
         );
+        long totalTokens = tokenList.stream().mapToLong(o -> ((Number) o).longValue()).sum();
+
+        List<Object> costList = usageLogMapper.selectObjs(
+                new LambdaQueryWrapper<LlmUsageLog>()
+                        .select(LlmUsageLog::getCostAmount)
+                        .ge(LlmUsageLog::getCreatedAt, startTime)
+        );
+        BigDecimal totalCost = costList.stream()
+                .map(o -> o instanceof BigDecimal ? (BigDecimal) o : new BigDecimal(o.toString()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
         LlmUsageStatsVO stats = new LlmUsageStatsVO();
-        stats.setTotalCalls((long) logs.size());
-        stats.setTotalTokens(logs.stream().mapToLong(LlmUsageLog::getTotalTokens).sum());
-        stats.setTotalCost(logs.stream().map(LlmUsageLog::getCostAmount).reduce(BigDecimal.ZERO, BigDecimal::add));
-        stats.setAvgDailyCalls(days > 0 ? (double) logs.size() / days : 0.0);
-        stats.setAvgDailyCost(days > 0 ? stats.getTotalCost().divide(BigDecimal.valueOf(days), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO);
+        stats.setTotalCalls(totalCalls);
+        stats.setTotalTokens(totalTokens);
+        stats.setTotalCost(totalCost);
+        stats.setAvgDailyCalls(days > 0 ? (double) totalCalls / days : 0.0);
+        stats.setAvgDailyCost(days > 0 ? totalCost.divide(BigDecimal.valueOf(days), 4, RoundingMode.HALF_UP) : BigDecimal.ZERO);
         return stats;
     }
 }
