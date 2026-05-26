@@ -103,6 +103,14 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '反馈审核', to: '/admin/field/feedback-review', icon: MessageSquare, permission: 'field-tag:manage' },
     ],
   },
+  {
+    label: '审计管理',
+    items: [
+      { label: '审计日志', to: '/admin/audit/logs', icon: ClipboardList, permission: 'audit:view' },
+      { label: '慢查询', to: '/admin/audit/slow-queries', icon: Activity, permission: 'audit:view' },
+      { label: '血缘查看', to: '/admin/audit/lineage', icon: GitBranch, permission: 'audit:view' },
+    ],
+  },
 ]
 
 const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])

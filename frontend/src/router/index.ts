@@ -28,6 +28,9 @@ const KnowledgeDashboard = () => import('../views/admin/knowledge/KnowledgeDashb
 const FieldTagManager = () => import('../views/admin/field/FieldTagManager.vue')
 const ConfidenceDashboard = () => import('../views/admin/field/ConfidenceDashboard.vue')
 const FeedbackReview = () => import('../views/admin/field/FeedbackReview.vue')
+const AuditLogList = () => import('../views/admin/audit/AuditLogList.vue')
+const SlowQueryList = () => import('../views/admin/audit/SlowQueryList.vue')
+const LineageViewer = () => import('../views/admin/audit/LineageViewer.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -193,6 +196,24 @@ const router = createRouter({
           name: 'admin-field-feedback-review',
           component: FeedbackReview,
           meta: { title: '反馈审核', section: '字段治理', permission: 'field-tag:manage' },
+        },
+        {
+          path: 'audit/logs',
+          name: 'admin-audit-logs',
+          component: AuditLogList,
+          meta: { title: '审计日志', section: '审计管理', permission: 'audit:view' },
+        },
+        {
+          path: 'audit/slow-queries',
+          name: 'admin-audit-slow',
+          component: SlowQueryList,
+          meta: { title: '慢查询', section: '审计管理', permission: 'audit:view' },
+        },
+        {
+          path: 'audit/lineage',
+          name: 'admin-audit-lineage',
+          component: LineageViewer,
+          meta: { title: '血缘查看', section: '审计管理', permission: 'audit:view' },
         },
       ],
     },

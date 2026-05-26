@@ -46,6 +46,9 @@ dataocean:
     auto-sync:
       enabled: ${METADATA_AUTO_SYNC_ENABLED:false}
       cron: ${METADATA_AUTO_SYNC_CRON:0 0 2 * * ?}
+  audit:
+    slow-query-threshold-ms: ${AUDIT_SLOW_THRESHOLD_MS:5000}
+    retention-days: ${AUDIT_RETENTION_DAYS:180}
 
 logging:
   level:
