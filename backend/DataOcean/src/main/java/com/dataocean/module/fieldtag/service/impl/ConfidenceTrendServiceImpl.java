@@ -132,6 +132,10 @@ public class ConfidenceTrendServiceImpl implements ConfidenceTrendService {
                 try {
                     Long columnId = Long.parseLong(parts[0].trim());
                     String tagCode = parts[1].trim();
+                    if (dbColumnMetaMapper.selectById(columnId) == null) {
+                        failed++;
+                        continue;
+                    }
                     // 校验标签编码
                     PredefinedTag predefined = predefinedTagMapper.selectOne(
                             new LambdaQueryWrapper<PredefinedTag>()

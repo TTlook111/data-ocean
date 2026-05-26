@@ -13,9 +13,11 @@ import com.dataocean.module.fieldtag.mapper.FieldConfidenceEventMapper;
 import com.dataocean.module.fieldtag.mapper.UserFeedbackMapper;
 import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.fieldtag.service.UserFeedbackService;
+import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,6 +49,7 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
     private final UserFeedbackMapper feedbackMapper;
     private final FeedbackReviewMapper reviewMapper;
     private final FieldConfidenceEventMapper eventMapper;
+    private final DbColumnMetaMapper dbColumnMetaMapper;
     private final ConfidenceCalculator confidenceCalculator;
     private final StringRedisTemplate stringRedisTemplate;
     private final ApplicationEventPublisher eventPublisher;
@@ -63,6 +66,19 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
                 && !UserFeedback.TYPE_DISLIKE.equals(request.getFeedbackType())) {
             throw new BusinessException("无效的反馈类型，仅支持 LIKE/DISLIKE");
         }
+        if (dbColumnMetaMapper.selectById(request.getColumnMetaId()) == null) {
+            throw new BusinessException("字段不存在");
+        }
+        Long sameFeedbackCount = feedbackMapper.selectCount(
+                new LambdaQueryWrapper<UserFeedback>()
+                        .eq(UserFeedback::getUserId, userId)
+                        .eq(UserFeedback::getQueryTaskId, request.getQueryTaskId())
+                        .eq(UserFeedback::getColumnMetaId, request.getColumnMetaId())
+                        .eq(UserFeedback::getFeedbackType, request.getFeedbackType())
+        );
+        if (sameFeedbackCount > 0) {
+            throw new BusinessException("该反馈已提交，请勿重复操作");
+        }
         // 创建反馈记录
         UserFeedback feedback = new UserFeedback();
         feedback.setQueryTaskId(request.getQueryTaskId());
@@ -75,7 +91,7 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
 
         if (UserFeedback.TYPE_LIKE.equals(request.getFeedbackType())) {
             // 点赞：直接触发可信度加分
-            feedbackMapper.insert(feedback);
+            insertFeedback(feedback);
             confidenceCalculator.adjustScore(
                     request.getColumnMetaId(),
                     FieldConfidenceEvent.TYPE_USER_LIKE,
@@ -93,7 +109,7 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
             // 设置限频 key
             stringRedisTemplate.opsForValue().set(rateLimitKey, "1", RATE_LIMIT_TTL_HOURS, TimeUnit.HOURS);
             // 保存反馈
-            feedbackMapper.insert(feedback);
+            insertFeedback(feedback);
             // 创建审核记录
             FeedbackReview review = new FeedbackReview();
             review.setFeedbackId(feedback.getId());
@@ -104,6 +120,14 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
             log.info("用户点踩 userId={} columnMetaId={} 已进入审核队列", userId, request.getColumnMetaId());
         }
         return toVO(feedback);
+    }
+
+    private void insertFeedback(UserFeedback feedback) {
+        try {
+            feedbackMapper.insert(feedback);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException("该反馈已提交，请勿重复操作");
+        }
     }
 
     /**

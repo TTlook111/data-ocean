@@ -20,6 +20,9 @@ public class SnapshotVO {
     /** 快照版本号 */
     private Integer snapshotVersion;
 
+    /** 数据源ID */
+    private Long datasourceId;
+
     /** 数据源名称 */
     private String datasourceName;
 

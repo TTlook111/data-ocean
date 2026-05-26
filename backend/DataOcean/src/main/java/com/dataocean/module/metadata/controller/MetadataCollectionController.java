@@ -206,6 +206,7 @@ public class MetadataCollectionController {
         SnapshotVO vo = new SnapshotVO();
         vo.setId(snapshot.getId());
         vo.setSnapshotVersion(snapshot.getSnapshotVersion());
+        vo.setDatasourceId(snapshot.getDatasourceId());
         vo.setDatasourceName(dsNames.getOrDefault(snapshot.getDatasourceId(), "未知"));
         vo.setTableCount(snapshot.getTableCount());
         vo.setColumnCount(snapshot.getColumnCount());

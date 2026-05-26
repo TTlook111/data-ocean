@@ -16,6 +16,7 @@ export interface SyncTaskItem {
 export interface SnapshotItem {
   id: number
   snapshotVersion: number
+  datasourceId: number
   datasourceName: string
   tableCount: number
   columnCount: number

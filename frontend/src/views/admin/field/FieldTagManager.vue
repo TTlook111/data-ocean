@@ -11,7 +11,7 @@ import {
   type FieldTagVO
 } from '../../../api/admin/field'
 import { listSnapshotTables, listSnapshotTableColumns, type ColumnMetaItem } from '../../../api/admin/governance'
-import { listSnapshots } from '../../../api/admin/metadata'
+import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 
 const loading = ref(false)
 const predefinedTags = ref<PredefinedTag[]>([])
@@ -19,9 +19,11 @@ const columns = ref<ColumnMetaItem[]>([])
 const selectedColumnIds = ref<number[]>([])
 const currentColumnTags = ref<FieldTagVO[]>([])
 const showTagDialog = ref(false)
+const showColumnTagsDialog = ref(false)
+const currentColumnName = ref('')
 const selectedTagCode = ref('')
 
-const snapshots = ref<Array<{ id: number; snapshotVersion: number }>>([])
+const snapshots = ref<SnapshotItem[]>([])
 const tables = ref<Array<{ id: number; tableName: string; tableComment?: string }>>([])
 
 const query = reactive({
@@ -89,15 +91,22 @@ async function confirmBatchTag() {
   }
 }
 
-async function viewColumnTags(columnId: number) {
-  const res = await getFieldTags(columnId)
+async function viewColumnTags(row: ColumnMetaItem) {
+  currentColumnName.value = row.columnName
+  const res = await getFieldTags(row.id)
   currentColumnTags.value = res.data ?? []
+  showColumnTagsDialog.value = true
 }
 
 async function handleAutoTag() {
   if (!query.snapshotId) return
+  const snapshot = snapshots.value.find(s => s.id === query.snapshotId)
+  if (!snapshot?.datasourceId) {
+    ElMessage.warning('当前快照缺少数据源信息，无法自动打标')
+    return
+  }
   try {
-    const res = await autoTagByPattern(query.snapshotId)
+    const res = await autoTagByPattern(snapshot.datasourceId)
     ElMessage.success(`自动打标完成：标记 ${res.data?.tagged ?? 0} 个，跳过 ${res.data?.skipped ?? 0} 个`)
   } catch (e: any) {
     ElMessage.error(e.response?.data?.message || '自动打标失败')
@@ -147,7 +156,7 @@ onMounted(async () => {
         <el-table-column prop="governanceStatus" label="治理状态" width="120" />
         <el-table-column label="操作" width="100">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="viewColumnTags(row.id)">查看标签</el-button>
+            <el-button link type="primary" size="small" @click="viewColumnTags(row)">查看标签</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -162,6 +171,19 @@ onMounted(async () => {
       <template #footer>
         <el-button @click="showTagDialog = false">取消</el-button>
         <el-button type="primary" @click="confirmBatchTag">确认打标</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="showColumnTagsDialog" :title="`${currentColumnName} 标签`" width="520px">
+      <el-table v-if="currentColumnTags.length" :data="currentColumnTags" size="small">
+        <el-table-column prop="tagName" label="标签" min-width="140" />
+        <el-table-column prop="tagCode" label="编码" min-width="120" />
+        <el-table-column prop="source" label="来源" width="110" />
+        <el-table-column prop="createdAt" label="创建时间" min-width="170" />
+      </el-table>
+      <el-empty v-else description="该字段暂无标签" />
+      <template #footer>
+        <el-button type="primary" @click="showColumnTagsDialog = false">关闭</el-button>
       </template>
     </el-dialog>
   </main>
