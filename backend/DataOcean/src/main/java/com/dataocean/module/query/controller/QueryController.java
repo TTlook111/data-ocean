@@ -12,6 +12,7 @@ import com.dataocean.module.query.entity.vo.ConversationMessageVO;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 import com.dataocean.module.query.service.ConversationService;
 import com.dataocean.module.query.service.QueryTaskService;
+import com.dataocean.module.audit.service.AuditLogService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +38,7 @@ public class QueryController {
     private final PythonAgentClient pythonAgentClient;
     private final DatasourceAccessService datasourceAccessService;
     private final SchemaSnapshotService schemaSnapshotService;
+    private final AuditLogService auditLogService;
 
     /**
      * 提交查询（异步，返回 taskId）。
@@ -102,6 +104,23 @@ public class QueryController {
         queryTaskService.cancelTask(taskId, userId);
         pythonAgentClient.cancelTask(taskId);
         return Result.success("任务已取消", null);
+    }
+
+    /**
+     * 提交查询结果反馈（赞/踩）。
+     * <p>
+     * 更新审计日志中的 user_feedback 字段。
+     * </p>
+     */
+    @PostMapping("/tasks/{taskId}/feedback")
+    public Result<Void> submitFeedback(@PathVariable String taskId, @RequestBody Map<String, String> body) {
+        String feedbackType = body.get("feedbackType");
+        if (!"LIKE".equals(feedbackType) && !"DISLIKE".equals(feedbackType)) {
+            throw new BusinessException("无效的反馈类型");
+        }
+        Long queryTaskDbId = queryTaskService.getTaskDbId(taskId, UserContext.currentUserId());
+        auditLogService.updateFeedback(queryTaskDbId, feedbackType);
+        return Result.success("反馈已提交", null);
     }
 
     /**

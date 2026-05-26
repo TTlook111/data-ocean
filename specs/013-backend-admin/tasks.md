@@ -70,12 +70,12 @@
 
 ## Phase 8: System Settings & Notifications
 
-- [ ] T036 [Frontend] 创建系统设置页面 `frontend/src/views/admin/system/Settings.vue`：配置项分组展示（查询超时、Token 有效期、同步频率、每日查询配额等），修改后调用 API 保存
-- [ ] T037 在 Java 后端创建 sys_config 表和 SystemConfigService：key-value 配置存储，支持在线修改无需重启
-- [ ] T038 [Frontend] 创建通知中心组件 `frontend/src/components/NotificationCenter.vue`：顶部铃铛图标 + 下拉通知列表（治理告警、审核提醒、慢查询告警）
-- [ ] T039 在 Java 后端创建 sys_notification 表和 NotificationService：存储通知（类型/标题/内容/已读状态/目标用户），提供 GET /api/notifications 和 PATCH /api/notifications/{id}/read 接口
-- [ ] T040 [Frontend] 创建管理操作日志页面 `frontend/src/views/admin/system/OperationLog.vue`：展示管理员的 CRUD 操作记录
-- [ ] T041 在 Java 后端创建 sys_operation_log 表和 OperationLogService：通过 AOP 切面自动记录所有 /api/admin/* 接口的调用（操作人/操作类型/目标资源/请求参数/时间）
+- [X] T036 [Frontend] 创建系统设置页面 `frontend/src/views/admin/system/Settings.vue`：配置项分组展示（查询超时、Token 有效期、同步频率、每日查询配额等），修改后调用 API 保存
+- [X] T037 在 Java 后端创建 sys_config 表和 SystemConfigService：key-value 配置存储，支持在线修改无需重启
+- [X] T038 [Frontend] 创建通知中心组件 `frontend/src/components/NotificationCenter.vue`：顶部铃铛图标 + 下拉通知列表（治理告警、审核提醒、慢查询告警）
+- [X] T039 在 Java 后端创建 sys_notification 表和 NotificationService：存储通知（类型/标题/内容/已读状态/目标用户），提供 GET /api/notifications 和 PATCH /api/notifications/{id}/read 接口
+- [X] T040 [Frontend] 创建管理操作日志页面 `frontend/src/views/admin/system/OperationLog.vue`：展示管理员的 CRUD 操作记录
+- [X] T041 在 Java 后端创建 sys_operation_log 表和 OperationLogService：通过 AOP 切面自动记录所有 /api/admin/* 接口的调用（操作人/操作类型/目标资源/请求参数/时间）
 
 ## Dependencies
 

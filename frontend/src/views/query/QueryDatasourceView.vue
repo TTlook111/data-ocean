@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import * as echarts from 'echarts'
 import {
   BarChart3,
   Database,
+  Download,
   History,
   LogOut,
   ListChecks,
@@ -14,11 +16,13 @@ import {
   Search,
   SendHorizontal,
   ShieldCheck,
+  ThumbsUp,
+  ThumbsDown,
   UserCog,
   UserRound,
 } from 'lucide-vue-next'
 import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource'
-import { submitQuery, getTaskResult } from '../../api/query'
+import { submitQuery, getTaskResult, submitQueryFeedback } from '../../api/query'
 import { useGsapMotion } from '../../composables/useGsapMotion'
 import { useAuthStore } from '../../stores/auth'
 import { roleCodesLabel } from '../../utils/enumLabels'
@@ -107,6 +111,81 @@ const latestResult = computed(() => {
   return null
 })
 const resultTab = ref<'table' | 'sql' | 'chart'>('table')
+const chartRef = ref<HTMLDivElement | null>(null)
+const chartType = ref<'bar' | 'line' | 'pie'>('bar')
+let chartInstance: echarts.ECharts | null = null
+
+function renderChart() {
+  if (!chartRef.value || !latestResult.value?.chartConfig) return
+  if (chartInstance) chartInstance.dispose()
+  chartInstance = echarts.init(chartRef.value)
+  try {
+    const option = JSON.parse(JSON.stringify(latestResult.value.chartConfig))
+    if (option.series && option.series.length > 0) {
+      option.series[0].type = chartType.value
+    }
+    chartInstance.setOption(option)
+  } catch {
+    chartInstance.dispose()
+    chartInstance = null
+  }
+}
+
+function switchChartType(type: 'bar' | 'line' | 'pie') {
+  chartType.value = type
+  renderChart()
+}
+
+function exportCsv() {
+  const result = latestResult.value
+  if (!result?.data?.length || !result?.columns?.length) return
+  const escapeCsvField = (val: string) => {
+    if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+      return `"${val.replace(/"/g, '""')}"`
+    }
+    return val
+  }
+  const headers = result.columns.map(c => escapeCsvField(c.comment || c.name))
+  const keys = result.columns.map(c => c.name)
+  const rows = result.data.map(row => keys.map(k => escapeCsvField(String(row[k] ?? ''))).join(','))
+  const csv = [headers.join(','), ...rows].join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `query_result_${Date.now()}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+  ElMessage.success('CSV 导出成功')
+}
+
+function exportPng() {
+  if (!chartInstance) return
+  const url = chartInstance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' })
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `chart_${Date.now()}.png`
+  a.click()
+  ElMessage.success('图表 PNG 导出成功')
+}
+
+async function handleFeedback(type: 'LIKE' | 'DISLIKE') {
+  const result = latestResult.value
+  if (!result?.taskId) return
+  try {
+    await submitQueryFeedback(result.taskId, type)
+    ElMessage.success(type === 'LIKE' ? '感谢您的肯定' : '已收到反馈，我们会持续改进')
+  } catch {
+    ElMessage.error('反馈提交失败')
+  }
+}
+
+onUnmounted(() => {
+  if (chartInstance) {
+    chartInstance.dispose()
+    chartInstance = null
+  }
+})
 
 async function focusQuestionInput() {
   await nextTick()
@@ -393,6 +472,9 @@ watch(resultTab, () => {
     if (resultBody) {
       lift(resultBody, { y: 6, duration: 0.22, scale: 1 })
     }
+    if (resultTab.value === 'chart') {
+      renderChart()
+    }
   })
 })
 </script>
@@ -567,8 +649,30 @@ watch(resultTab, () => {
             </div>
 
             <div v-else-if="resultTab === 'chart'" class="result-chart-wrap">
-              <div v-if="latestResult.chartConfig" class="chart-placeholder">图表配置已生成（ECharts 渲染待接入）</div>
+              <div v-if="latestResult.chartConfig" class="chart-toolbar">
+                <div class="chart-type-switcher">
+                  <button :class="{ active: chartType === 'bar' }" @click="switchChartType('bar')">柱状图</button>
+                  <button :class="{ active: chartType === 'line' }" @click="switchChartType('line')">折线图</button>
+                  <button :class="{ active: chartType === 'pie' }" @click="switchChartType('pie')">饼图</button>
+                </div>
+                <button class="export-btn" @click="exportPng"><Download :size="14" />导出 PNG</button>
+              </div>
+              <div v-if="latestResult.chartConfig" ref="chartRef" class="chart-container"></div>
               <div v-else class="result-empty"><strong>无图表数据</strong></div>
+            </div>
+
+            <div v-if="latestResult" class="result-actions">
+              <button class="export-btn" @click="exportCsv" :disabled="!latestResult.data?.length">
+                <Download :size="14" />导出 CSV
+              </button>
+              <div class="feedback-btns">
+                <button class="feedback-btn like" @click="handleFeedback('LIKE')" title="结果准确">
+                  <ThumbsUp :size="15" />
+                </button>
+                <button class="feedback-btn dislike" @click="handleFeedback('DISLIKE')" title="结果有误">
+                  <ThumbsDown :size="15" />
+                </button>
+              </div>
             </div>
 
             <div v-if="latestResult?.suggestedQuestions?.length" class="suggested-questions">
@@ -1277,5 +1381,99 @@ watch(resultTab, () => {
   .query-workspace {
     min-width: 1120px;
   }
+}
+
+.chart-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.chart-type-switcher {
+  display: flex;
+  gap: 4px;
+}
+
+.chart-type-switcher button {
+  padding: 4px 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 4px;
+  background: var(--do-surface);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.chart-type-switcher button.active {
+  background: var(--do-primary);
+  color: #fff;
+  border-color: var(--do-primary);
+}
+
+.chart-container {
+  width: 100%;
+  height: 280px;
+}
+
+.result-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--do-line);
+  margin-top: 12px;
+}
+
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 4px;
+  background: var(--do-surface);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.export-btn:hover {
+  border-color: var(--do-primary);
+  color: var(--do-primary);
+}
+
+.export-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.feedback-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.feedback-btn {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+  background: var(--do-surface);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.feedback-btn.like:hover {
+  border-color: #67c23a;
+  color: #67c23a;
+  background: #f0f9eb;
+}
+
+.feedback-btn.dislike:hover {
+  border-color: #f56c6c;
+  color: #f56c6c;
+  background: #fef0f0;
 }
 </style>

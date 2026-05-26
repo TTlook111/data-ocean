@@ -182,6 +182,12 @@ public class QueryTaskServiceImpl implements QueryTaskService {
         return task;
     }
 
+    @Override
+    public Long getTaskDbId(String taskId, Long userId) {
+        QueryTask task = findByTaskIdAndUser(taskId, userId);
+        return task.getId();
+    }
+
     /**
      * 将查询任务实体转换为前端展示 VO，反序列化 JSON 字段。
      */

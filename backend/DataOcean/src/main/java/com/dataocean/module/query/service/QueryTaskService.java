@@ -49,4 +49,13 @@ public interface QueryTaskService {
      * @return true 表示实际更新了结果，false 表示任务已取消被跳过
      */
     boolean updateTaskResult(String taskId, String result);
+
+    /**
+     * 根据任务 UUID 获取数据库主键 ID。
+     *
+     * @param taskId 任务 UUID
+     * @param userId 当前用户 ID（权限校验）
+     * @return 数据库主键 ID
+     */
+    Long getTaskDbId(String taskId, Long userId);
 }

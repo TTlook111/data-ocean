@@ -50,3 +50,8 @@ export async function cancelTask(taskId: string) {
   const { data } = await http.post<ApiResult<void>>(`/api/query/tasks/${taskId}/cancel`)
   return data
 }
+
+export async function submitQueryFeedback(taskId: string, feedbackType: 'LIKE' | 'DISLIKE') {
+  const { data } = await http.post<ApiResult<void>>(`/api/query/tasks/${taskId}/feedback`, { feedbackType })
+  return data
+}

@@ -33,12 +33,12 @@
 **Goal**: 用户能看到表格、图表，能切换图表类型，能导出 PNG
 **Independent Test**: 用户能看到表格、图表，能切换图表类型，能导出 PNG
 
-- [ ] T014 [P] [US2] 创建结果表格组件 `frontend/src/components/query/ResultTable.vue`，使用 Element Plus Table 渲染查询结果数据，支持列排序和滚动
-- [ ] T015 [P] [US2] 创建 ECharts composable `frontend/src/composables/useChart.ts`，封装 ECharts 实例初始化、setOption、resize 监听、销毁
-- [ ] T016 [US2] 创建图表面板组件 `frontend/src/components/query/ChartPanel.vue`，接收 chartOption 渲染 ECharts 图表，try-catch 包裹 setOption 实现降级（无效配置时隐藏图表区域）
-- [ ] T017 [US2] 创建图表类型切换组件 `frontend/src/components/query/ChartTypeSwitcher.vue`，按钮组（bar/line/pie），切换时修改本地 chartOption.series[0].type 不重新请求
-- [ ] T018 [US2] 创建导出 composable `frontend/src/composables/useExport.ts`，实现 CSV 导出（前端生成 Blob 下载）和 PNG 导出（ECharts getDataURL）
-- [ ] T019 [US2] 创建导出按钮组件 `frontend/src/components/query/ExportButtons.vue`，CSV 和 PNG 两个按钮，调用 useExport
+- [X] T014 [P] [US2] 创建结果表格组件 `frontend/src/components/query/ResultTable.vue`，使用 Element Plus Table 渲染查询结果数据，支持列排序和滚动
+- [X] T015 [P] [US2] 创建 ECharts composable `frontend/src/composables/useChart.ts`，封装 ECharts 实例初始化、setOption、resize 监听、销毁
+- [X] T016 [US2] 创建图表面板组件 `frontend/src/components/query/ChartPanel.vue`，接收 chartOption 渲染 ECharts 图表，try-catch 包裹 setOption 实现降级（无效配置时隐藏图表区域）
+- [X] T017 [US2] 创建图表类型切换组件 `frontend/src/components/query/ChartTypeSwitcher.vue`，按钮组（bar/line/pie），切换时修改本地 chartOption.series[0].type 不重新请求
+- [X] T018 [US2] 创建导出 composable `frontend/src/composables/useExport.ts`，实现 CSV 导出（前端生成 Blob 下载）和 PNG 导出（ECharts getDataURL）
+- [X] T019 [US2] 创建导出按钮组件 `frontend/src/components/query/ExportButtons.vue`，CSV 和 PNG 两个按钮，调用 useExport
 - [ ] T020 [US2] 创建口径说明面板 `frontend/src/components/query/ExplanationPanel.vue`，展示使用的表、字段、可信度分数，低可信字段标注警告
 - [ ] T021 [US2] 创建结果面板容器 `frontend/src/components/query/ResultPanel.vue`，组合 ResultTable + ChartPanel + ChartTypeSwitcher + ExportButtons + ExplanationPanel
 
@@ -58,8 +58,8 @@
 **Goal**: 点赞后审计日志中 feedback 字段更新
 **Independent Test**: 点赞/点踩操作成功提交
 
-- [ ] T027 [US4] 创建反馈 API 文件 `frontend/src/api/feedback.ts`，封装 POST /api/feedback（赞/踩 + 原因）
-- [ ] T028 [US4] 创建反馈按钮组件 `frontend/src/components/query/FeedbackButtons.vue`，赞按钮直接提交，踩按钮弹出 Element Plus Dialog 选择原因后提交
+- [X] T027 [US4] 创建反馈 API 文件 `frontend/src/api/feedback.ts`，封装 POST /api/feedback（赞/踩 + 原因）
+- [X] T028 [US4] 创建反馈按钮组件 `frontend/src/components/query/FeedbackButtons.vue`，赞按钮直接提交，踩按钮弹出 Element Plus Dialog 选择原因后提交
 
 ## Phase 7: User Story 5 — 历史会话
 
