@@ -71,6 +71,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 登录和验证码接口允许匿名访问
                         .requestMatchers("/api/auth/login", "/api/auth/captcha").permitAll()
+                        // 内部服务间调用接口放行（由 X-Internal-Token 自行校验）
+                        .requestMatchers("/internal/**").permitAll()
                         // 认证相关接口需要已登录
                         .requestMatchers("/api/auth/logout", "/api/auth/me", "/api/auth/password", "/api/auth/profile").authenticated()
                         // 数据源和管理端接口需要已登录
