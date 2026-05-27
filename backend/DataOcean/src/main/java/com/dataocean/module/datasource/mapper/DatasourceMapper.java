@@ -157,7 +157,8 @@ public interface DatasourceMapper extends BaseMapper<Datasource> {
                    d.database_name AS databaseName
             FROM datasource d
             JOIN datasource_access a ON a.datasource_id = d.id
-            WHERE a.user_id = #{userId}
+            WHERE a.subject_id = #{userId}
+              AND a.subject_type = 'USER'
               AND d.status = 1
               AND d.deleted = 0
               AND (a.expires_at IS NULL OR a.expires_at > NOW())

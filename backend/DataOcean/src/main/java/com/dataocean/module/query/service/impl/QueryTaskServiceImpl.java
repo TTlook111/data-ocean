@@ -5,6 +5,9 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.audit.service.AuditLogService;
 import com.dataocean.module.audit.service.LineageService;
+import com.dataocean.module.permission.entity.vo.PermissionContextVO;
+import com.dataocean.module.permission.service.DataMaskingService;
+import com.dataocean.module.permission.service.PermissionCalculator;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 import com.dataocean.module.query.enums.QueryTaskStatus;
@@ -38,6 +41,8 @@ public class QueryTaskServiceImpl implements QueryTaskService {
     private final ObjectMapper objectMapper;
     private final AuditLogService auditLogService;
     private final LineageService lineageService;
+    private final DataMaskingService dataMaskingService;
+    private final PermissionCalculator permissionCalculator;
 
     /**
      * {@inheritDoc}
@@ -68,7 +73,27 @@ public class QueryTaskServiceImpl implements QueryTaskService {
     @Override
     public QueryTaskVO getTaskResult(String taskId, Long userId) {
         QueryTask task = findByTaskIdAndUser(taskId, userId);
-        return toVO(task);
+        QueryTaskVO vo = toVO(task);
+
+        // 权限控制：脱敏 + can_view_sql + can_export
+        if (task.getDatasourceId() != null) {
+            PermissionContextVO context = permissionCalculator.calculate(userId, task.getDatasourceId());
+
+            // 对查询结果执行脱敏
+            if (vo.getData() != null && !vo.getData().isEmpty()
+                    && context.getMaskColumns() != null && !context.getMaskColumns().isEmpty()) {
+                vo.setData(dataMaskingService.maskResult(vo.getData(), context.getMaskColumns()));
+            }
+
+            // can_view_sql 控制：无权限则隐藏 SQL
+            if (!context.isCanViewSql()) {
+                vo.setSql(null);
+            }
+
+            // can_export 标志传给前端控制导出按钮
+            vo.setCanExport(context.isCanExport());
+        }
+        return vo;
     }
 
     /**

@@ -31,4 +31,6 @@ public class QueryTaskVO {
     private Integer totalTimeMs;
     private LocalDateTime createdAt;
     private LocalDateTime completedAt;
+    /** 是否允许导出（前端据此控制导出按钮显示） */
+    private Boolean canExport;
 }

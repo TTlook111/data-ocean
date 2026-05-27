@@ -51,13 +51,18 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
         for (Long userId : Set.copyOf(request.getUserIds())) {
             DatasourceAccess access = accessMapper.selectOne(new LambdaQueryWrapper<DatasourceAccess>()
                     .eq(DatasourceAccess::getDatasourceId, datasourceId)
-                    .eq(DatasourceAccess::getUserId, userId));
+                    .eq(DatasourceAccess::getSubjectType, "USER")
+                    .eq(DatasourceAccess::getSubjectId, userId));
             if (access == null) {
                 access = new DatasourceAccess();
                 access.setDatasourceId(datasourceId);
-                access.setUserId(userId);
+                access.setSubjectType("USER");
+                access.setSubjectId(userId);
                 access.setGrantedBy(grantedBy);
                 access.setExpiresAt(request.getExpiresAt());
+                access.setCanQuery(true);
+                access.setCanExport(false);
+                access.setCanViewSql(true);
                 try {
                     accessMapper.insert(access);
                     granted++;
@@ -84,7 +89,8 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
         requireDatasource(datasourceId);
         accessMapper.delete(new LambdaQueryWrapper<DatasourceAccess>()
                 .eq(DatasourceAccess::getDatasourceId, datasourceId)
-                .eq(DatasourceAccess::getUserId, userId));
+                .eq(DatasourceAccess::getSubjectType, "USER")
+                .eq(DatasourceAccess::getSubjectId, userId));
         log.info("数据源授权已撤销 datasourceId={} userId={}", datasourceId, userId);
     }
 
@@ -131,7 +137,8 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
     private void updateExisting(Long datasourceId, Long userId, LocalDateTime expiresAt, Long grantedBy) {
         DatasourceAccess existing = accessMapper.selectOne(new LambdaQueryWrapper<DatasourceAccess>()
                 .eq(DatasourceAccess::getDatasourceId, datasourceId)
-                .eq(DatasourceAccess::getUserId, userId));
+                .eq(DatasourceAccess::getSubjectType, "USER")
+                .eq(DatasourceAccess::getSubjectId, userId));
         if (existing != null) {
             existing.setExpiresAt(expiresAt);
             existing.setGrantedBy(grantedBy);

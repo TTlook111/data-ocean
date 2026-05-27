@@ -10,6 +10,7 @@ import com.dataocean.module.datasource.entity.dto.DatasourceTestDTO;
 import com.dataocean.module.datasource.entity.dto.DatasourceUpdateDTO;
 import com.dataocean.module.datasource.entity.vo.DatasourceAccessVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestVO;
+import com.dataocean.module.datasource.entity.vo.DatasourceSimpleVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceVO;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
 import com.dataocean.module.datasource.service.DatasourceService;
@@ -51,6 +52,16 @@ public class DatasourceAdminController {
 
     private final DatasourceService datasourceService;
     private final DatasourceAccessService accessService;
+    private final com.dataocean.module.datasource.mapper.DatasourceMapper datasourceMapper;
+
+    /**
+     * 获取所有启用数据源的简要列表（供权限管理等跨模块使用）
+     */
+    @GetMapping("/simple")
+    @PreAuthorize("hasAnyAuthority('datasource:manage', 'security:manage', '*')")
+    public Result<List<DatasourceSimpleVO>> listSimple() {
+        return Result.success(datasourceMapper.selectEnabledSimple());
+    }
 
     /**
      * 分页查询数据源列表

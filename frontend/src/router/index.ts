@@ -31,6 +31,8 @@ const FeedbackReview = () => import('../views/admin/field/FeedbackReview.vue')
 const AuditLogList = () => import('../views/admin/audit/AuditLogList.vue')
 const SlowQueryList = () => import('../views/admin/audit/SlowQueryList.vue')
 const LineageViewer = () => import('../views/admin/audit/LineageViewer.vue')
+const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
+const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -214,6 +216,18 @@ const router = createRouter({
           name: 'admin-audit-lineage',
           component: LineageViewer,
           meta: { title: '血缘查看', section: '审计管理', permission: 'audit:view' },
+        },
+        {
+          path: 'permission/access',
+          name: 'admin-permission-access',
+          component: AccessControl,
+          meta: { title: '访问控制', section: '安全管理', permission: 'security:manage' },
+        },
+        {
+          path: 'permission/policies',
+          name: 'admin-permission-policies',
+          component: PolicyEditor,
+          meta: { title: '策略编辑器', section: '安全管理', permission: 'security:manage' },
         },
       ],
     },

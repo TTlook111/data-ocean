@@ -40,4 +40,13 @@ public interface UserMapper extends BaseMapper<SysUser> {
               AND r.status = 1
             """)
     List<String> selectPermissionCodesByUserId(@Param("userId") Long userId);
+
+    /**
+     * 查询用户所属部门 ID
+     *
+     * @param userId 用户 ID
+     * @return 部门 ID，无部门时返回 null
+     */
+    @Select("SELECT department_id FROM sys_user WHERE id = #{userId} AND deleted = 0")
+    Long selectDepartmentIdByUserId(@Param("userId") Long userId);
 }

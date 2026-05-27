@@ -111,6 +111,13 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '血缘查看', to: '/admin/audit/lineage', icon: GitBranch, permission: 'audit:view' },
     ],
   },
+  {
+    label: '安全管理',
+    items: [
+      { label: '访问控制', to: '/admin/permission/access', icon: ShieldAlert, permission: 'security:manage' },
+      { label: '策略编辑器', to: '/admin/permission/policies', icon: ShieldCheck, permission: 'security:manage' },
+    ],
+  },
 ]
 
 const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
@@ -133,6 +140,7 @@ const adminPermissionCodes = [
   'role:view',
   'department:manage',
   'knowledge:manage',
+  'security:manage',
 ]
 const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPermissionCodes.some((code) => permissions.value.includes(code)))
 

@@ -1,5 +1,7 @@
 package com.dataocean.module.query.client.impl;
 
+import com.dataocean.module.permission.entity.vo.PermissionContextVO;
+import com.dataocean.module.permission.service.PermissionCalculator;
 import com.dataocean.module.query.client.PythonAgentClient;
 import com.dataocean.module.query.service.ConversationService;
 import com.dataocean.module.query.service.QueryTaskService;
@@ -45,6 +47,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private final com.dataocean.module.datasource.mapper.DatasourceMapper datasourceMapper;
     private final com.dataocean.module.datasource.mapper.DatasourceSecretMapper datasourceSecretMapper;
     private final com.dataocean.module.datasource.service.DatasourceSecretService datasourceSecretService;
+    private final PermissionCalculator permissionCalculator;
 
     private RestClient restClient;
 
@@ -86,8 +89,9 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         requestBody.put("question", question);
         requestBody.put("activeSnapshotId", activeSnapshotId);
         requestBody.put("connectionConfig", connectionConfig);
-        requestBody.put("userPermissions", Map.of("allowedTables", List.of(), "rowFilters", List.of(),
-                "deniedColumns", List.of(), "maskColumns", List.of()));
+        // 计算用户对该数据源的真实权限上下文
+        PermissionContextVO permContext = permissionCalculator.calculate(userId, datasourceId);
+        requestBody.put("userPermissions", buildUserPermissionsMap(permContext));
         // 从会话中获取最近 5 轮对话作为上下文
         requestBody.put("conversationHistory", buildConversationHistory(conversationId));
 
@@ -250,5 +254,31 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         config.put("username", secret != null ? secret.getUsername() : "");
         config.put("password", plainPassword);
         return config;
+    }
+
+    /**
+     * 将 PermissionContextVO 转换为 Python UserPermissions 期望的 Map 格式
+     */
+    private Map<String, Object> buildUserPermissionsMap(PermissionContextVO context) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("allowedTables", context.getAllowedTables());
+        map.put("deniedColumns", context.getDeniedColumns());
+
+        // rowFilters: [{tableName, condition}]
+        List<Map<String, String>> rowFilters = new java.util.ArrayList<>();
+        for (PermissionContextVO.RowFilterItem item : context.getRowFilters()) {
+            rowFilters.add(Map.of("tableName", item.getTableName(), "condition", item.getCondition()));
+        }
+        map.put("rowFilters", rowFilters);
+
+        // maskColumns: [{tableName, columnName, maskType}]
+        List<Map<String, String>> maskColumns = new java.util.ArrayList<>();
+        for (PermissionContextVO.MaskColumnItem item : context.getMaskColumns()) {
+            maskColumns.add(Map.of("tableName", item.getTableName(),
+                    "columnName", item.getColumnName(), "maskType", item.getMaskType()));
+        }
+        map.put("maskColumns", maskColumns);
+
+        return map;
     }
 }
