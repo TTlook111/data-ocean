@@ -30,17 +30,15 @@ public interface DataMaskingService {
      * 对查询结果执行精确脱敏（基于 Python AST 标记的实际字段）
      * <p>
      * Python 在 SQL AST 分析阶段已精确识别本次查询实际涉及的脱敏字段（含别名解析），
-     * 此方法只对这些字段执行脱敏，避免同名列误脱敏。
+     * 返回 {输出列名 → 脱敏策略} 映射，Java 直接按结果 key 匹配执行脱敏。
      * </p>
      *
-     * @param data              查询结果数据行列表
-     * @param maskedFields      Python 标记的字段列表（格式 "table.column"）
-     * @param maskColumns       脱敏策略配置（用于查找对应的脱敏方式）
+     * @param data         查询结果数据行列表
+     * @param maskedFields Python 标记的 {输出列名 → 策略名} 映射
      * @return 脱敏后的数据
      */
     List<Map<String, Object>> maskResultByFields(List<Map<String, Object>> data,
-                                                  List<String> maskedFields,
-                                                  List<PermissionContextVO.MaskColumnItem> maskColumns);
+                                                  Map<String, String> maskedFields);
 
     /**
      * 对单个值执行脱敏

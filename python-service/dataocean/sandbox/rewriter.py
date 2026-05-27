@@ -20,7 +20,7 @@ class RewriteResult:
 
     success: bool
     rewritten_sql: str = ""
-    masked_fields: list[str] = field(default_factory=list)
+    masked_fields: dict[str, str] = field(default_factory=dict)
     denied_reason: str = ""
 
 
@@ -29,8 +29,13 @@ def rewrite(
     row_filters: dict[str, list[str]] | None = None,
     denied_columns: dict[str, list[str]] | None = None,
     mask_columns: dict[str, list[str]] | None = None,
+    mask_strategies: dict[str, str] | None = None,
 ) -> RewriteResult:
-    """Rewrite validated SQL and apply hard permission checks."""
+    """Rewrite validated SQL and apply hard permission checks.
+
+    Args:
+        mask_strategies: optional mapping of "table.column" -> strategy name (e.g. "PHONE")
+    """
     try:
         tree = sqlglot.parse_one(sql, dialect="mysql")
     except sqlglot.errors.ParseError as e:
@@ -48,7 +53,7 @@ def rewrite(
             return RewriteResult(success=False, denied_reason=str(e))
 
     tree = _inject_limit(tree)
-    masked_fields = _mark_sensitive_columns(tree, mask_columns or {})
+    masked_fields = _mark_sensitive_columns(tree, mask_columns or {}, mask_strategies or {})
     rewritten_sql = tree.sql(dialect="mysql")
 
     try:
@@ -147,39 +152,84 @@ def _check_column_access(tree: exp.Expression, denied_columns: dict[str, list[st
     return ""
 
 
-def _mark_sensitive_columns(tree: exp.Expression, mask_columns: dict[str, list[str]]) -> list[str]:
-    """Return fully-qualified fields that should be masked by the Java gateway."""
+def _mark_sensitive_columns(
+    tree: exp.Expression,
+    mask_columns: dict[str, list[str]],
+    mask_strategies: dict[str, str],
+) -> dict[str, str]:
+    """Return mapping of output column name → mask strategy for the Java gateway.
+
+    Returns {output_name: strategy} where output_name is the result-set column name
+    (alias if present, otherwise physical column name).
+    """
     if not mask_columns:
-        return []
+        return {}
 
     mask_by_table = _normalize_column_map(mask_columns)
-    masked: list[str] = []
+    masked: dict[str, str] = {}
 
-    for scope in traverse_scope(tree):
-        alias_map = _scope_alias_map(scope)
-        scope_tables = set(alias_map.values())
+    if not isinstance(tree, exp.Select):
+        return {}
 
-        for col_node in scope.columns:
-            col_name = col_node.name.lower()
-            qualifier = col_node.table.lower() if col_node.table else ""
+    alias_map = _build_top_level_alias_map(tree)
+    scope_tables = set(alias_map.values())
 
-            if qualifier:
-                real_table = alias_map.get(qualifier, qualifier)
-                if col_name in mask_by_table.get(real_table, set()):
-                    masked.append(f"{real_table}.{col_name}")
-                continue
+    for expr in tree.expressions:
+        output_name = expr.alias if isinstance(expr, exp.Alias) else None
+        inner = expr.this if isinstance(expr, exp.Alias) else expr
 
-            if len(scope_tables) == 1:
-                real_table = next(iter(scope_tables))
-                if col_name in mask_by_table.get(real_table, set()):
-                    masked.append(f"{real_table}.{col_name}")
-                continue
+        if not isinstance(inner, exp.Column):
+            continue
 
+        col_name = inner.name.lower()
+        qualifier = inner.table.lower() if inner.table else ""
+
+        real_table = None
+        if qualifier:
+            real_table = alias_map.get(qualifier, qualifier)
+        elif len(scope_tables) == 1:
+            real_table = next(iter(scope_tables))
+
+        matched = False
+        if real_table and col_name in mask_by_table.get(real_table, set()):
+            matched = True
+        elif not real_table:
             for table_name, cols in mask_by_table.items():
                 if col_name in cols:
-                    masked.append(f"{table_name}.{col_name}")
+                    real_table = table_name
+                    matched = True
+                    break
 
-    return sorted(set(masked))
+        if matched:
+            out_key = output_name if output_name else col_name
+            # 查找策略：先精确匹配 "table.column"，再 fallback 到列名
+            strategy = mask_strategies.get(f"{real_table}.{col_name}", "")
+            if not strategy:
+                strategy = mask_strategies.get(col_name, "UNKNOWN")
+            masked[out_key] = strategy
+
+    return masked
+
+
+def _build_top_level_alias_map(tree: exp.Select) -> dict[str, str]:
+    """Build alias→table mapping for the top-level SELECT's FROM clause."""
+    aliases: dict[str, str] = {}
+    from_clause = tree.find(exp.From)
+    if from_clause:
+        for table_expr in from_clause.find_all(exp.Table):
+            table_name = table_expr.name.lower()
+            alias = table_expr.alias.lower() if table_expr.alias else table_name
+            aliases[alias] = table_name
+            aliases[table_name] = table_name
+    # Also check JOINs
+    for join in tree.find_all(exp.Join):
+        table_expr = join.find(exp.Table)
+        if table_expr:
+            table_name = table_expr.name.lower()
+            alias = table_expr.alias.lower() if table_expr.alias else table_name
+            aliases[alias] = table_name
+            aliases[table_name] = table_name
+    return aliases
 
 
 def _inject_limit(tree: exp.Expression) -> exp.Expression:

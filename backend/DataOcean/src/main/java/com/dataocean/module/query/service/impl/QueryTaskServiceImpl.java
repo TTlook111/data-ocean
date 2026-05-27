@@ -81,10 +81,10 @@ public class QueryTaskServiceImpl implements QueryTaskService {
 
             // 对查询结果执行脱敏：优先使用 Python AST 标记的精确字段，fallback 到全量策略
             if (vo.getData() != null && !vo.getData().isEmpty()) {
-                List<String> maskedFieldsFromPython = parseMaskedFields(task.getMaskedFields());
+                Map<String, String> maskedFieldsFromPython = parseMaskedFields(task.getMaskedFields());
                 if (!maskedFieldsFromPython.isEmpty()) {
-                    // Python 已精确标记本次 SQL 实际涉及的脱敏字段（格式 "table.column"）
-                    vo.setData(dataMaskingService.maskResultByFields(vo.getData(), maskedFieldsFromPython, context.getMaskColumns()));
+                    // Python 已精确标记本次 SQL 实际涉及的脱敏字段（输出列名 → 策略）
+                    vo.setData(dataMaskingService.maskResultByFields(vo.getData(), maskedFieldsFromPython));
                 } else if (context.getMaskColumns() != null && !context.getMaskColumns().isEmpty()) {
                     // fallback：按全量策略列名匹配
                     vo.setData(dataMaskingService.maskResult(vo.getData(), context.getMaskColumns()));
@@ -103,17 +103,17 @@ public class QueryTaskServiceImpl implements QueryTaskService {
     }
 
     /**
-     * 解析 Python 返回的 maskedFields JSON
+     * 解析 Python 返回的 maskedFields JSON（格式：{"outputName": "STRATEGY", ...}）
      */
-    private List<String> parseMaskedFields(String maskedFieldsJson) {
+    private Map<String, String> parseMaskedFields(String maskedFieldsJson) {
         if (maskedFieldsJson == null || maskedFieldsJson.isBlank()) {
-            return List.of();
+            return Map.of();
         }
         try {
             return objectMapper.readValue(maskedFieldsJson, new TypeReference<>() {});
         } catch (Exception e) {
             log.warn("解析 maskedFields 失败: {}", maskedFieldsJson);
-            return List.of();
+            return Map.of();
         }
     }
 

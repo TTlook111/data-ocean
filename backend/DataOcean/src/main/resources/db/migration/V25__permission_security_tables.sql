@@ -48,6 +48,3 @@ ON DUPLICATE KEY UPDATE role_id = VALUES(role_id);
 INSERT INTO sys_role_permission (role_id, permission_id)
 SELECT 5, id FROM sys_permission WHERE permission_code = 'security:manage'
 ON DUPLICATE KEY UPDATE role_id = VALUES(role_id);
-
--- 4. 为 query_task 表添加 masked_fields 字段（存储 Python AST 标记的脱敏字段）
-ALTER TABLE query_task ADD COLUMN masked_fields VARCHAR(2000) NULL COMMENT 'Python AST 标记的需脱敏字段 JSON' AFTER used_columns;

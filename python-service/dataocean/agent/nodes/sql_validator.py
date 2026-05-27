@@ -73,17 +73,22 @@ async def run_sql_validator(state: AgentState) -> AgentState:
             denied_columns.setdefault(table, []).append(col)
 
     mask_columns: dict[str, list[str]] = {}
+    mask_strategies: dict[str, str] = {}
     for mc in permissions.get("mask_columns", permissions.get("maskColumns", [])):
         table = mc.get("table_name", mc.get("tableName", ""))
         col = mc.get("column_name", mc.get("columnName", ""))
+        mask_type = mc.get("mask_type", mc.get("maskType", ""))
         if table and col:
             mask_columns.setdefault(table, []).append(col)
+            if mask_type:
+                mask_strategies[f"{table}.{col}"] = mask_type
 
     rewrite_result = rewrite(
         sql=generated_sql,
         row_filters=row_filters or None,
         denied_columns=denied_columns or None,
         mask_columns=mask_columns or None,
+        mask_strategies=mask_strategies or None,
     )
 
     if not rewrite_result.success:
