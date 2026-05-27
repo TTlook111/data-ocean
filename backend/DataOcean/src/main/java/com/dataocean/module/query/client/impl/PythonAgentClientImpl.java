@@ -274,8 +274,12 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         // maskColumns: [{tableName, columnName, maskType}]
         List<Map<String, String>> maskColumns = new java.util.ArrayList<>();
         for (PermissionContextVO.MaskColumnItem item : context.getMaskColumns()) {
-            maskColumns.add(Map.of("tableName", item.getTableName(),
-                    "columnName", item.getColumnName(), "maskType", item.getMaskType()));
+            if (item.getMaskType() == null) continue;
+            Map<String, String> entry = new HashMap<>();
+            entry.put("tableName", item.getTableName());
+            entry.put("columnName", item.getColumnName());
+            entry.put("maskType", item.getMaskType());
+            maskColumns.add(entry);
         }
         map.put("maskColumns", maskColumns);
 

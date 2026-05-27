@@ -20,7 +20,7 @@ public interface PermissionCalculator {
      * - allowedTables: 所有维度允许的表取并集
      * - deniedColumns: 所有维度禁止的列取交集（所有维度都禁止才真正禁止）
      * - maskColumns: 如果任一维度允许明文访问，则不脱敏
-     * - rowFilters: 多个过滤条件用 OR 合并
+     * - rowFilters: 多个过滤条件用 AND 合并
      * </p>
      *
      * @param userId       用户 ID
@@ -28,4 +28,16 @@ public interface PermissionCalculator {
      * @return 权限上下文，传给 Python 服务
      */
     PermissionContextVO calculate(Long userId, Long datasourceId);
+
+    /**
+     * 主动失效指定主体和数据源的权限缓存
+     * <p>
+     * 在授权/撤销/策略变更后调用，确保下次查询读到最新权限。
+     * subjectId 可能是用户/角色/部门 ID，实现侧按 datasourceId 维度清除所有相关缓存。
+     * </p>
+     *
+     * @param subjectId    变更涉及的主体 ID
+     * @param datasourceId 变更涉及的数据源 ID
+     */
+    void invalidate(Long subjectId, Long datasourceId);
 }

@@ -3,12 +3,19 @@ package com.dataocean.module.permission.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceAccess;
 import com.dataocean.module.datasource.mapper.DatasourceAccessMapper;
+import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.permission.entity.dto.DatasourcePermissionGrantDTO;
 import com.dataocean.module.permission.entity.vo.DatasourcePermissionVO;
 import com.dataocean.module.permission.enums.SubjectType;
 import com.dataocean.module.permission.service.DatasourcePermissionService;
+import com.dataocean.module.permission.service.PermissionCalculator;
+import com.dataocean.module.user.entity.SysDepartment;
+import com.dataocean.module.user.entity.SysRole;
+import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.mapper.DepartmentMapper;
 import com.dataocean.module.user.mapper.RoleMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
@@ -29,14 +36,21 @@ import java.util.List;
 public class DatasourcePermissionServiceImpl implements DatasourcePermissionService {
 
     private final DatasourceAccessMapper accessMapper;
+    private final DatasourceMapper datasourceMapper;
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
+    private final DepartmentMapper departmentMapper;
+    private final PermissionCalculator permissionCalculator;
 
     @Transactional
     @Override
     public Long grant(DatasourcePermissionGrantDTO dto) {
         // 校验主体类型合法性
         validateSubjectType(dto.getSubjectType());
+        // 校验数据源存在
+        validateDatasourceExists(dto.getDatasourceId());
+        // 校验主体存在
+        validateSubjectExists(dto.getSubjectType(), dto.getSubjectId());
 
         // 检查是否已存在相同授权
         DatasourceAccess existing = accessMapper.selectOne(new LambdaQueryWrapper<DatasourceAccess>()
@@ -58,6 +72,9 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
         access.setGrantedBy(UserContext.currentUserId());
         accessMapper.insert(access);
 
+        // 主动清除权限缓存
+        permissionCalculator.invalidate(dto.getSubjectId(), dto.getDatasourceId());
+
         log.info("数据源授权成功 datasourceId={} subjectType={} subjectId={}",
                 dto.getDatasourceId(), dto.getSubjectType(), dto.getSubjectId());
         return access.getId();
@@ -74,6 +91,7 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
         if (canExport != null) access.setCanExport(canExport);
         if (canViewSql != null) access.setCanViewSql(canViewSql);
         accessMapper.updateById(access);
+        permissionCalculator.invalidate(access.getSubjectId(), access.getDatasourceId());
         log.info("数据源授权更新 id={}", id);
     }
 
@@ -85,6 +103,7 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
             throw new BusinessException("授权记录不存在");
         }
         accessMapper.deleteById(id);
+        permissionCalculator.invalidate(access.getSubjectId(), access.getDatasourceId());
         log.info("数据源授权撤销 id={} datasourceId={} subjectType={} subjectId={}",
                 id, access.getDatasourceId(), access.getSubjectType(), access.getSubjectId());
     }
@@ -131,6 +150,38 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
             SubjectType.valueOf(subjectType);
         } catch (IllegalArgumentException e) {
             throw new BusinessException("无效的主体类型: " + subjectType);
+        }
+    }
+
+    /**
+     * 校验数据源存在
+     */
+    private void validateDatasourceExists(Long datasourceId) {
+        Datasource ds = datasourceMapper.selectOne(new LambdaQueryWrapper<Datasource>()
+                .eq(Datasource::getId, datasourceId)
+                .eq(Datasource::getDeleted, 0L));
+        if (ds == null) {
+            throw new BusinessException("数据源不存在");
+        }
+    }
+
+    /**
+     * 校验授权主体存在
+     */
+    private void validateSubjectExists(String subjectType, Long subjectId) {
+        switch (SubjectType.valueOf(subjectType)) {
+            case USER -> {
+                SysUser user = userMapper.selectById(subjectId);
+                if (user == null) throw new BusinessException("用户不存在: " + subjectId);
+            }
+            case ROLE -> {
+                SysRole role = roleMapper.selectById(subjectId);
+                if (role == null) throw new BusinessException("角色不存在: " + subjectId);
+            }
+            case DEPARTMENT -> {
+                SysDepartment dept = departmentMapper.selectById(subjectId);
+                if (dept == null) throw new BusinessException("部门不存在: " + subjectId);
+            }
         }
     }
 }

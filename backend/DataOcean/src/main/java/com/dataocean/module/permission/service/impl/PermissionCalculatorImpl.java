@@ -67,6 +67,14 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         return result;
     }
 
+    @Override
+    public void invalidate(Long subjectId, Long datasourceId) {
+        // 按 datasourceId 维度清除所有相关缓存（因为角色/部门变更会影响多个用户）
+        String suffix = ":" + datasourceId;
+        cache.entrySet().removeIf(e -> e.getKey().endsWith(suffix));
+        log.debug("权限缓存已失效 datasourceId={}", datasourceId);
+    }
+
     /**
      * 实际计算权限上下文
      */
@@ -246,10 +254,12 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
                     allAllowedTables.add(policy.getTableName());
                     hasAllowPolicy = true;
                 } else if ("MASK".equals(accessType) && policy.getColumnName() != null) {
-                    // 列级脱敏
-                    String key = policy.getTableName() + "." + policy.getColumnName();
-                    maskColumnsBySubject.computeIfAbsent(key, k -> new HashSet<>())
-                            .add(policy.getMaskStrategy());
+                    // 列级脱敏（跳过 maskStrategy 为空的无效记录）
+                    if (policy.getMaskStrategy() != null && !policy.getMaskStrategy().isBlank()) {
+                        String key = policy.getTableName() + "." + policy.getColumnName();
+                        maskColumnsBySubject.computeIfAbsent(key, k -> new HashSet<>())
+                                .add(policy.getMaskStrategy());
+                    }
                 }
 
                 // 行级过滤

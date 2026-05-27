@@ -11,6 +11,7 @@ import com.dataocean.module.permission.enums.MaskStrategy;
 import com.dataocean.module.permission.enums.SubjectType;
 import com.dataocean.module.permission.mapper.DatasourceAccessPolicyMapper;
 import com.dataocean.module.permission.service.AccessPolicyService;
+import com.dataocean.module.permission.service.PermissionCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,7 @@ import java.util.List;
 public class AccessPolicyServiceImpl implements AccessPolicyService {
 
     private final DatasourceAccessPolicyMapper policyMapper;
+    private final PermissionCalculator permissionCalculator;
 
     @Transactional
     @Override
@@ -47,6 +49,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         policy.setCreatedBy(UserContext.currentUserId());
         policyMapper.insert(policy);
 
+        permissionCalculator.invalidate(dto.getSubjectId(), dto.getDatasourceId());
         log.info("策略创建成功 id={} datasourceId={} table={} column={}",
                 policy.getId(), dto.getDatasourceId(), dto.getTableName(), dto.getColumnName());
         return policy.getId();
@@ -61,7 +64,10 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
 
         for (AccessPolicyBatchDTO.PolicyItem item : dto.getPolicies()) {
             validateAccessType(item.getAccessType());
-            if ("MASK".equals(item.getAccessType()) && item.getMaskStrategy() != null) {
+            if ("MASK".equals(item.getAccessType())) {
+                if (item.getMaskStrategy() == null || item.getMaskStrategy().isBlank()) {
+                    throw new BusinessException("脱敏策略不能为空");
+                }
                 validateMaskStrategy(item.getMaskStrategy());
             }
 
@@ -81,6 +87,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
 
         log.info("批量策略创建成功 datasourceId={} table={} count={}",
                 dto.getDatasourceId(), dto.getTableName(), count);
+        permissionCalculator.invalidate(dto.getSubjectId(), dto.getDatasourceId());
         return count;
     }
 
@@ -95,12 +102,18 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             validateAccessType(accessType);
             policy.setAccessType(accessType);
         }
-        if (maskStrategy != null) {
+        // 确定最终的 accessType（可能是传入的新值，也可能是原值）
+        String finalAccessType = accessType != null ? accessType : policy.getAccessType();
+        if ("MASK".equals(finalAccessType)) {
+            if (maskStrategy == null || maskStrategy.isBlank()) {
+                throw new BusinessException("脱敏策略不能为空");
+            }
             validateMaskStrategy(maskStrategy);
         }
         policy.setMaskStrategy(maskStrategy);
         policy.setRowFilterExpression(rowFilterExpression);
         policyMapper.updateById(policy);
+        permissionCalculator.invalidate(policy.getSubjectId(), policy.getDatasourceId());
         log.info("策略更新成功 id={}", id);
     }
 
@@ -112,6 +125,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             throw new BusinessException("策略不存在");
         }
         policyMapper.deleteById(id);
+        permissionCalculator.invalidate(policy.getSubjectId(), policy.getDatasourceId());
         log.info("策略删除成功 id={} datasourceId={} table={}", id, policy.getDatasourceId(), policy.getTableName());
     }
 
