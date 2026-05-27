@@ -659,14 +659,14 @@ watch(resultTab, () => {
                   <button :class="{ active: chartType === 'line' }" @click="switchChartType('line')">折线图</button>
                   <button :class="{ active: chartType === 'pie' }" @click="switchChartType('pie')">饼图</button>
                 </div>
-                <button class="export-btn" @click="exportPng"><Download :size="14" />导出 PNG</button>
+                <button class="export-btn" @click="exportPng" :disabled="latestResult.canExport === false"><Download :size="14" />导出 PNG</button>
               </div>
               <div v-if="latestResult.chartConfig" ref="chartRef" class="chart-container"></div>
               <div v-else class="result-empty"><strong>无图表数据</strong></div>
             </div>
 
             <div v-if="latestResult" class="result-actions">
-              <button class="export-btn" @click="exportCsv" :disabled="!latestResult.data?.length">
+              <button class="export-btn" @click="exportCsv" :disabled="!latestResult.data?.length || latestResult.canExport === false">
                 <Download :size="14" />导出 CSV
               </button>
               <div class="feedback-btns">

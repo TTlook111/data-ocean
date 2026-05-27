@@ -50,6 +50,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
     private final DepartmentMapper departmentMapper;
     private final DbTableMetaMapper tableMetaMapper;
     private final DbColumnMetaMapper columnMetaMapper;
+    private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
 
     @Transactional
     @Override
@@ -101,6 +102,12 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
                 }
                 validateMaskStrategy(item.getMaskStrategy());
             }
+            if (item.getColumnName() != null && !item.getColumnName().isBlank()) {
+                validateColumnName(dto.getDatasourceId(), dto.getTableName(), item.getColumnName());
+            }
+            if (item.getRowFilterExpression() != null && !item.getRowFilterExpression().isBlank()) {
+                validateRowFilterExpression(item.getRowFilterExpression());
+            }
 
             DatasourceAccessPolicy policy = new DatasourceAccessPolicy();
             policy.setDatasourceId(dto.getDatasourceId());
@@ -140,6 +147,9 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
                 throw new BusinessException("脱敏策略不能为空");
             }
             validateMaskStrategy(maskStrategy);
+        }
+        if (rowFilterExpression != null && !rowFilterExpression.isBlank()) {
+            validateRowFilterExpression(rowFilterExpression);
         }
         policy.setMaskStrategy(maskStrategy);
         policy.setRowFilterExpression(rowFilterExpression);
@@ -236,26 +246,37 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
     }
 
     /**
-     * 校验表名在数据源元数据中存在（* 表示所有表，跳过校验）
+     * 校验表名在数据源当前发布快照的元数据中存在（* 表示所有表，跳过校验）
      */
     private void validateTableName(Long datasourceId, String tableName) {
         if ("*".equals(tableName)) return;
-        Long count = tableMetaMapper.selectCount(new LambdaQueryWrapper<DbTableMeta>()
+        LambdaQueryWrapper<DbTableMeta> query = new LambdaQueryWrapper<DbTableMeta>()
                 .eq(DbTableMeta::getDatasourceId, datasourceId)
-                .eq(DbTableMeta::getTableName, tableName));
+                .eq(DbTableMeta::getTableName, tableName);
+        // 限定到当前发布快照
+        var snapshot = schemaSnapshotService.getPublishedSnapshot(datasourceId);
+        if (snapshot != null) {
+            query.eq(DbTableMeta::getSnapshotId, snapshot.getId());
+        }
+        Long count = tableMetaMapper.selectCount(query);
         if (count == 0) {
             throw new BusinessException("表名不存在: " + tableName);
         }
     }
 
     /**
-     * 校验列名在数据源对应表的元数据中存在
+     * 校验列名在数据源当前发布快照对应表的元数据中存在
      */
     private void validateColumnName(Long datasourceId, String tableName, String columnName) {
-        Long count = columnMetaMapper.selectCount(new LambdaQueryWrapper<DbColumnMeta>()
+        LambdaQueryWrapper<DbColumnMeta> query = new LambdaQueryWrapper<DbColumnMeta>()
                 .eq(DbColumnMeta::getDatasourceId, datasourceId)
                 .eq(DbColumnMeta::getTableName, tableName)
-                .eq(DbColumnMeta::getColumnName, columnName));
+                .eq(DbColumnMeta::getColumnName, columnName);
+        var snapshot = schemaSnapshotService.getPublishedSnapshot(datasourceId);
+        if (snapshot != null) {
+            query.eq(DbColumnMeta::getSnapshotId, snapshot.getId());
+        }
+        Long count = columnMetaMapper.selectCount(query);
         if (count == 0) {
             throw new BusinessException("列名不存在: " + tableName + "." + columnName);
         }

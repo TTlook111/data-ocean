@@ -34,6 +34,7 @@ export interface QueryTaskResult {
   retryCount?: number
   totalTimeMs?: number
   suggestedQuestions?: string[]
+  canExport?: boolean
 }
 
 export async function submitQuery(params: QueryAskParams) {

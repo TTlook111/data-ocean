@@ -40,6 +40,7 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
     private final UserMapper userMapper;
     private final DbTableMetaMapper tableMetaMapper;
     private final DbColumnMetaMapper columnMetaMapper;
+    private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
 
     /** 简单本地缓存：key → (结果, 过期时间戳) */
     private final java.util.concurrent.ConcurrentHashMap<String, CacheEntry> cache = new java.util.concurrent.ConcurrentHashMap<>();
@@ -130,18 +131,26 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
     /**
      * 将 governance_status 为 BLOCKED/DEPRECATED 的表/列加入禁止列表，
      * 同时处理策略中的表级 DENY（deniedTables）。
+     * 只查询当前发布快照的元数据，避免旧快照污染。
      */
     private void appendGovernanceBlocked(PermissionContextVO context, Long datasourceId) {
+        // 获取当前发布快照 ID，无快照则跳过 governance 联动
+        var publishedSnapshot = schemaSnapshotService.getPublishedSnapshot(datasourceId);
+        Long snapshotId = publishedSnapshot != null ? publishedSnapshot.getId() : null;
+
         // 收集所有需要排除的表：governance BLOCKED + 策略 DENY
         Set<String> allExcludedTables = new HashSet<>();
 
-        // 查询表级 BLOCKED/DEPRECATED
-        List<DbTableMeta> blockedTables = tableMetaMapper.selectList(
-                new LambdaQueryWrapper<DbTableMeta>()
-                        .eq(DbTableMeta::getDatasourceId, datasourceId)
-                        .in(DbTableMeta::getGovernanceStatus, List.of("BLOCKED", "DEPRECATED"))
-                        .select(DbTableMeta::getTableName));
-        blockedTables.forEach(t -> allExcludedTables.add(t.getTableName().toLowerCase()));
+        // 查询表级 BLOCKED/DEPRECATED（限定快照）
+        if (snapshotId != null) {
+            List<DbTableMeta> blockedTables = tableMetaMapper.selectList(
+                    new LambdaQueryWrapper<DbTableMeta>()
+                            .eq(DbTableMeta::getDatasourceId, datasourceId)
+                            .eq(DbTableMeta::getSnapshotId, snapshotId)
+                            .in(DbTableMeta::getGovernanceStatus, List.of("BLOCKED", "DEPRECATED"))
+                            .select(DbTableMeta::getTableName));
+            blockedTables.forEach(t -> allExcludedTables.add(t.getTableName().toLowerCase()));
+        }
 
         // 加入策略中的表级 DENY
         if (context.getDeniedTables() != null) {
@@ -151,11 +160,14 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         // 如果有需要排除的表，通过 allowedTables 白名单机制实现
         if (!allExcludedTables.isEmpty()) {
             if (context.getAllowedTables().isEmpty()) {
-                // 当前无白名单限制 → 构建白名单（所有表 - 排除表）
-                List<DbTableMeta> allTables = tableMetaMapper.selectList(
-                        new LambdaQueryWrapper<DbTableMeta>()
-                                .eq(DbTableMeta::getDatasourceId, datasourceId)
-                                .select(DbTableMeta::getTableName));
+                // 当前无白名单限制 → 构建白名单（当前快照所有表 - 排除表）
+                LambdaQueryWrapper<DbTableMeta> allTablesQuery = new LambdaQueryWrapper<DbTableMeta>()
+                        .eq(DbTableMeta::getDatasourceId, datasourceId)
+                        .select(DbTableMeta::getTableName);
+                if (snapshotId != null) {
+                    allTablesQuery.eq(DbTableMeta::getSnapshotId, snapshotId);
+                }
+                List<DbTableMeta> allTables = tableMetaMapper.selectList(allTablesQuery);
                 List<String> allowed = allTables.stream()
                         .map(t -> t.getTableName().toLowerCase())
                         .filter(name -> !allExcludedTables.contains(name))
@@ -171,21 +183,24 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
             }
         }
 
-        // 查询列级 BLOCKED/DEPRECATED（加入 deniedColumns）
-        List<DbColumnMeta> blockedColumns = columnMetaMapper.selectList(
-                new LambdaQueryWrapper<DbColumnMeta>()
-                        .eq(DbColumnMeta::getDatasourceId, datasourceId)
-                        .in(DbColumnMeta::getGovernanceStatus, List.of("BLOCKED", "DEPRECATED")));
+        // 查询列级 BLOCKED/DEPRECATED（限定快照，加入 deniedColumns）
+        if (snapshotId != null) {
+            List<DbColumnMeta> blockedColumns = columnMetaMapper.selectList(
+                    new LambdaQueryWrapper<DbColumnMeta>()
+                            .eq(DbColumnMeta::getDatasourceId, datasourceId)
+                            .eq(DbColumnMeta::getSnapshotId, snapshotId)
+                            .in(DbColumnMeta::getGovernanceStatus, List.of("BLOCKED", "DEPRECATED")));
 
-        if (!blockedColumns.isEmpty()) {
-            List<String> denied = new ArrayList<>(context.getDeniedColumns());
-            for (DbColumnMeta col : blockedColumns) {
-                String ref = col.getTableName() + "." + col.getColumnName();
-                if (!denied.contains(ref)) {
-                    denied.add(ref);
+            if (!blockedColumns.isEmpty()) {
+                List<String> denied = new ArrayList<>(context.getDeniedColumns());
+                for (DbColumnMeta col : blockedColumns) {
+                    String ref = col.getTableName() + "." + col.getColumnName();
+                    if (!denied.contains(ref)) {
+                        denied.add(ref);
+                    }
                 }
+                context.setDeniedColumns(denied);
             }
-            context.setDeniedColumns(denied);
         }
     }
 
