@@ -167,6 +167,40 @@ public interface DatasourceMapper extends BaseMapper<Datasource> {
     List<DatasourceSimpleVO> selectAccessibleByUserId(@Param("userId") Long userId);
 
     /**
+     * 查询用户可访问的数据源（合并用户直接授权 + 角色授权 + 部门授权）
+     *
+     * @param userId    用户 ID
+     * @param roleIds   用户角色 ID 列表
+     * @param deptId    用户部门 ID（可为 null）
+     * @return 去重后的可访问数据源列表
+     */
+    @Select("""
+            <script>
+            SELECT DISTINCT d.id, d.name, d.description, d.database_name AS databaseName
+            FROM datasource d
+            JOIN datasource_access a ON a.datasource_id = d.id
+            WHERE d.status = 1
+              AND d.deleted = 0
+              AND a.can_query = 1
+              AND (a.expires_at IS NULL OR a.expires_at > NOW())
+              AND (
+                  (a.subject_type = 'USER' AND a.subject_id = #{userId})
+                  <if test="roleIds != null and roleIds.size() > 0">
+                  OR (a.subject_type = 'ROLE' AND a.subject_id IN
+                      <foreach collection="roleIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>)
+                  </if>
+                  <if test="deptId != null">
+                  OR (a.subject_type = 'DEPARTMENT' AND a.subject_id = #{deptId})
+                  </if>
+              )
+            ORDER BY d.name, d.id
+            </script>
+            """)
+    List<DatasourceSimpleVO> selectAccessibleMultiDimension(@Param("userId") Long userId,
+                                                            @Param("roleIds") List<Long> roleIds,
+                                                            @Param("deptId") Long deptId);
+
+    /**
      * 查询所有启用且未删除的数据源简要信息。
      *
      * @return 启用数据源简要列表

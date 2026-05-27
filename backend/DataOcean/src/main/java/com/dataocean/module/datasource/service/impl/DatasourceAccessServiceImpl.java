@@ -11,7 +11,9 @@ import com.dataocean.module.datasource.entity.vo.DatasourceSimpleVO;
 import com.dataocean.module.datasource.mapper.DatasourceAccessMapper;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
+import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.mapper.RoleMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +39,7 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
     private final DatasourceMapper datasourceMapper;
     private final DatasourceAccessMapper accessMapper;
     private final UserMapper userMapper;
+    private final RoleMapper roleMapper;
 
     /**
      * {@inheritDoc}
@@ -111,7 +114,12 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
         if (hasAllPermission()) {
             return datasourceMapper.selectEnabledSimple();
         }
-        return datasourceMapper.selectAccessibleByUserId(UserContext.currentUserId());
+        Long userId = UserContext.currentUserId();
+        // 合并用户直接授权 + 角色授权 + 部门授权
+        List<Long> roleIds = roleMapper.selectByUserId(userId).stream()
+                .map(SysRole::getId).toList();
+        Long deptId = userMapper.selectDepartmentIdByUserId(userId);
+        return datasourceMapper.selectAccessibleMultiDimension(userId, roleIds, deptId);
     }
 
     /**

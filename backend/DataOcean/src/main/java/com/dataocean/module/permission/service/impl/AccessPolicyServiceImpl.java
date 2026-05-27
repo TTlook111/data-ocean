@@ -1,7 +1,14 @@
 package com.dataocean.module.permission.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.datasource.entity.Datasource;
+import com.dataocean.module.datasource.mapper.DatasourceMapper;
+import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.entity.DbTableMeta;
+import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
+import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.permission.entity.DatasourceAccessPolicy;
 import com.dataocean.module.permission.entity.dto.AccessPolicyBatchDTO;
 import com.dataocean.module.permission.entity.dto.AccessPolicyCreateDTO;
@@ -12,6 +19,12 @@ import com.dataocean.module.permission.enums.SubjectType;
 import com.dataocean.module.permission.mapper.DatasourceAccessPolicyMapper;
 import com.dataocean.module.permission.service.AccessPolicyService;
 import com.dataocean.module.permission.service.PermissionCalculator;
+import com.dataocean.module.user.entity.SysDepartment;
+import com.dataocean.module.user.entity.SysRole;
+import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.mapper.DepartmentMapper;
+import com.dataocean.module.user.mapper.RoleMapper;
+import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,11 +44,26 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
 
     private final DatasourceAccessPolicyMapper policyMapper;
     private final PermissionCalculator permissionCalculator;
+    private final DatasourceMapper datasourceMapper;
+    private final UserMapper userMapper;
+    private final RoleMapper roleMapper;
+    private final DepartmentMapper departmentMapper;
+    private final DbTableMetaMapper tableMetaMapper;
+    private final DbColumnMetaMapper columnMetaMapper;
 
     @Transactional
     @Override
     public Long create(AccessPolicyCreateDTO dto) {
         validatePolicy(dto.getSubjectType(), dto.getAccessType(), dto.getMaskStrategy());
+        validateDatasourceExists(dto.getDatasourceId());
+        validateSubjectExists(dto.getSubjectType(), dto.getSubjectId());
+        validateTableName(dto.getDatasourceId(), dto.getTableName());
+        if (dto.getColumnName() != null && !dto.getColumnName().isBlank()) {
+            validateColumnName(dto.getDatasourceId(), dto.getTableName(), dto.getColumnName());
+        }
+        if (dto.getRowFilterExpression() != null && !dto.getRowFilterExpression().isBlank()) {
+            validateRowFilterExpression(dto.getRowFilterExpression());
+        }
 
         DatasourceAccessPolicy policy = new DatasourceAccessPolicy();
         policy.setDatasourceId(dto.getDatasourceId());
@@ -59,6 +87,9 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
     @Override
     public int batchCreate(AccessPolicyBatchDTO dto) {
         validateSubjectType(dto.getSubjectType());
+        validateDatasourceExists(dto.getDatasourceId());
+        validateSubjectExists(dto.getSubjectType(), dto.getSubjectId());
+        validateTableName(dto.getDatasourceId(), dto.getTableName());
         Long currentUserId = UserContext.currentUserId();
         int count = 0;
 
@@ -169,6 +200,75 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             MaskStrategy.valueOf(maskStrategy);
         } catch (IllegalArgumentException e) {
             throw new BusinessException("无效的脱敏策略: " + maskStrategy);
+        }
+    }
+
+    /**
+     * 校验数据源存在
+     */
+    private void validateDatasourceExists(Long datasourceId) {
+        Datasource ds = datasourceMapper.selectOne(new LambdaQueryWrapper<Datasource>()
+                .eq(Datasource::getId, datasourceId)
+                .eq(Datasource::getDeleted, 0L));
+        if (ds == null) {
+            throw new BusinessException("数据源不存在: " + datasourceId);
+        }
+    }
+
+    /**
+     * 校验授权主体存在
+     */
+    private void validateSubjectExists(String subjectType, Long subjectId) {
+        switch (SubjectType.valueOf(subjectType)) {
+            case USER -> {
+                SysUser user = userMapper.selectById(subjectId);
+                if (user == null) throw new BusinessException("用户不存在: " + subjectId);
+            }
+            case ROLE -> {
+                SysRole role = roleMapper.selectById(subjectId);
+                if (role == null) throw new BusinessException("角色不存在: " + subjectId);
+            }
+            case DEPARTMENT -> {
+                SysDepartment dept = departmentMapper.selectById(subjectId);
+                if (dept == null) throw new BusinessException("部门不存在: " + subjectId);
+            }
+        }
+    }
+
+    /**
+     * 校验表名在数据源元数据中存在（* 表示所有表，跳过校验）
+     */
+    private void validateTableName(Long datasourceId, String tableName) {
+        if ("*".equals(tableName)) return;
+        Long count = tableMetaMapper.selectCount(new LambdaQueryWrapper<DbTableMeta>()
+                .eq(DbTableMeta::getDatasourceId, datasourceId)
+                .eq(DbTableMeta::getTableName, tableName));
+        if (count == 0) {
+            throw new BusinessException("表名不存在: " + tableName);
+        }
+    }
+
+    /**
+     * 校验列名在数据源对应表的元数据中存在
+     */
+    private void validateColumnName(Long datasourceId, String tableName, String columnName) {
+        Long count = columnMetaMapper.selectCount(new LambdaQueryWrapper<DbColumnMeta>()
+                .eq(DbColumnMeta::getDatasourceId, datasourceId)
+                .eq(DbColumnMeta::getTableName, tableName)
+                .eq(DbColumnMeta::getColumnName, columnName));
+        if (count == 0) {
+            throw new BusinessException("列名不存在: " + tableName + "." + columnName);
+        }
+    }
+
+    /**
+     * 校验行级过滤表达式语法（基本检查：不为空且不含危险关键字）
+     */
+    private void validateRowFilterExpression(String expression) {
+        String upper = expression.toUpperCase().trim();
+        if (upper.contains("DROP ") || upper.contains("DELETE ") || upper.contains("INSERT ")
+                || upper.contains("UPDATE ") || upper.contains("ALTER ") || upper.contains(";")) {
+            throw new BusinessException("行级过滤表达式包含非法关键字");
         }
     }
 }

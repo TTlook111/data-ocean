@@ -128,38 +128,44 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
     }
 
     /**
-     * 将 governance_status 为 BLOCKED/DEPRECATED 的表/列加入禁止列表
+     * 将 governance_status 为 BLOCKED/DEPRECATED 的表/列加入禁止列表，
+     * 同时处理策略中的表级 DENY（deniedTables）。
      */
     private void appendGovernanceBlocked(PermissionContextVO context, Long datasourceId) {
-        // 查询表级 BLOCKED/DEPRECATED（整表禁止访问）
+        // 收集所有需要排除的表：governance BLOCKED + 策略 DENY
+        Set<String> allExcludedTables = new HashSet<>();
+
+        // 查询表级 BLOCKED/DEPRECATED
         List<DbTableMeta> blockedTables = tableMetaMapper.selectList(
                 new LambdaQueryWrapper<DbTableMeta>()
                         .eq(DbTableMeta::getDatasourceId, datasourceId)
                         .in(DbTableMeta::getGovernanceStatus, List.of("BLOCKED", "DEPRECATED"))
                         .select(DbTableMeta::getTableName));
+        blockedTables.forEach(t -> allExcludedTables.add(t.getTableName().toLowerCase()));
 
-        // 如果有表级 BLOCKED，需要通过 allowedTables 白名单机制排除
-        if (!blockedTables.isEmpty()) {
-            Set<String> blockedTableNames = blockedTables.stream()
-                    .map(t -> t.getTableName().toLowerCase())
-                    .collect(Collectors.toSet());
+        // 加入策略中的表级 DENY
+        if (context.getDeniedTables() != null) {
+            context.getDeniedTables().forEach(t -> allExcludedTables.add(t.toLowerCase()));
+        }
 
+        // 如果有需要排除的表，通过 allowedTables 白名单机制实现
+        if (!allExcludedTables.isEmpty()) {
             if (context.getAllowedTables().isEmpty()) {
-                // 当前无白名单限制 → 构建白名单（所有表 - BLOCKED 表）
+                // 当前无白名单限制 → 构建白名单（所有表 - 排除表）
                 List<DbTableMeta> allTables = tableMetaMapper.selectList(
                         new LambdaQueryWrapper<DbTableMeta>()
                                 .eq(DbTableMeta::getDatasourceId, datasourceId)
                                 .select(DbTableMeta::getTableName));
                 List<String> allowed = allTables.stream()
                         .map(t -> t.getTableName().toLowerCase())
-                        .filter(name -> !blockedTableNames.contains(name))
+                        .filter(name -> !allExcludedTables.contains(name))
                         .distinct()
                         .collect(Collectors.toList());
                 context.setAllowedTables(allowed);
             } else {
-                // 已有白名单 → 从中移除 BLOCKED 表
+                // 已有白名单 → 从中移除排除表
                 List<String> filtered = context.getAllowedTables().stream()
-                        .filter(t -> !blockedTableNames.contains(t.toLowerCase()))
+                        .filter(t -> !allExcludedTables.contains(t.toLowerCase()))
                         .collect(Collectors.toList());
                 context.setAllowedTables(filtered);
             }
@@ -320,18 +326,24 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         // 构建结果
         PermissionContextVO context = new PermissionContextVO();
 
-        // allowedTables：如果有 ALLOW 表级策略，则只允许这些表；否则不限制（空列表表示不限制）
-        if (hasAllowPolicy) {
-            // 从 allowedTables 中移除被所有维度都禁止的表
-            Set<String> finalDeniedTables = new HashSet<>();
-            if (!deniedTableSets.isEmpty()) {
-                finalDeniedTables.addAll(deniedTableSets.get(0));
-                for (int i = 1; i < deniedTableSets.size(); i++) {
-                    finalDeniedTables.retainAll(deniedTableSets.get(i));
-                }
+        // 计算最终被禁止的表（交集：所有维度都禁止才真正禁止）
+        Set<String> finalDeniedTables = new HashSet<>();
+        if (!deniedTableSets.isEmpty()) {
+            finalDeniedTables.addAll(deniedTableSets.get(0));
+            for (int i = 1; i < deniedTableSets.size(); i++) {
+                finalDeniedTables.retainAll(deniedTableSets.get(i));
             }
+        }
+
+        if (hasAllowPolicy) {
+            // 有 ALLOW 表级策略：只允许这些表，并移除被禁止的表
             allAllowedTables.removeAll(finalDeniedTables);
             context.setAllowedTables(new ArrayList<>(allAllowedTables));
+        } else if (!finalDeniedTables.isEmpty()) {
+            // 无 ALLOW 但有表级 DENY：需要构建白名单排除被禁止的表
+            // 标记需要在 appendGovernanceBlocked 阶段构建白名单时排除这些表
+            context.setAllowedTables(List.of());
+            context.setDeniedTables(new ArrayList<>(finalDeniedTables));
         } else {
             context.setAllowedTables(List.of());
         }

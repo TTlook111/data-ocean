@@ -35,6 +35,9 @@ public class PermissionContextVO {
     /** 是否允许导出结果（合并所有维度，任一维度允许即允许） */
     private boolean canExport = false;
 
+    /** 策略中被禁止的表（内部使用，用于 governance 联动时构建白名单） */
+    private List<String> deniedTables;
+
     /**
      * 行级过滤条件项
      */
