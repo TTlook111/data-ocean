@@ -79,10 +79,16 @@ public class QueryTaskServiceImpl implements QueryTaskService {
         if (task.getDatasourceId() != null) {
             PermissionContextVO context = permissionCalculator.calculate(userId, task.getDatasourceId());
 
-            // 对查询结果执行脱敏
-            if (vo.getData() != null && !vo.getData().isEmpty()
-                    && context.getMaskColumns() != null && !context.getMaskColumns().isEmpty()) {
-                vo.setData(dataMaskingService.maskResult(vo.getData(), context.getMaskColumns()));
+            // 对查询结果执行脱敏：优先使用 Python AST 标记的精确字段，fallback 到全量策略
+            if (vo.getData() != null && !vo.getData().isEmpty()) {
+                List<String> maskedFieldsFromPython = parseMaskedFields(task.getMaskedFields());
+                if (!maskedFieldsFromPython.isEmpty()) {
+                    // Python 已精确标记本次 SQL 实际涉及的脱敏字段（格式 "table.column"）
+                    vo.setData(dataMaskingService.maskResultByFields(vo.getData(), maskedFieldsFromPython, context.getMaskColumns()));
+                } else if (context.getMaskColumns() != null && !context.getMaskColumns().isEmpty()) {
+                    // fallback：按全量策略列名匹配
+                    vo.setData(dataMaskingService.maskResult(vo.getData(), context.getMaskColumns()));
+                }
             }
 
             // can_view_sql 控制：无权限则隐藏 SQL
@@ -94,6 +100,21 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             vo.setCanExport(context.isCanExport());
         }
         return vo;
+    }
+
+    /**
+     * 解析 Python 返回的 maskedFields JSON
+     */
+    private List<String> parseMaskedFields(String maskedFieldsJson) {
+        if (maskedFieldsJson == null || maskedFieldsJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(maskedFieldsJson, new TypeReference<>() {});
+        } catch (Exception e) {
+            log.warn("解析 maskedFields 失败: {}", maskedFieldsJson);
+            return List.of();
+        }
     }
 
     /**
@@ -160,6 +181,9 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             }
             if (result.containsKey("usedColumns")) {
                 wrapper.set(QueryTask::getUsedColumns, objectMapper.writeValueAsString(result.get("usedColumns")));
+            }
+            if (result.containsKey("maskedFields")) {
+                wrapper.set(QueryTask::getMaskedFields, objectMapper.writeValueAsString(result.get("maskedFields")));
             }
             if (result.containsKey("error")) {
                 wrapper.set(QueryTask::getErrorMessage, (String) result.get("error"));

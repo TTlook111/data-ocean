@@ -63,6 +63,9 @@ public class QueryTask {
     /** 使用的字段列表 JSON */
     private String usedColumns;
 
+    /** Python AST 标记的需脱敏字段列表 JSON（格式: ["table.column", ...]） */
+    private String maskedFields;
+
     /** 错误信息 */
     private String errorMessage;
 

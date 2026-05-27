@@ -49,6 +49,45 @@ public class DataMaskingServiceImpl implements DataMaskingService {
     }
 
     @Override
+    public List<Map<String, Object>> maskResultByFields(List<Map<String, Object>> data,
+                                                         List<String> maskedFields,
+                                                         List<PermissionContextVO.MaskColumnItem> maskColumns) {
+        if (data == null || data.isEmpty() || maskedFields == null || maskedFields.isEmpty()) {
+            return data;
+        }
+
+        // 从 maskedFields（"table.column"）提取列名，并从 maskColumns 中查找对应策略
+        Map<String, String> columnStrategyMap = new HashMap<>();
+        for (String field : maskedFields) {
+            String columnName = field.contains(".") ? field.substring(field.indexOf('.') + 1) : field;
+            // 从策略配置中查找该列的脱敏方式
+            for (PermissionContextVO.MaskColumnItem item : maskColumns) {
+                if (item.getColumnName().equalsIgnoreCase(columnName)) {
+                    columnStrategyMap.put(columnName.toLowerCase(), item.getMaskType());
+                    break;
+                }
+            }
+        }
+
+        if (columnStrategyMap.isEmpty()) {
+            return data;
+        }
+
+        List<Map<String, Object>> maskedData = new ArrayList<>(data.size());
+        for (Map<String, Object> row : data) {
+            Map<String, Object> maskedRow = new LinkedHashMap<>(row);
+            for (Map.Entry<String, Object> entry : maskedRow.entrySet()) {
+                String strategy = columnStrategyMap.get(entry.getKey().toLowerCase());
+                if (strategy != null && entry.getValue() != null) {
+                    entry.setValue(maskValue(String.valueOf(entry.getValue()), strategy));
+                }
+            }
+            maskedData.add(maskedRow);
+        }
+        return maskedData;
+    }
+
+    @Override
     public String maskValue(String value, String strategy) {
         if (value == null || value.isBlank()) {
             return value;

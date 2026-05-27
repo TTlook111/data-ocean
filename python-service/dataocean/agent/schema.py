@@ -108,6 +108,7 @@ class QueryResult(BaseModel):
     total_time_ms: int = Field(default=0, serialization_alias="totalTimeMs")
     error: str | None = None
     suggested_questions: list[str] = Field(default_factory=list, serialization_alias="suggestedQuestions")
+    masked_fields: list[str] = Field(default_factory=list, serialization_alias="maskedFields")
 
 
 class ProgressEvent(BaseModel):
