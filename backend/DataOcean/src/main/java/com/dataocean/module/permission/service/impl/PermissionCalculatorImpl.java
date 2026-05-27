@@ -291,9 +291,8 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
             if (!subjectDeniedTables.isEmpty()) {
                 deniedTableSets.add(subjectDeniedTables);
             }
-            if (!subjectMask.isEmpty()) {
-                maskColumnSets.add(subjectMask);
-            }
+            // 所有有策略的维度都参与 mask 交集计算（空 map 表示该维度允许明文）
+            maskColumnSets.add(subjectMask);
         }
 
         // 计算最终 denied columns（交集：所有维度都禁止才禁止）

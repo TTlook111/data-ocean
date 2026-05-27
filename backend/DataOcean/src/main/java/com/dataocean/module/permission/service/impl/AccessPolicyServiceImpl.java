@@ -146,6 +146,10 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         // 确定最终的 accessType（可能是传入的新值，也可能是原值）
         String finalAccessType = accessType != null ? accessType : policy.getAccessType();
         if ("MASK".equals(finalAccessType)) {
+            // MASK 必须是列级策略，禁止把表级策略改成 MASK
+            if (policy.getColumnName() == null || policy.getColumnName().isBlank()) {
+                throw new BusinessException("脱敏策略必须指定列名，不能将表级策略改为脱敏");
+            }
             if (maskStrategy == null || maskStrategy.isBlank()) {
                 throw new BusinessException("脱敏策略不能为空");
             }
