@@ -48,6 +48,7 @@ async def validate_sql_endpoint(request: ValidateRequest) -> ValidateResponse:
         row_filters=row_filters_dict or None,
         denied_columns=request.denied_columns or None,
         mask_columns=request.mask_columns or None,
+        mask_strategies=request.mask_strategies or None,
     )
 
     if not rewrite_result.success:

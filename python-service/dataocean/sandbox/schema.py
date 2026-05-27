@@ -34,6 +34,10 @@ class ValidateRequest(BaseModel):
         default_factory=dict,
         validation_alias=AliasChoices("mask_columns", "maskColumns"),
     )
+    mask_strategies: dict[str, str] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("mask_strategies", "maskStrategies"),
+    )
 
 
 class ValidateResponse(BaseModel):

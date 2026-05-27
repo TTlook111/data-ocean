@@ -159,40 +159,95 @@ def _mark_sensitive_columns(
 ) -> dict[str, str]:
     """Return mapping of output column name → mask strategy for the Java gateway.
 
-    Recursively inspects each output expression (including CONCAT, CASE, subqueries)
-    for references to sensitive columns. If any sensitive column is found within an
-    output expression, that output column is marked for masking.
+    Handles: direct columns, aliased columns, expressions containing sensitive columns,
+    derived tables (subqueries in FROM), and CTEs.
     """
     if not mask_columns:
         return {}
 
-    mask_by_table = _normalize_column_map(mask_columns)
-    masked: dict[str, str] = {}
-
     if not isinstance(tree, exp.Select):
         return {}
 
+    mask_by_table = _normalize_column_map(mask_columns)
+
+    # Build a "sensitive output names" set that includes:
+    # 1. Physical sensitive columns from real tables
+    # 2. Aliases from subqueries/CTEs that expose sensitive columns
+    sensitive_aliases = _collect_subquery_sensitive_aliases(tree, mask_by_table, mask_strategies)
+
     alias_map = _build_top_level_alias_map(tree)
     scope_tables = set(alias_map.values())
+
+    masked: dict[str, str] = {}
 
     for expr in tree.expressions:
         output_name = expr.alias if isinstance(expr, exp.Alias) else None
         inner = expr.this if isinstance(expr, exp.Alias) else expr
 
-        # Determine the output key name
+        # Determine the output key (what the result-set column will be named)
         if output_name:
             out_key = output_name
         elif isinstance(inner, exp.Column):
             out_key = inner.name.lower()
         else:
-            out_key = None
+            # No alias on a complex expression: MySQL uses the expression SQL text as column name
+            out_key = expr.sql(dialect="mysql") if expr else None
 
-        # Recursively find all Column references within this output expression
-        found_strategy = _find_sensitive_in_expr(inner, mask_by_table, mask_strategies, alias_map, scope_tables)
-        if found_strategy and out_key:
+        if not out_key:
+            continue
+
+        # Check if this expression references any sensitive column
+        found_strategy = _find_sensitive_in_expr(
+            inner, mask_by_table, mask_strategies, alias_map, scope_tables, sensitive_aliases
+        )
+        if found_strategy:
             masked[out_key] = found_strategy
 
     return masked
+
+
+def _collect_subquery_sensitive_aliases(
+    tree: exp.Select,
+    mask_by_table: dict[str, set[str]],
+    mask_strategies: dict[str, str],
+) -> dict[str, str]:
+    """Analyze subqueries in FROM and CTEs to find output aliases that expose sensitive data.
+
+    Returns {alias_name: strategy} for columns that are sensitive in the subquery's output.
+    """
+    sensitive: dict[str, str] = {}
+
+    # Check CTEs
+    with_clause = tree.find(exp.With)
+    if with_clause:
+        for cte in with_clause.find_all(exp.CTE):
+            cte_alias = cte.alias.lower() if cte.alias else ""
+            cte_select = cte.find(exp.Select)
+            if cte_select and cte_alias:
+                sub_masked = _mark_sensitive_columns(cte_select, dict(_denormalize(mask_by_table)), mask_strategies)
+                for out_name, strategy in sub_masked.items():
+                    # The CTE output column becomes a "virtual sensitive column" accessible via cte_alias.out_name
+                    sensitive[out_name.lower()] = strategy
+
+    # Check derived tables (subqueries in FROM)
+    from_clause = tree.find(exp.From)
+    sources = [from_clause] if from_clause else []
+    sources.extend(tree.find_all(exp.Join))
+
+    for source in sources:
+        for subquery in source.find_all(exp.Subquery):
+            sub_select = subquery.find(exp.Select)
+            if sub_select:
+                sub_masked = _mark_sensitive_columns(sub_select, dict(_denormalize(mask_by_table)), mask_strategies)
+                for out_name, strategy in sub_masked.items():
+                    sensitive[out_name.lower()] = strategy
+
+    return sensitive
+
+
+def _denormalize(mask_by_table: dict[str, set[str]]) -> list[tuple[str, list[str]]]:
+    """Convert normalized {table: set(cols)} back to {table: [cols]} for recursive calls."""
+    return [(table, list(cols)) for table, cols in mask_by_table.items()]
 
 
 def _find_sensitive_in_expr(
@@ -201,15 +256,20 @@ def _find_sensitive_in_expr(
     mask_strategies: dict[str, str],
     alias_map: dict[str, str],
     scope_tables: set[str],
+    sensitive_aliases: dict[str, str],
 ) -> str:
     """Recursively check if an expression references any sensitive column.
 
+    Also checks against sensitive_aliases (from subqueries/CTEs).
     Returns the mask strategy if found, empty string otherwise.
-    If multiple sensitive columns are referenced, returns the first match.
     """
     if isinstance(expr, exp.Column):
         col_name = expr.name.lower()
         qualifier = expr.table.lower() if expr.table else ""
+
+        # Check against subquery/CTE sensitive aliases
+        if col_name in sensitive_aliases:
+            return sensitive_aliases[col_name]
 
         real_table = None
         if qualifier:
@@ -231,7 +291,7 @@ def _find_sensitive_in_expr(
 
     # Recurse into child expressions
     for child in expr.iter_expressions():
-        result = _find_sensitive_in_expr(child, mask_by_table, mask_strategies, alias_map, scope_tables)
+        result = _find_sensitive_in_expr(child, mask_by_table, mask_strategies, alias_map, scope_tables, sensitive_aliases)
         if result:
             return result
 

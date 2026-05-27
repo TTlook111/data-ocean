@@ -85,6 +85,29 @@ class SandboxRewriteTest(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.masked_fields, {"info": "PHONE"})
 
+    def test_mask_columns_derived_table(self) -> None:
+        result = rewrite(
+            "SELECT contact FROM (SELECT u.phone AS contact FROM users u) t",
+            mask_columns={"users": ["phone"]},
+            mask_strategies={"users.phone": "PHONE"},
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.masked_fields, {"contact": "PHONE"})
+
+    def test_mask_columns_no_alias_expression(self) -> None:
+        result = rewrite(
+            "SELECT CONCAT(u.phone, 'x') FROM users u",
+            mask_columns={"users": ["phone"]},
+            mask_strategies={"users.phone": "PHONE"},
+        )
+
+        self.assertTrue(result.success)
+        # output_name for CONCAT without alias is typically the expression text
+        self.assertTrue(len(result.masked_fields) == 1)
+        strategy = next(iter(result.masked_fields.values()))
+        self.assertEqual(strategy, "PHONE")
+
 
 class SandboxValidationTest(unittest.TestCase):
     def test_dangerous_functions_and_wildcards_are_rejected(self) -> None:
