@@ -62,7 +62,7 @@ async def run_sql_executor(state: AgentState) -> AgentState:
     # 调用 009 模块沙箱执行器
     from dataocean.sandbox.executor import execute as sandbox_execute
 
-    mask_columns = validation_result.get("masked_fields", [])
+    mask_columns = validation_result.get("masked_fields", {})
     result = await sandbox_execute(
         sql=sql,
         datasource_id=datasource_id,

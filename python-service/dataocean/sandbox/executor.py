@@ -41,14 +41,14 @@ class ExecutionResult:
     error: str = ""
     error_type: str = ""
     truncated: bool = False
-    masked_fields: list[str] = field(default_factory=list)
+    masked_fields: dict[str, str] = field(default_factory=dict)
 
 
 async def execute(
     sql: str,
     datasource_id: int,
     connection_config: dict,
-    mask_columns: list[str] | None = None,
+    mask_columns: dict[str, str] | None = None,
 ) -> ExecutionResult:
     """在沙箱中执行 SQL
 
@@ -82,7 +82,7 @@ async def execute(
             timeout=sandbox_config.max_execution_time,
         )
         result.execution_time_ms = int((time.time() - start) * 1000)
-        result.masked_fields = mask_columns or []
+        result.masked_fields = mask_columns or {}
         return result
     except asyncio.TimeoutError:
         elapsed = int((time.time() - start) * 1000)

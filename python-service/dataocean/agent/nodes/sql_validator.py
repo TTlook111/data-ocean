@@ -81,7 +81,7 @@ async def run_sql_validator(state: AgentState) -> AgentState:
         if table and col:
             mask_columns.setdefault(table, []).append(col)
             if mask_type:
-                mask_strategies[f"{table}.{col}"] = mask_type
+                mask_strategies[f"{table.lower()}.{col.lower()}"] = mask_type
 
     rewrite_result = rewrite(
         sql=generated_sql,

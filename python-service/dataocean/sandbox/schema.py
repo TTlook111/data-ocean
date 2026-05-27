@@ -42,7 +42,7 @@ class ValidateResponse(BaseModel):
     passed: bool
     violations: list[str] = Field(default_factory=list)
     rewritten_sql: str | None = Field(default=None, serialization_alias="rewrittenSql")
-    masked_columns: list[str] = Field(default_factory=list, serialization_alias="maskedColumns")
+    masked_columns: dict[str, str] = Field(default_factory=dict, serialization_alias="maskedColumns")
 
 
 class ConnectionConfig(BaseModel):
@@ -66,8 +66,8 @@ class ExecuteRequest(BaseModel):
     connection_config: ConnectionConfig = Field(
         validation_alias=AliasChoices("connection_config", "connectionConfig"),
     )
-    mask_columns: list[str] = Field(
-        default_factory=list,
+    mask_columns: dict[str, str] = Field(
+        default_factory=dict,
         validation_alias=AliasChoices("mask_columns", "maskColumns"),
     )
 
@@ -83,4 +83,4 @@ class ExecuteResponse(BaseModel):
     error: str | None = None
     error_type: str | None = Field(default=None, serialization_alias="errorType")
     truncated: bool = False
-    masked_columns: list[str] = Field(default_factory=list, serialization_alias="maskedColumns")
+    masked_columns: dict[str, str] = Field(default_factory=dict, serialization_alias="maskedColumns")

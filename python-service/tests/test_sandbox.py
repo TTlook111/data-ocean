@@ -59,10 +59,31 @@ class SandboxRewriteTest(unittest.TestCase):
         result = rewrite(
             "SELECT u.email FROM users u",
             mask_columns={"users": ["email"]},
+            mask_strategies={"users.email": "EMAIL"},
         )
 
         self.assertTrue(result.success)
-        self.assertEqual(result.masked_fields, ["users.email"])
+        self.assertEqual(result.masked_fields, {"email": "EMAIL"})
+
+    def test_mask_columns_with_alias_output(self) -> None:
+        result = rewrite(
+            "SELECT u.email AS contact FROM users u",
+            mask_columns={"users": ["email"]},
+            mask_strategies={"users.email": "EMAIL"},
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.masked_fields, {"contact": "EMAIL"})
+
+    def test_mask_columns_in_expression(self) -> None:
+        result = rewrite(
+            "SELECT CONCAT(u.phone, 'x') AS info FROM users u",
+            mask_columns={"users": ["phone"]},
+            mask_strategies={"users.phone": "PHONE"},
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.masked_fields, {"info": "PHONE"})
 
 
 class SandboxValidationTest(unittest.TestCase):

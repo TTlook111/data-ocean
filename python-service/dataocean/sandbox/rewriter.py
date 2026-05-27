@@ -159,8 +159,9 @@ def _mark_sensitive_columns(
 ) -> dict[str, str]:
     """Return mapping of output column name → mask strategy for the Java gateway.
 
-    Returns {output_name: strategy} where output_name is the result-set column name
-    (alias if present, otherwise physical column name).
+    Recursively inspects each output expression (including CONCAT, CASE, subqueries)
+    for references to sensitive columns. If any sensitive column is found within an
+    output expression, that output column is marked for masking.
     """
     if not mask_columns:
         return {}
@@ -178,11 +179,37 @@ def _mark_sensitive_columns(
         output_name = expr.alias if isinstance(expr, exp.Alias) else None
         inner = expr.this if isinstance(expr, exp.Alias) else expr
 
-        if not isinstance(inner, exp.Column):
-            continue
+        # Determine the output key name
+        if output_name:
+            out_key = output_name
+        elif isinstance(inner, exp.Column):
+            out_key = inner.name.lower()
+        else:
+            out_key = None
 
-        col_name = inner.name.lower()
-        qualifier = inner.table.lower() if inner.table else ""
+        # Recursively find all Column references within this output expression
+        found_strategy = _find_sensitive_in_expr(inner, mask_by_table, mask_strategies, alias_map, scope_tables)
+        if found_strategy and out_key:
+            masked[out_key] = found_strategy
+
+    return masked
+
+
+def _find_sensitive_in_expr(
+    expr: exp.Expression,
+    mask_by_table: dict[str, set[str]],
+    mask_strategies: dict[str, str],
+    alias_map: dict[str, str],
+    scope_tables: set[str],
+) -> str:
+    """Recursively check if an expression references any sensitive column.
+
+    Returns the mask strategy if found, empty string otherwise.
+    If multiple sensitive columns are referenced, returns the first match.
+    """
+    if isinstance(expr, exp.Column):
+        col_name = expr.name.lower()
+        qualifier = expr.table.lower() if expr.table else ""
 
         real_table = None
         if qualifier:
@@ -190,25 +217,25 @@ def _mark_sensitive_columns(
         elif len(scope_tables) == 1:
             real_table = next(iter(scope_tables))
 
-        matched = False
         if real_table and col_name in mask_by_table.get(real_table, set()):
-            matched = True
-        elif not real_table:
+            strategy = mask_strategies.get(f"{real_table}.{col_name}", "")
+            return strategy if strategy else "UNKNOWN"
+
+        if not real_table:
             for table_name, cols in mask_by_table.items():
                 if col_name in cols:
-                    real_table = table_name
-                    matched = True
-                    break
+                    strategy = mask_strategies.get(f"{table_name}.{col_name}", "")
+                    return strategy if strategy else "UNKNOWN"
 
-        if matched:
-            out_key = output_name if output_name else col_name
-            # 查找策略：先精确匹配 "table.column"，再 fallback 到列名
-            strategy = mask_strategies.get(f"{real_table}.{col_name}", "")
-            if not strategy:
-                strategy = mask_strategies.get(col_name, "UNKNOWN")
-            masked[out_key] = strategy
+        return ""
 
-    return masked
+    # Recurse into child expressions
+    for child in expr.iter_expressions():
+        result = _find_sensitive_in_expr(child, mask_by_table, mask_strategies, alias_map, scope_tables)
+        if result:
+            return result
+
+    return ""
 
 
 def _build_top_level_alias_map(tree: exp.Select) -> dict[str, str]:
