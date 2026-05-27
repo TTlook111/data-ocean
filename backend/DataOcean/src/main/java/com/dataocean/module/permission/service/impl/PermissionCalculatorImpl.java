@@ -248,8 +248,8 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         // 收集各维度的 allowed tables（表级 ALLOW）
         Set<String> allAllowedTables = new HashSet<>();
         boolean hasAllowPolicy = false;
-        // 收集各维度的 mask columns（如果任一维度允许明文，则不脱敏）
-        Map<String, Set<String>> maskColumnsBySubject = new HashMap<>();
+        // 收集各维度的 mask columns（取交集：所有有策略的维度都 MASK 才脱敏）
+        List<Map<String, String>> maskColumnSets = new ArrayList<>();
         // 收集行级过滤（多维度 AND 合并）
         Map<String, Set<String>> rowFiltersByTable = new HashMap<>();
 
@@ -259,31 +259,26 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
 
             Set<String> subjectDenied = new HashSet<>();
             Set<String> subjectDeniedTables = new HashSet<>();
+            Map<String, String> subjectMask = new HashMap<>();
             for (DatasourceAccessPolicy policy : subjectPolicies) {
                 String accessType = policy.getAccessType();
 
                 if ("DENY".equals(accessType)) {
                     if (policy.getColumnName() != null) {
-                        // 列级禁止
                         subjectDenied.add(policy.getTableName() + "." + policy.getColumnName());
                     } else {
-                        // 表级禁止（整表不可访问）
                         subjectDeniedTables.add(policy.getTableName());
                     }
                 } else if ("ALLOW".equals(accessType) && policy.getColumnName() == null) {
-                    // 表级允许 → 加入 allowedTables
                     allAllowedTables.add(policy.getTableName());
                     hasAllowPolicy = true;
                 } else if ("MASK".equals(accessType) && policy.getColumnName() != null) {
-                    // 列级脱敏（跳过 maskStrategy 为空的无效记录）
                     if (policy.getMaskStrategy() != null && !policy.getMaskStrategy().isBlank()) {
                         String key = policy.getTableName() + "." + policy.getColumnName();
-                        maskColumnsBySubject.computeIfAbsent(key, k -> new HashSet<>())
-                                .add(policy.getMaskStrategy());
+                        subjectMask.put(key, policy.getMaskStrategy());
                     }
                 }
 
-                // 行级过滤
                 if (policy.getRowFilterExpression() != null && !policy.getRowFilterExpression().isBlank()) {
                     rowFiltersByTable.computeIfAbsent(policy.getTableName(), k -> new HashSet<>())
                             .add(policy.getRowFilterExpression());
@@ -295,6 +290,9 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
             }
             if (!subjectDeniedTables.isEmpty()) {
                 deniedTableSets.add(subjectDeniedTables);
+            }
+            if (!subjectMask.isEmpty()) {
+                maskColumnSets.add(subjectMask);
             }
         }
 
@@ -308,17 +306,21 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
             finalDenied.addAll(intersection);
         }
 
-        // 计算最终 mask columns（所有维度都要求脱敏才脱敏）
+        // 计算最终 mask columns（交集：所有有策略的维度都 MASK 才脱敏）
         List<PermissionContextVO.MaskColumnItem> finalMask = new ArrayList<>();
-        int totalSubjectsWithPolicies = (int) subjects.stream()
-                .filter(s -> policiesBySubject.containsKey(s))
-                .count();
-        for (Map.Entry<String, Set<String>> entry : maskColumnsBySubject.entrySet()) {
-            String[] parts = entry.getKey().split("\\.", 2);
-            if (parts.length == 2) {
-                // 取第一个脱敏策略
-                String strategy = entry.getValue().iterator().next();
-                finalMask.add(new PermissionContextVO.MaskColumnItem(parts[0], parts[1], strategy));
+        if (!maskColumnSets.isEmpty()) {
+            // 取所有维度 mask 列的交集
+            Set<String> maskIntersection = new HashSet<>(maskColumnSets.get(0).keySet());
+            for (int i = 1; i < maskColumnSets.size(); i++) {
+                maskIntersection.retainAll(maskColumnSets.get(i).keySet());
+            }
+            // 对交集中的列，取第一个维度的策略
+            for (String key : maskIntersection) {
+                String[] parts = key.split("\\.", 2);
+                if (parts.length == 2) {
+                    String strategy = maskColumnSets.get(0).get(key);
+                    finalMask.add(new PermissionContextVO.MaskColumnItem(parts[0], parts[1], strategy));
+                }
             }
         }
 

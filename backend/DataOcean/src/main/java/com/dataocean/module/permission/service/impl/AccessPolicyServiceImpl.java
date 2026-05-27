@@ -55,7 +55,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
     @Transactional
     @Override
     public Long create(AccessPolicyCreateDTO dto) {
-        validatePolicy(dto.getSubjectType(), dto.getAccessType(), dto.getMaskStrategy());
+        validatePolicy(dto.getSubjectType(), dto.getAccessType(), dto.getMaskStrategy(), dto.getColumnName());
         validateDatasourceExists(dto.getDatasourceId());
         validateSubjectExists(dto.getSubjectType(), dto.getSubjectId());
         validateTableName(dto.getDatasourceId(), dto.getTableName());
@@ -97,6 +97,9 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         for (AccessPolicyBatchDTO.PolicyItem item : dto.getPolicies()) {
             validateAccessType(item.getAccessType());
             if ("MASK".equals(item.getAccessType())) {
+                if (item.getColumnName() == null || item.getColumnName().isBlank()) {
+                    throw new BusinessException("脱敏策略必须指定列名，不支持表级脱敏");
+                }
                 if (item.getMaskStrategy() == null || item.getMaskStrategy().isBlank()) {
                     throw new BusinessException("脱敏策略不能为空");
                 }
@@ -178,10 +181,13 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
     /**
      * 校验策略参数合法性
      */
-    private void validatePolicy(String subjectType, String accessType, String maskStrategy) {
+    private void validatePolicy(String subjectType, String accessType, String maskStrategy, String columnName) {
         validateSubjectType(subjectType);
         validateAccessType(accessType);
         if ("MASK".equals(accessType)) {
+            if (columnName == null || columnName.isBlank()) {
+                throw new BusinessException("脱敏策略必须指定列名，不支持表级脱敏");
+            }
             if (maskStrategy == null || maskStrategy.isBlank()) {
                 throw new BusinessException("脱敏策略不能为空");
             }
