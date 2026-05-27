@@ -1,92 +1,55 @@
 """图表生成节点
 
-基于查询结果调用 LLM 生成 ECharts option 配置。
+基于查询结果调用 chart/service 生成 ECharts option 配置。
 数据行数为 0 或仅 1 行 1 列时跳过图表生成。
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import re
-from pathlib import Path
 
-from jinja2 import Template
+from dataocean.chart.service import generate_chart
 
 from ..llm import call_llm
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
 
-_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
-_template_cache: Template | None = None
-
-_MAX_SAMPLE_ROWS = 10
-
-
-def _get_template() -> Template:
-    """获取缓存的图表生成 Prompt 模板"""
-    global _template_cache
-    if _template_cache is None:
-        path = _PROMPTS_DIR / "visualization.j2"
-        _template_cache = Template(path.read_text(encoding="utf-8"))
-    return _template_cache
-
-
-def _extract_json(text: str) -> dict | None:
-    """从 LLM 响应中提取 JSON"""
-    text = text.strip()
-    if text.lower() == "null":
-        return None
-    # 尝试匹配 ```json ... ```
-    match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if match:
-        content = match.group(1).strip()
-        if content.lower() == "null":
-            return None
-        return json.loads(content)
-    # 直接解析
-    if text.startswith("{"):
-        return json.loads(text)
-    return None
-
 
 async def run_data_visualizer(state: AgentState) -> AgentState:
-    """生成图表配置：填充模板 → 调用 LLM → 解析 ECharts option"""
+    """生成图表配置：委托给 chart/service.generate_chart"""
     execution_result = state.get("execution_result", {})
     row_count = execution_result.get("row_count", 0)
     columns = execution_result.get("columns", [])
     data_rows = execution_result.get("data_rows", [])
     task_id = state.get("task_id", "")
+    question = state.get("question", "")
 
     logger.info("图表生成 task_id=%s row_count=%d", task_id, row_count)
 
     # 无数据或单值不生成图表
     if row_count == 0:
-        return {**state, "chart_config": None, "current_node": "DATA_VISUALIZER"}
+        suggested = await _generate_suggestions(state)
+        return {**state, "chart_config": None, "suggested_questions": suggested, "current_node": "DATA_VISUALIZER"}
     if row_count == 1 and len(columns) == 1:
-        return {**state, "chart_config": None, "current_node": "DATA_VISUALIZER"}
+        suggested = await _generate_suggestions(state)
+        return {**state, "chart_config": None, "suggested_questions": suggested, "current_node": "DATA_VISUALIZER"}
 
-    template = _get_template()
-    sample_rows = data_rows[:_MAX_SAMPLE_ROWS]
-    prompt = template.render(
-        columns=columns,
-        sample_rows=sample_rows,
+    # 构建列类型映射
+    column_types = {}
+    for col in columns:
+        if isinstance(col, dict):
+            column_types[col.get("name", "")] = col.get("type", "VARCHAR")
+
+    # 委托给 chart service（传入全量数据，service 内部处理聚合和截断）
+    result = await generate_chart(
+        question=question,
+        data_preview=data_rows,
+        column_types=column_types,
         total_rows=row_count,
     )
 
-    try:
-        response_text = await call_llm(
-            system_prompt="你是一个数据可视化专家。请根据数据特征输出 ECharts option JSON。",
-            user_prompt=prompt,
-            temperature=0.2,
-        )
-        chart_config = _extract_json(response_text)
-    except Exception as e:
-        logger.warning("图表生成失败 task_id=%s error=%s，跳过图表", task_id, e)
-        chart_config = None
-
-    # 生成推荐追问
+    chart_config = result.echarts_option
     suggested = await _generate_suggestions(state)
 
     return {
