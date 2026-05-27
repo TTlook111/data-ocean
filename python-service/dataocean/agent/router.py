@@ -121,7 +121,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
                 retry_count=final_state.get("retry_count", 0),
                 total_time_ms=total_time_ms,
                 suggested_questions=final_state.get("suggested_questions", []),
-                masked_fields=validation_result.get("masked_fields", []),
+                masked_fields=validation_result.get("masked_fields", {}),
             )
 
         await sse.emit_result(task_id, result)

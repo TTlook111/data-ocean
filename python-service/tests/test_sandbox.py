@@ -108,6 +108,22 @@ class SandboxRewriteTest(unittest.TestCase):
         strategy = next(iter(result.masked_fields.values()))
         self.assertEqual(strategy, "PHONE")
 
+    def test_mask_columns_multiple_subqueries_same_alias(self) -> None:
+        sql = (
+            "SELECT u.contact AS user_contact, o.contact AS order_contact "
+            "FROM (SELECT phone AS contact FROM users) u "
+            "JOIN (SELECT bank_card AS contact FROM orders) o ON 1=1"
+        )
+        result = rewrite(
+            sql,
+            mask_columns={"users": ["phone"], "orders": ["bank_card"]},
+            mask_strategies={"users.phone": "PHONE", "orders.bank_card": "BANK_CARD"},
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.masked_fields.get("user_contact"), "PHONE")
+        self.assertEqual(result.masked_fields.get("order_contact"), "BANK_CARD")
+
 
 class SandboxValidationTest(unittest.TestCase):
     def test_dangerous_functions_and_wildcards_are_rejected(self) -> None:

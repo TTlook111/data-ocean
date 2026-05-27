@@ -213,9 +213,26 @@ def _collect_subquery_sensitive_aliases(
 ) -> dict[str, str]:
     """Analyze subqueries in FROM and CTEs to find output aliases that expose sensitive data.
 
-    Returns {alias_name: strategy} for columns that are sensitive in the subquery's output.
+    Returns {qualified_key: strategy} where keys include both:
+    - "source_alias.col_name" (for qualified references like u.contact)
+    - "col_name" (for unqualified references, only if unambiguous)
     """
     sensitive: dict[str, str] = {}
+    # Track which unqualified names are ambiguous (appear in multiple sources)
+    unqualified_seen: dict[str, str] = {}
+    ambiguous: set[str] = set()
+
+    def _register(source_alias: str, sub_masked: dict[str, str]) -> None:
+        for out_name, strategy in sub_masked.items():
+            key_lower = out_name.lower()
+            # Always store qualified version
+            if source_alias:
+                sensitive[f"{source_alias}.{key_lower}"] = strategy
+            # Track unqualified for ambiguity detection
+            if key_lower in unqualified_seen and unqualified_seen[key_lower] != strategy:
+                ambiguous.add(key_lower)
+            else:
+                unqualified_seen[key_lower] = strategy
 
     # Check CTEs
     with_clause = tree.find(exp.With)
@@ -225,22 +242,25 @@ def _collect_subquery_sensitive_aliases(
             cte_select = cte.find(exp.Select)
             if cte_select and cte_alias:
                 sub_masked = _mark_sensitive_columns(cte_select, dict(_denormalize(mask_by_table)), mask_strategies)
-                for out_name, strategy in sub_masked.items():
-                    # The CTE output column becomes a "virtual sensitive column" accessible via cte_alias.out_name
-                    sensitive[out_name.lower()] = strategy
+                _register(cte_alias, sub_masked)
 
-    # Check derived tables (subqueries in FROM)
+    # Check derived tables (subqueries in FROM/JOIN)
     from_clause = tree.find(exp.From)
     sources = [from_clause] if from_clause else []
     sources.extend(tree.find_all(exp.Join))
 
     for source in sources:
         for subquery in source.find_all(exp.Subquery):
+            sub_alias = subquery.alias.lower() if subquery.alias else ""
             sub_select = subquery.find(exp.Select)
             if sub_select:
                 sub_masked = _mark_sensitive_columns(sub_select, dict(_denormalize(mask_by_table)), mask_strategies)
-                for out_name, strategy in sub_masked.items():
-                    sensitive[out_name.lower()] = strategy
+                _register(sub_alias, sub_masked)
+
+    # Add unambiguous unqualified keys
+    for key, strategy in unqualified_seen.items():
+        if key not in ambiguous:
+            sensitive[key] = strategy
 
     return sensitive
 
@@ -267,7 +287,11 @@ def _find_sensitive_in_expr(
         col_name = expr.name.lower()
         qualifier = expr.table.lower() if expr.table else ""
 
-        # Check against subquery/CTE sensitive aliases
+        # Check against subquery/CTE sensitive aliases (qualified first, then unqualified)
+        if qualifier:
+            qualified_key = f"{qualifier}.{col_name}"
+            if qualified_key in sensitive_aliases:
+                return sensitive_aliases[qualified_key]
         if col_name in sensitive_aliases:
             return sensitive_aliases[col_name]
 
