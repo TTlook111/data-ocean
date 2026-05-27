@@ -6,6 +6,7 @@ import com.dataocean.common.security.UserContext;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.service.SchemaSnapshotService;
+import com.dataocean.module.permission.service.DatasourcePermissionService;
 import com.dataocean.module.query.client.PythonAgentClient;
 import com.dataocean.module.query.entity.dto.QueryAskDTO;
 import com.dataocean.module.query.entity.vo.ConversationMessageVO;
@@ -37,6 +38,7 @@ public class QueryController {
     private final ConversationService conversationService;
     private final PythonAgentClient pythonAgentClient;
     private final DatasourceAccessService datasourceAccessService;
+    private final DatasourcePermissionService datasourcePermissionService;
     private final SchemaSnapshotService schemaSnapshotService;
     private final AuditLogService auditLogService;
 
@@ -52,8 +54,8 @@ public class QueryController {
         log.info("用户提交查询 userId={} datasourceId={} question={}",
                 userId, request.getDatasourceId(), request.getQuestion().substring(0, Math.min(50, request.getQuestion().length())));
 
-        // 校验用户是否有权访问该数据源
-        if (!datasourceAccessService.checkAccess(request.getDatasourceId())) {
+        // 校验用户是否有权访问该数据源（多维度：用户 + 角色 + 部门）
+        if (!datasourcePermissionService.checkUserAccess(userId, request.getDatasourceId())) {
             throw new BusinessException("无权访问该数据源");
         }
 

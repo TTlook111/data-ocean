@@ -120,25 +120,59 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
     }
 
     /**
-     * 将 governance_status 为 BLOCKED 的表/列加入禁止列表
+     * 将 governance_status 为 BLOCKED/DEPRECATED 的表/列加入禁止列表
      */
     private void appendGovernanceBlocked(PermissionContextVO context, Long datasourceId) {
-        // 查询 BLOCKED 状态的列
+        // 查询表级 BLOCKED/DEPRECATED（整表禁止访问）
+        List<DbTableMeta> blockedTables = tableMetaMapper.selectList(
+                new LambdaQueryWrapper<DbTableMeta>()
+                        .eq(DbTableMeta::getDatasourceId, datasourceId)
+                        .in(DbTableMeta::getGovernanceStatus, List.of("BLOCKED", "DEPRECATED"))
+                        .select(DbTableMeta::getTableName));
+
+        // 如果有表级 BLOCKED，需要通过 allowedTables 白名单机制排除
+        if (!blockedTables.isEmpty()) {
+            Set<String> blockedTableNames = blockedTables.stream()
+                    .map(t -> t.getTableName().toLowerCase())
+                    .collect(Collectors.toSet());
+
+            if (context.getAllowedTables().isEmpty()) {
+                // 当前无白名单限制 → 构建白名单（所有表 - BLOCKED 表）
+                List<DbTableMeta> allTables = tableMetaMapper.selectList(
+                        new LambdaQueryWrapper<DbTableMeta>()
+                                .eq(DbTableMeta::getDatasourceId, datasourceId)
+                                .select(DbTableMeta::getTableName));
+                List<String> allowed = allTables.stream()
+                        .map(t -> t.getTableName().toLowerCase())
+                        .filter(name -> !blockedTableNames.contains(name))
+                        .distinct()
+                        .collect(Collectors.toList());
+                context.setAllowedTables(allowed);
+            } else {
+                // 已有白名单 → 从中移除 BLOCKED 表
+                List<String> filtered = context.getAllowedTables().stream()
+                        .filter(t -> !blockedTableNames.contains(t.toLowerCase()))
+                        .collect(Collectors.toList());
+                context.setAllowedTables(filtered);
+            }
+        }
+
+        // 查询列级 BLOCKED/DEPRECATED（加入 deniedColumns）
         List<DbColumnMeta> blockedColumns = columnMetaMapper.selectList(
                 new LambdaQueryWrapper<DbColumnMeta>()
                         .eq(DbColumnMeta::getDatasourceId, datasourceId)
                         .in(DbColumnMeta::getGovernanceStatus, List.of("BLOCKED", "DEPRECATED")));
 
-        if (blockedColumns.isEmpty()) return;
-
-        List<String> denied = new ArrayList<>(context.getDeniedColumns());
-        for (DbColumnMeta col : blockedColumns) {
-            String ref = col.getTableName() + "." + col.getColumnName();
-            if (!denied.contains(ref)) {
-                denied.add(ref);
+        if (!blockedColumns.isEmpty()) {
+            List<String> denied = new ArrayList<>(context.getDeniedColumns());
+            for (DbColumnMeta col : blockedColumns) {
+                String ref = col.getTableName() + "." + col.getColumnName();
+                if (!denied.contains(ref)) {
+                    denied.add(ref);
+                }
             }
+            context.setDeniedColumns(denied);
         }
-        context.setDeniedColumns(denied);
     }
 
     /**
@@ -180,9 +214,14 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
 
         // 收集各维度的 denied columns（取交集：所有维度都禁止才真正禁止）
         List<Set<String>> deniedColumnSets = new ArrayList<>();
+        // 收集各维度的 denied tables（表级 DENY，取交集）
+        List<Set<String>> deniedTableSets = new ArrayList<>();
+        // 收集各维度的 allowed tables（表级 ALLOW）
+        Set<String> allAllowedTables = new HashSet<>();
+        boolean hasAllowPolicy = false;
         // 收集各维度的 mask columns（如果任一维度允许明文，则不脱敏）
         Map<String, Set<String>> maskColumnsBySubject = new HashMap<>();
-        // 收集行级过滤（多维度用 OR 合并）
+        // 收集行级过滤（多维度 AND 合并）
         Map<String, Set<String>> rowFiltersByTable = new HashMap<>();
 
         for (SubjectKey subject : subjects) {
@@ -190,12 +229,22 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
             if (subjectPolicies.isEmpty()) continue;
 
             Set<String> subjectDenied = new HashSet<>();
+            Set<String> subjectDeniedTables = new HashSet<>();
             for (DatasourceAccessPolicy policy : subjectPolicies) {
                 String accessType = policy.getAccessType();
 
-                if ("DENY".equals(accessType) && policy.getColumnName() != null) {
-                    // 列级禁止
-                    subjectDenied.add(policy.getTableName() + "." + policy.getColumnName());
+                if ("DENY".equals(accessType)) {
+                    if (policy.getColumnName() != null) {
+                        // 列级禁止
+                        subjectDenied.add(policy.getTableName() + "." + policy.getColumnName());
+                    } else {
+                        // 表级禁止（整表不可访问）
+                        subjectDeniedTables.add(policy.getTableName());
+                    }
+                } else if ("ALLOW".equals(accessType) && policy.getColumnName() == null) {
+                    // 表级允许 → 加入 allowedTables
+                    allAllowedTables.add(policy.getTableName());
+                    hasAllowPolicy = true;
                 } else if ("MASK".equals(accessType) && policy.getColumnName() != null) {
                     // 列级脱敏
                     String key = policy.getTableName() + "." + policy.getColumnName();
@@ -212,6 +261,9 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
 
             if (!subjectDenied.isEmpty()) {
                 deniedColumnSets.add(subjectDenied);
+            }
+            if (!subjectDeniedTables.isEmpty()) {
+                deniedTableSets.add(subjectDeniedTables);
             }
         }
 
@@ -239,7 +291,7 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
             }
         }
 
-        // 计算行级过滤（多条件 OR 合并 → 用户看到更多数据）
+        // 计算行级过滤（多条件 AND 合并 → 取交集，限制数据范围）
         List<PermissionContextVO.RowFilterItem> finalRowFilters = new ArrayList<>();
         for (Map.Entry<String, Set<String>> entry : rowFiltersByTable.entrySet()) {
             String tableName = entry.getKey();
@@ -247,17 +299,33 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
             if (conditions.size() == 1) {
                 finalRowFilters.add(new PermissionContextVO.RowFilterItem(tableName, conditions.iterator().next()));
             } else {
-                // 多条件 OR 合并
+                // 多条件 AND 合并（所有过滤条件同时生效）
                 String merged = conditions.stream()
                         .map(c -> "(" + c + ")")
-                        .collect(Collectors.joining(" OR "));
+                        .collect(Collectors.joining(" AND "));
                 finalRowFilters.add(new PermissionContextVO.RowFilterItem(tableName, merged));
             }
         }
 
         // 构建结果
         PermissionContextVO context = new PermissionContextVO();
-        context.setAllowedTables(List.of());
+
+        // allowedTables：如果有 ALLOW 表级策略，则只允许这些表；否则不限制（空列表表示不限制）
+        if (hasAllowPolicy) {
+            // 从 allowedTables 中移除被所有维度都禁止的表
+            Set<String> finalDeniedTables = new HashSet<>();
+            if (!deniedTableSets.isEmpty()) {
+                finalDeniedTables.addAll(deniedTableSets.get(0));
+                for (int i = 1; i < deniedTableSets.size(); i++) {
+                    finalDeniedTables.retainAll(deniedTableSets.get(i));
+                }
+            }
+            allAllowedTables.removeAll(finalDeniedTables);
+            context.setAllowedTables(new ArrayList<>(allAllowedTables));
+        } else {
+            context.setAllowedTables(List.of());
+        }
+
         context.setDeniedColumns(finalDenied);
         context.setRowFilters(finalRowFilters);
         context.setMaskColumns(finalMask);

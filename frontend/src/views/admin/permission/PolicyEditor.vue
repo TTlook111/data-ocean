@@ -6,7 +6,6 @@ import {
   createAccessPolicy,
   deleteAccessPolicy,
   listAccessPolicies,
-  updateAccessPolicy,
   type AccessPolicyItem,
   type AccessPolicyPayload,
 } from '../../../api/admin/permission'

@@ -101,10 +101,14 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
                 rewritten_query=final_state.get("rewritten_query"),
             )
         else:
+            # 返回经过权限改写后的 SQL（如有），否则返回原始生成的 SQL
+            validation_result = final_state.get("validation_result", {})
+            final_sql = validation_result.get("rewritten_sql") or final_state.get("generated_sql")
+
             result = QueryResult(
                 task_id=task_id,
                 status="COMPLETED",
-                sql=final_state.get("generated_sql"),
+                sql=final_sql,
                 sql_explanation=final_state.get("sql_explanation"),
                 data=execution.get("data_rows"),
                 columns=[{"name": c.get("name", ""), "type": c.get("type", ""), "comment": c.get("comment")}
