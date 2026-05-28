@@ -5,262 +5,296 @@
 <h1 align="center">DataOcean</h1>
 
 <p align="center">
-  <strong>企业级 NL2SQL 智能数据查询与治理平台</strong><br/>
-  用自然语言查询数据库，AI 自动生成 SQL 并返回表格与图表结果
+  <strong>治理驱动的企业级 NL2SQL 智能数据查询平台</strong><br/>
+  让业务人员用自然语言查询数据库，让 AI 在可信元数据、权限边界和 SQL 沙箱内完成分析。
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Java-17-orange?style=flat-square" alt="Java 17"/>
-  <img src="https://img.shields.io/badge/Spring%20Boot-3.x-green?style=flat-square" alt="Spring Boot"/>
-  <img src="https://img.shields.io/badge/Vue-3-blue?style=flat-square" alt="Vue 3"/>
-  <img src="https://img.shields.io/badge/Python-3.13-yellow?style=flat-square" alt="Python"/>
-  <img src="https://img.shields.io/badge/License-MIT-purple?style=flat-square" alt="MIT"/>
+  <a href="#核心能力">核心能力</a> ·
+  <a href="#系统架构">系统架构</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#模块进度">模块进度</a> ·
+  <a href="#文档导航">文档导航</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Java-17-f97316?style=flat-square" alt="Java 17"/>
+  <img src="https://img.shields.io/badge/Spring%20Boot-3.3.5-6db33f?style=flat-square" alt="Spring Boot 3.3.5"/>
+  <img src="https://img.shields.io/badge/Vue-3-42b883?style=flat-square" alt="Vue 3"/>
+  <img src="https://img.shields.io/badge/Python-3.13-3776ab?style=flat-square" alt="Python 3.13"/>
+  <img src="https://img.shields.io/badge/MySQL-8-4479a1?style=flat-square" alt="MySQL 8"/>
+  <img src="https://img.shields.io/badge/Milvus-2.5-00a1ea?style=flat-square" alt="Milvus 2.5"/>
+  <img src="https://img.shields.io/badge/License-MIT-111827?style=flat-square" alt="MIT License"/>
 </p>
 
 ---
 
-## 这个项目是什么
+## 项目定位
 
-DataOcean 是一个面向企业的智能数据查询平台。业务人员不需要懂 SQL，只需要用中文描述想查什么数据，系统就能自动理解意图、生成 SQL、执行查询，并以表格或图表的形式返回结果。
+DataOcean 是一个面向企业内部数据分析场景的智能查询平台。它把自然语言问答、Schema RAG、元数据治理、SQL 安全沙箱、行列级权限和图表生成串成一个闭环，目标不是简单地“让大模型写 SQL”，而是让大模型只能基于经过治理、审核和授权的数据语义来生成查询。
 
-与市面上的 Text-to-SQL 工具不同，DataOcean 的核心理念是**治理驱动的可信查询**——AI 生成 SQL 所依赖的每一条元数据，都必须经过采集、质量校验、人工审核、发布的完整治理流程，确保查询结果可信、可追溯。
+一句话概括：
 
----
+> DataOcean = 可信元数据治理 + Schema RAG + NL2SQL Agent + SQL 安全沙箱 + 数据可视化。
 
-## 能解决什么问题
+它适合这些场景：
 
-| 痛点 | DataOcean 的解决方案 |
-|------|---------------------|
-| 业务人员不会写 SQL，每次都要找开发 | 自然语言直接查询，AI 自动生成 SQL |
-| 数据库表太多，AI 不知道该查哪张表 | Schema RAG 向量检索，精准召回 Top 5-10 相关表 |
-| AI 生成的 SQL 不可信，可能查错数据 | 元数据治理闭环，所有 AI 依据都经过人工审核 |
-| 担心 SQL 注入或越权查询 | AST 安全校验 + 只读账号 + 行列级权限，多层防护 |
-| 不同业务对同一字段理解不同 | skills.md 业务知识库，统一业务语义定义 |
-| 字段质量参差不齐，AI 选错字段 | 字段可信度评分（0-100），动态影响字段选择优先级 |
+| 场景 | DataOcean 的处理方式 |
+| --- | --- |
+| 业务人员不会写 SQL，却需要快速取数 | 在 `/query` 中选择数据源，用中文直接提问 |
+| 数据库表多、字段语义复杂，模型容易选错表 | 通过发布后的 `skills.md` 与向量索引召回相关表字段 |
+| 生成 SQL 不可控，存在注入、越权、误删风险 | SQL AST 校验、只读执行、强制 LIMIT、字段脱敏 |
+| 元数据质量不稳定，字段注释和业务定义缺失 | 采集、质量校验、问题处理、审核发布形成治理闭环 |
+| 查询结果需要解释和展示 | 返回表格、SQL、口径说明与 ECharts 图表配置 |
 
----
+## 核心能力
+
+| 能力 | 说明 |
+| --- | --- |
+| 自然语言查询 | 面向业务用户的聊天式查询工作区，数据源与会话历史隔离 |
+| 元数据治理 | 支持 Schema 采集、质量校验、问题处理、版本发布与撤回 |
+| Schema RAG | 仅将已发布快照与知识文档向量化，降低错误召回概率 |
+| NL2SQL Agent | 使用 LangGraph 编排 Query Rewrite、Schema Retrieval、SQL Generation、Execution、Visualization |
+| SQL 安全沙箱 | 基于 AST 的 SELECT-only 校验、LIMIT 注入、危险语句阻断与只读执行 |
+| 权限与脱敏 | 数据源授权、行列级权限、敏感字段脱敏、禁止字段阻断 |
+| 图表与口径说明 | 自动生成 ECharts 配置，并展示使用表、字段和可信度提示 |
+| 容错降级 | Python 服务健康检查、Milvus 降级、LLM 超时友好提示与任务取消 |
 
 ## 系统架构
 
 <p align="center">
-  <img src="docs/images/dataocean-architecture.png" alt="系统架构" width="80%"/>
+  <img src="docs/images/dataocean-architecture.png" alt="DataOcean 系统架构" width="86%"/>
 </p>
 
-系统采用三层分离架构，前端统一调用 Java 网关，Java 内部代理调用 Python AI 服务：
+DataOcean 采用三层服务拆分：
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Vue 3 前端（问答端 /query + 治理管理端 /admin）              │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ HTTP API
-┌──────────────────────────▼──────────────────────────────────┐
-│  Java 网关层（Spring Boot 3.x）                              │
-│  鉴权 · 权限 · 数据源管理 · 元数据治理 · 审计                  │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ 内部 HTTP（OpenFeign → FastAPI）
-┌──────────────────────────▼──────────────────────────────────┐
-│  Python AI 服务（FastAPI + LangGraph + LlamaIndex）           │
-│  Query Rewrite · Schema RAG · SQL 生成 · 安全校验 · 执行      │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-          ┌────────────────┼────────────────┐
-          ▼                ▼                ▼
-      Milvus 2.x      MySQL 8          Qwen API
-      (向量库)         (业务库+管理库)    (大模型)
-```
+| 层级 | 职责 | 技术 |
+| --- | --- | --- |
+| 前端应用 | 查询工作区、治理后台、权限化导航与结果展示 | Vue 3, Vite, TypeScript, Element Plus, ECharts, Pinia |
+| Java 网关 | 认证鉴权、用户与角色、数据源、元数据治理、审计、任务状态 | Spring Boot 3.3.5, Spring Security, MyBatis-Plus, Flyway, Redis |
+| Python AI 服务 | NL2SQL 工作流、Schema RAG、SQL 沙箱、图表生成、降级处理 | FastAPI, LangGraph, LlamaIndex, sqlglot, pymilvus, DashScope |
 
----
+基础设施由 Docker Compose 提供：
+
+```text
+MySQL 8     管理库与业务库连接验证
+Redis 7     登录状态、黑名单、限流、任务状态
+etcd        Milvus 元数据依赖
+MinIO       Milvus 对象存储依赖
+Milvus 2.5  Schema RAG 向量检索
+```
 
 ## 核心流程
 
 <p align="center">
-  <img src="docs/images/dataocean-core-flow.png" alt="查询流程" width="85%"/>
+  <img src="docs/images/dataocean-core-flow.png" alt="DataOcean 查询流程" width="88%"/>
 </p>
 
-一次完整的自然语言查询经过以下步骤：
+一次完整查询大致经过：
 
-1. **Query Rewrite** — 时间解析、指代消解、意图提取，将模糊问题改写为结构化查询
-2. **Schema RAG** — 向量检索召回最相关的 5-10 张表的元数据
-3. **SQL Generation** — 大模型基于召回的 schema + skills.md 生成 SQL
-4. **Security Check** — sqlglot AST 校验（仅允许 SELECT，禁止危险函数，强制 LIMIT）
-5. **Execution** — 只读连接执行 SQL，超时 30s 保护
-6. **Visualization** — 根据数据特征自动生成 ECharts 图表配置
-
----
+1. 用户在 `/query` 选择已授权数据源并输入中文问题。
+2. Java 网关校验登录态、数据源权限、发布快照和任务状态。
+3. Python Agent 改写问题、召回 Schema、生成 SQL，并通过安全沙箱校验。
+4. SQL 使用只读连接执行，结果写回任务记录。
+5. 前端展示表格、SQL、图表、口径说明与后续建议问题。
 
 ## 治理闭环
 
 <p align="center">
-  <img src="docs/images/dataocean-governance-cycle.png" alt="治理闭环" width="60%"/>
+  <img src="docs/images/dataocean-governance-cycle.png" alt="DataOcean 元数据治理闭环" width="68%"/>
 </p>
 
-DataOcean 的核心竞争力在于**治理驱动**。AI 不是直接读取原始数据库 schema，而是依赖经过完整治理流程的元数据：
+DataOcean 的可信查询来自治理前置：
 
+```text
+数据源接入
+  -> Schema 采集
+  -> 质量校验
+  -> 问题修正
+  -> 快照审核发布
+  -> 生成 skills.md
+  -> 向量化入库
+  -> 查询召回引用
+  -> 反馈与审计回流
 ```
-采集 → 质量校验 → 问题修正 → 审核发布快照 → 生成 skills.md → 向量化 → 查询引用 → 反馈回流
-```
 
-只有状态为 PUBLISHED 的快照才能进入 RAG，确保 AI 依据的准确性。
+只有 `PUBLISHED` 状态的快照会进入 RAG 与查询链路。这样可以把“模型能看到什么”收束到经过审核的元数据和业务知识上。
 
----
-
-## 安全机制
+## 安全边界
 
 <p align="center">
-  <img src="docs/images/dataocean-security-shield.png" alt="安全防护" width="50%"/>
+  <img src="docs/images/dataocean-security-shield.png" alt="DataOcean 安全防护" width="54%"/>
 </p>
 
-| 防护层 | 措施 |
-|--------|------|
-| 连接层 | 业务库强制只读账号，密码 AES-256 加密存储 |
-| SQL 层 | AST 校验仅允许 SELECT，禁止 DROP/DELETE/UPDATE 等 |
-| 执行层 | 强制 LIMIT 10000，超时 30s，子查询最大 3 层 |
-| 权限层 | 行列级权限在 SQL AST 层强制注入，不依赖 Prompt |
-| 脱敏层 | SENSITIVE 字段可查但自动脱敏，BLOCKED 字段禁止召回 |
-| 认证层 | JWT + Redis 黑名单，退出即失效 |
+| 防护面 | 设计 |
+| --- | --- |
+| 连接安全 | 数据源密码加密存储，业务库建议使用只读账号 |
+| SQL 安全 | `sqlglot` AST 校验，仅允许 SELECT，阻断 DROP/DELETE/UPDATE 等危险操作 |
+| 执行安全 | 强制 LIMIT、执行超时、连接池保护、任务取消 |
+| 权限安全 | 数据源授权、行列级权限在服务端与 SQL 层生效 |
+| 数据安全 | SENSITIVE 字段脱敏，BLOCKED 字段禁止召回或查询 |
+| 会话安全 | JWT + Redis 黑名单，退出登录后令牌立即失效 |
 
----
+## 快速开始
 
-## 技术栈
+### 环境要求
 
-| 层 | 技术 |
-|---|---|
-| 前端 | Vue 3 + Vite + TypeScript + Element Plus + ECharts + Pinia |
-| Java 网关 | Spring Boot 3.x + Spring Security + JWT + MyBatis-Plus + Flyway |
-| Python AI | Python 3.13 + FastAPI + LangGraph + LlamaIndex + sqlglot |
-| 向量库 | Milvus 2.x Standalone |
-| 数据库 | MySQL 8（管理库 + 业务库） |
-| 缓存 | Redis（JWT 黑名单、限流、任务状态） |
-| 大模型 | 通义千问 Qwen API |
-| Embedding | text-embedding-v4（1024 维） |
-| 部署 | Docker Compose |
+| 工具 | 建议版本 |
+| --- | --- |
+| JDK | 17 |
+| Node.js | 20+ |
+| Python | 3.13 |
+| Docker | 支持 Compose v2 |
+| Maven | 3.9+ |
+| uv | 用于 Python 依赖管理 |
 
----
+### 1. 启动基础设施
+
+```powershell
+docker compose up -d mysql redis etcd minio milvus
+```
+
+默认端口：
+
+| 服务 | 地址 |
+| --- | --- |
+| MySQL | `127.0.0.1:3307` |
+| Redis | `127.0.0.1:6379` |
+| Milvus | `127.0.0.1:19530` |
+| MinIO Console | `http://127.0.0.1:9001` |
+
+### 2. 启动 Java 网关
+
+```powershell
+cd backend\DataOcean
+
+# 如使用 docker-compose 默认配置，请确保本地配置或环境变量与 MySQL/Redis 密码一致
+$env:DB_PASSWORD = "asd123"
+$env:REDIS_PASSWORD = "asd123"
+
+mvn spring-boot:run
+```
+
+服务启动后，Java 网关默认监听：
+
+```text
+http://127.0.0.1:8080
+```
+
+### 3. 启动 Python AI 服务
+
+```powershell
+cd python-service
+Copy-Item .env.example .env
+
+# 编辑 .env，至少填写 DASHSCOPE_API_KEY
+uv sync
+uv run uvicorn dataocean.main:app --reload --port 8000
+```
+
+Python 服务默认监听：
+
+```text
+http://127.0.0.1:8000
+```
+
+### 4. 启动前端
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+访问：
+
+```text
+http://127.0.0.1:5173
+```
+
+前端通过 Vite 代理将 `/api` 转发到 Java 网关。登录后默认进入 `/query` 查询工作区；有后台权限的用户可以从右上角用户入口进入 `/admin/*` 治理后台。
 
 ## 项目结构
 
-```
+```text
 DataOcean/
-├── frontend/              Vue 3 前端项目
-│   ├── src/views/query/   问答端页面
-│   └── src/views/admin/   治理管理端页面
-├── backend/               Spring Boot Java 网关
-│   └── DataOcean/src/     主工程源码
-├── python-service/        Python AI 服务
-│   └── dataocean/         Agent 工作流
-├── docs/                  设计文档与图片
-├── specs/                 17 个模块的规格说明
-└── docker-compose.yml     基础设施编排
+├── frontend/                 Vue 3 前端应用
+│   └── src/
+│       ├── views/query/      查询工作区
+│       ├── views/admin/      治理后台
+│       ├── components/       通用组件与图表组件
+│       └── api/              前端 API 封装
+├── backend/
+│   └── DataOcean/            Spring Boot Java 网关
+│       └── src/main/
+│           ├── java/com/dataocean/
+│           └── resources/db/migration/
+├── python-service/           FastAPI AI 服务
+│   └── dataocean/
+│       ├── agent/            LangGraph NL2SQL 工作流
+│       ├── rag/              Schema RAG 检索
+│       ├── sandbox/          SQL 安全校验与执行
+│       ├── chart/            图表生成
+│       └── resilience/       健康检查与降级
+├── docs/                     项目设计文档与架构图
+├── specs/                    模块规格、计划和任务拆解
+└── docker-compose.yml        本地基础设施编排
 ```
 
----
+## 模块进度
 
-## 新手使用教程
+> 进度来自 `specs/*/tasks.md` 的任务清单，表示当前代码与计划的完成度；最终可用性仍以联调和运行验证为准。
 
-> 以下教程面向首次使用 DataOcean 的用户，从登录到完成第一次查询的完整流程。
+| 模块 | 主题 | 进度 | 当前状态 |
+| --- | --- | ---: | --- |
+| 001 | 用户、角色、部门、权限基础 | 59/59 | 已完成 |
+| 002 | 数据源管理与连接测试 | 31/31 | 已完成 |
+| 003 | 元数据采集与快照 | 31/33 | 基本完成，剩余收尾 |
+| 004 | 元数据治理与质量校验 | 32/32 | 已完成 |
+| 005 | 快照版本、审核、发布、撤回 | 21/21 | 已完成 |
+| 006 | `skills.md` 业务知识库 | 43/43 | 已完成 |
+| 007 | Schema RAG 与向量化 | 29/29 | 已完成 |
+| 008 | NL2SQL Agent 工作流 | 29/30 | 核心完成，持续联调 |
+| 009 | SQL 安全沙箱 | 29/30 | 核心完成，持续联调 |
+| 010 | 字段标签与可信度 | 31/31 | 已完成 |
+| 011 | 查询血缘与审计 | 34/34 | 已完成 |
+| 012 | 前端查询工作区 | 35/35 | 已完成 |
+| 013 | 后台治理管理端 | 41/41 | 已完成 |
+| 014 | Prompt 模板管理 | 27/30 | 基本完成，剩余收尾 |
+| 015 | 权限与安全策略 | 33/34 | 基本完成，剩余收尾 |
+| 016 | 图表生成与结果解释 | 20/20 | 已完成 |
+| 017 | 错误处理、降级与取消 | 30/30 | 已完成 |
 
-### 一、登录系统
+## 开发命令
 
-打开浏览器访问平台地址，输入管理员分配的账号密码登录。首次登录系统会要求修改初始密码。
+| 目标 | 命令 |
+| --- | --- |
+| 前端开发 | `cd frontend && npm run dev` |
+| 前端构建 | `cd frontend && npm run build` |
+| Java 测试 | `cd backend/DataOcean && mvn test` |
+| Java 启动 | `cd backend/DataOcean && mvn spring-boot:run` |
+| Python 启动 | `cd python-service && uv run uvicorn dataocean.main:app --reload --port 8000` |
+| Python 语法检查 | `python -m compileall -q python-service/dataocean` |
+| 基础设施启动 | `docker compose up -d` |
+| 基础设施停止 | `docker compose down` |
 
-登录后根据你的角色进入不同界面：
-- **管理员/治理人员** → 自动进入后台管理工作台
-- **普通业务用户** → 自动进入智能查询页面
+## 文档导航
 
----
+| 文档 | 内容 |
+| --- | --- |
+| [`docs/nl2sql-项目构想.md`](docs/nl2sql-%E9%A1%B9%E7%9B%AE%E6%9E%84%E6%83%B3.md) | 项目总体构想与架构背景 |
+| [`docs/nl2sql-功能点拆分说明.md`](docs/nl2sql-%E5%8A%9F%E8%83%BD%E7%82%B9%E6%8B%86%E5%88%86%E8%AF%B4%E6%98%8E.md) | 模块拆分与建设顺序 |
+| [`docs/modules/001-user.md`](docs/modules/001-user.md) | 用户与权限模块说明 |
+| [`docs/modules/002-datasource.md`](docs/modules/002-datasource.md) | 数据源管理模块说明 |
+| [`docs/modules/003-metadata-collection.md`](docs/modules/003-metadata-collection.md) | 元数据采集模块说明 |
+| [`docs/modules/004-metadata-governance.md`](docs/modules/004-metadata-governance.md) | 元数据治理模块说明 |
+| [`docs/modules/005-metadata-versioning.md`](docs/modules/005-metadata-versioning.md) | 版本与发布模块说明 |
+| [`docs/modules/006-knowledge.md`](docs/modules/006-knowledge.md) | 业务知识库模块说明 |
+| [`specs/`](specs/) | 17 个模块的规格、数据模型、接口契约和任务清单 |
 
-### 二、管理员：接入数据源
+## 设计取向
 
-> 这一步由管理员完成，普通用户跳过。
-
-1. 进入侧边栏「数据源管理」
-2. 点击「新增数据源」，填写数据库连接信息（主机、端口、库名、只读账号）
-3. 点击「测试连接」确认连通后保存
-4. 在数据源列表中点击「授权」，选择允许查询该数据源的用户
-
----
-
-### 三、管理员：元数据治理
-
-> 治理是 DataOcean 的核心环节，确保 AI 查询依据可信。
-
-**采集元数据：**
-1. 进入「同步任务」，选择数据源，点击「触发同步」
-2. 系统自动采集该库所有表结构、字段信息，生成快照
-
-**质量校验：**
-1. 进入「质量看板」，选择刚采集的快照
-2. 点击「执行质量校验」，系统自动检测命名规范、注释完整性等
-3. 查看质量分和问题列表
-
-**处理问题：**
-1. 进入「问题清单」，查看校验发现的问题
-2. 对每个问题进行处理（确认、解决、驳回）
-3. 高风险问题必须全部处理后才能发布
-
-**审核发布：**
-1. 进入「快照生命周期」，选择数据源
-2. 对 DRAFT 状态的快照点击「开始校验」
-3. 校验通过后点击「发布」
-4. 发布后该快照成为 AI 查询的唯一依据
-
----
-
-### 四、业务用户：自然语言查询
-
-1. 进入「智能查询」页面
-2. 从下拉列表选择一个已授权的数据源
-3. 在输入框用中文描述你想查的数据，例如：
-   - "上个月销售额最高的 10 个产品"
-   - "各部门本季度的人员变动情况"
-   - "最近 7 天每天的订单量趋势"
-4. 系统自动完成：理解意图 → 召回相关表 → 生成 SQL → 安全校验 → 执行查询
-5. 结果以表格形式展示，适合可视化的数据会自动生成图表
-
----
-
-### 五、版本管理与紧急撤回
-
-当发现已发布的元数据有问题时：
-
-1. 进入「快照生命周期」
-2. 找到当前 PUBLISHED 状态的快照，点击「撤回」
-3. 填写撤回原因后确认
-4. 系统立即停止使用该快照，AI 查询将暂停直到新版本发布
-
----
-
-### 六、查看操作历史
-
-- 「版本历史」页面可以查看某个数据源所有快照的演变时间线
-- 支持选择两个版本进行对比，查看表和字段的增删改变化
-- 每个快照的操作日志记录了谁在什么时间做了什么操作
-
----
-
-## 模块总览
-
-| # | 模块 | 说明 | 状态 |
-|---|------|------|------|
-| 001 | 用户模块 | 登录、角色、部门、权限 | 已完成 |
-| 002 | 数据源管理 | 连接配置、健康检测、授权 | 已完成 |
-| 003 | 元数据采集 | Schema 同步、快照、变更检测 | 已完成 |
-| 004 | 元数据治理 | 五维质量校验、问题管理 | 已完成 |
-| 005 | 版本与审核 | 快照生命周期、发布、撤回 | 已完成 |
-| 006 | skills.md | 业务知识库生成与管理 | 已完成 |
-| 007 | Schema RAG | 向量检索召回相关表 | 已完成 |
-| 008 | NL2SQL Agent | LangGraph 查询工作流 | 核心完成（端到端接通中） |
-| 009 | SQL 安全沙箱 | AST 校验 + 权限注入 | 核心完成（端到端接通中） |
-| 010 | 字段可信度 | 动态评分与反馈调整 | 规划中 |
-| 011 | 血缘与审计 | 查询血缘、操作审计 | 规划中 |
-| 012 | 前端问答端 | 自然语言查询界面 | 规划中 |
-| 013 | 后台管理端 | 治理管理界面 | 持续迭代 |
-| 014 | Prompt 管理 | 模板化 Prompt 配置 | 规划中 |
-| 015 | 权限与安全 | 行列级权限 CRUD | 规划中 |
-| 016 | 图表生成 | ECharts 可视化 | 规划中 |
-| 017 | 错误与降级 | 异常处理、优雅降级 | 规划中 |
-
----
+DataOcean 的 README 参考了成熟开源项目常见的信息组织方式：首屏说明价值、快速给出运行入口、用图展示架构、把核心能力和模块状态表格化。相比把所有教程堆在首页，README 只保留“让新读者快速理解和跑起来”的内容，细节沉到 `docs/` 与 `specs/`。
 
 ## License
 
