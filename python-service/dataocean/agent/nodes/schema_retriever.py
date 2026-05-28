@@ -2,6 +2,7 @@
 
 使用改写后的查询调用 RAG 模块进行语义检索，
 获取相关表结构和字段上下文供 SQL 生成使用。
+Milvus 不可用时自动降级，使用 skills.md 核心表。
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import logging
 
 from dataocean.rag.service import retrieve_schemas
 from dataocean.rag.schema import RetrieveRequest
+from dataocean.resilience.milvus_fallback import get_degradation_notice
 
 from ..state import AgentState
 
@@ -51,11 +53,11 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
     schema_context = []
     for item in response.results:
         schema_context.append({
-            "table_name": item.related_table or "",
+            "table_name": item.table_name or "",
             "chunk_type": item.chunk_type or "",
             "chunk_text": item.chunk_text or "",
-            "related_column": item.related_column,
-            "confidence_score": item.confidence_score if hasattr(item, "confidence_score") else 0,
+            "related_column": getattr(item, "related_column", None),
+            "confidence_score": getattr(item, "trust_score", 0) or 0,
             "governance_status": item.governance_status or "NORMAL",
             "score": item.score if hasattr(item, "score") else 0.0,
         })
@@ -68,10 +70,18 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
             "current_node": "SCHEMA_RETRIEVER",
         }
 
-    logger.info("Schema 召回完成 task_id=%s count=%d", task_id, len(schema_context))
+    logger.info("Schema 召回完成 task_id=%s count=%d degraded=%s", task_id, len(schema_context), response.degraded)
 
-    return {
+    result = {
         **state,
         "schema_context": schema_context,
         "current_node": "SCHEMA_RETRIEVER",
     }
+
+    # Milvus 降级时标记状态，供最终结果中提示用户
+    if response.degraded:
+        result["degraded"] = True
+        result["degrade_notice"] = get_degradation_notice()
+        logger.warning("Schema 召回使用降级方案 task_id=%s reason=%s", task_id, response.degrade_reason)
+
+    return result

@@ -12,6 +12,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.ResourceAccessException;
 
 /**
  * 全局异常处理器
@@ -25,6 +26,52 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
     /**
+     * 处理服务不可用异常（Python 服务不可用等）
+     * <p>返回 HTTP 503，携带用户友好提示</p>
+     *
+     * @param exception 服务不可用异常
+     * @return 503 响应
+     */
+    @ExceptionHandler(ServiceUnavailableException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public Result<Void> handleServiceUnavailable(ServiceUnavailableException exception) {
+        log.warn("服务不可用 message={}", exception.getUserMessage());
+        return Result.error(503, exception.getUserMessage());
+    }
+
+    /**
+     * 处理查询取消异常
+     * <p>返回 HTTP 499（客户端关闭请求），携带取消提示</p>
+     *
+     * @param exception 查询取消异常
+     * @return 499 响应
+     */
+    @ExceptionHandler(QueryCancelledException.class)
+    public ResponseEntity<Result<Void>> handleQueryCancelled(QueryCancelledException exception) {
+        log.info("查询已取消 message={}", exception.getUserMessage());
+        return ResponseEntity.status(499).body(Result.error(499, exception.getUserMessage()));
+    }
+
+    /**
+     * 处理 Python 服务超时异常（RestClient 读取超时）
+     * <p>返回 HTTP 504 + 友好提示</p>
+     *
+     * @param exception 资源访问异常
+     * @return 504 响应
+     */
+    @ExceptionHandler(ResourceAccessException.class)
+    @ResponseStatus(HttpStatus.GATEWAY_TIMEOUT)
+    public Result<Void> handleResourceAccessException(ResourceAccessException exception) {
+        String message = exception.getMessage();
+        if (message != null && (message.contains("Read timed out") || message.contains("timeout"))) {
+            log.warn("Python 服务调用超时 message={}", message);
+            return Result.error(504, "AI 服务响应超时，请稍后再试");
+        }
+        log.error("Python 服务访问异常 message={}", message);
+        return Result.error(504, "AI 服务暂时不可用，请稍后再试");
+    }
+
+    /**
      * 处理业务异常
      * <p>根据异常中的错误码动态设置 HTTP 状态码</p>
      *
@@ -33,9 +80,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<Void>> handleBusinessException(BusinessException exception) {
-        // 尝试将业务错误码映射为 HTTP 状态码
         HttpStatus status = HttpStatus.resolve(exception.getCode());
-        // 如果映射失败或不是客户端/服务端错误，则默认使用 400
         if (status == null || status.is1xxInformational() || status.is2xxSuccessful() || status.is3xxRedirection()) {
             status = HttpStatus.BAD_REQUEST;
         }
@@ -52,7 +97,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Result<Void> handleValidationException(MethodArgumentNotValidException exception) {
-        // 提取第一个字段校验错误信息
         FieldError fieldError = exception.getBindingResult().getFieldError();
         String message = fieldError == null ? "请求参数不合法" : fieldError.getDefaultMessage();
         log.warn("请求参数校验失败 message={}", message);

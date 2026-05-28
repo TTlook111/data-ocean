@@ -68,6 +68,7 @@ async def run_sql_executor(state: AgentState) -> AgentState:
         datasource_id=datasource_id,
         connection_config=connection_config,
         mask_columns=mask_columns,
+        task_id=task_id,
     )
 
     if not result.success:

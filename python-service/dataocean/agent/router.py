@@ -19,6 +19,7 @@ from .cancellation import cancel_task as do_cancel, cleanup
 from .graph import agent_graph
 from .schema import ExecuteRequest, QueryResult
 from . import sse
+from dataocean.resilience.timeout_budget import TimeoutBudget
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
             "errors": [],
             "start_time": start_time,
             "cancelled": False,
+            "timeout_budget": TimeoutBudget(),
         }
 
         # 执行 LangGraph 工作流

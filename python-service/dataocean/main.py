@@ -18,6 +18,7 @@ from dataocean.agent.router import router as agent_router
 from dataocean.sandbox.router import router as sandbox_router
 from dataocean.chart.router import router as chart_router
 from dataocean.prompt.router import router as prompt_router
+from dataocean.resilience.health import router as health_router
 
 logger = logging.getLogger(__name__)
 
@@ -72,19 +73,9 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
     return JSONResponse(status_code=500, content={"message": "服务内部错误"})
 
 
-# === 健康检查 ===
+# === 健康检查（使用 resilience 模块增强版） ===
 
-
-@app.get("/health", tags=["health"])
-async def health() -> dict[str, str]:
-    """公共健康检查端点"""
-    return {"status": "ok"}
-
-
-@app.get("/internal/health", tags=["health"])
-async def internal_health() -> dict[str, str]:
-    """内部健康检查端点（Java 网关调用）"""
-    return {"status": "ok"}
+app.include_router(health_router, tags=["health"])
 
 
 # === 路由注册（统一 prefix 管理） ===

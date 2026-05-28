@@ -126,6 +126,8 @@ public class PythonAgentClientImpl implements PythonAgentClient {
 
         } catch (Exception e) {
             log.error("Agent 执行失败 taskId={} error={}", taskId, e.getMessage(), e);
+            // SSE 流读取异常可能是连接断开，通知 Python 取消以释放资源
+            cancelTask(taskId);
             try {
                 queryTaskService.updateTaskResult(taskId,
                         "{\"status\":\"FAILED\",\"error\":\"Agent 服务调用失败：" + e.getMessage() + "\"}");

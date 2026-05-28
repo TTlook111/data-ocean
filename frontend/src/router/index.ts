@@ -33,6 +33,7 @@ const SlowQueryList = () => import('../views/admin/audit/SlowQueryList.vue')
 const LineageViewer = () => import('../views/admin/audit/LineageViewer.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
 const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
+const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -228,6 +229,12 @@ const router = createRouter({
           name: 'admin-permission-policies',
           component: PolicyEditor,
           meta: { title: '策略编辑器', section: '安全管理', permission: 'security:manage' },
+        },
+        {
+          path: 'system/health',
+          name: 'admin-system-health',
+          component: ServiceHealth,
+          meta: { title: '服务健康', section: '系统管理', permission: '*' },
         },
       ],
     },

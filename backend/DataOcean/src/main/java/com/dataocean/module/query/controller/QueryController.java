@@ -1,6 +1,8 @@
 package com.dataocean.module.query.controller;
 
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.exception.ServiceUnavailableException;
+import com.dataocean.common.health.PythonHealthChecker;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
@@ -41,6 +43,7 @@ public class QueryController {
     private final DatasourcePermissionService datasourcePermissionService;
     private final SchemaSnapshotService schemaSnapshotService;
     private final AuditLogService auditLogService;
+    private final PythonHealthChecker pythonHealthChecker;
 
     /**
      * 提交查询（异步，返回 taskId）。
@@ -53,6 +56,11 @@ public class QueryController {
         Long userId = UserContext.currentUserId();
         log.info("用户提交查询 userId={} datasourceId={} question={}",
                 userId, request.getDatasourceId(), request.getQuestion().substring(0, Math.min(50, request.getQuestion().length())));
+
+        // 前置检查：Python AI 服务是否可用
+        if (!pythonHealthChecker.isAvailable()) {
+            throw new ServiceUnavailableException("AI 服务暂时不可用，请稍后再试");
+        }
 
         // 校验用户是否有权访问该数据源（多维度：用户 + 角色 + 部门）
         if (!datasourcePermissionService.checkUserAccess(userId, request.getDatasourceId())) {

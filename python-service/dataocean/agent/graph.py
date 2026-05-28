@@ -22,6 +22,7 @@ from .cancellation import is_cancelled
 from .config import agent_config
 from .state import AgentState
 from . import sse
+from dataocean.resilience.timeout_budget import TimeoutBudget, BudgetExhaustedException
 
 logger = logging.getLogger(__name__)
 
@@ -48,15 +49,20 @@ def _check_cancelled_or_timeout(state: AgentState) -> str | None:
     """检查任务是否已取消或超时，返回错误消息或 None"""
     task_id = state.get("task_id", "")
     if is_cancelled(task_id):
-        return "用户已取消查询"
+        return "查询已取消"
+    # 优先使用 TimeoutBudget 检查剩余预算
+    budget: TimeoutBudget | None = state.get("timeout_budget")
+    if budget and budget.remaining <= 0:
+        return "处理时间超出限制，请简化问题"
+    # 兜底：使用 start_time 检查总超时
     start_time = state.get("start_time", 0)
     if start_time and (time.time() - start_time) > agent_config.total_timeout:
-        return "查询超时，请简化问题后重试"
+        return "处理时间超出限制，请简化问题"
     return None
 
 
 async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentState:
-    """节点执行包装器：推送进度、检查取消/超时、异常处理"""
+    """节点执行包装器：推送进度、检查取消/超时/预算、异常处理"""
     task_id = state.get("task_id", "")
     retry_count = state.get("retry_count", 0)
 
@@ -64,6 +70,16 @@ async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentStat
     abort_msg = _check_cancelled_or_timeout(state)
     if abort_msg:
         return {**state, "error_message": abort_msg, "current_node": node_name}
+
+    # 检查时间预算是否足够启动此节点
+    budget: TimeoutBudget | None = state.get("timeout_budget")
+    if budget:
+        try:
+            budget.check_remaining(node_name.lower())
+        except BudgetExhaustedException as e:
+            error_msg = "处理时间超出限制，请简化问题"
+            await sse.emit_progress(task_id, node_name, "failed", error_msg, retry_count)
+            return {**state, "error_message": error_msg, "current_node": node_name}
 
     # 推送节点开始事件
     await sse.emit_progress(task_id, node_name, "started", NODE_MESSAGES.get(node_name, ""), retry_count)
@@ -75,6 +91,10 @@ async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentStat
         status = "failed" if msg else "completed"
         await sse.emit_progress(task_id, node_name, status, msg or f"{NODE_MESSAGES.get(node_name, '')}完成", retry_count)
         return result
+    except BudgetExhaustedException:
+        error_msg = "处理时间超出限制，请简化问题"
+        await sse.emit_progress(task_id, node_name, "failed", error_msg, retry_count)
+        return {**state, "error_message": error_msg, "current_node": node_name}
     except Exception as e:
         logger.error("节点执行异常 node=%s task_id=%s error=%s", node_name, task_id, e, exc_info=True)
         error_msg = f"AI 服务暂时不可用：{e}"

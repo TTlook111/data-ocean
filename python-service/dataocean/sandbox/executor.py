@@ -49,6 +49,7 @@ async def execute(
     datasource_id: int,
     connection_config: dict,
     mask_columns: dict[str, str] | None = None,
+    task_id: str | None = None,
 ) -> ExecutionResult:
     """在沙箱中执行 SQL
 
@@ -57,6 +58,7 @@ async def execute(
         datasource_id: 数据源 ID
         connection_config: 连接配置
         mask_columns: 需脱敏的字段列表
+        task_id: 任务 ID（用于取消检测）
 
     Returns:
         ExecutionResult 包含数据行、列信息和执行时间
@@ -83,12 +85,21 @@ async def execute(
         )
         result.execution_time_ms = int((time.time() - start) * 1000)
         result.masked_fields = mask_columns or {}
+
+        # 执行完成后检查是否已被取消
+        if task_id:
+            from dataocean.agent.cancellation import is_cancelled
+            if is_cancelled(task_id):
+                logger.info("SQL 执行完成但任务已取消 task_id=%s", task_id)
+                return ExecutionResult(
+                    success=False, error="查询已取消",
+                    error_type="CANCELLED", execution_time_ms=result.execution_time_ms)
+
         return result
     except asyncio.TimeoutError:
         elapsed = int((time.time() - start) * 1000)
         logger.warning("SQL 执行超时 datasource_id=%d elapsed=%dms sql=%s",
                        datasource_id, elapsed, sql[:80])
-        # 超时后尝试 KILL QUERY 终止后端执行
         _kill_query(engine, connection_id_holder)
         return ExecutionResult(
             success=False,
@@ -96,6 +107,14 @@ async def execute(
             error_type=ErrorType.TIMEOUT,
             execution_time_ms=elapsed,
         )
+    except asyncio.CancelledError:
+        # asyncio 任务被取消（SSE 断开或用户取消触发）
+        elapsed = int((time.time() - start) * 1000)
+        logger.info("SQL 执行被取消 datasource_id=%d task_id=%s", datasource_id, task_id)
+        _kill_query(engine, connection_id_holder)
+        return ExecutionResult(
+            success=False, error="查询已取消",
+            error_type="CANCELLED", execution_time_ms=elapsed)
     except Exception as e:
         elapsed = int((time.time() - start) * 1000)
         error_type = _classify_error(e)
