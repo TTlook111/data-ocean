@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 
 class QueryIntent(TypedDict, total=False):
@@ -97,3 +97,7 @@ class AgentState(TypedDict, total=False):
     errors: list[str]
     start_time: float
     cancelled: bool
+    timeout_budget: Any
+    connection_config: dict
+    degraded: bool
+    degrade_notice: str
