@@ -3,6 +3,7 @@ package com.dataocean.module.query.controller;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.exception.ServiceUnavailableException;
 import com.dataocean.common.health.PythonHealthChecker;
+import com.dataocean.common.ratelimit.RateLimitService;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
@@ -44,6 +45,7 @@ public class QueryController {
     private final SchemaSnapshotService schemaSnapshotService;
     private final AuditLogService auditLogService;
     private final PythonHealthChecker pythonHealthChecker;
+    private final RateLimitService rateLimitService;
 
     /**
      * 提交查询（异步，返回 taskId）。
@@ -56,6 +58,9 @@ public class QueryController {
         Long userId = UserContext.currentUserId();
         log.info("用户提交查询 userId={} datasourceId={} question={}",
                 userId, request.getDatasourceId(), request.getQuestion().substring(0, Math.min(50, request.getQuestion().length())));
+
+        // 限流检查：每用户每分钟最多 10 次查询
+        rateLimitService.checkAndRecord("rate:query:user:" + userId);
 
         // 前置检查：Python AI 服务是否可用
         if (!pythonHealthChecker.isAvailable()) {

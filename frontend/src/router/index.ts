@@ -26,6 +26,7 @@ const VersionList = () => import('../views/admin/knowledge/VersionList.vue')
 const ReviewPage = () => import('../views/admin/knowledge/ReviewPage.vue')
 const KnowledgeDashboard = () => import('../views/admin/knowledge/KnowledgeDashboard.vue')
 const PromptManager = () => import('../views/admin/prompt/PromptManager.vue')
+const NotFound = () => import('../views/NotFound.vue')
 const FieldTagManager = () => import('../views/admin/field/FieldTagManager.vue')
 const ConfidenceDashboard = () => import('../views/admin/field/ConfidenceDashboard.vue')
 const FeedbackReview = () => import('../views/admin/field/FeedbackReview.vue')
@@ -244,6 +245,12 @@ const router = createRouter({
           meta: { title: '服务健康', section: '系统管理', permission: '*' },
         },
       ],
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: NotFound,
+      meta: { title: '页面不存在' },
     },
   ],
 })

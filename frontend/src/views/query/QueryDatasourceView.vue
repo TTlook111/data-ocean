@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import * as echarts from 'echarts'
 import {
   BarChart3,
   Database,
@@ -25,6 +24,7 @@ import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource
 import {
   submitQuery,
   getTaskResult,
+  cancelTask,
   submitQueryFeedback,
   listConversations,
   listConversationMessages,
@@ -33,6 +33,7 @@ import {
 import { useGsapMotion } from '../../composables/useGsapMotion'
 import { useAuthStore } from '../../stores/auth'
 import { roleCodesLabel } from '../../utils/enumLabels'
+import ChartContainer from '../../components/chart/ChartContainer.vue'
 
 interface LocalMessage {
   id: string
@@ -80,6 +81,8 @@ const activeSessionId = ref<string>()
 const question = ref('')
 const keyword = ref('')
 const isQuerying = ref(false)
+const currentTaskId = ref<string>()
+const pollAbortController = ref<AbortController>()
 const drawerVisible = ref(false)
 const sessions = reactive<LocalSession[]>([])
 const loadedDatasourceIds = ref<Set<number>>(new Set())
@@ -120,29 +123,24 @@ const latestResult = computed(() => {
   return null
 })
 const resultTab = ref<'table' | 'sql' | 'chart'>('table')
-const chartRef = ref<HTMLDivElement | null>(null)
 const chartType = ref<'bar' | 'line' | 'pie'>('bar')
-let chartInstance: echarts.ECharts | null = null
 
-function renderChart() {
-  if (!chartRef.value || !latestResult.value?.chartConfig) return
-  if (chartInstance) chartInstance.dispose()
-  chartInstance = echarts.init(chartRef.value)
+/** 根据当前图表类型计算 ECharts option */
+const chartOption = computed(() => {
+  if (!latestResult.value?.chartConfig) return null
   try {
     const option = JSON.parse(JSON.stringify(latestResult.value.chartConfig))
     if (option.series && option.series.length > 0) {
       option.series[0].type = chartType.value
     }
-    chartInstance.setOption(option)
+    return option
   } catch {
-    chartInstance.dispose()
-    chartInstance = null
+    return null
   }
-}
+})
 
 function switchChartType(type: 'bar' | 'line' | 'pie') {
   chartType.value = type
-  renderChart()
 }
 
 function exportCsv() {
@@ -169,13 +167,8 @@ function exportCsv() {
 }
 
 function exportPng() {
-  if (!chartInstance) return
-  const url = chartInstance.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: '#fff' })
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `chart_${Date.now()}.png`
-  a.click()
-  ElMessage.success('图表 PNG 导出成功')
+  // PNG 导出暂不可用（图表由 ChartContainer 组件管理）
+  ElMessage.info('PNG 导出功能开发中')
 }
 
 async function handleFeedback(type: 'LIKE' | 'DISLIKE') {
@@ -188,13 +181,6 @@ async function handleFeedback(type: 'LIKE' | 'DISLIKE') {
     ElMessage.error('反馈提交失败')
   }
 }
-
-onUnmounted(() => {
-  if (chartInstance) {
-    chartInstance.dispose()
-    chartInstance = null
-  }
-})
 
 async function focusQuestionInput() {
   await nextTick()
@@ -395,8 +381,13 @@ async function sendQuestion() {
     // 保存后端返回的 conversationId
     session.conversationId = askResult.data.conversationId
 
+    // 设置取消控制器和当前 taskId
+    currentTaskId.value = taskId
+    const abortCtrl = new AbortController()
+    pollAbortController.value = abortCtrl
+
     // 轮询任务结果（最多 60 次 × 2 秒 = 120 秒，与后端超时对齐）
-    const result = await pollTaskResult(taskId)
+    const result = await pollTaskResult(taskId, abortCtrl.signal)
     const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
     if (assistantMsg) {
       assistantMsg.taskId = taskId
@@ -420,6 +411,8 @@ async function sendQuestion() {
     }
   } finally {
     isQuerying.value = false
+    currentTaskId.value = undefined
+    pollAbortController.value = undefined
   }
 }
 
@@ -439,16 +432,35 @@ async function animateMessageUpdate(messageId: string) {
   }
 }
 
-async function pollTaskResult(taskId: string, maxAttempts = 60, intervalMs = 2000) {
+async function pollTaskResult(taskId: string, signal?: AbortSignal, maxAttempts = 60, intervalMs = 2000) {
   for (let i = 0; i < maxAttempts; i++) {
+    if (signal?.aborted) {
+      return { status: 'CANCELLED', errorMessage: '查询已取消' } as any
+    }
     const res = await getTaskResult(taskId)
     const task = res.data
     if (task.status !== 'PROCESSING') {
       return task
     }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, intervalMs)
+      signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')) }, { once: true })
+    }).catch(() => null)
+    if (signal?.aborted) {
+      return { status: 'CANCELLED', errorMessage: '查询已取消' } as any
+    }
   }
   return { status: 'TIMEOUT', errorMessage: '查询仍在执行中，可稍后从历史任务查看结果' } as any
+}
+
+async function cancelCurrentQuery() {
+  if (!currentTaskId.value || !isQuerying.value) return
+  pollAbortController.value?.abort()
+  try {
+    await cancelTask(currentTaskId.value)
+  } catch {
+    // 取消请求失败不影响 UI 状态恢复
+  }
 }
 
 function extractError(error: unknown, fallback: string): string {
@@ -739,7 +751,7 @@ watch(resultTab, () => {
                 </div>
                 <button class="export-btn" @click="exportPng" :disabled="latestResult.canExport === false"><Download :size="14" />导出 PNG</button>
               </div>
-              <div v-if="latestResult.chartConfig" ref="chartRef" class="chart-container"></div>
+              <ChartContainer v-if="latestResult.chartConfig" :option="chartOption" />
               <div v-else class="result-empty"><strong>无图表数据</strong></div>
             </div>
 
@@ -777,6 +789,9 @@ watch(resultTab, () => {
         <button type="button" :disabled="!selectedId || !question.trim() || isQuerying" @click="sendQuestion">
           <SendHorizontal :size="18" />
           <span>{{ isQuerying ? '查询中...' : '发送' }}</span>
+        </button>
+        <button v-if="isQuerying" type="button" class="cancel-btn" @click="cancelCurrentQuery">
+          取消
         </button>
       </footer>
     </section>
@@ -1457,6 +1472,16 @@ watch(resultTab, () => {
 .chat-composer button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
+}
+
+.chat-composer .cancel-btn {
+  background: var(--do-tone-red-bg, #fef2f2);
+  color: var(--do-tone-red, #dc2626);
+  border: 1px solid var(--do-tone-red, #dc2626);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
 }
 
 @media (max-width: 1180px) {

@@ -62,7 +62,7 @@ export async function submitQuery(params: QueryAskParams) {
 }
 
 export async function getTaskResult(taskId: string) {
-  const { data } = await http.get<ApiResult<QueryTaskResult>>(`/api/query/tasks/${taskId}`)
+  const { data } = await http.get<ApiResult<QueryTaskResult>>(`/api/query/tasks/${taskId}`, { timeout: 30000 })
   return data
 }
 
