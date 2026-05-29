@@ -293,13 +293,70 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
     }
 
     /**
-     * 校验行级过滤表达式语法（基本检查：不为空且不含危险关键字）
+     * 校验行级过滤表达式安全性。
+     * <p>
+     * 采用严格黑名单 + 结构检查，防止 SQL 注入：
+     * 1. 禁止注释语法（--、/*、#）
+     * 2. 禁止分号（多语句执行）
+     * 3. 禁止子查询（SELECT 关键字）
+     * 4. 禁止危险关键字（UNION、INTO、OUTFILE、LOAD_FILE 等）
+     * 5. 禁止括号嵌套超过 2 层
+     * 6. 长度限制 500 字符
+     * </p>
      */
     private void validateRowFilterExpression(String expression) {
+        if (expression == null || expression.isBlank()) {
+            throw new BusinessException("行级过滤表达式不能为空");
+        }
+        if (expression.length() > 500) {
+            throw new BusinessException("行级过滤表达式长度不能超过 500 字符");
+        }
+
         String upper = expression.toUpperCase().trim();
-        if (upper.contains("DROP ") || upper.contains("DELETE ") || upper.contains("INSERT ")
-                || upper.contains("UPDATE ") || upper.contains("ALTER ") || upper.contains(";")) {
-            throw new BusinessException("行级过滤表达式包含非法关键字");
+
+        // 禁止注释语法
+        if (upper.contains("--") || upper.contains("/*") || upper.contains("*/") || upper.contains("#")) {
+            throw new BusinessException("行级过滤表达式不允许包含注释语法");
+        }
+
+        // 禁止分号（多语句）
+        if (expression.contains(";")) {
+            throw new BusinessException("行级过滤表达式不允许包含分号");
+        }
+
+        // 禁止子查询和危险关键字（使用单词边界匹配，避免误伤列名）
+        String[] forbidden = {
+                "SELECT", "DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE",
+                "UNION", "INTO", "OUTFILE", "DUMPFILE", "LOAD_FILE", "EXEC", "EXECUTE",
+                "CALL", "SET", "GRANT", "REVOKE", "TRUNCATE", "RENAME",
+                "INFORMATION_SCHEMA", "SLEEP", "BENCHMARK", "SYSTEM"
+        };
+        for (String keyword : forbidden) {
+            // 使用正则匹配完整单词，避免列名包含关键字时误报
+            if (upper.matches(".*\\b" + keyword + "\\b.*")) {
+                throw new BusinessException("行级过滤表达式包含非法关键字：" + keyword);
+            }
+        }
+
+        // 禁止括号嵌套超过 2 层（允许 IN (1,2,3) 但禁止子查询结构）
+        int depth = 0;
+        int maxDepth = 0;
+        for (char c : expression.toCharArray()) {
+            if (c == '(') {
+                depth++;
+                maxDepth = Math.max(maxDepth, depth);
+            } else if (c == ')') {
+                depth--;
+            }
+            if (depth < 0) {
+                throw new BusinessException("行级过滤表达式括号不匹配");
+            }
+        }
+        if (depth != 0) {
+            throw new BusinessException("行级过滤表达式括号不匹配");
+        }
+        if (maxDepth > 2) {
+            throw new BusinessException("行级过滤表达式括号嵌套不能超过 2 层");
         }
     }
 }

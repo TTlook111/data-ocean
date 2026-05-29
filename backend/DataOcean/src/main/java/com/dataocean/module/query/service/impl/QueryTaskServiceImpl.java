@@ -19,6 +19,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -200,13 +202,19 @@ public class QueryTaskServiceImpl implements QueryTaskService {
 
             queryTaskMapper.update(null, wrapper);
 
-            // 异步写入审计日志和血缘数据
-            auditLogService.recordAudit(existing.getId());
-            String usedTablesJson = result.containsKey("usedTables")
+            // 异步写入审计日志和血缘数据（延迟到事务提交后执行，确保读到已提交数据）
+            final Long taskDbId = existing.getId();
+            final String finalUsedTablesJson = result.containsKey("usedTables")
                     ? objectMapper.writeValueAsString(result.get("usedTables")) : null;
-            String usedColumnsJson = result.containsKey("usedColumns")
+            final String finalUsedColumnsJson = result.containsKey("usedColumns")
                     ? objectMapper.writeValueAsString(result.get("usedColumns")) : null;
-            lineageService.saveLineage(existing.getId(), usedTablesJson, usedColumnsJson);
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    auditLogService.recordAudit(taskDbId);
+                    lineageService.saveLineage(taskDbId, finalUsedTablesJson, finalUsedColumnsJson);
+                }
+            });
 
             return true;
         } catch (Exception e) {

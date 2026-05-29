@@ -12,8 +12,8 @@ def check(sql: str) -> RuleResult:
     """检查 SQL 是否包含 SELECT *"""
     try:
         tree = sqlglot.parse_one(sql, dialect="mysql")
-    except sqlglot.errors.ParseError:
-        return RuleResult(passed=True, rule_name=RULE_NAME)
+    except sqlglot.errors.ParseError as e:
+        return RuleResult(passed=False, rule_name=RULE_NAME, reason=f"SQL 语法解析失败：{e}")
 
     for node in tree.find_all(exp.Star):
         return RuleResult(

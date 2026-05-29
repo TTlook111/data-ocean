@@ -15,8 +15,8 @@ def check(sql: str, allowed_tables: list[str] | None = None) -> RuleResult:
 
     try:
         tree = sqlglot.parse_one(sql, dialect="mysql")
-    except sqlglot.errors.ParseError:
-        return RuleResult(passed=True, rule_name=RULE_NAME)
+    except sqlglot.errors.ParseError as e:
+        return RuleResult(passed=False, rule_name=RULE_NAME, reason=f"SQL 语法解析失败：{e}")
 
     allowed_set = {t.lower() for t in allowed_tables}
     referenced_tables = set()

@@ -30,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -65,6 +66,7 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
     private final TableRelationMapper relationMapper;
     private final SchemaStatisticsService statisticsService;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
 
     /** 自身代理引用，用于调用 @Async 方法使代理生效 */
     @Lazy
@@ -170,71 +172,80 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
         String password = secretService.decrypt(secret.getEncryptedPassword());
 
         try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
-            // 创建快照并关联到任务
-            MetadataSnapshot snapshot = snapshotService.createSnapshot(datasourceId, task.getId());
-            syncTaskService.linkSnapshot(task.getId(), snapshot.getId());
+            // 在事务内执行所有元数据写入，失败时整体回滚，避免残缺快照
+            transactionTemplate.executeWithoutResult(status -> {
+                try {
+                    // 创建快照并关联到任务
+                    MetadataSnapshot snapshot = snapshotService.createSnapshot(datasourceId, task.getId());
+                    syncTaskService.linkSnapshot(task.getId(), snapshot.getId());
 
-            // 采集所有表的基本信息
-            List<DbTableMeta> tables = tableCollector.collect(connection, datasourceId, snapshot.getId());
-            syncTaskService.updateProgress(task.getId(), tables.size(), 0);
+                    // 采集所有表的基本信息
+                    List<DbTableMeta> tables = tableCollector.collect(connection, datasourceId, snapshot.getId());
+                    syncTaskService.updateProgress(task.getId(), tables.size(), 0);
 
-            int totalColumns = 0;
-            StringBuilder hashBuilder = new StringBuilder();
-            List<TableRelation> allRelations = new ArrayList<>();
+                    int totalColumns = 0;
+                    StringBuilder hashBuilder = new StringBuilder();
+                    List<TableRelation> allRelations = new ArrayList<>();
 
-            // 逐表采集字段、索引和关系信息
-            for (int i = 0; i < tables.size(); i++) {
-                DbTableMeta table = tables.get(i);
+                    // 逐表采集字段、索引和关系信息
+                    for (int i = 0; i < tables.size(); i++) {
+                        DbTableMeta table = tables.get(i);
 
-                // 采集索引信息并序列化为 JSON
-                List<IndexCollector.IndexInfo> indexes = indexCollector.collect(connection, table.getTableName());
-                if (!indexes.isEmpty()) {
-                    try {
-                        table.setIndexesInfo(objectMapper.writeValueAsString(indexes));
-                    } catch (Exception e) {
-                        log.warn("序列化索引信息失败 table={}", table.getTableName(), e);
+                        // 采集索引信息并序列化为 JSON
+                        List<IndexCollector.IndexInfo> indexes = indexCollector.collect(connection, table.getTableName());
+                        if (!indexes.isEmpty()) {
+                            try {
+                                table.setIndexesInfo(objectMapper.writeValueAsString(indexes));
+                            } catch (Exception e) {
+                                log.warn("序列化索引信息失败 table={}", table.getTableName(), e);
+                            }
+                        }
+                        tableMetaMapper.insert(table);
+
+                        // 采集字段信息
+                        List<DbColumnMeta> columns = columnCollector.collect(
+                                connection, datasourceId, snapshot.getId(), table.getTableName(), table.getId());
+                        for (DbColumnMeta column : columns) {
+                            columnMetaMapper.insert(column);
+                        }
+                        totalColumns += columns.size();
+
+                        // 采集外键关系
+                        List<TableRelation> relations = relationCollector.collect(
+                                connection, datasourceId, snapshot.getId(), table.getTableName());
+                        allRelations.addAll(relations);
+
+                        // 构建 Schema 哈希内容（表名:字段名,类型;...）
+                        hashBuilder.append(table.getTableName()).append(":");
+                        for (DbColumnMeta col : columns) {
+                            hashBuilder.append(col.getColumnName()).append(",").append(col.getDataType()).append(";");
+                        }
+
+                        // 更新任务进度
+                        syncTaskService.updateProgress(task.getId(), tables.size(), i + 1);
                     }
+
+                    // 批量保存所有表关系
+                    for (TableRelation relation : allRelations) {
+                        relationMapper.insert(relation);
+                    }
+
+                    // 计算 Schema 哈希并更新快照统计信息
+                    String schemaHash = md5(hashBuilder.toString());
+                    snapshotService.updateStats(snapshot.getId(), tables.size(), totalColumns, schemaHash);
+
+                    // 可选：采集统计信息（空值率、去重计数等）
+                    if (includeStatistics) {
+                        statisticsService.collectStatistics(datasourceId, snapshot.getId());
+                    }
+
+                    log.info("元数据同步完成 datasourceId={} 表数={} 字段数={}", datasourceId, tables.size(), totalColumns);
+                } catch (Exception e) {
+                    // 标记事务回滚
+                    status.setRollbackOnly();
+                    throw new RuntimeException("元数据采集事务内异常", e);
                 }
-                tableMetaMapper.insert(table);
-
-                // 采集字段信息
-                List<DbColumnMeta> columns = columnCollector.collect(
-                        connection, datasourceId, snapshot.getId(), table.getTableName(), table.getId());
-                for (DbColumnMeta column : columns) {
-                    columnMetaMapper.insert(column);
-                }
-                totalColumns += columns.size();
-
-                // 采集外键关系
-                List<TableRelation> relations = relationCollector.collect(
-                        connection, datasourceId, snapshot.getId(), table.getTableName());
-                allRelations.addAll(relations);
-
-                // 构建 Schema 哈希内容（表名:字段名,类型;...）
-                hashBuilder.append(table.getTableName()).append(":");
-                for (DbColumnMeta col : columns) {
-                    hashBuilder.append(col.getColumnName()).append(",").append(col.getDataType()).append(";");
-                }
-
-                // 更新任务进度
-                syncTaskService.updateProgress(task.getId(), tables.size(), i + 1);
-            }
-
-            // 批量保存所有表关系
-            for (TableRelation relation : allRelations) {
-                relationMapper.insert(relation);
-            }
-
-            // 计算 Schema 哈希并更新快照统计信息
-            String schemaHash = md5(hashBuilder.toString());
-            snapshotService.updateStats(snapshot.getId(), tables.size(), totalColumns, schemaHash);
-
-            // 可选：采集统计信息（空值率、去重计数等）
-            if (includeStatistics) {
-                statisticsService.collectStatistics(datasourceId, snapshot.getId());
-            }
-
-            log.info("元数据同步完成 datasourceId={} 表数={} 字段数={}", datasourceId, tables.size(), totalColumns);
+            });
         }
     }
 

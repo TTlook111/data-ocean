@@ -17,8 +17,8 @@ def check(sql: str) -> RuleResult:
     """检查 SQL 中是否包含黑名单函数"""
     try:
         tree = sqlglot.parse_one(sql, dialect="mysql")
-    except sqlglot.errors.ParseError:
-        return RuleResult(passed=True, rule_name=RULE_NAME)
+    except sqlglot.errors.ParseError as e:
+        return RuleResult(passed=False, rule_name=RULE_NAME, reason=f"SQL 语法解析失败：{e}")
 
     for node in tree.walk():
         if isinstance(node, (exp.Anonymous, exp.Func)):

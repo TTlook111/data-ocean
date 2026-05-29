@@ -3,6 +3,7 @@
 统一注册所有模块路由，配置全局异常处理和生命周期事件。
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -23,13 +24,51 @@ from dataocean.resilience.health import router as health_router
 logger = logging.getLogger(__name__)
 
 
+async def _periodic_pool_cleanup() -> None:
+    """后台定时清理空闲连接池（每 5 分钟执行一次）"""
+    from dataocean.sandbox.pool_manager import cleanup_idle_pools
+
+    while True:
+        await asyncio.sleep(300)
+        try:
+            cleaned = cleanup_idle_pools()
+            if cleaned > 0:
+                logger.info("定时清理空闲连接池完成 count=%d", cleaned)
+        except Exception as e:
+            logger.warning("连接池清理异常: %s", e)
+
+
+def _destroy_all_pools() -> None:
+    """销毁所有活跃连接池（进程关闭时调用）"""
+    from dataocean.sandbox.pool_manager import get_pool_status, destroy_pool
+
+    pools = get_pool_status()
+    for pool_info in pools:
+        try:
+            destroy_pool(pool_info["datasourceId"])
+        except Exception as e:
+            logger.warning("关闭时销毁连接池异常 datasourceId=%s: %s", pool_info["datasourceId"], e)
+    if pools:
+        logger.info("已销毁全部连接池 count=%d", len(pools))
+
+
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     """应用生命周期管理"""
     setup_logging(settings.log_level)
     _validate_config()
+    # 启动连接池定时清理后台任务
+    cleanup_task = asyncio.create_task(_periodic_pool_cleanup())
     logger.info("DataOcean AI Service 启动完成")
     yield
+    # 关闭定时清理任务
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
+    # 销毁所有连接池
+    _destroy_all_pools()
     # 关闭 httpx client 等资源
     from dataocean.knowledge.service import _http_client
     if _http_client and not _http_client.is_closed:
