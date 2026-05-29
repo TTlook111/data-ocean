@@ -75,8 +75,8 @@ async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentStat
     budget: TimeoutBudget | None = state.get("timeout_budget")
     if budget:
         try:
-            budget.check_remaining(node_name.lower())
-        except BudgetExhaustedException as e:
+            budget.allocate(node_name.lower())
+        except BudgetExhaustedException:
             error_msg = "处理时间超出限制，请简化问题"
             await sse.emit_progress(task_id, node_name, "failed", error_msg, retry_count)
             return {**state, "error_message": error_msg, "current_node": node_name}

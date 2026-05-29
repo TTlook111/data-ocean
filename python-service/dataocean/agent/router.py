@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from .cancellation import cancel_task as do_cancel, cleanup
+from .config import agent_config
 from .graph import agent_graph
 from .schema import ExecuteRequest, QueryResult
 from . import sse
@@ -82,7 +83,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
             "errors": [],
             "start_time": start_time,
             "cancelled": False,
-            "timeout_budget": TimeoutBudget(),
+            "timeout_budget": TimeoutBudget(float(agent_config.total_timeout)),
         }
 
         # 执行 LangGraph 工作流
@@ -128,6 +129,17 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
 
         await sse.emit_result(task_id, result)
 
+    except asyncio.CancelledError:
+        # 用户取消或 SSE 断开导致 Task 被 cancel
+        logger.info("Agent 工作流被取消 task_id=%s", task_id)
+        total_time_ms = int((time.time() - start_time) * 1000)
+        result = QueryResult(
+            task_id=task_id,
+            status="CANCELLED",
+            error="查询已取消",
+            total_time_ms=total_time_ms,
+        )
+        await sse.emit_result(task_id, result)
     except Exception as e:
         logger.error("Agent 工作流执行异常 task_id=%s", task_id, exc_info=True)
         total_time_ms = int((time.time() - start_time) * 1000)
@@ -147,6 +159,10 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
 async def cancel_task(task_id: str) -> dict:
     """取消查询任务"""
     do_cancel(task_id)
+    # 同时取消 asyncio Task，使正在执行的 SQL 能被中断
+    active_task = _active_tasks.get(task_id)
+    if active_task and not active_task.done():
+        active_task.cancel()
     return {"taskId": task_id, "cancelled": True, "message": "任务已标记取消"}
 
 
