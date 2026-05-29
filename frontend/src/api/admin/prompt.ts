@@ -22,8 +22,27 @@ export interface PromptVersionVO {
   createdAt: string
 }
 
+export interface PromptEffectivenessVO {
+  templateCode: string
+  versionNo: number
+  totalQueries: number
+  successCount: number
+  successRate: number
+  avgExecutionTimeMs: number
+  feedbackCount: number
+  positiveFeedbackCount: number
+  positiveFeedbackRate: number
+}
+
 export async function listPromptTemplates(params: { page?: number; pageSize?: number }) {
   const { data } = await http.get<ApiResult<PageResult<PromptTemplateVO>>>('/api/admin/prompt-templates', { params })
+  return data
+}
+
+export async function getPromptEffectiveness(days = 30) {
+  const { data } = await http.get<ApiResult<PromptEffectivenessVO[]>>('/api/admin/prompt-templates/effectiveness', {
+    params: { days },
+  })
   return data
 }
 

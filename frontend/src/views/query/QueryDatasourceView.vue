@@ -22,7 +22,14 @@ import {
   UserRound,
 } from 'lucide-vue-next'
 import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource'
-import { submitQuery, getTaskResult, submitQueryFeedback } from '../../api/query'
+import {
+  submitQuery,
+  getTaskResult,
+  submitQueryFeedback,
+  listConversations,
+  listConversationMessages,
+  type ConversationMessageItem,
+} from '../../api/query'
 import { useGsapMotion } from '../../composables/useGsapMotion'
 import { useAuthStore } from '../../stores/auth'
 import { roleCodesLabel } from '../../utils/enumLabels'
@@ -75,6 +82,7 @@ const keyword = ref('')
 const isQuerying = ref(false)
 const drawerVisible = ref(false)
 const sessions = reactive<LocalSession[]>([])
+const loadedDatasourceIds = ref<Set<number>>(new Set())
 const questionInputRef = ref<HTMLTextAreaElement>()
 const workspaceRef = ref<HTMLElement | null>(null)
 const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(workspaceRef)
@@ -223,6 +231,61 @@ function createSession(datasourceId: number, title = '新的对话') {
   return session
 }
 
+function parseStoredResult(message: ConversationMessageItem) {
+  if (!message.metadata) return undefined
+  try {
+    const result = JSON.parse(message.metadata)
+    if (message.taskId && !result.taskId) {
+      result.taskId = message.taskId
+    }
+    return result
+  } catch {
+    return undefined
+  }
+}
+
+function toLocalMessage(message: ConversationMessageItem): LocalMessage {
+  const result = message.role === 'assistant' ? parseStoredResult(message) : undefined
+  return {
+    id: `remote-${message.id}`,
+    role: message.role,
+    content: message.content,
+    createdAt: message.createdAt,
+    taskId: message.taskId,
+    status: result?.status,
+    queryResult: result,
+  }
+}
+
+async function hydrateSessionMessages(session: LocalSession) {
+  if (!session.conversationId) return
+  const res = await listConversationMessages(session.conversationId, { page: 1, pageSize: 80 })
+  session.messages = res.data.map(toLocalMessage)
+}
+
+async function loadRemoteSessions(datasourceId: number, activateFirst = true) {
+  if (loadedDatasourceIds.value.has(datasourceId)) return
+  const res = await listConversations(datasourceId)
+  const remoteSessions: LocalSession[] = res.data.map((item) => ({
+    id: `remote-${item.id}`,
+    datasourceId: item.datasourceId,
+    title: item.title || '历史会话',
+    updatedAt: item.updatedAt || item.createdAt,
+    messages: [],
+    conversationId: item.id,
+  }))
+  sessions.push(...remoteSessions.filter((remote) => !sessions.some((local) => local.conversationId === remote.conversationId)))
+  loadedDatasourceIds.value = new Set([...loadedDatasourceIds.value, datasourceId])
+
+  const first = datasourceSessions.value[0]
+  if (activateFirst && first) {
+    activeSessionId.value = first.id
+    if (!first.messages.length) {
+      await hydrateSessionMessages(first)
+    }
+  }
+}
+
 function ensureSession(datasourceId: number) {
   const existing = sessions.find((session) => session.datasourceId === datasourceId)
   if (existing) {
@@ -232,13 +295,21 @@ function ensureSession(datasourceId: number) {
   return createSession(datasourceId)
 }
 
-function selectDatasource(id: number) {
+async function selectDatasource(id: number) {
   if (selectedId.value !== id) {
     question.value = ''
     keyword.value = ''
   }
   selectedId.value = id
-  ensureSession(id)
+  try {
+    await loadRemoteSessions(id)
+  } catch {
+    ensureSession(id)
+    ElMessage.warning('历史会话加载失败，已创建本地临时会话')
+  }
+  if (!activeSession.value || activeSession.value.datasourceId !== id) {
+    ensureSession(id)
+  }
   revealAfterTick('.workspace-brief, .example-strip, .message-item, .result-preview', {
     y: 14,
     stagger: 0.04,
@@ -262,12 +333,19 @@ function applyExample(text: string) {
   focusQuestionInput()
 }
 
-function selectSession(sessionId: string) {
+async function selectSession(sessionId: string) {
   const session = sessions.find((item) => item.id === sessionId)
   if (!session) return
   selectedId.value = session.datasourceId
   activeSessionId.value = session.id
   question.value = ''
+  if (!session.messages.length) {
+    try {
+      await hydrateSessionMessages(session)
+    } catch {
+      ElMessage.error('会话消息加载失败')
+    }
+  }
   focusQuestionInput()
 }
 
@@ -394,7 +472,7 @@ async function fetchDatasources() {
     const result = await listMyDatasources()
     datasources.value = result.data
     if (result.data.length && (!selectedId.value || !result.data.some((item) => item.id === selectedId.value))) {
-      selectDatasource(result.data[0].id)
+      await selectDatasource(result.data[0].id)
     }
     if (!result.data.length) {
       selectedId.value = undefined

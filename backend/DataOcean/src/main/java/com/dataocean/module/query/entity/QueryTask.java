@@ -66,6 +66,9 @@ public class QueryTask {
     /** Python AST 标记的需脱敏字段列表 JSON（格式: ["table.column", ...]） */
     private String maskedFields;
 
+    /** 本次 Agent 调用使用的 Prompt 模板版本 JSON */
+    private String promptVersions;
+
     /** 错误信息 */
     private String errorMessage;
 

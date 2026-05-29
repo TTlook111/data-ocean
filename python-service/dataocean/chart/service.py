@@ -10,6 +10,7 @@ import logging
 import re
 
 from dataocean.agent.llm import call_llm
+from dataocean.prompt.service import render_prompt_with_metadata
 
 from .chart_validator import validate_chart_option
 from .data_aggregator import aggregate_for_chart
@@ -56,6 +57,7 @@ class ChartResult:
         aggregated: bool = False,
         aggregation_note: str | None = None,
         reason: str | None = None,
+        prompt_version_no: int = 0,
     ):
         self.chart_type = chart_type
         self.echarts_option = echarts_option
@@ -63,6 +65,7 @@ class ChartResult:
         self.aggregated = aggregated
         self.aggregation_note = aggregation_note
         self.reason = reason
+        self.prompt_version_no = prompt_version_no
 
     def to_dict(self) -> dict:
         result = {
@@ -75,6 +78,7 @@ class ChartResult:
             result["aggregation_note"] = self.aggregation_note
         if self.reason:
             result["reason"] = self.reason
+        result["prompt_version_no"] = self.prompt_version_no
         return result
 
 
@@ -122,6 +126,20 @@ async def generate_chart(
         total_rows=total_rows,
         data_preview=data_str,
     )
+    prompt_version_no = 0
+    try:
+        managed_prompt, prompt_version_no = await render_prompt_with_metadata(
+            "chart_generation",
+            {
+                "question": question,
+                "columns": columns_info,
+                "data": data_str,
+            },
+        )
+        if managed_prompt:
+            user_prompt = managed_prompt
+    except Exception as e:
+        logger.debug("图表 Prompt 管理模板不可用，使用本地模板降级: %s", e)
 
     # 调用 LLM
     try:
@@ -133,12 +151,12 @@ async def generate_chart(
         option = _extract_json(response_text)
     except Exception as e:
         logger.warning("图表生成 LLM 调用失败: %s", e)
-        return ChartResult(reason="图表配置生成失败，请查看表格数据")
+        return ChartResult(reason="图表配置生成失败，请查看表格数据", prompt_version_no=prompt_version_no)
 
     # 校验
     validated = validate_chart_option(option)
     if validated is None:
-        return ChartResult(reason="图表配置生成失败，请查看表格数据")
+        return ChartResult(reason="图表配置生成失败，请查看表格数据", prompt_version_no=prompt_version_no)
 
     chart_type = _detect_chart_type(validated)
     suggested = _suggest_types(chart_type)
@@ -149,6 +167,7 @@ async def generate_chart(
         suggested_types=suggested,
         aggregated=aggregated,
         aggregation_note=aggregation_note,
+        prompt_version_no=prompt_version_no,
     )
 
 
@@ -184,4 +203,3 @@ def _suggest_types(current_type: str) -> list[str]:
         if t != current_type:
             suggested.append(t)
     return suggested
-

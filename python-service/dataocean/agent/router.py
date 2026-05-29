@@ -66,6 +66,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
             "user_permissions": request.user_permissions.model_dump(),
             "active_snapshot_id": request.active_snapshot_id,
             "confidence_scores": request.confidence_scores,
+            "prompt_versions": [],
             "connection_config": request.connection_config,
             "rewritten_query": "",
             "extracted_intent": {},
@@ -102,6 +103,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
                 retry_count=final_state.get("retry_count", 0),
                 total_time_ms=total_time_ms,
                 rewritten_query=final_state.get("rewritten_query"),
+                prompt_versions=final_state.get("prompt_versions", []),
             )
         else:
             # 返回经过权限改写后的 SQL（如有），否则返回原始生成的 SQL
@@ -125,6 +127,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
                 total_time_ms=total_time_ms,
                 suggested_questions=final_state.get("suggested_questions", []),
                 masked_fields=validation_result.get("masked_fields", {}),
+                prompt_versions=final_state.get("prompt_versions", []),
             )
 
         await sse.emit_result(task_id, result)

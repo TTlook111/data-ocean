@@ -185,6 +185,9 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             if (result.containsKey("maskedFields")) {
                 wrapper.set(QueryTask::getMaskedFields, objectMapper.writeValueAsString(result.get("maskedFields")));
             }
+            if (result.containsKey("promptVersions")) {
+                wrapper.set(QueryTask::getPromptVersions, objectMapper.writeValueAsString(result.get("promptVersions")));
+            }
             if (result.containsKey("error")) {
                 wrapper.set(QueryTask::getErrorMessage, (String) result.get("error"));
             }
@@ -266,6 +269,8 @@ public class QueryTaskServiceImpl implements QueryTaskService {
                     ? objectMapper.readValue(task.getUsedTables(), new TypeReference<>() {}) : null;
             List<String> usedColumns = task.getUsedColumns() != null
                     ? objectMapper.readValue(task.getUsedColumns(), new TypeReference<>() {}) : null;
+            List<Map<String, Object>> promptVersions = task.getPromptVersions() != null
+                    ? objectMapper.readValue(task.getPromptVersions(), new TypeReference<>() {}) : null;
 
             return QueryTaskVO.builder()
                     .taskId(task.getTaskId())
@@ -280,6 +285,7 @@ public class QueryTaskServiceImpl implements QueryTaskService {
                     .chartConfig(chartConfig)
                     .usedTables(usedTables)
                     .usedColumns(usedColumns)
+                    .promptVersions(promptVersions)
                     .errorMessage(task.getErrorMessage())
                     .retryCount(task.getRetryCount())
                     .totalTimeMs(task.getTotalTimeMs())

@@ -16,6 +16,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  SlidersHorizontal,
   ShieldCheck,
   ShieldAlert,
   Table2,
@@ -93,6 +94,12 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '知识库总览', to: '/admin/knowledge', icon: FileText, permission: 'knowledge:manage' },
       { label: '文档编辑器', to: '/admin/knowledge/editor', icon: ClipboardList, permission: 'knowledge:manage' },
       { label: '知识审核', to: '/admin/knowledge/review', icon: ShieldCheck, permission: 'knowledge:manage' },
+    ],
+  },
+  {
+    label: 'AI 调优',
+    items: [
+      { label: 'Prompt 管理', to: '/admin/prompts', icon: SlidersHorizontal, permission: 'prompt:manage' },
     ],
   },
   {

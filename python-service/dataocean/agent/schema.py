@@ -109,6 +109,7 @@ class QueryResult(BaseModel):
     error: str | None = None
     suggested_questions: list[str] = Field(default_factory=list, serialization_alias="suggestedQuestions")
     masked_fields: dict[str, str] = Field(default_factory=dict, serialization_alias="maskedFields")
+    prompt_versions: list[dict] = Field(default_factory=list, serialization_alias="promptVersions")
 
 
 class ProgressEvent(BaseModel):

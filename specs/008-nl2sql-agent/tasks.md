@@ -62,7 +62,7 @@
 
 - [X] T026 在 Java 后端 ConversationService 中实现会话消息持久化：每次查询请求时保存 user message，收到 Python 结果后保存 assistant message（含 SQL、图表、解释）
 - [X] T027 在 Java 后端实现 GET /api/conversations/{id}/messages 接口，返回该会话的所有消息（分页），前端刷新后可恢复完整对话上下文
-- [ ] T028 在前端 conversation store 的初始化逻辑中，如果 conversationId 存在则从后端加载历史消息恢复状态
+- [X] T028 在前端 conversation store 的初始化逻辑中，如果 conversationId 存在则从后端加载历史消息恢复状态
 
 ## Phase 9: UX Enhancements
 

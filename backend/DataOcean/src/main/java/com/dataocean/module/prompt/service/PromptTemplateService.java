@@ -2,6 +2,7 @@ package com.dataocean.module.prompt.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.prompt.entity.dto.*;
+import com.dataocean.module.prompt.entity.vo.PromptEffectivenessVO;
 
 import java.util.List;
 
@@ -31,6 +32,11 @@ public interface PromptTemplateService {
     PromptTemplateVO getTemplate(String code);
 
     /**
+     * 获取启用中的模板详情，供内部服务调用。
+     */
+    PromptTemplateVO getActiveTemplate(String code);
+
+    /**
      * 更新模板内容（自动创建新版本）
      *
      * @param code    模板编码
@@ -46,6 +52,11 @@ public interface PromptTemplateService {
      * @return 版本列表（按版本号降序）
      */
     List<PromptVersionVO> getVersionHistory(String code);
+
+    /**
+     * 按 Prompt 模板版本聚合查询成功率、耗时和反馈表现。
+     */
+    List<PromptEffectivenessVO> getEffectiveness(int days);
 
     /**
      * 回滚到指定版本

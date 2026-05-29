@@ -11,6 +11,7 @@ import logging
 from dataocean.chart.service import generate_chart
 
 from ..llm import call_llm
+from ..prompt_tracking import record_prompt_version
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -29,9 +30,12 @@ async def run_data_visualizer(state: AgentState) -> AgentState:
 
     # 无数据或单值不生成图表
     if row_count == 0:
+        # TODO: followup_suggestions 尚未接入 Prompt 管理模板
+        state = record_prompt_version(state, "followup_suggestions", 0)
         suggested = await _generate_suggestions(state)
         return {**state, "chart_config": None, "suggested_questions": suggested, "current_node": "DATA_VISUALIZER"}
     if row_count == 1 and len(columns) == 1:
+        state = record_prompt_version(state, "followup_suggestions", 0)
         suggested = await _generate_suggestions(state)
         return {**state, "chart_config": None, "suggested_questions": suggested, "current_node": "DATA_VISUALIZER"}
 
@@ -48,8 +52,11 @@ async def run_data_visualizer(state: AgentState) -> AgentState:
         column_types=column_types,
         total_rows=row_count,
     )
+    state = record_prompt_version(state, "chart_generation", result.prompt_version_no)
 
     chart_config = result.echarts_option
+    # TODO: followup_suggestions 尚未接入 Prompt 管理模板
+    state = record_prompt_version(state, "followup_suggestions", 0)
     suggested = await _generate_suggestions(state)
 
     return {

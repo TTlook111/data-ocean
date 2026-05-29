@@ -15,6 +15,7 @@ from pathlib import Path
 from jinja2 import Template
 
 from ..llm import call_llm
+from ..prompt_tracking import record_prompt_version
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,8 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
     conversation_history = state.get("conversation_history", [])
 
     logger.info("问题改写 task_id=%s question=%s", task_id, question[:50])
+    # TODO: query_rewrite 尚未接入 Prompt 管理模板，暂记录 version=0 用于审计追踪
+    state = record_prompt_version(state, "query_rewrite", 0)
 
     template = _get_template()
     prompt = template.render(

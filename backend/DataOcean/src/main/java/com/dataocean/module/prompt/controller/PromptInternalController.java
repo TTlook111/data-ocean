@@ -2,6 +2,7 @@ package com.dataocean.module.prompt.controller;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.prompt.entity.dto.PromptTemplateVO;
 import com.dataocean.module.prompt.service.PromptTemplateService;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
@@ -56,10 +57,14 @@ public class PromptInternalController {
      * @return 包含 code 和 content 的 Map
      */
     @GetMapping("/{code}")
-    public Result<Map<String, String>> getActiveContent(@PathVariable String code, HttpServletRequest request) {
+    public Result<Map<String, Object>> getActiveContent(@PathVariable String code, HttpServletRequest request) {
         validateInternalCall(request);
-        String content = promptTemplateService.getActiveContent(code);
-        return Result.success(Map.of("code", code, "content", content));
+        PromptTemplateVO template = promptTemplateService.getActiveTemplate(code);
+        return Result.success(Map.of(
+                "code", code,
+                "content", template.getContent(),
+                "versionNo", template.getCurrentVersion()
+        ));
     }
 
     /**

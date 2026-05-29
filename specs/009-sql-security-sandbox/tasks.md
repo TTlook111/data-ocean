@@ -64,7 +64,7 @@
 
 - [X] T028 在 router.py 中添加 GET /internal/sql/pools/dashboard 接口：返回所有活跃连接池的详细状态（datasource_id、active_connections、idle_connections、pool_size、last_used_at、created_at）
 - [X] T029 在 router.py 中添加 POST /internal/sql/pools/{datasourceId}/reset 接口：强制销毁并重建指定数据源的连接池
-- [ ] T030 [Frontend] 在系统设置或数据源详情页添加"连接池状态"面板，展示各数据源的连接池使用率
+- [X] T030 [Frontend] 在系统设置或数据源详情页添加"连接池状态"面板，展示各数据源的连接池使用率
 
 ## Dependencies
 

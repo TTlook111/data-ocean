@@ -3,6 +3,7 @@ package com.dataocean.module.prompt.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.prompt.entity.dto.*;
+import com.dataocean.module.prompt.entity.vo.PromptEffectivenessVO;
 import com.dataocean.module.prompt.service.PromptTemplateService;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import jakarta.validation.Valid;
@@ -23,7 +24,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/admin/prompt-templates")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('prompt:manage')")
+@PreAuthorize("hasAnyAuthority('prompt:manage', '*')")
 @AdminAuditLog
 @Slf4j
 public class PromptTemplateController {
@@ -42,6 +43,14 @@ public class PromptTemplateController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
         return Result.success(promptTemplateService.listTemplates(page, pageSize));
+    }
+
+    /**
+     * 按模板版本查看 Prompt 效果分析。
+     */
+    @GetMapping("/effectiveness")
+    public Result<List<PromptEffectivenessVO>> effectiveness(@RequestParam(defaultValue = "30") int days) {
+        return Result.success(promptTemplateService.getEffectiveness(days));
     }
 
     /**

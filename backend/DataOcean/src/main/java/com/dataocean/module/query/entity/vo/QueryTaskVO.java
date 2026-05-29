@@ -26,6 +26,7 @@ public class QueryTaskVO {
     private Map<String, Object> chartConfig;
     private List<String> usedTables;
     private List<String> usedColumns;
+    private List<Map<String, Object>> promptVersions;
     private String errorMessage;
     private Integer retryCount;
     private Integer totalTimeMs;

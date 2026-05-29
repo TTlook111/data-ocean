@@ -25,6 +25,7 @@ const SkillsEditor = () => import('../views/admin/knowledge/SkillsEditor.vue')
 const VersionList = () => import('../views/admin/knowledge/VersionList.vue')
 const ReviewPage = () => import('../views/admin/knowledge/ReviewPage.vue')
 const KnowledgeDashboard = () => import('../views/admin/knowledge/KnowledgeDashboard.vue')
+const PromptManager = () => import('../views/admin/prompt/PromptManager.vue')
 const FieldTagManager = () => import('../views/admin/field/FieldTagManager.vue')
 const ConfidenceDashboard = () => import('../views/admin/field/ConfidenceDashboard.vue')
 const FeedbackReview = () => import('../views/admin/field/FeedbackReview.vue')
@@ -181,6 +182,12 @@ const router = createRouter({
           name: 'admin-knowledge-review',
           component: ReviewPage,
           meta: { title: '知识审核', section: '知识库管理', permission: 'knowledge:manage' },
+        },
+        {
+          path: 'prompts',
+          name: 'admin-prompts',
+          component: PromptManager,
+          meta: { title: 'Prompt 管理', section: 'AI 调优', permission: 'prompt:manage' },
         },
         {
           path: 'field/tags',

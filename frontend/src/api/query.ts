@@ -37,6 +37,25 @@ export interface QueryTaskResult {
   canExport?: boolean
 }
 
+export interface ConversationItem {
+  id: number
+  userId: number
+  datasourceId: number
+  title: string
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ConversationMessageItem {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  taskId?: string
+  metadata?: string
+  createdAt: string
+}
+
 export async function submitQuery(params: QueryAskParams) {
   const { data } = await http.post<ApiResult<QueryAskResult>>('/api/query/ask', params)
   return data
@@ -54,5 +73,18 @@ export async function cancelTask(taskId: string) {
 
 export async function submitQueryFeedback(taskId: string, feedbackType: 'LIKE' | 'DISLIKE') {
   const { data } = await http.post<ApiResult<void>>(`/api/query/tasks/${taskId}/feedback`, { feedbackType })
+  return data
+}
+
+export async function listConversations(datasourceId?: number) {
+  const { data } = await http.get<ApiResult<ConversationItem[]>>('/api/query/conversations', { params: { datasourceId } })
+  return data
+}
+
+export async function listConversationMessages(conversationId: number, params: { page?: number; pageSize?: number } = {}) {
+  const { data } = await http.get<ApiResult<ConversationMessageItem[]>>(
+    `/api/query/conversations/${conversationId}/messages`,
+    { params },
+  )
   return data
 }

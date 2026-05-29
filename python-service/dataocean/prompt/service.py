@@ -4,8 +4,10 @@
 对外提供 render_prompt(template_code, variables) 方法。
 """
 
+import json
 import logging
 import os
+from typing import Any
 
 import httpx
 
@@ -20,17 +22,14 @@ JAVA_BASE_URL = os.getenv("JAVA_GATEWAY_URL", "http://localhost:8080")
 INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "dataocean-internal-default")
 
 
-async def fetch_template_content(template_code: str) -> str:
+async def fetch_template(template_code: str) -> dict[str, Any]:
     """从 Java 内部 API 获取 Prompt 模板活跃版本内容
 
     Args:
         template_code: 模板编码
 
     Returns:
-        模板内容文本
-
-    Raises:
-        httpx.HTTPStatusError: Java API 返回非 200 状态码
+        包含 code/content/versionNo 的模板元数据。
     """
     url = f"{JAVA_BASE_URL}/internal/prompts/{template_code}"
     headers = {"X-Internal-Token": INTERNAL_TOKEN}
@@ -38,7 +37,17 @@ async def fetch_template_content(template_code: str) -> str:
         response = await client.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
-        return data.get("data", {}).get("content", "")
+        template = data.get("data", {})
+        return {
+            "code": template.get("code", template_code),
+            "content": template.get("content", ""),
+            "versionNo": int(template.get("versionNo") or 0),
+        }
+
+
+async def fetch_template_content(template_code: str) -> str:
+    """Fetch only the active template content, preserving the original API."""
+    return (await fetch_template(template_code)).get("content", "")
 
 
 async def render_prompt(template_code: str, variables: dict[str, str]) -> str:
@@ -55,14 +64,23 @@ async def render_prompt(template_code: str, variables: dict[str, str]) -> str:
     Returns:
         渲染并裁剪后的完整 Prompt 文本
     """
-    # 获取模板
-    template_content = await fetch_template_content(template_code)
+    rendered, _ = await render_prompt_with_metadata(template_code, variables)
+    return rendered
+
+
+async def render_prompt_with_metadata(
+    template_code: str,
+    variables: dict[str, Any],
+) -> tuple[str, int]:
+    """Render a managed prompt and return the active version number."""
+    template = await fetch_template(template_code)
+    template_content = template.get("content", "")
     if not template_content:
         logger.error("获取 Prompt 模板失败 code=%s", template_code)
-        return ""
+        return "", 0
 
     # Token 预算裁剪
-    budgeted_variables = apply_token_budget(variables)
+    budgeted_variables = apply_token_budget(_stringify_variables(variables))
 
     # 渲染变量
     rendered = render_template(template_content, budgeted_variables)
@@ -71,4 +89,19 @@ async def render_prompt(template_code: str, variables: dict[str, str]) -> str:
         "Prompt 渲染完成 code=%s 长度=%d",
         template_code, len(rendered),
     )
-    return rendered
+    return rendered, int(template.get("versionNo") or 0)
+
+
+def _stringify_variables(variables: dict[str, Any]) -> dict[str, str]:
+    """将变量值统一转为字符串，复杂类型使用 JSON 序列化。"""
+    result: dict[str, str] = {}
+    for key, value in variables.items():
+        if value is None:
+            result[key] = ""
+        elif isinstance(value, str):
+            result[key] = value
+        elif isinstance(value, (dict, list)):
+            result[key] = json.dumps(value, ensure_ascii=False)
+        else:
+            result[key] = str(value)
+    return result

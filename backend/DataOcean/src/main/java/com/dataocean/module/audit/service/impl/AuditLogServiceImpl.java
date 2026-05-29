@@ -56,6 +56,7 @@ public class AuditLogServiceImpl implements AuditLogService {
             auditLog.setSqlText(task.getResultSql());
             auditLog.setUsedTables(task.getUsedTables());
             auditLog.setUsedFields(task.getUsedColumns());
+            auditLog.setPromptVersions(task.getPromptVersions());
             auditLog.setExecutionTimeMs(task.getTotalTimeMs());
             auditLog.setIsSuccess("COMPLETED".equals(task.getStatus()));
             auditLog.setErrorMessage(task.getErrorMessage());

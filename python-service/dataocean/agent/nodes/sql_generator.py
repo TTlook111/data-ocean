@@ -12,7 +12,10 @@ from pathlib import Path
 
 from jinja2 import Template
 
+from dataocean.prompt.service import render_prompt_with_metadata
+
 from ..llm import call_llm
+from ..prompt_tracking import record_prompt_version
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -69,15 +72,8 @@ async def run_sql_generator(state: AgentState) -> AgentState:
 
     logger.info("SQL 生成 task_id=%s retry=%d", task_id, retry_count)
 
-    template = _get_template()
-    prompt = template.render(
-        rewritten_query=state.get("rewritten_query", ""),
-        intent=state.get("extracted_intent", {}),
-        schema_context=state.get("schema_context", []),
-        conversation_history=state.get("conversation_history", []),
-        error_message=error_message if retry_count > 0 else "",
-        previous_sql=previous_sql if retry_count > 0 else "",
-    )
+    prompt, prompt_version = await _render_sql_prompt(state, retry_count, error_message, previous_sql)
+    state = record_prompt_version(state, "sql_generation", prompt_version)
 
     try:
         response_text = await call_llm(
@@ -132,3 +128,52 @@ def estimate_execution_time(sql: str) -> str:
     if join_count >= 1 or has_group_by:
         return "预计执行 2-5 秒"
     return "预计执行 1-2 秒"
+
+
+async def _render_sql_prompt(
+    state: AgentState,
+    retry_count: int,
+    error_message: str,
+    previous_sql: str,
+) -> tuple[str, int]:
+    variables = {
+        "question": state.get("question", ""),
+        "rewritten_query": state.get("rewritten_query", ""),
+        "intent": state.get("extracted_intent", {}),
+        "schema": _format_schema(state.get("schema_context", [])),
+        "schema_context": state.get("schema_context", []),
+        "field_confidence": state.get("confidence_scores", {}),
+        "conversation_history": state.get("conversation_history", []),
+        "error_message": error_message if retry_count > 0 else "",
+        "previous_sql": previous_sql if retry_count > 0 else "",
+    }
+    try:
+        rendered, version_no = await render_prompt_with_metadata("sql_generation", variables)
+        if rendered:
+            return rendered, version_no
+    except Exception as e:
+        logger.debug("SQL Prompt 管理模板不可用，使用本地模板降级 task_id=%s error=%s", state.get("task_id", ""), e)
+
+    template = _get_template()
+    return (
+        template.render(
+            rewritten_query=state.get("rewritten_query", ""),
+            intent=state.get("extracted_intent", {}),
+            schema_context=state.get("schema_context", []),
+            conversation_history=state.get("conversation_history", []),
+            error_message=error_message if retry_count > 0 else "",
+            previous_sql=previous_sql if retry_count > 0 else "",
+        ),
+        0,
+    )
+
+
+def _format_schema(schema_context: list[dict]) -> str:
+    lines: list[str] = []
+    for item in schema_context:
+        table_name = item.get("table_name") or item.get("tableName") or ""
+        related_column = item.get("related_column") or item.get("relatedColumn") or ""
+        chunk_text = item.get("chunk_text") or item.get("chunkText") or ""
+        confidence = item.get("confidence_score") or item.get("confidenceScore") or item.get("score") or ""
+        lines.append(f"- {table_name}.{related_column}: {chunk_text} (confidence={confidence})")
+    return "\n".join(lines)

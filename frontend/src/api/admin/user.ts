@@ -109,6 +109,21 @@ export async function listRoles() {
   return data
 }
 
+export async function listRoleUsers(roleId: number) {
+  const { data } = await http.get<ApiResult<UserItem[]>>(`/api/admin/roles/${roleId}/users`)
+  return data
+}
+
+export async function assignRoleToUser(roleId: number, userId: number) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/roles/${roleId}/users`, { userId })
+  return data
+}
+
+export async function removeRoleFromUser(roleId: number, userId: number) {
+  const { data } = await http.delete<ApiResult<null>>(`/api/admin/roles/${roleId}/users/${userId}`)
+  return data
+}
+
 export async function listDepartments() {
   const { data } = await http.get<ApiResult<DepartmentNode[]>>('/api/admin/departments/tree')
   return data

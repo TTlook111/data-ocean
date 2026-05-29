@@ -1,10 +1,13 @@
 package com.dataocean.common.health;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.datasource.client.PythonPoolClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -13,9 +16,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 系统健康状态控制器
+ * 系统健康状态与运维操作控制器。
  * <p>
- * 提供各服务组件的健康状态查询接口，供管理后台展示。
+ * 提供各服务组件的健康状态查询和 SQL 连接池管理接口，供管理后台展示。
  * </p>
  */
 @RestController
@@ -26,12 +29,10 @@ import java.util.Map;
 public class SystemHealthController {
 
     private final PythonHealthChecker pythonHealthChecker;
+    private final PythonPoolClient pythonPoolClient;
 
     /**
      * 获取系统各服务健康状态
-     * <p>
-     * 返回 Python 服务、Milvus、Redis、MySQL 的当前状态。
-     * </p>
      */
     @GetMapping("/health")
     public Result<Map<String, Object>> getSystemHealth() {
@@ -55,8 +56,7 @@ public class SystemHealthController {
         healthMap.put("mysql", mysqlStatus);
 
         // Redis 状态
-        Map<String, Object> redisStatus = checkRedisHealth();
-        healthMap.put("redis", redisStatus);
+        healthMap.put("redis", checkRedisHealth());
 
         // 总体状态
         boolean allAvailable = pythonInfo.getStatus() == ServiceHealthStatus.AVAILABLE;
@@ -67,12 +67,26 @@ public class SystemHealthController {
     }
 
     /**
-     * 检查 Redis 健康状态
+     * 获取 Python 侧 SQL 连接池仪表盘
      */
+    @GetMapping("/sql-pools")
+    public Result<Map<String, Object>> getSqlPoolDashboard() {
+        return Result.success(pythonPoolClient.getPoolDashboard());
+    }
+
+    /**
+     * 重置指定数据源的 SQL 连接池
+     */
+    @PostMapping("/sql-pools/{datasourceId}/reset")
+    public Result<Void> resetSqlPool(@PathVariable Long datasourceId) {
+        pythonPoolClient.resetPool(datasourceId);
+        return Result.success("连接池已重置", null);
+    }
+
+    /** 检查 Redis 健康状态 */
     private Map<String, Object> checkRedisHealth() {
         Map<String, Object> status = new HashMap<>();
         try {
-            // Redis 连接由 Spring Data Redis 管理，能正常注入即可用
             status.put("status", "AVAILABLE");
             status.put("description", "可用");
             status.put("lastCheckTime", LocalDateTime.now());

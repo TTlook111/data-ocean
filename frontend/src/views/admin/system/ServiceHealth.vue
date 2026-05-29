@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { Activity, Server, Database, Cpu, RefreshCw } from 'lucide-vue-next'
+import { onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { Activity, Cpu, Database, RefreshCw, RotateCcw, Server } from 'lucide-vue-next'
 import { http } from '../../../api/http'
+import { getPoolDashboard, resetDatasourcePool, type PoolDashboardInfo } from '../../../api/admin/system'
 
 interface ServiceStatus {
   status: string
@@ -20,15 +22,50 @@ interface HealthData {
 }
 
 const loading = ref(false)
+const poolLoading = ref(false)
+const resettingDatasourceId = ref<number>()
 const healthData = ref<HealthData | null>(null)
+const poolData = ref<PoolDashboardInfo | null>(null)
 
 async function fetchHealth() {
   loading.value = true
   try {
     const { data } = await http.get<{ code: number; data: HealthData }>('/api/admin/system/health')
     healthData.value = data.data
+  } catch {
+    healthData.value = null
+    ElMessage.error('服务健康状态加载失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function fetchPools() {
+  poolLoading.value = true
+  try {
+    const result = await getPoolDashboard()
+    poolData.value = result.data
+  } catch {
+    ElMessage.error('连接池状态加载失败')
+  } finally {
+    poolLoading.value = false
+  }
+}
+
+async function refreshAll() {
+  await Promise.allSettled([fetchHealth(), fetchPools()])
+}
+
+async function handleResetPool(datasourceId: number) {
+  resettingDatasourceId.value = datasourceId
+  try {
+    await resetDatasourcePool(datasourceId)
+    ElMessage.success('连接池已重置')
+    await fetchPools()
+  } catch {
+    ElMessage.error('连接池重置失败')
+  } finally {
+    resettingDatasourceId.value = undefined
   }
 }
 
@@ -51,7 +88,19 @@ function getStatusLabel(status: string): string {
   }
 }
 
-onMounted(fetchHealth)
+function formatPoolTime(value?: number) {
+  if (!value) return '-'
+  const date = new Date(value * 1000)
+  if (Number.isNaN(date.getTime())) return '-'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
+onMounted(refreshAll)
 </script>
 
 <template>
@@ -60,13 +109,12 @@ onMounted(fetchHealth)
       <div>
         <p>系统管理</p>
         <h1>服务健康状态</h1>
-        <span class="header-subtitle">监控各服务组件的运行状态</span>
+        <span class="header-subtitle">监控各服务组件与 SQL 连接池的运行状态</span>
       </div>
-      <el-button :icon="RefreshCw" @click="fetchHealth">刷新</el-button>
+      <el-button :icon="RefreshCw" @click="refreshAll">刷新</el-button>
     </header>
 
     <section v-if="healthData" class="health-grid">
-      <!-- 总体状态 -->
       <div class="health-card overall-card">
         <div class="card-icon" :style="{ color: getStatusColor(healthData.overall === 'HEALTHY' ? 'AVAILABLE' : 'DEGRADED') }">
           <Activity :size="28" />
@@ -79,7 +127,6 @@ onMounted(fetchHealth)
         </div>
       </div>
 
-      <!-- Python AI 服务 -->
       <div class="health-card">
         <div class="card-icon" :style="{ color: getStatusColor(healthData.pythonService.status) }">
           <Cpu :size="24" />
@@ -90,10 +137,10 @@ onMounted(fetchHealth)
             {{ getStatusLabel(healthData.pythonService.status) }}
           </span>
           <p class="meta" v-if="healthData.pythonService.lastCheckTime">
-            最后检查: {{ healthData.pythonService.lastCheckTime }}
+            最后检查 {{ healthData.pythonService.lastCheckTime }}
           </p>
           <p class="meta" v-if="healthData.pythonService.consecutiveFailures">
-            连续失败: {{ healthData.pythonService.consecutiveFailures }} 次
+            连续失败 {{ healthData.pythonService.consecutiveFailures }} 次
           </p>
           <p class="error-msg" v-if="healthData.pythonService.lastErrorMessage">
             {{ healthData.pythonService.lastErrorMessage }}
@@ -101,7 +148,6 @@ onMounted(fetchHealth)
         </div>
       </div>
 
-      <!-- MySQL -->
       <div class="health-card">
         <div class="card-icon" :style="{ color: getStatusColor(healthData.mysql.status) }">
           <Database :size="24" />
@@ -114,7 +160,6 @@ onMounted(fetchHealth)
         </div>
       </div>
 
-      <!-- Redis -->
       <div class="health-card">
         <div class="card-icon" :style="{ color: getStatusColor(healthData.redis.status) }">
           <Server :size="24" />
@@ -129,19 +174,65 @@ onMounted(fetchHealth)
     </section>
 
     <el-empty v-else-if="!loading" description="暂无健康状态数据" />
+
+    <section class="pool-section">
+      <div class="section-header">
+        <div>
+          <h2>SQL 连接池状态</h2>
+          <p>当前活跃连接池 {{ poolData?.activePools ?? 0 }} 个</p>
+        </div>
+        <el-button :icon="RefreshCw" :loading="poolLoading" @click="fetchPools">刷新连接池</el-button>
+      </div>
+
+      <el-table
+        v-loading="poolLoading"
+        :data="poolData?.pools || []"
+        border
+        row-key="datasourceId"
+        empty-text="暂无活跃连接池"
+      >
+        <el-table-column prop="datasourceId" label="数据源 ID" min-width="120" />
+        <el-table-column prop="poolSize" label="连接数" min-width="100" />
+        <el-table-column label="创建时间" min-width="160">
+          <template #default="{ row }">
+            {{ formatPoolTime(row.createdAt) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="最后使用" min-width="160">
+          <template #default="{ row }">
+            {{ formatPoolTime(row.lastUsedAt) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="130" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              link
+              type="primary"
+              :icon="RotateCcw"
+              :loading="resettingDatasourceId === row.datasourceId"
+              @click="handleResetPool(row.datasourceId)"
+            >
+              重置
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
   </main>
 </template>
 
 <style scoped>
 .service-health-page {
-  padding: 24px;
+  display: grid;
+  gap: 18px;
 }
 
-.page-header {
+.page-header,
+.section-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 24px;
+  gap: 16px;
 }
 
 .page-header p {
@@ -157,7 +248,8 @@ onMounted(fetchHealth)
   margin: 0 0 4px;
 }
 
-.header-subtitle {
+.header-subtitle,
+.section-header p {
   font-size: 13px;
   color: var(--do-muted);
 }
@@ -168,11 +260,15 @@ onMounted(fetchHealth)
   gap: 16px;
 }
 
-.health-card {
+.health-card,
+.pool-section {
   border: 1px solid var(--do-line);
   border-radius: 8px;
   background: var(--do-surface);
   box-shadow: var(--do-shadow);
+}
+
+.health-card {
   padding: 20px;
   display: flex;
   gap: 16px;
@@ -187,16 +283,17 @@ onMounted(fetchHealth)
   flex-shrink: 0;
   width: 44px;
   height: 44px;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--do-bg);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.card-body h3 {
+.card-body h3,
+.section-header h2 {
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--do-ink);
   margin: 0 0 8px;
 }
@@ -221,5 +318,17 @@ onMounted(fetchHealth)
   color: #f56c6c;
   margin: 4px 0 0;
   word-break: break-all;
+}
+
+.pool-section {
+  padding: 16px;
+}
+
+.section-header {
+  margin-bottom: 12px;
+}
+
+.section-header p {
+  margin: 0;
 }
 </style>

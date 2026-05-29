@@ -61,8 +61,8 @@
 
 ## Phase 9: Sync Scheduling UI
 
-- [ ] T032 [Frontend] 创建同步调度配置页面 `frontend/src/views/admin/metadata/SyncSchedule.vue`：配置同步频率（每天/每周/自定义 cron）、同步时间、启用/禁用
-- [ ] T033 在 Java 后端添加 sys_config 表和 ConfigService，支持在线修改同步 cron 表达式（无需重启）
+- [X] T032 [Frontend] 创建同步调度配置页面 `frontend/src/views/admin/metadata/SyncSchedule.vue`：配置同步频率（每天/每周/自定义 cron）、同步时间、启用/禁用
+- [X] T033 在 Java 后端添加 sys_config 表和 ConfigService，支持在线修改同步 cron 表达式（无需重启）
 
 ## Dependencies
 

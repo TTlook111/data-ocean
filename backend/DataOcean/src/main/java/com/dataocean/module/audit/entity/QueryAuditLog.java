@@ -25,6 +25,7 @@ public class QueryAuditLog {
     private String sqlText;
     private String usedTables;
     private String usedFields;
+    private String promptVersions;
     private Integer executionTimeMs;
     private Integer rowCount;
     private Boolean isSuccess;

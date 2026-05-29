@@ -5,12 +5,20 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.audit.entity.QueryAuditLog;
+import com.dataocean.module.audit.mapper.QueryAuditLogMapper;
 import com.dataocean.module.prompt.entity.PromptTemplate;
 import com.dataocean.module.prompt.entity.PromptTemplateVersion;
-import com.dataocean.module.prompt.entity.dto.*;
+import com.dataocean.module.prompt.entity.vo.PromptEffectivenessVO;
+import com.dataocean.module.prompt.entity.dto.PromptRollbackDTO;
+import com.dataocean.module.prompt.entity.dto.PromptTemplateUpdateDTO;
+import com.dataocean.module.prompt.entity.dto.PromptTemplateVO;
+import com.dataocean.module.prompt.entity.dto.PromptVersionVO;
 import com.dataocean.module.prompt.mapper.PromptTemplateMapper;
 import com.dataocean.module.prompt.mapper.PromptTemplateVersionMapper;
 import com.dataocean.module.prompt.service.PromptTemplateService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -18,13 +26,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Prompt 模板服务实现类
+ * Prompt 模板服务实现类。
  * <p>
- * 实现模板的 CRUD、版本管理和回滚逻辑。
+ * 实现模板的 CRUD、版本管理、回滚和效果分析逻辑。
  * 更新操作自动创建新版本，支持按版本号回滚。
  * </p>
  */
@@ -35,10 +48,9 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     private final PromptTemplateMapper templateMapper;
     private final PromptTemplateVersionMapper versionMapper;
+    private final QueryAuditLogMapper auditLogMapper;
+    private final ObjectMapper objectMapper;
 
-    /**
-     * 分页查询模板列表，按场景升序排列
-     */
     @Override
     public Page<PromptTemplateVO> listTemplates(int page, int pageSize) {
         Page<PromptTemplate> result = templateMapper.selectPage(
@@ -49,31 +61,34 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         return voPage;
     }
 
-    /**
-     * 根据编码获取模板详情
-     */
     @Override
     public PromptTemplateVO getTemplate(String code) {
-        PromptTemplate template = getByCode(code);
+        return toVO(getByCode(code));
+    }
+
+    @Override
+    public PromptTemplateVO getActiveTemplate(String code) {
+        PromptTemplate template = templateMapper.selectOne(
+                new LambdaQueryWrapper<PromptTemplate>()
+                        .eq(PromptTemplate::getTemplateCode, code)
+                        .eq(PromptTemplate::getEnabled, true));
+        if (template == null) {
+            throw new BusinessException(404, "Prompt 模板不存在或已禁用：" + code);
+        }
         return toVO(template);
     }
 
-    /**
-     * 更新模板内容，自动创建新版本并将旧版本标记为非活跃
-     */
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO updateTemplate(String code, PromptTemplateUpdateDTO request) {
         PromptTemplate template = getByCode(code);
         int newVersionNo = template.getCurrentVersion() + 1;
 
-        // 步骤1：将旧活跃版本设为非活跃
         versionMapper.update(null, new LambdaUpdateWrapper<PromptTemplateVersion>()
                 .eq(PromptTemplateVersion::getTemplateId, template.getId())
                 .eq(PromptTemplateVersion::getIsActive, true)
                 .set(PromptTemplateVersion::getIsActive, false));
 
-        // 步骤2：创建新版本记录
         PromptTemplateVersion newVersion = new PromptTemplateVersion();
         newVersion.setTemplateId(template.getId());
         newVersion.setVersionNo(newVersionNo);
@@ -84,7 +99,6 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         newVersion.setCreatedAt(LocalDateTime.now());
         versionMapper.insert(newVersion);
 
-        // 步骤3：更新模板主表的内容和版本号（乐观锁冲突时返回 0 行）
         template.setContent(request.getContent());
         template.setCurrentVersion(newVersionNo);
         template.setUpdatedAt(LocalDateTime.now());
@@ -97,9 +111,6 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         return toVO(template);
     }
 
-    /**
-     * 获取模板的版本历史，按版本号降序排列
-     */
     @Override
     public List<PromptVersionVO> getVersionHistory(String code) {
         PromptTemplate template = getByCode(code);
@@ -111,14 +122,52 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
     }
 
     /**
-     * 回滚到指定版本：将目标版本设为活跃，更新主表内容
+     * 按 Prompt 模板版本聚合查询效果数据。
+     * <p>
+     * 分批加载审计日志（每批 2000 条），避免大时间范围下一次性加载过多数据导致内存压力。
+     * </p>
      */
+    @Override
+    public List<PromptEffectivenessVO> getEffectiveness(int days) {
+        int safeDays = Math.max(1, Math.min(days, 365));
+        LocalDateTime startTime = LocalDateTime.now().minusDays(safeDays);
+
+        // 分批加载审计日志，每批 2000 条
+        final int batchSize = 2000;
+        Map<PromptVersionKey, EffectAccumulator> grouped = new HashMap<>();
+        int currentPage = 1;
+        boolean hasMore = true;
+
+        while (hasMore) {
+            Page<QueryAuditLog> page = auditLogMapper.selectPage(
+                    new Page<>(currentPage, batchSize, false),
+                    new LambdaQueryWrapper<QueryAuditLog>()
+                            .ge(QueryAuditLog::getCreatedAt, startTime)
+                            .isNotNull(QueryAuditLog::getPromptVersions)
+                            .orderByAsc(QueryAuditLog::getId));
+            List<QueryAuditLog> records = page.getRecords();
+            for (QueryAuditLog auditLog : records) {
+                for (PromptVersionKey key : extractPromptVersions(auditLog.getPromptVersions())) {
+                    grouped.computeIfAbsent(key, unused -> new EffectAccumulator()).add(auditLog);
+                }
+            }
+            hasMore = records.size() == batchSize;
+            currentPage++;
+        }
+
+        return grouped.entrySet().stream()
+                .sorted(Comparator
+                        .comparing((Map.Entry<PromptVersionKey, EffectAccumulator> entry) -> entry.getKey().templateCode())
+                        .thenComparing(entry -> entry.getKey().versionNo()))
+                .map(entry -> entry.getValue().toVO(entry.getKey()))
+                .toList();
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO rollback(String code, PromptRollbackDTO request) {
         PromptTemplate template = getByCode(code);
 
-        // 步骤1：查找目标版本
         PromptTemplateVersion targetVersion = versionMapper.selectOne(
                 new LambdaQueryWrapper<PromptTemplateVersion>()
                         .eq(PromptTemplateVersion::getTemplateId, template.getId())
@@ -127,17 +176,14 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             throw new BusinessException("目标版本不存在：v" + request.getTargetVersionNo());
         }
 
-        // 步骤2：将当前活跃版本设为非活跃
         versionMapper.update(null, new LambdaUpdateWrapper<PromptTemplateVersion>()
                 .eq(PromptTemplateVersion::getTemplateId, template.getId())
                 .eq(PromptTemplateVersion::getIsActive, true)
                 .set(PromptTemplateVersion::getIsActive, false));
 
-        // 步骤3：将目标版本设为活跃
         targetVersion.setIsActive(true);
         versionMapper.updateById(targetVersion);
 
-        // 步骤4：更新模板主表（乐观锁冲突检测）
         template.setContent(targetVersion.getContent());
         template.setCurrentVersion(request.getTargetVersionNo());
         template.setUpdatedAt(LocalDateTime.now());
@@ -150,24 +196,11 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         return toVO(template);
     }
 
-    /**
-     * 获取活跃版本的模板内容（供 Python 服务内部调用）
-     */
     @Override
     public String getActiveContent(String code) {
-        PromptTemplate template = templateMapper.selectOne(
-                new LambdaQueryWrapper<PromptTemplate>()
-                        .eq(PromptTemplate::getTemplateCode, code)
-                        .eq(PromptTemplate::getEnabled, true));
-        if (template == null) {
-            throw new BusinessException(404, "Prompt 模板不存在或已禁用：" + code);
-        }
-        return template.getContent();
+        return getActiveTemplate(code).getContent();
     }
 
-    /**
-     * 根据编码查询模板，不存在则抛出异常
-     */
     private PromptTemplate getByCode(String code) {
         PromptTemplate template = templateMapper.selectOne(
                 new LambdaQueryWrapper<PromptTemplate>()
@@ -178,21 +211,96 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         return template;
     }
 
-    /**
-     * 实体转视图对象
-     */
+    private Set<PromptVersionKey> extractPromptVersions(String promptVersionsJson) {
+        Set<PromptVersionKey> versions = new LinkedHashSet<>();
+        if (promptVersionsJson == null || promptVersionsJson.isBlank()) {
+            return versions;
+        }
+        try {
+            List<Map<String, Object>> rawVersions = objectMapper.readValue(promptVersionsJson, new TypeReference<>() {});
+            for (Map<String, Object> raw : rawVersions) {
+                String templateCode = String.valueOf(raw.getOrDefault("templateCode", ""));
+                if (templateCode.isBlank()) {
+                    continue;
+                }
+                versions.add(new PromptVersionKey(templateCode, parseVersionNo(raw.get("versionNo"))));
+            }
+        } catch (Exception e) {
+            log.warn("解析 Prompt 版本审计数据失败: {}", promptVersionsJson, e);
+        }
+        return versions;
+    }
+
+    private int parseVersionNo(Object versionNo) {
+        if (versionNo instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(versionNo));
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     private PromptTemplateVO toVO(PromptTemplate entity) {
         PromptTemplateVO vo = new PromptTemplateVO();
         BeanUtils.copyProperties(entity, vo);
         return vo;
     }
 
-    /**
-     * 版本实体转版本视图对象
-     */
     private PromptVersionVO toVersionVO(PromptTemplateVersion entity) {
         PromptVersionVO vo = new PromptVersionVO();
         BeanUtils.copyProperties(entity, vo);
         return vo;
+    }
+
+    private record PromptVersionKey(String templateCode, Integer versionNo) {
+    }
+
+    private static class EffectAccumulator {
+        private long totalQueries;
+        private long successCount;
+        private long totalExecutionTimeMs;
+        private long timedQueries;
+        private long feedbackCount;
+        private long positiveFeedbackCount;
+
+        void add(QueryAuditLog auditLog) {
+            totalQueries++;
+            if (Boolean.TRUE.equals(auditLog.getIsSuccess())) {
+                successCount++;
+            }
+            if (auditLog.getExecutionTimeMs() != null) {
+                totalExecutionTimeMs += auditLog.getExecutionTimeMs();
+                timedQueries++;
+            }
+            if (auditLog.getUserFeedback() != null && !auditLog.getUserFeedback().isBlank()) {
+                feedbackCount++;
+                if ("LIKE".equalsIgnoreCase(auditLog.getUserFeedback())) {
+                    positiveFeedbackCount++;
+                }
+            }
+        }
+
+        PromptEffectivenessVO toVO(PromptVersionKey key) {
+            PromptEffectivenessVO vo = new PromptEffectivenessVO();
+            vo.setTemplateCode(key.templateCode());
+            vo.setVersionNo(key.versionNo());
+            vo.setTotalQueries(totalQueries);
+            vo.setSuccessCount(successCount);
+            vo.setSuccessRate(percent(successCount, totalQueries));
+            vo.setAvgExecutionTimeMs(timedQueries == 0 ? 0.0 : (double) totalExecutionTimeMs / timedQueries);
+            vo.setFeedbackCount(feedbackCount);
+            vo.setPositiveFeedbackCount(positiveFeedbackCount);
+            vo.setPositiveFeedbackRate(percent(positiveFeedbackCount, feedbackCount));
+            return vo;
+        }
+
+        private double percent(long numerator, long denominator) {
+            if (denominator == 0) {
+                return 0.0;
+            }
+            return Math.round((double) numerator / denominator * 10000.0) / 100.0;
+        }
     }
 }
