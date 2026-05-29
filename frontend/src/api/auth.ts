@@ -30,11 +30,7 @@ export interface CurrentUser {
   permissions: string[]
 }
 
-interface ApiResult<T> {
-  code: number
-  message: string
-  data: T
-}
+import type { ApiResult } from './types'
 
 export interface CaptchaResult {
   captchaKey: string

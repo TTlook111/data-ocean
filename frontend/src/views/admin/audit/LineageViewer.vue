@@ -23,6 +23,8 @@ async function searchTableLineage() {
     tableLineage.value = res.data ?? []
     columnLineage.value = []
     impact.value = null
+  } catch {
+    ElMessage.error('表血缘查询失败')
   } finally { loading.value = false }
 }
 
@@ -36,6 +38,8 @@ async function searchColumnLineage() {
     ])
     columnLineage.value = colRes.data ?? []
     impact.value = impactRes.data ?? null
+  } catch {
+    ElMessage.error('字段血缘查询失败')
   } finally { loading.value = false }
 }
 

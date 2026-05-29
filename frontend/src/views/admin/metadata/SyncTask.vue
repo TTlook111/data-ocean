@@ -41,8 +41,12 @@ async function fetchTasks() {
 }
 
 async function fetchDatasources() {
-  const res = await listDatasources({ page: 1, pageSize: 200 })
-  datasources.value = res.data?.records ?? []
+  try {
+    const res = await listDatasources({ page: 1, pageSize: 200 })
+    datasources.value = res.data?.records ?? []
+  } catch {
+    ElMessage.error('数据源列表加载失败')
+  }
 }
 
 function openSyncDialog() {

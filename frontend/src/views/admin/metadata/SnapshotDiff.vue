@@ -11,8 +11,12 @@ const newId = ref<number>()
 const diffResult = ref<SchemaDiffResult | null>(null)
 
 async function fetchSnapshots() {
-  const res = await listSnapshots({ page: 1, size: 100 })
-  snapshots.value = res.data?.records ?? []
+  try {
+    const res = await listSnapshots({ page: 1, size: 100 })
+    snapshots.value = res.data?.records ?? []
+  } catch {
+    ElMessage.error('快照列表加载失败')
+  }
 }
 
 async function handleCompare() {

@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.prompt.entity.dto.*;
 import com.dataocean.module.prompt.entity.vo.PromptEffectivenessVO;
+import com.dataocean.module.prompt.entity.vo.PromptTemplateVO;
+import com.dataocean.module.prompt.entity.vo.PromptVersionVO;
 import com.dataocean.module.prompt.service.PromptTemplateService;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import jakarta.validation.Valid;

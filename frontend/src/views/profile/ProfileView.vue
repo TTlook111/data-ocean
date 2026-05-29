@@ -55,6 +55,8 @@ async function fetchProfile() {
       email: result.data.email || '',
       phone: result.data.phone || '',
     })
+  } catch {
+    ElMessage.error('个人资料加载失败')
   } finally {
     loading.value = false
   }
@@ -73,6 +75,8 @@ async function saveProfile() {
     })
     ElMessage.success('个人资料已更新')
     await auth.fetchUserInfo()
+  } catch {
+    ElMessage.error('保存失败，请稍后重试')
   } finally {
     saving.value = false
   }

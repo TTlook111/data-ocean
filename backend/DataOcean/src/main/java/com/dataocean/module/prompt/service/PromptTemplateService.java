@@ -3,6 +3,8 @@ package com.dataocean.module.prompt.service;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.prompt.entity.dto.*;
 import com.dataocean.module.prompt.entity.vo.PromptEffectivenessVO;
+import com.dataocean.module.prompt.entity.vo.PromptTemplateVO;
+import com.dataocean.module.prompt.entity.vo.PromptVersionVO;
 
 import java.util.List;
 

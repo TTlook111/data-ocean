@@ -1,18 +1,5 @@
 import { http } from '../http'
-
-export interface ApiResult<T> {
-  code: number
-  message: string
-  data: T
-}
-
-export interface PageResult<T> {
-  records: T[]
-  total: number
-  size: number
-  current: number
-  pages: number
-}
+export type { ApiResult, PageResult } from '../types'
 
 export interface UserItem {
   id: number

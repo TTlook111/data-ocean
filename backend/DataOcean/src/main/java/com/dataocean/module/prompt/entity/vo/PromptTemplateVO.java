@@ -1,11 +1,11 @@
-package com.dataocean.module.prompt.entity.dto;
+package com.dataocean.module.prompt.entity.vo;
 
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
 /**
- * Prompt 模板视图对象
+ * Prompt 模板视图对象。
  * <p>
  * 用于列表和详情接口的返回数据。
  * </p>

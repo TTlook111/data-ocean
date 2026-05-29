@@ -2,7 +2,7 @@ package com.dataocean.module.prompt.controller;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
-import com.dataocean.module.prompt.entity.dto.PromptTemplateVO;
+import com.dataocean.module.prompt.entity.vo.PromptTemplateVO;
 import com.dataocean.module.prompt.service.PromptTemplateService;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;

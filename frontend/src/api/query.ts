@@ -1,10 +1,5 @@
 import { http } from './http'
-
-interface ApiResult<T> {
-  code: number
-  message: string
-  data: T
-}
+import type { ApiResult } from './types'
 
 export interface QueryAskParams {
   datasourceId: number

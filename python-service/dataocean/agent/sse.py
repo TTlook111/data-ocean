@@ -67,16 +67,27 @@ async def emit_result(task_id: str, result: QueryResult) -> None:
 
 
 async def event_stream(task_id: str):
-    """异步生成器，消费事件队列生成 SSE 数据，超时 120 秒自动终止"""
+    """异步生成器，消费事件队列生成 SSE 数据。
+
+    每 15 秒发送一次心跳注释（`: keepalive`），防止代理/负载均衡器因空闲断开连接。
+    总超时 120 秒自动终止。
+    """
     queue = _event_queues.get(task_id)
     if queue is None:
         return
+    keepalive_interval = 15  # 秒
     while True:
         try:
-            item = await asyncio.wait_for(queue.get(), timeout=120)
+            item = await asyncio.wait_for(queue.get(), timeout=keepalive_interval)
         except asyncio.TimeoutError:
-            logger.warning("SSE 事件流超时，强制关闭 task_id=%s", task_id)
-            break
+            # 队列无新事件，发送心跳保持连接
+            start = _task_start_times.get(task_id, time.time())
+            elapsed = time.time() - start
+            if elapsed > 120:
+                logger.warning("SSE 事件流超时，强制关闭 task_id=%s", task_id)
+                break
+            yield ": keepalive\n\n"
+            continue
         if item is None:
             break
         event_type, data = item

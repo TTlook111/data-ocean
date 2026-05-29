@@ -1,11 +1,11 @@
-package com.dataocean.module.prompt.entity.dto;
+package com.dataocean.module.prompt.entity.vo;
 
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
 /**
- * Prompt 版本视图对象
+ * Prompt 版本视图对象。
  * <p>
  * 用于版本历史列表的返回数据。
  * </p>
