@@ -34,7 +34,7 @@ async def run_data_visualizer(state: AgentState) -> AgentState:
 
     # 无数据或单值不生成图表
     if row_count == 0:
-        # TODO: followup_suggestions 尚未接入 Prompt 管理模板
+        # followup_suggestions 为内联轻量 Prompt，非 Java 托管模板，记录 version=0
         state = record_prompt_version(state, "followup_suggestions", 0)
         suggested = await _generate_suggestions(state)
         return {"chart_config": None, "suggested_questions": suggested, "current_node": "DATA_VISUALIZER"}
@@ -59,7 +59,7 @@ async def run_data_visualizer(state: AgentState) -> AgentState:
     state = record_prompt_version(state, "chart_generation", result.prompt_version_no)
 
     chart_config = result.echarts_option
-    # TODO: followup_suggestions 尚未接入 Prompt 管理模板
+    # followup_suggestions 为内联轻量 Prompt，非 Java 托管模板，记录 version=0
     state = record_prompt_version(state, "followup_suggestions", 0)
     suggested = await _generate_suggestions(state)
 

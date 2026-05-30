@@ -32,7 +32,7 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
     conversation_history = state.get("conversation_history", [])
 
     logger.info("问题改写 task_id=%s question=%s", task_id, question[:50])
-    # TODO: query_rewrite 尚未接入 Prompt 管理模板，暂记录 version=0 用于审计追踪
+    # query_rewrite 使用本地 .j2 模板，非 Java 托管模板，记录 version=0 用于审计追踪
     state = record_prompt_version(state, "query_rewrite", 0)
 
     prompt = render_template_file(
