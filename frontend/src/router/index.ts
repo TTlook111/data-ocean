@@ -36,6 +36,8 @@ const LineageViewer = () => import('../views/admin/audit/LineageViewer.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
 const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
 const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
+const QueryGuide = () => import('../views/guide/QueryGuide.vue')
+const AdminGuide = () => import('../views/guide/AdminGuide.vue')
 
 const router = createRouter({
   history: createWebHistory(),
@@ -43,6 +45,18 @@ const router = createRouter({
     {
       path: '/',
       redirect: '/query',
+    },
+    {
+      path: '/guide/query',
+      name: 'guide-query',
+      component: QueryGuide,
+      meta: { title: '快速入门 — 智能查询' },
+    },
+    {
+      path: '/guide/admin',
+      name: 'guide-admin',
+      component: AdminGuide,
+      meta: { title: '快速入门 — 管理员引导' },
     },
     {
       path: '/login',

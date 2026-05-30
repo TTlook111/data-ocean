@@ -4,6 +4,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  BookOpen,
   CheckCircle2,
   Database,
   GitBranch,
@@ -94,6 +95,10 @@ watch(loading, (value, oldValue) => {
         <h1>{{ displayName }}，欢迎回来</h1>
       </div>
       <div class="header-actions">
+        <RouterLink class="guide-action" to="/guide/admin">
+          <BookOpen :size="16" />
+          新手引导
+        </RouterLink>
         <el-button v-if="isAdmin" :icon="RefreshCw" :loading="loading" @click="fetchStats">刷新</el-button>
         <RouterLink class="hero-action" to="/query">
           <MessageSquareText :size="16" />
@@ -331,6 +336,14 @@ watch(loading, (value, oldValue) => {
   white-space: nowrap; transition: background 150ms;
 }
 .hero-action:hover { background: var(--do-primary-strong); }
+
+.guide-action {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 18px; border-radius: 8px;
+  background: var(--do-tone-orange-bg); color: var(--do-tone-orange); font-weight: 600; font-size: 14px;
+  white-space: nowrap; transition: background 150ms; text-decoration: none;
+}
+.guide-action:hover { background: #ffe8b8; }
 
 .stats-grid {
   display: grid;

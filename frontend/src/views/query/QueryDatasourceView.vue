@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   BarChart3,
+  BookOpen,
   Database,
   Download,
   History,
@@ -19,6 +20,7 @@ import {
   ThumbsDown,
   UserCog,
   UserRound,
+  X,
 } from 'lucide-vue-next'
 import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource'
 import {
@@ -74,6 +76,13 @@ const adminPermissionCodes = [
 const router = useRouter()
 const auth = useAuthStore()
 const loading = ref(false)
+const showGuideBanner = ref(!localStorage.getItem('do-query-guide-dismissed'))
+
+function dismissGuideBanner() {
+  showGuideBanner.value = false
+  localStorage.setItem('do-query-guide-dismissed', '1')
+}
+
 const errorMessage = ref('')
 const datasources = ref<UserDatasourceItem[]>([])
 const selectedId = ref<number>()
@@ -589,6 +598,14 @@ watch(resultTab, () => {
 
 <template>
   <main ref="workspaceRef" class="query-workspace post-login-page">
+    <!-- 首次使用引导横幅 -->
+    <div v-if="showGuideBanner" class="guide-banner">
+      <BookOpen :size="16" />
+      <span>第一次使用？查看<RouterLink to="/guide/query">快速入门指南</RouterLink>，4 步学会用自然语言查数据</span>
+      <button class="banner-close" @click="dismissGuideBanner">
+        <X :size="14" />
+      </button>
+    </div>
     <aside class="query-sidebar">
       <RouterLink class="query-brand" to="/query" aria-label="DataOcean 智能问答">
         <span>DO</span>
@@ -844,6 +861,42 @@ watch(resultTab, () => {
 </template>
 
 <style scoped>
+.guide-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: var(--do-primary-soft);
+  border-bottom: 1px solid var(--do-line);
+  font-size: 13px;
+  color: var(--do-ink);
+}
+
+.guide-banner a {
+  color: var(--do-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.guide-banner a:hover { text-decoration: underline; }
+
+.banner-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--do-muted);
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.banner-close:hover { background: rgba(0,0,0,0.05); }
+
 .query-workspace {
   min-height: 100vh;
   display: grid;
