@@ -1,35 +1,27 @@
-"""SSE 事件推送管理
+"""SSE 类型化事件层（agent 业务层）
 
-维护 task_id → asyncio.Queue 映射，
-各节点通过 emit_progress 推送进度事件，
-路由层通过 event_stream 消费队列生成 SSE 流。
+在 infra.sse 传输层之上提供类型化的事件推送接口：
+- emit_progress: 推送 ProgressEvent（节点进度）
+- emit_result:   推送 QueryResult（最终结果，区分 result / error）
+
+传输机制（队列、线格式、心跳）由 infra.sse 负责，本模块只做「业务模型 → dict」的序列化，
+从而让 agent 依赖 infra（方向向下），而非把 schema 依赖塞进中性层。
+
+对外保留原有函数名与签名，graph.py / router.py 的 `sse.xxx` 调用无需改动。
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
-import logging
 import time
+
+from dataocean.infra import sse as transport
 
 from .schema import ProgressEvent, QueryResult
 
-logger = logging.getLogger(__name__)
-
-_event_queues: dict[str, asyncio.Queue] = {}
-_task_start_times: dict[str, float] = {}
-
-
-def register_task(task_id: str) -> None:
-    """注册任务的事件队列"""
-    _event_queues[task_id] = asyncio.Queue()
-    _task_start_times[task_id] = time.time()
-
-
-def unregister_task(task_id: str) -> None:
-    """清理任务的事件队列"""
-    _event_queues.pop(task_id, None)
-    _task_start_times.pop(task_id, None)
+# 透传传输层的注册/注销/事件流，保持原 agent.sse 的公开接口不变
+register_task = transport.register_task
+unregister_task = transport.unregister_task
+event_stream = transport.event_stream
 
 
 async def emit_progress(
@@ -40,10 +32,7 @@ async def emit_progress(
     retry_count: int = 0,
 ) -> None:
     """推送进度事件到队列"""
-    queue = _event_queues.get(task_id)
-    if queue is None:
-        return
-    start = _task_start_times.get(task_id, time.time())
+    start = transport.task_start_time(task_id)
     elapsed_ms = int((time.time() - start) * 1000)
     event = ProgressEvent(
         task_id=task_id,
@@ -53,42 +42,11 @@ async def emit_progress(
         retry_count=retry_count,
         elapsed_ms=elapsed_ms,
     )
-    await queue.put(("progress", event.model_dump(by_alias=True)))
+    await transport.emit(task_id, "progress", event.model_dump(by_alias=True))
 
 
 async def emit_result(task_id: str, result: QueryResult) -> None:
     """推送最终结果事件"""
-    queue = _event_queues.get(task_id)
-    if queue is None:
-        return
     event_type = "error" if result.status != "COMPLETED" else "result"
-    await queue.put((event_type, result.model_dump(by_alias=True)))
-    await queue.put(None)
-
-
-async def event_stream(task_id: str):
-    """异步生成器，消费事件队列生成 SSE 数据。
-
-    每 15 秒发送一次心跳注释（`: keepalive`），防止代理/负载均衡器因空闲断开连接。
-    总超时 120 秒自动终止。
-    """
-    queue = _event_queues.get(task_id)
-    if queue is None:
-        return
-    keepalive_interval = 15  # 秒
-    while True:
-        try:
-            item = await asyncio.wait_for(queue.get(), timeout=keepalive_interval)
-        except asyncio.TimeoutError:
-            # 队列无新事件，发送心跳保持连接
-            start = _task_start_times.get(task_id, time.time())
-            elapsed = time.time() - start
-            if elapsed > 120:
-                logger.warning("SSE 事件流超时，强制关闭 task_id=%s", task_id)
-                break
-            yield ": keepalive\n\n"
-            continue
-        if item is None:
-            break
-        event_type, data = item
-        yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    await transport.emit(task_id, event_type, result.model_dump(by_alias=True))
+    await transport.close_stream(task_id)

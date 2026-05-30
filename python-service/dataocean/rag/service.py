@@ -8,8 +8,8 @@ import logging
 from time import perf_counter
 
 from dataocean.core.config import settings
+from dataocean.infra.embeddings import embed_single
 
-from .embedder import embed_single
 from .fallback import fallback_retrieve
 from .reranker import rerank
 from .retriever import retrieve_from_milvus

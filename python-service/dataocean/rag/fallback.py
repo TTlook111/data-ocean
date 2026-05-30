@@ -1,13 +1,25 @@
 """RAG 降级方案
 
 当 Milvus 不可用时，从 Java 传入的 fallback_chunks 中读取兜底数据。
+同时提供 Milvus 可用性检查和降级提示信息（原 resilience.milvus_fallback 已并入此处）。
 """
 
 import logging
 
+from .milvus_client import ping as milvus_ping
 from .schema import RetrievedSchema, RetrieveResponse
 
 logger = logging.getLogger(__name__)
+
+
+def is_milvus_available() -> bool:
+    """检查 Milvus 是否可用（每次查询时调用，连接成功则自动恢复正常 RAG）"""
+    return milvus_ping()
+
+
+def get_degradation_notice() -> str:
+    """获取降级提示信息"""
+    return "知识库暂时不可用，已使用降级方案，召回精度可能降低"
 
 
 def _first_non_none(d: dict, *keys) -> any:

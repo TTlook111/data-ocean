@@ -5,11 +5,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 
-from dataocean.agent.llm import call_llm
+from dataocean.infra.llm import call_llm
+from dataocean.infra.parsers import JsonBlockOutputParser
 from dataocean.prompt.service import render_prompt_with_metadata
 
 from .chart_validator import validate_chart_option
@@ -18,6 +17,9 @@ from .data_aggregator import aggregate_for_chart
 logger = logging.getLogger(__name__)
 
 _MAX_PREVIEW_ROWS = 20
+
+# 图表 option 可能为 null（数据不适合作图），允许解析出 None
+_chart_json_parser = JsonBlockOutputParser(allow_null=True)
 
 _SYSTEM_PROMPT = "你是一个数据可视化专家。请根据数据特征输出 ECharts option JSON。"
 
@@ -148,7 +150,7 @@ async def generate_chart(
             user_prompt=user_prompt,
             temperature=0.2,
         )
-        option = _extract_json(response_text)
+        option = _chart_json_parser.parse(response_text)
     except Exception as e:
         logger.warning("图表生成 LLM 调用失败: %s", e)
         return ChartResult(reason="图表配置生成失败，请查看表格数据", prompt_version_no=prompt_version_no)
@@ -169,22 +171,6 @@ async def generate_chart(
         aggregation_note=aggregation_note,
         prompt_version_no=prompt_version_no,
     )
-
-
-def _extract_json(text: str) -> dict | None:
-    """从 LLM 响应中提取 JSON"""
-    text = text.strip()
-    if text.lower() == "null":
-        return None
-    match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if match:
-        content = match.group(1).strip()
-        if content.lower() == "null":
-            return None
-        return json.loads(content)
-    if text.startswith("{"):
-        return json.loads(text)
-    return None
 
 
 def _detect_chart_type(option: dict) -> str:

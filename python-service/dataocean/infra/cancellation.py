@@ -3,6 +3,9 @@
 单实例部署下使用内存字典管理 CancellationToken，
 支持查询执行过程中的即时取消。
 带 TTL 自动清理机制，防止内存泄漏。
+
+属于 infra 中性层：agent 编排、sandbox 执行器等均从此处获取取消能力，
+不再相互反向依赖。
 """
 
 import logging

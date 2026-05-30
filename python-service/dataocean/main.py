@@ -19,7 +19,7 @@ from dataocean.agent.router import router as agent_router
 from dataocean.sandbox.router import router as sandbox_router
 from dataocean.chart.router import router as chart_router
 from dataocean.prompt.router import router as prompt_router
-from dataocean.resilience.health import router as health_router
+from dataocean.infra.health import router as health_router
 
 logger = logging.getLogger(__name__)
 
@@ -69,10 +69,6 @@ async def lifespan(application: FastAPI):
         pass
     # 销毁所有连接池
     _destroy_all_pools()
-    # 关闭 httpx client 等资源
-    from dataocean.knowledge.service import _http_client
-    if _http_client and not _http_client.is_closed:
-        await _http_client.aclose()
     logger.info("DataOcean AI Service 已关闭")
 
 
@@ -112,7 +108,7 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
     return JSONResponse(status_code=500, content={"message": "服务内部错误"})
 
 
-# === 健康检查（使用 resilience 模块增强版） ===
+# === 健康检查 ===
 
 app.include_router(health_router, tags=["health"])
 

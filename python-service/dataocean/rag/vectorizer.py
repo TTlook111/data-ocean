@@ -10,7 +10,7 @@ from time import perf_counter
 from pymilvus import Collection
 
 from dataocean.core.config import settings
-from .embedder import embed_texts
+from dataocean.infra.embeddings import embed_texts
 from .milvus_client import connect_milvus, get_collection
 from .schema import ChunkItem, VectorizeResponse
 

@@ -9,12 +9,16 @@ from __future__ import annotations
 import logging
 
 from dataocean.chart.service import generate_chart
+from dataocean.infra.llm import call_llm
+from dataocean.infra.parsers import LinesOutputParser
 
-from ..llm import call_llm
 from ..prompt_tracking import record_prompt_version
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
+
+# 把 LLM 返回的追问文本按行拆成最多 3 条
+_suggestions_parser = LinesOutputParser(max_items=3)
 
 
 async def run_data_visualizer(state: AgentState) -> AgentState:
@@ -85,8 +89,7 @@ async def _generate_suggestions(state: AgentState) -> list[str]:
             user_prompt=prompt,
             temperature=0.7,
         )
-        lines = [line.strip() for line in response.strip().split("\n") if line.strip()]
-        return lines[:3]
+        return _suggestions_parser.parse(response)
     except Exception as e:
         logger.debug("推荐追问生成失败: %s", e)
         return []

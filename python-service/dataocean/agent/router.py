@@ -15,12 +15,12 @@ import time
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from .cancellation import cancel_task as do_cancel, cleanup
+from dataocean.infra.cancellation import cancel_task as do_cancel, cleanup
 from .config import agent_config
 from .graph import agent_graph
 from .schema import ExecuteRequest, QueryResult
 from . import sse
-from dataocean.resilience.timeout_budget import TimeoutBudget
+from dataocean.infra.timeout_budget import TimeoutBudget
 
 logger = logging.getLogger(__name__)
 

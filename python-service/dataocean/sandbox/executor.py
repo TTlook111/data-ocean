@@ -88,7 +88,7 @@ async def execute(
 
         # 执行完成后检查是否已被取消
         if task_id:
-            from dataocean.agent.cancellation import is_cancelled
+            from dataocean.infra.cancellation import is_cancelled
             if is_cancelled(task_id):
                 logger.info("SQL 执行完成但任务已取消 task_id=%s", task_id)
                 return ExecutionResult(

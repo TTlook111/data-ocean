@@ -6,44 +6,23 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from datetime import date
 from pathlib import Path
 
-from jinja2 import Template
+from dataocean.infra.llm import call_llm
+from dataocean.infra.parsers import JsonBlockOutputParser
+from dataocean.prompt.renderer import render_template_file
 
-from ..llm import call_llm
 from ..prompt_tracking import record_prompt_version
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
-_template_cache: Template | None = None
-
-
-def _get_template() -> Template:
-    """获取缓存的问题改写 Prompt 模板"""
-    global _template_cache
-    if _template_cache is None:
-        path = _PROMPTS_DIR / "query_rewrite.j2"
-        _template_cache = Template(path.read_text(encoding="utf-8"))
-    return _template_cache
-
-
-def _extract_json(text: str) -> dict:
-    """从 LLM 响应中提取 JSON 对象"""
-    # 尝试匹配 ```json ... ``` 代码块
-    match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
-    if match:
-        return json.loads(match.group(1).strip())
-    # 尝试直接解析整个文本
-    text = text.strip()
-    if text.startswith("{"):
-        return json.loads(text)
-    raise ValueError("无法从 LLM 响应中提取 JSON")
+_QUERY_REWRITE_TEMPLATE = _PROMPTS_DIR / "query_rewrite.j2"
+# 解析 LLM 返回的改写意图 JSON（不允许 null，无法解析则降级到原始问题）
+_json_parser = JsonBlockOutputParser(allow_null=False)
 
 
 async def run_query_rewriter(state: AgentState) -> AgentState:
@@ -56,8 +35,8 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
     # TODO: query_rewrite 尚未接入 Prompt 管理模板，暂记录 version=0 用于审计追踪
     state = record_prompt_version(state, "query_rewrite", 0)
 
-    template = _get_template()
-    prompt = template.render(
+    prompt = render_template_file(
+        _QUERY_REWRITE_TEMPLATE,
         current_date=date.today().isoformat(),
         question=question,
         conversation_history=conversation_history,
@@ -69,7 +48,7 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
             system_prompt="你是一个数据查询意图分析专家。请严格按照要求输出 JSON 格式。",
             user_prompt=prompt,
         )
-        result = _extract_json(response_text)
+        result = _json_parser.parse(response_text)
     except Exception as e:
         logger.warning("问题改写 LLM 解析失败 task_id=%s error=%s，使用原始问题", task_id, e)
         # 降级：直接使用原始问题

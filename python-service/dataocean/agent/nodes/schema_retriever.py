@@ -11,7 +11,7 @@ import logging
 
 from dataocean.rag.service import retrieve_schemas
 from dataocean.rag.schema import RetrieveRequest
-from dataocean.resilience.milvus_fallback import get_degradation_notice
+from dataocean.rag.fallback import get_degradation_notice
 
 from ..state import AgentState
 

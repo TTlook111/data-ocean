@@ -70,19 +70,12 @@ async def _check_milvus() -> dict:
 
 
 async def _check_llm() -> dict:
-    """检查 LLM API 可达性（轻量级请求）"""
-    try:
-        import httpx
-        start = time.monotonic()
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(
-                f"{settings.dashscope_base_url}/models",
-                headers={"Authorization": f"Bearer {settings.dashscope_api_key}"},
-            )
-            latency_ms = int((time.monotonic() - start) * 1000)
-            if resp.status_code < 500:
-                return {"status": "ok", "latency_ms": latency_ms}
-            return {"status": "degraded", "http_status": resp.status_code}
-    except Exception as e:
-        logger.debug("LLM 健康检查失败: %s", e)
-        return {"status": "unavailable", "error": str(e)}
+    """检查 LLM API 可达性（统一走 infra.llm，不再单独维护 httpx）"""
+    from dataocean.infra.llm import ping_llm
+
+    start = time.monotonic()
+    available = await ping_llm()
+    latency_ms = int((time.monotonic() - start) * 1000)
+    if available:
+        return {"status": "ok", "latency_ms": latency_ms}
+    return {"status": "unavailable", "latency_ms": latency_ms}
