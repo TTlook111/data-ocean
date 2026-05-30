@@ -89,14 +89,14 @@ onMounted(() => {
     <section v-if="checkResult" class="result-panel">
       <div class="score-card">
         <div class="score-main" :style="{ color: scoreColor(checkResult.qualityScore) }">
-          {{ checkResult.qualityScore }}
+          {{ checkResult.qualityScore }}<small>分</small>
         </div>
-        <div class="score-label">综合质量分</div>
+        <div class="score-label">综合质量分（满分 100）</div>
       </div>
 
       <div class="dimension-grid">
         <div v-for="(score, dim) in checkResult.dimensionScores" :key="dim" class="dim-card">
-          <div class="dim-score" :style="{ color: scoreColor(score) }">{{ score }}</div>
+          <div class="dim-score" :style="{ color: scoreColor(score) }">{{ score }}<small>分</small></div>
           <div class="dim-label">{{ qualityDimensionLabel(String(dim)) }}</div>
         </div>
       </div>

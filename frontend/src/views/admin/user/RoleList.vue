@@ -341,6 +341,8 @@ onMounted(async () => {
   border-radius: 8px;
   background: var(--do-surface);
   box-shadow: var(--do-shadow);
+  overflow: hidden;
+  width: 100%;
 }
 
 .role-tabs {

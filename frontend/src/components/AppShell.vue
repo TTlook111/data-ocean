@@ -45,8 +45,7 @@ const auth = useAuthStore()
 const collapsed = ref(false)
 const drawerVisible = ref(false)
 const shellRef = ref<HTMLElement | null>(null)
-const contentRef = ref<HTMLElement | null>(null)
-const { gsap, lift, reveal, withContext } = useGsapMotion(shellRef)
+const { gsap, reveal, withContext } = useGsapMotion(shellRef)
 
 const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
   {
@@ -178,6 +177,10 @@ function isActiveMenu(item: MenuItem) {
 
 function handleUserCommand(command: string) {
   drawerVisible.value = false
+  if (command === 'query') {
+    router.push('/query')
+    return
+  }
   if (command === 'admin') {
     router.push('/admin')
     return
@@ -210,15 +213,7 @@ onMounted(() => {
   })
 })
 
-watch(
-  () => route.fullPath,
-  async () => {
-    await nextTick()
-    if (contentRef.value) {
-      lift(contentRef.value, { duration: 0.24, y: 10, scale: 1 })
-    }
-  },
-)
+// 路由切换时不再对内容区做弹跳动画，避免视觉上像「整个页面在刷新」的错觉
 
 watch(collapsed, async () => {
   await nextTick()
@@ -282,7 +277,7 @@ watch(collapsed, async () => {
         </button>
       </header>
 
-      <section ref="contentRef" class="app-content">
+      <section class="app-content">
         <RouterView />
       </section>
     </main>
@@ -298,6 +293,10 @@ watch(collapsed, async () => {
         </div>
       </template>
       <nav class="drawer-nav">
+        <button class="drawer-item" @click="handleUserCommand('query')">
+          <MessageSquare :size="18" />
+          <span>返回问答端</span>
+        </button>
         <button class="drawer-item" @click="handleUserCommand('profile')">
           <UserRound :size="18" />
           <span>个人资料</span>

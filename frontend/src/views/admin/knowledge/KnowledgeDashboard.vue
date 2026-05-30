@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { FileText, Plus, RefreshCw, Eye, Pencil } from 'lucide-vue-next'
@@ -33,15 +33,8 @@ const statusOptions = [
   { label: '已废弃', value: 'DEPRECATED' }
 ]
 
-const stats = computed(() => {
-  const all = docs.value
-  return {
-    total: total.value,
-    published: all.filter(d => d.status === 'PUBLISHED').length,
-    pending: all.filter(d => d.status === 'PENDING_REVIEW').length,
-    draft: all.filter(d => d.status === 'DRAFT').length
-  }
-})
+// 各状态的全量计数（独立于当前分页，避免用单页数据推断全局）
+const stats = ref({ total: 0, published: 0, pending: 0, draft: 0 })
 
 function extractError(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'response' in error) {
@@ -67,6 +60,26 @@ async function fetchDocs() {
   }
 }
 
+// 获取各状态的全量计数（分别按状态查 total，不依赖当前分页数据）
+async function fetchStats() {
+  try {
+    const [allRes, pubRes, pendRes, draftRes] = await Promise.all([
+      listKnowledgeDocs({ page: 1, pageSize: 1 }),
+      listKnowledgeDocs({ page: 1, pageSize: 1, status: 'PUBLISHED' }),
+      listKnowledgeDocs({ page: 1, pageSize: 1, status: 'PENDING_REVIEW' }),
+      listKnowledgeDocs({ page: 1, pageSize: 1, status: 'DRAFT' }),
+    ])
+    stats.value = {
+      total: allRes.data?.total ?? 0,
+      published: pubRes.data?.total ?? 0,
+      pending: pendRes.data?.total ?? 0,
+      draft: draftRes.data?.total ?? 0,
+    }
+  } catch {
+    // 统计失败不阻断主列表展示
+  }
+}
+
 async function fetchDatasources() {
   try {
     const res = await listDatasources({ page: 1, pageSize: 200 })
@@ -89,6 +102,7 @@ function goVersions(id: number) {
 onMounted(() => {
   fetchDocs()
   fetchDatasources()
+  fetchStats()
 })
 </script>
 
