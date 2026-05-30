@@ -10,7 +10,7 @@ import {
   type TableMetaItem,
   type ColumnMetaItem,
 } from '../../../api/admin/metadata'
-import { snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
+import { governanceStatusLabel, snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
 
 const route = useRoute()
 const router = useRouter()
@@ -24,6 +24,7 @@ const selectedTable = ref<string>('')
 const tableKeyword = ref('')
 
 const selectedSnapshot = computed(() => snapshots.value.find((item) => item.id === selectedSnapshotId.value))
+const selectedTableMeta = computed(() => tables.value.find((item) => item.tableName === selectedTable.value))
 const filteredTables = computed(() => {
   const keyword = tableKeyword.value.trim().toLowerCase()
   if (!keyword) return tables.value
@@ -36,6 +37,30 @@ const filteredTables = computed(() => {
 const filteredColumns = computed(() =>
   columns.value.filter(c => c.tableName === selectedTable.value)
 )
+
+function formatNumber(value?: number | null) {
+  if (value == null) return '未采集统计'
+  return value.toLocaleString('zh-CN')
+}
+
+function formatEstimatedRows(value?: number | null) {
+  if (value == null) return '未采集统计'
+  return `约 ${formatNumber(value)} 行`
+}
+
+function formatNullRate(value?: number | null) {
+  if (value == null) return '未采集统计'
+  return `${(Number(value) * 100).toFixed(1)}%`
+}
+
+function nullableLabel(value: number | boolean) {
+  return value ? '允许为空' : '不能为空'
+}
+
+function tableTypeLabel(type?: string | null) {
+  if (!type) return '未采集'
+  return type === 'TABLE' ? '数据表' : type === 'VIEW' ? '视图' : type
+}
 
 function snapshotLabel(snapshot: SnapshotItem) {
   const score = snapshot.qualityScore != null ? ` / ${snapshot.qualityScore}分` : ''
@@ -141,9 +166,15 @@ watch(
         <el-tag :type="snapshotStatusType(selectedSnapshot.status)" size="small">
           {{ snapshotStatusLabel(selectedSnapshot.status) }}
         </el-tag>
-        <span>{{ selectedSnapshot.tableCount }} 张表</span>
-        <span>{{ selectedSnapshot.columnCount }} 个字段</span>
-        <span>质量分 {{ selectedSnapshot.qualityScore ?? '-' }}</span>
+        <el-tooltip content="当前快照采集到的数据表数量">
+          <span>数据表：{{ selectedSnapshot.tableCount }} 张</span>
+        </el-tooltip>
+        <el-tooltip content="当前快照采集到的字段总数">
+          <span>字段：{{ selectedSnapshot.columnCount }} 个</span>
+        </el-tooltip>
+        <el-tooltip content="质量分由元数据质量规则计算，满分 100 分">
+          <span>质量分：{{ selectedSnapshot.qualityScore ?? '未校验' }}</span>
+        </el-tooltip>
       </div>
     </section>
 
@@ -157,8 +188,13 @@ watch(
              :class="{ active: t.tableName === selectedTable }"
              @click="selectedTable = t.tableName">
           <Table2 :size="14" />
-          <span class="table-name">{{ t.tableName }}</span>
-          <span class="row-count" v-if="t.rowCountEstimate">~{{ t.rowCountEstimate }}</span>
+          <div class="table-main">
+            <span class="table-name">{{ t.tableName }}</span>
+            <span class="table-comment">{{ t.tableComment || '暂无表说明' }}</span>
+          </div>
+          <el-tooltip content="估算行数：采集快照时从 MySQL 元数据读取的估算行数，不是精确 COUNT(*)">
+            <span class="row-count">{{ formatEstimatedRows(t.rowCountEstimate) }}</span>
+          </el-tooltip>
         </div>
         <el-empty
           v-if="!filteredTables.length"
@@ -169,8 +205,31 @@ watch(
 
       <section class="column-detail">
         <div class="detail-header" v-if="selectedTable">
-          <h3>{{ selectedTable }}</h3>
+          <div>
+            <h3>{{ selectedTable }}</h3>
+            <span class="table-description">{{ selectedTableMeta?.tableComment || '暂无表说明' }}</span>
+          </div>
           <span class="col-count">{{ filteredColumns.length }} 个字段</span>
+        </div>
+        <div class="table-facts" v-if="selectedTableMeta">
+          <div class="fact-item">
+            <span>表类型</span>
+            <strong>{{ tableTypeLabel(selectedTableMeta.tableType) }}</strong>
+          </div>
+          <el-tooltip content="估算行数：采集快照时从 MySQL 元数据读取的估算行数，不是精确 COUNT(*)">
+            <div class="fact-item">
+              <span>估算行数</span>
+              <strong>{{ formatEstimatedRows(selectedTableMeta.rowCountEstimate) }}</strong>
+            </div>
+          </el-tooltip>
+          <div class="fact-item">
+            <span>治理状态</span>
+            <strong>{{ governanceStatusLabel(selectedTableMeta.governanceStatus) }}</strong>
+          </div>
+          <div class="fact-item">
+            <span>存储引擎</span>
+            <strong>{{ selectedTableMeta.engine || '未采集' }}</strong>
+          </div>
         </div>
         <el-table :data="filteredColumns" stripe size="small" v-if="filteredColumns.length">
           <el-table-column prop="ordinalPosition" label="#" width="50" />
@@ -185,13 +244,23 @@ watch(
           <el-table-column prop="dataType" label="类型" width="140">
             <template #default="{ row }"><span class="column-code">{{ row.dataType }}</span></template>
           </el-table-column>
-          <el-table-column prop="isNullable" label="可空" width="60">
-            <template #default="{ row }">{{ row.isNullable ? '是' : '否' }}</template>
+          <el-table-column prop="isNullable" label="是否允许为空" width="120">
+            <template #default="{ row }">{{ nullableLabel(row.isNullable) }}</template>
           </el-table-column>
-          <el-table-column prop="columnComment" label="注释" show-overflow-tooltip />
-          <el-table-column prop="nullRate" label="空值率" width="80">
+          <el-table-column prop="columnComment" label="字段说明" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.columnComment || '暂无字段说明' }}</template>
+          </el-table-column>
+          <el-table-column prop="governanceStatus" label="治理状态" width="120">
+            <template #default="{ row }">{{ governanceStatusLabel(row.governanceStatus) }}</template>
+          </el-table-column>
+          <el-table-column prop="nullRate" width="120">
+            <template #header>
+              <el-tooltip content="空值率：采集统计时基于样本数据计算，未采集时显示“未采集统计”">
+                <span>空值率</span>
+              </el-tooltip>
+            </template>
             <template #default="{ row }">
-              {{ row.nullRate != null ? (row.nullRate * 100).toFixed(1) + '%' : '-' }}
+              {{ formatNullRate(row.nullRate) }}
             </template>
           </el-table-column>
         </el-table>
@@ -260,27 +329,84 @@ watch(
 .table-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .table-item:hover { background: var(--do-primary-soft); }
 .table-item.active { background: var(--do-primary-soft); color: var(--do-primary); font-weight: 500; }
-.table-name {
+.table-main {
+  display: grid;
+  min-width: 0;
   flex: 1;
+  gap: 2px;
+}
+.table-name {
   overflow: hidden;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.row-count { font-size: 11px; color: var(--do-muted); }
+.table-comment {
+  overflow: hidden;
+  color: var(--do-muted);
+  font-size: 11px;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-count {
+  flex: 0 0 auto;
+  color: var(--do-muted);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
 .column-detail { flex: 1; padding: 16px; overflow-x: auto; }
-.detail-header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+.detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .detail-header h3 {
   margin: 0;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 16px;
 }
+.table-description {
+  display: block;
+  margin-top: 4px;
+  color: var(--do-muted);
+  font-size: 12px;
+}
 .col-count { font-size: 12px; color: var(--do-muted); }
+.table-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.fact-item {
+  display: grid;
+  gap: 4px;
+  min-height: 56px;
+  padding: 9px 10px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+  background: var(--do-bg);
+}
+.fact-item span {
+  color: var(--do-muted);
+  font-size: 11px;
+}
+.fact-item strong {
+  overflow: hidden;
+  color: var(--do-ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .column-name-cell {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   max-width: 100%;
+}
+@media (max-width: 1100px) {
+  .explorer-layout { flex-direction: column; }
+  .table-list { width: auto; max-height: 360px; border-right: 0; border-bottom: 1px solid var(--do-line); }
+  .table-facts { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
 }
 </style>
