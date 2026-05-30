@@ -109,3 +109,5 @@ output/
 
 # Claude Code
 .claude/
+
+.tmp/
