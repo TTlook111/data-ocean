@@ -30,7 +30,6 @@ async def run_sql_executor(state: AgentState) -> AgentState:
 
     if not sql:
         return {
-            **state,
             "execution_result": {
                 "columns": [],
                 "data_rows": [],
@@ -45,7 +44,6 @@ async def run_sql_executor(state: AgentState) -> AgentState:
     connection_config = state.get("connection_config")
     if not connection_config:
         return {
-            **state,
             "execution_result": {
                 "columns": [],
                 "data_rows": [],
@@ -73,7 +71,6 @@ async def run_sql_executor(state: AgentState) -> AgentState:
 
     if not result.success:
         return {
-            **state,
             "execution_result": {
                 "columns": [],
                 "data_rows": [],
@@ -91,7 +88,6 @@ async def run_sql_executor(state: AgentState) -> AgentState:
                 task_id, result.row_count, result.execution_time_ms)
 
     return {
-        **state,
         "execution_result": {
             "columns": result.columns,
             "data_rows": result.rows,

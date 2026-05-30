@@ -37,11 +37,11 @@ async def run_data_visualizer(state: AgentState) -> AgentState:
         # TODO: followup_suggestions 尚未接入 Prompt 管理模板
         state = record_prompt_version(state, "followup_suggestions", 0)
         suggested = await _generate_suggestions(state)
-        return {**state, "chart_config": None, "suggested_questions": suggested, "current_node": "DATA_VISUALIZER"}
+        return {"chart_config": None, "suggested_questions": suggested, "current_node": "DATA_VISUALIZER"}
     if row_count == 1 and len(columns) == 1:
         state = record_prompt_version(state, "followup_suggestions", 0)
         suggested = await _generate_suggestions(state)
-        return {**state, "chart_config": None, "suggested_questions": suggested, "current_node": "DATA_VISUALIZER"}
+        return {"chart_config": None, "suggested_questions": suggested, "current_node": "DATA_VISUALIZER"}
 
     # 构建列类型映射
     column_types = {}
@@ -64,7 +64,6 @@ async def run_data_visualizer(state: AgentState) -> AgentState:
     suggested = await _generate_suggestions(state)
 
     return {
-        **state,
         "chart_config": chart_config,
         "suggested_questions": suggested,
         "current_node": "DATA_VISUALIZER",

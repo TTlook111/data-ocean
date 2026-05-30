@@ -26,7 +26,6 @@ async def run_sql_validator(state: AgentState) -> AgentState:
 
     if not generated_sql.strip():
         return {
-            **state,
             "validation_result": {
                 "valid": False,
                 "rewritten_sql": None,
@@ -47,7 +46,6 @@ async def run_sql_validator(state: AgentState) -> AgentState:
         level = "DANGEROUS" if any("危险" in r for r in reasons) else "REJECT"
         logger.warning("SQL 校验不通过 task_id=%s reasons=%s", task_id, reasons)
         return {
-            **state,
             "validation_result": {
                 "valid": False,
                 "rewritten_sql": None,
@@ -93,7 +91,6 @@ async def run_sql_validator(state: AgentState) -> AgentState:
 
     if not rewrite_result.success:
         return {
-            **state,
             "validation_result": {
                 "valid": False,
                 "rewritten_sql": None,
@@ -107,7 +104,6 @@ async def run_sql_validator(state: AgentState) -> AgentState:
     logger.info("SQL 校验通过 task_id=%s rewritten=%s", task_id, rewrite_result.rewritten_sql[:80])
 
     return {
-        **state,
         "validation_result": {
             "valid": True,
             "rewritten_sql": rewrite_result.rewritten_sql,

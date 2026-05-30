@@ -43,7 +43,6 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
     except Exception as e:
         logger.error("Schema 召回失败 task_id=%s error=%s", task_id, e, exc_info=True)
         return {
-            **state,
             "schema_context": [],
             "error_message": f"Schema 召回失败：{e}",
             "current_node": "SCHEMA_RETRIEVER",
@@ -64,7 +63,6 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
 
     if not schema_context:
         return {
-            **state,
             "schema_context": [],
             "error_message": "未找到相关数据表，请确认数据源已完成元数据治理和知识库发布",
             "current_node": "SCHEMA_RETRIEVER",
@@ -73,7 +71,6 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
     logger.info("Schema 召回完成 task_id=%s count=%d degraded=%s", task_id, len(schema_context), response.degraded)
 
     result = {
-        **state,
         "schema_context": schema_context,
         "current_node": "SCHEMA_RETRIEVER",
     }

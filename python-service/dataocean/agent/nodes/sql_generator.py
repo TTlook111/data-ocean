@@ -49,7 +49,6 @@ async def run_sql_generator(state: AgentState) -> AgentState:
     except Exception as e:
         logger.error("SQL 生成 LLM 调用失败 task_id=%s error=%s", task_id, e)
         return {
-            **state,
             "generated_sql": "",
             "error_message": f"AI 服务暂时不可用：{e}",
             "retry_count": retry_count,
@@ -66,7 +65,6 @@ async def run_sql_generator(state: AgentState) -> AgentState:
     if not sql:
         logger.warning("SQL 生成失败：无法从 LLM 响应中提取 SQL task_id=%s", task_id)
         return {
-            **state,
             "generated_sql": "",
             "sql_explanation": "",
             "error_message": "SQL 生成失败：LLM 未返回有效的 SQL 语句",
@@ -77,7 +75,6 @@ async def run_sql_generator(state: AgentState) -> AgentState:
     logger.info("SQL 生成完成 task_id=%s sql=%s", task_id, sql[:80])
 
     return {
-        **state,
         "generated_sql": sql,
         "sql_explanation": explanation,
         "error_message": "",

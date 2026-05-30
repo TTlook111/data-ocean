@@ -53,7 +53,6 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
         logger.warning("问题改写 LLM 解析失败 task_id=%s error=%s，使用原始问题", task_id, e)
         # 降级：直接使用原始问题
         return {
-            **state,
             "rewritten_query": question,
             "extracted_intent": {
                 "dimensions": [],
@@ -74,7 +73,6 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
     # 如果问题过于模糊且无法自动消解，终止流程
     if is_ambiguous and clarification_hint:
         return {
-            **state,
             "rewritten_query": rewritten_query,
             "extracted_intent": intent,
             "error_message": clarification_hint,
@@ -84,7 +82,6 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
     logger.info("问题改写完成 task_id=%s rewritten=%s", task_id, rewritten_query[:80])
 
     return {
-        **state,
         "rewritten_query": rewritten_query,
         "extracted_intent": intent,
         "current_node": "QUERY_REWRITER",
