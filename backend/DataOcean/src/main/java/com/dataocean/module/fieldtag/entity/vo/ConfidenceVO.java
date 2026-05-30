@@ -16,6 +16,12 @@ public class ConfidenceVO {
     /** 字段元数据ID */
     private Long columnMetaId;
 
+    /** 字段名称（冗余展示） */
+    private String columnName;
+
+    /** 表名（冗余展示） */
+    private String tableName;
+
     /** 可信度分数（0-100） */
     private Integer score;
 

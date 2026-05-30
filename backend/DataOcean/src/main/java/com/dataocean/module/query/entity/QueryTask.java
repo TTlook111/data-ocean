@@ -42,6 +42,12 @@ public class QueryTask {
     /** 任务状态 */
     private String status;
 
+    /** 当前执行节点（实时进度，来自 Python SSE progress 事件） */
+    private String progressNode;
+
+    /** 当前进度提示文案（如“正在生成 SQL”） */
+    private String progressMessage;
+
     /** 最终生成的 SQL */
     private String resultSql;
 

@@ -9,7 +9,7 @@ import router from './router'
 const app = createApp(App)
 
 // 全局错误处理，防止未捕获异常导致白屏
-app.config.errorHandler = (err, instance, info) => {
+app.config.errorHandler = (err, _instance, info) => {
   console.error('[全局错误]', info, err)
 }
 

@@ -1,5 +1,6 @@
 package com.dataocean.module.fieldtag.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.fieldtag.entity.dto.ConfidenceUpdateRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.ConfidenceEventVO;
@@ -32,6 +33,24 @@ import java.util.List;
 public class FieldConfidenceController {
 
     private final FieldConfidenceService fieldConfidenceService;
+
+    /**
+     * 分页查询字段可信度列表（看板用，返回真实存在可信度记录的字段）
+     *
+     * @param page         页码（从 1 开始）
+     * @param pageSize     每页条数
+     * @param level        可选等级过滤（HIGH/MEDIUM/LOW）
+     * @param datasourceId 可选数据源过滤
+     * @return 可信度分页列表
+     */
+    @GetMapping
+    public Result<Page<ConfidenceVO>> pageConfidence(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) String level,
+            @RequestParam(required = false) Long datasourceId) {
+        return Result.success(fieldConfidenceService.pageConfidence(page, pageSize, level, datasourceId));
+    }
 
     /**
      * 查询单个字段的可信度

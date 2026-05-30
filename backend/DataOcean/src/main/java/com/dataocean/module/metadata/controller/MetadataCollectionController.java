@@ -177,7 +177,7 @@ public class MetadataCollectionController {
     }
 
     /**
-     * 对比两个元数据快照的结构差异。
+     * 对比两个元数据快照的结构差异（只读，不写入变更事件，可安全重复调用）。
      *
      * @param oldId 旧快照 ID
      * @param newId 新快照 ID
@@ -186,6 +186,21 @@ public class MetadataCollectionController {
     @GetMapping("/snapshots/diff")
     public Result<SchemaDiffVO> diffSnapshots(@RequestParam Long oldId, @RequestParam Long newId) {
         return Result.success(diffService.compareSnapshots(oldId, newId));
+    }
+
+    /**
+     * 对比两个快照并将差异持久化为变更事件（幂等，显式触发）。
+     * <p>
+     * 写入前会清除同一快照对的历史事件，因此重复触发不会产生重复记录。
+     * </p>
+     *
+     * @param oldId 旧快照 ID
+     * @param newId 新快照 ID
+     * @return 快照差异结果
+     */
+    @PostMapping("/snapshots/diff/record")
+    public Result<SchemaDiffVO> recordSnapshotDiff(@RequestParam Long oldId, @RequestParam Long newId) {
+        return Result.success("变更事件已记录", diffService.compareAndRecordChanges(oldId, newId));
     }
 
     private SyncTaskVO toSyncTaskVO(SchemaSyncTask task, Map<Long, String> dsNames) {

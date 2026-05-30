@@ -1,4 +1,5 @@
 import { http } from '../http'
+import type { ApiResult, PageResult } from '../types'
 export type { ApiResult, PageResult } from '../types'
 
 export interface UserItem {

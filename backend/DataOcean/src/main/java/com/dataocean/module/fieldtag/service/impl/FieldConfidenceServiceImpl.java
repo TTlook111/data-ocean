@@ -1,6 +1,7 @@
 package com.dataocean.module.fieldtag.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.fieldtag.entity.FieldConfidence;
 import com.dataocean.module.fieldtag.entity.FieldConfidenceEvent;
@@ -10,13 +11,18 @@ import com.dataocean.module.fieldtag.mapper.FieldConfidenceEventMapper;
 import com.dataocean.module.fieldtag.mapper.FieldConfidenceMapper;
 import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.fieldtag.service.FieldConfidenceService;
+import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -33,6 +39,61 @@ public class FieldConfidenceServiceImpl implements FieldConfidenceService {
     private final FieldConfidenceMapper confidenceMapper;
     private final FieldConfidenceEventMapper eventMapper;
     private final ConfidenceCalculator confidenceCalculator;
+    private final DbColumnMetaMapper dbColumnMetaMapper;
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Page<ConfidenceVO> pageConfidence(int page, int pageSize, String level, Long datasourceId) {
+        // 构建查询条件：按等级过滤，按分数降序展示
+        LambdaQueryWrapper<FieldConfidence> wrapper = new LambdaQueryWrapper<FieldConfidence>()
+                .eq(level != null && !level.isBlank(), FieldConfidence::getLevel, level)
+                .orderByDesc(FieldConfidence::getScore)
+                .orderByDesc(FieldConfidence::getUpdatedAt);
+
+        // 若指定数据源，先查出该数据源下的字段 ID 集合再过滤（可信度表无 datasourceId 字段）
+        if (datasourceId != null) {
+            List<Long> columnIds = dbColumnMetaMapper.selectList(
+                            new LambdaQueryWrapper<DbColumnMeta>()
+                                    .eq(DbColumnMeta::getDatasourceId, datasourceId)
+                                    .select(DbColumnMeta::getId))
+                    .stream().map(DbColumnMeta::getId).collect(Collectors.toList());
+            if (columnIds.isEmpty()) {
+                // 该数据源下没有任何字段，直接返回空分页
+                return new Page<>(page, pageSize, 0);
+            }
+            wrapper.in(FieldConfidence::getColumnMetaId, columnIds);
+        }
+
+        Page<FieldConfidence> confidencePage = confidenceMapper.selectPage(new Page<>(page, pageSize), wrapper);
+
+        // 批量补全字段名与表名，避免逐行查询
+        List<Long> columnMetaIds = confidencePage.getRecords().stream()
+                .map(FieldConfidence::getColumnMetaId)
+                .filter(id -> id != null)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, DbColumnMeta> columnMetaMap = columnMetaIds.isEmpty()
+                ? Collections.emptyMap()
+                : dbColumnMetaMapper.selectBatchIds(columnMetaIds).stream()
+                        .collect(Collectors.toMap(DbColumnMeta::getId, Function.identity(), (a, b) -> a));
+
+        Page<ConfidenceVO> resultPage = new Page<>(page, pageSize, confidencePage.getTotal());
+        List<ConfidenceVO> voList = confidencePage.getRecords().stream()
+                .map(c -> {
+                    ConfidenceVO vo = toVO(c);
+                    DbColumnMeta column = columnMetaMap.get(c.getColumnMetaId());
+                    if (column != null) {
+                        vo.setColumnName(column.getColumnName());
+                        vo.setTableName(column.getTableName());
+                    }
+                    return vo;
+                })
+                .collect(Collectors.toList());
+        resultPage.setRecords(voList);
+        return resultPage;
+    }
 
     /**
      * {@inheritDoc}

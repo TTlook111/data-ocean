@@ -16,6 +16,10 @@ public class QueryTaskVO {
 
     private String taskId;
     private String status;
+    /** 当前执行节点（实时进度） */
+    private String progressNode;
+    /** 当前进度提示文案（如“正在生成 SQL”） */
+    private String progressMessage;
     private String question;
     private String rewrittenQuery;
     private String sql;

@@ -24,6 +24,8 @@ export interface FieldTagVO {
 
 export interface ConfidenceVO {
   columnMetaId: number
+  columnName?: string
+  tableName?: string
   score: number
   level: string
   reason: string
@@ -95,6 +97,16 @@ export async function listPredefinedTags() {
 }
 
 // ==================== 可信度 API ====================
+
+export async function pageConfidence(params: {
+  page?: number
+  pageSize?: number
+  level?: string
+  datasourceId?: number
+}) {
+  const { data } = await http.get<ApiResult<PageResult<ConfidenceVO>>>('/api/field-confidence', { params })
+  return data
+}
 
 export async function getFieldConfidence(columnMetaId: number) {
   const { data } = await http.get<ApiResult<ConfidenceVO>>(`/api/field-confidence/${columnMetaId}`)

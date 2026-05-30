@@ -11,10 +11,25 @@ import {
   type DatasourcePermissionPayload,
 } from '../../../api/admin/permission'
 import { http } from '../../../api/http'
-import type { ApiResult } from '../../../api/admin/user'
+import { listDepartments, type ApiResult, type DepartmentNode } from '../../../api/admin/user'
 
 interface DatasourceOption { id: number; name: string }
 interface SubjectOption { id: number; name: string; type: string }
+
+/** 将部门树拍平为一维列表，供主体下拉选择 */
+function flattenDepartments(nodes: DepartmentNode[]): Array<{ id: number; name: string }> {
+  const result: Array<{ id: number; name: string }> = []
+  const walk = (list: DepartmentNode[]) => {
+    for (const node of list) {
+      result.push({ id: node.id, name: node.deptName })
+      if (node.children && node.children.length > 0) {
+        walk(node.children)
+      }
+    }
+  }
+  walk(nodes)
+  return result
+}
 
 const loading = ref(false)
 const dialogVisible = ref(false)
@@ -71,16 +86,18 @@ async function loadDatasources() {
 
 async function loadSubjects() {
   try {
-    const [rolesRes, usersRes, deptsRes] = await Promise.all([
+    const [rolesRes, usersRes, deptTree] = await Promise.all([
       http.get<ApiResult<any[]>>('/api/admin/roles'),
       http.get<ApiResult<any>>('/api/admin/users', { params: { pageSize: 200 } }),
-      http.get<ApiResult<any[]>>('/api/admin/departments'),
+      listDepartments(),
     ])
     roles.value = (rolesRes.data.data || []).map((r: any) => ({ id: r.id, name: r.roleName, type: 'ROLE' }))
     const userList = usersRes.data.data?.records || usersRes.data.data || []
     users.value = userList.map((u: any) => ({ id: u.id, name: u.realName || u.username, type: 'USER' }))
-    departments.value = (deptsRes.data.data || []).map((d: any) => ({ id: d.id, name: d.deptName, type: 'DEPARTMENT' }))
-  } catch { /* ignore */ }
+    departments.value = flattenDepartments(deptTree.data || []).map(d => ({ id: d.id, name: d.name, type: 'DEPARTMENT' }))
+  } catch {
+    ElMessage.error('加载授权主体（用户/角色/部门）失败，请检查权限或稍后重试')
+  }
 }
 
 async function loadPermissions() {

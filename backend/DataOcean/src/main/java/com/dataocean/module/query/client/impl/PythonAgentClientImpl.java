@@ -139,6 +139,10 @@ public class PythonAgentClientImpl implements PythonAgentClient {
 
     /**
      * 消费 SSE 事件流，返回最终 result/error 事件的 data 内容。
+     * <p>
+     * progress 事件会被实时解析并回写到 query_task 表，供前端轮询展示分阶段进度；
+     * result/error 事件的 data 作为最终结果返回。
+     * </p>
      */
     private String consumeSseStream(InputStream stream, String taskId) {
         String lastResultData = null;
@@ -152,6 +156,9 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                     String data = line.substring(5).trim();
                     if ("result".equals(currentEventType) || "error".equals(currentEventType)) {
                         lastResultData = data;
+                    } else if ("progress".equals(currentEventType)) {
+                        // 实时回写进度，供前端轮询读取展示当前阶段
+                        handleProgressEvent(taskId, data);
                     }
                 }
             }
@@ -159,6 +166,24 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             log.error("SSE 流读取异常 taskId={}", taskId, e);
         }
         return lastResultData;
+    }
+
+    /**
+     * 解析单条 progress 事件并回写任务进度。
+     * <p>
+     * 进度回写失败不影响主流程（最终结果仍以 result/error 事件为准）。
+     * </p>
+     */
+    private void handleProgressEvent(String taskId, String data) {
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> progress = objectMapper.readValue(data, Map.class);
+            String node = (String) progress.get("node");
+            String message = (String) progress.get("message");
+            queryTaskService.updateTaskProgress(taskId, node, message);
+        } catch (Exception e) {
+            log.warn("解析进度事件失败 taskId={} data={}", taskId, data);
+        }
     }
 
     /**

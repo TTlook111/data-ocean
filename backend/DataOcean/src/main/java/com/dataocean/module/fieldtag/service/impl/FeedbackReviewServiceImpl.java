@@ -12,13 +12,20 @@ import com.dataocean.module.fieldtag.mapper.FeedbackReviewMapper;
 import com.dataocean.module.fieldtag.mapper.UserFeedbackMapper;
 import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.fieldtag.service.FeedbackReviewService;
+import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
+import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -35,6 +42,8 @@ public class FeedbackReviewServiceImpl implements FeedbackReviewService {
     private final FeedbackReviewMapper reviewMapper;
     private final UserFeedbackMapper feedbackMapper;
     private final ConfidenceCalculator confidenceCalculator;
+    private final DbColumnMetaMapper dbColumnMetaMapper;
+    private final UserMapper userMapper;
 
     /**
      * {@inheritDoc}
@@ -48,19 +57,62 @@ public class FeedbackReviewServiceImpl implements FeedbackReviewService {
                         .eq(FeedbackReview::getReviewStatus, FeedbackReview.STATUS_PENDING)
                         .orderByAsc(FeedbackReview::getId)
         );
-        // 转换为 FeedbackVO
+        // 转换为 FeedbackVO（先取出本页所有反馈实体，再批量补全字段名/表名/用户名，避免 N+1 查询）
         Page<FeedbackVO> resultPage = new Page<>(page, pageSize, reviewPage.getTotal());
-        List<FeedbackVO> voList = reviewPage.getRecords().stream()
-                .map(review -> {
-                    UserFeedback feedback = feedbackMapper.selectById(review.getFeedbackId());
-                    if (feedback == null) {
-                        return null;
-                    }
+
+        // feedbackId -> reviewStatus 映射，用于回填审核状态
+        Map<Long, String> reviewStatusMap = reviewPage.getRecords().stream()
+                .filter(r -> r.getFeedbackId() != null)
+                .collect(Collectors.toMap(
+                        FeedbackReview::getFeedbackId,
+                        FeedbackReview::getReviewStatus,
+                        (a, b) -> a));
+
+        // 取出本页所有反馈实体（保持审核记录的排序）
+        List<UserFeedback> feedbacks = reviewPage.getRecords().stream()
+                .map(review -> feedbackMapper.selectById(review.getFeedbackId()))
+                .filter(feedback -> feedback != null)
+                .collect(Collectors.toList());
+
+        // 批量查询字段元数据（columnMetaId -> DbColumnMeta），取字段名与表名
+        List<Long> columnMetaIds = feedbacks.stream()
+                .map(UserFeedback::getColumnMetaId)
+                .filter(id -> id != null)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, DbColumnMeta> columnMetaMap = columnMetaIds.isEmpty()
+                ? Collections.emptyMap()
+                : dbColumnMetaMapper.selectBatchIds(columnMetaIds).stream()
+                        .collect(Collectors.toMap(DbColumnMeta::getId, Function.identity(), (a, b) -> a));
+
+        // 批量查询用户（userId -> SysUser），取用户名
+        List<Long> userIds = feedbacks.stream()
+                .map(UserFeedback::getUserId)
+                .filter(id -> id != null)
+                .distinct()
+                .collect(Collectors.toList());
+        Map<Long, SysUser> userMap = userIds.isEmpty()
+                ? Collections.emptyMap()
+                : userMapper.selectBatchIds(userIds).stream()
+                        .collect(Collectors.toMap(SysUser::getId, Function.identity(), (a, b) -> a));
+
+        // 组装 VO，填充冗余展示字段
+        List<FeedbackVO> voList = feedbacks.stream()
+                .map(feedback -> {
                     FeedbackVO vo = toVO(feedback);
-                    vo.setReviewStatus(review.getReviewStatus());
+                    vo.setReviewStatus(reviewStatusMap.get(feedback.getId()));
+                    DbColumnMeta column = columnMetaMap.get(feedback.getColumnMetaId());
+                    if (column != null) {
+                        vo.setColumnName(column.getColumnName());
+                        vo.setTableName(column.getTableName());
+                    }
+                    SysUser user = userMap.get(feedback.getUserId());
+                    if (user != null) {
+                        // 优先展示真实姓名，缺失时回退到登录名
+                        vo.setUsername(user.getRealName() != null ? user.getRealName() : user.getUsername());
+                    }
                     return vo;
                 })
-                .filter(vo -> vo != null)
                 .collect(Collectors.toList());
         resultPage.setRecords(voList);
         return resultPage;

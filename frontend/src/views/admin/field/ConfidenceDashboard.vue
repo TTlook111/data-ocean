@@ -5,7 +5,7 @@ import { TrendingUp, Settings } from 'lucide-vue-next'
 import * as echarts from 'echarts'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
 import {
-  batchGetConfidence,
+  pageConfidence,
   adminSetConfidence,
   getConfidenceTrend,
   type ConfidenceVO,
@@ -17,6 +17,12 @@ const { reveal, withContext } = useGsapMotion(pageRef)
 
 const loading = ref(false)
 const confidenceList = ref<ConfidenceVO[]>([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(20)
+const levelFilter = ref('')
+// 各等级的全量计数（独立于当前分页，避免用单页数据推断全局）
+const levelCounts = ref({ HIGH: 0, MEDIUM: 0, LOW: 0 })
 const showTrendDialog = ref(false)
 const showSetDialog = ref(false)
 const trendData = ref<ConfidenceTrendPoint[]>([])
@@ -45,11 +51,45 @@ const levelType = (level: string) => {
 async function fetchConfidenceList() {
   loading.value = true
   try {
-    const ids = Array.from({ length: 50 }, (_, i) => i + 1)
-    const res = await batchGetConfidence(ids)
-    confidenceList.value = res.data ?? []
+    const res = await pageConfidence({
+      page: page.value,
+      pageSize: pageSize.value,
+      level: levelFilter.value || undefined,
+    })
+    confidenceList.value = res.data?.records ?? []
+    total.value = res.data?.total ?? 0
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.message || '获取可信度列表失败')
   } finally {
     loading.value = false
+  }
+}
+
+function handlePageChange(p: number) {
+  page.value = p
+  fetchConfidenceList()
+}
+
+function handleLevelFilter() {
+  page.value = 1
+  fetchConfidenceList()
+}
+
+// 获取各等级的全量计数：分别按等级查 total（pageSize=1 仅取总数，不依赖当前分页）
+async function fetchLevelCounts() {
+  try {
+    const [high, medium, low] = await Promise.all([
+      pageConfidence({ page: 1, pageSize: 1, level: 'HIGH' }),
+      pageConfidence({ page: 1, pageSize: 1, level: 'MEDIUM' }),
+      pageConfidence({ page: 1, pageSize: 1, level: 'LOW' }),
+    ])
+    levelCounts.value = {
+      HIGH: high.data?.total ?? 0,
+      MEDIUM: medium.data?.total ?? 0,
+      LOW: low.data?.total ?? 0,
+    }
+  } catch {
+    // 统计失败不阻断主列表展示
   }
 }
 
@@ -138,7 +178,7 @@ async function confirmSetScore() {
     await adminSetConfidence(currentFieldId.value, setForm.value)
     ElMessage.success('可信度设置成功')
     showSetDialog.value = false
-    await fetchConfidenceList()
+    await Promise.all([fetchConfidenceList(), fetchLevelCounts()])
   } catch (e: any) {
     ElMessage.error(e.response?.data?.message || '设置失败')
   }
@@ -147,6 +187,7 @@ async function confirmSetScore() {
 onMounted(() => {
   withContext(() => { reveal('.page-header, .content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
   fetchConfidenceList()
+  fetchLevelCounts()
 })
 </script>
 
@@ -162,34 +203,48 @@ onMounted(() => {
 
     <section class="stats-row">
       <div class="stat-card high">
-        <span class="stat-value">{{ confidenceList.filter(c => c.level === 'HIGH').length }}</span>
+        <span class="stat-value">{{ levelCounts.HIGH }}</span>
         <span class="stat-label">高可信</span>
       </div>
       <div class="stat-card medium">
-        <span class="stat-value">{{ confidenceList.filter(c => c.level === 'MEDIUM').length }}</span>
+        <span class="stat-value">{{ levelCounts.MEDIUM }}</span>
         <span class="stat-label">中可信</span>
       </div>
       <div class="stat-card low">
-        <span class="stat-value">{{ confidenceList.filter(c => c.level === 'LOW').length }}</span>
+        <span class="stat-value">{{ levelCounts.LOW }}</span>
         <span class="stat-label">低可信</span>
       </div>
     </section>
 
     <section class="content-panel">
+      <div class="toolbar">
+        <el-select v-model="levelFilter" placeholder="全部等级" clearable size="small" style="width: 140px" @change="handleLevelFilter">
+          <el-option label="全部等级" value="" />
+          <el-option label="高可信" value="HIGH" />
+          <el-option label="中可信" value="MEDIUM" />
+          <el-option label="低可信" value="LOW" />
+        </el-select>
+      </div>
       <el-table :data="confidenceList" v-loading="loading" stripe>
-        <el-table-column prop="columnMetaId" label="字段ID" width="100" />
-        <el-table-column prop="score" label="分数" width="100">
+        <el-table-column prop="columnMetaId" label="字段ID" width="90" />
+        <el-table-column prop="tableName" label="表名" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.tableName || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="columnName" label="字段名" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.columnName || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="score" label="分数" width="160">
           <template #default="{ row }">
             <el-progress :percentage="row.score" :color="row.level === 'HIGH' ? '#67c23a' : row.level === 'MEDIUM' ? '#e6a23c' : '#f56c6c'" :stroke-width="10" />
           </template>
         </el-table-column>
-        <el-table-column prop="level" label="等级" width="100">
+        <el-table-column prop="level" label="等级" width="90">
           <template #default="{ row }">
             <el-tag :type="levelType(row.level)" size="small">{{ levelLabel(row.level) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="reason" label="原因" />
-        <el-table-column prop="lastUpdated" label="更新时间" width="180" />
+        <el-table-column prop="reason" label="原因" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="lastUpdated" label="更新时间" width="170" />
         <el-table-column label="操作" width="160">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openTrend(row.columnMetaId)">
@@ -202,6 +257,15 @@ onMounted(() => {
         </el-table-column>
       </el-table>
       <el-empty v-if="!confidenceList.length && !loading" description="暂无可信度数据" />
+      <div class="pagination-bar" v-if="total > 0">
+        <el-pagination
+          layout="total, prev, pager, next"
+          :total="total"
+          :current-page="page"
+          :page-size="pageSize"
+          @current-change="handlePageChange"
+        />
+      </div>
     </section>
 
     <el-dialog v-model="showTrendDialog" title="可信度趋势（近30天）" width="680px" @closed="disposeChart">
@@ -240,5 +304,7 @@ onMounted(() => {
 .stat-card.medium .stat-value { color: #e6a23c; }
 .stat-card.low .stat-value { color: #f56c6c; }
 .content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; }
+.toolbar { display: flex; gap: 12px; margin-bottom: 12px; }
+.pagination-bar { display: flex; justify-content: flex-end; margin-top: 16px; }
 .trend-chart { width: 100%; height: 360px; }
 </style>

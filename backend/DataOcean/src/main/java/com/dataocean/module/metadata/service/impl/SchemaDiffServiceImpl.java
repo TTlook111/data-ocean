@@ -40,13 +40,47 @@ public class SchemaDiffServiceImpl implements SchemaDiffService {
 
     /**
      * {@inheritDoc}
+     * <p>
+     * 只读对比：仅计算差异并返回，不写入任何变更事件，可被 GET 接口安全地重复调用。
+     * </p>
      */
-    @Transactional
     @Override
     public SchemaDiffVO compareSnapshots(Long oldSnapshotId, Long newSnapshotId) {
+        return computeDiff(oldSnapshotId, newSnapshotId);
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 对比并幂等持久化：先删除同一快照对的历史变更事件，再按最新差异重新写入，
+     * 因此重复触发不会产生重复记录。
+     * </p>
+     */
+    @Transactional(rollbackFor = Exception.class)
+    @Override
+    public SchemaDiffVO compareAndRecordChanges(Long oldSnapshotId, Long newSnapshotId) {
         MetadataSnapshot oldSnapshot = snapshotMapper.selectById(oldSnapshotId);
         MetadataSnapshot newSnapshot = snapshotMapper.selectById(newSnapshotId);
+        SchemaDiffVO diff = computeDiff(oldSnapshotId, newSnapshotId);
 
+        // 幂等保证：先清除该快照对的历史事件，避免重复触发导致数据膨胀
+        changeEventMapper.delete(new LambdaQueryWrapper<SchemaChangeEvent>()
+                .eq(SchemaChangeEvent::getOldSnapshotId, oldSnapshotId)
+                .eq(SchemaChangeEvent::getNewSnapshotId, newSnapshotId));
+
+        // 重新生成并持久化变更事件
+        generateChangeEvents(oldSnapshot, newSnapshot, diff);
+        return diff;
+    }
+
+    /**
+     * 计算两个快照之间的 Schema 差异（纯计算，无任何写库副作用）。
+     *
+     * @param oldSnapshotId 旧快照ID
+     * @param newSnapshotId 新快照ID
+     * @return 差异结果
+     */
+    private SchemaDiffVO computeDiff(Long oldSnapshotId, Long newSnapshotId) {
         // 获取新旧快照的表列表
         List<DbTableMeta> oldTables = getTablesBySnapshot(oldSnapshotId);
         List<DbTableMeta> newTables = getTablesBySnapshot(newSnapshotId);
@@ -116,9 +150,6 @@ public class SchemaDiffServiceImpl implements SchemaDiffService {
         diff.setAddedColumns(addedColumns);
         diff.setRemovedColumns(removedColumns);
         diff.setModifiedColumns(modifiedColumns);
-
-        // 将差异结果持久化为变更事件
-        generateChangeEvents(oldSnapshot, newSnapshot, diff);
         return diff;
     }
 

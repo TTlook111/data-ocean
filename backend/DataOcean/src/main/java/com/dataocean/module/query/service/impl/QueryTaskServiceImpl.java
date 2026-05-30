@@ -230,6 +230,20 @@ public class QueryTaskServiceImpl implements QueryTaskService {
     }
 
     /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void updateTaskProgress(String taskId, String node, String message) {
+        // 仅更新仍在处理中的任务，避免覆盖已取消/已完成的终态
+        queryTaskMapper.update(null,
+                new LambdaUpdateWrapper<QueryTask>()
+                        .eq(QueryTask::getTaskId, taskId)
+                        .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                        .set(QueryTask::getProgressNode, node)
+                        .set(QueryTask::getProgressMessage, message));
+    }
+
+    /**
      * 根据 taskId 查询任务，不存在则抛出业务异常。
      */
     private QueryTask findByTaskId(String taskId) {
@@ -283,6 +297,8 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             return QueryTaskVO.builder()
                     .taskId(task.getTaskId())
                     .status(task.getStatus())
+                    .progressNode(task.getProgressNode())
+                    .progressMessage(task.getProgressMessage())
                     .question(task.getQuestion())
                     .rewrittenQuery(task.getRewrittenQuery())
                     .sql(task.getResultSql())
@@ -305,6 +321,8 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             return QueryTaskVO.builder()
                     .taskId(task.getTaskId())
                     .status(task.getStatus())
+                    .progressNode(task.getProgressNode())
+                    .progressMessage(task.getProgressMessage())
                     .question(task.getQuestion())
                     .errorMessage(task.getErrorMessage())
                     .createdAt(task.getCreatedAt())

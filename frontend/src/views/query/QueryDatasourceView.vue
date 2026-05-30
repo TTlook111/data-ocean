@@ -387,7 +387,13 @@ async function sendQuestion() {
     pollAbortController.value = abortCtrl
 
     // 轮询任务结果（最多 60 次 × 2 秒 = 120 秒，与后端超时对齐）
-    const result = await pollTaskResult(taskId, abortCtrl.signal)
+    // onProgress 回调把后端实时回写的阶段进度展示到加载中的助手消息上
+    const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (progressMessage) => {
+      const loadingMsg = session.messages.find((m) => m.id === assistantMsgId)
+      if (loadingMsg && loadingMsg.status === 'loading' && progressMessage) {
+        loadingMsg.content = `${progressMessage}...`
+      }
+    })
     const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
     if (assistantMsg) {
       assistantMsg.taskId = taskId
@@ -432,7 +438,13 @@ async function animateMessageUpdate(messageId: string) {
   }
 }
 
-async function pollTaskResult(taskId: string, signal?: AbortSignal, maxAttempts = 60, intervalMs = 2000) {
+async function pollTaskResult(
+  taskId: string,
+  signal?: AbortSignal,
+  maxAttempts = 60,
+  intervalMs = 2000,
+  onProgress?: (progressMessage: string) => void,
+) {
   for (let i = 0; i < maxAttempts; i++) {
     if (signal?.aborted) {
       return { status: 'CANCELLED', errorMessage: '查询已取消' } as any
@@ -441,6 +453,10 @@ async function pollTaskResult(taskId: string, signal?: AbortSignal, maxAttempts 
     const task = res.data
     if (task.status !== 'PROCESSING') {
       return task
+    }
+    // 仍在处理中：把后端实时回写的阶段进度回调出去展示
+    if (onProgress && task.progressMessage) {
+      onProgress(task.progressMessage)
     }
     await new Promise((resolve, reject) => {
       const timer = setTimeout(resolve, intervalMs)
@@ -566,9 +582,7 @@ watch(resultTab, () => {
     if (resultBody) {
       lift(resultBody, { y: 6, duration: 0.22, scale: 1 })
     }
-    if (resultTab.value === 'chart') {
-      renderChart()
-    }
+    // 图表由 ChartContainer 组件自身的 onMounted/watch(option) 负责渲染，此处无需手动触发
   })
 })
 </script>

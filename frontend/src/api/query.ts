@@ -15,6 +15,8 @@ export interface QueryAskResult {
 export interface QueryTaskResult {
   taskId: string
   status: string
+  progressNode?: string
+  progressMessage?: string
   question: string
   rewrittenQuery?: string
   sql?: string

@@ -151,8 +151,12 @@ async function handleGenerate() {
   generating.value = true
   try {
     const res = await generateDraft(docId.value, selectedSnapshotId.value)
-    content.value = res.data?.content || ''
     generateDialogVisible.value = false
+    // 后端生成草稿时已写入新版本并递增乐观锁 version，必须重新拉取文档刷新本地 version，
+    // 否则随后的“保存草稿”会携带过期 version 触发乐观锁冲突。
+    await fetchDoc()
+    // fetchDoc 会用服务端最新内容覆盖 content，这里再确保展示本次生成的草稿内容
+    content.value = res.data?.content || content.value
     ElMessage.success('AI 草稿已生成，请检查后保存')
   } catch (e) {
     ElMessage.error(extractError(e, 'AI 生成失败'))

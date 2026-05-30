@@ -51,6 +51,18 @@ public interface QueryTaskService {
     boolean updateTaskResult(String taskId, String result);
 
     /**
+     * 更新任务实时进度（消费 Python SSE progress 事件时调用）。
+     * <p>
+     * 仅在任务仍处于 PROCESSING 状态时更新，已取消/已完成的任务跳过，避免覆盖终态。
+     * </p>
+     *
+     * @param taskId  任务 ID
+     * @param node    当前执行节点
+     * @param message 进度提示文案
+     */
+    void updateTaskProgress(String taskId, String node, String message);
+
+    /**
      * 根据任务 UUID 获取数据库主键 ID。
      *
      * @param taskId 任务 UUID
