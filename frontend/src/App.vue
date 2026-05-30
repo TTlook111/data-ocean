@@ -49,7 +49,7 @@ function handleLeave(el: Element, done: () => void) {
       @enter="handleEnter"
       @leave="handleLeave"
     >
-      <component :is="Component" :key="route.fullPath" />
+      <component :is="Component" :key="route.matched[0]?.path || route.fullPath" />
     </Transition>
   </RouterView>
 </template>
