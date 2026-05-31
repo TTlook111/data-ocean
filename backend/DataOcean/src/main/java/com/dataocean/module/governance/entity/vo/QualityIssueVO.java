@@ -11,6 +11,9 @@ import java.time.LocalDateTime;
 public class QualityIssueVO {
 
     private Long id;
+    private Long snapshotId;
+    private Long datasourceId;
+    private String datasourceName;
     private String dimension;
     private String severity;
     private String tableName;

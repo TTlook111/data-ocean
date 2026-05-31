@@ -66,13 +66,9 @@ const issueSummary = computed(() => ({
 async function fetchSnapshots() {
   const res = await listSnapshots({ page: 1, size: 50 })
   snapshots.value = res.data?.records ?? []
-  if (snapshots.value.length && !query.snapshotId) {
-    query.snapshotId = snapshots.value[0].id
-  }
 }
 
 async function fetchIssues() {
-  if (!query.snapshotId) return
   loading.value = true
   try {
     const res = await listQualityIssues(query.snapshotId, {
@@ -128,22 +124,22 @@ onMounted(async () => {
       <div>
         <p>元数据治理</p>
         <h1>问题清单</h1>
-        <span class="header-subtitle">查看和处理质量校验发现的问题</span>
+        <span class="header-subtitle">查看和处理质量校验发现的问题，未选择快照时展示全部问题</span>
       </div>
       <el-button :icon="RefreshCw" @click="fetchIssues">刷新</el-button>
     </header>
 
     <section class="toolbar">
-      <el-select v-model="query.snapshotId" placeholder="选择快照" style="width: 180px" @change="fetchIssues">
+      <el-select v-model="query.snapshotId" placeholder="全部快照" clearable style="width: 220px" @change="fetchIssues">
         <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} 版本 ${s.snapshotVersion}`" />
       </el-select>
-      <el-select v-model="query.dimension" style="width: 120px" @change="fetchIssues">
+      <el-select v-model="query.dimension" placeholder="全部维度" style="width: 120px" @change="fetchIssues">
         <el-option v-for="o in dimensionOptions" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
-      <el-select v-model="query.severity" style="width: 100px" @change="fetchIssues">
+      <el-select v-model="query.severity" placeholder="全部级别" style="width: 100px" @change="fetchIssues">
         <el-option v-for="o in severityOptions" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
-      <el-select v-model="query.status" style="width: 120px" @change="fetchIssues">
+      <el-select v-model="query.status" placeholder="全部状态" style="width: 120px" @change="fetchIssues">
         <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
       <el-input v-model="query.tableName" placeholder="表名筛选" clearable style="width: 150px" @clear="fetchIssues" @keyup.enter="fetchIssues" />
@@ -165,6 +161,12 @@ onMounted(async () => {
     <section class="table-shell">
       <el-table :data="issues" v-loading="loading" stripe @selection-change="onSelectionChange">
         <el-table-column type="selection" width="40" />
+        <el-table-column prop="datasourceName" label="数据源" width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.datasourceName || '-' }}</template>
+        </el-table-column>
+        <el-table-column prop="snapshotId" label="快照" width="86">
+          <template #default="{ row }">#{{ row.snapshotId }}</template>
+        </el-table-column>
         <el-table-column prop="tableName" label="表" width="160" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="table-code">{{ row.tableName }}</span>

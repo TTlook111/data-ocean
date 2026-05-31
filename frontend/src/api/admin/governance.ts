@@ -11,6 +11,9 @@ export interface QualityCheckResult {
 
 export interface QualityIssueItem {
   id: number
+  snapshotId: number
+  datasourceId?: number
+  datasourceName?: string
   dimension: string
   severity: string
   tableName: string
@@ -54,10 +57,11 @@ export async function triggerQualityCheck(snapshotId: number, payload?: { dimens
   return data
 }
 
-export async function listQualityIssues(snapshotId: number, params: {
+export async function listQualityIssues(snapshotId: number | undefined, params: {
   dimension?: string; severity?: string; status?: string; tableName?: string; page?: number; size?: number
 }) {
-  const { data } = await http.get<ApiResult<PageResult<QualityIssueItem>>>(`/api/admin/snapshots/${snapshotId}/quality-issues`, { params })
+  const url = snapshotId ? `/api/admin/snapshots/${snapshotId}/quality-issues` : '/api/admin/quality-issues'
+  const { data } = await http.get<ApiResult<PageResult<QualityIssueItem>>>(url, { params })
   return data
 }
 

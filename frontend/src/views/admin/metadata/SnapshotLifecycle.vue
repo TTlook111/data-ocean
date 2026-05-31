@@ -39,7 +39,6 @@ async function fetchDatasources() {
 }
 
 async function fetchHistory() {
-  if (!selectedDatasourceId.value) return
   loading.value = true
   try {
     const res = await listVersionHistory(selectedDatasourceId.value, query)
@@ -105,6 +104,7 @@ function onDatasourceChange() {
 
 onMounted(() => {
   fetchDatasources()
+  fetchHistory()
 })
 </script>
 
@@ -114,12 +114,12 @@ onMounted(() => {
       <div>
         <p>元数据版本管理</p>
         <h1>快照生命周期</h1>
-        <span class="header-subtitle">管理快照状态流转、审核发布与紧急撤回</span>
+        <span class="header-subtitle">管理快照状态流转、审核发布与紧急撤回，未选择数据源时展示全部快照</span>
       </div>
     </header>
 
     <section class="toolbar">
-      <el-select v-model="selectedDatasourceId" placeholder="选择数据源" clearable
+      <el-select v-model="selectedDatasourceId" placeholder="全部数据源" clearable
                  @change="onDatasourceChange" style="width: 280px">
         <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
       </el-select>
@@ -135,9 +135,11 @@ onMounted(() => {
     </section>
 
     <section class="table-shell" v-loading="loading">
-      <el-empty v-if="!selectedDatasourceId" description="请选择数据源查看版本历史" />
-      <el-empty v-else-if="!loading && history.length === 0" description="暂无快照记录" />
+      <el-empty v-if="!loading && history.length === 0" description="暂无快照记录" />
       <el-table v-else :data="history" border stripe>
+        <el-table-column label="数据源" prop="datasourceName" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.datasourceName || '-' }}</template>
+        </el-table-column>
         <el-table-column label="版本" width="80" align="center">
           <template #default="{ row }">版本 {{ row.snapshotVersion }}</template>
         </el-table-column>

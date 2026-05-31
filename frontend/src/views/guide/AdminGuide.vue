@@ -175,14 +175,18 @@ const steps: StepDef[] = [
 <style scoped>
 .guide-page {
   min-height: 100vh;
-  padding: 60px 24px;
+  padding: 48px 24px 64px;
   background: var(--do-bg);
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
-.guide-hero { text-align: center; margin-bottom: 48px; }
+.guide-hero {
+  width: min(960px, 100%);
+  text-align: center;
+  margin-bottom: 40px;
+}
 
 .hero-badge {
   display: inline-block; padding: 4px 14px; border-radius: 20px;
@@ -193,9 +197,13 @@ const steps: StepDef[] = [
 .guide-hero h1 { font-size: 28px; color: var(--do-ink); margin: 0 0 8px; }
 .guide-hero p { font-size: 15px; color: var(--do-muted); margin: 0; }
 
-.guide-timeline { max-width: 680px; width: 100%; }
+.guide-timeline { width: min(920px, 100%); }
 
-.timeline-card { display: grid; grid-template-columns: 40px 1fr; gap: 16px; }
+.timeline-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 18px;
+}
 
 .timeline-left { display: flex; flex-direction: column; align-items: center; }
 
@@ -207,7 +215,13 @@ const steps: StepDef[] = [
 
 .timeline-line { width: 2px; flex: 1; background: var(--do-line); margin: 8px 0; }
 
-.timeline-right { display: flex; gap: 16px; padding-bottom: 28px; align-items: flex-start; }
+.timeline-right {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 18px;
+  padding: 0 0 32px;
+  align-items: flex-start;
+}
 
 .step-icon {
   width: 56px; height: 56px; display: grid; place-items: center;
@@ -220,15 +234,23 @@ const steps: StepDef[] = [
 .step-icon.tone-purple { background: var(--do-tone-purple-bg); color: var(--do-tone-purple); }
 .step-icon.tone-sky { background: var(--do-tone-sky-bg); color: var(--do-tone-sky); }
 
-.step-body h3 { margin: 0 0 6px; font-size: 16px; color: var(--do-ink); }
-.step-body p { margin: 0 0 10px; font-size: 14px; color: var(--do-muted); line-height: 1.6; }
+.step-body {
+  min-width: 0;
+}
+
+.step-body h3 { margin: 0 0 8px; font-size: 17px; color: var(--do-ink); }
+.step-body p { margin: 0 0 12px; font-size: 14px; color: var(--do-muted); line-height: 1.7; }
 
 /* 折叠面板 */
 .detail-toggle {
-  display: inline-flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: 6px;
   background: none; border: none; cursor: pointer;
   font-size: 13px; color: var(--do-primary); font-weight: 500;
   padding: 4px 0; margin-bottom: 8px;
+  line-height: 1.5;
+  width: fit-content;
+  max-width: 100%;
+  text-align: left;
 }
 
 .detail-toggle:hover { text-decoration: underline; }
@@ -237,16 +259,19 @@ const steps: StepDef[] = [
 .detail-toggle svg.rotated { transform: rotate(180deg); }
 
 .detail-panel {
-  margin: 8px 0 14px;
-  padding: 14px 16px;
+  margin: 8px 0 16px;
+  padding: 14px 18px;
   background: var(--do-soft);
   border: 1px solid var(--do-line);
   border-radius: 8px;
 }
 
 .detail-item {
-  display: flex; align-items: baseline; gap: 10px;
-  padding: 6px 0;
+  display: grid;
+  grid-template-columns: minmax(112px, max-content) minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 8px 0;
   border-bottom: 1px solid var(--do-line);
 }
 
@@ -304,4 +329,32 @@ const steps: StepDef[] = [
 
 .guide-link { font-size: 13px; color: var(--do-muted); text-decoration: none; }
 .guide-link:hover { color: var(--do-primary); }
+
+@media (max-width: 720px) {
+  .guide-page { padding: 32px 16px 48px; }
+  .guide-hero { text-align: left; margin-bottom: 28px; }
+  .guide-hero h1 { font-size: 24px; }
+  .timeline-card {
+    grid-template-columns: 34px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .timeline-right {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding-bottom: 28px;
+  }
+  .step-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+  }
+  .detail-item {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .done-badge {
+    align-items: flex-start;
+    line-height: 1.5;
+  }
+}
 </style>

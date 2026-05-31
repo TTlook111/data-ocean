@@ -3,6 +3,8 @@ package com.dataocean.module.versioning.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.datasource.entity.Datasource;
+import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.governance.entity.MetadataQualityIssue;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
 import com.dataocean.module.metadata.entity.DbTableMeta;
@@ -22,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -40,6 +43,7 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
     private final SchemaDiffService schemaDiffService;
     private final SnapshotAuditLogService auditLogService;
     private final UserService userService;
+    private final DatasourceMapper datasourceMapper;
 
     /**
      * {@inheritDoc}
@@ -85,13 +89,17 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
         Page<MetadataSnapshot> snapshotPage = snapshotMapper.selectPage(
                 new Page<>(page, size),
                 new LambdaQueryWrapper<MetadataSnapshot>()
-                        .eq(MetadataSnapshot::getDatasourceId, datasourceId)
+                        .eq(datasourceId != null, MetadataSnapshot::getDatasourceId, datasourceId)
                         .orderByDesc(MetadataSnapshot::getCreatedAt)
         );
 
         Page<SnapshotVersionHistoryVO> result = new Page<>(page, size, snapshotPage.getTotal());
+        Map<Long, String> datasourceNames = datasourceMapper.selectList(
+                        new LambdaQueryWrapper<Datasource>().eq(Datasource::getDeleted, 0L))
+                .stream()
+                .collect(Collectors.toMap(Datasource::getId, Datasource::getName));
         List<SnapshotVersionHistoryVO> records = snapshotPage.getRecords().stream()
-                .map(this::toHistoryVO)
+                .map(snapshot -> toHistoryVO(snapshot, datasourceNames))
                 .collect(Collectors.toList());
         result.setRecords(records);
         return result;
@@ -153,9 +161,11 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
         }
     }
 
-    private SnapshotVersionHistoryVO toHistoryVO(MetadataSnapshot snapshot) {
+    private SnapshotVersionHistoryVO toHistoryVO(MetadataSnapshot snapshot, Map<Long, String> datasourceNames) {
         SnapshotVersionHistoryVO vo = new SnapshotVersionHistoryVO();
         vo.setSnapshotId(snapshot.getId());
+        vo.setDatasourceId(snapshot.getDatasourceId());
+        vo.setDatasourceName(datasourceNames.getOrDefault(snapshot.getDatasourceId(), "未知"));
         vo.setSnapshotVersion(snapshot.getSnapshotVersion());
         vo.setStatus(snapshot.getStatus());
         vo.setQualityScore(snapshot.getQualityScore());

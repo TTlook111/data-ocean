@@ -112,6 +112,31 @@ public class MetadataGovernanceController {
     }
 
     /**
+     * 分页查询质量问题；未传快照时返回所有快照的问题。
+     *
+     * @param snapshotId 可选快照 ID
+     * @param dimension  可选质量维度
+     * @param severity   可选严重级别
+     * @param status     可选处理状态
+     * @param tableName  可选表名
+     * @param page       页码
+     * @param size       每页条数
+     * @return 质量问题分页列表
+     */
+    @GetMapping("/quality-issues")
+    public Result<Page<QualityIssueVO>> listAllIssues(
+            @RequestParam(required = false) Long snapshotId,
+            @RequestParam(required = false) String dimension,
+            @RequestParam(required = false) String severity,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String tableName,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return Result.success(qualityIssueService.listIssues(snapshotId, dimension, severity, status, tableName,
+                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+    }
+
+    /**
      * 处理单个质量问题状态。
      *
      * @param issueId 质量问题 ID

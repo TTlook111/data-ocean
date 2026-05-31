@@ -3,6 +3,8 @@ import type { ApiResult, PageResult } from './user'
 
 export interface VersionHistoryItem {
   snapshotId: number
+  datasourceId?: number
+  datasourceName?: string
   snapshotVersion: number
   status: string
   qualityScore?: number
@@ -30,10 +32,9 @@ export interface StatusChangePayload {
   reason?: string
 }
 
-export async function listVersionHistory(datasourceId: number, params: { page?: number; size?: number }) {
-  const { data } = await http.get<ApiResult<PageResult<VersionHistoryItem>>>(
-    `/api/admin/datasources/${datasourceId}/version-history`, { params }
-  )
+export async function listVersionHistory(datasourceId: number | undefined, params: { page?: number; size?: number }) {
+  const url = datasourceId ? `/api/admin/datasources/${datasourceId}/version-history` : '/api/admin/version-history'
+  const { data } = await http.get<ApiResult<PageResult<VersionHistoryItem>>>(url, { params })
   return data
 }
 

@@ -1,8 +1,9 @@
 package com.dataocean.module.prompt.service.impl;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.audit.entity.QueryAuditLog;
 import com.dataocean.module.audit.mapper.QueryAuditLogMapper;
-import com.dataocean.module.prompt.entity.dto.PromptEffectivenessVO;
+import com.dataocean.module.prompt.entity.vo.PromptEffectivenessVO;
 import com.dataocean.module.prompt.mapper.PromptTemplateMapper;
 import com.dataocean.module.prompt.mapper.PromptTemplateVersionMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,7 +31,7 @@ class PromptTemplateServiceImplTest {
                 new ObjectMapper()
         );
 
-        when(auditLogMapper.selectList(any())).thenReturn(List.of(
+        Page<QueryAuditLog> auditPage = new Page<QueryAuditLog>().setRecords(List.of(
                 auditLog(
                         true,
                         1000,
@@ -40,6 +41,7 @@ class PromptTemplateServiceImplTest {
                 auditLog(false, 3000, "DISLIKE", "[{\"templateCode\":\"sql_generation\",\"versionNo\":2}]"),
                 auditLog(true, 500, null, "[{\"templateCode\":\"sql_generation\",\"versionNo\":3}]")
         ));
+        when(auditLogMapper.selectPage(any(Page.class), any())).thenReturn(auditPage);
 
         List<PromptEffectivenessVO> rows = service.getEffectiveness(30);
 

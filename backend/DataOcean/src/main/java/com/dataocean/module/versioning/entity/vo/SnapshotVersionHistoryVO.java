@@ -12,6 +12,8 @@ import java.time.LocalDateTime;
 public class SnapshotVersionHistoryVO {
 
     private Long snapshotId;
+    private Long datasourceId;
+    private String datasourceName;
     private Integer snapshotVersion;
     private String status;
     private BigDecimal qualityScore;

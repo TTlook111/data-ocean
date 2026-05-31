@@ -30,7 +30,6 @@ async function fetchDatasources() {
 }
 
 async function fetchHistory() {
-  if (!selectedDatasourceId.value) return
   loading.value = true
   try {
     const res = await listVersionHistory(selectedDatasourceId.value, query)
@@ -67,6 +66,7 @@ function onDatasourceChange() {
 
 onMounted(() => {
   fetchDatasources()
+  fetchHistory()
 })
 </script>
 
@@ -81,7 +81,7 @@ onMounted(() => {
     </header>
 
     <section class="toolbar">
-      <el-select v-model="selectedDatasourceId" placeholder="选择数据源" clearable
+      <el-select v-model="selectedDatasourceId" placeholder="全部数据源" clearable
                  @change="onDatasourceChange" style="width: 280px">
         <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
       </el-select>
@@ -101,14 +101,13 @@ onMounted(() => {
     </section>
 
     <section class="timeline-section" v-loading="loading">
-      <el-empty v-if="!selectedDatasourceId" description="请选择数据源" />
-      <el-empty v-else-if="!loading && history.length === 0" description="暂无版本记录" />
+      <el-empty v-if="!loading && history.length === 0" description="暂无版本记录" />
       <div v-else class="timeline">
         <div v-for="item in history" :key="item.snapshotId" class="timeline-item">
           <div class="timeline-dot" :class="'dot-' + item.status.toLowerCase().replace('_','-')"></div>
           <div class="timeline-content">
             <div class="timeline-header">
-              <strong>版本 {{ item.snapshotVersion }}</strong>
+              <strong>{{ item.datasourceName || '未知数据源' }} / 版本 {{ item.snapshotVersion }}</strong>
               <el-tag :type="snapshotStatusType(item.status)" size="small">
                 {{ snapshotStatusLabel(item.status) }}
               </el-tag>

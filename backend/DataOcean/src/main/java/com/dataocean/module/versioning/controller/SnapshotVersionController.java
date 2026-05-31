@@ -1,6 +1,7 @@
 package com.dataocean.module.versioning.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.pagination.PageRequest;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
@@ -98,7 +99,25 @@ public class SnapshotVersionController {
             @PathVariable Long datasourceId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return Result.success(lifecycleService.listVersionHistory(datasourceId, page, size));
+        return Result.success(lifecycleService.listVersionHistory(datasourceId,
+                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+    }
+
+    /**
+     * 查询快照版本历史；未传数据源时返回所有数据源的版本历史。
+     *
+     * @param datasourceId 可选数据源 ID
+     * @param page         页码
+     * @param size         每页条数
+     * @return 快照版本历史分页列表
+     */
+    @GetMapping("/version-history")
+    public Result<Page<SnapshotVersionHistoryVO>> allVersionHistory(
+            @RequestParam(required = false) Long datasourceId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        return Result.success(lifecycleService.listVersionHistory(datasourceId,
+                (int) PageRequest.page(page), (int) PageRequest.size(size)));
     }
 
     /**
@@ -115,6 +134,7 @@ public class SnapshotVersionController {
         }
         SnapshotVersionHistoryVO vo = new SnapshotVersionHistoryVO();
         vo.setSnapshotId(snapshot.getId());
+        vo.setDatasourceId(snapshot.getDatasourceId());
         vo.setSnapshotVersion(snapshot.getSnapshotVersion());
         vo.setStatus(snapshot.getStatus());
         vo.setQualityScore(snapshot.getQualityScore());

@@ -3,6 +3,8 @@ package com.dataocean.module.governance.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.datasource.entity.Datasource;
+import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.governance.entity.MetadataQualityIssue;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
@@ -36,6 +38,7 @@ public class QualityIssueServiceImpl implements QualityIssueService {
 
     private final MetadataQualityIssueMapper issueMapper;
     private final UserMapper userMapper;
+    private final DatasourceMapper datasourceMapper;
 
     // 合法的状态流转
     private static final Set<String> VALID_FROM_OPEN = Set.of(
@@ -51,7 +54,7 @@ public class QualityIssueServiceImpl implements QualityIssueService {
     public Page<QualityIssueVO> listIssues(Long snapshotId, String dimension, String severity,
                                            String status, String tableName, int page, int size) {
         LambdaQueryWrapper<MetadataQualityIssue> qw = new LambdaQueryWrapper<MetadataQualityIssue>()
-                .eq(MetadataQualityIssue::getSnapshotId, snapshotId)
+                .eq(snapshotId != null, MetadataQualityIssue::getSnapshotId, snapshotId)
                 .eq(StringUtils.hasText(dimension), MetadataQualityIssue::getDimension, dimension)
                 .eq(StringUtils.hasText(severity), MetadataQualityIssue::getSeverity, severity)
                 .eq(StringUtils.hasText(status), MetadataQualityIssue::getStatus, status)
@@ -73,8 +76,20 @@ public class QualityIssueServiceImpl implements QualityIssueService {
             }
         }
 
+        Set<Long> datasourceIds = issuePage.getRecords().stream()
+                .map(MetadataQualityIssue::getDatasourceId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> datasourceNameMap = new HashMap<>();
+        if (!datasourceIds.isEmpty()) {
+            List<Datasource> datasources = datasourceMapper.selectByIds(datasourceIds);
+            for (Datasource datasource : datasources) {
+                datasourceNameMap.put(datasource.getId(), datasource.getName());
+            }
+        }
+
         Page<QualityIssueVO> voPage = new Page<>(issuePage.getCurrent(), issuePage.getSize(), issuePage.getTotal());
-        voPage.setRecords(issuePage.getRecords().stream().map(issue -> toVO(issue, nameMap)).toList());
+        voPage.setRecords(issuePage.getRecords().stream().map(issue -> toVO(issue, nameMap, datasourceNameMap)).toList());
         return voPage;
     }
 
@@ -148,9 +163,14 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         }
     }
 
-    private QualityIssueVO toVO(MetadataQualityIssue issue, Map<Long, String> nameMap) {
+    private QualityIssueVO toVO(MetadataQualityIssue issue, Map<Long, String> nameMap, Map<Long, String> datasourceNameMap) {
         QualityIssueVO vo = new QualityIssueVO();
         vo.setId(issue.getId());
+        vo.setSnapshotId(issue.getSnapshotId());
+        vo.setDatasourceId(issue.getDatasourceId());
+        if (issue.getDatasourceId() != null) {
+            vo.setDatasourceName(datasourceNameMap.getOrDefault(issue.getDatasourceId(), null));
+        }
         vo.setDimension(issue.getDimension());
         vo.setSeverity(issue.getSeverity());
         vo.setTableName(issue.getTableName());
