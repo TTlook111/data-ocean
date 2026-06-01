@@ -27,4 +27,19 @@ public interface PythonKnowledgeClient {
                                        List<Map<String, Object>> tablesMetadata,
                                        List<Map<String, Object>> foreignKeys,
                                        List<Map<String, Object>> indexes);
+
+    /**
+     * 调用 Python 服务分析业务域并批量生成 skills.md
+     *
+     * @param snapshotId     元数据快照 ID
+     * @param datasourceId   数据源 ID
+     * @param tablesMetadata 表元数据列表
+     * @param foreignKeys    外键关系列表
+     * @param indexes        索引信息列表
+     * @return 批量生成结果 Map，包含 docs 列表和 total_domains
+     */
+    Map<String, Object> analyzeAndGenerate(Long snapshotId, Long datasourceId,
+                                            List<Map<String, Object>> tablesMetadata,
+                                            List<Map<String, Object>> foreignKeys,
+                                            List<Map<String, Object>> indexes);
 }

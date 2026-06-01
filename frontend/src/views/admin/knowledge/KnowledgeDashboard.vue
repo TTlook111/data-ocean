@@ -2,13 +2,15 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { FileText, Plus, RefreshCw, Eye, Pencil } from 'lucide-vue-next'
+import { FileText, Plus, RefreshCw, Eye, Pencil, Sparkles } from 'lucide-vue-next'
 import {
   listKnowledgeDocs,
+  generateFromSnapshot,
   type KnowledgeDocItem,
   type KnowledgeDocQuery
 } from '../../../api/admin/knowledge'
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { knowledgeStatusLabel, knowledgeStatusType } from '../../../utils/enumLabels'
 
 const router = useRouter()
@@ -35,6 +37,13 @@ const statusOptions = [
 
 // 各状态的全量计数（独立于当前分页，避免用单页数据推断全局）
 const stats = ref({ total: 0, published: 0, pending: 0, draft: 0 })
+
+// AI 一键生成对话框状态
+const generateDialogVisible = ref(false)
+const generateLoading = ref(false)
+const generateForm = reactive({ datasourceId: undefined as number | undefined, snapshotId: undefined as number | undefined })
+const snapshots = ref<SnapshotItem[]>([])
+const generatedDocs = ref<Array<{ id: number; title: string; tableNames: string[] }>>([])
 
 function extractError(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'response' in error) {
@@ -87,6 +96,60 @@ async function fetchDatasources() {
   } catch { /* ignore */ }
 }
 
+// 加载快照列表（按数据源筛选）
+async function fetchSnapshots(datasourceId: number) {
+  try {
+    const res = await listSnapshots({ datasourceId, page: 1, pageSize: 100 })
+    snapshots.value = res.data?.records ?? []
+  } catch { snapshots.value = [] }
+}
+
+// 打开 AI 一键生成对话框
+function openGenerateDialog() {
+  generateForm.datasourceId = undefined
+  generateForm.snapshotId = undefined
+  snapshots.value = []
+  generatedDocs.value = []
+  generateDialogVisible.value = true
+}
+
+// 数据源变更时加载快照
+function onDatasourceChange(dsId: number | undefined) {
+  generateForm.snapshotId = undefined
+  if (dsId) {
+    fetchSnapshots(dsId)
+  } else {
+    snapshots.value = []
+  }
+}
+
+// 执行 AI 一键生成
+async function handleGenerate() {
+  if (!generateForm.datasourceId || !generateForm.snapshotId) {
+    ElMessage.warning('请选择数据源和快照')
+    return
+  }
+  generateLoading.value = true
+  try {
+    const res = await generateFromSnapshot(generateForm.datasourceId, generateForm.snapshotId)
+    generatedDocs.value = res.data ?? []
+    ElMessage.success(`AI 已生成 ${generatedDocs.value.length} 份 skills.md 文档`)
+    // 刷新列表和统计
+    fetchDocs()
+    fetchStats()
+  } catch (e) {
+    ElMessage.error(extractError(e, 'AI 生成失败'))
+  } finally {
+    generateLoading.value = false
+  }
+}
+
+// 跳转到文档编辑页
+function goEditDoc(id: number) {
+  generateDialogVisible.value = false
+  router.push({ name: 'admin-knowledge-editor', params: { id } })
+}
+
 function goCreate() {
   router.push({ name: 'admin-knowledge-editor' })
 }
@@ -114,9 +177,14 @@ onMounted(() => {
         <h1>知识库总览</h1>
         <span class="header-subtitle">管理 skills.md 文档的生命周期</span>
       </div>
-      <el-button type="primary" @click="goCreate">
-        <Plus :size="16" style="margin-right: 6px" />新建文档
-      </el-button>
+      <div class="header-actions">
+        <el-button @click="goCreate">
+          <Plus :size="16" style="margin-right: 6px" />手动新建
+        </el-button>
+        <el-button type="primary" @click="openGenerateDialog">
+          <Sparkles :size="16" style="margin-right: 6px" />AI 一键生成
+        </el-button>
+      </div>
     </header>
 
     <section class="stat-cards">
@@ -155,9 +223,9 @@ onMounted(() => {
           <div class="do-empty-state knowledge-empty">
             <span class="do-empty-icon"><FileText :size="22" /></span>
             <h3>还没有知识文档</h3>
-            <p>可以先新建一份文档，或从已治理的元数据快照沉淀 skills.md 内容。</p>
-            <el-button type="primary" @click="goCreate">
-              <Plus :size="15" style="margin-right: 6px" />新建文档
+            <p>点击「AI 一键生成」让 AI 自动分析业务域并生成 skills.md 文档。</p>
+            <el-button type="primary" @click="openGenerateDialog">
+              <Sparkles :size="15" style="margin-right: 6px" />AI 一键生成
             </el-button>
           </div>
         </template>
@@ -197,6 +265,57 @@ onMounted(() => {
     <el-pagination class="pager" background layout="total, prev, pager, next"
                    :total="total" :page-size="query.pageSize"
                    v-model:current-page="query.page" @current-change="fetchDocs" />
+
+    <!-- AI 一键生成对话框 -->
+    <el-dialog v-model="generateDialogVisible" title="AI 一键生成 skills.md" width="560px" :close-on-click-modal="!generateLoading">
+      <!-- 未生成时：选择数据源和快照 -->
+      <div v-if="generatedDocs.length === 0" class="generate-form">
+        <p class="generate-hint">AI 将自动分析表结构，识别业务域，为每个域生成一份独立的 skills.md 文档。</p>
+        <el-form label-width="80px">
+          <el-form-item label="数据源">
+            <el-select v-model="generateForm.datasourceId" placeholder="选择数据源" style="width: 100%"
+                       @change="onDatasourceChange">
+              <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="快照">
+            <el-select v-model="generateForm.snapshotId" placeholder="选择元数据快照" style="width: 100%"
+                       :disabled="!generateForm.datasourceId">
+              <el-option v-for="s in snapshots" :key="s.id"
+                         :label="`v${s.version} — ${s.createdAt}`" :value="s.id" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 生成完成：显示结果 -->
+      <div v-else class="generate-result">
+        <el-alert type="success" :closable="false" show-icon
+                  :title="`AI 识别出 ${generatedDocs.length} 个业务域，已生成 ${generatedDocs.length} 份 skills.md 文档`" />
+        <div class="generated-doc-list">
+          <div v-for="doc in generatedDocs" :key="doc.id" class="generated-doc-item" @click="goEditDoc(doc.id)">
+            <FileText :size="16" style="color: var(--do-primary)" />
+            <div class="generated-doc-info">
+              <strong>{{ doc.title }}</strong>
+              <small>覆盖 {{ doc.tableNames?.length ?? 0 }} 张表</small>
+            </div>
+            <Pencil :size="14" style="color: var(--do-muted)" />
+          </div>
+        </div>
+        <p class="generate-footer">点击文档可跳转到编辑页进行审核修改</p>
+      </div>
+
+      <template #footer>
+        <el-button @click="generateDialogVisible = false">
+          {{ generatedDocs.length > 0 ? '关闭' : '取消' }}
+        </el-button>
+        <el-button v-if="generatedDocs.length === 0" type="primary" :loading="generateLoading"
+                   @click="handleGenerate">
+          <Sparkles :size="16" style="margin-right: 6px" />
+          {{ generateLoading ? 'AI 分析中...' : '开始生成' }}
+        </el-button>
+      </template>
+    </el-dialog>
   </main>
 </template>
 
@@ -206,6 +325,7 @@ onMounted(() => {
 .page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
 .page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
 .header-subtitle { font-size: 13px; color: var(--do-muted); }
+.header-actions { display: flex; gap: 8px; }
 .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .stat-card {
   border: 1px solid var(--do-line);
@@ -239,4 +359,25 @@ onMounted(() => {
   min-height: 260px;
 }
 .pager { margin-top: 16px; justify-content: flex-end; }
+
+/* AI 一键生成对话框 */
+.generate-form { padding: 8px 0; }
+.generate-hint { font-size: 13px; color: var(--do-muted); margin-bottom: 16px; }
+.generate-result { padding: 8px 0; }
+.generated-doc-list { margin-top: 16px; display: grid; gap: 8px; }
+.generated-doc-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+.generated-doc-item:hover { border-color: var(--do-primary); }
+.generated-doc-info { flex: 1; min-width: 0; }
+.generated-doc-info strong { display: block; font-size: 14px; color: var(--do-ink); }
+.generated-doc-info small { font-size: 12px; color: var(--do-muted); }
+.generate-footer { font-size: 12px; color: var(--do-muted); margin-top: 12px; text-align: center; }
 </style>

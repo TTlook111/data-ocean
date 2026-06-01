@@ -53,6 +53,9 @@ public class KnowledgeDoc {
     /** 最后更新人用户ID */
     private Long updatedBy;
 
+    /** 该文档覆盖的表名列表（JSON 数组） */
+    private String tableNames;
+
     /** 乐观锁版本号 */
     @Version
     private Integer version;

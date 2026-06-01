@@ -122,4 +122,17 @@ public interface KnowledgeDocService {
      * @return 切片预览列表，每个元素包含 chunk_text 和 chunk_type
      */
     List<Map<String, String>> previewChunks(Long docId);
+
+    /**
+     * AI 自动分析业务域并批量生成 skills.md 文档。
+     * <p>
+     * 用户选择一个元数据快照，AI 分析表结构识别业务域，
+     * 每个域自动创建一份独立的 skills.md 文档（DRAFT 状态）。
+     * </p>
+     *
+     * @param datasourceId 数据源 ID
+     * @param snapshotId   元数据快照 ID
+     * @return 创建的文档列表（包含 id、title、tableNames）
+     */
+    List<Map<String, Object>> batchGenerateFromSnapshot(Long datasourceId, Long snapshotId);
 }

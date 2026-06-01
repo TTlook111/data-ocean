@@ -93,3 +93,13 @@ export async function rollbackVersion(docId: number, targetVersionNo: number) {
   const { data } = await http.post<ApiResult<{ newVersionNo: number }>>(`/api/admin/knowledge-docs/${docId}/rollback`, { targetVersionNo })
   return data
 }
+
+/** AI 一键生成：自动分析业务域，批量创建文档 */
+export async function generateFromSnapshot(datasourceId: number, snapshotId: number) {
+  const { data } = await http.post<ApiResult<Array<{ id: number; title: string; tableNames: string[] }>>>(
+    '/api/admin/knowledge-docs/generate-from-snapshot',
+    { snapshotId },
+    { params: { datasourceId } },
+  )
+  return data
+}

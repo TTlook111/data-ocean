@@ -156,7 +156,7 @@ public class KnowledgeDocController {
     // === AI 草稿生成 ===
 
     /**
-     * 生成 AI 草稿
+     * 生成 AI 草稿（单文档模式）
      *
      * @param id      文档 ID
      * @param request 草稿生成请求参数
@@ -167,6 +167,26 @@ public class KnowledgeDocController {
         log.debug("收到生成草稿请求 docId={} snapshotId={}", id, request.getSnapshotId());
         String content = knowledgeDocService.generateDraft(id, request.getSnapshotId());
         return Result.success("草稿生成成功", Map.of("content", content));
+    }
+
+    /**
+     * AI 一键生成（自动分析业务域，批量创建文档）
+     * <p>
+     * 用户选择一个元数据快照，AI 分析表结构识别业务域，
+     * 每个域自动创建一份独立的 skills.md 文档（DRAFT 状态）。
+     * </p>
+     *
+     * @param datasourceId 数据源 ID
+     * @param request      批量生成请求参数（包含 snapshotId）
+     * @return 创建的文档列表
+     */
+    @PostMapping("/generate-from-snapshot")
+    public Result<List<Map<String, Object>>> generateFromSnapshot(
+            @RequestParam Long datasourceId,
+            @Valid @RequestBody BatchGenerateDTO request) {
+        log.info("收到 AI 一键生成请求 datasourceId={} snapshotId={}", datasourceId, request.getSnapshotId());
+        List<Map<String, Object>> docs = knowledgeDocService.batchGenerateFromSnapshot(datasourceId, request.getSnapshotId());
+        return Result.success("AI 生成成功", docs);
     }
 
     // === 版本管理 ===

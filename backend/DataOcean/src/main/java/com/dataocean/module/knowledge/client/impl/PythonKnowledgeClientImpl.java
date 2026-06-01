@@ -96,4 +96,44 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
             throw new BusinessException("AI 草稿生成失败");
         }
     }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public Map<String, Object> analyzeAndGenerate(Long snapshotId, Long datasourceId,
+                                                    List<Map<String, Object>> tablesMetadata,
+                                                    List<Map<String, Object>> foreignKeys,
+                                                    List<Map<String, Object>> indexes) {
+        // 构建请求体（与 generateDraft 相同）
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("snapshot_id", snapshotId);
+        requestBody.put("datasource_id", datasourceId);
+        requestBody.put("tables_metadata", tablesMetadata);
+        requestBody.put("foreign_keys", foreignKeys);
+        requestBody.put("indexes", indexes);
+
+        try {
+            log.info("调用 Python 服务域分析+批量生成 snapshotId={} datasourceId={}", snapshotId, datasourceId);
+
+            Map<String, Object> response = restClient.post()
+                    .uri("/internal/knowledge/analyze-and-generate")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, resp) -> {
+                        log.error("Python 域分析接口返回异常 snapshotId={} status={}", snapshotId, resp.getStatusCode());
+                        throw new BusinessException("AI 域分析+批量生成失败");
+                    })
+                    .body(new ParameterizedTypeReference<>() {});
+
+            log.info("Python 服务域分析+批量生成成功 snapshotId={}", snapshotId);
+            return response;
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("调用 Python 服务域分析失败 snapshotId={} reason={}", snapshotId, e.getMessage(), e);
+            throw new BusinessException("AI 域分析+批量生成失败");
+        }
+    }
 }

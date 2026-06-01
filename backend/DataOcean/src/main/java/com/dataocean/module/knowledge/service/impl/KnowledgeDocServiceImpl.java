@@ -320,58 +320,9 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         log.info("生成 AI 草稿 docId={} snapshotId={}", docId, snapshotId);
         KnowledgeDoc doc = requireDoc(docId);
 
-        // 读取该数据源下的表元数据
-        List<DbTableMeta> tables = dbTableMetaMapper.selectList(
-                new LambdaQueryWrapper<DbTableMeta>()
-                        .eq(DbTableMeta::getDatasourceId, doc.getDatasourceId()));
-
-        // 一次性查询该数据源下所有字段，按 tableMetaId 分组（避免 N+1 查询）
-        List<Long> tableIds = tables.stream().map(DbTableMeta::getId).toList();
-        Map<Long, List<DbColumnMeta>> columnsByTable = Map.of();
-        if (!tableIds.isEmpty()) {
-            List<DbColumnMeta> allColumns = dbColumnMetaMapper.selectList(
-                    new LambdaQueryWrapper<DbColumnMeta>()
-                            .in(DbColumnMeta::getTableMetaId, tableIds));
-            columnsByTable = allColumns.stream()
-                    .collect(java.util.stream.Collectors.groupingBy(DbColumnMeta::getTableMetaId));
-        }
-
-        // 组装表元数据列表（含字段信息）
-        List<Map<String, Object>> tablesMetadata = new ArrayList<>();
-        for (DbTableMeta table : tables) {
-            Map<String, Object> tableMap = new HashMap<>();
-            tableMap.put("table_name", table.getTableName());
-            tableMap.put("table_comment", table.getTableComment());
-
-            // 从预加载的分组中获取字段列表
-            List<DbColumnMeta> columns = columnsByTable.getOrDefault(table.getId(), List.of());
-            List<Map<String, Object>> columnList = new ArrayList<>();
-            for (DbColumnMeta col : columns) {
-                Map<String, Object> colMap = new HashMap<>();
-                colMap.put("column_name", col.getColumnName());
-                colMap.put("column_type", col.getDataType());
-                colMap.put("column_comment", col.getColumnComment());
-                colMap.put("is_primary_key", col.getIsPrimaryKey() != null && col.getIsPrimaryKey() == 1);
-                colMap.put("confidence_score", col.getConfidenceScore());
-                columnList.add(colMap);
-            }
-            tableMap.put("columns", columnList);
-            tablesMetadata.add(tableMap);
-        }
-
-        // 查询外键关系
-        List<TableRelation> relations = tableRelationMapper.selectList(
-                new LambdaQueryWrapper<TableRelation>()
-                        .eq(TableRelation::getDatasourceId, doc.getDatasourceId()));
-        List<Map<String, Object>> foreignKeys = new ArrayList<>();
-        for (TableRelation rel : relations) {
-            Map<String, Object> fk = new HashMap<>();
-            fk.put("source_table", rel.getSourceTable());
-            fk.put("source_column", rel.getSourceColumn());
-            fk.put("target_table", rel.getTargetTable());
-            fk.put("target_column", rel.getTargetColumn());
-            foreignKeys.add(fk);
-        }
+        // 加载元数据（复用公共方法）
+        List<Map<String, Object>> tablesMetadata = loadTablesMetadata(doc.getDatasourceId());
+        List<Map<String, Object>> foreignKeys = loadForeignKeys(doc.getDatasourceId());
 
         // 调用 Python AI 服务生成草稿
         String draftContent;
@@ -417,6 +368,156 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     }
 
     /**
+     * {@inheritDoc}
+     * <p>
+     * 实现逻辑：
+     * 1. 加载数据源的元数据（表、字段、外键）
+     * 2. 调用 Python 服务分析业务域并批量生成 skills.md
+     * 3. 对每份文档自动创建 KnowledgeDoc + 初始版本
+     * </p>
+     */
+    @Transactional
+    @Override
+    public List<Map<String, Object>> batchGenerateFromSnapshot(Long datasourceId, Long snapshotId) {
+        log.info("AI 批量生成 skills.md datasourceId={} snapshotId={}", datasourceId, snapshotId);
+
+        // 加载元数据
+        List<Map<String, Object>> tablesMetadata = loadTablesMetadata(datasourceId);
+        List<Map<String, Object>> foreignKeys = loadForeignKeys(datasourceId);
+
+        // 调用 Python 服务
+        Map<String, Object> result;
+        try {
+            result = pythonKnowledgeClient.analyzeAndGenerate(
+                    snapshotId, datasourceId, tablesMetadata, foreignKeys, List.of());
+        } catch (Exception e) {
+            log.error("AI 域分析+批量生成失败 datasourceId={} snapshotId={}", datasourceId, snapshotId, e);
+            throw new BusinessException("AI 批量生成失败：" + e.getMessage());
+        }
+
+        // 解析返回的文档列表
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> docs = (List<Map<String, Object>>) result.get("docs");
+        if (docs == null || docs.isEmpty()) {
+            throw new BusinessException("AI 批量生成失败：未返回任何文档");
+        }
+
+        // 逐个创建文档
+        List<Map<String, Object>> createdDocs = new ArrayList<>();
+        for (Map<String, Object> docData : docs) {
+            String title = (String) docData.get("title");
+            String content = (String) docData.get("content");
+            @SuppressWarnings("unchecked")
+            List<String> tableNames = (List<String>) docData.get("table_names");
+
+            if (!StringUtils.hasText(content)) {
+                log.warn("跳过空内容文档 title={}", title);
+                continue;
+            }
+
+            // 创建文档
+            KnowledgeDoc doc = KnowledgeDoc.builder()
+                    .datasourceId(datasourceId)
+                    .title(title)
+                    .content(content)
+                    .currentVersion(1)
+                    .status(DocStatus.DRAFT.name())
+                    .tableNames(tableNames != null ? toJsonArray(tableNames) : null)
+                    .updatedBy(UserContext.currentUserId())
+                    .deleted(0)
+                    .build();
+            knowledgeDocMapper.insert(doc);
+
+            // 创建初始版本
+            KnowledgeDocVersion version = KnowledgeDocVersion.builder()
+                    .docId(doc.getId())
+                    .datasourceId(datasourceId)
+                    .metadataSnapshotId(snapshotId)
+                    .dependencySnapshot(dependencySnapshotBuilder.build(
+                            datasourceId, snapshotId, GenerationSource.AI_GENERATED.name()))
+                    .versionNo(1)
+                    .content(content)
+                    .generationSource(GenerationSource.AI_GENERATED.name())
+                    .changeSummary("AI 自动分析业务域并生成")
+                    .createdBy(UserContext.currentUserId())
+                    .build();
+            knowledgeDocVersionMapper.insert(version);
+
+            // 返回结果
+            Map<String, Object> created = new HashMap<>();
+            created.put("id", doc.getId());
+            created.put("title", title);
+            created.put("tableNames", tableNames);
+            createdDocs.add(created);
+
+            log.info("AI 批量生成文档成功 docId={} title={}", doc.getId(), title);
+        }
+
+        log.info("AI 批量生成完成，共创建 {} 份文档", createdDocs.size());
+        return createdDocs;
+    }
+
+    /**
+     * 加载数据源的表元数据列表（含字段信息）。
+     */
+    private List<Map<String, Object>> loadTablesMetadata(Long datasourceId) {
+        List<DbTableMeta> tables = dbTableMetaMapper.selectList(
+                new LambdaQueryWrapper<DbTableMeta>()
+                        .eq(DbTableMeta::getDatasourceId, datasourceId));
+
+        List<Long> tableIds = tables.stream().map(DbTableMeta::getId).toList();
+        Map<Long, List<DbColumnMeta>> columnsByTable = Map.of();
+        if (!tableIds.isEmpty()) {
+            List<DbColumnMeta> allColumns = dbColumnMetaMapper.selectList(
+                    new LambdaQueryWrapper<DbColumnMeta>()
+                            .in(DbColumnMeta::getTableMetaId, tableIds));
+            columnsByTable = allColumns.stream()
+                    .collect(java.util.stream.Collectors.groupingBy(DbColumnMeta::getTableMetaId));
+        }
+
+        List<Map<String, Object>> tablesMetadata = new ArrayList<>();
+        for (DbTableMeta table : tables) {
+            Map<String, Object> tableMap = new HashMap<>();
+            tableMap.put("table_name", table.getTableName());
+            tableMap.put("table_comment", table.getTableComment());
+
+            List<DbColumnMeta> columns = columnsByTable.getOrDefault(table.getId(), List.of());
+            List<Map<String, Object>> columnList = new ArrayList<>();
+            for (DbColumnMeta col : columns) {
+                Map<String, Object> colMap = new HashMap<>();
+                colMap.put("column_name", col.getColumnName());
+                colMap.put("column_type", col.getDataType());
+                colMap.put("column_comment", col.getColumnComment());
+                colMap.put("is_primary_key", col.getIsPrimaryKey() != null && col.getIsPrimaryKey() == 1);
+                colMap.put("confidence_score", col.getConfidenceScore());
+                columnList.add(colMap);
+            }
+            tableMap.put("columns", columnList);
+            tablesMetadata.add(tableMap);
+        }
+        return tablesMetadata;
+    }
+
+    /**
+     * 加载数据源的外键关系列表。
+     */
+    private List<Map<String, Object>> loadForeignKeys(Long datasourceId) {
+        List<TableRelation> relations = tableRelationMapper.selectList(
+                new LambdaQueryWrapper<TableRelation>()
+                        .eq(TableRelation::getDatasourceId, datasourceId));
+        List<Map<String, Object>> foreignKeys = new ArrayList<>();
+        for (TableRelation rel : relations) {
+            Map<String, Object> fk = new HashMap<>();
+            fk.put("source_table", rel.getSourceTable());
+            fk.put("source_column", rel.getSourceColumn());
+            fk.put("target_table", rel.getTargetTable());
+            fk.put("target_column", rel.getTargetColumn());
+            foreignKeys.add(fk);
+        }
+        return foreignKeys;
+    }
+
+    /**
      * 从 AI 生成结果中安全提取 warnings 列表。
      */
     private List<?> resultWarnings(Map<String, Object> result) {
@@ -425,6 +526,17 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
             return list;
         }
         return List.of();
+    }
+
+    /**
+     * 将字符串列表转换为 JSON 数组格式字符串。
+     * 例如：["orders", "payments"]
+     */
+    private String toJsonArray(List<String> items) {
+        return "[" + items.stream()
+                .map(s -> "\"" + s.replace("\"", "\\\"") + "\"")
+                .collect(java.util.stream.Collectors.joining(","))
+                + "]";
     }
 
     /**

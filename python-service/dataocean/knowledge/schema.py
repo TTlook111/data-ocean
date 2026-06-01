@@ -37,3 +37,30 @@ class GenerateDraftResponse(BaseModel):
     content: str
     generation_source: str = "AI_GENERATED"
     warnings: list[str] = []
+
+
+# ---- 域分析 + 批量生成 ----
+
+
+class DomainGroup(BaseModel):
+    """AI 识别出的业务域"""
+
+    domain_name: str
+    table_names: list[str]
+    reason: str
+
+
+class DomainDoc(BaseModel):
+    """单个域生成的 skills.md 文档"""
+
+    title: str
+    content: str
+    table_names: list[str]
+    warnings: list[str] = []
+
+
+class BatchGenerateResponse(BaseModel):
+    """批量生成响应"""
+
+    docs: list[DomainDoc]
+    total_domains: int
