@@ -18,6 +18,17 @@ import {
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
 
+/** 模板编码 → Agent 节点映射（前端硬编码，与 Python 端保持一致） */
+const NODE_LABEL_MAP: Record<string, { label: string; connected: boolean }> = {
+  sql_generation:     { label: 'SQL 生成节点',   connected: true },
+  chart_generation:   { label: '图表生成节点',   connected: true },
+  intent_recognition: { label: '意图识别节点',   connected: true },
+}
+
+function getNodeInfo(code: string) {
+  return NODE_LABEL_MAP[code] || { label: '', connected: false }
+}
+
 const loading = ref(false)
 const saving = ref(false)
 const versionLoading = ref(false)
@@ -219,9 +230,21 @@ onMounted(() => {
             type="button"
             @click="selectTemplate(item.templateCode)"
           >
-            <span>
+            <span class="template-item-main">
               <strong>{{ item.templateName }}</strong>
               <small>{{ item.templateCode }}</small>
+              <span class="template-item-tags">
+                <el-tag
+                  size="small"
+                  :type="getNodeInfo(item.templateCode).connected ? 'success' : 'warning'"
+                  effect="plain"
+                >
+                  {{ getNodeInfo(item.templateCode).connected ? '✅ 使用中' : '⚠️ 未接入' }}
+                </el-tag>
+                <el-tag v-if="getNodeInfo(item.templateCode).label" size="small" effect="plain" type="info">
+                  {{ getNodeInfo(item.templateCode).label }}
+                </el-tag>
+              </span>
             </span>
             <el-tag size="small" effect="plain">v{{ item.currentVersion }}</el-tag>
           </button>
@@ -233,7 +256,13 @@ onMounted(() => {
         <div v-if="selectedTemplate" class="template-meta">
           <div>
             <strong>{{ selectedTemplate.templateName }}</strong>
-            <span>{{ selectedTemplate.scenario }}</span>
+            <span class="template-meta-scenario">{{ selectedTemplate.scenario }}</span>
+            <span v-if="getNodeInfo(selectedTemplate.templateCode).connected" class="template-meta-hint template-meta-hint--active">
+              此模板已被「{{ getNodeInfo(selectedTemplate.templateCode).label }}」实时调用，修改后立即生效
+            </span>
+            <span v-else class="template-meta-hint template-meta-hint--inactive">
+              此模板尚未接入 Agent 流程，修改不会影响查询结果
+            </span>
           </div>
           <div class="template-tags">
             <el-tag size="small" :type="selectedTemplate.enabled ? 'success' : 'info'">
@@ -344,7 +373,13 @@ onMounted(() => {
             </el-table>
             <el-empty
               v-if="!activeEffectiveness.length && !analysisLoading"
-              description="暂无带 Prompt 版本的审计数据"
+              :description="
+                activeCode && getNodeInfo(activeCode).connected
+                  ? '暂无审计数据，请执行几次查询后再查看'
+                  : activeCode && !getNodeInfo(activeCode).connected
+                    ? '此模板尚未接入 Agent 流程，暂无效果数据'
+                    : '暂无带 Prompt 版本的审计数据'
+              "
             />
           </el-tab-pane>
         </el-tabs>
@@ -455,6 +490,20 @@ onMounted(() => {
   color: var(--do-muted);
 }
 
+.template-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.template-item-tags {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
 .workspace-panel {
   min-width: 0;
   padding: 16px;
@@ -489,6 +538,31 @@ onMounted(() => {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.template-meta-scenario {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--do-muted);
+}
+
+.template-meta-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.template-meta-hint--active {
+  color: #529b2e;
+  background: #f0f9eb;
+}
+
+.template-meta-hint--inactive {
+  color: #b98900;
+  background: #fdf6ec;
 }
 
 .metrics-row {

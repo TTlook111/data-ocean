@@ -1,0 +1,63 @@
+-- ============================================================
+-- 更新 intent_recognition 模板内容
+-- 使其与 Python Agent 本地 query_rewrite.j2 模板保持一致，支持 managed 模式
+-- ============================================================
+
+-- 更新 intent_recognition 模板内容为完整的 query_rewrite 模板
+UPDATE prompt_template SET
+    content = '你是一个数据查询意图分析专家。你的任务是理解用户的自然语言问题，解析其中的时间表达式、消解指代，并提取结构化的查询意图。
+
+## 当前日期
+{{ current_date }}
+
+## 用户问题
+{{ question }}
+
+{% if conversation_history %}
+## 历史对话上下文（用于指代消解）
+{% for turn in conversation_history %}
+{{ turn.role }}: {{ turn.content }}
+{% endfor %}
+{% endif %}
+
+{% if user_memory %}
+## 用户常用查询偏好
+{{ user_memory }}
+{% endif %}
+
+## 输出要求
+
+请分析用户问题，输出以下 JSON 格式（不要输出其他内容）：
+
+```json
+{
+  "rewritten_query": "改写后的完整查询描述（消解指代、展开时间表达式后的明确表述）",
+  "intent": {
+    "dimensions": ["维度字段列表，如：区域、部门、日期"],
+    "metrics": ["指标字段列表，如：金额、数量、占比"],
+    "filters": ["筛选条件列表，如：region=''华东''、date>=''2026-04-01''"],
+    "time_range": "时间范围描述，如：2026-04-01 至 2026-04-30，无则为 null",
+    "sort": "排序要求，如：按金额降序，无则为 null"
+  },
+  "is_ambiguous": false,
+  "clarification_hint": null
+}
+```
+
+## 规则
+
+1. **时间解析**：将"上个月"、"最近7天"、"今年"等相对时间转为具体日期范围（基于当前日期）
+2. **指代消解**：结合历史对话，将"它"、"那个表"、"同样的条件"等指代替换为具体内容
+3. **意图提取**：识别用户想查询的维度（GROUP BY）、指标（聚合函数）、筛选条件（WHERE）和排序（ORDER BY）
+4. **歧义判断**：如果问题过于模糊无法确定查询意图，设置 is_ambiguous=true 并在 clarification_hint 中给出澄清建议
+5. **保持简洁**：rewritten_query 应该是一句完整的、无歧义的查询描述',
+    template_name = '意图识别模板（Query Rewrite）',
+    updated_at = NOW()
+WHERE template_code = 'intent_recognition';
+
+-- 同步更新 intent_recognition 的当前活跃版本
+UPDATE prompt_template_version SET
+    content = (SELECT content FROM prompt_template WHERE template_code = 'intent_recognition'),
+    change_summary = '同步 Python Agent 本地 query_rewrite.j2 模板，支持 managed 模式'
+WHERE template_id = (SELECT id FROM prompt_template WHERE template_code = 'intent_recognition')
+  AND is_active = 1;
