@@ -28,6 +28,8 @@ import com.dataocean.module.metadata.entity.TableRelation;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -37,8 +39,10 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 知识文档管理业务实现类。
@@ -54,6 +58,9 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Slf4j
 public class KnowledgeDocServiceImpl implements KnowledgeDocService {
+
+    /** JSON 解析用的 ObjectMapper（线程安全，复用实例） */
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
     private final KnowledgeDocMapper knowledgeDocMapper;
     private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
@@ -467,52 +474,56 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         List<DbTableMeta> tables = dbTableMetaMapper.selectList(
                 new LambdaQueryWrapper<DbTableMeta>()
                         .eq(DbTableMeta::getDatasourceId, datasourceId));
+        if (tables == null || tables.isEmpty()) {
+            return new ArrayList<>();
+        }
 
+        // 查询所有字段
         List<Long> tableIds = tables.stream().map(DbTableMeta::getId).toList();
-        Map<Long, List<DbColumnMeta>> columnsByTable = Map.of();
+        Map<Long, List<DbColumnMeta>> columnsByTable = new HashMap<>();
+        Map<Long, List<String>> tagsByColumn = new HashMap<>();
+
         if (!tableIds.isEmpty()) {
             List<DbColumnMeta> allColumns = dbColumnMetaMapper.selectList(
                     new LambdaQueryWrapper<DbColumnMeta>()
                             .in(DbColumnMeta::getTableMetaId, tableIds));
-            columnsByTable = allColumns.stream()
-                    .collect(java.util.stream.Collectors.groupingBy(DbColumnMeta::getTableMetaId));
-
-            // 加载所有字段的标签信息
-            List<Long> columnIds = allColumns.stream().map(DbColumnMeta::getId).toList();
-            Map<Long, List<String>> tagsByColumn = loadFieldTags(columnIds);
-
-            // 组装结果
-            List<Map<String, Object>> tablesMetadata = new ArrayList<>();
-            for (DbTableMeta table : tables) {
-                Map<String, Object> tableMap = new HashMap<>();
-                tableMap.put("table_name", table.getTableName());
-                tableMap.put("table_comment", table.getTableComment());
-
-                List<DbColumnMeta> columns = columnsByTable.getOrDefault(table.getId(), List.of());
-                // 解析索引信息，提取有索引的字段名集合
-                java.util.Set<String> indexedColumns = parseIndexedColumns(table.getIndexesInfo());
-
-                List<Map<String, Object>> columnList = new ArrayList<>();
-                for (DbColumnMeta col : columns) {
-                    Map<String, Object> colMap = new HashMap<>();
-                    colMap.put("column_name", col.getColumnName());
-                    colMap.put("column_type", col.getDataType());
-                    colMap.put("column_comment", col.getColumnComment());
-                    colMap.put("is_primary_key", col.getIsPrimaryKey() != null && col.getIsPrimaryKey() == 1);
-                    colMap.put("confidence_score", col.getConfidenceScore());
-                    colMap.put("governance_status", col.getGovernanceStatus());
-                    colMap.put("tags", tagsByColumn.getOrDefault(col.getId(), List.of()));
-                    colMap.put("is_indexed", indexedColumns.contains(col.getColumnName()));
-                    columnList.add(colMap);
-                }
-                tableMap.put("columns", columnList);
-                tablesMetadata.add(tableMap);
+            if (allColumns != null && !allColumns.isEmpty()) {
+                columnsByTable = allColumns.stream()
+                        .collect(java.util.stream.Collectors.groupingBy(DbColumnMeta::getTableMetaId));
+                // 加载所有字段的标签信息
+                List<Long> columnIds = allColumns.stream().map(DbColumnMeta::getId).toList();
+                tagsByColumn = loadFieldTags(columnIds);
             }
-            return tablesMetadata;
         }
 
-        // 无表时返回空列表
-        return new ArrayList<>();
+        // 组装结果（无论是否有字段，表信息都要返回）
+        List<Map<String, Object>> tablesMetadata = new ArrayList<>();
+        for (DbTableMeta table : tables) {
+            Map<String, Object> tableMap = new HashMap<>();
+            tableMap.put("table_name", table.getTableName());
+            tableMap.put("table_comment", table.getTableComment());
+
+            List<DbColumnMeta> columns = columnsByTable.getOrDefault(table.getId(), List.of());
+            // 解析索引信息，提取有索引的字段名集合
+            Set<String> indexedColumns = parseIndexedColumns(table.getIndexesInfo());
+
+            List<Map<String, Object>> columnList = new ArrayList<>();
+            for (DbColumnMeta col : columns) {
+                Map<String, Object> colMap = new HashMap<>();
+                colMap.put("column_name", col.getColumnName());
+                colMap.put("column_type", col.getDataType());
+                colMap.put("column_comment", col.getColumnComment());
+                colMap.put("is_primary_key", col.getIsPrimaryKey() != null && col.getIsPrimaryKey() == 1);
+                colMap.put("confidence_score", col.getConfidenceScore());
+                colMap.put("governance_status", col.getGovernanceStatus());
+                colMap.put("tags", tagsByColumn.getOrDefault(col.getId(), List.of()));
+                colMap.put("is_indexed", indexedColumns.contains(col.getColumnName()));
+                columnList.add(colMap);
+            }
+            tableMap.put("columns", columnList);
+            tablesMetadata.add(tableMap);
+        }
+        return tablesMetadata;
     }
 
     /**
@@ -520,12 +531,15 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
      */
     private Map<Long, List<String>> loadFieldTags(List<Long> columnIds) {
         if (columnIds == null || columnIds.isEmpty()) {
-            return Map.of();
+            return new HashMap<>();
         }
         List<FieldTag> tags = fieldTagMapper.selectList(
                 new LambdaQueryWrapper<FieldTag>()
                         .in(FieldTag::getColumnMetaId, columnIds));
         Map<Long, List<String>> result = new HashMap<>();
+        if (tags == null) {
+            return result;
+        }
         for (FieldTag tag : tags) {
             result.computeIfAbsent(tag.getColumnMetaId(), k -> new ArrayList<>())
                     .add(tag.getTagName());
@@ -539,16 +553,15 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
      * indexesInfo 格式示例：[{"indexName":"idx_user_name","columnName":"user_name","nonUnique":true}]
      * </p>
      */
-    private java.util.Set<String> parseIndexedColumns(String indexesInfoJson) {
-        java.util.Set<String> result = new java.util.HashSet<>();
+    private Set<String> parseIndexedColumns(String indexesInfoJson) {
+        Set<String> result = new HashSet<>();
         if (!StringUtils.hasText(indexesInfoJson)) {
             return result;
         }
         try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            com.fasterxml.jackson.databind.JsonNode array = mapper.readTree(indexesInfoJson);
+            JsonNode array = JSON_MAPPER.readTree(indexesInfoJson);
             if (array.isArray()) {
-                for (com.fasterxml.jackson.databind.JsonNode node : array) {
+                for (JsonNode node : array) {
                     String colName = node.has("columnName") ? node.get("columnName").asText() : null;
                     if (colName == null) {
                         colName = node.has("column_name") ? node.get("column_name").asText() : null;

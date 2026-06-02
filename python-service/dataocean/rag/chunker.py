@@ -12,13 +12,14 @@ from .schema import ChunkItem
 
 logger = logging.getLogger(__name__)
 
-# 从 chunk 文本中提取表名的正则（匹配常见格式）
+# 从 chunk 文本中提取表名的正则（优先匹配内容中的明确标注，再退化到标题提取）
+# 注意：LLM 可能生成 `table_name` 或 table_name 两种格式，正则需兼容反引号
 _TABLE_NAME_PATTERNS = [
-    re.compile(r"^###\s+(\w+)\s*[—\-↔]", re.MULTILINE),  # ### table_name — ...
-    re.compile(r"^###\s+(\w+)\.(\w+)", re.MULTILINE),  # ### table.column
-    re.compile(r"表:\s*(\w+)", re.MULTILINE),  # 表: table_name
-    re.compile(r"适用表:\s*(\w+)", re.MULTILINE),  # 适用表: table_name
-    re.compile(r"涉及表:\s*(.+)", re.MULTILINE),  # 涉及表: t1, t2
+    re.compile(r"适用表:\s*`?([a-zA-Z_][\w\-]*)`?", re.MULTILINE),  # 适用表: `orders` 或 orders
+    re.compile(r"涉及表:\s*`?([a-zA-Z_][\w\-]*)`?(?:\s*[,、]\s*`?([a-zA-Z_][\w\-]*)`?)*", re.MULTILINE),  # 涉及表: t1, t2
+    re.compile(r"表:\s*`?([a-zA-Z_][\w\-]*)`?", re.MULTILINE),  # 表: table_name
+    re.compile(r"^###\s+`?([a-zA-Z_][\w\-]*)`?\s*[—\-↔]", re.MULTILINE),  # ### table_name — ...
+    re.compile(r"^###\s+`?([a-zA-Z_][\w\-]*)`?\.`?([a-zA-Z_][\w\-]*)`?", re.MULTILINE),  # ### table.column
 ]
 
 # 不需要向量化的章节标题关键词
