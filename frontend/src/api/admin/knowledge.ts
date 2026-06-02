@@ -75,7 +75,7 @@ export async function publishDoc(id: number) {
 }
 
 export async function generateDraft(id: number, snapshotId: number) {
-  const { data } = await http.post<ApiResult<{ content: string }>>(`/api/admin/knowledge-docs/${id}/generate-draft`, { snapshotId })
+  const { data } = await http.post<ApiResult<{ content: string }>>(`/api/admin/knowledge-docs/${id}/generate-draft`, { snapshotId }, { timeout: 120000 })
   return data
 }
 
@@ -99,7 +99,7 @@ export async function generateFromSnapshot(datasourceId: number, snapshotId: num
   const { data } = await http.post<ApiResult<Array<{ id: number; title: string; tableNames: string[] }>>>(
     '/api/admin/knowledge-docs/generate-from-snapshot',
     { snapshotId },
-    { params: { datasourceId } },
+    { params: { datasourceId }, timeout: 180000 },
   )
   return data
 }

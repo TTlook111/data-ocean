@@ -99,7 +99,7 @@ async function fetchDatasources() {
 // 加载快照列表（按数据源筛选）
 async function fetchSnapshots(datasourceId: number) {
   try {
-    const res = await listSnapshots({ datasourceId, page: 1, pageSize: 100 })
+    const res = await listSnapshots({ datasourceId, page: 1, size: 100 })
     snapshots.value = res.data?.records ?? []
   } catch { snapshots.value = [] }
 }
@@ -282,7 +282,7 @@ onMounted(() => {
             <el-select v-model="generateForm.snapshotId" placeholder="选择元数据快照" style="width: 100%"
                        :disabled="!generateForm.datasourceId">
               <el-option v-for="s in snapshots" :key="s.id"
-                         :label="`v${s.version} — ${s.createdAt}`" :value="s.id" />
+                         :label="`v${s.snapshotVersion} — ${s.createdAt}`" :value="s.id" />
             </el-select>
           </el-form-item>
         </el-form>
