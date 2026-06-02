@@ -4,8 +4,10 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  ArrowRightLeft,
   BookOpen,
   CheckCircle2,
+  Clock,
   Database,
   GitBranch,
   Layers,
@@ -14,16 +16,32 @@ import {
   ShieldAlert,
   Table2,
   Users,
+  XCircle,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 import { getDashboardStats, type DashboardStats } from '../api/admin/dashboard'
+import { gsap } from 'gsap'
 import { useGsapMotion } from '../composables/useGsapMotion'
+import { useChart } from '../composables/useChart'
 
 const auth = useAuthStore()
 const loading = ref(false)
 const stats = ref<DashboardStats | null>(null)
 const homeRef = ref<HTMLElement | null>(null)
 const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(homeRef)
+
+// 环形进度图 ref
+const snapshotRingRef = ref<HTMLDivElement | null>(null)
+const issueRingRef = ref<HTMLDivElement | null>(null)
+const snapshotRingChart = useChart(snapshotRingRef)
+const issueRingChart = useChart(issueRingRef)
+
+// gsap CountUp 动画用的响应式数值
+const animatedUsers = ref(0)
+const animatedTables = ref(0)
+const animatedColumns = ref(0)
+const animatedOpenIssues = ref(0)
+const animatedResolvedIssues = ref(0)
 
 const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
@@ -76,7 +94,43 @@ watch(stats, async (value) => {
     y: 14,
     stagger: 0.035,
   })
+
+  // 初始化环形进度图
+  initRingCharts()
+
+  // gsap CountUp 动画
+  gsap.to(animatedUsers, { value: value.totalUsers, duration: 1, ease: 'power2.out', snap: { value: 1 } })
+  gsap.to(animatedTables, { value: value.totalTables, duration: 1, ease: 'power2.out', snap: { value: 1 } })
+  gsap.to(animatedColumns, { value: value.totalColumns, duration: 1, ease: 'power2.out', snap: { value: 1 } })
+  gsap.to(animatedOpenIssues, { value: value.openIssues, duration: 1, ease: 'power2.out', snap: { value: 1 } })
+  gsap.to(animatedResolvedIssues, { value: value.resolvedIssues, duration: 1, ease: 'power2.out', snap: { value: 1 } })
 })
+
+function initRingCharts() {
+  const ringBase = {
+    type: 'gauge' as const,
+    startAngle: 90,
+    endAngle: -270,
+    pointer: { show: false },
+    progress: { show: true, overlap: false, roundCap: true, clip: false, itemStyle: { color: '#4d8fdc' } },
+    axisLine: { lineStyle: { width: 8, color: [[1, '#e5e7eb']] } },
+    axisTick: { show: false },
+    splitLine: { show: false },
+    axisLabel: { show: false },
+    detail: { fontSize: 16, fontWeight: 700, color: '#172033', offsetCenter: [0, 0], formatter: '{value}%' },
+    data: [{ value: 0 }],
+  }
+
+  snapshotRingChart.init()
+  snapshotRingChart.setOption({
+    series: [{ ...ringBase, data: [{ value: snapshotPublishRate.value }] }],
+  })
+
+  issueRingChart.init()
+  issueRingChart.setOption({
+    series: [{ ...ringBase, data: [{ value: issueResolutionRate.value }] }],
+  })
+}
 
 watch(loading, (value, oldValue) => {
   if (!oldValue || value) return
@@ -112,15 +166,16 @@ watch(loading, (value, oldValue) => {
         <span>治理健康</span>
         <strong>{{ stats.avgQualityScore ?? '-' }}</strong>
         <small>{{ qualityLabel }}</small>
+        <div class="quality-bar"><div class="quality-fill" :style="{ width: (stats.avgQualityScore || 0) + '%' }"></div></div>
       </article>
       <article class="ops-card">
         <span>快照发布率</span>
-        <strong>{{ snapshotPublishRate }}%</strong>
+        <div ref="snapshotRingRef" class="ring-chart"></div>
         <small>{{ stats.publishedSnapshots }} / {{ stats.totalSnapshots }} 个快照</small>
       </article>
       <article class="ops-card">
         <span>问题解决率</span>
-        <strong>{{ issueResolutionRate }}%</strong>
+        <div ref="issueRingRef" class="ring-chart"></div>
         <small>{{ stats.resolvedIssues }} / {{ issueTotal }} 条问题</small>
       </article>
     </section>
@@ -129,7 +184,7 @@ watch(loading, (value, oldValue) => {
       <article class="stat-card">
         <div class="stat-icon blue"><Users :size="20" /></div>
         <div class="stat-body">
-          <span class="stat-value">{{ stats.totalUsers }}</span>
+          <span class="stat-value">{{ animatedUsers }}</span>
           <span class="stat-label">用户总数</span>
         </div>
       </article>
@@ -143,28 +198,28 @@ watch(loading, (value, oldValue) => {
       <article class="stat-card">
         <div class="stat-icon purple"><Table2 :size="20" /></div>
         <div class="stat-body">
-          <span class="stat-value">{{ stats.totalTables }}</span>
+          <span class="stat-value">{{ animatedTables }}</span>
           <span class="stat-label">已发布表</span>
         </div>
       </article>
       <article class="stat-card">
         <div class="stat-icon sky"><Layers :size="20" /></div>
         <div class="stat-body">
-          <span class="stat-value">{{ stats.totalColumns }}</span>
+          <span class="stat-value">{{ animatedColumns }}</span>
           <span class="stat-label">已发布字段</span>
         </div>
       </article>
       <article class="stat-card">
         <div class="stat-icon orange"><AlertTriangle :size="20" /></div>
         <div class="stat-body">
-          <span class="stat-value">{{ stats.openIssues }}</span>
+          <span class="stat-value">{{ animatedOpenIssues }}</span>
           <span class="stat-label">待处理问题</span>
         </div>
       </article>
       <article class="stat-card">
         <div class="stat-icon teal"><CheckCircle2 :size="20" /></div>
         <div class="stat-body">
-          <span class="stat-value">{{ stats.resolvedIssues }}</span>
+          <span class="stat-value">{{ animatedResolvedIssues }}</span>
           <span class="stat-label">已解决问题</span>
         </div>
       </article>
@@ -217,7 +272,12 @@ watch(loading, (value, oldValue) => {
       <h3>最近操作</h3>
       <div class="activity-list">
         <div v-for="(a, i) in stats.recentActivities" :key="i" class="activity-item">
-          <span class="activity-dot" :class="'dot-' + a.type.toLowerCase()"></span>
+          <span class="activity-icon" :class="'icon-' + a.type.toLowerCase()">
+            <CheckCircle2 v-if="a.type === 'PUBLISH'" :size="14" />
+            <Clock v-else-if="a.type === 'EXPIRE'" :size="14" />
+            <XCircle v-else-if="a.type === 'REVOKE'" :size="14" />
+            <ArrowRightLeft v-else :size="14" />
+          </span>
           <span class="activity-desc">
             <strong>{{ actionLabels[a.type] || a.type }}</strong>
             {{ a.description }}
@@ -449,16 +509,40 @@ watch(loading, (value, oldValue) => {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 12px; border-radius: 6px; background: var(--do-bg);
 }
-.activity-dot {
-  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+.activity-icon {
+  width: 24px; height: 24px; display: grid; place-items: center;
+  border-radius: 50%; flex-shrink: 0;
 }
-.dot-publish { background: #67c23a; }
-.dot-expire { background: #c0c4cc; }
-.dot-revoke { background: #f56c6c; }
-.dot-status_transition { background: #409eff; }
+.icon-publish { color: #67c23a; background: #edf7e8; }
+.icon-expire { color: #909399; background: #f4f4f5; }
+.icon-revoke { color: #f56c6c; background: #fef0f0; }
+.icon-status_transition { color: #409eff; background: #ecf5ff; }
 .activity-desc { flex: 1; font-size: 13px; color: var(--do-ink); }
 .activity-desc strong { margin-right: 6px; }
 .activity-time { font-size: 12px; color: var(--do-muted); white-space: nowrap; }
+
+.ring-chart {
+  width: 80px;
+  height: 80px;
+  margin: 2px auto;
+}
+
+.quality-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: #e5e7eb;
+  margin-top: 8px;
+}
+
+.quality-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.6s ease;
+}
+
+.tone-good .quality-fill { background: #67c23a; }
+.tone-warn .quality-fill { background: #e6a23c; }
+.tone-bad .quality-fill { background: #f56c6c; }
 
 .user-guide { max-width: 600px; }
 .guide-card {

@@ -36,6 +36,7 @@ const LineageViewer = () => import('../views/admin/audit/LineageViewer.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
 const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
 const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
+const AiConfig = () => import('../views/admin/system/AiConfig.vue')
 const QueryGuide = () => import('../views/guide/QueryGuide.vue')
 const AdminGuide = () => import('../views/guide/AdminGuide.vue')
 
@@ -257,6 +258,12 @@ const router = createRouter({
           name: 'admin-system-health',
           component: ServiceHealth,
           meta: { title: '服务健康', section: '系统管理', permission: '*' },
+        },
+        {
+          path: 'system/ai-config',
+          name: 'admin-system-ai-config',
+          component: AiConfig,
+          meta: { title: 'AI 配置', section: '系统管理', permission: '*' },
         },
       ],
     },

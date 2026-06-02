@@ -75,6 +75,12 @@ public class QueryTask {
     /** 本次 Agent 调用使用的 Prompt 模板版本 JSON */
     private String promptVersions;
 
+    /** 是否使用了降级方案 */
+    private Boolean degraded;
+
+    /** 降级提示信息 */
+    private String degradeNotice;
+
     /** 错误信息 */
     private String errorMessage;
 

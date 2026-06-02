@@ -21,6 +21,13 @@ logger = logging.getLogger(__name__)
 _embeddings: OpenAIEmbeddings | None = None
 
 
+def clear_embeddings_cache() -> None:
+    """清除缓存的 Embeddings 实例（配置热重载时调用）"""
+    global _embeddings
+    _embeddings = None
+    logger.info("Embeddings 缓存已清除")
+
+
 def _get_embeddings() -> OpenAIEmbeddings:
     """获取（缓存的）OpenAIEmbeddings 实例，指向 DashScope 兼容端点。
 

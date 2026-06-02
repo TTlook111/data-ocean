@@ -191,6 +191,12 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             if (result.containsKey("promptVersions")) {
                 wrapper.set(QueryTask::getPromptVersions, objectMapper.writeValueAsString(result.get("promptVersions")));
             }
+            if (result.containsKey("degraded")) {
+                wrapper.set(QueryTask::getDegraded, Boolean.TRUE.equals(result.get("degraded")));
+            }
+            if (result.containsKey("degradeNotice")) {
+                wrapper.set(QueryTask::getDegradeNotice, (String) result.get("degradeNotice"));
+            }
             if (result.containsKey("error")) {
                 wrapper.set(QueryTask::getErrorMessage, (String) result.get("error"));
             }
@@ -315,6 +321,8 @@ public class QueryTaskServiceImpl implements QueryTaskService {
                     .usedTables(usedTables)
                     .usedColumns(usedColumns)
                     .promptVersions(promptVersions)
+                    .degraded(task.getDegraded())
+                    .degradeNotice(task.getDegradeNotice())
                     .errorMessage(task.getErrorMessage())
                     .retryCount(task.getRetryCount())
                     .totalTimeMs(task.getTotalTimeMs())

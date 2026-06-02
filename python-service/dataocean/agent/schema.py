@@ -80,6 +80,10 @@ class ExecuteRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices("connection_config", "connectionConfig"),
     )
+    fallback_chunks: list[dict] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("fallback_chunks", "fallbackChunks"),
+    )
 
 
 class ColumnMeta(BaseModel):
@@ -110,6 +114,8 @@ class QueryResult(BaseModel):
     suggested_questions: list[str] = Field(default_factory=list, serialization_alias="suggestedQuestions")
     masked_fields: dict[str, str] = Field(default_factory=dict, serialization_alias="maskedFields")
     prompt_versions: list[dict] = Field(default_factory=list, serialization_alias="promptVersions")
+    degraded: bool = Field(default=False, serialization_alias="degraded")
+    degrade_notice: str | None = Field(default=None, serialization_alias="degradeNotice")
 
 
 class ProgressEvent(BaseModel):

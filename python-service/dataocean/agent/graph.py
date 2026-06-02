@@ -10,6 +10,7 @@ Query_Rewriter → Schema_Retriever → SQL_Generator → SQL_Validator → SQL_
 - 任何节点检测到取消或超时 → 终止
 """
 
+from dataocean.core.error_messages import sanitize_error
 from __future__ import annotations
 
 import logging
@@ -99,7 +100,7 @@ async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentStat
         return {**state, "error_message": error_msg, "current_node": node_name}
     except Exception as e:
         logger.error("节点执行异常 node=%s task_id=%s error=%s", node_name, task_id, e, exc_info=True)
-        error_msg = f"AI 服务暂时不可用：{e}"
+        error_msg = sanitize_error(e)
         await sse.emit_progress(task_id, node_name, "failed", error_msg, retry_count)
         return {**state, "error_message": error_msg, "current_node": node_name}
 

@@ -121,3 +121,20 @@ app.include_router(agent_router, prefix="/internal/query", tags=["agent"])
 app.include_router(sandbox_router, prefix="/internal/sql", tags=["sandbox"])
 app.include_router(chart_router, prefix="/internal/chart", tags=["chart"])
 app.include_router(prompt_router, prefix="/internal/prompts", tags=["prompt"])
+
+# === AI 配置热重载端点 ===
+
+from fastapi import APIRouter as _Router
+
+_config_router = _Router()
+
+
+@_config_router.post("/internal/config/reload")
+async def reload_config_endpoint():
+    """被 Java 回调，触发 AI 配置热重载"""
+    from dataocean.infra.config_api import reload_ai_config
+    success = await reload_ai_config()
+    return {"status": "ok" if success else "error"}
+
+
+app.include_router(_config_router)

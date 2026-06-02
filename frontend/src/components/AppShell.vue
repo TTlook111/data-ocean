@@ -7,10 +7,12 @@ import {
   Calendar,
   ChevronLeft,
   ClipboardList,
+  Cpu,
   Database,
   FileText,
   FolderSync,
   GitBranch,
+  HeartPulse,
   History,
   LayoutDashboard,
   LogOut,
@@ -122,6 +124,13 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
     items: [
       { label: '访问控制', to: '/admin/permission/access', icon: ShieldAlert, permission: 'security:manage' },
       { label: '策略编辑器', to: '/admin/permission/policies', icon: ShieldCheck, permission: 'security:manage' },
+    ],
+  },
+  {
+    label: '系统管理',
+    items: [
+      { label: '服务健康', to: '/admin/system/health', icon: HeartPulse, permission: '*' },
+      { label: 'AI 配置', to: '/admin/system/ai-config', icon: Cpu, permission: '*' },
     ],
   },
 ]

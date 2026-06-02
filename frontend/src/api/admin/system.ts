@@ -43,3 +43,35 @@ export async function resetDatasourcePool(datasourceId: number) {
   const { data } = await http.post<ApiResult<void>>(`/api/admin/system/sql-pools/${datasourceId}/reset`)
   return data
 }
+
+// ---- AI 配置管理 ----
+
+export interface AiConfig {
+  apiKeyMasked: string
+  baseUrl: string
+  model: string
+  temperature: string
+  timeout: string
+  embeddingModel: string
+  embeddingDimension: string
+}
+
+export interface AiConfigPayload {
+  apiKey?: string
+  baseUrl?: string
+  model?: string
+  temperature?: string
+  timeout?: string
+  embeddingModel?: string
+  embeddingDimension?: string
+}
+
+export async function getAiConfig() {
+  const { data } = await http.get<ApiResult<AiConfig>>('/api/admin/system/ai-config')
+  return data
+}
+
+export async function updateAiConfig(payload: AiConfigPayload) {
+  const { data } = await http.put<ApiResult<AiConfig>>('/api/admin/system/ai-config', payload, { timeout: 15000 })
+  return data
+}

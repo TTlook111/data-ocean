@@ -9,6 +9,8 @@
 from __future__ import annotations
 
 import asyncio
+
+from dataocean.core.error_messages import sanitize_error
 import logging
 import time
 
@@ -68,6 +70,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
             "confidence_scores": request.confidence_scores,
             "prompt_versions": [],
             "connection_config": request.connection_config,
+            "fallback_chunks": request.fallback_chunks,
             "rewritten_query": "",
             "extracted_intent": {},
             "schema_context": [],
@@ -104,6 +107,8 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
                 total_time_ms=total_time_ms,
                 rewritten_query=final_state.get("rewritten_query"),
                 prompt_versions=final_state.get("prompt_versions", []),
+                degraded=final_state.get("degraded", False),
+                degrade_notice=final_state.get("degrade_notice"),
             )
         else:
             # 返回经过权限改写后的 SQL（如有），否则返回原始生成的 SQL
@@ -128,6 +133,8 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
                 suggested_questions=final_state.get("suggested_questions", []),
                 masked_fields=validation_result.get("masked_fields", {}),
                 prompt_versions=final_state.get("prompt_versions", []),
+                degraded=final_state.get("degraded", False),
+                degrade_notice=final_state.get("degrade_notice"),
             )
 
         await sse.emit_result(task_id, result)
@@ -149,7 +156,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
         result = QueryResult(
             task_id=task_id,
             status="FAILED",
-            error=f"系统内部错误：{e}",
+            error=sanitize_error(e),
             total_time_ms=total_time_ms,
         )
         await sse.emit_result(task_id, result)

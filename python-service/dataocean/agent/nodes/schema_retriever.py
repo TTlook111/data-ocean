@@ -31,6 +31,7 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
         task_id, datasource_id, rewritten_query[:50],
     )
 
+    fallback_chunks = state.get("fallback_chunks")
     try:
         request = RetrieveRequest(
             datasource_id=datasource_id,
@@ -38,6 +39,7 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
             top_k=10,
             active_snapshot_id=active_snapshot_id,
             confidence_scores=confidence_scores or None,
+            fallback_chunks=fallback_chunks,
         )
         response = await retrieve_schemas(request)
     except Exception as e:

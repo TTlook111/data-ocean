@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import asyncio
+
+from dataocean.core.error_messages import sanitize_error
 import logging
 from pathlib import Path
 
@@ -63,7 +65,7 @@ async def run_sql_generator(state: AgentState) -> AgentState:
         logger.error("SQL 生成 LLM 调用失败 task_id=%s error=%s", task_id, e)
         return {
             "generated_sql": "",
-            "error_message": f"AI 服务暂时不可用：{e}",
+            "error_message": sanitize_error(e),
             "retry_count": retry_count,
             "current_node": "SQL_GENERATOR",
         }

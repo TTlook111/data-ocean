@@ -1,5 +1,8 @@
 package com.dataocean.module.query.client.impl;
 
+import com.dataocean.module.knowledge.entity.KnowledgeChunk;
+import com.dataocean.module.knowledge.enums.ReviewStatus;
+import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.permission.entity.vo.PermissionContextVO;
 import com.dataocean.module.permission.service.PermissionCalculator;
 import com.dataocean.module.query.client.PythonAgentClient;
@@ -48,6 +51,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private final com.dataocean.module.datasource.mapper.DatasourceSecretMapper datasourceSecretMapper;
     private final com.dataocean.module.datasource.service.DatasourceSecretService datasourceSecretService;
     private final PermissionCalculator permissionCalculator;
+    private final KnowledgeChunkMapper knowledgeChunkMapper;
 
     private RestClient restClient;
 
@@ -94,6 +98,8 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         requestBody.put("userPermissions", buildUserPermissionsMap(permContext));
         // 从会话中获取最近 5 轮对话作为上下文
         requestBody.put("conversationHistory", buildConversationHistory(conversationId));
+        // 加载 fallback chunks（Milvus 不可用时的降级数据）
+        requestBody.put("fallbackChunks", loadFallbackChunks(datasourceId));
 
         try {
             // 调用 Python SSE 接口并消费流
@@ -311,5 +317,33 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         map.put("maskColumns", maskColumns);
 
         return map;
+    }
+
+    /**
+     * 加载该数据源已发布知识文档的 TABLE_DESC 类型切片，作为 Milvus 不可用时的降级数据。
+     */
+    private List<Map<String, Object>> loadFallbackChunks(Long datasourceId) {
+        try {
+            var chunks = knowledgeChunkMapper.selectList(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeChunk>()
+                            .eq(KnowledgeChunk::getReviewStatus, ReviewStatus.APPROVED.name())
+                            .eq(KnowledgeChunk::getChunkType, "TABLE_DESC")
+                            .inSql(KnowledgeChunk::getDocId,
+                                    "SELECT id FROM knowledge_doc WHERE datasource_id = " + datasourceId + " AND status = 'PUBLISHED' AND deleted = 0")
+                            .last("LIMIT 5"));
+            List<Map<String, Object>> result = new java.util.ArrayList<>();
+            for (KnowledgeChunk chunk : chunks) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("chunkType", chunk.getChunkType());
+                item.put("chunkText", chunk.getChunkText());
+                item.put("relatedTable", chunk.getRelatedTable());
+                item.put("snapshotId", chunk.getMetadataSnapshotId());
+                result.add(item);
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("加载 fallback chunks 失败 datasourceId={} reason={}", datasourceId, e.getMessage());
+            return List.of();
+        }
     }
 }

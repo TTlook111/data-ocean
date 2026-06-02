@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 _chat_cache: dict[tuple[str, float], ChatOpenAI] = {}
 
 
+def clear_chat_cache() -> None:
+    """清除所有缓存的 ChatOpenAI 实例（配置热重载时调用）"""
+    _chat_cache.clear()
+    logger.info("LLM ChatOpenAI 缓存已清除")
+
+
 def get_chat_model(
     *,
     model: str | None = None,

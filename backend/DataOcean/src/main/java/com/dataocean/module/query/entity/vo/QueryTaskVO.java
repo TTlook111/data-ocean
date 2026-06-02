@@ -31,6 +31,10 @@ public class QueryTaskVO {
     private List<String> usedTables;
     private List<String> usedColumns;
     private List<Map<String, Object>> promptVersions;
+    /** 是否使用了降级方案 */
+    private Boolean degraded;
+    /** 降级提示信息 */
+    private String degradeNotice;
     private String errorMessage;
     private Integer retryCount;
     private Integer totalTimeMs;

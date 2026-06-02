@@ -64,8 +64,30 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """获取全局配置单例"""
+    """获取全局配置单例（进程生命周期内只构造一次）"""
     return Settings()
 
 
 settings = get_settings()
+
+
+def reload_config(overrides: dict[str, str] | None = None) -> Settings:
+    """热重载配置：清除缓存，用 overrides 覆盖环境变量后重建 Settings。
+
+    Args:
+        overrides: 需要覆盖的配置键值对（来自 Java sys_config）
+
+    Returns:
+        新的 Settings 实例
+    """
+    import os
+    global settings
+
+    if overrides:
+        for key, value in overrides.items():
+            env_key = key.upper().replace(".", "_")
+            os.environ[env_key] = str(value)
+
+    get_settings.cache_clear()
+    settings = get_settings()
+    return settings
