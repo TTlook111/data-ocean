@@ -10,7 +10,8 @@ public enum ChunkType {
     TABLE_DESC("表说明"),
     JOIN_PATH("关联路径"),
     METRIC("指标口径"),
-    FIELD_NOTE("字段防坑");
+    FIELD_NOTE("字段防坑"),
+    QUERY_SCENE("查询场景");
 
     /** 类型描述 */
     private final String description;

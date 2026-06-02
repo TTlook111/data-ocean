@@ -1,8 +1,8 @@
 """Token 预算控制模块
 
 使用 tiktoken 计算 Token 数，按优先级裁剪超出预算的内容。
-优先级（从高到低）：schema(1500) > skills(1000) > few-shot(800) > context(500) > confidence(200)
-总预算：4000 Token
+优先级（从高到低）：skills(1500) = schema(1500) > few-shot(800) > context(500) > confidence(200)
+总预算：5000 Token（Qwen 模型上下文充足，skills 结构化后信息密度更高）
 """
 
 import logging
@@ -12,16 +12,16 @@ logger = logging.getLogger(__name__)
 # 各部分的 Token 预算分配
 TOKEN_BUDGETS = {
     "schema": 1500,
-    "skills": 1000,
+    "skills": 1500,
     "few_shot": 800,
     "context": 500,
     "confidence": 200,
 }
 
-TOTAL_BUDGET = 4000
+TOTAL_BUDGET = 5000
 
 # 优先级顺序（从低到高，裁剪时从最低优先级开始）
-PRIORITY_ORDER = ["confidence", "context", "few_shot", "skills", "schema"]
+PRIORITY_ORDER = ["confidence", "context", "few_shot", "schema", "skills"]
 
 
 def count_tokens(text: str) -> int:

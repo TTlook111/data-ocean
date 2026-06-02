@@ -109,14 +109,17 @@ public class KnowledgeChunkSplitter {
      */
     public String inferChunkType(String chunkText) {
         String lowerText = chunkText.toLowerCase();
-        if (lowerText.contains("join") || lowerText.contains("关联")) {
+        if (lowerText.contains("join") || lowerText.contains("关联") || lowerText.contains("↔")) {
             return ChunkType.JOIN_PATH.name();
         }
-        if (lowerText.contains("指标") || lowerText.contains("metric")) {
+        if (lowerText.contains("指标") || lowerText.contains("metric") || lowerText.contains("sql 表达式")) {
             return ChunkType.METRIC.name();
         }
-        if (lowerText.contains("防坑") || lowerText.contains("注意")) {
+        if (lowerText.contains("防坑") || lowerText.contains("注意") || lowerText.contains("误用")) {
             return ChunkType.FIELD_NOTE.name();
+        }
+        if (lowerText.contains("场景") || lowerText.contains("骨架")) {
+            return ChunkType.QUERY_SCENE.name();
         }
         return ChunkType.TABLE_DESC.name();
     }

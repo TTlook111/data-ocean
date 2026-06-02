@@ -19,6 +19,9 @@ class ColumnMetadata(BaseModel):
     column_comment: str | None = None
     is_primary_key: bool = False
     confidence_score: int | None = None
+    governance_status: str | None = None
+    tags: list[str] = []
+    is_indexed: bool = False
 
 
 class GenerateDraftRequest(BaseModel):
