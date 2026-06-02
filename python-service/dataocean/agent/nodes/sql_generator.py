@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -31,9 +32,10 @@ async def run_sql_generator(state: AgentState) -> AgentState:
     retry_count = state.get("retry_count", 0)
     error_message = state.get("error_message", "")
     previous_sql = state.get("generated_sql", "")
+    node_timeout = state.get("_node_timeout", 60)
 
-    # 重试时递增计数
-    if error_message and previous_sql:
+    # 如果有错误信息说明是重试，递增计数
+    if error_message:
         retry_count += 1
 
     logger.info("SQL 生成 task_id=%s retry=%d", task_id, retry_count)
@@ -42,10 +44,21 @@ async def run_sql_generator(state: AgentState) -> AgentState:
     state = record_prompt_version(state, "sql_generation", prompt_version)
 
     try:
-        response_text = await call_llm(
-            system_prompt="你是一个 MySQL SQL 专家。请严格按照约束规则生成安全的 SELECT 语句。",
-            user_prompt=prompt,
+        response_text = await asyncio.wait_for(
+            call_llm(
+                system_prompt="你是一个 MySQL SQL 专家。请严格按照约束规则生成安全的 SELECT 语句。",
+                user_prompt=prompt,
+            ),
+            timeout=node_timeout,
         )
+    except asyncio.TimeoutError:
+        logger.error("SQL 生成超时 task_id=%s timeout=%s", task_id, node_timeout)
+        return {
+            "generated_sql": "",
+            "error_message": "SQL 生成超时",
+            "retry_count": retry_count,
+            "current_node": "SQL_GENERATOR",
+        }
     except Exception as e:
         logger.error("SQL 生成 LLM 调用失败 task_id=%s error=%s", task_id, e)
         return {

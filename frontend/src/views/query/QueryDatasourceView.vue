@@ -134,6 +134,18 @@ const latestResult = computed(() => {
 const resultTab = ref<'table' | 'sql' | 'chart'>('table')
 const chartType = ref<'bar' | 'line' | 'pie'>('bar')
 
+/** 结果表格分页（前端分页） */
+const tablePage = ref(1)
+const tablePageSize = 50
+const pagedTableData = computed(() => {
+  const data = latestResult.value?.data
+  if (!data || !data.length) return []
+  const start = (tablePage.value - 1) * tablePageSize
+  return data.slice(start, start + tablePageSize)
+})
+// 结果变化时重置分页到第一页
+watch(latestResult, () => { tablePage.value = 1 })
+
 /** 根据当前图表类型计算 ECharts option */
 const chartOption = computed(() => {
   if (!latestResult.value?.chartConfig) return null
@@ -761,9 +773,18 @@ watch(resultTab, () => {
                 <small>共 {{ latestResult.rowCount || latestResult.data.length }} 行 · 耗时 {{ latestResult.totalTimeMs }}ms</small>
                 <small v-if="latestResult.usedTables?.length">使用表：{{ latestResult.usedTables.join(', ') }}</small>
               </div>
-              <el-table v-if="latestResult.data && latestResult.data.length" :data="latestResult.data" border stripe max-height="320" size="small">
-                <el-table-column v-for="col in (latestResult.columns || [])" :key="col.name" :prop="col.name" :label="col.comment || col.name" min-width="120" />
+              <el-table v-if="latestResult.data && latestResult.data.length" :data="pagedTableData" border stripe max-height="320" size="small">
+                <el-table-column v-for="col in (latestResult.columns || [])" :key="col.name" :prop="col.name" :label="col.comment || col.name" min-width="120" show-overflow-tooltip />
               </el-table>
+              <el-pagination
+                v-if="latestResult.data && latestResult.data.length > tablePageSize"
+                v-model:current-page="tablePage"
+                :page-size="tablePageSize"
+                :total="latestResult.data.length"
+                layout="total, prev, pager, next"
+                size="small"
+                style="margin-top: 8px; justify-content: flex-end;"
+              />
               <div v-else class="result-empty"><strong>查询完成但无数据返回</strong></div>
             </div>
 

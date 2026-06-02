@@ -73,7 +73,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
      * 消费 Python SSE 流，提取最终 result/error 事件回写数据库。
      * </p>
      */
-    @Async
+    @Async("queryExecutor")
     @Override
     public void executeAsync(String taskId, Long datasourceId, Long userId, String question,
                              Long conversationId, Long activeSnapshotId) {

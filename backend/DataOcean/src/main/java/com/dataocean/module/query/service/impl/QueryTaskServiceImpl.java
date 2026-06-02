@@ -157,6 +157,7 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             String status = (String) result.getOrDefault("status", "FAILED");
             LambdaUpdateWrapper<QueryTask> wrapper = new LambdaUpdateWrapper<QueryTask>()
                     .eq(QueryTask::getTaskId, taskId)
+                    .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
                     .set(QueryTask::getStatus, status)
                     .set(QueryTask::getCompletedAt, LocalDateTime.now());
 
@@ -200,7 +201,11 @@ public class QueryTaskServiceImpl implements QueryTaskService {
                 wrapper.set(QueryTask::getTotalTimeMs, ((Number) result.get("totalTimeMs")).intValue());
             }
 
-            queryTaskMapper.update(null, wrapper);
+            int rows = queryTaskMapper.update(null, wrapper);
+            if (rows == 0) {
+                log.info("任务状态已变更（可能已取消），跳过结果回写 taskId={}", taskId);
+                return false;
+            }
 
             // 异步写入审计日志和血缘数据（延迟到事务提交后执行，确保读到已提交数据）
             final Long taskDbId = existing.getId();

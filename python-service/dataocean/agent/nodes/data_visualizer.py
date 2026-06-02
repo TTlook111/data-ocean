@@ -50,15 +50,20 @@ async def run_data_visualizer(state: AgentState) -> AgentState:
             column_types[col.get("name", "")] = col.get("type", "VARCHAR")
 
     # 委托给 chart service（传入全量数据，service 内部处理聚合和截断）
-    result = await generate_chart(
-        question=question,
-        data_preview=data_rows,
-        column_types=column_types,
-        total_rows=row_count,
-    )
-    state = record_prompt_version(state, "chart_generation", result.prompt_version_no)
-
-    chart_config = result.echarts_option
+    # 图表生成是非关键步骤，失败不影响数据结果返回
+    chart_config = None
+    try:
+        result = await generate_chart(
+            question=question,
+            data_preview=data_rows,
+            column_types=column_types,
+            total_rows=row_count,
+        )
+        chart_config = result.echarts_option
+        state = record_prompt_version(state, "chart_generation", result.prompt_version_no)
+    except Exception as e:
+        logger.warning("图表生成失败（不影响查询结果）task_id=%s error=%s", task_id, e)
+        state = record_prompt_version(state, "chart_generation", 0)
     # followup_suggestions 为内联轻量 Prompt，非 Java 托管模板，记录 version=0
     state = record_prompt_version(state, "followup_suggestions", 0)
     suggested = await _generate_suggestions(state)

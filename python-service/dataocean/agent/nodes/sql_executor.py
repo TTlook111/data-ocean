@@ -9,7 +9,9 @@ from __future__ import annotations
 import logging
 import re
 
+from .. import sse
 from ..state import AgentState
+from .sql_generator import estimate_execution_time
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,11 @@ async def run_sql_executor(state: AgentState) -> AgentState:
     sql = validation_result.get("rewritten_sql", "") or state.get("generated_sql", "")
     task_id = state.get("task_id", "")
     datasource_id = state.get("datasource_id", 0)
+
+    # 推送执行时间估算（补充 wrapper 的 started 事件）
+    if sql:
+        estimate = estimate_execution_time(sql)
+        await sse.emit_progress(task_id, "SQL_EXECUTOR", "executing", estimate, state.get("retry_count", 0))
 
     logger.info("SQL 执行 task_id=%s datasource_id=%d sql=%s", task_id, datasource_id, sql[:80])
 

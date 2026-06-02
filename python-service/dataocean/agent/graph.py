@@ -71,11 +71,12 @@ async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentStat
     if abort_msg:
         return {**state, "error_message": abort_msg, "current_node": node_name}
 
-    # 检查时间预算是否足够启动此节点
+    # 检查时间预算是否足够启动此节点，并将分配的秒数传给节点
     budget: TimeoutBudget | None = state.get("timeout_budget")
+    allocated_seconds: float = 60  # 默认超时
     if budget:
         try:
-            budget.allocate(node_name.lower())
+            allocated_seconds = budget.allocate(node_name.lower())
         except BudgetExhaustedException:
             error_msg = "处理时间超出限制，请简化问题"
             await sse.emit_progress(task_id, node_name, "failed", error_msg, retry_count)
@@ -85,7 +86,8 @@ async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentStat
     await sse.emit_progress(task_id, node_name, "started", NODE_MESSAGES.get(node_name, ""), retry_count)
 
     try:
-        result = await node_fn(state)
+        state_with_timeout = {**state, "_node_timeout": allocated_seconds}
+        result = await node_fn(state_with_timeout)
         # 推送节点完成事件
         msg = result.get("error_message") or ""
         status = "failed" if msg else "completed"
@@ -118,14 +120,8 @@ async def schema_retriever_node(state: AgentState) -> AgentState:
 
 async def sql_generator_node(state: AgentState) -> AgentState:
     """SQL 生成节点"""
-    from .nodes.sql_generator import run_sql_generator, estimate_execution_time
+    from .nodes.sql_generator import run_sql_generator
     result = await _node_wrapper(state, NODE_SQL_GENERATOR, run_sql_generator)
-    # SQL 生成成功后通过独立事件推送执行时间估算
-    sql = result.get("generated_sql", "")
-    if sql and not result.get("error_message"):
-        task_id = result.get("task_id", "")
-        estimate = estimate_execution_time(sql)
-        await sse.emit_progress(task_id, NODE_SQL_EXECUTOR, "started", estimate, result.get("retry_count", 0))
     return result
 
 
