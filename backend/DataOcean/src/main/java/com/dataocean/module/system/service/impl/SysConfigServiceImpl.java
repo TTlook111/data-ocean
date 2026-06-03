@@ -95,4 +95,16 @@ public class SysConfigServiceImpl implements SysConfigService {
         }
         return result;
     }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Transactional
+    @Override
+    public void deleteValue(String key) {
+        configMapper.delete(
+                new LambdaQueryWrapper<SysConfig>()
+                        .eq(SysConfig::getConfigKey, key)
+        );
+    }
 }

@@ -45,4 +45,11 @@ public interface SysConfigService {
      * @return key-value 映射；若无匹配返回空 Map
      */
     Map<String, String> getByPrefix(String prefix);
+
+    /**
+     * 删除指定配置键。
+     *
+     * @param key 配置键
+     */
+    void deleteValue(String key);
 }

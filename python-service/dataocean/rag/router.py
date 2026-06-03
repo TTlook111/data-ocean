@@ -8,6 +8,8 @@ import logging
 from time import perf_counter
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+import httpx
 
 from .milvus_client import connect_milvus, get_collection, health_status
 from .schema import (
@@ -24,6 +26,24 @@ from .vectorizer import vectorize_chunks
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class ProviderTestRequest(BaseModel):
+    base_url: str = Field(alias="baseUrl")
+    api_key: str = Field(default="", alias="apiKey")
+
+
+class DimensionDetectRequest(BaseModel):
+    base_url: str | None = Field(default=None, alias="baseUrl")
+    api_key: str | None = Field(default=None, alias="apiKey")
+    model: str
+
+
+class ReVectorizeRequest(BaseModel):
+    is_pending: bool = Field(default=False, alias="isPending")
+    index_version: str | None = Field(default=None, alias="indexVersion")
+    target_collection: str | None = Field(default=None, alias="targetCollection")
+    target_dimension: int | None = Field(default=None, alias="targetDimension")
 
 
 @router.post("/vectorize", response_model=VectorizeResponse)
@@ -43,6 +63,9 @@ async def vectorize(request: VectorizeRequest) -> VectorizeResponse:
         doc_id=request.doc_id,
         previous_version_no=request.previous_version_no,
         force=request.force,
+        target_collection=request.target_collection,
+        target_dimension=request.target_dimension,
+        embedding_config=request.embedding_config,
     )
     response.task_id = request.task_id
     return response
@@ -109,6 +132,67 @@ async def _delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsRespons
 async def health() -> dict:
     """RAG 健康检查（含 Milvus 连接状态）"""
     return await asyncio.to_thread(health_status)
+
+
+@router.post("/re-vectorize")
+async def re_vectorize(request: ReVectorizeRequest) -> dict:
+    """全量重新向量化入口占位。
+
+    当前按文档先完成 pending 向量化协议；实际全量任务编排由 Java 侧读取 chunks 后
+    调用 /vectorize 分批完成。这里提供统一入口，便于前端触发和后续扩展进度管理。
+    """
+    return {
+        "status": "ACCEPTED",
+        "isPending": request.is_pending,
+        "indexVersion": request.index_version,
+        "targetCollection": request.target_collection,
+        "targetDimension": request.target_dimension,
+    }
+
+
+async def test_provider(request: ProviderTestRequest) -> dict:
+    """测试 OpenAI 兼容供应商并同步模型列表。"""
+    base_url = request.base_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {request.api_key}"} if request.api_key else {}
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(f"{base_url}/models", headers=headers)
+        response.raise_for_status()
+        payload = response.json()
+
+    chat_models = []
+    embedding_models = []
+    for item in payload.get("data", []):
+        model_id = item.get("id") or item.get("name")
+        if not model_id:
+            continue
+        model = {
+            "name": model_id,
+            "displayName": model_id,
+            "dimension": item.get("dimensions") or item.get("embedding_dimensions"),
+            "maxContext": item.get("context_length") or item.get("max_context"),
+        }
+        if "embedding" in model_id.lower():
+            model["type"] = "embedding"
+            embedding_models.append(model)
+        else:
+            model["type"] = "chat"
+            chat_models.append(model)
+    return {"chatModels": chat_models, "embeddingModels": embedding_models}
+
+
+async def detect_dimension(request: DimensionDetectRequest) -> dict:
+    """通过一次 embedding 调用检测向量维度。"""
+    from dataocean.infra.embeddings import embed_texts_with_config
+    from .schema import EmbeddingConfig
+
+    config = EmbeddingConfig(
+        model=request.model,
+        base_url=request.base_url,
+        api_key=request.api_key,
+    )
+    vectors = await embed_texts_with_config(["DataOcean dimension detection test"], config)
+    dimension = len(vectors[0]) if vectors else None
+    return {"dimension": dimension, "model": request.model}
 
 
 def _count_entities(collection, expr: str) -> int:

@@ -25,8 +25,12 @@ _CONFIG_KEY_MAP = {
     "ai.llm.model": "QWEN_MODEL",
     "ai.llm.temperature": "LLM_TEMPERATURE",
     "ai.llm.timeout": "LLM_TIMEOUT",
+    "ai.llm.maxRetries": "LLM_MAX_RETRIES",
+    "ai.embedding.apiKey": "EMBEDDING_API_KEY",
+    "ai.embedding.baseUrl": "EMBEDDING_BASE_URL",
     "ai.embedding.model": "QWEN_EMBEDDING_MODEL",
     "ai.embedding.dimension": "EMBEDDING_DIMENSION",
+    "ai.embedding.collection": "MILVUS_COLLECTION_NAME",
 }
 
 

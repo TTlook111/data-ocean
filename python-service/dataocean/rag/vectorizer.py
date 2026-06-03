@@ -10,9 +10,9 @@ from time import perf_counter
 from pymilvus import Collection
 
 from dataocean.core.config import settings
-from dataocean.infra.embeddings import embed_texts
-from .milvus_client import connect_milvus, get_collection
-from .schema import ChunkItem, VectorizeResponse
+from dataocean.infra.embeddings import embed_texts, embed_texts_with_config
+from .milvus_client import connect_milvus, ensure_collection, get_collection
+from .schema import ChunkItem, EmbeddingConfig, VectorizeResponse
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,9 @@ async def vectorize_chunks(
     doc_id: int | None = None,
     previous_version_no: int | None = None,
     force: bool = False,
+    target_collection: str | None = None,
+    target_dimension: int | None = None,
+    embedding_config: EmbeddingConfig | None = None,
 ) -> VectorizeResponse:
     """将 chunks 向量化写入 Milvus
 
@@ -48,6 +51,8 @@ async def vectorize_chunks(
     try:
         def _connect():
             connect_milvus()
+            if target_collection or target_dimension:
+                return ensure_collection(target_collection, target_dimension)
             return get_collection()
 
         collection = await asyncio.to_thread(_connect)
@@ -70,7 +75,10 @@ async def vectorize_chunks(
     # 批量生成 embedding
     texts = [chunk.chunk_text for chunk in chunks]
     try:
-        embeddings = await embed_texts(texts)
+        if embedding_config is not None:
+            embeddings = await embed_texts_with_config(texts, embedding_config)
+        else:
+            embeddings = await embed_texts(texts)
     except Exception as e:
         logger.error("Embedding 生成失败: %s", e)
         return VectorizeResponse(

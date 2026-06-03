@@ -125,6 +125,7 @@ app.include_router(prompt_router, prefix="/internal/prompts", tags=["prompt"])
 # === AI 配置热重载端点 ===
 
 from fastapi import APIRouter as _Router
+from dataocean.rag.router import DimensionDetectRequest, ProviderTestRequest
 
 _config_router = _Router()
 
@@ -135,6 +136,20 @@ async def reload_config_endpoint():
     from dataocean.infra.config_api import reload_ai_config
     success = await reload_ai_config()
     return {"status": "ok" if success else "error"}
+
+
+@_config_router.post("/internal/ai-config/test-provider")
+async def test_provider_endpoint(request: ProviderTestRequest):
+    """测试 OpenAI 兼容供应商并同步模型列表"""
+    from dataocean.rag.router import test_provider
+    return await test_provider(request)
+
+
+@_config_router.post("/internal/ai-config/detect-dimension")
+async def detect_dimension_endpoint(request: DimensionDetectRequest):
+    """检测 Embedding 模型向量维度"""
+    from dataocean.rag.router import detect_dimension
+    return await detect_dimension(request)
 
 
 app.include_router(_config_router)

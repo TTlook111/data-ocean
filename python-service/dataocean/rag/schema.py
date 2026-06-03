@@ -80,6 +80,31 @@ class ChunkItem(RagBaseModel):
     )
 
 
+class EmbeddingConfig(RagBaseModel):
+    """向量化使用的 Embedding 配置。
+
+    普通查询侧使用全局 active 配置；pending 索引构建时由 Java 显式传入。
+    """
+
+    provider_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("provider_id", "providerId"),
+        serialization_alias="providerId",
+    )
+    base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("base_url", "baseUrl"),
+        serialization_alias="baseUrl",
+    )
+    api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("api_key", "apiKey"),
+        serialization_alias="apiKey",
+    )
+    model: str
+    dimension: int | None = None
+
+
 class VectorizeRequest(RagBaseModel):
     """向量化写入请求"""
 
@@ -119,6 +144,31 @@ class VectorizeRequest(RagBaseModel):
         default=None,
         validation_alias=AliasChoices("target_type", "targetType"),
         serialization_alias="targetType",
+    )
+    is_pending: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("is_pending", "isPending"),
+        serialization_alias="isPending",
+    )
+    index_version: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("index_version", "indexVersion"),
+        serialization_alias="indexVersion",
+    )
+    target_collection: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("target_collection", "targetCollection"),
+        serialization_alias="targetCollection",
+    )
+    target_dimension: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("target_dimension", "targetDimension"),
+        serialization_alias="targetDimension",
+    )
+    embedding_config: EmbeddingConfig | None = Field(
+        default=None,
+        validation_alias=AliasChoices("embedding_config", "embeddingConfig"),
+        serialization_alias="embeddingConfig",
     )
 
 

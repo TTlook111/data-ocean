@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     qwen_model: str = "qwen-plus"
     qwen_embedding_model: str = "text-embedding-v4"
+    embedding_api_key: str = ""
+    embedding_base_url: str = ""
     embedding_dimension: int = 1024
     llm_timeout: int = 120
     llm_max_retries: int = 2
