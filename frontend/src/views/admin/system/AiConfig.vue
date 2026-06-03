@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Cpu, Plus, RefreshCw, Save, Trash2, Wifi } from 'lucide-vue-next'
+import { Cpu, Database, HardDrive, Plus, RefreshCw, Save, Server, Sparkles, Trash2, Wifi } from 'lucide-vue-next'
 import {
   createAiProvider,
   deleteAiProvider,
@@ -52,6 +52,11 @@ const vectorizeMessage = computed(() => {
     return '索引重建失败，查询仍使用上一版 active 索引'
   }
   return ''
+})
+const vectorizeTagType = computed(() => {
+  if (vectorizeStatus.value?.status === 'NORMAL') return 'success'
+  if (vectorizeStatus.value?.status === 'REINDEX_FAILED') return 'danger'
+  return 'warning'
 })
 const selectedChatProvider = computed(() => providers.value.find((item) => item.id === form.chatProviderId))
 const selectedEmbeddingProvider = computed(() => providers.value.find((item) => item.id === form.embeddingProviderId))
@@ -224,22 +229,31 @@ fetchConfig()
     <section v-if="config" class="section">
       <div class="section-title">
         <h3>当前生效</h3>
-        <el-tag :type="vectorizeStatus?.status === 'NORMAL' ? 'success' : 'warning'">
+        <el-tag :type="vectorizeTagType">
           {{ vectorizeStatus?.status || 'NORMAL' }}
         </el-tag>
       </div>
       <div class="status-grid">
-        <div>
-          <span>Chat</span>
-          <strong>{{ config.activeChat?.providerId }} / {{ config.activeChat?.model }}</strong>
+        <div class="status-tile">
+          <span class="tile-icon chat"><Sparkles :size="18" /></span>
+          <div>
+            <span>Chat 模型</span>
+            <strong>{{ config.activeChat?.providerId }} / {{ config.activeChat?.model }}</strong>
+          </div>
         </div>
-        <div>
-          <span>Embedding</span>
-          <strong>{{ config.activeEmbedding?.providerId }} / {{ config.activeEmbedding?.model }}</strong>
+        <div class="status-tile">
+          <span class="tile-icon embedding"><Database :size="18" /></span>
+          <div>
+            <span>Embedding 模型</span>
+            <strong>{{ config.activeEmbedding?.providerId }} / {{ config.activeEmbedding?.model }}</strong>
+          </div>
         </div>
-        <div>
-          <span>Collection</span>
-          <strong>{{ config.activeEmbedding?.collection || 'schema_knowledge' }}</strong>
+        <div class="status-tile">
+          <span class="tile-icon collection"><HardDrive :size="18" /></span>
+          <div>
+            <span>Collection</span>
+            <strong>{{ config.activeEmbedding?.collection || 'schema_knowledge' }}</strong>
+          </div>
         </div>
       </div>
       <el-alert
@@ -248,7 +262,14 @@ fetchConfig()
         show-icon
         :closable="false"
         :title="vectorizeMessage"
-      />
+      >
+        <template #default>
+          <div class="alert-action">
+            <span>pending 配置不会影响当前查询，完成向量化后再切换为 active。</span>
+            <el-button size="small" type="warning" plain disabled>重新向量化</el-button>
+          </div>
+        </template>
+      </el-alert>
     </section>
 
     <section class="section">
@@ -259,18 +280,23 @@ fetchConfig()
       <div class="provider-list">
         <article v-for="provider in providers" :key="provider.id" class="provider-item">
           <div class="provider-main">
-            <strong>{{ provider.name || provider.id }}</strong>
+            <div class="provider-name">
+              <span class="provider-icon"><Server :size="16" /></span>
+              <strong>{{ provider.name || provider.id }}</strong>
+              <el-tag size="small" :type="provider.status === 'connected' ? 'success' : provider.status === 'failed' ? 'danger' : 'info'">
+                {{ provider.status || 'unknown' }}
+              </el-tag>
+            </div>
             <span>{{ provider.baseUrl }}</span>
             <small>Key: {{ provider.apiKeyMasked || '未配置' }}</small>
           </div>
           <div class="provider-meta">
-            <el-tag size="small">{{ provider.status || 'unknown' }}</el-tag>
-            <span>{{ provider.chatModels?.length || 0 }} Chat</span>
-            <span>{{ provider.embeddingModels?.length || 0 }} Embedding</span>
+            <el-tag size="small" effect="plain">{{ provider.chatModels?.length || 0 }} Chat</el-tag>
+            <el-tag size="small" effect="plain">{{ provider.embeddingModels?.length || 0 }} Embedding</el-tag>
           </div>
           <div class="provider-actions">
-            <el-button :icon="Wifi" @click="handleTestProvider(provider)">测试</el-button>
-            <el-button @click="openEditProvider(provider)">编辑</el-button>
+            <el-button :icon="Wifi" circle title="测试连接" @click="handleTestProvider(provider)" />
+            <el-button circle title="编辑" @click="openEditProvider(provider)">编</el-button>
             <el-button :icon="Trash2" type="danger" plain @click="handleDeleteProvider(provider)" />
           </div>
         </article>
@@ -281,39 +307,61 @@ fetchConfig()
       <div class="section-title">
         <h3>模型选择</h3>
       </div>
-      <el-form label-width="130px" label-position="left">
-        <el-form-item label="Chat 供应商">
-          <el-select v-model="form.chatProviderId" filterable>
-            <el-option v-for="provider in providers" :key="provider.id" :label="provider.name || provider.id" :value="provider.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="Chat 模型">
-          <el-select v-model="form.chatModel" filterable allow-create default-first-option>
-            <el-option v-for="model in chatModels" :key="model.name" :label="model.displayName || model.name" :value="model.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="温度 / 超时">
-          <el-input v-model="form.temperature" style="width: 110px" />
-          <el-input v-model="form.timeout" style="width: 110px; margin-left: 10px" />
-          <el-input v-model="form.maxRetries" style="width: 110px; margin-left: 10px" />
-        </el-form-item>
-        <el-form-item label="Embedding 供应商">
-          <el-select v-model="form.embeddingProviderId" filterable>
-            <el-option v-for="provider in providers" :key="provider.id" :label="provider.name || provider.id" :value="provider.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="Embedding 模型">
-          <el-select v-model="form.embeddingModel" filterable allow-create default-first-option @change="onEmbeddingModelChange">
-            <el-option v-for="model in embeddingModels" :key="model.name" :label="model.displayName || model.name" :value="model.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="向量维度">
-          <el-input-number v-model="form.embeddingDimension" :min="1" :step="1" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :icon="Save" :loading="saving" @click="handleSave">保存配置</el-button>
-        </el-form-item>
-      </el-form>
+      <div class="model-grid">
+        <el-form label-width="96px" label-position="left" class="model-panel">
+          <div class="model-panel-title">
+            <Sparkles :size="18" />
+            <strong>Chat 配置</strong>
+          </div>
+          <el-form-item label="供应商">
+            <el-select v-model="form.chatProviderId" filterable>
+              <el-option v-for="provider in providers" :key="provider.id" :label="provider.name || provider.id" :value="provider.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="模型">
+            <el-select v-model="form.chatModel" filterable allow-create default-first-option>
+              <el-option v-for="model in chatModels" :key="model.name" :label="model.displayName || model.name" :value="model.name" />
+            </el-select>
+          </el-form-item>
+          <div class="compact-inputs">
+            <label>
+              <span>温度</span>
+              <el-input v-model="form.temperature" />
+            </label>
+            <label>
+              <span>超时秒数</span>
+              <el-input v-model="form.timeout" />
+            </label>
+            <label>
+              <span>重试次数</span>
+              <el-input v-model="form.maxRetries" />
+            </label>
+          </div>
+        </el-form>
+
+        <el-form label-width="96px" label-position="left" class="model-panel">
+          <div class="model-panel-title">
+            <Database :size="18" />
+            <strong>Embedding 配置</strong>
+          </div>
+          <el-form-item label="供应商">
+            <el-select v-model="form.embeddingProviderId" filterable>
+              <el-option v-for="provider in providers" :key="provider.id" :label="provider.name || provider.id" :value="provider.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="模型">
+            <el-select v-model="form.embeddingModel" filterable allow-create default-first-option @change="onEmbeddingModelChange">
+              <el-option v-for="model in embeddingModels" :key="model.name" :label="model.displayName || model.name" :value="model.name" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="向量维度">
+            <el-input-number v-model="form.embeddingDimension" :min="1" :step="1" />
+          </el-form-item>
+        </el-form>
+      </div>
+      <div class="form-actions">
+        <el-button type="primary" :icon="Save" :loading="saving" @click="handleSave">保存配置</el-button>
+      </div>
     </section>
 
     <el-dialog v-model="providerDialogVisible" title="供应商" width="520px">
@@ -398,11 +446,52 @@ fetchConfig()
   margin-bottom: 12px;
 }
 
-.status-grid div,
+.status-tile,
 .provider-item {
   padding: 12px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
+}
+
+.status-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.status-tile > div {
+  min-width: 0;
+}
+
+.tile-icon,
+.provider-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 8px;
+}
+
+.tile-icon {
+  width: 34px;
+  height: 34px;
+}
+
+.tile-icon.chat {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.tile-icon.embedding {
+  color: #047857;
+  background: #ecfdf5;
+}
+
+.tile-icon.collection {
+  color: #7c3aed;
+  background: #f5f3ff;
 }
 
 .status-grid span,
@@ -417,6 +506,16 @@ fetchConfig()
   display: block;
   margin-top: 4px;
   color: var(--do-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alert-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .provider-list {
@@ -428,11 +527,32 @@ fetchConfig()
 .provider-item {
   justify-content: space-between;
   gap: 14px;
+  background: rgba(255, 255, 255, 0.7);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.provider-item:hover {
+  border-color: var(--do-primary);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
 }
 
 .provider-main {
   flex: 1;
   min-width: 0;
+}
+
+.provider-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.provider-icon {
+  width: 28px;
+  height: 28px;
+  color: var(--do-primary-strong);
+  background: rgba(37, 99, 235, 0.08);
 }
 
 .provider-main span,
@@ -447,8 +567,54 @@ fetchConfig()
   gap: 8px;
 }
 
+.model-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.model-panel {
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.model-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  color: var(--do-primary-strong);
+}
+
+.compact-inputs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.compact-inputs label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.compact-inputs span {
+  font-size: 12px;
+  color: var(--do-muted);
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
 @media (max-width: 760px) {
-  .status-grid {
+  .status-grid,
+  .model-grid,
+  .compact-inputs {
     grid-template-columns: 1fr;
   }
 
