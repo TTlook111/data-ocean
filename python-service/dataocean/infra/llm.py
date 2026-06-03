@@ -14,7 +14,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from dataocean.core.config import settings
+from dataocean.core.config import get_settings
 from dataocean.core.exceptions import LLMException
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ def get_chat_model(
     Returns:
         配置好的 ChatOpenAI 实例
     """
+    settings = get_settings()
     model = model or settings.qwen_model
     temperature = temperature if temperature is not None else settings.llm_temperature
     retries = max_retries if max_retries is not None else settings.llm_max_retries
@@ -97,6 +98,7 @@ async def call_llm(
     try:
         response = await chat.ainvoke(messages)
     except Exception as e:
+        settings = get_settings()
         logger.error("LLM 调用失败 model=%s error=%s", model or settings.qwen_model, e)
         raise LLMException(f"AI 服务暂时不可用：{e}")
 

@@ -13,7 +13,7 @@ import logging
 
 from langchain_openai import OpenAIEmbeddings
 
-from dataocean.core.config import settings
+from dataocean.core.config import get_settings
 from dataocean.core.exceptions import LLMException
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ def _get_embeddings() -> OpenAIEmbeddings:
     """
     global _embeddings
     if _embeddings is None:
+        settings = get_settings()
         _embeddings = OpenAIEmbeddings(
             model=settings.qwen_embedding_model,
             api_key=settings.dashscope_api_key or "dummy",

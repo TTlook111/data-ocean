@@ -3,6 +3,7 @@ package com.dataocean.module.system.controller;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.system.service.SysConfigService;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
@@ -22,11 +23,24 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class InternalAiConfigController {
 
+    private static final String UNSAFE_DEFAULT_TOKEN = "dataocean-internal-default";
+
     private final SysConfigService configService;
     private final DatasourceSecretService secretService;
 
     @Value("${dataocean.internal.token:dataocean-internal-default}")
     private String expectedToken;
+
+    @Value("${spring.profiles.active:dev}")
+    private String activeProfile;
+
+    @PostConstruct
+    void validateTokenConfig() {
+        boolean devProfile = activeProfile != null && activeProfile.contains("dev");
+        if (UNSAFE_DEFAULT_TOKEN.equals(expectedToken) && !devProfile) {
+            throw new IllegalStateException("Production profile must configure dataocean.internal.token explicitly");
+        }
+    }
 
     /**
      * 获取原始 AI 配置（供 Python 拉取，apiKey 返回解密后的明文）。

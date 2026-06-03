@@ -10,7 +10,6 @@ Query_Rewriter → Schema_Retriever → SQL_Generator → SQL_Validator → SQL_
 - 任何节点检测到取消或超时 → 终止
 """
 
-from dataocean.core.error_messages import sanitize_error
 from __future__ import annotations
 
 import logging
@@ -19,6 +18,7 @@ from typing import Literal
 
 from langgraph.graph import END, StateGraph
 
+from dataocean.core.error_messages import sanitize_error
 from dataocean.infra.cancellation import is_cancelled
 from .config import agent_config
 from .state import AgentState
