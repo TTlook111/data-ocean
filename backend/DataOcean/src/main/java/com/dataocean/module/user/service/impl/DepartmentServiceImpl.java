@@ -3,6 +3,7 @@ package com.dataocean.module.user.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.user.entity.dto.DepartmentCreateDTO;
+import com.dataocean.module.user.entity.dto.DepartmentUpdateDTO;
 import com.dataocean.module.user.entity.vo.DepartmentTreeVO;
 import com.dataocean.module.user.entity.SysDepartment;
 import com.dataocean.module.user.entity.SysUser;
@@ -120,6 +121,34 @@ public class DepartmentServiceImpl implements DepartmentService {
         return department.getId();
     }
 
+    @Transactional
+    @Override
+    public void updateDepartment(Long id, DepartmentUpdateDTO request) {
+        SysDepartment department = requireDepartment(id);
+        Long parentId = normalizeParentId(request.getParentId());
+        if (id.equals(parentId)) {
+            throw new BusinessException("上级部门不能选择自身");
+        }
+        if (parentId != null) {
+            requireDepartment(parentId);
+            if (isDescendant(parentId, id)) {
+                throw new BusinessException("上级部门不能选择当前部门的下级");
+            }
+        }
+        Long sameCode = departmentMapper.selectCount(new LambdaQueryWrapper<SysDepartment>()
+                .eq(SysDepartment::getDeptCode, request.getDeptCode())
+                .ne(SysDepartment::getId, id));
+        if (sameCode != null && sameCode > 0) {
+            throw new BusinessException("部门编码已存在");
+        }
+        department.setParentId(parentId);
+        department.setDeptName(request.getDeptName());
+        department.setDeptCode(request.getDeptCode());
+        department.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
+        department.setStatus(request.getStatus() == null ? 1 : request.getStatus());
+        departmentMapper.updateById(department);
+    }
+
     /**
      * {@inheritDoc}
      * <p>
@@ -158,5 +187,33 @@ public class DepartmentServiceImpl implements DepartmentService {
     private void sortTree(List<DepartmentTreeVO> nodes) {
         nodes.sort(Comparator.comparing(DepartmentTreeVO::getSortOrder, Comparator.nullsLast(Integer::compareTo)));
         nodes.forEach(node -> sortTree(node.getChildren()));
+    }
+
+    private SysDepartment requireDepartment(Long id) {
+        SysDepartment department = departmentMapper.selectById(id);
+        if (department == null) {
+            throw new BusinessException("部门不存在");
+        }
+        return department;
+    }
+
+    private Long normalizeParentId(Long parentId) {
+        return parentId == null || parentId == 0 ? null : parentId;
+    }
+
+    private boolean isDescendant(Long candidateId, Long ancestorId) {
+        Long current = candidateId;
+        while (current != null && current != 0) {
+            SysDepartment currentDepartment = departmentMapper.selectById(current);
+            if (currentDepartment == null) {
+                return false;
+            }
+            Long parentId = currentDepartment.getParentId();
+            if (ancestorId.equals(parentId)) {
+                return true;
+            }
+            current = parentId;
+        }
+        return false;
     }
 }

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Building2, FolderPlus, Trash2 } from 'lucide-vue-next'
+import { Building2, Edit3, FolderPlus, Trash2 } from 'lucide-vue-next'
 import {
   createDepartment,
   deleteDepartment,
   listDepartments,
+  updateDepartment,
   type DepartmentNode,
   type DepartmentPayload,
 } from '../../../api/admin/user'
@@ -13,6 +14,7 @@ import {
 const loading = ref(false)
 const saving = ref(false)
 const dialogVisible = ref(false)
+const editingId = ref<number>()
 const departments = ref<DepartmentNode[]>([])
 const form = reactive<DepartmentPayload>({
   parentId: undefined,
@@ -20,6 +22,8 @@ const form = reactive<DepartmentPayload>({
   deptCode: '',
   sortOrder: 0,
 })
+
+const dialogTitle = computed(() => (editingId.value ? '编辑部门' : '新增部门'))
 
 function extractError(error: unknown, fallback: string) {
   if (typeof error === 'object' && error !== null && 'response' in error) {
@@ -33,7 +37,7 @@ async function fetchDepartments() {
   loading.value = true
   try {
     const result = await listDepartments()
-    departments.value = result.data
+    departments.value = result.data || []
   } catch (error) {
     ElMessage.error(extractError(error, '部门数据加载失败'))
   } finally {
@@ -41,12 +45,29 @@ async function fetchDepartments() {
   }
 }
 
-function openCreate(parent?: DepartmentNode) {
+function resetForm() {
+  editingId.value = undefined
   Object.assign(form, {
-    parentId: parent?.id,
+    parentId: undefined,
     deptName: '',
     deptCode: '',
     sortOrder: 0,
+  })
+}
+
+function openCreate(parent?: DepartmentNode) {
+  resetForm()
+  form.parentId = parent?.id
+  dialogVisible.value = true
+}
+
+function openEdit(node: DepartmentNode) {
+  editingId.value = node.id
+  Object.assign(form, {
+    parentId: node.parentId,
+    deptName: node.deptName,
+    deptCode: node.deptCode,
+    sortOrder: node.sortOrder || 0,
   })
   dialogVisible.value = true
 }
@@ -58,12 +79,17 @@ async function saveDepartment() {
   }
   saving.value = true
   try {
-    await createDepartment(form)
-    ElMessage.success('部门创建成功')
+    if (editingId.value) {
+      await updateDepartment(editingId.value, form)
+      ElMessage.success('部门已更新')
+    } else {
+      await createDepartment(form)
+      ElMessage.success('部门已创建')
+    }
     dialogVisible.value = false
     await fetchDepartments()
   } catch (error) {
-    ElMessage.error(extractError(error, '部门创建失败'))
+    ElMessage.error(extractError(error, editingId.value ? '部门更新失败' : '部门创建失败'))
   } finally {
     saving.value = false
   }
@@ -72,7 +98,7 @@ async function saveDepartment() {
 async function removeDepartment(node: DepartmentNode) {
   await ElMessageBox.confirm(`确定删除部门「${node.deptName}」吗？如有下级部门将一并删除。`, '删除部门', {
     type: 'warning',
-    confirmButtonText: '确认删除',
+    confirmButtonText: '确定删除',
     cancelButtonText: '取消',
   })
   try {
@@ -151,6 +177,10 @@ onMounted(fetchDepartments)
                 <FolderPlus :size="14" />
                 新增下级
               </el-button>
+              <el-button link type="primary" size="small" @click.stop="openEdit(data)">
+                <Edit3 :size="14" />
+                编辑
+              </el-button>
               <el-button link type="danger" size="small" @click.stop="removeDepartment(data)">
                 <Trash2 :size="14" />
                 删除
@@ -161,7 +191,7 @@ onMounted(fetchDepartments)
       </el-tree>
     </section>
 
-    <el-dialog v-model="dialogVisible" title="新增部门" width="520px">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="520px" @closed="resetForm">
       <el-form label-width="90px" :disabled="saving">
         <el-form-item label="上级部门">
           <el-tree-select
@@ -216,6 +246,11 @@ onMounted(fetchDepartments)
   margin: 0;
   font-size: 24px;
   color: var(--do-ink);
+}
+
+.header-subtitle {
+  color: var(--do-muted);
+  font-size: 13px;
 }
 
 .dept-stats {

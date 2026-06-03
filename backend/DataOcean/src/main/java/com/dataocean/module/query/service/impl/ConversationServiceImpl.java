@@ -125,6 +125,18 @@ public class ConversationServiceImpl implements ConversationService {
         return conversationMapper.selectList(wrapper);
     }
 
+    @Transactional
+    @Override
+    public void archiveConversation(Long conversationId, Long userId) {
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation == null || !conversation.getUserId().equals(userId)) {
+            throw new BusinessException("会话不存在或无权访问");
+        }
+        conversation.setStatus("ARCHIVED");
+        conversation.setUpdatedAt(LocalDateTime.now());
+        conversationMapper.updateById(conversation);
+    }
+
     /**
      * 更新会话的 updated_at 时间戳。
      */

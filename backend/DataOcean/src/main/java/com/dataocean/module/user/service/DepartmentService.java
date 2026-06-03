@@ -1,6 +1,7 @@
 package com.dataocean.module.user.service;
 
 import com.dataocean.module.user.entity.dto.DepartmentCreateDTO;
+import com.dataocean.module.user.entity.dto.DepartmentUpdateDTO;
 import com.dataocean.module.user.entity.vo.DepartmentTreeVO;
 
 import java.util.List;
@@ -36,6 +37,8 @@ public interface DepartmentService {
      * @return 新创建部门的 ID
      */
     Long createDepartment(DepartmentCreateDTO request);
+
+    void updateDepartment(Long id, DepartmentUpdateDTO request);
 
     /**
      * 删除部门。

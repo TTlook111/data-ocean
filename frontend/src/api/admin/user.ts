@@ -46,6 +46,28 @@ export interface RoleItem {
   createdAt?: string
 }
 
+export interface RolePayload {
+  roleCode: string
+  roleName: string
+  description?: string
+  status?: number
+  permissionIds?: number[]
+}
+
+export interface PermissionItem {
+  id: number
+  permissionCode: string
+  permissionName: string
+  module: string
+  description?: string
+}
+
+export interface PermissionGroup {
+  module: string
+  moduleName: string
+  permissions: PermissionItem[]
+}
+
 export interface DepartmentNode {
   id: number
   parentId?: number
@@ -92,8 +114,57 @@ export async function resetUserPassword(id: number) {
   return data
 }
 
+export async function downloadUserImportTemplate() {
+  const { data } = await http.get<Blob>('/api/admin/users/import-template', { responseType: 'blob' })
+  return data
+}
+
+export async function importUsers(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await http.post<ApiResult<{ success: number; failed: number; errors: string[] }>>('/api/admin/users/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
+
+export async function exportUsers(params: UserQuery) {
+  const { data } = await http.get<Blob>('/api/admin/users/export', { params, responseType: 'blob' })
+  return data
+}
+
 export async function listRoles() {
   const { data } = await http.get<ApiResult<RoleItem[]>>('/api/admin/roles')
+  return data
+}
+
+export async function createRole(payload: RolePayload) {
+  const { data } = await http.post<ApiResult<{ id: number }>>('/api/admin/roles', payload)
+  return data
+}
+
+export async function updateRole(id: number, payload: RolePayload) {
+  const { data } = await http.put<ApiResult<null>>(`/api/admin/roles/${id}`, payload)
+  return data
+}
+
+export async function deleteRole(id: number) {
+  const { data } = await http.delete<ApiResult<null>>(`/api/admin/roles/${id}`)
+  return data
+}
+
+export async function listRolePermissionIds(roleId: number) {
+  const { data } = await http.get<ApiResult<number[]>>(`/api/admin/roles/${roleId}/permissions`)
+  return data
+}
+
+export async function updateRolePermissions(roleId: number, permissionIds: number[]) {
+  const { data } = await http.put<ApiResult<null>>(`/api/admin/roles/${roleId}/permissions`, { permissionIds })
+  return data
+}
+
+export async function listPermissionsTree() {
+  const { data } = await http.get<ApiResult<PermissionGroup[]>>('/api/admin/permissions/tree')
   return data
 }
 
@@ -119,6 +190,11 @@ export async function listDepartments() {
 
 export async function createDepartment(payload: DepartmentPayload) {
   const { data } = await http.post<ApiResult<{ id: number }>>('/api/admin/departments', payload)
+  return data
+}
+
+export async function updateDepartment(id: number, payload: DepartmentPayload) {
+  const { data } = await http.put<ApiResult<null>>(`/api/admin/departments/${id}`, payload)
   return data
 }
 

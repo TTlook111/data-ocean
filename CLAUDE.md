@@ -285,7 +285,7 @@ cd frontend && npm install && npm run dev
 cd backend && mvn spring-boot:run
 
 # Python AI 服务
-cd python-service && uv run fastapi dev
+cd python-service && uv run uvicorn dataocean.main:app --reload --port 8000
 
 # Docker 一键启动基础设施
 docker compose up -d

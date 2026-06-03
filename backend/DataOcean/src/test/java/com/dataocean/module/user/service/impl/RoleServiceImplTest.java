@@ -4,7 +4,9 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.entity.SysUser;
 import com.dataocean.module.user.entity.SysUserRole;
+import com.dataocean.module.user.mapper.PermissionMapper;
 import com.dataocean.module.user.mapper.RoleMapper;
+import com.dataocean.module.user.mapper.RolePermissionMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.mapper.UserRoleMapper;
 import org.junit.jupiter.api.Test;
@@ -26,7 +28,7 @@ class RoleServiceImplTest {
         RoleMapper roleMapper = mock(RoleMapper.class);
         UserMapper userMapper = mock(UserMapper.class);
         UserRoleMapper userRoleMapper = mock(UserRoleMapper.class);
-        RoleServiceImpl service = new RoleServiceImpl(roleMapper, userMapper, userRoleMapper);
+        RoleServiceImpl service = service(roleMapper, userMapper, userRoleMapper);
 
         SysRole role = role(5L, "ADMIN", "超级管理员");
         SysUser admin = user(1L, "admin", "超级管理员", SysUser.STATUS_NORMAL);
@@ -46,7 +48,7 @@ class RoleServiceImplTest {
         RoleMapper roleMapper = mock(RoleMapper.class);
         UserMapper userMapper = mock(UserMapper.class);
         UserRoleMapper userRoleMapper = mock(UserRoleMapper.class);
-        RoleServiceImpl service = new RoleServiceImpl(roleMapper, userMapper, userRoleMapper);
+        RoleServiceImpl service = service(roleMapper, userMapper, userRoleMapper);
 
         when(roleMapper.selectById(2L)).thenReturn(role(2L, "DATA_ANALYST", "数据分析师"));
         when(userMapper.selectById(9L)).thenReturn(user(9L, "analyst", "分析师", SysUser.STATUS_NORMAL));
@@ -62,7 +64,7 @@ class RoleServiceImplTest {
         RoleMapper roleMapper = mock(RoleMapper.class);
         UserMapper userMapper = mock(UserMapper.class);
         UserRoleMapper userRoleMapper = mock(UserRoleMapper.class);
-        RoleServiceImpl service = new RoleServiceImpl(roleMapper, userMapper, userRoleMapper);
+        RoleServiceImpl service = service(roleMapper, userMapper, userRoleMapper);
 
         when(roleMapper.selectById(2L)).thenReturn(role(2L, "DATA_ANALYST", "数据分析师"));
         when(userMapper.selectById(9L)).thenReturn(user(9L, "analyst", "分析师", SysUser.STATUS_NORMAL));
@@ -78,7 +80,7 @@ class RoleServiceImplTest {
         RoleMapper roleMapper = mock(RoleMapper.class);
         UserMapper userMapper = mock(UserMapper.class);
         UserRoleMapper userRoleMapper = mock(UserRoleMapper.class);
-        RoleServiceImpl service = new RoleServiceImpl(roleMapper, userMapper, userRoleMapper);
+        RoleServiceImpl service = service(roleMapper, userMapper, userRoleMapper);
 
         when(roleMapper.selectById(2L)).thenReturn(role(2L, "DATA_ANALYST", "数据分析师"));
         when(userMapper.selectById(9L)).thenReturn(user(9L, "analyst", "分析师", SysUser.STATUS_DISABLED));
@@ -94,7 +96,7 @@ class RoleServiceImplTest {
         RoleMapper roleMapper = mock(RoleMapper.class);
         UserMapper userMapper = mock(UserMapper.class);
         UserRoleMapper userRoleMapper = mock(UserRoleMapper.class);
-        RoleServiceImpl service = new RoleServiceImpl(roleMapper, userMapper, userRoleMapper);
+        RoleServiceImpl service = service(roleMapper, userMapper, userRoleMapper);
 
         when(roleMapper.selectById(5L)).thenReturn(role(5L, "ADMIN", "超级管理员"));
         when(userMapper.selectById(1L)).thenReturn(user(1L, "admin", "超级管理员", SysUser.STATUS_NORMAL));
@@ -111,7 +113,7 @@ class RoleServiceImplTest {
         RoleMapper roleMapper = mock(RoleMapper.class);
         UserMapper userMapper = mock(UserMapper.class);
         UserRoleMapper userRoleMapper = mock(UserRoleMapper.class);
-        RoleServiceImpl service = new RoleServiceImpl(roleMapper, userMapper, userRoleMapper);
+        RoleServiceImpl service = service(roleMapper, userMapper, userRoleMapper);
 
         when(roleMapper.selectById(5L)).thenReturn(role(5L, "ADMIN", "超级管理员"));
         when(userMapper.selectById(1L)).thenReturn(user(1L, "admin", "超级管理员", SysUser.STATUS_DISABLED));
@@ -137,5 +139,15 @@ class RoleServiceImplTest {
         user.setRealName(realName);
         user.setStatus(status);
         return user;
+    }
+
+    private static RoleServiceImpl service(RoleMapper roleMapper, UserMapper userMapper, UserRoleMapper userRoleMapper) {
+        return new RoleServiceImpl(
+                roleMapper,
+                mock(PermissionMapper.class),
+                mock(RolePermissionMapper.class),
+                userMapper,
+                userRoleMapper
+        );
     }
 }

@@ -12,6 +12,7 @@ import com.dataocean.module.metadata.service.SchemaSnapshotService;
 import com.dataocean.module.permission.service.DatasourcePermissionService;
 import com.dataocean.module.query.client.PythonAgentClient;
 import com.dataocean.module.query.entity.dto.QueryAskDTO;
+import com.dataocean.module.query.entity.query.QueryHistoryQuery;
 import com.dataocean.module.query.entity.vo.ConversationMessageVO;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 import com.dataocean.module.query.service.ConversationService;
@@ -159,5 +160,16 @@ public class QueryController {
             @RequestParam(required = false) Long datasourceId) {
         Long userId = UserContext.currentUserId();
         return Result.success(conversationService.listConversations(userId, datasourceId));
+    }
+
+    @DeleteMapping("/conversations/{conversationId}")
+    public Result<Void> deleteConversation(@PathVariable Long conversationId) {
+        conversationService.archiveConversation(conversationId, UserContext.currentUserId());
+        return Result.success("会话已删除", null);
+    }
+
+    @GetMapping("/history")
+    public Result<?> history(@ModelAttribute QueryHistoryQuery query) {
+        return Result.success(queryTaskService.listHistory(UserContext.currentUserId(), query));
     }
 }

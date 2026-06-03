@@ -1,5 +1,7 @@
 package com.dataocean.module.query.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.module.query.entity.query.QueryHistoryQuery;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 
 /**
@@ -29,6 +31,8 @@ public interface QueryTaskService {
      * @return 任务结果 VO
      */
     QueryTaskVO getTaskResult(String taskId, Long userId);
+
+    Page<QueryTaskVO> listHistory(Long userId, QueryHistoryQuery query);
 
     /**
      * 取消查询任务。

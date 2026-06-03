@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { RotateCcw, Search } from 'lucide-vue-next'
+import { Download, RotateCcw, Search, Upload } from 'lucide-vue-next'
 import {
   createUser,
   deleteUser,
+  downloadUserImportTemplate,
+  exportUsers,
+  importUsers,
   listDepartments,
   listRoles,
   listUsers,
@@ -25,9 +28,12 @@ const STATUS_LOCKED = 3
 
 const auth = useAuthStore()
 const formRef = ref<FormInstance>()
+const importInputRef = ref<HTMLInputElement>()
 const loading = ref(false)
 const optionLoading = ref(false)
 const saving = ref(false)
+const importLoading = ref(false)
+const exportLoading = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref<number>()
 const users = ref<UserItem[]>([])
@@ -385,6 +391,63 @@ function resetFilters() {
   fetchUsers()
 }
 
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+async function downloadTemplate() {
+  try {
+    const blob = await downloadUserImportTemplate()
+    downloadBlob(blob, 'dataocean-user-import-template.csv')
+  } catch (error) {
+    ElMessage.error(extractError(error, '导入模板下载失败'))
+  }
+}
+
+function openImportPicker() {
+  importInputRef.value?.click()
+}
+
+async function handleImportFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  importLoading.value = true
+  try {
+    const result = await importUsers(file)
+    const errors = result.data.errors || []
+    if (errors.length) {
+      ElMessage.warning(`导入完成：成功 ${result.data.success} 条，失败 ${result.data.failed} 条`)
+      console.warn('User import errors:', errors)
+    } else {
+      ElMessage.success(`导入成功：${result.data.success} 条`)
+    }
+    await fetchUsers()
+  } catch (error) {
+    ElMessage.error(extractError(error, '用户导入失败'))
+  } finally {
+    importLoading.value = false
+  }
+}
+
+async function exportCurrentUsers() {
+  exportLoading.value = true
+  try {
+    const blob = await exportUsers(query)
+    downloadBlob(blob, 'dataocean-users.csv')
+  } catch (error) {
+    ElMessage.error(extractError(error, '用户导出失败'))
+  } finally {
+    exportLoading.value = false
+  }
+}
+
 function canDelete(row: UserItem) {
   return row.id !== currentUserId.value
 }
@@ -408,7 +471,22 @@ onBeforeUnmount(() => {
         <h1>账号、角色与状态</h1>
         <span class="header-subtitle">集中维护平台用户、部门归属、角色授权和账号状态。</span>
       </div>
-      <el-button type="primary" @click="openCreate">新增用户</el-button>
+      <div class="header-actions">
+        <input ref="importInputRef" type="file" accept=".csv,text/csv" class="hidden-file-input" @change="handleImportFile" />
+        <el-button @click="downloadTemplate">
+          <Download :size="16" />
+          导入模板
+        </el-button>
+        <el-button :loading="importLoading" @click="openImportPicker">
+          <Upload :size="16" />
+          导入用户
+        </el-button>
+        <el-button :loading="exportLoading" @click="exportCurrentUsers">
+          <Download :size="16" />
+          导出
+        </el-button>
+        <el-button type="primary" @click="openCreate">新增用户</el-button>
+      </div>
     </header>
 
     <section class="toolbar">
@@ -563,6 +641,18 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 .page-header p {

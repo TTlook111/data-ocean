@@ -1,5 +1,5 @@
 import { http } from './http'
-import type { ApiResult } from './types'
+import type { ApiResult, PageResult } from './types'
 
 export interface QueryAskParams {
   datasourceId: number
@@ -53,6 +53,14 @@ export interface ConversationMessageItem {
   createdAt: string
 }
 
+export interface QueryHistoryParams {
+  datasourceId?: number
+  status?: string
+  keyword?: string
+  page?: number
+  pageSize?: number
+}
+
 export async function submitQuery(params: QueryAskParams) {
   const { data } = await http.post<ApiResult<QueryAskResult>>('/api/query/ask', params)
   return data
@@ -83,5 +91,15 @@ export async function listConversationMessages(conversationId: number, params: {
     `/api/query/conversations/${conversationId}/messages`,
     { params },
   )
+  return data
+}
+
+export async function deleteConversation(conversationId: number) {
+  const { data } = await http.delete<ApiResult<void>>(`/api/query/conversations/${conversationId}`)
+  return data
+}
+
+export async function listQueryHistory(params: QueryHistoryParams = {}) {
+  const { data } = await http.get<ApiResult<PageResult<QueryTaskResult>>>('/api/query/history', { params })
   return data
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   BarChart3,
   BookOpen,
@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   ThumbsUp,
   ThumbsDown,
+  Trash2,
   UserCog,
   UserRound,
   X,
@@ -30,6 +31,7 @@ import {
   submitQueryFeedback,
   listConversations,
   listConversationMessages,
+  deleteConversation,
   type ConversationMessageItem,
 } from '../../api/query'
 import { useGsapMotion } from '../../composables/useGsapMotion'
@@ -356,6 +358,35 @@ async function selectSession(sessionId: string) {
   focusQuestionInput()
 }
 
+async function removeSession(session: LocalSession) {
+  try {
+    await ElMessageBox.confirm(`确定删除会话「${session.title}」吗？`, '删除会话', {
+      type: 'warning',
+      confirmButtonText: '确定删除',
+      cancelButtonText: '取消',
+    })
+    if (session.conversationId) {
+      await deleteConversation(session.conversationId)
+    }
+    const index = sessions.findIndex((item) => item.id === session.id)
+    if (index >= 0) sessions.splice(index, 1)
+    if (activeSessionId.value === session.id) {
+      const nextSession = datasourceSessions.value[0]
+      activeSessionId.value = nextSession?.id
+      if (nextSession && !nextSession.messages.length) {
+        await hydrateSessionMessages(nextSession)
+      }
+    }
+    ElMessage.success('会话已删除')
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    const msg = typeof error === 'object' && error !== null && 'response' in error
+      ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
+      : undefined
+    ElMessage.error(msg || '会话删除失败')
+  }
+}
+
 async function sendQuestion() {
   const text = question.value.trim()
   if (!selectedId.value || !text || isQuerying.value) return
@@ -675,20 +706,25 @@ watch(resultTab, () => {
         <div v-if="!selectedId" class="sidebar-empty">选择数据源后显示对应历史。</div>
         <div v-else-if="!datasourceSessions.length" class="sidebar-empty">当前数据源暂无历史会话。</div>
         <div v-else class="history-list">
-          <button
+          <div
             v-for="session in datasourceSessions"
             :key="session.id"
-            type="button"
+            role="button"
+            tabindex="0"
             class="history-row"
             :class="{ active: session.id === activeSessionId }"
             @click="selectSession(session.id)"
+            @keydown.enter="selectSession(session.id)"
           >
             <History :size="15" />
             <span>
               <strong>{{ session.title }}</strong>
               <small>{{ session.messages.length }} 条消息 · {{ formatTime(session.updatedAt) }}</small>
             </span>
-          </button>
+            <button type="button" class="history-delete" aria-label="删除会话" @click.stop="removeSession(session)">
+              <Trash2 :size="14" />
+            </button>
+          </div>
         </div>
       </section>
     </aside>
@@ -1037,6 +1073,33 @@ watch(resultTab, () => {
   background: transparent;
   text-align: left;
   cursor: pointer;
+}
+
+.history-row {
+  grid-template-columns: 28px minmax(0, 1fr) 30px;
+}
+
+.history-delete {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--do-muted);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.history-row:hover .history-delete,
+.history-row:focus-within .history-delete {
+  opacity: 1;
+}
+
+.history-delete:hover {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.1);
 }
 
 .datasource-row:hover,

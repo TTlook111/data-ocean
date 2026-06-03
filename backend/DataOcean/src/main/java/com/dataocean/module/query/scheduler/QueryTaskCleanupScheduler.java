@@ -6,6 +6,7 @@ import com.dataocean.module.query.enums.QueryTaskStatus;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,7 @@ import java.time.LocalDateTime;
  * </p>
  */
 @Component
+@ConditionalOnProperty(prefix = "dataocean.query.cleanup", name = "enabled", havingValue = "true", matchIfMissing = true)
 @RequiredArgsConstructor
 @Slf4j
 public class QueryTaskCleanupScheduler {

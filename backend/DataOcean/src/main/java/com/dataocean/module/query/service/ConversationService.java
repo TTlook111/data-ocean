@@ -62,6 +62,8 @@ public interface ConversationService {
      */
     List<?> listConversations(Long userId, Long datasourceId);
 
+    void archiveConversation(Long conversationId, Long userId);
+
     /**
      * 获取会话最近 N 条消息（内部调用，不校验权限）。
      *

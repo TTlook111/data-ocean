@@ -2,11 +2,16 @@ package com.dataocean.module.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.user.entity.SysPermission;
 import com.dataocean.module.user.entity.SysRole;
+import com.dataocean.module.user.entity.SysRolePermission;
 import com.dataocean.module.user.entity.SysUser;
 import com.dataocean.module.user.entity.SysUserRole;
+import com.dataocean.module.user.entity.dto.RoleSaveDTO;
 import com.dataocean.module.user.entity.vo.UserVO;
+import com.dataocean.module.user.mapper.PermissionMapper;
 import com.dataocean.module.user.mapper.RoleMapper;
+import com.dataocean.module.user.mapper.RolePermissionMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.mapper.UserRoleMapper;
 import com.dataocean.module.user.service.RoleService;
@@ -29,6 +34,8 @@ import java.util.List;
 public class RoleServiceImpl implements RoleService {
 
     private final RoleMapper roleMapper;
+    private final PermissionMapper permissionMapper;
+    private final RolePermissionMapper rolePermissionMapper;
     private final UserMapper userMapper;
     private final UserRoleMapper userRoleMapper;
 
@@ -42,6 +49,87 @@ public class RoleServiceImpl implements RoleService {
                 .orderByAsc(SysRole::getId));
         log.debug("查询启用角色列表完成 count={}", roles.size());
         return roles;
+    }
+
+    @Override
+    public List<SysRole> listAllRoles() {
+        return roleMapper.selectList(new LambdaQueryWrapper<SysRole>().orderByAsc(SysRole::getId));
+    }
+
+    @Transactional
+    @Override
+    public Long createRole(RoleSaveDTO request) {
+        ensureRoleCodeAvailable(request.getRoleCode(), null);
+        SysRole role = new SysRole();
+        role.setRoleCode(request.getRoleCode());
+        role.setRoleName(request.getRoleName());
+        role.setDescription(request.getDescription());
+        role.setStatus(normalizeStatus(request.getStatus()));
+        roleMapper.insert(role);
+        updateRolePermissions(role.getId(), request.getPermissionIds());
+        return role.getId();
+    }
+
+    @Transactional
+    @Override
+    public void updateRole(Long roleId, RoleSaveDTO request) {
+        SysRole role = requireRole(roleId);
+        if ("ADMIN".equals(role.getRoleCode()) && request.getStatus() != null && request.getStatus() != 1) {
+            throw new BusinessException("超级管理员角色不能禁用");
+        }
+        ensureRoleCodeAvailable(request.getRoleCode(), roleId);
+        role.setRoleCode(request.getRoleCode());
+        role.setRoleName(request.getRoleName());
+        role.setDescription(request.getDescription());
+        role.setStatus(normalizeStatus(request.getStatus()));
+        roleMapper.updateById(role);
+        updateRolePermissions(roleId, request.getPermissionIds());
+    }
+
+    @Transactional
+    @Override
+    public void deleteRole(Long roleId) {
+        SysRole role = requireRole(roleId);
+        if ("ADMIN".equals(role.getRoleCode())) {
+            throw new BusinessException("超级管理员角色不能删除");
+        }
+        Long memberCount = userRoleMapper.selectCount(new LambdaQueryWrapper<SysUserRole>().eq(SysUserRole::getRoleId, roleId));
+        if (memberCount != null && memberCount > 0) {
+            throw new BusinessException("角色下仍有成员，无法删除");
+        }
+        rolePermissionMapper.delete(new LambdaQueryWrapper<SysRolePermission>().eq(SysRolePermission::getRoleId, roleId));
+        roleMapper.deleteById(roleId);
+    }
+
+    @Override
+    public List<Long> listRolePermissionIds(Long roleId) {
+        requireRole(roleId);
+        return rolePermissionMapper.selectList(new LambdaQueryWrapper<SysRolePermission>()
+                        .eq(SysRolePermission::getRoleId, roleId))
+                .stream()
+                .map(SysRolePermission::getPermissionId)
+                .toList();
+    }
+
+    @Transactional
+    @Override
+    public void updateRolePermissions(Long roleId, List<Long> permissionIds) {
+        requireRole(roleId);
+        rolePermissionMapper.delete(new LambdaQueryWrapper<SysRolePermission>().eq(SysRolePermission::getRoleId, roleId));
+        if (permissionIds == null || permissionIds.isEmpty()) {
+            return;
+        }
+        List<Long> distinctIds = permissionIds.stream().distinct().toList();
+        List<SysPermission> permissions = permissionMapper.selectByIds(distinctIds);
+        if (permissions.size() != distinctIds.size()) {
+            throw new BusinessException("权限不存在，请刷新后重试");
+        }
+        for (Long permissionId : distinctIds) {
+            SysRolePermission relation = new SysRolePermission();
+            relation.setRoleId(roleId);
+            relation.setPermissionId(permissionId);
+            rolePermissionMapper.insert(relation);
+        }
     }
 
     /**
@@ -110,6 +198,31 @@ public class RoleServiceImpl implements RoleService {
             throw new BusinessException("角色不存在或已禁用");
         }
         return role;
+    }
+
+    private SysRole requireRole(Long roleId) {
+        SysRole role = roleMapper.selectById(roleId);
+        if (role == null) {
+            throw new BusinessException("角色不存在");
+        }
+        return role;
+    }
+
+    private void ensureRoleCodeAvailable(String roleCode, Long currentRoleId) {
+        SysRole existing = roleMapper.selectOne(new LambdaQueryWrapper<SysRole>().eq(SysRole::getRoleCode, roleCode));
+        if (existing != null && !existing.getId().equals(currentRoleId)) {
+            throw new BusinessException("角色编码已存在");
+        }
+    }
+
+    private int normalizeStatus(Integer status) {
+        if (status == null) {
+            return 1;
+        }
+        if (status != 1 && status != 2) {
+            throw new BusinessException("角色状态不合法");
+        }
+        return status;
     }
 
     /** 校验用户存在 */

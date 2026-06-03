@@ -2,13 +2,16 @@ package com.dataocean.module.query.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.pagination.PageRequest;
 import com.dataocean.module.audit.service.AuditLogService;
 import com.dataocean.module.audit.service.LineageService;
 import com.dataocean.module.permission.entity.vo.PermissionContextVO;
 import com.dataocean.module.permission.service.DataMaskingService;
 import com.dataocean.module.permission.service.PermissionCalculator;
 import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.query.QueryHistoryQuery;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 import com.dataocean.module.query.enums.QueryTaskStatus;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
@@ -21,6 +24,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -102,6 +106,26 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             vo.setCanExport(context.isCanExport());
         }
         return vo;
+    }
+
+    @Override
+    public Page<QueryTaskVO> listHistory(Long userId, QueryHistoryQuery query) {
+        Page<QueryTask> page = queryTaskMapper.selectPage(
+                new Page<>(PageRequest.page(query.getPage()), PageRequest.size(query.getPageSize())),
+                new LambdaQueryWrapper<QueryTask>()
+                        .eq(QueryTask::getUserId, userId)
+                        .eq(query.getDatasourceId() != null, QueryTask::getDatasourceId, query.getDatasourceId())
+                        .eq(StringUtils.hasText(query.getStatus()), QueryTask::getStatus, query.getStatus())
+                        .and(StringUtils.hasText(query.getKeyword()), wrapper -> wrapper
+                                .like(QueryTask::getQuestion, query.getKeyword())
+                                .or()
+                                .like(QueryTask::getResultSql, query.getKeyword())
+                                .or()
+                                .like(QueryTask::getErrorMessage, query.getKeyword()))
+                        .orderByDesc(QueryTask::getCreatedAt));
+        Page<QueryTaskVO> result = new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
+        result.setRecords(page.getRecords().stream().map(this::toVO).toList());
+        return result;
     }
 
     /**

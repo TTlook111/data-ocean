@@ -1,6 +1,7 @@
 package com.dataocean.module.user.service;
 
 import com.dataocean.module.user.entity.SysRole;
+import com.dataocean.module.user.entity.dto.RoleSaveDTO;
 import com.dataocean.module.user.entity.vo.UserVO;
 
 import java.util.List;
@@ -14,6 +15,18 @@ public interface RoleService {
      * 查询所有启用状态的角色列表。
      */
     List<SysRole> listEnabledRoles();
+
+    List<SysRole> listAllRoles();
+
+    Long createRole(RoleSaveDTO request);
+
+    void updateRole(Long roleId, RoleSaveDTO request);
+
+    void deleteRole(Long roleId);
+
+    List<Long> listRolePermissionIds(Long roleId);
+
+    void updateRolePermissions(Long roleId, List<Long> permissionIds);
 
     /**
      * 查询指定角色下的用户成员。

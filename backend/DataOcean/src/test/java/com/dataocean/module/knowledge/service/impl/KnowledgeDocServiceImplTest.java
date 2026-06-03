@@ -13,6 +13,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.support.KnowledgeChunkSplitter;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
+import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.entity.DbTableMeta;
 import com.dataocean.module.metadata.entity.TableRelation;
@@ -65,6 +66,8 @@ class KnowledgeDocServiceImplTest {
     private DbColumnMetaMapper dbColumnMetaMapper;
     @Mock
     private TableRelationMapper tableRelationMapper;
+    @Mock
+    private FieldTagMapper fieldTagMapper;
 
     @InjectMocks
     private KnowledgeDocServiceImpl knowledgeDocService;
