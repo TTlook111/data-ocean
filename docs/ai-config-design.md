@@ -1,6 +1,6 @@
 # AI 服务配置管理 — 设计文档
 
-> 版本：v1.1 | 更新日期：2026-06-03
+> 版本：v1.2 | 更新日期：2026-06-03
 
 ## 一、背景与目标
 
@@ -20,6 +20,17 @@
 3. 切换 Embedding 模型时**自动检测维度变化并警告**，确认后触发全量重新向量化
 4. 所有配置**在线热更新**，无需重启任何服务
 5. API Key **AES-256-GCM 加密存储**，前端只显示掩码
+
+### 1.3 最终设计结论
+
+本功能采用 **active/pending 双配置 + pending 索引构建 + 成功发布后延迟清理** 的方案：
+
+1. Chat 模型切换可直接热重载为 active，后续查询立即生效。
+2. Embedding 模型切换时，新配置先进入 `ai.pending.embedding`，不覆盖 `ai.active.embedding`。
+3. pending 索引用 pending Embedding 独立构建；重建期间查询侧继续使用 active Embedding 和旧 active 索引。
+4. pending 索引完整写入并校验成功后，系统再将 pending 发布为 active，并回调 Python 热重载查询侧配置。
+5. 新 active 索引真正生效后，才清理上一版旧 active 索引；pending 构建失败时仅清理 pending 残留，旧索引继续可用。
+6. 维度变化时必须创建新的 Milvus collection；同一个 collection 只允许存储同一维度向量。
 
 ---
 
@@ -524,7 +535,8 @@ Python 重启后 → 调用 GET /internal/config/pending
 | `DatasourceSecretService` | 复用，用于 API Key AES-256-GCM 加解密 |
 | `config_api.py`（已实现） | 扩展，支持多供应商配置拉取 + `reload_pending` 标记处理 |
 | `config.py reload_config()`（已实现） | 复用，清除缓存重建实例 |
-| `llm.py` / `embeddings.py` | 无需改动，已经支持运行时切换 |
+| `llm.py` | 扩展缓存 key，支持多供应商同名模型隔离 |
+| `embeddings.py` | 新增 pending 专用向量化入口，支持按 `embeddingConfig` 临时创建 Embedding 实例 |
 | `RAG retriever` | 查询侧只读取 active Embedding + active 索引；重建期间不使用 pending 索引 |
 | `RAG vectorize` | 改造为 pending 索引构建策略（pending 写入 + 成功发布 + 延迟清理旧索引） |
 | `KnowledgeChunkSplitter` | 无需改动，分块逻辑不变 |
@@ -535,10 +547,25 @@ Python 重启后 → 调用 GET /internal/config/pending
 
 | 阶段 | 内容 | 工作量 |
 |------|------|--------|
-| **P0** | 数据模型重构（供应商拆行 + Chat/Embedding 分离 + 向量化状态） | 0.5 天 |
-| **P1** | Java 后端接口（供应商 CRUD + 配置更新 + 热重载 + 删除保护 + 进度查询） | 1 天 |
+| **P0** | 数据模型重构（供应商拆行 + Chat/Embedding 分离 + active/pending 向量化状态） | 0.5 天 |
+| **P1** | Java 后端接口（供应商 CRUD + 配置更新 + 热重载 + 删除保护 + pending 发布/回滚 + 进度查询） | 1 天 |
 | **P2** | Python 端扩展（测试连接 + 维度检测 + pending 向量化 + 进度上报 + pending 拉取） | 1.5 天 |
 | **P3** | 前端页面（供应商管理 + 模型选择 + Embedding 切换警告 + 进度条 + 手动分类） | 1.5 天 |
 | **P4** | 数据迁移（旧 `ai.providers` 拆分为 `ai.provider.{id}`）+ 端到端联调 | 0.5 天 |
 
 **总计：约 5 天**
+
+---
+
+## 十、验收标准
+
+1. 管理员可新增、编辑、删除未被引用的 AI 供应商，API Key 入库存储为密文，前端只展示掩码。
+2. Chat 模型切换后，Java 更新 active 配置并通知 Python 热重载，后续查询使用新 Chat 模型。
+3. Embedding 模型切换后，新配置进入 `ai.pending.embedding`，`ai.active.embedding` 不变，查询仍使用旧 active 索引。
+4. pending 索引构建期间，前端展示进度和提示："当前查询仍使用上一版索引，新配置将在重建完成后生效"。
+5. pending 索引完整写入并校验成功后，系统发布 pending 为 active，Python 查询侧热重载到新 Embedding，并清理上一版旧 active 索引。
+6. pending 索引构建失败时，系统清理 pending 残留，active 配置和 active 索引保持不变，问答能力不受影响。
+7. Embedding 维度变化时，系统创建新 Milvus collection；不得向旧维度 collection 写入不同维度向量。
+8. 供应商模型列表同步支持自动分类和手动修正；后续同步保留管理员手动分类结果。
+9. `/api/query/ask` 在 `REINDEXING` 期间仍可用，但返回结果应带提示标记，说明当前使用上一版索引。
+10. 端到端联调截图保存到 `output/playwright/`，至少覆盖 Chat 切换、Embedding pending 重建成功、Embedding pending 重建失败三个场景。
