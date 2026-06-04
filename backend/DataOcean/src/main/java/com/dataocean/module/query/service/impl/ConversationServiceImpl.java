@@ -166,7 +166,11 @@ public class ConversationServiceImpl implements ConversationService {
      * {@inheritDoc}
      */
     @Override
-    public List<ConversationMessageVO> getRecentMessages(Long conversationId, int limit) {
+    public List<ConversationMessageVO> getRecentMessages(Long conversationId, Long userId, int limit) {
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation == null || !conversation.getUserId().equals(userId)) {
+            throw new BusinessException("会话不存在或无权访问");
+        }
         List<ConversationMessage> messages = conversationMessageMapper.selectList(
                 new LambdaQueryWrapper<ConversationMessage>()
                         .eq(ConversationMessage::getConversationId, conversationId)

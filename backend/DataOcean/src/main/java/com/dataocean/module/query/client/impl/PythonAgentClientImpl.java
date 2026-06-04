@@ -97,7 +97,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         PermissionContextVO permContext = permissionCalculator.calculate(userId, datasourceId);
         requestBody.put("userPermissions", buildUserPermissionsMap(permContext));
         // 从会话中获取最近 5 轮对话作为上下文
-        requestBody.put("conversationHistory", buildConversationHistory(conversationId));
+        requestBody.put("conversationHistory", buildConversationHistory(conversationId, userId));
         // 加载 fallback chunks（Milvus 不可用时的降级数据）
         requestBody.put("fallbackChunks", loadFallbackChunks(datasourceId));
 
@@ -235,13 +235,13 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     /**
      * 构建最近 5 轮对话历史（排除当前刚保存的用户消息）。
      */
-    private List<Map<String, String>> buildConversationHistory(Long conversationId) {
+    private List<Map<String, String>> buildConversationHistory(Long conversationId, Long userId) {
         if (conversationId == null) {
             return List.of();
         }
         try {
             // 获取最近 10 条消息（5 轮 = 10 条 user+assistant）
-            var messages = conversationService.getRecentMessages(conversationId, 10);
+            var messages = conversationService.getRecentMessages(conversationId, userId, 10);
             List<Map<String, String>> history = new java.util.ArrayList<>();
             for (var msg : messages) {
                 history.add(Map.of("role", msg.getRole(), "content", msg.getContent()));

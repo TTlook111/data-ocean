@@ -65,11 +65,12 @@ public interface ConversationService {
     void archiveConversation(Long conversationId, Long userId);
 
     /**
-     * 获取会话最近 N 条消息（内部调用，不校验权限）。
+     * 获取会话最近 N 条消息（内部调用，校验用户归属）。
      *
      * @param conversationId 会话 ID
+     * @param userId         当前用户 ID（用于权限校验）
      * @param limit          最大条数
      * @return 消息列表（按时间正序）
      */
-    List<ConversationMessageVO> getRecentMessages(Long conversationId, int limit);
+    List<ConversationMessageVO> getRecentMessages(Long conversationId, Long userId, int limit);
 }
