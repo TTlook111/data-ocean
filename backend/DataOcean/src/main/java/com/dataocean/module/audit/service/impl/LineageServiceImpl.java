@@ -18,8 +18,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -35,43 +37,38 @@ public class LineageServiceImpl implements LineageService {
     @Async
     public void saveLineage(Long queryTaskId, String usedTables, String usedColumns) {
         try {
-            // 解析并批量保存表级血缘
-            if (usedTables != null && !usedTables.isBlank()) {
-                List<Map<String, String>> tables = objectMapper.readValue(usedTables, new TypeReference<>() {});
-                List<QueryLineageTable> batch = new ArrayList<>(tables.size());
-                for (Map<String, String> table : tables) {
+            Set<String> tableNames = parseTableNames(usedTables);
+            if (!tableNames.isEmpty()) {
+                List<QueryLineageTable> batch = new ArrayList<>(tableNames.size());
+                for (String tableName : tableNames) {
                     QueryLineageTable lineage = new QueryLineageTable();
                     lineage.setQueryTaskId(queryTaskId);
-                    lineage.setSourceTable(table.getOrDefault("table", table.getOrDefault("name", "")));
-                    lineage.setRelationType(table.getOrDefault("type", "FROM"));
+                    lineage.setSourceTable(tableName);
+                    lineage.setRelationType("FROM");
                     lineage.setCreatedAt(LocalDateTime.now());
                     batch.add(lineage);
                 }
-                if (!batch.isEmpty()) {
-                    tableMapper.insert(batch);
-                }
+                tableMapper.insert(batch);
             }
-            // 解析并批量保存字段级血缘
-            if (usedColumns != null && !usedColumns.isBlank()) {
-                List<Map<String, String>> columns = objectMapper.readValue(usedColumns, new TypeReference<>() {});
+
+            List<ColumnRef> columns = parseColumnRefs(usedColumns, tableNames);
+            if (!columns.isEmpty()) {
                 List<QueryLineageColumn> batch = new ArrayList<>(columns.size());
-                for (Map<String, String> col : columns) {
+                for (ColumnRef col : columns) {
                     QueryLineageColumn lineage = new QueryLineageColumn();
                     lineage.setQueryTaskId(queryTaskId);
-                    lineage.setSourceTable(col.getOrDefault("table", ""));
-                    lineage.setSourceColumn(col.getOrDefault("column", col.getOrDefault("name", "")));
-                    lineage.setExpression(col.get("expression"));
-                    lineage.setAliasName(col.get("alias"));
+                    lineage.setSourceTable(col.tableName());
+                    lineage.setSourceColumn(col.columnName());
+                    lineage.setExpression(col.expression());
+                    lineage.setAliasName(col.aliasName());
                     lineage.setCreatedAt(LocalDateTime.now());
                     batch.add(lineage);
                 }
-                if (!batch.isEmpty()) {
-                    columnMapper.insert(batch);
-                }
+                columnMapper.insert(batch);
             }
-            log.debug("血缘数据保存成功 queryTaskId={}", queryTaskId);
+            log.debug("lineage saved queryTaskId={} tables={} columns={}", queryTaskId, tableNames.size(), columns.size());
         } catch (Exception e) {
-            log.error("血缘数据保存失败 queryTaskId={}", queryTaskId, e);
+            log.error("lineage save failed queryTaskId={}", queryTaskId, e);
         }
     }
 
@@ -136,5 +133,75 @@ public class LineageServiceImpl implements LineageService {
         vo.setTableName(tableName);
         vo.setColumnName(columnName);
         return vo;
+    }
+
+    private Set<String> parseTableNames(String usedTables) throws Exception {
+        Set<String> tableNames = new LinkedHashSet<>();
+        if (usedTables == null || usedTables.isBlank()) {
+            return tableNames;
+        }
+        List<Object> items = objectMapper.readValue(usedTables, new TypeReference<>() {});
+        for (Object item : items) {
+            String tableName = null;
+            if (item instanceof String text) {
+                tableName = text;
+            } else if (item instanceof Map<?, ?> map) {
+                Object value = map.containsKey("table") ? map.get("table") : map.get("name");
+                tableName = value == null ? null : String.valueOf(value);
+            }
+            if (tableName != null && !tableName.isBlank()) {
+                tableNames.add(tableName.replace("`", "").trim());
+            }
+        }
+        return tableNames;
+    }
+
+    private List<ColumnRef> parseColumnRefs(String usedColumns, Set<String> tableNames) throws Exception {
+        List<ColumnRef> columns = new ArrayList<>();
+        if (usedColumns == null || usedColumns.isBlank()) {
+            return columns;
+        }
+        List<Object> items = objectMapper.readValue(usedColumns, new TypeReference<>() {});
+        String singleTable = tableNames.size() == 1 ? tableNames.iterator().next() : "";
+        for (Object item : items) {
+            ColumnRef ref = null;
+            if (item instanceof String text) {
+                ref = parseColumnText(text, singleTable);
+            } else if (item instanceof Map<?, ?> map) {
+                Object table = map.get("table");
+                Object column = map.containsKey("column") ? map.get("column") : map.get("name");
+                if (column != null) {
+                    ref = new ColumnRef(
+                            table == null ? singleTable : String.valueOf(table),
+                            String.valueOf(column),
+                            valueAsString(map.get("expression")),
+                            valueAsString(map.get("alias"))
+                    );
+                }
+            }
+            if (ref != null && !ref.tableName().isBlank() && !ref.columnName().isBlank()) {
+                columns.add(ref);
+            }
+        }
+        return columns;
+    }
+
+    private ColumnRef parseColumnText(String text, String defaultTable) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        String normalized = text.replace("`", "").trim();
+        int dot = normalized.lastIndexOf('.');
+        if (dot > 0 && dot < normalized.length() - 1) {
+            return new ColumnRef(normalized.substring(0, dot), normalized.substring(dot + 1), normalized, null);
+        }
+        return new ColumnRef(defaultTable, normalized, normalized, null);
+    }
+
+    private String valueAsString(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private record ColumnRef(String tableName, String columnName, String expression, String aliasName) {
     }
 }

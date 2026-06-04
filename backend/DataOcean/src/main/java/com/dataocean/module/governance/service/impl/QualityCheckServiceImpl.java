@@ -26,15 +26,15 @@ import org.springframework.util.CollectionUtils;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * 元数据质量校验服务实现。
- * <p>
- * 负责加载快照元数据、调用各维度校验器、持久化质量问题并计算质量得分。
- * </p>
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -48,7 +48,6 @@ public class QualityCheckServiceImpl implements QualityCheckService {
     private final TableRelationMapper relationMapper;
     private final MetadataQualityIssueMapper issueMapper;
 
-    // 各维度权重（与 data-model.md 一致）
     private static final Map<String, BigDecimal> DIMENSION_WEIGHTS = Map.of(
             MetadataQualityRule.DIM_COMPLETENESS, new BigDecimal("0.30"),
             MetadataQualityRule.DIM_ACCURACY, new BigDecimal("0.25"),
@@ -57,9 +56,6 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             MetadataQualityRule.DIM_TRACEABILITY, new BigDecimal("0.10")
     );
 
-    /**
-     * {@inheritDoc}
-     */
     @Transactional
     @Override
     public QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions, List<String> tableNames) {
@@ -68,12 +64,19 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             throw new BusinessException(404, "快照不存在");
         }
 
-        log.info("开始质量校验 snapshotId={} datasourceId={}", snapshotId, snapshot.getDatasourceId());
+        Set<String> targetDimensions = CollectionUtils.isEmpty(dimensions)
+                ? DIMENSION_WEIGHTS.keySet()
+                : new HashSet<>(dimensions);
+        boolean isFullCheck = targetDimensions.size() == DIMENSION_WEIGHTS.size() && CollectionUtils.isEmpty(tableNames);
 
-        // 关闭该数据源旧快照的未处理问题
-        closeOldIssues(snapshot.getDatasourceId(), snapshotId);
+        log.info("start quality check snapshotId={} datasourceId={} fullCheck={}",
+                snapshotId, snapshot.getDatasourceId(), isFullCheck);
 
-        // 加载快照数据
+        if (isFullCheck) {
+            closeOldIssues(snapshot.getDatasourceId(), snapshotId);
+        }
+        clearCurrentUnfinishedIssues(snapshotId, targetDimensions, tableNames);
+
         List<DbTableMeta> tables = loadTables(snapshotId, tableNames);
         List<DbColumnMeta> columns = loadColumns(snapshotId, tableNames);
         List<TableRelation> relations = loadRelations(snapshotId);
@@ -82,41 +85,32 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         QualityChecker.CheckContext context = new QualityChecker.CheckContext(
                 snapshotId, snapshot.getDatasourceId(), tables, columns, relations, rules);
 
-        // 执行各维度校验
         List<MetadataQualityIssue> allIssues = new ArrayList<>();
-        Set<String> targetDimensions = CollectionUtils.isEmpty(dimensions)
-                ? DIMENSION_WEIGHTS.keySet()
-                : new HashSet<>(dimensions);
-
         for (QualityChecker checker : checkers) {
-            if (!targetDimensions.contains(checker.getDimension())) continue;
+            if (!targetDimensions.contains(checker.getDimension())) {
+                continue;
+            }
             try {
-                List<MetadataQualityIssue> issues = checker.check(context);
-                allIssues.addAll(issues);
+                allIssues.addAll(checker.check(context));
             } catch (Exception e) {
-                log.error("校验器 {} 执行异常", checker.getDimension(), e);
+                log.error("quality checker failed dimension={}", checker.getDimension(), e);
             }
         }
 
-        // 写入问题记录（同一事务内，MVP 阶段问题数量可控）
         for (MetadataQualityIssue issue : allIssues) {
             issueMapper.insert(issue);
         }
-        log.info("质量校验完成，共发现 {} 个问题", allIssues.size());
+        log.info("quality check finished snapshotId={} issueCount={}", snapshotId, allIssues.size());
 
-        // 计算质量分
-        boolean isFullCheck = targetDimensions.size() == DIMENSION_WEIGHTS.size();
         Map<String, BigDecimal> dimensionScores = calculateDimensionScores(allIssues, rules, targetDimensions);
         BigDecimal totalScore = calculateTotalScore(dimensionScores);
 
-        // 仅全量校验时更新快照质量分和状态
         if (isFullCheck) {
             snapshot.setQualityScore(totalScore);
             snapshot.setStatus(allIssues.isEmpty() ? MetadataSnapshot.STATUS_APPROVED : MetadataSnapshot.STATUS_ISSUE_FOUND);
             snapshotMapper.updateById(snapshot);
         }
 
-        // 构建返回结果
         QualityCheckResultVO result = new QualityCheckResultVO();
         result.setSnapshotId(snapshotId);
         result.setQualityScore(totalScore);
@@ -133,6 +127,20 @@ public class QualityCheckServiceImpl implements QualityCheckService {
                 .in(MetadataQualityIssue::getStatus,
                         MetadataQualityIssue.STATUS_OPEN, MetadataQualityIssue.STATUS_CONFIRMED)
                 .set(MetadataQualityIssue::getStatus, MetadataQualityIssue.STATUS_AUTO_CLOSED));
+    }
+
+    private void clearCurrentUnfinishedIssues(Long snapshotId, Set<String> dimensions, List<String> tableNames) {
+        LambdaQueryWrapper<MetadataQualityIssue> qw = new LambdaQueryWrapper<MetadataQualityIssue>()
+                .eq(MetadataQualityIssue::getSnapshotId, snapshotId)
+                .in(MetadataQualityIssue::getDimension, dimensions)
+                .in(MetadataQualityIssue::getStatus,
+                        MetadataQualityIssue.STATUS_OPEN,
+                        MetadataQualityIssue.STATUS_CONFIRMED,
+                        MetadataQualityIssue.STATUS_AUTO_CLOSED);
+        if (!CollectionUtils.isEmpty(tableNames)) {
+            qw.in(MetadataQualityIssue::getTableName, tableNames);
+        }
+        issueMapper.delete(qw);
     }
 
     private List<DbTableMeta> loadTables(Long snapshotId, List<String> tableNames) {
@@ -159,9 +167,6 @@ public class QualityCheckServiceImpl implements QualityCheckService {
                         .eq(TableRelation::getSnapshotId, snapshotId));
     }
 
-    /**
-     * 计算各维度得分：dimension_score = max(0, 100 - sum(deduction_points))
-     */
     private Map<String, BigDecimal> calculateDimensionScores(List<MetadataQualityIssue> issues,
                                                              List<MetadataQualityRule> rules,
                                                              Set<String> checkedDimensions) {
@@ -194,7 +199,6 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             total = total.add(entry.getValue().multiply(weight));
             totalWeight = totalWeight.add(weight);
         }
-        // 归一化：部分校验时按已校验维度的权重比例计算
         if (totalWeight.compareTo(BigDecimal.ZERO) > 0 && totalWeight.compareTo(BigDecimal.ONE) < 0) {
             total = total.divide(totalWeight, 2, RoundingMode.HALF_UP);
         }
