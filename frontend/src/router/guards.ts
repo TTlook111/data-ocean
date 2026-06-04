@@ -17,12 +17,17 @@ const adminPermissions = [
   'department:manage',
   'knowledge:manage',
   'security:manage',
+  'system:ai-config:view',
+  'system:ai-config:manage',
 ]
 
 /** 标记是否已在本次会话中刷新过用户信息 */
 let userInfoRefreshed = false
 
 function hasPermission(user: { permissions?: string[] } | null, permission: string) {
+  if (permission === 'system:ai-config:view' && user?.permissions?.includes('system:ai-config:manage')) {
+    return true
+  }
   return Boolean(user?.permissions?.includes('*') || user?.permissions?.includes(permission))
 }
 

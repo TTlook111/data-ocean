@@ -2,6 +2,7 @@ package com.dataocean.module.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.security.UserContext;
 import com.dataocean.module.user.entity.SysPermission;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.entity.SysRolePermission;
@@ -115,11 +116,12 @@ public class RoleServiceImpl implements RoleService {
     @Override
     public void updateRolePermissions(Long roleId, List<Long> permissionIds) {
         requireRole(roleId);
+        List<Long> distinctIds = permissionIds == null ? List.of() : permissionIds.stream().distinct().toList();
+        ensureWildcardPermissionChangeAllowed(roleId, distinctIds);
         rolePermissionMapper.delete(new LambdaQueryWrapper<SysRolePermission>().eq(SysRolePermission::getRoleId, roleId));
-        if (permissionIds == null || permissionIds.isEmpty()) {
+        if (distinctIds.isEmpty()) {
             return;
         }
-        List<Long> distinctIds = permissionIds.stream().distinct().toList();
         List<SysPermission> permissions = permissionMapper.selectByIds(distinctIds);
         if (permissions.size() != distinctIds.size()) {
             throw new BusinessException("权限不存在，请刷新后重试");
@@ -130,6 +132,23 @@ public class RoleServiceImpl implements RoleService {
             relation.setPermissionId(permissionId);
             rolePermissionMapper.insert(relation);
         }
+    }
+
+    private void ensureWildcardPermissionChangeAllowed(Long roleId, List<Long> requestedPermissionIds) {
+        boolean currentHasWildcard = rolePermissionMapper.selectList(new LambdaQueryWrapper<SysRolePermission>()
+                        .eq(SysRolePermission::getRoleId, roleId))
+                .stream()
+                .map(SysRolePermission::getPermissionId)
+                .anyMatch(this::isWildcardPermission);
+        boolean requestedHasWildcard = requestedPermissionIds.stream().anyMatch(this::isWildcardPermission);
+        if ((currentHasWildcard || requestedHasWildcard) && !UserContext.currentPermissions().contains("*")) {
+            throw new BusinessException("只有超级管理员可以分配或移除全部权限");
+        }
+    }
+
+    private boolean isWildcardPermission(Long permissionId) {
+        SysPermission permission = permissionMapper.selectById(permissionId);
+        return permission != null && "*".equals(permission.getPermissionCode());
     }
 
     /**

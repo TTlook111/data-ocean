@@ -13,7 +13,9 @@ import {
   type AiProvider,
   type AiProviderPayload,
 } from '../../../api/admin/system'
+import { useAuthStore } from '../../../stores/auth'
 
+const auth = useAuthStore()
 const loading = ref(false)
 const saving = ref(false)
 const providerDialogVisible = ref(false)
@@ -39,6 +41,8 @@ const providerForm = reactive<AiProviderPayload>({
 })
 
 const providers = computed(() => config.value?.providers ?? [])
+const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
+const canManageAiConfig = computed(() => permissions.value.includes('*') || permissions.value.includes('system:ai-config:manage'))
 const activeEmbedding = computed(() => config.value?.activeEmbedding)
 const vectorizeStatus = computed(() => config.value?.vectorizeStatus)
 const vectorizeMessage = computed(() => {
@@ -101,6 +105,10 @@ function buildCollectionName() {
 }
 
 async function handleSave() {
+  if (!canManageAiConfig.value) {
+    ElMessage.warning('当前账号只有查看权限，不能修改 AI 配置')
+    return
+  }
   if (!form.chatProviderId || !form.chatModel || !form.embeddingProviderId || !form.embeddingModel) {
     ElMessage.warning('请选择供应商和模型')
     return
@@ -145,12 +153,14 @@ async function handleSave() {
 }
 
 function openCreateProvider() {
+  if (!canManageAiConfig.value) return
   editingProviderId.value = ''
   Object.assign(providerForm, { id: '', name: '', baseUrl: '', apiKey: '' })
   providerDialogVisible.value = true
 }
 
 function openEditProvider(provider: AiProvider) {
+  if (!canManageAiConfig.value) return
   editingProviderId.value = provider.id
   Object.assign(providerForm, {
     id: provider.id,
@@ -162,6 +172,10 @@ function openEditProvider(provider: AiProvider) {
 }
 
 async function saveProvider() {
+  if (!canManageAiConfig.value) {
+    ElMessage.warning('当前账号只有查看权限，不能修改供应商')
+    return
+  }
   if (!providerForm.id || !providerForm.baseUrl) {
     ElMessage.warning('请填写供应商 ID 和 Base URL')
     return
@@ -181,6 +195,7 @@ async function saveProvider() {
 }
 
 async function handleDeleteProvider(provider: AiProvider) {
+  if (!canManageAiConfig.value) return
   await ElMessageBox.confirm(`确认删除供应商 ${provider.name || provider.id}？`, '删除供应商', {
     type: 'warning',
     confirmButtonText: '删除',
@@ -196,6 +211,7 @@ async function handleDeleteProvider(provider: AiProvider) {
 }
 
 async function handleTestProvider(provider: AiProvider) {
+  if (!canManageAiConfig.value) return
   try {
     await testAiProvider(provider.id)
     ElMessage.success('连接测试完成')
@@ -275,7 +291,7 @@ fetchConfig()
     <section class="section">
       <div class="section-title">
         <h3>供应商管理</h3>
-        <el-button type="primary" :icon="Plus" @click="openCreateProvider">添加供应商</el-button>
+        <el-button v-if="canManageAiConfig" type="primary" :icon="Plus" @click="openCreateProvider">添加供应商</el-button>
       </div>
       <div class="provider-list">
         <article v-for="provider in providers" :key="provider.id" class="provider-item">
@@ -295,9 +311,9 @@ fetchConfig()
             <el-tag size="small" effect="plain">{{ provider.embeddingModels?.length || 0 }} Embedding</el-tag>
           </div>
           <div class="provider-actions">
-            <el-button :icon="Wifi" circle title="测试连接" @click="handleTestProvider(provider)" />
-            <el-button circle title="编辑" @click="openEditProvider(provider)">编</el-button>
-            <el-button :icon="Trash2" type="danger" plain @click="handleDeleteProvider(provider)" />
+            <el-button :icon="Wifi" circle title="测试连接" :disabled="!canManageAiConfig" @click="handleTestProvider(provider)" />
+            <el-button circle title="编辑" :disabled="!canManageAiConfig" @click="openEditProvider(provider)">编</el-button>
+            <el-button :icon="Trash2" type="danger" plain :disabled="!canManageAiConfig" @click="handleDeleteProvider(provider)" />
           </div>
         </article>
       </div>
@@ -314,27 +330,27 @@ fetchConfig()
             <strong>Chat 配置</strong>
           </div>
           <el-form-item label="供应商">
-            <el-select v-model="form.chatProviderId" filterable>
+            <el-select v-model="form.chatProviderId" filterable :disabled="!canManageAiConfig">
               <el-option v-for="provider in providers" :key="provider.id" :label="provider.name || provider.id" :value="provider.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="模型">
-            <el-select v-model="form.chatModel" filterable allow-create default-first-option>
+            <el-select v-model="form.chatModel" filterable allow-create default-first-option :disabled="!canManageAiConfig">
               <el-option v-for="model in chatModels" :key="model.name" :label="model.displayName || model.name" :value="model.name" />
             </el-select>
           </el-form-item>
           <div class="compact-inputs">
             <label>
               <span>温度</span>
-              <el-input v-model="form.temperature" />
+              <el-input v-model="form.temperature" :disabled="!canManageAiConfig" />
             </label>
             <label>
               <span>超时秒数</span>
-              <el-input v-model="form.timeout" />
+              <el-input v-model="form.timeout" :disabled="!canManageAiConfig" />
             </label>
             <label>
               <span>重试次数</span>
-              <el-input v-model="form.maxRetries" />
+              <el-input v-model="form.maxRetries" :disabled="!canManageAiConfig" />
             </label>
           </div>
         </el-form>
@@ -345,43 +361,43 @@ fetchConfig()
             <strong>Embedding 配置</strong>
           </div>
           <el-form-item label="供应商">
-            <el-select v-model="form.embeddingProviderId" filterable>
+            <el-select v-model="form.embeddingProviderId" filterable :disabled="!canManageAiConfig">
               <el-option v-for="provider in providers" :key="provider.id" :label="provider.name || provider.id" :value="provider.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="模型">
-            <el-select v-model="form.embeddingModel" filterable allow-create default-first-option @change="onEmbeddingModelChange">
+            <el-select v-model="form.embeddingModel" filterable allow-create default-first-option :disabled="!canManageAiConfig" @change="onEmbeddingModelChange">
               <el-option v-for="model in embeddingModels" :key="model.name" :label="model.displayName || model.name" :value="model.name" />
             </el-select>
           </el-form-item>
           <el-form-item label="向量维度">
-            <el-input-number v-model="form.embeddingDimension" :min="1" :step="1" />
+            <el-input-number v-model="form.embeddingDimension" :min="1" :step="1" :disabled="!canManageAiConfig" />
           </el-form-item>
         </el-form>
       </div>
       <div class="form-actions">
-        <el-button type="primary" :icon="Save" :loading="saving" @click="handleSave">保存配置</el-button>
+        <el-button v-if="canManageAiConfig" type="primary" :icon="Save" :loading="saving" @click="handleSave">保存配置</el-button>
       </div>
     </section>
 
     <el-dialog v-model="providerDialogVisible" title="供应商" width="520px">
       <el-form label-width="100px" label-position="left">
         <el-form-item label="ID">
-          <el-input v-model="providerForm.id" :disabled="Boolean(editingProviderId)" placeholder="dashscope" />
+          <el-input v-model="providerForm.id" :disabled="Boolean(editingProviderId) || !canManageAiConfig" placeholder="dashscope" />
         </el-form-item>
         <el-form-item label="名称">
-          <el-input v-model="providerForm.name" placeholder="通义千问" />
+          <el-input v-model="providerForm.name" :disabled="!canManageAiConfig" placeholder="通义千问" />
         </el-form-item>
         <el-form-item label="Base URL">
-          <el-input v-model="providerForm.baseUrl" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+          <el-input v-model="providerForm.baseUrl" :disabled="!canManageAiConfig" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
         </el-form-item>
         <el-form-item label="API Key">
-          <el-input v-model="providerForm.apiKey" type="password" show-password placeholder="留空则不修改" />
+          <el-input v-model="providerForm.apiKey" type="password" show-password :disabled="!canManageAiConfig" placeholder="留空则不修改" />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="providerDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveProvider">保存</el-button>
+        <el-button v-if="canManageAiConfig" type="primary" @click="saveProvider">保存</el-button>
       </template>
     </el-dialog>
   </div>

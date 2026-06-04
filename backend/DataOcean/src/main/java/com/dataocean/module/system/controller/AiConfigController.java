@@ -30,8 +30,10 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/system/ai-config")
 @Slf4j
-@PreAuthorize("hasAuthority('*')")
 public class AiConfigController {
+
+    private static final String AI_CONFIG_VIEW_AUTH = "hasAnyAuthority('*', 'system:ai-config:view', 'system:ai-config:manage')";
+    private static final String AI_CONFIG_MANAGE_AUTH = "hasAnyAuthority('*', 'system:ai-config:manage')";
 
     private static final String PROVIDER_PREFIX = "ai.provider.";
     private static final String ACTIVE_CHAT_KEY = "ai.active.chat";
@@ -63,6 +65,7 @@ public class AiConfigController {
     }
 
     @GetMapping
+    @PreAuthorize(AI_CONFIG_VIEW_AUTH)
     public Result<AiConfigVO> getConfig() {
         ensureLegacyDefaults();
         AiConfigVO vo = new AiConfigVO();
@@ -93,6 +96,7 @@ public class AiConfigController {
     }
 
     @PutMapping
+    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
     public Result<AiConfigVO> updateConfig(@RequestBody AiConfigDTO dto) {
         ensureLegacyDefaults();
         AiConfigVO.ChatConfig chat = dto.getChat() == null ? null : toChat(dto.getChat());
@@ -141,12 +145,14 @@ public class AiConfigController {
     }
 
     @GetMapping("/providers")
+    @PreAuthorize(AI_CONFIG_VIEW_AUTH)
     public Result<List<AiConfigVO.Provider>> listProviders() {
         ensureLegacyDefaults();
         return Result.success(getProvidersInternal(false));
     }
 
     @PostMapping("/providers")
+    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
     public Result<AiConfigVO.Provider> createProvider(@RequestBody AiConfigDTO.ProviderPayload payload) {
         ensureProviderId(payload);
         AiConfigVO.Provider provider = upsertProvider(payload);
@@ -154,6 +160,7 @@ public class AiConfigController {
     }
 
     @PutMapping("/providers/{id}")
+    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
     public Result<AiConfigVO.Provider> updateProvider(@PathVariable String id, @RequestBody AiConfigDTO.ProviderPayload payload) {
         payload.setId(id);
         AiConfigVO.Provider provider = upsertProvider(payload);
@@ -161,6 +168,7 @@ public class AiConfigController {
     }
 
     @DeleteMapping("/providers/{id}")
+    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
     public Result<Void> deleteProvider(@PathVariable String id) {
         AiConfigVO.ChatConfig chat = readJson(ACTIVE_CHAT_KEY, AiConfigVO.ChatConfig.class, defaultChat());
         AiConfigVO.EmbeddingConfig embedding = readJson(ACTIVE_EMBEDDING_KEY, AiConfigVO.EmbeddingConfig.class, defaultEmbedding());
@@ -179,6 +187,7 @@ public class AiConfigController {
     }
 
     @PostMapping("/providers/{id}/test")
+    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
     public Result<AiConfigVO.Provider> testProvider(@PathVariable String id) {
         AiConfigVO.Provider provider = getProviderOrThrow(id, true);
         try {
@@ -206,11 +215,13 @@ public class AiConfigController {
     }
 
     @PostMapping("/providers/{id}/sync-models")
+    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
     public Result<AiConfigVO.Provider> syncModels(@PathVariable String id) {
         return testProvider(id);
     }
 
     @PostMapping("/detect-dimension")
+    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
     public Result<Map<String, Object>> detectDimension(@RequestBody Map<String, Object> payload) {
         Map<String, Object> response = pythonRestClient.post()
                 .uri("/internal/ai-config/detect-dimension")
@@ -222,6 +233,7 @@ public class AiConfigController {
     }
 
     @PostMapping("/re-vectorize")
+    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
     public Result<Map<String, Object>> reVectorize(@RequestBody(required = false) Map<String, Object> payload) {
         Map<String, Object> body = payload == null ? Map.of() : payload;
         Map<String, Object> response = pythonRestClient.post()

@@ -130,7 +130,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
     label: '系统管理',
     items: [
       { label: '服务健康', to: '/admin/system/health', icon: HeartPulse, permission: '*' },
-      { label: 'AI 配置', to: '/admin/system/ai-config', icon: Cpu, permission: '*' },
+      { label: 'AI 配置', to: '/admin/system/ai-config', icon: Cpu, permission: 'system:ai-config:view' },
     ],
   },
 ]
@@ -156,6 +156,8 @@ const adminPermissionCodes = [
   'department:manage',
   'knowledge:manage',
   'security:manage',
+  'system:ai-config:view',
+  'system:ai-config:manage',
 ]
 const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPermissionCodes.some((code) => permissions.value.includes(code)))
 
@@ -177,6 +179,7 @@ const matchedMenuItem = computed(() =>
 
 function canView(permission?: string) {
   if (!permission) return true
+  if (permission === 'system:ai-config:view' && permissions.value.includes('system:ai-config:manage')) return true
   return permissions.value.includes('*') || permissions.value.includes(permission)
 }
 

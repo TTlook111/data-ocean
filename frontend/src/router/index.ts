@@ -263,7 +263,7 @@ const router = createRouter({
           path: 'system/ai-config',
           name: 'admin-system-ai-config',
           component: AiConfig,
-          meta: { title: 'AI 配置', section: '系统管理', permission: '*' },
+          meta: { title: 'AI 配置', section: '系统管理', permission: 'system:ai-config:view' },
         },
       ],
     },
