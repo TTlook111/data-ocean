@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from 'lucide-vue-next'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
+import { listMyDatasources, type UserDatasourceItem } from '../../../api/datasource'
 import {
   analyzeImpact,
   queryColumnLineage,
@@ -12,6 +13,8 @@ import {
   type LineageTableVO,
 } from '../../../api/admin/audit'
 
+const datasourceId = ref<number | null>(null)
+const datasources = ref<UserDatasourceItem[]>([])
 const tableName = ref('')
 const columnName = ref('')
 const tableLineage = ref<LineageTableVO[]>([])
@@ -22,7 +25,30 @@ const searched = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
 
+async function loadDatasources() {
+  try {
+    const res = await listMyDatasources()
+    datasources.value = res.data ?? []
+    if (!datasourceId.value && datasources.value.length === 1) {
+      datasourceId.value = datasources.value[0].id
+    }
+  } catch {
+    ElMessage.error('数据源列表加载失败')
+  }
+}
+
+function requireDatasource() {
+  if (!datasourceId.value) {
+    ElMessage.warning('请先选择数据源')
+    return false
+  }
+  return true
+}
+
 async function searchTableLineage() {
+  if (!requireDatasource()) {
+    return
+  }
   const table = tableName.value.trim()
   if (!table) {
     ElMessage.warning('请输入表名')
@@ -33,7 +59,7 @@ async function searchTableLineage() {
   columnLineage.value = []
   impact.value = null
   try {
-    const res = await queryTableLineage(table)
+    const res = await queryTableLineage(datasourceId.value!, table)
     tableLineage.value = res.data ?? []
   } catch {
     ElMessage.error('表血缘查询失败')
@@ -43,6 +69,9 @@ async function searchTableLineage() {
 }
 
 async function searchColumnLineage() {
+  if (!requireDatasource()) {
+    return
+  }
   const table = tableName.value.trim()
   const column = columnName.value.trim()
   if (!table || !column) {
@@ -54,8 +83,8 @@ async function searchColumnLineage() {
   tableLineage.value = []
   try {
     const [colRes, impactRes] = await Promise.all([
-      queryColumnLineage(table, column),
-      analyzeImpact(table, column),
+      queryColumnLineage(datasourceId.value!, table, column),
+      analyzeImpact(datasourceId.value!, table, column),
     ])
     columnLineage.value = colRes.data ?? []
     impact.value = impactRes.data ?? null
@@ -75,6 +104,7 @@ function handleSearch() {
 }
 
 onMounted(() => {
+  loadDatasources()
   withContext(() => {
     reveal('.page-header, .content-panel, .impact-card, .toolbar', { y: 14, stagger: 0.06 })
   })
@@ -92,6 +122,20 @@ onMounted(() => {
     </header>
 
     <section class="toolbar">
+      <el-select
+        v-model="datasourceId"
+        placeholder="选择数据源"
+        clearable
+        filterable
+        style="width: 220px"
+      >
+        <el-option
+          v-for="item in datasources"
+          :key="item.id"
+          :label="`${item.name}${item.databaseName ? ` / ${item.databaseName}` : ''}`"
+          :value="item.id"
+        />
+      </el-select>
       <el-input v-model="tableName" placeholder="表名" clearable style="width: 220px" @keyup.enter="handleSearch" />
       <el-input v-model="columnName" placeholder="字段名（选填）" clearable style="width: 220px" @keyup.enter="handleSearch" />
       <el-button type="primary" :icon="Search" @click="handleSearch">查询血缘</el-button>

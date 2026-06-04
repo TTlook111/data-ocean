@@ -1,6 +1,7 @@
 package com.dataocean.module.audit.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.audit.entity.QueryLineageColumn;
 import com.dataocean.module.audit.entity.QueryLineageTable;
 import com.dataocean.module.audit.entity.vo.ImpactAnalysisVO;
@@ -9,6 +10,7 @@ import com.dataocean.module.audit.entity.vo.LineageTableVO;
 import com.dataocean.module.audit.mapper.QueryLineageColumnMapper;
 import com.dataocean.module.audit.mapper.QueryLineageTableMapper;
 import com.dataocean.module.audit.service.LineageService;
+import com.dataocean.module.datasource.service.DatasourceAccessService;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -21,6 +23,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -35,20 +38,24 @@ public class LineageServiceImpl implements LineageService {
     private final QueryLineageTableMapper tableMapper;
     private final QueryLineageColumnMapper columnMapper;
     private final QueryTaskMapper queryTaskMapper;
+    private final DatasourceAccessService datasourceAccessService;
     private final ObjectMapper objectMapper;
 
     @Override
     @Async
     public void saveLineage(Long queryTaskId, String usedTables, String usedColumns) {
         try {
-            Set<String> tableNames = parseTableNames(usedTables);
-            if (!tableNames.isEmpty()) {
-                List<QueryLineageTable> batch = new ArrayList<>(tableNames.size());
-                for (String tableName : tableNames) {
+            List<TableRef> tableRefs = parseTableRefs(usedTables);
+            Set<String> tableNames = tableRefs.stream()
+                    .map(TableRef::tableName)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (!tableRefs.isEmpty()) {
+                List<QueryLineageTable> batch = new ArrayList<>(tableRefs.size());
+                for (TableRef tableRef : tableRefs) {
                     QueryLineageTable lineage = new QueryLineageTable();
                     lineage.setQueryTaskId(queryTaskId);
-                    lineage.setSourceTable(tableName);
-                    lineage.setRelationType("FROM");
+                    lineage.setSourceTable(tableRef.tableName());
+                    lineage.setRelationType(tableRef.relationType());
                     lineage.setCreatedAt(LocalDateTime.now());
                     batch.add(lineage);
                 }
@@ -77,14 +84,10 @@ public class LineageServiceImpl implements LineageService {
     }
 
     @Override
-    public List<LineageTableVO> queryTableLineage(String tableName) {
-        List<QueryLineageTable> records = tableMapper.selectList(
-                new LambdaQueryWrapper<QueryLineageTable>()
-                        .eq(QueryLineageTable::getSourceTable, tableName)
-                        .orderByDesc(QueryLineageTable::getCreatedAt)
-                        .last("LIMIT 100")
-        );
-        Map<Long, String> questionMap = loadQuestionMap(records.stream()
+    public List<LineageTableVO> queryTableLineage(Long datasourceId, String tableName) {
+        requireDatasourceAccess(datasourceId);
+        List<QueryLineageTable> records = tableMapper.selectByTableAndDatasource(tableName, datasourceId, 100);
+        Map<Long, String> questionMap = loadQuestionMap(datasourceId, records.stream()
                 .map(QueryLineageTable::getQueryTaskId)
                 .collect(Collectors.toSet()));
         return records.stream().map(r -> {
@@ -100,15 +103,10 @@ public class LineageServiceImpl implements LineageService {
     }
 
     @Override
-    public List<LineageColumnVO> queryColumnLineage(String tableName, String columnName) {
-        List<QueryLineageColumn> records = columnMapper.selectList(
-                new LambdaQueryWrapper<QueryLineageColumn>()
-                        .eq(QueryLineageColumn::getSourceTable, tableName)
-                        .eq(QueryLineageColumn::getSourceColumn, columnName)
-                        .orderByDesc(QueryLineageColumn::getCreatedAt)
-                        .last("LIMIT 100")
-        );
-        Map<Long, String> questionMap = loadQuestionMap(records.stream()
+    public List<LineageColumnVO> queryColumnLineage(Long datasourceId, String tableName, String columnName) {
+        requireDatasourceAccess(datasourceId);
+        List<QueryLineageColumn> records = columnMapper.selectByColumnAndDatasource(tableName, columnName, datasourceId, 100);
+        Map<Long, String> questionMap = loadQuestionMap(datasourceId, records.stream()
                 .map(QueryLineageColumn::getQueryTaskId)
                 .collect(Collectors.toSet()));
         return records.stream().map(r -> {
@@ -125,47 +123,41 @@ public class LineageServiceImpl implements LineageService {
     }
 
     @Override
-    public ImpactAnalysisVO analyzeImpact(String tableName, String columnName) {
-        Long count = columnMapper.selectCount(
-                new LambdaQueryWrapper<QueryLineageColumn>()
-                        .eq(QueryLineageColumn::getSourceTable, tableName)
-                        .eq(QueryLineageColumn::getSourceColumn, columnName)
-        );
-        List<Object> taskIds = columnMapper.selectObjs(
-                new LambdaQueryWrapper<QueryLineageColumn>()
-                        .select(QueryLineageColumn::getQueryTaskId)
-                        .eq(QueryLineageColumn::getSourceTable, tableName)
-                        .eq(QueryLineageColumn::getSourceColumn, columnName)
-                        .orderByDesc(QueryLineageColumn::getCreatedAt)
-                        .last("LIMIT 10")
-        );
+    public ImpactAnalysisVO analyzeImpact(Long datasourceId, String tableName, String columnName) {
+        requireDatasourceAccess(datasourceId);
+        Long count = columnMapper.countByColumnAndDatasource(tableName, columnName, datasourceId);
+        List<QueryLineageColumn> recent = columnMapper.selectByColumnAndDatasource(tableName, columnName, datasourceId, 10);
         ImpactAnalysisVO vo = new ImpactAnalysisVO();
         vo.setDependentQueryCount(count);
-        vo.setRecentQueryTaskIds(taskIds.stream().map(o -> ((Number) o).longValue()).toList());
+        vo.setRecentQueryTaskIds(recent.stream().map(QueryLineageColumn::getQueryTaskId).toList());
         vo.setTableName(tableName);
         vo.setColumnName(columnName);
         return vo;
     }
 
-    private Set<String> parseTableNames(String usedTables) throws Exception {
-        Set<String> tableNames = new LinkedHashSet<>();
+    private List<TableRef> parseTableRefs(String usedTables) throws Exception {
+        Map<String, TableRef> tableRefs = new LinkedHashMap<>();
         if (usedTables == null || usedTables.isBlank()) {
-            return tableNames;
+            return List.of();
         }
         List<Object> items = objectMapper.readValue(usedTables, new TypeReference<>() {});
         for (Object item : items) {
             String tableName = null;
+            String relationType = "FROM";
             if (item instanceof String text) {
                 tableName = text;
             } else if (item instanceof Map<?, ?> map) {
                 Object value = map.containsKey("table") ? map.get("table") : map.get("name");
                 tableName = value == null ? null : String.valueOf(value);
+                Object type = map.containsKey("relationType") ? map.get("relationType") : map.get("type");
+                relationType = normalizeRelationType(valueAsString(type));
             }
             if (tableName != null && !tableName.isBlank()) {
-                tableNames.add(tableName.replace("`", "").trim());
+                String normalized = tableName.replace("`", "").trim();
+                tableRefs.putIfAbsent(normalized, new TableRef(normalized, relationType));
             }
         }
-        return tableNames;
+        return new ArrayList<>(tableRefs.values());
     }
 
     private List<ColumnRef> parseColumnRefs(String usedColumns, Set<String> tableNames) throws Exception {
@@ -214,15 +206,38 @@ public class LineageServiceImpl implements LineageService {
         return value == null ? null : String.valueOf(value);
     }
 
-    private Map<Long, String> loadQuestionMap(Set<Long> taskIds) {
+    private String normalizeRelationType(String relationType) {
+        if (relationType == null || relationType.isBlank()) {
+            return "FROM";
+        }
+        String normalized = relationType.trim().toUpperCase();
+        return switch (normalized) {
+            case "FROM", "JOIN", "SUBQUERY" -> normalized;
+            default -> "FROM";
+        };
+    }
+
+    private void requireDatasourceAccess(Long datasourceId) {
+        if (datasourceId == null || !datasourceAccessService.checkAccess(datasourceId)) {
+            throw new BusinessException(403, "无权查看该数据源血缘");
+        }
+    }
+
+    private Map<Long, String> loadQuestionMap(Long datasourceId, Set<Long> taskIds) {
         if (taskIds == null || taskIds.isEmpty()) {
             return Map.of();
         }
         Map<Long, String> result = new HashMap<>();
-        for (QueryTask task : queryTaskMapper.selectBatchIds(taskIds)) {
+        List<QueryTask> tasks = queryTaskMapper.selectList(new LambdaQueryWrapper<QueryTask>()
+                .in(QueryTask::getId, taskIds)
+                .eq(QueryTask::getDatasourceId, datasourceId));
+        for (QueryTask task : tasks) {
             result.put(task.getId(), task.getQuestion());
         }
         return result;
+    }
+
+    private record TableRef(String tableName, String relationType) {
     }
 
     private record ColumnRef(String tableName, String columnName, String expression, String aliasName) {

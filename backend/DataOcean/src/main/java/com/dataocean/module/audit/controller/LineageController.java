@@ -1,5 +1,6 @@
 package com.dataocean.module.audit.controller;
 
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.audit.entity.vo.ImpactAnalysisVO;
 import com.dataocean.module.audit.entity.vo.LineageColumnVO;
@@ -30,21 +31,31 @@ public class LineageController {
 
     /** 表级血缘查询 */
     @GetMapping("/table/{tableName}")
-    public Result<List<LineageTableVO>> queryTableLineage(@PathVariable String tableName) {
-        return Result.success(lineageService.queryTableLineage(tableName));
+    public Result<List<LineageTableVO>> queryTableLineage(
+            @RequestParam Long datasourceId, @PathVariable String tableName) {
+        requireDatasourceId(datasourceId);
+        return Result.success(lineageService.queryTableLineage(datasourceId, tableName));
     }
 
     /** 字段级血缘查询 */
     @GetMapping("/column/{tableName}/{columnName}")
     public Result<List<LineageColumnVO>> queryColumnLineage(
-            @PathVariable String tableName, @PathVariable String columnName) {
-        return Result.success(lineageService.queryColumnLineage(tableName, columnName));
+            @RequestParam Long datasourceId, @PathVariable String tableName, @PathVariable String columnName) {
+        requireDatasourceId(datasourceId);
+        return Result.success(lineageService.queryColumnLineage(datasourceId, tableName, columnName));
     }
 
     /** 变更影响分析 */
     @GetMapping("/impact/{tableName}/{columnName}")
     public Result<ImpactAnalysisVO> analyzeImpact(
-            @PathVariable String tableName, @PathVariable String columnName) {
-        return Result.success(lineageService.analyzeImpact(tableName, columnName));
+            @RequestParam Long datasourceId, @PathVariable String tableName, @PathVariable String columnName) {
+        requireDatasourceId(datasourceId);
+        return Result.success(lineageService.analyzeImpact(datasourceId, tableName, columnName));
+    }
+
+    private void requireDatasourceId(Long datasourceId) {
+        if (datasourceId == null) {
+            throw new BusinessException("请选择数据源");
+        }
     }
 }

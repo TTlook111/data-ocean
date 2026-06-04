@@ -34,7 +34,7 @@ public interface LineageService {
      * @param tableName 表名
      * @return 引用该表的历史查询列表
      */
-    List<LineageTableVO> queryTableLineage(String tableName);
+    List<LineageTableVO> queryTableLineage(Long datasourceId, String tableName);
 
     /**
      * 按字段查询血缘关系
@@ -43,7 +43,7 @@ public interface LineageService {
      * @param columnName 字段名
      * @return 引用该字段的历史查询列表
      */
-    List<LineageColumnVO> queryColumnLineage(String tableName, String columnName);
+    List<LineageColumnVO> queryColumnLineage(Long datasourceId, String tableName, String columnName);
 
     /**
      * 变更影响分析
@@ -52,5 +52,5 @@ public interface LineageService {
      * @param columnName 字段名
      * @return 依赖该字段的查询数量和影响范围
      */
-    ImpactAnalysisVO analyzeImpact(String tableName, String columnName);
+    ImpactAnalysisVO analyzeImpact(Long datasourceId, String tableName, String columnName);
 }

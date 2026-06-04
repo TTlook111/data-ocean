@@ -101,21 +101,25 @@ export async function promoteTemplate(id: number) {
 }
 
 // 血缘
-export async function queryTableLineage(tableName: string) {
-  const { data } = await http.get<ApiResult<LineageTableVO[]>>(`/api/lineage/table/${encodeURIComponent(tableName)}`)
+export async function queryTableLineage(datasourceId: number, tableName: string) {
+  const { data } = await http.get<ApiResult<LineageTableVO[]>>(`/api/lineage/table/${encodeURIComponent(tableName)}`, {
+    params: { datasourceId },
+  })
   return data
 }
 
-export async function queryColumnLineage(tableName: string, columnName: string) {
+export async function queryColumnLineage(datasourceId: number, tableName: string, columnName: string) {
   const { data } = await http.get<ApiResult<LineageColumnVO[]>>(
     `/api/lineage/column/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`,
+    { params: { datasourceId } },
   )
   return data
 }
 
-export async function analyzeImpact(tableName: string, columnName: string) {
+export async function analyzeImpact(datasourceId: number, tableName: string, columnName: string) {
   const { data } = await http.get<ApiResult<ImpactAnalysisVO>>(
     `/api/lineage/impact/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`,
+    { params: { datasourceId } },
   )
   return data
 }

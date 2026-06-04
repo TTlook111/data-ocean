@@ -121,15 +121,41 @@ def _extract_columns(sql: str) -> list[str]:
         return _extract_columns_fallback(sql)
 
     tables = _extract_tables(sql)
+    aliases = _table_aliases(tree)
     single_table = tables[0] if len(tables) == 1 else ""
+    qualified_tables_by_column: dict[str, set[str]] = {}
+    for column in tree.find_all(exp.Column):
+        if column.name and column.table:
+            qualified_tables_by_column.setdefault(column.name, set()).add(aliases.get(column.table, column.table))
+
     columns: set[str] = set()
     for column in tree.find_all(exp.Column):
         name = column.name
-        table = column.table or single_table
         if not name or name == "*":
             continue
+        qualifier = column.table
+        if qualifier:
+            table = aliases.get(qualifier, qualifier)
+        elif single_table:
+            table = single_table
+        elif len(qualified_tables_by_column.get(name, set())) == 1:
+            table = next(iter(qualified_tables_by_column[name]))
+        else:
+            table = "__UNRESOLVED__"
         columns.add(f"{table}.{name}" if table else name)
     return sorted(columns)
+
+
+def _table_aliases(tree: exp.Expression) -> dict[str, str]:
+    aliases = {}
+    for table in tree.find_all(exp.Table):
+        if not table.name:
+            continue
+        aliases[table.name] = table.name
+        alias = table.alias
+        if alias:
+            aliases[alias] = table.name
+    return aliases
 
 
 def _extract_columns_fallback(sql: str) -> list[str]:

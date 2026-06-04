@@ -64,10 +64,8 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             throw new BusinessException(404, "快照不存在");
         }
 
-        Set<String> targetDimensions = CollectionUtils.isEmpty(dimensions)
-                ? DIMENSION_WEIGHTS.keySet()
-                : new HashSet<>(dimensions);
-        boolean isFullCheck = targetDimensions.size() == DIMENSION_WEIGHTS.size() && CollectionUtils.isEmpty(tableNames);
+        Set<String> targetDimensions = resolveTargetDimensions(dimensions);
+        boolean isFullCheck = targetDimensions.containsAll(DIMENSION_WEIGHTS.keySet()) && CollectionUtils.isEmpty(tableNames);
 
         log.info("start quality check snapshotId={} datasourceId={} fullCheck={}",
                 snapshotId, snapshot.getDatasourceId(), isFullCheck);
@@ -135,12 +133,25 @@ public class QualityCheckServiceImpl implements QualityCheckService {
                 .in(MetadataQualityIssue::getDimension, dimensions)
                 .in(MetadataQualityIssue::getStatus,
                         MetadataQualityIssue.STATUS_OPEN,
-                        MetadataQualityIssue.STATUS_CONFIRMED,
-                        MetadataQualityIssue.STATUS_AUTO_CLOSED);
+                        MetadataQualityIssue.STATUS_CONFIRMED);
         if (!CollectionUtils.isEmpty(tableNames)) {
             qw.in(MetadataQualityIssue::getTableName, tableNames);
         }
         issueMapper.delete(qw);
+    }
+
+    private Set<String> resolveTargetDimensions(List<String> dimensions) {
+        if (CollectionUtils.isEmpty(dimensions)) {
+            return new HashSet<>(DIMENSION_WEIGHTS.keySet());
+        }
+        Set<String> targetDimensions = new HashSet<>(dimensions);
+        Set<String> unknownDimensions = targetDimensions.stream()
+                .filter(dimension -> !DIMENSION_WEIGHTS.containsKey(dimension))
+                .collect(Collectors.toSet());
+        if (!unknownDimensions.isEmpty()) {
+            throw new BusinessException("未知质量检查维度: " + String.join(",", unknownDimensions));
+        }
+        return targetDimensions;
     }
 
     private List<DbTableMeta> loadTables(Long snapshotId, List<String> tableNames) {
