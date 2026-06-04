@@ -9,6 +9,8 @@ import com.dataocean.module.audit.entity.vo.LineageTableVO;
 import com.dataocean.module.audit.mapper.QueryLineageColumnMapper;
 import com.dataocean.module.audit.mapper.QueryLineageTableMapper;
 import com.dataocean.module.audit.service.LineageService;
+import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +34,7 @@ public class LineageServiceImpl implements LineageService {
 
     private final QueryLineageTableMapper tableMapper;
     private final QueryLineageColumnMapper columnMapper;
+    private final QueryTaskMapper queryTaskMapper;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -80,12 +84,16 @@ public class LineageServiceImpl implements LineageService {
                         .orderByDesc(QueryLineageTable::getCreatedAt)
                         .last("LIMIT 100")
         );
+        Map<Long, String> questionMap = loadQuestionMap(records.stream()
+                .map(QueryLineageTable::getQueryTaskId)
+                .collect(Collectors.toSet()));
         return records.stream().map(r -> {
             LineageTableVO vo = new LineageTableVO();
             vo.setQueryTaskId(r.getQueryTaskId());
             vo.setSourceTable(r.getSourceTable());
             vo.setTargetName(r.getTargetName());
             vo.setRelationType(r.getRelationType());
+            vo.setQuestion(questionMap.get(r.getQueryTaskId()));
             vo.setCreatedAt(r.getCreatedAt());
             return vo;
         }).collect(Collectors.toList());
@@ -100,6 +108,9 @@ public class LineageServiceImpl implements LineageService {
                         .orderByDesc(QueryLineageColumn::getCreatedAt)
                         .last("LIMIT 100")
         );
+        Map<Long, String> questionMap = loadQuestionMap(records.stream()
+                .map(QueryLineageColumn::getQueryTaskId)
+                .collect(Collectors.toSet()));
         return records.stream().map(r -> {
             LineageColumnVO vo = new LineageColumnVO();
             vo.setQueryTaskId(r.getQueryTaskId());
@@ -107,6 +118,7 @@ public class LineageServiceImpl implements LineageService {
             vo.setSourceColumn(r.getSourceColumn());
             vo.setExpression(r.getExpression());
             vo.setAliasName(r.getAliasName());
+            vo.setQuestion(questionMap.get(r.getQueryTaskId()));
             vo.setCreatedAt(r.getCreatedAt());
             return vo;
         }).collect(Collectors.toList());
@@ -200,6 +212,17 @@ public class LineageServiceImpl implements LineageService {
 
     private String valueAsString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private Map<Long, String> loadQuestionMap(Set<Long> taskIds) {
+        if (taskIds == null || taskIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> result = new HashMap<>();
+        for (QueryTask task : queryTaskMapper.selectBatchIds(taskIds)) {
+            result.put(task.getId(), task.getQuestion());
+        }
+        return result;
     }
 
     private record ColumnRef(String tableName, String columnName, String expression, String aliasName) {

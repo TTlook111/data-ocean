@@ -102,17 +102,21 @@ export async function promoteTemplate(id: number) {
 
 // 血缘
 export async function queryTableLineage(tableName: string) {
-  const { data } = await http.get<ApiResult<LineageTableVO[]>>(`/api/lineage/table/${tableName}`)
+  const { data } = await http.get<ApiResult<LineageTableVO[]>>(`/api/lineage/table/${encodeURIComponent(tableName)}`)
   return data
 }
 
 export async function queryColumnLineage(tableName: string, columnName: string) {
-  const { data } = await http.get<ApiResult<LineageColumnVO[]>>(`/api/lineage/column/${tableName}/${columnName}`)
+  const { data } = await http.get<ApiResult<LineageColumnVO[]>>(
+    `/api/lineage/column/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`,
+  )
   return data
 }
 
 export async function analyzeImpact(tableName: string, columnName: string) {
-  const { data } = await http.get<ApiResult<ImpactAnalysisVO>>(`/api/lineage/impact/${tableName}/${columnName}`)
+  const { data } = await http.get<ApiResult<ImpactAnalysisVO>>(
+    `/api/lineage/impact/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`,
+  )
   return data
 }
 
