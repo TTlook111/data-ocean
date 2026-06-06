@@ -5,12 +5,12 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.enums.GenerationSource;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
-import com.dataocean.module.knowledge.support.KnowledgeChunkSplitter;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +38,6 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
     private final KnowledgeDocMapper knowledgeDocMapper;
     private final VectorIndexTaskService vectorIndexTaskService;
     private final KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
-    private final KnowledgeChunkSplitter knowledgeChunkSplitter;
 
     /**
      * {@inheritDoc}
@@ -144,9 +143,8 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
 
         // 查询文档获取数据源 ID，创建向量化任务
         KnowledgeDoc doc = knowledgeDocMapper.selectById(docId);
-        knowledgeChunkSplitter.splitAndSave(
-                doc.getId(), doc.getCurrentVersion(),
-                targetVersion.getMetadataSnapshotId(), doc.getContent());
+        doc.setStatus(DocStatus.INDEXING.name());
+        knowledgeDocMapper.updateById(doc);
         vectorIndexTaskService.createTask(
                 doc.getDatasourceId(),
                 "DOC",

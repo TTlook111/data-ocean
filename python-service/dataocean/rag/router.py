@@ -13,6 +13,8 @@ import httpx
 
 from .milvus_client import connect_milvus, get_collection, health_status
 from .schema import (
+    ChunkDocumentRequest,
+    ChunkDocumentResponse,
     DeleteVectorsRequest,
     DeleteVectorsResponse,
     RetrieveRequest,
@@ -20,6 +22,7 @@ from .schema import (
     VectorizeRequest,
     VectorizeResponse,
 )
+from .chunker import chunk_skills_md
 from .service import retrieve_schemas
 from .vectorizer import vectorize_chunks
 
@@ -44,6 +47,24 @@ class ReVectorizeRequest(BaseModel):
     index_version: str | None = Field(default=None, alias="indexVersion")
     target_collection: str | None = Field(default=None, alias="targetCollection")
     target_dimension: int | None = Field(default=None, alias="targetDimension")
+
+
+@router.post("/chunk", response_model=ChunkDocumentResponse)
+async def chunk_document(request: ChunkDocumentRequest) -> ChunkDocumentResponse:
+    """Split a skills.md document in the Python RAG layer.
+
+    Java keeps the document lifecycle and stores this returned chunk snapshot for
+    observability/rebuilds; Python owns the chunking strategy.
+    """
+    chunks = chunk_skills_md(request.content)
+    logger.info(
+        "skills.md chunked datasource_id=%s doc_id=%s version_no=%s chunks=%d",
+        request.datasource_id,
+        request.doc_id,
+        request.version_no,
+        len(chunks),
+    )
+    return ChunkDocumentResponse(chunks=chunks, chunk_count=len(chunks))
 
 
 @router.post("/vectorize", response_model=VectorizeResponse)
@@ -91,6 +112,12 @@ async def delete_vectors_by_datasource(datasource_id: int) -> DeleteVectorsRespo
 @router.delete("/vectors", response_model=DeleteVectorsResponse)
 async def delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsResponse:
     """按数据源和/或快照批量删除向量"""
+    return await _delete_vectors(request)
+
+
+@router.post("/vectors/delete", response_model=DeleteVectorsResponse)
+async def delete_vectors_post(request: DeleteVectorsRequest) -> DeleteVectorsResponse:
+    """Delete vectors with a JSON body after Java marks a new version active."""
     return await _delete_vectors(request)
 
 

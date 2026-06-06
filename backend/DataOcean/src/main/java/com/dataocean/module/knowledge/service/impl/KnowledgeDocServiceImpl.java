@@ -8,6 +8,7 @@ import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
 import com.dataocean.module.knowledge.entity.KnowledgeReviewTask;
+import com.dataocean.module.knowledge.entity.VectorIndexTask;
 import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.enums.GenerationSource;
 import com.dataocean.module.knowledge.enums.ReviewStatus;
@@ -18,7 +19,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.KnowledgeDocService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
-import com.dataocean.module.knowledge.support.KnowledgeChunkSplitter;
+import com.dataocean.module.knowledge.client.PythonRagClient;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import com.dataocean.module.fieldtag.entity.FieldTag;
 import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
@@ -68,8 +69,8 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     private final KnowledgeReviewTaskMapper knowledgeReviewTaskMapper;
     private final VectorIndexTaskService vectorIndexTaskService;
     private final PythonKnowledgeClient pythonKnowledgeClient;
+    private final PythonRagClient pythonRagClient;
     private final KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
-    private final KnowledgeChunkSplitter knowledgeChunkSplitter;
     private final DbTableMetaMapper dbTableMetaMapper;
     private final DbColumnMetaMapper dbColumnMetaMapper;
     private final TableRelationMapper tableRelationMapper;
@@ -295,14 +296,11 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
         // 发布前校验：检查引用字段的治理状态
         validateBeforePublish(doc);
         // 更新文档状态为已发布
-        doc.setStatus(DocStatus.PUBLISHED.name());
+        KnowledgeDocVersion currentVersion = requireVersion(doc.getId(), doc.getCurrentVersion());
+        doc.setStatus(DocStatus.INDEXING.name());
         doc.setUpdatedBy(UserContext.currentUserId());
         knowledgeDocMapper.updateById(doc);
         // 切分文档内容为 chunks
-        KnowledgeDocVersion currentVersion = requireVersion(doc.getId(), doc.getCurrentVersion());
-        knowledgeChunkSplitter.splitAndSave(
-                doc.getId(), doc.getCurrentVersion(),
-                currentVersion.getMetadataSnapshotId(), doc.getContent());
         // 创建带版本上下文的向量化任务；新版本写入成功后再清理旧版本向量。
         vectorIndexTaskService.createTask(
                 doc.getDatasourceId(),
@@ -740,13 +738,27 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     /**
      * {@inheritDoc}
      * <p>
-     * 实现逻辑：模拟切片，按 Markdown 二级标题拆分文档内容，
+     * 实现逻辑：调用 Python RAG 服务预览实际切割结果，
      * 返回每个切片的文本和类型，不写入数据库。
      * </p>
      */
     @Override
     public List<Map<String, String>> previewChunks(Long docId) {
         KnowledgeDoc doc = requireDoc(docId);
-        return knowledgeChunkSplitter.preview(doc.getContent());
+        VectorIndexTask previewTask = VectorIndexTask.builder()
+                .datasourceId(doc.getDatasourceId())
+                .targetType("DOC")
+                .targetId(doc.getId())
+                .knowledgeVersionNo(doc.getCurrentVersion())
+                .build();
+        return pythonRagClient.chunkDocument(previewTask, doc.getContent()).stream()
+                .map(this::toStringMap)
+                .toList();
+    }
+
+    private Map<String, String> toStringMap(Map<String, Object> payload) {
+        Map<String, String> result = new HashMap<>();
+        payload.forEach((key, value) -> result.put(key, value == null ? "" : String.valueOf(value)));
+        return result;
     }
 }

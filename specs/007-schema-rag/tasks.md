@@ -20,7 +20,7 @@
 **Goal**: 已发布内容向量化入库
 **Independent Test**: 发布 skills.md 后，5 分钟内新内容能被召回
 
-- [X] T007 [US2] 实现 `python-service/dataocean/rag/chunker.py`：分块策略——表级分块（表数量<100 时每表一个 chunk）、字段组分块（单表字段>50 时按 10 字段一组）、skills.md 按二级标题切分；每个 chunk 携带 metadata（datasource_id、snapshot_id、chunk_type、related_table、related_column）
+- [X] T007 [US2] 实现 `python-service/dataocean/rag/chunker.py`：分块策略——表级分块（表数量<100 时每表一个 chunk）、字段组分块（单表字段>50 时按 10 字段一组）、skills.md 按 `##` + `###` 细粒度切分；每个 chunk 携带 metadata（datasource_id、snapshot_id、chunk_type、related_table、related_column）
 - [X] T008 [US2] 实现 `python-service/dataocean/rag/vectorizer.py`：接收 chunks 列表 → 调用 embedder 批量生成向量 → 写入 Milvus（upsert 模式）→ 返回写入数量和失败列表
 - [X] T009 [US2] 实现版本切换逻辑：在 vectorizer.py 中实现 switch_version 方法——新版本写入完成后，校验向量数量一致性（新版本 chunk 数 == Milvus 中新版本记录数），通过后删除旧版本向量
 - [X] T010 [US2] 实现 Pydantic 模型 `python-service/dataocean/rag/schema.py`：VectorizeRequest（datasource_id、snapshot_id、version_no、chunks: List[ChunkItem]）、VectorizeResponse（success_count、failed_count、errors）、ChunkItem（chunk_type、chunk_text、related_table、related_column、governance_status、review_status）

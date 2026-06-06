@@ -1,9 +1,10 @@
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from dataocean.rag.fallback import fallback_retrieve
 from dataocean.rag.retriever import retrieve_from_milvus
 from dataocean.rag.schema import (
+    ChunkDocumentRequest,
     DeleteVectorsRequest,
     DeleteVectorsResponse,
     RetrievedSchema,
@@ -12,6 +13,7 @@ from dataocean.rag.schema import (
     VectorizeRequest,
 )
 from dataocean.rag.vectorizer import _switch_doc_version, switch_version
+from dataocean.rag.vectorizer import vectorize_chunks
 
 
 class FakeHit:
@@ -27,6 +29,7 @@ class FakeCollection:
         self.search_expr = ""
         self.deleted_expr = ""
         self.flushed = False
+        self.inserted_entities = None
 
     def load(self) -> None:
         self.loaded = True
@@ -52,6 +55,9 @@ class FakeCollection:
 
     def query(self, expr: str, output_fields: list[str]):
         return [{"count(*)": self.count}]
+
+    def insert(self, entities) -> None:
+        self.inserted_entities = entities
 
     def delete(self, expr: str) -> None:
         self.deleted_expr = expr
@@ -105,6 +111,51 @@ class RagContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(vectorize.version_no, 3)
         self.assertEqual(vectorize.previous_version_no, 2)
         self.assertEqual(vectorize.chunks[0].related_table, "orders")
+
+        chunk_request = ChunkDocumentRequest.model_validate(
+            {
+                "datasourceId": 10,
+                "docId": 99,
+                "metadataSnapshotId": 5,
+                "knowledgeVersionNo": 3,
+                "content": "## 核心表说明\n### orders - 订单表\n适用表: orders",
+            }
+        )
+        self.assertEqual(chunk_request.datasource_id, 10)
+        self.assertEqual(chunk_request.doc_id, 99)
+        self.assertEqual(chunk_request.snapshot_id, 5)
+        self.assertEqual(chunk_request.version_no, 3)
+
+    def test_chunker_splits_skills_md_by_h3(self) -> None:
+        from dataocean.rag.chunker import chunk_skills_md
+
+        chunks = chunk_skills_md(
+            """
+## 文档来源
+### ignored
+不参与检索
+
+## 核心表说明
+### orders - 订单表
+适用表: orders
+字段: order_id, pay_amount
+
+### customers - 客户表
+适用表: customers
+字段: customer_id
+
+## Join Path
+### orders ↔ customers
+涉及表: orders, customers
+ON orders.customer_id = customers.customer_id
+"""
+        )
+
+        self.assertEqual(len(chunks), 3)
+        self.assertEqual(chunks[0].chunk_type, "TABLE_DESC")
+        self.assertEqual(chunks[0].related_table, "orders")
+        self.assertEqual(chunks[1].related_table, "customers")
+        self.assertEqual(chunks[2].chunk_type, "JOIN_PATH")
 
     def test_response_serializes_contract_aliases(self) -> None:
         response = RetrieveResponse.model_validate(
@@ -219,6 +270,43 @@ class RagContractTest(unittest.IsolatedAsyncioTestCase):
             "datasource_id == 10 and doc_id == 99 and knowledge_version_no == 2",
         )
         self.assertTrue(collection.flushed)
+
+    async def test_force_rebuild_deletes_only_target_doc_version(self) -> None:
+        collection = FakeCollection(count=1)
+        chunk = {
+            "sourceId": 201,
+            "chunkType": "TABLE_DESC",
+            "chunkText": "orders table",
+            "tableName": "orders",
+            "governanceStatus": "NORMAL",
+            "reviewStatus": "APPROVED",
+        }
+
+        with patch("dataocean.rag.vectorizer.connect_milvus"), patch(
+            "dataocean.rag.vectorizer.get_collection", return_value=collection
+        ), patch(
+            "dataocean.rag.vectorizer.embed_texts",
+            new=AsyncMock(return_value=[[0.1, 0.2]]),
+        ):
+            response = await vectorize_chunks(
+                datasource_id=10,
+                snapshot_id=5,
+                version_no=3,
+                chunks=[VectorizeRequest.model_validate({
+                    "datasourceId": 10,
+                    "metadataSnapshotId": 5,
+                    "knowledgeVersionNo": 3,
+                    "chunks": [chunk],
+                }).chunks[0]],
+                doc_id=99,
+                force=True,
+            )
+
+        self.assertEqual(response.status, "COMPLETED")
+        self.assertEqual(
+            collection.deleted_expr,
+            "datasource_id == 10 and doc_id == 99 and knowledge_version_no == 3",
+        )
 
     def test_first_non_none_preserves_falsy_zero(self) -> None:
         from dataocean.rag.fallback import _first_non_none

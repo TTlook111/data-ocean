@@ -539,7 +539,7 @@ Python 重启后 → 调用 GET /internal/config/pending
 | `embeddings.py` | 新增 pending 专用向量化入口，支持按 `embeddingConfig` 临时创建 Embedding 实例 |
 | `RAG retriever` | 查询侧只读取 active Embedding + active 索引；重建期间不使用 pending 索引 |
 | `RAG vectorize` | 改造为 pending 索引构建策略（pending 写入 + 成功发布 + 延迟清理旧索引） |
-| `KnowledgeChunkSplitter` | 无需改动，分块逻辑不变 |
+| Python RAG `chunker.py` | 负责 skills.md 分块；Java 仅保存返回的 chunk snapshot |
 
 ---
 

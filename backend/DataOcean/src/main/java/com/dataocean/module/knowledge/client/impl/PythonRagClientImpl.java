@@ -99,6 +99,82 @@ public class PythonRagClientImpl implements PythonRagClient {
     /**
      * 将 KnowledgeChunk 实体转换为 Python 服务所需的请求载荷格式。
      */
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<Map<String, Object>> chunkDocument(VectorIndexTask task, String content) {
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("taskId", task.getId());
+        requestBody.put("datasourceId", task.getDatasourceId());
+        requestBody.put("docId", task.getTargetId());
+        requestBody.put("metadataSnapshotId", task.getMetadataSnapshotId());
+        requestBody.put("knowledgeVersionNo", task.getKnowledgeVersionNo());
+        requestBody.put("content", content == null ? "" : content);
+
+        try {
+            log.info(
+                    "调用 Python RAG 文档切割 taskId={} docId={} versionNo={}",
+                    task.getId(),
+                    task.getTargetId(),
+                    task.getKnowledgeVersionNo());
+
+            Map<String, Object> response = restClient.post()
+                    .uri("/internal/rag/chunk")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, responseEntity) -> {
+                        log.error("Python RAG 文档切割接口返回异常 taskId={} status={}",
+                                task.getId(), responseEntity.getStatusCode());
+                        throw new BusinessException("RAG 文档切割失败");
+                    })
+                    .body(new ParameterizedTypeReference<>() {});
+
+            Object chunks = response == null ? null : response.get("chunks");
+            if (chunks instanceof List<?> list) {
+                return list.stream()
+                        .filter(Map.class::isInstance)
+                        .map(item -> (Map<String, Object>) item)
+                        .toList();
+            }
+            return List.of();
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("调用 Python RAG 文档切割失败 taskId={} reason={}", task.getId(), e.getMessage(), e);
+            throw new BusinessException("RAG 文档切割失败：" + e.getMessage());
+        }
+    }
+
+    @Override
+    public void deleteDocVersionVectors(VectorIndexTask task, Integer versionNo) {
+        if (versionNo == null) {
+            return;
+        }
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("datasourceId", task.getDatasourceId());
+        requestBody.put("docId", task.getTargetId());
+        requestBody.put("knowledgeVersionNo", versionNo);
+
+        try {
+            restClient.post()
+                    .uri("/internal/rag/vectors/delete")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, responseEntity) -> {
+                        log.warn("Python RAG 旧向量清理失败 taskId={} versionNo={} status={}",
+                                task.getId(), versionNo, responseEntity.getStatusCode());
+                        throw new BusinessException("RAG 旧向量清理失败");
+                    })
+                    .toBodilessEntity();
+            log.info("Python RAG 旧向量清理完成 taskId={} docId={} versionNo={}",
+                    task.getId(), task.getTargetId(), versionNo);
+        } catch (Exception e) {
+            log.warn("Python RAG 旧向量清理异常 taskId={} versionNo={} reason={}",
+                    task.getId(), versionNo, e.getMessage());
+        }
+    }
+
     private Map<String, Object> toChunkPayload(KnowledgeChunk chunk) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("sourceId", chunk.getId());

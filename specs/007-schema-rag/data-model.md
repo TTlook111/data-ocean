@@ -1,106 +1,81 @@
 # Data Model: Schema RAG 召回模块
 
-## Milvus Collection Schema
-
-### Collection: `schema_knowledge`
+## Milvus Collection: `schema_knowledge`
 
 | Field | Type | Description |
-|-------|------|-------------|
-| id | INT64 (PK, auto_id) | 向量记录ID |
-| vector | FLOAT_VECTOR (dim=1024) | Embedding 向量 |
-| datasource_id | INT64 (partition key) | 数据源ID，分区键 |
-| chunk_type | VARCHAR(30) | SCHEMA / KNOWLEDGE |
-| doc_id | INT64 | skills.md 文档ID，用于同一文档版本替换 |
-| source_id | INT64 | 来源切片ID (knowledge_chunk.id) |
-| snapshot_id | INT64 | 元数据快照ID |
-| knowledge_version_no | INT32 | 知识版本号 (chunk_type=KNOWLEDGE 时有值) |
-| table_name | VARCHAR(200) | 关联表名 |
-| governance_status | VARCHAR(20) | NORMAL / RECOMMENDED / DEPRECATED / BLOCKED |
-| review_status | VARCHAR(20) | PENDING / APPROVED / REJECTED |
-| trust_score | INT32 | 可信度评分 (0-100) |
-| chunk_text | VARCHAR(8000) | 原文内容 |
-| created_at | INT64 | 创建时间戳 (Unix ms) |
+|---|---|---|
+| vector_id | INT64 | Milvus 主键 |
+| datasource_id | INT64 | 数据源隔离字段 |
+| snapshot_id | INT64 | 元数据快照 ID |
+| knowledge_version_no | INT64 | skills.md 版本号 |
+| doc_id | INT64 | skills.md 文档 ID |
+| source_id | INT64 | MySQL `knowledge_chunk.id` |
+| chunk_type | VARCHAR | `TABLE_DESC` / `JOIN_PATH` / `METRIC` / `FIELD_NOTE` / `QUERY_SCENE` |
+| governance_status | VARCHAR | `NORMAL` / `RECOMMENDED` 等准入状态 |
+| review_status | VARCHAR | `APPROVED` 才可召回 |
+| chunk_text | VARCHAR | 检索文本 |
+| related_table | VARCHAR | 关联表名 |
+| related_column | VARCHAR | 关联字段名 |
+| embedding | FLOAT_VECTOR | embedding 向量 |
 
-**Index**: IVF_FLAT on `vector` field, nlist=128
-**Partition**: By `datasource_id`
+Milvus 是 RAG 检索主存储。检索强制过滤：
 
-### Version Replacement Rule
-
-向量写入以 `(datasource_id, doc_id, knowledge_version_no)` 作为文档版本作用域：
-
-1. Java 发布或回滚 skills.md 时传入 `docId`、`metadataSnapshotId`、`knowledgeVersionNo` 和 `previousVersionNo`。
-2. Python 先写入新版本向量并 flush。
-3. Python 查询新版本向量数量，必须等于请求中的 chunk 数。
-4. 校验通过后删除同一 `(datasource_id, doc_id, previousVersionNo)` 的旧向量。
-5. 校验失败时清理本次新写入的半成品向量，但不删除旧向量；Java 任务标记 FAILED，RAG 仍可继续召回上一版。
-
----
-
-## MySQL 映射表 (Java 管理库)
-
-### vector_index_item
-
-| Field | Type | Constraints | Description |
-|-------|------|-------------|-------------|
-| id | BIGINT | PK, AUTO_INCREMENT | 映射记录ID |
-| datasource_id | BIGINT | NOT NULL | 数据源ID |
-| milvus_id | BIGINT | NOT NULL | Milvus 中的向量 ID |
-| chunk_type | VARCHAR(30) | NOT NULL | SCHEMA / KNOWLEDGE |
-| source_type | VARCHAR(30) | NOT NULL | KNOWLEDGE_CHUNK / METADATA_TABLE |
-| source_id | BIGINT | NOT NULL | 来源记录ID |
-| metadata_snapshot_id | BIGINT | NOT NULL | 快照ID |
-| knowledge_version_no | INT | | 知识版本号 |
-| table_name | VARCHAR(200) | | 关联表名 |
-| status | VARCHAR(20) | NOT NULL, DEFAULT 'ACTIVE' | ACTIVE / DELETED |
-| created_at | DATETIME | NOT NULL, DEFAULT NOW() | 创建时间 |
-| deleted_at | DATETIME | | 删除时间 |
-
-INDEX: (datasource_id, status)
-INDEX: (metadata_snapshot_id)
-INDEX: (source_type, source_id)
-
----
-
-## Chunk 结构 (内存模型)
-
-### SchemaChunk (表级)
-
-```
-表名: orders
-表注释: 订单主表
-字段列表:
-  - order_id (BIGINT, PK) 订单ID [可信度:95]
-  - user_id (BIGINT, FK→users.id) 用户ID [可信度:90]
-  - pay_amount (DECIMAL(10,2)) 实付金额 [可信度:95]
-  - status (TINYINT) 订单状态 1=待付款 2=已付款 3=已完成 [可信度:88]
-索引: PRIMARY(order_id), idx_user_id(user_id), idx_status(status)
-外键: user_id → users.id
+```text
+datasource_id == 当前数据源
+snapshot_id == activeSnapshotId
+review_status == "APPROVED"
+governance_status in ["NORMAL", "RECOMMENDED"]
 ```
 
-### KnowledgeChunk (skills.md 段落)
+## MySQL Snapshot Tables
 
-```
-## 核心表说明
+### `knowledge_chunk`
 
-orders 表是订单主表，记录所有交易订单。
-核心字段: order_id, user_id, pay_amount, status
-常用查询维度: 按时间、按用户、按状态
-注意: old_amount 字段已废弃，请使用 pay_amount
-```
+`knowledge_chunk` 保存 Python 返回的 chunk snapshot，用于预览、审计、回滚重建和 Milvus 不可用时的 fallback。它不是 RAG 检索主存储。
 
-## Retrieval Result Structure
+| Field | Description |
+|---|---|
+| doc_id | skills.md 文档 ID |
+| version_no | skills.md 版本号 |
+| metadata_snapshot_id | 元数据快照 ID |
+| chunk_type | Python 推断的 chunk 类型 |
+| chunk_text | Python 切割后的 chunk 文本 |
+| related_table | Python 提取的关联表 |
+| related_column | Python 提取的关联字段 |
+| review_status | `APPROVED` |
+| vector_status | `PENDING` / `INDEXED` / `SUPERSEDED` / `FAILED` |
 
-```python
-@dataclass
-class RetrievedContext:
-    table_name: str
-    table_comment: str
-    columns: list[ColumnInfo]
-    relevance_score: float      # Milvus 原始分数
-    weighted_score: float       # 规则加权后分数
-    source_type: str            # SCHEMA / KNOWLEDGE
-    chunk_text: str             # 原文
-    trust_score: int            # 表级平均可信度
-    snapshot_id: int
-    degraded: bool = False      # 是否降级结果
-```
+### `vector_index_task`
+
+Java 管理任务生命周期：
+
+| Field | Description |
+|---|---|
+| datasource_id | 数据源 ID |
+| target_type | 当前为 `DOC` / `KNOWLEDGE_DOC` |
+| target_id | skills.md 文档 ID |
+| metadata_snapshot_id | 快照 ID |
+| knowledge_version_no | 待写入的新版本 |
+| previous_version_no | 新版本生效后待清理的旧版本 |
+| status | `PENDING` / `PROCESSING` / `COMPLETED` / `FAILED` |
+
+## Version Switch Rule
+
+1. Java 发布或回滚 skills.md 时创建 `vector_index_task`，文档状态进入 `INDEXING`。
+2. Java 调用 Python `/internal/rag/chunk`，Python 按 `##` + `###` 切割完整 skills.md。
+3. Java 将 chunk 清单保存到 `knowledge_chunk`，状态为 `PENDING`。
+4. Java 调用 Python `/internal/rag/vectorize`。
+5. Python 写入新版本 Milvus 向量，并校验新版本向量数等于 chunk 数。
+6. Java 将新 chunk 标记为 `INDEXED`，文档标记为 `PUBLISHED`，任务标记为 `COMPLETED`。
+7. Java 调用 Python `/internal/rag/vectors/delete` 清理 `previous_version_no` 的旧向量。
+8. 如果任一步失败，任务标记为 `FAILED`，文档回到 `APPROVED`，旧版本继续可检索。
+
+## Chunking Strategy
+
+Python `dataocean.rag.chunker.chunk_skills_md` 是唯一切割实现：
+
+- 按 `##` 划分大章节。
+- 跳过“文档来源”。
+- 按 `###` 切成细粒度 chunk。
+- 每张表、每个指标、每条 Join Path、每个字段防坑、每个典型查询场景独立成 chunk。
+- chunk 文本最大保留 8000 字符。

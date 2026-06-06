@@ -98,7 +98,7 @@ RAG 检索时强制按数据源隔离，且只召回已治理通过的内容。
 - 使用 LlamaIndex 封装 Milvus 向量检索逻辑
 - Embedding 模型使用 text-embedding-v4，默认 1024 维（可配置为 1536/2048，但需重建 Collection）
 - 向量库使用 Milvus 2.x Standalone，Docker 镜像锁定具体版本
-- 分块策略：表级分块（表数量 < 100）或字段组分块（单表字段 > 50），skills.md 按二级标题切分
+- 分块策略：Python RAG 服务负责切割；skills.md 先按 `##` 章节划分，再按 `###` 细粒度切割为表、指标、Join Path、字段防坑和查询场景 chunk
 - 重排序：MVP 先用 Milvus 分数 + 规则加权（表名命中、可信字段命中、废弃字段惩罚），阶段二再引入 qwen3-rerank
 - 阶段一验收标准：20 个预设问题中至少 16 个召回人工标注的核心表（文档第 27.2 节）
 - vector_index_item 表建立平台库与 Milvus vector_id 的映射关系，支持增量更新和排查

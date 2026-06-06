@@ -80,6 +80,39 @@ class ChunkItem(RagBaseModel):
     )
 
 
+class ChunkDocumentRequest(RagBaseModel):
+    """Request to split a published skills.md document in the Python RAG layer."""
+
+    doc_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("doc_id", "docId"),
+        serialization_alias="docId",
+    )
+    datasource_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("datasource_id", "datasourceId"),
+        serialization_alias="datasourceId",
+    )
+    snapshot_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("snapshot_id", "snapshotId", "metadata_snapshot_id", "metadataSnapshotId"),
+        serialization_alias="metadataSnapshotId",
+    )
+    version_no: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("version_no", "versionNo", "knowledge_version_no", "knowledgeVersionNo"),
+        serialization_alias="knowledgeVersionNo",
+    )
+    content: str = ""
+
+
+class ChunkDocumentResponse(RagBaseModel):
+    """Chunk list returned to Java for MySQL snapshot persistence."""
+
+    chunks: list[ChunkItem] = Field(default_factory=list)
+    chunk_count: int = Field(default=0, serialization_alias="chunkCount")
+
+
 class EmbeddingConfig(RagBaseModel):
     """向量化使用的 Embedding 配置。
 

@@ -68,7 +68,7 @@ async def vectorize_chunks(
     # 强制模式：同一文档重建时先删该文档，缺少 doc_id 时才退化为数据源级重建。
     if force:
         if doc_id is not None:
-            await asyncio.to_thread(_delete_by_doc, collection, datasource_id, doc_id)
+            await asyncio.to_thread(_delete_doc_version, collection, datasource_id, doc_id, version_no)
         else:
             await asyncio.to_thread(_delete_by_datasource, collection, datasource_id)
 
@@ -119,13 +119,12 @@ async def vectorize_chunks(
             collection.insert(entities)
             collection.flush()
             try:
-                if doc_id is not None and previous_version_no is not None and previous_version_no != version_no:
-                    _switch_doc_version(
+                if doc_id is not None:
+                    _verify_doc_version(
                         collection,
                         datasource_id,
                         doc_id,
                         version_no,
-                        previous_version_no,
                         len(chunks),
                     )
             except Exception:
@@ -232,6 +231,32 @@ def _switch_doc_version(
         new_version_no,
         actual_count,
     )
+
+
+def _verify_doc_version(
+    collection: Collection,
+    datasource_id: int,
+    doc_id: int,
+    version_no: int,
+    expected_count: int,
+) -> None:
+    """Verify that the new document version vectors were fully written.
+
+    Cleanup of the previous version is deliberately triggered after Java marks
+    the new version active, so RAG never has an empty active window.
+    """
+    actual_count = _count_vectors(
+        collection,
+        expr=(
+            f"datasource_id == {datasource_id} "
+            f"and doc_id == {doc_id} "
+            f"and knowledge_version_no == {version_no}"
+        ),
+    )
+    if actual_count != expected_count:
+        raise ValueError(
+            f"new document vector count mismatch expected={expected_count} actual={actual_count}"
+        )
 
 
 def _delete_by_doc(collection: Collection, datasource_id: int, doc_id: int) -> None:

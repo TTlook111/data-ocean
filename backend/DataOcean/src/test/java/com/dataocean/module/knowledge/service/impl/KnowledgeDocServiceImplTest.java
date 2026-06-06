@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.dataocean.common.security.LoginUser;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
+import com.dataocean.module.knowledge.client.PythonRagClient;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
@@ -11,7 +12,6 @@ import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
-import com.dataocean.module.knowledge.support.KnowledgeChunkSplitter;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
@@ -57,9 +57,9 @@ class KnowledgeDocServiceImplTest {
     @Mock
     private PythonKnowledgeClient pythonKnowledgeClient;
     @Mock
-    private KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
+    private PythonRagClient pythonRagClient;
     @Mock
-    private KnowledgeChunkSplitter knowledgeChunkSplitter;
+    private KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
     @Mock
     private DbTableMetaMapper dbTableMetaMapper;
     @Mock

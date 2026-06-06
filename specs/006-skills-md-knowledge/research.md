@@ -51,9 +51,9 @@
 
 ## Chunking 策略
 
-**Decision**: skills.md 按二级标题 (##) 切分为 chunk，每个 chunk 独立向量化
+**Decision**: skills.md 由 Python RAG 服务切割，先按二级标题 (##) 分章节，再按三级标题 (###) 细切为独立 chunk，每个 chunk 独立向量化
 
-**Rationale**: 二级标题对应独立语义单元（核心表说明、Join Path、指标口径等），粒度适中。
+**Rationale**: 二级标题对应大章节，三级标题对应具体表、Join Path、指标、字段防坑和查询场景，细粒度 chunk 更利于精准召回和 chunk_type 重排。
 
 **Chunk metadata**:
 - chunk_type: CORE_TABLE / JOIN_PATH / METRIC / FIELD_NOTE / CUSTOM

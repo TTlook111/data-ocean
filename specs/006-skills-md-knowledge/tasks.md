@@ -71,7 +71,7 @@
 
 ## Phase 9: Preview & Dashboard
 
-- [X] T036 在 Java 后端添加 POST /api/admin/knowledge-docs/{id}/preview-chunks 接口：模拟切片逻辑，返回该版本会被切成哪些 chunks（chunk_text + related_table），供作者预览 RAG 效果
+- [X] T036 在 Java 后端添加 POST /api/admin/knowledge-docs/{id}/preview-chunks 接口：调用 Python RAG 切割逻辑，返回该版本会被切成哪些 chunks（chunk_text + related_table），供作者预览真实 RAG 效果
 - [X] T037 [Frontend] 在 Skills 编辑器中添加"RAG 预览"侧边栏：展示当前内容切片后的 chunks 列表
 - [X] T038 [Frontend] 创建 Skills 状态总览页面 `frontend/src/views/admin/knowledge/KnowledgeDashboard.vue`：按数据源展示 skills.md 状态（草稿/待审核/已发布/需更新）
 
