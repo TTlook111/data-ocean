@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 import httpx
 
-from .milvus_client import connect_milvus, get_collection, health_status
+from .milvus_client import ensure_collection, health_status
 from .schema import (
     ChunkDocumentRequest,
     ChunkDocumentResponse,
@@ -24,6 +24,7 @@ from .schema import (
 )
 from .chunker import chunk_skills_md
 from .service import retrieve_schemas
+from .vector_store import delete_by_expr
 from .vectorizer import vectorize_chunks
 
 logger = logging.getLogger(__name__)
@@ -137,15 +138,9 @@ async def _delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsRespons
             raise ValueError("至少需要提供 datasource_id、snapshot_id、doc_id 或 knowledge_version_no")
         expr = " and ".join(expr_parts)
 
-        def _do_delete() -> int:
-            connect_milvus()
-            collection = get_collection()
-            before = _count_entities(collection, expr)
-            collection.delete(expr=expr)
-            collection.flush()
-            return before
-
-        before = await asyncio.to_thread(_do_delete)
+        collection = await asyncio.to_thread(ensure_collection)
+        before = await asyncio.to_thread(_count_entities, collection, expr)
+        await delete_by_expr(expr)
         logger.info("已删除向量 expr=%s count=%d", expr, before)
         return DeleteVectorsResponse(deleted_count=before, duration_ms=_elapsed_ms(start))
     except ValueError as e:

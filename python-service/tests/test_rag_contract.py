@@ -1,6 +1,9 @@
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from langchain_core.documents import Document
+from pydantic import BaseModel
+
 from dataocean.rag.fallback import fallback_retrieve
 from dataocean.rag.retriever import retrieve_from_milvus
 from dataocean.rag.schema import (
@@ -12,6 +15,7 @@ from dataocean.rag.schema import (
     RetrieveResponse,
     VectorizeRequest,
 )
+from dataocean.rag.vector_store import SearchHit, build_filter_expr
 from dataocean.rag.vectorizer import _switch_doc_version, switch_version
 from dataocean.rag.vectorizer import vectorize_chunks
 
@@ -226,19 +230,36 @@ ON orders.customer_id = customers.customer_id
                 "activeSnapshotId": 5,
             }
         )
-        collection = FakeCollection()
+        filter_expr = build_filter_expr(request.datasource_id, request.active_snapshot_id)
+        self.assertIn("datasource_id == 10", filter_expr)
+        self.assertIn("snapshot_id == 5", filter_expr)
+        self.assertIn('review_status == "APPROVED"', filter_expr)
+        self.assertIn('"NORMAL"', filter_expr)
+        self.assertIn('"RECOMMENDED"', filter_expr)
+        self.assertNotIn('"SENSITIVE"', filter_expr)
 
-        with patch("dataocean.rag.retriever.connect_milvus"), patch(
-            "dataocean.rag.retriever.get_collection", return_value=collection
+        with patch(
+            "dataocean.rag.retriever.search_by_vector",
+            new=AsyncMock(return_value=[
+                SearchHit(
+                    document=Document(
+                        page_content="orders table",
+                        metadata={
+                            "related_table": "orders",
+                            "related_column": "order_id,pay_amount",
+                            "chunk_type": "TABLE_DESC",
+                            "snapshot_id": 5,
+                            "knowledge_version_no": 3,
+                            "governance_status": "NORMAL",
+                            "review_status": "APPROVED",
+                        },
+                    ),
+                    score=0.82,
+                )
+            ]),
         ):
             results = await retrieve_from_milvus([0.1, 0.2], request)
 
-        self.assertIn("datasource_id == 10", collection.search_expr)
-        self.assertIn("snapshot_id == 5", collection.search_expr)
-        self.assertIn('review_status == "APPROVED"', collection.search_expr)
-        self.assertIn('"NORMAL"', collection.search_expr)
-        self.assertIn('"RECOMMENDED"', collection.search_expr)
-        self.assertNotIn('"SENSITIVE"', collection.search_expr)
         self.assertEqual(results[0].table_name, "orders")
         self.assertEqual(results[0].snapshot_id, 5)
 
@@ -282,11 +303,16 @@ ON orders.customer_id = customers.customer_id
             "reviewStatus": "APPROVED",
         }
 
-        with patch("dataocean.rag.vectorizer.connect_milvus"), patch(
-            "dataocean.rag.vectorizer.get_collection", return_value=collection
+        delete_mock = AsyncMock(return_value=True)
+        with patch("dataocean.rag.vectorizer.ensure_collection", return_value=collection), patch(
+            "dataocean.rag.vectorizer.delete_by_expr",
+            new=delete_mock,
         ), patch(
             "dataocean.rag.vectorizer.embed_texts",
             new=AsyncMock(return_value=[[0.1, 0.2]]),
+        ), patch(
+            "dataocean.rag.vectorizer.add_chunk_embeddings",
+            new=AsyncMock(return_value=["1"]),
         ):
             response = await vectorize_chunks(
                 datasource_id=10,
@@ -303,9 +329,9 @@ ON orders.customer_id = customers.customer_id
             )
 
         self.assertEqual(response.status, "COMPLETED")
-        self.assertEqual(
-            collection.deleted_expr,
+        delete_mock.assert_awaited_with(
             "datasource_id == 10 and doc_id == 99 and knowledge_version_no == 3",
+            None,
         )
 
     def test_first_non_none_preserves_falsy_zero(self) -> None:
@@ -339,6 +365,20 @@ ON orders.customer_id = customers.customer_id
         self.assertAlmostEqual(results[0].score, 1.0, places=3)
         # relevance_score 保持原始值
         self.assertAlmostEqual(results[0].relevance_score, 0.8, places=3)
+
+    def test_langchain_json_parsers_handle_fenced_and_pydantic_output(self) -> None:
+        from dataocean.infra.parsers import JsonBlockOutputParser, PydanticJsonBlockOutputParser
+
+        class RewritePayload(BaseModel):
+            rewritten_query: str
+
+        parsed = JsonBlockOutputParser().parse('```json\n{"rewritten_query": "orders"}\n```')
+        self.assertEqual(parsed["rewritten_query"], "orders")
+
+        model = PydanticJsonBlockOutputParser(pydantic_object=RewritePayload).parse(
+            '{"rewritten_query": "customers"}'
+        )
+        self.assertEqual(model.rewritten_query, "customers")
 
 
 if __name__ == "__main__":

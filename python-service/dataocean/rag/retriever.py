@@ -1,106 +1,53 @@
-"""Schema RAG 语义检索器
+"""Schema RAG retriever backed by LangChain Milvus VectorStore."""
 
-使用 Milvus 向量相似度搜索，强制注入 datasource_id、快照和准入过滤条件。
-"""
+from __future__ import annotations
 
-import asyncio
 import logging
 
-from .milvus_client import connect_milvus, get_collection
 from .schema import RetrievedSchema, RetrieveRequest
+from .vector_store import search_by_vector
 
 logger = logging.getLogger(__name__)
-
-RAG_ELIGIBLE_STATUSES = ("NORMAL", "RECOMMENDED")
 
 
 async def retrieve_from_milvus(
     question_embedding: list[float], request: RetrieveRequest
 ) -> list[RetrievedSchema]:
-    """从 Milvus 检索相关 schema
-
-    强制注入过滤条件：
-    - datasource_id == 请求中的数据源 ID（必填，缺失则抛异常）
-    - review_status == "APPROVED"
-    - governance_status in ["NORMAL", "RECOMMENDED"]
-
-    Args:
-        question_embedding: 问题的向量表示
-        request: 检索请求参数
-
-    Returns:
-        检索结果列表（未重排）
-    """
-    try:
-        def _connect_and_load():
-            connect_milvus()
-            col = get_collection()
-            col.load()
-            return col
-
-        collection = await asyncio.to_thread(_connect_and_load)
-    except Exception as e:
-        logger.error("Milvus 连接/加载失败: %s", e)
-        raise
-
-    # 构建强制过滤表达式（数据源隔离 + 生效快照 + 准入控制）
-    eligible_statuses = ", ".join(f'"{status}"' for status in RAG_ELIGIBLE_STATUSES)
-    filter_expr = (
-        f'datasource_id == {request.datasource_id} '
-        f'and snapshot_id == {request.active_snapshot_id} '
-        f'and review_status == "APPROVED" '
-        f"and governance_status in [{eligible_statuses}]"
+    """Retrieve schema chunks with enforced datasource/snapshot/admission filters."""
+    hits = await search_by_vector(
+        embedding=question_embedding,
+        datasource_id=request.datasource_id,
+        snapshot_id=request.active_snapshot_id,
+        limit=request.top_k * 2,
     )
 
-    # 执行向量搜索（pymilvus 是同步 SDK，需在线程中执行避免阻塞事件循环）
-    def _search():
-        return collection.search(
-            data=[question_embedding],
-            anns_field="embedding",
-            param={"metric_type": "IP", "params": {"nprobe": 16}},
-            limit=request.top_k * 2,
-            expr=filter_expr,
-            output_fields=[
-                "chunk_type",
-                "chunk_text",
-                "related_table",
-                "related_column",
-                "snapshot_id",
-                "knowledge_version_no",
-                "governance_status",
-                "review_status",
-            ],
+    retrieved: list[RetrievedSchema] = []
+    for hit in hits:
+        metadata = hit.document.metadata
+        related_column = metadata.get("related_column", "")
+        retrieved.append(
+            RetrievedSchema(
+                table_name=metadata.get("related_table", ""),
+                columns=[
+                    col.strip()
+                    for col in related_column.split(",")
+                    if col.strip()
+                ]
+                if related_column
+                else [],
+                score=hit.score,
+                relevance_score=hit.score,
+                chunk_type=metadata.get("chunk_type", ""),
+                source_version=metadata.get("knowledge_version_no", 0),
+                snapshot_id=metadata.get("snapshot_id"),
+                chunk_text=hit.document.page_content,
+                governance_status=metadata.get("governance_status", ""),
+                review_status=metadata.get("review_status", ""),
+            )
         )
 
-    results = await asyncio.to_thread(_search)
-
-    # 转换为 RetrievedSchema
-    retrieved = []
-    for hits in results:
-        for hit in hits:
-            entity = hit.entity
-            retrieved.append(
-                RetrievedSchema(
-                    table_name=entity.get("related_table", ""),
-                    columns=[
-                        col for col in entity.get("related_column", "").split(",")
-                        if col.strip()
-                    ]
-                    if entity.get("related_column")
-                    else [],
-                    score=hit.score,
-                    relevance_score=hit.score,
-                    chunk_type=entity.get("chunk_type", ""),
-                    source_version=entity.get("knowledge_version_no", 0),
-                    snapshot_id=entity.get("snapshot_id"),
-                    chunk_text=entity.get("chunk_text", ""),
-                    governance_status=entity.get("governance_status", ""),
-                    review_status=entity.get("review_status", ""),
-                )
-            )
-
     logger.info(
-        "Milvus 检索完成 datasource_id=%d results=%d",
+        "Milvus retrieval completed via LangChain datasource_id=%d results=%d",
         request.datasource_id,
         len(retrieved),
     )

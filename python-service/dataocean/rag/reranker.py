@@ -1,107 +1,142 @@
-"""RAG 规则加权重排器
+"""LangChain-style reranker for DataOcean RAG results."""
 
-基于 Milvus 相似度分数，叠加业务规则加权：
-- 表名命中用户问题关键词 +0.2
-- 字段可信度 > 80 的 +0.1
-- governance_status=RECOMMENDED +0.05
-- chunk_type 场景加权（JOIN_PATH/METRIC/FIELD_NOTE/QUERY_SCENE）
-- 废弃字段 -0.5
-"""
+from __future__ import annotations
 
 import logging
-import re
+from collections.abc import Sequence
+from typing import Any
+
+from langchain_core.documents import Document
+from langchain_core.documents.compressor import BaseDocumentCompressor
 
 from .schema import RetrievedSchema, RetrieveRequest
 
 logger = logging.getLogger(__name__)
 
-# 聚合意图关键词（用户问题中出现这些词时，METRIC chunk 加分）
 _AGGREGATION_KEYWORDS = frozenset([
-    "总", "合计", "平均", "均值", "占比", "比例", "增长", "同比", "环比",
-    "最多", "最少", "最大", "最小", "排名", "top", "统计", "汇总",
-    "sum", "avg", "count", "max", "min", "总数", "数量", "金额",
+    "\u603b", "\u5408\u8ba1", "\u5e73\u5747", "\u5747\u503c", "\u5360\u6bd4", "\u6bd4\u4f8b",
+    "\u589e\u957f", "\u540c\u6bd4", "\u73af\u6bd4", "\u6700\u5927", "\u6700\u5c0f",
+    "\u6392\u540d", "top", "\u7edf\u8ba1", "\u6c47\u603b", "sum", "avg", "count",
+    "max", "min", "\u603b\u6570", "\u6570\u91cf", "\u91d1\u989d",
 ])
 
-# 注意/防坑意图关键词
 _CAUTION_KEYWORDS = frozenset([
-    "注意", "区别", "区分", "不同", "差异", "容易错", "易混", "陷阱",
-    "坑", "误用", "正确", "应该用", "不能用",
+    "\u6ce8\u610f", "\u533a\u522b", "\u533a\u5206", "\u4e0d\u540c", "\u5dee\u5f02",
+    "\u5bb9\u6613\u9519", "\u6613\u6df7", "\u9677\u9631", "\u5751", "\u8bef\u7528",
+    "\u6b63\u786e", "\u5e94\u8be5\u7528", "\u4e0d\u80fd\u7528",
 ])
 
-# 多表查询意图关键词（出现这些词时，JOIN_PATH chunk 加分）
 _JOIN_KEYWORDS = frozenset([
-    "关联", "join", "连接", "对应", "属于", "包含", "关系",
-    "和", "与", "以及", "同时", "跨表",
+    "\u5173\u8054", "join", "\u8fde\u63a5", "\u5bf9\u5e94", "\u5c5e\u4e8e",
+    "\u5305\u542b", "\u5173\u7cfb", "\u548c", "\u4e0e", "\u4ee5\u53ca",
+    "\u540c\u65f6", "\u8de8\u8868",
 ])
+
+
+class DataOceanReranker(BaseDocumentCompressor):
+    """Business-rule reranker compatible with LangChain retriever pipelines."""
+
+    top_k: int = 10
+    confidence_scores: dict[str, int] | None = None
+
+    def compress_documents(
+        self,
+        documents: Sequence[Document],
+        query: str,
+        callbacks: Any | None = None,
+    ) -> Sequence[Document]:
+        question = query.lower()
+        question_keywords = set(question.split())
+        has_aggregation = _has_intent(question, _AGGREGATION_KEYWORDS)
+        has_caution = _has_intent(question, _CAUTION_KEYWORDS)
+        has_join = _has_intent(question, _JOIN_KEYWORDS) or len(question_keywords) >= 4
+        confidence_scores = self.confidence_scores or {}
+
+        scored_documents: list[tuple[float, Document]] = []
+        for document in documents:
+            metadata = dict(document.metadata)
+            base_score = float(metadata.get("score", metadata.get("relevance_score", 0.0)) or 0.0)
+            table_name = str(metadata.get("table_name") or metadata.get("related_table") or "")
+            chunk_type = str(metadata.get("chunk_type") or "")
+            governance_status = str(metadata.get("governance_status") or "")
+
+            weighted_score = base_score
+            if table_name and table_name.lower() in question_keywords:
+                weighted_score += 0.2
+            if confidence_scores.get(table_name, 0) > 80:
+                weighted_score += 0.1
+            if governance_status == "RECOMMENDED":
+                weighted_score += 0.05
+            if "deprecated" in document.page_content.lower():
+                weighted_score -= 0.5
+            weighted_score += _chunk_type_bonus(chunk_type, has_aggregation, has_caution, has_join)
+
+            metadata["score"] = round(weighted_score, 4)
+            metadata.setdefault("relevance_score", base_score)
+            scored_documents.append((weighted_score, Document(page_content=document.page_content, metadata=metadata)))
+
+        scored_documents.sort(key=lambda item: item[0], reverse=True)
+        compressed = [document for _, document in scored_documents[: self.top_k]]
+
+        logger.info(
+            "Rerank completed input=%d output=%d top_score=%.4f agg=%s join=%s caution=%s",
+            len(documents),
+            len(compressed),
+            compressed[0].metadata.get("score", 0.0) if compressed else 0.0,
+            has_aggregation,
+            has_join,
+            has_caution,
+        )
+        return compressed
 
 
 def rerank(
     results: list[RetrievedSchema],
     request: RetrieveRequest,
 ) -> list[RetrievedSchema]:
-    """对检索结果进行规则加权重排
-
-    Args:
-        results: Milvus 原始检索结果
-        request: 原始检索请求（含问题文本和可信度分数）
-
-    Returns:
-        重排后的结果列表（按加权分数降序，截断到 top_k）
-    """
-    question = request.question.lower()
-    question_keywords = set(question.split())
-    confidence_scores = request.confidence_scores or {}
-
-    # 预判用户查询意图
-    has_aggregation = _has_intent(question, _AGGREGATION_KEYWORDS)
-    has_caution = _has_intent(question, _CAUTION_KEYWORDS)
-    has_join = _has_intent(question, _JOIN_KEYWORDS) or len(question_keywords) >= 4
-
-    scored_results = []
-    for item in results:
-        score = item.score  # 基础分：Milvus 相似度
-
-        # 规则 1：表名命中用户问题关键词 +0.2
-        if item.table_name and item.table_name.lower() in question_keywords:
-            score += 0.2
-
-        # 规则 2：字段可信度 > 80 的 +0.1
-        table_confidence = confidence_scores.get(item.table_name, 0)
-        if table_confidence > 80:
-            score += 0.1
-
-        # 规则 3：RECOMMENDED 状态 +0.05
-        if item.governance_status == "RECOMMENDED":
-            score += 0.05
-
-        # 规则 4：废弃字段惩罚（理论上已被 Milvus 过滤，这里做兜底）
-        if "deprecated" in item.chunk_text.lower():
-            score -= 0.5
-
-        # 规则 5：chunk_type 场景加权
-        score += _chunk_type_bonus(item.chunk_type, has_aggregation, has_caution, has_join)
-
-        scored_results.append((score, item))
-
-    # 按加权分数降序排列
-    scored_results.sort(key=lambda x: x[0], reverse=True)
-
-    # 截断到 top_k，使用 model_copy 避免修改原始对象的 score
-    top_k = request.top_k
-    final_results = []
-    for weighted_score, item in scored_results[:top_k]:
-        final_results.append(item.model_copy(update={"score": round(weighted_score, 4)}))
-
-    logger.info(
-        "重排完成 input=%d output=%d top_score=%.4f agg=%s join=%s caution=%s",
-        len(results),
-        len(final_results),
-        final_results[0].score if final_results else 0,
-        has_aggregation,
-        has_join,
-        has_caution,
+    """Compatibility wrapper returning RetrievedSchema objects."""
+    documents = [_schema_to_document(item) for item in results]
+    compressor = DataOceanReranker(
+        top_k=request.top_k,
+        confidence_scores=request.confidence_scores or {},
     )
-    return final_results
+    ranked_documents = compressor.compress_documents(documents, request.question)
+    return [_document_to_schema(document) for document in ranked_documents]
+
+
+def _schema_to_document(item: RetrievedSchema) -> Document:
+    return Document(
+        page_content=item.chunk_text,
+        metadata={
+            "table_name": item.table_name,
+            "columns": [column.model_dump() for column in item.columns],
+            "score": item.score,
+            "relevance_score": item.relevance_score if item.relevance_score is not None else item.score,
+            "chunk_type": item.chunk_type,
+            "source_type": item.source_type,
+            "source_version": item.source_version,
+            "snapshot_id": item.snapshot_id,
+            "governance_status": item.governance_status,
+            "review_status": item.review_status,
+        },
+    )
+
+
+def _document_to_schema(document: Document) -> RetrievedSchema:
+    metadata = document.metadata
+    return RetrievedSchema(
+        table_name=metadata.get("table_name", ""),
+        columns=metadata.get("columns", []),
+        score=metadata.get("score", 0.0),
+        relevance_score=metadata.get("relevance_score", metadata.get("score", 0.0)),
+        chunk_type=metadata.get("chunk_type", ""),
+        source_type=metadata.get("source_type", "SCHEMA"),
+        source_version=metadata.get("source_version", 0),
+        snapshot_id=metadata.get("snapshot_id"),
+        chunk_text=document.page_content,
+        governance_status=metadata.get("governance_status", ""),
+        review_status=metadata.get("review_status", ""),
+    )
 
 
 def _chunk_type_bonus(
@@ -110,25 +145,17 @@ def _chunk_type_bonus(
     has_caution: bool,
     has_join: bool,
 ) -> float:
-    """根据 chunk_type 和用户查询意图计算额外加分"""
     bonus = 0.0
-
     if chunk_type == "JOIN_PATH" and has_join:
         bonus += 0.15
-
     if chunk_type == "METRIC" and has_aggregation:
         bonus += 0.15
-
     if chunk_type == "FIELD_NOTE" and has_caution:
         bonus += 0.1
-
     if chunk_type == "QUERY_SCENE":
-        # 查询场景 chunk 对复杂查询有通用价值
         bonus += 0.08
-
     return bonus
 
 
-def _has_intent(question: str, keywords: frozenset) -> bool:
-    """检查问题中是否包含指定意图的关键词"""
-    return any(kw in question for kw in keywords)
+def _has_intent(question: str, keywords: frozenset[str]) -> bool:
+    return any(keyword in question for keyword in keywords)
