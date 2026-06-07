@@ -66,12 +66,7 @@ Module status summary:
 | Python SQL sandbox | Core complete |
 | Python chart generation | Complete |
 
-Known follow-up areas:
-
-- Query page refresh/history restoration and richer history search.
-- Full real-data-source metadata collection verification.
-- End-to-end chart rendering verification with saved screenshots.
-- Continue saving integration screenshots under `output/playwright/`.
+Known follow-up areas — see `docs/后续开发.md` for the full prioritized list.
 
 ## RAG And skills.md Lifecycle
 
@@ -181,7 +176,6 @@ backend/DataOcean/     Java application root
 python-service/        FastAPI AI/RAG service (LangGraph + LangChain + sqlglot)
 docs/                  design and module documentation
 specs/                 module specifications, plans, tasks, contracts
-output/playwright/     integration screenshots
 ```
 
 ## Java Backend Notes
@@ -238,12 +232,6 @@ Frontend routes are split between:
 
 - `/query`: user-facing intelligent query flow.
 - `/admin/*`: governance, metadata, knowledge, prompt, audit, permissions, and system management.
-
-After significant frontend changes, run the app and verify with browser screenshots. Save integration screenshots under:
-
-```text
-output/playwright/
-```
 
 ## Working Rules
 
