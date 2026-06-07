@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
+import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
 import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.enums.GenerationSource;
+import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
@@ -36,6 +38,7 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
 
     private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
     private final KnowledgeDocMapper knowledgeDocMapper;
+    private final KnowledgeChunkMapper knowledgeChunkMapper;
     private final VectorIndexTaskService vectorIndexTaskService;
     private final KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
 
@@ -130,8 +133,7 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
         log.info("开始回滚文档版本 docId={} targetVersionNo={}", docId, targetVersionNo);
         // 查询目标版本
         KnowledgeDocVersion targetVersion = getVersion(docId, targetVersionNo);
-        KnowledgeDoc docBeforeRollback = knowledgeDocMapper.selectById(docId);
-        Integer previousVersionNo = docBeforeRollback == null ? null : docBeforeRollback.getCurrentVersion();
+        Integer previousVersionNo = findCurrentIndexedVersionNo(docId);
 
         // 以 ROLLBACK 来源创建新版本
         Integer newVersionNo = createVersion(
@@ -155,6 +157,19 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
 
         log.info("文档版本回滚成功 docId={} fromVersion={} newVersion={}", docId, targetVersionNo, newVersionNo);
         return newVersionNo;
+    }
+
+    private Integer findCurrentIndexedVersionNo(Long docId) {
+        List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeChunk>()
+                        .eq(KnowledgeChunk::getDocId, docId)
+                        .eq(KnowledgeChunk::getVectorStatus, "INDEXED")
+                        .orderByDesc(KnowledgeChunk::getVersionNo)
+                        .last("LIMIT 1"));
+        if (chunks.isEmpty()) {
+            return null;
+        }
+        return chunks.get(0).getVersionNo();
     }
 
     /**

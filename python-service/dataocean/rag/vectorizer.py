@@ -48,12 +48,12 @@ async def vectorize_chunks(
             duration_ms=_elapsed_ms(start),
         )
 
-    if force:
+    cleanup_before_write = force and doc_id is None
+    cleanup_same_doc_version_after_write = force and doc_id is not None
+
+    if cleanup_before_write:
         try:
-            if doc_id is not None:
-                await delete_by_expr(_doc_version_expr(datasource_id, doc_id, version_no), target_collection)
-            else:
-                await delete_by_expr(f"datasource_id == {datasource_id}", target_collection)
+            await delete_by_expr(f"datasource_id == {datasource_id}", target_collection)
         except Exception as exc:
             logger.error("Milvus force cleanup failed: %s", exc)
             return VectorizeResponse(
@@ -105,17 +105,26 @@ async def vectorize_chunks(
     ]
 
     try:
-        await add_chunk_embeddings(
+        inserted_ids = await add_chunk_embeddings(
             texts=[chunk.chunk_text[:8192] for chunk in chunks],
             embeddings=embeddings,
             metadatas=metadatas,
             collection_name=target_collection,
             dimension=target_dimension,
         )
+        cleanup_completed = False
+        if cleanup_same_doc_version_after_write:
+            try:
+                cleanup_expr = _old_doc_version_vectors_expr(datasource_id, doc_id, version_no, inserted_ids)
+                await delete_by_expr(cleanup_expr, target_collection)
+                cleanup_completed = True
+            except Exception as exc:
+                logger.warning("Old force-rebuild vectors cleanup skipped after successful write: %s", exc)
         if doc_id is not None:
             try:
                 await asyncio.to_thread(
-                    _verify_doc_version,
+                    _verify_doc_version_at_least if cleanup_same_doc_version_after_write and not cleanup_completed
+                    else _verify_doc_version,
                     collection,
                     datasource_id,
                     doc_id,
@@ -123,7 +132,8 @@ async def vectorize_chunks(
                     len(chunks),
                 )
             except Exception:
-                await delete_by_expr(_doc_version_expr(datasource_id, doc_id, version_no), target_collection)
+                if not cleanup_same_doc_version_after_write:
+                    await delete_by_expr(_doc_version_expr(datasource_id, doc_id, version_no), target_collection)
                 raise
 
         logger.info("Vector write succeeded datasource_id=%d count=%d", datasource_id, len(chunks))
@@ -231,6 +241,24 @@ def _verify_doc_version(
         )
 
 
+def _verify_doc_version_at_least(
+    collection: Collection,
+    datasource_id: int,
+    doc_id: int,
+    version_no: int,
+    expected_count: int,
+) -> None:
+    """Verify new vectors exist when old-version cleanup could not be completed."""
+    actual_count = _count_vectors(
+        collection,
+        expr=_doc_version_expr(datasource_id, doc_id, version_no),
+    )
+    if actual_count < expected_count:
+        raise ValueError(
+            f"new document vector count below expected minimum={expected_count} actual={actual_count}"
+        )
+
+
 def _delete_by_doc(collection: Collection, datasource_id: int, doc_id: int) -> None:
     collection.delete(expr=f"datasource_id == {datasource_id} and doc_id == {doc_id}")
     collection.flush()
@@ -276,6 +304,23 @@ def _doc_version_expr(datasource_id: int, doc_id: int | None, version_no: int) -
         f"and doc_id == {doc_id} "
         f"and knowledge_version_no == {version_no}"
     )
+
+
+def _old_doc_version_vectors_expr(
+    datasource_id: int,
+    doc_id: int,
+    version_no: int,
+    inserted_ids: list[str],
+) -> str:
+    new_ids = []
+    for vector_id in inserted_ids:
+        try:
+            new_ids.append(str(int(vector_id)))
+        except (TypeError, ValueError):
+            logger.warning("Skipping non-numeric Milvus vector id during cleanup: %s", vector_id)
+    if not new_ids:
+        raise ValueError("Milvus did not return inserted vector ids for force rebuild cleanup")
+    return f"{_doc_version_expr(datasource_id, doc_id, version_no)} and id not in [{', '.join(new_ids)}]"
 
 
 def _elapsed_ms(start: float) -> int:

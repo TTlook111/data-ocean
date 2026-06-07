@@ -292,7 +292,7 @@ ON orders.customer_id = customers.customer_id
         )
         self.assertTrue(collection.flushed)
 
-    async def test_force_rebuild_deletes_only_target_doc_version(self) -> None:
+    async def test_force_rebuild_cleans_old_doc_version_vectors_after_successful_write(self) -> None:
         collection = FakeCollection(count=1)
         chunk = {
             "sourceId": 201,
@@ -330,9 +330,45 @@ ON orders.customer_id = customers.customer_id
 
         self.assertEqual(response.status, "COMPLETED")
         delete_mock.assert_awaited_with(
-            "datasource_id == 10 and doc_id == 99 and knowledge_version_no == 3",
+            "datasource_id == 10 and doc_id == 99 and knowledge_version_no == 3 and id not in [1]",
             None,
         )
+
+    async def test_force_rebuild_keeps_existing_doc_vectors_when_embedding_fails(self) -> None:
+        collection = FakeCollection(count=1)
+        chunk = {
+            "sourceId": 201,
+            "chunkType": "TABLE_DESC",
+            "chunkText": "orders table",
+            "tableName": "orders",
+            "governanceStatus": "NORMAL",
+            "reviewStatus": "APPROVED",
+        }
+
+        delete_mock = AsyncMock(return_value=True)
+        with patch("dataocean.rag.vectorizer.ensure_collection", return_value=collection), patch(
+            "dataocean.rag.vectorizer.delete_by_expr",
+            new=delete_mock,
+        ), patch(
+            "dataocean.rag.vectorizer.embed_texts",
+            new=AsyncMock(side_effect=RuntimeError("embedding down")),
+        ):
+            response = await vectorize_chunks(
+                datasource_id=10,
+                snapshot_id=5,
+                version_no=3,
+                chunks=[VectorizeRequest.model_validate({
+                    "datasourceId": 10,
+                    "metadataSnapshotId": 5,
+                    "knowledgeVersionNo": 3,
+                    "chunks": [chunk],
+                }).chunks[0]],
+                doc_id=99,
+                force=True,
+            )
+
+        self.assertEqual(response.status, "FAILED")
+        delete_mock.assert_not_awaited()
 
     def test_first_non_none_preserves_falsy_zero(self) -> None:
         from dataocean.rag.fallback import _first_non_none
