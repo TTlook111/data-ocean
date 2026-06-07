@@ -4,7 +4,7 @@
 
 Python 内部服务: `/internal/query/*`, `/internal/tasks/*`
 
-仅 Java 网关层通过 OpenFeign 调用，不对外暴露。
+仅 Java 网关层通过 RestClient 调用，不对外暴露。
 
 ---
 

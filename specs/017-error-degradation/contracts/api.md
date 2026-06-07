@@ -149,7 +149,7 @@ Java 通知 Python 取消任务。
 | Layer | Timeout | Description |
 |-------|---------|-------------|
 | Frontend SSE | 130s | 前端 EventSource 超时 |
-| Java → Python (OpenFeign/httpx) | 120s | Java 调用 Python 的总超时 |
+| Java → Python (RestClient/httpx) | 120s | Java 调用 Python 的总超时 |
 | Python total budget | 100s | Python 内部总时间预算 |
 | Python → LLM (single call) | 30s | 单次 LLM 调用超时 |
 | Python → Milvus | 10s | 向量检索超时 |

@@ -11,7 +11,7 @@ skills.md 模块是元数据治理的发布形态，Java 层管理文档 CRUD、
 **Language/Version**: Java 17 (Spring Boot 3.x) + Python 3.13 (FastAPI)
 
 **Primary Dependencies**:
-- Java: Spring Boot 3.x, MyBatis-Plus, Flyway, OpenFeign (调 Python)
+- Java: Spring Boot 3.x, MyBatis-Plus, Flyway, RestClient (调 Python)
 - Python: FastAPI, Qwen API (dashscope SDK), Jinja2 (Prompt 模板)
 
 **Storage**: MySQL 8 (平台管理库: knowledge_doc, knowledge_doc_version, knowledge_chunk, knowledge_review_task, vector_index_task)
@@ -72,7 +72,7 @@ backend/src/main/java/com/dataocean/module/knowledge/
 ├── enums/
 │   ├── DocStatus.java
 │   └── ReviewStatus.java
-└── feign/
+└── client/
     └── PythonKnowledgeClient.java
 ```
 
@@ -99,7 +99,7 @@ backend/src/main/resources/db/migration/
 ### Phase 1: Java CRUD + 状态流转
 - knowledge_doc / knowledge_doc_version 表 + Flyway 迁移
 - 文档列表、详情、编辑接口
-- 状态机: DRAFT → PENDING_REVIEW → APPROVED → PUBLISHED → DEPRECATED
+- 状态机: DRAFT → PENDING_REVIEW → APPROVED → INDEXING → PUBLISHED → DEPRECATED
 - 乐观锁 (version 字段)
 
 ### Phase 2: 审核流程
@@ -110,7 +110,7 @@ backend/src/main/resources/db/migration/
 ### Phase 3: AI 草稿生成 (Python)
 - Python 端 POST /internal/knowledge/generate-draft
 - 读取快照数据，填充 Prompt 模板，调用 Qwen API
-- Java 通过 OpenFeign 调用，结果写入 knowledge_doc_version
+- Java 通过 RestClient 调用，结果写入 knowledge_doc_version
 
 ### Phase 4: 向量化触发
 - vector_index_task 表

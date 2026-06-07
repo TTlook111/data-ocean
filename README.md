@@ -85,7 +85,7 @@ Spring Boot Java 网关
   - 鉴权、权限、数据源、元数据治理
   - skills.md 生命周期、审核、发布、审计、脱敏
         |
-        | OpenFeign 内部调用
+        | RestClient 内部调用
         v
 Python FastAPI AI 服务
   - Query Rewrite、Schema RAG、SQL 生成
@@ -100,8 +100,8 @@ Milvus / MySQL / Redis / Qwen
 | 层级 | 技术 |
 | --- | --- |
 | 前端 | Vue 3, Vite, TypeScript, Vue Router, Pinia, Element Plus, ECharts |
-| Java 网关 | Spring Boot 3.x, JDK 17, Spring Security, JWT, MyBatis-Plus, Flyway, Redis, OpenFeign |
-| Python AI 服务 | Python 3.13, FastAPI, LangGraph, LlamaIndex, SQLAlchemy, sqlglot, pymilvus |
+| Java 网关 | Spring Boot 3.x, JDK 17, Spring Security, JWT, MyBatis-Plus, Flyway, Redis, RestClient |
+| Python AI 服务 | Python 3.13, FastAPI, LangGraph, LangChain, SQLAlchemy, sqlglot, pymilvus |
 | 基础设施 | MySQL 8, Redis, Milvus 2.x Standalone, Qwen/DashScope |
 | 部署 | Docker Compose |
 
@@ -211,7 +211,6 @@ DataOcean/
 ├── python-service/        FastAPI AI/RAG 服务
 ├── docs/                  架构设计和模块文档
 ├── specs/                 模块规格、计划、任务和接口契约
-├── mock/                  已提交 mock 数据，不要修改或重新生成
 ├── output/playwright/     联调截图输出目录
 └── docker-compose.yml     本地基础设施编排
 ```
@@ -228,7 +227,6 @@ DataOcean/
 
 ## 开发约定
 
-- `mock/` 目录用于稳定联调数据，不要修改或重新生成。
 - Java 负责管理态、生命周期、审核、版本、任务状态和脱敏。
 - Python 负责 AI 执行态、RAG、chunking、embedding、Milvus、重排和 SQL 沙箱。
 - 修改前端后，尽量用浏览器联调并把截图保存到 `output/playwright/`。

@@ -11,7 +11,7 @@
 **Language/Version**: Java 17 (Spring Boot 3.x) + Python 3.13 (FastAPI + LangGraph)
 
 **Primary Dependencies**:
-- Java: Spring Boot Actuator, OpenFeign (CircuitBreaker), ScheduledExecutorService
+- Java: Spring Boot Actuator, RestClient, ScheduledExecutorService
 - Python: FastAPI, asyncio (CancellationToken), httpx (health check client)
 
 **Testing**: JUnit 5 (Java), pytest + asyncio (Python)

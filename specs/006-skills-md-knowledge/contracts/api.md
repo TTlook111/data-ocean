@@ -17,7 +17,7 @@
 
 **Query Parameters**:
 - `datasourceId` (long, required)
-- `status` (string, optional) — DRAFT/PENDING_REVIEW/APPROVED/PUBLISHED/DEPRECATED
+- `status` (string, optional) — DRAFT/PENDING_REVIEW/APPROVED/INDEXING/PUBLISHED/DEPRECATED
 
 **Response 200**:
 ```json

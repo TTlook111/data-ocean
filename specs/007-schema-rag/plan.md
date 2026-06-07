@@ -4,14 +4,14 @@
 
 ## Summary
 
-Schema RAG 模块是 Python AI 服务的核心组件，负责将已治理的元数据和已发布的 skills.md 向量化写入 Milvus，并在用户提问时精准召回相关表和字段作为 SQL 生成上下文。使用 LlamaIndex 封装向量检索逻辑，强制数据源隔离和准入过滤。
+Schema RAG 模块是 Python AI 服务的核心组件，负责将已治理的元数据和已发布的 skills.md 向量化写入 Milvus，并在用户提问时精准召回相关表和字段作为 SQL 生成上下文。使用 LangChain 封装向量检索逻辑，强制数据源隔离和准入过滤。
 
 ## Technical Context
 
 **Language/Version**: Python 3.13 (FastAPI)
 
 **Primary Dependencies**:
-- LlamaIndex (core + milvus integration)
+- LangChain (langchain-milvus + langchain-openai + langchain-text-splitters)
 - pymilvus (Milvus Python SDK)
 - dashscope (text-embedding-v4 API)
 - FastAPI + Pydantic v2
@@ -46,7 +46,7 @@ python-service/dataocean/rag/
 ├── __init__.py
 ├── router.py              # FastAPI 路由
 ├── service.py             # RAG 业务逻辑
-├── retriever.py           # LlamaIndex 检索器封装
+├── retriever.py           # LangChain 检索器封装
 ├── vectorizer.py          # 向量化写入逻辑
 ├── chunker.py             # 分块策略
 ├── embedder.py            # Embedding 调用封装
@@ -73,7 +73,7 @@ python-service/dataocean/rag/
 
 ### Phase 3: 语义检索
 - POST /internal/rag/retrieve 接口
-- LlamaIndex VectorStoreIndex 封装
+- LangChain Milvus VectorStore 封装
 - 强制 metadata_filter 注入
 - 规则加权重排 (表名命中, 可信度加权, 废弃惩罚)
 - 返回 Top 5-10 结果

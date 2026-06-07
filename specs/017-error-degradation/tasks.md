@@ -27,7 +27,7 @@
 
 - [X] T009 [US1] 创建 Python 时间预算管理器 `python-service/dataocean/resilience/timeout_budget.py`，实现 TimeoutBudget 类：初始化 100s 总预算，分配各节点预算（Schema RAG: 10s, SQL Generation: 40s, SQL Validation: 5s, SQL Execution: 30s, Chart Generation: 15s），提供 remaining() 和 allocate(node_name) 方法，各节点执行前检查剩余预算不足则抛出 BudgetExhaustedException
 - [X] T010 [US1] 在 LangGraph 各 LLM 调用节点中实现重试逻辑：timeout 或 rate-limit 错误时重试 1 次（使用 timeout_budget 分配的时间），其他错误不重试，重试仍失败则抛出带有用户友好消息的异常
-- [X] T011 [US1] 创建 Java 超时配置 `backend/src/main/java/com/dataocean/common/resilience/TimeoutConfig.java`，配置 OpenFeign 调用 Python 的超时为 120s（大于 Python 100s 预算），确保 Python 先超时返回
+- [X] T011 [US1] 创建 Java 超时配置 `backend/src/main/java/com/dataocean/common/resilience/TimeoutConfig.java`，配置 RestClient 调用 Python 的超时为 120s（大于 Python 100s 预算），确保 Python 先超时返回
 
 ## Phase 4: User Story 2 (P1) — Milvus 降级
 
@@ -45,7 +45,7 @@
 
 - [X] T015 [P] [US4] 创建 Python 取消令牌管理 `python-service/dataocean/resilience/cancellation.py`，实现 CancellationToken 类（AtomicBoolean flag + task_id），提供 cancel()、is_cancelled() 方法，以及 CancellationRegistry（dict 存储 task_id → token 映射）
 - [X] T016 [P] [US4] 创建 Java 取消 Controller `backend/src/main/java/com/dataocean/common/cancel/QueryCancelController.java`，实现 POST /api/query/tasks/{taskId}/cancel 端点，调用 Python 内部取消 API
-- [X] T017 [US4] 创建 Java 取消 Service `backend/src/main/java/com/dataocean/common/cancel/QueryCancelService.java`，通过 OpenFeign 调用 Python POST /internal/tasks/{taskId}/cancel
+- [X] T017 [US4] 创建 Java 取消 Service `backend/src/main/java/com/dataocean/common/cancel/QueryCancelService.java`，通过 RestClient 调用 Python POST /internal/tasks/{taskId}/cancel
 - [X] T018 [US4] 在 Python LangGraph 各节点执行前检查 CancellationToken.is_cancelled()，已取消则抛出 QueryCancelledException 终止流程
 - [X] T019 [US4] 在 Python SQL 执行节点中实现数据库查询取消：收到取消信号时调用 connection.cancel() 终止正在执行的 SQL
 - [X] T020 [US4] 在 Java 端实现 SSE 断开检测：SSE 连接关闭时自动调用 QueryCancelService 通知 Python 清理资源
@@ -59,7 +59,7 @@
 
 ## Phase 7: Polish & Cross-Cutting
 
-- [X] T025 创建 Java 重试配置 `backend/src/main/java/com/dataocean/common/resilience/RetryConfig.java`，配置 OpenFeign 调用 Python 的重试策略（仅对 5xx 和超时重试 1 次，非幂等请求不重试）
+- [X] T025 创建 Java 重试配置 `backend/src/main/java/com/dataocean/common/resilience/RetryConfig.java`，配置 RestClient 调用 Python 的重试策略（仅对 5xx 和超时重试 1 次，非幂等请求不重试）
 - [X] T026 实现连接池耗尽处理：数据库连接池满时返回"系统繁忙，请稍后再试"而非技术错误
 - [X] T027 实现多组件同时故障时的优先级错误返回：Python 不可用 > Milvus 降级 > LLM 超时，返回最关键的错误信息
 

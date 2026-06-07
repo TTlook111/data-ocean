@@ -2,7 +2,6 @@ package com.dataocean;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -11,7 +10,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * <p>
  * 启用以下能力：
  * <ul>
- *   <li>{@link EnableFeignClients} — 开启 OpenFeign 声明式 HTTP 客户端，用于 Java→Python 内部调用</li>
  *   <li>{@link EnableScheduling} — 开启定时任务支持（如元数据采集调度）</li>
  *   <li>{@link EnableAsync} — 开启异步方法支持，proxyTargetClass=true 使用 CGLIB 代理</li>
  * </ul>
@@ -20,7 +18,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * @author dataocean
  */
 @SpringBootApplication
-@EnableFeignClients
 @EnableScheduling
 @EnableAsync(proxyTargetClass = true)
 public class DataOceanApplication {

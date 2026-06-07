@@ -4,7 +4,7 @@
 
 Python 内部服务: `/internal/rag/*`
 
-仅 Java 网关层通过 OpenFeign 调用，不对外暴露。
+仅 Java 网关层通过 RestClient 调用，不对外暴露。
 
 ---
 
@@ -103,7 +103,7 @@ Python 内部服务: `/internal/rag/*`
   "chunks": [
     {
       "sourceId": 201,
-      "chunkType": "CORE_TABLE",
+      "chunkType": "TABLE_DESC",
       "chunkText": "## 核心表说明\n\norders 表是订单主表...",
       "tableName": "orders",
       "governanceStatus": "NORMAL",

@@ -6,14 +6,14 @@
 ## Phase 1: Setup
 
 - [X] T001 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V7__create_knowledge_tables.sql`，包含 knowledge_doc、knowledge_doc_version、knowledge_chunk、knowledge_review_task、vector_index_task 五张表的 DDL
-- [X] T002 创建 Java 包结构 `backend/src/main/java/com/dataocean/module/knowledge/`，包含 controller/service/mapper/entity/dto/enums/feign 子包和对应的空类骨架
+- [X] T002 创建 Java 包结构 `backend/src/main/java/com/dataocean/module/knowledge/`，包含 controller/service/mapper/entity/dto/enums/client 子包和对应的空类骨架
 - [X] T003 创建 Python 包结构 `python-service/dataocean/knowledge/`，包含 `__init__.py`、`router.py`、`service.py`、`schema.py` 和 `prompts/` 目录
 
 ## Phase 2: Foundational — Java CRUD + 状态流转
 
 - [X] T004 [P] 实现实体类 `backend/src/main/java/com/dataocean/module/knowledge/entity/KnowledgeDoc.java`，包含 id、datasource_id、title、content、current_version、status、review_status、updated_by、version（乐观锁）字段
 - [X] T005 [P] 实现实体类 `backend/src/main/java/com/dataocean/module/knowledge/entity/KnowledgeDocVersion.java`，包含 id、doc_id、datasource_id、metadata_snapshot_id、version_no、content、generation_source、review_status、reviewer_id、change_summary、created_by、created_at 字段
-- [X] T006 [P] 实现枚举 `backend/src/main/java/com/dataocean/module/knowledge/enums/DocStatus.java`（DRAFT/PENDING_REVIEW/APPROVED/PUBLISHED/DEPRECATED）和 `ReviewStatus.java`
+- [X] T006 [P] 实现枚举 `backend/src/main/java/com/dataocean/module/knowledge/enums/DocStatus.java`（DRAFT/PENDING_REVIEW/APPROVED/INDEXING/PUBLISHED/DEPRECATED）和 `ReviewStatus.java`
 - [X] T007 [P] 实现 Mapper 接口 `backend/src/main/java/com/dataocean/module/knowledge/mapper/KnowledgeDocMapper.java` 和 `KnowledgeDocVersionMapper.java`，继承 BaseMapper
 - [X] T008 实现 `backend/src/main/java/com/dataocean/module/knowledge/service/KnowledgeDocService.java`，包含文档列表（分页+按数据源筛选）、详情、创建、编辑（乐观锁校验 version 字段）方法
 - [X] T009 实现 `backend/src/main/java/com/dataocean/module/knowledge/service/KnowledgeVersionService.java`，包含版本列表、版本详情、创建新版本、版本对比（返回两个版本的 content diff）方法
@@ -28,7 +28,7 @@
 - [X] T012 [P] [US2] 实现实体类 `backend/src/main/java/com/dataocean/module/knowledge/entity/KnowledgeChunk.java` 和对应 Mapper，包含 chunk_type（TABLE_DESC/JOIN_PATH/METRIC/FIELD_NOTE）、chunk_text、related_table、related_column、review_status、vector_status 字段
 - [X] T013 [US2] 实现 `backend/src/main/java/com/dataocean/module/knowledge/service/KnowledgeReviewService.java`，包含：提交审核（状态 DRAFT→PENDING_REVIEW）、审核通过（PENDING_REVIEW→APPROVED）、审核拒绝（PENDING_REVIEW→DRAFT 并记录拒绝原因）
 - [X] T014 [US2] 实现发布前校验逻辑：在 KnowledgeDocService 中添加 validateBeforePublish 方法，校验引用的表字段是否存在、governance_status 是否为 NORMAL/RECOMMENDED、是否有 DEPRECATED 字段被引用
-- [X] T015 [US2] 实现发布逻辑：审核通过后管理员点击发布（APPROVED→PUBLISHED），触发创建 vector_index_task（status=PENDING），同时将 content 按模板模块切分为 knowledge_chunk 记录
+- [X] T015 [US2] 实现发布逻辑：审核通过后管理员点击发布（APPROVED→INDEXING→PUBLISHED），触发创建 vector_index_task（status=PENDING），调用 Python /internal/rag/chunk 切割 content，将返回的 chunk 清单保存为 knowledge_chunk 记录
 - [X] T016 [US2] 实现 `backend/src/main/java/com/dataocean/module/knowledge/controller/KnowledgeDocController.java` 中审核相关接口：POST /api/knowledge/docs/{id}/submit-review、POST /api/knowledge/docs/{id}/approve、POST /api/knowledge/docs/{id}/reject、POST /api/knowledge/docs/{id}/publish
 
 ## Phase 4: User Story 1 (P1) — AI 草稿生成
@@ -40,8 +40,8 @@
 - [X] T018 [US1] 实现 Python schema `python-service/dataocean/knowledge/schema.py`，定义 GenerateDraftRequest（snapshot_id、datasource_id、tables_metadata）和 GenerateDraftResponse（content、generation_source、warnings）Pydantic 模型
 - [X] T019 [US1] 实现 Python service `python-service/dataocean/knowledge/service.py`，包含 generate_draft 方法：接收快照元数据 → 填充 Jinja2 模板 → 调用 Qwen API（dashscope SDK）→ 解析返回的 Markdown → 标记无注释字段为"待人工确认"
 - [X] T020 [US1] 实现 Python router `python-service/dataocean/knowledge/router.py`，暴露 POST /internal/knowledge/generate-draft 接口
-- [X] T021 [US1] 实现 Java Feign 客户端 `backend/src/main/java/com/dataocean/module/knowledge/feign/PythonKnowledgeClient.java`，调用 Python 的 /internal/knowledge/generate-draft 接口
-- [X] T022 [US1] 在 KnowledgeDocService 中添加 generateDraft 方法：读取指定 snapshot_id 的元数据 → 通过 Feign 调用 Python 生成草稿 → 创建 knowledge_doc_version（generation_source=AI_GENERATED）→ 返回草稿内容
+- [X] T021 [US1] 实现 Java RestClient 客户端 `backend/src/main/java/com/dataocean/module/knowledge/client/PythonKnowledgeClient.java`，调用 Python 的 /internal/knowledge/generate-draft 接口
+- [X] T022 [US1] 在 KnowledgeDocService 中添加 generateDraft 方法：读取指定 snapshot_id 的元数据 → 通过 RestClient 调用 Python 生成草稿 → 创建 knowledge_doc_version（generation_source=AI_GENERATED）→ 返回草稿内容
 - [X] T023 [US1] 在 Controller 中添加接口 POST /api/knowledge/docs/{id}/generate-draft，接收 snapshot_id 参数
 
 ## Phase 5: User Story 3 (P2) — 版本管理与回滚
@@ -56,7 +56,7 @@
 
 - [X] T026 实现实体类 `backend/src/main/java/com/dataocean/module/knowledge/entity/VectorIndexTask.java` 和对应 Mapper，状态枚举 PENDING/PROCESSING/COMPLETED/FAILED
 - [X] T027 实现 `backend/src/main/java/com/dataocean/module/knowledge/service/VectorIndexTaskService.java`，包含创建任务、更新状态、查询待处理任务方法
-- [X] T028 实现定时任务（@Scheduled 每 5 分钟）扫描 status=PENDING 的 vector_index_task，通过 Feign 调用 007 模块的 /internal/rag/vectorize 接口，更新任务状态为 PROCESSING/COMPLETED/FAILED
+- [X] T028 实现定时任务（@Scheduled 每 5 分钟）扫描 status=PENDING 的 vector_index_task，通过 RestClient 调用 007 模块的 /internal/rag/vectorize 接口，更新任务状态为 PROCESSING/COMPLETED/FAILED
 - [X] T028a 补充 vector_index_task 的版本上下文字段：metadata_snapshot_id、knowledge_version_no、previous_version_no，发布/回滚时记录新旧版本关系
 - [X] T028b 调度器调用 Python RAG 后，仅在返回 COMPLETED 且写入数量等于 chunk 数时标记任务完成；成功后将新版本 chunk 置为 INDEXED，旧版本 chunk 置为 SUPERSEDED
 - [X] T028c 回滚创建新版本后同步重新生成该版本 knowledge_chunk，再创建向量化任务，避免任务找不到切片

@@ -13,7 +13,7 @@ MVP scope: multi-data-source management, with each query selecting one MySQL dat
 ```text
 Vue 3 frontend
   - query app and admin governance app
-  - Axios, SSE/EventSource, ECharts
+  - Axios, Element Plus, ECharts, GSAP
         |
         | HTTP API
         v
@@ -22,7 +22,7 @@ Spring Boot Java gateway
   - metadata governance, skills.md lifecycle
   - audit, masking, task state, versioning
         |
-        | internal HTTP / OpenFeign
+        | internal HTTP (RestClient)
         v
 Python FastAPI AI service
   - query rewrite, Schema RAG, SQL generation
@@ -41,7 +41,7 @@ Important boundary:
 
 ## Current Status
 
-Last updated: 2026-06-06.
+Last updated: 2026-06-07.
 
 The main end-to-end chain is implemented:
 
@@ -60,6 +60,7 @@ Module status summary:
 | Java datasource/metadata/governance/versioning modules | Complete |
 | Java knowledge/skills.md lifecycle | Complete, with Python chunking integration |
 | Java query/audit/field confidence modules | Core complete |
+| Java dashboard module | Complete |
 | Python Agent workflow | Core complete |
 | Python RAG/vectorization | Complete |
 | Python SQL sandbox | Core complete |
@@ -168,19 +169,18 @@ mvn test
 
 Latest verified test result:
 
-- Python: 24 tests passed.
-- Java: 40 tests passed.
+- Python: 26 tests passed.
+- Java: 41 tests passed.
 
 ## Repository Structure
 
 ```text
-frontend/              Vue 3 frontend
+frontend/              Vue 3 frontend (Vite + Element Plus + ECharts + GSAP)
 backend/               Spring Boot Java gateway
 backend/DataOcean/     Java application root
-python-service/        FastAPI AI/RAG service
+python-service/        FastAPI AI/RAG service (LangGraph + LangChain + sqlglot)
 docs/                  design and module documentation
 specs/                 module specifications, plans, tasks, contracts
-mock/                  committed mock data, do not modify
 output/playwright/     integration screenshots
 ```
 
@@ -205,7 +205,8 @@ Important modules:
 - `audit`: query audit, lineage, quotas, alerts.
 - `permission`: access policy and data masking.
 - `prompt`: prompt template management.
-- `system`: config, notifications, operation logs, scheduling.
+- `system`: config, notifications, operation logs, AI config, scheduling.
+- `dashboard`: admin homepage statistics aggregation.
 
 Database migrations live in:
 
@@ -229,7 +230,7 @@ Important modules:
 - `knowledge`: skills.md draft generation.
 - `chart`: ECharts option generation.
 - `prompt`: prompt fetching and rendering.
-- `infra`: LLM, embedding, SSE, cancellation, health, config.
+- `infra`: LLM (LangChain ChatOpenAI), embedding (LangChain OpenAIEmbeddings), SSE, cancellation, health, config.
 
 ## Frontend Notes
 
@@ -246,7 +247,6 @@ output/playwright/
 
 ## Working Rules
 
-- Do not modify or regenerate files under `mock/`.
 - Prefer existing project patterns over introducing new abstractions.
 - Keep Java responsible for governance and lifecycle state.
 - Keep Python responsible for AI execution, chunking, embedding, Milvus, retrieval, reranking, and SQL sandbox behavior.

@@ -5,12 +5,12 @@
 
 ## Phase 1: Setup
 
-- [X] T001 创建 Maven 项目骨架 `backend/pom.xml`，引入 Spring Boot 3.x、Spring Security、MyBatis-Plus、jjwt、Lettuce (Redis)、MySQL Connector/J、Flyway、OpenFeign 依赖
+- [X] T001 创建 Maven 项目骨架 `backend/pom.xml`，引入 Spring Boot 3.x、Spring Security、MyBatis-Plus、jjwt、Lettuce (Redis)、MySQL Connector/J、Flyway、RestClient 依赖
 - [X] T002 创建 Spring Boot 主类 `backend/src/main/java/com/dataocean/DataOceanApplication.java`
-- [X] T003 创建应用配置文件 `backend/src/main/resources/application.yml`（数据源、Redis、JWT 密钥、Flyway、OpenFeign 配置）
+- [X] T003 创建应用配置文件 `backend/src/main/resources/application.yml`（数据源、Redis、JWT 密钥、Flyway、RestClient 配置）
 - [X] T004 创建开发环境配置 `backend/src/main/resources/application-dev.yml`
 - [X] T005 创建 `docker-compose.yml`（MySQL 8、Redis 7、Milvus 2.x standalone + etcd + minio），配置端口映射和数据卷
-- [X] T006 创建 Python 服务项目骨架 `python-service/pyproject.toml`（依赖：fastapi、uvicorn、langgraph、llama-index、sqlalchemy、aiomysql、sqlglot、dashscope、milvus、pydantic），创建 `python-service/dataocean/__init__.py` 和 `python-service/dataocean/main.py`（FastAPI app 实例，挂载各模块 router）
+- [X] T006 创建 Python 服务项目骨架 `python-service/pyproject.toml`（依赖：fastapi、uvicorn、langgraph、langchain-openai、langchain-milvus、langchain-text-splitters、sqlalchemy、aiomysql、sqlglot、dashscope、milvus、pydantic），创建 `python-service/dataocean/__init__.py` 和 `python-service/dataocean/main.py`（FastAPI app 实例，挂载各模块 router）
 - [X] T007 创建 `python-service/Dockerfile`（基于 python:3.13-slim，uv install，uvicorn 启动）
 - [X] T008 创建前端项目骨架：`cd frontend && npm create vite@latest . -- --template vue-ts`，安装 element-plus、vue-router、pinia、axios、echarts 依赖，创建基础目录结构（src/views/、src/components/、src/api/、src/stores/、src/router/）
 - [X] T009 创建 Flyway 迁移脚本 `backend/src/main/resources/db/migration/V1__create_user_tables.sql`，包含 sys_user、sys_role、sys_department、sys_user_role、sys_permission、sys_role_permission 六张表的 DDL

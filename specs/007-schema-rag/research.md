@@ -4,10 +4,10 @@
 
 **Decision**: Milvus 2.x Standalone (Docker)
 
-**Rationale**: 开源、支持 metadata filtering、Python SDK 成熟、LlamaIndex 原生集成。Standalone 模式适合 MVP 单机部署。
+**Rationale**: 开源、支持 metadata filtering、Python SDK 成熟、LangChain 原生集成。Standalone 模式适合 MVP 单机部署。
 
 **Alternatives considered**:
-- Qdrant: 轻量但 LlamaIndex 集成不如 Milvus 成熟
+- Qdrant: 轻量但 LangChain 集成不如 Milvus 成熟
 - Weaviate: 功能全面但部署复杂
 - pgvector: 性能不足以支撑大规模向量检索
 - OpenSearch: 过重，阶段二 Hybrid Search 再评估
@@ -76,7 +76,7 @@
 **实现**: 
 1. 健康检查: 每次检索前 ping Milvus (timeout 2s)
 2. 降级触发: 连接失败或超时
-3. 兜底数据: 从 knowledge_chunk 表查询 chunk_type=CORE_TABLE 的前 5 条
+3. 兜底数据: 从 knowledge_chunk 表查询 chunk_type=TABLE_DESC 的前 5 条
 4. 降级标记: 返回结果中标记 `degraded=true`，Agent 生成 SQL 时降低置信度
 
 ## 版本切换策略

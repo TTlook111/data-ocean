@@ -21,7 +21,7 @@ knowledge_doc_version.metadata_snapshot_id ──> metadata_snapshot.id
 | datasource_id | BIGINT | FK, NOT NULL | 所属数据源 |
 | title | VARCHAR(200) | NOT NULL | 文档标题 |
 | current_version_no | INT | NOT NULL, DEFAULT 0 | 当前生效版本号 |
-| status | VARCHAR(20) | NOT NULL, DEFAULT 'DRAFT' | DRAFT/PENDING_REVIEW/APPROVED/PUBLISHED/DEPRECATED |
+| status | VARCHAR(20) | NOT NULL, DEFAULT 'DRAFT' | DRAFT/PENDING_REVIEW/APPROVED/INDEXING/PUBLISHED/DEPRECATED |
 | updated_by | BIGINT | | 最后编辑人 |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW() | 创建时间 |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW() ON UPDATE | 更新时间 |
@@ -58,7 +58,7 @@ UNIQUE INDEX: (doc_id, version_no)
 | doc_id | BIGINT | FK → knowledge_doc.id, NOT NULL | 所属文档 |
 | version_no | INT | NOT NULL | 所属版本号 |
 | metadata_snapshot_id | BIGINT | NOT NULL | 绑定快照 |
-| chunk_type | VARCHAR(30) | NOT NULL | CORE_TABLE/JOIN_PATH/METRIC/FIELD_NOTE/CUSTOM |
+| chunk_type | VARCHAR(30) | NOT NULL | TABLE_DESC/JOIN_PATH/METRIC/FIELD_NOTE/QUERY_SCENE |
 | chunk_text | TEXT | NOT NULL | 切片文本内容 |
 | chunk_order | INT | NOT NULL | 切片顺序 |
 | related_table | VARCHAR(100) | | 关联表名 |
@@ -105,7 +105,7 @@ INDEX: (vector_status)
 INDEX: (status, created_at) — 定时任务扫描用
 INDEX: (target_id, knowledge_version_no) — 定位文档版本向量任务
 
-> 发布或回滚时，Java 会先把当前版本切成 `knowledge_chunk`，再创建带版本上下文的 `vector_index_task`。
+> 发布或回滚时，Java 调用 Python 切割当前版本后保存 `knowledge_chunk`，再创建带版本上下文的 `vector_index_task`。
 > 调度器调用 007 的 `/internal/rag/vectorize`，Python 在新版本写入并校验数量后，按
 > `(datasource_id, doc_id, previous_version_no)` 删除旧版本向量；失败时旧版本保留，避免 RAG 空窗。
 > 人工编辑内容会创建新的 `knowledge_doc_version`，因此用户修改 skills.md 后再次发布，会按新版本号重新切片并替换上一版向量。
@@ -119,7 +119,7 @@ INDEX: (target_id, knowledge_version_no) — 定位文档版本向量任务
 DRAFT ──[提交审核]──> PENDING_REVIEW
 PENDING_REVIEW ──[审核通过]──> APPROVED
 PENDING_REVIEW ──[审核拒绝]──> DRAFT (退回修改)
-APPROVED ──[发布]──> PUBLISHED
+APPROVED ──[发布]──> INDEXING ──[向量化完成]──> PUBLISHED
 PUBLISHED ──[废弃]──> DEPRECATED
 PUBLISHED ──[新版本编辑]──> DRAFT (创建新版本)
 ```

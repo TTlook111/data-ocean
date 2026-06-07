@@ -31,7 +31,7 @@
 **Goal**: 用户提问时系统精准召回相关表
 **Independent Test**: 用户问"上月退款金额"时，召回结果包含 refund_record 表和 actual_refund 字段
 
-- [X] T012 [US1] 实现 `python-service/dataocean/rag/retriever.py`：使用 LlamaIndex VectorStoreIndex 封装 Milvus 检索，构建 query_engine 时强制注入 metadata_filter（datasource_id={当前数据源} AND review_status=APPROVED AND governance_status IN [NORMAL, RECOMMENDED]）
+- [X] T012 [US1] 实现 `python-service/dataocean/rag/retriever.py`：使用 LangChain Milvus VectorStore 封装 Milvus 检索，调用 similarity_search 时强制注入 metadata_filter（datasource_id={当前数据源} AND review_status=APPROVED AND governance_status IN [NORMAL, RECOMMENDED]）
 - [X] T013 [US1] 实现 `python-service/dataocean/rag/reranker.py`：规则加权重排逻辑——基础分为 Milvus 相似度分数，加权规则：表名命中用户问题关键词 +0.2、字段可信度>80 的 +0.1、governance_status=RECOMMENDED +0.05、废弃字段 -0.5；按加权后分数降序取 Top K
 - [X] T014 [US1] 实现检索 schema 模型：RetrieveRequest（datasource_id、question、top_k、confidence_scores: Optional[Dict]）、RetrieveResponse（results: List[RetrievedSchema]）、RetrievedSchema（table_name、columns、score、chunk_type、source_version、join_paths）
 - [X] T015 [US1] 实现路由中 POST /internal/rag/retrieve 接口：接收 RetrieveRequest → 调用 embedder 生成问题向量 → 调用 retriever 检索 → 调用 reranker 重排 → 过滤低于 SIMILARITY_THRESHOLD 的结果 → 返回 RetrieveResponse

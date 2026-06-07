@@ -56,6 +56,6 @@
 **Rationale**: 二级标题对应大章节，三级标题对应具体表、Join Path、指标、字段防坑和查询场景，细粒度 chunk 更利于精准召回和 chunk_type 重排。
 
 **Chunk metadata**:
-- chunk_type: CORE_TABLE / JOIN_PATH / METRIC / FIELD_NOTE / CUSTOM
+- chunk_type: TABLE_DESC / JOIN_PATH / METRIC / FIELD_NOTE / QUERY_SCENE
 - related_table: 该 chunk 关联的主表名
 - related_column: 该 chunk 关联的字段名（可选）

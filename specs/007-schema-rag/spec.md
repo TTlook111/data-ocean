@@ -95,7 +95,7 @@ RAG 检索时强制按数据源隔离，且只召回已治理通过的内容。
 ## Assumptions
 
 - MVP 阶段仅使用向量语义召回，Hybrid Search（BM25 + Dense）在阶段二引入
-- 使用 LlamaIndex 封装 Milvus 向量检索逻辑
+- 使用 LangChain 封装 Milvus 向量检索逻辑
 - Embedding 模型使用 text-embedding-v4，默认 1024 维（可配置为 1536/2048，但需重建 Collection）
 - 向量库使用 Milvus 2.x Standalone，Docker 镜像锁定具体版本
 - 分块策略：Python RAG 服务负责切割；skills.md 先按 `##` 章节划分，再按 `###` 细粒度切割为表、指标、Join Path、字段防坑和查询场景 chunk

@@ -1,5 +1,9 @@
 # 企业级 NL2SQL 平台项目构想（单库多表 MVP 版）
 
+> **注意**：本文档是 MVP 阶段的设计规格文档，包含架构决策 rationale（ADR）、置信度冷启动策略等关键设计信息。
+> 技术栈已从 LlamaIndex 迁移至 LangChain，从 OpenFeign 迁移至 RestClient，详见文档内相关章节（已更新）。
+> 当前实现状态和后续开发计划见 [CLAUDE.md](../CLAUDE.md)、[AGENTS.md](../AGENTS.md)、[后续开发.md](后续开发.md)。
+
 ## 1. 项目定位与背景
 
 基于我们对"多数据库、多表联合查询"终极愿景的讨论，我们意识到跨库联邦查询（涉及异构数据源和极高的语义冲突）在初期落地时风险极高。因此，本篇文档聚焦于项目的 **MVP 落地阶段：多数据源接入，限定单库多表查询**。
@@ -110,15 +114,15 @@
 │  │ 与权限    │ │ 管理     │ │ 管理      │ │ 管理     │ │ 日志     │ │
 │  └──────────┘ └──────────┘ └───────────┘ └──────────┘ └──────────┘ │
 │              ┌─────────────────────────────────────┐                 │
-│              │   内部 HTTP 调用（OkHttp/Feign）     │                 │
+│              │   内部 HTTP 调用（RestClient）       │                 │
 │              └──────────────┬──────────────────────┘                 │
 └─────────────────────────────┼────────────────────────────────────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│        Python AI 服务（Python 3.13 + FastAPI + LangGraph + LlamaIndex）│
+│        Python AI 服务（Python 3.13 + FastAPI + LangGraph + LangChain） │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌────────────┐ │
 │  │ Schema RAG   │ │ SQL 生成     │ │ SQL 执行     │ │ 图表生成   │ │
-│  │(LlamaIndex)  │ │ (LLM)       │ │ (沙箱)       │ │ (LLM)     │ │
+│  │(LangChain)   │ │ (LLM)       │ │ (沙箱)       │ │ (LLM)     │ │
 │  └──────────────┘ └──────────────┘ └──────────────┘ └────────────┘ │
 │              ┌─────────────────────────────────────┐                 │
 │              │        LangGraph Agent 工作流编排     │                 │
@@ -159,7 +163,7 @@
 
 **Java 调 Python 的具体方式：**
 
-- **协议**：内部 HTTP（Spring Boot 统一使用 `OpenFeign` 调 Python 的 FastAPI）。**安全要求**：生产环境必须使用 HTTPS 或 mTLS 加密传输，防止数据库凭据在内网被嗅探；审计日志中禁止记录请求体中的密码字段
+- **协议**：内部 HTTP（Spring Boot 统一使用 `RestClient` 调 Python 的 FastAPI）。**安全要求**：生产环境必须使用 HTTPS 或 mTLS 加密传输，防止数据库凭据在内网被嗅探；审计日志中禁止记录请求体中的密码字段
 - **调用时机**：仅在"问答查询"场景下 Java 才调 Python；后台管理功能（数据源配置、skills.md 编辑、可信度调整等）纯 Java 完成
 - **超时设置**：Java 端设置 **120 秒超时**（考虑最坏情况：3 次重试 × 每次 ~35 秒 ≈ 105 秒），超时后返回友好提示。Python 端内部也设置总时间预算 100 秒，超时则停止重试并返回已有结果或错误信息
 - **Python 请求级无状态**：Python AI 服务不持有用户 Session，每次请求由 Java 传入必要的上下文（用户 ID、选中的数据源 ID、权限范围等）。但 Python 会跨请求缓存数据库连接池（以 `datasourceId` 为 key），因此需限制 Python 实例数（建议单实例或少量实例），防止连接数膨胀。详见第 10 节连接池配置
@@ -196,7 +200,7 @@
 
 3. Python AI 服务（LangGraph 有向图）：
    a. Query_Rewriter_Node → 解析时间表达式、消解多轮指代、提取意图（维度/指标/筛选/排序）、改写为结构化查询
-   b. Schema_Retriever_Node → 使用改写后的查询通过 LlamaIndex 从 Milvus 召回相关表
+   b. Schema_Retriever_Node → 使用改写后的查询通过 LangChain 从 Milvus 召回相关表
    c. SQL_Generator_Node → LLM 基于改写意图 + 召回 Schema 生成 SQL
    d. SQL_Validator_Node → AST 安全校验
    e. SQL_Executor_Node → 直连数据库执行
@@ -235,7 +239,7 @@
 - **状态 (State)**：维护用户的原始问题、改写后的结构化查询、当前选中的数据库、召回的 Schema、生成的 SQL、执行报错信息、重试次数以及**历史对话摘要**。**注意：State 的作用域仅限于单次请求内部**（从 Java 发起调用到 Python 返回结果），请求结束后 State 即释放，不跨请求持久化。历史对话上下文由前端维护，每次请求时透传
 - **节点 (Nodes)**：
   1. `Query_Rewriter_Node`：对用户原始问题进行理解和改写——解析时间表达式（"上个月"→具体日期范围）、消解多轮对话指代（结合 chat_history）、提取查询意图（维度、指标、筛选条件、排序方式）、将模糊问题改写为结构化查询描述。改写结果同时用于提升 RAG 召回精度和 SQL 生成准确率。
-  2. `Schema_Retriever_Node`：使用改写后的结构化查询调用 LlamaIndex Query/Retriever，从 Milvus 召回已治理、已发布的表结构、字段画像和 `skills.md`。
+  2. `Schema_Retriever_Node`：使用改写后的结构化查询调用 LangChain Retriever，从 Milvus 召回已治理、已发布的表结构、字段画像和 `skills.md`。
   3. `SQL_Generator_Node`：大模型根据改写意图 + 召回 Schema + 可信度信息写出 SQL。
   4. `SQL_Validator_Node`：基于 AST 解析，进行安全校验（详见第 5 节）。
   5. `SQL_Executor_Node`：在沙箱中执行 SQL。如果报错，提取 Error Message。
@@ -273,20 +277,20 @@
 
 **融合方式**：三路召回的结果按加权分数排序，取 Top 5-10。权重初期可配置（如语义 0.5、关键词 0.3、模板 0.2），后续根据用户反馈自动调优。
 
-**RAG 框架选型：LlamaIndex**
+**RAG 框架选型：LangChain**
 
-Python 端 RAG 层统一使用 **LlamaIndex** 封装索引、Retriever、向量库适配与后续重排序逻辑。LangGraph 不直接操作 Milvus，而是在 `Schema_Retriever_Node` 中调用 LlamaIndex 的检索接口，拿到标准化的 `RetrievedSchemaContext` 后再进入 SQL 生成节点。
+Python 端 RAG 层统一使用 **LangChain** 生态（langchain-milvus、langchain-openai、langchain-text-splitters）封装索引、Retriever、向量库适配与后续重排序逻辑。LangGraph 不直接操作 Milvus，而是在 `Schema_Retriever_Node` 中调用 LangChain 的检索接口，拿到标准化的 `RetrievedSchemaContext` 后再进入 SQL 生成节点。
 
 这样拆分后职责更清晰：
 
-- **LlamaIndex**：负责 Schema/字段/`skills.md` 的 Document/Node 建模、Milvus VectorStore 适配、TopK 召回、Hybrid Search 和 Rerank 扩展。
+- **LangChain**：负责 Schema/字段/`skills.md` 的文本分块、Milvus VectorStore 适配（langchain-milvus）、TopK 召回、Rerank 扩展。
 - **Milvus**：负责底层向量存储与检索，不承载业务编排逻辑。
 - **LangGraph**：负责 Agent 状态流转、自我修复、取消、超时和节点间条件跳转。
 
 ### 4.3 引入阶段
 
-- **阶段一（MVP）**：通过 LlamaIndex 接入 Milvus，采用向量检索召回 Top 5-10 张相关表，保证核心 RAG 链路从一开始就是最终形态。
-- **阶段二**：在 LlamaIndex Retriever 层封装 Milvus BM25 稀疏检索 + Dense 向量检索的 Hybrid Search，支撑 200+ 张表。除非后续存在独立全文检索、日志检索或复杂查询 DSL 需求，否则不额外引入 OpenSearch，避免 MVP 运维复杂度上升。
+- **阶段一（MVP）**：通过 LangChain 接入 Milvus，采用向量检索召回 Top 5-10 张相关表，保证核心 RAG 链路从一开始就是最终形态。
+- **阶段二**：在 LangChain Retriever 层封装 Milvus BM25 稀疏检索 + Dense 向量检索的 Hybrid Search，支撑 200+ 张表。除非后续存在独立全文检索、日志检索或复杂查询 DSL 需求，否则不额外引入 OpenSearch，避免 MVP 运维复杂度上升。
 - **阶段三**：引入模板召回，结合历史高频查询优化召回质量。
 
 ### 4.4 RAG 知识准入与数据源隔离
@@ -1425,11 +1429,11 @@ MVP 阶段建议优先完成以下能力：
 | 决策项 | 决策 | 理由 |
 |--------|------|------|
 | 前端调用方式 | 统一调 Java，Java 代理调 Python | 统一入口、统一鉴权、前端简单 |
-| Java-Python 通信协议 | 内部 HTTP（OpenFeign），生产环境须 HTTPS/mTLS | 声明式客户端，便于统一超时、鉴权 Header、日志脱敏和错误处理 |
+| Java-Python 通信协议 | 内部 HTTP（RestClient），生产环境须 HTTPS/mTLS | Spring 6.1+ fluent HTTP 客户端，便于统一超时、鉴权 Header、日志脱敏和错误处理 |
 | Java-Python 超时 | Java 端 120s，Python 端 100s 总时间预算 | 覆盖 3 次重试最坏情况（~105s） |
 | Python 服务状态 | 请求级无状态，连接池有状态（限实例数） | 每次请求由 Java 传入上下文；连接池跨请求复用，需限制实例数防连接膨胀 |
 | SQL AST 解析工具 | sqlglot (Python)，MVP 仅启用 MySQL 方言 | 与 SQL 生成、执行同层，便于自修复和血缘解析 |
-| RAG 框架 | LlamaIndex | 统一封装 Schema/skills 的索引、Retriever、Milvus 适配、Hybrid Search 和 Rerank |
+| RAG 框架 | LangChain（langchain-milvus + langchain-openai + langchain-text-splitters） | 封装 Schema/skills 的分块、Retriever、Milvus 适配和 Rerank |
 | 向量数据库 | Milvus | 项目从 MVP 起直接采用生产级向量库，避免后续向量库迁移成本 |
 | LLM 模型 | 通义千问 / Qwen | 统一使用千问模型生成 SQL、解释和图表配置 |
 | Embedding 模型 | `text-embedding-v4`，维度固定配置 | 与 LLM 同一厂商，接口和鉴权统一；Collection 维度变更需全量重建 |
@@ -1611,9 +1615,9 @@ MVP 阶段建议优先完成以下能力：
 | 管理数据库 | MySQL 8 | 保存平台元数据，不与业务库混用 |
 | 数据库迁移 | Flyway | 管理平台库的 Schema 版本演进，与 Spring Boot 集成良好 |
 | 缓存 | Redis | 存 JWT 黑名单、查询任务状态、短期会话状态、限流计数，不缓存 SQL 查询结果 |
-| Java 内部 HTTP 客户端 | OpenFeign | Java 调 Python 统一使用声明式客户端，便于集中配置超时、重试、鉴权 Header 与错误解码 |
+| Java 内部 HTTP 客户端 | RestClient | Java 调 Python 使用 Spring 6.1+ fluent HTTP 客户端，便于集中配置超时、鉴权 Header 与错误处理 |
 | Python AI 服务 | Python 3.13 + FastAPI + LangGraph | FastAPI 做服务接口，LangGraph 编排 NL2SQL Agent 工作流 |
-| Python RAG 框架 | LlamaIndex | 封装 Schema/字段/`skills.md` 的索引、Retriever、Milvus 适配、Hybrid Search 与 Rerank |
+| Python RAG 框架 | LangChain（langchain-milvus + langchain-openai + langchain-text-splitters） | 封装 Schema/字段/`skills.md` 的分块、Retriever、Milvus 适配与 Rerank |
 | Python 数据库访问 | SQLAlchemy 2.x + PyMySQL | 管理连接池、只读事务、超时和多数据源连接缓存 |
 | Python SSE | `sse-starlette` 或 FastAPI `StreamingResponse` | 对外输出标准 SSE 事件，Java 只做鉴权、任务记录和事件转发 |
 | SQL 解析 | sqlglot | 负责 MySQL AST 校验、LIMIT 注入、血缘解析 |
@@ -1629,7 +1633,7 @@ MVP 阶段建议优先完成以下能力：
 
 阶段一纳入以下能力：
 
-- LlamaIndex + Milvus Schema RAG 向量召回。
+- LangChain + Milvus Schema RAG 向量召回。
 - 图表推荐和导出。
 - 当前会话多轮上下文。
 - 用户长期记忆的基础沉淀。
