@@ -30,9 +30,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -68,6 +70,8 @@ class KnowledgeDocServiceImplTest {
     private TableRelationMapper tableRelationMapper;
     @Mock
     private FieldTagMapper fieldTagMapper;
+    @Mock
+    private TransactionTemplate transactionTemplate;
 
     @InjectMocks
     private KnowledgeDocServiceImpl knowledgeDocService;
@@ -115,6 +119,12 @@ class KnowledgeDocServiceImplTest {
                 .thenReturn(Map.of("content", "generated skills"));
         when(dependencySnapshotBuilder.build(eq(datasourceId), eq(snapshotId), eq("AI_GENERATED"), any()))
                 .thenReturn("{}");
+        org.mockito.Mockito.doAnswer(invocation -> {
+            @SuppressWarnings("unchecked")
+            Consumer<Object> callback = (Consumer<Object>) invocation.getArgument(0);
+            callback.accept(null);
+            return null;
+        }).when(transactionTemplate).executeWithoutResult(any());
 
         String content = knowledgeDocService.generateDraft(docId, snapshotId);
 

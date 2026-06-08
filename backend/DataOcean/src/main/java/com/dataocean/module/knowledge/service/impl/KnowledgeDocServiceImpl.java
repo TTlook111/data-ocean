@@ -35,6 +35,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -75,6 +76,7 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
     private final DbColumnMetaMapper dbColumnMetaMapper;
     private final TableRelationMapper tableRelationMapper;
     private final FieldTagMapper fieldTagMapper;
+    private final TransactionTemplate transactionTemplate;
 
     /**
      * {@inheritDoc}
@@ -322,7 +324,6 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
      * 4. 创建新版本记录并同步更新文档主表
      * </p>
      */
-    @Transactional
     @Override
     public String generateDraft(Long docId, Long snapshotId) {
         log.info("生成 AI 草稿 docId={} snapshotId={}", docId, snapshotId);
@@ -341,37 +342,38 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
             draftContent = (String) result.get("content");
         } catch (Exception e) {
             log.error("AI 草稿生成失败 docId={} snapshotId={}", docId, snapshotId, e);
-            throw new BusinessException("AI 草稿生成失败：" + e.getMessage());
+            throw new BusinessException("AI 草稿生成失败，请稍后重试");
         }
         if (!StringUtils.hasText(draftContent)) {
             throw new BusinessException("AI 草稿生成失败：内容为空");
         }
 
-        // 创建新版本记录
-        KnowledgeDocVersion version = KnowledgeDocVersion.builder()
-                .docId(docId)
-                .datasourceId(doc.getDatasourceId())
-                .metadataSnapshotId(snapshotId)
-                .dependencySnapshot(dependencySnapshotBuilder.build(
-                        doc.getDatasourceId(),
-                        snapshotId,
-                        GenerationSource.AI_GENERATED.name(),
-                        Map.of("warnings", resultWarnings(result))))
-                .versionNo((doc.getCurrentVersion() == null ? 0 : doc.getCurrentVersion()) + 1)
-                .content(draftContent)
-                .generationSource(GenerationSource.AI_GENERATED.name())
-                .changeSummary("AI 自动生成草稿")
-                .createdBy(UserContext.currentUserId())
-                .build();
-        knowledgeDocVersionMapper.insert(version);
+        transactionTemplate.executeWithoutResult(status -> {
+            KnowledgeDoc latestDoc = requireDoc(docId);
+            KnowledgeDocVersion version = KnowledgeDocVersion.builder()
+                    .docId(docId)
+                    .datasourceId(latestDoc.getDatasourceId())
+                    .metadataSnapshotId(snapshotId)
+                    .dependencySnapshot(dependencySnapshotBuilder.build(
+                            latestDoc.getDatasourceId(),
+                            snapshotId,
+                            GenerationSource.AI_GENERATED.name(),
+                            Map.of("warnings", resultWarnings(result))))
+                    .versionNo((latestDoc.getCurrentVersion() == null ? 0 : latestDoc.getCurrentVersion()) + 1)
+                    .content(draftContent)
+                    .generationSource(GenerationSource.AI_GENERATED.name())
+                    .changeSummary("AI 自动生成草稿")
+                    .createdBy(UserContext.currentUserId())
+                    .build();
+            knowledgeDocVersionMapper.insert(version);
 
-        // 同步更新文档主表
-        doc.setContent(draftContent);
-        doc.setCurrentVersion(version.getVersionNo());
-        doc.setUpdatedBy(UserContext.currentUserId());
-        knowledgeDocMapper.updateById(doc);
+            latestDoc.setContent(draftContent);
+            latestDoc.setCurrentVersion(version.getVersionNo());
+            latestDoc.setUpdatedBy(UserContext.currentUserId());
+            knowledgeDocMapper.updateById(latestDoc);
 
-        log.info("AI 草稿生成成功 docId={} versionNo={}", docId, version.getVersionNo());
+            log.info("AI 草稿生成成功 docId={} versionNo={}", docId, version.getVersionNo());
+        });
         return draftContent;
     }
 
@@ -384,7 +386,6 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
      * 3. 对每份文档自动创建 KnowledgeDoc + 初始版本
      * </p>
      */
-    @Transactional
     @Override
     public List<Map<String, Object>> batchGenerateFromSnapshot(Long datasourceId, Long snapshotId) {
         log.info("AI 批量生成 skills.md datasourceId={} snapshotId={}", datasourceId, snapshotId);
@@ -400,7 +401,7 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
                     snapshotId, datasourceId, tablesMetadata, foreignKeys, List.of());
         } catch (Exception e) {
             log.error("AI 域分析+批量生成失败 datasourceId={} snapshotId={}", datasourceId, snapshotId, e);
-            throw new BusinessException("AI 批量生成失败：" + e.getMessage());
+            throw new BusinessException("AI 批量生成失败，请稍后重试");
         }
 
         // 解析返回的文档列表
@@ -410,56 +411,55 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
             throw new BusinessException("AI 批量生成失败：未返回任何文档");
         }
 
-        // 逐个创建文档
-        List<Map<String, Object>> createdDocs = new ArrayList<>();
-        for (Map<String, Object> docData : docs) {
-            String title = (String) docData.get("title");
-            String content = (String) docData.get("content");
-            @SuppressWarnings("unchecked")
-            List<String> tableNames = (List<String>) docData.get("table_names");
+        List<Map<String, Object>> createdDocs = transactionTemplate.execute(status -> {
+            List<Map<String, Object>> created = new ArrayList<>();
+            for (Map<String, Object> docData : docs) {
+                String title = (String) docData.get("title");
+                String content = (String) docData.get("content");
+                @SuppressWarnings("unchecked")
+                List<String> tableNames = (List<String>) docData.get("table_names");
 
-            if (!StringUtils.hasText(content)) {
-                log.warn("跳过空内容文档 title={}", title);
-                continue;
+                if (!StringUtils.hasText(content)) {
+                    log.warn("跳过空内容文档 title={}", title);
+                    continue;
+                }
+
+                KnowledgeDoc doc = KnowledgeDoc.builder()
+                        .datasourceId(datasourceId)
+                        .title(title)
+                        .content(content)
+                        .currentVersion(1)
+                        .status(DocStatus.DRAFT.name())
+                        .tableNames(tableNames != null ? toJsonArray(tableNames) : null)
+                        .updatedBy(UserContext.currentUserId())
+                        .deleted(0)
+                        .build();
+                knowledgeDocMapper.insert(doc);
+
+                KnowledgeDocVersion version = KnowledgeDocVersion.builder()
+                        .docId(doc.getId())
+                        .datasourceId(datasourceId)
+                        .metadataSnapshotId(snapshotId)
+                        .dependencySnapshot(dependencySnapshotBuilder.build(
+                                datasourceId, snapshotId, GenerationSource.AI_GENERATED.name()))
+                        .versionNo(1)
+                        .content(content)
+                        .generationSource(GenerationSource.AI_GENERATED.name())
+                        .changeSummary("AI 自动分析业务域并生成")
+                        .createdBy(UserContext.currentUserId())
+                        .build();
+                knowledgeDocVersionMapper.insert(version);
+
+                Map<String, Object> createdDoc = new HashMap<>();
+                createdDoc.put("id", doc.getId());
+                createdDoc.put("title", title);
+                createdDoc.put("tableNames", tableNames);
+                created.add(createdDoc);
+
+                log.info("AI 批量生成文档成功 docId={} title={}", doc.getId(), title);
             }
-
-            // 创建文档
-            KnowledgeDoc doc = KnowledgeDoc.builder()
-                    .datasourceId(datasourceId)
-                    .title(title)
-                    .content(content)
-                    .currentVersion(1)
-                    .status(DocStatus.DRAFT.name())
-                    .tableNames(tableNames != null ? toJsonArray(tableNames) : null)
-                    .updatedBy(UserContext.currentUserId())
-                    .deleted(0)
-                    .build();
-            knowledgeDocMapper.insert(doc);
-
-            // 创建初始版本
-            KnowledgeDocVersion version = KnowledgeDocVersion.builder()
-                    .docId(doc.getId())
-                    .datasourceId(datasourceId)
-                    .metadataSnapshotId(snapshotId)
-                    .dependencySnapshot(dependencySnapshotBuilder.build(
-                            datasourceId, snapshotId, GenerationSource.AI_GENERATED.name()))
-                    .versionNo(1)
-                    .content(content)
-                    .generationSource(GenerationSource.AI_GENERATED.name())
-                    .changeSummary("AI 自动分析业务域并生成")
-                    .createdBy(UserContext.currentUserId())
-                    .build();
-            knowledgeDocVersionMapper.insert(version);
-
-            // 返回结果
-            Map<String, Object> created = new HashMap<>();
-            created.put("id", doc.getId());
-            created.put("title", title);
-            created.put("tableNames", tableNames);
-            createdDocs.add(created);
-
-            log.info("AI 批量生成文档成功 docId={} title={}", doc.getId(), title);
-        }
+            return created;
+        });
 
         log.info("AI 批量生成完成，共创建 {} 份文档", createdDocs.size());
         return createdDocs;

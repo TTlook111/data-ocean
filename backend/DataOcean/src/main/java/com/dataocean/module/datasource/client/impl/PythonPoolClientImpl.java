@@ -3,7 +3,7 @@ package com.dataocean.module.datasource.client.impl;
 import com.dataocean.module.datasource.client.PythonPoolClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -23,11 +23,8 @@ import java.util.Map;
 @Slf4j
 public class PythonPoolClientImpl implements PythonPoolClient {
 
-    private final RestClient.Builder restClientBuilder;
-
-    /** Python AI 服务的基础 URL */
-    @Value("${dataocean.python-service.base-url:http://localhost:8000}")
-    private String pythonServiceBaseUrl;
+    @Qualifier("pythonRestClient")
+    private final RestClient restClient;
 
     /**
      * {@inheritDoc}
@@ -36,9 +33,9 @@ public class PythonPoolClientImpl implements PythonPoolClient {
     @SuppressWarnings("unchecked")
     public Map<String, Object> getPoolDashboard() {
         try {
-            Map<String, Object> body = restClientBuilder.build()
+            Map<String, Object> body = restClient
                     .get()
-                    .uri(pythonServiceBaseUrl + "/internal/sql/pools/dashboard")
+                    .uri("/internal/sql/pools/dashboard")
                     .retrieve()
                     .body(Map.class);
             if (body == null) {
@@ -59,9 +56,9 @@ public class PythonPoolClientImpl implements PythonPoolClient {
     @Override
     public void resetPool(Long datasourceId) {
         try {
-            restClientBuilder.build()
+            restClient
                     .post()
-                    .uri(pythonServiceBaseUrl + "/internal/sql/pools/{datasourceId}/reset", datasourceId)
+                    .uri("/internal/sql/pools/{datasourceId}/reset", datasourceId)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (request, response) ->
                             log.warn("Python 连接池重置接口返回异常 datasourceId={} status={}",
@@ -79,9 +76,9 @@ public class PythonPoolClientImpl implements PythonPoolClient {
     @Override
     public void destroyPool(Long datasourceId) {
         try {
-            restClientBuilder.build()
+            restClient
                     .delete()
-                    .uri(pythonServiceBaseUrl + "/internal/sql/pools/{datasourceId}", datasourceId)
+                    .uri("/internal/sql/pools/{datasourceId}", datasourceId)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (request, response) ->
                             log.warn("Python 连接池销毁接口返回异常 datasourceId={} status={}",

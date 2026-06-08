@@ -9,12 +9,10 @@ import com.dataocean.module.query.client.PythonAgentClient;
 import com.dataocean.module.query.service.ConversationService;
 import com.dataocean.module.query.service.QueryTaskService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -39,11 +37,6 @@ import java.util.Map;
 @Slf4j
 public class PythonAgentClientImpl implements PythonAgentClient {
 
-    @Value("${dataocean.python-service.base-url:http://localhost:8000}")
-    private String pythonServiceBaseUrl;
-
-    private static final int TIMEOUT_MS = 120_000;
-
     private final QueryTaskService queryTaskService;
     private final ConversationService conversationService;
     private final ObjectMapper objectMapper;
@@ -53,22 +46,8 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private final PermissionCalculator permissionCalculator;
     private final KnowledgeChunkMapper knowledgeChunkMapper;
 
-    private RestClient restClient;
-
-    /**
-     * 初始化 RestClient，配置超时。
-     */
-    @PostConstruct
-    void init() {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(TIMEOUT_MS);
-        factory.setReadTimeout(TIMEOUT_MS);
-        this.restClient = RestClient.builder()
-                .requestFactory(factory)
-                .baseUrl(pythonServiceBaseUrl)
-                .build();
-        log.info("PythonAgentClient 初始化完成 baseUrl={}", pythonServiceBaseUrl);
-    }
+    @Qualifier("pythonRestClient")
+    private final RestClient restClient;
 
     /**
      * {@inheritDoc}
@@ -136,7 +115,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             cancelTask(taskId);
             try {
                 queryTaskService.updateTaskResult(taskId,
-                        "{\"status\":\"FAILED\",\"error\":\"Agent 服务调用失败：" + e.getMessage() + "\"}");
+                        "{\"status\":\"FAILED\",\"error\":\"Agent 服务调用失败，请稍后重试\"}");
             } catch (Exception ex) {
                 log.error("回写失败状态异常 taskId={}", taskId, ex);
             }

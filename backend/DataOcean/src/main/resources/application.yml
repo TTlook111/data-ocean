@@ -44,6 +44,14 @@ security:
 dataocean:
   internal:
     token: ${INTERNAL_TOKEN:dataocean-internal-default}
+  python-service:
+    base-url: ${PYTHON_SERVICE_BASE_URL:http://localhost:8000}
+    connect-timeout: ${PYTHON_SERVICE_CONNECT_TIMEOUT:5000}
+    read-timeout: ${PYTHON_SERVICE_READ_TIMEOUT:120000}
+    short-connect-timeout: ${PYTHON_SERVICE_SHORT_CONNECT_TIMEOUT:3000}
+    short-read-timeout: ${PYTHON_SERVICE_SHORT_READ_TIMEOUT:15000}
+    health-connect-timeout: ${PYTHON_SERVICE_HEALTH_CONNECT_TIMEOUT:3000}
+    health-read-timeout: ${PYTHON_SERVICE_HEALTH_READ_TIMEOUT:3000}
   metadata:
     auto-sync:
       enabled: ${METADATA_AUTO_SYNC_ENABLED:false}

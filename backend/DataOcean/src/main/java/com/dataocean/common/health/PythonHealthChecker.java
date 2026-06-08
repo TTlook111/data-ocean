@@ -2,10 +2,8 @@ package com.dataocean.common.health;
 
 import com.dataocean.module.system.service.NotificationService;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -22,42 +20,34 @@ import java.util.concurrent.atomic.AtomicReference;
  * </p>
  */
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class PythonHealthChecker {
 
     /** 连续失败多少次后标记为不可用 */
     private static final int FAILURE_THRESHOLD = 3;
 
-    /** 健康检查超时时间（毫秒） */
-    private static final int HEALTH_CHECK_TIMEOUT_MS = 5_000;
-
-    @Value("${dataocean.python-service.base-url:http://localhost:8000}")
-    private String pythonServiceBaseUrl;
-
     private final NotificationService notificationService;
+
+    @Qualifier("pythonHealthRestClient")
+    private final RestClient healthClient;
 
     /** 服务健康状态（线程安全） */
     private final AtomicReference<ServiceHealthInfo> healthInfo = new AtomicReference<>();
 
-    private RestClient healthClient;
+    public PythonHealthChecker(NotificationService notificationService,
+                               @Qualifier("pythonHealthRestClient") RestClient healthClient) {
+        this.notificationService = notificationService;
+        this.healthClient = healthClient;
+    }
 
     /**
-     * 初始化健康检查专用 RestClient（短超时）
+     * 初始化健康状态。
      */
     @PostConstruct
     void init() {
         ServiceHealthInfo info = new ServiceHealthInfo("python-service");
         healthInfo.set(info);
-
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(HEALTH_CHECK_TIMEOUT_MS);
-        factory.setReadTimeout(HEALTH_CHECK_TIMEOUT_MS);
-        this.healthClient = RestClient.builder()
-                .requestFactory(factory)
-                .baseUrl(pythonServiceBaseUrl)
-                .build();
-        log.info("Python 健康检查器初始化完成 baseUrl={}", pythonServiceBaseUrl);
+        log.info("Python 健康检查器初始化完成");
     }
 
     /**

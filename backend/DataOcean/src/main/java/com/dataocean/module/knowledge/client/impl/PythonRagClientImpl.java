@@ -1,17 +1,20 @@
 package com.dataocean.module.knowledge.client.impl;
 
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.exception.PythonRetryableException;
 import com.dataocean.module.knowledge.client.PythonRagClient;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.VectorIndexTask;
-import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Recover;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 import java.util.HashMap;
@@ -25,34 +28,17 @@ import java.util.Map;
 @Slf4j
 public class PythonRagClientImpl implements PythonRagClient {
 
-    @Value("${dataocean.python-service.base-url:http://localhost:8000}")
-    private String pythonServiceBaseUrl;
+    private final RestClient restClient;
 
-    private static final int TIMEOUT_MS = 120_000;
-
-    private RestClient restClient;
-
-    /**
-     * 初始化 RestClient，配置连接和读取超时。
-     */
-    @PostConstruct
-    void init() {
-        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(TIMEOUT_MS);
-        requestFactory.setReadTimeout(TIMEOUT_MS);
-
-        this.restClient = RestClient.builder()
-                .requestFactory(requestFactory)
-                .baseUrl(pythonServiceBaseUrl)
-                .build();
-        log.info("PythonRagClient 初始化完成 baseUrl={} timeout={}ms", pythonServiceBaseUrl, TIMEOUT_MS);
+    public PythonRagClientImpl(@Qualifier("pythonRestClient") RestClient restClient) {
+        this.restClient = restClient;
     }
 
     /**
      * {@inheritDoc}
      * <p>
      * 组装请求体并调用 Python /internal/rag/vectorize 接口，
-     * 超时时间 120 秒，失败时抛出 BusinessException。
+     * 写入 Milvus，失败时抛出 BusinessException，不做自动重试。
      * </p>
      */
     @Override
@@ -88,11 +74,14 @@ public class PythonRagClientImpl implements PythonRagClient {
                         throw new BusinessException("RAG 向量化失败");
                     })
                     .body(new ParameterizedTypeReference<>() {});
+        } catch (ResourceAccessException e) {
+            log.error("调用 Python RAG 向量化访问异常 taskId={} reason={}", task.getId(), e.getMessage(), e);
+            throw new BusinessException("RAG 向量化服务暂时不可用，请稍后重试");
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
             log.error("调用 Python RAG 向量化失败 taskId={} reason={}", task.getId(), e.getMessage(), e);
-            throw new BusinessException("RAG 向量化失败：" + e.getMessage());
+            throw new BusinessException("RAG 向量化失败，请稍后重试");
         }
     }
 
@@ -101,6 +90,11 @@ public class PythonRagClientImpl implements PythonRagClient {
      */
     @Override
     @SuppressWarnings("unchecked")
+    @Retryable(
+            retryFor = PythonRetryableException.class,
+            maxAttempts = 2,
+            backoff = @Backoff(delay = 1000)
+    )
     public List<Map<String, Object>> chunkDocument(VectorIndexTask task, String content) {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("taskId", task.getId());
@@ -125,7 +119,7 @@ public class PythonRagClientImpl implements PythonRagClient {
                     .onStatus(HttpStatusCode::isError, (request, responseEntity) -> {
                         log.error("Python RAG 文档切割接口返回异常 taskId={} status={}",
                                 task.getId(), responseEntity.getStatusCode());
-                        throw new BusinessException("RAG 文档切割失败");
+                        throw toPythonStatusException(responseEntity.getStatusCode(), "RAG 文档切割失败");
                     })
                     .body(new ParameterizedTypeReference<>() {});
 
@@ -137,12 +131,25 @@ public class PythonRagClientImpl implements PythonRagClient {
                         .toList();
             }
             return List.of();
+        } catch (PythonRetryableException e) {
+            throw e;
+        } catch (ResourceAccessException e) {
+            throw new PythonRetryableException("RAG 文档切割服务暂时不可用", e);
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
             log.error("调用 Python RAG 文档切割失败 taskId={} reason={}", task.getId(), e.getMessage(), e);
-            throw new BusinessException("RAG 文档切割失败：" + e.getMessage());
+            throw new BusinessException("RAG 文档切割失败，请稍后重试");
         }
+    }
+
+    @Recover
+    public List<Map<String, Object>> recoverChunkDocument(PythonRetryableException exception,
+                                                           VectorIndexTask task,
+                                                           String content) {
+        log.error("Python RAG 文档切割重试后仍失败 taskId={} reason={}",
+                task.getId(), exception.getMessage(), exception);
+        throw new BusinessException("RAG 文档切割失败，请稍后重试");
     }
 
     @Override
@@ -185,5 +192,12 @@ public class PythonRagClientImpl implements PythonRagClient {
         payload.put("reviewStatus", chunk.getReviewStatus());
         payload.put("governanceStatus", "NORMAL");
         return payload;
+    }
+
+    private RuntimeException toPythonStatusException(HttpStatusCode statusCode, String message) {
+        if (statusCode.is5xxServerError()) {
+            return new PythonRetryableException(message + "，Python 服务返回 " + statusCode.value());
+        }
+        return new BusinessException(message);
     }
 }

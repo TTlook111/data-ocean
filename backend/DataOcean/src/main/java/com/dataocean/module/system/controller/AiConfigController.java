@@ -10,10 +10,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -46,22 +45,19 @@ public class AiConfigController {
     private final SysConfigService configService;
     private final DatasourceSecretService secretService;
     private final ObjectMapper objectMapper;
+    private final RestClient pythonShortTimeoutRestClient;
     private final RestClient pythonRestClient;
 
     public AiConfigController(SysConfigService configService,
                               DatasourceSecretService secretService,
                               ObjectMapper objectMapper,
-                              @Value("${dataocean.python-service.base-url:http://localhost:8000}") String pythonServiceBaseUrl) {
+                              @Qualifier("pythonShortTimeoutRestClient") RestClient pythonShortTimeoutRestClient,
+                              @Qualifier("pythonRestClient") RestClient pythonRestClient) {
         this.configService = configService;
         this.secretService = secretService;
         this.objectMapper = objectMapper;
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(3000);
-        factory.setReadTimeout(15000);
-        this.pythonRestClient = RestClient.builder()
-                .requestFactory(factory)
-                .baseUrl(pythonServiceBaseUrl)
-                .build();
+        this.pythonShortTimeoutRestClient = pythonShortTimeoutRestClient;
+        this.pythonRestClient = pythonRestClient;
     }
 
     @GetMapping
@@ -191,7 +187,7 @@ public class AiConfigController {
     public Result<AiConfigVO.Provider> testProvider(@PathVariable String id) {
         AiConfigVO.Provider provider = getProviderOrThrow(id, true);
         try {
-            Map<String, Object> response = pythonRestClient.post()
+            Map<String, Object> response = pythonShortTimeoutRestClient.post()
                     .uri("/internal/ai-config/test-provider")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of("baseUrl", provider.getBaseUrl(), "apiKey", decryptApiKey(provider)))
@@ -208,7 +204,7 @@ public class AiConfigController {
             provider.setLastTestedAt(LocalDateTime.now().toString());
             saveProvider(provider);
             log.warn("供应商连接测试失败 id={} reason={}", id, e.getMessage());
-            throw new BusinessException("供应商连接测试失败：" + e.getMessage());
+            throw new BusinessException("供应商连接测试失败，请检查配置后重试");
         }
         saveProvider(provider);
         return Result.success(maskProvider(provider));
@@ -223,7 +219,7 @@ public class AiConfigController {
     @PostMapping("/detect-dimension")
     @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
     public Result<Map<String, Object>> detectDimension(@RequestBody Map<String, Object> payload) {
-        Map<String, Object> response = pythonRestClient.post()
+        Map<String, Object> response = pythonShortTimeoutRestClient.post()
                 .uri("/internal/ai-config/detect-dimension")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(payload)
@@ -400,7 +396,7 @@ public class AiConfigController {
 
     private void notifyPythonReload() {
         try {
-            pythonRestClient.post().uri("/internal/config/reload").retrieve().toBodilessEntity();
+            pythonShortTimeoutRestClient.post().uri("/internal/config/reload").retrieve().toBodilessEntity();
             log.info("已通知 Python 服务重载 AI 配置");
         } catch (Exception e) {
             log.warn("通知 Python 重载配置失败（Python 可能未启动）: {}", e.getMessage());

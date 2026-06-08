@@ -38,10 +38,11 @@ Important boundary:
 - Java owns management lifecycle: document drafts, review, versioning, publishing, task state, permissions, audit, and Java-side persistence.
 - Python owns AI/RAG execution: chunking, embedding, Milvus writes, retrieval, reranking, SQL generation, SQL validation, and sandbox execution.
 - Frontend calls Java only. Java calls Python through internal APIs.
+- Java→Python calls use `RestClient` with `@Retryable` on knowledge/RAG client methods (2 attempts, 1s backoff). SSE streaming and health checks do not retry.
 
 ## Current Status
 
-Last updated: 2026-06-07.
+Last updated: 2026-06-08.
 
 The main end-to-end chain is implemented:
 
@@ -66,7 +67,7 @@ Module status summary:
 | Python SQL sandbox | Core complete |
 | Python chart generation | Complete |
 
-Known follow-up areas — see `docs/后续开发.md` for the full prioritized list.
+Known follow-up areas — see `docs/development/后续开发.md` for the full prioritized list.
 
 ## RAG And skills.md Lifecycle
 

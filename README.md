@@ -82,7 +82,7 @@ npm run dev
 | --- | --- | --- |
 | [`CLAUDE.md`](CLAUDE.md) | **AI Agent 工作手册** | 架构约束、技术栈、模块职责、开发规则 |
 | [`AGENTS.md`](AGENTS.md) | **技术参考手册** | API 端点表、代码目录树、内部接口契约 |
-| [`docs/后续开发.md`](docs/后续开发.md) | **活的待办清单** | 后续开发任务、设计决策记录、一致性检查 |
+| [`docs/development/后续开发.md`](docs/development/后续开发.md) | **活的待办清单** | 后续开发任务、设计决策记录、一致性检查 |
 | [`docs/nl2sql-单库多表版-项目构想.md`](docs/nl2sql-单库多表版-项目构想.md) | **历史设计文档** | ADR 决策表、置信度策略、架构 rationale |
 
 ## License
