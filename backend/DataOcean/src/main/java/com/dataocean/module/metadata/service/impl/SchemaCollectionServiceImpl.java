@@ -2,6 +2,7 @@ package com.dataocean.module.metadata.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.common.util.HashUtils;
 import com.dataocean.common.util.JdbcUrlBuilder;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
@@ -265,16 +266,6 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
      * @return 32位小写十六进制 MD5 值，异常时返回空字符串
      */
     private String md5(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] digest = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (byte b : digest) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (Exception e) {
-            return "";
-        }
+        return HashUtils.md5Hex(input);
     }
 }

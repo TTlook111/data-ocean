@@ -1,5 +1,6 @@
 package com.dataocean.module.knowledge.client.impl;
 
+import com.dataocean.common.annotation.PythonServiceRetry;
 import com.dataocean.common.client.PythonClientSupport;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.exception.PythonRetryableException;
@@ -48,11 +49,7 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
      * {@inheritDoc}
      */
     @Override
-    @Retryable(
-            retryFor = PythonRetryableException.class,
-            maxAttempts = 2,
-            backoff = @Backoff(delay = 1000)
-    )
+    @PythonServiceRetry
     public Map<String, Object> generateDraft(Long snapshotId, Long datasourceId,
                                               List<Map<String, Object>> tablesMetadata,
                                               List<Map<String, Object>> foreignKeys,
@@ -102,11 +99,7 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
      * {@inheritDoc}
      */
     @Override
-    @Retryable(
-            retryFor = PythonRetryableException.class,
-            maxAttempts = 2,
-            backoff = @Backoff(delay = 1000)
-    )
+    @PythonServiceRetry
     public Map<String, Object> analyzeAndGenerate(Long snapshotId, Long datasourceId,
                                                     List<Map<String, Object>> tablesMetadata,
                                                     List<Map<String, Object>> foreignKeys,

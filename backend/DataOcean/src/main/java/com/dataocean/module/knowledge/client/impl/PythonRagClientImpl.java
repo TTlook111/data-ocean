@@ -1,5 +1,6 @@
 package com.dataocean.module.knowledge.client.impl;
 
+import com.dataocean.common.annotation.PythonServiceRetry;
 import com.dataocean.common.client.PythonClientSupport;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.exception.PythonRetryableException;
@@ -102,11 +103,7 @@ public class PythonRagClientImpl implements PythonRagClient {
      */
     @Override
     @SuppressWarnings("unchecked")
-    @Retryable(
-            retryFor = PythonRetryableException.class,
-            maxAttempts = 2,
-            backoff = @Backoff(delay = 1000)
-    )
+    @PythonServiceRetry
     public List<Map<String, Object>> chunkDocument(VectorIndexTask task, String content) {
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("taskId", task.getId());

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.dataocean.module.governance.constant.GovernanceStatuses;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -22,8 +23,8 @@ import java.time.LocalDateTime;
 @TableName("db_column_meta")
 public class DbColumnMeta {
 
-    /** 治理状态：已发现（采集后的初始状态） */
-    public static final String GOVERNANCE_DISCOVERED = "DISCOVERED";
+    /** 治理状态：已发现（采集后的初始状态） - 使用统一常量 */
+    public static final String GOVERNANCE_DISCOVERED = GovernanceStatuses.DISCOVERED;
 
     /** 主键ID */
     @TableId(type = IdType.AUTO)

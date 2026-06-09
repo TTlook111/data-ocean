@@ -1,6 +1,7 @@
 package com.dataocean.module.system.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.util.NumberUtils;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.system.client.PythonAiConfigClient;
 import com.dataocean.module.system.entity.dto.AiConfigDTO;
@@ -387,11 +388,7 @@ public class AiConfigServiceImpl implements AiConfigService {
     }
 
     private int parseInt(String value, int defaultValue) {
-        try {
-            return value == null || value.isBlank() ? defaultValue : Integer.parseInt(value);
-        } catch (Exception e) {
-            return defaultValue;
-        }
+        return NumberUtils.parseInt(value, defaultValue);
     }
 
     private AiConfigVO.ChatConfig toChat(AiConfigDTO.ChatConfig source) {
