@@ -1,5 +1,6 @@
 package com.dataocean.module.knowledge.client.impl;
 
+import com.dataocean.common.client.PythonClientSupport;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.exception.PythonRetryableException;
 import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
@@ -15,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
-import java.net.SocketTimeoutException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -76,7 +76,7 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (request, resp) -> {
                         log.error("Python 草稿生成接口返回异常 snapshotId={} status={}", snapshotId, resp.getStatusCode());
-                        throw toPythonStatusException(resp.getStatusCode(), "AI 草稿生成失败");
+                        throw PythonClientSupport.statusException(resp.getStatusCode(), "AI 草稿生成失败");
                     })
                     .body(new ParameterizedTypeReference<>() {});
 
@@ -85,7 +85,8 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
         } catch (PythonRetryableException e) {
             throw e;
         } catch (ResourceAccessException e) {
-            if (isReadTimeout(e)) {
+            // 区分读超时和连接失败：读超时不重试，连接失败可重试
+            if (PythonClientSupport.isReadTimeout(e)) {
                 throw new BusinessException("AI 草稿生成超时，请稍后重试");
             }
             throw new PythonRetryableException("AI 草稿生成服务暂时不可用", e);
@@ -128,7 +129,7 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (request, resp) -> {
                         log.error("Python 域分析接口返回异常 snapshotId={} status={}", snapshotId, resp.getStatusCode());
-                        throw toPythonStatusException(resp.getStatusCode(), "AI 域分析+批量生成失败");
+                        throw PythonClientSupport.statusException(resp.getStatusCode(), "AI 域分析+批量生成失败");
                     })
                     .body(new ParameterizedTypeReference<>() {});
 
@@ -137,7 +138,8 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
         } catch (PythonRetryableException e) {
             throw e;
         } catch (ResourceAccessException e) {
-            if (isReadTimeout(e)) {
+            // 区分读超时和连接失败：读超时不重试，连接失败可重试
+            if (PythonClientSupport.isReadTimeout(e)) {
                 throw new BusinessException("AI 域分析+批量生成超时，请稍后重试");
             }
             throw new PythonRetryableException("AI 域分析服务暂时不可用", e);
@@ -158,24 +160,5 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
                                                            List<Map<String, Object>> indexes) {
         log.error("Python 知识库调用重试后仍失败 snapshotId={} reason={}", snapshotId, exception.getMessage(), exception);
         throw new BusinessException("AI 知识库服务暂时不可用，请稍后重试");
-    }
-
-    private RuntimeException toPythonStatusException(HttpStatusCode statusCode, String message) {
-        if (statusCode.is5xxServerError()) {
-            return new PythonRetryableException(message + "，Python 服务返回 " + statusCode.value());
-        }
-        return new BusinessException(message);
-    }
-
-    private boolean isReadTimeout(ResourceAccessException exception) {
-        Throwable current = exception;
-        while (current != null) {
-            if (current instanceof SocketTimeoutException) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        String message = exception.getMessage();
-        return message != null && message.toLowerCase().contains("read timed out");
     }
 }
