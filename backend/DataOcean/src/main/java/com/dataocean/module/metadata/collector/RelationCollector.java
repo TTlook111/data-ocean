@@ -26,25 +26,22 @@ public class RelationCollector {
     /**
      * 采集指定表的所有外键关系。
      *
-     * @param connection   数据库连接
-     * @param datasourceId 数据源ID
-     * @param snapshotId   快照ID
-     * @param tableName    表名（作为外键所在的源表）
+     * @param ctx       采集上下文
+     * @param tableName 表名（作为外键所在的源表）
      * @return 表关系列表
      * @throws SQLException 数据库访问异常
      */
-    public List<TableRelation> collect(Connection connection, Long datasourceId, Long snapshotId,
-                                       String tableName) throws SQLException {
+    public List<TableRelation> collect(CollectorContext ctx, String tableName) throws SQLException {
         List<TableRelation> relations = new ArrayList<>();
-        DatabaseMetaData metaData = connection.getMetaData();
-        String catalog = connection.getCatalog();
+        DatabaseMetaData metaData = ctx.metaData();
+        String catalog = ctx.catalog();
 
         // 获取该表导入的外键（即该表引用了哪些其他表）
         try (ResultSet rs = metaData.getImportedKeys(catalog, null, tableName)) {
             while (rs.next()) {
                 TableRelation relation = new TableRelation();
-                relation.setSnapshotId(snapshotId);
-                relation.setDatasourceId(datasourceId);
+                relation.setSnapshotId(ctx.snapshotId());
+                relation.setDatasourceId(ctx.datasourceId());
                 relation.setSourceTable(tableName);
                 relation.setSourceColumn(rs.getString("FKCOLUMN_NAME"));
                 relation.setTargetTable(rs.getString("PKTABLE_NAME"));

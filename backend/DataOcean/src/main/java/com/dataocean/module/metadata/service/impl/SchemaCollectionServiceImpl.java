@@ -173,6 +173,10 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
         String password = secretService.decrypt(secret.getEncryptedPassword());
 
         try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+            // 创建采集上下文，避免重复传递参数
+            var ctx = com.dataocean.module.metadata.collector.CollectorContext.of(
+                    connection, datasourceId, null);
+
             // 在事务内执行所有元数据写入，失败时整体回滚，避免残缺快照
             transactionTemplate.executeWithoutResult(status -> {
                 try {
@@ -180,8 +184,12 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
                     MetadataSnapshot snapshot = snapshotService.createSnapshot(datasourceId, task.getId());
                     syncTaskService.linkSnapshot(task.getId(), snapshot.getId());
 
+                    // 更新上下文中的 snapshotId
+                    var snapshotCtx = com.dataocean.module.metadata.collector.CollectorContext.of(
+                            connection, datasourceId, snapshot.getId());
+
                     // 采集所有表的基本信息
-                    List<DbTableMeta> tables = tableCollector.collect(connection, datasourceId, snapshot.getId());
+                    List<DbTableMeta> tables = tableCollector.collect(snapshotCtx);
                     syncTaskService.updateProgress(task.getId(), tables.size(), 0);
 
                     int totalColumns = 0;
@@ -193,7 +201,7 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
                         DbTableMeta table = tables.get(i);
 
                         // 采集索引信息并序列化为 JSON
-                        List<IndexCollector.IndexInfo> indexes = indexCollector.collect(connection, table.getTableName());
+                        List<IndexCollector.IndexInfo> indexes = indexCollector.collect(snapshotCtx, table.getTableName());
                         if (!indexes.isEmpty()) {
                             try {
                                 table.setIndexesInfo(objectMapper.writeValueAsString(indexes));
@@ -205,7 +213,7 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
 
                         // 采集字段信息
                         List<DbColumnMeta> columns = columnCollector.collect(
-                                connection, datasourceId, snapshot.getId(), table.getTableName(), table.getId());
+                                snapshotCtx, table.getTableName(), table.getId());
                         for (DbColumnMeta column : columns) {
                             columnMetaMapper.insert(column);
                         }
@@ -213,7 +221,7 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
 
                         // 采集外键关系
                         List<TableRelation> relations = relationCollector.collect(
-                                connection, datasourceId, snapshot.getId(), table.getTableName());
+                                snapshotCtx, table.getTableName());
                         allRelations.addAll(relations);
 
                         // 构建 Schema 哈希内容（表名:字段名,类型;...）

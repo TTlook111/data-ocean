@@ -45,6 +45,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private final com.dataocean.module.datasource.service.DatasourceSecretService datasourceSecretService;
     private final PermissionCalculator permissionCalculator;
     private final KnowledgeChunkMapper knowledgeChunkMapper;
+    private final com.dataocean.module.knowledge.mapper.KnowledgeDocMapper knowledgeDocMapper;
 
     @Qualifier("pythonRestClient")
     private final RestClient restClient;
@@ -122,19 +123,35 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         }
     }
 
+    /** SSE 流总时长保护：最大 180 秒 */
+    private static final long MAX_SSE_DURATION_MS = 180_000;
+
     /**
      * 消费 SSE 事件流，返回最终 result/error 事件的 data 内容。
      * <p>
      * progress 事件会被实时解析并回写到 query_task 表，供前端轮询展示分阶段进度；
      * result/error 事件的 data 作为最终结果返回。
      * </p>
+     * <p>
+     * 增加总时长保护：如果 SSE 流持续超过 {@value MAX_SSE_DURATION_MS} 毫秒，
+     * 将强制终止并返回 null，同时调用 cancelTask 通知 Python 取消任务。
+     * </p>
      */
     private String consumeSseStream(InputStream stream, String taskId) {
         String lastResultData = null;
+        long startTime = System.currentTimeMillis();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
             String line;
             String currentEventType = null;
             while ((line = reader.readLine()) != null) {
+                // 检查总时长保护
+                long elapsed = System.currentTimeMillis() - startTime;
+                if (elapsed > MAX_SSE_DURATION_MS) {
+                    log.warn("SSE 流超过最大时长 {}ms，强制终止 taskId={} elapsed={}ms", MAX_SSE_DURATION_MS, taskId, elapsed);
+                    cancelTask(taskId);
+                    break;
+                }
+
                 if (line.startsWith("event:")) {
                     currentEventType = line.substring(6).trim();
                 } else if (line.startsWith("data:") && currentEventType != null) {
@@ -300,15 +317,34 @@ public class PythonAgentClientImpl implements PythonAgentClient {
 
     /**
      * 加载该数据源已发布知识文档的 TABLE_DESC 类型切片，作为 Milvus 不可用时的降级数据。
+     * <p>
+     * 使用参数化查询替代 inSql() 字符串拼接，避免 SQL 注入风险。
+     * </p>
      */
     private List<Map<String, Object>> loadFallbackChunks(Long datasourceId) {
         try {
+            // 先查询该数据源下已发布的知识文档 ID 列表
+            var docIds = knowledgeDocMapper.selectList(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<com.dataocean.module.knowledge.entity.KnowledgeDoc>()
+                            .select(com.dataocean.module.knowledge.entity.KnowledgeDoc::getId)
+                            .eq(com.dataocean.module.knowledge.entity.KnowledgeDoc::getDatasourceId, datasourceId)
+                            .eq(com.dataocean.module.knowledge.entity.KnowledgeDoc::getStatus, "PUBLISHED")
+                            .eq(com.dataocean.module.knowledge.entity.KnowledgeDoc::getDeleted, 0))
+                    .stream()
+                    .map(com.dataocean.module.knowledge.entity.KnowledgeDoc::getId)
+                    .toList();
+
+            // 如果没有已发布的文档，直接返回空列表
+            if (docIds.isEmpty()) {
+                return List.of();
+            }
+
+            // 使用 .in() 查询 chunks，避免 inSql() 字符串拼接
             var chunks = knowledgeChunkMapper.selectList(
                     new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeChunk>()
                             .eq(KnowledgeChunk::getReviewStatus, ReviewStatus.APPROVED.name())
                             .eq(KnowledgeChunk::getChunkType, "TABLE_DESC")
-                            .inSql(KnowledgeChunk::getDocId,
-                                    "SELECT id FROM knowledge_doc WHERE datasource_id = " + datasourceId + " AND status = 'PUBLISHED' AND deleted = 0")
+                            .in(KnowledgeChunk::getDocId, docIds)
                             .last("LIMIT 5"));
             List<Map<String, Object>> result = new java.util.ArrayList<>();
             for (KnowledgeChunk chunk : chunks) {

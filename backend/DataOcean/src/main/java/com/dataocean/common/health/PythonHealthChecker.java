@@ -8,7 +8,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
-import java.time.LocalDateTime;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -45,8 +44,7 @@ public class PythonHealthChecker {
      */
     @PostConstruct
     void init() {
-        ServiceHealthInfo info = new ServiceHealthInfo("python-service");
-        healthInfo.set(info);
+        healthInfo.set(ServiceHealthInfo.initial("python-service"));
         log.info("Python 健康检查器初始化完成");
     }
 
@@ -56,6 +54,9 @@ public class PythonHealthChecker {
      * 调用 Python /health 端点，成功则重置失败计数，
      * 失败则累加计数，达到阈值后标记为不可用。
      * 状态变更时发送通知给超级管理员。
+     * </p>
+     * <p>
+     * 使用不可变对象 + AtomicReference 整体替换，保证线程安全。
      * </p>
      */
     @Scheduled(fixedRate = 30_000, initialDelay = 10_000)
@@ -69,11 +70,9 @@ public class PythonHealthChecker {
                     .retrieve()
                     .toBodilessEntity();
 
-            // 检查成功
-            current.setStatus(ServiceHealthStatus.AVAILABLE);
-            current.setConsecutiveFailures(0);
-            current.setLastCheckTime(LocalDateTime.now());
-            current.setLastErrorMessage(null);
+            // 检查成功：创建新的不可变对象
+            ServiceHealthInfo updated = current.withSuccess();
+            healthInfo.set(updated);
 
             // 状态从不可用恢复为可用时通知
             if (previousStatus == ServiceHealthStatus.UNAVAILABLE) {
@@ -82,19 +81,21 @@ public class PythonHealthChecker {
             }
 
         } catch (Exception e) {
-            int failures = current.getConsecutiveFailures() + 1;
-            current.setConsecutiveFailures(failures);
-            current.setLastCheckTime(LocalDateTime.now());
-            current.setLastErrorMessage(e.getMessage());
+            int newFailures = current.getConsecutiveFailures() + 1;
 
-            if (failures >= FAILURE_THRESHOLD && previousStatus == ServiceHealthStatus.AVAILABLE) {
-                current.setStatus(ServiceHealthStatus.UNAVAILABLE);
+            if (newFailures >= FAILURE_THRESHOLD && previousStatus == ServiceHealthStatus.AVAILABLE) {
+                // 达到阈值，标记为不可用
+                ServiceHealthInfo updated = current.withUnavailable(e.getMessage());
+                healthInfo.set(updated);
                 log.warn("Python 服务连续 {} 次健康检查失败，标记为不可用 error={}",
-                        failures, e.getMessage());
-                sendStatusChangeNotification("Python AI 服务不可用，连续 " + failures + " 次健康检查失败");
+                        newFailures, e.getMessage());
+                sendStatusChangeNotification("Python AI 服务不可用，连续 " + newFailures + " 次健康检查失败");
             } else {
+                // 未达到阈值，记录失败
+                ServiceHealthInfo updated = current.withFailure(e.getMessage());
+                healthInfo.set(updated);
                 log.warn("Python 服务健康检查失败 consecutiveFailures={} error={}",
-                        failures, e.getMessage());
+                        newFailures, e.getMessage());
             }
         }
     }
@@ -105,13 +106,13 @@ public class PythonHealthChecker {
      * @return true 表示服务可用
      */
     public boolean isAvailable() {
-        return healthInfo.get().getStatus() == ServiceHealthStatus.AVAILABLE;
+        return healthInfo.get().isAvailable();
     }
 
     /**
      * 获取当前健康状态信息
      *
-     * @return 服务健康信息快照
+     * @return 服务健康信息快照（不可变对象）
      */
     public ServiceHealthInfo getHealthInfo() {
         return healthInfo.get();

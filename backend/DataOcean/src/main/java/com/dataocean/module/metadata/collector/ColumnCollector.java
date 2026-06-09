@@ -27,19 +27,16 @@ public class ColumnCollector {
     /**
      * 采集指定表的所有字段元数据。
      *
-     * @param connection   数据库连接
-     * @param datasourceId 数据源ID
-     * @param snapshotId   快照ID
-     * @param tableName    表名
-     * @param tableMetaId  表元数据ID
+     * @param ctx         采集上下文
+     * @param tableName   表名
+     * @param tableMetaId 表元数据ID
      * @return 字段元数据列表
      * @throws SQLException 数据库访问异常
      */
-    public List<DbColumnMeta> collect(Connection connection, Long datasourceId, Long snapshotId,
-                                      String tableName, Long tableMetaId) throws SQLException {
+    public List<DbColumnMeta> collect(CollectorContext ctx, String tableName, Long tableMetaId) throws SQLException {
         List<DbColumnMeta> columns = new ArrayList<>();
-        DatabaseMetaData metaData = connection.getMetaData();
-        String catalog = connection.getCatalog();
+        DatabaseMetaData metaData = ctx.metaData();
+        String catalog = ctx.catalog();
 
         // 先获取主键字段集合
         Set<String> primaryKeys = getPrimaryKeys(metaData, catalog, tableName);
@@ -48,9 +45,9 @@ public class ColumnCollector {
         try (ResultSet rs = metaData.getColumns(catalog, null, tableName, "%")) {
             while (rs.next()) {
                 DbColumnMeta column = new DbColumnMeta();
-                column.setSnapshotId(snapshotId);
+                column.setSnapshotId(ctx.snapshotId());
                 column.setTableMetaId(tableMetaId);
-                column.setDatasourceId(datasourceId);
+                column.setDatasourceId(ctx.datasourceId());
                 column.setTableName(tableName);
                 column.setColumnName(rs.getString("COLUMN_NAME"));
                 column.setColumnComment(rs.getString("REMARKS"));

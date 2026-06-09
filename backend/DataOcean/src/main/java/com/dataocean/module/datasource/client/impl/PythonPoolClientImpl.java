@@ -10,6 +10,7 @@ import org.springframework.web.client.RestClient;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * Python AI 服务连接池管理客户端实现类。
@@ -55,19 +56,12 @@ public class PythonPoolClientImpl implements PythonPoolClient {
      */
     @Override
     public void resetPool(Long datasourceId) {
-        try {
-            restClient
-                    .post()
-                    .uri("/internal/sql/pools/{datasourceId}/reset", datasourceId)
-                    .retrieve()
-                    .onStatus(HttpStatusCode::isError, (request, response) ->
-                            log.warn("Python 连接池重置接口返回异常 datasourceId={} status={}",
-                                    datasourceId, response.getStatusCode()))
-                    .toBodilessEntity();
-            log.info("已通知 Python 服务重置数据源连接池 datasourceId={}", datasourceId);
-        } catch (Exception exception) {
-            log.warn("通知 Python 服务重置连接池失败 datasourceId={} reason={}", datasourceId, exception.getMessage());
-        }
+        executePoolOperation("重置", datasourceId, () ->
+                restClient
+                        .post()
+                        .uri("/internal/sql/pools/{datasourceId}/reset", datasourceId)
+                        .retrieve()
+                        .toBodilessEntity());
     }
 
     /**
@@ -75,18 +69,32 @@ public class PythonPoolClientImpl implements PythonPoolClient {
      */
     @Override
     public void destroyPool(Long datasourceId) {
+        executePoolOperation("销毁", datasourceId, () ->
+                restClient
+                        .delete()
+                        .uri("/internal/sql/pools/{datasourceId}", datasourceId)
+                        .retrieve()
+                        .toBodilessEntity());
+    }
+
+    /**
+     * 执行连接池操作的通用模板方法。
+     * <p>
+     * 统一处理成功/失败日志，避免重复代码。
+     * HTTP 错误时记录警告而非成功日志。
+     * </p>
+     *
+     * @param operation    操作名称（如"重置"、"销毁"）
+     * @param datasourceId 数据源 ID
+     * @param action       实际的 HTTP 调用
+     */
+    private void executePoolOperation(String operation, Long datasourceId, Runnable action) {
         try {
-            restClient
-                    .delete()
-                    .uri("/internal/sql/pools/{datasourceId}", datasourceId)
-                    .retrieve()
-                    .onStatus(HttpStatusCode::isError, (request, response) ->
-                            log.warn("Python 连接池销毁接口返回异常 datasourceId={} status={}",
-                                    datasourceId, response.getStatusCode()))
-                    .toBodilessEntity();
-            log.info("已通知 Python 服务销毁数据源连接池 datasourceId={}", datasourceId);
+            action.run();
+            log.info("已通知 Python 服务{}数据源连接池 datasourceId={}", operation, datasourceId);
         } catch (Exception exception) {
-            log.warn("通知 Python 服务销毁连接池失败 datasourceId={} reason={}", datasourceId, exception.getMessage());
+            log.warn("通知 Python 服务{}连接池失败 datasourceId={} reason={}",
+                    operation, datasourceId, exception.getMessage());
         }
     }
 

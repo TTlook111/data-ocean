@@ -12,6 +12,7 @@ import com.dataocean.module.permission.entity.vo.DatasourcePermissionVO;
 import com.dataocean.module.permission.enums.SubjectType;
 import com.dataocean.module.permission.service.DatasourcePermissionService;
 import com.dataocean.module.permission.service.PermissionCalculator;
+import com.dataocean.module.permission.service.support.PermissionValidationSupport;
 import com.dataocean.module.user.entity.SysDepartment;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.entity.SysUser;
@@ -41,16 +42,17 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
     private final RoleMapper roleMapper;
     private final DepartmentMapper departmentMapper;
     private final PermissionCalculator permissionCalculator;
+    private final PermissionValidationSupport validationSupport;
 
     @Transactional
     @Override
     public Long grant(DatasourcePermissionGrantDTO dto) {
         // 校验主体类型合法性
-        validateSubjectType(dto.getSubjectType());
+        validationSupport.validateSubjectType(dto.getSubjectType());
         // 校验数据源存在
-        validateDatasourceExists(dto.getDatasourceId());
+        validationSupport.validateDatasourceExists(dto.getDatasourceId());
         // 校验主体存在
-        validateSubjectExists(dto.getSubjectType(), dto.getSubjectId());
+        validationSupport.validateSubjectExists(dto.getSubjectType(), dto.getSubjectId());
 
         // 检查是否已存在相同授权
         DatasourceAccess existing = accessMapper.selectOne(new LambdaQueryWrapper<DatasourceAccess>()
@@ -142,46 +144,4 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
         return false;
     }
 
-    /**
-     * 校验主体类型是否合法
-     */
-    private void validateSubjectType(String subjectType) {
-        try {
-            SubjectType.valueOf(subjectType);
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException("无效的主体类型: " + subjectType);
-        }
-    }
-
-    /**
-     * 校验数据源存在
-     */
-    private void validateDatasourceExists(Long datasourceId) {
-        Datasource ds = datasourceMapper.selectOne(new LambdaQueryWrapper<Datasource>()
-                .eq(Datasource::getId, datasourceId)
-                .eq(Datasource::getDeleted, 0L));
-        if (ds == null) {
-            throw new BusinessException("数据源不存在");
-        }
-    }
-
-    /**
-     * 校验授权主体存在
-     */
-    private void validateSubjectExists(String subjectType, Long subjectId) {
-        switch (SubjectType.valueOf(subjectType)) {
-            case USER -> {
-                SysUser user = userMapper.selectById(subjectId);
-                if (user == null) throw new BusinessException("用户不存在: " + subjectId);
-            }
-            case ROLE -> {
-                SysRole role = roleMapper.selectById(subjectId);
-                if (role == null) throw new BusinessException("角色不存在: " + subjectId);
-            }
-            case DEPARTMENT -> {
-                SysDepartment dept = departmentMapper.selectById(subjectId);
-                if (dept == null) throw new BusinessException("部门不存在: " + subjectId);
-            }
-        }
-    }
 }

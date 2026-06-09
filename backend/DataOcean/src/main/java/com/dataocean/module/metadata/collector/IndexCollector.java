@@ -25,15 +25,15 @@ public class IndexCollector {
     /**
      * 采集指定表的所有索引信息。
      *
-     * @param connection 数据库连接
-     * @param tableName  表名
+     * @param ctx       采集上下文
+     * @param tableName 表名
      * @return 索引信息列表
      * @throws SQLException 数据库访问异常
      */
-    public List<IndexInfo> collect(Connection connection, String tableName) throws SQLException {
+    public List<IndexInfo> collect(CollectorContext ctx, String tableName) throws SQLException {
         List<IndexInfo> indexes = new ArrayList<>();
-        DatabaseMetaData metaData = connection.getMetaData();
-        String catalog = connection.getCatalog();
+        DatabaseMetaData metaData = ctx.metaData();
+        String catalog = ctx.catalog();
 
         // 获取所有索引（包括非唯一索引），使用近似值加速查询
         try (ResultSet rs = metaData.getIndexInfo(catalog, null, tableName, false, true)) {

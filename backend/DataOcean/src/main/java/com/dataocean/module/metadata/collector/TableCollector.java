@@ -32,16 +32,14 @@ public class TableCollector {
     /**
      * 采集指定数据源的所有表元数据。
      *
-     * @param connection   数据库连接
-     * @param datasourceId 数据源ID
-     * @param snapshotId   快照ID
+     * @param ctx 采集上下文
      * @return 表元数据列表
      * @throws SQLException 数据库访问异常
      */
-    public List<DbTableMeta> collect(Connection connection, Long datasourceId, Long snapshotId) throws SQLException {
+    public List<DbTableMeta> collect(CollectorContext ctx) throws SQLException {
         List<DbTableMeta> tables = new ArrayList<>();
-        DatabaseMetaData metaData = connection.getMetaData();
-        String catalog = connection.getCatalog();
+        DatabaseMetaData metaData = ctx.metaData();
+        String catalog = ctx.catalog();
 
         // 通过 DatabaseMetaData 获取所有表和视图
         try (ResultSet rs = metaData.getTables(catalog, null, "%", TABLE_TYPES)) {
@@ -51,8 +49,8 @@ public class TableCollector {
                 String remarks = rs.getString("REMARKS");
 
                 DbTableMeta table = new DbTableMeta();
-                table.setSnapshotId(snapshotId);
-                table.setDatasourceId(datasourceId);
+                table.setSnapshotId(ctx.snapshotId());
+                table.setDatasourceId(ctx.datasourceId());
                 table.setTableName(tableName);
                 table.setTableComment(remarks);
                 table.setTableType(tableType);
@@ -62,7 +60,7 @@ public class TableCollector {
         }
 
         // 从 information_schema 补充扩展信息
-        enrichFromInformationSchema(connection, catalog, tables);
+        enrichFromInformationSchema(ctx.connection(), catalog, tables);
         log.info("采集到 {} 张表", tables.size());
         return tables;
     }

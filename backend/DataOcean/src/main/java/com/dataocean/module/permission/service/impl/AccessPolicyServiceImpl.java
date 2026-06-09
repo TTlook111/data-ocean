@@ -51,13 +51,14 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
     private final DbTableMetaMapper tableMetaMapper;
     private final DbColumnMetaMapper columnMetaMapper;
     private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
+    private final com.dataocean.module.permission.service.support.PermissionValidationSupport validationSupport;
 
     @Transactional
     @Override
     public Long create(AccessPolicyCreateDTO dto) {
         validatePolicy(dto.getSubjectType(), dto.getAccessType(), dto.getMaskStrategy(), dto.getColumnName());
-        validateDatasourceExists(dto.getDatasourceId());
-        validateSubjectExists(dto.getSubjectType(), dto.getSubjectId());
+        validationSupport.validateDatasourceExists(dto.getDatasourceId());
+        validationSupport.validateSubjectExists(dto.getSubjectType(), dto.getSubjectId());
         validateTableName(dto.getDatasourceId(), dto.getTableName());
         if (dto.getColumnName() != null && !dto.getColumnName().isBlank()) {
             validateColumnName(dto.getDatasourceId(), dto.getTableName(), dto.getColumnName());
@@ -87,15 +88,15 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
     @Transactional
     @Override
     public int batchCreate(AccessPolicyBatchDTO dto) {
-        validateSubjectType(dto.getSubjectType());
-        validateDatasourceExists(dto.getDatasourceId());
-        validateSubjectExists(dto.getSubjectType(), dto.getSubjectId());
+        validationSupport.validateSubjectType(dto.getSubjectType());
+        validationSupport.validateDatasourceExists(dto.getDatasourceId());
+        validationSupport.validateSubjectExists(dto.getSubjectType(), dto.getSubjectId());
         validateTableName(dto.getDatasourceId(), dto.getTableName());
         Long currentUserId = UserContext.currentUserId();
         int count = 0;
 
         for (AccessPolicyBatchDTO.PolicyItem item : dto.getPolicies()) {
-            validateAccessType(item.getAccessType());
+            validationSupport.validateAccessType(item.getAccessType());
             if ("MASK".equals(item.getAccessType())) {
                 if (item.getColumnName() == null || item.getColumnName().isBlank()) {
                     throw new BusinessException("脱敏策略必须指定列名，不支持表级脱敏");
@@ -103,7 +104,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
                 if (item.getMaskStrategy() == null || item.getMaskStrategy().isBlank()) {
                     throw new BusinessException("脱敏策略不能为空");
                 }
-                validateMaskStrategy(item.getMaskStrategy());
+                validationSupport.validateMaskStrategy(item.getMaskStrategy());
             }
             if (item.getColumnName() != null && !item.getColumnName().isBlank()) {
                 validateColumnName(dto.getDatasourceId(), dto.getTableName(), item.getColumnName());
@@ -140,7 +141,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             throw new BusinessException("策略不存在");
         }
         if (accessType != null) {
-            validateAccessType(accessType);
+            validationSupport.validateAccessType(accessType);
             policy.setAccessType(accessType);
         }
         // 确定最终的 accessType（可能是传入的新值，也可能是原值）
@@ -153,7 +154,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             if (maskStrategy == null || maskStrategy.isBlank()) {
                 throw new BusinessException("脱敏策略不能为空");
             }
-            validateMaskStrategy(maskStrategy);
+            validationSupport.validateMaskStrategy(maskStrategy);
         }
         if (rowFilterExpression != null && !rowFilterExpression.isBlank()) {
             validateRowFilterExpression(rowFilterExpression);
@@ -186,8 +187,8 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
      * 校验策略参数合法性
      */
     private void validatePolicy(String subjectType, String accessType, String maskStrategy, String columnName) {
-        validateSubjectType(subjectType);
-        validateAccessType(accessType);
+        validationSupport.validateSubjectType(subjectType);
+        validationSupport.validateAccessType(accessType);
         if ("MASK".equals(accessType)) {
             if (columnName == null || columnName.isBlank()) {
                 throw new BusinessException("脱敏策略必须指定列名，不支持表级脱敏");
@@ -195,63 +196,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             if (maskStrategy == null || maskStrategy.isBlank()) {
                 throw new BusinessException("脱敏策略不能为空");
             }
-            validateMaskStrategy(maskStrategy);
-        }
-    }
-
-    private void validateSubjectType(String subjectType) {
-        try {
-            SubjectType.valueOf(subjectType);
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException("无效的主体类型: " + subjectType);
-        }
-    }
-
-    private void validateAccessType(String accessType) {
-        try {
-            AccessType.valueOf(accessType);
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException("无效的访问类型: " + accessType);
-        }
-    }
-
-    private void validateMaskStrategy(String maskStrategy) {
-        try {
-            MaskStrategy.valueOf(maskStrategy);
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException("无效的脱敏策略: " + maskStrategy);
-        }
-    }
-
-    /**
-     * 校验数据源存在
-     */
-    private void validateDatasourceExists(Long datasourceId) {
-        Datasource ds = datasourceMapper.selectOne(new LambdaQueryWrapper<Datasource>()
-                .eq(Datasource::getId, datasourceId)
-                .eq(Datasource::getDeleted, 0L));
-        if (ds == null) {
-            throw new BusinessException("数据源不存在: " + datasourceId);
-        }
-    }
-
-    /**
-     * 校验授权主体存在
-     */
-    private void validateSubjectExists(String subjectType, Long subjectId) {
-        switch (SubjectType.valueOf(subjectType)) {
-            case USER -> {
-                SysUser user = userMapper.selectById(subjectId);
-                if (user == null) throw new BusinessException("用户不存在: " + subjectId);
-            }
-            case ROLE -> {
-                SysRole role = roleMapper.selectById(subjectId);
-                if (role == null) throw new BusinessException("角色不存在: " + subjectId);
-            }
-            case DEPARTMENT -> {
-                SysDepartment dept = departmentMapper.selectById(subjectId);
-                if (dept == null) throw new BusinessException("部门不存在: " + subjectId);
-            }
+            validationSupport.validateMaskStrategy(maskStrategy);
         }
     }
 
