@@ -1,5 +1,6 @@
 package com.dataocean.module.datasource.service.impl;
 
+import com.dataocean.common.util.JdbcUrlBuilder;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceHealthCheck;
 import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestVO;
@@ -129,6 +130,10 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
 
     /**
      * 构建 JDBC 连接 URL
+     * <p>
+     * 使用统一的 JdbcUrlBuilder 构建连接测试用的 URL，
+     * 包含安全参数（allowLoadLocalInfile=false 等）和快速失败超时（5s）。
+     * </p>
      *
      * @param host         主机地址
      * @param port         端口号
@@ -137,31 +142,7 @@ public class DatasourceConnectionServiceImpl implements DatasourceConnectionServ
      * @return 完整的 JDBC URL
      */
     private String jdbcUrl(String host, Integer port, String databaseName, String charset) {
-        String resolvedEncoding = resolveJdbcEncoding(charset);
-        return "jdbc:mysql://" + host + ":" + port + "/" + databaseName
-                + "?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
-                + "&connectTimeout=" + CONNECT_TIMEOUT_MS
-                + "&socketTimeout=" + CONNECT_TIMEOUT_MS
-                + "&characterEncoding=" + resolvedEncoding
-                + "&allowLoadLocalInfile=false"
-                + "&autoDeserialize=false"
-                + "&allowUrlInLocalInfile=false";
-    }
-
-    /**
-     * 将数据库字符集转换为 JDBC 编码参数
-     * <p>
-     * utf8mb4 在 JDBC 中对应 utf8 编码参数。
-     * </p>
-     *
-     * @param charset 数据库字符集
-     * @return JDBC characterEncoding 参数值
-     */
-    private String resolveJdbcEncoding(String charset) {
-        if (!StringUtils.hasText(charset) || "utf8mb4".equalsIgnoreCase(charset)) {
-            return "utf8";
-        }
-        return charset;
+        return JdbcUrlBuilder.connectionTestMysqlUrl(host, port, databaseName, charset);
     }
 
     /**

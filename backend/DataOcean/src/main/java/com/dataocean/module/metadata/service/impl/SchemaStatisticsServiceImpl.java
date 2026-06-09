@@ -1,6 +1,7 @@
 package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.dataocean.common.util.JdbcUrlBuilder;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
@@ -55,10 +56,10 @@ public class SchemaStatisticsServiceImpl implements SchemaStatisticsService {
                         .eq(DatasourceSecret::getDatasourceId, datasourceId)
         );
 
-        // 构建 JDBC 连接 URL
-        String jdbcUrl = "jdbc:mysql://%s:%d/%s?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=%s"
-                .formatted(datasource.getHost(), datasource.getPort(),
-                        datasource.getDatabaseName(), datasource.getCharset());
+        // 构建 JDBC 连接 URL（包含超时参数，防止网络异常时无限阻塞）
+        String jdbcUrl = JdbcUrlBuilder.metadataMysqlUrl(
+                datasource.getHost(), datasource.getPort(),
+                datasource.getDatabaseName(), datasource.getCharset());
 
         try (Connection connection = DriverManager.getConnection(
                 jdbcUrl, secret.getUsername(), secretService.decrypt(secret.getEncryptedPassword()))) {

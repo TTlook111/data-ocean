@@ -1,5 +1,6 @@
 package com.dataocean.module.knowledge.client.impl;
 
+import com.dataocean.common.client.PythonClientSupport;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.exception.PythonRetryableException;
 import com.dataocean.module.knowledge.client.PythonRagClient;
@@ -37,8 +38,15 @@ public class PythonRagClientImpl implements PythonRagClient {
     /**
      * {@inheritDoc}
      * <p>
-     * 组装请求体并调用 Python /internal/rag/vectorize 接口，
-     * 写入 Milvus，失败时抛出 BusinessException，不做自动重试。
+     * 组装请求体并调用 Python /internal/rag/vectorize 接口，写入 Milvus。
+     * </p>
+     * <p>
+     * 向量化操作不做自动重试（无 @Retryable），原因：
+     * <ul>
+     *   <li>向量化涉及批量写入 Milvus，幂等性未完全确认</li>
+     *   <li>重试可能导致重复写入，需要人工介入检查数据一致性</li>
+     *   <li>失败时由上层调度器决定是否重试，而非客户端自动重试</li>
+     * </ul>
      * </p>
      */
     @Override
@@ -71,11 +79,15 @@ public class PythonRagClientImpl implements PythonRagClient {
                     .onStatus(HttpStatusCode::isError, (request, response) -> {
                         log.error("Python RAG 向量化接口返回异常 taskId={} status={}",
                                 task.getId(), response.getStatusCode());
-                        throw new BusinessException("RAG 向量化失败");
+                        throw new BusinessException("RAG 向量化失败，Python 服务返回 " + response.getStatusCode().value());
                     })
                     .body(new ParameterizedTypeReference<>() {});
         } catch (ResourceAccessException e) {
             log.error("调用 Python RAG 向量化访问异常 taskId={} reason={}", task.getId(), e.getMessage(), e);
+            // 区分读超时和连接失败，提供更准确的错误提示
+            if (PythonClientSupport.isReadTimeout(e)) {
+                throw new BusinessException("RAG 向量化超时，请稍后重试");
+            }
             throw new BusinessException("RAG 向量化服务暂时不可用，请稍后重试");
         } catch (BusinessException e) {
             throw e;
@@ -119,7 +131,7 @@ public class PythonRagClientImpl implements PythonRagClient {
                     .onStatus(HttpStatusCode::isError, (request, responseEntity) -> {
                         log.error("Python RAG 文档切割接口返回异常 taskId={} status={}",
                                 task.getId(), responseEntity.getStatusCode());
-                        throw toPythonStatusException(responseEntity.getStatusCode(), "RAG 文档切割失败");
+                        throw PythonClientSupport.statusException(responseEntity.getStatusCode(), "RAG 文档切割失败");
                     })
                     .body(new ParameterizedTypeReference<>() {});
 
@@ -134,6 +146,10 @@ public class PythonRagClientImpl implements PythonRagClient {
         } catch (PythonRetryableException e) {
             throw e;
         } catch (ResourceAccessException e) {
+            // 区分读超时和连接失败：读超时不重试，连接失败可重试
+            if (PythonClientSupport.isReadTimeout(e)) {
+                throw new BusinessException("RAG 文档切割超时，请稍后重试");
+            }
             throw new PythonRetryableException("RAG 文档切割服务暂时不可用", e);
         } catch (BusinessException e) {
             throw e;
@@ -192,12 +208,5 @@ public class PythonRagClientImpl implements PythonRagClient {
         payload.put("reviewStatus", chunk.getReviewStatus());
         payload.put("governanceStatus", "NORMAL");
         return payload;
-    }
-
-    private RuntimeException toPythonStatusException(HttpStatusCode statusCode, String message) {
-        if (statusCode.is5xxServerError()) {
-            return new PythonRetryableException(message + "，Python 服务返回 " + statusCode.value());
-        }
-        return new BusinessException(message);
     }
 }

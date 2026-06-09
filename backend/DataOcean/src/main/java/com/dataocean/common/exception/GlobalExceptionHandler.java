@@ -1,5 +1,6 @@
 package com.dataocean.common.exception;
 
+import com.dataocean.common.client.PythonClientSupport;
 import com.dataocean.common.result.Result;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
@@ -53,22 +54,37 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 处理 Python 服务超时异常（RestClient 读取超时）
-     * <p>返回 HTTP 504 + 友好提示</p>
+     * 处理 Python 服务访问异常（RestClient 连接/读取异常）
+     * <p>
+     * 区分两种情况：
+     * <ul>
+     *   <li>读超时（SocketTimeoutException）：返回 HTTP 504，提示"响应超时"</li>
+     *   <li>连接拒绝（ConnectException）：返回 HTTP 503，提示"服务不可用"</li>
+     *   <li>其他 ResourceAccessException：返回 HTTP 504</li>
+     * </ul>
+     * </p>
      *
      * @param exception 资源访问异常
-     * @return 504 响应
+     * @return 错误响应
      */
     @ExceptionHandler(ResourceAccessException.class)
-    @ResponseStatus(HttpStatus.GATEWAY_TIMEOUT)
-    public Result<Void> handleResourceAccessException(ResourceAccessException exception) {
-        String message = exception.getMessage();
-        if (message != null && (message.contains("Read timed out") || message.contains("timeout"))) {
-            log.warn("Python 服务调用超时 message={}", message);
-            return Result.error(504, "AI 服务响应超时，请稍后再试");
+    public ResponseEntity<Result<Void>> handleResourceAccessException(ResourceAccessException exception) {
+        // 读超时：服务在运行但响应太慢
+        if (PythonClientSupport.isReadTimeout(exception)) {
+            log.warn("Python 服务调用超时 message={}", exception.getMessage());
+            return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
+                    .body(Result.error(504, "AI 服务响应超时，请稍后再试"));
         }
-        log.error("Python 服务访问异常 message={}", message);
-        return Result.error(504, "AI 服务暂时不可用，请稍后再试");
+        // 连接拒绝：服务不可达
+        if (PythonClientSupport.isConnectFailure(exception)) {
+            log.warn("Python 服务连接被拒绝 message={}", exception.getMessage());
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Result.error(503, "AI 服务暂时不可用，请稍后再试"));
+        }
+        // 其他资源访问异常
+        log.error("Python 服务访问异常 message={}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
+                .body(Result.error(504, "AI 服务暂时不可用，请稍后再试"));
     }
 
     /**

@@ -2,6 +2,7 @@ package com.dataocean.module.metadata.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.common.util.JdbcUrlBuilder;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
@@ -164,10 +165,10 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
             throw new BusinessException("数据源密钥信息不存在");
         }
 
-        // 构建 JDBC 连接 URL
-        String jdbcUrl = "jdbc:mysql://%s:%d/%s?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=%s&connectTimeout=10000&socketTimeout=60000"
-                .formatted(datasource.getHost(), datasource.getPort(),
-                        datasource.getDatabaseName(), datasource.getCharset());
+        // 构建 JDBC 连接 URL（使用统一的 URL 构建器，确保超时参数一致）
+        String jdbcUrl = JdbcUrlBuilder.metadataMysqlUrl(
+                datasource.getHost(), datasource.getPort(),
+                datasource.getDatabaseName(), datasource.getCharset());
         String username = secret.getUsername();
         String password = secretService.decrypt(secret.getEncryptedPassword());
 
