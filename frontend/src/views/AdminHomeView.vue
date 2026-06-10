@@ -6,17 +6,23 @@ import {
   ArrowRight,
   ArrowRightLeft,
   BookOpen,
+  Bot,
   CheckCircle2,
   Clock,
+  Cpu,
   Database,
+  FileText,
   GitBranch,
   Layers,
   MessageSquareText,
   RefreshCw,
+  Shield,
   ShieldAlert,
   Table2,
   Users,
+  Wand2,
   XCircle,
+  Zap,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 import { getDashboardStats, type DashboardStats } from '../api/admin/dashboard'
@@ -67,6 +73,16 @@ const actionLabels: Record<string, string> = {
   PUBLISH: '发布', EXPIRE: '过期', REVOKE: '撤回', STATUS_TRANSITION: '状态变更'
 }
 
+/** 快捷操作配置 */
+const quickActions = [
+  { icon: MessageSquareText, label: '智能查询', desc: '用自然语言查询数据', path: '/query', color: 'blue' },
+  { icon: Database, label: '数据源管理', desc: '管理数据源连接', path: '/admin/datasources', color: 'green' },
+  { icon: Wand2, label: 'Prompt 管理', desc: '优化 AI 提示词', path: '/admin/prompts', color: 'purple' },
+  { icon: Bot, label: 'AI 配置', desc: '配置 AI 供应商', path: '/admin/system/ai-config', color: 'sky' },
+  { icon: Shield, label: '权限管理', desc: '管理访问策略', path: '/admin/permission/access', color: 'orange' },
+  { icon: FileText, label: '知识库', desc: '管理 skills.md', path: '/admin/knowledge', color: 'teal' },
+]
+
 async function fetchStats() {
   if (!isAdmin.value) return
   loading.value = true
@@ -77,14 +93,100 @@ async function fetchStats() {
   finally { loading.value = false }
 }
 
-onMounted(() => {
-  withContext(() => {
-    reveal('.home-header, .user-guide', {
-      y: 14,
-      stagger: 0.05,
+/** 快捷操作卡片悬停动画 */
+function animateQuickActions() {
+  nextTick(() => {
+    const cards = document.querySelectorAll('.quick-action-card')
+    cards.forEach((card) => {
+      card.addEventListener('mouseenter', () => {
+        gsap.to(card, {
+          y: -6,
+          scale: 1.02,
+          duration: 0.3,
+          ease: 'power2.out',
+          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
+        })
+      })
+      card.addEventListener('mouseleave', () => {
+        gsap.to(card, {
+          y: 0,
+          scale: 1,
+          duration: 0.3,
+          ease: 'power2.out',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+        })
+      })
     })
   })
+}
+
+onMounted(() => {
+  withContext(() => {
+    // 欢迎区域动画
+    reveal('.home-header', { y: -20, duration: 0.6, ease: 'back.out(1.7)' })
+
+    // 快捷操作卡片交错动画
+    reveal('.quick-action-card', {
+      y: 30,
+      opacity: 0,
+      stagger: 0.08,
+      duration: 0.5,
+      ease: 'power3.out',
+      delay: 0.2,
+    })
+
+    // 运维指标卡片动画
+    reveal('.ops-card', {
+      scale: 0.9,
+      opacity: 0,
+      stagger: 0.1,
+      duration: 0.5,
+      ease: 'back.out(1.7)',
+      delay: 0.4,
+    })
+
+    // 统计卡片动画
+    reveal('.stat-card', {
+      y: 20,
+      opacity: 0,
+      stagger: 0.06,
+      duration: 0.4,
+      ease: 'power2.out',
+      delay: 0.6,
+    })
+
+    // 优先事项卡片动画
+    reveal('.priority-card', {
+      x: -30,
+      opacity: 0,
+      stagger: 0.1,
+      duration: 0.5,
+      ease: 'power3.out',
+      delay: 0.8,
+    })
+
+    // 活动列表动画
+    reveal('.activity-item', {
+      x: 20,
+      opacity: 0,
+      stagger: 0.05,
+      duration: 0.3,
+      ease: 'power2.out',
+      delay: 1,
+    })
+
+    // 用户指南动画
+    reveal('.user-guide', {
+      y: 20,
+      opacity: 0,
+      duration: 0.5,
+      ease: 'power2.out',
+      delay: 0.3,
+    })
+  })
+
   fetchStats()
+  animateQuickActions()
 })
 
 watch(stats, async (value) => {
@@ -160,6 +262,32 @@ watch(loading, (value, oldValue) => {
         </RouterLink>
       </div>
     </header>
+
+    <!-- 快捷操作区域 -->
+    <section class="quick-actions-section">
+      <h3 class="section-title">
+        <Zap :size="18" />
+        快捷操作
+      </h3>
+      <div class="quick-actions-grid">
+        <RouterLink
+          v-for="action in quickActions"
+          :key="action.path"
+          :to="action.path"
+          class="quick-action-card"
+          :class="`action-${action.color}`"
+        >
+          <div class="action-icon">
+            <component :is="action.icon" :size="24" />
+          </div>
+          <div class="action-content">
+            <strong>{{ action.label }}</strong>
+            <small>{{ action.desc }}</small>
+          </div>
+          <ArrowRight :size="16" class="action-arrow" />
+        </RouterLink>
+      </div>
+    </section>
 
     <section v-if="isAdmin && stats" class="ops-strip">
       <article class="ops-card" :class="`tone-${qualityTone}`">
@@ -241,6 +369,36 @@ watch(loading, (value, oldValue) => {
       </article>
     </section>
 
+    <!-- 系统状态概览 -->
+    <section v-if="isAdmin && stats" class="system-status-section">
+      <h3 class="section-title">
+        <Cpu :size="18" />
+        系统运维
+      </h3>
+      <div class="status-grid">
+        <RouterLink class="status-item" to="/admin/system/health">
+          <div class="status-icon">
+            <Cpu :size="16" />
+          </div>
+          <div class="status-info">
+            <span class="status-label">服务健康监控</span>
+            <span class="status-value">查看 Web、数据库、Redis、Python 服务实时状态</span>
+          </div>
+          <span class="status-badge">查看</span>
+        </RouterLink>
+        <RouterLink class="status-item" to="/admin/system/ai-config">
+          <div class="status-icon">
+            <Bot :size="16" />
+          </div>
+          <div class="status-info">
+            <span class="status-label">AI 配置</span>
+            <span class="status-value">管理供应商、模型、Embedding 与连接测试</span>
+          </div>
+          <span class="status-badge">配置</span>
+        </RouterLink>
+      </div>
+    </section>
+
     <section v-if="isAdmin && stats" class="priority-grid">
       <RouterLink class="priority-card urgent" to="/admin/governance/issues">
         <span class="priority-icon"><ShieldAlert :size="18" /></span>
@@ -304,6 +462,21 @@ watch(loading, (value, oldValue) => {
 .admin-home {
   display: grid;
   gap: 20px;
+}
+
+/* 章节标题 */
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--do-ink);
+}
+
+.section-title svg {
+  color: var(--do-primary);
 }
 
 .home-header {
@@ -396,6 +569,93 @@ watch(loading, (value, oldValue) => {
   white-space: nowrap; transition: background 150ms;
 }
 .hero-action:hover { background: var(--do-primary-strong); }
+
+/* 快捷操作区域 */
+.quick-actions-section {
+  padding: 20px;
+  border: 1px solid var(--do-line);
+  border-radius: 12px;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
+
+.quick-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.quick-action-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: #fff;
+  text-decoration: none;
+  color: var(--do-ink);
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.quick-action-card:hover {
+  border-color: var(--do-primary);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.action-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  flex-shrink: 0;
+  transition: transform 0.3s ease;
+}
+
+.quick-action-card:hover .action-icon {
+  transform: scale(1.1) rotate(5deg);
+}
+
+.action-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.action-content strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--do-ink);
+}
+
+.action-content small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--do-muted);
+}
+
+.action-arrow {
+  color: var(--do-muted);
+  transition: transform 0.3s ease, color 0.3s ease;
+}
+
+.quick-action-card:hover .action-arrow {
+  transform: translateX(4px);
+  color: var(--do-primary);
+}
+
+/* 快捷操作颜色变体 */
+.action-blue .action-icon { color: #4d8fdc; background: #eef5ff; }
+.action-green .action-icon { color: #6aa84f; background: #edf7e8; }
+.action-purple .action-icon { color: #8b5cf6; background: #f3eeff; }
+.action-sky .action-icon { color: #0ea5e9; background: #e8f7fd; }
+.action-orange .action-icon { color: #f59e0b; background: #fef3cd; }
+.action-teal .action-icon { color: #14b8a6; background: #e6faf8; }
 
 .guide-action {
   display: inline-flex; align-items: center; gap: 6px;
@@ -544,6 +804,93 @@ watch(loading, (value, oldValue) => {
 .tone-warn .quality-fill { background: #e6a23c; }
 .tone-bad .quality-fill { background: #f56c6c; }
 
+/* 系统状态区域 */
+.system-status-section {
+  padding: 20px;
+  border: 1px solid var(--do-line);
+  border-radius: 12px;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: #fff;
+  transition: all 0.3s ease;
+}
+
+.status-item:hover {
+  border-color: var(--do-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.status-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.status-icon.online {
+  color: #67c23a;
+  background: #edf7e8;
+}
+
+.status-icon.offline {
+  color: #f56c6c;
+  background: #fef0f0;
+}
+
+.status-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.status-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--do-ink);
+}
+
+.status-value {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--do-muted);
+}
+
+.status-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.status-badge.online {
+  color: #67c23a;
+  background: #edf7e8;
+}
+
+.status-badge.offline {
+  color: #f56c6c;
+  background: #fef0f0;
+}
+
 .user-guide { max-width: 600px; }
 .guide-card {
   padding: 24px; border: 1px solid var(--do-line); border-radius: 10px;
@@ -556,9 +903,12 @@ watch(loading, (value, oldValue) => {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .ops-strip,
   .priority-grid { grid-template-columns: 1fr; }
+  .quick-actions-grid { grid-template-columns: repeat(2, 1fr); }
+  .status-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
   .stats-grid { grid-template-columns: 1fr; }
   .home-header { align-items: flex-start; flex-direction: column; }
+  .quick-actions-grid { grid-template-columns: 1fr; }
 }
 </style>
