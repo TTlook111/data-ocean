@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CheckCircle2, History, RefreshCw, RotateCcw, Save, Search, Send, TrendingUp, XCircle } from 'lucide-vue-next'
+import { gsap } from 'gsap'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
 import {
   approvePrompt,
@@ -21,7 +22,9 @@ import {
 } from '../../../api/admin/prompt'
 
 const pageRef = ref<HTMLElement | null>(null)
-const { reveal, withContext } = useGsapMotion(pageRef)
+const editorRef = ref<HTMLElement | null>(null)
+const metricsRef = ref<HTMLElement | null>(null)
+const { reveal, lift, withContext } = useGsapMotion(pageRef)
 
 /** 模板编码 → Agent 节点映射（前端硬编码，与 Python 端保持一致） */
 const NODE_LABEL_MAP: Record<string, { label: string; connected: boolean }> = {
@@ -106,6 +109,8 @@ async function fetchTemplates(preferredCode?: string) {
     if (nextCode) {
       await selectTemplate(nextCode)
     }
+    // 模板列表加载完成后执行动画
+    animateTemplateList()
   } catch (error) {
     ElMessage.error(extractError(error, '加载 Prompt 模板失败'))
   } finally {
@@ -125,6 +130,12 @@ async function selectTemplate(code: string) {
     editContent.value = detail?.content || ''
     changeSummary.value = ''
     await Promise.all([fetchVersions(code), fetchEffectiveness()])
+
+    // 触发动画
+    nextTick(() => {
+      animateEditor()
+      animateMetrics()
+    })
   } catch (error) {
     ElMessage.error(extractError(error, '加载模板详情失败'))
   }
@@ -148,6 +159,8 @@ async function fetchEffectiveness() {
   try {
     const res = await getPromptEffectiveness(analysisDays.value)
     effectiveness.value = res.data ?? []
+    // 数据加载完成后执行指标动画
+    nextTick(() => animateMetrics())
   } catch (error) {
     effectiveness.value = []
     ElMessage.error(extractError(error, '加载效果分析失败'))
@@ -173,6 +186,12 @@ async function handleSave() {
     if (updated && index >= 0) templates.value.splice(index, 1, updated)
     changeSummary.value = ''
     await Promise.all([fetchVersions(), fetchEffectiveness()])
+
+    // 保存成功后闪烁效果
+    const editor = document.querySelector('.editor-grid textarea')
+    if (editor) {
+      gsap.fromTo(editor, { borderColor: '#409eff' }, { borderColor: 'transparent', duration: 0.8, repeat: 2, yoyo: true })
+    }
   } catch (error) {
     ElMessage.error(extractError(error, '保存失败'))
   } finally {
@@ -266,9 +285,77 @@ watch(analysisDays, () => {
   fetchEffectiveness()
 })
 
+/** 指标数字计数动画 */
+function animateMetrics() {
+  if (!metricsRef.value) return
+  const cards = metricsRef.value.querySelectorAll('.metric-card strong')
+  cards.forEach((card) => {
+    const target = card.textContent
+    if (!target) return
+
+    // 百分比动画
+    if (target.includes('%')) {
+      gsap.from(card, {
+        textContent: 0,
+        duration: 1.2,
+        ease: 'power2.out',
+        snap: { textContent: 0.1 },
+        onUpdate() {
+          card.textContent = `${parseFloat(card.textContent || '0').toFixed(1)}%`
+        },
+      })
+    }
+    // 时间动画
+    else if (target.includes('ms') || target.includes('s')) {
+      gsap.from(card, {
+        textContent: 0,
+        duration: 1,
+        ease: 'power2.out',
+        snap: { textContent: 1 },
+        onUpdate() {
+          const val = parseFloat(card.textContent || '0')
+          card.textContent = val >= 1000 ? `${(val / 1000).toFixed(2)}s` : `${val.toFixed(0)}ms`
+        },
+      })
+    }
+    // 数字动画
+    else if (/^\d+$/.test(target)) {
+      gsap.from(card, {
+        textContent: 0,
+        duration: 1,
+        ease: 'power2.out',
+        snap: { textContent: 1 },
+      })
+    }
+  })
+}
+
+/** 模板列表项交错动画 */
+function animateTemplateList() {
+  nextTick(() => {
+    const items = document.querySelectorAll('.template-item')
+    gsap.from(items, {
+      x: -20,
+      autoAlpha: 0,
+      duration: 0.3,
+      stagger: 0.05,
+      ease: 'power2.out',
+    })
+  })
+}
+
+/** 编辑器区域滑入动画 */
+function animateEditor() {
+  if (!editorRef.value) return
+  lift(editorRef.value, { y: 20, duration: 0.4 })
+}
+
 onMounted(() => {
   withContext(() => {
-    reveal('.page-header, .template-sidebar, .workspace-panel, .metric-card', { y: 14, stagger: 0.05 })
+    reveal('.page-header', { y: -14, duration: 0.5 })
+    reveal('.template-sidebar', { x: -20, duration: 0.5, delay: 0.1 })
+    reveal('.workspace-panel', { x: 20, duration: 0.5, delay: 0.2 })
+    reveal('.metric-card', { y: 14, stagger: 0.08, delay: 0.3 })
   })
   fetchTemplates()
 })
@@ -360,7 +447,7 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="metrics-row">
+        <div ref="metricsRef" class="metrics-row">
           <div class="metric-card">
             <span>调用查询</span>
             <strong>{{ summaryStats.totalQueries }}</strong>
@@ -384,7 +471,7 @@ onMounted(() => {
             <template #label>
               <span class="tab-label"><Save :size="15" />模板编辑</span>
             </template>
-            <div class="editor-grid">
+            <div ref="editorRef" class="editor-grid">
               <el-input
                 v-model="editContent"
                 type="textarea"
@@ -482,7 +569,7 @@ onMounted(() => {
             <template #label>
               <span class="tab-label"><History :size="15" />版本历史</span>
             </template>
-            <el-table :data="versions" v-loading="versionLoading" stripe>
+            <el-table :data="versions" v-loading="versionLoading" stripe class="version-table">
               <el-table-column prop="versionNo" label="版本" width="100">
                 <template #default="{ row }">
                   <el-tag :type="row.isActive ? 'success' : 'info'" size="small">v{{ row.versionNo }}</el-tag>
@@ -634,10 +721,33 @@ onMounted(() => {
   cursor: pointer;
 }
 
-.template-item:hover,
+.template-item {
+  display: flex;
+  width: 100%;
+  min-height: 64px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--do-ink);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.template-item:hover {
+  border-color: var(--do-primary);
+  background: var(--do-primary-soft);
+  transform: translateX(4px);
+}
+
 .template-item.active {
   border-color: var(--do-primary);
   background: var(--do-primary-soft);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .template-item strong,
@@ -742,6 +852,13 @@ onMounted(() => {
   border-radius: 8px;
   padding: 12px;
   background: #fff;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.metric-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: var(--do-primary);
 }
 
 .metric-card span {
@@ -794,6 +911,16 @@ onMounted(() => {
 
 .editor-actions .el-button {
   width: 100%;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.editor-actions .el-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.editor-actions .el-button:active {
+  transform: translateY(0);
 }
 
 .status-hint {
@@ -811,6 +938,45 @@ onMounted(() => {
 .status-hint :deep(.el-alert__description) {
   font-size: 12px;
   margin-top: 4px;
+}
+
+/* 版本表格行悬停动画 */
+.version-table :deep(.el-table__row) {
+  transition: all 0.3s ease;
+}
+
+.version-table :deep(.el-table__row:hover) {
+  transform: scale(1.01);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* 状态标签过渡动画 */
+.template-tags .el-tag {
+  transition: all 0.3s ease;
+}
+
+.template-tags .el-tag:hover {
+  transform: scale(1.05);
+}
+
+/* Tab 切换动画 */
+.prompt-tabs :deep(.el-tabs__content) {
+  transition: opacity 0.3s ease;
+}
+
+.prompt-tabs :deep(.el-tab-pane) {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 1100px) {
