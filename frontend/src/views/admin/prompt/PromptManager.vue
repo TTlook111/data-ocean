@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CheckCircle2, History, RefreshCw, RotateCcw, Save, Search, TrendingUp } from 'lucide-vue-next'
+import { CheckCircle2, History, RefreshCw, RotateCcw, Save, Search, Send, TrendingUp, XCircle } from 'lucide-vue-next'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
 import {
+  approvePrompt,
   getPromptEffectiveness,
   getPromptTemplate,
   getPromptVersions,
   listPromptTemplates,
+  PROMPT_STATUS_MAP,
+  rejectPrompt,
   rollbackPromptVersion,
+  submitPromptForReview,
   updatePromptTemplate,
   type PromptEffectivenessVO,
+  type PromptStatus,
   type PromptTemplateVO,
   type PromptVersionVO,
 } from '../../../api/admin/prompt'
@@ -31,6 +36,9 @@ function getNodeInfo(code: string) {
 
 const loading = ref(false)
 const saving = ref(false)
+const submitting = ref(false)
+const approving = ref(false)
+const rejecting = ref(false)
 const versionLoading = ref(false)
 const analysisLoading = ref(false)
 const templates = ref<PromptTemplateVO[]>([])
@@ -42,6 +50,11 @@ const keyword = ref('')
 const analysisDays = ref(30)
 const editContent = ref('')
 const changeSummary = ref('')
+
+/** 获取状态显示信息 */
+function getStatusInfo(status: PromptStatus) {
+  return PROMPT_STATUS_MAP[status] || { label: status, type: 'info' as const }
+}
 
 const selectedTemplate = computed(() => templates.value.find((item) => item.templateCode === activeCode.value))
 const filteredTemplates = computed(() => {
@@ -170,9 +183,9 @@ async function handleSave() {
 async function handleRollback(versionNo: number) {
   if (!activeCode.value) return
   try {
-    await ElMessageBox.confirm(`确认回滚到 v${versionNo}？当前内容会切换为该版本。`, '版本回滚')
+    await ElMessageBox.confirm(`确认基于 v${versionNo} 生成回滚草稿？提交审核通过后才会发布。`, '版本回滚')
     const res = await rollbackPromptVersion(activeCode.value, versionNo)
-    ElMessage.success(`已回滚到 v${versionNo}`)
+    ElMessage.success(`已基于 v${versionNo} 生成草稿`)
     const updated = res.data
     const index = templates.value.findIndex((item) => item.templateCode === activeCode.value)
     if (updated && index >= 0) templates.value.splice(index, 1, updated)
@@ -181,6 +194,71 @@ async function handleRollback(versionNo: number) {
   } catch (error) {
     if (error === 'cancel') return
     ElMessage.error(extractError(error, '回滚失败'))
+  }
+}
+
+/** 提交审核 */
+async function handleSubmitForReview() {
+  if (!activeCode.value) return
+  try {
+    await ElMessageBox.confirm('确认提交审核？提交后将无法编辑，直到审核完成。', '提交审核')
+    submitting.value = true
+    const res = await submitPromptForReview(activeCode.value)
+    ElMessage.success('已提交审核')
+    const updated = res.data
+    const index = templates.value.findIndex((item) => item.templateCode === activeCode.value)
+    if (updated && index >= 0) templates.value.splice(index, 1, updated)
+    await fetchVersions()
+  } catch (error) {
+    if (error === 'cancel') return
+    ElMessage.error(extractError(error, '提交审核失败'))
+  } finally {
+    submitting.value = false
+  }
+}
+
+/** 审核通过 */
+async function handleApprove() {
+  if (!activeCode.value) return
+  try {
+    await ElMessageBox.confirm('确认审核通过？通过后模板将自动启用。', '审核通过')
+    approving.value = true
+    const res = await approvePrompt(activeCode.value, changeSummary.value || undefined)
+    ElMessage.success('审核已通过')
+    const updated = res.data
+    const index = templates.value.findIndex((item) => item.templateCode === activeCode.value)
+    if (updated && index >= 0) templates.value.splice(index, 1, updated)
+    changeSummary.value = ''
+    await Promise.all([fetchVersions(), fetchEffectiveness()])
+  } catch (error) {
+    if (error === 'cancel') return
+    ElMessage.error(extractError(error, '审核失败'))
+  } finally {
+    approving.value = false
+  }
+}
+
+/** 审核拒绝 */
+async function handleReject() {
+  if (!activeCode.value) return
+  try {
+    const { value } = await ElMessageBox.prompt('请输入拒绝原因', '审核拒绝', {
+      inputType: 'textarea',
+      inputPlaceholder: '请输入拒绝原因（必填）',
+      inputValidator: (value) => value.trim().length > 0 || '拒绝原因不能为空',
+    })
+    rejecting.value = true
+    const res = await rejectPrompt(activeCode.value, value)
+    ElMessage.success('已拒绝')
+    const updated = res.data
+    const index = templates.value.findIndex((item) => item.templateCode === activeCode.value)
+    if (updated && index >= 0) templates.value.splice(index, 1, updated)
+    await fetchVersions()
+  } catch (error) {
+    if (error === 'cancel') return
+    ElMessage.error(extractError(error, '拒绝失败'))
+  } finally {
+    rejecting.value = false
   }
 }
 
@@ -236,6 +314,13 @@ onMounted(() => {
               <span class="template-item-tags">
                 <el-tag
                   size="small"
+                  :type="getStatusInfo(item.status).type"
+                  effect="plain"
+                >
+                  {{ getStatusInfo(item.status).label }}
+                </el-tag>
+                <el-tag
+                  size="small"
                   :type="getNodeInfo(item.templateCode).connected ? 'success' : 'warning'"
                   effect="plain"
                 >
@@ -265,6 +350,9 @@ onMounted(() => {
             </span>
           </div>
           <div class="template-tags">
+            <el-tag size="small" :type="getStatusInfo(selectedTemplate.status).type">
+              {{ getStatusInfo(selectedTemplate.status).label }}
+            </el-tag>
             <el-tag size="small" :type="selectedTemplate.enabled ? 'success' : 'info'">
               {{ selectedTemplate.enabled ? '启用中' : '已停用' }}
             </el-tag>
@@ -303,6 +391,7 @@ onMounted(() => {
                 :rows="22"
                 resize="vertical"
                 placeholder="选择模板后编辑 Prompt 内容"
+                :disabled="selectedTemplate?.status === 'PENDING_REVIEW'"
               />
               <div class="editor-side">
                 <el-input
@@ -313,9 +402,78 @@ onMounted(() => {
                   show-word-limit
                   placeholder="版本变更摘要"
                 />
-                <el-button type="primary" :loading="saving" @click="handleSave">
-                  <Save :size="16" />保存新版本
-                </el-button>
+                <div class="editor-actions">
+                  <!-- 编辑操作：已通过模板会保存为新的草稿版本 -->
+                  <el-button
+                    v-if="selectedTemplate?.status !== 'PENDING_REVIEW'"
+                    type="primary"
+                    :loading="saving"
+                    @click="handleSave"
+                  >
+                    <Save :size="16" />{{ selectedTemplate?.status === 'APPROVED' ? '保存为草稿' : '保存新版本' }}
+                  </el-button>
+                  <!-- 提交审核：只有 DRAFT 状态才能提交 -->
+                  <el-button
+                    v-if="selectedTemplate?.status === 'DRAFT'"
+                    type="success"
+                    :loading="submitting"
+                    @click="handleSubmitForReview"
+                  >
+                    <Send :size="16" />提交审核
+                  </el-button>
+                  <!-- 审核操作：只有 PENDING_REVIEW 状态才能审核 -->
+                  <el-button
+                    v-if="selectedTemplate?.status === 'PENDING_REVIEW'"
+                    type="success"
+                    :loading="approving"
+                    @click="handleApprove"
+                  >
+                    <CheckCircle2 :size="16" />审核通过
+                  </el-button>
+                  <el-button
+                    v-if="selectedTemplate?.status === 'PENDING_REVIEW'"
+                    type="danger"
+                    :loading="rejecting"
+                    @click="handleReject"
+                  >
+                    <XCircle :size="16" />审核拒绝
+                  </el-button>
+                </div>
+                <!-- 状态提示 -->
+                <div v-if="selectedTemplate" class="status-hint">
+                  <el-alert
+                    v-if="selectedTemplate.status === 'DRAFT'"
+                    title="草稿状态"
+                    description="编辑完成后请提交审核"
+                    type="info"
+                    :closable="false"
+                    show-icon
+                  />
+                  <el-alert
+                    v-else-if="selectedTemplate.status === 'PENDING_REVIEW'"
+                    title="待审核状态"
+                    description="等待审核人审核，审核通过后才能被 Python 端使用"
+                    type="warning"
+                    :closable="false"
+                    show-icon
+                  />
+                  <el-alert
+                    v-else-if="selectedTemplate.status === 'APPROVED'"
+                    title="已通过状态"
+                    description="模板已审核通过，正在被 Python 端使用；编辑保存后会生成草稿，不影响线上版本"
+                    type="success"
+                    :closable="false"
+                    show-icon
+                  />
+                  <el-alert
+                    v-else-if="selectedTemplate.status === 'REJECTED'"
+                    title="已拒绝状态"
+                    description="模板审核未通过，请根据拒绝原因修改后重新提交"
+                    type="error"
+                    :closable="false"
+                    show-icon
+                  />
+                </div>
               </div>
             </div>
           </el-tab-pane>
@@ -330,9 +488,16 @@ onMounted(() => {
                   <el-tag :type="row.isActive ? 'success' : 'info'" size="small">v{{ row.versionNo }}</el-tag>
                 </template>
               </el-table-column>
+              <el-table-column prop="status" label="状态" width="110">
+                <template #default="{ row }">
+                  <el-tag :type="getStatusInfo(row.status).type" size="small" effect="plain">
+                    {{ getStatusInfo(row.status).label }}
+                  </el-tag>
+                </template>
+              </el-table-column>
               <el-table-column prop="changeSummary" label="变更摘要" min-width="220" show-overflow-tooltip />
               <el-table-column prop="createdAt" label="创建时间" width="180" />
-              <el-table-column label="状态" width="100">
+              <el-table-column label="活跃" width="100">
                 <template #default="{ row }">
                   <span class="state-inline">
                     <CheckCircle2 v-if="row.isActive" :size="15" />
@@ -621,8 +786,31 @@ onMounted(() => {
   gap: 12px;
 }
 
-.editor-side .el-button {
+.editor-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-actions .el-button {
   width: 100%;
+}
+
+.status-hint {
+  margin-top: 8px;
+}
+
+.status-hint :deep(.el-alert) {
+  padding: 8px 12px;
+}
+
+.status-hint :deep(.el-alert__title) {
+  font-size: 13px;
+}
+
+.status-hint :deep(.el-alert__description) {
+  font-size: 12px;
+  margin-top: 4px;
 }
 
 @media (max-width: 1100px) {

@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
  * <p>
  * 存储 Prompt 模板的基本信息和当前活跃版本内容。
  * 使用乐观锁防止并发编辑冲突。
+ * 支持审批流程：DRAFT → PENDING_REVIEW → APPROVED / REJECTED
  * </p>
  */
 @Data
@@ -35,7 +36,10 @@ public class PromptTemplate {
     /** 当前版本号 */
     private Integer currentVersion;
 
-    /** 是否启用 */
+    /** 模板状态（DRAFT/PENDING_REVIEW/APPROVED/REJECTED） */
+    private String status;
+
+    /** 是否启用线上已发布版本 */
     private Boolean enabled;
 
     /** 乐观锁版本号 */

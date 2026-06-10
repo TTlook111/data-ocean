@@ -1,6 +1,17 @@
 import { http } from '../http'
 import type { ApiResult, PageResult } from './user'
 
+/** Prompt 模板状态 */
+export type PromptStatus = 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED'
+
+/** Prompt 模板状态描述 */
+export const PROMPT_STATUS_MAP: Record<PromptStatus, { label: string; type: 'info' | 'warning' | 'success' | 'danger' }> = {
+  DRAFT: { label: '草稿', type: 'info' },
+  PENDING_REVIEW: { label: '待审核', type: 'warning' },
+  APPROVED: { label: '已通过', type: 'success' },
+  REJECTED: { label: '已拒绝', type: 'danger' },
+}
+
 export interface PromptTemplateVO {
   id: number
   templateCode: string
@@ -8,6 +19,7 @@ export interface PromptTemplateVO {
   scenario: string
   content: string
   currentVersion: number
+  status: PromptStatus
   enabled: boolean
   updatedAt: string
 }
@@ -18,6 +30,7 @@ export interface PromptVersionVO {
   content: string
   changeSummary?: string
   isActive: boolean
+  status: PromptStatus
   createdBy?: number
   createdAt: string
 }
@@ -53,6 +66,24 @@ export async function getPromptTemplate(code: string) {
 
 export async function updatePromptTemplate(code: string, payload: { content: string; changeSummary?: string }) {
   const { data } = await http.put<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}`, payload)
+  return data
+}
+
+/** 提交审核 */
+export async function submitPromptForReview(code: string) {
+  const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/submit`)
+  return data
+}
+
+/** 审核通过 */
+export async function approvePrompt(code: string, changeSummary?: string) {
+  const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/approve`, { changeSummary })
+  return data
+}
+
+/** 审核拒绝 */
+export async function rejectPrompt(code: string, rejectReason: string) {
+  const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/reject`, { rejectReason })
   return data
 }
 

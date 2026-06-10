@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * Prompt 模板服务接口
  * <p>
- * 提供模板的增删改查、版本管理和回滚能力。
+ * 提供模板的增删改查、版本管理、审批流程和回滚能力。
  * </p>
  */
 public interface PromptTemplateService {
@@ -39,13 +39,39 @@ public interface PromptTemplateService {
     PromptTemplateVO getActiveTemplate(String code);
 
     /**
-     * 更新模板内容（自动创建新版本）
+     * 更新模板内容（自动创建新版本，状态变为 DRAFT）
      *
      * @param code    模板编码
      * @param request 更新请求
      * @return 更新后的模板视图对象
      */
     PromptTemplateVO updateTemplate(String code, PromptTemplateUpdateDTO request);
+
+    /**
+     * 提交审核（DRAFT → PENDING_REVIEW）
+     *
+     * @param code 模板编码
+     * @return 更新后的模板视图对象
+     */
+    PromptTemplateVO submitForReview(String code);
+
+    /**
+     * 审核通过（PENDING_REVIEW → APPROVED）
+     *
+     * @param code         模板编码
+     * @param changeSummary 审核备注
+     * @return 更新后的模板视图对象
+     */
+    PromptTemplateVO approve(String code, String changeSummary);
+
+    /**
+     * 审核拒绝（PENDING_REVIEW → REJECTED）
+     *
+     * @param code         模板编码
+     * @param rejectReason 拒绝原因
+     * @return 更新后的模板视图对象
+     */
+    PromptTemplateVO reject(String code, String rejectReason);
 
     /**
      * 获取模板的版本历史
@@ -70,7 +96,7 @@ public interface PromptTemplateService {
     PromptTemplateVO rollback(String code, PromptRollbackDTO request);
 
     /**
-     * 获取活跃版本的模板内容（供 Python 服务调用）
+     * 获取活跃版本的模板内容（供 Python 服务调用，只返回 APPROVED 状态的模板）
      *
      * @param code 模板编码
      * @return 模板内容字符串

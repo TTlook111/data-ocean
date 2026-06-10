@@ -31,6 +31,9 @@ public class PromptTemplateVO {
     /** 当前版本号 */
     private Integer currentVersion;
 
+    /** 模板状态（DRAFT/PENDING_REVIEW/APPROVED/REJECTED） */
+    private String status;
+
     /** 是否启用 */
     private Boolean enabled;
 

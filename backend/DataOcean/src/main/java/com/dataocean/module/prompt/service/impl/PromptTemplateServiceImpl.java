@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.prompt.enums.PromptStatus;
 import com.dataocean.module.audit.entity.QueryAuditLog;
 import com.dataocean.module.audit.mapper.QueryAuditLogMapper;
 import com.dataocean.module.prompt.entity.PromptTemplate;
@@ -63,7 +64,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     @Override
     public PromptTemplateVO getTemplate(String code) {
-        return toVO(getByCode(code));
+        return toVO(getByCode(code), true);
     }
 
     @Override
@@ -75,40 +76,129 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         if (template == null) {
             throw new BusinessException(404, "Prompt 模板不存在或已禁用：" + code);
         }
-        return toVO(template);
+        return toVO(template, false);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO updateTemplate(String code, PromptTemplateUpdateDTO request) {
         PromptTemplate template = getByCode(code);
-        int newVersionNo = template.getCurrentVersion() + 1;
 
-        versionMapper.update(null, new LambdaUpdateWrapper<PromptTemplateVersion>()
-                .eq(PromptTemplateVersion::getTemplateId, template.getId())
-                .eq(PromptTemplateVersion::getIsActive, true)
-                .set(PromptTemplateVersion::getIsActive, false));
+        String currentStatus = template.getStatus();
+        if (PromptStatus.PENDING_REVIEW.name().equals(currentStatus)) {
+            throw new BusinessException(400, "待审核状态的模板不能编辑，请先完成审核");
+        }
+
+        int newVersionNo = getNextVersionNo(template.getId());
 
         PromptTemplateVersion newVersion = new PromptTemplateVersion();
         newVersion.setTemplateId(template.getId());
         newVersion.setVersionNo(newVersionNo);
         newVersion.setContent(request.getContent());
         newVersion.setChangeSummary(request.getChangeSummary());
-        newVersion.setIsActive(true);
+        newVersion.setIsActive(false);
+        newVersion.setStatus(PromptStatus.DRAFT.name());
         newVersion.setCreatedBy(UserContext.currentUserId());
         newVersion.setCreatedAt(LocalDateTime.now());
         versionMapper.insert(newVersion);
 
-        template.setContent(request.getContent());
-        template.setCurrentVersion(newVersionNo);
+        template.setStatus(PromptStatus.DRAFT.name());
         template.setUpdatedAt(LocalDateTime.now());
         int updated = templateMapper.updateById(template);
         if (updated == 0) {
             throw new BusinessException(409, "模板更新冲突，其他用户正在编辑，请刷新后重试");
         }
 
-        log.info("Prompt 模板更新 code={} newVersion={}", code, newVersionNo);
-        return toVO(template);
+        log.info("Prompt 模板更新 code={} newVersion={} status=DRAFT", code, newVersionNo);
+        return toVO(template, true);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PromptTemplateVO submitForReview(String code) {
+        PromptTemplate template = getByCode(code);
+
+        if (!PromptStatus.DRAFT.name().equals(template.getStatus())) {
+            throw new BusinessException(400, "只有草稿状态的模板才能提交审核，当前状态：" + template.getStatus());
+        }
+
+        PromptTemplateVersion draftVersion = getLatestWorkflowVersion(template.getId(), PromptStatus.DRAFT);
+        if (draftVersion == null) {
+            throw new BusinessException(400, "没有可提交审核的草稿版本");
+        }
+        draftVersion.setStatus(PromptStatus.PENDING_REVIEW.name());
+        versionMapper.updateById(draftVersion);
+
+        template.setStatus(PromptStatus.PENDING_REVIEW.name());
+        template.setUpdatedAt(LocalDateTime.now());
+        templateMapper.updateById(template);
+
+        log.info("Prompt 模板提交审核 code={}", code);
+        return toVO(template, true);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PromptTemplateVO approve(String code, String changeSummary) {
+        PromptTemplate template = getByCode(code);
+
+        if (!PromptStatus.PENDING_REVIEW.name().equals(template.getStatus())) {
+            throw new BusinessException(400, "只有待审核状态的模板才能审核，当前状态：" + template.getStatus());
+        }
+
+        PromptTemplateVersion pendingVersion = getLatestWorkflowVersion(template.getId(), PromptStatus.PENDING_REVIEW);
+        if (pendingVersion == null) {
+            throw new BusinessException(400, "没有可审核的待审核版本");
+        }
+
+        versionMapper.update(null, new LambdaUpdateWrapper<PromptTemplateVersion>()
+                .eq(PromptTemplateVersion::getTemplateId, template.getId())
+                .eq(PromptTemplateVersion::getIsActive, true)
+                .set(PromptTemplateVersion::getIsActive, false));
+
+        pendingVersion.setStatus(PromptStatus.APPROVED.name());
+        pendingVersion.setIsActive(true);
+        if (changeSummary != null && !changeSummary.isBlank()) {
+            pendingVersion.setChangeSummary(changeSummary);
+        }
+        versionMapper.updateById(pendingVersion);
+
+        template.setContent(pendingVersion.getContent());
+        template.setCurrentVersion(pendingVersion.getVersionNo());
+        template.setStatus(PromptStatus.APPROVED.name());
+        template.setEnabled(true);
+        template.setUpdatedAt(LocalDateTime.now());
+        templateMapper.updateById(template);
+
+        log.info("Prompt 模板审核通过 code={}", code);
+        return toVO(template, true);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PromptTemplateVO reject(String code, String rejectReason) {
+        PromptTemplate template = getByCode(code);
+
+        if (!PromptStatus.PENDING_REVIEW.name().equals(template.getStatus())) {
+            throw new BusinessException(400, "只有待审核状态的模板才能拒绝，当前状态：" + template.getStatus());
+        }
+
+        PromptTemplateVersion pendingVersion = getLatestWorkflowVersion(template.getId(), PromptStatus.PENDING_REVIEW);
+        if (pendingVersion == null) {
+            throw new BusinessException(400, "没有可拒绝的待审核版本");
+        }
+        pendingVersion.setStatus(PromptStatus.REJECTED.name());
+        if (rejectReason != null && !rejectReason.isBlank()) {
+            pendingVersion.setChangeSummary("拒绝原因：" + rejectReason);
+        }
+        versionMapper.updateById(pendingVersion);
+
+        template.setStatus(PromptStatus.REJECTED.name());
+        template.setUpdatedAt(LocalDateTime.now());
+        templateMapper.updateById(template);
+
+        log.info("Prompt 模板审核拒绝 code={} reason={}", code, rejectReason);
+        return toVO(template, true);
     }
 
     @Override
@@ -168,6 +258,10 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
     public PromptTemplateVO rollback(String code, PromptRollbackDTO request) {
         PromptTemplate template = getByCode(code);
 
+        if (PromptStatus.PENDING_REVIEW.name().equals(template.getStatus())) {
+            throw new BusinessException(400, "待审核状态不能回滚，请先完成审核");
+        }
+
         PromptTemplateVersion targetVersion = versionMapper.selectOne(
                 new LambdaQueryWrapper<PromptTemplateVersion>()
                         .eq(PromptTemplateVersion::getTemplateId, template.getId())
@@ -176,29 +270,39 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             throw new BusinessException("目标版本不存在：v" + request.getTargetVersionNo());
         }
 
-        versionMapper.update(null, new LambdaUpdateWrapper<PromptTemplateVersion>()
-                .eq(PromptTemplateVersion::getTemplateId, template.getId())
-                .eq(PromptTemplateVersion::getIsActive, true)
-                .set(PromptTemplateVersion::getIsActive, false));
+        int newVersionNo = getNextVersionNo(template.getId());
+        PromptTemplateVersion rollbackDraft = new PromptTemplateVersion();
+        rollbackDraft.setTemplateId(template.getId());
+        rollbackDraft.setVersionNo(newVersionNo);
+        rollbackDraft.setContent(targetVersion.getContent());
+        rollbackDraft.setChangeSummary("回滚到 v" + request.getTargetVersionNo());
+        rollbackDraft.setIsActive(false);
+        rollbackDraft.setStatus(PromptStatus.DRAFT.name());
+        rollbackDraft.setCreatedBy(UserContext.currentUserId());
+        rollbackDraft.setCreatedAt(LocalDateTime.now());
+        versionMapper.insert(rollbackDraft);
 
-        targetVersion.setIsActive(true);
-        versionMapper.updateById(targetVersion);
-
-        template.setContent(targetVersion.getContent());
-        template.setCurrentVersion(request.getTargetVersionNo());
+        template.setStatus(PromptStatus.DRAFT.name());
         template.setUpdatedAt(LocalDateTime.now());
         int updated = templateMapper.updateById(template);
         if (updated == 0) {
             throw new BusinessException(409, "模板回滚冲突，其他用户正在编辑，请刷新后重试");
         }
 
-        log.info("Prompt 模板回滚 code={} targetVersion={}", code, request.getTargetVersionNo());
-        return toVO(template);
+        log.info("Prompt 模板回滚生成草稿 code={} targetVersion={} draftVersion={}", code, request.getTargetVersionNo(), newVersionNo);
+        return toVO(template, true);
     }
 
     @Override
     public String getActiveContent(String code) {
-        return getActiveTemplate(code).getContent();
+        PromptTemplate template = templateMapper.selectOne(
+                new LambdaQueryWrapper<PromptTemplate>()
+                        .eq(PromptTemplate::getTemplateCode, code)
+                        .eq(PromptTemplate::getEnabled, true));
+        if (template == null) {
+            throw new BusinessException(404, "Prompt 模板不存在或已禁用：" + code);
+        }
+        return template.getContent();
     }
 
     private PromptTemplate getByCode(String code) {
@@ -242,9 +346,49 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         }
     }
 
+    private int getNextVersionNo(Long templateId) {
+        PromptTemplateVersion latestVersion = versionMapper.selectOne(
+                new LambdaQueryWrapper<PromptTemplateVersion>()
+                        .eq(PromptTemplateVersion::getTemplateId, templateId)
+                        .orderByDesc(PromptTemplateVersion::getVersionNo)
+                        .last("LIMIT 1"));
+        return latestVersion == null ? 1 : latestVersion.getVersionNo() + 1;
+    }
+
+    private PromptTemplateVersion getLatestWorkflowVersion(Long templateId, PromptStatus status) {
+        return versionMapper.selectOne(
+                new LambdaQueryWrapper<PromptTemplateVersion>()
+                        .eq(PromptTemplateVersion::getTemplateId, templateId)
+                        .eq(PromptTemplateVersion::getStatus, status.name())
+                        .eq(PromptTemplateVersion::getIsActive, false)
+                        .orderByDesc(PromptTemplateVersion::getVersionNo)
+                        .last("LIMIT 1"));
+    }
+
     private PromptTemplateVO toVO(PromptTemplate entity) {
+        return toVO(entity, true);
+    }
+
+    private PromptTemplateVO toVO(PromptTemplate entity, boolean includeWorkflowVersion) {
         PromptTemplateVO vo = new PromptTemplateVO();
         BeanUtils.copyProperties(entity, vo);
+        if (includeWorkflowVersion && !PromptStatus.APPROVED.name().equals(entity.getStatus())) {
+            PromptTemplateVersion workflowVersion = versionMapper.selectOne(
+                    new LambdaQueryWrapper<PromptTemplateVersion>()
+                            .eq(PromptTemplateVersion::getTemplateId, entity.getId())
+                            .eq(PromptTemplateVersion::getIsActive, false)
+                            .in(PromptTemplateVersion::getStatus,
+                                    PromptStatus.DRAFT.name(),
+                                    PromptStatus.PENDING_REVIEW.name(),
+                                    PromptStatus.REJECTED.name())
+                            .orderByDesc(PromptTemplateVersion::getVersionNo)
+                            .last("LIMIT 1"));
+            if (workflowVersion != null) {
+                vo.setContent(workflowVersion.getContent());
+                vo.setCurrentVersion(workflowVersion.getVersionNo());
+                vo.setStatus(workflowVersion.getStatus());
+            }
+        }
         return vo;
     }
 

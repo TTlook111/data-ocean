@@ -28,6 +28,9 @@ public class PromptVersionVO {
     /** 是否为当前活跃版本 */
     private Boolean isActive;
 
+    /** 版本状态（DRAFT/PENDING_REVIEW/APPROVED/REJECTED） */
+    private String status;
+
     /** 创建人 ID */
     private Long createdBy;
 
