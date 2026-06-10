@@ -18,10 +18,13 @@ prompt_template (1) ──< prompt_template_version (N)
 | scenario | VARCHAR(50) | NOT NULL | 使用场景 (query/chart/intent/retrieval/memory) |
 | content | TEXT | NOT NULL | 当前活跃版本的模板内容（冗余，加速读取） |
 | current_version | INT | NOT NULL, DEFAULT 1 | 当前活跃版本号 |
+| status | VARCHAR(20) | NOT NULL, DEFAULT 'APPROVED' | 当前流程状态：DRAFT/PENDING_REVIEW/APPROVED/REJECTED |
 | enabled | TINYINT | NOT NULL, DEFAULT 1 | 1=启用, 0=禁用 |
 | version | INT | NOT NULL, DEFAULT 0 | 乐观锁版本 |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW() | 创建时间 |
 | updated_at | DATETIME | NOT NULL, DEFAULT NOW() ON UPDATE | 更新时间 |
+
+> 说明：`prompt_template.content/current_version` 始终表示 Python 运行时读取的线上发布版本。编辑、提交审核和拒绝不会覆盖该内容；只有审核通过才更新。
 
 ### prompt_template_version
 
@@ -32,10 +35,24 @@ prompt_template (1) ──< prompt_template_version (N)
 | version_no | INT | NOT NULL | 版本号（模板内递增） |
 | content | TEXT | NOT NULL | 该版本的模板内容 |
 | change_summary | VARCHAR(500) | | 修改摘要 |
+| is_active | TINYINT | NOT NULL, DEFAULT 0 | 是否为当前线上发布版本 |
+| status | VARCHAR(20) | NOT NULL, DEFAULT 'APPROVED' | 版本状态：DRAFT/PENDING_REVIEW/APPROVED/REJECTED |
 | created_by | BIGINT | FK → sys_user.id | 修改人 |
 | created_at | DATETIME | NOT NULL, DEFAULT NOW() | 创建时间 |
 
 UNIQUE INDEX: (template_id, version_no)
+
+INDEX: (template_id, status, version_no)
+
+## Approval Workflow
+
+| Action | Template Status | Version Status | Runtime Effect |
+|--------|-----------------|----------------|----------------|
+| 保存模板 | DRAFT | 新版本 DRAFT, is_active=0 | Python 继续读取旧发布版本 |
+| 提交审核 | PENDING_REVIEW | 最新草稿变为 PENDING_REVIEW | Python 继续读取旧发布版本 |
+| 审核通过 | APPROVED | 待审核版本变为 APPROVED + is_active=1，旧 active 版本置为 0 | Python 开始读取新发布版本 |
+| 审核拒绝 | REJECTED | 待审核版本变为 REJECTED | Python 继续读取旧发布版本 |
+| 回滚 | DRAFT | 基于目标版本创建新的 DRAFT | Python 继续读取旧发布版本，直到回滚草稿审核通过 |
 
 ## Initial Data (Flyway V10)
 
@@ -71,3 +88,5 @@ UNIQUE INDEX: (template_id, version_no)
 - content: 不能为空，最大 64KB
 - change_summary: 最大 500 字符
 - version_no: 模板内唯一，从 1 开始递增
+- status: 只能取 DRAFT/PENDING_REVIEW/APPROVED/REJECTED
+- is_active: 同一 template_id 下最多一个 APPROVED + is_active=1 版本

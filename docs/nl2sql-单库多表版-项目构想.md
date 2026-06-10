@@ -511,17 +511,21 @@ AI 第 1 轮：上月订单总额为 1,234,567 元。[使用了 order_info.total
 
 ### 8.1 Prompt 模板化管理
 
-系统中涉及的所有 Prompt **禁止硬编码在代码中**，统一存储在数据库 `prompt_template` 表：
+系统中涉及的所有 Prompt **禁止硬编码在代码中**，统一存储在数据库 `prompt_template` 与 `prompt_template_version` 表：
 
 | 字段 | 说明 |
 |------|------|
 | `id` | 模板 ID |
-| `name` | 模板名称（如 "sql_generation"、"chart_generation"、"intent_recognition"） |
-| `template` | Prompt 模板内容，支持 `{{变量}}` 占位符 |
-| `version` | 版本号，每次修改自动递增 |
-| `is_active` | 是否启用（同一 name 可以有多个版本，但只有一个 is_active） |
+| `template_code` | 模板编码（如 "sql_generation"、"chart_generation"、"intent_recognition"） |
+| `template_name` | 模板名称 |
+| `content` | 当前线上发布版本内容，支持 `{{变量}}` 占位符 |
+| `current_version` | 当前线上发布版本号 |
+| `status` | 当前流程状态：DRAFT、PENDING_REVIEW、APPROVED、REJECTED |
+| `enabled` | 是否启用线上发布版本 |
 | `created_at` | 创建时间 |
-| `updated_by` | 最后修改人 |
+| `updated_at` | 最后更新时间 |
+
+`prompt_template.content/current_version` 始终表示 Python 运行时读取的线上发布版本；编辑和回滚会先在 `prompt_template_version` 中创建草稿版本，审核通过后才发布为新的 `APPROVED + is_active` 版本。
 
 ### 8.2 系统中的 Prompt 模板清单
 
@@ -551,8 +555,9 @@ AI 第 1 轮：上月订单总额为 1,234,567 元。[使用了 order_info.total
 ### 8.4 Prompt 版本管理
 
 - 每次修改 Prompt 模板，自动创建新版本（version +1），旧版本保留不删除。
-- 管理员可以在后台查看所有历史版本、对比差异、回滚到旧版本。
-- 修改 Prompt 后，系统提示"该 Prompt 已修改，建议进行一轮测试查询验证效果"。
+- Prompt 修改后先进入 DRAFT，提交后进入 PENDING_REVIEW，审核通过后才发布为 Python 可读取的 APPROVED active 版本；审核拒绝不影响旧发布版本继续服务线上查询。
+- 管理员可以在后台查看所有历史版本、对比差异、基于旧版本生成回滚草稿；回滚草稿同样需要审核通过后才发布。
+- 修改 Prompt 后，系统提示"该 Prompt 已修改，建议进行一轮测试查询验证效果"，并在审核通过前保持线上版本不变。
 
 ---
 
@@ -1517,8 +1522,8 @@ MVP 阶段建议优先完成以下能力：
 | `knowledge_review_task` | 知识审核任务 | `id`, `doc_version_id`, `reviewer_id`, `review_status`, `review_comment`, `submitted_at`, `reviewed_at` |
 | `vector_index_item` | 向量记录映射 | `id`, `datasource_id`, `metadata_snapshot_id`, `chunk_type`, `source_table`, `source_column`, `source_id`, `collection_name`, `vector_id`, `embedding_model`, `embedding_dimension`, `content_hash`, `version_no`, `review_status`, `status`, `indexed_at` |
 | `vector_index_task` | 向量化任务 | `id`, `datasource_id`, `target_type`, `target_id`, `status`, `started_at`, `finished_at`, `error_message` |
-| `prompt_template` | Prompt 模板 | `id`, `template_code`, `template_name`, `scenario`, `content`, `current_version`, `enabled` |
-| `prompt_template_version` | Prompt 版本 | `id`, `template_id`, `version_no`, `content`, `change_summary`, `created_by`, `created_at` |
+| `prompt_template` | Prompt 模板 | `id`, `template_code`, `template_name`, `scenario`, `content`, `current_version`, `status`, `enabled` |
+| `prompt_template_version` | Prompt 版本 | `id`, `template_id`, `version_no`, `content`, `change_summary`, `is_active`, `status`, `created_by`, `created_at` |
 
 > `vector_index_item` 用来把平台库中的表、字段、知识切片与 Milvus 中的 `vector_id` 建立可追踪关系。否则后续做增量更新、删除数据源、排查召回命中原因时，只能依赖 Milvus metadata，运维和调试成本会很高。
 
@@ -1741,6 +1746,9 @@ MVP 阶段建议优先完成以下能力：
 | `POST` | `/api/admin/knowledge-docs/{id}/vectorize` | 触发知识库向量化 |
 | `GET` | `/api/admin/prompt-templates` | 查看 Prompt 模板 |
 | `PUT` | `/api/admin/prompt-templates/{id}` | 更新 Prompt 模板 |
+| `POST` | `/api/admin/prompt-templates/{id}/submit` | 提交 Prompt 草稿审核 |
+| `POST` | `/api/admin/prompt-templates/{id}/approve` | 审核通过并发布 Prompt |
+| `POST` | `/api/admin/prompt-templates/{id}/reject` | 审核拒绝 Prompt 草稿 |
 | `POST` | `/api/feedback` | 提交查询反馈 |
 | `GET` | `/api/admin/feedback-reviews` | 查看待审核反馈 |
 | `POST` | `/api/admin/feedback-reviews/{id}/review` | 审核反馈 |

@@ -53,6 +53,15 @@
 - [X] T029 在 Java 审计日志（query_audit_log）中新增 prompt_versions 字段（JSON），记录本次查询使用的各 Prompt 版本
 - [X] T030 [Frontend] 在 Prompt 管理页面添加"效果分析"标签页：按版本展示查询成功率、平均耗时、用户反馈正向率
 
+## Phase 10: Prompt Approval Workflow
+
+- [X] T031 新增 Flyway 迁移 `V36__add_prompt_approval_workflow.sql`，为模板和版本增加 status 字段，并新增 `prompt:approve` 权限
+- [X] T032 新增 `PromptStatus` 枚举，统一 DRAFT/PENDING_REVIEW/APPROVED/REJECTED 状态
+- [X] T033 调整 `updateTemplate`：保存只创建 DRAFT 版本，不覆盖线上发布内容
+- [X] T034 新增 submit/approve/reject 接口，审核通过后才切换 active 发布版本
+- [X] T035 调整 rollback：基于目标版本创建回滚草稿，不绕过审批直接发布
+- [X] T036 [Frontend] Prompt 管理页面新增状态标签、提交审核、审核通过、审核拒绝和版本状态展示
+
 ## Dependencies
 
 ```

@@ -7,7 +7,7 @@
 
 ## Authentication
 
-管理端接口需要 JWT Token + `prompt:manage` 权限。
+管理端查看接口需要 JWT Token + `prompt:manage` 或 `prompt:approve` 权限；编辑、提交和回滚需要 `prompt:manage`；审核通过/拒绝需要 `prompt:approve`。
 内部接口通过服务间认证（X-Internal-Token header）。
 
 ---
@@ -27,6 +27,7 @@
       "templateName": "SQL 生成",
       "scenario": "query",
       "currentVersion": 3,
+      "status": "APPROVED",
       "enabled": true,
       "updatedAt": "2026-05-15T14:30:00"
     }
@@ -51,6 +52,7 @@
     "scenario": "query",
     "content": "你是一个 SQL 专家...\n{{schema}}\n{{question}}",
     "currentVersion": 3,
+    "status": "APPROVED",
     "enabled": true,
     "updatedAt": "2026-05-15T14:30:00"
   }
@@ -61,7 +63,7 @@
 
 ## PUT /api/admin/prompt-templates/{id}
 
-更新模板内容（自动创建新版本）。
+更新模板内容（自动创建 DRAFT 版本，不影响 Python 当前使用的线上发布版本）。
 
 **Request**:
 ```json
@@ -76,9 +78,11 @@
 {
   "code": 200,
   "data": {
-    "newVersion": 4
+    "templateCode": "sql_generation",
+    "currentVersion": 4,
+    "status": "DRAFT"
   },
-  "message": "保存成功，已创建版本 v4"
+  "message": "更新成功"
 }
 ```
 
@@ -87,6 +91,77 @@
 {
   "code": 409,
   "message": "模板已被其他人修改，请刷新后重试"
+}
+```
+
+---
+
+## POST /api/admin/prompt-templates/{code}/submit
+
+提交最新草稿版本审核。
+
+**Response 200**:
+```json
+{
+  "code": 200,
+  "message": "已提交审核",
+  "data": {
+    "templateCode": "sql_generation",
+    "currentVersion": 4,
+    "status": "PENDING_REVIEW"
+  }
+}
+```
+
+---
+
+## POST /api/admin/prompt-templates/{code}/approve
+
+审核通过待审核版本，并发布为 Python 运行时使用的 active 版本。
+
+**Request**:
+```json
+{
+  "changeSummary": "验证通过，发布优化后的 SQL 约束说明"
+}
+```
+
+**Response 200**:
+```json
+{
+  "code": 200,
+  "message": "审核通过",
+  "data": {
+    "templateCode": "sql_generation",
+    "currentVersion": 4,
+    "status": "APPROVED",
+    "enabled": true
+  }
+}
+```
+
+---
+
+## POST /api/admin/prompt-templates/{code}/reject
+
+拒绝待审核版本。旧发布版本保持 active，Python 运行时不受影响。
+
+**Request**:
+```json
+{
+  "rejectReason": "缺少安全边界说明"
+}
+```
+
+**Response 200**:
+```json
+{
+  "code": 200,
+  "message": "已拒绝",
+  "data": {
+    "templateCode": "sql_generation",
+    "status": "REJECTED"
+  }
 }
 ```
 
@@ -107,7 +182,8 @@
       "changeSummary": "增加 few-shot 示例",
       "createdBy": "admin",
       "createdAt": "2026-05-15T14:30:00",
-      "isActive": true
+      "isActive": true,
+      "status": "APPROVED"
     },
     {
       "id": 9,
@@ -115,7 +191,8 @@
       "changeSummary": "调整 system prompt 语气",
       "createdBy": "admin",
       "createdAt": "2026-05-14T10:00:00",
-      "isActive": false
+      "isActive": false,
+      "status": "DRAFT"
     }
   ]
 }
@@ -145,12 +222,12 @@
 
 ## POST /api/admin/prompt-templates/{id}/rollback
 
-回滚到指定版本。
+基于指定版本创建新的回滚草稿。不会直接切换线上 active 版本。
 
 **Request**:
 ```json
 {
-  "targetVersion": 2
+  "targetVersionNo": 2
 }
 ```
 
@@ -158,7 +235,11 @@
 ```json
 {
   "code": 200,
-  "message": "已回滚到版本 v2"
+  "message": "回滚成功",
+  "data": {
+    "templateCode": "sql_generation",
+    "status": "DRAFT"
+  }
 }
 ```
 
@@ -212,9 +293,9 @@ Python 服务获取当前活跃版本的模板内容。
 **Response 200**:
 ```json
 {
-  "template_code": "sql_generation",
+  "code": "sql_generation",
   "content": "你是一个专业的 SQL 生成助手...\n{{schema}}\n{{skills_md}}\n{{question}}",
-  "version": 3
+  "versionNo": 3
 }
 ```
 
