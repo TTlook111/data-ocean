@@ -1,8 +1,8 @@
 # 智能问数与 RAG 全链路深度审查报告
 
-> 审查日期：2026-06-12（第三版 — 代码核实修订）
-> 审查范围：Python Agent 工作流、RAG 模块、SQL 沙箱、权限脱敏、Prompt/LLM 链路、并发安全、Java Query/Knowledge 模块、前端问数流程
-> 重点议题：功能完整性、安全审计、并发安全、Agent 短期记忆 Redis 化方案、修复计划
+> 审查日期：2026-06-12（第五版 — 聚焦已有代码排雷）
+> 审查范围：Python Agent 工作流、RAG 模块、SQL 沙箱、权限脱敏、Prompt/LLM 链路、并发安全、前端边界处理
+> 定位：**清理已实现代码中埋的雷**（bug、安全漏洞、设计缺陷），后续功能开发见 `后续开发.md`
 
 ### 修订记录
 
@@ -11,6 +11,23 @@
 | v1 | 2026-06-12 | 初版，覆盖 Agent/RAG/Query/Knowledge 模块 |
 | v2 | 2026-06-12 | 扩展至沙箱安全、权限脱敏、Prompt/LLM、并发安全；新增 Redis 记忆方案 |
 | v3 | 2026-06-12 | 代码核实修订：**勘误 P0-1（降级结果未被阈值过滤）**；补充 TimeoutBudget 细节、请求约束、条件边路由逻辑、错误消息体系、输出解析器、Python Service 路由注册、Redis 未实际使用说明；修复计划去重 |
+| v4 | 2026-06-12 | 新增第八章（测试覆盖与可观测性）、第九章（前端边界处理）、第十章（部署与扩展性）；补充审计血缘模块分析、多实例部署阻塞因素、前端轮询缺陷 |
+| v5 | 2026-06-12 | 对照 `后续开发.md` 重新分类：区分"已有代码中的雷"和"后续开发计划"；移除属于后续开发的内容（可观测性、多实例部署、测试覆盖、告警触发逻辑等）；聚焦修复计划于实际 bug 和安全漏洞 |
+
+### 与 `后续开发.md` 的边界划分
+
+本文档聚焦**已有代码中的雷**，以下内容属于后续开发范畴，不在本文档修复计划中：
+
+| 内容 | 归属 | 说明 |
+|------|------|------|
+| 多实例部署/水平扩展 | 后续开发 | 当前单实例部署满足需求 |
+| Metrics/监控/链路追踪 | 后续开发 | 属于可观测性建设 |
+| 测试覆盖补充 | 后续开发 | 属于质量工程 |
+| 告警触发执行逻辑 | 后续开发 | `后续开发.md` 未列但属于功能完善 |
+| 配额 DEPARTMENT/DATASOURCE 维度 | 后续开发 | 属于功能扩展 |
+| 前端自动重试/降级提示 | 后续开发 | 属于用户体验优化 |
+| Redis 记忆系统 | 后续开发 | 属于新功能开发 |
+| 数据血缘图数据库 | 后续开发 | `后续开发.md` P4 |
 
 ---
 
@@ -135,18 +152,6 @@ await add_chunk_embeddings(...)
 
 **修复方案**：改为先写入新数据、验证成功后再删除旧数据。
 
-#### 🔴 P0-2：RAG 降级结果的 score 设计不合理
-
-**位置**：`python-service/dataocean/rag/fallback.py:60`
-
-**问题**：`fallback_retrieve()` 返回的 score 固定为 `0.5`。虽然降级路径（`service.py` 第 61 行 `except` 分支）直接 `return` 不经过阈值过滤，降级结果**确实能返回给调用方**，但 score=0.5 会影响 Agent 侧对结果质量的判断。
-
-> **勘误说明**（2026-06-12 核实）：此前版本误认为降级结果被 `service.py:49` 的阈值过滤掉。经代码核实，`retrieve_schemas()` 中正常路径（第 39-54 行）和降级路径（第 59-63 行）是互斥的——异常时直接 `return fallback_retrieve(...)`，不经过阈值过滤。降级结果可以正常返回。
-
-**影响**：降级机制本身可工作，但 score=0.5 可能导致 Agent 侧对结果的置信度偏低。
-
-**修复方案**：将降级 score 提高到 0.7（高于阈值），或在 `RetrievedSchema` 中增加 `is_fallback` 标记让 Agent 区分正常结果和降级结果。
-
 ### 2.3 P1 — 影响质量的中等问题
 
 #### 🟡 P1-1：retry_count 递增逻辑存在边界风险
@@ -187,6 +192,16 @@ await add_chunk_embeddings(...)
 
 **问题**：裁剪变量名（`schema`, `skills`, `few_shot`, `context`, `confidence`）与实际传入变量名（`schema_context`, `conversation_history`）不对应，token 预算控制可能不生效。
 
+#### 🟡 P1-7：RAG 降级结果的 score 偏低
+
+**位置**：`python-service/dataocean/rag/fallback.py:60`
+
+**问题**：`fallback_retrieve()` 返回的 score 固定为 `0.5`。降级路径直接 return 不经过阈值过滤，降级结果**可正常返回**，但 score=0.5 可能影响 Agent 侧对结果置信度的判断。
+
+> **勘误说明**（2026-06-12 核实）：此前版本误认为降级结果被阈值过滤，已核实为互斥路径。此问题从 P0-2 降级为 P1-7。
+
+**修复方案**：将降级 score 提高到 0.7，或增加 `is_fallback` 标记。
+
 ### 2.4 轻微问题
 
 | 编号 | 位置 | 问题 | 建议 |
@@ -215,7 +230,7 @@ await add_chunk_embeddings(...)
 | Milvus 写入 | ✅ 可工作 | 有数量校验和失败回滚 |
 | Milvus 检索 | ✅ 可工作 | 有数据源隔离和治理状态过滤 |
 | 规则重排 | ⚠️ 基本可工作 | 加分逻辑粗糙但不会阻断流程 |
-| 降级方案 | ⚠️ 可工作但 score 偏低 | 降级路径直接返回不经过阈值过滤，但 score=0.5 可能影响结果置信度（P0-2） |
+| 降级方案 | ⚠️ 可工作但 score 偏低 | 降级路径直接返回不经过阈值过滤，但 score=0.5 可能影响结果置信度（P1-7） |
 
 ### 3.2 Embedding 和 Milvus 配置
 
@@ -446,9 +461,69 @@ prompt = f"用户刚才问了：{question}\n查询涉及的表：{', '.join(used
 
 ---
 
-## 八、Agent 短期记忆现状与 Redis 化方案
+## 八、测试覆盖与可观测性（摘要）
 
-### 8.1 当前实现
+> 详细任务定义见 `后续开发.md` P7（测试覆盖）、P6（可观测性）。
+
+| 维度 | 当前状态 | 严重程度 |
+|------|---------|---------|
+| Python 测试 | 27 个用例，Agent 工作流零覆盖 | 高 |
+| Java 测试 | 73 个用例，全部 mock，无集成测试 | 中 |
+| 日志 | 71% 文件有 logger，非结构化，无 request_id 传播 | 中 |
+| Metrics/监控 | 完全缺失 | 高 |
+| 链路追踪 | 完全缺失（LangChain tracing 预留但关闭） | 高 |
+| 健康检查 | 基础版，无 readiness/liveness 区分 | 低 |
+| 审计血缘 | Java 端完整（6 个子系统），Python 端无 | 低 |
+
+---
+
+## 九、前端边界处理（摘要）
+
+> 详细任务定义见 `后续开发.md` P11（前端查询体验优化）。
+
+**唯一需要修的 bug**：`pollTaskResult()` 中单次 `getTaskResult()` 异常会终止整个轮询（已在修复计划 #19）。
+
+**后续开发项**：自动重试、降级提示、轮询超时后操作按钮、网络断开恢复。
+
+**做得好的部分**：取消机制、Loading/空状态覆盖完整、HTTP 401 自动跳登录。
+
+---
+
+## 十、部署与扩展性（摘要）
+
+> 详细任务定义见 `后续开发.md` P8（多实例部署）。
+
+**当前**：单实例部署，Python 单 worker，无容器化编排。
+
+**水平扩展阻塞**：SSE 事件队列、取消令牌、活跃任务引用三处进程内状态。短期方案为会话亲和，长期方案为外部化状态到 Redis。
+
+### 10.2 多实例部署阻塞因素
+
+**当前架构不支持水平扩展**，3 处致命阻塞：
+
+| 阻塞因素 | 位置 | 问题 |
+|----------|------|------|
+| SSE 事件队列 | `infra/sse.py` | 进程内 `asyncio.Queue`，跨实例不可达 |
+| 取消令牌 | `infra/cancellation.py` | 进程内 `_cancelled_tasks` dict，跨实例不可见 |
+| 活跃任务引用 | `agent/router.py` | 进程内 `asyncio.Task` 引用，跨实例无法取消 |
+
+**高风险**：SQL 沙箱连接池按进程维护，N 个实例理论最大连接数 = N × 50，可能耗尽数据库连接。
+
+### 10.3 扩展方案
+
+| 方案 | 改造成本 | 说明 |
+|------|---------|------|
+| A. 单实例+纵向扩展 | 零 | 当前唯一零风险方案 |
+| B. 会话亲和 | 低 | 负载均衡层基于 task_id hash 路由 |
+| C. 外部化状态到 Redis | 高 | SSE→Redis Pub/Sub，取消→Redis SET，活跃任务→标记+轮询 |
+
+---
+
+## 十一、Agent 短期记忆现状（摘要）
+
+> 详细设计方案见 `后续开发.md` P5（Agent 短期记忆 Redis 化）。
+
+### 当前实现
 
 ```
 用户提问 → Java ConversationService (MySQL) → 取最近10条消息(5轮)
@@ -459,500 +534,46 @@ prompt = f"用户刚才问了：{question}\n查询涉及的表：{', '.join(used
 ```
 
 **核心特征**：
-- **无主动存储**：Python 侧无任何持久化
-- **被动接收**：对话历史完全由 Java 端每次请求带过来
-- **上限 5 轮**：`ExecuteRequest.conversation_history` 限制 `max_length=5`（Pydantic 硬性校验，超出返回 422）
-- **`user_memory` 硬编码为 None**：模板有占位但从未填充
-- **Redis 未实际使用**：`config.py` 声明了 `redis_host`/`redis_port` 配置项，但整个 Python 服务**无任何 `import redis` 或 Redis 客户端代码**。取消机制（`cancellation.py`）使用内存字典 `_cancelled_tasks`，多实例部署时取消信号无法跨进程共享
-
-### 8.2 Redis 适用性分析
-
-| 数据类型 | 适合 Redis？ | 理由 |
-|----------|-------------|------|
-| 对话历史 | ✅ 适合 | 热数据、高频读、可设 TTL、减少 MySQL 压力 |
-| 会话上下文 | ✅ 适合 | 短生命周期、按 conversation_id 粒度、Hash 结构高效 |
-| 用户偏好 | ✅ 适合 | 跨会话复用、低频写高频读、7 天 TTL 自动过期 |
-| 最近查询 | ✅ 适合 | 有序列表、固定长度、时间序列特征 |
-| 持久化审计日志 | ❌ 不适合 | 需要持久保留，应留 MySQL |
-| 向量数据 | ❌ 不适合 | 大体量、专用存储（Milvus） |
-
-**结论**：Redis 适合存储这 4 类短期/中期记忆数据。已有的 Redis 基础设施（docker-compose 中 redis:7 + AOF 持久化）可直接复用。
-
-### 8.3 Redis Key 设计（修订版）
-
-```
-# ── 对话历史缓存 ─────────────────────────────────
-# 用 List 而非 String(JSON)，支持原子追加和裁剪
-agent:conv:{conversationId}:history
-    type: List
-    element: {"role":"user","content":"..."} (JSON string per element)
-    max_length: 20 elements (10轮)
-    TTL: 2 hours
-
-# ── 会话级上下文摘要 ─────────────────────────────
-agent:conv:{conversationId}:context
-    type: Hash
-    fields:
-        last_tables    → ["orders","products"] (JSON array)
-        last_intent    → {"metrics":["销售额"],"dimensions":["日期"]} (JSON)
-        last_sql       → "SELECT ..."
-        query_count    → "5"
-        updated_at     → "2026-06-12T10:00:00"
-    TTL: 2 hours
-
-# ── 用户级偏好记忆 ───────────────────────────────
-agent:user:{userId}:prefs
-    type: Hash
-    fields:
-        preferred_datasource → "3"
-        preferred_chart      → "bar"
-        frequent_tables      → ["orders","products","users"] (JSON)
-        frequent_metrics     → ["销售额","订单量"] (JSON)
-        last_active          → "2026-06-12T10:00:00"
-    TTL: 7 days
-
-# ── 用户最近查询摘要 ─────────────────────────────
-agent:user:{userId}:recent_queries
-    type: List
-    element: {"question":"...","tables":["..."],"intent":"...","ts":...}
-    max_length: 20
-    TTL: 7 days
-```
-
-**与第一版设计的变更**：
-1. 对话历史从 `String(JSON)` 改为 `List` — 支持原子 `LPUSH` + `LTRIM`，避免读-改-写竞态
-2. 所有 Hash 字段的 JSON 值在读取时按需解析，写入时序列化
-3. 明确了 Key 命名规范：`agent:conv:` 前缀用于会话级，`agent:user:` 前缀用于用户级
-
-### 8.4 并发安全考量
-
-| 风险点 | 分析 | 应对 |
-|--------|------|------|
-| 对话历史读-改-写竞态 | 两个请求同时读取同一 conversation 的历史，各自追加后写回，先写的被覆盖 | 使用 `List` + `LPUSH`/`LTRIM` 原子操作替代整体读-改-写 |
-| 用户偏好并发更新 | 两个请求同时更新 `frequent_tables`，先写的被覆盖 | 使用 `HSET` 单字段更新，不整体覆盖 |
-| Redis 连接池初始化竞态 | 与 LLM/Embedding 单例相同的 TOCTOU 模式 | 使用 `asyncio.Lock` 保护初始化 |
-| Redis 不可用时的降级 | Redis 连接失败不应阻断查询 | 所有 memory 操作 try-catch，失败时回退到无记忆模式 |
-
-### 8.5 架构变更
-
-#### 8.5.1 Python 侧变更
-
-**新增文件**：`python-service/dataocean/infra/memory.py`
-
-```python
-"""Agent 短期记忆管理
-
-基于 Redis 的对话历史、会话上下文和用户偏好存储。
-所有操作失败时静默降级（回退到无记忆模式），不阻断查询流程。
-"""
-
-import asyncio
-import json
-import logging
-from datetime import datetime
-
-import redis.asyncio as redis
-
-from dataocean.core.config import settings
-
-logger = logging.getLogger(__name__)
-
-# ── 连接池（asyncio.Lock 保护初始化）──────────────
-_pool: redis.ConnectionPool | None = None
-_pool_lock = asyncio.Lock()
-
-
-async def _get_pool() -> redis.ConnectionPool:
-    """获取或创建 Redis 连接池（线程安全）"""
-    global _pool
-    if _pool is not None:
-        return _pool
-    async with _pool_lock:
-        # double-check
-        if _pool is not None:
-            return _pool
-        _pool = redis.ConnectionPool(
-            host=settings.redis_host,
-            port=settings.redis_port,
-            password=settings.redis_password or None,
-            db=settings.redis_db,
-            decode_responses=True,
-            max_connections=20,
-        )
-        return _pool
-
-
-async def _get_client() -> redis.Redis:
-    """获取 Redis 客户端"""
-    pool = await _get_pool()
-    return redis.Redis(connection_pool=pool)
-
-
-# ── Key 前缀和常量 ─────────────────────────────────
-_CONV_HISTORY = "agent:conv:{cid}:history"
-_CONV_CONTEXT = "agent:conv:{cid}:context"
-_USER_PREFS = "agent:user:{uid}:prefs"
-_USER_RECENT = "agent:user:{uid}:recent_queries"
-
-CONV_TTL = 7200       # 2 小时
-USER_TTL = 604800     # 7 天
-MAX_HISTORY = 20      # 最多 20 条消息 (10轮)
-MAX_RECENT = 20       # 最近查询记录数
-
-
-# ── 对话历史（List 结构，原子操作）────────────────
-
-async def get_conversation_history(conversation_id: int) -> list[dict]:
-    """从 Redis 获取对话历史"""
-    try:
-        client = await _get_client()
-        key = _CONV_HISTORY.format(cid=conversation_id)
-        items = await client.lrange(key, 0, -1)
-        return [json.loads(item) for item in items]
-    except Exception as e:
-        logger.debug("Redis 读取对话历史失败: %s", e)
-        return []
-
-
-async def append_conversation_turn(
-    conversation_id: int,
-    user_message: str,
-    assistant_message: str,
-) -> None:
-    """原子追加一轮对话（LPUSH + LTRIM，无竞态）"""
-    try:
-        client = await _get_client()
-        key = _CONV_HISTORY.format(cid=conversation_id)
-
-        user_json = json.dumps({"role": "user", "content": user_message}, ensure_ascii=False)
-        asst_json = json.dumps({"role": "assistant", "content": assistant_message}, ensure_ascii=False)
-
-        pipe = client.pipeline()
-        pipe.lpush(key, asst_json, user_json)  # 最新的在前
-        pipe.ltrim(key, 0, MAX_HISTORY - 1)
-        pipe.expire(key, CONV_TTL)
-        await pipe.execute()
-    except Exception as e:
-        logger.debug("Redis 写入对话历史失败: %s", e)
-
-
-async def clear_conversation(conversation_id: int) -> None:
-    """清除会话相关的所有 Redis 数据"""
-    try:
-        client = await _get_client()
-        await client.delete(
-            _CONV_HISTORY.format(cid=conversation_id),
-            _CONV_CONTEXT.format(cid=conversation_id),
-        )
-    except Exception as e:
-        logger.debug("Redis 清除会话失败: %s", e)
-
-
-# ── 会话上下文（Hash 结构，单字段更新）────────────
-
-async def get_conversation_context(conversation_id: int) -> dict:
-    """获取会话级上下文摘要"""
-    try:
-        client = await _get_client()
-        key = _CONV_CONTEXT.format(cid=conversation_id)
-        data = await client.hgetall(key)
-        if not data:
-            return {}
-        for k in ("last_tables", "last_intent"):
-            if k in data:
-                try:
-                    data[k] = json.loads(data[k])
-                except json.JSONDecodeError:
-                    pass
-        return data
-    except Exception as e:
-        logger.debug("Redis 读取会话上下文失败: %s", e)
-        return {}
-
-
-async def update_conversation_context(
-    conversation_id: int,
-    *,
-    tables: list[str] | None = None,
-    intent: dict | None = None,
-    sql: str | None = None,
-) -> None:
-    """更新会话上下文（HSET 单字段更新，无竞态）"""
-    try:
-        client = await _get_client()
-        key = _CONV_CONTEXT.format(cid=conversation_id)
-
-        pipe = client.pipeline()
-        if tables:
-            pipe.hset(key, "last_tables", json.dumps(tables, ensure_ascii=False))
-        if intent:
-            pipe.hset(key, "last_intent", json.dumps(intent, ensure_ascii=False))
-        if sql:
-            pipe.hset(key, "last_sql", sql)
-        pipe.hincrby(key, "query_count", 1)
-        pipe.hset(key, "updated_at", datetime.now().isoformat())
-        pipe.expire(key, CONV_TTL)
-        await pipe.execute()
-    except Exception as e:
-        logger.debug("Redis 更新会话上下文失败: %s", e)
-
-
-# ── 用户偏好（Hash 结构，单字段更新）──────────────
-
-async def get_user_preferences(user_id: int) -> dict:
-    """获取用户偏好"""
-    try:
-        client = await _get_client()
-        key = _USER_PREFS.format(uid=user_id)
-        data = await client.hgetall(key)
-        if not data:
-            return {}
-        for k in ("frequent_tables", "frequent_metrics"):
-            if k in data:
-                try:
-                    data[k] = json.loads(data[k])
-                except json.JSONDecodeError:
-                    pass
-        return data
-    except Exception as e:
-        logger.debug("Redis 读取用户偏好失败: %s", e)
-        return {}
-
-
-async def update_user_preferences(
-    user_id: int,
-    *,
-    datasource_id: int | None = None,
-    chart_type: str | None = None,
-    tables: list[str] | None = None,
-    metrics: list[str] | None = None,
-) -> None:
-    """更新用户偏好（HSET 单字段更新）"""
-    try:
-        client = await _get_client()
-        key = _USER_PREFS.format(uid=user_id)
-
-        pipe = client.pipeline()
-        if datasource_id:
-            pipe.hset(key, "preferred_datasource", str(datasource_id))
-        if chart_type:
-            pipe.hset(key, "preferred_chart", chart_type)
-        if tables:
-            pipe.hset(key, "frequent_tables", json.dumps(tables[:5], ensure_ascii=False))
-        if metrics:
-            pipe.hset(key, "frequent_metrics", json.dumps(metrics[:5], ensure_ascii=False))
-        pipe.hset(key, "last_active", datetime.now().isoformat())
-        pipe.expire(key, USER_TTL)
-        await pipe.execute()
-    except Exception as e:
-        logger.debug("Redis 更新用户偏好失败: %s", e)
-
-
-# ── 最近查询（List 结构，LPUSH + LTRIM）───────────
-
-async def get_recent_queries(user_id: int) -> list[dict]:
-    """获取用户最近查询摘要"""
-    try:
-        client = await _get_client()
-        key = _USER_RECENT.format(uid=user_id)
-        items = await client.lrange(key, 0, -1)
-        return [json.loads(item) for item in items]
-    except Exception as e:
-        logger.debug("Redis 读取最近查询失败: %s", e)
-        return []
-
-
-async def add_recent_query(
-    user_id: int,
-    question: str,
-    tables: list[str],
-    intent: str,
-) -> None:
-    """添加最近查询记录（原子 LPUSH + LTRIM）"""
-    try:
-        client = await _get_client()
-        key = _USER_RECENT.format(uid=user_id)
-
-        record = json.dumps({
-            "question": question,
-            "tables": tables,
-            "intent": intent,
-            "ts": datetime.now().isoformat(),
-        }, ensure_ascii=False)
-
-        pipe = client.pipeline()
-        pipe.lpush(key, record)
-        pipe.ltrim(key, 0, MAX_RECENT - 1)
-        pipe.expire(key, USER_TTL)
-        await pipe.execute()
-    except Exception as e:
-        logger.debug("Redis 写入最近查询失败: %s", e)
-```
-
-**与第一版代码的关键差异**：
-1. `_get_pool()` 使用 `asyncio.Lock` + double-check 防止并发初始化竞态
-2. 对话历史使用 `List` + `pipeline(LPUSH + LTRIM + EXPIRE)` 原子操作
-3. 用户偏好/会话上下文使用 `HSET` 单字段更新，不整体覆盖
-4. 所有操作 try-catch 静默降级，Redis 故障不阻断查询
-
-#### 8.5.2 Python 配置变更
-
-**修改文件**：`python-service/dataocean/core/config.py`
-
-```python
-# 在 Settings 类中补充
-redis_password: str = ""   # 新增
-redis_db: int = 0          # 新增
-```
-
-**新增依赖**：`pyproject.toml`
-
-```toml
-"redis>=5.0.0",  # 异步 Redis 客户端
-```
-
-#### 8.5.3 Agent 节点集成
-
-**修改文件**：`python-service/dataocean/agent/nodes/query_rewriter.py`
-
-```python
-# 在 _build_variables 中，替换硬编码的 user_memory=None
-from dataocean.infra.memory import get_user_preferences, get_recent_queries
-
-async def _build_variables(state: AgentState) -> dict:
-    user_id = state.get("user_id")
-    user_memory = None
-    if user_id:
-        prefs = await get_user_preferences(user_id)
-        recent = await get_recent_queries(user_id)
-        if prefs or recent:
-            user_memory = {
-                "preferences": prefs,
-                "recent_queries": recent[:5],
-            }
-
-    return {
-        "current_date": datetime.now().strftime("%Y-%m-%d"),
-        "question": state["question"],
-        "conversation_history": state.get("conversation_history", []),
-        "user_memory": user_memory,  # ← 不再是 None
-    }
-```
-
-**修改文件**：`python-service/dataocean/agent/router.py`
-
-```python
-# 在 _run_agent 的 finally 块中，查询成功后更新记忆
-from dataocean.infra.memory import (
-    append_conversation_turn,
-    update_conversation_context,
-    update_user_preferences,
-    add_recent_query,
-)
-
-# Agent 执行成功后：
-if result and not result.get("error_message"):
-    await append_conversation_turn(
-        request.conversation_id,
-        request.question,
-        result.get("sql_explanation", ""),
-    )
-    await update_conversation_context(
-        request.conversation_id,
-        tables=result.get("used_tables"),
-        intent=result.get("extracted_intent"),
-        sql=result.get("generated_sql"),
-    )
-    if request.user_id:
-        await add_recent_query(
-            request.user_id,
-            request.question,
-            result.get("used_tables", []),
-            str(result.get("extracted_intent", {})),
-        )
-```
-
-#### 8.5.4 Java 侧变更
-
-**修改文件**：`PythonAgentClientImpl.java`
-
-```java
-// buildConversationHistory 方法改为：
-// 1. 先尝试从 Redis 获取缓存的对话历史
-// 2. 缓存未命中再查 MySQL（保持现有逻辑）
-// 3. 查询结果写回 Redis 缓存
-```
-
-**修改文件**：`ConversationServiceImpl.java`
-
-```java
-// deleteConversation 方法中，同时清除 Redis 缓存
-```
-
-#### 8.5.5 前端无变更
-
-前端不需要任何修改。对话历史的缓存和记忆完全在后端透明处理。
-
-### 8.6 数据流变更（前后对比）
-
-#### 变更前
-
-```
-用户提问
-  → Java 从 MySQL 取最近10条消息
-  → 作为 conversation_history 传给 Python
-  → Python 在 prompt 中使用 (user_memory=None)
-  → 请求结束，状态销毁
-```
-
-#### 变更后
-
-```
-用户提问
-  → Java 先查 Redis (agent:conv:{id}:history)
-    → 命中：直接使用
-    → 未命中：查 MySQL → 写回 Redis
-  → 传入 conversation_history + user_memory (从 Redis)
-  → Python Agent 使用增强的 prompt（含用户偏好和历史查询）
-  → Agent 执行成功后（异步，不阻断响应）：
-      → LPUSH 对话历史到 Redis
-      → HSET 更新会话上下文
-      → LPUSH 记录最近查询
-      → HSET 更新用户偏好
-  → 下次请求时 Query Rewriter 可利用 user_memory
-```
-
-### 8.7 实施计划
-
-| 阶段 | 内容 | 工作量 | 文件变更 |
-|------|------|--------|---------|
-| Phase 1 | Redis 基础设施 + `infra/memory.py` + config | 0.5天 | `config.py`, `pyproject.toml`, 新建 `memory.py` |
-| Phase 2 | Agent 节点集成 (query_rewriter + router) | 1天 | `query_rewriter.py`, `router.py` |
-| Phase 3 | Java 侧 Redis 缓存层 | 1天 | `PythonAgentClientImpl.java`, `ConversationServiceImpl.java` |
-| Phase 4 | Prompt 模板适配 user_memory | 0.5天 | `query_rewrite.j2` |
+- Python 侧无任何持久化，`user_memory` 硬编码为 None
+- 对话历史由 Java 端每次从 MySQL 查询后传入，上限 5 轮
+- `config.py` 声明了 `redis_host`/`redis_port` 但无任何 Redis 客户端代码
+- 取消机制使用内存字典，多实例部署时无法跨进程共享
+
+**后续开发方向**：引入 Redis 实现对话历史缓存（List）、会话上下文（Hash）、用户偏好（Hash）、最近查询（List），所有操作原子化+静默降级。
 
 ---
 
-## 九、完整修复计划
+## 十二、修复计划（聚焦已有代码排雷）
 
-### 9.1 第一阶段：阻断功能修复（P0，0.5天）
+> 以下仅包含**已实现代码中的 bug、安全漏洞、设计缺陷**。
+> 后续功能开发（Redis 记忆、可观测性、多实例部署等）见 `后续开发.md`。
+
+### 12.1 第一阶段：P0 阻断功能（30min）
 
 | # | 问题 | 位置 | 修复方案 | 工作量 |
 |---|------|------|---------|--------|
 | 1 | force 模式先删后写 | `rag/vectorizer.py:54` | 改为先写入新数据→验证→删除旧数据 | 30min |
-| 2 | 降级 score 偏低 | `rag/fallback.py:60` | 将降级 score 从 0.5 提高到 0.7，或增加 `is_fallback` 标记 | 15min |
 
-### 9.2 第二阶段：安全加固（P1，1天）
+### 12.2 第二阶段：安全代码 bug（2.5h）
 
 | # | 问题 | 位置 | 修复方案 | 工作量 |
 |---|------|------|---------|--------|
-| 3 | 无策略即无限制 | `PermissionCalculatorImpl` | `buildEmptyContext()` 增加默认行级过滤或拒绝无策略用户 | 2h |
-| 4 | 未知脱敏策略返回原始值 | `DataMaskingServiceImpl` | `maskValue()` 返回 `"****"` | 15min |
-| 5 | 沙箱路由无认证 | `sandbox/router.py` | 添加 `X-Internal-Token` 验证 | 1h |
-| 6 | 表白名单为空跳过检查 | `table_rule.py` | 空白名单时默认拒绝 | 30min |
-| 7 | Prompt 注入防护 | `sql_generation.j2`, `data_visualizer.py` | 用户输入用分隔符包裹 + system prompt 防护声明 | 1h |
+| 2 | 未知脱敏策略返回原始值 | `DataMaskingServiceImpl` | `maskValue()` catch 块返回 `"****"` | 15min |
+| 3 | 沙箱路由无认证 | `sandbox/router.py` | 添加 `X-Internal-Token` 验证 | 1h |
+| 4 | 表白名单为空跳过检查 | `table_rule.py` | 空白名单时默认拒绝 | 30min |
+| 5 | Prompt 注入防护 | `sql_generation.j2`, `data_visualizer.py` | 用户输入用分隔符包裹 + system prompt 防护声明 | 1h |
 
-### 9.3 第三阶段：质量提升（P2，2天）
+### 12.3 第三阶段：设计改进建议（需讨论后决定）
+
+| # | 问题 | 位置 | 当前行为 | 建议改进 |
+|---|------|------|---------|---------|
+| 6 | 无策略即无限制 | `PermissionCalculatorImpl` | 有访问权但无策略 = 不限制 | `buildEmptyContext()` 增加默认拒绝或要求显式配置 |
+| 7 | deniedColumns 取交集 | `PermissionCalculatorImpl` | 多维度取交集（宽松） | 改为取并集（严格） |
+| 8 | 降级 score 偏低 | `rag/fallback.py:60` | score=0.5，降级可工作 | 提高到 0.7 或增加 is_fallback 标记 |
+
+> **说明**：这 3 项是**有意的设计选择**，不是代码 bug。修改前需要讨论对现有用户的影响。
+
+### 12.4 第四阶段：已有代码 bug（1.5天）
 
 | # | 问题 | 位置 | 修复方案 | 工作量 |
 |---|------|------|---------|--------|
@@ -960,56 +581,36 @@ if result and not result.get("error_message"):
 | 10 | VectorStore 重复创建 | `vector_store.py` | 缓存实例 | 1h |
 | 11 | reranker 加分无上限 | `reranker.py` | clamp 到 [0,1] | 30min |
 | 12 | SSE 解析不完整 | `PythonAgentClientImpl` | 改用 Spring SseEmitter | 3h |
-| 13 | state.py 字段缺失 | `agent/state.py` | 补充定义 | 30min |
+| 13 | state.py 字段缺失 | `agent/state.py` | 补充 `fallback_chunks`、`_node_timeout` 定义 | 30min |
 | 14 | LLM/Embedding 初始化竞态 | `infra/llm.py`, `infra/embeddings.py` | asyncio.Lock 保护 | 1h |
 | 15 | 配置热重载竞态 | `core/config.py` | 版本号+原子切换 | 2h |
 | 16 | 连接池清理 TOCTOU | `pool_manager.py` | 清理前获取 `_lock` | 30min |
-| 17 | 降级变量不一致 | `sql_generator.py` | 统一变量集 | 1h |
-| 18 | Token 预算变量名 | `token_budget.py` | 对齐实际变量名 | 1h |
-
-### 9.4 第四阶段：Redis 记忆（2天）
-
-见第八章实施计划。
-
-### 9.5 第五阶段：可选优化（按需）
-
-| # | 问题 | 修复方案 | 工作量 |
-|---|------|---------|--------|
-| 19 | 图表+追问串行 | 并行化两个 LLM 调用 | 1h |
-| 20 | has_join 过于宽泛 | 收紧判断条件 | 30min |
-| 21 | deniedColumns 取交集 | 改为取并集 | 2h |
-| 22 | Milvus 连接无幂等 | 添加状态检查 | 30min |
+| 17 | 降级变量不一致 | `sql_generator.py` | 统一 managed/降级路径的变量集 | 1h |
+| 18 | Token 预算变量名 | `token_budget.py` | 对齐实际传入的变量名 | 1h |
+| 19 | 前端轮询单次异常终止 | `QueryDatasourceView.vue` | catch 单次 `getTaskResult` 异常继续轮询 | 1h |
 
 ---
 
-## 十、总结
+## 十三、总结
 
-### 智能问数链路
+### 已有代码中的雷（需修复）
 
-**整体可用性**：核心链路（问题改写→Schema召回→SQL生成→校验→执行→可视化）已实现完整，可以端到端工作。
+| 类别 | 数量 | 最严重项 |
+|------|------|---------|
+| P0 功能阻断 | 1 | 向量化先删后写（数据丢失风险） |
+| 安全代码 bug | 4 | 沙箱无认证、Prompt 注入、表白名单为空、未知脱敏返回原始值 |
+| 设计改进建议 | 3 | 无策略即无限制、deniedColumns 取交集、降级 score 偏低（需讨论后决定） |
+| 并发 bug | 3 | 配置热重载竞态、LLM/Embedding 初始化竞态、连接池清理 TOCTOU |
+| 代码质量 | 8 | retry_count 边界、VectorStore 重复创建、reranker 加分无上限、SSE 解析、前端轮询异常终止等 |
+| **合计** | **19** | 修复工作量 **约 2 天**（不含设计改进建议） |
 
-**关键阻断项**：向量化 force 模式先删后写（P0-1），修复需 30 分钟。降级 score 偏低（P0-2），修复需 15 分钟。
+### 核心链路评估
 
-**安全纵深**：SQL 沙箱 12 层防御体系完善，AST 级解析可靠。主要安全风险在权限模型的默认策略和 Prompt 注入。
+- **智能问数**：6 节点工作流完整可端到端工作，12 层 SQL 沙箱防御可靠
+- **RAG**：分块→向量化→检索→重排链路完整，降级机制可工作但 score 偏低
+- **权限脱敏**：双层防护设计合理，但默认策略过于宽松
+- **前端**：取消机制和状态覆盖做得好，轮询容错是唯一需要修的 bug
 
-### RAG 模块
+### 不在本文档范围（后续开发）
 
-**整体可用性**：分块→向量化→检索→重排完整链路已实现。
-
-**关键阻断项**：向量化 force 模式先删后写（P0-1），降级 score 偏低（P0-2）。
-
-### 权限与安全
-
-**双层防护设计合理**：Java 网关层权限计算 + Python AST 层权限改写。
-
-**关键风险**：无策略时默认无限制（P-1），deniedColumns/maskColumns 取交集（P-2），未知脱敏策略返回原始值（P-3）。
-
-### 并发安全
-
-**大部分依赖 GIL**：仅沙箱连接池有 `threading.Lock`。配置热重载、LLM/Embedding 初始化存在竞态风险。
-
-### Agent 短期记忆
-
-**现状**：Python 侧无任何持久化，`user_memory` 硬编码为 None。
-
-**Redis 化方案**：4 类 Key（对话历史 List、会话上下文 Hash、用户偏好 Hash、最近查询 List），全部使用原子操作避免竞态，所有操作静默降级不阻断查询。4 阶段实施，约 3 天工作量。
+Redis 记忆系统、可观测性建设、测试覆盖补充、多实例部署、告警触发逻辑、配额维度扩展、前端自动重试/降级提示——这些属于新功能开发，见 `后续开发.md`。
