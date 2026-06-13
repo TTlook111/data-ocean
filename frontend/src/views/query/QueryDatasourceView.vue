@@ -47,6 +47,7 @@ interface LocalMessage {
   taskId?: string
   status?: string
   queryResult?: import('../../api/query').QueryTaskResult
+  originalQuestion?: string  // 用于重试查询
 }
 
 interface LocalSession {
@@ -412,6 +413,7 @@ async function sendQuestion() {
     content: '正在查询中...',
     createdAt: now,
     status: 'loading',
+    originalQuestion: text,  // 保存原始问题，用于重试查询
   })
   await animateNewMessages()
 
@@ -452,7 +454,7 @@ async function sendQuestion() {
       assistantMsg.status = result.status
       assistantMsg.queryResult = result
       if (result.status === 'COMPLETED') {
-        assistantMsg.content = result.sqlExplanation || '查询完成'
+        assistantMsg.content = buildCompletionMessage(result)
       } else if (result.status === 'TIMEOUT') {
         assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
       } else {
@@ -548,6 +550,82 @@ async function cancelCurrentQuery() {
     await cancelTask(currentTaskId.value)
   } catch {
     // 取消请求失败不影响 UI 状态恢复
+  }
+}
+
+/**
+ * 构建查询完成消息
+ * 处理降级状态提示
+ */
+function buildCompletionMessage(result: any): string {
+  const degradeNotice = result.degraded
+    ? '\n⚠️ 知识库暂时不可用，召回精度可能降低'
+    : ''
+  return (result.sqlExplanation || '查询完成') + degradeNotice
+}
+
+/**
+ * 重试查询：使用原始问题重新提交
+ */
+function retryQuery(originalQuestion: string) {
+  if (!originalQuestion || isQuerying.value) return
+  question.value = originalQuestion
+  sendQuestion()
+}
+
+/**
+ * 继续等待：重新轮询当前任务
+ */
+async function continueWaiting(taskId: string) {
+  if (isQuerying.value) return
+  isQuerying.value = true
+  currentTaskId.value = taskId  // 设置当前任务 ID，支持取消功能
+
+  const session = activeSession.value
+  if (!session) {
+    isQuerying.value = false
+    currentTaskId.value = undefined
+    return
+  }
+
+  // 找到对应的助手消息
+  const assistantMsg = session.messages.find((m) => m.taskId === taskId)
+  if (!assistantMsg) {
+    isQuerying.value = false
+    return
+  }
+
+  // 更新状态为 loading
+  assistantMsg.status = 'loading'
+  assistantMsg.content = '继续等待查询结果...'
+
+  const abortCtrl = new AbortController()
+  pollAbortController.value = abortCtrl
+
+  try {
+    const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (progressMessage) => {
+      if (assistantMsg.status === 'loading' && progressMessage) {
+        assistantMsg.content = `${progressMessage}...`
+      }
+    })
+
+    assistantMsg.status = result.status
+    assistantMsg.queryResult = result
+    if (result.status === 'COMPLETED') {
+      assistantMsg.content = buildCompletionMessage(result)
+    } else if (result.status === 'TIMEOUT') {
+      assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
+    } else {
+      assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
+    }
+    await animateMessageUpdate(assistantMsg.id)
+  } catch (error) {
+    assistantMsg.status = 'error'
+    assistantMsg.content = extractError(error, '查询失败，请稍后重试')
+    await animateMessageUpdate(assistantMsg.id)
+  } finally {
+    isQuerying.value = false
+    pollAbortController.value = undefined
   }
 }
 
@@ -810,6 +888,21 @@ watch(resultTab, () => {
             <div class="message-bubble">
               <p>{{ message.content }}</p>
               <small>{{ formatTime(message.createdAt) }}</small>
+              <!-- TIMEOUT 状态操作按钮 -->
+              <div v-if="message.role === 'assistant' && message.status === 'TIMEOUT'" class="message-actions">
+                <button class="action-btn retry" @click="retryQuery(message.originalQuestion || '')" :disabled="isQuerying">
+                  <RefreshCw :size="14" />重试查询
+                </button>
+                <button class="action-btn wait" @click="continueWaiting(message.taskId || '')" :disabled="isQuerying">
+                  <History :size="14" />继续等待
+                </button>
+              </div>
+              <!-- 失败状态操作按钮 -->
+              <div v-if="message.role === 'assistant' && (message.status === 'FAILED' || message.status === 'error')" class="message-actions">
+                <button class="action-btn retry" @click="retryQuery(message.originalQuestion || '')" :disabled="isQuerying || !message.originalQuestion">
+                  <RefreshCw :size="14" />重新提问
+                </button>
+              </div>
             </div>
           </article>
 
@@ -1569,6 +1662,49 @@ watch(resultTab, () => {
   color: inherit;
   font-size: 11px;
   opacity: 0.62;
+}
+
+.message-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--do-line);
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+  background: var(--do-surface);
+  color: var(--do-ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 150ms;
+}
+
+.action-btn:hover:not(:disabled) {
+  border-color: var(--do-primary);
+  color: var(--do-primary);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-btn.retry {
+  background: var(--do-primary-soft);
+  border-color: var(--do-primary);
+  color: var(--do-primary-strong);
+}
+
+.action-btn.wait {
+  background: var(--do-surface);
 }
 
 .empty-chat {

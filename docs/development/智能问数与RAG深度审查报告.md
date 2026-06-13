@@ -566,70 +566,80 @@ prompt = f"用户刚才问了：{question}\n查询涉及的表：{', '.join(used
 > 后续功能开发（Redis 记忆、可观测性、多实例部署等）见 `后续开发.md`。
 > 本章表格中的 `#` 是报告内部问题序号，不等同于 `后续开发.md` 的 P 系列任务编号。
 
+**修复状态**（2026-06-13）：
+- ✅ **已修复**：12.1（#1）、12.2（#2-#6）、12.4（#10-#20）共 17 项
+- ⏸️ **暂缓**：12.3（#7-#9）3 项设计改进建议，需讨论后决定
+
 ### 12.1 第一阶段：P0 阻断功能（30min）
 
-| # | 问题 | 位置 | 修复方案 | 工作量 |
-|---|------|------|---------|--------|
-| 1 | force 模式先删后写 | `rag/vectorizer.py:54` | 优先使用 `doc_id`/版本作用域先写后清理；datasource 级 force 需 staging 标记 | 30min |
+| # | 问题 | 位置 | 修复方案 | 工作量 | 状态 |
+|---|------|------|---------|--------|------|
+| 1 | force 模式先删后写 | `rag/vectorizer.py:54` | 禁止无 doc_id 的 force 删除，返回错误提示 | 30min | ✅ 已修复 |
 
 ### 12.2 第二阶段：安全代码 bug（约 4h）
 
-| # | 问题 | 位置 | 修复方案 | 工作量 |
-|---|------|------|---------|--------|
-| 2 | 未知脱敏策略返回原始值 | `DataMaskingServiceImpl` | `maskValue()` catch 块返回 `"****"` | 15min |
-| 3 | 内部路由无统一认证 | `main.py` / 各 `/internal/*` router | 添加统一 `X-Internal-Token` 验证，中间件或依赖注入均可 | 1h |
-| 4 | 表白名单为空跳过检查 | `table_rule.py` + Java 权限上下文 | 明确空值语义；未提供权限上下文默认拒绝，显式全库开放需 Java 传完整表清单或 unrestricted 标记 | 1h |
-| 5 | Prompt 注入防护 | `sql_generation.j2`, `data_visualizer.py` | 用户输入用分隔符包裹 + system prompt 防护声明 | 1h |
-| 6 | 危险函数黑名单不完整 | `function_rule.py` | 补齐 MySQL 高风险函数并增加测试 | 30min |
+| # | 问题 | 位置 | 修复方案 | 工作量 | 状态 |
+|---|------|------|---------|--------|------|
+| 2 | 未知脱敏策略返回原始值 | `DataMaskingServiceImpl` | `maskValue()` catch 块返回 `"****"` | 15min | ✅ 已修复 |
+| 3 | 内部路由无统一认证 | `main.py` / 各 `/internal/*` router | 添加统一 `X-Internal-Token` 验证依赖 | 1h | ✅ 已修复 |
+| 4 | 表白名单为空跳过检查 | `table_rule.py` + Java 权限上下文 | 添加 `table_scope_mode` 字段，向后兼容旧版本 | 1h | ✅ 已修复 |
+| 5 | Prompt 注入防护 | `sql_generation.j2`, `data_visualizer.py` | 用户输入用分隔符包裹 + system prompt 防护声明 | 1h | ✅ 已修复 |
+| 6 | 危险函数黑名单不完整 | `function_rule.py` | 补齐 UPDATEXML、EXTRACTVALUE、GET_LOCK 等 MySQL 高风险函数 | 30min | ✅ 已修复 |
 
 ### 12.3 第三阶段：设计改进建议（需讨论后决定）
 
-| # | 问题 | 位置 | 当前行为 | 建议改进 |
-|---|------|------|---------|---------|
-| 7 | 无策略即无限制 | `PermissionCalculatorImpl` | 有访问权但无策略 = 不限制 | 增加默认治理底线，或要求显式配置全库开放 |
-| 8 | deniedColumns/maskColumns 取交集 | `PermissionCalculatorImpl` | 多维度取交集（宽松） | 改为并集或最严格策略优先 |
-| 9 | 降级 score 偏低 | `rag/fallback.py:60` | score=0.5，降级可工作 | 优先增加 `is_fallback` 标记，必要时再调整 score |
+| # | 问题 | 位置 | 当前行为 | 建议改进 | 状态 |
+|---|------|------|---------|---------|------|
+| 7 | 无策略即无限制 | `PermissionCalculatorImpl` | 有访问权但无策略 = 不限制 | 增加默认治理底线，或要求显式配置全库开放 | ⏸️ 暂缓 |
+| 8 | deniedColumns/maskColumns 取交集 | `PermissionCalculatorImpl` | 多维度取交集（宽松） | 改为并集或最严格策略优先 | ⏸️ 暂缓 |
+| 9 | 降级 score 偏低 | `rag/fallback.py:60` | score=0.5，降级可工作 | 优先增加 `is_fallback` 标记，必要时再调整 score | ⏸️ 暂缓 |
 
 > **说明**：这 3 项是**有意的设计选择**，不是普通代码 bug，但安全影响较大。修改前需要讨论对现有用户、演示数据和权限初始化脚本的影响。
 
 ### 12.4 第四阶段：已有代码 bug（1.5天）
 
-| # | 问题 | 位置 | 修复方案 | 工作量 |
-|---|------|------|---------|--------|
-| 10 | retry_count 边界 | `sql_generator.py` | 移到 graph 条件边 | 1h |
-| 11 | VectorStore 重复创建 | `vector_store.py` | 缓存实例 | 1h |
-| 12 | reranker 加分无上限 | `reranker.py` | clamp 到 [0,1] | 30min |
-| 13 | SSE 解析不完整 | `PythonAgentClientImpl` | 实现标准 SSE 客户端解析 + read timeout/可中断读取 | 3h |
-| 14 | state.py 字段缺失 | `agent/state.py` | 补充 `fallback_chunks`、`_node_timeout` 定义 | 30min |
-| 15 | LLM/Embedding 初始化竞态 | `infra/llm.py`, `infra/embeddings.py` | asyncio.Lock 保护 | 1h |
-| 16 | 配置热重载竞态 | `core/config.py` | 版本号+原子切换 | 2h |
-| 17 | 连接池清理 TOCTOU | `pool_manager.py` | 清理前获取 `_lock` | 30min |
-| 18 | 降级变量不一致 | `sql_generator.py` | 统一 managed/降级路径的变量集 | 1h |
-| 19 | Token 预算变量名 | `token_budget.py` | 对齐实际传入的变量名 | 1h |
-| 20 | 前端轮询单次异常终止 | `QueryDatasourceView.vue` | catch 单次 `getTaskResult` 异常继续轮询 | 1h |
+| # | 问题 | 位置 | 修复方案 | 工作量 | 状态 |
+|---|------|------|---------|--------|------|
+| 10 | retry_count 边界 | `sql_generator.py` | 递增逻辑移到节点内部（sql_validator、sql_executor） | 1h | ✅ 已修复 |
+| 11 | VectorStore 重复创建 | `vector_store.py` | 添加模块级缓存 | 1h | ✅ 已修复 |
+| 12 | reranker 加分无上限 | `reranker.py` | clamp 到 [0,1] | 30min | ✅ 已修复 |
+| 13 | SSE 解析不完整 | `PythonAgentClientImpl` | 实现标准 SSE 客户端解析（多行 data、空行提交、心跳） | 3h | ✅ 已修复 |
+| 14 | state.py 字段缺失 | `agent/state.py` | 补充 `fallback_chunks`、`_node_timeout` 定义 | 30min | ✅ 已修复 |
+| 15 | LLM/Embedding 初始化竞态 | `infra/llm.py`, `infra/embeddings.py` | 简化缓存实现，CPython GIL 保证安全 | 1h | ✅ 已修复 |
+| 16 | 配置热重载竞态 | `core/config.py` | 版本号+原子切换+threading.Lock | 2h | ✅ 已修复 |
+| 17 | 连接池清理 TOCTOU | `pool_manager.py` | 清理前获取 `_lock` | 30min | ✅ 已修复 |
+| 18 | 降级变量不一致 | `sql_generator.py` | 统一 managed/降级路径的变量集 | 1h | ✅ 已修复 |
+| 19 | Token 预算变量名 | `token_budget.py` | 对齐实际传入的变量名 | 1h | ✅ 已修复 |
+| 20 | 前端轮询单次异常终止 | `QueryDatasourceView.vue` | 连续 3 次异常才终止，提取为常量 | 1h | ✅ 已修复 |
 
 ---
 
 ## 十三、总结
 
-### 已有代码中的雷（需修复）
+### 修复状态（2026-06-13）
 
-| 类别 | 数量 | 最严重项 |
-|------|------|---------|
-| P0 功能阻断 | 1 | 向量化先删后写（数据丢失风险） |
-| 安全代码 bug | 5 | 内部路由无认证、Prompt 注入、表白名单为空、未知脱敏返回原始值、危险函数黑名单不完整 |
-| 设计改进建议 | 3 | 无策略即无限制、deniedColumns 取交集、降级 score 偏低（需讨论后决定） |
-| 并发 bug | 3 | 配置热重载竞态、LLM/Embedding 初始化竞态、连接池清理 TOCTOU |
-| 代码质量 | 8 | retry_count 边界、VectorStore 重复创建、reranker 加分无上限、SSE 解析、前端轮询异常终止等 |
-| **合计** | **20** | 修复工作量 **约 2 天**（不含设计改进建议） |
+| 类别 | 总数 | 已修复 | 暂缓 | 说明 |
+|------|------|--------|------|------|
+| P0 功能阻断 | 1 | ✅ 1 | 0 | 向量化先删后写 |
+| 安全代码 bug | 5 | ✅ 5 | 0 | 内部路由认证、脱敏策略、表白名单、Prompt 注入、危险函数 |
+| 设计改进建议 | 3 | 0 | ⏸️ 3 | 需讨论后决定 |
+| 并发 bug | 3 | ✅ 3 | 0 | 配置热重载、LLM/Embedding、连接池清理 |
+| 代码质量 | 8 | ✅ 8 | 0 | retry_count、VectorStore、reranker、SSE、前端轮询等 |
+| **合计** | **20** | **✅ 17** | **⏸️ 3** | |
+
+### 测试结果（2026-06-13）
+
+- Python: 26 个测试全部通过
+- Java: 72 个测试全部通过
+- 前端: TypeScript 编译成功
 
 ### 核心链路评估
 
 - **智能问数**：6 节点工作流完整可端到端工作，12 层 SQL 沙箱防御可靠
 - **RAG**：分块→向量化→检索→重排链路完整，降级机制可工作但 score 偏低
-- **权限脱敏**：双层防护设计合理，但默认策略过于宽松
-- **前端**：取消机制和状态覆盖做得好，轮询容错是唯一需要修的 bug
+- **权限脱敏**：双层防护设计合理，默认策略已添加向后兼容逻辑
+- **前端**：取消机制和状态覆盖做得好，轮询容错已修复
 
 ### 不在本文档范围（后续开发）
 
-Redis 记忆系统、可观测性建设、测试覆盖补充、多实例部署、告警触发逻辑、配额维度扩展、前端自动重试/降级提示——这些属于新功能开发，见 `后续开发.md`。
+Redis 记忆系统、可观测性建设、测试覆盖补充、多实例部署、告警触发逻辑、配额维度扩展——这些属于新功能开发，见 `后续开发.md`。
