@@ -25,6 +25,7 @@ from dataocean.sandbox.pool_manager import (
     _pool_info,
     PoolInfo,
 )
+from tests.conftest import parse_sse_stream
 
 
 class TestSSEClientParsing:
@@ -36,7 +37,7 @@ class TestSSEClientParsing:
         sse_data = 'event:progress\ndata:{"node":"SQL_GENERATOR","message":"generating"}\n\n'.encode("utf-8")
         stream = BytesIO(sse_data)
 
-        events = self._parse_sse_stream(stream)
+        events = parse_sse_stream(stream)
         assert len(events) == 1
         assert events[0]["event"] == "progress"
         assert "SQL_GENERATOR" in events[0]["data"]
@@ -46,7 +47,7 @@ class TestSSEClientParsing:
         sse_data = b"event:result\ndata:line1\ndata:line2\ndata:line3\n\n"
         stream = BytesIO(sse_data)
 
-        events = self._parse_sse_stream(stream)
+        events = parse_sse_stream(stream)
         assert len(events) == 1
         assert events[0]["event"] == "result"
         assert "line1\nline2\nline3" == events[0]["data"]
@@ -56,7 +57,7 @@ class TestSSEClientParsing:
         sse_data = b":heartbeat\nevent:progress\ndata:test\n\n"
         stream = BytesIO(sse_data)
 
-        events = self._parse_sse_stream(stream)
+        events = parse_sse_stream(stream)
         assert len(events) == 1
         assert events[0]["event"] == "progress"
 
@@ -65,49 +66,9 @@ class TestSSEClientParsing:
         sse_data = b"event:result\ndata:test"
         stream = BytesIO(sse_data)
 
-        events = self._parse_sse_stream(stream)
+        events = parse_sse_stream(stream)
         assert len(events) == 1
         assert events[0]["event"] == "result"
-
-    def _parse_sse_stream(self, stream) -> list[dict]:
-        """模拟 Java 端的 SSE 解析逻辑"""
-        events = []
-        current_event = None
-        current_data = []
-
-        for line in stream.read().decode("utf-8").split("\n"):
-            if line == "":
-                if current_data and current_event:
-                    events.append({
-                        "event": current_event,
-                        "data": "\n".join(current_data),
-                    })
-                current_event = None
-                current_data = []
-                continue
-
-            if line.startswith(":"):
-                continue
-
-            if line.startswith("event:"):
-                current_event = line[6:].strip()
-                continue
-
-            if line.startswith("data:"):
-                data_content = line[5:]
-                if data_content.startswith(" "):
-                    data_content = data_content[1:]
-                current_data.append(data_content)
-                continue
-
-        # 流结束时提交最后一个事件
-        if current_data and current_event:
-            events.append({
-                "event": current_event,
-                "data": "\n".join(current_data),
-            })
-
-        return events
 
 
 class TestConfigReload:

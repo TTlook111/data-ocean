@@ -629,9 +629,23 @@ prompt = f"用户刚才问了：{question}\n查询涉及的表：{', '.join(used
 
 ### 测试结果（2026-06-13）
 
-- Python: 26 个测试全部通过
+- Python: 104 个测试通过，4 个跳过（E2E 测试需要完整环境）
 - Java: 72 个测试全部通过
 - 前端: TypeScript 编译成功
+
+### 回归测试覆盖
+
+F0 修复已补充完整的回归测试：
+
+| 测试文件 | 测试数量 | 覆盖范围 |
+|----------|----------|----------|
+| `test_f0_regression.py` | 13 | RAG force 向量化、fallback、reranker clamp、Agent retry_count、模板变量一致性、配置热重载、连接池清理、VectorStore 缓存 |
+| `test_sandbox_regression.py` | 19 | 表白名单空值语义、危险函数黑名单、多表查询、大小写不敏感 |
+| `test_sse_regression.py` | 15 | SSE 多行 data、空行提交、心跳、流结束处理、配置热重载线程安全、连接池清理线程安全 |
+| `test_sql_nodes.py` | 10 | SQL 生成、校验、执行节点、table_scope_mode、危险函数检测 |
+| `test_rag_degradation.py` | 6 | reranker 分数 clamp、VectorStore 缓存、force 模式安全修复 |
+| `test_sse_polling.py` | 8 | SSE 解析、配置热重载、连接池清理、table_scope_mode 向后兼容 |
+| **合计** | **71** | |
 
 ### 核心链路评估
 
