@@ -71,6 +71,9 @@ class DataOceanReranker(BaseDocumentCompressor):
                 weighted_score -= 0.5
             weighted_score += _chunk_type_bonus(chunk_type, has_aggregation, has_caution, has_join)
 
+            # 安全修复：clamp 到 [0, 1.0]，避免重排分数失真
+            weighted_score = max(0.0, min(1.0, weighted_score))
+
             metadata["score"] = round(weighted_score, 4)
             metadata.setdefault("relevance_score", base_score)
             scored_documents.append((weighted_score, Document(page_content=document.page_content, metadata=metadata)))

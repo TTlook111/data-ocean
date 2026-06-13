@@ -490,6 +490,9 @@ async function animateMessageUpdate(messageId: string) {
   }
 }
 
+// 轮询配置常量
+const POLL_MAX_CONSECUTIVE_ERRORS = 3  // 连续失败阈值，单次网络抖动不应终止整个轮询
+
 async function pollTaskResult(
   taskId: string,
   signal?: AbortSignal,
@@ -497,19 +500,36 @@ async function pollTaskResult(
   intervalMs = 2000,
   onProgress?: (progressMessage: string) => void,
 ) {
+  let consecutiveErrors = 0
+
   for (let i = 0; i < maxAttempts; i++) {
     if (signal?.aborted) {
       return { status: 'CANCELLED', errorMessage: '查询已取消' } as any
     }
-    const res = await getTaskResult(taskId)
-    const task = res.data
-    if (task.status !== 'PROCESSING') {
-      return task
+
+    try {
+      const res = await getTaskResult(taskId)
+      const task = res.data
+      // 请求成功，重置连续失败计数
+      consecutiveErrors = 0
+
+      if (task.status !== 'PROCESSING') {
+        return task
+      }
+      // 仍在处理中：把后端实时回写的阶段进度回调出去展示
+      if (onProgress && task.progressMessage) {
+        onProgress(task.progressMessage)
+      }
+    } catch (error) {
+      // 安全修复：单次异常不终止轮询，连续失败达到阈值后再失败
+      consecutiveErrors++
+      console.warn(`轮询任务结果失败 (连续第 ${consecutiveErrors} 次) taskId=${taskId}`, error)
+      if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
+        return { status: 'FAILED', errorMessage: `网络连接异常，连续 ${POLL_MAX_CONSECUTIVE_ERRORS} 次请求失败` } as any
+      }
+      // 未达到阈值，继续下一轮轮询
     }
-    // 仍在处理中：把后端实时回写的阶段进度回调出去展示
-    if (onProgress && task.progressMessage) {
-      onProgress(task.progressMessage)
-    }
+
     await new Promise((resolve, reject) => {
       const timer = setTimeout(resolve, intervalMs)
       signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')) }, { once: true })

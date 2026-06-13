@@ -104,13 +104,29 @@ def destroy_pool(datasource_id: int) -> None:
 
 
 def cleanup_idle_pools() -> int:
-    """清理超过空闲超时的连接池，返回清理数量"""
+    """清理超过空闲超时的连接池，返回清理数量
+
+    安全修复：在持有 _lock 的情况下检查和清理，避免 TOCTOU 问题。
+    """
     now = time.time()
     timeout = sandbox_config.pool_idle_timeout
-    expired = [ds_id for ds_id, info in _pool_info.items()
-               if now - info.last_used_at > timeout]
-    for ds_id in expired:
-        destroy_pool(ds_id)
+
+    with _lock:
+        # 在锁内检查哪些连接池已过期
+        expired = [ds_id for ds_id, info in _pool_info.items()
+                   if now - info.last_used_at > timeout]
+
+        # 在锁内清理过期的连接池
+        for ds_id in expired:
+            engine = _pools.pop(ds_id, None)
+            _pool_info.pop(ds_id, None)
+            if engine is not None:
+                try:
+                    engine.dispose()
+                except Exception as e:
+                    logger.warning("连接池销毁异常 datasource_id=%d error=%s", ds_id, e)
+                logger.info("连接池已销毁 datasource_id=%d", ds_id)
+
     if expired:
         logger.info("清理空闲连接池 count=%d", len(expired))
     return len(expired)

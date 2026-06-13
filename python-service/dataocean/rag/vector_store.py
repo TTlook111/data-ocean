@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,7 +15,19 @@ from dataocean.core.config import settings
 
 from .milvus_client import ensure_collection
 
+logger = logging.getLogger(__name__)
+
 RAG_ELIGIBLE_STATUSES = ("NORMAL", "RECOMMENDED")
+
+# 缓存 VectorStore 实例，避免每次操作都重建
+# key: (collection_name, dimension)
+_vector_store_cache: dict[tuple[str | None, int | None], Milvus] = {}
+
+
+def clear_vector_store_cache() -> None:
+    """清除缓存的 VectorStore 实例（配置热重载时调用）"""
+    _vector_store_cache.clear()
+    logger.info("VectorStore 缓存已清除")
 
 
 class PrecomputedEmbeddings(Embeddings):
@@ -53,10 +66,18 @@ def get_vector_store(
     collection_name: str | None = None,
     dimension: int | None = None,
 ) -> Milvus:
-    """Return a LangChain Milvus store bound to DataOcean's fixed schema."""
+    """Return a LangChain Milvus store bound to DataOcean's fixed schema.
+
+    使用缓存避免每次操作都重建实例。
+    """
+    cache_key = (collection_name, dimension)
+    cached = _vector_store_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     collection = ensure_collection(collection_name, dimension)
     name = collection.name
-    return Milvus(
+    store = Milvus(
         embedding_function=PrecomputedEmbeddings(),
         collection_name=name,
         connection_args={"host": settings.milvus_host, "port": settings.milvus_port},
@@ -71,6 +92,8 @@ def get_vector_store(
         },
         search_params={"metric_type": "IP", "params": {"nprobe": 16}},
     )
+    _vector_store_cache[cache_key] = store
+    return store
 
 
 async def add_chunk_embeddings(

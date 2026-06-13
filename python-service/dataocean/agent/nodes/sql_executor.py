@@ -70,6 +70,8 @@ async def run_sql_executor(state: AgentState) -> AgentState:
     )
 
     if not result.success:
+        # 安全修复：执行失败时递增 retry_count
+        retry_count = state.get("retry_count", 0) + 1
         return {
             "execution_result": {
                 "columns": [],
@@ -79,6 +81,7 @@ async def run_sql_executor(state: AgentState) -> AgentState:
                 "error": result.error,
             },
             "error_message": result.error,
+            "retry_count": retry_count,
             "used_tables": used_tables,
             "used_columns": used_columns,
             "current_node": "SQL_EXECUTOR",

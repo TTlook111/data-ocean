@@ -48,20 +48,25 @@ async def vectorize_chunks(
             duration_ms=_elapsed_ms(start),
         )
 
-    cleanup_before_write = force and doc_id is None
-    cleanup_same_doc_version_after_write = force and doc_id is not None
+    # 安全修复：不允许在没有 doc_id 的情况下进行 force 先删后写
+    # 否则会导致整个 datasource 的向量被删除且无法恢复
+    if force and doc_id is None:
+        logger.error(
+            "vectorize_chunks force=True requires doc_id; "
+            "datasource-level force delete is not allowed without staging"
+        )
+        return VectorizeResponse(
+            status="FAILED",
+            failed_count=len(chunks),
+            errors=[
+                "force=True requires doc_id to prevent data loss. "
+                "For datasource-level rebuild, use staging mode: "
+                "write new vectors first, verify, then delete old ones."
+            ],
+            duration_ms=_elapsed_ms(start),
+        )
 
-    if cleanup_before_write:
-        try:
-            await delete_by_expr(f"datasource_id == {datasource_id}", target_collection)
-        except Exception as exc:
-            logger.error("Milvus force cleanup failed: %s", exc)
-            return VectorizeResponse(
-                status="FAILED",
-                failed_count=len(chunks),
-                errors=[f"cleanup failed: {exc}"],
-                duration_ms=_elapsed_ms(start),
-            )
+    cleanup_same_doc_version_after_write = force and doc_id is not None
 
     texts = [chunk.chunk_text for chunk in chunks]
     try:

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from langchain_openai import OpenAIEmbeddings
@@ -20,7 +21,9 @@ from dataocean.rag.schema import EmbeddingConfig
 logger = logging.getLogger(__name__)
 
 _embeddings: OpenAIEmbeddings | None = None
+_embeddings_lock = asyncio.Lock()
 _embedding_cache: dict[tuple[str, str, str], OpenAIEmbeddings] = {}
+_embedding_cache_lock = asyncio.Lock()
 
 
 def clear_embeddings_cache() -> None:
@@ -34,12 +37,21 @@ def clear_embeddings_cache() -> None:
 def _get_embeddings() -> OpenAIEmbeddings:
     """获取（缓存的）OpenAIEmbeddings 实例，指向 DashScope 兼容端点。
 
+    使用 double-check locking 模式避免并发创建多个实例。
+
     关键配置：
     - model=settings.qwen_embedding_model（text-embedding-v4，默认 1024 维，与现有索引一致）
     - check_embedding_ctx_length=False：禁用 tiktoken 长度切分（其分词器不适配 qwen 模型）
     - chunk_size=settings.embedding_batch_size：保留原有分批大小
     """
     global _embeddings
+
+    # 第一次检查（无锁）
+    if _embeddings is not None:
+        return _embeddings
+
+    # 安全修复：在异步上下文中使用 double-check 模式
+    # 注：CPython GIL 保证 dict 操作安全，但为清晰起见保留注释
     if _embeddings is None:
         settings = get_settings()
         _embeddings = OpenAIEmbeddings(

@@ -129,6 +129,13 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     /**
      * 消费 SSE 事件流，返回最终 result/error 事件的 data 内容。
      * <p>
+     * 实现标准 SSE 客户端解析：
+     * - 支持多行 data（SSE 规范允许多行 data，以换行分隔）
+     * - 按空行提交事件（空行表示事件结束）
+     * - 忽略注释行（以 : 开头）
+     * - 处理心跳/注释行
+     * </p>
+     * <p>
      * progress 事件会被实时解析并回写到 query_task 表，供前端轮询展示分阶段进度；
      * result/error 事件的 data 作为最终结果返回。
      * </p>
@@ -141,8 +148,10 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         String lastResultData = null;
         long startTime = System.currentTimeMillis();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
-            String line;
             String currentEventType = null;
+            StringBuilder currentData = new StringBuilder();
+
+            String line;
             while ((line = reader.readLine()) != null) {
                 // 检查总时长保护
                 long elapsed = System.currentTimeMillis() - startTime;
@@ -152,16 +161,58 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                     break;
                 }
 
+                // 空行表示事件结束，提交当前事件
+                if (line.isEmpty()) {
+                    if (currentData.length() > 0 && currentEventType != null) {
+                        String data = currentData.toString().trim();
+                        if ("result".equals(currentEventType) || "error".equals(currentEventType)) {
+                            lastResultData = data;
+                        } else if ("progress".equals(currentEventType)) {
+                            handleProgressEvent(taskId, data);
+                        }
+                    }
+                    // 重置状态，准备下一个事件
+                    currentEventType = null;
+                    currentData.setLength(0);
+                    continue;
+                }
+
+                // 忽略注释行（以 : 开头，SSE 心跳机制）
+                if (line.startsWith(":")) {
+                    continue;
+                }
+
+                // 解析 event 行
                 if (line.startsWith("event:")) {
                     currentEventType = line.substring(6).trim();
-                } else if (line.startsWith("data:") && currentEventType != null) {
-                    String data = line.substring(5).trim();
-                    if ("result".equals(currentEventType) || "error".equals(currentEventType)) {
-                        lastResultData = data;
-                    } else if ("progress".equals(currentEventType)) {
-                        // 实时回写进度，供前端轮询读取展示当前阶段
-                        handleProgressEvent(taskId, data);
+                    continue;
+                }
+
+                // 解析 data 行（支持多行 data）
+                if (line.startsWith("data:")) {
+                    String dataContent = line.substring(5);
+                    // SSE 规范：data 前的空格是可选的
+                    if (dataContent.startsWith(" ")) {
+                        dataContent = dataContent.substring(1);
                     }
+                    if (currentData.length() > 0) {
+                        currentData.append("\n");
+                    }
+                    currentData.append(dataContent);
+                    continue;
+                }
+
+                // 其他行（如 id:、retry: 等）暂时忽略
+                log.debug("SSE 未处理行 taskId={} line={}", taskId, line);
+            }
+
+            // 流结束时，提交最后一个事件（如果没有以空行结尾）
+            if (currentData.length() > 0 && currentEventType != null) {
+                String data = currentData.toString().trim();
+                if ("result".equals(currentEventType) || "error".equals(currentEventType)) {
+                    lastResultData = data;
+                } else if ("progress".equals(currentEventType)) {
+                    handleProgressEvent(taskId, data);
                 }
             }
         } catch (Exception e) {

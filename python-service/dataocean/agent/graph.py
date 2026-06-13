@@ -163,7 +163,10 @@ def after_retriever(state: AgentState) -> Literal["sql_generator", "__end__"]:
 def after_validator(
     state: AgentState,
 ) -> Literal["sql_executor", "sql_generator", "__end__"]:
-    """Validator 后路由：通过→执行，安全拒绝→终止，普通失败→重试生成"""
+    """Validator 后路由：通过→执行，安全拒绝→终止，普通失败→重试生成
+
+    注：retry_count 由 sql_validator 节点在普通失败时递增
+    """
     validation = state.get("validation_result", {})
     if validation.get("valid"):
         return "sql_executor"
@@ -180,7 +183,10 @@ def after_validator(
 def after_executor(
     state: AgentState,
 ) -> Literal["data_visualizer", "sql_generator", "__end__"]:
-    """Executor 后路由：成功→可视化，失败→重试或终止"""
+    """Executor 后路由：成功→可视化，失败→重试或终止
+
+    注：retry_count 由 sql_executor 节点在执行失败时递增
+    """
     execution = state.get("execution_result", {})
     if execution.get("error"):
         retry_count = state.get("retry_count", 0)

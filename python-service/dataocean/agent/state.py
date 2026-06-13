@@ -102,3 +102,9 @@ class AgentState(TypedDict, total=False):
     connection_config: dict
     degraded: bool
     degrade_notice: str
+
+    # 降级数据（Milvus 不可用时使用）
+    fallback_chunks: list[dict]
+
+    # 节点超时（由 TimeoutBudget 动态分配）
+    _node_timeout: float

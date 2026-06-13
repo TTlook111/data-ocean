@@ -29,12 +29,20 @@ class ValidationResult:
         return [issue.reason for issue in self.issues if not issue.passed]
 
 
-def validate(sql: str, allowed_tables: list[str] | None = None) -> ValidationResult:
+def validate(
+    sql: str,
+    allowed_tables: list[str] | None = None,
+    table_scope_mode: str = "UNSPECIFIED",
+) -> ValidationResult:
     """执行完整的 SQL 安全校验规则链
 
     Args:
         sql: 待校验的 SQL 语句
-        allowed_tables: 授权表白名单（为空则不检查表权限）
+        allowed_tables: 授权表白名单
+        table_scope_mode: 表访问范围模式
+            - UNSPECIFIED: 未提供权限上下文，默认拒绝
+            - ALLOWLIST: 使用白名单模式
+            - UNRESTRICTED: 显式全库开放
 
     Returns:
         ValidationResult 包含是否通过和所有失败项
@@ -57,7 +65,7 @@ def validate(sql: str, allowed_tables: list[str] | None = None) -> ValidationRes
     results.append(function_rule.check(sql))
     results.append(depth_rule.check(sql))
     results.append(star_rule.check(sql))
-    results.append(table_rule.check(sql, allowed_tables))
+    results.append(table_rule.check(sql, allowed_tables, table_scope_mode))
     results.append(limit_rule.check(sql))
 
     # 聚合结果

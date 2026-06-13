@@ -7,12 +7,13 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from dataocean.core.config import settings
 from dataocean.core.exceptions import ServiceException
 from dataocean.core.logging import setup_logging
+from dataocean.infra.auth import verify_internal_token
 from dataocean.knowledge.router import router as knowledge_router
 from dataocean.rag.router import router as rag_router
 from dataocean.agent.router import router as agent_router
@@ -114,20 +115,52 @@ app.include_router(health_router, tags=["health"])
 
 
 # === 路由注册（统一 prefix 管理） ===
+# 安全修复：所有 /internal/* 路由统一添加 X-Internal-Token 认证
 
-app.include_router(knowledge_router, prefix="/internal/knowledge", tags=["knowledge"])
-app.include_router(rag_router, prefix="/internal/rag", tags=["rag"])
-app.include_router(agent_router, prefix="/internal/query", tags=["agent"])
-app.include_router(sandbox_router, prefix="/internal/sql", tags=["sandbox"])
-app.include_router(chart_router, prefix="/internal/chart", tags=["chart"])
-app.include_router(prompt_router, prefix="/internal/prompts", tags=["prompt"])
+app.include_router(
+    knowledge_router,
+    prefix="/internal/knowledge",
+    tags=["knowledge"],
+    dependencies=[Depends(verify_internal_token)],
+)
+app.include_router(
+    rag_router,
+    prefix="/internal/rag",
+    tags=["rag"],
+    dependencies=[Depends(verify_internal_token)],
+)
+app.include_router(
+    agent_router,
+    prefix="/internal/query",
+    tags=["agent"],
+    dependencies=[Depends(verify_internal_token)],
+)
+app.include_router(
+    sandbox_router,
+    prefix="/internal/sql",
+    tags=["sandbox"],
+    dependencies=[Depends(verify_internal_token)],
+)
+app.include_router(
+    chart_router,
+    prefix="/internal/chart",
+    tags=["chart"],
+    dependencies=[Depends(verify_internal_token)],
+)
+app.include_router(
+    prompt_router,
+    prefix="/internal/prompts",
+    tags=["prompt"],
+    dependencies=[Depends(verify_internal_token)],
+)
 
 # === AI 配置热重载端点 ===
+# 安全修复：配置热重载端点也需要认证
 
 from fastapi import APIRouter as _Router
 from dataocean.rag.router import DimensionDetectRequest, ProviderTestRequest
 
-_config_router = _Router()
+_config_router = _Router(dependencies=[Depends(verify_internal_token)])
 
 
 @_config_router.post("/internal/config/reload")

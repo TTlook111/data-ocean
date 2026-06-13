@@ -22,6 +22,14 @@ class ValidateRequest(BaseModel):
         default_factory=list,
         validation_alias=AliasChoices("allowed_tables", "allowedTables"),
     )
+    # 安全修复：显式声明表访问范围模式
+    # UNSPECIFIED: 未提供权限上下文（默认），应拒绝访问
+    # ALLOWLIST: 使用 allowed_tables 白名单
+    # UNRESTRICTED: 显式全库开放（需 Java 显式传递）
+    table_scope_mode: str = Field(
+        default="UNSPECIFIED",
+        validation_alias=AliasChoices("table_scope_mode", "tableScopeMode"),
+    )
     row_filters: list[RowFilterItem] = Field(
         default_factory=list,
         validation_alias=AliasChoices("row_filters", "rowFilters"),

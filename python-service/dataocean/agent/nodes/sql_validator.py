@@ -38,13 +38,21 @@ async def run_sql_validator(state: AgentState) -> AgentState:
 
     # 提取权限信息
     allowed_tables = permissions.get("allowed_tables", permissions.get("allowedTables", []))
+    table_scope_mode = permissions.get("table_scope_mode", permissions.get("tableScopeMode", "UNSPECIFIED"))
 
     # 第一步：AST 安全校验
-    validation = validate(generated_sql, allowed_tables or None)
+    validation = validate(generated_sql, allowed_tables or None, table_scope_mode)
     if not validation.passed:
         reasons = validation.reasons
         level = "DANGEROUS" if any("危险" in r for r in reasons) else "REJECT"
         logger.warning("SQL 校验不通过 task_id=%s reasons=%s", task_id, reasons)
+
+        # 安全修复：普通校验失败时递增 retry_count，安全拒绝时不递增
+        # DANGEROUS/REJECT 是安全拒绝，不应重试；普通失败可以重试
+        retry_count = state.get("retry_count", 0)
+        if level not in ("DANGEROUS", "REJECT"):
+            retry_count += 1
+
         return {
             "validation_result": {
                 "valid": False,
@@ -53,6 +61,7 @@ async def run_sql_validator(state: AgentState) -> AgentState:
                 "level": level,
             },
             "error_message": f"SQL 安全校验不通过：{'; '.join(reasons)}",
+            "retry_count": retry_count,
             "current_node": "SQL_VALIDATOR",
         }
 

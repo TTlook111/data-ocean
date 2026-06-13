@@ -20,6 +20,8 @@ from dataocean.core.exceptions import LLMException
 logger = logging.getLogger(__name__)
 
 # 缓存不同 (model, temperature) 组合的 ChatOpenAI 实例，避免重复构造
+# 注：在纯 asyncio 单线程事件循环中，dict 操作（无 await 的同步代码段）是安全的，
+# 因为协程切换只发生在 await 点。CPython GIL 保证 dict 操作的线程安全。
 _chat_cache: dict[tuple[str, str, float], ChatOpenAI] = {}
 
 
@@ -51,10 +53,13 @@ def get_chat_model(
     retries = max_retries if max_retries is not None else settings.llm_max_retries
 
     cache_key = (settings.dashscope_base_url, model, temperature)
+
+    # 检查缓存
     cached = _chat_cache.get(cache_key)
     if cached is not None:
         return cached
 
+    # 创建新实例
     chat = ChatOpenAI(
         model=model,
         temperature=temperature,

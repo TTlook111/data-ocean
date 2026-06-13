@@ -91,8 +91,9 @@ public class DataMaskingServiceImpl implements DataMaskingService {
                 case NAME -> maskName(value);
             };
         } catch (IllegalArgumentException e) {
-            log.warn("未知脱敏策略: {}", strategy);
-            return value;
+            // 安全修复：未知脱敏策略默认全遮蔽，避免策略名拼写错误导致明文泄露
+            log.warn("未知脱敏策略: {}，返回全遮蔽值", strategy);
+            return "****";
         }
     }
 

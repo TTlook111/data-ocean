@@ -29,16 +29,15 @@ _sql_parser = SqlOutputParser()
 
 
 async def run_sql_generator(state: AgentState) -> AgentState:
-    """执行 SQL 生成：填充模板 → 调用 Qwen → 提取 SQL"""
+    """执行 SQL 生成：填充模板 → 调用 Qwen → 提取 SQL
+
+    注意：retry_count 由 graph 的条件边递增，此处不再递增
+    """
     task_id = state.get("task_id", "")
     retry_count = state.get("retry_count", 0)
     error_message = state.get("error_message", "")
     previous_sql = state.get("generated_sql", "")
     node_timeout = state.get("_node_timeout", 60)
-
-    # 如果有错误信息说明是重试，递增计数
-    if error_message:
-        retry_count += 1
 
     logger.info("SQL 生成 task_id=%s retry=%d", task_id, retry_count)
 
@@ -136,15 +135,12 @@ async def _render_sql_prompt(
     except Exception as e:
         logger.debug("SQL Prompt 管理模板不可用，使用本地模板降级 task_id=%s error=%s", state.get("task_id", ""), e)
 
+    # 安全修复：统一 managed/降级路径的变量集
+    # 降级路径使用与 managed 路径相同的变量，确保 prompt 信息不丢失
     return (
         render_template_file(
             _SQL_GENERATION_TEMPLATE,
-            rewritten_query=state.get("rewritten_query", ""),
-            intent=state.get("extracted_intent", {}),
-            schema_context=state.get("schema_context", []),
-            conversation_history=state.get("conversation_history", []),
-            error_message=error_message if retry_count > 0 else "",
-            previous_sql=previous_sql if retry_count > 0 else "",
+            **variables,
         ),
         0,
     )
