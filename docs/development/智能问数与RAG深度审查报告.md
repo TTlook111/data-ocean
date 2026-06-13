@@ -1,6 +1,6 @@
 # 智能问数与 RAG 全链路深度审查报告
 
-> 审查日期：2026-06-12（第五版 — 聚焦已有代码排雷）
+> 审查日期：2026-06-13（第六版 — 对齐后续开发计划）
 > 审查范围：Python Agent 工作流、RAG 模块、SQL 沙箱、权限脱敏、Prompt/LLM 链路、并发安全、前端边界处理
 > 定位：**清理已实现代码中埋的雷**（bug、安全漏洞、设计缺陷），后续功能开发见 `后续开发.md`
 
@@ -13,6 +13,7 @@
 | v3 | 2026-06-12 | 代码核实修订：**勘误 P0-1（降级结果未被阈值过滤）**；补充 TimeoutBudget 细节、请求约束、条件边路由逻辑、错误消息体系、输出解析器、Python Service 路由注册、Redis 未实际使用说明；修复计划去重 |
 | v4 | 2026-06-12 | 新增第八章（测试覆盖与可观测性）、第九章（前端边界处理）、第十章（部署与扩展性）；补充审计血缘模块分析、多实例部署阻塞因素、前端轮询缺陷 |
 | v5 | 2026-06-12 | 对照 `后续开发.md` 重新分类：区分"已有代码中的雷"和"后续开发计划"；移除属于后续开发的内容（可观测性、多实例部署、测试覆盖、告警触发逻辑等）；聚焦修复计划于实际 bug 和安全漏洞 |
+| v6 | 2026-06-13 | 对齐 `后续开发.md` F0 排雷任务；修正 SSE 客户端建议（不能用服务端 `SseEmitter`）；将内部接口鉴权从沙箱扩展为 `/internal/*` 统一问题；补充表白名单空值语义和 Redis 记忆写入边界 |
 
 ### 与 `后续开发.md` 的边界划分
 
@@ -23,11 +24,15 @@
 | 多实例部署/水平扩展 | 后续开发 | 当前单实例部署满足需求 |
 | Metrics/监控/链路追踪 | 后续开发 | 属于可观测性建设 |
 | 测试覆盖补充 | 后续开发 | 属于质量工程 |
-| 告警触发执行逻辑 | 后续开发 | `后续开发.md` 未列但属于功能完善 |
+| 告警触发执行逻辑 | 后续开发 | `后续开发.md` P9 |
 | 配额 DEPARTMENT/DATASOURCE 维度 | 后续开发 | 属于功能扩展 |
 | 前端自动重试/降级提示 | 后续开发 | 属于用户体验优化 |
 | Redis 记忆系统 | 后续开发 | 属于新功能开发 |
 | 数据血缘图数据库 | 后续开发 | `后续开发.md` P4 |
+
+### 编号说明
+
+本文档中的 `P0-1`、`P1-7`、`P-1`、`S1`、`C-1` 等编号是**审查问题编号/风险等级编号**，不是 `后续开发.md` 里的 P 系列开发任务编号。开发任务以 `F0`、`P0-P12` 表示；报告问题以严重程度和领域前缀表示。
 
 ---
 
@@ -150,7 +155,7 @@ await add_chunk_embeddings(...)
 
 **影响**：向量化失败时数据源的 RAG 索引完全丢失，需人工重新发布。
 
-**修复方案**：改为先写入新数据、验证成功后再删除旧数据。
+**修复方案**：优先要求 Java 调用向量化时传入 `doc_id`/版本标识，使用已有的“同文档同版本先写后清理旧向量”路径；如果必须支持 datasource 级 force 重建，应引入临时版本或 staging 标记，写入并校验成功后再删除旧数据。不能继续在 `doc_id is None` 时做 datasource 全量先删。
 
 ### 2.3 P1 — 影响质量的中等问题
 
@@ -167,6 +172,8 @@ await add_chunk_embeddings(...)
 **位置**：`backend/DataOcean/.../PythonAgentClientImpl.java`
 
 **问题**：不支持多行 `data:`、不处理 `event:` 和 `data:` 之间的空行、180s 硬超时后 `BufferedReader.readLine()` 可能继续阻塞。
+
+**修复方案**：保留 Java 作为 SSE 客户端的定位，完善客户端解析器（按空行提交事件、支持多行 `data:`、处理心跳/注释行），并配置可中断读取或 HTTP read timeout。不要改用 `SseEmitter`，它是 Spring 服务端向浏览器推送事件的工具。
 
 #### 🟡 P1-3：VectorStore 每次操作都重建实例
 
@@ -200,7 +207,9 @@ await add_chunk_embeddings(...)
 
 > **勘误说明**（2026-06-12 核实）：此前版本误认为降级结果被阈值过滤，已核实为互斥路径。此问题从 P0-2 降级为 P1-7。
 
-**修复方案**：将降级 score 提高到 0.7，或增加 `is_fallback` 标记。
+**修复方案**：优先增加 `is_fallback` 标记，必要时再调整 score。
+
+`is_fallback` 的优势是语义更清楚：score 仍表达召回相似度或置信度，`is_fallback=true` 单独表达数据来源为降级路径。这样前端可以展示降级提示，Agent 可以降低解释置信度，而不会把一个人为调高的 score 误解成真实语义相关性更高。
 
 ### 2.4 轻微问题
 
@@ -273,10 +282,18 @@ SQL 输入
 
 | 编号 | 问题 | 风险 | 说明 |
 |------|------|------|------|
-| S1 | 沙箱路由无认证 | **高** | `/internal/sql/*` 端点无身份验证，依赖网络隔离 |
-| S2 | 表白名单为空时跳过检查 | **中** | Java 端未传递 allowed_tables 时表访问控制失效 |
+| S1 | 内部路由无统一认证 | **高** | `/internal/query`、`/internal/sql`、`/internal/rag`、`/internal/chart` 等端点均依赖网络隔离 |
+| S2 | 表白名单为空时跳过检查 | **中** | Java 端未传递 allowed_tables 时表访问控制失效；修复前需区分“未提供权限上下文”和“显式全库开放” |
 | S3 | 危险函数黑名单不完整 | **低** | 缺少 UPDATEXML、EXTRACTVALUE、GET_LOCK 等 |
 | S4 | 密码解密失败回退到明文 | **低** | 容错设计，但降低了攻击门槛 |
+
+**S2 建议实现协议**：
+
+- Java `PermissionContextVO` 增加显式字段，如 `unrestrictedTables` 或 `tableScopeMode`（`UNSPECIFIED` / `ALLOWLIST` / `UNRESTRICTED`）。
+- Python `ValidateRequest` 同步接收该字段。
+- `allowed_tables` 为 `null` 或空且 `tableScopeMode != UNRESTRICTED` 时，`table_rule.py` 默认拒绝。
+- 全库开放时，优先由 Java 传完整 `allowed_tables`；如果数据量太大，再显式传 `UNRESTRICTED`，并在审计日志中记录。
+- 这样可以避免“漏传权限上下文”和“有意全库开放”在 Python 侧不可区分。
 
 ### 4.3 只读事务验证
 
@@ -314,7 +331,7 @@ Java 端（Gateway 层）                    Python 端（AST 层）
 
 **影响**：管理员必须为主动每个用户配置策略，否则默认完全放开。
 
-**建议**：`buildEmptyContext()` 中增加默认安全策略，或要求显式配置"全表开放"。
+**建议**：先形成产品规则。较稳妥的方向是：数据源访问权只代表可以查询该库，但治理状态 `BLOCKED/DEPRECATED/SENSITIVE` 的限制必须作为默认底线；如果允许“全库开放”，需要显式策略或显式 unrestricted 标记，而不是用空权限上下文隐式表达。
 
 #### 🟡 P-2：deniedColumns/maskColumns 取交集过于宽松
 
@@ -324,7 +341,7 @@ Java 端（Gateway 层）                    Python 端（AST 层）
 
 **影响**：攻击者只需获得一个未配置策略的维度身份（如加入未配置策略的部门），就能绕过列级限制。
 
-**建议**：对 `deniedColumns` 和 `maskColumns` 改为取并集（任一维度禁止即生效）。
+**建议**：对 `deniedColumns` 和 `maskColumns` 改为取并集或“最严格策略优先”（任一维度禁止/脱敏即生效）。这是安全语义调整，改前需要评估演示数据和现有策略配置。
 
 #### 🟡 P-3：未知脱敏策略返回原始值
 
@@ -481,7 +498,7 @@ prompt = f"用户刚才问了：{question}\n查询涉及的表：{', '.join(used
 
 > 详细任务定义见 `后续开发.md` P11（前端查询体验优化）。
 
-**唯一需要修的 bug**：`pollTaskResult()` 中单次 `getTaskResult()` 异常会终止整个轮询（已在修复计划 #19）。
+**唯一需要修的 bug**：`pollTaskResult()` 中单次 `getTaskResult()` 异常会终止整个轮询（已在修复计划 #20）。
 
 **后续开发项**：自动重试、降级提示、轮询超时后操作按钮、网络断开恢复。
 
@@ -539,7 +556,7 @@ prompt = f"用户刚才问了：{question}\n查询涉及的表：{', '.join(used
 - `config.py` 声明了 `redis_host`/`redis_port` 但无任何 Redis 客户端代码
 - 取消机制使用内存字典，多实例部署时无法跨进程共享
 
-**后续开发方向**：引入 Redis 实现对话历史缓存（List）、会话上下文（Hash）、用户偏好（Hash）、最近查询（List），所有操作原子化+静默降级。
+**后续开发方向**：引入 Redis 时建议区分写入所有权：Java 负责 conversation history 的读穿透缓存，因为 MySQL 会话消息由 Java 持久化；Python 负责会话意图、最近表、用户偏好、最近查询摘要等派生记忆。避免两端同时写同一个 history key 造成顺序不一致。
 
 ---
 
@@ -547,47 +564,49 @@ prompt = f"用户刚才问了：{question}\n查询涉及的表：{', '.join(used
 
 > 以下仅包含**已实现代码中的 bug、安全漏洞、设计缺陷**。
 > 后续功能开发（Redis 记忆、可观测性、多实例部署等）见 `后续开发.md`。
+> 本章表格中的 `#` 是报告内部问题序号，不等同于 `后续开发.md` 的 P 系列任务编号。
 
 ### 12.1 第一阶段：P0 阻断功能（30min）
 
 | # | 问题 | 位置 | 修复方案 | 工作量 |
 |---|------|------|---------|--------|
-| 1 | force 模式先删后写 | `rag/vectorizer.py:54` | 改为先写入新数据→验证→删除旧数据 | 30min |
+| 1 | force 模式先删后写 | `rag/vectorizer.py:54` | 优先使用 `doc_id`/版本作用域先写后清理；datasource 级 force 需 staging 标记 | 30min |
 
-### 12.2 第二阶段：安全代码 bug（2.5h）
+### 12.2 第二阶段：安全代码 bug（约 4h）
 
 | # | 问题 | 位置 | 修复方案 | 工作量 |
 |---|------|------|---------|--------|
 | 2 | 未知脱敏策略返回原始值 | `DataMaskingServiceImpl` | `maskValue()` catch 块返回 `"****"` | 15min |
-| 3 | 沙箱路由无认证 | `sandbox/router.py` | 添加 `X-Internal-Token` 验证 | 1h |
-| 4 | 表白名单为空跳过检查 | `table_rule.py` | 空白名单时默认拒绝 | 30min |
+| 3 | 内部路由无统一认证 | `main.py` / 各 `/internal/*` router | 添加统一 `X-Internal-Token` 验证，中间件或依赖注入均可 | 1h |
+| 4 | 表白名单为空跳过检查 | `table_rule.py` + Java 权限上下文 | 明确空值语义；未提供权限上下文默认拒绝，显式全库开放需 Java 传完整表清单或 unrestricted 标记 | 1h |
 | 5 | Prompt 注入防护 | `sql_generation.j2`, `data_visualizer.py` | 用户输入用分隔符包裹 + system prompt 防护声明 | 1h |
+| 6 | 危险函数黑名单不完整 | `function_rule.py` | 补齐 MySQL 高风险函数并增加测试 | 30min |
 
 ### 12.3 第三阶段：设计改进建议（需讨论后决定）
 
 | # | 问题 | 位置 | 当前行为 | 建议改进 |
 |---|------|------|---------|---------|
-| 6 | 无策略即无限制 | `PermissionCalculatorImpl` | 有访问权但无策略 = 不限制 | `buildEmptyContext()` 增加默认拒绝或要求显式配置 |
-| 7 | deniedColumns 取交集 | `PermissionCalculatorImpl` | 多维度取交集（宽松） | 改为取并集（严格） |
-| 8 | 降级 score 偏低 | `rag/fallback.py:60` | score=0.5，降级可工作 | 提高到 0.7 或增加 is_fallback 标记 |
+| 7 | 无策略即无限制 | `PermissionCalculatorImpl` | 有访问权但无策略 = 不限制 | 增加默认治理底线，或要求显式配置全库开放 |
+| 8 | deniedColumns/maskColumns 取交集 | `PermissionCalculatorImpl` | 多维度取交集（宽松） | 改为并集或最严格策略优先 |
+| 9 | 降级 score 偏低 | `rag/fallback.py:60` | score=0.5，降级可工作 | 优先增加 `is_fallback` 标记，必要时再调整 score |
 
-> **说明**：这 3 项是**有意的设计选择**，不是代码 bug。修改前需要讨论对现有用户的影响。
+> **说明**：这 3 项是**有意的设计选择**，不是普通代码 bug，但安全影响较大。修改前需要讨论对现有用户、演示数据和权限初始化脚本的影响。
 
 ### 12.4 第四阶段：已有代码 bug（1.5天）
 
 | # | 问题 | 位置 | 修复方案 | 工作量 |
 |---|------|------|---------|--------|
-| 9 | retry_count 边界 | `sql_generator.py` | 移到 graph 条件边 | 1h |
-| 10 | VectorStore 重复创建 | `vector_store.py` | 缓存实例 | 1h |
-| 11 | reranker 加分无上限 | `reranker.py` | clamp 到 [0,1] | 30min |
-| 12 | SSE 解析不完整 | `PythonAgentClientImpl` | 改用 Spring SseEmitter | 3h |
-| 13 | state.py 字段缺失 | `agent/state.py` | 补充 `fallback_chunks`、`_node_timeout` 定义 | 30min |
-| 14 | LLM/Embedding 初始化竞态 | `infra/llm.py`, `infra/embeddings.py` | asyncio.Lock 保护 | 1h |
-| 15 | 配置热重载竞态 | `core/config.py` | 版本号+原子切换 | 2h |
-| 16 | 连接池清理 TOCTOU | `pool_manager.py` | 清理前获取 `_lock` | 30min |
-| 17 | 降级变量不一致 | `sql_generator.py` | 统一 managed/降级路径的变量集 | 1h |
-| 18 | Token 预算变量名 | `token_budget.py` | 对齐实际传入的变量名 | 1h |
-| 19 | 前端轮询单次异常终止 | `QueryDatasourceView.vue` | catch 单次 `getTaskResult` 异常继续轮询 | 1h |
+| 10 | retry_count 边界 | `sql_generator.py` | 移到 graph 条件边 | 1h |
+| 11 | VectorStore 重复创建 | `vector_store.py` | 缓存实例 | 1h |
+| 12 | reranker 加分无上限 | `reranker.py` | clamp 到 [0,1] | 30min |
+| 13 | SSE 解析不完整 | `PythonAgentClientImpl` | 实现标准 SSE 客户端解析 + read timeout/可中断读取 | 3h |
+| 14 | state.py 字段缺失 | `agent/state.py` | 补充 `fallback_chunks`、`_node_timeout` 定义 | 30min |
+| 15 | LLM/Embedding 初始化竞态 | `infra/llm.py`, `infra/embeddings.py` | asyncio.Lock 保护 | 1h |
+| 16 | 配置热重载竞态 | `core/config.py` | 版本号+原子切换 | 2h |
+| 17 | 连接池清理 TOCTOU | `pool_manager.py` | 清理前获取 `_lock` | 30min |
+| 18 | 降级变量不一致 | `sql_generator.py` | 统一 managed/降级路径的变量集 | 1h |
+| 19 | Token 预算变量名 | `token_budget.py` | 对齐实际传入的变量名 | 1h |
+| 20 | 前端轮询单次异常终止 | `QueryDatasourceView.vue` | catch 单次 `getTaskResult` 异常继续轮询 | 1h |
 
 ---
 
@@ -598,11 +617,11 @@ prompt = f"用户刚才问了：{question}\n查询涉及的表：{', '.join(used
 | 类别 | 数量 | 最严重项 |
 |------|------|---------|
 | P0 功能阻断 | 1 | 向量化先删后写（数据丢失风险） |
-| 安全代码 bug | 4 | 沙箱无认证、Prompt 注入、表白名单为空、未知脱敏返回原始值 |
+| 安全代码 bug | 5 | 内部路由无认证、Prompt 注入、表白名单为空、未知脱敏返回原始值、危险函数黑名单不完整 |
 | 设计改进建议 | 3 | 无策略即无限制、deniedColumns 取交集、降级 score 偏低（需讨论后决定） |
 | 并发 bug | 3 | 配置热重载竞态、LLM/Embedding 初始化竞态、连接池清理 TOCTOU |
 | 代码质量 | 8 | retry_count 边界、VectorStore 重复创建、reranker 加分无上限、SSE 解析、前端轮询异常终止等 |
-| **合计** | **19** | 修复工作量 **约 2 天**（不含设计改进建议） |
+| **合计** | **20** | 修复工作量 **约 2 天**（不含设计改进建议） |
 
 ### 核心链路评估
 
