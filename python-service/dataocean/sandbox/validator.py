@@ -89,7 +89,9 @@ def _check_injection_patterns(sql: str) -> RuleResult | None:
         return RuleResult(passed=False, rule_name="injection", reason="SQL 中包含块注释（/* */），疑似注入")
 
     # 检测多语句分隔符
-    if ";" in sql:
+    # 只在分号后面有其他 SQL 语句时才拒绝（允许末尾分号）
+    sql_stripped = sql.strip().rstrip(";")
+    if ";" in sql_stripped:
         return RuleResult(passed=False, rule_name="injection", reason="SQL 中包含分号（;），禁止多语句执行")
 
     return None

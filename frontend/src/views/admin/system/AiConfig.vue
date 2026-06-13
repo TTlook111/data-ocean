@@ -1,7 +1,19 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Cpu, Database, HardDrive, Plus, RefreshCw, Save, Server, Sparkles, Trash2, Wifi } from 'lucide-vue-next'
+import {
+  Cpu,
+  Database,
+  HardDrive,
+  Plus,
+  RefreshCw,
+  Server,
+  Sparkles,
+  Trash2,
+  Wifi,
+  Check,
+  Edit,
+} from 'lucide-vue-next'
 import {
   createAiProvider,
   deleteAiProvider,
@@ -21,16 +33,25 @@ const saving = ref(false)
 const providerDialogVisible = ref(false)
 const editingProviderId = ref('')
 const config = ref<AiConfig | null>(null)
+const activeTab = ref<'chat' | 'embedding'>('chat')
 
-const form = reactive({
-  chatProviderId: '',
-  chatModel: '',
+// 展开的卡片 ID
+const expandedChatProvider = ref<string>('')
+const expandedEmbeddingProvider = ref<string>('')
+
+// 编辑中的卡片配置
+const editingChatConfig = reactive({
+  providerId: '',
+  model: '',
   temperature: '0.3',
   timeout: '120',
   maxRetries: '2',
-  embeddingProviderId: '',
-  embeddingModel: '',
-  embeddingDimension: 1024,
+})
+
+const editingEmbeddingConfig = reactive({
+  providerId: '',
+  model: '',
+  dimension: 1024,
 })
 
 const providerForm = reactive<AiProviderPayload>({
@@ -42,9 +63,14 @@ const providerForm = reactive<AiProviderPayload>({
 
 const providers = computed(() => config.value?.providers ?? [])
 const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
-const canManageAiConfig = computed(() => permissions.value.includes('*') || permissions.value.includes('system:ai-config:manage'))
+const canManageAiConfig = computed(
+  () => permissions.value.includes('*') || permissions.value.includes('system:ai-config:manage'),
+)
+
+const activeChat = computed(() => config.value?.activeChat)
 const activeEmbedding = computed(() => config.value?.activeEmbedding)
 const vectorizeStatus = computed(() => config.value?.vectorizeStatus)
+
 const vectorizeMessage = computed(() => {
   if (vectorizeStatus.value?.status === 'REINDEX_REQUIRED') {
     return 'Embedding 配置已变更，需要重新向量化后才会切换为 active'
@@ -57,25 +83,47 @@ const vectorizeMessage = computed(() => {
   }
   return ''
 })
+
 const vectorizeTagType = computed(() => {
   if (vectorizeStatus.value?.status === 'NORMAL') return 'success'
   if (vectorizeStatus.value?.status === 'REINDEX_FAILED') return 'danger'
   return 'warning'
 })
-const selectedChatProvider = computed(() => providers.value.find((item) => item.id === form.chatProviderId))
-const selectedEmbeddingProvider = computed(() => providers.value.find((item) => item.id === form.embeddingProviderId))
-const chatModels = computed(() => selectedChatProvider.value?.chatModels ?? [])
-const embeddingModels = computed(() => selectedEmbeddingProvider.value?.embeddingModels ?? [])
 
-function fillForm(data: AiConfig) {
-  form.chatProviderId = data.activeChat?.providerId || 'dashscope'
-  form.chatModel = data.activeChat?.model || data.model
-  form.temperature = data.activeChat?.temperature || data.temperature || '0.3'
-  form.timeout = data.activeChat?.timeout || data.timeout || '120'
-  form.maxRetries = data.activeChat?.maxRetries || '2'
-  form.embeddingProviderId = data.activeEmbedding?.providerId || 'dashscope'
-  form.embeddingModel = data.activeEmbedding?.model || data.embeddingModel
-  form.embeddingDimension = Number(data.activeEmbedding?.dimension || data.embeddingDimension || 1024)
+// Chat 供应商列表（有 Chat 模型的）
+const chatProviders = computed(() =>
+  providers.value.filter((p) => p.chatModels && p.chatModels.length > 0),
+)
+
+// Embedding 供应商列表（有 Embedding 模型的）
+const embeddingProviders = computed(() =>
+  providers.value.filter((p) => p.embeddingModels && p.embeddingModels.length > 0),
+)
+
+function isChatActive(providerId: string, model: string) {
+  return activeChat.value?.providerId === providerId && activeChat.value?.model === model
+}
+
+function isEmbeddingActive(providerId: string, model: string) {
+  return activeEmbedding.value?.providerId === providerId && activeEmbedding.value?.model === model
+}
+
+function expandChatProvider(provider: AiProvider) {
+  expandedChatProvider.value = provider.id
+  editingChatConfig.providerId = provider.id
+  editingChatConfig.model = activeChat.value?.providerId === provider.id ? activeChat.value.model : ''
+  editingChatConfig.temperature = activeChat.value?.providerId === provider.id ? activeChat.value.temperature || '0.3' : '0.3'
+  editingChatConfig.timeout = activeChat.value?.providerId === provider.id ? activeChat.value.timeout || '120' : '120'
+  editingChatConfig.maxRetries = activeChat.value?.providerId === provider.id ? activeChat.value.maxRetries || '2' : '2'
+}
+
+function expandEmbeddingProvider(provider: AiProvider) {
+  expandedEmbeddingProvider.value = provider.id
+  editingEmbeddingConfig.providerId = provider.id
+  editingEmbeddingConfig.model = activeEmbedding.value?.providerId === provider.id ? activeEmbedding.value.model : ''
+  editingEmbeddingConfig.dimension = activeEmbedding.value?.providerId === provider.id
+    ? Number(activeEmbedding.value.dimension || 1024)
+    : 1024
 }
 
 async function fetchConfig() {
@@ -83,7 +131,13 @@ async function fetchConfig() {
   try {
     const res = await getAiConfig()
     config.value = res.data ?? null
-    if (config.value) fillForm(config.value)
+    // 默认展开当前使用的供应商
+    if (activeChat.value?.providerId) {
+      expandChatProvider({ id: activeChat.value.providerId } as AiProvider)
+    }
+    if (activeEmbedding.value?.providerId) {
+      expandEmbeddingProvider({ id: activeEmbedding.value.providerId } as AiProvider)
+    }
   } catch {
     ElMessage.error('加载 AI 配置失败')
   } finally {
@@ -94,59 +148,101 @@ async function fetchConfig() {
 function embeddingChanged() {
   const active = activeEmbedding.value
   if (!active) return false
-  return active.providerId !== form.embeddingProviderId
-    || active.model !== form.embeddingModel
-    || Number(active.dimension) !== Number(form.embeddingDimension)
+  return (
+    active.providerId !== editingEmbeddingConfig.providerId
+    || active.model !== editingEmbeddingConfig.model
+    || Number(active.dimension) !== Number(editingEmbeddingConfig.dimension)
+  )
 }
 
 function buildCollectionName() {
-  const safeModel = form.embeddingModel.replace(/[^a-zA-Z0-9_]/g, '_')
-  return `schema_knowledge_${form.embeddingDimension}_${safeModel}`
+  const safeModel = editingEmbeddingConfig.model.replace(/[^a-zA-Z0-9_]/g, '_')
+  return `schema_knowledge_${editingEmbeddingConfig.dimension}_${safeModel}`
 }
 
-async function handleSave() {
+async function handleUseChat(provider: AiProvider, model: string) {
   if (!canManageAiConfig.value) {
-    ElMessage.warning('当前账号只有查看权限，不能修改 AI 配置')
+    ElMessage.warning('当前账号只有查看权限')
     return
-  }
-  if (!form.chatProviderId || !form.chatModel || !form.embeddingProviderId || !form.embeddingModel) {
-    ElMessage.warning('请选择供应商和模型')
-    return
-  }
-
-  const willChangeEmbedding = embeddingChanged()
-  if (willChangeEmbedding) {
-    await ElMessageBox.confirm(
-      '切换 Embedding 后会先构建 pending 索引。新索引发布成功前，查询仍使用上一版索引；成功后系统再清理旧索引。',
-      '确认切换 Embedding',
-      { type: 'warning', confirmButtonText: '确认并保存', cancelButtonText: '取消' },
-    )
   }
 
   saving.value = true
   try {
     const payload = {
       chat: {
-        providerId: form.chatProviderId,
-        model: form.chatModel,
-        temperature: form.temperature,
-        timeout: form.timeout,
-        maxRetries: form.maxRetries,
+        providerId: provider.id,
+        model,
+        temperature: editingChatConfig.temperature,
+        timeout: editingChatConfig.timeout,
+        maxRetries: editingChatConfig.maxRetries,
       },
+    }
+    const res = await updateAiConfig(payload)
+    config.value = res.data ?? null
+    ElMessage.success('Chat 配置已切换')
+  } catch {
+    ElMessage.error('切换失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function handleUseEmbedding(provider: AiProvider, model: string, dimension: number) {
+  if (!canManageAiConfig.value) {
+    ElMessage.warning('当前账号只有查看权限')
+    return
+  }
+
+  const willChange = embeddingChanged()
+
+  if (willChange) {
+    await ElMessageBox.confirm(
+      `切换 Embedding 模型后需要重新向量化知识库。新索引构建完成前，查询仍使用旧索引。`,
+      '确认切换 Embedding',
+      { type: 'warning', confirmButtonText: '确认并切换', cancelButtonText: '取消' },
+    )
+  }
+
+  saving.value = true
+  try {
+    const payload = {
       embedding: {
-        providerId: form.embeddingProviderId,
-        model: form.embeddingModel,
-        dimension: Number(form.embeddingDimension),
-        collection: willChangeEmbedding ? buildCollectionName() : activeEmbedding.value?.collection,
+        providerId: provider.id,
+        model,
+        dimension,
+        collection: willChange ? buildCollectionName() : activeEmbedding.value?.collection,
         indexVersion: activeEmbedding.value?.indexVersion || 'v1',
       },
     }
     const res = await updateAiConfig(payload)
     config.value = res.data ?? null
-    if (config.value) fillForm(config.value)
-    ElMessage.success(willChangeEmbedding ? '配置已保存，Embedding 已标记为待重建' : '配置已保存')
+    ElMessage.success(willChange ? 'Embedding 已切换，待重新向量化' : 'Embedding 配置已切换')
   } catch (error) {
-    if (error !== 'cancel') ElMessage.error('保存失败')
+    if (error !== 'cancel') ElMessage.error('切换失败')
+  } finally {
+    saving.value = false
+  }
+}
+
+async function handleSaveChatParams() {
+  if (!canManageAiConfig.value) return
+
+  saving.value = true
+  try {
+    const payload = {
+      chat: {
+        providerId: editingChatConfig.providerId,
+        model: editingChatConfig.model,
+        temperature: editingChatConfig.temperature,
+        timeout: editingChatConfig.timeout,
+        maxRetries: editingChatConfig.maxRetries,
+      },
+    }
+    const res = await updateAiConfig(payload)
+    config.value = res.data ?? null
+    ElMessage.success('Chat 参数已保存')
+  } catch {
+    ElMessage.error('保存失败')
   } finally {
     saving.value = false
   }
@@ -173,7 +269,7 @@ function openEditProvider(provider: AiProvider) {
 
 async function saveProvider() {
   if (!canManageAiConfig.value) {
-    ElMessage.warning('当前账号只有查看权限，不能修改供应商')
+    ElMessage.warning('当前账号只有查看权限')
     return
   }
   if (!providerForm.id || !providerForm.baseUrl) {
@@ -221,11 +317,6 @@ async function handleTestProvider(provider: AiProvider) {
   }
 }
 
-function onEmbeddingModelChange(modelName: string) {
-  const item = embeddingModels.value.find((model) => model.name === modelName)
-  if (item?.dimension) form.embeddingDimension = item.dimension
-}
-
 fetchConfig()
 </script>
 
@@ -236,163 +327,308 @@ fetchConfig()
         <Cpu :size="22" />
         <div>
           <h2>AI 服务配置</h2>
-          <p>管理供应商、模型选择和索引切换状态。</p>
+          <p>管理供应商、模型和参数。点击卡片展开详情，选择使用的配置。</p>
         </div>
       </div>
-      <el-button :icon="RefreshCw" :loading="loading" @click="fetchConfig">刷新</el-button>
+      <div class="header-actions">
+        <el-button :icon="Plus" @click="openCreateProvider">添加供应商</el-button>
+        <el-button :icon="RefreshCw" :loading="loading" @click="fetchConfig">刷新</el-button>
+      </div>
     </header>
 
-    <section v-if="config" class="section">
-      <div class="section-title">
-        <h3>当前生效</h3>
-        <el-tag :type="vectorizeTagType">
-          {{ vectorizeStatus?.status || 'NORMAL' }}
-        </el-tag>
-      </div>
+    <!-- 当前状态 -->
+    <section v-if="config" class="status-section">
       <div class="status-grid">
-        <div class="status-tile">
+        <div class="status-tile active">
           <span class="tile-icon chat"><Sparkles :size="18" /></span>
           <div>
-            <span>Chat 模型</span>
-            <strong>{{ config.activeChat?.providerId }} / {{ config.activeChat?.model }}</strong>
+            <span>当前 Chat</span>
+            <strong>{{ activeChat?.providerId }} / {{ activeChat?.model }}</strong>
           </div>
         </div>
-        <div class="status-tile">
+        <div class="status-tile active">
           <span class="tile-icon embedding"><Database :size="18" /></span>
           <div>
-            <span>Embedding 模型</span>
-            <strong>{{ config.activeEmbedding?.providerId }} / {{ config.activeEmbedding?.model }}</strong>
+            <span>当前 Embedding</span>
+            <strong>{{ activeEmbedding?.providerId }} / {{ activeEmbedding?.model }}</strong>
           </div>
         </div>
         <div class="status-tile">
           <span class="tile-icon collection"><HardDrive :size="18" /></span>
           <div>
             <span>Collection</span>
-            <strong>{{ config.activeEmbedding?.collection || 'schema_knowledge' }}</strong>
+            <strong>{{ activeEmbedding?.collection || 'schema_knowledge' }}</strong>
+          </div>
+        </div>
+        <div class="status-tile">
+          <span class="tile-icon status"><Server :size="18" /></span>
+          <div>
+            <span>索引状态</span>
+            <el-tag :type="vectorizeTagType" size="small">
+              {{ vectorizeStatus?.status || 'NORMAL' }}
+            </el-tag>
           </div>
         </div>
       </div>
-      <el-alert
-        v-if="vectorizeMessage"
-        type="warning"
-        show-icon
-        :closable="false"
-        :title="vectorizeMessage"
-      >
-        <template #default>
-          <div class="alert-action">
-            <span>pending 配置不会影响当前查询，完成向量化后再切换为 active。</span>
-            <el-button size="small" type="warning" plain disabled>重新向量化</el-button>
-          </div>
-        </template>
-      </el-alert>
+      <el-alert v-if="vectorizeMessage" type="warning" show-icon :closable="false" :title="vectorizeMessage" />
     </section>
 
-    <section class="section">
-      <div class="section-title">
-        <h3>供应商管理</h3>
-        <el-button v-if="canManageAiConfig" type="primary" :icon="Plus" @click="openCreateProvider">添加供应商</el-button>
+    <!-- Tab 切换 -->
+    <section class="config-section">
+      <div class="tab-header">
+        <button :class="{ active: activeTab === 'chat' }" @click="activeTab = 'chat'">
+          <Sparkles :size="16" />
+          Chat 配置
+        </button>
+        <button :class="{ active: activeTab === 'embedding' }" @click="activeTab = 'embedding'">
+          <Database :size="16" />
+          Embedding 配置
+        </button>
       </div>
-      <div class="provider-list">
-        <article v-for="provider in providers" :key="provider.id" class="provider-item">
-          <div class="provider-main">
-            <div class="provider-name">
-              <span class="provider-icon"><Server :size="16" /></span>
+
+      <!-- Chat 配置列表 -->
+      <div v-if="activeTab === 'chat'" class="provider-cards">
+        <div v-if="chatProviders.length === 0" class="empty-state">
+          <p>暂无 Chat 供应商，请先添加供应商并测试连接获取模型列表。</p>
+        </div>
+
+        <article
+          v-for="provider in chatProviders"
+          :key="provider.id"
+          class="provider-card"
+          :class="{ expanded: expandedChatProvider === provider.id }"
+        >
+          <!-- 卡片头部 -->
+          <div class="card-header" @click="expandChatProvider(provider)">
+            <div class="card-title">
+              <Server :size="16" />
               <strong>{{ provider.name || provider.id }}</strong>
-              <el-tag size="small" :type="provider.status === 'connected' ? 'success' : provider.status === 'failed' ? 'danger' : 'info'">
+              <el-tag
+                size="small"
+                :type="provider.status === 'connected' ? 'success' : provider.status === 'failed' ? 'danger' : 'info'"
+              >
                 {{ provider.status || 'unknown' }}
               </el-tag>
             </div>
-            <span>{{ provider.baseUrl }}</span>
-            <small>Key: {{ provider.apiKeyMasked || '未配置' }}</small>
+            <div class="card-summary">
+              <span>{{ provider.baseUrl }}</span>
+              <span>{{ provider.chatModels?.length || 0 }} 个模型</span>
+            </div>
+            <div class="card-actions" @click.stop>
+              <el-button :icon="Wifi" size="small" circle title="测试连接" @click="handleTestProvider(provider)" />
+              <el-button size="small" circle title="编辑" @click="openEditProvider(provider)">
+                <Edit :size="12" />
+              </el-button>
+              <el-button :icon="Trash2" size="small" type="danger" plain circle @click="handleDeleteProvider(provider)" />
+            </div>
           </div>
-          <div class="provider-meta">
-            <el-tag size="small" effect="plain">{{ provider.chatModels?.length || 0 }} Chat</el-tag>
-            <el-tag size="small" effect="plain">{{ provider.embeddingModels?.length || 0 }} Embedding</el-tag>
+
+          <!-- 卡片详情（展开后显示） -->
+          <div v-if="expandedChatProvider === provider.id" class="card-body">
+            <div class="model-list">
+              <div
+                v-for="model in provider.chatModels"
+                :key="model.name"
+                class="model-item"
+                :class="{ active: isChatActive(provider.id, model.name) }"
+              >
+                <div class="model-info">
+                  <strong>{{ model.displayName || model.name }}</strong>
+                  <el-tag v-if="isChatActive(provider.id, model.name)" type="success" size="small">
+                    使用中
+                  </el-tag>
+                </div>
+                <div class="model-params">
+                  <label>
+                    <span>温度</span>
+                    <el-input
+                      v-model="editingChatConfig.temperature"
+                      size="small"
+                      :disabled="!canManageAiConfig"
+                      @click.stop
+                    />
+                  </label>
+                  <label>
+                    <span>超时(秒)</span>
+                    <el-input
+                      v-model="editingChatConfig.timeout"
+                      size="small"
+                      :disabled="!canManageAiConfig"
+                      @click.stop
+                    />
+                  </label>
+                  <label>
+                    <span>重试</span>
+                    <el-input
+                      v-model="editingChatConfig.maxRetries"
+                      size="small"
+                      :disabled="!canManageAiConfig"
+                      @click.stop
+                    />
+                  </label>
+                </div>
+                <div class="model-actions">
+                  <el-button
+                    v-if="!isChatActive(provider.id, model.name)"
+                    type="primary"
+                    size="small"
+                    :icon="Check"
+                    :loading="saving"
+                    @click.stop="handleUseChat(provider, model.name)"
+                  >
+                    使用
+                  </el-button>
+                  <el-button
+                    v-else
+                    type="success"
+                    size="small"
+                    :icon="Check"
+                    disabled
+                  >
+                    使用中
+                  </el-button>
+                  <el-button
+                    v-if="isChatActive(provider.id, model.name)"
+                    size="small"
+                    :loading="saving"
+                    @click.stop="handleSaveChatParams"
+                  >
+                    保存参数
+                  </el-button>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="provider-actions">
-            <el-button :icon="Wifi" circle title="测试连接" :disabled="!canManageAiConfig" @click="handleTestProvider(provider)" />
-            <el-button circle title="编辑" :disabled="!canManageAiConfig" @click="openEditProvider(provider)">编</el-button>
-            <el-button :icon="Trash2" type="danger" plain :disabled="!canManageAiConfig" @click="handleDeleteProvider(provider)" />
+        </article>
+      </div>
+
+      <!-- Embedding 配置列表 -->
+      <div v-if="activeTab === 'embedding'" class="provider-cards">
+        <div v-if="embeddingProviders.length === 0" class="empty-state">
+          <p>暂无 Embedding 供应商，请先添加供应商并测试连接获取模型列表。</p>
+        </div>
+
+        <article
+          v-for="provider in embeddingProviders"
+          :key="provider.id"
+          class="provider-card"
+          :class="{ expanded: expandedEmbeddingProvider === provider.id }"
+        >
+          <!-- 卡片头部 -->
+          <div class="card-header" @click="expandEmbeddingProvider(provider)">
+            <div class="card-title">
+              <Server :size="16" />
+              <strong>{{ provider.name || provider.id }}</strong>
+              <el-tag
+                size="small"
+                :type="provider.status === 'connected' ? 'success' : provider.status === 'failed' ? 'danger' : 'info'"
+              >
+                {{ provider.status || 'unknown' }}
+              </el-tag>
+            </div>
+            <div class="card-summary">
+              <span>{{ provider.baseUrl }}</span>
+              <span>{{ provider.embeddingModels?.length || 0 }} 个模型</span>
+            </div>
+            <div class="card-actions" @click.stop>
+              <el-button :icon="Wifi" size="small" circle title="测试连接" @click="handleTestProvider(provider)" />
+              <el-button size="small" circle title="编辑" @click="openEditProvider(provider)">
+                <Edit :size="12" />
+              </el-button>
+              <el-button :icon="Trash2" size="small" type="danger" plain circle @click="handleDeleteProvider(provider)" />
+            </div>
+          </div>
+
+          <!-- 卡片详情（展开后显示） -->
+          <div v-if="expandedEmbeddingProvider === provider.id" class="card-body">
+            <div class="model-list">
+              <div
+                v-for="model in provider.embeddingModels"
+                :key="model.name"
+                class="model-item"
+                :class="{ active: isEmbeddingActive(provider.id, model.name) }"
+              >
+                <div class="model-info">
+                  <strong>{{ model.displayName || model.name }}</strong>
+                  <span v-if="model.dimension" class="dimension-tag">{{ model.dimension }} 维</span>
+                  <el-tag v-if="isEmbeddingActive(provider.id, model.name)" type="success" size="small">
+                    使用中
+                  </el-tag>
+                </div>
+                <div class="model-params">
+                  <label>
+                    <span>向量维度</span>
+                    <el-input-number
+                      v-model="editingEmbeddingConfig.dimension"
+                      size="small"
+                      :min="1"
+                      :step="1"
+                      :disabled="!canManageAiConfig"
+                      @click.stop
+                    />
+                  </label>
+                </div>
+                <div class="model-actions">
+                  <el-button
+                    v-if="!isEmbeddingActive(provider.id, model.name)"
+                    type="primary"
+                    size="small"
+                    :icon="Check"
+                    :loading="saving"
+                    @click.stop="handleUseEmbedding(provider, model.name, editingEmbeddingConfig.dimension)"
+                  >
+                    使用
+                  </el-button>
+                  <el-button
+                    v-else
+                    type="success"
+                    size="small"
+                    :icon="Check"
+                    disabled
+                  >
+                    使用中
+                  </el-button>
+                </div>
+              </div>
+            </div>
+            <div v-if="embeddingChanged() && expandedEmbeddingProvider === provider.id" class="change-notice">
+              <el-alert type="warning" show-icon :closable="false">
+                切换 Embedding 后需要重新向量化知识库
+              </el-alert>
+            </div>
           </div>
         </article>
       </div>
     </section>
 
-    <section class="section">
-      <div class="section-title">
-        <h3>模型选择</h3>
-      </div>
-      <div class="model-grid">
-        <el-form label-width="96px" label-position="left" class="model-panel">
-          <div class="model-panel-title">
-            <Sparkles :size="18" />
-            <strong>Chat 配置</strong>
-          </div>
-          <el-form-item label="供应商">
-            <el-select v-model="form.chatProviderId" filterable :disabled="!canManageAiConfig">
-              <el-option v-for="provider in providers" :key="provider.id" :label="provider.name || provider.id" :value="provider.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="模型">
-            <el-select v-model="form.chatModel" filterable allow-create default-first-option :disabled="!canManageAiConfig">
-              <el-option v-for="model in chatModels" :key="model.name" :label="model.displayName || model.name" :value="model.name" />
-            </el-select>
-          </el-form-item>
-          <div class="compact-inputs">
-            <label>
-              <span>温度</span>
-              <el-input v-model="form.temperature" :disabled="!canManageAiConfig" />
-            </label>
-            <label>
-              <span>超时秒数</span>
-              <el-input v-model="form.timeout" :disabled="!canManageAiConfig" />
-            </label>
-            <label>
-              <span>重试次数</span>
-              <el-input v-model="form.maxRetries" :disabled="!canManageAiConfig" />
-            </label>
-          </div>
-        </el-form>
-
-        <el-form label-width="96px" label-position="left" class="model-panel">
-          <div class="model-panel-title">
-            <Database :size="18" />
-            <strong>Embedding 配置</strong>
-          </div>
-          <el-form-item label="供应商">
-            <el-select v-model="form.embeddingProviderId" filterable :disabled="!canManageAiConfig">
-              <el-option v-for="provider in providers" :key="provider.id" :label="provider.name || provider.id" :value="provider.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="模型">
-            <el-select v-model="form.embeddingModel" filterable allow-create default-first-option :disabled="!canManageAiConfig" @change="onEmbeddingModelChange">
-              <el-option v-for="model in embeddingModels" :key="model.name" :label="model.displayName || model.name" :value="model.name" />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="向量维度">
-            <el-input-number v-model="form.embeddingDimension" :min="1" :step="1" :disabled="!canManageAiConfig" />
-          </el-form-item>
-        </el-form>
-      </div>
-      <div class="form-actions">
-        <el-button v-if="canManageAiConfig" type="primary" :icon="Save" :loading="saving" @click="handleSave">保存配置</el-button>
-      </div>
-    </section>
-
+    <!-- 供应商编辑对话框 -->
     <el-dialog v-model="providerDialogVisible" title="供应商" width="520px">
       <el-form label-width="100px" label-position="left">
         <el-form-item label="ID">
-          <el-input v-model="providerForm.id" :disabled="Boolean(editingProviderId) || !canManageAiConfig" placeholder="dashscope" />
+          <el-input
+            v-model="providerForm.id"
+            :disabled="Boolean(editingProviderId) || !canManageAiConfig"
+            placeholder="dashscope"
+          />
         </el-form-item>
         <el-form-item label="名称">
           <el-input v-model="providerForm.name" :disabled="!canManageAiConfig" placeholder="通义千问" />
         </el-form-item>
         <el-form-item label="Base URL">
-          <el-input v-model="providerForm.baseUrl" :disabled="!canManageAiConfig" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" />
+          <el-input
+            v-model="providerForm.baseUrl"
+            :disabled="!canManageAiConfig"
+            placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+          />
         </el-form-item>
         <el-form-item label="API Key">
-          <el-input v-model="providerForm.apiKey" type="password" show-password :disabled="!canManageAiConfig" placeholder="留空则不修改" />
+          <el-input
+            v-model="providerForm.apiKey"
+            type="password"
+            show-password
+            :disabled="!canManageAiConfig"
+            placeholder="留空则不修改"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -405,19 +641,12 @@ fetchConfig()
 
 <style scoped>
 .ai-config-page {
-  max-width: 980px;
-}
-
-.page-header,
-.section-title,
-.provider-item,
-.provider-actions,
-.provider-meta {
-  display: flex;
-  align-items: center;
+  max-width: 1080px;
 }
 
 .page-header {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 22px;
@@ -429,8 +658,7 @@ fetchConfig()
   color: var(--do-primary-strong);
 }
 
-.header-title h2,
-.section-title h3 {
+.header-title h2 {
   margin: 0;
   color: var(--do-ink);
 }
@@ -441,7 +669,13 @@ fetchConfig()
   color: var(--do-muted);
 }
 
-.section {
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 状态区域 */
+.status-section {
   padding: 18px 20px;
   margin-bottom: 18px;
   border: 1px solid var(--do-line);
@@ -449,50 +683,36 @@ fetchConfig()
   background: var(--do-surface);
 }
 
-.section-title {
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
 .status-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 12px;
-}
-
-.status-tile,
-.provider-item {
-  padding: 12px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
 }
 
 .status-tile {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.72);
 }
 
-.status-tile > div {
-  min-width: 0;
-}
-
-.tile-icon,
-.provider-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  border-radius: 8px;
+.status-tile.active {
+  border-color: var(--do-primary);
+  background: rgba(37, 99, 235, 0.04);
 }
 
 .tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 34px;
   height: 34px;
+  border-radius: 8px;
+  flex: 0 0 auto;
 }
 
 .tile-icon.chat {
@@ -510,133 +730,241 @@ fetchConfig()
   background: #f5f3ff;
 }
 
-.status-grid span,
-.provider-main span,
-.provider-main small {
-  display: block;
-  color: var(--do-muted);
-  font-size: 12px;
+.tile-icon.status {
+  color: #d97706;
+  background: #fffbeb;
 }
 
-.status-grid strong {
-  display: block;
-  margin-top: 4px;
-  color: var(--do-ink);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.alert-action {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.provider-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.provider-item {
-  justify-content: space-between;
-  gap: 14px;
-  background: rgba(255, 255, 255, 0.7);
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
-}
-
-.provider-item:hover {
-  border-color: var(--do-primary);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
-}
-
-.provider-main {
-  flex: 1;
+.status-tile > div {
   min-width: 0;
 }
 
-.provider-name {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+.status-tile span {
+  display: block;
+  font-size: 12px;
+  color: var(--do-muted);
 }
 
-.provider-icon {
-  width: 28px;
-  height: 28px;
-  color: var(--do-primary-strong);
-  background: rgba(37, 99, 235, 0.08);
-}
-
-.provider-main span,
-.provider-main small {
+.status-tile strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--do-ink);
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.provider-meta,
-.provider-actions {
-  gap: 8px;
-}
-
-.model-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.model-panel {
-  padding: 16px;
+/* 配置区域 */
+.config-section {
   border: 1px solid var(--do-line);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.68);
+  background: var(--do-surface);
+  overflow: hidden;
 }
 
-.model-panel-title {
+.tab-header {
+  display: flex;
+  border-bottom: 1px solid var(--do-line);
+}
+
+.tab-header button {
+  flex: 1;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  margin-bottom: 16px;
+  padding: 14px 20px;
+  border: none;
+  background: transparent;
+  color: var(--do-muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-header button:hover {
+  color: var(--do-ink);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.tab-header button.active {
   color: var(--do-primary-strong);
+  background: rgba(255, 255, 255, 0.8);
+  border-bottom: 2px solid var(--do-primary);
 }
 
-.compact-inputs {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.compact-inputs label {
+/* 供应商卡片 */
+.provider-cards {
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
 }
 
-.compact-inputs span {
-  font-size: 12px;
+.empty-state {
+  padding: 40px 20px;
+  text-align: center;
   color: var(--do-muted);
 }
 
-.form-actions {
+.provider-card {
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  transition: all 0.2s;
+}
+
+.provider-card:hover {
+  border-color: var(--do-primary);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.provider-card.expanded {
+  border-color: var(--do-primary);
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.1);
+}
+
+.card-header {
   display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.card-title strong {
+  color: var(--do-ink);
+}
+
+.card-summary {
+  flex: 1;
+  display: flex;
+  gap: 16px;
+  min-width: 0;
+}
+
+.card-summary span {
+  font-size: 12px;
+  color: var(--do-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-actions {
+  display: flex;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+/* 卡片详情 */
+.card-body {
+  padding: 0 16px 16px;
+  border-top: 1px solid var(--do-line);
+}
+
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.model-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.model-item.active {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.04);
+}
+
+.model-info {
+  min-width: 120px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-info strong {
+  color: var(--do-ink);
+  font-size: 13px;
+}
+
+.dimension-tag {
+  font-size: 11px;
+  color: var(--do-muted);
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+}
+
+.model-params {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+}
+
+.model-params label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.model-params span {
+  font-size: 11px;
+  color: var(--do-muted);
+}
+
+.model-params .el-input,
+.model-params .el-input-number {
+  width: 80px;
+}
+
+.model-actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.change-notice {
+  margin-top: 12px;
 }
 
 @media (max-width: 760px) {
-  .status-grid,
-  .model-grid,
-  .compact-inputs {
-    grid-template-columns: 1fr;
+  .status-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 
-  .provider-item {
-    align-items: flex-start;
-    flex-direction: column;
+  .card-header {
+    flex-wrap: wrap;
+  }
+
+  .card-summary {
+    width: 100%;
+  }
+
+  .model-item {
+    flex-wrap: wrap;
+  }
+
+  .model-params {
+    width: 100%;
   }
 }
 </style>

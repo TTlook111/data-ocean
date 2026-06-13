@@ -126,6 +126,7 @@ async def execute(
 
 def _execute_readonly(engine, sql: str, connection_id_holder: list[int]) -> ExecutionResult:
     """在只读事务中同步执行 SQL"""
+    from decimal import Decimal
     from sqlalchemy import text
 
     max_rows = sandbox_config.max_result_rows
@@ -154,7 +155,14 @@ def _execute_readonly(engine, sql: str, connection_id_holder: list[int]) -> Exec
             if i >= max_rows:
                 truncated = True
                 break
-            rows.append(dict(row))
+            # 将 Decimal 转换为 float，确保 JSON 序列化兼容
+            row_dict = {}
+            for key, value in dict(row).items():
+                if isinstance(value, Decimal):
+                    row_dict[key] = float(value)
+                else:
+                    row_dict[key] = value
+            rows.append(row_dict)
 
         conn.rollback()
 

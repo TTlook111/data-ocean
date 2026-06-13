@@ -87,4 +87,10 @@ async def event_stream(task_id: str):
         if item is None:
             break
         event_type, data = item
-        yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+        # 自定义 JSON 编码器，处理 Decimal 类型
+        def default_encoder(obj):
+            from decimal import Decimal
+            if isinstance(obj, Decimal):
+                return float(obj)
+            raise TypeError(f'Object of type {type(obj).__name__} is not JSON serializable')
+        yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=default_encoder)}\n\n"

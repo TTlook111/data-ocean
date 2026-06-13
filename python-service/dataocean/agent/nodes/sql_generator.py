@@ -75,6 +75,8 @@ async def run_sql_generator(state: AgentState) -> AgentState:
         parsed = _sql_parser.parse(response_text)
         sql = parsed["sql"]
         explanation = parsed["explanation"]
+        logger.info("LLM 原始响应 task_id=%s response=%s", task_id, response_text[:200])
+        logger.info("解析后 SQL task_id=%s sql=%s", task_id, sql)
 
     if not sql:
         logger.warning("SQL 生成失败：无法从 LLM 响应中提取 SQL task_id=%s", task_id)

@@ -200,51 +200,12 @@ class TestPoolCleanupThreadSafety:
 class TestSSEEventTypes:
     """SSE 事件类型"""
 
-    def _parse_sse_stream(self, stream) -> list[dict]:
-        """模拟 Java 端的 SSE 解析逻辑"""
-        events = []
-        current_event = None
-        current_data = []
-
-        for line in stream.read().decode("utf-8").split("\n"):
-            if line == "":
-                if current_data and current_event:
-                    events.append({
-                        "event": current_event,
-                        "data": "\n".join(current_data),
-                    })
-                current_event = None
-                current_data = []
-                continue
-
-            if line.startswith(":"):
-                continue
-
-            if line.startswith("event:"):
-                current_event = line[6:].strip()
-                continue
-
-            if line.startswith("data:"):
-                data_content = line[5:]
-                if data_content.startswith(" "):
-                    data_content = data_content[1:]
-                current_data.append(data_content)
-                continue
-
-        if current_data and current_event:
-            events.append({
-                "event": current_event,
-                "data": "\n".join(current_data),
-            })
-
-        return events
-
     def test_progress_event(self):
         """解析 progress 事件"""
         sse_data = 'event:progress\ndata:{"node":"SQL_GENERATOR","message":"generating","retry":0}\n\n'.encode("utf-8")
         stream = BytesIO(sse_data)
 
-        events = self._parse_sse_stream(stream)
+        events = parse_sse_stream(stream)
         assert len(events) == 1
         assert events[0]["event"] == "progress"
 
@@ -253,7 +214,7 @@ class TestSSEEventTypes:
         sse_data = 'event:result\ndata:{"status":"COMPLETED","sql":"SELECT 1"}\n\n'.encode("utf-8")
         stream = BytesIO(sse_data)
 
-        events = self._parse_sse_stream(stream)
+        events = parse_sse_stream(stream)
         assert len(events) == 1
         assert events[0]["event"] == "result"
 
@@ -262,6 +223,6 @@ class TestSSEEventTypes:
         sse_data = 'event:error\ndata:{"status":"FAILED","error":"timeout"}\n\n'.encode("utf-8")
         stream = BytesIO(sse_data)
 
-        events = self._parse_sse_stream(stream)
+        events = parse_sse_stream(stream)
         assert len(events) == 1
         assert events[0]["event"] == "error"

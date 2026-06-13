@@ -25,9 +25,11 @@ async def retrieve_from_milvus(
     for hit in hits:
         metadata = hit.document.metadata
         related_column = metadata.get("related_column", "")
+        # 兼容两种 key：table_name 和 related_table
+        table_name = metadata.get("table_name") or metadata.get("related_table", "")
         retrieved.append(
             RetrievedSchema(
-                table_name=metadata.get("related_table", ""),
+                table_name=table_name,
                 columns=[
                     col.strip()
                     for col in related_column.split(",")
@@ -38,7 +40,7 @@ async def retrieve_from_milvus(
                 score=hit.score,
                 relevance_score=hit.score,
                 chunk_type=metadata.get("chunk_type", ""),
-                source_version=metadata.get("knowledge_version_no", 0),
+                source_version=metadata.get("source_version") or metadata.get("knowledge_version_no", 0),
                 snapshot_id=metadata.get("snapshot_id"),
                 chunk_text=hit.document.page_content,
                 governance_status=metadata.get("governance_status", ""),

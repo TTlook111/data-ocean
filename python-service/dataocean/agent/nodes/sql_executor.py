@@ -26,7 +26,7 @@ async def run_sql_executor(state: AgentState) -> AgentState:
 
     if sql:
         estimate = estimate_execution_time(sql)
-        await sse.emit_progress(task_id, "SQL_EXECUTOR", "executing", estimate, state.get("retry_count", 0))
+        await sse.emit_progress(task_id, "SQL_EXECUTOR", "started", estimate, state.get("retry_count", 0))
 
     logger.info("SQL execution task_id=%s datasource_id=%d sql=%s", task_id, datasource_id, sql[:80])
 

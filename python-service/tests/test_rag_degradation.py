@@ -17,7 +17,8 @@ import pytest
 from dataocean.rag.reranker import DataOceanReranker, rerank
 from dataocean.rag.schema import RetrieveRequest, RetrievedSchema
 from dataocean.rag.vectorizer import vectorize_chunks
-from dataocean.rag.vector_store import get_vector_store, clear_vector_store_cache
+from dataocean.rag.vector_store import add_chunk_embeddings, search_by_vector, delete_by_expr
+from dataocean.rag.milvus_client import get_client
 
 
 class TestRerankerClamp:
@@ -116,50 +117,15 @@ class TestVectorizerForceMode:
 class TestVectorStoreCache:
     """VectorStore 缓存测试"""
 
-    def test_cache_returns_same_instance(self):
-        """验证缓存返回相同的实例"""
-        from dataocean.rag.vector_store import _vector_store_cache
+    def test_milvus_client_singleton(self):
+        """MilvusClient 单例测试"""
+        from dataocean.rag.milvus_client import get_client
 
-        clear_vector_store_cache()
+        client1 = get_client()
+        client2 = get_client()
 
-        # 直接测试缓存逻辑，不连接 Milvus
-        mock_store = MagicMock(name="test_store")
-        cache_key = ("test_collection", 1024)
-        _vector_store_cache[cache_key] = mock_store
-
-        store1 = get_vector_store("test_collection", 1024)
-        store2 = get_vector_store("test_collection", 1024)
-
-        # 验证返回相同实例
-        assert store1 is store2
-
-    def test_clear_cache(self):
-        """验证清除缓存后返回新实例"""
-        from dataocean.rag.vector_store import _vector_store_cache
-
-        clear_vector_store_cache()
-
-        # 直接测试缓存逻辑，不连接 Milvus
-        mock_store1 = MagicMock(name="test_store1")
-        mock_store2 = MagicMock(name="test_store2")
-        cache_key = ("test_collection", 1024)
-
-        # 手动设置缓存
-        _vector_store_cache[cache_key] = mock_store1
-        store1 = get_vector_store("test_collection", 1024)
-
-        # 清除缓存
-        clear_vector_store_cache()
-
-        # 验证缓存已清除
-        assert cache_key not in _vector_store_cache
-
-        # 设置新的缓存
-        _vector_store_cache[cache_key] = mock_store2
-        store2 = get_vector_store("test_collection", 1024)
-
-        # 验证返回不同实例
-        assert store1 is not store2
+        # 同一个实例
+        assert client1 is client2
 
 
 class TestRerankerIntegration:

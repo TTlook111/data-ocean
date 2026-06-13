@@ -263,7 +263,8 @@ ON orders.customer_id = customers.customer_id
         self.assertEqual(results[0].table_name, "orders")
         self.assertEqual(results[0].snapshot_id, 5)
 
-    def test_switch_version_requires_exact_count_before_deleting_old_snapshot(self) -> None:
+    @patch("dataocean.rag.vectorizer._count_vectors", return_value=2)
+    def test_switch_version_requires_exact_count_before_deleting_old_snapshot(self, mock_count) -> None:
         collection = FakeCollection(count=2)
 
         with self.assertRaises(ValueError):
@@ -274,7 +275,8 @@ ON orders.customer_id = customers.customer_id
         self.assertEqual(collection.deleted_expr, "datasource_id == 10 and snapshot_id == 4")
         self.assertTrue(collection.flushed)
 
-    def test_switch_doc_version_deletes_only_previous_doc_version(self) -> None:
+    @patch("dataocean.rag.vectorizer._count_vectors", return_value=2)
+    def test_switch_doc_version_deletes_only_previous_doc_version(self, mock_count) -> None:
         collection = FakeCollection(count=2)
 
         _switch_doc_version(
@@ -292,7 +294,8 @@ ON orders.customer_id = customers.customer_id
         )
         self.assertTrue(collection.flushed)
 
-    async def test_force_rebuild_cleans_old_doc_version_vectors_after_successful_write(self) -> None:
+    @patch("dataocean.rag.vectorizer._count_vectors", return_value=1)
+    async def test_force_rebuild_cleans_old_doc_version_vectors_after_successful_write(self, mock_count) -> None:
         collection = FakeCollection(count=1)
         chunk = {
             "sourceId": 201,

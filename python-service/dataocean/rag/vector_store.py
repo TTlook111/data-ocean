@@ -1,4 +1,7 @@
-"""LangChain Milvus VectorStore adapter for DataOcean RAG."""
+"""Milvus VectorStore adapter for DataOcean RAG.
+
+使用 MilvusClient 直接操作 Milvus，避免 LangChain Milvus 0.3.x 的连接问题。
+"""
 
 from __future__ import annotations
 
@@ -7,43 +10,15 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from langchain_core.embeddings import Embeddings
 from langchain_core.documents import Document
-from langchain_milvus import Milvus
 
 from dataocean.core.config import settings
 
-from .milvus_client import ensure_collection
+from .milvus_client import get_client, ensure_collection
 
 logger = logging.getLogger(__name__)
 
 RAG_ELIGIBLE_STATUSES = ("NORMAL", "RECOMMENDED")
-
-# 缓存 VectorStore 实例，避免每次操作都重建
-# key: (collection_name, dimension)
-_vector_store_cache: dict[tuple[str | None, int | None], Milvus] = {}
-
-
-def clear_vector_store_cache() -> None:
-    """清除缓存的 VectorStore 实例（配置热重载时调用）"""
-    _vector_store_cache.clear()
-    logger.info("VectorStore 缓存已清除")
-
-
-class PrecomputedEmbeddings(Embeddings):
-    """Embedding placeholder for vector-by-vector operations.
-
-    DataOcean generates embeddings in infra.embeddings so indexing can use
-    explicit per-request AI configuration. LangChain's Milvus store still
-    requires an Embeddings object, even when add_embeddings/search_by_vector are
-    used with precomputed vectors.
-    """
-
-    def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        raise NotImplementedError("DataOcean passes precomputed document embeddings")
-
-    def embed_query(self, text: str) -> list[float]:
-        raise NotImplementedError("DataOcean passes precomputed query embeddings")
 
 
 @dataclass(frozen=True)
@@ -62,40 +37,6 @@ def build_filter_expr(datasource_id: int, snapshot_id: int) -> str:
     )
 
 
-def get_vector_store(
-    collection_name: str | None = None,
-    dimension: int | None = None,
-) -> Milvus:
-    """Return a LangChain Milvus store bound to DataOcean's fixed schema.
-
-    使用缓存避免每次操作都重建实例。
-    """
-    cache_key = (collection_name, dimension)
-    cached = _vector_store_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    collection = ensure_collection(collection_name, dimension)
-    name = collection.name
-    store = Milvus(
-        embedding_function=PrecomputedEmbeddings(),
-        collection_name=name,
-        connection_args={"host": settings.milvus_host, "port": settings.milvus_port},
-        auto_id=True,
-        primary_field="id",
-        text_field="chunk_text",
-        vector_field="embedding",
-        index_params={
-            "index_type": "IVF_FLAT",
-            "metric_type": "IP",
-            "params": {"nlist": 128},
-        },
-        search_params={"metric_type": "IP", "params": {"nprobe": 16}},
-    )
-    _vector_store_cache[cache_key] = store
-    return store
-
-
 async def add_chunk_embeddings(
     *,
     texts: list[str],
@@ -104,11 +45,37 @@ async def add_chunk_embeddings(
     collection_name: str | None = None,
     dimension: int | None = None,
 ) -> list[str]:
+    """添加 chunk embeddings 到 Milvus"""
     def _add() -> list[str]:
-        store = get_vector_store(collection_name, dimension)
-        ids = store.add_embeddings(texts=texts, embeddings=embeddings, metadatas=metadatas)
-        _flush(store)
-        return ids
+        # 确保 collection 存在
+        ensure_collection(collection_name, dimension)
+        name = collection_name or settings.milvus_collection_name
+
+        # 使用 MilvusClient 直接插入
+        client = get_client()
+
+        # 构建插入数据
+        data = []
+        for i, (text, embedding, metadata) in enumerate(zip(texts, embeddings, metadatas)):
+            entity = {
+                "chunk_text": text[:8192],
+                "embedding": embedding,
+                **metadata,
+            }
+            data.append(entity)
+
+        # 批量插入
+        result = client.insert(
+            collection_name=name,
+            data=data,
+        )
+
+        # Flush
+        client.flush(name)
+
+        ids = result.get("ids", [])
+        logger.info("Milvus 插入成功 collection=%s count=%d", name, len(ids))
+        return [str(id) for id in ids]
 
     return await asyncio.to_thread(_add)
 
@@ -120,32 +87,70 @@ async def search_by_vector(
     snapshot_id: int,
     limit: int,
 ) -> list[SearchHit]:
+    """向量检索"""
     expr = build_filter_expr(datasource_id, snapshot_id)
 
     def _search() -> list[SearchHit]:
-        store = get_vector_store()
-        pairs = store.similarity_search_with_score_by_vector(
-            embedding,
-            k=limit,
-            expr=expr,
-            param={"metric_type": "IP", "params": {"nprobe": 16}},
+        client = get_client()
+        name = settings.milvus_collection_name
+
+        results = client.search(
+            collection_name=name,
+            data=[embedding],
+            limit=limit,
+            filter=expr,
+            output_fields=[
+                "datasource_id", "snapshot_id", "knowledge_version_no",
+                "doc_id", "source_id", "chunk_type", "governance_status",
+                "review_status", "chunk_text", "related_table", "related_column",
+            ],
+            search_params={"metric_type": "IP", "params": {"nprobe": 16}},
         )
-        return [SearchHit(document=document, score=score) for document, score in pairs]
+
+        search_hits = []
+        for hits in results:
+            for hit in hits:
+                entity = hit.get("entity", {})
+                score = hit.get("distance", 0.0)
+
+                # 构建 Document
+                document = Document(
+                    page_content=entity.get("chunk_text", ""),
+                    metadata={
+                        "table_name": entity.get("related_table", ""),
+                        "chunk_type": entity.get("chunk_type", ""),
+                        "governance_status": entity.get("governance_status", ""),
+                        "review_status": entity.get("review_status", ""),
+                        "score": score,
+                        "relevance_score": score,
+                        "source_type": "SCHEMA",
+                        "source_version": entity.get("knowledge_version_no", 0),
+                        "snapshot_id": entity.get("snapshot_id"),
+                        "related_column": entity.get("related_column", ""),
+                    },
+                )
+                search_hits.append(SearchHit(document=document, score=score))
+
+        return search_hits
 
     return await asyncio.to_thread(_search)
 
 
 async def delete_by_expr(expr: str, collection_name: str | None = None) -> bool:
+    """按条件删除向量"""
     def _delete() -> bool:
-        store = get_vector_store(collection_name)
-        deleted = bool(store.delete(expr=expr))
-        _flush(store)
-        return deleted
+        client = get_client()
+        name = collection_name or settings.milvus_collection_name
+
+        try:
+            client.delete(
+                collection_name=name,
+                filter=expr,
+            )
+            client.flush(name)
+            return True
+        except Exception as e:
+            logger.warning("Delete failed: %s", e)
+            return False
 
     return await asyncio.to_thread(_delete)
-
-
-def _flush(store: Milvus) -> None:
-    collection = store.col
-    if collection is not None:
-        collection.flush()

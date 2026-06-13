@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     # RAG 配置
     rag_top_k: int = 10
-    similarity_threshold: float = 0.6
+    similarity_threshold: float = 0.4
     milvus_collection_name: str = "schema_knowledge"
     embedding_batch_size: int = 25
 

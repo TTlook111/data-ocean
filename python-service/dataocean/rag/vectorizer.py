@@ -291,16 +291,26 @@ def _delete_by_datasource(collection: Collection, datasource_id: int) -> None:
     logger.info("Datasource vectors deleted datasource_id=%d", datasource_id)
 
 
-def _count_vectors(collection: Collection, expr: str) -> int:
-    """Query Milvus aggregate count across pymilvus response key variants."""
-    rows = collection.query(expr=expr, output_fields=["count(*)"])
-    if not rows:
+def _count_vectors(collection, expr: str) -> int:
+    """Query Milvus aggregate count using MilvusClient."""
+    from .milvus_client import get_client
+    from dataocean.core.config import settings
+
+    try:
+        client = get_client()
+        name = collection.name if hasattr(collection, 'name') else settings.milvus_collection_name
+
+        # 使用 MilvusClient 查询
+        results = client.query(
+            collection_name=name,
+            filter=expr,
+            output_fields=["datasource_id"],
+            limit=1000,
+        )
+        return len(results)
+    except Exception as e:
+        logger.warning("Count vectors failed: %s", e)
         return 0
-    row = rows[0]
-    for key in ("count(*)", "count"):
-        if key in row:
-            return int(row[key])
-    return 0
 
 
 def _doc_version_expr(datasource_id: int, doc_id: int | None, version_no: int) -> str:

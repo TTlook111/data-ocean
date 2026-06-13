@@ -28,7 +28,7 @@ from dataocean.core.config import reload_config, get_config_version
 from dataocean.rag.reranker import DataOceanReranker, rerank
 from dataocean.rag.schema import ChunkItem, RetrieveRequest, RetrievedSchema
 from dataocean.rag.vectorizer import vectorize_chunks
-from dataocean.rag.vector_store import get_vector_store, clear_vector_store_cache, _vector_store_cache
+from dataocean.rag.vector_store import add_chunk_embeddings, search_by_vector, delete_by_expr
 from dataocean.sandbox.pool_manager import cleanup_idle_pools, _pool_info, PoolInfo
 
 
@@ -382,34 +382,18 @@ class TestPoolCleanupTOCTOU:
 
 
 # ============================================================
-# VectorStore 缓存回归测试
+# VectorStore 测试
 # ============================================================
 
-class TestVectorStoreCache:
-    """VectorStore 缓存"""
+class TestVectorStore:
+    """VectorStore 测试"""
 
-    def test_cache_returns_same_instance(self):
-        """缓存返回相同实例"""
-        clear_vector_store_cache()
+    def test_milvus_client_singleton(self):
+        """MilvusClient 单例测试"""
+        from dataocean.rag.milvus_client import get_client
 
-        mock_store = MagicMock(name="test_store")
-        cache_key = ("test_collection", 1024)
-        _vector_store_cache[cache_key] = mock_store
+        client1 = get_client()
+        client2 = get_client()
 
-        store1 = get_vector_store("test_collection", 1024)
-        store2 = get_vector_store("test_collection", 1024)
-
-        assert store1 is store2
-
-    def test_clear_cache_works(self):
-        """清除缓存后返回新实例"""
-        clear_vector_store_cache()
-
-        mock_store1 = MagicMock(name="test_store1")
-        cache_key = ("test_collection", 1024)
-        _vector_store_cache[cache_key] = mock_store1
-
-        store1 = get_vector_store("test_collection", 1024)
-        clear_vector_store_cache()
-
-        assert cache_key not in _vector_store_cache
+        # 同一个实例
+        assert client1 is client2

@@ -20,7 +20,9 @@ class SqlOutputParser(BaseOutputParser[dict]):
     def _extract_sql(text: str) -> str:
         match = re.search(r"```sql\s*\n?(.*?)\n?```", text, re.DOTALL | re.IGNORECASE)
         if match:
-            return match.group(1).strip()
+            sql = match.group(1).strip()
+            # 去除末尾分号
+            return sql.rstrip(";").strip()
         match = re.search(r"(SELECT\s.+?)(?:;|\n\n|$)", text, re.DOTALL | re.IGNORECASE)
         if match:
             return match.group(1).strip().rstrip(";")
