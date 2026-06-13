@@ -290,3 +290,4 @@ The query page persists server-side conversations and can reload historical mess
 - Java consumes Python SSE as a client. Do not replace this with Spring `SseEmitter`; fix client-side SSE parsing and read timeouts instead.
 - Use focused tests when changing lifecycle, RAG, SQL safety, permissions, or public API behavior.
 - Preserve user changes in the working tree; do not reset or revert unrelated files.
+- Docker boundary: when MySQL, Redis, Milvus, MinIO, etc. are stopped or missing, do not automatically start, create, recreate, or delete containers. Tell the user which existing service/container should be started, and only run Docker commands when the user explicitly asks.

@@ -551,6 +551,7 @@ under specs/<module>/plan.md.
 - Do not add project downloads, generated assets, dependency caches, exported files, or temporary project files to `C:\`.
 - Keep project-related downloaded/generated files under `D:\Java_study\GraduationProject` unless they are required by developer tooling such as Codex or Codex.
 - Before introducing any new Docker container or infrastructure service, tell the user what container is needed and why, then wait for confirmation.
+- If an existing local infrastructure service is stopped or missing during development, do not automatically create, recreate, delete, or start Docker containers. Tell the user which existing container/service should be started, and let the user start it manually unless the user explicitly says to run the Docker command.
 - Local Docker currently has MySQL, Redis, Elasticsearch, Kibana, RabbitMQ, Nacos, and Seata containers available. Treat exact local credentials as private local notes, not repository documentation.
 - 本项目当前没有 Figma 原型，默认不要使用 Figma 相关 workflow 或 skills。前端排版改造优先使用 `dataocean-admin-ui-layout` skill，并参考成熟管理后台布局进行本地实现和截图验证。
 
