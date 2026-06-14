@@ -2,6 +2,9 @@ package com.dataocean.module.query.client.impl;
 
 import com.dataocean.module.glossary.entity.GlossaryTerm;
 import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
+import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.service.MetadataEntityService;
+import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.enums.ReviewStatus;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
@@ -49,6 +52,8 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private final KnowledgeChunkMapper knowledgeChunkMapper;
     private final com.dataocean.module.knowledge.mapper.KnowledgeDocMapper knowledgeDocMapper;
     private final GlossaryTermMapper glossaryTermMapper;
+    private final MetadataEntityService metadataEntityService;
+    private final MetadataRelationshipService metadataRelationshipService;
 
     @Qualifier("pythonRestClient")
     private final RestClient restClient;
@@ -430,6 +435,23 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             var terms = glossaryTermMapper.selectList(
                     new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<GlossaryTerm>()
                             .eq(GlossaryTerm::getStatus, GlossaryTerm.STATUS_APPROVED));
+
+            // 批量加载 GLOSSARY_OF 关系（术语→物理列关联）
+            java.util.Map<Long, String> termColumnsMap = new java.util.HashMap<>();
+            try {
+                var rels = metadataRelationshipService.list(
+                        new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<MetadataRelationship>()
+                                .eq(MetadataRelationship::getRelationType, MetadataRelationship.TYPE_GLOSSARY_OF)
+                                .in(MetadataRelationship::getSourceId, terms.stream().map(GlossaryTerm::getId).toList()));
+                for (MetadataRelationship rel : rels) {
+                    var entity = metadataEntityService.getById(rel.getTargetId());
+                    if (entity != null) {
+                        termColumnsMap.merge(rel.getSourceId(), entity.getFqn(),
+                                (old, val) -> old + "," + val);
+                    }
+                }
+            } catch (Exception ignored) { /* 关系查询失败不影响术语加载 */ }
+
             List<Map<String, String>> result = new java.util.ArrayList<>();
             for (GlossaryTerm term : terms) {
                 Map<String, String> item = new HashMap<>();
@@ -438,6 +460,11 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                 item.put("description", term.getDescription());
                 item.put("synonyms", term.getSynonyms());
                 item.put("fqn", term.getFqn());
+                // 附加关联的物理列 FQN
+                String relatedColumns = termColumnsMap.get(term.getId());
+                if (relatedColumns != null) {
+                    item.put("related_columns", relatedColumns);
+                }
                 result.add(item);
             }
             return result;

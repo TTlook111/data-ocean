@@ -11,6 +11,10 @@ import com.dataocean.module.audit.mapper.QueryLineageColumnMapper;
 import com.dataocean.module.audit.mapper.QueryLineageTableMapper;
 import com.dataocean.module.audit.service.LineageService;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
+import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.service.MetadataEntityService;
+import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -39,6 +43,8 @@ public class LineageServiceImpl implements LineageService {
     private final QueryLineageColumnMapper columnMapper;
     private final QueryTaskMapper queryTaskMapper;
     private final DatasourceAccessService datasourceAccessService;
+    private final MetadataEntityService entityService;
+    private final MetadataRelationshipService relationshipService;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -78,8 +84,103 @@ public class LineageServiceImpl implements LineageService {
                 columnMapper.insert(batch);
             }
             log.debug("lineage saved queryTaskId={} tables={} columns={}", queryTaskId, tableNames.size(), columns.size());
+
+            // 桥接到 metadata_relationship：为同一查询中引用的表创建 LINEAGE 关系
+            bridgeToEntityGraph(queryTaskId, tableRefs, columns);
         } catch (Exception e) {
             log.error("lineage save failed queryTaskId={}", queryTaskId, e);
+        }
+    }
+
+    /**
+     * 将查询级血缘桥接到实体关系图谱
+     * <p>
+     * 对于同一查询中引用的多个表，在 FROM 表和 JOIN 表之间创建 LINEAGE 关系。
+     * relation_metadata 包含 lineage_type=QUERY、query_task_id、column_mappings。
+     * </p>
+     */
+    private void bridgeToEntityGraph(Long queryTaskId, List<TableRef> tableRefs, List<ColumnRef> columns) {
+        if (tableRefs.size() < 2) return; // 单表查询无需创建表间关系
+
+        // 加载查询任务信息
+        QueryTask task = queryTaskMapper.selectById(queryTaskId);
+        if (task == null) return;
+        Long datasourceId = task.getDatasourceId();
+
+        // 构建列映射信息
+        List<Map<String, Object>> columnMappings = new ArrayList<>();
+        for (ColumnRef col : columns) {
+            Map<String, Object> mapping = new HashMap<>();
+            mapping.put("from", List.of(col.tableName() + "." + col.columnName()));
+            mapping.put("expression", col.expression());
+            columnMappings.add(mapping);
+        }
+
+        // 找到 FROM 表作为源
+        String fromTable = tableRefs.stream()
+                .filter(t -> "FROM".equals(t.relationType()))
+                .map(TableRef::tableName)
+                .findFirst()
+                .orElse(tableRefs.get(0).tableName());
+
+        // 为每个 JOIN/SUBQUERY 表创建 LINEAGE 关系
+        String fromFqnPrefix = findFqnPrefix(datasourceId, fromTable);
+        if (fromFqnPrefix == null) return;
+
+        MetadataEntity fromEntity = entityService.getByFqn(fromFqnPrefix + "." + fromTable.toLowerCase());
+        if (fromEntity == null) return;
+
+        for (TableRef ref : tableRefs) {
+            if (ref.tableName().equalsIgnoreCase(fromTable)) continue;
+            if (!"JOIN".equals(ref.relationType()) && !"SUBQUERY".equals(ref.relationType())) continue;
+
+            String toFqnPrefix = findFqnPrefix(datasourceId, ref.tableName());
+            if (toFqnPrefix == null) continue;
+
+            MetadataEntity toEntity = entityService.getByFqn(toFqnPrefix + "." + ref.tableName().toLowerCase());
+            if (toEntity == null) continue;
+
+            // 创建 LINEAGE 关系（源→目标表示数据流向）
+            MetadataRelationship rel = new MetadataRelationship();
+            rel.setSourceId(fromEntity.getId());
+            rel.setSourceType(MetadataEntity.TYPE_TABLE);
+            rel.setTargetId(toEntity.getId());
+            rel.setTargetType(MetadataEntity.TYPE_TABLE);
+            rel.setRelationType(MetadataRelationship.TYPE_LINEAGE);
+
+            String metadata = "{\"lineage_type\":\"QUERY\",\"query_task_id\":" + queryTaskId
+                    + ",\"sql_query\":" + toJson(task.getQuestion())
+                    + ",\"column_mappings\":" + toJson(columnMappings) + "}";
+            rel.setRelationMetadata(metadata);
+
+            try {
+                relationshipService.upsert(rel);
+            } catch (Exception e) {
+                log.debug("LINEAGE 关系创建跳过 from={} to={} error={}", fromEntity.getFqn(), toEntity.getFqn(), e.getMessage());
+            }
+        }
+    }
+
+    /** 查找表名对应的 FQN 前缀（datasource.db） */
+    private String findFqnPrefix(Long datasourceId, String tableName) {
+        // 从 metadata_entity 中查找 TABLE 类型实体，匹配表名
+        List<MetadataEntity> entities = entityService.search(tableName, MetadataEntity.TYPE_TABLE, 1, 5);
+        for (MetadataEntity e : entities) {
+            if (e.getName().equalsIgnoreCase(tableName)) {
+                // FQN 格式: datasource.db.table → 去掉最后一段得到前缀
+                String fqn = e.getFqn();
+                int lastDot = fqn.lastIndexOf('.');
+                return lastDot > 0 ? fqn.substring(0, lastDot) : null;
+            }
+        }
+        return null;
+    }
+
+    private String toJson(Object obj) {
+        try {
+            return objectMapper.writeValueAsString(obj);
+        } catch (Exception e) {
+            return "\"\"";
         }
     }
 

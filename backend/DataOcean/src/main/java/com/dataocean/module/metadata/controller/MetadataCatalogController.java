@@ -116,4 +116,90 @@ public class MetadataCatalogController {
         List<MetadataEntity> entities = entityService.getByDatasourceId(datasourceId);
         return Result.success(entities);
     }
+
+    // ========== 标签确认 API ==========
+
+    /**
+     * 确认标签候选，创建 TAGGED_WITH 关系
+     *
+     * @param entityId 实体 ID（列实体）
+     * @param body     { "tagFqn": "PII.手机号" }
+     */
+    @PostMapping("/entities/{entityId}/confirm-tag")
+    public Result<Void> confirmTag(
+            @PathVariable Long entityId,
+            @RequestBody Map<String, String> body) {
+        String tagFqn = body.get("tagFqn");
+        if (tagFqn == null || tagFqn.isBlank()) {
+            return Result.error(400, "tagFqn 不能为空");
+        }
+
+        MetadataEntity entity = entityService.getById(entityId);
+        if (entity == null) {
+            return Result.error(404, "实体不存在");
+        }
+
+        // 查找或创建标签实体
+        MetadataEntity tagEntity = entityService.getByFqn("tag." + tagFqn.toLowerCase());
+        if (tagEntity == null) {
+            // 标签实体不存在，创建一个
+            tagEntity = new MetadataEntity();
+            tagEntity.setEntityType(MetadataEntity.TYPE_TAG);
+            tagEntity.setEntityUuid(java.util.UUID.randomUUID().toString());
+            tagEntity.setFqn("tag." + tagFqn.toLowerCase());
+            tagEntity.setName(tagFqn);
+            tagEntity.setDisplayName(tagFqn);
+            tagEntity = entityService.upsert(tagEntity);
+        }
+
+        // 创建 TAGGED_WITH 关系
+        MetadataRelationship rel = new MetadataRelationship();
+        rel.setSourceId(entityId);
+        rel.setSourceType(entity.getEntityType());
+        rel.setTargetId(tagEntity.getId());
+        rel.setTargetType(MetadataEntity.TYPE_TAG);
+        rel.setRelationType(MetadataRelationship.TYPE_TAGGED_WITH);
+        relationshipService.upsert(rel);
+
+        return Result.success("标签确认成功", null);
+    }
+
+    /**
+     * 取消标签关联
+     */
+    @DeleteMapping("/entities/{entityId}/unconfirm-tag/{tagFqn}")
+    public Result<Void> unconfirmTag(
+            @PathVariable Long entityId,
+            @PathVariable String tagFqn) {
+        MetadataEntity tagEntity = entityService.getByFqn("tag." + tagFqn.toLowerCase());
+        if (tagEntity == null) {
+            return Result.error(404, "标签不存在");
+        }
+
+        var rels = relationshipService.getBySource(entityId, null);
+        for (MetadataRelationship rel : rels) {
+            if (MetadataRelationship.TYPE_TAGGED_WITH.equals(rel.getRelationType())
+                    && rel.getTargetId().equals(tagEntity.getId())) {
+                relationshipService.removeById(rel.getId());
+                break;
+            }
+        }
+        return Result.success("已取消标签", null);
+    }
+
+    /**
+     * 查询实体的已确认标签
+     */
+    @GetMapping("/entities/{entityId}/tags")
+    public Result<List<MetadataEntity>> getEntityTags(@PathVariable Long entityId) {
+        var rels = relationshipService.getBySource(entityId, null);
+        List<MetadataEntity> tags = new java.util.ArrayList<>();
+        for (MetadataRelationship rel : rels) {
+            if (MetadataRelationship.TYPE_TAGGED_WITH.equals(rel.getRelationType())) {
+                MetadataEntity tag = entityService.getById(rel.getTargetId());
+                if (tag != null) tags.add(tag);
+            }
+        }
+        return Result.success(tags);
+    }
 }

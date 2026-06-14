@@ -143,11 +143,14 @@ public class SnapshotEntitySyncListener {
                     colEntity.setName(column.getColumnName());
                     colEntity.setDisplayName(column.getColumnComment());
                     colEntity.setDescription(column.getColumnComment());
+                    // 标签推断：基于列名和注释匹配 PII/业务域模式
+                    String tagCandidates = inferTagCandidates(column.getColumnName(), column.getColumnComment());
                     colEntity.setEntityMetadata("{\"datasource_id\":" + datasourceId
                             + ",\"snapshot_id\":" + snapshotId
                             + ",\"data_type\":\"" + column.getDataType()
                             + "\",\"is_primary_key\":" + (column.getIsPrimaryKey() != null && column.getIsPrimaryKey() == 1)
-                            + ",\"governance_status\":\"" + column.getGovernanceStatus() + "\"}");
+                            + ",\"governance_status\":\"" + column.getGovernanceStatus() + "\""
+                            + ",\"tag_candidates\":" + tagCandidates + "}");
                     colEntity = entityService.upsert(colEntity);
                     columnCount++;
 
@@ -226,5 +229,47 @@ public class SnapshotEntitySyncListener {
         dsEntity.setEntityMetadata("{\"datasource_id\":" + datasourceId
                 + ",\"database_name\":\"" + dbName + "\"}");
         return entityService.upsert(dsEntity);
+    }
+
+    /**
+     * 标签推断：基于列名和注释匹配 PII/业务域模式
+     * <p>
+     * 与 Python auto_tagger.py 的模式对齐，返回 JSON 数组字符串。
+     * 标签不自动生效，存储为 tag_candidates 供管理员确认。
+     * </p>
+     */
+    private String inferTagCandidates(String columnName, String columnComment) {
+        String text = (columnName + " " + (columnComment != null ? columnComment : "")).toLowerCase();
+        java.util.List<String> candidates = new java.util.ArrayList<>();
+
+        // PII 标签
+        if (matches(text, "id_card", "身份证", "identity", "sfz")) candidates.add("PII.身份证号");
+        if (matches(text, "phone", "手机", "电话", "mobile", "tel")) candidates.add("PII.手机号");
+        if (matches(text, "real.?name", "user.?name", "customer.?name", "姓名")) candidates.add("PII.姓名");
+        if (matches(text, "email", "邮箱", "mail")) candidates.add("PII.邮箱");
+        if (matches(text, "bank.?card", "银行卡")) candidates.add("PII.银行卡号");
+        if (matches(text, "address", "地址", "住址")) candidates.add("PII.地址");
+
+        // 业务域标签
+        if (matches(text, "amount", "金额", "price", "cost", "revenue", "income", "balance")) candidates.add("业务域.财务");
+        if (matches(text, "order", "订单", "sale", "sell", "customer", "客户", "product", "商品")) candidates.add("业务域.销售");
+        if (matches(text, "employee", "员工", "salary", "工资", "dept", "部门", "position", "岗位")) candidates.add("业务域.人力");
+        if (matches(text, "supplier", "供应商", "inventory", "库存", "warehouse", "物流")) candidates.add("业务域.供应链");
+
+        if (candidates.isEmpty()) return "[]";
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < candidates.size(); i++) {
+            if (i > 0) sb.append(",");
+            sb.append("\"").append(candidates.get(i)).append("\"");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    private boolean matches(String text, String... patterns) {
+        for (String p : patterns) {
+            if (text.matches(".*\\b" + p + "\\b.*")) return true;
+        }
+        return false;
     }
 }
