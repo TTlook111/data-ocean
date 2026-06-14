@@ -143,7 +143,7 @@ function renderGraph() {
 
   const option = {
     tooltip: {
-      formatter(params: { data: { name: string } }) {
+      formatter(params: { data: { id: string; name: string } }) {
         const entity = nodeMap.get(params.data.id)
         if (!entity) return params.data.name
         return `<strong>${entity.entity.displayName || entity.entity.name}</strong><br/>
