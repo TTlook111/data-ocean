@@ -35,6 +35,7 @@ const SlowQueryList = () => import('../views/admin/audit/SlowQueryList.vue')
 const LineageViewer = () => import('../views/admin/audit/LineageViewer.vue')
 const LineageGraph = () => import('../views/admin/audit/LineageGraph.vue')
 const GlossaryList = () => import('../views/admin/glossary/GlossaryList.vue')
+const CatalogSearch = () => import('../views/admin/metadata/CatalogSearch.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
 const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
 const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
@@ -146,6 +147,12 @@ const router = createRouter({
           name: 'admin-metadata-schedule',
           component: SyncSchedule,
           meta: { title: '同步调度', section: '元数据管理', permission: 'metadata:manage' },
+        },
+        {
+          path: 'metadata/catalog',
+          name: 'admin-metadata-catalog',
+          component: CatalogSearch,
+          meta: { title: '目录搜索', section: '元数据管理', permission: 'metadata:manage' },
         },
         {
           path: 'governance/quality',

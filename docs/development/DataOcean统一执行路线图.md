@@ -4,7 +4,7 @@
 >
 > 借鉴 OpenMetadata（https://github.com/open-metadata/OpenMetadata）
 >
-> 更新日期：2026-06-13 | 最后完善：2026-06-13
+> 更新日期：2026-06-13 | 最后完善：2026-06-14
 
 ---
 
@@ -936,6 +936,34 @@ CREATE TABLE access_approval_request (
 | 质量趋势仪表盘 | `/admin/governance/trends` | 阶段五 | 中 |
 | 权限变更日志 | `/admin/permission/changelog` | 阶段六 | 低 |
 | 数据访问审批 | `/admin/permission/approvals` | 阶段七 | 低 |
+
+---
+
+## 十四、治理闭环修复记录（2026-06-14）
+
+七个重构阶段完成后，经验收审计发现四条治理闭环断裂，已修复：
+
+| 编号 | 问题 | 修复内容 | 状态 |
+|------|------|---------|------|
+| P0 | LineageGraph.vue / GlossaryList.vue 未注册路由 | 注册路由 + 侧栏导航 | ✅ 已修复 |
+| P1 | 血缘闭环断裂：query_lineage 未桥接到 metadata_relationship | LineageServiceImpl.saveLineage() 后桥接 LINEAGE 关系 | ✅ 已修复 |
+| P2 | expireOverdueRequests() 死代码 | 新增 ApprovalExpiryScheduler 每小时调度 | ✅ 已修复 |
+| P3 | 标签闭环断裂：auto_tagger 未接入 | SnapshotEntitySyncListener 集成标签推断 + 标签确认 API | ✅ 已修复 |
+| P4 | 术语-列关联缺失 | GlossaryController 添加 GLOSSARY_OF 关联 API + loadApprovedGlossaryTerms() 传递 related_columns | ✅ 已修复 |
+| P5 | PII 标签→MASK 策略未联动 | 标签确认后自动生成 MASK 策略候选，管理员确认后生效 | ✅ 已修复 |
+| P6 | 目录搜索无前端页面 | 新增 CatalogSearch.vue + 路由 + 侧栏 | ✅ 已修复 |
+
+**已打通的闭环**：
+1. **血缘**：查询执行 → query_lineage → 桥接 LINEAGE 关系 → getLineage()/getDownstream() → DAG 展示
+2. **术语**：Glossary/Term → 审批 → 关联物理列 → query_rewriter 术语扩展 → LLM 提示
+3. **标签**：快照发布 → 列级标签推断 → 管理员确认 → TAGGED_WITH 关系 → PII 标签生成 MASK 候选
+4. **审批**：申请 → 审批 → 临时 ALLOW 策略 → 定时清理过期 → 运行时兜底
+5. **MASK 联动**：PII 标签确认 → 自动生成 MASK 策略候选（PENDING）→ 管理员确认 → 策略生效
+
+**仍需后续迭代的项**：
+- 标签候选 Python 版本与 Java 版本模式统一（当前 Java 侧独立实现）
+- 目录搜索页面高级过滤（实体类型多选、FQN 前缀过滤）
+- 血缘 DAG 自动刷新（当前需手动选择数据源）
 
 ---
 

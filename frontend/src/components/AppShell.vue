@@ -19,6 +19,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
   SlidersHorizontal,
   ShieldCheck,
   ShieldAlert,
@@ -88,6 +89,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
     items: [
       { label: '快照生命周期', to: '/admin/metadata/lifecycle', icon: Workflow, permission: 'metadata:manage' },
       { label: '版本历史', to: '/admin/metadata/version-history', icon: GitBranch, permission: 'metadata:manage' },
+      { label: '目录搜索', to: '/admin/metadata/catalog', icon: Search, permission: 'metadata:manage' },
     ],
   },
   {
