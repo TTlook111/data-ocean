@@ -1,6 +1,6 @@
 # DataOcean 统一执行路线图
 
-> **唯一执行文档** — 合并自：重构实施指南 + 元数据治理深度改造方案 + 后续开发计划
+> **唯一执行文档** — 合并自：重构实施指南 + 元数据治理深度改造方案
 >
 > 借鉴 OpenMetadata（https://github.com/open-metadata/OpenMetadata）
 >
@@ -12,7 +12,7 @@
 
 **这是唯一需要看的执行文档。** 其他开发文档作为历史参考保留，实际执行以本文档为准。
 
-**与后续开发.md 的关系**：本文档管"重构已开发功能"，`后续开发.md` 管"开发新功能"。先完成本文档阶段一~九并测试通过，再执行后续开发.md 的任务。
+**与后续开发.md 的关系**：本文档只执行重构任务；重构全部完成并验收通过后，本文档执行结束。后续新增功能另见 `docs/development/后续开发.md`。
 
 ---
 
@@ -117,7 +117,7 @@ main
   ├── feature/glossary-terms               ← 阶段四：业务术语表（可与阶段五并行）
   ├── feature/tag-classification           ← 阶段五：分类标签 + 质量深化（可与阶段四并行）
   ├── feature/permission-enhance           ← 阶段六：权限增强（依赖阶段五）
-  └── feature/event-search                 ← 阶段七：事件驱动（可选）
+  └── feature/event-search                 ← 阶段七：事件驱动
 ```
 
 **分支规则**：
@@ -161,20 +161,46 @@ main
         （依赖阶段五的 PII 标签做自动脱敏）          │
              │                                  │
              ↓                                  │
-        阶段七：事件驱动（feature/event-search）── 可选
+        阶段七：事件驱动（feature/event-search）
   │
   ↓
-重构完成 → 测试通过 → 执行后续开发.md 的新功能任务
+重构完成 → 测试通过 → 本文档执行结束
 ```
 
 **阶段依赖说明**：
 - 阶段三完成后，阶段四和阶段五可以**并行**开发（互不依赖）
 - 阶段六依赖阶段五（权限增强中的 PII 自动脱敏需要标签系统）
-- 阶段七可选，不影响核心功能
 
 ---
 
-## 三、阶段一：权限治理修复
+## 三、重构口径约束
+
+### 3.1 权限入口口径
+
+企业权限配置入口遵循：**部门 → 岗位/角色 → 员工例外**。
+
+- 部门是企业组织归属，是最基础的授权维度
+- 岗位/角色承载员工职责权限；当前系统只有 ROLE 时，先由 ROLE 承担"岗位/角色"语义
+- 员工个人授权只作为特殊例外，不作为默认配置主路径
+- 不强行新增职位表，除非后续重构阶段明确要求
+- UI 配置入口优先选择部门，再选择岗位/角色，特殊情况才单独添加员工级策略
+- 底层策略计算必须安全优先：系统级 DENY、BLOCKED、DEPRECATED 不得被员工例外绕过
+- 敏感标签策略必须强制脱敏；显式 DENY 优先于普通 ALLOW
+- 员工例外必须具备优先级、审计记录和冲突处理
+
+### 3.2 后台侧栏口径
+
+后台侧栏按业务链路组织，不按代码包名机械分组。
+
+- 血缘属于数据资产治理链路，应靠近元数据、质量治理、字段治理，而不是孤立放在审计运维里
+- 权限入口按组织结构优先：部门 → 岗位/角色 → 用户
+- 当前没有实现、且属于后续开发的页面，不提前写进导航
+- 后续开发项不进入本文档侧栏方案
+- 当前阶段只有在确实涉及前端导航时，才调整侧栏
+
+---
+
+## 四、阶段一：权限治理修复
 
 **分支**：`feature/fix-permission-injection`
 **预计工期**：1 周
@@ -258,7 +284,7 @@ main
 
 ---
 
-## 四、阶段二：RAG 重构
+## 五、阶段二：RAG 重构
 
 **分支**：`feature/rag-restructure`
 **预计工期**：2-3 周
@@ -317,7 +343,7 @@ main
 
 ---
 
-## 五、阶段三：实体关系图谱
+## 六、阶段三：实体关系图谱
 
 **分支**：`feature/metadata-entity-graph`
 **预计工期**：2-3 周
@@ -501,7 +527,7 @@ ORDER BY d.depth;
 
 ---
 
-## 六、阶段四：业务术语表
+## 七、阶段四：业务术语表
 
 **分支**：`feature/glossary-terms`
 **预计工期**：2-3 周
@@ -587,7 +613,7 @@ relation_type: GLOSSARY_OF
 
 ---
 
-## 七、阶段五：分类标签与质量深化
+## 八、阶段五：分类标签与质量深化
 
 **分支**：`feature/tag-classification`
 **预计工期**：2 周
@@ -688,7 +714,7 @@ CREATE TABLE quality_check_result (
 
 ---
 
-## 八、阶段六：权限增强
+## 九、阶段六：权限增强
 
 **分支**：`feature/permission-enhance`
 **预计工期**：1-2 周
@@ -743,21 +769,6 @@ CREATE TABLE permission_change_log (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-#### 6.4 告警规则增强
-
-```sql
-ALTER TABLE alert_rule
-    ADD COLUMN name VARCHAR(128) NOT NULL DEFAULT '' AFTER id,
-    ADD COLUMN description VARCHAR(512) AFTER name,
-    ADD COLUMN severity VARCHAR(8) NOT NULL DEFAULT 'MEDIUM' AFTER description,
-    ADD COLUMN cooldown_minutes INT NOT NULL DEFAULT 60 AFTER notification_type,
-    ADD COLUMN webhook_url VARCHAR(512) AFTER cooldown_minutes,
-    ADD COLUMN webhook_headers JSON AFTER webhook_url,
-    ADD COLUMN event_types JSON AFTER webhook_headers;
-```
-
-前端新增 `AlertRuleManager.vue`（API 已存在，缺 UI）
-
 ### 代码清理（阶段六）
 
 | 删除/废弃 | 替代 |
@@ -766,7 +777,7 @@ ALTER TABLE alert_rule
 
 ---
 
-## 九、阶段七：事件驱动（可选）
+## 十、阶段七：事件驱动
 
 **分支**：`feature/event-search`
 **预计工期**：2 周
@@ -815,16 +826,6 @@ CREATE TABLE access_approval_request (
 ```
 
 **流程**：用户查询命中 MASK → 显示脱敏结果 + "申请查看"按钮 → 填写理由 → 管理员审批 → 通过生成临时 ALLOW 策略
-
----
-
-## 十、后续开发任务
-
-> 重构完成后、测试全部通过，再执行以下任务。
->
-> 详细内容见：`docs/development/后续开发.md`
-
-后续开发任务（P0-P12）已独立到 `后续开发.md`，与本文档的重构任务分开管理。执行顺序：**先完成本文档的阶段一~九 → 测试通过 → 再执行后续开发.md 的任务**。
 
 ---
 
@@ -902,24 +903,21 @@ CREATE TABLE access_approval_request (
 | V40 | quality_rule 扩展 + quality_check_result | 阶段五 |
 | V41 | permission 增强（priority、time、changelog） | 阶段六 |
 | V42 | metadata_change_event + access_approval_request | 阶段七 |
-| V43 | alert_rule 扩展 | 阶段六 |
 
 ---
 
 ## 十三、前端新增页面汇总
 
-| 页面 | 路径 | 对应阶段 | 优先级 |
+| 页面 | 路径 | 对应阶段 | 重构优先级 |
 |------|------|----------|--------|
-| 元数据目录搜索 | `/admin/catalog/search` | 阶段三 | P1 |
-| 血缘 DAG 图 | `/admin/audit/lineage-graph` | 阶段三 | P1 |
-| 业务术语管理 | `/admin/glossary/list` | 阶段四 | P1 |
-| 术语审批 | `/admin/glossary/approval` | 阶段四 | P1 |
-| 标签分类管理 | `/admin/tags/classifications` | 阶段五 | P2 |
-| 质量趋势仪表盘 | `/admin/governance/trends` | 阶段五 | P2 |
-| 告警规则管理 | `/admin/audit/alerts` | 阶段六 | P2 |
-| 权限变更日志 | `/admin/permission/changelog` | 阶段六 | P3 |
-| 数据访问审批 | `/admin/permission/approvals` | 阶段七 | P3 |
-| 操作日志 | `/admin/system/operation-logs` | 零散任务 | P2 |
+| 元数据目录搜索 | `/admin/catalog/search` | 阶段三 | 高 |
+| 血缘 DAG 图 | `/admin/audit/lineage-graph` | 阶段三 | 高 |
+| 业务术语管理 | `/admin/glossary/list` | 阶段四 | 高 |
+| 术语审批 | `/admin/glossary/approval` | 阶段四 | 高 |
+| 标签分类管理 | `/admin/tags/classifications` | 阶段五 | 中 |
+| 质量趋势仪表盘 | `/admin/governance/trends` | 阶段五 | 中 |
+| 权限变更日志 | `/admin/permission/changelog` | 阶段六 | 低 |
+| 数据访问审批 | `/admin/permission/approvals` | 阶段七 | 低 |
 
 ---
 
