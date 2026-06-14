@@ -6,11 +6,15 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 /**
- * 预定义标签实体类
+ * 预定义标签实体类（已废弃）
  * <p>
- * 系统预定义的标签参考数据，用于前端下拉选择和标签编码校验。
+ * 已被 {@code classification} + {@code tag} 两级标签体系替代。
+ * 保留原表用于历史数据兼容，新标签应写入 tag 表。
  * </p>
+ *
+ * @deprecated 使用 classification + tag 替代
  */
+@Deprecated
 @Data
 @TableName("predefined_tag")
 public class PredefinedTag {
