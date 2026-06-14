@@ -21,6 +21,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.event.TransactionPhase;
 
+import java.time.DayOfWeek;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -114,6 +117,8 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         Set<SubjectKey> subjectSet = new HashSet<>(subjects);
         List<DatasourceAccessPolicy> userPolicies = allPolicies.stream()
                 .filter(p -> subjectSet.contains(new SubjectKey(p.getSubjectType(), p.getSubjectId())))
+                .filter(this::isPolicyActiveByTime)
+                .sorted(Comparator.comparingInt(p -> p.getPriority() != null ? p.getPriority() : 200))
                 .collect(Collectors.toList());
 
         // 合并计算权限策略（安全优先：任一维度 DENY 即禁止，任一维度 MASK 即脱敏）
@@ -274,6 +279,69 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
      * - row filters：多条件 AND 合并（限制数据范围）
      * </p>
      */
+    /**
+     * 判断策略是否在当前时间条件内生效
+     * <p>
+     * 检查三个维度：
+     * 1. valid_from / valid_until：绝对时间范围
+     * 2. time_schedule：周期性时间计划（工作日/工作时间）
+     * </p>
+     */
+    private boolean isPolicyActiveByTime(DatasourceAccessPolicy policy) {
+        LocalDateTime now = LocalDateTime.now();
+
+        // 检查绝对时间范围
+        if (policy.getValidFrom() != null && now.isBefore(policy.getValidFrom())) {
+            return false;
+        }
+        if (policy.getValidUntil() != null && now.isAfter(policy.getValidUntil())) {
+            return false;
+        }
+
+        // 检查周期性时间计划
+        if (policy.getTimeSchedule() != null && !policy.getTimeSchedule().isBlank()) {
+            try {
+                // 简单 JSON 解析：{"weekdays":[1,2,3,4,5],"hours":{"from":"09:00","to":"18:00"}}
+                String schedule = policy.getTimeSchedule();
+                if (schedule.contains("\"weekdays\"")) {
+                    int dayOfWeek = now.getDayOfWeek().getValue(); // 1=Monday, 7=Sunday
+                    // 检查是否在允许的工作日中
+                    String weekdaysStr = schedule.substring(schedule.indexOf("\"weekdays\"") + 11);
+                    weekdaysStr = weekdaysStr.substring(0, weekdaysStr.indexOf("]"));
+                    boolean dayAllowed = weekdaysStr.contains(String.valueOf(dayOfWeek));
+                    if (!dayAllowed) return false;
+                }
+                if (schedule.contains("\"hours\"")) {
+                    LocalTime currentTime = now.toLocalTime();
+                    String fromStr = extractJsonValue(schedule, "from");
+                    String toStr = extractJsonValue(schedule, "to");
+                    if (fromStr != null && toStr != null) {
+                        LocalTime from = LocalTime.parse(fromStr);
+                        LocalTime to = LocalTime.parse(toStr);
+                        if (currentTime.isBefore(from) || currentTime.isAfter(to)) {
+                            return false;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("策略时间计划解析失败 policyId={}, 默认放行", policy.getId(), e);
+            }
+        }
+
+        return true;
+    }
+
+    /** 从简单 JSON 字符串中提取指定 key 的值 */
+    private String extractJsonValue(String json, String key) {
+        String search = "\"" + key + "\":\"";
+        int start = json.indexOf(search);
+        if (start < 0) return null;
+        start += search.length();
+        int end = json.indexOf("\"", start);
+        if (end < 0) return null;
+        return json.substring(start, end);
+    }
+
     private PermissionContextVO mergePermissions(List<DatasourceAccessPolicy> allPolicies,
                                                   List<SubjectKey> subjects,
                                                   Long datasourceId) {

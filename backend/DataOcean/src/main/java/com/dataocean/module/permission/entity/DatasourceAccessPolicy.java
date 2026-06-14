@@ -48,6 +48,18 @@ public class DatasourceAccessPolicy {
     /** 行级过滤 SQL 表达式 */
     private String rowFilterExpression;
 
+    /** 优先级（越低越优先：系统级 0-99，管理员 100-199，默认 200+） */
+    private Integer priority;
+
+    /** 策略生效开始时间（NULL 表示立即生效） */
+    private LocalDateTime validFrom;
+
+    /** 策略生效结束时间（NULL 表示永久有效） */
+    private LocalDateTime validUntil;
+
+    /** 时间计划（JSON：weekdays + hours） */
+    private String timeSchedule;
+
     /** 创建人 ID */
     private Long createdBy;
 
