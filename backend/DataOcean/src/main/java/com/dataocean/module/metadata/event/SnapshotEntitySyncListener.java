@@ -268,7 +268,13 @@ public class SnapshotEntitySyncListener {
 
     private boolean matches(String text, String... patterns) {
         for (String p : patterns) {
-            if (text.matches(".*\\b" + p + "\\b.*")) return true;
+            if (p.contains(".?")) {
+                // 正则模式（如 real.?name）使用 regex 匹配
+                if (java.util.regex.Pattern.compile(p).matcher(text).find()) return true;
+            } else {
+                // 简单模式使用 contains 匹配（避免 \b 不匹配下划线的问题）
+                if (text.contains(p)) return true;
+            }
         }
         return false;
     }
