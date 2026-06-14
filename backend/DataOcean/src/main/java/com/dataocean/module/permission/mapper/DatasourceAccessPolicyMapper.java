@@ -80,4 +80,16 @@ public interface DatasourceAccessPolicyMapper extends BaseMapper<DatasourceAcces
     List<DatasourceAccessPolicy> selectBySubject(@Param("datasourceId") Long datasourceId,
                                                   @Param("subjectType") String subjectType,
                                                   @Param("subjectId") Long subjectId);
+
+    /**
+     * 查询指定数据源下所有主体的策略（用于权限计算批量加载，消除 N+1 查询）
+     *
+     * @param datasourceId 数据源 ID
+     * @return 该数据源下所有策略实体
+     */
+    @Select("""
+            SELECT * FROM datasource_access_policy
+            WHERE datasource_id = #{datasourceId}
+            """)
+    List<DatasourceAccessPolicy> selectAllByDatasourceId(@Param("datasourceId") Long datasourceId);
 }

@@ -20,6 +20,9 @@ public class PermissionContextVO {
     /** 允许访问的表列表 */
     private List<String> allowedTables;
 
+    /** 表访问范围模式：UNRESTRICTED 表示全库开放，ALLOWLIST 表示使用 allowedTables 白名单 */
+    private String tableScopeMode = "UNRESTRICTED";
+
     /** 禁止访问的列列表，格式: "table.column" */
     private List<String> deniedColumns;
 

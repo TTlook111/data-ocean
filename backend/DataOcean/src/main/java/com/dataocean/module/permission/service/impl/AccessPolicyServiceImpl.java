@@ -10,15 +10,17 @@ import com.dataocean.module.metadata.entity.DbTableMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.permission.entity.DatasourceAccessPolicy;
+import com.dataocean.module.permission.entity.PermissionChangeLog;
 import com.dataocean.module.permission.entity.dto.AccessPolicyBatchDTO;
 import com.dataocean.module.permission.entity.dto.AccessPolicyCreateDTO;
 import com.dataocean.module.permission.entity.vo.AccessPolicyVO;
 import com.dataocean.module.permission.enums.AccessType;
 import com.dataocean.module.permission.enums.MaskStrategy;
 import com.dataocean.module.permission.enums.SubjectType;
+import com.dataocean.module.permission.event.PermissionChangedEvent;
 import com.dataocean.module.permission.mapper.DatasourceAccessPolicyMapper;
+import com.dataocean.module.permission.mapper.PermissionChangeLogMapper;
 import com.dataocean.module.permission.service.AccessPolicyService;
-import com.dataocean.module.permission.service.PermissionCalculator;
 import com.dataocean.module.user.entity.SysDepartment;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.entity.SysUser;
@@ -27,6 +29,7 @@ import com.dataocean.module.user.mapper.RoleMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,7 +46,8 @@ import java.util.List;
 public class AccessPolicyServiceImpl implements AccessPolicyService {
 
     private final DatasourceAccessPolicyMapper policyMapper;
-    private final PermissionCalculator permissionCalculator;
+    private final PermissionChangeLogMapper changeLogMapper;
+    private final ApplicationEventPublisher eventPublisher;
     private final DatasourceMapper datasourceMapper;
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
@@ -79,7 +83,11 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         policy.setCreatedBy(UserContext.currentUserId());
         policyMapper.insert(policy);
 
-        permissionCalculator.invalidate(dto.getSubjectId(), dto.getDatasourceId());
+        logChange(PermissionChangeLog.TYPE_CREATE, PermissionChangeLog.TARGET_POLICY,
+                policy.getId(), dto.getSubjectType(), dto.getSubjectId(),
+                dto.getDatasourceId(), null, policy);
+
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, dto.getSubjectId(), dto.getDatasourceId()));
         log.info("策略创建成功 id={} datasourceId={} table={} column={}",
                 policy.getId(), dto.getDatasourceId(), dto.getTableName(), dto.getColumnName());
         return policy.getId();
@@ -129,7 +137,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
 
         log.info("批量策略创建成功 datasourceId={} table={} count={}",
                 dto.getDatasourceId(), dto.getTableName(), count);
-        permissionCalculator.invalidate(dto.getSubjectId(), dto.getDatasourceId());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, dto.getSubjectId(), dto.getDatasourceId()));
         return count;
     }
 
@@ -159,10 +167,16 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         if (rowFilterExpression != null && !rowFilterExpression.isBlank()) {
             validateRowFilterExpression(rowFilterExpression);
         }
+        DatasourceAccessPolicy oldPolicy = policyMapper.selectById(id);
         policy.setMaskStrategy(maskStrategy);
         policy.setRowFilterExpression(rowFilterExpression);
         policyMapper.updateById(policy);
-        permissionCalculator.invalidate(policy.getSubjectId(), policy.getDatasourceId());
+
+        logChange(PermissionChangeLog.TYPE_UPDATE, PermissionChangeLog.TARGET_POLICY,
+                id, policy.getSubjectType(), policy.getSubjectId(),
+                policy.getDatasourceId(), oldPolicy, policy);
+
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, policy.getSubjectId(), policy.getDatasourceId()));
         log.info("策略更新成功 id={}", id);
     }
 
@@ -174,7 +188,12 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             throw new BusinessException("策略不存在");
         }
         policyMapper.deleteById(id);
-        permissionCalculator.invalidate(policy.getSubjectId(), policy.getDatasourceId());
+
+        logChange(PermissionChangeLog.TYPE_DELETE, PermissionChangeLog.TARGET_POLICY,
+                id, policy.getSubjectType(), policy.getSubjectId(),
+                policy.getDatasourceId(), policy, null);
+
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, policy.getSubjectId(), policy.getDatasourceId()));
         log.info("策略删除成功 id={} datasourceId={} table={}", id, policy.getDatasourceId(), policy.getTableName());
     }
 
@@ -302,6 +321,35 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         }
         if (maxDepth > 2) {
             throw new BusinessException("行级过滤表达式括号嵌套不能超过 2 层");
+        }
+    }
+
+    /**
+     * 记录权限变更审计日志
+     */
+    private void logChange(String changeType, String targetType, Long targetId,
+                            String subjectType, Long subjectId, Long datasourceId,
+                            Object oldValue, Object newValue) {
+        try {
+            PermissionChangeLog logEntry = new PermissionChangeLog();
+            logEntry.setChangeType(changeType);
+            logEntry.setTargetType(targetType);
+            logEntry.setTargetId(targetId);
+            logEntry.setSubjectType(subjectType);
+            logEntry.setSubjectId(subjectId);
+            logEntry.setDatasourceId(datasourceId);
+            logEntry.setOperatorId(UserContext.currentUserId());
+            if (oldValue != null) {
+                logEntry.setOldValue(com.fasterxml.jackson.databind.ObjectMapper.class
+                        .getDeclaredConstructor().newInstance().writeValueAsString(oldValue));
+            }
+            if (newValue != null) {
+                logEntry.setNewValue(com.fasterxml.jackson.databind.ObjectMapper.class
+                        .getDeclaredConstructor().newInstance().writeValueAsString(newValue));
+            }
+            changeLogMapper.insert(logEntry);
+        } catch (Exception e) {
+            log.warn("权限变更审计日志记录失败: {}", e.getMessage());
         }
     }
 }

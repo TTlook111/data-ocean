@@ -34,6 +34,9 @@ public class MetadataQualityRule {
     public static final String TARGET_COLUMN = "COLUMN";
     public static final String TARGET_RELATION = "RELATION";
 
+    public static final String CHECK_TYPE_SCHEMA = "SCHEMA";
+    public static final String CHECK_TYPE_DATA = "DATA";
+
     @TableId(type = IdType.AUTO)
     private Long id;
     private String ruleCode;
@@ -42,6 +45,12 @@ public class MetadataQualityRule {
     private String severity;
     private String description;
     private String checkTarget;
+    /** 检查类型：SCHEMA（元数据级） / DATA（数据级） */
+    private String checkType;
+    /** 检查表达式（DATA 类型规则使用） */
+    private String checkExpression;
+    /** 阈值（DATA 类型规则使用） */
+    private BigDecimal threshold;
     private Integer enabled;
     private BigDecimal deductionPoints;
     private Integer builtin;

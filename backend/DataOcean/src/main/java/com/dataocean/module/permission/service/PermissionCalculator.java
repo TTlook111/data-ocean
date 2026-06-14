@@ -16,10 +16,11 @@ public interface PermissionCalculator {
     /**
      * 计算用户对指定数据源的完整权限上下文
      * <p>
-     * 合并逻辑：
-     * - allowedTables: 所有维度允许的表取并集
-     * - deniedColumns: 所有维度禁止的列取交集（所有维度都禁止才真正禁止）
-     * - maskColumns: 所有有策略的维度都配置 MASK 才脱敏（任一维度未配置则不脱敏）
+     * 安全优先合并逻辑（并集语义）：
+     * - deniedColumns: 所有维度禁止的列取并集（任一维度 DENY 即禁止）
+     * - deniedTables: 所有维度禁止的表取并集（任一维度 DENY 即禁止）
+     * - maskColumns: 所有维度脱敏的列取并集（任一维度 MASK 即脱敏）
+     * - allowedTables: 所有维度允许的表取并集，减去 deniedTables
      * - rowFilters: 多个过滤条件用 AND 合并（限制数据范围）
      * </p>
      *

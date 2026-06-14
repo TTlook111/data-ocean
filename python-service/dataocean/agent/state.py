@@ -66,6 +66,7 @@ class AgentState(TypedDict, total=False):
     user_permissions: dict
     active_snapshot_id: int
     confidence_scores: dict
+    glossary_terms: list[dict]
     prompt_versions: list[dict]
 
     # Query Rewriter 输出

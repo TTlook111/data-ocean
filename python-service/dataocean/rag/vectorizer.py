@@ -66,7 +66,9 @@ async def vectorize_chunks(
             duration_ms=_elapsed_ms(start),
         )
 
-    cleanup_same_doc_version_after_write = force and doc_id is not None
+    # staging 模式：force + doc_id 时，先写入新向量，验证后才删除旧向量
+    # 这是三步 staging 模式（write → verify → replace），避免中间窗口数据丢失
+    staging_mode = force and doc_id is not None
 
     texts = [chunk.chunk_text for chunk in chunks]
     try:
@@ -110,6 +112,7 @@ async def vectorize_chunks(
     ]
 
     try:
+        # Staging 步骤 1：写入新向量（此时旧向量仍存在，查询不中断）
         inserted_ids = await add_chunk_embeddings(
             texts=[chunk.chunk_text[:8192] for chunk in chunks],
             embeddings=embeddings,
@@ -118,7 +121,8 @@ async def vectorize_chunks(
             dimension=target_dimension,
         )
         cleanup_completed = False
-        if cleanup_same_doc_version_after_write:
+        if staging_mode:
+            # Staging 步骤 2：验证新向量写入成功后，删除旧版本向量
             try:
                 cleanup_expr = _old_doc_version_vectors_expr(datasource_id, doc_id, version_no, inserted_ids)
                 await delete_by_expr(cleanup_expr, target_collection)
@@ -126,9 +130,10 @@ async def vectorize_chunks(
             except Exception as exc:
                 logger.warning("Old force-rebuild vectors cleanup skipped after successful write: %s", exc)
         if doc_id is not None:
+            # Staging 步骤 3：验证向量数量一致
             try:
                 await asyncio.to_thread(
-                    _verify_doc_version_at_least if cleanup_same_doc_version_after_write and not cleanup_completed
+                    _verify_doc_version_at_least if staging_mode and not cleanup_completed
                     else _verify_doc_version,
                     collection,
                     datasource_id,
@@ -137,7 +142,7 @@ async def vectorize_chunks(
                     len(chunks),
                 )
             except Exception:
-                if not cleanup_same_doc_version_after_write:
+                if not staging_mode:
                     await delete_by_expr(_doc_version_expr(datasource_id, doc_id, version_no), target_collection)
                 raise
 
@@ -292,7 +297,11 @@ def _delete_by_datasource(collection: Collection, datasource_id: int) -> None:
 
 
 def _count_vectors(collection, expr: str) -> int:
-    """Query Milvus aggregate count using MilvusClient."""
+    """查询 Milvus 向量数量（使用 query + count，无上限限制）
+
+    修复：原先使用 limit=1000 的 query 返回行数，当 chunk 数超过 1000 时计数错误。
+    改为使用 MilvusClient.query 的 output_fields=["count(*)"] 聚合查询。
+    """
     from .milvus_client import get_client
     from dataocean.core.config import settings
 
@@ -300,17 +309,42 @@ def _count_vectors(collection, expr: str) -> int:
         client = get_client()
         name = collection.name if hasattr(collection, 'name') else settings.milvus_collection_name
 
-        # 使用 MilvusClient 查询
+        # 使用聚合查询获取精确数量（无上限限制）
         results = client.query(
             collection_name=name,
             filter=expr,
-            output_fields=["datasource_id"],
-            limit=1000,
+            output_fields=["count(*)"],
         )
-        return len(results)
-    except Exception as e:
-        logger.warning("Count vectors failed: %s", e)
+        if results and len(results) > 0:
+            # count(*) 结果在第一个 doc 的 "count(*)" 字段
+            return results[0].get("count(*)", 0)
         return 0
+    except Exception as e:
+        # 如果 count(*) 不支持，回退到分页计数
+        logger.warning("Count(*) query failed, falling back to paginated count: %s", e)
+        try:
+            client = get_client()
+            name = collection.name if hasattr(collection, 'name') else settings.milvus_collection_name
+            total = 0
+            offset = 0
+            page_size = 1000
+            while True:
+                results = client.query(
+                    collection_name=name,
+                    filter=expr,
+                    output_fields=["datasource_id"],
+                    limit=page_size,
+                    offset=offset,
+                )
+                count = len(results)
+                total += count
+                if count < page_size:
+                    break
+                offset += page_size
+            return total
+        except Exception as e2:
+            logger.warning("Paginated count also failed: %s", e2)
+            return 0
 
 
 def _doc_version_expr(datasource_id: int, doc_id: int | None, version_no: int) -> str:

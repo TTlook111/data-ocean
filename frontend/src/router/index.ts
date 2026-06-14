@@ -33,6 +33,9 @@ const FeedbackReview = () => import('../views/admin/field/FeedbackReview.vue')
 const AuditLogList = () => import('../views/admin/audit/AuditLogList.vue')
 const SlowQueryList = () => import('../views/admin/audit/SlowQueryList.vue')
 const LineageViewer = () => import('../views/admin/audit/LineageViewer.vue')
+const LineageGraph = () => import('../views/admin/audit/LineageGraph.vue')
+const GlossaryList = () => import('../views/admin/glossary/GlossaryList.vue')
+const CatalogSearch = () => import('../views/admin/metadata/CatalogSearch.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
 const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
 const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
@@ -146,6 +149,12 @@ const router = createRouter({
           meta: { title: '同步调度', section: '元数据管理', permission: 'metadata:manage' },
         },
         {
+          path: 'metadata/catalog',
+          name: 'admin-metadata-catalog',
+          component: CatalogSearch,
+          meta: { title: '目录搜索', section: '元数据管理', permission: 'metadata:manage' },
+        },
+        {
           path: 'governance/quality',
           name: 'admin-governance-quality',
           component: QualityDashboard,
@@ -240,6 +249,18 @@ const router = createRouter({
           name: 'admin-audit-lineage',
           component: LineageViewer,
           meta: { title: '血缘查看', section: '审计管理', permission: 'audit:view' },
+        },
+        {
+          path: 'audit/lineage-graph',
+          name: 'admin-audit-lineage-graph',
+          component: LineageGraph,
+          meta: { title: '血缘图谱', section: '审计管理', permission: 'audit:view' },
+        },
+        {
+          path: 'glossary/list',
+          name: 'admin-glossary-list',
+          component: GlossaryList,
+          meta: { title: '术语管理', section: '知识与语义', permission: 'metadata:manage' },
         },
         {
           path: 'permission/access',

@@ -67,30 +67,38 @@ async def event_stream(task_id: str):
 
     每 15 秒发送一次心跳注释（`: keepalive`），防止代理/负载均衡器因空闲断开连接。
     总超时 120 秒自动终止。
+
+    使用 try/finally 确保生成器退出时自动清理队列和时间戳，
+    避免客户端断开后内存泄漏。
     """
     queue = _event_queues.get(task_id)
     if queue is None:
         return
     keepalive_interval = 15  # 秒
-    while True:
-        try:
-            item = await asyncio.wait_for(queue.get(), timeout=keepalive_interval)
-        except asyncio.TimeoutError:
-            # 队列无新事件，发送心跳保持连接
-            start = _task_start_times.get(task_id, time.time())
-            elapsed = time.time() - start
-            if elapsed > 120:
-                logger.warning("SSE 事件流超时，强制关闭 task_id=%s", task_id)
+    try:
+        while True:
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=keepalive_interval)
+            except asyncio.TimeoutError:
+                # 队列无新事件，发送心跳保持连接
+                start = _task_start_times.get(task_id, time.time())
+                elapsed = time.time() - start
+                if elapsed > 120:
+                    logger.warning("SSE 事件流超时，强制关闭 task_id=%s", task_id)
+                    break
+                yield ": keepalive\n\n"
+                continue
+            if item is None:
                 break
-            yield ": keepalive\n\n"
-            continue
-        if item is None:
-            break
-        event_type, data = item
-        # 自定义 JSON 编码器，处理 Decimal 类型
-        def default_encoder(obj):
-            from decimal import Decimal
-            if isinstance(obj, Decimal):
-                return float(obj)
-            raise TypeError(f'Object of type {type(obj).__name__} is not JSON serializable')
-        yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=default_encoder)}\n\n"
+            event_type, data = item
+            # 自定义 JSON 编码器，处理 Decimal 类型
+            def default_encoder(obj):
+                from decimal import Decimal
+                if isinstance(obj, Decimal):
+                    return float(obj)
+                raise TypeError(f'Object of type {type(obj).__name__} is not JSON serializable')
+            yield f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False, default=default_encoder)}\n\n"
+    finally:
+        # 无论正常退出还是异常退出，都清理资源
+        unregister_task(task_id)
+        logger.debug("SSE 事件流已清理 task_id=%s", task_id)

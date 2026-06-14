@@ -40,11 +40,17 @@ public class QualityIssueServiceImpl implements QualityIssueService {
     private final UserMapper userMapper;
     private final DatasourceMapper datasourceMapper;
 
-    // 合法的状态流转
+    // 合法的状态流转（安全优先：REOPENED 必须经过 CONFIRMED 才能 RESOLVED）
     private static final Set<String> VALID_FROM_OPEN = Set.of(
             MetadataQualityIssue.STATUS_CONFIRMED, MetadataQualityIssue.STATUS_REJECTED);
     private static final Set<String> VALID_FROM_CONFIRMED = Set.of(
             MetadataQualityIssue.STATUS_RESOLVED, MetadataQualityIssue.STATUS_REJECTED);
+    private static final Set<String> VALID_FROM_RESOLVED = Set.of(
+            MetadataQualityIssue.STATUS_REOPENED);
+    private static final Set<String> VALID_FROM_REJECTED = Set.of(
+            MetadataQualityIssue.STATUS_REOPENED);
+    private static final Set<String> VALID_FROM_REOPENED = Set.of(
+            MetadataQualityIssue.STATUS_CONFIRMED, MetadataQualityIssue.STATUS_REJECTED);
 
     /**
      * {@inheritDoc}
@@ -151,10 +157,24 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         log.info("问题分派 issueId={} assigneeId={}", issueId, assigneeId);
     }
 
+    /**
+     * 校验状态流转合法性
+     * <p>
+     * 合法状态机：
+     * OPEN → CONFIRMED / REJECTED
+     * CONFIRMED → RESOLVED / REJECTED
+     * RESOLVED → REOPENED
+     * REJECTED → REOPENED
+     * REOPENED → CONFIRMED / REJECTED（必须经过 CONFIRMED 才能再次 RESOLVED）
+     * </p>
+     */
     private void validateTransition(String currentStatus, String targetStatus) {
         boolean valid = switch (currentStatus) {
             case MetadataQualityIssue.STATUS_OPEN -> VALID_FROM_OPEN.contains(targetStatus);
             case MetadataQualityIssue.STATUS_CONFIRMED -> VALID_FROM_CONFIRMED.contains(targetStatus);
+            case MetadataQualityIssue.STATUS_RESOLVED -> VALID_FROM_RESOLVED.contains(targetStatus);
+            case MetadataQualityIssue.STATUS_REJECTED -> VALID_FROM_REJECTED.contains(targetStatus);
+            case MetadataQualityIssue.STATUS_REOPENED -> VALID_FROM_REOPENED.contains(targetStatus);
             default -> false;
         };
         if (!valid) {

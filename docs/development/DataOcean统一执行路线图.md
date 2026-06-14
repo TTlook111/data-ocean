@@ -4,7 +4,7 @@
 >
 > 借鉴 OpenMetadata（https://github.com/open-metadata/OpenMetadata）
 >
-> 更新日期：2026-06-13 | 最后完善：2026-06-13
+> 更新日期：2026-06-13 | 最后完善：2026-06-14
 
 ---
 
@@ -105,27 +105,37 @@ DataOcean 的治理模式是 **AI 执行 + 人工审查 + 系统生效**：
 
 - **允许大改**：元数据治理是项目核心价值，浅尝辄止不如一步到位
 - **清理先行**：重构完成后，**必须删除**被替代的旧代码，不留僵尸代码
-- **Feature 分支隔离**：每个阶段在独立的 `feature/` 分支开发，合并前通过完整测试
+- **Develop 集成隔离**：`main` 保持稳定可演示，`develop` 承接重构集成，阶段功能在独立 `feature/` 分支开发
 
 ### 1.2 Git 工作流
 
 ```
 main
-  ├── feature/fix-permission-injection     ← 阶段一：权限治理修复
-  ├── feature/rag-restructure              ← 阶段二：RAG 重构
-  ├── feature/metadata-entity-graph        ← 阶段三：实体关系图谱
-  ├── feature/glossary-terms               ← 阶段四：业务术语表（可与阶段五并行）
-  ├── feature/tag-classification           ← 阶段五：分类标签 + 质量深化（可与阶段四并行）
-  ├── feature/permission-enhance           ← 阶段六：权限增强（依赖阶段五）
-  └── feature/event-search                 ← 阶段七：事件驱动
+  └── develop                              ← 重构集成分支，阶段验收通过后再合入 main
+      ├── feature/fix-permission-injection ← 阶段一：权限治理修复
+      ├── feature/rag-restructure          ← 阶段二：RAG 重构
+      ├── feature/metadata-entity-graph    ← 阶段三：实体关系图谱
+      ├── feature/glossary-terms           ← 阶段四：业务术语表（可与阶段五并行）
+      ├── feature/tag-classification       ← 阶段五：分类标签 + 质量深化（可与阶段四并行）
+      ├── feature/permission-enhance       ← 阶段六：权限增强（依赖阶段五）
+      └── feature/event-search             ← 阶段七：事件驱动
 ```
 
 **分支规则**：
-- 从 `main` 最新状态创建 feature 分支
+- `main`：稳定交付分支，只接收通过完整验收的 `develop` 合并
+- `develop`：重构集成分支；首次创建时从 `main` 拉出，后续所有重构阶段先合入这里
+- 从 `develop` 最新状态创建 feature 分支
 - 分支命名：`feature/<简要描述>`（kebab-case）
-- 合并方式：PR → Code Review → Squash Merge 到 main
-- 合并前必须通过：`mvn test`（Java）+ `uv run pytest`（Python）+ 前端构建无报错
-- 合并后立即删除 feature 分支
+- 阶段分支合并方式：feature → PR/Review → Squash Merge 到 `develop`
+- 阶段合并前必须通过：`mvn test`（Java）+ `uv run pytest`（Python）+ 前端构建无报错；涉及联调时补充 Docker 端到端验证
+- 阶段分支合并后立即删除 feature 分支
+- 七个重构阶段全部完成并验收通过后，再由 `develop` 发起合并到 `main`
+- `后续开发.md` 中的新功能任务不直接从当前阶段分支继续做；应在重构完成后，从当时最新 `develop` 或 `main` 按任务性质重新创建分支
+
+**当前阶段一补救规则**：
+- 如果阶段一已经误在 `main` 上产生未提交改动，先创建/切换到 `feature/fix-permission-injection` 承接这些改动
+- Review 和测试通过后，将 `feature/fix-permission-injection` 合入 `develop`
+- 如果 `develop` 尚不存在，先从当前稳定 `main` 创建 `develop`，再合入阶段一分支
 
 ### 1.3 代码清理原则
 
@@ -200,11 +210,12 @@ main
 
 ---
 
-## 四、阶段一：权限治理修复
+## 四、阶段一：权限治理修复 ✅ 已完成
 
 **分支**：`feature/fix-permission-injection`
 **预计工期**：1 周
 **目标**：修复权限和治理模块的安全漏洞和逻辑缺陷
+**完成日期**：2026-06-14
 
 ### 任务清单
 
@@ -264,11 +275,9 @@ main
 - 文件：`QualityIssueService.java`
 - 新增校验：`REOPENED → CONFIRMED → RESOLVED`（必须经过 CONFIRMED）
 
-#### 1.6 冗余 Mapper 删除（P2-G6）
+#### 1.6 冗余 Mapper 删除（P2-G6）~~已取消~~
 
-**删除文件**：
-- `DatasourceMapper.java`（被 `DatasourceConfigMapper.java` 完全覆盖）
-- 前端 `adminDatasource.ts` 中 `getOverview`（404）、`getHealth`（404）、`refreshMetadata`（未使用）接口
+> **2026-06-14 验证**：`DatasourceConfigMapper.java` 不存在于代码库中，`DatasourceMapper.java` 被 16 个类使用，提供 8 个自定义查询方法，不可删除。前端 `adminDatasource.ts` 中的 `getOverview`、`getHealth`、`refreshMetadata` 已在之前清理中移除。此任务取消。
 
 #### 1.7 Facade 测试加固（P2-G7）
 
@@ -277,18 +286,19 @@ main
 
 ### 代码清理（阶段一）
 
-| 删除/修改 | 原因 |
-|-----------|------|
-| `DatasourceMapper.java` | 冗余，被 DatasourceConfigMapper 覆盖 |
-| 前端 `getOverview`、`getHealth`、`refreshMetadata` | 404/未使用 |
+| 删除/修改 | 原因 | 状态 |
+|-----------|------|------|
+| `DatasourceMapper.java` | ~~冗余~~ 实际被 16 个类使用，不可删除 | ❌ 取消 |
+| 前端 `getOverview`、`getHealth`、`refreshMetadata` | 404/未使用 | ✅ 已在之前清理 |
 
 ---
 
-## 五、阶段二：RAG 重构
+## 五、阶段二：RAG 重构 ✅ 已完成
 
 **分支**：`feature/rag-restructure`
 **预计工期**：2-3 周
 **目标**：重构 RAG 架构，为术语表和深层治理打基础
+**完成日期**：2026-06-14
 
 ### 任务清单
 
@@ -336,18 +346,19 @@ main
 
 ### 代码清理（阶段二）
 
-| 删除/修改 | 原因 |
-|-----------|------|
-| 重复的 embedding 初始化代码 | 统一到 InfraEmbedding |
-| 硬编码的 RAG 阈值 | 改为配置项 |
+| 删除/修改 | 原因 | 状态 |
+|-----------|------|------|
+| 重复的 embedding 初始化代码 | 统一到 InfraEmbedding | ✅ 已确认无重复代码 |
+| 硬编码的 RAG 阈值 | 改为配置项 | ✅ 已确认使用 settings.similarity_threshold |
 
 ---
 
-## 六、阶段三：实体关系图谱
+## 六、阶段三：实体关系图谱 ✅ 已完成
 
 **分支**：`feature/metadata-entity-graph`
 **预计工期**：2-3 周
 **目标**：建立统一实体-关系模型，替代当前孤立的表/列存储
+**完成日期**：2026-06-14
 
 ### 任务清单
 
@@ -527,11 +538,12 @@ ORDER BY d.depth;
 
 ---
 
-## 七、阶段四：业务术语表
+## 七、阶段四：业务术语表 ✅ 已完成
 
 **分支**：`feature/glossary-terms`
 **预计工期**：2-3 周
 **目标**：建立业务术语体系，让 NL2SQL 理解用户语言
+**完成日期**：2026-06-14
 
 ### 任务清单
 
@@ -613,11 +625,12 @@ relation_type: GLOSSARY_OF
 
 ---
 
-## 八、阶段五：分类标签与质量深化
+## 八、阶段五：分类标签与质量深化 ✅ 已完成
 
 **分支**：`feature/tag-classification`
 **预计工期**：2 周
 **目标**：建立两级标签体系，深化数据质量规则
+**完成日期**：2026-06-14
 
 ### 任务清单
 
@@ -714,11 +727,12 @@ CREATE TABLE quality_check_result (
 
 ---
 
-## 九、阶段六：权限增强
+## 九、阶段六：权限增强 ✅ 已完成
 
 **分支**：`feature/permission-enhance`
 **预计工期**：1-2 周
 **目标**：增强现有权限模型，添加策略优先级、时间条件、权限变更审计
+**完成日期**：2026-06-14
 
 ### 任务清单
 
@@ -777,11 +791,12 @@ CREATE TABLE permission_change_log (
 
 ---
 
-## 十、阶段七：事件驱动
+## 十、阶段七：事件驱动 ✅ 已完成
 
 **分支**：`feature/event-search`
 **预计工期**：2 周
 **目标**：元数据变更事件传播、数据访问审批
+**完成日期**：2026-06-14
 
 ### 任务清单
 
@@ -833,16 +848,19 @@ CREATE TABLE access_approval_request (
 
 执行前了解这些事实，避免踩坑：
 
-### 权限合并逻辑（PermissionCalculatorImpl）
+### 权限合并逻辑（PermissionCalculatorImpl）✅ 已修正
 
-| 维度 | 当前逻辑 | 正确逻辑 |
-|------|----------|----------|
-| denied columns | 交集（所有维度都 DENY 才禁止） | 并集（任一维度 DENY 即禁止） |
-| denied tables | 交集 | 并集 |
-| allowed tables | 并集 - denied | 正确 |
-| mask columns | 交集 | 并集 |
-| row filters | AND 合并 | 正确 |
-| canViewSql/canExport | 并集 | 正确 |
+| 维度 | 修正前 | 修正后（2026-06-14） |
+|------|--------|---------------------|
+| denied columns | 交集（所有维度都 DENY 才禁止） | **并集**（任一维度 DENY 即禁止） |
+| denied tables | 交集 | **并集** |
+| allowed tables | 并集 - denied | 并集 - denied（不变） |
+| mask columns | 交集 | **并集**（任一维度 MASK 即脱敏） |
+| row filters | AND 合并 | AND 合并（不变） |
+| canViewSql/canExport | 并集 | 并集（不变） |
+| 缓存失效 | 事务内直接清除 | **事务提交后清除**（@TransactionalEventListener） |
+| 策略加载 | N+1 逐主体查询 | **批量查询**（selectAllByDatasourceId） |
+| 表范围协议 | Java 未传递 tableScopeMode | **补齐 tableScopeMode**（UNRESTRICTED/ALLOWLIST），修正 `*` 表策略语义 |
 
 ### 治理质量规则（11 条，V11 迁移种子）
 
@@ -918,6 +936,34 @@ CREATE TABLE access_approval_request (
 | 质量趋势仪表盘 | `/admin/governance/trends` | 阶段五 | 中 |
 | 权限变更日志 | `/admin/permission/changelog` | 阶段六 | 低 |
 | 数据访问审批 | `/admin/permission/approvals` | 阶段七 | 低 |
+
+---
+
+## 十四、治理闭环修复记录（2026-06-14）
+
+七个重构阶段完成后，经验收审计发现四条治理闭环断裂，已修复：
+
+| 编号 | 问题 | 修复内容 | 状态 |
+|------|------|---------|------|
+| P0 | LineageGraph.vue / GlossaryList.vue 未注册路由 | 注册路由 + 侧栏导航 | ✅ 已修复 |
+| P1 | 血缘闭环断裂：query_lineage 未桥接到 metadata_relationship | LineageServiceImpl.saveLineage() 后桥接 LINEAGE 关系 | ✅ 已修复 |
+| P2 | expireOverdueRequests() 死代码 | 新增 ApprovalExpiryScheduler 每小时调度 | ✅ 已修复 |
+| P3 | 标签闭环断裂：auto_tagger 未接入 | SnapshotEntitySyncListener 集成标签推断 + 标签确认 API | ✅ 已修复 |
+| P4 | 术语-列关联缺失 | GlossaryController 添加 GLOSSARY_OF 关联 API + loadApprovedGlossaryTerms() 传递 related_columns | ✅ 已修复 |
+| P5 | PII 标签→MASK 策略未联动 | 标签确认后自动生成 MASK 策略候选，管理员确认后生效 | ✅ 已修复 |
+| P6 | 目录搜索无前端页面 | 新增 CatalogSearch.vue + 路由 + 侧栏 | ✅ 已修复 |
+
+**已打通的闭环**：
+1. **血缘**：查询执行 → query_lineage → 桥接 LINEAGE 关系 → getLineage()/getDownstream() → DAG 展示
+2. **术语**：Glossary/Term → 审批 → 关联物理列 → query_rewriter 术语扩展 → LLM 提示
+3. **标签**：快照发布 → 列级标签推断 → 管理员确认 → TAGGED_WITH 关系 → PII 标签生成 MASK 候选
+4. **审批**：申请 → 审批 → 临时 ALLOW 策略 → 定时清理过期 → 运行时兜底
+5. **MASK 联动**：PII 标签确认 → 自动生成 MASK 策略候选（PENDING）→ 管理员确认 → 策略生效
+
+**仍需后续迭代的项**：
+- 标签候选 Python 版本与 Java 版本模式统一（当前 Java 侧独立实现）
+- 目录搜索页面高级过滤（实体类型多选、FQN 前缀过滤）
+- 血缘 DAG 自动刷新（当前需手动选择数据源）
 
 ---
 

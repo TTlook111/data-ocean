@@ -23,6 +23,7 @@ public class MetadataQualityIssue {
     public static final String STATUS_CONFIRMED = "CONFIRMED";
     public static final String STATUS_RESOLVED = "RESOLVED";
     public static final String STATUS_REJECTED = "REJECTED";
+    public static final String STATUS_REOPENED = "REOPENED";
     public static final String STATUS_AUTO_CLOSED = "AUTO_CLOSED";
 
     @TableId(type = IdType.AUTO)

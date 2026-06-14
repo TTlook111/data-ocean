@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch, type Component } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Activity,
+  BookOpen,
   Building2,
   Calendar,
   ChevronLeft,
@@ -18,6 +19,7 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
   SlidersHorizontal,
   ShieldCheck,
   ShieldAlert,
@@ -87,6 +89,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
     items: [
       { label: '快照生命周期', to: '/admin/metadata/lifecycle', icon: Workflow, permission: 'metadata:manage' },
       { label: '版本历史', to: '/admin/metadata/version-history', icon: GitBranch, permission: 'metadata:manage' },
+      { label: '目录搜索', to: '/admin/metadata/catalog', icon: Search, permission: 'metadata:manage' },
     ],
   },
   {
@@ -95,6 +98,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '知识库总览', to: '/admin/knowledge', icon: FileText, permission: 'knowledge:manage' },
       { label: '文档编辑器', to: '/admin/knowledge/editor', icon: ClipboardList, permission: 'knowledge:manage' },
       { label: '知识审核', to: '/admin/knowledge/review', icon: ShieldCheck, permission: 'knowledge:manage' },
+      { label: '术语管理', to: '/admin/glossary/list', icon: BookOpen, permission: 'metadata:manage' },
     ],
   },
   {
@@ -117,6 +121,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
       { label: '审计日志', to: '/admin/audit/logs', icon: ClipboardList, permission: 'audit:view' },
       { label: '慢查询', to: '/admin/audit/slow-queries', icon: Activity, permission: 'audit:view' },
       { label: '血缘查看', to: '/admin/audit/lineage', icon: GitBranch, permission: 'audit:view' },
+      { label: '血缘图谱', to: '/admin/audit/lineage-graph', icon: GitBranch, permission: 'audit:view' },
     ],
   },
   {
