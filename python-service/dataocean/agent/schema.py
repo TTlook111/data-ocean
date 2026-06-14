@@ -45,6 +45,10 @@ class UserPermissions(BaseModel):
         default_factory=list,
         validation_alias=AliasChoices("allowed_tables", "allowedTables"),
     )
+    table_scope_mode: str = Field(
+        default="UNRESTRICTED",
+        validation_alias=AliasChoices("table_scope_mode", "tableScopeMode"),
+    )
 
 
 class ConversationTurn(BaseModel):

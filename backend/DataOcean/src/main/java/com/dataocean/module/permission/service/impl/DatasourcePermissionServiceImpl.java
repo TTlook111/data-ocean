@@ -10,8 +10,8 @@ import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.permission.entity.dto.DatasourcePermissionGrantDTO;
 import com.dataocean.module.permission.entity.vo.DatasourcePermissionVO;
 import com.dataocean.module.permission.enums.SubjectType;
+import com.dataocean.module.permission.event.PermissionChangedEvent;
 import com.dataocean.module.permission.service.DatasourcePermissionService;
-import com.dataocean.module.permission.service.PermissionCalculator;
 import com.dataocean.module.permission.service.support.PermissionValidationSupport;
 import com.dataocean.module.user.entity.SysDepartment;
 import com.dataocean.module.user.entity.SysRole;
@@ -21,6 +21,7 @@ import com.dataocean.module.user.mapper.RoleMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,7 +42,7 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
     private final DepartmentMapper departmentMapper;
-    private final PermissionCalculator permissionCalculator;
+    private final ApplicationEventPublisher eventPublisher;
     private final PermissionValidationSupport validationSupport;
 
     @Transactional
@@ -75,7 +76,7 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
         accessMapper.insert(access);
 
         // 主动清除权限缓存
-        permissionCalculator.invalidate(dto.getSubjectId(), dto.getDatasourceId());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, dto.getSubjectId(), dto.getDatasourceId()));
 
         log.info("数据源授权成功 datasourceId={} subjectType={} subjectId={}",
                 dto.getDatasourceId(), dto.getSubjectType(), dto.getSubjectId());
@@ -93,7 +94,7 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
         if (canExport != null) access.setCanExport(canExport);
         if (canViewSql != null) access.setCanViewSql(canViewSql);
         accessMapper.updateById(access);
-        permissionCalculator.invalidate(access.getSubjectId(), access.getDatasourceId());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, access.getSubjectId(), access.getDatasourceId()));
         log.info("数据源授权更新 id={}", id);
     }
 
@@ -105,7 +106,7 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
             throw new BusinessException("授权记录不存在");
         }
         accessMapper.deleteById(id);
-        permissionCalculator.invalidate(access.getSubjectId(), access.getDatasourceId());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, access.getSubjectId(), access.getDatasourceId()));
         log.info("数据源授权撤销 id={} datasourceId={} subjectType={} subjectId={}",
                 id, access.getDatasourceId(), access.getSubjectType(), access.getSubjectId());
     }

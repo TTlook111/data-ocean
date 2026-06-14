@@ -16,9 +16,9 @@ import com.dataocean.module.permission.entity.vo.AccessPolicyVO;
 import com.dataocean.module.permission.enums.AccessType;
 import com.dataocean.module.permission.enums.MaskStrategy;
 import com.dataocean.module.permission.enums.SubjectType;
+import com.dataocean.module.permission.event.PermissionChangedEvent;
 import com.dataocean.module.permission.mapper.DatasourceAccessPolicyMapper;
 import com.dataocean.module.permission.service.AccessPolicyService;
-import com.dataocean.module.permission.service.PermissionCalculator;
 import com.dataocean.module.user.entity.SysDepartment;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.entity.SysUser;
@@ -27,6 +27,7 @@ import com.dataocean.module.user.mapper.RoleMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,7 +44,7 @@ import java.util.List;
 public class AccessPolicyServiceImpl implements AccessPolicyService {
 
     private final DatasourceAccessPolicyMapper policyMapper;
-    private final PermissionCalculator permissionCalculator;
+    private final ApplicationEventPublisher eventPublisher;
     private final DatasourceMapper datasourceMapper;
     private final UserMapper userMapper;
     private final RoleMapper roleMapper;
@@ -79,7 +80,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         policy.setCreatedBy(UserContext.currentUserId());
         policyMapper.insert(policy);
 
-        permissionCalculator.invalidate(dto.getSubjectId(), dto.getDatasourceId());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, dto.getSubjectId(), dto.getDatasourceId()));
         log.info("策略创建成功 id={} datasourceId={} table={} column={}",
                 policy.getId(), dto.getDatasourceId(), dto.getTableName(), dto.getColumnName());
         return policy.getId();
@@ -129,7 +130,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
 
         log.info("批量策略创建成功 datasourceId={} table={} count={}",
                 dto.getDatasourceId(), dto.getTableName(), count);
-        permissionCalculator.invalidate(dto.getSubjectId(), dto.getDatasourceId());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, dto.getSubjectId(), dto.getDatasourceId()));
         return count;
     }
 
@@ -162,7 +163,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         policy.setMaskStrategy(maskStrategy);
         policy.setRowFilterExpression(rowFilterExpression);
         policyMapper.updateById(policy);
-        permissionCalculator.invalidate(policy.getSubjectId(), policy.getDatasourceId());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, policy.getSubjectId(), policy.getDatasourceId()));
         log.info("策略更新成功 id={}", id);
     }
 
@@ -174,7 +175,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             throw new BusinessException("策略不存在");
         }
         policyMapper.deleteById(id);
-        permissionCalculator.invalidate(policy.getSubjectId(), policy.getDatasourceId());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, policy.getSubjectId(), policy.getDatasourceId()));
         log.info("策略删除成功 id={} datasourceId={} table={}", id, policy.getDatasourceId(), policy.getTableName());
     }
 

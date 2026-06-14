@@ -342,6 +342,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private Map<String, Object> buildUserPermissionsMap(PermissionContextVO context) {
         Map<String, Object> map = new HashMap<>();
         map.put("allowedTables", context.getAllowedTables());
+        map.put("tableScopeMode", context.getTableScopeMode());
         map.put("deniedColumns", context.getDeniedColumns());
 
         // rowFilters: [{tableName, condition}]
