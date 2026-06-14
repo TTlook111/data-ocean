@@ -5,7 +5,12 @@ import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.dataocean.module.permission.entity.DatasourceAccessPolicy;
+import com.dataocean.module.permission.event.PermissionChangedEvent;
+import com.dataocean.module.permission.mapper.DatasourceAccessPolicyMapper;
+import org.springframework.context.ApplicationEventPublisher;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +26,7 @@ import java.util.Map;
  *
  * @author dataocean
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/admin/catalog")
 @RequiredArgsConstructor
@@ -29,6 +35,8 @@ public class MetadataCatalogController {
 
     private final MetadataEntityService entityService;
     private final MetadataRelationshipService relationshipService;
+    private final DatasourceAccessPolicyMapper policyMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 全文搜索实体
@@ -161,6 +169,11 @@ public class MetadataCatalogController {
         rel.setRelationType(MetadataRelationship.TYPE_TAGGED_WITH);
         relationshipService.upsert(rel);
 
+        // PII 标签联动：自动生成 MASK 策略候选
+        if (tagFqn.startsWith("PII.") && MetadataEntity.TYPE_COLUMN.equals(entity.getEntityType())) {
+            generateMaskPolicyCandidate(entity, tagFqn);
+        }
+
         return Result.success("标签确认成功", null);
     }
 
@@ -201,5 +214,178 @@ public class MetadataCatalogController {
             }
         }
         return Result.success(tags);
+    }
+
+    // ========== PII 标签 → MASK 策略联动 ==========
+
+    /**
+     * 查询待确认的 MASK 策略候选（由 PII 标签确认自动生成）
+     *
+     * @param datasourceId 数据源 ID（可选）
+     */
+    @GetMapping("/mask-candidates")
+    public Result<List<Map<String, Object>>> getMaskCandidates(
+            @RequestParam(required = false) Long datasourceId) {
+        // 查找所有 COLUMN 实体中 pending_mask 非空的
+        List<MetadataEntity> columns = datasourceId != null
+                ? entityService.getByDatasourceId(datasourceId)
+                : entityService.search("*", MetadataEntity.TYPE_COLUMN, 1, 1000);
+
+        List<Map<String, Object>> candidates = new java.util.ArrayList<>();
+        for (MetadataEntity col : columns) {
+            if (!MetadataEntity.TYPE_COLUMN.equals(col.getEntityType())) continue;
+            String meta = col.getEntityMetadata();
+            if (meta != null && meta.contains("\"pending_mask\"")) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("entityId", col.getId());
+                item.put("fqn", col.getFqn());
+                item.put("name", col.getName());
+                item.put("displayName", col.getDisplayName());
+                // 提取 pending_mask 信息
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                    var node = om.readTree(meta);
+                    if (node.has("pending_mask")) {
+                        item.put("pendingMask", om.treeToValue(node.get("pending_mask"), Map.class));
+                    }
+                } catch (Exception ignored) {}
+                candidates.add(item);
+            }
+        }
+        return Result.success(candidates);
+    }
+
+    /**
+     * 确认 MASK 策略候选，生成实际的 MASK 策略
+     *
+     * @param entityId 列实体 ID
+     * @param body     { "maskStrategy": "PHONE" }
+     */
+    @PostMapping("/mask-candidates/{entityId}/confirm")
+    public Result<Void> confirmMaskCandidate(
+            @PathVariable Long entityId,
+            @RequestBody Map<String, String> body) {
+        String maskStrategy = body.getOrDefault("maskStrategy", "PHONE");
+
+        MetadataEntity entity = entityService.getById(entityId);
+        if (entity == null) {
+            return Result.error(404, "实体不存在");
+        }
+
+        // 从 entity_metadata 解析表名和列名
+        String tableName = null;
+        String columnName = entity.getName();
+        Long datasourceId = null;
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            var node = om.readTree(entity.getEntityMetadata());
+            if (node.has("datasource_id")) datasourceId = node.get("datasource_id").asLong();
+        } catch (Exception ignored) {}
+
+        // 从 FQN 解析表名：datasource.db.table.column → table
+        String fqn = entity.getFqn();
+        String[] parts = fqn.split("\\.");
+        if (parts.length >= 3) {
+            tableName = parts[parts.length - 2];
+        }
+
+        if (datasourceId == null || tableName == null) {
+            return Result.error(400, "无法从实体元数据解析数据源或表名");
+        }
+
+        // 检查是否已有 MASK 策略
+        var existingPolicies = policyMapper.selectBySubject(datasourceId, "USER", 0L); // 检查全局策略
+        for (DatasourceAccessPolicy p : existingPolicies) {
+            if ("MASK".equals(p.getAccessType())
+                    && tableName.equals(p.getTableName())
+                    && columnName.equals(p.getColumnName())) {
+                return Result.error(400, "该列已有 MASK 策略");
+            }
+        }
+
+        // 创建 MASK 策略（全局，subjectType=USER, subjectId=0 表示所有用户）
+        DatasourceAccessPolicy policy = new DatasourceAccessPolicy();
+        policy.setDatasourceId(datasourceId);
+        policy.setSubjectType("USER");
+        policy.setSubjectId(0L);
+        policy.setTableName(tableName);
+        policy.setColumnName(columnName);
+        policy.setAccessType("MASK");
+        policy.setMaskStrategy(maskStrategy);
+        policy.setPriority(50); // PII 标签生成的策略优先级高
+        policyMapper.insert(policy);
+
+        // 清除 entity_metadata 中的 pending_mask
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            var node = om.readTree(entity.getEntityMetadata());
+            if (node instanceof com.fasterxml.jackson.databind.node.ObjectNode objNode) {
+                objNode.remove("pending_mask");
+                entity.setEntityMetadata(om.writeValueAsString(objNode));
+                entityService.updateById(entity);
+            }
+        } catch (Exception ignored) {}
+
+        // 触发权限缓存失效
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, 0L, datasourceId));
+
+        return Result.success("MASK 策略已确认生效", null);
+    }
+
+    /**
+     * 拒绝 MASK 策略候选
+     */
+    @PostMapping("/mask-candidates/{entityId}/reject")
+    public Result<Void> rejectMaskCandidate(@PathVariable Long entityId) {
+        MetadataEntity entity = entityService.getById(entityId);
+        if (entity == null) {
+            return Result.error(404, "实体不存在");
+        }
+        // 清除 pending_mask
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            var node = om.readTree(entity.getEntityMetadata());
+            if (node instanceof com.fasterxml.jackson.databind.node.ObjectNode objNode) {
+                objNode.remove("pending_mask");
+                entity.setEntityMetadata(om.writeValueAsString(objNode));
+                entityService.updateById(entity);
+            }
+        } catch (Exception ignored) {}
+        return Result.success("已拒绝 MASK 策略候选", null);
+    }
+
+    /**
+     * 为 PII 标签生成 MASK 策略候选
+     */
+    private void generateMaskPolicyCandidate(MetadataEntity entity, String tagFqn) {
+        // 根据 PII 标签类型推断脱敏策略
+        String maskStrategy = switch (tagFqn) {
+            case "PII.手机号" -> "PHONE";
+            case "PII.身份证号" -> "ID_CARD";
+            case "PII.邮箱" -> "EMAIL";
+            case "PII.银行卡号" -> "BANK_CARD";
+            case "PII.姓名" -> "NAME";
+            default -> "PHONE"; // 默认手机号脱敏
+        };
+
+        // 在 entity_metadata 中添加 pending_mask
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+            var node = om.readTree(entity.getEntityMetadata());
+            if (node instanceof com.fasterxml.jackson.databind.node.ObjectNode objNode) {
+                var maskNode = om.createObjectNode();
+                maskNode.put("tag_fqn", tagFqn);
+                maskNode.put("mask_strategy", maskStrategy);
+                maskNode.put("status", "PENDING");
+                maskNode.put("created_at", java.time.LocalDateTime.now().toString());
+                objNode.set("pending_mask", maskNode);
+                entity.setEntityMetadata(om.writeValueAsString(objNode));
+                entityService.updateById(entity);
+                log.info("PII 标签确认，生成 MASK 策略候选 entityId={} tag={} strategy={}",
+                        entity.getId(), tagFqn, maskStrategy);
+            }
+        } catch (Exception e) {
+            log.warn("生成 MASK 策略候选失败 entityId={} error={}", entity.getId(), e.getMessage());
+        }
     }
 }
