@@ -7,6 +7,10 @@ import com.dataocean.module.glossary.entity.Glossary;
 import com.dataocean.module.glossary.entity.GlossaryTerm;
 import com.dataocean.module.glossary.service.GlossaryService;
 import com.dataocean.module.glossary.service.GlossaryTermService;
+import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.service.MetadataEntityService;
+import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -27,6 +31,8 @@ public class GlossaryController {
 
     private final GlossaryService glossaryService;
     private final GlossaryTermService termService;
+    private final MetadataEntityService entityService;
+    private final MetadataRelationshipService relationshipService;
 
     // ========== 术语表 CRUD ==========
 
@@ -133,5 +139,67 @@ public class GlossaryController {
         String reason = (String) body.getOrDefault("reason", "");
         termService.reviewTerm(termId, UserContext.currentUserId(), approved, reason);
         return Result.success(approved ? "术语审核通过" : "术语审核拒绝", null);
+    }
+
+    // ========== 术语与列关联 ==========
+
+    /** 关联术语与物理列（创建 GLOSSARY_OF 关系） */
+    @PostMapping("/terms/{termId}/link-column")
+    public Result<Void> linkTermToColumn(
+            @PathVariable Long termId,
+            @RequestBody Map<String, Object> body) {
+        Long entityId = Long.valueOf(body.get("entityId").toString());
+
+        GlossaryTerm term = termService.getById(termId);
+        if (term == null) {
+            return Result.error(404, "术语不存在");
+        }
+        MetadataEntity entity = entityService.getById(entityId);
+        if (entity == null) {
+            return Result.error(404, "实体不存在");
+        }
+
+        MetadataRelationship rel = new MetadataRelationship();
+        rel.setSourceId(termId);
+        rel.setSourceType("GLOSSARY_TERM");
+        rel.setTargetId(entityId);
+        rel.setTargetType(entity.getEntityType());
+        rel.setRelationType(MetadataRelationship.TYPE_GLOSSARY_OF);
+        relationshipService.upsert(rel);
+
+        return Result.success("关联成功", null);
+    }
+
+    /** 取消术语与列的关联 */
+    @DeleteMapping("/terms/{termId}/unlink-column/{entityId}")
+    public Result<Void> unlinkTermFromColumn(
+            @PathVariable Long termId,
+            @PathVariable Long entityId) {
+        // 查找并删除 GLOSSARY_OF 关系
+        var rels = relationshipService.getBySource(termId, "GLOSSARY_TERM");
+        for (MetadataRelationship rel : rels) {
+            if (MetadataRelationship.TYPE_GLOSSARY_OF.equals(rel.getRelationType())
+                    && rel.getTargetId().equals(entityId)) {
+                relationshipService.removeById(rel.getId());
+                break;
+            }
+        }
+        return Result.success("已取消关联", null);
+    }
+
+    /** 查询术语关联的物理列 */
+    @GetMapping("/terms/{termId}/linked-columns")
+    public Result<List<MetadataEntity>> getLinkedColumns(@PathVariable Long termId) {
+        var rels = relationshipService.getBySource(termId, "GLOSSARY_TERM");
+        List<MetadataEntity> entities = new java.util.ArrayList<>();
+        for (MetadataRelationship rel : rels) {
+            if (MetadataRelationship.TYPE_GLOSSARY_OF.equals(rel.getRelationType())) {
+                MetadataEntity entity = entityService.getById(rel.getTargetId());
+                if (entity != null) {
+                    entities.add(entity);
+                }
+            }
+        }
+        return Result.success(entities);
     }
 }
