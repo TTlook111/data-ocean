@@ -11,6 +11,8 @@ import com.dataocean.module.metadata.entity.TableRelation;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
+import com.dataocean.module.metadata.entity.MetadataChangeEvent;
+import com.dataocean.module.metadata.service.MetadataChangeEventService;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import com.dataocean.module.versioning.event.SnapshotPublishedEvent;
@@ -39,6 +41,7 @@ public class SnapshotEntitySyncListener {
 
     private final MetadataEntityService entityService;
     private final MetadataRelationshipService relationshipService;
+    private final MetadataChangeEventService changeEventService;
     private final DatasourceMapper datasourceMapper;
     private final DbTableMetaMapper tableMetaMapper;
     private final DbColumnMetaMapper columnMetaMapper;
@@ -104,6 +107,15 @@ public class SnapshotEntitySyncListener {
                         + "\",\"governance_status\":\"" + table.getGovernanceStatus() + "\"}");
                 tableEntity = entityService.upsert(tableEntity);
                 tableCount++;
+
+                // 记录元数据变更事件
+                changeEventService.recordEvent(
+                        MetadataChangeEvent.EVENT_PUBLISH,
+                        MetadataEntity.TYPE_TABLE,
+                        tableEntity.getId(),
+                        tableFqn,
+                        "{\"snapshot_id\":" + snapshotId + ",\"governance_status\":\"" + table.getGovernanceStatus() + "\"}",
+                        null);
 
                 // 5. 建立 CONTAINS 关系（数据源 → 表）
                 MetadataRelationship contains = new MetadataRelationship();
