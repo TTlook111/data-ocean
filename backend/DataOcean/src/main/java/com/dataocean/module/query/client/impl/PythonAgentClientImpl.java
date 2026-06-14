@@ -1,5 +1,7 @@
 package com.dataocean.module.query.client.impl;
 
+import com.dataocean.module.glossary.entity.GlossaryTerm;
+import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.enums.ReviewStatus;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
@@ -46,6 +48,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private final PermissionCalculator permissionCalculator;
     private final KnowledgeChunkMapper knowledgeChunkMapper;
     private final com.dataocean.module.knowledge.mapper.KnowledgeDocMapper knowledgeDocMapper;
+    private final GlossaryTermMapper glossaryTermMapper;
 
     @Qualifier("pythonRestClient")
     private final RestClient restClient;
@@ -80,6 +83,8 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         requestBody.put("conversationHistory", buildConversationHistory(conversationId, userId));
         // 加载 fallback chunks（Milvus 不可用时的降级数据）
         requestBody.put("fallbackChunks", loadFallbackChunks(datasourceId));
+        // 加载已审核通过的术语表（用于查询改写时的术语匹配扩展）
+        requestBody.put("glossaryTerms", loadApprovedGlossaryTerms());
 
         try {
             // 调用 Python SSE 接口并消费流
@@ -410,6 +415,34 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             return result;
         } catch (Exception e) {
             log.warn("加载 fallback chunks 失败 datasourceId={} reason={}", datasourceId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * 加载所有已审核通过的术语条目（用于查询改写时的术语匹配扩展）
+     * <p>
+     * 不按数据源过滤——术语是全局共享的业务语义资产。
+     * </p>
+     */
+    private List<Map<String, String>> loadApprovedGlossaryTerms() {
+        try {
+            var terms = glossaryTermMapper.selectList(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<GlossaryTerm>()
+                            .eq(GlossaryTerm::getStatus, GlossaryTerm.STATUS_APPROVED));
+            List<Map<String, String>> result = new java.util.ArrayList<>();
+            for (GlossaryTerm term : terms) {
+                Map<String, String> item = new HashMap<>();
+                item.put("name", term.getName());
+                item.put("displayName", term.getDisplayName());
+                item.put("description", term.getDescription());
+                item.put("synonyms", term.getSynonyms());
+                item.put("fqn", term.getFqn());
+                result.add(item);
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("加载术语表失败 reason={}", e.getMessage());
             return List.of();
         }
     }

@@ -88,6 +88,10 @@ class ExecuteRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices("fallback_chunks", "fallbackChunks"),
     )
+    glossary_terms: list[dict] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("glossary_terms", "glossaryTerms"),
+    )
 
 
 class ColumnMeta(BaseModel):

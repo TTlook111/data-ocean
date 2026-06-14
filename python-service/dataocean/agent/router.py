@@ -68,6 +68,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
             "user_permissions": request.user_permissions.model_dump(),
             "active_snapshot_id": request.active_snapshot_id,
             "confidence_scores": request.confidence_scores,
+            "glossary_terms": [t for t in (request.glossary_terms or [])],
             "prompt_versions": [],
             "connection_config": request.connection_config,
             "fallback_chunks": request.fallback_chunks,
