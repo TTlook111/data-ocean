@@ -3,7 +3,7 @@ import { ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { RefreshCw, Eye } from 'lucide-vue-next'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
-import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
 
@@ -12,7 +12,7 @@ const adminContext = useAdminContextStore()
 const loading = ref(false)
 const snapshots = ref<SnapshotItem[]>([])
 const total = ref(0)
-const datasources = ref<DatasourceItem[]>([])
+const datasources = ref<DatasourceSimpleItem[]>([])
 
 const query = reactive({
   datasourceId: undefined as number | undefined,
@@ -32,8 +32,8 @@ async function fetchSnapshots() {
 }
 
 async function fetchDatasources() {
-  const res = await listDatasources({ page: 1, pageSize: 200 })
-  datasources.value = res.data?.records ?? []
+  const res = await listSimpleDatasources()
+  datasources.value = res.data ?? []
 }
 
 function viewDetail(id: number) {

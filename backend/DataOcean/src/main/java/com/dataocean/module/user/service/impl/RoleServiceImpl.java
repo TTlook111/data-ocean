@@ -3,6 +3,7 @@ package com.dataocean.module.user.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.permission.event.PermissionChangedEvent;
 import com.dataocean.module.user.entity.SysPermission;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.entity.SysRolePermission;
@@ -18,6 +19,7 @@ import com.dataocean.module.user.mapper.UserRoleMapper;
 import com.dataocean.module.user.service.RoleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +41,7 @@ public class RoleServiceImpl implements RoleService {
     private final RolePermissionMapper rolePermissionMapper;
     private final UserMapper userMapper;
     private final UserRoleMapper userRoleMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * 查询所有启用状态的角色列表，按 ID 升序排列
@@ -68,6 +71,7 @@ public class RoleServiceImpl implements RoleService {
         role.setStatus(normalizeStatus(request.getStatus()));
         roleMapper.insert(role);
         updateRolePermissions(role.getId(), request.getPermissionIds());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, role.getId(), null));
         return role.getId();
     }
 
@@ -85,6 +89,7 @@ public class RoleServiceImpl implements RoleService {
         role.setStatus(normalizeStatus(request.getStatus()));
         roleMapper.updateById(role);
         updateRolePermissions(roleId, request.getPermissionIds());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, roleId, null));
     }
 
     @Transactional
@@ -100,6 +105,7 @@ public class RoleServiceImpl implements RoleService {
         }
         rolePermissionMapper.delete(new LambdaQueryWrapper<SysRolePermission>().eq(SysRolePermission::getRoleId, roleId));
         roleMapper.deleteById(roleId);
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, roleId, null));
     }
 
     @Override
@@ -120,6 +126,7 @@ public class RoleServiceImpl implements RoleService {
         ensureWildcardPermissionChangeAllowed(roleId, distinctIds);
         rolePermissionMapper.delete(new LambdaQueryWrapper<SysRolePermission>().eq(SysRolePermission::getRoleId, roleId));
         if (distinctIds.isEmpty()) {
+            eventPublisher.publishEvent(new PermissionChangedEvent(this, roleId, null));
             return;
         }
         List<SysPermission> permissions = permissionMapper.selectByIds(distinctIds);
@@ -132,6 +139,7 @@ public class RoleServiceImpl implements RoleService {
             relation.setPermissionId(permissionId);
             rolePermissionMapper.insert(relation);
         }
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, roleId, null));
     }
 
     private void ensureWildcardPermissionChangeAllowed(Long roleId, List<Long> requestedPermissionIds) {

@@ -58,7 +58,7 @@ public class DatasourceAdminController {
      * 获取所有启用数据源的简要列表（供权限管理等跨模块使用）
      */
     @GetMapping("/simple")
-    @PreAuthorize("hasAnyAuthority('datasource:manage', 'security:manage', '*')")
+    @PreAuthorize("hasAnyAuthority('datasource:manage', 'metadata:manage', 'knowledge:manage', 'field-tag:manage', 'audit:view', 'security:manage', '*')")
     public Result<List<DatasourceSimpleVO>> listSimple() {
         return Result.success(datasourceMapper.selectEnabledSimple());
     }

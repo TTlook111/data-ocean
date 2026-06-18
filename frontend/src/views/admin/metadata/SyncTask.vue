@@ -8,7 +8,7 @@ import {
   type SyncTaskItem,
   type SyncTriggerPayload
 } from '../../../api/admin/metadata'
-import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { syncStatusLabel, syncStatusType, syncTriggerLabel } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
 
@@ -16,7 +16,7 @@ const loading = ref(false)
 const syncLoading = ref(false)
 const tasks = ref<SyncTaskItem[]>([])
 const total = ref(0)
-const datasources = ref<DatasourceItem[]>([])
+const datasources = ref<DatasourceSimpleItem[]>([])
 const adminContext = useAdminContextStore()
 
 const query = reactive({
@@ -44,8 +44,8 @@ async function fetchTasks() {
 
 async function fetchDatasources() {
   try {
-    const res = await listDatasources({ page: 1, pageSize: 200 })
-    datasources.value = res.data?.records ?? []
+    const res = await listSimpleDatasources()
+    datasources.value = res.data ?? []
   } catch {
     ElMessage.error('数据源列表加载失败')
   }

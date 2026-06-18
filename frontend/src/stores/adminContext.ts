@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { listMyDatasources, type UserDatasourceItem } from '../api/datasource'
+import { listSimpleDatasources, type DatasourceSimpleItem } from '../api/admin/datasource'
 import { listKnowledgeDocs, type KnowledgeDocItem } from '../api/admin/knowledge'
 import { listSnapshots, type SnapshotItem } from '../api/admin/metadata'
 
@@ -33,7 +33,7 @@ function latestSnapshotFirst(a: SnapshotItem, b: SnapshotItem) {
 export const useAdminContextStore = defineStore('admin-context', () => {
   const persisted = readContext()
 
-  const datasources = ref<UserDatasourceItem[]>([])
+  const datasources = ref<DatasourceSimpleItem[]>([])
   const snapshots = ref<SnapshotItem[]>([])
   const knowledgeDocs = ref<KnowledgeDocItem[]>([])
   const datasourceId = ref<number | undefined>(persisted.datasourceId)
@@ -72,7 +72,7 @@ export const useAdminContextStore = defineStore('admin-context', () => {
   }
 
   async function loadDatasources() {
-    const result = await listMyDatasources()
+    const result = await listSimpleDatasources()
     datasources.value = result.data
     reconcileDatasource()
   }

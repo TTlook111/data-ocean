@@ -2,6 +2,7 @@ package com.dataocean.module.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.permission.event.PermissionChangedEvent;
 import com.dataocean.module.user.entity.dto.DepartmentCreateDTO;
 import com.dataocean.module.user.entity.dto.DepartmentUpdateDTO;
 import com.dataocean.module.user.entity.vo.DepartmentTreeVO;
@@ -12,6 +13,7 @@ import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.service.DepartmentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,7 @@ public class DepartmentServiceImpl implements DepartmentService {
 
     private final DepartmentMapper departmentMapper;
     private final UserMapper userMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * {@inheritDoc}
@@ -117,6 +120,7 @@ public class DepartmentServiceImpl implements DepartmentService {
         department.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
         department.setStatus(1);
         departmentMapper.insert(department);
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, department.getId(), null));
         log.info("部门创建成功 departmentId={} deptCode={}", department.getId(), department.getDeptCode());
         return department.getId();
     }
@@ -147,6 +151,7 @@ public class DepartmentServiceImpl implements DepartmentService {
         department.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
         department.setStatus(request.getStatus() == null ? 1 : request.getStatus());
         departmentMapper.updateById(department);
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, id, null));
     }
 
     /**
@@ -173,6 +178,7 @@ public class DepartmentServiceImpl implements DepartmentService {
             throw new BusinessException("非空部门禁止删除");
         }
         departmentMapper.deleteById(id);
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, id, null));
         log.info("部门删除成功 departmentId={}", id);
     }
 

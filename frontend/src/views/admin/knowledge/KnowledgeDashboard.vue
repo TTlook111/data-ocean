@@ -9,7 +9,7 @@ import {
   type KnowledgeDocItem,
   type KnowledgeDocQuery
 } from '../../../api/admin/knowledge'
-import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { knowledgeStatusLabel, knowledgeStatusType } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
@@ -19,7 +19,7 @@ const adminContext = useAdminContextStore()
 const loading = ref(false)
 const docs = ref<KnowledgeDocItem[]>([])
 const total = ref(0)
-const datasources = ref<DatasourceItem[]>([])
+const datasources = ref<DatasourceSimpleItem[]>([])
 
 const query = reactive<KnowledgeDocQuery>({
   datasourceId: undefined,
@@ -94,8 +94,8 @@ async function fetchStats() {
 
 async function fetchDatasources() {
   try {
-    const res = await listDatasources({ page: 1, pageSize: 200 })
-    datasources.value = res.data?.records ?? []
+    const res = await listSimpleDatasources()
+    datasources.value = res.data ?? []
   } catch { /* ignore */ }
 }
 

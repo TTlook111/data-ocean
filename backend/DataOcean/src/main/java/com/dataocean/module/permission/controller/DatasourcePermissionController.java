@@ -44,11 +44,12 @@ public class DatasourcePermissionController {
      */
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id,
-                               @RequestBody Map<String, Boolean> body) {
+                               @RequestBody Map<String, Object> body) {
         permissionService.update(id,
-                body.get("canQuery"),
-                body.get("canExport"),
-                body.get("canViewSql"));
+                asBoolean(body.get("canQuery")),
+                asBoolean(body.get("canExport")),
+                asBoolean(body.get("canViewSql")),
+                body.get("accessEffect") == null ? null : String.valueOf(body.get("accessEffect")));
         return Result.success("更新成功", null);
     }
 
@@ -69,5 +70,8 @@ public class DatasourcePermissionController {
             @RequestParam Long datasourceId,
             @RequestParam(required = false) String subjectType) {
         return Result.success(permissionService.listByDatasource(datasourceId, subjectType));
+    }
+    private Boolean asBoolean(Object value) {
+        return value instanceof Boolean bool ? bool : null;
     }
 }

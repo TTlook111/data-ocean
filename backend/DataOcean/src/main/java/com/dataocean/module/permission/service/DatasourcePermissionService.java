@@ -32,7 +32,7 @@ public interface DatasourcePermissionService {
      * @param canExport 是否允许导出
      * @param canViewSql 是否允许查看SQL
      */
-    void update(Long id, Boolean canQuery, Boolean canExport, Boolean canViewSql);
+    void update(Long id, Boolean canQuery, Boolean canExport, Boolean canViewSql, String accessEffect);
 
     /**
      * 撤销授权

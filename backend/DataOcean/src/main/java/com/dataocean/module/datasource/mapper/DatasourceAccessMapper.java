@@ -95,7 +95,7 @@ public interface DatasourceAccessMapper extends BaseMapper<DatasourceAccess> {
             SELECT a.id, a.datasource_id AS datasourceId,
                    a.subject_type AS subjectType, a.subject_id AS subjectId,
                    a.can_query AS canQuery, a.can_export AS canExport,
-                   a.can_view_sql AS canViewSql,
+                   a.can_view_sql AS canViewSql, a.access_effect AS accessEffect,
                    a.granted_at AS grantedAt, a.expires_at AS expiresAt,
                    CASE a.subject_type
                        WHEN 'USER' THEN (SELECT real_name FROM sys_user WHERE id = a.subject_id)
@@ -126,4 +126,66 @@ public interface DatasourceAccessMapper extends BaseMapper<DatasourceAccess> {
     List<DatasourceAccess> selectBySubject(@Param("datasourceId") Long datasourceId,
                                            @Param("subjectType") String subjectType,
                                            @Param("subjectId") Long subjectId);
+
+    @Select("""
+            <script>
+            SELECT *
+            FROM datasource_access
+            WHERE datasource_id = #{datasourceId}
+              AND (expires_at IS NULL OR expires_at > NOW())
+              AND (
+                  <if test="deptIds != null and deptIds.size() > 0">
+                  (subject_type = 'DEPARTMENT' AND subject_id IN
+                      <foreach collection="deptIds" item="did" open="(" separator="," close=")">#{did}</foreach>)
+                  </if>
+                  <if test="deptIds != null and deptIds.size() > 0 and roleIds != null and roleIds.size() > 0">
+                  OR
+                  </if>
+                  <if test="roleIds != null and roleIds.size() > 0">
+                  (subject_type = 'ROLE' AND subject_id IN
+                      <foreach collection="roleIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>)
+                  </if>
+                  <if test="(deptIds != null and deptIds.size() > 0) or (roleIds != null and roleIds.size() > 0)">
+                  OR
+                  </if>
+                  (subject_type = 'USER' AND subject_id = #{userId})
+              )
+            </script>
+            """)
+    List<DatasourceAccess> selectValidGrantsForUser(@Param("datasourceId") Long datasourceId,
+                                                    @Param("userId") Long userId,
+                                                    @Param("roleIds") List<Long> roleIds,
+                                                    @Param("deptIds") List<Long> deptIds);
+
+    @Select("""
+            <script>
+            SELECT *
+            FROM datasource_access
+            WHERE datasource_id IN
+              <foreach collection="datasourceIds" item="dsid" open="(" separator="," close=")">#{dsid}</foreach>
+              AND (expires_at IS NULL OR expires_at > NOW())
+              AND (
+                  <if test="deptIds != null and deptIds.size() > 0">
+                  (subject_type = 'DEPARTMENT' AND subject_id IN
+                      <foreach collection="deptIds" item="did" open="(" separator="," close=")">#{did}</foreach>)
+                  </if>
+                  <if test="deptIds != null and deptIds.size() > 0 and roleIds != null and roleIds.size() > 0">
+                  OR
+                  </if>
+                  <if test="roleIds != null and roleIds.size() > 0">
+                  (subject_type = 'ROLE' AND subject_id IN
+                      <foreach collection="roleIds" item="rid" open="(" separator="," close=")">#{rid}</foreach>)
+                  </if>
+                  <if test="(deptIds != null and deptIds.size() > 0) or (roleIds != null and roleIds.size() > 0)">
+                  OR
+                  </if>
+                  (subject_type = 'USER' AND subject_id = #{userId})
+              )
+            ORDER BY datasource_id, subject_type, subject_id, id
+            </script>
+            """)
+    List<DatasourceAccess> selectValidGrantsForUserOnDatasources(@Param("datasourceIds") List<Long> datasourceIds,
+                                                                 @Param("userId") Long userId,
+                                                                 @Param("roleIds") List<Long> roleIds,
+                                                                 @Param("deptIds") List<Long> deptIds);
 }

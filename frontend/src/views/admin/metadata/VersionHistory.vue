@@ -2,7 +2,7 @@
 import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { GitCompare } from 'lucide-vue-next'
-import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import {
   listVersionHistory,
   compareSnapshots,
@@ -14,7 +14,7 @@ import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const adminContext = useAdminContextStore()
-const datasources = ref<DatasourceItem[]>([])
+const datasources = ref<DatasourceSimpleItem[]>([])
 const selectedDatasourceId = ref<number | undefined>()
 const history = ref<VersionHistoryItem[]>([])
 const total = ref(0)
@@ -27,8 +27,8 @@ const compareOldId = ref<number | undefined>()
 const compareNewId = ref<number | undefined>()
 
 async function fetchDatasources() {
-  const res = await listDatasources({ page: 1, pageSize: 200 })
-  datasources.value = res.data?.records ?? []
+  const res = await listSimpleDatasources()
+  datasources.value = res.data ?? []
 }
 
 async function fetchHistory() {

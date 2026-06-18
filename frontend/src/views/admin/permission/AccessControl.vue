@@ -42,6 +42,7 @@ const form = reactive<DatasourcePermissionPayload>({
   datasourceId: 0,
   subjectType: 'ROLE',
   subjectId: 0,
+  accessEffect: 'ALLOW',
   canQuery: true,
   canExport: false,
   canViewSql: true,
@@ -114,6 +115,7 @@ function openGrantDialog() {
   form.datasourceId = selectedDatasource.value || 0
   form.subjectType = 'ROLE'
   form.subjectId = 0
+  form.accessEffect = 'ALLOW'
   form.canQuery = true
   form.canExport = false
   form.canViewSql = true
@@ -137,6 +139,13 @@ async function handleToggle(row: DatasourcePermissionItem, field: 'canQuery' | '
     await updateDatasourcePermission(row.id, { [field]: !row[field] })
     row[field] = !row[field]
   } catch { ElMessage.error('更新失败') }
+}
+
+async function handleEffectChange(row: DatasourcePermissionItem, effect: 'ALLOW' | 'DENY') {
+  try {
+    await updateDatasourcePermission(row.id, { accessEffect: effect })
+    row.accessEffect = effect
+  } catch { ElMessage.error('更新授权效果失败') }
 }
 
 async function handleRevoke(row: DatasourcePermissionItem) {
@@ -178,6 +187,10 @@ function subjectTypeLabel(type: string) {
         <el-table-column prop="subjectName" label="主体名称" min-width="140" />
         <el-table-column label="查询" width="80" align="center">
           <template #default="{ row }">
+            <el-select :model-value="row.accessEffect || 'ALLOW'" size="small" style="display: block; width: 72px; margin: 0 auto 6px" @change="(value: 'ALLOW' | 'DENY') => handleEffectChange(row, value)">
+              <el-option label="ALLOW" value="ALLOW" />
+              <el-option label="DENY" value="DENY" />
+            </el-select>
             <el-switch :model-value="row.canQuery" size="small" @change="handleToggle(row, 'canQuery')" />
           </template>
         </el-table-column>
@@ -219,6 +232,12 @@ function subjectTypeLabel(type: string) {
           <el-checkbox v-model="form.canQuery">查询</el-checkbox>
           <el-checkbox v-model="form.canExport">导出</el-checkbox>
           <el-checkbox v-model="form.canViewSql">查看SQL</el-checkbox>
+        </el-form-item>
+        <el-form-item label="Effect">
+          <el-radio-group v-model="form.accessEffect">
+            <el-radio-button value="ALLOW">ALLOW</el-radio-button>
+            <el-radio-button value="DENY">DENY</el-radio-button>
+          </el-radio-group>
         </el-form-item>
       </el-form>
       <template #footer>
