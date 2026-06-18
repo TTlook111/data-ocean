@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Tag, RefreshCw } from 'lucide-vue-next'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
@@ -13,10 +13,12 @@ import {
 } from '../../../api/admin/field'
 import { listSnapshotTables, listSnapshotTableColumns, type ColumnMetaItem } from '../../../api/admin/governance'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
+const adminContext = useAdminContextStore()
 const predefinedTags = ref<PredefinedTag[]>([])
 const columns = ref<ColumnMetaItem[]>([])
 const selectedColumnIds = ref<number[]>([])
@@ -35,17 +37,29 @@ const query = reactive({
 })
 
 async function fetchSnapshots() {
-  const res = await listSnapshots({ page: 1, size: 50 })
+  const res = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 50 })
   snapshots.value = res.data?.records ?? []
-  if (snapshots.value.length && !query.snapshotId) {
-    query.snapshotId = snapshots.value[0].id
+  if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
+    query.snapshotId = adminContext.snapshotId
+  } else {
+    query.snapshotId = snapshots.value[0]?.id
+  }
+  if (query.snapshotId) {
+    adminContext.selectSnapshot(query.snapshotId)
   }
 }
 
 async function fetchTables() {
-  if (!query.snapshotId) return
+  if (!query.snapshotId) {
+    tables.value = []
+    columns.value = []
+    query.tableName = ''
+    return
+  }
   const res = await listSnapshotTables(query.snapshotId)
   tables.value = res.data ?? []
+  query.tableName = ''
+  columns.value = []
 }
 
 async function fetchColumns() {
@@ -57,6 +71,11 @@ async function fetchColumns() {
   } finally {
     loading.value = false
   }
+}
+
+async function handleSnapshotChange(id?: number) {
+  adminContext.selectSnapshot(id)
+  await fetchTables()
 }
 
 async function fetchPredefinedTags() {
@@ -121,9 +140,27 @@ onMounted(async () => {
     reveal('.toolbar, .content-panel', { y: 14, stagger: 0.06 })
   })
   await fetchPredefinedTags()
+  await adminContext.initialize()
   await fetchSnapshots()
   if (query.snapshotId) await fetchTables()
 })
+
+watch(
+  () => adminContext.snapshotId,
+  async (snapshotId) => {
+    if (!snapshotId || query.snapshotId === snapshotId) return
+    query.snapshotId = snapshotId
+    await fetchTables()
+  },
+)
+
+watch(
+  () => adminContext.datasourceId,
+  async () => {
+    await fetchSnapshots()
+    await fetchTables()
+  },
+)
 </script>
 
 <template>
@@ -140,7 +177,7 @@ onMounted(async () => {
     </section>
 
     <section class="toolbar">
-      <el-select v-model="query.snapshotId" placeholder="选择快照" @change="fetchTables" style="width: 200px">
+      <el-select v-model="query.snapshotId" placeholder="选择快照" @change="handleSnapshotChange" style="width: 200px">
         <el-option v-for="s in snapshots" :key="s.id" :label="`快照 v${s.snapshotVersion}`" :value="s.id" />
       </el-select>
       <el-select v-model="query.tableName" placeholder="选择表" @change="fetchColumns" style="width: 240px" filterable>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshCw } from 'lucide-vue-next'
 import {
@@ -15,12 +15,14 @@ import {
   qualityDimensionLabel,
   severityLabel,
 } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const issues = ref<QualityIssueItem[]>([])
 const total = ref(0)
 const selectedIds = ref<number[]>([])
 const snapshots = ref<Array<{ id: number; snapshotVersion: number }>>([])
+const adminContext = useAdminContextStore()
 
 const query = reactive({
   snapshotId: undefined as number | undefined,
@@ -64,8 +66,13 @@ const issueSummary = computed(() => ({
 }))
 
 async function fetchSnapshots() {
-  const res = await listSnapshots({ page: 1, size: 50 })
+  const res = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 50 })
   snapshots.value = res.data?.records ?? []
+  if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
+    query.snapshotId = adminContext.snapshotId
+  } else if (!query.snapshotId || !snapshots.value.some((item) => item.id === query.snapshotId)) {
+    query.snapshotId = snapshots.value[0]?.id
+  }
 }
 
 async function fetchIssues() {
@@ -84,6 +91,11 @@ async function fetchIssues() {
   } finally {
     loading.value = false
   }
+}
+
+function handleSnapshotChange(value?: number) {
+  adminContext.selectSnapshot(value)
+  fetchIssues()
 }
 
 async function doHandle(issueId: number, status: string) {
@@ -113,9 +125,30 @@ function onSelectionChange(rows: QualityIssueItem[]) {
 }
 
 onMounted(async () => {
+  await adminContext.initialize()
   await fetchSnapshots()
+  query.snapshotId = adminContext.snapshotId
   fetchIssues()
 })
+
+watch(
+  () => adminContext.snapshotId,
+  (snapshotId) => {
+    if (query.snapshotId === snapshotId) return
+    query.snapshotId = snapshotId
+    query.page = 1
+    fetchIssues()
+  },
+)
+
+watch(
+  () => adminContext.datasourceId,
+  async () => {
+    await fetchSnapshots()
+    query.page = 1
+    fetchIssues()
+  },
+)
 </script>
 
 <template>
@@ -125,7 +158,7 @@ onMounted(async () => {
     </section>
 
     <section class="toolbar">
-      <el-select v-model="query.snapshotId" placeholder="全部快照" clearable style="width: 220px" @change="fetchIssues">
+      <el-select v-model="query.snapshotId" placeholder="全部快照" clearable style="width: 220px" @change="handleSnapshotChange">
         <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} 版本 ${s.snapshotVersion}`" />
       </el-select>
       <el-select v-model="query.dimension" placeholder="全部维度" style="width: 120px" @change="fetchIssues">

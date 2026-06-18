@@ -32,6 +32,12 @@ export interface QueryTaskResult {
   totalTimeMs?: number
   suggestedQuestions?: string[]
   canExport?: boolean
+  promptVersions?: Array<Record<string, unknown>>
+  degraded?: boolean
+  degradeNotice?: string
+  createdAt?: string
+  completedAt?: string
+  maskedFields?: Record<string, string>
 }
 
 export interface ConversationItem {

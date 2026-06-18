@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Play } from 'lucide-vue-next'
 import {
@@ -11,6 +11,7 @@ import {
 } from '../../../api/admin/governance'
 import { listSnapshots } from '../../../api/admin/metadata'
 import { qualityDimensionLabel, severityLabel } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const checkLoading = ref(false)
@@ -18,10 +19,19 @@ const selectedSnapshotId = ref<number | undefined>()
 const snapshots = ref<Array<{ id: number; datasourceName?: string; snapshotVersion: number; qualityScore?: number }>>([])
 const checkResult = ref<QualityCheckResult | null>(null)
 const rules = ref<QualityRule[]>([])
+const adminContext = useAdminContextStore()
 
 async function fetchSnapshots() {
-  const res = await listSnapshots({ page: 1, size: 50 })
+  const res = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 50 })
   snapshots.value = res.data?.records ?? []
+  if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
+    selectedSnapshotId.value = adminContext.snapshotId
+  } else {
+    selectedSnapshotId.value = snapshots.value[0]?.id
+  }
+  if (selectedSnapshotId.value) {
+    adminContext.selectSnapshot(selectedSnapshotId.value)
+  }
 }
 
 async function fetchRules() {
@@ -46,6 +56,11 @@ async function runCheck() {
   }
 }
 
+function handleSnapshotChange(id?: number) {
+  adminContext.selectSnapshot(id)
+  checkResult.value = null
+}
+
 async function toggleRule(rule: QualityRule) {
   const newEnabled = rule.enabled === 1 ? false : true
   await updateRuleEnabled(rule.id, newEnabled)
@@ -58,10 +73,28 @@ function scoreColor(score: number): string {
   return '#f56c6c'
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
   fetchSnapshots()
   fetchRules()
 })
+
+watch(
+  () => adminContext.snapshotId,
+  (snapshotId) => {
+    if (!snapshotId || selectedSnapshotId.value === snapshotId) return
+    selectedSnapshotId.value = snapshotId
+    checkResult.value = null
+  },
+)
+
+watch(
+  () => adminContext.datasourceId,
+  async () => {
+    checkResult.value = null
+    await fetchSnapshots()
+  },
+)
 </script>
 
 <template>
@@ -69,7 +102,7 @@ onMounted(() => {
 
     <!-- 校验触发区 -->
     <section class="check-panel">
-      <el-select v-model="selectedSnapshotId" placeholder="选择快照" style="width: 300px">
+      <el-select v-model="selectedSnapshotId" placeholder="选择快照" style="width: 300px" @change="handleSnapshotChange">
         <el-option v-for="s in snapshots" :key="s.id" :value="s.id"
                    :label="`快照 #${s.id} 版本 ${s.snapshotVersion} ${s.qualityScore != null ? '(' + s.qualityScore + '分)' : ''}`" />
       </el-select>

@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { RefreshCw, Eye } from 'lucide-vue-next'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
 import { snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const router = useRouter()
+const adminContext = useAdminContextStore()
 const loading = ref(false)
 const snapshots = ref<SnapshotItem[]>([])
 const total = ref(0)
@@ -35,13 +37,34 @@ async function fetchDatasources() {
 }
 
 function viewDetail(id: number) {
+  adminContext.selectSnapshot(id)
   router.push({ name: 'admin-metadata-tables', query: { snapshotId: id } })
 }
 
-onMounted(() => {
+function handleDatasourceChange(id?: number) {
+  if (id) {
+    adminContext.selectDatasource(id)
+  }
+  query.page = 1
+  fetchSnapshots()
+}
+
+onMounted(async () => {
+  await adminContext.initialize()
+  query.datasourceId = adminContext.datasourceId
   fetchSnapshots()
   fetchDatasources()
 })
+
+watch(
+  () => adminContext.datasourceId,
+  (datasourceId) => {
+    if (query.datasourceId === datasourceId) return
+    query.datasourceId = datasourceId
+    query.page = 1
+    fetchSnapshots()
+  },
+)
 </script>
 
 <template>
@@ -49,7 +72,7 @@ onMounted(() => {
 
     <section class="toolbar">
       <el-select v-model="query.datasourceId" placeholder="全部数据源" clearable
-                 style="width: 200px" @change="fetchSnapshots">
+                 style="width: 200px" @change="handleDatasourceChange">
         <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
       </el-select>
       <el-button :icon="RefreshCw" @click="fetchSnapshots" />

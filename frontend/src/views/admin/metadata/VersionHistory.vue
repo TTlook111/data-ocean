@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { GitCompare } from 'lucide-vue-next'
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
@@ -10,8 +10,10 @@ import {
 } from '../../../api/admin/versioning'
 import type { SchemaDiffResult } from '../../../api/admin/metadata'
 import { snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
+const adminContext = useAdminContextStore()
 const datasources = ref<DatasourceItem[]>([])
 const selectedDatasourceId = ref<number | undefined>()
 const history = ref<VersionHistoryItem[]>([])
@@ -58,16 +60,33 @@ async function openCompare() {
 }
 
 function onDatasourceChange() {
+  if (selectedDatasourceId.value) {
+    adminContext.selectDatasource(selectedDatasourceId.value)
+  }
   query.page = 1
   compareOldId.value = undefined
   compareNewId.value = undefined
   fetchHistory()
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
+  selectedDatasourceId.value = adminContext.datasourceId
   fetchDatasources()
   fetchHistory()
 })
+
+watch(
+  () => adminContext.datasourceId,
+  (datasourceId) => {
+    if (selectedDatasourceId.value === datasourceId) return
+    selectedDatasourceId.value = datasourceId
+    query.page = 1
+    compareOldId.value = undefined
+    compareNewId.value = undefined
+    fetchHistory()
+  },
+)
 </script>
 
 <template>

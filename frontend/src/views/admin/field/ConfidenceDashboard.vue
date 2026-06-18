@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { TrendingUp, Settings } from 'lucide-vue-next'
 import * as echarts from 'echarts'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
+import { useAdminContextStore } from '../../../stores/adminContext'
 import {
   pageConfidence,
   adminSetConfidence,
@@ -14,6 +15,7 @@ import {
 
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
+const adminContext = useAdminContextStore()
 
 const loading = ref(false)
 const confidenceList = ref<ConfidenceVO[]>([])
@@ -55,6 +57,7 @@ async function fetchConfidenceList() {
       page: page.value,
       pageSize: pageSize.value,
       level: levelFilter.value || undefined,
+      datasourceId: adminContext.datasourceId,
     })
     confidenceList.value = res.data?.records ?? []
     total.value = res.data?.total ?? 0
@@ -79,9 +82,9 @@ function handleLevelFilter() {
 async function fetchLevelCounts() {
   try {
     const [high, medium, low] = await Promise.all([
-      pageConfidence({ page: 1, pageSize: 1, level: 'HIGH' }),
-      pageConfidence({ page: 1, pageSize: 1, level: 'MEDIUM' }),
-      pageConfidence({ page: 1, pageSize: 1, level: 'LOW' }),
+      pageConfidence({ page: 1, pageSize: 1, level: 'HIGH', datasourceId: adminContext.datasourceId }),
+      pageConfidence({ page: 1, pageSize: 1, level: 'MEDIUM', datasourceId: adminContext.datasourceId }),
+      pageConfidence({ page: 1, pageSize: 1, level: 'LOW', datasourceId: adminContext.datasourceId }),
     ])
     levelCounts.value = {
       HIGH: high.data?.total ?? 0,
@@ -184,11 +187,19 @@ async function confirmSetScore() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   withContext(() => { reveal('.content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
-  fetchConfidenceList()
-  fetchLevelCounts()
+  await adminContext.initialize()
+  await Promise.all([fetchConfidenceList(), fetchLevelCounts()])
 })
+
+watch(
+  () => adminContext.datasourceId,
+  () => {
+    page.value = 1
+    Promise.all([fetchConfidenceList(), fetchLevelCounts()])
+  },
+)
 </script>
 
 <template>

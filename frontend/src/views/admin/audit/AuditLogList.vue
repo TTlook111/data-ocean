@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { Search } from 'lucide-vue-next'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
+import { useAdminContextStore } from '../../../stores/adminContext'
 import { listAuditLogs, getAuditStats, type AuditLogVO, type AuditStatsVO } from '../../../api/admin/audit'
 
 const loading = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
+const adminContext = useAdminContextStore()
 
 const logs = ref<AuditLogVO[]>([])
 const total = ref(0)
@@ -36,7 +38,7 @@ async function fetchLogs() {
 }
 
 async function fetchStats() {
-  const res = await getAuditStats({ days: 30 })
+  const res = await getAuditStats({ datasourceId: adminContext.datasourceId, days: 30 })
   stats.value = res.data ?? null
 }
 
@@ -50,11 +52,21 @@ function handleSearch() {
   fetchLogs()
 }
 
-onMounted(() => {
+onMounted(async () => {
   withContext(() => { reveal('.content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
-  fetchLogs()
-  fetchStats()
+  await adminContext.initialize()
+  query.datasourceId = adminContext.datasourceId
+  await Promise.all([fetchLogs(), fetchStats()])
 })
+
+watch(
+  () => adminContext.datasourceId,
+  (datasourceId) => {
+    query.datasourceId = datasourceId
+    query.pageNo = 1
+    Promise.all([fetchLogs(), fetchStats()])
+  },
+)
 </script>
 
 <template>

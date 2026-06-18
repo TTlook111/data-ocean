@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, X, RefreshCw, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import {
@@ -8,6 +8,7 @@ import {
   rejectDoc,
   type KnowledgeDocItem
 } from '../../../api/admin/knowledge'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const docs = ref<KnowledgeDocItem[]>([])
@@ -15,6 +16,7 @@ const total = ref(0)
 const expandedId = ref<number | null>(null)
 const page = ref(1)
 const pageSize = 20
+const adminContext = useAdminContextStore()
 
 function extractError(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'response' in error) {
@@ -28,6 +30,7 @@ async function fetchDocs() {
   loading.value = true
   try {
     const res = await listKnowledgeDocs({
+      datasourceId: adminContext.datasourceId,
       status: 'PENDING_REVIEW',
       page: page.value,
       pageSize
@@ -53,6 +56,7 @@ async function handleApprove(doc: KnowledgeDocItem) {
     )
     await approveDoc(doc.id)
     ElMessage.success('审核已通过')
+    adminContext.refresh()
     fetchDocs()
   } catch (e) {
     if (e === 'cancel') return
@@ -77,6 +81,7 @@ async function handleReject(doc: KnowledgeDocItem) {
     )
     await rejectDoc(doc.id, reason)
     ElMessage.success('已驳回')
+    adminContext.refresh()
     fetchDocs()
   } catch (e) {
     if (e === 'cancel') return
@@ -84,9 +89,19 @@ async function handleReject(doc: KnowledgeDocItem) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
   fetchDocs()
 })
+
+watch(
+  () => adminContext.datasourceId,
+  () => {
+    page.value = 1
+    expandedId.value = null
+    fetchDocs()
+  },
+)
 </script>
 
 <template>

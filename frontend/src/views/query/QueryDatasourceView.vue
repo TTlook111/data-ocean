@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   SendHorizontal,
+  ShieldAlert,
   ShieldCheck,
   ThumbsUp,
   ThumbsDown,
@@ -134,8 +135,76 @@ const latestResult = computed(() => {
   }
   return null
 })
-const resultTab = ref<'table' | 'sql' | 'chart'>('table')
+const resultTab = ref<'table' | 'sql' | 'chart' | 'trust'>('table')
 const chartType = ref<'bar' | 'line' | 'pie'>('bar')
+
+const agentNodes = [
+  { key: 'query_rewriter', label: '理解问题' },
+  { key: 'schema_retriever', label: '召回知识' },
+  { key: 'sql_generator', label: '生成 SQL' },
+  { key: 'sql_validator', label: '安全校验' },
+  { key: 'sql_executor', label: '执行查询' },
+  { key: 'data_visualizer', label: '生成图表' },
+]
+
+const agentProgress = computed(() => {
+  const result = latestResult.value
+  if (!result) return []
+  const currentIndex = agentNodes.findIndex((node) => node.key === result.progressNode)
+  return agentNodes.map((node, index) => {
+    let status: 'done' | 'active' | 'pending' | 'failed' = 'pending'
+    if (result.status === 'COMPLETED') {
+      status = 'done'
+    } else if (result.status === 'FAILED' || result.status === 'TIMEOUT' || result.status === 'CANCELLED') {
+      status = currentIndex >= 0 && index === currentIndex ? 'failed' : index < currentIndex ? 'done' : 'pending'
+    } else if (currentIndex >= 0) {
+      status = index < currentIndex ? 'done' : index === currentIndex ? 'active' : 'pending'
+    } else if (index === 0 && result.status === 'PROCESSING') {
+      status = 'active'
+    }
+    return { ...node, status }
+  })
+})
+
+const isLatestProcessing = computed(() => latestResult.value?.status === 'PROCESSING')
+
+const trustSummary = computed(() => {
+  const result = latestResult.value
+  if (!result) return []
+  const maskedCount = result.maskedFields ? Object.keys(result.maskedFields).length : 0
+  return [
+    {
+      label: '改写问题',
+      value: result.rewrittenQuery || result.question || '未返回改写结果',
+      muted: !result.rewrittenQuery,
+    },
+    {
+      label: '召回表',
+      value: result.usedTables?.length ? result.usedTables.join(', ') : '未返回表级依据',
+      muted: !result.usedTables?.length,
+    },
+    {
+      label: '使用字段',
+      value: result.usedColumns?.length ? result.usedColumns.join(', ') : '未返回字段级依据',
+      muted: !result.usedColumns?.length,
+    },
+    {
+      label: '权限与脱敏',
+      value: maskedCount ? `已标记 ${maskedCount} 个脱敏字段` : '当前结果未标记脱敏字段',
+      muted: !maskedCount,
+    },
+    {
+      label: 'Prompt 版本',
+      value: result.promptVersions?.length ? `${result.promptVersions.length} 个模板参与生成` : '未返回版本追踪',
+      muted: !result.promptVersions?.length,
+    },
+    {
+      label: '重试次数',
+      value: `${result.retryCount ?? 0} 次`,
+      muted: false,
+    },
+  ]
+})
 
 /** 结果表格分页（前端分页） */
 const tablePage = ref(1)
@@ -442,10 +511,14 @@ async function sendQuestion() {
 
     // 轮询任务结果（最多 60 次 × 2 秒 = 120 秒，与后端超时对齐）
     // onProgress 回调把后端实时回写的阶段进度展示到加载中的助手消息上
-    const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (progressMessage) => {
+    const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
       const loadingMsg = session.messages.find((m) => m.id === assistantMsgId)
-      if (loadingMsg && loadingMsg.status === 'loading' && progressMessage) {
-        loadingMsg.content = `${progressMessage}...`
+      if (loadingMsg && loadingMsg.status === 'loading') {
+        loadingMsg.queryResult = task
+        loadingMsg.taskId = taskId
+        if (task.progressMessage) {
+          loadingMsg.content = `${task.progressMessage}...`
+        }
       }
     })
     const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
@@ -500,7 +573,7 @@ async function pollTaskResult(
   signal?: AbortSignal,
   maxAttempts = 60,
   intervalMs = 2000,
-  onProgress?: (progressMessage: string) => void,
+  onProgress?: (task: import('../../api/query').QueryTaskResult) => void,
 ) {
   let consecutiveErrors = 0
 
@@ -519,8 +592,8 @@ async function pollTaskResult(
         return task
       }
       // 仍在处理中：把后端实时回写的阶段进度回调出去展示
-      if (onProgress && task.progressMessage) {
-        onProgress(task.progressMessage)
+      if (onProgress) {
+        onProgress(task)
       }
     } catch (error) {
       // 安全修复：单次异常不终止轮询，连续失败达到阈值后再失败
@@ -603,9 +676,12 @@ async function continueWaiting(taskId: string) {
   pollAbortController.value = abortCtrl
 
   try {
-    const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (progressMessage) => {
-      if (assistantMsg.status === 'loading' && progressMessage) {
-        assistantMsg.content = `${progressMessage}...`
+    const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
+      if (assistantMsg.status === 'loading') {
+        assistantMsg.queryResult = task
+        if (task.progressMessage) {
+          assistantMsg.content = `${task.progressMessage}...`
+        }
       }
     })
 
@@ -911,6 +987,7 @@ watch(resultTab, () => {
               <span :class="{ active: resultTab === 'table' }" @click="resultTab = 'table'"><ListChecks :size="14" />表格结果</span>
               <span :class="{ active: resultTab === 'sql' }" @click="resultTab = 'sql'"><MessageSquareText :size="14" />SQL</span>
               <span :class="{ active: resultTab === 'chart' }" @click="resultTab = 'chart'"><BarChart3 :size="14" />图表</span>
+              <span :class="{ active: resultTab === 'trust' }" @click="resultTab = 'trust'"><ShieldCheck :size="14" />可信依据</span>
             </div>
 
             <div v-if="!latestResult" class="result-empty">
@@ -918,15 +995,19 @@ watch(resultTab, () => {
             </div>
 
             <div v-else-if="resultTab === 'table'" class="result-table-wrap">
+              <div v-if="isLatestProcessing" class="result-empty">
+                <strong>{{ latestResult.progressMessage || '查询正在执行中' }}</strong>
+                <span>可以切换到“可信依据”查看 Agent 当前进度。</span>
+              </div>
               <div v-if="latestResult.data && latestResult.data.length" class="result-meta">
                 <small>共 {{ latestResult.rowCount || latestResult.data.length }} 行 · 耗时 {{ latestResult.totalTimeMs }}ms</small>
                 <small v-if="latestResult.usedTables?.length">使用表：{{ latestResult.usedTables.join(', ') }}</small>
               </div>
-              <el-table v-if="latestResult.data && latestResult.data.length" :data="pagedTableData" border stripe max-height="320" size="small">
+              <el-table v-if="!isLatestProcessing && latestResult.data && latestResult.data.length" :data="pagedTableData" border stripe max-height="320" size="small">
                 <el-table-column v-for="col in (latestResult.columns || [])" :key="col.name" :prop="col.name" :label="col.comment || col.name" min-width="120" show-overflow-tooltip />
               </el-table>
               <el-pagination
-                v-if="latestResult.data && latestResult.data.length > tablePageSize"
+                v-if="!isLatestProcessing && latestResult.data && latestResult.data.length > tablePageSize"
                 v-model:current-page="tablePage"
                 :page-size="tablePageSize"
                 :total="latestResult.data.length"
@@ -934,7 +1015,7 @@ watch(resultTab, () => {
                 size="small"
                 style="margin-top: 8px; justify-content: flex-end;"
               />
-              <div v-else class="result-empty"><strong>查询完成但无数据返回</strong></div>
+              <div v-else-if="!isLatestProcessing" class="result-empty"><strong>查询完成但无数据返回</strong></div>
             </div>
 
             <div v-else-if="resultTab === 'sql'" class="result-sql-wrap">
@@ -954,6 +1035,41 @@ watch(resultTab, () => {
               </div>
               <ChartContainer v-if="latestResult.chartConfig" :option="chartOption" />
               <div v-else class="result-empty"><strong>无图表数据</strong></div>
+            </div>
+
+            <div v-else-if="resultTab === 'trust'" class="trust-panel">
+              <div class="agent-progress">
+                <div
+                  v-for="step in agentProgress"
+                  :key="step.key"
+                  class="agent-step"
+                  :class="step.status"
+                >
+                  <span class="step-dot"></span>
+                  <strong>{{ step.label }}</strong>
+                </div>
+              </div>
+
+              <div v-if="latestResult.progressMessage" class="trust-notice">
+                <ShieldCheck :size="15" />
+                <span>{{ latestResult.progressMessage }}</span>
+              </div>
+              <div v-if="latestResult.degraded" class="trust-notice warning">
+                <ShieldAlert :size="15" />
+                <span>{{ latestResult.degradeNotice || '知识库暂时不可用，当前结果已按降级策略返回。' }}</span>
+              </div>
+
+              <div class="trust-grid">
+                <div
+                  v-for="item in trustSummary"
+                  :key="item.label"
+                  class="trust-card"
+                  :class="{ muted: item.muted }"
+                >
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
             </div>
 
             <div v-if="latestResult" class="result-actions">
@@ -1828,6 +1944,130 @@ watch(resultTab, () => {
 .chart-container {
   width: 100%;
   height: 280px;
+}
+
+.trust-panel {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.agent-progress {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.agent-step {
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--do-muted);
+  font-size: 12px;
+}
+
+.agent-step strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #cbd5e1;
+}
+
+.agent-step.done {
+  color: #166534;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.agent-step.done .step-dot {
+  background: #22c55e;
+}
+
+.agent-step.active {
+  color: var(--do-primary-strong);
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.agent-step.active .step-dot {
+  background: var(--do-primary);
+  box-shadow: 0 0 0 4px rgba(77, 143, 220, 0.14);
+}
+
+.agent-step.failed {
+  color: #b42318;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.agent-step.failed .step-dot {
+  background: #ef4444;
+}
+
+.trust-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  color: var(--do-primary-strong);
+  background: #eff6ff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trust-notice.warning {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.trust-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.trust-card {
+  min-height: 78px;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 11px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.trust-card span {
+  color: var(--do-muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.trust-card strong {
+  overflow-wrap: anywhere;
+  color: var(--do-ink);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.trust-card.muted strong {
+  color: var(--do-muted);
+  font-weight: 700;
 }
 
 .result-actions {

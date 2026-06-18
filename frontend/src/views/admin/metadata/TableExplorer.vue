@@ -11,9 +11,11 @@ import {
   type ColumnMetaItem,
 } from '../../../api/admin/metadata'
 import { governanceStatusLabel, snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const route = useRoute()
 const router = useRouter()
+const adminContext = useAdminContextStore()
 const loading = ref(false)
 const snapshotLoading = ref(false)
 const snapshots = ref<SnapshotItem[]>([])
@@ -70,13 +72,18 @@ function snapshotLabel(snapshot: SnapshotItem) {
 async function fetchSnapshots() {
   snapshotLoading.value = true
   try {
-    const res = await listSnapshots({ page: 1, size: 50 })
+    const res = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 50 })
     snapshots.value = res.data?.records ?? []
     const routeSnapshotId = Number(route.query.snapshotId) || undefined
     if (routeSnapshotId && snapshots.value.some((item) => item.id === routeSnapshotId)) {
       selectedSnapshotId.value = routeSnapshotId
-    } else if (!selectedSnapshotId.value && snapshots.value.length) {
-      selectedSnapshotId.value = snapshots.value[0].id
+    } else if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
+      selectedSnapshotId.value = adminContext.snapshotId
+    } else {
+      selectedSnapshotId.value = snapshots.value[0]?.id
+    }
+    if (selectedSnapshotId.value) {
+      adminContext.selectSnapshot(selectedSnapshotId.value)
     }
   } catch (error: any) {
     ElMessage.error(error?.response?.data?.message || '获取快照列表失败')
@@ -113,6 +120,7 @@ async function fetchDetail() {
 }
 
 function handleSnapshotChange() {
+  adminContext.selectSnapshot(selectedSnapshotId.value)
   if (selectedSnapshotId.value) {
     router.replace({ query: { ...route.query, snapshotId: selectedSnapshotId.value } })
   }
@@ -120,6 +128,7 @@ function handleSnapshotChange() {
 }
 
 onMounted(async () => {
+  await adminContext.initialize()
   await fetchSnapshots()
   await fetchDetail()
 })
@@ -132,6 +141,26 @@ watch(
       selectedSnapshotId.value = nextId
       fetchDetail()
     }
+  },
+)
+
+watch(
+  () => adminContext.snapshotId,
+  (snapshotId) => {
+    if (!snapshotId || snapshotId === selectedSnapshotId.value) return
+    selectedSnapshotId.value = snapshotId
+    router.replace({ query: { ...route.query, snapshotId } })
+    fetchDetail()
+  },
+)
+
+watch(
+  () => adminContext.datasourceId,
+  async () => {
+    selectedSnapshotId.value = undefined
+    selectedTable.value = ''
+    await fetchSnapshots()
+    await fetchDetail()
   },
 )
 </script>

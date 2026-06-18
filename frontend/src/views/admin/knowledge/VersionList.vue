@@ -16,9 +16,11 @@ import {
   knowledgeStatusLabel,
   knowledgeStatusType,
 } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const route = useRoute()
 const docId = Number(route.params.id)
+const adminContext = useAdminContextStore()
 
 const loading = ref(false)
 const doc = ref<KnowledgeDocItem | null>(null)
@@ -39,6 +41,10 @@ async function fetchDoc() {
   try {
     const res = await getKnowledgeDoc(docId)
     doc.value = res.data as KnowledgeDocItem
+    if (doc.value) {
+      adminContext.selectDatasource(doc.value.datasourceId)
+      adminContext.selectKnowledgeDoc(doc.value.id)
+    }
   } catch (e) {
     ElMessage.error(extractError(e, '加载文档信息失败'))
   }
@@ -72,6 +78,7 @@ async function handleRollback(targetVersionNo: number) {
     ElMessage.success('回滚成功')
     fetchVersions()
     fetchDoc()
+    adminContext.refresh()
   } catch (e) {
     if (e === 'cancel') return
     ElMessage.error(extractError(e, '回滚失败'))

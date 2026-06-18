@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshCw, Play, Database } from 'lucide-vue-next'
 import {
@@ -10,12 +10,14 @@ import {
 } from '../../../api/admin/metadata'
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
 import { syncStatusLabel, syncStatusType, syncTriggerLabel } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const syncLoading = ref(false)
 const tasks = ref<SyncTaskItem[]>([])
 const total = ref(0)
 const datasources = ref<DatasourceItem[]>([])
+const adminContext = useAdminContextStore()
 
 const query = reactive({
   datasourceId: undefined as number | undefined,
@@ -50,9 +52,17 @@ async function fetchDatasources() {
 }
 
 function openSyncDialog() {
-  syncForm.datasourceId = 0
+  syncForm.datasourceId = adminContext.datasourceId ?? 0
   syncForm.includeStatistics = false
   syncDialogVisible.value = true
+}
+
+function handleDatasourceChange(id?: number) {
+  if (id) {
+    adminContext.selectDatasource(id)
+  }
+  query.page = 1
+  fetchTasks()
 }
 
 async function handleSync() {
@@ -65,6 +75,7 @@ async function handleSync() {
     await triggerSync(syncForm)
     ElMessage.success('同步任务已触发')
     syncDialogVisible.value = false
+    adminContext.selectDatasource(syncForm.datasourceId)
     fetchTasks()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '触发同步失败')
@@ -73,10 +84,22 @@ async function handleSync() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
+  query.datasourceId = adminContext.datasourceId
   fetchTasks()
   fetchDatasources()
 })
+
+watch(
+  () => adminContext.datasourceId,
+  (datasourceId) => {
+    if (query.datasourceId === datasourceId) return
+    query.datasourceId = datasourceId
+    query.page = 1
+    fetchTasks()
+  },
+)
 </script>
 
 <template>
@@ -89,7 +112,7 @@ onMounted(() => {
 
     <section class="toolbar">
       <el-select v-model="query.datasourceId" placeholder="全部数据源" clearable
-                 style="width: 200px" @change="fetchTasks">
+                 style="width: 200px" @change="handleDatasourceChange">
         <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
       </el-select>
       <el-button :icon="RefreshCw" @click="fetchTasks" />

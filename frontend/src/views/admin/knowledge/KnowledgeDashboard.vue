@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { FileText, Plus, RefreshCw, Eye, Pencil, Sparkles } from 'lucide-vue-next'
@@ -12,8 +12,10 @@ import {
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { knowledgeStatusLabel, knowledgeStatusType } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const router = useRouter()
+const adminContext = useAdminContextStore()
 const loading = ref(false)
 const docs = ref<KnowledgeDocItem[]>([])
 const total = ref(0)
@@ -72,11 +74,12 @@ async function fetchDocs() {
 // 获取各状态的全量计数（分别按状态查 total，不依赖当前分页数据）
 async function fetchStats() {
   try {
+    const datasourceId = query.datasourceId
     const [allRes, pubRes, pendRes, draftRes] = await Promise.all([
-      listKnowledgeDocs({ page: 1, pageSize: 1 }),
-      listKnowledgeDocs({ page: 1, pageSize: 1, status: 'PUBLISHED' }),
-      listKnowledgeDocs({ page: 1, pageSize: 1, status: 'PENDING_REVIEW' }),
-      listKnowledgeDocs({ page: 1, pageSize: 1, status: 'DRAFT' }),
+      listKnowledgeDocs({ datasourceId, page: 1, pageSize: 1 }),
+      listKnowledgeDocs({ datasourceId, page: 1, pageSize: 1, status: 'PUBLISHED' }),
+      listKnowledgeDocs({ datasourceId, page: 1, pageSize: 1, status: 'PENDING_REVIEW' }),
+      listKnowledgeDocs({ datasourceId, page: 1, pageSize: 1, status: 'DRAFT' }),
     ])
     stats.value = {
       total: allRes.data?.total ?? 0,
@@ -106,21 +109,34 @@ async function fetchSnapshots(datasourceId: number) {
 
 // 打开 AI 一键生成对话框
 function openGenerateDialog() {
-  generateForm.datasourceId = undefined
-  generateForm.snapshotId = undefined
+  generateForm.datasourceId = adminContext.datasourceId
+  generateForm.snapshotId = adminContext.snapshotId
   snapshots.value = []
   generatedDocs.value = []
   generateDialogVisible.value = true
+  if (generateForm.datasourceId) {
+    fetchSnapshots(generateForm.datasourceId)
+  }
 }
 
 // 数据源变更时加载快照
 function onDatasourceChange(dsId: number | undefined) {
   generateForm.snapshotId = undefined
   if (dsId) {
+    adminContext.selectDatasource(dsId)
     fetchSnapshots(dsId)
   } else {
     snapshots.value = []
   }
+}
+
+function handleDatasourceFilterChange(dsId?: number) {
+  if (dsId) {
+    adminContext.selectDatasource(dsId)
+  }
+  query.page = 1
+  fetchDocs()
+  fetchStats()
 }
 
 // 执行 AI 一键生成
@@ -162,11 +178,24 @@ function goVersions(id: number) {
   router.push({ name: 'admin-knowledge-versions', params: { id } })
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
+  query.datasourceId = adminContext.datasourceId
   fetchDocs()
   fetchDatasources()
   fetchStats()
 })
+
+watch(
+  () => adminContext.datasourceId,
+  (datasourceId) => {
+    if (query.datasourceId === datasourceId) return
+    query.datasourceId = datasourceId
+    query.page = 1
+    fetchDocs()
+    fetchStats()
+  },
+)
 </script>
 
 <template>
@@ -203,13 +232,13 @@ onMounted(() => {
 
     <section class="toolbar">
       <el-select v-model="query.datasourceId" placeholder="全部数据源" clearable
-                 style="width: 200px" @change="fetchDocs">
+                 style="width: 200px" @change="handleDatasourceFilterChange">
         <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
       </el-select>
       <el-select v-model="query.status" style="width: 140px" @change="fetchDocs">
         <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
-      <el-button :icon="RefreshCw" @click="fetchDocs" />
+      <el-button :icon="RefreshCw" @click="() => { fetchDocs(); fetchStats() }" />
     </section>
 
     <section class="table-shell">

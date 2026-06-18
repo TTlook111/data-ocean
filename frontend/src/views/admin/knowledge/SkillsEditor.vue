@@ -15,11 +15,13 @@ import {
 import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { knowledgeStatusLabel, knowledgeStatusType } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const route = useRoute()
 const router = useRouter()
 const docId = computed(() => route.params.id ? Number(route.params.id) : null)
 const isNew = computed(() => !docId.value)
+const adminContext = useAdminContextStore()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -52,6 +54,8 @@ async function fetchDoc() {
     title.value = doc.title
     content.value = doc.content || ''
     datasourceId.value = doc.datasourceId
+    adminContext.selectDatasource(doc.datasourceId)
+    adminContext.selectKnowledgeDoc(doc.id)
     version.value = doc.version
     status.value = doc.status
   } catch (e) {
@@ -70,7 +74,7 @@ async function fetchDatasources() {
 
 async function fetchSnapshots() {
   try {
-    const res = await listSnapshots({ page: 1, size: 50 })
+    const res = await listSnapshots({ datasourceId: datasourceId.value || adminContext.datasourceId, page: 1, size: 50 })
     snapshots.value = res.data?.records ?? []
   } catch { /* ignore */ }
 }
@@ -94,6 +98,8 @@ async function handleSave() {
         content: content.value
       })
       ElMessage.success('文档创建成功')
+      adminContext.selectDatasource(datasourceId.value)
+      if (res.data?.id) adminContext.selectKnowledgeDoc(res.data.id)
       router.replace({ name: 'admin-knowledge-editor', params: { id: res.data?.id } })
     } else {
       await updateKnowledgeDoc(docId.value!, {
@@ -140,7 +146,7 @@ async function handlePublish() {
 
 function openGenerateDialog() {
   generateDialogVisible.value = true
-  selectedSnapshotId.value = undefined
+  selectedSnapshotId.value = adminContext.snapshotId
 }
 
 async function handleGenerate() {
@@ -155,6 +161,7 @@ async function handleGenerate() {
     // 后端生成草稿时已写入新版本并递增乐观锁 version，必须重新拉取文档刷新本地 version，
     // 否则随后的“保存草稿”会携带过期 version 触发乐观锁冲突。
     await fetchDoc()
+    adminContext.refresh()
     // fetchDoc 会用服务端最新内容覆盖 content，这里再确保展示本次生成的草稿内容
     content.value = res.data?.content || content.value
     ElMessage.success('AI 草稿已生成，请检查后保存')
@@ -169,7 +176,10 @@ const canEdit = computed(() => ['DRAFT', 'APPROVED'].includes(status.value) || i
 const canSubmitReview = computed(() => status.value === 'DRAFT' && !isNew.value)
 const canPublish = computed(() => status.value === 'APPROVED' && !isNew.value)
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
+  datasourceId.value = adminContext.datasourceId
+  selectedSnapshotId.value = adminContext.snapshotId
   fetchDatasources()
   fetchSnapshots()
   if (!isNew.value) fetchDoc()
