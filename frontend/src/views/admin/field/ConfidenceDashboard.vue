@@ -185,7 +185,7 @@ async function confirmSetScore() {
 }
 
 onMounted(() => {
-  withContext(() => { reveal('.page-header, .content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
+  withContext(() => { reveal('.content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
   fetchConfidenceList()
   fetchLevelCounts()
 })
@@ -193,13 +193,6 @@ onMounted(() => {
 
 <template>
   <main ref="pageRef" class="confidence-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>字段治理</p>
-        <h1>可信度看板</h1>
-        <span class="header-subtitle">查看和管理字段可信度评分，分数影响 RAG 召回和 SQL 生成优先级</span>
-      </div>
-    </header>
 
     <section class="stats-row">
       <div class="stat-card high">
@@ -292,10 +285,6 @@ onMounted(() => {
 
 <style scoped>
 .confidence-page { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-.page-header h1 { margin: 4px 0; font-size: 22px; color: var(--do-ink); }
-.page-header p { margin: 0; font-size: 12px; color: var(--do-muted); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .stats-row { display: flex; gap: 16px; margin-bottom: 20px; }
 .stat-card { flex: 1; padding: 16px; border-radius: 8px; border: 1px solid var(--do-line); background: var(--do-surface); text-align: center; }
 .stat-card .stat-value { display: block; font-size: 28px; font-weight: 600; }

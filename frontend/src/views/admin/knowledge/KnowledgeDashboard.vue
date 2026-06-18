@@ -171,12 +171,7 @@ onMounted(() => {
 
 <template>
   <main class="knowledge-dashboard post-login-page">
-    <header class="page-header">
-      <div>
-        <p>知识库管理</p>
-        <h1>知识库总览</h1>
-        <span class="header-subtitle">管理 skills.md 文档的生命周期</span>
-      </div>
+    <section class="page-actions">
       <div class="header-actions">
         <el-button @click="goCreate">
           <Plus :size="16" style="margin-right: 6px" />手动新建
@@ -185,7 +180,7 @@ onMounted(() => {
           <Sparkles :size="16" style="margin-right: 6px" />AI 一键生成
         </el-button>
       </div>
-    </header>
+    </section>
 
     <section class="stat-cards">
       <div class="stat-card">
@@ -321,10 +316,6 @@ onMounted(() => {
 
 <style scoped>
 .knowledge-dashboard { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .header-actions { display: flex; gap: 8px; }
 .stat-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .stat-card {

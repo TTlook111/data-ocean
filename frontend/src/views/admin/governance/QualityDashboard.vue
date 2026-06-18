@@ -66,13 +66,6 @@ onMounted(() => {
 
 <template>
   <main class="quality-page post-login-page" v-loading="loading">
-    <header class="page-header">
-      <div>
-        <p>元数据治理</p>
-        <h1>质量看板</h1>
-        <span class="header-subtitle">执行五维质量校验，查看数据源元数据健康状况</span>
-      </div>
-    </header>
 
     <!-- 校验触发区 -->
     <section class="check-panel">
@@ -138,10 +131,6 @@ onMounted(() => {
 
 <style scoped>
 .quality-page { display: grid; gap: 16px; }
-.page-header { }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 
 .check-panel { display: flex; align-items: center; }
 

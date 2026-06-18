@@ -70,19 +70,12 @@ function highlightMatch(text: string | undefined, q: string): string {
 
 loadDatasources()
 withContext(() => {
-  reveal('.page-header, .search-bar, .results-panel', { y: 14, stagger: 0.06 })
+  reveal('.search-bar, .results-panel', { y: 14, stagger: 0.06 })
 })
 </script>
 
 <template>
   <main ref="pageRef" class="catalog-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>数据资产治理</p>
-        <h1>元数据目录搜索</h1>
-        <span class="header-subtitle">全文搜索表、列、术语、标签等元数据实体</span>
-      </div>
-    </header>
 
     <section class="search-bar">
       <el-input
@@ -156,22 +149,8 @@ withContext(() => {
   padding: 24px;
 }
 
-.page-header h1 {
-  margin: 4px 0;
-  font-size: 22px;
-  color: var(--do-ink);
-}
 
-.page-header p {
-  margin: 0;
-  font-size: 12px;
-  color: var(--do-muted);
-}
 
-.header-subtitle {
-  font-size: 13px;
-  color: var(--do-muted);
-}
 
 .search-bar {
   display: flex;

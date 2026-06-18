@@ -155,16 +155,11 @@ function subjectTypeLabel(type: string) {
 
 <template>
   <main class="access-control-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>安全管理</p>
-        <h1>访问控制</h1>
-        <span class="header-subtitle">管理数据源级别的访问授权</span>
-      </div>
+    <section class="page-actions">
       <el-button type="primary" @click="openGrantDialog">
         <Plus :size="16" style="margin-right: 6px" />新增授权
       </el-button>
-    </header>
+    </section>
 
     <section class="toolbar">
       <el-select v-model="selectedDatasource" placeholder="选择数据源" style="width: 240px" @change="loadPermissions">
@@ -236,10 +231,6 @@ function subjectTypeLabel(type: string) {
 
 <style scoped>
 .access-control-page { padding: 0; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .toolbar { margin-bottom: 16px; display: flex; align-items: center; }
 .content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; box-shadow: var(--do-shadow); }
 </style>

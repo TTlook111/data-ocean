@@ -51,7 +51,7 @@ function handleSearch() {
 }
 
 onMounted(() => {
-  withContext(() => { reveal('.page-header, .content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
+  withContext(() => { reveal('.content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
   fetchLogs()
   fetchStats()
 })
@@ -59,13 +59,6 @@ onMounted(() => {
 
 <template>
   <main ref="pageRef" class="audit-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>审计管理</p>
-        <h1>查询审计日志</h1>
-        <span class="header-subtitle">记录所有 NL2SQL 查询的完整生命周期</span>
-      </div>
-    </header>
 
     <section v-if="stats" class="stats-row">
       <div class="stat-card"><span class="stat-value">{{ stats.totalQueries }}</span><span class="stat-label">总查询数</span></div>
@@ -114,10 +107,6 @@ onMounted(() => {
 
 <style scoped>
 .audit-page { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-.page-header h1 { margin: 4px 0; font-size: 22px; color: var(--do-ink); }
-.page-header p { margin: 0; font-size: 12px; color: var(--do-muted); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .stats-row { display: flex; gap: 16px; margin-bottom: 20px; }
 .stat-card { flex: 1; padding: 14px; border-radius: 8px; border: 1px solid var(--do-line); background: var(--do-surface); text-align: center; }
 .stat-card .stat-value { display: block; font-size: 24px; font-weight: 600; color: var(--do-primary); }

@@ -46,13 +46,6 @@ onMounted(() => {
 
 <template>
   <main class="snapshot-list-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据管理</p>
-        <h1>快照列表</h1>
-        <span class="header-subtitle">查看元数据采集快照历史</span>
-      </div>
-    </header>
 
     <section class="toolbar">
       <el-select v-model="query.datasourceId" placeholder="全部数据源" clearable
@@ -97,10 +90,6 @@ onMounted(() => {
 
 <style scoped>
 .snapshot-list-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .toolbar { display: flex; gap: 12px; margin-bottom: 16px; }
 .table-shell { border: 1px solid var(--do-line); border-radius: 8px; overflow: hidden; background: var(--do-surface); }
 .pager { margin-top: 16px; justify-content: flex-end; }

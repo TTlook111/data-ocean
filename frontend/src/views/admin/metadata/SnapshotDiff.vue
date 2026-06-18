@@ -44,13 +44,6 @@ onMounted(fetchSnapshots)
 
 <template>
   <main class="snapshot-diff-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据管理</p>
-        <h1>快照差异对比</h1>
-        <span class="header-subtitle">对比两次快照的结构变更</span>
-      </div>
-    </header>
 
     <section class="compare-bar">
       <el-select v-model="oldId" placeholder="旧快照" style="width: 260px">
@@ -113,10 +106,6 @@ onMounted(fetchSnapshots)
 
 <style scoped>
 .snapshot-diff-page { display: grid; gap: 16px; }
-.page-header { }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .compare-bar { display: flex; align-items: center; gap: 12px; }
 .diff-result { border: 1px solid var(--do-line); border-radius: 8px; background: var(--do-surface); padding: 20px; }
 .diff-section { margin-bottom: 20px; }

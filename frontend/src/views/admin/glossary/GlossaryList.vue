@@ -187,20 +187,13 @@ async function handleReviewTerm(id: number, approved: boolean) {
 onMounted(() => {
   loadGlossaries()
   withContext(() => {
-    reveal('.page-header, .toolbar, .content-panel', { y: 14, stagger: 0.06 })
+    reveal('.toolbar, .content-panel', { y: 14, stagger: 0.06 })
   })
 })
 </script>
 
 <template>
   <main ref="pageRef" class="glossary-page post-login-page" v-loading="loading">
-    <header class="page-header">
-      <div>
-        <p>知识与语义</p>
-        <h1>业务术语管理</h1>
-        <span class="header-subtitle">维护业务术语和同义词，提升 NL2SQL 查询理解能力</span>
-      </div>
-    </header>
 
     <section class="toolbar">
       <el-button type="primary" :icon="Plus" @click="openCreateGlossary">新建术语表</el-button>
@@ -344,22 +337,8 @@ onMounted(() => {
   padding: 24px;
 }
 
-.page-header h1 {
-  margin: 4px 0;
-  font-size: 22px;
-  color: var(--do-ink);
-}
 
-.page-header p {
-  margin: 0;
-  font-size: 12px;
-  color: var(--do-muted);
-}
 
-.header-subtitle {
-  font-size: 13px;
-  color: var(--do-muted);
-}
 
 .toolbar {
   display: flex;

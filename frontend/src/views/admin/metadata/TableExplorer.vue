@@ -138,14 +138,9 @@ watch(
 
 <template>
   <main class="table-explorer-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据管理</p>
-        <h1>表浏览器</h1>
-        <span class="header-subtitle">选择一个采集快照，查看其中的表结构、字段、统计信息和治理状态</span>
-      </div>
+    <section class="page-actions">
       <el-button :icon="RefreshCw" :loading="loading || snapshotLoading" @click="fetchDetail">刷新</el-button>
-    </header>
+    </section>
 
     <section class="snapshot-toolbar">
       <el-select
@@ -272,10 +267,6 @@ watch(
 
 <style scoped>
 .table-explorer-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .snapshot-toolbar {
   min-height: 48px;
   display: flex;

@@ -92,14 +92,9 @@ onMounted(fetchSnapshots)
 
 <template>
   <main class="status-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据治理</p>
-        <h1>治理状态</h1>
-        <span class="header-subtitle">管理表和字段的治理状态，控制 RAG 准入</span>
-      </div>
+    <section class="page-actions">
       <el-button :icon="RefreshCw" @click="fetchTables">刷新</el-button>
-    </header>
+    </section>
 
     <section class="toolbar">
       <el-select v-model="selectedSnapshotId" placeholder="选择快照" style="width: 220px" @change="fetchTables">
@@ -153,10 +148,6 @@ onMounted(fetchSnapshots)
 
 <style scoped>
 .status-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .toolbar { }
 
 .split-layout { display: flex; gap: 16px; }

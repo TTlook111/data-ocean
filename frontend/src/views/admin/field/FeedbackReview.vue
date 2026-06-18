@@ -70,20 +70,13 @@ function handlePageChange(p: number) {
 }
 
 onMounted(() => {
-  withContext(() => { reveal('.page-header, .content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
+  withContext(() => { reveal('.content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
   fetchReviews()
 })
 </script>
 
 <template>
   <main ref="pageRef" class="feedback-review-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>字段治理</p>
-        <h1>反馈审核队列</h1>
-        <span class="header-subtitle">审核用户对查询结果的负向反馈，通过后扣减字段可信度</span>
-      </div>
-    </header>
 
     <section class="content-panel">
       <el-table :data="reviews" v-loading="loading" stripe>
@@ -124,10 +117,6 @@ onMounted(() => {
 
 <style scoped>
 .feedback-review-page { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-.page-header h1 { margin: 4px 0; font-size: 22px; color: var(--do-ink); }
-.page-header p { margin: 0; font-size: 12px; color: var(--do-muted); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; }
 .pager { margin-top: 16px; justify-content: flex-end; }
 </style>

@@ -106,20 +106,13 @@ function handleSearch() {
 onMounted(() => {
   loadDatasources()
   withContext(() => {
-    reveal('.page-header, .content-panel, .impact-card, .toolbar', { y: 14, stagger: 0.06 })
+    reveal('.content-panel, .impact-card, .toolbar', { y: 14, stagger: 0.06 })
   })
 })
 </script>
 
 <template>
   <main ref="pageRef" class="lineage-page post-login-page" v-loading="loading">
-    <header class="page-header">
-      <div>
-        <p>审计管理</p>
-        <h1>血缘查看</h1>
-        <span class="header-subtitle">查看表级和字段级引用关系，分析字段变更影响范围</span>
-      </div>
-    </header>
 
     <section class="toolbar">
       <el-select
@@ -187,30 +180,10 @@ onMounted(() => {
   padding: 24px;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.page-header h1 {
-  margin: 4px 0;
-  font-size: 22px;
-  color: var(--do-ink);
-}
-
-.page-header p,
-.header-subtitle,
 .recent-tasks {
   color: var(--do-muted);
 }
 
-.page-header p {
-  margin: 0;
-  font-size: 12px;
-}
-
-.header-subtitle,
 .recent-tasks {
   font-size: 13px;
 }

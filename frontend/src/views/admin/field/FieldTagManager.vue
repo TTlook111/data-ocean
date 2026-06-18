@@ -118,7 +118,7 @@ async function handleAutoTag() {
 
 onMounted(async () => {
   withContext(() => {
-    reveal('.page-header, .toolbar, .content-panel', { y: 14, stagger: 0.06 })
+    reveal('.toolbar, .content-panel', { y: 14, stagger: 0.06 })
   })
   await fetchPredefinedTags()
   await fetchSnapshots()
@@ -128,12 +128,7 @@ onMounted(async () => {
 
 <template>
   <main ref="pageRef" class="field-tag-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>字段治理</p>
-        <h1>字段标签管理</h1>
-        <span class="header-subtitle">为字段打上业务标签，标记推荐、废弃、敏感等属性</span>
-      </div>
+    <section class="page-actions">
       <div class="header-actions">
         <el-button @click="handleAutoTag">
           <RefreshCw :size="16" style="margin-right: 4px" />自动打标
@@ -142,7 +137,7 @@ onMounted(async () => {
           <Tag :size="16" style="margin-right: 4px" />批量打标
         </el-button>
       </div>
-    </header>
+    </section>
 
     <section class="toolbar">
       <el-select v-model="query.snapshotId" placeholder="选择快照" @change="fetchTables" style="width: 200px">
@@ -197,10 +192,6 @@ onMounted(async () => {
 
 <style scoped>
 .field-tag-page { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-.page-header h1 { margin: 4px 0; font-size: 22px; color: var(--do-ink); }
-.page-header p { margin: 0; font-size: 12px; color: var(--do-muted); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .header-actions { display: flex; gap: 8px; }
 .toolbar { display: flex; gap: 12px; margin-bottom: 16px; }
 .content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; }

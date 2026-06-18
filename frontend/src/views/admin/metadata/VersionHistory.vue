@@ -72,13 +72,6 @@ onMounted(() => {
 
 <template>
   <main class="version-history-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据版本管理</p>
-        <h1>版本历史</h1>
-        <span class="header-subtitle">查看数据源元数据快照演变历程，对比不同版本差异</span>
-      </div>
-    </header>
 
     <section class="toolbar">
       <el-select v-model="selectedDatasourceId" placeholder="全部数据源" clearable

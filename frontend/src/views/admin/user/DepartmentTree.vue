@@ -119,17 +119,12 @@ onMounted(fetchDepartments)
 
 <template>
   <main class="admin-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>治理管理</p>
-        <h1>部门管理</h1>
-        <span class="header-subtitle">维护组织层级结构，供用户归属和权限范围使用。</span>
-      </div>
+    <section class="page-actions">
       <el-button type="primary" @click="openCreate()">
         <FolderPlus :size="16" />
         新增部门
       </el-button>
-    </header>
+    </section>
 
     <section class="dept-stats">
       <article class="dept-stat-card">
@@ -226,31 +221,6 @@ onMounted(fetchDepartments)
 .admin-page {
   display: grid;
   gap: 16px;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 4px;
-}
-
-.page-header p {
-  margin: 0 0 6px;
-  color: var(--do-primary);
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 24px;
-  color: var(--do-ink);
-}
-
-.header-subtitle {
-  color: var(--do-muted);
-  font-size: 13px;
 }
 
 .dept-stats {

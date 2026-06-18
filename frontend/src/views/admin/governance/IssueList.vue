@@ -120,14 +120,9 @@ onMounted(async () => {
 
 <template>
   <main class="issue-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据治理</p>
-        <h1>问题清单</h1>
-        <span class="header-subtitle">查看和处理质量校验发现的问题，未选择快照时展示全部问题</span>
-      </div>
+    <section class="page-actions">
       <el-button :icon="RefreshCw" @click="fetchIssues">刷新</el-button>
-    </header>
+    </section>
 
     <section class="toolbar">
       <el-select v-model="query.snapshotId" placeholder="全部快照" clearable style="width: 220px" @change="fetchIssues">
@@ -219,10 +214,6 @@ onMounted(async () => {
 
 <style scoped>
 .issue-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .toolbar {
   display: flex;
   align-items: center;

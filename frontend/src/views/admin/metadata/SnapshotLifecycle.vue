@@ -110,13 +110,6 @@ onMounted(() => {
 
 <template>
   <main class="lifecycle-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据版本管理</p>
-        <h1>快照生命周期</h1>
-        <span class="header-subtitle">管理快照状态流转、审核发布与紧急撤回，未选择数据源时展示全部快照</span>
-      </div>
-    </header>
 
     <section class="toolbar">
       <el-select v-model="selectedDatasourceId" placeholder="全部数据源" clearable

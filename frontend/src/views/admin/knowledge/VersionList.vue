@@ -86,16 +86,9 @@ onMounted(() => {
 
 <template>
   <main class="version-list-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>知识库管理</p>
-        <h1>版本历史</h1>
-        <span class="header-subtitle">
-          {{ doc ? `${doc.title} — 当前版本 ${doc.currentVersion}` : '加载中...' }}
-        </span>
-      </div>
+    <section class="page-actions">
       <el-button :icon="RefreshCw" @click="fetchVersions">刷新</el-button>
-    </header>
+    </section>
 
     <section class="table-shell">
       <el-table :data="versions" v-loading="loading" stripe>
@@ -141,10 +134,6 @@ onMounted(() => {
 
 <style scoped>
 .version-list-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .table-shell { border: 1px solid var(--do-line); border-radius: 8px; overflow: hidden; background: var(--do-surface); }
 .version-preview-content {
   max-height: 500px;

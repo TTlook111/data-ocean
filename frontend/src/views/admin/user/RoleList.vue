@@ -307,17 +307,12 @@ onMounted(async () => {
 
 <template>
   <main class="admin-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>治理管理</p>
-        <h1>角色管理</h1>
-        <span class="header-subtitle">维护角色定义、功能权限和角色下的用户成员。</span>
-      </div>
+    <section class="page-actions">
       <div class="header-actions">
         <el-button :icon="RefreshCw" :loading="loading" @click="fetchRoles">刷新</el-button>
         <el-button v-if="canManageRoles" type="primary" :icon="Plus" @click="openCreateRole">新增角色</el-button>
       </div>
-    </header>
+    </section>
 
     <section class="role-summary">
       <button
@@ -484,7 +479,6 @@ onMounted(async () => {
   gap: 16px;
 }
 
-.page-header,
 .header-actions,
 .member-toolbar,
 .permission-toolbar,
@@ -494,30 +488,11 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.page-header,
 .member-toolbar,
 .permission-toolbar {
   justify-content: space-between;
 }
 
-.page-header {
-  margin-bottom: 4px;
-}
-
-.page-header p {
-  margin: 0 0 6px;
-  color: var(--do-primary);
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 24px;
-  color: var(--do-ink);
-}
-
-.header-subtitle,
 .muted-action {
   color: var(--do-muted);
 }
