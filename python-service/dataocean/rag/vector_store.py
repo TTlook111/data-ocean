@@ -110,6 +110,7 @@ async def search_by_vector(
         search_hits = []
         for hits in results:
             for hit in hits:
+
                 entity = hit.get("entity", {})
                 score = hit.get("distance", 0.0)
 
