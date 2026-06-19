@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshCw } from 'lucide-vue-next'
 import {
@@ -13,6 +13,7 @@ import {
 } from '../../../api/admin/governance'
 import { listSnapshots } from '../../../api/admin/metadata'
 import { governanceStatusLabel } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const snapshots = ref<Array<{ id: number; snapshotVersion: number }>>([])
@@ -20,15 +21,21 @@ const selectedSnapshotId = ref<number | undefined>()
 const tables = ref<TableMetaItem[]>([])
 const selectedTable = ref<string>('')
 const columns = ref<ColumnMetaItem[]>([])
+const adminContext = useAdminContextStore()
 
 const statusOptions = ['DISCOVERED', 'NORMAL', 'RECOMMENDED', 'DEPRECATED', 'SENSITIVE', 'BLOCKED']
 
 async function fetchSnapshots() {
   try {
-    const res = await listSnapshots({ page: 1, size: 50 })
+    const res = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 50 })
     snapshots.value = res.data?.records ?? []
-    if (snapshots.value.length && !selectedSnapshotId.value) {
-      selectedSnapshotId.value = snapshots.value[0].id
+    if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
+      selectedSnapshotId.value = adminContext.snapshotId
+    } else {
+      selectedSnapshotId.value = snapshots.value[0]?.id
+    }
+    if (selectedSnapshotId.value) {
+      adminContext.selectSnapshot(selectedSnapshotId.value)
       fetchTables()
     }
   } catch {
@@ -37,14 +44,26 @@ async function fetchSnapshots() {
 }
 
 async function fetchTables() {
-  if (!selectedSnapshotId.value) return
+  if (!selectedSnapshotId.value) {
+    tables.value = []
+    columns.value = []
+    selectedTable.value = ''
+    return
+  }
   loading.value = true
   try {
     const res = await listSnapshotTables(selectedSnapshotId.value)
     tables.value = res.data ?? []
+    columns.value = []
+    selectedTable.value = ''
   } finally {
     loading.value = false
   }
+}
+
+function handleSnapshotChange(id?: number) {
+  adminContext.selectSnapshot(id)
+  fetchTables()
 }
 
 async function fetchColumns(tableName: string) {
@@ -87,22 +106,36 @@ async function batchSetColumns(newStatus: string) {
   }
 }
 
-onMounted(fetchSnapshots)
+onMounted(async () => {
+  await adminContext.initialize()
+  fetchSnapshots()
+})
+
+watch(
+  () => adminContext.snapshotId,
+  (snapshotId) => {
+    if (!snapshotId || selectedSnapshotId.value === snapshotId) return
+    selectedSnapshotId.value = snapshotId
+    fetchTables()
+  },
+)
+
+watch(
+  () => adminContext.datasourceId,
+  async () => {
+    await fetchSnapshots()
+  },
+)
 </script>
 
 <template>
   <main class="status-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据治理</p>
-        <h1>治理状态</h1>
-        <span class="header-subtitle">管理表和字段的治理状态，控制 RAG 准入</span>
-      </div>
+    <section class="page-actions">
       <el-button :icon="RefreshCw" @click="fetchTables">刷新</el-button>
-    </header>
+    </section>
 
     <section class="toolbar">
-      <el-select v-model="selectedSnapshotId" placeholder="选择快照" style="width: 220px" @change="fetchTables">
+      <el-select v-model="selectedSnapshotId" placeholder="选择快照" style="width: 220px" @change="handleSnapshotChange">
         <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} 版本 ${s.snapshotVersion}`" />
       </el-select>
     </section>
@@ -153,10 +186,6 @@ onMounted(fetchSnapshots)
 
 <style scoped>
 .status-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .toolbar { }
 
 .split-layout { display: flex; gap: 16px; }

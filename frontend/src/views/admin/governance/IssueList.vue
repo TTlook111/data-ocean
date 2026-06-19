@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshCw } from 'lucide-vue-next'
 import {
@@ -15,12 +15,14 @@ import {
   qualityDimensionLabel,
   severityLabel,
 } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const issues = ref<QualityIssueItem[]>([])
 const total = ref(0)
 const selectedIds = ref<number[]>([])
 const snapshots = ref<Array<{ id: number; snapshotVersion: number }>>([])
+const adminContext = useAdminContextStore()
 
 const query = reactive({
   snapshotId: undefined as number | undefined,
@@ -64,8 +66,13 @@ const issueSummary = computed(() => ({
 }))
 
 async function fetchSnapshots() {
-  const res = await listSnapshots({ page: 1, size: 50 })
+  const res = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 50 })
   snapshots.value = res.data?.records ?? []
+  if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
+    query.snapshotId = adminContext.snapshotId
+  } else if (!query.snapshotId || !snapshots.value.some((item) => item.id === query.snapshotId)) {
+    query.snapshotId = snapshots.value[0]?.id
+  }
 }
 
 async function fetchIssues() {
@@ -84,6 +91,11 @@ async function fetchIssues() {
   } finally {
     loading.value = false
   }
+}
+
+function handleSnapshotChange(value?: number) {
+  adminContext.selectSnapshot(value)
+  fetchIssues()
 }
 
 async function doHandle(issueId: number, status: string) {
@@ -113,24 +125,40 @@ function onSelectionChange(rows: QualityIssueItem[]) {
 }
 
 onMounted(async () => {
+  await adminContext.initialize()
   await fetchSnapshots()
+  query.snapshotId = adminContext.snapshotId
   fetchIssues()
 })
+
+watch(
+  () => adminContext.snapshotId,
+  (snapshotId) => {
+    if (query.snapshotId === snapshotId) return
+    query.snapshotId = snapshotId
+    query.page = 1
+    fetchIssues()
+  },
+)
+
+watch(
+  () => adminContext.datasourceId,
+  async () => {
+    await fetchSnapshots()
+    query.page = 1
+    fetchIssues()
+  },
+)
 </script>
 
 <template>
   <main class="issue-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据治理</p>
-        <h1>问题清单</h1>
-        <span class="header-subtitle">查看和处理质量校验发现的问题，未选择快照时展示全部问题</span>
-      </div>
+    <section class="page-actions">
       <el-button :icon="RefreshCw" @click="fetchIssues">刷新</el-button>
-    </header>
+    </section>
 
     <section class="toolbar">
-      <el-select v-model="query.snapshotId" placeholder="全部快照" clearable style="width: 220px" @change="fetchIssues">
+      <el-select v-model="query.snapshotId" placeholder="全部快照" clearable style="width: 220px" @change="handleSnapshotChange">
         <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} 版本 ${s.snapshotVersion}`" />
       </el-select>
       <el-select v-model="query.dimension" placeholder="全部维度" style="width: 120px" @change="fetchIssues">
@@ -219,10 +247,6 @@ onMounted(async () => {
 
 <style scoped>
 .issue-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .toolbar {
   display: flex;
   align-items: center;

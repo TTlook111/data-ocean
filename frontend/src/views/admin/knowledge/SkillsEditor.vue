@@ -12,18 +12,20 @@ import {
   generateDraft,
   type KnowledgeDocItem
 } from '../../../api/admin/knowledge'
-import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { knowledgeStatusLabel, knowledgeStatusType } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const route = useRoute()
 const router = useRouter()
 const docId = computed(() => route.params.id ? Number(route.params.id) : null)
 const isNew = computed(() => !docId.value)
+const adminContext = useAdminContextStore()
 
 const loading = ref(false)
 const saving = ref(false)
-const datasources = ref<DatasourceItem[]>([])
+const datasources = ref<DatasourceSimpleItem[]>([])
 const snapshots = ref<SnapshotItem[]>([])
 
 const title = ref('')
@@ -52,6 +54,8 @@ async function fetchDoc() {
     title.value = doc.title
     content.value = doc.content || ''
     datasourceId.value = doc.datasourceId
+    adminContext.selectDatasource(doc.datasourceId)
+    adminContext.selectKnowledgeDoc(doc.id)
     version.value = doc.version
     status.value = doc.status
   } catch (e) {
@@ -63,14 +67,14 @@ async function fetchDoc() {
 
 async function fetchDatasources() {
   try {
-    const res = await listDatasources({ page: 1, pageSize: 200 })
-    datasources.value = res.data?.records ?? []
+    const res = await listSimpleDatasources()
+    datasources.value = res.data ?? []
   } catch { /* ignore */ }
 }
 
 async function fetchSnapshots() {
   try {
-    const res = await listSnapshots({ page: 1, size: 50 })
+    const res = await listSnapshots({ datasourceId: datasourceId.value || adminContext.datasourceId, page: 1, size: 50 })
     snapshots.value = res.data?.records ?? []
   } catch { /* ignore */ }
 }
@@ -94,6 +98,8 @@ async function handleSave() {
         content: content.value
       })
       ElMessage.success('文档创建成功')
+      adminContext.selectDatasource(datasourceId.value)
+      if (res.data?.id) adminContext.selectKnowledgeDoc(res.data.id)
       router.replace({ name: 'admin-knowledge-editor', params: { id: res.data?.id } })
     } else {
       await updateKnowledgeDoc(docId.value!, {
@@ -140,7 +146,7 @@ async function handlePublish() {
 
 function openGenerateDialog() {
   generateDialogVisible.value = true
-  selectedSnapshotId.value = undefined
+  selectedSnapshotId.value = adminContext.snapshotId
 }
 
 async function handleGenerate() {
@@ -155,6 +161,7 @@ async function handleGenerate() {
     // 后端生成草稿时已写入新版本并递增乐观锁 version，必须重新拉取文档刷新本地 version，
     // 否则随后的“保存草稿”会携带过期 version 触发乐观锁冲突。
     await fetchDoc()
+    adminContext.refresh()
     // fetchDoc 会用服务端最新内容覆盖 content，这里再确保展示本次生成的草稿内容
     content.value = res.data?.content || content.value
     ElMessage.success('AI 草稿已生成，请检查后保存')
@@ -169,7 +176,10 @@ const canEdit = computed(() => ['DRAFT', 'APPROVED'].includes(status.value) || i
 const canSubmitReview = computed(() => status.value === 'DRAFT' && !isNew.value)
 const canPublish = computed(() => status.value === 'APPROVED' && !isNew.value)
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
+  datasourceId.value = adminContext.datasourceId
+  selectedSnapshotId.value = adminContext.snapshotId
   fetchDatasources()
   fetchSnapshots()
   if (!isNew.value) fetchDoc()
@@ -178,12 +188,7 @@ onMounted(() => {
 
 <template>
   <main class="skills-editor post-login-page" v-loading="loading">
-    <header class="page-header">
-      <div>
-        <p>知识库管理</p>
-        <h1>{{ isNew ? '新建文档' : '编辑文档' }}</h1>
-        <span class="header-subtitle">编辑 skills.md 知识文档</span>
-      </div>
+    <section class="page-actions">
       <div class="header-actions">
         <el-button @click="handleSave" :loading="saving" :disabled="!canEdit">
           <Save :size="16" style="margin-right: 6px" />保存草稿
@@ -198,7 +203,7 @@ onMounted(() => {
           <Upload :size="16" style="margin-right: 6px" />发布
         </el-button>
       </div>
-    </header>
+    </section>
 
     <section class="editor-meta">
       <el-input v-model="title" placeholder="文档标题" :disabled="!canEdit" style="flex: 1" />
@@ -249,10 +254,6 @@ onMounted(() => {
 
 <style scoped>
 .skills-editor { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .editor-meta { display: flex; gap: 12px; align-items: center; }
 .version-badge { font-size: 12px; color: var(--do-muted); background: var(--do-primary-soft); padding: 2px 8px; border-radius: 4px; }

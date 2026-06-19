@@ -465,12 +465,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="admin-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>用户管理</p>
-        <h1>账号、角色与状态</h1>
-        <span class="header-subtitle">集中维护平台用户、部门归属、角色授权和账号状态。</span>
-      </div>
+    <section class="page-actions">
       <div class="header-actions">
         <input ref="importInputRef" type="file" accept=".csv,text/csv" class="hidden-file-input" @change="handleImportFile" />
         <el-button @click="downloadTemplate">
@@ -487,7 +482,7 @@ onBeforeUnmount(() => {
         </el-button>
         <el-button type="primary" @click="openCreate">新增用户</el-button>
       </div>
-    </header>
+    </section>
 
     <section class="toolbar">
       <el-input v-model="query.username" clearable placeholder="用户名" />
@@ -637,12 +632,6 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
 .header-actions {
   display: flex;
   align-items: center;
@@ -653,18 +642,6 @@ onBeforeUnmount(() => {
 
 .hidden-file-input {
   display: none;
-}
-
-.page-header p {
-  margin: 0 0 6px;
-  color: var(--do-primary);
-  font-weight: 800;
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 24px;
-  color: var(--do-ink);
 }
 
 .toolbar {

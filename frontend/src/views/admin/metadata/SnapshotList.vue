@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { RefreshCw, Eye } from 'lucide-vue-next'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
-import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const router = useRouter()
+const adminContext = useAdminContextStore()
 const loading = ref(false)
 const snapshots = ref<SnapshotItem[]>([])
 const total = ref(0)
-const datasources = ref<DatasourceItem[]>([])
+const datasources = ref<DatasourceSimpleItem[]>([])
 
 const query = reactive({
   datasourceId: undefined as number | undefined,
@@ -30,33 +32,47 @@ async function fetchSnapshots() {
 }
 
 async function fetchDatasources() {
-  const res = await listDatasources({ page: 1, pageSize: 200 })
-  datasources.value = res.data?.records ?? []
+  const res = await listSimpleDatasources()
+  datasources.value = res.data ?? []
 }
 
 function viewDetail(id: number) {
+  adminContext.selectSnapshot(id)
   router.push({ name: 'admin-metadata-tables', query: { snapshotId: id } })
 }
 
-onMounted(() => {
+function handleDatasourceChange(id?: number) {
+  if (id) {
+    adminContext.selectDatasource(id)
+  }
+  query.page = 1
+  fetchSnapshots()
+}
+
+onMounted(async () => {
+  await adminContext.initialize()
+  query.datasourceId = adminContext.datasourceId
   fetchSnapshots()
   fetchDatasources()
 })
+
+watch(
+  () => adminContext.datasourceId,
+  (datasourceId) => {
+    if (query.datasourceId === datasourceId) return
+    query.datasourceId = datasourceId
+    query.page = 1
+    fetchSnapshots()
+  },
+)
 </script>
 
 <template>
   <main class="snapshot-list-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据管理</p>
-        <h1>快照列表</h1>
-        <span class="header-subtitle">查看元数据采集快照历史</span>
-      </div>
-    </header>
 
     <section class="toolbar">
       <el-select v-model="query.datasourceId" placeholder="全部数据源" clearable
-                 style="width: 200px" @change="fetchSnapshots">
+                 style="width: 200px" @change="handleDatasourceChange">
         <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
       </el-select>
       <el-button :icon="RefreshCw" @click="fetchSnapshots" />
@@ -97,10 +113,6 @@ onMounted(() => {
 
 <style scoped>
 .snapshot-list-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .toolbar { display: flex; gap: 12px; margin-bottom: 16px; }
 .table-shell { border: 1px solid var(--do-line); border-radius: 8px; overflow: hidden; background: var(--do-surface); }
 .pager { margin-top: 16px; justify-content: flex-end; }

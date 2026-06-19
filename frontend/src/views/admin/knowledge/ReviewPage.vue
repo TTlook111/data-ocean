@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, X, RefreshCw, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import {
@@ -8,6 +8,7 @@ import {
   rejectDoc,
   type KnowledgeDocItem
 } from '../../../api/admin/knowledge'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const docs = ref<KnowledgeDocItem[]>([])
@@ -15,6 +16,7 @@ const total = ref(0)
 const expandedId = ref<number | null>(null)
 const page = ref(1)
 const pageSize = 20
+const adminContext = useAdminContextStore()
 
 function extractError(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'response' in error) {
@@ -28,6 +30,7 @@ async function fetchDocs() {
   loading.value = true
   try {
     const res = await listKnowledgeDocs({
+      datasourceId: adminContext.datasourceId,
       status: 'PENDING_REVIEW',
       page: page.value,
       pageSize
@@ -53,6 +56,7 @@ async function handleApprove(doc: KnowledgeDocItem) {
     )
     await approveDoc(doc.id)
     ElMessage.success('审核已通过')
+    adminContext.refresh()
     fetchDocs()
   } catch (e) {
     if (e === 'cancel') return
@@ -77,6 +81,7 @@ async function handleReject(doc: KnowledgeDocItem) {
     )
     await rejectDoc(doc.id, reason)
     ElMessage.success('已驳回')
+    adminContext.refresh()
     fetchDocs()
   } catch (e) {
     if (e === 'cancel') return
@@ -84,21 +89,26 @@ async function handleReject(doc: KnowledgeDocItem) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
   fetchDocs()
 })
+
+watch(
+  () => adminContext.datasourceId,
+  () => {
+    page.value = 1
+    expandedId.value = null
+    fetchDocs()
+  },
+)
 </script>
 
 <template>
   <main class="review-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>知识库管理</p>
-        <h1>文档审核</h1>
-        <span class="header-subtitle">审核待发布的 skills.md 文档</span>
-      </div>
+    <section class="page-actions">
       <el-button :icon="RefreshCw" @click="fetchDocs">刷新</el-button>
-    </header>
+    </section>
 
     <el-empty v-if="!loading && docs.length === 0" description="暂无待审核文档" />
 
@@ -133,10 +143,6 @@ onMounted(() => {
 
 <style scoped>
 .review-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .review-list { display: grid; gap: 12px; }
 .review-card {
   border: 1px solid var(--do-line);

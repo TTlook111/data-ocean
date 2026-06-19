@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { TrendingUp, Settings } from 'lucide-vue-next'
 import * as echarts from 'echarts'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
+import { useAdminContextStore } from '../../../stores/adminContext'
 import {
   pageConfidence,
   adminSetConfidence,
@@ -14,6 +15,7 @@ import {
 
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
+const adminContext = useAdminContextStore()
 
 const loading = ref(false)
 const confidenceList = ref<ConfidenceVO[]>([])
@@ -55,6 +57,7 @@ async function fetchConfidenceList() {
       page: page.value,
       pageSize: pageSize.value,
       level: levelFilter.value || undefined,
+      datasourceId: adminContext.datasourceId,
     })
     confidenceList.value = res.data?.records ?? []
     total.value = res.data?.total ?? 0
@@ -79,9 +82,9 @@ function handleLevelFilter() {
 async function fetchLevelCounts() {
   try {
     const [high, medium, low] = await Promise.all([
-      pageConfidence({ page: 1, pageSize: 1, level: 'HIGH' }),
-      pageConfidence({ page: 1, pageSize: 1, level: 'MEDIUM' }),
-      pageConfidence({ page: 1, pageSize: 1, level: 'LOW' }),
+      pageConfidence({ page: 1, pageSize: 1, level: 'HIGH', datasourceId: adminContext.datasourceId }),
+      pageConfidence({ page: 1, pageSize: 1, level: 'MEDIUM', datasourceId: adminContext.datasourceId }),
+      pageConfidence({ page: 1, pageSize: 1, level: 'LOW', datasourceId: adminContext.datasourceId }),
     ])
     levelCounts.value = {
       HIGH: high.data?.total ?? 0,
@@ -184,22 +187,23 @@ async function confirmSetScore() {
   }
 }
 
-onMounted(() => {
-  withContext(() => { reveal('.page-header, .content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
-  fetchConfidenceList()
-  fetchLevelCounts()
+onMounted(async () => {
+  withContext(() => { reveal('.content-panel, .stats-row, .toolbar', { y: 14, stagger: 0.06 }) })
+  await adminContext.initialize()
+  await Promise.all([fetchConfidenceList(), fetchLevelCounts()])
 })
+
+watch(
+  () => adminContext.datasourceId,
+  () => {
+    page.value = 1
+    Promise.all([fetchConfidenceList(), fetchLevelCounts()])
+  },
+)
 </script>
 
 <template>
   <main ref="pageRef" class="confidence-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>字段治理</p>
-        <h1>可信度看板</h1>
-        <span class="header-subtitle">查看和管理字段可信度评分，分数影响 RAG 召回和 SQL 生成优先级</span>
-      </div>
-    </header>
 
     <section class="stats-row">
       <div class="stat-card high">
@@ -292,10 +296,6 @@ onMounted(() => {
 
 <style scoped>
 .confidence-page { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-.page-header h1 { margin: 4px 0; font-size: 22px; color: var(--do-ink); }
-.page-header p { margin: 0; font-size: 12px; color: var(--do-muted); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .stats-row { display: flex; gap: 16px; margin-bottom: 20px; }
 .stat-card { flex: 1; padding: 16px; border-radius: 8px; border: 1px solid var(--do-line); background: var(--do-surface); text-align: center; }
 .stat-card .stat-value { display: block; font-size: 28px; font-weight: 600; }

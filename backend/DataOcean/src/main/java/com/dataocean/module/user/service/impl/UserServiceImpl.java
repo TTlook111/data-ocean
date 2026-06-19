@@ -3,6 +3,7 @@ package com.dataocean.module.user.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.permission.event.PermissionChangedEvent;
 import com.dataocean.module.user.entity.dto.UserCreateDTO;
 import com.dataocean.module.user.entity.query.UserQuery;
 import com.dataocean.module.user.entity.dto.UserUpdateDTO;
@@ -18,6 +19,7 @@ import com.dataocean.module.user.mapper.UserRoleMapper;
 import com.dataocean.module.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -51,6 +53,7 @@ public class UserServiceImpl implements UserService {
     private final UserRoleMapper userRoleMapper;
     private final PasswordEncoder passwordEncoder;
     private final StringRedisTemplate stringRedisTemplate;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 安全随机数生成器，用于生成临时密码 */
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
@@ -102,6 +105,7 @@ public class UserServiceImpl implements UserService {
         userMapper.insert(user);
         // 绑定用户角色关联
         bindRoles(user.getId(), request.getRoleIds());
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, user.getId(), null));
         log.info("用户创建成功 userId={} username={} roleCount={}", user.getId(), user.getUsername(), request.getRoleIds().size());
         return user.getId();
     }
@@ -140,6 +144,7 @@ public class UserServiceImpl implements UserService {
         if (request.getRoleIds() != null) {
             bindRoles(id, request.getRoleIds());
         }
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, id, null));
         log.info("用户更新成功 userId={} username={}", id, user.getUsername());
     }
 
@@ -169,6 +174,7 @@ public class UserServiceImpl implements UserService {
         userRoleMapper.delete(new LambdaQueryWrapper<SysUserRole>().eq(SysUserRole::getUserId, id));
         // 递增令牌版本号，使该用户已签发的 JWT 立即失效
         stringRedisTemplate.opsForValue().increment(tokenVersionKey(id));
+        eventPublisher.publishEvent(new PermissionChangedEvent(this, id, null));
         log.info("用户删除成功 userId={}", id);
     }
 

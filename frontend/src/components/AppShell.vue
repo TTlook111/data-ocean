@@ -35,6 +35,7 @@ import {
 import { useAuthStore } from '../stores/auth'
 import { useGsapMotion } from '../composables/useGsapMotion'
 import { roleCodesLabel } from '../utils/enumLabels'
+import AdminContextBar from './AdminContextBar.vue'
 
 interface MenuItem {
   label: string
@@ -145,6 +146,17 @@ const displayName = computed(() => auth.currentUser?.realName || auth.user?.real
 const roleText = computed(() => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, 'DataOcean'))
 const currentTitle = computed(() => String(route.meta.title || matchedMenuItem.value?.label || 'DataOcean'))
 const currentSection = computed(() => String(route.meta.section || '工作台'))
+const contextRoutes = [
+  '/admin/datasources',
+  '/admin/metadata',
+  '/admin/governance',
+  '/admin/knowledge',
+  '/admin/field',
+  '/admin/audit',
+  '/admin/glossary',
+  '/admin/permission',
+]
+const showAdminContext = computed(() => contextRoutes.some((path) => route.path === path || route.path.startsWith(`${path}/`)))
 const adminPermissionCodes = [
   'admin:view',
   'datasource:manage',
@@ -293,6 +305,8 @@ watch(collapsed, async () => {
           <strong>{{ displayName }}</strong>
         </button>
       </header>
+
+      <AdminContextBar v-if="showAdminContext" />
 
       <section class="app-content">
         <RouterView />

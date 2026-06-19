@@ -322,7 +322,7 @@ fetchConfig()
 
 <template>
   <div class="ai-config-page" v-loading="loading">
-    <header class="page-header">
+    <section class="page-actions">
       <div class="header-title">
         <Cpu :size="22" />
         <div>
@@ -334,7 +334,7 @@ fetchConfig()
         <el-button :icon="Plus" @click="openCreateProvider">添加供应商</el-button>
         <el-button :icon="RefreshCw" :loading="loading" @click="fetchConfig">刷新</el-button>
       </div>
-    </header>
+    </section>
 
     <!-- 当前状态 -->
     <section v-if="config" class="status-section">
@@ -642,14 +642,6 @@ fetchConfig()
 <style scoped>
 .ai-config-page {
   max-width: 1080px;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 22px;
 }
 
 .header-title {

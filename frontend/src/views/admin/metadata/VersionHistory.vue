@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { GitCompare } from 'lucide-vue-next'
-import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import {
   listVersionHistory,
   compareSnapshots,
@@ -10,9 +10,11 @@ import {
 } from '../../../api/admin/versioning'
 import type { SchemaDiffResult } from '../../../api/admin/metadata'
 import { snapshotStatusLabel, snapshotStatusType } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
-const datasources = ref<DatasourceItem[]>([])
+const adminContext = useAdminContextStore()
+const datasources = ref<DatasourceSimpleItem[]>([])
 const selectedDatasourceId = ref<number | undefined>()
 const history = ref<VersionHistoryItem[]>([])
 const total = ref(0)
@@ -25,8 +27,8 @@ const compareOldId = ref<number | undefined>()
 const compareNewId = ref<number | undefined>()
 
 async function fetchDatasources() {
-  const res = await listDatasources({ page: 1, pageSize: 200 })
-  datasources.value = res.data?.records ?? []
+  const res = await listSimpleDatasources()
+  datasources.value = res.data ?? []
 }
 
 async function fetchHistory() {
@@ -58,27 +60,37 @@ async function openCompare() {
 }
 
 function onDatasourceChange() {
+  if (selectedDatasourceId.value) {
+    adminContext.selectDatasource(selectedDatasourceId.value)
+  }
   query.page = 1
   compareOldId.value = undefined
   compareNewId.value = undefined
   fetchHistory()
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
+  selectedDatasourceId.value = adminContext.datasourceId
   fetchDatasources()
   fetchHistory()
 })
+
+watch(
+  () => adminContext.datasourceId,
+  (datasourceId) => {
+    if (selectedDatasourceId.value === datasourceId) return
+    selectedDatasourceId.value = datasourceId
+    query.page = 1
+    compareOldId.value = undefined
+    compareNewId.value = undefined
+    fetchHistory()
+  },
+)
 </script>
 
 <template>
   <main class="version-history-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据版本管理</p>
-        <h1>版本历史</h1>
-        <span class="header-subtitle">查看数据源元数据快照演变历程，对比不同版本差异</span>
-      </div>
-    </header>
 
     <section class="toolbar">
       <el-select v-model="selectedDatasourceId" placeholder="全部数据源" clearable

@@ -199,13 +199,6 @@ onMounted(() => {
 
 <template>
   <div class="lineage-graph-page" v-loading="loading">
-    <header class="page-header">
-      <div>
-        <p>数据资产治理</p>
-        <h1>血缘图谱</h1>
-        <span class="header-subtitle">可视化展示表级/列级血缘关系，支持影响分析</span>
-      </div>
-    </header>
 
     <section class="toolbar">
       <el-select
@@ -249,28 +242,9 @@ onMounted(() => {
   padding: 24px;
 }
 
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
 
-.page-header h1 {
-  margin: 4px 0;
-  font-size: 22px;
-  color: var(--do-ink);
-}
 
-.page-header p {
-  margin: 0;
-  font-size: 12px;
-  color: var(--do-muted);
-}
 
-.header-subtitle {
-  font-size: 13px;
-  color: var(--do-muted);
-}
 
 .toolbar {
   display: flex;

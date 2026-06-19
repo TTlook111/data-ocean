@@ -352,7 +352,6 @@ function animateEditor() {
 
 onMounted(() => {
   withContext(() => {
-    reveal('.page-header', { y: -14, duration: 0.5 })
     reveal('.template-sidebar', { x: -20, duration: 0.5, delay: 0.1 })
     reveal('.workspace-panel', { x: 20, duration: 0.5, delay: 0.2 })
     reveal('.metric-card', { y: 14, stagger: 0.08, delay: 0.3 })
@@ -363,12 +362,7 @@ onMounted(() => {
 
 <template>
   <main ref="pageRef" class="prompt-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>AI 调优</p>
-        <h1>Prompt 管理</h1>
-        <span class="header-subtitle">维护 Agent 模板版本，并按审计结果查看查询表现。</span>
-      </div>
+    <section class="page-actions">
       <div class="header-actions">
         <el-select v-model="analysisDays" style="width: 128px">
           <el-option label="近 7 天" :value="7" />
@@ -379,7 +373,7 @@ onMounted(() => {
           <RefreshCw :size="16" />
         </el-button>
       </div>
-    </header>
+    </section>
 
     <section class="prompt-layout">
       <aside class="template-sidebar">
@@ -644,32 +638,6 @@ onMounted(() => {
 .prompt-page {
   display: grid;
   gap: 16px;
-}
-
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.page-header p {
-  margin: 0 0 4px;
-  font-size: 12px;
-  color: var(--do-muted);
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 22px;
-  color: var(--do-ink);
-}
-
-.header-subtitle {
-  display: block;
-  margin-top: 6px;
-  font-size: 13px;
-  color: var(--do-muted);
 }
 
 .header-actions {

@@ -22,6 +22,7 @@ public class DatasourcePermissionVO {
     private Boolean canQuery;
     private Boolean canExport;
     private Boolean canViewSql;
+    private String accessEffect;
     private LocalDateTime grantedAt;
     private LocalDateTime expiresAt;
 }

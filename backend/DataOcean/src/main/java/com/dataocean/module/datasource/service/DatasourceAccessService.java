@@ -2,6 +2,7 @@ package com.dataocean.module.datasource.service;
 
 import com.dataocean.module.datasource.entity.dto.DatasourceAccessGrantDTO;
 import com.dataocean.module.datasource.entity.vo.DatasourceAccessVO;
+import com.dataocean.module.datasource.entity.vo.DatasourcePermissionDecisionVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceSimpleVO;
 
 import java.util.List;
@@ -48,6 +49,10 @@ public interface DatasourceAccessService {
      * @return 可访问的数据源简要信息列表
      */
     List<DatasourceSimpleVO> listAccessibleDatasources();
+
+    DatasourcePermissionDecisionVO calculateDecision(Long userId, Long datasourceId);
+
+    DatasourcePermissionDecisionVO calculateCurrentUserDecision(Long datasourceId);
 
     /**
      * 检查当前登录用户是否有权访问指定数据源

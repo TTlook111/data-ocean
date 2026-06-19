@@ -567,17 +567,12 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="admin-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>数据源管理</p>
-        <h1>业务库接入与授权</h1>
-        <span class="header-subtitle">管理可查询业务库的连接配置、健康状态和用户授权范围。</span>
-      </div>
+    <section class="page-actions">
       <el-button type="primary" @click="openCreate">
         <PlugZap :size="16" />
         新增数据源
       </el-button>
-    </header>
+    </section>
 
     <section class="toolbar">
       <el-input v-model="query.name" clearable placeholder="数据源名称" />
@@ -801,24 +796,6 @@ onBeforeUnmount(() => {
 .admin-page {
   display: grid;
   gap: 16px;
-}
-
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.page-header p {
-  margin: 0 0 6px;
-  color: var(--do-primary);
-  font-weight: 800;
-}
-
-.page-header h1 {
-  margin: 0;
-  color: var(--do-ink);
-  font-size: 24px;
 }
 
 .toolbar {

@@ -121,14 +121,9 @@ onMounted(fetchSchedule)
 
 <template>
   <main class="schedule-page post-login-page" v-loading="loading">
-    <header class="page-header">
-      <div>
-        <p>元数据管理</p>
-        <h1>同步调度</h1>
-        <span class="header-subtitle">配置元数据自动同步的执行频率和时间</span>
-      </div>
+    <section class="page-actions">
       <el-button :icon="RefreshCw" @click="fetchSchedule">刷新</el-button>
-    </header>
+    </section>
 
     <section class="config-card">
       <div class="config-row">
@@ -196,10 +191,6 @@ onMounted(fetchSchedule)
 
 <style scoped>
 .schedule-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 
 .config-card {
   background: var(--do-surface);

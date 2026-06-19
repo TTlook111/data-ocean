@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Tag, RefreshCw } from 'lucide-vue-next'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
@@ -13,10 +13,12 @@ import {
 } from '../../../api/admin/field'
 import { listSnapshotTables, listSnapshotTableColumns, type ColumnMetaItem } from '../../../api/admin/governance'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
+const adminContext = useAdminContextStore()
 const predefinedTags = ref<PredefinedTag[]>([])
 const columns = ref<ColumnMetaItem[]>([])
 const selectedColumnIds = ref<number[]>([])
@@ -35,17 +37,29 @@ const query = reactive({
 })
 
 async function fetchSnapshots() {
-  const res = await listSnapshots({ page: 1, size: 50 })
+  const res = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 50 })
   snapshots.value = res.data?.records ?? []
-  if (snapshots.value.length && !query.snapshotId) {
-    query.snapshotId = snapshots.value[0].id
+  if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
+    query.snapshotId = adminContext.snapshotId
+  } else {
+    query.snapshotId = snapshots.value[0]?.id
+  }
+  if (query.snapshotId) {
+    adminContext.selectSnapshot(query.snapshotId)
   }
 }
 
 async function fetchTables() {
-  if (!query.snapshotId) return
+  if (!query.snapshotId) {
+    tables.value = []
+    columns.value = []
+    query.tableName = ''
+    return
+  }
   const res = await listSnapshotTables(query.snapshotId)
   tables.value = res.data ?? []
+  query.tableName = ''
+  columns.value = []
 }
 
 async function fetchColumns() {
@@ -57,6 +71,11 @@ async function fetchColumns() {
   } finally {
     loading.value = false
   }
+}
+
+async function handleSnapshotChange(id?: number) {
+  adminContext.selectSnapshot(id)
+  await fetchTables()
 }
 
 async function fetchPredefinedTags() {
@@ -118,22 +137,35 @@ async function handleAutoTag() {
 
 onMounted(async () => {
   withContext(() => {
-    reveal('.page-header, .toolbar, .content-panel', { y: 14, stagger: 0.06 })
+    reveal('.toolbar, .content-panel', { y: 14, stagger: 0.06 })
   })
   await fetchPredefinedTags()
+  await adminContext.initialize()
   await fetchSnapshots()
   if (query.snapshotId) await fetchTables()
 })
+
+watch(
+  () => adminContext.snapshotId,
+  async (snapshotId) => {
+    if (!snapshotId || query.snapshotId === snapshotId) return
+    query.snapshotId = snapshotId
+    await fetchTables()
+  },
+)
+
+watch(
+  () => adminContext.datasourceId,
+  async () => {
+    await fetchSnapshots()
+    await fetchTables()
+  },
+)
 </script>
 
 <template>
   <main ref="pageRef" class="field-tag-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>字段治理</p>
-        <h1>字段标签管理</h1>
-        <span class="header-subtitle">为字段打上业务标签，标记推荐、废弃、敏感等属性</span>
-      </div>
+    <section class="page-actions">
       <div class="header-actions">
         <el-button @click="handleAutoTag">
           <RefreshCw :size="16" style="margin-right: 4px" />自动打标
@@ -142,10 +174,10 @@ onMounted(async () => {
           <Tag :size="16" style="margin-right: 4px" />批量打标
         </el-button>
       </div>
-    </header>
+    </section>
 
     <section class="toolbar">
-      <el-select v-model="query.snapshotId" placeholder="选择快照" @change="fetchTables" style="width: 200px">
+      <el-select v-model="query.snapshotId" placeholder="选择快照" @change="handleSnapshotChange" style="width: 200px">
         <el-option v-for="s in snapshots" :key="s.id" :label="`快照 v${s.snapshotVersion}`" :value="s.id" />
       </el-select>
       <el-select v-model="query.tableName" placeholder="选择表" @change="fetchColumns" style="width: 240px" filterable>
@@ -197,10 +229,6 @@ onMounted(async () => {
 
 <style scoped>
 .field-tag-page { padding: 24px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-.page-header h1 { margin: 4px 0; font-size: 22px; color: var(--do-ink); }
-.page-header p { margin: 0; font-size: 12px; color: var(--do-muted); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .header-actions { display: flex; gap: 8px; }
 .toolbar { display: flex; gap: 12px; margin-bottom: 16px; }
 .content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; }

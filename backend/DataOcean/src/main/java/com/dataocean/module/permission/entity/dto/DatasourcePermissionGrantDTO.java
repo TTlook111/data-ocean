@@ -32,4 +32,6 @@ public class DatasourcePermissionGrantDTO {
 
     /** 是否允许查看SQL */
     private Boolean canViewSql = true;
+
+    private String accessEffect = "ALLOW";
 }

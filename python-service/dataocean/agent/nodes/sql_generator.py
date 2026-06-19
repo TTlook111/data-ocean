@@ -2,12 +2,17 @@
 
 基于召回的 Schema 上下文和结构化查询意图，
 调用 LLM 生成 SQL 语句。
+
+支持两种模式：
+- Agent 模式（SQL_GENERATOR_AGENT_ENABLED=true）：使用 LangChain create_agent 子循环
+- Legacy 模式（默认）：一次性 call_llm 生成
 """
 
 from __future__ import annotations
 
 import asyncio
 
+from dataocean.core.config import get_settings
 from dataocean.core.error_messages import sanitize_error
 import logging
 from pathlib import Path
@@ -29,9 +34,56 @@ _sql_parser = SqlOutputParser()
 
 
 async def run_sql_generator(state: AgentState) -> AgentState:
-    """执行 SQL 生成：填充模板 → 调用 Qwen → 提取 SQL
+    """执行 SQL 生成：根据配置选择 Agent 模式或 Legacy 模式
 
+    Agent 模式失败时自动 fallback 到 Legacy 模式。
     注意：retry_count 由 graph 的条件边递增，此处不再递增
+    """
+    agent_enabled = getattr(get_settings(), "sql_generator_agent_enabled", False)
+
+    if agent_enabled:
+        try:
+            return await _run_sql_generator_agent(state)
+        except Exception:
+            logger.warning(
+                "SQL Generator Agent 失败，fallback 到 legacy 路径 task_id=%s",
+                state.get("task_id", ""),
+                exc_info=True,
+            )
+
+    return await _run_sql_generator_legacy(state)
+
+
+async def _run_sql_generator_agent(state: AgentState) -> AgentState:
+    """Agent 模式：调用 create_agent 子循环生成 SQL
+
+    Args:
+        state: 当前 AgentState
+
+    Returns:
+        更新后的 AgentState
+    """
+    from ..sql_generation_agent.agent import generate_sql_with_agent
+
+    task_id = state.get("task_id", "")
+    retry_count = state.get("retry_count", 0)
+
+    logger.info("SQL Generator Agent 模式 task_id=%s retry=%d", task_id, retry_count)
+
+    # Agent 模式下也记录 prompt 版本（使用版本 0 表示 Agent 模式）
+    state_with_prompt = record_prompt_version(state, "sql_generation", 0)
+
+    return await generate_sql_with_agent(state_with_prompt)
+
+
+async def _run_sql_generator_legacy(state: AgentState) -> AgentState:
+    """Legacy 模式：填充模板 → 调用 Qwen → 提取 SQL
+
+    Args:
+        state: 当前 AgentState
+
+    Returns:
+        更新后的 AgentState
     """
     task_id = state.get("task_id", "")
     retry_count = state.get("retry_count", 0)
@@ -39,10 +91,10 @@ async def run_sql_generator(state: AgentState) -> AgentState:
     previous_sql = state.get("generated_sql", "")
     node_timeout = state.get("_node_timeout", 60)
 
-    logger.info("SQL 生成 task_id=%s retry=%d", task_id, retry_count)
+    logger.info("SQL 生成 legacy 模式 task_id=%s retry=%d", task_id, retry_count)
 
     prompt, prompt_version = await _render_sql_prompt(state, retry_count, error_message, previous_sql)
-    state = record_prompt_version(state, "sql_generation", prompt_version)
+    state_with_prompt = record_prompt_version(state, "sql_generation", prompt_version)
 
     try:
         response_text = await asyncio.wait_for(

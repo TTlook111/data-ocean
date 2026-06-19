@@ -41,4 +41,5 @@ public class DatasourceAccess {
     private Boolean canExport;
     /** 是否允许查看生成的SQL */
     private Boolean canViewSql;
+    private String accessEffect;
 }

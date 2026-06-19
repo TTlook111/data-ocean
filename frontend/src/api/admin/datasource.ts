@@ -19,6 +19,13 @@ export interface DatasourceItem {
   createdAt?: string
 }
 
+export interface DatasourceSimpleItem {
+  id: number
+  name: string
+  databaseName: string
+  description?: string
+}
+
 export interface DatasourceQuery {
   name?: string
   status?: number
@@ -67,6 +74,11 @@ export interface DatasourceAccessItem {
 
 export async function listDatasources(params: DatasourceQuery) {
   const { data } = await http.get<ApiResult<PageResult<DatasourceItem>>>('/api/admin/datasources', { params })
+  return data
+}
+
+export async function listSimpleDatasources() {
+  const { data } = await http.get<ApiResult<DatasourceSimpleItem[]>>('/api/admin/datasources/simple')
   return data
 }
 

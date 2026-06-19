@@ -42,6 +42,7 @@ const form = reactive<DatasourcePermissionPayload>({
   datasourceId: 0,
   subjectType: 'ROLE',
   subjectId: 0,
+  accessEffect: 'ALLOW',
   canQuery: true,
   canExport: false,
   canViewSql: true,
@@ -114,6 +115,7 @@ function openGrantDialog() {
   form.datasourceId = selectedDatasource.value || 0
   form.subjectType = 'ROLE'
   form.subjectId = 0
+  form.accessEffect = 'ALLOW'
   form.canQuery = true
   form.canExport = false
   form.canViewSql = true
@@ -139,6 +141,13 @@ async function handleToggle(row: DatasourcePermissionItem, field: 'canQuery' | '
   } catch { ElMessage.error('更新失败') }
 }
 
+async function handleEffectChange(row: DatasourcePermissionItem, effect: 'ALLOW' | 'DENY') {
+  try {
+    await updateDatasourcePermission(row.id, { accessEffect: effect })
+    row.accessEffect = effect
+  } catch { ElMessage.error('更新授权效果失败') }
+}
+
 async function handleRevoke(row: DatasourcePermissionItem) {
   await ElMessageBox.confirm(`确定撤销 ${row.subjectName} 的授权？`, '确认撤销')
   try {
@@ -155,16 +164,11 @@ function subjectTypeLabel(type: string) {
 
 <template>
   <main class="access-control-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>安全管理</p>
-        <h1>访问控制</h1>
-        <span class="header-subtitle">管理数据源级别的访问授权</span>
-      </div>
+    <section class="page-actions">
       <el-button type="primary" @click="openGrantDialog">
         <Plus :size="16" style="margin-right: 6px" />新增授权
       </el-button>
-    </header>
+    </section>
 
     <section class="toolbar">
       <el-select v-model="selectedDatasource" placeholder="选择数据源" style="width: 240px" @change="loadPermissions">
@@ -183,6 +187,10 @@ function subjectTypeLabel(type: string) {
         <el-table-column prop="subjectName" label="主体名称" min-width="140" />
         <el-table-column label="查询" width="80" align="center">
           <template #default="{ row }">
+            <el-select :model-value="row.accessEffect || 'ALLOW'" size="small" style="display: block; width: 72px; margin: 0 auto 6px" @change="(value: 'ALLOW' | 'DENY') => handleEffectChange(row, value)">
+              <el-option label="ALLOW" value="ALLOW" />
+              <el-option label="DENY" value="DENY" />
+            </el-select>
             <el-switch :model-value="row.canQuery" size="small" @change="handleToggle(row, 'canQuery')" />
           </template>
         </el-table-column>
@@ -225,6 +233,12 @@ function subjectTypeLabel(type: string) {
           <el-checkbox v-model="form.canExport">导出</el-checkbox>
           <el-checkbox v-model="form.canViewSql">查看SQL</el-checkbox>
         </el-form-item>
+        <el-form-item label="Effect">
+          <el-radio-group v-model="form.accessEffect">
+            <el-radio-button value="ALLOW">ALLOW</el-radio-button>
+            <el-radio-button value="DENY">DENY</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -236,10 +250,6 @@ function subjectTypeLabel(type: string) {
 
 <style scoped>
 .access-control-page { padding: 0; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .toolbar { margin-bottom: 16px; display: flex; align-items: center; }
 .content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; box-shadow: var(--do-shadow); }
 </style>

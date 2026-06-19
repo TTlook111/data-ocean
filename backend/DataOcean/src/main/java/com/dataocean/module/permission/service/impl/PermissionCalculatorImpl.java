@@ -1,8 +1,8 @@
 package com.dataocean.module.permission.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.datasource.entity.DatasourceAccess;
-import com.dataocean.module.datasource.mapper.DatasourceAccessMapper;
+import com.dataocean.module.datasource.entity.vo.DatasourcePermissionDecisionVO;
+import com.dataocean.module.datasource.service.DatasourceAccessService;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.entity.DbTableMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
@@ -44,7 +44,7 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
     private static final String TABLE_SCOPE_UNRESTRICTED = "UNRESTRICTED";
     private static final String TABLE_SCOPE_ALLOWLIST = "ALLOWLIST";
 
-    private final DatasourceAccessMapper accessMapper;
+    private final DatasourceAccessService datasourceAccessService;
     private final DatasourceAccessPolicyMapper policyMapper;
     private final RoleMapper roleMapper;
     private final UserMapper userMapper;
@@ -80,6 +80,11 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
 
     @Override
     public void invalidate(Long subjectId, Long datasourceId) {
+        if (datasourceId == null) {
+            cache.clear();
+            log.debug("Permission cache fully invalidated subjectId={}", subjectId);
+            return;
+        }
         // 按 datasourceId 维度清除所有相关缓存（因为角色/部门变更会影响多个用户）
         String suffix = ":" + datasourceId;
         cache.entrySet().removeIf(e -> e.getKey().endsWith(suffix));
@@ -130,7 +135,7 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         }
 
         // 合并计算 canViewSql / canExport（任一维度允许即允许）
-        mergeAccessFlags(context, subjects, datasourceId);
+        mergeAccessFlags(context, userId, datasourceId);
 
         // governance_status 联动：BLOCKED/DEPRECATED 表列自动加入禁止列表
         appendGovernanceBlocked(context, datasourceId);
@@ -141,23 +146,10 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
     /**
      * 合并所有维度的 canViewSql / canExport 标志（最宽松原则：任一维度允许即允许）
      */
-    private void mergeAccessFlags(PermissionContextVO context, List<SubjectKey> subjects, Long datasourceId) {
-        boolean anyCanViewSql = false;
-        boolean anyCanExport = false;
-        boolean hasAnyAccess = false;
-
-        for (SubjectKey subject : subjects) {
-            List<DatasourceAccess> accessList = accessMapper.selectBySubject(datasourceId, subject.type, subject.id);
-            for (DatasourceAccess access : accessList) {
-                hasAnyAccess = true;
-                if (Boolean.TRUE.equals(access.getCanViewSql())) anyCanViewSql = true;
-                if (Boolean.TRUE.equals(access.getCanExport())) anyCanExport = true;
-            }
-        }
-
-        // 如果没有任何授权记录，默认允许查看 SQL（向后兼容）
-        context.setCanViewSql(hasAnyAccess ? anyCanViewSql : true);
-        context.setCanExport(hasAnyAccess ? anyCanExport : false);
+    private void mergeAccessFlags(PermissionContextVO context, Long userId, Long datasourceId) {
+        DatasourcePermissionDecisionVO decision = datasourceAccessService.calculateDecision(userId, datasourceId);
+        context.setCanViewSql(decision.isCanViewSql());
+        context.setCanExport(decision.isCanExport());
     }
 
     /**

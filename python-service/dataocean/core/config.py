@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     agent_max_retries: int = 3
     agent_node_timeout: int = 30
 
+    # SQL Generator Agent 配置
+    sql_generator_agent_enabled: bool = False
+    sql_generator_agent_max_tool_calls: int = 5
+
     # SQL 沙箱配置
     sandbox_max_execution_time: int = 30
     sandbox_max_result_rows: int = 10000

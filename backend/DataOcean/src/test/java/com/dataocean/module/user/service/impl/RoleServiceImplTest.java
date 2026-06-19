@@ -10,6 +10,7 @@ import com.dataocean.module.user.mapper.RolePermissionMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.mapper.UserRoleMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.List;
 
@@ -147,7 +148,8 @@ class RoleServiceImplTest {
                 mock(PermissionMapper.class),
                 mock(RolePermissionMapper.class),
                 userMapper,
-                userRoleMapper
+                userRoleMapper,
+                mock(ApplicationEventPublisher.class)
         );
     }
 }

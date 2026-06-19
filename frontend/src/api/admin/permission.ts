@@ -11,6 +11,7 @@ export interface DatasourcePermissionItem {
   canQuery: boolean
   canExport: boolean
   canViewSql: boolean
+  accessEffect: 'ALLOW' | 'DENY'
   grantedAt: string
   expiresAt?: string
 }
@@ -22,6 +23,7 @@ export interface DatasourcePermissionPayload {
   canQuery?: boolean
   canExport?: boolean
   canViewSql?: boolean
+  accessEffect?: 'ALLOW' | 'DENY'
 }
 
 export interface AccessPolicyItem {
@@ -75,7 +77,7 @@ export async function grantDatasourcePermission(payload: DatasourcePermissionPay
   return data
 }
 
-export async function updateDatasourcePermission(id: number, payload: { canQuery?: boolean; canExport?: boolean; canViewSql?: boolean }) {
+export async function updateDatasourcePermission(id: number, payload: { canQuery?: boolean; canExport?: boolean; canViewSql?: boolean; accessEffect?: 'ALLOW' | 'DENY' }) {
   const { data } = await http.put<ApiResult<void>>(`/api/admin/datasource-access/${id}`, payload)
   return data
 }

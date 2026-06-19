@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshCw, Play, Database } from 'lucide-vue-next'
 import {
@@ -8,14 +8,16 @@ import {
   type SyncTaskItem,
   type SyncTriggerPayload
 } from '../../../api/admin/metadata'
-import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { syncStatusLabel, syncStatusType, syncTriggerLabel } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const syncLoading = ref(false)
 const tasks = ref<SyncTaskItem[]>([])
 const total = ref(0)
-const datasources = ref<DatasourceItem[]>([])
+const datasources = ref<DatasourceSimpleItem[]>([])
+const adminContext = useAdminContextStore()
 
 const query = reactive({
   datasourceId: undefined as number | undefined,
@@ -42,17 +44,25 @@ async function fetchTasks() {
 
 async function fetchDatasources() {
   try {
-    const res = await listDatasources({ page: 1, pageSize: 200 })
-    datasources.value = res.data?.records ?? []
+    const res = await listSimpleDatasources()
+    datasources.value = res.data ?? []
   } catch {
     ElMessage.error('数据源列表加载失败')
   }
 }
 
 function openSyncDialog() {
-  syncForm.datasourceId = 0
+  syncForm.datasourceId = adminContext.datasourceId ?? 0
   syncForm.includeStatistics = false
   syncDialogVisible.value = true
+}
+
+function handleDatasourceChange(id?: number) {
+  if (id) {
+    adminContext.selectDatasource(id)
+  }
+  query.page = 1
+  fetchTasks()
 }
 
 async function handleSync() {
@@ -65,6 +75,7 @@ async function handleSync() {
     await triggerSync(syncForm)
     ElMessage.success('同步任务已触发')
     syncDialogVisible.value = false
+    adminContext.selectDatasource(syncForm.datasourceId)
     fetchTasks()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '触发同步失败')
@@ -73,28 +84,35 @@ async function handleSync() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
+  query.datasourceId = adminContext.datasourceId
   fetchTasks()
   fetchDatasources()
 })
+
+watch(
+  () => adminContext.datasourceId,
+  (datasourceId) => {
+    if (query.datasourceId === datasourceId) return
+    query.datasourceId = datasourceId
+    query.page = 1
+    fetchTasks()
+  },
+)
 </script>
 
 <template>
   <main class="sync-task-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据管理</p>
-        <h1>同步任务</h1>
-        <span class="header-subtitle">管理元数据采集同步任务</span>
-      </div>
+    <section class="page-actions">
       <el-button type="primary" @click="openSyncDialog">
         <Play :size="16" style="margin-right: 6px" />触发全量同步
       </el-button>
-    </header>
+    </section>
 
     <section class="toolbar">
       <el-select v-model="query.datasourceId" placeholder="全部数据源" clearable
-                 style="width: 200px" @change="fetchTasks">
+                 style="width: 200px" @change="handleDatasourceChange">
         <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
       </el-select>
       <el-button :icon="RefreshCw" @click="fetchTasks" />
@@ -153,10 +171,6 @@ onMounted(() => {
 
 <style scoped>
 .sync-task-page { display: grid; gap: 16px; }
-.page-header { display: flex; justify-content: space-between; align-items: flex-start; }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .toolbar { display: flex; gap: 12px; }
 .table-shell { border: 1px solid var(--do-line); border-radius: 8px; overflow: hidden; background: var(--do-surface); }
 .pager { margin-top: 16px; justify-content: flex-end; }

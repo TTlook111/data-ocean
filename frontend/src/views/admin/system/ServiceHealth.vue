@@ -105,14 +105,9 @@ onMounted(refreshAll)
 
 <template>
   <main class="service-health-page post-login-page" v-loading="loading">
-    <header class="page-header">
-      <div>
-        <p>系统管理</p>
-        <h1>服务健康状态</h1>
-        <span class="header-subtitle">监控各服务组件与 SQL 连接池的运行状态</span>
-      </div>
+    <section class="page-actions">
       <el-button :icon="RefreshCw" @click="refreshAll">刷新</el-button>
-    </header>
+    </section>
 
     <section v-if="healthData" class="health-grid">
       <div class="health-card overall-card">
@@ -227,7 +222,6 @@ onMounted(refreshAll)
   gap: 18px;
 }
 
-.page-header,
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -235,20 +229,6 @@ onMounted(refreshAll)
   gap: 16px;
 }
 
-.page-header p {
-  font-size: 12px;
-  color: var(--do-muted);
-  margin: 0 0 4px;
-}
-
-.page-header h1 {
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--do-ink);
-  margin: 0 0 4px;
-}
-
-.header-subtitle,
 .section-header p {
   font-size: 13px;
   color: var(--do-muted);

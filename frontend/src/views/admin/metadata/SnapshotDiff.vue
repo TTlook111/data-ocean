@@ -1,22 +1,33 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { GitCompare } from 'lucide-vue-next'
 import { listSnapshots, diffSnapshots, type SnapshotItem, type SchemaDiffResult } from '../../../api/admin/metadata'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
 const snapshots = ref<SnapshotItem[]>([])
 const oldId = ref<number>()
 const newId = ref<number>()
 const diffResult = ref<SchemaDiffResult | null>(null)
+const adminContext = useAdminContextStore()
 
 async function fetchSnapshots() {
   try {
-    const res = await listSnapshots({ page: 1, size: 100 })
+    const res = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 100 })
     snapshots.value = res.data?.records ?? []
+    const currentIndex = snapshots.value.findIndex((item) => item.id === adminContext.snapshotId)
+    newId.value = currentIndex >= 0 ? snapshots.value[currentIndex].id : snapshots.value[0]?.id
+    oldId.value = currentIndex >= 0 ? snapshots.value[currentIndex + 1]?.id : snapshots.value[1]?.id
+    diffResult.value = null
   } catch {
     ElMessage.error('快照列表加载失败')
   }
+}
+
+function handleNewSnapshotChange(id?: number) {
+  adminContext.selectSnapshot(id)
+  diffResult.value = null
 }
 
 async function handleCompare() {
@@ -39,18 +50,30 @@ async function handleCompare() {
   }
 }
 
-onMounted(fetchSnapshots)
+onMounted(async () => {
+  await adminContext.initialize()
+  fetchSnapshots()
+})
+
+watch(
+  () => adminContext.datasourceId,
+  () => {
+    fetchSnapshots()
+  },
+)
+
+watch(
+  () => adminContext.snapshotId,
+  (snapshotId) => {
+    if (!snapshotId || newId.value === snapshotId) return
+    newId.value = snapshotId
+    diffResult.value = null
+  },
+)
 </script>
 
 <template>
   <main class="snapshot-diff-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据管理</p>
-        <h1>快照差异对比</h1>
-        <span class="header-subtitle">对比两次快照的结构变更</span>
-      </div>
-    </header>
 
     <section class="compare-bar">
       <el-select v-model="oldId" placeholder="旧快照" style="width: 260px">
@@ -58,7 +81,7 @@ onMounted(fetchSnapshots)
                    :label="`V${s.snapshotVersion} - ${s.datasourceName} (${s.createdAt})`" :value="s.id" />
       </el-select>
       <span style="color: var(--do-muted)">→</span>
-      <el-select v-model="newId" placeholder="新快照" style="width: 260px">
+      <el-select v-model="newId" placeholder="新快照" style="width: 260px" @change="handleNewSnapshotChange">
         <el-option v-for="s in snapshots" :key="s.id"
                    :label="`V${s.snapshotVersion} - ${s.datasourceName} (${s.createdAt})`" :value="s.id" />
       </el-select>
@@ -113,10 +136,6 @@ onMounted(fetchSnapshots)
 
 <style scoped>
 .snapshot-diff-page { display: grid; gap: 16px; }
-.page-header { }
-.page-header p { font-size: 12px; color: var(--do-muted); margin: 0 0 4px; }
-.page-header h1 { font-size: 22px; margin: 0; color: var(--do-ink); }
-.header-subtitle { font-size: 13px; color: var(--do-muted); }
 .compare-bar { display: flex; align-items: center; gap: 12px; }
 .diff-result { border: 1px solid var(--do-line); border-radius: 8px; background: var(--do-surface); padding: 20px; }
 .diff-section { margin-bottom: 20px; }

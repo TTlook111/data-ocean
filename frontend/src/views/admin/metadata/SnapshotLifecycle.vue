@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CheckCircle, Clock, Play, Send, RotateCcw } from 'lucide-vue-next'
-import { listDatasources, type DatasourceItem } from '../../../api/admin/datasource'
+import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import {
   listVersionHistory,
   listSnapshotAuditLogs,
@@ -18,9 +18,11 @@ import {
   snapshotStatusLabels,
   snapshotStatusType,
 } from '../../../utils/enumLabels'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const loading = ref(false)
-const datasources = ref<DatasourceItem[]>([])
+const adminContext = useAdminContextStore()
+const datasources = ref<DatasourceSimpleItem[]>([])
 const selectedDatasourceId = ref<number | undefined>()
 const history = ref<VersionHistoryItem[]>([])
 const total = ref(0)
@@ -34,8 +36,8 @@ const auditSnapshotId = ref<number>(0)
 const statusFlow = ['DRAFT', 'CHECKING', 'ISSUE_FOUND', 'APPROVED', 'PUBLISHED', 'EXPIRED']
 
 async function fetchDatasources() {
-  const res = await listDatasources({ page: 1, pageSize: 200 })
-  datasources.value = res.data?.records ?? []
+  const res = await listSimpleDatasources()
+  datasources.value = res.data ?? []
 }
 
 async function fetchHistory() {
@@ -98,25 +100,33 @@ async function showAuditLogs(snapshotId: number) {
 }
 
 function onDatasourceChange() {
+  if (selectedDatasourceId.value) {
+    adminContext.selectDatasource(selectedDatasourceId.value)
+  }
   query.page = 1
   fetchHistory()
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await adminContext.initialize()
+  selectedDatasourceId.value = adminContext.datasourceId
   fetchDatasources()
   fetchHistory()
 })
+
+watch(
+  () => adminContext.datasourceId,
+  (datasourceId) => {
+    if (selectedDatasourceId.value === datasourceId) return
+    selectedDatasourceId.value = datasourceId
+    query.page = 1
+    fetchHistory()
+  },
+)
 </script>
 
 <template>
   <main class="lifecycle-page post-login-page">
-    <header class="page-header">
-      <div>
-        <p>元数据版本管理</p>
-        <h1>快照生命周期</h1>
-        <span class="header-subtitle">管理快照状态流转、审核发布与紧急撤回，未选择数据源时展示全部快照</span>
-      </div>
-    </header>
 
     <section class="toolbar">
       <el-select v-model="selectedDatasourceId" placeholder="全部数据源" clearable

@@ -3,7 +3,8 @@ package com.dataocean.module.permission.service.impl;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
-import com.dataocean.module.datasource.mapper.DatasourceAccessMapper;
+import com.dataocean.module.datasource.entity.vo.DatasourcePermissionDecisionVO;
+import com.dataocean.module.datasource.service.DatasourceAccessService;
 import com.dataocean.module.metadata.entity.DbTableMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
@@ -22,6 +23,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -42,7 +44,6 @@ class PermissionCalculatorImplTest {
         role.setId(20L);
         when(fixture.roleMapper.selectByUserId(10L)).thenReturn(List.of(role));
         when(fixture.userMapper.selectDepartmentIdByUserId(10L)).thenReturn(30L);
-        when(fixture.accessMapper.selectBySubject(any(), any(), any())).thenReturn(List.of());
         when(fixture.schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(null);
         when(fixture.policyMapper.selectAllByDatasourceId(1L)).thenReturn(List.of(
                 policy("USER", 10L, "orders", "secret", "DENY", null, null),
@@ -67,7 +68,6 @@ class PermissionCalculatorImplTest {
         TestFixture fixture = new TestFixture();
         when(fixture.roleMapper.selectByUserId(10L)).thenReturn(List.of());
         when(fixture.userMapper.selectDepartmentIdByUserId(10L)).thenReturn(null);
-        when(fixture.accessMapper.selectBySubject(any(), any(), any())).thenReturn(List.of());
         when(fixture.schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(null);
         when(fixture.policyMapper.selectAllByDatasourceId(1L)).thenReturn(List.of(
                 policy("USER", 10L, "*", null, "ALLOW", null, null),
@@ -90,7 +90,6 @@ class PermissionCalculatorImplTest {
         TestFixture fixture = new TestFixture();
         when(fixture.roleMapper.selectByUserId(10L)).thenReturn(List.of());
         when(fixture.userMapper.selectDepartmentIdByUserId(10L)).thenReturn(null);
-        when(fixture.accessMapper.selectBySubject(any(), any(), any())).thenReturn(List.of());
         when(fixture.schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(null);
         when(fixture.policyMapper.selectAllByDatasourceId(1L)).thenReturn(List.of(
                 policy("USER", 10L, "*", null, "DENY", null, null)
@@ -107,7 +106,6 @@ class PermissionCalculatorImplTest {
         TestFixture fixture = new TestFixture();
         when(fixture.roleMapper.selectByUserId(10L)).thenReturn(List.of());
         when(fixture.userMapper.selectDepartmentIdByUserId(10L)).thenReturn(null);
-        when(fixture.accessMapper.selectBySubject(any(), any(), any())).thenReturn(List.of());
         when(fixture.schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(null);
         when(fixture.policyMapper.selectAllByDatasourceId(1L)).thenReturn(List.of());
 
@@ -145,21 +143,27 @@ class PermissionCalculatorImplTest {
     }
 
     private static class TestFixture {
-        private final DatasourceAccessMapper accessMapper = mock(DatasourceAccessMapper.class);
+        private final DatasourceAccessService datasourceAccessService = mock(DatasourceAccessService.class);
         private final DatasourceAccessPolicyMapper policyMapper = mock(DatasourceAccessPolicyMapper.class);
         private final RoleMapper roleMapper = mock(RoleMapper.class);
         private final UserMapper userMapper = mock(UserMapper.class);
         private final DbTableMetaMapper tableMetaMapper = mock(DbTableMetaMapper.class);
         private final DbColumnMetaMapper columnMetaMapper = mock(DbColumnMetaMapper.class);
         private final SchemaSnapshotService schemaSnapshotService = mock(SchemaSnapshotService.class);
-        private final PermissionCalculatorImpl service = new PermissionCalculatorImpl(
-                accessMapper,
-                policyMapper,
-                roleMapper,
-                userMapper,
-                tableMetaMapper,
-                columnMetaMapper,
-                schemaSnapshotService
-        );
+        private final PermissionCalculatorImpl service;
+
+        private TestFixture() {
+            DatasourcePermissionDecisionVO decision = new DatasourcePermissionDecisionVO();
+            when(datasourceAccessService.calculateDecision(anyLong(), anyLong())).thenReturn(decision);
+            service = new PermissionCalculatorImpl(
+                    datasourceAccessService,
+                    policyMapper,
+                    roleMapper,
+                    userMapper,
+                    tableMetaMapper,
+                    columnMetaMapper,
+                    schemaSnapshotService
+            );
+        }
     }
 }
