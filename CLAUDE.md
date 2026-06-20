@@ -42,7 +42,7 @@ Important boundary:
 
 ## Current Status
 
-Last updated: 2026-06-13.
+Last updated: 2026-06-20.
 
 The main end-to-end chain is implemented:
 
@@ -57,8 +57,9 @@ Module status summary:
 | --- | --- |
 | Frontend query app | Core complete |
 | Frontend admin governance app | Core complete |
-| Java user/auth/permission modules | Complete |
-| Java datasource/metadata/governance/versioning modules | Complete |
+| Java user/auth/permission modules | Complete; policy priority/time conditions and access approval are implemented |
+| Java datasource/metadata/governance/versioning modules | Complete; metadata entity graph and event recording are implemented |
+| Java glossary module | Complete; glossary and term approval flow are implemented |
 | Java knowledge/skills.md lifecycle | Complete, with Python chunking integration |
 | Java query/audit/field confidence modules | Core complete; conversation persistence and feedback confidence updates are implemented |
 | Java prompt module | Complete, including template approval workflow and version rollback |
@@ -80,6 +81,7 @@ Recently completed or verified:
 - **阶段六：权限增强已完成**（2026-06-14）：(1) 为 datasource_access_policy 表添加 priority（策略优先级）、valid_from/valid_until/time_schedule（时间条件）字段（V40 迁移）；(2) 实现基于优先级的策略评估（优先级越低越优先，高优先级 DENY 短路）；(3) 实现时间条件过滤（绝对时间范围 + 周期性时间计划）；(4) 创建 permission_change_log 权限变更审计表；(5) 在策略 CRUD 操作中集成审计日志记录。详见 `docs/development/DataOcean统一执行路线图.md`。
 - **阶段七：事件驱动已完成**（2026-06-14）：(1) 创建 metadata_change_event 表（V41 迁移），记录元数据实体变更历史；(2) 实现 MetadataChangeEventService 事件记录服务；(3) 集成到 SnapshotEntitySyncListener，快照发布时自动记录变更事件；(4) 创建 access_approval_request 表（V41 迁移），支持数据访问审批流程；(5) 实现 AccessApprovalService 审批服务（提交→审批→生成临时 ALLOW 策略→过期自动清理）；(6) 实现 AccessApprovalController 审批 API；(7) 安全约束：BLOCKED/DEPRECATED 表列不允许申请访问，临时策略有有效期和审计记录。详见 `docs/development/DataOcean统一执行路线图.md`。
 - **七个重构阶段全部完成**（2026-06-14）：统一路线图的七个重构阶段（权限治理修复、RAG 重构、实体关系图谱、业务术语表、分类标签与质量深化、权限增强、事件驱动）已全部完成并通过测试。后续新增功能另见 `docs/development/后续开发.md`。
+- **数据源授权语义补齐**：`V42__datasource_access_effect.sql` 已加入，使数据源授权的 allow/deny 决策显式化。
 - **智能问数链路已跑通**（2026-06-13）：完整链路测试成功，包括 RAG 检索、SQL 生成、SQL 校验、SQL 执行、图表生成。修复了 Milvus 连接兼容性、SQL 分号校验、Decimal 序列化等问题。详见 `docs/development/智能问数链路诊断报告.md`。
 - **F0 排雷任务已完成**（2026-06-13）：按审查报告第十二章实施 17 项代码修复，包括向量化 force 模式安全修复、内部路由统一认证、表白名单空值语义、Prompt 注入防护、危险函数黑名单补齐、retry_count 边界修复、VectorStore 缓存、reranker 分数 clamp、SSE 解析完善、LLM/Embedding 初始化竞态修复、配置热重载竞态修复、连接池清理 TOCTOU 修复等。12.3 设计改进建议暂未实施。
 - Query conversations are persisted in MySQL (`conversation`, `conversation_message`) and can be restored from the frontend after refresh.
@@ -225,14 +227,15 @@ Important modules:
 
 - `user`: authentication, user, role, department, permission management.
 - `datasource`: datasource management and health checks.
-- `metadata`: metadata scanning, synchronization, comparison.
+- `metadata`: metadata scanning, synchronization, comparison, entity graph, catalog search, and metadata events.
 - `governance`: metadata quality checks and governance status.
 - `versioning`: metadata snapshot lifecycle and review.
 - `knowledge`: skills.md lifecycle, chunk snapshot persistence, vector publish tasks.
 - `query`: Java-side NL2SQL task management, conversation persistence, SSE bridge, result persistence, and fallback chunk loading.
 - `fieldtag`: field tags, confidence, feedback.
+- `glossary`: glossary and glossary term management/review.
 - `audit`: query audit, lineage, quotas, alerts.
-- `permission`: access policy and data masking.
+- `permission`: access policy, data masking, policy priority/time conditions, access approvals, and permission change logs.
 - `prompt`: prompt template CRUD, approval workflow, version history, rollback, and internal template API for Python.
 - `system`: config, notifications, operation logs, AI config, scheduling.
 - `dashboard`: admin homepage statistics aggregation.
@@ -250,6 +253,12 @@ Migration notes:
 - `V29` adds query task progress fields.
 - `V35` updates RAG Python chunking lifecycle metadata.
 - `V36` adds Prompt approval workflow fields and permissions.
+- `V37` adds the metadata entity relationship graph.
+- `V38` adds glossary and glossary terms.
+- `V39` adds classification/tag tables and seeded tags.
+- `V40` adds permission priority, time conditions, and change logs.
+- `V41` adds metadata change events and access approval requests.
+- `V42` makes datasource access effect semantics explicit.
 
 ## Python Service Notes
 
@@ -285,6 +294,8 @@ Frontend routes are split between:
 
 - `/query`: user-facing intelligent query flow.
 - `/admin/*`: governance, metadata, knowledge, prompt, audit, permissions, and system management.
+- `/admin/metadata/catalog`: metadata catalog search and entity graph entry.
+- `/admin/glossary/list`: glossary management.
 - `/admin/system/ai-config`: AI provider/model/embedding configuration.
 
 The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`.
