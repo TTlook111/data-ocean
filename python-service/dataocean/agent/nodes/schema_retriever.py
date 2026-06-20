@@ -51,18 +51,20 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
         }
 
     # 转换为 AgentState 中的 schema_context 格式
+    # 将 RAG 检索结果转换为 LangGraph 工作流期望的格式
     schema_context = []
     for item in response.results:
         schema_context.append({
-            "table_name": item.table_name or "",
-            "chunk_type": item.chunk_type or "",
-            "chunk_text": item.chunk_text or "",
-            "related_column": getattr(item, "related_column", None),
-            "confidence_score": getattr(item, "trust_score", 0) or 0,
-            "governance_status": item.governance_status or "NORMAL",
-            "score": item.score if hasattr(item, "score") else 0.0,
+            "table_name": item.table_name or "",           # 表名
+            "chunk_type": item.chunk_type or "",           # chunk 类型（TABLE_DESC/JOIN_PATH/METRIC 等）
+            "chunk_text": item.chunk_text or "",           # chunk 文本内容
+            "related_column": getattr(item, "related_column", None),  # 关联列
+            "confidence_score": getattr(item, "trust_score", 0) or 0, # 置信度分数
+            "governance_status": item.governance_status or "NORMAL",   # 治理状态
+            "score": item.score if hasattr(item, "score") else 0.0,   # 相似度分数
         })
 
+    # 未找到相关表时返回错误信息
     if not schema_context:
         return {
             "schema_context": [],
@@ -78,6 +80,7 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
     }
 
     # Milvus 降级时标记状态，供最终结果中提示用户
+    # 降级时使用 Java 传入的 fallback_chunks，召回精度可能降低
     if response.degraded:
         result["degraded"] = True
         result["degrade_notice"] = get_degradation_notice()

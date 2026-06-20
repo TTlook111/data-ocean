@@ -14,7 +14,34 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 一致性校验：同名字段跨表类型不一致、同名字段注释冲突
+ * 一致性校验器。
+ * <p>
+ * 从两个维度检测元数据一致性：
+ * <ul>
+ *   <li>同名字段跨表类型不一致（CONS_TYPE_INCONSISTENCY）：
+ *     <ul>
+ *       <li>例如：user_id 在 orders 表中是 bigint，在 logs 表中是 varchar</li>
+ *       <li>可能导致 JOIN 查询时类型转换错误或性能问题</li>
+ *     </ul>
+ *   </li>
+ *   <li>同名字段注释冲突（CONS_COMMENT_CONFLICT）：
+ *     <ul>
+ *       <li>例如：user_id 在 orders 表中注释是"用户ID"，在 logs 表中注释是"操作人ID"</li>
+ *       <li>可能导致业务理解混乱</li>
+ *     </ul>
+ *   </li>
+ * </ul>
+ * </p>
+ * <p>
+ * 校验策略：
+ * <ul>
+ *   <li>按字段名分组，收集所有表中同名字段的类型和注释</li>
+ *   <li>检查类型集合大小是否大于1（存在不同类型）</li>
+ *   <li>检查注释集合大小是否大于1（存在不同注释）</li>
+ * </ul>
+ * </p>
+ *
+ * @author DataOcean
  */
 @Slf4j
 @Component

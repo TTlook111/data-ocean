@@ -1,4 +1,10 @@
-"""SQL execution node."""
+"""SQL 执行节点
+
+调用 sandbox 执行器在只读事务中执行已校验的 SQL，
+返回查询结果数据行和列信息。
+
+支持超时控制和取消检测。
+"""
 
 from __future__ import annotations
 
@@ -105,19 +111,31 @@ async def run_sql_executor(state: AgentState) -> AgentState:
 
 
 def _extract_tables(sql: str) -> list[str]:
+    """从 SQL 中提取表名列表
+
+    使用 sqlglot AST 解析提取表名，失败时 fallback 到正则匹配。
+    返回排序后的表名列表（去重）。
+    """
     tables = set()
     try:
+        # 使用 sqlglot 解析 SQL AST，遍历所有 Table 节点
         tree = sqlglot.parse_one(sql, dialect="mysql")
         for table in tree.find_all(exp.Table):
             if table.name:
                 tables.add(table.name)
     except Exception:
+        # Fallback：使用正则匹配 FROM/JOIN 后的表名
         for match in re.finditer(r"\b(?:FROM|JOIN)\s+`?(\w+)`?", sql, re.IGNORECASE):
             tables.add(match.group(1))
     return sorted(tables)
 
 
 def _extract_columns(sql: str) -> list[str]:
+    """从 SQL 中提取列名列表
+
+    使用 sqlglot AST 解析提取列名，处理表别名和限定名。
+    返回排序后的列名列表（去重）。
+    """
     try:
         tree = sqlglot.parse_one(sql, dialect="mysql")
     except Exception:
@@ -126,6 +144,7 @@ def _extract_columns(sql: str) -> list[str]:
     tables = _extract_tables(sql)
     aliases = _table_aliases(tree)
     single_table = tables[0] if len(tables) == 1 else ""
+    # 收集有表限定符的列，用于后续判断列归属
     qualified_tables_by_column: dict[str, set[str]] = {}
     for column in tree.find_all(exp.Column):
         if column.name and column.table:

@@ -14,7 +14,26 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 时效性校验：快照过期、表长期无数据更新
+ * 时效性校验器。
+ * <p>
+ * 从两个维度检测元数据时效性：
+ * <ul>
+ *   <li>快照过期（TIME_SNAPSHOT_EXPIRED）：
+ *     <ul>
+ *       <li>快照创建时间超过阈值（默认7天）视为过期</li>
+ *       <li>过期的快照可能不反映最新的数据库结构</li>
+ *     </ul>
+ *   </li>
+ *   <li>表长期无数据更新（TIME_TABLE_STALE）：
+ *     <ul>
+ *       <li>表的 update_time 字段显示最后更新时间超过阈值</li>
+ *       <li>可能表示该表已废弃或数据同步异常</li>
+ *     </ul>
+ *   </li>
+ * </ul>
+ * </p>
+ *
+ * @author DataOcean
  */
 @Slf4j
 @Component

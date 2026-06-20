@@ -113,6 +113,7 @@ async def vectorize_chunks(
 
     try:
         # Staging 步骤 1：写入新向量（此时旧向量仍存在，查询不中断）
+        # 这是三步 staging 模式的第一步：write
         inserted_ids = await add_chunk_embeddings(
             texts=[chunk.chunk_text[:8192] for chunk in chunks],
             embeddings=embeddings,
@@ -123,14 +124,18 @@ async def vectorize_chunks(
         cleanup_completed = False
         if staging_mode:
             # Staging 步骤 2：验证新向量写入成功后，删除旧版本向量
+            # 这是三步 staging 模式的第二步：verify + replace
+            # 只删除同一 doc_id 的旧版本向量，不影响其他文档
             try:
                 cleanup_expr = _old_doc_version_vectors_expr(datasource_id, doc_id, version_no, inserted_ids)
                 await delete_by_expr(cleanup_expr, target_collection)
                 cleanup_completed = True
             except Exception as exc:
+                # 清理失败不影响主流程，记录警告日志
                 logger.warning("Old force-rebuild vectors cleanup skipped after successful write: %s", exc)
         if doc_id is not None:
             # Staging 步骤 3：验证向量数量一致
+            # 确保写入的向量数量与预期一致，防止部分写入导致数据不完整
             try:
                 await asyncio.to_thread(
                     _verify_doc_version_at_least if staging_mode and not cleanup_completed
@@ -142,6 +147,7 @@ async def vectorize_chunks(
                     len(chunks),
                 )
             except Exception:
+                # 验证失败时，非 staging 模式需要清理已写入的向量
                 if not staging_mode:
                     await delete_by_expr(_doc_version_expr(datasource_id, doc_id, version_no), target_collection)
                 raise

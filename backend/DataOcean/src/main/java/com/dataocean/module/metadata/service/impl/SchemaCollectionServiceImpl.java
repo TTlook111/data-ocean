@@ -226,6 +226,8 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
                         allRelations.addAll(relations);
 
                         // 构建 Schema 哈希内容（表名:字段名,类型;...）
+                        // 哈希格式：tableName1:col1,type1;col2,type2;...tableName2:col1,type1;...
+                        // 用途：通过对比哈希值快速检测 Schema 是否发生变化，避免逐表逐列比较
                         hashBuilder.append(table.getTableName()).append(":");
                         for (DbColumnMeta col : columns) {
                             hashBuilder.append(col.getColumnName()).append(",").append(col.getDataType()).append(";");
@@ -241,6 +243,8 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
                     }
 
                     // 计算 Schema 哈希并更新快照统计信息
+                    // 使用 MD5 算法对整个 Schema 结构进行哈希，生成唯一标识
+                    // 哈希内容包含所有表名和字段名/类型，任何结构变化都会导致哈希值不同
                     String schemaHash = md5(hashBuilder.toString());
                     snapshotService.updateStats(snapshot.getId(), tables.size(), totalColumns, schemaHash);
 

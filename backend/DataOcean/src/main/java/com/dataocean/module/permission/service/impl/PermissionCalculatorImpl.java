@@ -262,22 +262,26 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
     }
 
     /**
-     * 合并多维度权限策略（安全优先：并集语义）
-     * <p>
-     * 安全原则：
-     * - denied columns / denied tables：任一维度 DENY 即禁止（并集）
-     * - mask columns：任一维度 MASK 即脱敏（并集）
-     * - allowed tables：任一维度 ALLOW 即允许（并集），但减去 denied
-     * - row filters：多条件 AND 合并（限制数据范围）
-     * </p>
-     */
-    /**
-     * 判断策略是否在当前时间条件内生效
+     * 判断策略是否在当前时间条件内生效。
      * <p>
      * 检查三个维度：
-     * 1. valid_from / valid_until：绝对时间范围
-     * 2. time_schedule：周期性时间计划（工作日/工作时间）
+     * <ol>
+     *   <li>valid_from / valid_until：绝对时间范围，当前时间必须在范围内</li>
+     *   <li>time_schedule：周期性时间计划（JSON格式），包含工作日和工作时间限制</li>
+     * </ol>
      * </p>
+     * <p>
+     * JSON 格式示例：
+     * <pre>
+     * {
+     *   "weekdays": [1, 2, 3, 4, 5],  // 1=周一, 7=周日
+     *   "hours": {"from": "09:00", "to": "18:00"}
+     * }
+     * </pre>
+     * </p>
+     *
+     * @param policy 访问策略
+     * @return 如果策略在当前时间条件内生效返回 true，否则返回 false
      */
     private boolean isPolicyActiveByTime(DatasourceAccessPolicy policy) {
         LocalDateTime now = LocalDateTime.now();
@@ -291,31 +295,39 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         }
 
         // 检查周期性时间计划
+        // JSON 格式：{"weekdays":[1,2,3,4,5],"hours":{"from":"09:00","to":"18:00"}}
+        // weekdays: 允许的工作日数组（1=周一, 7=周日）
+        // hours: 允许的工作时间范围（from: 开始时间, to: 结束时间）
         if (policy.getTimeSchedule() != null && !policy.getTimeSchedule().isBlank()) {
             try {
-                // 简单 JSON 解析：{"weekdays":[1,2,3,4,5],"hours":{"from":"09:00","to":"18:00"}}
                 String schedule = policy.getTimeSchedule();
+                // 检查工作日限制
                 if (schedule.contains("\"weekdays\"")) {
                     int dayOfWeek = now.getDayOfWeek().getValue(); // 1=Monday, 7=Sunday
-                    // 检查是否在允许的工作日中
+                    // 提取 weekdays 数组内容：从 "weekdays" 后的 [ 开始，到 ] 结束
                     String weekdaysStr = schedule.substring(schedule.indexOf("\"weekdays\"") + 11);
                     weekdaysStr = weekdaysStr.substring(0, weekdaysStr.indexOf("]"));
+                    // 检查当前星期几是否在允许的 weekdays 数组中
                     boolean dayAllowed = weekdaysStr.contains(String.valueOf(dayOfWeek));
                     if (!dayAllowed) return false;
                 }
+                // 检查工作时间限制
                 if (schedule.contains("\"hours\"")) {
                     LocalTime currentTime = now.toLocalTime();
+                    // 提取 from 和 to 时间值
                     String fromStr = extractJsonValue(schedule, "from");
                     String toStr = extractJsonValue(schedule, "to");
                     if (fromStr != null && toStr != null) {
-                        LocalTime from = LocalTime.parse(fromStr);
-                        LocalTime to = LocalTime.parse(toStr);
+                        LocalTime from = LocalTime.parse(fromStr);  // 解析开始时间（如 "09:00"）
+                        LocalTime to = LocalTime.parse(toStr);      // 解析结束时间（如 "18:00"）
+                        // 检查当前时间是否在允许范围内
                         if (currentTime.isBefore(from) || currentTime.isAfter(to)) {
                             return false;
                         }
                     }
                 }
             } catch (Exception e) {
+                // 时间计划解析失败时默认放行，避免阻断正常访问
                 log.warn("策略时间计划解析失败 policyId={}, 默认放行", policy.getId(), e);
             }
         }
@@ -323,29 +335,68 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         return true;
     }
 
-    /** 从简单 JSON 字符串中提取指定 key 的值 */
+    /**
+     * 从简单 JSON 字符串中提取指定 key 的值。
+     * <p>
+     * 使用简单的字符串查找方式解析 JSON，适用于固定格式的简单 JSON。
+     * 例如：从 {"from":"09:00","to":"18:00"} 中提取 "from" 的值 "09:00"。
+     * </p>
+     *
+     * @param json JSON 字符串
+     * @param key  要提取的 key
+     * @return 提取的值，如果未找到返回 null
+     */
     private String extractJsonValue(String json, String key) {
+        // 构建搜索模式："key":""
         String search = "\"" + key + "\":\"";
         int start = json.indexOf(search);
         if (start < 0) return null;
-        start += search.length();
-        int end = json.indexOf("\"", start);
+        start += search.length();  // 移动到值的开始位置
+        int end = json.indexOf("\"", start);  // 查找值的结束引号
         if (end < 0) return null;
-        return json.substring(start, end);
+        return json.substring(start, end);  // 提取值
     }
 
+    /**
+     * 合并多维度权限策略（安全优先：并集语义）。
+     * <p>
+     * 安全原则：
+     * <ul>
+     *   <li>denied columns / denied tables：任一维度 DENY 即禁止（并集）</li>
+     *   <li>mask columns：任一维度 MASK 即脱敏（并集）</li>
+     *   <li>allowed tables：任一维度 ALLOW 即允许（并集），但减去 denied</li>
+     *   <li>row filters：多条件 AND 合并（限制数据范围）</li>
+     * </ul>
+     * </p>
+     * <p>
+     * 合并流程：
+     * <ol>
+     *   <li>遍历所有策略，按 accessType 收集到统一集合（并集语义）</li>
+     *   <li>检测 ALLOW 和 DENY 冲突，记录审计日志</li>
+     *   <li>计算最终 denied columns（并集：所有维度的 DENY 列汇总）</li>
+     *   <li>计算最终 mask columns（并集：所有维度的 MASK 列汇总，首个策略生效）</li>
+     *   <li>计算最终 allowed tables（并集减去 denied）</li>
+     *   <li>合并行级过滤条件（AND 语义）</li>
+     * </ol>
+     * </p>
+     *
+     * @param allPolicies  所有有效的访问策略列表（已过滤时间条件）
+     * @param subjects     主体列表（用户和角色）
+     * @param datasourceId 数据源ID，用于日志记录
+     * @return 合并后的权限上下文
+     */
     private PermissionContextVO mergePermissions(List<DatasourceAccessPolicy> allPolicies,
                                                   List<SubjectKey> subjects,
                                                   Long datasourceId) {
         // 安全优先合并：DENY/MASK 取并集（任一维度生效即生效）
-        Set<String> deniedColumns = new HashSet<>();
-        Set<String> deniedTables = new HashSet<>();
-        Map<String, String> allMasks = new HashMap<>();
-        Set<String> allowedTables = new HashSet<>();
-        boolean hasAllowPolicy = false;
-        boolean hasAllowAllPolicy = false;
-        boolean hasDenyAllPolicy = false;
-        Map<String, Set<String>> rowFiltersByTable = new HashMap<>();
+        Set<String> deniedColumns = new HashSet<>();      // 被拒绝的列集合（表名.列名格式）
+        Set<String> deniedTables = new HashSet<>();       // 被拒绝的表集合
+        Map<String, String> allMasks = new HashMap<>();   // 需要脱敏的列（key: 表名.列名, value: 脱敏类型）
+        Set<String> allowedTables = new HashSet<>();      // 被允许的表集合
+        boolean hasAllowPolicy = false;                   // 是否存在 ALLOW 策略
+        boolean hasAllowAllPolicy = false;                // 是否存在 ALLOW ALL 策略（无表名限制）
+        boolean hasDenyAllPolicy = false;                 // 是否存在 DENY ALL 策略（无表名限制）
+        Map<String, Set<String>> rowFiltersByTable = new HashMap<>();  // 行级过滤条件（key: 表名, value: 过滤条件集合）
 
         // 遍历所有策略，按 accessType 收集到统一集合（并集语义）
         for (DatasourceAccessPolicy policy : allPolicies) {
@@ -360,7 +411,7 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
 
         // 冲突审计：同一表同时存在 ALLOW 和 DENY 时记录日志
         Set<String> conflictTables = new HashSet<>(allowedTables);
-        conflictTables.retainAll(deniedTables);
+        conflictTables.retainAll(deniedTables);  // 取交集
         if (!conflictTables.isEmpty()) {
             log.warn("权限策略冲突 datasourceId={} 冲突表={}（同时存在 ALLOW 和 DENY，DENY 优先）",
                     datasourceId, conflictTables);
@@ -384,38 +435,51 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         // 构建结果：表级策略（安全优先：DENY 优先于 ALLOW）
         PermissionContextVO context = new PermissionContextVO();
 
+        // 表级策略合并逻辑（按优先级顺序判断）：
+        // 1. DENY ALL（hasDenyAllPolicy）：禁止所有表，设置为白名单模式，白名单为空
         if (hasDenyAllPolicy) {
             context.setAllowedTables(List.of());
             context.setTableScopeMode(TABLE_SCOPE_ALLOWLIST);
-            context.setDeniedTables(List.of(TABLE_WILDCARD));
-        } else if (hasAllowAllPolicy && deniedTables.isEmpty()) {
+            context.setDeniedTables(List.of(TABLE_WILDCARD));  // * 表示所有表
+        }
+        // 2. ALLOW ALL + 无 DENY：不限制表访问
+        else if (hasAllowAllPolicy && deniedTables.isEmpty()) {
             context.setAllowedTables(List.of());
             context.setTableScopeMode(TABLE_SCOPE_UNRESTRICTED);
-        } else if (hasAllowAllPolicy) {
-            // ALLOW * + DENY 部分表：交给 appendGovernanceBlocked 构建 “所有表 - DENY 表” 白名单。
+        }
+        // 3. ALLOW ALL + 有 DENY 部分表：不限制表访问，但排除被 DENY 的表
+        else if (hasAllowAllPolicy) {
             context.setAllowedTables(List.of());
             context.setTableScopeMode(TABLE_SCOPE_UNRESTRICTED);
             context.setDeniedTables(new ArrayList<>(deniedTables));
-        } else if (hasAllowPolicy) {
-            // 有 ALLOW 表级策略：只允许这些表，并移除被禁止的表（DENY 优先）
+        }
+        // 4. 有 ALLOW 表级策略：只允许这些表，并移除被禁止的表（DENY 优先）
+        else if (hasAllowPolicy) {
+            // 从允许表集合中移除被拒绝的表（并集语义：DENY 优先）
             allowedTables.removeAll(deniedTables);
             context.setAllowedTables(new ArrayList<>(allowedTables));
             context.setTableScopeMode(TABLE_SCOPE_ALLOWLIST);
-        } else if (!deniedTables.isEmpty()) {
-            // 无 ALLOW 但有表级 DENY：传递给 appendGovernanceBlocked 构建排除白名单
+        }
+        // 5. 无 ALLOW 但有表级 DENY：传递给 appendGovernanceBlocked 构建排除白名单
+        else if (!deniedTables.isEmpty()) {
             context.setAllowedTables(List.of());
             context.setTableScopeMode(TABLE_SCOPE_UNRESTRICTED);
             context.setDeniedTables(new ArrayList<>(deniedTables));
-        } else {
+        }
+        // 6. 无任何表级策略：不限制表访问
+        else {
             context.setAllowedTables(List.of());
             context.setTableScopeMode(TABLE_SCOPE_UNRESTRICTED);
         }
 
+        // 设置列级权限（脱敏列、拒绝列）
         context.setDeniedColumns(finalDenied);
+        // 设置行级过滤条件
         context.setRowFilters(finalRowFilters);
+        // 设置脱敏列
         context.setMaskColumns(finalMask);
 
-        log.debug("权限计算完成 datasourceId={} deniedColumns={} deniedTables={} masks={} filters={}",
+        log.debug(“权限计算完成 datasourceId={} deniedColumns={} deniedTables={} masks={} filters={}”,
                 datasourceId, finalDenied.size(), deniedTables.size(), finalMask.size(), finalRowFilters.size());
         return context;
     }

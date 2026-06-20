@@ -162,12 +162,31 @@ public class QueryController {
         return Result.success(conversationService.listConversations(userId, datasourceId));
     }
 
+    /**
+     * 删除（归档）会话。
+     * <p>
+     * 将指定会话标记为已归档，不再在会话列表中显示。
+     * 只能删除自己的会话，无权限校验。
+     * </p>
+     *
+     * @param conversationId 会话ID
+     * @return 操作结果
+     */
     @DeleteMapping("/conversations/{conversationId}")
     public Result<Void> deleteConversation(@PathVariable Long conversationId) {
         conversationService.archiveConversation(conversationId, UserContext.currentUserId());
         return Result.success("会话已删除", null);
     }
 
+    /**
+     * 查询历史任务列表。
+     * <p>
+     * 分页查询当前用户的查询历史，支持按状态、时间范围、数据源等条件过滤。
+     * </p>
+     *
+     * @param query 查询条件（包含分页参数和过滤条件）
+     * @return 历史任务列表
+     */
     @GetMapping("/history")
     public Result<?> history(@ModelAttribute QueryHistoryQuery query) {
         return Result.success(queryTaskService.listHistory(UserContext.currentUserId(), query));

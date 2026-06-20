@@ -39,6 +39,29 @@ public class VectorIndexTaskServiceImpl implements VectorIndexTaskService {
         return createTask(datasourceId, targetType, targetId, null, null, null);
     }
 
+    /**
+     * 创建向量化任务（完整参数版本）。
+     * <p>
+     * 构建任务实体并插入数据库，初始状态为 PENDING。
+     * 任务参数包括：
+     * <ul>
+     *   <li>datasourceId：数据源ID</li>
+     *   <li>targetType：目标类型（DOCUMENT/QUERY 等）</li>
+     *   <li>targetId：目标ID（文档ID等）</li>
+     *   <li>metadataSnapshotId：元数据快照ID（可选）</li>
+     *   <li>knowledgeVersionNo：知识库版本号（可选）</li>
+     *   <li>previousVersionNo：前一版本号（可选，用于增量更新）</li>
+     * </ul>
+     * </p>
+     *
+     * @param datasourceId       数据源ID
+     * @param targetType         目标类型
+     * @param targetId           目标ID
+     * @param metadataSnapshotId 元数据快照ID（可选）
+     * @param knowledgeVersionNo 知识库版本号（可选）
+     * @param previousVersionNo  前一版本号（可选）
+     * @return 新创建的任务ID
+     */
     @Transactional
     @Override
     public Long createTask(Long datasourceId,
@@ -53,10 +76,10 @@ public class VectorIndexTaskServiceImpl implements VectorIndexTaskService {
                 .datasourceId(datasourceId)
                 .targetType(targetType)
                 .targetId(targetId)
-                .metadataSnapshotId(metadataSnapshotId)
-                .knowledgeVersionNo(knowledgeVersionNo)
-                .previousVersionNo(previousVersionNo)
-                .status(VectorTaskStatus.PENDING.name())
+                .metadataSnapshotId(metadataSnapshotId)       // 元数据快照ID，用于关联元数据版本
+                .knowledgeVersionNo(knowledgeVersionNo)       // 知识库版本号，用于版本管理
+                .previousVersionNo(previousVersionNo)         // 前一版本号，用于增量更新时清理旧向量
+                .status(VectorTaskStatus.PENDING.name())      // 初始状态：PENDING（待处理）
                 .build();
         vectorIndexTaskMapper.insert(task);
         log.info("向量化任务创建成功 taskId={}", task.getId());

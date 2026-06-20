@@ -125,13 +125,26 @@ public class ConversationServiceImpl implements ConversationService {
         return conversationMapper.selectList(wrapper);
     }
 
+    /**
+     * 归档会话。
+     * <p>
+     * 将指定会话状态更新为 ARCHIVED，使其不再在会话列表中显示。
+     * 归档前校验会话存在性和归属权，只能归档自己的会话。
+     * </p>
+     *
+     * @param conversationId 会话ID
+     * @param userId         当前用户ID（用于权限校验）
+     * @throws BusinessException 如果会话不存在或不属于当前用户
+     */
     @Transactional
     @Override
     public void archiveConversation(Long conversationId, Long userId) {
+        // 校验会话存在性和归属权
         Conversation conversation = conversationMapper.selectById(conversationId);
         if (conversation == null || !conversation.getUserId().equals(userId)) {
             throw new BusinessException("会话不存在或无权访问");
         }
+        // 更新会话状态为已归档
         conversation.setStatus("ARCHIVED");
         conversation.setUpdatedAt(LocalDateTime.now());
         conversationMapper.updateById(conversation);

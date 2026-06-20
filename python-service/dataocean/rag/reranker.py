@@ -108,6 +108,10 @@ def rerank(
 
 
 def _schema_to_document(item: RetrievedSchema) -> Document:
+    """将 RetrievedSchema 转换为 LangChain Document 格式
+
+    用于重排器内部处理，将业务模型转换为通用文档格式。
+    """
     return Document(
         page_content=item.chunk_text,
         metadata={
@@ -126,6 +130,10 @@ def _schema_to_document(item: RetrievedSchema) -> Document:
 
 
 def _document_to_schema(document: Document) -> RetrievedSchema:
+    """将 LangChain Document 转换为 RetrievedSchema 格式
+
+    用于重排器输出，将通用文档格式转换回业务模型。
+    """
     metadata = document.metadata
     return RetrievedSchema(
         table_name=metadata.get("table_name", ""),
@@ -148,6 +156,14 @@ def _chunk_type_bonus(
     has_caution: bool,
     has_join: bool,
 ) -> float:
+    """根据 chunk 类型和查询意图计算加分
+
+    不同类型的 chunk 在特定查询场景下有不同的加分：
+    - JOIN_PATH：关联类查询加分（用户问跨表问题时）
+    - METRIC：聚合类查询加分（用户问统计问题时）
+    - FIELD_NOTE：注意事项类查询加分（用户问字段区别时）
+    - QUERY_SCENE：查询场景类加分（通用加分）
+    """
     bonus = 0.0
     if chunk_type == "JOIN_PATH" and has_join:
         bonus += 0.15
@@ -161,4 +177,5 @@ def _chunk_type_bonus(
 
 
 def _has_intent(question: str, keywords: frozenset[str]) -> bool:
+    """检查问题中是否包含指定关键词（用于意图识别）"""
     return any(keyword in question for keyword in keywords)

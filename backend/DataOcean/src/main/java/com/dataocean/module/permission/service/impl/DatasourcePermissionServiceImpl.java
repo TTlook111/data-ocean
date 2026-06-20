@@ -19,17 +19,41 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+/**
+ * 数据源权限服务实现类。
+ * <p>
+ * 负责数据源级别的访问授权管理，支持用户和角色两种主体类型。
+ * 提供授权（grant）、撤销（revoke）、查询（listBySubject）等核心功能。
+ * </p>
+ * <p>
+ * 授权模型：
+ * <ul>
+ *   <li>主体类型：USER（用户）或 ROLE（角色）</li>
+ *   <li>授权效果：ALLOW（允许）或 DENY（拒绝）</li>
+ *   <li>同一主体对同一数据源只能有一条授权记录</li>
+ *   <li>授权变更会触发权限变更事件，用于清除相关缓存</li>
+ * </ul>
+ * </p>
+ *
+ * @author DataOcean
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class DatasourcePermissionServiceImpl implements DatasourcePermissionService {
 
+    /** 授权效果：允许访问 */
     private static final String EFFECT_ALLOW = "ALLOW";
+    /** 授权效果：拒绝访问 */
     private static final String EFFECT_DENY = "DENY";
 
+    /** 数据源访问授权 Mapper */
     private final DatasourceAccessMapper accessMapper;
+    /** Spring 事件发布器，用于发布权限变更事件 */
     private final ApplicationEventPublisher eventPublisher;
+    /** 权限校验支持类，提供通用校验逻辑 */
     private final PermissionValidationSupport validationSupport;
+    /** 数据源访问服务，提供数据源访问相关操作 */
     private final DatasourceAccessService datasourceAccessService;
 
     @Transactional

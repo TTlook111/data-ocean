@@ -67,14 +67,17 @@ def check(
     except sqlglot.errors.ParseError as e:
         return RuleResult(passed=False, rule_name=RULE_NAME, reason=f"SQL 语法解析失败：{e}")
 
+    # 构建白名单集合（小写，用于大小写不敏感比较）
     allowed_set = {t.lower() for t in allowed_tables}
     referenced_tables = set()
 
+    # 遍历 SQL AST 中的所有表引用
     for table_node in tree.find_all(exp.Table):
         table_name = table_node.name.lower()
         if table_name:
             referenced_tables.add(table_name)
 
+    # 计算未授权的表（引用的表 - 白名单）
     unauthorized = referenced_tables - allowed_set
     if unauthorized:
         return RuleResult(

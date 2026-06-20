@@ -75,34 +75,56 @@ public class QueryTaskServiceImpl implements QueryTaskService {
 
     /**
      * {@inheritDoc}
+     * <p>
+     * 权限控制流程：
+     * <ol>
+     *   <li>计算用户对数据源的权限上下文（包含脱敏列、查看SQL权限、导出权限）</li>
+     *   <li>对查询结果执行脱敏：
+     *     <ul>
+     *       <li>优先使用 Python AST 标记的精确脱敏字段（输出列名 → 脱敏策略）</li>
+     *       <li>Fallback：按全量策略列名匹配（可能包含本次查询未涉及的列）</li>
+     *     </ul>
+     *   </li>
+     *   <li>can_view_sql 控制：无权限则隐藏 SQL 语句</li>
+     *   <li>can_export 标志传给前端控制导出按钮显示</li>
+     * </ol>
+     * </p>
      */
     @Override
     public QueryTaskVO getTaskResult(String taskId, Long userId) {
+        // 查询任务并校验归属权
         QueryTask task = findByTaskIdAndUser(taskId, userId);
+        // 将任务实体转换为视图对象（包含 JSON 反序列化）
         QueryTaskVO vo = toVO(task);
 
         // 权限控制：脱敏 + can_view_sql + can_export
         if (task.getDatasourceId() != null) {
+            // 计算用户对数据源的权限上下文
             PermissionContextVO context = permissionCalculator.calculate(userId, task.getDatasourceId());
 
-            // 对查询结果执行脱敏：优先使用 Python AST 标记的精确字段，fallback 到全量策略
+            // 对查询结果执行脱敏
             if (vo.getData() != null && !vo.getData().isEmpty()) {
+                // 解析 Python 返回的精确脱敏字段标记
+                // 格式：{"输出列名": "脱敏策略", ...}
                 Map<String, String> maskedFieldsFromPython = parseMaskedFields(task.getMaskedFields());
                 if (!maskedFieldsFromPython.isEmpty()) {
                     // Python 已精确标记本次 SQL 实际涉及的脱敏字段（输出列名 → 策略）
+                    // 优点：只脱敏实际返回的列，避免不必要的脱敏
                     vo.setData(dataMaskingService.maskResultByFields(vo.getData(), maskedFieldsFromPython));
                 } else if (context.getMaskColumns() != null && !context.getMaskColumns().isEmpty()) {
-                    // fallback：按全量策略列名匹配
+                    // Fallback：按全量策略列名匹配
+                    // 缺点：可能包含本次查询未涉及的列，但不会漏脱敏
                     vo.setData(dataMaskingService.maskResult(vo.getData(), context.getMaskColumns()));
                 }
             }
 
-            // can_view_sql 控制：无权限则隐藏 SQL
+            // can_view_sql 控制：无权限则隐藏 SQL 语句
+            // 目的：防止用户通过 SQL 了解表结构或敏感数据
             if (!context.isCanViewSql()) {
                 vo.setSql(null);
             }
 
-            // can_export 标志传给前端控制导出按钮
+            // can_export 标志传给前端控制导出按钮显示
             vo.setCanExport(context.isCanExport());
         }
         return vo;
@@ -238,6 +260,8 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             }
 
             // 异步写入审计日志和血缘数据（延迟到事务提交后执行，确保读到已提交数据）
+            // 原因：审计日志和血缘数据需要读取已提交的任务结果，如果在事务内执行可能读到脏数据
+            // 使用 TransactionSynchronization 注册事务提交后的回调
             final Long taskDbId = existing.getId();
             final String finalUsedTablesJson = result.containsKey("usedTables")
                     ? objectMapper.writeValueAsString(result.get("usedTables")) : null;
@@ -246,7 +270,9 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
+                    // 事务提交后，异步写入审计日志（记录查询行为）
                     auditLogService.recordAudit(taskDbId);
+                    // 事务提交后，异步保存血缘数据（记录表/列使用情况）
                     lineageService.saveLineage(taskDbId, finalUsedTablesJson, finalUsedColumnsJson);
                 }
             });
@@ -311,21 +337,44 @@ public class QueryTaskServiceImpl implements QueryTaskService {
     }
 
     /**
-     * 将查询任务实体转换为前端展示 VO，反序列化 JSON 字段。
+     * 将查询任务实体转换为前端展示 VO。
+     * <p>
+     * 转换过程中需要反序列化以下 JSON 字段：
+     * <ul>
+     *   <li>resultData：查询结果数据，格式为 List&lt;Map&lt;String, Object&gt;&gt;</li>
+     *   <li>resultColumns：结果列信息，格式为 List&lt;Map&lt;String, String&gt;&gt;</li>
+     *   <li>chartConfig：图表配置，格式为 Map&lt;String, Object&gt;</li>
+     *   <li>usedTables：使用的表列表，格式为 List&lt;String&gt;</li>
+     *   <li>usedColumns：使用的列列表，格式为 List&lt;String&gt;</li>
+     *   <li>promptVersions：提示词版本列表，格式为 List&lt;Map&lt;String, Object&gt;&gt;</li>
+     * </ul>
+     * </p>
+     * <p>
+     * 如果反序列化失败，返回包含基本信息的降级 VO（不包含结果数据）。
+     * </p>
+     *
+     * @param task 查询任务实体
+     * @return 查询任务视图对象
      */
     @SuppressWarnings("unchecked")
     private QueryTaskVO toVO(QueryTask task) {
         try {
+            // 反序列化 JSON 字段：resultData（查询结果数据）
             List<Map<String, Object>> data = task.getResultData() != null
                     ? objectMapper.readValue(task.getResultData(), new TypeReference<>() {}) : null;
+            // 反序列化 JSON 字段：resultColumns（结果列信息）
             List<Map<String, String>> columns = task.getResultColumns() != null
                     ? objectMapper.readValue(task.getResultColumns(), new TypeReference<>() {}) : null;
+            // 反序列化 JSON 字段：chartConfig（图表配置）
             Map<String, Object> chartConfig = task.getChartConfig() != null
                     ? objectMapper.readValue(task.getChartConfig(), new TypeReference<>() {}) : null;
+            // 反序列化 JSON 字段：usedTables（使用的表列表）
             List<String> usedTables = task.getUsedTables() != null
                     ? objectMapper.readValue(task.getUsedTables(), new TypeReference<>() {}) : null;
+            // 反序列化 JSON 字段：usedColumns（使用的列列表）
             List<String> usedColumns = task.getUsedColumns() != null
                     ? objectMapper.readValue(task.getUsedColumns(), new TypeReference<>() {}) : null;
+            // 反序列化 JSON 字段：promptVersions（提示词版本列表）
             List<Map<String, Object>> promptVersions = task.getPromptVersions() != null
                     ? objectMapper.readValue(task.getPromptVersions(), new TypeReference<>() {}) : null;
 

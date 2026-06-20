@@ -203,36 +203,62 @@ public class MetadataCollectionController {
         return Result.success("变更事件已记录", diffService.compareAndRecordChanges(oldId, newId));
     }
 
+    /**
+     * 将同步任务实体转换为视图对象。
+     *
+     * @param task    同步任务实体
+     * @param dsNames 数据源ID到名称的映射，用于填充数据源名称
+     * @return 同步任务视图对象
+     */
     private SyncTaskVO toSyncTaskVO(SchemaSyncTask task, Map<Long, String> dsNames) {
         SyncTaskVO vo = new SyncTaskVO();
         vo.setId(task.getId());
-        vo.setDatasourceName(dsNames.getOrDefault(task.getDatasourceId(), "未知"));
-        vo.setTriggerType(task.getTriggerType());
-        vo.setStatus(task.getStatus());
-        vo.setProgressTotal(task.getProgressTotal());
-        vo.setProgressCurrent(task.getProgressCurrent());
-        vo.setStartedAt(task.getStartedAt());
-        vo.setFinishedAt(task.getFinishedAt());
-        vo.setErrorMessage(task.getErrorMessage());
+        vo.setDatasourceName(dsNames.getOrDefault(task.getDatasourceId(), "未知"));  // 从映射中获取数据源名称
+        vo.setTriggerType(task.getTriggerType());  // 触发类型（MANUAL/SCHEDULED）
+        vo.setStatus(task.getStatus());            // 任务状态（RUNNING/SUCCESS/FAILED）
+        vo.setProgressTotal(task.getProgressTotal());    // 总进度（表数量）
+        vo.setProgressCurrent(task.getProgressCurrent()); // 当前进度（已处理表数量）
+        vo.setStartedAt(task.getStartedAt());      // 开始时间
+        vo.setFinishedAt(task.getFinishedAt());    // 结束时间
+        vo.setErrorMessage(task.getErrorMessage()); // 错误信息（失败时）
         return vo;
     }
 
+    /**
+     * 将元数据快照实体转换为视图对象。
+     *
+     * @param snapshot 元数据快照实体
+     * @param dsNames  数据源ID到名称的映射，用于填充数据源名称
+     * @return 快照视图对象
+     */
     private SnapshotVO toSnapshotVO(MetadataSnapshot snapshot, Map<Long, String> dsNames) {
         SnapshotVO vo = new SnapshotVO();
         vo.setId(snapshot.getId());
-        vo.setSnapshotVersion(snapshot.getSnapshotVersion());
+        vo.setSnapshotVersion(snapshot.getSnapshotVersion());  // 快照版本号
         vo.setDatasourceId(snapshot.getDatasourceId());
-        vo.setDatasourceName(dsNames.getOrDefault(snapshot.getDatasourceId(), "未知"));
-        vo.setTableCount(snapshot.getTableCount());
-        vo.setColumnCount(snapshot.getColumnCount());
-        vo.setQualityScore(snapshot.getQualityScore());
-        vo.setStatus(snapshot.getStatus());
-        vo.setCreatedAt(snapshot.getCreatedAt());
+        vo.setDatasourceName(dsNames.getOrDefault(snapshot.getDatasourceId(), "未知"));  // 从映射中获取数据源名称
+        vo.setTableCount(snapshot.getTableCount());      // 表数量
+        vo.setColumnCount(snapshot.getColumnCount());    // 列数量
+        vo.setQualityScore(snapshot.getQualityScore());  // 质量评分
+        vo.setStatus(snapshot.getStatus());              // 快照状态
+        vo.setCreatedAt(snapshot.getCreatedAt());        // 创建时间
         return vo;
     }
 
+    /**
+     * 获取所有未删除数据源的ID到名称映射。
+     * <p>
+     * 使用 Stream 的 Collectors.toMap 将数据源列表转换为 Map 结构，
+     * 用于快速查找数据源名称。
+     * </p>
+     *
+     * @return 数据源ID到名称的映射
+     */
     private Map<Long, String> getDatasourceNames() {
         return datasourceMapper.selectList(new LambdaQueryWrapper<Datasource>().eq(Datasource::getDeleted, 0L))
-                .stream().collect(Collectors.toMap(Datasource::getId, Datasource::getName));
+                .stream()
+                .collect(Collectors.toMap(
+                        Datasource::getId,      // key: 数据源ID
+                        Datasource::getName));  // value: 数据源名称
     }
 }

@@ -756,8 +756,23 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
                 .toList();
     }
 
+    /**
+     * 将 Map&lt;String, Object&gt; 转换为 Map&lt;String, String&gt;。
+     * <p>
+     * 转换规则：
+     * <ul>
+     *   <li>null 值转换为空字符串 ""</li>
+     *   <li>其他值调用 String.valueOf() 转换为字符串</li>
+     * </ul>
+     * 用途：Python 接口要求参数为字符串类型，需要将 Java 的 Object 值统一转换。
+     * </p>
+     *
+     * @param payload 原始参数 Map，value 可能为任意类型
+     * @return 转换后的 Map，所有 value 为 String 类型
+     */
     private Map<String, String> toStringMap(Map<String, Object> payload) {
         Map<String, String> result = new HashMap<>();
+        // 使用 forEach 遍历所有键值对，null 转为空字符串，其他转为 String
         payload.forEach((key, value) -> result.put(key, value == null ? "" : String.valueOf(value)));
         return result;
     }

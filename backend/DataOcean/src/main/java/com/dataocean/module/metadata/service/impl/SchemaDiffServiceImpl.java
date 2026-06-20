@@ -85,20 +85,35 @@ public class SchemaDiffServiceImpl implements SchemaDiffService {
         List<DbTableMeta> oldTables = getTablesBySnapshot(oldSnapshotId);
         List<DbTableMeta> newTables = getTablesBySnapshot(newSnapshotId);
 
-        Set<String> oldTableNames = oldTables.stream().map(DbTableMeta::getTableName).collect(Collectors.toSet());
-        Set<String> newTableNames = newTables.stream().map(DbTableMeta::getTableName).collect(Collectors.toSet());
+        // 提取新旧快照的表名集合，用于后续差异计算
+        // 使用 Stream 的 map 操作提取表名，collect 操作收集成 Set（自动去重）
+        Set<String> oldTableNames = oldTables.stream()
+                .map(DbTableMeta::getTableName)      // 提取表名字段
+                .collect(Collectors.toSet());         // 收集成 Set 集合
+        Set<String> newTableNames = newTables.stream()
+                .map(DbTableMeta::getTableName)      // 提取表名字段
+                .collect(Collectors.toSet());         // 收集成 Set 集合
 
         // 计算表级别的新增和删除
+        // 新增表：在新快照中存在但旧快照中不存在的表
         SchemaDiffVO diff = new SchemaDiffVO();
-        diff.setAddedTables(newTableNames.stream().filter(n -> !oldTableNames.contains(n)).toList());
-        diff.setRemovedTables(oldTableNames.stream().filter(n -> !newTableNames.contains(n)).toList());
+        diff.setAddedTables(newTableNames.stream()
+                .filter(n -> !oldTableNames.contains(n))  // 过滤出不在旧快照中的表
+                .toList());
+        // 删除表：在旧快照中存在但新快照中不存在的表
+        diff.setRemovedTables(oldTableNames.stream()
+                .filter(n -> !newTableNames.contains(n))  // 过滤出不在新快照中的表
+                .toList());
 
         // 对比共有表的字段级别变更
         List<SchemaDiffVO.ColumnChange> addedColumns = new ArrayList<>();
         List<SchemaDiffVO.ColumnChange> removedColumns = new ArrayList<>();
         List<SchemaDiffVO.ColumnChange> modifiedColumns = new ArrayList<>();
 
-        Set<String> commonTables = newTableNames.stream().filter(oldTableNames::contains).collect(Collectors.toSet());
+        // 计算共有表（交集）：在新旧快照中都存在的表
+        Set<String> commonTables = newTableNames.stream()
+                .filter(oldTableNames::contains)      // 过滤出同时存在于旧快照中的表
+                .collect(Collectors.toSet());          // 收集成 Set 集合
         for (String tableName : commonTables) {
             // 构建新旧字段映射
             Map<String, DbColumnMeta> oldCols = getColumnsBySnapshotAndTable(oldSnapshotId, tableName)

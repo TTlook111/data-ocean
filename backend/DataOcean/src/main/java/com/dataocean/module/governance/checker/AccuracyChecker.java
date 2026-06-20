@@ -14,7 +14,25 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * 准确性校验：字段类型与命名不匹配、枚举值异常
+ * 准确性校验器。
+ * <p>
+ * 从两个维度检测元数据准确性：
+ * <ul>
+ *   <li>字段类型与命名不匹配（ACCU_TYPE_NAME_MISMATCH）：
+ *     <ul>
+ *       <li>时间类字段（*_time, *_date, *_at, *_datetime）应使用时间类型（datetime, timestamp, date, time）</li>
+ *       <li>ID 类字段（*_id）应使用整数类型（int, bigint 等）</li>
+ *     </ul>
+ *   </li>
+ *   <li>枚举值异常（ACCU_ENUM_ANOMALY）：
+ *     <ul>
+ *       <li>字段的 distinct_count 超过阈值（默认50）时，可能不是真正的枚举字段</li>
+ *     </ul>
+ *   </li>
+ * </ul>
+ * </p>
+ *
+ * @author DataOcean
  */
 @Slf4j
 @Component

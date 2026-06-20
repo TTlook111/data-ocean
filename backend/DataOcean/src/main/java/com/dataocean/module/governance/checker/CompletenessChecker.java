@@ -15,7 +15,25 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 完整性校验：表注释缺失、字段注释缺失、主键缺失
+ * 完整性校验器。
+ * <p>
+ * 从三个维度检测元数据完整性：
+ * <ul>
+ *   <li>表注释缺失（COMP_TABLE_COMMENT_MISSING）：检查表是否有业务含义说明</li>
+ *   <li>字段注释缺失（COMP_COLUMN_COMMENT_MISSING）：检查字段是否有取值说明</li>
+ *   <li>主键缺失（COMP_PRIMARY_KEY_MISSING）：检查表是否有主键定义</li>
+ * </ul>
+ * </p>
+ * <p>
+ * 校验策略：
+ * <ul>
+ *   <li>遍历所有表/列，检查对应属性是否为空</li>
+ *   <li>主键检测通过收集所有有主键的表名，然后检查哪些表不在集合中</li>
+ *   <li>每个问题对应一个规则编码，便于后续统计和扣分</li>
+ * </ul>
+ * </p>
+ *
+ * @author DataOcean
  */
 @Slf4j
 @Component
@@ -31,19 +49,30 @@ public class CompletenessChecker implements QualityChecker {
 
     /**
      * {@inheritDoc}
+     * <p>
+     * 校验流程：
+     * 1. 从规则列表中提取完整性维度的规则，构建 ruleCode -> rule 映射
+     * 2. 分别检测表注释缺失、字段注释缺失、主键缺失
+     * 3. 每个检测项独立执行，发现问题则构建问题记录
+     * </p>
      */
     @Override
     public List<MetadataQualityIssue> check(CheckContext context) {
         List<MetadataQualityIssue> issues = new ArrayList<>();
+
+        // 第一步：从规则列表中提取完整性维度的规则，构建 ruleCode -> rule 映射
+        // 使用 Stream 的 filter 过滤出当前维度且启用的规则，collect 收集成 Map
         Map<String, MetadataQualityRule> ruleMap = context.rules().stream()
-                .filter(r -> getDimension().equals(r.getDimension()) && r.getEnabled() == 1)
-                .collect(Collectors.toMap(MetadataQualityRule::getRuleCode, r -> r));
+                .filter(r -> getDimension().equals(r.getDimension()) && r.getEnabled() == 1)  // 过滤：维度匹配且启用
+                .collect(Collectors.toMap(MetadataQualityRule::getRuleCode, r -> r));         // 收集成 Map<ruleCode, rule>
 
-        MetadataQualityRule tableCommentRule = ruleMap.get("COMP_TABLE_COMMENT_MISSING");
-        MetadataQualityRule columnCommentRule = ruleMap.get("COMP_COLUMN_COMMENT_MISSING");
-        MetadataQualityRule pkRule = ruleMap.get("COMP_PRIMARY_KEY_MISSING");
+        // 获取三个校验规则（如果规则不存在则跳过对应检测）
+        MetadataQualityRule tableCommentRule = ruleMap.get("COMP_TABLE_COMMENT_MISSING");   // 表注释缺失规则
+        MetadataQualityRule columnCommentRule = ruleMap.get("COMP_COLUMN_COMMENT_MISSING"); // 字段注释缺失规则
+        MetadataQualityRule pkRule = ruleMap.get("COMP_PRIMARY_KEY_MISSING");               // 主键缺失规则
 
-        // 检测表注释缺失
+        // 第二步：检测表注释缺失
+        // 遍历所有表，检查 tableComment 是否为空
         if (tableCommentRule != null) {
             for (DbTableMeta table : context.tables()) {
                 if (!StringUtils.hasText(table.getTableComment())) {
@@ -54,7 +83,8 @@ public class CompletenessChecker implements QualityChecker {
             }
         }
 
-        // 检测字段注释缺失
+        // 第三步：检测字段注释缺失
+        // 遍历所有列，检查 columnComment 是否为空
         if (columnCommentRule != null) {
             for (DbColumnMeta col : context.columns()) {
                 if (!StringUtils.hasText(col.getColumnComment())) {
@@ -65,13 +95,16 @@ public class CompletenessChecker implements QualityChecker {
             }
         }
 
-        // 检测主键缺失
+        // 第四步：检测主键缺失
+        // 首先收集所有有主键的表名集合，然后检查哪些表不在集合中
         if (pkRule != null) {
+            // 使用 Stream 收集所有有主键的表名
             Set<String> tablesWithPk = context.columns().stream()
-                    .filter(c -> c.getIsPrimaryKey() != null && c.getIsPrimaryKey() == 1)
-                    .map(DbColumnMeta::getTableName)
-                    .collect(Collectors.toSet());
+                    .filter(c -> c.getIsPrimaryKey() != null && c.getIsPrimaryKey() == 1)  // 过滤出主键字段
+                    .map(DbColumnMeta::getTableName)                                        // 提取表名
+                    .collect(Collectors.toSet());                                            // 收集成 Set（自动去重）
 
+            // 检查哪些表没有主键
             for (DbTableMeta table : context.tables()) {
                 if (!tablesWithPk.contains(table.getTableName())) {
                     issues.add(buildIssue(context, pkRule, table.getTableName(), null,

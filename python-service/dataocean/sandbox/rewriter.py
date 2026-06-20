@@ -105,24 +105,37 @@ def _parse_condition(condition_str: str) -> exp.Expression:
 
 
 def _qualify_condition(condition_expr: exp.Expression, table_name: str, alias: str) -> exp.Expression:
-    """Bind row-filter columns to the concrete alias used by the query scope."""
+    """将行过滤条件中的列绑定到查询作用域中使用的具体别名。
+
+    处理逻辑：
+    1. 无限定符的列：绑定到当前作用域的别名
+    2. 限定符为表名但使用了别名：替换为别名
+    3. 限定符既不是表名也不是别名：抛出错误
+    """
     table_name = table_name.lower()
     alias = alias.lower()
 
     for col_node in condition_expr.find_all(exp.Column):
         qualifier = col_node.table.lower() if col_node.table else ""
         if not qualifier:
+            # 无限定符：绑定到当前作用域的别名
             col_node.set("table", exp.to_identifier(alias))
         elif qualifier == table_name and alias != table_name:
+            # 限定符为表名但使用了别名：替换为别名
             col_node.set("table", exp.to_identifier(alias))
         elif qualifier not in {table_name, alias}:
+            # 限定符既不是表名也不是别名：抛出错误
             raise ValueError(f"行级过滤条件引用了未知表别名：{qualifier}")
 
     return condition_expr
 
 
 def _check_column_access(tree: exp.Expression, denied_columns: dict[str, list[str]]) -> str:
-    """Return a denial reason if SQL references any denied column."""
+    """检查 SQL 是否引用了被拒绝的列。
+
+    遍历 SQL AST 中的所有列引用，检查是否在拒绝列表中。
+    返回拒绝原因字符串，如果无拒绝则返回空字符串。
+    """
     denied_by_table = _normalize_column_map(denied_columns)
 
     for scope in traverse_scope(tree):
@@ -134,17 +147,20 @@ def _check_column_access(tree: exp.Expression, denied_columns: dict[str, list[st
             qualifier = col_node.table.lower() if col_node.table else ""
 
             if qualifier:
+                # 有限定符：直接检查表名.列名
                 real_table = alias_map.get(qualifier, qualifier)
                 if col_name in denied_by_table.get(real_table, set()):
                     return f"无权访问字段：{real_table}.{col_name}"
                 continue
 
             if len(scope_tables) == 1:
+                # 单表查询：列名直接归属该表
                 real_table = next(iter(scope_tables))
                 if col_name in denied_by_table.get(real_table, set()):
                     return f"无权访问字段：{real_table}.{col_name}"
                 continue
 
+            # 多表查询无限定符：检查所有表的拒绝列表
             for table_name, cols in denied_by_table.items():
                 if col_name in cols:
                     return f"无权访问字段：{table_name}.{col_name}"

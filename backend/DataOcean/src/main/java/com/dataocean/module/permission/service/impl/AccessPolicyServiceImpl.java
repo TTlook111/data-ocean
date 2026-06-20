@@ -154,14 +154,18 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         }
         // 确定最终的 accessType（可能是传入的新值，也可能是原值）
         String finalAccessType = accessType != null ? accessType : policy.getAccessType();
+        // MASK 策略校验：必须是列级策略，禁止把表级策略改成 MASK
+        // 原因：脱敏是针对具体字段的操作，表级策略无法指定脱敏字段
         if ("MASK".equals(finalAccessType)) {
-            // MASK 必须是列级策略，禁止把表级策略改成 MASK
+            // 校验列名必须存在
             if (policy.getColumnName() == null || policy.getColumnName().isBlank()) {
                 throw new BusinessException("脱敏策略必须指定列名，不能将表级策略改为脱敏");
             }
+            // 校验脱敏策略必须指定（如 PHONE, EMAIL, ID_CARD 等）
             if (maskStrategy == null || maskStrategy.isBlank()) {
                 throw new BusinessException("脱敏策略不能为空");
             }
+            // 校验脱敏策略值是否合法
             validationSupport.validateMaskStrategy(maskStrategy);
         }
         if (rowFilterExpression != null && !rowFilterExpression.isBlank()) {
@@ -289,6 +293,17 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         }
 
         // 禁止子查询和危险关键字（使用单词边界匹配，避免误伤列名）
+        // 关键字分类说明：
+        // - DDL 操作：DROP, ALTER, CREATE, TRUNCATE, RENAME - 可能破坏数据结构
+        // - DML 操作：DELETE, INSERT, UPDATE - 可能修改数据
+        // - 查询操作：SELECT, UNION, INTO - 可能泄露数据或进行子查询攻击
+        // - 文件操作：OUTFILE, DUMPFILE, LOAD_FILE - 可能读写服务器文件
+        // - 执行操作：EXEC, EXECUTE, CALL - 可能执行任意代码或存储过程
+        // - 权限操作：GRANT, REVOKE - 可能修改权限
+        // - 会话操作：SET - 可能修改会话变量
+        // - 信息泄露：INFORMATION_SCHEMA - 可能查询数据库元数据
+        // - 时间攻击：SLEEP, BENCHMARK - 可能用于时间盲注
+        // - 系统命令：SYSTEM - 可能执行操作系统命令
         String[] forbidden = {
                 "SELECT", "DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE",
                 "UNION", "INTO", "OUTFILE", "DUMPFILE", "LOAD_FILE", "EXEC", "EXECUTE",
@@ -297,6 +312,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         };
         for (String keyword : forbidden) {
             // 使用正则匹配完整单词，避免列名包含关键字时误报
+            // 例如：列名 "user_name" 不会匹配 "NAME" 关键字
             if (upper.matches(".*\\b" + keyword + "\\b.*")) {
                 throw new BusinessException("行级过滤表达式包含非法关键字：" + keyword);
             }
@@ -325,7 +341,27 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
     }
 
     /**
-     * 记录权限变更审计日志
+     * 记录权限变更审计日志。
+     * <p>
+     * 在策略 CRUD 操作时调用，记录完整的变更历史，包括：
+     * <ul>
+     *   <li>变更类型：CREATE/UPDATE/DELETE</li>
+     *   <li>目标信息：目标类型、目标ID</li>
+     *   <li>主体信息：主体类型、主体ID</li>
+     *   <li>数据源信息：数据源ID</li>
+     *   <li>操作人信息：操作人ID</li>
+     *   <li>变更前后值：JSON 格式存储</li>
+     * </ul>
+     * </p>
+     *
+     * @param changeType   变更类型（CREATE/UPDATE/DELETE）
+     * @param targetType   目标类型（POLICY 等）
+     * @param targetId     目标ID
+     * @param subjectType  主体类型（USER/ROLE）
+     * @param subjectId    主体ID
+     * @param datasourceId 数据源ID
+     * @param oldValue     变更前的值（可为 null）
+     * @param newValue     变更后的值（可为 null）
      */
     private void logChange(String changeType, String targetType, Long targetId,
                             String subjectType, Long subjectId, Long datasourceId,
@@ -339,6 +375,9 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             logEntry.setSubjectId(subjectId);
             logEntry.setDatasourceId(datasourceId);
             logEntry.setOperatorId(UserContext.currentUserId());
+            // 将变更前后的对象序列化为 JSON 字符串
+            // 注意：这里使用反射创建 ObjectMapper 实例，每次调用都会创建新实例
+            // 建议优化：将 ObjectMapper 注入为共享实例，避免重复创建
             if (oldValue != null) {
                 logEntry.setOldValue(com.fasterxml.jackson.databind.ObjectMapper.class
                         .getDeclaredConstructor().newInstance().writeValueAsString(oldValue));
@@ -349,6 +388,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             }
             changeLogMapper.insert(logEntry);
         } catch (Exception e) {
+            // 审计日志记录失败不影响主业务流程
             log.warn("权限变更审计日志记录失败: {}", e.getMessage());
         }
     }

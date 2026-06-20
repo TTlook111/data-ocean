@@ -128,17 +128,31 @@ def chunk_skills_md(content: str) -> list[ChunkItem]:
 
 
 def _split_long_chunk(text: str) -> list[str]:
+    """拆分超长 chunk
+
+    使用 RecursiveCharacterTextSplitter 按段落、句子等边界拆分，
+    避免单个 chunk 过大影响检索精度。
+    """
     if len(text) <= MAX_CHUNK_TEXT_LENGTH:
         return [text]
     return _LONG_CHUNK_SPLITTER.split_text(text)
 
 
 def _should_skip_section(title: str) -> bool:
+    """判断是否跳过该章节
+
+    跳过"文档来源"等非业务内容章节。
+    """
     lowered = title.lower()
     return any(keyword.lower() in lowered for keyword in _SKIP_SECTION_KEYWORDS)
 
 
 def _extract_table_name(text: str, heading: str = "") -> str:
+    """从文本中提取表名
+
+    使用预编译的正则模式匹配表名，优先从标题中提取，
+    标题未匹配则从正文中提取。
+    """
     for candidate in (heading, text):
         for pattern in _TABLE_NAME_PATTERNS:
             match = pattern.search(candidate)

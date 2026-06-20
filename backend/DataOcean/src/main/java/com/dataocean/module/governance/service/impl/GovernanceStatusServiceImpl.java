@@ -137,26 +137,59 @@ public class GovernanceStatusServiceImpl implements GovernanceStatusService {
         return Map.of("updated", updated, "excluded", excluded);
     }
 
+    /**
+     * 校验治理状态值的合法性。
+     * <p>
+     * 合法状态值定义在 VALID_STATUSES 常量中，包括：
+     * APPROVED, REJECTED, BLOCKED, DEPRECATED, NEEDS_REVIEW 等。
+     * </p>
+     *
+     * @param status 待校验的状态值
+     * @throws BusinessException 如果状态值不合法
+     */
     private void validateStatus(String status) {
         if (!VALID_STATUSES.contains(status)) {
             throw new BusinessException(400, "无效的治理状态: " + status);
         }
     }
 
+    /**
+     * 记录审核操作到审核记录表。
+     * <p>
+     * 在每次状态变更时调用，记录完整的审核轨迹，包括：
+     * <ul>
+     *   <li>目标信息：快照ID、数据源ID、目标类型（TABLE/COLUMN）、表名、列名</li>
+     *   <li>操作信息：操作动作、原状态、新状态</li>
+     *   <li>操作人信息：操作人ID、备注</li>
+     * </ul>
+     * </p>
+     *
+     * @param snapshotId   快照ID
+     * @param datasourceId 数据源ID
+     * @param targetType   目标类型（TABLE/COLUMN）
+     * @param tableName    表名
+     * @param columnName   列名（可为 null，表级操作时无列名）
+     * @param action       操作动作
+     * @param oldStatus    原状态
+     * @param newStatus    新状态
+     * @param operatorId   操作人ID
+     * @param remark       备注
+     */
     private void recordReview(Long snapshotId, Long datasourceId, String targetType,
                               String tableName, String columnName, String action,
                               String oldStatus, String newStatus, Long operatorId, String remark) {
+        // 构建审核记录实体
         MetadataReviewRecord record = new MetadataReviewRecord();
         record.setSnapshotId(snapshotId);
         record.setDatasourceId(datasourceId);
-        record.setTargetType(targetType);
+        record.setTargetType(targetType);       // TABLE 或 COLUMN
         record.setTableName(tableName);
-        record.setColumnName(columnName);
-        record.setAction(action);
-        record.setOldStatus(oldStatus);
-        record.setNewStatus(newStatus);
-        record.setOperatorId(operatorId);
-        record.setRemark(remark);
+        record.setColumnName(columnName);       // 表级操作时为 null
+        record.setAction(action);               // 操作动作（如 APPROVE、REJECT、BLOCK）
+        record.setOldStatus(oldStatus);         // 变更前的状态
+        record.setNewStatus(newStatus);         // 变更后的状态
+        record.setOperatorId(operatorId);       // 执行操作的用户ID
+        record.setRemark(remark);               // 操作备注（如拒绝原因）
         reviewRecordMapper.insert(record);
     }
 }

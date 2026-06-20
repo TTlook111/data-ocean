@@ -34,14 +34,20 @@ _BLACKLIST = frozenset({
 
 
 def check(sql: str) -> RuleResult:
-    """检查 SQL 中是否包含黑名单函数"""
+    """检查 SQL 中是否包含黑名单函数
+
+    使用 sqlglot AST 解析遍历所有函数调用节点，
+    检查函数名是否在危险函数黑名单中。
+    """
     try:
         tree = sqlglot.parse_one(sql, dialect="mysql")
     except sqlglot.errors.ParseError as e:
         return RuleResult(passed=False, rule_name=RULE_NAME, reason=f"SQL 语法解析失败：{e}")
 
+    # 遍历 AST 中的所有节点，检查函数调用
     for node in tree.walk():
         if isinstance(node, (exp.Anonymous, exp.Func)):
+            # 提取函数名（兼容不同类型的函数节点）
             func_name = ""
             if isinstance(node, exp.Anonymous):
                 func_name = node.name.upper()
