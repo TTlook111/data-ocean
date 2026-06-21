@@ -246,11 +246,12 @@ Frontend routes are split between:
 - `/admin/*`: governance, metadata, knowledge, glossary, prompt, audit, permissions, and system management.
 - `/admin/metadata/catalog`: metadata catalog search and entity graph entry.
 - `/admin/glossary/list`: glossary management.
+- `/admin/system/operation-logs`: operation log management.
 - `/admin/system/ai-config`: AI provider/model/embedding configuration.
 
 The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`.
 
-Frontend API modules live under `frontend/src/api/`, including admin modules for catalog, glossary, metadata, permission, prompt, system, user, versioning, and related domains.
+Frontend API modules live under `frontend/src/api/`, including admin modules for catalog, glossary, metadata, operation-log, permission, prompt, system, user, versioning, and related domains.
 
 ## Key APIs
 

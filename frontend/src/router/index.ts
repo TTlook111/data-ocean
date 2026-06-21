@@ -40,6 +40,7 @@ const AccessControl = () => import('../views/admin/permission/AccessControl.vue'
 const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
 const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
 const AiConfig = () => import('../views/admin/system/AiConfig.vue')
+const OperationLogList = () => import('../views/admin/system/OperationLogList.vue')
 const QueryGuide = () => import('../views/guide/QueryGuide.vue')
 const AdminGuide = () => import('../views/guide/AdminGuide.vue')
 
@@ -279,6 +280,12 @@ const router = createRouter({
           name: 'admin-system-health',
           component: ServiceHealth,
           meta: { title: '服务健康', section: '系统管理', permission: '*' },
+        },
+        {
+          path: 'system/operation-logs',
+          name: 'admin-system-operation-logs',
+          component: OperationLogList,
+          meta: { title: '操作日志', section: '系统管理', permission: 'audit:view' },
         },
         {
           path: 'system/ai-config',

@@ -136,6 +136,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
     label: '系统管理',
     items: [
       { label: '服务健康', to: '/admin/system/health', icon: HeartPulse, permission: '*' },
+      { label: '操作日志', to: '/admin/system/operation-logs', icon: ClipboardList, permission: 'audit:view' },
       { label: 'AI 配置', to: '/admin/system/ai-config', icon: Cpu, permission: 'system:ai-config:view' },
     ],
   },
