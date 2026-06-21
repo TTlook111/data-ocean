@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch, type Component } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Activity,
+  Bell,
   BookOpen,
   Building2,
   Calendar,
@@ -35,6 +36,12 @@ import {
 import { useAuthStore } from '../stores/auth'
 import { useGsapMotion } from '../composables/useGsapMotion'
 import { roleCodesLabel } from '../utils/enumLabels'
+import {
+  getUnreadNotificationCount,
+  listNotifications,
+  markNotificationAsRead,
+  type NotificationItem,
+} from '../api/notification'
 import AdminContextBar from './AdminContextBar.vue'
 
 interface MenuItem {
@@ -51,6 +58,11 @@ const collapsed = ref(false)
 const drawerVisible = ref(false)
 const shellRef = ref<HTMLElement | null>(null)
 const { gsap, reveal, withContext } = useGsapMotion(shellRef)
+const notificationLoading = ref(false)
+const unreadNotificationCount = ref(0)
+const notifications = ref<NotificationItem[]>([])
+let notificationTimer: ReturnType<typeof window.setInterval> | undefined
+const hasUnreadInPanel = computed(() => notifications.value.some((item) => !item.isRead))
 
 const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
   {
@@ -229,6 +241,72 @@ function handleUserCommand(command: string) {
   }
 }
 
+async function fetchUnreadCount() {
+  try {
+    const result = await getUnreadNotificationCount()
+    unreadNotificationCount.value = result.data?.count ?? 0
+  } catch {
+    unreadNotificationCount.value = 0
+  }
+}
+
+async function fetchNotifications() {
+  notificationLoading.value = true
+  try {
+    const result = await listNotifications({ page: 1, pageSize: 8 })
+    notifications.value = result.data?.records ?? []
+    await fetchUnreadCount()
+  } catch {
+    notifications.value = []
+  } finally {
+    notificationLoading.value = false
+  }
+}
+
+async function handleReadNotification(item: NotificationItem) {
+  if (!item.isRead) {
+    try {
+      await markNotificationAsRead(item.id)
+      item.isRead = true
+      unreadNotificationCount.value = Math.max(0, unreadNotificationCount.value - 1)
+    } catch {
+      await fetchUnreadCount()
+    }
+  }
+}
+
+async function markVisibleNotificationsAsRead() {
+  const unreadItems = notifications.value.filter((item) => !item.isRead)
+  if (!unreadItems.length) return
+  await Promise.allSettled(unreadItems.map((item) => markNotificationAsRead(item.id)))
+  unreadItems.forEach((item) => {
+    item.isRead = true
+  })
+  await fetchUnreadCount()
+}
+
+function notificationTypeLabel(type?: string) {
+  const labels: Record<string, string> = {
+    FIELD_CONFIDENCE_ALERT: '字段治理',
+    SNAPSHOT_PUBLISHED: '快照发布',
+    SNAPSHOT_EXPIRED: '快照过期',
+    SYSTEM_ALERT: '系统',
+  }
+  return labels[type || ''] || '通知'
+}
+
+function formatNotificationTime(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date)
+}
+
 onMounted(() => {
   withContext(() => {
     reveal('.sidebar-brand, .nav-section, .app-topbar', {
@@ -241,6 +319,14 @@ onMounted(() => {
       stagger: 0.022,
     })
   })
+  fetchUnreadCount()
+  notificationTimer = window.setInterval(fetchUnreadCount, 60_000)
+})
+
+onBeforeUnmount(() => {
+  if (notificationTimer) {
+    window.clearInterval(notificationTimer)
+  }
 })
 
 // 路由切换时不再对内容区做弹跳动画，避免视觉上像「整个页面在刷新」的错觉
@@ -301,10 +387,66 @@ watch(collapsed, async () => {
           <h1>{{ currentTitle }}</h1>
         </div>
 
-        <button class="user-pill" type="button" @click="drawerVisible = true">
-          <span class="user-avatar">{{ displayName.slice(0, 1) }}</span>
-          <strong>{{ displayName }}</strong>
-        </button>
+        <div class="topbar-actions">
+          <el-popover
+            placement="bottom-end"
+            width="360"
+            trigger="click"
+            popper-class="notification-popover"
+            @show="fetchNotifications"
+          >
+            <template #reference>
+              <button class="icon-button" type="button" aria-label="通知">
+                <el-badge :value="unreadNotificationCount" :hidden="unreadNotificationCount === 0" :max="99">
+                  <Bell :size="19" />
+                </el-badge>
+              </button>
+            </template>
+
+            <div class="notification-panel" v-loading="notificationLoading">
+              <div class="notification-panel__header">
+                <div>
+                  <strong>通知中心</strong>
+                  <span>{{ unreadNotificationCount }} 条未读</span>
+                </div>
+                <button
+                  class="notification-mark-read"
+                  type="button"
+                  :disabled="!hasUnreadInPanel"
+                  @click="markVisibleNotificationsAsRead"
+                >
+                  全部已读
+                </button>
+              </div>
+              <div v-if="notifications.length" class="notification-list">
+                <button
+                  v-for="item in notifications"
+                  :key="item.id"
+                  class="notification-item"
+                  :class="{ unread: !item.isRead }"
+                  type="button"
+                  @click="handleReadNotification(item)"
+                >
+                  <span class="notification-dot"></span>
+                  <span class="notification-body">
+                    <span class="notification-meta">
+                      <b>{{ notificationTypeLabel(item.type) }}</b>
+                      <em>{{ formatNotificationTime(item.createdAt) }}</em>
+                    </span>
+                    <strong>{{ item.title }}</strong>
+                    <small>{{ item.content }}</small>
+                  </span>
+                </button>
+              </div>
+              <el-empty v-else description="暂无通知" :image-size="72" />
+            </div>
+          </el-popover>
+
+          <button class="user-pill" type="button" @click="drawerVisible = true">
+            <span class="user-avatar">{{ displayName.slice(0, 1) }}</span>
+            <strong>{{ displayName }}</strong>
+          </button>
+        </div>
       </header>
 
       <AdminContextBar v-if="showAdminContext" />

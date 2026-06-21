@@ -97,6 +97,7 @@ Known follow-up areas live in `docs/development/后续开发.md`. The seven-stag
 - **Stage 5 classification and quality deepening completed** (2026-06-14): `classification`, `tag`, 14 seeded tags, Python auto tagger, data-level quality rules, and quality trend table.
 - **Stage 6 permission enhancement completed** (2026-06-14): policy priority, validity windows, time schedules, permission change log, and audit integration.
 - **Stage 7 event-driven governance completed** (2026-06-14): `metadata_change_event`, access approval request flow, temporary allow policies, expiry cleanup, and blocked/deprecated access constraints.
+- **P1 notification system integration completed** (2026-06-21): frontend notification bell/dropdown and `/api/notifications` client are connected; field feedback group-threshold and snapshot publish/expire events now send system notifications.
 - **Datasource grant semantics added**: `V42__datasource_access_effect.sql` makes datasource grant allow/deny decisions explicit.
 
 ## Core Domain Concepts
@@ -251,7 +252,7 @@ Frontend routes are split between:
 
 The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`.
 
-Frontend API modules live under `frontend/src/api/`, including admin modules for catalog, glossary, metadata, operation-log, permission, prompt, system, user, versioning, and related domains.
+Frontend API modules live under `frontend/src/api/`, including notification and admin modules for catalog, glossary, metadata, operation-log, permission, prompt, system, user, versioning, and related domains.
 
 ## Key APIs
 
@@ -288,6 +289,9 @@ Selected public APIs:
 | `GET` | `/api/admin/access-approvals` | Access approval list |
 | `POST` | `/api/admin/access-approvals` | Submit access request |
 | `POST` | `/api/admin/access-approvals/{id}/review` | Review access request |
+| `GET` | `/api/notifications` | Current user notifications |
+| `PATCH` | `/api/notifications/{id}/read` | Mark notification read |
+| `GET` | `/api/notifications/unread-count` | Current user unread notification count |
 
 ## Development Commands
 
@@ -338,7 +342,7 @@ mvn test
 Latest documented verification:
 
 - Python: 102 tests passed, 4 skipped.
-- Java: 72 tests passed.
+- Java: 103 tests passed.
 - Remaining test gap: Agent workflow coverage around query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 
 ## Security Constraints

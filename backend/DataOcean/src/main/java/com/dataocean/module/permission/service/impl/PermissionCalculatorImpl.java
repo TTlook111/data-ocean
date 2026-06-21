@@ -479,7 +479,7 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         // 设置脱敏列
         context.setMaskColumns(finalMask);
 
-        log.debug(“权限计算完成 datasourceId={} deniedColumns={} deniedTables={} masks={} filters={}”,
+        log.debug("权限计算完成 datasourceId={} deniedColumns={} deniedTables={} masks={} filters={}",
                 datasourceId, finalDenied.size(), deniedTables.size(), finalMask.size(), finalRowFilters.size());
         return context;
     }
