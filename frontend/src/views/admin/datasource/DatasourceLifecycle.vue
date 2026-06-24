@@ -1,19 +1,41 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useRoute, RouterLink } from 'vue-router'
+import { computed, onMounted, ref, type Component } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import {
+  Activity,
+  AlertTriangle,
   BookOpenCheck,
   CheckCircle2,
+  CircleDot,
   ClipboardCheck,
   Database,
   FileCheck2,
+  GitBranch,
   KeyRound,
   Link2,
   RefreshCw,
-  ShieldAlert,
   ShieldCheck,
+  Table2,
+  Users,
 } from 'lucide-vue-next'
-import { getDatasourceReadiness, type DatasourceReadiness } from '../../../api/admin/datasource'
+import {
+  getDatasource,
+  getDatasourceReadiness,
+  listDatasourceAccess,
+  type DatasourceAccessItem,
+  type DatasourceItem,
+  type DatasourceReadiness,
+} from '../../../api/admin/datasource'
+import {
+  getSnapshotDetail,
+  listSnapshots,
+  listSyncTasks,
+  type SnapshotDetail,
+  type SnapshotItem,
+  type SyncTaskItem,
+} from '../../../api/admin/metadata'
+import { listQualityIssues, type QualityIssueItem } from '../../../api/admin/governance'
+import { listKnowledgeDocs, type KnowledgeDocItem } from '../../../api/admin/knowledge'
 
 interface LifecycleStep {
   key: string
@@ -24,361 +46,604 @@ interface LifecycleStep {
   actionPath: string
   ready: boolean
   active: boolean
-  icon: typeof Database
+  icon: Component
 }
 
 const route = useRoute()
+const datasource = ref<DatasourceItem>()
+const readiness = ref<DatasourceReadiness>()
+const snapshots = ref<SnapshotItem[]>([])
+const snapshotDetail = ref<SnapshotDetail>()
+const syncTasks = ref<SyncTaskItem[]>([])
+const qualityIssues = ref<QualityIssueItem[]>([])
+const knowledgeDocs = ref<KnowledgeDocItem[]>([])
+const accessList = ref<DatasourceAccessItem[]>([])
+const activeTab = ref('overview')
 const loading = ref(false)
 const errorMessage = ref('')
-const readiness = ref<DatasourceReadiness>()
 
 const datasourceId = computed(() => Number(route.params.id))
+const displayName = computed(() => readiness.value?.datasourceName || datasource.value?.name || `数据源 #${route.params.id}`)
+const latestSnapshot = computed(() => snapshots.value[0])
 const firstReason = computed(() => readiness.value?.blockReasons?.[0])
 
-const steps = computed<LifecycleStep[]>(() => {
-  const item = readiness.value
-  if (!item) return []
-  const firstBlockedKey = [
-    ['connection', item.connectionReady],
-    ['metadata', item.metadataReady],
-    ['governance', item.governanceReady],
-    ['knowledge', item.knowledgeReady],
-    ['permission', item.permissionReady],
-    ['askable', item.askable],
-  ].find(([, ready]) => !ready)?.[0]
+const hostText = computed(() => {
+  if (!datasource.value) return '-'
+  return `${datasource.value.host}:${datasource.value.port}`
+})
 
+const statusText = computed(() => datasource.value?.status === 1 ? '启用' : '停用')
+const healthText = computed(() => {
+  const health = datasource.value?.healthStatus
+  if (health === 'UP') return '健康'
+  if (health === 'DOWN') return '异常'
+  return '未检测'
+})
+
+const stageTone = computed(() => {
+  if (readiness.value?.askable) return 'success'
+  if (readiness.value?.progress && readiness.value.progress >= 60) return 'warning'
+  return 'info'
+})
+
+const summaryStats = computed(() => [
+  { label: '表数量', value: latestSnapshot.value?.tableCount ?? snapshotDetail.value?.tables.length ?? '-' },
+  { label: '字段数量', value: latestSnapshot.value?.columnCount ?? snapshotDetail.value?.columns.length ?? '-' },
+  { label: '质量评分', value: latestSnapshot.value?.qualityScore ?? '-' },
+  { label: '授权用户', value: accessList.value.length },
+])
+
+function currentLifecycleStepKey(stage?: string) {
+  const stageMap: Record<string, string> = {
+    CONNECTION_CHECK_REQUIRED: 'CONNECTION',
+    SNAPSHOT_PENDING: 'METADATA',
+    GOVERNANCE_BLOCKED: 'GOVERNANCE',
+    KNOWLEDGE_PENDING: 'KNOWLEDGE',
+    PERMISSION_PENDING: 'PERMISSION',
+    READY: 'ASKABLE',
+    UNKNOWN: '',
+  }
+  return stageMap[stage || ''] || ''
+}
+
+const lifecycleSteps = computed<LifecycleStep[]>(() => {
+  const currentKey = currentLifecycleStepKey(readiness.value?.stage)
   return [
     {
-      key: 'connection',
+      key: 'CONNECTION',
       title: '接入验证',
-      owner: '数据管理员',
-      description: '数据源已启用，并且最近一次连接健康检查通过。',
+      owner: '数据源管理员',
+      description: healthText.value,
       actionText: '测试连接',
       actionPath: '/admin/datasources',
-      ready: item.connectionReady,
-      active: firstBlockedKey === 'connection',
+      ready: Boolean(readiness.value?.connectionReady),
+      active: currentKey === 'CONNECTION',
       icon: Link2,
     },
     {
-      key: 'metadata',
+      key: 'METADATA',
       title: '采集快照',
-      owner: '治理负责人',
-      description: item.snapshotVersion ? `已发布元数据快照 V${item.snapshotVersion}` : '需要完成元数据同步并发布可用快照。',
-      actionText: '发布快照',
-      actionPath: '/admin/metadata/lifecycle',
-      ready: item.metadataReady,
-      active: firstBlockedKey === 'metadata',
+      owner: '元数据管理员',
+      description: latestSnapshot.value ? `v${latestSnapshot.value.snapshotVersion}` : '等待采集',
+      actionText: '同步任务',
+      actionPath: '/admin/metadata/sync',
+      ready: Boolean(readiness.value?.metadataReady),
+      active: currentKey === 'METADATA',
       icon: Database,
     },
     {
-      key: 'governance',
+      key: 'GOVERNANCE',
       title: '治理处理',
-      owner: '数据管理员',
-      description: '高危治理问题已经处理，不会把阻塞或废弃字段带入查询链路。',
-      actionText: '处理问题',
+      owner: '数据治理人员',
+      description: qualityIssues.value.length ? `${qualityIssues.value.length} 个待处理` : '状态可用',
+      actionText: '问题清单',
       actionPath: '/admin/governance/issues',
-      ready: item.governanceReady,
-      active: firstBlockedKey === 'governance',
+      ready: Boolean(readiness.value?.governanceReady),
+      active: currentKey === 'GOVERNANCE',
       icon: ClipboardCheck,
     },
     {
-      key: 'knowledge',
+      key: 'KNOWLEDGE',
       title: '语义发布',
-      owner: '数据分析师',
-      description: item.knowledgeVersion ? `已发布 skills.md V${item.knowledgeVersion}` : '需要审核并发布 skills.md，完成向量化后才能进入召回。',
-      actionText: '知识审核',
-      actionPath: '/admin/knowledge/review',
-      ready: item.knowledgeReady,
-      active: firstBlockedKey === 'knowledge',
+      owner: '知识维护人员',
+      description: readiness.value?.knowledgeVersion ? `v${readiness.value.knowledgeVersion}` : '未发布',
+      actionText: '知识库',
+      actionPath: '/admin/knowledge',
+      ready: Boolean(readiness.value?.knowledgeReady),
+      active: currentKey === 'KNOWLEDGE',
       icon: BookOpenCheck,
     },
     {
-      key: 'permission',
+      key: 'PERMISSION',
       title: '权限配置',
-      owner: '安全管理员',
-      description: '已有有效查询授权，且没有被显式拒绝策略覆盖。',
-      actionText: '配置权限',
+      owner: '权限管理员',
+      description: accessList.value.length ? `${accessList.value.length} 人可用` : '等待授权',
+      actionText: '权限中心',
       actionPath: '/admin/permission/access',
-      ready: item.permissionReady,
-      active: firstBlockedKey === 'permission',
+      ready: Boolean(readiness.value?.permissionReady),
+      active: currentKey === 'PERMISSION',
       icon: KeyRound,
     },
     {
-      key: 'askable',
-      title: '可询问',
+      key: 'ASKABLE',
+      title: '开放询问',
       owner: '业务用户',
-      description: '该数据源已经可以在智能问答中使用。',
-      actionText: '去查询',
+      description: readiness.value?.askable ? '可询问' : '未开放',
+      actionText: '智能问答',
       actionPath: '/query',
-      ready: item.askable,
-      active: firstBlockedKey === 'askable',
+      ready: Boolean(readiness.value?.askable),
+      active: currentKey === 'ASKABLE',
       icon: ShieldCheck,
     },
     {
-      key: 'archive',
+      key: 'ARCHIVE',
       title: '持续运营',
       owner: '平台管理员',
-      description: '持续关注慢查询、反馈、权限变更和元数据版本演进。',
-      actionText: '查看审计',
+      description: '审计与反馈',
+      actionText: '审计日志',
       actionPath: '/admin/audit/logs',
-      ready: item.askable,
+      ready: Boolean(readiness.value?.askable),
       active: false,
       icon: FileCheck2,
     },
   ]
 })
 
-async function fetchReadiness() {
-  if (!datasourceId.value) {
-    errorMessage.value = '数据源 ID 无效'
+function stepClass(step: LifecycleStep) {
+  if (step.ready) return 'done'
+  if (step.active) return 'active'
+  return 'pending'
+}
+
+function formatTime(value?: string) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+function syncProgress(task: SyncTaskItem) {
+  if (!task.progressTotal) return 0
+  return Math.min(100, Math.round(((task.progressCurrent || 0) / task.progressTotal) * 100))
+}
+
+function statusType(status?: string) {
+  if (!status) return 'info'
+  if (['SUCCESS', 'PUBLISHED', 'APPROVED', 'RESOLVED'].includes(status)) return 'success'
+  if (['RUNNING', 'PENDING', 'PENDING_REVIEW', 'INDEXING', 'OPEN'].includes(status)) return 'warning'
+  if (['FAILED', 'REJECTED', 'BLOCKED'].includes(status)) return 'danger'
+  return 'info'
+}
+
+async function fetchDetail() {
+  if (!Number.isFinite(datasourceId.value)) {
+    errorMessage.value = '数据源编号无效'
     return
   }
+
   loading.value = true
   errorMessage.value = ''
+  snapshotDetail.value = undefined
+  qualityIssues.value = []
+
   try {
-    const result = await getDatasourceReadiness(datasourceId.value)
-    readiness.value = result.data
+    const [
+      datasourceResult,
+      readinessResult,
+      snapshotResult,
+      taskResult,
+      knowledgeResult,
+      accessResult,
+    ] = await Promise.all([
+      getDatasource(datasourceId.value),
+      getDatasourceReadiness(datasourceId.value),
+      listSnapshots({ datasourceId: datasourceId.value, page: 1, size: 5 }),
+      listSyncTasks({ datasourceId: datasourceId.value, page: 1, size: 5 }),
+      listKnowledgeDocs({ datasourceId: datasourceId.value, page: 1, pageSize: 5 }),
+      listDatasourceAccess(datasourceId.value),
+    ])
+
+    datasource.value = datasourceResult.data
+    readiness.value = readinessResult.data
+    snapshots.value = snapshotResult.data?.records || []
+    syncTasks.value = taskResult.data?.records || []
+    knowledgeDocs.value = knowledgeResult.data?.records || []
+    accessList.value = accessResult.data || []
+
+    const snapshotId = latestSnapshot.value?.id
+    if (snapshotId) {
+      const [detailResult, issueResult] = await Promise.allSettled([
+        getSnapshotDetail(snapshotId),
+        listQualityIssues(snapshotId, { page: 1, size: 5, status: 'OPEN' }),
+      ])
+
+      if (detailResult.status === 'fulfilled') {
+        snapshotDetail.value = detailResult.value.data
+      }
+      if (issueResult.status === 'fulfilled') {
+        qualityIssues.value = issueResult.value.data?.records || []
+      }
+    }
   } catch (error) {
-    errorMessage.value =
-      typeof error === 'object' &&
-      error !== null &&
-      'response' in error &&
-      typeof (error as { response?: { data?: { message?: string } } }).response?.data?.message === 'string'
-        ? (error as { response: { data: { message: string } } }).response.data.message
-        : '数据源流程状态加载失败'
+    console.error(error)
+    errorMessage.value = '数据源详情加载失败，请稍后重试'
   } finally {
     loading.value = false
   }
 }
 
-onMounted(fetchReadiness)
+onMounted(fetchDetail)
 </script>
 
 <template>
-  <main class="lifecycle-page post-login-page">
-    <section class="lifecycle-hero">
-      <div class="hero-icon">
-        <Database :size="34" />
+  <main class="datasource-detail-page post-login-page">
+    <section class="detail-hero">
+      <div class="hero-symbol">
+        <Database :size="42" />
       </div>
       <div class="hero-main">
-        <span>数据源上线流程</span>
-        <h1>{{ readiness?.datasourceName || `数据源 #${datasourceId}` }}</h1>
-        <p>用接入、采集、治理、语义、权限和可询问状态判断当前数据源走到了哪一步。</p>
+        <div class="hero-kicker">
+          <span>数据源详情</span>
+          <el-tag :type="stageTone">{{ readiness?.stageLabel || '状态确认中' }}</el-tag>
+        </div>
+        <h1>{{ displayName }}</h1>
+        <div class="hero-meta">
+          <span>数据库：{{ datasource?.databaseName || '-' }}</span>
+          <span>类型：{{ datasource?.dbType || 'MySQL' }}</span>
+          <span>主机：{{ hostText }}</span>
+          <span>状态：{{ statusText }} / {{ healthText }}</span>
+        </div>
       </div>
-      <div v-if="readiness" class="hero-status" :class="{ success: readiness.askable }">
-        <strong>{{ readiness.stageLabel }}</strong>
-        <small>{{ readiness.progress }}%</small>
+      <div class="hero-progress">
+        <el-progress
+          type="dashboard"
+          :percentage="readiness?.progress || 0"
+          :width="104"
+          :stroke-width="9"
+          :color="readiness?.askable ? '#16a34a' : '#2563eb'"
+        />
+        <span>{{ readiness?.askable ? '可询问' : '推进中' }}</span>
       </div>
     </section>
 
-    <el-result v-if="errorMessage" icon="error" title="流程状态加载失败" :sub-title="errorMessage">
+    <el-result v-if="errorMessage" icon="error" title="加载失败" :sub-title="errorMessage">
       <template #extra>
-        <el-button type="primary" @click="fetchReadiness">重试</el-button>
+        <el-button type="primary" @click="fetchDetail">重新加载</el-button>
       </template>
     </el-result>
 
     <template v-else>
-      <section v-loading="loading" class="flow-panel">
-        <div v-if="readiness" class="flow-track">
+      <section v-loading="loading" class="process-section">
+        <div class="process-header">
+          <div>
+            <p>当前阶段</p>
+            <h2>{{ readiness?.stageLabel || '状态确认中' }}</h2>
+          </div>
+          <el-button :icon="RefreshCw" @click="fetchDetail">刷新</el-button>
+        </div>
+
+        <div class="process-track">
           <div
-            v-for="(step, index) in steps"
+            v-for="(step, index) in lifecycleSteps"
             :key="step.key"
-            class="flow-step"
-            :class="{ done: step.ready, active: step.active }"
+            class="process-step"
+            :class="stepClass(step)"
           >
-            <div class="step-line" :class="{ filled: index > 0 && steps[index - 1].ready }"></div>
+            <div class="step-line" :class="{ filled: index === 0 || lifecycleSteps[index - 1]?.ready }" />
             <div class="step-node">
-              <CheckCircle2 v-if="step.ready" :size="18" />
-              <component :is="step.icon" v-else :size="18" />
+              <CheckCircle2 v-if="step.ready" :size="20" />
+              <CircleDot v-else-if="step.active" :size="20" />
+              <component :is="step.icon" v-else :size="20" />
             </div>
-            <strong>{{ step.title }}</strong>
-            <span>{{ step.owner }}</span>
-            <small>{{ step.ready ? '已完成' : step.active ? '当前阻塞' : '待处理' }}</small>
+            <h3>{{ step.title }}</h3>
+            <p>{{ step.owner }}</p>
+            <span>{{ step.description }}</span>
+            <RouterLink :to="step.actionPath">{{ step.actionText }}</RouterLink>
           </div>
         </div>
       </section>
 
-      <section v-if="readiness" class="detail-grid">
-        <article class="summary-panel">
-          <div class="panel-title">
-            <ShieldAlert v-if="!readiness.askable" :size="18" />
-            <ShieldCheck v-else :size="18" />
-            <strong>{{ readiness.askable ? '已达到可询问状态' : '当前阻塞原因' }}</strong>
-          </div>
-          <p>{{ firstReason?.message || '全部关键环节已完成，可以进入智能问答。' }}</p>
-          <RouterLink
-            v-if="firstReason?.actionPath"
-            class="primary-link"
-            :to="firstReason.actionPath"
-          >
-            {{ firstReason.actionText || '去处理' }}
-          </RouterLink>
-          <RouterLink v-else class="primary-link" to="/query">去智能问答</RouterLink>
-        </article>
-
-        <article class="summary-panel">
-          <div class="panel-title">
-            <RefreshCw :size="18" />
-            <strong>版本状态</strong>
-          </div>
-          <dl class="status-list">
-            <div>
-              <dt>发布快照</dt>
-              <dd>{{ readiness.snapshotVersion ? `V${readiness.snapshotVersion}` : '未发布' }}</dd>
-            </div>
-            <div>
-              <dt>语义知识</dt>
-              <dd>{{ readiness.knowledgeVersion ? `V${readiness.knowledgeVersion}` : '未发布' }}</dd>
-            </div>
-            <div>
-              <dt>查询授权</dt>
-              <dd>{{ readiness.permissionReady ? '已配置' : '未完成' }}</dd>
-            </div>
-          </dl>
-        </article>
-
-        <article class="step-detail-panel">
-          <div class="panel-title">
-            <ClipboardCheck :size="18" />
-            <strong>流程明细</strong>
-          </div>
-          <div class="step-detail-list">
-            <div v-for="step in steps" :key="step.key" class="step-detail" :class="{ active: step.active }">
-              <component :is="step.ready ? CheckCircle2 : step.icon" :size="18" />
-              <div>
-                <strong>{{ step.title }}</strong>
-                <p>{{ step.description }}</p>
+      <section class="detail-tabs-section">
+        <el-tabs v-model="activeTab" class="detail-tabs">
+          <el-tab-pane label="概览" name="overview">
+            <div class="overview-grid">
+              <div class="status-panel">
+                <div class="panel-title">
+                  <AlertTriangle :size="18" />
+                  <span>{{ firstReason ? '当前阻塞项' : '当前状态' }}</span>
+                </div>
+                <h3>{{ firstReason?.message || '数据源已满足询问条件' }}</h3>
+                <p>{{ firstReason?.ownerRole || '平台持续记录查询、权限与治理反馈' }}</p>
+                <RouterLink v-if="firstReason?.actionPath" :to="firstReason.actionPath">
+                  {{ firstReason.actionText }}
+                </RouterLink>
               </div>
-              <RouterLink :to="step.actionPath">{{ step.actionText }}</RouterLink>
+
+              <div class="stats-grid">
+                <div v-for="item in summaryStats" :key="item.label" class="stat-item">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
             </div>
-          </div>
-        </article>
+          </el-tab-pane>
+
+          <el-tab-pane label="元数据" name="metadata">
+            <div class="tab-layout">
+              <div class="info-panel">
+                <div class="panel-title">
+                  <Table2 :size="18" />
+                  <span>最新快照</span>
+                </div>
+                <dl>
+                  <div>
+                    <dt>版本</dt>
+                    <dd>{{ latestSnapshot ? `v${latestSnapshot.snapshotVersion}` : '-' }}</dd>
+                  </div>
+                  <div>
+                    <dt>状态</dt>
+                    <dd>
+                      <el-tag :type="statusType(latestSnapshot?.status)">{{ latestSnapshot?.status || '-' }}</el-tag>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>生成时间</dt>
+                    <dd>{{ formatTime(latestSnapshot?.createdAt) }}</dd>
+                  </div>
+                </dl>
+              </div>
+
+              <div class="list-panel">
+                <div class="panel-title">
+                  <Activity :size="18" />
+                  <span>同步任务</span>
+                </div>
+                <div v-if="syncTasks.length" class="task-list">
+                  <div v-for="task in syncTasks" :key="task.id" class="task-row">
+                    <div>
+                      <strong>{{ task.triggerType }}</strong>
+                      <span>{{ formatTime(task.startedAt) }}</span>
+                    </div>
+                    <el-progress :percentage="syncProgress(task)" :show-text="false" :stroke-width="6" />
+                    <el-tag :type="statusType(task.status)">{{ task.status }}</el-tag>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无同步任务" />
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="治理" name="governance">
+            <div class="list-panel full">
+              <div class="panel-title">
+                <ClipboardCheck :size="18" />
+                <span>待处理问题</span>
+              </div>
+              <div v-if="qualityIssues.length" class="issue-list">
+                <div v-for="issue in qualityIssues" :key="issue.id" class="issue-row">
+                  <div>
+                    <strong>{{ issue.tableName }}{{ issue.columnName ? `.${issue.columnName}` : '' }}</strong>
+                    <span>{{ issue.issueDescription }}</span>
+                  </div>
+                  <el-tag :type="statusType(issue.severity)">{{ issue.severity }}</el-tag>
+                </div>
+              </div>
+              <el-empty v-else description="暂无待处理治理问题" />
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="语义知识" name="knowledge">
+            <div class="list-panel full">
+              <div class="panel-title">
+                <BookOpenCheck :size="18" />
+                <span>知识文档</span>
+              </div>
+              <div v-if="knowledgeDocs.length" class="doc-list">
+                <div v-for="doc in knowledgeDocs" :key="doc.id" class="doc-row">
+                  <div>
+                    <strong>{{ doc.title }}</strong>
+                    <span>v{{ doc.currentVersion }} · {{ formatTime(doc.updatedAt) }}</span>
+                  </div>
+                  <el-tag :type="statusType(doc.status)">{{ doc.status }}</el-tag>
+                </div>
+              </div>
+              <el-empty v-else description="暂无知识文档" />
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="权限" name="permission">
+            <div class="tab-layout">
+              <div class="info-panel">
+                <div class="panel-title">
+                  <KeyRound :size="18" />
+                  <span>可访问用户</span>
+                </div>
+                <strong class="big-number">{{ accessList.length }}</strong>
+                <p>最终是否可问，还会叠加角色策略、临时授权、行列权限和数据状态。</p>
+              </div>
+              <div class="list-panel">
+                <div class="panel-title">
+                  <Users :size="18" />
+                  <span>直接授权</span>
+                </div>
+                <div v-if="accessList.length" class="access-list">
+                  <div v-for="item in accessList.slice(0, 8)" :key="item.id" class="access-row">
+                    <span>{{ item.realName || item.username || `用户 ${item.userId}` }}</span>
+                    <small>{{ item.expiresAt ? `至 ${formatTime(item.expiresAt)}` : '长期' }}</small>
+                  </div>
+                </div>
+                <el-empty v-else description="暂无直接授权" />
+              </div>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane label="运营" name="operation">
+            <div class="tab-layout">
+              <div class="info-panel">
+                <div class="panel-title">
+                  <GitBranch :size="18" />
+                  <span>版本线索</span>
+                </div>
+                <dl>
+                  <div>
+                    <dt>快照版本</dt>
+                    <dd>{{ readiness?.snapshotVersion ? `v${readiness.snapshotVersion}` : '-' }}</dd>
+                  </div>
+                  <div>
+                    <dt>知识版本</dt>
+                    <dd>{{ readiness?.knowledgeVersion ? `v${readiness.knowledgeVersion}` : '-' }}</dd>
+                  </div>
+                  <div>
+                    <dt>可询问</dt>
+                    <dd>{{ readiness?.askable ? '是' : '否' }}</dd>
+                  </div>
+                </dl>
+              </div>
+              <div class="status-panel subtle">
+                <div class="panel-title">
+                  <Activity :size="18" />
+                  <span>运营判断</span>
+                </div>
+                <h3>{{ readiness?.askable ? '进入持续运营' : '仍在上线流程中' }}</h3>
+                <p>{{ readiness?.askable ? '可以通过审计、慢查询、反馈和治理事件继续迭代。' : '优先处理流程线上的当前阻塞项。' }}</p>
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </section>
     </template>
   </main>
 </template>
 
 <style scoped>
-.lifecycle-page {
+.datasource-detail-page {
   display: grid;
   gap: 18px;
 }
 
-.lifecycle-hero {
-  min-height: 132px;
+.detail-hero {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 18px;
-  padding: 24px;
-  border: 1px solid var(--do-line);
+  gap: 24px;
+  min-height: 168px;
+  padding: 28px 34px;
+  border: 1px solid #dbeafe;
   border-radius: 8px;
-  background: linear-gradient(105deg, #fff 0%, #fff 54%, #eef5ff 100%);
-  box-shadow: var(--do-shadow);
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.96) 58%, rgba(232, 240, 255, 0.92) 58%),
+    #f8fbff;
+  box-shadow: 0 16px 40px rgba(37, 99, 235, 0.08);
 }
 
-.hero-icon {
-  width: 64px;
-  height: 64px;
+.hero-symbol {
   display: grid;
   place-items: center;
+  width: 96px;
+  height: 96px;
+  color: #2563eb;
+  border: 1px solid #bfdbfe;
   border-radius: 8px;
-  color: var(--do-primary-strong);
-  background: rgba(77, 143, 220, 0.12);
+  background: #eff6ff;
+  box-shadow: inset 0 -10px 0 rgba(37, 99, 235, 0.08);
 }
 
 .hero-main {
   min-width: 0;
 }
 
-.hero-main span {
-  color: var(--do-muted);
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.hero-main h1 {
-  margin: 6px 0;
-  overflow: hidden;
-  color: var(--do-ink);
-  font-size: 24px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.hero-main p {
-  margin: 0;
-  color: var(--do-muted);
-  font-size: 13px;
-}
-
-.hero-status {
-  min-width: 108px;
-  display: grid;
-  gap: 4px;
-  justify-items: center;
-  padding: 12px;
-  border: 1px solid rgba(180, 83, 9, 0.22);
-  border-radius: 8px;
-  color: #92400e;
-  background: #fffbeb;
-}
-
-.hero-status.success {
-  border-color: rgba(22, 163, 74, 0.24);
-  color: #15803d;
-  background: #f0fdf4;
-}
-
-.hero-status strong {
+.hero-kicker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: #475569;
   font-size: 14px;
 }
 
-.hero-status small {
-  color: inherit;
-  font-weight: 900;
+.hero-main h1 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
-.flow-panel,
-.summary-panel,
-.step-detail-panel {
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
+.hero-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+  margin-top: 18px;
+  color: #334155;
+  font-size: 14px;
 }
 
-.flow-panel {
-  min-height: 188px;
-  padding: 28px 18px 22px;
-}
-
-.flow-track {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(110px, 1fr));
-}
-
-.flow-step {
-  position: relative;
-  min-width: 0;
+.hero-progress {
   display: grid;
   justify-items: center;
-  gap: 7px;
-  color: var(--do-muted);
+  gap: 6px;
+  color: #1e40af;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.process-section,
+.detail-tabs-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.process-section {
+  padding: 24px 18px 26px;
+}
+
+.process-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 6px 22px;
+}
+
+.process-header p {
+  margin: 0 0 4px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.process-header h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.process-track {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(116px, 1fr));
+  align-items: start;
+  overflow-x: auto;
+  padding: 8px 0 2px;
+}
+
+.process-step {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  min-width: 116px;
+  padding: 0 8px;
   text-align: center;
 }
 
 .step-line {
   position: absolute;
-  top: 17px;
-  right: 50%;
-  left: -50%;
+  top: 16px;
+  left: 0;
+  width: 100%;
   height: 2px;
   background: #cbd5e1;
-}
-
-.flow-step:first-child .step-line {
-  display: none;
 }
 
 .step-line.filled {
@@ -388,203 +653,279 @@ onMounted(fetchReadiness)
 .step-node {
   position: relative;
   z-index: 1;
-  width: 34px;
-  height: 34px;
   display: grid;
   place-items: center;
-  border: 2px solid #cbd5e1;
-  border-radius: 50%;
+  width: 34px;
+  height: 34px;
   color: #64748b;
-  background: #fff;
+  border: 2px solid #cbd5e1;
+  border-radius: 999px;
+  background: #ffffff;
 }
 
-.flow-step.done .step-node {
+.process-step.done .step-node {
+  color: #ffffff;
   border-color: #22c55e;
-  color: #fff;
   background: #22c55e;
 }
 
-.flow-step.active .step-node {
-  border-color: #b45309;
-  color: #b45309;
-  background: #fffbeb;
+.process-step.active .step-node {
+  color: #ffffff;
+  border-color: #f59e0b;
+  background: #f59e0b;
 }
 
-.flow-step strong {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--do-ink);
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.process-step h3 {
+  margin: 16px 0 6px;
+  color: #0f172a;
+  font-size: 15px;
+  line-height: 1.25;
 }
 
-.flow-step.done strong {
+.process-step.done h3 {
   color: #15803d;
 }
 
-.flow-step span,
-.flow-step small {
-  max-width: 100%;
-  overflow: hidden;
+.process-step.active h3 {
+  color: #b45309;
+}
+
+.process-step p,
+.process-step span {
+  margin: 0;
+  color: #64748b;
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.6;
 }
 
-.detail-grid {
+.process-step a {
+  margin-top: 8px;
+  color: #2563eb;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.detail-tabs-section {
+  padding: 0 24px 24px;
+}
+
+.detail-tabs :deep(.el-tabs__header) {
+  margin-bottom: 18px;
+}
+
+.overview-grid,
+.tab-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 0.85fr) minmax(260px, 0.85fr) minmax(380px, 1.3fr);
-  gap: 16px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  gap: 18px;
 }
 
-.summary-panel,
-.step-detail-panel {
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.status-panel,
+.info-panel,
+.list-panel,
+.stat-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.status-panel,
+.info-panel,
+.list-panel {
   padding: 18px;
+}
+
+.status-panel.subtle {
+  background: #f8fafc;
+}
+
+.status-panel h3 {
+  margin: 14px 0 8px;
+  color: #0f172a;
+  font-size: 18px;
+  line-height: 1.45;
+}
+
+.status-panel p,
+.info-panel p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.7;
+}
+
+.status-panel a {
+  display: inline-flex;
+  margin-top: 14px;
+  color: #2563eb;
+  text-decoration: none;
 }
 
 .panel-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--do-primary-strong);
+  color: #1e40af;
+  font-weight: 700;
 }
 
-.panel-title strong {
-  color: var(--do-ink);
-}
-
-.summary-panel p {
-  min-height: 54px;
-  margin: 14px 0;
-  color: #475569;
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.primary-link,
-.step-detail a {
-  color: var(--do-primary-strong);
-  font-size: 13px;
-  font-weight: 900;
-  text-decoration: none;
-}
-
-.status-list {
+.stat-item {
   display: grid;
-  gap: 12px;
-  margin: 14px 0 0;
+  gap: 8px;
+  padding: 18px;
 }
 
-.status-list div {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 10px;
-  border-bottom: 1px dashed var(--do-line);
-}
-
-.status-list dt,
-.status-list dd {
-  margin: 0;
+.stat-item span {
+  color: #64748b;
   font-size: 13px;
 }
 
-.status-list dt {
-  color: var(--do-muted);
+.stat-item strong,
+.big-number {
+  color: #0f172a;
+  font-size: 30px;
+  line-height: 1;
 }
 
-.status-list dd {
-  color: var(--do-ink);
-  font-weight: 900;
-}
-
-.step-detail-list {
+dl {
   display: grid;
-  gap: 10px;
-  margin-top: 14px;
+  gap: 14px;
+  margin: 18px 0 0;
 }
 
-.step-detail {
+dl div {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: 80px minmax(0, 1fr);
   align-items: center;
+  gap: 12px;
+}
+
+dt {
+  color: #64748b;
+}
+
+dd {
+  min-width: 0;
+  margin: 0;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.list-panel.full {
+  min-height: 260px;
+}
+
+.task-list,
+.issue-list,
+.doc-list,
+.access-list {
+  display: grid;
   gap: 10px;
-  padding: 11px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: #fff;
+  margin-top: 16px;
 }
 
-.step-detail.active {
-  border-color: rgba(180, 83, 9, 0.24);
-  background: #fffbeb;
+.task-row,
+.issue-row,
+.doc-row,
+.access-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid #e2e8f0;
 }
 
-.step-detail svg {
-  color: var(--do-primary-strong);
+.task-row {
+  grid-template-columns: minmax(0, 1fr) 120px auto;
 }
 
-.step-detail div {
+.task-row:last-child,
+.issue-row:last-child,
+.doc-row:last-child,
+.access-row:last-child {
+  border-bottom: 0;
+}
+
+.task-row div,
+.issue-row div,
+.doc-row div {
+  display: grid;
+  gap: 4px;
   min-width: 0;
 }
 
-.step-detail strong,
-.step-detail p {
+.task-row strong,
+.issue-row strong,
+.doc-row strong,
+.access-row span {
   overflow: hidden;
+  color: #0f172a;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.step-detail strong {
-  display: block;
-  color: var(--do-ink);
-  font-size: 13px;
-}
-
-.step-detail p {
-  margin: 3px 0 0;
-  color: var(--do-muted);
+.task-row span,
+.issue-row span,
+.doc-row span,
+.access-row small {
+  overflow: hidden;
+  color: #64748b;
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@media (max-width: 1180px) {
-  .flow-track {
-    grid-template-columns: repeat(4, minmax(120px, 1fr));
-    row-gap: 24px;
+@media (max-width: 1120px) {
+  .detail-hero {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .step-line {
-    display: none;
+  .hero-progress {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 
-  .detail-grid {
+  .overview-grid,
+  .tab-layout {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 720px) {
-  .lifecycle-hero {
+@media (max-width: 760px) {
+  .detail-hero {
+    grid-template-columns: 1fr;
+    padding: 22px;
+  }
+
+  .hero-symbol {
+    width: 72px;
+    height: 72px;
+  }
+
+  .hero-main h1 {
+    font-size: 22px;
+  }
+
+  .detail-tabs-section {
+    padding: 0 14px 18px;
+  }
+
+  .stats-grid {
     grid-template-columns: 1fr;
   }
 
-  .hero-status {
-    justify-items: start;
-  }
-
-  .flow-track {
+  .task-row,
+  .issue-row,
+  .doc-row,
+  .access-row {
     grid-template-columns: 1fr;
-  }
-
-  .flow-step {
-    grid-template-columns: 34px 1fr auto;
-    justify-items: start;
-    text-align: left;
-  }
-
-  .flow-step span,
-  .flow-step small {
-    display: none;
   }
 }
 </style>

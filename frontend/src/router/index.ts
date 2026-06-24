@@ -124,7 +124,7 @@ const router = createRouter({
           path: 'datasources/:id/lifecycle',
           name: 'admin-datasource-lifecycle',
           component: DatasourceLifecycle,
-          meta: { title: '数据源上线流程', section: '数据资产', permission: 'datasource:manage' },
+          meta: { title: '数据源详情', section: '数据资产', permission: 'datasource:manage' },
         },
         {
           path: 'metadata/sync',

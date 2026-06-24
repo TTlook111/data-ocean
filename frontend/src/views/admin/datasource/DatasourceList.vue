@@ -698,7 +698,7 @@ onBeforeUnmount(() => {
         <el-table-column prop="creatorName" label="创建者" min-width="100" />
         <el-table-column label="操作" width="290" fixed="right">
           <template #default="{ row }">
-            <RouterLink class="table-link" :to="`/admin/datasources/${row.id}/lifecycle`">流程</RouterLink>
+            <RouterLink class="table-link" :to="`/admin/datasources/${row.id}/lifecycle`">详情</RouterLink>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link type="success" :loading="rowTesting[row.id]" @click="testSaved(row)">
               <RefreshCw :size="14" />

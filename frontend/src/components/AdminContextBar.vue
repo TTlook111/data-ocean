@@ -102,3 +102,72 @@ onMounted(() => {
     <el-button class="context-refresh" :icon="RefreshCw" :loading="context.loading" size="small" @click="context.refresh" />
   </section>
 </template>
+
+<style scoped>
+.admin-context-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.1fr) minmax(180px, 0.8fr) minmax(220px, 1.1fr) auto;
+  align-items: end;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.context-control {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.context-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.context-control :deep(.el-select) {
+  width: 100%;
+}
+
+.context-control small {
+  min-height: 16px;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-refresh {
+  align-self: center;
+}
+
+@media (max-width: 1180px) {
+  .admin-context-bar {
+    grid-template-columns: repeat(2, minmax(220px, 1fr)) auto;
+  }
+
+  .context-control--wide:last-of-type {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-context-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .context-control--wide:last-of-type {
+    grid-column: auto;
+  }
+
+  .context-refresh {
+    justify-self: start;
+  }
+}
+</style>

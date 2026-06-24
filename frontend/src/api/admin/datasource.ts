@@ -109,6 +109,11 @@ export async function listSimpleDatasources() {
   return data
 }
 
+export async function getDatasource(id: number) {
+  const { data } = await http.get<ApiResult<DatasourceItem>>(`/api/admin/datasources/${id}`)
+  return data
+}
+
 export async function getDatasourceReadiness(id: number) {
   const { data } = await http.get<ApiResult<DatasourceReadiness>>(`/api/admin/datasources/${id}/readiness`)
   return data
