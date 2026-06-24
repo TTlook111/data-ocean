@@ -6,7 +6,9 @@ import com.dataocean.common.health.PythonHealthChecker;
 import com.dataocean.common.ratelimit.RateLimitService;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.datasource.entity.vo.DatasourceReadinessVO;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
+import com.dataocean.module.datasource.service.DatasourceReadinessService;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.service.SchemaSnapshotService;
 import com.dataocean.module.permission.service.DatasourcePermissionService;
@@ -42,6 +44,7 @@ public class QueryController {
     private final ConversationService conversationService;
     private final PythonAgentClient pythonAgentClient;
     private final DatasourceAccessService datasourceAccessService;
+    private final DatasourceReadinessService datasourceReadinessService;
     private final DatasourcePermissionService datasourcePermissionService;
     private final SchemaSnapshotService schemaSnapshotService;
     private final AuditLogService auditLogService;
@@ -71,6 +74,14 @@ public class QueryController {
         // 校验用户是否有权访问该数据源（多维度：用户 + 角色 + 部门）
         if (!datasourcePermissionService.checkUserAccess(userId, request.getDatasourceId())) {
             throw new BusinessException("无权访问该数据源");
+        }
+
+        DatasourceReadinessVO readiness = datasourceReadinessService.getCurrentUserReadiness(request.getDatasourceId());
+        if (!readiness.isAskable()) {
+            String reason = readiness.getBlockReasons() == null || readiness.getBlockReasons().isEmpty()
+                    ? "当前数据源暂未达到可询问状态"
+                    : readiness.getBlockReasons().get(0).getMessage();
+            throw new BusinessException(reason);
         }
 
         // 校验数据源已发布元数据快照（前置校验，避免产生无效任务）

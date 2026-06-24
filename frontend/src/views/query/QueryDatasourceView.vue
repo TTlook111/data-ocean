@@ -116,10 +116,10 @@ const displayName = computed(() => auth.currentUser?.realName || auth.user?.real
 const roleText = computed(() => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, '普通用户'))
 const selectedDatasource = computed(() => datasources.value.find((item) => item.id === selectedId.value))
 const selectedReadiness = computed(() => selectedId.value ? readinessMap.value[selectedId.value] : undefined)
-const canAskSelectedDatasource = computed(() => !selectedReadiness.value || selectedReadiness.value.askable)
+const canAskSelectedDatasource = computed(() => selectedReadiness.value?.askable === true)
 const selectedBlockReason = computed(() => selectedReadiness.value?.blockReasons?.[0])
 const askableDatasourceCount = computed(() =>
-  datasources.value.filter((item) => readinessMap.value[item.id]?.askable !== false).length,
+  datasources.value.filter((item) => readinessMap.value[item.id]?.askable === true).length,
 )
 const exampleQuestions = [
   '统计最近30天订单金额趋势',
@@ -748,7 +748,7 @@ async function fetchDatasources() {
     datasources.value = result.data
     await fetchDatasourceReadiness(result.data)
     if (result.data.length && (!selectedId.value || !result.data.some((item) => item.id === selectedId.value))) {
-      const firstAskable = result.data.find((item) => readinessMap.value[item.id]?.askable !== false)
+      const firstAskable = result.data.find((item) => readinessMap.value[item.id]?.askable === true)
       await selectDatasource((firstAskable || result.data[0]).id)
     }
     if (!result.data.length) {
@@ -985,11 +985,11 @@ watch(resultTab, () => {
             </div>
           </section>
 
-          <section v-if="selectedReadiness && !selectedReadiness.askable" class="readiness-notice">
+          <section v-if="selectedId && !canAskSelectedDatasource" class="readiness-notice">
             <ShieldAlert :size="16" />
             <div>
-              <strong>{{ selectedReadiness.stageLabel }}</strong>
-              <span>{{ selectedBlockReason?.message || '当前数据源暂未完成上线流程。' }}</span>
+              <strong>{{ selectedReadiness?.stageLabel || (readinessLoading ? '正在确认状态' : '状态确认失败') }}</strong>
+              <span>{{ selectedBlockReason?.message || (readinessLoading ? '正在确认该数据源是否可询问。' : '未能确认该数据源上线状态，请刷新后重试。') }}</span>
             </div>
             <RouterLink v-if="selectedBlockReason?.actionPath && canEnterAdmin" :to="selectedBlockReason.actionPath">
               {{ selectedBlockReason.actionText || '去处理' }}
@@ -1153,8 +1153,8 @@ watch(resultTab, () => {
       </section>
 
       <footer class="chat-composer">
-        <div v-if="selectedReadiness && !selectedReadiness.askable" class="composer-readiness">
-          {{ selectedBlockReason?.message || '当前数据源暂未达到可询问状态' }}
+        <div v-if="selectedId && !canAskSelectedDatasource" class="composer-readiness">
+          {{ selectedBlockReason?.message || (readinessLoading ? '正在确认该数据源是否可询问' : '未能确认该数据源上线状态，请刷新后重试') }}
         </div>
         <textarea
           ref="questionInputRef"

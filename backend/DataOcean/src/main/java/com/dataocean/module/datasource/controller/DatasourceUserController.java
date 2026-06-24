@@ -1,5 +1,6 @@
 package com.dataocean.module.datasource.controller;
 
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.datasource.entity.vo.DatasourceReadinessVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceSimpleVO;
@@ -52,6 +53,9 @@ public class DatasourceUserController {
      */
     @GetMapping("/{datasourceId}/readiness")
     public Result<DatasourceReadinessVO> getReadiness(@PathVariable Long datasourceId) {
+        if (!accessService.checkAccess(datasourceId)) {
+            throw new BusinessException("无权访问该数据源");
+        }
         return Result.success(readinessService.getCurrentUserReadiness(datasourceId));
     }
 }
