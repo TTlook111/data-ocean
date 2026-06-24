@@ -1,6 +1,8 @@
 package com.dataocean.module.permission.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.datasource.entity.vo.DatasourcePermissionDecisionVO;
+import com.dataocean.module.datasource.service.DatasourceAccessService;
 import com.dataocean.module.permission.entity.dto.DatasourcePermissionGrantDTO;
 import com.dataocean.module.permission.entity.vo.DatasourcePermissionVO;
 import com.dataocean.module.permission.service.DatasourcePermissionService;
@@ -29,6 +31,7 @@ import java.util.Map;
 public class DatasourcePermissionController {
 
     private final DatasourcePermissionService permissionService;
+    private final DatasourceAccessService datasourceAccessService;
 
     /**
      * 创建数据源访问授权
@@ -71,6 +74,16 @@ public class DatasourcePermissionController {
             @RequestParam(required = false) String subjectType) {
         return Result.success(permissionService.listByDatasource(datasourceId, subjectType));
     }
+
+    /**
+     * 预览指定用户对指定数据源的最终权限决策。
+     */
+    @GetMapping("/decision")
+    public Result<DatasourcePermissionDecisionVO> decision(@RequestParam Long datasourceId,
+                                                          @RequestParam Long userId) {
+        return Result.success(datasourceAccessService.calculateDecision(userId, datasourceId));
+    }
+
     private Boolean asBoolean(Object value) {
         return value instanceof Boolean bool ? bool : null;
     }

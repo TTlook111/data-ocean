@@ -3,10 +3,12 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Trash2 } from 'lucide-vue-next'
 import {
+  getDatasourcePermissionDecision,
   grantDatasourcePermission,
   listDatasourcePermissions,
   revokeDatasourcePermission,
   updateDatasourcePermission,
+  type DatasourcePermissionDecision,
   type DatasourcePermissionItem,
   type DatasourcePermissionPayload,
 } from '../../../api/admin/permission'
@@ -37,6 +39,9 @@ const datasources = ref<DatasourceOption[]>([])
 const selectedDatasource = ref<number>()
 const permissions = ref<DatasourcePermissionItem[]>([])
 const subjectFilter = ref('')
+const decisionLoading = ref(false)
+const decisionUserId = ref<number>()
+const decision = ref<DatasourcePermissionDecision>()
 
 const form = reactive<DatasourcePermissionPayload>({
   datasourceId: 0,
@@ -67,6 +72,18 @@ const subjectOptions = computed(() => {
 const filteredPermissions = computed(() => {
   if (!subjectFilter.value) return permissions.value
   return permissions.value.filter(p => p.subjectType === subjectFilter.value)
+})
+
+const decisionSourceText = computed(() => {
+  if (!decision.value) return '未计算'
+  const labels: Record<string, string> = {
+    USER: '用户直接授权',
+    ROLE: '角色授权',
+    DEPARTMENT: '部门授权',
+    NONE: '无有效授权',
+    '*': '超级管理员权限',
+  }
+  return labels[decision.value.decisionSource] || decision.value.decisionSource
 })
 
 onMounted(async () => {
@@ -104,11 +121,29 @@ async function loadSubjects() {
 async function loadPermissions() {
   if (!selectedDatasource.value) return
   loading.value = true
+  decision.value = undefined
   try {
     const res = await listDatasourcePermissions(selectedDatasource.value, subjectFilter.value || undefined)
     permissions.value = res.data || []
   } catch { ElMessage.error('加载授权列表失败') }
   finally { loading.value = false }
+}
+
+async function previewDecision() {
+  if (!selectedDatasource.value || !decisionUserId.value) {
+    ElMessage.warning('请选择数据源和用户')
+    return
+  }
+  decisionLoading.value = true
+  try {
+    const res = await getDatasourcePermissionDecision(selectedDatasource.value, decisionUserId.value)
+    decision.value = res.data
+  } catch (error: any) {
+    decision.value = undefined
+    ElMessage.error(error.response?.data?.message || '权限决策计算失败')
+  } finally {
+    decisionLoading.value = false
+  }
 }
 
 function openGrantDialog() {
@@ -177,6 +212,45 @@ function subjectTypeLabel(type: string) {
       <el-select v-model="subjectFilter" placeholder="全部类型" clearable style="width: 140px; margin-left: 12px" @change="loadPermissions">
         <el-option v-for="t in subjectTypes" :key="t.value" :label="t.label" :value="t.value" />
       </el-select>
+    </section>
+
+    <section class="decision-panel">
+      <div class="decision-controls">
+        <strong>最终权限预览</strong>
+        <el-select v-model="decisionUserId" filterable placeholder="选择用户" style="width: 220px">
+          <el-option v-for="user in users" :key="user.id" :label="user.name" :value="user.id" />
+        </el-select>
+        <el-button type="primary" :loading="decisionLoading" @click="previewDecision">计算权限</el-button>
+      </div>
+      <div v-if="decision" class="decision-result">
+        <el-tag :type="decision.accessEffect === 'DENY' ? 'danger' : decision.canQuery ? 'success' : 'info'">
+          {{ decision.accessEffect }}
+        </el-tag>
+        <span>来源：{{ decisionSourceText }}</span>
+        <span>查询：{{ decision.canQuery ? '允许' : '禁止' }}</span>
+        <span>导出：{{ decision.canExport ? '允许' : '禁止' }}</span>
+        <span>SQL：{{ decision.canViewSql ? '可见' : '隐藏' }}</span>
+      </div>
+      <div v-else class="decision-empty">选择一个用户后可查看部门、角色、用户直接授权合并后的最终结果。</div>
+    </section>
+
+    <section class="role-matrix">
+      <article>
+        <strong>业务查询用户</strong>
+        <span>只使用已授权数据源，必要时申请访问。</span>
+      </article>
+      <article>
+        <strong>数据管理员</strong>
+        <span>维护数据源连接、采集、快照和表字段质量。</span>
+      </article>
+      <article>
+        <strong>数据安全管理员</strong>
+        <span>配置数据源授权、行列策略、脱敏和审批。</span>
+      </article>
+      <article>
+        <strong>治理负责人</strong>
+        <span>关注上线流程、阻塞事项、发布和跨角色协同。</span>
+      </article>
     </section>
 
     <section class="content-panel">
@@ -251,5 +325,73 @@ function subjectTypeLabel(type: string) {
 <style scoped>
 .access-control-page { padding: 0; }
 .toolbar { margin-bottom: 16px; display: flex; align-items: center; }
+.decision-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
+.decision-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.decision-controls strong {
+  color: var(--do-ink);
+  font-size: 15px;
+}
+.decision-result {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: #475569;
+  font-size: 13px;
+}
+.decision-empty {
+  color: var(--do-muted);
+  font-size: 13px;
+}
+.role-matrix {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.role-matrix article {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: #fff;
+}
+.role-matrix strong,
+.role-matrix span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.role-matrix strong {
+  color: var(--do-ink);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.role-matrix span {
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; box-shadow: var(--do-shadow); }
+@media (max-width: 1100px) {
+  .role-matrix { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .role-matrix { grid-template-columns: 1fr; }
+}
 </style>

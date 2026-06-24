@@ -26,6 +26,20 @@ export interface DatasourcePermissionPayload {
   accessEffect?: 'ALLOW' | 'DENY'
 }
 
+export interface DatasourcePermissionDecision {
+  datasourceId: number
+  userId: number
+  canQuery: boolean
+  canExport: boolean
+  canViewSql: boolean
+  decisionSource: string
+  departmentId?: number
+  effectiveDepartmentId?: number
+  roleIds: number[]
+  userGrantId?: number
+  accessEffect: 'ALLOW' | 'DENY' | 'NONE'
+}
+
 export interface AccessPolicyItem {
   id: number
   datasourceId: number
@@ -84,6 +98,13 @@ export async function updateDatasourcePermission(id: number, payload: { canQuery
 
 export async function revokeDatasourcePermission(id: number) {
   const { data } = await http.delete<ApiResult<void>>(`/api/admin/datasource-access/${id}`)
+  return data
+}
+
+export async function getDatasourcePermissionDecision(datasourceId: number, userId: number) {
+  const { data } = await http.get<ApiResult<DatasourcePermissionDecision>>('/api/admin/datasource-access/decision', {
+    params: { datasourceId, userId },
+  })
   return data
 }
 
