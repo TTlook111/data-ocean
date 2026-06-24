@@ -99,7 +99,7 @@ Known follow-up areas live in `docs/development/后续开发.md`. The seven-stag
 - **Stage 7 event-driven governance completed** (2026-06-14): `metadata_change_event`, access approval request flow, temporary allow policies, expiry cleanup, and blocked/deprecated access constraints.
 - **P1 notification system integration completed** (2026-06-21): frontend notification bell/dropdown and `/api/notifications` client are connected; field feedback group-threshold and snapshot publish/expire events now send system notifications.
 - **Datasource grant semantics added**: `V42__datasource_access_effect.sql` makes datasource grant allow/deny decisions explicit.
-- **Datasource readiness and admin IA added** (2026-06-24): datasource readiness aggregates connection, published metadata snapshot, blocking governance issues, published skills.md, and permission state. Query entry now blocks non-askable sources with visible reasons, and admin navigation is grouped by business domains.
+- **Datasource readiness and admin IA added** (2026-06-24): datasource readiness aggregates connection, published metadata snapshot, blocking governance issues, published skills.md, and permission state. Query entry now blocks non-askable sources with visible reasons. Admin navigation now uses business-domain primary navigation plus in-page workspace navigation; see `docs/development/后台信息架构与导航规范.md`.
 
 ## Core Domain Concepts
 
@@ -245,7 +245,9 @@ Python route notes:
 Frontend routes are split between business-oriented domains:
 
 - `/query`: user-facing intelligent query flow.
-- `/admin/*`: admin app grouped as 工作台、数据资产、治理工作台、语义资产、权限与合规、系统运维.
+- `/admin/*`: admin app uses first-level business domains in `AppShell.vue`: 工作台、数据源中心、治理中心、语义中心、权限与开放、运营与安全、系统设置.
+- Admin secondary feature pages are exposed through the content-area workspace navigation (`workspaceLinks` in `AppShell.vue`), not as side-bar top-level items.
+- New admin pages must be assigned according to `docs/development/后台信息架构与导航规范.md` before adding routes or navigation entries.
 - `/admin/metadata/catalog`: metadata catalog search and entity graph entry.
 - `/admin/glossary/list`: glossary management.
 - `/admin/system/operation-logs`: operation log management.
