@@ -39,7 +39,7 @@ public class GroupThresholdAlertEventListener {
         for (Long adminUserId : recipientResolver.adminUserIds()) {
             notificationService.send(TYPE_FIELD_CONFIDENCE_ALERT, title, content, adminUserId);
         }
-        log.info("字段可信度告警通知已发送 columnMetaId={} dislikeUserCount={}",
+        log.info("Field confidence alert notification sent columnMetaId={} dislikeUserCount={}",
                 event.columnMetaId(), event.dislikeUserCount());
     }
 }

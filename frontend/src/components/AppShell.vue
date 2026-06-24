@@ -40,6 +40,7 @@ import {
   getUnreadNotificationCount,
   listNotifications,
   markNotificationAsRead,
+  markNotificationsBatchAsRead,
   type NotificationItem,
 } from '../api/notification'
 import AdminContextBar from './AdminContextBar.vue'
@@ -253,11 +254,21 @@ async function handleReadNotification(item: NotificationItem) {
 async function markVisibleNotificationsAsRead() {
   const unreadItems = notifications.value.filter((item) => !item.isRead)
   if (!unreadItems.length) return
-  await Promise.allSettled(unreadItems.map((item) => markNotificationAsRead(item.id)))
-  unreadItems.forEach((item) => {
-    item.isRead = true
-  })
-  await fetchUnreadCount()
+
+  const ids = unreadItems.map((item) => item.id)
+
+  try {
+    // 使用批量接口
+    await markNotificationsBatchAsRead(ids)
+
+    // 更新本地状态
+    unreadItems.forEach((item) => {
+      item.isRead = true
+    })
+    await fetchUnreadCount()
+  } catch (error) {
+    console.error('批量标记已读失败:', error)
+  }
 }
 
 function notificationTypeLabel(type?: string) {
@@ -467,3 +478,165 @@ watch(collapsed, async () => {
     </el-drawer>
   </div>
 </template>
+
+<style scoped>
+/* 通知弹窗样式 */
+.notification-popover {
+  padding: 0 !important;
+}
+
+.notification-panel {
+  min-height: 140px;
+}
+
+.notification-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid var(--do-line);
+}
+
+.notification-panel__header strong {
+  display: block;
+  color: var(--do-ink);
+  font-size: 14px;
+}
+
+.notification-panel__header span {
+  display: block;
+  margin-top: 3px;
+  color: var(--do-muted);
+  font-size: 12px;
+}
+
+.notification-mark-read {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  color: var(--do-primary);
+  background: var(--do-surface);
+  cursor: pointer;
+}
+
+.notification-mark-read:disabled {
+  color: var(--do-muted);
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.notification-list {
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px;
+}
+
+.notification-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px 10px;
+  border: 0;
+  border-radius: 8px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.notification-item.unread {
+  background: rgba(77, 143, 220, 0.07);
+}
+
+.notification-item:hover {
+  background: var(--do-bg);
+}
+
+.notification-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.notification-item.unread .notification-dot {
+  background: var(--do-primary);
+}
+
+.notification-body {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.notification-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notification-meta b {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 7px;
+  color: var(--do-primary);
+  background: rgba(77, 143, 220, 0.1);
+  font-size: 11px;
+}
+
+.notification-body strong {
+  color: var(--do-ink);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.notification-body small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.notification-meta em {
+  flex: 0 0 auto;
+  color: var(--do-muted);
+  font-size: 11px;
+  font-style: normal;
+}
+
+/* 顶部操作栏样式 */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--do-muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.icon-button:hover {
+  background: var(--do-bg);
+  color: var(--do-ink);
+}
+</style>

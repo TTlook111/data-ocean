@@ -202,6 +202,9 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
         return decision;
     }
 
+    /**
+     * 应用部门权限（最低优先级，允许被角色和用户权限覆盖）。
+     */
     private void applyDepartmentGrant(DatasourcePermissionDecisionVO decision, List<DatasourceAccess> grants, List<Long> deptIds) {
         if (deptIds.isEmpty()) return;
         for (Long deptId : deptIds) {
@@ -213,29 +216,53 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
                 applyGrant(decision, grant);
                 decision.setDecisionSource(SUBJECT_DEPARTMENT);
                 decision.setEffectiveDepartmentId(deptId);
-                return;
+                // 不再直接 return，允许被后续的高优先级权限覆盖
+                break;
             }
         }
     }
 
+    /**
+     * 应用角色权限（中等优先级，合并多个角色的权限，覆盖部门权限）。
+     */
     private void applyRoleGrants(DatasourcePermissionDecisionVO decision, List<DatasourceAccess> grants, List<Long> roleIds) {
         List<DatasourceAccess> roleGrants = grants.stream()
                 .filter(grant -> SUBJECT_ROLE.equals(grant.getSubjectType()) && roleIds.contains(grant.getSubjectId()))
                 .toList();
         if (roleGrants.isEmpty()) return;
-        boolean hasAllowGrant = roleGrants.stream().anyMatch(grant -> !isDeny(grant));
-        decision.setCanQuery(roleGrants.stream().anyMatch(grant -> !isDeny(grant) && Boolean.TRUE.equals(grant.getCanQuery())));
-        decision.setCanExport(roleGrants.stream().anyMatch(grant -> !isDeny(grant) && Boolean.TRUE.equals(grant.getCanExport())));
-        decision.setCanViewSql(roleGrants.stream().anyMatch(grant -> !isDeny(grant) && Boolean.TRUE.equals(grant.getCanViewSql())));
+
+        // 检查是否有 DENY 策略（DENY 优先）
+        boolean hasDeny = roleGrants.stream().anyMatch(this::isDeny);
+        if (hasDeny) {
+            decision.setCanQuery(false);
+            decision.setCanExport(false);
+            decision.setCanViewSql(false);
+            decision.setAccessEffect(EFFECT_DENY);
+            decision.setDecisionSource(SUBJECT_ROLE);
+            return;
+        }
+
+        // 合并所有角色的 ALLOW 权限（取并集）
+        boolean canQuery = roleGrants.stream().anyMatch(grant -> Boolean.TRUE.equals(grant.getCanQuery()));
+        boolean canExport = roleGrants.stream().anyMatch(grant -> Boolean.TRUE.equals(grant.getCanExport()));
+        boolean canViewSql = roleGrants.stream().anyMatch(grant -> Boolean.TRUE.equals(grant.getCanViewSql()));
+
+        decision.setCanQuery(canQuery);
+        decision.setCanExport(canExport);
+        decision.setCanViewSql(canViewSql);
         decision.setDecisionSource(SUBJECT_ROLE);
-        decision.setAccessEffect(hasAllowGrant ? EFFECT_ALLOW : EFFECT_DENY);
+        decision.setAccessEffect(EFFECT_ALLOW);
     }
 
+    /**
+     * 应用用户权限（最高优先级，完全覆盖之前的权限）。
+     */
     private void applyUserGrant(DatasourcePermissionDecisionVO decision, List<DatasourceAccess> grants, Long userId) {
         grants.stream()
                 .filter(grant -> SUBJECT_USER.equals(grant.getSubjectType()) && userId.equals(grant.getSubjectId()))
                 .findFirst()
                 .ifPresent(grant -> {
+                    // 用户权限完全覆盖之前的权限
                     applyGrant(decision, grant);
                     decision.setUserGrantId(grant.getId());
                     decision.setDecisionSource(SUBJECT_USER);

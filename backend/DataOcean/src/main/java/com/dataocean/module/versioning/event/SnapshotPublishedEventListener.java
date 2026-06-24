@@ -36,7 +36,7 @@ public class SnapshotPublishedEventListener {
     @Async
     @EventListener
     public void onSnapshotPublished(SnapshotPublishedEvent event) {
-        log.info("快照已发布 - snapshotId: {}, datasourceId: {}, 操作人: {}",
+        log.info("Snapshot published snapshotId={} datasourceId={} operatorId={}",
                 event.getSnapshotId(), event.getDatasourceId(), event.getOperatorId());
         String content = "数据源 " + event.getDatasourceId() + " 的快照 " + event.getSnapshotId()
                 + " 已发布为当前版本。";
@@ -51,7 +51,7 @@ public class SnapshotPublishedEventListener {
     @Async
     @EventListener
     public void onSnapshotExpired(SnapshotExpiredEvent event) {
-        log.info("快照已过期 - snapshotId: {}, datasourceId: {}, 被替代为: {}",
+        log.info("Snapshot expired snapshotId={} datasourceId={} replacedBySnapshotId={}",
                 event.getSnapshotId(), event.getDatasourceId(), event.getReplacedBySnapshotId());
         String content = "数据源 " + event.getDatasourceId() + " 的快照 " + event.getSnapshotId()
                 + " 已被快照 " + event.getReplacedBySnapshotId() + " 替代并自动过期。";

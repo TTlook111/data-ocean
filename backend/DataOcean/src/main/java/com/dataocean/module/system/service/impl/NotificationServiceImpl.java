@@ -1,6 +1,7 @@
 package com.dataocean.module.system.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.system.entity.SysNotification;
@@ -9,8 +10,10 @@ import com.dataocean.module.system.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 系统通知服务实现类
@@ -75,6 +78,29 @@ public class NotificationServiceImpl implements NotificationService {
         }
         notification.setIsRead(true);
         notificationMapper.updateById(notification);
+    }
+
+    /**
+     * 批量标记通知为已读。
+     *
+     * @param ids    通知ID列表
+     * @param userId 当前用户ID（只标记自己的通知）
+     */
+    @Override
+    @Transactional
+    public void markBatchAsRead(List<Long> ids, Long userId) {
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+
+        // 只更新当前用户的通知，防止越权
+        notificationMapper.update(null, new LambdaUpdateWrapper<SysNotification>()
+                .in(SysNotification::getId, ids)
+                .eq(SysNotification::getTargetUserId, userId)
+                .eq(SysNotification::getIsRead, false)
+                .set(SysNotification::getIsRead, true));
+
+        log.info("批量标记通知已读 userId={} count={}", userId, ids.size());
     }
 
     /**

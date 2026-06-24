@@ -21,6 +21,12 @@ export async function markNotificationAsRead(id: number) {
   return data
 }
 
+export async function markNotificationsBatchAsRead(ids: number[]) {
+  if (ids.length === 0) return
+  const { data } = await http.patch<ApiResult<null>>('/api/notifications/batch-read', ids)
+  return data
+}
+
 export async function getUnreadNotificationCount() {
   const { data } = await http.get<ApiResult<{ count: number }>>('/api/notifications/unread-count')
   return data

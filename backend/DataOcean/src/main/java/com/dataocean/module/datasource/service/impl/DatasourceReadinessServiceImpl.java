@@ -21,7 +21,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 数据源可询问状态聚合服务实现。
@@ -35,6 +38,21 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
             MetadataQualityIssue.STATUS_CONFIRMED,
             MetadataQualityIssue.STATUS_REOPENED
     );
+
+    /**
+     * 上线阶段进度常量。
+     * <p>
+     * 每个阶段的进度值表示该阶段完成时的总体进度百分比。
+     * 进度值设计为非线性，反映各阶段的实际工作量和重要性。
+     * </p>
+     */
+    private static final int PROGRESS_INITIAL = 0;
+    private static final int PROGRESS_CONNECTION = 15;    // 接入验证：15%
+    private static final int PROGRESS_SNAPSHOT = 35;       // 采集快照：35%
+    private static final int PROGRESS_GOVERNANCE = 55;     // 治理处理：55%
+    private static final int PROGRESS_KNOWLEDGE = 75;      // 语义发布：75%
+    private static final int PROGRESS_PERMISSION = 90;     // 权限配置：90%
+    private static final int PROGRESS_ASKABLE = 100;       // 可询问：100%
 
     private final DatasourceMapper datasourceMapper;
     private final MetadataSnapshotMapper snapshotMapper;
@@ -124,16 +142,33 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                 .in(MetadataQualityIssue::getStatus, BLOCKING_ISSUE_STATUSES));
     }
 
+    /**
+     * 检查数据源是否有任何有效的查询授权。
+     * <p>
+     * 排除条件：
+     * <ul>
+     *   <li>已过期的授权（expires_at 不为空且已过期）</li>
+     *   <li>显式拒绝的授权（access_effect = 'DENY'）</li>
+     * </ul>
+     * </p>
+     * <p>
+     * 注意：access_effect 为 null 的记录视为 ALLOW（兼容旧数据）。
+     * </p>
+     */
     private boolean hasAnyQueryGrant(Long datasourceId) {
         return accessMapper.selectCount(new LambdaQueryWrapper<DatasourceAccess>()
                 .eq(DatasourceAccess::getDatasourceId, datasourceId)
                 .eq(DatasourceAccess::getCanQuery, true)
-                .and(wrapper -> wrapper.isNull(DatasourceAccess::getExpiresAt)
+                // 排除已过期的授权
+                .and(wrapper -> wrapper
+                        .isNull(DatasourceAccess::getExpiresAt)
                         .or()
                         .gt(DatasourceAccess::getExpiresAt, LocalDateTime.now()))
-                .and(wrapper -> wrapper.isNull(DatasourceAccess::getAccessEffect)
+                // 排除显式拒绝的授权（null 视为 ALLOW）
+                .and(wrapper -> wrapper
+                        .ne(DatasourceAccess::getAccessEffect, "DENY")
                         .or()
-                        .ne(DatasourceAccess::getAccessEffect, "DENY"))) > 0;
+                        .isNull(DatasourceAccess::getAccessEffect))) > 0;
     }
 
     private boolean currentUserCanQuery(Long datasourceId) {
@@ -173,32 +208,43 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
         }
     }
 
+    /**
+     * 应用上线阶段。
+     * <p>
+     * 根据各维度的就绪状态，确定当前所处的上线阶段和进度。
+     * </p>
+     */
     private void applyStage(DatasourceReadinessVO vo) {
+        // 所有条件都满足，标记为可询问
         if (vo.isAskable()) {
-            setStage(vo, "ASKABLE", "可询问", 100);
+            setStage(vo, "ASKABLE", "可询问", PROGRESS_ASKABLE);
             return;
         }
+
+        // 按优先级检查各阶段
         if (!vo.isConnectionReady()) {
-            setStage(vo, "CONNECTION_CHECK_REQUIRED", "连接待处理", 12);
+            setStage(vo, "CONNECTION_CHECK_REQUIRED", "连接待处理", PROGRESS_CONNECTION);
             return;
         }
         if (!vo.isMetadataReady()) {
-            setStage(vo, "SNAPSHOT_PENDING", "快照待发布", 35);
+            setStage(vo, "SNAPSHOT_PENDING", "快照待发布", PROGRESS_SNAPSHOT);
             return;
         }
         if (!vo.isGovernanceReady()) {
-            setStage(vo, "GOVERNANCE_BLOCKED", "治理阻塞", 50);
+            setStage(vo, "GOVERNANCE_BLOCKED", "治理阻塞", PROGRESS_GOVERNANCE);
             return;
         }
         if (!vo.isKnowledgeReady()) {
-            setStage(vo, "KNOWLEDGE_PENDING", "知识待发布", 75);
+            setStage(vo, "KNOWLEDGE_PENDING", "知识待发布", PROGRESS_KNOWLEDGE);
             return;
         }
         if (!vo.isPermissionReady()) {
-            setStage(vo, "PERMISSION_PENDING", "权限待配置", 88);
+            setStage(vo, "PERMISSION_PENDING", "权限待配置", PROGRESS_PERMISSION);
             return;
         }
-        setStage(vo, "UNKNOWN", "待确认", 0);
+
+        // 未知状态
+        setStage(vo, "UNKNOWN", "待确认", PROGRESS_INITIAL);
     }
 
     private void setStage(DatasourceReadinessVO vo, String stage, String stageLabel, int progress) {
@@ -216,5 +262,117 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                 .actionText(actionText)
                 .actionPath(actionPath)
                 .build());
+    }
+
+    @Override
+    public List<DatasourceReadinessVO> getBatchAdminReadiness(List<Long> datasourceIds) {
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return List.of();
+        }
+
+        // 批量查询数据源信息
+        List<Datasource> datasources = datasourceMapper.selectBatchIds(datasourceIds);
+        Map<Long, Datasource> datasourceMap = datasources.stream()
+                .collect(Collectors.toMap(Datasource::getId, d -> d));
+
+        // 批量查询快照（一次查询所有数据源的最新快照）
+        Map<Long, MetadataSnapshot> snapshotMap = snapshotMapper.selectList(
+                new LambdaQueryWrapper<MetadataSnapshot>()
+                        .in(MetadataSnapshot::getDatasourceId, datasourceIds)
+                        .eq(MetadataSnapshot::getStatus, MetadataSnapshot.STATUS_PUBLISHED)
+                        .orderByDesc(MetadataSnapshot::getSnapshotVersion)
+        ).stream().collect(Collectors.toMap(
+                MetadataSnapshot::getDatasourceId,
+                s -> s,
+                (existing, replacement) -> existing.getSnapshotVersion() > replacement.getSnapshotVersion()
+                        ? existing : replacement
+        ));
+
+        // 批量查询知识文档
+        Map<Long, KnowledgeDoc> knowledgeMap = knowledgeDocMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeDoc>()
+                        .in(KnowledgeDoc::getDatasourceId, datasourceIds)
+                        .eq(KnowledgeDoc::getStatus, DocStatus.PUBLISHED.name())
+                        .eq(KnowledgeDoc::getDeleted, 0)
+                        .orderByDesc(KnowledgeDoc::getCurrentVersion)
+        ).stream().collect(Collectors.toMap(
+                KnowledgeDoc::getDatasourceId,
+                d -> d,
+                (existing, replacement) -> existing.getCurrentVersion() > replacement.getCurrentVersion()
+                        ? existing : replacement
+        ));
+
+        // 批量查询治理问题（只查询 HIGH 级别的阻塞性问题）
+        List<Long> snapshotIds = snapshotMap.values().stream()
+                .map(MetadataSnapshot::getId)
+                .toList();
+        Map<Long, Long> blockingIssueCountMap = snapshotIds.isEmpty()
+                ? Map.of()
+                : qualityIssueMapper.selectMaps(
+                        new LambdaQueryWrapper<MetadataQualityIssue>()
+                                .in(MetadataQualityIssue::getSnapshotId, snapshotIds)
+                                .eq(MetadataQualityIssue::getSeverity, "HIGH")
+                                .in(MetadataQualityIssue::getStatus, BLOCKING_ISSUE_STATUSES)
+                                .select(MetadataQualityIssue::getSnapshotId, "COUNT(*) as cnt")
+                                .groupBy(MetadataQualityIssue::getSnapshotId)
+                ).stream().collect(Collectors.toMap(
+                        m -> (Long) m.get("snapshot_id"),
+                        m -> (Long) m.get("cnt")
+                ));
+
+        // 构建结果
+        List<DatasourceReadinessVO> results = new ArrayList<>();
+        for (Long datasourceId : datasourceIds) {
+            Datasource datasource = datasourceMap.get(datasourceId);
+            if (datasource == null) continue;
+
+            MetadataSnapshot snapshot = snapshotMap.get(datasourceId);
+            KnowledgeDoc knowledge = knowledgeMap.get(datasourceId);
+            long blockingCount = snapshot != null
+                    ? blockingIssueCountMap.getOrDefault(snapshot.getId(), 0L)
+                    : 0;
+
+            DatasourceReadinessVO vo = buildReadinessFromCache(datasource, snapshot, knowledge, blockingCount);
+            results.add(vo);
+        }
+
+        return results;
+    }
+
+    /**
+     * 从缓存数据构建 readiness 状态（用于批量查询）。
+     */
+    private DatasourceReadinessVO buildReadinessFromCache(Datasource datasource,
+                                                          MetadataSnapshot snapshot,
+                                                          KnowledgeDoc knowledge,
+                                                          long blockingIssueCount) {
+        DatasourceReadinessVO vo = DatasourceReadinessVO.builder()
+                .datasourceId(datasource.getId())
+                .datasourceName(datasource.getName())
+                .connectionReady(isConnectionReady(datasource))
+                .metadataReady(snapshot != null)
+                .knowledgeReady(knowledge != null)
+                .build();
+
+        if (snapshot != null) {
+            vo.setPublishedSnapshotId(snapshot.getId());
+            vo.setSnapshotVersion(snapshot.getSnapshotVersion());
+        }
+        if (knowledge != null) {
+            vo.setPublishedKnowledgeDocId(knowledge.getId());
+            vo.setKnowledgeVersion(knowledge.getCurrentVersion());
+        }
+
+        vo.setGovernanceReady(blockingIssueCount == 0);
+        vo.setPermissionReady(hasAnyQueryGrant(datasource.getId()));
+
+        appendBlockReasons(vo, datasource, blockingIssueCount, false);
+        vo.setAskable(vo.isConnectionReady()
+                && vo.isMetadataReady()
+                && vo.isGovernanceReady()
+                && vo.isKnowledgeReady()
+                && vo.isPermissionReady());
+        applyStage(vo);
+        return vo;
     }
 }

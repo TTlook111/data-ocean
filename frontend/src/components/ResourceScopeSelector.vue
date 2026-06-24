@@ -58,6 +58,9 @@ const columns = ref<ColumnMetaItem[]>([])
 const loadingSnapshots = ref(false)
 const loadingTables = ref(false)
 const loadingColumns = ref(false)
+const loadError = ref<string>('')
+const retryCount = ref(0)
+const maxRetries = 3
 
 const localDatasourceId = ref<number | undefined>(props.datasourceId)
 const localSnapshotId = ref<number | undefined>(props.snapshotId)
@@ -91,30 +94,48 @@ async function loadSnapshotsForDatasource(datasourceId?: number) {
   snapshots.value = []
   tables.value = []
   columns.value = []
+  loadError.value = ''
+
   if (!datasourceId || !needsSnapshot.value) {
     localSnapshotId.value = undefined
     emit('update:snapshotId', undefined)
     return
   }
+
   loadingSnapshots.value = true
   try {
     const result = await listSnapshots({ datasourceId, page: 1, size: 50 })
     snapshots.value = [...(result.data?.records ?? [])].sort(latestSnapshotFirst)
+    retryCount.value = 0  // 重置重试计数
+
     if (!localSnapshotId.value || !snapshots.value.some((item) => item.id === localSnapshotId.value)) {
       localSnapshotId.value = snapshots.value[0]?.id
       emit('update:snapshotId', localSnapshotId.value)
     }
     await loadTablesForSnapshot(localSnapshotId.value)
-  } catch {
-    ElMessage.error('快照列表加载失败')
+  } catch (error: any) {
+    const message = error.response?.data?.message || '快照列表加载失败'
+    loadError.value = message
+    ElMessage.error(message)
   } finally {
     loadingSnapshots.value = false
   }
 }
 
+async function retryLoad() {
+  if (retryCount.value >= maxRetries) {
+    ElMessage.error('重试次数过多，请稍后再试')
+    return
+  }
+  retryCount.value++
+  await loadSnapshotsForDatasource(localDatasourceId.value)
+}
+
 async function loadTablesForSnapshot(snapshotId?: number) {
   tables.value = []
   columns.value = []
+  loadError.value = ''
+
   if (!snapshotId || !needsTable.value) {
     localTableName.value = ''
     localColumnName.value = ''
@@ -122,6 +143,7 @@ async function loadTablesForSnapshot(snapshotId?: number) {
     emit('update:columnName', '')
     return
   }
+
   loadingTables.value = true
   try {
     const result = await listSnapshotTables(snapshotId)
@@ -135,8 +157,10 @@ async function loadTablesForSnapshot(snapshotId?: number) {
     if (localTableName.value) {
       await loadColumnsForTable(snapshotId, localTableName.value)
     }
-  } catch {
-    ElMessage.error('数据表列表加载失败')
+  } catch (error: any) {
+    const message = error.response?.data?.message || '数据表列表加载失败'
+    loadError.value = message
+    ElMessage.error(message)
   } finally {
     loadingTables.value = false
   }
@@ -144,11 +168,14 @@ async function loadTablesForSnapshot(snapshotId?: number) {
 
 async function loadColumnsForTable(snapshotId?: number, tableName?: string) {
   columns.value = []
+  loadError.value = ''
+
   if (!snapshotId || !tableName || !needsColumn.value) {
     localColumnName.value = ''
     emit('update:columnName', '')
     return
   }
+
   loadingColumns.value = true
   try {
     const result = await listSnapshotTableColumns(snapshotId, tableName)
@@ -157,8 +184,10 @@ async function loadColumnsForTable(snapshotId?: number, tableName?: string) {
       localColumnName.value = ''
       emit('update:columnName', '')
     }
-  } catch {
-    ElMessage.error('字段列表加载失败')
+  } catch (error: any) {
+    const message = error.response?.data?.message || '字段列表加载失败'
+    loadError.value = message
+    ElMessage.error(message)
   } finally {
     loadingColumns.value = false
   }
@@ -267,25 +296,42 @@ watch(() => props.columnName, (value) => {
       />
     </el-select>
 
-    <el-select
-      v-if="showSnapshot && needsSnapshot"
-      v-model="localSnapshotId"
-      :disabled="snapshotDisabled"
-      :loading="loadingSnapshots"
-      :size="size"
-      filterable
-      clearable
-      placeholder="选择快照"
-      class="scope-select scope-select--snapshot"
-      @change="handleSnapshotChange"
-    >
-      <el-option
-        v-for="item in snapshots"
-        :key="item.id"
-        :label="`快照 v${item.snapshotVersion}${item.status ? ` / ${item.status}` : ''}`"
-        :value="item.id"
-      />
-    </el-select>
+    <!-- 快照选择器（带错误处理） -->
+    <div v-if="showSnapshot && needsSnapshot" class="scope-select-wrapper">
+      <el-select
+        v-model="localSnapshotId"
+        :disabled="snapshotDisabled || !!loadError"
+        :loading="loadingSnapshots"
+        :size="size"
+        filterable
+        clearable
+        :placeholder="loadError ? '加载失败' : '选择快照'"
+        class="scope-select scope-select--snapshot"
+        :class="{ 'is-error': !!loadError }"
+        @change="handleSnapshotChange"
+      >
+        <el-option
+          v-for="item in snapshots"
+          :key="item.id"
+          :label="`快照 v${item.snapshotVersion}${item.status ? ` / ${item.status}` : ''}`"
+          :value="item.id"
+        />
+      </el-select>
+
+      <!-- 错误提示和重试按钮 -->
+      <div v-if="loadError" class="scope-error">
+        <span class="scope-error__message">{{ loadError }}</span>
+        <el-button
+          type="primary"
+          link
+          size="small"
+          :loading="loadingSnapshots"
+          @click="retryLoad"
+        >
+          重试
+        </el-button>
+      </div>
+    </div>
 
     <el-select
       v-if="needsTable"
@@ -335,8 +381,14 @@ watch(() => props.columnName, (value) => {
 .resource-scope-selector {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
+}
+
+.scope-select-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .scope-select--datasource {
@@ -353,6 +405,22 @@ watch(() => props.columnName, (value) => {
 
 .scope-select--column {
   width: 220px;
+}
+
+.scope-select.is-error :deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px var(--el-color-danger) inset;
+}
+
+.scope-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.scope-error__message {
+  color: var(--el-color-danger);
+  font-size: 12px;
 }
 
 @media (max-width: 720px) {

@@ -15,6 +15,8 @@ import com.dataocean.module.permission.service.PermissionCalculator;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.mapper.RoleMapper;
 import com.dataocean.module.user.mapper.UserMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -51,6 +53,7 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
     private final DbTableMetaMapper tableMetaMapper;
     private final DbColumnMetaMapper columnMetaMapper;
     private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
+    private final ObjectMapper objectMapper;
 
     /** 简单本地缓存：key → (结果, 过期时间戳) */
     private final java.util.concurrent.ConcurrentHashMap<String, CacheEntry> cache = new java.util.concurrent.ConcurrentHashMap<>();
@@ -78,21 +81,52 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         return result;
     }
 
+    /**
+     * 使权限缓存失效。
+     * <p>
+     * 失效策略：
+     * <ul>
+     *   <li>subjectId 和 datasourceId 都指定：只清除该用户的该数据源缓存</li>
+     *   <li>只指定 datasourceId：清除所有用户在该数据源的缓存</li>
+     *   <li>只指定 subjectId：清除该用户所有数据源的缓存</li>
+     *   <li>都为 null：清除所有缓存（慎用）</li>
+     * </ul>
+     * </p>
+     */
     @Override
     public void invalidate(Long subjectId, Long datasourceId) {
-        if (datasourceId == null) {
+        int beforeSize = cache.size();
+
+        if (subjectId != null && datasourceId != null) {
+            // 精确失效：只清除该用户该数据源的缓存
+            String exactKey = subjectId + ":" + datasourceId;
+            cache.remove(exactKey);
+            log.debug("权限缓存已失效 userId={} datasourceId={}", subjectId, datasourceId);
+
+        } else if (datasourceId != null) {
+            // 按数据源失效：清除该数据源所有用户的缓存
+            String suffix = ":" + datasourceId;
+            cache.entrySet().removeIf(e -> e.getKey().endsWith(suffix));
+            log.debug("权限缓存已失效 datasourceId={}", datasourceId);
+
+        } else if (subjectId != null) {
+            // 按用户失效：清除该用户所有数据源的缓存
+            String prefix = subjectId + ":";
+            cache.entrySet().removeIf(e -> e.getKey().startsWith(prefix));
+            log.debug("权限缓存已失效 userId={}", subjectId);
+
+        } else {
+            // 全部失效：仅在必要时使用
             cache.clear();
-            log.debug("Permission cache fully invalidated subjectId={}", subjectId);
-            return;
+            log.warn("权限缓存已全部失效，这可能影响性能");
         }
-        // 按 datasourceId 维度清除所有相关缓存（因为角色/部门变更会影响多个用户）
-        String suffix = ":" + datasourceId;
-        cache.entrySet().removeIf(e -> e.getKey().endsWith(suffix));
-        log.debug("权限缓存已失效 datasourceId={}", datasourceId);
+
+        int afterSize = cache.size();
+        log.debug("权限缓存失效完成 清除条目数={}", beforeSize - afterSize);
     }
 
     /**
-     * 监听权限变更事件，事务提交后才清除缓存（避免脏读）
+     * 监听权限变更事件，事务提交后才清除缓存（避免脏读）。
      * <p>
      * 使用 AFTER_COMMIT 阶段确保：事务提交成功 → 缓存清除。
      * 如果事务回滚，缓存不会被清除，避免不必要的性能损失。
@@ -101,7 +135,8 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onPermissionChanged(PermissionChangedEvent event) {
         invalidate(event.getSubjectId(), event.getDatasourceId());
-        log.debug("事务提交后权限缓存已清除 datasourceId={}", event.getDatasourceId());
+        log.debug("事务提交后权限缓存已清除 subjectId={} datasourceId={}",
+                event.getSubjectId(), event.getDatasourceId());
     }
 
     /**
@@ -295,66 +330,61 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
         }
 
         // 检查周期性时间计划
-        // JSON 格式：{"weekdays":[1,2,3,4,5],"hours":{"from":"09:00","to":"18:00"}}
-        // weekdays: 允许的工作日数组（1=周一, 7=周日）
-        // hours: 允许的工作时间范围（from: 开始时间, to: 结束时间）
-        if (policy.getTimeSchedule() != null && !policy.getTimeSchedule().isBlank()) {
-            try {
-                String schedule = policy.getTimeSchedule();
-                // 检查工作日限制
-                if (schedule.contains("\"weekdays\"")) {
-                    int dayOfWeek = now.getDayOfWeek().getValue(); // 1=Monday, 7=Sunday
-                    // 提取 weekdays 数组内容：从 "weekdays" 后的 [ 开始，到 ] 结束
-                    String weekdaysStr = schedule.substring(schedule.indexOf("\"weekdays\"") + 11);
-                    weekdaysStr = weekdaysStr.substring(0, weekdaysStr.indexOf("]"));
-                    // 检查当前星期几是否在允许的 weekdays 数组中
-                    boolean dayAllowed = weekdaysStr.contains(String.valueOf(dayOfWeek));
-                    if (!dayAllowed) return false;
+        String schedule = policy.getTimeSchedule();
+        if (schedule == null || schedule.isBlank()) {
+            return true;
+        }
+
+        try {
+            // 使用 Spring 注入的 ObjectMapper 解析 JSON
+            JsonNode root = objectMapper.readTree(schedule);
+
+            // 检查工作日限制
+            JsonNode weekdaysNode = root.path("weekdays");
+            if (weekdaysNode.isArray() && weekdaysNode.size() > 0) {
+                int dayOfWeek = now.getDayOfWeek().getValue(); // 1=Monday, 7=Sunday
+                boolean dayAllowed = false;
+                for (JsonNode node : weekdaysNode) {
+                    if (node.asInt() == dayOfWeek) {
+                        dayAllowed = true;
+                        break;
+                    }
                 }
-                // 检查工作时间限制
-                if (schedule.contains("\"hours\"")) {
+                if (!dayAllowed) {
+                    return false;
+                }
+            }
+
+            // 检查工作时间限制
+            JsonNode hoursNode = root.path("hours");
+            if (hoursNode.isObject()) {
+                String fromStr = hoursNode.path("from").asText(null);
+                String toStr = hoursNode.path("to").asText(null);
+                if (fromStr != null && toStr != null) {
                     LocalTime currentTime = now.toLocalTime();
-                    // 提取 from 和 to 时间值
-                    String fromStr = extractJsonValue(schedule, "from");
-                    String toStr = extractJsonValue(schedule, "to");
-                    if (fromStr != null && toStr != null) {
-                        LocalTime from = LocalTime.parse(fromStr);  // 解析开始时间（如 "09:00"）
-                        LocalTime to = LocalTime.parse(toStr);      // 解析结束时间（如 "18:00"）
-                        // 检查当前时间是否在允许范围内
+                    LocalTime from = LocalTime.parse(fromStr);
+                    LocalTime to = LocalTime.parse(toStr);
+
+                    // 处理跨午夜的时间范围（如 22:00 - 06:00）
+                    if (from.isAfter(to)) {
+                        // 跨午夜：当前时间必须在 from 之后或 to 之前
+                        if (currentTime.isBefore(from) && currentTime.isAfter(to)) {
+                            return false;
+                        }
+                    } else {
+                        // 正常范围：当前时间必须在 from 和 to 之间
                         if (currentTime.isBefore(from) || currentTime.isAfter(to)) {
                             return false;
                         }
                     }
                 }
-            } catch (Exception e) {
-                // 时间计划解析失败时默认放行，避免阻断正常访问
-                log.warn("策略时间计划解析失败 policyId={}, 默认放行", policy.getId(), e);
             }
+        } catch (Exception e) {
+            // 时间计划解析失败时默认放行，避免阻断正常访问
+            log.warn("策略时间计划解析失败 policyId={}, 默认放行", policy.getId(), e);
         }
 
         return true;
-    }
-
-    /**
-     * 从简单 JSON 字符串中提取指定 key 的值。
-     * <p>
-     * 使用简单的字符串查找方式解析 JSON，适用于固定格式的简单 JSON。
-     * 例如：从 {"from":"09:00","to":"18:00"} 中提取 "from" 的值 "09:00"。
-     * </p>
-     *
-     * @param json JSON 字符串
-     * @param key  要提取的 key
-     * @return 提取的值，如果未找到返回 null
-     */
-    private String extractJsonValue(String json, String key) {
-        // 构建搜索模式："key":""
-        String search = "\"" + key + "\":\"";
-        int start = json.indexOf(search);
-        if (start < 0) return null;
-        start += search.length();  // 移动到值的开始位置
-        int end = json.indexOf("\"", start);  // 查找值的结束引号
-        if (end < 0) return null;
-        return json.substring(start, end);  // 提取值
     }
 
     /**

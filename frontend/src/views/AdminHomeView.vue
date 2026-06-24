@@ -27,7 +27,7 @@ import {
 import { useAuthStore } from '../stores/auth'
 import { getDashboardStats, type DashboardStats } from '../api/admin/dashboard'
 import {
-  getDatasourceReadiness,
+  getBatchDatasourceReadiness,
   listSimpleDatasources,
   type DatasourceReadiness,
 } from '../api/admin/datasource'
@@ -107,13 +107,16 @@ async function fetchReadiness() {
   try {
     const datasourceRes = await listSimpleDatasources()
     const datasources = datasourceRes.data ?? []
-    const readinessList = await Promise.all(
-      datasources.slice(0, 8).map(async (item) => {
-        const result = await getDatasourceReadiness(item.id)
-        return result.data
-      }),
-    )
-    datasourceReadiness.value = readinessList.filter(Boolean)
+
+    if (datasources.length === 0) {
+      datasourceReadiness.value = []
+      return
+    }
+
+    // 使用批量接口，一次请求获取所有数据源状态
+    const ids = datasources.slice(0, 20).map(item => item.id)
+    const result = await getBatchDatasourceReadiness(ids)
+    datasourceReadiness.value = result.data ?? []
   } catch {
     datasourceReadiness.value = []
   } finally {

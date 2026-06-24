@@ -114,6 +114,13 @@ export async function getDatasourceReadiness(id: number) {
   return data
 }
 
+export async function getBatchDatasourceReadiness(datasourceIds: number[]) {
+  const { data } = await http.get<ApiResult<DatasourceReadiness[]>>('/api/admin/datasources/readiness/batch', {
+    params: { datasourceIds: datasourceIds.join(',') }
+  })
+  return data
+}
+
 export async function createDatasource(payload: DatasourcePayload) {
   const { data } = await http.post<ApiResult<DatasourceItem>>('/api/admin/datasources', payload)
   return data

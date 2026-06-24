@@ -101,6 +101,25 @@ public class DatasourceAdminController {
     }
 
     /**
+     * 批量获取数据源可询问状态。
+     *
+     * @param datasourceIds 数据源 ID 列表（逗号分隔）
+     * @return 可询问状态列表
+     */
+    @GetMapping("/readiness/batch")
+    @PreAuthorize("hasAnyAuthority('datasource:manage', 'metadata:manage', 'knowledge:manage', 'field-tag:manage', 'audit:view', 'security:manage', '*')")
+    public Result<List<DatasourceReadinessVO>> getBatchReadiness(@RequestParam List<Long> datasourceIds) {
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return Result.success(List.of());
+        }
+        // 限制批量查询数量，防止滥用
+        if (datasourceIds.size() > 20) {
+            throw new com.dataocean.common.exception.BusinessException("批量查询最多支持20个数据源");
+        }
+        return Result.success(readinessService.getBatchAdminReadiness(datasourceIds));
+    }
+
+    /**
      * 创建数据源
      *
      * @param request 创建请求参数
