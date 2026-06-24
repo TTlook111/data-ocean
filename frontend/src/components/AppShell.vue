@@ -72,82 +72,57 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
     ],
   },
   {
-    label: '治理管理',
+    label: '数据资产',
     items: [
-      { label: '用户管理', to: '/admin/users', icon: Users, permission: 'user:manage' },
-      { label: '角色管理', to: '/admin/roles', icon: ShieldCheck, permission: 'role:view' },
-      { label: '部门管理', to: '/admin/departments', icon: Building2, permission: 'department:manage' },
       { label: '数据源管理', to: '/admin/datasources', icon: Database, permission: 'datasource:manage' },
-    ],
-  },
-  {
-    label: '元数据管理',
-    items: [
       { label: '同步任务', to: '/admin/metadata/sync', icon: FolderSync, permission: 'metadata:manage' },
-      { label: '快照列表', to: '/admin/metadata/snapshots', icon: History, permission: 'metadata:manage' },
       { label: '表浏览器', to: '/admin/metadata/tables', icon: Table2, permission: 'metadata:manage' },
+      { label: '目录搜索', to: '/admin/metadata/catalog', icon: Search, permission: 'metadata:manage' },
+      { label: '快照列表', to: '/admin/metadata/snapshots', icon: History, permission: 'metadata:manage' },
+      { label: '版本历史', to: '/admin/metadata/version-history', icon: GitBranch, permission: 'metadata:manage' },
       { label: '同步调度', to: '/admin/metadata/schedule', icon: Calendar, permission: 'metadata:manage' },
     ],
   },
   {
-    label: '元数据治理',
+    label: '治理工作台',
     items: [
       { label: '质量看板', to: '/admin/governance/quality', icon: Activity, permission: 'metadata:manage' },
       { label: '问题清单', to: '/admin/governance/issues', icon: ClipboardList, permission: 'metadata:manage' },
       { label: '治理状态', to: '/admin/governance/status', icon: ShieldAlert, permission: 'metadata:manage' },
-    ],
-  },
-  {
-    label: '版本管理',
-    items: [
       { label: '快照生命周期', to: '/admin/metadata/lifecycle', icon: Workflow, permission: 'metadata:manage' },
-      { label: '版本历史', to: '/admin/metadata/version-history', icon: GitBranch, permission: 'metadata:manage' },
-      { label: '目录搜索', to: '/admin/metadata/catalog', icon: Search, permission: 'metadata:manage' },
-    ],
-  },
-  {
-    label: '知识库管理',
-    items: [
-      { label: '知识库总览', to: '/admin/knowledge', icon: FileText, permission: 'knowledge:manage' },
-      { label: '文档编辑器', to: '/admin/knowledge/editor', icon: ClipboardList, permission: 'knowledge:manage' },
-      { label: '知识审核', to: '/admin/knowledge/review', icon: ShieldCheck, permission: 'knowledge:manage' },
-      { label: '术语管理', to: '/admin/glossary/list', icon: BookOpen, permission: 'metadata:manage' },
-    ],
-  },
-  {
-    label: 'AI 调优',
-    items: [
-      { label: 'Prompt 管理', to: '/admin/prompts', icon: SlidersHorizontal, permission: 'prompt:manage' },
-    ],
-  },
-  {
-    label: '字段治理',
-    items: [
       { label: '字段标签', to: '/admin/field/tags', icon: Tag, permission: 'field-tag:manage' },
       { label: '可信度看板', to: '/admin/field/confidence', icon: TrendingUp, permission: 'field-tag:manage' },
       { label: '反馈审核', to: '/admin/field/feedback-review', icon: MessageSquare, permission: 'field-tag:manage' },
     ],
   },
   {
-    label: '审计管理',
+    label: '语义资产',
     items: [
+      { label: '知识库总览', to: '/admin/knowledge', icon: FileText, permission: 'knowledge:manage' },
+      { label: '文档编辑器', to: '/admin/knowledge/editor', icon: ClipboardList, permission: 'knowledge:manage' },
+      { label: '知识审核', to: '/admin/knowledge/review', icon: ShieldCheck, permission: 'knowledge:manage' },
+      { label: '术语管理', to: '/admin/glossary/list', icon: BookOpen, permission: 'metadata:manage' },
+      { label: 'Prompt 管理', to: '/admin/prompts', icon: SlidersHorizontal, permission: 'prompt:manage' },
+    ],
+  },
+  {
+    label: '权限与合规',
+    items: [
+      { label: '用户管理', to: '/admin/users', icon: Users, permission: 'user:manage' },
+      { label: '角色管理', to: '/admin/roles', icon: ShieldCheck, permission: 'role:view' },
+      { label: '部门管理', to: '/admin/departments', icon: Building2, permission: 'department:manage' },
+      { label: '访问控制', to: '/admin/permission/access', icon: ShieldAlert, permission: 'security:manage' },
+      { label: '策略编辑器', to: '/admin/permission/policies', icon: ShieldCheck, permission: 'security:manage' },
       { label: '审计日志', to: '/admin/audit/logs', icon: ClipboardList, permission: 'audit:view' },
-      { label: '慢查询', to: '/admin/audit/slow-queries', icon: Activity, permission: 'audit:view' },
       { label: '血缘查看', to: '/admin/audit/lineage', icon: GitBranch, permission: 'audit:view' },
       { label: '血缘图谱', to: '/admin/audit/lineage-graph', icon: GitBranch, permission: 'audit:view' },
     ],
   },
   {
-    label: '安全管理',
-    items: [
-      { label: '访问控制', to: '/admin/permission/access', icon: ShieldAlert, permission: 'security:manage' },
-      { label: '策略编辑器', to: '/admin/permission/policies', icon: ShieldCheck, permission: 'security:manage' },
-    ],
-  },
-  {
-    label: '系统管理',
+    label: '系统运维',
     items: [
       { label: '服务健康', to: '/admin/system/health', icon: HeartPulse, permission: '*' },
+      { label: '慢查询', to: '/admin/audit/slow-queries', icon: Activity, permission: 'audit:view' },
       { label: '操作日志', to: '/admin/system/operation-logs', icon: ClipboardList, permission: 'audit:view' },
       { label: 'AI 配置', to: '/admin/system/ai-config', icon: Cpu, permission: 'system:ai-config:view' },
     ],

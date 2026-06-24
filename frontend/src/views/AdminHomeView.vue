@@ -26,13 +26,20 @@ import {
 } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 import { getDashboardStats, type DashboardStats } from '../api/admin/dashboard'
+import {
+  getDatasourceReadiness,
+  listSimpleDatasources,
+  type DatasourceReadiness,
+} from '../api/admin/datasource'
 import { gsap } from 'gsap'
 import { useGsapMotion } from '../composables/useGsapMotion'
 import { useChart } from '../composables/useChart'
 
 const auth = useAuthStore()
 const loading = ref(false)
+const readinessLoading = ref(false)
 const stats = ref<DashboardStats | null>(null)
+const datasourceReadiness = ref<DatasourceReadiness[]>([])
 const homeRef = ref<HTMLElement | null>(null)
 const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(homeRef)
 
@@ -68,6 +75,7 @@ const qualityTone = computed(() => {
   if (score >= 60) return 'warn'
   return 'bad'
 })
+const askableDatasourceCount = computed(() => datasourceReadiness.value.filter((item) => item.askable).length)
 
 const actionLabels: Record<string, string> = {
   PUBLISH: '发布', EXPIRE: '过期', REVOKE: '撤回', STATUS_TRANSITION: '状态变更'
@@ -91,6 +99,26 @@ async function fetchStats() {
     stats.value = res.data ?? null
   } catch { /* 静默处理 */ }
   finally { loading.value = false }
+}
+
+async function fetchReadiness() {
+  if (!isAdmin.value) return
+  readinessLoading.value = true
+  try {
+    const datasourceRes = await listSimpleDatasources()
+    const datasources = datasourceRes.data ?? []
+    const readinessList = await Promise.all(
+      datasources.slice(0, 8).map(async (item) => {
+        const result = await getDatasourceReadiness(item.id)
+        return result.data
+      }),
+    )
+    datasourceReadiness.value = readinessList.filter(Boolean)
+  } catch {
+    datasourceReadiness.value = []
+  } finally {
+    readinessLoading.value = false
+  }
 }
 
 /** 快捷操作卡片悬停动画 */
@@ -186,6 +214,7 @@ onMounted(() => {
   })
 
   fetchStats()
+  fetchReadiness()
   animateQuickActions()
 })
 
@@ -287,6 +316,58 @@ watch(loading, (value, oldValue) => {
           <ArrowRight :size="16" class="action-arrow" />
         </RouterLink>
       </div>
+    </section>
+
+    <section v-if="isAdmin" class="readiness-section" v-loading="readinessLoading">
+      <div class="section-heading-row">
+        <h3 class="section-title">
+          <CheckCircle2 :size="18" />
+          数据源上线状态
+        </h3>
+        <span v-if="datasourceReadiness.length" class="section-summary">
+          {{ askableDatasourceCount }} / {{ datasourceReadiness.length }} 个可询问
+        </span>
+      </div>
+      <div v-if="datasourceReadiness.length" class="readiness-list">
+        <article
+          v-for="item in datasourceReadiness"
+          :key="item.datasourceId"
+          class="readiness-item"
+          :class="{ 'readiness-item--askable': item.askable }"
+        >
+          <div class="readiness-main">
+            <strong>{{ item.datasourceName }}</strong>
+            <small>{{ item.stageLabel }}</small>
+          </div>
+          <div class="readiness-progress">
+            <el-progress :percentage="item.progress" :status="item.askable ? 'success' : undefined" />
+            <span v-if="item.snapshotVersion">快照 v{{ item.snapshotVersion }}</span>
+            <span v-if="item.knowledgeVersion">知识 v{{ item.knowledgeVersion }}</span>
+          </div>
+          <div class="readiness-reason">
+            <template v-if="item.askable">
+              <span class="reason-ok">已满足自然语言查询条件</span>
+            </template>
+            <template v-else>
+              <span>{{ item.blockReasons[0]?.message || '等待补齐上线条件' }}</span>
+              <small>{{ item.blockReasons[0]?.ownerRole || '治理负责人' }}</small>
+            </template>
+          </div>
+          <RouterLink
+            v-if="!item.askable && item.blockReasons[0]?.actionPath"
+            class="readiness-action"
+            :to="item.blockReasons[0].actionPath"
+          >
+            {{ item.blockReasons[0].actionText }}
+            <ArrowRight :size="14" />
+          </RouterLink>
+          <RouterLink v-else class="readiness-action" :to="item.askable ? '/query' : '/admin/datasources'">
+            {{ item.askable ? '开始查询' : '查看数据源' }}
+            <ArrowRight :size="14" />
+          </RouterLink>
+        </article>
+      </div>
+      <el-empty v-else description="暂无可展示的数据源上线状态" :image-size="64" />
     </section>
 
     <section v-if="isAdmin && stats" class="ops-strip">
@@ -479,6 +560,19 @@ watch(loading, (value, oldValue) => {
   color: var(--do-primary);
 }
 
+.section-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-summary {
+  color: var(--do-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .home-header {
   display: flex;
   align-items: center;
@@ -656,6 +750,93 @@ watch(loading, (value, oldValue) => {
 .action-sky .action-icon { color: #0ea5e9; background: #e8f7fd; }
 .action-orange .action-icon { color: #f59e0b; background: #fef3cd; }
 .action-teal .action-icon { color: #14b8a6; background: #e6faf8; }
+
+.readiness-section {
+  padding: 20px;
+  border: 1px solid var(--do-line);
+  border-radius: 12px;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
+
+.readiness-list {
+  display: grid;
+  gap: 10px;
+}
+
+.readiness-item {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.1fr) minmax(220px, 1.2fr) minmax(220px, 1.4fr) 118px;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.readiness-item--askable {
+  border-color: #bbf7d0;
+  background: #f8fffb;
+}
+
+.readiness-main,
+.readiness-reason {
+  min-width: 0;
+}
+
+.readiness-main strong,
+.readiness-main small,
+.readiness-reason span,
+.readiness-reason small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.readiness-main strong {
+  color: var(--do-ink);
+  font-size: 14px;
+}
+
+.readiness-main small,
+.readiness-reason small,
+.readiness-progress span {
+  color: var(--do-muted);
+  font-size: 12px;
+}
+
+.readiness-progress {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.readiness-progress span {
+  margin-right: 8px;
+}
+
+.readiness-reason span {
+  color: var(--do-ink);
+  font-size: 13px;
+}
+
+.readiness-reason .reason-ok {
+  color: #15803d;
+  font-weight: 700;
+}
+
+.readiness-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  color: var(--do-primary);
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 .guide-action {
   display: inline-flex; align-items: center; gap: 6px;
@@ -903,12 +1084,15 @@ watch(loading, (value, oldValue) => {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .ops-strip,
   .priority-grid { grid-template-columns: 1fr; }
+  .readiness-item { grid-template-columns: 1fr; align-items: start; }
+  .readiness-action { justify-content: flex-start; }
   .quick-actions-grid { grid-template-columns: repeat(2, 1fr); }
   .status-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
   .stats-grid { grid-template-columns: 1fr; }
   .home-header { align-items: flex-start; flex-direction: column; }
+  .section-heading-row { align-items: flex-start; flex-direction: column; }
   .quick-actions-grid { grid-template-columns: 1fr; }
 }
 </style>

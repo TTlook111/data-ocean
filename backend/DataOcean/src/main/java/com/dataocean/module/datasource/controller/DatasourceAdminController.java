@@ -10,9 +10,11 @@ import com.dataocean.module.datasource.entity.dto.DatasourceTestDTO;
 import com.dataocean.module.datasource.entity.dto.DatasourceUpdateDTO;
 import com.dataocean.module.datasource.entity.vo.DatasourceAccessVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestVO;
+import com.dataocean.module.datasource.entity.vo.DatasourceReadinessVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceSimpleVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceVO;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
+import com.dataocean.module.datasource.service.DatasourceReadinessService;
 import com.dataocean.module.datasource.service.DatasourceService;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import jakarta.validation.Valid;
@@ -52,6 +54,7 @@ public class DatasourceAdminController {
 
     private final DatasourceService datasourceService;
     private final DatasourceAccessService accessService;
+    private final DatasourceReadinessService readinessService;
     private final com.dataocean.module.datasource.mapper.DatasourceMapper datasourceMapper;
 
     /**
@@ -83,6 +86,18 @@ public class DatasourceAdminController {
     @GetMapping("/{id}")
     public Result<DatasourceVO> getDatasource(@PathVariable Long id) {
         return Result.success(datasourceService.getDatasourceById(id));
+    }
+
+    /**
+     * 获取数据源可询问状态。
+     *
+     * @param id 数据源 ID
+     * @return 可询问状态
+     */
+    @GetMapping("/{id}/readiness")
+    @PreAuthorize("hasAnyAuthority('datasource:manage', 'metadata:manage', 'knowledge:manage', 'field-tag:manage', 'audit:view', 'security:manage', '*')")
+    public Result<DatasourceReadinessVO> getReadiness(@PathVariable Long id) {
+        return Result.success(readinessService.getAdminReadiness(id));
     }
 
     /**

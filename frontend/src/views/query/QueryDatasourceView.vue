@@ -24,7 +24,12 @@ import {
   UserRound,
   X,
 } from 'lucide-vue-next'
-import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource'
+import {
+  getMyDatasourceReadiness,
+  listMyDatasources,
+  type DatasourceReadiness,
+  type UserDatasourceItem,
+} from '../../api/datasource'
 import {
   submitQuery,
   getTaskResult,
@@ -80,6 +85,7 @@ const adminPermissionCodes = [
 const router = useRouter()
 const auth = useAuthStore()
 const loading = ref(false)
+const readinessLoading = ref(false)
 const showGuideBanner = ref(!localStorage.getItem('do-query-guide-dismissed'))
 
 function dismissGuideBanner() {
@@ -89,6 +95,7 @@ function dismissGuideBanner() {
 
 const errorMessage = ref('')
 const datasources = ref<UserDatasourceItem[]>([])
+const readinessMap = ref<Record<number, DatasourceReadiness>>({})
 const selectedId = ref<number>()
 const activeSessionId = ref<string>()
 const question = ref('')
@@ -108,6 +115,12 @@ const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPer
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
 const roleText = computed(() => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, '普通用户'))
 const selectedDatasource = computed(() => datasources.value.find((item) => item.id === selectedId.value))
+const selectedReadiness = computed(() => selectedId.value ? readinessMap.value[selectedId.value] : undefined)
+const canAskSelectedDatasource = computed(() => !selectedReadiness.value || selectedReadiness.value.askable)
+const selectedBlockReason = computed(() => selectedReadiness.value?.blockReasons?.[0])
+const askableDatasourceCount = computed(() =>
+  datasources.value.filter((item) => readinessMap.value[item.id]?.askable !== false).length,
+)
 const exampleQuestions = [
   '统计最近30天订单金额趋势',
   '找出销售额最高的10个客户',
@@ -401,13 +414,17 @@ function startNewSession() {
     ElMessage.warning('请先选择数据源')
     return
   }
+  if (!canAskSelectedDatasource.value) {
+    ElMessage.warning(selectedBlockReason.value?.message || '当前数据源暂未达到可询问状态')
+    return
+  }
   question.value = ''
   createSession(selectedId.value)
   focusQuestionInput()
 }
 
 function applyExample(text: string) {
-  if (!selectedId.value) return
+  if (!selectedId.value || !canAskSelectedDatasource.value) return
   question.value = text
   focusQuestionInput()
 }
@@ -460,6 +477,10 @@ async function removeSession(session: LocalSession) {
 async function sendQuestion() {
   const text = question.value.trim()
   if (!selectedId.value || !text || isQuerying.value) return
+  if (!canAskSelectedDatasource.value) {
+    ElMessage.warning(selectedBlockReason.value?.message || '当前数据源暂未达到可询问状态')
+    return
+  }
   isQuerying.value = true
 
   const session = activeSession.value || createSession(selectedId.value)
@@ -725,8 +746,10 @@ async function fetchDatasources() {
   try {
     const result = await listMyDatasources()
     datasources.value = result.data
+    await fetchDatasourceReadiness(result.data)
     if (result.data.length && (!selectedId.value || !result.data.some((item) => item.id === selectedId.value))) {
-      await selectDatasource(result.data[0].id)
+      const firstAskable = result.data.find((item) => readinessMap.value[item.id]?.askable !== false)
+      await selectDatasource((firstAskable || result.data[0]).id)
     }
     if (!result.data.length) {
       selectedId.value = undefined
@@ -735,6 +758,7 @@ async function fetchDatasources() {
     }
   } catch (error: unknown) {
     datasources.value = []
+    readinessMap.value = {}
     selectedId.value = undefined
     activeSessionId.value = undefined
     question.value = ''
@@ -747,6 +771,25 @@ async function fetchDatasources() {
         : '数据源加载失败，请稍后重试'
   } finally {
     loading.value = false
+  }
+}
+
+async function fetchDatasourceReadiness(items: UserDatasourceItem[]) {
+  readinessLoading.value = true
+  try {
+    const entries = await Promise.all(
+      items.map(async (item) => {
+        try {
+          const result = await getMyDatasourceReadiness(item.id)
+          return [item.id, result.data] as const
+        } catch {
+          return null
+        }
+      }),
+    )
+    readinessMap.value = Object.fromEntries(entries.filter(Boolean) as Array<readonly [number, DatasourceReadiness]>)
+  } finally {
+    readinessLoading.value = false
   }
 }
 
@@ -835,7 +878,7 @@ watch(resultTab, () => {
       <section class="sidebar-block">
         <div class="block-title">
           <span>数据源</span>
-          <button type="button" :disabled="loading" aria-label="刷新数据源" @click="fetchDatasources">
+          <button type="button" :disabled="loading || readinessLoading" aria-label="刷新数据源" @click="fetchDatasources">
             <RefreshCw :size="15" />
           </button>
         </div>
@@ -852,13 +895,16 @@ watch(resultTab, () => {
             :key="datasource.id"
             type="button"
             class="datasource-row"
-            :class="{ active: datasource.id === selectedId }"
+            :class="{ active: datasource.id === selectedId, 'not-askable': readinessMap[datasource.id]?.askable === false }"
             @click="selectDatasource(datasource.id)"
           >
             <Database :size="16" />
             <span>
               <strong>{{ datasource.name }}</strong>
               <small>{{ datasource.databaseName }}</small>
+              <small v-if="readinessMap[datasource.id]" class="readiness-chip">
+                {{ readinessMap[datasource.id].askable ? '可询问' : readinessMap[datasource.id].stageLabel }}
+              </small>
             </span>
           </button>
         </div>
@@ -934,9 +980,20 @@ watch(resultTab, () => {
               <p>{{ selectedDatasource?.description || '当前会话限定在此数据源。' }}</p>
             </div>
             <div class="brief-metrics">
-              <span class="metric-chip"><Database :size="14" />{{ datasources.length }} 个可用数据源</span>
+              <span class="metric-chip"><Database :size="14" />{{ askableDatasourceCount }} / {{ datasources.length }} 个可询问</span>
               <span class="metric-chip"><History :size="14" />{{ datasourceSessions.length }} 个当前库会话</span>
             </div>
+          </section>
+
+          <section v-if="selectedReadiness && !selectedReadiness.askable" class="readiness-notice">
+            <ShieldAlert :size="16" />
+            <div>
+              <strong>{{ selectedReadiness.stageLabel }}</strong>
+              <span>{{ selectedBlockReason?.message || '当前数据源暂未完成上线流程。' }}</span>
+            </div>
+            <RouterLink v-if="selectedBlockReason?.actionPath && canEnterAdmin" :to="selectedBlockReason.actionPath">
+              {{ selectedBlockReason.actionText || '去处理' }}
+            </RouterLink>
           </section>
 
           <section class="example-strip" aria-label="示例问题">
@@ -944,6 +1001,7 @@ watch(resultTab, () => {
               v-for="item in exampleQuestions"
               :key="item"
               type="button"
+              :disabled="!canAskSelectedDatasource"
               @click="applyExample(item)"
             >
               {{ item }}
@@ -1095,15 +1153,18 @@ watch(resultTab, () => {
       </section>
 
       <footer class="chat-composer">
+        <div v-if="selectedReadiness && !selectedReadiness.askable" class="composer-readiness">
+          {{ selectedBlockReason?.message || '当前数据源暂未达到可询问状态' }}
+        </div>
         <textarea
           ref="questionInputRef"
           v-model="question"
-          :disabled="!selectedId"
+          :disabled="!selectedId || !canAskSelectedDatasource"
           rows="1"
-          :placeholder="selectedId ? '向当前数据源提问，例如：上个月销售额最高的10个产品' : '请先选择左侧数据源'"
+          :placeholder="!selectedId ? '请先选择左侧数据源' : canAskSelectedDatasource ? '向当前数据源提问，例如：上个月销售额最高的10个产品' : '当前数据源暂未完成上线流程'"
           @keydown.enter="handleEnter"
         ></textarea>
-        <button type="button" :disabled="!selectedId || !question.trim() || isQuerying" @click="sendQuestion">
+        <button type="button" :disabled="!selectedId || !canAskSelectedDatasource || !question.trim() || isQuerying" @click="sendQuestion">
           <SendHorizontal :size="18" />
           <span>{{ isQuerying ? '查询中...' : '发送' }}</span>
         </button>
@@ -1339,6 +1400,11 @@ watch(resultTab, () => {
   background: rgba(77, 143, 220, 0.11);
 }
 
+.datasource-row.not-askable {
+  border-color: rgba(180, 83, 9, 0.16);
+  background: rgba(255, 251, 235, 0.62);
+}
+
 .datasource-row svg,
 .history-row svg {
   color: var(--do-primary-strong);
@@ -1369,6 +1435,24 @@ watch(resultTab, () => {
 .history-row small {
   color: var(--do-muted);
   font-size: 12px;
+}
+
+.datasource-row .readiness-chip {
+  width: fit-content;
+  margin-top: 4px;
+  padding: 1px 6px;
+  border: 1px solid rgba(77, 143, 220, 0.18);
+  border-radius: 999px;
+  color: var(--do-primary-strong);
+  background: rgba(77, 143, 220, 0.08);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.datasource-row.not-askable .readiness-chip {
+  border-color: rgba(180, 83, 9, 0.22);
+  color: #92400e;
+  background: rgba(251, 191, 36, 0.15);
 }
 
 .history-search {
@@ -1648,6 +1732,51 @@ watch(resultTab, () => {
   gap: 8px;
 }
 
+.readiness-notice {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid rgba(180, 83, 9, 0.22);
+  border-radius: 8px;
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.readiness-notice svg {
+  color: #b45309;
+}
+
+.readiness-notice div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.readiness-notice strong,
+.readiness-notice span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.readiness-notice strong {
+  color: #78350f;
+  font-size: 13px;
+}
+
+.readiness-notice span {
+  font-size: 12px;
+}
+
+.readiness-notice a {
+  color: var(--do-primary-strong);
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+}
+
 .example-strip {
   display: flex;
   flex-wrap: wrap;
@@ -1670,6 +1799,12 @@ watch(resultTab, () => {
   border-color: var(--do-primary);
   color: var(--do-primary-strong);
   box-shadow: 0 0 0 3px rgba(77, 143, 220, 0.1);
+}
+
+.example-strip button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
 }
 
 .message-item {
@@ -1862,6 +1997,14 @@ watch(resultTab, () => {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: var(--do-shadow);
+}
+
+.composer-readiness {
+  grid-column: 1 / -1;
+  padding: 0 4px 2px;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .chat-composer textarea {

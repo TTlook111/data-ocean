@@ -1,10 +1,13 @@
 package com.dataocean.module.datasource.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.datasource.entity.vo.DatasourceReadinessVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceSimpleVO;
 import com.dataocean.module.datasource.service.DatasourceAccessService;
+import com.dataocean.module.datasource.service.DatasourceReadinessService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,6 +28,7 @@ import java.util.List;
 public class DatasourceUserController {
 
     private final DatasourceAccessService accessService;
+    private final DatasourceReadinessService readinessService;
 
     /**
      * 获取当前登录用户可访问的数据源列表
@@ -38,5 +42,16 @@ public class DatasourceUserController {
     @GetMapping
     public Result<List<DatasourceSimpleVO>> listMyDatasources() {
         return Result.success(accessService.listAccessibleDatasources());
+    }
+
+    /**
+     * 获取当前用户视角的数据源可询问状态。
+     *
+     * @param datasourceId 数据源 ID
+     * @return 可询问状态
+     */
+    @GetMapping("/{datasourceId}/readiness")
+    public Result<DatasourceReadinessVO> getReadiness(@PathVariable Long datasourceId) {
+        return Result.success(readinessService.getCurrentUserReadiness(datasourceId));
     }
 }

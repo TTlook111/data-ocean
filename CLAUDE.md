@@ -42,7 +42,7 @@ Important boundary:
 
 ## Current Status
 
-Last updated: 2026-06-20.
+Last updated: 2026-06-24.
 
 The main end-to-end chain is implemented:
 
@@ -70,6 +70,10 @@ Module status summary:
 | Python chart generation | Complete |
 
 Known follow-up areas — see `docs/development/后续开发.md` for the full prioritized list.
+
+Latest addition:
+
+- **Datasource readiness and admin IA added** (2026-06-24): datasource readiness aggregates connection, published metadata snapshot, blocking governance issues, published skills.md, and permission state. Query entry blocks non-askable sources with visible reasons, and admin navigation is grouped by business domains.
 
 Recently completed or verified:
 
@@ -292,16 +296,16 @@ Python route notes:
 
 ## Frontend Notes
 
-Frontend routes are split between:
+Frontend routes are split between business-oriented domains:
 
 - `/query`: user-facing intelligent query flow.
-- `/admin/*`: governance, metadata, knowledge, prompt, audit, permissions, and system management.
+- `/admin/*`: admin app grouped as 工作台、数据资产、治理工作台、语义资产、权限与合规、系统运维.
 - `/admin/metadata/catalog`: metadata catalog search and entity graph entry.
 - `/admin/glossary/list`: glossary management.
 - `/admin/system/operation-logs`: operation log management.
 - `/admin/system/ai-config`: AI provider/model/embedding configuration.
 
-The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`.
+The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`. It also checks `/api/datasources/{datasourceId}/readiness` so users can only ask against sources whose lifecycle is ready.
 
 ## Working Rules
 

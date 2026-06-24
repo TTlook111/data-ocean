@@ -26,6 +26,33 @@ export interface DatasourceSimpleItem {
   description?: string
 }
 
+export interface DatasourceReadiness {
+  datasourceId: number
+  datasourceName: string
+  askable: boolean
+  stage: string
+  stageLabel: string
+  progress: number
+  publishedSnapshotId?: number
+  snapshotVersion?: number
+  publishedKnowledgeDocId?: number
+  knowledgeVersion?: number
+  connectionReady: boolean
+  metadataReady: boolean
+  governanceReady: boolean
+  knowledgeReady: boolean
+  permissionReady: boolean
+  blockReasons: DatasourceReadinessReason[]
+}
+
+export interface DatasourceReadinessReason {
+  code: string
+  message: string
+  ownerRole: string
+  actionText: string
+  actionPath?: string
+}
+
 export interface DatasourceQuery {
   name?: string
   status?: number
@@ -79,6 +106,11 @@ export async function listDatasources(params: DatasourceQuery) {
 
 export async function listSimpleDatasources() {
   const { data } = await http.get<ApiResult<DatasourceSimpleItem[]>>('/api/admin/datasources/simple')
+  return data
+}
+
+export async function getDatasourceReadiness(id: number) {
+  const { data } = await http.get<ApiResult<DatasourceReadiness>>(`/api/admin/datasources/${id}/readiness`)
   return data
 }
 

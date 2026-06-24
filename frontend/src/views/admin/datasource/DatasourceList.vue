@@ -16,6 +16,7 @@ import {
   createDatasource,
   deleteDatasource,
   grantDatasourceAccess,
+  getDatasourceReadiness,
   listDatasourceAccess,
   listDatasources,
   revokeDatasourceAccess,
@@ -27,6 +28,7 @@ import {
   type DatasourceItem,
   type DatasourcePayload,
   type DatasourceQuery,
+  type DatasourceReadiness,
 } from '../../../api/admin/datasource'
 import { listUsers, type UserItem } from '../../../api/admin/user'
 
@@ -56,6 +58,7 @@ const errorMessage = ref('')
 const testedOk = ref(false)
 const connectionDirty = ref(false)
 const accessCountMap = reactive<Record<number, number>>({})
+const readinessMap = reactive<Record<number, DatasourceReadiness>>({})
 const rowTesting = reactive<Record<number, boolean>>({})
 const filtersReady = ref(false)
 let filterTimer: ReturnType<typeof setTimeout> | undefined
@@ -216,6 +219,14 @@ function statusLabel(status: number) {
   return status === STATUS_ENABLED ? '启用' : '禁用'
 }
 
+function lifecycleTagType(row: DatasourceItem) {
+  const readiness = readinessMap[row.id]
+  if (!readiness) return 'info'
+  if (readiness.askable) return 'success'
+  if (readiness.stage === 'GOVERNANCE_BLOCKED' || readiness.stage === 'CONNECTION_CHECK_REQUIRED') return 'warning'
+  return 'info'
+}
+
 function fullTime(value?: string) {
   if (!value) return '未检测'
   const date = new Date(value)
@@ -266,6 +277,19 @@ async function fetchAccessCounts(rows: DatasourceItem[]) {
   )
 }
 
+async function fetchReadiness(rows: DatasourceItem[]) {
+  await Promise.all(
+    rows.map(async (row) => {
+      try {
+        const result = await getDatasourceReadiness(row.id)
+        readinessMap[row.id] = result.data
+      } catch {
+        delete readinessMap[row.id]
+      }
+    }),
+  )
+}
+
 async function fetchDatasources() {
   loading.value = true
   errorMessage.value = ''
@@ -273,7 +297,7 @@ async function fetchDatasources() {
     const result = await listDatasources(query)
     datasources.value = result.data.records
     total.value = result.data.total
-    await fetchAccessCounts(result.data.records)
+    await Promise.all([fetchAccessCounts(result.data.records), fetchReadiness(result.data.records)])
   } catch (error) {
     datasources.value = []
     total.value = 0
@@ -640,6 +664,25 @@ onBeforeUnmount(() => {
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="上线阶段" min-width="140">
+          <template #default="{ row }">
+            <el-tooltip
+              :content="readinessMap[row.id]?.blockReasons?.[0]?.message || '当前阶段由连接、快照、治理、知识和权限实时聚合计算'"
+              placement="top"
+            >
+              <div class="lifecycle-cell">
+                <el-tag :type="lifecycleTagType(row)">
+                  {{ readinessMap[row.id]?.stageLabel || '计算中' }}
+                </el-tag>
+                <el-progress
+                  :percentage="readinessMap[row.id]?.progress || 0"
+                  :show-text="false"
+                  :stroke-width="5"
+                />
+              </div>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="上次检测" min-width="140">
           <template #default="{ row }">
             <el-tooltip :content="fullTime(row.lastCheckTime)" placement="top">
@@ -653,8 +696,9 @@ onBeforeUnmount(() => {
           </template>
         </el-table-column>
         <el-table-column prop="creatorName" label="创建者" min-width="100" />
-        <el-table-column label="操作" width="250" fixed="right">
+        <el-table-column label="操作" width="290" fixed="right">
           <template #default="{ row }">
+            <RouterLink class="table-link" :to="`/admin/datasources/${row.id}/lifecycle`">流程</RouterLink>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button link type="success" :loading="rowTesting[row.id]" @click="testSaved(row)">
               <RefreshCw :size="14" />
@@ -829,6 +873,25 @@ onBeforeUnmount(() => {
 
 small {
   color: var(--do-muted);
+}
+
+.lifecycle-cell {
+  display: grid;
+  gap: 7px;
+}
+
+.table-link {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  margin-right: 10px;
+  color: var(--do-primary-strong);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.table-link:hover {
+  color: var(--do-primary);
 }
 
 .el-tag {
