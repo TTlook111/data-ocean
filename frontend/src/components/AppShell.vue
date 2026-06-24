@@ -2,35 +2,21 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
-  Activity,
   Bell,
   BookOpen,
-  Building2,
-  Calendar,
   ChevronLeft,
-  ClipboardList,
-  Cpu,
   Database,
-  FileText,
-  FolderSync,
-  GitBranch,
   HeartPulse,
-  History,
   LayoutDashboard,
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
-  Search,
-  SlidersHorizontal,
   ShieldCheck,
   ShieldAlert,
-  Table2,
-  Tag,
-  TrendingUp,
+  Settings,
   MessageSquare,
   UserCog,
   UserRound,
-  Users,
   Workflow,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
@@ -46,9 +32,17 @@ import {
 import AdminContextBar from './AdminContextBar.vue'
 
 interface MenuItem {
+  key: string
   label: string
   to: string
   icon: Component
+  permission?: string
+  match?: string[]
+}
+
+interface WorkspaceLink {
+  label: string
+  to: string
   permission?: string
 }
 
@@ -67,68 +61,126 @@ const hasUnreadInPanel = computed(() => notifications.value.some((item) => !item
 
 const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
   {
-    label: '工作台',
+    label: '总览',
     items: [
-      { label: '概览', to: '/admin', icon: LayoutDashboard },
+      { key: 'workbench', label: '工作台', to: '/admin', icon: LayoutDashboard },
     ],
   },
   {
-    label: '数据资产',
+    label: '数据源生命周期',
     items: [
-      { label: '数据源管理', to: '/admin/datasources', icon: Database, permission: 'datasource:manage' },
-      { label: '同步任务', to: '/admin/metadata/sync', icon: FolderSync, permission: 'metadata:manage' },
-      { label: '表浏览器', to: '/admin/metadata/tables', icon: Table2, permission: 'metadata:manage' },
-      { label: '目录搜索', to: '/admin/metadata/catalog', icon: Search, permission: 'metadata:manage' },
-      { label: '快照列表', to: '/admin/metadata/snapshots', icon: History, permission: 'metadata:manage' },
-      { label: '版本历史', to: '/admin/metadata/version-history', icon: GitBranch, permission: 'metadata:manage' },
-      { label: '同步调度', to: '/admin/metadata/schedule', icon: Calendar, permission: 'metadata:manage' },
+      {
+        key: 'datasource',
+        label: '数据源中心',
+        to: '/admin/datasources',
+        icon: Database,
+        permission: 'datasource:manage',
+        match: [
+          '/admin/datasources',
+          '/admin/metadata/sync',
+          '/admin/metadata/snapshots',
+          '/admin/metadata/tables',
+          '/admin/metadata/catalog',
+          '/admin/metadata/diff',
+          '/admin/metadata/version-history',
+          '/admin/metadata/schedule',
+        ],
+      },
+      {
+        key: 'governance',
+        label: '治理中心',
+        to: '/admin/governance/quality',
+        icon: Workflow,
+        permission: 'metadata:manage',
+        match: ['/admin/governance', '/admin/metadata/lifecycle', '/admin/field'],
+      },
+      {
+        key: 'knowledge',
+        label: '语义中心',
+        to: '/admin/knowledge',
+        icon: BookOpen,
+        permission: 'knowledge:manage',
+        match: ['/admin/knowledge', '/admin/glossary', '/admin/prompts'],
+      },
     ],
   },
   {
-    label: '治理工作台',
+    label: '开放与运营',
     items: [
-      { label: '质量看板', to: '/admin/governance/quality', icon: Activity, permission: 'metadata:manage' },
-      { label: '问题清单', to: '/admin/governance/issues', icon: ClipboardList, permission: 'metadata:manage' },
-      { label: '治理状态', to: '/admin/governance/status', icon: ShieldAlert, permission: 'metadata:manage' },
-      { label: '快照生命周期', to: '/admin/metadata/lifecycle', icon: Workflow, permission: 'metadata:manage' },
-      { label: '字段标签', to: '/admin/field/tags', icon: Tag, permission: 'field-tag:manage' },
-      { label: '可信度看板', to: '/admin/field/confidence', icon: TrendingUp, permission: 'field-tag:manage' },
-      { label: '反馈审核', to: '/admin/field/feedback-review', icon: MessageSquare, permission: 'field-tag:manage' },
-    ],
-  },
-  {
-    label: '语义资产',
-    items: [
-      { label: '知识库总览', to: '/admin/knowledge', icon: FileText, permission: 'knowledge:manage' },
-      { label: '文档编辑器', to: '/admin/knowledge/editor', icon: ClipboardList, permission: 'knowledge:manage' },
-      { label: '知识审核', to: '/admin/knowledge/review', icon: ShieldCheck, permission: 'knowledge:manage' },
-      { label: '术语管理', to: '/admin/glossary/list', icon: BookOpen, permission: 'metadata:manage' },
-      { label: 'Prompt 管理', to: '/admin/prompts', icon: SlidersHorizontal, permission: 'prompt:manage' },
-    ],
-  },
-  {
-    label: '权限与合规',
-    items: [
-      { label: '用户管理', to: '/admin/users', icon: Users, permission: 'user:manage' },
-      { label: '角色管理', to: '/admin/roles', icon: ShieldCheck, permission: 'role:view' },
-      { label: '部门管理', to: '/admin/departments', icon: Building2, permission: 'department:manage' },
-      { label: '访问控制', to: '/admin/permission/access', icon: ShieldAlert, permission: 'security:manage' },
-      { label: '策略编辑器', to: '/admin/permission/policies', icon: ShieldCheck, permission: 'security:manage' },
-      { label: '审计日志', to: '/admin/audit/logs', icon: ClipboardList, permission: 'audit:view' },
-      { label: '血缘查看', to: '/admin/audit/lineage', icon: GitBranch, permission: 'audit:view' },
-      { label: '血缘图谱', to: '/admin/audit/lineage-graph', icon: GitBranch, permission: 'audit:view' },
-    ],
-  },
-  {
-    label: '系统运维',
-    items: [
-      { label: '服务健康', to: '/admin/system/health', icon: HeartPulse, permission: '*' },
-      { label: '慢查询', to: '/admin/audit/slow-queries', icon: Activity, permission: 'audit:view' },
-      { label: '操作日志', to: '/admin/system/operation-logs', icon: ClipboardList, permission: 'audit:view' },
-      { label: 'AI 配置', to: '/admin/system/ai-config', icon: Cpu, permission: 'system:ai-config:view' },
+      {
+        key: 'permission',
+        label: '权限与开放',
+        to: '/admin/permission/access',
+        icon: ShieldAlert,
+        permission: 'security:manage',
+        match: ['/admin/permission', '/admin/users', '/admin/roles', '/admin/departments'],
+      },
+      {
+        key: 'operation',
+        label: '运营与安全',
+        to: '/admin/audit/logs',
+        icon: HeartPulse,
+        permission: 'audit:view',
+        match: ['/admin/audit', '/admin/system/health'],
+      },
+      {
+        key: 'settings',
+        label: '系统设置',
+        to: '/admin/system/ai-config',
+        icon: Settings,
+        permission: 'system:ai-config:view',
+        match: ['/admin/system/ai-config', '/admin/system/operation-logs'],
+      },
     ],
   },
 ]
+
+const workspaceLinks: Record<string, WorkspaceLink[]> = {
+  datasource: [
+    { label: '数据源总览', to: '/admin/datasources', permission: 'datasource:manage' },
+    { label: '同步任务', to: '/admin/metadata/sync', permission: 'metadata:manage' },
+    { label: '快照列表', to: '/admin/metadata/snapshots', permission: 'metadata:manage' },
+    { label: '表浏览器', to: '/admin/metadata/tables', permission: 'metadata:manage' },
+    { label: '目录搜索', to: '/admin/metadata/catalog', permission: 'metadata:manage' },
+    { label: '快照差异', to: '/admin/metadata/diff', permission: 'metadata:manage' },
+    { label: '版本历史', to: '/admin/metadata/version-history', permission: 'metadata:manage' },
+    { label: '同步调度', to: '/admin/metadata/schedule', permission: 'metadata:manage' },
+  ],
+  governance: [
+    { label: '治理总览', to: '/admin/governance/quality', permission: 'metadata:manage' },
+    { label: '问题处理', to: '/admin/governance/issues', permission: 'metadata:manage' },
+    { label: '治理状态', to: '/admin/governance/status', permission: 'metadata:manage' },
+    { label: '快照生命周期', to: '/admin/metadata/lifecycle', permission: 'metadata:manage' },
+    { label: '字段标签', to: '/admin/field/tags', permission: 'field-tag:manage' },
+    { label: '字段可信度', to: '/admin/field/confidence', permission: 'field-tag:manage' },
+    { label: '反馈闭环', to: '/admin/field/feedback-review', permission: 'field-tag:manage' },
+  ],
+  knowledge: [
+    { label: '知识文档', to: '/admin/knowledge', permission: 'knowledge:manage' },
+    { label: '文档编辑', to: '/admin/knowledge/editor', permission: 'knowledge:manage' },
+    { label: '知识审核', to: '/admin/knowledge/review', permission: 'knowledge:manage' },
+    { label: '术语体系', to: '/admin/glossary/list', permission: 'metadata:manage' },
+    { label: 'Prompt 策略', to: '/admin/prompts', permission: 'prompt:manage' },
+  ],
+  permission: [
+    { label: '访问控制', to: '/admin/permission/access', permission: 'security:manage' },
+    { label: '授权策略', to: '/admin/permission/policies', permission: 'security:manage' },
+    { label: '用户', to: '/admin/users', permission: 'user:manage' },
+    { label: '角色', to: '/admin/roles', permission: 'role:view' },
+    { label: '部门', to: '/admin/departments', permission: 'department:manage' },
+  ],
+  operation: [
+    { label: '审计日志', to: '/admin/audit/logs', permission: 'audit:view' },
+    { label: '慢查询', to: '/admin/audit/slow-queries', permission: 'audit:view' },
+    { label: '血缘查看', to: '/admin/audit/lineage', permission: 'audit:view' },
+    { label: '血缘图谱', to: '/admin/audit/lineage-graph', permission: 'audit:view' },
+    { label: '服务健康', to: '/admin/system/health', permission: '*' },
+  ],
+  settings: [
+    { label: 'AI 配置', to: '/admin/system/ai-config', permission: 'system:ai-config:view' },
+    { label: '操作日志', to: '/admin/system/operation-logs', permission: 'audit:view' },
+  ],
+}
 
 const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
@@ -171,14 +223,41 @@ const visibleGroups = computed(() =>
   menuGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => canView(item.permission)),
+      items: group.items.filter(canViewMenuItem),
     }))
     .filter((group) => group.items.length > 0),
 )
 
+function canViewMenuItem(item: MenuItem) {
+  return canView(item.permission) || Boolean(workspaceLinks[item.key]?.some((link) => canView(link.permission)))
+}
+
+function navTarget(item: MenuItem) {
+  return workspaceLinks[item.key]?.find((link) => canView(link.permission))?.to || item.to
+}
+
+function routeMatches(item: Pick<MenuItem, 'to' | 'match'>) {
+  const paths = [item.to, ...(item.match || [])]
+  return paths.some((path) => route.path === path || route.path.startsWith(`${path}/`))
+}
+
 const matchedMenuItem = computed(() =>
   menuGroups
     .flatMap((group) => group.items)
+    .filter(routeMatches)
+    .sort((a, b) => {
+      const aLength = Math.max(a.to.length, ...(a.match || []).map((path) => path.length))
+      const bLength = Math.max(b.to.length, ...(b.match || []).map((path) => path.length))
+      return bLength - aLength
+    })[0],
+)
+
+const activeWorkspaceLinks = computed(() =>
+  (workspaceLinks[matchedMenuItem.value?.key || ''] || []).filter((item) => canView(item.permission)),
+)
+
+const activeWorkspaceLink = computed(() =>
+  activeWorkspaceLinks.value
     .filter((item) => route.path === item.to || route.path.startsWith(`${item.to}/`))
     .sort((a, b) => b.to.length - a.to.length)[0],
 )
@@ -190,7 +269,11 @@ function canView(permission?: string) {
 }
 
 function isActiveMenu(item: MenuItem) {
-  return matchedMenuItem.value?.to === item.to
+  return matchedMenuItem.value?.key === item.key
+}
+
+function isActiveWorkspaceLink(item: WorkspaceLink) {
+  return activeWorkspaceLink.value?.to === item.to
 }
 
 function handleUserCommand(command: string) {
@@ -356,7 +439,7 @@ watch(collapsed, async () => {
             :key="item.to"
             class="nav-item"
             :class="{ active: isActiveMenu(item) }"
-            :to="item.to"
+            :to="navTarget(item)"
             :title="collapsed ? item.label : undefined"
           >
             <component :is="item.icon" :size="18" />
@@ -436,6 +519,18 @@ watch(collapsed, async () => {
       </header>
 
       <AdminContextBar v-if="showAdminContext" />
+
+      <nav v-if="activeWorkspaceLinks.length" class="workspace-nav" aria-label="工作区导航">
+        <RouterLink
+          v-for="item in activeWorkspaceLinks"
+          :key="item.to"
+          class="workspace-nav-item"
+          :class="{ active: isActiveWorkspaceLink(item) }"
+          :to="item.to"
+        >
+          {{ item.label }}
+        </RouterLink>
+      </nav>
 
       <section class="app-content">
         <RouterView />
@@ -638,5 +733,42 @@ watch(collapsed, async () => {
 .icon-button:hover {
   background: var(--do-bg);
   color: var(--do-ink);
+}
+
+.workspace-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--do-line);
+  background: #fff;
+}
+
+.workspace-nav-item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  color: var(--do-muted);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  background: var(--do-surface);
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.workspace-nav-item:hover {
+  color: var(--do-primary-strong);
+  border-color: rgba(77, 143, 220, 0.35);
+  background: rgba(77, 143, 220, 0.07);
+}
+
+.workspace-nav-item.active {
+  color: var(--do-primary-strong);
+  border-color: rgba(77, 143, 220, 0.45);
+  background: rgba(77, 143, 220, 0.12);
 }
 </style>
