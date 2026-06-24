@@ -15,6 +15,7 @@ import com.dataocean.module.permission.mapper.DatasourceAccessPolicyMapper;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.mapper.RoleMapper;
 import com.dataocean.module.user.mapper.UserMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -150,6 +151,7 @@ class PermissionCalculatorImplTest {
         private final DbTableMetaMapper tableMetaMapper = mock(DbTableMetaMapper.class);
         private final DbColumnMetaMapper columnMetaMapper = mock(DbColumnMetaMapper.class);
         private final SchemaSnapshotService schemaSnapshotService = mock(SchemaSnapshotService.class);
+        private final ObjectMapper objectMapper = new ObjectMapper();
         private final PermissionCalculatorImpl service;
 
         private TestFixture() {
@@ -162,7 +164,8 @@ class PermissionCalculatorImplTest {
                     userMapper,
                     tableMetaMapper,
                     columnMetaMapper,
-                    schemaSnapshotService
+                    schemaSnapshotService,
+                    objectMapper
             );
         }
     }

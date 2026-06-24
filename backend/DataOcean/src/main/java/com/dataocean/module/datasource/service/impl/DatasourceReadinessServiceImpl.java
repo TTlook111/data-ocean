@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -140,6 +141,27 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                 .eq(MetadataQualityIssue::getSnapshotId, snapshot.getId())
                 .eq(MetadataQualityIssue::getSeverity, "HIGH")
                 .in(MetadataQualityIssue::getStatus, BLOCKING_ISSUE_STATUSES));
+    }
+
+    /**
+     * 批量查询多个快照的阻塞性问题数量。
+     *
+     * @param snapshotIds 快照ID列表
+     * @return 快照ID到问题数量的映射
+     */
+    private Map<Long, Long> countBlockingIssuesBySnapshotIds(List<Long> snapshotIds) {
+        Map<Long, Long> result = new HashMap<>();
+        // 为每个快照单独查询问题数量（简单可靠）
+        for (Long snapshotId : snapshotIds) {
+            long count = qualityIssueMapper.selectCount(new LambdaQueryWrapper<MetadataQualityIssue>()
+                    .eq(MetadataQualityIssue::getSnapshotId, snapshotId)
+                    .eq(MetadataQualityIssue::getSeverity, "HIGH")
+                    .in(MetadataQualityIssue::getStatus, BLOCKING_ISSUE_STATUSES));
+            if (count > 0) {
+                result.put(snapshotId, count);
+            }
+        }
+        return result;
     }
 
     /**
@@ -308,17 +330,7 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                 .toList();
         Map<Long, Long> blockingIssueCountMap = snapshotIds.isEmpty()
                 ? Map.of()
-                : qualityIssueMapper.selectMaps(
-                        new LambdaQueryWrapper<MetadataQualityIssue>()
-                                .in(MetadataQualityIssue::getSnapshotId, snapshotIds)
-                                .eq(MetadataQualityIssue::getSeverity, "HIGH")
-                                .in(MetadataQualityIssue::getStatus, BLOCKING_ISSUE_STATUSES)
-                                .select(MetadataQualityIssue::getSnapshotId, "COUNT(*) as cnt")
-                                .groupBy(MetadataQualityIssue::getSnapshotId)
-                ).stream().collect(Collectors.toMap(
-                        m -> (Long) m.get("snapshot_id"),
-                        m -> (Long) m.get("cnt")
-                ));
+                : countBlockingIssuesBySnapshotIds(snapshotIds);
 
         // 构建结果
         List<DatasourceReadinessVO> results = new ArrayList<>();
