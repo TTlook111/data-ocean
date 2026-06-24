@@ -3,7 +3,6 @@ import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from 'lucide-vue-next'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
-import { listMyDatasources, type UserDatasourceItem } from '../../../api/datasource'
 import {
   analyzeImpact,
   queryColumnLineage,
@@ -12,9 +11,10 @@ import {
   type LineageColumnVO,
   type LineageTableVO,
 } from '../../../api/admin/audit'
+import ResourceScopeSelector from '../../../components/ResourceScopeSelector.vue'
 
-const datasourceId = ref<number | null>(null)
-const datasources = ref<UserDatasourceItem[]>([])
+const datasourceId = ref<number | undefined>()
+const snapshotId = ref<number | undefined>()
 const tableName = ref('')
 const columnName = ref('')
 const tableLineage = ref<LineageTableVO[]>([])
@@ -24,18 +24,6 @@ const loading = ref(false)
 const searched = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
-
-async function loadDatasources() {
-  try {
-    const res = await listMyDatasources()
-    datasources.value = res.data ?? []
-    if (!datasourceId.value && datasources.value.length === 1) {
-      datasourceId.value = datasources.value[0].id
-    }
-  } catch {
-    ElMessage.error('数据源列表加载失败')
-  }
-}
 
 function requireDatasource() {
   if (!datasourceId.value) {
@@ -104,7 +92,6 @@ function handleSearch() {
 }
 
 onMounted(() => {
-  loadDatasources()
   withContext(() => {
     reveal('.content-panel, .impact-card, .toolbar', { y: 14, stagger: 0.06 })
   })
@@ -115,22 +102,15 @@ onMounted(() => {
   <main ref="pageRef" class="lineage-page post-login-page" v-loading="loading">
 
     <section class="toolbar">
-      <el-select
-        v-model="datasourceId"
-        placeholder="选择数据源"
-        clearable
-        filterable
-        style="width: 220px"
-      >
-        <el-option
-          v-for="item in datasources"
-          :key="item.id"
-          :label="`${item.name}${item.databaseName ? ` / ${item.databaseName}` : ''}`"
-          :value="item.id"
-        />
-      </el-select>
-      <el-input v-model="tableName" placeholder="表名" clearable style="width: 220px" @keyup.enter="handleSearch" />
-      <el-input v-model="columnName" placeholder="字段名（选填）" clearable style="width: 220px" @keyup.enter="handleSearch" />
+      <ResourceScopeSelector
+        v-model:datasource-id="datasourceId"
+        v-model:snapshot-id="snapshotId"
+        v-model:table-name="tableName"
+        v-model:column-name="columnName"
+        mode="column"
+        include-all-column-option
+        all-column-label="表级血缘"
+      />
       <el-button type="primary" :icon="Search" @click="handleSearch">查询血缘</el-button>
     </section>
 
@@ -168,7 +148,7 @@ onMounted(() => {
 
     <el-empty
       v-if="!tableLineage.length && !columnLineage.length && !loading"
-      :description="searched ? '暂无血缘记录' : '输入表名或字段名查询血缘关系'"
+      :description="searched ? '暂无血缘记录' : '选择数据源和表后查询血缘关系'"
     />
   </main>
 </template>

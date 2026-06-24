@@ -8,7 +8,6 @@ import {
   batchHandleIssues,
   type QualityIssueItem
 } from '../../../api/admin/governance'
-import { listSnapshots } from '../../../api/admin/metadata'
 import {
   issueStatusLabel,
   issueStatusType,
@@ -16,12 +15,13 @@ import {
   severityLabel,
 } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import ResourceScopeSelector from '../../../components/ResourceScopeSelector.vue'
 
 const loading = ref(false)
 const issues = ref<QualityIssueItem[]>([])
 const total = ref(0)
 const selectedIds = ref<number[]>([])
-const snapshots = ref<Array<{ id: number; snapshotVersion: number }>>([])
+const scopeDatasourceId = ref<number | undefined>()
 const adminContext = useAdminContextStore()
 
 const query = reactive({
@@ -65,16 +65,6 @@ const issueSummary = computed(() => ({
   resolved: issues.value.filter((item) => item.status === 'RESOLVED').length,
 }))
 
-async function fetchSnapshots() {
-  const res = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 50 })
-  snapshots.value = res.data?.records ?? []
-  if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
-    query.snapshotId = adminContext.snapshotId
-  } else if (!query.snapshotId || !snapshots.value.some((item) => item.id === query.snapshotId)) {
-    query.snapshotId = snapshots.value[0]?.id
-  }
-}
-
 async function fetchIssues() {
   loading.value = true
   try {
@@ -93,8 +83,8 @@ async function fetchIssues() {
   }
 }
 
-function handleSnapshotChange(value?: number) {
-  adminContext.selectSnapshot(value)
+function handleScopeChange() {
+  query.page = 1
   fetchIssues()
 }
 
@@ -126,7 +116,7 @@ function onSelectionChange(rows: QualityIssueItem[]) {
 
 onMounted(async () => {
   await adminContext.initialize()
-  await fetchSnapshots()
+  scopeDatasourceId.value = adminContext.datasourceId
   query.snapshotId = adminContext.snapshotId
   fetchIssues()
 })
@@ -143,10 +133,11 @@ watch(
 
 watch(
   () => adminContext.datasourceId,
-  async () => {
-    await fetchSnapshots()
+  (datasourceId) => {
+    scopeDatasourceId.value = datasourceId
+    query.snapshotId = undefined
+    query.tableName = ''
     query.page = 1
-    fetchIssues()
   },
 )
 </script>
@@ -158,9 +149,15 @@ watch(
     </section>
 
     <section class="toolbar">
-      <el-select v-model="query.snapshotId" placeholder="全部快照" clearable style="width: 220px" @change="handleSnapshotChange">
-        <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} 版本 ${s.snapshotVersion}`" />
-      </el-select>
+      <ResourceScopeSelector
+        v-model:datasource-id="scopeDatasourceId"
+        v-model:snapshot-id="query.snapshotId"
+        v-model:table-name="query.tableName"
+        mode="table"
+        include-all-table-option
+        all-table-label="全部表"
+        @change="handleScopeChange"
+      />
       <el-select v-model="query.dimension" placeholder="全部维度" style="width: 120px" @change="fetchIssues">
         <el-option v-for="o in dimensionOptions" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
@@ -170,7 +167,6 @@ watch(
       <el-select v-model="query.status" placeholder="全部状态" style="width: 120px" @change="fetchIssues">
         <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
-      <el-input v-model="query.tableName" placeholder="表名筛选" clearable style="width: 150px" @clear="fetchIssues" @keyup.enter="fetchIssues" />
     </section>
 
     <section class="status-strip issue-strip">

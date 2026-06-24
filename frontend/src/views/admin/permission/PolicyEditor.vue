@@ -11,8 +11,8 @@ import {
 } from '../../../api/admin/permission'
 import { http } from '../../../api/http'
 import { listDepartments, type ApiResult, type DepartmentNode } from '../../../api/admin/user'
-
-interface DatasourceOption { id: number; name: string }
+import ResourceScopeSelector from '../../../components/ResourceScopeSelector.vue'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 /** 将部门树拍平为一维列表，供主体下拉选择 */
 function flattenDepartments(nodes: DepartmentNode[]): Array<{ id: number; name: string }> {
@@ -31,10 +31,12 @@ function flattenDepartments(nodes: DepartmentNode[]): Array<{ id: number; name: 
 
 const loading = ref(false)
 const dialogVisible = ref(false)
-const datasources = ref<DatasourceOption[]>([])
 const selectedDatasource = ref<number>()
+const selectedSnapshot = ref<number>()
+const policySnapshot = ref<number>()
 const policies = ref<AccessPolicyItem[]>([])
 const tableFilter = ref('')
+const adminContext = useAdminContextStore()
 
 const accessTypes = [
   { value: 'ALLOW', label: '允许' },
@@ -78,20 +80,12 @@ const subjectOptions = computed(() => {
 })
 
 onMounted(async () => {
-  await loadDatasources()
+  await adminContext.initialize()
+  selectedDatasource.value = adminContext.datasourceId
+  selectedSnapshot.value = adminContext.snapshotId
+  await loadPolicies()
   await loadSubjects()
 })
-
-async function loadDatasources() {
-  try {
-    const { data } = await http.get<ApiResult<DatasourceOption[]>>('/api/admin/datasources/simple')
-    datasources.value = data.data || []
-    if (datasources.value.length > 0 && !selectedDatasource.value) {
-      selectedDatasource.value = datasources.value[0].id
-      await loadPolicies()
-    }
-  } catch { /* ignore */ }
-}
 
 async function loadSubjects() {
   try {
@@ -121,6 +115,7 @@ async function loadPolicies() {
 
 function openCreateDialog() {
   form.datasourceId = selectedDatasource.value || 0
+  policySnapshot.value = selectedSnapshot.value
   form.subjectType = 'ROLE'
   form.subjectId = 0
   form.tableName = ''
@@ -132,7 +127,8 @@ function openCreateDialog() {
 }
 
 async function handleCreate() {
-  if (!form.subjectId || !form.tableName) {
+  form.datasourceId = selectedDatasource.value || 0
+  if (!form.datasourceId || !form.subjectId || !form.tableName) {
     ElMessage.warning('请填写必要信息')
     return
   }
@@ -175,11 +171,15 @@ function accessTypeLabel(type: string) {
     </section>
 
     <section class="toolbar">
-      <el-select v-model="selectedDatasource" placeholder="选择数据源" style="width: 240px" @change="loadPolicies">
-        <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
-      </el-select>
-      <el-input v-model="tableFilter" placeholder="按表名筛选" clearable style="width: 180px; margin-left: 12px"
-                @clear="loadPolicies" @keyup.enter="loadPolicies" />
+      <ResourceScopeSelector
+        v-model:datasource-id="selectedDatasource"
+        v-model:snapshot-id="selectedSnapshot"
+        v-model:table-name="tableFilter"
+        mode="table"
+        include-all-table-option
+        all-table-label="全部表"
+        @change="loadPolicies"
+      />
     </section>
 
     <section class="content-panel">
@@ -232,11 +232,16 @@ function accessTypeLabel(type: string) {
           </el-select>
         </el-form-item>
         <el-form-item label="表名">
-          <el-input v-model="form.tableName" placeholder="如 orders, customers" />
+          <ResourceScopeSelector
+            v-model:datasource-id="selectedDatasource"
+            v-model:snapshot-id="policySnapshot"
+            v-model:table-name="form.tableName"
+            v-model:column-name="form.columnName"
+            mode="column"
+            :show-datasource="false"
+          />
         </el-form-item>
-        <el-form-item label="列名">
-          <el-input v-model="form.columnName" placeholder="留空表示表级策略" />
-        </el-form-item>
+        <p class="form-hint">字段留空时表示表级策略；选择字段后可配置字段级禁止或脱敏。</p>
         <el-form-item label="访问类型">
           <el-radio-group v-model="form.accessType">
             <el-radio-button v-for="t in accessTypes" :key="t.value" :value="t.value">{{ t.label }}</el-radio-button>
@@ -263,4 +268,5 @@ function accessTypeLabel(type: string) {
 .policy-editor-page { padding: 0; }
 .toolbar { margin-bottom: 16px; display: flex; align-items: center; }
 .content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; box-shadow: var(--do-shadow); }
+.form-hint { margin: -8px 0 12px 90px; color: var(--do-muted); font-size: 12px; line-height: 1.5; }
 </style>
