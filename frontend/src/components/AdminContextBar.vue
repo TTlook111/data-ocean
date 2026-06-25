@@ -110,24 +110,33 @@ onMounted(() => {
   align-items: end;
   gap: 12px;
   min-width: 0;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e2e8f0;
-  background: rgba(248, 250, 252, 0.92);
+  margin: 14px 16px 0;
+  padding: 14px;
+  border: 1px solid rgba(77, 143, 220, 0.18);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(77, 143, 220, 0.1), rgba(106, 168, 79, 0.06) 46%, rgba(255, 255, 255, 0.95)),
+    #fff;
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.07);
 }
 
 .context-control {
   display: grid;
   gap: 5px;
   min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.76);
 }
 
 .context-label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #475569;
+  color: var(--do-primary-strong);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 900;
 }
 
 .context-control :deep(.el-select) {
@@ -137,7 +146,7 @@ onMounted(() => {
 .context-control small {
   min-height: 16px;
   overflow: hidden;
-  color: #64748b;
+  color: var(--do-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -199,10 +199,19 @@ function subjectTypeLabel(type: string) {
 
 <template>
   <main class="access-control-page post-login-page">
-    <section class="page-actions">
-      <el-button type="primary" @click="openGrantDialog">
-        <Plus :size="16" style="margin-right: 6px" />新增授权
-      </el-button>
+    <section class="command-header">
+      <div class="command-title">
+        <span>权限与开放 / 授权决策</span>
+        <h2>访问控制</h2>
+        <p>围绕用户、角色、部门和数据源合并最终权限，明确允许/拒绝、查询、导出和 SQL 可见性。</p>
+      </div>
+      <div class="command-actions">
+        <span class="trust-badge">显式允许/拒绝</span>
+        <span class="trust-badge">最终权限预览</span>
+        <el-button type="primary" @click="openGrantDialog">
+          <Plus :size="16" style="margin-right: 6px" />新增授权
+        </el-button>
+      </div>
     </section>
 
     <section class="toolbar">
@@ -323,16 +332,30 @@ function subjectTypeLabel(type: string) {
 </template>
 
 <style scoped>
-.access-control-page { padding: 0; }
-.toolbar { margin-bottom: 16px; display: flex; align-items: center; }
+.access-control-page {
+  display: grid;
+  gap: 16px;
+  padding: 0;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
 .decision-panel {
   display: grid;
   gap: 12px;
-  margin-bottom: 16px;
   padding: 14px 16px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: var(--do-surface);
+  border: 1px solid rgba(77, 143, 220, 0.18);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(77, 143, 220, 0.08), rgba(255, 255, 255, 0.96) 55%),
+    var(--do-surface);
   box-shadow: var(--do-shadow);
 }
 .decision-controls {
@@ -361,16 +384,16 @@ function subjectTypeLabel(type: string) {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: 16px;
 }
 .role-matrix article {
   min-width: 0;
   display: grid;
   gap: 5px;
-  padding: 12px;
+  padding: 14px;
   border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: #fff;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fff, #f8fafc);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05);
 }
 .role-matrix strong,
 .role-matrix span {
@@ -387,11 +410,19 @@ function subjectTypeLabel(type: string) {
   font-size: 12px;
   line-height: 1.5;
 }
-.content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; box-shadow: var(--do-shadow); }
+.content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 12px; padding: 16px; box-shadow: var(--do-shadow); }
 @media (max-width: 1100px) {
   .role-matrix { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 640px) {
   .role-matrix { grid-template-columns: 1fr; }
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .toolbar :deep(.el-select) {
+    width: 100% !important;
+    margin-left: 0 !important;
+  }
 }
 </style>

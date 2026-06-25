@@ -1008,6 +1008,8 @@ watch(resultTab, () => {
             </button>
           </section>
 
+          <div class="query-cockpit">
+            <section class="conversation-rail" aria-label="对话">
           <article
             v-for="message in activeMessages"
             :key="message.id"
@@ -1039,8 +1041,9 @@ watch(resultTab, () => {
               </div>
             </div>
           </article>
+            </section>
 
-          <section class="result-preview">
+          <aside class="result-preview result-rail" aria-label="查询结果与可信依据">
             <div class="result-tabs">
               <span :class="{ active: resultTab === 'table' }" @click="resultTab = 'table'"><ListChecks :size="14" />表格结果</span>
               <span :class="{ active: resultTab === 'sql' }" @click="resultTab = 'sql'"><MessageSquareText :size="14" />SQL</span>
@@ -1148,7 +1151,8 @@ watch(resultTab, () => {
               <small>推荐追问：</small>
               <button v-for="q in latestResult.suggestedQuestions" :key="q" type="button" @click="applyExample(q)">{{ q }}</button>
             </div>
-          </section>
+          </aside>
+          </div>
         </div>
       </section>
 
@@ -1678,10 +1682,29 @@ watch(resultTab, () => {
 }
 
 .message-list {
-  width: min(920px, 100%);
+  width: min(1280px, 100%);
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+}
+
+.query-cockpit {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(360px, 0.72fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.conversation-rail {
+  min-width: 0;
   display: grid;
   gap: 14px;
-  margin: 0 auto;
+}
+
+.result-rail {
+  position: sticky;
+  top: 92px;
+  align-self: start;
 }
 
 .workspace-brief {
@@ -1692,8 +1715,10 @@ watch(resultTab, () => {
   padding: 18px;
   border: 1px solid var(--do-line);
   border-radius: 10px;
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
+  background:
+    linear-gradient(135deg, rgba(77, 143, 220, 0.1), rgba(106, 168, 79, 0.07) 42%, rgba(255, 255, 255, 0.96) 100%),
+    var(--do-surface);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
 }
 
 .brief-main {
@@ -1853,18 +1878,20 @@ watch(resultTab, () => {
   border: 1px solid var(--do-line);
   border-radius: 10px;
   background: var(--do-surface);
-  box-shadow: var(--do-shadow);
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.1);
   overflow: hidden;
 }
 
 .result-tabs {
-  height: 42px;
+  min-height: 48px;
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 0 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
   border-bottom: 1px solid var(--do-line);
-  background: #f8fafc;
+  background:
+    linear-gradient(180deg, rgba(248, 251, 255, 0.98), rgba(255, 255, 255, 0.94));
 }
 
 .result-tabs span {
@@ -1882,6 +1909,7 @@ watch(resultTab, () => {
 .result-tabs span.active {
   color: var(--do-primary-strong);
   background: #eaf4ff;
+  box-shadow: inset 0 0 0 1px rgba(77, 143, 220, 0.14);
 }
 
 .result-empty {
@@ -2054,6 +2082,15 @@ watch(resultTab, () => {
   .query-workspace {
     min-width: 1120px;
   }
+
+  .query-cockpit {
+    grid-template-columns: 1fr;
+  }
+
+  .result-rail {
+    position: static;
+  }
+
 }
 
 .chart-toolbar {
@@ -2097,22 +2134,33 @@ watch(resultTab, () => {
 
 .agent-progress {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: 1fr;
+  gap: 8px;
 }
 
 .agent-step {
   min-height: 48px;
+  position: relative;
   display: grid;
-  grid-template-columns: 12px minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
-  padding: 9px;
+  padding: 10px 11px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
   background: #f8fafc;
   color: var(--do-muted);
   font-size: 12px;
+}
+
+.agent-step:not(:last-child)::after {
+  position: absolute;
+  left: 18px;
+  top: calc(100% - 1px);
+  width: 1px;
+  height: 10px;
+  background: var(--do-line-strong);
+  content: "";
 }
 
 .agent-step strong {
@@ -2180,8 +2228,18 @@ watch(resultTab, () => {
 
 .trust-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+@media (max-width: 1180px) {
+  .agent-progress {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .agent-step:not(:last-child)::after {
+    display: none;
+  }
 }
 
 .trust-card {

@@ -127,6 +127,17 @@ watch(
 
 <template>
   <main class="lifecycle-page post-login-page">
+    <section class="command-header">
+      <div class="command-title">
+        <span>治理中心 / 快照生命周期</span>
+        <h2>快照发布轨道</h2>
+        <p>把 DRAFT、CHECKING、APPROVED、PUBLISHED 等状态作为治理流程管理，发布前确认质量分、表字段规模与审计日志。</p>
+      </div>
+      <div class="command-actions">
+        <span class="trust-badge">发布前校验</span>
+        <span class="trust-badge">可回溯审计</span>
+      </div>
+    </section>
 
     <section class="toolbar">
       <el-select v-model="selectedDatasourceId" placeholder="全部数据源" clearable
@@ -221,27 +232,83 @@ watch(
 
 <style scoped>
 .lifecycle-page { display: grid; gap: 16px; }
-.toolbar { margin-bottom: 16px; }
-.status-flow { margin-bottom: 20px; }
-.flow-steps {
-  display: flex; align-items: center; gap: 8px;
-  padding: 12px 16px; background: var(--do-surface); border-radius: 8px;
+
+.toolbar {
+  margin-bottom: 0;
+  padding: 14px;
   border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
 }
-.flow-step { display: flex; align-items: center; gap: 6px; flex: 1; }
+
+.status-flow { margin-bottom: 0; }
+
+.flow-steps {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--do-line);
+  border-radius: 12px;
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
+
+.flow-step {
+  position: relative;
+  min-height: 72px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 12px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #fff, #f8fafc);
+}
+
 .flow-step:not(:last-child)::after {
-  content: '→'; color: var(--do-muted); margin-left: auto;
+  position: absolute;
+  left: calc(100% + 1px);
+  top: 50%;
+  z-index: 1;
+  width: 10px;
+  height: 2px;
+  background: var(--do-line-strong);
+  content: '';
 }
+
 .step-dot {
-  width: 10px; height: 10px; border-radius: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
 }
+
 .dot-draft { background: #909399; }
 .dot-checking { background: #e6a23c; }
 .dot-issue-found { background: #f56c6c; }
 .dot-approved { background: #409eff; }
 .dot-published { background: #67c23a; }
 .dot-expired { background: #c0c4cc; }
-.step-label { font-size: 12px; color: var(--do-muted); }
+
+.step-label {
+  color: var(--do-ink);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
 .text-muted { color: var(--do-muted); }
 .pager { margin-top: 16px; justify-content: flex-end; }
+
+@media (max-width: 900px) {
+  .flow-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .flow-step:not(:last-child)::after {
+    display: none;
+  }
+}
 </style>

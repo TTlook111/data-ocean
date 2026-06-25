@@ -143,6 +143,19 @@ onMounted(fetchLogs)
 
 <template>
   <main class="operation-log-page post-login-page">
+    <section class="command-header">
+      <div class="command-title">
+        <span>运营与安全 / 操作轨迹</span>
+        <h2>操作日志</h2>
+        <p>围绕目标资源追踪后台操作、请求路径、耗时与成功状态，用于审计追溯和异常定位。</p>
+      </div>
+      <div class="command-actions">
+        <span class="trust-badge">审计留痕</span>
+        <span class="trust-badge">按资源定位</span>
+        <el-button :icon="RefreshCw" :loading="loading" @click="fetchLogs">刷新</el-button>
+      </div>
+    </section>
+
     <section class="summary-grid">
       <div class="summary-card">
         <span class="summary-icon"><ClipboardList :size="18" /></span>
@@ -197,7 +210,6 @@ onMounted(fetchLogs)
           </el-input>
           <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
           <el-button v-if="hasFilter" :icon="X" @click="handleReset">重置</el-button>
-          <el-button :icon="RefreshCw" :loading="loading" @click="fetchLogs">刷新</el-button>
         </div>
       </div>
 
@@ -258,6 +270,27 @@ onMounted(fetchLogs)
             </template>
           </el-table-column>
         </el-table>
+      </div>
+
+      <div class="log-card-list" v-loading="loading">
+        <article v-for="row in logs" :key="row.id" class="log-card" :class="{ 'is-failed': row.isSuccess === false }">
+          <div class="log-card__head">
+            <strong>#{{ row.id }} · {{ operationLabel(row.operationType) }}</strong>
+            <el-tag :type="row.isSuccess ? 'success' : 'danger'" size="small">
+              {{ row.isSuccess ? '成功' : '失败' }}
+            </el-tag>
+          </div>
+          <div class="log-card__meta">
+            <span><b>操作人</b>{{ row.operatorName || `用户 ${row.operatorId || '-'}` }}</span>
+            <span><b>目标资源</b>{{ row.targetResource || '-' }}</span>
+            <span><b>请求</b>{{ row.requestMethod || '-' }} {{ row.requestPath || '-' }}</span>
+            <span><b>耗时</b><em :class="executionClass(row.executionMs)">{{ row.executionMs ?? '-' }}ms</em></span>
+            <span><b>IP</b>{{ row.ipAddress || '-' }}</span>
+            <span><b>时间</b>{{ formatTime(row.createdAt) }}</span>
+          </div>
+          <button type="button" class="log-card__action" @click="openDetail(row)">查看详情</button>
+        </article>
+        <el-empty v-if="!loading && logs.length === 0" description="暂无操作日志" :image-size="72" />
       </div>
 
       <el-pagination
@@ -423,6 +456,77 @@ onMounted(fetchLogs)
   min-width: 1420px;
 }
 
+.log-card-list {
+  display: none;
+}
+
+.log-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.log-card.is-failed {
+  border-color: rgba(217, 95, 95, 0.28);
+  background: #fffafa;
+}
+
+.log-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.log-card__head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--do-ink);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-card__meta {
+  display: grid;
+  gap: 8px;
+}
+
+.log-card__meta span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  color: var(--do-ink);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.log-card__meta b {
+  color: var(--do-muted);
+  font-size: 12px;
+}
+
+.log-card__meta em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-card__action {
+  justify-self: start;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(77, 143, 220, 0.26);
+  border-radius: 8px;
+  color: var(--do-primary-strong);
+  background: rgba(77, 143, 220, 0.08);
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .request-cell {
   display: inline-flex;
   align-items: center;
@@ -513,6 +617,19 @@ onMounted(fetchLogs)
   .resource-filter,
   .page-actions :deep(.el-button) {
     width: 100%;
+  }
+
+  .log-table-wrap {
+    display: none;
+  }
+
+  .log-card-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .panel-title {
+    align-items: flex-start;
   }
 }
 </style>
