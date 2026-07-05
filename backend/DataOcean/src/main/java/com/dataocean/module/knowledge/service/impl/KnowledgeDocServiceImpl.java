@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.common.util.EntityChecker;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
@@ -658,11 +659,7 @@ public class KnowledgeDocServiceImpl implements KnowledgeDocService {
      * @throws BusinessException 文档不存在时抛出
      */
     private KnowledgeDoc requireDoc(Long id) {
-        KnowledgeDoc doc = knowledgeDocMapper.selectById(id);
-        if (doc == null) {
-            throw new BusinessException("文档不存在");
-        }
-        return doc;
+        return EntityChecker.require(knowledgeDocMapper, id, "知识文档");
     }
 
     /**

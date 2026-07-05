@@ -1,0 +1,76 @@
+/**
+ * DataOcean 设计令牌
+ *
+ * 统一的颜色、间距、圆角、阴影等设计变量。
+ * 所有组件应使用这些变量而非硬编码值。
+ */
+
+:root {
+  /* ===== 颜色 ===== */
+
+  /* 主色调 */
+  --do-primary: #4d8fdc;
+  --do-primary-strong: #2563eb;
+  --do-primary-soft: #eef5ff;
+
+  /* 文本颜色 */
+  --do-ink: #172033;
+  --do-muted: #64748b;
+
+  /* 背景颜色 */
+  --do-bg: #f8fafc;
+  --do-surface: #ffffff;
+
+  /* 边框颜色 */
+  --do-line: #e2e8f0;
+  --do-line-strong: #cbd5e1;
+
+  /* 语义颜色 */
+  --do-success: #16a34a;
+  --do-success-soft: #f0fdf4;
+  --do-warning: #d97706;
+  --do-warning-soft: #fffbeb;
+  --do-danger: #dc2626;
+  --do-danger-soft: #fef2f2;
+  --do-info: #0ea5e9;
+  --do-info-soft: #e8f7fd;
+
+  /* ===== 阴影 ===== */
+
+  --do-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  --do-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --do-shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.1);
+
+  /* ===== 圆角 ===== */
+
+  --do-radius-sm: 6px;
+  --do-radius-md: 8px;
+  --do-radius-lg: 10px;
+  --do-radius-xl: 12px;
+  --do-radius-full: 9999px;
+
+  /* ===== 间距 ===== */
+
+  --do-space-xs: 4px;
+  --do-space-sm: 8px;
+  --do-space-md: 16px;
+  --do-space-lg: 24px;
+  --do-space-xl: 32px;
+  --do-space-2xl: 48px;
+
+  /* ===== 字体 ===== */
+
+  --do-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --do-font-size-xs: 11px;
+  --do-font-size-sm: 12px;
+  --do-font-size-md: 14px;
+  --do-font-size-lg: 16px;
+  --do-font-size-xl: 20px;
+  --do-font-size-2xl: 24px;
+
+  /* ===== 过渡 ===== */
+
+  --do-transition-fast: 150ms ease;
+  --do-transition-normal: 200ms ease;
+  --do-transition-slow: 300ms ease;
+}

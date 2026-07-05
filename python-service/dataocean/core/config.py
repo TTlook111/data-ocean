@@ -6,10 +6,14 @@
 安全修复：使用版本号+原子切换避免配置热重载竞态。
 """
 
+import logging
 import threading
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -70,6 +74,46 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
+    @field_validator('milvus_port')
+    @classmethod
+    def validate_milvus_port(cls, v: int) -> int:
+        """校验 Milvus 端口范围"""
+        if not 1024 <= v <= 65535:
+            raise ValueError('Milvus 端口必须在 1024-65535 之间')
+        return v
+
+    @field_validator('redis_port')
+    @classmethod
+    def validate_redis_port(cls, v: int) -> int:
+        """校验 Redis 端口范围"""
+        if not 1024 <= v <= 65535:
+            raise ValueError('Redis 端口必须在 1024-65535 之间')
+        return v
+
+    @field_validator('embedding_dimension')
+    @classmethod
+    def validate_embedding_dimension(cls, v: int) -> int:
+        """校验 Embedding 维度"""
+        if v not in [512, 768, 1024, 1536]:
+            raise ValueError('Embedding 维度必须是 512/768/1024/1536')
+        return v
+
+    @field_validator('llm_temperature')
+    @classmethod
+    def validate_llm_temperature(cls, v: float) -> float:
+        """校验 LLM 温度参数"""
+        if not 0.0 <= v <= 2.0:
+            raise ValueError('LLM 温度必须在 0.0-2.0 之间')
+        return v
+
+    @field_validator('similarity_threshold')
+    @classmethod
+    def validate_similarity_threshold(cls, v: float) -> float:
+        """校验相似度阈值"""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError('相似度阈值必须在 0.0-1.0 之间')
+        return v
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -105,6 +149,9 @@ def reload_config(overrides: dict[str, str] | None = None) -> Settings:
     global settings, _config_version
 
     with _config_lock:
+        # 记录旧配置快照（用于变更日志）
+        old_snapshot = settings.model_dump() if overrides else {}
+
         if overrides:
             for key, value in overrides.items():
                 env_key = key.upper().replace(".", "_")
@@ -112,6 +159,18 @@ def reload_config(overrides: dict[str, str] | None = None) -> Settings:
 
         get_settings.cache_clear()
         new_settings = get_settings()
+
+        # 记录配置变更
+        if overrides:
+            new_snapshot = new_settings.model_dump()
+            changes = {
+                k: (old_snapshot.get(k), new_snapshot[k])
+                for k in overrides
+                if old_snapshot.get(k) != new_snapshot.get(k)
+            }
+            if changes:
+                logger.info("配置变更: %s", changes)
+
         # 原子切换：先更新版本号，再更新 settings 引用
         _config_version += 1
         settings = new_settings
