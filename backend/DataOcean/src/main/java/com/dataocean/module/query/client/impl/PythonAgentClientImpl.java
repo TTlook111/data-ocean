@@ -46,6 +46,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private final QueryTaskService queryTaskService;
     private final ConversationService conversationService;
     private final ObjectMapper objectMapper;
+    private final com.dataocean.module.query.controller.QuerySseController sseController;
     private final com.dataocean.module.datasource.mapper.DatasourceMapper datasourceMapper;
     private final com.dataocean.module.datasource.mapper.DatasourceSecretMapper datasourceSecretMapper;
     private final com.dataocean.module.datasource.service.DatasourceSecretService datasourceSecretService;
@@ -117,8 +118,18 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                 if (updated) {
                     saveAssistantMessageFromResult(conversationId, taskId, finalResult);
                 }
+
+                // 推送结果给前端 SSE
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> result = objectMapper.readValue(finalResult, Map.class);
+                    sseController.sendResult(taskId, result);
+                } catch (Exception ex) {
+                    log.warn("推送 SSE 结果失败 taskId={}", taskId, ex);
+                }
             } else {
                 queryTaskService.updateTaskResult(taskId, "{\"status\":\"FAILED\",\"error\":\"Agent 未返回最终结果\"}");
+                sseController.sendError(taskId, "Agent 未返回最终结果");
             }
 
         } catch (Exception e) {
@@ -128,6 +139,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             try {
                 queryTaskService.updateTaskResult(taskId,
                         "{\"status\":\"FAILED\",\"error\":\"Agent 服务调用失败，请稍后重试\"}");
+                sseController.sendError(taskId, "Agent 服务调用失败，请稍后重试");
             } catch (Exception ex) {
                 log.error("回写失败状态异常 taskId={}", taskId, ex);
             }
@@ -245,6 +257,9 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             String node = (String) progress.get("node");
             String message = (String) progress.get("message");
             queryTaskService.updateTaskProgress(taskId, node, message);
+
+            // 推送给前端 SSE
+            sseController.sendProgress(taskId, progress);
         } catch (Exception e) {
             log.warn("解析进度事件失败 taskId={} data={}", taskId, data);
         }
