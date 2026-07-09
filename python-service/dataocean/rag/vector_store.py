@@ -57,8 +57,11 @@ async def add_chunk_embeddings(
         # 构建插入数据
         data = []
         for i, (text, embedding, metadata) in enumerate(zip(texts, embeddings, metadatas)):
+            chunk_text = text[:8192]
+            if len(text) > 8192:
+                logger.warning("chunk_text 截断: 原始长度 %d, 截断后 8192, index=%d", len(text), i)
             entity = {
-                "chunk_text": text[:8192],
+                "chunk_text": chunk_text,
                 "embedding": embedding,
                 **metadata,
             }
