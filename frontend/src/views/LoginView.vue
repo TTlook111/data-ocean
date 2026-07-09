@@ -16,7 +16,7 @@ const captchaImage = ref('')
 const captchaKey = ref('')
 const loginPageRef = ref<HTMLElement | null>(null)
 const form = reactive({
-  username: 'admin',
+  username: '',
   password: '',
   captchaCode: '',
 })
