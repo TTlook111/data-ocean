@@ -882,7 +882,7 @@ dd {
   white-space: nowrap;
 }
 
-@media (max-width: 1120px) {
+@media (max-width: 1200px) {
   .detail-hero {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -898,7 +898,7 @@ dd {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .detail-hero {
     grid-template-columns: 1fr;
     padding: 22px;

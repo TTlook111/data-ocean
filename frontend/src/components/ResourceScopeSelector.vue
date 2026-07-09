@@ -423,7 +423,7 @@ watch(() => props.columnName, (value) => {
   font-size: 12px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .resource-scope-selector {
     align-items: stretch;
   }

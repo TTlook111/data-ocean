@@ -104,7 +104,7 @@ const steps = [
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 640px;
+  max-width: 576px;
   width: 100%;
 }
 

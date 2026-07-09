@@ -1075,7 +1075,7 @@ watch(loading, (value, oldValue) => {
   background: #fef0f0;
 }
 
-.user-guide { max-width: 600px; }
+.user-guide { max-width: 576px; }
 .guide-card {
   padding: 24px; border: 1px solid var(--do-line); border-radius: 10px;
   background: var(--do-surface); box-shadow: var(--do-shadow);

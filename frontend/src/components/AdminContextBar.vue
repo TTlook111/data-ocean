@@ -156,7 +156,7 @@ onMounted(() => {
   align-self: center;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1200px) {
   .admin-context-bar {
     grid-template-columns: repeat(2, minmax(220px, 1fr)) auto;
   }
@@ -166,7 +166,7 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .admin-context-bar {
     grid-template-columns: 1fr;
   }

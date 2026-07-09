@@ -4,28 +4,14 @@
  * 统一的断点定义，确保各页面响应式行为一致。
  *
  * 断点说明：
- * - sm: 640px  — 手机横屏
+ * - sm: 576px  — 手机横屏
  * - md: 768px  — 平板
- * - lg: 1024px — 小桌面
- * - xl: 1280px — 大桌面
+ * - lg: 992px  — 小桌面
+ * - xl: 1200px — 大桌面
+ *
+ * 使用方式：
+ *   @media (max-width: 1200px) { ... }
+ *   @media (max-width: 992px) { ... }
+ *   @media (max-width: 768px) { ... }
+ *   @media (max-width: 576px) { ... }
  */
-
-/* 手机横屏及以上 */
-@media (min-width: 640px) {
-  /* sm 断点样式 */
-}
-
-/* 平板及以上 */
-@media (min-width: 768px) {
-  /* md 断点样式 */
-}
-
-/* 小桌面及以上 */
-@media (min-width: 1024px) {
-  /* lg 断点样式 */
-}
-
-/* 大桌面及以上 */
-@media (min-width: 1280px) {
-  /* xl 断点样式 */
-}

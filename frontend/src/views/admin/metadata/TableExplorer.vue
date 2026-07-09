@@ -424,7 +424,7 @@ watch(
   gap: 4px;
   max-width: 100%;
 }
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .explorer-layout { flex-direction: column; }
   .table-list { width: auto; max-height: 360px; border-right: 0; border-bottom: 1px solid var(--do-line); }
   .table-facts { grid-template-columns: repeat(2, minmax(120px, 1fr)); }

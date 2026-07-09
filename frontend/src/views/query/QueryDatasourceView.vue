@@ -1093,7 +1093,7 @@ watch(
 }
 
 .message-bubble {
-  max-width: 760px;
+  max-width: 768px;
   padding: 13px 15px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
@@ -1306,7 +1306,7 @@ watch(
   cursor: pointer;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1200px) {
   .query-workspace {
     min-width: 1120px;
   }
@@ -1460,7 +1460,7 @@ watch(
   gap: 10px;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1200px) {
   .agent-progress {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }

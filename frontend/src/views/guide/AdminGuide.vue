@@ -330,7 +330,7 @@ const steps: StepDef[] = [
 .guide-link { font-size: 13px; color: var(--do-muted); text-decoration: none; }
 .guide-link:hover { color: var(--do-primary); }
 
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .guide-page { padding: 32px 16px 48px; }
   .guide-hero { text-align: left; margin-bottom: 28px; }
   .guide-hero h1 { font-size: 24px; }

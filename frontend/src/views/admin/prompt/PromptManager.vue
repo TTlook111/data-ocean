@@ -947,7 +947,7 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .prompt-layout,
   .editor-grid {
     grid-template-columns: 1fr;

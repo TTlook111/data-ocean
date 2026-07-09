@@ -938,7 +938,7 @@ fetchConfig()
   margin-top: 12px;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .status-grid {
     grid-template-columns: repeat(2, 1fr);
   }

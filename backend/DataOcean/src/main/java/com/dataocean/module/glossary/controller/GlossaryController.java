@@ -3,6 +3,8 @@ package com.dataocean.module.glossary.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.glossary.dto.TermLinkColumnDTO;
+import com.dataocean.module.glossary.dto.TermReviewDTO;
 import com.dataocean.module.glossary.entity.Glossary;
 import com.dataocean.module.glossary.entity.GlossaryTerm;
 import com.dataocean.module.glossary.service.GlossaryService;
@@ -134,11 +136,9 @@ public class GlossaryController {
     @PostMapping("/terms/{termId}/review")
     public Result<Void> reviewTerm(
             @PathVariable Long termId,
-            @RequestBody Map<String, Object> body) {
-        boolean approved = Boolean.TRUE.equals(body.get("approved"));
-        String reason = (String) body.getOrDefault("reason", "");
-        termService.reviewTerm(termId, UserContext.currentUserId(), approved, reason);
-        return Result.success(approved ? "术语审核通过" : "术语审核拒绝", null);
+            @RequestBody TermReviewDTO request) {
+        termService.reviewTerm(termId, UserContext.currentUserId(), request.isApproved(), request.getReason());
+        return Result.success(request.isApproved() ? "术语审核通过" : "术语审核拒绝", null);
     }
 
     // ========== 术语与列关联 ==========
@@ -147,8 +147,8 @@ public class GlossaryController {
     @PostMapping("/terms/{termId}/link-column")
     public Result<Void> linkTermToColumn(
             @PathVariable Long termId,
-            @RequestBody Map<String, Object> body) {
-        Long entityId = Long.valueOf(body.get("entityId").toString());
+            @RequestBody TermLinkColumnDTO request) {
+        Long entityId = request.getEntityId();
 
         GlossaryTerm term = termService.getById(termId);
         if (term == null) {

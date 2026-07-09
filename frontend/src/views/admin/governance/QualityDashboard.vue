@@ -599,7 +599,7 @@ watch(
   color: #64748b;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 992px) {
   .quality-hero,
   .context-panel,
   .governance-layout {
@@ -616,7 +616,7 @@ watch(
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 576px) {
   .quality-title h2 {
     white-space: normal;
   }

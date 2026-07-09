@@ -302,7 +302,7 @@ watch(
 .text-muted { color: var(--do-muted); }
 .pager { margin-top: 16px; justify-content: flex-end; }
 
-@media (max-width: 900px) {
+@media (max-width: 992px) {
   .flow-steps {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
