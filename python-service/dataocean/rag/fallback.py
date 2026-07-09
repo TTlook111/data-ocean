@@ -47,7 +47,7 @@ def fallback_retrieve(
 
     results = []
     if fallback_chunks:
-        for chunk in fallback_chunks[:5]:  # 最多取 5 条
+        for chunk in fallback_chunks[:10]:  # 最多取 10 条
             chunk_type = chunk.get("chunk_type") or chunk.get("chunkType")
             if chunk_type in {"TABLE_DESC", "CORE_TABLE", "SCHEMA"}:
                 table_name = _first_non_none(
