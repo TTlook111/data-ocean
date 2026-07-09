@@ -1,6 +1,7 @@
 """Milvus 向量库连接管理"""
 
 import logging
+import threading
 
 from pymilvus import MilvusClient, connections
 
@@ -10,14 +11,17 @@ logger = logging.getLogger(__name__)
 
 # 全局 MilvusClient 实例
 _client: MilvusClient | None = None
+_client_lock = threading.Lock()
 
 
 def get_client() -> MilvusClient:
-    """获取 MilvusClient 实例（单例）"""
+    """获取 MilvusClient 实例（单例，线程安全）"""
     global _client
     if _client is None:
-        _client = MilvusClient(host=settings.milvus_host, port=settings.milvus_port)
-        logger.info("MilvusClient 连接成功 host=%s port=%d", settings.milvus_host, settings.milvus_port)
+        with _client_lock:
+            if _client is None:
+                _client = MilvusClient(host=settings.milvus_host, port=settings.milvus_port)
+                logger.info("MilvusClient 连接成功 host=%s port=%d", settings.milvus_host, settings.milvus_port)
     return _client
 
 
