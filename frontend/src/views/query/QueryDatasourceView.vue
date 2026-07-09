@@ -1,70 +1,30 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  BarChart3,
   BookOpen,
   Database,
-  Download,
   History,
   LogOut,
-  ListChecks,
-  MessageSquarePlus,
   MessageSquareText,
   RefreshCw,
-  Search,
-  SendHorizontal,
   ShieldAlert,
   ShieldCheck,
-  ThumbsUp,
-  ThumbsDown,
-  Trash2,
   UserCog,
   UserRound,
   X,
 } from 'lucide-vue-next'
-import {
-  getMyDatasourceReadiness,
-  listMyDatasources,
-  type DatasourceReadiness,
-  type UserDatasourceItem,
-} from '../../api/datasource'
-import {
-  submitQuery,
-  getTaskResult,
-  cancelTask,
-  submitQueryFeedback,
-  listConversations,
-  listConversationMessages,
-  deleteConversation,
-  type ConversationMessageItem,
-} from '../../api/query'
 import { useGsapMotion } from '../../composables/useGsapMotion'
 import { useAuthStore } from '../../stores/auth'
 import { roleCodesLabel } from '../../utils/enumLabels'
-import ChartContainer from '../../components/chart/ChartContainer.vue'
+import { useQuerySession } from '../../composables/useQuerySession'
+import { useQuerySubmit } from '../../composables/useQuerySubmit'
+import { useQueryExport } from '../../composables/useQueryExport'
+import QuerySidebar from './QuerySidebar.vue'
+import QueryInput from './QueryInput.vue'
+import QueryResult from './QueryResult.vue'
 
-interface LocalMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  createdAt: string
-  taskId?: string
-  status?: string
-  queryResult?: import('../../api/query').QueryTaskResult
-  originalQuestion?: string  // 用于重试查询
-}
-
-interface LocalSession {
-  id: string
-  datasourceId: number
-  title: string
-  updatedAt: string
-  messages: LocalMessage[]
-  conversationId?: number
-}
-
+// ---- 管理员权限 ----
 const adminPermissionCodes = [
   'admin:view',
   'datasource:manage',
@@ -82,162 +42,66 @@ const adminPermissionCodes = [
   'knowledge:manage',
 ]
 
+// ---- 基础状态 ----
 const router = useRouter()
 const auth = useAuthStore()
-const loading = ref(false)
-const readinessLoading = ref(false)
 const showGuideBanner = ref(!localStorage.getItem('do-query-guide-dismissed'))
-
-function dismissGuideBanner() {
-  showGuideBanner.value = false
-  localStorage.setItem('do-query-guide-dismissed', '1')
-}
-
-const errorMessage = ref('')
-const datasources = ref<UserDatasourceItem[]>([])
-const readinessMap = ref<Record<number, DatasourceReadiness>>({})
-const selectedId = ref<number>()
-const activeSessionId = ref<string>()
-const question = ref('')
-const keyword = ref('')
-const isQuerying = ref(false)
-const currentTaskId = ref<string>()
-const pollAbortController = ref<AbortController>()
-const drawerVisible = ref(false)
-const sessions = reactive<LocalSession[]>([])
-const loadedDatasourceIds = ref<Set<number>>(new Set())
-const questionInputRef = ref<HTMLTextAreaElement>()
 const workspaceRef = ref<HTMLElement | null>(null)
 const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(workspaceRef)
 
+// ---- 用户信息 computed ----
 const permissions = computed(() => auth.currentUser?.permissions || auth.user?.permissions || [])
 const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPermissionCodes.some((code) => permissions.value.includes(code)))
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
 const roleText = computed(() => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, '普通用户'))
-const selectedDatasource = computed(() => datasources.value.find((item) => item.id === selectedId.value))
-const selectedReadiness = computed(() => selectedId.value ? readinessMap.value[selectedId.value] : undefined)
-const canAskSelectedDatasource = computed(() => selectedReadiness.value?.askable === true)
-const selectedBlockReason = computed(() => selectedReadiness.value?.blockReasons?.[0])
-const askableDatasourceCount = computed(() =>
-  datasources.value.filter((item) => readinessMap.value[item.id]?.askable === true).length,
-)
+
+// ---- 示例问题 ----
 const exampleQuestions = [
   '统计最近30天订单金额趋势',
   '找出销售额最高的10个客户',
   '查看库存低于安全线的商品',
   '按部门汇总本月费用',
 ]
-const datasourceSessions = computed(() =>
-  sessions
-    .filter((session) => session.datasourceId === selectedId.value)
-    .filter((session) => {
-      const text = keyword.value.trim()
-      if (!text) return true
-      return session.title.includes(text) || session.messages.some((message) => message.content.includes(text))
-    })
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
-)
-const activeSession = computed(() => sessions.find((session) => session.id === activeSessionId.value))
-const activeMessages = computed(() => activeSession.value?.messages || [])
-const latestResult = computed(() => {
-  const msgs = activeMessages.value
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role === 'assistant' && msgs[i].queryResult) {
-      return msgs[i].queryResult
+
+// ---- Composables ----
+const session = useQuerySession()
+
+const submit = useQuerySubmit({
+  selectedId: session.selectedId,
+  activeSession: session.activeSession,
+  activeMessages: session.activeMessages,
+  canAskSelectedDatasource: session.canAskSelectedDatasource,
+  selectedBlockReason: session.selectedBlockReason,
+  createSession: session.createSession,
+  async animateNewMessages() {
+    await nextTick()
+    const lastMessage = workspaceRef.value?.querySelector('.message-item:last-of-type')
+    if (lastMessage) {
+      lift(lastMessage, { y: 14, duration: 0.26 })
     }
-  }
-  return null
-})
-const resultTab = ref<'table' | 'sql' | 'chart' | 'trust'>('table')
-const chartType = ref<'bar' | 'line' | 'pie'>('bar')
-
-const agentNodes = [
-  { key: 'query_rewriter', label: '理解问题' },
-  { key: 'schema_retriever', label: '召回知识' },
-  { key: 'sql_generator', label: '生成 SQL' },
-  { key: 'sql_validator', label: '安全校验' },
-  { key: 'sql_executor', label: '执行查询' },
-  { key: 'data_visualizer', label: '生成图表' },
-]
-
-const agentProgress = computed(() => {
-  const result = latestResult.value
-  if (!result) return []
-  const currentIndex = agentNodes.findIndex((node) => node.key === result.progressNode)
-  return agentNodes.map((node, index) => {
-    let status: 'done' | 'active' | 'pending' | 'failed' = 'pending'
-    if (result.status === 'COMPLETED') {
-      status = 'done'
-    } else if (result.status === 'FAILED' || result.status === 'TIMEOUT' || result.status === 'CANCELLED') {
-      status = currentIndex >= 0 && index === currentIndex ? 'failed' : index < currentIndex ? 'done' : 'pending'
-    } else if (currentIndex >= 0) {
-      status = index < currentIndex ? 'done' : index === currentIndex ? 'active' : 'pending'
-    } else if (index === 0 && result.status === 'PROCESSING') {
-      status = 'active'
+  },
+  async animateMessageUpdate(messageId: string) {
+    await nextTick()
+    const assistantBubble = workspaceRef.value?.querySelector(`[data-message-id="${messageId}"] .message-bubble`)
+    if (assistantBubble) {
+      lift(assistantBubble, { y: 6, scale: 1, duration: 0.22 })
     }
-    return { ...node, status }
-  })
+  },
+  async focusQuestionInput() {
+    queryInputRef.value?.focusQuestionInput()
+  },
 })
 
-const isLatestProcessing = computed(() => latestResult.value?.status === 'PROCESSING')
-
-const trustSummary = computed(() => {
-  const result = latestResult.value
-  if (!result) return []
-  const maskedCount = result.maskedFields ? Object.keys(result.maskedFields).length : 0
-  return [
-    {
-      label: '改写问题',
-      value: result.rewrittenQuery || result.question || '未返回改写结果',
-      muted: !result.rewrittenQuery,
-    },
-    {
-      label: '召回表',
-      value: result.usedTables?.length ? result.usedTables.join(', ') : '未返回表级依据',
-      muted: !result.usedTables?.length,
-    },
-    {
-      label: '使用字段',
-      value: result.usedColumns?.length ? result.usedColumns.join(', ') : '未返回字段级依据',
-      muted: !result.usedColumns?.length,
-    },
-    {
-      label: '权限与脱敏',
-      value: maskedCount ? `已标记 ${maskedCount} 个脱敏字段` : '当前结果未标记脱敏字段',
-      muted: !maskedCount,
-    },
-    {
-      label: 'Prompt 版本',
-      value: result.promptVersions?.length ? `${result.promptVersions.length} 个模板参与生成` : '未返回版本追踪',
-      muted: !result.promptVersions?.length,
-    },
-    {
-      label: '重试次数',
-      value: `${result.retryCount ?? 0} 次`,
-      muted: false,
-    },
-  ]
+const exportUtil = useQueryExport({
+  latestResult: submit.latestResult,
 })
 
-/** 结果表格分页（前端分页） */
-const tablePage = ref(1)
-const tablePageSize = 50
-const pagedTableData = computed(() => {
-  const data = latestResult.value?.data
-  if (!data || !data.length) return []
-  const start = (tablePage.value - 1) * tablePageSize
-  return data.slice(start, start + tablePageSize)
-})
-// 结果变化时重置分页到第一页
-watch(latestResult, () => { tablePage.value = 1 })
-
-/** 根据当前图表类型计算 ECharts option */
-const chartOption = computed(() => {
-  if (!latestResult.value?.chartConfig) return null
+const chartOption = computed<Record<string, unknown> | null>(() => {
+  if (!submit.latestResult.value?.chartConfig) return null
   try {
-    const option = JSON.parse(JSON.stringify(latestResult.value.chartConfig))
+    const option = JSON.parse(JSON.stringify(submit.latestResult.value.chartConfig))
     if (option.series && option.series.length > 0) {
-      option.series[0].type = chartType.value
+      option.series[0].type = submit.chartType.value
     }
     return option
   } catch {
@@ -245,557 +109,31 @@ const chartOption = computed(() => {
   }
 })
 
-function switchChartType(type: 'bar' | 'line' | 'pie') {
-  chartType.value = type
-}
+// ---- 引用子组件 ----
+const queryInputRef = ref<InstanceType<typeof QueryInput>>()
 
-function exportCsv() {
-  const result = latestResult.value
-  if (!result?.data?.length || !result?.columns?.length) return
-  const escapeCsvField = (val: string) => {
-    if (val.includes(',') || val.includes('"') || val.includes('\n')) {
-      return `"${val.replace(/"/g, '""')}"`
+// ---- 监听结果变化时重置分页 ----
+watch(submit.latestResult, () => { exportUtil.tablePage.value = 1 })
+
+// ---- 监听 resultTab 变化时触发动画 ----
+watch(submit.resultTab, () => {
+  nextTick(() => {
+    const resultBody = workspaceRef.value?.querySelector('.result-preview > div:not(.result-tabs)')
+    if (resultBody) {
+      lift(resultBody, { y: 6, duration: 0.22, scale: 1 })
     }
-    return val
-  }
-  const headers = result.columns.map(c => escapeCsvField(c.comment || c.name))
-  const keys = result.columns.map(c => c.name)
-  const rows = result.data.map(row => keys.map(k => escapeCsvField(String(row[k] ?? ''))).join(','))
-  const csv = [headers.join(','), ...rows].join('\n')
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `query_result_${Date.now()}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('CSV 导出成功')
-}
-
-function exportPng() {
-  // PNG 导出暂不可用（图表由 ChartContainer 组件管理）
-  ElMessage.info('PNG 导出功能开发中')
-}
-
-async function handleFeedback(type: 'LIKE' | 'DISLIKE') {
-  const result = latestResult.value
-  if (!result?.taskId) return
-  try {
-    await submitQueryFeedback(result.taskId, type)
-    ElMessage.success(type === 'LIKE' ? '感谢您的肯定' : '已收到反馈，我们会持续改进')
-  } catch {
-    ElMessage.error('反馈提交失败')
-  }
-}
-
-async function focusQuestionInput() {
-  await nextTick()
-  questionInputRef.value?.focus()
-}
-
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value))
-}
-
-function createSession(datasourceId: number, title = '新的对话') {
-  const now = new Date().toISOString()
-  const session: LocalSession = {
-    id: `local-${datasourceId}-${Date.now()}`,
-    datasourceId,
-    title,
-    updatedAt: now,
-    messages: [
-      {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: '已进入当前数据源的对话空间。你可以直接用中文描述想查的数据，例如"上月销售额最高的10个产品"。',
-        createdAt: now,
-      },
-    ],
-  }
-  sessions.unshift(session)
-  activeSessionId.value = session.id
-  return session
-}
-
-function parseStoredResult(message: ConversationMessageItem) {
-  if (!message.metadata) return undefined
-  try {
-    const result = JSON.parse(message.metadata)
-    if (message.taskId && !result.taskId) {
-      result.taskId = message.taskId
-    }
-    return result
-  } catch {
-    return undefined
-  }
-}
-
-function toLocalMessage(message: ConversationMessageItem): LocalMessage {
-  const result = message.role === 'assistant' ? parseStoredResult(message) : undefined
-  return {
-    id: `remote-${message.id}`,
-    role: message.role,
-    content: message.content,
-    createdAt: message.createdAt,
-    taskId: message.taskId,
-    status: result?.status,
-    queryResult: result,
-  }
-}
-
-async function hydrateSessionMessages(session: LocalSession) {
-  if (!session.conversationId) return
-  const res = await listConversationMessages(session.conversationId, { page: 1, pageSize: 80 })
-  session.messages = res.data.map(toLocalMessage)
-}
-
-async function loadRemoteSessions(datasourceId: number, activateFirst = true) {
-  if (loadedDatasourceIds.value.has(datasourceId)) return
-  const res = await listConversations(datasourceId)
-  const remoteSessions: LocalSession[] = res.data.map((item) => ({
-    id: `remote-${item.id}`,
-    datasourceId: item.datasourceId,
-    title: item.title || '历史会话',
-    updatedAt: item.updatedAt || item.createdAt,
-    messages: [],
-    conversationId: item.id,
-  }))
-  sessions.push(...remoteSessions.filter((remote) => !sessions.some((local) => local.conversationId === remote.conversationId)))
-  loadedDatasourceIds.value = new Set([...loadedDatasourceIds.value, datasourceId])
-
-  const first = datasourceSessions.value[0]
-  if (activateFirst && first) {
-    activeSessionId.value = first.id
-    if (!first.messages.length) {
-      await hydrateSessionMessages(first)
-    }
-  }
-}
-
-function ensureSession(datasourceId: number) {
-  const existing = sessions.find((session) => session.datasourceId === datasourceId)
-  if (existing) {
-    activeSessionId.value = existing.id
-    return existing
-  }
-  return createSession(datasourceId)
-}
-
-async function selectDatasource(id: number) {
-  if (selectedId.value !== id) {
-    question.value = ''
-    keyword.value = ''
-  }
-  selectedId.value = id
-  try {
-    await loadRemoteSessions(id)
-  } catch {
-    ensureSession(id)
-    ElMessage.warning('历史会话加载失败，已创建本地临时会话')
-  }
-  if (!activeSession.value || activeSession.value.datasourceId !== id) {
-    ensureSession(id)
-  }
-  revealAfterTick('.workspace-brief, .example-strip, .message-item, .result-preview', {
-    y: 14,
-    stagger: 0.04,
   })
-  focusQuestionInput()
+})
+
+// ---- 引导横幅 ----
+function dismissGuideBanner() {
+  showGuideBanner.value = false
+  localStorage.setItem('do-query-guide-dismissed', '1')
 }
 
-function startNewSession() {
-  if (!selectedId.value) {
-    ElMessage.warning('请先选择数据源')
-    return
-  }
-  if (!canAskSelectedDatasource.value) {
-    ElMessage.warning(selectedBlockReason.value?.message || '当前数据源暂未达到可询问状态')
-    return
-  }
-  question.value = ''
-  createSession(selectedId.value)
-  focusQuestionInput()
-}
-
-function applyExample(text: string) {
-  if (!selectedId.value || !canAskSelectedDatasource.value) return
-  question.value = text
-  focusQuestionInput()
-}
-
-async function selectSession(sessionId: string) {
-  const session = sessions.find((item) => item.id === sessionId)
-  if (!session) return
-  selectedId.value = session.datasourceId
-  activeSessionId.value = session.id
-  question.value = ''
-  if (!session.messages.length) {
-    try {
-      await hydrateSessionMessages(session)
-    } catch {
-      ElMessage.error('会话消息加载失败')
-    }
-  }
-  focusQuestionInput()
-}
-
-async function removeSession(session: LocalSession) {
-  try {
-    await ElMessageBox.confirm(`确定删除会话「${session.title}」吗？`, '删除会话', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消',
-    })
-    if (session.conversationId) {
-      await deleteConversation(session.conversationId)
-    }
-    const index = sessions.findIndex((item) => item.id === session.id)
-    if (index >= 0) sessions.splice(index, 1)
-    if (activeSessionId.value === session.id) {
-      const nextSession = datasourceSessions.value[0]
-      activeSessionId.value = nextSession?.id
-      if (nextSession && !nextSession.messages.length) {
-        await hydrateSessionMessages(nextSession)
-      }
-    }
-    ElMessage.success('会话已删除')
-  } catch (error) {
-    if (error === 'cancel' || error === 'close') return
-    const msg = typeof error === 'object' && error !== null && 'response' in error
-      ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
-      : undefined
-    ElMessage.error(msg || '会话删除失败')
-  }
-}
-
-async function sendQuestion() {
-  const text = question.value.trim()
-  if (!selectedId.value || !text || isQuerying.value) return
-  if (!canAskSelectedDatasource.value) {
-    ElMessage.warning(selectedBlockReason.value?.message || '当前数据源暂未达到可询问状态')
-    return
-  }
-  isQuerying.value = true
-
-  const session = activeSession.value || createSession(selectedId.value)
-  const now = new Date().toISOString()
-
-  // 添加用户消息
-  session.messages.push({
-    id: `user-${Date.now()}`,
-    role: 'user',
-    content: text,
-    createdAt: now,
-  })
-  await animateNewMessages()
-
-  // 添加加载中的助手消息
-  const assistantMsgId = `assistant-${Date.now() + 1}`
-  session.messages.push({
-    id: assistantMsgId,
-    role: 'assistant',
-    content: '正在查询中...',
-    createdAt: now,
-    status: 'loading',
-    originalQuestion: text,  // 保存原始问题，用于重试查询
-  })
-  await animateNewMessages()
-
-  if (session.title === '新的对话') {
-    session.title = text.length > 20 ? `${text.slice(0, 20)}...` : text
-  }
-  session.updatedAt = now
-  question.value = ''
-  focusQuestionInput()
-
-  try {
-    // 提交查询到后端，传入 conversationId 串联多轮对话
-    const askResult = await submitQuery({
-      datasourceId: selectedId.value,
-      question: text,
-      conversationId: session.conversationId,
-    })
-    const taskId = askResult.data.taskId
-    // 保存后端返回的 conversationId
-    session.conversationId = askResult.data.conversationId
-
-    // 设置取消控制器和当前 taskId
-    currentTaskId.value = taskId
-    const abortCtrl = new AbortController()
-    pollAbortController.value = abortCtrl
-
-    // 轮询任务结果（最多 60 次 × 2 秒 = 120 秒，与后端超时对齐）
-    // onProgress 回调把后端实时回写的阶段进度展示到加载中的助手消息上
-    const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
-      const loadingMsg = session.messages.find((m) => m.id === assistantMsgId)
-      if (loadingMsg && loadingMsg.status === 'loading') {
-        loadingMsg.queryResult = task
-        loadingMsg.taskId = taskId
-        if (task.progressMessage) {
-          loadingMsg.content = `${task.progressMessage}...`
-        }
-      }
-    })
-    const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
-    if (assistantMsg) {
-      assistantMsg.taskId = taskId
-      assistantMsg.status = result.status
-      assistantMsg.queryResult = result
-      if (result.status === 'COMPLETED') {
-        assistantMsg.content = buildCompletionMessage(result)
-      } else if (result.status === 'TIMEOUT') {
-        assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
-      } else {
-        assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
-      }
-      await animateMessageUpdate(assistantMsgId)
-    }
-  } catch (error: unknown) {
-    const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
-    if (assistantMsg) {
-      assistantMsg.status = 'error'
-      assistantMsg.content = extractError(error, '查询提交失败，请检查网络连接')
-      await animateMessageUpdate(assistantMsgId)
-    }
-  } finally {
-    isQuerying.value = false
-    currentTaskId.value = undefined
-    pollAbortController.value = undefined
-  }
-}
-
-async function animateNewMessages() {
-  await nextTick()
-  const lastMessage = workspaceRef.value?.querySelector('.message-item:last-of-type')
-  if (lastMessage) {
-    lift(lastMessage, { y: 14, duration: 0.26 })
-  }
-}
-
-async function animateMessageUpdate(messageId: string) {
-  await nextTick()
-  const assistantBubble = workspaceRef.value?.querySelector(`[data-message-id="${messageId}"] .message-bubble`)
-  if (assistantBubble) {
-    lift(assistantBubble, { y: 6, scale: 1, duration: 0.22 })
-  }
-}
-
-// 轮询配置常量
-const POLL_MAX_CONSECUTIVE_ERRORS = 3  // 连续失败阈值，单次网络抖动不应终止整个轮询
-
-async function pollTaskResult(
-  taskId: string,
-  signal?: AbortSignal,
-  maxAttempts = 60,
-  intervalMs = 2000,
-  onProgress?: (task: import('../../api/query').QueryTaskResult) => void,
-) {
-  let consecutiveErrors = 0
-
-  for (let i = 0; i < maxAttempts; i++) {
-    if (signal?.aborted) {
-      return { status: 'CANCELLED', errorMessage: '查询已取消' } as any
-    }
-
-    try {
-      const res = await getTaskResult(taskId)
-      const task = res.data
-      // 请求成功，重置连续失败计数
-      consecutiveErrors = 0
-
-      if (task.status !== 'PROCESSING') {
-        return task
-      }
-      // 仍在处理中：把后端实时回写的阶段进度回调出去展示
-      if (onProgress) {
-        onProgress(task)
-      }
-    } catch (error) {
-      // 安全修复：单次异常不终止轮询，连续失败达到阈值后再失败
-      consecutiveErrors++
-      console.warn(`轮询任务结果失败 (连续第 ${consecutiveErrors} 次) taskId=${taskId}`, error)
-      if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
-        return { status: 'FAILED', errorMessage: `网络连接异常，连续 ${POLL_MAX_CONSECUTIVE_ERRORS} 次请求失败` } as any
-      }
-      // 未达到阈值，继续下一轮轮询
-    }
-
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(resolve, intervalMs)
-      signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')) }, { once: true })
-    }).catch(() => null)
-    if (signal?.aborted) {
-      return { status: 'CANCELLED', errorMessage: '查询已取消' } as any
-    }
-  }
-  return { status: 'TIMEOUT', errorMessage: '查询仍在执行中，可稍后从历史任务查看结果' } as any
-}
-
-async function cancelCurrentQuery() {
-  if (!currentTaskId.value || !isQuerying.value) return
-  pollAbortController.value?.abort()
-  try {
-    await cancelTask(currentTaskId.value)
-  } catch {
-    // 取消请求失败不影响 UI 状态恢复
-  }
-}
-
-/**
- * 构建查询完成消息
- * 处理降级状态提示
- */
-function buildCompletionMessage(result: import('../../api/query').QueryTaskResult): string {
-  const degradeNotice = result.degraded
-    ? '\n⚠️ 知识库暂时不可用，召回精度可能降低'
-    : ''
-  return (result.sqlExplanation || '查询完成') + degradeNotice
-}
-
-/**
- * 重试查询：使用原始问题重新提交
- */
-function retryQuery(originalQuestion: string) {
-  if (!originalQuestion || isQuerying.value) return
-  question.value = originalQuestion
-  sendQuestion()
-}
-
-/**
- * 继续等待：重新轮询当前任务
- */
-async function continueWaiting(taskId: string) {
-  if (isQuerying.value) return
-  isQuerying.value = true
-  currentTaskId.value = taskId  // 设置当前任务 ID，支持取消功能
-
-  const session = activeSession.value
-  if (!session) {
-    isQuerying.value = false
-    currentTaskId.value = undefined
-    return
-  }
-
-  // 找到对应的助手消息
-  const assistantMsg = session.messages.find((m) => m.taskId === taskId)
-  if (!assistantMsg) {
-    isQuerying.value = false
-    return
-  }
-
-  // 更新状态为 loading
-  assistantMsg.status = 'loading'
-  assistantMsg.content = '继续等待查询结果...'
-
-  const abortCtrl = new AbortController()
-  pollAbortController.value = abortCtrl
-
-  try {
-    const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
-      if (assistantMsg.status === 'loading') {
-        assistantMsg.queryResult = task
-        if (task.progressMessage) {
-          assistantMsg.content = `${task.progressMessage}...`
-        }
-      }
-    })
-
-    assistantMsg.status = result.status
-    assistantMsg.queryResult = result
-    if (result.status === 'COMPLETED') {
-      assistantMsg.content = buildCompletionMessage(result)
-    } else if (result.status === 'TIMEOUT') {
-      assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
-    } else {
-      assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
-    }
-    await animateMessageUpdate(assistantMsg.id)
-  } catch (error) {
-    assistantMsg.status = 'error'
-    assistantMsg.content = extractError(error, '查询失败，请稍后重试')
-    await animateMessageUpdate(assistantMsg.id)
-  } finally {
-    isQuerying.value = false
-    pollAbortController.value = undefined
-  }
-}
-
-function extractError(error: unknown, fallback: string): string {
-  if (typeof error === 'object' && error !== null && 'response' in error) {
-    const response = (error as { response?: { data?: { message?: string } } }).response
-    const msg = response?.data?.message
-    if (typeof msg === 'string') return msg
-  }
-  return fallback
-}
-
-function handleEnter(event: KeyboardEvent) {
-  if (event.shiftKey || isQuerying.value) return
-  event.preventDefault()
-  sendQuestion()
-}
-
-async function fetchDatasources() {
-  loading.value = true
-  errorMessage.value = ''
-  try {
-    const result = await listMyDatasources()
-    datasources.value = result.data
-    await fetchDatasourceReadiness(result.data)
-    if (result.data.length && (!selectedId.value || !result.data.some((item) => item.id === selectedId.value))) {
-      const firstAskable = result.data.find((item) => readinessMap.value[item.id]?.askable === true)
-      await selectDatasource((firstAskable || result.data[0]).id)
-    }
-    if (!result.data.length) {
-      selectedId.value = undefined
-      activeSessionId.value = undefined
-      question.value = ''
-    }
-  } catch (error: unknown) {
-    datasources.value = []
-    readinessMap.value = {}
-    selectedId.value = undefined
-    activeSessionId.value = undefined
-    question.value = ''
-    errorMessage.value =
-      typeof error === 'object' &&
-      error !== null &&
-      'response' in error &&
-      typeof (error as { response?: { data?: { message?: string } } }).response?.data?.message === 'string'
-        ? (error as { response: { data: { message: string } } }).response.data.message
-        : '数据源加载失败，请稍后重试'
-  } finally {
-    loading.value = false
-  }
-}
-
-async function fetchDatasourceReadiness(items: UserDatasourceItem[]) {
-  readinessLoading.value = true
-  try {
-    const entries = await Promise.all(
-      items.map(async (item) => {
-        try {
-          const result = await getMyDatasourceReadiness(item.id)
-          return [item.id, result.data] as const
-        } catch {
-          return null
-        }
-      }),
-    )
-    readinessMap.value = Object.fromEntries(entries.filter(Boolean) as Array<readonly [number, DatasourceReadiness]>)
-  } finally {
-    readinessLoading.value = false
-  }
-}
-
+// ---- 用户菜单 ----
 function handleUserCommand(command: string) {
-  drawerVisible.value = false
+  session.drawerVisible.value = false
   if (command === 'admin') {
     router.push('/admin')
     return
@@ -814,6 +152,56 @@ function handleUserCommand(command: string) {
   }
 }
 
+// ---- 格式化时间 ----
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value))
+}
+
+// ---- 示例问题应用 ----
+function applyExample(text: string) {
+  if (!session.selectedId.value || !session.canAskSelectedDatasource.value) return
+  submit.question.value = text
+  queryInputRef.value?.focusQuestionInput()
+}
+
+// ---- 侧边栏事件 ----
+function handleSelectDatasource(id: number) {
+  submit.question.value = ''
+  session.selectDatasource(id, {
+    afterSelect() {
+      revealAfterTick('.workspace-brief, .example-strip, .message-item, .result-preview', {
+        y: 14,
+        stagger: 0.04,
+      })
+    },
+  })
+  queryInputRef.value?.focusQuestionInput()
+}
+
+function handleStartNewSession() {
+  session.startNewSession({
+    focusQuestionInput() {
+      queryInputRef.value?.focusQuestionInput()
+    },
+  })
+  submit.question.value = ''
+}
+
+function handleSelectSession(sessionId: string) {
+  submit.question.value = ''
+  session.selectSession(sessionId, {
+    focusQuestionInput() {
+      queryInputRef.value?.focusQuestionInput()
+    },
+  })
+}
+
+// ---- 生命周期 ----
 onMounted(() => {
   withContext(() => {
     reveal('.query-brand, .sidebar-block, .query-topbar, .chat-surface, .chat-composer', {
@@ -821,11 +209,21 @@ onMounted(() => {
       stagger: 0.045,
     })
   })
-  fetchDatasources()
+  session.fetchDatasources({
+    afterSelect() {
+      revealAfterTick('.workspace-brief, .example-strip, .message-item, .result-preview', {
+        y: 14,
+        stagger: 0.04,
+      })
+    },
+    focusQuestionInput() {
+      queryInputRef.value?.focusQuestionInput()
+    },
+  })
 })
 
 watch(
-  () => datasources.value.length,
+  () => session.datasources.value.length,
   () => {
     revealAfterTick('.datasource-row', {
       y: 8,
@@ -836,7 +234,7 @@ watch(
 )
 
 watch(
-  () => datasourceSessions.value.length,
+  () => session.datasourceSessions.value.length,
   () => {
     revealAfterTick('.history-row', {
       y: 8,
@@ -845,16 +243,6 @@ watch(
     })
   },
 )
-
-watch(resultTab, () => {
-  nextTick(() => {
-    const resultBody = workspaceRef.value?.querySelector('.result-preview > div:not(.result-tabs)')
-    if (resultBody) {
-      lift(resultBody, { y: 6, duration: 0.22, scale: 1 })
-    }
-    // 图表由 ChartContainer 组件自身的 onMounted/watch(option) 负责渲染，此处无需手动触发
-  })
-})
 </script>
 
 <template>
@@ -867,97 +255,35 @@ watch(resultTab, () => {
         <X :size="14" />
       </button>
     </div>
-    <aside class="query-sidebar">
-      <RouterLink class="query-brand" to="/query" aria-label="DataOcean 智能问答">
-        <span>DO</span>
-        <div>
-          <strong>DataOcean</strong>
-          <small>智能问答</small>
-        </div>
-      </RouterLink>
 
-      <section class="sidebar-block">
-        <div class="block-title">
-          <span>数据源</span>
-          <button type="button" :disabled="loading || readinessLoading" aria-label="刷新数据源" @click="fetchDatasources">
-            <RefreshCw :size="15" />
-          </button>
-        </div>
+    <!-- 左侧边栏 -->
+    <QuerySidebar
+      :datasources="session.datasources.value"
+      :readiness-map="session.readinessMap.value"
+      :selected-id="session.selectedId.value"
+      :datasource-sessions="session.datasourceSessions.value"
+      :active-session-id="session.activeSessionId.value"
+      :keyword="session.keyword.value"
+      :loading="session.loading.value"
+      :readiness-loading="session.readinessLoading.value"
+      :error-message="session.errorMessage.value"
+      @select-datasource="handleSelectDatasource"
+      @select-session="handleSelectSession"
+      @remove-session="session.removeSession"
+      @new-session="handleStartNewSession"
+      @refresh="() => session.fetchDatasources()"
+      @update:keyword="session.keyword.value = $event"
+    />
 
-        <div v-if="loading && !datasources.length" class="sidebar-loading">正在加载数据源...</div>
-        <div v-else-if="errorMessage" class="sidebar-error">
-          <span>{{ errorMessage }}</span>
-          <button type="button" @click="fetchDatasources">重试</button>
-        </div>
-        <div v-else-if="!datasources.length" class="sidebar-empty">暂无可用数据源，请联系管理员开通权限。</div>
-        <div v-else class="datasource-list">
-          <button
-            v-for="datasource in datasources"
-            :key="datasource.id"
-            type="button"
-            class="datasource-row"
-            :class="{ active: datasource.id === selectedId, 'not-askable': readinessMap[datasource.id]?.askable === false }"
-            @click="selectDatasource(datasource.id)"
-          >
-            <Database :size="16" />
-            <span>
-              <strong>{{ datasource.name }}</strong>
-              <small>{{ datasource.databaseName }}</small>
-              <small v-if="readinessMap[datasource.id]" class="readiness-chip">
-                {{ readinessMap[datasource.id].askable ? '可询问' : readinessMap[datasource.id].stageLabel }}
-              </small>
-            </span>
-          </button>
-        </div>
-      </section>
-
-      <section class="sidebar-block history-block">
-        <div class="block-title">
-          <span>当前数据源历史</span>
-          <button type="button" :disabled="!selectedId" aria-label="新建对话" @click="startNewSession">
-            <MessageSquarePlus :size="15" />
-          </button>
-        </div>
-
-        <label class="history-search">
-          <Search :size="15" />
-          <input v-model="keyword" type="search" placeholder="搜索当前数据源会话" :disabled="!selectedId" />
-        </label>
-
-        <div v-if="!selectedId" class="sidebar-empty">选择数据源后显示对应历史。</div>
-        <div v-else-if="!datasourceSessions.length" class="sidebar-empty">当前数据源暂无历史会话。</div>
-        <div v-else class="history-list">
-          <div
-            v-for="session in datasourceSessions"
-            :key="session.id"
-            role="button"
-            tabindex="0"
-            class="history-row"
-            :class="{ active: session.id === activeSessionId }"
-            @click="selectSession(session.id)"
-            @keydown.enter="selectSession(session.id)"
-          >
-            <History :size="15" />
-            <span>
-              <strong>{{ session.title }}</strong>
-              <small>{{ session.messages.length }} 条消息 · {{ formatTime(session.updatedAt) }}</small>
-            </span>
-            <button type="button" class="history-delete" aria-label="删除会话" @click.stop="removeSession(session)">
-              <Trash2 :size="14" />
-            </button>
-          </div>
-        </div>
-      </section>
-    </aside>
-
+    <!-- 主区域 -->
     <section class="query-main">
       <header class="query-topbar">
         <div class="workspace-title">
           <span>智能问答</span>
-          <h1>{{ selectedDatasource ? selectedDatasource.name : '请选择数据源' }}</h1>
+          <h1>{{ session.selectedDatasource.value ? session.selectedDatasource.value.name : '请选择数据源' }}</h1>
         </div>
 
-        <button class="query-user" type="button" @click="drawerVisible = true">
+        <button class="query-user" type="button" @click="session.drawerVisible.value = true">
           <span>{{ displayName.slice(0, 1) }}</span>
           <div>
             <strong>{{ displayName }}</strong>
@@ -967,219 +293,120 @@ watch(resultTab, () => {
       </header>
 
       <section class="chat-surface">
-        <div v-if="!selectedId" class="empty-chat">
+        <!-- 未选择数据源 -->
+        <div v-if="!session.selectedId.value" class="empty-chat">
           <Database :size="38" />
           <h2>先选择一个数据源</h2>
           <p>每个数据源都有独立的会话历史，选择后再开始提问，避免跨库上下文污染。</p>
         </div>
 
+        <!-- 已选择数据源 -->
         <div v-else class="message-list">
+          <!-- 数据源概要 -->
           <section class="workspace-brief">
             <div class="brief-main">
               <span class="brief-kicker">当前上下文</span>
-              <h2>{{ selectedDatasource?.databaseName || selectedDatasource?.name }}</h2>
-              <p>{{ selectedDatasource?.description || '当前会话限定在此数据源。' }}</p>
+              <h2>{{ session.selectedDatasource.value?.databaseName || session.selectedDatasource.value?.name }}</h2>
+              <p>{{ session.selectedDatasource.value?.description || '当前会话限定在此数据源。' }}</p>
             </div>
             <div class="brief-metrics">
-              <span class="metric-chip"><Database :size="14" />{{ askableDatasourceCount }} / {{ datasources.length }} 个可询问</span>
-              <span class="metric-chip"><History :size="14" />{{ datasourceSessions.length }} 个当前库会话</span>
+              <span class="metric-chip"><Database :size="14" />{{ session.askableDatasourceCount.value }} / {{ session.datasources.value.length }} 个可询问</span>
+              <span class="metric-chip"><History :size="14" />{{ session.datasourceSessions.value.length }} 个当前库会话</span>
             </div>
           </section>
 
-          <section v-if="selectedId && !canAskSelectedDatasource" class="readiness-notice">
+          <!-- 数据源不可用提示 -->
+          <section v-if="session.selectedId.value && !session.canAskSelectedDatasource.value" class="readiness-notice">
             <ShieldAlert :size="16" />
             <div>
-              <strong>{{ selectedReadiness?.stageLabel || (readinessLoading ? '正在确认状态' : '状态确认失败') }}</strong>
-              <span>{{ selectedBlockReason?.message || (readinessLoading ? '正在确认该数据源是否可询问。' : '未能确认该数据源上线状态，请刷新后重试。') }}</span>
+              <strong>{{ session.selectedReadiness.value?.stageLabel || (session.readinessLoading.value ? '正在确认状态' : '状态确认失败') }}</strong>
+              <span>{{ session.selectedBlockReason.value?.message || (session.readinessLoading.value ? '正在确认该数据源是否可询问。' : '未能确认该数据源上线状态，请刷新后重试。') }}</span>
             </div>
-            <RouterLink v-if="selectedBlockReason?.actionPath && canEnterAdmin" :to="selectedBlockReason.actionPath">
-              {{ selectedBlockReason.actionText || '去处理' }}
+            <RouterLink v-if="session.selectedBlockReason.value?.actionPath && canEnterAdmin" :to="session.selectedBlockReason.value.actionPath">
+              {{ session.selectedBlockReason.value.actionText || '去处理' }}
             </RouterLink>
           </section>
 
-          <section class="example-strip" aria-label="示例问题">
-            <button
-              v-for="item in exampleQuestions"
-              :key="item"
-              type="button"
-              :disabled="!canAskSelectedDatasource"
-              @click="applyExample(item)"
-            >
-              {{ item }}
-            </button>
-          </section>
-
+          <!-- 对话 + 结果双栏 -->
           <div class="query-cockpit">
             <section class="conversation-rail" aria-label="对话">
-          <article
-            v-for="message in activeMessages"
-            :key="message.id"
-            class="message-item"
-            :class="message.role"
-            :data-message-id="message.id"
-          >
-            <span class="message-avatar">
-              <UserRound v-if="message.role === 'user'" :size="16" />
-              <MessageSquareText v-else :size="16" />
-            </span>
-            <div class="message-bubble">
-              <p>{{ message.content }}</p>
-              <small>{{ formatTime(message.createdAt) }}</small>
-              <!-- TIMEOUT 状态操作按钮 -->
-              <div v-if="message.role === 'assistant' && message.status === 'TIMEOUT'" class="message-actions">
-                <button class="action-btn retry" @click="retryQuery(message.originalQuestion || '')" :disabled="isQuerying">
-                  <RefreshCw :size="14" />重试查询
-                </button>
-                <button class="action-btn wait" @click="continueWaiting(message.taskId || '')" :disabled="isQuerying">
-                  <History :size="14" />继续等待
-                </button>
-              </div>
-              <!-- 失败状态操作按钮 -->
-              <div v-if="message.role === 'assistant' && (message.status === 'FAILED' || message.status === 'error')" class="message-actions">
-                <button class="action-btn retry" @click="retryQuery(message.originalQuestion || '')" :disabled="isQuerying || !message.originalQuestion">
-                  <RefreshCw :size="14" />重新提问
-                </button>
-              </div>
-            </div>
-          </article>
+              <article
+                v-for="message in session.activeMessages.value"
+                :key="message.id"
+                class="message-item"
+                :class="message.role"
+                :data-message-id="message.id"
+              >
+                <span class="message-avatar">
+                  <UserRound v-if="message.role === 'user'" :size="16" />
+                  <MessageSquareText v-else :size="16" />
+                </span>
+                <div class="message-bubble">
+                  <p>{{ message.content }}</p>
+                  <small>{{ formatTime(message.createdAt) }}</small>
+                  <!-- TIMEOUT 状态操作按钮 -->
+                  <div v-if="message.role === 'assistant' && message.status === 'TIMEOUT'" class="message-actions">
+                    <button class="action-btn retry" @click="submit.retryQuery(message.originalQuestion || '')" :disabled="submit.isQuerying.value">
+                      <RefreshCw :size="14" />重试查询
+                    </button>
+                    <button class="action-btn wait" @click="submit.continueWaiting(message.taskId || '')" :disabled="submit.isQuerying.value">
+                      <History :size="14" />继续等待
+                    </button>
+                  </div>
+                  <!-- 失败状态操作按钮 -->
+                  <div v-if="message.role === 'assistant' && (message.status === 'FAILED' || message.status === 'error')" class="message-actions">
+                    <button class="action-btn retry" @click="submit.retryQuery(message.originalQuestion || '')" :disabled="submit.isQuerying.value || !message.originalQuestion">
+                      <RefreshCw :size="14" />重新提问
+                    </button>
+                  </div>
+                </div>
+              </article>
             </section>
 
-          <aside class="result-preview result-rail" aria-label="查询结果与可信依据">
-            <div class="result-tabs">
-              <span :class="{ active: resultTab === 'table' }" @click="resultTab = 'table'"><ListChecks :size="14" />表格结果</span>
-              <span :class="{ active: resultTab === 'sql' }" @click="resultTab = 'sql'"><MessageSquareText :size="14" />SQL</span>
-              <span :class="{ active: resultTab === 'chart' }" @click="resultTab = 'chart'"><BarChart3 :size="14" />图表</span>
-              <span :class="{ active: resultTab === 'trust' }" @click="resultTab = 'trust'"><ShieldCheck :size="14" />可信依据</span>
-            </div>
-
-            <div v-if="!latestResult" class="result-empty">
-              <strong>暂无查询结果</strong>
-            </div>
-
-            <div v-else-if="resultTab === 'table'" class="result-table-wrap">
-              <div v-if="isLatestProcessing" class="result-empty">
-                <strong>{{ latestResult.progressMessage || '查询正在执行中' }}</strong>
-                <span>可以切换到“可信依据”查看 Agent 当前进度。</span>
-              </div>
-              <div v-if="latestResult.data && latestResult.data.length" class="result-meta">
-                <small>共 {{ latestResult.rowCount || latestResult.data.length }} 行 · 耗时 {{ latestResult.totalTimeMs }}ms</small>
-                <small v-if="latestResult.usedTables?.length">使用表：{{ latestResult.usedTables.join(', ') }}</small>
-              </div>
-              <el-table v-if="!isLatestProcessing && latestResult.data && latestResult.data.length" :data="pagedTableData" border stripe max-height="320" size="small">
-                <el-table-column v-for="col in (latestResult.columns || [])" :key="col.name" :prop="col.name" :label="col.comment || col.name" min-width="120" show-overflow-tooltip />
-              </el-table>
-              <el-pagination
-                v-if="!isLatestProcessing && latestResult.data && latestResult.data.length > tablePageSize"
-                v-model:current-page="tablePage"
-                :page-size="tablePageSize"
-                :total="latestResult.data.length"
-                layout="total, prev, pager, next"
-                size="small"
-                style="margin-top: 8px; justify-content: flex-end;"
-              />
-              <div v-else-if="!isLatestProcessing" class="result-empty"><strong>查询完成但无数据返回</strong></div>
-            </div>
-
-            <div v-else-if="resultTab === 'sql'" class="result-sql-wrap">
-              <pre v-if="latestResult.sql" class="sql-block">{{ latestResult.sql }}</pre>
-              <p v-if="latestResult.sqlExplanation" class="sql-explanation">{{ latestResult.sqlExplanation }}</p>
-              <div v-if="!latestResult.sql" class="result-empty"><strong>无 SQL</strong></div>
-            </div>
-
-            <div v-else-if="resultTab === 'chart'" class="result-chart-wrap">
-              <div v-if="latestResult.chartConfig" class="chart-toolbar">
-                <div class="chart-type-switcher">
-                  <button :class="{ active: chartType === 'bar' }" @click="switchChartType('bar')">柱状图</button>
-                  <button :class="{ active: chartType === 'line' }" @click="switchChartType('line')">折线图</button>
-                  <button :class="{ active: chartType === 'pie' }" @click="switchChartType('pie')">饼图</button>
-                </div>
-                <button class="export-btn" @click="exportPng" :disabled="latestResult.canExport === false"><Download :size="14" />导出 PNG</button>
-              </div>
-              <ChartContainer v-if="latestResult.chartConfig" :option="chartOption" />
-              <div v-else class="result-empty"><strong>无图表数据</strong></div>
-            </div>
-
-            <div v-else-if="resultTab === 'trust'" class="trust-panel">
-              <div class="agent-progress">
-                <div
-                  v-for="step in agentProgress"
-                  :key="step.key"
-                  class="agent-step"
-                  :class="step.status"
-                >
-                  <span class="step-dot"></span>
-                  <strong>{{ step.label }}</strong>
-                </div>
-              </div>
-
-              <div v-if="latestResult.progressMessage" class="trust-notice">
-                <ShieldCheck :size="15" />
-                <span>{{ latestResult.progressMessage }}</span>
-              </div>
-              <div v-if="latestResult.degraded" class="trust-notice warning">
-                <ShieldAlert :size="15" />
-                <span>{{ latestResult.degradeNotice || '知识库暂时不可用，当前结果已按降级策略返回。' }}</span>
-              </div>
-
-              <div class="trust-grid">
-                <div
-                  v-for="item in trustSummary"
-                  :key="item.label"
-                  class="trust-card"
-                  :class="{ muted: item.muted }"
-                >
-                  <span>{{ item.label }}</span>
-                  <strong>{{ item.value }}</strong>
-                </div>
-              </div>
-            </div>
-
-            <div v-if="latestResult" class="result-actions">
-              <button class="export-btn" @click="exportCsv" :disabled="!latestResult.data?.length || latestResult.canExport === false">
-                <Download :size="14" />导出 CSV
-              </button>
-              <div class="feedback-btns">
-                <button class="feedback-btn like" @click="handleFeedback('LIKE')" title="结果准确">
-                  <ThumbsUp :size="15" />
-                </button>
-                <button class="feedback-btn dislike" @click="handleFeedback('DISLIKE')" title="结果有误">
-                  <ThumbsDown :size="15" />
-                </button>
-              </div>
-            </div>
-
-            <div v-if="latestResult?.suggestedQuestions?.length" class="suggested-questions">
-              <small>推荐追问：</small>
-              <button v-for="q in latestResult.suggestedQuestions" :key="q" type="button" @click="applyExample(q)">{{ q }}</button>
-            </div>
-          </aside>
+            <!-- 结果面板 -->
+            <QueryResult
+              :latest-result="submit.latestResult.value"
+              :result-tab="submit.resultTab.value"
+              :chart-type="submit.chartType.value"
+              :chart-option="chartOption"
+              :paged-table-data="exportUtil.pagedTableData.value"
+              :table-page="exportUtil.tablePage.value"
+              :table-page-size="exportUtil.tablePageSize"
+              :agent-progress="submit.agentProgress.value"
+              :is-latest-processing="submit.isLatestProcessing.value"
+              :trust-summary="submit.trustSummary.value"
+              @update:result-tab="submit.resultTab.value = $event"
+              @switch-chart-type="submit.chartType.value = $event"
+              @export-csv="exportUtil.exportCsv"
+              @export-png="exportUtil.exportPng"
+              @feedback="exportUtil.handleFeedback"
+              @apply-example="applyExample"
+              @update:table-page="exportUtil.tablePage.value = $event"
+            />
           </div>
         </div>
       </section>
 
-      <footer class="chat-composer">
-        <div v-if="selectedId && !canAskSelectedDatasource" class="composer-readiness">
-          {{ selectedBlockReason?.message || (readinessLoading ? '正在确认该数据源是否可询问' : '未能确认该数据源上线状态，请刷新后重试') }}
-        </div>
-        <textarea
-          ref="questionInputRef"
-          v-model="question"
-          :disabled="!selectedId || !canAskSelectedDatasource"
-          rows="1"
-          :placeholder="!selectedId ? '请先选择左侧数据源' : canAskSelectedDatasource ? '向当前数据源提问，例如：上个月销售额最高的10个产品' : '当前数据源暂未完成上线流程'"
-          @keydown.enter="handleEnter"
-        ></textarea>
-        <button type="button" :disabled="!selectedId || !canAskSelectedDatasource || !question.trim() || isQuerying" @click="sendQuestion">
-          <SendHorizontal :size="18" />
-          <span>{{ isQuerying ? '查询中...' : '发送' }}</span>
-        </button>
-        <button v-if="isQuerying" type="button" class="cancel-btn" @click="cancelCurrentQuery">
-          取消
-        </button>
-      </footer>
+      <!-- 输入区域 -->
+      <QueryInput
+        ref="queryInputRef"
+        :question="submit.question.value"
+        :is-querying="submit.isQuerying.value"
+        :selected-id="session.selectedId.value"
+        :can-ask="session.canAskSelectedDatasource.value"
+        :readiness-loading="session.readinessLoading.value"
+        :selected-block-reason="session.selectedBlockReason.value"
+        :selected-readiness="session.selectedReadiness.value"
+        :example-questions="exampleQuestions"
+        @update:question="submit.question.value = $event"
+        @send="submit.sendQuestion"
+        @cancel="submit.cancelCurrentQuery"
+        @apply-example="applyExample"
+      />
     </section>
 
-    <el-drawer v-model="drawerVisible" direction="rtl" size="280px" :show-close="false">
+    <!-- 用户抽屉 -->
+    <el-drawer v-model="session.drawerVisible.value" direction="rtl" size="280px" :show-close="false">
       <template #header>
         <div class="drawer-profile">
           <div class="drawer-avatar">{{ displayName.slice(0, 1) }}</div>

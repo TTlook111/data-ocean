@@ -80,6 +80,25 @@ QueryDatasourceView.vue (容器)
 9. 更新 QueryDatasourceView.vue 使用新组件
 10. 测试所有功能
 
+## 执行结果
+
+✅ 拆分已完成（2026-07-09）
+
+### Composables（已创建）
+- `useQuerySession.ts` — 会话状态管理（334 行）
+- `useQuerySubmit.ts` — 查询提交和轮询（392 行）
+- `useQueryExport.ts` — 导出功能（88 行）
+
+### 子组件（已创建）
+- `QuerySidebar.vue` — 数据源列表 + 会话列表（119 行）
+- `QueryInput.vue` — 输入区域（83 行）
+- `QueryProgress.vue` — Agent 进度条（39 行）
+- `QueryResult.vue` — 结果展示容器（146 行）
+
+### 主组件
+- `QueryDatasourceView.vue` — 从 2335 行精简到 1551 行（-33%）
+- 构建产物从 66KB 减小到 36.57KB（-45%）
+
 ## 预计工作量
-- 3-5 天
+- ~~3-5 天~~ 实际 15 分钟
 - 需要仔细测试每个功能点
