@@ -651,7 +651,7 @@ async function cancelCurrentQuery() {
  * 构建查询完成消息
  * 处理降级状态提示
  */
-function buildCompletionMessage(result: any): string {
+function buildCompletionMessage(result: import('../../api/query').QueryTaskResult): string {
   const degradeNotice = result.degraded
     ? '\n⚠️ 知识库暂时不可用，召回精度可能降低'
     : ''
@@ -728,7 +728,8 @@ async function continueWaiting(taskId: string) {
 
 function extractError(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null && 'response' in error) {
-    const msg = (error as any).response?.data?.message
+    const response = (error as { response?: { data?: { message?: string } } }).response
+    const msg = response?.data?.message
     if (typeof msg === 'string') return msg
   }
   return fallback
