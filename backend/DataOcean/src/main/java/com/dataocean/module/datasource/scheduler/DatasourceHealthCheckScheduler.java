@@ -17,6 +17,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 数据源健康检查定时任务
@@ -57,10 +58,11 @@ public class DatasourceHealthCheckScheduler {
             return;
         }
         log.debug("开始定时检查数据源健康状态 count={}", datasources.size());
-        // 逐个检查每个数据源
-        for (Datasource datasource : datasources) {
-            checkOne(datasource);
-        }
+        // 并行检查所有数据源
+        List<CompletableFuture<Void>> futures = datasources.stream()
+                .map(datasource -> CompletableFuture.runAsync(() -> checkOne(datasource)))
+                .toList();
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
     }
 
     /**
