@@ -589,7 +589,7 @@ onMounted(fetchLogs)
   color: #f56c6c;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -600,7 +600,7 @@ onMounted(fetchLogs)
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .operation-log-page {
     gap: 12px;
   }

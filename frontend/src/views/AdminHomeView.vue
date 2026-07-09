@@ -1083,7 +1083,7 @@ watch(loading, (value, oldValue) => {
 .guide-card h3 { margin: 0 0 14px; font-size: 16px; color: var(--do-ink); }
 .guide-card ol { margin: 0; padding-left: 20px; color: var(--do-muted); font-size: 14px; line-height: 2; }
 
-@media (max-width: 1100px) {
+@media (max-width: 1200px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .ops-strip,
   .priority-grid { grid-template-columns: 1fr; }
@@ -1092,7 +1092,7 @@ watch(loading, (value, oldValue) => {
   .quick-actions-grid { grid-template-columns: repeat(2, 1fr); }
   .status-grid { grid-template-columns: 1fr; }
 }
-@media (max-width: 600px) {
+@media (max-width: 576px) {
   .stats-grid { grid-template-columns: 1fr; }
   .home-header { align-items: flex-start; flex-direction: column; }
   .section-heading-row { align-items: flex-start; flex-direction: column; }
