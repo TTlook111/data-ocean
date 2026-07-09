@@ -80,6 +80,10 @@ def _validate_config() -> None:
         missing.append("DASHSCOPE_API_KEY")
     if not settings.milvus_host:
         missing.append("MILVUS_HOST")
+    if not settings.redis_host:
+        missing.append("REDIS_HOST")
+    if not settings.qwen_embedding_model:
+        missing.append("QWEN_EMBEDDING_MODEL")
     if missing:
         logger.warning("以下关键配置缺失，相关功能将不可用: %s", ", ".join(missing))
 
