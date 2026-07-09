@@ -11,6 +11,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.permission.entity.vo.PermissionContextVO;
 import com.dataocean.module.permission.service.PermissionCalculator;
 import com.dataocean.module.query.client.PythonAgentClient;
+import com.dataocean.module.query.entity.dto.AgentExecuteRequest;
 import com.dataocean.module.query.service.ConversationService;
 import com.dataocean.module.query.service.QueryTaskService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -74,22 +75,22 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         // 查询数据源连接信息，Java 侧解密密码后以明文传给 Python 内网服务
         Map<String, Object> connectionConfig = buildConnectionConfig(datasourceId);
 
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("taskId", taskId);
-        requestBody.put("datasourceId", datasourceId);
-        requestBody.put("userId", userId);
-        requestBody.put("question", question);
-        requestBody.put("activeSnapshotId", activeSnapshotId);
-        requestBody.put("connectionConfig", connectionConfig);
         // 计算用户对该数据源的真实权限上下文
         PermissionContextVO permContext = permissionCalculator.calculate(userId, datasourceId);
-        requestBody.put("userPermissions", buildUserPermissionsMap(permContext));
-        // 从会话中获取最近 5 轮对话作为上下文
-        requestBody.put("conversationHistory", buildConversationHistory(conversationId, userId));
-        // 加载 fallback chunks（Milvus 不可用时的降级数据）
-        requestBody.put("fallbackChunks", loadFallbackChunks(datasourceId));
-        // 加载已审核通过的术语表（用于查询改写时的术语匹配扩展）
-        requestBody.put("glossaryTerms", loadApprovedGlossaryTerms());
+
+        // 构建类型安全的请求体
+        AgentExecuteRequest requestBody = AgentExecuteRequest.builder()
+                .taskId(taskId)
+                .datasourceId(datasourceId)
+                .userId(userId)
+                .question(question)
+                .activeSnapshotId(activeSnapshotId)
+                .connectionConfig(connectionConfig)
+                .userPermissions(buildUserPermissionsMap(permContext))
+                .conversationHistory(buildConversationHistory(conversationId, userId))
+                .fallbackChunks(loadFallbackChunks(datasourceId))
+                .glossaryTerms(loadApprovedGlossaryTerms())
+                .build();
 
         try {
             // 调用 Python SSE 接口并消费流
