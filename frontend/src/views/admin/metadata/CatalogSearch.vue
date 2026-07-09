@@ -7,6 +7,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from 'lucide-vue-next'
+import DOMPurify from 'dompurify'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
 import { listMyDatasources, type UserDatasourceItem } from '../../../api/datasource'
 import { searchCatalog, type MetadataEntityItem } from '../../../api/admin/catalog'
@@ -64,8 +65,9 @@ async function handleSearch() {
 
 function highlightMatch(text: string | undefined, q: string): string {
   if (!text || !q) return text || ''
+  const safe = DOMPurify.sanitize(text)
   const regex = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi')
-  return text.replace(regex, '<mark>$1</mark>')
+  return safe.replace(regex, '<mark>$1</mark>')
 }
 
 loadDatasources()
