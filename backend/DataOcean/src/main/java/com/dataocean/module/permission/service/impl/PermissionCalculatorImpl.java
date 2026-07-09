@@ -19,6 +19,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.transaction.event.TransactionPhase;
@@ -55,29 +57,25 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
     private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     private final ObjectMapper objectMapper;
 
-    /** 简单本地缓存：key → (结果, 过期时间戳) */
-    private final java.util.concurrent.ConcurrentHashMap<String, CacheEntry> cache = new java.util.concurrent.ConcurrentHashMap<>();
-    private static final long CACHE_TTL_MS = 5000;
-
-    private record CacheEntry(PermissionContextVO context, long expiresAt) {}
+    /** Caffeine 缓存：key → 权限上下文 */
+    private final com.github.benmanes.caffeine.cache.Cache<String, PermissionContextVO> cache =
+            com.github.benmanes.caffeine.cache.Caffeine.newBuilder()
+                    .maximumSize(1000)
+                    .expireAfterWrite(10, java.util.concurrent.TimeUnit.SECONDS)
+                    .expireAfterAccess(5, java.util.concurrent.TimeUnit.SECONDS)
+                    .recordStats()
+                    .build();
 
     @Override
     public PermissionContextVO calculate(Long userId, Long datasourceId) {
         String cacheKey = userId + ":" + datasourceId;
-        CacheEntry entry = cache.get(cacheKey);
-        if (entry != null && System.currentTimeMillis() < entry.expiresAt) {
-            return entry.context;
+        PermissionContextVO result = cache.getIfPresent(cacheKey);
+        if (result != null) {
+            return result;
         }
 
-        PermissionContextVO result = doCalculate(userId, datasourceId);
-        cache.put(cacheKey, new CacheEntry(result, System.currentTimeMillis() + CACHE_TTL_MS));
-
-        // 惰性清理过期条目（避免内存泄漏）
-        if (cache.size() > 500) {
-            long now = System.currentTimeMillis();
-            cache.entrySet().removeIf(e -> now >= e.getValue().expiresAt);
-        }
-
+        result = doCalculate(userId, datasourceId);
+        cache.put(cacheKey, result);
         return result;
     }
 
@@ -95,33 +93,33 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
      */
     @Override
     public void invalidate(Long subjectId, Long datasourceId) {
-        int beforeSize = cache.size();
+        long beforeSize = cache.estimatedSize();
 
         if (subjectId != null && datasourceId != null) {
             // 精确失效：只清除该用户该数据源的缓存
             String exactKey = subjectId + ":" + datasourceId;
-            cache.remove(exactKey);
+            cache.invalidate(exactKey);
             log.debug("权限缓存已失效 userId={} datasourceId={}", subjectId, datasourceId);
 
         } else if (datasourceId != null) {
             // 按数据源失效：清除该数据源所有用户的缓存
             String suffix = ":" + datasourceId;
-            cache.entrySet().removeIf(e -> e.getKey().endsWith(suffix));
+            cache.asMap().keySet().removeIf(key -> key.endsWith(suffix));
             log.debug("权限缓存已失效 datasourceId={}", datasourceId);
 
         } else if (subjectId != null) {
             // 按用户失效：清除该用户所有数据源的缓存
             String prefix = subjectId + ":";
-            cache.entrySet().removeIf(e -> e.getKey().startsWith(prefix));
+            cache.asMap().keySet().removeIf(key -> key.startsWith(prefix));
             log.debug("权限缓存已失效 userId={}", subjectId);
 
         } else {
             // 全部失效：仅在必要时使用
-            cache.clear();
+            cache.invalidateAll();
             log.warn("权限缓存已全部失效，这可能影响性能");
         }
 
-        int afterSize = cache.size();
+        long afterSize = cache.estimatedSize();
         log.debug("权限缓存失效完成 清除条目数={}", beforeSize - afterSize);
     }
 
