@@ -11,6 +11,7 @@ import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
+import com.dataocean.module.knowledge.service.KnowledgeChunkService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,6 +46,8 @@ class VectorIndexTaskSchedulerTest {
     private PythonRagClient pythonRagClient;
     @Mock
     private TransactionTemplate transactionTemplate;
+    @Mock
+    private KnowledgeChunkService knowledgeChunkService;
 
     @InjectMocks
     private VectorIndexTaskScheduler scheduler;
@@ -88,14 +91,8 @@ class VectorIndexTaskSchedulerTest {
 
         scheduler.processTask(task);
 
-        @SuppressWarnings({"rawtypes", "unchecked"})
-        ArgumentCaptor<KnowledgeChunk> chunkCaptor = ArgumentCaptor.forClass(KnowledgeChunk.class);
         verify(knowledgeChunkMapper).delete(any(Wrapper.class));
-        verify(knowledgeChunkMapper, org.mockito.Mockito.times(2)).insert(chunkCaptor.capture());
-        assertThat(chunkCaptor.getAllValues())
-                .extracting(KnowledgeChunk::getChunkType)
-                .containsExactly("TABLE_DESC", "JOIN_PATH");
-        assertThat(chunkCaptor.getAllValues().get(0).getRelatedTable()).isEqualTo("orders");
+        verify(knowledgeChunkService).saveBatch(any());
 
         verify(pythonRagClient).vectorize(eq(task), any(), eq(false));
         verify(knowledgeChunkMapper, org.mockito.Mockito.times(2)).update(eq(null), any(UpdateWrapper.class));

@@ -42,6 +42,7 @@ public class VectorIndexTaskScheduler {
     private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
     private final PythonRagClient pythonRagClient;
     private final TransactionTemplate transactionTemplate;
+    private final com.dataocean.module.knowledge.service.KnowledgeChunkService knowledgeChunkService;
 
     @Scheduled(fixedDelay = 300000)
     public void processVectorTasks() {
@@ -123,9 +124,7 @@ public class VectorIndexTaskScheduler {
         List<KnowledgeChunk> chunks = chunkPayloads.stream()
                 .map(payload -> toKnowledgeChunk(task, payload))
                 .toList();
-        for (KnowledgeChunk chunk : chunks) {
-            knowledgeChunkMapper.insert(chunk);
-        }
+        knowledgeChunkService.saveBatch(chunks);
         return chunks;
     }
 
