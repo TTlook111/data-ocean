@@ -7,11 +7,8 @@ import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
 import com.dataocean.module.knowledge.client.PythonRagClient;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
-import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
-import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
-import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
@@ -43,6 +40,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 知识文档发布服务测试。
+ * <p>
+ * 原 KnowledgeDocServiceImpl 测试，拆分后测试 KnowledgeDocPublishService。
+ * 重点验证 AI 草稿生成时字段置信度等元数据正确传递给 Python 服务。
+ * </p>
+ */
 @ExtendWith(MockitoExtension.class)
 class KnowledgeDocServiceImplTest {
 
@@ -50,12 +54,6 @@ class KnowledgeDocServiceImplTest {
     private KnowledgeDocMapper knowledgeDocMapper;
     @Mock
     private KnowledgeDocVersionMapper knowledgeDocVersionMapper;
-    @Mock
-    private KnowledgeChunkMapper knowledgeChunkMapper;
-    @Mock
-    private KnowledgeReviewTaskMapper knowledgeReviewTaskMapper;
-    @Mock
-    private VectorIndexTaskService vectorIndexTaskService;
     @Mock
     private PythonKnowledgeClient pythonKnowledgeClient;
     @Mock
@@ -72,9 +70,11 @@ class KnowledgeDocServiceImplTest {
     private FieldTagMapper fieldTagMapper;
     @Mock
     private TransactionTemplate transactionTemplate;
+    @Mock
+    private KnowledgeDocHelper helper;
 
     @InjectMocks
-    private KnowledgeDocServiceImpl knowledgeDocService;
+    private KnowledgeDocPublishService publishService;
 
     @AfterEach
     void tearDown() {
@@ -94,7 +94,7 @@ class KnowledgeDocServiceImplTest {
                 .title("skills.md")
                 .currentVersion(0)
                 .build();
-        when(knowledgeDocMapper.selectById(docId)).thenReturn(doc);
+        when(helper.requireDoc(docId)).thenReturn(doc);
 
         DbTableMeta table = new DbTableMeta();
         table.setId(100L);
@@ -126,7 +126,7 @@ class KnowledgeDocServiceImplTest {
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
 
-        String content = knowledgeDocService.generateDraft(docId, snapshotId);
+        String content = publishService.generateDraft(docId, snapshotId);
 
         assertThat(content).isEqualTo("generated skills");
 

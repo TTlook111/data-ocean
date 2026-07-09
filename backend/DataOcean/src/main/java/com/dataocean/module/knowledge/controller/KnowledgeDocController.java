@@ -5,8 +5,10 @@ import com.dataocean.common.result.Result;
 import com.dataocean.module.knowledge.dto.*;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
-import com.dataocean.module.knowledge.service.KnowledgeDocService;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
+import com.dataocean.module.knowledge.service.impl.KnowledgeDocCrudService;
+import com.dataocean.module.knowledge.service.impl.KnowledgeDocLifecycleService;
+import com.dataocean.module.knowledge.service.impl.KnowledgeDocPublishService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +24,14 @@ import java.util.Map;
  * 提供 skills.md 文档的 CRUD、审核流程、AI 草稿生成、版本管理等 REST API 端点。
  * 所有接口需要 knowledge:manage 权限。
  * </p>
+ *
+ * <p>职责拆分后，Controller 委托给三个独立 Service：
+ * <ul>
+ *   <li>{@link KnowledgeDocCrudService} — 文档 CRUD</li>
+ *   <li>{@link KnowledgeDocLifecycleService} — 状态流转（审核、发布）</li>
+ *   <li>{@link KnowledgeDocPublishService} — AI 生成、切片预览</li>
+ * </ul>
+ * </p>
  */
 @RestController
 @RequestMapping("/api/admin/knowledge-docs")
@@ -30,7 +40,9 @@ import java.util.Map;
 @Slf4j
 public class KnowledgeDocController {
 
-    private final KnowledgeDocService knowledgeDocService;
+    private final KnowledgeDocCrudService crudService;
+    private final KnowledgeDocLifecycleService lifecycleService;
+    private final KnowledgeDocPublishService publishService;
     private final KnowledgeVersionService knowledgeVersionService;
 
     // === 文档 CRUD ===
@@ -51,7 +63,7 @@ public class KnowledgeDocController {
             @RequestParam(defaultValue = "1") Integer page,
             @RequestParam(defaultValue = "10") Integer pageSize) {
         log.debug("收到知识文档列表查询请求 datasourceId={} status={}", datasourceId, status);
-        return Result.success(knowledgeDocService.listDocs(datasourceId, status, page, pageSize));
+        return Result.success(crudService.listDocs(datasourceId, status, page, pageSize));
     }
 
     /**
@@ -62,7 +74,7 @@ public class KnowledgeDocController {
      */
     @GetMapping("/{id}")
     public Result<KnowledgeDoc> getDoc(@PathVariable Long id) {
-        return Result.success(knowledgeDocService.getDocById(id));
+        return Result.success(crudService.getDocById(id));
     }
 
     /**
@@ -74,7 +86,7 @@ public class KnowledgeDocController {
     @PostMapping
     public Result<Map<String, Long>> createDoc(@Valid @RequestBody KnowledgeDocCreateDTO request) {
         log.debug("收到创建知识文档请求 datasourceId={} title={}", request.getDatasourceId(), request.getTitle());
-        Long id = knowledgeDocService.createDoc(request.getDatasourceId(), request.getTitle(), request.getContent());
+        Long id = crudService.createDoc(request.getDatasourceId(), request.getTitle(), request.getContent());
         return Result.success("创建成功", Map.of("id", id));
     }
 
@@ -88,7 +100,7 @@ public class KnowledgeDocController {
     @PutMapping("/{id}")
     public Result<Void> updateDoc(@PathVariable Long id, @Valid @RequestBody KnowledgeDocUpdateDTO request) {
         log.debug("收到编辑知识文档请求 docId={} version={}", id, request.getVersion());
-        knowledgeDocService.updateDoc(
+        crudService.updateDoc(
                 id,
                 request.getTitle(),
                 request.getContent(),
@@ -108,7 +120,7 @@ public class KnowledgeDocController {
     @PostMapping("/{id}/submit-review")
     public Result<Void> submitReview(@PathVariable Long id) {
         log.debug("收到提交审核请求 docId={}", id);
-        knowledgeDocService.submitReview(id);
+        lifecycleService.submitReview(id);
         return Result.success("已提交审核", null);
     }
 
@@ -122,7 +134,7 @@ public class KnowledgeDocController {
     @PostMapping("/{id}/approve")
     public Result<Void> approve(@PathVariable Long id, @RequestBody(required = false) ReviewRequestDTO request) {
         log.debug("收到审核通过请求 docId={}", id);
-        knowledgeDocService.approve(id, request == null ? null : request.getComment());
+        lifecycleService.approve(id, request == null ? null : request.getComment());
         return Result.success("审核通过", null);
     }
 
@@ -136,7 +148,7 @@ public class KnowledgeDocController {
     @PostMapping("/{id}/reject")
     public Result<Void> reject(@PathVariable Long id, @Valid @RequestBody ReviewRequestDTO request) {
         log.debug("收到审核拒绝请求 docId={}", id);
-        knowledgeDocService.reject(id, request.getComment());
+        lifecycleService.reject(id, request.getComment());
         return Result.success("已驳回", null);
     }
 
@@ -149,7 +161,7 @@ public class KnowledgeDocController {
     @PostMapping("/{id}/publish")
     public Result<Void> publish(@PathVariable Long id) {
         log.debug("收到发布文档请求 docId={}", id);
-        knowledgeDocService.publish(id);
+        lifecycleService.publish(id);
         return Result.success("发布成功", null);
     }
 
@@ -165,7 +177,7 @@ public class KnowledgeDocController {
     @PostMapping("/{id}/generate-draft")
     public Result<Map<String, String>> generateDraft(@PathVariable Long id, @Valid @RequestBody GenerateDraftDTO request) {
         log.debug("收到生成草稿请求 docId={} snapshotId={}", id, request.getSnapshotId());
-        String content = knowledgeDocService.generateDraft(id, request.getSnapshotId());
+        String content = publishService.generateDraft(id, request.getSnapshotId());
         return Result.success("草稿生成成功", Map.of("content", content));
     }
 
@@ -185,7 +197,7 @@ public class KnowledgeDocController {
             @RequestParam Long datasourceId,
             @Valid @RequestBody BatchGenerateDTO request) {
         log.info("收到 AI 一键生成请求 datasourceId={} snapshotId={}", datasourceId, request.getSnapshotId());
-        List<Map<String, Object>> docs = knowledgeDocService.batchGenerateFromSnapshot(datasourceId, request.getSnapshotId());
+        List<Map<String, Object>> docs = publishService.batchGenerateFromSnapshot(datasourceId, request.getSnapshotId());
         return Result.success("AI 生成成功", docs);
     }
 
@@ -259,7 +271,7 @@ public class KnowledgeDocController {
     @PostMapping("/{id}/preview-chunks")
     public Result<List<Map<String, String>>> previewChunks(@PathVariable Long id) {
         log.debug("收到切片预览请求 docId={}", id);
-        List<Map<String, String>> chunks = knowledgeDocService.previewChunks(id);
+        List<Map<String, String>> chunks = publishService.previewChunks(id);
         return Result.success(chunks);
     }
 }
