@@ -27,10 +27,11 @@ public class DataMaskingServiceImpl implements DataMaskingService {
             return data;
         }
 
-        // 构建列名→脱敏策略映射（忽略表名前缀，按列名匹配）
+        // 构建 tableName.columnName → 脱敏策略映射（复合键匹配，避免同名列误脱敏）
         Map<String, String> columnStrategyMap = new HashMap<>();
         for (PermissionContextVO.MaskColumnItem item : maskColumns) {
-            columnStrategyMap.put(item.getColumnName().toLowerCase(), item.getMaskType());
+            String key = (item.getTableName() + "." + item.getColumnName()).toLowerCase();
+            columnStrategyMap.put(key, item.getMaskType());
         }
 
         // 对每行数据执行脱敏
