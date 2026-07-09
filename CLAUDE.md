@@ -205,8 +205,8 @@ mvn test
 
 Latest verified test result:
 
-- Python: 102 tests passed, 4 skipped (E2E tests require full environment).
-- Java: 103 tests passed.
+- Python: 139 test functions, 1 skipped (E2E tests require full environment).
+- Java: 95 @Test methods.
 
 The next testing gap is Agent workflow coverage: query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 
