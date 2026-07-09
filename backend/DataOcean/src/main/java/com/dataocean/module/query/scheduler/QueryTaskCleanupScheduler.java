@@ -1,5 +1,6 @@
 package com.dataocean.module.query.scheduler;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.enums.QueryTaskStatus;
@@ -11,6 +12,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 查询任务僵尸清理定时任务。
@@ -52,5 +54,39 @@ public class QueryTaskCleanupScheduler {
         if (updated > 0) {
             log.info("清理僵尸任务完成，超时任务数={}", updated);
         }
+    }
+
+    /**
+     * 清理历史已完成任务。
+     * <p>
+     * 每天凌晨 3 点执行一次，删除 30 天前已完成/已取消/已超时的任务，
+     * 释放数据库存储空间。
+     * </p>
+     */
+    @Scheduled(cron = "0 0 3 * * *")
+    public void cleanupOldTasks() {
+        // 保留阈值：30 天前
+        LocalDateTime retentionThreshold = LocalDateTime.now().minusDays(30);
+
+        // 查询需要清理的任务 ID
+        LambdaQueryWrapper<QueryTask> queryWrapper = new LambdaQueryWrapper<QueryTask>()
+                .in(QueryTask::getStatus,
+                        QueryTaskStatus.COMPLETED.name(),
+                        QueryTaskStatus.CANCELLED.name(),
+                        QueryTaskStatus.TIMEOUT.name())
+                .lt(QueryTask::getCreatedAt, retentionThreshold)
+                .select(QueryTask::getId);
+
+        List<Long> idsToDelete = queryTaskMapper.selectList(queryWrapper).stream()
+                .map(QueryTask::getId)
+                .toList();
+
+        if (idsToDelete.isEmpty()) {
+            return;
+        }
+
+        // 批量删除
+        queryTaskMapper.deleteBatchIds(idsToDelete);
+        log.info("清理历史任务完成，删除任务数={}", idsToDelete.size());
     }
 }
