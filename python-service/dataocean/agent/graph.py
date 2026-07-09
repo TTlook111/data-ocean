@@ -180,10 +180,38 @@ def after_validator(
     return "sql_generator"
 
 
+def _classify_execution_error(error_message: str) -> str:
+    """分类 SQL 执行错误类型
+
+    Returns:
+        "table_not_found" - 表不存在，需要重新检索 schema
+        "syntax_error" - 语法错误，需要重新生成 SQL
+        "timeout" - 超时，不应重试
+        "connection" - 连接问题，不应重试
+        "unknown" - 未知错误，重新生成 SQL
+    """
+    error_lower = error_message.lower()
+    if "doesn't exist" in error_lower or "unknown table" in error_lower or "table" in error_lower and "not found" in error_lower:
+        return "table_not_found"
+    if "syntax error" in error_lower or "sql syntax" in error_lower:
+        return "syntax_error"
+    if "timeout" in error_lower or "timed out" in error_lower:
+        return "timeout"
+    if "connection" in error_lower or "refused" in error_lower:
+        return "connection"
+    return "unknown"
+
+
 def after_executor(
     state: AgentState,
-) -> Literal["data_visualizer", "sql_generator", "__end__"]:
-    """Executor 后路由：成功→可视化，失败→重试或终止
+) -> Literal["data_visualizer", "sql_generator", "schema_retriever", "__end__"]:
+    """Executor 后路由：成功→可视化，失败→根据错误类型选择恢复策略
+
+    错误分类路由：
+    - 表不存在 → 重新检索 schema（可能 schema 信息不完整）
+    - 语法错误 → 重新生成 SQL
+    - 超时/连接 → 终止（不应重试）
+    - 未知错误 → 重新生成 SQL
 
     注：retry_count 由 sql_executor 节点在执行失败时递增
     """
@@ -192,6 +220,19 @@ def after_executor(
         retry_count = state.get("retry_count", 0)
         if retry_count >= agent_config.max_retries:
             return END
+
+        error_type = _classify_execution_error(execution.get("error", ""))
+        logger.info("SQL 执行失败，错误类型=%s retry=%d", error_type, retry_count)
+
+        # 超时和连接错误不应重试
+        if error_type in ("timeout", "connection"):
+            return END
+
+        # 表不存在时重新检索 schema
+        if error_type == "table_not_found":
+            return "schema_retriever"
+
+        # 其他错误（语法、未知）重新生成 SQL
         return "sql_generator"
     return "data_visualizer"
 
