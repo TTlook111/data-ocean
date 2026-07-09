@@ -1,38 +1,14 @@
 import { http } from './http'
 import type { ApiResult } from './admin/user'
+import type { DatasourceReadiness } from './admin/datasource'
+
+export type { DatasourceReadiness, DatasourceReadinessReason } from './admin/datasource'
 
 export interface UserDatasourceItem {
   id: number
   name: string
   databaseName: string
   description?: string
-}
-
-export interface DatasourceReadinessReason {
-  code: string
-  message: string
-  ownerRole: string
-  actionText: string
-  actionPath?: string
-}
-
-export interface DatasourceReadiness {
-  datasourceId: number
-  datasourceName: string
-  askable: boolean
-  stage: string
-  stageLabel: string
-  progress: number
-  publishedSnapshotId?: number
-  snapshotVersion?: number
-  publishedKnowledgeDocId?: number
-  knowledgeVersion?: number
-  connectionReady: boolean
-  metadataReady: boolean
-  governanceReady: boolean
-  knowledgeReady: boolean
-  permissionReady: boolean
-  blockReasons: DatasourceReadinessReason[]
 }
 
 export async function listMyDatasources() {
