@@ -79,7 +79,7 @@ class VectorIndexTaskSchedulerTest {
                 Map.of("chunkType", "JOIN_PATH", "chunkText", "### orders ↔ customers", "tableName", "orders")
         ));
         when(pythonRagClient.vectorize(eq(task), any(), eq(false)))
-                .thenReturn(Map.of("status", "COMPLETED", "successCount", 2));
+                .thenReturn(Map.of("status", "COMPLETED", "vectorizedCount", 2));
         when(knowledgeDocMapper.selectById(99L)).thenReturn(doc);
         org.mockito.Mockito.doAnswer(invocation -> {
             Consumer<?> callback = invocation.getArgument(0);

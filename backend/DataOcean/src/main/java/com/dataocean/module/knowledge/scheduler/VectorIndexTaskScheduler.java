@@ -79,7 +79,7 @@ public class VectorIndexTaskScheduler {
 
         Map<String, Object> response = pythonRagClient.vectorize(task, chunks, forceRebuild);
         String status = String.valueOf(response.getOrDefault("status", ""));
-        int vectorizedCount = toInt(firstPresent(response, "vectorizedCount", "successCount", "success_count"));
+        int vectorizedCount = toInt(response.get("vectorizedCount"));
         if (!"COMPLETED".equals(status) || vectorizedCount != chunks.size()) {
             throw new BusinessException("RAG 向量化未完成，status=" + status + " vectorizedCount=" + vectorizedCount);
         }
@@ -178,15 +178,6 @@ public class VectorIndexTaskScheduler {
         }
         doc.setStatus(DocStatus.APPROVED.name());
         knowledgeDocMapper.updateById(doc);
-    }
-
-    private Object firstPresent(Map<String, Object> response, String... keys) {
-        for (String key : keys) {
-            if (response.containsKey(key)) {
-                return response.get(key);
-            }
-        }
-        return null;
     }
 
     private int toInt(Object value) {
