@@ -83,6 +83,7 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
         policy.setAccessType(dto.getAccessType());
         policy.setMaskStrategy(dto.getMaskStrategy());
         policy.setRowFilterExpression(dto.getRowFilterExpression());
+        policy.setPriority(dto.getPriority());
         policy.setCreatedBy(UserContext.currentUserId());
         policyMapper.insert(policy);
 

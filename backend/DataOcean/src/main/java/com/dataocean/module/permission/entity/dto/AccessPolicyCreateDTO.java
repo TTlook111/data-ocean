@@ -40,4 +40,13 @@ public class AccessPolicyCreateDTO {
 
     /** 行级过滤表达式 */
     private String rowFilterExpression;
+
+    /**
+     * 策略优先级（越低越优先）。
+     * <p>
+     * 系统级策略：0-99，管理员策略：100-199，默认：200。
+     * 不指定时使用默认值 200。
+     * </p>
+     */
+    private Integer priority;
 }

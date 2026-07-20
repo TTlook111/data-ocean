@@ -187,6 +187,9 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             snapshotMapper.updateById(snapshot);
         }
 
+        // 11.1 质量问题与治理状态联动：HIGH 级问题自动将表治理状态设为 RECOMMENDED
+        linkQualityToGovernance(snapshotId, allIssues);
+
         // 12. 构建返回结果
         QualityCheckResultVO result = new QualityCheckResultVO();
         result.setSnapshotId(snapshotId);
@@ -396,6 +399,54 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             total = total.divide(totalWeight, 2, RoundingMode.HALF_UP);
         }
         return total.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 质量问题与治理状态联动。
+     * <p>
+     * 当表存在 HIGH 级质量问题时，自动将治理状态设为 RECOMMENDED（待审核）。
+     * 不会将已 BLOCKED/DEPRECATED 的表降级，只做向上提升。
+     * </p>
+     *
+     * @param snapshotId 快照ID
+     * @param allIssues  所有质量问题列表
+     */
+    private void linkQualityToGovernance(Long snapshotId, List<MetadataQualityIssue> allIssues) {
+        // 收集有 HIGH 级问题的表名
+        Set<String> tablesWithHighIssues = allIssues.stream()
+                .filter(issue -> "HIGH".equals(issue.getSeverity()))
+                .map(MetadataQualityIssue::getTableName)
+                .collect(Collectors.toSet());
+
+        if (tablesWithHighIssues.isEmpty()) {
+            return;
+        }
+
+        // 查询这些表的当前治理状态
+        List<DbTableMeta> tables = tableMetaMapper.selectList(
+                new LambdaQueryWrapper<DbTableMeta>()
+                        .eq(DbTableMeta::getSnapshotId, snapshotId)
+                        .in(DbTableMeta::getTableName, tablesWithHighIssues));
+
+        int updated = 0;
+        for (DbTableMeta table : tables) {
+            String currentStatus = table.getGovernanceStatus();
+            // 不降级已 BLOCKED/DEPRECATED 的表
+            if ("BLOCKED".equals(currentStatus) || "DEPRECATED".equals(currentStatus)) {
+                continue;
+            }
+            // 仅当状态不是 RECOMMENDED 时才更新
+            if (!"RECOMMENDED".equals(currentStatus)) {
+                table.setGovernanceStatus("RECOMMENDED");
+                tableMetaMapper.updateById(table);
+                updated++;
+            }
+        }
+
+        if (updated > 0) {
+            log.info("质量问题联动治理状态 snapshotId={} highIssueTables={} updated={}",
+                    snapshotId, tablesWithHighIssues.size(), updated);
+        }
     }
 
     /**
