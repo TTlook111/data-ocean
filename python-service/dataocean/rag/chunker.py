@@ -96,6 +96,9 @@ def chunk_skills_md(content: str) -> list[ChunkItem]:
     LangChain handles Markdown header splitting and recursive long-text
     splitting. DataOcean keeps the domain mapping from header metadata to
     chunk_type and table/column metadata.
+
+    实现 context-enriched chunking（参考 Anthropic Contextual Retrieval）：
+    为每个 chunk 附加上下文前缀，帮助 embedding 模型理解 chunk 在文档中的位置和含义。
     """
     if not content or not content.strip():
         return []
@@ -108,15 +111,24 @@ def chunk_skills_md(content: str) -> list[ChunkItem]:
             continue
 
         chunk_type = _infer_chunk_type(section, heading, document.page_content)
+        table_name = _extract_table_name(document.page_content, heading)
+
+        # 生成上下文前缀（参考 Anthropic Contextual Retrieval）
+        context_prefix = _build_context_prefix(chunk_type, section, heading, table_name)
+
         for text in _split_long_chunk(document.page_content):
             normalized = text.strip()
             if len(normalized) < MIN_CHUNK_TEXT_LENGTH:
                 continue
+
+            # 将上下文前缀附加到 chunk 文本前面
+            enriched_text = context_prefix + normalized if context_prefix else normalized
+
             chunks.append(
                 ChunkItem(
                     chunk_type=chunk_type,
-                    chunk_text=normalized[:MAX_CHUNK_TEXT_LENGTH],
-                    related_table=_extract_table_name(normalized, heading),
+                    chunk_text=enriched_text[:MAX_CHUNK_TEXT_LENGTH],
+                    related_table=table_name,
                     related_column=_extract_column_name(normalized, heading),
                     governance_status="NORMAL",
                     review_status="APPROVED",
@@ -174,6 +186,49 @@ def _extract_column_name(text: str, heading: str = "") -> str:
         if match:
             return match.group(1)
     return ""
+
+
+def _build_context_prefix(chunk_type: str, section: str, heading: str, table_name: str) -> str:
+    """为 chunk 生成上下文前缀（参考 Anthropic Contextual Retrieval）
+
+    在每个 chunk 前附加 1-2 句上下文说明，解释该 chunk 在文档中的位置和含义。
+    这可以显著提升 Milvus 检索的精确度，尤其对 FIELD_NOTE 和 QUERY_SCENE 类型。
+
+    Args:
+        chunk_type: chunk 类型
+        section: 所属章节
+        heading: 所属标题
+        table_name: 关联表名
+
+    Returns:
+        上下文前缀字符串
+    """
+    parts = []
+
+    # 根据 chunk 类型生成不同的上下文描述
+    type_descriptions = {
+        "JOIN_PATH": "这是表关联路径定义",
+        "METRIC": "这是业务指标计算口径",
+        "FIELD_NOTE": "这是字段使用注意事项",
+        "QUERY_SCENE": "这是查询场景示例",
+        "TABLE_DESC": "这是表结构描述",
+    }
+    type_desc = type_descriptions.get(chunk_type, "")
+    if type_desc:
+        parts.append(type_desc)
+
+    # 附加表名信息
+    if table_name:
+        parts.append(f"涉及表 {table_name}")
+
+    # 附加章节信息
+    if heading:
+        parts.append(f"来自「{heading}」")
+
+    if not parts:
+        return ""
+
+    return "【" + "，".join(parts) + "】\n"
 
 
 def _infer_chunk_type(section: str, heading: str, text: str) -> str:
