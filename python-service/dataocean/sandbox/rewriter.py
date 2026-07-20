@@ -160,10 +160,19 @@ def _check_column_access(tree: exp.Expression, denied_columns: dict[str, list[st
                     return f"无权访问字段：{real_table}.{col_name}"
                 continue
 
-            # 多表查询无限定符：检查所有表的拒绝列表
-            for table_name, cols in denied_by_table.items():
-                if col_name in cols:
-                    return f"无权访问字段：{table_name}.{col_name}"
+            # 多表查询无限定符：精确匹配路径
+            # 只有当列名在所有表的拒绝列表中都出现时才拒绝（保守策略）
+            # 如果只在一个表中被拒绝，可能是同名列在另一个表中是合法的
+            denied_in_tables = [
+                table_name for table_name, cols in denied_by_table.items()
+                if col_name in cols and table_name in scope_tables
+            ]
+            if len(denied_in_tables) == len(scope_tables):
+                # 所有表都拒绝该列，安全拒绝
+                return f"无权访问字段：{denied_in_tables[0]}.{col_name}"
+            elif len(denied_in_tables) == 1 and len(scope_tables) == 1:
+                # 单表拒绝（多表场景中只有一张表有该列），精确拒绝
+                return f"无权访问字段：{denied_in_tables[0]}.{col_name}"
 
     return ""
 

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # 节点名称常量
 NODE_QUERY_REWRITER = "QUERY_REWRITER"
 NODE_SCHEMA_RETRIEVER = "SCHEMA_RETRIEVER"
+NODE_SCHEMA_LINKER = "SCHEMA_LINKER"
 NODE_SQL_GENERATOR = "SQL_GENERATOR"
 NODE_SQL_VALIDATOR = "SQL_VALIDATOR"
 NODE_SQL_EXECUTOR = "SQL_EXECUTOR"
@@ -39,6 +40,7 @@ NODE_DATA_VISUALIZER = "DATA_VISUALIZER"
 NODE_MESSAGES = {
     NODE_QUERY_REWRITER: "正在理解问题",
     NODE_SCHEMA_RETRIEVER: "正在召回相关表",
+    NODE_SCHEMA_LINKER: "正在精简 Schema",
     NODE_SQL_GENERATOR: "正在生成 SQL",
     NODE_SQL_VALIDATOR: "正在校验 SQL 安全性",
     NODE_SQL_EXECUTOR: "正在执行查询",
@@ -119,6 +121,12 @@ async def schema_retriever_node(state: AgentState) -> AgentState:
     return await _node_wrapper(state, NODE_SCHEMA_RETRIEVER, run_schema_retriever)
 
 
+async def schema_linker_node(state: AgentState) -> AgentState:
+    """Schema Linking 节点：过滤无关表/列，精简 SQL 生成输入"""
+    from .nodes.schema_linker import run_schema_linker
+    return await _node_wrapper(state, NODE_SCHEMA_LINKER, run_schema_linker)
+
+
 async def sql_generator_node(state: AgentState) -> AgentState:
     """SQL 生成节点"""
     from .nodes.sql_generator import run_sql_generator
@@ -153,8 +161,15 @@ def after_rewriter(state: AgentState) -> Literal["schema_retriever", "__end__"]:
     return "schema_retriever"
 
 
-def after_retriever(state: AgentState) -> Literal["sql_generator", "__end__"]:
-    """Retriever 后路由：召回为空则终止"""
+def after_retriever(state: AgentState) -> Literal["schema_linker", "__end__"]:
+    """Retriever 后路由：召回为空则终止，否则进入 Schema Linking"""
+    if state.get("error_message"):
+        return END
+    return "schema_linker"
+
+
+def after_linker(state: AgentState) -> Literal["sql_generator", "__end__"]:
+    """Linker 后路由：有错误则终止，否则继续生成"""
     if state.get("error_message"):
         return END
     return "sql_generator"
@@ -228,7 +243,7 @@ def after_executor(
         if error_type in ("timeout", "connection"):
             return END
 
-        # 表不存在时重新检索 schema
+        # 表不存在时重新检索 schema（经过 linker 精简）
         if error_type == "table_not_found":
             return "schema_retriever"
 
@@ -246,6 +261,7 @@ def build_graph() -> StateGraph:
     # 添加节点
     graph.add_node("query_rewriter", query_rewriter_node)
     graph.add_node("schema_retriever", schema_retriever_node)
+    graph.add_node("schema_linker", schema_linker_node)
     graph.add_node("sql_generator", sql_generator_node)
     graph.add_node("sql_validator", sql_validator_node)
     graph.add_node("sql_executor", sql_executor_node)
@@ -257,6 +273,7 @@ def build_graph() -> StateGraph:
     # 添加条件边
     graph.add_conditional_edges("query_rewriter", after_rewriter)
     graph.add_conditional_edges("schema_retriever", after_retriever)
+    graph.add_conditional_edges("schema_linker", after_linker)
     graph.add_edge("sql_generator", "sql_validator")
     graph.add_conditional_edges("sql_validator", after_validator)
     graph.add_conditional_edges("sql_executor", after_executor)
