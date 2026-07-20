@@ -140,6 +140,12 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
 
         await sse.emit_result(task_id, result)
 
+        # 自学习闭环：查询成功时将 question-SQL 对入库（异步，不阻塞返回）
+        if result.status == "COMPLETED" and result.sql:
+            _store_fewshot_async(request.datasource_id, request.question, result.sql,
+                                 final_state.get("used_tables", []),
+                                 final_state.get("extracted_intent"))
+
     except asyncio.CancelledError:
         # 用户取消或 SSE 断开导致 Task 被 cancel
         logger.info("Agent 工作流被取消 task_id=%s", task_id)
@@ -164,6 +170,19 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
     finally:
         cleanup(task_id)
         sse.unregister_task(task_id)
+
+
+def _store_fewshot_async(datasource_id: int, question: str, sql: str,
+                          tables: list[str], intent: dict | None) -> None:
+    """异步存储成功的查询到 few-shot 检索库（自学习闭环）
+
+    使用 asyncio.create_task 异步执行，不阻塞主流程。
+    """
+    try:
+        from dataocean.rag.fewshot import store_successful_query
+        asyncio.create_task(store_successful_query(datasource_id, question, sql, tables, intent))
+    except Exception as e:
+        logger.debug("Few-shot 异步存储失败: %s", e)
 
 
 @router.post("/tasks/{task_id}/cancel")

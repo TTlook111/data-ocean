@@ -171,6 +171,9 @@ async def _render_sql_prompt(
     error_message: str,
     previous_sql: str,
 ) -> tuple[str, int]:
+    # 检索 few-shot examples（自学习闭环）
+    fewshot_text = await _retrieve_fewshot(state)
+
     variables = {
         "question": state.get("question", ""),
         "rewritten_query": state.get("rewritten_query", ""),
@@ -181,6 +184,7 @@ async def _render_sql_prompt(
         "conversation_history": state.get("conversation_history", []),
         "error_message": error_message if retry_count > 0 else "",
         "previous_sql": previous_sql if retry_count > 0 else "",
+        "fewshot_examples": fewshot_text,
     }
     try:
         rendered, version_no = await render_prompt_with_metadata("sql_generation", variables)
@@ -198,6 +202,24 @@ async def _render_sql_prompt(
         ),
         0,
     )
+
+
+async def _retrieve_fewshot(state: AgentState) -> str:
+    """检索 few-shot examples 作为 prompt 补充（自学习闭环）"""
+    try:
+        from dataocean.rag.fewshot import retrieve_fewshot_examples, format_fewshot_prompt
+        datasource_id = state.get("datasource_id", 0)
+        question = state.get("rewritten_query", "") or state.get("question", "")
+        used_tables = state.get("used_tables", [])
+        schema_context = state.get("schema_context", [])
+        # 从 schema context 提取表名
+        tables = used_tables or [
+            s.get("table_name", "") for s in schema_context if s.get("table_name")
+        ]
+        examples = await retrieve_fewshot_examples(datasource_id, question, tables, limit=3)
+        return format_fewshot_prompt(examples)
+    except Exception:
+        return ""
 
 
 def _format_schema(schema_context: list[dict]) -> str:
