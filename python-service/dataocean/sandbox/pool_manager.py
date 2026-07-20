@@ -1,10 +1,12 @@
 """数据库连接池管理
 
 按 datasource_id 维护只读连接池，支持密码解密、全局连接数限制和空闲回收。
+包含后台定时清理任务，每 5 分钟自动回收空闲连接池。
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import threading
@@ -15,6 +17,9 @@ from urllib.parse import quote_plus
 from .config import sandbox_config
 
 logger = logging.getLogger(__name__)
+
+# 后台清理任务句柄（防止重复启动）
+_cleanup_task: asyncio.Task | None = None
 
 
 @dataclass
@@ -146,7 +151,11 @@ def get_pool_status() -> list[dict]:
 
 
 def _decrypt_password(encrypted: str) -> str:
-    """AES-256 解密数据源密码"""
+    """AES-256 解密数据源密码
+
+    Raises:
+        ValueError: 解密失败时抛出明确异常，不再静默回退到密文
+    """
     if not encrypted:
         return ""
     key = sandbox_config.aes_secret_key
@@ -168,5 +177,33 @@ def _decrypt_password(encrypted: str) -> str:
         plaintext = unpadder.update(padded) + unpadder.finalize()
         return plaintext.decode("utf-8")
     except Exception as e:
-        logger.warning("密码解密失败，尝试直接使用原始值 error=%s", e)
-        return encrypted
+        # 解密失败时抛出明确异常，让上层给出有意义的错误信息
+        raise ValueError(f"数据源密码解密失败，请检查加密配置: {e}") from e
+
+
+def start_periodic_cleanup(interval_seconds: int = 300) -> None:
+    """启动后台定时清理任务，每 N 秒自动回收空闲连接池
+
+    Args:
+        interval_seconds: 清理间隔，默认 300 秒（5 分钟）
+    """
+    global _cleanup_task
+    if _cleanup_task is not None and not _cleanup_task.done():
+        return  # 已有任务在运行
+
+    async def _cleanup_loop():
+        while True:
+            try:
+                await asyncio.sleep(interval_seconds)
+                cleanup_idle_pools()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning("定时清理异常: %s", e)
+
+    try:
+        _cleanup_task = asyncio.create_task(_cleanup_loop())
+        logger.info("连接池定时清理任务已启动 interval=%ds", interval_seconds)
+    except RuntimeError:
+        # 无事件循环时忽略（如测试环境）
+        pass

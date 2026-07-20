@@ -79,7 +79,11 @@ def validate(
 
 
 def _check_injection_patterns(sql: str) -> RuleResult | None:
-    """检测 SQL 注入常见模式：注释符号和多语句分隔符"""
+    """检测 SQL 注入常见模式：注释符号和多语句分隔符
+
+    注：分号检测排除字符串常量中的分号（如 WHERE name = 'a;b'），
+    通过正则匹配不在引号内的分号。
+    """
     # 检测行注释 --
     if re.search(r"--\s", sql):
         return RuleResult(passed=False, rule_name="injection", reason="SQL 中包含注释符号（--），疑似注入")
@@ -88,10 +92,14 @@ def _check_injection_patterns(sql: str) -> RuleResult | None:
     if "/*" in sql or "*/" in sql:
         return RuleResult(passed=False, rule_name="injection", reason="SQL 中包含块注释（/* */），疑似注入")
 
-    # 检测多语句分隔符
-    # 只在分号后面有其他 SQL 语句时才拒绝（允许末尾分号）
+    # 检测多语句分隔符（排除字符串常量中的分号）
+    # 先去掉末尾分号，再检查剩余部分是否有不在引号内的分号
     sql_stripped = sql.strip().rstrip(";")
     if ";" in sql_stripped:
-        return RuleResult(passed=False, rule_name="injection", reason="SQL 中包含分号（;），禁止多语句执行")
+        # 简单排除：用正则去掉引号内的内容后再检查
+        # 匹配单引号或双引号内的内容（含转义）
+        sql_without_strings = re.sub(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"", "", sql_stripped)
+        if ";" in sql_without_strings:
+            return RuleResult(passed=False, rule_name="injection", reason="SQL 中包含分号（;），禁止多语句执行")
 
     return None

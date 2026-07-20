@@ -44,9 +44,17 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
         # 3. 规则加权重排
         ranked_results = rerank(raw_results, request)
 
-        # 4. 相似度阈值过滤
+        # 4. 相似度阈值过滤（阈值过滤为空时自动降低阈值重试一次）
         threshold = request.min_score if request.min_score is not None else settings.similarity_threshold
         filtered = [r for r in ranked_results if r.score >= threshold]
+
+        if not filtered:
+            # 降低阈值 0.1 重试，避免因阈值过高过滤掉所有结果
+            retry_threshold = max(0.1, threshold - 0.1)
+            filtered = [r for r in ranked_results if r.score >= retry_threshold]
+            if filtered:
+                logger.info("阈值过滤为空，降低阈值重试 threshold=%.2f→%.2f result_count=%d",
+                            threshold, retry_threshold, len(filtered))
 
         if not filtered:
             return _response(message="未找到相关数据表，请换个问法", start=start)

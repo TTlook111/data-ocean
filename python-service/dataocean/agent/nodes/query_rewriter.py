@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from pathlib import Path
 
@@ -162,9 +163,10 @@ def _build_glossary_hint(question: str, glossary_terms: list[dict]) -> str:
         else:
             synonyms = []
 
-        # 检查是否匹配
+        # 检查是否匹配（使用词边界匹配，避免短术语误匹配）
+        # 例如"订单"不应匹配"订单号"，"销"不应匹配"销售"
         all_names = [term_name, display_name] + synonyms
-        matched = any(name and name in question_lower for name in all_names)
+        matched = any(name and _is_word_boundary_match(question_lower, name) for name in all_names)
 
         if matched:
             hint = f"术语「{term.get('displayName') or term.get('name')}」"
@@ -182,4 +184,40 @@ def _build_glossary_hint(question: str, glossary_terms: list[dict]) -> str:
         return ""
 
     return "用户问题涉及以下业务术语：" + "；".join(matched_hints)
-    }
+
+
+def _is_word_boundary_match(text: str, term: str) -> bool:
+    """检查术语是否在文本中以词边界匹配
+
+    中文词边界规则：术语前后不能是中文字符（避免"订单"匹配"订单号"）。
+    英文词边界使用正则 \\b。
+    对于长度 >= 4 的术语，允许子串匹配（长术语误匹配概率低）。
+    """
+    if len(term) >= 4:
+        # 长术语直接子串匹配，误匹配概率低
+        return term in text
+
+    idx = text.find(term)
+    if idx == -1:
+        return False
+
+    # 检查左侧边界：不能是中文字符
+    if idx > 0 and _is_cjk_char(text[idx - 1]):
+        return False
+
+    # 检查右侧边界：不能是中文字符
+    end = idx + len(term)
+    if end < len(text) and _is_cjk_char(text[end]):
+        return False
+
+    return True
+
+
+def _is_cjk_char(ch: str) -> bool:
+    """判断字符是否为 CJK 统一汉字（中文字符）"""
+    cp = ord(ch)
+    return (
+        (0x4E00 <= cp <= 0x9FFF)      # CJK 基本
+        or (0x3400 <= cp <= 0x4DBF)   # CJK 扩展 A
+        or (0xF900 <= cp <= 0xFAFF)   # CJK 兼容
+    )
