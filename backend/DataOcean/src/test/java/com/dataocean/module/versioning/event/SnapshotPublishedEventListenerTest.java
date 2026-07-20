@@ -1,5 +1,6 @@
 package com.dataocean.module.versioning.event;
 
+import com.dataocean.module.governance.service.QualityCheckService;
 import com.dataocean.module.system.service.NotificationRecipientResolver;
 import com.dataocean.module.system.service.NotificationService;
 import org.junit.jupiter.api.Test;
@@ -17,9 +18,11 @@ class SnapshotPublishedEventListenerTest {
     void publishedEventNotifiesAdminsAndOperatorWithoutDuplicates() {
         NotificationService notificationService = mock(NotificationService.class);
         NotificationRecipientResolver recipientResolver = mock(NotificationRecipientResolver.class);
+        QualityCheckService qualityCheckService = mock(QualityCheckService.class);
         SnapshotPublishedEventListener listener = new SnapshotPublishedEventListener(
                 notificationService,
-                recipientResolver
+                recipientResolver,
+                qualityCheckService
         );
         when(recipientResolver.adminUserIds()).thenReturn(List.of(1L, 2L));
 
@@ -43,9 +46,11 @@ class SnapshotPublishedEventListenerTest {
     void expiredEventNotifiesAdmins() {
         NotificationService notificationService = mock(NotificationService.class);
         NotificationRecipientResolver recipientResolver = mock(NotificationRecipientResolver.class);
+        QualityCheckService qualityCheckService = mock(QualityCheckService.class);
         SnapshotPublishedEventListener listener = new SnapshotPublishedEventListener(
                 notificationService,
-                recipientResolver
+                recipientResolver,
+                qualityCheckService
         );
         when(recipientResolver.adminUserIds()).thenReturn(List.of(1L));
 

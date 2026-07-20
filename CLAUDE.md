@@ -90,6 +90,7 @@ Recently completed or verified:
 - **数据源授权语义补齐**：`V42__datasource_access_effect.sql` 已加入，使数据源授权的 allow/deny 决策显式化。
 - **智能问数链路已跑通**（2026-06-13）：完整链路测试成功，包括 RAG 检索、SQL 生成、SQL 校验、SQL 执行、图表生成。修复了 Milvus 连接兼容性、SQL 分号校验、Decimal 序列化等问题。详见 `docs/development/智能问数链路诊断报告.md`。
 - **F0 排雷任务已完成**（2026-06-13）：按审查报告第十二章实施 17 项代码修复，包括向量化 force 模式安全修复、内部路由统一认证、表白名单空值语义、Prompt 注入防护、危险函数黑名单补齐、retry_count 边界修复、VectorStore 缓存、reranker 分数 clamp、SSE 解析完善、LLM/Embedding 初始化竞态修复、配置热重载竞态修复、连接池清理 TOCTOU 修复等。12.3 设计改进建议暂未实施。
+- **优化指导文档 32 项问题修复完成**（2026-07-20）：基于 `docs/development/DataOcean项目优化指导文档.md` 的深度探查结果，完成 RAG、数据治理、Agent 链路、工程化四个维度的系统性优化。Phase 1-5 修复 17 项问题（S1-S7 + M1-M5/M8/M11），Phase 6 实现 RAG 高级优化（上下文扩展 + context-enriched chunking）。详见优化指导文档。
 - Query conversations are persisted in MySQL (`conversation`, `conversation_message`) and can be restored from the frontend after refresh.
 - Prompt template management includes CRUD, version history, approval flow (`DRAFT -> PENDING_REVIEW -> APPROVED/REJECTED`), rollback, and frontend workflow controls.
 - AI configuration is managed through `sys_config`; Java exposes admin/internal config APIs, and Python supports `/internal/config/reload`.

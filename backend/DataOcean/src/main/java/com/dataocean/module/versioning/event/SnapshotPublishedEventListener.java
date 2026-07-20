@@ -1,5 +1,6 @@
 package com.dataocean.module.versioning.event;
 
+import com.dataocean.module.governance.service.QualityCheckService;
 import com.dataocean.module.system.service.NotificationRecipientResolver;
 import com.dataocean.module.system.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -14,7 +15,7 @@ import java.util.Set;
 /**
  * 快照生命周期事件监听器。
  * <p>
- * 异步记录快照发布和过期事件，后续可扩展通知、索引刷新等处理。
+ * 异步记录快照发布和过期事件，并在快照发布后自动触发全量质量检查。
  * </p>
  */
 @Slf4j
@@ -27,9 +28,14 @@ public class SnapshotPublishedEventListener {
 
     private final NotificationService notificationService;
     private final NotificationRecipientResolver recipientResolver;
+    /** 质量检查服务，快照发布后自动触发全量质量检查 */
+    private final QualityCheckService qualityCheckService;
 
     /**
      * 处理快照发布事件。
+     * <p>
+     * 发布后自动触发全量质量检查（异步执行，不阻塞发布流程）。
+     * </p>
      *
      * @param event 快照发布事件
      */
@@ -41,6 +47,9 @@ public class SnapshotPublishedEventListener {
         String content = "数据源 " + event.getDatasourceId() + " 的快照 " + event.getSnapshotId()
                 + " 已发布为当前版本。";
         sendToRelatedUsers(TYPE_SNAPSHOT_PUBLISHED, "元数据快照已发布", content, event.getOperatorId());
+
+        // 快照发布后自动触发全量质量检查（异步，不阻塞发布流程）
+        triggerQualityCheck(event.getSnapshotId());
     }
 
     /**
@@ -65,6 +74,26 @@ public class SnapshotPublishedEventListener {
         }
         for (Long userId : userIds) {
             notificationService.send(type, title, content, userId);
+        }
+    }
+
+    /**
+     * 快照发布后自动触发全量质量检查。
+     * <p>
+     * 异步执行，失败不影响发布流程。检查完成后会自动联动治理状态
+     * （HIGH 级问题将表治理状态设为 RECOMMENDED）。
+     * </p>
+     *
+     * @param snapshotId 快照 ID
+     */
+    private void triggerQualityCheck(Long snapshotId) {
+        try {
+            log.info("快照发布后自动触发质量检查 snapshotId={}", snapshotId);
+            qualityCheckService.executeQualityCheck(snapshotId, null, null);
+            log.info("快照发布后质量检查完成 snapshotId={}", snapshotId);
+        } catch (Exception e) {
+            // 质量检查失败不影响发布流程，记录错误日志
+            log.error("快照发布后质量检查失败 snapshotId={}", snapshotId, e);
         }
     }
 }
