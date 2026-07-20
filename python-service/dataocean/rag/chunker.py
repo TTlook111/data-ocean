@@ -177,8 +177,15 @@ def _extract_column_name(text: str, heading: str = "") -> str:
 
 
 def _infer_chunk_type(section: str, heading: str, text: str) -> str:
+    """\u6839\u636e\u6807\u9898\u548c\u6b63\u6587\u63a8\u65ad chunk \u7c7b\u578b
+
+    \u4f18\u5148\u7ea7\uff1aheader \u5173\u952e\u8bcd > body \u5173\u952e\u8bcd\uff08\u4ec5 header \u672a\u547d\u4e2d\u65f6\uff09\u3002
+    body \u5173\u952e\u8bcd\u4f7f\u7528\u66f4\u7cbe\u786e\u7684\u6a21\u5f0f\uff0c\u907f\u514d"join"\u7b49\u901a\u7528\u8bcd\u8bef\u5206\u7c7b\u3002
+    """
     header_text = f"{section}\n{heading}".lower()
     body_text = text.lower()
+
+    # \u7b2c\u4e00\u4f18\u5148\u7ea7\uff1aheader \u5173\u952e\u8bcd\u5339\u914d\uff08\u7cbe\u786e\u5ea6\u9ad8\uff09
     if any(keyword in header_text for keyword in ("join", "join path", "\u5173\u8054", "\u2194", "\u2192")):
         return "JOIN_PATH"
     if any(keyword in header_text for keyword in ("metric", "\u6307\u6807", "\u53e3\u5f84")):
@@ -187,8 +194,12 @@ def _infer_chunk_type(section: str, heading: str, text: str) -> str:
         return "FIELD_NOTE"
     if any(keyword in header_text for keyword in ("scenario", "\u573a\u666f", "\u67e5\u8be2\u573a\u666f", "\u9aa8\u67b6")):
         return "QUERY_SCENE"
-    if any(keyword in body_text for keyword in ("join", "join path", "\u5173\u8054\u6761\u4ef6", "\u2194", "\u2192")):
+
+    # \u7b2c\u4e8c\u4f18\u5148\u7ea7\uff1abody \u5173\u952e\u8bcd\u5339\u914d\uff08\u4ec5 header \u672a\u547d\u4e2d\u65f6\uff0c\u4f7f\u7528\u7cbe\u786e\u6a21\u5f0f\uff09
+    # \u4f7f\u7528\u66f4\u5177\u4f53\u7684\u77ed\u8bed\u800c\u975e\u5355\u8bcd\uff0c\u907f\u514d "join" \u5728 METRIC \u63cf\u8ff0\u4e2d\u88ab\u8bef\u5224
+    if any(keyword in body_text for keyword in ("\u5173\u8054\u6761\u4ef6", "join path", "\u2194", "\u2192")):
         return "JOIN_PATH"
-    if any(keyword in body_text for keyword in ("metric", "sql \u8868\u8fbe\u5f0f", "\u6307\u6807\u540d\u79f0")):
+    if any(keyword in body_text for keyword in ("sql \u8868\u8fbe\u5f0f", "\u6307\u6807\u540d\u79f0", "\u805a\u5408\u53e3\u5f84")):
         return "METRIC"
+
     return "TABLE_DESC"

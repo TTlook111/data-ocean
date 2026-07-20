@@ -39,6 +39,7 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
         raw_results = await retrieve_from_milvus(question_embedding, request)
 
         if not raw_results:
+            _log_recall_metrics(request, raw_count=0, ranked_count=0, filtered_count=0, top_score=0.0)
             return _response(message="未找到相关数据表，请换个问法", start=start)
 
         # 3. 规则加权重排
@@ -57,7 +58,13 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
                             threshold, retry_threshold, len(filtered))
 
         if not filtered:
+            _log_recall_metrics(request, raw_count=len(raw_results), ranked_count=len(ranked_results),
+                                filtered_count=0, top_score=ranked_results[0].score if ranked_results else 0.0)
             return _response(message="未找到相关数据表，请换个问法", start=start)
+
+        # 记录召回质量指标
+        _log_recall_metrics(request, raw_count=len(raw_results), ranked_count=len(ranked_results),
+                            filtered_count=len(filtered), top_score=filtered[0].score if filtered else 0.0)
 
         return _response(results=filtered, total_found=len(ranked_results), start=start)
 
@@ -90,3 +97,23 @@ def _response(
 
 def _elapsed_ms(start: float) -> int:
     return int((perf_counter() - start) * 1000)
+
+
+def _log_recall_metrics(
+    request: RetrieveRequest,
+    *,
+    raw_count: int,
+    ranked_count: int,
+    filtered_count: int,
+    top_score: float,
+) -> None:
+    """记录 RAG 召回质量指标（结构化日志）
+
+    用于监控 RAG 系统健康度和发现退化。
+    指标包括：原始召回数、重排后数、过滤后数、top-1 分数、chunk_type 分布。
+    """
+    logger.info(
+        "RAG_RECALL datasource_id=%d raw=%d ranked=%d filtered=%d top_score=%.4f question=%s",
+        request.datasource_id, raw_count, ranked_count, filtered_count, top_score,
+        request.question[:50],
+    )
