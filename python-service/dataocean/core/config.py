@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     # Redis
     redis_host: str = "localhost"
     redis_port: int = 6379
+    redis_password: str = ""
+    redis_db: int = 0
 
     # LangSmith 可观测性
     langchain_api_key: str = ""

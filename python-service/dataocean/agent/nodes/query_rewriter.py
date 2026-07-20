@@ -51,6 +51,10 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
 
     logger.info("问题改写 task_id=%s question=%s", task_id, question[:50])
 
+    # 从 Redis 读取会话上下文和用户偏好（静默降级）
+    session_context = await _load_session_context(state.get("conversation_id"))
+    user_prefs = await _load_user_prefs(str(state.get("user_id", "")))
+
     # 构造模板变量（managed 模板和本地模板共用）
     variables = {
         "current_date": date.today().isoformat(),
@@ -58,7 +62,7 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
         "question": question,
         "conversation_history": conversation_history,
         "context": conversation_history,  # V24 模板用 context
-        "user_memory": None,
+        "user_memory": session_context or user_prefs,
         "glossary_hint": glossary_hint,
     }
 
@@ -124,6 +128,28 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
         "extracted_intent": intent,
         "current_node": "QUERY_REWRITER",
     }
+
+
+async def _load_session_context(conversation_id: str | None) -> dict | None:
+    """从 Redis 加载会话上下文（静默降级）"""
+    if not conversation_id:
+        return None
+    try:
+        from dataocean.infra.memory import get_session_context
+        return await get_session_context(conversation_id)
+    except Exception:
+        return None
+
+
+async def _load_user_prefs(user_id: str) -> dict | None:
+    """从 Redis 加载用户偏好（静默降级）"""
+    if not user_id:
+        return None
+    try:
+        from dataocean.infra.memory import get_user_prefs
+        return await get_user_prefs(user_id)
+    except Exception:
+        return None
 
 
 def _build_glossary_hint(question: str, glossary_terms: list[dict]) -> str:
