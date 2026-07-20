@@ -27,7 +27,10 @@ public class QualityCheckResult {
     /** 快照 ID */
     private Long snapshotId;
 
-    /** 规则 ID */
+    /** 加权总分（维度级结果记录总分） */
+    private BigDecimal totalScore;
+
+    /** 规则 ID（维度级结果为空） */
     private Long ruleId;
 
     /** 校验维度 */

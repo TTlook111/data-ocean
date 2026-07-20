@@ -6,8 +6,10 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.governance.checker.QualityChecker;
 import com.dataocean.module.governance.entity.MetadataQualityIssue;
 import com.dataocean.module.governance.entity.MetadataQualityRule;
+import com.dataocean.module.governance.entity.QualityCheckResult;
 import com.dataocean.module.governance.entity.vo.QualityCheckResultVO;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
+import com.dataocean.module.governance.mapper.QualityCheckResultMapper;
 import com.dataocean.module.governance.service.QualityCheckService;
 import com.dataocean.module.governance.service.QualityRuleService;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
@@ -72,6 +74,8 @@ public class QualityCheckServiceImpl implements QualityCheckService {
     private final TableRelationMapper relationMapper;
     /** 质量问题 Mapper */
     private final MetadataQualityIssueMapper issueMapper;
+    /** 质量检查结果时序 Mapper */
+    private final QualityCheckResultMapper checkResultMapper;
 
     /**
      * 维度权重配置。
@@ -171,6 +175,9 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         // 10. 计算各维度得分和加权总分
         Map<String, BigDecimal> dimensionScores = calculateDimensionScores(allIssues, rules, targetDimensions);
         BigDecimal totalScore = calculateTotalScore(dimensionScores);
+
+        // 10.1 将质量检查结果写入时序表，支持质量趋势分析
+        saveCheckResults(snapshotId, dimensionScores, allIssues);
 
         // 11. 全量检查时更新快照质量分和状态
         if (isFullCheck) {
@@ -389,6 +396,39 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             total = total.divide(totalWeight, 2, RoundingMode.HALF_UP);
         }
         return total.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 保存质量检查结果到时序表。
+     * <p>
+     * 为每个已检查的维度写入一条记录，包含维度得分和该维度的问题数量。
+     * 用于质量趋势分析和仪表盘展示。
+     * </p>
+     *
+     * @param snapshotId      快照ID
+     * @param dimensionScores 各维度得分
+     * @param allIssues       所有质量问题列表
+     */
+    private void saveCheckResults(Long snapshotId, Map<String, BigDecimal> dimensionScores,
+                                  List<MetadataQualityIssue> allIssues) {
+        // 计算加权总分
+        BigDecimal totalScore = calculateTotalScore(dimensionScores);
+
+        // 按维度统计问题数量
+        Map<String, Long> issueCountByDim = allIssues.stream()
+                .collect(Collectors.groupingBy(MetadataQualityIssue::getDimension, Collectors.counting()));
+
+        // 为每个已检查的维度写入一条结果记录
+        for (Map.Entry<String, BigDecimal> entry : dimensionScores.entrySet()) {
+            QualityCheckResult result = new QualityCheckResult();
+            result.setSnapshotId(snapshotId);
+            result.setTotalScore(totalScore);
+            result.setDimension(entry.getKey());
+            result.setScore(entry.getValue());
+            result.setIssueCount(issueCountByDim.getOrDefault(entry.getKey(), 0L).intValue());
+            checkResultMapper.insert(result);
+        }
+        log.info("质量检查结果已写入时序表 snapshotId={} dimensions={}", snapshotId, dimensionScores.keySet());
     }
 
     /**

@@ -378,8 +378,12 @@ public class PermissionCalculatorImpl implements PermissionCalculator {
                 }
             }
         } catch (Exception e) {
-            // 时间计划解析失败时默认放行，避免阻断正常访问
-            log.warn("策略时间计划解析失败 policyId={}, 默认放行", policy.getId(), e);
+            // DENY 策略解析失败时拒绝放行（deny-by-default），ALLOW 策略解析失败时放行
+            // 安全原则：DENY 策略配置错误不应导致意外数据暴露
+            boolean isDeny = "DENY".equalsIgnoreCase(policy.getAccessType());
+            log.warn("策略时间计划解析失败 policyId={} accessType={}, 默认{}",
+                    policy.getId(), policy.getAccessType(), isDeny ? "拒绝" : "放行", e);
+            return !isDeny;
         }
 
         return true;

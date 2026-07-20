@@ -27,6 +27,7 @@ import com.dataocean.module.user.entity.SysUser;
 import com.dataocean.module.user.mapper.DepartmentMapper;
 import com.dataocean.module.user.mapper.RoleMapper;
 import com.dataocean.module.user.mapper.UserMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -56,6 +57,8 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
     private final DbColumnMetaMapper columnMetaMapper;
     private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     private final com.dataocean.module.permission.service.support.PermissionValidationSupport validationSupport;
+    /** 共享 ObjectMapper 实例，用于 JSON 序列化（替代反射创建） */
+    private final ObjectMapper objectMapper;
 
     @Transactional
     @Override
@@ -376,15 +379,11 @@ public class AccessPolicyServiceImpl implements AccessPolicyService {
             logEntry.setDatasourceId(datasourceId);
             logEntry.setOperatorId(UserContext.currentUserId());
             // 将变更前后的对象序列化为 JSON 字符串
-            // 注意：这里使用反射创建 ObjectMapper 实例，每次调用都会创建新实例
-            // 建议优化：将 ObjectMapper 注入为共享实例，避免重复创建
             if (oldValue != null) {
-                logEntry.setOldValue(com.fasterxml.jackson.databind.ObjectMapper.class
-                        .getDeclaredConstructor().newInstance().writeValueAsString(oldValue));
+                logEntry.setOldValue(objectMapper.writeValueAsString(oldValue));
             }
             if (newValue != null) {
-                logEntry.setNewValue(com.fasterxml.jackson.databind.ObjectMapper.class
-                        .getDeclaredConstructor().newInstance().writeValueAsString(newValue));
+                logEntry.setNewValue(objectMapper.writeValueAsString(newValue));
             }
             changeLogMapper.insert(logEntry);
         } catch (Exception e) {
