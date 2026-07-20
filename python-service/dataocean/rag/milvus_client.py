@@ -43,11 +43,43 @@ def connect_milvus() -> None:
     logger.info("旧 API 连接成功 host=%s port=%d", settings.milvus_host, settings.milvus_port)
 
 
-def ensure_collection(collection_name: str | None = None, dimension: int | None = None):
+def _select_index_params(chunk_count_hint: int | None = None) -> dict:
+    """根据预期 chunk 数量动态选择索引参数
+
+    小数据集（chunk < 256）使用 FLAT 暴力搜索，避免 IVF_FLAT 的聚类退化；
+    大数据集使用 IVF_FLAT，nlist 根据数据量动态计算。
+
+    Args:
+        chunk_count_hint: 预期 chunk 数量提示（可选）
+    """
+    # 无提示或小数据集：FLAT 暴力搜索，保证召回率
+    if chunk_count_hint is None or chunk_count_hint < 256:
+        return {
+            "index_type": "FLAT",
+            "metric_type": "IP",
+        }
+
+    # 大数据集：IVF_FLAT，nlist 按数据量动态调整
+    # 经验值：nlist = sqrt(chunk_count) 的最近 2 的幂，最少 16
+    import math
+    nlist = max(16, min(2048, 2 ** int(math.log2(math.sqrt(chunk_count_hint)))))
+    return {
+        "index_type": "IVF_FLAT",
+        "metric_type": "IP",
+        "params": {"nlist": nlist},
+    }
+
+
+def ensure_collection(collection_name: str | None = None, dimension: int | None = None, chunk_count_hint: int | None = None):
     """确保目标 Collection 存在。
 
     维度变化时 pending 索引会写入新的 collection，因此这里允许调用方指定名称和维度。
     返回 collection 名称（字符串），供 LangChain Milvus 使用。
+
+    Args:
+        collection_name: collection 名称
+        dimension: 向量维度
+        chunk_count_hint: 预期 chunk 数量，用于动态选择索引类型
     """
     client = get_client()
     name = collection_name or settings.milvus_collection_name
@@ -57,18 +89,17 @@ def ensure_collection(collection_name: str | None = None, dimension: int | None 
     if name in collections:
         return type('Collection', (), {'name': name})()
 
+    # 根据数据规模动态选择索引参数
+    index_params = _select_index_params(chunk_count_hint)
+
     # 创建 collection
     client.create_collection(
         collection_name=name,
         dimension=dim,
         metric_type="IP",
-        index_params={
-            "index_type": "IVF_FLAT",
-            "metric_type": "IP",
-            "params": {"nlist": 128},
-        },
+        index_params=index_params,
     )
-    logger.info("Milvus Collection 创建成功 name=%s dim=%d", name, dim)
+    logger.info("Milvus Collection 创建成功 name=%s dim=%d index=%s", name, dim, index_params["index_type"])
     return type('Collection', (), {'name': name})()
 
 

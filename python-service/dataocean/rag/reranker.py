@@ -26,11 +26,16 @@ _CAUTION_KEYWORDS = frozenset([
     "\u6b63\u786e", "\u5e94\u8be5\u7528", "\u4e0d\u80fd\u7528",
 ])
 
+# JOIN \u610f\u56fe\u5173\u952e\u8bcd\u2014\u2014\u4ec5\u4fdd\u7559\u9ad8\u7cbe\u5ea6\u6a21\u5f0f\uff0c\u79fb\u9664"\u548c"/"\u4e0e"/"\u5305\u542b"\u7b49\u901a\u7528\u8fde\u8bcd
+# \u907f\u514d"\u8ba2\u5355\u91d1\u989d\u548c\u9000\u6b3e\u91d1\u989d"\u8fd9\u7c7b\u975e JOIN \u67e5\u8be2\u88ab\u8bef\u5224
 _JOIN_KEYWORDS = frozenset([
-    "\u5173\u8054", "join", "\u8fde\u63a5", "\u5bf9\u5e94", "\u5c5e\u4e8e",
-    "\u5305\u542b", "\u5173\u7cfb", "\u548c", "\u4e0e", "\u4ee5\u53ca",
-    "\u540c\u65f6", "\u8de8\u8868",
+    "join", "\u5173\u8054\u67e5\u8be2", "\u8de8\u8868\u67e5\u8be2", "\u591a\u8868\u67e5\u8be2",
+    "\u5de6\u8fde\u63a5", "\u53f3\u8fde\u63a5", "\u5185\u8fde\u63a5", "\u5916\u8fde\u63a5",
+    "left join", "right join", "inner join", "outer join",
 ])
+
+# JOIN \u6a21\u5f0f\u5339\u914d\u2014\u2014\u9700\u8981\u642d\u914d\u4e0a\u4e0b\u6587\u624d\u89c6\u4e3a JOIN \u610f\u56fe\uff08\u5982"\u5173\u8054XX\u8868"\uff09
+_JOIN_PATTERNS = ["\u5173\u8054", "\u8fde\u63a5"]
 
 
 class DataOceanReranker(BaseDocumentCompressor):
@@ -49,7 +54,8 @@ class DataOceanReranker(BaseDocumentCompressor):
         question_keywords = set(question.split())
         has_aggregation = _has_intent(question, _AGGREGATION_KEYWORDS)
         has_caution = _has_intent(question, _CAUTION_KEYWORDS)
-        has_join = _has_intent(question, _JOIN_KEYWORDS) or len(question_keywords) >= 4
+        # JOIN 意图：精确关键词命中，或"关联/连接"搭配表名上下文
+        has_join = _has_intent(question, _JOIN_KEYWORDS) or _has_join_pattern(question)
         confidence_scores = self.confidence_scores or {}
 
         scored_documents: list[tuple[float, Document]] = []
@@ -67,9 +73,14 @@ class DataOceanReranker(BaseDocumentCompressor):
                 weighted_score += 0.1
             if governance_status == "RECOMMENDED":
                 weighted_score += 0.05
-            if "deprecated" in document.page_content.lower():
+            # deprecated 惩罚：同时检查治理状态 metadata 和文本内容，避免误判
+            if governance_status == "DEPRECATED" or "deprecated" in document.page_content.lower():
                 weighted_score -= 0.5
-            weighted_score += _chunk_type_bonus(chunk_type, has_aggregation, has_caution, has_join)
+            bonus = _chunk_type_bonus(chunk_type, has_aggregation, has_caution, has_join)
+
+            # 限制 bonus 总和上限为 0.25，防止重排过度偏离向量相似度排序
+            bonus = min(bonus, 0.25)
+            weighted_score += bonus
 
             # 安全修复：clamp 到 [0, 1.0]，避免重排分数失真
             weighted_score = max(0.0, min(1.0, weighted_score))
@@ -179,3 +190,25 @@ def _chunk_type_bonus(
 def _has_intent(question: str, keywords: frozenset[str]) -> bool:
     """检查问题中是否包含指定关键词（用于意图识别）"""
     return any(keyword in question for keyword in keywords)
+
+
+def _has_join_pattern(question: str) -> bool:
+    """检查问题是否包含 JOIN 模式（"关联XX表"、"连接XX和XX"等）
+
+    通用词"关联"/"连接"必须搭配表名上下文才视为 JOIN 意图，
+    避免"关联指标"等非 JOIN 用法被误判。
+    """
+    _table_context = ("表", "查询", "join", "数据", "orders", "customer", "order")
+    for pattern in _JOIN_PATTERNS:
+        idx = question.find(pattern)
+        if idx == -1:
+            continue
+        # 检查右侧上下文（20 字符窗口，覆盖较长的英文表名）
+        after = question[idx + len(pattern):idx + len(pattern) + 20]
+        if any(kw in after for kw in _table_context):
+            return True
+        # 检查左侧上下文（"订单表关联" 语序）
+        before = question[max(0, idx - 10):idx]
+        if "表" in before:
+            return True
+    return False

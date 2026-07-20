@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 RAG_ELIGIBLE_STATUSES = ("NORMAL", "RECOMMENDED")
 
+# collection 统计信息缓存（避免每次搜索都调用 Milvus RPC）
+_stats_cache: dict[str, tuple[int, float]] = {}  # {collection_name: (total_vectors, timestamp)}
+_STATS_CACHE_TTL = 60.0  # 缓存 60 秒
+
 
 @dataclass(frozen=True)
 class SearchHit:
@@ -97,6 +101,10 @@ async def search_by_vector(
         client = get_client()
         name = settings.milvus_collection_name
 
+        # 动态计算 nprobe：根据 collection 向量总数调整
+        # 小数据集 nprobe=1（FLAT 索引忽略此参数），大数据集 nprobe=16
+        nprobe = _get_nprobe(client, name)
+
         results = client.search(
             collection_name=name,
             data=[embedding],
@@ -107,7 +115,7 @@ async def search_by_vector(
                 "doc_id", "source_id", "chunk_type", "governance_status",
                 "review_status", "chunk_text", "related_table", "related_column",
             ],
-            search_params={"metric_type": "IP", "params": {"nprobe": 16}},
+            search_params={"metric_type": "IP", "params": {"nprobe": nprobe}},
         )
 
         search_hits = []
@@ -158,3 +166,26 @@ async def delete_by_expr(expr: str, collection_name: str | None = None) -> bool:
             return False
 
     return await asyncio.to_thread(_delete)
+
+
+def _get_nprobe(client, collection_name: str) -> int:
+    """动态计算 nprobe 参数（带缓存，避免每次搜索都调用 Milvus RPC）
+
+    小数据集（< 256 向量）返回 1，大数据集返回 16。
+    缓存 60 秒过期后自动刷新。
+    """
+    import time
+    now = time.time()
+    cached = _stats_cache.get(collection_name)
+    if cached is not None:
+        total_vectors, ts = cached
+        if now - ts < _STATS_CACHE_TTL:
+            return 1 if total_vectors < 256 else 16
+
+    try:
+        stats = client.get_collection_stats(collection_name)
+        total_vectors = int(stats.get("row_count", 0))
+        _stats_cache[collection_name] = (total_vectors, now)
+        return 1 if total_vectors < 256 else 16
+    except Exception:
+        return 16

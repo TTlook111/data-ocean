@@ -45,11 +45,18 @@ def fallback_retrieve(
     """
     logger.warning("RAG 降级触发 datasource_id=%d", datasource_id)
 
+    # 降级时保留所有 chunk 类型，包括 JOIN_PATH、METRIC、FIELD_NOTE、QUERY_SCENE
+    # 这些类型对 SQL 生成质量至关重要，仅保留 TABLE_DESC 会导致降级后 SQL 质量大幅下降
+    _FALLBACK_CHUNK_TYPES = {
+        "TABLE_DESC", "CORE_TABLE", "SCHEMA",
+        "JOIN_PATH", "METRIC", "FIELD_NOTE", "QUERY_SCENE",
+    }
+
     results = []
     if fallback_chunks:
         for chunk in fallback_chunks[:10]:  # 最多取 10 条
             chunk_type = chunk.get("chunk_type") or chunk.get("chunkType")
-            if chunk_type in {"TABLE_DESC", "CORE_TABLE", "SCHEMA"}:
+            if chunk_type in _FALLBACK_CHUNK_TYPES:
                 table_name = _first_non_none(
                     chunk, "related_table", "relatedTable", "table_name", "tableName"
                 ) or ""
