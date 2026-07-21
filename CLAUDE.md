@@ -64,9 +64,9 @@ Module status summary:
 | Java query/audit/field confidence modules | Core complete; conversation persistence and feedback confidence updates are implemented |
 | Java prompt module | Complete, including template approval workflow and version rollback |
 | Java system/dashboard modules | Complete; AI config management and admin dashboard are implemented |
-| Python Agent workflow | Core complete, with timeout/cancel handling and degraded result propagation |
-| Python RAG/vectorization | Complete |
-| Python SQL sandbox | Core complete |
+| Python Agent workflow | Core complete, with Schema Linking, self-learning few-shot, Redis memory, timeout/cancel handling and degraded result propagation |
+| Python RAG/vectorization | Complete, with context-enriched chunking, dynamic index selection, hybrid retrieval-ready, RAG recall metrics |
+| Python SQL sandbox | Core complete, with precise multi-table column rejection |
 | Python chart generation | Complete |
 
 Known follow-up areas — see `docs/development/后续开发.md` for the full prioritized list.
@@ -90,7 +90,7 @@ Recently completed or verified:
 - **数据源授权语义补齐**：`V42__datasource_access_effect.sql` 已加入，使数据源授权的 allow/deny 决策显式化。
 - **智能问数链路已跑通**（2026-06-13）：完整链路测试成功，包括 RAG 检索、SQL 生成、SQL 校验、SQL 执行、图表生成。修复了 Milvus 连接兼容性、SQL 分号校验、Decimal 序列化等问题。详见 `docs/development/智能问数链路诊断报告.md`。
 - **F0 排雷任务已完成**（2026-06-13）：按审查报告第十二章实施 17 项代码修复，包括向量化 force 模式安全修复、内部路由统一认证、表白名单空值语义、Prompt 注入防护、危险函数黑名单补齐、retry_count 边界修复、VectorStore 缓存、reranker 分数 clamp、SSE 解析完善、LLM/Embedding 初始化竞态修复、配置热重载竞态修复、连接池清理 TOCTOU 修复等。12.3 设计改进建议暂未实施。
-- **优化指导文档 32 项问题修复完成**（2026-07-20）：基于 `docs/development/DataOcean项目优化指导文档.md` 的深度探查结果，完成 RAG、数据治理、Agent 链路、工程化四个维度的系统性优化。Phase 1-5 修复 17 项问题（S1-S7 + M1-M5/M8/M11），Phase 6 实现 RAG 高级优化（上下文扩展 + context-enriched chunking）。详见优化指导文档。
+- **优化指导文档 32 项问题全部修复完成**（2026-07-20）：基于 `docs/development/DataOcean项目优化指导文档.md` 的深度探查结果，完成 RAG、数据治理、Agent 链路、工程化四个维度的系统性优化。Phase 1-10 共 10 次提交，覆盖全部 32 项问题。详见优化指导文档。
 - Query conversations are persisted in MySQL (`conversation`, `conversation_message`) and can be restored from the frontend after refresh.
 - Prompt template management includes CRUD, version history, approval flow (`DRAFT -> PENDING_REVIEW -> APPROVED/REJECTED`), rollback, and frontend workflow controls.
 - AI configuration is managed through `sys_config`; Java exposes admin/internal config APIs, and Python supports `/internal/config/reload`.
@@ -221,6 +221,44 @@ python-service/        FastAPI AI/RAG service (LangGraph + LangChain + sqlglot)
 docs/                  design and module documentation
 specs/                 module specifications, plans, tasks, contracts
 ```
+
+### docs/ 目录结构说明
+
+```text
+docs/
+├── development/                    # 开发相关文档
+│   ├── 后续开发.md                  # 唯一的"待办清单"，记录未完成任务
+│   ├── completed/                  # 已完成的开发文档（历史记录，不需要更新）
+│   │   ├── DataOcean统一执行路线图.md
+│   │   ├── DataOcean项目优化指导文档.md
+│   │   ├── 智能问数链路诊断报告.md
+│   │   ├── 代码优化方案.md
+│   │   ├── 代码优化方案审查报告.md
+│   │   ├── 代码审查修复清单.md
+│   │   └── sql-generator-agent化改造方案.md
+│   └── guides/                     # 持续参考的开发规范（需要遵守）
+│       └── 后台信息架构与导航规范.md
+├── modules/                        # 模块设计文档（各模块的技术设计说明）
+│   ├── 001-user.md
+│   ├── 002-datasource.md
+│   ├── 003-metadata-collection.md
+│   ├── 004-metadata-governance.md
+│   ├── 005-metadata-versioning.md
+│   └── 006-knowledge.md
+├── review/                         # 代码审查报告（按日期归档）
+│   └── 2026-06-21-*.md
+└── archive/                        # 归档文档（历史设计文档，不需要更新）
+    ├── nl2sql-单库多表版-项目构想.md
+    └── interview/                  # 面试相关材料
+```
+
+**文档管理原则**：
+- `docs/development/后续开发.md` 是唯一的"待办清单"，只保留未完成任务
+- `docs/development/completed/` 存放已完成的开发文档，作为历史记录
+- `docs/development/guides/` 存放需要持续遵守的开发规范
+- `docs/modules/` 存放模块设计文档，模块行为变化时更新
+- `docs/review/` 存放代码审查报告，按日期归档
+- `docs/archive/` 存放历史设计文档，不需要更新
 
 ## Java Backend Notes
 
