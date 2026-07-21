@@ -36,6 +36,8 @@ _JOIN_KEYWORDS = frozenset([
 
 # JOIN \u6a21\u5f0f\u5339\u914d\u2014\u2014\u9700\u8981\u642d\u914d\u4e0a\u4e0b\u6587\u624d\u89c6\u4e3a JOIN \u610f\u56fe\uff08\u5982"\u5173\u8054XX\u8868"\uff09
 _JOIN_PATTERNS = ["\u5173\u8054", "\u8fde\u63a5"]
+# \u8868\u540d\u4e0a\u4e0b\u6587\u5173\u952e\u8bcd\uff08\u901a\u7528\u8bcd\uff0c\u4e0d\u786c\u7f16\u7801\u7279\u5b9a\u8868\u540d\uff09
+_TABLE_CONTEXT_KEYWORDS = ("\u8868", "\u67e5\u8be2", "join", "\u6570\u636e")
 
 
 class DataOceanReranker(BaseDocumentCompressor):
@@ -198,14 +200,13 @@ def _has_join_pattern(question: str) -> bool:
     通用词"关联"/"连接"必须搭配表名上下文才视为 JOIN 意图，
     避免"关联指标"等非 JOIN 用法被误判。
     """
-    _table_context = ("表", "查询", "join", "数据", "orders", "customer", "order")
     for pattern in _JOIN_PATTERNS:
         idx = question.find(pattern)
         if idx == -1:
             continue
         # 检查右侧上下文（20 字符窗口，覆盖较长的英文表名）
         after = question[idx + len(pattern):idx + len(pattern) + 20]
-        if any(kw in after for kw in _table_context):
+        if any(kw in after for kw in _TABLE_CONTEXT_KEYWORDS):
             return True
         # 检查左侧上下文（"订单表关联" 语序）
         before = question[max(0, idx - 10):idx]

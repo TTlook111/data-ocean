@@ -2,12 +2,19 @@
 
 import logging
 import threading
+from dataclasses import dataclass
 
 from pymilvus import MilvusClient, connections
 
 from dataocean.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CollectionInfo:
+    """Collection 信息（替代匿名类型）"""
+    name: str
 
 # 全局 MilvusClient 实例
 _client: MilvusClient | None = None
@@ -87,7 +94,7 @@ def ensure_collection(collection_name: str | None = None, dimension: int | None 
 
     collections = client.list_collections()
     if name in collections:
-        return type('Collection', (), {'name': name})()
+        return CollectionInfo(name=name)
 
     # 根据数据规模动态选择索引参数
     index_params = _select_index_params(chunk_count_hint)
@@ -100,7 +107,7 @@ def ensure_collection(collection_name: str | None = None, dimension: int | None 
         index_params=index_params,
     )
     logger.info("Milvus Collection 创建成功 name=%s dim=%d index=%s", name, dim, index_params["index_type"])
-    return type('Collection', (), {'name': name})()
+    return CollectionInfo(name=name)
 
 
 def ping() -> bool:

@@ -48,7 +48,7 @@ async def store_successful_query(
         "sql": sql,
         "tables": tables,
         "intent": intent or {},
-        "hash": hashlib.md5(question.encode()).hexdigest()[:8],
+        "hash": hashlib.sha256(question.encode()).hexdigest()[:16],
     }
 
     try:
@@ -116,7 +116,7 @@ async def retrieve_fewshot_examples(
         return []
 
     # 计算匹配分数
-    question_words = set(question.lower().split())
+    question_lower = question.lower()
     table_set = set(t.lower() for t in tables)
     scored = []
 
@@ -129,11 +129,17 @@ async def retrieve_fewshot_examples(
         if table_overlap > 0:
             score += table_overlap * 0.5
 
-        # 问题关键词重叠加分
-        ex_words = set(ex.get("question", "").lower().split())
-        word_overlap = len(question_words & ex_words)
-        if word_overlap > 0:
-            score += min(word_overlap * 0.1, 0.4)
+        # 问题子串重叠率加分（适配中文，不依赖空格分词）
+        ex_question = ex.get("question", "").lower()
+        # 取两个问题的较短者长度，计算公共子串比例
+        shorter_len = min(len(question_lower), len(ex_question))
+        if shorter_len > 0:
+            # 简单重叠检测：较长文本包含较短文本的比例
+            shorter, longer = (question_lower, ex_question) if len(question_lower) <= len(ex_question) else (ex_question, question_lower)
+            overlap_chars = sum(1 for c in shorter if c in longer)
+            overlap_ratio = overlap_chars / shorter_len
+            if overlap_ratio > 0.5:
+                score += min(overlap_ratio * 0.4, 0.4)
 
         if score > 0:
             scored.append((score, ex))
@@ -145,6 +151,8 @@ async def retrieve_fewshot_examples(
 
 def format_fewshot_prompt(examples: list[dict]) -> str:
     """将 few-shot examples 格式化为 prompt 片段
+
+    使用 XML 标签包裹示例，提升 LLM 对示例边界的识别准确率。
 
     Args:
         examples: few-shot examples 列表
@@ -159,9 +167,12 @@ def format_fewshot_prompt(examples: list[dict]) -> str:
     for i, ex in enumerate(examples, 1):
         question = ex.get("question", "")
         sql = ex.get("sql", "")
-        lines.append(f"示例 {i}:")
+        lines.append(f"<example-{i}>")
         lines.append(f"问题: {question}")
-        lines.append(f"SQL: {sql}")
+        lines.append(f"```sql")
+        lines.append(sql)
+        lines.append(f"```")
+        lines.append(f"</example-{i}>")
         lines.append("")
 
     return "\n".join(lines)

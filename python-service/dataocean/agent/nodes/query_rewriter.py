@@ -56,9 +56,11 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
     user_prefs = await _load_user_prefs(str(state.get("user_id", "")))
 
     # 构造模板变量（managed 模板和本地模板共用）
+    from datetime import datetime
+    now = datetime.now()
     variables = {
-        "current_date": date.today().isoformat(),
-        "current_time": date.today().isoformat(),  # V24 模板用 current_time
+        "current_date": now.date().isoformat(),
+        "current_time": now.strftime("%Y-%m-%d %H:%M"),
         "question": question,
         "conversation_history": conversation_history,
         "context": conversation_history,  # V24 模板用 context
@@ -81,6 +83,7 @@ async def run_query_rewriter(state: AgentState) -> AgentState:
             question=question,
             conversation_history=conversation_history,
             user_memory=None,
+            glossary_hint=glossary_hint,
         )
 
     state = record_prompt_version(state, "query_rewrite", prompt_version)
@@ -216,27 +219,35 @@ def _is_word_boundary_match(text: str, term: str) -> bool:
     """检查术语是否在文本中以词边界匹配
 
     中文词边界规则：术语前后不能是中文字符（避免"订单"匹配"订单号"）。
-    英文词边界使用正则 \\b。
+    英文词边界使用正则 \\b（避免"order"匹配"disorder"）。
     对于长度 >= 4 的术语，允许子串匹配（长术语误匹配概率低）。
     """
     if len(term) >= 4:
         # 长术语直接子串匹配，误匹配概率低
         return term in text
 
-    idx = text.find(term)
-    if idx == -1:
-        return False
+    # 纯英文术语使用正则 \b 词边界匹配
+    if all(ord(c) < 128 for c in term):
+        import re as re_mod
+        return bool(re_mod.search(r'\b' + re_mod.escape(term) + r'\b', text))
 
-    # 检查左侧边界：不能是中文字符
-    if idx > 0 and _is_cjk_char(text[idx - 1]):
-        return False
+    # 中文术语：查找所有匹配位置，任一位置边界匹配即返回 True
+    idx = 0
+    while True:
+        idx = text.find(term, idx)
+        if idx == -1:
+            return False
 
-    # 检查右侧边界：不能是中文字符
-    end = idx + len(term)
-    if end < len(text) and _is_cjk_char(text[end]):
-        return False
+        # 检查左侧边界：不能是中文字符
+        left_ok = idx == 0 or not _is_cjk_char(text[idx - 1])
+        # 检查右侧边界：不能是中文字符
+        end = idx + len(term)
+        right_ok = end >= len(text) or not _is_cjk_char(text[end])
 
-    return True
+        if left_ok and right_ok:
+            return True
+
+        idx += 1
 
 
 def _is_cjk_char(ch: str) -> bool:

@@ -14,6 +14,7 @@ import asyncio
 
 from dataocean.core.config import get_settings
 from dataocean.core.error_messages import sanitize_error
+from ..config import agent_config
 import logging
 from pathlib import Path
 
@@ -67,13 +68,27 @@ async def _run_sql_generator_agent(state: AgentState) -> AgentState:
 
     task_id = state.get("task_id", "")
     retry_count = state.get("retry_count", 0)
+    node_timeout = state.get("_node_timeout", agent_config.node_timeout)
 
     logger.info("SQL Generator Agent 模式 task_id=%s retry=%d", task_id, retry_count)
 
     # Agent 模式下也记录 prompt 版本（使用版本 0 表示 Agent 模式）
     state_with_prompt = record_prompt_version(state, "sql_generation", 0)
 
-    return await generate_sql_with_agent(state_with_prompt)
+    # Agent 模式也应用节点超时控制
+    try:
+        return await asyncio.wait_for(
+            generate_sql_with_agent(state_with_prompt),
+            timeout=node_timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.error("SQL Generator Agent 超时 task_id=%s timeout=%s", task_id, node_timeout)
+        return {
+            "generated_sql": "",
+            "error_message": "SQL 生成超时",
+            "retry_count": retry_count,
+            "current_node": "SQL_GENERATOR",
+        }
 
 
 async def _run_sql_generator_legacy(state: AgentState) -> AgentState:

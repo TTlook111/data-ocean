@@ -43,10 +43,13 @@ async def retrieve_from_milvus(
             source_ids.add(source_id)
 
     if source_ids:
+        # 动态计算 limit：每个 source_id 最多带出 3 个相邻 chunk
+        adjacent_limit = min(len(source_ids) * 3, 20)
         adjacent_hits = await _fetch_adjacent_chunks(
             source_ids=source_ids,
             datasource_id=request.datasource_id,
             snapshot_id=request.active_snapshot_id,
+            limit=adjacent_limit,
         )
         # 合并去重（按 chunk_text 去重）
         existing_texts = {hit.document.page_content for hit in expanded_hits}
@@ -95,6 +98,7 @@ async def _fetch_adjacent_chunks(
     source_ids: set,
     datasource_id: int,
     snapshot_id: int,
+    limit: int = 20,
 ) -> list:
     """查询与命中 chunk 同文档的相邻 chunk（上下文扩展）
 
@@ -137,7 +141,7 @@ async def _fetch_adjacent_chunks(
                     "doc_id", "source_id", "chunk_type", "governance_status",
                     "review_status", "chunk_text", "related_table", "related_column",
                 ],
-                limit=20,
+                limit=limit,
             )
 
             hits = []
@@ -161,7 +165,7 @@ async def _fetch_adjacent_chunks(
                 hits.append(SearchHit(document=document, score=0.3))
             return hits
         except Exception as e:
-            logger.warning("上下文扩展查询失败: %s", e)
+            logger.warning("上下文扩展查询失败: %s", e, exc_info=True)
             return []
 
     import asyncio

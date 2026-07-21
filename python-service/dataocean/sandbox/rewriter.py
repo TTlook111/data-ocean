@@ -97,11 +97,19 @@ def _inject_row_filters(tree: exp.Expression, row_filters: dict[str, list[str]])
 
 
 def _parse_condition(condition_str: str) -> exp.Expression:
-    """Parse a row-filter condition expression."""
+    """Parse a row-filter condition expression.
+
+    使用 sqlglot.parse_one 统一解析，失败时记录日志并回退到 sqlglot.condition。
+    """
     try:
         return sqlglot.parse_one(condition_str, dialect="mysql", into=exp.Condition)
-    except Exception:
-        return sqlglot.condition(condition_str, dialect="mysql")
+    except Exception as primary_err:
+        logger.debug("parse_one 解析失败，回退到 sqlglot.condition: %s", primary_err)
+        try:
+            return sqlglot.condition(condition_str, dialect="mysql")
+        except Exception as fallback_err:
+            logger.error("条件解析完全失败: %s", fallback_err)
+            raise
 
 
 def _qualify_condition(condition_expr: exp.Expression, table_name: str, alias: str) -> exp.Expression:

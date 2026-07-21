@@ -133,14 +133,14 @@ def _execute_readonly(engine, sql: str, connection_id_holder: list[int]) -> Exec
     max_rows = sandbox_config.max_result_rows
 
     with engine.connect() as conn:
+        # 先设置只读事务，再获取连接 ID（防御性编程：确保后续操作在只读模式下执行）
+        conn.execute(text("SET TRANSACTION READ ONLY"))
+
         # 记录连接 ID，供超时后 KILL QUERY 使用
         cid_result = conn.execute(text("SELECT CONNECTION_ID()"))
         cid_row = cid_result.fetchone()
         if cid_row:
             connection_id_holder.append(cid_row[0])
-
-        # 设置只读事务和 MySQL 级超时
-        conn.execute(text("SET TRANSACTION READ ONLY"))
         conn.execute(text(f"SET max_execution_time = {sandbox_config.max_execution_time * 1000}"))
 
         # SQL 已经过 validator AST 校验 + 注入模式检测，此处直接执行是安全的
@@ -156,11 +156,11 @@ def _execute_readonly(engine, sql: str, connection_id_holder: list[int]) -> Exec
             if i >= max_rows:
                 truncated = True
                 break
-            # 将 Decimal 转换为 float，确保 JSON 序列化兼容
+            # 将 Decimal 转换为字符串，保留精度（金额等场景不能丢失精度）
             row_dict = {}
             for key, value in dict(row).items():
                 if isinstance(value, Decimal):
-                    row_dict[key] = float(value)
+                    row_dict[key] = str(value)
                 else:
                     row_dict[key] = value
             rows.append(row_dict)
@@ -184,7 +184,8 @@ def _kill_query(engine, connection_id_holder: list[int]) -> None:
     try:
         from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute(text(f"KILL QUERY {cid}"))
+            # 使用参数化查询避免 SQL 注入（虽然 cid 来自 CONNECTION_ID()，保持风格一致）
+            conn.execute(text("KILL QUERY :cid"), {"cid": cid})
             logger.info("已执行 KILL QUERY connection_id=%d", cid)
     except Exception as e:
         logger.warning("KILL QUERY 失败 connection_id=%d error=%s", cid, e)

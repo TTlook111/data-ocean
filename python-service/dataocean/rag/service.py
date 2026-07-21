@@ -58,6 +58,15 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
                             threshold, retry_threshold, len(filtered))
 
         if not filtered:
+            # 二次重试仍为空时，返回 top-1 结果并标记为低置信度
+            # 避免用户看到"未找到"而实际有部分相关结果
+            if ranked_results:
+                top_result = ranked_results[:1]
+                logger.info("阈值过滤为空，返回 top-1 低置信度结果 top_score=%.4f", top_result[0].score)
+                _log_recall_metrics(request, raw_count=len(raw_results), ranked_count=len(ranked_results),
+                                    filtered_count=1, top_score=top_result[0].score)
+                return _response(results=top_result, total_found=len(ranked_results), start=start,
+                                 degraded=True, message="召回置信度较低，结果仅供参考")
             _log_recall_metrics(request, raw_count=len(raw_results), ranked_count=len(ranked_results),
                                 filtered_count=0, top_score=ranked_results[0].score if ranked_results else 0.0)
             return _response(message="未找到相关数据表，请换个问法", start=start)
@@ -72,7 +81,7 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
         logger.error("检索参数错误: %s", e)
         return _response(message=str(e), start=start)
     except Exception as e:
-        logger.error("RAG 检索异常，触发降级: %s", e)
+        logger.error("RAG 检索异常，触发降级: %s", e, exc_info=True)
         response = fallback_retrieve(request.datasource_id, request.fallback_chunks)
         response.retrieval_time_ms = _elapsed_ms(start)
         return response
@@ -84,6 +93,8 @@ def _response(
     total_found: int | None = None,
     message: str = "",
     start: float,
+    degraded: bool = False,
+    degrade_reason: str = "",
 ) -> RetrieveResponse:
     result_items = results or []
     return RetrieveResponse(
@@ -92,6 +103,8 @@ def _response(
         returned=len(result_items),
         message=message,
         retrieval_time_ms=_elapsed_ms(start),
+        degraded=degraded,
+        degrade_reason=degrade_reason or message if degraded else "",
     )
 
 

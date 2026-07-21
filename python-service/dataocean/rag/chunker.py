@@ -177,6 +177,12 @@ def _extract_table_name(text: str, heading: str = "") -> str:
 
 
 def _extract_column_name(text: str, heading: str = "") -> str:
+    """从文本中提取列名
+
+    优先从标题中提取（### table.column 格式），
+    标题未匹配则从正文中提取（"字段 xxx"、"列 xxx" 等模式）。
+    """
+    # 模式 1：标题中的 table.column 格式
     for candidate in (heading, text):
         match = re.search(
             r"^###?\s+`?[a-zA-Z_][\w\-]*`?\.`?([a-zA-Z_][\w\-]*)`?",
@@ -185,6 +191,20 @@ def _extract_column_name(text: str, heading: str = "") -> str:
         )
         if match:
             return match.group(1)
+
+    # 模式 2：正文中的 "字段 xxx"、"列 xxx" 等描述性模式
+    col_patterns = [
+        re.compile(r"字段\s+`?([a-zA-Z_][\w\-]*)`?"),
+        re.compile(r"列\s+`?([a-zA-Z_][\w\-]*)`?"),
+        re.compile(r"column\s+`?([a-zA-Z_][\w\-]*)`?", re.IGNORECASE),
+    ]
+    for pattern in col_patterns:
+        match = pattern.search(text)
+        if match:
+            name = match.group(1).strip()
+            if name and len(name) <= 64:
+                return name
+
     return ""
 
 

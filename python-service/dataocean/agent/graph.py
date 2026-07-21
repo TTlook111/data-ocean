@@ -209,13 +209,15 @@ def _classify_execution_error(error_message: str) -> str:
     # 括号明确优先级：and 优先于 or，避免 "table is locked" 被误判为 table_not_found
     if ("doesn't exist" in error_lower
             or "unknown table" in error_lower
-            or ("table" in error_lower and "not found" in error_lower)):
+            or ("table" in error_lower and "not found" in error_lower)
+            or "表不存在" in error_lower
+            or "找不到表" in error_lower):
         return "table_not_found"
-    if "syntax error" in error_lower or "sql syntax" in error_lower:
+    if "syntax error" in error_lower or "sql syntax" in error_lower or "语法" in error_lower:
         return "syntax_error"
-    if "timeout" in error_lower or "timed out" in error_lower:
+    if "timeout" in error_lower or "timed out" in error_lower or "超时" in error_lower:
         return "timeout"
-    if "connection" in error_lower or "refused" in error_lower:
+    if "connection" in error_lower or "refused" in error_lower or "连接" in error_lower:
         return "connection"
     return "unknown"
 
