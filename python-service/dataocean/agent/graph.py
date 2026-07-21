@@ -76,7 +76,7 @@ async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentStat
 
     # 检查时间预算是否足够启动此节点，并将分配的秒数传给节点
     budget: TimeoutBudget | None = state.get("timeout_budget")
-    allocated_seconds: float = 60  # 默认超时
+    allocated_seconds: float = agent_config.node_timeout  # 使用配置值作为默认超时
     if budget:
         try:
             allocated_seconds = budget.allocate(node_name.lower())
@@ -206,7 +206,10 @@ def _classify_execution_error(error_message: str) -> str:
         "unknown" - 未知错误，重新生成 SQL
     """
     error_lower = error_message.lower()
-    if "doesn't exist" in error_lower or "unknown table" in error_lower or "table" in error_lower and "not found" in error_lower:
+    # 括号明确优先级：and 优先于 or，避免 "table is locked" 被误判为 table_not_found
+    if ("doesn't exist" in error_lower
+            or "unknown table" in error_lower
+            or ("table" in error_lower and "not found" in error_lower)):
         return "table_not_found"
     if "syntax error" in error_lower or "sql syntax" in error_lower:
         return "syntax_error"

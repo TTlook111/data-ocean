@@ -24,31 +24,47 @@ logger = logging.getLogger(__name__)
 # Redis 客户端单例（延迟初始化）
 _redis = None
 _redis_lock = asyncio.Lock()
+_last_connect_failure = 0.0
+_COOLDOWN_SECONDS = 30.0
 
 
 async def _get_redis():
-    """获取 Redis 客户端（延迟初始化，asyncio.Lock 防并发）"""
-    global _redis
-    if _redis is None:
-        async with _redis_lock:
-            if _redis is None:
-                try:
-                    import redis.asyncio as aioredis
-                    _redis = aioredis.Redis(
-                        host=settings.redis_host,
-                        port=settings.redis_port,
-                        password=settings.redis_password or None,
-                        db=settings.redis_db,
-                        decode_responses=True,
-                        socket_connect_timeout=5,
-                        socket_timeout=5,
-                    )
-                    # 测试连接
-                    await _redis.ping()
-                    logger.info("Redis 连接成功 host=%s port=%d", settings.redis_host, settings.redis_port)
-                except Exception as e:
-                    logger.warning("Redis 连接失败，降级为无缓存模式: %s", e)
-                    _redis = None
+    """获取 Redis 客户端（延迟初始化，asyncio.Lock 防并发，失败后冷却 30 秒）
+
+    连接失败后不会每次请求都重试，而是等待冷却期过后再尝试，
+    避免 Redis 持续不可用时产生大量无效连接尝试。
+    """
+    global _redis, _last_connect_failure
+    if _redis is not None:
+        return _redis
+    # 冷却期内直接返回 None，不尝试重连
+    if time.monotonic() - _last_connect_failure < _COOLDOWN_SECONDS:
+        return None
+    async with _redis_lock:
+        if _redis is not None:
+            return _redis
+        # 双重检查冷却期
+        if time.monotonic() - _last_connect_failure < _COOLDOWN_SECONDS:
+            return None
+        try:
+            import redis.asyncio as aioredis
+            _redis = aioredis.Redis(
+                host=settings.redis_host,
+                port=settings.redis_port,
+                password=settings.redis_password or None,
+                db=settings.redis_db,
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                retry_on_timeout=True,
+            )
+            await _redis.ping()
+            _last_connect_failure = 0.0
+            logger.info("Redis 连接成功 host=%s port=%d", settings.redis_host, settings.redis_port)
+        except Exception as e:
+            logger.warning("Redis 连接失败，降级为无缓存模式: %s", e)
+            _last_connect_failure = time.monotonic()
+            _redis = None
     return _redis
 
 
@@ -56,6 +72,10 @@ async def _safe_execute(coro, default=None):
     """安全执行 Redis 操作，失败时静默降级"""
     try:
         return await coro
+    except (ConnectionError, TimeoutError) as e:
+        # 连接/超时错误记录 warning 级别，便于运维发现
+        logger.warning("Redis 连接/超时异常: %s", e)
+        return default
     except Exception as e:
         logger.debug("Redis 操作失败，降级: %s", e)
         return default
@@ -84,8 +104,9 @@ async def set_conversation_history(conversation_id: str, messages: list[dict], t
     try:
         async with redis.pipeline(transaction=True) as pipe:
             pipe.delete(key)
+            # 使用 rpush 保持消息原始顺序（lpush 会导致顺序反转）
             for msg in messages[-20:]:  # 最多保留 20 条（10 轮）
-                pipe.lpush(key, json.dumps(msg, ensure_ascii=False))
+                pipe.rpush(key, json.dumps(msg, ensure_ascii=False))
             pipe.ltrim(key, 0, 19)
             pipe.expire(key, ttl)
             await pipe.execute()

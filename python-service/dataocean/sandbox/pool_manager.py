@@ -138,46 +138,45 @@ def cleanup_idle_pools() -> int:
 
 
 def get_pool_status() -> list[dict]:
-    """获取所有连接池状态"""
-    return [
-        {
-            "datasourceId": info.datasource_id,
-            "poolSize": info.pool_size,
-            "lastUsedAt": info.last_used_at,
-            "createdAt": info.created_at,
-        }
-        for info in _pool_info.values()
-    ]
+    """获取所有连接池状态（加锁保护，防止遍历时并发修改）"""
+    with _lock:
+        return [
+            {
+                "datasourceId": info.datasource_id,
+                "poolSize": info.pool_size,
+                "lastUsedAt": info.last_used_at,
+                "createdAt": info.created_at,
+            }
+            for info in list(_pool_info.values())
+        ]
 
 
 def _decrypt_password(encrypted: str) -> str:
-    """AES-256 解密数据源密码
+    """AES-256-GCM 解密数据源密码
+
+    使用 AES-GCM 认证加密，确保密文完整性和机密性。
 
     Raises:
-        ValueError: 解密失败时抛出明确异常，不再静默回退到密文
+        ValueError: AES 密钥未配置或解密失败时抛出明确异常
     """
     if not encrypted:
         return ""
     key = sandbox_config.aes_secret_key
     if not key:
-        logger.warning("AES 密钥未配置，尝试直接使用密码值")
-        return encrypted
+        # AES 密钥未配置是运维配置错误，必须抛出异常而非静默回退
+        raise ValueError("AES 密钥未配置，无法解密数据源密码，请检查 DATASOURCE_AES_KEY 环境变量")
     try:
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-        from cryptography.hazmat.primitives import padding as sym_padding
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
         raw = base64.b64decode(encrypted)
-        iv = raw[:16]
-        ciphertext = raw[16:]
+        # AES-GCM: 前 12 字节是 nonce，剩余是密文+tag
+        nonce = raw[:12]
+        ciphertext = raw[12:]
         key_bytes = key.encode("utf-8")[:32].ljust(32, b"\0")
-        cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv))
-        decryptor = cipher.decryptor()
-        padded = decryptor.update(ciphertext) + decryptor.finalize()
-        unpadder = sym_padding.PKCS7(128).unpadder()
-        plaintext = unpadder.update(padded) + unpadder.finalize()
+        aesgcm = AESGCM(key_bytes)
+        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
         return plaintext.decode("utf-8")
     except Exception as e:
-        # 解密失败时抛出明确异常，让上层给出有意义的错误信息
         raise ValueError(f"数据源密码解密失败，请检查加密配置: {e}") from e
 
 

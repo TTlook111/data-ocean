@@ -72,7 +72,7 @@ async def _prune_schema(question: str, schema_context: list[dict]) -> list[dict]
     schema_summary = _build_schema_summary(schema_context)
 
     prompt = (
-        f"用户问题：{question}\n\n"
+        f"用户问题：[QUERY_START]{question}[QUERY_END]\n\n"
         f"以下是数据库的表结构信息：\n{schema_summary}\n\n"
         f"请分析这个问题需要用到哪些表和字段，哪些表是无关的。\n"
         f"返回 JSON 格式：{{\"relevant_tables\": [\"表名1\", \"表名2\"], \"reason\": \"原因\"}}\n"

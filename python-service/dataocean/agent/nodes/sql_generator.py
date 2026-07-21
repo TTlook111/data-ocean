@@ -223,11 +223,18 @@ async def _retrieve_fewshot(state: AgentState) -> str:
 
 
 def _format_schema(schema_context: list[dict]) -> str:
+    """格式化 schema 上下文为 prompt 文本
+
+    过滤 None 值，避免 "table.None" 出现在 prompt 中误导 LLM。
+    """
     lines: list[str] = []
     for item in schema_context:
         table_name = item.get("table_name") or item.get("tableName") or ""
         related_column = item.get("related_column") or item.get("relatedColumn") or ""
         chunk_text = item.get("chunk_text") or item.get("chunkText") or ""
         confidence = item.get("confidence_score") or item.get("confidenceScore") or item.get("score") or ""
-        lines.append(f"- {table_name}.{related_column}: {chunk_text} (confidence={confidence})")
+        if related_column:
+            lines.append(f"- {table_name}.{related_column}: {chunk_text} (confidence={confidence})")
+        else:
+            lines.append(f"- {table_name}: {chunk_text} (confidence={confidence})")
     return "\n".join(lines)

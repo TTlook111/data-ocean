@@ -51,7 +51,6 @@ class DataOceanReranker(BaseDocumentCompressor):
         callbacks: Any | None = None,
     ) -> Sequence[Document]:
         question = query.lower()
-        question_keywords = set(question.split())
         has_aggregation = _has_intent(question, _AGGREGATION_KEYWORDS)
         has_caution = _has_intent(question, _CAUTION_KEYWORDS)
         # JOIN 意图：精确关键词命中，或"关联/连接"搭配表名上下文
@@ -67,7 +66,8 @@ class DataOceanReranker(BaseDocumentCompressor):
             governance_status = str(metadata.get("governance_status") or "")
 
             weighted_score = base_score
-            if table_name and table_name.lower() in question_keywords:
+            # 使用子串匹配而非 split() 分词，适配中文文本（中文无空格分隔）
+            if table_name and table_name.lower() in question:
                 weighted_score += 0.2
             if confidence_scores.get(table_name, 0) > 80:
                 weighted_score += 0.1

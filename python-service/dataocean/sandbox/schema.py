@@ -64,6 +64,12 @@ class ConnectionConfig(BaseModel):
     port: int = 3306
     database: str
     username: str
+    # 明文密码（Java 侧已解密时传入）
+    password: str = Field(
+        default="",
+        validation_alias=AliasChoices("password"),
+    )
+    # 加密密码（Java 侧未解密时传入）
     encrypted_password: str = Field(
         default="",
         validation_alias=AliasChoices("encrypted_password", "encryptedPassword"),

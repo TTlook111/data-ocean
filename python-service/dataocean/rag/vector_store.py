@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 RAG_ELIGIBLE_STATUSES = ("NORMAL", "RECOMMENDED")
 
+# Milvus chunk_text 字段长度上限（与 chunker.MAX_CHUNK_TEXT_LENGTH 对齐）
+# chunker 截断到 8000 字符，此处做防御性截断
+MILVUS_CHUNK_TEXT_LIMIT = 8192
+
 # collection 统计信息缓存（避免每次搜索都调用 Milvus RPC）
 _stats_cache: dict[str, tuple[int, float]] = {}  # {collection_name: (total_vectors, timestamp)}
 _STATS_CACHE_TTL = 60.0  # 缓存 60 秒
@@ -61,9 +65,10 @@ async def add_chunk_embeddings(
         # 构建插入数据
         data = []
         for i, (text, embedding, metadata) in enumerate(zip(texts, embeddings, metadatas)):
-            chunk_text = text[:8192]
-            if len(text) > 8192:
-                logger.warning("chunk_text 截断: 原始长度 %d, 截断后 8192, index=%d", len(text), i)
+            chunk_text = text[:MILVUS_CHUNK_TEXT_LIMIT]
+            if len(text) > MILVUS_CHUNK_TEXT_LIMIT:
+                logger.warning("chunk_text 截断: 原始长度 %d, 截断后 %d, index=%d",
+                               len(text), MILVUS_CHUNK_TEXT_LIMIT, i)
             entity = {
                 "chunk_text": chunk_text,
                 "embedding": embedding,

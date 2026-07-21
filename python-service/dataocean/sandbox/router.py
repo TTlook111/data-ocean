@@ -30,8 +30,8 @@ async def validate_sql_endpoint(request: ValidateRequest) -> ValidateResponse:
     sql = request.sql.strip()
     logger.info("SQL 校验请求 datasource_id=%d sql=%s", request.datasource_id, sql[:80])
 
-    # 第一步：AST 安全校验
-    validation = validate(sql, request.allowed_tables or None)
+    # 第一步：AST 安全校验（传递 table_scope_mode 确保权限上下文正确传递）
+    validation = validate(sql, request.allowed_tables or None, request.table_scope_mode)
     if not validation.passed:
         return ValidateResponse(
             passed=False,

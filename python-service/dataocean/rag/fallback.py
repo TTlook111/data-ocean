@@ -11,6 +11,12 @@ from .schema import RetrievedSchema, RetrieveResponse
 
 logger = logging.getLogger(__name__)
 
+# 降级时保留的 chunk 类型集合（模块级常量，避免每次调用重新创建）
+_FALLBACK_CHUNK_TYPES = {
+    "TABLE_DESC", "CORE_TABLE", "SCHEMA",
+    "JOIN_PATH", "METRIC", "FIELD_NOTE", "QUERY_SCENE",
+}
+
 
 def is_milvus_available() -> bool:
     """检查 Milvus 是否可用（每次查询时调用，连接成功则自动恢复正常 RAG）"""
@@ -44,13 +50,6 @@ def fallback_retrieve(
         标记为 degraded 的检索响应
     """
     logger.warning("RAG 降级触发 datasource_id=%d", datasource_id)
-
-    # 降级时保留所有 chunk 类型，包括 JOIN_PATH、METRIC、FIELD_NOTE、QUERY_SCENE
-    # 这些类型对 SQL 生成质量至关重要，仅保留 TABLE_DESC 会导致降级后 SQL 质量大幅下降
-    _FALLBACK_CHUNK_TYPES = {
-        "TABLE_DESC", "CORE_TABLE", "SCHEMA",
-        "JOIN_PATH", "METRIC", "FIELD_NOTE", "QUERY_SCENE",
-    }
 
     results = []
     if fallback_chunks:

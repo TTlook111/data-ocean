@@ -30,6 +30,8 @@ router = APIRouter()
 
 # 活跃的后台 Agent 任务引用，防止被 GC 回收，并支持取消时终止
 _active_tasks: dict[str, asyncio.Task] = {}
+# 后台 few-shot 存储任务引用（fire-and-forget，需防止 GC 回收）
+_background_tasks: set[asyncio.Task] = set()
 
 
 @router.post("/execute")
@@ -177,12 +179,15 @@ def _store_fewshot_async(datasource_id: int, question: str, sql: str,
     """异步存储成功的查询到 few-shot 检索库（自学习闭环）
 
     使用 asyncio.create_task 异步执行，不阻塞主流程。
+    保存任务引用防止 GC 回收，并添加异常回调避免 "Task exception was never retrieved"。
     """
     try:
         from dataocean.rag.fewshot import store_successful_query
-        asyncio.create_task(store_successful_query(datasource_id, question, sql, tables, intent))
+        task = asyncio.create_task(store_successful_query(datasource_id, question, sql, tables, intent))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
     except Exception as e:
-        logger.debug("Few-shot 异步存储失败: %s", e)
+        logger.debug("Few-shot 异步存储启动失败: %s", e)
 
 
 @router.post("/tasks/{task_id}/cancel")
