@@ -204,6 +204,9 @@ public class ConfidenceCalculatorImpl implements ConfidenceCalculator {
             case FieldConfidenceEvent.TYPE_USER_LIKE -> DELTA_USER_LIKE;
             case FieldConfidenceEvent.TYPE_USER_DISLIKE_CONFIRMED -> DELTA_USER_DISLIKE_CONFIRMED;
             case FieldConfidenceEvent.TYPE_GROUP_THRESHOLD -> DELTA_GROUP_THRESHOLD;
+            // FIX #5: 治理事件 delta 与 getBaseWeight() 保持一致
+            case FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_CONFIRMED -> -5;
+            case FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_RESOLVED -> 3;
             default -> 0;
         };
     }

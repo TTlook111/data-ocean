@@ -61,6 +61,9 @@ public class QualityScoreAggregationService {
      * @return 最新质量检查结果列表
      */
     public List<QualityCheckResult> getLatestCheckResults(Long datasourceId) {
+        // FIX #8: QualityCheckResult 表只有 snapshotId 无 datasourceId 直接字段。
+        // datasourceId 过滤需要通过 metadata_snapshot 表 JOIN，当前版本返回最新 10 条结果。
+        // TODO: 注入 MetadataSnapshotMapper 后改为 JOIN 查询过滤。
         return checkResultMapper.selectList(
             new LambdaQueryWrapper<QualityCheckResult>()
                 .orderByDesc(QualityCheckResult::getCheckedAt)

@@ -94,7 +94,7 @@ async def retrieve_fewshot_examples(
 
     匹配策略：
     1. 优先匹配使用相同表的查询
-    2. 其次匹配问题文本相似的查询（基于关键词重叠）
+    2. embedding 余弦相似度评分（带 Redis 缓存降级）
 
     Args:
         datasource_id: 数据源 ID
@@ -126,11 +126,20 @@ async def retrieve_fewshot_examples(
         return []
 
     # Phase 2 #10: embedding 余弦相似度（替代原字符重叠匹配）
+    # FIX #3: 先查 Redis 缓存（复用 service.py 的 emb:{md5} 缓存，避免重复 API 调用）
     q_emb = None
     try:
-        q_emb = await embed_single(question)
+        cache_key = f"emb:{hashlib.md5(question.encode()).hexdigest()}"
+        cached = await redis.get(cache_key) if redis else None
+        if cached:
+            q_emb = json.loads(cached)
     except Exception:
         pass
+    if q_emb is None:
+        try:
+            q_emb = await embed_single(question)
+        except Exception:
+            pass
 
     table_set = set(t.lower() for t in tables)
     scored = []

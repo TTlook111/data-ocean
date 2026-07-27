@@ -8,12 +8,15 @@
 
 from __future__ import annotations
 
+import asyncio  # FIX #7: LLM 自校正超时控制
 import json  # Phase 3 #18: 分块传输 JSON 序列化
 import logging
 import re
 
 import sqlglot
 from sqlglot import exp
+
+from dataocean.core.error_messages import sanitize_error  # FIX #4: MySQL 错误脱敏
 
 from .. import sse
 from ..state import AgentState
@@ -97,10 +100,13 @@ async def run_sql_executor(state: AgentState) -> AgentState:
 Schema 上下文：{state.get('schema_context', [])}
 
 请修正 SQL。只输出修正后的 SQL，不要任何解释。"""
-                corrected_sql = await call_llm(
-                    system_prompt="你是 SQL 修正专家，根据错误信息修正 SQL 语法和表名列名。",
-                    user_prompt=correction_prompt,
-                    temperature=0.1,
+                corrected_sql = await asyncio.wait_for(
+                    call_llm(
+                        system_prompt="你是 SQL 修正专家，根据错误信息修正 SQL 语法和表名列名。",
+                        user_prompt=correction_prompt,
+                        temperature=0.1,
+                    ),
+                    timeout=10.0  # FIX #7: LLM 自校正独立超时 10s，避免耗尽总预算
                 )
                 corrected_sql = corrected_sql.strip()
                 logger.info("LLM 自校正 task_id=%s original=%s corrected=%s",
@@ -124,7 +130,7 @@ Schema 上下文：{state.get('schema_context', [])}
                 "execution_time_ms": result.execution_time_ms,
                 "error": result.error,
             },
-            "error_message": result.error,
+            "error_message": sanitize_error(result.error),  # FIX #4: 脱敏后再返回前端
             "retry_count": retry_count,
             "used_tables": used_tables,
             "used_columns": used_columns,
