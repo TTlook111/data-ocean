@@ -29,8 +29,8 @@ def _detect_table_hallucination(sql: str, schema_context: list[dict]) -> set[str
         set[str]: 不在 schema 中的表名（空集 = 无幻觉）
     """
     try:
-        used_tables = _extract_tables(sql)
-        available_tables = {item["table_name"] for item in schema_context if item.get("table_name")}
+        used_tables = {t.lower() for t in _extract_tables(sql)}
+        available_tables = {item["table_name"].lower() for item in schema_context if item.get("table_name")}
         return {t for t in used_tables if t not in available_tables}
     except Exception:
         # sqlglot 解析可能失败（语法错误的 SQL），不影响主校验流程
