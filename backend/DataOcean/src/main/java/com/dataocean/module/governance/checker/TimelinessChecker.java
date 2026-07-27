@@ -80,6 +80,7 @@ public class TimelinessChecker implements QualityChecker {
                             daysSinceSync, SNAPSHOT_EXPIRE_DAYS));
                     issue.setSuggestion("建议重新执行元数据同步，获取最新的数据库结构信息");
                     issue.setStatus(MetadataQualityIssue.STATUS_OPEN);
+                    resolveAndSetColumnMetaId(issue, context.columns());  // Phase 1 #6
                     issues.add(issue);
                 }
             }
@@ -100,6 +101,7 @@ public class TimelinessChecker implements QualityChecker {
                     issue.setIssueDescription(String.format("表 %s 行数为 0，可能长期无数据写入", table.getTableName()));
                     issue.setSuggestion("建议确认该表是否仍在使用，如已废弃可标记为 DEPRECATED");
                     issue.setStatus(MetadataQualityIssue.STATUS_OPEN);
+                    resolveAndSetColumnMetaId(issue, context.columns());  // Phase 1 #6
                     issues.add(issue);
                 }
             }

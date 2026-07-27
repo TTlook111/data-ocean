@@ -123,6 +123,7 @@ public class ConsistencyChecker implements QualityChecker {
                     first.getColumnName(), tables));
             issue.setSuggestion("建议统一同名字段的数据类型，避免跨表JOIN时出现隐式转换");
             issue.setStatus(MetadataQualityIssue.STATUS_OPEN);
+            resolveAndSetColumnMetaId(issue, ctx.columns());  // Phase 1 #6
             issues.add(issue);
         }
     }
@@ -158,6 +159,7 @@ public class ConsistencyChecker implements QualityChecker {
                     first.getColumnName(), details));
             issue.setSuggestion("建议统一同名字段的注释描述，确保语义一致");
             issue.setStatus(MetadataQualityIssue.STATUS_OPEN);
+            resolveAndSetColumnMetaId(issue, ctx.columns());  // Phase 1 #6
             issues.add(issue);
         }
     }

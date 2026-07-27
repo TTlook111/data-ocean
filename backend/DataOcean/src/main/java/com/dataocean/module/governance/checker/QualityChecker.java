@@ -31,6 +31,23 @@ public interface QualityChecker {
     /**
      * 校验上下文，封装一次校验所需的全部数据
      */
+    /**
+     * Phase 1 #6: 从 columns 列表中反查列级 issue 的 columnMetaId 并设置。
+     * <p>
+     * 仅当 issue 有 columnName 时才设置；表级 issue（columnName 为 null）跳过。
+     * </p>
+     */
+    default void resolveAndSetColumnMetaId(MetadataQualityIssue issue, List<DbColumnMeta> columns) {
+        if (issue.getColumnName() == null || issue.getTableName() == null) return;
+        for (DbColumnMeta col : columns) {
+            if (issue.getTableName().equals(col.getTableName())
+                && issue.getColumnName().equals(col.getColumnName())) {
+                issue.setColumnMetaId(col.getId());
+                return;
+            }
+        }
+    }
+
     record CheckContext(
             Long snapshotId,
             Long datasourceId,

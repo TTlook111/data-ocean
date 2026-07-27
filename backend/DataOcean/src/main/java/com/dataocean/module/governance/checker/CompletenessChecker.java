@@ -132,6 +132,7 @@ public class CompletenessChecker implements QualityChecker {
         issue.setIssueDescription(description);
         issue.setSuggestion(suggestion);
         issue.setStatus(MetadataQualityIssue.STATUS_OPEN);
+        resolveAndSetColumnMetaId(issue, ctx.columns());  // Phase 1 #6
         return issue;
     }
 }
