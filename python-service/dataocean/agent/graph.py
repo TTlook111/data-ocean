@@ -16,7 +16,7 @@ import logging
 import time
 from typing import Literal
 
-from langgraph.graph import END, StateGraph
+from langgraph.graph import START, END, StateGraph  # Phase 0 P0-C: START 导入
 
 from dataocean.core.error_messages import sanitize_error
 from dataocean.infra.cancellation import is_cancelled

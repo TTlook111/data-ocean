@@ -30,6 +30,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
+
+import org.springframework.data.redis.core.RedisTemplate;
 
 /**
  * Python Agent 服务客户端实现。
@@ -56,6 +59,8 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private final GlossaryTermMapper glossaryTermMapper;
     private final MetadataEntityService metadataEntityService;
     private final MetadataRelationshipService metadataRelationshipService;
+    // Phase 0 P0-B: Redis 缓存（用于权限计算结果跨请求传递等）
+    private final RedisTemplate<String, Object> redisTemplate;
 
     @Qualifier("pythonRestClient")
     private final RestClient restClient;
@@ -78,6 +83,14 @@ public class PythonAgentClientImpl implements PythonAgentClient {
 
         // 计算用户对该数据源的真实权限上下文
         PermissionContextVO permContext = permissionCalculator.calculate(userId, datasourceId);
+
+        // Phase 0 P0-B: 权限计算结果缓存到 Redis（任务级 key，TTL 60s）
+        // 目的：避免 getTaskResult() 不同线程中重复计算权限
+        try {
+            redisTemplate.opsForValue().set("perm:" + taskId, permContext, Duration.ofSeconds(60));
+        } catch (Exception e) {
+            log.warn("权限缓存写入 Redis 失败 taskId={}, 降级为正常流程", taskId, e);
+        }
 
         // 构建类型安全的请求体
         AgentExecuteRequest requestBody = AgentExecuteRequest.builder()
