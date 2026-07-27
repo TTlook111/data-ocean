@@ -84,6 +84,9 @@ public class DbColumnMeta {
     /** 可信度评分（0~100） */
     private Integer confidenceScore;
 
+    /** Phase 2 #12: 列采样值（逗号分隔，最多5个，每个最長50字符） */
+    private String sampleValues;
+
     /** 创建时间（自动填充） */
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
