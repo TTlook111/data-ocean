@@ -65,6 +65,7 @@ async def run_sql_executor(state: AgentState) -> AgentState:
         }
 
     from dataocean.sandbox.executor import execute as sandbox_execute
+    from dataocean.infra.llm import call_llm, LLMException  # Phase 2 #11: LLM 自校正
 
     mask_columns = validation_result.get("masked_fields", {})
     result = await sandbox_execute(
@@ -78,6 +79,42 @@ async def run_sql_executor(state: AgentState) -> AgentState:
     if not result.success:
         # 安全修复：执行失败时递增 retry_count
         retry_count = state.get("retry_count", 0) + 1
+
+        # Phase 2 #11: LLM 自校正——只对可修正错误尝试，不修正 timeout/connection_error
+        error_lower = (result.error or "").lower()
+        is_correctable = any(keyword in error_lower for keyword in
+            ("syntax", "table", "column", "unknown", "doesn't exist", "does not exist",
+             "parse error", "invalid"))
+        max_retries = state.get("agent_config", {}).get("max_retries", 2) if isinstance(
+            state.get("agent_config"), dict) else 2
+
+        if is_correctable and retry_count <= max_retries:
+            try:
+                correction_prompt = f"""SQL 执行失败。
+错误信息：{result.error}
+原始 SQL：{sql}
+Schema 上下文：{state.get('schema_context', [])}
+
+请修正 SQL。只输出修正后的 SQL，不要任何解释。"""
+                corrected_sql = await call_llm(
+                    system_prompt="你是 SQL 修正专家，根据错误信息修正 SQL 语法和表名列名。",
+                    user_prompt=correction_prompt,
+                    temperature=0.1,
+                )
+                corrected_sql = corrected_sql.strip()
+                logger.info("LLM 自校正 task_id=%s original=%s corrected=%s",
+                            task_id, sql[:60], corrected_sql[:60])
+                return {
+                    "generated_sql": corrected_sql,
+                    "retry_count": retry_count,
+                    "used_tables": used_tables,
+                    "used_columns": used_columns,
+                    "current_node": "SQL_EXECUTOR",
+                }
+            except (LLMException, Exception) as e:
+                logger.warning("LLM 自校正失败 task_id=%s error=%s", task_id, e)
+                # 自校正失败不阻断主流程，走已有重试路由
+
         return {
             "execution_result": {
                 "columns": [],

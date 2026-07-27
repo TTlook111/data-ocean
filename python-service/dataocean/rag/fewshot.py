@@ -13,8 +13,10 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import numpy as np
 from typing import Any
 
+from dataocean.infra.embeddings import embed_single  # Phase 2 #10: embedding 相似度
 from dataocean.infra.memory import _get_redis, _safe_execute
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,13 @@ async def store_successful_query(
     if redis is None:
         return
 
+    # Phase 2 #10: 计算并存储 question_embedding（用于检索时 cosine 相似度）
+    question_embedding = None
+    try:
+        question_embedding = await embed_single(question)
+    except Exception as e:
+        logger.warning("Few-shot embedding 计算失败: %s", e)
+
     key = f"agent:fewshot:{datasource_id}:examples"
     example = {
         "question": question,
@@ -49,6 +58,7 @@ async def store_successful_query(
         "tables": tables,
         "intent": intent or {},
         "hash": hashlib.sha256(question.encode()).hexdigest()[:16],
+        "question_embedding": question_embedding,  # Phase 2 #10
     }
 
     try:
@@ -115,31 +125,31 @@ async def retrieve_fewshot_examples(
     if not examples:
         return []
 
-    # 计算匹配分数
-    question_lower = question.lower()
+    # Phase 2 #10: embedding 余弦相似度（替代原字符重叠匹配）
+    q_emb = None
+    try:
+        q_emb = await embed_single(question)
+    except Exception:
+        pass
+
     table_set = set(t.lower() for t in tables)
     scored = []
 
     for ex in examples:
         score = 0.0
-        ex_tables = set(t.lower() for t in ex.get("tables", []))
 
-        # 表匹配加分（权重最高）
+        # 1. 表重叠加分
+        ex_tables = set(t.lower() for t in ex.get("tables", []))
         table_overlap = len(table_set & ex_tables)
         if table_overlap > 0:
-            score += table_overlap * 0.5
+            score += table_overlap * 0.3  # 权重从 0.5 降为 0.3
 
-        # 问题子串重叠率加分（适配中文，不依赖空格分词）
-        ex_question = ex.get("question", "").lower()
-        # 取两个问题的较短者长度，计算公共子串比例
-        shorter_len = min(len(question_lower), len(ex_question))
-        if shorter_len > 0:
-            # 简单重叠检测：较长文本包含较短文本的比例
-            shorter, longer = (question_lower, ex_question) if len(question_lower) <= len(ex_question) else (ex_question, question_lower)
-            overlap_chars = sum(1 for c in shorter if c in longer)
-            overlap_ratio = overlap_chars / shorter_len
-            if overlap_ratio > 0.5:
-                score += min(overlap_ratio * 0.4, 0.4)
+        # 2. Embedding 相似度（主信号）
+        ex_emb = ex.get("question_embedding")
+        if q_emb is not None and ex_emb is not None and len(q_emb) == len(ex_emb):
+            a, b = np.array(q_emb), np.array(ex_emb)
+            cos_sim = float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
+            score += cos_sim * 0.7  # 主信号权重 0.7
 
         if score > 0:
             scored.append((score, ex))
