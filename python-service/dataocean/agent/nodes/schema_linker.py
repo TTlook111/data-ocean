@@ -40,7 +40,7 @@ async def run_schema_linker(state: AgentState) -> AgentState:
     # Phase 1 #4: 阈值从 3 提高到 8（Death of Schema Linking, arXiv:2408.07702）
     # 50 张表内现代 LLM 处理无关列能力强，过早裁剪可能误删有用列
     if len(schema_context) <= 8:
-        logger.info("Schema Linking 跳过（表数 <= 3）task_id=%s", task_id)
+        logger.info("Schema Linking 跳过（表数 <= 8）task_id=%s", task_id)
         return {"current_node": "SCHEMA_LINKER"}
 
     logger.info("Schema Linking 开始 task_id=%s tables=%d", task_id, len(schema_context))
@@ -72,31 +72,44 @@ async def _prune_schema(question: str, schema_context: list[dict]) -> list[dict]
     # 构建 schema 摘要（只包含表名和关键列）
     schema_summary = _build_schema_summary(schema_context)
 
+    # Phase 2 #7: 列级 Schema Linking — 扩展 prompt 同时返回相关表和列
     prompt = (
         f"用户问题：[QUERY_START]{question}[QUERY_END]\n\n"
-        f"以下是数据库的表结构信息：\n{schema_summary}\n\n"
-        f"请分析这个问题需要用到哪些表和字段，哪些表是无关的。\n"
-        f"返回 JSON 格式：{{\"relevant_tables\": [\"表名1\", \"表名2\"], \"reason\": \"原因\"}}\n"
+        f"以下是数据库的表结构信息（含列名和置信度等级）：\n{schema_summary}\n\n"
+        f"请分析这个问题需要用到哪些表和列，哪些是无关的。\n"
+        f"返回 JSON 格式：{{\"relevant_tables\": [\"表名1\"], "
+        f"\"relevant_columns\": {{\"表名1\": [\"列名a\", \"列名b\"]}}, \"reason\": \"原因\"}}\n"
         f"只返回 JSON，不要其他内容。"
     )
 
     try:
         response = await call_llm(
-            system_prompt="你是 Schema Linking 专家。分析用户问题需要哪些数据库表，过滤无关表。",
+            system_prompt="你是 Schema Linking 专家。分析用户问题需要哪些数据库表和列，过滤无关表和列。",
             user_prompt=prompt,
             temperature=0.1,
         )
         result = _json_parser.parse(response)
         relevant_tables = set(t.lower() for t in result.get("relevant_tables", []))
+        relevant_columns = result.get("relevant_columns", {})
 
         if not relevant_tables:
             return schema_context
 
-        # 过滤只保留相关表
-        pruned = [
-            schema for schema in schema_context
-            if schema.get("table_name", "").lower() in relevant_tables
-        ]
+        # Phase 2 #7: 过滤表 + 列
+        pruned = []
+        for schema in schema_context:
+            tbl_name = schema.get("table_name", "").lower()
+            if tbl_name in relevant_tables:
+                item = dict(schema)  # 浅拷贝保留原字段
+                # 如果有列级裁剪结果，过滤 columns
+                tbl_cols_lower = {c.lower() for c in relevant_columns.get(
+                    schema.get("table_name", ""), [])}
+                if tbl_cols_lower and schema.get("columns"):
+                    item["columns"] = [
+                        c for c in schema["columns"]
+                        if c.get("name", "").lower() in tbl_cols_lower
+                    ]
+                pruned.append(item)
 
         # 至少保留一个表
         return pruned if pruned else schema_context[:1]
@@ -106,17 +119,23 @@ async def _prune_schema(question: str, schema_context: list[dict]) -> list[dict]
 
 
 def _build_schema_summary(schema_context: list[dict]) -> str:
-    """构建 schema 摘要文本，用于 LLM 分析"""
+    """构建 schema 摘要文本，用于 LLM 分析（Phase 2 #9: 含置信度标注）"""
     lines = []
     for schema in schema_context:
         table_name = schema.get("table_name", "")
         chunk_type = schema.get("chunk_type", "")
-        chunk_text = schema.get("chunk_text", "")[:200]  # 截断避免过长
+        chunk_text = schema.get("chunk_text", "")[:200]
         columns = schema.get("columns", [])
 
         line = f"- 表 {table_name}（类型: {chunk_type}）"
         if columns:
-            col_names = [c.get("name", "") if isinstance(c, dict) else str(c) for c in columns[:5]]
+            col_names = []
+            for c in columns:
+                name = c.get("name", "") if isinstance(c, dict) else str(c)
+                trust = c.get("trust_score", 0) if isinstance(c, dict) else 0
+                # Phase 2 #9: 置信度等级标注（HIGH≥70, MEDIUM≥40, LOW<40）
+                level = "H" if trust >= 70 else ("M" if trust >= 40 else "L")
+                col_names.append(f"{name}[{level}]")
             line += f"，字段: {', '.join(col_names)}"
         if chunk_text:
             line += f"\n  摘要: {chunk_text}"
