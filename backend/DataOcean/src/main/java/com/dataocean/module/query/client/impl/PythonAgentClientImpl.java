@@ -412,7 +412,22 @@ public class PythonAgentClientImpl implements PythonAgentClient {
      * 使用参数化查询替代 inSql() 字符串拼接，避免 SQL 注入风险。
      * </p>
      */
+    // Phase 1 #3: Redis 缓存 key 常量
+    private static final String FALLBACK_CHUNKS_KEY_PREFIX = "fallback:chunks:";
+    private static final java.time.Duration FALLBACK_CHUNKS_TTL = java.time.Duration.ofMinutes(30);
+
     private List<Map<String, Object>> loadFallbackChunks(Long datasourceId) {
+        // Phase 1 #3: 先查 Redis 缓存
+        String key = FALLBACK_CHUNKS_KEY_PREFIX + datasourceId;
+        try {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> cached =
+                (List<Map<String, Object>>) redisTemplate.opsForValue().get(key);
+            if (cached != null) return cached;
+        } catch (Exception e) {
+            log.warn("Fallback chunks 缓存读取失败 datasourceId={}", datasourceId, e);
+        }
+
         try {
             // 先查询该数据源下已发布的知识文档 ID 列表
             var docIds = knowledgeDocMapper.selectList(
@@ -446,6 +461,12 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                 item.put("snapshotId", chunk.getMetadataSnapshotId());
                 result.add(item);
             }
+            // Phase 1 #3: 写 Redis 缓存
+            try {
+                redisTemplate.opsForValue().set(key, result, FALLBACK_CHUNKS_TTL);
+            } catch (Exception e) {
+                log.warn("Fallback chunks 缓存写入失败 datasourceId={}", datasourceId, e);
+            }
             return result;
         } catch (Exception e) {
             log.warn("加载 fallback chunks 失败 datasourceId={} reason={}", datasourceId, e.getMessage());
@@ -453,29 +474,55 @@ public class PythonAgentClientImpl implements PythonAgentClient {
         }
     }
 
+    // Phase 1 #2: 术语表 Redis 缓存常量
+    private static final String GLOSSARY_CACHE_KEY = "glossary:approved";
+    private static final java.time.Duration GLOSSARY_TTL = java.time.Duration.ofMinutes(30);
+
     /**
      * 加载所有已审核通过的术语条目（用于查询改写时的术语匹配扩展）
      * <p>
+     * Phase 1 #2: Redis 缓存（TTL 30min）+ N+1 批量查询修复。
      * 不按数据源过滤——术语是全局共享的业务语义资产。
      * </p>
      */
     private List<Map<String, String>> loadApprovedGlossaryTerms() {
+        // Phase 1 #2: 先查 Redis 缓存
+        try {
+            @SuppressWarnings("unchecked")
+            List<Map<String, String>> cached =
+                (List<Map<String, String>>) redisTemplate.opsForValue().get(GLOSSARY_CACHE_KEY);
+            if (cached != null) return cached;
+        } catch (Exception e) {
+            log.warn("术语表缓存读取失败，降级为 DB 查询", e);
+        }
+
         try {
             var terms = glossaryTermMapper.selectList(
                     new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<GlossaryTerm>()
                             .eq(GlossaryTerm::getStatus, GlossaryTerm.STATUS_APPROVED));
 
-            // 批量加载 GLOSSARY_OF 关系（术语→物理列关联）
+            // Phase 1 #2: 批量加载 GLOSSARY_OF 关系（修复 N+1——原代码逐条 getById）
             java.util.Map<Long, String> termColumnsMap = new java.util.HashMap<>();
             try {
                 var rels = metadataRelationshipService.list(
                         new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<MetadataRelationship>()
                                 .eq(MetadataRelationship::getRelationType, MetadataRelationship.TYPE_GLOSSARY_OF)
                                 .in(MetadataRelationship::getSourceId, terms.stream().map(GlossaryTerm::getId).toList()));
+                // 收集 targetId，批量查询 MetadataEntity（替代逐条 getById）
+                java.util.Set<Long> targetIds = rels.stream()
+                        .map(MetadataRelationship::getTargetId)
+                        .collect(java.util.stream.Collectors.toSet());
+                java.util.Map<Long, String> entityFqnMap = new java.util.HashMap<>();
+                if (!targetIds.isEmpty()) {
+                    var entities = metadataEntityService.listByIds(new java.util.ArrayList<>(targetIds));
+                    for (var entity : entities) {
+                        entityFqnMap.put(entity.getId(), entity.getFqn());
+                    }
+                }
                 for (MetadataRelationship rel : rels) {
-                    var entity = metadataEntityService.getById(rel.getTargetId());
-                    if (entity != null) {
-                        termColumnsMap.merge(rel.getSourceId(), entity.getFqn(),
+                    String fqn = entityFqnMap.get(rel.getTargetId());
+                    if (fqn != null) {
+                        termColumnsMap.merge(rel.getSourceId(), fqn,
                                 (old, val) -> old + "," + val);
                     }
                 }
@@ -495,6 +542,13 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                     item.put("related_columns", relatedColumns);
                 }
                 result.add(item);
+            }
+
+            // Phase 1 #2: 写 Redis 缓存
+            try {
+                redisTemplate.opsForValue().set(GLOSSARY_CACHE_KEY, result, GLOSSARY_TTL);
+            } catch (Exception e) {
+                log.warn("术语表缓存写入失败", e);
             }
             return result;
         } catch (Exception e) {
