@@ -54,11 +54,24 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
     # 将 RAG 检索结果转换为 LangGraph 工作流期望的格式
     schema_context = []
     for item in response.results:
+        # Phase 0 P0-A: 传递列信息——将 RAG 层的 ColumnInfo 列表传入 AgentState.schema_context
+        columns_data = []
+        if hasattr(item, "columns") and item.columns:
+            columns_data = [
+                {
+                    "name": c.name,
+                    "type": c.type or "",
+                    "comment": c.comment or "",
+                    "trust_score": c.trust_score,
+                }
+                for c in item.columns
+            ]
         schema_context.append({
             "table_name": item.table_name or "",           # 表名
             "chunk_type": item.chunk_type or "",           # chunk 类型（TABLE_DESC/JOIN_PATH/METRIC 等）
             "chunk_text": item.chunk_text or "",           # chunk 文本内容
             "related_column": getattr(item, "related_column", None),  # 关联列
+            "columns": columns_data,                        # Phase 0 P0-A: 列信息列表
             "confidence_score": getattr(item, "trust_score", 0) or 0, # 置信度分数
             "governance_status": item.governance_status or "NORMAL",   # 治理状态
             "score": item.score if hasattr(item, "score") else 0.0,   # 相似度分数

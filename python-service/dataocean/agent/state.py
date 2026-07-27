@@ -27,6 +27,7 @@ class RetrievedSchema(TypedDict, total=False):
     chunk_type: str
     chunk_text: str
     related_column: str | None
+    columns: list[dict]  # Phase 0 P0-A: ColumnInfo 列表 [{"name","type","comment","trust_score"}]
     confidence_score: int
     governance_status: str
     score: float
