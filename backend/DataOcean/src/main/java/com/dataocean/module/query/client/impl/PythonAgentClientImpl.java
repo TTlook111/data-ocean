@@ -357,12 +357,29 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                         com.dataocean.module.datasource.entity.DatasourceSecret>()
                         .eq(com.dataocean.module.datasource.entity.DatasourceSecret::getDatasourceId, datasourceId));
 
-        String plainPassword = "";
-        if (secret != null && secret.getEncryptedPassword() != null) {
-            try {
-                plainPassword = datasourceSecretService.decrypt(secret.getEncryptedPassword());
-            } catch (Exception e) {
-                log.error("数据源密码解密失败 datasourceId={}", datasourceId, e);
+        // Phase 2 #13: 数据源密码 Redis 缓存（TTL 5min）
+        String passwordKey = "ds:password:" + datasourceId;
+        String plainPassword = null;
+        try {
+            plainPassword = (String) redisTemplate.opsForValue().get(passwordKey);
+        } catch (Exception e) {
+            log.warn("密码缓存读取失败 datasourceId={}", datasourceId, e);
+        }
+
+        if (plainPassword == null) {
+            plainPassword = "";
+            if (secret != null && secret.getEncryptedPassword() != null) {
+                try {
+                    plainPassword = datasourceSecretService.decrypt(secret.getEncryptedPassword());
+                    // 写入缓存
+                    try {
+                        redisTemplate.opsForValue().set(passwordKey, plainPassword, Duration.ofMinutes(5));
+                    } catch (Exception e) {
+                        log.warn("密码缓存写入失败 datasourceId={}", datasourceId, e);
+                    }
+                } catch (Exception e) {
+                    log.error("数据源密码解密失败 datasourceId={}", datasourceId, e);
+                }
             }
         }
 
