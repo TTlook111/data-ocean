@@ -5,6 +5,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
+import com.dataocean.module.fieldtag.entity.FieldConfidenceEvent;
+import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.governance.entity.MetadataQualityIssue;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
@@ -39,6 +41,8 @@ public class QualityIssueServiceImpl implements QualityIssueService {
     private final MetadataQualityIssueMapper issueMapper;
     private final UserMapper userMapper;
     private final DatasourceMapper datasourceMapper;
+    // Phase 1 #6: 治理-置信度联动
+    private final ConfidenceCalculator confidenceCalculator;
 
     // 合法的状态流转（安全优先：REOPENED 必须经过 CONFIRMED 才能 RESOLVED）
     private static final Set<String> VALID_FROM_OPEN = Set.of(
@@ -122,6 +126,9 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         }
         issueMapper.updateById(issue);
         log.info("问题状态变更 issueId={} {} → {}", issueId, oldStatus, targetStatus);
+
+        // Phase 1 #6: 治理 Issue 状态变更时联动字段置信度
+        adjustConfidenceForStatusChange(issue, targetStatus, operatorId);
     }
 
     /**
@@ -168,6 +175,35 @@ public class QualityIssueServiceImpl implements QualityIssueService {
      * REOPENED → CONFIRMED / REJECTED（必须经过 CONFIRMED 才能再次 RESOLVED）
      * </p>
      */
+    /**
+     * Phase 1 #6: 治理 Issue 状态变更 → 字段置信度联动。
+     * <p>
+     * columnMetaId 在 issue 创建时（质量检查批处理）预存，此处 O(1) 直接读取。
+     * CONFIRMED → -5 分扣减，RESOLVED → +3 分恢复。
+     * </p>
+     */
+    private void adjustConfidenceForStatusChange(MetadataQualityIssue issue,
+                                                  String targetStatus, Long operatorId) {
+        Long columnMetaId = issue.getColumnMetaId();
+        if (columnMetaId == null) {
+            return; // 无关联列的 issue（如数据库级 issue）跳过
+        }
+        String eventType = null;
+        if (MetadataQualityIssue.STATUS_CONFIRMED.equals(targetStatus)) {
+            eventType = FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_CONFIRMED;
+        } else if (MetadataQualityIssue.STATUS_RESOLVED.equals(targetStatus)) {
+            eventType = FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_RESOLVED;
+        }
+        if (eventType != null) {
+            try {
+                confidenceCalculator.adjustScore(columnMetaId, eventType, operatorId, null);
+                log.info("置信度联动 issueId={} columnMetaId={} eventType={}", issue.getId(), columnMetaId, eventType);
+            } catch (Exception e) {
+                log.warn("置信度联动失败 issueId={} columnMetaId={} eventType={}", issue.getId(), columnMetaId, eventType, e);
+            }
+        }
+    }
+
     private void validateTransition(String currentStatus, String targetStatus) {
         boolean valid = switch (currentStatus) {
             case MetadataQualityIssue.STATUS_OPEN -> VALID_FROM_OPEN.contains(targetStatus);

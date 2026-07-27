@@ -35,6 +35,10 @@ public class FieldConfidenceEvent {
     public static final String TYPE_USER_DISLIKE_CONFIRMED = "USER_DISLIKE_CONFIRMED";
     /** 事件类型：群体阈值触发 */
     public static final String TYPE_GROUP_THRESHOLD = "GROUP_THRESHOLD";
+    /** Phase 1 #6: 治理 Issue 确认 */
+    public static final String TYPE_GOVERNANCE_ISSUE_CONFIRMED = "GOVERNANCE_ISSUE_CONFIRMED";
+    /** Phase 1 #6: 治理 Issue 解决 */
+    public static final String TYPE_GOVERNANCE_ISSUE_RESOLVED = "GOVERNANCE_ISSUE_RESOLVED";
 
     /** 主键ID */
     @TableId(type = IdType.AUTO)

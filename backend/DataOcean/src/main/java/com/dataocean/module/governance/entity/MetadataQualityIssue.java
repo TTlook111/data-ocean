@@ -46,4 +46,7 @@ public class MetadataQualityIssue {
     private LocalDateTime createdAt;
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
+
+    /** Phase 1 #6: 关联的 DbColumnMeta.id，便于 handleIssue() 审核时直接 O(1) 联动置信度 */
+    private Long columnMetaId;
 }
