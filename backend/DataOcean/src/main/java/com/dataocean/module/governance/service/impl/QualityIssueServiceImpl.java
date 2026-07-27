@@ -165,17 +165,6 @@ public class QualityIssueServiceImpl implements QualityIssueService {
     }
 
     /**
-     * 校验状态流转合法性
-     * <p>
-     * 合法状态机：
-     * OPEN → CONFIRMED / REJECTED
-     * CONFIRMED → RESOLVED / REJECTED
-     * RESOLVED → REOPENED
-     * REJECTED → REOPENED
-     * REOPENED → CONFIRMED / REJECTED（必须经过 CONFIRMED 才能再次 RESOLVED）
-     * </p>
-     */
-    /**
      * Phase 1 #6: 治理 Issue 状态变更 → 字段置信度联动。
      * <p>
      * columnMetaId 在 issue 创建时（质量检查批处理）预存，此处 O(1) 直接读取。
@@ -204,6 +193,17 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         }
     }
 
+    /**
+     * 校验状态流转合法性
+     * <p>
+     * 合法状态机：
+     * OPEN → CONFIRMED / REJECTED
+     * CONFIRMED → RESOLVED / REJECTED
+     * RESOLVED → REOPENED
+     * REJECTED → REOPENED
+     * REOPENED → CONFIRMED / REJECTED（必须经过 CONFIRMED 才能再次 RESOLVED）
+     * </p>
+     */
     private void validateTransition(String currentStatus, String targetStatus) {
         boolean valid = switch (currentStatus) {
             case MetadataQualityIssue.STATUS_OPEN -> VALID_FROM_OPEN.contains(targetStatus);

@@ -265,13 +265,12 @@ def after_executor(
 async def metadata_prefetch_node(state: AgentState) -> AgentState:
     """预取数据源连接配置（与 Query Rewriter 并行执行）。
 
-    connection_config + datasource_id 已在 AgentState 中（由 Java 端请求传入），
-    此节点主要负责与 rewriter 并行执行以减少总延迟。
-    未来可扩展：提前解密密码、预检查连接池状态等。
+    FIX #13: 统一使用 _node_wrapper 包装，获得 SSE 进度推送、超时检查、异常 sanitize。
+    connection_config + datasource_id 已在 AgentState 中，当前为占位节点。
     """
-    task_id = state.get("task_id", "")
-    logger.info("[%s] Prefetch: datasource_id=%s", task_id, state.get("datasource_id"))
-    return {"current_node": "METADATA_PREFETCH"}
+    async def _prefetch(state: AgentState) -> AgentState:
+        return {"current_node": NODE_METADATA_PREFETCH}
+    return await _node_wrapper(state, NODE_METADATA_PREFETCH, _prefetch)
 
 
 # --- 构建图 ---
