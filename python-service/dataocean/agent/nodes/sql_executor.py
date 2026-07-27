@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json  # Phase 3 #18: 分块传输 JSON 序列化
 import logging
 import re
 
@@ -132,6 +133,25 @@ Schema 上下文：{state.get('schema_context', [])}
 
     logger.info("SQL execution finished task_id=%s rows=%d elapsed=%dms",
                 task_id, result.row_count, result.execution_time_ms)
+
+    # Phase 3 #18: 大结果集分块传输（>200 行时分块通过 SSE 发送首屏数据）
+    if result.rows and len(result.rows) > 200:
+        try:
+            CHUNK_SIZE = 100
+            total = len(result.rows)
+            total_chunks = (total + CHUNK_SIZE - 1) // CHUNK_SIZE
+            for i in range(total_chunks):
+                chunk = result.rows[i * CHUNK_SIZE:(i + 1) * CHUNK_SIZE]
+                await sse.emit_progress(
+                    task_id, "RESULT_CHUNK", "completed",
+                    json.dumps({"chunk_index": i, "total_chunks": total_chunks,
+                                "is_last": i == total_chunks - 1,
+                                "rows": chunk}),
+                    state.get("retry_count", 0))
+            logger.info("大结果分块完成 task_id=%s chunks=%d rows=%d", task_id, total_chunks, total)
+        except Exception as e:
+            logger.warning("结果分块发送失败 task_id=%s error=%s", task_id, e)
+            # 分块失败不阻断主流程
 
     return {
         "execution_result": {

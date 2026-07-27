@@ -66,8 +66,13 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
                 }
                 for c in item.columns
             ]
+        # Phase 3 #15: 元数据驱动——传递更多治理元数据字段
+        table_comment = getattr(item, "table_comment", "") or ""
+        source_type = getattr(item, "source_type", "SCHEMA") or "SCHEMA"
         schema_context.append({
             "table_name": item.table_name or "",           # 表名
+            "table_comment": table_comment,                 # Phase 3 #15: 表注释
+            "source_type": source_type,                     # Phase 3 #15: 来源类型
             "chunk_type": item.chunk_type or "",           # chunk 类型（TABLE_DESC/JOIN_PATH/METRIC 等）
             "chunk_text": item.chunk_text or "",           # chunk 文本内容
             "related_column": getattr(item, "related_column", None),  # 关联列
