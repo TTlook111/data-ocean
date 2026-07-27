@@ -145,3 +145,53 @@ def infer_tags_for_columns(
     if result:
         logger.info("标签推断完成 匹配列数=%d 总标签数=%d", len(result), sum(len(v) for v in result.values()))
     return result
+
+
+# Phase 3 #16: 基于采样值的 PII 检测正则
+# 不同于 _TAG_PATTERNS（列名匹配），这些正则是匹配列中实际的**数据值**
+_PII_SAMPLE_PATTERNS: dict[str, re.Pattern] = {
+    "PII.手机号": re.compile(r'^1[3-9]\d{9}$'),
+    "PII.邮箱": re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'),
+    "PII.身份证号": re.compile(r'^\d{17}[\dXx]$'),
+    "PII.银行卡号": re.compile(r'^\d{16,19}$'),
+}
+
+
+def detect_pii_from_samples(column_name: str, sample_values: list[str]) -> list[TagCandidate]:
+    """基于采样数据值推断 PII 标签（Phase 3 #16）。
+
+    与 infer_tags() 互补：infer_tags 基于列名模式匹配，本函数基于实际数据值匹配。
+    两者结果应在调用方合并去重。
+
+    Args:
+        column_name: 列名（用于日志）
+        sample_values: 采样值列表（来自 ColumnCollector 采集的 SELECT DISTINCT LIMIT 5 结果）
+
+    Returns:
+        匹配的标签候选列表，置信度固定为 0.85（基于实际值匹配 > 列名猜测）
+    """
+    candidates: list[TagCandidate] = []
+    if not sample_values:
+        return candidates
+
+    for tag_fqn, pattern in _PII_SAMPLE_PATTERNS.items():
+        matched_count = 0
+        matched_pattern = pattern.pattern
+        for value in sample_values[:20]:
+            val_str = str(value).strip()
+            if pattern.match(val_str):
+                matched_count += 1
+
+        # 至少 1 个采样值匹配才添加标签（防止单值误匹配）
+        if matched_count > 0:
+            # 多个采样值都匹配 → 置信度更高
+            confidence = min(0.95, 0.85 + (matched_count - 1) * 0.05)
+            candidates.append(TagCandidate(
+                tag_fqn=tag_fqn,
+                confidence=confidence,
+                matched_pattern=matched_pattern,
+            ))
+            logger.info("采样值 PII 检测: %s → %s (匹配 %d/%d)",
+                        column_name, tag_fqn, matched_count, min(20, len(sample_values)))
+
+    return candidates

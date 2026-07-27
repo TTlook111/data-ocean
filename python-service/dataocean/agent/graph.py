@@ -35,6 +35,7 @@ NODE_SQL_GENERATOR = "SQL_GENERATOR"
 NODE_SQL_VALIDATOR = "SQL_VALIDATOR"
 NODE_SQL_EXECUTOR = "SQL_EXECUTOR"
 NODE_DATA_VISUALIZER = "DATA_VISUALIZER"
+NODE_METADATA_PREFETCH = "METADATA_PREFETCH"  # Phase 3 #14
 
 # 节点中文描述（用于 SSE 进度消息）
 NODE_MESSAGES = {
@@ -45,6 +46,7 @@ NODE_MESSAGES = {
     NODE_SQL_VALIDATOR: "正在校验 SQL 安全性",
     NODE_SQL_EXECUTOR: "正在执行查询",
     NODE_DATA_VISUALIZER: "正在生成图表",
+    NODE_METADATA_PREFETCH: "正在准备数据连接",  # Phase 3 #14
 }
 
 
@@ -257,6 +259,21 @@ def after_executor(
     return "data_visualizer"
 
 
+# --- Phase 3 #14: Metadata Prefetch 节点 ---
+
+
+async def metadata_prefetch_node(state: AgentState) -> AgentState:
+    """预取数据源连接配置（与 Query Rewriter 并行执行）。
+
+    connection_config + datasource_id 已在 AgentState 中（由 Java 端请求传入），
+    此节点主要负责与 rewriter 并行执行以减少总延迟。
+    未来可扩展：提前解密密码、预检查连接池状态等。
+    """
+    task_id = state.get("task_id", "")
+    logger.info("[%s] Prefetch: datasource_id=%s", task_id, state.get("datasource_id"))
+    return {"current_node": "METADATA_PREFETCH"}
+
+
 # --- 构建图 ---
 
 def build_graph() -> StateGraph:
@@ -271,11 +288,15 @@ def build_graph() -> StateGraph:
     graph.add_node("sql_validator", sql_validator_node)
     graph.add_node("sql_executor", sql_executor_node)
     graph.add_node("data_visualizer", data_visualizer_node)
+    # Phase 3 #14: 并行 Prefetch 节点
+    graph.add_node("metadata_prefetch", metadata_prefetch_node)
 
-    # 设置入口
-    graph.set_entry_point("query_rewriter")
+    # Phase 3 #14: 改为 fan-out 并行启动（Rewriter + Prefetch 互不依赖）
+    graph.add_edge(START, "query_rewriter")
+    graph.add_edge(START, "metadata_prefetch")
+    graph.add_edge("metadata_prefetch", "schema_retriever")
 
-    # 添加条件边
+    # 添加条件边（rewriter 的路由保持不变）
     graph.add_conditional_edges("query_rewriter", after_rewriter)
     graph.add_conditional_edges("schema_retriever", after_retriever)
     graph.add_conditional_edges("schema_linker", after_linker)
