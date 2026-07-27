@@ -4,11 +4,14 @@
 Milvus 异常时自动切换到降级方案。
 """
 
+import hashlib
+import json
 import logging
 from time import perf_counter
 
 from dataocean.core.config import settings
 from dataocean.infra.embeddings import embed_single
+from dataocean.infra.memory import _get_redis  # Phase 1 #1: Redis 缓存
 
 from .fallback import fallback_retrieve
 from .reranker import rerank
@@ -32,8 +35,24 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
     """
     start = perf_counter()
     try:
-        # 1. 生成问题向量
-        question_embedding = await embed_single(request.question)
+        # 1. 生成问题向量（Phase 1 #1: Redis 缓存，TTL 1h）
+        cache_key = f"emb:{hashlib.md5(request.question.encode()).hexdigest()}"
+        question_embedding = None
+        try:
+            redis = await _get_redis()
+            cached = await redis.get(cache_key)
+            if cached:
+                question_embedding = json.loads(cached)
+        except Exception:
+            logger.warning("Embedding 缓存读取失败，降级为 API 调用")
+
+        if question_embedding is None:
+            question_embedding = await embed_single(request.question)
+            try:
+                redis = await _get_redis()
+                await redis.setex(cache_key, 3600, json.dumps(question_embedding))
+            except Exception:
+                pass  # 写缓存失败不影响主流程
 
         # 2. Milvus 检索
         raw_results = await retrieve_from_milvus(question_embedding, request)

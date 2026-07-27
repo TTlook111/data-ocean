@@ -37,8 +37,9 @@ async def run_schema_linker(state: AgentState) -> AgentState:
     if not schema_context:
         return {"current_node": "SCHEMA_LINKER"}
 
-    # 只有当 schema 超过 3 个表时才做 linking（小 schema 直接跳过）
-    if len(schema_context) <= 3:
+    # Phase 1 #4: 阈值从 3 提高到 8（Death of Schema Linking, arXiv:2408.07702）
+    # 50 张表内现代 LLM 处理无关列能力强，过早裁剪可能误删有用列
+    if len(schema_context) <= 8:
         logger.info("Schema Linking 跳过（表数 <= 3）task_id=%s", task_id)
         return {"current_node": "SCHEMA_LINKER"}
 
