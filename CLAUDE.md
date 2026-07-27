@@ -42,7 +42,7 @@ Important boundary:
 
 ## Current Status
 
-Last updated: 2026-06-24.
+Last updated: 2026-07-24.
 
 The main end-to-end chain is implemented:
 
@@ -73,9 +73,15 @@ Known follow-up areas — see `docs/development/后续开发.md` for the full pr
 
 Latest addition:
 
-- **Datasource readiness and admin IA added** (2026-06-24): datasource readiness aggregates connection, published metadata snapshot, blocking governance issues, published skills.md, and permission state. Query entry blocks non-askable sources with visible reasons. Admin navigation now uses first-level business domains plus content-area workspace navigation; see `docs/development/后台信息架构与导航规范.md`.
+- **深度优化方案 Phase 0-3 全部完成**（2026-07-24）：基于 `docs/development/DataOcean深度优化参考方案.md` 的 18 项优化全部实施。详见下方「近期完成」中各 Phase 条目。
 
 Recently completed or verified:
+
+- **Phase 0-3 深度优化已完成**（2026-07-24）：按《DataOcean深度优化参考方案》实施 18 项优化，分 4 个 Phase、12 次 commit：
+  - **Phase 0 前置**（3 项）：打通列信息数据通道（`state.py` `RetrievedSchema.columns` + `schema_retriever.py` 传递 `ColumnInfo`）；权限计算 Redis 去重（`perm:{taskId}` TTL=60s）；`graph.py` `START` 导入。
+  - **Phase 1 低悬果实**（6 项，零额外 LLM 调用）：Embedding 缓存（Redis TTL=1h）；术语表 Redis 缓存 + N+1 批量查询修复；Fallback Chunks Redis 缓存；Schema Linking 阈值 3→8（基于 Death of Schema Linking 论文）；SQL-to-Schema 幻觉检测（sqlglot `_extract_tables` 复用）；治理-置信度联动（V44 `metadata_quality_issue.column_meta_id` + `QualityIssueServiceImpl.handleIssue()` 联动 `ConfidenceCalculator.adjustScore()`）。
+  - **Phase 2 核心优化**（7 项，最多 1 次额外 LLM 调用）：列级 Schema Linking（扩展 prompt 返回 `relevant_columns` + 列裁剪）；置信度读时衰减（`calculateWithDecay()` 指数衰减，半衰期 30 天可配）；置信度 Schema Linking 加权（`_build_schema_summary()` 标注 H/M/L 等级）；Few-shot embedding 升级（余弦相似度替代字符重叠）；执行反馈 LLM 自校正（仅 syntax/table/column 错误）；列元数据采样值增强（V45 `db_column_meta.sample_values` + `ColumnCollector` `SELECT DISTINCT LIMIT 5`）；数据源密码 Redis 缓存（TTL=5min）。
+  - **Phase 3 架构增强**（5 项）：Agent 图并行化（`metadata_prefetch_node` + fan-out `START` 边）；元数据驱动 Schema Linking（传递 `table_comment`/`source_type`）；自动标签增强（`detect_pii_from_samples` 基于采样值 PII 检测）；质量评分聚合（新建 `QualityScoreAggregationService`）；大结果集分块传输（>200 行时 SSE `RESULT_CHUNK` 分块）。
 
 - **阶段一：权限治理修复已完成**（2026-06-14）：按统一路线图完成权限治理修复，包括：(1) 权限合并逻辑从交集改为并集（安全优先：任一维度 DENY 即禁止，任一维度 MASK 即脱敏）；(2) 权限计算器批量查询优化（消除 N+1）；(3) 缓存事务隔离（@TransactionalEventListener AFTER_COMMIT）；(4) 治理 Issue 状态机新增 REOPENED 状态（RESOLVED/REJECTED → REOPENED → CONFIRMED）；(5) SQL 注入防御已确认存在（AccessPolicyServiceImpl.validateRowFilterExpression）；(6) Java→Python 权限协议补齐 tableScopeMode（UNRESTRICTED/ALLOWLIST），修正 `*` 表策略语义；(7) 冗余 Mapper 删除任务取消（DatasourceMapper 实际被 16 个类使用）。详见 `docs/development/DataOcean统一执行路线图.md`。
 - **阶段二：RAG 重构已完成**（2026-06-14）：(1) Embedding 初始化竞态修复 — asyncio.Lock + double-check 模式（embeddings.py）；(2) LLM 初始化竞态修复 — threading.Lock + double-check 模式（llm.py）；(3) 向量化 force 模式 staging 语义明确化（vectorizer.py），修复 _count_vectors limit=1000 上限 bug；(4) SSE 事件流添加 try/finally 清理保证（sse.py）；(5) RAG 架构已确认分层清晰（service → retriever → vector_store / vectorizer / reranker），chunk type 权重已在 reranker 中实现。详见 `docs/development/DataOcean统一执行路线图.md`。
@@ -273,7 +279,7 @@ Important modules:
 - `user`: authentication, user, role, department, permission management.
 - `datasource`: datasource management and health checks.
 - `metadata`: metadata scanning, synchronization, comparison, entity graph, catalog search, and metadata events.
-- `governance`: metadata quality checks and governance status.
+- `governance`: metadata quality checks, governance status, quality issue lifecycle, and quality score aggregation.
 - `versioning`: metadata snapshot lifecycle and review.
 - `knowledge`: skills.md lifecycle, chunk snapshot persistence, vector publish tasks.
 - `query`: Java-side NL2SQL task management, conversation persistence, SSE bridge, result persistence, and fallback chunk loading.
@@ -304,6 +310,8 @@ Migration notes:
 - `V40` adds permission priority, time conditions, and change logs.
 - `V41` adds metadata change events and access approval requests.
 - `V42` makes datasource access effect semantics explicit.
+- `V44` adds `metadata_quality_issue.column_meta_id` (Phase 1 governance-confidence linkage).
+- `V45` adds `db_column_meta.sample_values` (Phase 2 column sample value collection).
 
 ## Python Service Notes
 
@@ -356,6 +364,8 @@ The query page persists server-side conversations and can reload historical mess
 - Never delete active RAG vectors until the replacement version is written and verified.
 - Java owns durable conversation history. If Redis memory is introduced later, avoid having Java and Python both write the same conversation-history key.
 - Java consumes Python SSE as a client. Do not replace this with Spring `SseEmitter`; fix client-side SSE parsing and read timeouts instead.
+- **Caching is Redis-only**: All new caching (Embedding, Glossary, Fallback Chunks, Password, PermissionContextVO) goes through the existing `RedisTemplate<String, Object>` bean on Java side and `_get_redis()` on Python side. Do not introduce Caffeine, Ehcache, or other local-cache layers for query-path caching. All cache reads must gracefully degrade (cache miss/error → fall through to original logic).
+- **Failure-isolation for caching**: Every Redis cache operation (get/set/delete) must be wrapped in try/catch with a warning log; cache failures must never block the main query path.
 - Use focused tests when changing lifecycle, RAG, SQL safety, permissions, or public API behavior.
 - Preserve user changes in the working tree; do not reset or revert unrelated files.
 - Docker boundary: when MySQL, Redis, Milvus, MinIO, etc. are stopped or missing, do not automatically start, create, recreate, or delete containers. Tell the user which existing service/container should be started, and only run Docker commands when the user explicitly asks.

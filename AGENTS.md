@@ -56,7 +56,7 @@ Important boundaries:
 
 ## Current Status
 
-Last updated: 2026-06-24.
+Last updated: 2026-07-24.
 
 The main end-to-end chain is implemented and has been run through:
 
@@ -76,13 +76,14 @@ Module status summary:
 | Java datasource/metadata/governance/versioning modules | Complete; metadata entity graph and event recording are implemented |
 | Java glossary module | Complete; glossary and term approval flow are implemented |
 | Java knowledge/skills.md lifecycle | Complete, with Python-owned chunking integration |
-| Java query/audit/field confidence modules | Core complete; conversation persistence and feedback confidence updates are implemented |
+| Java query/audit/field confidence modules | Core complete; conversation persistence and feedback confidence updates are implemented; confidence read-time decay with configurable half-life (30d default) added |
 | Java prompt module | Complete, including approval workflow, version history, and rollback |
 | Java system/dashboard modules | Complete; AI config management and admin dashboard are implemented |
-| Python Agent workflow | Core complete, with timeout/cancel handling, glossary hints, and degraded result propagation |
-| Python RAG/vectorization | Complete; staging/verified vector rebuild semantics are in place |
-| Python SQL sandbox | Core complete |
+| Python Agent workflow | Core complete, with timeout/cancel handling, glossary hints, degraded result propagation, column-level Schema Linking, LLM self-correction on execution failure, and agent graph parallel fan-out (Rewriter + Metadata Prefetch) |
+| Python RAG/vectorization | Complete; staging/verified vector rebuild semantics are in place; embedding cache (Redis TTL=1h); Few-shot embedding cosine-similarity retrieval; schema_context enriched with column info and metadata fields |
+| Python SQL sandbox | Core complete; SQL-to-Schema hallucination detection added (zero extra LLM calls) |
 | Python chart generation | Complete with fallback behavior |
+| Data source readiness | Complete |
 
 Known follow-up areas live in `docs/development/后续开发.md`. The seven-stage refactor roadmap is complete; do not treat `docs/development/DataOcean统一执行路线图.md` as an active implementation plan unless the user explicitly asks to revisit it.
 
@@ -100,6 +101,7 @@ Known follow-up areas live in `docs/development/后续开发.md`. The seven-stag
 - **P1 notification system integration completed** (2026-06-21): frontend notification bell/dropdown and `/api/notifications` client are connected; field feedback group-threshold and snapshot publish/expire events now send system notifications.
 - **Datasource grant semantics added**: `V42__datasource_access_effect.sql` makes datasource grant allow/deny decisions explicit.
 - **Datasource readiness and admin IA added** (2026-06-24): datasource readiness aggregates connection, published metadata snapshot, blocking governance issues, published skills.md, and permission state. Query entry now blocks non-askable sources with visible reasons. Admin navigation now uses business-domain primary navigation plus in-page workspace navigation; see `docs/development/后台信息架构与导航规范.md`.
+- **Phase 0-3 深度优化完成**（2026-07-24）：18 项优化全链路实施，详见 `docs/development/DataOcean深度优化参考方案.md`。覆盖：Embedding/术语表/Fallback/密码/权限 Redis 缓存体系、列级 Schema Linking、SQL-to-Schema 幻觉检测、置信度读时衰减与治理联动、Few-shot embedding 升级、LLM 执行反馈自校正、列元数据采样值采集、Agent 图并行 fan-out、自动标签 PII 检测、质量评分聚合、大结果集 SSE 分块传输。新增 V44（`metadata_quality_issue.column_meta_id`）、V45（`db_column_meta.sample_values`）数据库迁移。
 
 ## Core Domain Concepts
 
@@ -178,7 +180,7 @@ Important modules:
 - `user`: authentication, user, role, department, permission management.
 - `datasource`: datasource management and health checks.
 - `metadata`: metadata scanning/sync/comparison, entity graph, catalog search, metadata events.
-- `governance`: metadata quality checks and governance status.
+- `governance`: metadata quality checks, governance status, quality issue lifecycle, quality score aggregation.
 - `versioning`: metadata snapshot lifecycle and review.
 - `knowledge`: skills.md lifecycle, chunk snapshot persistence, vector publish tasks.
 - `query`: Java-side NL2SQL task management, conversation persistence, SSE bridge, result persistence, fallback chunk loading, glossary term passing.
@@ -211,6 +213,8 @@ Migration notes:
 - `V40`: permission enhancement with priority/time/changelog.
 - `V41`: metadata change events and access approval requests.
 - `V42`: explicit datasource access effect semantics.
+- `V44`: adds `metadata_quality_issue.column_meta_id` for governance-confidence linkage (Phase 1).
+- `V45`: adds `db_column_meta.sample_values` for column sample value collection (Phase 2).
 
 ## Python Service Notes
 
@@ -390,6 +394,7 @@ Latest documented verification:
 - Never delete active RAG vectors until the replacement version is written and verified.
 - Java owns durable conversation history. If Redis memory is introduced later, avoid having Java and Python both write the same conversation-history key.
 - Java consumes Python SSE as a client. Do not replace this with Spring `SseEmitter`; fix client-side SSE parsing and read timeouts instead.
+- **Caching is Redis-only**: All new caching uses the existing `RedisTemplate<String, Object>` bean (Java) or `_get_redis()` (Python). Do not introduce new local-cache layers. Cache failures must gracefully degrade — `try/catch` with warning logs, never block the main path.
 - Use focused tests when changing lifecycle, RAG, SQL safety, permissions, or public API behavior.
 - Preserve user changes in the working tree; do not reset or revert unrelated files.
 - Important module work should update `AGENTS.md`, `CLAUDE.md`, and relevant `README`/docs when project facts change.
