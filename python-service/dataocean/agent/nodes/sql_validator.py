@@ -11,9 +11,30 @@ import logging
 from dataocean.sandbox.validator import validate
 from dataocean.sandbox.rewriter import rewrite
 
+from .sql_executor import _extract_tables, _extract_columns  # Phase 1 #5: 复用表/列提取
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
+
+
+# Phase 1 #5: SQL-to-Schema 幻觉检测辅助函数
+def _detect_table_hallucination(sql: str, schema_context: list[dict]) -> set[str]:
+    """检测 SQL 中是否使用了 schema_context 中不存在的表名（幻觉检测）。
+
+    Args:
+        sql: 生成的 SQL 语句
+        schema_context: AgentState.schema_context（每项含 table_name, columns 等字段）
+
+    Returns:
+        set[str]: 不在 schema 中的表名（空集 = 无幻觉）
+    """
+    try:
+        used_tables = _extract_tables(sql)
+        available_tables = {item["table_name"] for item in schema_context if item.get("table_name")}
+        return {t for t in used_tables if t not in available_tables}
+    except Exception:
+        # sqlglot 解析可能失败（语法错误的 SQL），不影响主校验流程
+        return set()
 
 
 async def run_sql_validator(state: AgentState) -> AgentState:
@@ -42,6 +63,26 @@ async def run_sql_validator(state: AgentState) -> AgentState:
 
     # 第一步：AST 安全校验
     validation = validate(generated_sql, allowed_tables or None, table_scope_mode)
+
+    # Phase 1 #5: SQL-to-Schema 幻觉检测（零额外 LLM 调用，纯 sqlglot AST 校验）
+    # 检测 LLM 是否生成了不在 schema_context 中的表名
+    schema_ctx = state.get("schema_context", [])
+    if schema_ctx:
+        hallucinated = _detect_table_hallucination(generated_sql, schema_ctx)
+        if hallucinated:
+            msg = f"幻觉检测：SQL 使用了不在 schema 中的表 {hallucinated}"
+            logger.warning("SQL 幻觉 task_id=%s %s", task_id, msg)
+            # 将幻觉信息附加到校验结果中，帮助后续自校正节点感知
+            if validation.passed:
+                return {
+                    "validation_result": {
+                        "valid": False, "rewritten_sql": None,
+                        "violations": [msg], "level": "REJECT",
+                    },
+                    "error_message": msg,
+                    "current_node": "SQL_VALIDATOR",
+                }
+
     if not validation.passed:
         reasons = validation.reasons
         level = "DANGEROUS" if any("危险" in r for r in reasons) else "REJECT"
