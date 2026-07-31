@@ -490,18 +490,28 @@ DELETE /api/admin/catalog/lineage/{relationshipId}
 POST /api/admin/catalog/lineage/batch
   Content-Type: multipart/form-data
   body: file (.csv 或 .json)
+
+CSV 格式（表级血缘）：
+  source_table,target_table,lineage_type,description
+  orders,daily_stats,ETL,daily_stats 由 orders 聚合产出
+
+JSON 格式（含列映射）：
+  [ { "sourceEntityId": 100, "targetEntityId": 200, "lineageType": "ETL", ... }, ... ]
+  每项结构与单条创建请求体一致
 ```
 
 **扩展已有 API — 增强 getLineage 返回**：
 
 ```text
 GET /api/admin/catalog/entities/{id}/lineage?depth=3&lineageType=ETL,MANUAL,QUERY
-  → 返回增加 columnMappings 字段，支持按 lineageType 过滤
+  → 每条 LINEAGE 边附带 column_mappings 摘要（来自 relation_metadata.column_mappings）
+  → 仅含列映射摘要信息用于图谱展示，完整列级血缘请走 GET .../column-lineage
+  → 支持按 lineageType 过滤（逗号分隔）
 ```
 
 #### 4.1.2 后端 Service 变更
 
-**新增 `LineageEdgeService`**：
+**新增 `LineageEdgeService`**（归属 `com.dataocean.module.audit` 包，与现有 `LineageService` / `LineageServiceImpl` 同 module）：
 
 ```java
 // 创建 LINEAGE 关系
@@ -510,20 +520,83 @@ LineageEdgeVO createLineage(LineageCreateRequest request);
 // 删除 LINEAGE 关系
 void deleteLineage(Long relationshipId);
 
-// 批量创建
+// 批量创建（支持 CSV/JSON 文件导入）
 List<LineageEdgeVO> batchCreateLineage(List<LineageCreateRequest> requests);
 
 // 查询带列映射的完整血缘（当前 getLineage 只返回关系，扩展返回列映射）
 LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageTypes);
 ```
 
+Controller 同样放在 `com.dataocean.module.audit.controller` 下（与现有 `LineageController` 同包），路径前缀 `/api/admin/catalog/lineage`。
+
 **扩展 `LineageServiceImpl.bridgeToEntityGraph()`**：当前只创建表间的 LINEAGE 边。需要增加列级 DERIVED_FROM 边的创建——对于 sqlglot 解析出的 column mappings，自动创建 COLUMN→COLUMN 的 DERIVED_FROM 关系。
 
 #### 4.1.3 前端录入方案
 
-**页面一：血缘手动录入表单**
+> **导航层级归属**（遵循 `docs/development/guides/后台信息架构与导航规范.md` 三级结构）：
+>
+> ```text
+> 一级（侧边栏）    → 运营与安全
+> 二级（工作区导航） → 数据血缘（统一工作台，合并原有的"血缘查看"+"血缘图谱"）
+> 三级（页面内交互） → 左侧搜索/筛选面板、血缘录入弹窗、列血缘详情抽屉、图谱右键菜单、拖拽连线
+> ```
+>
+> **设计决策**：将现有的 `LineageViewer.vue`（列表式搜索+影响分析）和 `LineageGraph.vue`（可视化图谱）**合并为一个统一页面**——搜索/筛选能力移入左侧面板，图谱占据主区域，列血缘通过右侧抽屉展示。用户在同一个页面上完成"搜索→定位→浏览→编辑"的完整血缘工作流，不需要在页面之间切换和重新选择数据源。
+>
+> - 旧路由 `/admin/audit/lineage` 和 `/admin/audit/lineage-graph` 保留重定向到新统一页面 `/admin/audit/data-lineage`
+> - 工作区导航中原有的"血缘查看"和"血缘图谱"两个入口合并为**一个**"数据血缘"入口
 
-在 `LineageGraph.vue` 或新增 `LineageEditor.vue` 中添加"添加血缘"按钮，弹出表单：
+**统一页面布局**：
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  运营与安全  >  数据血缘                                      │
+├──────────────┬───────────────────────────────┬───────────────┤
+│  左侧面板    │  主区域（血缘图谱）            │  右侧抽屉     │
+│  (320px)     │                               │  (按需滑出)   │
+│              │                               │               │
+│  🔍 搜索     │   ○ orders ──ETL──→ ○ daily  │  列血缘详情   │
+│  [表名/列名] │     │                   │     │               │
+│              │     │                   │     │  total_amount │
+│  数据源      │   ○ customers    ○ weekly    │               │
+│  [下拉选择]  │                               │  上游（来源）  │
+│              │                               │  orders.amount│
+│  血缘类型    │                               │  SUM(...)     │
+│  ☑ QUERY    │                               │  orders.price │
+│  ☑ ETL      │                               │               │
+│  ☑ MANUAL   │                               │  下游（影响）  │
+│              │                               │  weekly_total │
+│  深度: [3]   │                               │               │
+│              │                               │               │
+│  ────────── │                               │               │
+│  实体详情    │                               │               │
+│  (点击节点后 │                               │               │
+│   显示)     │                               │               │
+│              │                               │               │
+│  [+ 添加血缘]│                               │               │
+│  [📥 导入]  │                               │               │
+│  [📷 导出PNG]│                               │               │
+└──────────────┴───────────────────────────────┴───────────────┘
+```
+
+**三个区域的职责分工**：
+
+| 区域 | 职责 | 来源 |
+|------|------|------|
+| **左侧面板**（始终可见，320px） | 数据源选择、搜索表/列、血缘类型过滤、深度调节、选中实体详情、操作按钮 | 吸收原 `LineageViewer.vue` 的搜索+影响分析功能 |
+| **主区域**（弹性宽度） | 交互式血缘 DAG 图谱，支持拖拽、右键菜单、节点展开/折叠 | 原 `LineageGraph.vue` 升级 |
+| **右侧抽屉**（按需滑出） | 列级 DERIVED_FROM 上下游链详情，含表达式和转换类型 | 新增，点击列节点触发 |
+
+**用户工作流示例**：
+1. 进入"数据血缘"页面 → 左侧面板选择数据源 → 图谱加载该数据源的全局血缘拓扑
+2. 在搜索框输入表名 → 图谱自动定位+高亮该表节点 → 左侧面板显示表详情
+3. 点击表节点的展开按钮 → 显示该表的列节点 → 点击某个列节点 → 右侧滑出列血缘抽屉
+4. 点击"+ 添加血缘关系"→ 弹窗填写源表/目标表/列映射 → 保存后图谱即时刷新
+5. 右键表节点 → "展开下游" → 图谱加载更深层的血缘
+
+**功能一：血缘手动录入弹窗（三级交互）**
+
+在统一页面的左侧面板底部提供"+ 添加血缘关系"按钮，点击弹出对话框（非独立页面）：
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -553,11 +626,18 @@ LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageT
 - 列映射中的"源列"支持多选（参考 OpenLineage 的 `inputFields` 数组），"目标列"单选
 - 表达式字段记录转换逻辑
 
-**页面二：血缘图谱交互增强**（LineageGraph.vue 改造）
+**功能二：图谱交互增强（统一页面的主区域）**
 
-- 右键节点 → 菜单"添加下游血缘"→ 弹出上述表单，源实体预填当前选中实体
+图谱主区域基于现有 `LineageGraph.vue` 改造，后续 P2 升级为 D3.js：
+
+- 右键节点（表）→ 菜单"添加下游血缘"/"展开上游"/"展开下游"/"查看详情"
 - 右键边 → 菜单"编辑"/"删除"
-- 边 hover → tooltip 显示 lineageType、描述、操作人、时间
+- 边 hover → tooltip 显示 lineageType、描述、创建人、时间
+- 点击列节点 → 右侧抽屉滑出，显示该列的 DERIVED_FROM 上下游链
+- 空白区域右键 → 菜单"添加血缘关系"/"刷新图谱"/"导出 PNG"
+- 左侧面板搜索框输入 → 图谱自动定位+高亮匹配节点
+
+> **Phase 0 与 Phase 2 的前端衔接**：Phase 0 的左侧面板、录入弹窗、右侧抽屉、tooltip 等功能均设计为 Vue 组件，与主区域图谱渲染库（ECharts → D3.js）通过事件总线通信。Phase 2 将主区域从 ECharts 替换为 D3.js 时，Vue 层组件直接复用，仅需替换底层的事件绑定和节点坐标同步方式。
 
 #### 4.1.4 数据库变更（如需要）
 
@@ -679,6 +759,11 @@ GET /api/admin/catalog/entities/{columnId}/column-lineage?depth=3&direction=both
   → 返回该列的上游（来源）和下游（影响）的 DERIVED_FROM 链
 ```
 
+**前端展示方式**（三级交互，不加独立页面）：
+- 在血缘图谱上点击 COLUMN 节点 → 右侧滑出**抽屉面板**，显示该列的 DERIVED_FROM 上下游链（来源列 + 目标列 + expression）
+- 或者展开表节点下的列列表后，hover 列名 → tooltip 显示该列的 1 层上下游 DERIVED_FROM 摘要
+- 不新增独立路由页面，保持在血缘图谱的三级交互内
+
 ---
 
 ### 4.3 P2 — 血缘图谱交互编辑 🎯 中优先级
@@ -687,12 +772,12 @@ GET /api/admin/catalog/entities/{columnId}/column-lineage?depth=3&direction=both
 
 #### 4.3.1 技术选型建议
 
-DataOcean 已使用 **ECharts**（`LineageGraph.vue` 中），ECharts graph type 支持力导向布局，但**原生不支持交互式添加/删除节点和边**。有两个升级路径：
+DataOcean 已使用 **ECharts**（当前 `LineageGraph.vue` 中），ECharts graph type 支持力导向布局，但**原生不支持交互式添加/删除节点和边**。在统一页面设计中，主区域（图谱）需升级，左侧面板/弹窗/抽屉等 Vue 组件不受影响。有两个升级路径：
 
 | 方案 | 库 | 优点 | 缺点 | 建议 |
 |------|-----|------|------|------|
 | A. 保持 ECharts | ECharts + 自定义事件 | 不需要引入新依赖 | 交互编辑需大量自定义代码 | 如果只做简单编辑 |
-| B. 升级到 D3.js | D3.js v7 + dagre-d3 | 完全控制编辑交互，被 Marquez/Atlas 项目验证 | 需要重写 LineageGraph.vue，需新增依赖 | **推荐**，交互能力更强 |
+| B. 升级到 D3.js | D3.js v7 + dagre-d3 | 完全控制编辑交互，被 Marquez/Atlas 项目验证 | 需要重写主区域图谱渲染层，需新增依赖 | **推荐**，交互能力更强 |
 | C. Vue Flow | @xyflow/vue | 原生支持拖拽节点、画连线、编辑属性，Vue 3 一等支持 | 需新增依赖，自定义节点/边有学习成本 | 可选方案，适合快速实现编辑交互 |
 | D. vis-network | vis-network | 轻量、原生支持编辑 | 社区更新慢 | 可考虑作为折中方案 |
 
@@ -777,14 +862,14 @@ DataOcean 已使用 **ECharts**（`LineageGraph.vue` 中），ECharts graph type
 ```text
 Java 侧新增内部 API（供 Python 调用）:
 
-GET /internal/metadata/relationships?entityId=123&relationType=FOREIGN_KEY,LINEAGE,DERIVED_FROM
+GET /internal/metadata/entities/{entityId}/relationships?relationType=FOREIGN_KEY,LINEAGE,DERIVED_FROM
   → 返回该实体相关的所有关系，供 Python Agent 在 Schema Linking 阶段消费
   
 Python Agent 修改:
 
 1. schema_retriever.py: 在检索列信息时，同时查询该表/列的关系数据
 2. state.py: RetrievedSchema 增加 relationships 字段
-3. schema_linking.py: 提示词中增加"可用的表间关系"上下文
+3. schema_linker.py: 提示词中增加"可用的表间关系"上下文
 ```
 
 #### 4.4.3 优先级说明
@@ -797,24 +882,26 @@ P3 是远期规划，应在 P0-P2 完成后、血缘数据积累到一定量（�
 
 ```
 Phase 0 (P0) — ETL/MANUAL 血缘创建    [预计 3-5 天]
-  ├── 后端：新增 LineageEdgeService + Controller
-  ├── 前端：血缘录入表单 + 图谱右键菜单
-  └── 验收：能手动创建 ETL/MANUAL 血缘边，在图谱上可见
+  ├── 后端：新增 LineageEdgeService + Controller（com.dataocean.module.audit 包）
+  ├── 前端：合并 LineageViewer+LineageGraph 为统一"数据血缘"页面（左侧面板+图谱+右侧抽屉布局）
+  ├── 前端：血缘录入弹窗（左侧面板按钮触发）+ 图谱右键菜单（渲染库解耦设计）
+  ├── 导航：工作区导航中"血缘查看""血缘图谱"合并为一个"数据血缘"入口，旧路由重定向
+  └── 验收：能手动创建 ETL/MANUAL 血缘边，在图谱上可见；搜索表名图谱自动定位
 
 Phase 1 (P1) — DERIVED_FROM 列级派生   [预计 3-5 天]
   ├── 后端：扩展 bridgeToEntityGraph 创建 DERIVED_FROM 边
-  ├── Python：增强 sqlglot 列级派生提取
-  ├── 前端：列映射录入 UI（在 P0 表单基础上扩展）
-  └── 验收：查询执行后自动生成 DERIVED_FROM 边；列映射表单可用
+  ├── Python：新增 _extract_column_derivations()，扩展 QueryResult.column_derivations
+  ├── 前端：录入弹窗内增加列映射表单 + 右侧抽屉展示列血缘 DERIVED_FROM 链（点击列节点触发）
+  └── 验收：查询执行后自动生成 DERIVED_FROM 边；列映射表单可用；列血缘抽屉可用
 
 Phase 2 (P2) — 图谱交互编辑升级        [预计 5-7 天]
-  ├── 前端：D3.js + dagre 重写 LineageGraph.vue
-  ├── 支持拖拽连线、右键编辑/删除、审计显示
-  └── 验收：图谱上可直接增删改血缘边
+  ├── 前端：主区域从 ECharts 替换为 D3.js + dagre（左侧面板+弹窗+抽屉等 Vue 组件直接复用）
+  ├── 前端：支持拖拽连线创建边、右键编辑/删除、审计信息显示
+  └── 验收：图谱上可直接增删改血缘边，旧 ECharts 版本的 Vue 组件零改动迁移
 
 Phase 3 (P3) — RAG 接入               [预计 2-3 天，依赖血缘数据积累]
-  ├── Java：新增 /internal/metadata/relationships 内部 API
-  ├── Python：Schema Linking 消费关系数据
+  ├── Java：新增 /internal/metadata/entities/{id}/relationships 内部 API
+  ├── Python：schema_retriever.py + schema_linker.py 消费关系数据
   └── 验收：RAG 能推荐 JOIN 条件、表关联
 ```
 
