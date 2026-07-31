@@ -67,7 +67,7 @@ FQN 模式：service.database.schema.table.column（哈希分段存储）
 **可借鉴点**：
 
 - ✅ **可直接借鉴**：
-  - `ColumnLineage { fromColumns, toColumn }` 的数据结构——直接作为 DataOcean 列级 LINEAGE 的 relation_metadata 格式
+  - `ColumnLineage { fromColumns, toColumn }` 的数据结构——直接作为 DataOcean `DERIVED_FROM` 关系的 `relation_metadata.column_mappings` 格式
   - `AddLineageRequest` API 设计——作为 ETL/MANUAL 血缘创建的 API 参考
   - 三阶段 SQL 解析链思想——DataOcean 已有 sqlglot，可在此基础上增强列级提取
   - `LineageSource` 枚举（Query/Pipeline/Dashboard/Manual）——与 DataOcean 的 QUERY/ETL/MANUAL 对齐
@@ -204,7 +204,10 @@ URN 模式（SchemaField）：
 }
 ```
 
-**Transformation 类型**：`IDENTITY`（直传）、`MASKED`（脱敏）、`DIRECT`/`INDIRECT`（直接/间接引用）、`AGGREGATION`（聚合）。
+**Transformation 类型**（OpenLineage 规范）：
+- Type 层：`IDENTITY`（直传，不改变值）、`TRANSFORMATION`（经过计算/转换）、`MASKED`（脱敏）
+- Subtype 层：`DIRECT`/`INDIRECT`（直接/间接引用）、`AGGREGATION`（聚合）等
+- DataOcean API 使用简化子集（`IDENTITY | TRANSFORMATION | AGGREGATION`），落库时映射到更细粒度的 `expression_type`（见 §4.2.2）。
 
 **可借鉴点**：
 
@@ -411,7 +414,7 @@ GET /api/v1/column-lineage/{nodeId}?depth=5&withDownstream=true
 ### 项目现状回顾
 
 DataOcean 已有基础设施：
-- `metadata_entity` 表：5 种实体类型（DATASOURCE/TABLE/COLUMN/GLOSSARY_TERM/TAG），FQN 体系 `datasource.db.table.column`
+- `metadata_entity` 表：6 种实体类型（DATASOURCE/DATABASE/TABLE/COLUMN/GLOSSARY_TERM/TAG），FQN 体系 `datasource.db.table.column`
 - `metadata_relationship` 表：8 种关系类型（CONTAINS/HAS_PART/LINEAGE/TAGGED_WITH/GLOSSARY_OF/FOREIGN_KEY/DERIVED_FROM/RELATED_TO）
 - 3 种血缘子类型常量：`LINEAGE_QUERY`（自动）、`LINEAGE_ETL`（定义但无 API）、`LINEAGE_MANUAL`（定义但无 API）
 - 自动血缘：快照发布→实体+CONTAINS+HAS_PART+FOREIGN_KEY；查询执行→LINEAGE(QUERY)
@@ -529,8 +532,8 @@ LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageT
 │                                                   │
 │  血缘类型：  ○ ETL 流转    ○ 手动标注            │
 │                                                   │
-│  源实体：    [🔍 搜索表/列...]    orders         │
-│  目标实体：  [🔍 搜索表/列...]    daily_stats    │
+│  源实体：    [🔍 搜索表...]      orders         │
+│  目标实体：  [🔍 搜索表...]      daily_stats    │
 │                                                   │
 │  描述：      [daily_stats 由 orders 聚合产出  ]  │
 │                                                   │
@@ -546,7 +549,7 @@ LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageT
 └─────────────────────────────────────────────────┘
 ```
 
-- 源/目标实体搜索复用现有的 `searchCatalog` API（全文搜索 + 实体类型过滤）
+- 源/目标实体搜索复用现有的 `searchCatalog` API（全文搜索 + `entityType=TABLE` 过滤，确保只能选择表）
 - 列映射中的"源列"支持多选（参考 OpenLineage 的 `inputFields` 数组），"目标列"单选
 - 表达式字段记录转换逻辑
 
@@ -558,7 +561,7 @@ LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageT
 
 #### 4.1.4 数据库变更（如需要）
 
-当前 `metadata_relationship` 表已有 `relation_metadata` JSON 字段，无需改表结构。只需定义标准化的 JSON Schema：
+当前 `metadata_relationship` 表已有 `relation_metadata` JSON 字段，**核心血缘存储无需改表结构**。审计字段（`created_by`）建议后续通过 DDL 新增表列（见下方审计字段存储约定）。只需定义标准化的 JSON Schema：
 
 ```json
 {
@@ -610,17 +613,32 @@ LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageT
 ```json
 // metadata_relationship 中 relation_metadata 的 DERIVED_FROM JSON Schema
 {
-  "expression": "amount * unit_price",          // 转换表达式
-  "expression_type": "ARITHMETIC",              // ARITHMETIC | AGGREGATION | CONCAT | CASE_WHEN | CAST | DIRECT
+  "expression": "amount * unit_price",          // 转换表达式（原始 SQL 片段）
+  "expression_type": "ARITHMETIC",              // 表达式类型（DataOcean 规范，见下方枚举）
   "description": "单价 × 数量计算订单金额",
-  "source": "SQL_PARSER",                       // SQL_PARSER | MANUAL | INFERRED
-  "transformation": {                           // 对齐 OpenLineage ColumnLineageDatasetFacet
-    "type": "TRANSFORMATION",
-    "subtype": "ARITHMETIC",
+  "source": "SQL_PARSER",                       // 来源：SQL_PARSER | MANUAL | INFERRED
+  "transformation": {                           // 可选：对齐 OpenLineage ColumnLineageDatasetFacet
+    "type": "TRANSFORMATION",                   //   OpenLineage type：IDENTITY | TRANSFORMATION | MASKED
+    "subtype": "ARITHMETIC",                    //   OpenLineage subtype：与 expression_type 对齐
     "description": "amount * unit_price"
   }
 }
 ```
+
+> **expression_type 枚举（DataOcean 规范，比 OpenLineage 更细粒度）**：
+>
+> | expression_type | 说明 | 对应 OpenLineage type/subtype | API transformationType |
+> |----------------|------|------------------------------|----------------------|
+> | `DIRECT` | 直接映射（列直传，无计算） | IDENTITY / DIRECT | IDENTITY |
+> | `ARITHMETIC` | 算术运算（+ - * /） | TRANSFORMATION | TRANSFORMATION |
+> | `AGGREGATION` | 聚合函数（SUM/COUNT/AVG/MAX/MIN） | TRANSFORMATION / AGGREGATION | AGGREGATION |
+> | `CONCAT` | 字符串拼接 | TRANSFORMATION | TRANSFORMATION |
+> | `CASE_WHEN` | 条件表达式 | TRANSFORMATION | TRANSFORMATION |
+> | `CAST` | 类型转换 | TRANSFORMATION | TRANSFORMATION |
+>
+> - `expression_type` 是 DataOcean 的主存储字段，前端录入时通过 `transformationType`（简化版 3 选 1）自动映射。
+> - `transformation` 子对象为可选字段，仅用于对外输出对齐 OpenLineage 标准，内部查询不依赖它。
+> - 自动提取（sqlglot）时，直接写入 `expression_type`；手动录入时，用户选 `transformationType`，后端映射到 `expression_type`。
 
 #### 4.2.3 自动提取方案
 
@@ -628,12 +646,19 @@ LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageT
 
 当前 `LineageServiceImpl.saveLineage()` 只存了 used_columns（谁被引用了），没有提取列→列的派生关系。需要：
 
-1. **Python 侧增强**：在 `sql_validator.py` 或 `sql_executor.py` 中，解析 SQL AST 时同时提取列级派生关系
+1. **Python 侧增强**：在 `sql_executor.py` 的 `_extract_columns()` 基础上，新增 `_extract_column_derivations()` 函数，解析 SQL AST 时同时提取列级派生关系
    - SELECT 子句：`SELECT a.amount * a.price AS total` → `total DERIVED_FROM [a.amount, a.price], expression="amount*price"`
    - 聚合：`SELECT SUM(b.sales) AS total_sales` → `total_sales DERIVED_FROM [b.sales], expression_type=AGGREGATION`
    - CASE WHEN：`SELECT CASE WHEN a > 0 THEN 'pos' ELSE 'neg' END` → 派生列 DERIVED_FROM [a]
+   - **数据传递**：提取结果放入 `QueryResult.column_derivations` 新字段（结构化列表），随 SSE `result` 事件返回 Java 侧。
 
-2. **Java 侧消费**：在 `LineageServiceImpl.bridgeToEntityGraph()` 中，为每对派生列自动创建 DERIVED_FROM 关系
+2. **Java 侧消费**：在 `LineageServiceImpl.bridgeToEntityGraph()` 中，除创建 LINEAGE 边外，消费 `QueryResult.column_derivations` 为每对派生列自动创建 DERIVED_FROM 关系。数据流：
+   ```text
+   Python sql_executor.py（sqlglot AST 提取列派生）
+     → QueryResult.column_derivations (SSE)
+       → Java QueryTaskServiceImpl（解析 SSE result）
+         → LineageServiceImpl.bridgeToEntityGraph()（写入 DERIVED_FROM 边）
+   ```
 
 3. **参考 Spline 模式**：
    - 目标列 → `derivesFrom` → 源列（COLUMN→COLUMN 的 DERIVED_FROM 边）
@@ -713,8 +738,9 @@ DataOcean 已使用 **ECharts**（`LineageGraph.vue` 中），ECharts graph type
 ```
 
 **拖拽交互**：
-- 从表节点拖出连线，释放到另一个节点→自动创建 LINEAGE 边
-- 从表节点的"展开列"区域拖出列→到目标表列→创建 DERIVED_FROM 边
+- 从表节点拖出连线，释放到另一个表节点→自动创建 LINEAGE 边（TABLE → TABLE）
+- 从表节点的"展开列"区域拖出列→释放到目标表的列→自动创建 DERIVED_FROM 边（COLUMN → COLUMN）；若两端表之间尚不存在 LINEAGE 边，同时自动创建一条 LINEAGE 边（TABLE → TABLE），确保 DERIVED_FROM 不会成为孤立边
+- 拖拽创建的关系默认 `lineageType=MANUAL`，可在边上右键编辑修改
 
 **审计信息显示**：每条新增/手动编辑的边显示操作人和时间（参考 DataHub 的 avatar + timestamp）
 
