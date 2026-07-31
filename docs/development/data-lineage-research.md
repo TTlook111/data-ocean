@@ -437,8 +437,8 @@ POST /api/admin/catalog/lineage
 
 请求体：
 {
-  "sourceEntityId": 100,           // 源实体 ID（仅限 TABLE 类型；列级派生请用 DERIVED_FROM）
-  "targetEntityId": 200,           // 目标实体 ID（仅限 TABLE 类型）
+  "sourceEntityId": 100,           // 上游表实体 ID（数据从 source 流向 target）
+  "targetEntityId": 200,           // 下游表实体 ID
   "lineageType": "ETL",            // ETL | MANUAL（QUERY 由系统自动生成）
   "description": "daily_stats 由 orders 聚合产出",
   "columnMappings": [              // 列级映射（可选，填写后自动创建 DERIVED_FROM 边）
@@ -473,16 +473,19 @@ POST /api/admin/catalog/lineage
 >
 > - LINEAGE 的 `columnMappings` 字段是所属 DERIVED_FROM 边的**附属摘要信息**，用于图谱展示时在表级边上显示列映射详情，不替代底层 DERIVED_FROM 边。
 > - API 层必须校验 `sourceEntityId`/`targetEntityId` 的 `entity_type` 均为 `TABLE`，拒绝直接创建 COLUMN → COLUMN 的 LINEAGE。
-> - 列级关系仅有 DERIVED_FROM 一种表达，避免同一事实被 LINEAGE 和 DERIVED_FROM 重复表达导致查询/展示不一致
+> - 列级关系仅有 DERIVED_FROM 一种表达，避免同一事实被 LINEAGE 和 DERIVED_FROM 重复表达导致查询/展示不一致。
+> - **边的方向统一约定**：全系统 LINEAGE 边统一为 `source（上游）→ target（下游）`，即数据从 source 流向 target。现有的 QUERY 自动血缘 `bridgeToEntityGraph()` 需同步修改——当前 FROM 表→JOIN 表的方向反转，统一为"FROM 表是 JOIN 表的上游数据来源"。
 
 **新增 API — 删除 LINEAGE 关系**：
 
 ```text
-DELETE /api/admin/catalog/lineage/{relationshipId}
+DELETE /api/admin/catalog/lineage/{relationshipId}?cascadeDerived=true
   Permission: metadata:manage 或 *
 
 响应：200 成功 / 404 不存在
 ```
+
+> **级联删除约定**：删除 LINEAGE 边前，后端检查是否有关联的 DERIVED_FROM 边（通过 column_mappings 中的列 ID 匹配）。若有，返回关联数量；前端弹窗提示"该关系下有 N 条列映射，是否一并删除？"——用户确认后传 `cascadeDerived=true` 级联删除。若 `cascadeDerived=false` 或未传，仅删除 LINEAGE 边，DERIVED_FROM 保留为孤边（前端不再展示）。
 
 **新增 API — 批量创建 ETL 血缘**（用于 CSV/JSON 导入）：
 
@@ -517,8 +520,8 @@ GET /api/admin/catalog/entities/{id}/lineage?depth=3&lineageType=ETL,MANUAL,QUER
 // 创建 LINEAGE 关系
 LineageEdgeVO createLineage(LineageCreateRequest request);
 
-// 删除 LINEAGE 关系
-void deleteLineage(Long relationshipId);
+// 删除 LINEAGE 关系（cascadeDerived=true 时级联删除关联的 DERIVED_FROM 边）
+void deleteLineage(Long relationshipId, boolean cascadeDerived);
 
 // 批量创建（支持 CSV/JSON 文件导入）
 List<LineageEdgeVO> batchCreateLineage(List<LineageCreateRequest> requests);
@@ -587,6 +590,11 @@ Controller 同样放在 `com.dataocean.module.audit.controller` 下（与现有 
 | **主区域**（弹性宽度） | 交互式血缘 DAG 图谱，支持拖拽、右键菜单、节点展开/折叠 | 原 `LineageGraph.vue` 升级 |
 | **右侧抽屉**（按需滑出） | 列级 DERIVED_FROM 上下游链详情，含表达式和转换类型 | 新增，点击列节点触发 |
 
+> **页面初始化行为**：
+> - 进入页面时默认选中第一个可用数据源并加载图谱，避免空白页。
+> - 数据源选择记录到 `localStorage`，下次进入自动恢复上次选择。
+> - 新文件：`frontend/src/views/admin/audit/DataLineage.vue`，路由 `/admin/audit/data-lineage`。
+
 **用户工作流示例**：
 1. 进入"数据血缘"页面 → 左侧面板选择数据源 → 图谱加载该数据源的全局血缘拓扑
 2. 在搜索框输入表名 → 图谱自动定位+高亮该表节点 → 左侧面板显示表详情
@@ -623,6 +631,7 @@ Controller 同样放在 `com.dataocean.module.audit.controller` 下（与现有 
 ```
 
 - 源/目标实体搜索复用现有的 `searchCatalog` API（全文搜索 + `entityType=TABLE` 过滤，确保只能选择表）
+- 选择源表和目标表后，列映射中的"源列"和"目标列"下拉数据来源：`GET /api/admin/catalog/entities?entityType=COLUMN&parentTableId={tableId}`，查询 metadata_entity 中该表的所有 COLUMN 子实体
 - 列映射中的"源列"支持多选（参考 OpenLineage 的 `inputFields` 数组），"目标列"单选
 - 表达式字段记录转换逻辑
 
@@ -748,9 +757,10 @@ Controller 同样放在 `com.dataocean.module.audit.controller` 下（与现有 
 
 在 P0 的列映射表单中填写列映射后，后端处理逻辑：
 1. 创建一条 LINEAGE 边（TABLE → TABLE），`relation_metadata.column_mappings` 存储列映射摘要。
-2. 为每条 `columnMappings` 条目自动创建一条 DERIVED_FROM 边（COLUMN → COLUMN），`relation_metadata` 存储表达式和转换类型。
-3. **不会**创建 COLUMN → COLUMN 的 LINEAGE 边——列级关系仅有 DERIVED_FROM 一种表达，避免同一事实被两种关系类型重复存储。
-4. 查询列级血缘时统一走 `GET /api/admin/catalog/entities/{columnId}/column-lineage`（只查 DERIVED_FROM 边），不存在去重歧义。
+2. 为每条 `columnMappings` 条目自动创建 DERIVED_FROM 边（COLUMN → COLUMN），`relation_metadata` 存储表达式和转换类型。**注意**：`fromColumns: [301, 302]` + `toColumn: 401` 会创建 2 条 DERIVED_FROM 边（301→401 和 302→401），每条一对一，便于独立查询和展示。
+3. **upsert 策略**：DERIVED_FROM 边复用 `metadata_relationship` 表的 `UNIQUE(source_id, target_id, relation_type)` 约束——同一对列之间只保留一条 DERIVED_FROM 边。重复创建时（如先有 sqlglot 自动提取、后又手动录入），后写入的数据覆盖 `relation_metadata`（source 字段更新为 `["SQL_PARSER", "MANUAL"]` 数组以保留来源历史）。
+4. **不会**创建 COLUMN → COLUMN 的 LINEAGE 边——列级关系仅有 DERIVED_FROM 一种表达，避免同一事实被两种关系类型重复存储。
+5. 查询列级血缘时统一走 `GET /api/admin/catalog/entities/{columnId}/column-lineage`（只查 DERIVED_FROM 边），不存在去重歧义。
 
 #### 4.2.5 列级血缘查询 API
 
@@ -883,9 +893,10 @@ P3 是远期规划，应在 P0-P2 完成后、血缘数据积累到一定量（�
 ```
 Phase 0 (P0) — ETL/MANUAL 血缘创建    [预计 3-5 天]
   ├── 后端：新增 LineageEdgeService + Controller（com.dataocean.module.audit 包）
-  ├── 前端：合并 LineageViewer+LineageGraph 为统一"数据血缘"页面（左侧面板+图谱+右侧抽屉布局）
+  ├── 后端：bridgeToEntityGraph() 方向统一——修正 QUERY 血缘为 FROM表（上游）→JOIN表（下游）
+  ├── 前端：新建 DataLineage.vue，合并 LineageViewer+LineageGraph 为统一"数据血缘"页面
   ├── 前端：血缘录入弹窗（左侧面板按钮触发）+ 图谱右键菜单（渲染库解耦设计）
-  ├── 导航：工作区导航中"血缘查看""血缘图谱"合并为一个"数据血缘"入口，旧路由重定向
+  ├── 导航：工作区导航中"血缘查看""血缘图谱"合并为"数据血缘"入口，旧路由 301 重定向到 /admin/audit/data-lineage
   └── 验收：能手动创建 ETL/MANUAL 血缘边，在图谱上可见；搜索表名图谱自动定位
 
 Phase 1 (P1) — DERIVED_FROM 列级派生   [预计 3-5 天]
