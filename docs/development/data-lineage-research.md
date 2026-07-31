@@ -434,14 +434,14 @@ POST /api/admin/catalog/lineage
 
 请求体：
 {
-  "sourceEntityId": 123,        // 源实体 ID（可以是 TABLE 或 COLUMN）
-  "targetEntityId": 456,        // 目标实体 ID
-  "lineageType": "ETL",         // ETL | MANUAL（QUERY 由系统自动生成）
+  "sourceEntityId": 100,           // 源实体 ID（仅限 TABLE 类型；列级派生请用 DERIVED_FROM）
+  "targetEntityId": 200,           // 目标实体 ID（仅限 TABLE 类型）
+  "lineageType": "ETL",            // ETL | MANUAL（QUERY 由系统自动生成）
   "description": "daily_stats 由 orders 聚合产出",
-  "columnMappings": [           // 列级映射（可选，用于列→列血缘）
+  "columnMappings": [              // 列级映射（可选，填写后自动创建 DERIVED_FROM 边）
     {
-      "fromColumns": [123, 124],  // 源列实体 ID 列表
-      "toColumn": 456,            // 目标列实体 ID
+      "fromColumns": [301, 302],   // 源列实体 ID 列表（COLUMN 类型，如 orders.amount, orders.price）
+      "toColumn": 401,             // 目标列实体 ID（COLUMN 类型，如 daily_stats.total_amount）
       "expression": "SUM(amount * unit_price)",  // 转换表达式
       "transformationType": "AGGREGATION"        // IDENTITY | TRANSFORMATION | AGGREGATION
     }
@@ -453,13 +453,24 @@ POST /api/admin/catalog/lineage
   "code": 200,
   "data": {
     "relationshipId": 789,
-    "sourceEntityId": 123,
-    "targetEntityId": 456,
+    "sourceEntityId": 100,
+    "targetEntityId": 200,
     "relationType": "LINEAGE",
     "relationMetadata": { ... }
   }
 }
 ```
+
+> **LINEAGE 与 DERIVED_FROM 的关系模型约定**：
+>
+> | 关系类型 | 源→目标 | 用途 | 创建时机 |
+> |---------|---------|------|---------|
+> | `LINEAGE` | TABLE → TABLE | 表级数据流转 | API 手动创建 / 查询执行自动提取 |
+> | `DERIVED_FROM` | COLUMN → COLUMN | 列的计算依赖 | LINEAGE 创建时自动生成 / sqlglot 自动提取 |
+>
+> - LINEAGE 的 `columnMappings` 字段是所属 DERIVED_FROM 边的**附属摘要信息**，用于图谱展示时在表级边上显示列映射详情，不替代底层 DERIVED_FROM 边。
+> - API 层必须校验 `sourceEntityId`/`targetEntityId` 的 `entity_type` 均为 `TABLE`，拒绝直接创建 COLUMN → COLUMN 的 LINEAGE。
+> - 列级关系仅有 DERIVED_FROM 一种表达，避免同一事实被 LINEAGE 和 DERIVED_FROM 重复表达导致查询/展示不一致
 
 **新增 API — 删除 LINEAGE 关系**：
 
@@ -553,10 +564,10 @@ LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageT
 {
   "lineage_type": "ETL",
   "description": "daily_stats 由 orders 聚合产出",
-  "created_by": "admin",
-  "updated_at": "2026-07-28T10:00:00Z",
   "column_mappings": [
     {
+      "from_column_ids": [301, 302],
+      "to_column_id": 401,
       "from_fqns": ["mysql_prod.mydb.orders.amount", "mysql_prod.mydb.orders.price"],
       "to_fqn": "mysql_prod.mydb.daily_stats.total_amount",
       "expression": "SUM(amount * unit_price)",
@@ -565,6 +576,17 @@ LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageT
   ]
 }
 ```
+
+> **存储口径说明**：
+> - **主键存储**：`from_column_ids` / `to_column_id` 以实体 ID 为准。ID 不受列重命名影响，查询时通过 ID JOIN `metadata_entity` 获取当前 FQN。
+> - **冗余加速**：`from_fqns` / `to_fqn` 在写入时同步填充，用于前端展示和全文搜索，避免每次渲染血缘图都做 N+1 JOIN。
+> - **一致性维护**：快照重新发布导致列 FQN 变化时，通过 `SnapshotEntitySyncListener` 同步刷新相关 `relation_metadata` 中的 FQN 冗余字段。
+>
+> **审计字段存储约定**：
+> - **表列优先**：`created_at` 使用 `metadata_relationship.created_at` 表列（已有），来源可靠且不可篡改。
+> - **建议新增表列**：为 `metadata_relationship` 新增 `created_by VARCHAR(64)` 列（通过 MyBatis-Plus 自动填充从当前登录用户获取），审计信息的权威来源应放在表列而非 JSON。
+> - **过渡期处理**：若暂未新增表列，可在 `relation_metadata` 中临时存放 `created_by` / `updated_at`。一旦表列补齐，JSON 中的审计字段标记为 `@Deprecated`，读取时优先使用表列。
+> - **展示取数规则**：统一优先读取表标准审计列；表列缺失时才降级读取 `relation_metadata` 中的对应字段。
 
 ---
 
@@ -579,8 +601,9 @@ LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageT
 > **COLUMN A `DERIVED_FROM` COLUMN B** = "列 A 的值是由列 B（或列 B+C...）经过计算得出的"
 
 与 LINEAGE 的区别：
-- `LINEAGE`（表→表）：数据在表之间流转
-- `DERIVED_FROM`（列→列）：列的计算依赖关系
+- `LINEAGE`（TABLE → TABLE）：数据在表之间流转。**不表达列级关系**，API 层校验两端实体类型必须为 TABLE。
+- `DERIVED_FROM`（COLUMN → COLUMN）：列的计算依赖关系。**是列级关系的唯一表达方式**。
+- 关联方式：一条 LINEAGE 边的 `relation_metadata.column_mappings` 携带所属 DERIVED_FROM 的摘要信息，用于图谱展示时在表级边上显示列映射详情。
 
 #### 4.2.2 DERIVED_FROM 关系的数据结构
 
@@ -618,7 +641,11 @@ LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageT
 
 #### 4.2.4 手动录入列级派生
 
-在 P0 的列映射表单中，当用户在血缘录入时填写列映射，同时自动创建 DERIVED_FROM 关系。
+在 P0 的列映射表单中填写列映射后，后端处理逻辑：
+1. 创建一条 LINEAGE 边（TABLE → TABLE），`relation_metadata.column_mappings` 存储列映射摘要。
+2. 为每条 `columnMappings` 条目自动创建一条 DERIVED_FROM 边（COLUMN → COLUMN），`relation_metadata` 存储表达式和转换类型。
+3. **不会**创建 COLUMN → COLUMN 的 LINEAGE 边——列级关系仅有 DERIVED_FROM 一种表达，避免同一事实被两种关系类型重复存储。
+4. 查询列级血缘时统一走 `GET /api/admin/catalog/entities/{columnId}/column-lineage`（只查 DERIVED_FROM 边），不存在去重歧义。
 
 #### 4.2.5 列级血缘查询 API
 
@@ -640,15 +667,20 @@ DataOcean 已使用 **ECharts**（`LineageGraph.vue` 中），ECharts graph type
 | 方案 | 库 | 优点 | 缺点 | 建议 |
 |------|-----|------|------|------|
 | A. 保持 ECharts | ECharts + 自定义事件 | 不需要引入新依赖 | 交互编辑需大量自定义代码 | 如果只做简单编辑 |
-| B. 升级到 D3.js | D3.js v7 + dagre-d3 | 完全控制编辑交互，被 Marquez/Atlas 项目验证 | 需要重写 LineageGraph.vue | **推荐**，交互能力更强 |
-| C. React Flow | @xyflow/react | 原生支持拖拽节点、画连线、编辑属性 | 需要 React；项目是 Vue 3 | 不推荐，需要桥接 |
+| B. 升级到 D3.js | D3.js v7 + dagre-d3 | 完全控制编辑交互，被 Marquez/Atlas 项目验证 | 需要重写 LineageGraph.vue，需新增依赖 | **推荐**，交互能力更强 |
+| C. Vue Flow | @xyflow/vue | 原生支持拖拽节点、画连线、编辑属性，Vue 3 一等支持 | 需新增依赖，自定义节点/边有学习成本 | 可选方案，适合快速实现编辑交互 |
 | D. vis-network | vis-network | 轻量、原生支持编辑 | 社区更新慢 | 可考虑作为折中方案 |
 
-**推荐方案 B（D3.js + dagre-d3）**：
-- D3.js 已在项目中（ECharts 内部使用）
-- dagre 提供层次化布局（比力导向更适合血缘 DAG）
-- Marquez UI 的 D3.js 血缘图验证了可行性
-- 参考 DataHub 的 visx 库（D3 的 React 包装），在 Vue 3 中可以用类似方式
+**推荐方案 B（D3.js + dagre-d3），备选方案 C（Vue Flow）**：
+- D3.js 提供完全自定义的交互编辑能力，dagre 提供层次化布局（比力导向更适合血缘 DAG）
+- Marquez UI 的 D3.js 血缘图验证了该方案在血缘场景的可行性
+- 需新增 `d3` 和 `dagre-d3`（或 `@dagrejs/dagre`）依赖，体积可控（D3 v7 tree-shaking 后按需引入约 30-50KB gzip）
+- Vue 3 中可直接操作 SVG DOM，无需 React 桥接层
+
+> **方案 B vs C 选择建议**：
+> - 如果团队对 D3 熟悉或需要完全自定义的交互（拖拽连线、列节点展开/折叠、表达式节点等），选 B。
+> - 如果希望更快出 MVP 且交互复杂度适中，选 C（Vue Flow），它自带节点拖拽、连线、小地图等开箱即用功能。
+> - 当前推荐 B 主要是考虑到后续需要深度定制血缘图交互（列图层切换、表达式节点、多图层叠加），D3 的灵活性更适配长期需求。React-only 方案（如 @xyflow/react）不在考虑范围内。
 
 #### 4.3.2 交互设计
 
