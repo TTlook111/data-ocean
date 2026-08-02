@@ -119,7 +119,11 @@ async def _prune_schema(question: str, schema_context: list[dict]) -> list[dict]
 
 
 def _build_schema_summary(schema_context: list[dict]) -> str:
-    """构建 schema 摘要文本，用于 LLM 分析（Phase 2 #9: 含置信度标注）"""
+    """构建 schema 摘要文本，用于 LLM 分析。
+
+    Phase 2 #9: 含置信度等级标注（H/M/L）
+    Phase 3: 含表间关系信息（FOREIGN_KEY → JOIN 推荐、LINEAGE → 表关联、DERIVED_FROM → 字段派生）
+    """
     lines = []
     for schema in schema_context:
         table_name = schema.get("table_name", "")
@@ -133,12 +137,65 @@ def _build_schema_summary(schema_context: list[dict]) -> str:
             for c in columns:
                 name = c.get("name", "") if isinstance(c, dict) else str(c)
                 trust = c.get("trust_score", 0) if isinstance(c, dict) else 0
-                # Phase 2 #9: 置信度等级标注（HIGH≥70, MEDIUM≥40, LOW<40）
                 level = "H" if trust >= 70 else ("M" if trust >= 40 else "L")
                 col_names.append(f"{name}[{level}]")
             line += f"，字段: {', '.join(col_names)}"
         if chunk_text:
             line += f"\n  摘要: {chunk_text}"
+
+        # Phase 3: 表间关系信息
+        foreign_keys: list = schema.get("foreign_keys", [])
+        lineages: list = schema.get("lineages", [])
+        derived_froms: list = schema.get("derived_froms", [])
+
+        if foreign_keys:
+            fk_lines = []
+            for fk in foreign_keys[:5]:  # 最多展示 5 条外键
+                target = fk.get("targetEntity", {})
+                rel_meta = fk.get("relationMetadata", "")
+                fk_lines.append(f"    → JOIN {target.get('name', '?')} (外键: {_extract_rel_desc(rel_meta)})")
+            line += "\n  外键关系:\n" + "\n".join(fk_lines)
+
+        if lineages:
+            lin_lines = []
+            for lin in lineages[:3]:
+                src = lin.get("sourceEntity", {})
+                tgt = lin.get("targetEntity", {})
+                src_name = src.get("name", "?") if src else "?"
+                tgt_name = tgt.get("name", "?") if tgt else "?"
+                lin_lines.append(f"    → 血缘: {src_name} → {tgt_name}")
+            line += "\n  血缘关系:\n" + "\n".join(lin_lines)
+
+        if derived_froms:
+            der_lines = []
+            for d in derived_froms[:5]:
+                src = d.get("sourceEntity", {})
+                tgt = d.get("targetEntity", {})
+                src_name = src.get("name", "?") if src else "?"
+                tgt_name = tgt.get("name", "?") if tgt else "?"
+                rel_meta = d.get("relationMetadata", "")
+                expr = _extract_rel_meta_field(rel_meta, "expression")
+                expr_str = f" = {expr}" if expr else ""
+                der_lines.append(f"    → 派生: {src_name} → {tgt_name}{expr_str}")
+            line += "\n  列派生关系:\n" + "\n".join(der_lines)
+
         lines.append(line)
 
     return "\n".join(lines)
+
+
+def _extract_rel_desc(relation_metadata: str) -> str:
+    """从 relation_metadata JSON 中提取简短描述"""
+    return _extract_rel_meta_field(relation_metadata, "column_name") or "关联"
+
+
+def _extract_rel_meta_field(meta_str: str, field: str) -> str | None:
+    """从 relation_metadata JSON 字符串中提取指定字段值"""
+    if not meta_str:
+        return None
+    try:
+        import json as _json
+        meta = _json.loads(meta_str)
+        return meta.get(field)
+    except Exception:
+        return None

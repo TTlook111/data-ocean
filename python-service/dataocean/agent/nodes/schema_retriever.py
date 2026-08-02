@@ -3,11 +3,17 @@
 使用改写后的查询调用 RAG 模块进行语义检索，
 获取相关表结构和字段上下文供 SQL 生成使用。
 Milvus 不可用时自动降级，使用 skills.md 核心表。
+
+Phase 3: 查询 Java 内部 API 获取表间关系（FOREIGN_KEY / LINEAGE / DERIVED_FROM），
+增强 Schema Linking 阶段的 JOIN 推荐和字段解释能力。
 """
 
 from __future__ import annotations
 
 import logging
+import os
+
+import httpx
 
 from dataocean.rag.service import retrieve_schemas
 from dataocean.rag.schema import RetrieveRequest
@@ -16,6 +22,9 @@ from dataocean.rag.fallback import get_degradation_notice
 from ..state import AgentState
 
 logger = logging.getLogger(__name__)
+
+JAVA_BASE_URL = os.getenv("JAVA_GATEWAY_URL", "http://localhost:8080")
+INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "dataocean-internal-default")
 
 
 async def run_schema_retriever(state: AgentState) -> AgentState:
@@ -51,57 +60,114 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
         }
 
     # 转换为 AgentState 中的 schema_context 格式
-    # 将 RAG 检索结果转换为 LangGraph 工作流期望的格式
     schema_context = []
     for item in response.results:
-        # Phase 0 P0-A: 传递列信息——将 RAG 层的 ColumnInfo 列表传入 AgentState.schema_context
         columns_data = []
         if hasattr(item, "columns") and item.columns:
             columns_data = [
-                {
-                    "name": c.name,
-                    "type": c.type or "",
-                    "comment": c.comment or "",
-                    "trust_score": c.trust_score,
-                }
+                {"name": c.name, "type": c.type or "", "comment": c.comment or "", "trust_score": c.trust_score}
                 for c in item.columns
             ]
-        # Phase 3 #15: 元数据驱动——传递更多治理元数据字段
         table_comment = getattr(item, "table_comment", "") or ""
         source_type = getattr(item, "source_type", "SCHEMA") or "SCHEMA"
         schema_context.append({
-            "table_name": item.table_name or "",           # 表名
-            "table_comment": table_comment,                 # Phase 3 #15: 表注释
-            "source_type": source_type,                     # Phase 3 #15: 来源类型
-            "chunk_type": item.chunk_type or "",           # chunk 类型（TABLE_DESC/JOIN_PATH/METRIC 等）
-            "chunk_text": item.chunk_text or "",           # chunk 文本内容
-            "related_column": getattr(item, "related_column", None),  # 关联列
-            "columns": columns_data,                        # Phase 0 P0-A: 列信息列表
-            "confidence_score": getattr(item, "trust_score", 0) or 0, # 置信度分数
-            "governance_status": item.governance_status or "NORMAL",   # 治理状态
-            "score": item.score if hasattr(item, "score") else 0.0,   # 相似度分数
+            "table_name": item.table_name or "",
+            "table_comment": table_comment,
+            "source_type": source_type,
+            "chunk_type": item.chunk_type or "",
+            "chunk_text": item.chunk_text or "",
+            "related_column": getattr(item, "related_column", None),
+            "columns": columns_data,
+            "confidence_score": getattr(item, "trust_score", 0) or 0,
+            "governance_status": item.governance_status or "NORMAL",
+            "score": item.score if hasattr(item, "score") else 0.0,
+            "entity_id": getattr(item, "entity_id", None),  # Phase 3: 实体ID
         })
 
-    # 未找到相关表时返回错误信息
     if not schema_context:
         return {
             "schema_context": [],
-            "error_message": "未找到相关数据表，请确认数据源已完成元数据治理和知识库发布",
+            "error_message": "未找到相关数据表",
             "current_node": "SCHEMA_RETRIEVER",
         }
 
+    # Phase 3: 查询关系数据增强 Schema
+    schema_context = await _enrich_with_relationships(schema_context, task_id)
+
     logger.info("Schema 召回完成 task_id=%s count=%d degraded=%s", task_id, len(schema_context), response.degraded)
 
-    result = {
-        "schema_context": schema_context,
-        "current_node": "SCHEMA_RETRIEVER",
-    }
+    result: dict = {"schema_context": schema_context, "current_node": "SCHEMA_RETRIEVER"}
 
-    # Milvus 降级时标记状态，供最终结果中提示用户
-    # 降级时使用 Java 传入的 fallback_chunks，召回精度可能降低
     if response.degraded:
         result["degraded"] = True
         result["degrade_notice"] = get_degradation_notice()
-        logger.warning("Schema 召回使用降级方案 task_id=%s reason=%s", task_id, response.degrade_reason)
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: 关系数据加载（FOREIGN_KEY / LINEAGE / DERIVED_FROM）
+# ---------------------------------------------------------------------------
+
+async def _enrich_with_relationships(
+    schema_context: list[dict],
+    task_id: str = "",
+) -> list[dict]:
+    """为每个有 entity_id 的 schema 条目查询 Java 内部 API 获取实体间关系。
+
+    失败时静默降级，不影响主流程。
+    """
+    enriched = []
+    for item in schema_context:
+        entity_id = item.get("entity_id")
+        if not entity_id:
+            enriched.append(item)
+            continue
+
+        relationships = await _fetch_relationships(entity_id)
+        if not relationships:
+            enriched.append(item)
+            continue
+
+        # 按类型分类关系
+        foreign_keys = [r for r in relationships if r.get("relationType") == "FOREIGN_KEY"]
+        lineages = [r for r in relationships if r.get("relationType") == "LINEAGE"]
+        derived_froms = [r for r in relationships if r.get("relationType") == "DERIVED_FROM"]
+
+        item = dict(item)
+        item["relationships"] = relationships
+        item["foreign_keys"] = foreign_keys
+        item["lineages"] = lineages
+        item["derived_froms"] = derived_froms
+
+        enriched.append(item)
+
+    total = sum(len(item.get("relationships", [])) for item in enriched)
+    if total > 0:
+        logger.info("Phase 3: 关系数据加载完成 task_id=%s total_relationships=%d", task_id, total)
+
+    return enriched
+
+
+async def _fetch_relationships(entity_id: int) -> list[dict]:
+    """调用 Java GET /internal/metadata/entities/{id}/relationships。
+
+    Args:
+        entity_id: metadata_entity 主键 ID
+    Returns:
+        关系列表，失败时返回空列表（静默降级）
+    """
+    try:
+        url = f"{JAVA_BASE_URL}/internal/metadata/entities/{entity_id}/relationships"
+        params = {"relationType": "FOREIGN_KEY,LINEAGE,DERIVED_FROM"}
+        headers = {"X-Internal-Token": INTERNAL_TOKEN}
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            response = await client.get(url, params=params, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            if data.get("code") == 200:
+                return data.get("data", [])
+            return []
+    except Exception as e:
+        logger.debug("关系数据查询失败 entity_id=%s error=%s", entity_id, e)
+        return []
