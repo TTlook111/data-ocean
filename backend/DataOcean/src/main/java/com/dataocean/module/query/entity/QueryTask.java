@@ -69,6 +69,9 @@ public class QueryTask {
     /** 使用的字段列表 JSON */
     private String usedColumns;
 
+    /** 列级派生关系 JSON（Phase 1：sqlglot AST 提取的列→列血缘） */
+    private String columnDerivations;
+
     /** Python AST 标记的需脱敏字段列表 JSON（格式: ["table.column", ...]） */
     private String maskedFields;
 

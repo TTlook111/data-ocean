@@ -15,6 +15,8 @@ import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.dataocean.module.metadata.service.MetadataEntityService;
+import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -49,7 +51,7 @@ public class LineageServiceImpl implements LineageService {
 
     @Override
     @Async
-    public void saveLineage(Long queryTaskId, String usedTables, String usedColumns) {
+    public void saveLineage(Long queryTaskId, String usedTables, String usedColumns, String columnDerivations) {
         try {
             List<TableRef> tableRefs = parseTableRefs(usedTables);
             Set<String> tableNames = tableRefs.stream()
@@ -85,8 +87,11 @@ public class LineageServiceImpl implements LineageService {
             }
             log.debug("lineage saved queryTaskId={} tables={} columns={}", queryTaskId, tableNames.size(), columns.size());
 
-            // 桥接到 metadata_relationship：为同一查询中引用的表创建 LINEAGE 关系
-            bridgeToEntityGraph(queryTaskId, tableRefs, columns);
+            // 解析列级派生关系（Phase 1 新增）
+            List<ColumnDerivation> derivations = parseColumnDerivations(columnDerivations);
+
+            // 桥接到 metadata_relationship：LINEAGE 边 + DERIVED_FROM 边
+            bridgeToEntityGraph(queryTaskId, tableRefs, columns, derivations);
         } catch (Exception e) {
             log.error("lineage save failed queryTaskId={}", queryTaskId, e);
         }
@@ -96,12 +101,18 @@ public class LineageServiceImpl implements LineageService {
      * 将查询级血缘桥接到实体关系图谱
      * <p>
      * 对于同一查询中引用的多个表，在 FROM 表和 JOIN 表之间创建 LINEAGE 关系。
+     * 同时消费 Python sqlglot 提取的列级派生关系创建 DERIVED_FROM 边。
+     * 边的方向统一为 source（上游）→ target（下游）。
      * relation_metadata 包含 lineage_type=QUERY、query_task_id、column_mappings。
      * </p>
+     *
+     * @param queryTaskId  查询任务ID
+     * @param tableRefs    表引用列表
+     * @param columns      列引用列表
+     * @param derivations  列级派生关系列表（Phase 1 新增，来自 sqlglot AST）
      */
-    private void bridgeToEntityGraph(Long queryTaskId, List<TableRef> tableRefs, List<ColumnRef> columns) {
-        if (tableRefs.size() < 2) return; // 单表查询无需创建表间关系
-
+    private void bridgeToEntityGraph(Long queryTaskId, List<TableRef> tableRefs,
+                                     List<ColumnRef> columns, List<ColumnDerivation> derivations) {
         // 加载查询任务信息
         QueryTask task = queryTaskMapper.selectById(queryTaskId);
         if (task == null) return;
@@ -116,7 +127,15 @@ public class LineageServiceImpl implements LineageService {
             columnMappings.add(mapping);
         }
 
-        // 找到 FROM 表作为源
+        // Phase 1: 消费列级派生关系，创建 DERIVED_FROM 边
+        if (derivations != null && !derivations.isEmpty()) {
+            createDerivedFromEdgesForQuery(datasourceId, task.getQuestion(), derivations);
+        }
+
+        // 单表查询时仅创建 DERIVED_FROM 边，不创建表间 LINEAGE 边
+        if (tableRefs.size() < 2) return;
+
+        // 找到 FROM 表作为上游源（数据从 FROM 表流出）
         String fromTable = tableRefs.stream()
                 .filter(t -> "FROM".equals(t.relationType()))
                 .map(TableRef::tableName)
@@ -127,6 +146,7 @@ public class LineageServiceImpl implements LineageService {
         String fromFqnPrefix = findFqnPrefix(datasourceId, fromTable);
         if (fromFqnPrefix == null) return;
 
+        // 上游实体：FROM 表
         MetadataEntity fromEntity = entityService.getByFqn(fromFqnPrefix + "." + fromTable.toLowerCase());
         if (fromEntity == null) return;
 
@@ -137,10 +157,11 @@ public class LineageServiceImpl implements LineageService {
             String toFqnPrefix = findFqnPrefix(datasourceId, ref.tableName());
             if (toFqnPrefix == null) continue;
 
+            // 下游实体：JOIN/SUBQUERY 表
             MetadataEntity toEntity = entityService.getByFqn(toFqnPrefix + "." + ref.tableName().toLowerCase());
             if (toEntity == null) continue;
 
-            // 创建 LINEAGE 关系（源→目标表示数据流向）
+            // 创建 LINEAGE 关系：FROM（上游 source）→ JOIN（下游 target）
             MetadataRelationship rel = new MetadataRelationship();
             rel.setSourceId(fromEntity.getId());
             rel.setSourceType(MetadataEntity.TYPE_TABLE);
@@ -153,11 +174,147 @@ public class LineageServiceImpl implements LineageService {
                     + ",\"column_mappings\":" + toJson(columnMappings) + "}";
             rel.setRelationMetadata(metadata);
 
+            // 设置操作人（表列优先）
+            try {
+                rel.setCreatedBy(com.dataocean.common.security.UserContext.currentUser().getUsername());
+            } catch (Exception e) {
+                rel.setCreatedBy("system");
+            }
+
             try {
                 relationshipService.upsert(rel);
             } catch (Exception e) {
                 log.debug("LINEAGE 关系创建跳过 from={} to={} error={}", fromEntity.getFqn(), toEntity.getFqn(), e.getMessage());
             }
+        }
+    }
+
+    /**
+     * 消费 Python sqlglot 提取的列级派生关系，创建 DERIVED_FROM 边。
+     * <p>
+     * 对于每条派生关系，通过 FQN 查找源列和目标列的 metadata_entity，
+     * 若两者均存在，则创建 COLUMN → COLUMN 的 DERIVED_FROM 边。
+     * 单表查询的列派生关系也通过此方法处理。
+     * </p>
+     */
+    private void createDerivedFromEdgesForQuery(Long datasourceId, String question,
+                                                 List<ColumnDerivation> derivations) {
+        int createdCount = 0;
+        for (ColumnDerivation d : derivations) {
+            String sourceFqn = buildColumnFqn(datasourceId, d.sourceTable(), d.sourceColumn());
+            String targetFqn = buildColumnFqn(datasourceId, d.targetTable(), d.targetColumn());
+
+            if (sourceFqn == null || targetFqn == null) continue;
+
+            MetadataEntity sourceCol = entityService.getByFqn(sourceFqn);
+            MetadataEntity targetCol = entityService.getByFqn(targetFqn);
+
+            if (sourceCol == null || targetCol == null) continue;
+
+            // 构建 DERIVED_FROM 的 relation_metadata
+            Map<String, Object> meta = new LinkedHashMap<>();
+            meta.put("expression_type", d.expressionType() != null ? d.expressionType() : "DIRECT");
+            if (d.expression() != null && !d.expression().isBlank()) {
+                meta.put("expression", d.expression());
+            }
+            if (d.targetAlias() != null && !d.targetAlias().isBlank()) {
+                meta.put("target_alias", d.targetAlias());
+            }
+            meta.put("source", "SQL_PARSER"); // sqlglot 自动提取来源
+            meta.put("description", question != null ? question.substring(0, Math.min(question.length(), 200)) : "");
+
+            // 对齐 OpenLineage ColumnLineageDatasetFacet
+            Map<String, Object> transformation = new LinkedHashMap<>();
+            transformation.put("type", mapExpressionTypeToOpenLineage(d.expressionType()));
+            transformation.put("subtype", d.expressionType());
+            if (d.expression() != null) {
+                transformation.put("description", d.expression());
+            }
+            meta.put("transformation", transformation);
+
+            MetadataRelationship derivedRel = new MetadataRelationship();
+            derivedRel.setSourceId(sourceCol.getId());
+            derivedRel.setSourceType(MetadataEntity.TYPE_COLUMN);
+            derivedRel.setTargetId(targetCol.getId());
+            derivedRel.setTargetType(MetadataEntity.TYPE_COLUMN);
+            derivedRel.setRelationType(MetadataRelationship.TYPE_DERIVED_FROM);
+
+            try {
+                derivedRel.setRelationMetadata(objectMapper.writeValueAsString(meta));
+                try {
+                    derivedRel.setCreatedBy(
+                            com.dataocean.common.security.UserContext.currentUser().getUsername());
+                } catch (Exception e) {
+                    derivedRel.setCreatedBy("system");
+                }
+                relationshipService.upsert(derivedRel);
+                createdCount++;
+            } catch (Exception e) {
+                log.debug("DERIVED_FROM 创建跳过 source={} target={} error={}",
+                        sourceFqn, targetFqn, e.getMessage());
+            }
+        }
+        if (createdCount > 0) {
+            log.info("已创建 {} 条 DERIVED_FROM 边（SQL_PARSER 来源） datasourceId={}", createdCount, datasourceId);
+        }
+    }
+
+    /** 映射 expression_type 到 OpenLineage transformation type */
+    private String mapExpressionTypeToOpenLineage(String expressionType) {
+        if (expressionType == null) return "IDENTITY";
+        return switch (expressionType) {
+            case "DIRECT" -> "IDENTITY";
+            case "AGGREGATION" -> "TRANSFORMATION";
+            default -> "TRANSFORMATION";
+        };
+    }
+
+    /** 通过 FQN 查找列实体 */
+    private String buildColumnFqn(Long datasourceId, String tableName, String columnName) {
+        if (tableName == null || columnName == null) return null;
+        // 通过 metadata_entity 查找 TABLE 类型获取 FQN 前缀
+        String tableNameLower = tableName.toLowerCase();
+        List<MetadataEntity> tables = entityService.search(tableNameLower, MetadataEntity.TYPE_TABLE, 1, 10);
+        for (MetadataEntity t : tables) {
+            if (t.getName().equalsIgnoreCase(tableNameLower)
+                    || (t.getFqn() != null && t.getFqn().endsWith("." + tableNameLower))) {
+                return t.getFqn() + "." + columnName.toLowerCase();
+            }
+        }
+        return null;
+    }
+
+    /** 列派生关系记录 */
+    private record ColumnDerivation(
+            String targetTable, String targetColumn, String targetAlias,
+            String sourceTable, String sourceColumn,
+            String expression, String expressionType) {
+    }
+
+    /** 解析列派生关系 JSON */
+    private List<ColumnDerivation> parseColumnDerivations(String columnDerivationsJson) {
+        if (columnDerivationsJson == null || columnDerivationsJson.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<Map<String, Object>> raw = objectMapper.readValue(
+                    columnDerivationsJson, new TypeReference<>() {});
+            List<ColumnDerivation> derivations = new ArrayList<>();
+            for (Map<String, Object> item : raw) {
+                derivations.add(new ColumnDerivation(
+                        valueAsString(item.get("targetTable")),
+                        valueAsString(item.get("targetColumn")),
+                        valueAsString(item.get("targetAlias")),
+                        valueAsString(item.get("sourceTable")),
+                        valueAsString(item.get("sourceColumn")),
+                        valueAsString(item.get("expression")),
+                        valueAsString(item.get("expressionType"))
+                ));
+            }
+            return derivations;
+        } catch (Exception e) {
+            log.debug("解析 column_derivations 失败: {}", e.getMessage());
+            return List.of();
         }
     }
 

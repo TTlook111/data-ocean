@@ -83,4 +83,7 @@ public class MetadataRelationship {
 
     /** 创建时间 */
     private LocalDateTime createdAt;
+
+    /** 操作人（登录用户名），权威审计来源为表列而非 relation_metadata JSON */
+    private String createdBy;
 }

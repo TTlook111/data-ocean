@@ -88,6 +88,7 @@ class AgentState(TypedDict, total=False):
     execution_result: ExecutionResult
     used_tables: list[str]
     used_columns: list[str]
+    column_lineage: list[dict]  # Phase 1: 列级派生关系 [{targetTable,targetColumn,sourceTable,sourceColumn,expression,expressionType},...]
 
     # Data Visualizer 输出
     chart_config: dict

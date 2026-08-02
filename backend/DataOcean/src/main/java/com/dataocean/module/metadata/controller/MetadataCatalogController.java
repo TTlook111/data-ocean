@@ -1,6 +1,7 @@
 package com.dataocean.module.metadata.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.audit.service.LineageEdgeService;
 import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
@@ -14,9 +15,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 元数据目录控制器
@@ -37,6 +42,7 @@ public class MetadataCatalogController {
     private final MetadataRelationshipService relationshipService;
     private final DatasourceAccessPolicyMapper policyMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final LineageEdgeService lineageEdgeService;
 
     /**
      * 全文搜索实体
@@ -83,15 +89,121 @@ public class MetadataCatalogController {
     }
 
     /**
-     * 获取实体的血缘关系
+     * 获取实体的血缘关系（增强版）
+     * <p>
+     * 支持按血缘类型过滤（逗号分隔）和深度控制。
+     * 启用过滤/深度时返回增强图谱（含节点、边、列映射摘要），
+     * 类型为 com.dataocean.module.audit.entity.vo.LineageGraphVO；
+     * 未提供过滤参数时保持原有行为（仅返回该实体的一层 LINEAGE 边列表）。
+     * </p>
      *
-     * @param entityId 实体 ID
-     * @return 血缘关系列表（上游 + 下游）
+     * @param entityId    实体 ID
+     * @param depth       图谱 BFS 深度（默认 1）
+     * @param lineageType 血缘类型过滤，逗号分隔（QUERY,ETL,MANUAL），可选
+     * @return 血缘关系列表或增强图谱
      */
     @GetMapping("/entities/{entityId}/lineage")
-    public Result<List<MetadataRelationship>> getLineage(@PathVariable Long entityId) {
-        List<MetadataRelationship> lineage = relationshipService.getLineage(entityId);
-        return Result.success(lineage);
+    public Result<?> getLineage(
+            @PathVariable Long entityId,
+            @RequestParam(defaultValue = "1") int depth,
+            @RequestParam(required = false) String lineageType) {
+        // 无过滤时保持原有行为（向后兼容）
+        if (lineageType == null || lineageType.isBlank()) {
+            List<MetadataRelationship> lineage = relationshipService.getLineage(entityId);
+            return Result.success(lineage);
+        }
+
+        // 解析血缘类型过滤集合
+        Set<String> lineageTypes = new HashSet<>();
+        for (String type : lineageType.split(",")) {
+            String trimmed = type.trim().toUpperCase();
+            if (!trimmed.isEmpty()) {
+                lineageTypes.add(trimmed);
+            }
+        }
+
+        // 委托给 LineageEdgeService 提供增强响应（含节点和列映射摘要）
+        com.dataocean.module.audit.entity.vo.LineageGraphVO vo =
+                lineageEdgeService.getEnrichedLineage(entityId, depth, lineageTypes);
+        return Result.success(vo);
+    }
+
+    /**
+     * 获取列级血缘（DERIVED_FROM 上下游链）
+     * <p>
+     * 返回该列的上游（来源）和下游（影响）的 DERIVED_FROM 链。
+     * 参考 Marquez GET /api/v1/column-lineage/{nodeId}?depth=N 设计。
+     * </p>
+     *
+     * @param columnId  列实体 ID
+     * @param depth     遍历深度（默认 3）
+     * @param direction 方向：upstream（仅上游）、downstream（仅下游）、both（双向，默认）
+     * @return 列级血缘链
+     */
+    @GetMapping("/entities/{columnId}/column-lineage")
+    public Result<Map<String, Object>> getColumnLineage(
+            @PathVariable Long columnId,
+            @RequestParam(defaultValue = "3") int depth,
+            @RequestParam(defaultValue = "both") String direction) {
+        MetadataEntity column = entityService.getById(columnId);
+        if (column == null || !MetadataEntity.TYPE_COLUMN.equals(column.getEntityType())) {
+            return Result.error(404, "列实体不存在");
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("columnId", column.getId());
+        result.put("columnName", column.getName());
+        result.put("fqn", column.getFqn());
+
+        // 获取上游 DERIVED_FROM 链（该列是 target，即哪些源列派生出了它）
+        if ("upstream".equals(direction) || "both".equals(direction)) {
+            result.put("upstream", traceDerivedFromChain(columnId, depth, true));
+        }
+
+        // 获取下游 DERIVED_FROM 链（该列是 source，即它派生出了哪些列）
+        if ("downstream".equals(direction) || "both".equals(direction)) {
+            result.put("downstream", traceDerivedFromChain(columnId, depth, false));
+        }
+
+        return Result.success(result);
+    }
+
+    /**
+     * BFS 遍历 DERIVED_FROM 链
+     *
+     * @param columnId   起始列实体 ID
+     * @param depth      遍历深度
+     * @param upstream   true=上游（查询入边），false=下游（查询出边）
+     * @return 递归嵌套的列血缘链 [{"entity":..., "relationship":..., "children":[...]}, ...]
+     */
+    private List<Map<String, Object>> traceDerivedFromChain(Long columnId, int depth, boolean upstream) {
+        List<Map<String, Object>> chain = new ArrayList<>();
+        if (depth <= 0) return chain;
+
+        Set<Long> nextIds = new HashSet<>();
+        List<MetadataRelationship> rels = upstream
+                ? relationshipService.getByTarget(columnId, MetadataEntity.TYPE_COLUMN)
+                : relationshipService.getBySource(columnId, MetadataEntity.TYPE_COLUMN);
+
+        for (MetadataRelationship rel : rels) {
+            if (!MetadataRelationship.TYPE_DERIVED_FROM.equals(rel.getRelationType())) continue;
+
+            Long relatedColId = upstream ? rel.getSourceId() : rel.getTargetId();
+            MetadataEntity relatedCol = entityService.getById(relatedColId);
+            if (relatedCol == null) continue;
+
+            Map<String, Object> node = new LinkedHashMap<>();
+            node.put("entity", relatedCol);
+            node.put("relationship", rel);
+
+            // 递归获取更深层
+            List<Map<String, Object>> children = traceDerivedFromChain(relatedColId, depth - 1, upstream);
+            if (!children.isEmpty()) {
+                node.put("children", children);
+            }
+            chain.add(node);
+        }
+        return chain;
     }
 
     /**

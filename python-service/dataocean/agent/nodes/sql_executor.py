@@ -33,6 +33,7 @@ async def run_sql_executor(state: AgentState) -> AgentState:
     datasource_id = state.get("datasource_id", 0)
     used_tables = _extract_tables(sql)
     used_columns = _extract_columns(sql)
+    column_lineage = _extract_column_derivations(sql)  # Phase 1: 列级派生关系
 
     if sql:
         estimate = estimate_execution_time(sql)
@@ -50,6 +51,7 @@ async def run_sql_executor(state: AgentState) -> AgentState:
                 "error": "无可执行的 SQL",
             },
             "current_node": "SQL_EXECUTOR",
+            "column_lineage": [],
         }
 
     connection_config = state.get("connection_config")
@@ -65,6 +67,7 @@ async def run_sql_executor(state: AgentState) -> AgentState:
             "error_message": "缺少数据源连接配置，SQL 沙箱执行暂不可用",
             "used_tables": used_tables,
             "used_columns": used_columns,
+            "column_lineage": column_lineage,
             "current_node": "SQL_EXECUTOR",
         }
 
@@ -116,6 +119,7 @@ Schema 上下文：{state.get('schema_context', [])}
                     "retry_count": retry_count,
                     "used_tables": used_tables,
                     "used_columns": used_columns,
+                    "column_lineage": column_lineage,
                     "current_node": "SQL_EXECUTOR",
                 }
             except (LLMException, Exception) as e:
@@ -134,6 +138,7 @@ Schema 上下文：{state.get('schema_context', [])}
             "retry_count": retry_count,
             "used_tables": used_tables,
             "used_columns": used_columns,
+            "column_lineage": column_lineage,
             "current_node": "SQL_EXECUTOR",
         }
 
@@ -169,6 +174,7 @@ Schema 上下文：{state.get('schema_context', [])}
         },
         "used_tables": used_tables,
         "used_columns": used_columns,
+        "column_lineage": column_lineage,
         "current_node": "SQL_EXECUTOR",
     }
 
@@ -248,3 +254,227 @@ def _extract_columns_fallback(sql: str) -> list[str]:
     for match in re.finditer(r"`?(\w+)`?\.`?(\w+)`?", sql):
         columns.add(f"{match.group(1)}.{match.group(2)}")
     return sorted(columns)
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: 列级派生关系提取（DERIVED_FROM）
+# 参考 Spline derivesFrom + computedBy 双通道模式
+# ---------------------------------------------------------------------------
+
+# 聚合函数名集合（sqlglot exp.Avg, exp.Sum 等已有类型，这里用于字符串 fallback）
+_AGGREGATE_NAMES = frozenset({
+    "sum", "count", "avg", "average", "min", "max",
+    "group_concat", "stddev", "variance", "std", "var",
+})
+
+
+def _extract_column_derivations(sql: str) -> list[dict]:
+    """从 SQL SELECT 子句提取列级派生关系
+
+    参考 DataHub sqlglot schema-aware 解析和 Spline 的 derivesFrom 模式：
+    对于每个 SELECT 输出表达式，找到其引用的源表列并记录转换类型。
+
+    返回格式与 schema.ColumnDerivation 一致（dict 形式便于放入 AgentState）：
+    [
+      {
+        "targetTable": "daily_stats",
+        "targetColumn": "total",
+        "targetAlias": "total_amount",
+        "sourceTable": "orders",
+        "sourceColumn": "amount",
+        "expression": "amount * unit_price",
+        "expressionType": "ARITHMETIC"
+      },
+      ...
+    ]
+    """
+    try:
+        tree = sqlglot.parse_one(sql, dialect="mysql")
+    except Exception:
+        return []
+
+    # 预处理：构建别名映射和表列表
+    aliases = _table_aliases(tree)
+    tables = _extract_tables(sql)
+
+    # 如果存在 set 操作（UNION/INTERSECT/EXCEPT），递归处理每个子查询
+    if isinstance(tree, (exp.Union, exp.Intersect, exp.Except)):
+        derivations: list[dict] = []
+        for child in tree.expressions:
+            derivations.extend(_extract_column_derivations(child.sql(dialect="mysql")))
+        return derivations
+
+    # 定位 SELECT 语句：可能在顶层、CTE 内或子查询内
+    select = tree.find(exp.Select)
+    if select is None:
+        return []
+
+    return _extract_select_derivations(select, tables, aliases)
+
+
+def _extract_select_derivations(
+    select: exp.Select,
+    tables: list[str],
+    aliases: dict[str, str],
+) -> list[dict]:
+    """从单个 SELECT 语句提取列派生关系"""
+    derivations: list[dict] = []
+    single_table = tables[0] if len(tables) == 1 else ""
+
+    # 确定目标表名（当前 SELECT 对应的表）
+    # 从最外层 FROM 子句获取
+    from_exp = select.find(exp.From)
+    target_table = ""
+    if from_exp and from_exp.this:
+        target_table = _resolve_table_name(from_exp.this, aliases)
+
+    # 遍历 SELECT 中的每个输出表达式
+    for select_expr in select.expressions:
+        if not isinstance(select_expr, exp.Alias) and not isinstance(select_expr, (exp.Column, exp.Literal)):
+            # 非别名的复杂表达式（如 func(col)），sqlglot 可能不包装为 Alias
+            pass
+
+        # 获取别名（AS name）
+        output_alias = select_expr.alias if isinstance(select_expr, exp.Alias) else None
+
+        # 获取实际的表达式（如果是 Alias，取其内部表达式）
+        expr = select_expr.this if isinstance(select_expr, exp.Alias) else select_expr
+
+        if isinstance(expr, exp.Star):
+            # SELECT * 不产生列级派生
+            continue
+
+        # 确定表达式类型和表达式文本
+        expression_type = _classify_expression(expr)
+        expression_text = _get_expression_text(expr)
+
+        # 提取所有引用的列
+        leaf_columns = list(expr.find_all(exp.Column))
+
+        if not leaf_columns:
+            # 纯常量/字面量，无派生关系
+            continue
+
+        # 输出列名
+        output_col = output_alias or (_get_column_output_name(expr, leaf_columns))
+
+        for col in leaf_columns:
+            col_name = col.name
+            if not col_name or col_name == "*":
+                continue
+
+            # 解析源表
+            qualifier = col.table
+            if qualifier:
+                source_table = aliases.get(qualifier, qualifier)
+            elif single_table:
+                source_table = single_table
+            else:
+                source_table = target_table or "__UNRESOLVED__"
+
+            # 引用同一个源列的表达式（如子查询）
+            actual_target_table = target_table or source_table
+
+            derivations.append({
+                "targetTable": actual_target_table,
+                "targetColumn": output_col.replace("`", "").strip(),
+                "targetAlias": output_alias,
+                "sourceTable": source_table,
+                "sourceColumn": col_name.replace("`", "").strip(),
+                "expression": expression_text,
+                "expressionType": expression_type,
+            })
+
+    return derivations
+
+
+def _resolve_table_name(table_exp, aliases: dict[str, str]) -> str:
+    """解析表表达式中的实际表名"""
+    if isinstance(table_exp, exp.Table):
+        name = table_exp.name
+        return aliases.get(name, name) if name else ""
+    # 子查询、CTE 等
+    alias = getattr(table_exp, 'alias', None)
+    return alias if alias else ""
+
+
+def _classify_expression(expr: exp.Expression) -> str:
+    """判断表达式的计算类型（映射到 expression_type 枚举）
+
+    DataOcean expression_type 枚举值：
+    DIRECT, ARITHMETIC, AGGREGATION, CONCAT, CASE_WHEN, CAST
+    """
+    if isinstance(expr, exp.Column):
+        return "DIRECT"
+
+    # 聚合函数：sqlglot 有专门的 AggFunc 基类
+    if isinstance(expr, (exp.AggFunc, exp.Avg, exp.Sum, exp.Count, exp.Max, exp.Min,
+                          exp.Std, exp.StdDev, exp.Variance, exp.GroupConcat)):
+        return "AGGREGATION"
+
+    # SQL 函数（检查是否是已知聚合函数名）
+    if isinstance(expr, exp.Func):
+        func_name = (expr.sql_name() or "").lower()
+        if func_name in _AGGREGATE_NAMES:
+            return "AGGREGATION"
+        if func_name in ("concat", "concat_ws", "group_concat"):
+            return "CONCAT"
+        if func_name in ("cast", "convert"):
+            return "CAST"
+
+    # CASE WHEN 表达式
+    if isinstance(expr, (exp.Case, exp.If)):
+        return "CASE_WHEN"
+
+    # 算术运算
+    if isinstance(expr, (exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod, exp.Pow)):
+        return "ARITHMETIC"
+
+    # 字符串拼接操作符
+    if isinstance(expr, exp.Concat):
+        return "CONCAT"
+
+    # 类型转换
+    if isinstance(expr, exp.Cast):
+        return "CAST"
+
+    # 二元运算（默认算作 ARITHMETIC）
+    if isinstance(expr, exp.Binary):
+        return "ARITHMETIC"
+
+    # 一元运算（如 -col）
+    if isinstance(expr, exp.Unary):
+        return "ARITHMETIC"
+
+    # 嵌套 Alias
+    if isinstance(expr, exp.Alias):
+        return _classify_expression(expr.this)
+
+    # 兜底：字面量、Bracket 等
+    return "DIRECT"
+
+
+def _get_expression_text(expr: exp.Expression) -> str | None:
+    """获取表达式的 SQL 文本表示"""
+    if isinstance(expr, exp.Column):
+        # 纯列引用不返回表达式
+        return None
+    try:
+        text = expr.sql(dialect="mysql")
+        return text[:200] if text else None  # 截断过长表达式
+    except Exception:
+        return None
+
+
+def _get_column_output_name(expr: exp.Expression, leaf_columns: list[exp.Column]) -> str:
+    """当无别名时，推导输出列名"""
+    if isinstance(expr, exp.Column):
+        return expr.name or "unknown"
+    # 函数调用：用函数名
+    if isinstance(expr, exp.Func):
+        return expr.sql_name() or "computed"
+    # 从第一个叶列推导
+    if leaf_columns:
+        first = leaf_columns[0]
+        return first.name or "computed"
+    return "computed"

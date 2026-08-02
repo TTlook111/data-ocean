@@ -102,6 +102,22 @@ class ColumnMeta(BaseModel):
     comment: str | None = None
 
 
+class ColumnDerivation(BaseModel):
+    """列级派生关系（SQL AST 提取的列→列血缘）
+
+    对应 Phase 1 DERIVED_FROM 关系的原始数据，
+    由 sqlglot AST 解析产生，经 SSE 传递给 Java 侧消费。
+    """
+
+    target_table: str = Field(serialization_alias="targetTable")
+    target_column: str = Field(serialization_alias="targetColumn")
+    target_alias: str | None = Field(default=None, serialization_alias="targetAlias")
+    source_table: str = Field(serialization_alias="sourceTable")
+    source_column: str = Field(serialization_alias="sourceColumn")
+    expression: str | None = None
+    expression_type: str = Field(serialization_alias="expressionType")
+
+
 class QueryResult(BaseModel):
     """查询最终结果（SSE result 事件）"""
 
@@ -122,6 +138,10 @@ class QueryResult(BaseModel):
     suggested_questions: list[str] = Field(default_factory=list, serialization_alias="suggestedQuestions")
     masked_fields: dict[str, str] = Field(default_factory=dict, serialization_alias="maskedFields")
     prompt_versions: list[dict] = Field(default_factory=list, serialization_alias="promptVersions")
+    column_derivations: list[ColumnDerivation] = Field(
+        default_factory=list,
+        serialization_alias="columnDerivations",
+    )
     degraded: bool = Field(default=False, serialization_alias="degraded")
     degrade_notice: str | None = Field(default=None, serialization_alias="degradeNotice")
 

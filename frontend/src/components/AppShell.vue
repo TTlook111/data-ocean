@@ -172,8 +172,7 @@ const workspaceLinks: Record<string, WorkspaceLink[]> = {
   operation: [
     { label: '审计日志', to: '/admin/audit/logs', permission: 'audit:view' },
     { label: '慢查询', to: '/admin/audit/slow-queries', permission: 'audit:view' },
-    { label: '血缘查看', to: '/admin/audit/lineage', permission: 'audit:view' },
-    { label: '血缘图谱', to: '/admin/audit/lineage-graph', permission: 'audit:view' },
+    { label: '数据血缘', to: '/admin/audit/data-lineage', permission: 'audit:view' },
     { label: '服务健康', to: '/admin/system/health', permission: '*' },
   ],
   settings: [

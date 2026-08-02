@@ -35,6 +35,7 @@ const AuditLogList = () => import('../views/admin/audit/AuditLogList.vue')
 const SlowQueryList = () => import('../views/admin/audit/SlowQueryList.vue')
 const LineageViewer = () => import('../views/admin/audit/LineageViewer.vue')
 const LineageGraph = () => import('../views/admin/audit/LineageGraph.vue')
+const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
 const GlossaryList = () => import('../views/admin/glossary/GlossaryList.vue')
 const CatalogSearch = () => import('../views/admin/metadata/CatalogSearch.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
@@ -254,15 +255,17 @@ const router = createRouter({
         },
         {
           path: 'audit/lineage',
-          name: 'admin-audit-lineage',
-          component: LineageViewer,
-          meta: { title: '血缘查看', section: '权限与合规', permission: 'audit:view' },
+          redirect: '/admin/audit/data-lineage',
         },
         {
           path: 'audit/lineage-graph',
-          name: 'admin-audit-lineage-graph',
-          component: LineageGraph,
-          meta: { title: '血缘图谱', section: '权限与合规', permission: 'audit:view' },
+          redirect: '/admin/audit/data-lineage',
+        },
+        {
+          path: 'audit/data-lineage',
+          name: 'admin-audit-data-lineage',
+          component: DataLineage,
+          meta: { title: '数据血缘', section: '运营与安全', permission: 'audit:view' },
         },
         {
           path: 'glossary/list',

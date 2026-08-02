@@ -18,15 +18,17 @@ public interface LineageService {
     /**
      * 保存血缘数据
      * <p>
-     * 接收 Python 返回的 used_tables 和 used_columns 解析结果，
-     * 批量写入 query_lineage_table 和 query_lineage_column。
+     * 接收 Python 返回的 used_tables、used_columns 和 column_derivations 解析结果，
+     * 批量写入 query_lineage_table 和 query_lineage_column，
+     * 同时桥接列级派生关系到 metadata_relationship（DERIVED_FROM 边）。
      * </p>
      *
-     * @param queryTaskId 查询任务ID
-     * @param usedTables  使用的表 JSON 字符串
-     * @param usedColumns 使用的字段 JSON 字符串
+     * @param queryTaskId       查询任务ID
+     * @param usedTables        使用的表 JSON 字符串
+     * @param usedColumns       使用的字段 JSON 字符串
+     * @param columnDerivations 列级派生关系 JSON 字符串（Phase 1 新增，可为 null）
      */
-    void saveLineage(Long queryTaskId, String usedTables, String usedColumns);
+    void saveLineage(Long queryTaskId, String usedTables, String usedColumns, String columnDerivations);
 
     /**
      * 按表名查询血缘关系

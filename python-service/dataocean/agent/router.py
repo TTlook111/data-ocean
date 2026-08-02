@@ -110,6 +110,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
                 total_time_ms=total_time_ms,
                 rewritten_query=final_state.get("rewritten_query"),
                 prompt_versions=final_state.get("prompt_versions", []),
+                column_derivations=final_state.get("column_lineage", []),
                 degraded=final_state.get("degraded", False),
                 degrade_notice=final_state.get("degrade_notice"),
             )
@@ -130,6 +131,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
                 chart_config=final_state.get("chart_config"),
                 used_tables=final_state.get("used_tables", []),
                 used_columns=final_state.get("used_columns", []),
+                column_derivations=final_state.get("column_lineage", []),
                 rewritten_query=final_state.get("rewritten_query"),
                 retry_count=final_state.get("retry_count", 0),
                 total_time_ms=total_time_ms,
@@ -157,6 +159,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
             status="CANCELLED",
             error="查询已取消",
             total_time_ms=total_time_ms,
+            column_derivations=[],
         )
         await sse.emit_result(task_id, result)
     except Exception as e:
@@ -167,6 +170,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
             status="FAILED",
             error=sanitize_error(e),
             total_time_ms=total_time_ms,
+            column_derivations=[],
         )
         await sse.emit_result(task_id, result)
     finally:

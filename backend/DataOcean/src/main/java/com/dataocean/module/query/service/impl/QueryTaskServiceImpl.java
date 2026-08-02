@@ -251,6 +251,9 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             if (result.containsKey("usedColumns")) {
                 wrapper.set(QueryTask::getUsedColumns, objectMapper.writeValueAsString(result.get("usedColumns")));
             }
+            if (result.containsKey("columnDerivations")) {
+                wrapper.set(QueryTask::getColumnDerivations, objectMapper.writeValueAsString(result.get("columnDerivations")));
+            }
             if (result.containsKey("maskedFields")) {
                 wrapper.set(QueryTask::getMaskedFields, objectMapper.writeValueAsString(result.get("maskedFields")));
             }
@@ -287,13 +290,15 @@ public class QueryTaskServiceImpl implements QueryTaskService {
                     ? objectMapper.writeValueAsString(result.get("usedTables")) : null;
             final String finalUsedColumnsJson = result.containsKey("usedColumns")
                     ? objectMapper.writeValueAsString(result.get("usedColumns")) : null;
+            final String finalColumnDerivationsJson = result.containsKey("columnDerivations")
+                    ? objectMapper.writeValueAsString(result.get("columnDerivations")) : null;
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
                     // 事务提交后，异步写入审计日志（记录查询行为）
                     auditLogService.recordAudit(taskDbId);
-                    // 事务提交后，异步保存血缘数据（记录表/列使用情况）
-                    lineageService.saveLineage(taskDbId, finalUsedTablesJson, finalUsedColumnsJson);
+                    // 事务提交后，异步保存血缘数据（记录表/列使用情况 + 列级派生关系）
+                    lineageService.saveLineage(taskDbId, finalUsedTablesJson, finalUsedColumnsJson, finalColumnDerivationsJson);
                 }
             });
 
