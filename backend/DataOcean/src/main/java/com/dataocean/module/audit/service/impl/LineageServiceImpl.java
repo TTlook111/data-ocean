@@ -15,8 +15,6 @@ import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
-import com.dataocean.module.metadata.service.MetadataEntityService;
-import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -33,6 +31,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -211,7 +210,38 @@ public class LineageServiceImpl implements LineageService {
 
             if (sourceCol == null || targetCol == null) continue;
 
-            // 构建 DERIVED_FROM 的 relation_metadata
+            // §4.2.1：DERIVED_FROM 仅允许 COLUMN → COLUMN，非列实体直接跳过
+            if (!MetadataEntity.TYPE_COLUMN.equals(sourceCol.getEntityType())
+                    || !MetadataEntity.TYPE_COLUMN.equals(targetCol.getEntityType())) {
+                continue;
+            }
+
+            // 构建 DERIVED_FROM 的 relation_metadata（§4.2.4：合并 source 来源历史）
+            // 先查询是否已有同对列的 DERIVED_FROM 边，用于合并来源
+            MetadataRelationship existingDerived = relationshipService.getBaseMapper()
+                    .selectBetween(sourceCol.getId(), targetCol.getId(),
+                            MetadataRelationship.TYPE_DERIVED_FROM);
+            Map<String, Object> existingMeta = null;
+            MetadataRelationship derivedRel;
+            if (existingDerived != null) {
+                derivedRel = existingDerived; // 复用已有边对象
+                if (existingDerived.getRelationMetadata() != null) {
+                    try {
+                        existingMeta = objectMapper.readValue(
+                                existingDerived.getRelationMetadata(), new TypeReference<>() {});
+                    } catch (Exception e) {
+                        log.debug("解析已有 DERIVED_FROM relation_metadata 失败: {}", e.getMessage());
+                    }
+                }
+            } else {
+                derivedRel = new MetadataRelationship();
+                derivedRel.setSourceId(sourceCol.getId());
+                derivedRel.setSourceType(MetadataEntity.TYPE_COLUMN);
+                derivedRel.setTargetId(targetCol.getId());
+                derivedRel.setTargetType(MetadataEntity.TYPE_COLUMN);
+                derivedRel.setRelationType(MetadataRelationship.TYPE_DERIVED_FROM);
+            }
+
             Map<String, Object> meta = new LinkedHashMap<>();
             meta.put("expression_type", d.expressionType() != null ? d.expressionType() : "DIRECT");
             if (d.expression() != null && !d.expression().isBlank()) {
@@ -220,7 +250,8 @@ public class LineageServiceImpl implements LineageService {
             if (d.targetAlias() != null && !d.targetAlias().isBlank()) {
                 meta.put("target_alias", d.targetAlias());
             }
-            meta.put("source", "SQL_PARSER"); // sqlglot 自动提取来源
+            // §4.2.4：source 字段合并去重，保留来源历史
+            meta.put("source", mergeSourceFromMeta(existingMeta, "SQL_PARSER"));
             meta.put("description", question != null ? question.substring(0, Math.min(question.length(), 200)) : "");
 
             // 对齐 OpenLineage ColumnLineageDatasetFacet
@@ -231,13 +262,6 @@ public class LineageServiceImpl implements LineageService {
                 transformation.put("description", d.expression());
             }
             meta.put("transformation", transformation);
-
-            MetadataRelationship derivedRel = new MetadataRelationship();
-            derivedRel.setSourceId(sourceCol.getId());
-            derivedRel.setSourceType(MetadataEntity.TYPE_COLUMN);
-            derivedRel.setTargetId(targetCol.getId());
-            derivedRel.setTargetType(MetadataEntity.TYPE_COLUMN);
-            derivedRel.setRelationType(MetadataRelationship.TYPE_DERIVED_FROM);
 
             try {
                 derivedRel.setRelationMetadata(objectMapper.writeValueAsString(meta));
@@ -267,6 +291,38 @@ public class LineageServiceImpl implements LineageService {
             case "AGGREGATION" -> "TRANSFORMATION";
             default -> "TRANSFORMATION";
         };
+    }
+
+    /**
+     * §4.2.4：合并 DERIVED_FROM 关系的 source 来源历史
+     * <p>
+     * 自动提取（SQL_PARSER）和手动录入（MANUAL）的来源历史去重合并。
+     * 单个来源存字符串，多个来源存字符串数组。
+     * </p>
+     */
+    private Object mergeSourceFromMeta(Map<String, Object> existingMeta, String newSource) {
+        if (existingMeta == null) {
+            return newSource;
+        }
+        Object oldSource = existingMeta.get("source");
+        if (oldSource == null) {
+            return newSource;
+        }
+        Set<String> sources = new LinkedHashSet<>();
+        if (oldSource instanceof String s && !s.isBlank()) {
+            sources.add(s);
+        } else if (oldSource instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof String s && !s.isBlank()) {
+                    sources.add(s);
+                }
+            }
+        }
+        sources.add(newSource);
+        if (sources.size() == 1) {
+            return sources.iterator().next();
+        }
+        return new ArrayList<>(sources);
     }
 
     /** 通过 FQN 查找列实体 */

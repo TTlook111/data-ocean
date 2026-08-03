@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -394,13 +395,21 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
                 derivedRel.setTargetType(MetadataEntity.TYPE_COLUMN);
                 derivedRel.setRelationType(MetadataRelationship.TYPE_DERIVED_FROM);
 
-                // 构建 DERIVED_FROM 的 relation_metadata
+                // 构建 DERIVED_FROM 的 relation_metadata（先查询已有边，合并 source 来源历史）
+                MetadataRelationship existingDerived = findDerivedFromEdge(fromColId, mapping.getToColumn());
+                Map<String, Object> existingMeta = null;
+                if (existingDerived != null) {
+                    derivedRel = existingDerived; // 复用已有边对象，upsert 时更新
+                    existingMeta = parseRelationMeta(existingDerived.getRelationMetadata());
+                }
+
                 Map<String, Object> meta = new LinkedHashMap<>();
                 meta.put("expression_type", expressionType);
                 if (mapping.getExpression() != null && !mapping.getExpression().isBlank()) {
                     meta.put("expression", mapping.getExpression());
                 }
-                meta.put("source", "MANUAL"); // 手动录入来源
+                // §4.2.4：source 字段合并去重，保留来源历史（如 ["SQL_PARSER", "MANUAL"]）
+                meta.put("source", mergeSourceField(existingMeta, "MANUAL"));
                 meta.put("parent_lineage_table_source_id", sourceTable.getId());
                 meta.put("parent_lineage_table_target_id", targetTable.getId());
 
@@ -494,6 +503,66 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
             }
         }
         log.info("已级联删除 DERIVED_FROM 边 relationshipId={}", lineageRel.getId());
+    }
+
+    /**
+     * §4.2.4：合并 DERIVED_FROM 关系的 source 来源历史
+     * <p>
+     * 多次创建同一对列的 DERIVED_FROM 边时（先 SQL_PARSER 后 MANUAL 或反之），
+     * source 字段自动转为去重数组以保留来源历史，不覆盖旧来源。
+     * 单个来源存字符串，多个来源存字符串数组。
+     * </p>
+     *
+     * @param existingMeta 已有边的 relation_metadata JSON Map（可能为 null）
+     * @param newSource    本次新来源（如 "MANUAL"、"SQL_PARSER"）
+     * @return 合并后的 source 值（String 或 List&lt;String&gt;）
+     */
+    private Object mergeSourceField(Map<String, Object> existingMeta, String newSource) {
+        if (existingMeta == null) {
+            return newSource;
+        }
+        Object oldSource = existingMeta.get("source");
+        if (oldSource == null) {
+            return newSource;
+        }
+
+        // 去重集合
+        Set<String> sources = new LinkedHashSet<>();
+
+        // 解析旧值
+        if (oldSource instanceof String s && !s.isBlank()) {
+            sources.add(s);
+        } else if (oldSource instanceof List<?> list) {
+            for (Object item : list) {
+                if (item instanceof String s && !s.isBlank()) {
+                    sources.add(s);
+                }
+            }
+        }
+
+        // 加入新来源
+        sources.add(newSource);
+
+        // 单来源存字符串，多来源存数组
+        if (sources.size() == 1) {
+            return sources.iterator().next();
+        }
+        return new ArrayList<>(sources);
+    }
+
+    /**
+     * 解析 relation_metadata JSON 字符串为 Map（用于 source 合并时读取已有元数据）
+     */
+    private Map<String, Object> parseRelationMeta(String relationMetadata) {
+        if (relationMetadata == null || relationMetadata.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(relationMetadata, new TypeReference<>() {});
+        } catch (Exception e) {
+            log.debug("解析 relation_metadata 失败: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**
