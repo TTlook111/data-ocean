@@ -171,6 +171,7 @@ public class ConfidenceCalculatorImpl implements ConfidenceCalculator {
             case FieldConfidenceEvent.TYPE_QUERY_SUCCESS -> 1.0;
             case FieldConfidenceEvent.TYPE_USER_LIKE -> 5.0;
             case FieldConfidenceEvent.TYPE_USER_DISLIKE_CONFIRMED -> -8.0;
+            case FieldConfidenceEvent.TYPE_ADMIN_DISLIKE_CONFIRMED -> -24.0;
             case FieldConfidenceEvent.TYPE_GROUP_THRESHOLD -> -3.0;
             case FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_CONFIRMED -> -5.0;
             case FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_RESOLVED -> 3.0;
@@ -203,6 +204,7 @@ public class ConfidenceCalculatorImpl implements ConfidenceCalculator {
             case FieldConfidenceEvent.TYPE_QUERY_SUCCESS -> DELTA_QUERY_SUCCESS;
             case FieldConfidenceEvent.TYPE_USER_LIKE -> DELTA_USER_LIKE;
             case FieldConfidenceEvent.TYPE_USER_DISLIKE_CONFIRMED -> DELTA_USER_DISLIKE_CONFIRMED;
+            case FieldConfidenceEvent.TYPE_ADMIN_DISLIKE_CONFIRMED -> DELTA_ADMIN_DISLIKE_CONFIRMED;
             case FieldConfidenceEvent.TYPE_GROUP_THRESHOLD -> DELTA_GROUP_THRESHOLD;
             // FIX #5: 治理事件 delta 与 getBaseWeight() 保持一致
             case FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_CONFIRMED -> -5;

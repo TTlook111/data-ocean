@@ -34,7 +34,8 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * 处理用户反馈提交逻辑：
  * - LIKE：直接触发可信度 +10
- * - DISLIKE：Redis 限频检查 → 创建反馈 → 进入审核队列 → 群体阈值检测
+ * - DISLIKE（管理员/分析师）：Redis 限频检查 → 创建反馈 → 直接触发可信度 -45
+ * - DISLIKE（普通用户）：Redis 限频检查 → 创建反馈 → 进入审核队列 → 群体阈值检测
  * </p>
  */
 @Service
@@ -116,14 +117,26 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
             stringRedisTemplate.opsForValue().set(rateLimitKey, "1", RATE_LIMIT_TTL_HOURS, TimeUnit.HOURS);
             // 保存反馈
             insertFeedback(feedback);
-            // 创建审核记录
-            FeedbackReview review = new FeedbackReview();
-            review.setFeedbackId(feedback.getId());
-            review.setReviewStatus(FeedbackReview.STATUS_PENDING);
-            reviewMapper.insert(review);
-            // 群体阈值检测
-            checkGroupThreshold(request.getColumnMetaId());
-            log.info("用户点踩 userId={} columnMetaId={} 已进入审核队列", userId, request.getColumnMetaId());
+            // 管理员/分析师：跳过审核队列，直接生效（3 倍权重）
+            List<String> roles = UserContext.currentRoles();
+            if (roles.contains("ADMIN") || roles.contains("ANALYST")) {
+                confidenceCalculator.adjustScore(
+                        request.getColumnMetaId(),
+                        FieldConfidenceEvent.TYPE_ADMIN_DISLIKE_CONFIRMED,
+                        userId,
+                        request.getQueryTaskId()
+                );
+                log.info("管理员/分析师踩直接生效 userId={} roles={} columnMetaId={}", userId, roles, request.getColumnMetaId());
+            } else {
+                // 普通用户：创建审核记录 → 群体阈值检测
+                FeedbackReview review = new FeedbackReview();
+                review.setFeedbackId(feedback.getId());
+                review.setReviewStatus(FeedbackReview.STATUS_PENDING);
+                reviewMapper.insert(review);
+                // 群体阈值检测
+                checkGroupThreshold(request.getColumnMetaId());
+                log.info("用户点踩 userId={} columnMetaId={} 已进入审核队列", userId, request.getColumnMetaId());
+            }
         }
         return toVO(feedback);
     }

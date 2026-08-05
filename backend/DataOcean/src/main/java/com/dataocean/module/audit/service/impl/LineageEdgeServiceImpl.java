@@ -11,6 +11,7 @@ import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +50,7 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
 
     private final MetadataEntityService entityService;
     private final MetadataRelationshipService relationshipService;
+    private final MetadataRelationshipMapper relationshipMapper;
     private final ObjectMapper objectMapper;
 
     // ========== 转换类型映射 ==========
@@ -572,7 +574,7 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
         // 利用 MetadataRelationshipMapper.selectBetween 按 source/target/relationType 查找
         // selectBetween 是带 LIMIT 1 的查询，适合此场景
         try {
-            return relationshipService.getBaseMapper().selectBetween(
+            return relationshipMapper.selectBetween(
                     sourceColId, targetColId, MetadataRelationship.TYPE_DERIVED_FROM);
         } catch (Exception e) {
             log.debug("查找 DERIVED_FROM 边失败 source={} target={}: {}", sourceColId, targetColId, e.getMessage());

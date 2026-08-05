@@ -31,6 +31,8 @@ public interface ConfidenceCalculator {
     int DELTA_USER_DISLIKE_CONFIRMED = -15;
     /** 事件扣分：群体阈值触发 */
     int DELTA_GROUP_THRESHOLD = -5;
+    /** 事件扣分：管理员/分析师踩直接生效（3 倍权重） */
+    int DELTA_ADMIN_DISLIKE_CONFIRMED = -45;
 
     /**
      * 初始化字段可信度

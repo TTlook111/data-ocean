@@ -35,6 +35,8 @@ public class FieldConfidenceEvent {
     public static final String TYPE_USER_DISLIKE_CONFIRMED = "USER_DISLIKE_CONFIRMED";
     /** 事件类型：群体阈值触发 */
     public static final String TYPE_GROUP_THRESHOLD = "GROUP_THRESHOLD";
+    /** 事件类型：管理员/分析师踩直接生效（跳过审核队列，3 倍权重） */
+    public static final String TYPE_ADMIN_DISLIKE_CONFIRMED = "ADMIN_DISLIKE_CONFIRMED";
     /** Phase 1 #6: 治理 Issue 确认 */
     public static final String TYPE_GOVERNANCE_ISSUE_CONFIRMED = "GOVERNANCE_ISSUE_CONFIRMED";
     /** Phase 1 #6: 治理 Issue 解决 */

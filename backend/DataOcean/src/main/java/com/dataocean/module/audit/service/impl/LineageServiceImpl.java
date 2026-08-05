@@ -15,6 +15,7 @@ import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -46,6 +47,7 @@ public class LineageServiceImpl implements LineageService {
     private final DatasourceAccessService datasourceAccessService;
     private final MetadataEntityService entityService;
     private final MetadataRelationshipService relationshipService;
+    private final MetadataRelationshipMapper relationshipMapper;
     private final ObjectMapper objectMapper;
 
     @Override
@@ -218,7 +220,7 @@ public class LineageServiceImpl implements LineageService {
 
             // 构建 DERIVED_FROM 的 relation_metadata（§4.2.4：合并 source 来源历史）
             // 先查询是否已有同对列的 DERIVED_FROM 边，用于合并来源
-            MetadataRelationship existingDerived = relationshipService.getBaseMapper()
+            MetadataRelationship existingDerived = relationshipMapper
                     .selectBetween(sourceCol.getId(), targetCol.getId(),
                             MetadataRelationship.TYPE_DERIVED_FROM);
             Map<String, Object> existingMeta = null;
