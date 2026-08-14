@@ -42,7 +42,7 @@ Important boundary:
 
 ## Current Status
 
-Last updated: 2026-07-24.
+Last updated: 2026-08-14.
 
 The main end-to-end chain is implemented:
 
@@ -77,6 +77,7 @@ Latest addition:
 
 Recently completed or verified:
 
+- **P6 操作日志覆盖补全已完成**（2026-08-14）：(1) 13 个管理端 Controller 补 `@AdminAuditLog`（治理/快照发布/术语审核/skills/告警/配额/审批/AI配置/调度/角色权限部门）；(2) `AdminAuditLog` 新增 `logReads` 属性，读密集型 Controller（catalog/collection）只记录写操作，避免搜索/轮询刷屏；(3) `OperationLogAspect` 提取 `targetId` 定位具体记录，并移除 OperationLogController 自引用日志；(4) 便捷查询：新增 `OperationLogQueryDTO` + `listLogs()` 多条件动态查询（操作人/类型/状态/时间/IP/路径/目标资源/目标ID/关键词），前端 `OperationLogList.vue` 筛选栏 + `operation-log.ts` 查询接口扩展。前端 build 通过，Java 单测待有 Maven 环境运行。
 - **Phase 0-3 深度优化已完成**（2026-07-24）：按《DataOcean深度优化参考方案》实施 18 项优化，分 4 个 Phase、12 次 commit：
   - **Phase 0 前置**（3 项）：打通列信息数据通道（`state.py` `RetrievedSchema.columns` + `schema_retriever.py` 传递 `ColumnInfo`）；权限计算 Redis 去重（`perm:{taskId}` TTL=60s）；`graph.py` `START` 导入。
   - **Phase 1 低悬果实**（6 项，零额外 LLM 调用）：Embedding 缓存（Redis TTL=1h）；术语表 Redis 缓存 + N+1 批量查询修复；Fallback Chunks Redis 缓存；Schema Linking 阈值 3→8（基于 Death of Schema Linking 论文）；SQL-to-Schema 幻觉检测（sqlglot `_extract_tables` 复用）；治理-置信度联动（V44 `metadata_quality_issue.column_meta_id` + `QualityIssueServiceImpl.handleIssue()` 联动 `ConfidenceCalculator.adjustScore()`）。
@@ -288,7 +289,7 @@ Important modules:
 - `audit`: query audit, lineage, quotas, alerts.
 - `permission`: access policy, data masking, policy priority/time conditions, access approvals, and permission change logs.
 - `prompt`: prompt template CRUD, approval workflow, version history, rollback, and internal template API for Python.
-- `system`: config, notifications, operation logs, AI config, scheduling.
+- `system`: config, notifications, operation logs (multi-condition query), AI config, scheduling.
 - `dashboard`: admin homepage statistics aggregation.
 
 Database migrations live in:
