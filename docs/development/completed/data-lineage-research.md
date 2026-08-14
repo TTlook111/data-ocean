@@ -538,7 +538,7 @@ Controller 同样放在 `com.dataocean.module.audit.controller` 下（与现有 
 
 #### 4.1.3 前端录入方案
 
-> **导航层级归属**（遵循 `docs/development/guides/后台信息架构与导航规范.md` 三级结构）：
+> **导航层级归属**（遵循 `../guides/后台信息架构与导航规范.md` 三级结构）：
 >
 > ```text
 > 一级（侧边栏）    → 运营与安全
@@ -595,7 +595,7 @@ Controller 同样放在 `com.dataocean.module.audit.controller` 下（与现有 
 > **页面初始化行为**：
 > - 进入页面时默认选中第一个可用数据源并加载图谱，避免空白页。
 > - 数据源选择记录到 `localStorage`，下次进入自动恢复上次选择。
-> - 新文件：`frontend/src/views/admin/audit/DataLineage.vue`，路由 `/admin/audit/data-lineage`。
+> - 新文件：`../../../frontend/src/views/admin/audit/DataLineage.vue`，路由 `/admin/audit/data-lineage`。
 
 **用户工作流示例**：
 1. 进入"数据血缘"页面 → 左侧面板选择数据源 → 图谱加载该数据源的全局血缘拓扑
