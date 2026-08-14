@@ -44,14 +44,6 @@ export interface GraphCallbacks {
   onEdgeDragCreate?: (sourceId: string, targetId: string) => void
 }
 
-// ========== 线色表 ==========
-const LINEAGE_COLORS: Record<string, string> = {
-  QUERY: '#4d8fdc',
-  ETL: '#52c41a',
-  MANUAL: '#faad14',
-}
-const DERIVED_COLOR = '#91d5ff'
-
 // ========== dagre 图布局 ==========
 function layoutGraph(nodes: GraphNode[], edges: GraphEdge[]) {
   const g = new dagre.graphlib.Graph()
@@ -268,12 +260,12 @@ export function useD3LineageGraph(
         d3.select(this).raise()
         svg?.style('cursor', 'grabbing')
       })
-      .on('drag', (event, n) => {
+      .on('drag', function (this: SVGGElement, event: any, n: GraphNode) {
         n.x = (n.x ?? 0) + event.dx
         n.y = (n.y ?? 0) + event.dy
         d3.select(this).attr('transform', `translate(${(n.x ?? 0) - 80}, ${(n.y ?? 0) - 28})`)
         // 更新关联边
-        updateEdgePositions(nodes, edges)
+        updateEdgePositions(nodes)
       })
       .on('end', () => {
         svg?.style('cursor', 'grab')
@@ -317,7 +309,7 @@ export function useD3LineageGraph(
   }
 
   /** 更新边路径位置 */
-  function updateEdgePositions(nodes: GraphNode[], edges: GraphEdge[]) {
+  function updateEdgePositions(nodes: GraphNode[]) {
     mainGroup?.selectAll<SVGGElement, GraphEdge>('g.edge path')
       .attr('d', (e) => {
         const src = nodes.find(n => n.id === e.sourceId)
@@ -331,23 +323,6 @@ export function useD3LineageGraph(
         const mx = sx + dx * 0.5
         return `M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ty}, ${tx} ${ty}`
       })
-  }
-
-  /** 导出 PNG */
-  function exportPng(): string | null {
-    if (!svg) return null
-    const svgNode = svg.node()
-    if (!svgNode) return null
-    const serializer = new XMLSerializer()
-    const svgStr = serializer.serializeToString(svgNode)
-    const canvas = document.createElement('canvas')
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return null
-    const img = new Image()
-    const blob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    // 同步不可能，返回数据 URL 不可直接使用，改为同步方式
-    return null // 异步导出见下方 exportPngAsync
   }
 
   /** 异步导出 PNG */

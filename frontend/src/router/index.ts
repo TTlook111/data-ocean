@@ -33,8 +33,6 @@ const ConfidenceDashboard = () => import('../views/admin/field/ConfidenceDashboa
 const FeedbackReview = () => import('../views/admin/field/FeedbackReview.vue')
 const AuditLogList = () => import('../views/admin/audit/AuditLogList.vue')
 const SlowQueryList = () => import('../views/admin/audit/SlowQueryList.vue')
-const LineageViewer = () => import('../views/admin/audit/LineageViewer.vue')
-const LineageGraph = () => import('../views/admin/audit/LineageGraph.vue')
 const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
 const GlossaryList = () => import('../views/admin/glossary/GlossaryList.vue')
 const CatalogSearch = () => import('../views/admin/metadata/CatalogSearch.vue')

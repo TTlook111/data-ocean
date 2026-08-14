@@ -81,7 +81,7 @@ async function searchTables(query: string, target: 'source' | 'target') {
 }
 
 /** 选中源表后加载其下属列 */
-async function loadSourceColumns(tableId: number) {
+async function loadSourceColumns() {
   try {
     // 通过搜索该表 FQN 前缀来获取列列表
     const entity = selectedSource.value
@@ -96,7 +96,7 @@ async function loadSourceColumns(tableId: number) {
 }
 
 /** 选中目标表后加载其下属列 */
-async function loadTargetColumns(tableId: number) {
+async function loadTargetColumns() {
   try {
     const entity = selectedTarget.value
     if (!entity) return
@@ -110,12 +110,12 @@ async function loadTargetColumns(tableId: number) {
 }
 
 watch(selectedSource, (val) => {
-  if (val) loadSourceColumns(val.id)
+  if (val) loadSourceColumns()
   else sourceColumnOptions.value = []
 })
 
 watch(selectedTarget, (val) => {
-  if (val) loadTargetColumns(val.id)
+  if (val) loadTargetColumns()
   else targetColumnOptions.value = []
 })
 

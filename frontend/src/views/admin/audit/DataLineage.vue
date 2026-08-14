@@ -10,11 +10,11 @@
  * - Vue 组件（面板/弹窗/抽屉）通过事件总线与图谱渲染层通信
  * - Phase 2 将图谱从 ECharts 替换为 D3.js 时，Vue 层组件直接复用
  */
-import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useD3LineageGraph, type GraphNode, type GraphEdge } from '../../../composables/useD3LineageGraph'
 import {
-  Search, Plus, Upload, Download, X,
+  Search, Plus, Upload, Download,
   Network, Filter, Sliders
 } from 'lucide-vue-next'
 import { listMyDatasources, type UserDatasourceItem } from '../../../api/datasource'
@@ -104,7 +104,7 @@ const {
         data: null,
       }
     },
-    onEdgeDragCreate: (sourceId, targetId) => {
+    onEdgeDragCreate: (sourceId) => {
       prefilledSourceId.value = Number(sourceId)
       addDialogVisible.value = true
       // 目标实体 ID 可通过预填方式处理
@@ -121,11 +121,6 @@ const contextMenu = ref({
   type: '' as 'node' | 'edge' | 'blank',
   data: null as any,
 })
-const LINEAGE_COLORS: Record<string, string> = {
-  QUERY: '#4d8fdc',
-  ETL: '#52c41a',
-  MANUAL: '#faad14',
-}
 
 // ========== 初始化生命周期 ==========
 
