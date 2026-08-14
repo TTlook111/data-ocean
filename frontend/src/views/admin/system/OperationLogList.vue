@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Activity, AlertTriangle, CheckCircle2, ClipboardList, Clock3, RefreshCw, Search, X } from 'lucide-vue-next'
+import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ClipboardList, Clock3, RefreshCw, Search, X } from 'lucide-vue-next'
 import { listOperationLogs, type OperationLogItem, type OperationLogQuery } from '../../../api/admin/operation-log'
 
 const loading = ref(false)
@@ -10,13 +10,36 @@ const total = ref(0)
 const detailVisible = ref(false)
 const selectedLog = ref<OperationLogItem>()
 
+const timeRange = ref<string[] | null>(null)
+const showAdvanced = ref(false)
+
 const query = reactive<OperationLogQuery>({
   page: 1,
   pageSize: 20,
+  operatorName: '',
+  operationType: '',
+  isSuccess: undefined,
+  ipAddress: '',
+  requestPath: '',
   targetResource: '',
+  targetId: '',
+  keyword: '',
 })
 
-const hasFilter = computed(() => Boolean(query.targetResource?.trim()))
+const hasFilter = computed(() => {
+  const q = query
+  return Boolean(
+    q.operatorName?.trim() ||
+      q.operationType ||
+      typeof q.isSuccess === 'boolean' ||
+      q.ipAddress?.trim() ||
+      q.requestPath?.trim() ||
+      q.targetResource?.trim() ||
+      q.targetId?.trim() ||
+      q.keyword?.trim() ||
+      timeRange.value?.length === 2,
+  )
+})
 const successCount = computed(() => logs.value.filter((item) => item.isSuccess).length)
 const failedCount = computed(() => logs.value.filter((item) => item.isSuccess === false).length)
 const avgExecutionMs = computed(() => {
@@ -27,23 +50,23 @@ const avgExecutionMs = computed(() => {
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length)
 })
 
-watch(
-  () => query.targetResource,
-  () => {
-    if (!query.targetResource) {
-      query.page = 1
-      fetchLogs()
-    }
-  },
-)
-
 async function fetchLogs() {
   loading.value = true
   try {
+    const [startTime, endTime] = timeRange.value?.length === 2 ? timeRange.value : [undefined, undefined]
     const params: OperationLogQuery = {
       page: query.page,
       pageSize: query.pageSize,
+      operatorName: query.operatorName?.trim() || undefined,
+      operationType: query.operationType || undefined,
+      isSuccess: typeof query.isSuccess === 'boolean' ? query.isSuccess : undefined,
+      startTime,
+      endTime,
+      ipAddress: query.ipAddress?.trim() || undefined,
+      requestPath: query.requestPath?.trim() || undefined,
       targetResource: query.targetResource?.trim() || undefined,
+      targetId: query.targetId?.trim() || undefined,
+      keyword: query.keyword?.trim() || undefined,
     }
     const result = await listOperationLogs(params)
     logs.value = result.data?.records ?? []
@@ -63,7 +86,15 @@ function handleSearch() {
 }
 
 function handleReset() {
+  query.operatorName = ''
+  query.operationType = ''
+  query.isSuccess = undefined
+  query.ipAddress = ''
+  query.requestPath = ''
   query.targetResource = ''
+  query.targetId = ''
+  query.keyword = ''
+  timeRange.value = null
   query.page = 1
   fetchLogs()
 }
@@ -196,20 +227,56 @@ onMounted(fetchLogs)
             <span>按目标资源定位后台操作轨迹</span>
           </div>
         </div>
-        <div class="page-actions">
-          <el-input
-            v-model="query.targetResource"
-            class="resource-filter"
-            clearable
-            placeholder="目标资源"
-            @keyup.enter="handleSearch"
-          >
-            <template #prefix>
-              <ClipboardList :size="16" />
-            </template>
-          </el-input>
-          <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
-          <el-button v-if="hasFilter" :icon="X" @click="handleReset">重置</el-button>
+        <div class="filter-area">
+          <div class="filter-row">
+            <el-input
+              v-model="query.keyword"
+              class="filter-item filter-item--keyword"
+              clearable
+              maxlength="100"
+              placeholder="关键词（操作人 / 资源 / 路径）"
+              @keyup.enter="handleSearch"
+            >
+              <template #prefix>
+                <Search :size="16" />
+              </template>
+            </el-input>
+            <el-input v-model="query.operatorName" class="filter-item" clearable placeholder="操作人" @keyup.enter="handleSearch" />
+            <el-select v-model="query.operationType" class="filter-item" clearable placeholder="操作类型" @change="handleSearch">
+              <el-option label="新增" value="CREATE" />
+              <el-option label="更新" value="UPDATE" />
+              <el-option label="删除" value="DELETE" />
+              <el-option label="查询" value="QUERY" />
+            </el-select>
+            <el-select v-model="query.isSuccess" class="filter-item" clearable placeholder="状态" @change="handleSearch">
+              <el-option label="成功" :value="true" />
+              <el-option label="失败" :value="false" />
+            </el-select>
+            <el-date-picker
+              v-model="timeRange"
+              class="filter-item filter-item--time"
+              type="datetimerange"
+              range-separator="至"
+              start-placeholder="开始时间"
+              end-placeholder="结束时间"
+              value-format="YYYY-MM-DD HH:mm:ss"
+              @change="handleSearch"
+            />
+          </div>
+          <div v-show="showAdvanced" class="filter-row filter-row--advanced">
+            <el-input v-model="query.ipAddress" class="filter-item" clearable placeholder="IP 地址" @keyup.enter="handleSearch" />
+            <el-input v-model="query.requestPath" class="filter-item filter-item--wide" clearable placeholder="请求路径" @keyup.enter="handleSearch" />
+            <el-input v-model="query.targetResource" class="filter-item" clearable placeholder="目标资源" @keyup.enter="handleSearch" />
+            <el-input v-model="query.targetId" class="filter-item" clearable placeholder="目标 ID" @keyup.enter="handleSearch" />
+          </div>
+          <div class="filter-actions">
+            <button type="button" class="advanced-toggle" @click="showAdvanced = !showAdvanced">
+              {{ showAdvanced ? '收起高级筛选' : '高级筛选' }}
+              <ChevronDown :size="14" :class="{ 'is-open': showAdvanced }" />
+            </button>
+            <el-button type="primary" :icon="Search" @click="handleSearch">查询</el-button>
+            <el-button v-if="hasFilter" :icon="X" @click="handleReset">重置</el-button>
+          </div>
         </div>
       </div>
 
@@ -398,15 +465,68 @@ onMounted(fetchLogs)
   background: rgba(184, 135, 50, 0.14);
 }
 
-.page-actions {
+.filter-area {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.filter-row {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-row--advanced {
+  padding-top: 4px;
+}
+
+.filter-item {
+  width: 140px;
+}
+
+.filter-item--keyword {
+  width: min(220px, 100%);
+}
+
+.filter-item--wide {
+  width: 200px;
+}
+
+.filter-item--time {
+  width: min(340px, 100%);
+}
+
+.filter-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 10px;
 }
 
-.resource-filter {
-  width: min(280px, 100%);
+.advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 0;
+  color: var(--do-muted);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.advanced-toggle svg {
+  transition: transform 0.2s ease;
+}
+
+.advanced-toggle svg.is-open {
+  transform: rotate(180deg);
+}
+
+.advanced-toggle:hover {
+  color: var(--do-primary);
 }
 
 .content-panel {
@@ -613,10 +733,15 @@ onMounted(fetchLogs)
     grid-template-columns: 1fr;
   }
 
-  .page-actions,
-  .resource-filter,
-  .page-actions :deep(.el-button) {
+  .filter-item,
+  .filter-item--keyword,
+  .filter-item--wide,
+  .filter-item--time {
     width: 100%;
+  }
+
+  .filter-actions {
+    justify-content: flex-start;
   }
 
   .log-table-wrap {

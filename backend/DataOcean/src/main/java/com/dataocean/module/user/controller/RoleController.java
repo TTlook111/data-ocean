@@ -1,6 +1,7 @@
 package com.dataocean.module.user.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.entity.dto.RoleSaveDTO;
 import com.dataocean.module.user.entity.dto.RoleUserAssignDTO;
@@ -26,6 +27,7 @@ import java.util.Map;
 @RequestMapping({"/api/admin/roles", "/api/roles"})
 @RequiredArgsConstructor
 @Slf4j
+@AdminAuditLog
 public class RoleController {
 
     private final RoleService roleService;

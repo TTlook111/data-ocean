@@ -3,6 +3,7 @@ package com.dataocean.module.glossary.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.glossary.dto.TermLinkColumnDTO;
 import com.dataocean.module.glossary.dto.TermReviewDTO;
 import com.dataocean.module.glossary.entity.Glossary;
@@ -29,6 +30,7 @@ import java.util.Map;
 @RequestMapping("/api/admin/glossary")
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyAuthority('metadata:manage', '*')")
+@AdminAuditLog
 public class GlossaryController {
 
     private final GlossaryService glossaryService;

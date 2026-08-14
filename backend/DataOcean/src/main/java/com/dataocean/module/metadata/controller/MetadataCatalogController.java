@@ -1,6 +1,7 @@
 package com.dataocean.module.metadata.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.audit.service.LineageEdgeService;
 import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
@@ -36,6 +37,7 @@ import java.util.Set;
 @RequestMapping("/api/admin/catalog")
 @RequiredArgsConstructor
 @PreAuthorize("hasAnyAuthority('metadata:manage', '*')")
+@AdminAuditLog(logReads = false)
 public class MetadataCatalogController {
 
     private final MetadataEntityService entityService;

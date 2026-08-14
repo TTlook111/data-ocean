@@ -3,6 +3,7 @@ package com.dataocean.module.permission.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.permission.entity.AccessApprovalRequest;
 import com.dataocean.module.permission.service.AccessApprovalService;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +20,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/access-approvals")
 @RequiredArgsConstructor
+@AdminAuditLog
 public class AccessApprovalController {
 
     private final AccessApprovalService approvalService;

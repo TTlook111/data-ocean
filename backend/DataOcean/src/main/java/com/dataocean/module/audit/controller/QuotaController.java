@@ -2,6 +2,7 @@ package com.dataocean.module.audit.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.audit.entity.QuotaPolicy;
 import com.dataocean.module.audit.entity.dto.QuotaPolicyDTO;
 import com.dataocean.module.audit.entity.vo.QuotaCheckVO;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/admin/quotas")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('audit:view')")
+@AdminAuditLog
 @Slf4j
 public class QuotaController {
 

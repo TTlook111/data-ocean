@@ -33,14 +33,19 @@ public class OperationLogAspect {
     /**
      * 环绕通知：拦截所有标注了 @AdminAuditLog 的 Controller 方法
      */
-    @Around("@within(com.dataocean.module.system.aspect.AdminAuditLog)")
-    public Object logOperation(ProceedingJoinPoint joinPoint) throws Throwable {
+    @Around("@within(adminAuditLog)")
+    public Object logOperation(ProceedingJoinPoint joinPoint, AdminAuditLog adminAuditLog) throws Throwable {
         ServletRequestAttributes attrs = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
         if (attrs == null) {
             return joinPoint.proceed();
         }
         HttpServletRequest request = attrs.getRequest();
         String path = request.getRequestURI();
+
+        // 读密集型 Controller（logReads = false）跳过只读操作，避免搜索/列表/轮询 GET 刷屏
+        if (!adminAuditLog.logReads() && "GET".equalsIgnoreCase(request.getMethod())) {
+            return joinPoint.proceed();
+        }
 
         long startTime = System.currentTimeMillis();
         SysOperationLog opLog = new SysOperationLog();
@@ -61,6 +66,8 @@ public class OperationLogAspect {
         opLog.setOperationType(inferOperationType(request.getMethod()));
         // 推断目标资源
         opLog.setTargetResource(inferResource(path));
+        // 提取目标资源 ID（路径首个纯数字段，best-effort）
+        opLog.setTargetId(extractTargetId(path));
 
         Object result;
         try {
@@ -80,7 +87,7 @@ public class OperationLogAspect {
     /**
      * 根据 HTTP 方法推断操作类型
      */
-    private String inferOperationType(String method) {
+    static String inferOperationType(String method) {
         return switch (method.toUpperCase()) {
             case "POST" -> "CREATE";
             case "PUT", "PATCH" -> "UPDATE";
@@ -92,10 +99,27 @@ public class OperationLogAspect {
     /**
      * 根据请求路径推断目标资源
      */
-    private String inferResource(String path) {
+    static String inferResource(String path) {
         // /api/admin/datasources/1 → datasources
         String[] parts = path.replace("/api/admin/", "").split("/");
         return parts.length > 0 ? parts[0] : "unknown";
+    }
+
+    /**
+     * 从请求路径提取目标资源 ID
+     * <p>
+     * /api/admin/datasources/1 → 1；/api/admin/governance/issues/5/resolve → 5。
+     * 取路径中的首个纯数字段，无则返回 null。
+     * </p>
+     */
+    static String extractTargetId(String path) {
+        String[] parts = path.replace("/api/admin/", "").split("/");
+        for (String part : parts) {
+            if (part.matches("\\d+")) {
+                return part;
+            }
+        }
+        return null;
     }
 
     /**

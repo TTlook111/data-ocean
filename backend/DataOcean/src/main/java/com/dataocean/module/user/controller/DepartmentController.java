@@ -1,6 +1,7 @@
 package com.dataocean.module.user.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.user.entity.dto.DepartmentCreateDTO;
 import com.dataocean.module.user.entity.dto.DepartmentUpdateDTO;
 import com.dataocean.module.user.entity.vo.DepartmentTreeVO;
@@ -25,6 +26,7 @@ import java.util.Map;
 @RequestMapping({"/api/admin/departments", "/api/departments"})
 @RequiredArgsConstructor
 @Slf4j
+@AdminAuditLog
 public class DepartmentController {
 
     private final DepartmentService departmentService;

@@ -2,6 +2,7 @@ package com.dataocean.module.knowledge.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.knowledge.dto.*;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
@@ -38,6 +39,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('knowledge:manage')")
 @Slf4j
+@AdminAuditLog
 public class KnowledgeDocController {
 
     private final KnowledgeDocCrudService crudService;

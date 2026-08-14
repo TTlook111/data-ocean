@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.pagination.PageRequest;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.entity.vo.SchemaDiffVO;
 import com.dataocean.module.versioning.entity.SnapshotAuditLog;
@@ -33,6 +34,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('metadata:manage')")
+@AdminAuditLog
 public class SnapshotVersionController {
 
     private final SnapshotLifecycleService lifecycleService;

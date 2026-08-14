@@ -1,6 +1,7 @@
 package com.dataocean.module.system.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.system.client.PythonAiConfigClient;
 import com.dataocean.module.system.entity.dto.AiConfigDTO;
 import com.dataocean.module.system.entity.vo.AiConfigVO;
@@ -21,6 +22,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/admin/system/ai-config")
+@AdminAuditLog
 @Slf4j
 public class AiConfigController {
 

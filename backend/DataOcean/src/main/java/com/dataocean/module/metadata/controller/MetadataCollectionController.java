@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.pagination.PageRequest;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
@@ -48,6 +49,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('metadata:manage')")
 @Slf4j
+@AdminAuditLog(logReads = false)
 public class MetadataCollectionController {
 
     private final SchemaCollectionService collectionService;

@@ -3,6 +3,7 @@ package com.dataocean.module.user.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.user.entity.SysPermission;
 import com.dataocean.module.user.entity.SysRolePermission;
 import com.dataocean.module.user.entity.dto.PermissionSaveDTO;
@@ -28,6 +29,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping({"/api/admin/permissions", "/api/permissions"})
 @RequiredArgsConstructor
+@AdminAuditLog
 public class PermissionController {
 
     private final PermissionMapper permissionMapper;

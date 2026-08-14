@@ -21,7 +21,16 @@ export interface OperationLogItem {
 export interface OperationLogQuery {
   page?: number
   pageSize?: number
+  operatorName?: string
+  operationType?: string
+  isSuccess?: boolean
+  startTime?: string
+  endTime?: string
+  ipAddress?: string
+  requestPath?: string
   targetResource?: string
+  targetId?: string
+  keyword?: string
 }
 
 export async function listOperationLogs(params: OperationLogQuery) {

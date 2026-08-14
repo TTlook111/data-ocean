@@ -1,6 +1,7 @@
 package com.dataocean.module.system.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.metadata.scheduler.AutoSyncScheduler;
 import com.dataocean.module.system.entity.dto.SyncScheduleDTO;
 import com.dataocean.module.system.entity.vo.SyncScheduleVO;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/admin/system")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('metadata:manage')")
+@AdminAuditLog
 public class SyncScheduleController {
 
     private final SysConfigService configService;

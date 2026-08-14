@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.pagination.PageRequest;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.governance.entity.MetadataQualityRule;
 import com.dataocean.module.governance.entity.dto.*;
 import com.dataocean.module.governance.entity.vo.QualityCheckResultVO;
@@ -28,6 +29,7 @@ import java.util.Map;
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
 @PreAuthorize("hasAuthority('metadata:manage')")
+@AdminAuditLog
 public class MetadataGovernanceController {
 
     private final QualityCheckService qualityCheckService;
