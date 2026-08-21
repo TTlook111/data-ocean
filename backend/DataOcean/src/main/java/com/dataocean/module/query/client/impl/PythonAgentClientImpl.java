@@ -280,6 +280,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
 
     /**
      * 从 Agent 结果中提取口径说明，保存为助手消息。
+     * <p>Phase 1 P5: 缓存失效由 ConversationServiceImpl.saveAssistantMessage() 内部处理。</p>
      */
     private void saveAssistantMessageFromResult(Long conversationId, String taskId, String resultJson) {
         try {
@@ -320,11 +321,31 @@ public class PythonAgentClientImpl implements PythonAgentClient {
 
     /**
      * 构建最近 5 轮对话历史（排除当前刚保存的用户消息）。
+     * <p>
+     * Phase 1 P5: 先查 Redis 缓存，未命中再查 MySQL，结果写回 Redis（TTL 30min）。
+     * Redis 故障时静默降级，不影响主流程。
+     * </p>
      */
     private List<Map<String, String>> buildConversationHistory(Long conversationId, Long userId) {
         if (conversationId == null) {
             return List.of();
         }
+
+        String cacheKey = CONV_HISTORY_KEY_PREFIX + conversationId;
+
+        // Phase 1 P5: 先查 Redis 缓存
+        try {
+            @SuppressWarnings("unchecked")
+            List<Map<String, String>> cached =
+                (List<Map<String, String>>) redisTemplate.opsForValue().get(cacheKey);
+            if (cached != null) {
+                log.debug("对话历史命中 Redis 缓存 conversationId={} size={}", conversationId, cached.size());
+                return cached;
+            }
+        } catch (Exception e) {
+            log.warn("对话历史缓存读取失败 conversationId={}, 降级查 DB", conversationId, e);
+        }
+
         try {
             // 获取最近 10 条消息（5 轮 = 10 条 user+assistant）
             var messages = conversationService.getRecentMessages(conversationId, userId, 10);
@@ -336,6 +357,16 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             if (!history.isEmpty() && "user".equals(history.get(history.size() - 1).get("role"))) {
                 history.remove(history.size() - 1);
             }
+
+            // Phase 1 P5: 写回 Redis 缓存
+            if (!history.isEmpty()) {
+                try {
+                    redisTemplate.opsForValue().set(cacheKey, history, CONV_HISTORY_TTL);
+                } catch (Exception e) {
+                    log.warn("对话历史缓存写入失败 conversationId={}", conversationId, e);
+                }
+            }
+
             return history;
         } catch (Exception e) {
             log.warn("获取对话历史失败 conversationId={}", conversationId, e);
@@ -432,6 +463,9 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     // Phase 1 #3: Redis 缓存 key 常量
     private static final String FALLBACK_CHUNKS_KEY_PREFIX = "fallback:chunks:";
     private static final java.time.Duration FALLBACK_CHUNKS_TTL = java.time.Duration.ofMinutes(30);
+    // Phase 1 P5: 对话历史 Redis 缓存常量
+    private static final String CONV_HISTORY_KEY_PREFIX = "conv:history:";
+    private static final java.time.Duration CONV_HISTORY_TTL = java.time.Duration.ofMinutes(30);
 
     private List<Map<String, Object>> loadFallbackChunks(Long datasourceId) {
         // Phase 1 #3: 先查 Redis 缓存

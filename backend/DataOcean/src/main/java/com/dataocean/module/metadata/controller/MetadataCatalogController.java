@@ -1,6 +1,8 @@
 package com.dataocean.module.metadata.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.metadata.entity.dto.ConfirmMaskCandidateRequest;
+import jakarta.validation.Valid;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.audit.service.LineageEdgeService;
 import com.dataocean.module.metadata.entity.MetadataEntity;
@@ -362,7 +364,9 @@ public class MetadataCatalogController {
                     if (node.has("pending_mask")) {
                         item.put("pendingMask", om.treeToValue(node.get("pending_mask"), Map.class));
                     }
-                } catch (Exception ignored) {}
+                } catch (Exception e) {
+                    log.warn("掩码策略解析失败 entityId={}: {}", col.getId(), e.getMessage());
+                }
                 candidates.add(item);
             }
         }
@@ -378,8 +382,8 @@ public class MetadataCatalogController {
     @PostMapping("/mask-candidates/{entityId}/confirm")
     public Result<Void> confirmMaskCandidate(
             @PathVariable Long entityId,
-            @RequestBody Map<String, String> body) {
-        String maskStrategy = body.getOrDefault("maskStrategy", "PHONE");
+            @Valid @RequestBody ConfirmMaskCandidateRequest body) {
+        String maskStrategy = body.getMaskStrategy();
 
         MetadataEntity entity = entityService.getById(entityId);
         if (entity == null) {
