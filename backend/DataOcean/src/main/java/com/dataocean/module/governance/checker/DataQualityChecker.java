@@ -5,6 +5,7 @@ import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
+import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.governance.entity.MetadataQualityIssue;
 import com.dataocean.module.governance.entity.MetadataQualityRule;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
@@ -14,11 +15,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
-import javax.crypto.Cipher;
-import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -46,6 +43,7 @@ public class DataQualityChecker implements QualityChecker {
 
     private final DatasourceMapper datasourceMapper;
     private final DatasourceSecretMapper datasourceSecretMapper;
+    private final DatasourceSecretService datasourceSecretService;
 
     /** SQL 执行超时时间（秒） */
     private static final int QUERY_TIMEOUT_SECONDS = 30;
@@ -77,6 +75,11 @@ public class DataQualityChecker implements QualityChecker {
         if (conn == null) {
             log.warn("数据源连接失败，跳过 DATA 级质量检查 datasourceId={}", context.datasourceId());
             return issues;
+        }
+
+        if (password == null) {
+            log.error("数据源密码解密失败，拒绝连接 datasourceId={}", datasourceId);
+            return null;
         }
 
         try {
@@ -122,7 +125,7 @@ public class DataQualityChecker implements QualityChecker {
             try {
                 String sql = String.format(
                         "SELECT COUNT(*) AS total, SUM(CASE WHEN `%s` IS NULL THEN 1 ELSE 0 END) AS nulls FROM `%s` LIMIT %d",
-                        column.getColumnName(), column.getTableName(), MAX_SAMPLE_ROWS);
+                        escapeIdentifier(column.getColumnName()), escapeIdentifier(column.getTableName()), MAX_SAMPLE_ROWS);
                 try (Statement stmt = conn.createStatement();
                      ResultSet rs = stmt.executeQuery(sql)) {
                     if (rs.next()) {
@@ -171,7 +174,7 @@ public class DataQualityChecker implements QualityChecker {
             try {
                 String sql = String.format(
                         "SELECT `%s`, COUNT(*) AS cnt FROM `%s` GROUP BY `%s` HAVING COUNT(*) > 1 LIMIT 5",
-                        column.getColumnName(), column.getTableName(), column.getColumnName());
+                        escapeIdentifier(column.getColumnName()), escapeIdentifier(column.getTableName()), escapeIdentifier(column.getColumnName()));
                 try (Statement stmt = conn.createStatement();
                      ResultSet rs = stmt.executeQuery(sql)) {
                     if (rs.next()) {
@@ -210,7 +213,7 @@ public class DataQualityChecker implements QualityChecker {
                 String sql = String.format(
                         "SELECT COUNT(*) AS orphans FROM `%s` c WHERE c.`%s` IS NOT NULL " +
                                 "AND c.`%s` NOT IN (SELECT p.`%s` FROM `%s` p WHERE p.`%s` IS NOT NULL) LIMIT 1",
-                        childTable, childColumn, childColumn, parentColumn, parentTable, parentColumn);
+                        escapeIdentifier(childTable), escapeIdentifier(childColumn), escapeIdentifier(childColumn), escapeIdentifier(parentColumn), escapeIdentifier(parentTable), escapeIdentifier(parentColumn));
                 try (Statement stmt = conn.createStatement();
                      ResultSet rs = stmt.executeQuery(sql)) {
                     if (rs.next()) {
@@ -248,7 +251,7 @@ public class DataQualityChecker implements QualityChecker {
 
             try {
                 String sql = String.format(
-                        "SELECT MAX(`%s`) AS last_update FROM `%s` LIMIT 1", timeColumn, table.getTableName());
+                        "SELECT MAX(`%s`) AS last_update FROM `%s` LIMIT 1", escapeIdentifier(timeColumn), escapeIdentifier(table.getTableName()));
                 try (Statement stmt = conn.createStatement();
                      ResultSet rs = stmt.executeQuery(sql)) {
                     if (rs.next()) {
@@ -327,33 +330,31 @@ public class DataQualityChecker implements QualityChecker {
     }
 
     /**
-     * AES-256-GCM 解密密码
+     * 转义 SQL 标识符中的反引号，防止 SQL 注入。
+     * <p>
+     * 标识符来自 information_schema 元数据采集，正常情况下不含特殊字符，
+     * 但作为防御性编程仍进行转义处理。
+     * </p>
+     *
+     * @param identifier 表名或字段名
+     * @return 转义后的标识符（用于嵌入反引号包裹的 SQL）
+     */
+    private static String escapeIdentifier(String identifier) {
+        return identifier.replace("`", "``");
+    }
+
+    /**
+     * 解密数据源密码，复用 DatasourceSecretService 统一解密逻辑。
      */
     private String decryptPassword(String encrypted) {
         if (encrypted == null || encrypted.isBlank()) {
             return "";
         }
         try {
-            byte[] data = Base64.getDecoder().decode(encrypted);
-            // GCM: 前 12 字节是 IV，后 16 字节是 tag，中间是密文
-            byte[] iv = Arrays.copyOfRange(data, 0, 12);
-            byte[] ciphertext = Arrays.copyOfRange(data, 12, data.length);
-
-            String aesKey = System.getenv("DATASOURCE_AES_KEY");
-            if (aesKey == null || aesKey.isBlank()) {
-                log.warn("DATASOURCE_AES_KEY 未配置，尝试直接使用密码值");
-                return encrypted;
-            }
-
-            SecretKeySpec keySpec = new SecretKeySpec(aesKey.getBytes(StandardCharsets.UTF_8), "AES");
-            GCMParameterSpec gcmSpec = new GCMParameterSpec(128, iv);
-            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, keySpec, gcmSpec);
-            byte[] plaintext = cipher.doFinal(ciphertext);
-            return new String(plaintext, StandardCharsets.UTF_8);
+            return datasourceSecretService.decrypt(encrypted);
         } catch (Exception e) {
-            log.warn("密码解密失败: {}", e.getMessage());
-            return encrypted;
+            log.error("数据源密码解密失败，拒绝连接: {}", e.getMessage());
+            return null;
         }
     }
 

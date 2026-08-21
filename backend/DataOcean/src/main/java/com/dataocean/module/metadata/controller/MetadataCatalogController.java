@@ -161,12 +161,12 @@ public class MetadataCatalogController {
 
         // 获取上游 DERIVED_FROM 链（该列是 target，即哪些源列派生出了它）
         if ("upstream".equals(direction) || "both".equals(direction)) {
-            result.put("upstream", traceDerivedFromChain(columnId, depth, true));
+            result.put("upstream", traceDerivedFromChain(columnId, depth, true, new HashSet<>()));
         }
 
         // 获取下游 DERIVED_FROM 链（该列是 source，即它派生出了哪些列）
         if ("downstream".equals(direction) || "both".equals(direction)) {
-            result.put("downstream", traceDerivedFromChain(columnId, depth, false));
+            result.put("downstream", traceDerivedFromChain(columnId, depth, false, new HashSet<>()));
         }
 
         return Result.success(result);
@@ -178,11 +178,13 @@ public class MetadataCatalogController {
      * @param columnId   起始列实体 ID
      * @param depth      遍历深度
      * @param upstream   true=上游（查询入边），false=下游（查询出边）
+     * @param visited    已访问节点集合（防止循环血缘导致无限递归）
      * @return 递归嵌套的列血缘链 [{"entity":..., "relationship":..., "children":[...]}, ...]
      */
-    private List<Map<String, Object>> traceDerivedFromChain(Long columnId, int depth, boolean upstream) {
+    private List<Map<String, Object>> traceDerivedFromChain(Long columnId, int depth, boolean upstream, Set<Long> visited) {
         List<Map<String, Object>> chain = new ArrayList<>();
-        if (depth <= 0) return chain;
+        if (depth <= 0 || visited.contains(columnId)) return chain;
+        visited.add(columnId);
 
         Set<Long> nextIds = new HashSet<>();
         List<MetadataRelationship> rels = upstream
@@ -201,7 +203,7 @@ public class MetadataCatalogController {
             node.put("relationship", rel);
 
             // 递归获取更深层
-            List<Map<String, Object>> children = traceDerivedFromChain(relatedColId, depth - 1, upstream);
+            List<Map<String, Object>> children = traceDerivedFromChain(relatedColId, depth - 1, upstream, visited);
             if (!children.isEmpty()) {
                 node.put("children", children);
             }
@@ -398,7 +400,9 @@ public class MetadataCatalogController {
             com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
             var node = om.readTree(entity.getEntityMetadata());
             if (node.has("datasource_id")) datasourceId = node.get("datasource_id").asLong();
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.warn("解析实体元数据失败 entityId={}: {}", entityId, e.getMessage());
+        }
 
         // 从 FQN 解析表名：datasource.db.table.column → table
         String fqn = entity.getFqn();
@@ -442,7 +446,9 @@ public class MetadataCatalogController {
                 entity.setEntityMetadata(om.writeValueAsString(objNode));
                 entityService.updateById(entity);
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.warn("清除 pending_mask 失败 entityId={}: {}", entityId, e.getMessage());
+        }
 
         // 触发权限缓存失效
         eventPublisher.publishEvent(new PermissionChangedEvent(this, 0L, datasourceId));
@@ -468,7 +474,9 @@ public class MetadataCatalogController {
                 entity.setEntityMetadata(om.writeValueAsString(objNode));
                 entityService.updateById(entity);
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            log.warn("清除 pending_mask 失败 entityId={}: {}", entityId, e.getMessage());
+        }
         return Result.success("已拒绝 MASK 策略候选", null);
     }
 

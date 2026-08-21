@@ -42,7 +42,7 @@ Important boundary:
 
 ## Current Status
 
-Last updated: 2026-08-14.
+Last updated: 2026-08-21.
 
 The main end-to-end chain is implemented:
 
@@ -72,6 +72,8 @@ Module status summary:
 Known follow-up areas — see `docs/development/后续开发.md` for the full prioritized list.
 
 Latest addition:
+
+- **Phase 1 代码可信度全部完成**（2026-08-21）：(1) DataQualityChecker SQL 标识符转义防注入（4 个方法全部加 `escapeIdentifier()`）；(2) DataQualityChecker 密码解密统一复用 `DatasourceSecretService`，消除密钥不一致风险（删除自行实现的 AES 解密）；(3) MetadataCatalogController 3 处 `catch(Exception ignored){}` 改为 `log.warn`；(4) `traceDerivedFromChain` 增加 `visited` 集合防止循环血缘无限递归；(5) P5 Java 侧 Redis 对话历史缓存（`conv:history:{id}` TTL=30min），ConversationServiceImpl 新增缓存清除逻辑；(6) P0 管理员反馈特权确认已实现（ADMIN/ANALYST 跳过审核、delta=-45）。
 
 - **深度优化方案 Phase 0-3 全部完成**（2026-07-24）：基于 `docs/development/DataOcean深度优化参考方案.md` 的 18 项优化全部实施。详见下方「近期完成」中各 Phase 条目。
 
