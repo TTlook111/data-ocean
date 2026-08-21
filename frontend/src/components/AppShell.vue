@@ -30,6 +30,7 @@ import {
   type NotificationItem,
 } from '../api/notification'
 import AdminContextBar from './AdminContextBar.vue'
+import AdminBreadcrumb from './AdminBreadcrumb.vue'
 
 interface MenuItem {
   key: string
@@ -78,6 +79,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
         match: [
           '/admin/datasources',
           '/admin/metadata/sync',
+          '/admin/metadata/lifecycle',
           '/admin/metadata/snapshots',
           '/admin/metadata/tables',
           '/admin/metadata/catalog',
@@ -92,7 +94,7 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
         to: '/admin/governance/quality',
         icon: Workflow,
         permission: 'metadata:manage',
-        match: ['/admin/governance', '/admin/metadata/lifecycle', '/admin/field'],
+        match: ['/admin/governance', '/admin/field'],
       },
       {
         key: 'knowledge',
@@ -138,22 +140,16 @@ const menuGroups: Array<{ label: string; items: MenuItem[] }> = [
 const workspaceLinks: Record<string, WorkspaceLink[]> = {
   datasource: [
     { label: '数据源总览', to: '/admin/datasources', permission: 'datasource:manage' },
-    { label: '同步任务', to: '/admin/metadata/sync', permission: 'metadata:manage' },
-    { label: '快照列表', to: '/admin/metadata/snapshots', permission: 'metadata:manage' },
     { label: '表浏览器', to: '/admin/metadata/tables', permission: 'metadata:manage' },
     { label: '目录搜索', to: '/admin/metadata/catalog', permission: 'metadata:manage' },
-    { label: '快照差异', to: '/admin/metadata/diff', permission: 'metadata:manage' },
-    { label: '版本历史', to: '/admin/metadata/version-history', permission: 'metadata:manage' },
-    { label: '同步调度', to: '/admin/metadata/schedule', permission: 'metadata:manage' },
+    { label: '同步任务', to: '/admin/metadata/sync', permission: 'metadata:manage' },
+    { label: '快照生命周期', to: '/admin/metadata/lifecycle', permission: 'metadata:manage' },
   ],
   governance: [
     { label: '治理总览', to: '/admin/governance/quality', permission: 'metadata:manage' },
     { label: '问题处理', to: '/admin/governance/issues', permission: 'metadata:manage' },
     { label: '治理状态', to: '/admin/governance/status', permission: 'metadata:manage' },
-    { label: '快照生命周期', to: '/admin/metadata/lifecycle', permission: 'metadata:manage' },
-    { label: '字段标签', to: '/admin/field/tags', permission: 'field-tag:manage' },
-    { label: '字段可信度', to: '/admin/field/confidence', permission: 'field-tag:manage' },
-    { label: '反馈闭环', to: '/admin/field/feedback-review', permission: 'field-tag:manage' },
+    { label: '字段管理', to: '/admin/field/tags', permission: 'field-tag:manage' },
   ],
   knowledge: [
     { label: '知识文档', to: '/admin/knowledge', permission: 'knowledge:manage' },
@@ -451,7 +447,7 @@ watch(collapsed, async () => {
     <main class="app-main">
       <header class="app-topbar">
         <div class="topbar-title">
-          <span><ChevronLeft :size="16" /> {{ currentSection }}</span>
+          <span v-if="currentSection !== currentTitle && activeWorkspaceLinks.length > 1"><ChevronLeft :size="16" /> {{ currentSection }}</span>
           <h1>{{ currentTitle }}</h1>
         </div>
 
@@ -517,9 +513,10 @@ watch(collapsed, async () => {
         </div>
       </header>
 
+      <AdminBreadcrumb />
       <AdminContextBar v-if="showAdminContext" />
 
-      <nav v-if="activeWorkspaceLinks.length" class="workspace-nav" aria-label="工作区导航">
+      <nav v-if="activeWorkspaceLinks.length > 1" class="workspace-nav" aria-label="工作区导航">
         <RouterLink
           v-for="item in activeWorkspaceLinks"
           :key="item.to"
