@@ -101,7 +101,7 @@ Known follow-up areas live in `docs/development/后续开发.md`. The seven-stag
 - **P1 notification system integration completed** (2026-06-21): frontend notification bell/dropdown and `/api/notifications` client are connected; field feedback group-threshold and snapshot publish/expire events now send system notifications.
 - **Datasource grant semantics added**: `V42__datasource_access_effect.sql` makes datasource grant allow/deny decisions explicit.
 - **Datasource readiness and admin IA added** (2026-06-24): datasource readiness aggregates connection, published metadata snapshot, blocking governance issues, published skills.md, and permission state. Query entry now blocks non-askable sources with visible reasons. Admin navigation now uses business-domain primary navigation plus in-page workspace navigation; see `docs/development/后台信息架构与导航规范.md`.
-- **P6 operation log coverage completed** (2026-08-14): 13 admin controllers annotated with `@AdminAuditLog` (governance, snapshot publish/review, glossary, skills.md, alerts, quotas, access approval, AI config, sync schedule, roles/permissions/departments). `AdminAuditLog` gained a `logReads` attribute so read-heavy controllers (catalog/collection) only log writes. `OperationLogAspect` now extracts `targetId` from the path and the self-referential `OperationLogController` annotation was removed. The operation-log list supports multi-condition query (`operatorName`, `operationType`, `isSuccess`, time range, `ipAddress`, `requestPath`, target resource/ID, `keyword`) via `OperationLogQueryDTO` + dynamic `LambdaQueryWrapper`, with a frontend filter bar in `OperationLogList.vue`. Frontend `npm run build` passes; Java unit tests pending Maven verification.
+- **P6 operation log coverage completed** (2026-08-14): 13 admin controllers annotated with `@AdminAuditLog` (governance, snapshot publish/review, glossary, skills.md, alerts, access approval, AI config, sync schedule, roles/permissions/departments). `AdminAuditLog` gained a `logReads` attribute so read-heavy controllers (catalog/collection) only log writes. `OperationLogAspect` now extracts `targetId` from the path and the self-referential `OperationLogController` annotation was removed. The operation-log list supports multi-condition query (`operatorName`, `operationType`, `isSuccess`, time range, `ipAddress`, `requestPath`, target resource/ID, `keyword`) via `OperationLogQueryDTO` + dynamic `LambdaQueryWrapper`, with a frontend filter bar in `OperationLogList.vue`. Frontend `npm run build` passes; Java unit tests pending Maven verification.
 - **Phase 0-3 深度优化完成**（2026-07-24）：18 项优化全链路实施，详见 `docs/development/DataOcean深度优化参考方案.md`。覆盖：Embedding/术语表/Fallback/密码/权限 Redis 缓存体系、列级 Schema Linking、SQL-to-Schema 幻觉检测、置信度读时衰减与治理联动、Few-shot embedding 升级、LLM 执行反馈自校正、列元数据采样值采集、Agent 图并行 fan-out、自动标签 PII 检测、质量评分聚合、大结果集 SSE 分块传输。新增 V44（`metadata_quality_issue.column_meta_id`）、V45（`db_column_meta.sample_values`）数据库迁移。
 
 ## Core Domain Concepts
@@ -187,7 +187,7 @@ Important modules:
 - `query`: Java-side NL2SQL task management, conversation persistence, SSE bridge, result persistence, fallback chunk loading, glossary term passing.
 - `fieldtag`: field tags, confidence, feedback. The older `PredefinedTag` path is deprecated in favor of classification/tag governance where applicable.
 - `glossary`: glossary and glossary term management/review.
-- `audit`: query audit, lineage, quotas, alerts.
+- `audit`: query audit, lineage, alerts.
 - `permission`: access policy, data masking, priority/time conditions, access approvals, permission change logs.
 - `prompt`: prompt template CRUD, approval workflow, version history, rollback, and internal template API for Python.
 - `system`: config, notifications, operation logs (multi-condition query), AI config, scheduling.
@@ -203,7 +203,7 @@ Migration notes:
 
 - `V1-V14`: user, datasource, metadata, system config, governance, snapshot audit, knowledge tables.
 - `V15`: query task and conversation persistence tables.
-- `V16-V22`: field tags, user feedback, audit, quotas, notifications, operation logs.
+- `V16-V22`: field tags, user feedback, audit, notifications, operation logs.
 - `V23-V24`: prompt template tables and initial templates.
 - `V25-V34`: permission security, query task mask/progress, prompt updates, degradation and AI config.
 - `V35`: Python-owned RAG chunking lifecycle metadata.

@@ -323,7 +323,7 @@ Python 端 RAG 层统一使用 **LangChain** 生态（langchain-milvus、langcha
 **重排序策略**：
 
 - MVP 阶段先采用 Milvus 分数排序 + 规则加权（表名/字段名命中、可信字段命中、废弃字段惩罚）。
-- 当召回候选超过 20 个 chunk 或出现 Top 表命中不稳定时，再引入 `qwen3-rerank` 一类重排序模型，将 Top 20 重排为 Top 5-10，避免一开始增加模型调用成本。
+- 当召回候选超过 20 个 chunk 或出现 Top 表命中不稳定时，再引入 `qwen3-rerank` 一类重排序模型，将 Top 20 重排为 Top 5-10，避免一开始增加额外模型调用。
 
 ---
 
@@ -784,31 +784,9 @@ LLM 生成图表配置时，不能把全量数据塞进去（可能几千行）�
 
 ---
 
-## 15. 成本控制与监控
+## 15. 错误处理与降级策略
 
-### 15.1 Token 用量监控
-
-| 监控项 | 说明 |
-|--------|------|
-| 每次查询消耗的 Token 数 | 记录到审计日志 |
-| 每日/每月总 Token 用量 | 按数据源、用户汇总 |
-| 大模型 API 调用次数 | 按日统计 |
-| 预估费用 | 根据各模型单价计算 |
-
-### 15.2 成本控制措施
-
-| 措施 | 说明 |
-|------|------|
-| **用户每日查询配额** | 默认每用户每天 100 次查询（可配置） |
-| **Token 预算上限** | 单次查询消耗不超过 8000 Token（含 Prompt + Completion） |
-| **费用告警** | 每日 API 费用超过阈值时告警管理员 |
-| **模型降级** | 简单查询（意图识别判定为简单）使用更便宜的模型，复杂查询使用高能力模型 |
-
----
-
-## 16. 错误处理与降级策略
-
-### 16.1 各环节的错误处理
+### 15.1 各环节的错误处理
 
 | 环节 | 可能的错误 | 处理方式 |
 |------|-----------|----------|
@@ -1550,8 +1528,6 @@ MVP 阶段建议优先完成以下能力：
 | `query_audit_log` | 审计日志 | `id`, `query_task_id`, `user_id`, `datasource_id`, `sql_text`, `used_tables`, `used_fields`, `row_count`, `success`, `created_at` |
 | `query_lineage_table` | 表级血缘 | `id`, `query_task_id`, `source_table`, `target_name`, `relation_type` |
 | `query_lineage_column` | 字段级血缘 | `id`, `query_task_id`, `source_table`, `source_column`, `expression`, `alias_name` |
-| `llm_usage_log` | 模型调用成本 | `id`, `query_task_id`, `provider`, `model`, `prompt_tokens`, `completion_tokens`, `cost_amount`, `created_at` |
-| `quota_policy` | 查询配额策略 | `id`, `subject_type`, `subject_id`, `daily_query_limit`, `monthly_cost_limit`, `enabled` |
 | `user_memory` | 用户长期记忆 | `id`, `user_id`, `memory_type`, `memory_key`, `memory_value`, `confidence`, `updated_at` |
 
 `conversation.datasource_id` 是历史会话隔离边界。前端查询历史时默认按当前数据源过滤，只展示该数据源下属于当前用户的会话。`user_memory` 只记录用户偏好和常用上下文，例如常用数据源、常问指标、常用时间范围、偏好的图表类型，不保存跨会话完整问答内容。
@@ -1574,7 +1550,7 @@ MVP 阶段建议优先完成以下能力：
 | 数据分析师 | 语义与口径维护者 | 维护 `skills.md`、字段 Tag、可信度、审核反馈、查看查询解释 |
 | 数据管理员 | 数据接入与治理维护者 | 管理数据源、同步 Schema、处理变更告警、维护表字段启停 |
 | 安全管理员 | 权限与合规负责人 | 管理角色授权、配置敏感字段、查看敏感访问审计 |
-| 超级管理员 | 平台负责人 | 全局配置、Prompt 配置、模型配置、成本配额、系统运维 |
+| 超级管理员 | 平台负责人 | 全局配置、Prompt 配置、模型配置、系统运维 |
 
 ### 24.2 功能权限矩阵
 
@@ -1590,7 +1566,6 @@ MVP 阶段建议优先完成以下能力：
 | 字段 Tag 与可信度 | 不可用 | 可管理 | 可管理 | 只读 | 可管理 |
 | 用户与角色管理 | 不可用 | 不可用 | 不可用 | 可管理 | 可管理 |
 | 敏感字段与脱敏策略 | 不可用 | 建议权 | 可配置 | 可管理 | 可管理 |
-| 成本监控与配额 | 不可用 | 只读 | 只读 | 只读 | 可管理 |
 
 ### 24.3 数据访问控制规则
 

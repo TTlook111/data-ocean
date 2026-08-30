@@ -66,14 +66,6 @@ export interface AlertRule {
   createdAt: string
 }
 
-export interface LlmUsageStatsVO {
-  totalCalls: number
-  totalTokens: number
-  totalCost: number
-  avgDailyCalls: number
-  avgDailyCost: number
-}
-
 // 审计日志
 export async function listAuditLogs(params: Record<string, any>) {
   const { data } = await http.get<ApiResult<PageResult<AuditLogVO>>>('/api/admin/audit-logs', { params })
@@ -142,11 +134,5 @@ export async function updateAlertRule(id: number, payload: Partial<AlertRule>) {
 
 export async function toggleAlertRule(id: number) {
   const { data } = await http.patch<ApiResult<null>>(`/api/admin/alert-rules/${id}/toggle`)
-  return data
-}
-
-// LLM 使用统计
-export async function getLlmUsageStats(days = 30) {
-  const { data } = await http.get<ApiResult<LlmUsageStatsVO>>('/api/admin/quotas/llm-usage', { params: { days } })
   return data
 }

@@ -47,16 +47,6 @@ SSE 接口通过 URL query param 传递 token。
 }
 ```
 
-**Response 429** (超出配额):
-```json
-{
-  "code": 429,
-  "message": "今日查询次数已达上限"
-}
-```
-
----
-
 ### GET /api/query/stream/{taskId}?token={jwt}
 
 SSE 实时进度推送。
