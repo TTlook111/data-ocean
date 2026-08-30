@@ -1,6 +1,7 @@
 package com.dataocean.module.governance.checker;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.dataocean.common.util.SqlIdentifierValidator;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
@@ -139,7 +140,7 @@ public class DataQualityChecker implements QualityChecker {
                         }
                     }
                 }
-            } catch (SQLException e) {
+            } catch (SQLException | IllegalArgumentException e) {
                 log.debug("空值率检查跳过 {}.{}: {}", column.getTableName(), column.getColumnName(), e.getMessage());
             }
         }
@@ -179,7 +180,7 @@ public class DataQualityChecker implements QualityChecker {
                                 "建议检查数据录入流程，清理重复数据或添加唯一约束"));
                     }
                 }
-            } catch (SQLException e) {
+            } catch (SQLException | IllegalArgumentException e) {
                 log.debug("唯一性检查跳过 {}.{}: {}", column.getTableName(), column.getColumnName(), e.getMessage());
             }
         }
@@ -221,7 +222,7 @@ public class DataQualityChecker implements QualityChecker {
                         }
                     }
                 }
-            } catch (SQLException e) {
+            } catch (SQLException | IllegalArgumentException e) {
                 log.debug("外键孤儿检查跳过 {}.{}: {}", childTable, childColumn, e.getMessage());
             }
         }
@@ -263,7 +264,7 @@ public class DataQualityChecker implements QualityChecker {
                         }
                     }
                 }
-            } catch (SQLException e) {
+            } catch (SQLException | IllegalArgumentException e) {
                 log.debug("数据陈旧检查跳过 {}: {}", table.getTableName(), e.getMessage());
             }
         }
@@ -329,17 +330,16 @@ public class DataQualityChecker implements QualityChecker {
     }
 
     /**
-     * 转义 SQL 标识符中的反引号，防止 SQL 注入。
+     * 校验 SQL 标识符，防止将异常元数据直接拼接进 SQL。
      * <p>
-     * 标识符来自 information_schema 元数据采集，正常情况下不含特殊字符，
-     * 但作为防御性编程仍进行转义处理。
+     * 标识符来自 information_schema 元数据采集，仍需使用白名单约束。
      * </p>
      *
      * @param identifier 表名或字段名
-     * @return 转义后的标识符（用于嵌入反引号包裹的 SQL）
+     * @return 校验后的标识符（用于嵌入反引号包裹的 SQL）
      */
     private static String escapeIdentifier(String identifier) {
-        return identifier.replace("`", "``");
+        return SqlIdentifierValidator.validate(identifier);
     }
 
     /**

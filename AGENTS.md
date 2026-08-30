@@ -354,7 +354,7 @@ Latest documented verification (2026-08-30):
 
 - Frontend: `npm run build` passed.
 - Python: 135 tests passed, 4 skipped, 1 deprecation warning.
-- Java: 112 tests passed.
+- Java: 116 tests passed.
 - Remaining test gap: Agent workflow coverage around query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 
 ## Security Constraints

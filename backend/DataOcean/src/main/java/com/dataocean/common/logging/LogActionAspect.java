@@ -6,8 +6,6 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.springframework.stereotype.Component;
 
-import java.util.Arrays;
-
 /**
  * 日志记录 AOP 切面
  * <p>
@@ -41,7 +39,7 @@ public class LogActionAspect {
 
         // 记录方法开始
         if (logAction.logArgs()) {
-            log.info("[{}] 开始 args={}", action, Arrays.toString(args));
+            log.info("[{}] 开始 args={}", action, LogValueSanitizer.summarize(args));
         } else {
             log.info("[{}] 开始", action);
         }
@@ -53,7 +51,7 @@ public class LogActionAspect {
 
             // 记录方法完成
             if (logAction.logResult()) {
-                log.info("[{}] 完成 durationMs={} result={}", action, duration, result);
+                log.info("[{}] 完成 durationMs={} result={}", action, duration, LogValueSanitizer.summarize(result));
             } else {
                 log.info("[{}] 完成 durationMs={}", action, duration);
             }
@@ -62,7 +60,7 @@ public class LogActionAspect {
         } catch (Throwable e) {
             long duration = System.currentTimeMillis() - start;
             // 记录方法失败
-            log.error("[{}] 失败 durationMs={} error={}", action, duration, e.getMessage());
+            log.error("[{}] 失败 durationMs={} errorType={}", action, duration, e.getClass().getSimpleName());
             throw e;
         }
     }
