@@ -407,9 +407,8 @@ def _classify_expression(expr: exp.Expression) -> str:
     if isinstance(expr, exp.Column):
         return "DIRECT"
 
-    # 聚合函数：sqlglot 有专门的 AggFunc 基类
-    if isinstance(expr, (exp.AggFunc, exp.Avg, exp.Sum, exp.Count, exp.Max, exp.Min,
-                          exp.Std, exp.StdDev, exp.Variance, exp.GroupConcat)):
+    # 聚合函数：SQLGlot 的具体函数类会随版本演进，统一使用稳定的 AggFunc 基类。
+    if isinstance(expr, exp.AggFunc):
         return "AGGREGATION"
 
     # SQL 函数（检查是否是已知聚合函数名）

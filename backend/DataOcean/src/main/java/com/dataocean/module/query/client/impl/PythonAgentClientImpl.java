@@ -30,7 +30,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.time.Duration;
 
 import org.springframework.data.redis.core.RedisTemplate;
 
@@ -59,7 +58,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     private final GlossaryTermMapper glossaryTermMapper;
     private final MetadataEntityService metadataEntityService;
     private final MetadataRelationshipService metadataRelationshipService;
-    // Phase 0 P0-B: Redis 缓存（用于权限计算结果跨请求传递等）
+    // Redis 缓存仅用于可安全缓存的对话历史、降级知识切片和术语表。
     private final RedisTemplate<String, Object> redisTemplate;
 
     @Qualifier("pythonRestClient")
@@ -83,14 +82,6 @@ public class PythonAgentClientImpl implements PythonAgentClient {
 
         // 计算用户对该数据源的真实权限上下文
         PermissionContextVO permContext = permissionCalculator.calculate(userId, datasourceId);
-
-        // Phase 0 P0-B: 权限计算结果缓存到 Redis（任务级 key，TTL 60s）
-        // 目的：避免 getTaskResult() 不同线程中重复计算权限
-        try {
-            redisTemplate.opsForValue().set("perm:" + taskId, permContext, Duration.ofSeconds(60));
-        } catch (Exception e) {
-            log.warn("权限缓存写入 Redis 失败 taskId={}, 降级为正常流程", taskId, e);
-        }
 
         // 构建类型安全的请求体
         AgentExecuteRequest requestBody = AgentExecuteRequest.builder()
@@ -388,29 +379,13 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                         com.dataocean.module.datasource.entity.DatasourceSecret>()
                         .eq(com.dataocean.module.datasource.entity.DatasourceSecret::getDatasourceId, datasourceId));
 
-        // Phase 2 #13: 数据源密码 Redis 缓存（TTL 5min）
-        String passwordKey = "ds:password:" + datasourceId;
-        String plainPassword = null;
-        try {
-            plainPassword = (String) redisTemplate.opsForValue().get(passwordKey);
-        } catch (Exception e) {
-            log.warn("密码缓存读取失败 datasourceId={}", datasourceId, e);
-        }
-
-        if (plainPassword == null) {
-            plainPassword = "";
-            if (secret != null && secret.getEncryptedPassword() != null) {
-                try {
-                    plainPassword = datasourceSecretService.decrypt(secret.getEncryptedPassword());
-                    // 写入缓存
-                    try {
-                        redisTemplate.opsForValue().set(passwordKey, plainPassword, Duration.ofMinutes(5));
-                    } catch (Exception e) {
-                        log.warn("密码缓存写入失败 datasourceId={}", datasourceId, e);
-                    }
-                } catch (Exception e) {
-                    log.error("数据源密码解密失败 datasourceId={}", datasourceId, e);
-                }
+        // 密码只在当前内网调用的请求体中短暂存在，绝不缓存到 Redis。
+        String plainPassword = "";
+        if (secret != null && secret.getEncryptedPassword() != null) {
+            try {
+                plainPassword = datasourceSecretService.decrypt(secret.getEncryptedPassword());
+            } catch (Exception e) {
+                log.error("数据源密码解密失败 datasourceId={}", datasourceId, e);
             }
         }
 

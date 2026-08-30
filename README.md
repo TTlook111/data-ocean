@@ -13,7 +13,8 @@
   <a href="#核心能力">核心能力</a> ·
   <a href="#系统架构">系统架构</a> ·
   <a href="#快速启动">快速启动</a> ·
-  <a href="#项目结构">项目结构</a>
+  <a href="#项目结构">项目结构</a> ·
+  <a href="#项目状态">项目状态</a>
 </p>
 
 <p align="center">
@@ -130,15 +131,22 @@ frontend/        Vue 3 前端项目，包含查询端和治理端
 backend/         Spring Boot Java 网关层
 python-service/  FastAPI + LangGraph AI 服务
 docs/            项目设计与开发文档
-specs/           模块规格说明
+specs/           早期模块规格（历史资料，不作为当前完成度依据）
 output/          联调截图与验证产物
 ```
+
+## 项目状态
+
+当前功能完成度、验证结果、已知风险和后续优先级以
+[`docs/development/项目真实状态看板.md`](docs/development/项目真实状态看板.md) 为准。
+`specs/` 下的文件是早期设计资料，仅供追溯，不再作为当前实现范围或任务完成度的依据。
 
 ## 文档入口
 
 | 文档 | 用途 |
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | 给代码协作者看的项目约束、架构、模块、接口和开发命令。 |
+| [`docs/development/项目真实状态看板.md`](docs/development/项目真实状态看板.md) | 当前真实完成度、验证基线、风险与开发优先级。 |
 | [`docs/nl2sql-单库多表版-项目构想.md`](docs/nl2sql-单库多表版-项目构想.md) | 项目设计思路、架构决策和 NL2SQL 方案背景。 |
 | [`frontend/README.md`](frontend/README.md) | 前端工程说明。 |
 

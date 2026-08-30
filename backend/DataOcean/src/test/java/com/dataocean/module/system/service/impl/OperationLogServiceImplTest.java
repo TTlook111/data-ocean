@@ -105,7 +105,9 @@ class OperationLogServiceImplTest {
         ArgumentCaptor<LambdaQueryWrapper<SysOperationLog>> wrapperCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(mapper).selectPage(any(), wrapperCaptor.capture());
         assertThat(wrapperCaptor.getValue().getCustomSqlSegment())
-                .doesNotContain("created_at");
+                .doesNotContainIgnoringCase("created_at BETWEEN")
+                .doesNotContainIgnoringCase("created_at >=")
+                .doesNotContainIgnoringCase("created_at <=");
     }
 
     @Test

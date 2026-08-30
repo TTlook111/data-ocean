@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { ChevronRight } from 'lucide-vue-next'
 
 const route = useRoute()
-const router = useRouter()
 
 interface BreadcrumbItem {
   label: string
@@ -45,11 +44,6 @@ const breadcrumbs = computed<BreadcrumbItem[]>(() => {
   return items
 })
 
-function navigate(item: BreadcrumbItem) {
-  if (item.to) {
-    router.push(item.to)
-  }
-}
 </script>
 
 <template>

@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
+import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.governance.entity.MetadataQualityIssue;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
 import com.dataocean.module.user.mapper.UserMapper;
@@ -39,7 +40,9 @@ class QualityIssueServiceImplTest {
         MetadataQualityIssueMapper issueMapper = mock(MetadataQualityIssueMapper.class);
         UserMapper userMapper = mock(UserMapper.class);
         DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
-        QualityIssueServiceImpl service = new QualityIssueServiceImpl(issueMapper, userMapper, datasourceMapper);
+        ConfidenceCalculator confidenceCalculator = mock(ConfidenceCalculator.class);
+        QualityIssueServiceImpl service = new QualityIssueServiceImpl(
+                issueMapper, userMapper, datasourceMapper, confidenceCalculator);
 
         when(issueMapper.selectPage(any(Page.class), any(Wrapper.class)))
                 .thenReturn(new Page<MetadataQualityIssue>().setRecords(List.of()));
@@ -58,7 +61,9 @@ class QualityIssueServiceImplTest {
         MetadataQualityIssueMapper issueMapper = mock(MetadataQualityIssueMapper.class);
         UserMapper userMapper = mock(UserMapper.class);
         DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
-        QualityIssueServiceImpl service = new QualityIssueServiceImpl(issueMapper, userMapper, datasourceMapper);
+        ConfidenceCalculator confidenceCalculator = mock(ConfidenceCalculator.class);
+        QualityIssueServiceImpl service = new QualityIssueServiceImpl(
+                issueMapper, userMapper, datasourceMapper, confidenceCalculator);
         MetadataQualityIssue issue = new MetadataQualityIssue();
         issue.setId(1L);
         issue.setStatus(MetadataQualityIssue.STATUS_REOPENED);
@@ -75,7 +80,9 @@ class QualityIssueServiceImplTest {
         MetadataQualityIssueMapper issueMapper = mock(MetadataQualityIssueMapper.class);
         UserMapper userMapper = mock(UserMapper.class);
         DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
-        QualityIssueServiceImpl service = new QualityIssueServiceImpl(issueMapper, userMapper, datasourceMapper);
+        ConfidenceCalculator confidenceCalculator = mock(ConfidenceCalculator.class);
+        QualityIssueServiceImpl service = new QualityIssueServiceImpl(
+                issueMapper, userMapper, datasourceMapper, confidenceCalculator);
         MetadataQualityIssue issue = new MetadataQualityIssue();
         issue.setId(1L);
         issue.setStatus(MetadataQualityIssue.STATUS_REOPENED);

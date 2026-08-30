@@ -5,7 +5,12 @@
 
 from __future__ import annotations
 
+import os
 from io import BytesIO
+
+
+# 单元测试不得向外部 LangSmith 服务发送追踪数据；本地 .env 中的开发配置不应影响测试结果。
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
 
 def parse_sse_stream(stream: BytesIO) -> list[dict]:

@@ -77,11 +77,6 @@ public class DataQualityChecker implements QualityChecker {
             return issues;
         }
 
-        if (password == null) {
-            log.error("数据源密码解密失败，拒绝连接 datasourceId={}", datasourceId);
-            return null;
-        }
-
         try {
             // 执行各规则检查
             MetadataQualityRule nullRateRule = ruleMap.get("DATA_NULL_RATE_HIGH");
@@ -309,6 +304,10 @@ public class DataQualityChecker implements QualityChecker {
         }
 
         String password = decryptPassword(secret.getEncryptedPassword());
+        if (password == null) {
+            log.error("数据源密码解密失败，拒绝连接 datasourceId={}", datasourceId);
+            return null;
+        }
 
         try {
             String url = String.format("jdbc:mysql://%s:%d/%s?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&charset=utf8mb4",

@@ -81,9 +81,10 @@ public class OperationLogServiceImpl implements OperationLogService {
             if (keyword.length() > 100) {
                 keyword = keyword.substring(0, 100);
             }
-            wrapper.and(w -> w.like(SysOperationLog::getOperatorName, keyword)
-                    .or().like(SysOperationLog::getTargetResource, keyword)
-                    .or().like(SysOperationLog::getRequestPath, keyword));
+            String normalizedKeyword = keyword;
+            wrapper.and(w -> w.like(SysOperationLog::getOperatorName, normalizedKeyword)
+                    .or().like(SysOperationLog::getTargetResource, normalizedKeyword)
+                    .or().like(SysOperationLog::getRequestPath, normalizedKeyword));
         }
 
         return operationLogMapper.selectPage(new Page<>(page, pageSize), wrapper);

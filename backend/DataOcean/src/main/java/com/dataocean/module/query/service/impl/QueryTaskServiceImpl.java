@@ -31,8 +31,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import org.springframework.data.redis.core.RedisTemplate;
-
 /**
  * 查询任务服务实现类。
  * <p>
@@ -51,8 +49,6 @@ public class QueryTaskServiceImpl implements QueryTaskService {
     private final LineageService lineageService;
     private final DataMaskingService dataMaskingService;
     private final PermissionCalculator permissionCalculator;
-    // Phase 0 P0-B: Redis 缓存（读取 executeAsync 中缓存的权限计算结果）
-    private final RedisTemplate<String, Object> redisTemplate;
 
     /**
      * {@inheritDoc}
@@ -103,24 +99,8 @@ public class QueryTaskServiceImpl implements QueryTaskService {
 
         // 权限控制：脱敏 + can_view_sql + can_export
         if (task.getDatasourceId() != null) {
-            // Phase 0 P0-B: 先尝试从 Redis 读取 executeAsync 中缓存的权限计算结果
-            PermissionContextVO context = null;
-            try {
-                @SuppressWarnings("unchecked")
-                PermissionContextVO cached = (PermissionContextVO) redisTemplate.opsForValue()
-                    .get("perm:" + task.getTaskId());
-                if (cached != null) {
-                    context = cached;
-                    log.debug("权限缓存命中 taskId={}", task.getTaskId());
-                }
-            } catch (Exception e) {
-                log.warn("权限缓存读取 Redis 失败 taskId={}, 降级为重新计算", taskId, e);
-            }
-
-            // Redis 未命中时重新计算
-            if (context == null) {
-                context = permissionCalculator.calculate(userId, task.getDatasourceId());
-            }
+            // 权限上下文包含脱敏策略，始终按当前用户和数据源重新计算，不写入 Redis。
+            PermissionContextVO context = permissionCalculator.calculate(userId, task.getDatasourceId());
 
             // 对查询结果执行脱敏
             if (vo.getData() != null && !vo.getData().isEmpty()) {

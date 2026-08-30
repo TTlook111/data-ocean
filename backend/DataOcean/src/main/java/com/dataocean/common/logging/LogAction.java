@@ -26,7 +26,7 @@ public @interface LogAction {
     /**
      * 是否记录方法参数
      */
-    boolean logArgs() default true;
+    boolean logArgs() default false;
 
     /**
      * 是否记录返回值
