@@ -85,6 +85,9 @@ Vue 3 前端
 
 ## 技术栈
 
+各项技术参与的具体模块、数据归属、LangChain/LangGraph 分工和异步边界见
+[`docs/development/DataOcean技术栈与模块职责.md`](docs/development/DataOcean技术栈与模块职责.md)。
+
 | 模块 | 技术 |
 | --- | --- |
 | 前端 | Vue 3, Vite, TypeScript, Vue Router, Pinia, Element Plus, ECharts |
@@ -146,8 +149,9 @@ output/          联调截图与验证产物
 | 文档 | 用途 |
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | 给代码协作者看的项目约束、架构、模块、接口和开发命令。 |
+| [`docs/development/DataOcean技术栈与模块职责.md`](docs/development/DataOcean技术栈与模块职责.md) | 当前技术栈、模块职责、数据归属和异步边界。 |
 | [`docs/development/项目真实状态看板.md`](docs/development/项目真实状态看板.md) | 当前真实完成度、验证基线、风险与开发优先级。 |
-| [`docs/nl2sql-单库多表版-项目构想.md`](docs/nl2sql-单库多表版-项目构想.md) | 项目设计思路、架构决策和 NL2SQL 方案背景。 |
+| [`docs/archive/nl2sql-单库多表版-项目构想.md`](docs/archive/nl2sql-单库多表版-项目构想.md) | 历史设计思路、架构决策和 NL2SQL 方案背景。 |
 | [`frontend/README.md`](frontend/README.md) | 前端工程说明。 |
 
 ## License

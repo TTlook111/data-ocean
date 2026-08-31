@@ -33,6 +33,9 @@ Python FastAPI AI service
 Milvus / MySQL / Redis / Qwen
 ```
 
+技术版本、技术与模块的对应关系、数据存储归属和异步边界详见
+[`docs/development/DataOcean技术栈与模块职责.md`](docs/development/DataOcean技术栈与模块职责.md)。
+
 Important boundary:
 
 - Java owns management lifecycle: document drafts, review, versioning, publishing, task state, permissions, audit, and Java-side persistence.
