@@ -6,6 +6,11 @@
 
 **改写后的查询**: [QUERY_START]{{ rewritten_query }}[QUERY_END]
 
+{% if conversation_summary %}
+## 会话长期摘要
+{{ conversation_summary }}
+{% endif %}
+
 {% if intent %}
 **结构化意图**:
 - 维度: {{ intent.dimensions | join(', ') if intent.dimensions else '无' }}

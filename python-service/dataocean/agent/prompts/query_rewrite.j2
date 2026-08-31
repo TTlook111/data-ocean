@@ -8,6 +8,11 @@
 {{ glossary_hint }}
 {% endif %}
 
+{% if conversation_summary %}
+## 会话长期摘要（用于理解更早的对话）
+{{ conversation_summary }}
+{% endif %}
+
 ## 用户问题
 {{ question }}
 

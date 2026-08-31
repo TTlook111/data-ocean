@@ -197,6 +197,7 @@ async def _render_sql_prompt(
         "schema_context": state.get("schema_context", []),
         "field_confidence": state.get("confidence_scores", {}),
         "conversation_history": state.get("conversation_history", []),
+        "conversation_summary": state.get("conversation_summary") or {},
         "error_message": error_message if retry_count > 0 else "",
         "previous_sql": previous_sql if retry_count > 0 else "",
         "fewshot_examples": fewshot_text,

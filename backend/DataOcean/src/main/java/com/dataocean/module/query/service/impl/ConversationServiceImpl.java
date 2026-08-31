@@ -11,7 +11,6 @@ import com.dataocean.module.query.mapper.ConversationMessageMapper;
 import com.dataocean.module.query.service.ConversationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,10 +31,6 @@ public class ConversationServiceImpl implements ConversationService {
 
     private final ConversationMapper conversationMapper;
     private final ConversationMessageMapper conversationMessageMapper;
-    private final RedisTemplate<String, Object> redisTemplate;
-
-    // Phase 1 P5: 对话历史 Redis 缓存 key 前缀（与 PythonAgentClientImpl 保持一致）
-    private static final String CONV_HISTORY_KEY_PREFIX = "conv:history:";
 
     /**
      * {@inheritDoc}
@@ -80,8 +75,6 @@ public class ConversationServiceImpl implements ConversationService {
         conversationMessageMapper.insert(message);
         touchConversation(conversationId);
 
-        // Phase 1 P5: 新消息写入后缓存失效
-        evictConversationHistoryCache(conversationId);
     }
 
     /**
@@ -101,8 +94,6 @@ public class ConversationServiceImpl implements ConversationService {
         conversationMessageMapper.insert(message);
         touchConversation(conversationId);
 
-        // Phase 1 P5: 新消息写入后缓存失效
-        evictConversationHistoryCache(conversationId);
     }
 
     /**
@@ -160,24 +151,6 @@ public class ConversationServiceImpl implements ConversationService {
         conversation.setUpdatedAt(LocalDateTime.now());
         conversationMapper.updateById(conversation);
 
-        // Phase 1 P5: 归档时清除对话历史 Redis 缓存
-        evictConversationHistoryCache(conversationId);
-    }
-
-    /**
-     * Phase 1 P5: 清除对话历史 Redis 缓存。
-     * <p>
-     * Redis 故障时静默降级，不影响归档/删除主流程。
-     * </p>
-     */
-    private void evictConversationHistoryCache(Long conversationId) {
-        try {
-            String cacheKey = CONV_HISTORY_KEY_PREFIX + conversationId;
-            redisTemplate.delete(cacheKey);
-            log.debug("已清除对话历史缓存 conversationId={}", conversationId);
-        } catch (Exception e) {
-            log.warn("清除对话历史缓存失败 conversationId={}, 不影响主流程", conversationId, e);
-        }
     }
 
     /**
@@ -222,5 +195,20 @@ public class ConversationServiceImpl implements ConversationService {
         // 反转为正序
         java.util.Collections.reverse(messages);
         return messages.stream().map(this::toVO).toList();
+    }
+
+    @Override
+    public List<ConversationMessageVO> getMessagesAfter(Long conversationId, Long userId, Long messageId) {
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        if (conversation == null || !conversation.getUserId().equals(userId)) {
+            throw new BusinessException("会话不存在或无权访问");
+        }
+        LambdaQueryWrapper<ConversationMessage> wrapper = new LambdaQueryWrapper<ConversationMessage>()
+                .eq(ConversationMessage::getConversationId, conversationId)
+                .orderByAsc(ConversationMessage::getId);
+        if (messageId != null) {
+            wrapper.gt(ConversationMessage::getId, messageId);
+        }
+        return conversationMessageMapper.selectList(wrapper).stream().map(this::toVO).toList();
     }
 }

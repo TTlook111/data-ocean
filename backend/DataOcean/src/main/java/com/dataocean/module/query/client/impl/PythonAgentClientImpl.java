@@ -12,7 +12,9 @@ import com.dataocean.module.permission.entity.vo.PermissionContextVO;
 import com.dataocean.module.permission.service.PermissionCalculator;
 import com.dataocean.module.query.client.PythonAgentClient;
 import com.dataocean.module.query.entity.dto.AgentExecuteRequest;
+import com.dataocean.module.query.entity.dto.ConversationContextDTO;
 import com.dataocean.module.query.service.ConversationService;
+import com.dataocean.module.query.service.ConversationContextSummaryService;
 import com.dataocean.module.query.service.QueryTaskService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +49,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
 
     private final QueryTaskService queryTaskService;
     private final ConversationService conversationService;
+    private final ConversationContextSummaryService conversationContextSummaryService;
     private final ObjectMapper objectMapper;
     private final com.dataocean.module.query.controller.QuerySseController sseController;
     private final com.dataocean.module.datasource.mapper.DatasourceMapper datasourceMapper;
@@ -82,6 +85,8 @@ public class PythonAgentClientImpl implements PythonAgentClient {
 
         // 计算用户对该数据源的真实权限上下文
         PermissionContextVO permContext = permissionCalculator.calculate(userId, datasourceId);
+        ConversationContextDTO conversationContext = conversationContextSummaryService
+                .buildQueryContext(conversationId, userId);
 
         // 构建类型安全的请求体
         AgentExecuteRequest requestBody = AgentExecuteRequest.builder()
@@ -92,7 +97,8 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                 .activeSnapshotId(activeSnapshotId)
                 .connectionConfig(connectionConfig)
                 .userPermissions(buildUserPermissionsMap(permContext))
-                .conversationHistory(buildConversationHistory(conversationId, userId))
+                .conversationHistory(conversationContext.getHistory())
+                .conversationSummary(conversationContext.getSummary())
                 .fallbackChunks(loadFallbackChunks(datasourceId))
                 .glossaryTerms(loadApprovedGlossaryTerms())
                 .build();
@@ -121,6 +127,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                 // 仅在实际更新时保存助手消息（任务已取消则跳过）
                 if (updated) {
                     saveAssistantMessageFromResult(conversationId, taskId, finalResult);
+                    conversationContextSummaryService.refreshAsync(conversationId, userId);
                 }
 
                 // 推送结果给前端 SSE
@@ -311,61 +318,6 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     }
 
     /**
-     * 构建最近 5 轮对话历史（排除当前刚保存的用户消息）。
-     * <p>
-     * Phase 1 P5: 先查 Redis 缓存，未命中再查 MySQL，结果写回 Redis（TTL 30min）。
-     * Redis 故障时静默降级，不影响主流程。
-     * </p>
-     */
-    private List<Map<String, String>> buildConversationHistory(Long conversationId, Long userId) {
-        if (conversationId == null) {
-            return List.of();
-        }
-
-        String cacheKey = CONV_HISTORY_KEY_PREFIX + conversationId;
-
-        // Phase 1 P5: 先查 Redis 缓存
-        try {
-            @SuppressWarnings("unchecked")
-            List<Map<String, String>> cached =
-                (List<Map<String, String>>) redisTemplate.opsForValue().get(cacheKey);
-            if (cached != null) {
-                log.debug("对话历史命中 Redis 缓存 conversationId={} size={}", conversationId, cached.size());
-                return cached;
-            }
-        } catch (Exception e) {
-            log.warn("对话历史缓存读取失败 conversationId={}, 降级查 DB", conversationId, e);
-        }
-
-        try {
-            // 获取最近 10 条消息（5 轮 = 10 条 user+assistant）
-            var messages = conversationService.getRecentMessages(conversationId, userId, 10);
-            List<Map<String, String>> history = new java.util.ArrayList<>();
-            for (var msg : messages) {
-                history.add(Map.of("role", msg.getRole(), "content", msg.getContent()));
-            }
-            // 去掉最后一条（当前刚保存的 user 消息，避免重复）
-            if (!history.isEmpty() && "user".equals(history.get(history.size() - 1).get("role"))) {
-                history.remove(history.size() - 1);
-            }
-
-            // Phase 1 P5: 写回 Redis 缓存
-            if (!history.isEmpty()) {
-                try {
-                    redisTemplate.opsForValue().set(cacheKey, history, CONV_HISTORY_TTL);
-                } catch (Exception e) {
-                    log.warn("对话历史缓存写入失败 conversationId={}", conversationId, e);
-                }
-            }
-
-            return history;
-        } catch (Exception e) {
-            log.warn("获取对话历史失败 conversationId={}", conversationId, e);
-            return List.of();
-        }
-    }
-
-    /**
      * 构建数据源连接配置，Java 侧解密密码后以明文传给 Python 内网服务。
      */
     private Map<String, Object> buildConnectionConfig(Long datasourceId) {
@@ -438,10 +390,6 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     // Phase 1 #3: Redis 缓存 key 常量
     private static final String FALLBACK_CHUNKS_KEY_PREFIX = "fallback:chunks:";
     private static final java.time.Duration FALLBACK_CHUNKS_TTL = java.time.Duration.ofMinutes(30);
-    // Phase 1 P5: 对话历史 Redis 缓存常量
-    private static final String CONV_HISTORY_KEY_PREFIX = "conv:history:";
-    private static final java.time.Duration CONV_HISTORY_TTL = java.time.Duration.ofMinutes(30);
-
     private List<Map<String, Object>> loadFallbackChunks(Long datasourceId) {
         // Phase 1 #3: 先查 Redis 缓存
         String key = FALLBACK_CHUNKS_KEY_PREFIX + datasourceId;

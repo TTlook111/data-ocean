@@ -23,6 +23,13 @@ Python 内部服务: `/internal/query/*`, `/internal/tasks/*`
     { "role": "user", "content": "上月订单总额" },
     { "role": "assistant", "content": "上月订单总额为 ¥1,234,567" }
   ],
+  "conversationSummary": {
+    "topic": "订单金额查询",
+    "time_range": "2026-04-01 至 2026-04-30",
+    "metrics": ["订单总额"],
+    "tables": ["orders"],
+    "last_sql": "SELECT ..."
+  },
   "userPermissions": {
     "rowFilters": [
       { "tableName": "orders", "condition": "region = '华东'" }
@@ -136,3 +143,47 @@ Agent 服务健康检查。
   "ragAvailable": true
 }
 ```
+
+---
+
+## POST /internal/query/context-summary
+
+Java 在助手消息落库后异步调用，用于合并摘要增量。该接口只接收消息数据，不接收会话 ID；摘要结果由 Java 持久化。
+
+**Request**:
+```json
+{
+  "messages": [
+    {
+      "messageId": 1,
+      "role": "user",
+      "content": "查询上个月订单总额"
+    },
+    {
+      "messageId": 2,
+      "role": "assistant",
+      "content": "查询完成",
+      "queryFacts": {
+        "sql": "SELECT ...",
+        "usedTables": ["orders"],
+        "usedColumns": ["orders.amount"]
+      }
+    }
+  ],
+  "previousSummary": {}
+}
+```
+
+**Response**:
+```json
+{
+  "summary": {
+    "topic": "订单金额查询",
+    "metrics": ["订单总额"],
+    "tables": ["orders"],
+    "last_sql": "SELECT ..."
+  }
+}
+```
+
+Python 不接收 `conversationId`，也不持久化会话。Java 从数据库读取完整消息和长期摘要后，按请求传入 `conversationHistory` 与 `conversationSummary`。

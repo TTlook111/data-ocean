@@ -13,7 +13,8 @@ class AgentState(TypedDict):
     question: str                         # 用户自然语言问题
     datasource_id: int                    # 数据源ID
     user_id: int                          # 用户ID
-    conversation_history: list[dict]      # 最近 5 轮对话 [{role, content}]
+    conversation_history: list[dict]      # Java 传入的最近完整对话消息 [{role, content}]
+    conversation_summary: dict | None     # Java 持久化的长期结构化摘要
     user_permissions: UserPermissions     # 用户权限信息
 
     # RAG 召回
@@ -55,6 +56,7 @@ class QueryExecuteRequest(BaseModel):
     user_id: int
     question: str
     conversation_history: list[ConversationTurn] = []
+    conversation_summary: dict | None = None
     user_permissions: UserPermissions
     active_snapshot_id: int
 

@@ -3,6 +3,7 @@
 提供查询执行和任务取消的 HTTP 接口。
 - POST /execute — 发起 NL2SQL 查询（SSE 流式返回）
 - POST /tasks/{taskId}/cancel — 取消正在执行的查询
+- POST /context-summary — 生成会话长期上下文摘要
 - GET /health — Agent 服务健康检查
 """
 
@@ -20,7 +21,13 @@ from fastapi.responses import StreamingResponse
 from dataocean.infra.cancellation import cancel_task as do_cancel, cleanup
 from .config import agent_config
 from .graph import agent_graph
-from .schema import ExecuteRequest, QueryResult
+from .schema import (
+    ConversationSummaryRequest,
+    ConversationSummaryResponse,
+    ExecuteRequest,
+    QueryResult,
+)
+from .conversation_summary import generate_context_summary
 from . import sse
 from dataocean.infra.timeout_budget import TimeoutBudget
 
@@ -32,6 +39,17 @@ router = APIRouter()
 _active_tasks: dict[str, asyncio.Task] = {}
 # 后台 few-shot 存储任务引用（fire-and-forget，需防止 GC 回收）
 _background_tasks: set[asyncio.Task] = set()
+
+
+@router.post("/context-summary", response_model=ConversationSummaryResponse)
+async def context_summary(request: ConversationSummaryRequest) -> ConversationSummaryResponse:
+    """根据 Java 提供的消息增量生成长期摘要。"""
+    try:
+        summary = await generate_context_summary(request)
+        return ConversationSummaryResponse(summary=summary)
+    except Exception as exc:
+        logger.warning("生成会话摘要失败: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail=sanitize_error(str(exc))) from exc
 
 
 @router.post("/execute")
@@ -67,6 +85,7 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
             "datasource_id": request.datasource_id,
             "user_id": request.user_id,
             "conversation_history": [t.model_dump() for t in request.conversation_history],
+            "conversation_summary": request.conversation_summary,
             "user_permissions": request.user_permissions.model_dump(),
             "active_snapshot_id": request.active_snapshot_id,
             "confidence_scores": request.confidence_scores,

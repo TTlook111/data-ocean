@@ -73,4 +73,14 @@ public interface ConversationService {
      * @return 消息列表（按时间正序）
      */
     List<ConversationMessageVO> getRecentMessages(Long conversationId, Long userId, int limit);
+
+    /**
+     * 查询指定消息之后的全部会话消息（按时间正序），用于增量生成长期摘要。
+     *
+     * @param conversationId 会话 ID
+     * @param userId         当前用户 ID（用于权限校验）
+     * @param messageId      游标；为空时查询会话全部消息
+     * @return 消息列表
+     */
+    List<ConversationMessageVO> getMessagesAfter(Long conversationId, Long userId, Long messageId);
 }

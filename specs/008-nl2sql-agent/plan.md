@@ -16,7 +16,7 @@ NL2SQL Agent 是系统核心智能链路，使用 LangGraph 编排多节点工�
 - FastAPI + SSE (sse-starlette)
 - Pydantic v2
 
-**Storage**: 无持久化（请求级无状态），任务状态由 Java 管理
+**Storage**: Python 请求级无状态；Java 持久化会话消息和长期结构化摘要，任务状态由 Java 管理
 
 **Testing**: pytest + pytest-asyncio, LLM mock
 
@@ -24,7 +24,7 @@ NL2SQL Agent 是系统核心智能链路，使用 LangGraph 编排多节点工�
 
 **Performance Goals**: 端到端 P95 < 30s, 总时间预算 100s
 
-**Constraints**: 请求级无状态, 上下文由 Java 传入, 最多重试 3 次
+**Constraints**: 请求级无状态, 上下文由 Java 传入, 不接收 conversationId, 最多重试 3 次
 
 ## Constitution Check
 
@@ -35,7 +35,7 @@ NL2SQL Agent 是系统核心智能链路，使用 LangGraph 编排多节点工�
 | III. 三层分离架构 | ✅ PASS | Python 内部服务，Java 通过内部 API 调用 |
 | IV. RAG 准入控制 | ✅ PASS | Schema_Retriever 调用 007 模块，已有准入过滤 |
 | V. 可信度驱动生成 | ✅ PASS | 可信度信息注入 SQL 生成 Prompt |
-| VI. 渐进式 MVP | ✅ PASS | Python 无状态，每次请求接收 Java 传入的最近 5 轮 chat_history 作为上下文 |
+| VI. 渐进式 MVP | ✅ PASS | Python 无状态，每次请求接收 Java 传入的长期摘要和最近完整对话作为上下文 |
 
 **Gate Result**: PASS
 
@@ -62,6 +62,7 @@ python-service/dataocean/agent/
 ├── sse.py                 # SSE 事件推送
 ├── cancellation.py        # CancellationToken 管理
 ├── schema.py              # Pydantic 请求/响应模型
+├── conversation_summary.py # 会话长期摘要生成
 └── config.py              # Agent 配置
 ```
 
@@ -76,7 +77,7 @@ python-service/dataocean/agent/
 ### Phase 2: 各节点实现
 - Query_Rewriter: 解析时间表达式、消解多轮指代、提取意图（维度/指标/筛选/排序）、改写为结构化查询
 - Schema_Retriever: 使用改写后的查询调用 007 模块 /internal/rag/retrieve
-- SQL_Generator: 构造 Prompt (召回上下文 + 可信度 + 改写意图 + 历史对话) → Qwen API
+- SQL_Generator: 构造 Prompt (召回上下文 + 可信度 + 改写意图 + 长期摘要 + 最近对话) → Qwen API
 - SQL_Validator: 调用 009 模块校验接口
 - SQL_Executor: 调用 009 模块执行接口
 - Data_Visualizer: 基于查询结果调用 LLM 生成 ECharts option

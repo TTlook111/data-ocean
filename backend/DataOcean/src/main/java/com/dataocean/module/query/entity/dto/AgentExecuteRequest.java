@@ -42,6 +42,9 @@ public class AgentExecuteRequest {
     /** 对话历史 */
     private List<Map<String, String>> conversationHistory;
 
+    /** 会话长期结构化摘要（Python 不保存会话状态） */
+    private Map<String, Object> conversationSummary;
+
     /** 降级 chunks */
     private List<Map<String, Object>> fallbackChunks;
 

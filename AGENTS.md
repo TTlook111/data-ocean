@@ -114,7 +114,7 @@ Known follow-up areas live in `docs/development/后续开发.md`. The seven-stag
 - Entity relationship graph: metadata entities, relationships, glossary terms, tags, lineage, and downstream impact analysis share the `metadata_entity`/`metadata_relationship` model.
 - Glossary: approved terms and synonyms are sent from Java to Python and used during query rewrite.
 - Access approval: users can request temporary data access; approval creates auditable temporary allow policies with expiry.
-- Conversation persistence: Java owns durable conversation and message storage. Python receives request-scoped `conversation_history`.
+- Conversation persistence: Java owns durable conversation, message, and structured long-term summary storage. For each query Java sends Python request-scoped `conversation_history` plus `conversation_summary`; Python does not receive `conversationId` or persist session state. Summary refresh is an asynchronous Python LLM call triggered by Java after an assistant message is saved.
 
 ## RAG And skills.md Lifecycle
 
@@ -269,6 +269,7 @@ Internal service APIs:
 | Direction | Path | Purpose |
 | --- | --- | --- |
 | Java -> Python | `POST /internal/query/execute` | Start NL2SQL query through SSE |
+| Java -> Python | `POST /internal/query/context-summary` | Generate a structured conversation summary from Java-provided message deltas |
 | Java -> Python | `POST /internal/query/tasks/{taskId}/cancel` | Cancel query |
 | Java -> Python | `POST /internal/rag/retrieve` | RAG retrieval |
 | Java -> Python | `POST /internal/rag/vectorize` | Vectorization |
@@ -395,7 +396,7 @@ Latest documented verification (2026-08-30):
 - Keep Java responsible for governance and lifecycle state.
 - Keep Python responsible for AI execution, chunking, embedding, Milvus, retrieval, reranking, and SQL sandbox behavior.
 - Never delete active RAG vectors until the replacement version is written and verified.
-- Java owns durable conversation history. If Redis memory is introduced later, avoid having Java and Python both write the same conversation-history key.
+- Java owns durable conversation history and long-term summaries. Python receives request-scoped history and summary data only; do not add a Python session ID or let Java and Python both persist the same conversation state.
 - Java consumes Python SSE as a client. Do not replace this with Spring `SseEmitter`; fix client-side SSE parsing and read timeouts instead.
 - **Caching is Redis-only**: All new caching uses the existing `RedisTemplate<String, Object>` bean (Java) or `_get_redis()` (Python). Do not introduce new local-cache layers. Cache failures must gracefully degrade — `try/catch` with warning logs, never block the main path.
 - Use focused tests when changing lifecycle, RAG, SQL safety, permissions, or public API behavior.

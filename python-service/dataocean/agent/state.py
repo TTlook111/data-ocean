@@ -64,6 +64,7 @@ class AgentState(TypedDict, total=False):
     datasource_id: int
     user_id: int
     conversation_history: list[dict]
+    conversation_summary: dict | None
     user_permissions: dict
     active_snapshot_id: int
     confidence_scores: dict

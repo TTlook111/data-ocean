@@ -73,7 +73,7 @@ Known follow-up areas — see `docs/development/后续开发.md` for the full pr
 
 Latest addition:
 
-- **Phase 1 代码可信度全部完成**（2026-08-21）：(1) DataQualityChecker SQL 标识符转义防注入（4 个方法全部加 `escapeIdentifier()`）；(2) DataQualityChecker 密码解密统一复用 `DatasourceSecretService`，消除密钥不一致风险（删除自行实现的 AES 解密）；(3) MetadataCatalogController 3 处 `catch(Exception ignored){}` 改为 `log.warn`；(4) `traceDerivedFromChain` 增加 `visited` 集合防止循环血缘无限递归；(5) P5 Java 侧 Redis 对话历史缓存（`conv:history:{id}` TTL=30min），ConversationServiceImpl 新增缓存清除逻辑；(6) P0 管理员反馈特权确认已实现（ADMIN/ANALYST 跳过审核、delta=-45）。
+- **Phase 1 代码可信度全部完成**（2026-08-21）：(1) DataQualityChecker SQL 标识符转义防注入（4 个方法全部加 `escapeIdentifier()`）；(2) DataQualityChecker 密码解密统一复用 `DatasourceSecretService`，消除密钥不一致风险（删除自行实现的 AES 解密）；(3) MetadataCatalogController 3 处 `catch(Exception ignored){}` 改为 `log.warn`；(4) `traceDerivedFromChain` 增加 `visited` 集合防止循环血缘无限递归；(5) P5 Java 侧会话记忆方案已升级为数据库长期摘要 + 请求级上下文组装；(6) P0 管理员反馈特权确认已实现（ADMIN/ANALYST 跳过审核、delta=-45）。
 
 - **深度优化方案 Phase 0-3 全部完成**（2026-07-24）：基于 `docs/development/DataOcean深度优化参考方案.md` 的 18 项优化全部实施。详见下方「近期完成」中各 Phase 条目。
 
@@ -171,7 +171,7 @@ Current RAG/NL2SQL follow-up cautions:
 - Query Rewrite: resolves time expressions, references, and user intent before retrieval and SQL generation.
 - Prompt templates: managed in Java, fetched by Python, and locally downgraded to Jinja2 templates when Java-managed templates are unavailable.
 - AI config: stored in Java `sys_config` with encrypted API key values; Python instances reload config on internal callback.
-- Conversation persistence: Java owns durable conversation and message storage; Python receives only request-scoped `conversation_history`.
+- Conversation persistence: Java owns durable conversation, message, and structured long-term summary storage; Python receives only request-scoped `conversation_history` and `conversation_summary`, without a `conversationId` or persistent session state.
 
 ## Development Commands
 
@@ -365,7 +365,7 @@ The query page persists server-side conversations and can reload historical mess
 - Keep Java responsible for governance and lifecycle state.
 - Keep Python responsible for AI execution, chunking, embedding, Milvus, retrieval, reranking, and SQL sandbox behavior.
 - Never delete active RAG vectors until the replacement version is written and verified.
-- Java owns durable conversation history. If Redis memory is introduced later, avoid having Java and Python both write the same conversation-history key.
+- Java owns durable conversation history and long-term summaries. Python receives request-scoped history and summary data only; do not add a Python session ID or let Java and Python both persist the same conversation state.
 - Java consumes Python SSE as a client. Do not replace this with Spring `SseEmitter`; fix client-side SSE parsing and read timeouts instead.
 - **Caching is Redis-only**: All new caching (Embedding, Glossary, Fallback Chunks, Password, PermissionContextVO) goes through the existing `RedisTemplate<String, Object>` bean on Java side and `_get_redis()` on Python side. Do not introduce Caffeine, Ehcache, or other local-cache layers for query-path caching. All cache reads must gracefully degrade (cache miss/error → fall through to original logic).
 - **Failure-isolation for caching**: Every Redis cache operation (get/set/delete) must be wrapped in try/catch with a warning log; cache failures must never block the main query path.

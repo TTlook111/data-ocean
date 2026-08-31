@@ -58,6 +58,26 @@ class ConversationTurn(BaseModel):
     content: str
 
 
+class ConversationSummaryRequest(BaseModel):
+    """Java 发送给 Python 的摘要增量请求，不包含会话 ID。"""
+
+    messages: list[dict] = Field(default_factory=list)
+    previous_summary: dict = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("previous_summary", "previousSummary"),
+    )
+    current_date: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("current_date", "currentDate"),
+    )
+
+
+class ConversationSummaryResponse(BaseModel):
+    """结构化会话摘要响应。"""
+
+    summary: dict
+
+
 class ExecuteRequest(BaseModel):
     """查询执行请求（Java → Python）"""
 
@@ -68,6 +88,10 @@ class ExecuteRequest(BaseModel):
     conversation_history: list[ConversationTurn] = Field(
         default_factory=list,
         validation_alias=AliasChoices("conversation_history", "conversationHistory"),
+    )
+    conversation_summary: dict | None = Field(
+        default=None,
+        validation_alias=AliasChoices("conversation_summary", "conversationSummary"),
     )
     user_permissions: UserPermissions = Field(
         validation_alias=AliasChoices("user_permissions", "userPermissions"),

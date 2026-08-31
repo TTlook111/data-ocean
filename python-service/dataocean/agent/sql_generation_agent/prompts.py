@@ -57,6 +57,10 @@ def build_user_message(state: dict[str, Any]) -> str:
     if intent:
         parts.append(f"## 查询意图\n{json.dumps(intent, ensure_ascii=False)}")
 
+    summary = state.get("conversation_summary") or {}
+    if summary:
+        parts.append(f"## 会话长期摘要\n{json.dumps(summary, ensure_ascii=False)}")
+
     # 对话历史
     history = state.get("conversation_history", [])
     if history:
