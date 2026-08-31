@@ -153,7 +153,7 @@ Recent RAG lifecycle change:
 - Flyway migration `V35__rag_python_chunking_lifecycle.sql` updates chunk lifecycle metadata and adds `idx_chunk_doc_version`.
 - skills.md generation is expected to output six structured sections, including concrete Join Path SQL conditions, metric SQL expressions, field notes, and query scenes.
 - RAG reranking applies chunk-type bonuses for `JOIN_PATH`, `METRIC`, `FIELD_NOTE`, and `QUERY_SCENE` based on query intent.
-- Prompt token budget is 5000 total, with `skills` and `schema` both budgeted at 1500 and treated as highest-priority context.
+- Prompt templates are fetched from Java and rendered in Python without hard-coded per-section token quotas; provider context limits remain an external runtime concern.
 
 Current RAG/NL2SQL follow-up cautions:
 

@@ -1,6 +1,6 @@
 """Prompt 服务模块
 
-组合 router（获取模板）+ renderer（渲染变量）+ token_budget（裁剪），
+组合 router（获取模板）+ renderer（变量渲染），
 对外提供 render_prompt(template_code, variables) 方法。
 """
 
@@ -12,7 +12,6 @@ from typing import Any
 import httpx
 
 from .renderer import render_template
-from .token_budget import apply_token_budget
 
 logger = logging.getLogger(__name__)
 
@@ -54,15 +53,14 @@ async def render_prompt(template_code: str, variables: dict[str, str]) -> str:
     """完整的 Prompt 渲染流程
 
     1. 从 Java API 获取模板内容
-    2. 对变量应用 Token 预算控制
-    3. 渲染模板变量
+    2. 渲染模板变量
 
     Args:
         template_code: 模板编码（如 sql_generation）
         variables: 变量字典
 
     Returns:
-        渲染并裁剪后的完整 Prompt 文本
+        渲染后的完整 Prompt 文本
     """
     rendered, _ = await render_prompt_with_metadata(template_code, variables)
     return rendered
@@ -79,11 +77,8 @@ async def render_prompt_with_metadata(
         logger.error("获取 Prompt 模板失败 code=%s", template_code)
         return "", 0
 
-    # Token 预算裁剪
-    budgeted_variables = apply_token_budget(_stringify_variables(variables))
-
     # 渲染变量
-    rendered = render_template(template_content, budgeted_variables)
+    rendered = render_template(template_content, _stringify_variables(variables))
 
     logger.debug(
         "Prompt 渲染完成 code=%s 长度=%d",

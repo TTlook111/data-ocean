@@ -154,7 +154,7 @@ Current RAG details:
 - Python `chunker.py` is the source of truth for chunking.
 - Python chunking splits by `##` sections and then by `###` subsections for fine-grained chunks.
 - RAG reranking applies chunk-type bonuses for `JOIN_PATH`, `METRIC`, `FIELD_NOTE`, and `QUERY_SCENE`.
-- Prompt token budget is 5000 total, with `skills` and `schema` both budgeted at 1500 and treated as highest-priority context.
+- Prompt templates are fetched from Java and rendered in Python without hard-coded per-section token quotas; provider context limits remain an external runtime concern.
 
 ## Project Structure
 

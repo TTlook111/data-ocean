@@ -62,7 +62,7 @@ def build_user_message(state: dict[str, Any]) -> str:
     if history:
         history_text = "\n".join(
             f"- {msg.get('role', 'user')}: {msg.get('content', '')}"
-            for msg in history[-3:]  # 最近 3 轮
+            for msg in history
         )
         parts.append(f"## 对话历史\n{history_text}")
 

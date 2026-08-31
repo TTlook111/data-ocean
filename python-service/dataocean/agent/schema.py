@@ -67,7 +67,6 @@ class ExecuteRequest(BaseModel):
     question: str = Field(min_length=1, max_length=500)
     conversation_history: list[ConversationTurn] = Field(
         default_factory=list,
-        max_length=5,
         validation_alias=AliasChoices("conversation_history", "conversationHistory"),
     )
     user_permissions: UserPermissions = Field(
