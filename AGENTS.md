@@ -55,6 +55,7 @@ Important boundaries:
 - Java owns management lifecycle: users, permissions, data sources, metadata governance, review, versioning, publishing, task state, masking, audit, and durable persistence.
 - Python owns AI/RAG execution: query rewrite, glossary hints, chunking, embedding, Milvus writes, retrieval, reranking, SQL generation, SQL validation, and sandbox execution.
 - Java to Python calls use `RestClient`; knowledge/RAG clients use `@Retryable` where configured. SSE streaming and health checks should not be blindly retried.
+- Java asynchronous work uses dedicated executors for query execution, conversation summaries, and datasource health checks; saturation must not make request threads run the full Agent or summary LLM call.
 - Query results are not cached because similar questions, relative dates, and permission differences can make reuse unsafe.
 
 ## Current Status

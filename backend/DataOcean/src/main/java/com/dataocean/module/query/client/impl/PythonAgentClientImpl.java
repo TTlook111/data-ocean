@@ -32,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.RejectedExecutionException;
 
 import org.springframework.data.redis.core.RedisTemplate;
 
@@ -127,7 +128,13 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                 // 仅在实际更新时保存助手消息（任务已取消则跳过）
                 if (updated) {
                     saveAssistantMessageFromResult(conversationId, taskId, finalResult);
-                    conversationContextSummaryService.refreshAsync(conversationId, userId);
+                    try {
+                        conversationContextSummaryService.refreshAsync(conversationId, userId);
+                    } catch (RejectedExecutionException ex) {
+                        // 摘要属于非关键后台任务，线程池满载时不能影响本次查询成功。
+                        log.warn("会话摘要线程池繁忙，跳过本次摘要刷新 conversationId={} taskId={}",
+                                conversationId, taskId);
+                    }
                 }
 
                 // 推送结果给前端 SSE

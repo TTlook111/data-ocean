@@ -149,12 +149,13 @@ Python：conversation_history + conversation_summary + 当前请求
 4. 查询结果、任务状态、用户消息和助手消息的必要持久化。
 5. 新向量写入和数量校验。只有确认成功后，Java 才能发布新版本并清理旧向量。
 
-### 5.4 当前异步待优化点
+### 5.4 异步实现状态和剩余优化点
 
-1. `DatasourceHealthCheckScheduler` 使用 `CompletableFuture.runAsync()` 时没有显式指定项目线程池，当前会使用公共 ForkJoinPool。后续应改为受控的健康检查线程池。
-2. `AsyncConfig` 的 `conversationSummaryExecutor` 当前使用 `CallerRunsPolicy`。线程池满时，摘要 LLM 调用可能回退到查询线程执行，削弱摘要异步隔离。后续可改成拒绝并记录、定时重试或任务表重试。
-3. Python 的 Few-shot `create_task` 是进程内最佳努力任务，服务重启可能丢失。当前不值得为此引入 API Gateway 或消息平台；如果未来要求可靠投递，再增加持久化任务或 outbox。
-4. 向量任务当前按待处理任务顺序执行。只有在增加任务抢占/幂等/并发上限后，才适合并行处理，不能只给调度器简单加线程。
+1. 已完成：`DatasourceHealthCheckScheduler` 使用 `datasourceHealthExecutor`，不再把检查任务提交到公共 ForkJoinPool；单个数据源异常也不会中断本轮其他检查。
+2. 已完成：`conversationSummaryExecutor` 使用拒绝策略避免回退到查询线程；摘要线程池满载时跳过本次摘要，查询结果不受影响。
+3. 已完成：`queryExecutor` 满载时拒绝新查询，避免 HTTP 请求线程执行完整 Agent；Java 将任务标记为失败并返回“查询任务繁忙”。
+4. Python 的 Few-shot `create_task` 仍是进程内最佳努力任务，服务重启可能丢失。当前不值得为此引入 API Gateway 或消息平台；如果未来要求可靠投递，再增加持久化任务或 outbox。
+5. 向量任务当前按待处理任务顺序执行。只有在增加任务抢占、幂等和并发上限后，才适合并行处理，不能只给调度器简单加线程。
 
 ## 6. 数据一致性和失败原则
 
@@ -173,4 +174,3 @@ Python：conversation_history + conversation_summary + 当前请求
 | 未完成任务和优先级变化 | `docs/development/后续开发.md` |
 | 某个模块的接口、数据模型或实现计划变化 | 对应 `specs/<module>/` |
 | README 快速开始或项目入口变化 | `README.md` |
-

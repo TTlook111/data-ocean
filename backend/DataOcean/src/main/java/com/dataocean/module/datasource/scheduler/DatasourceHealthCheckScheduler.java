@@ -12,12 +12,14 @@ import com.dataocean.module.datasource.service.DatasourceConnectionService;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * 数据源健康检查定时任务
@@ -41,6 +43,9 @@ public class DatasourceHealthCheckScheduler {
     private final DatasourceSecretService secretService;
     private final DatasourceConnectionService connectionService;
 
+    @Qualifier("datasourceHealthExecutor")
+    private final Executor datasourceHealthExecutor;
+
     /**
      * 定时检查所有已启用数据源的健康状态
      * <p>
@@ -58,11 +63,23 @@ public class DatasourceHealthCheckScheduler {
             return;
         }
         log.debug("开始定时检查数据源健康状态 count={}", datasources.size());
-        // 并行检查所有数据源
+        // 使用专用线程池并行检查，避免占用公共 ForkJoinPool。
         List<CompletableFuture<Void>> futures = datasources.stream()
-                .map(datasource -> CompletableFuture.runAsync(() -> checkOne(datasource)))
+                .map(datasource -> CompletableFuture.runAsync(
+                        () -> checkOneSafely(datasource), datasourceHealthExecutor))
                 .toList();
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+    }
+
+    /**
+     * 隔离单个数据源检查异常，避免一个数据源失败导致本轮全部任务提前结束。
+     */
+    private void checkOneSafely(Datasource datasource) {
+        try {
+            checkOne(datasource);
+        } catch (Exception e) {
+            log.warn("数据源健康检查异常 datasourceId={}", datasource.getId(), e);
+        }
     }
 
     /**

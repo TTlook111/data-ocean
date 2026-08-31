@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * 查询端控制器。
@@ -100,9 +101,15 @@ public class QueryController {
         // 提交查询任务
         String taskId = queryTaskService.submitQuery(userId, request.getDatasourceId(), request.getQuestion(), conversationId);
 
-        // 异步触发 Python Agent 执行
-        pythonAgentClient.executeAsync(taskId, request.getDatasourceId(), userId,
-                request.getQuestion(), conversationId, snapshot.getId());
+        // 异步触发 Python Agent 执行；线程池满载时拒绝本次任务，不让 HTTP 线程执行完整 Agent。
+        try {
+            pythonAgentClient.executeAsync(taskId, request.getDatasourceId(), userId,
+                    request.getQuestion(), conversationId, snapshot.getId());
+        } catch (RejectedExecutionException e) {
+            queryTaskService.updateTaskResult(taskId,
+                    "{\"status\":\"FAILED\",\"error\":\"查询任务繁忙，请稍后重试\"}");
+            throw new ServiceUnavailableException("查询任务繁忙，请稍后重试", e);
+        }
 
         return Result.success("查询已提交", Map.of(
                 "taskId", taskId,
