@@ -38,6 +38,21 @@ def create_tools(state: dict[str, Any]) -> list:
     """
     schema_context: list[dict] = state.get("schema_context", [])
 
+    def item_table_names(item: dict) -> set[str]:
+        values = [item.get("table_name"), *(item.get("related_tables") or [])]
+        return {str(value).lower() for value in values if value}
+
+    def item_column_names(item: dict) -> set[str]:
+        values = [item.get("related_column"), *(item.get("related_columns") or [])]
+        result: set[str] = set()
+        for value in values:
+            if not value:
+                continue
+            normalized = str(value).lower()
+            result.add(normalized)
+            result.add(normalized.rsplit(".", 1)[-1])
+        return result
+
     # ── get_schema_context ────────────────────────────────────
 
     @tool(args_schema=GetSchemaContextInput)
@@ -58,7 +73,7 @@ def create_tools(state: dict[str, Any]) -> list:
             results = [
                 item
                 for item in results
-                if (item.get("table_name") or "").lower() in names_lower
+                if item_table_names(item) & set(names_lower)
             ]
 
         if chunk_types:
@@ -92,7 +107,7 @@ def create_tools(state: dict[str, Any]) -> list:
             names_lower = [n.lower() for n in table_names]
             join_chunks = [
                 item for item in join_chunks
-                if (item.get("table_name") or "").lower() in names_lower
+                if item_table_names(item) & set(names_lower)
             ]
 
         logger.debug("get_join_paths: 返回 %d 条 Join Path", len(join_chunks))
@@ -149,14 +164,14 @@ def create_tools(state: dict[str, Any]) -> list:
             names_lower = [n.lower() for n in table_names]
             note_chunks = [
                 item for item in note_chunks
-                if (item.get("table_name") or "").lower() in names_lower
+                if item_table_names(item) & set(names_lower)
             ]
 
         if column_names:
             cols_lower = [c.lower() for c in column_names]
             note_chunks = [
                 item for item in note_chunks
-                if (item.get("related_column") or "").lower() in cols_lower
+                if item_column_names(item) & set(cols_lower)
             ]
 
         logger.debug("get_field_notes: 返回 %d 条字段说明", len(note_chunks))

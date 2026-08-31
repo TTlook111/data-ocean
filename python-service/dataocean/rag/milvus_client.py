@@ -1,5 +1,6 @@
 """Milvus 向量库连接管理"""
 
+import json
 import logging
 import threading
 from dataclasses import dataclass
@@ -94,6 +95,7 @@ def ensure_collection(collection_name: str | None = None, dimension: int | None 
 
     collections = client.list_collections()
     if name in collections:
+        _validate_existing_collection(client, name, dim)
         return CollectionInfo(name=name)
 
     # 根据数据规模动态选择索引参数
@@ -103,11 +105,107 @@ def ensure_collection(collection_name: str | None = None, dimension: int | None 
     client.create_collection(
         collection_name=name,
         dimension=dim,
+        primary_field_name="id",
+        vector_field_name="embedding",
+        auto_id=True,
         metric_type="IP",
         index_params=index_params,
     )
     logger.info("Milvus Collection 创建成功 name=%s dim=%d index=%s", name, dim, index_params["index_type"])
     return CollectionInfo(name=name)
+
+
+def _validate_existing_collection(client: MilvusClient, name: str, expected_dimension: int) -> None:
+    """校验已有 collection 的向量字段和维度，禁止静默写入不兼容索引。"""
+    try:
+        description = client.describe_collection(collection_name=name)
+    except Exception as exc:
+        raise RuntimeError(f"无法读取 Milvus Collection 结构 name={name}: {exc}") from exc
+
+    fields = description.get("fields", []) if isinstance(description, dict) else []
+    vector_fields = [
+        field for field in fields
+        if isinstance(field, dict)
+        and (field.get("name") == "embedding" or "VECTOR" in str(field.get("type", "")).upper())
+    ]
+    embedding_field = next(
+        (field for field in vector_fields if field.get("name") == "embedding"),
+        vector_fields[0] if vector_fields else None,
+    )
+    if embedding_field is None:
+        raise RuntimeError(
+            f"Milvus Collection {name} 缺少 embedding 向量字段，请重建 Collection 后再执行 RAG 向量化"
+        )
+    if embedding_field.get("name") != "embedding":
+        raise RuntimeError(
+            f"Milvus Collection {name} 使用向量字段 {embedding_field.get('name')}，"
+            "当前 RAG 协议要求 embedding，请重建 Collection"
+        )
+
+    params = _as_mapping(embedding_field.get("params"))
+    actual_dimension = params.get("dim") or embedding_field.get("dimension")
+    if actual_dimension is not None and int(actual_dimension) != expected_dimension:
+        raise RuntimeError(
+            f"Milvus Collection {name} 维度不匹配 expected={expected_dimension} actual={actual_dimension}"
+        )
+
+    try:
+        index_names = client.list_indexes(collection_name=name, field_name="embedding")
+    except Exception as exc:
+        raise RuntimeError(
+            f"无法读取 Milvus Collection {name} 的 embedding 索引，请重建 Collection"
+        ) from exc
+    if not index_names:
+        raise RuntimeError(
+            f"Milvus Collection {name} 缺少 embedding 索引，请重建 Collection 后再执行 RAG 向量化"
+        )
+
+    metrics: set[str] = set()
+    for index_name in index_names:
+        try:
+            index_info = client.describe_index(
+                collection_name=name,
+                index_name=index_name,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"无法读取 Milvus Collection {name} 的 embedding 索引参数，请重建 Collection"
+            ) from exc
+        metric_type = _extract_metric_type(index_info)
+        if not metric_type:
+            raise RuntimeError(
+                f"Milvus Collection {name} 的 embedding 索引缺少 metric_type，请重建 Collection"
+            )
+        metrics.add(metric_type.upper())
+
+    if metrics != {"IP"}:
+        raise RuntimeError(
+            f"Milvus Collection {name} 的 embedding 索引度量不兼容 expected=IP actual={sorted(metrics)}"
+        )
+
+
+def _as_mapping(value: object) -> dict:
+    """兼容 pymilvus 返回的 dict 或 JSON 文本参数。"""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _extract_metric_type(index_info: object) -> str | None:
+    """从不同 pymilvus 版本的索引描述中读取 metric_type。"""
+    info = _as_mapping(index_info)
+    metric = info.get("metric_type") or info.get("metricType")
+    if metric:
+        return str(metric)
+    params = _as_mapping(info.get("params"))
+    metric = params.get("metric_type") or params.get("metricType")
+    return str(metric) if metric else None
 
 
 def ping() -> bool:

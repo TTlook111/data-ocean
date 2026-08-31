@@ -91,6 +91,7 @@ Python：conversation_history + conversation_summary + 当前请求
 | LangChain | `agent`、`infra`、`rag` | 模型抽象、Prompt、工具、输出解析、Agent 组装、Document 等基础组件 | 不决定业务权限，不是工作流持久化层 |
 | `langchain-openai` | `infra/llm.py`、`infra/embeddings.py` | 通过 OpenAI 兼容协议调用 Qwen/Embedding 服务 | 不保存模型会话 |
 | `langchain-text-splitters` | `rag/chunker.py` | 对 `skills.md` 做文档切分 | 不负责发布状态和任务状态 |
+| `tiktoken` | `rag/chunker.py` | 作为本地 token-aware 切分预算器，目标约 900、最大 1000，长单元 overlap 约 150 | 不代表 Qwen 服务端 tokenizer，也不负责计费限制 |
 | SQLAlchemy、PyMySQL | `sandbox`、连接池 | 使用只读账号连接外部业务 MySQL 并执行安全 SQL | 不负责 Java 应用库的业务持久化 |
 | sqlglot | `sandbox`、Agent SQL 节点 | SQL AST 解析、安全规则、权限改写、LIMIT、深度和危险函数检查 | 不依赖 Prompt 作为唯一安全措施 |
 | PyMilvus、Milvus 客户端 | `rag/vector_store.py`、`vectorizer.py` | 向量写入、检索、删除和数量校验 | 不作为业务事实源，索引失败不能覆盖 Java 状态 |
@@ -106,6 +107,10 @@ Python：conversation_history + conversation_summary + 当前请求
 | Redis | 临时状态和缓存 | JWT、验证码、限频、Embedding、Glossary、Fallback、Few-shot、用户偏好 | 可失效、可降级，不是持久化事实源 |
 | Milvus | RAG 向量索引 | `skills.md` 和 Schema 向量 | 可重建的派生索引，不是权威源 |
 | Qwen/外部 OpenAI 兼容 API | 模型服务 | 查询改写、SQL 生成、摘要、Embedding、图表等模型调用 | 只提供推理结果，不保存项目业务状态 |
+
+RAG 的数据归属进一步明确为：Python 负责语义切分、Embedding、Milvus 写入/检索/重排和
+相邻上下文扩展；Java 负责 `knowledge_chunk` 的完整 chunk 快照、审核、版本和发布状态。
+Milvus 中的 metadata 是用于过滤和扩展的轻量副本，不替代 Java MySQL 的权威数据。
 
 ## 4. LangChain 与 LangGraph 的边界
 
@@ -147,7 +152,7 @@ Python：conversation_history + conversation_summary + 当前请求
 2. 历史消息、摘要、Glossary、Fallback 和 Schema RAG 加载。
 3. 查询改写、SQL 生成、AST 校验、权限改写和只读执行。
 4. 查询结果、任务状态、用户消息和助手消息的必要持久化。
-5. 新向量写入和数量校验。只有确认成功后，Java 才能发布新版本并清理旧向量。
+5. 新向量写入和数量校验。只有确认成功后，Java 才能提交新版本发布事务；事务提交后再清理旧向量，清理失败进入 `CLEANUP_PENDING` 重试。
 
 ### 5.4 异步实现状态和剩余优化点
 
@@ -161,7 +166,7 @@ Python：conversation_history + conversation_summary + 当前请求
 
 1. Java MySQL 是会话、任务、治理和发布状态的权威来源。
 2. Redis 故障应降级为无缓存或较慢路径，不能阻断核心查询。
-3. Milvus 是派生索引。新版本向量未写入并校验成功前，不能删除旧版本向量。
+3. Milvus 是派生索引。新版本向量未写入并校验成功前，不能删除旧版本向量；Java 发布事务提交后清理失败也不能回滚已发布的新版本，应通过 `CLEANUP_PENDING` 重试。
 4. 外部模型 API 失败时，查询任务必须进入明确的失败或降级状态，不能把异常吞掉后伪装成成功。
 5. 后台副作用如果将来具备审计或合规上的“不能丢失”要求，应采用 MySQL outbox/任务表保证投递；当前项目没有为此额外引入消息平台。
 

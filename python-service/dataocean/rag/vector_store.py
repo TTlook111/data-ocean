@@ -20,10 +20,6 @@ logger = logging.getLogger(__name__)
 
 RAG_ELIGIBLE_STATUSES = ("NORMAL", "RECOMMENDED")
 
-# Milvus chunk_text 字段长度上限（与 chunker.MAX_CHUNK_TEXT_LENGTH 对齐）
-# chunker 截断到 8000 字符，此处做防御性截断
-MILVUS_CHUNK_TEXT_LIMIT = 8192
-
 # collection 统计信息缓存（避免每次搜索都调用 Milvus RPC）
 _stats_cache: dict[str, tuple[int, float]] = {}  # {collection_name: (total_vectors, timestamp)}
 _STATS_CACHE_TTL = 60.0  # 缓存 60 秒
@@ -64,15 +60,18 @@ async def add_chunk_embeddings(
 
         # 构建插入数据
         data = []
-        for i, (text, embedding, metadata) in enumerate(zip(texts, embeddings, metadatas)):
-            chunk_text = text[:MILVUS_CHUNK_TEXT_LIMIT]
-            if len(text) > MILVUS_CHUNK_TEXT_LIMIT:
-                logger.warning("chunk_text 截断: 原始长度 %d, 截断后 %d, index=%d",
-                               len(text), MILVUS_CHUNK_TEXT_LIMIT, i)
+        for text, embedding, metadata in zip(texts, embeddings, metadatas):
+            entity_metadata = dict(metadata)
+            # Milvus 动态字段不接受 Python None；可选字段缺失即可，避免
+            # 某个 chunk 的空 trust_score 让整批插入失败。
+            if entity_metadata.get("trust_score") is None:
+                entity_metadata.pop("trust_score", None)
             entity = {
-                "chunk_text": chunk_text,
+                # chunker 已经按 token 预算保证长度；这里不再静默截断，
+                # 避免 SQL/Join 条件在写入 Milvus 前丢失。
+                "chunk_text": text,
                 "embedding": embedding,
-                **metadata,
+                **entity_metadata,
             }
             data.append(entity)
 
@@ -115,11 +114,14 @@ async def search_by_vector(
             data=[embedding],
             limit=limit,
             filter=expr,
+            anns_field="embedding",
             output_fields=[
-                "datasource_id", "snapshot_id", "knowledge_version_no",
-                "doc_id", "source_id", "chunk_type", "governance_status",
-                "review_status", "chunk_text", "related_table", "related_column",
-            ],
+                    "datasource_id", "snapshot_id", "knowledge_version_no",
+                    "doc_id", "source_id", "chunk_index", "chunk_group_id",
+                    "chunk_type", "governance_status", "review_status", "chunk_text",
+                    "related_table", "related_column", "related_tables", "related_columns",
+                    "entity_ids", "trust_score", "content_hash",
+                ],
             search_params={"metric_type": "IP", "params": {"nprobe": nprobe}},
         )
 
@@ -143,7 +145,16 @@ async def search_by_vector(
                         "source_type": "SCHEMA",
                         "source_version": entity.get("knowledge_version_no", 0),
                         "snapshot_id": entity.get("snapshot_id"),
+                        "doc_id": entity.get("doc_id"),
+                        "source_id": entity.get("source_id"),
+                        "chunk_index": entity.get("chunk_index"),
+                        "chunk_group_id": entity.get("chunk_group_id", ""),
                         "related_column": entity.get("related_column", ""),
+                        "related_tables": entity.get("related_tables", ""),
+                        "related_columns": entity.get("related_columns", ""),
+                        "entity_ids": entity.get("entity_ids", ""),
+                        "trust_score": entity.get("trust_score"),
+                        "content_hash": entity.get("content_hash", ""),
                     },
                 )
                 search_hits.append(SearchHit(document=document, score=score))

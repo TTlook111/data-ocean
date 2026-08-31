@@ -69,7 +69,7 @@ Module status summary:
 | Java prompt module | Complete, including template approval workflow and version rollback |
 | Java system/dashboard modules | Complete; AI config management and admin dashboard are implemented |
 | Python Agent workflow | Core complete, with Schema Linking, self-learning few-shot, Redis memory, timeout/cancel handling and degraded result propagation |
-| Python RAG/vectorization | Complete, with context-enriched chunking, dynamic index selection, hybrid retrieval-ready, RAG recall metrics |
+| Python RAG/vectorization | Core complete, with token-aware context-enriched chunking, 900/1000-token budget, 150-token overlap, chunk metadata propagation, snapshot-safe fallback, and verified Milvus rebuild semantics |
 | Python SQL sandbox | Core complete, with precise multi-table column rejection |
 | Python chart generation | Complete |
 
@@ -145,8 +145,9 @@ APPROVED document
 
 Failure rule:
 
-- If chunking or vectorization fails, Java restores the document to `APPROVED`.
+- If chunking, vectorization, or the Java publish transaction fails, Java restores the document to `APPROVED`.
 - Old active vectors are not deleted before the new version is successfully verified.
+- The Java publish transaction commits before old-vector cleanup. Cleanup failure enters `CLEANUP_PENDING` and is retried without re-vectorizing or rolling back the published version.
 - Same-version rebuilds delete only `doc_id + version_no`, not all vectors for the document.
 
 Recent RAG lifecycle change:
@@ -157,6 +158,9 @@ Recent RAG lifecycle change:
 - Flyway migration `V35__rag_python_chunking_lifecycle.sql` updates chunk lifecycle metadata and adds `idx_chunk_doc_version`.
 - skills.md generation is expected to output six structured sections, including concrete Join Path SQL conditions, metric SQL expressions, field notes, and query scenes.
 - RAG reranking applies chunk-type bonuses for `JOIN_PATH`, `METRIC`, `FIELD_NOTE`, and `QUERY_SCENE` based on query intent.
+- Long skills.md semantic units use token-aware splitting (target about 900, max 1000, overlap about 150); short meaningful units are retained and fixed-character truncation is forbidden.
+- `knowledge_chunk` stores the durable chunk snapshot. Milvus keeps a lightweight copy of document/version/group/index, related tables/columns, entity IDs, trust score, and content hash.
+- Milvus collections must use vector field `embedding` and the configured dimension. Existing incompatible collections must be rebuilt before indexing.
 - Prompt templates are fetched from Java and rendered in Python without hard-coded per-section token quotas; provider context limits remain an external runtime concern.
 
 Current RAG/NL2SQL follow-up cautions:
@@ -217,10 +221,10 @@ cd backend/DataOcean
 mvn test
 ```
 
-Latest verified test result:
+Latest verified test result (2026-08-31):
 
-- Python: 139 test functions, 1 skipped (E2E tests require full environment).
-- Java: 95 @Test methods.
+- Python: 148 passed, 4 skipped (E2E tests require full environment).
+- Java: 119 tests passed.
 
 The next testing gap is Agent workflow coverage: query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 
@@ -319,6 +323,7 @@ Migration notes:
 - `V42` makes datasource access effect semantics explicit.
 - `V44` adds `metadata_quality_issue.column_meta_id` (Phase 1 governance-confidence linkage).
 - `V45` adds `db_column_meta.sample_values` (Phase 2 column sample value collection).
+- `V50` adds RAG chunk order/group, multi-table/multi-column, entity, trust, and content hash metadata.
 
 ## Python Service Notes
 

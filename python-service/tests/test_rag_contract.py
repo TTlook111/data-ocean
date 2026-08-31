@@ -328,6 +328,7 @@ ON orders.customer_id = customers.customer_id
                     "chunks": [chunk],
                 }).chunks[0]],
                 doc_id=99,
+                target_dimension=2,
                 force=True,
             )
 

@@ -169,6 +169,22 @@ class TestGetJoinPaths:
         result = json.loads(tool.invoke({"table_names": ["users"]}))
         assert len(result) == 0  # users 没有 JOIN_PATH
 
+    def test_filter_by_related_table(self):
+        """Join Path 的第二张表也应参与过滤"""
+        state = {
+            "schema_context": [{
+                "table_name": "orders",
+                "related_tables": ["orders", "users"],
+                "chunk_type": "JOIN_PATH",
+                "chunk_text": "orders.user_id = users.user_id",
+            }]
+        }
+        tool = _find_tool(create_tools(state), "get_join_paths")
+
+        result = json.loads(tool.invoke({"table_names": ["users"]}))
+
+        assert len(result) == 1
+
     def test_no_join_paths(self):
         """无 Join Path 时返回空列表"""
         state = {"schema_context": [

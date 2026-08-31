@@ -229,9 +229,12 @@ async def _retrieve_fewshot(state: AgentState) -> str:
         used_tables = state.get("used_tables", [])
         schema_context = state.get("schema_context", [])
         # 从 schema context 提取表名
-        tables = used_tables or [
-            s.get("table_name", "") for s in schema_context if s.get("table_name")
-        ]
+        tables = used_tables or list(dict.fromkeys(
+            table
+            for schema in schema_context
+            for table in [schema.get("table_name", ""), *(schema.get("related_tables") or [])]
+            if table
+        ))
         examples = await retrieve_fewshot_examples(datasource_id, question, tables, limit=3)
         return format_fewshot_prompt(examples)
     except Exception:
@@ -246,11 +249,15 @@ def _format_schema(schema_context: list[dict]) -> str:
     lines: list[str] = []
     for item in schema_context:
         table_name = item.get("table_name") or item.get("tableName") or ""
+        related_tables = item.get("related_tables") or item.get("relatedTables") or []
         related_column = item.get("related_column") or item.get("relatedColumn") or ""
         chunk_text = item.get("chunk_text") or item.get("chunkText") or ""
         confidence = item.get("confidence_score") or item.get("confidenceScore") or item.get("score") or ""
+        table_label = table_name
+        if related_tables and table_name not in related_tables:
+            table_label = f"{table_name} ({', '.join(str(table) for table in related_tables)})"
         if related_column:
-            lines.append(f"- {table_name}.{related_column}: {chunk_text} (confidence={confidence})")
+            lines.append(f"- {table_label}.{related_column}: {chunk_text} (confidence={confidence})")
         else:
-            lines.append(f"- {table_name}: {chunk_text} (confidence={confidence})")
+            lines.append(f"- {table_label}: {chunk_text} (confidence={confidence})")
     return "\n".join(lines)

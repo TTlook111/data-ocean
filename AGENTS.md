@@ -84,7 +84,7 @@ Module status summary:
 | Java prompt module | Complete, including approval workflow, version history, and rollback |
 | Java system/dashboard modules | Complete; AI config management and admin dashboard are implemented |
 | Python Agent workflow | Core complete, with timeout/cancel handling, glossary hints, degraded result propagation, column-level Schema Linking, LLM self-correction on execution failure, and agent graph parallel fan-out (Rewriter + Metadata Prefetch) |
-| Python RAG/vectorization | Complete; staging/verified vector rebuild semantics are in place; embedding cache (Redis TTL=1h); Few-shot embedding cosine-similarity retrieval; schema_context enriched with column info and metadata fields |
+| Python RAG/vectorization | Core complete; token-aware skills.md chunking (target 900/max 1000, overlap 150), chunk metadata propagation, snapshot-safe fallback, adjacent context expansion, verified staging rebuild, and model/config-aware embedding cache are implemented |
 | Python SQL sandbox | Core complete; SQL-to-Schema hallucination detection added (zero extra LLM calls) |
 | Python chart generation | Complete with fallback behavior |
 | Data source readiness | Complete |
@@ -105,8 +105,9 @@ Known follow-up areas live in `docs/development/后续开发.md`. The seven-stag
 - **P1 notification system integration completed** (2026-06-21): frontend notification bell/dropdown and `/api/notifications` client are connected; field feedback group-threshold and snapshot publish/expire events now send system notifications.
 - **Datasource grant semantics added**: `V42__datasource_access_effect.sql` makes datasource grant allow/deny decisions explicit.
 - **Datasource readiness and admin IA added** (2026-06-24): datasource readiness aggregates connection, published metadata snapshot, blocking governance issues, published skills.md, and permission state. Query entry now blocks non-askable sources with visible reasons. Admin navigation now uses business-domain primary navigation plus in-page workspace navigation; see `docs/development/后台信息架构与导航规范.md`.
-- **P6 operation log coverage completed** (2026-08-14): 13 admin controllers annotated with `@AdminAuditLog` (governance, snapshot publish/review, glossary, skills.md, alerts, access approval, AI config, sync schedule, roles/permissions/departments). `AdminAuditLog` gained a `logReads` attribute so read-heavy controllers (catalog/collection) only log writes. `OperationLogAspect` now extracts `targetId` from the path and the self-referential `OperationLogController` annotation was removed. The operation-log list supports multi-condition query (`operatorName`, `operationType`, `isSuccess`, time range, `ipAddress`, `requestPath`, target resource/ID, `keyword`) via `OperationLogQueryDTO` + dynamic `LambdaQueryWrapper`, with a frontend filter bar in `OperationLogList.vue`. Frontend `npm run build` passes; Java unit tests pending Maven verification.
+- **P6 operation log coverage completed** (2026-08-14): 13 admin controllers annotated with `@AdminAuditLog` (governance, snapshot publish/review, glossary, skills.md, alerts, access approval, AI config, sync schedule, roles/permissions/departments). `AdminAuditLog` gained a `logReads` attribute so read-heavy controllers (catalog/collection) only log writes. `OperationLogAspect` now extracts `targetId` from the path and the self-referential `OperationLogController` annotation was removed. The operation-log list supports multi-condition query (`operatorName`, `operationType`, `isSuccess`, time range, `ipAddress`, `requestPath`, target resource/ID, `keyword`) via `OperationLogQueryDTO` + dynamic `LambdaQueryWrapper`, with a frontend filter bar in `OperationLogList.vue`. Frontend `npm run build` passes; Java unit tests have since passed in the 2026-08-31 full verification.
 - **Phase 0-3 深度优化完成**（2026-07-24）：18 项优化全链路实施，详见 `docs/development/DataOcean深度优化参考方案.md`。覆盖：Embedding/术语表/Fallback/密码/权限 Redis 缓存体系、列级 Schema Linking、SQL-to-Schema 幻觉检测、置信度读时衰减与治理联动、Few-shot embedding 升级、LLM 执行反馈自校正、列元数据采样值采集、Agent 图并行 fan-out、自动标签 PII 检测、质量评分聚合、大结果集 SSE 分块传输。新增 V44（`metadata_quality_issue.column_meta_id`）、V45（`db_column_meta.sample_values`）数据库迁移。
+- **RAG 文档与切分修复完成基础实现**（2026-08-31）：skills.md 模板不再把字段名推测、未审核指标或 Join 当作事实；Python chunker 按语义单元和 token 预算切分（目标 900、最大 1000、overlap 150），保留短语义单元并传递 `chunk_index`/`chunk_group_id`/多表多字段/entity/trust/hash metadata；Milvus 检索补齐 `embedding` 字段和 IP 度量校验及相邻 chunk 扩展；fallback 绑定 active snapshot、按问题隔离缓存并支持中文排序；新增 V50 `knowledge_chunk` metadata 迁移。详见 `docs/development/DataOcean-RAG问题修复与知识文档切分优化方案.md`。
 
 ## Core Domain Concepts
 
@@ -129,8 +130,8 @@ Responsibilities:
 - Java manages `skills.md` lifecycle: `DRAFT -> PENDING_REVIEW -> APPROVED -> INDEXING -> PUBLISHED`.
 - Java manages review, versioning, publish task state, rollback state, audit, and MySQL chunk snapshots.
 - Python chunks `skills.md` through `/internal/rag/chunk`, embeds chunks, writes vectors to Milvus, verifies vector counts, and serves retrieval/reranking.
-- Java marks the new version active only after Milvus write and verification succeed.
-- Old active vectors remain available when new vectorization fails.
+- Java marks the new version active only after Milvus write and verification succeed; old-vector cleanup is a post-commit compensating action.
+- Old active vectors remain available when new vectorization or the publish transaction fails.
 
 Publishing flow:
 
@@ -143,12 +144,15 @@ APPROVED document
   -> Python verifies Milvus vector count
   -> Java transaction marks chunks INDEXED, document PUBLISHED, task COMPLETED
   -> Python cleans previous version vectors
+  -> cleanup failure: task enters CLEANUP_PENDING and is retried without re-vectorization
 ```
 
 Failure rule:
 
 - If chunking or vectorization fails, Java restores the document to `APPROVED`.
 - Old active vectors are not deleted before the replacement version is successfully verified.
+- The Java publish transaction commits before old-vector cleanup; cleanup failure leaves the new version published and enters `CLEANUP_PENDING` for retry.
+- If the publish transaction itself fails after vectorization, Java compensates by deleting the current version vectors while preserving the old version.
 - Same-version rebuilds delete only `doc_id + version_no`, not all vectors for the document.
 - Do not implement datasource-wide force vectorization as "delete old vectors, then write new vectors". Use doc/version scoped rebuilds or verified staging writes.
 
@@ -157,6 +161,9 @@ Current RAG details:
 - Java-side `KnowledgeChunkSplitter` was removed.
 - Python `chunker.py` is the source of truth for chunking.
 - Python chunking splits by `##` sections and then by `###` subsections for fine-grained chunks.
+- Python chunking uses a token-aware splitter: target about 900 tokens, maximum 1000 tokens, and about 150-token overlap for long semantic units. Short meaningful units are kept as-is; no fixed-character truncation is allowed.
+- `knowledge_chunk` is the durable metadata snapshot. Milvus stores a lightweight copy of `doc_id`, version, group/index, related tables/columns, entity IDs, trust score, and content hash for filtering and context expansion.
+- Milvus collections must use vector field `embedding` and the configured embedding dimension. Existing incompatible collections must be rebuilt before indexing; they are not silently mixed.
 - RAG reranking applies chunk-type bonuses for `JOIN_PATH`, `METRIC`, `FIELD_NOTE`, and `QUERY_SCENE`.
 - Prompt templates are fetched from Java and rendered in Python without hard-coded per-section token quotas; provider context limits remain an external runtime concern.
 
@@ -220,6 +227,7 @@ Migration notes:
 - `V42`: explicit datasource access effect semantics.
 - `V44`: adds `metadata_quality_issue.column_meta_id` for governance-confidence linkage (Phase 1).
 - `V45`: adds `db_column_meta.sample_values` for column sample value collection (Phase 2).
+- `V50`: adds RAG chunk order/group, multi-table/multi-column, entity, trust, and content hash metadata.
 
 ## Python Service Notes
 
@@ -355,11 +363,11 @@ cd backend/DataOcean
 mvn test
 ```
 
-Latest documented verification (2026-08-30):
+Latest documented verification (2026-08-31):
 
 - Frontend: `npm run build` passed.
-- Python: 135 tests passed, 4 skipped, 1 deprecation warning.
-- Java: 116 tests passed.
+- Python: 148 tests passed, 4 skipped, 1 deprecation warning.
+- Java: 119 tests passed.
 - Remaining test gap: Agent workflow coverage around query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 
 ## Security Constraints

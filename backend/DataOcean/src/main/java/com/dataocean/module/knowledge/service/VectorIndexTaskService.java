@@ -57,6 +57,14 @@ public interface VectorIndexTaskService {
     void markCompleted(Long taskId);
 
     /**
+     * 新版本已发布，但旧版本向量清理失败，等待后续调度重试。
+     *
+     * @param taskId       任务 ID
+     * @param errorMessage 清理失败信息
+     */
+    void markCleanupPending(Long taskId, String errorMessage);
+
+    /**
      * 更新任务状态为失败。
      *
      * @param taskId       任务 ID

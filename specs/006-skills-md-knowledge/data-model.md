@@ -94,7 +94,7 @@ INDEX: (vector_status)
 | metadata_snapshot_id | BIGINT | | 本次向量化绑定的元数据快照 |
 | knowledge_version_no | INT | | 本次向量化的 skills.md 版本号 |
 | previous_version_no | INT | | 新版本写入成功后待清理的上一版 skills.md 版本号 |
-| status | VARCHAR(20) | NOT NULL, DEFAULT 'PENDING' | PENDING/PROCESSING/COMPLETED/FAILED |
+| status | VARCHAR(20) | NOT NULL, DEFAULT 'PENDING' | PENDING/PROCESSING/CLEANUP_PENDING/COMPLETED/FAILED |
 | retry_count | INT | NOT NULL, DEFAULT 0 | 重试次数 |
 | max_retry | INT | NOT NULL, DEFAULT 3 | 最大重试 |
 | started_at | DATETIME | | 开始时间 |

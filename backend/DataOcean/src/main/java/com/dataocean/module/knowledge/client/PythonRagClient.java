@@ -36,5 +36,5 @@ public interface PythonRagClient {
      * @param task       当前已成功生效的任务
      * @param versionNo  待清理的旧版本号
      */
-    void deleteDocVersionVectors(VectorIndexTask task, Integer versionNo);
+    boolean deleteDocVersionVectors(VectorIndexTask task, Integer versionNo);
 }

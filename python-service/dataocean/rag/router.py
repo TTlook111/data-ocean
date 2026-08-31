@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 import httpx
 
-from .milvus_client import ensure_collection, health_status
+from .milvus_client import ensure_collection, get_client, health_status
 from .schema import (
     ChunkDocumentRequest,
     ChunkDocumentResponse,
@@ -22,7 +22,7 @@ from .schema import (
     VectorizeRequest,
     VectorizeResponse,
 )
-from .chunker import chunk_skills_md
+from .chunker import chunk_skills_md, validate_skills_md_structure
 from .service import retrieve_schemas
 from .vector_store import delete_by_expr
 from .vectorizer import vectorize_chunks
@@ -57,6 +57,11 @@ async def chunk_document(request: ChunkDocumentRequest) -> ChunkDocumentResponse
     Java keeps the document lifecycle and stores this returned chunk snapshot for
     observability/rebuilds; Python owns the chunking strategy.
     """
+    if request.validate_structure:
+        errors = validate_skills_md_structure(request.content)
+        if errors:
+            raise HTTPException(status_code=422, detail={"message": "skills.md 结构校验失败", "errors": errors})
+
     chunks = chunk_skills_md(request.content)
     logger.info(
         "skills.md chunked datasource_id=%s doc_id=%s version_no=%s chunks=%d",
@@ -140,7 +145,9 @@ async def _delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsRespons
 
         collection = await asyncio.to_thread(ensure_collection)
         before = await asyncio.to_thread(_count_entities, collection, expr)
-        await delete_by_expr(expr)
+        deleted = await delete_by_expr(expr)
+        if not deleted:
+            raise RuntimeError(f"Milvus 删除向量失败 expr={expr}")
         logger.info("已删除向量 expr=%s count=%d", expr, before)
         return DeleteVectorsResponse(deleted_count=before, duration_ms=_elapsed_ms(start))
     except ValueError as e:
@@ -218,7 +225,14 @@ async def detect_dimension(request: DimensionDetectRequest) -> dict:
 
 
 def _count_entities(collection, expr: str) -> int:
-    rows = collection.query(expr=expr, output_fields=["count(*)"])
+    collection_name = getattr(collection, "name", None)
+    if not collection_name:
+        collection_name = collection
+    rows = get_client().query(
+        collection_name=collection_name,
+        filter=expr,
+        output_fields=["count(*)"],
+    )
     if not rows:
         return 0
     row = rows[0]

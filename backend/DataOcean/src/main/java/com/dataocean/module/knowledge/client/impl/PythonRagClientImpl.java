@@ -111,6 +111,8 @@ public class PythonRagClientImpl implements PythonRagClient {
         requestBody.put("docId", task.getTargetId());
         requestBody.put("metadataSnapshotId", task.getMetadataSnapshotId());
         requestBody.put("knowledgeVersionNo", task.getKnowledgeVersionNo());
+        // 预览任务没有 taskId，正式索引任务才执行发布前结构校验。
+        requestBody.put("validateStructure", task.getId() != null);
         requestBody.put("content", content == null ? "" : content);
 
         try {
@@ -166,9 +168,9 @@ public class PythonRagClientImpl implements PythonRagClient {
     }
 
     @Override
-    public void deleteDocVersionVectors(VectorIndexTask task, Integer versionNo) {
+    public boolean deleteDocVersionVectors(VectorIndexTask task, Integer versionNo) {
         if (versionNo == null) {
-            return;
+            return true;
         }
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("datasourceId", task.getDatasourceId());
@@ -176,7 +178,7 @@ public class PythonRagClientImpl implements PythonRagClient {
         requestBody.put("knowledgeVersionNo", versionNo);
 
         try {
-            restClient.post()
+            Map<String, Object> response = restClient.post()
                     .uri("/internal/rag/vectors/delete")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
@@ -186,12 +188,18 @@ public class PythonRagClientImpl implements PythonRagClient {
                                 task.getId(), versionNo, responseEntity.getStatusCode());
                         throw new BusinessException("RAG 旧向量清理失败");
                     })
-                    .toBodilessEntity();
-            log.info("Python RAG 旧向量清理完成 taskId={} docId={} versionNo={}",
-                    task.getId(), task.getTargetId(), versionNo);
+                    .body(new ParameterizedTypeReference<>() {});
+            if (response == null || response.get("deletedCount") == null) {
+                log.warn("Python RAG 旧向量清理未返回删除数量 taskId={} versionNo={}", task.getId(), versionNo);
+                return false;
+            }
+            log.info("Python RAG 旧向量清理完成 taskId={} docId={} versionNo={} deletedCount={}",
+                    task.getId(), task.getTargetId(), versionNo, response.get("deletedCount"));
+            return true;
         } catch (Exception e) {
             log.warn("Python RAG 旧向量清理异常 taskId={} versionNo={} reason={}",
                     task.getId(), versionNo, e.getMessage());
+            return false;
         }
     }
 
@@ -202,6 +210,13 @@ public class PythonRagClientImpl implements PythonRagClient {
         payload.put("chunkText", chunk.getChunkText());
         payload.put("tableName", chunk.getRelatedTable());
         payload.put("relatedColumn", chunk.getRelatedColumn());
+        payload.put("relatedTables", chunk.getRelatedTables());
+        payload.put("relatedColumns", chunk.getRelatedColumns());
+        payload.put("entityIds", chunk.getEntityIds());
+        payload.put("chunkIndex", chunk.getChunkIndex());
+        payload.put("chunkGroupId", chunk.getChunkGroupId());
+        payload.put("trustScore", chunk.getTrustScore());
+        payload.put("contentHash", chunk.getContentHash());
         payload.put("reviewStatus", chunk.getReviewStatus());
         payload.put("governanceStatus", "NORMAL");
         return payload;

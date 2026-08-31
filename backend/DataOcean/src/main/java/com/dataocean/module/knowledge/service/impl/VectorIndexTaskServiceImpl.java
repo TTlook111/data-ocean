@@ -18,7 +18,8 @@ import java.util.List;
  * 向量化任务管理业务实现类。
  * <p>
  * 实现 {@link VectorIndexTaskService} 接口，管理向量化任务的创建和状态流转。
- * 任务状态流转：PENDING → PROCESSING → COMPLETED/FAILED。
+     * 任务状态流转：PENDING → PROCESSING → COMPLETED/FAILED；
+     * 发布事务完成但旧版本向量清理失败时进入 CLEANUP_PENDING，等待重试。
  * </p>
  *
  * @author DataOcean
@@ -91,10 +92,11 @@ public class VectorIndexTaskServiceImpl implements VectorIndexTaskService {
      */
     @Override
     public List<VectorIndexTask> listPendingTasks() {
-        // 查询所有 PENDING 状态的任务
+        // 查询初次处理任务和发布后待重试的旧向量清理任务
         return vectorIndexTaskMapper.selectList(
                 new LambdaQueryWrapper<VectorIndexTask>()
-                        .eq(VectorIndexTask::getStatus, VectorTaskStatus.PENDING.name())
+                        .in(VectorIndexTask::getStatus,
+                                List.of(VectorTaskStatus.PENDING.name(), VectorTaskStatus.CLEANUP_PENDING.name()))
                         .orderByAsc(VectorIndexTask::getCreatedAt));
     }
 
@@ -122,8 +124,27 @@ public class VectorIndexTaskServiceImpl implements VectorIndexTaskService {
         // 更新状态为已完成，记录结束时间
         task.setStatus(VectorTaskStatus.COMPLETED.name());
         task.setFinishedAt(LocalDateTime.now());
+        task.setErrorMessage(null);
         vectorIndexTaskMapper.updateById(task);
         log.info("向量化任务完成 taskId={}", taskId);
+    }
+
+    /**
+     * 标记发布已完成但旧版本向量清理待重试。
+     * <p>
+     * 此状态不回滚已经提交的文档发布和新版本 chunk，避免把已经可用的新版本
+     * 错误地恢复为 APPROVED；调度器只重试删除旧版本向量，不会重复向量化。
+     * </p>
+     */
+    @Transactional
+    @Override
+    public void markCleanupPending(Long taskId, String errorMessage) {
+        VectorIndexTask task = requireTask(taskId);
+        task.setStatus(VectorTaskStatus.CLEANUP_PENDING.name());
+        task.setFinishedAt(null);
+        task.setErrorMessage(errorMessage);
+        vectorIndexTaskMapper.updateById(task);
+        log.warn("向量化任务等待旧版本向量清理重试 taskId={} errorMessage={}", taskId, errorMessage);
     }
 
     /**

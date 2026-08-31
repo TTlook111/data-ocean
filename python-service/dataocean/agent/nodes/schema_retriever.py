@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import asyncio
 
 import httpx
 
@@ -62,6 +63,11 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
     # 转换为 AgentState 中的 schema_context 格式
     schema_context = []
     for item in response.results:
+        related_tables = list(getattr(item, "related_tables", []) or [])
+        related_columns = list(getattr(item, "related_columns", []) or [])
+        related_column = getattr(item, "related_column", None)
+        if not related_column and related_columns:
+            related_column = related_columns[0].rsplit(".", 1)[-1]
         columns_data = []
         if hasattr(item, "columns") and item.columns:
             columns_data = [
@@ -76,12 +82,16 @@ async def run_schema_retriever(state: AgentState) -> AgentState:
             "source_type": source_type,
             "chunk_type": item.chunk_type or "",
             "chunk_text": item.chunk_text or "",
-            "related_column": getattr(item, "related_column", None),
+            "related_column": related_column,
+            "related_tables": related_tables,
+            "related_columns": related_columns,
             "columns": columns_data,
             "confidence_score": getattr(item, "trust_score", 0) or 0,
             "governance_status": item.governance_status or "NORMAL",
             "score": item.score if hasattr(item, "score") else 0.0,
-            "entity_id": getattr(item, "entity_id", None),  # Phase 3: 实体ID
+            "entity_ids": list(getattr(item, "entity_ids", []) or []),
+            # 保留单数兼容字段，关系增强统一使用 entity_ids。
+            "entity_id": (list(getattr(item, "entity_ids", []) or [None])[0]),
         })
 
     if not schema_context:
@@ -117,14 +127,24 @@ async def _enrich_with_relationships(
 
     失败时静默降级，不影响主流程。
     """
+    # 关系查询属于 Java 内部 HTTP I/O。批量并发且设置上限，避免逐条串行
+    # 请求把 Schema Linking 延迟放大，同时不对 Java 造成突发压力。
+    entity_ids = sorted({
+        int(entity_id)
+        for item in schema_context
+        for entity_id in (item.get("entity_ids") or [item.get("entity_id")])
+        if entity_id is not None and str(entity_id).isdigit()
+    })
+    relationship_map = await _fetch_relationships_batch(entity_ids)
+
     enriched = []
     for item in schema_context:
-        entity_id = item.get("entity_id")
-        if not entity_id:
-            enriched.append(item)
-            continue
-
-        relationships = await _fetch_relationships(entity_id)
+        item_entity_ids = item.get("entity_ids") or ([item.get("entity_id")] if item.get("entity_id") else [])
+        relationships = [
+            relation
+            for entity_id in item_entity_ids
+            for relation in relationship_map.get(int(entity_id), [])
+        ]
         if not relationships:
             enriched.append(item)
             continue
@@ -147,6 +167,33 @@ async def _enrich_with_relationships(
         logger.info("Phase 3: 关系数据加载完成 task_id=%s total_relationships=%d", task_id, total)
 
     return enriched
+
+
+async def _fetch_relationships_batch(entity_ids: list[int]) -> dict[int, list[dict]]:
+    """复用一个 HTTP client 并发获取实体关系，失败的实体只影响自身。"""
+    if not entity_ids:
+        return {}
+
+    semaphore = asyncio.Semaphore(min(8, len(entity_ids)))
+    headers = {"X-Internal-Token": INTERNAL_TOKEN}
+
+    async with httpx.AsyncClient(timeout=3.0) as client:
+        async def fetch(entity_id: int) -> tuple[int, list[dict]]:
+            async with semaphore:
+                try:
+                    url = f"{JAVA_BASE_URL}/internal/metadata/entities/{entity_id}/relationships"
+                    params = {"relationType": "FOREIGN_KEY,LINEAGE,DERIVED_FROM"}
+                    response = await client.get(url, params=params, headers=headers)
+                    response.raise_for_status()
+                    data = response.json()
+                    if data.get("code") == 200:
+                        return entity_id, data.get("data", [])
+                except Exception as e:
+                    logger.debug("关系数据查询失败 entity_id=%s error=%s", entity_id, e)
+                return entity_id, []
+
+        values = await asyncio.gather(*(fetch(entity_id) for entity_id in entity_ids))
+    return dict(values)
 
 
 async def _fetch_relationships(entity_id: int) -> list[dict]:

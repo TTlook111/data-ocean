@@ -29,9 +29,16 @@ import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.concurrent.RejectedExecutionException;
 
 import org.springframework.data.redis.core.RedisTemplate;
@@ -100,7 +107,7 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                 .userPermissions(buildUserPermissionsMap(permContext))
                 .conversationHistory(conversationContext.getHistory())
                 .conversationSummary(conversationContext.getSummary())
-                .fallbackChunks(loadFallbackChunks(datasourceId))
+                .fallbackChunks(loadFallbackChunks(datasourceId, activeSnapshotId, question))
                 .glossaryTerms(loadApprovedGlossaryTerms())
                 .build();
 
@@ -397,9 +404,20 @@ public class PythonAgentClientImpl implements PythonAgentClient {
     // Phase 1 #3: Redis 缓存 key 常量
     private static final String FALLBACK_CHUNKS_KEY_PREFIX = "fallback:chunks:";
     private static final java.time.Duration FALLBACK_CHUNKS_TTL = java.time.Duration.ofMinutes(30);
-    private List<Map<String, Object>> loadFallbackChunks(Long datasourceId) {
+    private static final int FALLBACK_CANDIDATE_MULTIPLIER = 5;
+    private static final Pattern FALLBACK_HINT_PATTERN =
+            Pattern.compile("[A-Za-z_][A-Za-z0-9_]{1,}");
+    private static final Pattern FALLBACK_CJK_RUN_PATTERN =
+            Pattern.compile("[\\u4e00-\\u9fff]{2,}");
+
+    private List<Map<String, Object>> loadFallbackChunks(
+            Long datasourceId, Long activeSnapshotId, String question) {
+        if (activeSnapshotId == null) {
+            log.warn("缺少 activeSnapshotId，拒绝加载未绑定快照的 fallback chunks datasourceId={}", datasourceId);
+            return List.of();
+        }
         // Phase 1 #3: 先查 Redis 缓存
-        String key = FALLBACK_CHUNKS_KEY_PREFIX + datasourceId;
+        String key = buildFallbackChunksCacheKey(datasourceId, activeSnapshotId, question);
         try {
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> cached =
@@ -430,16 +448,35 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             var chunks = knowledgeChunkMapper.selectList(
                     new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<KnowledgeChunk>()
                             .eq(KnowledgeChunk::getReviewStatus, ReviewStatus.APPROVED.name())
-                            .eq(KnowledgeChunk::getChunkType, "TABLE_DESC")
+                            .eq(KnowledgeChunk::getMetadataSnapshotId, activeSnapshotId)
+                            .eq(KnowledgeChunk::getVectorStatus, "INDEXED")
+                            .in(KnowledgeChunk::getChunkType,
+                                    List.of("TABLE_DESC", "JOIN_PATH", "METRIC", "FIELD_NOTE", "QUERY_SCENE"))
                             .in(KnowledgeChunk::getDocId, docIds)
-                            .last("LIMIT 5"));
+                            .orderByAsc(KnowledgeChunk::getChunkIndex)
+                            .last("LIMIT " + FALLBACK_CANDIDATE_MULTIPLIER * 20));
+            List<KnowledgeChunk> rankedChunks = rankFallbackChunks(chunks, question);
             List<Map<String, Object>> result = new java.util.ArrayList<>();
-            for (KnowledgeChunk chunk : chunks) {
+            int resultLimit = Math.min(20, rankedChunks.size());
+            for (KnowledgeChunk chunk : rankedChunks.subList(0, resultLimit)) {
                 Map<String, Object> item = new HashMap<>();
                 item.put("chunkType", chunk.getChunkType());
                 item.put("chunkText", chunk.getChunkText());
                 item.put("relatedTable", chunk.getRelatedTable());
+                item.put("relatedColumn", chunk.getRelatedColumn());
+                item.put("relatedTables", chunk.getRelatedTables());
+                item.put("relatedColumns", chunk.getRelatedColumns());
+                item.put("entityIds", chunk.getEntityIds());
+                item.put("docId", chunk.getDocId());
+                item.put("sourceId", chunk.getId());
+                item.put("chunkIndex", chunk.getChunkIndex());
+                item.put("chunkGroupId", chunk.getChunkGroupId());
+                item.put("trustScore", chunk.getTrustScore());
+                item.put("contentHash", chunk.getContentHash());
                 item.put("snapshotId", chunk.getMetadataSnapshotId());
+                item.put("knowledgeVersionNo", chunk.getVersionNo());
+                item.put("reviewStatus", chunk.getReviewStatus());
+                item.put("governanceStatus", "NORMAL");
                 result.add(item);
             }
             // Phase 1 #3: 写 Redis 缓存
@@ -450,8 +487,68 @@ public class PythonAgentClientImpl implements PythonAgentClient {
             }
             return result;
         } catch (Exception e) {
-            log.warn("加载 fallback chunks 失败 datasourceId={} reason={}", datasourceId, e.getMessage());
+            log.warn("加载 fallback chunks 失败 datasourceId={} snapshotId={} reason={}",
+                    datasourceId, activeSnapshotId, e.getMessage());
             return List.of();
+        }
+    }
+
+    private List<KnowledgeChunk> rankFallbackChunks(List<KnowledgeChunk> chunks, String question) {
+        String normalizedQuestion = question == null ? "" : question.toLowerCase();
+        return chunks.stream()
+                .sorted(Comparator
+                        .comparingInt((KnowledgeChunk chunk) -> fallbackMatchScore(chunk, normalizedQuestion))
+                        .reversed()
+                        .thenComparing(KnowledgeChunk::getChunkIndex,
+                                Comparator.nullsLast(Integer::compareTo)))
+                .toList();
+    }
+
+    private int fallbackMatchScore(KnowledgeChunk chunk, String question) {
+        if (question.isBlank()) {
+            return 0;
+        }
+        String searchable = String.join(" ",
+                String.valueOf(chunk.getRelatedTable()),
+                String.valueOf(chunk.getRelatedColumn()),
+                String.valueOf(chunk.getRelatedTables()),
+                String.valueOf(chunk.getRelatedColumns()),
+                String.valueOf(chunk.getChunkText())).toLowerCase(Locale.ROOT);
+        int score = question.length() > 1 && searchable.contains(question) ? 3 : 0;
+        Matcher matcher = FALLBACK_HINT_PATTERN.matcher(question);
+        while (matcher.find()) {
+            if (searchable.contains(matcher.group())) {
+                score++;
+            }
+        }
+        Matcher cjkMatcher = FALLBACK_CJK_RUN_PATTERN.matcher(question);
+        while (cjkMatcher.find()) {
+            String run = cjkMatcher.group();
+            if (searchable.contains(run)) {
+                score += 2;
+            }
+            for (int index = 0; index < run.length() - 1; index++) {
+                if (searchable.contains(run.substring(index, index + 2))) {
+                    score++;
+                }
+            }
+        }
+        return score;
+    }
+
+    /**
+     * fallback 结果已按问题排序，缓存键必须包含问题摘要，不能让第一个问题的
+     * 排序结果污染同一数据源和快照下的后续问题。
+     */
+    static String buildFallbackChunksCacheKey(Long datasourceId, Long snapshotId, String question) {
+        String normalizedQuestion = question == null ? "" : question.trim().toLowerCase(Locale.ROOT);
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(normalizedQuestion.getBytes(StandardCharsets.UTF_8));
+            return FALLBACK_CHUNKS_KEY_PREFIX + datasourceId + ":" + snapshotId + ":"
+                    + HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("JDK 不支持 SHA-256", e);
         }
     }
 

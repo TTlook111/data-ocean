@@ -9,7 +9,7 @@ import json
 import logging
 from time import perf_counter
 
-from dataocean.core.config import settings
+from dataocean.core.config import get_config_version, get_settings, settings
 from dataocean.infra.embeddings import embed_single
 from dataocean.infra.memory import _get_redis  # Phase 1 #1: Redis 缓存
 
@@ -36,7 +36,7 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
     start = perf_counter()
     try:
         # 1. 生成问题向量（Phase 1 #1: Redis 缓存，TTL 1h）
-        cache_key = f"emb:{hashlib.md5(request.question.encode()).hexdigest()}"
+        cache_key = embedding_cache_key(request.question)
         question_embedding = None
         try:
             redis = await _get_redis()
@@ -101,7 +101,13 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
         return _response(message=str(e), start=start)
     except Exception as e:
         logger.error("RAG 检索异常，触发降级: %s", e, exc_info=True)
-        response = fallback_retrieve(request.datasource_id, request.fallback_chunks)
+        response = fallback_retrieve(
+            request.datasource_id,
+            request.fallback_chunks,
+            active_snapshot_id=request.active_snapshot_id,
+            question=request.question,
+            limit=request.top_k,
+        )
         response.retrieval_time_ms = _elapsed_ms(start)
         return response
 
@@ -129,6 +135,22 @@ def _response(
 
 def _elapsed_ms(start: float) -> int:
     return int((perf_counter() - start) * 1000)
+
+
+def embedding_cache_key(question: str) -> str:
+    """构建带 Embedding 配置版本的缓存 key。
+
+    同一个问题在切换模型、提供商或向量维度后不能复用旧向量，
+    否则可能出现召回偏差甚至 Milvus 维度错误。
+    """
+    active_settings = get_settings()
+    provider = active_settings.embedding_base_url or active_settings.dashscope_base_url
+    provider_hash = hashlib.sha256(provider.encode("utf-8")).hexdigest()[:16]
+    question_hash = hashlib.sha256(question.encode("utf-8")).hexdigest()
+    return (
+        f"emb:{provider_hash}:{active_settings.qwen_embedding_model}:"
+        f"{active_settings.embedding_dimension}:v{get_config_version()}:{question_hash}"
+    )
 
 
 def _log_recall_metrics(

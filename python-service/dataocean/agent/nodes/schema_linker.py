@@ -90,7 +90,10 @@ async def _prune_schema(question: str, schema_context: list[dict]) -> list[dict]
         )
         result = _json_parser.parse(response)
         relevant_tables = set(t.lower() for t in result.get("relevant_tables", []))
-        relevant_columns = result.get("relevant_columns", {})
+        relevant_columns = {
+            str(table_name).lower(): columns
+            for table_name, columns in result.get("relevant_columns", {}).items()
+        }
 
         if not relevant_tables:
             return schema_context
@@ -98,16 +101,19 @@ async def _prune_schema(question: str, schema_context: list[dict]) -> list[dict]
         # Phase 2 #7: 过滤表 + 列
         pruned = []
         for schema in schema_context:
-            tbl_name = schema.get("table_name", "").lower()
-            if tbl_name in relevant_tables:
+            schema_tables = _schema_table_names(schema)
+            if schema_tables & relevant_tables:
                 item = dict(schema)  # 浅拷贝保留原字段
                 # 如果有列级裁剪结果，过滤 columns
-                tbl_cols_lower = {c.lower() for c in relevant_columns.get(
-                    schema.get("table_name", ""), [])}
+                tbl_cols_lower = {
+                    str(column).lower().rsplit(".", 1)[-1]
+                    for table_name in schema_tables
+                    for column in relevant_columns.get(table_name, [])
+                }
                 if tbl_cols_lower and schema.get("columns"):
                     item["columns"] = [
                         c for c in schema["columns"]
-                        if c.get("name", "").lower() in tbl_cols_lower
+                        if c.get("name", "").lower().rsplit(".", 1)[-1] in tbl_cols_lower
                     ]
                 pruned.append(item)
 
@@ -127,11 +133,15 @@ def _build_schema_summary(schema_context: list[dict]) -> str:
     lines = []
     for schema in schema_context:
         table_name = schema.get("table_name", "")
+        related_tables = schema.get("related_tables") or []
+        related_columns = schema.get("related_columns") or []
         chunk_type = schema.get("chunk_type", "")
         chunk_text = schema.get("chunk_text", "")[:200]
         columns = schema.get("columns", [])
 
         line = f"- 表 {table_name}（类型: {chunk_type}）"
+        if related_tables:
+            line += f"，关联表: {', '.join(str(name) for name in related_tables)}"
         if columns:
             col_names = []
             for c in columns:
@@ -140,6 +150,8 @@ def _build_schema_summary(schema_context: list[dict]) -> str:
                 level = "H" if trust >= 70 else ("M" if trust >= 40 else "L")
                 col_names.append(f"{name}[{level}]")
             line += f"，字段: {', '.join(col_names)}"
+        elif related_columns:
+            line += f"，关联字段: {', '.join(str(name) for name in related_columns)}"
         if chunk_text:
             line += f"\n  摘要: {chunk_text}"
 
@@ -182,6 +194,12 @@ def _build_schema_summary(schema_context: list[dict]) -> str:
         lines.append(line)
 
     return "\n".join(lines)
+
+
+def _schema_table_names(schema: dict) -> set[str]:
+    """返回 schema 条目涉及的所有表，兼容旧的单表 metadata。"""
+    values = [schema.get("table_name"), *(schema.get("related_tables") or [])]
+    return {str(value).lower() for value in values if value}
 
 
 def _extract_rel_desc(relation_metadata: str) -> str:

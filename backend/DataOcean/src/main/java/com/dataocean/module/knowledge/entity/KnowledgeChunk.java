@@ -37,6 +37,12 @@ public class KnowledgeChunk {
     /** 所属文档版本号 */
     private Integer versionNo;
 
+    /** 文档版本内的稳定切片顺序，从 0 开始 */
+    private Integer chunkIndex;
+
+    /** 同一语义小节或可一起扩展的切片分组 */
+    private String chunkGroupId;
+
     /** 关联的元数据快照ID */
     private Long metadataSnapshotId;
 
@@ -51,6 +57,21 @@ public class KnowledgeChunk {
 
     /** 关联字段名 */
     private String relatedColumn;
+
+    /** 关联表名 JSON 数组，兼容多表 Join Path */
+    private String relatedTables;
+
+    /** 关联字段名 JSON 数组 */
+    private String relatedColumns;
+
+    /** 关联实体 ID JSON 数组 */
+    private String entityIds;
+
+    /** 来源可信度 */
+    private Integer trustScore;
+
+    /** 切片内容 SHA-256 */
+    private String contentHash;
 
     /** 审核状态（参见 ReviewStatus 枚举） */
     private String reviewStatus;

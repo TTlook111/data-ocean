@@ -126,10 +126,12 @@ async def retrieve_fewshot_examples(
         return []
 
     # Phase 2 #10: embedding 余弦相似度（替代原字符重叠匹配）
-    # FIX #3: 先查 Redis 缓存（复用 service.py 的 emb:{md5} 缓存，避免重复 API 调用）
+    # 复用检索侧 Embedding 缓存 key，模型/维度/配置变更后自动隔离旧向量。
     q_emb = None
     try:
-        cache_key = f"emb:{hashlib.md5(question.encode()).hexdigest()}"
+        from .service import embedding_cache_key
+
+        cache_key = embedding_cache_key(question)
         cached = await redis.get(cache_key) if redis else None
         if cached:
             q_emb = json.loads(cached)
