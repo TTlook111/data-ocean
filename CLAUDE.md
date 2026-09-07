@@ -222,9 +222,9 @@ cd backend/DataOcean
 mvn test
 ```
 
-Latest verified test result (2026-08-31):
+Latest verified test result:
 
-- Python: 148 passed, 4 skipped (E2E tests require full environment).
+- Python (2026-09-07): 152 passed, 4 skipped (E2E tests require full environment).
 - Java: 119 tests passed.
 
 The next testing gap is Agent workflow coverage: query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
@@ -353,6 +353,8 @@ Python route notes:
 - `/internal/knowledge`: skills.md draft generation.
 - `/internal/prompts`: prompt template access.
 - `/internal/config/reload`: AI config reload callback.
+
+Python async boundary notes (2026-09-07): native async is used for LLM, Embedding, Redis, HTTP, SSE, and Agent execution; synchronous SQLAlchemy/PyMySQL, Milvus, connection-pool lifecycle, and token-aware skills.md processing are isolated with `asyncio.to_thread()`. Independent knowledge-domain documents use bounded `asyncio.TaskGroup` concurrency.
 
 ## Frontend Notes
 

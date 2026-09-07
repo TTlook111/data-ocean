@@ -161,6 +161,8 @@ Milvus 中的 metadata 是用于过滤和扩展的轻量副本，不替代 Java 
 3. 已完成：`queryExecutor` 满载时拒绝新查询，避免 HTTP 请求线程执行完整 Agent；Java 将任务标记为失败并返回“查询任务繁忙”。
 4. Python 的 Few-shot `create_task` 仍是进程内最佳努力任务，服务重启可能丢失。当前不值得为此引入 API Gateway 或消息平台；如果未来要求可靠投递，再增加持久化任务或 outbox。
 5. 向量任务当前按待处理任务顺序执行。只有在增加任务抢占、幂等和并发上限后，才适合并行处理，不能只给调度器简单加线程。
+6. 已完成（2026-09-07）：Python SQL 沙箱的同步 Engine 获取、`KILL QUERY`、连接池清理/销毁均通过 `asyncio.to_thread()` 隔离；`skills.md` 校验与 token-aware 切分也在线程中执行，避免阻塞事件循环。
+7. 已完成（2026-09-07）：知识文档按业务域使用并发上限为 4 的 `asyncio.TaskGroup` 生成；单个域失败时会取消同批其余 LLM 任务，避免失控并发和无效配额消耗。
 
 ## 6. 数据一致性和失败原则
 

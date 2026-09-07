@@ -58,11 +58,12 @@ async def chunk_document(request: ChunkDocumentRequest) -> ChunkDocumentResponse
     observability/rebuilds; Python owns the chunking strategy.
     """
     if request.validate_structure:
-        errors = validate_skills_md_structure(request.content)
+        errors = await asyncio.to_thread(validate_skills_md_structure, request.content)
         if errors:
             raise HTTPException(status_code=422, detail={"message": "skills.md 结构校验失败", "errors": errors})
 
-    chunks = chunk_skills_md(request.content)
+    # skills.md 切分包含 token 计算和较多字符串处理，放入线程池避免阻塞事件循环。
+    chunks = await asyncio.to_thread(chunk_skills_md, request.content)
     logger.info(
         "skills.md chunked datasource_id=%s doc_id=%s version_no=%s chunks=%d",
         request.datasource_id,

@@ -4,6 +4,7 @@
 LLM 调用统一走 infra.llm，模板渲染统一走 prompt.renderer（LangChain PromptTemplate）。
 """
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -30,6 +31,8 @@ _SYSTEM_PROMPT = "你是一个数据库文档专家，负责根据数据库元�
 _DOMAIN_ANALYSIS_PROMPT = "你是一个数据库架构分析专家。请严格按照要求输出 JSON 格式。"
 
 _MAX_WARNINGS = 50
+# 域文档彼此独立，但仍需限制并发，避免一次请求向 LLM 供应商发起过多调用。
+_MAX_DOMAIN_GENERATION_CONCURRENCY = 4
 _json_parser = JsonBlockOutputParser(allow_null=False)
 
 
@@ -123,12 +126,18 @@ async def analyze_and_generate(request: GenerateDraftRequest) -> BatchGenerateRe
     domains = await _analyze_domains(request)
     logger.info("域分析完成，识别出 %d 个业务域", len(domains))
 
-    # Step 2: 逐域生成 skills.md
-    docs = []
-    for domain in domains:
-        logger.info("生成域文档: %s (表: %s)", domain.domain_name, ", ".join(domain.table_names))
-        doc = await _generate_domain_doc(request, domain)
-        docs.append(doc)
+    # Step 2: 域文档之间没有依赖关系，受控并发生成并保持返回顺序。
+    semaphore = asyncio.Semaphore(min(_MAX_DOMAIN_GENERATION_CONCURRENCY, len(domains)))
+
+    async def generate_domain_doc(domain: DomainGroup) -> DomainDoc:
+        async with semaphore:
+            logger.info("生成域文档: %s (表: %s)", domain.domain_name, ", ".join(domain.table_names))
+            return await _generate_domain_doc(request, domain)
+
+    # TaskGroup 在任一域失败时会取消其余域任务，避免请求已经失败后仍继续消耗 LLM 配额。
+    async with asyncio.TaskGroup() as task_group:
+        tasks = [task_group.create_task(generate_domain_doc(domain)) for domain in domains]
+    docs = [task.result() for task in tasks]
 
     logger.info("批量生成完成，共 %d 份文档", len(docs))
 

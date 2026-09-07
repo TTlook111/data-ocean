@@ -257,6 +257,8 @@ Python route notes:
 - `/internal/prompts`: prompt template access.
 - `/internal/config/reload`: AI config reload callback.
 
+Python async boundary notes (2026-09-07): native async is used for LLM, Embedding, Redis, HTTP, SSE, and Agent execution; synchronous SQLAlchemy/PyMySQL, Milvus, connection-pool lifecycle, and token-aware skills.md processing are isolated with `asyncio.to_thread()`. Independent knowledge-domain documents use bounded `asyncio.TaskGroup` concurrency.
+
 ## Frontend Notes
 
 Frontend routes are split between business-oriented domains:
@@ -363,10 +365,10 @@ cd backend/DataOcean
 mvn test
 ```
 
-Latest documented verification (2026-08-31):
+Latest documented verification:
 
 - Frontend: `npm run build` passed.
-- Python: 148 tests passed, 4 skipped, 1 deprecation warning.
+- Python (2026-09-07): 152 tests passed, 4 skipped, 1 deprecation warning.
 - Java: 119 tests passed.
 - Remaining test gap: Agent workflow coverage around query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 

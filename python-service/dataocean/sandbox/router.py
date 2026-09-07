@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastapi import APIRouter
@@ -92,7 +93,7 @@ async def execute_sql_endpoint(request: ExecuteRequest) -> ExecuteResponse:
 @router.delete("/pools/{datasource_id}")
 async def delete_pool(datasource_id: int) -> dict:
     """销毁指定数据源的连接池"""
-    destroy_pool(datasource_id)
+    await asyncio.to_thread(destroy_pool, datasource_id)
     return {"datasourceId": datasource_id, "destroyed": True}
 
 
@@ -120,5 +121,5 @@ async def pools_dashboard() -> dict:
 @router.post("/pools/{datasource_id}/reset")
 async def reset_pool(datasource_id: int) -> dict:
     """强制销毁并重建指定数据源的连接池（重建在下次请求时自动触发）"""
-    destroy_pool(datasource_id)
+    await asyncio.to_thread(destroy_pool, datasource_id)
     return {"datasourceId": datasource_id, "reset": True, "message": "连接池已销毁，下次查询时自动重建"}

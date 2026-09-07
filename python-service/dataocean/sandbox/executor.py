@@ -67,7 +67,13 @@ async def execute(
     start = time.time()
 
     try:
-        engine = pool_manager.get_engine(datasource_id, connection_config)
+        # 连接池使用同步 SQLAlchemy Engine。即使这里只是获取/创建 Engine，
+        # 也不能让同步实现直接跑在 FastAPI 事件循环中。
+        engine = await asyncio.to_thread(
+            pool_manager.get_engine,
+            datasource_id,
+            connection_config,
+        )
     except RuntimeError as e:
         return ExecutionResult(
             success=False, error=str(e), error_type=ErrorType.POOL_EXHAUSTED)
@@ -101,7 +107,8 @@ async def execute(
         elapsed = int((time.time() - start) * 1000)
         logger.warning("SQL 执行超时 datasource_id=%d elapsed=%dms sql=%s",
                        datasource_id, elapsed, sql[:80])
-        _kill_query(engine, connection_id_holder)
+        # KILL QUERY 同样通过同步 SQLAlchemy 连接执行，必须离开事件循环。
+        await asyncio.to_thread(_kill_query, engine, connection_id_holder)
         return ExecutionResult(
             success=False,
             error=f"查询超时（{sandbox_config.max_execution_time}s），已自动终止",
@@ -112,7 +119,8 @@ async def execute(
         # asyncio 任务被取消（SSE 断开或用户取消触发）
         elapsed = int((time.time() - start) * 1000)
         logger.info("SQL 执行被取消 datasource_id=%d task_id=%s", datasource_id, task_id)
-        _kill_query(engine, connection_id_holder)
+        # 取消路径也要保持事件循环可调度；底层线程中的查询由 KILL QUERY 终止。
+        await asyncio.to_thread(_kill_query, engine, connection_id_holder)
         return ExecutionResult(
             success=False, error="查询已取消",
             error_type="CANCELLED", execution_time_ms=elapsed)

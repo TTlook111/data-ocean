@@ -194,7 +194,8 @@ def start_periodic_cleanup(interval_seconds: int = 300) -> None:
         while True:
             try:
                 await asyncio.sleep(interval_seconds)
-                cleanup_idle_pools()
+                # SQLAlchemy Engine.dispose() 是同步调用，不能阻塞事件循环。
+                await asyncio.to_thread(cleanup_idle_pools)
             except asyncio.CancelledError:
                 break
             except Exception as e:

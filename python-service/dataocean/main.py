@@ -32,7 +32,8 @@ async def _periodic_pool_cleanup() -> None:
     while True:
         await asyncio.sleep(300)
         try:
-            cleaned = cleanup_idle_pools()
+            # 连接池清理包含同步 Engine.dispose()，不能阻塞事件循环。
+            cleaned = await asyncio.to_thread(cleanup_idle_pools)
             if cleaned > 0:
                 logger.info("定时清理空闲连接池完成 count=%d", cleaned)
         except Exception as e:
@@ -69,7 +70,8 @@ async def lifespan(application: FastAPI):
     except asyncio.CancelledError:
         pass
     # 销毁所有连接池
-    _destroy_all_pools()
+    # 关闭连接池同样使用同步 SQLAlchemy API，放到线程中执行。
+    await asyncio.to_thread(_destroy_all_pools)
     logger.info("DataOcean AI Service 已关闭")
 
 
