@@ -144,12 +144,16 @@ output/          联调截图与验证产物
 [`docs/development/项目真实状态看板.md`](docs/development/项目真实状态看板.md) 为准。
 `specs/` 下的文件是早期设计资料，仅供追溯，不再作为当前实现范围或任务完成度的依据。
 
+当前核心实现已包含 Java 管理的持久化会话与异步长期摘要、Python 请求级上下文组装，以及 Python 负责的 token-aware Schema RAG、Milvus 检索和安全发布流程。RAG 的真实 Milvus 验证、效果评测和正式全量重建入口仍以状态看板和专项方案中的待办为准。
+
 ## 文档入口
 
 | 文档 | 用途 |
 | --- | --- |
 | [`AGENTS.md`](AGENTS.md) | 给代码协作者看的项目约束、架构、模块、接口和开发命令。 |
+| [`CLAUDE.md`](CLAUDE.md) | AI Agent 工作手册，记录当前实现边界、异步规则和验证基线。 |
 | [`docs/development/DataOcean技术栈与模块职责.md`](docs/development/DataOcean技术栈与模块职责.md) | 当前技术栈、模块职责、数据归属和异步边界。 |
+| [`docs/development/DataOcean-RAG问题修复与知识文档切分优化方案.md`](docs/development/DataOcean-RAG问题修复与知识文档切分优化方案.md) | RAG 修复实施结果、剩余部署验证和评测待办。 |
 | [`docs/development/项目真实状态看板.md`](docs/development/项目真实状态看板.md) | 当前真实完成度、验证基线、风险与开发优先级。 |
 | [`docs/archive/nl2sql-单库多表版-项目构想.md`](docs/archive/nl2sql-单库多表版-项目构想.md) | 历史设计思路、架构决策和 NL2SQL 方案背景。 |
 | [`frontend/README.md`](frontend/README.md) | 前端工程说明。 |

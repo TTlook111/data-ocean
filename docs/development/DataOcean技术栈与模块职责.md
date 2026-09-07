@@ -1,7 +1,7 @@
 # DataOcean 技术栈与模块职责
 
 > 本文档是 DataOcean 当前实现的技术栈、模块职责、数据归属和异步边界的详细说明。
-> 更新日期：2026-08-31。版本号以 `frontend/package.json`、`backend/DataOcean/pom.xml` 和 `python-service/pyproject.toml` 为准。
+> 更新日期：2026-09-07。版本号以 `frontend/package.json`、`backend/DataOcean/pom.xml` 和 `python-service/pyproject.toml` 为准。
 
 ## 1. 文档定位
 

@@ -60,7 +60,7 @@ Important boundaries:
 
 ## Current Status
 
-Last updated: 2026-08-14.
+Last updated: 2026-09-07.
 
 The main end-to-end chain is implemented and has been run through:
 
