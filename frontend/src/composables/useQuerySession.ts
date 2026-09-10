@@ -82,14 +82,7 @@ export function useQuerySession() {
       datasourceId,
       title,
       updatedAt: now,
-      messages: [
-        {
-          id: `assistant-${Date.now()}`,
-          role: 'assistant',
-          content: '已进入当前数据源的对话空间。你可以直接用中文描述想查的数据，例如"上月销售额最高的10个产品"。',
-          createdAt: now,
-        },
-      ],
+      messages: [],
     }
     sessions.unshift(session)
     activeSessionId.value = session.id

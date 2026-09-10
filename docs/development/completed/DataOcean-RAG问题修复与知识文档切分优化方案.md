@@ -51,7 +51,7 @@ Java 发布 skills.md
 
 当前模板位置：
 
-`python-service/dataocean/knowledge/prompts/skills_md_template.j2`
+`../../../python-service/dataocean/knowledge/prompts/skills_md_template.j2`
 
 ### 3.2 当前 chunk 代码不是 800-1000 token 方案
 
@@ -74,7 +74,7 @@ LONG_CHUNK_OVERLAP = 200
 
 当前实现位置：
 
-`python-service/dataocean/rag/chunker.py`
+`../../../python-service/dataocean/rag/chunker.py`
 
 ### 3.3 相邻 chunk 扩展缺少必要的数据
 
@@ -102,9 +102,9 @@ LONG_CHUNK_OVERLAP = 200
 
 相关位置：
 
-- `python-service/dataocean/rag/schema.py`
-- `python-service/dataocean/agent/nodes/schema_retriever.py`
-- `python-service/dataocean/agent/nodes/schema_linker.py`
+- `../../../python-service/dataocean/rag/schema.py`
+- `../../../python-service/dataocean/agent/nodes/schema_retriever.py`
+- `../../../python-service/dataocean/agent/nodes/schema_linker.py`
 
 ### 3.5 fallback 可能使用错误版本或无关内容
 
@@ -118,7 +118,7 @@ LONG_CHUNK_OVERLAP = 200
 
 相关位置：
 
-`backend/DataOcean/src/main/java/com/dataocean/module/query/client/impl/PythonAgentClientImpl.java`
+`../../../backend/DataOcean/src/main/java/com/dataocean/module/query/client/impl/PythonAgentClientImpl.java`
 
 ### 3.6 向量发布和缓存存在一致性风险
 
@@ -363,9 +363,9 @@ embedding:{provider}:{model}:{dimension}:{config_version}:{question_hash}
 
 涉及：
 
-- `python-service/dataocean/knowledge/prompts/skills_md_template.j2`
-- `python-service/dataocean/rag/chunker.py`
-- `python-service/dataocean/rag/schema.py`
+- `../../../python-service/dataocean/knowledge/prompts/skills_md_template.j2`
+- `../../../python-service/dataocean/rag/chunker.py`
+- `../../../python-service/dataocean/rag/schema.py`
 - Java `KnowledgeChunk` 和 chunk 保存逻辑
 
 工作内容：
@@ -381,9 +381,9 @@ embedding:{provider}:{model}:{dimension}:{config_version}:{question_hash}
 
 涉及：
 
-- `python-service/dataocean/rag/vectorizer.py`
-- `python-service/dataocean/rag/vector_store.py`
-- `python-service/dataocean/rag/retriever.py`
+- `../../../python-service/dataocean/rag/vectorizer.py`
+- `../../../python-service/dataocean/rag/vector_store.py`
+- `../../../python-service/dataocean/rag/retriever.py`
 - Java `PythonRagClientImpl`
 - Milvus collection schema
 
@@ -399,9 +399,9 @@ embedding:{provider}:{model}:{dimension}:{config_version}:{question_hash}
 
 涉及：
 
-- `python-service/dataocean/agent/nodes/schema_retriever.py`
-- `python-service/dataocean/agent/nodes/schema_linker.py`
-- `python-service/dataocean/rag/fallback.py`
+- `../../../python-service/dataocean/agent/nodes/schema_retriever.py`
+- `../../../python-service/dataocean/agent/nodes/schema_linker.py`
+- `../../../python-service/dataocean/rag/fallback.py`
 - Java `PythonAgentClientImpl`
 
 工作内容：
@@ -416,9 +416,9 @@ embedding:{provider}:{model}:{dimension}:{config_version}:{question_hash}
 
 涉及：
 
-- `python-service/dataocean/rag/service.py`
-- `python-service/dataocean/rag/router.py`
-- `python-service/dataocean/rag/vectorizer.py`
+- `../../../python-service/dataocean/rag/service.py`
+- `../../../python-service/dataocean/rag/router.py`
+- `../../../python-service/dataocean/rag/vectorizer.py`
 - RAG 测试目录
 
 工作内容：
@@ -474,13 +474,13 @@ embedding:{provider}:{model}:{dimension}:{config_version}:{question_hash}
 
 代码实施后同步更新：
 
-- `AGENTS.md`：不能继续笼统地写“列级 Schema Linking 和关系增强已完成”，除非验收标准通过。
-- `CLAUDE.md`：同步 RAG 的真实状态和新的 chunk metadata 契约。
-- `specs/007-schema-rag/plan.md`：更新 token 切分、chunk metadata、fallback 和评测计划。
-- `specs/007-schema-rag/data-model.md`：补充 chunk 顺序、分组、实体和可信度字段。
-- `specs/007-schema-rag/contracts/internal-api.md`：补充 Java-Python 向量化和检索响应字段。
-- `docs/modules/006-knowledge.md`：同步文档生成、发布和切分流程。
-- `docs/development/DataOcean技术栈与模块职责.md`：补充 RAG 具体职责和数据流。
+- `../../../AGENTS.md`：不能继续笼统地写“列级 Schema Linking 和关系增强已完成”，除非验收标准通过。
+- `../../../CLAUDE.md`：同步 RAG 的真实状态和新的 chunk metadata 契约。
+- `../../../specs/007-schema-rag/plan.md`：更新 token 切分、chunk metadata、fallback 和评测计划。
+- `../../../specs/007-schema-rag/data-model.md`：补充 chunk 顺序、分组、实体和可信度字段。
+- `../../../specs/007-schema-rag/contracts/internal-api.md`：补充 Java-Python 向量化和检索响应字段。
+- `../../modules/006-knowledge.md`：同步文档生成、发布和切分流程。
+- `../DataOcean技术栈与模块职责.md`：补充 RAG 具体职责和数据流。
 
 ## 12. 不在本次修改范围内的内容
 
