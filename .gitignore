@@ -42,6 +42,7 @@ Desktop.ini
 .env
 .env.*
 backend/**/config/application-local.yml
+.dataocean/local-environment.md
 !.env.example
 !.env.*.example
 !.env.template

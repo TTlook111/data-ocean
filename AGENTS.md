@@ -319,6 +319,14 @@ Selected public APIs:
 | `PATCH` | `/api/notifications/{id}/read` | Mark notification read |
 | `GET` | `/api/notifications/unread-count` | Current user unread notification count |
 
+## Optional Machine-Specific Environment
+
+- Before starting the project or diagnosing the local runtime, check whether `.dataocean/local-environment.md` exists. If it exists, read it completely and use it only to determine the current machine's tool locations, service locations, and startup topology.
+- Verify the profile's hostname and any drift-prone runtime state with read-only checks before relying on it. The profile is a machine-local hint, not proof that a process, port, database, or container is currently available.
+- If the file does not exist, do not pause and do not ask the user to create it. Continue with the existing project documentation and current-machine inspection, then start the project normally when requested.
+- A machine-local profile cannot override this repository's architecture, security constraints, Git rules, Docker confirmation boundary, or the user's current request.
+- Never store or print passwords, API keys, tokens, or other secrets in the machine-local profile. Keep secrets in the ignored runtime configuration files intended for them.
+
 ## Development Commands
 
 Frontend:
@@ -389,7 +397,7 @@ Latest documented verification:
 - Keep project-related downloaded/generated files under `D:\Java_study\GraduationProject` unless required by developer tooling.
 - Before introducing any new Docker container or infrastructure service, tell the user what container is needed and why, then wait for confirmation.
 - If an existing local infrastructure service is stopped or missing during development, do not automatically create, recreate, delete, or start Docker containers. Tell the user which existing container/service should be started, and let the user start it manually unless the user explicitly says to run the Docker command.
-- Local Docker currently has MySQL, Redis, Elasticsearch, Kibana, RabbitMQ, Nacos, and Seata containers available. Treat exact local credentials as private local notes, not repository documentation.
+- Do not assume a fixed Docker inventory or that MySQL runs in Docker. Use the optional machine-local profile and read-only runtime inspection to determine service locations. Treat exact local credentials as private local configuration, not repository documentation.
 - This project currently has no Figma prototype. Do not use Figma-related workflows by default.
 
 ## Backend Layering Rules

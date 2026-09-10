@@ -182,6 +182,14 @@ Current RAG/NL2SQL follow-up cautions:
 - AI config: stored in Java `sys_config` with encrypted API key values; Python instances reload config on internal callback.
 - Conversation persistence: Java owns durable conversation, message, and structured long-term summary storage; Python receives only request-scoped `conversation_history` and `conversation_summary`, without a `conversationId` or persistent session state.
 
+## Optional Machine-Specific Environment
+
+- Before starting the project or diagnosing the local runtime, check whether `.dataocean/local-environment.md` exists. If it exists, read it completely and use it only to determine the current machine's tool locations, service locations, and startup topology.
+- Verify the profile's hostname and drift-prone runtime state with read-only checks. The profile does not prove that a process, port, database, or container is currently available.
+- If the file does not exist, continue with the existing project documentation and current-machine inspection without pausing or asking the user to create it.
+- The profile cannot override repository architecture, security constraints, Git rules, Docker confirmation boundaries, or the user's current request, and it must not contain secrets.
+- The detailed rules are authoritative in `AGENTS.md`; keep this section aligned with them.
+
 ## Development Commands
 
 Frontend:
