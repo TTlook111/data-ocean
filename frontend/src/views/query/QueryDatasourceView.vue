@@ -4,12 +4,9 @@ import { useRouter } from 'vue-router'
 import {
   Database,
   History,
-  LogOut,
   MessageSquareText,
   PanelRightOpen,
   RefreshCw,
-  ShieldCheck,
-  UserCog,
   UserRound,
 } from 'lucide-vue-next'
 import { useGsapMotion } from '../../composables/useGsapMotion'
@@ -99,7 +96,6 @@ watch(submit.resultTab, () => {
 })
 
 function handleUserCommand(command: string) {
-  session.drawerVisible.value = false
   if (command === 'admin') router.push('/admin')
   if (command === 'profile') router.push('/profile')
   if (command === 'password') router.push('/change-password')
@@ -143,7 +139,7 @@ function handleSelectSession(sessionId: string) {
 }
 
 onMounted(() => {
-  withContext(() => reveal('.query-brand, .new-session-button, .datasource-section, .history-section, .query-topbar, .chat-composer', { y: 14, stagger: 0.04 }))
+  withContext(() => reveal('.query-brand, .new-session-button, .datasource-section, .history-section, .sidebar-user, .query-topbar, .chat-composer', { y: 14, stagger: 0.04 }))
   session.fetchDatasources({
     afterSelect() { revealAfterTick('.welcome-state, .message-item', { y: 12, stagger: 0.035 }) },
     focusQuestionInput() { queryInputRef.value?.focusQuestionInput() },
@@ -163,11 +159,15 @@ onMounted(() => {
       :loading="session.loading.value"
       :readiness-loading="session.readinessLoading.value"
       :error-message="session.errorMessage.value"
+      :display-name="displayName"
+      :role-text="roleText"
+      :can-enter-admin="canEnterAdmin"
       @select-datasource="handleSelectDatasource"
       @select-session="handleSelectSession"
       @remove-session="session.removeSession"
       @new-session="handleStartNewSession"
       @refresh="() => session.fetchDatasources()"
+      @user-command="handleUserCommand"
       @update:keyword="session.keyword.value = $event"
     />
 
@@ -177,10 +177,6 @@ onMounted(() => {
         <div class="topbar-actions">
           <button v-if="submit.latestResult.value && !resultPanelOpen" class="result-toggle" type="button" @click="resultPanelOpen = true">
             <PanelRightOpen :size="16" /><span>查看结果</span>
-          </button>
-          <button class="query-user" type="button" @click="session.drawerVisible.value = true">
-            <span>{{ displayName.slice(0, 1) }}</span>
-            <div><strong>{{ displayName }}</strong><small>{{ roleText }}</small></div>
           </button>
         </div>
       </header>
@@ -262,18 +258,6 @@ onMounted(() => {
       @update:table-page="exportUtil.tablePage.value = $event"
     />
 
-    <el-drawer v-model="session.drawerVisible.value" direction="rtl" size="280px" :show-close="false">
-      <template #header>
-        <div class="drawer-profile"><div class="drawer-avatar">{{ displayName.slice(0, 1) }}</div><div class="drawer-info"><strong>{{ displayName }}</strong><small>{{ roleText }}</small></div></div>
-      </template>
-      <nav class="drawer-nav">
-        <button class="drawer-item" @click="handleUserCommand('profile')"><UserRound :size="18" /><span>个人资料</span></button>
-        <button class="drawer-item" @click="handleUserCommand('password')"><ShieldCheck :size="18" /><span>修改密码</span></button>
-        <button v-if="canEnterAdmin" class="drawer-item" @click="handleUserCommand('admin')"><UserCog :size="18" /><span>后台管理</span></button>
-        <div class="drawer-divider"></div>
-        <button class="drawer-item drawer-item--danger" @click="handleUserCommand('logout')"><LogOut :size="18" /><span>退出登录</span></button>
-      </nav>
-    </el-drawer>
   </main>
 </template>
 
@@ -287,11 +271,7 @@ onMounted(() => {
 .topbar-actions { display: flex; align-items: center; gap: 9px; }
 .result-toggle { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-primary-strong); background: var(--do-surface); font-size: 12px; font-weight: 700; cursor: pointer; }
 .result-toggle:hover { border-color: rgba(77, 143, 220, .45); background: var(--do-primary-soft); }
-.query-user { height: 40px; display: grid; grid-template-columns: 30px auto; align-items: center; gap: 8px; padding: 4px 10px 4px 5px; border: 1px solid var(--do-line); border-radius: 9px; color: var(--do-ink); background: var(--do-surface); cursor: pointer; }
-.query-user > span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; color: #fff; background: var(--do-primary); font-size: 12px; font-weight: 900; }
-.query-user strong, .query-user small, .drawer-info strong, .drawer-info small { display: block; max-width: 120px; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
-.query-user strong { font-size: 12px; }
-.query-user small { margin-top: 2px; color: var(--do-muted); font-size: 10px; }
+.drawer-info strong, .drawer-info small { display: block; max-width: 120px; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .chat-surface { min-height: 0; overflow-y: auto; padding: 28px 28px 18px; }
 .welcome-state { min-height: 100%; display: grid; place-items: center; align-content: center; padding-bottom: 48px; text-align: center; }
 .welcome-logo { width: 46px; height: 46px; display: grid; place-items: center; margin-bottom: 14px; border-radius: 13px; color: #fff; background: var(--do-primary); font-size: 13px; font-weight: 900; box-shadow: 0 10px 24px rgba(77, 143, 220, .22); }
@@ -320,16 +300,7 @@ onMounted(() => {
 .message-actions { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--do-line); }
 .message-actions button { min-height: 30px; padding: 0 9px; border: 1px solid var(--do-line); background: #fff; }
 .message-actions button:disabled { cursor: not-allowed; opacity: .5; }
-.drawer-profile { display: flex; align-items: center; gap: 12px; }
-.drawer-avatar { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 10px; color: #fff; background: var(--do-primary); font-weight: 900; }
-.drawer-info strong { color: var(--do-ink); font-size: 14px; }
-.drawer-info small { margin-top: 3px; color: var(--do-muted); font-size: 11px; }
-.drawer-nav { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; }
-.drawer-item { display: flex; align-items: center; gap: 11px; padding: 11px 14px; border: 0; border-radius: 8px; color: var(--do-ink); background: transparent; font-size: 13px; cursor: pointer; }
-.drawer-item:hover { background: var(--do-bg); }
-.drawer-item--danger { color: #b42318; }
-.drawer-divider { height: 1px; margin: 8px 14px; background: var(--do-line); }
-.result-toggle:focus-visible, .query-user:focus-visible, .message-meta button:focus-visible, .message-actions button:focus-visible, .empty-chat button:focus-visible { outline: 3px solid rgba(77, 143, 220, .2); outline-offset: 2px; }
+.result-toggle:focus-visible, .message-meta button:focus-visible, .message-actions button:focus-visible, .empty-chat button:focus-visible { outline: 3px solid rgba(77, 143, 220, .2); outline-offset: 2px; }
 @media (max-width: 1280px) {
   .query-workspace.result-open { grid-template-columns: 250px minmax(0, 1fr); }
   .query-workspace.result-open :deep(.result-rail) { position: fixed; top: 0; right: 0; z-index: 80; width: min(500px, calc(100vw - 250px)); }
@@ -337,7 +308,5 @@ onMounted(() => {
 @media (max-width: 920px) {
   .query-workspace, .query-workspace.result-open { grid-template-columns: 224px minmax(0, 1fr); }
   .query-workspace.result-open :deep(.result-rail) { width: min(500px, calc(100vw - 224px)); }
-  .query-user div { display: none; }
-  .query-user { grid-template-columns: 30px; padding-right: 5px; }
 }
 </style>

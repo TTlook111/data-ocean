@@ -4,7 +4,7 @@
  */
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Check, ChevronDown, Database, History, MessageSquarePlus, RefreshCw, Search, Trash2 } from 'lucide-vue-next'
+import { Check, ChevronDown, Database, History, LogOut, MessageSquarePlus, RefreshCw, Search, ShieldCheck, Trash2, UserCog, UserRound } from 'lucide-vue-next'
 import type { DatasourceReadiness, UserDatasourceItem } from '../../api/datasource'
 import type { LocalSession } from '../../composables/useQuerySession'
 
@@ -18,6 +18,9 @@ const props = defineProps<{
   loading: boolean
   readinessLoading: boolean
   errorMessage: string
+  displayName: string
+  roleText: string
+  canEnterAdmin: boolean
 }>()
 
 const emit = defineEmits<{
@@ -26,11 +29,13 @@ const emit = defineEmits<{
   'remove-session': [session: LocalSession]
   'new-session': []
   'refresh': []
+  'user-command': [command: 'profile' | 'password' | 'admin' | 'logout']
   'update:keyword': [value: string]
 }>()
 
 const datasourceOpen = ref(false)
 const searchOpen = ref(false)
+const userMenuOpen = ref(false)
 const selectedDatasource = computed(() => props.datasources.find((item) => item.id === props.selectedId))
 const selectedReadiness = computed(() => props.selectedId ? props.readinessMap[props.selectedId] : undefined)
 
@@ -41,6 +46,11 @@ function formatTime(value: string) {
 function chooseDatasource(id: number) {
   emit('select-datasource', id)
   datasourceOpen.value = false
+}
+
+function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
+  userMenuOpen.value = false
+  emit('user-command', command)
 }
 </script>
 
@@ -105,11 +115,32 @@ function chooseDatasource(id: number) {
         </div>
       </div>
     </section>
+
+    <div class="sidebar-user-wrap">
+      <Transition name="user-menu">
+        <div v-if="userMenuOpen" class="sidebar-user-menu" role="menu">
+          <div class="menu-profile">
+            <span class="sidebar-avatar">{{ displayName.slice(0, 1) }}</span>
+            <span class="sidebar-user-copy"><strong>{{ displayName }}</strong><small>{{ roleText }}</small></span>
+          </div>
+          <div class="menu-divider"></div>
+          <button type="button" role="menuitem" @click="runUserCommand('profile')"><UserRound :size="16" /><span>个人资料</span></button>
+          <button type="button" role="menuitem" @click="runUserCommand('password')"><ShieldCheck :size="16" /><span>修改密码</span></button>
+          <button v-if="canEnterAdmin" type="button" role="menuitem" @click="runUserCommand('admin')"><UserCog :size="16" /><span>后台管理</span></button>
+          <div class="menu-divider"></div>
+          <button type="button" role="menuitem" class="danger" @click="runUserCommand('logout')"><LogOut :size="16" /><span>退出登录</span></button>
+        </div>
+      </Transition>
+      <button class="sidebar-user" type="button" :aria-expanded="userMenuOpen" @click="userMenuOpen = !userMenuOpen">
+        <span class="sidebar-avatar">{{ displayName.slice(0, 1) }}</span>
+        <span class="sidebar-user-copy"><strong>{{ displayName }}</strong><small>{{ roleText }}</small></span>
+      </button>
+    </div>
   </aside>
 </template>
 
 <style scoped>
-.query-sidebar { position: sticky; top: 0; height: 100vh; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); gap: 18px; padding: 18px 16px; border-right: 1px solid var(--do-line); background: rgba(249, 251, 254, .96); }
+.query-sidebar { position: sticky; top: 0; height: 100vh; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; gap: 18px; padding: 18px 16px 12px; border-right: 1px solid var(--do-line); background: rgba(249, 251, 254, .96); }
 .query-brand { height: 46px; display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 11px; color: var(--do-ink); text-decoration: none; }
 .query-brand > span { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; color: #fff; background: var(--do-primary); font-size: 12px; font-weight: 900; box-shadow: 0 7px 16px rgba(77, 143, 220, .22); }
 .query-brand strong, .query-brand small, .source-copy strong, .source-copy small, .datasource-option strong, .datasource-option small, .history-row strong, .history-row small { display: block; }
@@ -163,5 +194,22 @@ function chooseDatasource(id: number) {
 .history-row:hover .history-delete, .history-row:focus-within .history-delete { opacity: 1; }
 .history-delete:hover { color: var(--do-danger); background: #fef2f2; }
 .history-empty { padding: 12px 8px; color: #94a3b8; font-size: 12px; }
-.query-brand:focus-visible, .new-session-button:focus-visible, .datasource-trigger:focus-visible, .datasource-option:focus-visible, .history-heading button:focus-visible, .section-label button:focus-visible, .history-row:focus-visible, .history-delete:focus-visible { outline: 3px solid rgba(77, 143, 220, .2); outline-offset: 2px; }
+.sidebar-user-wrap { position: relative; }
+.sidebar-user { width: 100%; min-height: 48px; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 9px; padding: 7px 8px; border: 0; border-radius: 9px; color: var(--do-ink); background: transparent; text-align: left; cursor: pointer; transition: background 150ms ease; }
+.sidebar-user:hover { background: rgba(77, 143, 220, .08); }
+.sidebar-avatar { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; color: #fff; background: var(--do-primary); font-size: 12px; font-weight: 900; }
+.sidebar-user-copy { min-width: 0; }
+.sidebar-user-copy strong, .sidebar-user-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-user-copy strong { font-size: 12px; line-height: 1.2; }
+.sidebar-user-copy small { margin-top: 3px; color: var(--do-muted); font-size: 10px; }
+.sidebar-user-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); z-index: 60; padding: 8px; border: 1px solid var(--do-line); border-radius: 12px; background: rgba(255, 255, 255, .98); box-shadow: 0 16px 42px rgba(15, 23, 42, .16); backdrop-filter: blur(14px); }
+.menu-profile { min-height: 48px; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 9px; padding: 5px 7px; }
+.sidebar-user-menu > button { width: 100%; min-height: 38px; display: flex; align-items: center; gap: 10px; padding: 0 9px; border: 0; border-radius: 8px; color: var(--do-ink); background: transparent; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.sidebar-user-menu > button:hover { background: var(--do-bg); }
+.sidebar-user-menu > button.danger { color: #b42318; }
+.sidebar-user-menu > button.danger:hover { background: #fef2f2; }
+.menu-divider { height: 1px; margin: 6px 4px; background: var(--do-line); }
+.user-menu-enter-active, .user-menu-leave-active { transition: opacity 140ms ease, transform 140ms ease; transform-origin: bottom left; }
+.user-menu-enter-from, .user-menu-leave-to { opacity: 0; transform: translateY(6px) scale(.98); }
+.query-brand:focus-visible, .new-session-button:focus-visible, .datasource-trigger:focus-visible, .datasource-option:focus-visible, .history-heading button:focus-visible, .section-label button:focus-visible, .history-row:focus-visible, .history-delete:focus-visible, .sidebar-user:focus-visible { outline: 3px solid rgba(77, 143, 220, .2); outline-offset: 2px; }
 </style>
