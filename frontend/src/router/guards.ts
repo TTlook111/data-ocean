@@ -67,8 +67,8 @@ export function setupRouterGuards(router: Router) {
       return token ? '/query' : true
     }
 
-    if (to.path === '/admin' && !hasAdminAccess(user)) {
-      return '/query'
+    if (to.path === '/admin' || to.path.startsWith('/admin/')) {
+      if (!hasAdminAccess(user)) return '/query'
     }
 
     const requiredPermission = to.meta.permission as string | undefined

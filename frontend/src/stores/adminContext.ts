@@ -42,6 +42,7 @@ export const useAdminContextStore = defineStore('admin-context', () => {
   const loading = ref(false)
   const initialized = ref(false)
   let initPromise: Promise<void> | null = null
+  let selectionRequest = 0
 
   const currentDatasource = computed(() => datasources.value.find((item) => item.id === datasourceId.value))
   const currentSnapshot = computed(() => snapshots.value.find((item) => item.id === snapshotId.value))
@@ -77,26 +78,18 @@ export const useAdminContextStore = defineStore('admin-context', () => {
     reconcileDatasource()
   }
 
-  async function loadSnapshots() {
-    if (!datasourceId.value) {
-      snapshots.value = []
-      snapshotId.value = undefined
+  async function loadSnapshots(forDatasourceId = datasourceId.value) {
+    if (!forDatasourceId) {
       return
     }
-    const result = await listSnapshots({ datasourceId: datasourceId.value, page: 1, size: 50 })
-    snapshots.value = result.data.records
-    reconcileSnapshot()
+    return listSnapshots({ datasourceId: forDatasourceId, page: 1, size: 50 })
   }
 
-  async function loadKnowledgeDocs() {
-    if (!datasourceId.value) {
-      knowledgeDocs.value = []
-      knowledgeDocId.value = undefined
+  async function loadKnowledgeDocs(forDatasourceId = datasourceId.value) {
+    if (!forDatasourceId) {
       return
     }
-    const result = await listKnowledgeDocs({ datasourceId: datasourceId.value, page: 1, pageSize: 50 })
-    knowledgeDocs.value = result.data.records
-    reconcileKnowledgeDoc()
+    return listKnowledgeDocs({ datasourceId: forDatasourceId, page: 1, pageSize: 50 })
   }
 
   async function initialize(force = false) {
@@ -105,7 +98,14 @@ export const useAdminContextStore = defineStore('admin-context', () => {
     loading.value = true
     initPromise = (async () => {
       await loadDatasources()
-      await Promise.all([loadSnapshots(), loadKnowledgeDocs()])
+      const [snapshotResult, knowledgeResult] = await Promise.all([
+        loadSnapshots(),
+        loadKnowledgeDocs(),
+      ])
+      snapshots.value = snapshotResult?.data.records || []
+      knowledgeDocs.value = knowledgeResult?.data.records || []
+      reconcileSnapshot()
+      reconcileKnowledgeDoc()
       persist()
       initialized.value = true
     })()
@@ -122,15 +122,27 @@ export const useAdminContextStore = defineStore('admin-context', () => {
   }
 
   async function selectDatasource(id?: number) {
+    const requestId = ++selectionRequest
     datasourceId.value = id
     snapshotId.value = undefined
     knowledgeDocId.value = undefined
+    snapshots.value = []
+    knowledgeDocs.value = []
+    persist()
     loading.value = true
     try {
-      await Promise.all([loadSnapshots(), loadKnowledgeDocs()])
+      const [snapshotResult, knowledgeResult] = await Promise.all([
+        loadSnapshots(id),
+        loadKnowledgeDocs(id),
+      ])
+      if (requestId !== selectionRequest) return
+      snapshots.value = snapshotResult?.data.records || []
+      knowledgeDocs.value = knowledgeResult?.data.records || []
+      reconcileSnapshot()
+      reconcileKnowledgeDoc()
       persist()
     } finally {
-      loading.value = false
+      if (requestId === selectionRequest) loading.value = false
     }
   }
 

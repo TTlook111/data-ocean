@@ -12,6 +12,8 @@
   --do-primary: #4d8fdc;
   --do-primary-strong: #2563eb;
   --do-primary-soft: #eef5ff;
+  --do-accent: #6aa84f;
+  --do-accent-strong: #4f8f36;
 
   /* 文本颜色 */
   --do-ink: #172033;
@@ -20,6 +22,10 @@
   /* 背景颜色 */
   --do-bg: #f8fafc;
   --do-surface: #ffffff;
+  --do-paper: #ffffff;
+  --do-sidebar: #f8fbff;
+  --do-sidebar-muted: #64748b;
+  --do-soft: #f8fafc;
 
   /* 边框颜色 */
   --do-line: #e2e8f0;
@@ -47,6 +53,7 @@
   --do-radius-md: 8px;
   --do-radius-lg: 10px;
   --do-radius-xl: 12px;
+  --do-radius: 8px;
   --do-radius-full: 9999px;
 
   /* ===== 间距 ===== */
@@ -73,4 +80,22 @@
   --do-transition-fast: 150ms ease;
   --do-transition-normal: 200ms ease;
   --do-transition-slow: 300ms ease;
+
+  --do-tone-blue: var(--do-primary);
+  --do-tone-blue-bg: var(--do-primary-soft);
+  --do-tone-green: var(--do-success);
+  --do-tone-green-bg: var(--do-success-soft);
+  --do-tone-orange: var(--do-warning);
+  --do-tone-orange-bg: var(--do-warning-soft);
+  --do-tone-purple: #7c3aed;
+  --do-tone-purple-bg: #f3eeff;
+  --do-tone-sky: var(--do-primary-strong);
+  --do-tone-sky-bg: var(--do-info-soft);
+
+  --el-color-primary: var(--do-primary);
+  --el-color-primary-dark-2: var(--do-primary-strong);
+  --el-color-success: var(--do-success);
+  --el-color-warning: var(--do-warning);
+  --el-color-danger: var(--do-danger);
+  --el-border-radius-base: var(--do-radius-sm);
 }

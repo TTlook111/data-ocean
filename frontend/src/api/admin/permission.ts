@@ -1,6 +1,32 @@
 import { http } from '../http'
 import type { ApiResult } from './user'
 
+export interface AccessApprovalRequestItem {
+  id: number
+  requesterId: number
+  datasourceId: number
+  tableName: string
+  columnName?: string
+  requestReason: string
+  requestedDuration: number
+  status: string
+  approverId?: number
+  approvedAt?: string
+  expiresAt?: string
+  rejectReason?: string
+  createdAt: string
+}
+
+export async function listAccessApprovalRequests(params: { datasourceId?: number; status?: string; page?: number; size?: number }) {
+  const { data } = await http.get<ApiResult<{ records: AccessApprovalRequestItem[]; total: number; current: number; size: number }>>('/api/admin/access-approvals', { params })
+  return data
+}
+
+export async function reviewAccessApprovalRequest(id: number, payload: { approved: boolean; reason?: string }) {
+  const { data } = await http.post<ApiResult<null>>('/api/admin/access-approvals/' + id + '/review', payload)
+  return data
+}
+
 export interface DatasourcePermissionItem {
   id: number
   datasourceId: number
