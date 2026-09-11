@@ -7,6 +7,9 @@ const AdminHomeView = () => import('../views/AdminHomeView.vue')
 const DataSourcesView = () => import('../views/admin/datasource/DataSourcesView.vue')
 const DataSourceDetailView = () => import('../views/admin/datasource/DataSourceDetailView.vue')
 const CollectionsView = () => import('../views/admin/metadata/CollectionsView.vue')
+const AssetsView = () => import('../views/admin/assets/AssetsView.vue')
+const ReleasesView = () => import('../views/admin/releases/ReleasesView.vue')
+const SnapshotDiffView = () => import('../views/admin/releases/SnapshotDiffView.vue')
 const AssetEntityDetailView = () => import('../views/admin/assets/AssetEntityDetailView.vue')
 const SnapshotDetailView = () => import('../views/admin/releases/SnapshotDetailView.vue')
 const AccessApprovalView = () => import('../views/admin/permission/AccessApprovalView.vue')
@@ -128,7 +131,7 @@ const router = createRouter({
         {
           path: 'assets',
           name: 'admin-assets',
-          component: CatalogSearch,
+          component: AssetsView,
           meta: { title: '资产目录', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'datasource' },
         },
         {
@@ -140,7 +143,7 @@ const router = createRouter({
         {
           path: 'releases',
           name: 'admin-releases',
-          component: SnapshotLifecycle,
+          component: ReleasesView,
           meta: { title: '版本发布', domainKey: 'data-assets', workspaceKey: 'releases', contextMode: 'datasource' },
         },
         {
@@ -152,7 +155,7 @@ const router = createRouter({
         {
           path: 'releases/snapshots/:snapshotId/diff/:compareId',
           name: 'admin-snapshot-diff',
-          component: SnapshotDiff,
+          component: SnapshotDiffView,
           meta: { title: '快照差异', domainKey: 'data-assets', workspaceKey: 'releases', contextMode: 'locked-resource', breadcrumbParent: '/admin/releases' },
         },
         {
