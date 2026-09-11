@@ -37,6 +37,10 @@ async function fetchTasks() {
     const res = await listSyncTasks(query)
     tasks.value = res.data?.records ?? []
     total.value = res.data?.total ?? 0
+  } catch {
+    tasks.value = []
+    total.value = 0
+    ElMessage.error('采集任务加载失败，请检查后台服务')
   } finally {
     loading.value = false
   }
@@ -85,10 +89,13 @@ async function handleSync() {
 }
 
 onMounted(async () => {
-  await adminContext.initialize()
+  try {
+    await adminContext.initialize()
+  } catch {
+    ElMessage.error('数据源范围加载失败，请检查后台服务')
+  }
   query.datasourceId = adminContext.datasourceId
-  fetchTasks()
-  fetchDatasources()
+  await Promise.all([fetchTasks(), fetchDatasources()])
 })
 
 watch(

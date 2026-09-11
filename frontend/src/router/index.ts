@@ -4,6 +4,9 @@ import { setupRouterGuards } from './guards'
 const LoginPage = () => import('../views/login/LoginPage.vue')
 const AdminShell = () => import('../components/admin/AdminShell.vue')
 const AdminHomeView = () => import('../views/AdminHomeView.vue')
+const DataSourcesView = () => import('../views/admin/datasource/DataSourcesView.vue')
+const DataSourceDetailView = () => import('../views/admin/datasource/DataSourceDetailView.vue')
+const CollectionsView = () => import('../views/admin/metadata/CollectionsView.vue')
 const AssetEntityDetailView = () => import('../views/admin/assets/AssetEntityDetailView.vue')
 const SnapshotDetailView = () => import('../views/admin/releases/SnapshotDetailView.vue')
 const AccessApprovalView = () => import('../views/admin/permission/AccessApprovalView.vue')
@@ -107,19 +110,19 @@ const router = createRouter({
         {
           path: 'data-sources',
           name: 'admin-data-sources',
-          component: DatasourceList,
+          component: DataSourcesView,
           meta: { title: '数据源', domainKey: 'data-entry', workspaceKey: 'data-sources', contextMode: 'none' },
         },
         {
           path: 'data-sources/:id',
           name: 'admin-data-source-detail',
-          component: DatasourceLifecycle,
+          component: DataSourceDetailView,
           meta: { title: '数据源详情', domainKey: 'data-entry', workspaceKey: 'data-sources', contextMode: 'locked-resource', breadcrumbParent: '/admin/data-sources' },
         },
         {
           path: 'collections',
           name: 'admin-collections',
-          component: SyncTask,
+          component: CollectionsView,
           meta: { title: '采集任务', domainKey: 'data-entry', workspaceKey: 'collections', contextMode: 'datasource' },
         },
         {
