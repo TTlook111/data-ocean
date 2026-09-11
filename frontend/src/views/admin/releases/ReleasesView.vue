@@ -237,7 +237,12 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
 
     <section v-if="published" class="releases-page__published">
       <div><span>当前正式发布</span><strong>v{{ published.snapshotVersion }}</strong><small>{{ published.tableCount }} 表 · {{ published.columnCount }} 字段</small></div>
-      <BusinessStatusBadge status="PUBLISHED" />
+      <div class="releases-page__published-actions">
+        <BusinessStatusBadge status="PUBLISHED" />
+        <RouterLink :to="{ path: '/admin/semantics/knowledge', query: { datasourceId: String(datasourceId) } }">
+          生成语义知识 →
+        </RouterLink>
+      </div>
     </section>
 
     <ErrorState v-if="error" :message="error" @retry="load" />
@@ -303,6 +308,8 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
 .releases-page__published div { display: grid; gap: 4px; }
 .releases-page__published span, .releases-page__published small { color: var(--do-muted); font-size: 12px; }
 .releases-page__published strong { color: var(--do-ink); font-size: 24px; }
+.releases-page__published-actions { display: flex; align-items: center; gap: 14px; }
+.releases-page__published-actions a { color: var(--do-primary-strong); font-size: 13px; font-weight: 800; }
 .releases-page__tabs :deep(.el-tab-pane) { padding-top: 8px; }
 .releases-page__detail { margin-top: 16px; }
 .section-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 14px; }

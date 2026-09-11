@@ -1,5 +1,6 @@
 import { http } from '../http'
 import type { ApiResult } from './user'
+import type { MetadataEntityItem } from './catalog'
 
 /** 术语表 */
 export interface GlossaryItem {
@@ -86,5 +87,26 @@ export async function reviewTerm(termId: number, approved: boolean, reason?: str
     approved,
     reason,
   })
+  return data
+}
+
+/** 术语关联的物理列（后端返回元数据实体列表） */
+export type LinkedColumnItem = MetadataEntityItem
+
+/** 查询术语当前关联的物理列 */
+export async function getLinkedColumns(termId: number) {
+  const { data } = await http.get<ApiResult<LinkedColumnItem[]>>(`/api/admin/glossary/terms/${termId}/linked-columns`)
+  return data
+}
+
+/** 关联术语与物理列（后端创建 GLOSSARY_OF 关系） */
+export async function linkTermToColumn(termId: number, entityId: number) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/glossary/terms/${termId}/link-column`, { entityId })
+  return data
+}
+
+/** 取消术语与物理列的关联 */
+export async function unlinkTermFromColumn(termId: number, entityId: number) {
+  const { data } = await http.delete<ApiResult<null>>(`/api/admin/glossary/terms/${termId}/unlink-column/${entityId}`)
   return data
 }

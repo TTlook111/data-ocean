@@ -21,16 +21,15 @@ const QueryDatasourceView = () => import('../views/query/QueryDatasourceView.vue
 const QualityDashboard = () => import('../views/admin/governance/QualityDashboard.vue')
 const IssueList = () => import('../views/admin/governance/IssueList.vue')
 const StatusEditor = () => import('../views/admin/governance/StatusEditor.vue')
-const SkillsEditor = () => import('../views/admin/knowledge/SkillsEditor.vue')
-const VersionList = () => import('../views/admin/knowledge/VersionList.vue')
-const KnowledgeDashboard = () => import('../views/admin/knowledge/KnowledgeDashboard.vue')
-const PromptManager = () => import('../views/admin/prompt/PromptManager.vue')
+const KnowledgeView = () => import('../views/admin/semantics/KnowledgeView.vue')
+const KnowledgeDocView = () => import('../views/admin/semantics/KnowledgeDocView.vue')
+const KnowledgeDocCreateView = () => import('../views/admin/semantics/KnowledgeDocCreateView.vue')
+const PromptsView = () => import('../views/admin/semantics/PromptsView.vue')
+const GlossariesView = () => import('../views/admin/semantics/GlossariesView.vue')
 const NotFound = () => import('../views/NotFound.vue')
 const GovernanceFieldsView = () => import('../views/admin/governance/GovernanceFieldsView.vue')
 const TableExplorer = () => import('../views/admin/metadata/TableExplorer.vue')
-const ReviewPage = () => import('../views/admin/knowledge/ReviewPage.vue')
 const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
-const GlossaryList = () => import('../views/admin/glossary/GlossaryList.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
 const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
 const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
@@ -169,37 +168,37 @@ const router = createRouter({
         {
           path: 'semantics/glossaries',
           name: 'admin-semantic-glossaries',
-          component: GlossaryList,
+          component: GlossariesView,
           meta: { title: '业务术语', domainKey: 'semantics', workspaceKey: 'glossaries', contextMode: 'none' },
         },
         {
           path: 'semantics/knowledge',
           name: 'admin-semantic-knowledge',
-          component: KnowledgeDashboard,
+          component: KnowledgeView,
           meta: { title: '语义知识', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource' },
         },
         {
           path: 'semantics/knowledge/new',
           name: 'admin-semantic-knowledge-new',
-          component: SkillsEditor,
+          component: KnowledgeDocCreateView,
           meta: { title: '新建知识文档', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource', breadcrumbParent: '/admin/semantics/knowledge' },
         },
         {
+          // 版本已合并为知识详情的一个 Tab，保留旧 URL 并保留路由名以兼容历史引用
           path: 'semantics/knowledge/:id/versions',
           name: 'admin-semantic-knowledge-versions',
-          component: VersionList,
-          meta: { title: '知识版本历史', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'locked-resource', breadcrumbParent: '/admin/semantics/knowledge' },
+          redirect: (to) => ({ path: '/admin/semantics/knowledge/' + to.params.id, query: { ...to.query, tab: 'versions' } }),
         },
         {
           path: 'semantics/knowledge/:id',
           name: 'admin-semantic-knowledge-detail',
-          component: SkillsEditor,
+          component: KnowledgeDocView,
           meta: { title: '知识文档详情', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'locked-resource', breadcrumbParent: '/admin/semantics/knowledge' },
         },
         {
           path: 'semantics/prompts',
           name: 'admin-semantic-prompts',
-          component: PromptManager,
+          component: PromptsView,
           meta: { title: 'Prompt 策略', domainKey: 'semantics', workspaceKey: 'prompts', contextMode: 'none' },
         },
         {
@@ -287,13 +286,15 @@ const router = createRouter({
         { path: 'field/feedback-review', redirect: (to) => ({ path: '/admin/governance/fields', query: { ...to.query, tab: 'feedback' } }) },
         { path: 'glossary/list', redirect: (to) => ({ path: '/admin/semantics/glossaries', query: to.query }) },
         { path: 'knowledge', redirect: (to) => ({ path: '/admin/semantics/knowledge', query: to.query }) },
-        { path: 'knowledge/editor/:id?', redirect: (to) => ({ path: to.params.id ? '/admin/semantics/knowledge/' + to.params.id : '/admin/semantics/knowledge/new', query: to.query }) },
+        { path: 'knowledge/editor/:id?', redirect: (to) => (to.params.id
+          ? { path: '/admin/semantics/knowledge/' + to.params.id, query: { ...to.query, tab: 'content' } }
+          : { path: '/admin/semantics/knowledge/new', query: to.query }) },
         { path: 'knowledge/versions/:id', redirect: (to) => ({ path: '/admin/semantics/knowledge/' + to.params.id + '/versions', query: to.query }) },
         {
+          // 审核队列已合并为语义知识工作区的 Tab，旧 URL 保留重定向与路由名
           path: 'knowledge/review',
           name: 'admin-knowledge-review',
-          component: ReviewPage,
-          meta: { title: '知识审核', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource' },
+          redirect: (to) => ({ path: '/admin/semantics/knowledge', query: { ...to.query, tab: 'review' } }),
         },
         { path: 'prompts', redirect: (to) => ({ path: '/admin/semantics/prompts', query: to.query }) },
         { path: 'permission/access', redirect: (to) => ({ path: '/admin/access', query: { ...to.query, tab: 'grants' } }) },
