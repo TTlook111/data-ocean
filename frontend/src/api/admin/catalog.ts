@@ -36,6 +36,14 @@ export interface EntityDetail {
   incomingRelations: MetadataRelationshipItem[]
 }
 
+export interface MaskCandidate {
+  entityId: number
+  fqn: string
+  name: string
+  displayName?: string
+  pendingMask?: Record<string, unknown>
+}
+
 /** 全文搜索实体 */
 export async function searchCatalog(params: {
   q: string
@@ -73,5 +81,22 @@ export async function getEntitiesByDatasource(datasourceId: number) {
   const { data } = await http.get<ApiResult<MetadataEntityItem[]>>('/api/admin/catalog/entities', {
     params: { datasourceId },
   })
+  return data
+}
+
+export async function listMaskCandidates(datasourceId?: number) {
+  const { data } = await http.get<ApiResult<MaskCandidate[]>>('/api/admin/catalog/mask-candidates', {
+    params: { datasourceId },
+  })
+  return data
+}
+
+export async function confirmMaskCandidate(entityId: number, maskStrategy: string) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/catalog/mask-candidates/${entityId}/confirm`, { maskStrategy })
+  return data
+}
+
+export async function rejectMaskCandidate(entityId: number) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/catalog/mask-candidates/${entityId}/reject`)
   return data
 }

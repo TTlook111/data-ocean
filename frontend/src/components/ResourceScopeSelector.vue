@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { listSnapshots, type SnapshotItem } from '../api/admin/metadata'
 import {
@@ -61,6 +61,10 @@ const loadingColumns = ref(false)
 const loadError = ref<string>('')
 const retryCount = ref(0)
 const maxRetries = 3
+let datasourceRequestId = 0
+let snapshotRequestId = 0
+let columnRequestId = 0
+let disposed = false
 
 const localDatasourceId = ref<number | undefined>(props.datasourceId)
 const localSnapshotId = ref<number | undefined>(props.snapshotId)
@@ -91,6 +95,9 @@ function latestSnapshotFirst(a: SnapshotItem, b: SnapshotItem) {
 }
 
 async function loadSnapshotsForDatasource(datasourceId?: number) {
+  const currentRequest = ++datasourceRequestId
+  snapshotRequestId++
+  columnRequestId++
   snapshots.value = []
   tables.value = []
   columns.value = []
@@ -105,6 +112,7 @@ async function loadSnapshotsForDatasource(datasourceId?: number) {
   loadingSnapshots.value = true
   try {
     const result = await listSnapshots({ datasourceId, page: 1, size: 50 })
+    if (disposed || currentRequest !== datasourceRequestId) return
     snapshots.value = [...(result.data?.records ?? [])].sort(latestSnapshotFirst)
     retryCount.value = 0  // 重置重试计数
 
@@ -114,11 +122,12 @@ async function loadSnapshotsForDatasource(datasourceId?: number) {
     }
     await loadTablesForSnapshot(localSnapshotId.value)
   } catch (error: any) {
+    if (disposed || currentRequest !== datasourceRequestId) return
     const message = error.response?.data?.message || '快照列表加载失败'
     loadError.value = message
     ElMessage.error(message)
   } finally {
-    loadingSnapshots.value = false
+    if (!disposed && currentRequest === datasourceRequestId) loadingSnapshots.value = false
   }
 }
 
@@ -132,6 +141,8 @@ async function retryLoad() {
 }
 
 async function loadTablesForSnapshot(snapshotId?: number) {
+  const currentRequest = ++snapshotRequestId
+  columnRequestId++
   tables.value = []
   columns.value = []
   loadError.value = ''
@@ -147,6 +158,7 @@ async function loadTablesForSnapshot(snapshotId?: number) {
   loadingTables.value = true
   try {
     const result = await listSnapshotTables(snapshotId)
+    if (disposed || currentRequest !== snapshotRequestId) return
     tables.value = result.data ?? []
     if (localTableName.value && !tables.value.some((item) => item.tableName === localTableName.value)) {
       localTableName.value = ''
@@ -158,15 +170,17 @@ async function loadTablesForSnapshot(snapshotId?: number) {
       await loadColumnsForTable(snapshotId, localTableName.value)
     }
   } catch (error: any) {
+    if (disposed || currentRequest !== snapshotRequestId) return
     const message = error.response?.data?.message || '数据表列表加载失败'
     loadError.value = message
     ElMessage.error(message)
   } finally {
-    loadingTables.value = false
+    if (!disposed && currentRequest === snapshotRequestId) loadingTables.value = false
   }
 }
 
 async function loadColumnsForTable(snapshotId?: number, tableName?: string) {
+  const currentRequest = ++columnRequestId
   columns.value = []
   loadError.value = ''
 
@@ -179,17 +193,19 @@ async function loadColumnsForTable(snapshotId?: number, tableName?: string) {
   loadingColumns.value = true
   try {
     const result = await listSnapshotTableColumns(snapshotId, tableName)
+    if (disposed || currentRequest !== columnRequestId) return
     columns.value = result.data ?? []
     if (localColumnName.value && !columns.value.some((item) => item.columnName === localColumnName.value)) {
       localColumnName.value = ''
       emit('update:columnName', '')
     }
   } catch (error: any) {
+    if (disposed || currentRequest !== columnRequestId) return
     const message = error.response?.data?.message || '字段列表加载失败'
     loadError.value = message
     ElMessage.error(message)
   } finally {
-    loadingColumns.value = false
+    if (!disposed && currentRequest === columnRequestId) loadingColumns.value = false
   }
 }
 
@@ -202,9 +218,7 @@ async function handleDatasourceChange(value?: number) {
   emit('update:snapshotId', undefined)
   emit('update:tableName', '')
   emit('update:columnName', '')
-  if (value) {
-    await adminContext.selectDatasource(value)
-  }
+  await adminContext.selectDatasource(value)
   await loadSnapshotsForDatasource(value)
   emitChange()
 }
@@ -247,6 +261,13 @@ onMounted(async () => {
     emit('update:snapshotId', localSnapshotId.value)
   }
   await loadSnapshotsForDatasource(localDatasourceId.value)
+})
+
+onBeforeUnmount(() => {
+  disposed = true
+  datasourceRequestId++
+  snapshotRequestId++
+  columnRequestId++
 })
 
 watch(() => props.datasourceId, async (value) => {

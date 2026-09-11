@@ -26,10 +26,8 @@ const VersionList = () => import('../views/admin/knowledge/VersionList.vue')
 const KnowledgeDashboard = () => import('../views/admin/knowledge/KnowledgeDashboard.vue')
 const PromptManager = () => import('../views/admin/prompt/PromptManager.vue')
 const NotFound = () => import('../views/NotFound.vue')
-const FieldTagManager = () => import('../views/admin/field/FieldTagManager.vue')
+const GovernanceFieldsView = () => import('../views/admin/governance/GovernanceFieldsView.vue')
 const TableExplorer = () => import('../views/admin/metadata/TableExplorer.vue')
-const ConfidenceDashboard = () => import('../views/admin/field/ConfidenceDashboard.vue')
-const FeedbackReview = () => import('../views/admin/field/FeedbackReview.vue')
 const ReviewPage = () => import('../views/admin/knowledge/ReviewPage.vue')
 const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
 const GlossaryList = () => import('../views/admin/glossary/GlossaryList.vue')
@@ -165,7 +163,7 @@ const router = createRouter({
         {
           path: 'governance/fields',
           name: 'admin-governance-fields',
-          component: FieldTagManager,
+          component: GovernanceFieldsView,
           meta: { title: '字段治理', domainKey: 'governance', workspaceKey: 'governance-fields', contextMode: 'datasource-snapshot' },
         },
         {
@@ -285,18 +283,8 @@ const router = createRouter({
         { path: 'governance/quality', redirect: (to) => ({ path: '/admin/governance', query: to.query }) },
         { path: 'governance/status', redirect: (to) => ({ path: '/admin/governance/rules', query: { ...to.query, tab: 'status' } }) },
         { path: 'field/tags', redirect: (to) => ({ path: '/admin/governance/fields', query: { ...to.query, tab: 'tags' } }) },
-        {
-          path: 'field/confidence',
-          name: 'admin-field-confidence',
-          component: ConfidenceDashboard,
-          meta: { title: '字段可信度', domainKey: 'governance', workspaceKey: 'governance-fields', contextMode: 'datasource-snapshot' },
-        },
-        {
-          path: 'field/feedback-review',
-          name: 'admin-field-feedback-review',
-          component: FeedbackReview,
-          meta: { title: '反馈审核', domainKey: 'governance', workspaceKey: 'governance-fields', contextMode: 'datasource-snapshot' },
-        },
+        { path: 'field/confidence', redirect: (to) => ({ path: '/admin/governance/fields', query: { ...to.query, tab: 'confidence' } }) },
+        { path: 'field/feedback-review', redirect: (to) => ({ path: '/admin/governance/fields', query: { ...to.query, tab: 'feedback' } }) },
         { path: 'glossary/list', redirect: (to) => ({ path: '/admin/semantics/glossaries', query: to.query }) },
         { path: 'knowledge', redirect: (to) => ({ path: '/admin/semantics/knowledge', query: to.query }) },
         { path: 'knowledge/editor/:id?', redirect: (to) => ({ path: to.params.id ? '/admin/semantics/knowledge/' + to.params.id : '/admin/semantics/knowledge/new', query: to.query }) },

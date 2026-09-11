@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -42,12 +43,48 @@ const snapshots = ref<SnapshotOption[]>([])
 const checkResult = ref<QualityCheckResult | null>(null)
 const rules = ref<QualityRule[]>([])
 const issues = ref<QualityIssueItem[]>([])
+const unresolvedCounts = ref({ OPEN: 0, CONFIRMED: 0, REOPENED: 0 })
+let snapshotRequestId = 0
+let issueRequestId = 0
+let disposed = false
 const adminContext = useAdminContextStore()
+const router = useRouter()
 
 const selectedSnapshot = computed(() => snapshots.value.find((item) => item.id === selectedSnapshotId.value))
 const latestScore = computed(() => checkResult.value?.qualityScore ?? selectedSnapshot.value?.qualityScore)
 const enabledRules = computed(() => rules.value.filter((item) => item.enabled === 1))
 const highIssues = computed(() => issues.value.filter((item) => item.severity === 'HIGH'))
+const unresolvedIssueTotal = computed(() => unresolvedCounts.value.OPEN + unresolvedCounts.value.CONFIRMED + unresolvedCounts.value.REOPENED)
+const hasUnresolvedIssues = computed(() => unresolvedIssueTotal.value > 0)
+const canReturnToRelease = computed(() => Boolean(
+  selectedSnapshot.value
+  && ['APPROVED', 'PUBLISHED', 'EXPIRED'].includes(String(selectedSnapshot.value.status))
+  && !hasUnresolvedIssues.value
+  && (checkResult.value || latestScore.value !== undefined),
+))
+
+function openIssueCenter() {
+  if (!selectedSnapshotId.value) return
+  router.push({
+    path: '/admin/governance/issues',
+    query: {
+      datasourceId: String(adminContext.datasourceId || ''),
+      snapshotId: String(selectedSnapshotId.value),
+    },
+  })
+}
+
+function openReleaseFlow() {
+  if (!selectedSnapshotId.value) return
+  router.push({
+    path: '/admin/releases',
+    query: {
+      datasourceId: String(adminContext.datasourceId || ''),
+      snapshotId: String(selectedSnapshotId.value),
+      tab: 'candidates',
+    },
+  })
+}
 
 const flowSteps = computed(() => [
   {
@@ -71,8 +108,8 @@ const flowSteps = computed(() => [
   {
     title: '处理问题',
     icon: ShieldCheck,
-    done: issues.value.length === 0 && Boolean(selectedSnapshotId.value),
-    text: issues.value.length ? `${issues.value.length} 个待处理` : '暂无阻塞',
+    done: !hasUnresolvedIssues.value && Boolean(selectedSnapshotId.value),
+    text: hasUnresolvedIssues.value ? `${unresolvedIssueTotal.value} 个未解决` : '暂无阻塞',
   },
 ])
 
@@ -104,8 +141,18 @@ function formatSnapshotLabel(item: SnapshotOption) {
 }
 
 async function fetchSnapshots() {
+  const currentRequest = ++snapshotRequestId
+  const datasourceId = adminContext.datasourceId
   issues.value = []
-  const res = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 50 })
+  unresolvedCounts.value = { OPEN: 0, CONFIRMED: 0, REOPENED: 0 }
+  if (!datasourceId) {
+    snapshots.value = []
+    selectedSnapshotId.value = undefined
+    adminContext.selectSnapshot(undefined)
+    return
+  }
+  const res = await listSnapshots({ datasourceId, page: 1, size: 50 })
+  if (disposed || currentRequest !== snapshotRequestId || datasourceId !== adminContext.datasourceId) return
   snapshots.value = res.data?.records ?? []
 
   if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
@@ -124,12 +171,25 @@ async function fetchRules() {
 }
 
 async function fetchIssues() {
-  if (!selectedSnapshotId.value) {
+  const currentRequest = ++issueRequestId
+  const snapshotId = selectedSnapshotId.value
+  if (!snapshotId) {
     issues.value = []
+    unresolvedCounts.value = { OPEN: 0, CONFIRMED: 0, REOPENED: 0 }
     return
   }
-  const res = await listQualityIssues(selectedSnapshotId.value, { page: 1, size: 6, status: 'OPEN' })
-  issues.value = res.data?.records ?? []
+  const [openResult, confirmedResult, reopenedResult] = await Promise.all([
+    listQualityIssues(snapshotId, { page: 1, size: 6, status: 'OPEN' }),
+    listQualityIssues(snapshotId, { page: 1, size: 1, status: 'CONFIRMED' }),
+    listQualityIssues(snapshotId, { page: 1, size: 1, status: 'REOPENED' }),
+  ])
+  if (disposed || currentRequest !== issueRequestId || snapshotId !== selectedSnapshotId.value) return
+  issues.value = openResult.data?.records ?? []
+  unresolvedCounts.value = {
+    OPEN: openResult.data?.total ?? 0,
+    CONFIRMED: confirmedResult.data?.total ?? 0,
+    REOPENED: reopenedResult.data?.total ?? 0,
+  }
 }
 
 async function runCheck() {
@@ -172,6 +232,12 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+})
+
+onBeforeUnmount(() => {
+  disposed = true
+  snapshotRequestId++
+  issueRequestId++
 })
 
 watch(
@@ -230,6 +296,8 @@ watch(
       <el-button type="primary" :icon="Play" :loading="checkLoading" @click="runCheck">
         执行质量校验
       </el-button>
+      <el-button v-if="hasUnresolvedIssues" @click="openIssueCenter">进入问题中心</el-button>
+      <el-button v-else-if="canReturnToRelease" @click="openReleaseFlow">返回版本发布</el-button>
     </section>
 
     <section class="flow-panel">
@@ -281,7 +349,10 @@ watch(
             <span>待处理问题</span>
             <h3>{{ issues.length ? '优先处理这些项' : '暂无待处理项' }}</h3>
           </div>
-          <FileWarning :size="20" />
+          <div class="issue-header-actions">
+            <el-button v-if="hasUnresolvedIssues" link type="primary" @click="openIssueCenter">查看全部</el-button>
+            <FileWarning :size="20" />
+          </div>
         </div>
 
         <div v-if="issues.length" class="issue-list">
