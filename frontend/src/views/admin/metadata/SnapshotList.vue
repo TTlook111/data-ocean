@@ -38,7 +38,7 @@ async function fetchDatasources() {
 
 function viewDetail(id: number) {
   adminContext.selectSnapshot(id)
-  router.push({ name: 'admin-metadata-tables', query: { snapshotId: id } })
+  router.push({ name: 'admin-snapshot-detail', params: { snapshotId: id } })
 }
 
 function handleDatasourceChange(id?: number) {

@@ -100,7 +100,7 @@ async function handleSave() {
       ElMessage.success('文档创建成功')
       adminContext.selectDatasource(datasourceId.value)
       if (res.data?.id) adminContext.selectKnowledgeDoc(res.data.id)
-      router.replace({ name: 'admin-knowledge-editor', params: { id: res.data?.id } })
+      router.replace({ name: 'admin-semantic-knowledge-detail', params: { id: res.data?.id } })
     } else {
       await updateKnowledgeDoc(docId.value!, {
         title: title.value,

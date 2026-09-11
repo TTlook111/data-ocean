@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
+import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { RefreshCw, Play, Database } from 'lucide-vue-next'
 import {
@@ -11,13 +11,19 @@ import {
 import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { syncStatusLabel, syncStatusType, syncTriggerLabel } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import ErrorState from '../../../components/common/ErrorState.vue'
+import EmptyState from '../../../components/common/EmptyState.vue'
 
 const loading = ref(false)
 const syncLoading = ref(false)
 const tasks = ref<SyncTaskItem[]>([])
 const total = ref(0)
+const errorMessage = ref('')
+const retryingTaskId = ref<number>()
 const datasources = ref<DatasourceSimpleItem[]>([])
 const adminContext = useAdminContextStore()
+let refreshTimer: ReturnType<typeof setTimeout> | undefined
+let disposed = false
 
 const query = reactive({
   datasourceId: undefined as number | undefined,
@@ -30,19 +36,56 @@ const syncForm = reactive<SyncTriggerPayload>({
   includeStatistics: false
 })
 const syncDialogVisible = ref(false)
+const runningTasks = computed(() => tasks.value.filter((task) => task.status === 'PENDING' || task.status === 'RUNNING'))
+const selectedRunningTask = computed(() => runningTasks.value.find((task) => task.datasourceId === syncForm.datasourceId))
+let taskRequestId = 0
+
+function apiError(error: unknown, fallback: string) {
+  const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+  return message || (error instanceof Error ? error.message : fallback)
+}
+
+function progressLabel(task: SyncTaskItem) {
+  if (task.status === 'PENDING') return '排队中'
+  if (task.status === 'RUNNING') {
+    return task.progressTotal ? `${task.progressCurrent || 0}/${task.progressTotal}` : '正在连接数据源…'
+  }
+  if (task.status === 'SUCCESS') return '已完成'
+  if (task.status === 'FAILED' || task.status === 'TIMEOUT') return '执行失败'
+  return '—'
+}
+
+function scheduleRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer)
+  if (!disposed && runningTasks.value.length) refreshTimer = setTimeout(fetchTasks, 3000)
+}
 
 async function fetchTasks() {
+  const currentRequest = ++taskRequestId
+  const params = {
+    datasourceId: query.datasourceId,
+    page: query.page,
+    size: query.size,
+  }
+
+  if (refreshTimer) clearTimeout(refreshTimer)
   loading.value = true
+  errorMessage.value = ''
   try {
-    const res = await listSyncTasks(query)
+    const res = await listSyncTasks(params)
+    if (disposed || currentRequest !== taskRequestId) return
     tasks.value = res.data?.records ?? []
     total.value = res.data?.total ?? 0
-  } catch {
+  } catch (error) {
+    if (disposed || currentRequest !== taskRequestId) return
     tasks.value = []
     total.value = 0
-    ElMessage.error('采集任务加载失败，请检查后台服务')
+    errorMessage.value = apiError(error, '采集任务加载失败，请检查后台服务')
   } finally {
-    loading.value = false
+    if (!disposed && currentRequest === taskRequestId) {
+      loading.value = false
+      scheduleRefresh()
+    }
   }
 }
 
@@ -61,12 +104,11 @@ function openSyncDialog() {
   syncDialogVisible.value = true
 }
 
-function handleDatasourceChange(id?: number) {
-  if (id) {
-    adminContext.selectDatasource(id)
-  }
+async function handleDatasourceChange(id?: number) {
   query.page = 1
-  fetchTasks()
+  query.datasourceId = id
+  await adminContext.selectDatasource(id)
+  await fetchTasks()
 }
 
 async function handleSync() {
@@ -79,12 +121,26 @@ async function handleSync() {
     await triggerSync(syncForm)
     ElMessage.success('同步任务已触发')
     syncDialogVisible.value = false
-    adminContext.selectDatasource(syncForm.datasourceId)
-    fetchTasks()
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '触发同步失败')
+    await adminContext.selectDatasource(syncForm.datasourceId)
+    await fetchTasks()
+  } catch (error) {
+    ElMessage.error(apiError(error, '触发同步失败'))
   } finally {
     syncLoading.value = false
+  }
+}
+
+async function retryTask(task: SyncTaskItem) {
+  if (!task.datasourceId || retryingTaskId.value) return
+  retryingTaskId.value = task.id
+  try {
+    await triggerSync({ datasourceId: task.datasourceId, includeStatistics: false })
+    ElMessage.success('已重新触发采集任务')
+    await fetchTasks()
+  } catch (error) {
+    ElMessage.error(apiError(error, '重试采集失败'))
+  } finally {
+    retryingTaskId.value = undefined
   }
 }
 
@@ -107,6 +163,12 @@ watch(
     fetchTasks()
   },
 )
+
+onBeforeUnmount(() => {
+  disposed = true
+  taskRequestId++
+  if (refreshTimer) clearTimeout(refreshTimer)
+})
 </script>
 
 <template>
@@ -126,7 +188,8 @@ watch(
     </section>
 
     <section class="table-shell">
-      <el-table :data="tasks" v-loading="loading" stripe>
+      <ErrorState v-if="errorMessage" :message="errorMessage" @retry="fetchTasks" />
+      <el-table v-else-if="tasks.length" :data="tasks" v-loading="loading" stripe>
         <el-table-column prop="datasourceName" label="数据源" width="160" />
         <el-table-column prop="triggerType" label="触发方式" width="100">
           <template #default="{ row }">
@@ -140,17 +203,36 @@ watch(
         </el-table-column>
         <el-table-column label="进度" width="120">
           <template #default="{ row }">
-            <span v-if="row.progressTotal">{{ row.progressCurrent }}/{{ row.progressTotal }}</span>
-            <span v-else>-</span>
+            <span>{{ progressLabel(row) }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="startedAt" label="开始时间" width="170" />
         <el-table-column prop="finishedAt" label="完成时间" width="170" />
         <el-table-column prop="errorMessage" label="错误信息" show-overflow-tooltip />
+        <el-table-column label="后续操作" width="250" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.status === 'FAILED' || row.status === 'TIMEOUT'"
+              link
+              type="warning"
+              :loading="retryingTaskId === row.id"
+              @click="retryTask(row)"
+            >重试</el-button>
+            <RouterLink
+              v-if="(row.status === 'FAILED' || row.status === 'TIMEOUT') && row.datasourceId"
+              class="table-link"
+              :to="`/admin/data-sources/${row.datasourceId}?action=test`"
+            >检查连接</RouterLink>
+            <RouterLink v-if="row.status === 'SUCCESS' && row.snapshotId" class="table-link" :to="`/admin/releases/snapshots/${row.snapshotId}`">查看生成快照</RouterLink>
+            <RouterLink v-else-if="row.status === 'SUCCESS' && row.datasourceId" class="table-link" :to="{ path: '/admin/releases', query: { datasourceId: String(row.datasourceId) } }">查看该数据源版本</RouterLink>
+            <span v-if="row.status === 'PENDING' || row.status === 'RUNNING'" class="muted">任务执行中</span>
+          </template>
+        </el-table-column>
       </el-table>
+      <EmptyState v-else-if="!loading" message="当前筛选条件下暂无采集任务。" />
     </section>
 
-    <el-pagination class="pager" background layout="total, prev, pager, next"
+    <el-pagination v-if="!errorMessage && total > 0" class="pager" background layout="total, prev, pager, next"
                    :total="total" :page-size="query.size"
                    v-model:current-page="query.page" @current-change="fetchTasks" />
 
@@ -167,10 +249,11 @@ watch(
           <el-switch v-model="syncForm.includeStatistics" />
           <span style="margin-left: 8px; color: var(--do-muted); font-size: 12px">包含空值率、TopN等统计信息（耗时较长）</span>
         </el-form-item>
+        <el-alert v-if="selectedRunningTask" title="该数据源已有采集任务运行中，请等待当前任务完成。" type="warning" :closable="false" show-icon />
       </el-form>
       <template #footer>
         <el-button @click="syncDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="syncLoading" @click="handleSync">开始同步</el-button>
+        <el-button type="primary" :loading="syncLoading" :disabled="Boolean(selectedRunningTask)" @click="handleSync">开始同步</el-button>
       </template>
     </el-dialog>
   </main>
@@ -181,4 +264,6 @@ watch(
 .toolbar { display: flex; gap: 12px; }
 .table-shell { border: 1px solid var(--do-line); border-radius: 8px; overflow: hidden; background: var(--do-surface); }
 .pager { margin-top: 16px; justify-content: flex-end; }
+.table-link { margin-left: 8px; color: var(--do-primary-strong); font-size: 12px; }
+.muted { color: var(--do-muted); font-size: 12px; }
 </style>

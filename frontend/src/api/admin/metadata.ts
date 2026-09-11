@@ -3,6 +3,7 @@ import type { ApiResult, PageResult } from './user'
 
 export interface SyncTaskItem {
   id: number
+  datasourceId: number
   datasourceName: string
   triggerType: string
   status: string
@@ -11,6 +12,7 @@ export interface SyncTaskItem {
   startedAt?: string
   finishedAt?: string
   errorMessage?: string
+  snapshotId?: number
 }
 
 export interface SnapshotItem {
@@ -78,7 +80,7 @@ export interface SyncTriggerPayload {
 }
 
 export async function triggerSync(payload: SyncTriggerPayload) {
-  const { data } = await http.post<ApiResult<null>>('/api/admin/metadata/sync', payload)
+  const { data } = await http.post<ApiResult<{ taskId: number }>>('/api/admin/metadata/sync', payload)
   return data
 }
 

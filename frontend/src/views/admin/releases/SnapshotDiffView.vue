@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { GitCompareArrows } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
 import { compareSnapshots } from '../../../api/admin/versioning'
@@ -11,39 +11,57 @@ import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
 
 const route = useRoute()
-const snapshotId = computed(() => Number(route.params.snapshotId))
-const compareId = computed(() => Number(route.params.compareId))
-const current = ref<SnapshotDetail | null>(null)
-const compare = ref<SnapshotDetail | null>(null)
+// 差异 URL 协议：snapshotId 是旧快照，compareId 是新快照。
+const oldSnapshotId = computed(() => Number(route.params.snapshotId))
+const newSnapshotId = computed(() => Number(route.params.compareId))
+const oldSnapshot = ref<SnapshotDetail | null>(null)
+const newSnapshot = ref<SnapshotDetail | null>(null)
 const diff = ref<any>(null)
 const loading = ref(true)
 const error = ref('')
+let requestId = 0
 
 async function load() {
+  const currentRequest = ++requestId
   loading.value = true
   error.value = ''
+  oldSnapshot.value = null
+  newSnapshot.value = null
+  diff.value = null
   try {
-    const [currentResult, compareResult, diffResult] = await Promise.all([
-      getSnapshotDetail(snapshotId.value),
-      getSnapshotDetail(compareId.value),
-      compareSnapshots(snapshotId.value, compareId.value),
+    const [oldResult, newResult] = await Promise.all([
+      getSnapshotDetail(oldSnapshotId.value),
+      getSnapshotDetail(newSnapshotId.value),
     ])
-    current.value = currentResult.data
-    compare.value = compareResult.data
+    if (disposedOrStale(currentRequest)) return
+    if (oldResult.data.snapshot.datasourceId !== newResult.data.snapshot.datasourceId) {
+      throw new Error('两个快照必须属于同一个数据源')
+    }
+    const diffResult = await compareSnapshots(oldSnapshotId.value, newSnapshotId.value)
+    if (disposedOrStale(currentRequest)) return
+    oldSnapshot.value = oldResult.data
+    newSnapshot.value = newResult.data
     diff.value = diffResult.data
   } catch (cause) {
+    if (disposedOrStale(currentRequest)) return
     error.value = cause instanceof Error ? cause.message : '版本差异加载失败'
   } finally {
-    loading.value = false
+    if (!disposedOrStale(currentRequest)) loading.value = false
   }
 }
 
+function disposedOrStale(currentRequest: number) {
+  return currentRequest !== requestId
+}
+
 onMounted(load)
+watch(() => [route.params.snapshotId, route.params.compareId], load)
+onBeforeUnmount(() => { requestId++ })
 </script>
 
 <template>
   <div class="admin-page snapshot-diff-page">
-    <ObjectContextSummary v-if="current" :title="'v' + current.snapshot.snapshotVersion + ' 对比 v' + (compare?.snapshot.snapshotVersion || compareId)" description="版本差异" back-to="/admin/releases" source-label="数据资产 / 版本发布" />
+    <ObjectContextSummary v-if="oldSnapshot" :title="'v' + oldSnapshot.snapshot.snapshotVersion + ' → v' + (newSnapshot?.snapshot.snapshotVersion || newSnapshotId)" description="旧快照对比新快照" back-to="/admin/releases" source-label="数据资产 / 版本发布" />
     <TaskPageHeader title="快照差异" description="差异结果用于判断治理影响和发布风险，不会自动改变任何快照状态。">
       <template #status><GitCompareArrows :size="20" /></template>
     </TaskPageHeader>

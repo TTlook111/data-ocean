@@ -16,6 +16,7 @@ import {
   type AuditLogItem,
   type VersionHistoryItem,
 } from '../../../api/admin/versioning'
+import { triggerQualityCheck } from '../../../api/admin/governance'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
@@ -33,8 +34,8 @@ const snapshots = ref<SnapshotItem[]>([])
 const published = ref<VersionHistoryItem | null>(null)
 const selected = ref<SnapshotDetail | null>(null)
 const auditLogs = ref<AuditLogItem[]>([])
-const oldId = ref<number>()
-const newId = ref<number>()
+const oldId = ref<number | undefined>(Number(route.query.oldId) || undefined)
+const newId = ref<number | undefined>(Number(route.query.newId) || undefined)
 const diff = ref<any>(null)
 const loading = ref(true)
 const actionLoading = ref(false)
@@ -86,6 +87,7 @@ async function load() {
     snapshots.value = snapshotResult.data.records || []
     published.value = publishedResult.data || null
     if (selectedId.value) await loadSelected(selectedId.value)
+    if (activeTab.value === 'diff') await loadDiff()
   } catch (cause) {
     if (currentRequest !== requestId.value) return
     error.value = apiError(cause, '版本发布数据加载失败')
@@ -109,11 +111,17 @@ async function selectSnapshot(id: number) {
 
 async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
   const labels: Record<string, string> = { CHECKING: '开始质量检查', APPROVED: '批准快照' }
+  if (actionLoading.value) return
   try {
     await ElMessageBox.confirm('确认对快照 v' + item.snapshotVersion + '执行“' + labels[targetStatus] + '”？', '确认操作', { type: 'warning' })
     actionLoading.value = true
-    await changeSnapshotStatus(item.snapshotId, { targetStatus })
-    ElMessage.success('快照状态已更新')
+    if (targetStatus === 'CHECKING') {
+      const result = await triggerQualityCheck(item.snapshotId)
+      ElMessage.success(`质量校验完成，综合得分 ${result.data?.qualityScore}`)
+    } else {
+      await changeSnapshotStatus(item.snapshotId, { targetStatus })
+      ElMessage.success('快照状态已更新')
+    }
     await load()
   } catch (cause) {
     if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '快照状态更新失败'))
@@ -168,14 +176,28 @@ async function openDiff() {
     ElMessage.warning('请选择两个不同版本')
     return
   }
-  await router.push('/admin/releases/snapshots/' + newId.value + '/diff/' + oldId.value)
+  const oldSnapshot = snapshots.value.find((item) => item.id === oldId.value)
+  const newSnapshot = snapshots.value.find((item) => item.id === newId.value)
+  if (!oldSnapshot || !newSnapshot || oldSnapshot.datasourceId !== newSnapshot.datasourceId) {
+    ElMessage.error('两个快照必须属于同一个数据源')
+    return
+  }
+  await router.push('/admin/releases/snapshots/' + oldId.value + '/diff/' + newId.value)
 }
 
 async function loadDiff() {
   if (!oldId.value || !newId.value) return
+  const oldSnapshot = snapshots.value.find((item) => item.id === oldId.value)
+  const newSnapshot = snapshots.value.find((item) => item.id === newId.value)
+  if (!oldSnapshot || !newSnapshot || oldSnapshot.datasourceId !== newSnapshot.datasourceId) {
+    diff.value = null
+    ElMessage.error('两个快照必须属于同一个数据源')
+    return
+  }
   try {
-    diff.value = (await compareSnapshots(newId.value, oldId.value)).data
+    diff.value = (await compareSnapshots(oldId.value, newId.value)).data
   } catch (cause) {
+    diff.value = null
     ElMessage.error(apiError(cause, '版本差异加载失败'))
   }
 }
@@ -192,10 +214,11 @@ onMounted(async () => {
 
 watch(() => context.datasourceId, load)
 watch(() => route.query.tab, (value) => { activeTab.value = String(value || 'candidates') })
-watch(() => [route.query.snapshotId, route.query.compareId], async () => {
+watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () => {
+  oldId.value = Number(route.query.oldId) || undefined
+  newId.value = Number(route.query.newId) || undefined
+  activeTab.value = String(route.query.tab || activeTab.value || 'candidates')
   if (activeTab.value === 'diff') {
-    oldId.value = Number(route.query.compareId) || undefined
-    newId.value = Number(route.query.snapshotId) || undefined
     await loadDiff()
   }
 })

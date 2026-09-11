@@ -35,6 +35,9 @@ const testing = ref(false)
 const editingId = ref<number>()
 const testedOk = ref(false)
 const connectionDirty = ref(false)
+// 仅保留在当前编辑弹窗内，保存时使用最近一次测试成功的密码。
+// 不写入列表、路由、Store 或持久化存储。
+const lastTestedPassword = ref<string | null>(null)
 const formRef = ref<FormInstance>()
 
 const query = reactive<DatasourceQuery>({
@@ -90,6 +93,7 @@ function resetForm() {
   editingId.value = undefined
   testedOk.value = false
   connectionDirty.value = false
+  lastTestedPassword.value = null
   Object.assign(form, {
     name: '',
     description: '',
@@ -142,6 +146,7 @@ function openEdit(row: DatasourceItem) {
   editingId.value = row.id
   testedOk.value = true
   connectionDirty.value = false
+  lastTestedPassword.value = null
   Object.assign(form, {
     name: row.name,
     description: row.description || '',
@@ -194,7 +199,7 @@ async function testConnection() {
       charset: form.charset,
       username: form.username,
     })
-    if (editingId.value) form.password = ''
+    lastTestedPassword.value = form.password ?? ''
     ElMessage.success('连接测试成功')
   } catch (cause) {
     testedOk.value = false
@@ -214,7 +219,11 @@ async function save() {
   saving.value = true
   try {
     const payload = { ...form }
-    if (editingId.value && !payload.password) delete payload.password
+    if (lastTestedPassword.value !== null) {
+      payload.password = lastTestedPassword.value
+    } else if (editingId.value) {
+      delete payload.password
+    }
     if (editingId.value) {
       await updateDatasource(editingId.value, payload)
       ElMessage.success('数据源已更新')
@@ -290,7 +299,7 @@ watch(
       || form.databaseName !== originalConnection.databaseName
       || form.charset !== originalConnection.charset
       || form.username !== originalConnection.username
-      || Boolean(form.password)
+      || form.password !== (lastTestedPassword.value ?? '')
     connectionDirty.value = changed
     if (changed) testedOk.value = false
   },

@@ -119,11 +119,34 @@ export async function getDatasourceReadiness(id: number) {
   return data
 }
 
-export async function getBatchDatasourceReadiness(datasourceIds: number[]) {
-  const { data } = await http.get<ApiResult<DatasourceReadiness[]>>('/api/admin/datasources/readiness/batch', {
-    params: { datasourceIds: datasourceIds.join(',') }
-  })
-  return data
+export interface BatchDatasourceReadinessResult {
+  data: DatasourceReadiness[]
+  failedDatasourceIds: number[]
+}
+
+export async function getBatchDatasourceReadiness(datasourceIds: number[]): Promise<BatchDatasourceReadinessResult> {
+  const batches: number[][] = []
+  for (let index = 0; index < datasourceIds.length; index += 20) {
+    batches.push(datasourceIds.slice(index, index + 20))
+  }
+
+  const settled = await Promise.allSettled(
+    batches.map(async (batch) => {
+      const { data } = await http.get<ApiResult<DatasourceReadiness[]>>('/api/admin/datasources/readiness/batch', {
+        params: { datasourceIds: batch.join(',') },
+      })
+      return { ids: batch, readiness: data.data || [] }
+    }),
+  )
+  const successful = settled
+    .filter((result): result is PromiseFulfilledResult<{ ids: number[]; readiness: DatasourceReadiness[] }> => result.status === 'fulfilled')
+    .flatMap((result) => result.value.readiness)
+  const failedDatasourceIds = settled.flatMap((result, index) => result.status === 'rejected' ? (batches[index] || []) : [])
+
+  if (!successful.length && failedDatasourceIds.length) {
+    throw settled.find((result): result is PromiseRejectedResult => result.status === 'rejected')?.reason
+  }
+  return { data: successful, failedDatasourceIds }
 }
 
 export async function createDatasource(payload: DatasourcePayload) {

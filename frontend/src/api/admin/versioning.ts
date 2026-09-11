@@ -80,9 +80,10 @@ export async function revokeSnapshot(snapshotId: number, reason: string) {
   return data
 }
 
-export async function compareSnapshots(snapshotId: number, compareSnapshotId: number) {
+/** 路径参数固定为旧快照 -> 新快照，返回新增/删除方向也按此协议解释。 */
+export async function compareSnapshots(oldSnapshotId: number, newSnapshotId: number) {
   const { data } = await http.get<ApiResult<any>>(
-    `/api/admin/snapshots/${snapshotId}/diff/${compareSnapshotId}`
+    `/api/admin/snapshots/${oldSnapshotId}/diff/${newSnapshotId}`
   )
   return data
 }

@@ -57,6 +57,9 @@ const activeStep = ref(0)
 const errorMessage = ref('')
 const testedOk = ref(false)
 const connectionDirty = ref(false)
+// 仅保留在当前编辑弹窗内，保存时使用最近一次测试成功的密码。
+// 不写入列表、路由、Store 或持久化存储。
+const lastTestedPassword = ref<string | null>(null)
 const accessCountMap = reactive<Record<number, number>>({})
 const readinessMap = reactive<Record<number, DatasourceReadiness>>({})
 const rowTesting = reactive<Record<number, boolean>>({})
@@ -166,7 +169,7 @@ watch(
       form.databaseName !== originalConnection.databaseName ||
       form.charset !== originalConnection.charset ||
       form.username !== originalConnection.username ||
-      Boolean(form.password)
+      form.password !== (lastTestedPassword.value ?? '')
     connectionDirty.value = changed
     if (changed) {
       testedOk.value = false
@@ -179,6 +182,7 @@ function resetForm() {
   activeStep.value = 0
   testedOk.value = false
   connectionDirty.value = false
+  lastTestedPassword.value = null
   Object.assign(form, {
     name: '',
     description: '',
@@ -346,6 +350,7 @@ function openEdit(row: DatasourceItem) {
   })
   testedOk.value = true
   connectionDirty.value = false
+  lastTestedPassword.value = null
   dialogVisible.value = true
   formRef.value?.clearValidate()
 }
@@ -371,7 +376,9 @@ async function saveDatasource() {
   saving.value = true
   try {
     const payload = { ...form }
-    if (editingId.value && !payload.password) {
+    if (lastTestedPassword.value !== null) {
+      payload.password = lastTestedPassword.value
+    } else if (editingId.value) {
       delete payload.password
     }
     if (editingId.value) {
@@ -426,9 +433,7 @@ async function testFormConnection() {
         charset: form.charset,
         username: form.username,
       })
-      if (editingId.value) {
-        form.password = ''
-      }
+      lastTestedPassword.value = form.password ?? ''
       ElMessage.success(`连接成功（耗时 ${result.data.responseTimeMs}ms）`)
     } else {
       testedOk.value = false

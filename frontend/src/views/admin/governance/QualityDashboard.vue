@@ -138,11 +138,12 @@ async function runCheck() {
     return
   }
 
+  checkResult.value = null
   checkLoading.value = true
   try {
     const res = await triggerQualityCheck(selectedSnapshotId.value)
     checkResult.value = res.data ?? null
-    await fetchIssues()
+    await fetchSnapshots()
     ElMessage.success(`质量校验完成，综合得分 ${res.data?.qualityScore}`)
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '校验失败')

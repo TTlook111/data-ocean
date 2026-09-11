@@ -18,35 +18,21 @@ const QueryAnalysisView = () => import('../views/admin/audit/QueryAnalysisView.v
 const ChangePassword = () => import('../views/profile/ChangePassword.vue')
 const ProfileView = () => import('../views/profile/ProfileView.vue')
 const QueryDatasourceView = () => import('../views/query/QueryDatasourceView.vue')
-const DepartmentTree = () => import('../views/admin/user/DepartmentTree.vue')
-const DatasourceList = () => import('../views/admin/datasource/DatasourceList.vue')
-const DatasourceLifecycle = () => import('../views/admin/datasource/DatasourceLifecycle.vue')
-const RoleList = () => import('../views/admin/user/RoleList.vue')
-const UserList = () => import('../views/admin/user/UserList.vue')
-const SyncTask = () => import('../views/admin/metadata/SyncTask.vue')
-const SnapshotList = () => import('../views/admin/metadata/SnapshotList.vue')
-const TableExplorer = () => import('../views/admin/metadata/TableExplorer.vue')
-const SnapshotDiff = () => import('../views/admin/metadata/SnapshotDiff.vue')
-const SyncSchedule = () => import('../views/admin/metadata/SyncSchedule.vue')
 const QualityDashboard = () => import('../views/admin/governance/QualityDashboard.vue')
 const IssueList = () => import('../views/admin/governance/IssueList.vue')
 const StatusEditor = () => import('../views/admin/governance/StatusEditor.vue')
-const SnapshotLifecycle = () => import('../views/admin/metadata/SnapshotLifecycle.vue')
-const VersionHistory = () => import('../views/admin/metadata/VersionHistory.vue')
 const SkillsEditor = () => import('../views/admin/knowledge/SkillsEditor.vue')
 const VersionList = () => import('../views/admin/knowledge/VersionList.vue')
-const ReviewPage = () => import('../views/admin/knowledge/ReviewPage.vue')
 const KnowledgeDashboard = () => import('../views/admin/knowledge/KnowledgeDashboard.vue')
 const PromptManager = () => import('../views/admin/prompt/PromptManager.vue')
 const NotFound = () => import('../views/NotFound.vue')
 const FieldTagManager = () => import('../views/admin/field/FieldTagManager.vue')
+const TableExplorer = () => import('../views/admin/metadata/TableExplorer.vue')
 const ConfidenceDashboard = () => import('../views/admin/field/ConfidenceDashboard.vue')
 const FeedbackReview = () => import('../views/admin/field/FeedbackReview.vue')
-const AuditLogList = () => import('../views/admin/audit/AuditLogList.vue')
-const SlowQueryList = () => import('../views/admin/audit/SlowQueryList.vue')
+const ReviewPage = () => import('../views/admin/knowledge/ReviewPage.vue')
 const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
 const GlossaryList = () => import('../views/admin/glossary/GlossaryList.vue')
-const CatalogSearch = () => import('../views/admin/metadata/CatalogSearch.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
 const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
 const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
@@ -195,6 +181,18 @@ const router = createRouter({
           meta: { title: '语义知识', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource' },
         },
         {
+          path: 'semantics/knowledge/new',
+          name: 'admin-semantic-knowledge-new',
+          component: SkillsEditor,
+          meta: { title: '新建知识文档', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource', breadcrumbParent: '/admin/semantics/knowledge' },
+        },
+        {
+          path: 'semantics/knowledge/:id/versions',
+          name: 'admin-semantic-knowledge-versions',
+          component: VersionList,
+          meta: { title: '知识版本历史', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'locked-resource', breadcrumbParent: '/admin/semantics/knowledge' },
+        },
+        {
           path: 'semantics/knowledge/:id',
           name: 'admin-semantic-knowledge-detail',
           component: SkillsEditor,
@@ -255,245 +253,79 @@ const router = createRouter({
           meta: { title: 'AI 配置', domainKey: 'operations', workspaceKey: 'ai', contextMode: 'none' },
         },
         { path: 'datasources', redirect: (to) => ({ path: '/admin/data-sources', query: to.query }) },
-        { path: 'datasources/:id/lifecycle', redirect: (to) => '/admin/data-sources/' + to.params.id },
+        { path: 'datasources/:id/lifecycle', redirect: (to) => ({ path: '/admin/data-sources/' + to.params.id, query: to.query }) },
         { path: 'metadata/sync', redirect: (to) => ({ path: '/admin/collections', query: to.query }) },
         { path: 'metadata/schedule', redirect: (to) => ({ path: '/admin/collections', query: { ...to.query, tab: 'schedule' } }) },
         { path: 'metadata/catalog', redirect: (to) => ({ path: '/admin/assets', query: to.query }) },
-        { path: 'metadata/tables', redirect: (to) => ({ path: '/admin/assets', query: to.query }) },
+        {
+          path: 'metadata/tables',
+          name: 'admin-metadata-tables',
+          component: TableExplorer,
+          meta: { title: '表浏览器', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'datasource-snapshot' },
+        },
         { path: 'metadata/lifecycle', redirect: (to) => ({ path: '/admin/releases', query: to.query }) },
         { path: 'metadata/snapshots', redirect: (to) => ({ path: '/admin/releases', query: to.query }) },
         { path: 'metadata/version-history', redirect: (to) => ({ path: '/admin/releases', query: { ...to.query, tab: 'history' } }) },
-        { path: 'metadata/diff', redirect: (to) => ({ path: '/admin/releases', query: { ...to.query, tab: 'diff' } }) },
+        {
+          path: 'metadata/diff',
+          redirect: (to) => {
+            const oldId = Number(to.query.oldId)
+            const newId = Number(to.query.newId)
+            if (oldId && newId) {
+              const { oldId: _oldId, newId: _newId, ...query } = to.query
+              return {
+                name: 'admin-snapshot-diff',
+                params: { snapshotId: String(oldId), compareId: String(newId) },
+                query,
+              }
+            }
+            return { path: '/admin/releases', query: { ...to.query, tab: 'diff' } }
+          },
+        },
         { path: 'governance/quality', redirect: (to) => ({ path: '/admin/governance', query: to.query }) },
         { path: 'governance/status', redirect: (to) => ({ path: '/admin/governance/rules', query: { ...to.query, tab: 'status' } }) },
         { path: 'field/tags', redirect: (to) => ({ path: '/admin/governance/fields', query: { ...to.query, tab: 'tags' } }) },
-        { path: 'field/confidence', redirect: (to) => ({ path: '/admin/governance/fields', query: { ...to.query, tab: 'confidence' } }) },
-        { path: 'field/feedback-review', redirect: (to) => ({ path: '/admin/governance/fields', query: { ...to.query, tab: 'feedback' } }) },
+        {
+          path: 'field/confidence',
+          name: 'admin-field-confidence',
+          component: ConfidenceDashboard,
+          meta: { title: '字段可信度', domainKey: 'governance', workspaceKey: 'governance-fields', contextMode: 'datasource-snapshot' },
+        },
+        {
+          path: 'field/feedback-review',
+          name: 'admin-field-feedback-review',
+          component: FeedbackReview,
+          meta: { title: '反馈审核', domainKey: 'governance', workspaceKey: 'governance-fields', contextMode: 'datasource-snapshot' },
+        },
         { path: 'glossary/list', redirect: (to) => ({ path: '/admin/semantics/glossaries', query: to.query }) },
         { path: 'knowledge', redirect: (to) => ({ path: '/admin/semantics/knowledge', query: to.query }) },
-        { path: 'knowledge/editor/:id?', redirect: (to) => to.params.id ? '/admin/semantics/knowledge/' + to.params.id : '/admin/semantics/knowledge' },
-        { path: 'knowledge/versions/:id', redirect: (to) => '/admin/semantics/knowledge/' + to.params.id + '?tab=versions' },
-        { path: 'knowledge/review', redirect: (to) => ({ path: '/admin/semantics/knowledge', query: { ...to.query, tab: 'review' } }) },
+        { path: 'knowledge/editor/:id?', redirect: (to) => ({ path: to.params.id ? '/admin/semantics/knowledge/' + to.params.id : '/admin/semantics/knowledge/new', query: to.query }) },
+        { path: 'knowledge/versions/:id', redirect: (to) => ({ path: '/admin/semantics/knowledge/' + to.params.id + '/versions', query: to.query }) },
+        {
+          path: 'knowledge/review',
+          name: 'admin-knowledge-review',
+          component: ReviewPage,
+          meta: { title: '知识审核', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource' },
+        },
         { path: 'prompts', redirect: (to) => ({ path: '/admin/semantics/prompts', query: to.query }) },
         { path: 'permission/access', redirect: (to) => ({ path: '/admin/access', query: { ...to.query, tab: 'grants' } }) },
-        { path: 'permission/policies', redirect: (to) => ({ path: '/admin/access', query: { ...to.query, tab: 'policies' } }) },
+        {
+          path: 'permission/policies',
+          name: 'admin-permission-policies',
+          component: PolicyEditor,
+          meta: { title: '策略编辑器', domainKey: 'access', workspaceKey: 'access', contextMode: 'datasource' },
+        },
         { path: 'users', redirect: (to) => ({ path: '/admin/access/organization', query: { ...to.query, tab: 'users' } }) },
         { path: 'roles', redirect: (to) => ({ path: '/admin/access/organization', query: { ...to.query, tab: 'roles' } }) },
         { path: 'departments', redirect: (to) => ({ path: '/admin/access/organization', query: { ...to.query, tab: 'departments' } }) },
         { path: 'audit/logs', redirect: (to) => ({ path: '/admin/operations/queries', query: { ...to.query, tab: 'audit' } }) },
         { path: 'audit/slow-queries', redirect: (to) => ({ path: '/admin/operations/queries', query: { ...to.query, tab: 'performance' } }) },
         { path: 'audit/data-lineage', redirect: (to) => ({ path: '/admin/operations/lineage', query: to.query }) },
-        { path: 'audit/lineage', redirect: '/admin/operations/lineage' },
-        { path: 'audit/lineage-graph', redirect: '/admin/operations/lineage' },
+        { path: 'audit/lineage', redirect: (to) => ({ path: '/admin/operations/lineage', query: to.query }) },
+        { path: 'audit/lineage-graph', redirect: (to) => ({ path: '/admin/operations/lineage', query: to.query }) },
         { path: 'system/health', redirect: (to) => ({ path: '/admin/platform/runtime', query: to.query }) },
         { path: 'system/operation-logs', redirect: (to) => ({ path: '/admin/platform/operation-logs', query: to.query }) },
         { path: 'system/ai-config', redirect: (to) => ({ path: '/admin/platform/ai', query: to.query }) },
-        {
-          path: 'users',
-          name: 'admin-users',
-          component: UserList,
-          meta: { title: '用户管理', section: '权限与合规', permission: 'user:manage' },
-        },
-        {
-          path: 'roles',
-          name: 'admin-roles',
-          component: RoleList,
-          meta: { title: '角色管理', section: '权限与合规', permission: 'role:view' },
-        },
-        {
-          path: 'departments',
-          name: 'admin-departments',
-          component: DepartmentTree,
-          meta: { title: '部门管理', section: '权限与合规', permission: 'department:manage' },
-        },
-        {
-          path: 'datasources',
-          name: 'admin-datasources',
-          component: DatasourceList,
-          meta: { title: '数据源管理', section: '数据资产', permission: 'datasource:manage' },
-        },
-        {
-          path: 'datasources/:id/lifecycle',
-          name: 'admin-datasource-lifecycle',
-          component: DatasourceLifecycle,
-          meta: { title: '数据源详情', section: '数据资产', permission: 'datasource:manage' },
-        },
-        {
-          path: 'metadata/sync',
-          name: 'admin-metadata-sync',
-          component: SyncTask,
-          meta: { title: '同步任务', section: '数据资产', permission: 'metadata:manage' },
-        },
-        {
-          path: 'metadata/snapshots',
-          name: 'admin-metadata-snapshots',
-          component: SnapshotList,
-          meta: { title: '快照列表', section: '数据资产', permission: 'metadata:manage' },
-        },
-        {
-          path: 'metadata/tables',
-          name: 'admin-metadata-tables',
-          component: TableExplorer,
-          meta: { title: '表浏览器', section: '数据资产', permission: 'metadata:manage' },
-        },
-        {
-          path: 'metadata/diff',
-          name: 'admin-metadata-diff',
-          component: SnapshotDiff,
-          meta: { title: '快照差异', section: '数据资产', permission: 'metadata:manage' },
-        },
-        {
-          path: 'metadata/schedule',
-          name: 'admin-metadata-schedule',
-          component: SyncSchedule,
-          meta: { title: '同步调度', section: '数据资产', permission: 'metadata:manage' },
-        },
-        {
-          path: 'metadata/catalog',
-          name: 'admin-metadata-catalog',
-          component: CatalogSearch,
-          meta: { title: '目录搜索', section: '数据资产', permission: 'metadata:manage' },
-        },
-        {
-          path: 'governance/quality',
-          name: 'admin-governance-quality',
-          component: QualityDashboard,
-          meta: { title: '质量看板', section: '治理工作台', permission: 'metadata:manage' },
-        },
-        {
-          path: 'governance/issues',
-          name: 'admin-governance-issues',
-          component: IssueList,
-          meta: { title: '问题清单', section: '治理工作台', permission: 'metadata:manage' },
-        },
-        {
-          path: 'governance/status',
-          name: 'admin-governance-status',
-          component: StatusEditor,
-          meta: { title: '治理状态', section: '治理工作台', permission: 'metadata:manage' },
-        },
-        {
-          path: 'metadata/lifecycle',
-          name: 'admin-metadata-lifecycle',
-          component: SnapshotLifecycle,
-          meta: { title: '快照生命周期', section: '数据资产', permission: 'metadata:manage' },
-        },
-        {
-          path: 'metadata/version-history',
-          name: 'admin-metadata-version-history',
-          component: VersionHistory,
-          meta: { title: '版本历史', section: '数据资产', permission: 'metadata:manage' },
-        },
-        {
-          path: 'knowledge',
-          name: 'admin-knowledge',
-          component: KnowledgeDashboard,
-          meta: { title: '知识库总览', section: '语义资产', permission: 'knowledge:manage' },
-        },
-        {
-          path: 'knowledge/editor/:id?',
-          name: 'admin-knowledge-editor',
-          component: SkillsEditor,
-          meta: { title: 'Skills 编辑器', section: '语义资产', permission: 'knowledge:manage' },
-        },
-        {
-          path: 'knowledge/versions/:id',
-          name: 'admin-knowledge-versions',
-          component: VersionList,
-          meta: { title: '版本历史', section: '语义资产', permission: 'knowledge:manage' },
-        },
-        {
-          path: 'knowledge/review',
-          name: 'admin-knowledge-review',
-          component: ReviewPage,
-          meta: { title: '知识审核', section: '语义资产', permission: 'knowledge:manage' },
-        },
-        {
-          path: 'prompts',
-          name: 'admin-prompts',
-          component: PromptManager,
-          meta: { title: 'Prompt 管理', section: '语义资产', permission: 'prompt:manage' },
-        },
-        {
-          path: 'field/tags',
-          name: 'admin-field-tags',
-          component: FieldTagManager,
-          meta: { title: '字段标签', section: '治理工作台', permission: 'field-tag:manage' },
-        },
-        {
-          path: 'field/confidence',
-          name: 'admin-field-confidence',
-          component: ConfidenceDashboard,
-          meta: { title: '可信度看板', section: '治理工作台', permission: 'field-tag:manage' },
-        },
-        {
-          path: 'field/feedback-review',
-          name: 'admin-field-feedback-review',
-          component: FeedbackReview,
-          meta: { title: '反馈审核', section: '治理工作台', permission: 'field-tag:manage' },
-        },
-        {
-          path: 'audit/logs',
-          name: 'admin-audit-logs',
-          component: AuditLogList,
-          meta: { title: '审计日志', section: '运营与安全', permission: 'audit:view' },
-        },
-        {
-          path: 'audit/slow-queries',
-          name: 'admin-audit-slow',
-          component: SlowQueryList,
-          meta: { title: '慢查询', section: '运营与安全', permission: 'audit:view' },
-        },
-        {
-          path: 'audit/lineage',
-          redirect: '/admin/audit/data-lineage',
-        },
-        {
-          path: 'audit/lineage-graph',
-          redirect: '/admin/audit/data-lineage',
-        },
-        {
-          path: 'audit/data-lineage',
-          name: 'admin-audit-data-lineage',
-          component: DataLineage,
-          meta: { title: '数据血缘', section: '运营与安全', permission: 'audit:view' },
-        },
-        {
-          path: 'glossary/list',
-          name: 'admin-glossary-list',
-          component: GlossaryList,
-          meta: { title: '术语管理', section: '语义资产', permission: 'metadata:manage' },
-        },
-        {
-          path: 'permission/access',
-          name: 'admin-permission-access',
-          component: AccessControl,
-          meta: { title: '访问控制', section: '权限与合规', permission: 'security:manage' },
-        },
-        {
-          path: 'permission/policies',
-          name: 'admin-permission-policies',
-          component: PolicyEditor,
-          meta: { title: '策略编辑器', section: '权限与合规', permission: 'security:manage' },
-        },
-        {
-          path: 'system/health',
-          name: 'admin-system-health',
-          component: ServiceHealth,
-          meta: { title: '服务健康', section: '运营与安全', permission: '*' },
-        },
-        {
-          path: 'system/operation-logs',
-          name: 'admin-system-operation-logs',
-          component: OperationLogList,
-          meta: { title: '操作日志', section: '系统设置', permission: 'audit:view' },
-        },
-        {
-          path: 'system/ai-config',
-          name: 'admin-system-ai-config',
-          component: AiConfig,
-          meta: { title: 'AI 配置', section: '系统设置', permission: 'system:ai-config:view' },
-        },
       ],
     },
     {

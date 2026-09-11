@@ -215,6 +215,7 @@ public class MetadataCollectionController {
     private SyncTaskVO toSyncTaskVO(SchemaSyncTask task, Map<Long, String> dsNames) {
         SyncTaskVO vo = new SyncTaskVO();
         vo.setId(task.getId());
+        vo.setDatasourceId(task.getDatasourceId());
         vo.setDatasourceName(dsNames.getOrDefault(task.getDatasourceId(), "未知"));  // 从映射中获取数据源名称
         vo.setTriggerType(task.getTriggerType());  // 触发类型（MANUAL/SCHEDULED）
         vo.setStatus(task.getStatus());            // 任务状态（RUNNING/SUCCESS/FAILED）
@@ -223,6 +224,7 @@ public class MetadataCollectionController {
         vo.setStartedAt(task.getStartedAt());      // 开始时间
         vo.setFinishedAt(task.getFinishedAt());    // 结束时间
         vo.setErrorMessage(task.getErrorMessage()); // 错误信息（失败时）
+        vo.setSnapshotId(task.getSnapshotId());
         return vo;
     }
 

@@ -23,6 +23,7 @@ const statsLoading = ref(true)
 const readinessLoading = ref(true)
 const statsError = ref('')
 const readinessError = ref('')
+const readinessPartialError = ref('')
 const selectedDatasource = ref<DatasourceReadiness | null>(null)
 
 const isSuperAdmin = computed(() => auth.permissions.includes('*'))
@@ -56,14 +57,20 @@ async function loadStats() {
 async function loadReadiness() {
   readinessLoading.value = true
   readinessError.value = ''
+  readinessPartialError.value = ''
   try {
     const sources = await listSimpleDatasources()
     if (!sources.data.length) {
       readiness.value = []
+      selectedDatasource.value = null
       return
     }
     const result = await getBatchDatasourceReadiness(sources.data.map((item) => item.id))
     readiness.value = result.data || []
+    selectedDatasource.value = null
+    if (result.failedDatasourceIds.length) {
+      readinessPartialError.value = `${result.failedDatasourceIds.length} 个数据源的就绪度读取失败，已保留其余数据源结果。`
+    }
     selectedDatasource.value = readiness.value.find((item) => !item.askable) || readiness.value[0] || null
   } catch (cause) {
     readinessError.value = cause instanceof Error ? cause.message : '数据源就绪度加载失败'
@@ -130,6 +137,7 @@ onMounted(load)
           </div>
           <el-button text @click="loadReadiness">刷新</el-button>
         </div>
+        <el-alert v-if="readinessPartialError" :title="readinessPartialError" type="warning" :closable="false" show-icon />
         <ErrorState v-if="readinessError" :message="readinessError" @retry="loadReadiness" />
         <LoadingState v-else-if="readinessLoading" text="正在读取数据源就绪度..." />
         <EmptyState v-else-if="!readiness.length" message="还没有数据源，请先完成数据源接入。" action-text="去创建数据源" @action="router.push('/admin/data-sources')" />

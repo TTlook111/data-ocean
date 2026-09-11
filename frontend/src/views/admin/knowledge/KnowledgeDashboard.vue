@@ -163,19 +163,19 @@ async function handleGenerate() {
 // 跳转到文档编辑页
 function goEditDoc(id: number) {
   generateDialogVisible.value = false
-  router.push({ name: 'admin-knowledge-editor', params: { id } })
+  router.push({ name: 'admin-semantic-knowledge-detail', params: { id } })
 }
 
 function goCreate() {
-  router.push({ name: 'admin-knowledge-editor' })
+  router.push({ name: 'admin-semantic-knowledge-new' })
 }
 
 function goEdit(id: number) {
-  router.push({ name: 'admin-knowledge-editor', params: { id } })
+  router.push({ name: 'admin-semantic-knowledge-detail', params: { id } })
 }
 
 function goVersions(id: number) {
-  router.push({ name: 'admin-knowledge-versions', params: { id } })
+  router.push({ name: 'admin-semantic-knowledge-versions', params: { id } })
 }
 
 onMounted(async () => {
