@@ -58,7 +58,10 @@ export async function triggerQualityCheck(snapshotId: number, payload?: { dimens
 }
 
 export async function listQualityIssues(snapshotId: number | undefined, params: {
-  dimension?: string; severity?: string; status?: string; tableName?: string; page?: number; size?: number
+  dimension?: string; severity?: string; status?: string; tableName?: string
+  /** 按责任人过滤（2026-09-12 后端新增该参数） */
+  assigneeId?: number
+  page?: number; size?: number
 }) {
   const url = snapshotId ? `/api/admin/snapshots/${snapshotId}/quality-issues` : '/api/admin/quality-issues'
   const { data } = await http.get<ApiResult<PageResult<QualityIssueItem>>>(url, { params })

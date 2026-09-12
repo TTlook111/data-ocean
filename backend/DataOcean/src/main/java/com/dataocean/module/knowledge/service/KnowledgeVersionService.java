@@ -1,6 +1,7 @@
 package com.dataocean.module.knowledge.service;
 
 import com.dataocean.module.knowledge.dto.KnowledgeReviewRecordVO;
+import com.dataocean.module.knowledge.dto.KnowledgeSourceSnapshotVO;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
 
 import java.util.List;
@@ -83,4 +84,16 @@ public interface KnowledgeVersionService {
      * @return 审核记录列表；文档无版本或无审核记录时返回空列表
      */
     List<KnowledgeReviewRecordVO> listReviewRecords(Long docId);
+
+    /**
+     * 查询文档各版本的来源快照。
+     * <p>
+     * 把「版本 → 快照 ID → 快照详情」的关联在服务端一次完成，按版本号降序逐条返回。
+     * 快照已被删除时该条的详情字段为 null，但 `snapshotId` 仍然返回，便于调用方提示来源缺失。
+     * </p>
+     *
+     * @param docId 文档 ID
+     * @return 来源快照列表；文档无版本或无来源快照时返回空列表
+     */
+    List<KnowledgeSourceSnapshotVO> listSourceSnapshots(Long docId);
 }

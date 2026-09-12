@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.dto.KnowledgeReviewRecordVO;
+import com.dataocean.module.knowledge.dto.KnowledgeSourceSnapshotVO;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
@@ -18,6 +19,8 @@ import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
+import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.user.entity.SysUser;
 import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -50,6 +54,7 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
     private final KnowledgeDocMapper knowledgeDocMapper;
     private final KnowledgeChunkMapper knowledgeChunkMapper;
     private final KnowledgeReviewTaskMapper knowledgeReviewTaskMapper;
+    private final MetadataSnapshotMapper metadataSnapshotMapper;
     private final VectorIndexTaskService vectorIndexTaskService;
     private final KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
     private final UserMapper userMapper;
@@ -333,6 +338,44 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
                         .submittedAt(task.getSubmittedAt())
                         .reviewedAt(task.getReviewedAt())
                         .build())
+                .toList();
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 先取文档的全部版本，收集其 `metadataSnapshotId`，再按 ID 批量查询快照并回填详情。
+     * 批量查询而非逐个，避免按版本数产生 N+1；快照已被删除时只返回 `snapshotId`，
+     * 其余字段为 null——来源缺失这件事本身对调用方是有用信息。
+     * </p>
+     */
+    @Override
+    public List<KnowledgeSourceSnapshotVO> listSourceSnapshots(Long docId) {
+        List<KnowledgeDocVersion> versions = listVersions(docId);
+        Set<Long> snapshotIds = versions.stream()
+                .map(KnowledgeDocVersion::getMetadataSnapshotId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (snapshotIds.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, MetadataSnapshot> snapshotById = metadataSnapshotMapper.selectBatchIds(snapshotIds).stream()
+                .collect(Collectors.toMap(MetadataSnapshot::getId, Function.identity()));
+
+        return versions.stream()
+                .filter(version -> version.getMetadataSnapshotId() != null)
+                .map(version -> {
+                    MetadataSnapshot snapshot = snapshotById.get(version.getMetadataSnapshotId());
+                    return KnowledgeSourceSnapshotVO.builder()
+                            .versionNo(version.getVersionNo())
+                            .snapshotId(version.getMetadataSnapshotId())
+                            .snapshotVersion(snapshot != null ? snapshot.getSnapshotVersion() : null)
+                            .status(snapshot != null ? snapshot.getStatus() : null)
+                            .tableCount(snapshot != null ? snapshot.getTableCount() : null)
+                            .columnCount(snapshot != null ? snapshot.getColumnCount() : null)
+                            .createdAt(snapshot != null ? snapshot.getCreatedAt() : null)
+                            .build();
+                })
                 .toList();
     }
 }

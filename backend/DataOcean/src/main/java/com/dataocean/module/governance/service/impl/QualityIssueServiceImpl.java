@@ -64,13 +64,15 @@ public class QualityIssueServiceImpl implements QualityIssueService {
     @Transactional(readOnly = true)
     @Override
     public Page<QualityIssueVO> listIssues(Long snapshotId, String dimension, String severity,
-                                           String status, String tableName, int page, int size) {
+                                           String status, String tableName, Long assigneeId,
+                                           int page, int size) {
         LambdaQueryWrapper<MetadataQualityIssue> qw = new LambdaQueryWrapper<MetadataQualityIssue>()
                 .eq(snapshotId != null, MetadataQualityIssue::getSnapshotId, snapshotId)
                 .eq(StringUtils.hasText(dimension), MetadataQualityIssue::getDimension, dimension)
                 .eq(StringUtils.hasText(severity), MetadataQualityIssue::getSeverity, severity)
                 .eq(StringUtils.hasText(status), MetadataQualityIssue::getStatus, status)
                 .eq(StringUtils.hasText(tableName), MetadataQualityIssue::getTableName, tableName)
+                .eq(assigneeId != null, MetadataQualityIssue::getAssigneeId, assigneeId)
                 .orderByDesc(MetadataQualityIssue::getCreatedAt);
 
         Page<MetadataQualityIssue> issuePage = issueMapper.selectPage(new Page<>(page, size), qw);

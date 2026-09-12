@@ -20,6 +20,7 @@ import {
   severityLabel,
 } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useAuthStore } from '../../../stores/auth'
 import ResourceScopeSelector from '../../../components/ResourceScopeSelector.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
@@ -54,8 +55,12 @@ let issueRequestId = 0
 let detailRequestId = 0
 let disposed = false
 const adminContext = useAdminContextStore()
+const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+
+/** 当前登录用户 ID：用于「分配给我的」快捷筛选 */
+const currentUserId = computed(() => auth.currentUser?.id ?? auth.user?.userId)
 
 const query = reactive({
   snapshotId: undefined as number | undefined,
@@ -63,9 +68,34 @@ const query = reactive({
   severity: String(route.query.severity || ''),
   status: String(route.query.status || ''),
   tableName: String(route.query.tableName || ''),
+  assigneeId: Number(route.query.assigneeId) || undefined,
   page: Number(route.query.page) || 1,
   size: 20
 })
+
+/** 责任人筛选是否正落在「我自己」上，用于高亮快捷按钮 */
+const isMyIssuesFilter = computed(() =>
+  Boolean(currentUserId.value) && query.assigneeId === currentUserId.value)
+
+/**
+ * 「分配给我的」快捷筛选。
+ *
+ * 规范 §7.7 的原文是「**默认**优先展示高危、阻断和分配给当前用户的问题」。
+ * 这里实现为**显式筛选**而非默认开启：
+ * 1. 强制默认过滤会让多数管理员首次进入就看到空列表，反而不知道系统里存在问题；
+ * 2. 该规范的意图是「优先」而不是「只显示」，要真正落实需要后端按责任人排序，
+ *    那是独立的一件事，本次未做。
+ *
+ * ⚠️ 这是实现者的取舍，**未经产品确认**。若要求「默认开启」或「按责任人排序」，
+ * 改动点在本函数与后端 `listIssues` 的 orderBy。
+ */
+function toggleMyIssues() {
+  if (!currentUserId.value) return
+  query.assigneeId = isMyIssuesFilter.value ? undefined : currentUserId.value
+  query.page = 1
+  persistQuery()
+  fetchIssues()
+}
 
 const dimensionOptions = [
   { label: '全部维度', value: '' },
@@ -133,6 +163,7 @@ async function fetchIssues() {
       severity: query.severity || undefined,
       status: query.status || undefined,
       tableName: query.tableName || undefined,
+      assigneeId: query.assigneeId,
       page: query.page,
       size: query.size
     })
@@ -163,6 +194,7 @@ function persistQuery() {
     severity: query.severity || undefined,
     status: query.status || undefined,
     tableName: query.tableName || undefined,
+    assigneeId: query.assigneeId ? String(query.assigneeId) : undefined,
     page: query.page > 1 ? String(query.page) : undefined,
   }
   Object.entries(values).forEach(([key, value]) => {
@@ -303,6 +335,8 @@ onMounted(async () => {
   scopeDatasourceId.value = adminContext.datasourceId
   query.snapshotId = adminContext.snapshotId
   if (route.query.snapshotId) query.snapshotId = Number(route.query.snapshotId) || query.snapshotId
+  // 责任人筛选下拉需要用户列表，进页面就取一次（供筛选与详情分派共用）
+  loadUserOptions()
   fetchIssues()
 })
 
@@ -365,6 +399,28 @@ onBeforeUnmount(() => {
       <el-select v-model="query.status" placeholder="全部状态" style="width: 120px" @change="query.page = 1; persistQuery(); fetchIssues()">
         <el-option v-for="o in statusOptions" :key="o.value" :label="o.label" :value="o.value" />
       </el-select>
+      <el-select
+        v-model="query.assigneeId"
+        placeholder="全部责任人"
+        style="width: 150px"
+        clearable
+        filterable
+        :loading="userOptionsLoading"
+        :disabled="Boolean(assigneeError)"
+        @change="query.page = 1; persistQuery(); fetchIssues()"
+      >
+        <el-option v-for="o in userOptions" :key="o.id" :label="o.label" :value="o.id" />
+      </el-select>
+      <el-button
+        size="small"
+        :type="isMyIssuesFilter ? 'primary' : 'default'"
+        :disabled="!currentUserId"
+        @click="toggleMyIssues"
+      >分配给我的</el-button>
+      <span v-if="assigneeError" class="muted-text">{{ assigneeError }}</span>
+      <span v-else-if="userOptionsTotal > USER_PAGE_SIZE" class="muted-text">
+        共 {{ userOptionsTotal }} 名用户，责任人下拉仅显示前 {{ USER_PAGE_SIZE }} 名。
+      </span>
     </section>
 
     <section class="status-strip issue-strip">
@@ -416,6 +472,11 @@ onBeforeUnmount(() => {
         <el-table-column prop="status" label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="issueStatusType(row.status)" size="small">{{ issueStatusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="assigneeName" label="责任人" width="110" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span :class="{ 'muted-text': !row.assigneeName }">{{ row.assigneeName || '未分派' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="260" fixed="right">

@@ -197,3 +197,30 @@ export async function listVectorTasks(docId: number) {
   )
   return data
 }
+
+/**
+ * 文档版本的来源快照（按版本号降序，一个版本一条）。
+ *
+ * 来源快照记录在 `knowledge_doc_version.metadata_snapshot_id` 上。2026-09-12 之前前端只能
+ * 显示裸 ID，或「取版本列表 + 取数据源快照列表」两次请求再自行关联——而引用的快照一旦
+ * 不在已加载的分页范围内就关联不上（跨数据源的版本尤其如此）。
+ *
+ * `snapshotVersion` / `status` / `tableCount` / `columnCount` 为 null 表示该快照已不存在。
+ */
+export interface KnowledgeSourceSnapshot {
+  versionNo: number
+  snapshotId: number
+  snapshotVersion?: number
+  status?: string
+  tableCount?: number
+  columnCount?: number
+  createdAt?: string
+}
+
+/** 查询文档各版本的来源快照 */
+export async function listSourceSnapshots(docId: number) {
+  const { data } = await http.get<ApiResult<KnowledgeSourceSnapshot[]>>(
+    `/api/admin/knowledge-docs/${docId}/source-snapshots`,
+  )
+  return data
+}

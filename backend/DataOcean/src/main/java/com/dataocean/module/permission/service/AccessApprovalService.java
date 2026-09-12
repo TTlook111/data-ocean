@@ -37,7 +37,20 @@ public interface AccessApprovalService {
      * @param size         每页大小
      * @return 分页结果
      */
-    Page<AccessApprovalRequest> listRequests(Long datasourceId, String status, int page, int size);
+    /**
+     * 分页查询审批请求。
+     *
+     * @param datasourceId 可选数据源过滤
+     * @param status       可选状态过滤
+     * @param requesterId  可选申请人过滤。**非管理员调用方必须传入自己的用户 ID**：
+     *                     该接口原先把范围收窄的责任完全交给调用方（前端），任何登录用户
+     *                     都能列出全部申请（含他人申请理由）；后端必须自己保证隔离。
+     *                     null 表示不限制申请人，仅管理员可用
+     * @param page         页码
+     * @param size         每页条数
+     * @return 审批请求分页结果
+     */
+    Page<AccessApprovalRequest> listRequests(Long datasourceId, String status, Long requesterId, int page, int size);
 
     /**
      * 过期已到期的临时策略

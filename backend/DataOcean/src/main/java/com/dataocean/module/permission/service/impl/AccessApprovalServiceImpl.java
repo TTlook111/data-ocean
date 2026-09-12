@@ -143,10 +143,12 @@ public class AccessApprovalServiceImpl extends ServiceImpl<AccessApprovalRequest
     }
 
     @Override
-    public Page<AccessApprovalRequest> listRequests(Long datasourceId, String status, int page, int size) {
+    public Page<AccessApprovalRequest> listRequests(Long datasourceId, String status, Long requesterId,
+                                                    int page, int size) {
         LambdaQueryWrapper<AccessApprovalRequest> qw = new LambdaQueryWrapper<AccessApprovalRequest>()
                 .eq(datasourceId != null, AccessApprovalRequest::getDatasourceId, datasourceId)
                 .eq(status != null, AccessApprovalRequest::getStatus, status)
+                .eq(requesterId != null, AccessApprovalRequest::getRequesterId, requesterId)
                 .orderByDesc(AccessApprovalRequest::getCreatedAt);
         return baseMapper.selectPage(new Page<>(page, size), qw);
     }

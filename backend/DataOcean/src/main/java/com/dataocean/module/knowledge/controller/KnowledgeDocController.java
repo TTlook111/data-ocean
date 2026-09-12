@@ -222,6 +222,22 @@ public class KnowledgeDocController {
         return Result.success(knowledgeVersionService.listReviewRecords(id));
     }
 
+    /**
+     * 查询文档各版本的来源快照。
+     * <p>
+     * 来源快照记录在各版本的 `metadata_snapshot_id` 上。此前前端要么只能显示裸 ID，
+     * 要么需要「取版本列表 + 取数据源快照列表」两次请求再自行关联，且当引用的快照不在
+     * 已加载的分页范围内时关联不上。本接口把该关联在服务端一次完成。
+     * </p>
+     *
+     * @param id 文档 ID
+     * @return 来源快照列表，按版本号降序
+     */
+    @GetMapping("/{id}/source-snapshots")
+    public Result<List<KnowledgeSourceSnapshotVO>> listSourceSnapshots(@PathVariable Long id) {
+        return Result.success(knowledgeVersionService.listSourceSnapshots(id));
+    }
+
     // === 版本管理 ===
 
     /**

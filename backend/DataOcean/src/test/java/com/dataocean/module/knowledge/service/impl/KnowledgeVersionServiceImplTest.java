@@ -5,6 +5,7 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.LoginUser;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.dto.KnowledgeReviewRecordVO;
+import com.dataocean.module.knowledge.dto.KnowledgeSourceSnapshotVO;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
@@ -17,6 +18,8 @@ import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
+import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.user.entity.SysUser;
 import com.dataocean.module.user.mapper.UserMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -54,6 +57,8 @@ class KnowledgeVersionServiceImplTest {
     private KnowledgeChunkMapper knowledgeChunkMapper;
     @Mock
     private KnowledgeReviewTaskMapper knowledgeReviewTaskMapper;
+    @Mock
+    private MetadataSnapshotMapper metadataSnapshotMapper;
     @Mock
     private VectorIndexTaskService vectorIndexTaskService;
     @Mock
@@ -269,6 +274,49 @@ class KnowledgeVersionServiceImplTest {
 
         assertThat(knowledgeVersionService.listReviewRecords(99L)).isEmpty();
         verify(knowledgeReviewTaskMapper, never()).selectList(any());
+    }
+
+    // ==================== 来源快照 ====================
+
+    @Test
+    void listSourceSnapshotsResolvesSnapshotDetailsByVersion() {
+        long docId = 99L;
+        KnowledgeDocVersion v1 = KnowledgeDocVersion.builder()
+                .id(100L).docId(docId).versionNo(1).metadataSnapshotId(5L).build();
+        KnowledgeDocVersion v2 = KnowledgeDocVersion.builder()
+                .id(200L).docId(docId).versionNo(2).metadataSnapshotId(7L).build();
+        MetadataSnapshot snapshot = new MetadataSnapshot();
+        snapshot.setId(7L);
+        snapshot.setSnapshotVersion(3);
+        snapshot.setStatus(MetadataSnapshot.STATUS_PUBLISHED);
+        snapshot.setTableCount(12);
+        snapshot.setColumnCount(88);
+        snapshot.setCreatedAt(LocalDateTime.of(2026, 9, 3, 9, 0));
+
+        when(knowledgeDocVersionMapper.selectList(any(Wrapper.class))).thenReturn(List.of(v2, v1));
+        when(metadataSnapshotMapper.selectBatchIds(anyCollection())).thenReturn(List.of(snapshot));
+
+        List<KnowledgeSourceSnapshotVO> records = knowledgeVersionService.listSourceSnapshots(docId);
+
+        assertThat(records).hasSize(2);
+        assertThat(records.get(0).getVersionNo()).isEqualTo(2);
+        assertThat(records.get(0).getSnapshotVersion()).isEqualTo(3);
+        assertThat(records.get(0).getStatus()).isEqualTo(MetadataSnapshot.STATUS_PUBLISHED);
+        assertThat(records.get(0).getTableCount()).isEqualTo(12);
+        // v1 的来源快照已不存在：仍返回 snapshotId 供调用方提示「来源缺失」，
+        // 而不是把该版本整个丢掉
+        assertThat(records.get(1).getSnapshotId()).isEqualTo(5L);
+        assertThat(records.get(1).getSnapshotVersion()).isNull();
+    }
+
+    @Test
+    void listSourceSnapshotsReturnsEmptyWhenNoVersionHasSnapshot() {
+        when(knowledgeDocVersionMapper.selectList(any(Wrapper.class))).thenReturn(List.of(
+                KnowledgeDocVersion.builder().id(1L).docId(99L).versionNo(1).build()));
+
+        assertThat(knowledgeVersionService.listSourceSnapshots(99L)).isEmpty();
+        // 无来源快照时不应发起批量查询（空集合查询在 MyBatis-Plus 下会报错）
+        verify(metadataSnapshotMapper, never()).selectBatchIds(anyCollection());
     }
 
     private void setLoginUser() {

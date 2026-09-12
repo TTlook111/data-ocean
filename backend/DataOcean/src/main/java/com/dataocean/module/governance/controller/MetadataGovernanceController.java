@@ -97,6 +97,7 @@ public class MetadataGovernanceController {
      * @param severity   可选严重级别
      * @param status     可选处理状态
      * @param tableName  可选表名
+     * @param assigneeId 可选责任人用户 ID
      * @param page       页码
      * @param size       每页条数
      * @return 质量问题分页列表
@@ -108,10 +109,11 @@ public class MetadataGovernanceController {
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String tableName,
+            @RequestParam(required = false) Long assigneeId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.success(qualityIssueService.listIssues(snapshotId, dimension, severity, status, tableName,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                assigneeId, (int) PageRequest.page(page), (int) PageRequest.size(size)));
     }
 
     /**
@@ -122,6 +124,7 @@ public class MetadataGovernanceController {
      * @param severity   可选严重级别
      * @param status     可选处理状态
      * @param tableName  可选表名
+     * @param assigneeId 可选责任人用户 ID
      * @param page       页码
      * @param size       每页条数
      * @return 质量问题分页列表
@@ -133,10 +136,11 @@ public class MetadataGovernanceController {
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String tableName,
+            @RequestParam(required = false) Long assigneeId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.success(qualityIssueService.listIssues(snapshotId, dimension, severity, status, tableName,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                assigneeId, (int) PageRequest.page(page), (int) PageRequest.size(size)));
     }
 
     /**

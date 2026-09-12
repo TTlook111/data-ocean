@@ -17,12 +17,13 @@ public interface QualityIssueService {
      * @param severity   可选严重级别
      * @param status     可选处理状态
      * @param tableName  可选表名
+     * @param assigneeId 可选责任人用户 ID（null 表示不按责任人过滤）
      * @param page       页码
      * @param size       每页条数
      * @return 质量问题分页结果
      */
     Page<QualityIssueVO> listIssues(Long snapshotId, String dimension, String severity,
-                                     String status, String tableName, int page, int size);
+                                     String status, String tableName, Long assigneeId, int page, int size);
 
     /**
      * 处理单个质量问题状态。

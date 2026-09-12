@@ -25,6 +25,7 @@ import {
   diffVersions,
   getKnowledgeDoc,
   listReviewTasks,
+  listSourceSnapshots,
   listVectorTasks,
   listVersions,
   previewChunks,
@@ -38,6 +39,7 @@ import {
   type KnowledgeDiffLine,
   type KnowledgeDocItem,
   type KnowledgeReviewRecord,
+  type KnowledgeSourceSnapshot,
   type KnowledgeVersionItem,
   type VectorIndexTaskItem,
 } from '../../../api/admin/knowledge'
@@ -436,13 +438,23 @@ const versionTimeline = computed(() =>
   })),
 )
 
-/** 来源快照：版本记录里的 metadataSnapshotId 是真实数据，去重后从新到旧展示 */
-const sourceSnapshotIds = computed(() => {
-  const ids = versions.value
-    .map((item) => item.metadataSnapshotId)
-    .filter((id): id is number => typeof id === 'number' && id > 0)
-  return [...new Set(ids)].sort((a, b) => b - a)
-})
+/** 来源快照：后端按版本返回，含快照版本号/状态/规模（2026-09-12 新增该接口） */
+const sourceSnapshots = ref<KnowledgeSourceSnapshot[]>([])
+const sourceSnapshotsLoading = ref(false)
+const sourceSnapshotsError = ref('')
+
+async function loadSourceSnapshots() {
+  sourceSnapshotsLoading.value = true
+  sourceSnapshotsError.value = ''
+  try {
+    sourceSnapshots.value = (await listSourceSnapshots(docId.value)).data || []
+  } catch (cause) {
+    sourceSnapshots.value = []
+    sourceSnapshotsError.value = cause instanceof Error ? cause.message : '来源快照加载失败'
+  } finally {
+    sourceSnapshotsLoading.value = false
+  }
+}
 
 /** chunk 字段名来自 Python 切分结果，展示时优先取已知字段，其余作为附加信息 */
 function chunkText(chunk: KnowledgeChunkPreview) {
@@ -495,6 +507,7 @@ onMounted(async () => {
   await loadSnapshots()
   // 版本记录支撑「来源与覆盖」「审核记录」「版本」三个 Tab，因此在加载时就取回
   loadVersions()
+  if (activeTab.value === 'source') loadSourceSnapshots()
   if (activeTab.value === 'review') loadReviewRecords()
   if (activeTab.value === 'chunks') {
     loadChunks()
@@ -507,9 +520,11 @@ watch(docId, async () => {
   chunks.value = []
   reviewRecords.value = []
   vectorTasks.value = []
+  sourceSnapshots.value = []
   await loadDoc()
   await loadSnapshots()
   loadVersions()
+  if (activeTab.value === 'source') loadSourceSnapshots()
   if (activeTab.value === 'review') loadReviewRecords()
   if (activeTab.value === 'chunks') {
     loadChunks()
@@ -522,6 +537,7 @@ watch(() => route.query.tab, (value) => {
   if (next === activeTab.value) return
   activeTab.value = next
   if (next === 'versions' && !versions.value.length) loadVersions()
+  if (next === 'source' && !sourceSnapshots.value.length) loadSourceSnapshots()
   if (next === 'review' && !reviewRecords.value.length) loadReviewRecords()
   if (next === 'chunks') {
     if (!chunks.value.length) loadChunks()
@@ -633,20 +649,39 @@ watch(() => route.query.tab, (value) => {
               <el-tag v-for="table in coveredTables" :key="table" type="info">{{ table }}</el-tag>
             </div>
             <h3 class="section-title">来源快照</h3>
-            <p v-if="!sourceSnapshotIds.length" class="muted">
-              版本记录里没有关联的元数据快照。手工创建的文档不会带来源快照，从快照生成的草稿会带上。
-            </p>
-            <div v-else class="table-tags">
-              <RouterLink
-                v-for="id in sourceSnapshotIds"
-                :key="id"
-                class="snapshot-link"
-                :to="'/admin/releases/snapshots/' + id"
-              >
-                快照 #{{ id }}
-              </RouterLink>
-            </div>
-            <p class="muted">来源快照取自各版本的 metadataSnapshotId，同一个文档的不同版本可能来自不同快照。</p>
+            <ErrorState v-if="sourceSnapshotsError" :message="sourceSnapshotsError" @retry="loadSourceSnapshots" />
+            <LoadingState v-else-if="sourceSnapshotsLoading" text="正在读取来源快照…" />
+            <EmptyState
+              v-else-if="!sourceSnapshots.length"
+              message="版本记录里没有关联的元数据快照。手工创建的文档不会带来源快照，从快照生成的草稿会带上。"
+            />
+            <el-table v-else :data="sourceSnapshots" size="small" stripe>
+              <el-table-column label="文档版本" width="100">
+                <template #default="{ row }">v{{ row.versionNo }}</template>
+              </el-table-column>
+              <el-table-column label="来源快照" width="110">
+                <template #default="{ row }">
+                  <RouterLink class="snapshot-link" :to="'/admin/releases/snapshots/' + row.snapshotId">
+                    {{ row.snapshotVersion ? 'v' + row.snapshotVersion : '#' + row.snapshotId }}
+                  </RouterLink>
+                </template>
+              </el-table-column>
+              <el-table-column label="快照状态" width="120">
+                <template #default="{ row }">
+                  <BusinessStatusBadge v-if="row.status" :status="row.status" />
+                  <span v-else class="muted">快照已不存在</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="规模" min-width="150">
+                <template #default="{ row }">
+                  <span v-if="row.tableCount !== undefined && row.tableCount !== null">
+                    {{ row.tableCount }} 表 / {{ row.columnCount }} 字段
+                  </span>
+                  <span v-else class="muted">—</span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <p class="muted">同一个文档的不同版本可能来自不同快照；快照已不存在时只保留其 ID。</p>
           </section>
         </el-tab-pane>
 
