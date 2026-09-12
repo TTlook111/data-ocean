@@ -8,6 +8,7 @@ import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.fieldtag.entity.FieldConfidenceEvent;
 import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.governance.entity.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.vo.IssueBatchHandleResultVO;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
 import com.dataocean.module.governance.service.QualityIssueService;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -136,17 +138,25 @@ public class QualityIssueServiceImpl implements QualityIssueService {
      */
     @Transactional
     @Override
-    public int batchHandle(List<Long> issueIds, String targetStatus, Long operatorId) {
+    public IssueBatchHandleResultVO batchHandle(List<Long> issueIds, String targetStatus, Long operatorId) {
         int updated = 0;
+        List<IssueBatchHandleResultVO.SkippedIssue> skippedIssues = new ArrayList<>();
         for (Long issueId : issueIds) {
             try {
                 handleIssue(issueId, targetStatus, null, operatorId);
                 updated++;
             } catch (BusinessException e) {
+                // 状态不允许流转是正常结果而非异常：记录下来返回给调用方，
+                // 由它如实呈现「N 条成功、M 条被跳过及原因」。
                 log.warn("批量处理跳过 issueId={}: {}", issueId, e.getMessage());
+                skippedIssues.add(new IssueBatchHandleResultVO.SkippedIssue(issueId, e.getMessage()));
             }
         }
-        return updated;
+        return IssueBatchHandleResultVO.builder()
+                .updated(updated)
+                .skipped(skippedIssues.size())
+                .skippedIssues(skippedIssues)
+                .build();
     }
 
     /**

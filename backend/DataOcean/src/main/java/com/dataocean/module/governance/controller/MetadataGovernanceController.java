@@ -7,6 +7,7 @@ import com.dataocean.common.security.UserContext;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.governance.entity.MetadataQualityRule;
 import com.dataocean.module.governance.entity.dto.*;
+import com.dataocean.module.governance.entity.vo.IssueBatchHandleResultVO;
 import com.dataocean.module.governance.entity.vo.QualityCheckResultVO;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
 import com.dataocean.module.governance.entity.vo.ReviewRecordVO;
@@ -159,9 +160,9 @@ public class MetadataGovernanceController {
      * @return 实际更新的问题数量
      */
     @PatchMapping("/quality-issues/batch-status")
-    public Result<Map<String, Integer>> batchHandleIssues(@Valid @RequestBody IssueBatchHandleDTO request) {
-        int updated = qualityIssueService.batchHandle(request.getIssueIds(), request.getStatus(), UserContext.currentUserId());
-        return Result.success(Map.of("updated", updated));
+    public Result<IssueBatchHandleResultVO> batchHandleIssues(@Valid @RequestBody IssueBatchHandleDTO request) {
+        return Result.success(qualityIssueService.batchHandle(
+                request.getIssueIds(), request.getStatus(), UserContext.currentUserId()));
     }
 
     /**

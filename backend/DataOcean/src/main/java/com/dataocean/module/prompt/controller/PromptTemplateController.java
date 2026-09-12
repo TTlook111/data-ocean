@@ -126,6 +126,25 @@ public class PromptTemplateController {
     }
 
     /**
+     * 启用或停用模板（仅限 APPROVED 状态的模板）。
+     * <p>
+     * `enabled` 决定 `getActiveContent` 能否取到该模板，是 Prompt 策略的生效开关。
+     * 此前该字段只能在审核通过时被置为 true，前端只能展示、无法停用。
+     * </p>
+     *
+     * @param code    模板编码
+     * @param request 启停请求体
+     * @return 更新后的模板
+     */
+    @PatchMapping("/{code}/enabled")
+    @PreAuthorize("hasAnyAuthority('prompt:manage', 'prompt:approve', '*')")
+    public Result<PromptTemplateVO> setEnabled(@PathVariable String code,
+                                               @Valid @RequestBody PromptTemplateEnabledDTO request) {
+        return Result.success(request.getEnabled() ? "模板已启用" : "模板已停用",
+                promptTemplateService.setEnabled(code, request.getEnabled()));
+    }
+
+    /**
      * 获取模板的版本历史
      *
      * @param code 模板编码

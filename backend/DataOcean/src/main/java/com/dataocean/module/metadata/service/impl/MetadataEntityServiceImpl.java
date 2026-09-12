@@ -43,9 +43,9 @@ public class MetadataEntityServiceImpl extends ServiceImpl<MetadataEntityMapper,
     }
 
     @Override
-    public List<MetadataEntity> search(String query, String entityType, int page, int size) {
+    public List<MetadataEntity> search(String query, String entityType, Long datasourceId, int page, int size) {
         int offset = (page - 1) * size;
-        return baseMapper.fullTextSearch(query, entityType, size, offset);
+        return baseMapper.fullTextSearch(query, entityType, datasourceId, size, offset);
     }
 
     @Override

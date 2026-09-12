@@ -305,6 +305,21 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         return template.getContent();
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public PromptTemplateVO setEnabled(String code, boolean enabled) {
+        PromptTemplate template = getByCode(code);
+        if (!PromptStatus.APPROVED.name().equals(template.getStatus())) {
+            throw new BusinessException(
+                    "只有审核通过的模板才能启用或停用，当前状态：" + template.getStatus());
+        }
+        template.setEnabled(enabled);
+        template.setUpdatedAt(LocalDateTime.now());
+        templateMapper.updateById(template);
+        log.info("Prompt 模板{} code={}", enabled ? "已启用" : "已停用", code);
+        return toVO(template, true);
+    }
+
     private PromptTemplate getByCode(String code) {
         PromptTemplate template = templateMapper.selectOne(
                 new LambdaQueryWrapper<PromptTemplate>()

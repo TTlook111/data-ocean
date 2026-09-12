@@ -65,7 +65,7 @@ public class MetadataCatalogController {
             @RequestParam(required = false) Long datasourceId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        List<MetadataEntity> results = entityService.search(q, type, page, size);
+        List<MetadataEntity> results = entityService.search(q, type, datasourceId, page, size);
         return Result.success(results);
     }
 
@@ -347,7 +347,7 @@ public class MetadataCatalogController {
         // 查找所有 COLUMN 实体中 pending_mask 非空的
         List<MetadataEntity> columns = datasourceId != null
                 ? entityService.getByDatasourceId(datasourceId)
-                : entityService.search("*", MetadataEntity.TYPE_COLUMN, 1, 1000);
+                : entityService.search("*", MetadataEntity.TYPE_COLUMN, null, 1, 1000);
 
         List<Map<String, Object>> candidates = new java.util.ArrayList<>();
         for (MetadataEntity col : columns) {

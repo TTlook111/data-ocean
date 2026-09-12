@@ -6,7 +6,9 @@ import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.knowledge.dto.*;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.VectorIndexTask;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
+import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeDocCrudService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeDocLifecycleService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeDocPublishService;
@@ -46,6 +48,7 @@ public class KnowledgeDocController {
     private final KnowledgeDocLifecycleService lifecycleService;
     private final KnowledgeDocPublishService publishService;
     private final KnowledgeVersionService knowledgeVersionService;
+    private final VectorIndexTaskService vectorIndexTaskService;
 
     // === 文档 CRUD ===
 
@@ -272,6 +275,22 @@ public class KnowledgeDocController {
         log.debug("收到版本回滚请求 docId={} targetVersionNo={}", id, request.getTargetVersionNo());
         Integer newVersionNo = knowledgeVersionService.rollback(id, request.getTargetVersionNo());
         return Result.success("回滚成功", Map.of("newVersionNo", newVersionNo));
+    }
+
+    /**
+     * 查询文档的向量化任务。
+     * <p>
+     * `vector_index_task` 此前只被 knowledge 模块内部引用，没有任何 Controller 暴露它，
+     * 导致文档处于 `INDEXING` 时前端无法显示进度与失败原因（见开发指导 §7.11
+     * 「`INDEXING`：显示进度和失败信息，禁止重复发布」）。本接口补上该读取入口。
+     * </p>
+     *
+     * @param id 文档 ID
+     * @return 该文档的向量化任务列表，最新在前
+     */
+    @GetMapping("/{id}/vector-tasks")
+    public Result<List<VectorIndexTask>> listVectorTasks(@PathVariable Long id) {
+        return Result.success(vectorIndexTaskService.listTasksByTarget("DOC", id));
     }
 
     // === RAG 预览 ===

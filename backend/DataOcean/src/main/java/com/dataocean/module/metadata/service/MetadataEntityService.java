@@ -28,9 +28,16 @@ public interface MetadataEntityService extends IService<MetadataEntity> {
     List<MetadataEntity> getByDatasourceId(Long datasourceId);
 
     /**
-     * 全文搜索实体
+     * 全文搜索实体。
+     *
+     * @param query        搜索关键词
+     * @param entityType   实体类型过滤（可为 null）
+     * @param datasourceId 数据源过滤（可为 null，表示全局搜索）
+     * @param page         页码
+     * @param size         每页大小
+     * @return 匹配的实体列表
      */
-    List<MetadataEntity> search(String query, String entityType, int page, int size);
+    List<MetadataEntity> search(String query, String entityType, Long datasourceId, int page, int size);
 
     /**
      * 创建或更新实体（按 FQN 去重）

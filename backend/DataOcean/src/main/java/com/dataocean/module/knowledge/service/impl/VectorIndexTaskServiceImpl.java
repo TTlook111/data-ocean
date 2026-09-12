@@ -103,6 +103,18 @@ public class VectorIndexTaskServiceImpl implements VectorIndexTaskService {
     /**
      * {@inheritDoc}
      */
+    @Override
+    public List<VectorIndexTask> listTasksByTarget(String targetType, Long targetId) {
+        return vectorIndexTaskMapper.selectList(
+                new LambdaQueryWrapper<VectorIndexTask>()
+                        .eq(VectorIndexTask::getTargetType, targetType)
+                        .eq(VectorIndexTask::getTargetId, targetId)
+                        .orderByDesc(VectorIndexTask::getId));
+    }
+
+    /**
+     * {@inheritDoc}
+     */
     @Transactional
     @Override
     public void markProcessing(Long taskId) {

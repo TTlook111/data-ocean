@@ -332,7 +332,9 @@ public class LineageServiceImpl implements LineageService {
         if (tableName == null || columnName == null) return null;
         // 通过 metadata_entity 查找 TABLE 类型获取 FQN 前缀
         String tableNameLower = tableName.toLowerCase();
-        List<MetadataEntity> tables = entityService.search(tableNameLower, MetadataEntity.TYPE_TABLE, 1, 10);
+        // 必须带 datasourceId：同名表可能存在于多个数据源，全局搜索会解析到别的数据源的 FQN
+        List<MetadataEntity> tables = entityService.search(
+                tableNameLower, MetadataEntity.TYPE_TABLE, datasourceId, 1, 10);
         for (MetadataEntity t : tables) {
             if (t.getName().equalsIgnoreCase(tableNameLower)
                     || (t.getFqn() != null && t.getFqn().endsWith("." + tableNameLower))) {
@@ -379,7 +381,9 @@ public class LineageServiceImpl implements LineageService {
     /** 查找表名对应的 FQN 前缀（datasource.db） */
     private String findFqnPrefix(Long datasourceId, String tableName) {
         // 从 metadata_entity 中查找 TABLE 类型实体，匹配表名
-        List<MetadataEntity> entities = entityService.search(tableName, MetadataEntity.TYPE_TABLE, 1, 5);
+        // 必须带 datasourceId：同名表可能存在于多个数据源，全局搜索会解析到别的数据源的 FQN
+        List<MetadataEntity> entities = entityService.search(
+                tableName, MetadataEntity.TYPE_TABLE, datasourceId, 1, 5);
         for (MetadataEntity e : entities) {
             if (e.getName().equalsIgnoreCase(tableName)) {
                 // FQN 格式: datasource.db.table → 去掉最后一段得到前缀

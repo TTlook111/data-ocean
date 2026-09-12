@@ -1,6 +1,7 @@
 package com.dataocean.module.governance.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.module.governance.entity.vo.IssueBatchHandleResultVO;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
 
 /**
@@ -35,13 +36,18 @@ public interface QualityIssueService {
 
     /**
      * 批量处理质量问题状态。
+     * <p>
+     * 状态不允许流转的条目会被跳过，调用方需要知道跳过了哪些、为什么，
+     * 因此返回结构包含跳过明细而非仅成功计数。本方法不抛异常：部分失败不是异常，
+     * 是正常结果，应由调用方如实呈现。
+     * </p>
      *
      * @param issueIds      质量问题 ID 列表
      * @param targetStatus  目标状态
      * @param operatorId    操作人 ID
-     * @return 实际处理成功数量
+     * @return 处理结果，含成功数、跳过数与跳过明细
      */
-    int batchHandle(java.util.List<Long> issueIds, String targetStatus, Long operatorId);
+    IssueBatchHandleResultVO batchHandle(java.util.List<Long> issueIds, String targetStatus, Long operatorId);
 
     /**
      * 分派质量问题负责人。
