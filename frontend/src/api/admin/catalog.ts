@@ -44,7 +44,16 @@ export interface MaskCandidate {
   pendingMask?: Record<string, unknown>
 }
 
-/** 全文搜索实体 */
+/**
+ * 全文搜索实体。
+ *
+ * `datasourceId` 自 2026-09-12 起真实生效（此前后端声明该参数却未下传给 Service，
+ * 数据源内搜索实际是全局搜索，可能返回其他数据源的资产）。过滤在 SQL 内完成，
+ * 因此分页条数与实际匹配数一致，调用方可以放心分页。
+ *
+ * 注意：现有页面（资产目录、术语关联字段）仍沿用「按数据源拉全量 + 页面内过滤」的
+ * 旧规避方式，尚未切换到本接口。切换是阶段 8 收敛项，不属缺陷修复范围。
+ */
 export async function searchCatalog(params: {
   q: string
   type?: string

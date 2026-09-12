@@ -50,12 +50,33 @@ export const knowledgeReviewStatusLabels: Record<string, string> = {
   PENDING: '待审核',
   APPROVED: '审核通过',
   REJECTED: '审核拒绝',
+  // 2026-09-12（V51）之前 knowledge_doc_version.review_status 从未被写入，
+  // 迁移把无法从审核任务还原的历史行标为 UNKNOWN，避免被误读为「待审核」
+  UNKNOWN: '历史未记录',
 }
 
 export const knowledgeReviewStatusTypes: Record<string, string> = {
   PENDING: 'warning',
   APPROVED: 'success',
   REJECTED: 'danger',
+  UNKNOWN: 'info',
+}
+
+/** 向量化任务状态（后端 VectorTaskStatus 枚举） */
+export const vectorTaskStatusLabels: Record<string, string> = {
+  PENDING: '待处理',
+  PROCESSING: '处理中',
+  CLEANUP_PENDING: '等待清理旧版本向量',
+  COMPLETED: '已完成',
+  FAILED: '失败',
+}
+
+export const vectorTaskStatusTypes: Record<string, string> = {
+  PENDING: 'info',
+  PROCESSING: 'warning',
+  CLEANUP_PENDING: 'warning',
+  COMPLETED: 'success',
+  FAILED: 'danger',
 }
 
 /** 术语条目状态（后端 GlossaryTerm 常量） */
@@ -192,6 +213,8 @@ export const generationSourceLabel = (source?: string | null) => enumLabel(gener
 export const generationSourceType = (source?: string | null) => enumType(generationSourceTypes, source)
 export const knowledgeReviewStatusLabel = (status?: string | null) => enumLabel(knowledgeReviewStatusLabels, status)
 export const knowledgeReviewStatusType = (status?: string | null) => enumType(knowledgeReviewStatusTypes, status)
+export const vectorTaskStatusLabel = (status?: string | null) => enumLabel(vectorTaskStatusLabels, status)
+export const vectorTaskStatusType = (status?: string | null) => enumType(vectorTaskStatusTypes, status)
 export const glossaryStatusLabel = (status?: string | null) => enumLabel(glossaryStatusLabels, status)
 export const glossaryStatusType = (status?: string | null) => enumType(glossaryStatusTypes, status)
 export const glossaryTermStatusLabel = (status?: string | null) => enumLabel(glossaryTermStatusLabels, status)

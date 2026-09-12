@@ -70,8 +70,20 @@ export async function handleIssue(issueId: number, payload: { status: string; re
   return data
 }
 
+/**
+ * 批量处理结果。
+ *
+ * 后端对状态不允许流转的条目会跳过，2026-09-12 起返回跳过明细而不是仅成功计数——
+ * 此前前端只能显示「已处理 N 条」，无法告知用户有多少条被跳过、原因是什么。
+ */
+export interface BatchHandleResult {
+  updated: number
+  skipped: number
+  skippedIssues: Array<{ issueId: number; reason: string }>
+}
+
 export async function batchHandleIssues(payload: { issueIds: number[]; status: string }) {
-  const { data } = await http.patch<ApiResult<{ updated: number }>>('/api/admin/quality-issues/batch-status', payload)
+  const { data } = await http.patch<ApiResult<BatchHandleResult>>('/api/admin/quality-issues/batch-status', payload)
   return data
 }
 

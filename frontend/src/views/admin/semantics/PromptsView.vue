@@ -10,11 +10,12 @@
  * - 保存内容会新建一个 DRAFT 版本，并把模板状态重置为 DRAFT；APPROVED 表示该版本是当前生效的活跃版本，
  *   不能简化成「已发布」。
  * - PENDING_REVIEW 状态禁止编辑和回滚。
- * - 没有启停（enabled）接口，因此 enabled 只做展示。
+ * - 启停（enabled）接口 2026-09-12 补齐，APPROVED 状态的模板可在本页面启用或停用。
+ *   `enabled` 决定 getActiveContent 能否取到模板，停用后问数链路回退到内置默认模板。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CheckCircle2, RefreshCw, RotateCcw, Save, Search, Send, XCircle } from 'lucide-vue-next'
+import { CheckCircle2, Power, RefreshCw, RotateCcw, Save, Search, Send, XCircle } from 'lucide-vue-next'
 import {
   approvePrompt,
   getPromptEffectiveness,
@@ -22,6 +23,7 @@ import {
   listPromptTemplates,
   rejectPrompt,
   rollbackPromptVersion,
+  setPromptEnabled,
   submitPromptForReview,
   updatePromptTemplate,
   type PromptEffectivenessVO,
@@ -141,6 +143,42 @@ async function selectTemplate(code: string) {
   changeSummary.value = ''
   if (activeTab.value === 'versions') await loadVersions()
   if (activeTab.value === 'effectiveness') await loadEffectiveness()
+}
+
+/**
+ * 启用或停用模板。
+ *
+ * `enabled` 决定 `getActiveContent` 能否取到该模板，是 Prompt 策略的生效开关。
+ * 后端 2026-09-12 补上启停接口后，前端才能操作它（此前只能展示）。
+ * 后端仅允许对 APPROVED 状态的模板启停。
+ */
+async function toggleEnabled() {
+  const template = selected.value
+  if (!template) return
+  const next = !template.enabled
+  try {
+    await ElMessageBox.confirm(
+      next
+        ? `启用「${template.templateName}」后，该模板会参与 Prompt 组装并生效。确认启用？`
+        : `停用「${template.templateName}」后，取模板内容会直接报错，问数链路将回退到内置默认模板。确认停用？`,
+      next ? '启用模板' : '停用模板',
+      { type: next ? 'info' : 'warning' },
+    )
+    actionLoading.value = true
+    const result = await setPromptEnabled(template.templateCode, next)
+    ElMessage.success(next ? '模板已启用' : '模板已停用')
+    const updated = result.data
+    if (updated) {
+      templates.value = templates.value.map((item) =>
+        item.templateCode === updated.templateCode ? { ...item, enabled: updated.enabled } : item)
+    } else {
+      await loadTemplates(template.templateCode)
+    }
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '模板启停失败'))
+  } finally {
+    actionLoading.value = false
+  }
 }
 
 async function loadVersions() {
@@ -355,6 +393,15 @@ watch(analysisDays, () => {
               <el-tag :type="selected.enabled ? 'success' : 'info'" size="small">
                 {{ selected.enabled ? '模板已启用' : '模板未启用' }}
               </el-tag>
+              <el-button
+                v-if="status === 'APPROVED'"
+                size="small"
+                :icon="Power"
+                :type="selected.enabled ? 'danger' : 'primary'"
+                plain
+                :loading="actionLoading"
+                @click="toggleEnabled"
+              >{{ selected.enabled ? '停用' : '启用' }}</el-button>
             </div>
           </header>
 

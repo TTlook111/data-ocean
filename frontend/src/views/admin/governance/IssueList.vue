@@ -230,16 +230,24 @@ async function doBatchHandle(status: string) {
   const requested = selectedIds.value.length
   try {
     const res = await batchHandleIssues({ issueIds: selectedIds.value, status })
-    const updated = res.data?.updated
-    if (typeof updated !== 'number') {
-      // 响应结构异常时 updated 会缺失，不能当成「全部被跳过」，那是假失败。
-      ElMessage.success('批量操作已完成')
-    } else if (updated >= requested) {
-      ElMessage.success(`已处理 ${updated} 条`)
+    const result = res.data
+    if (result && typeof result.updated === 'number') {
+      // 后端对状态不允许流转的条目会跳过，2026-09-12 起返回跳过明细与原因。
+      // 被跳过的原因不是临时故障，重试不会成功，因此文案引导用户单独处理而不是重试。
+      const skipped = typeof result.skipped === 'number' ? result.skipped : requested - result.updated
+      if (skipped <= 0) {
+        ElMessage.success(`已处理 ${result.updated} 条`)
+      } else {
+        const exampleReason = result.skippedIssues?.[0]?.reason
+        ElMessage.warning(
+          `已处理 ${result.updated} 条，${skipped} 条因当前状态不允许流转被跳过`
+          + (exampleReason ? `（例如：${exampleReason}）` : '')
+          + '。列表已刷新，请对剩余问题单独处理。',
+        )
+      }
     } else {
-      // 后端对状态不允许的条目静默跳过，只返回成功计数（QualityIssueServiceImpl.batchHandle），
-      // 前端必须如实呈现部分成功。被跳过的原因不是临时故障，重试不会成功。
-      ElMessage.warning(`已处理 ${updated} 条，${requested - updated} 条因当前状态不允许流转被跳过。列表已刷新，请对剩余问题单独处理。`)
+      // 响应结构异常时不能把字段缺失当成「全部被跳过」，那是假失败。
+      ElMessage.success('批量操作已完成')
     }
     selectedIds.value = []
     await fetchIssues()

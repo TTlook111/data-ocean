@@ -53,9 +53,12 @@ export function findWorkspaceContextMode(path: string): AdminContextMode | undef
  * 各页面不得再自行拼装（《实施任务清单》§4）。
  */
 const PATH_TARGETS: Record<string, (context: AdminContextSource) => RouteLocationRaw> = {
+  // 后端该 actionPath 指向数据源「列表」。前端已知道具体数据源 ID，直接落到详情页，
+  // 免得用户还要在列表里再定位一次（后端事实问题清单 §8 的 C2）。
+  // 注：数据源列表页并不消费 `focus` 参数，所以不再拼它。
   '/admin/datasources': ({ datasourceId }) => (
     datasourceId
-      ? { path: '/admin/data-sources', query: { focus: datasourceId } }
+      ? { path: `/admin/data-sources/${datasourceId}` }
       : { path: '/admin/data-sources' }
   ),
   // /admin/releases 的 contextMode 是 datasource，不接受 snapshotId。

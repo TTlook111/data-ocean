@@ -7,12 +7,13 @@
  * 后端事实（GlossaryController / GlossaryTermServiceImpl）：
  * - 术语表只有 DRAFT / PUBLISHED 两个常量，且没有独立的状态流转接口，因此状态只在创建/编辑时设置。
  * - 术语状态流转为 DRAFT|REJECTED -> PENDING_REVIEW -> APPROVED|REJECTED，
- *   已通过术语没有退回草稿的后端接口，因此 APPROVED 状态在本页面保持只读。
+ *   另有 APPROVED -> DRAFT 的退回路径（后端 2026-09-12 补齐）。
+ *   已通过术语不能直接编辑，需先退回草稿；退回会清空审核人与审核时间。
  * - 术语与物理列的关联通过 GLOSSARY_OF 关系维护，接口为 link-column / unlink-column / linked-columns。
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Link2, Pencil, Plus, RefreshCw, Send, Trash2, X } from 'lucide-vue-next'
+import { Check, Link2, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2, X } from 'lucide-vue-next'
 import {
   createGlossary,
   createTerm,
@@ -23,6 +24,7 @@ import {
   listGlossaries,
   listTerms,
   reviewTerm,
+  revertTermToDraft,
   submitTermForReview,
   unlinkTermFromColumn,
   updateGlossary,
@@ -328,6 +330,32 @@ async function submitTerm(term: GlossaryTermItem) {
   }
 }
 
+/**
+ * 把已通过的术语退回草稿。
+ *
+ * 后端 2026-09-12 补上了 `APPROVED → DRAFT` 的合法路径，并给 updateTerm 加了状态校验。
+ * 此前状态机从 APPROVED 没有出边、而 updateTerm 不校验状态，形成「合规流程被限制、
+ * 绕过路径不受限」的倒挂，前端只能把已通过术语整体锁成只读。
+ */
+async function revertTerm(term: GlossaryTermItem) {
+  try {
+    await ElMessageBox.confirm(
+      `把术语「${term.displayName || term.name}」退回草稿？退回会清空审核人与审核时间，`
+      + '修改后需要重新提交审核。',
+      '退回草稿',
+      { type: 'warning', confirmButtonText: '确认退回', cancelButtonText: '取消' },
+    )
+    actionLoading.value = true
+    await revertTermToDraft(term.id)
+    ElMessage.success('已退回草稿，修改后请重新提交审核')
+    await loadTerms()
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '退回草稿失败'))
+  } finally {
+    actionLoading.value = false
+  }
+}
+
 async function review(term: GlossaryTermItem, approved: boolean) {
   const action = approved ? '通过' : '拒绝'
   try {
@@ -372,8 +400,9 @@ async function openLinkDialog() {
 /**
  * 数据源内字段候选。
  *
- * 后端 `/api/admin/catalog/search` 未实际应用 datasourceId 过滤，因此这里按开发指导
- * 第 12 节的固定处理，使用 `/entities?datasourceId=` 拉取后在页面内过滤。
+ * 使用 `/entities?datasourceId=` 拉取后在页面内过滤。`/api/admin/catalog/search` 自
+ * 2026-09-12 起已支持真实 datasourceId 过滤（此前该参数被后端忽略），但切换到服务端
+ * 搜索属阶段 8 的收敛项，不在本次缺陷修复范围内，此处保持既有实现不变。
  */
 async function loadLinkCandidates() {
   if (!linkDatasourceId.value) {
@@ -596,10 +625,13 @@ onMounted(async () => {
               <el-button type="primary" :icon="Check" :loading="actionLoading" @click="review(selectedTerm, true)">审核通过</el-button>
               <el-button type="danger" plain :icon="X" :loading="actionLoading" @click="review(selectedTerm, false)">审核拒绝</el-button>
             </template>
-            <p v-else class="term-detail__locked">
-              已通过的术语在本页面保持只读。后端当前没有把 APPROVED 退回草稿的接口，
-              需要修改时先补齐该状态流转，不能在前端直接覆盖已生效语义。
-            </p>
+            <template v-else>
+              <el-button :icon="RotateCcw" :loading="actionLoading" @click="revertTerm(selectedTerm)">退回草稿</el-button>
+              <p class="term-detail__locked">
+                已通过的术语不能直接修改，需先退回草稿。退回会清空审核人与审核时间——
+                原审核结论不再代表修改后的内容，修改后必须重新提交审核。
+              </p>
+            </template>
           </div>
 
           <!-- 审核记录 -->

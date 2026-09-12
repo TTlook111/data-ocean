@@ -110,3 +110,17 @@ export async function unlinkTermFromColumn(termId: number, entityId: number) {
   const { data } = await http.delete<ApiResult<null>>(`/api/admin/glossary/terms/${termId}/unlink-column/${entityId}`)
   return data
 }
+
+/**
+ * 把已通过的术语退回草稿（APPROVED → DRAFT）。
+ *
+ * 状态机此前从 `APPROVED` 没有出边，已通过的术语没有合法修改路径，
+ * 而 `updateTerm` 又完全不校验状态，形成「合规流程被限制、绕过路径不受限」的倒挂。
+ * 2026-09-12 后端补上本接口并给 `updateTerm` 加了状态校验，前端据此改为：
+ * 已通过术语不可直接编辑，需先退回草稿，修改后重新提交审核。
+ * 退回会清空审核人/审核时间，因为原审核结论不再代表修改后的内容。
+ */
+export async function revertTermToDraft(termId: number) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/glossary/terms/${termId}/revert`)
+  return data
+}

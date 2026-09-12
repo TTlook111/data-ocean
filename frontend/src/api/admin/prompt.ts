@@ -96,3 +96,17 @@ export async function rollbackPromptVersion(code: string, targetVersionNo: numbe
   const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/rollback`, { targetVersionNo })
   return data
 }
+
+/**
+ * 启用或停用模板（后端仅允许 APPROVED 状态的模板启停）。
+ *
+ * `enabled` 决定 `getActiveContent` 能否取到该模板，是 Prompt 策略的生效开关。
+ * 此前该字段只能在审核通过时被置为 true，前端只能展示、无法停用。
+ */
+export async function setPromptEnabled(code: string, enabled: boolean) {
+  const { data } = await http.patch<ApiResult<PromptTemplateVO>>(
+    `/api/admin/prompt-templates/${code}/enabled`,
+    { enabled },
+  )
+  return data
+}
