@@ -10,13 +10,14 @@
 import { ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus, Trash2 } from 'lucide-vue-next'
-import { searchCatalog, type MetadataEntityItem } from '../../../api/admin/catalog'
+import { getEntityDetail, searchCatalog, type MetadataEntityItem } from '../../../api/admin/catalog'
 import { createLineage, type LineageCreateRequest, type ColumnMappingItem } from '../../../api/admin/lineageApi'
 
 const props = defineProps<{
   visible: boolean
   /** 预填源实体 ID（从图谱右键菜单传入） */
   prefilledSourceId?: number | null
+  prefilledTargetId?: number | null
 }>()
 
 const emit = defineEmits<{
@@ -201,13 +202,28 @@ function handleClose() {
   emit('update:visible', false)
 }
 
-// 监听预填源实体
-watch(
-  () => props.prefilledSourceId,
-  (val) => {
-    if (val && props.visible) {
-      // TODO: 通过 ID 加载实体并设置 selectedSource
+async function applyPrefilledEntity(id: number, target: 'source' | 'target') {
+  try {
+    const entity = (await getEntityDetail(id)).data.entity
+    if (target === 'source') {
+      sourceOptions.value = [entity]
+      selectedSource.value = entity
+    } else {
+      targetOptions.value = [entity]
+      selectedTarget.value = entity
     }
+  } catch {
+    ElMessage.error('预填血缘实体加载失败')
+  }
+}
+
+// 监听预填实体
+watch(
+  () => [props.visible, props.prefilledSourceId, props.prefilledTargetId] as const,
+  ([visible, sourceId, targetId]) => {
+    if (!visible) return
+    if (sourceId) applyPrefilledEntity(sourceId, 'source')
+    if (targetId) applyPrefilledEntity(targetId, 'target')
   },
 )
 </script>

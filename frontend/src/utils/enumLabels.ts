@@ -32,7 +32,6 @@ export const knowledgeStatusLabels: Record<string, string> = {
   INDEXING: '索引中',
   PUBLISHED: '已发布',
   DEPRECATED: '已废弃',
-  REJECTED: '已驳回',
 }
 
 export const knowledgeStatusTypes: Record<string, string> = {
@@ -42,7 +41,6 @@ export const knowledgeStatusTypes: Record<string, string> = {
   INDEXING: 'warning',
   PUBLISHED: 'success',
   DEPRECATED: 'danger',
-  REJECTED: 'danger',
 }
 
 /** 知识文档版本自身的审核状态（后端 ReviewStatus 枚举） */

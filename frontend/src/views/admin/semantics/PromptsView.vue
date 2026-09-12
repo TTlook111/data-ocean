@@ -338,8 +338,10 @@ async function rollback(item: PromptVersionVO) {
 }
 
 onMounted(() => {
+  // loadTemplates 会在选中第一个模板时经 selectTemplate 触发一次 loadEffectiveness，
+  // 这里必须与 :128/:356 用同一个 !effectiveness.value.length 守卫，否则首屏会并发两次。
   loadTemplates()
-  loadEffectiveness()
+  if (activeTab.value === 'effectiveness' && !effectiveness.value.length) loadEffectiveness()
 })
 
 watch(analysisDays, () => {

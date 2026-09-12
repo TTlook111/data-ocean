@@ -12,7 +12,7 @@ import {
   type DatasourceReadiness,
 } from '../../../api/admin/datasource'
 import { resolveReadinessActionPath } from '../../../utils/adminNavigation'
-import { snapshotStatusLabel } from '../../../utils/enumLabels'
+import { knowledgeStatusLabel, snapshotStatusLabel } from '../../../utils/enumLabels'
 import { listSnapshots, listSyncTasks, triggerSync, type SnapshotItem, type SyncTaskItem } from '../../../api/admin/metadata'
 import { listQualityIssues, type QualityIssueItem } from '../../../api/admin/governance'
 import { listKnowledgeDocs, type KnowledgeDocItem } from '../../../api/admin/knowledge'
@@ -45,6 +45,8 @@ const latestSnapshot = computed(() => snapshots.value[0])
 // 快照列表来自 Promise.allSettled，空数组也可能只是「请求失败」。
 // 区分这两种情况，避免在明明有草稿快照时误判为「还没采集」。
 const snapshotRequestOk = ref(false)
+/** 语义知识文档请求是否成功；失败要显示错误态，不能伪装成「没有知识文档」 */
+const knowledgeRequestOk = ref(false)
 
 interface PrimaryAction {
   key: string
@@ -156,6 +158,7 @@ async function load() {
   loading.value = true
   error.value = ''
   snapshotRequestOk.value = false
+  knowledgeRequestOk.value = false
   try {
     const [sourceResult, readinessResult] = await Promise.all([
       getDatasource(datasourceId.value),
@@ -175,6 +178,7 @@ async function load() {
     snapshotRequestOk.value = snapshotResult.status === 'fulfilled'
     if (snapshotResult.status === 'fulfilled') snapshots.value = snapshotResult.value.data.records || []
     if (taskResult.status === 'fulfilled') syncTasks.value = taskResult.value.data.records || []
+    knowledgeRequestOk.value = knowledgeResult.status === 'fulfilled'
     if (knowledgeResult.status === 'fulfilled') knowledgeDocs.value = knowledgeResult.value.data.records || []
 
     if (latestSnapshot.value) {
@@ -318,6 +322,28 @@ onMounted(async () => {
           <section class="datasource-cockpit__card">
             <div class="section-heading"><div><h2>最近活动</h2><p>采集和快照记录。</p></div></div>
             <ActivityTimeline :items="activityItems" />
+          </section>
+          <section class="datasource-cockpit__card">
+            <div class="section-heading"><div><h2>语义知识</h2><p>最近的 skills.md 文档与发布状态。</p></div></div>
+            <div v-if="knowledgeDocs.length" class="compact-list">
+              <RouterLink v-for="doc in knowledgeDocs" :key="doc.id" class="compact-list__item" :to="'/admin/semantics/knowledge/' + doc.id">
+                <span><strong>{{ doc.title }}</strong><small>v{{ doc.currentVersion }} · {{ knowledgeStatusLabel(doc.status) }}</small></span>
+                <ArrowRight :size="15" />
+              </RouterLink>
+            </div>
+            <!-- 请求失败必须说成失败：空态会把「接口挂了」读成「还没有知识文档」 -->
+            <EmptyState
+              v-else-if="!knowledgeRequestOk"
+              message="语义知识文档加载失败，无法确认当前是否已有知识文档。"
+              action-text="重试"
+              @action="load"
+            />
+            <EmptyState
+              v-else
+              message="该数据源还没有语义知识文档。"
+              action-text="去准备知识"
+              @action="router.push({ path: '/admin/semantics/knowledge', query: { datasourceId: String(datasourceId) } })"
+            />
           </section>
           <section class="datasource-cockpit__card">
             <div class="section-heading"><div><h2>治理问题</h2><p>当前快照待处理问题。</p></div></div>

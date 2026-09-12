@@ -21,6 +21,13 @@ const props = withDefaults(defineProps<{
   showDatasource?: boolean
   showSnapshot?: boolean
   disabled?: boolean
+  /**
+   * 锁定快照：调用方给的 `snapshotId` 是权威值（例如「已发布快照」），
+   * 用户不能改，组件也不会在它不在快照列表里时静默换成最新快照。
+   */
+  lockSnapshot?: boolean
+  /** 锁定快照时显示的只读文案，例如「已发布快照 v3」 */
+  lockSnapshotLabel?: string
   includeAllTableOption?: boolean
   includeAllColumnOption?: boolean
   allTableLabel?: string
@@ -31,6 +38,8 @@ const props = withDefaults(defineProps<{
   showDatasource: true,
   showSnapshot: true,
   disabled: false,
+  lockSnapshot: false,
+  lockSnapshotLabel: '',
   includeAllTableOption: false,
   includeAllColumnOption: false,
   allTableLabel: '全部表',
@@ -75,7 +84,7 @@ const needsSnapshot = computed(() => ['snapshot', 'table', 'column'].includes(pr
 const needsTable = computed(() => ['table', 'column'].includes(props.mode))
 const needsColumn = computed(() => props.mode === 'column')
 const datasourceDisabled = computed(() => props.disabled || adminContext.loading)
-const snapshotDisabled = computed(() => props.disabled || !localDatasourceId.value || loadingSnapshots.value)
+const snapshotDisabled = computed(() => props.disabled || props.lockSnapshot || !localDatasourceId.value || loadingSnapshots.value)
 const tableDisabled = computed(() => props.disabled || !localSnapshotId.value || loadingTables.value)
 const columnDisabled = computed(() => props.disabled || !localSnapshotId.value || !localTableName.value || loadingColumns.value)
 
@@ -116,6 +125,13 @@ async function loadSnapshotsForDatasource(datasourceId?: number) {
     snapshots.value = [...(result.data?.records ?? [])].sort(latestSnapshotFirst)
     retryCount.value = 0  // 重置重试计数
 
+    if (props.lockSnapshot) {
+      // 锁定时调用方的 snapshotId 就是权威值。
+      // 不能因为「已发布快照不在最新 50 条里」就回落到 snapshots[0]——那很可能是草稿快照，
+      // 之后提交会被后端以「表名不存在」拒绝，正是这里要避免的难懂报错。
+      await loadTablesForSnapshot(localSnapshotId.value)
+      return
+    }
     if (!localSnapshotId.value || !snapshots.value.some((item) => item.id === localSnapshotId.value)) {
       localSnapshotId.value = snapshots.value[0]?.id
       emit('update:snapshotId', localSnapshotId.value)
@@ -256,7 +272,8 @@ onMounted(async () => {
     localDatasourceId.value = adminContext.datasourceId
     emit('update:datasourceId', localDatasourceId.value)
   }
-  if (!localSnapshotId.value) {
+  // 锁定时快照由调用方决定，绝不能用全局上下文（可能是草稿快照）顶替
+  if (!localSnapshotId.value && !props.lockSnapshot) {
     localSnapshotId.value = adminContext.snapshotId
     emit('update:snapshotId', localSnapshotId.value)
   }
@@ -317,9 +334,13 @@ watch(() => props.columnName, (value) => {
       />
     </el-select>
 
-    <!-- 快照选择器（带错误处理） -->
+    <!-- 快照选择器（带错误处理）；lockSnapshot 时改为只读展示，不给用户切到草稿快照的机会 -->
     <div v-if="showSnapshot && needsSnapshot" class="scope-select-wrapper">
+      <span v-if="lockSnapshot" class="scope-locked" :class="`scope-locked--${size}`">
+        {{ lockSnapshotLabel || '已发布快照' }}
+      </span>
       <el-select
+        v-else
         v-model="localSnapshotId"
         :disabled="snapshotDisabled || !!loadError"
         :loading="loadingSnapshots"
@@ -427,6 +448,22 @@ watch(() => props.columnName, (value) => {
 .scope-select--column {
   width: 220px;
 }
+
+.scope-locked {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px dashed var(--do-line);
+  border-radius: var(--do-radius-md);
+  background: var(--do-bg);
+  color: var(--do-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.scope-locked--large { height: 40px; }
+.scope-locked--small { height: 24px; padding: 0 8px; font-size: 12px; }
 
 .scope-select.is-error :deep(.el-input__wrapper) {
   box-shadow: 0 0 0 1px var(--el-color-danger) inset;

@@ -66,10 +66,4 @@ public interface AuditLogService {
      */
     AuditStatsVO getStats(Long datasourceId, int days);
 
-    /**
-     * 将查询提升为模板
-     *
-     * @param auditLogId 审计日志ID
-     */
-    void promoteToTemplate(Long auditLogId);
 }

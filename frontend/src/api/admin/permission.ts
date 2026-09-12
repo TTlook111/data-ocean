@@ -100,6 +100,9 @@ export interface AccessPolicyItem {
   accessType: string
   maskStrategy?: string
   rowFilterExpression?: string
+  priority?: number
+  validFrom?: string
+  validUntil?: string
   createdAt: string
 }
 
@@ -112,6 +115,9 @@ export interface AccessPolicyPayload {
   accessType: string
   maskStrategy?: string
   rowFilterExpression?: string
+  priority?: number
+  validFrom?: string
+  validUntil?: string
 }
 
 export interface AccessPolicyBatchPayload {

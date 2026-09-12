@@ -43,13 +43,6 @@ class DimensionDetectRequest(BaseModel):
     model: str
 
 
-class ReVectorizeRequest(BaseModel):
-    is_pending: bool = Field(default=False, alias="isPending")
-    index_version: str | None = Field(default=None, alias="indexVersion")
-    target_collection: str | None = Field(default=None, alias="targetCollection")
-    target_dimension: int | None = Field(default=None, alias="targetDimension")
-
-
 @router.post("/chunk", response_model=ChunkDocumentResponse)
 async def chunk_document(request: ChunkDocumentRequest) -> ChunkDocumentResponse:
     """Split a skills.md document in the Python RAG layer.
@@ -162,22 +155,6 @@ async def _delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsRespons
 async def health() -> dict:
     """RAG 健康检查（含 Milvus 连接状态）"""
     return await asyncio.to_thread(health_status)
-
-
-@router.post("/re-vectorize")
-async def re_vectorize(request: ReVectorizeRequest) -> dict:
-    """全量重新向量化入口占位。
-
-    当前按文档先完成 pending 向量化协议；实际全量任务编排由 Java 侧读取 chunks 后
-    调用 /vectorize 分批完成。这里提供统一入口，便于前端触发和后续扩展进度管理。
-    """
-    return {
-        "status": "ACCEPTED",
-        "isPending": request.is_pending,
-        "indexVersion": request.index_version,
-        "targetCollection": request.target_collection,
-        "targetDimension": request.target_dimension,
-    }
 
 
 async def test_provider(request: ProviderTestRequest) -> dict:

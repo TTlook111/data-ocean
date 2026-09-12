@@ -9,7 +9,6 @@ import com.dataocean.module.glossary.entity.Glossary;
 import com.dataocean.module.glossary.entity.GlossaryTerm;
 import com.dataocean.module.glossary.mapper.GlossaryMapper;
 import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,6 +61,34 @@ class GlossaryTermServiceImplTest {
     }
 
     // ==================== 修改术语的状态校验与字段白名单 ====================
+
+    @Test
+    void createTermAlwaysStartsAsDraftAndClearsReviewFields() {
+        when(glossaryMapper.selectById(10L)).thenReturn(glossary());
+        GlossaryTerm input = term(GlossaryTerm.STATUS_APPROVED);
+        input.setGlossaryId(10L);
+        input.setReviewerId(99L);
+        input.setReviewedAt(java.time.LocalDateTime.now());
+
+        service.createTerm(input);
+
+        assertThat(input.getStatus()).isEqualTo(GlossaryTerm.STATUS_DRAFT);
+        assertThat(input.getReviewerId()).isNull();
+        assertThat(input.getReviewedAt()).isNull();
+        verify(termMapper).insert(input);
+    }
+
+    @Test
+    void createTermRejectsBlankName() {
+        GlossaryTerm input = term(null);
+        input.setName(" ");
+        assertThatThrownBy(() -> service.createTerm(input))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("术语名称不能为空");
+        // 必须写出具体类型：BaseMapper 同时有 insert(T) 与 insert(Collection<T>)，
+        // 裸 any() 会产生重载歧义，测试源码集编译失败。
+        verify(termMapper, never()).insert(any(GlossaryTerm.class));
+    }
 
     @Test
     void updateTermRejectsApprovedTerm() {
@@ -154,15 +181,11 @@ class GlossaryTermServiceImplTest {
     @Test
     void deleteTermRemovesGlossaryOfRelations() {
         when(termMapper.selectById(1L)).thenReturn(term(GlossaryTerm.STATUS_APPROVED));
-        when(relationshipService.getBySource(1L, "GLOSSARY_TERM")).thenReturn(List.of(
-                relationship(11L, MetadataRelationship.TYPE_GLOSSARY_OF),
-                relationship(12L, "OTHER_TYPE")));
+        when(relationshipService.count(any(Wrapper.class))).thenReturn(1L);
 
         service.deleteTerm(1L);
 
-        // 只清理 GLOSSARY_OF，其他类型的关系不动
-        verify(relationshipService).removeById(11L);
-        verify(relationshipService, never()).removeById(12L);
+        verify(relationshipService).remove(any(Wrapper.class));
         verify(termMapper).deleteById(1L);
         verify(termMapper).update(isNull(), any(Wrapper.class));
     }
@@ -173,17 +196,13 @@ class GlossaryTermServiceImplTest {
         GlossaryTerm second = term(GlossaryTerm.STATUS_APPROVED);
         second.setId(2L);
         when(termMapper.selectList(any(Wrapper.class))).thenReturn(List.of(first, second));
-        when(relationshipService.getBySource(1L, "GLOSSARY_TERM")).thenReturn(List.of(
-                relationship(21L, MetadataRelationship.TYPE_GLOSSARY_OF)));
-        when(relationshipService.getBySource(2L, "GLOSSARY_TERM")).thenReturn(List.of(
-                relationship(22L, MetadataRelationship.TYPE_GLOSSARY_OF)));
+        when(relationshipService.count(any(Wrapper.class))).thenReturn(2L);
 
         int removed = service.deleteTermsOfGlossary(10L);
 
         assertThat(removed).isEqualTo(2);
-        // 每个术语各自的 GLOSSARY_OF 关系都要清理，否则会留下指向已删术语的孤儿关系
-        verify(relationshipService).removeById(21L);
-        verify(relationshipService).removeById(22L);
+        // 所有术语的 GLOSSARY_OF 关系由一次批量删除完成，避免 N+1。
+        verify(relationshipService).remove(any(Wrapper.class));
         verify(termMapper).delete(any(Wrapper.class));
     }
 
@@ -192,7 +211,7 @@ class GlossaryTermServiceImplTest {
         when(termMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
 
         assertThat(service.deleteTermsOfGlossary(10L)).isZero();
-        verify(relationshipService, never()).removeById(any(Long.class));
+        verify(relationshipService, never()).remove(any(Wrapper.class));
         verify(termMapper, never()).delete(any(Wrapper.class));
     }
 
@@ -213,10 +232,4 @@ class GlossaryTermServiceImplTest {
         return glossary;
     }
 
-    private MetadataRelationship relationship(Long id, String type) {
-        MetadataRelationship rel = new MetadataRelationship();
-        rel.setId(id);
-        rel.setRelationType(type);
-        return rel;
-    }
 }

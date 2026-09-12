@@ -53,6 +53,14 @@ public class LineageController {
         return Result.success(lineageService.analyzeImpact(datasourceId, tableName, columnName));
     }
 
+    /** 表级变更影响分析 */
+    @GetMapping("/impact/{tableName}")
+    public Result<ImpactAnalysisVO> analyzeTableImpact(
+            @RequestParam Long datasourceId, @PathVariable String tableName) {
+        requireDatasourceId(datasourceId);
+        return Result.success(lineageService.analyzeImpact(datasourceId, tableName, null));
+    }
+
     private void requireDatasourceId(Long datasourceId) {
         if (datasourceId == null) {
             throw new BusinessException("请选择数据源");

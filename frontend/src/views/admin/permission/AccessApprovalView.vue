@@ -27,19 +27,27 @@ import {
 } from '../../../api/admin/permission'
 import { listSimpleDatasources } from '../../../api/admin/datasource'
 import { listUsers } from '../../../api/admin/user'
+import { getPublishedSnapshot } from '../../../api/admin/versioning'
+import { listSnapshotTableColumns, listSnapshotTables } from '../../../api/admin/governance'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import { governanceStatusLabels } from '../../../utils/enumLabels'
 
 /**
- * 每页取回条数 = 后端 `PageRequest.MAX_PAGE_SIZE` 上限。
+ * 每次请求取回条数 = 后端 `PageRequest.MAX_PAGE_SIZE` 上限。
  *
  * 「已处理」需要合并 APPROVED 与 REJECTED 两个状态，而接口一次只接受一个状态，
- * 因此本页统一按上限取回后在前端分页，并在超出上限时明确提示，不假装是完整列表。
+ * 因此本页逐页取回后在本地分页。为免某个状态记录极多时一次并发过多请求，
+ * 单状态最多取回 MAX_PAGES 页；未取满时在页面上如实披露，不假装是完整列表。
  */
 const FETCH_SIZE = 100
+/** 单状态取回页数上限（2000 条）；超出时页面披露列表不完整 */
+const MAX_PAGES = 20
+/** 并发取页的窗口大小，避免一次打出上百个请求 */
+const FETCH_CONCURRENCY = 5
 const PAGE_SIZE = 20
 
 const TABS = [
@@ -60,6 +68,8 @@ const error = ref('')
 const reviewing = ref(false)
 const detailVisible = ref(false)
 const detail = ref<AccessApprovalRequestItem | null>(null)
+const governanceState = ref('未检查')
+const namesError = ref('')
 
 /** ID → 名称映射；记录上只有 ID，页面负责解析 */
 const datasourceNames = ref<Record<number, string>>({})
@@ -67,7 +77,17 @@ const userNames = ref<Record<number, string>>({})
 
 const currentTab = computed(() => TABS.find((t) => t.name === activeTab.value) || TABS[0])
 const rows = computed(() => allRows.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE))
+/** 取回条数少于服务端匹配数：单状态超过 MAX_PAGES 页，或取页期间记录发生增删 */
 const truncated = computed(() => serverTotal.value > allRows.value.length)
+/**
+ * 治理状态标签。
+ *
+ * `openDetail` 成功路径写回的是后端治理状态枚举，失败路径写的是页面自述文案
+ * （「检查中」「无已发布快照」等）。只有前者需要域内翻译，后者原样显示。
+ */
+const governanceLabel = computed(() => (
+  governanceStatusLabels[governanceState.value] || governanceState.value
+))
 
 const applicantName = (id?: number) => (id ? userNames.value[id] || `用户 #${id}` : '—')
 const datasourceNameOf = (id?: number) => (id ? datasourceNames.value[id] || `数据源 #${id}` : '—')
@@ -89,6 +109,7 @@ function tempPolicyText(row: AccessApprovalRequestItem) {
 }
 
 async function loadNames() {
+  namesError.value = ''
   const [sources, users] = await Promise.allSettled([
     listSimpleDatasources(),
     listUsers({ page: 1, pageSize: 100 }),
@@ -101,6 +122,33 @@ async function loadNames() {
       (users.value.data?.records || []).map((u) => [u.id, u.realName || u.username]),
     )
   }
+  if (sources.status === 'rejected' || users.status === 'rejected') {
+    namesError.value = '部分名称解析失败，带编号的名称表示未能加载对应基础数据。'
+  }
+}
+
+function apiError(cause: unknown, fallback: string) {
+  return (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
+    || (cause instanceof Error ? cause.message : fallback)
+}
+
+async function fetchAllByStatus(status: string) {
+  const first = await listAccessApprovalRequests({ status, page: 1, size: FETCH_SIZE })
+  const records = [...(first.data?.records || [])]
+  const total = first.data?.total || records.length
+  const pages = Math.min(Math.ceil(total / FETCH_SIZE), MAX_PAGES)
+  // 按窗口分批并发，页面只按真实取回条数与服务端 total 的差额决定是否披露
+  for (let start = 2; start <= pages; start += FETCH_CONCURRENCY) {
+    const batch: number[] = []
+    for (let index = start; index < start + FETCH_CONCURRENCY && index <= pages; index += 1) {
+      batch.push(index)
+    }
+    const results = await Promise.all(
+      batch.map((index) => listAccessApprovalRequests({ status, page: index, size: FETCH_SIZE })),
+    )
+    results.forEach((result) => records.push(...(result.data?.records || [])))
+  }
+  return { records, total }
 }
 
 async function load() {
@@ -109,17 +157,17 @@ async function load() {
   const tab = currentTab.value
   try {
     const results = await Promise.all(
-      tab.statuses.map((status) => listAccessApprovalRequests({ status, page: 1, size: FETCH_SIZE })),
+      tab.statuses.map((status) => fetchAllByStatus(status)),
     )
-    const merged = results.flatMap((r) => r.data?.records || [])
+    const merged = results.flatMap((r) => r.records)
     merged.sort((a, b) => timeOf(b) - timeOf(a))
     allRows.value = merged
-    serverTotal.value = results.reduce((sum, r) => sum + (r.data?.total || 0), 0)
+    serverTotal.value = results.reduce((sum, r) => sum + r.total, 0)
     page.value = 1
   } catch (cause) {
     allRows.value = []
     serverTotal.value = 0
-    error.value = cause instanceof Error ? cause.message : '访问审批列表加载失败'
+    error.value = apiError(cause, '访问审批列表加载失败')
   } finally {
     loading.value = false
   }
@@ -131,9 +179,30 @@ function selectTab(name: string | number) {
   load()
 }
 
-function openDetail(row: AccessApprovalRequestItem) {
+/** 治理状态复查的请求序号：连点两行时，先发的响应不得覆盖后发的 */
+let governanceRequestId = 0
+
+async function openDetail(row: AccessApprovalRequestItem) {
   detail.value = row
   detailVisible.value = true
+  const current = ++governanceRequestId
+  governanceState.value = '检查中'
+  try {
+    const published = (await getPublishedSnapshot(row.datasourceId)).data
+    let next = '对象不存在'
+    if (!published?.snapshotId) {
+      next = '无已发布快照'
+    } else if (row.columnName) {
+      const columns = (await listSnapshotTableColumns(published.snapshotId, row.tableName)).data || []
+      next = columns.find((column) => column.columnName === row.columnName)?.governanceStatus || '对象不存在'
+    } else {
+      const tables = (await listSnapshotTables(published.snapshotId)).data || []
+      next = tables.find((table) => table.tableName === row.tableName)?.governanceStatus || '对象不存在'
+    }
+    if (current === governanceRequestId) governanceState.value = next
+  } catch (cause) {
+    if (current === governanceRequestId) governanceState.value = apiError(cause, '复查失败')
+  }
 }
 
 async function review(row: AccessApprovalRequestItem, approved: boolean) {
@@ -174,7 +243,7 @@ async function review(row: AccessApprovalRequestItem, approved: boolean) {
     detailVisible.value = false
     await load()
   } catch (cause) {
-    ElMessage.error(cause instanceof Error ? cause.message : '审批操作失败')
+    ElMessage.error(apiError(cause, '审批操作失败'))
   } finally {
     reviewing.value = false
   }
@@ -214,12 +283,15 @@ watch(() => route.query.tab, (value) => {
       <el-tab-pane v-for="tab in TABS" :key="tab.name" :label="tab.label" :name="tab.name" />
     </el-tabs>
 
+    <!-- namesError 的提示必须先于下面的 v-if/v-else-if/v-else 链：写成三个兄弟节点时，
+         el-alert 的 v-if 会另起一条链，把 LoadingState 与主列表都吞掉，名称解析失败即整页空白 -->
+    <el-alert v-if="namesError" type="warning" :closable="false" :title="namesError" />
     <ErrorState v-if="error" :message="error" @retry="load" />
     <LoadingState v-else-if="loading" variant="skeleton" :rows="5" />
     <section v-else class="approval-page__card">
       <p v-if="truncated" class="approval-page__truncated">
-        服务端匹配 {{ serverTotal }} 条，本页按每状态最多 {{ FETCH_SIZE }} 条取回并本地分页，
-        因此列表可能不完整。请结合数据源与状态进一步缩小范围。
+        服务端匹配 {{ serverTotal }} 条，本页取回 {{ allRows.length }} 条并在本地分页，
+        列表因此不完整。请结合数据源与状态进一步缩小范围。
       </p>
       <EmptyState v-if="!rows.length" :message="currentTab.empty" />
       <template v-else>
@@ -288,10 +360,11 @@ watch(() => route.query.tab, (value) => {
 
         <section class="approval-page__detail-section">
           <h3>治理状态复查</h3>
+          <p>当前治理状态：<BusinessStatusBadge :status="governanceState" :label="governanceLabel" /></p>
           <p class="approval-page__gap">
             后端在审批时会再次检查该表/字段是否处于 <code>BLOCKED</code> 或 <code>DEPRECATED</code>，
-            被阻断的申请无法通过。但**申请记录上不返回复查结果**，因此这里无法展示复查明细——
-            属后端能力缺口，不伪造一个「复查通过」的标记。
+            被阻断的申请无法通过。上面展示的是对象<strong>当前</strong>的治理状态；申请记录本身不返回
+            审批时的复查明细，因此这里不伪造一个「复查通过」的标记。
           </p>
         </section>
 

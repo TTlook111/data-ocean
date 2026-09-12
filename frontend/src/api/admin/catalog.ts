@@ -71,6 +71,21 @@ export async function getEntityDetail(entityId: number) {
   return data
 }
 
+export async function getEntityTags(entityId: number) {
+  const { data } = await http.get<ApiResult<MetadataEntityItem[]>>(`/api/admin/catalog/entities/${entityId}/tags`)
+  return data
+}
+
+export async function confirmEntityTag(entityId: number, tagFqn: string) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/catalog/entities/${entityId}/confirm-tag`, { tagFqn })
+  return data
+}
+
+export async function unconfirmEntityTag(entityId: number, tagFqn: string) {
+  const { data } = await http.delete<ApiResult<null>>(`/api/admin/catalog/entities/${entityId}/unconfirm-tag/${encodeURIComponent(tagFqn)}`)
+  return data
+}
+
 /** 获取实体血缘关系 */
 /**
  * 实体的血缘关系。

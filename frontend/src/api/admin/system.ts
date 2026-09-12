@@ -22,6 +22,7 @@ export interface PoolStatusItem {
 export interface PoolDashboardInfo {
   activePools: number
   pools: PoolStatusItem[]
+  error?: string
 }
 
 export async function getSyncSchedule() {
@@ -216,21 +217,6 @@ export async function syncAiProviderModels(id: string) {
   const { data } = await http.post<ApiResult<Record<string, unknown>>>(
     `/api/admin/system/ai-config/providers/${id}/sync-models`,
     undefined,
-    { timeout: 60000 },
-  )
-  return data
-}
-
-/**
- * 触发重新向量化。
- *
- * 后端 `POST /re-vectorize` 早已存在，此前前端零封装，页面上没有任何触发入口，
- * 只能在「索引状态」里被动看到 `REINDEX_REQUIRED`。
- */
-export async function reVectorize(payload?: Record<string, unknown>) {
-  const { data } = await http.post<ApiResult<Record<string, unknown>>>(
-    '/api/admin/system/ai-config/re-vectorize',
-    payload ?? {},
     { timeout: 60000 },
   )
   return data

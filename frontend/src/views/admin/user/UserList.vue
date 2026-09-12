@@ -248,8 +248,10 @@ const detailVisible = ref(false)
 const detailLoading = ref(false)
 const detailError = ref('')
 const detail = ref<UserItem | null>(null)
+const detailTarget = ref<UserItem | null>(null)
 
 async function openDetail(row: UserItem) {
+  detailTarget.value = row
   detailVisible.value = true
   detailLoading.value = true
   detailError.value = ''
@@ -615,7 +617,7 @@ onBeforeUnmount(() => {
     <!-- 用户详情 -->
     <el-drawer v-model="detailVisible" title="用户详情" size="480px">
       <LoadingState v-if="detailLoading" variant="skeleton" :rows="6" />
-      <ErrorState v-else-if="detailError" :message="detailError" @retry="detail ? openDetail(detail) : undefined" />
+      <ErrorState v-else-if="detailError" :message="detailError" @retry="detailTarget && openDetail(detailTarget)" />
       <div v-else-if="detail" class="user-detail">
         <dl>
           <div><dt>用户名</dt><dd>{{ detail.username }}</dd></div>

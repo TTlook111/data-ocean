@@ -9,7 +9,7 @@ import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.v
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
-import { snapshotStatusLabel } from '../../../utils/enumLabels'
+import { governanceStatusLabel, snapshotStatusLabel } from '../../../utils/enumLabels'
 
 const route = useRoute()
 const router = useRouter()
@@ -50,7 +50,7 @@ onMounted(load)
     <ObjectContextSummary
       v-if="detail"
       :title="'快照 v' + detail.snapshot.snapshotVersion"
-      :description="detail.snapshot.datasourceName"
+      :description="detail.datasourceName || ('数据源 #' + detail.snapshot.datasourceId)"
       back-to="/admin/releases"
       source-label="元数据采集快照"
     />
@@ -74,7 +74,7 @@ onMounted(load)
           <el-table-column prop="tableComment" label="说明" min-width="180" />
           <el-table-column prop="rowCountEstimate" label="估算行数" width="120" />
           <el-table-column label="治理状态" width="130">
-            <template #default="{ row }"><BusinessStatusBadge :status="row.governanceStatus" /></template>
+            <template #default="{ row }"><BusinessStatusBadge :status="row.governanceStatus" :label="governanceStatusLabel(row.governanceStatus)" /></template>
           </el-table-column>
         </el-table>
         <EmptyState v-else message="该快照尚未返回表清单" />

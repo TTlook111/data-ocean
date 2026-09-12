@@ -31,6 +31,7 @@ import {
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { getPublishedSnapshot, type VersionHistoryItem } from '../../../api/admin/versioning'
 import { knowledgeStatusLabel } from '../../../utils/enumLabels'
+import { findDomainHome, resolveReadinessActionPath } from '../../../utils/adminNavigation'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
@@ -40,6 +41,8 @@ import EmptyState from '../../../components/common/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()
+// actionPath 未映射时的安全落点：当前业务域的首个工作区
+const domainHome = computed(() => findDomainHome(String(route.meta.domainKey || '')))
 const context = useAdminContextStore()
 
 const activeTab = ref(String(route.query.tab || 'documents'))
@@ -67,10 +70,25 @@ const statsError = ref('')
 const readinessList = ref<DatasourceReadiness[]>([])
 const readinessLoading = ref(false)
 const readinessError = ref('')
+const readinessWarning = ref('')
+const datasourcesError = ref('')
+const publishedSnapshotError = ref('')
+const snapshotsError = ref('')
 let requestId = 0
 
 const datasourceId = computed(() => context.datasourceId)
 const datasourceName = (id: number) => datasources.value.find((item) => item.id === id)?.name || `数据源 #${id}`
+const readinessAction = (row: DatasourceReadiness) => {
+  const reason = row.blockReasons?.[0]
+  if (!reason) return null
+  return {
+    label: reason.actionText || '去处理',
+    target: resolveReadinessActionPath(reason.actionPath, {
+      datasourceId: row.datasourceId,
+      snapshotId: row.publishedSnapshotId,
+    }),
+  }
+}
 
 /** 后端以 JSON 数组字符串保存覆盖表名，展示时做一次安全解析 */
 function parseTableNames(value?: string): string[] {
@@ -147,15 +165,17 @@ async function loadStats() {
   } catch (cause) {
     // 统计失败不阻断主列表，但必须说明统计不可用——不能让用户把「统计失败」
     // 读成「全都是 0」（§11.3、§18）。
-    statsError.value = cause instanceof Error ? cause.message : '状态统计加载失败'
+    statsError.value = apiError(cause, '状态统计加载失败')
   }
 }
 
 async function loadDatasources() {
+  datasourcesError.value = ''
   try {
     datasources.value = (await listSimpleDatasources()).data || []
-  } catch {
+  } catch (cause) {
     datasources.value = []
+    datasourcesError.value = apiError(cause, '数据源列表加载失败')
   }
   await loadReadiness()
 }
@@ -168,9 +188,13 @@ async function loadReadiness() {
   }
   readinessLoading.value = true
   readinessError.value = ''
+  readinessWarning.value = ''
   try {
     const result = await getBatchDatasourceReadiness(datasources.value.map((item) => item.id))
     readinessList.value = result.data
+    if (result.failedDatasourceIds.length) {
+      readinessWarning.value = `部分数据源就绪度加载失败：${result.failedDatasourceIds.join('、')}`
+    }
   } catch (cause) {
     readinessList.value = []
     readinessError.value = cause instanceof Error ? cause.message : '数据源知识准备情况加载失败'
@@ -181,14 +205,16 @@ async function loadReadiness() {
 
 /** 判断当前数据源是否已有正式发布快照，用作「快照发布 → 生成知识」的下一步引导 */
 async function loadPublishedSnapshot() {
+  publishedSnapshotError.value = ''
   if (!datasourceId.value) {
     publishedSnapshot.value = null
     return
   }
   try {
     publishedSnapshot.value = (await getPublishedSnapshot(datasourceId.value)).data || null
-  } catch {
+  } catch (cause) {
     publishedSnapshot.value = null
+    publishedSnapshotError.value = apiError(cause, '已发布快照加载失败')
   }
 }
 
@@ -204,12 +230,14 @@ const visibleDocs = computed(() => {
 const emptyMessage = computed(() => {
   if (activeTab.value === 'review') return '当前没有待审核的知识文档，审核队列是空的。'
   if (!datasourceId.value) return '还没有任何知识文档。选择数据源后可以从快照生成知识。'
+  if (publishedSnapshotError.value) return '已发布快照状态加载失败，暂时无法判断是否可以生成知识。'
   if (!publishedSnapshot.value) return '当前数据源还没有正式发布的快照。语义知识必须基于已发布快照生成。'
   return '当前筛选条件下没有知识文档。'
 })
 
 const emptyAction = computed(() => {
   if (activeTab.value === 'review') return ''
+  if (publishedSnapshotError.value) return ''
   if (!publishedSnapshot.value && datasourceId.value) return '去版本发布'
   return 'AI 一键生成'
 })
@@ -284,11 +312,13 @@ function openGenerateDialog() {
 }
 
 async function loadSnapshots(id: number) {
+  snapshotsError.value = ''
   try {
     const result = await listSnapshots({ datasourceId: id, page: 1, size: 50 })
     snapshots.value = result.data?.records || []
-  } catch {
+  } catch (cause) {
     snapshots.value = []
+    snapshotsError.value = apiError(cause, '快照列表加载失败')
   }
 }
 
@@ -317,8 +347,8 @@ async function runGenerate() {
 }
 
 onMounted(async () => {
-  await Promise.all([context.initialize(), loadDatasources()])
-  await Promise.all([loadDocs(), loadStats(), loadPublishedSnapshot()])
+  await Promise.allSettled([context.initialize(), loadDatasources()])
+  await Promise.allSettled([loadDocs(), loadStats(), loadPublishedSnapshot()])
 })
 
 watch(datasourceId, async () => {
@@ -379,7 +409,8 @@ watch(() => route.query.page, (value) => {
         </div>
         <el-button :icon="RefreshCw" :loading="readinessLoading" @click="loadReadiness">刷新准备情况</el-button>
       </div>
-      <ErrorState v-if="readinessError" :message="readinessError" @retry="loadReadiness" />
+      <el-alert v-if="readinessWarning" type="warning" :closable="false" :title="readinessWarning" />
+      <ErrorState v-if="datasourcesError || readinessError" :message="datasourcesError || readinessError" @retry="loadDatasources" />
       <LoadingState v-else-if="readinessLoading" variant="skeleton" :rows="3" />
       <EmptyState
         v-else-if="!readinessList.length"
@@ -411,16 +442,24 @@ watch(() => route.query.page, (value) => {
               :to="{ name: 'admin-semantic-knowledge-detail', params: { id: row.publishedKnowledgeDocId } }"
             >查看已发布文档</RouterLink>
             <RouterLink
-              v-else
+              v-else-if="readinessAction(row)?.target.known"
               class="knowledge-page__link"
-              :to="{ path: '/admin/semantics/knowledge', query: { datasourceId: String(row.datasourceId) } }"
-            >去准备知识</RouterLink>
+              :to="readinessAction(row)!.target.to!"
+            >{{ readinessAction(row)!.label }}</RouterLink>
+            <!-- actionPath 未映射时不得猜测目标，也不能只留一句死文案：
+                 按《实施任务清单》§4 给出当前业务域的安全落点 -->
+            <span v-else-if="readinessAction(row)?.label" class="knowledge-page__muted">
+              {{ readinessAction(row)!.label }}
+              <RouterLink class="knowledge-page__link" :to="domainHome.path">返回{{ domainHome.label }}</RouterLink>
+            </span>
+            <span v-else class="knowledge-page__muted">等待后端状态</span>
           </template>
         </el-table-column>
       </el-table>
     </section>
 
-    <p v-if="!datasourceId" class="knowledge-page__scope-note">
+    <ErrorState v-if="publishedSnapshotError" :message="publishedSnapshotError" @retry="loadPublishedSnapshot" />
+    <p v-else-if="!datasourceId" class="knowledge-page__scope-note">
       当前未限定数据源，列表展示全部知识文档。使用顶部的数据源范围可以聚焦到单个数据源。
     </p>
     <p v-else-if="publishedSnapshot" class="knowledge-page__scope-note is-ok">
@@ -458,6 +497,9 @@ watch(() => route.query.page, (value) => {
     />
     <section v-else class="knowledge-page__card">
       <el-table :data="visibleDocs" v-loading="actionLoading" stripe>
+        <el-table-column v-if="activeTab === 'review'" type="expand">
+          <template #default="{ row }"><pre class="knowledge-page__review-content">{{ row.content || '文档正文为空' }}</pre></template>
+        </el-table-column>
         <el-table-column label="文档" min-width="220">
           <template #default="{ row }">
             <button type="button" class="doc-link" @click="goDetail(row.id)">
@@ -524,6 +566,7 @@ watch(() => route.query.page, (value) => {
             </el-select>
           </el-form-item>
           <el-form-item label="快照">
+            <ErrorState v-if="snapshotsError" :message="snapshotsError" @retry="generateForm.datasourceId && loadSnapshots(generateForm.datasourceId)" />
             <el-select v-model="generateForm.snapshotId" placeholder="选择元数据快照" style="width: 100%" :disabled="!generateForm.datasourceId">
               <el-option v-for="item in snapshots" :key="item.id" :label="`v${item.snapshotVersion} · ${item.status}`" :value="item.id" />
             </el-select>
@@ -622,6 +665,7 @@ watch(() => route.query.page, (value) => {
 }
 
 .doc-tables { display: block; margin-top: 4px; color: var(--do-muted); font-size: 11px; }
+.knowledge-page__review-content { max-height: 360px; margin: 0; padding: 14px; overflow: auto; white-space: pre-wrap; background: var(--do-bg); }
 
 .knowledge-page__pager { justify-content: flex-end; }
 

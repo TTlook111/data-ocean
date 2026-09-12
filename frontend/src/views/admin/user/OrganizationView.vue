@@ -14,7 +14,7 @@
  * 后端能力缺口（如实标注）：`DepartmentController` 只有 `/tree` 与增删改，
  * **没有部门成员接口**，因此 §7.15「部门…展示成员摘要」在前后端两侧都不成立。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Pencil, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
@@ -82,6 +82,11 @@ function selectTab(name: string | number) {
   router.push({ query: { ...route.query, tab: activeTab.value } })
   if (activeTab.value === 'permissions' && !permissions.value.length) loadPermissions()
 }
+
+watch(() => route.query.tab, (value) => {
+  const next = TABS.some((tab) => tab.name === value) ? String(value) : 'users'
+  if (next !== activeTab.value) activeTab.value = next
+})
 
 /**
  * 加载权限项平铺列表。
@@ -192,16 +197,12 @@ onMounted(() => {
     </TaskPageHeader>
 
     <el-tabs :model-value="activeTab" class="organization-page__tabs" @update:model-value="selectTab">
-      <el-tab-pane label="用户" name="users"><UserList /></el-tab-pane>
-      <el-tab-pane label="角色" name="roles"><RoleList /></el-tab-pane>
-      <el-tab-pane label="部门" name="departments">
+      <el-tab-pane label="用户" name="users" lazy><UserList /></el-tab-pane>
+      <el-tab-pane label="角色" name="roles" lazy><RoleList /></el-tab-pane>
+      <el-tab-pane label="部门" name="departments" lazy>
         <DepartmentTree />
-        <p class="organization-page__gap">
-          后端缺口：部门接口只有部门树与增删改，**没有部门成员接口**，因此无法展示成员摘要。
-          需要成员信息时请到「用户」Tab 按部门筛选。
-        </p>
       </el-tab-pane>
-      <el-tab-pane label="权限项" name="permissions">
+      <el-tab-pane label="权限项" name="permissions" lazy>
         <section class="organization-page__panel">
           <div class="organization-page__toolbar">
             <el-select v-model="moduleFilter" placeholder="全部模块" clearable style="width: 180px">

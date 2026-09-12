@@ -34,6 +34,12 @@ const tones: Record<string, string> = {
   ISSUE_FOUND: 'danger', FAILED: 'danger', OPEN: 'danger', REOPENED: 'danger',
   REJECTED: 'danger', UNHEALTHY: 'danger', EXPIRED: 'muted', DRAFT: 'muted',
   DISABLED: 'muted', INACTIVE: 'muted',
+  // 治理状态（`utils/enumLabels.ts` 的 governanceStatusLabels）。
+  // 缺了这六项时全部落到 muted 灰，「禁止使用/已废弃」与「正常可用」外观完全一致，
+  // 只能靠读文字区分——治理页最需要一眼看出的正是这组差异。
+  NORMAL: 'success', RECOMMENDED: 'info',
+  DISCOVERED: 'warning', SENSITIVE: 'warning',
+  DEPRECATED: 'danger', BLOCKED: 'danger',
 }
 
 const key = computed(() => String(props.status ?? ''))

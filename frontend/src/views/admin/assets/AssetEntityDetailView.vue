@@ -2,7 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { GitBranch, Network, ShieldCheck } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
-import { getEntityDetail, getEntityDownstream, getEntityLineage, type EntityDetail, type MetadataRelationshipItem } from '../../../api/admin/catalog'
+import { ElMessage } from 'element-plus'
+import { confirmEntityTag, getEntityDetail, getEntityDownstream, getEntityLineage, getEntityTags, unconfirmEntityTag, type EntityDetail, type MetadataEntityItem, type MetadataRelationshipItem } from '../../../api/admin/catalog'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
@@ -15,25 +16,42 @@ const error = ref('')
 const detail = ref<EntityDetail | null>(null)
 const lineage = ref<MetadataRelationshipItem[]>([])
 const downstream = ref<MetadataRelationshipItem[]>([])
+const tags = ref<MetadataEntityItem[]>([])
+const newTag = ref('')
 const entityId = Number(route.params.entityId)
 
 async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [entityResult, lineageResult, downstreamResult] = await Promise.all([
+    const [entityResult, lineageResult, downstreamResult, tagsResult] = await Promise.all([
       getEntityDetail(entityId),
       getEntityLineage(entityId),
       getEntityDownstream(entityId),
+      getEntityTags(entityId),
     ])
     detail.value = entityResult.data
     lineage.value = lineageResult.data || []
     downstream.value = downstreamResult.data || []
+    tags.value = tagsResult.data || []
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '资产详情加载失败'
   } finally {
     loading.value = false
   }
+}
+
+async function addTag() {
+  if (!newTag.value.trim()) return
+  await confirmEntityTag(entityId, newTag.value.trim())
+  newTag.value = ''
+  tags.value = (await getEntityTags(entityId)).data || []
+  ElMessage.success('标签已确认')
+}
+
+async function removeTag(tag: MetadataEntityItem) {
+  await unconfirmEntityTag(entityId, tag.name)
+  tags.value = tags.value.filter((item) => item.id !== tag.id)
 }
 
 onMounted(load)
@@ -56,6 +74,11 @@ onMounted(load)
         <div><span>对象类型</span><strong>{{ detail.entity.entityType }}</strong></div>
         <div><span>版本</span><strong>v{{ detail.entity.version }}</strong></div>
         <div><span>关系数量</span><strong>{{ detail.outgoingRelations.length + detail.incomingRelations.length }}</strong></div>
+      </section>
+      <section class="entity-detail__card entity-detail__tags">
+        <h2><ShieldCheck :size="17" />实体标签</h2>
+        <div><el-tag v-for="tag in tags" :key="tag.id" closable @close="removeTag(tag)">{{ tag.displayName || tag.name }}</el-tag></div>
+        <el-input v-model="newTag" placeholder="输入标签 FQN，如 PII.手机号" clearable @keyup.enter="addTag"><template #append><el-button @click="addTag">确认标签</el-button></template></el-input>
       </section>
       <div class="entity-detail__grid">
         <section class="entity-detail__card">
@@ -133,6 +156,8 @@ onMounted(load)
 .entity-detail__notice {
   margin-top: 16px;
 }
+.entity-detail__tags { margin-bottom: 14px; }
+.entity-detail__tags > div { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 
 @media (max-width: 760px) {
   .entity-detail__summary,

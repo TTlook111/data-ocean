@@ -69,7 +69,15 @@ const roleRules: FormRules = {
 }
 
 const activeRole = computed(() => roles.value.find((role) => role.id === activeRoleId.value))
-const canManageRoles = computed(() => auth.hasAnyPermission(['role:manage', 'user:manage', '*']))
+const canManageRoles = computed(() => auth.hasAnyPermission(['role:manage', '*']))
+/**
+ * 成员增删的权限边界与角色本身不同。
+ *
+ * 后端 `RoleController` 的 `assignRoleToUser` / `removeUserFromRole` 是
+ * `hasAnyAuthority('role:manage', 'user:manage')`，所以只有 `user:manage` 的账号
+ * 合法但看不到入口。这里按端点实际要求放宽，与后端对齐。
+ */
+const canManageMembers = computed(() => auth.hasAnyPermission(['role:manage', 'user:manage', '*']))
 const assignedUserIds = computed(() => new Set(roleMembers.value.map((user) => user.id)))
 const selectableUsers = computed(() => userOptions.value.filter((user) => !assignedUserIds.value.has(user.id) && user.status === 1))
 const permissionTreeData = computed<PermissionTreeNode[]>(() =>
@@ -271,7 +279,7 @@ async function savePermissions() {
 }
 
 async function addMember() {
-  if (!activeRoleId.value || !selectedUserId.value || !canManageRoles.value) return
+  if (!activeRoleId.value || !selectedUserId.value || !canManageMembers.value) return
   addingMember.value = true
   try {
     await assignRoleToUser(activeRoleId.value, selectedUserId.value)
@@ -285,7 +293,7 @@ async function addMember() {
 }
 
 async function removeMember(user: UserItem) {
-  if (!activeRoleId.value || !canManageRoles.value) return
+  if (!activeRoleId.value || !canManageMembers.value) return
   await ElMessageBox.confirm(`确定将 ${user.realName || user.username} 从该角色移除吗？`, '移除成员', {
     type: 'warning',
     confirmButtonText: '确定移除',
@@ -413,7 +421,7 @@ onMounted(async () => {
               <strong>{{ activeRole?.roleName || '请选择角色' }}</strong>
               <small><Users :size="14" /> {{ roleMembers.length }} 名成员</small>
             </div>
-            <div v-if="canManageRoles" class="member-actions">
+            <div v-if="canManageMembers" class="member-actions">
               <el-select v-model="selectedUserId" filterable clearable placeholder="选择要加入的用户" style="width: 240px">
                 <el-option
                   v-for="user in selectableUsers"
@@ -440,7 +448,7 @@ onMounted(async () => {
             </el-table-column>
             <el-table-column label="操作" width="120" fixed="right">
               <template #default="{ row }">
-                <el-button v-if="canManageRoles" link type="danger" :loading="removingUserId === row.id" @click="removeMember(row)">移除</el-button>
+                <el-button v-if="canManageMembers" link type="danger" :loading="removingUserId === row.id" @click="removeMember(row)">移除</el-button>
                 <span v-else class="muted-action">-</span>
               </template>
             </el-table-column>

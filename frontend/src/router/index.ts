@@ -28,7 +28,6 @@ const PromptsView = () => import('../views/admin/semantics/PromptsView.vue')
 const GlossariesView = () => import('../views/admin/semantics/GlossariesView.vue')
 const NotFound = () => import('../views/NotFound.vue')
 const GovernanceFieldsView = () => import('../views/admin/governance/GovernanceFieldsView.vue')
-const TableExplorer = () => import('../views/admin/metadata/TableExplorer.vue')
 const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
 const RuntimeView = () => import('../views/admin/system/RuntimeView.vue')
@@ -253,12 +252,7 @@ const router = createRouter({
         { path: 'metadata/sync', redirect: (to) => ({ path: '/admin/collections', query: to.query }) },
         { path: 'metadata/schedule', redirect: (to) => ({ path: '/admin/collections', query: { ...to.query, tab: 'schedule' } }) },
         { path: 'metadata/catalog', redirect: (to) => ({ path: '/admin/assets', query: to.query }) },
-        {
-          path: 'metadata/tables',
-          name: 'admin-metadata-tables',
-          component: TableExplorer,
-          meta: { title: '表浏览器', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'datasource-snapshot' },
-        },
+        { path: 'metadata/tables', redirect: (to) => ({ path: '/admin/assets', query: { ...to.query, view: 'tables' } }) },
         { path: 'metadata/lifecycle', redirect: (to) => ({ path: '/admin/releases', query: to.query }) },
         { path: 'metadata/snapshots', redirect: (to) => ({ path: '/admin/releases', query: to.query }) },
         { path: 'metadata/version-history', redirect: (to) => ({ path: '/admin/releases', query: { ...to.query, tab: 'history' } }) },

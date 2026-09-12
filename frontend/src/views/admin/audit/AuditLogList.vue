@@ -2,12 +2,10 @@
 /**
  * 查询审计（开发指导 §7.16 的「查询审计」Tab）
  *
- * 三处补齐（对照 §7.16）：
+ * 两处补齐（对照 §7.16）：
  * 1. **数据源筛选**：`query.datasourceId` 原字段存在且真的参与查询，但**没有任何 UI 能设置它**
  *    ——值只能由全局 store 隐式决定，用户看不到也改不了。现补上可见的筛选控件。
  * 2. **详情**：`getAuditLogDetail` 已封装但全仓零引用；现补详情 Drawer。
- * 3. **提升为模板**：`promoteTemplate` 同样零引用；现补行内操作。
- *
  * 另修错误态：原 `fetchLogs` 只有 `try/finally` 没有 `catch`，`fetchStats` 连 `try` 都没有，
  * 接口失败会静默变成空列表 + 统计卡整块不渲染（§11.3、§18「接口失败不得降级为全零统计或空列表」）。
  *
@@ -15,13 +13,11 @@
  */
 import { onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Sparkles } from 'lucide-vue-next'
+import { Search } from 'lucide-vue-next'
 import {
   getAuditLogDetail,
   getAuditStats,
   listAuditLogs,
-  promoteTemplate,
   type AuditLogVO,
   type AuditStatsVO,
 } from '../../../api/admin/audit'
@@ -150,24 +146,6 @@ async function openDetail(row: AuditLogVO) {
   }
 }
 
-async function handlePromote(row: AuditLogVO) {
-  try {
-    await ElMessageBox.confirm(
-      `把审计记录 #${row.id} 提升为 Prompt 模板？提升后可在「语义中心 / Prompt 策略」中继续编辑并走审核流程。`,
-      '提升为模板',
-      { type: 'info', confirmButtonText: '确认提升', cancelButtonText: '取消' },
-    )
-  } catch {
-    return
-  }
-  try {
-    await promoteTemplate(row.id)
-    ElMessage.success('已提升为模板，请到 Prompt 策略中编辑并提交审核')
-  } catch (cause) {
-    ElMessage.error(apiError(cause, '提升为模板失败'))
-  }
-}
-
 async function loadDatasources() {
   try {
     datasources.value = (await listSimpleDatasources()).data || []
@@ -198,10 +176,11 @@ watch(() => adminContext.datasourceId, (datasourceId) => {
   <section ref="pageRef" class="audit-log">
     <ErrorState v-if="statsError" :message="statsError" @retry="fetchStats" />
     <section v-else-if="stats" class="stats-row">
-      <div class="stat-card"><span class="stat-value">{{ stats.totalQueries }}</span><span class="stat-label">总查询数</span></div>
-      <div class="stat-card"><span class="stat-value">{{ stats.successRate?.toFixed(1) }}%</span><span class="stat-label">成功率</span></div>
-      <div class="stat-card"><span class="stat-value">{{ stats.avgExecutionTimeMs?.toFixed(0) }}ms</span><span class="stat-label">平均耗时</span></div>
-      <div class="stat-card"><span class="stat-value">{{ stats.slowQueryCount }}</span><span class="stat-label">慢查询数</span></div>
+      <!-- 四张卡都出自同一个 days:30 窗口，标题统一标出口径，避免被读成全量统计 -->
+      <div class="stat-card"><span class="stat-value">{{ stats.totalQueries }}</span><span class="stat-label">近 30 天查询数</span></div>
+      <div class="stat-card"><span class="stat-value">{{ stats.successRate == null ? '—' : stats.successRate.toFixed(1) + '%' }}</span><span class="stat-label">近 30 天成功率</span></div>
+      <div class="stat-card"><span class="stat-value">{{ stats.avgExecutionTimeMs == null ? '—' : stats.avgExecutionTimeMs.toFixed(0) + 'ms' }}</span><span class="stat-label">近 30 天平均耗时</span></div>
+      <div class="stat-card"><span class="stat-value">{{ stats.slowQueryCount }}</span><span class="stat-label">近 30 天慢查询数</span></div>
     </section>
 
     <section class="toolbar">
@@ -259,7 +238,6 @@ watch(() => adminContext.datasourceId, (datasourceId) => {
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-            <el-button link type="primary" :icon="Sparkles" @click="handlePromote(row)">提升为模板</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -302,7 +280,6 @@ watch(() => adminContext.datasourceId, (datasourceId) => {
           <p v-else class="muted-text">该记录没有保存 SQL（可能未通过生成阶段）。</p>
         </section>
         <div class="audit-detail__actions">
-          <el-button :icon="Sparkles" @click="handlePromote(detail)">提升为模板</el-button>
         </div>
       </div>
     </el-drawer>

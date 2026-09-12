@@ -56,10 +56,4 @@ public class AuditLogController {
         return Result.success(auditLogService.getStats(datasourceId, days));
     }
 
-    /** 将查询提升为模板 */
-    @PostMapping("/{id}/promote-template")
-    public Result<Void> promoteTemplate(@PathVariable Long id) {
-        auditLogService.promoteToTemplate(id);
-        return Result.success("已提升为模板", null);
-    }
 }

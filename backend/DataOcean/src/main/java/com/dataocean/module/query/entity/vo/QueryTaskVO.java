@@ -31,6 +31,9 @@ public class QueryTaskVO {
     private List<String> usedTables;
     private List<String> usedColumns;
     private List<Map<String, Object>> promptVersions;
+    /** Python 标记且已由 Java 执行脱敏的输出字段 */
+    private Map<String, String> maskedFields;
+    private List<String> suggestedQuestions;
     /** 是否使用了降级方案 */
     private Boolean degraded;
     /** 降级提示信息 */

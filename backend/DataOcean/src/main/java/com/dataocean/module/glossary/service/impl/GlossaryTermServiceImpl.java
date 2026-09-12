@@ -40,14 +40,12 @@ public class GlossaryTermServiceImpl extends ServiceImpl<GlossaryTermMapper, Glo
     private final GlossaryMapper glossaryMapper;
     private final MetadataRelationshipService relationshipService;
 
-    @Override
-    public List<GlossaryTerm> getApprovedTerms(Long glossaryId) {
-        return baseMapper.selectApprovedByGlossaryId(glossaryId);
-    }
-
     @Transactional
     @Override
     public GlossaryTerm createTerm(GlossaryTerm term) {
+        if (!StringUtils.hasText(term.getName())) {
+            throw new BusinessException("术语名称不能为空");
+        }
         // 校验术语表存在
         Glossary glossary = glossaryMapper.selectById(term.getGlossaryId());
         if (glossary == null) {
@@ -65,10 +63,10 @@ public class GlossaryTermServiceImpl extends ServiceImpl<GlossaryTermMapper, Glo
             throw new BusinessException("术语 FQN 已存在: " + term.getFqn());
         }
 
-        // 设置初始状态
-        if (term.getStatus() == null) {
-            term.setStatus(GlossaryTerm.STATUS_DRAFT);
-        }
+        // 创建入口不能接受客户端伪造的审核状态或审核人，统一从草稿开始。
+        term.setStatus(GlossaryTerm.STATUS_DRAFT);
+        term.setReviewerId(null);
+        term.setReviewedAt(null);
 
         baseMapper.insert(term);
         log.info("术语已创建 id={} fqn={}", term.getId(), term.getFqn());
@@ -241,15 +239,14 @@ public class GlossaryTermServiceImpl extends ServiceImpl<GlossaryTermMapper, Glo
      * @return 清理的关系数量
      */
     private int removeGlossaryOfRelationsOf(Set<Long> termIds) {
-        int removed = 0;
-        for (Long termId : termIds) {
-            for (MetadataRelationship rel : relationshipService.getBySource(termId, SOURCE_TYPE_GLOSSARY_TERM)) {
-                if (MetadataRelationship.TYPE_GLOSSARY_OF.equals(rel.getRelationType())) {
-                    relationshipService.removeById(rel.getId());
-                    removed++;
-                }
-            }
-        }
-        return removed;
+        long count = relationshipService.count(new LambdaQueryWrapper<MetadataRelationship>()
+                .in(MetadataRelationship::getSourceId, termIds)
+                .eq(MetadataRelationship::getSourceType, SOURCE_TYPE_GLOSSARY_TERM)
+                .eq(MetadataRelationship::getRelationType, MetadataRelationship.TYPE_GLOSSARY_OF));
+        relationshipService.remove(new LambdaQueryWrapper<MetadataRelationship>()
+                .in(MetadataRelationship::getSourceId, termIds)
+                .eq(MetadataRelationship::getSourceType, SOURCE_TYPE_GLOSSARY_TERM)
+                .eq(MetadataRelationship::getRelationType, MetadataRelationship.TYPE_GLOSSARY_OF));
+        return Math.toIntExact(count);
     }
 }

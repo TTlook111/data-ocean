@@ -87,11 +87,6 @@ export async function getAuditStats(params: { datasourceId?: number; days?: numb
   return data
 }
 
-export async function promoteTemplate(id: number) {
-  const { data } = await http.post<ApiResult<null>>(`/api/admin/audit-logs/${id}/promote-template`)
-  return data
-}
-
 // 血缘
 export async function queryTableLineage(datasourceId: number, tableName: string) {
   const { data } = await http.get<ApiResult<LineageTableVO[]>>(`/api/lineage/table/${encodeURIComponent(tableName)}`, {
@@ -108,9 +103,11 @@ export async function queryColumnLineage(datasourceId: number, tableName: string
   return data
 }
 
-export async function analyzeImpact(datasourceId: number, tableName: string, columnName: string) {
+export async function analyzeImpact(datasourceId: number, tableName: string, columnName?: string) {
   const { data } = await http.get<ApiResult<ImpactAnalysisVO>>(
-    `/api/lineage/impact/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`,
+    columnName
+      ? `/api/lineage/impact/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`
+      : `/api/lineage/impact/${encodeURIComponent(tableName)}`,
     { params: { datasourceId } },
   )
   return data

@@ -51,6 +51,7 @@ import {
   knowledgeReviewStatusLabel,
   knowledgeReviewStatusType,
   knowledgeStatusLabel,
+  snapshotStatusLabel,
   vectorTaskStatusLabel,
   vectorTaskStatusType,
 } from '../../../utils/enumLabels'
@@ -104,16 +105,9 @@ const lifecycleSteps = computed(() => {
   const status = doc.value?.status || 'DRAFT'
   const order = ['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'INDEXING', 'PUBLISHED']
   const index = order.indexOf(status)
-  const labels: Record<string, string> = {
-    DRAFT: '草稿',
-    PENDING_REVIEW: '待审核',
-    APPROVED: '已批准',
-    INDEXING: '索引中',
-    PUBLISHED: '已发布',
-  }
   return order.map((key, position) => ({
     key,
-    label: labels[key],
+    label: knowledgeStatusLabel(key),
     done: index > position,
     current: index === position,
     disabled: index < position,
@@ -177,7 +171,7 @@ function apiError(cause: unknown, fallback: string) {
 
 function selectTab(tab: string) {
   activeTab.value = tab
-  router.replace({ query: { ...route.query, tab } })
+  router.push({ query: { ...route.query, tab } })
   if (tab === 'versions' && !versions.value.length) loadVersions()
   if (tab === 'chunks' && !chunks.value.length) loadChunks()
 }
@@ -254,7 +248,8 @@ async function save() {
     return
   }
   // 后端只在内容真正变化时才递增版本并把状态重置为草稿，提示语必须与之保持一致
-  const changed = content.value !== (doc.value.content || '') || title.value !== doc.value.title
+  const contentChanged = content.value !== (doc.value.content || '')
+  const titleChanged = title.value !== doc.value.title
   saving.value = true
   try {
     await updateKnowledgeDoc(doc.value.id, {
@@ -263,9 +258,9 @@ async function save() {
       version: doc.value.version,
       changeSummary: '手动编辑保存',
     })
-    ElMessage.success(changed
+    ElMessage.success(contentChanged
       ? '已保存。内容已变更，后端创建了新版本并把文档状态重置为草稿。'
-      : '已保存。内容没有变化，版本与状态保持不变。')
+      : titleChanged ? '标题已保存；内容未变化，版本与状态保持不变。' : '已保存。内容没有变化，版本与状态保持不变。')
     await loadDoc()
   } catch (cause) {
     ElMessage.error(apiError(cause, '保存失败'))
@@ -677,7 +672,7 @@ watch(() => route.query.tab, (value) => {
               </el-table-column>
               <el-table-column label="快照状态" width="120">
                 <template #default="{ row }">
-                  <BusinessStatusBadge v-if="row.status" :status="row.status" />
+                  <BusinessStatusBadge v-if="row.status" :status="row.status" :label="snapshotStatusLabel(row.status)" />
                   <span v-else class="muted">快照已不存在</span>
                 </template>
               </el-table-column>
@@ -792,6 +787,7 @@ watch(() => route.query.tab, (value) => {
               </div>
             </div>
             <LoadingState v-if="versionsLoading" variant="skeleton" :rows="4" />
+            <ErrorState v-else-if="versionsError" :message="versionsError" @retry="loadVersions" />
             <EmptyState v-else-if="!versions.length" message="暂无版本记录。保存或生成草稿后会产生版本。" />
             <el-table v-else :data="versions" stripe>
               <el-table-column label="版本" width="90"><template #default="{ row }">v{{ row.versionNo }}</template></el-table-column>

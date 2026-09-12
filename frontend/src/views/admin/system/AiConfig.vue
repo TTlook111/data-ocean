@@ -2,16 +2,11 @@
 /**
  * AI 配置（开发指导 §7.19）
  *
- * 补齐三处：
+ * 补齐两处：
  * 1. **Embedding 维度检测**：后端 `/detect-dimension` 早已存在且前端已封装，
  *    但页面零引用，只能让用户手工填写维度。现补「自动检测」入口。
  * 2. **模型同步**：后端 `/providers/{id}/sync-models` 存在，前端此前零封装，
  *    页面只能靠「测试连接成功后隐式重拉」间接刷新模型列表。
- * 3. **重新向量化**：后端 `/re-vectorize` 存在，前端零封装，页面没有任何触发入口，
- *    只能被动看到 `REINDEX_REQUIRED`。现补入口并展示影响范围、当前进度与失败信息
- *    （`AiVectorizeStatus` 的 `totalChunks`/`completedChunks`/`failedChunks`/`errorMessage`
- *    四个字段此前完全未使用）。
- *
  * Tab 写入 URL（`?tab=chat|embedding`），状态标签改用中文（§11.3）。
  */
 import { computed, reactive, ref, watch } from 'vue'
@@ -30,14 +25,12 @@ import {
   Check,
   Edit,
   Ruler,
-  ListRestart,
 } from 'lucide-vue-next'
 import {
   createAiProvider,
   deleteAiProvider,
   detectEmbeddingDimension,
   getAiConfig,
-  reVectorize,
   syncAiProviderModels,
   testAiProvider,
   updateAiConfig,
@@ -74,7 +67,6 @@ watch(() => route.query.tab, (value) => {
 
 const detectingDimension = ref(false)
 const syncingProviderId = ref('')
-const vectorizing = ref(false)
 
 /** 索引状态的中文标签（§11.3：状态标签使用中文，同时保留技术状态说明） */
 type TagTone = 'success' | 'warning' | 'danger' | 'info'
@@ -199,19 +191,20 @@ async function fetchConfig() {
   }
 }
 
-function embeddingChanged() {
+function embeddingChanged(providerId: string, model: string, dimension: number) {
   const active = activeEmbedding.value
   if (!active) return false
   return (
-    active.providerId !== editingEmbeddingConfig.providerId
-    || active.model !== editingEmbeddingConfig.model
-    || Number(active.dimension) !== Number(editingEmbeddingConfig.dimension)
+    active.providerId !== providerId
+    || active.model !== model
+    || Number(active.dimension) !== Number(dimension)
   )
 }
 
-function buildCollectionName() {
-  const safeModel = editingEmbeddingConfig.model.replace(/[^a-zA-Z0-9_]/g, '_')
-  return `schema_knowledge_${editingEmbeddingConfig.dimension}_${safeModel}`
+function buildCollectionName(providerId: string, model: string, dimension: number) {
+  const safeProvider = providerId.replace(/[^a-zA-Z0-9_]/g, '_')
+  const safeModel = model.replace(/[^a-zA-Z0-9_]/g, '_')
+  return `schema_knowledge_${dimension}_${safeProvider}_${safeModel}`
 }
 
 async function handleUseChat(provider: AiProvider, model: string) {
@@ -241,13 +234,20 @@ async function handleUseChat(provider: AiProvider, model: string) {
   }
 }
 
-async function handleUseEmbedding(provider: AiProvider, model: string, dimension: number) {
+async function handleUseEmbedding(provider: AiProvider, model: string, dimension?: number) {
   if (!canManageAiConfig.value) {
     ElMessage.warning('当前账号只有查看权限')
     return
   }
+  // 维度必须来自被点击的这一行：此前这里会回落到 editingEmbeddingConfig.dimension，
+  // 而该字段只在展开「当前 active 供应商」时才是真值，其余情况恒为硬编码 1024，
+  // 于是「模型没填维度就直接点使用」会静默按 1024 提交，且确认框里看不到这个数字。
+  if (!dimension || dimension <= 0) {
+    ElMessage.warning('请先填写该模型的 Embedding 维度，或用行内「自动检测」取得维度后再使用')
+    return
+  }
 
-  const willChange = embeddingChanged()
+  const willChange = embeddingChanged(provider.id, model, dimension)
 
   if (willChange) {
     await ElMessageBox.confirm(
@@ -264,7 +264,7 @@ async function handleUseEmbedding(provider: AiProvider, model: string, dimension
         providerId: provider.id,
         model,
         dimension,
-        collection: willChange ? buildCollectionName() : activeEmbedding.value?.collection,
+        collection: willChange ? buildCollectionName(provider.id, model, dimension) : activeEmbedding.value?.collection,
         indexVersion: activeEmbedding.value?.indexVersion || 'v1',
       },
     }
@@ -388,26 +388,17 @@ async function handleSyncModels(provider: AiProvider) {
 }
 
 /** 自动检测 Embedding 维度（后端 /detect-dimension），避免手工填写出错 */
-async function handleDetectDimension() {
+async function handleDetectDimension(providerId: string, model: { name: string; dimension?: number }) {
   if (!canManageAiConfig.value) return
-  const providerId = editingEmbeddingConfig.providerId
-  if (!providerId) {
-    ElMessage.warning('请先在卡片中选择供应商')
-    return
-  }
-  if (!editingEmbeddingConfig.model) {
-    ElMessage.warning('请先选择 Embedding 模型，检测需要模型名')
-    return
-  }
   detectingDimension.value = true
   try {
     const result = await detectEmbeddingDimension({
       providerId,
-      model: editingEmbeddingConfig.model,
+      model: model.name,
     })
     const dimension = result.data?.dimension
     if (typeof dimension === 'number' && dimension > 0) {
-      editingEmbeddingConfig.dimension = dimension
+      model.dimension = dimension
       ElMessage.success(`检测到维度 ${dimension}`)
     } else {
       ElMessage.warning('未检测到维度，请确认模型与密钥是否可用')
@@ -426,36 +417,6 @@ async function handleDetectDimension() {
  * 必须展示影响范围与当前状态，不作为普通保存操作的一部分——因此这里先确认，
  * 再把后端返回的进度/失败信息展示出来。
  */
-async function handleReVectorize() {
-  if (!canManageAiConfig.value) return
-  const pending = vectorizeStatus.value?.pending
-  const active = vectorizeStatus.value?.active
-  const scope = pending
-    ? `目标配置：${pending.model}（维度 ${pending.dimension}）\n当前生效：${active?.model || '无'}（维度 ${active?.dimension || '—'}）`
-    : '将以当前 active Embedding 配置重建索引。'
-  try {
-    await ElMessageBox.confirm(
-      `${scope}\n\n重建期间查询仍使用上一版索引；重建失败时旧索引保持可用。`
-      + '该操作会遍历并重新向量化全部知识切片，属于高风险操作。确认继续？',
-      '确认重新向量化',
-      { type: 'warning', confirmButtonText: '确认重建', cancelButtonText: '取消' },
-    )
-  } catch {
-    return
-  }
-  vectorizing.value = true
-  try {
-    await reVectorize()
-    ElMessage.success('已触发重新向量化，可稍后刷新查看进度')
-    await fetchConfig()
-  } catch (cause) {
-    const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
-    ElMessage.error(message || '重新向量化触发失败')
-  } finally {
-    vectorizing.value = false
-  }
-}
-
 fetchConfig()
 </script>
 
@@ -512,7 +473,14 @@ fetchConfig()
       </div>
       <el-alert v-if="vectorizeMessage" type="warning" show-icon :closable="false" :title="vectorizeMessage" />
 
-      <!-- 影响范围、当前进度与失败信息（§7.19）。这四个字段此前完全未使用 -->
+      <!--
+        影响范围、当前进度与失败信息（§7.19）。
+
+        进度与失败原因只在后端真的写入了对应值时才出现：`completedChunks`/`totalChunks`
+        目前由 `AiConfigServiceImpl.defaultVectorizeStatus()` 固定写 0，`errorMessage` 没有
+        写入者，因此这两块当前不会渲染。以前用 `typeof totalChunks === 'number'` 判断，
+        条件恒真，页面会永远显示一个与知识库规模无关的「0 / 0」。
+      -->
       <div class="vectorize-panel">
         <div class="vectorize-panel__info">
           <p v-if="vectorizeStatus?.pending">
@@ -520,7 +488,7 @@ fetchConfig()
             当前生效：{{ vectorizeStatus.active?.model || '无' }}（维度 {{ vectorizeStatus.active?.dimension || '—' }}）
           </p>
           <p v-else>当前生效：{{ vectorizeStatus?.active?.model || '未配置' }}（维度 {{ vectorizeStatus?.active?.dimension || '—' }}）</p>
-          <p v-if="typeof vectorizeStatus?.totalChunks === 'number'">
+          <p v-if="(vectorizeStatus?.totalChunks ?? 0) > 0">
             切片进度：已完成 {{ vectorizeStatus?.completedChunks ?? 0 }} / 共 {{ vectorizeStatus?.totalChunks }}
             <span v-if="vectorizeStatus?.failedChunks">，失败 {{ vectorizeStatus?.failedChunks }}</span>
           </p>
@@ -528,15 +496,7 @@ fetchConfig()
             失败原因：{{ vectorizeStatus?.errorMessage }}
           </p>
         </div>
-        <el-button
-          v-if="canManageAiConfig"
-          type="danger"
-          plain
-          size="small"
-          :icon="ListRestart"
-          :loading="vectorizing"
-          @click="handleReVectorize"
-        >重新向量化</el-button>
+        <el-tag type="info">全量重建编排尚未开放；发布知识文档时会创建安全的版本级索引任务</el-tag>
       </div>
     </section>
 
@@ -595,10 +555,10 @@ fetchConfig()
                 :loading="syncingProviderId === provider.id"
                 @click="handleSyncModels(provider)"
               />
-              <el-button size="small" circle title="编辑" @click="openEditProvider(provider)">
+              <el-button size="small" circle title="编辑" aria-label="编辑供应商" @click="openEditProvider(provider)">
                 <Edit :size="12" />
               </el-button>
-              <el-button :icon="Trash2" size="small" type="danger" plain circle @click="handleDeleteProvider(provider)" />
+              <el-button :icon="Trash2" size="small" type="danger" plain circle aria-label="删除供应商" @click="handleDeleteProvider(provider)" />
             </div>
           </div>
 
@@ -723,10 +683,10 @@ fetchConfig()
                 :loading="syncingProviderId === provider.id"
                 @click="handleSyncModels(provider)"
               />
-              <el-button size="small" circle title="编辑" @click="openEditProvider(provider)">
+              <el-button size="small" circle title="编辑" aria-label="编辑供应商" @click="openEditProvider(provider)">
                 <Edit :size="12" />
               </el-button>
-              <el-button :icon="Trash2" size="small" type="danger" plain circle @click="handleDeleteProvider(provider)" />
+              <el-button :icon="Trash2" size="small" type="danger" plain circle aria-label="删除供应商" @click="handleDeleteProvider(provider)" />
             </div>
           </div>
 
@@ -750,7 +710,7 @@ fetchConfig()
                   <label>
                     <span>向量维度</span>
                     <el-input-number
-                      v-model="editingEmbeddingConfig.dimension"
+                      v-model="model.dimension"
                       size="small"
                       :min="1"
                       :step="1"
@@ -765,7 +725,7 @@ fetchConfig()
                     :loading="detectingDimension"
                     :disabled="!canManageAiConfig"
                     aria-label="自动检测向量维度"
-                    @click.stop="handleDetectDimension"
+                    @click.stop="handleDetectDimension(provider.id, model)"
                   >自动检测</el-button>
                 </div>
                 <div class="model-actions">
@@ -775,7 +735,7 @@ fetchConfig()
                     size="small"
                     :icon="Check"
                     :loading="saving"
-                    @click.stop="handleUseEmbedding(provider, model.name, editingEmbeddingConfig.dimension)"
+                    @click.stop="handleUseEmbedding(provider, model.name, model.dimension)"
                   >
                     使用
                   </el-button>
@@ -791,7 +751,7 @@ fetchConfig()
                 </div>
               </div>
             </div>
-            <div v-if="embeddingChanged() && expandedEmbeddingProvider === provider.id" class="change-notice">
+            <div v-if="activeEmbedding?.providerId !== provider.id && expandedEmbeddingProvider === provider.id" class="change-notice">
               <el-alert type="warning" show-icon :closable="false">
                 切换 Embedding 后需要重新向量化知识库
               </el-alert>

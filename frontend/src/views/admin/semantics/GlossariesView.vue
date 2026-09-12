@@ -516,6 +516,12 @@ watch(() => route.query.glossaryId, (value) => {
   const next = Number(value) || undefined
   if (next === selectedGlossaryId.value) return
   if (next) selectGlossary(next, true)
+  else {
+    selectedGlossaryId.value = undefined
+    selectedTermId.value = undefined
+    terms.value = []
+    linkedColumns.value = []
+  }
 })
 
 watch(() => route.query.termId, (value) => {

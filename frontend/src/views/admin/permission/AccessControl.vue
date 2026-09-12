@@ -16,11 +16,12 @@
  * 后端事实（permission 模块）：
  * - 数据源级授权与表列策略是两层概念，分别对应 `/datasource-access` 与 `/access-policies`。
  * - 最终权限必须用 `/decision` 接口计算，不能只列规则（§3.11）。
- * - **后端能力缺口**：授权 VO 与策略 VO 均未暴露 `priority`，策略 VO 也未暴露
- *   `validFrom` / `validUntil`，因此本页面**无法展示优先级与策略有效期**。
- *   已在对应 Tab 内如实说明，不伪造字段。
+ * - **后端能力现状**（2026-09-12 更新）：`AccessPolicyVO` 已暴露 `priority` /
+ *   `validFrom` / `validUntil`，`DatasourcePermissionVO` 已暴露 `expiresAt`，
+ *   因此「表列策略」与「数据源授权」两个 Tab 都能展示真实数据。
+ *   仅**数据源级授权的 `priority`** 仍无数据来源，在对应 Tab 内如实说明，不伪造字段。
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
@@ -40,6 +41,7 @@ import {
   type DatasourcePermissionPayload,
 } from '../../../api/admin/permission'
 import { listDepartments, listRoles, listUsers, type DepartmentNode } from '../../../api/admin/user'
+import { getPublishedSnapshot } from '../../../api/admin/versioning'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import ResourceScopeSelector from '../../../components/ResourceScopeSelector.vue'
@@ -94,6 +96,9 @@ const grantsError = ref('')
 const policies = ref<AccessPolicyItem[]>([])
 const policiesLoading = ref(false)
 const policiesError = ref('')
+const policyTableFilter = ref('')
+let grantsRequestId = 0
+let policiesRequestId = 0
 
 const decisionUserId = ref<number>()
 const decisionLoading = ref(false)
@@ -153,7 +158,15 @@ const policyForm = reactive<AccessPolicyPayload>({
   rowFilterExpression: '',
 })
 /** 策略对话框里的表/列选择器需要快照范围，只用于选表，不写回全局上下文 */
+/**
+ * 新建策略时锁定的资源范围。
+ *
+ * 表/字段必须取自**已发布快照**——后端 `validateTableName` / `validateColumnName`
+ * 也只认发布快照（`AccessPolicyServiceImpl`）。因此这里不用全局 `adminContext.snapshotId`
+ * （可能是草稿快照），并把快照选择器锁死，避免用户手动切到草稿后拿到难懂的报错。
+ */
 const policySnapshot = ref<number>()
+const policySnapshotLabel = ref('')
 
 const decisionSourceText = computed(() => {
   if (!decision.value) return ''
@@ -167,7 +180,10 @@ const decisionSourceText = computed(() => {
   return labels[decision.value.decisionSource] || decision.value.decisionSource
 })
 
-const effectLabel = (effect?: string) => (effect === 'DENY' ? '禁止' : '允许')
+const effectLabel = (effect?: string) => effect === 'DENY' ? '禁止' : effect === 'ALLOW' ? '允许' : '无授权'
+const visiblePermissions = computed(() => subjectId.value
+  ? permissions.value.filter((item) => item.subjectId === subjectId.value)
+  : permissions.value)
 
 const accessTypeTag = (type: string) => (type === 'DENY' ? 'danger' : type === 'MASK' ? 'warning' : 'success')
 const accessTypeLabel = (type: string) => accessTypes.find((t) => t.value === type)?.label || type
@@ -216,31 +232,37 @@ async function loadSubjects() {
 
 async function loadPermissions() {
   if (!datasourceId.value) return
+  const current = ++grantsRequestId
   grantsLoading.value = true
   grantsError.value = ''
   try {
     const res = await listDatasourcePermissions(datasourceId.value, subjectType.value || undefined)
-    permissions.value = res.data || []
+    if (current === grantsRequestId) permissions.value = res.data || []
   } catch (cause) {
-    permissions.value = []
-    grantsError.value = apiError(cause, '授权列表加载失败')
+    if (current === grantsRequestId) {
+      permissions.value = []
+      grantsError.value = apiError(cause, '授权列表加载失败')
+    }
   } finally {
-    grantsLoading.value = false
+    if (current === grantsRequestId) grantsLoading.value = false
   }
 }
 
 async function loadPolicies() {
   if (!datasourceId.value) return
+  const current = ++policiesRequestId
   policiesLoading.value = true
   policiesError.value = ''
   try {
-    const res = await listAccessPolicies(datasourceId.value, subjectType.value || undefined, subjectId.value)
-    policies.value = res.data || []
+    const res = await listAccessPolicies(datasourceId.value, subjectType.value || undefined, subjectId.value, policyTableFilter.value || undefined)
+    if (current === policiesRequestId) policies.value = res.data || []
   } catch (cause) {
-    policies.value = []
-    policiesError.value = apiError(cause, '策略列表加载失败')
+    if (current === policiesRequestId) {
+      policies.value = []
+      policiesError.value = apiError(cause, '策略列表加载失败')
+    }
   } finally {
-    policiesLoading.value = false
+    if (current === policiesRequestId) policiesLoading.value = false
   }
 }
 
@@ -267,8 +289,10 @@ function openGrantDialog() {
     return
   }
   grantForm.datasourceId = datasourceId.value
+  prefillingGrant = true
   grantForm.subjectType = subjectType.value
   grantForm.subjectId = subjectId.value || 0
+  nextTick(() => { prefillingGrant = false })
   grantForm.accessEffect = 'ALLOW'
   grantForm.canQuery = true
   grantForm.canExport = false
@@ -332,20 +356,35 @@ async function handleRevoke(row: DatasourcePermissionItem) {
   }
 }
 
-function openPolicyDialog() {
+async function openPolicyDialog() {
   if (!datasourceId.value) {
     ElMessage.warning('请先在顶部选择数据源')
     return
   }
   policyForm.datasourceId = datasourceId.value
+  prefillingPolicy = true
   policyForm.subjectType = subjectType.value
   policyForm.subjectId = subjectId.value || 0
+  nextTick(() => { prefillingPolicy = false })
   policyForm.tableName = ''
   policyForm.columnName = ''
   policyForm.accessType = 'DENY'
   policyForm.maskStrategy = ''
   policyForm.rowFilterExpression = ''
-  policySnapshot.value = context.snapshotId
+  try {
+    const published = (await getPublishedSnapshot(datasourceId.value)).data
+    policySnapshot.value = published?.snapshotId
+    policySnapshotLabel.value = published
+      ? `已发布快照 v${published.snapshotVersion}`
+      : ''
+  } catch (cause) {
+    ElMessage.error(apiError(cause, '已发布快照加载失败，暂不能创建策略'))
+    return
+  }
+  if (!policySnapshot.value) {
+    ElMessage.warning('当前数据源没有已发布快照，暂不能创建策略')
+    return
+  }
   policyDialogVisible.value = true
 }
 
@@ -391,15 +430,42 @@ async function handleDeletePolicy(row: AccessPolicyItem) {
   }
 }
 
+/**
+ * 同一批查询条件（数据源 + 主体 + 表筛选）的重复刷新合并。
+ *
+ * `context.initialize()` 在没有持久化数据源时会写入第一个数据源，从而立刻触发
+ * 下面的 `watch(datasourceId)`；此时 `onMounted` 的 reloadAll 可能仍在飞行。
+ * 响应串号已由 `loadPermissions` / `loadPolicies` 的序号解决，这一层只负责不发重复请求。
+ */
+let inflightReload = ''
 async function reloadAll() {
-  await Promise.all([loadPermissions(), loadPolicies()])
+  const signature = [datasourceId.value, subjectType.value, subjectId.value, policyTableFilter.value].join('|')
+  if (inflightReload === signature) return
+  inflightReload = signature
+  try {
+    await Promise.all([loadPermissions(), loadPolicies()])
+  } finally {
+    if (inflightReload === signature) inflightReload = ''
+  }
 }
 
-onMounted(async () => {
-  await context.initialize()
-  await loadSubjects()
-  await reloadAll()
-})
+/** 初始化失败的原因；无数据源时也要能看见失败，不能伪装成「还没选数据源」 */
+const initError = ref('')
+
+async function bootstrap() {
+  initError.value = ''
+  try {
+    await context.initialize()
+    await loadSubjects()
+    await reloadAll()
+  } catch (cause) {
+    initError.value = apiError(cause, '授权管理初始化失败')
+    grantsError.value = initError.value
+    policiesError.value = initError.value
+  }
+}
+
+onMounted(bootstrap)
 
 // 数据源切换（顶部 ScopeBar 或工作区导航）时两个列表都要跟随
 watch(datasourceId, async () => {
@@ -413,6 +479,18 @@ watch([subjectType, subjectId], async () => {
   if (subjectType.value === 'USER') decisionUserId.value = subjectId.value
   await reloadAll()
 })
+
+/**
+ * 主体类型切换必须清空主体，否则可能把授权发给上一个类型的主体。
+ *
+ * 但打开对话框时也会把 `subjectType` 预填为页面级选择，那一次不应清空刚预填的
+ * `subjectId`——用 `prefilling*` 标记把「预填」与「用户切换」区分开。
+ * watch 默认异步 flush，所以标记要延到下一次 tick 再落下。
+ */
+let prefillingGrant = false
+let prefillingPolicy = false
+watch(() => grantForm.subjectType, () => { if (!prefillingGrant) grantForm.subjectId = 0 })
+watch(() => policyForm.subjectType, () => { if (!prefillingPolicy) policyForm.subjectId = 0 })
 
 watch(() => route.query.tab, (value) => {
   const next = String(value || 'grants')
@@ -463,8 +541,16 @@ watch(() => route.query.tab, (value) => {
       </span>
     </section>
 
+    <!-- 初始化失败时 datasourceId 会一直是空，若先判空态就会把失败伪装成「还没选数据源」。
+         错误态必须排在空态之前，否则它永远不可达。 -->
+    <ErrorState
+      v-if="initError && !datasourceId"
+      :message="initError"
+      @retry="bootstrap"
+    />
+
     <EmptyState
-      v-if="!datasourceId"
+      v-else-if="!datasourceId"
       message="授权管理需要先确定数据源。请使用顶部的数据源范围条选择要授权的数据源。"
       action-text="去数据源接入"
       @action="router.push('/admin/data-sources')"
@@ -480,12 +566,12 @@ watch(() => route.query.tab, (value) => {
           <ErrorState v-if="grantsError" :message="grantsError" @retry="loadPermissions" />
           <LoadingState v-else-if="grantsLoading" variant="skeleton" :rows="4" />
           <EmptyState
-            v-else-if="!permissions.length"
-            message="当前数据源还没有任何授权记录。未授权的主体不能查询该数据源。"
+            v-else-if="!visiblePermissions.length"
+            message="当前主体筛选下没有授权记录。未授权的主体不能查询该数据源。"
             action-text="新增授权"
             @action="openGrantDialog"
           />
-          <el-table v-else :data="permissions" stripe>
+          <el-table v-else :data="visiblePermissions" stripe>
             <el-table-column label="主体类型" width="100">
               <template #default="{ row }">{{ subjectTypeLabel(row.subjectType) }}</template>
             </el-table-column>
@@ -545,6 +631,7 @@ watch(() => route.query.tab, (value) => {
           <p class="access-page__note">
             第二层：允许访问哪些表、字段，是否存在行过滤和脱敏。字段留空表示表级策略。
           </p>
+          <el-input v-model="policyTableFilter" clearable placeholder="按表名筛选" style="max-width: 260px" @change="loadPolicies" />
           <ErrorState v-if="policiesError" :message="policiesError" @retry="loadPolicies" />
           <LoadingState v-else-if="policiesLoading" variant="skeleton" :rows="4" />
           <EmptyState
@@ -578,6 +665,10 @@ watch(() => route.query.tab, (value) => {
                 <span v-else class="access-page__muted">—</span>
               </template>
             </el-table-column>
+            <el-table-column prop="priority" label="优先级" width="90" />
+            <el-table-column label="策略有效期" min-width="210">
+              <template #default="{ row }">{{ row.validFrom || '立即' }} 至 {{ row.validUntil || '永久' }}</template>
+            </el-table-column>
             <el-table-column label="操作" width="80" align="center">
               <template #default="{ row }">
                 <el-button type="danger" link size="small" aria-label="删除策略" @click="handleDeletePolicy(row)">
@@ -586,11 +677,6 @@ watch(() => route.query.tab, (value) => {
               </template>
             </el-table-column>
           </el-table>
-          <p class="access-page__gap">
-            后端缺口：策略列表接口未返回 <code>priority</code> / <code>validFrom</code> /
-            <code>validUntil</code>，因此<strong>无法展示优先级与策略有效期</strong>。
-            这些字段在后端实体上存在，但未出现在列表 VO 中。
-          </p>
         </section>
       </el-tab-pane>
 
@@ -729,9 +815,14 @@ watch(() => route.query.tab, (value) => {
             v-model:column-name="policyForm.columnName"
             mode="column"
             :show-datasource="false"
+            :lock-snapshot="true"
+            :lock-snapshot-label="policySnapshotLabel"
           />
         </el-form-item>
-        <p class="access-page__form-hint">字段留空表示表级策略；选择字段后可配置字段级禁止或脱敏。</p>
+        <p class="access-page__form-hint">
+          资源范围取自<strong>已发布快照</strong>（后端只校验发布快照），因此快照不可切换。
+          字段留空表示表级策略；选择字段后可配置字段级禁止或脱敏。
+        </p>
         <el-form-item label="访问类型">
           <el-radio-group v-model="policyForm.accessType">
             <el-radio-button v-for="t in accessTypes" :key="t.value" :value="t.value">{{ t.label }}</el-radio-button>

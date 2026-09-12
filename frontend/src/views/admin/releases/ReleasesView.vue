@@ -48,7 +48,7 @@ const requestId = ref(0)
 
 const datasourceId = computed(() => context.datasourceId)
 const selectedId = computed(() => Number(route.query.snapshotId) || undefined)
-const timelineItems = computed(() => history.value.slice(0, 6).map((item) => ({
+const timelineItems = computed(() => history.value.map((item) => ({
   time: item.createdAt,
   action: '快照 v' + item.snapshotVersion + ' · ' + item.status,
   result: item.tableCount + ' 表 / ' + item.columnCount + ' 字段',
@@ -237,7 +237,12 @@ onMounted(async () => {
   }
 })
 
-watch(() => context.datasourceId, load)
+watch(() => context.datasourceId, () => {
+  // 换数据源必须回到第 1 页：否则停在高页码时，新数据源很可能不足该页，
+  // 「版本历史」与复用同一份 history 的「候选快照」表都会显示成空。
+  page.value = 1
+  load()
+})
 watch(() => route.query.tab, (value) => { activeTab.value = String(value || 'candidates') })
 watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () => {
   oldId.value = Number(route.query.oldId) || undefined
@@ -311,7 +316,18 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
         </section>
       </el-tab-pane>
       <el-tab-pane label="版本历史" name="history">
-        <section class="releases-page__card"><ActivityTimeline :items="timelineItems" /></section>
+        <section class="releases-page__card">
+          <ActivityTimeline :items="timelineItems" />
+          <el-pagination
+            v-if="total > 20"
+            background
+            layout="total, prev, pager, next"
+            :total="total"
+            :page-size="20"
+            v-model:current-page="page"
+            @current-change="load"
+          />
+        </section>
       </el-tab-pane>
       <el-tab-pane label="版本差异" name="diff">
         <section class="releases-page__card diff-panel">

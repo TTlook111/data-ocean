@@ -4,14 +4,6 @@ import type { ApiResult, PageResult } from './user'
 /** Prompt 模板状态 */
 export type PromptStatus = 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED'
 
-/** Prompt 模板状态描述 */
-export const PROMPT_STATUS_MAP: Record<PromptStatus, { label: string; type: 'info' | 'warning' | 'success' | 'danger' }> = {
-  DRAFT: { label: '草稿', type: 'info' },
-  PENDING_REVIEW: { label: '待审核', type: 'warning' },
-  APPROVED: { label: '已通过', type: 'success' },
-  REJECTED: { label: '已拒绝', type: 'danger' },
-}
-
 export interface PromptTemplateVO {
   id: number
   templateCode: string

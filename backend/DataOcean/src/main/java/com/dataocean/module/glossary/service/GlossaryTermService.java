@@ -13,11 +13,6 @@ import java.util.List;
 public interface GlossaryTermService extends IService<GlossaryTerm> {
 
     /**
-     * 查询指定术语表下所有已审核通过的术语
-     */
-    List<GlossaryTerm> getApprovedTerms(Long glossaryId);
-
-    /**
      * 创建术语（自动设置 FQN 和初始状态）
      */
     GlossaryTerm createTerm(GlossaryTerm term);

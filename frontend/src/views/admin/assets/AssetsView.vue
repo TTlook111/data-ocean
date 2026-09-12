@@ -10,8 +10,13 @@ import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.v
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import TableExplorer from '../metadata/TableExplorer.vue'
+import { useRoute, useRouter } from 'vue-router'
 
 const context = useAdminContextStore()
+const route = useRoute()
+const router = useRouter()
+const activeView = computed(() => route.query.view === 'tables' ? 'tables' : 'catalog')
 const entities = ref<MetadataEntityItem[]>([])
 const readiness = ref<DatasourceReadiness | null>(null)
 const keyword = ref('')
@@ -108,7 +113,14 @@ watch(() => context.datasourceId, load)
       </el-select>
     </section>
 
-    <ErrorState v-if="error" :message="error" @retry="load" />
+    <el-tabs :model-value="activeView" @update:model-value="(view: string | number) => router.push({ query: { ...route.query, view: view === 'tables' ? 'tables' : undefined } })">
+      <el-tab-pane label="正式资产目录" name="catalog" />
+      <el-tab-pane label="快照表浏览" name="tables" />
+    </el-tabs>
+
+    <TableExplorer v-if="activeView === 'tables'" />
+
+    <ErrorState v-else-if="error" :message="error" @retry="load" />
     <LoadingState v-else-if="loading" variant="skeleton" :rows="6" />
     <template v-else-if="!context.datasourceId">
       <EmptyState message="请先在顶部范围栏选择数据源，再查看正式资产目录。" action-text="去数据源接入" @action="$router.push('/admin/data-sources')" />

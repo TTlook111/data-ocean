@@ -6,6 +6,7 @@ import {
   createDepartment,
   deleteDepartment,
   listDepartments,
+  listUsers,
   updateDepartment,
   type DepartmentNode,
   type DepartmentPayload,
@@ -21,6 +22,7 @@ const saving = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref<number>()
 const departments = ref<DepartmentNode[]>([])
+const memberCounts = ref<Record<number, number>>({})
 const form = reactive<DepartmentPayload>({
   parentId: undefined,
   deptName: '',
@@ -44,6 +46,12 @@ async function fetchDepartments() {
   try {
     const result = await listDepartments()
     departments.value = result.data || []
+    const all: DepartmentNode[] = []
+    const collect = (nodes: DepartmentNode[]) => nodes.forEach((node) => { all.push(node); collect(node.children || []) })
+    collect(departments.value)
+    const counts = await Promise.allSettled(all.map((node) => listUsers({ page: 1, pageSize: 1, departmentId: node.id })))
+    memberCounts.value = Object.fromEntries(counts.flatMap((entry, index) =>
+      entry.status === 'fulfilled' ? [[all[index].id, entry.value.data?.total || 0]] : []))
   } catch (error) {
     departments.value = []
     // 失败必须渲染错误态。原实现只弹一次 toast 并把数组置空，页面最终显示
@@ -180,6 +188,7 @@ onMounted(fetchDepartments)
               <Building2 :size="14" />
               <strong>{{ data.deptName }}</strong>
               <small>{{ data.deptCode }}</small>
+              <small>成员 {{ memberCounts[data.id] ?? '—' }} 人</small>
             </span>
             <span class="tree-node-actions">
               <el-button link type="primary" size="small" @click.stop="openCreate(data)">

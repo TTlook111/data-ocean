@@ -138,6 +138,10 @@ async function fetchPools() {
   poolError.value = ''
   try {
     pool.value = (await getPoolDashboard()).data
+    if (pool.value?.error) {
+      poolError.value = `Python 服务连接失败：${pool.value.error}`
+      pool.value = null
+    }
   } catch (cause) {
     pool.value = null
     poolError.value = apiError(cause, '连接池状态加载失败')
@@ -362,8 +366,10 @@ watch(() => route.query.tab, (value) => {
       <el-tab-pane label="SQL 连接池" name="pools">
         <section class="runtime-page__panel">
           <p class="runtime-page__note">
-            当前活跃连接池 {{ pool?.activePools ?? 0 }} 个。重置连接池是高风险操作，
-            会影响该数据源上正在执行的查询。
+            <!-- poolError 时不能报「0 个」：那是把「取不到」说成「没有」，与下方错误态自相矛盾 -->
+            <template v-if="poolError">连接池状态当前不可用。</template>
+            <template v-else>当前活跃连接池 {{ pool?.activePools ?? 0 }} 个。</template>
+            重置连接池是高风险操作，会影响该数据源上正在执行的查询。
           </p>
           <ErrorState v-if="poolError" :message="poolError" @retry="fetchPools" />
           <LoadingState v-else-if="poolLoading && !pool" variant="skeleton" :rows="4" />
@@ -404,7 +410,7 @@ watch(() => route.query.tab, (value) => {
             <div>
               <h3>告警规则配置</h3>
               <p>
-                当前**只支持规则配置**：可以定义监控指标与阈值并启停。
+                当前只支持规则配置：可以定义监控指标与阈值并启停。
                 后端没有告警执行记录、历史、恢复与去重闭环，因此本页不展示告警次数、
                 恢复率或历史趋势。
               </p>
@@ -443,12 +449,9 @@ watch(() => route.query.tab, (value) => {
               </template>
             </el-table-column>
           </el-table>
-          <p class="runtime-page__note">
-            规则启用后由后端定时任务评估；在评估逻辑与历史闭环落地前，
-            本页不呈现任何执行结果统计。
-          </p>
+          <p class="runtime-page__note">当前仅保存规则配置，后端尚未实现定时评估；启用状态不代表规则正在执行。</p>
           <p class="runtime-page__gap">
-            后端缺口：告警规则**没有删除端点**（`AlertController` 只有 列表 / 创建 / 更新 / 启停四个），
+            后端缺口：告警规则没有删除端点（AlertController 只有列表、创建、更新、启停四个），
             因此本页不提供删除操作——不做一个点了会失败的按钮。需要停用规则时请使用启停开关。
           </p>
         </section>

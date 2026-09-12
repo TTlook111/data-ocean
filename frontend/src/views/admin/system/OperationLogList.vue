@@ -16,7 +16,7 @@
  */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Activity, AlertTriangle, CheckCircle2, ClipboardList, Clock3, RefreshCw, Search, X } from 'lucide-vue-next'
+import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ClipboardList, Clock3, RefreshCw, Search, X } from 'lucide-vue-next'
 import { listOperationLogs, type OperationLogItem, type OperationLogQuery } from '../../../api/admin/operation-log'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'

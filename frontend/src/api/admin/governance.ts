@@ -106,7 +106,7 @@ export async function updateRuleEnabled(ruleId: number, enabled: boolean) {
 }
 
 export async function updateTableGovernanceStatus(snapshotId: number, tableName: string, payload: { governanceStatus: string; remark?: string }) {
-  const { data } = await http.patch<ApiResult<Record<string, string>>>(`/api/admin/snapshots/${snapshotId}/tables/${tableName}/governance-status`, payload)
+  const { data } = await http.patch<ApiResult<Record<string, string>>>(`/api/admin/snapshots/${snapshotId}/tables/${encodeURIComponent(tableName)}/governance-status`, payload)
   return data
 }
 
@@ -116,7 +116,7 @@ export async function updateColumnGovernanceStatus(snapshotId: number, columnId:
 }
 
 export async function batchUpdateGovernanceStatus(snapshotId: number, tableName: string, payload: { governanceStatus: string; remark?: string; excludeColumns?: string[] }) {
-  const { data } = await http.patch<ApiResult<{ updated: number; excluded: number }>>(`/api/admin/snapshots/${snapshotId}/tables/${tableName}/batch-governance-status`, payload)
+  const { data } = await http.patch<ApiResult<{ updated: number; excluded: number }>>(`/api/admin/snapshots/${snapshotId}/tables/${encodeURIComponent(tableName)}/batch-governance-status`, payload)
   return data
 }
 
@@ -148,6 +148,6 @@ export async function listSnapshotTables(snapshotId: number) {
 }
 
 export async function listSnapshotTableColumns(snapshotId: number, tableName: string) {
-  const { data } = await http.get<ApiResult<ColumnMetaItem[]>>(`/api/admin/metadata/snapshots/${snapshotId}/tables/${tableName}/columns`)
+  const { data } = await http.get<ApiResult<ColumnMetaItem[]>>(`/api/admin/metadata/snapshots/${snapshotId}/tables/${encodeURIComponent(tableName)}/columns`)
   return data
 }

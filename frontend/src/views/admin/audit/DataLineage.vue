@@ -37,10 +37,12 @@ import {
   type LineageGraphVO,
   type ColumnLineageVO,
 } from '../../../api/admin/lineageApi'
-import { analyzeImpact, type ImpactAnalysisVO } from '../../../api/admin/audit'
+import { analyzeImpact, queryColumnLineage, queryTableLineage, type ImpactAnalysisVO, type LineageColumnVO, type LineageTableVO } from '../../../api/admin/audit'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { entityTypeLabel, lineageTypeLabel } from '../../../utils/enumLabels'
 import AddLineageDialog from './AddLineageDialog.vue'
+import LoadingState from '../../../components/common/LoadingState.vue'
+import ErrorState from '../../../components/common/ErrorState.vue'
 
 const route = useRoute()
 const adminContext = useAdminContextStore()
@@ -55,6 +57,8 @@ const datasourceId = computed<number | null>(() => {
 const entities = ref<MetadataEntityItem[]>([])
 const relationships = ref<MetadataRelationshipItem[]>([])
 const loading = ref(false)
+let graphRequestId = 0
+let loadingDatasourceId: number | null = null
 
 // ========== 筛选条件 ==========
 const searchQuery = ref('')
@@ -119,6 +123,17 @@ const DERIVED_EDGE_COLOR = '#91d5ff'
 /** 无血缘类型时的兜底边色 */
 const FALLBACK_EDGE_COLOR = '#999'
 
+/** 时间列统一走本地化格式，不直接把后端 ISO 串渲染给用户 */
+function formatTime(value?: string) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).format(date)
+}
+
 // ========== 选中状态 ==========
 const selectedEntity = ref<MetadataEntityItem | null>(null)
 const drawerVisible = ref(false)
@@ -175,11 +190,12 @@ const {
         data: null,
       }
     },
-    onEdgeDragCreate: (sourceId) => {
+    onEdgeDragCreate: (sourceId, targetId) => {
       prefilledSourceId.value = Number(sourceId)
+      prefilledTargetId.value = Number(targetId)
       addDialogVisible.value = true
       // 目标实体 ID 可通过预填方式处理
-      ElMessage.info(`已预填源节点，请在弹窗中选择目标表`)
+      ElMessage.info('已预填源节点和目标节点')
     },
   },
 )
@@ -192,22 +208,28 @@ const contextMenu = ref({
   type: '' as 'node' | 'edge' | 'blank',
   data: null as any,
 })
+const prefilledTargetId = ref<number | null>(null)
 
 // ========== 初始化生命周期 ==========
 
 /** 加载图谱数据 */
 async function loadGraph() {
   if (!datasourceId.value) return
+  if (loading.value && loadingDatasourceId === datasourceId.value) return
+  const currentRequest = ++graphRequestId
+  loadingDatasourceId = datasourceId.value
   loading.value = true
   try {
     // 先加载该数据源所有实体
     const entRes = await getEntitiesByDatasource(datasourceId.value)
+    if (currentRequest !== graphRequestId) return
     entities.value = entRes.data ?? []
 
     // 加载血缘关系（优先使用增强 API，回退到逐个查询）
     const tableEntities = entities.value.filter((e) => e.entityType === 'TABLE')
     // 图谱以第一个表为加载根，也是方向过滤的默认焦点
-    focusEntityId.value = tableEntities.length ? String(tableEntities[0].id) : ''
+    const currentFocusExists = entities.value.some((entity) => String(entity.id) === focusEntityId.value)
+    if (!currentFocusExists) focusEntityId.value = tableEntities.length ? String(tableEntities[0].id) : ''
     if (tableEntities.length === 0) {
       relationships.value = []
       await nextTick()
@@ -263,7 +285,10 @@ async function loadGraph() {
   } catch {
     ElMessage.error('血缘图谱加载失败')
   } finally {
-    loading.value = false
+    if (currentRequest === graphRequestId) {
+      loading.value = false
+      loadingDatasourceId = null
+    }
   }
 }
 
@@ -338,6 +363,17 @@ function renderGraph() {
     }
   }
 
+  if (direction.value !== 'both' && focusEntityId.value) {
+    const connectedIds = new Set<string>([focusEntityId.value])
+    d3Edges.forEach((edge) => {
+      connectedIds.add(edge.sourceId)
+      connectedIds.add(edge.targetId)
+    })
+    for (const id of nodeMap.keys()) {
+      if (!connectedIds.has(id)) nodeMap.delete(id)
+    }
+  }
+
   d3Init()
   d3Render(Array.from(nodeMap.values()), d3Edges)
 }
@@ -358,18 +394,22 @@ function handleNodeClick(node: GraphNode) {
   }
 }
 
+/** 列血缘请求序号：连续切换方向时，先发的响应不得覆盖后发的 */
+let columnLineageRequestId = 0
+
 /** 加载列级血缘 DERIVED_FROM 链 */
 async function loadColumnLineage(columnId: number) {
+  const current = ++columnLineageRequestId
   drawerLoading.value = true
   columnLineageData.value = null
   try {
     // 方向取自筛选面板；该接口支持 upstream/downstream/both
     const res = await getColumnLineage(columnId, 3, direction.value)
-    columnLineageData.value = res.data ?? null
+    if (current === columnLineageRequestId) columnLineageData.value = res.data ?? null
   } catch {
-    columnLineageData.value = null
+    if (current === columnLineageRequestId) columnLineageData.value = null
   } finally {
-    drawerLoading.value = false
+    if (current === columnLineageRequestId) drawerLoading.value = false
   }
 }
 
@@ -509,6 +549,7 @@ const impactLoading = ref(false)
 const impactError = ref('')
 const impact = ref<ImpactAnalysisVO | null>(null)
 const impactTarget = ref<MetadataEntityItem | null>(null)
+const impactQueries = ref<Array<LineageTableVO | LineageColumnVO>>([])
 
 /**
  * 对选中实体做下游影响分析。
@@ -527,10 +568,18 @@ async function handleAnalyzeImpact(entity: MetadataEntityItem | null = selectedE
   impactLoading.value = true
   impactError.value = ''
   impact.value = null
+  // 一并清空，避免上一次分析的查询明细残留在新结果里
+  impactQueries.value = []
   try {
-    impact.value = (
-      await analyzeImpact(datasourceId.value, entity.entityType === 'TABLE' ? entity.name : '', entity.name)
-    ).data
+    const fqnParts = entity.fqn.split('.')
+    const tableName = entity.entityType === 'TABLE' ? entity.name : fqnParts.at(-2) || ''
+    const columnName = entity.entityType === 'COLUMN' ? entity.name : undefined
+    const [impactResult, queryResult] = await Promise.all([
+      analyzeImpact(datasourceId.value, tableName, columnName),
+      columnName ? queryColumnLineage(datasourceId.value, tableName, columnName) : queryTableLineage(datasourceId.value, tableName),
+    ])
+    impact.value = impactResult.data
+    impactQueries.value = queryResult.data || []
   } catch (cause) {
     const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
     impactError.value = message || (cause instanceof Error ? cause.message : '影响分析计算失败')
@@ -574,6 +623,8 @@ async function handleSearch() {
     if (found) {
       // 高亮该节点
       selectedEntity.value = found
+      focusEntityId.value = String(found.id)
+      renderGraph()
       ElMessage.success(`已定位: ${found.displayName || found.name}`)
     } else {
       ElMessage.info('未找到匹配表')
@@ -615,17 +666,25 @@ watch(datasourceId, (val) => {
 
 watch([lineageTypeFilter, depth, direction], () => {
   if (datasourceId.value) loadGraph()
+  // 抽屉里的列血缘查询同样带 direction 参数，切方向必须重取：
+  // 否则手上还是旧方向的结果，文案却已换成新方向，形成「文案 × 陈旧数据」的反向误导。
+  if (drawerVisible.value && drawerEntity.value?.entityType === 'COLUMN') {
+    loadColumnLineage(drawerEntity.value.id)
+  }
 }, { deep: true })
+
+const handleResize = () => d3Resize()
 
 onMounted(async () => {
   await adminContext.initialize()
-  loadGraph()
-  window.addEventListener('resize', () => d3Resize())
+  if (datasourceId.value) await loadGraph()
+  window.addEventListener('resize', handleResize)
   document.addEventListener('click', closeContextMenu)
 })
 
 onBeforeUnmount(() => {
   d3Destroy()
+  window.removeEventListener('resize', handleResize)
   document.removeEventListener('click', closeContextMenu)
 })
 </script>
@@ -826,7 +885,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-          <div v-else-if="!drawerLoading" class="drawer-empty">无上游派生关系</div>
+          <div v-else-if="!drawerLoading" class="drawer-empty">{{ direction === 'downstream' ? '当前仅查询下游关系' : '无上游派生关系' }}</div>
         </div>
 
         <el-divider />
@@ -857,7 +916,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-          <div v-else-if="!drawerLoading" class="drawer-empty">无下游派生关系</div>
+          <div v-else-if="!drawerLoading" class="drawer-empty">{{ direction === 'upstream' ? '当前仅查询上游关系' : '无下游派生关系' }}</div>
         </div>
       </template>
       <el-empty v-else description="请点击图谱中的列节点" />
@@ -867,6 +926,7 @@ onBeforeUnmount(() => {
     <AddLineageDialog
       v-model:visible="addDialogVisible"
       :prefilled-source-id="prefilledSourceId"
+      :prefilled-target-id="prefilledTargetId"
       @created="loadGraph"
     />
 
@@ -888,6 +948,13 @@ onBeforeUnmount(() => {
           <div v-else class="impact-tasks">
             <el-tag v-for="taskId in impact.recentQueryTaskIds" :key="taskId" size="small">#{{ taskId }}</el-tag>
           </div>
+          <el-table v-if="impactQueries.length" :data="impactQueries" size="small">
+            <el-table-column prop="queryTaskId" label="任务" width="90" />
+            <el-table-column prop="question" label="查询问题" min-width="220" show-overflow-tooltip />
+            <el-table-column label="时间" width="180">
+              <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+            </el-table-column>
+          </el-table>
         </section>
       </template>
     </el-dialog>

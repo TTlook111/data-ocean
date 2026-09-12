@@ -18,8 +18,8 @@ public interface QueryLineageColumnMapper extends BaseMapper<QueryLineageColumn>
             SELECT l.*
             FROM query_lineage_column l
             JOIN query_task t ON t.id = l.query_task_id
-            WHERE l.source_table = #{tableName}
-              AND l.source_column = #{columnName}
+            WHERE LOWER(l.source_table) = LOWER(#{tableName})
+              AND LOWER(l.source_column) = LOWER(#{columnName})
               AND t.datasource_id = #{datasourceId}
             ORDER BY l.created_at DESC
             LIMIT #{limit}
@@ -33,8 +33,8 @@ public interface QueryLineageColumnMapper extends BaseMapper<QueryLineageColumn>
             SELECT COUNT(*)
             FROM query_lineage_column l
             JOIN query_task t ON t.id = l.query_task_id
-            WHERE l.source_table = #{tableName}
-              AND l.source_column = #{columnName}
+            WHERE LOWER(l.source_table) = LOWER(#{tableName})
+              AND LOWER(l.source_column) = LOWER(#{columnName})
               AND t.datasource_id = #{datasourceId}
             """)
     Long countByColumnAndDatasource(@Param("tableName") String tableName,

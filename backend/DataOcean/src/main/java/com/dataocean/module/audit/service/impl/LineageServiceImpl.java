@@ -445,6 +445,15 @@ public class LineageServiceImpl implements LineageService {
     @Override
     public ImpactAnalysisVO analyzeImpact(Long datasourceId, String tableName, String columnName) {
         requireDatasourceAccess(datasourceId);
+        if (columnName == null || columnName.isBlank()) {
+            List<LineageTableVO> rows = queryTableLineage(datasourceId, tableName);
+            ImpactAnalysisVO vo = new ImpactAnalysisVO();
+            vo.setTableName(tableName);
+            vo.setColumnName(null);
+            vo.setDependentQueryCount((long) rows.size());
+            vo.setRecentQueryTaskIds(rows.stream().map(LineageTableVO::getQueryTaskId).distinct().limit(10).toList());
+            return vo;
+        }
         Long count = columnMapper.countByColumnAndDatasource(tableName, columnName, datasourceId);
         List<QueryLineageColumn> recent = columnMapper.selectByColumnAndDatasource(tableName, columnName, datasourceId, 10);
         ImpactAnalysisVO vo = new ImpactAnalysisVO();

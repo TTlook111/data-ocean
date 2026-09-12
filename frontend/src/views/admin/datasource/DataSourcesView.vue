@@ -386,14 +386,21 @@ onMounted(async () => {
       <el-pagination
         v-if="total > (query.pageSize || 20)"
         v-model:current-page="query.page"
+        v-model:page-size="query.pageSize"
         class="data-sources-page__pagination"
-        layout="total, prev, pager, next"
-        :page-size="query.pageSize"
+        layout="total, sizes, prev, pager, next"
+        :page-sizes="[10, 20, 50, 100]"
         :total="total"
         @current-change="load"
+        @size-change="() => { query.page = 1; load() }"
       />
     </section>
-    <EmptyState v-else message="还没有数据源，请先完成连接测试并创建一个数据源。" action-text="新增数据源" @action="openCreate" />
+    <EmptyState
+      v-else
+      :message="query.name || query.status !== undefined || query.healthStatus ? '当前筛选条件下没有匹配的数据源。' : '还没有数据源，请先完成连接测试并创建一个数据源。'"
+      :action-text="query.name || query.status !== undefined || query.healthStatus ? '' : '新增数据源'"
+      @action="openCreate"
+    />
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑数据源' : '新增数据源'" width="720px" @closed="resetForm">
       <el-alert
