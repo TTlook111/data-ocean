@@ -46,7 +46,7 @@ Important boundary:
 
 ## Current Status
 
-Last updated: 2026-09-07.
+Last updated: 2026-09-12.
 
 The main end-to-end chain is implemented:
 
@@ -76,6 +76,8 @@ Module status summary:
 Known follow-up areas — see `docs/development/后续开发.md` for the full prioritized list.
 
 Latest addition:
+
+- **后台前端缺陷清单 F1–F9 全部修复**（2026-09-12，分支 `fix/frontend-defect-list` 提交 `22a1be5`）：按 `docs/review/2026-09-11-后台前端重构审查-前端缺陷清单.md` 修复 9 项，纯前端，8 个源文件。要点：(1) F1 数据源驾驶舱主操作改为消费后端 `blockReasons[0]`，不再在前端重推就绪状态，并按后端 `appendBlockReasons` 的顺序分流；(2) F4 二级工作区高亮从路径前缀匹配改为 `route.meta.workspaceKey` 等值判定，修复 5 条双高亮 + 2 条零高亮（`/admin/metadata/tables`、`/admin/permission/policies`）；(3) F6 一级与二级导航统一按目标 `contextMode` 经 `utils/adminNavigation.ts` 的 `buildContextQuery` 继承上下文，使 URL 自描述；(4) F8 `resolveReadinessActionPath` 的 `known` 字段改为被消费，未映射路径不再静默跳工作台。实施中发现 3 个清单未记录的问题：`v-if="primaryAction.icon"` 会让导航型主操作整体消失、`SNAPSHOT_NOT_PUBLISHED` 照搬后端文案会违反门禁表、治理导航用 `latestSnapshot` 会过滤到 0 条问题。**运行时未验证**（无可用环境）。
 
 - **Phase 1 代码可信度全部完成**（2026-08-21）：(1) DataQualityChecker SQL 标识符转义防注入（4 个方法全部加 `escapeIdentifier()`）；(2) DataQualityChecker 密码解密统一复用 `DatasourceSecretService`，消除密钥不一致风险（删除自行实现的 AES 解密）；(3) MetadataCatalogController 3 处 `catch(Exception ignored){}` 改为 `log.warn`；(4) `traceDerivedFromChain` 增加 `visited` 集合防止循环血缘无限递归；(5) P5 Java 侧会话记忆方案已升级为数据库长期摘要 + 请求级上下文组装；(6) P0 管理员反馈特权确认已实现（ADMIN/ANALYST 跳过审核、delta=-45）。
 
@@ -219,6 +221,8 @@ Infrastructure:
 ```bash
 docker compose up -d
 ```
+
+> ⚠️ **`docker-compose.yml` does not exist in this repository** (verified 2026-09-12 by a full-repo search). The command above is the documented intent, not a working step. As a result no runtime verification that needs MySQL / Redis / Milvus can be executed from a fresh clone, and every acceptance scenario in the frontend refactor guide §16 is currently blocked. Restoring this file is step 0 of the current plan — see `docs/development/项目真实状态看板.md`. Milvus Standalone also needs its etcd and MinIO companions.
 
 Tests:
 
@@ -383,7 +387,13 @@ Frontend routes are split between business-oriented domains:
 - New admin pages must follow `docs/development/guides/DataOcean-后台前端整体重构开发指导.md` before adding routes or navigation entries.
 - Target admin routes are frozen in that guide: `/admin/workbench`、`/admin/data-sources`、`/admin/collections`、`/admin/assets`、`/admin/releases`、`/admin/governance/*`、`/admin/semantics/*`、`/admin/access/*`、`/admin/operations/*`、`/admin/platform/*`.
 - Legacy URLs (`/admin/datasources`、`/admin/metadata/*`、`/admin/knowledge/*`、`/admin/permission/*`、`/admin/system/*`、`/admin/users`、`/admin/roles`、`/admin/departments`) are kept as redirects that preserve object IDs and query parameters. Do not add new links to them.
-- The admin frontend refactor is in progress: stages 0–5 (shell, data entry, data assets, governance, semantics) are delivered; stages 6–8 (access/organization, operations/platform, migration and cleanup) are not. Legacy pages superseded by new workspaces are intentionally still present and are removed in stage 8.
+- The admin frontend refactor stage status (verified against code on 2026-09-12):
+  - Stages 0–5 (shell, data entry, data assets, governance, semantics) are delivered.
+  - Stages 6–7 (access/organization, operations/platform) have their pages landed: `AccessControl`, `PolicyEditor`, `AccessApprovalView`, `OrganizationView`, `QueryAnalysisView`, `DataLineage`, `ServiceHealth`, `OperationLogList`, `AiConfig`. Some of these files are short (e.g. `QueryAnalysisView.vue` is 28 lines, `OrganizationView.vue` is 97) because they are tab containers delegating to existing substantive components — that is the intended design, not an unfinished page. Neither stage has had runtime acceptance.
+  - Stage 8 (migration and cleanup) is not done: legacy views are still present, duplicate API wrappers are not merged, hardcoded colors are not consolidated.
+  - Legacy pages superseded by new workspaces are intentionally still present and are removed in stage 8.
+  - **No stage 1–7 deliverable has ever been accepted at runtime**; all completion claims rest on static reading only. Treat that as a known gap, not as verification.
+- The 9 frontend defects from the 2026-09-11 review were fixed on 2026-09-12 (pure frontend, no Java/Python/DB/permission-code/API-URL changes). See `docs/review/2026-09-11-后台前端重构审查-前端缺陷清单.md` §7.1 for the implementation record and the issues found during the fix that the review did not record.
 
 The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`. It also checks `/api/datasources/{datasourceId}/readiness` so users can only ask against sources whose lifecycle is ready.
 

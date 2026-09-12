@@ -119,6 +119,8 @@ npm install
 npm run dev
 ```
 
+> ⚠️ **第 1 步目前跑不通**：仓库中尚不存在 `docker-compose.yml`（2026-09-12 全仓检索确认）。请自行准备 MySQL 8、Redis 与 Milvus Standalone（Milvus 还需 etcd 与 MinIO 两个伴生服务）后跳过该步。补齐该文件已列为当前最高优先级的工程任务，见 [`docs/development/项目真实状态看板.md`](docs/development/项目真实状态看板.md)。
+
 默认入口：
 
 | 服务 | 地址 |
@@ -135,7 +137,7 @@ backend/         Spring Boot Java 网关层
 python-service/  FastAPI + LangGraph AI 服务
 docs/            项目设计与开发文档
 specs/           早期模块规格（历史资料，不作为当前完成度依据）
-output/          联调截图与验证产物
+output/          联调截图与验证产物（按需生成，默认不存在）
 ```
 
 ## 项目状态
