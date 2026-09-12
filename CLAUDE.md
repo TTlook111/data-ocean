@@ -263,6 +263,12 @@ docs/
 │   ├── 后续开发.md                  # 唯一的"待办清单"，记录未完成任务
 │   ├── DataOcean技术栈与模块职责.md  # 技术栈、模块职责与数据存储归属
 │   ├── 项目真实状态看板.md
+│   ├── stage-summaries/            # 后台前端重构各阶段实施总结（按《实施任务清单》§15 模板）
+│   │   ├── 阶段5-实施总结.md
+│   │   ├── 阶段6-实施总结.md
+│   │   ├── 阶段7-实施总结.md
+│   │   ├── 阶段8-实施总结.md
+│   │   └── 原能力迁移对照表.md      # §15 强制交付物：旧页面/路由/组件 → 新归属
 │   ├── completed/                  # 已完成的开发文档（历史记录，不需要更新）
 │   │   ├── 后台信息架构与导航规范.md
 │   │   ├── DataOcean统一执行路线图.md
@@ -296,6 +302,7 @@ docs/
 
 **文档管理原则**：
 - `docs/development/后续开发.md` 是唯一的"待办清单"，只保留未完成任务
+- `docs/development/stage-summaries/` 存放后台前端重构的阶段实施总结与能力迁移对照表
 - `docs/development/completed/` 存放已完成的开发文档，作为历史记录
 - `docs/development/guides/` 存放需要持续遵守的开发规范
 - `docs/modules/` 存放模块设计文档，模块行为变化时更新
@@ -391,12 +398,11 @@ Frontend routes are split between business-oriented domains:
 - New admin pages must follow `docs/development/guides/DataOcean-后台前端整体重构开发指导.md` before adding routes or navigation entries.
 - Target admin routes are frozen in that guide: `/admin/workbench`、`/admin/data-sources`、`/admin/collections`、`/admin/assets`、`/admin/releases`、`/admin/governance/*`、`/admin/semantics/*`、`/admin/access/*`、`/admin/operations/*`、`/admin/platform/*`.
 - Legacy URLs (`/admin/datasources`、`/admin/metadata/*`、`/admin/knowledge/*`、`/admin/permission/*`、`/admin/system/*`、`/admin/users`、`/admin/roles`、`/admin/departments`) are kept as redirects that preserve object IDs and query parameters. Do not add new links to them.
-- The admin frontend refactor stage status:
-  - Stages 0–5 (shell, data entry, data assets, governance, semantics) are delivered.
-  - **Stages 6–8 (access/organization, operations/platform, migration and cleanup) are NOT done.** The routes for these areas (`/admin/access`, `/admin/operations/*`, `/admin/platform/*`) resolve and the component files exist, but they are the **pre-refactor implementations**: e.g. `AccessControl.vue` has no `el-tab-pane` at all although the guide §7.13 requires three fixed tabs, and it uses none of the shared shell components (`TaskPageHeader` / `LoadingState` / `ErrorState` / `EmptyState` / `BusinessStatusBadge`). Stage 6–7 work means redesigning these pages to the §7.13–§7.18 target design, not creating new files.
+- The admin frontend refactor stage status (as of 2026-09-12):
+  - **Stages 0–8 are implemented in code.** Per-stage evidence is in `docs/development/stage-summaries/`, and the mandatory capability-migration table is `docs/development/stage-summaries/原能力迁移对照表.md`.
+  - Stages 6–7 (`/admin/access`, `/admin/operations/*`, `/admin/platform/*`) were **rebuilt** to the §7.13–§7.18 target design, not patched. Before that they were the pre-refactor implementations — e.g. `AccessControl.vue` had no `el-tab-pane` at all while §7.13 requires three fixed tabs. Stage 8 then deleted 27 superseded files (24 unreachable code files + dead assets); a re-run of the reachability check reports **0 unreachable code files**.
   - ⚠️ **Do not infer stage completion from file existence, file size, or route reachability.** On 2026-09-12 this exact inference was made and written into the status docs, and it was wrong; it was corrected by the project owner. Judge completion by checking against the target design in the guide, item by item.
-  - Legacy pages superseded by new workspaces are intentionally still present and are removed in stage 8.
-  - **No stage 1–7 deliverable has ever been accepted at runtime**; all completion claims rest on static reading only. Treat that as a known gap, not as verification.
+  - ⚠️ **"Implemented in code" is not "verified".** No stage 0–8 deliverable has ever been accepted in a browser. §17 completion definition item 9 (real-data browser walkthrough) and §15's screenshot deliverable are **both unmet** — the guide's §14 forbids starting Docker infrastructure to satisfy this frontend task, and the frontend has no Playwright installed. Do not write these as verified.
 - The 9 frontend defects from the 2026-09-11 review were fixed on 2026-09-12 (pure frontend, no Java/Python/DB/permission-code/API-URL changes). See `docs/review/2026-09-11-后台前端重构审查-前端缺陷清单.md` §7.1 for the implementation record and the issues found during the fix that the review did not record.
 
 The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`. It also checks `/api/datasources/{datasourceId}/readiness` so users can only ask against sources whose lifecycle is ready.
