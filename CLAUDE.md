@@ -77,6 +77,9 @@ Known follow-up areas — see `docs/development/后续开发.md` for the full pr
 
 Latest addition:
 
+- **阶段 5–8 审查问题全量修复轮完成**（2026-09-12，工作区未提交）：按 `docs/review/2026-09-12-后台前端重构阶段5-8审查报告.md` 的 A1–A14 / B1–B33 / C1–C23 / D1–D11 逐条修复。要点：(1) **A14 的修复曾让整个 Java 测试源码集编译失败**——`GlossaryTermServiceImplTest` 里 `verify(termMapper, never()).insert(any())` 在 MyBatis-Plus 的 `insert(T)` / `insert(Collection<T>)` 之间产生重载歧义，必须写成 `any(GlossaryTerm.class)`；修好后基线回到 **145 tests / 0 failures**；(2) **A4「提升为模板」与 A5「全量重新向量化」两个伪入口从前后端一并删除**（Java 端点、Python 路由、前端控件全清），`开发指导` §7.16/§7.19 里对应的冻结验收项已标注撤下；(3) **B32「猜你想问」补齐五环**：新增 `V52__add_query_suggested_questions.sql` + `QueryTask.suggestedQuestions` + 结果回写 + `QueryTaskVO` 映射 + 前端渲染；(4) 修复过程中新引入的两个缺陷也已在同一轮修掉——`AccessApprovalView.vue` 的 `el-alert` 插进 `v-if`/`v-else-if` 链会吞掉整个审批列表，`DataSourcesView.vue` 的分页大小控件读得到改不了（缺 `v-model:page-size`）。**验证边界**：静态核对 + 前端 `npm run build` + Java `mvn test`（145 项）；**无任何浏览器验收**，V52 未在真实 MySQL 执行过。
+  - 附一条可复用的检查结论：`frontend/tsconfig*.json` 未配置 `vueCompilerOptions.strictTemplates`，`vue-tsc` **不校验模板中的组件解析**，未导入的组件能穿过 `npm run build` 且退出码为 0。对「模板引用了不存在的东西」这一类缺陷，**构建通过不构成任何证据**，需要另做「模板 PascalCase 标签 vs script 导入」的脚本化交叉核对。
+
 - **后端缺陷修复轮完成**（2026-09-12，提交 `fcd7bd3`/`af29e6b`/`cbd1ff4` + 前端 `0c852a7`）：按 `docs/review/2026-09-11-后台前端重构审查-后端事实问题.md` 修复全部记录项。这是一次**独立于前端重构轮的修复**——`开发指导` §1 的「不修改 Java」约束只适用于前端重构轮。要点：(1) **P0** `rollback` 原本不校验文档状态，任何调用方都能把未审核内容写进 Milvus；现要求文档为 PUBLISHED 且目标版本 APPROVED；(2) `knowledge_doc_version.review_status` 由死列改为 `approve`/`reject` 真实写入，V51 迁移回填历史行（能按 `knowledge_review_task` 还原的还原，其余标为 `UNKNOWN`）；(3) 术语状态机收敛采用方案 A：新增 `APPROVED → DRAFT` 退回接口，`updateTerm` 加状态校验并改字段白名单赋值；(4) 4 个新增接口见下方模块说明；(5) `/catalog/search` 的 `datasourceId` 过滤下推到 SQL。**修复中额外发现**：`LineageServiceImpl.buildColumnFqn` 与 `findFqnPrefix` 持有 `datasourceId` 却未下传，多数据源同名表会解析到错误数据源的 FQN，产生错误列血缘——已修。**验证边界**：全部为静态验证 + 单元测试；V51 迁移未在真实 MySQL 执行过，前端改动无运行时点验。
 
 - **后台前端缺陷清单 F1–F9 全部修复**（2026-09-12，分支 `fix/frontend-defect-list` 提交 `22a1be5`）：按 `docs/review/2026-09-11-后台前端重构审查-前端缺陷清单.md` 修复 9 项，纯前端，8 个源文件。要点：(1) F1 数据源驾驶舱主操作改为消费后端 `blockReasons[0]`，不再在前端重推就绪状态，并按后端 `appendBlockReasons` 的顺序分流；(2) F4 二级工作区高亮从路径前缀匹配改为 `route.meta.workspaceKey` 等值判定，修复 5 条双高亮 + 2 条零高亮（`/admin/metadata/tables`、`/admin/permission/policies`）；(3) F6 一级与二级导航统一按目标 `contextMode` 经 `utils/adminNavigation.ts` 的 `buildContextQuery` 继承上下文，使 URL 自描述；(4) F8 `resolveReadinessActionPath` 的 `known` 字段改为被消费，未映射路径不再静默跳工作台。实施中发现 3 个清单未记录的问题：`v-if="primaryAction.icon"` 会让导航型主操作整体消失、`SNAPSHOT_NOT_PUBLISHED` 照搬后端文案会违反门禁表、治理导航用 `latestSnapshot` 会过滤到 0 条问题。**运行时未验证**（无可用环境）。
@@ -240,7 +243,7 @@ mvn test
 Latest verified test result:
 
 - Python (2026-09-07): 152 passed, 4 skipped (E2E tests require full environment).
-- Java (2026-09-12): 143 tests passed, 0 failures. (Was 119 before the 2026-09-12 defect rounds, which added `KnowledgeDocLifecycleServiceTest` (4), `GlossaryTermServiceImplTest` (9), `AccessApprovalServiceImplTest` (2), and extended `KnowledgeVersionServiceImplTest` / `QualityIssueServiceImplTest`.) `mvn test` needs no external service — the suite is Mockito unit tests plus one `@SpringBootTest` backed by H2 + `src/test/resources/application-test.yml`.
+- Java (2026-09-12): **145 tests passed, 0 failures, 0 skipped** — re-run after the stage 5–8 review fix round. The suite was briefly **uncompilable** in that round (an ambiguous `insert(any())` in `GlossaryTermServiceImplTest`), so any "all fixed" claim made while it was broken had no executable evidence behind it. (Was 143 before that round, 119 before the 2026-09-12 defect rounds, which added `KnowledgeDocLifecycleServiceTest` (4), `GlossaryTermServiceImplTest` (9), `AccessApprovalServiceImplTest` (2), and extended `KnowledgeVersionServiceImplTest` / `QualityIssueServiceImplTest`.) `mvn test` needs no external service — the suite is Mockito unit tests plus one `@SpringBootTest` backed by H2 + `src/test/resources/application-test.yml`.
 
 The next testing gap is Agent workflow coverage: query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 
@@ -357,6 +360,7 @@ Migration notes:
 - `V45` adds `db_column_meta.sample_values` (Phase 2 column sample value collection).
 - `V50` adds RAG chunk order/group, multi-table/multi-column, entity, trust, and content hash metadata.
 - `V51` backfills `knowledge_doc_version.review_status`. That column existed since V13 with `NOT NULL DEFAULT 'PENDING'` but was never written, so every row read as "pending review" including published ones. V51 restores rows that can be resolved from `knowledge_review_task` and marks the rest `UNKNOWN`; the application now writes the column on create/approve/reject.
+- `V52` adds `query_task.suggested_questions` (JSON, anchored `AFTER masked_fields`), persisting the follow-up questions Python already returned but Java never stored. Like V51 it has **never been executed against a real MySQL**, and Flyway is disabled in the test profile, so no automated run covers it.
 
 ## Python Service Notes
 
