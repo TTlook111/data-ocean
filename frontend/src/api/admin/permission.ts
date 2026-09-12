@@ -27,6 +27,27 @@ export async function reviewAccessApprovalRequest(id: number, payload: { approve
   return data
 }
 
+export interface AccessApprovalSubmitPayload {
+  datasourceId: number
+  tableName: string
+  columnName?: string
+  requestReason: string
+  requestedDuration: number
+}
+
+/**
+ * 提交数据访问申请。
+ *
+ * 后端接口已存在（`AccessApprovalController.submitRequest`），此前前端零封装。
+ * **本轮只补封装、不开放入口**：`开发指导` §7.14 要求普通用户「我的申请」
+ * 待产品确认后再正式开放。后端自 2026-09-12 起已按 `security:manage` 收窄列表范围，
+ * 数据隔离已成立，但入口的开放与否仍需产品决定。
+ */
+export async function submitAccessApprovalRequest(payload: AccessApprovalSubmitPayload) {
+  const { data } = await http.post<ApiResult<{ id: number }>>('/api/admin/access-approvals', payload)
+  return data
+}
+
 export interface DatasourcePermissionItem {
   id: number
   datasourceId: number
@@ -50,6 +71,8 @@ export interface DatasourcePermissionPayload {
   canExport?: boolean
   canViewSql?: boolean
   accessEffect?: 'ALLOW' | 'DENY'
+  /** 授权有效期；留空表示长期有效。后端 DTO 已有该字段，此前前端类型未定义导致无法设置 */
+  expiresAt?: string
 }
 
 export interface DatasourcePermissionDecision {

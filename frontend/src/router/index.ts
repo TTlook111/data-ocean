@@ -31,7 +31,6 @@ const GovernanceFieldsView = () => import('../views/admin/governance/GovernanceF
 const TableExplorer = () => import('../views/admin/metadata/TableExplorer.vue')
 const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
-const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
 const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
 const AiConfig = () => import('../views/admin/system/AiConfig.vue')
 const OperationLogList = () => import('../views/admin/system/OperationLogList.vue')
@@ -299,10 +298,11 @@ const router = createRouter({
         { path: 'prompts', redirect: (to) => ({ path: '/admin/semantics/prompts', query: to.query }) },
         { path: 'permission/access', redirect: (to) => ({ path: '/admin/access', query: { ...to.query, tab: 'grants' } }) },
         {
+          // 表列策略已并入授权管理工作区的 Tab（开发指导 §7.13）。
+          // 原为独立页面且挂在非冻结路由上，导航中没有任何入口，是孤儿页。
           path: 'permission/policies',
           name: 'admin-permission-policies',
-          component: PolicyEditor,
-          meta: { title: '策略编辑器', domainKey: 'access', workspaceKey: 'access', contextMode: 'datasource' },
+          redirect: (to) => ({ path: '/admin/access', query: { ...to.query, tab: 'policies' } }),
         },
         { path: 'users', redirect: (to) => ({ path: '/admin/access/organization', query: { ...to.query, tab: 'users' } }) },
         { path: 'roles', redirect: (to) => ({ path: '/admin/access/organization', query: { ...to.query, tab: 'roles' } }) },

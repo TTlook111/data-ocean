@@ -7,6 +7,7 @@ import {
   deleteUser,
   downloadUserImportTemplate,
   exportUsers,
+  getUser,
   importUsers,
   listDepartments,
   listRoles,
@@ -21,6 +22,9 @@ import {
   type UserQuery,
 } from '../../../api/admin/user'
 import { useAuthStore } from '../../../stores/auth'
+import LoadingState from '../../../components/common/LoadingState.vue'
+import ErrorState from '../../../components/common/ErrorState.vue'
+import EmptyState from '../../../components/common/EmptyState.vue'
 
 const STATUS_NORMAL = 1
 const STATUS_DISABLED = 2
@@ -230,6 +234,32 @@ async function fetchOptions() {
     ElMessage.error(extractError(error, '筛选选项加载失败'))
   } finally {
     optionLoading.value = false
+  }
+}
+
+/**
+ * 用户详情。
+ *
+ * 开发指导 §7.15 要求「用户详情显示所属部门、角色和状态」。列表里这三项都是列，
+ * 但详情需要独立视图；后端 `GET /api/admin/users/{id}` 早已存在，前端此前零封装。
+ * 详情走详情接口而不是复用列表行，避免「列表第一页没有该用户就拿不到」。
+ */
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailError = ref('')
+const detail = ref<UserItem | null>(null)
+
+async function openDetail(row: UserItem) {
+  detailVisible.value = true
+  detailLoading.value = true
+  detailError.value = ''
+  detail.value = null
+  try {
+    detail.value = (await getUser(row.id)).data
+  } catch (error) {
+    detailError.value = extractError(error, '用户详情加载失败')
+  } finally {
+    detailLoading.value = false
   }
 }
 
@@ -511,20 +541,16 @@ onBeforeUnmount(() => {
     </section>
 
     <section class="table-shell">
-      <el-skeleton v-if="loading && !users.length" :rows="6" animated class="table-skeleton" />
+      <LoadingState v-if="loading && !users.length" variant="skeleton" :rows="6" />
 
-      <el-result v-else-if="errorMessage" icon="error" title="用户数据加载失败" :sub-title="errorMessage">
-        <template #extra>
-          <el-button type="primary" @click="fetchUsers">重试</el-button>
-        </template>
-      </el-result>
+      <ErrorState v-else-if="errorMessage" :message="errorMessage" @retry="fetchUsers" />
 
-      <el-empty
+      <EmptyState
         v-else-if="!users.length"
-        :description="isFiltered ? '未找到匹配的用户，试试调整筛选条件' : '暂无用户数据'"
-      >
-        <el-button v-if="isFiltered" @click="resetFilters">重置筛选</el-button>
-      </el-empty>
+        :message="isFiltered ? '未找到匹配的用户，试试调整筛选条件。' : '暂无用户数据。可以手工创建，或使用右上角的导入功能批量导入。'"
+        :action-text="isFiltered ? '重置筛选' : '新建用户'"
+        @action="isFiltered ? resetFilters() : openCreate()"
+      />
 
       <el-table v-else v-loading="loading" :data="users" border row-key="id" highlight-current-row>
         <el-table-column prop="username" label="用户名" width="120" fixed />
@@ -557,6 +583,7 @@ onBeforeUnmount(() => {
         </el-table-column>
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
+            <el-button link type="primary" @click="openDetail(row)">详情</el-button>
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button v-if="row.status === STATUS_NORMAL" link type="warning" @click="changeStatus(row, STATUS_DISABLED)">
               禁用
@@ -584,6 +611,40 @@ onBeforeUnmount(() => {
       :total="total"
       @change="fetchUsers"
     />
+
+    <!-- 用户详情 -->
+    <el-drawer v-model="detailVisible" title="用户详情" size="480px">
+      <LoadingState v-if="detailLoading" variant="skeleton" :rows="6" />
+      <ErrorState v-else-if="detailError" :message="detailError" @retry="detail ? openDetail(detail) : undefined" />
+      <div v-else-if="detail" class="user-detail">
+        <dl>
+          <div><dt>用户名</dt><dd>{{ detail.username }}</dd></div>
+          <div><dt>姓名</dt><dd>{{ detail.realName || '—' }}</dd></div>
+          <div><dt>所属部门</dt><dd>{{ detail.departmentName || '未分配部门' }}</dd></div>
+          <div>
+            <dt>角色</dt>
+            <dd>
+              <template v-if="detail.roleNames?.length">
+                <el-tag v-for="name in detail.roleNames" :key="name" size="small" class="user-detail__tag">{{ name }}</el-tag>
+              </template>
+              <span v-else class="muted-text">未分配角色</span>
+            </dd>
+          </div>
+          <div>
+            <dt>状态</dt>
+            <dd>
+              <el-tag :type="detail.status === STATUS_NORMAL ? 'success' : detail.status === STATUS_LOCKED ? 'warning' : 'info'" size="small">
+                {{ statusLabel(detail.status) }}
+              </el-tag>
+            </dd>
+          </div>
+          <div><dt>邮箱</dt><dd>{{ detail.email || '—' }}</dd></div>
+          <div><dt>手机</dt><dd>{{ detail.phone || '—' }}</dd></div>
+          <div><dt>最近登录</dt><dd>{{ detail.lastLoginAt || '从未登录' }}</dd></div>
+          <div><dt>创建时间</dt><dd>{{ detail.createdAt || '—' }}</dd></div>
+        </dl>
+      </div>
+    </el-drawer>
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑用户' : '新增用户'" width="620px" @closed="resetForm">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px" :disabled="saving">
@@ -662,6 +723,27 @@ onBeforeUnmount(() => {
 
 .role-tag {
   margin-right: 6px;
+}
+
+.user-detail dl {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 12px;
+  margin: 0;
+}
+.user-detail dt {
+  color: var(--do-muted);
+  font-size: 12px;
+}
+.user-detail dd {
+  margin: 0;
+  color: var(--do-ink);
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+.user-detail__tag {
+  margin: 0 6px 6px 0;
 }
 
 .muted-text {

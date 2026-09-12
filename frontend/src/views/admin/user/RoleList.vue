@@ -3,6 +3,9 @@ import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Edit3, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-vue-next'
 import { useAuthStore } from '../../../stores/auth'
+import LoadingState from '../../../components/common/LoadingState.vue'
+import ErrorState from '../../../components/common/ErrorState.vue'
+import EmptyState from '../../../components/common/EmptyState.vue'
 import {
   assignRoleToUser,
   createRole,
@@ -334,15 +337,11 @@ onMounted(async () => {
     </section>
 
     <section class="table-shell">
-      <el-skeleton v-if="loading && !roles.length" :rows="4" animated style="padding:18px" />
+      <LoadingState v-if="loading && !roles.length" variant="skeleton" :rows="4" />
 
-      <el-result v-else-if="errorMessage" icon="error" title="角色数据加载失败" :sub-title="errorMessage">
-        <template #extra>
-          <el-button type="primary" @click="fetchRoles">重试</el-button>
-        </template>
-      </el-result>
+      <ErrorState v-else-if="errorMessage" :message="errorMessage" @retry="fetchRoles" />
 
-      <el-empty v-else-if="!roles.length" description="暂无角色数据" />
+      <EmptyState v-else-if="!roles.length" message="暂无角色数据。创建角色后可以为它分配权限项和成员。" />
 
       <el-tabs v-else v-model="activeTab" class="role-tabs">
         <el-tab-pane label="角色定义" name="definition">

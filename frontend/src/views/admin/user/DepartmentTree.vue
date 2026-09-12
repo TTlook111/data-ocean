@@ -10,8 +10,13 @@ import {
   type DepartmentNode,
   type DepartmentPayload,
 } from '../../../api/admin/user'
+import LoadingState from '../../../components/common/LoadingState.vue'
+import ErrorState from '../../../components/common/ErrorState.vue'
+import EmptyState from '../../../components/common/EmptyState.vue'
 
 const loading = ref(false)
+/** 部门树加载失败的原因；此前失败只弹 toast 并把数组置空，页面显示成「暂无部门数据」 */
+const errorMessage = ref('')
 const saving = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref<number>()
@@ -35,11 +40,15 @@ function extractError(error: unknown, fallback: string) {
 
 async function fetchDepartments() {
   loading.value = true
+  errorMessage.value = ''
   try {
     const result = await listDepartments()
     departments.value = result.data || []
   } catch (error) {
-    ElMessage.error(extractError(error, '部门数据加载失败'))
+    departments.value = []
+    // 失败必须渲染错误态。原实现只弹一次 toast 并把数组置空，页面最终显示
+    // 「暂无部门数据」——把失败说成了空数据（§11.3、§18）。
+    errorMessage.value = extractError(error, '部门数据加载失败')
   } finally {
     loading.value = false
   }
@@ -148,9 +157,14 @@ onMounted(fetchDepartments)
     </section>
 
     <section class="tree-panel">
-      <el-skeleton v-if="loading && !departments.length" :rows="6" animated style="padding:18px" />
+      <LoadingState v-if="loading && !departments.length" variant="skeleton" :rows="6" />
 
-      <el-empty v-else-if="!departments.length && !loading" description="暂无部门数据，点击右上角按钮创建" />
+      <ErrorState v-else-if="errorMessage" :message="errorMessage" @retry="fetchDepartments" />
+
+      <EmptyState
+        v-else-if="!departments.length && !loading"
+        message="暂无部门数据。创建部门后可以把用户归属到组织下。"
+      />
 
       <el-tree
         v-else
