@@ -7,10 +7,12 @@ import {
   listQualityIssues,
   handleIssue,
   batchHandleIssues,
+  assignIssue,
   listReviewRecords,
   type ReviewRecord,
   type QualityIssueItem
 } from '../../../api/admin/governance'
+import { listUsers } from '../../../api/admin/user'
 import {
   issueStatusLabel,
   issueStatusType,
@@ -32,6 +34,22 @@ const selectedIssue = ref<QualityIssueItem | null>(null)
 const reviewRecords = ref<ReviewRecord[]>([])
 const detailVisible = ref(false)
 const detailLoading = ref(false)
+
+/**
+ * 责任人分派。
+ *
+ * `listUsers` 的 `pageSize` 上限是后端硬限制（PageRequest.MAX_PAGE_SIZE = 100），
+ * 且该接口没有服务端搜索参数，因此超过 100 名用户时下拉会缺人——用 total 显式提示，
+ * 不假装完整（开发指导 §12）。
+ */
+const USER_PAGE_SIZE = 100
+const userOptions = ref<{ id: number; label: string }[]>([])
+const userOptionsTotal = ref(0)
+const userOptionsLoading = ref(false)
+const assigneeError = ref('')
+const assigneeSelection = ref<number | undefined>()
+const assignLoading = ref(false)
+let userOptionsLoaded = false
 let issueRequestId = 0
 let detailRequestId = 0
 let disposed = false
@@ -80,6 +98,21 @@ const issueSummary = computed(() => ({
   confirmed: issues.value.filter((item) => item.status === 'CONFIRMED').length,
   resolved: issues.value.filter((item) => item.status === 'RESOLVED').length,
 }))
+
+const assigneeOptions = computed(() => {
+  const options = [...userOptions.value]
+  const currentId = selectedIssue.value?.assigneeId
+  // 当前责任人可能已被禁用、或不在前 100 名内，补进选项避免 el-select 显示裸 id。
+  if (currentId && !options.some((option) => option.id === currentId)) {
+    options.unshift({ id: currentId, label: selectedIssue.value?.assigneeName || `用户 ${currentId}` })
+  }
+  return options
+})
+
+const canAssign = computed(() => {
+  const target = assigneeSelection.value
+  return Boolean(target) && target !== selectedIssue.value?.assigneeId && !assignLoading.value
+})
 
 async function fetchIssues() {
   const currentRequest = ++issueRequestId
@@ -150,11 +183,64 @@ async function doHandle(issueId: number, status: string) {
   }
 }
 
+async function loadUserOptions() {
+  if (userOptionsLoaded || userOptionsLoading.value) return
+  userOptionsLoading.value = true
+  assigneeError.value = ''
+  try {
+    const res = await listUsers({ page: 1, pageSize: USER_PAGE_SIZE })
+    const records = res.data?.records ?? []
+    userOptionsTotal.value = res.data?.total ?? records.length
+    // 只允许分派给启用账号，与项目既有的用户下拉保持一致。
+    userOptions.value = records
+      .filter((user) => user.status === 1)
+      .map((user) => ({ id: user.id, label: user.realName || user.username }))
+    userOptionsLoaded = true
+  } catch (e: any) {
+    // 非 user:manage 账号可能 403。必须显式呈现，不能渲染成空下拉（开发指导 §16.5）。
+    assigneeError.value = e?.response?.data?.message || '用户列表加载失败，暂时无法分派'
+  } finally {
+    userOptionsLoading.value = false
+  }
+}
+
+async function submitAssignment() {
+  const issue = selectedIssue.value
+  const assigneeId = assigneeSelection.value
+  if (!issue || !assigneeId || assigneeId === issue.assigneeId) return
+  assignLoading.value = true
+  try {
+    await assignIssue(issue.id, assigneeId)
+    const assigneeName = assigneeOptions.value.find((option) => option.id === assigneeId)?.label
+    // assignIssue 返回 Result<Void>，不回传更新后的对象；而 fetchIssues 会用新对象
+    // 整体替换 issues.value，selectedIssue 仍指向旧引用，必须就地打补丁，
+    // 否则抽屉里的「责任人」会一直是旧值。
+    selectedIssue.value = { ...issue, assigneeId, assigneeName }
+    ElMessage.success(`已分派给 ${assigneeName || '所选用户'}`)
+    await fetchIssues()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '分派失败')
+  } finally {
+    assignLoading.value = false
+  }
+}
+
 async function doBatchHandle(status: string) {
   if (!selectedIds.value.length) { ElMessage.warning('请选择问题'); return }
+  const requested = selectedIds.value.length
   try {
     const res = await batchHandleIssues({ issueIds: selectedIds.value, status })
-    ElMessage.success(`已处理 ${res.data?.updated ?? 0} 条`)
+    const updated = res.data?.updated
+    if (typeof updated !== 'number') {
+      // 响应结构异常时 updated 会缺失，不能当成「全部被跳过」，那是假失败。
+      ElMessage.success('批量操作已完成')
+    } else if (updated >= requested) {
+      ElMessage.success(`已处理 ${updated} 条`)
+    } else {
+      // 后端对状态不允许的条目静默跳过，只返回成功计数（QualityIssueServiceImpl.batchHandle），
+      // 前端必须如实呈现部分成功。被跳过的原因不是临时故障，重试不会成功。
+      ElMessage.warning(`已处理 ${updated} 条，${requested - updated} 条因当前状态不允许流转被跳过。列表已刷新，请对剩余问题单独处理。`)
+    }
     selectedIds.value = []
     await fetchIssues()
   } catch (e: any) {
@@ -190,6 +276,8 @@ async function openIssueDetail(issue: QualityIssueItem) {
   reviewRecords.value = []
   detailVisible.value = true
   detailLoading.value = true
+  assigneeSelection.value = issue.assigneeId
+  loadUserOptions()
   try {
     const result = await listReviewRecords(issue.snapshotId, { tableName: issue.tableName, page: 1, size: 20 })
     if (disposed || currentRequest !== detailRequestId || selectedIssue.value?.id !== issue.id) return
@@ -371,6 +459,28 @@ onBeforeUnmount(() => {
             <dt>责任人</dt><dd>{{ selectedIssue.assigneeName || '未分派' }}</dd>
             <dt>创建时间</dt><dd>{{ selectedIssue.createdAt }}</dd>
           </dl>
+          <section class="issue-detail__assign">
+            <h3>分派责任人</h3>
+            <div class="issue-detail__assign-controls">
+              <el-select
+                v-model="assigneeSelection"
+                class="issue-detail__assign-select"
+                filterable
+                clearable
+                size="small"
+                :loading="userOptionsLoading"
+                :disabled="Boolean(assigneeError)"
+                placeholder="选择用户"
+              >
+                <el-option v-for="option in assigneeOptions" :key="option.id" :label="option.label" :value="option.id" />
+              </el-select>
+              <el-button size="small" type="primary" :loading="assignLoading" :disabled="!canAssign" @click="submitAssignment">分派</el-button>
+            </div>
+            <p v-if="assigneeError" class="muted-text">{{ assigneeError }}</p>
+            <p v-else-if="userOptionsTotal > USER_PAGE_SIZE" class="muted-text">
+              共 {{ userOptionsTotal }} 名用户，下拉仅显示前 {{ USER_PAGE_SIZE }} 名，目标用户可能不在列表中。
+            </p>
+          </section>
           <div class="issue-detail__actions">
             <RouterLink class="return-link" :to="{ path: '/admin/governance', query: { datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined, snapshotId: String(selectedIssue.snapshotId) } }">回治理复查</RouterLink>
             <RouterLink class="return-link" :to="{ path: '/admin/releases', query: { datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined, snapshotId: String(selectedIssue.snapshotId), tab: 'candidates' } }">回发布流程</RouterLink>
@@ -433,4 +543,7 @@ onBeforeUnmount(() => {
 .issue-detail dt { color: var(--do-muted); font-size: 12px; }
 .issue-detail dd { margin: 0; color: var(--do-ink); font-size: 13px; line-height: 1.6; }
 .issue-detail h3 { margin: 4px 0 0; color: var(--do-ink); font-size: 15px; }
+.issue-detail__assign { display: grid; gap: 8px; }
+.issue-detail__assign-controls { display: flex; align-items: center; gap: 8px; }
+.issue-detail__assign-select { flex: 1; min-width: 0; }
 </style>

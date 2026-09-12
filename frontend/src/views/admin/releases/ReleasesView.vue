@@ -109,11 +109,35 @@ async function selectSnapshot(id: number) {
   }
 }
 
+/**
+ * ISSUE_FOUND 快照的主操作入口：进入问题中心。
+ *
+ * 开发指导 §7.6 规定该状态的主操作是「进入问题中心」，实施任务清单 §9 门禁表
+ * 也要求「存在阻断治理问题」时突出该入口、不得把发布类操作显示为可执行。
+ * 不带 severity 等额外筛选——§7.6 只要求进入问题中心，加筛选会隐藏中低危问题。
+ */
+function issueCenterTarget(row: VersionHistoryItem) {
+  const scopedDatasourceId = row.datasourceId ?? datasourceId.value
+  return {
+    path: '/admin/governance/issues',
+    query: {
+      ...(scopedDatasourceId ? { datasourceId: String(scopedDatasourceId) } : {}),
+      snapshotId: String(row.snapshotId),
+    },
+  }
+}
+
 async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
   const labels: Record<string, string> = { CHECKING: '开始质量检查', APPROVED: '批准快照' }
   if (actionLoading.value) return
+  // ISSUE_FOUND → APPROVED 不可逆：状态机没有回到 ISSUE_FOUND 的边，且未解决的高危
+  // 治理问题仍会阻止后续发布。必须显式说明影响（开发指导 §16.5）。
+  const irreversibleApproval = item.status === 'ISSUE_FOUND' && targetStatus === 'APPROVED'
+  const confirmMessage = irreversibleApproval
+    ? '快照 v' + item.snapshotVersion + ' 仍有高危未解决的治理问题。批准后仍无法发布，且该状态不可退回，请先到问题中心处理。确认继续批准？'
+    : '确认对快照 v' + item.snapshotVersion + '执行“' + labels[targetStatus] + '”？'
   try {
-    await ElMessageBox.confirm('确认对快照 v' + item.snapshotVersion + '执行“' + labels[targetStatus] + '”？', '确认操作', { type: 'warning' })
+    await ElMessageBox.confirm(confirmMessage, irreversibleApproval ? '批准存在治理问题的快照' : '确认操作', { type: 'warning' })
     actionLoading.value = true
     if (targetStatus === 'CHECKING') {
       const result = await triggerQualityCheck(item.snapshotId)
@@ -260,8 +284,13 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
             <el-table-column prop="createdAt" label="采集时间" width="175" />
             <el-table-column label="操作" min-width="300" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" @click="selectSnapshot(row.snapshotId)">详情</el-button>
-                <el-button v-if="row.status === 'DRAFT'" link @click="changeStatus(row, 'CHECKING')">开始检查</el-button>
+                <el-button link @click="selectSnapshot(row.snapshotId)">详情</el-button>
+                <el-button v-if="row.status === 'DRAFT'" link type="primary" @click="changeStatus(row, 'CHECKING')">开始检查</el-button>
+                <RouterLink
+                  v-if="row.status === 'ISSUE_FOUND'"
+                  class="releases-page__primary-link"
+                  :to="issueCenterTarget(row)"
+                >进入问题中心</RouterLink>
                 <el-button v-if="row.status === 'ISSUE_FOUND'" link @click="changeStatus(row, 'APPROVED')">批准</el-button>
                 <el-button v-if="row.status === 'APPROVED'" link type="primary" @click="publish(row)"><Send :size="14" />发布</el-button>
                 <el-button v-if="row.status === 'PUBLISHED'" link type="danger" @click="revoke(row)"><RotateCcw :size="14" />撤回</el-button>
@@ -319,6 +348,7 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
 .detail-metrics span, .diff-summary p { margin: 0; padding: 8px 10px; border-radius: var(--do-radius-md); background: var(--do-bg); }
 .detail-links { display: flex; gap: 16px; margin-top: 14px; }
 .detail-links a { color: var(--do-primary-strong); font-size: 13px; font-weight: 800; }
+.releases-page__primary-link { margin-left: 8px; color: var(--do-primary-strong); font-size: 12px; font-weight: 700; }
 .diff-panel { display: grid; gap: 18px; }
 .diff-selector { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .diff-selector :deep(.el-select) { width: 180px; }

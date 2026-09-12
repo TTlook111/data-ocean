@@ -8,11 +8,14 @@ import {
   ShieldCheck,
   SlidersHorizontal,
 } from 'lucide-vue-next'
-import { useRoute } from 'vue-router'
+import { useRoute, type RouteLocationRaw } from 'vue-router'
 import { computed } from 'vue'
 import { ADMIN_DOMAIN_KEYS } from '../../router/adminNavigation'
+import { useAdminContextStore } from '../../stores/adminContext'
+import { buildContextQuery, findWorkspaceContextMode, type AdminContextSource } from '../../utils/adminNavigation'
 
 const route = useRoute()
+const context = useAdminContextStore()
 const emit = defineEmits<{ navigate: [] }>()
 
 const domains = [
@@ -30,6 +33,19 @@ const activeKey = computed(() => String(route.meta.domainKey || (route.path === 
 function isActive(key: string) {
   return activeKey.value === key
 }
+
+// 上下文来源：合法 URL 参数优先于本地持久化状态（开发指导 §6.2 规则 4）。
+// 回落到 store 是必要的——页面 URL 通常不带这两个参数，只读 URL 会让继承失效。
+const contextSource = computed<AdminContextSource>(() => ({
+  datasourceId: Number(route.query.datasourceId) || context.datasourceId,
+  snapshotId: Number(route.query.snapshotId) || context.snapshotId,
+}))
+
+// 一级导航的落地页是一个具体工作区（如 数据资产 → /admin/assets），
+// 按该工作区声明的 contextMode 决定继承哪些参数，与二级导航使用同一套规则。
+function targetFor(domain: { path: string }): RouteLocationRaw {
+  return { path: domain.path, query: buildContextQuery(findWorkspaceContextMode(domain.path), contextSource.value) }
+}
 </script>
 
 <template>
@@ -37,7 +53,7 @@ function isActive(key: string) {
     <RouterLink
       v-for="domain in domains"
       :key="domain.key"
-      :to="domain.path"
+      :to="targetFor(domain)"
       class="admin-domain-nav__item"
       :class="{ active: isActive(domain.key) }"
       :title="domain.label"

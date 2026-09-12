@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ArrowRight, CircleAlert } from 'lucide-vue-next'
 import { computed } from 'vue'
+import { useRoute } from 'vue-router'
 import type { DatasourceReadinessReason } from '../../api/admin/datasource'
-import { resolveReadinessActionPath } from '../../utils/adminNavigation'
+import { findDomainHome, resolveReadinessActionPath } from '../../utils/adminNavigation'
 
 const props = withDefaults(defineProps<{
   reasons?: DatasourceReadinessReason[]
@@ -13,10 +14,16 @@ const props = withDefaults(defineProps<{
   emptyText: '当前没有阻断原因，可以继续检查下一阶段。',
 })
 
-const actions = computed(() => props.reasons.map((reason) => ({
-  reason,
-  target: resolveReadinessActionPath(reason.actionPath, props.datasourceId),
-})))
+const route = useRoute()
+
+// actionPath 未映射时的安全落点：当前业务域的首个工作区。
+// 不猜测目标，也不把 actionText 当作链接文案指向别处（文案与目标不符）。
+const domainHome = computed(() => findDomainHome(String(route.meta.domainKey || '')))
+
+const actions = computed(() => props.reasons.map((reason) => {
+  const target = resolveReadinessActionPath(reason.actionPath, { datasourceId: props.datasourceId })
+  return { reason, to: target.to, known: target.known }
+}))
 </script>
 
 <template>
@@ -35,10 +42,17 @@ const actions = computed(() => props.reasons.map((reason) => ({
           <strong>{{ item.reason.message }}</strong>
           <span>责任角色：{{ item.reason.ownerRole || '未指定' }}</span>
         </div>
-        <RouterLink class="next-action-card__action" :to="item.target.to">
+        <RouterLink v-if="item.known" class="next-action-card__action" :to="item.to">
           {{ item.reason.actionText || '去处理' }}
           <ArrowRight :size="15" />
         </RouterLink>
+        <span v-else class="next-action-card__fallback">
+          <em>{{ item.reason.actionText || '请手动处理' }}</em>
+          <RouterLink class="next-action-card__action" :to="domainHome.path">
+            返回{{ domainHome.label }}
+            <ArrowRight :size="15" />
+          </RouterLink>
+        </span>
       </article>
     </div>
   </section>
@@ -119,6 +133,19 @@ p {
   color: var(--do-primary-strong);
   font-size: 12px;
   font-weight: 800;
+}
+
+.next-action-card__fallback {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  gap: 5px;
+}
+
+.next-action-card__fallback em {
+  color: var(--do-muted);
+  font-size: 12px;
+  font-style: normal;
 }
 
 @media (max-width: 620px) {

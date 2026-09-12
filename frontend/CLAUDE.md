@@ -36,6 +36,10 @@ DataOcean 是企业级 NL2SQL 智能数据查询与治理平台。前端服务�
 
 1. **导航可见性**：`AdminShell.vue` 使用“一级业务域侧边栏 + 内容区二级工作区导航”。一级业务域和二级工作区都在 `router/adminNavigation.ts` 的 `ADMIN_WORKSPACES` 中定义，由 `AdminDomainNav.vue` 和 `AdminWorkspaceNav.vue` 渲染。
    > 后台前端整体重构期间（阶段 0–7）**不按旧权限码裁剪菜单**：使用真实 `*` 超级管理员账号，七个业务域和工作区全部可见。菜单权限的重新设计是重构完成后另立的独立任务，详见 `docs/development/guides/DataOcean-后台前端整体重构开发指导.md` 第 13 节。
+
+   **导航项的两条约定**（2026-09-12 起）：
+   - **高亮判定用路由显式声明的 key，不用路径前缀匹配。** `AdminDomainNav` 用 `route.meta.domainKey`，`AdminWorkspaceNav` 用 `route.meta.workspaceKey` 做等值比较。路径前缀匹配会因 `/admin/governance` 是 `/admin/governance/issues` 的前缀而同时高亮两项，也会让 `/admin/metadata/tables`、`/admin/permission/policies` 这类路径与所属工作区不同前缀的路由完全不高亮。新增路由时必须填对 `domainKey` / `workspaceKey`。
+   - **导航链接要继承跨工作区上下文。** 两级导航都通过 `utils/adminNavigation.ts` 的 `buildContextQuery(contextMode, source)` 构造 `:to`，按目标工作区的 `contextMode` 决定是否带上 `datasourceId` / `snapshotId`（来源优先取 URL 参数，缺失时回落 `adminContext` store）。用白名单构造，**不要**复制当前 `route.query`——`tab`、`page`、筛选项属于页面本地状态，泄漏到目标页会与目标页自己的默认值冲突。目的：URL 自描述，可分享、可在刷新和前进后退时恢复。
 2. **路由守卫**：`guards.ts` 只做登录校验和后台入口校验（`hasAdminAccess`），无后台权限时重定向到 `/query`。后台路由**不使用** `meta.permission`，不要在新路由上添加该字段。
 3. **页面内按钮/操作**：需要在组件内根据 permissions 控制。模式：
    ```vue

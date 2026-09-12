@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, type Component } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ArrowRight, Database, KeyRound, PlugZap, RefreshCw, Sparkles, Table2, Workflow } from 'lucide-vue-next'
-import { useRoute, useRouter } from 'vue-router'
+import { ArrowRight, Database, PlugZap, RefreshCw, Sparkles, Table2, Workflow } from 'lucide-vue-next'
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import {
   getDatasource,
   getDatasourceReadiness,
@@ -11,6 +11,7 @@ import {
   type DatasourceItem,
   type DatasourceReadiness,
 } from '../../../api/admin/datasource'
+import { resolveReadinessActionPath } from '../../../utils/adminNavigation'
 import { listSnapshots, listSyncTasks, triggerSync, type SnapshotItem, type SyncTaskItem } from '../../../api/admin/metadata'
 import { listQualityIssues, type QualityIssueItem } from '../../../api/admin/governance'
 import { listKnowledgeDocs, type KnowledgeDocItem } from '../../../api/admin/knowledge'
@@ -39,36 +40,92 @@ const actionLoading = ref(false)
 const error = ref('')
 
 const latestSnapshot = computed(() => snapshots.value[0])
-const primaryAction = computed(() => {
+
+// 快照列表来自 Promise.allSettled，空数组也可能只是「请求失败」。
+// 区分这两种情况，避免在明明有草稿快照时误判为「还没采集」。
+const snapshotRequestOk = ref(false)
+
+interface PrimaryAction {
+  key: string
+  label: string
+  icon?: Component
+  to?: RouteLocationRaw
+}
+
+/** 能在本页内联完成、且语义与后端 actionText 完全一致的动作。 */
+const INLINE_ACTIONS: Record<string, { key: string; icon: Component }> = {
+  DATASOURCE_DISABLED: { key: 'enable', icon: Database },
+  CONNECTION_NOT_HEALTHY: { key: 'test', icon: PlugZap },
+}
+
+/**
+ * 头部主操作。
+ *
+ * 优先级完全由后端 `blockReasons` 的顺序决定，前端不做二次排序，也不自建
+ * `code → 中文` 文案表（文案一律取后端 `actionText`）——见《开发指导》§3.1
+ * 「不能在前端重新拼装另一套就绪状态」。前端只决定「怎么执行」。
+ */
+const primaryAction = computed<PrimaryAction>(() => {
   if (!readiness.value) return { key: 'reload', label: '刷新状态' }
-  if (!readiness.value.connectionReady) return { key: 'test', label: '测试连接', icon: PlugZap }
-  if (datasource.value?.status !== 1) return { key: 'enable', label: '启用数据源', icon: Database }
-  if (!readiness.value.metadataReady) return { key: 'collect', label: '开始采集', icon: Workflow }
-  if (!readiness.value.governanceReady) return { key: 'governance', label: '处理治理问题', icon: Workflow }
-  if (!readiness.value.knowledgeReady) return { key: 'knowledge', label: '进入语义知识', icon: Sparkles }
-  if (!readiness.value.permissionReady) return { key: 'access', label: '配置授权', icon: KeyRound }
-  if (readiness.value.askable) return { key: 'query', label: '进入智能问数', icon: ArrowRight }
-  return { key: 'reload', label: '刷新就绪度', icon: RefreshCw }
+  // 可证明 blockReasons 为空等价于 askable：后端 appendBlockReasons 的 6 个条件
+  // 正好是 askable 五个分量的否定。
+  const reason = readiness.value.blockReasons?.[0]
+  if (!reason) return { key: 'query', label: '进入智能问数', icon: ArrowRight }
+
+  // 后端用同一个 code 表达了两种情况（metadataReady = publishedSnapshot != null）：
+  // 一条快照都没有 vs 有草稿快照但未发布。两者该做的事相反，必须按页面已有数据分流。
+  // 门禁要求：连接通过但无快照时突出「启动采集」，不得显示为可执行「发布快照」
+  // （《实施任务清单》§9）。
+  if (reason.code === 'SNAPSHOT_NOT_PUBLISHED' && snapshotRequestOk.value && !snapshots.value.length) {
+    return { key: 'collect', label: '开始采集', icon: Workflow }
+  }
+
+  const inline = INLINE_ACTIONS[reason.code]
+  if (inline) return { key: inline.key, label: reason.actionText || '去处理', icon: inline.icon }
+
+  // 治理阻塞问题按「已发布快照」统计，必须带 publishedSnapshotId；
+  // 用 latestSnapshot（可能是草稿快照）会让目标页过滤到 0 条问题。
+  const target = resolveReadinessActionPath(reason.actionPath, {
+    datasourceId: datasourceId.value,
+    snapshotId: readiness.value.publishedSnapshotId,
+  })
+  // 未映射路径不得猜测：回退为刷新状态，而不是跳到占位目标（《实施任务清单》§4）。
+  if (!target.known) return { key: 'reload', label: '刷新状态', icon: RefreshCw }
+  return { key: 'navigate', label: reason.actionText || '去处理', icon: ArrowRight, to: target.to }
 })
 
+/**
+ * 后端 `applyStage` 只会产出这 7 个 stage 取值
+ * （DatasourceReadinessServiceImpl.applyStage）。这里做显式翻译，
+ * 不用字符串 `includes` 猜测——未知取值落到空串、不高亮任何步骤，
+ * 后端新增 stage 时会显式失配而不是静默错配。
+ */
+const STAGE_TO_STEP: Record<string, string> = {
+  CONNECTION_CHECK_REQUIRED: 'connection',
+  SNAPSHOT_PENDING: 'collection',
+  GOVERNANCE_BLOCKED: 'governance',
+  KNOWLEDGE_PENDING: 'knowledge',
+  PERMISSION_PENDING: 'permission',
+  ASKABLE: 'askable',
+  // UNKNOWN 在后端不可达：applyStage 先判 askable，而五个 !isX 全不成立等价于 askable=true。
+  UNKNOWN: '',
+}
+
+const currentStepKey = computed(() => STAGE_TO_STEP[readiness.value?.stage || ''] || '')
+
 const lifecycleSteps = computed(() => {
-  const current = readiness.value?.stage || ''
-  const currentKey = current.includes('CONNECTION') ? 'connection'
-    : current.includes('SNAPSHOT') || current.includes('METADATA') ? 'collection'
-      : current.includes('GOVERNANCE') ? 'governance'
-        : current.includes('KNOWLEDGE') ? 'knowledge'
-          : current.includes('PERMISSION') ? 'permission'
-            : readiness.value?.askable ? 'askable' : ''
+  // 「快照发布」不再是独立步骤：后端 metadataReady 同时表示「已采集」和「已发布」
+  // （metadataReady = publishedSnapshot != null），与 publishedSnapshotId 布尔值恒等，
+  // 该步骤永远不可能成为当前步。6 步对应后端 6 个就绪维度。
   const values = [
     { key: 'connection', label: '连接', done: Boolean(readiness.value?.connectionReady) },
     { key: 'collection', label: '采集', done: Boolean(readiness.value?.metadataReady) },
     { key: 'governance', label: '治理', done: Boolean(readiness.value?.governanceReady) },
-    { key: 'release', label: '快照发布', done: Boolean(readiness.value?.publishedSnapshotId) },
     { key: 'knowledge', label: '知识发布', done: Boolean(readiness.value?.knowledgeReady) },
     { key: 'permission', label: '授权', done: Boolean(readiness.value?.permissionReady) },
     { key: 'askable', label: '可问数', done: Boolean(readiness.value?.askable) },
   ]
-  return values.map((item) => ({ ...item, current: item.key === currentKey }))
+  return values.map((item) => ({ ...item, current: item.key === currentStepKey.value }))
 })
 
 const activityItems = computed(() => [
@@ -97,6 +154,7 @@ async function load() {
   }
   loading.value = true
   error.value = ''
+  snapshotRequestOk.value = false
   try {
     const [sourceResult, readinessResult] = await Promise.all([
       getDatasource(datasourceId.value),
@@ -113,6 +171,7 @@ async function load() {
     const snapshotResult = optionalResults[0]
     const taskResult = optionalResults[1]
     const knowledgeResult = optionalResults[2]
+    snapshotRequestOk.value = snapshotResult.status === 'fulfilled'
     if (snapshotResult.status === 'fulfilled') snapshots.value = snapshotResult.value.data.records || []
     if (taskResult.status === 'fulfilled') syncTasks.value = taskResult.value.data.records || []
     if (knowledgeResult.status === 'fulfilled') knowledgeDocs.value = knowledgeResult.value.data.records || []
@@ -170,14 +229,12 @@ async function startCollection() {
 }
 
 function runPrimaryAction() {
-  const key = primaryAction.value.key
-  if (key === 'test') return testConnection()
-  if (key === 'enable') return enableDatasource()
-  if (key === 'collect') return startCollection()
-  if (key === 'governance') return router.push({ path: '/admin/governance/issues', query: { datasourceId: String(datasourceId.value), snapshotId: latestSnapshot.value?.id ? String(latestSnapshot.value.id) : undefined } })
-  if (key === 'knowledge') return router.push({ path: '/admin/semantics/knowledge', query: { datasourceId: String(datasourceId.value) } })
-  if (key === 'access') return router.push({ path: '/admin/access', query: { datasourceId: String(datasourceId.value), tab: 'grants' } })
-  if (key === 'query') return router.push('/query')
+  const action = primaryAction.value
+  if (action.key === 'test') return testConnection()
+  if (action.key === 'enable') return enableDatasource()
+  if (action.key === 'collect') return startCollection()
+  if (action.key === 'query') return router.push('/query')
+  if (action.key === 'navigate' && action.to) return router.push(action.to)
   return load()
 }
 
@@ -231,7 +288,7 @@ onMounted(async () => {
               <div><h2>当前阶段</h2><p>{{ readiness.stageLabel }} · {{ readiness.progress }}%</p></div>
               <el-button text @click="runPrimaryAction">{{ primaryAction.label }}</el-button>
             </div>
-            <div v-if="readiness.stage.includes('SNAPSHOT') || readiness.stage.includes('METADATA')" class="stage-callout">
+            <div v-if="currentStepKey === 'collection'" class="stage-callout">
               <Table2 :size="20" />
               <div><strong>采集会形成新的元数据快照</strong><span>采集成功后进入版本发布和治理检查，草稿快照不会直接变成正式资产。</span></div>
             </div>
