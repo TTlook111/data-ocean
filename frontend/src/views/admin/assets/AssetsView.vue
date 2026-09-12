@@ -4,6 +4,7 @@ import { Database, ExternalLink, RefreshCw, Search, Table2 } from 'lucide-vue-ne
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { getDatasourceReadiness, type DatasourceReadiness } from '../../../api/admin/datasource'
 import { getEntitiesByDatasource, type MetadataEntityItem } from '../../../api/admin/catalog'
+import { entityTypeLabel } from '../../../utils/enumLabels'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
@@ -19,13 +20,8 @@ const loading = ref(false)
 const error = ref('')
 const requestId = ref(0)
 
-const entityTypeLabels: Record<string, string> = {
-  TABLE: '表',
-  COLUMN: '字段',
-  DATASOURCE: '数据源',
-  GLOSSARY_TERM: '术语',
-  TAG: '标签',
-}
+// 实体类型中文映射统一取自 utils/enumLabels.ts（§10.1 不重复实现状态映射）。
+// 原先本文件自带一份近似副本，GLOSSARY_TERM 的译法与共享映射还不一致。
 
 const filteredEntities = computed(() => {
   const q = keyword.value.trim().toLowerCase()
@@ -39,7 +35,7 @@ const filteredEntities = computed(() => {
 })
 
 function entityLabel(item: MetadataEntityItem) {
-  return entityTypeLabels[item.entityType] || item.entityType
+  return entityTypeLabel(item.entityType)
 }
 
 async function load() {

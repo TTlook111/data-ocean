@@ -9,6 +9,7 @@ import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.v
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import { snapshotStatusLabel } from '../../../utils/enumLabels'
 
 const route = useRoute()
 const router = useRouter()
@@ -54,7 +55,7 @@ onMounted(load)
       source-label="元数据采集快照"
     />
     <TaskPageHeader title="快照详情" description="检查采集结果和治理状态；审核通过与正式发布是两个独立动作。">
-      <template #status><BusinessStatusBadge v-if="detail" :status="detail.snapshot.status" /></template>
+      <template #status><BusinessStatusBadge v-if="detail" :status="detail.snapshot.status" :label="snapshotStatusLabel(detail.snapshot.status)" /></template>
       <template #actions><el-button v-if="detail" type="primary" @click="openGovernance">进入治理</el-button></template>
     </TaskPageHeader>
     <LoadingState v-if="loading" variant="skeleton" :rows="6" />

@@ -105,7 +105,19 @@ export async function batchCreateLineage(file: File) {
  * 获取增强血缘图谱（含节点和列映射摘要）
  * GET /api/admin/catalog/entities/{entityId}/lineage?depth=3&lineageType=ETL,MANUAL,QUERY
  */
-export async function getEnrichedLineage(entityId: number, depth = 3, lineageTypes?: string[]) {
+/**
+ * 该 URL 的**唯一构造点**（§10.3「同一接口只保留一个前端封装」）。
+ *
+ * `api/admin/catalog.ts` 曾另行封装过一次同一 URL，已收敛到此处。
+ *
+ * 后端同一端点有两种返回形态：带 `lineageType` 时返回增强图谱（含 nodes/edges），
+ * 不带时走向后兼容路径返回关系数组，且此时 `depth` 不生效。
+ */
+async function requestEntityLineage(
+  entityId: number,
+  depth: number,
+  lineageTypes?: string[],
+): Promise<ApiResult<LineageGraphVO | MetadataRelationshipItem[]>> {
   const params: Record<string, any> = { depth }
   if (lineageTypes && lineageTypes.length > 0) {
     params.lineageType = lineageTypes.join(',')
@@ -115,6 +127,17 @@ export async function getEnrichedLineage(entityId: number, depth = 3, lineageTyp
     { params },
   )
   return data
+}
+
+/** 按深度与血缘类型取增强图谱；不传 `lineageTypes` 时后端返回关系数组 */
+export async function getEnrichedLineage(entityId: number, depth = 3, lineageTypes?: string[]) {
+  return requestEntityLineage(entityId, depth, lineageTypes)
+}
+
+/** 只取关系数组（后端向后兼容路径的形态）。返回类型固定，便于调用方直接消费 */
+export async function listEntityLineage(entityId: number): Promise<ApiResult<MetadataRelationshipItem[]>> {
+  const result = await requestEntityLineage(entityId, 1)
+  return { ...result, data: Array.isArray(result.data) ? result.data : [] }
 }
 
 /**

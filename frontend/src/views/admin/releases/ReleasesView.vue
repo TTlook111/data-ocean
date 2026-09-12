@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, GitCompareArrows, RefreshCw, Send, RotateCcw } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { snapshotStatusLabel } from '../../../utils/enumLabels'
 import { listSnapshots, getSnapshotDetail, type SnapshotDetail, type SnapshotItem } from '../../../api/admin/metadata'
 import {
   changeSnapshotStatus,
@@ -277,7 +278,7 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
         <section class="releases-page__card">
           <el-table v-if="history.length" v-loading="actionLoading" :data="history" stripe>
             <el-table-column label="版本" width="90"><template #default="{ row }">v{{ row.snapshotVersion }}</template></el-table-column>
-            <el-table-column label="状态" width="130"><template #default="{ row }"><BusinessStatusBadge :status="row.status" /></template></el-table-column>
+            <el-table-column label="状态" width="130"><template #default="{ row }"><BusinessStatusBadge :status="row.status" :label="snapshotStatusLabel(row.status)" /></template></el-table-column>
             <el-table-column prop="tableCount" label="表" width="70" />
             <el-table-column prop="columnCount" label="字段" width="80" />
             <el-table-column prop="qualityScore" label="质量分" width="90" />
@@ -301,7 +302,7 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
           <EmptyState v-else message="当前数据源暂无快照记录，请先完成元数据采集。" action-text="去采集任务" @action="router.push({ path: '/admin/collections', query: { datasourceId: String(datasourceId) } })" />
         </section>
         <section v-if="selected" class="releases-page__detail">
-          <div class="section-heading"><div><h2>快照 v{{ selected.snapshot.snapshotVersion }} 详情</h2><p>查看对象规模后，再进入治理或执行允许的发布动作。</p></div><BusinessStatusBadge :status="selected.snapshot.status" /></div>
+          <div class="section-heading"><div><h2>快照 v{{ selected.snapshot.snapshotVersion }} 详情</h2><p>查看对象规模后，再进入治理或执行允许的发布动作。</p></div><BusinessStatusBadge :status="selected.snapshot.status" :label="snapshotStatusLabel(selected.snapshot.status)" /></div>
           <div class="detail-metrics"><span>{{ selected.tables.length }} 张表</span><span>{{ selected.columns.length }} 个字段</span><span>质量分：{{ selected.snapshot.qualityScore ?? '待检查' }}</span></div>
           <div class="detail-links">
             <RouterLink :to="'/admin/releases/snapshots/' + selected.snapshot.id">打开可分享详情</RouterLink>

@@ -533,22 +533,22 @@ onMounted(fetchLogs)
   flex: 0 0 auto;
   border-radius: 8px;
   color: var(--do-primary);
-  background: rgba(77, 143, 220, 0.1);
+  background: var(--do-primary-soft);
 }
 
 .summary-icon.is-success {
-  color: #3f9f72;
-  background: rgba(63, 159, 114, 0.12);
+  color: var(--do-success);
+  background: var(--do-success-soft);
 }
 
 .summary-icon.is-danger {
-  color: #d95f5f;
-  background: rgba(217, 95, 95, 0.12);
+  color: var(--do-danger);
+  background: var(--do-danger-soft);
 }
 
 .summary-icon.is-time {
-  color: #b88732;
-  background: rgba(184, 135, 50, 0.14);
+  color: var(--do-warning);
+  background: var(--do-warning-soft);
 }
 
 .filter-area {
@@ -672,12 +672,12 @@ onMounted(fetchLogs)
   padding: 14px;
   border: 1px solid var(--do-line);
   border-radius: 10px;
-  background: #fff;
+  background: var(--do-surface);
 }
 
 .log-card.is-failed {
-  border-color: rgba(217, 95, 95, 0.28);
-  background: #fffafa;
+  border-color: var(--do-danger-soft);
+  background: var(--do-danger-soft);
 }
 
 .log-card__head {
@@ -725,10 +725,10 @@ onMounted(fetchLogs)
   justify-self: start;
   height: 32px;
   padding: 0 12px;
-  border: 1px solid rgba(77, 143, 220, 0.26);
+  border: 1px solid var(--do-primary-soft);
   border-radius: 8px;
   color: var(--do-primary-strong);
-  background: rgba(77, 143, 220, 0.08);
+  background: var(--do-primary-soft);
   font-weight: 800;
   cursor: pointer;
 }
@@ -751,12 +751,12 @@ onMounted(fetchLogs)
 }
 
 .execution-value.is-warn {
-  color: #b88732;
+  color: var(--do-warning);
   font-weight: 700;
 }
 
 .execution-value.is-slow {
-  color: #d95f5f;
+  color: var(--do-danger);
   font-weight: 700;
 }
 
@@ -792,7 +792,7 @@ onMounted(fetchLogs)
 }
 
 .error-text {
-  color: #f56c6c;
+  color: var(--do-danger);
 }
 
 @media (max-width: 1200px) {

@@ -518,7 +518,7 @@ onMounted(async () => {
 
 .role-chip.active {
   border-color: var(--do-primary);
-  box-shadow: 0 0 0 3px rgba(77, 143, 220, 0.12);
+  box-shadow: 0 0 0 3px var(--do-primary-soft);
 }
 
 .role-chip-icon {

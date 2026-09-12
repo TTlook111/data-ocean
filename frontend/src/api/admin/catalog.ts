@@ -72,10 +72,13 @@ export async function getEntityDetail(entityId: number) {
 }
 
 /** 获取实体血缘关系 */
-export async function getEntityLineage(entityId: number) {
-  const { data } = await http.get<ApiResult<MetadataRelationshipItem[]>>(`/api/admin/catalog/entities/${entityId}/lineage`)
-  return data
-}
+/**
+ * 实体的血缘关系。
+ *
+ * 已收敛到 `api/admin/lineageApi.ts` 的 `listEntityLineage`（§10.3 同一接口只保留一个封装）。
+ * 此处保留一个转发，避免调用方再各自拼 URL。
+ */
+export { listEntityLineage as getEntityLineage } from './lineageApi'
 
 /** 获取实体下游影响 */
 export async function getEntityDownstream(entityId: number, maxDepth = 10) {

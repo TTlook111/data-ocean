@@ -12,6 +12,7 @@ import {
   type DatasourceReadiness,
 } from '../../../api/admin/datasource'
 import { resolveReadinessActionPath } from '../../../utils/adminNavigation'
+import { snapshotStatusLabel } from '../../../utils/enumLabels'
 import { listSnapshots, listSyncTasks, triggerSync, type SnapshotItem, type SyncTaskItem } from '../../../api/admin/metadata'
 import { listQualityIssues, type QualityIssueItem } from '../../../api/admin/governance'
 import { listKnowledgeDocs, type KnowledgeDocItem } from '../../../api/admin/knowledge'
@@ -309,7 +310,7 @@ onMounted(async () => {
             <div v-if="snapshots.length" class="compact-list">
               <button v-for="snapshot in snapshots" :key="snapshot.id" type="button" class="compact-list__item" @click="openSnapshot(snapshot.id)">
                 <span><strong>v{{ snapshot.snapshotVersion }}</strong><small>{{ snapshot.tableCount }} 表 · {{ snapshot.columnCount }} 字段</small></span>
-                <BusinessStatusBadge :status="snapshot.status" />
+                <BusinessStatusBadge :status="snapshot.status" :label="snapshotStatusLabel(snapshot.status)" />
               </button>
             </div>
             <EmptyState v-else message="暂无快照，连接正常后可以开始采集。" action-text="开始采集" @action="startCollection" />

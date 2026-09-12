@@ -102,6 +102,23 @@ function edgesByDirection(rels: MetadataRelationshipItem[]): MetadataRelationshi
 /** 图谱的焦点实体：加载根表，或用户当前选中的实体 */
 const focusEntityId = ref<string>('')
 
+/**
+ * 血缘图谱的分类色板。
+ *
+ * **必须是字面色值**：这些值直接交给 D3 渲染，CSS 变量在 canvas/svg 属性里不会自动解析。
+ * 图例也引用同一常量而不是各自写字面量，避免图例与图形配色漂移。
+ * 分类色板属图表自身的编码体系，不并入 `--do-*` 设计令牌。
+ */
+const LINEAGE_COLORS: Record<string, string> = {
+  QUERY: '#4d8fdc',
+  ETL: '#52c41a',
+  MANUAL: '#faad14',
+}
+/** 列派生边（虚线） */
+const DERIVED_EDGE_COLOR = '#91d5ff'
+/** 无血缘类型时的兜底边色 */
+const FALLBACK_EDGE_COLOR = '#999'
+
 // ========== 选中状态 ==========
 const selectedEntity = ref<MetadataEntityItem | null>(null)
 const drawerVisible = ref(false)
@@ -270,9 +287,6 @@ function renderGraph() {
 
   // 构建边
   const d3Edges: GraphEdge[] = []
-  const LINEAGE_COLORS: Record<string, string> = {
-    QUERY: '#4d8fdc', ETL: '#52c41a', MANUAL: '#faad14',
-  }
 
   const directionalRelationships = edgesByDirection(relationships.value)
 
@@ -297,7 +311,7 @@ function renderGraph() {
       relationType: rel.relationType,
       lineageType,
       style: {
-        color: isDerived ? '#91d5ff' : (LINEAGE_COLORS[lineageType] || '#999'),
+        color: isDerived ? DERIVED_EDGE_COLOR : (LINEAGE_COLORS[lineageType] || FALLBACK_EDGE_COLOR),
         width: isDerived ? 1 : (rel.relationType === 'FOREIGN_KEY' ? 2.5 : 2),
         dashed: isDerived,
       },
@@ -318,7 +332,7 @@ function renderGraph() {
         label: '',
         relationType: rel.relationType,
         lineageType: '',
-        style: { color: '#cccccc', width: 1, dashed: false },
+        style: { color: FALLBACK_EDGE_COLOR, width: 1, dashed: false },
         relationship: rel,
       })
     }
@@ -716,10 +730,10 @@ onBeforeUnmount(() => {
 
       <!-- 图例提示 -->
       <div class="panel-section legend-compact">
-        <div class="legend-item"><span class="legend-dot" style="background: #4d8fdc" /> {{ lineageTypeLabel('QUERY') }}</div>
-        <div class="legend-item"><span class="legend-dot" style="background: #52c41a" /> {{ lineageTypeLabel('ETL') }}</div>
-        <div class="legend-item"><span class="legend-dot" style="background: #faad14" /> {{ lineageTypeLabel('MANUAL') }}</div>
-        <div class="legend-item"><span class="legend-dot" style="background: #91d5ff; border: 1px dashed #91d5ff" /> 列派生</div>
+        <div class="legend-item"><span class="legend-dot" :style="{ background: LINEAGE_COLORS.QUERY }" /> {{ lineageTypeLabel('QUERY') }}</div>
+        <div class="legend-item"><span class="legend-dot" :style="{ background: LINEAGE_COLORS.ETL }" /> {{ lineageTypeLabel('ETL') }}</div>
+        <div class="legend-item"><span class="legend-dot" :style="{ background: LINEAGE_COLORS.MANUAL }" /> {{ lineageTypeLabel('MANUAL') }}</div>
+        <div class="legend-item"><span class="legend-dot" :style="{ background: DERIVED_EDGE_COLOR, border: '1px dashed ' + DERIVED_EDGE_COLOR }" /> 列派生</div>
       </div>
     </aside>
 
@@ -1003,7 +1017,7 @@ onBeforeUnmount(() => {
 /* ===== 主区域 ===== */
 .main-area {
   position: relative;
-  background: #fff;
+  background: var(--do-surface);
   overflow: hidden;
 }
 
@@ -1031,7 +1045,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--do-line);
   border-radius: 8px;
   background: var(--do-surface);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--do-shadow-hover);
 }
 
 .context-menu button {
@@ -1051,7 +1065,7 @@ onBeforeUnmount(() => {
 }
 
 .context-menu button.danger {
-  color: #e74c3c;
+  color: var(--do-danger);
 }
 
 .context-menu hr {

@@ -932,7 +932,7 @@ fetchConfig()
 
 .status-tile.active {
   border-color: var(--do-primary);
-  background: rgba(37, 99, 235, 0.04);
+  background: var(--do-tone-blue-bg);
 }
 
 .tile-icon {
@@ -946,23 +946,23 @@ fetchConfig()
 }
 
 .tile-icon.chat {
-  color: #2563eb;
-  background: #eff6ff;
+  color: var(--do-tone-blue);
+  background: var(--do-tone-blue-bg);
 }
 
 .tile-icon.embedding {
-  color: #047857;
-  background: #ecfdf5;
+  color: var(--do-tone-green);
+  background: var(--do-tone-green-bg);
 }
 
 .tile-icon.collection {
-  color: #7c3aed;
-  background: #f5f3ff;
+  color: var(--do-tone-purple);
+  background: var(--do-tone-purple-bg);
 }
 
 .tile-icon.status {
-  color: #d97706;
-  background: #fffbeb;
+  color: var(--do-tone-orange);
+  background: var(--do-tone-orange-bg);
 }
 
 .status-tile > div {
@@ -1053,7 +1053,7 @@ fetchConfig()
 
 .provider-card.expanded {
   border-color: var(--do-primary);
-  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 4px 16px var(--do-shadow);
 }
 
 .card-header {
@@ -1120,8 +1120,8 @@ fetchConfig()
 }
 
 .model-item.active {
-  border-color: #10b981;
-  background: rgba(16, 185, 129, 0.04);
+  border-color: var(--do-accent);
+  background: var(--do-success-soft);
 }
 
 .model-info {
