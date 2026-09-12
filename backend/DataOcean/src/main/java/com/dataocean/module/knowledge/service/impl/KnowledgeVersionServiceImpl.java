@@ -3,24 +3,34 @@ package com.dataocean.module.knowledge.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
+import com.dataocean.module.knowledge.dto.KnowledgeReviewRecordVO;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.KnowledgeReviewTask;
 import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.enums.GenerationSource;
+import com.dataocean.module.knowledge.enums.ReviewStatus;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
+import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
+import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 知识文档版本管理业务实现类。
@@ -39,8 +49,10 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
     private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
     private final KnowledgeDocMapper knowledgeDocMapper;
     private final KnowledgeChunkMapper knowledgeChunkMapper;
+    private final KnowledgeReviewTaskMapper knowledgeReviewTaskMapper;
     private final VectorIndexTaskService vectorIndexTaskService;
     private final KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
+    private final UserMapper userMapper;
 
     /**
      * {@inheritDoc}
@@ -103,6 +115,9 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
                 .versionNo(newVersionNo)
                 .content(content)
                 .generationSource(generationSource)
+                // 显式写入审核状态。该列在 V51 之前从未被写入（恒为建表默认值），
+                // 现在它是真实数据：新版本刚创建，尚未经过审核。
+                .reviewStatus(ReviewStatus.PENDING.name())
                 .changeSummary(changeSummary)
                 .createdBy(UserContext.currentUserId())
                 .build();
@@ -122,17 +137,36 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
      * {@inheritDoc}
      * <p>
      * 实现逻辑：
-     * 1. 查询目标版本内容
-     * 2. 以 ROLLBACK 来源创建新版本
-     * 3. 创建向量化任务更新 RAG 索引
+     * 1. 校验回滚前置条件（文档已发布、目标版本审核已通过）
+     * 2. 查询目标版本内容
+     * 3. 以 ROLLBACK 来源创建新版本
+     * 4. 创建向量化任务更新 RAG 索引
+     * </p>
+     * <p>
+     * <b>前置校验不可省略。</b>回滚会把目标版本内容直接置为「索引中」并触发向量化任务，
+     * 不经过「提交审核 → 审核通过 → 发布」。缺少校验时，任何调用方都能对一份 DRAFT 文档
+     * 执行回滚，把任意历史版本的内容写进 Milvus，绕过全部审核流程并污染 RAG 检索结果。
      * </p>
      */
     @Transactional
     @Override
     public Integer rollback(Long docId, Integer targetVersionNo) {
         log.info("开始回滚文档版本 docId={} targetVersionNo={}", docId, targetVersionNo);
-        // 查询目标版本
+        KnowledgeDoc doc = knowledgeDocMapper.selectById(docId);
+        if (doc == null) {
+            throw new BusinessException("文档不存在");
+        }
+        // 校验一：只有已发布的文档才允许回滚。回滚的语义是「把线上内容退回某个历史版本」，
+        // 未发布的文档没有线上内容可退，其内容应以正常审核流程推进。
+        if (!DocStatus.PUBLISHED.name().equals(doc.getStatus())) {
+            throw new BusinessException("只有已发布状态的文档才能回滚，当前状态：" + doc.getStatus());
+        }
+        // 校验二：目标版本必须曾通过审核，否则回滚等于把未审核内容直接送入索引。
         KnowledgeDocVersion targetVersion = getVersion(docId, targetVersionNo);
+        if (!ReviewStatus.APPROVED.name().equals(targetVersion.getReviewStatus())) {
+            throw new BusinessException("只能回滚到审核已通过的版本，版本 " + targetVersionNo
+                    + " 的审核状态为：" + targetVersion.getReviewStatus());
+        }
         Integer previousVersionNo = findCurrentIndexedVersionNo(docId);
 
         // 以 ROLLBACK 来源创建新版本
@@ -143,12 +177,21 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
                 targetVersion.getMetadataSnapshotId(),
                 "回滚到版本 " + targetVersionNo);
 
-        // 查询文档获取数据源 ID，创建向量化任务
-        KnowledgeDoc doc = knowledgeDocMapper.selectById(docId);
-        doc.setStatus(DocStatus.INDEXING.name());
-        knowledgeDocMapper.updateById(doc);
+        // 回滚版本记为「审核通过」：其内容来自上面已校验为 APPROVED 的目标版本，
+        // 且只允许由已发布文档发起，因此其内容确属已审核内容。
+        // 审核人记为执行回滚的操作人——是这次受校验约束的操作把该内容带入索引。
+        KnowledgeDocVersion newVersion = getVersion(docId, newVersionNo);
+        newVersion.setReviewStatus(ReviewStatus.APPROVED.name());
+        newVersion.setReviewerId(UserContext.currentUserId());
+        knowledgeDocVersionMapper.updateById(newVersion);
+
+        // 重新查询文档：createVersion 已更新主表的 currentVersion 与 content，
+        // 沿用上面的旧对象会把刚写入的版本号覆盖掉。
+        KnowledgeDoc refreshedDoc = knowledgeDocMapper.selectById(docId);
+        refreshedDoc.setStatus(DocStatus.INDEXING.name());
+        knowledgeDocMapper.updateById(refreshedDoc);
         vectorIndexTaskService.createTask(
-                doc.getDatasourceId(),
+                refreshedDoc.getDatasourceId(),
                 "DOC",
                 docId,
                 targetVersion.getMetadataSnapshotId(),
@@ -240,5 +283,56 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
             buildDiff(lines1, lines2, lcs, i - 1, j, result);
             result.add(Map.of("type", "DELETE", "content", lines1[i - 1]));
         }
+    }
+
+    /**
+     * {@inheritDoc}
+     * <p>
+     * 审核任务按 `doc_version_id` 关联，因此先用文档的版本列表建立
+     * 「版本 ID → 版本号」映射，再按版本 ID 批量查询审核任务，最后批量解析审核人姓名
+     * （避免逐条查用户产生 N+1）。
+     * </p>
+     */
+    @Override
+    public List<KnowledgeReviewRecordVO> listReviewRecords(Long docId) {
+        List<KnowledgeDocVersion> versions = listVersions(docId);
+        if (versions.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Integer> versionNoById = versions.stream()
+                .collect(Collectors.toMap(KnowledgeDocVersion::getId, KnowledgeDocVersion::getVersionNo));
+
+        List<KnowledgeReviewTask> tasks = knowledgeReviewTaskMapper.selectList(
+                new LambdaQueryWrapper<KnowledgeReviewTask>()
+                        .in(KnowledgeReviewTask::getDocVersionId, versionNoById.keySet())
+                        .orderByDesc(KnowledgeReviewTask::getId));
+        if (tasks.isEmpty()) {
+            return List.of();
+        }
+
+        Set<Long> reviewerIds = tasks.stream()
+                .map(KnowledgeReviewTask::getReviewerId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> reviewerNames = new HashMap<>();
+        if (!reviewerIds.isEmpty()) {
+            for (SysUser user : userMapper.selectByIds(reviewerIds)) {
+                reviewerNames.put(user.getId(), user.getRealName());
+            }
+        }
+
+        return tasks.stream()
+                .map(task -> KnowledgeReviewRecordVO.builder()
+                        .id(task.getId())
+                        .docVersionId(task.getDocVersionId())
+                        .versionNo(versionNoById.get(task.getDocVersionId()))
+                        .reviewStatus(task.getReviewStatus())
+                        .reviewComment(task.getReviewComment())
+                        .reviewerId(task.getReviewerId())
+                        .reviewerName(reviewerNames.get(task.getReviewerId()))
+                        .submittedAt(task.getSubmittedAt())
+                        .reviewedAt(task.getReviewedAt())
+                        .build())
+                .toList();
     }
 }

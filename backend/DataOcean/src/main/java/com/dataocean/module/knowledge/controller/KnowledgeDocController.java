@@ -203,6 +203,22 @@ public class KnowledgeDocController {
         return Result.success("AI 生成成功", docs);
     }
 
+    /**
+     * 查询文档的审核记录。
+     * <p>
+     * 审核意见已落库在 `knowledge_review_task`，此前全项目没有任何 Controller 暴露它，
+     * 导致作者被驳回后看不到原因，无法满足开发指导 §16.3「审核拒绝后能够返回编辑并看到原因」。
+     * 本接口是该表的对外读取入口：返回审核人、审核时间与审核意见，按最新在前排序。
+     * </p>
+     *
+     * @param id 文档 ID
+     * @return 审核记录列表
+     */
+    @GetMapping("/{id}/review-tasks")
+    public Result<List<KnowledgeReviewRecordVO>> listReviewRecords(@PathVariable Long id) {
+        return Result.success(knowledgeVersionService.listReviewRecords(id));
+    }
+
     // === 版本管理 ===
 
     /**
