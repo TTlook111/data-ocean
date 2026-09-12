@@ -71,15 +71,15 @@ public class GlossaryController {
         return Result.success("术语表更新成功", null);
     }
 
-    /** 删除术语表 */
+    /** 删除术语表（级联清理其下术语与关联关系） */
     @DeleteMapping("/{id}")
     public Result<Void> deleteGlossary(@PathVariable Long id) {
         Glossary existing = glossaryService.getById(id);
         if (existing == null) {
             return Result.error(404, "术语表不存在");
         }
-        glossaryService.removeById(id);
-        return Result.success("术语表已删除", null);
+        int removedTerms = glossaryService.deleteGlossary(id);
+        return Result.success("术语表已删除，同时清理 " + removedTerms + " 个术语", null);
     }
 
     // ========== 术语条目 CRUD ==========
@@ -106,22 +106,23 @@ public class GlossaryController {
         return Result.success("术语创建成功", Map.of("id", created.getId()));
     }
 
-    /** 更新术语 */
+    /**
+     * 更新术语。
+     * <p>
+     * 只允许修改 DRAFT / REJECTED 状态的术语；请求体只被采纳内容字段，
+     * 无法借由此接口改写状态与审核记录。上述约束在 Service 内实现。
+     * </p>
+     */
     @PutMapping("/terms/{termId}")
     public Result<Void> updateTerm(@PathVariable Long termId, @RequestBody GlossaryTerm term) {
-        GlossaryTerm existing = termService.getById(termId);
-        if (existing == null) {
-            return Result.error(404, "术语不存在");
-        }
-        term.setId(termId);
-        termService.updateById(term);
+        termService.updateTerm(termId, term);
         return Result.success("术语更新成功", null);
     }
 
-    /** 删除术语 */
+    /** 删除术语（清理关联关系与悬空的父术语引用） */
     @DeleteMapping("/terms/{termId}")
     public Result<Void> deleteTerm(@PathVariable Long termId) {
-        termService.removeById(termId);
+        termService.deleteTerm(termId);
         return Result.success("术语已删除", null);
     }
 
@@ -141,6 +142,20 @@ public class GlossaryController {
             @RequestBody TermReviewDTO request) {
         termService.reviewTerm(termId, UserContext.currentUserId(), request.isApproved(), request.getReason());
         return Result.success(request.isApproved() ? "术语审核通过" : "术语审核拒绝", null);
+    }
+
+    /**
+     * 把已通过的术语退回草稿。
+     * <p>
+     * 状态机原先从 APPROVED 没有出边，已通过的术语没有合法修改路径，
+     * 而 {@code updateTerm} 又完全不校验状态，形成「合规流程被限制、绕过路径不受限」的倒挂。
+     * 本接口补上合规路径：退回草稿 → 修改 → 重新提交审核。
+     * </p>
+     */
+    @PostMapping("/terms/{termId}/revert")
+    public Result<Void> revertTermToDraft(@PathVariable Long termId) {
+        termService.revertToDraft(termId);
+        return Result.success("术语已退回草稿，修改后需重新提交审核", null);
     }
 
     // ========== 术语与列关联 ==========
