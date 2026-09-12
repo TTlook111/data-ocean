@@ -8,16 +8,21 @@
  *
  * 设计原则：
  * - Vue 组件（面板/弹窗/抽屉）通过事件总线与图谱渲染层通信
- * - Phase 2 将图谱从 ECharts 替换为 D3.js 时，Vue 层组件直接复用
+ * - 图谱渲染层与 Vue 层解耦，便于后续替换渲染实现
+ *
+ * **数据源范围来自全局上下文，页面不再自建选择器。** 原先页面自己有一个数据源下拉
+ * 并持久化到 `localStorage`，而路由的 `contextMode` 是 `datasource`，`AdminShell` 会
+ * 另外渲染一个 `ScopeBar` —— 同一页面两个数据源选择器且互不同步，违反 §6.2 规则 8，
+ * 也让 URL 不可分享（不读 `route.query.datasourceId`）。
  */
-import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useD3LineageGraph, type GraphNode, type GraphEdge } from '../../../composables/useD3LineageGraph'
 import {
   Search, Plus, Upload, Download,
-  Network, Filter, Sliders
+  Network, Filter, Sliders, MoreHorizontal, Crosshair
 } from 'lucide-vue-next'
-import { listMyDatasources, type UserDatasourceItem } from '../../../api/datasource'
 import {
   getEntitiesByDatasource,
   getEntityLineage,
@@ -32,11 +37,19 @@ import {
   type LineageGraphVO,
   type ColumnLineageVO,
 } from '../../../api/admin/lineageApi'
+import { analyzeImpact, type ImpactAnalysisVO } from '../../../api/admin/audit'
+import { useAdminContextStore } from '../../../stores/adminContext'
+import { entityTypeLabel, lineageTypeLabel } from '../../../utils/enumLabels'
 import AddLineageDialog from './AddLineageDialog.vue'
 
-// ========== 数据源 ==========
-const datasourceId = ref<number | null>(null)
-const datasources = ref<UserDatasourceItem[]>([])
+const route = useRoute()
+const adminContext = useAdminContextStore()
+
+// ========== 数据源（来自全局上下文，可被 URL 覆盖） ==========
+const datasourceId = computed<number | null>(() => {
+  const fromUrl = Number(route.query.datasourceId) || undefined
+  return fromUrl ?? adminContext.datasourceId ?? null
+})
 
 // ========== 图谱数据 ==========
 const entities = ref<MetadataEntityItem[]>([])
@@ -47,6 +60,47 @@ const loading = ref(false)
 const searchQuery = ref('')
 const lineageTypeFilter = ref<string[]>(['QUERY', 'ETL', 'MANUAL'])
 const depth = ref(3)
+
+/**
+ * 血缘方向（§7.17「上下游方向和深度」）。
+ *
+ * 有双重作用：
+ * - 表格图谱层：对已取回的边做**有向可达性过滤**（后端血缘接口不接受方向参数）
+ * - 列血缘抽屉：直接作为 `getColumnLineage` 的 `direction` 参数（该接口支持方向）
+ */
+const direction = ref<'both' | 'upstream' | 'downstream'>('both')
+
+/** 图谱的有向可达性过滤；`both` 时原样返回。焦点实体缺失时不改变结果 */
+function edgesByDirection(rels: MetadataRelationshipItem[]): MetadataRelationshipItem[] {
+  const focusId = focusEntityId.value
+  if (direction.value === 'both' || !focusId) return rels
+  const upstream = direction.value === 'upstream'
+  const adjacency = new Map<string, MetadataRelationshipItem[]>()
+  for (const rel of rels) {
+    const from = upstream ? String(rel.targetId) : String(rel.sourceId)
+    const list = adjacency.get(from)
+    if (list) list.push(rel)
+    else adjacency.set(from, [rel])
+  }
+  const keep = new Set<MetadataRelationshipItem>()
+  const queue = [focusId]
+  const visited = new Set<string>([focusId])
+  while (queue.length) {
+    const current = queue.shift() as string
+    for (const rel of adjacency.get(current) || []) {
+      keep.add(rel)
+      const next = upstream ? String(rel.sourceId) : String(rel.targetId)
+      if (!visited.has(next)) {
+        visited.add(next)
+        queue.push(next)
+      }
+    }
+  }
+  return rels.filter((rel) => keep.has(rel))
+}
+
+/** 图谱的焦点实体：加载根表，或用户当前选中的实体 */
+const focusEntityId = ref<string>('')
 
 // ========== 选中状态 ==========
 const selectedEntity = ref<MetadataEntityItem | null>(null)
@@ -124,23 +178,6 @@ const contextMenu = ref({
 
 // ========== 初始化生命周期 ==========
 
-/** 加载数据源列表并恢复上次选择 */
-async function loadDatasources() {
-  try {
-    const res = await listMyDatasources()
-    datasources.value = res.data ?? []
-    // 从 localStorage 恢复上次选择
-    const saved = localStorage.getItem('data-lineage-datasource')
-    if (saved && datasources.value.some((d) => d.id === Number(saved))) {
-      datasourceId.value = Number(saved)
-    } else if (datasources.value.length > 0) {
-      datasourceId.value = datasources.value[0].id
-    }
-  } catch {
-    ElMessage.error('数据源列表加载失败')
-  }
-}
-
 /** 加载图谱数据 */
 async function loadGraph() {
   if (!datasourceId.value) return
@@ -152,6 +189,8 @@ async function loadGraph() {
 
     // 加载血缘关系（优先使用增强 API，回退到逐个查询）
     const tableEntities = entities.value.filter((e) => e.entityType === 'TABLE')
+    // 图谱以第一个表为加载根，也是方向过滤的默认焦点
+    focusEntityId.value = tableEntities.length ? String(tableEntities[0].id) : ''
     if (tableEntities.length === 0) {
       relationships.value = []
       await nextTick()
@@ -235,7 +274,9 @@ function renderGraph() {
     QUERY: '#4d8fdc', ETL: '#52c41a', MANUAL: '#faad14',
   }
 
-  for (const rel of relationships.value) {
+  const directionalRelationships = edgesByDirection(relationships.value)
+
+  for (const rel of directionalRelationships) {
     if (!nodeMap.has(String(rel.sourceId)) || !nodeMap.has(String(rel.targetId))) continue
     if (rel.relationType !== 'LINEAGE' && rel.relationType !== 'FOREIGN_KEY' && rel.relationType !== 'DERIVED_FROM') continue
 
@@ -267,7 +308,7 @@ function renderGraph() {
   // 若无血缘边，回退到 CONTAINS/HAS_PART
   const hasLineageEdges = d3Edges.some(e => e.relationType !== 'CONTAINS' && e.relationType !== 'HAS_PART')
   if (!hasLineageEdges) {
-    for (const rel of relationships.value) {
+    for (const rel of directionalRelationships) {
       if (!nodeMap.has(String(rel.sourceId)) || !nodeMap.has(String(rel.targetId))) continue
       if (rel.relationType !== 'CONTAINS' && rel.relationType !== 'HAS_PART') continue
       d3Edges.push({
@@ -293,6 +334,9 @@ function renderGraph() {
 function handleNodeClick(node: GraphNode) {
   contextMenu.value.visible = false
   selectedEntity.value = node.entity
+  // 方向过滤以当前选中实体为焦点；重新渲染使方向筛选立即生效
+  focusEntityId.value = String(node.entity.id)
+  if (direction.value !== 'both') renderGraph()
   if (node.entity.entityType === 'COLUMN') {
     drawerEntity.value = node.entity
     drawerVisible.value = true
@@ -305,7 +349,8 @@ async function loadColumnLineage(columnId: number) {
   drawerLoading.value = true
   columnLineageData.value = null
   try {
-    const res = await getColumnLineage(columnId, 3, 'both')
+    // 方向取自筛选面板；该接口支持 upstream/downstream/both
+    const res = await getColumnLineage(columnId, 3, direction.value)
     columnLineageData.value = res.data ?? null
   } catch {
     columnLineageData.value = null
@@ -444,10 +489,40 @@ async function loadEntityLineage(entityId: number) {
   }
 }
 
-/** 编辑边 */
-function handleEditEdge() {
+// ========== 影响分析（§7.17） ==========
+const impactVisible = ref(false)
+const impactLoading = ref(false)
+const impactError = ref('')
+const impact = ref<ImpactAnalysisVO | null>(null)
+const impactTarget = ref<MetadataEntityItem | null>(null)
+
+/**
+ * 对选中实体做下游影响分析。
+ *
+ * `analyzeImpact` 早已封装在 `api/admin/audit.ts`，但此前只被已废弃的
+ * `LineageViewer.vue` 引用，活页面里没有入口（§7.17 要求「影响分析」）。
+ */
+async function handleAnalyzeImpact(entity: MetadataEntityItem | null = selectedEntity.value) {
   closeContextMenu()
-  ElMessage.info('编辑功能将在 Phase 2 中实现')
+  if (!entity || !datasourceId.value) {
+    ElMessage.warning('请先选择数据源并在图谱中选中一个实体')
+    return
+  }
+  impactTarget.value = entity
+  impactVisible.value = true
+  impactLoading.value = true
+  impactError.value = ''
+  impact.value = null
+  try {
+    impact.value = (
+      await analyzeImpact(datasourceId.value, entity.entityType === 'TABLE' ? entity.name : '', entity.name)
+    ).data
+  } catch (cause) {
+    const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
+    impactError.value = message || (cause instanceof Error ? cause.message : '影响分析计算失败')
+  } finally {
+    impactLoading.value = false
+  }
 }
 
 /** 导出 PNG (D3 异步渲染) */
@@ -519,19 +594,18 @@ async function onFileSelected(event: Event) {
 }
 
 // ========== 监听 ==========
+// 数据源来自全局上下文或 URL，切换时重新加载图谱（不再写入 localStorage）
 watch(datasourceId, (val) => {
-  if (val) {
-    localStorage.setItem('data-lineage-datasource', String(val))
-    loadGraph()
-  }
+  if (val) loadGraph()
 })
 
-watch([lineageTypeFilter, depth], () => {
+watch([lineageTypeFilter, depth, direction], () => {
   if (datasourceId.value) loadGraph()
 }, { deep: true })
 
-onMounted(() => {
-  loadDatasources()
+onMounted(async () => {
+  await adminContext.initialize()
+  loadGraph()
   window.addEventListener('resize', () => d3Resize())
   document.addEventListener('click', closeContextMenu)
 })
@@ -546,22 +620,13 @@ onBeforeUnmount(() => {
   <main class="data-lineage-page post-login-page">
     <!-- ===== 左侧面板 (320px) ===== -->
     <aside class="left-panel">
-      <!-- 数据源选择 -->
+      <!-- 数据源范围由顶部 ScopeBar 提供，页面不再自建选择器（§6.2 规则 8） -->
       <div class="panel-section">
-        <label class="panel-label"><Filter :size="14" /> 数据源</label>
-        <el-select
-          v-model="datasourceId"
-          placeholder="选择数据源"
-          filterable
-          style="width: 100%"
-        >
-          <el-option
-            v-for="item in datasources"
-            :key="item.id"
-            :label="`${item.name}${item.databaseName ? ` / ${item.databaseName}` : ''}`"
-            :value="item.id"
-          />
-        </el-select>
+        <label class="panel-label"><Filter :size="14" aria-hidden="true" /> 数据源范围</label>
+        <p class="scope-hint">
+          <strong>{{ adminContext.currentDatasource?.name || (datasourceId ? `数据源 #${datasourceId}` : '未选择数据源') }}</strong>
+          <span>使用顶部的数据源范围条切换</span>
+        </p>
       </div>
 
       <!-- 搜索 -->
@@ -573,21 +638,34 @@ onBeforeUnmount(() => {
           @keyup.enter="handleSearch"
         >
           <template #append>
-            <el-button :icon="Search" @click="handleSearch" />
+            <el-button :icon="Search" aria-label="搜索血缘" @click="handleSearch" />
           </template>
         </el-input>
       </div>
 
       <!-- 血缘类型过滤 -->
       <div class="panel-section">
-        <label class="panel-label"><Sliders :size="14" /> 血缘类型</label>
+        <label class="panel-label"><Sliders :size="14" aria-hidden="true" /> 血缘类型</label>
         <el-checkbox-group v-model="lineageTypeFilter">
           <div class="checkbox-list">
-            <el-checkbox value="QUERY" label="查询血缘 (QUERY)" />
-            <el-checkbox value="ETL" label="ETL 流转 (ETL)" />
-            <el-checkbox value="MANUAL" label="手动标注 (MANUAL)" />
+            <el-checkbox value="QUERY" :label="`${lineageTypeLabel('QUERY')}（QUERY）`" />
+            <el-checkbox value="ETL" :label="`${lineageTypeLabel('ETL')}（ETL）`" />
+            <el-checkbox value="MANUAL" :label="`${lineageTypeLabel('MANUAL')}（MANUAL）`" />
           </div>
         </el-checkbox-group>
+      </div>
+
+      <!-- 方向（§7.17「上下游方向和深度」） -->
+      <div class="panel-section">
+        <label class="panel-label">方向</label>
+        <el-radio-group v-model="direction" size="small">
+          <el-radio-button value="upstream">上游</el-radio-button>
+          <el-radio-button value="downstream">下游</el-radio-button>
+          <el-radio-button value="both">双向</el-radio-button>
+        </el-radio-group>
+        <p class="direction-hint">
+          图表方向以当前选中实体为焦点，只保留该方向的连通关系；列血缘抽屉同样按此方向查询。
+        </p>
       </div>
 
       <!-- 深度控制 -->
@@ -600,7 +678,7 @@ onBeforeUnmount(() => {
       <div v-if="selectedEntity" class="panel-section entity-detail">
         <div class="detail-header">
           <el-tag :type="selectedEntity.entityType === 'TABLE' ? 'primary' : 'info'" size="small">
-            {{ selectedEntity.entityType }}
+            {{ entityTypeLabel(selectedEntity.entityType) }}
           </el-tag>
           <span class="detail-name">{{ selectedEntity.displayName || selectedEntity.name }}</span>
         </div>
@@ -610,14 +688,23 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- 操作按钮 -->
+      <!-- 操作按钮：一个主操作 + 更多菜单（§11.2 一个页面只允许一个最突出的主要操作） -->
       <div class="panel-section panel-actions">
         <el-button type="primary" :icon="Plus" @click="addDialogVisible = true">
           添加血缘
         </el-button>
-        <el-button :icon="Upload" @click="handleBatchImport">
-          批量导入
-        </el-button>
+        <el-dropdown trigger="click">
+          <el-button :icon="MoreHorizontal" aria-label="更多图谱操作">更多</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item :icon="Crosshair" :disabled="!selectedEntity" @click="handleAnalyzeImpact()">
+                影响分析
+              </el-dropdown-item>
+              <el-dropdown-item :icon="Upload" @click="handleBatchImport">批量导入</el-dropdown-item>
+              <el-dropdown-item :icon="Download" @click="handleExportPng">导出 PNG</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
         <input
           ref="fileInputRef"
           type="file"
@@ -625,16 +712,13 @@ onBeforeUnmount(() => {
           style="display: none"
           @change="onFileSelected"
         />
-        <el-button :icon="Download" @click="handleExportPng">
-          导出 PNG
-        </el-button>
       </div>
 
       <!-- 图例提示 -->
       <div class="panel-section legend-compact">
-        <div class="legend-item"><span class="legend-dot" style="background: #4d8fdc" /> QUERY</div>
-        <div class="legend-item"><span class="legend-dot" style="background: #52c41a" /> ETL</div>
-        <div class="legend-item"><span class="legend-dot" style="background: #faad14" /> MANUAL</div>
+        <div class="legend-item"><span class="legend-dot" style="background: #4d8fdc" /> {{ lineageTypeLabel('QUERY') }}</div>
+        <div class="legend-item"><span class="legend-dot" style="background: #52c41a" /> {{ lineageTypeLabel('ETL') }}</div>
+        <div class="legend-item"><span class="legend-dot" style="background: #faad14" /> {{ lineageTypeLabel('MANUAL') }}</div>
         <div class="legend-item"><span class="legend-dot" style="background: #91d5ff; border: 1px dashed #91d5ff" /> 列派生</div>
       </div>
     </aside>
@@ -663,13 +747,14 @@ onBeforeUnmount(() => {
             <button @click="handleViewDetail">📋 查看详情</button>
             <button @click="handleExpandUpstream">🔍 展开上游</button>
             <button @click="handleExpandDownstream">🔍 展开下游</button>
+            <button @click="handleAnalyzeImpact(contextMenu.data?._entity)">🎯 影响分析</button>
             <hr />
             <button @click="handleAddDownstream">➕ 添加下游血缘</button>
           </template>
-          <!-- 边菜单 -->
+          <!-- 边菜单。后端只有创建与删除血缘的接口，没有更新接口，
+               因此这里不提供「编辑」——不做一个点了必然失败的菜单项。 -->
           <template v-else-if="contextMenu.type === 'edge'">
             <button @click="handleViewDetail">📋 查看详情</button>
-            <button @click="handleEditEdge">✏️ 编辑</button>
             <hr />
             <button class="danger" @click="handleDeleteEdge">🗑️ 删除此血缘</button>
           </template>
@@ -692,7 +777,7 @@ onBeforeUnmount(() => {
     >
       <template v-if="drawerEntity">
         <div class="drawer-section">
-          <el-tag type="info" size="small">{{ drawerEntity.entityType }}</el-tag>
+          <el-tag type="info" size="small">{{ entityTypeLabel(drawerEntity.entityType) }}（{{ drawerEntity.entityType }}）</el-tag>
           <h4 style="margin: 8px 0 4px;">{{ drawerEntity.displayName || drawerEntity.name }}</h4>
           <p class="drawer-fqn">{{ drawerEntity.fqn }}</p>
           <p v-if="drawerEntity.description" class="drawer-desc">{{ drawerEntity.description }}</p>
@@ -706,7 +791,7 @@ onBeforeUnmount(() => {
           <div v-if="columnLineageData?.upstream && columnLineageData.upstream.length > 0">
             <div v-for="(node, i) in columnLineageData.upstream" :key="i" class="lineage-chain-item">
               <div class="chain-entity">
-                <el-tag type="primary" size="small" effect="plain">{{ node.entity.entityType }}</el-tag>
+                <el-tag type="primary" size="small" effect="plain">{{ entityTypeLabel(node.entity.entityType) }}（{{ node.entity.entityType }}）</el-tag>
                 <strong>{{ node.entity.name }}</strong>
                 <span class="chain-fqn">{{ node.entity.fqn }}</span>
               </div>
@@ -738,7 +823,7 @@ onBeforeUnmount(() => {
           <div v-if="columnLineageData?.downstream && columnLineageData.downstream.length > 0">
             <div v-for="(node, i) in columnLineageData.downstream" :key="i" class="lineage-chain-item">
               <div class="chain-entity">
-                <el-tag type="success" size="small" effect="plain">{{ node.entity.entityType }}</el-tag>
+                <el-tag type="success" size="small" effect="plain">{{ entityTypeLabel(node.entity.entityType) }}（{{ node.entity.entityType }}）</el-tag>
                 <strong>{{ node.entity.name }}</strong>
                 <span class="chain-fqn">{{ node.entity.fqn }}</span>
               </div>
@@ -770,10 +855,59 @@ onBeforeUnmount(() => {
       :prefilled-source-id="prefilledSourceId"
       @created="loadGraph"
     />
+
+    <!-- 影响分析（§7.17） -->
+    <el-dialog v-model="impactVisible" title="影响分析" width="520px">
+      <LoadingState v-if="impactLoading" variant="skeleton" :rows="4" />
+      <ErrorState v-else-if="impactError" :message="impactError" @retry="handleAnalyzeImpact(impactTarget)" />
+      <template v-else>
+        <dl class="impact-facts">
+          <div><dt>分析对象</dt><dd>{{ impactTarget?.displayName || impactTarget?.name || '—' }}</dd></div>
+          <div><dt>实体类型</dt><dd>{{ impactTarget ? entityTypeLabel(impactTarget.entityType) : '—' }}</dd></div>
+          <div><dt>依赖查询数</dt><dd>{{ impact?.dependentQueryCount ?? 0 }}</dd></div>
+        </dl>
+        <section class="impact-section">
+          <h3>近期依赖该对象的查询任务</h3>
+          <p v-if="!impact?.recentQueryTaskIds?.length" class="muted-text">
+            没有查到近期依赖该对象的查询任务。这不代表一定无人使用——后端只统计已记录审计日志的查询。
+          </p>
+          <div v-else class="impact-tasks">
+            <el-tag v-for="taskId in impact.recentQueryTaskIds" :key="taskId" size="small">#{{ taskId }}</el-tag>
+          </div>
+        </section>
+      </template>
+    </el-dialog>
   </main>
 </template>
 
 <style scoped>
+.scope-hint {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  font-size: 12px;
+}
+.scope-hint strong { color: var(--do-ink); }
+.scope-hint span { color: var(--do-muted); }
+.direction-hint {
+  margin: 8px 0 0;
+  color: var(--do-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.impact-facts {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 10px;
+  margin: 0 0 16px;
+}
+.impact-facts dt { color: var(--do-muted); font-size: 12px; }
+.impact-facts dd { margin: 0; color: var(--do-ink); font-size: 13px; }
+.impact-section { display: grid; gap: 6px; }
+.impact-section h3 { margin: 0; color: var(--do-ink); font-size: 14px; }
+.impact-tasks { display: flex; flex-wrap: wrap; gap: 6px; }
+.muted-text { color: var(--do-muted); font-size: 12px; line-height: 1.7; }
+
 .data-lineage-page {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr);

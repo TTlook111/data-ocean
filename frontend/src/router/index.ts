@@ -31,7 +31,7 @@ const GovernanceFieldsView = () => import('../views/admin/governance/GovernanceF
 const TableExplorer = () => import('../views/admin/metadata/TableExplorer.vue')
 const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
 const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
-const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
+const RuntimeView = () => import('../views/admin/system/RuntimeView.vue')
 const AiConfig = () => import('../views/admin/system/AiConfig.vue')
 const OperationLogList = () => import('../views/admin/system/OperationLogList.vue')
 const QueryGuide = () => import('../views/guide/QueryGuide.vue')
@@ -233,7 +233,7 @@ const router = createRouter({
         {
           path: 'platform/runtime',
           name: 'admin-platform-runtime',
-          component: ServiceHealth,
+          component: RuntimeView,
           meta: { title: '运行监控', domainKey: 'operations', workspaceKey: 'runtime', contextMode: 'none' },
         },
         {

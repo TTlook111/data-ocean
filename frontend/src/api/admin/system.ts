@@ -39,6 +39,34 @@ export async function getPoolDashboard() {
   return data
 }
 
+/** 单个依赖服务的健康状态 */
+export interface ServiceStatus {
+  status: string
+  description: string
+  lastCheckTime: string | null
+  consecutiveFailures?: number
+  lastErrorMessage?: string | null
+}
+
+export interface HealthData {
+  overall: string
+  checkTime: string
+  pythonService: ServiceStatus
+  mysql: ServiceStatus
+  redis: ServiceStatus
+}
+
+/**
+ * 系统健康。
+ *
+ * 此前该 URL 只在 `ServiceHealth.vue` 组件里裸拼（§10.3 禁止页面组件直接拼接 URL），
+ * 是唯一没有 API 封装的系统接口。现补上。
+ */
+export async function getSystemHealth() {
+  const { data } = await http.get<ApiResult<HealthData>>('/api/admin/system/health')
+  return data
+}
+
 export async function resetDatasourcePool(datasourceId: number) {
   const { data } = await http.post<ApiResult<void>>(`/api/admin/system/sql-pools/${datasourceId}/reset`)
   return data
@@ -174,6 +202,36 @@ export async function detectEmbeddingDimension(payload: {
     '/api/admin/system/ai-config/detect-dimension',
     payload,
     { timeout: 30000 },
+  )
+  return data
+}
+
+/**
+ * 同步供应商的模型列表。
+ *
+ * 后端 `POST /providers/{id}/sync-models` 早已存在，此前前端零封装——
+ * 页面只能靠「测试连接成功后隐式重拉配置」来间接刷新模型，没有显式入口。
+ */
+export async function syncAiProviderModels(id: string) {
+  const { data } = await http.post<ApiResult<Record<string, unknown>>>(
+    `/api/admin/system/ai-config/providers/${id}/sync-models`,
+    undefined,
+    { timeout: 60000 },
+  )
+  return data
+}
+
+/**
+ * 触发重新向量化。
+ *
+ * 后端 `POST /re-vectorize` 早已存在，此前前端零封装，页面上没有任何触发入口，
+ * 只能在「索引状态」里被动看到 `REINDEX_REQUIRED`。
+ */
+export async function reVectorize(payload?: Record<string, unknown>) {
+  const { data } = await http.post<ApiResult<Record<string, unknown>>>(
+    '/api/admin/system/ai-config/re-vectorize',
+    payload ?? {},
+    { timeout: 60000 },
   )
   return data
 }

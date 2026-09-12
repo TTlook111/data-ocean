@@ -211,6 +211,22 @@ export const knowledgeStatusLabel = (status?: string | null) => enumLabel(knowle
 export const knowledgeStatusType = (status?: string | null) => enumType(knowledgeStatusTypes, status)
 export const generationSourceLabel = (source?: string | null) => enumLabel(generationSourceLabels, source)
 export const generationSourceType = (source?: string | null) => enumType(generationSourceTypes, source)
+/** 元数据实体类型（开发指导 §7.17 要求状态标签使用中文，不能原样输出枚举） */
+export const entityTypeLabels: Record<string, string> = {
+  TABLE: '表',
+  COLUMN: '字段',
+  DATASOURCE: '数据源',
+  GLOSSARY_TERM: '业务术语',
+  TAG: '标签',
+}
+
+/** 血缘类型 */
+export const lineageTypeLabels: Record<string, string> = {
+  QUERY: '查询血缘',
+  ETL: 'ETL 流转',
+  MANUAL: '手动标注',
+}
+
 export const knowledgeReviewStatusLabel = (status?: string | null) => enumLabel(knowledgeReviewStatusLabels, status)
 export const knowledgeReviewStatusType = (status?: string | null) => enumType(knowledgeReviewStatusTypes, status)
 export const vectorTaskStatusLabel = (status?: string | null) => enumLabel(vectorTaskStatusLabels, status)
@@ -219,6 +235,8 @@ export const glossaryStatusLabel = (status?: string | null) => enumLabel(glossar
 export const glossaryStatusType = (status?: string | null) => enumType(glossaryStatusTypes, status)
 export const glossaryTermStatusLabel = (status?: string | null) => enumLabel(glossaryTermStatusLabels, status)
 export const glossaryTermStatusType = (status?: string | null) => enumType(glossaryTermStatusTypes, status)
+export const entityTypeLabel = (type?: string | null) => enumLabel(entityTypeLabels, type)
+export const lineageTypeLabel = (type?: string | null) => enumLabel(lineageTypeLabels, type)
 export const syncStatusLabel = (status?: string | null) => enumLabel(syncStatusLabels, status)
 export const syncStatusType = (status?: string | null) => enumType(syncStatusTypes, status)
 export const syncTriggerLabel = (trigger?: string | null) => enumLabel(syncTriggerLabels, trigger)

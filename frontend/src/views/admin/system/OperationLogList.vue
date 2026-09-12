@@ -1,30 +1,80 @@
 <script setup lang="ts">
+/**
+ * 操作日志（开发指导 §7.19）
+ *
+ * 独立工作区，与查询审计语义不同（前者记录后台管理动作）。保留既有筛选与详情能力。
+ *
+ * 三处补齐：
+ * 1. **标题区改用 `TaskPageHeader`**：原为自建的 `command-header`，
+ *    违反 §10.1「不能每个页面重复实现一套状态卡片和标题区」。
+ * 2. **筛选条件与分页进 URL**：原先全部是组件内状态，刷新与前进后退会丢失全部筛选（§15）。
+ * 3. **错误态**：原实现把日志清空再弹 toast，页面最终显示「暂无操作日志」——
+ *    把失败说成了没有数据（§11.3、§18）。
+ *
+ * 统计口径已明确标注：总数取自服务端，其余三项基于当前页记录计算，
+ * 避免四个并列指标口径不一致而让人误读。
+ */
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ClipboardList, Clock3, RefreshCw, Search, X } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
+import { Activity, AlertTriangle, CheckCircle2, ClipboardList, Clock3, RefreshCw, Search, X } from 'lucide-vue-next'
 import { listOperationLogs, type OperationLogItem, type OperationLogQuery } from '../../../api/admin/operation-log'
+import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
+import LoadingState from '../../../components/common/LoadingState.vue'
+import ErrorState from '../../../components/common/ErrorState.vue'
+import EmptyState from '../../../components/common/EmptyState.vue'
+
+const route = useRoute()
+const router = useRouter()
 
 const loading = ref(false)
+const error = ref('')
 const logs = ref<OperationLogItem[]>([])
 const total = ref(0)
 const detailVisible = ref(false)
 const selectedLog = ref<OperationLogItem>()
 
-const timeRange = ref<string[] | null>(null)
+const timeRange = ref<string[] | null>(
+  route.query.start && route.query.end
+    ? [String(route.query.start), String(route.query.end)]
+    : null,
+)
 const showAdvanced = ref(false)
 
 const query = reactive<OperationLogQuery>({
-  page: 1,
+  page: Number(route.query.page) || 1,
   pageSize: 20,
-  operatorName: '',
-  operationType: '',
-  isSuccess: undefined,
-  ipAddress: '',
-  requestPath: '',
-  targetResource: '',
-  targetId: '',
-  keyword: '',
+  operatorName: String(route.query.operatorName || ''),
+  operationType: String(route.query.operationType || ''),
+  isSuccess: route.query.isSuccess === undefined ? undefined : route.query.isSuccess === 'true',
+  ipAddress: String(route.query.ipAddress || ''),
+  requestPath: String(route.query.requestPath || ''),
+  targetResource: String(route.query.targetResource || ''),
+  targetId: String(route.query.targetId || ''),
+  keyword: String(route.query.keyword || ''),
 })
+
+/** 筛选与分页写入 URL，供刷新、分享与前进后退恢复（§15、§8.3） */
+function persistQuery() {
+  const [startTime, endTime] = timeRange.value?.length === 2 ? timeRange.value : [undefined, undefined]
+  const next: Record<string, string> = {}
+  const values: Record<string, string | undefined> = {
+    operatorName: query.operatorName?.trim() || undefined,
+    operationType: query.operationType || undefined,
+    isSuccess: typeof query.isSuccess === 'boolean' ? String(query.isSuccess) : undefined,
+    ipAddress: query.ipAddress?.trim() || undefined,
+    requestPath: query.requestPath?.trim() || undefined,
+    targetResource: query.targetResource?.trim() || undefined,
+    targetId: query.targetId?.trim() || undefined,
+    keyword: query.keyword?.trim() || undefined,
+    start: startTime,
+    end: endTime,
+    page: (query.page ?? 1) > 1 ? String(query.page) : undefined,
+  }
+  Object.entries(values).forEach(([key, value]) => {
+    if (value !== undefined) next[key] = value
+  })
+  router.replace({ query: next })
+}
 
 const hasFilter = computed(() => {
   const q = query
@@ -52,6 +102,7 @@ const avgExecutionMs = computed(() => {
 
 async function fetchLogs() {
   loading.value = true
+  error.value = ''
   try {
     const [startTime, endTime] = timeRange.value?.length === 2 ? timeRange.value : [undefined, undefined]
     const params: OperationLogQuery = {
@@ -71,10 +122,13 @@ async function fetchLogs() {
     const result = await listOperationLogs(params)
     logs.value = result.data?.records ?? []
     total.value = result.data?.total ?? 0
-  } catch {
+  } catch (cause) {
     logs.value = []
     total.value = 0
-    ElMessage.error('操作日志加载失败')
+    // 失败必须渲染错误态。原实现清空数据再弹一次 toast，页面最终显示
+    // 「暂无操作日志」——把失败说成了没有数据（§11.3、§18）。
+    const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
+    error.value = message || (cause instanceof Error ? cause.message : '操作日志加载失败')
   } finally {
     loading.value = false
   }
@@ -82,6 +136,7 @@ async function fetchLogs() {
 
 function handleSearch() {
   query.page = 1
+  persistQuery()
   fetchLogs()
 }
 
@@ -96,11 +151,13 @@ function handleReset() {
   query.keyword = ''
   timeRange.value = null
   query.page = 1
+  persistQuery()
   fetchLogs()
 }
 
 function handlePageChange(page: number) {
   query.page = page
+  persistQuery()
   fetchLogs()
 }
 
@@ -174,18 +231,18 @@ onMounted(fetchLogs)
 
 <template>
   <main class="operation-log-page post-login-page">
-    <section class="command-header">
-      <div class="command-title">
-        <span>运营与安全 / 操作轨迹</span>
-        <h2>操作日志</h2>
-        <p>围绕目标资源追踪后台操作、请求路径、耗时与成功状态，用于审计追溯和异常定位。</p>
-      </div>
-      <div class="command-actions">
-        <span class="trust-badge">审计留痕</span>
-        <span class="trust-badge">按资源定位</span>
+    <TaskPageHeader
+      eyebrow="运营与平台"
+      title="操作日志"
+      description="围绕目标资源追踪后台操作、请求路径、耗时与成功状态，用于审计追溯和异常定位。"
+    >
+      <template #status>
+        <span class="operation-log-page__scope">当前筛选 {{ total }} 条</span>
+      </template>
+      <template #actions>
         <el-button :icon="RefreshCw" :loading="loading" @click="fetchLogs">刷新</el-button>
-      </div>
-    </section>
+      </template>
+    </TaskPageHeader>
 
     <section class="summary-grid">
       <div class="summary-card">
@@ -217,6 +274,10 @@ onMounted(fetchLogs)
         </div>
       </div>
     </section>
+    <p class="operation-log-page__stats-note">
+      统计口径：<strong>日志总数</strong>取自服务端；<strong>成功 / 失败 / 平均耗时</strong>由当前页记录算出。
+      后端没有操作日志的聚合统计接口，因此这三项随翻页变化，不代表全局。需要全局数据请导出后统计。
+    </p>
 
     <section class="content-panel">
       <div class="panel-toolbar">
@@ -280,6 +341,17 @@ onMounted(fetchLogs)
         </div>
       </div>
 
+      <ErrorState v-if="error" :message="error" @retry="fetchLogs" />
+      <LoadingState v-else-if="loading && !logs.length" variant="skeleton" :rows="6" />
+      <EmptyState
+        v-else-if="!logs.length"
+        :message="hasFilter ? '当前筛选条件下没有操作日志。尝试放宽筛选或重置条件。' : '还没有操作日志。后台管理动作会在执行后记录在这里。'"
+        :action-text="hasFilter ? '重置筛选' : ''"
+        @action="handleReset"
+      />
+
+      <!-- 宽屏表格与窄屏卡片由 CSS 媒体查询切换，因此共用同一个 v-else 分支 -->
+      <template v-else>
       <div class="log-table-wrap">
         <el-table
           v-loading="loading"
@@ -288,7 +360,6 @@ onMounted(fetchLogs)
           border
           stripe
           row-key="id"
-          empty-text="暂无操作日志"
         >
           <el-table-column prop="id" label="ID" width="80" />
           <el-table-column label="状态" width="90">
@@ -357,11 +428,11 @@ onMounted(fetchLogs)
           </div>
           <button type="button" class="log-card__action" @click="openDetail(row)">查看详情</button>
         </article>
-        <el-empty v-if="!loading && logs.length === 0" description="暂无操作日志" :image-size="72" />
       </div>
+      </template>
 
       <el-pagination
-        v-if="total > 0"
+        v-if="!error && total > 0"
         class="pager"
         layout="total, sizes, prev, pager, next"
         :total="total"
@@ -403,6 +474,21 @@ onMounted(fetchLogs)
 </template>
 
 <style scoped>
+.operation-log-page__scope {
+  color: var(--do-muted);
+  font-size: 13px;
+}
+
+.operation-log-page__stats-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--do-radius-md);
+  background: var(--do-bg);
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
 .operation-log-page {
   display: grid;
   gap: 16px;

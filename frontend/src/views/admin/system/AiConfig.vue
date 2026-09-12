@@ -1,5 +1,21 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+/**
+ * AI 配置（开发指导 §7.19）
+ *
+ * 补齐三处：
+ * 1. **Embedding 维度检测**：后端 `/detect-dimension` 早已存在且前端已封装，
+ *    但页面零引用，只能让用户手工填写维度。现补「自动检测」入口。
+ * 2. **模型同步**：后端 `/providers/{id}/sync-models` 存在，前端此前零封装，
+ *    页面只能靠「测试连接成功后隐式重拉」间接刷新模型列表。
+ * 3. **重新向量化**：后端 `/re-vectorize` 存在，前端零封装，页面没有任何触发入口，
+ *    只能被动看到 `REINDEX_REQUIRED`。现补入口并展示影响范围、当前进度与失败信息
+ *    （`AiVectorizeStatus` 的 `totalChunks`/`completedChunks`/`failedChunks`/`errorMessage`
+ *    四个字段此前完全未使用）。
+ *
+ * Tab 写入 URL（`?tab=chat|embedding`），状态标签改用中文（§11.3）。
+ */
+import { computed, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Cpu,
@@ -13,11 +29,16 @@ import {
   Wifi,
   Check,
   Edit,
+  Ruler,
+  ListRestart,
 } from 'lucide-vue-next'
 import {
   createAiProvider,
   deleteAiProvider,
+  detectEmbeddingDimension,
   getAiConfig,
+  reVectorize,
+  syncAiProviderModels,
   testAiProvider,
   updateAiConfig,
   updateAiProvider,
@@ -26,14 +47,53 @@ import {
   type AiProviderPayload,
 } from '../../../api/admin/system'
 import { useAuthStore } from '../../../stores/auth'
+import EmptyState from '../../../components/common/EmptyState.vue'
 
+const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 const loading = ref(false)
 const saving = ref(false)
 const providerDialogVisible = ref(false)
 const editingProviderId = ref('')
 const config = ref<AiConfig | null>(null)
-const activeTab = ref<'chat' | 'embedding'>('chat')
+const activeTab = ref<'chat' | 'embedding'>(
+  route.query.tab === 'embedding' ? 'embedding' : 'chat',
+)
+
+function selectTab(tab: 'chat' | 'embedding') {
+  activeTab.value = tab
+  router.push({ query: { ...route.query, tab } })
+}
+
+// 浏览器前进/后退或外部改 URL 时同步回组件状态（§15 要求前进后退可恢复）
+watch(() => route.query.tab, (value) => {
+  const next = value === 'embedding' ? 'embedding' : 'chat'
+  if (next !== activeTab.value) activeTab.value = next
+})
+
+const detectingDimension = ref(false)
+const syncingProviderId = ref('')
+const vectorizing = ref(false)
+
+/** 索引状态的中文标签（§11.3：状态标签使用中文，同时保留技术状态说明） */
+type TagTone = 'success' | 'warning' | 'danger' | 'info'
+const VECTORIZE_STATUS: Record<string, { label: string; tone: TagTone }> = {
+  NORMAL: { label: '正常', tone: 'success' },
+  REINDEX_REQUIRED: { label: '需要重建索引', tone: 'warning' },
+  REINDEXING: { label: '索引重建中', tone: 'warning' },
+  REINDEX_FAILED: { label: '索引重建失败', tone: 'danger' },
+}
+
+const vectorizeStatusLabel = computed(() => {
+  const status = vectorizeStatus.value?.status || 'NORMAL'
+  return VECTORIZE_STATUS[status]?.label || status
+})
+
+const vectorizeTone = computed<TagTone>(() => {
+  const status = vectorizeStatus.value?.status || 'NORMAL'
+  return VECTORIZE_STATUS[status]?.tone || 'info'
+})
 
 // 展开的卡片 ID
 const expandedChatProvider = ref<string>('')
@@ -82,12 +142,6 @@ const vectorizeMessage = computed(() => {
     return '索引重建失败，查询仍使用上一版 active 索引'
   }
   return ''
-})
-
-const vectorizeTagType = computed(() => {
-  if (vectorizeStatus.value?.status === 'NORMAL') return 'success'
-  if (vectorizeStatus.value?.status === 'REINDEX_FAILED') return 'danger'
-  return 'warning'
 })
 
 // Chat 供应商列表（有 Chat 模型的）
@@ -317,6 +371,91 @@ async function handleTestProvider(provider: AiProvider) {
   }
 }
 
+/** 同步供应商模型列表（§7.19 要求的「模型同步」显式入口） */
+async function handleSyncModels(provider: AiProvider) {
+  if (!canManageAiConfig.value) return
+  syncingProviderId.value = provider.id
+  try {
+    await syncAiProviderModels(provider.id)
+    ElMessage.success('模型列表已同步')
+    await fetchConfig()
+  } catch (cause) {
+    const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
+    ElMessage.error(message || '模型同步失败')
+  } finally {
+    syncingProviderId.value = ''
+  }
+}
+
+/** 自动检测 Embedding 维度（后端 /detect-dimension），避免手工填写出错 */
+async function handleDetectDimension() {
+  if (!canManageAiConfig.value) return
+  const providerId = editingEmbeddingConfig.providerId
+  if (!providerId) {
+    ElMessage.warning('请先在卡片中选择供应商')
+    return
+  }
+  if (!editingEmbeddingConfig.model) {
+    ElMessage.warning('请先选择 Embedding 模型，检测需要模型名')
+    return
+  }
+  detectingDimension.value = true
+  try {
+    const result = await detectEmbeddingDimension({
+      providerId,
+      model: editingEmbeddingConfig.model,
+    })
+    const dimension = result.data?.dimension
+    if (typeof dimension === 'number' && dimension > 0) {
+      editingEmbeddingConfig.dimension = dimension
+      ElMessage.success(`检测到维度 ${dimension}`)
+    } else {
+      ElMessage.warning('未检测到维度，请确认模型与密钥是否可用')
+    }
+  } catch (cause) {
+    const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
+    ElMessage.error(message || '维度检测失败')
+  } finally {
+    detectingDimension.value = false
+  }
+}
+
+/**
+ * 触发重新向量化（§7.19）。
+ *
+ * 必须展示影响范围与当前状态，不作为普通保存操作的一部分——因此这里先确认，
+ * 再把后端返回的进度/失败信息展示出来。
+ */
+async function handleReVectorize() {
+  if (!canManageAiConfig.value) return
+  const pending = vectorizeStatus.value?.pending
+  const active = vectorizeStatus.value?.active
+  const scope = pending
+    ? `目标配置：${pending.model}（维度 ${pending.dimension}）\n当前生效：${active?.model || '无'}（维度 ${active?.dimension || '—'}）`
+    : '将以当前 active Embedding 配置重建索引。'
+  try {
+    await ElMessageBox.confirm(
+      `${scope}\n\n重建期间查询仍使用上一版索引；重建失败时旧索引保持可用。`
+      + '该操作会遍历并重新向量化全部知识切片，属于高风险操作。确认继续？',
+      '确认重新向量化',
+      { type: 'warning', confirmButtonText: '确认重建', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  vectorizing.value = true
+  try {
+    await reVectorize()
+    ElMessage.success('已触发重新向量化，可稍后刷新查看进度')
+    await fetchConfig()
+  } catch (cause) {
+    const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
+    ElMessage.error(message || '重新向量化触发失败')
+  } finally {
+    vectorizing.value = false
+  }
+}
+
 fetchConfig()
 </script>
 
@@ -361,36 +500,67 @@ fetchConfig()
           </div>
         </div>
         <div class="status-tile">
-          <span class="tile-icon status"><Server :size="18" /></span>
+          <span class="tile-icon status"><Server :size="18" aria-hidden="true" /></span>
           <div>
             <span>索引状态</span>
-            <el-tag :type="vectorizeTagType" size="small">
-              {{ vectorizeStatus?.status || 'NORMAL' }}
+            <el-tag :type="vectorizeTone" size="small">
+              {{ vectorizeStatusLabel }}
             </el-tag>
+            <span class="tile-sub">{{ vectorizeStatus?.status || 'NORMAL' }}</span>
           </div>
         </div>
       </div>
       <el-alert v-if="vectorizeMessage" type="warning" show-icon :closable="false" :title="vectorizeMessage" />
+
+      <!-- 影响范围、当前进度与失败信息（§7.19）。这四个字段此前完全未使用 -->
+      <div class="vectorize-panel">
+        <div class="vectorize-panel__info">
+          <p v-if="vectorizeStatus?.pending">
+            待生效配置：{{ vectorizeStatus.pending.model }}（维度 {{ vectorizeStatus.pending.dimension }}）；
+            当前生效：{{ vectorizeStatus.active?.model || '无' }}（维度 {{ vectorizeStatus.active?.dimension || '—' }}）
+          </p>
+          <p v-else>当前生效：{{ vectorizeStatus?.active?.model || '未配置' }}（维度 {{ vectorizeStatus?.active?.dimension || '—' }}）</p>
+          <p v-if="typeof vectorizeStatus?.totalChunks === 'number'">
+            切片进度：已完成 {{ vectorizeStatus?.completedChunks ?? 0 }} / 共 {{ vectorizeStatus?.totalChunks }}
+            <span v-if="vectorizeStatus?.failedChunks">，失败 {{ vectorizeStatus?.failedChunks }}</span>
+          </p>
+          <p v-if="vectorizeStatus?.errorMessage" class="is-error">
+            失败原因：{{ vectorizeStatus?.errorMessage }}
+          </p>
+        </div>
+        <el-button
+          v-if="canManageAiConfig"
+          type="danger"
+          plain
+          size="small"
+          :icon="ListRestart"
+          :loading="vectorizing"
+          @click="handleReVectorize"
+        >重新向量化</el-button>
+      </div>
     </section>
 
     <!-- Tab 切换 -->
     <section class="config-section">
       <div class="tab-header">
-        <button :class="{ active: activeTab === 'chat' }" @click="activeTab = 'chat'">
-          <Sparkles :size="16" />
+        <button :class="{ active: activeTab === 'chat' }" @click="selectTab('chat')">
+          <Sparkles :size="16" aria-hidden="true" />
           Chat 配置
         </button>
-        <button :class="{ active: activeTab === 'embedding' }" @click="activeTab = 'embedding'">
-          <Database :size="16" />
+        <button :class="{ active: activeTab === 'embedding' }" @click="selectTab('embedding')">
+          <Database :size="16" aria-hidden="true" />
           Embedding 配置
         </button>
       </div>
 
       <!-- Chat 配置列表 -->
       <div v-if="activeTab === 'chat'" class="provider-cards">
-        <div v-if="chatProviders.length === 0" class="empty-state">
-          <p>暂无 Chat 供应商，请先添加供应商并测试连接获取模型列表。</p>
-        </div>
+        <EmptyState
+          v-if="chatProviders.length === 0"
+          message="暂无 Chat 供应商。添加供应商并测试连接后即可获取可用模型列表。"
+          action-text="添加供应商"
+          @action="openCreateProvider"
+        />
 
         <article
           v-for="provider in chatProviders"
@@ -415,7 +585,16 @@ fetchConfig()
               <span>{{ provider.chatModels?.length || 0 }} 个模型</span>
             </div>
             <div class="card-actions" @click.stop>
-              <el-button :icon="Wifi" size="small" circle title="测试连接" @click="handleTestProvider(provider)" />
+              <el-button :icon="Wifi" size="small" circle title="测试连接" aria-label="测试供应商连接" @click="handleTestProvider(provider)" />
+              <el-button
+                :icon="RefreshCw"
+                size="small"
+                circle
+                title="同步模型"
+                aria-label="同步供应商模型列表"
+                :loading="syncingProviderId === provider.id"
+                @click="handleSyncModels(provider)"
+              />
               <el-button size="small" circle title="编辑" @click="openEditProvider(provider)">
                 <Edit :size="12" />
               </el-button>
@@ -504,9 +683,12 @@ fetchConfig()
 
       <!-- Embedding 配置列表 -->
       <div v-if="activeTab === 'embedding'" class="provider-cards">
-        <div v-if="embeddingProviders.length === 0" class="empty-state">
-          <p>暂无 Embedding 供应商，请先添加供应商并测试连接获取模型列表。</p>
-        </div>
+        <EmptyState
+          v-if="embeddingProviders.length === 0"
+          message="暂无 Embedding 供应商。添加供应商并测试连接后即可获取可用模型列表。"
+          action-text="添加供应商"
+          @action="openCreateProvider"
+        />
 
         <article
           v-for="provider in embeddingProviders"
@@ -531,7 +713,16 @@ fetchConfig()
               <span>{{ provider.embeddingModels?.length || 0 }} 个模型</span>
             </div>
             <div class="card-actions" @click.stop>
-              <el-button :icon="Wifi" size="small" circle title="测试连接" @click="handleTestProvider(provider)" />
+              <el-button :icon="Wifi" size="small" circle title="测试连接" aria-label="测试供应商连接" @click="handleTestProvider(provider)" />
+              <el-button
+                :icon="RefreshCw"
+                size="small"
+                circle
+                title="同步模型"
+                aria-label="同步供应商模型列表"
+                :loading="syncingProviderId === provider.id"
+                @click="handleSyncModels(provider)"
+              />
               <el-button size="small" circle title="编辑" @click="openEditProvider(provider)">
                 <Edit :size="12" />
               </el-button>
@@ -567,6 +758,15 @@ fetchConfig()
                       @click.stop
                     />
                   </label>
+                  <!-- 自动检测维度：后端 /detect-dimension 早已存在，此前页面只能手填 -->
+                  <el-button
+                    size="small"
+                    :icon="Ruler"
+                    :loading="detectingDimension"
+                    :disabled="!canManageAiConfig"
+                    aria-label="自动检测向量维度"
+                    @click.stop="handleDetectDimension"
+                  >自动检测</el-button>
                 </div>
                 <div class="model-actions">
                   <el-button
@@ -640,6 +840,44 @@ fetchConfig()
 </template>
 
 <style scoped>
+.tile-sub {
+  display: block;
+  margin-top: 4px;
+  color: var(--do-muted);
+  font-size: 11px;
+}
+
+.vectorize-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-md);
+  background: var(--do-bg);
+}
+
+.vectorize-panel__info {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.vectorize-panel__info p {
+  margin: 0;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+.vectorize-panel__info p.is-error {
+  color: var(--do-danger);
+}
+
 .ai-config-page {
   max-width: 1080px;
 }
