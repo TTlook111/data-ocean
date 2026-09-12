@@ -77,6 +77,8 @@ Known follow-up areas — see `docs/development/后续开发.md` for the full pr
 
 Latest addition:
 
+- **后端缺陷修复轮完成**（2026-09-12，提交 `fcd7bd3`/`af29e6b`/`cbd1ff4` + 前端 `0c852a7`）：按 `docs/review/2026-09-11-后台前端重构审查-后端事实问题.md` 修复全部记录项。这是一次**独立于前端重构轮的修复**——`开发指导` §1 的「不修改 Java」约束只适用于前端重构轮。要点：(1) **P0** `rollback` 原本不校验文档状态，任何调用方都能把未审核内容写进 Milvus；现要求文档为 PUBLISHED 且目标版本 APPROVED；(2) `knowledge_doc_version.review_status` 由死列改为 `approve`/`reject` 真实写入，V51 迁移回填历史行（能按 `knowledge_review_task` 还原的还原，其余标为 `UNKNOWN`）；(3) 术语状态机收敛采用方案 A：新增 `APPROVED → DRAFT` 退回接口，`updateTerm` 加状态校验并改字段白名单赋值；(4) 4 个新增接口见下方模块说明；(5) `/catalog/search` 的 `datasourceId` 过滤下推到 SQL。**修复中额外发现**：`LineageServiceImpl.buildColumnFqn` 与 `findFqnPrefix` 持有 `datasourceId` 却未下传，多数据源同名表会解析到错误数据源的 FQN，产生错误列血缘——已修。**验证边界**：全部为静态验证 + 单元测试；V51 迁移未在真实 MySQL 执行过，前端改动无运行时点验。
+
 - **后台前端缺陷清单 F1–F9 全部修复**（2026-09-12，分支 `fix/frontend-defect-list` 提交 `22a1be5`）：按 `docs/review/2026-09-11-后台前端重构审查-前端缺陷清单.md` 修复 9 项，纯前端，8 个源文件。要点：(1) F1 数据源驾驶舱主操作改为消费后端 `blockReasons[0]`，不再在前端重推就绪状态，并按后端 `appendBlockReasons` 的顺序分流；(2) F4 二级工作区高亮从路径前缀匹配改为 `route.meta.workspaceKey` 等值判定，修复 5 条双高亮 + 2 条零高亮（`/admin/metadata/tables`、`/admin/permission/policies`）；(3) F6 一级与二级导航统一按目标 `contextMode` 经 `utils/adminNavigation.ts` 的 `buildContextQuery` 继承上下文，使 URL 自描述；(4) F8 `resolveReadinessActionPath` 的 `known` 字段改为被消费，未映射路径不再静默跳工作台。实施中发现 3 个清单未记录的问题：`v-if="primaryAction.icon"` 会让导航型主操作整体消失、`SNAPSHOT_NOT_PUBLISHED` 照搬后端文案会违反门禁表、治理导航用 `latestSnapshot` 会过滤到 0 条问题。**运行时未验证**（无可用环境）。
 
 - **Phase 1 代码可信度全部完成**（2026-08-21）：(1) DataQualityChecker SQL 标识符转义防注入（4 个方法全部加 `escapeIdentifier()`）；(2) DataQualityChecker 密码解密统一复用 `DatasourceSecretService`，消除密钥不一致风险（删除自行实现的 AES 解密）；(3) MetadataCatalogController 3 处 `catch(Exception ignored){}` 改为 `log.warn`；(4) `traceDerivedFromChain` 增加 `visited` 集合防止循环血缘无限递归；(5) P5 Java 侧会话记忆方案已升级为数据库长期摘要 + 请求级上下文组装；(6) P0 管理员反馈特权确认已实现（ADMIN/ANALYST 跳过审核、delta=-45）。
@@ -149,6 +151,7 @@ APPROVED document
 Failure rule:
 
 - If chunking, vectorization, or the Java publish transaction fails, Java restores the document to `APPROVED`.
+- **Rollback must never be a way around review.** `rollback` sends the target version's content straight to `INDEXING` and triggers vectorization without going through submit-review/approve/publish, so it validates two preconditions first: the document must be `PUBLISHED`, and the target version's `reviewStatus` must be `APPROVED`. Removing either check reopens a path that writes unreviewed content into Milvus. A version created by rollback is marked approved with the operator as reviewer, because its content comes from a version already verified as approved.
 - Old active vectors are not deleted before the new version is successfully verified.
 - The Java publish transaction commits before old-vector cleanup. Cleanup failure enters `CLEANUP_PENDING` and is retried without re-vectorizing or rolling back the published version.
 - Same-version rebuilds delete only `doc_id + version_no`, not all vectors for the document.
@@ -237,7 +240,7 @@ mvn test
 Latest verified test result:
 
 - Python (2026-09-07): 152 passed, 4 skipped (E2E tests require full environment).
-- Java: 119 tests passed.
+- Java (2026-09-12): 138 tests passed, 0 failures. (Was 119 before the 2026-09-12 backend defect round, which added `KnowledgeDocLifecycleServiceTest` (4) and `GlossaryTermServiceImplTest` (9), and rewrote/extended `KnowledgeVersionServiceImplTest`.) `mvn test` needs no external service — the suite is Mockito unit tests plus one `@SpringBootTest` backed by H2 + `src/test/resources/application-test.yml`.
 
 The next testing gap is Agent workflow coverage: query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 
@@ -311,16 +314,16 @@ Important modules:
 
 - `user`: authentication, user, role, department, permission management.
 - `datasource`: datasource management and health checks.
-- `metadata`: metadata scanning, synchronization, comparison, entity graph, catalog search, and metadata events.
-- `governance`: metadata quality checks, governance status, quality issue lifecycle, and quality score aggregation.
+- `metadata`: metadata scanning, synchronization, comparison, entity graph, catalog search, and metadata events. `/catalog/search` accepts `datasourceId` and applies it **inside the SQL** (scoping must not be done by filtering results after fetching, or LIMIT/OFFSET would apply before filtering and page sizes would be wrong).
+- `governance`: metadata quality checks, governance status, quality issue lifecycle, and quality score aggregation. Batch handling returns `IssueBatchHandleResultVO{updated, skipped, skippedIssues[]}` — skipped items are a normal outcome, not an exception, so the method does not throw and callers must render the skip detail.
 - `versioning`: metadata snapshot lifecycle and review.
-- `knowledge`: skills.md lifecycle, chunk snapshot persistence, vector publish tasks.
+- `knowledge`: skills.md lifecycle, chunk snapshot persistence, vector publish tasks. Two read endpoints expose tables that were previously write-only: `GET /api/admin/knowledge-docs/{id}/review-tasks` (review comments, so authors can see why a document was rejected) and `GET /api/admin/knowledge-docs/{id}/vector-tasks` (index progress and failure reason for `INDEXING` documents). `rollback` requires the document to be `PUBLISHED` **and** the target version's `reviewStatus` to be `APPROVED`; it then creates a version marked approved with the operator as reviewer. `approve`/`reject` write `review_status` and `reviewer_id` onto the version row (see migration V51 for the historical backfill).
 - `query`: Java-side NL2SQL task management, conversation persistence, SSE bridge, result persistence, and fallback chunk loading.
 - `fieldtag`: field tags, confidence, feedback.
-- `glossary`: glossary and glossary term management/review.
+- `glossary`: glossary and glossary term management/review. Term state machine allows `DRAFT`/`REJECTED` edits only — `updateTerm` validates status and applies a field whitelist so a request body cannot rewrite `status`/`reviewerId`; `POST /terms/{id}/revert` provides the `APPROVED → DRAFT` path and clears the review record. Deletion cleans up `GLOSSARY_OF` relationships and dangling `parent_id`; deleting a glossary cascades to its terms in one transaction.
 - `audit`: query audit, lineage, alerts.
 - `permission`: access policy, data masking, policy priority/time conditions, access approvals, and permission change logs.
-- `prompt`: prompt template CRUD, approval workflow, version history, rollback, and internal template API for Python.
+- `prompt`: prompt template CRUD, approval workflow, version history, rollback, enable/disable (`PATCH /{code}/enabled`, `APPROVED` templates only), and internal template API for Python.
 - `system`: config, notifications, operation logs (multi-condition query), AI config, scheduling.
 - `dashboard`: admin homepage statistics aggregation.
 
@@ -346,6 +349,7 @@ Migration notes:
 - `V44` adds `metadata_quality_issue.column_meta_id` (Phase 1 governance-confidence linkage).
 - `V45` adds `db_column_meta.sample_values` (Phase 2 column sample value collection).
 - `V50` adds RAG chunk order/group, multi-table/multi-column, entity, trust, and content hash metadata.
+- `V51` backfills `knowledge_doc_version.review_status`. That column existed since V13 with `NOT NULL DEFAULT 'PENDING'` but was never written, so every row read as "pending review" including published ones. V51 restores rows that can be resolved from `knowledge_review_task` and marks the rest `UNKNOWN`; the application now writes the column on create/approve/reject.
 
 ## Python Service Notes
 
