@@ -11,9 +11,10 @@
  *   已通过术语不能直接编辑，需先退回草稿；退回会清空审核人与审核时间。
  * - 术语与物理列的关联通过 GLOSSARY_OF 关系维护，接口为 link-column / unlink-column / linked-columns。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Link2, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2, X } from 'lucide-vue-next'
+import { ArrowRight, Check, Link2, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2, X } from 'lucide-vue-next'
 import {
   createGlossary,
   createTerm,
@@ -42,10 +43,14 @@ import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
 
+const route = useRoute()
+const router = useRouter()
+
 const glossaries = ref<GlossaryItem[]>([])
 const terms = ref<GlossaryTermItem[]>([])
-const selectedGlossaryId = ref<number>()
-const selectedTermId = ref<number>()
+/** 选中的术语表与术语由 URL 查询参数决定，刷新/分享/前进后退都能恢复（开发指导 §15） */
+const selectedGlossaryId = ref<number | undefined>(Number(route.query.glossaryId) || undefined)
+const selectedTermId = ref<number | undefined>(Number(route.query.termId) || undefined)
 const datasources = ref<DatasourceSimpleItem[]>([])
 
 const loadingGlossaries = ref(false)
@@ -106,7 +111,8 @@ async function loadGlossaries(preferredId?: number) {
     const next = preferredId
       || (glossaries.value.some((item) => item.id === selectedGlossaryId.value) ? selectedGlossaryId.value : undefined)
       || glossaries.value[0]?.id
-    if (next) await selectGlossary(next)
+    // keepTerm=true：刷新恢复时保留 URL 带来的术语，由 loadTerms 校验它是否属于该术语表
+    if (next) await selectGlossary(next, true)
     else {
       selectedGlossaryId.value = undefined
       terms.value = []
@@ -119,10 +125,35 @@ async function loadGlossaries(preferredId?: number) {
   }
 }
 
-async function selectGlossary(id: number) {
+/**
+ * 把当前选中的术语表与术语写进 URL。
+ *
+ * 用 `push`：开发指导 §15 要求「URL 刷新、前进和后退恢复」，只有 push 才能让
+ * 浏览器后退回到上一个选中对象。
+ */
+function persistSelection() {
+  const query: Record<string, string> = { ...route.query as Record<string, string> }
+  if (selectedGlossaryId.value) query.glossaryId = String(selectedGlossaryId.value)
+  else delete query.glossaryId
+  if (selectedTermId.value) query.termId = String(selectedTermId.value)
+  else delete query.termId
+  router.push({ query })
+}
+
+/**
+ * 选择术语表。
+ *
+ * @param id        术语表 ID
+ * @param keepTerm  是否保留当前选中的术语。刷新恢复时由 URL 带来的术语需要保留，
+ *                  用户点击切换术语表时则必须清空
+ */
+async function selectGlossary(id: number, keepTerm = false) {
   selectedGlossaryId.value = id
-  selectedTermId.value = undefined
-  linkedColumns.value = []
+  if (!keepTerm) {
+    selectedTermId.value = undefined
+    linkedColumns.value = []
+  }
+  persistSelection()
   await loadTerms()
 }
 
@@ -137,7 +168,13 @@ async function loadTerms() {
     const result = await listTerms(selectedGlossaryId.value)
     terms.value = result.data || []
     if (selectedTermId.value && !terms.value.some((item) => item.id === selectedTermId.value)) {
+      // 选中的术语不属于当前术语表（URL 里带了别的术语表的术语）：清掉，不静默换成其它术语
       selectedTermId.value = undefined
+      linkedColumns.value = []
+      persistSelection()
+    } else if (selectedTermId.value) {
+      // 刷新恢复：URL 带来的术语有效，把关联字段一并取回
+      await loadLinkedColumns()
     }
   } catch (cause) {
     termError.value = apiError(cause, '术语列表加载失败')
@@ -148,6 +185,7 @@ async function loadTerms() {
 
 async function selectTerm(term: GlossaryTermItem) {
   selectedTermId.value = term.id
+  persistSelection()
   await loadLinkedColumns()
 }
 
@@ -472,6 +510,21 @@ onMounted(async () => {
   }
   await loadGlossaries()
 })
+
+// 浏览器前进/后退或外部改 URL 时同步回组件状态（§15 要求前进后退可恢复）
+watch(() => route.query.glossaryId, (value) => {
+  const next = Number(value) || undefined
+  if (next === selectedGlossaryId.value) return
+  if (next) selectGlossary(next, true)
+})
+
+watch(() => route.query.termId, (value) => {
+  const next = Number(value) || undefined
+  if (next === selectedTermId.value) return
+  selectedTermId.value = next
+  // 走 loadTerms 而不是直接取关联字段：由它校验该术语是否属于当前术语表
+  loadTerms()
+})
 </script>
 
 <template>
@@ -527,6 +580,8 @@ onMounted(async () => {
         </ul>
       </aside>
 
+      <!-- 右栏：当前术语表的术语列表 + 术语详情 -->
+      <div class="glossaries-main">
       <!-- 术语列表 -->
       <section class="panel term-column">
         <header class="panel__heading">
@@ -634,6 +689,14 @@ onMounted(async () => {
             </template>
           </div>
 
+          <!-- 下一步：已通过的术语会参与查询改写，指向语义知识 -->
+          <div v-if="selectedTerm.status === 'APPROVED'" class="term-detail__next">
+            <span>该术语已通过审核，会参与查询改写。</span>
+            <RouterLink class="term-detail__next-link" to="/admin/semantics/knowledge">
+              查看语义知识 <ArrowRight :size="15" />
+            </RouterLink>
+          </div>
+
           <!-- 审核记录 -->
           <section class="term-detail__section">
             <h3>审核记录</h3>
@@ -642,6 +705,12 @@ onMounted(async () => {
               <div><dt>审核人</dt><dd>{{ selectedTerm.reviewerId ? '用户 #' + selectedTerm.reviewerId : '—' }}</dd></div>
               <div><dt>审核时间</dt><dd>{{ selectedTerm.reviewedAt || '尚未审核' }}</dd></div>
             </dl>
+            <p class="muted-text">
+              审核意见查不到：后端 <code>glossary_term</code> 表没有存放拒绝原因的列，
+              <code>reviewTerm</code> 收到 reason 后只写服务端日志，不落库。因此这里只能展示
+              审核状态与审核人，<strong>不展示审核意见</strong>——不伪造一个空的「审核意见」字段。
+              该缺口属后端能力缺失，不是前端遗漏。
+            </p>
           </section>
 
           <!-- 关联字段 -->
@@ -665,6 +734,7 @@ onMounted(async () => {
           </section>
         </div>
       </aside>
+      </div>
     </div>
 
     <!-- 术语表对话框 -->
@@ -755,11 +825,23 @@ onMounted(async () => {
 <style scoped>
 .glossaries-page { display: grid; gap: 16px; }
 
+/*
+ * 左右分栏（开发指导 §7.10）：左＝术语表列表，右＝当前术语表的术语列表和详情。
+ * 右栏内部再分「术语列表 | 术语详情」两个子列。
+ */
 .glossaries-layout {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 380px;
+  grid-template-columns: 260px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+}
+
+.glossaries-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
 }
 
 .panel {
@@ -826,6 +908,26 @@ onMounted(async () => {
 .term-toolbar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 
 .term-detail { display: grid; gap: 16px; }
+.term-detail__next {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border-radius: var(--do-radius-md);
+  background: var(--do-success-soft);
+  font-size: 12px;
+  color: var(--do-muted);
+}
+.term-detail__next-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--do-primary-strong);
+  font-size: 12px;
+  font-weight: 800;
+}
 .term-detail__status { display: flex; align-items: center; gap: 8px; }
 .term-detail__type { color: var(--do-muted); font-size: 11px; text-transform: uppercase; }
 
@@ -860,10 +962,15 @@ onMounted(async () => {
 .link-candidates { max-height: 340px; overflow: auto; }
 
 @media (max-width: 1440px) {
-  .glossaries-layout { grid-template-columns: 240px minmax(0, 1fr) 340px; }
+  .glossaries-layout { grid-template-columns: 240px minmax(0, 1fr); }
+  .glossaries-main { grid-template-columns: minmax(0, 1fr) 340px; }
 }
 
 @media (max-width: 1180px) {
+  .glossaries-main { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
   .glossaries-layout { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

@@ -84,6 +84,10 @@ const vectorTasks = ref<VectorIndexTaskItem[]>([])
 const tasksLoading = ref(false)
 const taskError = ref('')
 
+/** 版本列表与来源快照的错误态：接口失败必须渲染错误，不得降级为空数据 */
+const versionsError = ref('')
+const snapshotError = ref('')
+
 const loading = ref(true)
 const error = ref('')
 const saving = ref(false)
@@ -200,13 +204,33 @@ async function loadDoc() {
 
 async function loadVersions() {
   versionsLoading.value = true
+  versionsError.value = ''
   try {
     versions.value = (await listVersions(docId.value)).data || []
   } catch (cause) {
     versions.value = []
-    ElMessage.error(apiError(cause, '版本列表加载失败'))
+    // 接口失败必须渲染错误态。此前只弹一次 toast 再置空数组，页面最终显示
+    // 「暂无版本记录」——把失败说成了空数据（§11.3、§18）。
+    versionsError.value = apiError(cause, '版本列表加载失败')
   } finally {
     versionsLoading.value = false
+  }
+}
+
+/**
+ * 加载生成草稿可用的来源快照。
+ *
+ * 这是「AI 生成草稿」对话框的下拉数据源，失败时不能静默置空——
+ * 那会让用户以为该数据源没有快照。改为记录错误，由对话框展示。
+ */
+async function loadSnapshots() {
+  if (!doc.value?.datasourceId) return
+  snapshotError.value = ''
+  try {
+    snapshots.value = (await listSnapshots({ datasourceId: doc.value.datasourceId, page: 1, size: 50 })).data?.records || []
+  } catch (cause) {
+    snapshots.value = []
+    snapshotError.value = apiError(cause, '来源快照加载失败')
   }
 }
 
@@ -220,15 +244,6 @@ async function loadChunks() {
     chunkError.value = apiError(cause, '切分预览失败，请确认 Python 服务可用')
   } finally {
     chunksLoading.value = false
-  }
-}
-
-async function loadSnapshots() {
-  if (!doc.value?.datasourceId) return
-  try {
-    snapshots.value = (await listSnapshots({ datasourceId: doc.value.datasourceId, page: 1, size: 50 })).data?.records || []
-  } catch {
-    snapshots.value = []
   }
 }
 
@@ -509,10 +524,8 @@ onMounted(async () => {
   loadVersions()
   if (activeTab.value === 'source') loadSourceSnapshots()
   if (activeTab.value === 'review') loadReviewRecords()
-  if (activeTab.value === 'chunks') {
-    loadChunks()
-    loadVectorTasks()
-  }
+  if (activeTab.value === 'chunks') loadChunks()
+  if (activeTab.value === 'index') loadVectorTasks()
 })
 
 watch(docId, async () => {
@@ -526,10 +539,8 @@ watch(docId, async () => {
   loadVersions()
   if (activeTab.value === 'source') loadSourceSnapshots()
   if (activeTab.value === 'review') loadReviewRecords()
-  if (activeTab.value === 'chunks') {
-    loadChunks()
-    loadVectorTasks()
-  }
+  if (activeTab.value === 'chunks') loadChunks()
+  if (activeTab.value === 'index') loadVectorTasks()
 })
 
 watch(() => route.query.tab, (value) => {
@@ -539,11 +550,9 @@ watch(() => route.query.tab, (value) => {
   if (next === 'versions' && !versions.value.length) loadVersions()
   if (next === 'source' && !sourceSnapshots.value.length) loadSourceSnapshots()
   if (next === 'review' && !reviewRecords.value.length) loadReviewRecords()
-  if (next === 'chunks') {
-    if (!chunks.value.length) loadChunks()
-    // 索引任务独立于切分预览：INDEXING 中的文档可能还没有预览结果，但已有任务可看
-    loadVectorTasks()
-  }
+  // 切分预览与索引状态已拆为两个 Tab（开发指导 §7.11），各自独立加载
+  if (next === 'chunks' && !chunks.value.length) loadChunks()
+  if (next === 'index') loadVectorTasks()
 })
 </script>
 
@@ -738,7 +747,8 @@ watch(() => route.query.tab, (value) => {
                 <p>版本行的审核状态自 2026-09-12 起由后端真实写入，可按版本查看。</p>
               </div>
             </div>
-            <LoadingState v-if="versionsLoading" text="正在读取版本流转…" />
+            <ErrorState v-if="versionsError" :message="versionsError" @retry="loadVersions" />
+            <LoadingState v-else-if="versionsLoading" text="正在读取版本流转…" />
             <EmptyState v-else-if="!versionTimeline.length" message="暂无版本记录。保存或生成草稿后会出现流转轨迹。" />
             <el-table v-else :data="versionTimeline" stripe size="small">
               <el-table-column label="版本" width="90"><template #default="{ row }">v{{ row.versionNo }}</template></el-table-column>
@@ -821,48 +831,8 @@ watch(() => route.query.tab, (value) => {
         </el-tab-pane>
 
         <!-- 切分与索引 -->
-        <el-tab-pane label="切分与索引" name="chunks">
+        <el-tab-pane label="切分预览" name="chunks">
           <section class="knowledge-doc-page__card">
-            <div class="card-heading">
-              <div>
-                <h3>索引状态</h3>
-                <p>索引任务按文档记录，失败时可在下方看到原因；索引中的文档重复发布不会生效。</p>
-              </div>
-              <BusinessStatusBadge :status="doc.status" :label="knowledgeStatusLabel(doc.status)" />
-            </div>
-            <dl class="facts">
-              <div><dt>可检索</dt><dd>{{ isPublished ? '是，已发布并完成索引' : '否' }}</dd></div>
-              <div><dt>当前版本</dt><dd>v{{ doc.currentVersion }}</dd></div>
-            </dl>
-            <ErrorState v-if="taskError" :message="taskError" @retry="loadVectorTasks" />
-            <LoadingState v-else-if="tasksLoading" text="正在读取索引任务…" />
-            <EmptyState
-              v-else-if="!vectorTasks.length"
-              message="还没有索引任务。文档发布后会创建向量化任务，在这里可以看到执行结果与失败原因。"
-            />
-            <el-table v-else :data="vectorTasks" stripe size="small">
-              <el-table-column label="任务" width="80">
-                <template #default="{ row }">#{{ row.id }}</template>
-              </el-table-column>
-              <el-table-column label="状态" width="120">
-                <template #default="{ row }">
-                  <el-tag :type="vectorTaskStatusType(row.status)" size="small">{{ vectorTaskStatusLabel(row.status) }}</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="版本" width="90">
-                <template #default="{ row }">{{ row.knowledgeVersionNo ? 'v' + row.knowledgeVersionNo : '—' }}</template>
-              </el-table-column>
-              <el-table-column label="开始" width="170">
-                <template #default="{ row }">{{ row.startedAt || '—' }}</template>
-              </el-table-column>
-              <el-table-column label="结束" width="170">
-                <template #default="{ row }">{{ row.finishedAt || '—' }}</template>
-              </el-table-column>
-              <el-table-column prop="errorMessage" label="失败原因" min-width="200" show-overflow-tooltip>
-                <template #default="{ row }">{{ row.errorMessage || '—' }}</template>
-              </el-table-column>
-            </el-table>
-
             <div class="card-heading">
               <div>
                 <h3>切分预览</h3>
@@ -892,6 +862,55 @@ watch(() => route.query.tab, (value) => {
             </ul>
           </section>
         </el-tab-pane>
+
+        <el-tab-pane label="索引状态" name="index">
+          <section class="knowledge-doc-page__card">
+            <div class="card-heading">
+              <div>
+                <h3>索引状态</h3>
+                <p>索引任务按文档记录，失败时可在下方看到原因；索引中的文档重复发布不会生效。</p>
+              </div>
+              <BusinessStatusBadge :status="doc.status" :label="knowledgeStatusLabel(doc.status)" />
+            </div>
+            <dl class="facts">
+              <div><dt>可检索</dt><dd>{{ isPublished ? '是，已发布并完成索引' : '否' }}</dd></div>
+              <div><dt>当前版本</dt><dd>v{{ doc.currentVersion }}</dd></div>
+            </dl>
+            <p class="muted">
+              任务表可看到状态、起止时间与失败原因，但<strong>看不到进度百分比</strong>：
+              后端 <code>vector_index_task</code> 没有已处理/总数这类进度列，
+              前端无法据此推算。该缺口属后端能力缺失，不是前端遗漏。
+            </p>
+            <ErrorState v-if="taskError" :message="taskError" @retry="loadVectorTasks" />
+            <LoadingState v-else-if="tasksLoading" text="正在读取索引任务…" />
+            <EmptyState
+              v-else-if="!vectorTasks.length"
+              message="还没有索引任务。文档发布后会创建向量化任务，在这里可以看到执行结果与失败原因。"
+            />
+            <el-table v-else :data="vectorTasks" stripe size="small">
+              <el-table-column label="任务" width="80">
+                <template #default="{ row }">#{{ row.id }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="120">
+                <template #default="{ row }">
+                  <el-tag :type="vectorTaskStatusType(row.status)" size="small">{{ vectorTaskStatusLabel(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="版本" width="90">
+                <template #default="{ row }">{{ row.knowledgeVersionNo ? 'v' + row.knowledgeVersionNo : '—' }}</template>
+              </el-table-column>
+              <el-table-column label="开始" width="170">
+                <template #default="{ row }">{{ row.startedAt || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="结束" width="170">
+                <template #default="{ row }">{{ row.finishedAt || '—' }}</template>
+              </el-table-column>
+              <el-table-column prop="errorMessage" label="失败原因" min-width="200" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.errorMessage || '—' }}</template>
+              </el-table-column>
+            </el-table>
+          </section>
+        </el-tab-pane>
       </el-tabs>
     </template>
 
@@ -900,7 +919,12 @@ watch(() => route.query.tab, (value) => {
       <p class="muted">
         选择一个元数据快照，AI 会基于快照内容生成 skills.md 草稿。生成结果会直接写入文档内容并创建新版本。
       </p>
-      <el-select v-model="generateSnapshotId" placeholder="选择快照" style="width: 100%">
+      <ErrorState v-if="snapshotError" :message="snapshotError" @retry="loadSnapshots" />
+      <EmptyState
+        v-else-if="!snapshots.length"
+        message="该数据源没有可用的元数据快照。请先完成采集并发布快照，再生成知识草稿。"
+      />
+      <el-select v-else v-model="generateSnapshotId" placeholder="选择快照" style="width: 100%">
         <el-option
           v-for="item in snapshots"
           :key="item.id"

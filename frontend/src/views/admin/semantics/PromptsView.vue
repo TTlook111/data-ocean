@@ -14,6 +14,7 @@
  *   `enabled` 决定 getActiveContent 能否取到模板，停用后问数链路回退到内置默认模板。
  */
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CheckCircle2, Power, RefreshCw, RotateCcw, Save, Search, Send, XCircle } from 'lucide-vue-next'
 import {
@@ -43,13 +44,17 @@ const NODE_LABEL_MAP: Record<string, string> = {
   intent_recognition: '意图识别节点',
 }
 
+const route = useRoute()
+const router = useRouter()
+
 const templates = ref<PromptTemplateVO[]>([])
 const versions = ref<PromptVersionVO[]>([])
 const effectiveness = ref<PromptEffectivenessVO[]>([])
-const activeCode = ref('')
-const activeTab = ref('content')
+/** 选中模板与当前 Tab 由 URL 决定，刷新/分享/前进后退都能恢复（开发指导 §15、§8.3） */
+const activeCode = ref(String(route.query.code || ''))
+const activeTab = ref(String(route.query.tab || 'content'))
 const keyword = ref('')
-const analysisDays = ref(30)
+const analysisDays = ref(Number(route.query.days) || 30)
 const editContent = ref('')
 const changeSummary = ref('')
 
@@ -59,6 +64,9 @@ const saving = ref(false)
 const actionLoading = ref(false)
 const versionsLoading = ref(false)
 const effectLoading = ref(false)
+/** 版本历史与效果统计各自的错误态；接口失败必须渲染错误，不能降级成「暂无数据」 */
+const versionsError = ref('')
+const effectivenessError = ref('')
 
 const selected = computed(() => templates.value.find((item) => item.templateCode === activeCode.value) || null)
 const status = computed(() => selected.value?.status || 'DRAFT')
@@ -107,8 +115,15 @@ function formatTime(value?: number) {
   return ms >= 1000 ? `${(ms / 1000).toFixed(2)}s` : `${ms.toFixed(0)}ms`
 }
 
+/**
+ * 切换详情 Tab。
+ *
+ * 用 `push` 而不是 `replace`：开发指导 §15 要求「URL 刷新、前进和后退恢复」，
+ * 只有 push 才能让浏览器后退回到上一个 Tab。全站 Tab 统一切换语义。
+ */
 function selectTab(tab: string) {
   activeTab.value = tab
+  router.push({ query: { ...route.query, tab } })
   if (tab === 'versions' && !versions.value.length) loadVersions()
   if (tab === 'effectiveness' && !effectiveness.value.length) loadEffectiveness()
 }
@@ -139,8 +154,11 @@ async function loadTemplates(preferredCode?: string) {
 async function selectTemplate(code: string) {
   activeCode.value = code
   versions.value = []
+  versionsError.value = ''
+  effectivenessError.value = ''
   editContent.value = templates.value.find((item) => item.templateCode === code)?.content || ''
   changeSummary.value = ''
+  router.replace({ query: { ...route.query, code } })
   if (activeTab.value === 'versions') await loadVersions()
   if (activeTab.value === 'effectiveness') await loadEffectiveness()
 }
@@ -184,11 +202,14 @@ async function toggleEnabled() {
 async function loadVersions() {
   if (!activeCode.value) return
   versionsLoading.value = true
+  versionsError.value = ''
   try {
     versions.value = (await getPromptVersions(activeCode.value)).data || []
   } catch (cause) {
     versions.value = []
-    ElMessage.error(apiError(cause, '版本历史加载失败'))
+    // 接口失败必须呈现为错误态。此前只弹一次 toast 再置空数组，页面最终渲染成
+    // 「暂无版本记录」——把失败说成了空数据（§11.3、§18）。
+    versionsError.value = apiError(cause, '版本历史加载失败')
   } finally {
     versionsLoading.value = false
   }
@@ -196,11 +217,12 @@ async function loadVersions() {
 
 async function loadEffectiveness() {
   effectLoading.value = true
+  effectivenessError.value = ''
   try {
     effectiveness.value = (await getPromptEffectiveness(analysisDays.value)).data || []
   } catch (cause) {
     effectiveness.value = []
-    ElMessage.error(apiError(cause, '效果统计加载失败'))
+    effectivenessError.value = apiError(cause, '效果统计加载失败')
   } finally {
     effectLoading.value = false
   }
@@ -321,7 +343,24 @@ onMounted(() => {
 })
 
 watch(analysisDays, () => {
+  router.replace({ query: { ...route.query, days: String(analysisDays.value) } })
   if (activeTab.value === 'effectiveness') loadEffectiveness()
+})
+
+// 浏览器前进/后退或外部改 URL 时同步回组件状态（§15 要求前进后退可恢复）
+watch(() => route.query.tab, (value) => {
+  const next = String(value || 'content')
+  if (next === activeTab.value) return
+  activeTab.value = next
+  if (next === 'versions' && !versions.value.length) loadVersions()
+  if (next === 'effectiveness' && !effectiveness.value.length) loadEffectiveness()
+})
+
+watch(() => route.query.code, (value) => {
+  const next = String(value || '')
+  // 自身写入 URL 时不再回环；仅在 URL 指向别的模板时才切换
+  if (!next || next === activeCode.value) return
+  selectTemplate(next)
 })
 </script>
 
@@ -460,7 +499,8 @@ watch(analysisDays, () => {
               <div class="tab-actions">
                 <el-button :icon="RefreshCw" :loading="versionsLoading" @click="loadVersions">刷新版本</el-button>
               </div>
-              <LoadingState v-if="versionsLoading" variant="skeleton" :rows="4" />
+              <ErrorState v-if="versionsError" :message="versionsError" @retry="loadVersions" />
+              <LoadingState v-else-if="versionsLoading" variant="skeleton" :rows="4" />
               <EmptyState v-else-if="!versions.length" message="暂无版本记录。保存内容后会产生版本。" />
               <el-table v-else :data="versions" stripe>
                 <el-table-column label="版本" width="90"><template #default="{ row }">v{{ row.versionNo }}</template></el-table-column>
@@ -499,7 +539,8 @@ watch(analysisDays, () => {
                 </el-select>
                 <el-button :icon="RefreshCw" :loading="effectLoading" @click="loadEffectiveness">刷新统计</el-button>
               </div>
-              <LoadingState v-if="effectLoading" variant="skeleton" :rows="4" />
+              <ErrorState v-if="effectivenessError" :message="effectivenessError" @retry="loadEffectiveness" />
+              <LoadingState v-else-if="effectLoading" variant="skeleton" :rows="4" />
               <template v-else>
                 <section class="metric-row">
                   <div class="metric"><span>查询总数</span><strong>{{ summaryStats.totalQueries }}</strong></div>

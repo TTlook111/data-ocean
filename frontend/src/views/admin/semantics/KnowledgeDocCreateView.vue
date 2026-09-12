@@ -14,13 +14,18 @@ import type { DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
+import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
+import ErrorState from '../../../components/common/ErrorState.vue'
+import EmptyState from '../../../components/common/EmptyState.vue'
 
 const router = useRouter()
 const context = useAdminContextStore()
 
 const datasources = ref<DatasourceSimpleItem[]>([])
 const loadingDatasources = ref(true)
+/** 数据源加载失败的原因；此前 catch 静默吞掉，页面表现为「空下拉且无任何提示」 */
+const datasourcesError = ref('')
 const saving = ref(false)
 const form = reactive({ datasourceId: undefined as number | undefined, title: '', content: '' })
 
@@ -61,17 +66,23 @@ async function save() {
   }
 }
 
-onMounted(async () => {
+async function loadDatasources() {
+  loadingDatasources.value = true
+  datasourcesError.value = ''
   try {
     await context.initialize()
     datasources.value = context.datasources
     form.datasourceId = context.datasourceId
-  } catch {
+  } catch (cause) {
     datasources.value = []
+    // 必须显式呈现失败：静默置空会让用户以为「系统里没有数据源」（§11.3、§18）
+    datasourcesError.value = apiError(cause, '数据源加载失败')
   } finally {
     loadingDatasources.value = false
   }
-})
+}
+
+onMounted(loadDatasources)
 </script>
 
 <template>
@@ -93,7 +104,14 @@ onMounted(async () => {
       </template>
     </TaskPageHeader>
 
-    <LoadingState v-if="loadingDatasources" variant="skeleton" :rows="4" />
+    <ErrorState v-if="datasourcesError" :message="datasourcesError" @retry="loadDatasources" />
+    <LoadingState v-else-if="loadingDatasources" variant="skeleton" :rows="4" />
+    <EmptyState
+      v-else-if="!datasources.length"
+      message="当前没有可用的数据源，无法创建知识文档。请先在数据接入中创建数据源并完成采集与快照发布。"
+      action-text="去数据源接入"
+      @action="router.push('/admin/data-sources')"
+    />
 
     <section v-else class="knowledge-create-page__card">
       <el-form label-width="96px">
@@ -115,7 +133,10 @@ onMounted(async () => {
         </el-form-item>
       </el-form>
       <p class="knowledge-create-page__hint">
-        创建后文档处于草稿状态。完整流程是：编辑内容 → 提交审核 → 审核通过 → 发布并构建索引。
+        创建后文档处于
+        <BusinessStatusBadge status="DRAFT" />
+        状态。完整流程是：编辑内容 → 提交审核 → 审核通过 → 发布并构建索引。
+        审核通过与索引入库是两个独立阶段，发布成功并完成索引后才可被检索。
       </p>
     </section>
   </div>

@@ -22,12 +22,18 @@ import {
   rejectDoc,
   type KnowledgeDocItem,
 } from '../../../api/admin/knowledge'
-import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
+import {
+  getBatchDatasourceReadiness,
+  listSimpleDatasources,
+  type DatasourceReadiness,
+  type DatasourceSimpleItem,
+} from '../../../api/admin/datasource'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { getPublishedSnapshot, type VersionHistoryItem } from '../../../api/admin/versioning'
-import { knowledgeStatusLabel, knowledgeStatusType } from '../../../utils/enumLabels'
+import { knowledgeStatusLabel } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
+import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
@@ -49,6 +55,18 @@ const pageSize = 20
 
 const filters = reactive({ status: '', keyword: '' })
 const stats = reactive({ total: 0, published: 0, indexing: 0, pending: 0, draft: 0 })
+/** 统计口径来自服务端 total；失败时记录错误而不静默保留旧值（§11.3） */
+const statsError = ref('')
+/**
+ * 每个数据源的知识准备情况。
+ *
+ * 开发指导 §7.11 要求列表页展示「每个数据源的知识准备情况」，而不只是文档标题。
+ * 直接复用批量就绪度接口的 `knowledgeReady` / `publishedKnowledgeDocId` /
+ * `knowledgeVersion` —— 这些是后端算好的事实，前端不得重新拼装（§3.1）。
+ */
+const readinessList = ref<DatasourceReadiness[]>([])
+const readinessLoading = ref(false)
+const readinessError = ref('')
 let requestId = 0
 
 const datasourceId = computed(() => context.datasourceId)
@@ -70,10 +88,16 @@ function apiError(cause: unknown, fallback: string) {
   return message || (cause instanceof Error ? cause.message : fallback)
 }
 
+/**
+ * 切换 Tab。
+ *
+ * 用 `push` 而不是 `replace`：开发指导 §15 要求「URL 刷新、前进和后退恢复」，
+ * 只有 push 才能让浏览器后退回到上一个 Tab。全站 Tab 统一切换语义。
+ */
 function selectTab(tab: string) {
   activeTab.value = tab
   page.value = 1
-  router.replace({ query: { ...route.query, tab, page: undefined } })
+  router.push({ query: { ...route.query, tab, page: undefined } })
   loadDocs()
 }
 
@@ -103,6 +127,7 @@ async function loadDocs() {
 
 /** 各状态全量计数：分别按状态取 total，避免用当前分页数据推断全局 */
 async function loadStats() {
+  statsError.value = ''
   try {
     const base = { datasourceId: datasourceId.value, page: 1, pageSize: 1 }
     const [all, published, indexing, pending, draft] = await Promise.all([
@@ -119,8 +144,10 @@ async function loadStats() {
       pending: pending.data?.total || 0,
       draft: draft.data?.total || 0,
     })
-  } catch {
-    // 统计失败不阻断主列表；保持上一次数值但由 loading/error 区表达真实状态
+  } catch (cause) {
+    // 统计失败不阻断主列表，但必须说明统计不可用——不能让用户把「统计失败」
+    // 读成「全都是 0」（§11.3、§18）。
+    statsError.value = cause instanceof Error ? cause.message : '状态统计加载失败'
   }
 }
 
@@ -129,6 +156,26 @@ async function loadDatasources() {
     datasources.value = (await listSimpleDatasources()).data || []
   } catch {
     datasources.value = []
+  }
+  await loadReadiness()
+}
+
+/** 批量取各数据源的知识就绪度；知识准备情况总览的数据来源 */
+async function loadReadiness() {
+  if (!datasources.value.length) {
+    readinessList.value = []
+    return
+  }
+  readinessLoading.value = true
+  readinessError.value = ''
+  try {
+    const result = await getBatchDatasourceReadiness(datasources.value.map((item) => item.id))
+    readinessList.value = result.data
+  } catch (cause) {
+    readinessList.value = []
+    readinessError.value = cause instanceof Error ? cause.message : '数据源知识准备情况加载失败'
+  } finally {
+    readinessLoading.value = false
   }
 }
 
@@ -305,18 +352,72 @@ watch(() => route.query.page, (value) => {
       description="把已发布快照转成 skills.md，经过审核、发布和索引后进入 RAG。批准、索引和发布是三个不同阶段。"
     >
       <template #actions>
-        <el-button :icon="RefreshCw" :loading="loading" @click="loadDocs(); loadStats()">刷新</el-button>
+        <el-button :icon="RefreshCw" :loading="loading" @click="loadDocs(); loadStats(); loadReadiness()">刷新</el-button>
         <el-button :icon="Plus" @click="goCreate">手动新建</el-button>
         <el-button type="primary" :icon="Sparkles" @click="openGenerateDialog">AI 一键生成</el-button>
       </template>
     </TaskPageHeader>
 
-    <section class="knowledge-page__stats">
+    <ErrorState v-if="statsError" :message="statsError" @retry="loadStats" />
+    <section v-else class="knowledge-page__stats">
       <div class="stat"><span>文档总数</span><strong>{{ stats.total }}</strong></div>
       <div class="stat stat--success"><span>已发布（可检索）</span><strong>{{ stats.published }}</strong></div>
       <div class="stat stat--warning"><span>索引中</span><strong>{{ stats.indexing }}</strong></div>
       <div class="stat stat--warning"><span>待审核</span><strong>{{ stats.pending }}</strong></div>
       <div class="stat"><span>草稿</span><strong>{{ stats.draft }}</strong></div>
+    </section>
+
+    <!-- 每个数据源的知识准备情况（开发指导 §7.11） -->
+    <section class="knowledge-page__readiness">
+      <div class="knowledge-page__readiness-heading">
+        <div>
+          <h3>数据源知识准备情况</h3>
+          <p>
+            逐个数据源确认是否已有可检索的语义知识。知识需由已发布快照生成，并经审核、
+            索引、发布后才会进入 RAG 检索。
+          </p>
+        </div>
+        <el-button :icon="RefreshCw" :loading="readinessLoading" @click="loadReadiness">刷新准备情况</el-button>
+      </div>
+      <ErrorState v-if="readinessError" :message="readinessError" @retry="loadReadiness" />
+      <LoadingState v-else-if="readinessLoading" variant="skeleton" :rows="3" />
+      <EmptyState
+        v-else-if="!readinessList.length"
+        message="没有可用的数据源。请先在数据接入中创建数据源，再回到这里准备语义知识。"
+      />
+      <el-table v-else :data="readinessList" stripe size="small">
+        <el-table-column prop="datasourceName" label="数据源" min-width="150" />
+        <el-table-column label="知识状态" width="150">
+          <template #default="{ row }">
+            <BusinessStatusBadge
+              :status="row.knowledgeReady ? 'PUBLISHED' : 'DRAFT'"
+              :label="row.knowledgeReady ? '已发布可检索' : '尚未发布'"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column label="知识版本" width="100">
+          <template #default="{ row }">{{ row.knowledgeVersion ? 'v' + row.knowledgeVersion : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="当前阶段" width="130">
+          <template #default="{ row }">
+            <span class="knowledge-page__muted">{{ row.stageLabel || row.stage || '—' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="下一步" width="150">
+          <template #default="{ row }">
+            <RouterLink
+              v-if="row.publishedKnowledgeDocId"
+              class="knowledge-page__link"
+              :to="{ name: 'admin-semantic-knowledge-detail', params: { id: row.publishedKnowledgeDocId } }"
+            >查看已发布文档</RouterLink>
+            <RouterLink
+              v-else
+              class="knowledge-page__link"
+              :to="{ path: '/admin/semantics/knowledge', query: { datasourceId: String(row.datasourceId) } }"
+            >去准备知识</RouterLink>
+          </template>
+        </el-table-column>
+      </el-table>
     </section>
 
     <p v-if="!datasourceId" class="knowledge-page__scope-note">
@@ -376,7 +477,7 @@ watch(() => route.query.page, (value) => {
         </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
-            <el-tag :type="knowledgeStatusType(row.status)" size="small">{{ knowledgeStatusLabel(row.status) }}</el-tag>
+            <BusinessStatusBadge :status="row.status" :label="knowledgeStatusLabel(row.status)" />
           </template>
         </el-table-column>
         <el-table-column label="版本" width="82">
@@ -472,6 +573,27 @@ watch(() => route.query.page, (value) => {
 .stat--warning strong { color: var(--do-warning); }
 
 .knowledge-page__scope-note { margin: 0; padding: 10px 12px; border-radius: var(--do-radius-md); background: var(--do-bg); color: var(--do-muted); font-size: 12px; }
+
+.knowledge-page__readiness {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-surface);
+  box-shadow: var(--do-shadow);
+}
+.knowledge-page__readiness-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.knowledge-page__readiness-heading h3 { margin: 0; color: var(--do-ink); font-size: 15px; }
+.knowledge-page__readiness-heading p { margin: 5px 0 0; color: var(--do-muted); font-size: 12px; max-width: 720px; }
+.knowledge-page__link { color: var(--do-primary-strong); font-size: 12px; font-weight: 800; }
+.knowledge-page__muted { color: var(--do-muted); }
 .knowledge-page__scope-note.is-ok { background: var(--do-success-soft); color: var(--do-ink); }
 .knowledge-page__tab-note { margin: 0; color: var(--do-muted); font-size: 12px; }
 
