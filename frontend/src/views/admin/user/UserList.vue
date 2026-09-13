@@ -46,7 +46,7 @@ const departments = ref<DepartmentNode[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filtersReady = ref(false)
-let filterTimer: ReturnType<typeof setTimeout> | undefined
+let filterTimer: number | undefined
 
 const query = reactive<UserQuery>({
   page: 1,

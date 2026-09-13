@@ -7,6 +7,7 @@ import com.dataocean.module.metadata.entity.DbTableMeta;
 import com.dataocean.module.metadata.entity.TableRelation;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 质量校验器接口，每个维度实现一个 Checker
@@ -19,6 +20,19 @@ public interface QualityChecker {
      * @return 质量维度编码
      */
     String getDimension();
+
+    /**
+     * 获取该检查器覆盖的质量维度。
+     * <p>
+     * 普通检查器只负责一个维度；数据级检查器可以在同一轮中覆盖多个维度，
+     * 但仍按规则自身的维度参与筛选和计分。
+     * </p>
+     *
+     * @return 支持的质量维度集合
+     */
+    default Set<String> getSupportedDimensions() {
+        return Set.of(getDimension());
+    }
 
     /**
      * 执行质量校验并返回发现的问题。

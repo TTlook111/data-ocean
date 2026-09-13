@@ -2,6 +2,7 @@ package com.dataocean.module.knowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.persistence.OptimisticLockSupport;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.dto.KnowledgeReviewRecordVO;
 import com.dataocean.module.knowledge.dto.KnowledgeSourceSnapshotVO;
@@ -132,7 +133,9 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
         doc.setCurrentVersion(newVersionNo);
         doc.setContent(content);
         doc.setUpdatedBy(UserContext.currentUserId());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "文档版本已被其他人修改，请刷新后重试");
 
         log.info("创建文档版本成功 docId={} versionNo={} source={}", docId, newVersionNo, generationSource);
         return newVersionNo;
@@ -194,7 +197,9 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
         // 沿用上面的旧对象会把刚写入的版本号覆盖掉。
         KnowledgeDoc refreshedDoc = knowledgeDocMapper.selectById(docId);
         refreshedDoc.setStatus(DocStatus.INDEXING.name());
-        knowledgeDocMapper.updateById(refreshedDoc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(refreshedDoc),
+                "文档发布状态已被其他人修改，请刷新后重试");
         vectorIndexTaskService.createTask(
                 refreshedDoc.getDatasourceId(),
                 "DOC",

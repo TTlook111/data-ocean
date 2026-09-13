@@ -2,6 +2,7 @@ package com.dataocean.module.knowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.persistence.OptimisticLockSupport;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
 import com.dataocean.module.knowledge.client.PythonRagClient;
@@ -121,7 +122,9 @@ public class KnowledgeDocPublishService {
             latestDoc.setContent(draftContent);
             latestDoc.setCurrentVersion(version.getVersionNo());
             latestDoc.setUpdatedBy(UserContext.currentUserId());
-            knowledgeDocMapper.updateById(latestDoc);
+            OptimisticLockSupport.requireUpdated(
+                    knowledgeDocMapper.updateById(latestDoc),
+                    "知识文档已被其他人修改，请刷新后重试");
 
             log.info("AI 草稿生成成功 docId={} versionNo={}", docId, version.getVersionNo());
         });

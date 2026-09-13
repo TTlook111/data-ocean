@@ -1,5 +1,6 @@
 import axios from 'axios'
 import router from '../router'
+import { getHttpErrorMessage } from '../utils/httpError'
 
 export const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
@@ -20,6 +21,8 @@ let isRedirecting = false
 http.interceptors.response.use(
   (response) => response,
   (error) => {
+    // 统一替换 Axios 默认英文错误，页面现有的 `error.message` 读取也能得到中文业务提示。
+    error.message = getHttpErrorMessage(error)
     if (error.response?.status === 401 && !isRedirecting) {
       isRedirecting = true
       localStorage.removeItem('dataocean_token')

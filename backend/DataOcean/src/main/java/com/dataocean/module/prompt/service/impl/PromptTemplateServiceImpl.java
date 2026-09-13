@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.persistence.OptimisticLockSupport;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.prompt.enums.PromptStatus;
 import com.dataocean.module.audit.entity.QueryAuditLog;
@@ -104,10 +105,9 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
         template.setStatus(PromptStatus.DRAFT.name());
         template.setUpdatedAt(LocalDateTime.now());
-        int updated = templateMapper.updateById(template);
-        if (updated == 0) {
-            throw new BusinessException(409, "模板更新冲突，其他用户正在编辑，请刷新后重试");
-        }
+        OptimisticLockSupport.requireUpdated(
+                templateMapper.updateById(template),
+                "模板更新冲突，其他用户正在编辑，请刷新后重试");
 
         log.info("Prompt 模板更新 code={} newVersion={} status=DRAFT", code, newVersionNo);
         return toVO(template, true);
@@ -131,7 +131,9 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
         template.setStatus(PromptStatus.PENDING_REVIEW.name());
         template.setUpdatedAt(LocalDateTime.now());
-        templateMapper.updateById(template);
+        OptimisticLockSupport.requireUpdated(
+                templateMapper.updateById(template),
+                "模板审核状态已被其他人修改，请刷新后重试");
 
         log.info("Prompt 模板提交审核 code={}", code);
         return toVO(template, true);
@@ -168,7 +170,9 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         template.setStatus(PromptStatus.APPROVED.name());
         template.setEnabled(true);
         template.setUpdatedAt(LocalDateTime.now());
-        templateMapper.updateById(template);
+        OptimisticLockSupport.requireUpdated(
+                templateMapper.updateById(template),
+                "模板审核状态已被其他人修改，请刷新后重试");
 
         log.info("Prompt 模板审核通过 code={}", code);
         return toVO(template, true);
@@ -195,7 +199,9 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
         template.setStatus(PromptStatus.REJECTED.name());
         template.setUpdatedAt(LocalDateTime.now());
-        templateMapper.updateById(template);
+        OptimisticLockSupport.requireUpdated(
+                templateMapper.updateById(template),
+                "模板审核状态已被其他人修改，请刷新后重试");
 
         log.info("Prompt 模板审核拒绝 code={} reason={}", code, rejectReason);
         return toVO(template, true);
@@ -284,10 +290,9 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
         template.setStatus(PromptStatus.DRAFT.name());
         template.setUpdatedAt(LocalDateTime.now());
-        int updated = templateMapper.updateById(template);
-        if (updated == 0) {
-            throw new BusinessException(409, "模板回滚冲突，其他用户正在编辑，请刷新后重试");
-        }
+        OptimisticLockSupport.requireUpdated(
+                templateMapper.updateById(template),
+                "模板回滚冲突，其他用户正在编辑，请刷新后重试");
 
         log.info("Prompt 模板回滚生成草稿 code={} targetVersion={} draftVersion={}", code, request.getTargetVersionNo(), newVersionNo);
         return toVO(template, true);
@@ -315,7 +320,9 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         }
         template.setEnabled(enabled);
         template.setUpdatedAt(LocalDateTime.now());
-        templateMapper.updateById(template);
+        OptimisticLockSupport.requireUpdated(
+                templateMapper.updateById(template),
+                "模板启停状态已被其他人修改，请刷新后重试");
         log.info("Prompt 模板{} code={}", enabled ? "已启用" : "已停用", code);
         return toVO(template, true);
     }

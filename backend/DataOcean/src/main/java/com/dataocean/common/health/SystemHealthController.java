@@ -27,7 +27,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/system")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('*')")
+@PreAuthorize("hasAnyAuthority('*')")
 @Slf4j
 public class SystemHealthController {
 

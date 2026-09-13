@@ -3,6 +3,7 @@ package com.dataocean.common.config;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.reflection.MetaObject;
@@ -24,15 +25,17 @@ import java.time.LocalDateTime;
 public class MyBatisPlusConfig {
 
     /**
-     * 配置 MyBatis-Plus 分页拦截器
-     * <p>设置数据库类型为 MySQL，单页最大记录数为 100</p>
+     * 配置 MyBatis-Plus 乐观锁和分页拦截器。
+     * <p>乐观锁必须先于分页拦截器注册，分页拦截器保持最后执行。</p>
      *
      * @return MyBatis-Plus 拦截器实例
      */
     @Bean
     public MybatisPlusInterceptor mybatisPlusInterceptor() {
-        log.info("配置 MyBatis-Plus 分页插件 maxLimit=100");
+        log.info("配置 MyBatis-Plus 乐观锁和分页插件 maxLimit=100");
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
+        // @Version 实体依赖该拦截器生成 version 条件并回写递增后的版本号。
+        interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
         // 创建分页内置拦截器，指定 MySQL 方言
         PaginationInnerInterceptor pagination = new PaginationInnerInterceptor(DbType.MYSQL);
         // 限制单页最大查询 100 条，防止一次性拉取过多数据

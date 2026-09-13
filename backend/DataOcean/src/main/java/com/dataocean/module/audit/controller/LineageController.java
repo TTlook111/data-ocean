@@ -23,7 +23,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/lineage")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('audit:view')")
+@PreAuthorize("hasAnyAuthority('audit:view', '*')")
 @Slf4j
 public class LineageController {
 

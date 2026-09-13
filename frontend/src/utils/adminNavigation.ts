@@ -1,11 +1,6 @@
 import type { RouteLocationRaw } from 'vue-router'
 import { ADMIN_WORKSPACES, type AdminContextMode } from '../router/adminNavigation'
 
-interface ReadinessActionResult {
-  to: RouteLocationRaw
-  known: boolean
-}
-
 /**
  * 可跨工作区继承的后台上下文。
  *
@@ -47,44 +42,42 @@ export function findWorkspaceContextMode(path: string): AdminContextMode | undef
 }
 
 /**
- * 后端 `blockReasons.actionPath` 的旧路径到新前端的集中映射。
+ * 将 readiness 状态码落到当前正式工作区。
  *
- * 每个目标按自己的 `contextMode` 声明接受哪些上下文参数——这是本文件唯一的转换入口，
- * 各页面不得再自行拼装（《实施任务清单》§4）。
+ * 后端历史 actionPath 属于旧后台 URL，正式前端不再依赖或兼容它；动作目标由状态码
+ * 表达的业务阶段决定，并按目标工作区的 contextMode 构造上下文参数。
  */
-const PATH_TARGETS: Record<string, (context: AdminContextSource) => RouteLocationRaw> = {
-  // 后端该 actionPath 指向数据源「列表」。前端已知道具体数据源 ID，直接落到详情页，
-  // 免得用户还要在列表里再定位一次（后端事实问题清单 §8 的 C2）。
-  // 注：数据源列表页并不消费 `focus` 参数，所以不再拼它。
-  '/admin/datasources': ({ datasourceId }) => (
-    datasourceId
-      ? { path: `/admin/data-sources/${datasourceId}` }
-      : { path: '/admin/data-sources' }
-  ),
-  // /admin/releases 的 contextMode 是 datasource，不接受 snapshotId。
-  '/admin/metadata/lifecycle': (context) => ({
-    path: '/admin/releases',
-    query: buildContextQuery('datasource', context),
-  }),
-  // /admin/governance/issues 的 contextMode 是 datasource-snapshot，接受 snapshotId——
-  // 治理阻塞问题按已发布快照统计，不带 snapshotId 会落到错误范围。
-  '/admin/governance/issues': (context) => ({
-    path: '/admin/governance/issues',
-    query: buildContextQuery('datasource-snapshot', context),
-  }),
-  '/admin/knowledge/review': (context) => ({
-    path: '/admin/semantics/knowledge',
-    query: { tab: 'review', ...buildContextQuery('datasource', context) },
-  }),
-  '/admin/permission/access': (context) => ({
-    path: '/admin/access',
-    query: { tab: 'grants', ...buildContextQuery('datasource', context) },
-  }),
+export function resolveReadinessAction(
+  code: string | undefined,
+  context: AdminContextSource = {},
+): RouteLocationRaw | undefined {
+  switch (code) {
+    case 'DATASOURCE_DISABLED':
+    case 'CONNECTION_NOT_HEALTHY':
+      return context.datasourceId
+        ? { path: `/admin/data-sources/${context.datasourceId}` }
+        : { path: '/admin/data-sources' }
+    case 'SNAPSHOT_NOT_PUBLISHED':
+      return { path: '/admin/releases', query: buildContextQuery('datasource', context) }
+    case 'BLOCKING_GOVERNANCE_ISSUES':
+      return { path: '/admin/governance/issues', query: buildContextQuery('datasource-snapshot', context) }
+    case 'KNOWLEDGE_NOT_PUBLISHED':
+      return {
+        path: '/admin/semantics/knowledge',
+        query: { tab: 'review', ...buildContextQuery('datasource', context) },
+      }
+    case 'QUERY_PERMISSION_NOT_CONFIGURED':
+      return {
+        path: '/admin/access',
+        query: { tab: 'grants', ...buildContextQuery('datasource', context) },
+      }
+    default:
+      return undefined
+  }
 }
 
 /**
- * 取某个业务域的首个工作区，作为「未映射 actionPath」的安全落点
- * （《实施任务清单》§4「提供返回对应业务域首页的安全入口」）。
+ * 取某个业务域的首个工作区，作为未知 readiness 状态的安全落点。
  * 该域没有二级工作区时（如工作台）回落到工作台本身。
  */
 export function findDomainHome(domainKey: string): { path: string; label: string } {
@@ -92,29 +85,4 @@ export function findDomainHome(domainKey: string): { path: string; label: string
   return workspace
     ? { path: workspace.path, label: workspace.label }
     : { path: '/admin/workbench', label: '工作台' }
-}
-
-/**
- * 把 readiness 的 `actionPath` 解析为新前端路由。
- *
- * **调用方必须先判断 `known`。** `known` 为 false 表示该路径未映射，此时 `to` 只是
- * 占位值，不得直接导航——按《实施任务清单》§4，未知路径不得猜测，应显示操作文案
- * 并提供安全入口（用 {@link findDomainHome}），同时已记录日志供后续补充映射。
- */
-export function resolveReadinessActionPath(
-  actionPath?: string,
-  context: AdminContextSource = {},
-): ReadinessActionResult {
-  if (!actionPath) {
-    return { to: '/admin/workbench', known: false }
-  }
-
-  const [pathname] = actionPath.split('?')
-  const resolver = PATH_TARGETS[pathname]
-  if (!resolver) {
-    console.warn('[DataOcean] 未映射的 readiness actionPath:', actionPath)
-    return { to: '/admin/workbench', known: false }
-  }
-
-  return { to: resolver(context), known: true }
 }

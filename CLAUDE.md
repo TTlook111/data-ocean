@@ -107,7 +107,7 @@ Recently completed or verified:
 - **阶段七：事件驱动已完成**（2026-06-14）：(1) 创建 metadata_change_event 表（V41 迁移），记录元数据实体变更历史；(2) 实现 MetadataChangeEventService 事件记录服务；(3) 集成到 SnapshotEntitySyncListener，快照发布时自动记录变更事件；(4) 创建 access_approval_request 表（V41 迁移），支持数据访问审批流程；(5) 实现 AccessApprovalService 审批服务（提交→审批→生成临时 ALLOW 策略→过期自动清理）；(6) 实现 AccessApprovalController 审批 API；(7) 安全约束：BLOCKED/DEPRECATED 表列不允许申请访问，临时策略有有效期和审计记录。详见 `docs/development/completed/DataOcean统一执行路线图.md`。
 - **七个重构阶段全部完成**（2026-06-14）：统一路线图的七个重构阶段（权限治理修复、RAG 重构、实体关系图谱、业务术语表、分类标签与质量深化、权限增强、事件驱动）已全部完成并通过测试。后续新增功能另见 `docs/development/DataOcean后台重构状态与整改计划.md`。
 - **P1 通知系统完善完成**（2026-06-21）：新增前端通知铃铛、未读角标、通知下拉和 `frontend/src/api/notification.ts`；字段群体阈值、快照发布/过期事件已接入系统通知，管理员和相关操作人会收到定向通知。
-- **P2 操作日志前端接入完成**（2026-06-21）：新增 `frontend/src/api/admin/operation-log.ts`、`OperationLogList.vue`、`/admin/system/operation-logs` 路由和系统设置二级工作区入口，复用后端 `OperationLogController`，权限沿用 `audit:view`。
+- **P2 操作日志前端接入完成**（2026-06-21）：新增 `frontend/src/api/admin/operation-log.ts`、`OperationLogList.vue`、`/admin/platform/operation-logs` 路由和运营与平台二级工作区入口，复用后端 `OperationLogController`，权限沿用 `audit:view`。
 - **数据源授权语义补齐**：`V42__datasource_access_effect.sql` 已加入，使数据源授权的 allow/deny 决策显式化。
 - **智能问数链路已跑通**（2026-06-13）：完整链路测试成功，包括 RAG 检索、SQL 生成、SQL 校验、SQL 执行、图表生成。修复了 Milvus 连接兼容性、SQL 分号校验、Decimal 序列化等问题。详见 `docs/development/completed/智能问数链路诊断报告.md`。
 - **F0 排雷任务已完成**（2026-06-13）：按审查报告第十二章实施 17 项代码修复，包括向量化 force 模式安全修复、内部路由统一认证、表白名单空值语义、Prompt 注入防护、危险函数黑名单补齐、retry_count 边界修复、VectorStore 缓存、reranker 分数 clamp、SSE 解析完善、LLM/Embedding 初始化竞态修复、配置热重载竞态修复、连接池清理 TOCTOU 修复等。12.3 设计改进建议暂未实施。
@@ -388,16 +388,16 @@ Frontend routes are split between business-oriented domains:
 
 - `/query`: user-facing intelligent query flow.
 - `/admin/*`: the admin app uses `AdminShell.vue` with seven first-level business domains: 工作台、数据接入、数据资产、数据治理、语义中心、权限与组织、运营与平台.
-- The current code exposes secondary feature pages through a content-area workspace bar, but the approved Track A remediation moves both first-level domains and second-level workspaces into the sidebar. `router/adminNavigation.ts` (`ADMIN_WORKSPACES`) remains the route metadata source.
+- The current code places both first-level domains and second-level workspaces in the desktop sidebar; `router/adminNavigation.ts` (`ADMIN_WORKSPACES`) remains the route metadata source. The content area has no global secondary workspace bar.
 - New admin pages must follow `docs/development/DataOcean后台重构状态与整改计划.md` before adding routes or navigation entries.
 - Target admin routes remain `/admin/workbench`、`/admin/data-sources`、`/admin/collections`、`/admin/assets`、`/admin/releases`、`/admin/governance/*`、`/admin/semantics/*`、`/admin/access/*`、`/admin/operations/*`、`/admin/platform/*`.
-- Legacy URLs (`/admin/datasources`、`/admin/metadata/*`、`/admin/knowledge/*`、`/admin/permission/*`、`/admin/system/*`、`/admin/users`、`/admin/roles`、`/admin/departments`) are kept as redirects that preserve object IDs and query parameters. Do not add new links to them.
-- The admin frontend refactor stage status (as of 2026-09-12):
-  - **Stages 0–8 are implemented in code, but Track A acceptance failed.** The single current status and remediation list is `docs/development/DataOcean后台重构状态与整改计划.md`; raw browser evidence remains under `output/playwright/`.
+- Legacy admin URLs are intentionally not compatible with the current information architecture. They are not emitted by active frontend/backend code and should resolve to the unified NotFound/404 behavior. Use only the formal routes in `frontend/src/router/index.ts` and `frontend/src/router/adminNavigation.ts`.
+- The admin frontend refactor stage status (as of 2026-09-13):
+  - **Stages 0–8 and Track A are implemented and passed real desktop acceptance.** The single current status and evidence index is `docs/development/DataOcean后台重构状态与整改计划.md`; raw browser evidence remains under `output/playwright/`.
   - Stages 6–7 (`/admin/access`, `/admin/operations/*`, `/admin/platform/*`) were **rebuilt** to the §7.13–§7.18 target design, not patched. Before that they were the pre-refactor implementations — e.g. `AccessControl.vue` had no `el-tab-pane` at all while §7.13 requires three fixed tabs. Stage 8 then deleted 27 superseded files (24 unreachable code files + dead assets); a re-run of the reachability check reports **0 unreachable code files**.
   - ⚠️ **Do not infer stage completion from file existence, file size, or route reachability.** On 2026-09-12 this exact inference was made and written into the status docs, and it was wrong; it was corrected by the project owner. Judge completion by checking against the target design in the guide, item by item.
-  - ⚠️ **"Implemented in code" is not "verified".** A real-data browser walkthrough was executed on 2026-09-13 and produced 70 screenshots, but Track A failed because of 500/400/403 responses, query datasource context drift, and an incomplete suggested-questions chain. Do not write the refactor as accepted until the remediation document's pass criteria are met.
-- The 9 frontend defects identified on 2026-09-11 were fixed in code on 2026-09-12. Runtime coverage remains partial; use `docs/development/DataOcean后台重构状态与整改计划.md` for the current acceptance boundary.
+  - **Runtime verification:** the final 2026-09-13 browser walkthrough used a 1440×1000 desktop viewport, covered 45 page scenarios and 38 assertions, and recorded no unexplained console/page/request errors. Three explicitly unreachable F7/F8/F9 branches remain documented as code-level boundaries.
+- The 9 frontend defects identified on 2026-09-11 and the Track A runtime blockers were fixed and verified on 2026-09-13. Use `docs/development/DataOcean后台重构状态与整改计划.md` for the current acceptance boundary.
 
 The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`. It also checks `/api/datasources/{datasourceId}/readiness` so users can only ask against sources whose lifecycle is ready.
 

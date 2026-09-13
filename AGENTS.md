@@ -60,7 +60,7 @@ Important boundaries:
 
 ## Current Status
 
-Last updated: 2026-09-07.
+Last updated: 2026-09-13.
 
 The main end-to-end chain is implemented and has been run through:
 
@@ -108,6 +108,7 @@ Current status, Track A remediation details, and admin navigation rules live in 
 - **P6 operation log coverage completed** (2026-08-14): 13 admin controllers annotated with `@AdminAuditLog` (governance, snapshot publish/review, glossary, skills.md, alerts, access approval, AI config, sync schedule, roles/permissions/departments). `AdminAuditLog` gained a `logReads` attribute so read-heavy controllers (catalog/collection) only log writes. `OperationLogAspect` now extracts `targetId` from the path and the self-referential `OperationLogController` annotation was removed. The operation-log list supports multi-condition query (`operatorName`, `operationType`, `isSuccess`, time range, `ipAddress`, `requestPath`, target resource/ID, `keyword`) via `OperationLogQueryDTO` + dynamic `LambdaQueryWrapper`, with a frontend filter bar in `OperationLogList.vue`. Frontend `npm run build` passes; Java unit tests have since passed in the 2026-08-31 full verification.
 - **Phase 0-3 深度优化完成**（2026-07-24）：18 项优化全链路实施，详见 `docs/development/DataOcean深度优化参考方案.md`。覆盖：Embedding/术语表/Fallback/密码/权限 Redis 缓存体系、列级 Schema Linking、SQL-to-Schema 幻觉检测、置信度读时衰减与治理联动、Few-shot embedding 升级、LLM 执行反馈自校正、列元数据采样值采集、Agent 图并行 fan-out、自动标签 PII 检测、质量评分聚合、大结果集 SSE 分块传输。新增 V44（`metadata_quality_issue.column_meta_id`）、V45（`db_column_meta.sample_values`）数据库迁移。
 - **RAG 文档与切分修复完成基础实现**（2026-08-31）：skills.md 模板不再把字段名推测、未审核指标或 Join 当作事实；Python chunker 按语义单元和 token 预算切分（目标 900、最大 1000、overlap 150），保留短语义单元并传递 `chunk_index`/`chunk_group_id`/多表多字段/entity/trust/hash metadata；Milvus 检索补齐 `embedding` 字段和 IP 度量校验及相邻 chunk 扩展；fallback 绑定 active snapshot、按问题隔离缓存并支持中文排序；新增 V50 `knowledge_chunk` metadata 迁移。详见 `docs/development/completed/DataOcean-RAG问题修复与知识文档切分优化方案.md`。
+- **轨道 A 运行时整改与真实验收完成**（2026-09-13）：补齐 MyBatis-Plus 乐观锁与冲突 409、Java→Python 统一内部令牌及 SSE 原始流消费、质量检查真实闭环、超级管理员 `*` Controller 语义、正式侧栏两级导航、问数数据源上下文与推荐问题历史恢复；Python 修复失败结果传播、并行 Agent 状态冲突、Embedding 供应商批次上限、内部回环 HTTP 代理和列级血缘字段协议；真实桌面浏览器验收已通过。
 
 ## Core Domain Concepts
 
@@ -265,12 +266,12 @@ Frontend routes are split between business-oriented domains:
 
 - `/query`: user-facing intelligent query flow.
 - `/admin/*`: admin app uses seven first-level business domains in `AdminShell.vue`: 工作台、数据接入、数据资产、数据治理、语义中心、权限与组织、运营与平台.
-- The approved Track A target places first-level domains and second-level workspaces together in the left sidebar. The current content-area `AdminWorkspaceNav` is pending removal/migration; do not extend it as the future navigation pattern.
+- Track A places first-level domains and second-level workspaces together in the desktop left sidebar. `AdminWorkspaceNav.vue` has been removed; do not restore a content-area global workspace bar.
 - New admin pages must follow the domain/workspace ownership and two-level sidebar rules in `docs/development/DataOcean后台重构状态与整改计划.md` before adding routes or navigation entries.
-- `/admin/metadata/catalog`: metadata catalog search and entity graph entry.
-- `/admin/glossary/list`: glossary management.
-- `/admin/system/operation-logs`: operation log management.
-- `/admin/system/ai-config`: AI provider/model/embedding configuration.
+- `/admin/assets`: metadata catalog search and entity graph entry.
+- `/admin/semantics/glossaries`: glossary management.
+- `/admin/platform/operation-logs`: operation log management.
+- `/admin/platform/ai`: AI provider/model/embedding configuration.
 
 The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`. It also checks `/api/datasources/{datasourceId}/readiness` so users can only ask against sources whose lifecycle is ready.
 

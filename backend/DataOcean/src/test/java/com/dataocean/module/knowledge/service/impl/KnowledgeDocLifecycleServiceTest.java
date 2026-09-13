@@ -68,6 +68,7 @@ class KnowledgeDocLifecycleServiceTest {
     @Test
     void approveWritesReviewStatusOntoVersionRow() {
         setLoginUser();
+        stubSuccessfulDocumentUpdate();
         KnowledgeDoc doc = knowledgeDoc("2", DocStatus.PENDING_REVIEW);
         KnowledgeDocVersion version = version(200L, 2);
         when(helper.requireDoc(1L)).thenReturn(doc);
@@ -90,6 +91,7 @@ class KnowledgeDocLifecycleServiceTest {
     @Test
     void rejectWritesRejectedReviewStatusOntoVersionRow() {
         setLoginUser();
+        stubSuccessfulDocumentUpdate();
         KnowledgeDoc doc = knowledgeDoc("2", DocStatus.PENDING_REVIEW);
         KnowledgeDocVersion version = version(200L, 2);
         when(helper.requireDoc(1L)).thenReturn(doc);
@@ -106,6 +108,7 @@ class KnowledgeDocLifecycleServiceTest {
     @Test
     void approveStillSucceedsWhenVersionRowIsMissing() {
         setLoginUser();
+        stubSuccessfulDocumentUpdate();
         KnowledgeDoc doc = knowledgeDoc("2", DocStatus.PENDING_REVIEW);
         when(helper.requireDoc(1L)).thenReturn(doc);
         // 版本行缺失属数据异常，不应阻断审核本身——文档主表状态已经更新
@@ -132,6 +135,10 @@ class KnowledgeDocLifecycleServiceTest {
                 .hasMessageContaining("只有待审核状态的文档才能审核");
 
         verify(knowledgeReviewTaskMapper, never()).insert(any(KnowledgeReviewTask.class));
+    }
+
+    private void stubSuccessfulDocumentUpdate() {
+        when(knowledgeDocMapper.updateById(any(KnowledgeDoc.class))).thenReturn(1);
     }
 
     private KnowledgeDoc knowledgeDoc(String currentVersion, DocStatus status) {

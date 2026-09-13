@@ -182,12 +182,6 @@ const router = createRouter({
           meta: { title: '新建知识文档', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource', breadcrumbParent: '/admin/semantics/knowledge' },
         },
         {
-          // 版本已合并为知识详情的一个 Tab，保留旧 URL 并保留路由名以兼容历史引用
-          path: 'semantics/knowledge/:id/versions',
-          name: 'admin-semantic-knowledge-versions',
-          redirect: (to) => ({ path: '/admin/semantics/knowledge/' + to.params.id, query: { ...to.query, tab: 'versions' } }),
-        },
-        {
           path: 'semantics/knowledge/:id',
           name: 'admin-semantic-knowledge-detail',
           component: KnowledgeDocView,
@@ -247,68 +241,6 @@ const router = createRouter({
           component: AiConfig,
           meta: { title: 'AI 配置', domainKey: 'operations', workspaceKey: 'ai', contextMode: 'none' },
         },
-        { path: 'datasources', redirect: (to) => ({ path: '/admin/data-sources', query: to.query }) },
-        { path: 'datasources/:id/lifecycle', redirect: (to) => ({ path: '/admin/data-sources/' + to.params.id, query: to.query }) },
-        { path: 'metadata/sync', redirect: (to) => ({ path: '/admin/collections', query: to.query }) },
-        { path: 'metadata/schedule', redirect: (to) => ({ path: '/admin/collections', query: { ...to.query, tab: 'schedule' } }) },
-        { path: 'metadata/catalog', redirect: (to) => ({ path: '/admin/assets', query: to.query }) },
-        { path: 'metadata/tables', redirect: (to) => ({ path: '/admin/assets', query: { ...to.query, view: 'tables' } }) },
-        { path: 'metadata/lifecycle', redirect: (to) => ({ path: '/admin/releases', query: to.query }) },
-        { path: 'metadata/snapshots', redirect: (to) => ({ path: '/admin/releases', query: to.query }) },
-        { path: 'metadata/version-history', redirect: (to) => ({ path: '/admin/releases', query: { ...to.query, tab: 'history' } }) },
-        {
-          path: 'metadata/diff',
-          redirect: (to) => {
-            const oldId = Number(to.query.oldId)
-            const newId = Number(to.query.newId)
-            if (oldId && newId) {
-              const { oldId: _oldId, newId: _newId, ...query } = to.query
-              return {
-                name: 'admin-snapshot-diff',
-                params: { snapshotId: String(oldId), compareId: String(newId) },
-                query,
-              }
-            }
-            return { path: '/admin/releases', query: { ...to.query, tab: 'diff' } }
-          },
-        },
-        { path: 'governance/quality', redirect: (to) => ({ path: '/admin/governance', query: to.query }) },
-        { path: 'governance/status', redirect: (to) => ({ path: '/admin/governance/rules', query: { ...to.query, tab: 'status' } }) },
-        { path: 'field/tags', redirect: (to) => ({ path: '/admin/governance/fields', query: { ...to.query, tab: 'tags' } }) },
-        { path: 'field/confidence', redirect: (to) => ({ path: '/admin/governance/fields', query: { ...to.query, tab: 'confidence' } }) },
-        { path: 'field/feedback-review', redirect: (to) => ({ path: '/admin/governance/fields', query: { ...to.query, tab: 'feedback' } }) },
-        { path: 'glossary/list', redirect: (to) => ({ path: '/admin/semantics/glossaries', query: to.query }) },
-        { path: 'knowledge', redirect: (to) => ({ path: '/admin/semantics/knowledge', query: to.query }) },
-        { path: 'knowledge/editor/:id?', redirect: (to) => (to.params.id
-          ? { path: '/admin/semantics/knowledge/' + to.params.id, query: { ...to.query, tab: 'content' } }
-          : { path: '/admin/semantics/knowledge/new', query: to.query }) },
-        { path: 'knowledge/versions/:id', redirect: (to) => ({ path: '/admin/semantics/knowledge/' + to.params.id + '/versions', query: to.query }) },
-        {
-          // 审核队列已合并为语义知识工作区的 Tab，旧 URL 保留重定向与路由名
-          path: 'knowledge/review',
-          name: 'admin-knowledge-review',
-          redirect: (to) => ({ path: '/admin/semantics/knowledge', query: { ...to.query, tab: 'review' } }),
-        },
-        { path: 'prompts', redirect: (to) => ({ path: '/admin/semantics/prompts', query: to.query }) },
-        { path: 'permission/access', redirect: (to) => ({ path: '/admin/access', query: { ...to.query, tab: 'grants' } }) },
-        {
-          // 表列策略已并入授权管理工作区的 Tab（开发指导 §7.13）。
-          // 原为独立页面且挂在非冻结路由上，导航中没有任何入口，是孤儿页。
-          path: 'permission/policies',
-          name: 'admin-permission-policies',
-          redirect: (to) => ({ path: '/admin/access', query: { ...to.query, tab: 'policies' } }),
-        },
-        { path: 'users', redirect: (to) => ({ path: '/admin/access/organization', query: { ...to.query, tab: 'users' } }) },
-        { path: 'roles', redirect: (to) => ({ path: '/admin/access/organization', query: { ...to.query, tab: 'roles' } }) },
-        { path: 'departments', redirect: (to) => ({ path: '/admin/access/organization', query: { ...to.query, tab: 'departments' } }) },
-        { path: 'audit/logs', redirect: (to) => ({ path: '/admin/operations/queries', query: { ...to.query, tab: 'audit' } }) },
-        { path: 'audit/slow-queries', redirect: (to) => ({ path: '/admin/operations/queries', query: { ...to.query, tab: 'performance' } }) },
-        { path: 'audit/data-lineage', redirect: (to) => ({ path: '/admin/operations/lineage', query: to.query }) },
-        { path: 'audit/lineage', redirect: (to) => ({ path: '/admin/operations/lineage', query: to.query }) },
-        { path: 'audit/lineage-graph', redirect: (to) => ({ path: '/admin/operations/lineage', query: to.query }) },
-        { path: 'system/health', redirect: (to) => ({ path: '/admin/platform/runtime', query: to.query }) },
-        { path: 'system/operation-logs', redirect: (to) => ({ path: '/admin/platform/operation-logs', query: to.query }) },
-        { path: 'system/ai-config', redirect: (to) => ({ path: '/admin/platform/ai', query: to.query }) },
       ],
     },
     {

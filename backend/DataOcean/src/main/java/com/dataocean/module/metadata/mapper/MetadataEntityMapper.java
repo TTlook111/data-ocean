@@ -46,6 +46,7 @@ public interface MetadataEntityMapper extends BaseMapper<MetadataEntity> {
      * </p>
      */
     @Select("""
+            <script>
             SELECT *, MATCH(name, display_name, description) AGAINST(#{query} IN NATURAL LANGUAGE MODE) AS relevance
             FROM metadata_entity
             WHERE MATCH(name, display_name, description) AGAINST(#{query} IN NATURAL LANGUAGE MODE)
@@ -57,6 +58,7 @@ public interface MetadataEntityMapper extends BaseMapper<MetadataEntity> {
             </if>
             ORDER BY relevance DESC
             LIMIT #{limit} OFFSET #{offset}
+            </script>
             """)
     List<MetadataEntity> fullTextSearch(@Param("query") String query,
                                          @Param("entityType") String entityType,

@@ -79,6 +79,7 @@ class KnowledgeVersionServiceImplTest {
     @Test
     void rollbackUsesCurrentlyIndexedVersionAsPreviousVectorVersion() {
         setLoginUser();
+        stubSuccessfulDocumentUpdate();
         long docId = 99L;
         KnowledgeDocVersion targetVersion = KnowledgeDocVersion.builder()
                 .docId(docId)
@@ -128,6 +129,7 @@ class KnowledgeVersionServiceImplTest {
     @Test
     void rollbackMarksNewVersionAsApprovedWithOperatorAsReviewer() {
         setLoginUser();
+        stubSuccessfulDocumentUpdate();
         long docId = 99L;
         KnowledgeDocVersion targetVersion = KnowledgeDocVersion.builder()
                 .docId(docId)
@@ -216,6 +218,7 @@ class KnowledgeVersionServiceImplTest {
     @Test
     void createVersionWritesPendingReviewStatus() {
         setLoginUser();
+        stubSuccessfulDocumentUpdate();
         long docId = 99L;
         KnowledgeDoc doc = KnowledgeDoc.builder()
                 .id(docId)
@@ -335,5 +338,9 @@ class KnowledgeVersionServiceImplTest {
                 loginUser.getAuthorities()
         );
         SecurityContextHolder.getContext().setAuthentication(authentication);
+    }
+
+    private void stubSuccessfulDocumentUpdate() {
+        when(knowledgeDocMapper.updateById(any(KnowledgeDoc.class))).thenReturn(1);
     }
 }

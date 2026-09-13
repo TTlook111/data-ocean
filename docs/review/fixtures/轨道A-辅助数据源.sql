@@ -1,6 +1,8 @@
 -- 轨道 A 浏览器验收的辅助数据源夹具
 -- 用于双数据源上下文隔离和浏览器创建数据源场景。
 
+SET NAMES utf8mb4;
+
 CREATE DATABASE IF NOT EXISTS dataocean_acceptance_alt
     CHARACTER SET utf8mb4
     COLLATE utf8mb4_unicode_ci;

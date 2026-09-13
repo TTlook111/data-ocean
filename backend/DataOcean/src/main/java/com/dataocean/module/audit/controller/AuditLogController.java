@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/admin/audit-logs")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('audit:view')")
+@PreAuthorize("hasAnyAuthority('audit:view', '*')")
 @AdminAuditLog
 @Slf4j
 public class AuditLogController {

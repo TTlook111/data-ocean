@@ -24,7 +24,7 @@ from ..state import AgentState
 
 logger = logging.getLogger(__name__)
 
-JAVA_BASE_URL = os.getenv("JAVA_GATEWAY_URL", "http://localhost:8080")
+JAVA_BASE_URL = os.getenv("JAVA_GATEWAY_URL", "http://127.0.0.1:8080")
 INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "dataocean-internal-default")
 
 
@@ -177,7 +177,7 @@ async def _fetch_relationships_batch(entity_ids: list[int]) -> dict[int, list[di
     semaphore = asyncio.Semaphore(min(8, len(entity_ids)))
     headers = {"X-Internal-Token": INTERNAL_TOKEN}
 
-    async with httpx.AsyncClient(timeout=3.0) as client:
+    async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
         async def fetch(entity_id: int) -> tuple[int, list[dict]]:
             async with semaphore:
                 try:
@@ -208,7 +208,7 @@ async def _fetch_relationships(entity_id: int) -> list[dict]:
         url = f"{JAVA_BASE_URL}/internal/metadata/entities/{entity_id}/relationships"
         params = {"relationType": "FOREIGN_KEY,LINEAGE,DERIVED_FROM"}
         headers = {"X-Internal-Token": INTERNAL_TOKEN}
-        async with httpx.AsyncClient(timeout=3.0) as client:
+        async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
             response = await client.get(url, params=params, headers=headers)
             response.raise_for_status()
             data = response.json()

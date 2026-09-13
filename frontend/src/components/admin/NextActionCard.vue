@@ -3,11 +3,12 @@ import { ArrowRight, CircleAlert } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import type { DatasourceReadinessReason } from '../../api/admin/datasource'
-import { findDomainHome, resolveReadinessActionPath } from '../../utils/adminNavigation'
+import { findDomainHome, resolveReadinessAction } from '../../utils/adminNavigation'
 
 const props = withDefaults(defineProps<{
   reasons?: DatasourceReadinessReason[]
   datasourceId?: number
+  snapshotId?: number
   emptyText?: string
 }>(), {
   reasons: () => [],
@@ -16,13 +17,18 @@ const props = withDefaults(defineProps<{
 
 const route = useRoute()
 
-// actionPath 未映射时的安全落点：当前业务域的首个工作区。
+// 未知 readiness 状态码的安全落点：当前业务域的首个工作区。
 // 不猜测目标，也不把 actionText 当作链接文案指向别处（文案与目标不符）。
 const domainHome = computed(() => findDomainHome(String(route.meta.domainKey || '')))
 
 const actions = computed(() => props.reasons.map((reason) => {
-  const target = resolveReadinessActionPath(reason.actionPath, { datasourceId: props.datasourceId })
-  return { reason, to: target.to, known: target.known }
+  return {
+    reason,
+    to: resolveReadinessAction(reason.code, {
+      datasourceId: props.datasourceId,
+      snapshotId: props.snapshotId,
+    }),
+  }
 }))
 </script>
 
@@ -42,7 +48,7 @@ const actions = computed(() => props.reasons.map((reason) => {
           <strong>{{ item.reason.message }}</strong>
           <span>责任角色：{{ item.reason.ownerRole || '未指定' }}</span>
         </div>
-        <RouterLink v-if="item.known" class="next-action-card__action" :to="item.to">
+        <RouterLink v-if="item.to" class="next-action-card__action" :to="item.to">
           {{ item.reason.actionText || '去处理' }}
           <ArrowRight :size="15" />
         </RouterLink>

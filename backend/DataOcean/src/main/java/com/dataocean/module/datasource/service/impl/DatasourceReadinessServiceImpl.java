@@ -129,7 +129,10 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                 .eq(KnowledgeDoc::getDatasourceId, datasourceId)
                 .eq(KnowledgeDoc::getStatus, DocStatus.PUBLISHED.name())
                 .eq(KnowledgeDoc::getDeleted, 0)
-                .orderByDesc(KnowledgeDoc::getCurrentVersion)
+                // 同一数据源可能有多个按业务域拆分的 published skills.md；
+                // 不能只按 version（通常都为 1）取到任意旧文档，优先使用最近发布的文档。
+                .orderByDesc(KnowledgeDoc::getUpdatedAt)
+                .orderByDesc(KnowledgeDoc::getId)
                 .last("LIMIT 1"));
     }
 
@@ -203,22 +206,23 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                                     long blockingIssueCount,
                                     boolean currentUserScope) {
         if (!Integer.valueOf(Datasource.STATUS_ENABLED).equals(datasource.getStatus())) {
-            addReason(vo, "DATASOURCE_DISABLED", "数据源已禁用，暂不可查询", "数据管理员", "启用数据源", "/admin/datasources");
+            addReason(vo, "DATASOURCE_DISABLED", "数据源已禁用，暂不可查询", "数据管理员", "启用数据源", "/admin/data-sources/" + datasource.getId());
             return;
         }
         if (!Datasource.HEALTH_HEALTHY.equals(datasource.getHealthStatus())) {
-            addReason(vo, "CONNECTION_NOT_HEALTHY", "数据源连接未通过健康检查", "数据管理员", "测试连接", "/admin/datasources");
+            addReason(vo, "CONNECTION_NOT_HEALTHY", "数据源连接未通过健康检查", "数据管理员", "测试连接", "/admin/data-sources/" + datasource.getId());
         }
         if (!vo.isMetadataReady()) {
-            addReason(vo, "SNAPSHOT_NOT_PUBLISHED", "尚未发布元数据快照", "治理负责人", "发布快照", "/admin/metadata/lifecycle");
+            addReason(vo, "SNAPSHOT_NOT_PUBLISHED", "尚未发布元数据快照", "治理负责人", "发布快照", "/admin/releases?datasourceId=" + datasource.getId());
         }
         if (blockingIssueCount > 0) {
             addReason(vo, "BLOCKING_GOVERNANCE_ISSUES",
                     "存在 " + blockingIssueCount + " 条高危未解决治理问题",
-                    "数据管理员", "处理治理问题", "/admin/governance/issues");
+                    "数据管理员", "处理治理问题", "/admin/governance/issues?datasourceId=" + datasource.getId()
+                            + "&snapshotId=" + vo.getPublishedSnapshotId());
         }
         if (!vo.isKnowledgeReady()) {
-            addReason(vo, "KNOWLEDGE_NOT_PUBLISHED", "skills.md 尚未发布或向量化未完成", "数据分析师", "前往知识审核", "/admin/knowledge/review");
+            addReason(vo, "KNOWLEDGE_NOT_PUBLISHED", "skills.md 尚未发布或向量化未完成", "数据分析师", "前往知识审核", "/admin/semantics/knowledge?datasourceId=" + datasource.getId() + "&tab=review");
         }
         if (!vo.isPermissionReady()) {
             addReason(vo,
@@ -226,7 +230,7 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                     currentUserScope ? "你尚未获得该数据源查询权限" : "尚未配置有效查询授权",
                     "数据安全管理员",
                     currentUserScope ? "联系管理员授权" : "配置数据源权限",
-                    currentUserScope ? null : "/admin/permission/access");
+                    currentUserScope ? null : "/admin/access?datasourceId=" + datasource.getId() + "&tab=grants");
         }
     }
 
@@ -316,12 +320,21 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                         .in(KnowledgeDoc::getDatasourceId, datasourceIds)
                         .eq(KnowledgeDoc::getStatus, DocStatus.PUBLISHED.name())
                         .eq(KnowledgeDoc::getDeleted, 0)
-                        .orderByDesc(KnowledgeDoc::getCurrentVersion)
+                        .orderByDesc(KnowledgeDoc::getUpdatedAt)
+                        .orderByDesc(KnowledgeDoc::getId)
         ).stream().collect(Collectors.toMap(
                 KnowledgeDoc::getDatasourceId,
                 d -> d,
-                (existing, replacement) -> existing.getCurrentVersion() > replacement.getCurrentVersion()
-                        ? existing : replacement
+                (existing, replacement) -> {
+                    LocalDateTime existingUpdated = existing.getUpdatedAt();
+                    LocalDateTime replacementUpdated = replacement.getUpdatedAt();
+                    if (existingUpdated == null) return replacement;
+                    if (replacementUpdated == null) return existing;
+                    if (existingUpdated.isAfter(replacementUpdated)) return existing;
+                    if (replacementUpdated.isAfter(existingUpdated)) return replacement;
+                    return existing.getId() != null && replacement.getId() != null
+                            && existing.getId() >= replacement.getId() ? existing : replacement;
+                }
         ));
 
         // 批量查询治理问题（只查询 HIGH 级别的阻塞性问题）

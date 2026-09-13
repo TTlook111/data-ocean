@@ -16,6 +16,7 @@ import {
   deleteConversation,
   type ConversationMessageItem,
 } from '../api/query'
+import { parseStoredQueryResult } from '../utils/queryResult'
 
 /** 单条消息 */
 export interface LocalMessage {
@@ -52,6 +53,7 @@ export function useQuerySession() {
   const drawerVisible = ref(false)
   const sessions = reactive<LocalSession[]>([])
   const loadedDatasourceIds = ref<Set<number>>(new Set())
+  let datasourceSelectionRequest = 0
 
   // ---- Computed ----
   const selectedDatasource = computed(() => datasources.value.find((item) => item.id === selectedId.value))
@@ -89,21 +91,8 @@ export function useQuerySession() {
     return session
   }
 
-  function parseStoredResult(message: ConversationMessageItem) {
-    if (!message.metadata) return undefined
-    try {
-      const result = JSON.parse(message.metadata)
-      if (message.taskId && !result.taskId) {
-        result.taskId = message.taskId
-      }
-      return result
-    } catch {
-      return undefined
-    }
-  }
-
   function toLocalMessage(message: ConversationMessageItem): LocalMessage {
-    const result = message.role === 'assistant' ? parseStoredResult(message) : undefined
+    const result = message.role === 'assistant' ? parseStoredQueryResult(message) : undefined
     return {
       id: `remote-${message.id}`,
       role: message.role,
@@ -119,6 +108,14 @@ export function useQuerySession() {
     if (!session.conversationId) return
     const res = await listConversationMessages(session.conversationId, { page: 1, pageSize: 80 })
     session.messages = res.data.map(toLocalMessage)
+    let latestQuestion = ''
+    session.messages.forEach((message) => {
+      if (message.role === 'user') {
+        latestQuestion = message.content
+      } else if (!message.originalQuestion) {
+        message.originalQuestion = message.queryResult?.question || latestQuestion || undefined
+      }
+    })
   }
 
   async function loadRemoteSessions(datasourceId: number, activateFirst = true) {
@@ -156,16 +153,22 @@ export function useQuerySession() {
   async function selectDatasource(id: number, callbacks?: {
     afterSelect?: () => void
   }) {
-    if (selectedId.value !== id) {
+    const requestId = ++datasourceSelectionRequest
+    const changed = selectedId.value !== id
+    if (changed) {
       keyword.value = ''
+      // 先解除旧数据源的活动会话，避免异步加载期间短暂显示上一数据源的消息。
+      activeSessionId.value = undefined
     }
     selectedId.value = id
     try {
       await loadRemoteSessions(id)
     } catch {
+      if (requestId !== datasourceSelectionRequest) return
       ensureSession(id)
       ElMessage.warning('历史会话加载失败，已创建本地临时会话')
     }
+    if (requestId !== datasourceSelectionRequest) return
     if (!activeSession.value || activeSession.value.datasourceId !== id) {
       ensureSession(id)
     }
@@ -236,6 +239,7 @@ export function useQuerySession() {
   async function fetchDatasources(callbacks?: {
     afterSelect?: () => void
     focusQuestionInput?: () => void
+    autoSelect?: boolean
   }) {
     loading.value = true
     errorMessage.value = ''
@@ -243,7 +247,12 @@ export function useQuerySession() {
       const result = await listMyDatasources()
       datasources.value = result.data
       await fetchDatasourceReadiness(result.data)
-      if (result.data.length && (!selectedId.value || !result.data.some((item) => item.id === selectedId.value))) {
+      const selectedStillAccessible = Boolean(selectedId.value && result.data.some((item) => item.id === selectedId.value))
+      if (!selectedStillAccessible) {
+        selectedId.value = undefined
+        activeSessionId.value = undefined
+      }
+      if (callbacks?.autoSelect !== false && result.data.length && !selectedStillAccessible) {
         const firstAskable = result.data.find((item) => readinessMap.value[item.id]?.askable === true)
         await selectDatasource((firstAskable || result.data[0]).id, {
           afterSelect: callbacks?.afterSelect,

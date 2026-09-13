@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/admin/system")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('metadata:manage')")
+@PreAuthorize("hasAnyAuthority('metadata:manage', '*')")
 @AdminAuditLog
 public class SyncScheduleController {
 

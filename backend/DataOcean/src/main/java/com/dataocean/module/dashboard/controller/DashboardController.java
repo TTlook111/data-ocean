@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/admin/dashboard")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('*')")
+@PreAuthorize("hasAnyAuthority('*')")
 public class DashboardController {
 
     private final DashboardService dashboardService;

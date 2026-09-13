@@ -48,7 +48,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/datasources")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('datasource:manage')")
+@PreAuthorize("hasAnyAuthority('datasource:manage', '*')")
 @AdminAuditLog
 @Slf4j
 public class DatasourceAdminController {

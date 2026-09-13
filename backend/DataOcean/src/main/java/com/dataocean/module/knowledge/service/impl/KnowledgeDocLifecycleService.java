@@ -2,6 +2,7 @@ package com.dataocean.module.knowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.persistence.OptimisticLockSupport;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
@@ -60,7 +61,9 @@ public class KnowledgeDocLifecycleService {
         }
         doc.setStatus(DocStatus.PENDING_REVIEW.name());
         doc.setUpdatedBy(UserContext.currentUserId());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "文档审核状态已被其他人修改，请刷新后重试");
         log.info("文档已提交审核 docId={}", id);
     }
 
@@ -82,7 +85,9 @@ public class KnowledgeDocLifecycleService {
         doc.setStatus(DocStatus.APPROVED.name());
         doc.setReviewStatus(ReviewStatus.APPROVED.name());
         doc.setUpdatedBy(UserContext.currentUserId());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "文档审核状态已被其他人修改，请刷新后重试");
         // 同步写入版本行，使 knowledge_doc_version 的审核状态成为真实数据
         markCurrentVersionReviewed(doc, ReviewStatus.APPROVED.name());
         // 创建审核任务记录
@@ -108,7 +113,9 @@ public class KnowledgeDocLifecycleService {
         doc.setStatus(DocStatus.DRAFT.name());
         doc.setReviewStatus(ReviewStatus.REJECTED.name());
         doc.setUpdatedBy(UserContext.currentUserId());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "文档审核状态已被其他人修改，请刷新后重试");
         // 同步写入版本行，使 knowledge_doc_version 的审核状态成为真实数据
         markCurrentVersionReviewed(doc, ReviewStatus.REJECTED.name());
         // 创建审核任务记录
@@ -145,7 +152,9 @@ public class KnowledgeDocLifecycleService {
         KnowledgeDocVersion currentVersion = helper.requireVersion(doc.getId(), doc.getCurrentVersion());
         doc.setStatus(DocStatus.INDEXING.name());
         doc.setUpdatedBy(UserContext.currentUserId());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "文档发布状态已被其他人修改，请刷新后重试");
         // 创建带版本上下文的向量化任务；新版本写入成功后再清理旧版本向量。
         vectorIndexTaskService.createTask(
                 doc.getDatasourceId(),

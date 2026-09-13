@@ -11,7 +11,7 @@ import {
   type DatasourceItem,
   type DatasourceReadiness,
 } from '../../../api/admin/datasource'
-import { resolveReadinessActionPath } from '../../../utils/adminNavigation'
+import { resolveReadinessAction } from '../../../utils/adminNavigation'
 import { knowledgeStatusLabel, snapshotStatusLabel } from '../../../utils/enumLabels'
 import { listSnapshots, listSyncTasks, triggerSync, type SnapshotItem, type SyncTaskItem } from '../../../api/admin/metadata'
 import { listQualityIssues, type QualityIssueItem } from '../../../api/admin/governance'
@@ -88,13 +88,13 @@ const primaryAction = computed<PrimaryAction>(() => {
 
   // 治理阻塞问题按「已发布快照」统计，必须带 publishedSnapshotId；
   // 用 latestSnapshot（可能是草稿快照）会让目标页过滤到 0 条问题。
-  const target = resolveReadinessActionPath(reason.actionPath, {
+  const target = resolveReadinessAction(reason.code, {
     datasourceId: datasourceId.value,
     snapshotId: readiness.value.publishedSnapshotId,
   })
-  // 未映射路径不得猜测：回退为刷新状态，而不是跳到占位目标（《实施任务清单》§4）。
-  if (!target.known) return { key: 'reload', label: '刷新状态', icon: RefreshCw }
-  return { key: 'navigate', label: reason.actionText || '去处理', icon: ArrowRight, to: target.to }
+  // 未知状态不得猜测：回退为刷新状态，而不是跳到占位目标。
+  if (!target) return { key: 'reload', label: '刷新状态', icon: RefreshCw }
+  return { key: 'navigate', label: reason.actionText || '去处理', icon: ArrowRight, to: target }
 })
 
 /**

@@ -4,6 +4,8 @@
 -- 提供可复现的多表业务库。该脚本不修改 dataocean 管理库。
 -- 执行用户：MySQL root（仅本机验收使用）
 
+SET NAMES utf8mb4;
+
 CREATE DATABASE IF NOT EXISTS dataocean_acceptance
     CHARACTER SET utf8mb4
     COLLATE utf8mb4_unicode_ci;

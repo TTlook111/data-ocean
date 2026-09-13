@@ -47,7 +47,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/admin/metadata")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('metadata:manage')")
+@PreAuthorize("hasAnyAuthority('metadata:manage', '*')")
 @Slf4j
 @AdminAuditLog(logReads = false)
 public class MetadataCollectionController {

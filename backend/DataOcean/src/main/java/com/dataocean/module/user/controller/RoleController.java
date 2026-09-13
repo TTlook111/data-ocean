@@ -33,54 +33,54 @@ public class RoleController {
     private final RoleService roleService;
 
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('role:view', 'role:manage', 'user:manage')")
+    @PreAuthorize("hasAnyAuthority('role:view', 'role:manage', 'user:manage', '*')")
     public Result<List<SysRole>> listRoles() {
         log.debug("list roles");
         return Result.success(roleService.listAllRoles());
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('role:manage')")
+    @PreAuthorize("hasAnyAuthority('role:manage', '*')")
     public Result<Map<String, Long>> createRole(@Valid @RequestBody RoleSaveDTO request) {
         Long id = roleService.createRole(request);
         return Result.success("角色创建成功", Map.of("id", id));
     }
 
     @PutMapping("/{roleId}")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @PreAuthorize("hasAnyAuthority('role:manage', '*')")
     public Result<Void> updateRole(@PathVariable Long roleId, @Valid @RequestBody RoleSaveDTO request) {
         roleService.updateRole(roleId, request);
         return Result.success("角色更新成功", null);
     }
 
     @DeleteMapping("/{roleId}")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @PreAuthorize("hasAnyAuthority('role:manage', '*')")
     public Result<Void> deleteRole(@PathVariable Long roleId) {
         roleService.deleteRole(roleId);
         return Result.success("角色删除成功", null);
     }
 
     @GetMapping("/{roleId}/permissions")
-    @PreAuthorize("hasAnyAuthority('role:view', 'role:manage', 'user:manage')")
+    @PreAuthorize("hasAnyAuthority('role:view', 'role:manage', 'user:manage', '*')")
     public Result<List<Long>> listRolePermissions(@PathVariable Long roleId) {
         return Result.success(roleService.listRolePermissionIds(roleId));
     }
 
     @PutMapping("/{roleId}/permissions")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @PreAuthorize("hasAnyAuthority('role:manage', '*')")
     public Result<Void> updateRolePermissions(@PathVariable Long roleId, @RequestBody Map<String, List<Long>> body) {
         roleService.updateRolePermissions(roleId, body.get("permissionIds"));
         return Result.success("权限分配成功", null);
     }
 
     @GetMapping("/{roleId}/users")
-    @PreAuthorize("hasAnyAuthority('role:view', 'role:manage', 'user:manage')")
+    @PreAuthorize("hasAnyAuthority('role:view', 'role:manage', 'user:manage', '*')")
     public Result<List<UserVO>> listRoleUsers(@PathVariable Long roleId) {
         return Result.success(roleService.listUsersByRole(roleId));
     }
 
     @PostMapping("/{roleId}/users")
-    @PreAuthorize("hasAnyAuthority('role:manage', 'user:manage')")
+    @PreAuthorize("hasAnyAuthority('role:manage', 'user:manage', '*')")
     public Result<Void> assignRoleToUser(
             @PathVariable Long roleId,
             @Valid @RequestBody RoleUserAssignDTO request) {
@@ -89,7 +89,7 @@ public class RoleController {
     }
 
     @DeleteMapping("/{roleId}/users/{userId}")
-    @PreAuthorize("hasAnyAuthority('role:manage', 'user:manage')")
+    @PreAuthorize("hasAnyAuthority('role:manage', 'user:manage', '*')")
     public Result<Void> removeRoleFromUser(@PathVariable Long roleId, @PathVariable Long userId) {
         roleService.removeRoleFromUser(roleId, userId);
         return Result.success("成员移除成功", null);

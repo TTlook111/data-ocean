@@ -39,7 +39,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/knowledge-docs")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('knowledge:manage')")
+@PreAuthorize("hasAnyAuthority('knowledge:manage', '*')")
 @Slf4j
 @AdminAuditLog
 public class KnowledgeDocController {

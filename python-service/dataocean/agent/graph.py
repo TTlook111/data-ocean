@@ -66,6 +66,37 @@ def _check_cancelled_or_timeout(state: AgentState) -> str | None:
     return None
 
 
+def _with_executor_error(
+    state: AgentState,
+    node_name: str,
+    error_message: str,
+    error_type: str | None = None,
+) -> AgentState:
+    """为 SQL executor 的提前终止/异常路径补齐 execution_result。"""
+    result: AgentState = {**state, "error_message": error_message, "current_node": node_name}
+    if node_name != NODE_SQL_EXECUTOR:
+        return result
+
+    if error_type is None:
+        error_lower = error_message.lower()
+        if "取消" in error_message or "cancel" in error_lower:
+            error_type = "CANCELLED"
+        elif "超时" in error_message or "timeout" in error_lower or "超出限制" in error_message:
+            error_type = "TIMEOUT"
+
+    execution_error = {
+        "columns": [],
+        "data_rows": [],
+        "row_count": 0,
+        "execution_time_ms": 0,
+        "error": error_message,
+    }
+    if error_type:
+        execution_error["error_type"] = error_type
+    result["execution_result"] = execution_error
+    return result
+
+
 async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentState:
     """节点执行包装器：推送进度、检查取消/超时/预算、异常处理"""
     task_id = state.get("task_id", "")
@@ -74,7 +105,7 @@ async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentStat
     # 检查取消或超时
     abort_msg = _check_cancelled_or_timeout(state)
     if abort_msg:
-        return {**state, "error_message": abort_msg, "current_node": node_name}
+        return _with_executor_error(state, node_name, abort_msg)
 
     # 检查时间预算是否足够启动此节点，并将分配的秒数传给节点
     budget: TimeoutBudget | None = state.get("timeout_budget")
@@ -85,7 +116,7 @@ async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentStat
         except BudgetExhaustedException:
             error_msg = "处理时间超出限制，请简化问题"
             await sse.emit_progress(task_id, node_name, "failed", error_msg, retry_count)
-            return {**state, "error_message": error_msg, "current_node": node_name}
+            return _with_executor_error(state, node_name, error_msg)
 
     # 推送节点开始事件
     await sse.emit_progress(task_id, node_name, "started", NODE_MESSAGES.get(node_name, ""), retry_count)
@@ -101,12 +132,12 @@ async def _node_wrapper(state: AgentState, node_name: str, node_fn) -> AgentStat
     except BudgetExhaustedException:
         error_msg = "处理时间超出限制，请简化问题"
         await sse.emit_progress(task_id, node_name, "failed", error_msg, retry_count)
-        return {**state, "error_message": error_msg, "current_node": node_name}
+        return _with_executor_error(state, node_name, error_msg)
     except Exception as e:
         logger.error("节点执行异常 node=%s task_id=%s error=%s", node_name, task_id, e, exc_info=True)
         error_msg = sanitize_error(e)
         await sse.emit_progress(task_id, node_name, "failed", error_msg, retry_count)
-        return {**state, "error_message": error_msg, "current_node": node_name}
+        return _with_executor_error(state, node_name, error_msg)
 
 
 # --- 节点函数（Phase 2 逐步实现，当前为占位） ---
@@ -197,7 +228,7 @@ def after_validator(
     return "sql_generator"
 
 
-def _classify_execution_error(error_message: str) -> str:
+def _classify_execution_error(error_message: str, error_type: str = "") -> str:
     """分类 SQL 执行错误类型
 
     Returns:
@@ -207,6 +238,16 @@ def _classify_execution_error(error_message: str) -> str:
         "connection" - 连接问题，不应重试
         "unknown" - 未知错误，重新生成 SQL
     """
+    normalized_type = error_type.upper() if isinstance(error_type, str) else ""
+    explicit_types = {
+        "CANCELLED": "cancelled",
+        "TIMEOUT": "timeout",
+        "CONNECTION": "connection",
+        "SYNTAX": "syntax_error",
+    }
+    if normalized_type in explicit_types:
+        return explicit_types[normalized_type]
+
     error_lower = error_message.lower()
     # 括号明确优先级：and 优先于 or，避免 "table is locked" 被误判为 table_not_found
     if ("doesn't exist" in error_lower
@@ -217,6 +258,8 @@ def _classify_execution_error(error_message: str) -> str:
         return "table_not_found"
     if "syntax error" in error_lower or "sql syntax" in error_lower or "语法" in error_lower:
         return "syntax_error"
+    if "cancel" in error_lower or "取消" in error_lower:
+        return "cancelled"
     if "timeout" in error_lower or "timed out" in error_lower or "超时" in error_lower:
         return "timeout"
     if "connection" in error_lower or "refused" in error_lower or "连接" in error_lower:
@@ -237,18 +280,18 @@ def after_executor(
 
     注：retry_count 由 sql_executor 节点在执行失败时递增
     """
-    execution = state.get("execution_result", {})
+    execution = state.get("execution_result") or {}
     if execution.get("error"):
+        error_message = str(execution["error"])
+        error_type = _classify_execution_error(error_message, execution.get("error_type", ""))
         retry_count = state.get("retry_count", 0)
+        # 取消、超时和连接失败均为终止态，不能进入 SQL 生成重试环。
+        if error_type in ("cancelled", "timeout", "connection"):
+            return END
         if retry_count >= agent_config.max_retries:
             return END
 
-        error_type = _classify_execution_error(execution.get("error", ""))
         logger.info("SQL 执行失败，错误类型=%s retry=%d", error_type, retry_count)
-
-        # 超时和连接错误不应重试
-        if error_type in ("timeout", "connection"):
-            return END
 
         # 表不存在时重新检索 schema（经过 linker 精简）
         if error_type == "table_not_found":
@@ -269,7 +312,10 @@ async def metadata_prefetch_node(state: AgentState) -> AgentState:
     connection_config + datasource_id 已在 AgentState 中，当前为占位节点。
     """
     async def _prefetch(state: AgentState) -> AgentState:
-        return {"current_node": NODE_METADATA_PREFETCH}
+        # 该节点与 Query Rewriter 从 START 并行执行。不能写入共享的
+        # last-value `current_node`，否则 LangGraph 会因同一 tick 收到两个
+        # 值而抛出 InvalidUpdateError；Rewriter 完成后负责提供最终节点状态。
+        return {}
     return await _node_wrapper(state, NODE_METADATA_PREFETCH, _prefetch)
 
 

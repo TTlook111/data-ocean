@@ -29,7 +29,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('metadata:manage')")
+@PreAuthorize("hasAnyAuthority('metadata:manage', '*')")
 @AdminAuditLog
 public class MetadataGovernanceController {
 

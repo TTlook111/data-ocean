@@ -14,7 +14,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-JAVA_BASE_URL = os.getenv("JAVA_GATEWAY_URL", "http://localhost:8080")
+JAVA_BASE_URL = os.getenv("JAVA_GATEWAY_URL", "http://127.0.0.1:8080")
 INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "dataocean-internal-default")
 
 # Java config_key -> Python Settings 字段名映射
@@ -44,7 +44,7 @@ async def reload_ai_config() -> bool:
         # 1. 从 Java 拉取配置
         url = f"{JAVA_BASE_URL}/internal/ai-config"
         headers = {"X-Internal-Token": INTERNAL_TOKEN}
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             data = response.json().get("data", {})

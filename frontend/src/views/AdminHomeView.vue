@@ -170,7 +170,12 @@ onMounted(load)
       <div class="workbench-page__columns">
         <div class="workbench-page__main-column">
           <ReadinessPanel v-if="selectedDatasource" :readiness="selectedDatasource" />
-          <NextActionCard v-if="selectedDatasource" :reasons="selectedDatasource.blockReasons" :datasource-id="selectedDatasource.datasourceId" />
+          <NextActionCard
+            v-if="selectedDatasource"
+            :reasons="selectedDatasource.blockReasons"
+            :datasource-id="selectedDatasource.datasourceId"
+            :snapshot-id="selectedDatasource.publishedSnapshotId"
+          />
           <section class="workbench-page__section workbench-page__section--compact">
             <div class="section-heading">
               <div><h2>待处理和阻断</h2><p>先处理阻断原因，再回到相应业务工作区复查。</p></div>

@@ -41,7 +41,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/admin/users")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('user:manage')")
+@PreAuthorize("hasAnyAuthority('user:manage', '*')")
 @AdminAuditLog
 @Slf4j
 public class UserController {

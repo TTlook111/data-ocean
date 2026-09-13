@@ -31,7 +31,7 @@ import {
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { getPublishedSnapshot, type VersionHistoryItem } from '../../../api/admin/versioning'
 import { knowledgeStatusLabel } from '../../../utils/enumLabels'
-import { findDomainHome, resolveReadinessActionPath } from '../../../utils/adminNavigation'
+import { findDomainHome, resolveReadinessAction } from '../../../utils/adminNavigation'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
@@ -41,7 +41,7 @@ import EmptyState from '../../../components/common/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()
-// actionPath 未映射时的安全落点：当前业务域的首个工作区
+// 未知 readiness 状态码的安全落点：当前业务域的首个工作区
 const domainHome = computed(() => findDomainHome(String(route.meta.domainKey || '')))
 const context = useAdminContextStore()
 
@@ -83,7 +83,7 @@ const readinessAction = (row: DatasourceReadiness) => {
   if (!reason) return null
   return {
     label: reason.actionText || '去处理',
-    target: resolveReadinessActionPath(reason.actionPath, {
+    target: resolveReadinessAction(reason.code, {
       datasourceId: row.datasourceId,
       snapshotId: row.publishedSnapshotId,
     }),
@@ -442,12 +442,11 @@ watch(() => route.query.page, (value) => {
               :to="{ name: 'admin-semantic-knowledge-detail', params: { id: row.publishedKnowledgeDocId } }"
             >查看已发布文档</RouterLink>
             <RouterLink
-              v-else-if="readinessAction(row)?.target.known"
+              v-else-if="readinessAction(row)?.target"
               class="knowledge-page__link"
-              :to="readinessAction(row)!.target.to!"
+              :to="readinessAction(row)!.target!"
             >{{ readinessAction(row)!.label }}</RouterLink>
-            <!-- actionPath 未映射时不得猜测目标，也不能只留一句死文案：
-                 按《实施任务清单》§4 给出当前业务域的安全落点 -->
+            <!-- 未知状态码不得猜测目标，给出当前业务域的安全落点 -->
             <span v-else-if="readinessAction(row)?.label" class="knowledge-page__muted">
               {{ readinessAction(row)!.label }}
               <RouterLink class="knowledge-page__link" :to="domainHome.path">返回{{ domainHome.label }}</RouterLink>

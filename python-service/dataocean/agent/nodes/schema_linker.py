@@ -146,7 +146,7 @@ def _build_schema_summary(schema_context: list[dict]) -> str:
             col_names = []
             for c in columns:
                 name = c.get("name", "") if isinstance(c, dict) else str(c)
-                trust = c.get("trust_score", 0) if isinstance(c, dict) else 0
+                trust = (c.get("trust_score") or 0) if isinstance(c, dict) else 0
                 level = "H" if trust >= 70 else ("M" if trust >= 40 else "L")
                 col_names.append(f"{name}[{level}]")
             line += f"，字段: {', '.join(col_names)}"

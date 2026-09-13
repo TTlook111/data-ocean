@@ -20,6 +20,10 @@ from dataocean.rag.schema import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
 
+# DashScope text-embedding-v4 的单次请求最多接收 10 条 input.contents。
+# 业务配置可以更大，但不能把供应商硬限制暴露为运行时 400。
+MAX_PROVIDER_BATCH_SIZE = 10
+
 _embeddings: OpenAIEmbeddings | None = None
 _embeddings_lock = asyncio.Lock()
 _embedding_cache: dict[tuple[str, str, str], OpenAIEmbeddings] = {}
@@ -60,7 +64,7 @@ async def _get_embeddings() -> OpenAIEmbeddings:
             api_key=settings.embedding_api_key or settings.dashscope_api_key or "dummy",
             base_url=settings.embedding_base_url or settings.dashscope_base_url,
             check_embedding_ctx_length=False,
-            chunk_size=settings.embedding_batch_size,
+            chunk_size=min(settings.embedding_batch_size, MAX_PROVIDER_BATCH_SIZE),
         )
         logger.info("Embeddings 实例已创建 model=%s", settings.qwen_embedding_model)
     return _embeddings
@@ -93,7 +97,7 @@ async def _get_embeddings_for_config(config: EmbeddingConfig) -> OpenAIEmbedding
             api_key=api_key,
             base_url=base_url,
             check_embedding_ctx_length=False,
-            chunk_size=settings.embedding_batch_size,
+            chunk_size=min(settings.embedding_batch_size, MAX_PROVIDER_BATCH_SIZE),
         )
         _embedding_cache[cache_key] = embeddings
         logger.info("Embeddings 实例已创建(model config) model=%s", config.model)

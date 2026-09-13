@@ -1,6 +1,8 @@
 package com.dataocean.module.governance.checker;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.util.JdbcUrlBuilder;
 import com.dataocean.common.util.SqlIdentifierValidator;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
@@ -56,15 +58,27 @@ public class DataQualityChecker implements QualityChecker {
         return "DATA";
     }
 
+    /**
+     * 数据级规则落在四个既有质量维度中，不能以独立的 DATA 维度参与白名单筛选。
+     */
+    @Override
+    public Set<String> getSupportedDimensions() {
+        return Set.of(
+                MetadataQualityRule.DIM_COMPLETENESS,
+                MetadataQualityRule.DIM_ACCURACY,
+                MetadataQualityRule.DIM_CONSISTENCY,
+                MetadataQualityRule.DIM_TIMELINESS);
+    }
+
     @Override
     public List<MetadataQualityIssue> check(CheckContext context) {
         List<MetadataQualityIssue> issues = new ArrayList<>();
 
         // 提取 DATA 类型的规则
         Map<String, MetadataQualityRule> ruleMap = context.rules().stream()
-                .filter(r -> getDimension().equals(r.getDimension())
-                        && MetadataQualityRule.CHECK_TYPE_DATA.equals(r.getCheckType())
-                        && r.getEnabled() == 1)
+                .filter(r -> MetadataQualityRule.CHECK_TYPE_DATA.equals(r.getCheckType())
+                        && getSupportedDimensions().contains(r.getDimension())
+                        && Integer.valueOf(1).equals(r.getEnabled()))
                 .collect(Collectors.toMap(MetadataQualityRule::getRuleCode, r -> r));
 
         if (ruleMap.isEmpty()) {
@@ -73,10 +87,6 @@ public class DataQualityChecker implements QualityChecker {
 
         // 获取数据源连接信息
         Connection conn = getConnection(context.datasourceId());
-        if (conn == null) {
-            log.warn("数据源连接失败，跳过 DATA 级质量检查 datasourceId={}", context.datasourceId());
-            return issues;
-        }
 
         try {
             // 执行各规则检查
@@ -141,7 +151,8 @@ public class DataQualityChecker implements QualityChecker {
                     }
                 }
             } catch (SQLException | IllegalArgumentException e) {
-                log.debug("空值率检查跳过 {}.{}: {}", column.getTableName(), column.getColumnName(), e.getMessage());
+                log.warn("空值率规则执行失败，已跳过 datasourceId={} table={} column={} reason={}",
+                        context.datasourceId(), column.getTableName(), column.getColumnName(), e.getMessage(), e);
             }
         }
         return issues;
@@ -181,7 +192,8 @@ public class DataQualityChecker implements QualityChecker {
                     }
                 }
             } catch (SQLException | IllegalArgumentException e) {
-                log.debug("唯一性检查跳过 {}.{}: {}", column.getTableName(), column.getColumnName(), e.getMessage());
+                log.warn("唯一性规则执行失败，已跳过 datasourceId={} table={} column={} reason={}",
+                        context.datasourceId(), column.getTableName(), column.getColumnName(), e.getMessage(), e);
             }
         }
         return issues;
@@ -223,7 +235,8 @@ public class DataQualityChecker implements QualityChecker {
                     }
                 }
             } catch (SQLException | IllegalArgumentException e) {
-                log.debug("外键孤儿检查跳过 {}.{}: {}", childTable, childColumn, e.getMessage());
+                log.warn("外键完整性规则执行失败，已跳过 datasourceId={} table={} column={} reason={}",
+                        context.datasourceId(), childTable, childColumn, e.getMessage(), e);
             }
         }
         return issues;
@@ -265,7 +278,8 @@ public class DataQualityChecker implements QualityChecker {
                     }
                 }
             } catch (SQLException | IllegalArgumentException e) {
-                log.debug("数据陈旧检查跳过 {}: {}", table.getTableName(), e.getMessage());
+                log.warn("数据时效规则执行失败，已跳过 datasourceId={} table={} reason={}",
+                        context.datasourceId(), table.getTableName(), e.getMessage(), e);
             }
         }
         return issues;
@@ -293,26 +307,29 @@ public class DataQualityChecker implements QualityChecker {
      */
     private Connection getConnection(Long datasourceId) {
         Datasource ds = datasourceMapper.selectById(datasourceId);
-        if (ds == null || ds.getStatus() == null || ds.getStatus() != Datasource.STATUS_ENABLED) {
-            return null;
+        if (ds == null) {
+            throw new BusinessException(400, "数据源不存在，无法执行数据质量检查");
+        }
+        if (!Integer.valueOf(Datasource.STATUS_ENABLED).equals(ds.getStatus())) {
+            throw new BusinessException(400, "数据源未启用，无法执行数据质量检查");
         }
 
         DatasourceSecret secret = datasourceSecretMapper.selectOne(
                 new LambdaQueryWrapper<DatasourceSecret>()
                         .eq(DatasourceSecret::getDatasourceId, datasourceId));
         if (secret == null) {
-            return null;
+            throw new BusinessException(400, "数据源未配置连接凭证，无法执行数据质量检查");
         }
 
         String password = decryptPassword(secret.getEncryptedPassword());
         if (password == null) {
             log.error("数据源密码解密失败，拒绝连接 datasourceId={}", datasourceId);
-            return null;
+            throw new BusinessException(400, "数据源密码解密失败，请重新保存连接配置");
         }
 
         try {
-            String url = String.format("jdbc:mysql://%s:%d/%s?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&charset=utf8mb4",
-                    ds.getHost(), ds.getPort(), ds.getDatabaseName());
+            String url = JdbcUrlBuilder.metadataMysqlUrl(
+                    ds.getHost(), ds.getPort(), ds.getDatabaseName(), "utf8mb4");
             Properties props = new Properties();
             props.setProperty("user", secret.getUsername());
             props.setProperty("password", password);
@@ -324,8 +341,8 @@ public class DataQualityChecker implements QualityChecker {
             conn.setTransactionIsolation(Connection.TRANSACTION_READ_UNCOMMITTED);
             return conn;
         } catch (SQLException e) {
-            log.error("数据源连接失败 datasourceId={}: {}", datasourceId, e.getMessage());
-            return null;
+            log.error("数据源连接失败 datasourceId={} sqlState={}", datasourceId, e.getSQLState(), e);
+            throw new BusinessException(400, "数据源连接失败，请检查连接配置");
         }
     }
 
