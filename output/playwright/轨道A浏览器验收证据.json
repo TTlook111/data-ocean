@@ -1,0 +1,2157 @@
+{
+  "generatedAt": "2026-09-13T11:08:35.834Z",
+  "gitCommit": "ad389a5c0a5c047b0db955241584154b0e134fc2",
+  "browser": "Chromium via Playwright",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "formalRoutes": [
+    "/admin/workbench",
+    "/admin/data-sources",
+    "/admin/collections",
+    "/admin/assets",
+    "/admin/releases",
+    "/admin/governance",
+    "/admin/governance/issues",
+    "/admin/governance/rules",
+    "/admin/governance/fields",
+    "/admin/semantics/glossaries",
+    "/admin/semantics/knowledge",
+    "/admin/semantics/prompts",
+    "/admin/access",
+    "/admin/access/approvals",
+    "/admin/access/organization",
+    "/admin/operations/queries",
+    "/admin/operations/lineage",
+    "/admin/platform/runtime",
+    "/admin/platform/operation-logs",
+    "/admin/platform/ai"
+  ],
+  "primaryDatasourceId": 1,
+  "secondaryDatasourceId": 2,
+  "primarySnapshotId": 11,
+  "results": [
+    {
+      "type": "auth",
+      "name": "login",
+      "requestedPath": "/login",
+      "finalUrl": "http://127.0.0.1:5173/query",
+      "conclusion": "通过",
+      "body": "DO\nDataOcean\n智能问答\n新建对话\n选择数据源开始提问\n\n数据源入口在左侧，选择后会加载对应的历史会话。\n\n刷新数据源\nEnter 发送，Shift + Enter 换行\n\n登录成功"
+    },
+    {
+      "type": "api",
+      "name": "python-internal-token",
+      "badStatus": 403,
+      "goodStatus": 200,
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "super-admin-wildcard",
+      "expected": "*",
+      "observed": [
+        "*",
+        "user:manage",
+        "role:view",
+        "department:manage",
+        "datasource:manage",
+        "metadata:manage",
+        "knowledge:manage",
+        "field-tag:manage",
+        "feedback:review",
+        "security:manage",
+        "role:manage",
+        "prompt:manage",
+        "system:ai-config:view",
+        "system:ai-config:manage",
+        "prompt:approve"
+      ],
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "metadata-sync-trigger",
+      "status": 200,
+      "taskId": 11,
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "quality-check",
+      "status": 200,
+      "snapshotId": 11,
+      "issueCount": 30,
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "quality-issue-assign-handle-batch",
+      "issueId": 618,
+      "batchIssueId": 632,
+      "assignStatus": 200,
+      "confirmStatus": 200,
+      "resolveStatus": 200,
+      "batchStatus": 200,
+      "batchResolveStatus": 200,
+      "batchData": {
+        "updated": 1,
+        "skipped": 1,
+        "skippedIssues": [
+          {
+            "issueId": -1,
+            "reason": "问题不存在"
+          }
+        ]
+      },
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "snapshot-review-publish",
+      "snapshotId": 11,
+      "approveStatus": 200,
+      "publishStatus": 200,
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "prompt-disable-enable",
+      "code": "chart_generation",
+      "disableStatus": 200,
+      "enableStatus": 200,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 1,
+      "name": "admin-redesign-p1-formal-route-1-pass",
+      "requestedPath": "/admin/workbench",
+      "before": "http://127.0.0.1:5173/query?datasourceId=1",
+      "finalUrl": "http://127.0.0.1:5173/admin/workbench",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n工作台\n19\n超\n超级管理员\nDATAOCEAN / WORKBENCH\n工作台\n\n从数据源准备情况开始，定位阻断原因并沿着业务生命周期推进到可问数。\n\n进入智能问数\n可问数数据源\n0\n共 3 个数据源\n需要处理\n3\n存在后端返回的阻断原因\n推进中\n0\n尚未形成可问数条件\n治理问题\n30\n已解决 14 个\n数据源准备情况\n\n以下状态直接来自后端 readiness，不在前端重新拼装业务结论。\n\n刷新\n轨道A上下文隔离源\n快照待发布\nSNAPSHOT_PENDING\n35%\n3 项阻断\n轨道A浏览器验收源\n快照待发布\nSNAPSHOT_PENDING\n35%\n3 项阻断\n轨道A验收业务库\n权限待配置\nPERMISSION_PENDING\n90%\n1 项阻断\n业务就绪度\n轨道A上下文隔离源\n快照待发布\nSNAPSHOT_PENDING\n当前阶段：快照待发布\n35%\n连接\n已就绪\n采集\n待处理\n治理\n已就绪\n知识\n待处理\n授权\n待处理\n需要处理的事项\n\n以下原因来自数据源就绪度接口。\n\n尚未发布元数据快照\n责任角色：治理负责人\n发布快照\nskills.md 尚未发布或向量化未完成\n责任角色：数据分析师\n前往知识审核\n尚未配置有效查询授权\n责任角色：数据安全管理员\n配置数据源权限\n待处理和阻断\n\n先处理阻断原因，再回到相应业务工作区复查。\n\n数据源\n\t\n当前阶段\n\t\n阻断原因\n\t\n责任角色\n\t\n操作\n轨道A上下文隔离源\n\t\n快照待发布\n\t\n尚未发布元数据快照\n\t\n治理负责人\n\t\n查看\n\n\n轨道A浏览器验收源\n\t\n快照待发布\n\t\n尚未发布元数据快照\n\t\n治理负责人\n\t\n查看\n\n\n轨道A验收业务库\n\t\n权限待配置\n\t\n尚未配置有效查询授权\n\t\n数据安全管理员\n\t\n查看\n最近活动\n\n来自工作台统计接口。\n\nPUBLISH系统 · 09-13 19:01\nSTATUS_TRANSITION系统 · 09-13 19:01\nEXPIRE系统 · 09-13 19:01\nPUBLISH系统 · 09-13 18:51\nSTATUS_TRANSITION系统 · 09-13 18:51\n快捷入口\n\n继续当前业务任务。\n\n数据源接入\n问题中心\n进入智能问数",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "进入智能问数",
+        "刷新",
+        "轨道A上下文隔离源 快照待发布 SNAPSHOT_PENDING35%3 项阻断",
+        "轨道A浏览器验收源 快照待发布 SNAPSHOT_PENDING35%3 项阻断",
+        "轨道A验收业务库 权限待配置 PERMISSION_PENDING90%1 项阻断",
+        "查看",
+        "查看",
+        "查看"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p1-formal-route-1-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/workbench",
+      "requestedPath": "/admin/workbench",
+      "observedUrl": "http://127.0.0.1:5173/admin/workbench",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 1,
+      "name": "admin-redesign-p1-formal-route-2-pass",
+      "requestedPath": "/admin/data-sources",
+      "before": "http://127.0.0.1:5173/admin/workbench",
+      "finalUrl": "http://127.0.0.1:5173/admin/data-sources",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据源\n采集任务\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n数据源\n数据源\n19\n超\n超级管理员\n数据接入\n数据源\n\n先完成连接测试，再保存并进入数据源驾驶舱。数据源列表只负责接入和基础状态，授权配置在权限与组织工作区完成。\n\n新增数据源\n全部状态\n全部连接状态\n刷新\n数据源\n\t\n连接\n\t\n状态\n\t\n就绪度\n\t\n操作\n轨道A浏览器验收源\nMYSQL · dataocean_acceptance_ui\n\t\n127.0.0.1:3306\n\t\n已启用\nENABLED\n\t\n快照待发布\nSNAPSHOT_PENDING\n\t\n驾驶舱\n编辑\n连接\n更多\n\n\n轨道A上下文隔离源\nMYSQL · dataocean_acceptance_alt\n\t\n127.0.0.1:3306\n\t\n已启用\nENABLED\n\t\n快照待发布\nSNAPSHOT_PENDING\n\t\n驾驶舱\n编辑\n连接\n更多\n\n\n轨道A验收业务库\nMYSQL · dataocean_acceptance\n\t\n127.0.0.1:3306\n\t\n已启用\nENABLED\n\t\n权限待配置\nPERMISSION_PENDING\n\t\n驾驶舱\n编辑\n连接\n更多",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "新增数据源",
+        "刷新",
+        "驾驶舱",
+        "编辑",
+        "连接",
+        "更多",
+        "驾驶舱",
+        "编辑",
+        "连接",
+        "更多",
+        "驾驶舱",
+        "编辑",
+        "连接",
+        "更多"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p1-formal-route-2-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/data-sources",
+      "requestedPath": "/admin/data-sources",
+      "observedUrl": "http://127.0.0.1:5173/admin/data-sources",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-3-pass",
+      "requestedPath": "/admin/collections",
+      "before": "http://127.0.0.1:5173/admin/data-sources",
+      "finalUrl": "http://127.0.0.1:5173/admin/collections",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据源\n采集任务\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n采集任务\n采集任务\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A上下文隔离源 / dataocean_acceptance_alt\n数据接入\n采集任务\n\n从这里发起元数据采集、查看任务进度和失败原因；自动同步计划是独立的全局配置。\n\n采集成功后下一步是查看新快照\n\n任务状态为成功只代表采集完成，仍需进入版本发布和治理检查，不能直接视为正式资产。\n\n采集任务\n同步计划\n触发全量同步\n轨道A上下文隔离源\n\n当前筛选条件下暂无采集任务。",
+      "tabs": [
+        "采集任务",
+        "同步计划"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "触发全量同步"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-3-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/collections",
+      "requestedPath": "/admin/collections",
+      "observedUrl": "http://127.0.0.1:5173/admin/collections",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-4-pass",
+      "requestedPath": "/admin/assets",
+      "before": "http://127.0.0.1:5173/admin/collections",
+      "finalUrl": "http://127.0.0.1:5173/admin/assets",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n资产目录\n版本发布\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n资产目录\n资产目录\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A上下文隔离源 / dataocean_acceptance_alt\n数据资产\n资产目录\n\n只浏览当前数据源已发布快照同步后的正式资产。关键词和类型筛选在前端执行，不使用无法保证数据源隔离的全局搜索接口。\n\n刷新资产\n轨道A上下文隔离源\n尚未确认有已发布快照\n待发布\nSNAPSHOT_PENDING\n全部资产类型\n正式资产目录\n快照表浏览\n\n当前数据源没有已发布快照，正式资产目录暂不可用。\n\n去版本发布",
+      "tabs": [
+        "正式资产目录",
+        "快照表浏览"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新资产",
+        "去版本发布"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-4-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/assets",
+      "requestedPath": "/admin/assets",
+      "observedUrl": "http://127.0.0.1:5173/admin/assets",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-5-pass",
+      "requestedPath": "/admin/releases",
+      "before": "http://127.0.0.1:5173/admin/assets",
+      "finalUrl": "http://127.0.0.1:5173/admin/releases",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n资产目录\n版本发布\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n版本发布\n版本发布\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A上下文隔离源 / dataocean_acceptance_alt\n返回上一级\n轨道A上下文隔离源\n当前数据源的快照版本轨道\n来源：数据资产 / 版本发布\n数据资产\n版本发布\n\n区分采集、检查、问题处理、批准、发布和撤回。只有服务端允许的状态动作才会显示。\n\n刷新版本\n候选快照\n版本历史\n版本差异\n\n当前数据源暂无快照记录，请先完成元数据采集。\n\n去采集任务",
+      "tabs": [
+        "候选快照",
+        "版本历史",
+        "版本差异"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新版本",
+        "去采集任务"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-5-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/releases",
+      "requestedPath": "/admin/releases",
+      "observedUrl": "http://127.0.0.1:5173/admin/releases",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-6-pass",
+      "requestedPath": "/admin/governance",
+      "before": "http://127.0.0.1:5173/admin/releases",
+      "finalUrl": "http://127.0.0.1:5173/admin/governance",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n治理总览\n问题中心\n规则与状态\n字段治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n治理总览\n治理总览\n19\n超\n超级管理员\n数据源与快照范围\n只查看当前数据源的快照和治理对象\n轨道A上下文隔离源 / dataocean_acceptance_alt\n选择快照\n治理质量\n轨道A上下文隔离源\n\n围绕同一个数据源快照完成校验、规则启停和问题处理。\n\n--\n待校验\n快照\n选择快照\n执行质量校验\n选定数据源\n轨道A上下文隔离源\n选定快照\n未选择\n执行校验\n等待执行\n处理问题\n暂无阻塞\n校验结果\n当前快照\n无高危\n执行质量校验后展示维度得分\n问题分布\n高 0\n中 0\n低 0\n待处理问题\n暂无待处理项\n当前快照没有打开状态的问题\n质量规则\n15 / 15 已启用\n表注释缺失\n检测表是否缺少注释，无注释的表难以被业务人员理解\n完整性\n高\n-5\n字段注释缺失\n检测字段是否缺少注释，无注释的字段影响SQL生成准确性\n完整性\n中\n-2\n主键缺失\n检测表是否缺少主键定义\n完整性\n高\n-8\n字段类型与命名不匹配\n检测字段命名暗示的类型与实际类型不一致（如xxx_time不是时间类型）\n准确性\n中\n-3\n疑似枚举字段值异常\n检测distinct_count过高的疑似枚举字段\n准确性\n低\n-1.5\n同名字段跨表类型不一致\n检测不同表中同名字段的数据类型是否一致\n一致性\n高\n-5\n同名字段注释冲突\n检测不同表中同名字段的注释是否矛盾\n一致性\n低\n-1\n快照过期\n检测快照距上次同步是否超过配置天数\n时效性\n中\n-3\n表长期无数据更新\n基于information_schema检测表是否长期无数据变更\n时效性\n低\n-2\n外键关系缺失\n检测有xxx_id命名但无外键定义的字段\n可追溯性\n中\n-3\n孤立表\n检测无任何关联关系的表\n可追溯性\n低\n-2\n列空值率过高\n检测列空值率是否超过阈值\n完整性\n中\n-3\n应唯一列出现重复值\n检测应唯一列是否出现重复值\n准确性\n高\n-5\n外键引用目标不存在\n检测外键引用的目标记录是否存在\n一致性\n高\n-5\n表数据长期未更新\n检测表数据是否超过配置天数未更新\n时效性\n低\n-2",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "执行质量校验"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-6-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/governance",
+      "requestedPath": "/admin/governance",
+      "observedUrl": "http://127.0.0.1:5173/admin/governance",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-7-pass",
+      "requestedPath": "/admin/governance/issues",
+      "before": "http://127.0.0.1:5173/admin/governance",
+      "finalUrl": "http://127.0.0.1:5173/admin/governance/issues",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n治理总览\n问题中心\n规则与状态\n字段治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n问题中心\n问题中心\n19\n超\n超级管理员\n数据源与快照范围\n只查看当前数据源的快照和治理对象\n轨道A上下文隔离源 / dataocean_acceptance_alt\n选择快照\n刷新\n轨道A上下文隔离源 / dataocean_acceptance_alt\n选择快照\n选择表\n全部维度\n全部级别\n全部状态\n全部责任人\n分配给我的\n高危 0\n待处理 0\n已确认 0\n已解决 0\n\n当前范围和筛选条件下没有治理问题。\n\nTotal 0\n1",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "分配给我的"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-7-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/governance/issues",
+      "requestedPath": "/admin/governance/issues",
+      "observedUrl": "http://127.0.0.1:5173/admin/governance/issues",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-8-pass",
+      "requestedPath": "/admin/governance/rules",
+      "before": "http://127.0.0.1:5173/admin/governance/issues",
+      "finalUrl": "http://127.0.0.1:5173/admin/governance/rules",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n治理总览\n问题中心\n规则与状态\n字段治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n规则与状态\n规则与状态\n19\n超\n超级管理员\n数据源与快照范围\n只查看当前数据源的快照和治理对象\n轨道A上下文隔离源 / dataocean_acceptance_alt\n选择快照\n质量规则\n资产状态\n刷新\n选择快照\n表列表\n\n暂无数据",
+      "tabs": [
+        "质量规则",
+        "资产状态"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-8-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/governance/rules",
+      "requestedPath": "/admin/governance/rules",
+      "observedUrl": "http://127.0.0.1:5173/admin/governance/rules",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-9-pass",
+      "requestedPath": "/admin/governance/fields",
+      "before": "http://127.0.0.1:5173/admin/governance/rules",
+      "finalUrl": "http://127.0.0.1:5173/admin/governance/fields",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n治理总览\n问题中心\n规则与状态\n字段治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n字段治理\n字段治理\n19\n超\n超级管理员\n数据源与快照范围\n只查看当前数据源的快照和治理对象\n轨道A上下文隔离源 / dataocean_acceptance_alt\n选择快照\n标签\n可信度\n反馈审核\n脱敏候选\n自动打标\n批量打标\n选择快照\n选择表\n\t\n字段名\n\t\n数据类型\n\t\n注释\n\t\n治理状态\n\t\n操作\nNo Data\n\n请选择快照和表",
+      "tabs": [
+        "标签",
+        "可信度",
+        "反馈审核",
+        "脱敏候选"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "自动打标",
+        "批量打标"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-9-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/governance/fields",
+      "requestedPath": "/admin/governance/fields",
+      "observedUrl": "http://127.0.0.1:5173/admin/governance/fields",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-10-pass",
+      "requestedPath": "/admin/semantics/glossaries",
+      "before": "http://127.0.0.1:5173/admin/governance/fields",
+      "finalUrl": "http://127.0.0.1:5173/admin/semantics/glossaries?glossaryId=1",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n业务术语\n语义知识\nPrompt 策略\n权限与组织\n运营与平台\n进入智能问数\n业务术语\n业务术语\n19\n超\n超级管理员\n语义中心\n业务术语\n\n把业务叫法绑定到物理字段。术语通过审核后才会进入检索改写，未通过审核的术语不应被当作可用语义。\n\n刷新\n新建术语表\n术语表\n\n1 个术语表\n\n轨道A验收术语表\n轨道A验收术语表\n草稿\nDRAFT\n轨道A验收术语表\n\n共 1 条 · 待审核 0 · 已通过 0 · 已拒绝 0\n\n新增术语\n全部状态\n订单金额\n轨道A验收术语表.订单金额\n同义词：销售额、成交金额\n草稿\nDRAFT\n术语详情\n\n在中间列表中选择一条术语\n\n选择术语后可以查看定义、关联字段并执行允许的状态动作。",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "新建术语表",
+        "轨道A验收术语表轨道A验收术语表",
+        "新增术语",
+        "订单金额轨道A验收术语表.订单金额 同义词：销售额、成交金额"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-10-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/semantics/glossaries",
+      "requestedPath": "/admin/semantics/glossaries",
+      "observedUrl": "http://127.0.0.1:5173/admin/semantics/glossaries?glossaryId=1",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-11-pass",
+      "requestedPath": "/admin/semantics/knowledge",
+      "before": "http://127.0.0.1:5173/admin/semantics/glossaries?glossaryId=1",
+      "finalUrl": "http://127.0.0.1:5173/admin/semantics/knowledge",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n业务术语\n语义知识\nPrompt 策略\n权限与组织\n运营与平台\n进入智能问数\n语义知识\n语义知识\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A上下文隔离源 / dataocean_acceptance_alt\n语义中心\n语义知识\n\n把已发布快照转成 skills.md，经过审核、发布和索引后进入 RAG。批准、索引和发布是三个不同阶段。\n\n刷新\n手动新建\nAI 一键生成\n文档总数\n0\n已发布（可检索）\n0\n索引中\n0\n待审核\n0\n草稿\n0\n数据源知识准备情况\n\n逐个数据源确认是否已有可检索的语义知识。知识需由已发布快照生成，并经审核、 索引、发布后才会进入 RAG 检索。\n\n刷新准备情况\n数据源\n\t\n知识状态\n\t\n知识版本\n\t\n当前阶段\n\t\n下一步\n轨道A上下文隔离源\n\t\n尚未发布\nDRAFT\n\t\n—\n\t\n快照待发布\n\t\n发布快照\n\n\n轨道A浏览器验收源\n\t\n尚未发布\nDRAFT\n\t\n—\n\t\n快照待发布\n\t\n发布快照\n\n\n轨道A验收业务库\n\t\n已发布可检索\nPUBLISHED\n\t\nv1\n\t\n权限待配置\n\t\n查看已发布文档\n全部文档\n审核队列\n全部状态\n\n当前数据源还没有正式发布的快照。语义知识必须基于已发布快照生成。\n\n去版本发布",
+      "tabs": [
+        "全部文档",
+        "审核队列"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "手动新建",
+        "AI 一键生成",
+        "刷新准备情况",
+        "去版本发布"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-11-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/semantics/knowledge",
+      "requestedPath": "/admin/semantics/knowledge",
+      "observedUrl": "http://127.0.0.1:5173/admin/semantics/knowledge",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-12-pass",
+      "requestedPath": "/admin/semantics/prompts",
+      "before": "http://127.0.0.1:5173/admin/semantics/knowledge",
+      "finalUrl": "http://127.0.0.1:5173/admin/semantics/prompts?code=chart_generation",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n业务术语\n语义知识\nPrompt 策略\n权限与组织\n运营与平台\n进入智能问数\nPrompt 策略\nPrompt 策略\n19\n超\n超级管理员\n语义中心\nPrompt 策略\n\n维护 Agent 节点的 Prompt 模板。已批准表示该版本是当前生效的活跃模板，不等于对外发布。\n\n刷新\n保存并创建新版本\n模板列表\n\n4 / 4 个模板\n\n图表生成模板\nchart_generation · 图表生成节点\nv1 · chart_generation\n已批准\nAPPROVED\n会话上下文摘要模板\nconversation_summary\nv1 · conversation_summary\n已批准\nAPPROVED\n意图识别模板（Query Rewrite）\nintent_recognition · 意图识别节点\nv2 · intent_recognition\n已批准\nAPPROVED\nSQL 生成模板\nsql_generation · SQL 生成节点\nv2 · sql_generation\n已批准\nAPPROVED\n图表生成模板\n\nchart_generation · 当前版本 v1 · 生效节点：图表生成节点\n\n已批准\nAPPROVED\n模板已启用\n停用\n当前内容\n审核流程\n版本历史\n效果统计\n保存并创建新版本\n\n保存会新建一个草稿版本，模板状态回到草稿；只有审核通过后新内容才会成为活跃模板。",
+      "tabs": [
+        "当前内容",
+        "审核流程",
+        "版本历史",
+        "效果统计"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "保存并创建新版本",
+        "图表生成模板chart_generation · 图表生成节点v1 · chart_generation",
+        "会话上下文摘要模板conversation_summaryv1 · conversation_summary",
+        "意图识别模板（Query Rewrite）intent_recognition · 意图识别节点v2 · intent_recognition",
+        "SQL 生成模板sql_generation · SQL 生成节点v2 · sql_generation",
+        "停用",
+        "保存并创建新版本"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-12-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/semantics/prompts",
+      "requestedPath": "/admin/semantics/prompts",
+      "observedUrl": "http://127.0.0.1:5173/admin/semantics/prompts?code=chart_generation",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-13-pass",
+      "requestedPath": "/admin/access",
+      "before": "http://127.0.0.1:5173/admin/semantics/prompts?code=chart_generation",
+      "finalUrl": "http://127.0.0.1:5173/admin/access",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n授权管理\n访问审批\n组织与角色\n运营与平台\n进入智能问数\n授权管理\n授权管理\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A上下文隔离源 / dataocean_acceptance_alt\n授权管理\n\n按主体查看数据源级授权、表列策略与最终权限结果。数据源由顶部范围条决定，页面内不再另建选择器。\n\n当前数据源：轨道A上下文隔离源\n刷新\n新增授权\n选择主体\n先选主体，再查看它在当前数据源上被授予了什么。\n用户\n角色\n部门\n全部主体\n数据源授权\n表列策略\n最终权限预览\n\n第一层：主体能否访问该数据源。禁止优先于允许， 任一维度为禁止即不可访问。\n\n当前主体筛选下没有授权记录。未授权的主体不能查询该数据源。\n\n新增授权\n\n后端缺口：授权列表接口未返回 priority，因此无法展示优先级。 授权效果与有效期可见，优先级不存在前端可展示的数据来源。",
+      "tabs": [
+        "数据源授权",
+        "表列策略",
+        "最终权限预览"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "新增授权",
+        "新增授权"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-13-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/access",
+      "requestedPath": "/admin/access",
+      "observedUrl": "http://127.0.0.1:5173/admin/access",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-14-pass",
+      "requestedPath": "/admin/access/approvals",
+      "before": "http://127.0.0.1:5173/admin/access",
+      "finalUrl": "http://127.0.0.1:5173/admin/access/approvals",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n授权管理\n访问审批\n组织与角色\n运营与平台\n进入智能问数\n访问审批\n访问审批\n19\n超\n超级管理员\n访问审批\n\n管理员审批队列。通过后会生成有有效期的临时允许策略；审批时后端会再次复查治理状态，不绕过 BLOCKED / DEPRECATED 限制。\n\n刷新\n安全边界\n\n列表范围由后端强制收窄：拥有 security:manage 的账号看到全量审批队列，其余账号只能看到自己提交的申请。 本页面作为管理员队列使用；普通用户「我的申请」入口按开发指导 §7.14 待产品确认后开放。\n\n待我审批\n已处理\n已过期\n申请号\n\t\n申请人\n\t\n数据源\n\t\n申请对象\n\t\n申请理由\n\t\n时长\n\t\n状态\n\t\n创建时间\n\t\n操作\n1\n\t\n超级管理员\n\t\n轨道A验收业务库\n\t\ndemo_order.total_amount\n\t\n管理员范围测试申请\n\t\n2 小时\n\t\n待处理\nPENDING\n\t\n2026-09-13T13:39:03\n\t\n详情\n通过\n拒绝\n\n\n2\n\t\n验收普通用户\n\t\n轨道A验收业务库\n\t\ndemo_order.total_amount\n\t\n普通用户申请查看订单金额\n\t\n2 小时\n\t\n待处理\nPENDING\n\t\n2026-09-13T13:39:03\n\t\n详情\n通过\n拒绝",
+      "tabs": [
+        "待我审批",
+        "已处理",
+        "已过期"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "详情",
+        "通过",
+        "拒绝",
+        "详情",
+        "通过",
+        "拒绝"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-14-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/access/approvals",
+      "requestedPath": "/admin/access/approvals",
+      "observedUrl": "http://127.0.0.1:5173/admin/access/approvals",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-15-pass",
+      "requestedPath": "/admin/access/organization",
+      "before": "http://127.0.0.1:5173/admin/access/approvals",
+      "finalUrl": "http://127.0.0.1:5173/admin/access/organization",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n授权管理\n访问审批\n组织与角色\n运营与平台\n进入智能问数\n组织与角色\n组织与角色\n19\n超\n超级管理员\n组织与角色\n\n在一个工作区中维护用户、角色、部门和权限项；完成主体管理后再进入授权管理配置访问范围。\n\n当前：用户\n用户\n角色\n部门\n权限项\n导入模板\n导入用户\n导出\n新增用户\n部门\n全部状态\n查询\n重置\n用户名\n\t\n姓名\n\t\n部门\n\t\n角色\n\t\n状态\n\t\n最后登录\n\t\n操作\nacceptance_user\n\t\n验收普通用户\n\t\n总部\n\t\n普通员工\n\t\n正常\n\t\n5小时前\n\t\n详情\n编辑\n禁用\n重置密码\n删除\n\n\nadmin\n\t\n超级管理员\n\t\n总部\n\t\n超级管理员\n\t\n正常\n\t\n刚刚\n\t\n详情\n编辑\n禁用\n重置密码\nTotal 2\n20/page\n1",
+      "tabs": [
+        "用户",
+        "角色",
+        "部门",
+        "权限项"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "导入模板",
+        "导入用户",
+        "导出",
+        "新增用户",
+        "查询",
+        "重置",
+        "详情",
+        "编辑",
+        "禁用",
+        "重置密码",
+        "删除",
+        "详情",
+        "编辑",
+        "禁用",
+        "重置密码"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-15-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/access/organization",
+      "requestedPath": "/admin/access/organization",
+      "observedUrl": "http://127.0.0.1:5173/admin/access/organization",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-16-pass",
+      "requestedPath": "/admin/operations/queries",
+      "before": "http://127.0.0.1:5173/admin/access/organization",
+      "finalUrl": "http://127.0.0.1:5173/admin/operations/queries",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n查询分析\n数据血缘\n运行监控\n操作日志\nAI 配置\n进入智能问数\n查询分析\n查询分析\n19\n超\n超级管理员\n查询分析\n\n围绕查询审计、慢查询和统计观察问数效果。性能页不显示无效的数据源筛选器，具体筛选能力以接口为准。\n\n查询审计\n性能分析\n0\n近 30 天查询数\n0.0%\n近 30 天成功率\n0ms\n近 30 天平均耗时\n0\n近 30 天慢查询数\n轨道A上下文隔离源\n状态\n慢查询\n查询\n\n当前筛选条件下没有查询审计记录。调整数据源或状态筛选后再试。",
+      "tabs": [
+        "查询审计",
+        "性能分析"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "查询"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-16-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/operations/queries",
+      "requestedPath": "/admin/operations/queries",
+      "observedUrl": "http://127.0.0.1:5173/admin/operations/queries",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-17-pass",
+      "requestedPath": "/admin/operations/lineage",
+      "before": "http://127.0.0.1:5173/admin/operations/queries",
+      "finalUrl": "http://127.0.0.1:5173/admin/operations/lineage",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n查询分析\n数据血缘\n运行监控\n操作日志\nAI 配置\n进入智能问数\n数据血缘\n数据血缘\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A上下文隔离源 / dataocean_acceptance_alt\n数据源范围\n\n轨道A上下文隔离源\n使用顶部的数据源范围条切换\n\n搜索表/列\n血缘类型\n查询血缘（QUERY）\nETL 流转（ETL）\n手动标注（MANUAL）\n方向\n上游\n下游\n双向\n\n图表方向以当前选中实体为焦点，只保留该方向的连通关系；列血缘抽屉同样按此方向查询。\n\n深度: 3\n添加血缘\n更多\n查询血缘\nETL 流转\n手动标注\n列派生\n\n该数据源暂无实体数据，请先发布快照",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "添加血缘",
+        "更多"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-17-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/operations/lineage",
+      "requestedPath": "/admin/operations/lineage",
+      "observedUrl": "http://127.0.0.1:5173/admin/operations/lineage",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-18-pass",
+      "requestedPath": "/admin/platform/runtime",
+      "before": "http://127.0.0.1:5173/admin/operations/lineage",
+      "finalUrl": "http://127.0.0.1:5173/admin/platform/runtime",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n查询分析\n数据血缘\n运行监控\n操作日志\nAI 配置\n进入智能问数\n运行监控\n运行监控\n19\n超\n超级管理员\n运行监控\n\n观察依赖服务、SQL 连接池与告警规则配置。告警当前只支持规则配置，没有执行历史与恢复闭环。\n\n刷新\n服务状态\nSQL 连接池\n告警规则\n系统总体状态\n健康\n\n检查时间 2026-09-13T19:01:56.0113257\n\nPython AI 服务\n正常\n\n可用\n\n最后检查 2026-09-13T19:01:33.0960998\n\nMySQL 数据库\n正常\n\n可用\n\nRedis 缓存\n正常\n\n可用",
+      "tabs": [
+        "服务状态",
+        "SQL 连接池",
+        "告警规则"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-18-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/platform/runtime",
+      "requestedPath": "/admin/platform/runtime",
+      "observedUrl": "http://127.0.0.1:5173/admin/platform/runtime",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-19-pass",
+      "requestedPath": "/admin/platform/operation-logs",
+      "before": "http://127.0.0.1:5173/admin/platform/runtime",
+      "finalUrl": "http://127.0.0.1:5173/admin/platform/operation-logs",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n查询分析\n数据血缘\n运行监控\n操作日志\nAI 配置\n进入智能问数\n操作日志\n操作日志\n19\n超\n超级管理员\n运营与平台\n操作日志\n\n围绕目标资源追踪后台操作、请求路径、耗时与成功状态，用于审计追溯和异常定位。\n\n当前筛选 4578 条\n刷新\n4578\n日志总数\n20\n当前页成功\n0\n当前页失败\n5ms\n当前页平均耗时\n\n统计口径：日志总数取自服务端；成功 / 失败 / 平均耗时由当前页记录算出。 后端没有操作日志的聚合统计接口，因此这三项随翻页变化，不代表全局。需要全局数据请导出后统计。\n\n操作日志\n按目标资源定位后台操作轨迹\n操作类型\n状态\n至\n高级筛选\n查询\nID\n\t\n状态\n\t\n操作人\n\t\n类型\n\t\n目标资源\n\t\n目标 ID\n\t\n请求\n\t\n耗时\n\t\nIP\n\t\n时间\n\t\n操作\n4578\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/simple\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:56\n\t\n详情\n\n\n4577\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nknowledge-docs\n\t\n\t\nGET\n/api/admin/knowledge-docs\n\t\n3ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:54\n\t\n详情\n\n\n4576\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/simple\n\t\n1ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:54\n\t\n详情\n\n\n4575\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\naudit-logs\n\t\n\t\nGET\n/api/admin/audit-logs/stats\n\t\n9ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:53\n\t\n详情\n\n\n4574\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\naudit-logs\n\t\n\t\nGET\n/api/admin/audit-logs\n\t\n5ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:53\n\t\n详情\n\n\n4573\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/simple\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:53\n\t\n详情\n\n\n4572\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nknowledge-docs\n\t\n\t\nGET\n/api/admin/knowledge-docs\n\t\n5ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:53\n\t\n详情\n\n\n4571\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\naudit-logs\n\t\n\t\nGET\n/api/admin/audit-logs/slow-queries\n\t\n9ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:53\n\t\n详情\n\n\n4570\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/simple\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:53\n\t\n详情\n\n\n4569\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nusers\n\t\n\t\nGET\n/api/admin/users\n\t\n12ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:51\n\t\n详情\n\n\n4568\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndepartments\n\t\n\t\nGET\n/api/admin/departments/tree\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:51\n\t\n详情\n\n\n4567\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nroles\n\t\n\t\nGET\n/api/admin/roles\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:51\n\t\n详情\n\n\n4566\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\naccess-approvals\n\t\n\t\nGET\n/api/admin/access-approvals\n\t\n6ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:49\n\t\n详情\n\n\n4565\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nusers\n\t\n\t\nGET\n/api/admin/users\n\t\n10ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:49\n\t\n详情\n\n\n4564\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/simple\n\t\n1ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:49\n\t\n详情\n\n\n4563\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasource-access\n\t\n\t\nGET\n/api/admin/datasource-access\n\t\n4ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:48\n\t\n详情\n\n\n4562\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\naccess-policies\n\t\n\t\nGET\n/api/admin/access-policies\n\t\n4ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:48\n\t\n详情\n\n\n4561\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nusers\n\t\n\t\nGET\n/api/admin/users\n\t\n10ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:48\n\t\n详情\n\n\n4560\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndepartments\n\t\n\t\nGET\n/api/admin/departments/tree\n\t\n1ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:48\n\t\n详情\n\n\n4559\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nroles\n\t\n\t\nGET\n/api/admin/roles\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:01:48\n\t\n详情\nTotal 4578\n20/page\n1\n2\n3\n4\n5\n6\n229",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "高级筛选",
+        "查询",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-19-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/platform/operation-logs",
+      "requestedPath": "/admin/platform/operation-logs",
+      "observedUrl": "http://127.0.0.1:5173/admin/platform/operation-logs",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 2,
+      "name": "admin-redesign-p2-formal-route-20-pass",
+      "requestedPath": "/admin/platform/ai",
+      "before": "http://127.0.0.1:5173/admin/platform/operation-logs",
+      "finalUrl": "http://127.0.0.1:5173/admin/platform/ai",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n查询分析\n数据血缘\n运行监控\n操作日志\nAI 配置\n进入智能问数\nAI 配置\nAI 配置\n19\n超\n超级管理员\nAI 服务配置\n\n管理供应商、模型和参数。点击卡片展开详情，选择使用的配置。\n\n添加供应商\n刷新\n当前 Chat\ndashscope / qwen-plus\n当前 Embedding\ndashscope / text-embedding-v4\nCollection\nschema_knowledge\n索引状态\n正常\nNORMAL\n\n当前生效：text-embedding-v4（维度 1024）\n\n全量重建编排尚未开放；发布知识文档时会创建安全的版本级索引任务\nChat 配置\nEmbedding 配置\n通义千问\nunknown\nhttps://dashscope.aliyuncs.com/compatible-mode/v1\n1 个模型\nqwen-plus\n使用中\n温度\n超时(秒)\n重试\n使用中\n保存参数",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "添加供应商",
+        "刷新",
+        "Chat 配置",
+        "Embedding 配置",
+        "使用中",
+        "保存参数"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p2-formal-route-20-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "formal-route-/admin/platform/ai",
+      "requestedPath": "/admin/platform/ai",
+      "observedUrl": "http://127.0.0.1:5173/admin/platform/ai",
+      "sidebar": 1,
+      "contentWorkspaceNav": 0,
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "desktop-sidebar-expand-collapse-keyboard",
+      "domainCount": 7,
+      "expandedDomain": 1,
+      "collapsed": 1,
+      "expandedAfterCollapsedClick": true,
+      "operationLinkVisible": true,
+      "focusInSidebar": true,
+      "finalUrl": "http://127.0.0.1:5173/admin/platform/runtime",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 3,
+      "name": "admin-redesign-p3-data-entry-detail-pass",
+      "requestedPath": "/admin/data-sources/1",
+      "before": "http://127.0.0.1:5173/admin/platform/runtime",
+      "finalUrl": "http://127.0.0.1:5173/admin/data-sources/1",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据源\n采集任务\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n数据源\n数据源详情\n19\n超\n超级管理员\n返回上一级\n轨道A验收业务库\n127.0.0.1:3306 / dataocean_acceptance\n来源：数据源接入\n数据源驾驶舱\n\n当前存在阻断原因，请按责任角色和行动入口推进。\n\n已启用\nENABLED\n权限待配置\nPERMISSION_PENDING\n刷新状态\n配置数据源权限\n上线流程\n\n当前动作由 readiness 和数据源服务端状态共同决定。\n\n连接\n采集\n治理\n知识发布\n5\n授权\n6\n可问数\n业务就绪度\n轨道A验收业务库\n权限待配置\nPERMISSION_PENDING\n当前阶段：权限待配置\n90%\n连接\n已就绪\n采集\n已就绪\n治理\n已就绪\n知识\n已就绪\n授权\n待处理\n需要处理的事项\n\n以下原因来自数据源就绪度接口。\n\n尚未配置有效查询授权\n责任角色：数据安全管理员\n配置数据源权限\n当前阶段\n\n权限待配置 · 90%\n\n配置数据源权限\n权限待配置\n优先处理上方阻断原因，再回到此驾驶舱刷新状态。\n最近快照\n\n正式发布资产由版本发布工作区管理。\n\nv11\n4 表 · 23 字段\n已发布\nPUBLISHED\nv10\n4 表 · 23 字段\n已过期\nEXPIRED\nv9\n4 表 · 23 字段\n已过期\nEXPIRED\nv8\n4 表 · 23 字段\n已过期\nEXPIRED\nv7\n4 表 · 23 字段\n已过期\nEXPIRED\n最近活动\n\n采集和快照记录。\n\n元数据采集 · SUCCESS\n\n轨道A验收业务库\n\n系统 · 2026-09-13T19:01:26\n元数据采集 · SUCCESS\n\n轨道A验收业务库\n\n系统 · 2026-09-13T18:51:16\n元数据采集 · SUCCESS\n\n轨道A验收业务库\n\n系统 · 2026-09-13T18:39:34\n快照 v11\n\nPUBLISHED\n\n系统 · 2026-09-13T19:01:26\n快照 v10\n\nEXPIRED\n\n系统 · 2026-09-13T18:51:16\n语义知识\n\n最近的 skills.md 文档与发布状态。\n\n客户管理 skills.md\nv1 · 已发布\n订单管理 skills.md\nv1 · 已发布\n商品管理 skills.md\nv1 · 已发布\n订单管理 skills.md\nv1 · 已发布\n商品管理 skills.md\nv1 · 已发布\n治理问题\n\n当前快照待处理问题。\n\n5 个问题需要处理",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新状态",
+        "配置数据源权限",
+        "配置数据源权限",
+        "v114 表 · 23 字段 已发布 PUBLISHED",
+        "v104 表 · 23 字段 已过期 EXPIRED",
+        "v94 表 · 23 字段 已过期 EXPIRED",
+        "v84 表 · 23 字段 已过期 EXPIRED",
+        "v74 表 · 23 字段 已过期 EXPIRED"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p3-data-entry-detail-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 3,
+      "name": "admin-redesign-p3-assets-pass",
+      "requestedPath": "/admin/assets?datasourceId=1",
+      "before": "http://127.0.0.1:5173/admin/data-sources/1",
+      "finalUrl": "http://127.0.0.1:5173/admin/assets?datasourceId=1",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n资产目录\n版本发布\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n资产目录\n资产目录\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A验收业务库 / dataocean_acceptance\n数据资产\n资产目录\n\n只浏览当前数据源已发布快照同步后的正式资产。关键词和类型筛选在前端执行，不使用无法保证数据源隔离的全局搜索接口。\n\n刷新资产\n轨道A验收业务库\n正式资产范围 · 快照 v11\n正式资产\nPUBLISHED\n全部资产类型\n正式资产目录\n快照表浏览\n当前范围 28 个资产\n数据源内前端过滤\n资产名称\n\t\n类型\n\t\n说明\n\t\n资产版本\n\t\n操作\n轨道A验收业务库\n轨道a验收业务库\n\t\n数据源\nDATASOURCE\n\t\n\t\n1\n\t\n查看详情\n\n\n演示客户\n轨道a验收业务库.dataocean_acceptance.demo_customer\n\t\n表\nTABLE\n\t\n演示客户\n\t\n1\n\t\n查看详情\n\n\ncreated_at\n轨道a验收业务库.dataocean_acceptance.demo_customer.created_at\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\ncustomer_code\n轨道a验收业务库.dataocean_acceptance.demo_customer.customer_code\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\ncustomer_level\n轨道a验收业务库.dataocean_acceptance.demo_customer.customer_level\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\ncustomer_name\n轨道a验收业务库.dataocean_acceptance.demo_customer.customer_name\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\nid\n轨道a验收业务库.dataocean_acceptance.demo_customer.id\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\nregion\n轨道a验收业务库.dataocean_acceptance.demo_customer.region\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\n演示订单\n轨道a验收业务库.dataocean_acceptance.demo_order\n\t\n表\nTABLE\n\t\n演示订单\n\t\n1\n\t\n查看详情\n\n\ncustomer_id\n轨道a验收业务库.dataocean_acceptance.demo_order.customer_id\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\nid\n轨道a验收业务库.dataocean_acceptance.demo_order.id\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\norder_date\n轨道a验收业务库.dataocean_acceptance.demo_order.order_date\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\norder_no\n轨道a验收业务库.dataocean_acceptance.demo_order.order_no\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\norder_status\n轨道a验收业务库.dataocean_acceptance.demo_order.order_status\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\ntotal_amount\n轨道a验收业务库.dataocean_acceptance.demo_order.total_amount\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\n演示订单明细\n轨道a验收业务库.dataocean_acceptance.demo_order_item\n\t\n表\nTABLE\n\t\n演示订单明细\n\t\n1\n\t\n查看详情\n\n\nid\n轨道a验收业务库.dataocean_acceptance.demo_order_item.id\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\norder_id\n轨道a验收业务库.dataocean_acceptance.demo_order_item.order_id\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\nproduct_id\n轨道a验收业务库.dataocean_acceptance.demo_order_item.product_id\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\nquantity\n轨道a验收业务库.dataocean_acceptance.demo_order_item.quantity\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\nunit_price\n轨道a验收业务库.dataocean_acceptance.demo_order_item.unit_price\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\n演示商品\n轨道a验收业务库.dataocean_acceptance.demo_product\n\t\n表\nTABLE\n\t\n演示商品\n\t\n1\n\t\n查看详情\n\n\nactive\n轨道a验收业务库.dataocean_acceptance.demo_product.active\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\ncategory\n轨道a验收业务库.dataocean_acceptance.demo_product.category\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\nid\n轨道a验收业务库.dataocean_acceptance.demo_product.id\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\nproduct_code\n轨道a验收业务库.dataocean_acceptance.demo_product.product_code\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\nproduct_name\n轨道a验收业务库.dataocean_acceptance.demo_product.product_name\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情\n\n\nunit_price\n轨道a验收业务库.dataocean_acceptance.demo_product.unit_price\n\t\n字段\nCOLUMN\n\t\n\t\n1\n\t\n查看详情",
+      "tabs": [
+        "正式资产目录",
+        "快照表浏览"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新资产",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情",
+        "查看详情"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p3-assets-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 3,
+      "name": "admin-redesign-p3-asset-detail-pass",
+      "requestedPath": "/admin/assets/entities/309",
+      "before": "http://127.0.0.1:5173/admin/assets?datasourceId=1",
+      "finalUrl": "http://127.0.0.1:5173/admin/assets/entities/309",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n资产目录\n版本发布\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n资产目录\n资产详情\n19\n超\n超级管理员\n返回上一级\n轨道A验收业务库\n轨道a验收业务库\n来源：当前已发布资产目录\n资产详情\n\n查看实体的技术信息、关系和下游影响，当前对象由 URL 锁定。\n\n对象类型\nDATASOURCE\n版本\nv1\n关系数量\n4\n实体标签\n确认标签\n实体关系\n\n当前实体暂无血缘关系\n\n下游影响\n\n当前实体暂无下游影响\n\n 数据源内目录只展示正式发布快照同步后的资产。",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "确认标签"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p3-asset-detail-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 3,
+      "name": "admin-redesign-p3-releases-pass",
+      "requestedPath": "/admin/releases?datasourceId=1",
+      "before": "http://127.0.0.1:5173/admin/assets/entities/309",
+      "finalUrl": "http://127.0.0.1:5173/admin/releases?datasourceId=1",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n资产目录\n版本发布\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n版本发布\n版本发布\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A验收业务库 / dataocean_acceptance\n返回上一级\n轨道A验收业务库\n当前数据源的快照版本轨道\n来源：数据资产 / 版本发布\n数据资产\n版本发布\n\n区分采集、检查、问题处理、批准、发布和撤回。只有服务端允许的状态动作才会显示。\n\n刷新版本\n当前正式发布\nv11\n4 表 · 23 字段\n已发布\nPUBLISHED\n生成语义知识 →\n候选快照\n版本历史\n版本差异\n版本\n\t\n状态\n\t\n表\n\t\n字段\n\t\n质量分\n\t\n采集时间\n\t\n操作\nv11\n\t\n已发布\nPUBLISHED\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T19:01:26\n\t\n详情\n撤回\n日志\n\n\nv10\n\t\n已过期\nEXPIRED\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T18:51:16\n\t\n详情\n日志\n\n\nv9\n\t\n已过期\nEXPIRED\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T18:39:33\n\t\n详情\n日志\n\n\nv8\n\t\n已过期\nEXPIRED\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T18:17:53\n\t\n详情\n日志\n\n\nv7\n\t\n已过期\nEXPIRED\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T18:10:16\n\t\n详情\n日志\n\n\nv6\n\t\n已过期\nEXPIRED\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T17:58:55\n\t\n详情\n日志\n\n\nv5\n\t\n已过期\nEXPIRED\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T17:30:38\n\t\n详情\n日志\n\n\nv4\n\t\n已过期\nEXPIRED\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T17:01:05\n\t\n详情\n日志\n\n\nv3\n\t\n存在问题\nISSUE_FOUND\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T16:48:11\n\t\n详情\n进入问题中心\n批准\n日志\n\n\nv2\n\t\n存在问题\nISSUE_FOUND\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T16:33:01\n\t\n详情\n进入问题中心\n批准\n日志\n\n\nv1\n\t\n存在问题\nISSUE_FOUND\n\t\n4\n\t\n23\n\t\n84.5\n\t\n2026-09-13T13:23:14\n\t\n详情\n进入问题中心\n批准\n日志",
+      "tabs": [
+        "候选快照",
+        "版本历史",
+        "版本差异"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新版本",
+        "详情",
+        "撤回",
+        "日志",
+        "详情",
+        "日志",
+        "详情",
+        "日志",
+        "详情",
+        "日志",
+        "详情",
+        "日志",
+        "详情",
+        "日志",
+        "详情",
+        "日志",
+        "详情",
+        "日志",
+        "详情",
+        "批准",
+        "日志",
+        "详情",
+        "批准",
+        "日志",
+        "详情",
+        "批准",
+        "日志"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p3-releases-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 4,
+      "name": "admin-redesign-p4-governance-pass",
+      "requestedPath": "/admin/governance?datasourceId=1&snapshotId=11",
+      "before": "http://127.0.0.1:5173/admin/releases?datasourceId=1",
+      "finalUrl": "http://127.0.0.1:5173/admin/governance?datasourceId=1&snapshotId=11",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n治理总览\n问题中心\n规则与状态\n字段治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n治理总览\n治理总览\n19\n超\n超级管理员\n数据源与快照范围\n只查看当前数据源的快照和治理对象\n轨道A验收业务库 / dataocean_acceptance\nv11 · PUBLISHED\n治理质量\n轨道A验收业务库\n\n围绕同一个数据源快照完成校验、规则启停和问题处理。\n\n84.5\n质量稳定\n快照\n轨道A验收业务库 · v11 / 84.5 分\n执行质量校验\n进入问题中心\n选定数据源\n轨道A验收业务库\n选定快照\nv11\n执行校验\n84.5 分\n处理问题\n30 个未解决\n校验结果\n当前快照\n无高危\n执行质量校验后展示维度得分\n问题分布\n高 0\n中 0\n低 0\n待处理问题\n优先处理这些项\n查看全部\ndemo_customer.created_at\n字段 demo_customer.created_at 缺少字段注释\n中\ndemo_customer.customer_code\n字段 demo_customer.customer_code 缺少字段注释\n中\ndemo_customer.customer_level\n字段 demo_customer.customer_level 缺少字段注释\n中\ndemo_customer.customer_name\n字段 demo_customer.customer_name 缺少字段注释\n中\ndemo_customer.id\n字段 demo_customer.id 缺少字段注释\n中\ndemo_customer.region\n字段 demo_customer.region 缺少字段注释\n中\n质量规则\n15 / 15 已启用\n表注释缺失\n检测表是否缺少注释，无注释的表难以被业务人员理解\n完整性\n高\n-5\n字段注释缺失\n检测字段是否缺少注释，无注释的字段影响SQL生成准确性\n完整性\n中\n-2\n主键缺失\n检测表是否缺少主键定义\n完整性\n高\n-8\n字段类型与命名不匹配\n检测字段命名暗示的类型与实际类型不一致（如xxx_time不是时间类型）\n准确性\n中\n-3\n疑似枚举字段值异常\n检测distinct_count过高的疑似枚举字段\n准确性\n低\n-1.5\n同名字段跨表类型不一致\n检测不同表中同名字段的数据类型是否一致\n一致性\n高\n-5\n同名字段注释冲突\n检测不同表中同名字段的注释是否矛盾\n一致性\n低\n-1\n快照过期\n检测快照距上次同步是否超过配置天数\n时效性\n中\n-3\n表长期无数据更新\n基于information_schema检测表是否长期无数据变更\n时效性\n低\n-2\n外键关系缺失\n检测有xxx_id命名但无外键定义的字段\n可追溯性\n中\n-3\n孤立表\n检测无任何关联关系的表\n可追溯性\n低\n-2\n列空值率过高\n检测列空值率是否超过阈值\n完整性\n中\n-3\n应唯一列出现重复值\n检测应唯一列是否出现重复值\n准确性\n高\n-5\n外键引用目标不存在\n检测外键引用的目标记录是否存在\n一致性\n高\n-5\n表数据长期未更新\n检测表数据是否超过配置天数未更新\n时效性\n低\n-2",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "执行质量校验",
+        "进入问题中心",
+        "查看全部"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p4-governance-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 4,
+      "name": "admin-redesign-p4-issues-assigned-pass",
+      "requestedPath": "/admin/governance/issues?datasourceId=1&snapshotId=11",
+      "before": "http://127.0.0.1:5173/admin/governance?datasourceId=1&snapshotId=11",
+      "finalUrl": "http://127.0.0.1:5173/admin/governance/issues?datasourceId=1&snapshotId=11",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n治理总览\n问题中心\n规则与状态\n字段治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n问题中心\n问题中心\n19\n超\n超级管理员\n数据源与快照范围\n只查看当前数据源的快照和治理对象\n轨道A验收业务库 / dataocean_acceptance\nv11 · PUBLISHED\n刷新\n轨道A验收业务库 / dataocean_acceptance\n快照 v11 / PUBLISHED\n选择表\n全部维度\n全部级别\n全部状态\n全部责任人\n分配给我的\n高危 0\n待处理 20\n已确认 0\n已解决 0\n\t\n数据源\n\t\n快照\n\t\n表\n\t\n字段\n\t\n维度\n\t\n级别\n\t\n问题描述\n\t\n状态\n\t\n责任人\n\t\n操作\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_customer\n\t\ncustomer_code\n\t\n完整性\n\t\n中\n\t\n字段 demo_customer.customer_code 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_product\n\t\nid\n\t\n完整性\n\t\n中\n\t\n字段 demo_product.id 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_product\n\t\ncategory\n\t\n完整性\n\t\n中\n\t\n字段 demo_product.category 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_product\n\t\nactive\n\t\n完整性\n\t\n中\n\t\n字段 demo_product.active 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order_item\n\t\nunit_price\n\t\n完整性\n\t\n中\n\t\n字段 demo_order_item.unit_price 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order_item\n\t\nquantity\n\t\n完整性\n\t\n中\n\t\n字段 demo_order_item.quantity 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order_item\n\t\nproduct_id\n\t\n完整性\n\t\n中\n\t\n字段 demo_order_item.product_id 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order_item\n\t\norder_id\n\t\n完整性\n\t\n中\n\t\n字段 demo_order_item.order_id 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order_item\n\t\nid\n\t\n完整性\n\t\n中\n\t\n字段 demo_order_item.id 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order\n\t\ntotal_amount\n\t\n完整性\n\t\n中\n\t\n字段 demo_order.total_amount 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order\n\t\norder_status\n\t\n完整性\n\t\n中\n\t\n字段 demo_order.order_status 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order\n\t\norder_no\n\t\n完整性\n\t\n中\n\t\n字段 demo_order.order_no 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order\n\t\norder_date\n\t\n完整性\n\t\n中\n\t\n字段 demo_order.order_date 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order\n\t\nid\n\t\n完整性\n\t\n中\n\t\n字段 demo_order.id 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_order\n\t\ncustomer_id\n\t\n完整性\n\t\n中\n\t\n字段 demo_order.customer_id 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_customer\n\t\nregion\n\t\n完整性\n\t\n中\n\t\n字段 demo_customer.region 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_customer\n\t\nid\n\t\n完整性\n\t\n中\n\t\n字段 demo_customer.id 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_customer\n\t\ncustomer_name\n\t\n完整性\n\t\n中\n\t\n字段 demo_customer.customer_name 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_customer\n\t\ncustomer_level\n\t\n完整性\n\t\n中\n\t\n字段 demo_customer.customer_level 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\n\n\n\t\n轨道A验收业务库\n\t\n#11\n\t\ndemo_customer\n\t\ncreated_at\n\t\n完整性\n\t\n中\n\t\n字段 demo_customer.created_at 缺少字段注释\n\t\n待处理\n\t\n未分派\n\t\n详情\n确认\n驳回\n返回发布流程\nTotal 32\n1\n2",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "分配给我的",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回",
+        "详情",
+        "确认",
+        "驳回"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p4-issues-assigned-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 4,
+      "name": "admin-redesign-p4-rules-pass",
+      "requestedPath": "/admin/governance/rules?datasourceId=1&snapshotId=11",
+      "before": "http://127.0.0.1:5173/admin/governance/issues?datasourceId=1&snapshotId=11",
+      "finalUrl": "http://127.0.0.1:5173/admin/governance/rules?datasourceId=1&snapshotId=11",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n治理总览\n问题中心\n规则与状态\n字段治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n规则与状态\n规则与状态\n19\n超\n超级管理员\n数据源与快照范围\n只查看当前数据源的快照和治理对象\n轨道A验收业务库 / dataocean_acceptance\nv11 · PUBLISHED\n质量规则\n资产状态\n刷新\n快照 #11 版本 11\n表列表\ndemo_customer\n待治理\ndemo_order\n待治理\ndemo_order_item\n待治理\ndemo_product\n待治理",
+      "tabs": [
+        "质量规则",
+        "资产状态"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p4-rules-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 4,
+      "name": "admin-redesign-p4-fields-pass",
+      "requestedPath": "/admin/governance/fields?datasourceId=1&snapshotId=11",
+      "before": "http://127.0.0.1:5173/admin/governance/rules?datasourceId=1&snapshotId=11",
+      "finalUrl": "http://127.0.0.1:5173/admin/governance/fields?datasourceId=1&snapshotId=11",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n治理总览\n问题中心\n规则与状态\n字段治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n字段治理\n字段治理\n19\n超\n超级管理员\n数据源与快照范围\n只查看当前数据源的快照和治理对象\n轨道A验收业务库 / dataocean_acceptance\nv11 · PUBLISHED\n标签\n可信度\n反馈审核\n脱敏候选\n自动打标\n批量打标\n快照 v11\n选择表\n\t\n字段名\n\t\n数据类型\n\t\n注释\n\t\n治理状态\n\t\n操作\nNo Data\n\n请选择快照和表",
+      "tabs": [
+        "标签",
+        "可信度",
+        "反馈审核",
+        "脱敏候选"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "自动打标",
+        "批量打标"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p4-fields-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 1,
+      "name": "admin-redesign-p1-readiness-disabled-pass",
+      "requestedPath": "/admin/data-sources/3",
+      "before": "http://127.0.0.1:5173/admin/governance/fields?datasourceId=1&snapshotId=11",
+      "finalUrl": "http://127.0.0.1:5173/admin/data-sources/3",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据源\n采集任务\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n数据源\n数据源详情\n19\n超\n超级管理员\n返回上一级\n轨道A浏览器验收源\n127.0.0.1:3306 / dataocean_acceptance_ui\n来源：数据源接入\n数据源驾驶舱\n\n当前存在阻断原因，请按责任角色和行动入口推进。\n\n已停用\nDISABLED\n连接待处理\nCONNECTION_CHECK_REQUIRED\n刷新状态\n启用数据源\n上线流程\n\n当前动作由 readiness 和数据源服务端状态共同决定。\n\n1\n连接\n2\n采集\n治理\n4\n知识发布\n5\n授权\n6\n可问数\n业务就绪度\n轨道A浏览器验收源\n连接待处理\nCONNECTION_CHECK_REQUIRED\n当前阶段：连接待处理\n15%\n连接\n待处理\n采集\n待处理\n治理\n已就绪\n知识\n待处理\n授权\n待处理\n需要处理的事项\n\n以下原因来自数据源就绪度接口。\n\n数据源已禁用，暂不可查询\n责任角色：数据管理员\n启用数据源\n当前阶段\n\n连接待处理 · 15%\n\n启用数据源\n连接待处理\n优先处理上方阻断原因，再回到此驾驶舱刷新状态。\n最近快照\n\n正式发布资产由版本发布工作区管理。\n\n暂无快照，连接正常后可以开始采集。\n\n开始采集\n最近活动\n\n采集和快照记录。\n\n暂无活动记录\n\n语义知识\n\n最近的 skills.md 文档与发布状态。\n\n该数据源还没有语义知识文档。\n\n去准备知识\n治理问题\n\n当前快照待处理问题。\n\n当前没有加载到待处理问题",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新状态",
+        "启用数据源",
+        "启用数据源",
+        "开始采集",
+        "去准备知识"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p1-readiness-disabled-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "F1-disabled-readiness",
+      "expected": "启用数据源",
+      "observed": true,
+      "api": {
+        "status": 200,
+        "body": {
+          "code": 200,
+          "message": "状态更新成功",
+          "data": {
+            "id": 3,
+            "name": "轨道A浏览器验收源",
+            "description": "通过浏览器操作创建的验收数据源",
+            "dbType": "MYSQL",
+            "host": "127.0.0.1",
+            "port": 3306,
+            "databaseName": "dataocean_acceptance_ui",
+            "charset": "utf8mb4",
+            "status": 0,
+            "healthStatus": "HEALTHY",
+            "username": "dataocean_demo_ui",
+            "creatorName": "超级管理员",
+            "lastCheckSuccess": true,
+            "lastCheckTime": "2026-09-13T18:58:53",
+            "createdAt": "2026-09-13T13:52:44"
+          }
+        }
+      },
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "F6-workspace-context-inheritance",
+      "clickPath": "治理问题中心 -> 治理总览",
+      "observedUrl": "http://127.0.0.1:5173/admin/governance?datasourceId=1&snapshotId=11",
+      "linkFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 5,
+      "name": "admin-redesign-p5-knowledge-detail-tabs-pass",
+      "requestedPath": "/admin/semantics/knowledge/2?tab=content",
+      "before": "http://127.0.0.1:5173/admin/governance?datasourceId=1&snapshotId=11",
+      "finalUrl": "http://127.0.0.1:5173/admin/semantics/knowledge/2?tab=content",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n业务术语\n语义知识\nPrompt 策略\n权限与组织\n运营与平台\n进入智能问数\n语义知识\n知识文档详情\n19\n超\n超级管理员\n返回上一级\n轨道A销售分析语义知识\n数据源：轨道A验收业务库\n来源：语义中心 / 语义知识\n知识文档\n轨道A销售分析语义知识\n\n编辑内容、提交审核、发布并构建索引。批准、索引和发布是三个不同阶段，页面按状态只突出一个主操作。\n\n已批准\nAPPROVED\nv1\n刷新\n保存并新建版本\nAI 生成草稿\n发布并构建索引\n草稿\n待审核\n3\n已批准\n4\n索引中\n5\n已发布\n\n文档已批准但尚未进入检索。发布并构建索引成功后，内容才会被 RAG 检索使用。\n\n内容\n来源与覆盖\n审核记录\n版本\n切分预览\n索引状态\n编辑\n预览\n## 文档来源`n- 来源快照：1`n## 核心表描述`n- demo_customer：客户`n- demo_order：订单`n- demo_order_item：订单明细`n- demo_product：商品`n## Join Paths`n- demo_order.customer_id = demo_customer.id`n- demo_order_item.order_id = demo_order.id`n- demo_order_item.product_id = demo_product.id`n## Metrics`n- 订单金额：SUM(demo_order.total_amount)`n## Field Notes`n- order_status 表示订单状态`n## Common Query Scenes`n- 按区域统计订单金额`n",
+      "tabs": [
+        "内容",
+        "来源与覆盖",
+        "审核记录",
+        "版本",
+        "切分预览",
+        "索引状态"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "保存并新建版本",
+        "AI 生成草稿",
+        "发布并构建索引"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p5-knowledge-detail-tabs-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "knowledge-detail-tabs",
+      "expected": [
+        "内容",
+        "来源与覆盖",
+        "审核记录",
+        "版本",
+        "切分预览",
+        "索引状态"
+      ],
+      "observedTabs": [
+        "内容",
+        "来源与覆盖",
+        "审核记录",
+        "版本",
+        "切分预览",
+        "索引状态"
+      ],
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 5,
+      "name": "admin-redesign-p5-knowledge-review-url-pass",
+      "requestedPath": "/admin/semantics/knowledge?tab=review",
+      "before": "http://127.0.0.1:5173/admin/semantics/knowledge/2?tab=content",
+      "finalUrl": "http://127.0.0.1:5173/admin/semantics/knowledge?tab=review",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n业务术语\n语义知识\nPrompt 策略\n权限与组织\n运营与平台\n进入智能问数\n语义知识\n语义知识\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A验收业务库 / dataocean_acceptance\n语义中心\n语义知识\n\n把已发布快照转成 skills.md，经过审核、发布和索引后进入 RAG。批准、索引和发布是三个不同阶段。\n\n刷新\n手动新建\nAI 一键生成\n文档总数\n29\n已发布（可检索）\n20\n索引中\n0\n待审核\n0\n草稿\n8\n数据源知识准备情况\n\n逐个数据源确认是否已有可检索的语义知识。知识需由已发布快照生成，并经审核、 索引、发布后才会进入 RAG 检索。\n\n刷新准备情况\n数据源\n\t\n知识状态\n\t\n知识版本\n\t\n当前阶段\n\t\n下一步\n轨道A上下文隔离源\n\t\n尚未发布\nDRAFT\n\t\n—\n\t\n快照待发布\n\t\n发布快照\n\n\n轨道A浏览器验收源\n\t\n尚未发布\nDRAFT\n\t\n—\n\t\n快照待发布\n\t\n发布快照\n\n\n轨道A验收业务库\n\t\n已发布可检索\nPUBLISHED\n\t\nv1\n\t\n权限待配置\n\t\n查看已发布文档\n\n当前数据源已发布快照 v11，可以基于该快照生成或更新语义知识。\n\n全部文档\n审核队列\n\n审核队列只列出 PENDING_REVIEW 文档。通过后文档进入已批准状态，仍需发布并构建索引才会进入检索。\n\n当前没有待审核的知识文档，审核队列是空的。",
+      "tabs": [
+        "全部文档",
+        "审核队列"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "手动新建",
+        "AI 一键生成",
+        "刷新准备情况"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p5-knowledge-review-url-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "knowledge-review-refresh",
+      "observedUrl": "http://127.0.0.1:5173/admin/semantics/knowledge?tab=review",
+      "activeTabs": [
+        "审核队列"
+      ],
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 5,
+      "name": "admin-redesign-p5-glossary-url-state-pass",
+      "requestedPath": "/admin/semantics/glossaries?glossaryId=1&termId=1",
+      "before": "http://127.0.0.1:5173/admin/semantics/knowledge?tab=review",
+      "finalUrl": "http://127.0.0.1:5173/admin/semantics/glossaries?glossaryId=1&termId=1",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n业务术语\n语义知识\nPrompt 策略\n权限与组织\n运营与平台\n进入智能问数\n业务术语\n业务术语\n19\n超\n超级管理员\n语义中心\n业务术语\n\n把业务叫法绑定到物理字段。术语通过审核后才会进入检索改写，未通过审核的术语不应被当作可用语义。\n\n刷新\n新建术语表\n术语表\n\n1 个术语表\n\n轨道A验收术语表\n轨道A验收术语表\n草稿\nDRAFT\n轨道A验收术语表\n\n共 1 条 · 待审核 0 · 已通过 0 · 已拒绝 0\n\n新增术语\n全部状态\n订单金额\n轨道A验收术语表.订单金额\n同义词：销售额、成交金额\n草稿\nDRAFT\n术语详情\n\n定义、同义词、状态、关联字段与审核信息\n\n草稿\nDRAFT\n状态码 DRAFT\n术语名\n订单金额\n显示名\n订单金额\nFQN\n轨道A验收术语表.订单金额\n定义\n订单金额总和\n同义词\n销售额、成交金额\n相关术语\n[]\n更新时间\n2026-09-13T13:38:40\n编辑\n提交审核\n删除\n审核记录\n审核状态\n草稿\n审核人\n—\n审核时间\n尚未审核\n\n审核意见查不到：后端 glossary_term 表没有存放拒绝原因的列， reviewTerm 收到 reason 后只写服务端日志，不落库。因此这里只能展示 审核状态与审核人，不展示审核意见——不伪造一个空的「审核意见」字段。 该缺口属后端能力缺失，不是前端遗漏。\n\n关联字段（0）\n关联字段\n\n该术语尚未绑定物理字段，未绑定字段的术语无法在 SQL 生成中定位。",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "新建术语表",
+        "轨道A验收术语表轨道A验收术语表",
+        "新增术语",
+        "订单金额轨道A验收术语表.订单金额 同义词：销售额、成交金额",
+        "编辑",
+        "提交审核",
+        "删除",
+        "关联字段"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p5-glossary-url-state-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "glossary-refresh",
+      "observedUrl": "http://127.0.0.1:5173/admin/semantics/glossaries?glossaryId=1&termId=1",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 5,
+      "name": "admin-redesign-p5-prompts-url-state-pass",
+      "requestedPath": "/admin/semantics/prompts?code=sql_generation&tab=versions",
+      "before": "http://127.0.0.1:5173/admin/semantics/glossaries?glossaryId=1&termId=1",
+      "finalUrl": "http://127.0.0.1:5173/admin/semantics/prompts?code=sql_generation&tab=versions",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n业务术语\n语义知识\nPrompt 策略\n权限与组织\n运营与平台\n进入智能问数\nPrompt 策略\nPrompt 策略\n19\n超\n超级管理员\n语义中心\nPrompt 策略\n\n维护 Agent 节点的 Prompt 模板。已批准表示该版本是当前生效的活跃模板，不等于对外发布。\n\n刷新\n保存并创建新版本\n模板列表\n\n4 / 4 个模板\n\n图表生成模板\nchart_generation · 图表生成节点\nv1 · chart_generation\n已批准\nAPPROVED\n会话上下文摘要模板\nconversation_summary\nv1 · conversation_summary\n已批准\nAPPROVED\n意图识别模板（Query Rewrite）\nintent_recognition · 意图识别节点\nv2 · intent_recognition\n已批准\nAPPROVED\nSQL 生成模板\nsql_generation · SQL 生成节点\nv2 · sql_generation\n已批准\nAPPROVED\nSQL 生成模板\n\nsql_generation · 当前版本 v2 · 生效节点：SQL 生成节点\n\n已批准\nAPPROVED\n模板已启用\n停用\n当前内容\n审核流程\n版本历史\n效果统计\n刷新版本\n版本\n\t\n状态\n\t\n生效\n\t\n变更摘要\n\t\n创建时间\n\t\n操作\nv2\n\t\n已批准\nAPPROVED\n\t\n当前生效\n\t\n增加会话长期摘要上下文\n\t\n2026-09-13T11:12:44\n\t\n查看\n\n\nv1\n\t\n已批准\nAPPROVED\n\t\n—\n\t\n初始版本\n\t\n2026-09-13T11:12:41\n\t\n查看\n回滚",
+      "tabs": [
+        "当前内容",
+        "审核流程",
+        "版本历史",
+        "效果统计"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "保存并创建新版本",
+        "图表生成模板chart_generation · 图表生成节点v1 · chart_generation",
+        "会话上下文摘要模板conversation_summaryv1 · conversation_summary",
+        "意图识别模板（Query Rewrite）intent_recognition · 意图识别节点v2 · intent_recognition",
+        "SQL 生成模板sql_generation · SQL 生成节点v2 · sql_generation",
+        "停用",
+        "刷新版本",
+        "查看",
+        "查看",
+        "回滚"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p5-prompts-url-state-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "prompt-refresh",
+      "observedUrl": "http://127.0.0.1:5173/admin/semantics/prompts?code=sql_generation&tab=versions",
+      "activeTabs": [
+        "版本历史"
+      ],
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 6,
+      "name": "admin-redesign-p6-access-grants-pass",
+      "requestedPath": "/admin/access?datasourceId=1&tab=grants",
+      "before": "http://127.0.0.1:5173/admin/semantics/prompts?code=sql_generation&tab=versions",
+      "finalUrl": "http://127.0.0.1:5173/admin/access?datasourceId=1&tab=grants",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n授权管理\n访问审批\n组织与角色\n运营与平台\n进入智能问数\n授权管理\n授权管理\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A验收业务库 / dataocean_acceptance\n授权管理\n\n按主体查看数据源级授权、表列策略与最终权限结果。数据源由顶部范围条决定，页面内不再另建选择器。\n\n当前数据源：轨道A验收业务库\n刷新\n新增授权\n选择主体\n先选主体，再查看它在当前数据源上被授予了什么。\n用户\n角色\n部门\n全部主体\n数据源授权\n表列策略\n最终权限预览\n\n第一层：主体能否访问该数据源。禁止优先于允许， 任一维度为禁止即不可访问。\n\n当前主体筛选下没有授权记录。未授权的主体不能查询该数据源。\n\n新增授权\n\n后端缺口：授权列表接口未返回 priority，因此无法展示优先级。 授权效果与有效期可见，优先级不存在前端可展示的数据来源。",
+      "tabs": [
+        "数据源授权",
+        "表列策略",
+        "最终权限预览"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "新增授权",
+        "新增授权"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p6-access-grants-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 6,
+      "name": "admin-redesign-p6-access-policies-pass",
+      "requestedPath": "/admin/access?datasourceId=1&tab=policies",
+      "before": "http://127.0.0.1:5173/admin/access?datasourceId=1&tab=grants",
+      "finalUrl": "http://127.0.0.1:5173/admin/access?datasourceId=1&tab=policies",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n授权管理\n访问审批\n组织与角色\n运营与平台\n进入智能问数\n授权管理\n授权管理\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A验收业务库 / dataocean_acceptance\n授权管理\n\n按主体查看数据源级授权、表列策略与最终权限结果。数据源由顶部范围条决定，页面内不再另建选择器。\n\n当前数据源：轨道A验收业务库\n刷新\n新增策略\n选择主体\n先选主体，再查看它在当前数据源上被授予了什么。\n用户\n角色\n部门\n全部主体\n数据源授权\n表列策略\n最终权限预览\n\n第二层：允许访问哪些表、字段，是否存在行过滤和脱敏。字段留空表示表级策略。\n\n当前筛选条件下没有表列策略。未配置策略时，主体按数据源级授权决定可访问范围。\n\n新增策略",
+      "tabs": [
+        "数据源授权",
+        "表列策略",
+        "最终权限预览"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "新增策略",
+        "新增策略"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p6-access-policies-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "single-datasource-context-selector",
+      "visibleScopeSelectorCount": 1,
+      "bodyHasDuplicateWarning": false,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 6,
+      "name": "admin-redesign-p6-access-approvals-pass",
+      "requestedPath": "/admin/access/approvals",
+      "before": "http://127.0.0.1:5173/admin/access?datasourceId=1&tab=policies",
+      "finalUrl": "http://127.0.0.1:5173/admin/access/approvals",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n授权管理\n访问审批\n组织与角色\n运营与平台\n进入智能问数\n访问审批\n访问审批\n19\n超\n超级管理员\n访问审批\n\n管理员审批队列。通过后会生成有有效期的临时允许策略；审批时后端会再次复查治理状态，不绕过 BLOCKED / DEPRECATED 限制。\n\n刷新\n安全边界\n\n列表范围由后端强制收窄：拥有 security:manage 的账号看到全量审批队列，其余账号只能看到自己提交的申请。 本页面作为管理员队列使用；普通用户「我的申请」入口按开发指导 §7.14 待产品确认后开放。\n\n待我审批\n已处理\n已过期\n申请号\n\t\n申请人\n\t\n数据源\n\t\n申请对象\n\t\n申请理由\n\t\n时长\n\t\n状态\n\t\n创建时间\n\t\n操作\n1\n\t\n超级管理员\n\t\n轨道A验收业务库\n\t\ndemo_order.total_amount\n\t\n管理员范围测试申请\n\t\n2 小时\n\t\n待处理\nPENDING\n\t\n2026-09-13T13:39:03\n\t\n详情\n通过\n拒绝\n\n\n2\n\t\n验收普通用户\n\t\n轨道A验收业务库\n\t\ndemo_order.total_amount\n\t\n普通用户申请查看订单金额\n\t\n2 小时\n\t\n待处理\nPENDING\n\t\n2026-09-13T13:39:03\n\t\n详情\n通过\n拒绝",
+      "tabs": [
+        "待我审批",
+        "已处理",
+        "已过期"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "详情",
+        "通过",
+        "拒绝",
+        "详情",
+        "通过",
+        "拒绝"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p6-access-approvals-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 6,
+      "name": "admin-redesign-p6-organization-users-pass",
+      "requestedPath": "/admin/access/organization?tab=users",
+      "before": "http://127.0.0.1:5173/admin/access/approvals",
+      "finalUrl": "http://127.0.0.1:5173/admin/access/organization?tab=users",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n授权管理\n访问审批\n组织与角色\n运营与平台\n进入智能问数\n组织与角色\n组织与角色\n19\n超\n超级管理员\n组织与角色\n\n在一个工作区中维护用户、角色、部门和权限项；完成主体管理后再进入授权管理配置访问范围。\n\n当前：用户\n用户\n角色\n部门\n权限项\n导入模板\n导入用户\n导出\n新增用户\n部门\n全部状态\n查询\n重置\n用户名\n\t\n姓名\n\t\n部门\n\t\n角色\n\t\n状态\n\t\n最后登录\n\t\n操作\nacceptance_user\n\t\n验收普通用户\n\t\n总部\n\t\n普通员工\n\t\n正常\n\t\n5小时前\n\t\n详情\n编辑\n禁用\n重置密码\n删除\n\n\nadmin\n\t\n超级管理员\n\t\n总部\n\t\n超级管理员\n\t\n正常\n\t\n1分钟前\n\t\n详情\n编辑\n禁用\n重置密码\nTotal 2\n20/page\n1",
+      "tabs": [
+        "用户",
+        "角色",
+        "部门",
+        "权限项"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "导入模板",
+        "导入用户",
+        "导出",
+        "新增用户",
+        "查询",
+        "重置",
+        "详情",
+        "编辑",
+        "禁用",
+        "重置密码",
+        "删除",
+        "详情",
+        "编辑",
+        "禁用",
+        "重置密码"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p6-organization-users-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 6,
+      "name": "admin-redesign-p6-organization-roles-pass",
+      "requestedPath": "/admin/access/organization?tab=roles",
+      "before": "http://127.0.0.1:5173/admin/access/organization?tab=users",
+      "finalUrl": "http://127.0.0.1:5173/admin/access/organization?tab=roles",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n授权管理\n访问审批\n组织与角色\n运营与平台\n进入智能问数\n组织与角色\n组织与角色\n19\n超\n超级管理员\n组织与角色\n\n在一个工作区中维护用户、角色、部门和权限项；完成主体管理后再进入授权管理配置访问范围。\n\n当前：角色\n用户\n角色\n部门\n权限项\n刷新\n新增角色\n普通员工\n默认业务用户\n数据分析师\n可发起数据查询与分析\n数据管理员\n管理数据源和元数据\n安全管理员\n管理权限与安全策略\n超级管理员\n系统最高权限管理员\n角色定义\n权限配置\n成员管理\n角色名称\n\t\n角色编码\n\t\n描述\n\t\n状态\n\t\n创建时间\n\t\n操作\n普通员工\n\t\nUSER\n\t\n默认业务用户\n\t\n启用\n\t\n2026/09/13\n\t\n编辑\n删除\n\n\n数据分析师\n\t\nANALYST\n\t\n可发起数据查询与分析\n\t\n启用\n\t\n2026/09/13\n\t\n编辑\n删除\n\n\n数据管理员\n\t\nDATA_MANAGER\n\t\n管理数据源和元数据\n\t\n启用\n\t\n2026/09/13\n\t\n编辑\n删除\n\n\n安全管理员\n\t\nSECURITY_MANAGER\n\t\n管理权限与安全策略\n\t\n启用\n\t\n2026/09/13\n\t\n编辑\n删除\n\n\n超级管理员\n\t\nADMIN\n\t\n系统最高权限管理员\n\t\n启用\n\t\n2026/09/13\n\t\n编辑\n删除",
+      "tabs": [
+        "用户",
+        "角色",
+        "部门",
+        "权限项",
+        "角色定义",
+        "权限配置",
+        "成员管理"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "新增角色",
+        "普通员工默认业务用户",
+        "数据分析师可发起数据查询与分析",
+        "数据管理员管理数据源和元数据",
+        "安全管理员管理权限与安全策略",
+        "超级管理员系统最高权限管理员",
+        "编辑",
+        "删除",
+        "编辑",
+        "删除",
+        "编辑",
+        "删除",
+        "编辑",
+        "删除",
+        "编辑",
+        "删除"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p6-organization-roles-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 1,
+      "name": "admin-redesign-p1-workbench-injected-error-pass",
+      "requestedPath": "/admin/workbench",
+      "before": "http://127.0.0.1:5173/admin/access/organization?tab=roles",
+      "finalUrl": "http://127.0.0.1:5173/admin/workbench",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n工作台\n19\n超\n超级管理员\nDATAOCEAN / WORKBENCH\n工作台\n\n从数据源准备情况开始，定位阻断原因并沿着业务生命周期推进到可问数。\n\n进入智能问数\n可问数数据源\n0\n共 3 个数据源\n需要处理\n3\n存在后端返回的阻断原因\n推进中\n0\n尚未形成可问数条件\n数据源准备情况\n\n以下状态直接来自后端 readiness，不在前端重新拼装业务结论。\n\n刷新\n轨道A上下文隔离源\n快照待发布\nSNAPSHOT_PENDING\n35%\n3 项阻断\n轨道A浏览器验收源\n快照待发布\nSNAPSHOT_PENDING\n35%\n3 项阻断\n轨道A验收业务库\n权限待配置\nPERMISSION_PENDING\n90%\n1 项阻断\n业务就绪度\n轨道A上下文隔离源\n快照待发布\nSNAPSHOT_PENDING\n当前阶段：快照待发布\n35%\n连接\n已就绪\n采集\n待处理\n治理\n已就绪\n知识\n待处理\n授权\n待处理\n需要处理的事项\n\n以下原因来自数据源就绪度接口。\n\n尚未发布元数据快照\n责任角色：治理负责人\n发布快照\nskills.md 尚未发布或向量化未完成\n责任角色：数据分析师\n前往知识审核\n尚未配置有效查询授权\n责任角色：数据安全管理员\n配置数据源权限\n待处理和阻断\n\n先处理阻断原因，再回到相应业务工作区复查。\n\n数据源\n\t\n当前阶段\n\t\n阻断原因\n\t\n责任角色\n\t\n操作\n轨道A上下文隔离源\n\t\n快照待发布\n\t\n尚未发布元数据快照\n\t\n治理负责人\n\t\n查看\n\n\n轨道A浏览器验收源\n\t\n快照待发布\n\t\n尚未发布元数据快照\n\t\n治理负责人\n\t\n查看\n\n\n轨道A验收业务库\n\t\n权限待配置\n\t\n尚未配置有效查询授权\n\t\n数据安全管理员\n\t\n查看\n最近活动\n\n来自工作台统计接口。\n\n!\n\n验收注入的接口错误\n\n快捷入口\n\n继续当前业务任务。\n\n数据源接入\n问题中心\n进入智能问数",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "进入智能问数",
+        "刷新",
+        "轨道A上下文隔离源 快照待发布 SNAPSHOT_PENDING35%3 项阻断",
+        "轨道A浏览器验收源 快照待发布 SNAPSHOT_PENDING35%3 项阻断",
+        "轨道A验收业务库 权限待配置 PERMISSION_PENDING90%1 项阻断",
+        "查看",
+        "查看",
+        "查看"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p1-workbench-injected-error-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "error-state-not-empty",
+      "observed": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n进入智能问数\n工作台\n19\n超\n超级管理员\nDATAOCEAN / WORKBENCH\n工作台\n\n从数据源准备情况开始，定位阻断原因并沿着业务生命周期推进到可问数。\n\n进入智能问数\n可问数数据源\n0\n共 3 个数据源\n需要处理\n3\n存在后端返回的阻断原因\n推进中\n0\n尚未形成可问数条件\n数据源准备情况\n\n以下状态直接来自后端 readiness，不在前端重新拼装业务结论。\n\n刷新\n轨道A上下文隔离源\n快照待发布\nSNAPSHOT_PENDING\n35%\n3 项阻断\n轨道A浏览器验收源\n快照待发布\nSNAPSHOT_PENDING\n35%\n3 项阻断\n轨道A验收业务库\n权限待配置\nPERMISSION_PENDING\n90%\n1 项阻断\n业务就绪度\n轨道A上下文隔离源\n快照待发布\nSNAPSHOT_PENDING\n当前阶段：快照待发布\n35%\n连接\n已就绪\n采集\n待处理\n治理\n已就绪\n知识\n待处理\n授权\n待处理\n需要处理的事项\n\n以下原因来自数据源就绪度接口。\n\n尚未发布元数据快照\n责任角色：治理负责人\n发布快照\nskills.md 尚未发布或向量化未完成\n责任角色：数据分析师\n前往知识审核\n尚未配置有效查询授权\n责任角色：数据安全管理员\n配置数据源权限\n待处理和阻断\n\n先处理阻断原因，再回到相应业务工作区复查。\n\n数据源\n\t\n当前阶段\n\t\n阻断原因\n\t\n责任角色\n\t\n操作\n轨道A上下文隔离源\n\t\n快照待发布\n\t\n尚未发布元数据快照\n\t\n治理负责人\n\t\n查看\n\n\n轨道A浏览器验收源\n\t\n快照待发布\n\t\n尚未发布元数据快照\n\t\n治理负责人\n\t\n查看\n\n\n轨道A验收业务库\n\t\n权限待配置\n\t\n尚未配置有效查询授权\n\t\n数据安全管理员\n\t\n查看\n最近活动\n\n来自工作台统计接口。\n\n!\n\n验收注入的接口错误\n\n快捷入口\n\n继续当前业务任务。\n\n数据源接入\n问题中心\n进入智能问数",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 7,
+      "name": "admin-redesign-p7-query-analysis-pass",
+      "requestedPath": "/admin/operations/queries?tab=audit",
+      "before": "http://127.0.0.1:5173/admin/workbench",
+      "finalUrl": "http://127.0.0.1:5173/admin/operations/queries?tab=audit",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n查询分析\n数据血缘\n运行监控\n操作日志\nAI 配置\n进入智能问数\n查询分析\n查询分析\n19\n超\n超级管理员\n查询分析\n\n围绕查询审计、慢查询和统计观察问数效果。性能页不显示无效的数据源筛选器，具体筛选能力以接口为准。\n\n查询审计\n性能分析\n14\n近 30 天查询数\n50.0%\n近 30 天成功率\n22392ms\n近 30 天平均耗时\n12\n近 30 天慢查询数\n轨道A验收业务库\n状态\n慢查询\n查询\nID\n\t\n问题\n\t\n用户\n\t\n数据源\n\t\n状态\n\t\n耗时(ms)\n\t\n慢查询\n\t\n时间\n\t\n操作\n14\n\t\n按客户区域汇总订单金额\n\t\n用户 #1\n\t\n数据源 #1\n\t\n成功\n\t\n26226\n\t\n慢\n\t\n2026-09-13T18:56:34\n\t\n详情\n\n\n13\n\t\n按客户区域汇总订单金额\n\t\n用户 #1\n\t\n数据源 #1\n\t\n成功\n\t\n17642\n\t\n慢\n\t\n2026-09-13T18:45:57\n\t\n详情\n\n\n12\n\t\n按客户区域汇总订单金额\n\t\n用户 #1\n\t\n数据源 #1\n\t\n成功\n\t\n18960\n\t\n慢\n\t\n2026-09-13T18:25:30\n\t\n详情\n\n\n11\n\t\n按客户区域汇总订单金额\n\t\n用户 #1\n\t\n数据源 #1\n\t\n成功\n\t\n20007\n\t\n慢\n\t\n2026-09-13T18:15:06\n\t\n详情\n\n\n10\n\t\n按客户区域汇总订单金额\n\t\n用户 #1\n\t\n数据源 #1\n\t\n成功\n\t\n23586\n\t\n慢\n\t\n2026-09-13T18:04:44\n\t\n详情\n\n\n9\n\t\n按客户区域汇总订单金额\n\t\n用户 #1\n\t\n数据源 #1\n\t\n成功\n\t\n20872\n\t\n慢\n\t\n2026-09-13T17:53:48\n\t\n详情\n\n\n8\n\t\n统计最近30天订单金额趋势\n\t\n用户 #1\n\t\n数据源 #1\n\t\n成功\n\t\n15928\n\t\n慢\n\t\n2026-09-13T17:50:50\n\t\n详情\n\n\n7\n\t\n统计最近30天订单金额趋势\n\t\n用户 #1\n\t\n数据源 #1\n\t\n失败\n\t\n19025\n\t\n慢\n\t\n2026-09-13T17:46:19\n\t\n详情\n\n\n6\n\t\n统计最近30天订单金额趋势\n\t\n用户 #1\n\t\n数据源 #1\n\t\n失败\n\t\n28947\n\t\n慢\n\t\n2026-09-13T17:41:56\n\t\n详情\n\n\n5\n\t\n统计最近30天订单金额趋势\n\t\n用户 #1\n\t\n数据源 #1\n\t\n失败\n\t\n52765\n\t\n慢\n\t\n2026-09-13T17:35:28\n\t\n详情\n\n\n4\n\t\n统计最近30天订单金额趋势\n\t\n用户 #1\n\t\n数据源 #1\n\t\n失败\n\t\n16044\n\t\n慢\n\t\n2026-09-13T17:19:59\n\t\n详情\n\n\n3\n\t\n统计最近30天订单金额趋势\n\t\n用户 #1\n\t\n数据源 #1\n\t\n失败\n\t\n8705\n\t\n慢\n\t\n2026-09-13T17:15:03\n\t\n详情\n\n\n2\n\t\n统计最近30天订单金额趋势\n\t\n用户 #1\n\t\n数据源 #1\n\t\n失败\n\t\n\t\n—\n\t\n2026-09-13T17:11:24\n\t\n详情\n\n\n1\n\t\n统计最近30天订单金额趋势\n\t\n用户 #1\n\t\n数据源 #1\n\t\n失败\n\t\n\t\n—\n\t\n2026-09-13T17:05:38\n\t\n详情",
+      "tabs": [
+        "查询审计",
+        "性能分析"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "查询",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p7-query-analysis-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 7,
+      "name": "admin-redesign-p7-lineage-pass",
+      "requestedPath": "/admin/operations/lineage?datasourceId=1",
+      "before": "http://127.0.0.1:5173/admin/operations/queries?tab=audit",
+      "finalUrl": "http://127.0.0.1:5173/admin/operations/lineage?datasourceId=1",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n查询分析\n数据血缘\n运行监控\n操作日志\nAI 配置\n进入智能问数\n数据血缘\n数据血缘\n19\n超\n超级管理员\n数据源范围\n选择后，当前工作区会使用该数据源上下文\n轨道A验收业务库 / dataocean_acceptance\n数据源范围\n\n轨道A验收业务库\n使用顶部的数据源范围条切换\n\n搜索表/列\n血缘类型\n查询血缘（QUERY）\nETL 流转（ETL）\n手动标注（MANUAL）\n方向\n上游\n下游\n双向\n\n图表方向以当前选中实体为焦点，只保留该方向的连通关系；列血缘抽屉同样按此方向查询。\n\n深度: 3\n添加血缘\n更多\n查询血缘\nETL 流转\n手动标注\n列派生\n演示客户\nTABLE\ncreated_at\nCOLUMN\ncustomer_code\nCOLUMN\ncustomer_level\nCOLUMN\ncustomer_name\nCOLUMN\nid\nCOLUMN\nregion\nCOLUMN\n演示订单\nTABLE\ncustomer_id\nCOLUMN\nid\nCOLUMN\norder_date\nCOLUMN\norder_no\nCOLUMN\norder_status\nCOLUMN\ntotal_amount\nCOLUMN\n演示订单明细\nTABLE\nid\nCOLUMN\norder_id\nCOLUMN\nproduct_id\nCOLUMN\nquantity\nCOLUMN\nunit_price\nCOLUMN\n演示商品\nTABLE\nactive\nCOLUMN\ncategory\nCOLUMN\nid\nCOLUMN\nproduct_code\nCOLUMN\nproduct_name\nCOLUMN\nunit_price\nCOLUMN",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "添加血缘",
+        "更多"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p7-lineage-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 7,
+      "name": "admin-redesign-p7-runtime-pass",
+      "requestedPath": "/admin/platform/runtime?tab=health",
+      "before": "http://127.0.0.1:5173/admin/operations/lineage?datasourceId=1",
+      "finalUrl": "http://127.0.0.1:5173/admin/platform/runtime?tab=health",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n查询分析\n数据血缘\n运行监控\n操作日志\nAI 配置\n进入智能问数\n运行监控\n运行监控\n19\n超\n超级管理员\n运行监控\n\n观察依赖服务、SQL 连接池与告警规则配置。告警当前只支持规则配置，没有执行历史与恢复闭环。\n\n刷新\n服务状态\nSQL 连接池\n告警规则\n系统总体状态\n健康\n\n检查时间 2026-09-13T19:02:46.9336928\n\nPython AI 服务\n正常\n\n可用\n\n最后检查 2026-09-13T19:02:33.1003101\n\nMySQL 数据库\n正常\n\n可用\n\nRedis 缓存\n正常\n\n可用",
+      "tabs": [
+        "服务状态",
+        "SQL 连接池",
+        "告警规则"
+      ],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p7-runtime-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 7,
+      "name": "admin-redesign-p7-operation-logs-pass",
+      "requestedPath": "/admin/platform/operation-logs",
+      "before": "http://127.0.0.1:5173/admin/platform/runtime?tab=health",
+      "finalUrl": "http://127.0.0.1:5173/admin/platform/operation-logs",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n查询分析\n数据血缘\n运行监控\n操作日志\nAI 配置\n进入智能问数\n操作日志\n操作日志\n19\n超\n超级管理员\n运营与平台\n操作日志\n\n围绕目标资源追踪后台操作、请求路径、耗时与成功状态，用于审计追溯和异常定位。\n\n当前筛选 4704 条\n刷新\n4704\n日志总数\n20\n当前页成功\n0\n当前页失败\n6ms\n当前页平均耗时\n\n统计口径：日志总数取自服务端；成功 / 失败 / 平均耗时由当前页记录算出。 后端没有操作日志的聚合统计接口，因此这三项随翻页变化，不代表全局。需要全局数据请导出后统计。\n\n操作日志\n按目标资源定位后台操作轨迹\n操作类型\n状态\n至\n高级筛选\n查询\nID\n\t\n状态\n\t\n操作人\n\t\n类型\n\t\n目标资源\n\t\n目标 ID\n\t\n请求\n\t\n耗时\n\t\nIP\n\t\n时间\n\t\n操作\n4704\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/simple\n\t\n1ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:47\n\t\n详情\n\n\n4703\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nknowledge-docs\n\t\n\t\nGET\n/api/admin/knowledge-docs\n\t\n9ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:45\n\t\n详情\n\n\n4702\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/simple\n\t\n1ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:45\n\t\n详情\n\n\n4701\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\naudit-logs\n\t\n\t\nGET\n/api/admin/audit-logs/stats\n\t\n9ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:44\n\t\n详情\n\n\n4700\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\naudit-logs\n\t\n\t\nGET\n/api/admin/audit-logs\n\t\n6ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:44\n\t\n详情\n\n\n4699\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/simple\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:44\n\t\n详情\n\n\n4698\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nknowledge-docs\n\t\n\t\nGET\n/api/admin/knowledge-docs\n\t\n9ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:44\n\t\n详情\n\n\n4697\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\naudit-logs\n\t\n\t\nGET\n/api/admin/audit-logs/slow-queries\n\t\n7ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:44\n\t\n详情\n\n\n4696\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/simple\n\t\n1ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:44\n\t\n详情\n\n\n4695\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/readiness/batch\n\t\n21ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:41\n\t\n详情\n\n\n4694\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndatasources\n\t\n\t\nGET\n/api/admin/datasources/simple\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:41\n\t\n详情\n\n\n4693\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nroles\n\t\n1\n\t\nGET\n/api/admin/roles/1/permissions\n\t\n3ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:40\n\t\n详情\n\n\n4692\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nroles\n\t\n1\n\t\nGET\n/api/admin/roles/1/users\n\t\n4ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:40\n\t\n详情\n\n\n4691\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nusers\n\t\n\t\nGET\n/api/admin/users\n\t\n12ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:40\n\t\n详情\n\n\n4690\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\npermissions\n\t\n\t\nGET\n/api/admin/permissions/tree\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:40\n\t\n详情\n\n\n4689\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nroles\n\t\n\t\nGET\n/api/admin/roles\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:40\n\t\n详情\n\n\n4688\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nusers\n\t\n\t\nGET\n/api/admin/users\n\t\n13ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:38\n\t\n详情\n\n\n4687\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\ndepartments\n\t\n\t\nGET\n/api/admin/departments/tree\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:38\n\t\n详情\n\n\n4686\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\nroles\n\t\n\t\nGET\n/api/admin/roles\n\t\n2ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:38\n\t\n详情\n\n\n4685\n\t\n成功\n\t\nadmin\n\t\n查询\n\t\naccess-approvals\n\t\n\t\nGET\n/api/admin/access-approvals\n\t\n8ms\n\t\n127.0.0.1\n\t\n2026/09/13 19:02:36\n\t\n详情\nTotal 4704\n20/page\n1\n2\n3\n4\n5\n6\n236",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "刷新",
+        "高级筛选",
+        "查询",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情",
+        "详情"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p7-operation-logs-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 7,
+      "name": "admin-redesign-p7-ai-config-pass",
+      "requestedPath": "/admin/platform/ai",
+      "before": "http://127.0.0.1:5173/admin/platform/operation-logs",
+      "finalUrl": "http://127.0.0.1:5173/admin/platform/ai",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n数据查询治理平台\n工作台\n数据接入\n数据资产\n数据治理\n语义中心\n权限与组织\n运营与平台\n查询分析\n数据血缘\n运行监控\n操作日志\nAI 配置\n进入智能问数\nAI 配置\nAI 配置\n19\n超\n超级管理员\nAI 服务配置\n\n管理供应商、模型和参数。点击卡片展开详情，选择使用的配置。\n\n添加供应商\n刷新\n当前 Chat\ndashscope / qwen-plus\n当前 Embedding\ndashscope / text-embedding-v4\nCollection\nschema_knowledge\n索引状态\n正常\nNORMAL\n\n当前生效：text-embedding-v4（维度 1024）\n\n全量重建编排尚未开放；发布知识文档时会创建安全的版本级索引任务\nChat 配置\nEmbedding 配置\n通义千问\nunknown\nhttps://dashscope.aliyuncs.com/compatible-mode/v1\n1 个模型\nqwen-plus\n使用中\n温度\n超时(秒)\n重试\n使用中\n保存参数",
+      "tabs": [],
+      "buttons": [
+        "19",
+        "超超级管理员",
+        "添加供应商",
+        "刷新",
+        "Chat 配置",
+        "Embedding 配置",
+        "使用中",
+        "保存参数"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p7-ai-config-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "knowledge-generate-draft",
+      "status": 200,
+      "docIds": [
+        30,
+        31,
+        32
+      ],
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "knowledge-review-index-publish",
+      "docId": 32,
+      "submitReviewStatus": 200,
+      "approveStatus": 200,
+      "publishStatus": 200,
+      "vectorStatus": "COMPLETED",
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "knowledge-review-index-publish",
+      "docId": 31,
+      "submitReviewStatus": 200,
+      "approveStatus": 200,
+      "publishStatus": 200,
+      "vectorStatus": "COMPLETED",
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "knowledge-review-index-publish",
+      "docId": 30,
+      "submitReviewStatus": 200,
+      "approveStatus": 200,
+      "publishStatus": 200,
+      "vectorStatus": "COMPLETED",
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "conversation-isolation-primary",
+      "datasourceId": 1,
+      "status": 200,
+      "count": 14,
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "conversation-isolation-secondary",
+      "datasourceId": 2,
+      "status": 200,
+      "count": 0,
+      "noPrimaryLeak": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "datasource-readiness-primary",
+      "datasourceId": 1,
+      "status": 200,
+      "stage": "ASKABLE",
+      "askable": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "real-nl2sql-submit",
+      "status": 200,
+      "taskId": "59e84738-a7a8-4f1d-9305-c73685552960",
+      "conversationId": 15,
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "real-nl2sql-result",
+      "status": "COMPLETED",
+      "taskId": "59e84738-a7a8-4f1d-9305-c73685552960",
+      "suggestedQuestions": [
+        "哪些区域的订单金额最高？",
+        "各区域订单金额的同比增长率是多少？",
+        "是否有异常高额订单影响了区域汇总结果？"
+      ],
+      "hasError": false,
+      "conclusion": "通过"
+    },
+    {
+      "type": "api",
+      "name": "query-history-datasource-filter",
+      "status": 200,
+      "taskId": "59e84738-a7a8-4f1d-9305-c73685552960",
+      "requestedDatasourceId": 1,
+      "conclusion": "通过"
+    },
+    {
+      "type": "page",
+      "stage": 7,
+      "name": "admin-redesign-p7-query-result-pass",
+      "requestedPath": "/query?datasourceId=1",
+      "before": "http://127.0.0.1:5173/admin/platform/ai",
+      "finalUrl": "http://127.0.0.1:5173/query?datasourceId=1",
+      "httpStatus": 200,
+      "navigationError": null,
+      "body": "DO\nDataOcean\n智能问答\n新建对话\n数据源\n轨道A验收业务库\n数据源已就绪\n历史会话\n按客户区域汇总订单金额\n09/13 19:06\n按客户区域汇总订单金额\n09/13 18:56\n按客户区域汇总订单金额\n09/13 18:45\n按客户区域汇总订单金额\n09/13 18:25\n按客户区域汇总订单金额\n09/13 18:15\n按客户区域汇总订单金额\n09/13 18:04\n按客户区域汇总订单金额\n09/13 17:53\n统计最近30天订单金额趋势\n09/13 17:50\n统计最近30天订单金额趋势\n09/13 17:46\n统计最近30天订单金额趋势\n09/13 17:41\n统计最近30天订单金额趋势\n09/13 17:35\n统计最近30天订单金额趋势\n09/13 17:19\n统计最近30天订单金额趋势\n09/13 17:15\n统计最近30天订单金额趋势\n09/13 17:11\n统计最近30天订单金额趋势\n09/13 17:05\n超\n超级管理员\n超级管理员\n按客户区域汇总订单金额\n\n按客户区域汇总订单金额\n\n09/13 19:06\n\n推荐追问\n哪些区域的订单金额最高？\n各区域订单金额的同比增长率是多少？\n是否有异常高额订单影响了区域汇总结果？\n09/13 19:06\n查看结果\n轨道A验收业务库\n已就绪\n发送\nEnter 发送，Shift + Enter 换行\n结果检查器\n数据、图表、SQL 与可信依据\n表格结果\nSQL\n图表\n可信依据\n共 6 行 · 耗时 18437ms\n使用表：demo_customer, demo_order\nregion\n\t\ntotal_order_amount\n华东\n\t\n13539.00\n\n\n华中\n\t\n10919.00\n\n\n东北\n\t\n9740.00\n\n\n华南\n\t\n7640.00\n\n\n华北\n\t\n6994.00\n\n\n西南\n\t\n6959.00\n导出 CSV",
+      "tabs": [
+        "表格结果",
+        "SQL",
+        "图表",
+        "可信依据"
+      ],
+      "buttons": [
+        "新建对话",
+        "轨道A验收业务库数据源已就绪",
+        "超超级管理员超级管理员",
+        "哪些区域的订单金额最高？",
+        "各区域订单金额的同比增长率是多少？",
+        "是否有异常高额订单影响了区域汇总结果？",
+        "查看结果",
+        "发送",
+        "表格结果",
+        "SQL",
+        "图表",
+        "可信依据",
+        "导出 CSV"
+      ],
+      "screenshot": "D:/projects/DataOcean/output/playwright/admin-redesign-p7-query-result-pass.png",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "suggested-question-click-fill",
+      "expected": "哪些区域的订单金额最高？",
+      "observed": "哪些区域的订单金额最高？",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "suggested-question-history-restore",
+      "expectedAtLeast": 1,
+      "observed": 3,
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "query-datasource-url-back-forward",
+      "secondaryExpected": "轨道A上下文隔离源",
+      "secondaryObserved": "轨道A上下文隔离源",
+      "primaryExpected": "轨道A验收业务库",
+      "primaryObserved": "轨道A验收业务库",
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "pool-reset-secondary-confirmation",
+      "confirmationText": "确认重置连接池\n\n重置数据源「轨道A验收业务库」的 SQL 连接池？该数据源上正在执行的查询会失去连接，正在排队的请求会重新建连。确认继续？\n\n取消\n确认重置",
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 1,
+      "path": "/admin/datasources",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/datasources",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 2,
+      "path": "/admin/datasources/1/lifecycle",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/datasources/1/lifecycle",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 3,
+      "path": "/admin/metadata/sync",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/metadata/sync",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 4,
+      "path": "/admin/metadata/schedule",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/metadata/schedule",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 5,
+      "path": "/admin/metadata/catalog",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/metadata/catalog",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 6,
+      "path": "/admin/metadata/tables",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/metadata/tables",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 7,
+      "path": "/admin/metadata/lifecycle",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/metadata/lifecycle",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 8,
+      "path": "/admin/metadata/snapshots",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/metadata/snapshots",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 9,
+      "path": "/admin/metadata/version-history",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/metadata/version-history",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 10,
+      "path": "/admin/metadata/diff?oldId=1&newId=1",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/metadata/diff?oldId=1&newId=1",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 11,
+      "path": "/admin/governance/quality",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/governance/quality",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 12,
+      "path": "/admin/governance/status",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/governance/status",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 13,
+      "path": "/admin/field/tags",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/field/tags",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 14,
+      "path": "/admin/field/confidence",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/field/confidence",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 15,
+      "path": "/admin/field/feedback-review",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/field/feedback-review",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 16,
+      "path": "/admin/glossary/list",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/glossary/list",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 17,
+      "path": "/admin/knowledge",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/knowledge",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 18,
+      "path": "/admin/knowledge/editor/2",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/knowledge/editor/2",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 19,
+      "path": "/admin/knowledge/versions/2",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/knowledge/versions/2",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 20,
+      "path": "/admin/knowledge/review",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/knowledge/review",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 21,
+      "path": "/admin/prompts",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/prompts",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 22,
+      "path": "/admin/permission/access",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/permission/access",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 23,
+      "path": "/admin/permission/policies",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/permission/policies",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 24,
+      "path": "/admin/users",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/users",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 25,
+      "path": "/admin/roles",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/roles",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 26,
+      "path": "/admin/departments",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/departments",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 27,
+      "path": "/admin/audit/logs",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/audit/logs",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 28,
+      "path": "/admin/audit/slow-queries",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/audit/slow-queries",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 29,
+      "path": "/admin/audit/data-lineage",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/audit/data-lineage",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 30,
+      "path": "/admin/system/health",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/system/health",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 31,
+      "path": "/admin/system/operation-logs",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/system/operation-logs",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "legacy-route",
+      "index": 32,
+      "path": "/admin/system/ai-config",
+      "httpStatus": 200,
+      "finalUrl": "http://127.0.0.1:5173/admin/system/ai-config",
+      "notFound": true,
+      "conclusion": "通过"
+    },
+    {
+      "type": "assertion",
+      "name": "desktop-keyboard-access",
+      "focus": {
+        "tag": "BUTTON",
+        "aria": null,
+        "text": "返回首页"
+      },
+      "conclusion": "通过"
+    }
+  ],
+  "consoleErrors": [],
+  "expectedConsoleErrors": [
+    {
+      "url": "http://127.0.0.1:5173/admin/workbench",
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+    }
+  ],
+  "pageErrors": [],
+  "requestFailures": []
+}

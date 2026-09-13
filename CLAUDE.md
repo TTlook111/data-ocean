@@ -82,7 +82,7 @@ Latest addition:
 
 - **后端缺陷修复轮完成**（2026-09-12，提交 `fcd7bd3`/`af29e6b`/`cbd1ff4` + 前端 `0c852a7`）：修复知识回滚前置校验、知识版本审核状态、术语退回状态机、目录数据源过滤和多数据源同名表列血缘解析。后续真实验收发现的新阻断统一见当前整改文档。
 
-- **后台前端缺陷 F1–F9 代码修复**（2026-09-12，分支 `fix/frontend-defect-list` 提交 `22a1be5`）：完成 readiness 主操作、高亮、上下文继承和安全落点等修复。2026-09-13 只完成部分运行态覆盖，未覆盖项仍需按当前整改文档复验。
+- **后台前端缺陷与轨道 A 运行时修复**（2026-09-12，分支 `fix/frontend-defect-list` 提交 `22a1be5`）：完成 readiness 主操作、高亮、上下文继承和安全落点等修复；当前状态与验收边界统一见整改文档。
 
 - **Phase 1 代码可信度全部完成**（2026-08-21）：(1) DataQualityChecker SQL 标识符转义防注入（4 个方法全部加 `escapeIdentifier()`）；(2) DataQualityChecker 密码解密统一复用 `DatasourceSecretService`，消除密钥不一致风险（删除自行实现的 AES 解密）；(3) MetadataCatalogController 3 处 `catch(Exception ignored){}` 改为 `log.warn`；(4) `traceDerivedFromChain` 增加 `visited` 集合防止循环血缘无限递归；(5) P5 Java 侧会话记忆方案已升级为数据库长期摘要 + 请求级上下文组装；(6) P0 管理员反馈特权确认已实现（ADMIN/ANALYST 跳过审核、delta=-45）。
 
@@ -396,8 +396,8 @@ Frontend routes are split between business-oriented domains:
   - **Stages 0–8 and Track A are implemented and passed real desktop acceptance.** The single current status and evidence index is `docs/development/DataOcean后台重构状态与整改计划.md`; raw browser evidence remains under `output/playwright/`.
   - Stages 6–7 (`/admin/access`, `/admin/operations/*`, `/admin/platform/*`) were **rebuilt** to the §7.13–§7.18 target design, not patched. Before that they were the pre-refactor implementations — e.g. `AccessControl.vue` had no `el-tab-pane` at all while §7.13 requires three fixed tabs. Stage 8 then deleted 27 superseded files (24 unreachable code files + dead assets); a re-run of the reachability check reports **0 unreachable code files**.
   - ⚠️ **Do not infer stage completion from file existence, file size, or route reachability.** On 2026-09-12 this exact inference was made and written into the status docs, and it was wrong; it was corrected by the project owner. Judge completion by checking against the target design in the guide, item by item.
-  - **Runtime verification:** the final 2026-09-13 browser walkthrough used a 1440×1000 desktop viewport, covered 45 page scenarios and 38 assertions, and recorded no unexplained console/page/request errors. Three explicitly unreachable F7/F8/F9 branches remain documented as code-level boundaries.
-- The 9 frontend defects identified on 2026-09-11 and the Track A runtime blockers were fixed and verified on 2026-09-13. Use `docs/development/DataOcean后台重构状态与整改计划.md` for the current acceptance boundary.
+  - **Runtime verification:** the final 2026-09-13 browser walkthrough used a 1440×1000 desktop viewport, covered 45 page scenarios and 35 assertions, and recorded 129 result entries with no unexplained console/page/request errors. F7 remains only as a backend defensive `UNKNOWN` fallback and is not a browser acceptance item; the old F8/F9 code paths no longer exist.
+- The identified frontend defects and Track A runtime blockers were fixed and verified on 2026-09-13. Use `docs/development/DataOcean后台重构状态与整改计划.md` for the current acceptance boundary.
 
 The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`. It also checks `/api/datasources/{datasourceId}/readiness` so users can only ask against sources whose lifecycle is ready.
 
