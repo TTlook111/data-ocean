@@ -57,7 +57,7 @@
 
 - [X] T033 创建 admin store `frontend/src/stores/admin.ts`，管理后台全局 loading 状态和通用配置
 - [X] T034 创建 404 页面 `frontend/src/views/admin/NotFound.vue`，后台路由未匹配时展示
-- [X] T035 实现菜单折叠/展开动画和响应式适配（小屏幕自动折叠侧边栏）
+- [X] T035 实现桌面端菜单折叠/展开动画
 
 ## Phase 8: System Settings & Notifications
 

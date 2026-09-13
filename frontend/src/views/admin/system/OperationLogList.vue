@@ -410,25 +410,6 @@ onMounted(fetchLogs)
         </el-table>
       </div>
 
-      <div class="log-card-list" v-loading="loading">
-        <article v-for="row in logs" :key="row.id" class="log-card" :class="{ 'is-failed': row.isSuccess === false }">
-          <div class="log-card__head">
-            <strong>#{{ row.id }} · {{ operationLabel(row.operationType) }}</strong>
-            <el-tag :type="row.isSuccess ? 'success' : 'danger'" size="small">
-              {{ row.isSuccess ? '成功' : '失败' }}
-            </el-tag>
-          </div>
-          <div class="log-card__meta">
-            <span><b>操作人</b>{{ row.operatorName || `用户 ${row.operatorId || '-'}` }}</span>
-            <span><b>目标资源</b>{{ row.targetResource || '-' }}</span>
-            <span><b>请求</b>{{ row.requestMethod || '-' }} {{ row.requestPath || '-' }}</span>
-            <span><b>耗时</b><em :class="executionClass(row.executionMs)">{{ row.executionMs ?? '-' }}ms</em></span>
-            <span><b>IP</b>{{ row.ipAddress || '-' }}</span>
-            <span><b>时间</b>{{ formatTime(row.createdAt) }}</span>
-          </div>
-          <button type="button" class="log-card__action" @click="openDetail(row)">查看详情</button>
-        </article>
-      </div>
       </template>
 
       <el-pagination
@@ -662,77 +643,6 @@ onMounted(fetchLogs)
   min-width: 1420px;
 }
 
-.log-card-list {
-  display: none;
-}
-
-.log-card {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--do-line);
-  border-radius: 10px;
-  background: var(--do-surface);
-}
-
-.log-card.is-failed {
-  border-color: var(--do-danger-soft);
-  background: var(--do-danger-soft);
-}
-
-.log-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.log-card__head strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--do-ink);
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.log-card__meta {
-  display: grid;
-  gap: 8px;
-}
-
-.log-card__meta span {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 8px;
-  color: var(--do-ink);
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.log-card__meta b {
-  color: var(--do-muted);
-  font-size: 12px;
-}
-
-.log-card__meta em {
-  font-style: normal;
-  font-variant-numeric: tabular-nums;
-}
-
-.log-card__action {
-  justify-self: start;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--do-primary-soft);
-  border-radius: 8px;
-  color: var(--do-primary-strong);
-  background: var(--do-primary-soft);
-  font-weight: 800;
-  cursor: pointer;
-}
-
 .request-cell {
   display: inline-flex;
   align-items: center;
@@ -806,41 +716,4 @@ onMounted(fetchLogs)
   }
 }
 
-@media (max-width: 768px) {
-  .operation-log-page {
-    gap: 12px;
-  }
-
-  .content-panel {
-    padding: 12px;
-  }
-
-  .summary-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .filter-item,
-  .filter-item--keyword,
-  .filter-item--wide,
-  .filter-item--time {
-    width: 100%;
-  }
-
-  .filter-actions {
-    justify-content: flex-start;
-  }
-
-  .log-table-wrap {
-    display: none;
-  }
-
-  .log-card-list {
-    display: grid;
-    gap: 10px;
-  }
-
-  .panel-title {
-    align-items: flex-start;
-  }
-}
 </style>

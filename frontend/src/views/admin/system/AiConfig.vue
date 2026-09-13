@@ -1136,25 +1136,4 @@ fetchConfig()
   margin-top: 12px;
 }
 
-@media (max-width: 768px) {
-  .status-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .card-header {
-    flex-wrap: wrap;
-  }
-
-  .card-summary {
-    width: 100%;
-  }
-
-  .model-item {
-    flex-wrap: wrap;
-  }
-
-  .model-params {
-    width: 100%;
-  }
-}
 </style>

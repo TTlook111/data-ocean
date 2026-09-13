@@ -527,7 +527,4 @@ const emit = defineEmits<{
   background: #e1f0ff;
 }
 
-@media (max-width: 720px) {
-  .result-tabs span { display: none; }
-}
 </style>

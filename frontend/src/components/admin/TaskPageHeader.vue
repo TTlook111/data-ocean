@@ -65,13 +65,4 @@ p {
   gap: 10px;
 }
 
-@media (max-width: 720px) {
-  .task-page-header {
-    flex-direction: column;
-  }
-
-  .task-page-header__actions {
-    justify-content: flex-start;
-  }
-}
 </style>

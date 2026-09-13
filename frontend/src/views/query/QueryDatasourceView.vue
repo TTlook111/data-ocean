@@ -305,8 +305,4 @@ onMounted(() => {
   .query-workspace.result-open { grid-template-columns: 250px minmax(0, 1fr); }
   .query-workspace.result-open :deep(.result-rail) { position: fixed; top: 0; right: 0; z-index: 80; width: min(500px, calc(100vw - 250px)); }
 }
-@media (max-width: 920px) {
-  .query-workspace, .query-workspace.result-open { grid-template-columns: 224px minmax(0, 1fr); }
-  .query-workspace.result-open :deep(.result-rail) { width: min(500px, calc(100vw - 224px)); }
-}
 </style>

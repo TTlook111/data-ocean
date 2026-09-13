@@ -213,7 +213,4 @@ watch(() => context.datasourceId, load)
 .asset-name strong { color: var(--do-ink); }
 .asset-name span { color: var(--do-muted); font-family: monospace; font-size: 11px; }
 
-@media (max-width: 680px) {
-  .assets-page__filters { grid-template-columns: 1fr; }
-}
 </style>

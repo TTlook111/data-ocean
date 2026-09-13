@@ -104,9 +104,4 @@ function handleEnter(event: KeyboardEvent) {
 .cancel-button:hover { background: #fee2e2; }
 .composer-hint { display: block; margin-top: 7px; color: #94a3b8; font-size: 10px; text-align: center; }
 .send-button:focus-visible, .cancel-button:focus-visible, .example-strip button:focus-visible { outline: 3px solid rgba(77, 143, 220, .2); outline-offset: 2px; }
-@media (max-width: 720px) {
-  .query-input { width: calc(100% - 24px); }
-  .send-button, .cancel-button { min-width: 44px; width: 44px; }
-  .send-button span, .cancel-button span { display: none; }
-}
 </style>

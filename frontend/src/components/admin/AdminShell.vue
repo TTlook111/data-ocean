@@ -444,23 +444,4 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
-@media (max-width: 760px) {
-  .admin-shell,
-  .admin-shell.is-collapsed {
-    display: block;
-  }
-
-  .admin-shell__sidebar {
-    position: static;
-    display: none;
-  }
-
-  .admin-shell__content {
-    padding: 18px 14px;
-  }
-
-  .admin-shell__topbar {
-    padding: 0 14px;
-  }
-}
 </style>

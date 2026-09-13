@@ -147,9 +147,4 @@ onMounted(load)
   margin: 0;
 }
 
-@media (max-width: 760px) {
-  .snapshot-detail__summary {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
 </style>

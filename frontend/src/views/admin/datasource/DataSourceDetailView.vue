@@ -485,9 +485,4 @@ onMounted(async () => {
   font-weight: 800;
 }
 
-@media (max-width: 1000px) {
-  .datasource-cockpit__grid {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

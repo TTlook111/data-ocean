@@ -992,14 +992,4 @@ watch(() => route.query.tab, (value) => {
   margin-right: 6px;
 }
 
-@media (max-width: 900px) {
-  .access-page__subject-select,
-  .access-page__decision-select {
-    width: 100%;
-  }
-
-  .access-page__form-hint {
-    margin-left: 0;
-  }
-}
 </style>

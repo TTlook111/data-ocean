@@ -148,10 +148,4 @@ p {
   font-style: normal;
 }
 
-@media (max-width: 620px) {
-  .next-action-card__item {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-}
 </style>

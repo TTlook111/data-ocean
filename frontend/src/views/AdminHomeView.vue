@@ -386,9 +386,4 @@ onMounted(load)
   }
 }
 
-@media (max-width: 560px) {
-  .workbench-page__summary {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

@@ -80,15 +80,4 @@ defineProps<{
   margin-left: auto;
 }
 
-@media (max-width: 680px) {
-  .object-context-summary {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .object-context-summary small {
-    margin-left: 0;
-  }
-}
 </style>

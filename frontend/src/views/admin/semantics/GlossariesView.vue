@@ -976,7 +976,4 @@ watch(() => route.query.termId, (value) => {
   .glossaries-main { grid-template-columns: minmax(0, 1fr); }
 }
 
-@media (max-width: 900px) {
-  .glossaries-layout { grid-template-columns: minmax(0, 1fr); }
-}
 </style>

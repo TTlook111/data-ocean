@@ -159,10 +159,4 @@ onMounted(load)
 .entity-detail__tags { margin-bottom: 14px; }
 .entity-detail__tags > div { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 
-@media (max-width: 760px) {
-  .entity-detail__summary,
-  .entity-detail__grid {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

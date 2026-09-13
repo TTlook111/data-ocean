@@ -495,9 +495,4 @@ onMounted(async () => {
   margin-left: 10px;
 }
 
-@media (max-width: 760px) {
-  .data-sources-page__filters {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

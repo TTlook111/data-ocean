@@ -481,16 +481,4 @@ watch(() => props.columnName, (value) => {
   font-size: 12px;
 }
 
-@media (max-width: 768px) {
-  .resource-scope-selector {
-    align-items: stretch;
-  }
-
-  .scope-select--datasource,
-  .scope-select--snapshot,
-  .scope-select--table,
-  .scope-select--column {
-    width: 100%;
-  }
-}
 </style>
