@@ -2,6 +2,7 @@ package com.dataocean.module.knowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.persistence.OptimisticLockSupport;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
@@ -60,7 +61,9 @@ public class KnowledgeDocLifecycleService {
         }
         doc.setStatus(DocStatus.PENDING_REVIEW.name());
         doc.setUpdatedBy(UserContext.currentUserId());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "文档审核状态已被其他人修改，请刷新后重试");
         log.info("文档已提交审核 docId={}", id);
     }
 
@@ -82,7 +85,11 @@ public class KnowledgeDocLifecycleService {
         doc.setStatus(DocStatus.APPROVED.name());
         doc.setReviewStatus(ReviewStatus.APPROVED.name());
         doc.setUpdatedBy(UserContext.currentUserId());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "文档审核状态已被其他人修改，请刷新后重试");
+        // 同步写入版本行，使 knowledge_doc_version 的审核状态成为真实数据
+        markCurrentVersionReviewed(doc, ReviewStatus.APPROVED.name());
         // 创建审核任务记录
         createReviewTask(doc, ReviewStatus.APPROVED.name(), comment);
         log.info("文档审核通过 docId={}", id);
@@ -106,7 +113,11 @@ public class KnowledgeDocLifecycleService {
         doc.setStatus(DocStatus.DRAFT.name());
         doc.setReviewStatus(ReviewStatus.REJECTED.name());
         doc.setUpdatedBy(UserContext.currentUserId());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "文档审核状态已被其他人修改，请刷新后重试");
+        // 同步写入版本行，使 knowledge_doc_version 的审核状态成为真实数据
+        markCurrentVersionReviewed(doc, ReviewStatus.REJECTED.name());
         // 创建审核任务记录
         createReviewTask(doc, ReviewStatus.REJECTED.name(), comment);
         log.info("文档审核拒绝 docId={}", id);
@@ -141,7 +152,9 @@ public class KnowledgeDocLifecycleService {
         KnowledgeDocVersion currentVersion = helper.requireVersion(doc.getId(), doc.getCurrentVersion());
         doc.setStatus(DocStatus.INDEXING.name());
         doc.setUpdatedBy(UserContext.currentUserId());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "文档发布状态已被其他人修改，请刷新后重试");
         // 创建带版本上下文的向量化任务；新版本写入成功后再清理旧版本向量。
         vectorIndexTaskService.createTask(
                 doc.getDatasourceId(),
@@ -188,6 +201,44 @@ public class KnowledgeDocLifecycleService {
     }
 
     /**
+     * 把审核结果写回当前版本行。
+     * <p>
+     * 知识文档的审核作用于「当前版本」，因此审核状态与审核人应落在
+     * `knowledge_doc_version` 的对应行上。该列此前从未被写入（恒为建表默认值
+     * `PENDING`），导致任何按版本展示审核状态的地方都会得到「恒为待审核」的错误结论
+     * ——包括已发布的版本。V51 迁移已把历史行回填为 `UNKNOWN` 并修正列注释。
+     * </p>
+     *
+     * @param doc          文档实体
+     * @param reviewStatus 审核状态
+     */
+    private void markCurrentVersionReviewed(KnowledgeDoc doc, String reviewStatus) {
+        KnowledgeDocVersion currentVersion = findCurrentVersion(doc);
+        if (currentVersion == null) {
+            // 没有版本行时不阻断审核本身：文档主表的状态已经更新，版本行缺失属数据异常。
+            log.warn("文档缺少当前版本行，跳过版本审核状态写入 docId={} versionNo={}",
+                    doc.getId(), doc.getCurrentVersion());
+            return;
+        }
+        currentVersion.setReviewStatus(reviewStatus);
+        currentVersion.setReviewerId(UserContext.currentUserId());
+        knowledgeDocVersionMapper.updateById(currentVersion);
+    }
+
+    /**
+     * 查询文档的当前版本行。
+     *
+     * @param doc 文档实体
+     * @return 当前版本行；不存在时返回 null
+     */
+    private KnowledgeDocVersion findCurrentVersion(KnowledgeDoc doc) {
+        return knowledgeDocVersionMapper.selectOne(
+                new LambdaQueryWrapper<KnowledgeDocVersion>()
+                        .eq(KnowledgeDocVersion::getDocId, doc.getId())
+                        .eq(KnowledgeDocVersion::getVersionNo, doc.getCurrentVersion()));
+    }
+
+    /**
      * 创建审核任务记录。
      *
      * @param doc          文档实体
@@ -196,10 +247,7 @@ public class KnowledgeDocLifecycleService {
      */
     private void createReviewTask(KnowledgeDoc doc, String reviewStatus, String comment) {
         // 查询当前版本记录 ID
-        KnowledgeDocVersion currentVersion = knowledgeDocVersionMapper.selectOne(
-                new LambdaQueryWrapper<KnowledgeDocVersion>()
-                        .eq(KnowledgeDocVersion::getDocId, doc.getId())
-                        .eq(KnowledgeDocVersion::getVersionNo, doc.getCurrentVersion()));
+        KnowledgeDocVersion currentVersion = findCurrentVersion(doc);
         Long docVersionId = currentVersion != null ? currentVersion.getId() : null;
 
         KnowledgeReviewTask reviewTask = KnowledgeReviewTask.builder()

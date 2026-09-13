@@ -82,7 +82,7 @@ public class FieldConfidenceController {
      * @return 设置后的可信度信息
      */
     @PutMapping("/{columnMetaId}")
-    @PreAuthorize("hasAuthority('field-tag:manage')")
+@PreAuthorize("hasAnyAuthority('field-tag:manage', '*')")
     public Result<ConfidenceVO> adminSetScore(@PathVariable Long columnMetaId,
                                               @Valid @RequestBody ConfidenceUpdateRequestDTO request) {
         return Result.success("设置成功", fieldConfidenceService.adminSetScore(

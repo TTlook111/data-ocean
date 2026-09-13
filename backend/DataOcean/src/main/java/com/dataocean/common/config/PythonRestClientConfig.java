@@ -29,6 +29,9 @@ public class PythonRestClientConfig {
     @Value("${dataocean.python-service.short-read-timeout:15000}")
     private int shortReadTimeout;
 
+    @Value("${dataocean.internal.token:dataocean-internal-default}")
+    private String internalToken;
+
     @Bean
     @Qualifier("pythonRestClient")
     @Primary
@@ -57,6 +60,8 @@ public class PythonRestClientConfig {
         return RestClient.builder()
                 .requestFactory(factory)
                 .baseUrl(pythonBaseUrl)
+                // 所有 Java -> Python 内部请求统一认证；不在客户端日志中记录该值。
+                .defaultHeader("X-Internal-Token", internalToken)
                 .build();
     }
 }

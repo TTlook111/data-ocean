@@ -44,7 +44,16 @@ export interface MaskCandidate {
   pendingMask?: Record<string, unknown>
 }
 
-/** 全文搜索实体 */
+/**
+ * 全文搜索实体。
+ *
+ * `datasourceId` 自 2026-09-12 起真实生效（此前后端声明该参数却未下传给 Service，
+ * 数据源内搜索实际是全局搜索，可能返回其他数据源的资产）。过滤在 SQL 内完成，
+ * 因此分页条数与实际匹配数一致，调用方可以放心分页。
+ *
+ * 注意：现有页面（资产目录、术语关联字段）仍沿用「按数据源拉全量 + 页面内过滤」的
+ * 旧规避方式，尚未切换到本接口。切换是阶段 8 收敛项，不属缺陷修复范围。
+ */
 export async function searchCatalog(params: {
   q: string
   type?: string
@@ -62,11 +71,29 @@ export async function getEntityDetail(entityId: number) {
   return data
 }
 
-/** 获取实体血缘关系 */
-export async function getEntityLineage(entityId: number) {
-  const { data } = await http.get<ApiResult<MetadataRelationshipItem[]>>(`/api/admin/catalog/entities/${entityId}/lineage`)
+export async function getEntityTags(entityId: number) {
+  const { data } = await http.get<ApiResult<MetadataEntityItem[]>>(`/api/admin/catalog/entities/${entityId}/tags`)
   return data
 }
+
+export async function confirmEntityTag(entityId: number, tagFqn: string) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/catalog/entities/${entityId}/confirm-tag`, { tagFqn })
+  return data
+}
+
+export async function unconfirmEntityTag(entityId: number, tagFqn: string) {
+  const { data } = await http.delete<ApiResult<null>>(`/api/admin/catalog/entities/${entityId}/unconfirm-tag/${encodeURIComponent(tagFqn)}`)
+  return data
+}
+
+/** 获取实体血缘关系 */
+/**
+ * 实体的血缘关系。
+ *
+ * 已收敛到 `api/admin/lineageApi.ts` 的 `listEntityLineage`（§10.3 同一接口只保留一个封装）。
+ * 此处保留一个转发，避免调用方再各自拼 URL。
+ */
+export { listEntityLineage as getEntityLineage } from './lineageApi'
 
 /** 获取实体下游影响 */
 export async function getEntityDownstream(entityId: number, maxDepth = 10) {

@@ -4,14 +4,6 @@ import type { ApiResult, PageResult } from './user'
 /** Prompt 模板状态 */
 export type PromptStatus = 'DRAFT' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED'
 
-/** Prompt 模板状态描述 */
-export const PROMPT_STATUS_MAP: Record<PromptStatus, { label: string; type: 'info' | 'warning' | 'success' | 'danger' }> = {
-  DRAFT: { label: '草稿', type: 'info' },
-  PENDING_REVIEW: { label: '待审核', type: 'warning' },
-  APPROVED: { label: '已通过', type: 'success' },
-  REJECTED: { label: '已拒绝', type: 'danger' },
-}
-
 export interface PromptTemplateVO {
   id: number
   templateCode: string
@@ -94,5 +86,19 @@ export async function getPromptVersions(code: string) {
 
 export async function rollbackPromptVersion(code: string, targetVersionNo: number) {
   const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/rollback`, { targetVersionNo })
+  return data
+}
+
+/**
+ * 启用或停用模板（后端仅允许 APPROVED 状态的模板启停）。
+ *
+ * `enabled` 决定 `getActiveContent` 能否取到该模板，是 Prompt 策略的生效开关。
+ * 此前该字段只能在审核通过时被置为 true，前端只能展示、无法停用。
+ */
+export async function setPromptEnabled(code: string, enabled: boolean) {
+  const { data } = await http.patch<ApiResult<PromptTemplateVO>>(
+    `/api/admin/prompt-templates/${code}/enabled`,
+    { enabled },
+  )
   return data
 }

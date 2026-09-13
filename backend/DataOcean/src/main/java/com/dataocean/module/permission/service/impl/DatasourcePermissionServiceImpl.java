@@ -79,6 +79,7 @@ public class DatasourcePermissionServiceImpl implements DatasourcePermissionServ
         access.setCanExport(dto.getCanExport());
         access.setCanViewSql(dto.getCanViewSql());
         access.setAccessEffect(normalizeEffect(dto.getAccessEffect()));
+        access.setExpiresAt(dto.getExpiresAt());
         access.setGrantedBy(UserContext.currentUserId());
         accessMapper.insert(access);
 

@@ -36,7 +36,6 @@ const emit = defineEmits<{
   'export-csv': []
   'export-png': []
   'feedback': [type: 'LIKE' | 'DISLIKE']
-  'apply-example': [text: string]
   'update:tablePage': [page: number]
   'close': []
 }>()
@@ -158,11 +157,6 @@ const emit = defineEmits<{
       </div>
     </div>
 
-    <!-- 推荐追问 -->
-    <div v-if="latestResult?.suggestedQuestions?.length" class="suggested-questions">
-      <small>推荐追问：</small>
-      <button v-for="q in latestResult.suggestedQuestions" :key="q" type="button" @click="emit('apply-example', q)">{{ q }}</button>
-    </div>
   </aside>
 </template>
 
@@ -232,8 +226,7 @@ const emit = defineEmits<{
 .result-tabs button,
 .chart-type-switcher button,
 .export-btn,
-.feedback-btn,
-.suggested-questions button {
+.feedback-btn {
   font: inherit;
 }
 
@@ -270,8 +263,7 @@ const emit = defineEmits<{
 .result-header button:focus-visible,
 .chart-type-switcher button:focus-visible,
 .export-btn:focus-visible,
-.feedback-btn:focus-visible,
-.suggested-questions button:focus-visible {
+.feedback-btn:focus-visible {
   outline: 3px solid rgba(77, 143, 220, 0.2);
   outline-offset: 2px;
 }
@@ -496,38 +488,4 @@ const emit = defineEmits<{
   background: #fef0f0;
 }
 
-.suggested-questions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 14px 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--do-line);
-}
-
-.suggested-questions small {
-  color: var(--do-muted);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.suggested-questions button {
-  padding: 5px 9px;
-  border: 1px solid var(--do-line);
-  border-radius: 999px;
-  color: var(--do-primary-strong);
-  background: var(--do-primary-soft);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.suggested-questions button:hover {
-  border-color: var(--do-primary);
-  background: #e1f0ff;
-}
-
-@media (max-width: 720px) {
-  .result-tabs span { display: none; }
-}
 </style>

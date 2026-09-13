@@ -118,7 +118,11 @@ async def _run_agent(task_id: str, request: ExecuteRequest) -> None:
         # 组装最终结果
         total_time_ms = int((time.time() - start_time) * 1000)
         error_msg = final_state.get("error_message", "")
-        execution = final_state.get("execution_result", {})
+        execution = final_state.get("execution_result") or {}
+        # SQL executor 的失败结果是终态事实；即使某个中间节点没有设置
+        # error_message，也不能将带 execution_result.error 的状态误报为成功。
+        if not error_msg and execution.get("error"):
+            error_msg = sanitize_error(Exception(str(execution["error"])))
 
         if error_msg:
             result = QueryResult(

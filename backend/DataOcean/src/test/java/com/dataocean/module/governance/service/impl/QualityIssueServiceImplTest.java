@@ -47,13 +47,36 @@ class QualityIssueServiceImplTest {
         when(issueMapper.selectPage(any(Page.class), any(Wrapper.class)))
                 .thenReturn(new Page<MetadataQualityIssue>().setRecords(List.of()));
 
-        service.listIssues(null, null, null, null, null, 1, 20);
+        service.listIssues(null, null, null, null, null, null, 1, 20);
 
         @SuppressWarnings({"rawtypes", "unchecked"})
         ArgumentCaptor<Wrapper<MetadataQualityIssue>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
         verify(issueMapper).selectPage(any(Page.class), wrapperCaptor.capture());
         assertThat(wrapperCaptor.getValue().getCustomSqlSegment())
-                .doesNotContain("snapshot_id");
+                .doesNotContain("snapshot_id")
+                // 责任人未指定时同样不得下推过滤条件
+                .doesNotContain("assignee_id");
+    }
+
+    @Test
+    void listIssuesAppliesAssigneeFilterWhenProvided() {
+        MetadataQualityIssueMapper issueMapper = mock(MetadataQualityIssueMapper.class);
+        UserMapper userMapper = mock(UserMapper.class);
+        DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
+        ConfidenceCalculator confidenceCalculator = mock(ConfidenceCalculator.class);
+        QualityIssueServiceImpl service = new QualityIssueServiceImpl(
+                issueMapper, userMapper, datasourceMapper, confidenceCalculator);
+
+        when(issueMapper.selectPage(any(Page.class), any(Wrapper.class)))
+                .thenReturn(new Page<MetadataQualityIssue>().setRecords(List.of()));
+
+        service.listIssues(null, null, null, null, null, 42L, 1, 20);
+
+        @SuppressWarnings({"rawtypes", "unchecked"})
+        ArgumentCaptor<Wrapper<MetadataQualityIssue>> wrapperCaptor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(issueMapper).selectPage(any(Page.class), wrapperCaptor.capture());
+        // 责任人筛选必须下推到 SQL；取回后再过滤会让分页条数与实际匹配数不一致
+        assertThat(wrapperCaptor.getValue().getCustomSqlSegment()).contains("assignee_id");
     }
 
     @Test

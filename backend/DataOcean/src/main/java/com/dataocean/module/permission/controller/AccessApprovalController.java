@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -53,7 +54,17 @@ public class AccessApprovalController {
     }
 
     /**
-     * 查询审批请求列表
+     * 查询审批请求列表。
+     * <p>
+     * <b>列表范围由后端强制收窄，不依赖前端。</b>本接口原先没有任何权限限制，
+     * 任何登录用户都能列出全部申请——包括他人的申请理由与表字段范围。前端隐藏菜单
+     * 不构成安全边界（《开发指导》§3.12）。
+     * </p>
+     * <p>
+     * 具备 `security:manage` 的调用方看到全量审批队列；其余调用方只能看到自己提交的申请。
+     * 后者也顺带把「我的申请」的后端能力准备好了——正式开放该入口前仍需产品确认，
+     * 但数据隔离已经成立。
+     * </p>
      */
     @GetMapping
     public Result<Page<AccessApprovalRequest>> listRequests(
@@ -61,7 +72,14 @@ public class AccessApprovalController {
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        Page<AccessApprovalRequest> result = approvalService.listRequests(datasourceId, status, page, size);
+        Long requesterId = canReviewAllRequests() ? null : UserContext.currentUserId();
+        Page<AccessApprovalRequest> result = approvalService.listRequests(datasourceId, status, requesterId, page, size);
         return Result.success(result);
+    }
+
+    /** 当前调用方是否可以查看全部审批请求（审批人视角） */
+    private boolean canReviewAllRequests() {
+        List<String> permissions = UserContext.currentPermissions();
+        return permissions != null && (permissions.contains("*") || permissions.contains("security:manage"));
     }
 }

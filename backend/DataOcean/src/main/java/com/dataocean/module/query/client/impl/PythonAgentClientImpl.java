@@ -112,22 +112,19 @@ public class PythonAgentClientImpl implements PythonAgentClient {
                 .build();
 
         try {
-            // 调用 Python SSE 接口并消费流
-            InputStream stream = restClient.post()
+            // 使用 RestClient.exchange 在响应仍打开时消费 SSE。不能先用
+            // body(InputStream.class) 交给消息转换器：text/event-stream 没有
+            // InputStream converter，且 exchange 回调返回后响应会被关闭。
+            String finalResult = restClient.post()
                     .uri("/internal/query/execute")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
-                    .retrieve()
-                    .body(InputStream.class);
-
-            if (stream == null) {
-                log.error("Python Agent 返回空响应 taskId={}", taskId);
-                queryTaskService.updateTaskResult(taskId, "{\"status\":\"FAILED\",\"error\":\"Agent 服务无响应\"}");
-                return;
-            }
-
-            // 逐行读取 SSE 事件，提取最终结果
-            String finalResult = consumeSseStream(stream, taskId);
+                    .exchange((request, response) -> {
+                        if (!response.getStatusCode().is2xxSuccessful()) {
+                            throw new IllegalStateException("Python Agent HTTP 状态异常：" + response.getStatusCode().value());
+                        }
+                        return consumeSseStream(response.getBody(), taskId);
+                    });
 
             // 回写任务结果
             if (finalResult != null) {

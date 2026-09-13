@@ -24,13 +24,6 @@ const adminPermissions = [
 /** 标记是否已在本次会话中刷新过用户信息 */
 let userInfoRefreshed = false
 
-function hasPermission(user: { permissions?: string[] } | null, permission: string) {
-  if (permission === 'system:ai-config:view' && user?.permissions?.includes('system:ai-config:manage')) {
-    return true
-  }
-  return Boolean(user?.permissions?.includes('*') || user?.permissions?.includes(permission))
-}
-
 function hasAdminAccess(user: { permissions?: string[] } | null) {
   return Boolean(user?.permissions?.includes('*') || adminPermissions.some((permission) => user?.permissions?.includes(permission)))
 }
@@ -71,11 +64,9 @@ export function setupRouterGuards(router: Router) {
       if (!hasAdminAccess(user)) return '/query'
     }
 
-    const requiredPermission = to.meta.permission as string | undefined
-    if (requiredPermission && !hasPermission(user, requiredPermission)) {
-      return '/query'
-    }
-
+    // 后台路由不使用 meta.permission，守卫故意不实现细粒度权限判断。
+    // 按《实施任务清单》§4，meta.permission / anyPermissions 留给后续权限系统任务；
+    // 本轮 hasAdminAccess 仍是唯一的后台入口门禁，页面内操作由组件自行按 permissions 控制。
     return true
   })
 }

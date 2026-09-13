@@ -2,7 +2,7 @@
 
 > **注意**：本文档是 MVP 阶段的设计规格文档，包含架构决策 rationale（ADR）、置信度冷启动策略等关键设计信息。
 > 技术栈已从 LlamaIndex 迁移至 LangChain，从 OpenFeign 迁移至 RestClient，详见文档内相关章节（已更新）。
-> 当前实现状态和后续开发计划见 [CLAUDE.md](../CLAUDE.md)、[AGENTS.md](../AGENTS.md)、[后续开发.md](后续开发.md)。
+> 当前后台重构状态和后续开发计划见 [`DataOcean后台重构状态与整改计划.md`](../development/DataOcean后台重构状态与整改计划.md)；本文件仅作历史构想归档。
 
 ## 1. 项目定位与背景
 

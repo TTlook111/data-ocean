@@ -97,5 +97,4 @@ onBeforeUnmount(() => { requestId++ })
 .diff-grid span { display: block; color: var(--do-muted); font-size: 12px; }
 .diff-grid strong { display: block; margin-top: 6px; color: var(--do-ink); font-size: 24px; }
 .diff-card h2 { margin: 0 0 14px; color: var(--do-ink); font-size: 16px; }
-@media (max-width: 800px) { .diff-grid { grid-template-columns: repeat(2, 1fr); } }
 </style>

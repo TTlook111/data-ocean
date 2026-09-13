@@ -7,12 +7,14 @@
  * 后端事实（GlossaryController / GlossaryTermServiceImpl）：
  * - 术语表只有 DRAFT / PUBLISHED 两个常量，且没有独立的状态流转接口，因此状态只在创建/编辑时设置。
  * - 术语状态流转为 DRAFT|REJECTED -> PENDING_REVIEW -> APPROVED|REJECTED，
- *   已通过术语没有退回草稿的后端接口，因此 APPROVED 状态在本页面保持只读。
+ *   另有 APPROVED -> DRAFT 的退回路径（后端 2026-09-12 补齐）。
+ *   已通过术语不能直接编辑，需先退回草稿；退回会清空审核人与审核时间。
  * - 术语与物理列的关联通过 GLOSSARY_OF 关系维护，接口为 link-column / unlink-column / linked-columns。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Check, Link2, Pencil, Plus, RefreshCw, Send, Trash2, X } from 'lucide-vue-next'
+import { ArrowRight, Check, Link2, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2, X } from 'lucide-vue-next'
 import {
   createGlossary,
   createTerm,
@@ -23,6 +25,7 @@ import {
   listGlossaries,
   listTerms,
   reviewTerm,
+  revertTermToDraft,
   submitTermForReview,
   unlinkTermFromColumn,
   updateGlossary,
@@ -40,10 +43,14 @@ import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
 
+const route = useRoute()
+const router = useRouter()
+
 const glossaries = ref<GlossaryItem[]>([])
 const terms = ref<GlossaryTermItem[]>([])
-const selectedGlossaryId = ref<number>()
-const selectedTermId = ref<number>()
+/** 选中的术语表与术语由 URL 查询参数决定，刷新/分享/前进后退都能恢复（开发指导 §15） */
+const selectedGlossaryId = ref<number | undefined>(Number(route.query.glossaryId) || undefined)
+const selectedTermId = ref<number | undefined>(Number(route.query.termId) || undefined)
 const datasources = ref<DatasourceSimpleItem[]>([])
 
 const loadingGlossaries = ref(false)
@@ -104,7 +111,8 @@ async function loadGlossaries(preferredId?: number) {
     const next = preferredId
       || (glossaries.value.some((item) => item.id === selectedGlossaryId.value) ? selectedGlossaryId.value : undefined)
       || glossaries.value[0]?.id
-    if (next) await selectGlossary(next)
+    // keepTerm=true：刷新恢复时保留 URL 带来的术语，由 loadTerms 校验它是否属于该术语表
+    if (next) await selectGlossary(next, true)
     else {
       selectedGlossaryId.value = undefined
       terms.value = []
@@ -117,10 +125,35 @@ async function loadGlossaries(preferredId?: number) {
   }
 }
 
-async function selectGlossary(id: number) {
+/**
+ * 把当前选中的术语表与术语写进 URL。
+ *
+ * 用 `push`：开发指导 §15 要求「URL 刷新、前进和后退恢复」，只有 push 才能让
+ * 浏览器后退回到上一个选中对象。
+ */
+function persistSelection() {
+  const query: Record<string, string> = { ...route.query as Record<string, string> }
+  if (selectedGlossaryId.value) query.glossaryId = String(selectedGlossaryId.value)
+  else delete query.glossaryId
+  if (selectedTermId.value) query.termId = String(selectedTermId.value)
+  else delete query.termId
+  router.push({ query })
+}
+
+/**
+ * 选择术语表。
+ *
+ * @param id        术语表 ID
+ * @param keepTerm  是否保留当前选中的术语。刷新恢复时由 URL 带来的术语需要保留，
+ *                  用户点击切换术语表时则必须清空
+ */
+async function selectGlossary(id: number, keepTerm = false) {
   selectedGlossaryId.value = id
-  selectedTermId.value = undefined
-  linkedColumns.value = []
+  if (!keepTerm) {
+    selectedTermId.value = undefined
+    linkedColumns.value = []
+  }
+  persistSelection()
   await loadTerms()
 }
 
@@ -135,7 +168,13 @@ async function loadTerms() {
     const result = await listTerms(selectedGlossaryId.value)
     terms.value = result.data || []
     if (selectedTermId.value && !terms.value.some((item) => item.id === selectedTermId.value)) {
+      // 选中的术语不属于当前术语表（URL 里带了别的术语表的术语）：清掉，不静默换成其它术语
       selectedTermId.value = undefined
+      linkedColumns.value = []
+      persistSelection()
+    } else if (selectedTermId.value) {
+      // 刷新恢复：URL 带来的术语有效，把关联字段一并取回
+      await loadLinkedColumns()
     }
   } catch (cause) {
     termError.value = apiError(cause, '术语列表加载失败')
@@ -146,6 +185,7 @@ async function loadTerms() {
 
 async function selectTerm(term: GlossaryTermItem) {
   selectedTermId.value = term.id
+  persistSelection()
   await loadLinkedColumns()
 }
 
@@ -328,6 +368,32 @@ async function submitTerm(term: GlossaryTermItem) {
   }
 }
 
+/**
+ * 把已通过的术语退回草稿。
+ *
+ * 后端 2026-09-12 补上了 `APPROVED → DRAFT` 的合法路径，并给 updateTerm 加了状态校验。
+ * 此前状态机从 APPROVED 没有出边、而 updateTerm 不校验状态，形成「合规流程被限制、
+ * 绕过路径不受限」的倒挂，前端只能把已通过术语整体锁成只读。
+ */
+async function revertTerm(term: GlossaryTermItem) {
+  try {
+    await ElMessageBox.confirm(
+      `把术语「${term.displayName || term.name}」退回草稿？退回会清空审核人与审核时间，`
+      + '修改后需要重新提交审核。',
+      '退回草稿',
+      { type: 'warning', confirmButtonText: '确认退回', cancelButtonText: '取消' },
+    )
+    actionLoading.value = true
+    await revertTermToDraft(term.id)
+    ElMessage.success('已退回草稿，修改后请重新提交审核')
+    await loadTerms()
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '退回草稿失败'))
+  } finally {
+    actionLoading.value = false
+  }
+}
+
 async function review(term: GlossaryTermItem, approved: boolean) {
   const action = approved ? '通过' : '拒绝'
   try {
@@ -372,8 +438,9 @@ async function openLinkDialog() {
 /**
  * 数据源内字段候选。
  *
- * 后端 `/api/admin/catalog/search` 未实际应用 datasourceId 过滤，因此这里按开发指导
- * 第 12 节的固定处理，使用 `/entities?datasourceId=` 拉取后在页面内过滤。
+ * 使用 `/entities?datasourceId=` 拉取后在页面内过滤。`/api/admin/catalog/search` 自
+ * 2026-09-12 起已支持真实 datasourceId 过滤（此前该参数被后端忽略），但切换到服务端
+ * 搜索属阶段 8 的收敛项，不在本次缺陷修复范围内，此处保持既有实现不变。
  */
 async function loadLinkCandidates() {
   if (!linkDatasourceId.value) {
@@ -443,6 +510,27 @@ onMounted(async () => {
   }
   await loadGlossaries()
 })
+
+// 浏览器前进/后退或外部改 URL 时同步回组件状态（§15 要求前进后退可恢复）
+watch(() => route.query.glossaryId, (value) => {
+  const next = Number(value) || undefined
+  if (next === selectedGlossaryId.value) return
+  if (next) selectGlossary(next, true)
+  else {
+    selectedGlossaryId.value = undefined
+    selectedTermId.value = undefined
+    terms.value = []
+    linkedColumns.value = []
+  }
+})
+
+watch(() => route.query.termId, (value) => {
+  const next = Number(value) || undefined
+  if (next === selectedTermId.value) return
+  selectedTermId.value = next
+  // 走 loadTerms 而不是直接取关联字段：由它校验该术语是否属于当前术语表
+  loadTerms()
+})
 </script>
 
 <template>
@@ -498,6 +586,8 @@ onMounted(async () => {
         </ul>
       </aside>
 
+      <!-- 右栏：当前术语表的术语列表 + 术语详情 -->
+      <div class="glossaries-main">
       <!-- 术语列表 -->
       <section class="panel term-column">
         <header class="panel__heading">
@@ -596,10 +686,21 @@ onMounted(async () => {
               <el-button type="primary" :icon="Check" :loading="actionLoading" @click="review(selectedTerm, true)">审核通过</el-button>
               <el-button type="danger" plain :icon="X" :loading="actionLoading" @click="review(selectedTerm, false)">审核拒绝</el-button>
             </template>
-            <p v-else class="term-detail__locked">
-              已通过的术语在本页面保持只读。后端当前没有把 APPROVED 退回草稿的接口，
-              需要修改时先补齐该状态流转，不能在前端直接覆盖已生效语义。
-            </p>
+            <template v-else>
+              <el-button :icon="RotateCcw" :loading="actionLoading" @click="revertTerm(selectedTerm)">退回草稿</el-button>
+              <p class="term-detail__locked">
+                已通过的术语不能直接修改，需先退回草稿。退回会清空审核人与审核时间——
+                原审核结论不再代表修改后的内容，修改后必须重新提交审核。
+              </p>
+            </template>
+          </div>
+
+          <!-- 下一步：已通过的术语会参与查询改写，指向语义知识 -->
+          <div v-if="selectedTerm.status === 'APPROVED'" class="term-detail__next">
+            <span>该术语已通过审核，会参与查询改写。</span>
+            <RouterLink class="term-detail__next-link" to="/admin/semantics/knowledge">
+              查看语义知识 <ArrowRight :size="15" />
+            </RouterLink>
           </div>
 
           <!-- 审核记录 -->
@@ -610,6 +711,12 @@ onMounted(async () => {
               <div><dt>审核人</dt><dd>{{ selectedTerm.reviewerId ? '用户 #' + selectedTerm.reviewerId : '—' }}</dd></div>
               <div><dt>审核时间</dt><dd>{{ selectedTerm.reviewedAt || '尚未审核' }}</dd></div>
             </dl>
+            <p class="muted-text">
+              审核意见查不到：后端 <code>glossary_term</code> 表没有存放拒绝原因的列，
+              <code>reviewTerm</code> 收到 reason 后只写服务端日志，不落库。因此这里只能展示
+              审核状态与审核人，<strong>不展示审核意见</strong>——不伪造一个空的「审核意见」字段。
+              该缺口属后端能力缺失，不是前端遗漏。
+            </p>
           </section>
 
           <!-- 关联字段 -->
@@ -633,6 +740,7 @@ onMounted(async () => {
           </section>
         </div>
       </aside>
+      </div>
     </div>
 
     <!-- 术语表对话框 -->
@@ -723,11 +831,23 @@ onMounted(async () => {
 <style scoped>
 .glossaries-page { display: grid; gap: 16px; }
 
+/*
+ * 左右分栏（开发指导 §7.10）：左＝术语表列表，右＝当前术语表的术语列表和详情。
+ * 右栏内部再分「术语列表 | 术语详情」两个子列。
+ */
 .glossaries-layout {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 380px;
+  grid-template-columns: 260px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+}
+
+.glossaries-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 16px;
+  align-items: start;
+  min-width: 0;
 }
 
 .panel {
@@ -794,6 +914,26 @@ onMounted(async () => {
 .term-toolbar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 
 .term-detail { display: grid; gap: 16px; }
+.term-detail__next {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border-radius: var(--do-radius-md);
+  background: var(--do-success-soft);
+  font-size: 12px;
+  color: var(--do-muted);
+}
+.term-detail__next-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--do-primary-strong);
+  font-size: 12px;
+  font-weight: 800;
+}
 .term-detail__status { display: flex; align-items: center; gap: 8px; }
 .term-detail__type { color: var(--do-muted); font-size: 11px; text-transform: uppercase; }
 
@@ -828,10 +968,12 @@ onMounted(async () => {
 .link-candidates { max-height: 340px; overflow: auto; }
 
 @media (max-width: 1440px) {
-  .glossaries-layout { grid-template-columns: 240px minmax(0, 1fr) 340px; }
+  .glossaries-layout { grid-template-columns: 240px minmax(0, 1fr); }
+  .glossaries-main { grid-template-columns: minmax(0, 1fr) 340px; }
 }
 
 @media (max-width: 1180px) {
-  .glossaries-layout { grid-template-columns: minmax(0, 1fr); }
+  .glossaries-main { grid-template-columns: minmax(0, 1fr); }
 }
+
 </style>

@@ -38,20 +38,31 @@ public interface MetadataEntityMapper extends BaseMapper<MetadataEntity> {
     List<MetadataEntity> selectByDatasourceId(@Param("datasourceId") Long datasourceId);
 
     /**
-     * 全文搜索实体
+     * 全文搜索实体。
+     * <p>
+     * datasourceId 非空时按 `entity_metadata.datasource_id` 收窄到单个数据源；
+     * 为空表示全局搜索。过滤条件必须下推到 SQL，否则 LIMIT/OFFSET 会在过滤前生效，
+     * 分页结果条数与实际匹配数不一致。
+     * </p>
      */
     @Select("""
+            <script>
             SELECT *, MATCH(name, display_name, description) AGAINST(#{query} IN NATURAL LANGUAGE MODE) AS relevance
             FROM metadata_entity
             WHERE MATCH(name, display_name, description) AGAINST(#{query} IN NATURAL LANGUAGE MODE)
             <if test="entityType != null">
               AND entity_type = #{entityType}
             </if>
+            <if test="datasourceId != null">
+              AND JSON_EXTRACT(entity_metadata, '$.datasource_id') = #{datasourceId}
+            </if>
             ORDER BY relevance DESC
             LIMIT #{limit} OFFSET #{offset}
+            </script>
             """)
     List<MetadataEntity> fullTextSearch(@Param("query") String query,
                                          @Param("entityType") String entityType,
+                                         @Param("datasourceId") Long datasourceId,
                                          @Param("limit") int limit,
                                          @Param("offset") int offset);
 }

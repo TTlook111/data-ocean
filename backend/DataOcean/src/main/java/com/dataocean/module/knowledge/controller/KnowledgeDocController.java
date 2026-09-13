@@ -6,7 +6,9 @@ import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.knowledge.dto.*;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.VectorIndexTask;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
+import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeDocCrudService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeDocLifecycleService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeDocPublishService;
@@ -37,7 +39,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/knowledge-docs")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('knowledge:manage')")
+@PreAuthorize("hasAnyAuthority('knowledge:manage', '*')")
 @Slf4j
 @AdminAuditLog
 public class KnowledgeDocController {
@@ -46,6 +48,7 @@ public class KnowledgeDocController {
     private final KnowledgeDocLifecycleService lifecycleService;
     private final KnowledgeDocPublishService publishService;
     private final KnowledgeVersionService knowledgeVersionService;
+    private final VectorIndexTaskService vectorIndexTaskService;
 
     // === 文档 CRUD ===
 
@@ -203,6 +206,38 @@ public class KnowledgeDocController {
         return Result.success("AI 生成成功", docs);
     }
 
+    /**
+     * 查询文档的审核记录。
+     * <p>
+     * 审核意见已落库在 `knowledge_review_task`，此前全项目没有任何 Controller 暴露它，
+     * 导致作者被驳回后看不到原因，无法满足开发指导 §16.3「审核拒绝后能够返回编辑并看到原因」。
+     * 本接口是该表的对外读取入口：返回审核人、审核时间与审核意见，按最新在前排序。
+     * </p>
+     *
+     * @param id 文档 ID
+     * @return 审核记录列表
+     */
+    @GetMapping("/{id}/review-tasks")
+    public Result<List<KnowledgeReviewRecordVO>> listReviewRecords(@PathVariable Long id) {
+        return Result.success(knowledgeVersionService.listReviewRecords(id));
+    }
+
+    /**
+     * 查询文档各版本的来源快照。
+     * <p>
+     * 来源快照记录在各版本的 `metadata_snapshot_id` 上。此前前端要么只能显示裸 ID，
+     * 要么需要「取版本列表 + 取数据源快照列表」两次请求再自行关联，且当引用的快照不在
+     * 已加载的分页范围内时关联不上。本接口把该关联在服务端一次完成。
+     * </p>
+     *
+     * @param id 文档 ID
+     * @return 来源快照列表，按版本号降序
+     */
+    @GetMapping("/{id}/source-snapshots")
+    public Result<List<KnowledgeSourceSnapshotVO>> listSourceSnapshots(@PathVariable Long id) {
+        return Result.success(knowledgeVersionService.listSourceSnapshots(id));
+    }
+
     // === 版本管理 ===
 
     /**
@@ -256,6 +291,22 @@ public class KnowledgeDocController {
         log.debug("收到版本回滚请求 docId={} targetVersionNo={}", id, request.getTargetVersionNo());
         Integer newVersionNo = knowledgeVersionService.rollback(id, request.getTargetVersionNo());
         return Result.success("回滚成功", Map.of("newVersionNo", newVersionNo));
+    }
+
+    /**
+     * 查询文档的向量化任务。
+     * <p>
+     * `vector_index_task` 此前只被 knowledge 模块内部引用，没有任何 Controller 暴露它，
+     * 导致文档处于 `INDEXING` 时前端无法显示进度与失败原因（见开发指导 §7.11
+     * 「`INDEXING`：显示进度和失败信息，禁止重复发布」）。本接口补上该读取入口。
+     * </p>
+     *
+     * @param id 文档 ID
+     * @return 该文档的向量化任务列表，最新在前
+     */
+    @GetMapping("/{id}/vector-tasks")
+    public Result<List<VectorIndexTask>> listVectorTasks(@PathVariable Long id) {
+        return Result.success(vectorIndexTaskService.listTasksByTarget("DOC", id));
     }
 
     // === RAG 预览 ===

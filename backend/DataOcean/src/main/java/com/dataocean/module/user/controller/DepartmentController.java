@@ -32,28 +32,28 @@ public class DepartmentController {
     private final DepartmentService departmentService;
 
     @GetMapping("/tree")
-    @PreAuthorize("hasAnyAuthority('department:manage', 'user:manage')")
+    @PreAuthorize("hasAnyAuthority('department:manage', 'user:manage', '*')")
     public Result<List<DepartmentTreeVO>> tree() {
         log.debug("list department tree");
         return Result.success(departmentService.tree());
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('department:manage')")
+    @PreAuthorize("hasAnyAuthority('department:manage', '*')")
     public Result<Map<String, Long>> createDepartment(@Valid @RequestBody DepartmentCreateDTO request) {
         Long id = departmentService.createDepartment(request);
         return Result.success("创建成功", Map.of("id", id));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('department:manage')")
+    @PreAuthorize("hasAnyAuthority('department:manage', '*')")
     public Result<Void> updateDepartment(@PathVariable Long id, @Valid @RequestBody DepartmentUpdateDTO request) {
         departmentService.updateDepartment(id, request);
         return Result.success("部门更新成功", null);
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('department:manage')")
+    @PreAuthorize("hasAnyAuthority('department:manage', '*')")
     public Result<Void> deleteDepartment(@PathVariable Long id) {
         departmentService.deleteDepartment(id);
         return Result.success("删除成功", null);

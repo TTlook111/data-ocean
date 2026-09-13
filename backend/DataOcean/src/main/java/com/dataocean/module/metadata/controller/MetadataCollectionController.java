@@ -47,7 +47,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/admin/metadata")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('metadata:manage')")
+@PreAuthorize("hasAnyAuthority('metadata:manage', '*')")
 @Slf4j
 @AdminAuditLog(logReads = false)
 public class MetadataCollectionController {
@@ -140,6 +140,8 @@ public class MetadataCollectionController {
 
         Map<String, Object> detail = new HashMap<>();
         detail.put("snapshot", snapshot);
+        Datasource datasource = datasourceMapper.selectById(snapshot.getDatasourceId());
+        detail.put("datasourceName", datasource == null ? null : datasource.getName());
         detail.put("tables", tables);
         detail.put("columns", columns);
         return Result.success(detail);

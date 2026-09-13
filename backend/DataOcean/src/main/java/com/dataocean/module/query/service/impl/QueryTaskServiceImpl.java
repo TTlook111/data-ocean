@@ -27,7 +27,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -115,6 +118,10 @@ public class QueryTaskServiceImpl implements QueryTaskService {
                     // Fallback：按全量策略列名匹配
                     // 缺点：可能包含本次查询未涉及的列，但不会漏脱敏
                     vo.setData(dataMaskingService.maskResult(vo.getData(), context.getMaskColumns()));
+                    // Fallback 路径同样要回填 maskedFields，否则前端永远显示
+                    // 「当前结果未标记脱敏字段」——数据被脱敏了，标签却在说谎。
+                    // 这里只报本次结果里真实命中的列。
+                    vo.setMaskedFields(maskedColumnsOf(vo.getData(), context.getMaskColumns()));
                 }
             }
 
@@ -148,6 +155,45 @@ public class QueryTaskServiceImpl implements QueryTaskService {
         Page<QueryTaskVO> result = new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
         result.setRecords(page.getRecords().stream().map(this::toVO).toList());
         return result;
+    }
+
+    /**
+     * 从本次结果集中挑出真正命中脱敏策略的列。
+     * <p>
+     * Fallback 脱敏按「全量策略列」执行，其中大部分列本次查询根本没返回。
+     * 前端展示的是「本次结果里被脱敏的字段」，所以这里只报实际出现在结果列中的那些。
+     * </p>
+     *
+     * @param data        已脱敏的结果集
+     * @param maskColumns 权限上下文中的脱敏列策略
+     * @return 输出列名 → 脱敏策略
+     */
+    private Map<String, String> maskedColumnsOf(List<Map<String, Object>> data,
+                                                List<PermissionContextVO.MaskColumnItem> maskColumns) {
+        if (data == null || data.isEmpty() || maskColumns == null || maskColumns.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> strategyByLowerName = new HashMap<>();
+        for (PermissionContextVO.MaskColumnItem item : maskColumns) {
+            if (item != null && item.getColumnName() != null) {
+                strategyByLowerName.put(item.getColumnName().toLowerCase(Locale.ROOT), item.getMaskType());
+            }
+        }
+        Map<String, String> matched = new LinkedHashMap<>();
+        for (String outputName : data.get(0).keySet()) {
+            if (outputName == null) {
+                continue;
+            }
+            // 结果列名可能是 `别名` 或 `表.列`，取最后一段与策略列名比较
+            String bare = outputName.contains(".")
+                    ? outputName.substring(outputName.lastIndexOf('.') + 1)
+                    : outputName;
+            String strategy = strategyByLowerName.get(bare.toLowerCase(Locale.ROOT));
+            if (strategy != null) {
+                matched.put(outputName, strategy);
+            }
+        }
+        return matched;
     }
 
     /**
@@ -236,6 +282,9 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             }
             if (result.containsKey("maskedFields")) {
                 wrapper.set(QueryTask::getMaskedFields, objectMapper.writeValueAsString(result.get("maskedFields")));
+            }
+            if (result.containsKey("suggestedQuestions")) {
+                wrapper.set(QueryTask::getSuggestedQuestions, objectMapper.writeValueAsString(result.get("suggestedQuestions")));
             }
             if (result.containsKey("promptVersions")) {
                 wrapper.set(QueryTask::getPromptVersions, objectMapper.writeValueAsString(result.get("promptVersions")));
@@ -382,6 +431,10 @@ public class QueryTaskServiceImpl implements QueryTaskService {
             // 反序列化 JSON 字段：promptVersions（提示词版本列表）
             List<Map<String, Object>> promptVersions = task.getPromptVersions() != null
                     ? objectMapper.readValue(task.getPromptVersions(), new TypeReference<>() {}) : null;
+            Map<String, String> maskedFields = task.getMaskedFields() != null
+                    ? objectMapper.readValue(task.getMaskedFields(), new TypeReference<>() {}) : null;
+            List<String> suggestedQuestions = task.getSuggestedQuestions() != null
+                    ? objectMapper.readValue(task.getSuggestedQuestions(), new TypeReference<>() {}) : null;
 
             return QueryTaskVO.builder()
                     .taskId(task.getTaskId())
@@ -399,6 +452,8 @@ public class QueryTaskServiceImpl implements QueryTaskService {
                     .usedTables(usedTables)
                     .usedColumns(usedColumns)
                     .promptVersions(promptVersions)
+                    .maskedFields(maskedFields)
+                    .suggestedQuestions(suggestedQuestions)
                     .degraded(task.getDegraded())
                     .degradeNotice(task.getDegradeNotice())
                     .errorMessage(task.getErrorMessage())

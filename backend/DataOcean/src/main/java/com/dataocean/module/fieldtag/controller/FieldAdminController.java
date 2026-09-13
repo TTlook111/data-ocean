@@ -29,7 +29,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/fields")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('field-tag:manage')")
+@PreAuthorize("hasAnyAuthority('field-tag:manage', '*')")
 @AdminAuditLog
 @Slf4j
 public class FieldAdminController {

@@ -46,7 +46,7 @@ Important boundary:
 
 ## Current Status
 
-Last updated: 2026-09-07.
+Last updated: 2026-09-12.
 
 The main end-to-end chain is implemented:
 
@@ -73,9 +73,16 @@ Module status summary:
 | Python SQL sandbox | Core complete, with precise multi-table column rejection |
 | Python chart generation | Complete |
 
-Known follow-up areas — see `docs/development/后续开发.md` for the full prioritized list.
+Current status, Track A remediation, and navigation decisions — see `docs/development/DataOcean后台重构状态与整改计划.md`, the single source of truth. For the ordered next-action queue, see `docs/development/后续开发.md`.
 
 Latest addition:
+
+- **阶段 5–8 审查问题代码修复**（2026-09-12）：历史审查项已处理，包括删除伪入口、补齐“猜你想问”代码链、修复审批列表条件渲染和数据源分页绑定。2026-09-13 真实验收仍发现阻断，当前边界和整改统一见 `docs/development/DataOcean后台重构状态与整改计划.md`。
+  - 附一条可复用的检查结论：`frontend/tsconfig*.json` 未配置 `vueCompilerOptions.strictTemplates`，`vue-tsc` **不校验模板中的组件解析**，未导入的组件能穿过 `npm run build` 且退出码为 0。对「模板引用了不存在的东西」这一类缺陷，**构建通过不构成任何证据**，需要另做「模板 PascalCase 标签 vs script 导入」的脚本化交叉核对。
+
+- **后端缺陷修复轮完成**（2026-09-12，提交 `fcd7bd3`/`af29e6b`/`cbd1ff4` + 前端 `0c852a7`）：修复知识回滚前置校验、知识版本审核状态、术语退回状态机、目录数据源过滤和多数据源同名表列血缘解析。后续真实验收发现的新阻断统一见当前整改文档。
+
+- **后台前端缺陷与轨道 A 运行时修复**（2026-09-12，分支 `fix/frontend-defect-list` 提交 `22a1be5`）：完成 readiness 主操作、高亮、上下文继承和安全落点等修复；当前状态与验收边界统一见整改文档。
 
 - **Phase 1 代码可信度全部完成**（2026-08-21）：(1) DataQualityChecker SQL 标识符转义防注入（4 个方法全部加 `escapeIdentifier()`）；(2) DataQualityChecker 密码解密统一复用 `DatasourceSecretService`，消除密钥不一致风险（删除自行实现的 AES 解密）；(3) MetadataCatalogController 3 处 `catch(Exception ignored){}` 改为 `log.warn`；(4) `traceDerivedFromChain` 增加 `visited` 集合防止循环血缘无限递归；(5) P5 Java 侧会话记忆方案已升级为数据库长期摘要 + 请求级上下文组装；(6) P0 管理员反馈特权确认已实现（ADMIN/ANALYST 跳过审核、delta=-45）。
 
@@ -98,9 +105,9 @@ Recently completed or verified:
 - **阶段五：分类标签与质量深化已完成**（2026-06-14）：(1) 创建 classification 和 tag 表（V39 迁移），预置 PII/数据分级/业务域三类 14 个标签；(2) 实现 Python AutoTagger 标签自动推断器（基于列名模式匹配 PII/业务域标签）；(3) 扩展 metadata_quality_rule 表新增 check_type/check_expression/threshold 字段；(4) 新增 4 条数据级质量规则（空值率、唯一性、外键孤儿、数据陈旧）；(5) 创建 quality_check_result 质量趋势时序表；(6) 标记 PredefinedTag 为 @Deprecated。详见 `docs/development/completed/DataOcean统一执行路线图.md`。
 - **阶段六：权限增强已完成**（2026-06-14）：(1) 为 datasource_access_policy 表添加 priority（策略优先级）、valid_from/valid_until/time_schedule（时间条件）字段（V40 迁移）；(2) 实现基于优先级的策略评估（优先级越低越优先，高优先级 DENY 短路）；(3) 实现时间条件过滤（绝对时间范围 + 周期性时间计划）；(4) 创建 permission_change_log 权限变更审计表；(5) 在策略 CRUD 操作中集成审计日志记录。详见 `docs/development/completed/DataOcean统一执行路线图.md`。
 - **阶段七：事件驱动已完成**（2026-06-14）：(1) 创建 metadata_change_event 表（V41 迁移），记录元数据实体变更历史；(2) 实现 MetadataChangeEventService 事件记录服务；(3) 集成到 SnapshotEntitySyncListener，快照发布时自动记录变更事件；(4) 创建 access_approval_request 表（V41 迁移），支持数据访问审批流程；(5) 实现 AccessApprovalService 审批服务（提交→审批→生成临时 ALLOW 策略→过期自动清理）；(6) 实现 AccessApprovalController 审批 API；(7) 安全约束：BLOCKED/DEPRECATED 表列不允许申请访问，临时策略有有效期和审计记录。详见 `docs/development/completed/DataOcean统一执行路线图.md`。
-- **七个重构阶段全部完成**（2026-06-14）：统一路线图的七个重构阶段（权限治理修复、RAG 重构、实体关系图谱、业务术语表、分类标签与质量深化、权限增强、事件驱动）已全部完成并通过测试。后续新增功能另见 `docs/development/后续开发.md`。
+- **七个重构阶段全部完成**（2026-06-14）：统一路线图的七个重构阶段（权限治理修复、RAG 重构、实体关系图谱、业务术语表、分类标签与质量深化、权限增强、事件驱动）已全部完成并通过测试。后续新增功能另见 `docs/development/DataOcean后台重构状态与整改计划.md`。
 - **P1 通知系统完善完成**（2026-06-21）：新增前端通知铃铛、未读角标、通知下拉和 `frontend/src/api/notification.ts`；字段群体阈值、快照发布/过期事件已接入系统通知，管理员和相关操作人会收到定向通知。
-- **P2 操作日志前端接入完成**（2026-06-21）：新增 `frontend/src/api/admin/operation-log.ts`、`OperationLogList.vue`、`/admin/system/operation-logs` 路由和系统设置二级工作区入口，复用后端 `OperationLogController`，权限沿用 `audit:view`。
+- **P2 操作日志前端接入完成**（2026-06-21）：新增 `frontend/src/api/admin/operation-log.ts`、`OperationLogList.vue`、`/admin/platform/operation-logs` 路由和运营与平台二级工作区入口，复用后端 `OperationLogController`，权限沿用 `audit:view`。
 - **数据源授权语义补齐**：`V42__datasource_access_effect.sql` 已加入，使数据源授权的 allow/deny 决策显式化。
 - **智能问数链路已跑通**（2026-06-13）：完整链路测试成功，包括 RAG 检索、SQL 生成、SQL 校验、SQL 执行、图表生成。修复了 Milvus 连接兼容性、SQL 分号校验、Decimal 序列化等问题。详见 `docs/development/completed/智能问数链路诊断报告.md`。
 - **F0 排雷任务已完成**（2026-06-13）：按审查报告第十二章实施 17 项代码修复，包括向量化 force 模式安全修复、内部路由统一认证、表白名单空值语义、Prompt 注入防护、危险函数黑名单补齐、retry_count 边界修复、VectorStore 缓存、reranker 分数 clamp、SSE 解析完善、LLM/Embedding 初始化竞态修复、配置热重载竞态修复、连接池清理 TOCTOU 修复等。12.3 设计改进建议暂未实施。
@@ -147,6 +154,7 @@ APPROVED document
 Failure rule:
 
 - If chunking, vectorization, or the Java publish transaction fails, Java restores the document to `APPROVED`.
+- **Rollback must never be a way around review.** `rollback` sends the target version's content straight to `INDEXING` and triggers vectorization without going through submit-review/approve/publish, so it validates two preconditions first: the document must be `PUBLISHED`, and the target version's `reviewStatus` must be `APPROVED`. Removing either check reopens a path that writes unreviewed content into Milvus. A version created by rollback is marked approved with the operator as reviewer, because its content comes from a version already verified as approved.
 - Old active vectors are not deleted before the new version is successfully verified.
 - The Java publish transaction commits before old-vector cleanup. Cleanup failure enters `CLEANUP_PENDING` and is retried without re-vectorizing or rolling back the published version.
 - Same-version rebuilds delete only `doc_id + version_no`, not all vectors for the document.
@@ -217,8 +225,10 @@ uv run uvicorn dataocean.main:app --reload --port 8000
 Infrastructure:
 
 ```bash
-docker compose up -d
+docker start mysql redis etcd minio milvus
 ```
+
+> Infrastructure is managed as persistent host-level containers: `mysql` (one container), `redis` (one container), and the Milvus Standalone group (`milvus`, `etcd`, and `minio`). The repository does not retain infrastructure Compose files; the containers use explicit persistent volumes and can be reused by other local projects through `localhost`. Do not remove these shared containers or volumes when stopping only DataOcean application processes; use `docker start ...` to restore them.
 
 Tests:
 
@@ -233,7 +243,7 @@ mvn test
 Latest verified test result:
 
 - Python (2026-09-07): 152 passed, 4 skipped (E2E tests require full environment).
-- Java: 119 tests passed.
+- Java (2026-09-12): **145 tests passed, 0 failures, 0 skipped** — re-run after the stage 5–8 review fix round. The suite was briefly **uncompilable** in that round (an ambiguous `insert(any())` in `GlossaryTermServiceImplTest`), so any "all fixed" claim made while it was broken had no executable evidence behind it. (Was 143 before that round, 119 before the 2026-09-12 defect rounds, which added `KnowledgeDocLifecycleServiceTest` (4), `GlossaryTermServiceImplTest` (9), `AccessApprovalServiceImplTest` (2), and extended `KnowledgeVersionServiceImplTest` / `QualityIssueServiceImplTest`.) `mvn test` needs no external service — the suite is Mockito unit tests plus one `@SpringBootTest` backed by H2 + `src/test/resources/application-test.yml`.
 
 The next testing gap is Agent workflow coverage: query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 
@@ -253,11 +263,10 @@ specs/                 module specifications, plans, tasks, contracts
 ```text
 docs/
 ├── development/                    # 开发相关文档
-│   ├── 后续开发.md                  # 唯一的"待办清单"，记录未完成任务
+│   ├── DataOcean后台重构状态与整改计划.md # 当前状态、轨道 A、导航决策和待办的唯一入口
+│   ├── 后续开发.md                  # 仅列下一步执行队列
 │   ├── DataOcean技术栈与模块职责.md  # 技术栈、模块职责与数据存储归属
-│   ├── 项目真实状态看板.md
 │   ├── completed/                  # 已完成的开发文档（历史记录，不需要更新）
-│   │   ├── 后台信息架构与导航规范.md
 │   │   ├── DataOcean统一执行路线图.md
 │   │   ├── DataOcean项目优化指导文档.md
 │   │   ├── DataOcean深度优化参考方案.md
@@ -269,9 +278,6 @@ docs/
 │   │   ├── sql-generator-agent化改造方案.md
 │   │   └── …（其余历史方案、研究与 QA 记录）
 │   └── guides/                     # 持续参考的开发规范（需要遵守）
-│       ├── DataOcean-后台前端整体重构任务与实施指导.md
-│       ├── DataOcean-后台前端整体重构开发指导.md
-│       ├── DataOcean-后台前端整体重构实施任务清单.md
 │       └── DataOcean-完整权限体系设计.md
 ├── modules/                        # 模块设计文档（各模块的技术设计说明）
 │   ├── 001-user.md
@@ -288,7 +294,8 @@ docs/
 ```
 
 **文档管理原则**：
-- `docs/development/后续开发.md` 是唯一的"待办清单"，只保留未完成任务
+- `docs/development/DataOcean后台重构状态与整改计划.md` 是后台重构当前状态、轨道 A 整改、导航决策和待办的唯一入口
+- `docs/development/后续开发.md` 只维护下一步执行顺序，不重复状态和验收结论
 - `docs/development/completed/` 存放已完成的开发文档，作为历史记录
 - `docs/development/guides/` 存放需要持续遵守的开发规范
 - `docs/modules/` 存放模块设计文档，模块行为变化时更新
@@ -307,16 +314,16 @@ Important modules:
 
 - `user`: authentication, user, role, department, permission management.
 - `datasource`: datasource management and health checks.
-- `metadata`: metadata scanning, synchronization, comparison, entity graph, catalog search, and metadata events.
-- `governance`: metadata quality checks, governance status, quality issue lifecycle, and quality score aggregation.
+- `metadata`: metadata scanning, synchronization, comparison, entity graph, catalog search, and metadata events. `/catalog/search` accepts `datasourceId` and applies it **inside the SQL** (scoping must not be done by filtering results after fetching, or LIMIT/OFFSET would apply before filtering and page sizes would be wrong).
+- `governance`: metadata quality checks, governance status, quality issue lifecycle, and quality score aggregation. Batch handling returns `IssueBatchHandleResultVO{updated, skipped, skippedIssues[]}` — skipped items are a normal outcome, not an exception, so the method does not throw and callers must render the skip detail. Both quality-issue list endpoints accept an `assigneeId` filter, pushed down to SQL (never filter after fetching — LIMIT/OFFSET would apply before filtering and page sizes would be wrong).
 - `versioning`: metadata snapshot lifecycle and review.
-- `knowledge`: skills.md lifecycle, chunk snapshot persistence, vector publish tasks.
+- `knowledge`: skills.md lifecycle, chunk snapshot persistence, vector publish tasks. Three read endpoints expose data that previously had no query path: `GET /api/admin/knowledge-docs/{id}/review-tasks` (review comments, so authors can see why a document was rejected), `GET /api/admin/knowledge-docs/{id}/vector-tasks` (index progress and failure reason for `INDEXING` documents), and `GET /api/admin/knowledge-docs/{id}/source-snapshots` (version → snapshot association resolved server-side; the frontend could only render bare IDs before). `rollback` requires the document to be `PUBLISHED` **and** the target version's `reviewStatus` to be `APPROVED`; it then creates a version marked approved with the operator as reviewer. `approve`/`reject` write `review_status` and `reviewer_id` onto the version row (see migration V51 for the historical backfill).
 - `query`: Java-side NL2SQL task management, conversation persistence, SSE bridge, result persistence, and fallback chunk loading.
 - `fieldtag`: field tags, confidence, feedback.
-- `glossary`: glossary and glossary term management/review.
+- `glossary`: glossary and glossary term management/review. Term state machine allows `DRAFT`/`REJECTED` edits only — `updateTerm` validates status and applies a field whitelist so a request body cannot rewrite `status`/`reviewerId`; `POST /terms/{id}/revert` provides the `APPROVED → DRAFT` path and clears the review record. Deletion cleans up `GLOSSARY_OF` relationships and dangling `parent_id`; deleting a glossary cascades to its terms in one transaction.
 - `audit`: query audit, lineage, alerts.
-- `permission`: access policy, data masking, policy priority/time conditions, access approvals, and permission change logs.
-- `prompt`: prompt template CRUD, approval workflow, version history, rollback, and internal template API for Python.
+- `permission`: access policy, data masking, policy priority/time conditions, access approvals, and permission change logs. `GET /api/admin/access-approvals` narrows its scope **server-side**: callers with `security:manage` see the full queue, everyone else sees only their own requests. Do not move that decision back to the frontend — hiding the menu is not an access boundary, and the endpoint previously had no restriction at all.
+- `prompt`: prompt template CRUD, approval workflow, version history, rollback, enable/disable (`PATCH /{code}/enabled`, `APPROVED` templates only), and internal template API for Python.
 - `system`: config, notifications, operation logs (multi-condition query), AI config, scheduling.
 - `dashboard`: admin homepage statistics aggregation.
 
@@ -342,6 +349,8 @@ Migration notes:
 - `V44` adds `metadata_quality_issue.column_meta_id` (Phase 1 governance-confidence linkage).
 - `V45` adds `db_column_meta.sample_values` (Phase 2 column sample value collection).
 - `V50` adds RAG chunk order/group, multi-table/multi-column, entity, trust, and content hash metadata.
+- `V51` backfills `knowledge_doc_version.review_status`. That column existed since V13 with `NOT NULL DEFAULT 'PENDING'` but was never written, so every row read as "pending review" including published ones. V51 restores rows that can be resolved from `knowledge_review_task` and marks the rest `UNKNOWN`; the application now writes the column on create/approve/reject.
+- `V52` adds `query_task.suggested_questions` (JSON, anchored `AFTER masked_fields`), persisting the follow-up questions Python already returned but Java never stored. Like V51 it has **never been executed against a real MySQL**, and Flyway is disabled in the test profile, so no automated run covers it.
 
 ## Python Service Notes
 
@@ -379,11 +388,16 @@ Frontend routes are split between business-oriented domains:
 
 - `/query`: user-facing intelligent query flow.
 - `/admin/*`: the admin app uses `AdminShell.vue` with seven first-level business domains: 工作台、数据接入、数据资产、数据治理、语义中心、权限与组织、运营与平台.
-- Secondary feature pages are exposed through the content-area workspace navigation defined in `router/adminNavigation.ts` (`ADMIN_WORKSPACES`), not as side-bar top-level items.
-- New admin pages must follow `docs/development/guides/DataOcean-后台前端整体重构开发指导.md` before adding routes or navigation entries.
-- Target admin routes are frozen in that guide: `/admin/workbench`、`/admin/data-sources`、`/admin/collections`、`/admin/assets`、`/admin/releases`、`/admin/governance/*`、`/admin/semantics/*`、`/admin/access/*`、`/admin/operations/*`、`/admin/platform/*`.
-- Legacy URLs (`/admin/datasources`、`/admin/metadata/*`、`/admin/knowledge/*`、`/admin/permission/*`、`/admin/system/*`、`/admin/users`、`/admin/roles`、`/admin/departments`) are kept as redirects that preserve object IDs and query parameters. Do not add new links to them.
-- The admin frontend refactor is in progress: stages 0–5 (shell, data entry, data assets, governance, semantics) are delivered; stages 6–8 (access/organization, operations/platform, migration and cleanup) are not. Legacy pages superseded by new workspaces are intentionally still present and are removed in stage 8.
+- The current code places both first-level domains and second-level workspaces in the desktop sidebar; `router/adminNavigation.ts` (`ADMIN_WORKSPACES`) remains the route metadata source. The content area has no global secondary workspace bar.
+- New admin pages must follow `docs/development/DataOcean后台重构状态与整改计划.md` before adding routes or navigation entries.
+- Target admin routes remain `/admin/workbench`、`/admin/data-sources`、`/admin/collections`、`/admin/assets`、`/admin/releases`、`/admin/governance/*`、`/admin/semantics/*`、`/admin/access/*`、`/admin/operations/*`、`/admin/platform/*`.
+- Legacy admin URLs are intentionally not compatible with the current information architecture. They are not emitted by active frontend/backend code and should resolve to the unified NotFound/404 behavior. Use only the formal routes in `frontend/src/router/index.ts` and `frontend/src/router/adminNavigation.ts`.
+- The admin frontend refactor stage status (as of 2026-09-13):
+  - **Stages 0–8 and Track A are implemented and passed real desktop acceptance.** The single current status and evidence index is `docs/development/DataOcean后台重构状态与整改计划.md`; raw browser evidence remains under `output/playwright/`.
+  - Stages 6–7 (`/admin/access`, `/admin/operations/*`, `/admin/platform/*`) were **rebuilt** to the §7.13–§7.18 target design, not patched. Before that they were the pre-refactor implementations — e.g. `AccessControl.vue` had no `el-tab-pane` at all while §7.13 requires three fixed tabs. Stage 8 then deleted 27 superseded files (24 unreachable code files + dead assets); a re-run of the reachability check reports **0 unreachable code files**.
+  - ⚠️ **Do not infer stage completion from file existence, file size, or route reachability.** On 2026-09-12 this exact inference was made and written into the status docs, and it was wrong; it was corrected by the project owner. Judge completion by checking against the target design in the guide, item by item.
+  - **Runtime verification:** the final 2026-09-13 browser walkthrough used a 1440×1000 desktop viewport, covered 45 page scenarios and 35 assertions, and recorded 129 result entries with no unexplained console/page/request errors. F7 remains only as a backend defensive `UNKNOWN` fallback and is not a browser acceptance item; the old F8/F9 code paths no longer exist.
+- The identified frontend defects and Track A runtime blockers were fixed and verified on 2026-09-13. Use `docs/development/DataOcean后台重构状态与整改计划.md` for the current acceptance boundary.
 
 The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`. It also checks `/api/datasources/{datasourceId}/readiness` so users can only ask against sources whose lifecycle is ready.
 

@@ -142,3 +142,85 @@ export async function generateFromSnapshot(datasourceId: number, snapshotId: num
   )
   return data
 }
+
+/**
+ * 审核记录（对应 `knowledge_review_task`）。
+ *
+ * 该表此前只写不读——全项目没有任何 Controller 暴露它，因此作者被驳回后看不到原因。
+ * 2026-09-12 后端补上查询接口后，前端才能展示审核人、审核时间与审核意见。
+ */
+export interface KnowledgeReviewRecord {
+  id: number
+  docVersionId?: number
+  versionNo?: number
+  reviewStatus: string
+  reviewComment?: string
+  reviewerId?: number
+  reviewerName?: string
+  submittedAt?: string
+  reviewedAt?: string
+}
+
+/** 查询文档的审核记录（最新在前） */
+export async function listReviewTasks(docId: number) {
+  const { data } = await http.get<ApiResult<KnowledgeReviewRecord[]>>(
+    `/api/admin/knowledge-docs/${docId}/review-tasks`,
+  )
+  return data
+}
+
+/**
+ * 向量化任务（对应 `vector_index_task`）。
+ *
+ * 该表此前同样无查询入口，文档处于 `INDEXING` 时前端只能显示状态，
+ * 无法显示进度与失败原因（开发指导 §7.11 要求「显示进度和失败信息」）。
+ */
+export interface VectorIndexTaskItem {
+  id: number
+  datasourceId?: number
+  targetType: string
+  targetId: number
+  metadataSnapshotId?: number
+  knowledgeVersionNo?: number
+  previousVersionNo?: number
+  status: string
+  startedAt?: string
+  finishedAt?: string
+  errorMessage?: string
+  createdAt: string
+}
+
+/** 查询文档的向量化任务（最新在前） */
+export async function listVectorTasks(docId: number) {
+  const { data } = await http.get<ApiResult<VectorIndexTaskItem[]>>(
+    `/api/admin/knowledge-docs/${docId}/vector-tasks`,
+  )
+  return data
+}
+
+/**
+ * 文档版本的来源快照（按版本号降序，一个版本一条）。
+ *
+ * 来源快照记录在 `knowledge_doc_version.metadata_snapshot_id` 上。2026-09-12 之前前端只能
+ * 显示裸 ID，或「取版本列表 + 取数据源快照列表」两次请求再自行关联——而引用的快照一旦
+ * 不在已加载的分页范围内就关联不上（跨数据源的版本尤其如此）。
+ *
+ * `snapshotVersion` / `status` / `tableCount` / `columnCount` 为 null 表示该快照已不存在。
+ */
+export interface KnowledgeSourceSnapshot {
+  versionNo: number
+  snapshotId: number
+  snapshotVersion?: number
+  status?: string
+  tableCount?: number
+  columnCount?: number
+  createdAt?: string
+}
+
+/** 查询文档各版本的来源快照 */
+export async function listSourceSnapshots(docId: number) {
+  const { data } = await http.get<ApiResult<KnowledgeSourceSnapshot[]>>(
+    `/api/admin/knowledge-docs/${docId}/source-snapshots`,
+  )
+  return data
+}

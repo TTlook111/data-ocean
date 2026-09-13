@@ -4,7 +4,7 @@
 
 **Decision**: Element Plus Container 布局（el-aside + el-header + el-main）
 
-**Rationale**: Element Plus 内置布局组件，开箱即用。侧边栏可折叠，响应式适配。与项目已选定的 Element Plus 一致。
+**Rationale**: Element Plus 内置布局组件，开箱即用，侧边栏可折叠，并与项目已选定的 Element Plus 一致。后台仅按桌面端布局设计。
 
 **Alternatives considered**:
 - 自定义 CSS Grid 布局: 灵活但需要更多样式代码

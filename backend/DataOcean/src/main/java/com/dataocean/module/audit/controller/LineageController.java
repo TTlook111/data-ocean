@@ -23,7 +23,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/lineage")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('audit:view')")
+@PreAuthorize("hasAnyAuthority('audit:view', '*')")
 @Slf4j
 public class LineageController {
 
@@ -51,6 +51,14 @@ public class LineageController {
             @RequestParam Long datasourceId, @PathVariable String tableName, @PathVariable String columnName) {
         requireDatasourceId(datasourceId);
         return Result.success(lineageService.analyzeImpact(datasourceId, tableName, columnName));
+    }
+
+    /** 表级变更影响分析 */
+    @GetMapping("/impact/{tableName}")
+    public Result<ImpactAnalysisVO> analyzeTableImpact(
+            @RequestParam Long datasourceId, @PathVariable String tableName) {
+        requireDatasourceId(datasourceId);
+        return Result.success(lineageService.analyzeImpact(datasourceId, tableName, null));
     }
 
     private void requireDatasourceId(Long datasourceId) {

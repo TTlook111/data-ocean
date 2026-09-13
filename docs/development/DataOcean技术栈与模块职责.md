@@ -1,7 +1,7 @@
 # DataOcean 技术栈与模块职责
 
 > 本文档是 DataOcean 当前实现的技术栈、模块职责、数据归属和异步边界的详细说明。
-> 更新日期：2026-09-07。版本号以 `frontend/package.json`、`backend/DataOcean/pom.xml` 和 `python-service/pyproject.toml` 为准。
+> 更新日期：2026-09-13。版本号以 `frontend/package.json`、`backend/DataOcean/pom.xml` 和 `python-service/pyproject.toml` 为准。
 
 ## 1. 文档定位
 
@@ -11,7 +11,7 @@
 2. 每项技术参与哪些模块，以及它负责什么、不负责什么。
 3. 哪些流程应该异步，哪些流程必须等待结果。
 
-`README.md` 只保留快速概览；`AGENTS.md` 和 `CLAUDE.md` 记录协作约束与稳定架构事实；项目完成度和测试数据以 [`项目真实状态看板.md`](./项目真实状态看板.md) 为准；模块级接口和数据模型以对应 `specs/<module>/` 为准。
+`README.md` 只保留快速概览；`AGENTS.md` 和 `CLAUDE.md` 记录协作约束与稳定架构事实；项目完成度、轨道 A 整改、导航决策和测试数据以 [`DataOcean后台重构状态与整改计划.md`](./DataOcean后台重构状态与整改计划.md) 为准；模块级接口和数据模型以对应 `specs/<module>/` 为准。
 
 本项目不引入 Google ADK，也不通过 API Gateway 平台转发模型请求。Java 负责业务网关和持久化，Python 负责 AI/RAG 执行，模型通过外部 OpenAI 兼容 API（当前为 Qwen/通义千问配置）调用。
 
@@ -76,7 +76,7 @@ Python：conversation_history + conversation_summary + 当前请求
 | Flyway | `db/migration` | 数据库结构和增量迁移 | 不迁移外部业务数据 |
 | Spring Data Redis | `user`、`common`、`query`、`fieldtag` 等 | JWT、验证码、限频、缓存和临时数据 | 不作为完整会话历史主库 |
 | Spring Cache、Caffeine | 当前权限计算模块 | 当前进程内权限缓存 | 不是新增缓存的首选；新增缓存遵循项目 Redis 约定 |
-| RestClient、Spring Retry | Java/Python client | Java 调用 Python 内部 API，按配置重试知识/RAG调用 | SSE 和健康检查不盲目重试 |
+| RestClient、Spring Retry | Java/Python client | Java 调用 Python 内部 API；Java RestClient 统一携带 `X-Internal-Token`，SSE 使用原始流消费，按配置重试知识/RAG调用 | SSE 和健康检查不盲目重试 |
 | Spring `@Async`、`@Scheduled`、事件监听 | 查询、同步、审计、通知、维护 | 受控后台任务和定时任务 | 不应把权限、安全校验和查询依赖改成丢失结果的后台任务 |
 | AOP、操作日志、审计 | `audit`、`system`、权限和管理端 | 横切日志、审计和运行记录 | 不记录密码、Token、API Key 或密钥 |
 
@@ -86,7 +86,7 @@ Python：conversation_history + conversation_summary + 当前请求
 | --- | --- | --- | --- |
 | Python 3.13、FastAPI、Uvicorn | `python-service/dataocean` | 内部 AI/RAG API、健康检查和 SSE | 不向浏览器提供公共业务 API |
 | Pydantic | `agent`、`rag`、`sandbox` 等 schema | 请求、响应和 Agent 状态边界校验 | 不持久化会话 |
-| HTTPX | Prompt、配置和部分内部外部 HTTP 调用 | 异步 HTTP 客户端 | 不拥有 Java 业务事务 |
+| HTTPX | Prompt、配置和部分内部外部 HTTP 调用 | 异步 HTTP 客户端；本机 Java 内部回环调用不读取代理环境 | 不拥有 Java 业务事务 |
 | LangGraph | `agent/graph.py`、Agent workflow | StateGraph、节点、边、条件路由、并行 fan-out、重试和请求级状态 | 不保存长期会话，不替代 MySQL |
 | LangChain | `agent`、`infra`、`rag` | 模型抽象、Prompt、工具、输出解析、Agent 组装、Document 等基础组件 | 不决定业务权限，不是工作流持久化层 |
 | `langchain-openai` | `infra/llm.py`、`infra/embeddings.py` | 通过 OpenAI 兼容协议调用 Qwen/Embedding 服务 | 不保存模型会话 |
@@ -177,7 +177,7 @@ Milvus 中的 metadata 是用于过滤和扩展的轻量副本，不替代 Java 
 | 发生变化 | 应更新的文档 |
 | --- | --- |
 | 技术版本、模块归属、存储或异步边界变化 | 本文档，并同步 `AGENTS.md`、`CLAUDE.md` 的摘要入口 |
-| 当前完成度、测试结果、风险变化 | `docs/development/项目真实状态看板.md` |
-| 未完成任务和优先级变化 | `docs/development/后续开发.md` |
+| 当前完成度、测试结果、风险、导航决策和未完成任务 | `docs/development/DataOcean后台重构状态与整改计划.md` |
+| 下一步执行顺序 | `docs/development/后续开发.md` |
 | 某个模块的接口、数据模型或实现计划变化 | 对应 `specs/<module>/` |
 | README 快速开始或项目入口变化 | `README.md` |

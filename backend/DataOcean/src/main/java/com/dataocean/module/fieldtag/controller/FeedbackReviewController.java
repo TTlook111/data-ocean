@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/feedback-reviews")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('field-tag:manage')")
+@PreAuthorize("hasAnyAuthority('field-tag:manage', '*')")
 @AdminAuditLog
 @Slf4j
 public class FeedbackReviewController {

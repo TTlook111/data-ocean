@@ -3,6 +3,7 @@ package com.dataocean.module.knowledge.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.persistence.OptimisticLockSupport;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
@@ -127,6 +128,9 @@ public class KnowledgeDocCrudService {
     @Transactional
     public void updateDoc(Long id, String title, String content, Integer version, String changeSummary) {
         log.info("编辑知识文档 docId={} version={}", id, version);
+        if (version == null) {
+            throw new BusinessException(400, "版本号不能为空");
+        }
         KnowledgeDoc doc = helper.requireDoc(id);
         String normalizedContent = content == null ? "" : content;
         boolean contentChanged = !java.util.Objects.equals(doc.getContent(), normalizedContent);
@@ -151,10 +155,9 @@ public class KnowledgeDocCrudService {
         }
         doc.setUpdatedBy(UserContext.currentUserId());
         // updateById 返回影响行数，为 0 表示乐观锁冲突
-        int rows = knowledgeDocMapper.updateById(doc);
-        if (rows == 0) {
-            throw new BusinessException("文档已被其他人修改，请刷新后重试");
-        }
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "文档已被其他人修改，请刷新后重试");
         if (contentChanged) {
             KnowledgeDocVersion newVersion = KnowledgeDocVersion.builder()
                     .docId(doc.getId())

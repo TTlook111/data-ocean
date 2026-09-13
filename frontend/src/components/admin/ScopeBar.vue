@@ -172,13 +172,4 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
   font-size: 12px;
 }
 
-@media (max-width: 760px) {
-  .scope-bar {
-    grid-template-columns: 1fr;
-  }
-
-  .scope-bar__controls {
-    flex-wrap: wrap;
-  }
-}
 </style>

@@ -9,6 +9,7 @@ import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.v
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import { governanceStatusLabel, snapshotStatusLabel } from '../../../utils/enumLabels'
 
 const route = useRoute()
 const router = useRouter()
@@ -49,12 +50,12 @@ onMounted(load)
     <ObjectContextSummary
       v-if="detail"
       :title="'快照 v' + detail.snapshot.snapshotVersion"
-      :description="detail.snapshot.datasourceName"
+      :description="detail.datasourceName || ('数据源 #' + detail.snapshot.datasourceId)"
       back-to="/admin/releases"
       source-label="元数据采集快照"
     />
     <TaskPageHeader title="快照详情" description="检查采集结果和治理状态；审核通过与正式发布是两个独立动作。">
-      <template #status><BusinessStatusBadge v-if="detail" :status="detail.snapshot.status" /></template>
+      <template #status><BusinessStatusBadge v-if="detail" :status="detail.snapshot.status" :label="snapshotStatusLabel(detail.snapshot.status)" /></template>
       <template #actions><el-button v-if="detail" type="primary" @click="openGovernance">进入治理</el-button></template>
     </TaskPageHeader>
     <LoadingState v-if="loading" variant="skeleton" :rows="6" />
@@ -73,7 +74,7 @@ onMounted(load)
           <el-table-column prop="tableComment" label="说明" min-width="180" />
           <el-table-column prop="rowCountEstimate" label="估算行数" width="120" />
           <el-table-column label="治理状态" width="130">
-            <template #default="{ row }"><BusinessStatusBadge :status="row.governanceStatus" /></template>
+            <template #default="{ row }"><BusinessStatusBadge :status="row.governanceStatus" :label="governanceStatusLabel(row.governanceStatus)" /></template>
           </el-table-column>
         </el-table>
         <EmptyState v-else message="该快照尚未返回表清单" />
@@ -146,9 +147,4 @@ onMounted(load)
   margin: 0;
 }
 
-@media (max-width: 760px) {
-  .snapshot-detail__summary {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
 </style>

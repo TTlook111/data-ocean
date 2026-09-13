@@ -29,6 +29,7 @@ import org.springframework.util.CollectionUtils;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -155,11 +156,14 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         List<MetadataQualityIssue> allIssues = new ArrayList<>();
         for (QualityChecker checker : checkers) {
             // 跳过不在目标维度内的检查器
-            if (!targetDimensions.contains(checker.getDimension())) {
+            if (Collections.disjoint(checker.getSupportedDimensions(), targetDimensions)) {
                 continue;
             }
             try {
                 allIssues.addAll(checker.check(context));
+            } catch (BusinessException e) {
+                // 预期业务条件（例如数据源未配置或不可用）必须保留中文 4xx，不能被吞掉后伪装成检查成功。
+                throw e;
             } catch (Exception e) {
                 // 单个检查器失败不阻断整体流程，记录错误日志继续
                 log.error("quality checker failed dimension={}", checker.getDimension(), e);
@@ -182,8 +186,12 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         // 11. 全量检查时更新快照质量分和状态
         if (isFullCheck) {
             snapshot.setQualityScore(totalScore);
-            // 无问题则标记为已批准，否则标记为存在问题
-            snapshot.setStatus(allIssues.isEmpty() ? MetadataSnapshot.STATUS_APPROVED : MetadataSnapshot.STATUS_ISSUE_FOUND);
+            // 发布后的异步质量复查只能更新评分和问题，不能撤销已经发布的快照。
+            // 只有尚未发布的快照才按检查结果进入 APPROVED/ISSUE_FOUND，避免
+            // SnapshotPublishedEventListener 的复查把 readiness 重新打回“快照待发布”。
+            if (!MetadataSnapshot.STATUS_PUBLISHED.equals(snapshot.getStatus())) {
+                snapshot.setStatus(allIssues.isEmpty() ? MetadataSnapshot.STATUS_APPROVED : MetadataSnapshot.STATUS_ISSUE_FOUND);
+            }
             snapshotMapper.updateById(snapshot);
         }
 

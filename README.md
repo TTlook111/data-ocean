@@ -101,8 +101,9 @@ Vue 3 前端
 环境要求：JDK 17、Maven 3.9+、Node.js 20+、Python 3.13、uv、Docker Compose v2。
 
 ```powershell
-# 1. 启动基础设施
-docker compose up -d
+# 1. 恢复已创建的公共基础设施容器
+#    Docker Desktop 中为 mysql、redis、milvus 三个逻辑服务
+docker start mysql redis etcd minio milvus
 
 # 2. 启动 Java 网关
 cd backend\DataOcean
@@ -110,6 +111,7 @@ mvn spring-boot:run
 
 # 3. 启动 Python AI 服务
 cd python-service
+# 首次启动先复制 .env.example 为 .env，并填写 DASHSCOPE_API_KEY
 uv sync
 uv run uvicorn dataocean.main:app --reload --port 8000
 
@@ -118,6 +120,8 @@ cd frontend
 npm install
 npm run dev
 ```
+
+> 公共基础设施由本机长期管理：`mysql`（一个容器）、`redis`（一个容器）、`milvus`（`milvus`、`etcd`、`minio` 三个容器）。这些容器和 `dataocean-shared-*` 数据卷已创建并持久化，其他本地项目可通过 `localhost` 复用。仓库不保存基础设施 Compose 文件；重启 Docker 后使用 `docker start mysql redis etcd minio milvus` 恢复。正常停止 DataOcean 只停止 Java、Python 和前端进程，不要删除这些公共容器或数据卷。
 
 默认入口：
 
@@ -135,13 +139,13 @@ backend/         Spring Boot Java 网关层
 python-service/  FastAPI + LangGraph AI 服务
 docs/            项目设计与开发文档
 specs/           早期模块规格（历史资料，不作为当前完成度依据）
-output/          联调截图与验证产物
+output/          联调截图与验证产物（按需生成，默认不存在）
 ```
 
 ## 项目状态
 
 当前功能完成度、验证结果、已知风险和后续优先级以
-[`docs/development/项目真实状态看板.md`](docs/development/项目真实状态看板.md) 为准。
+[`docs/development/DataOcean后台重构状态与整改计划.md`](docs/development/DataOcean后台重构状态与整改计划.md) 为准。
 `specs/` 下的文件是早期设计资料，仅供追溯，不再作为当前实现范围或任务完成度的依据。
 
 当前核心实现已包含 Java 管理的持久化会话与异步长期摘要、Python 请求级上下文组装，以及 Python 负责的 token-aware Schema RAG、Milvus 检索和安全发布流程。RAG 的真实 Milvus 验证、效果评测和正式全量重建入口仍以状态看板和专项方案中的待办为准。
@@ -154,7 +158,8 @@ output/          联调截图与验证产物
 | [`CLAUDE.md`](CLAUDE.md) | AI Agent 工作手册，记录当前实现边界、异步规则和验证基线。 |
 | [`docs/development/DataOcean技术栈与模块职责.md`](docs/development/DataOcean技术栈与模块职责.md) | 当前技术栈、模块职责、数据归属和异步边界。 |
 | [`docs/development/completed/DataOcean-RAG问题修复与知识文档切分优化方案.md`](docs/development/completed/DataOcean-RAG问题修复与知识文档切分优化方案.md) | RAG 修复实施结果、剩余部署验证和评测待办。 |
-| [`docs/development/项目真实状态看板.md`](docs/development/项目真实状态看板.md) | 当前真实完成度、验证基线、风险与开发优先级。 |
+| [`docs/development/DataOcean后台重构状态与整改计划.md`](docs/development/DataOcean后台重构状态与整改计划.md) | 当前真实完成度、轨道 A 整改、导航决策、验证基线与后续优先级的唯一入口。 |
+| [`docs/development/后续开发.md`](docs/development/后续开发.md) | 仅列下一步执行队列，方便判断当前先做什么。 |
 | [`docs/archive/nl2sql-单库多表版-项目构想.md`](docs/archive/nl2sql-单库多表版-项目构想.md) | 历史设计思路、架构决策和 NL2SQL 方案背景。 |
 | [`frontend/README.md`](frontend/README.md) | 前端工程说明。 |
 

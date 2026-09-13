@@ -7,6 +7,7 @@ import com.dataocean.common.security.UserContext;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.governance.entity.MetadataQualityRule;
 import com.dataocean.module.governance.entity.dto.*;
+import com.dataocean.module.governance.entity.vo.IssueBatchHandleResultVO;
 import com.dataocean.module.governance.entity.vo.QualityCheckResultVO;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
 import com.dataocean.module.governance.entity.vo.ReviewRecordVO;
@@ -28,7 +29,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('metadata:manage')")
+@PreAuthorize("hasAnyAuthority('metadata:manage', '*')")
 @AdminAuditLog
 public class MetadataGovernanceController {
 
@@ -96,6 +97,7 @@ public class MetadataGovernanceController {
      * @param severity   可选严重级别
      * @param status     可选处理状态
      * @param tableName  可选表名
+     * @param assigneeId 可选责任人用户 ID
      * @param page       页码
      * @param size       每页条数
      * @return 质量问题分页列表
@@ -107,10 +109,11 @@ public class MetadataGovernanceController {
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String tableName,
+            @RequestParam(required = false) Long assigneeId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.success(qualityIssueService.listIssues(snapshotId, dimension, severity, status, tableName,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                assigneeId, (int) PageRequest.page(page), (int) PageRequest.size(size)));
     }
 
     /**
@@ -121,6 +124,7 @@ public class MetadataGovernanceController {
      * @param severity   可选严重级别
      * @param status     可选处理状态
      * @param tableName  可选表名
+     * @param assigneeId 可选责任人用户 ID
      * @param page       页码
      * @param size       每页条数
      * @return 质量问题分页列表
@@ -132,10 +136,11 @@ public class MetadataGovernanceController {
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String tableName,
+            @RequestParam(required = false) Long assigneeId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.success(qualityIssueService.listIssues(snapshotId, dimension, severity, status, tableName,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                assigneeId, (int) PageRequest.page(page), (int) PageRequest.size(size)));
     }
 
     /**
@@ -159,9 +164,9 @@ public class MetadataGovernanceController {
      * @return 实际更新的问题数量
      */
     @PatchMapping("/quality-issues/batch-status")
-    public Result<Map<String, Integer>> batchHandleIssues(@Valid @RequestBody IssueBatchHandleDTO request) {
-        int updated = qualityIssueService.batchHandle(request.getIssueIds(), request.getStatus(), UserContext.currentUserId());
-        return Result.success(Map.of("updated", updated));
+    public Result<IssueBatchHandleResultVO> batchHandleIssues(@Valid @RequestBody IssueBatchHandleDTO request) {
+        return Result.success(qualityIssueService.batchHandle(
+                request.getIssueIds(), request.getStatus(), UserContext.currentUserId()));
     }
 
     /**

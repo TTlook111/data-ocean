@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import {
   Database,
   History,
@@ -15,6 +16,7 @@ import { roleCodesLabel } from '../../utils/enumLabels'
 import { useQuerySession } from '../../composables/useQuerySession'
 import { useQuerySubmit } from '../../composables/useQuerySubmit'
 import { useQueryExport } from '../../composables/useQueryExport'
+import { parseDatasourceId } from '../../utils/queryDatasource'
 import QuerySidebar from './QuerySidebar.vue'
 import QueryInput from './QueryInput.vue'
 import QueryResult from './QueryResult.vue'
@@ -26,10 +28,13 @@ const adminPermissionCodes = [
 ]
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 const workspaceRef = ref<HTMLElement | null>(null)
 const queryInputRef = ref<InstanceType<typeof QueryInput>>()
 const resultPanelOpen = ref(false)
+const datasourceInitialized = ref(false)
+let datasourceSyncRequest = 0
 const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(workspaceRef)
 
 const permissions = computed(() => auth.currentUser?.permissions || auth.user?.permissions || [])
@@ -115,14 +120,64 @@ function applyExample(text: string) {
   queryInputRef.value?.focusQuestionInput()
 }
 
-function handleSelectDatasource(id: number) {
+function afterDatasourceSelected() {
+  revealAfterTick('.welcome-state, .message-item', { y: 12, stagger: 0.035 })
+}
+
+async function applyDatasource(id: number) {
+  if (session.selectedId.value === id) return
+  await submit.cancelCurrentQuery()
   submit.question.value = ''
   resultPanelOpen.value = false
-  session.selectDatasource(id, {
-    afterSelect() {
-      revealAfterTick('.welcome-state, .message-item', { y: 12, stagger: 0.035 })
-    },
-  })
+  await session.selectDatasource(id, { afterSelect: afterDatasourceSelected })
+}
+
+function queryWithDatasource(id?: number) {
+  const query = { ...route.query }
+  if (id) query.datasourceId = String(id)
+  else delete query.datasourceId
+  return query
+}
+
+async function syncDatasourceFromUrl() {
+  const requestId = ++datasourceSyncRequest
+  const rawDatasourceId = route.query.datasourceId
+  const requestedId = parseDatasourceId(rawDatasourceId)
+  const requestedDatasource = requestedId === undefined
+    ? undefined
+    : session.datasources.value.find((item) => item.id === requestedId)
+  const currentDatasource = session.selectedId.value
+    ? session.datasources.value.find((item) => item.id === session.selectedId.value)
+    : undefined
+  const fallbackDatasource = currentDatasource
+    || session.datasources.value.find((item) => session.readinessMap.value[item.id]?.askable === true)
+    || session.datasources.value[0]
+  const targetDatasource = requestedDatasource || fallbackDatasource
+
+  if (rawDatasourceId !== undefined && !requestedDatasource) {
+    const fallbackLabel = fallbackDatasource ? `已切换到「${fallbackDatasource.name}」` : '当前没有可用数据源'
+    ElMessage.warning(`URL 指定的数据源不存在或当前账号无权访问，${fallbackLabel}。`)
+  }
+
+  if (requestId !== datasourceSyncRequest) return
+  if (targetDatasource) await applyDatasource(targetDatasource.id)
+  if (requestId !== datasourceSyncRequest) return
+
+  const targetId = targetDatasource?.id
+  const currentQueryId = parseDatasourceId(route.query.datasourceId)
+  if (targetId !== currentQueryId || (rawDatasourceId !== undefined && requestedId === undefined)) {
+    await router.replace({ query: queryWithDatasource(targetId) })
+  }
+}
+
+async function refreshDatasources() {
+  await session.fetchDatasources({ autoSelect: false })
+  await syncDatasourceFromUrl()
+}
+
+async function handleSelectDatasource(id: number) {
+  await applyDatasource(id)
+  await router.push({ query: queryWithDatasource(id) })
   queryInputRef.value?.focusQuestionInput()
 }
 
@@ -138,12 +193,20 @@ function handleSelectSession(sessionId: string) {
   session.selectSession(sessionId, { focusQuestionInput: () => queryInputRef.value?.focusQuestionInput() })
 }
 
+async function initializeDatasource() {
+  await session.fetchDatasources({ autoSelect: false })
+  datasourceInitialized.value = true
+  await syncDatasourceFromUrl()
+  queryInputRef.value?.focusQuestionInput()
+}
+
+watch(() => route.query.datasourceId, () => {
+  if (datasourceInitialized.value) void syncDatasourceFromUrl()
+})
+
 onMounted(() => {
   withContext(() => reveal('.query-brand, .new-session-button, .datasource-section, .history-section, .sidebar-user, .query-topbar, .chat-composer', { y: 14, stagger: 0.04 }))
-  session.fetchDatasources({
-    afterSelect() { revealAfterTick('.welcome-state, .message-item', { y: 12, stagger: 0.035 }) },
-    focusQuestionInput() { queryInputRef.value?.focusQuestionInput() },
-  })
+  void initializeDatasource()
 })
 </script>
 
@@ -166,7 +229,7 @@ onMounted(() => {
       @select-session="handleSelectSession"
       @remove-session="session.removeSession"
       @new-session="handleStartNewSession"
-      @refresh="() => session.fetchDatasources()"
+       @refresh="refreshDatasources"
       @user-command="handleUserCommand"
       @update:keyword="session.keyword.value = $event"
     />
@@ -201,6 +264,12 @@ onMounted(() => {
             <span class="message-avatar"><UserRound v-if="message.role === 'user'" :size="16" /><MessageSquareText v-else :size="16" /></span>
             <div class="message-bubble">
               <p>{{ message.content }}</p>
+              <div v-if="message.role === 'assistant' && message.queryResult?.suggestedQuestions?.length" class="message-suggestions" aria-label="推荐追问">
+                <small>推荐追问</small>
+                <button v-for="suggestion in message.queryResult.suggestedQuestions" :key="suggestion" type="button" @click="applyExample(suggestion)">
+                  {{ suggestion }}
+                </button>
+              </div>
               <div class="message-meta">
                 <small>{{ formatTime(message.createdAt) }}</small>
                 <button v-if="message.role === 'assistant' && message.queryResult" type="button" @click="resultPanelOpen = true"><PanelRightOpen :size="14" />查看结果</button>
@@ -254,7 +323,6 @@ onMounted(() => {
       @export-csv="exportUtil.exportCsv"
       @export-png="exportUtil.exportPng"
       @feedback="exportUtil.handleFeedback"
-      @apply-example="applyExample"
       @update:table-page="exportUtil.tablePage.value = $event"
     />
 
@@ -292,6 +360,10 @@ onMounted(() => {
 .message-item.user .message-avatar { color: #fff; background: var(--do-primary); }
 .message-bubble { max-width: 720px; padding: 14px 16px; border: 1px solid var(--do-line); border-radius: 11px; background: #fff; box-shadow: 0 8px 20px rgba(15, 23, 42, .05); }
 .message-bubble p { margin: 0; color: inherit; font-size: 14px; line-height: 1.75; white-space: pre-wrap; }
+.message-suggestions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--do-line); }
+.message-suggestions small { flex: 0 0 100%; color: var(--do-muted); font-size: 11px; font-weight: 800; }
+.message-suggestions button { padding: 5px 9px; border: 1px solid rgba(77, 143, 220, .24); border-radius: 999px; color: var(--do-primary-strong); background: var(--do-primary-soft); font: inherit; font-size: 11px; cursor: pointer; }
+.message-suggestions button:hover { border-color: var(--do-primary); background: #e1f0ff; }
 .message-meta { min-height: 24px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: 8px; }
 .message-meta small { color: var(--do-muted); font-size: 10px; opacity: .72; }
 .message-meta button, .message-actions button { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 6px; color: var(--do-primary-strong); background: transparent; font-size: 11px; font-weight: 700; cursor: pointer; }
@@ -300,13 +372,9 @@ onMounted(() => {
 .message-actions { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--do-line); }
 .message-actions button { min-height: 30px; padding: 0 9px; border: 1px solid var(--do-line); background: #fff; }
 .message-actions button:disabled { cursor: not-allowed; opacity: .5; }
-.result-toggle:focus-visible, .message-meta button:focus-visible, .message-actions button:focus-visible, .empty-chat button:focus-visible { outline: 3px solid rgba(77, 143, 220, .2); outline-offset: 2px; }
+.result-toggle:focus-visible, .message-meta button:focus-visible, .message-actions button:focus-visible, .message-suggestions button:focus-visible, .empty-chat button:focus-visible { outline: 3px solid rgba(77, 143, 220, .2); outline-offset: 2px; }
 @media (max-width: 1280px) {
   .query-workspace.result-open { grid-template-columns: 250px minmax(0, 1fr); }
   .query-workspace.result-open :deep(.result-rail) { position: fixed; top: 0; right: 0; z-index: 80; width: min(500px, calc(100vw - 250px)); }
-}
-@media (max-width: 920px) {
-  .query-workspace, .query-workspace.result-open { grid-template-columns: 224px minmax(0, 1fr); }
-  .query-workspace.result-open :deep(.result-rail) { width: min(500px, calc(100vw - 224px)); }
 }
 </style>

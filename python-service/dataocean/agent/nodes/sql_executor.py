@@ -19,6 +19,7 @@ from sqlglot import exp
 from dataocean.core.error_messages import sanitize_error  # FIX #4: MySQL 错误脱敏
 
 from .. import sse
+from ..config import agent_config
 from ..state import AgentState
 from .sql_generator import estimate_execution_time
 
@@ -75,30 +76,55 @@ async def run_sql_executor(state: AgentState) -> AgentState:
     from dataocean.infra.llm import call_llm, LLMException  # Phase 2 #11: LLM 自校正
 
     mask_columns = validation_result.get("masked_fields", {})
-    result = await sandbox_execute(
-        sql=sql,
-        datasource_id=datasource_id,
-        connection_config=connection_config,
-        mask_columns=mask_columns,
-        task_id=task_id,
-    )
+    try:
+        result = await sandbox_execute(
+            sql=sql,
+            datasource_id=datasource_id,
+            connection_config=connection_config,
+            mask_columns=mask_columns,
+            task_id=task_id,
+        )
+    except Exception as e:
+        # sandbox.execute 按契约返回 ExecutionResult，但异常仍需转换成
+        # executor 的失败结果，避免由 graph wrapper 兜底时丢失 execution_result。
+        logger.error("SQL 沙箱执行异常 task_id=%s error=%s", task_id, e, exc_info=True)
+        error_message = sanitize_error(e)
+        return {
+            "execution_result": _build_execution_error(error_message),
+            "error_message": error_message,
+            "retry_count": state.get("retry_count", 0) + 1,
+            "used_tables": used_tables,
+            "used_columns": used_columns,
+            "column_lineage": column_lineage,
+            "current_node": "SQL_EXECUTOR",
+        }
 
     if not result.success:
         # 安全修复：执行失败时递增 retry_count
         retry_count = state.get("retry_count", 0) + 1
+        execution_error = _build_execution_error(result)
 
         # Phase 2 #11: LLM 自校正——只对可修正错误尝试，不修正 timeout/connection_error
-        error_lower = (result.error or "").lower()
-        is_correctable = any(keyword in error_lower for keyword in
+        error_message = execution_error["error"]
+        error_lower = error_message.lower()
+        error_type = execution_error.get("error_type", "")
+        is_non_retryable = error_type in {"TIMEOUT", "CONNECTION", "CANCELLED"} or any(
+            keyword in error_lower
+            for keyword in ("timeout", "timed out", "超时", "connection", "refused", "连接", "cancel", "取消")
+        )
+        is_correctable = not is_non_retryable and any(keyword in error_lower for keyword in
             ("syntax", "table", "column", "unknown", "doesn't exist", "does not exist",
              "parse error", "invalid"))
-        max_retries = state.get("agent_config", {}).get("max_retries", 2) if isinstance(
-            state.get("agent_config"), dict) else 2
+        configured_agent = state.get("agent_config")
+        if isinstance(configured_agent, dict) and configured_agent.get("max_retries") is not None:
+            max_retries = max(0, int(configured_agent["max_retries"]))
+        else:
+            max_retries = agent_config.max_retries
 
-        if is_correctable and retry_count <= max_retries:
+        if is_correctable and retry_count < max_retries:
             try:
                 correction_prompt = f"""SQL 执行失败。
-错误信息：{result.error}
+错误信息：{error_message}
 原始 SQL：{sql}
 Schema 上下文：{state.get('schema_context', [])}
 
@@ -116,6 +142,10 @@ Schema 上下文：{state.get('schema_context', [])}
                             task_id, sql[:60], corrected_sql[:60])
                 return {
                     "generated_sql": corrected_sql,
+                    # 自校正只准备下一次尝试，本次失败仍必须保留，
+                    # 否则 after_executor 会把该轮误判为成功。
+                    "execution_result": execution_error,
+                    "error_message": sanitize_error(error_message),
                     "retry_count": retry_count,
                     "used_tables": used_tables,
                     "used_columns": used_columns,
@@ -127,14 +157,8 @@ Schema 上下文：{state.get('schema_context', [])}
                 # 自校正失败不阻断主流程，走已有重试路由
 
         return {
-            "execution_result": {
-                "columns": [],
-                "data_rows": [],
-                "row_count": 0,
-                "execution_time_ms": result.execution_time_ms,
-                "error": result.error,
-            },
-            "error_message": sanitize_error(result.error),  # FIX #4: 脱敏后再返回前端
+            "execution_result": execution_error,
+            "error_message": sanitize_error(error_message),  # FIX #4: 脱敏后再返回前端
             "retry_count": retry_count,
             "used_tables": used_tables,
             "used_columns": used_columns,
@@ -177,6 +201,33 @@ Schema 上下文：{state.get('schema_context', [])}
         "column_lineage": column_lineage,
         "current_node": "SQL_EXECUTOR",
     }
+
+
+def _build_execution_error(result_or_message: object) -> dict:
+    """构造稳定的失败执行结果，保留错误文本和沙箱错误类型。"""
+    if isinstance(result_or_message, str):
+        error_message = result_or_message
+        error_type = ""
+        execution_time_ms = 0
+    else:
+        raw_error = getattr(result_or_message, "error", None)
+        error_message = str(raw_error) if raw_error else "SQL 执行失败"
+        raw_error_type = getattr(result_or_message, "error_type", "")
+        if hasattr(raw_error_type, "value"):
+            raw_error_type = raw_error_type.value
+        error_type = raw_error_type if isinstance(raw_error_type, str) else ""
+        execution_time_ms = getattr(result_or_message, "execution_time_ms", 0) or 0
+
+    execution_error = {
+        "columns": [],
+        "data_rows": [],
+        "row_count": 0,
+        "execution_time_ms": execution_time_ms,
+        "error": error_message,
+    }
+    if error_type:
+        execution_error["error_type"] = error_type.upper()
+    return execution_error
 
 
 def _extract_tables(sql: str) -> list[str]:
@@ -274,7 +325,8 @@ def _extract_column_derivations(sql: str) -> list[dict]:
     参考 DataHub sqlglot schema-aware 解析和 Spline 的 derivesFrom 模式：
     对于每个 SELECT 输出表达式，找到其引用的源表列并记录转换类型。
 
-    返回格式与 schema.ColumnDerivation 一致（dict 形式便于放入 AgentState）：
+    返回使用 AgentState 内部的 snake_case 字段名；最终 QueryResult 由
+    Pydantic serialization_alias 输出 camelCase。
     [
       {
         "targetTable": "daily_stats",
@@ -376,13 +428,13 @@ def _extract_select_derivations(
             actual_target_table = target_table or source_table
 
             derivations.append({
-                "targetTable": actual_target_table,
-                "targetColumn": output_col.replace("`", "").strip(),
-                "targetAlias": output_alias,
-                "sourceTable": source_table,
-                "sourceColumn": col_name.replace("`", "").strip(),
+                "target_table": actual_target_table,
+                "target_column": output_col.replace("`", "").strip(),
+                "target_alias": output_alias,
+                "source_table": source_table,
+                "source_column": col_name.replace("`", "").strip(),
                 "expression": expression_text,
-                "expressionType": expression_type,
+                "expression_type": expression_type,
             })
 
     return derivations

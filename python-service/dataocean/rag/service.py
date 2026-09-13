@@ -90,11 +90,30 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
                                 filtered_count=0, top_score=ranked_results[0].score if ranked_results else 0.0)
             return _response(message="未找到相关数据表，请换个问法", start=start)
 
+        # 生成 SQL 需要一个最小的跨表上下文。中文问题的向量分数经常只有
+        # 一个结果越过阈值；只把这个结果交给模型会让它退回通用示例表名，
+        # 随后被 SQL-to-Schema 幻觉检测拒绝。保留排序靠前的最多 3 个候选，
+        # 仍受 datasource/snapshot/准入过滤约束，并显式标记为低置信度。
+        context_degraded = len(filtered) < min(3, len(ranked_results))
+        if context_degraded:
+            filtered = ranked_results[:min(3, len(ranked_results))]
+            logger.info(
+                "召回上下文不足，扩展低置信度候选 threshold=%.2f result_count=%d",
+                threshold,
+                len(filtered),
+            )
+
         # 记录召回质量指标
         _log_recall_metrics(request, raw_count=len(raw_results), ranked_count=len(ranked_results),
                             filtered_count=len(filtered), top_score=filtered[0].score if filtered else 0.0)
 
-        return _response(results=filtered, total_found=len(ranked_results), start=start)
+        return _response(
+            results=filtered,
+            total_found=len(ranked_results),
+            start=start,
+            degraded=context_degraded,
+            message="召回包含低置信度上下文，请核对 SQL 与结果" if context_degraded else "",
+        )
 
     except ValueError as e:
         logger.error("检索参数错误: %s", e)

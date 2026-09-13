@@ -121,15 +121,4 @@ h2 {
   font-size: 12px;
 }
 
-@media (max-width: 880px) {
-  .readiness-panel__grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (max-width: 560px) {
-  .readiness-panel__grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
 </style>

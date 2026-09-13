@@ -671,40 +671,4 @@ watch(
   color: #64748b;
 }
 
-@media (max-width: 992px) {
-  .quality-hero,
-  .context-panel,
-  .governance-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .flow-panel {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    row-gap: 22px;
-  }
-
-  .flow-line {
-    display: none;
-  }
-}
-
-@media (max-width: 576px) {
-  .quality-title h2 {
-    white-space: normal;
-  }
-
-  .flow-panel,
-  .dimension-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .issue-item,
-  .rule-item {
-    grid-template-columns: 1fr;
-  }
-
-  .rule-meta {
-    justify-content: flex-start;
-  }
-}
 </style>

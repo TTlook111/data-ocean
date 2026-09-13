@@ -18,6 +18,7 @@ import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -75,6 +76,11 @@ class KnowledgeDocServiceImplTest {
 
     @InjectMocks
     private KnowledgeDocPublishService publishService;
+
+    @BeforeEach
+    void stubSuccessfulDocumentUpdate() {
+        when(knowledgeDocMapper.updateById(any(KnowledgeDoc.class))).thenReturn(1);
+    }
 
     @AfterEach
     void tearDown() {

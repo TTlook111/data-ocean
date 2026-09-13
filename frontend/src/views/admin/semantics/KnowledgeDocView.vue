@@ -8,8 +8,13 @@
  * 后端事实（KnowledgeDocLifecycleService / KnowledgeDocCrudService）：
  * - submitReview 只接受 DRAFT；approve / reject 只接受 PENDING_REVIEW；publish 只接受 APPROVED。
  * - 内容发生变更时 updateDoc 会把状态重置为 DRAFT，因此「编辑已发布文档」等于创建新版本并重走审核。
- * - 没有独立的审核记录查询接口，审核轨迹来自版本记录中的 reviewStatus，页面会明确说明这一点。
- * - 没有索引任务查询接口，索引状态只能依据文档 status 字段表达。
+ * - 审核记录来自 `GET /{id}/review-tasks`（2026-09-12 新增）。此前 `knowledge_review_task`
+ *   只写不读、全项目无 Controller 暴露它，作者被驳回后看不到原因。
+ * - 索引任务来自 `GET /{id}/vector-tasks`（2026-09-12 新增）。此前文档处于 `INDEXING` 时
+ *   只能显示状态，无法显示进度与失败原因。
+ * - `knowledge_doc_version.review_status` 自 2026-09-12（V51）起由 approve/reject 真实写入；
+ *   V51 之前的历史行被回填为 UNKNOWN 或按审核任务还原，不再是「恒为待审核」的死列。
+ * - rollback 自 2026-09-12 起要求文档为 PUBLISHED 且目标版本审核已通过，前端仍只对已发布文档开放该入口。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -19,6 +24,9 @@ import {
   approveDoc,
   diffVersions,
   getKnowledgeDoc,
+  listReviewTasks,
+  listSourceSnapshots,
+  listVectorTasks,
   listVersions,
   previewChunks,
   publishDoc,
@@ -30,7 +38,10 @@ import {
   type KnowledgeChunkPreview,
   type KnowledgeDiffLine,
   type KnowledgeDocItem,
+  type KnowledgeReviewRecord,
+  type KnowledgeSourceSnapshot,
   type KnowledgeVersionItem,
+  type VectorIndexTaskItem,
 } from '../../../api/admin/knowledge'
 import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
@@ -40,6 +51,9 @@ import {
   knowledgeReviewStatusLabel,
   knowledgeReviewStatusType,
   knowledgeStatusLabel,
+  snapshotStatusLabel,
+  vectorTaskStatusLabel,
+  vectorTaskStatusType,
 } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
@@ -63,6 +77,18 @@ const datasources = ref<DatasourceSimpleItem[]>([])
 const snapshots = ref<SnapshotItem[]>([])
 const chunks = ref<KnowledgeChunkPreview[]>([])
 
+/** 审核记录与向量化任务：2026-09-12 后端补齐查询接口后才有数据来源 */
+const reviewRecords = ref<KnowledgeReviewRecord[]>([])
+const reviewLoading = ref(false)
+const reviewError = ref('')
+const vectorTasks = ref<VectorIndexTaskItem[]>([])
+const tasksLoading = ref(false)
+const taskError = ref('')
+
+/** 版本列表与来源快照的错误态：接口失败必须渲染错误，不得降级为空数据 */
+const versionsError = ref('')
+const snapshotError = ref('')
+
 const loading = ref(true)
 const error = ref('')
 const saving = ref(false)
@@ -79,16 +105,9 @@ const lifecycleSteps = computed(() => {
   const status = doc.value?.status || 'DRAFT'
   const order = ['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'INDEXING', 'PUBLISHED']
   const index = order.indexOf(status)
-  const labels: Record<string, string> = {
-    DRAFT: '草稿',
-    PENDING_REVIEW: '待审核',
-    APPROVED: '已批准',
-    INDEXING: '索引中',
-    PUBLISHED: '已发布',
-  }
   return order.map((key, position) => ({
     key,
-    label: labels[key],
+    label: knowledgeStatusLabel(key),
     done: index > position,
     current: index === position,
     disabled: index < position,
@@ -103,8 +122,8 @@ const canPublish = computed(() => status.value === 'APPROVED')
 const isPublished = computed(() => status.value === 'PUBLISHED')
 const isIndexing = computed(() => status.value === 'INDEXING')
 /**
- * 后端 rollback 不校验文档状态，且会创建新版本、把文档置为 INDEXING 并直接触发向量化任务。
- * 在前端只对已发布文档开放该入口，避免从草稿绕过审核直接进入索引。
+ * 后端 rollback 自 2026-09-12 起已校验「文档为 PUBLISHED」且「目标版本审核已通过」，
+ * 前端仍只对已发布文档开放该入口，与后端前置条件保持一致，避免用户点了才被拒绝。
  */
 const canRollback = computed(() => status.value === 'PUBLISHED')
 
@@ -152,7 +171,7 @@ function apiError(cause: unknown, fallback: string) {
 
 function selectTab(tab: string) {
   activeTab.value = tab
-  router.replace({ query: { ...route.query, tab } })
+  router.push({ query: { ...route.query, tab } })
   if (tab === 'versions' && !versions.value.length) loadVersions()
   if (tab === 'chunks' && !chunks.value.length) loadChunks()
 }
@@ -179,13 +198,33 @@ async function loadDoc() {
 
 async function loadVersions() {
   versionsLoading.value = true
+  versionsError.value = ''
   try {
     versions.value = (await listVersions(docId.value)).data || []
   } catch (cause) {
     versions.value = []
-    ElMessage.error(apiError(cause, '版本列表加载失败'))
+    // 接口失败必须渲染错误态。此前只弹一次 toast 再置空数组，页面最终显示
+    // 「暂无版本记录」——把失败说成了空数据（§11.3、§18）。
+    versionsError.value = apiError(cause, '版本列表加载失败')
   } finally {
     versionsLoading.value = false
+  }
+}
+
+/**
+ * 加载生成草稿可用的来源快照。
+ *
+ * 这是「AI 生成草稿」对话框的下拉数据源，失败时不能静默置空——
+ * 那会让用户以为该数据源没有快照。改为记录错误，由对话框展示。
+ */
+async function loadSnapshots() {
+  if (!doc.value?.datasourceId) return
+  snapshotError.value = ''
+  try {
+    snapshots.value = (await listSnapshots({ datasourceId: doc.value.datasourceId, page: 1, size: 50 })).data?.records || []
+  } catch (cause) {
+    snapshots.value = []
+    snapshotError.value = apiError(cause, '来源快照加载失败')
   }
 }
 
@@ -202,15 +241,6 @@ async function loadChunks() {
   }
 }
 
-async function loadSnapshots() {
-  if (!doc.value?.datasourceId) return
-  try {
-    snapshots.value = (await listSnapshots({ datasourceId: doc.value.datasourceId, page: 1, size: 50 })).data?.records || []
-  } catch {
-    snapshots.value = []
-  }
-}
-
 async function save() {
   if (!doc.value) return
   if (!title.value.trim()) {
@@ -218,7 +248,8 @@ async function save() {
     return
   }
   // 后端只在内容真正变化时才递增版本并把状态重置为草稿，提示语必须与之保持一致
-  const changed = content.value !== (doc.value.content || '') || title.value !== doc.value.title
+  const contentChanged = content.value !== (doc.value.content || '')
+  const titleChanged = title.value !== doc.value.title
   saving.value = true
   try {
     await updateKnowledgeDoc(doc.value.id, {
@@ -227,9 +258,9 @@ async function save() {
       version: doc.value.version,
       changeSummary: '手动编辑保存',
     })
-    ElMessage.success(changed
+    ElMessage.success(contentChanged
       ? '已保存。内容已变更，后端创建了新版本并把文档状态重置为草稿。'
-      : '已保存。内容没有变化，版本与状态保持不变。')
+      : titleChanged ? '标题已保存；内容未变化，版本与状态保持不变。' : '已保存。内容没有变化，版本与状态保持不变。')
     await loadDoc()
   } catch (cause) {
     ElMessage.error(apiError(cause, '保存失败'))
@@ -400,15 +431,16 @@ async function runDiff() {
 }
 
 /**
- * 版本流转时间线。
+ * 版本流转轨迹。
  *
- * 注意：`knowledge_doc_version.review_status` 建表默认值为 PENDING，但后端 createVersion 从不写入该列，
- * approve/reject 也只更新 knowledge_doc，因此版本行的 review_status 恒定是 PENDING，不能当作审核结论展示。
- * 这里只呈现真实可信的版本流转信息。
+ * `knowledge_doc_version.review_status` 自 2026-09-12（V51）起已由 approve/reject 真实写入，
+ * 因此「版本」Tab 可以直接按版本展示审核状态。本时间线仍只呈现流转信息
+ * （生成来源 / 变更摘要 / 操作人 / 时间），审核结论与审核意见由审核记录表承载。
  */
 const versionTimeline = computed(() =>
   versions.value.map((item) => ({
     versionNo: item.versionNo,
+    reviewStatus: item.reviewStatus,
     generationSource: item.generationSource,
     changeSummary: item.changeSummary,
     createdAt: item.createdAt,
@@ -416,13 +448,23 @@ const versionTimeline = computed(() =>
   })),
 )
 
-/** 来源快照：版本记录里的 metadataSnapshotId 是真实数据，去重后从新到旧展示 */
-const sourceSnapshotIds = computed(() => {
-  const ids = versions.value
-    .map((item) => item.metadataSnapshotId)
-    .filter((id): id is number => typeof id === 'number' && id > 0)
-  return [...new Set(ids)].sort((a, b) => b - a)
-})
+/** 来源快照：后端按版本返回，含快照版本号/状态/规模（2026-09-12 新增该接口） */
+const sourceSnapshots = ref<KnowledgeSourceSnapshot[]>([])
+const sourceSnapshotsLoading = ref(false)
+const sourceSnapshotsError = ref('')
+
+async function loadSourceSnapshots() {
+  sourceSnapshotsLoading.value = true
+  sourceSnapshotsError.value = ''
+  try {
+    sourceSnapshots.value = (await listSourceSnapshots(docId.value)).data || []
+  } catch (cause) {
+    sourceSnapshots.value = []
+    sourceSnapshotsError.value = cause instanceof Error ? cause.message : '来源快照加载失败'
+  } finally {
+    sourceSnapshotsLoading.value = false
+  }
+}
 
 /** chunk 字段名来自 Python 切分结果，展示时优先取已知字段，其余作为附加信息 */
 function chunkText(chunk: KnowledgeChunkPreview) {
@@ -437,6 +479,34 @@ function chunkExtras(chunk: KnowledgeChunkPreview) {
   return Object.entries(chunk).filter(([key]) => !['chunk_text', 'content', 'chunk_type', 'chunkType', 'chunk_index'].includes(key))
 }
 
+/** 加载审核记录（后端 2026-09-12 补齐 `GET /{id}/review-tasks` 后才有数据来源） */
+async function loadReviewRecords() {
+  reviewLoading.value = true
+  reviewError.value = ''
+  try {
+    reviewRecords.value = (await listReviewTasks(docId.value)).data || []
+  } catch (cause) {
+    reviewRecords.value = []
+    reviewError.value = cause instanceof Error ? cause.message : '审核记录加载失败'
+  } finally {
+    reviewLoading.value = false
+  }
+}
+
+/** 加载向量化任务（后端 2026-09-12 补齐 `GET /{id}/vector-tasks` 后才有数据来源） */
+async function loadVectorTasks() {
+  tasksLoading.value = true
+  taskError.value = ''
+  try {
+    vectorTasks.value = (await listVectorTasks(docId.value)).data || []
+  } catch (cause) {
+    vectorTasks.value = []
+    taskError.value = cause instanceof Error ? cause.message : '索引任务加载失败'
+  } finally {
+    tasksLoading.value = false
+  }
+}
+
 onMounted(async () => {
   try {
     datasources.value = (await listSimpleDatasources()).data || []
@@ -445,18 +515,27 @@ onMounted(async () => {
   }
   await loadDoc()
   await loadSnapshots()
-  // 版本记录同时支撑「来源与覆盖」和「审核记录」Tab，因此在加载时就取回
+  // 版本记录支撑「来源与覆盖」「审核记录」「版本」三个 Tab，因此在加载时就取回
   loadVersions()
+  if (activeTab.value === 'source') loadSourceSnapshots()
+  if (activeTab.value === 'review') loadReviewRecords()
   if (activeTab.value === 'chunks') loadChunks()
+  if (activeTab.value === 'index') loadVectorTasks()
 })
 
 watch(docId, async () => {
   versions.value = []
   chunks.value = []
+  reviewRecords.value = []
+  vectorTasks.value = []
+  sourceSnapshots.value = []
   await loadDoc()
   await loadSnapshots()
   loadVersions()
+  if (activeTab.value === 'source') loadSourceSnapshots()
+  if (activeTab.value === 'review') loadReviewRecords()
   if (activeTab.value === 'chunks') loadChunks()
+  if (activeTab.value === 'index') loadVectorTasks()
 })
 
 watch(() => route.query.tab, (value) => {
@@ -464,7 +543,11 @@ watch(() => route.query.tab, (value) => {
   if (next === activeTab.value) return
   activeTab.value = next
   if (next === 'versions' && !versions.value.length) loadVersions()
+  if (next === 'source' && !sourceSnapshots.value.length) loadSourceSnapshots()
+  if (next === 'review' && !reviewRecords.value.length) loadReviewRecords()
+  // 切分预览与索引状态已拆为两个 Tab（开发指导 §7.11），各自独立加载
   if (next === 'chunks' && !chunks.value.length) loadChunks()
+  if (next === 'index') loadVectorTasks()
 })
 </script>
 
@@ -570,20 +653,39 @@ watch(() => route.query.tab, (value) => {
               <el-tag v-for="table in coveredTables" :key="table" type="info">{{ table }}</el-tag>
             </div>
             <h3 class="section-title">来源快照</h3>
-            <p v-if="!sourceSnapshotIds.length" class="muted">
-              版本记录里没有关联的元数据快照。手工创建的文档不会带来源快照，从快照生成的草稿会带上。
-            </p>
-            <div v-else class="table-tags">
-              <RouterLink
-                v-for="id in sourceSnapshotIds"
-                :key="id"
-                class="snapshot-link"
-                :to="'/admin/releases/snapshots/' + id"
-              >
-                快照 #{{ id }}
-              </RouterLink>
-            </div>
-            <p class="muted">来源快照取自各版本的 metadataSnapshotId，同一个文档的不同版本可能来自不同快照。</p>
+            <ErrorState v-if="sourceSnapshotsError" :message="sourceSnapshotsError" @retry="loadSourceSnapshots" />
+            <LoadingState v-else-if="sourceSnapshotsLoading" text="正在读取来源快照…" />
+            <EmptyState
+              v-else-if="!sourceSnapshots.length"
+              message="版本记录里没有关联的元数据快照。手工创建的文档不会带来源快照，从快照生成的草稿会带上。"
+            />
+            <el-table v-else :data="sourceSnapshots" size="small" stripe>
+              <el-table-column label="文档版本" width="100">
+                <template #default="{ row }">v{{ row.versionNo }}</template>
+              </el-table-column>
+              <el-table-column label="来源快照" width="110">
+                <template #default="{ row }">
+                  <RouterLink class="snapshot-link" :to="'/admin/releases/snapshots/' + row.snapshotId">
+                    {{ row.snapshotVersion ? 'v' + row.snapshotVersion : '#' + row.snapshotId }}
+                  </RouterLink>
+                </template>
+              </el-table-column>
+              <el-table-column label="快照状态" width="120">
+                <template #default="{ row }">
+                  <BusinessStatusBadge v-if="row.status" :status="row.status" :label="snapshotStatusLabel(row.status)" />
+                  <span v-else class="muted">快照已不存在</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="规模" min-width="150">
+                <template #default="{ row }">
+                  <span v-if="row.tableCount !== undefined && row.tableCount !== null">
+                    {{ row.tableCount }} 表 / {{ row.columnCount }} 字段
+                  </span>
+                  <span v-else class="muted">—</span>
+                </template>
+              </el-table-column>
+            </el-table>
+            <p class="muted">同一个文档的不同版本可能来自不同快照；快照已不存在时只保留其 ID。</p>
           </section>
         </el-tab-pane>
 
@@ -600,15 +702,58 @@ watch(() => route.query.tab, (value) => {
               </div>
               <div><dt>文档状态</dt><dd>{{ knowledgeStatusLabel(doc.status) }}（{{ doc.status }}）</dd></div>
             </dl>
-            <p class="muted">
-              后端把审核动作（含审核意见）写入独立审核任务表，但**没有对外查询接口**，
-              因此这里无法展示审核意见。版本表的 review_status 列在后端从未被写入，
-              展示它会得到恒为「待审核」的错误结论，所以只呈现真实的版本流转轨迹。
-            </p>
-            <LoadingState v-if="versionsLoading" text="正在读取版本流转…" />
+            <div class="card-heading">
+              <div>
+                <h3>审核意见</h3>
+                <p>来自审核任务表，含审核人、审核结果与审核意见。驳回后依据这里的原因修改内容。</p>
+              </div>
+            </div>
+            <ErrorState v-if="reviewError" :message="reviewError" @retry="loadReviewRecords" />
+            <LoadingState v-else-if="reviewLoading" text="正在读取审核记录…" />
+            <EmptyState
+              v-else-if="!reviewRecords.length"
+              message="还没有审核记录。文档提交审核并被批准或驳回后，这里会显示审核人、审核时间与审核意见。"
+            />
+            <el-table v-else :data="reviewRecords" stripe size="small">
+              <el-table-column label="版本" width="90">
+                <template #default="{ row }">{{ row.versionNo ? 'v' + row.versionNo : '—' }}</template>
+              </el-table-column>
+              <el-table-column label="审核结果" width="110">
+                <template #default="{ row }">
+                  <el-tag :type="knowledgeReviewStatusType(row.reviewStatus)" size="small">
+                    {{ knowledgeReviewStatusLabel(row.reviewStatus) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="reviewerName" label="审核人" width="120">
+                <template #default="{ row }">{{ row.reviewerName || (row.reviewerId ? '用户 #' + row.reviewerId : '—') }}</template>
+              </el-table-column>
+              <el-table-column prop="reviewComment" label="审核意见" min-width="220" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.reviewComment || '（未填写）' }}</template>
+              </el-table-column>
+              <el-table-column prop="reviewedAt" label="审核时间" width="175">
+                <template #default="{ row }">{{ row.reviewedAt || row.submittedAt || '—' }}</template>
+              </el-table-column>
+            </el-table>
+
+            <div class="card-heading">
+              <div>
+                <h3>版本流转</h3>
+                <p>版本行的审核状态自 2026-09-12 起由后端真实写入，可按版本查看。</p>
+              </div>
+            </div>
+            <ErrorState v-if="versionsError" :message="versionsError" @retry="loadVersions" />
+            <LoadingState v-else-if="versionsLoading" text="正在读取版本流转…" />
             <EmptyState v-else-if="!versionTimeline.length" message="暂无版本记录。保存或生成草稿后会出现流转轨迹。" />
             <el-table v-else :data="versionTimeline" stripe size="small">
               <el-table-column label="版本" width="90"><template #default="{ row }">v{{ row.versionNo }}</template></el-table-column>
+              <el-table-column label="审核状态" width="110">
+                <template #default="{ row }">
+                  <el-tag :type="knowledgeReviewStatusType(row.reviewStatus)" size="small">
+                    {{ knowledgeReviewStatusLabel(row.reviewStatus) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
               <el-table-column label="生成来源" width="120">
                 <template #default="{ row }">
                   <el-tag :type="generationSourceType(row.generationSource)" size="small">
@@ -642,6 +787,7 @@ watch(() => route.query.tab, (value) => {
               </div>
             </div>
             <LoadingState v-if="versionsLoading" variant="skeleton" :rows="4" />
+            <ErrorState v-else-if="versionsError" :message="versionsError" @retry="loadVersions" />
             <EmptyState v-else-if="!versions.length" message="暂无版本记录。保存或生成草稿后会产生版本。" />
             <el-table v-else :data="versions" stripe>
               <el-table-column label="版本" width="90"><template #default="{ row }">v{{ row.versionNo }}</template></el-table-column>
@@ -681,20 +827,8 @@ watch(() => route.query.tab, (value) => {
         </el-tab-pane>
 
         <!-- 切分与索引 -->
-        <el-tab-pane label="切分与索引" name="chunks">
+        <el-tab-pane label="切分预览" name="chunks">
           <section class="knowledge-doc-page__card">
-            <div class="card-heading">
-              <div>
-                <h3>索引状态</h3>
-                <p>索引状态由文档状态表达；后端当前没有按文档查询向量化任务的接口。</p>
-              </div>
-              <BusinessStatusBadge :status="doc.status" :label="knowledgeStatusLabel(doc.status)" />
-            </div>
-            <dl class="facts">
-              <div><dt>可检索</dt><dd>{{ isPublished ? '是，已发布并完成索引' : '否' }}</dd></div>
-              <div><dt>当前版本</dt><dd>v{{ doc.currentVersion }}</dd></div>
-            </dl>
-
             <div class="card-heading">
               <div>
                 <h3>切分预览</h3>
@@ -724,6 +858,55 @@ watch(() => route.query.tab, (value) => {
             </ul>
           </section>
         </el-tab-pane>
+
+        <el-tab-pane label="索引状态" name="index">
+          <section class="knowledge-doc-page__card">
+            <div class="card-heading">
+              <div>
+                <h3>索引状态</h3>
+                <p>索引任务按文档记录，失败时可在下方看到原因；索引中的文档重复发布不会生效。</p>
+              </div>
+              <BusinessStatusBadge :status="doc.status" :label="knowledgeStatusLabel(doc.status)" />
+            </div>
+            <dl class="facts">
+              <div><dt>可检索</dt><dd>{{ isPublished ? '是，已发布并完成索引' : '否' }}</dd></div>
+              <div><dt>当前版本</dt><dd>v{{ doc.currentVersion }}</dd></div>
+            </dl>
+            <p class="muted">
+              任务表可看到状态、起止时间与失败原因，但<strong>看不到进度百分比</strong>：
+              后端 <code>vector_index_task</code> 没有已处理/总数这类进度列，
+              前端无法据此推算。该缺口属后端能力缺失，不是前端遗漏。
+            </p>
+            <ErrorState v-if="taskError" :message="taskError" @retry="loadVectorTasks" />
+            <LoadingState v-else-if="tasksLoading" text="正在读取索引任务…" />
+            <EmptyState
+              v-else-if="!vectorTasks.length"
+              message="还没有索引任务。文档发布后会创建向量化任务，在这里可以看到执行结果与失败原因。"
+            />
+            <el-table v-else :data="vectorTasks" stripe size="small">
+              <el-table-column label="任务" width="80">
+                <template #default="{ row }">#{{ row.id }}</template>
+              </el-table-column>
+              <el-table-column label="状态" width="120">
+                <template #default="{ row }">
+                  <el-tag :type="vectorTaskStatusType(row.status)" size="small">{{ vectorTaskStatusLabel(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="版本" width="90">
+                <template #default="{ row }">{{ row.knowledgeVersionNo ? 'v' + row.knowledgeVersionNo : '—' }}</template>
+              </el-table-column>
+              <el-table-column label="开始" width="170">
+                <template #default="{ row }">{{ row.startedAt || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="结束" width="170">
+                <template #default="{ row }">{{ row.finishedAt || '—' }}</template>
+              </el-table-column>
+              <el-table-column prop="errorMessage" label="失败原因" min-width="200" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.errorMessage || '—' }}</template>
+              </el-table-column>
+            </el-table>
+          </section>
+        </el-tab-pane>
       </el-tabs>
     </template>
 
@@ -732,7 +915,12 @@ watch(() => route.query.tab, (value) => {
       <p class="muted">
         选择一个元数据快照，AI 会基于快照内容生成 skills.md 草稿。生成结果会直接写入文档内容并创建新版本。
       </p>
-      <el-select v-model="generateSnapshotId" placeholder="选择快照" style="width: 100%">
+      <ErrorState v-if="snapshotError" :message="snapshotError" @retry="loadSnapshots" />
+      <EmptyState
+        v-else-if="!snapshots.length"
+        message="该数据源没有可用的元数据快照。请先完成采集并发布快照，再生成知识草稿。"
+      />
+      <el-select v-else v-model="generateSnapshotId" placeholder="选择快照" style="width: 100%">
         <el-option
           v-for="item in snapshots"
           :key="item.id"

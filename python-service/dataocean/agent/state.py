@@ -50,6 +50,7 @@ class ExecutionResult(TypedDict, total=False):
     row_count: int
     execution_time_ms: int
     error: str | None
+    error_type: str | None
 
 
 class AgentState(TypedDict, total=False):

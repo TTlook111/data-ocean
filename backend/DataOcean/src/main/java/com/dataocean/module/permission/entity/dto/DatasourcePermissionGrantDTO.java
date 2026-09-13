@@ -4,6 +4,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
+import java.time.LocalDateTime;
+
 /**
  * 数据源访问授权请求 DTO
  *
@@ -34,4 +36,7 @@ public class DatasourcePermissionGrantDTO {
     private Boolean canViewSql = true;
 
     private String accessEffect = "ALLOW";
+
+    /** 授权到期时间；为空表示长期有效 */
+    private LocalDateTime expiresAt;
 }

@@ -36,7 +36,7 @@ public class PermissionController {
     private final RolePermissionMapper rolePermissionMapper;
 
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('role:view', 'role:manage', 'user:manage', 'security:manage')")
+    @PreAuthorize("hasAnyAuthority('role:view', 'role:manage', 'user:manage', 'security:manage', '*')")
     public Result<List<SysPermission>> list() {
         return Result.success(permissionMapper.selectList(new LambdaQueryWrapper<SysPermission>()
                 .orderByAsc(SysPermission::getModule)
@@ -44,7 +44,7 @@ public class PermissionController {
     }
 
     @GetMapping("/tree")
-    @PreAuthorize("hasAnyAuthority('role:view', 'role:manage', 'user:manage', 'security:manage')")
+    @PreAuthorize("hasAnyAuthority('role:view', 'role:manage', 'user:manage', 'security:manage', '*')")
     public Result<List<PermissionTreeVO>> tree() {
         Map<String, List<SysPermission>> grouped = permissionMapper.selectList(new LambdaQueryWrapper<SysPermission>()
                         .orderByAsc(SysPermission::getModule)
@@ -61,7 +61,7 @@ public class PermissionController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAuthority('role:manage')")
+    @PreAuthorize("hasAnyAuthority('role:manage', '*')")
     public Result<Map<String, Long>> create(@Valid @RequestBody PermissionSaveDTO request) {
         ensureCodeAvailable(request.getPermissionCode(), null);
         SysPermission permission = toEntity(new SysPermission(), request);
@@ -70,7 +70,7 @@ public class PermissionController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @PreAuthorize("hasAnyAuthority('role:manage', '*')")
     public Result<Void> update(@PathVariable Long id, @Valid @RequestBody PermissionSaveDTO request) {
         SysPermission permission = requirePermission(id);
         if ("*".equals(permission.getPermissionCode())) {
@@ -82,7 +82,7 @@ public class PermissionController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('role:manage')")
+    @PreAuthorize("hasAnyAuthority('role:manage', '*')")
     public Result<Void> delete(@PathVariable Long id) {
         SysPermission permission = requirePermission(id);
         if ("*".equals(permission.getPermissionCode())) {

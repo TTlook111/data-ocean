@@ -38,6 +38,7 @@ public interface DatasourceAccessPolicyMapper extends BaseMapper<DatasourceAcces
                    p.table_name AS tableName, p.column_name AS columnName,
                    p.access_type AS accessType, p.mask_strategy AS maskStrategy,
                    p.row_filter_expression AS rowFilterExpression,
+                   p.priority, p.valid_from AS validFrom, p.valid_until AS validUntil,
                    p.created_at AS createdAt,
                    CASE p.subject_type
                        WHEN 'USER' THEN (SELECT real_name FROM sys_user WHERE id = p.subject_id)

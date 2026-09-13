@@ -12,7 +12,6 @@ import {
 } from '../../api/notification'
 import { findWorkspace, type AdminContextMode } from '../../router/adminNavigation'
 import AdminDomainNav from './AdminDomainNav.vue'
-import AdminWorkspaceNav from './AdminWorkspaceNav.vue'
 import ScopeBar from './ScopeBar.vue'
 
 const route = useRoute()
@@ -23,7 +22,7 @@ const notifications = ref<NotificationItem[]>([])
 const notificationLoading = ref(false)
 const unreadCount = ref(0)
 const userMenuVisible = ref(false)
-let notificationTimer: ReturnType<typeof window.setInterval> | undefined
+let notificationTimer: number | undefined
 
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
 const initial = computed(() => displayName.value.slice(0, 1).toUpperCase())
@@ -105,13 +104,17 @@ onBeforeUnmount(() => {
             <small>数据查询治理平台</small>
           </span>
         </RouterLink>
-        <button class="admin-shell__collapse" type="button" :aria-label="collapsed ? '展开导航' : '收起导航'" @click="collapsed = !collapsed">
+        <button class="admin-shell__collapse" type="button" :aria-label="collapsed ? '展开导航' : '收起导航'" :aria-expanded="!collapsed" @click="collapsed = !collapsed">
           <PanelLeftOpen v-if="collapsed" :size="17" />
           <PanelLeftClose v-else :size="17" />
         </button>
       </div>
 
-      <AdminDomainNav @navigate="userMenuVisible = false" />
+      <AdminDomainNav
+        :collapsed="collapsed"
+        @navigate="userMenuVisible = false"
+        @expand-sidebar="collapsed = false"
+      />
 
       <div class="admin-shell__sidebar-footer">
         <RouterLink class="admin-shell__query-link" to="/query" :title="collapsed ? '进入智能问数' : undefined">
@@ -169,7 +172,6 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <AdminWorkspaceNav />
       <ScopeBar v-if="contextMode === 'datasource' || contextMode === 'datasource-snapshot'" :mode="contextMode" />
       <section class="admin-shell__content">
         <RouterView />
@@ -426,16 +428,20 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell.is-collapsed .admin-shell__brand {
-  justify-content: center;
-  padding: 0 10px;
+  gap: 2px;
+  padding: 0 4px;
 }
 
 .admin-shell.is-collapsed .admin-shell__brand-copy,
-.admin-shell.is-collapsed .admin-shell__collapse,
 .admin-shell.is-collapsed .admin-domain-nav__item span,
 .admin-shell.is-collapsed .admin-shell__query-link span,
 .admin-shell.is-collapsed .admin-shell__user-name {
   display: none;
+}
+
+.admin-shell.is-collapsed .admin-shell__brand-mark {
+  width: 32px;
+  height: 32px;
 }
 
 .admin-shell.is-collapsed .admin-domain-nav__item,
@@ -444,23 +450,4 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 
-@media (max-width: 760px) {
-  .admin-shell,
-  .admin-shell.is-collapsed {
-    display: block;
-  }
-
-  .admin-shell__sidebar {
-    position: static;
-    display: none;
-  }
-
-  .admin-shell__content {
-    padding: 18px 14px;
-  }
-
-  .admin-shell__topbar {
-    padding: 0 14px;
-  }
-}
 </style>

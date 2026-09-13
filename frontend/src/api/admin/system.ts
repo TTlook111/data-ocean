@@ -22,6 +22,7 @@ export interface PoolStatusItem {
 export interface PoolDashboardInfo {
   activePools: number
   pools: PoolStatusItem[]
+  error?: string
 }
 
 export async function getSyncSchedule() {
@@ -36,6 +37,34 @@ export async function updateSyncSchedule(payload: SyncSchedulePayload) {
 
 export async function getPoolDashboard() {
   const { data } = await http.get<ApiResult<PoolDashboardInfo>>('/api/admin/system/sql-pools')
+  return data
+}
+
+/** 单个依赖服务的健康状态 */
+export interface ServiceStatus {
+  status: string
+  description: string
+  lastCheckTime: string | null
+  consecutiveFailures?: number
+  lastErrorMessage?: string | null
+}
+
+export interface HealthData {
+  overall: string
+  checkTime: string
+  pythonService: ServiceStatus
+  mysql: ServiceStatus
+  redis: ServiceStatus
+}
+
+/**
+ * 系统健康。
+ *
+ * 此前该 URL 只在 `ServiceHealth.vue` 组件里裸拼（§10.3 禁止页面组件直接拼接 URL），
+ * 是唯一没有 API 封装的系统接口。现补上。
+ */
+export async function getSystemHealth() {
+  const { data } = await http.get<ApiResult<HealthData>>('/api/admin/system/health')
   return data
 }
 
@@ -174,6 +203,21 @@ export async function detectEmbeddingDimension(payload: {
     '/api/admin/system/ai-config/detect-dimension',
     payload,
     { timeout: 30000 },
+  )
+  return data
+}
+
+/**
+ * 同步供应商的模型列表。
+ *
+ * 后端 `POST /providers/{id}/sync-models` 早已存在，此前前端零封装——
+ * 页面只能靠「测试连接成功后隐式重拉配置」来间接刷新模型，没有显式入口。
+ */
+export async function syncAiProviderModels(id: string) {
+  const { data } = await http.post<ApiResult<Record<string, unknown>>>(
+    `/api/admin/system/ai-config/providers/${id}/sync-models`,
+    undefined,
+    { timeout: 60000 },
   )
   return data
 }

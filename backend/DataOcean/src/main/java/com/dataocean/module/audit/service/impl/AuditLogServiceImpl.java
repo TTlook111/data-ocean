@@ -185,19 +185,6 @@ public class AuditLogServiceImpl implements AuditLogService {
         return stats;
     }
 
-    @Override
-    public void promoteToTemplate(Long auditLogId) {
-        QueryAuditLog auditLog = auditLogMapper.selectById(auditLogId);
-        if (auditLog == null) {
-            throw new BusinessException(404, "审计日志不存在");
-        }
-        if (!Boolean.TRUE.equals(auditLog.getIsSuccess())) {
-            throw new BusinessException("只能将成功的查询提升为模板");
-        }
-        // 模板提升逻辑预留：后续对接模板表
-        log.info("查询已提升为模板 auditLogId={} question={}", auditLogId, auditLog.getQuestion());
-    }
-
     private AuditLogVO toVO(QueryAuditLog entity) {
         AuditLogVO vo = new AuditLogVO();
         BeanUtils.copyProperties(entity, vo);

@@ -31,6 +31,9 @@ public class AlertRuleServiceImpl implements AlertRuleService {
 
     @Override
     public AlertRule createRule(AlertRule rule) {
+        if (rule.getEnabled() == null) {
+            rule.setEnabled(true);
+        }
         rule.setCreatedAt(LocalDateTime.now());
         rule.setUpdatedAt(LocalDateTime.now());
         alertRuleMapper.insert(rule);
@@ -48,7 +51,9 @@ public class AlertRuleServiceImpl implements AlertRuleService {
         existing.setThreshold(rule.getThreshold());
         existing.setOperator(rule.getOperator());
         existing.setNotificationType(rule.getNotificationType());
-        existing.setEnabled(rule.getEnabled());
+        if (rule.getEnabled() != null) {
+            existing.setEnabled(rule.getEnabled());
+        }
         existing.setUpdatedAt(LocalDateTime.now());
         alertRuleMapper.updateById(existing);
         return existing;

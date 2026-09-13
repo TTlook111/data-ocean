@@ -23,5 +23,8 @@ public class AccessPolicyVO {
     private String accessType;
     private String maskStrategy;
     private String rowFilterExpression;
+    private Integer priority;
+    private LocalDateTime validFrom;
+    private LocalDateTime validUntil;
     private LocalDateTime createdAt;
 }

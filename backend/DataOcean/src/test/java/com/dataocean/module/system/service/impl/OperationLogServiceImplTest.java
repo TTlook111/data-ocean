@@ -1,11 +1,15 @@
 package com.dataocean.module.system.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.system.entity.SysOperationLog;
 import com.dataocean.module.system.entity.dto.OperationLogQueryDTO;
 import com.dataocean.module.system.mapper.SysOperationLogMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeAll;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,6 +22,12 @@ import static org.mockito.Mockito.when;
  * 操作日志多条件查询单测。
  */
 class OperationLogServiceImplTest {
+
+    @BeforeAll
+    static void registerLambdaMetadata() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), ""), SysOperationLog.class);
+    }
 
     private final SysOperationLogMapper mapper = mock(SysOperationLogMapper.class);
     private final OperationLogServiceImpl service = new OperationLogServiceImpl(mapper);

@@ -140,12 +140,4 @@ public class AiConfigController {
         return Result.success(pythonAiConfigClient.detectDimension(payload));
     }
 
-    /**
-     * 重新向量化
-     */
-    @PostMapping("/re-vectorize")
-    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
-    public Result<Map<String, Object>> reVectorize(@RequestBody(required = false) Map<String, Object> payload) {
-        return Result.success(pythonAiConfigClient.reVectorize(payload));
-    }
 }

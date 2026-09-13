@@ -43,6 +43,20 @@ public interface VectorIndexTaskService {
     List<VectorIndexTask> listPendingTasks();
 
     /**
+     * 按目标查询向量化任务（最新在前）。
+     * <p>
+     * 此前 `VectorIndexTask` 只存在于 `module/knowledge/` 内部，全项目没有任何
+     * Controller 引用它，因此文档处于 `INDEXING` 状态时前端只能显示状态、
+     * 无法显示进度与失败原因，重复发布也只能靠后端报错拦截。
+     * </p>
+     *
+     * @param targetType 目标类型（如 CHUNK、DOC）
+     * @param targetId   目标 ID
+     * @return 该目标的任务列表，按 ID 倒序
+     */
+    List<VectorIndexTask> listTasksByTarget(String targetType, Long targetId);
+
+    /**
      * 更新任务状态为处理中。
      *
      * @param taskId 任务 ID

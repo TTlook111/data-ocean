@@ -3,6 +3,7 @@ package com.dataocean.module.knowledge.scheduler;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.persistence.OptimisticLockSupport;
 import com.dataocean.module.knowledge.client.PythonRagClient;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
@@ -250,7 +251,9 @@ public class VectorIndexTaskScheduler {
         }
         doc.setStatus(DocStatus.PUBLISHED.name());
         doc.setReviewStatus(ReviewStatus.APPROVED.name());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "知识文档发布状态已被其他人修改，请刷新后重试");
     }
 
     private void restoreDocAfterFailure(VectorIndexTask task) {
@@ -262,7 +265,9 @@ public class VectorIndexTaskScheduler {
             return;
         }
         doc.setStatus(DocStatus.APPROVED.name());
-        knowledgeDocMapper.updateById(doc);
+        OptimisticLockSupport.requireUpdated(
+                knowledgeDocMapper.updateById(doc),
+                "知识文档状态已被其他人修改，请刷新后重试");
     }
 
     private int toInt(Object value) {

@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/admin/alert-rules")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('audit:view')")
+@PreAuthorize("hasAnyAuthority('audit:view', '*')")
 @AdminAuditLog
 @Slf4j
 public class AlertController {

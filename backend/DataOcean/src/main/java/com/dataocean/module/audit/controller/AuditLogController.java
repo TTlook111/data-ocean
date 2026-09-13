@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/admin/audit-logs")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('audit:view')")
+@PreAuthorize("hasAnyAuthority('audit:view', '*')")
 @AdminAuditLog
 @Slf4j
 public class AuditLogController {
@@ -56,10 +56,4 @@ public class AuditLogController {
         return Result.success(auditLogService.getStats(datasourceId, days));
     }
 
-    /** 将查询提升为模板 */
-    @PostMapping("/{id}/promote-template")
-    public Result<Void> promoteTemplate(@PathVariable Long id) {
-        auditLogService.promoteToTemplate(id);
-        return Result.success("已提升为模板", null);
-    }
 }

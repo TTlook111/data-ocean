@@ -72,10 +72,20 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         List<SysRole> roles = roleMapper.selectByUserId(user.getId());
         List<String> roleCodes = roles.stream().map(SysRole::getRoleCode).toList();
 
-        // 查询用户权限编码列表；若包含通配符 "*" 则加载全量权限
+        // 查询用户权限编码列表；保留通配符 "*"，由统一方法鉴权表达式处理超级管理员语义。
         List<String> permissions = userMapper.selectPermissionCodesByUserId(user.getId());
         if (permissions.contains("*")) {
-            permissions = permissionMapper.selectAllPermissionCodes();
+            // 继续展开权限供前端展示和非方法级场景使用，但无论权限表是否遗漏该记录，
+            // 认证后的 authorities 都必须保留真实的 "*"。
+            List<String> allPermissions = permissionMapper.selectAllPermissionCodes();
+            List<String> expandedPermissions = new ArrayList<>();
+            expandedPermissions.add("*");
+            if (allPermissions != null) {
+                allPermissions.stream()
+                        .filter(permission -> !"*".equals(permission))
+                        .forEach(expandedPermissions::add);
+            }
+            permissions = expandedPermissions;
         }
 
         // 组装 Spring Security 权限对象列表（权限编码 + ROLE_ 前缀的角色编码）

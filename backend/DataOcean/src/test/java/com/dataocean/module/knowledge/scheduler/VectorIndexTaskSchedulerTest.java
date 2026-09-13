@@ -111,6 +111,7 @@ class VectorIndexTaskSchedulerTest {
         when(metadataEntityService.getByDatasourceId(10L)).thenReturn(List.of(
                 ordersTable, customersTable, ordersCustomerId, customersId));
         when(knowledgeDocMapper.selectById(99L)).thenReturn(doc);
+        when(knowledgeDocMapper.updateById(any(KnowledgeDoc.class))).thenReturn(1);
         org.mockito.Mockito.doAnswer(invocation -> {
             Consumer<?> callback = invocation.getArgument(0);
             @SuppressWarnings("unchecked")
@@ -165,6 +166,7 @@ class VectorIndexTaskSchedulerTest {
                 .status(DocStatus.INDEXING.name())
                 .build();
         when(knowledgeDocMapper.selectById(99L)).thenReturn(doc);
+        when(knowledgeDocMapper.updateById(any(KnowledgeDoc.class))).thenReturn(1);
         org.mockito.Mockito.doAnswer(invocation -> {
             Consumer<?> callback = invocation.getArgument(0);
             @SuppressWarnings("unchecked")

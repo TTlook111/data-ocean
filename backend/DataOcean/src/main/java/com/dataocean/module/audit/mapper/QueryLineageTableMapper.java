@@ -18,7 +18,7 @@ public interface QueryLineageTableMapper extends BaseMapper<QueryLineageTable> {
             SELECT l.*
             FROM query_lineage_table l
             JOIN query_task t ON t.id = l.query_task_id
-            WHERE l.source_table = #{tableName}
+            WHERE LOWER(l.source_table) = LOWER(#{tableName})
               AND t.datasource_id = #{datasourceId}
             ORDER BY l.created_at DESC
             LIMIT #{limit}

@@ -58,7 +58,10 @@ export async function triggerQualityCheck(snapshotId: number, payload?: { dimens
 }
 
 export async function listQualityIssues(snapshotId: number | undefined, params: {
-  dimension?: string; severity?: string; status?: string; tableName?: string; page?: number; size?: number
+  dimension?: string; severity?: string; status?: string; tableName?: string
+  /** 按责任人过滤（2026-09-12 后端新增该参数） */
+  assigneeId?: number
+  page?: number; size?: number
 }) {
   const url = snapshotId ? `/api/admin/snapshots/${snapshotId}/quality-issues` : '/api/admin/quality-issues'
   const { data } = await http.get<ApiResult<PageResult<QualityIssueItem>>>(url, { params })
@@ -70,8 +73,20 @@ export async function handleIssue(issueId: number, payload: { status: string; re
   return data
 }
 
+/**
+ * 批量处理结果。
+ *
+ * 后端对状态不允许流转的条目会跳过，2026-09-12 起返回跳过明细而不是仅成功计数——
+ * 此前前端只能显示「已处理 N 条」，无法告知用户有多少条被跳过、原因是什么。
+ */
+export interface BatchHandleResult {
+  updated: number
+  skipped: number
+  skippedIssues: Array<{ issueId: number; reason: string }>
+}
+
 export async function batchHandleIssues(payload: { issueIds: number[]; status: string }) {
-  const { data } = await http.patch<ApiResult<{ updated: number }>>('/api/admin/quality-issues/batch-status', payload)
+  const { data } = await http.patch<ApiResult<BatchHandleResult>>('/api/admin/quality-issues/batch-status', payload)
   return data
 }
 
@@ -91,7 +106,7 @@ export async function updateRuleEnabled(ruleId: number, enabled: boolean) {
 }
 
 export async function updateTableGovernanceStatus(snapshotId: number, tableName: string, payload: { governanceStatus: string; remark?: string }) {
-  const { data } = await http.patch<ApiResult<Record<string, string>>>(`/api/admin/snapshots/${snapshotId}/tables/${tableName}/governance-status`, payload)
+  const { data } = await http.patch<ApiResult<Record<string, string>>>(`/api/admin/snapshots/${snapshotId}/tables/${encodeURIComponent(tableName)}/governance-status`, payload)
   return data
 }
 
@@ -101,7 +116,7 @@ export async function updateColumnGovernanceStatus(snapshotId: number, columnId:
 }
 
 export async function batchUpdateGovernanceStatus(snapshotId: number, tableName: string, payload: { governanceStatus: string; remark?: string; excludeColumns?: string[] }) {
-  const { data } = await http.patch<ApiResult<{ updated: number; excluded: number }>>(`/api/admin/snapshots/${snapshotId}/tables/${tableName}/batch-governance-status`, payload)
+  const { data } = await http.patch<ApiResult<{ updated: number; excluded: number }>>(`/api/admin/snapshots/${snapshotId}/tables/${encodeURIComponent(tableName)}/batch-governance-status`, payload)
   return data
 }
 
@@ -133,6 +148,6 @@ export async function listSnapshotTables(snapshotId: number) {
 }
 
 export async function listSnapshotTableColumns(snapshotId: number, tableName: string) {
-  const { data } = await http.get<ApiResult<ColumnMetaItem[]>>(`/api/admin/metadata/snapshots/${snapshotId}/tables/${tableName}/columns`)
+  const { data } = await http.get<ApiResult<ColumnMetaItem[]>>(`/api/admin/metadata/snapshots/${snapshotId}/tables/${encodeURIComponent(tableName)}/columns`)
   return data
 }

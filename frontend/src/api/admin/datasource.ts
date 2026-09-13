@@ -50,7 +50,6 @@ export interface DatasourceReadinessReason {
   message: string
   ownerRole: string
   actionText: string
-  actionPath?: string
 }
 
 export interface DatasourceQuery {

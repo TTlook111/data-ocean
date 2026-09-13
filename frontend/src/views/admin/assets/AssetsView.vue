@@ -4,13 +4,19 @@ import { Database, ExternalLink, RefreshCw, Search, Table2 } from 'lucide-vue-ne
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { getDatasourceReadiness, type DatasourceReadiness } from '../../../api/admin/datasource'
 import { getEntitiesByDatasource, type MetadataEntityItem } from '../../../api/admin/catalog'
+import { entityTypeLabel } from '../../../utils/enumLabels'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import TableExplorer from '../metadata/TableExplorer.vue'
+import { useRoute, useRouter } from 'vue-router'
 
 const context = useAdminContextStore()
+const route = useRoute()
+const router = useRouter()
+const activeView = computed(() => route.query.view === 'tables' ? 'tables' : 'catalog')
 const entities = ref<MetadataEntityItem[]>([])
 const readiness = ref<DatasourceReadiness | null>(null)
 const keyword = ref('')
@@ -19,13 +25,8 @@ const loading = ref(false)
 const error = ref('')
 const requestId = ref(0)
 
-const entityTypeLabels: Record<string, string> = {
-  TABLE: '表',
-  COLUMN: '字段',
-  DATASOURCE: '数据源',
-  GLOSSARY_TERM: '术语',
-  TAG: '标签',
-}
+// 实体类型中文映射统一取自 utils/enumLabels.ts（§10.1 不重复实现状态映射）。
+// 原先本文件自带一份近似副本，GLOSSARY_TERM 的译法与共享映射还不一致。
 
 const filteredEntities = computed(() => {
   const q = keyword.value.trim().toLowerCase()
@@ -39,7 +40,7 @@ const filteredEntities = computed(() => {
 })
 
 function entityLabel(item: MetadataEntityItem) {
-  return entityTypeLabels[item.entityType] || item.entityType
+  return entityTypeLabel(item.entityType)
 }
 
 async function load() {
@@ -112,7 +113,14 @@ watch(() => context.datasourceId, load)
       </el-select>
     </section>
 
-    <ErrorState v-if="error" :message="error" @retry="load" />
+    <el-tabs :model-value="activeView" @update:model-value="(view: string | number) => router.push({ query: { ...route.query, view: view === 'tables' ? 'tables' : undefined } })">
+      <el-tab-pane label="正式资产目录" name="catalog" />
+      <el-tab-pane label="快照表浏览" name="tables" />
+    </el-tabs>
+
+    <TableExplorer v-if="activeView === 'tables'" />
+
+    <ErrorState v-else-if="error" :message="error" @retry="load" />
     <LoadingState v-else-if="loading" variant="skeleton" :rows="6" />
     <template v-else-if="!context.datasourceId">
       <EmptyState message="请先在顶部范围栏选择数据源，再查看正式资产目录。" action-text="去数据源接入" @action="$router.push('/admin/data-sources')" />
@@ -205,7 +213,4 @@ watch(() => context.datasourceId, load)
 .asset-name strong { color: var(--do-ink); }
 .asset-name span { color: var(--do-muted); font-family: monospace; font-size: 11px; }
 
-@media (max-width: 680px) {
-  .assets-page__filters { grid-template-columns: 1fr; }
-}
 </style>

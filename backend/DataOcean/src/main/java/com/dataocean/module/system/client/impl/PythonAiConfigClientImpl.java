@@ -120,39 +120,6 @@ public class PythonAiConfigClientImpl implements PythonAiConfigClient {
     /**
      * {@inheritDoc}
      */
-    @Override
-    public Map<String, Object> reVectorize(Map<String, Object> payload) {
-        try {
-            log.info("触发重新向量化 payload={}", payload);
-
-            Map<String, Object> body = payload == null ? Map.of() : payload;
-            Map<String, Object> response = restClient.post()
-                    .uri("/internal/rag/re-vectorize")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(body)
-                    .retrieve()
-                    .onStatus(org.springframework.http.HttpStatusCode::isError, (request, responseEntity) -> {
-                        log.error("Python 重新向量化接口返回异常 status={}", responseEntity.getStatusCode());
-                        throw PythonClientSupport.statusException(responseEntity.getStatusCode(), "重新向量化失败");
-                    })
-                    .body(new ParameterizedTypeReference<>() {});
-
-            log.info("重新向量化任务已触发");
-            return response;
-        } catch (ResourceAccessException e) {
-            log.warn("重新向量化超时 reason={}", e.getMessage());
-            if (PythonClientSupport.isReadTimeout(e)) {
-                throw new BusinessException("重新向量化超时，请稍后重试");
-            }
-            throw new BusinessException("重新向量化服务暂时不可用，请稍后重试");
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("重新向量化失败 reason={}", e.getMessage(), e);
-            throw new BusinessException("重新向量化失败，请稍后重试");
-        }
-    }
-
     /**
      * {@inheritDoc}
      */

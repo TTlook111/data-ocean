@@ -29,6 +29,7 @@ export interface SnapshotItem {
 
 export interface SnapshotDetail {
   snapshot: SnapshotItem
+  datasourceName?: string
   tables: TableMetaItem[]
   columns: ColumnMetaItem[]
 }
