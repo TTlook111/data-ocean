@@ -360,8 +360,10 @@ uv run uvicorn dataocean.main:app --reload --port 8000
 Infrastructure:
 
 ```bash
-docker compose up -d
+docker start mysql redis etcd minio milvus
 ```
+
+Infrastructure is managed as persistent host-level containers: `mysql` (one container), `redis` (one container), and the Milvus Standalone group (`milvus`, `etcd`, and `minio`), with persistent `dataocean-shared-*` volumes. The repository does not retain infrastructure Compose files; other local projects may reuse these services through `localhost`. Stopping DataOcean application processes must not remove these shared containers or volumes.
 
 Tests:
 

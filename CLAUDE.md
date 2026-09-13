@@ -225,10 +225,10 @@ uv run uvicorn dataocean.main:app --reload --port 8000
 Infrastructure:
 
 ```bash
-docker compose up -d
+docker start mysql redis etcd minio milvus
 ```
 
-> `docker-compose.yml` was added on 2026-09-13 and now provides MySQL 8, Redis, and Milvus Standalone (`v2.6.23`) plus its etcd and MinIO companions. Host ports `3306` / `6379` / `19530` match the application defaults, all published on `127.0.0.1` only. The MySQL root password is `123456` and Redis has none; both are mirrored as defaults in `application.yml` / `application-dev.yml`, so `DB_PASSWORD` / `REDIS_PASSWORD` are only needed to override them. These are deliberately weak local-dev credentials, never valid outside a developer machine. `docker compose config` parses the file cleanly, but **the stack has never been started**, so no runtime verification that needs MySQL / Redis / Milvus has actually been executed: every acceptance scenario in the frontend refactor guide §16 is still unmet, and migrations `V51` / `V52` have still never run against a real MySQL. See `docs/development/项目真实状态看板.md`.
+> Infrastructure is managed as persistent host-level containers: `mysql` (one container), `redis` (one container), and the Milvus Standalone group (`milvus`, `etcd`, and `minio`). The repository does not retain infrastructure Compose files; the containers use explicit persistent volumes and can be reused by other local projects through `localhost`. Do not remove these shared containers or volumes when stopping only DataOcean application processes; use `docker start ...` to restore them.
 
 Tests:
 

@@ -360,8 +360,8 @@ cd python-service && uv run pytest
 # 运行 Java 测试
 cd backend/DataOcean && mvn test
 
-# 启动开发环境
-docker compose up -d
+# 恢复已创建的公共基础设施
+docker start mysql redis etcd minio milvus
 cd frontend && npm run dev
 cd backend/DataOcean && mvn spring-boot:run
 cd python-service && uv run uvicorn dataocean.main:app --reload --port 8000

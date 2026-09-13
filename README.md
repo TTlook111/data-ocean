@@ -101,8 +101,9 @@ Vue 3 前端
 环境要求：JDK 17、Maven 3.9+、Node.js 20+、Python 3.13、uv、Docker Compose v2。
 
 ```powershell
-# 1. 启动基础设施
-docker compose up -d
+# 1. 恢复已创建的公共基础设施容器
+#    Docker Desktop 中为 mysql、redis、milvus 三个逻辑服务
+docker start mysql redis etcd minio milvus
 
 # 2. 启动 Java 网关
 cd backend\DataOcean
@@ -110,6 +111,7 @@ mvn spring-boot:run
 
 # 3. 启动 Python AI 服务
 cd python-service
+# 首次启动先复制 .env.example 为 .env，并填写 DASHSCOPE_API_KEY
 uv sync
 uv run uvicorn dataocean.main:app --reload --port 8000
 
@@ -119,9 +121,7 @@ npm install
 npm run dev
 ```
 
-> `docker-compose.yml` 已于 2026-09-13 补齐，包含 MySQL 8、Redis、Milvus Standalone（`v2.6.23`）以及 Milvus 依赖的 etcd 与 MinIO。宿主机端口 `3306` / `6379` / `19530` 与 `application.yml`、`.env.example` 的默认值一致，且全部只绑定 `127.0.0.1`。MySQL root 口令为 `123456`（库 `dataocean`），Redis 无口令——两者都是明文弱口令，**仅适用于本地开发**，不要照搬到任何对外环境。
->
-> ⚠️ **该文件尚未实际启动验证过**（`docker compose config` 解析通过，但五个服务从未跑起来）。因此依赖 MySQL / Redis / Milvus 的运行时验证仍全部未做，包括后台前端重构 §16 的验收场景与 `V51` / `V52` 迁移。启动后请先确认 `docker compose ps` 中 `dataocean-milvus` 达到 `healthy`——Milvus 首次启动有约 90 秒的预热期。
+> 公共基础设施由本机长期管理：`mysql`（一个容器）、`redis`（一个容器）、`milvus`（`milvus`、`etcd`、`minio` 三个容器）。这些容器和 `dataocean-shared-*` 数据卷已创建并持久化，其他本地项目可通过 `localhost` 复用。仓库不保存基础设施 Compose 文件；重启 Docker 后使用 `docker start mysql redis etcd minio milvus` 恢复。正常停止 DataOcean 只停止 Java、Python 和前端进程，不要删除这些公共容器或数据卷。
 
 默认入口：
 

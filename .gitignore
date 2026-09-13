@@ -77,6 +77,7 @@ backend/**/*.versionsBackup
 
 # Python service
 python-service/.venv/
+python-service/.venv*/
 python-service/venv/
 python-service/env/
 python-service/__pycache__/
