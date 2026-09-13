@@ -1,0 +1,130 @@
+# DataOcean 本地基础设施
+#
+# 只包含基础设施：MySQL 8、Redis、Milvus Standalone（含 etcd 与 MinIO 两个伴生服务）。
+# Java 网关、Python AI 服务、前端都跑在宿主机上（见 README「快速启动」），不放进本文件。
+#
+#   docker compose up -d        # 启动
+#   docker compose ps           # 查看状态
+#   docker compose logs -f      # 跟踪日志
+#   docker compose down         # 停止，保留数据
+#   docker compose down -v      # 停止并删除数据卷（MySQL 数据与 Milvus 向量一并清空）
+#
+# 端口与默认凭据对齐现有代码里的默认值：
+#   backend/DataOcean/src/main/resources/application.yml  → DB_PORT 3306 / DB_PASSWORD 123456 / Redis 6379 无密码
+#   python-service/.env.example                          → MILVUS_HOST localhost:19530
+#
+# ⚠️ 这是本地开发配置：凭据是明文弱口令（MySQL root 123456、Redis 无密码），
+#    因此所有端口只绑定 127.0.0.1，不对局域网暴露。如需改凭据，请改下面的
+#    environment，并同步设置环境变量 DB_PASSWORD / REDIS_PASSWORD。
+#    注意 MySQL root 密码只在数据卷首次创建时初始化，改完需要
+#    docker compose down -v 重建数据卷才会生效。
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: dataocean-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "123456"
+      MYSQL_DATABASE: dataocean
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # 口令写死而不用 $MYSQL_ROOT_PASSWORD 插值：compose 的 $$ 转义在离线状态下无法确认
+      # 最终送进容器的是变量还是字面量，健康检查静默失败会让本服务一直挂在 unhealthy
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p123456 --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    container_name: dataocean-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Milvus 的元数据存储
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.25
+    container_name: dataocean-etcd
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    volumes:
+      - etcd-data:/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Milvus 的对象存储（向量与索引文件）
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    container_name: dataocean-minio
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    command: minio server /minio_data --console-address ":9001"
+    ports:
+      # 只发布控制台，便于排查向量写入；Milvus 走容器网络访问 9000，无需占用宿主机端口
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/minio_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  milvus:
+    image: milvusdb/milvus:v2.6.23
+    container_name: dataocean-milvus
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_REGION: us-east-1
+    ports:
+      - "127.0.0.1:19530:19530"
+      # 9091 是健康检查与指标端口，保留发布以便确认 Milvus 真的就绪
+      - "127.0.0.1:9091:9091"
+    volumes:
+      - milvus-data:/var/lib/milvus
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 90s
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
+  redis-data:
+  etcd-data:
+  minio-data:
+  milvus-data:
+
+networks:
+  default:
+    name: dataocean

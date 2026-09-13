@@ -228,7 +228,7 @@ Infrastructure:
 docker compose up -d
 ```
 
-> ⚠️ **`docker-compose.yml` does not exist in this repository** (verified 2026-09-12 by a full-repo search). The command above is the documented intent, not a working step. As a result no runtime verification that needs MySQL / Redis / Milvus can be executed from a fresh clone, and every acceptance scenario in the frontend refactor guide §16 is currently blocked. Restoring this file is step 0 of the current plan — see `docs/development/项目真实状态看板.md`. Milvus Standalone also needs its etcd and MinIO companions.
+> `docker-compose.yml` was added on 2026-09-13 and now provides MySQL 8, Redis, and Milvus Standalone (`v2.6.23`) plus its etcd and MinIO companions. Host ports `3306` / `6379` / `19530` match the application defaults, all published on `127.0.0.1` only. The MySQL root password is `123456` and Redis has none; both are mirrored as defaults in `application.yml` / `application-dev.yml`, so `DB_PASSWORD` / `REDIS_PASSWORD` are only needed to override them. These are deliberately weak local-dev credentials, never valid outside a developer machine. `docker compose config` parses the file cleanly, but **the stack has never been started**, so no runtime verification that needs MySQL / Redis / Milvus has actually been executed: every acceptance scenario in the frontend refactor guide §16 is still unmet, and migrations `V51` / `V52` have still never run against a real MySQL. See `docs/development/项目真实状态看板.md`.
 
 Tests:
 

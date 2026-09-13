@@ -119,7 +119,9 @@ npm install
 npm run dev
 ```
 
-> ⚠️ **第 1 步目前跑不通**：仓库中尚不存在 `docker-compose.yml`（2026-09-12 全仓检索确认）。请自行准备 MySQL 8、Redis 与 Milvus Standalone（Milvus 还需 etcd 与 MinIO 两个伴生服务）后跳过该步。补齐该文件已列为当前最高优先级的工程任务，见 [`docs/development/项目真实状态看板.md`](docs/development/项目真实状态看板.md)。
+> `docker-compose.yml` 已于 2026-09-13 补齐，包含 MySQL 8、Redis、Milvus Standalone（`v2.6.23`）以及 Milvus 依赖的 etcd 与 MinIO。宿主机端口 `3306` / `6379` / `19530` 与 `application.yml`、`.env.example` 的默认值一致，且全部只绑定 `127.0.0.1`。MySQL root 口令为 `123456`（库 `dataocean`），Redis 无口令——两者都是明文弱口令，**仅适用于本地开发**，不要照搬到任何对外环境。
+>
+> ⚠️ **该文件尚未实际启动验证过**（`docker compose config` 解析通过，但五个服务从未跑起来）。因此依赖 MySQL / Redis / Milvus 的运行时验证仍全部未做，包括后台前端重构 §16 的验收场景与 `V51` / `V52` 迁移。启动后请先确认 `docker compose ps` 中 `dataocean-milvus` 达到 `healthy`——Milvus 首次启动有约 90 秒的预热期。
 
 默认入口：
 
