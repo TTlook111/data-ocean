@@ -463,7 +463,7 @@ AST 校验只能证明 SQL 在语法和安全规则上可接受，不能证明�
 - `specs/008-nl2sql-agent/plan.md`：LangGraph Agent 设计；
 - `specs/009-sql-security-sandbox/plan.md`：SQL AST 安全沙箱设计；
 - `docs/development/智能问数链路诊断报告.md`：端到端联调问题与修复；
-- `docs/development/后续开发.md`：仍需继续建设的能力。
+- `docs/development/DataOcean后台重构状态与整改计划.md`：当前状态、轨道 A 整改和仍需继续建设的能力。
 
 ## 十五、外部资料
 

@@ -11,7 +11,7 @@
 2. 每项技术参与哪些模块，以及它负责什么、不负责什么。
 3. 哪些流程应该异步，哪些流程必须等待结果。
 
-`README.md` 只保留快速概览；`AGENTS.md` 和 `CLAUDE.md` 记录协作约束与稳定架构事实；项目完成度和测试数据以 [`项目真实状态看板.md`](./项目真实状态看板.md) 为准；模块级接口和数据模型以对应 `specs/<module>/` 为准。
+`README.md` 只保留快速概览；`AGENTS.md` 和 `CLAUDE.md` 记录协作约束与稳定架构事实；项目完成度、轨道 A 整改、导航决策和测试数据以 [`DataOcean后台重构状态与整改计划.md`](./DataOcean后台重构状态与整改计划.md) 为准；模块级接口和数据模型以对应 `specs/<module>/` 为准。
 
 本项目不引入 Google ADK，也不通过 API Gateway 平台转发模型请求。Java 负责业务网关和持久化，Python 负责 AI/RAG 执行，模型通过外部 OpenAI 兼容 API（当前为 Qwen/通义千问配置）调用。
 
@@ -177,7 +177,7 @@ Milvus 中的 metadata 是用于过滤和扩展的轻量副本，不替代 Java 
 | 发生变化 | 应更新的文档 |
 | --- | --- |
 | 技术版本、模块归属、存储或异步边界变化 | 本文档，并同步 `AGENTS.md`、`CLAUDE.md` 的摘要入口 |
-| 当前完成度、测试结果、风险变化 | `docs/development/项目真实状态看板.md` |
-| 未完成任务和优先级变化 | `docs/development/后续开发.md` |
+| 当前完成度、测试结果、风险、导航决策和未完成任务 | `docs/development/DataOcean后台重构状态与整改计划.md` |
+| 下一步执行顺序 | `docs/development/后续开发.md` |
 | 某个模块的接口、数据模型或实现计划变化 | 对应 `specs/<module>/` |
 | README 快速开始或项目入口变化 | `README.md` |

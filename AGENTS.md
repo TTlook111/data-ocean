@@ -89,7 +89,7 @@ Module status summary:
 | Python chart generation | Complete with fallback behavior |
 | Data source readiness | Complete |
 
-Known follow-up areas live in `docs/development/后续开发.md`. The seven-stage refactor roadmap is complete; do not treat `docs/development/DataOcean统一执行路线图.md` as an active implementation plan unless the user explicitly asks to revisit it.
+Current status, Track A remediation details, and admin navigation rules live in `docs/development/DataOcean后台重构状态与整改计划.md`; treat it as the single source of truth. The ordered next-action queue lives in `docs/development/后续开发.md` and must not duplicate status claims. The seven-stage refactor roadmap is complete; do not treat `docs/development/completed/DataOcean统一执行路线图.md` as an active implementation plan unless the user explicitly asks to revisit it.
 
 ## Recently Completed
 
@@ -104,7 +104,7 @@ Known follow-up areas live in `docs/development/后续开发.md`. The seven-stag
 - **Stage 7 event-driven governance completed** (2026-06-14): `metadata_change_event`, access approval request flow, temporary allow policies, expiry cleanup, and blocked/deprecated access constraints.
 - **P1 notification system integration completed** (2026-06-21): frontend notification bell/dropdown and `/api/notifications` client are connected; field feedback group-threshold and snapshot publish/expire events now send system notifications.
 - **Datasource grant semantics added**: `V42__datasource_access_effect.sql` makes datasource grant allow/deny decisions explicit.
-- **Datasource readiness and admin IA added** (2026-06-24): datasource readiness aggregates connection, published metadata snapshot, blocking governance issues, published skills.md, and permission state. Query entry now blocks non-askable sources with visible reasons. Admin navigation now uses business-domain primary navigation plus in-page workspace navigation; see `docs/development/后台信息架构与导航规范.md`.
+- **Datasource readiness and admin IA added** (2026-06-24; navigation adjustment pending): datasource readiness aggregates connection, published metadata snapshot, blocking governance issues, published skills.md, and permission state. Query entry blocks non-askable sources with visible reasons. The current code still renders primary navigation in the sidebar and workspace navigation in the content header, but the approved target is to place both levels in the sidebar; see `docs/development/DataOcean后台重构状态与整改计划.md`.
 - **P6 operation log coverage completed** (2026-08-14): 13 admin controllers annotated with `@AdminAuditLog` (governance, snapshot publish/review, glossary, skills.md, alerts, access approval, AI config, sync schedule, roles/permissions/departments). `AdminAuditLog` gained a `logReads` attribute so read-heavy controllers (catalog/collection) only log writes. `OperationLogAspect` now extracts `targetId` from the path and the self-referential `OperationLogController` annotation was removed. The operation-log list supports multi-condition query (`operatorName`, `operationType`, `isSuccess`, time range, `ipAddress`, `requestPath`, target resource/ID, `keyword`) via `OperationLogQueryDTO` + dynamic `LambdaQueryWrapper`, with a frontend filter bar in `OperationLogList.vue`. Frontend `npm run build` passes; Java unit tests have since passed in the 2026-08-31 full verification.
 - **Phase 0-3 深度优化完成**（2026-07-24）：18 项优化全链路实施，详见 `docs/development/DataOcean深度优化参考方案.md`。覆盖：Embedding/术语表/Fallback/密码/权限 Redis 缓存体系、列级 Schema Linking、SQL-to-Schema 幻觉检测、置信度读时衰减与治理联动、Few-shot embedding 升级、LLM 执行反馈自校正、列元数据采样值采集、Agent 图并行 fan-out、自动标签 PII 检测、质量评分聚合、大结果集 SSE 分块传输。新增 V44（`metadata_quality_issue.column_meta_id`）、V45（`db_column_meta.sample_values`）数据库迁移。
 - **RAG 文档与切分修复完成基础实现**（2026-08-31）：skills.md 模板不再把字段名推测、未审核指标或 Join 当作事实；Python chunker 按语义单元和 token 预算切分（目标 900、最大 1000、overlap 150），保留短语义单元并传递 `chunk_index`/`chunk_group_id`/多表多字段/entity/trust/hash metadata；Milvus 检索补齐 `embedding` 字段和 IP 度量校验及相邻 chunk 扩展；fallback 绑定 active snapshot、按问题隔离缓存并支持中文排序；新增 V50 `knowledge_chunk` metadata 迁移。详见 `docs/development/completed/DataOcean-RAG问题修复与知识文档切分优化方案.md`。
@@ -264,9 +264,9 @@ Python async boundary notes (2026-09-07): native async is used for LLM, Embeddin
 Frontend routes are split between business-oriented domains:
 
 - `/query`: user-facing intelligent query flow.
-- `/admin/*`: admin app uses first-level business domains in `AppShell.vue`: 工作台、数据源中心、治理中心、语义中心、权限与开放、运营与安全、系统设置.
-- Admin secondary feature pages are exposed through the content-area workspace navigation (`workspaceLinks` in `AppShell.vue`), not as side-bar top-level items.
-- New admin pages must be assigned according to `docs/development/后台信息架构与导航规范.md` before adding routes or navigation entries.
+- `/admin/*`: admin app uses seven first-level business domains in `AdminShell.vue`: 工作台、数据接入、数据资产、数据治理、语义中心、权限与组织、运营与平台.
+- The approved Track A target places first-level domains and second-level workspaces together in the left sidebar. The current content-area `AdminWorkspaceNav` is pending removal/migration; do not extend it as the future navigation pattern.
+- New admin pages must follow the domain/workspace ownership and two-level sidebar rules in `docs/development/DataOcean后台重构状态与整改计划.md` before adding routes or navigation entries.
 - `/admin/metadata/catalog`: metadata catalog search and entity graph entry.
 - `/admin/glossary/list`: glossary management.
 - `/admin/system/operation-logs`: operation log management.

@@ -34,8 +34,8 @@ DataOcean 是企业级 NL2SQL 智能数据查询与治理平台。前端服务�
 
 ### 前端权限使用规则
 
-1. **导航可见性**：`AdminShell.vue` 使用“一级业务域侧边栏 + 内容区二级工作区导航”。一级业务域和二级工作区都在 `router/adminNavigation.ts` 的 `ADMIN_WORKSPACES` 中定义，由 `AdminDomainNav.vue` 和 `AdminWorkspaceNav.vue` 渲染。
-   > 后台前端整体重构期间（阶段 0–7）**不按旧权限码裁剪菜单**：使用真实 `*` 超级管理员账号，七个业务域和工作区全部可见。菜单权限的重新设计是重构完成后另立的独立任务，详见 `docs/development/guides/DataOcean-后台前端整体重构开发指导.md` 第 13 节。
+1. **导航可见性**：轨道 A 的批准目标是“一级业务域 + 二级工作区都在左侧侧栏”。`router/adminNavigation.ts` 的 `ADMIN_WORKSPACES` 继续作为工作区元数据来源；当前内容区顶部的 `AdminWorkspaceNav.vue` 属于待整改实现，不得作为新页面范式继续扩展。
+   > 轨道 A 整改期间**不按旧权限码裁剪菜单**：使用真实 `*` 超级管理员账号，七个业务域和工作区全部可见。菜单权限的重新设计在轨道 B 实施，详见 `docs/development/DataOcean后台重构状态与整改计划.md`。
 
    **导航项的两条约定**（2026-09-12 起）：
    - **高亮判定用路由显式声明的 key，不用路径前缀匹配。** `AdminDomainNav` 用 `route.meta.domainKey`，`AdminWorkspaceNav` 用 `route.meta.workspaceKey` 做等值比较。路径前缀匹配会因 `/admin/governance` 是 `/admin/governance/issues` 的前缀而同时高亮两项，也会让 `/admin/metadata/tables`、`/admin/permission/policies` 这类路径与所属工作区不同前缀的路由完全不高亮。新增路由时必须填对 `domainKey` / `workspaceKey`。
@@ -49,7 +49,7 @@ DataOcean 是企业级 NL2SQL 智能数据查询与治理平台。前端服务�
    )
    ```
 4. **工作台首页**：必须根据用户权限展示不同的待办、风险、生命周期状态和统计卡片。管理员看治理入口，普通用户看查询入口。
-5. **新增后台页面归属**：新增 `/admin/*` 页面前，先读 `docs/development/guides/DataOcean-后台前端整体重构开发指导.md` 第 4 节的目标信息架构（工作台、数据接入、数据资产、数据治理、语义中心、权限与组织、运营与平台）和该业务域下已有的二级工作区；不要直接把技术页面加入侧边栏，也不要在业务域外新建一级入口。路由必须使用开发指导第 8 节冻结的目标 URL。
+5. **新增后台页面归属**：新增 `/admin/*` 页面前，先读 `docs/development/DataOcean后台重构状态与整改计划.md` 的导航决策（工作台、数据接入、数据资产、数据治理、语义中心、权限与组织、运营与平台）和该业务域下已有的二级工作区。一级与二级均放在侧栏；不要在业务域外新建一级入口，详情页和 Tab 不作为二级菜单。
 
 ### 角色与页面对应关系
 
@@ -65,7 +65,7 @@ DataOcean 是企业级 NL2SQL 智能数据查询与治理平台。前端服务�
 
 参考 `specs/img.png`，整体风格为：
 - 现代扁平化管理后台
-- 左侧固定侧边栏只展示一级业务域，内容区顶部工作区导航展示二级功能入口（已实现在 `components/admin/AdminShell.vue`）
+- 左侧固定侧边栏同时展示一级业务域和当前域下的二级工作区；内容区顶部不再重复二级导航
 - 顶部栏显示当前页面标题 + 用户信息
 - 内容区使用卡片式布局，圆角 8px，柔和阴影
 - 配色以蓝绿为主调，暖色点缀
@@ -184,7 +184,7 @@ function extractError(error: unknown, fallback: string): string {
 开发任何新页面前，确认：
 1. [ ] 该页面的目标用户是谁？属于哪个一级业务域和二级工作区？
 2. [ ] 路由是否使用了开发指导第 8 节冻结的目标 URL，且 meta 包含 `title` / `domainKey` / `workspaceKey` / `contextMode`？（后台路由**不**添加 `meta.permission`）
-3. [ ] 页面归属是否符合 `docs/development/guides/DataOcean-后台前端整体重构开发指导.md` 第 4 节的信息架构？
+3. [ ] 页面归属和侧栏层级是否符合 `docs/development/DataOcean后台重构状态与整改计划.md`？
 4. [ ] 如果需要导航入口，是加到 `router/adminNavigation.ts` 的 `ADMIN_WORKSPACES`，而不是侧边栏直接加技术模块？
 5. [ ] 如果页面需要数据源/快照范围，是否复用了 `ScopeBar` 与 `adminScope`，而没有在页面内另建一套数据源选择器？
 6. [ ] 状态和允许的操作是否**以后端返回的状态为准**，而不是前端自行推断？阻断原因是否直接复用 readiness 的 `blockReasons`？
