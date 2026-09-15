@@ -2,7 +2,7 @@
 
 > 文档状态：轨道 B 实施基线，尚未代表功能已完成
 >
-> 现状核查基线：2026-09-14，`main` / `45efbe7`
+> 现状核查基线：2026-09-15，基线提交 `main` / `45efbe7`，文档分支 `codex/permission-system-guide`
 >
 > 适用范围：功能权限、数据源/表/列/行权限、脱敏、访问审批、Permission-aware RAG、SQL 执行前校验、前端权限消费与审计
 
@@ -50,6 +50,14 @@
 8. 数据库迁移不创建外键，关系完整性由服务层校验。
 9. 改造期间不得先删除旧权限数据；必须先双读校验、再切换、最后清理。
 10. 每个阶段分别报告代码完成、自动化测试、运行健康、真实接口和浏览器验收。
+
+### 0.4 推荐阅读路径
+
+- 产品与安全决策：先读第 12、15、17、19、28、37、48 节；
+- 开发实施：先读第 41～50 节，再回查第 1～40 节的领域定义；
+- Java：重点读第 13、14、27～31、34～36、43～47 节；
+- Python：重点读第 19～23、32～33、42～44、47 节；
+- 前端：重点读第 37、42、44、46～48 节。
 
 ## 1. 设计目标
 
@@ -512,6 +520,8 @@ salary 禁止
 - `include_future_resources = false`：授权时固化当前发布快照中的资源集合，新发布的表/列默认不自动获得权限；这是默认值。
 - `include_future_resources = true`：未来新增资源也继承授权，只允许管理员在确认风险后显式选择，并记录审计。
 
+`false` 模式通过 `granted_snapshot_id` 读取授权时资源集合，再与当前活动快照取交集；不要求为每张表复制一条策略。授权时快照不存在或历史快照已不可读时必须拒绝创建/解析，不能退化为当前全量资源。
+
 活动快照发布后，Java 必须对权限资源做一致性检查：已删除/重命名对象标为失效或待处理，新对象按上述开关决定是否继承。不能因为策略只保存字符串名称，就把一个已删除后同名重建但语义不同的对象静默视为原资源。
 
 表列匹配使用当前发布快照返回的规范名称和数据源方言规则。不得一律 `toLowerCase()` 后假设所有 MySQL 环境大小写语义相同；需要保存规范名并使用单独的比较键。
@@ -527,9 +537,9 @@ salary 禁止
 ```text
 治理硬阻断（未发布 / BLOCKED / DEPRECATED）
 >
-有效的显式 DENY（任一 USER / ROLE / DEPARTMENT 来源）
+同一 action 上有效的显式 DENY（任一 USER / ROLE / DEPARTMENT 来源）
 >
-有效的显式 ALLOW（USER / ROLE / DEPARTMENT 取并集）
+同一 action 上有效的显式 ALLOW（USER / ROLE / DEPARTMENT 取并集）
 >
 Default DENY
 ```
@@ -635,6 +645,10 @@ departmentIds
 
 allowedTables
 
+columnScopeModes
+
+allowedColumns
+
 columnPolicies
 
 rowPolicies
@@ -675,7 +689,17 @@ UNRESTRICTED # 只允许受控的超级管理员兼容期使用，轨道 B 完�
 ALLOW
 DENY
 MASK
+UNMASK（仅审批产生的限时例外）
 ```
+
+表获得 QUERY 后，列范围有两种明确模式：
+
+```text
+ALL_EXCEPT_DENIED  # 迁移兼容默认值：除 DENY 外均可用
+ALLOWLIST          # 只允许显式列 ALLOW；空列表表示不能查询该表
+```
+
+列 ALLOW 只在 `ALLOWLIST` 模式下有意义，不能单独授予表查询权；必须先通过数据源和表级 QUERY。DENY 在两种模式下都优先，MASK / UNMASK 只作用于最终仍允许访问的列。
 
 例如：
 
@@ -700,13 +724,13 @@ DENY
 身份证：不可访问
 ```
 
+**[现状差异]** 当前 `PermissionCalculatorImpl` 只处理列 DENY 和 MASK，带 `columnName` 的 ALLOW 不会进入最终上下文，也没有 `allowedColumns` 契约。轨道 B 若保留“列 ALLOW”能力，就必须按上述模式完整实现；不能让前端保存成功、执行端实际忽略。
+
 ---
 
 ## 16. 敏感等级
 
-数据治理阶段需要给字段配置敏感等级。
-
-建议：
+数据治理阶段需要给字段配置敏感等级。目标等级为：
 
 ```text
 PUBLIC
@@ -728,13 +752,17 @@ HIGHLY_SENSITIVE
 
 敏感等级本身不直接等同于权限，但可以作为权限和脱敏策略的依据。
 
+**[现状]** 当前项目已经使用 `classification + tag` 治理体系，并通过 `PII.*` 标签生成 MASK 策略候选；没有独立的 `sensitivity_level` 权威字段。
+
+**[实施]** 轨道 B 优先复用现有标签体系：如确需四级排序，在 classification 中建立“敏感等级”单选分类并把四个等级作为 Tag，不再给表、列和 `metadata_entity` 各加一套重复字段。PII 类型标签回答“是什么敏感信息”，敏感等级回答“风险有多高”，二者可以并存，但只有经过审核的标签才能自动产生权限/脱敏策略。
+
 ---
 
 ## 17. Mask Policy 脱敏策略
 
 系统建立统一 Mask Policy。
 
-支持：
+**[现状]** Java `MaskStrategy` 当前支持：
 
 ```text
 PHONE
@@ -742,10 +770,9 @@ EMAIL
 ID_CARD
 BANK_CARD
 NAME
-PARTIAL
-FULL
-CUSTOM
 ```
+
+**[目标]** 轨道 B 增加 `FULL` 作为未知策略、冲突和高敏字段的安全兜底。`PARTIAL` 只有在参数结构、保留位数和类型校验明确后才能加入；首版不支持可执行脚本或任意表达式形式的 `CUSTOM`，避免把脱敏器变成代码执行入口。
 
 例如：
 
@@ -968,6 +995,7 @@ SQL 自校正错误上下文
 2. 权限撤销、数据源切换、活动快照切换后，不把旧摘要中的 SQL、表名和字段名继续发送给 LLM；需要时异步重建安全摘要。
 3. glossary term 关联了表/列时按资源权限过滤；未绑定资源的纯业务术语可以保留，但不得夹带无权 Schema。
 4. few-shot 示例必须通过 SQL AST 重新提取全部表列，确认均在当前权限内后才能进入 Prompt；只因“与一个允许表有交集”不能放行包含其他表的示例。
+   自动成功的查询先作为用户级候选，不能直接变成同数据源所有用户共享的示例。提升为共享 few-shot 前需审核、参数化敏感字面量和行策略值，并保存所用表列与适用权限范围；撤权或快照变更后重新校验。
 5. DENY 列的名称、描述、样例值和 SQL 均不进入 LLM。MASK 列可以进入 Schema 生成 SQL，但其原始结果值不能进入图表或解释模型。
 6. 当前图表生成会把最多 20 行数据样本发送给 LLM。轨道 B 必须先按 `maskedFields` 生成安全预览，或改为本地确定性选图；不得把待脱敏原值先发给模型、最后才对用户脱敏。
 7. 数据库错误进入 SQL 自校正前需清洗，不返回连接信息、其他库表名或敏感样例值。
@@ -981,20 +1009,16 @@ Schema 向量数据需要携带：
 
 ```text
 datasource_id
-
-database_id
-
-schema_id
-
-table_id
-
-column_ids
-
-resource_id
-
+snapshot_id
+doc_id
+knowledge_version_no
+table_name
+related_tables
+related_columns
+entity_ids             # 辅助追踪，不作为唯一权限键
 governance_status
-
-sensitivity_level
+review_status
+approved_tag_fqns
 ```
 
 当前 Milvus 已保存 `datasource_id`、快照/文档版本、`related_tables`、`related_columns`、`entity_ids` 和治理信息。轨道 B 优先基于稳定的表名/列名集合做请求级过滤；在 `metadata_entity` ID 生命周期稳定前，不把 `entity_ids` 作为唯一权限键。
@@ -1004,7 +1028,7 @@ sensitivity_level
 ```text
 Question
 +
-Authorized Resource IDs
+Allowed Tables / Denied Columns
 ↓
 Vector Search
 ```
@@ -1196,7 +1220,7 @@ Permission Request
 ```text
 用户申请
 ↓
-数据负责人 / 部门负责人审批
+权限管理员审批（轨道 B 首版）
 ↓
 通过
 ↓
@@ -1554,16 +1578,23 @@ id
 datasource_id
 subject_type          # USER / ROLE / DEPARTMENT
 subject_id
-access_effect         # ALLOW / DENY
-can_query
-can_export
-can_view_sql
+access_effect         # 旧的整条授权 ALLOW / DENY，迁移完成后删除
+can_query             # 旧字段，迁移完成后删除
+can_export            # 旧字段，迁移完成后删除
+can_view_sql          # 旧字段，迁移完成后删除
+discover_effect       # ALLOW / DENY / UNSET
+query_effect          # ALLOW / DENY / UNSET
+export_effect         # ALLOW / DENY / UNSET
+view_sql_effect       # ALLOW / DENY / UNSET
+manage_effect         # ALLOW / DENY / UNSET
 department_scope      # CURRENT / CURRENT_AND_CHILDREN，仅部门授权使用
 granted_by
 granted_at
 expires_at
 grant_reason
 ```
+
+`access_effect + can_*` 不能表达“允许 QUERY、明确拒绝 EXPORT”在多角色之间的冲突。迁移规则固定为：旧记录 `access_effect=DENY` 时所有 action 回填 DENY；旧 ALLOW 记录中 boolean=true 回填 ALLOW，boolean=false 回填 UNSET 而不是 DENY。V2 Resolver 按每个 action 独立执行“任一 DENY > 任一 ALLOW > 默认拒绝”。影子对账完成后再删除旧字段。
 
 ### 36.2 `datasource_access_policy`
 
@@ -1577,7 +1608,9 @@ column_name
 resource_fingerprint   # 用于识别同名重建或语义漂移
 granted_snapshot_id
 include_future_resources
+permission_action     # DISCOVER / QUERY / EXPORT / MANAGE；MASK/UNMASK 作用于结果数据
 access_type           # ALLOW / DENY / MASK / UNMASK；UNMASK 仅由审批生成
+column_scope_mode     # 表级策略使用 ALL_EXCEPT_DENIED / ALLOWLIST
 mask_strategy
 mask_enforcement      # MANDATORY / OVERRIDABLE，仅 MASK 使用
 row_filter_dsl        # 新结构化条件；旧 row_filter_expression 仅迁移期读取
@@ -1594,7 +1627,7 @@ updated_at
 
 字段和索引要求：
 
-- `subject_type`、`access_type`、`row_filter_kind` 使用 Java enum + DTO 校验，数据库仍使用可读字符串；
+- `subject_type`、`permission_action`、`access_type`、`row_filter_kind` 使用 Java enum + DTO 校验，数据库仍使用可读字符串；
 - UNMASK 必须是 USER + 精确列 + 有效期 + 审批关联，普通策略 CRUD 不允许直接创建；
 - 表/列名创建策略时必须存在于当前发布快照，执行时仍需再次按活动快照校验；
 - `valid_until >= valid_from`，时间计划必须在写入时完成结构校验；
@@ -1832,10 +1865,11 @@ Audit
 | 用户部门 | 一个 `department_id` | 轨道 B 继续保持一个主部门 | 否 |
 | 部门继承 | 自动读取所有父部门授权 | 显式区分 CURRENT / CURRENT_AND_CHILDREN | 是 |
 | 数据源授权 | USER 可覆盖 ROLE / DEPARTMENT，角色内 DENY 优先 | 任一有效 DENY 优先；无 ALLOW 默认拒绝 | 是 |
+| Action 冲突 | 一个全局 accessEffect + 三个 boolean，无法表达按 QUERY / EXPORT / VIEW_SQL 分别 DENY | 每个 action 使用 ALLOW / DENY / UNSET 独立决策 | 是 |
 | 表权限 | 无表级 ALLOW 时可能是 `UNRESTRICTED` | 普通用户只能得到明确 ALLOWLIST | 是 |
 | 时间计划 | 非法 DENY 保持生效，但非法 ALLOW 当前仍可能参与计算 | 非法 DENY 生效、非法 ALLOW 无效，统一 fail-closed | 是 |
 | 策略有效期 | 细粒度策略表已有 validFrom / validUntil / timeSchedule，但创建 DTO 和前端不能完整配置 | 写入、读取、校验、展示和解析闭环 | 是 |
-| 列权限 | DENY、MASK 已能传给 Python | 固定 DENY > MASK > 原值，冲突可解释 | 补强 |
+| 列权限 | DENY、MASK 已能传给 Python；列 ALLOW 当前被忽略 | 增加 ALL_EXCEPT_DENIED / ALLOWLIST，固定 DENY > MASK > 原值且冲突可解释 | 是 |
 | 行权限 | SQL 片段校验后，多来源直接 AND | 结构化 DSL；SCOPE OR、MANDATORY AND | 是 |
 | 治理联动 | 已排除活动快照中 BLOCKED / DEPRECATED 表列 | 继续作为不可绕过硬约束 | 保留并补测 |
 | RAG | 检索请求没有权限白名单 | 首次检索、相邻扩展、fallback、Schema Linking 全部先过滤 | 是 |
@@ -1931,7 +1965,7 @@ requestTime
 7. 从当前发布快照取得真实表/列集合；没有发布快照返回 `DENY_NO_PUBLISHED_SNAPSHOT`。
 8. 应用治理硬阻断，移除 BLOCKED / DEPRECATED 表列。
 9. 应用表级 DENY，再应用表级 ALLOW；普通用户最终始终得到 ALLOWLIST。
-10. 应用列级 DENY 和 MASK，遵循 `DENY > MASK > 原值`。
+10. 按每张表的 `columnScopeMode` 计算允许列，再应用列级 DENY、MASK 和有效 UNMASK。
 11. 按 `SCOPE OR`、`MANDATORY AND` 构造结构化行策略。
 12. 生成可序列化 PermissionContext、决策解释和 `decisionVersion`。
 
@@ -2008,6 +2042,8 @@ POST   /api/admin/access-approvals/{id}/review
   "permissionExpiresAt": null,
   "tableScopeMode": "ALLOWLIST",
   "allowedTables": ["orders"],
+  "columnScopeModes": {"orders": "ALLOWLIST"},
+  "allowedColumns": {"orders": ["id", "amount", "customer_phone"]},
   "deniedColumns": ["orders.cost_price"],
   "rowPolicies": [
     {
@@ -2035,6 +2071,8 @@ POST   /api/admin/access-approvals/{id}/review
 ```text
 tableScopeMode = ALLOWLIST
 allowedTables
+columnScopeModes
+allowedColumns
 deniedColumns
 decisionVersion
 ```
@@ -2042,7 +2080,7 @@ decisionVersion
 过滤规则：
 
 - chunk 的主表和 `related_tables` 必须全部在允许表集合内；
-- chunk 的 `related_columns` 命中 DENY 列时整块排除，除非能够可靠重建并删除敏感字段描述；
+- chunk 的 `related_columns` 命中 DENY，或不在该表的列 ALLOWLIST 时整块排除，除非能够可靠重建并删除无权字段描述；
 - 元数据不完整、无法证明安全的 chunk 采用 fail-closed，不发送给 LLM；
 - 相邻 chunk 扩展和 fallback 使用同一个过滤函数，不能各写一套近似逻辑；
 - 允许表较少时可下推 Milvus 过滤；允许列表过大时采用有界 over-fetch + Python 强制后过滤和受控重试，避免构造超长 Milvus 表达式；无论是否下推，进入 LLM 前的应用层过滤不可省略；
@@ -2076,10 +2114,12 @@ decisionVersion
 ### 45.2 Backfill
 
 1. 把当前 `*` 管理员需要保留的数据访问能力回填为明确的数据源 ALLOW。
-2. 为现有部门授权回填 `department_scope`，默认值必须基于当前真实继承结果生成并人工复核。
-3. 为现有表级放开行为生成显式 `ALLOW *` 或具体表 ALLOW，避免切换默认拒绝后误锁用户。
-4. 将可安全解析的 `row_filter_expression` 转换为 DSL；无法转换的标为待处理并阻止 V2 切换。
-5. 检查重复、冲突、过期和引用不存在资源的策略，输出对账报告，不静默删除。
+2. 按“旧 DENY → 各 action DENY；旧 ALLOW 的 true → ALLOW、false → UNSET”回填 action effects，并对账派生 boolean。
+3. 现有 `datasource_access_policy` 的 ALLOW / DENY 统一回填 `permission_action=QUERY`；MASK 按结果策略迁移，不猜测 DISCOVER / EXPORT / MANAGE。
+4. 为现有部门授权回填 `department_scope`，默认值必须基于当前真实继承结果生成并人工复核。
+5. 为现有表级放开行为生成显式 `ALLOW *` 或具体表 ALLOW，避免切换默认拒绝后误锁用户。
+6. 将可安全解析的 `row_filter_expression` 转换为 DSL；无法转换的标为待处理并阻止 V2 切换。
+7. 检查重复、冲突、过期和引用不存在资源的策略，输出对账报告，不静默删除。
 
 ### 45.3 Verify
 
@@ -2192,12 +2232,14 @@ canViewSql
 至少覆盖：
 
 - 无授权默认拒绝；
+- QUERY / EXPORT / VIEW_SQL / DISCOVER / MANAGE 各自按 DENY > ALLOW > UNSET 计算，互不串权；
 - USER ALLOW 不能覆盖 ROLE / DEPARTMENT DENY；
 - 父部门 CURRENT 不向子部门继承；
 - CURRENT_AND_CHILDREN 正确继承且组织循环 fail-closed；
 - 过期、未来生效、工作日、跨午夜时间计划；
 - 时间计划非法时 DENY 有效、ALLOW 无效；
 - ALLOW * 减去表 DENY；
+- 列 ALL_EXCEPT_DENIED 与 ALLOWLIST 语义明确，列 ALLOW 不会隐式授予表权限；
 - 表 DENY、列 DENY、MASK 的固定优先级；
 - MANDATORY_MASK 不可解除，OVERRIDABLE_MASK 只有有效审批 UNMASK 才能解除；
 - 多 SCOPE 行范围 OR，多 MANDATORY 条件 AND；
@@ -2216,10 +2258,11 @@ canViewSql
 - 空 ALLOWLIST 拒绝全部表；
 - JOIN、CTE、子查询中任一无权表导致拒绝；
 - 表别名、未限定列和 `SELECT *` 不绕过列权限；
+- 列 ALLOWLIST 为空时拒绝查询；`SELECT *` 继续按现有安全规则拒绝，不能借星号绕过列白名单；
 - RAG 主 chunk、相邻 chunk、fallback 使用同一权限过滤；
 - 多表 Join Path 有一张无权表时整块排除；
 - denied column 不出现在 LLM Schema 上下文；
-- few-shot 中含额外无权表/列时整条排除，glossary 关联资源按权限过滤；
+- few-shot 中含额外无权表/列时整条排除；用户级候选不会被其他用户直接召回，共享示例已审核并移除敏感字面量；glossary 关联资源按权限过滤；
 - conversation history / summary 在撤权和切换快照后不进入新 Prompt；
 - 图表 LLM 只收到已脱敏预览，不收到 MASK 字段原值；
 - 行策略 AST 在已有 WHERE、JOIN、子查询下语义正确；
