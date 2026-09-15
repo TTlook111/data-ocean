@@ -91,6 +91,8 @@ Module status summary:
 
 Current status, Track A remediation details, and admin navigation rules live in `docs/development/DataOcean后台重构状态与整改计划.md`; treat it as the single source of truth. The ordered next-action queue lives in `docs/development/后续开发.md` and must not duplicate status claims. The seven-stage refactor roadmap is complete; do not treat `docs/development/completed/DataOcean统一执行路线图.md` as an active implementation plan unless the user explicitly asks to revisit it.
 
+Track B targets the simple permission design in `docs/development/guides/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1), currently a design only. Roles own functions; department/user/role data grants own queryable data; each user-role binding owns its admin datasource scope. Build and verify the new system, switch and verify it in real operation, then remove old permissions. Do not map/backfill old grants, mix permission algorithms, or delete old permissions during initial setup. Preserve accounts, real organizations, business assets, conversations, and audit history.
+
 ## Recently Completed
 
 - **F0 fixes completed** (2026-06-13): force-vectorization safety, internal route authentication, table allowlist semantics, prompt-injection defenses, dangerous-function blacklist, retry_count boundary fixes, VectorStore cache, reranker score clamp, SSE parsing, LLM/Embedding init race fixes, config reload race fixes, and pool cleanup TOCTOU fixes.
