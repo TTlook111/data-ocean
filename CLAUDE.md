@@ -77,6 +77,8 @@ Current status, Track A remediation, and navigation decisions — see `docs/deve
 
 Track B targets the simple permission design in `docs/development/guides/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1), currently a design only. Roles own functions; department/user/role data grants own queryable data; each user-role binding owns its admin datasource scope. Build and verify the new system, switch and verify it in real operation, then remove old permissions. Do not map/backfill old grants, mix permission algorithms, or delete old permissions during initial setup. New authorization decisions must read only isolated/versioned IAM-SIMPLE-1 facts; old role-permission relations, same-named legacy codes, old JWT authorities, and old permission caches cannot seed or grant new permissions. B0 must commit the complete consumption and B6 deletion/preservation inventory before B1; B5 must explicitly bootstrap and verify at least one new protected system administrator without inferring it from legacy roles. Preserve accounts, real organizations, business assets, conversations, audit history, and Flyway history.
 
+B0 文档已评审通过；`docs/development/轨道B-B0权限清单与决策冻结.md` 已固化权限消费清单、IAM-SIMPLE-1 独立新表方案、新契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线。B1 尚未开始，不代表代码、数据库或真实运行验收已完成。
+
 Latest addition:
 
 - **阶段 5–8 审查问题代码修复**（2026-09-12）：历史审查项已处理，包括删除伪入口、补齐“猜你想问”代码链、修复审批列表条件渲染和数据源分页绑定。2026-09-13 真实验收仍发现阻断，当前边界和整改统一见 `docs/development/DataOcean后台重构状态与整改计划.md`。
@@ -267,6 +269,7 @@ docs/
 ├── development/                    # 开发相关文档
 │   ├── DataOcean后台重构状态与整改计划.md # 当前状态、轨道 A、导航决策和待办的唯一入口
 │   ├── 后续开发.md                  # 仅列下一步执行队列
+│   ├── 轨道B-B0权限清单与决策冻结.md # B0 权限清单和决策基线（已评审，B1 未开始）
 │   ├── DataOcean技术栈与模块职责.md  # 技术栈、模块职责与数据存储归属
 │   ├── completed/                  # 已完成的开发文档（历史记录，不需要更新）
 │   │   ├── DataOcean统一执行路线图.md

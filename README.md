@@ -161,6 +161,7 @@ output/          联调截图与验证产物（按需生成，默认不存在）
 | [`docs/development/DataOcean后台重构状态与整改计划.md`](docs/development/DataOcean后台重构状态与整改计划.md) | 当前真实完成度、轨道 A 整改、导航决策、验证基线与后续优先级的唯一入口。 |
 | [`docs/development/后续开发.md`](docs/development/后续开发.md) | 仅列下一步执行队列，方便判断当前先做什么。 |
 | [`docs/development/guides/DataOcean-完整权限体系设计.md`](docs/development/guides/DataOcean-完整权限体系设计.md) | 简明权限目标设计：中文功能说明、部门默认数据、明确授权与实际权限预览；IAM-SIMPLE-1 与旧权限事实隔离，显式初始化新系统管理员，先验收新体系再按清单删除旧权限，尚未实施。 |
+| [`docs/development/轨道B-B0权限清单与决策冻结.md`](docs/development/轨道B-B0权限清单与决策冻结.md) | B0 权限消费清单、IAM-SIMPLE-1 独立新表方案、新 Java/Python 契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线；已评审通过，尚未进入 B1。 |
 | [`docs/archive/nl2sql-单库多表版-项目构想.md`](docs/archive/nl2sql-单库多表版-项目构想.md) | 历史设计思路、架构决策和 NL2SQL 方案背景。 |
 | [`frontend/README.md`](frontend/README.md) | 前端工程说明。 |
 

@@ -93,6 +93,8 @@ Current status, Track A remediation details, and admin navigation rules live in 
 
 Track B targets the simple permission design in `docs/development/guides/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1), currently a design only. Roles own functions; department/user/role data grants own queryable data; each user-role binding owns its admin datasource scope. Build and verify the new system, switch and verify it in real operation, then remove old permissions. Do not map/backfill old grants, mix permission algorithms, or delete old permissions during initial setup. New authorization decisions must read only isolated/versioned IAM-SIMPLE-1 facts; old role-permission relations, same-named legacy codes, old JWT authorities, and old permission caches cannot seed or grant new permissions. B0 must commit the complete consumption and B6 deletion/preservation inventory before B1; B5 must explicitly bootstrap and verify at least one new protected system administrator without inferring it from legacy roles. Preserve accounts, real organizations, business assets, conversations, audit history, and Flyway history.
 
+B0 文档已评审通过；`docs/development/轨道B-B0权限清单与决策冻结.md` 是权限消费清单、IAM-SIMPLE-1 独立新表方案、新契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线。B1 尚未开始，不代表代码、数据库或真实运行验收已完成。
+
 ## Recently Completed
 
 - **F0 fixes completed** (2026-06-13): force-vectorization safety, internal route authentication, table allowlist semantics, prompt-injection defenses, dangerous-function blacklist, retry_count boundary fixes, VectorStore cache, reranker score clamp, SSE parsing, LLM/Embedding init race fixes, config reload race fixes, and pool cleanup TOCTOU fixes.
