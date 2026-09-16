@@ -160,7 +160,7 @@ output/          联调截图与验证产物（按需生成，默认不存在）
 | [`docs/development/completed/DataOcean-RAG问题修复与知识文档切分优化方案.md`](docs/development/completed/DataOcean-RAG问题修复与知识文档切分优化方案.md) | RAG 修复实施结果、剩余部署验证和评测待办。 |
 | [`docs/development/DataOcean后台重构状态与整改计划.md`](docs/development/DataOcean后台重构状态与整改计划.md) | 当前真实完成度、轨道 A 整改、导航决策、验证基线与后续优先级的唯一入口。 |
 | [`docs/development/后续开发.md`](docs/development/后续开发.md) | 仅列下一步执行队列，方便判断当前先做什么。 |
-| [`docs/development/guides/DataOcean-完整权限体系设计.md`](docs/development/guides/DataOcean-完整权限体系设计.md) | 简明权限目标设计：中文功能说明、部门默认数据、明确授权与实际权限预览；先验收新体系再删除旧权限，尚未实施。 |
+| [`docs/development/guides/DataOcean-完整权限体系设计.md`](docs/development/guides/DataOcean-完整权限体系设计.md) | 简明权限目标设计：中文功能说明、部门默认数据、明确授权与实际权限预览；IAM-SIMPLE-1 与旧权限事实隔离，显式初始化新系统管理员，先验收新体系再按清单删除旧权限，尚未实施。 |
 | [`docs/archive/nl2sql-单库多表版-项目构想.md`](docs/archive/nl2sql-单库多表版-项目构想.md) | 历史设计思路、架构决策和 NL2SQL 方案背景。 |
 | [`frontend/README.md`](frontend/README.md) | 前端工程说明。 |
 
