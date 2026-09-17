@@ -78,7 +78,7 @@ class IamS1FunctionCatalogTest {
                 "sys_role", "sys_permission", "sys_user_role", "sys_role_permission",
                 "datasource_access", "datasource_access_policy", "DatasourceAccessService",
                 "DatasourcePermissionService", "PermissionCalculator", "Caffeine",
-                "benmanes.caffeine", "RedisTemplate", "ConcurrentHashMap");
+                "benmanes.caffeine", "ConcurrentHashMap");
     }
 
     private String read(Path path) {

@@ -60,7 +60,7 @@ Important boundaries:
 
 ## Current Status
 
-Last updated: 2026-09-13.
+Last updated: 2026-09-17.
 
 The main end-to-end chain is implemented and has been run through:
 
@@ -76,7 +76,7 @@ Module status summary:
 | --- | --- |
 | Frontend query app | Core complete; server-side conversation restore is implemented |
 | Frontend admin governance app | Core complete; includes catalog search, glossary, permissions, audit, system pages |
-| Java user/auth/permission modules | Complete; permission policy priority/time conditions and access approval are implemented |
+| Java user/auth/permission modules | Legacy implementation remains for pre-switch operation; IAM-SIMPLE-1 B1 is committed/pushed and B2 data authorization/Resolver code is implemented but not switched |
 | Java datasource/metadata/governance/versioning modules | Complete; metadata entity graph and event recording are implemented |
 | Java glossary module | Complete; glossary and term approval flow are implemented |
 | Java knowledge/skills.md lifecycle | Complete, with Python-owned chunking integration |
@@ -91,9 +91,9 @@ Module status summary:
 
 Current status, Track A remediation details, and admin navigation rules live in `docs/development/DataOcean后台重构状态与整改计划.md`; treat it as the single source of truth. The ordered next-action queue lives in `docs/development/后续开发.md` and must not duplicate status claims. The seven-stage refactor roadmap is complete; do not treat `docs/development/completed/DataOcean统一执行路线图.md` as an active implementation plan unless the user explicitly asks to revisit it.
 
-Track B targets the simple permission design in `docs/development/guides/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1). B1 code is implemented and focused/full Java tests pass; real database upgrade, runtime/browser acceptance and B5 remain incomplete. Roles own functions; department/user/role data grants own queryable data; each user-role binding owns its admin datasource scope. Build and verify the new system, switch and verify it in real operation, then remove old permissions. Do not map/backfill old grants, mix permission algorithms, or delete old permissions during initial setup. New authorization decisions must read only isolated/versioned IAM-SIMPLE-1 facts; old role-permission relations, same-named legacy codes, old JWT authorities, and old permission caches cannot seed or grant new permissions. B0 must commit the complete consumption and B6 deletion/preservation inventory before B1; B5 must explicitly bootstrap and verify at least one new protected system administrator without inferring it from legacy roles. Preserve accounts, real organizations, business assets, conversations, audit history, and Flyway history.
+Track B targets the simple permission design in `docs/development/guides/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1). B1 is committed and pushed as `e373c8152b095048ab8a3d7ea7b571e188f29b9a`; B2 code is implemented and tested but remains uncommitted/unpushed for review. B2 adds isolated data grants, explicit columns, structured row conditions, field protection, department inheritance, one Resolver/preview path and Redis-only revision snapshots. Real V55 database upgrade, runtime/browser acceptance, bootstrap and B5 remain incomplete. Roles own functions; department/user/role data grants own queryable data; each user-role binding owns its admin datasource scope. Build and verify the new system, switch and verify it in real operation, then remove old permissions. Do not map/backfill old grants, mix permission algorithms, or delete old permissions during initial setup. New authorization decisions must read only isolated/versioned IAM-SIMPLE-1 facts; old role-permission relations, same-named legacy codes, old JWT authorities, and old permission caches cannot seed or grant new permissions. B0 must commit the complete consumption and B6 deletion/preservation inventory before B1; B5 must explicitly bootstrap and verify at least one new protected system administrator without inferring it from legacy roles. Preserve accounts, real organizations, business assets, conversations, audit history, and Flyway history.
 
-B0 文档已评审通过；`docs/development/轨道B-B0权限清单与决策冻结.md` 是权限消费清单、IAM-SIMPLE-1 独立新表方案、新契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线。B1 代码已完成，聚焦测试 34 个、完整 Java 测试 188 个通过；已补 SpringFactoriesLoader 注册、完整 Environment bootstrap Web 隔离、调度隔离、敏感功能配置与后台角色转授边界、管理员并发锁、失效 bootstrap 拒绝、稳定 revision target 和失败审计；未执行真实数据库升级、服务/浏览器验收、真实 bootstrap 或 B5。
+B0 文档已评审通过；`docs/development/轨道B-B0权限清单与决策冻结.md` 是权限消费清单、IAM-SIMPLE-1 独立新表方案、新契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线。B1 已提交并推送，聚焦测试 34 个、完整 Java 测试 188 个通过；B2 已实现但未提交/推送，B2 新增测试 77 个，`IamS1*Test` 合计 111 个、完整 Java 测试 265 个通过。V55 未执行真实数据库升级，未执行服务/浏览器验收、真实 bootstrap 或 B5；Python 与 Vue 未修改。
 
 ## Recently Completed
 
@@ -233,6 +233,8 @@ Migration notes:
 - `V44`: adds `metadata_quality_issue.column_meta_id` for governance-confidence linkage (Phase 1).
 - `V45`: adds `db_column_meta.sample_values` for column sample value collection (Phase 2).
 - `V50`: adds RAG chunk order/group, multi-table/multi-column, entity, trust, and content hash metadata.
+- `V54`: adds IAM-SIMPLE-1 B1 isolated function/role/binding/bootstrap facts; committed and pushed.
+- `V55`: adds IAM-SIMPLE-1 B2 data grants, explicit grant columns, structured row conditions, and field protection; code is uncommitted and this migration has not been executed against real MySQL.
 
 ## Python Service Notes
 
