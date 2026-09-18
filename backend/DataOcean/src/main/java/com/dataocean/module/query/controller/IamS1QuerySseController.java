@@ -66,4 +66,25 @@ public class IamS1QuerySseController {
             emitters.remove(taskId);
         }
     }
+
+    /**
+     * 结果无法按当前权限安全呈现时只推送可公开的原因，绝不带任何结果载荷。
+     * 调用方必须传入已经过 IamS1QueryService.get 处置的结果或固定文案。
+     */
+    public void sendError(String taskId, String message) {
+        SseEmitter emitter = emitters.get(taskId);
+        if (emitter == null) return;
+        try {
+            emitter.send(SseEmitter.event().name("error").data(Map.of(
+                    "taskId", taskId,
+                    "protocolVersion", "IAM-SIMPLE-1",
+                    "status", "FAILED",
+                    "error", message == null || message.isBlank() ? "S1 查询失败" : message)));
+            emitter.complete();
+        } catch (IOException ex) {
+            log.debug("S1 SSE 错误推送失败 taskId={}", taskId);
+        } finally {
+            emitters.remove(taskId);
+        }
+    }
 }

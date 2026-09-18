@@ -90,7 +90,9 @@ def validate_request(request: S1SqlValidateRequest) -> S1SqlValidation:
         )
     except S1SqlSecurityError as exc:
         return S1SqlValidation(False, violations=[str(exc)])
-    final_validation = validate_sql(rewritten, request.permissionSnapshot)
+    # 注入后的 SQL 含有服务端策略谓词，其位置由连接语义决定，不再按请求方
+    # 声明的 usage 复测；模型产出的 SQL 原文已在上面按 usage 校验过。
+    final_validation = validate_sql(rewritten, request.permissionSnapshot, enforce_usage=False)
     if not final_validation.passed:
         return final_validation
     final_validation.sql = rewritten
@@ -156,7 +158,8 @@ async def execute_validated(request: S1SqlExecuteRequest) -> dict[str, Any]:
     )
     if rewritten != request.validatedSql:
         raise S1SqlSecurityError("执行 SQL 与已校验并注入的 SQL 不一致")
-    validation = validate_sql(request.validatedSql, request.permissionSnapshot)
+    # 同一份已注入策略谓词的 SQL 只复测结构/表/字段/保护，不按 usage 复测。
+    validation = validate_sql(request.validatedSql, request.permissionSnapshot, enforce_usage=False)
     if not validation.passed:
         raise S1SqlSecurityError("执行 SQL 未通过同一份 S1 AST 校验")
     result = await execute_sql(

@@ -30,7 +30,7 @@ public class DataMaskingServiceImpl implements DataMaskingService {
         // 构建 tableName.columnName → 脱敏策略映射（复合键匹配，避免同名列误脱敏）
         Map<String, String> columnStrategyMap = new HashMap<>();
         for (PermissionContextVO.MaskColumnItem item : maskColumns) {
-            String key = (item.getTableName() + "." + item.getColumnName()).toLowerCase();
+            String key = (item.getTableName() + "." + item.getColumnName()).toLowerCase(Locale.ROOT);
             columnStrategyMap.put(key, item.getMaskType());
         }
 
@@ -39,7 +39,7 @@ public class DataMaskingServiceImpl implements DataMaskingService {
         for (Map<String, Object> row : data) {
             Map<String, Object> maskedRow = new LinkedHashMap<>(row);
             for (Map.Entry<String, Object> entry : maskedRow.entrySet()) {
-                String strategy = columnStrategyMap.get(entry.getKey().toLowerCase());
+                String strategy = columnStrategyMap.get(entry.getKey().toLowerCase(Locale.ROOT));
                 if (strategy != null && entry.getValue() != null) {
                     entry.setValue(maskValue(String.valueOf(entry.getValue()), strategy));
                 }
@@ -59,14 +59,14 @@ public class DataMaskingServiceImpl implements DataMaskingService {
         // maskedFields: {输出列名(小写) → 策略名}，直接匹配结果 key
         Map<String, String> normalizedMap = new HashMap<>();
         for (Map.Entry<String, String> entry : maskedFields.entrySet()) {
-            normalizedMap.put(entry.getKey().toLowerCase(), entry.getValue());
+            normalizedMap.put(entry.getKey().toLowerCase(Locale.ROOT), entry.getValue());
         }
 
         List<Map<String, Object>> maskedData = new ArrayList<>(data.size());
         for (Map<String, Object> row : data) {
             Map<String, Object> maskedRow = new LinkedHashMap<>(row);
             for (Map.Entry<String, Object> entry : maskedRow.entrySet()) {
-                String strategy = normalizedMap.get(entry.getKey().toLowerCase());
+                String strategy = normalizedMap.get(entry.getKey().toLowerCase(Locale.ROOT));
                 if (strategy != null && entry.getValue() != null) {
                     entry.setValue(maskValue(String.valueOf(entry.getValue()), strategy));
                 }

@@ -18,7 +18,9 @@ class S1Model(BaseModel):
 class S1Column(S1Model):
     name: str
     columnId: int
-    usage: list[Literal["PROJECTION", "FILTER", "JOIN", "GROUP", "ORDER", "HAVING", "FUNCTION"]]
+    # 必须与 Java 侧 IamS1ColumnUsage 完全一致：Java 枚举能产出的每个取值
+    # 这里都要接受，否则整份快照会被 Literal 校验直接拒绝。
+    usage: list[Literal["PROJECTION", "FILTER", "JOIN", "ORDER", "GROUP", "HAVING", "FUNCTION", "SUBQUERY"]]
     protectionLevel: Literal["NORMAL", "HIDDEN", "MASKED"]
     maskPolicy: str | None
     dataType: str | None

@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.exception.IamS1MaskPolicyConflictException;
 import com.dataocean.common.pagination.PageRequest;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.datasource.entity.Datasource;
@@ -46,8 +47,11 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -116,9 +120,12 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         Runnable dispatch = () -> pythonClient.executeAsync(taskId, pythonRequest, result -> {
             complete(taskId, result);
             try {
-                QueryTask completed = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>()
-                        .eq(QueryTask::getTaskId, taskId));
-                if (completed != null) sseController.sendResult(taskId, toVO(completed));
+                // 必须复用 get：SSE 与 REST 走同一条读取路径，才能在推送前
+                // 完成 viewSql 能力判定、当前权限复查和最终脱敏。
+                sseController.sendResult(taskId, get(taskId, userId));
+            } catch (BusinessException ex) {
+                // get 拒绝呈现时只推送可公开的原因，不推送任何结果载荷。
+                sseController.sendError(taskId, ex.getMessage());
             } catch (Exception ex) {
                 log.warn("S1 结果 SSE 推送失败 taskId={}", taskId);
             }
@@ -140,6 +147,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     public QueryTaskVO get(String taskId, Long userId) {
         QueryTask task = find(taskId, userId);
         if (!isS1(task)) throw new BusinessException("任务不属于 IAM-SIMPLE-1");
+        // 功能权限按当前状态复查：撤销 query:use 后，历史结果不得再通过
+        // 任务读取、历史、导出、反馈或 SSE 取回。
+        if (!authorizationResolver.hasGlobalFunction(userId, "query:use")) {
+            throw new BusinessException("没有 IAM-SIMPLE-1 问数功能");
+        }
         IamS1DataAuthorizationSnapshot current = recheck(task, userId);
         if (!java.util.Objects.equals(current.getPermissionRevision(), task.getPermissionRevision())
                 && (containsRowCondition(task.getIamExecutionSnapshot()) || hasRowCondition(current))) {
@@ -230,7 +242,14 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 return;
             }
             List<Map<String, Object>> data = objectMapper.convertValue(result.getOrDefault("data", List.of()), new TypeReference<>() {});
-            Map<String, String> outputMasks = deriveOutputMasks(result.get("sourceTrace"), current);
+            Map<String, String> outputMasks;
+            try {
+                outputMasks = deriveOutputMasks(result.get("sourceTrace"), current);
+            } catch (IamS1MaskPolicyConflictException ex) {
+                // 冲突结果无法按单一策略正确脱敏，直接拒绝落库。
+                fail(taskId, "结果脱敏策略冲突，拒绝落库", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
             data = maskingService.maskResultByFields(data, outputMasks);
             LambdaUpdateWrapper<QueryTask> update = new LambdaUpdateWrapper<QueryTask>()
                     .eq(QueryTask::getTaskId, taskId).eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
@@ -304,20 +323,28 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         if (usedColumns == null || usedColumns.isEmpty() || current == null) return false;
         Map<String, IamS1FieldProtectionVO> fields = new HashMap<>();
         current.getTables().forEach(table -> table.getFieldProtections().forEach(field ->
-                fields.put((table.getTableName() + "." + field.getColumnName()).toLowerCase(), field)));
+                fields.put((table.getTableName() + "." + field.getColumnName()).toLowerCase(Locale.ROOT), field)));
         for (String value : usedColumns) {
-            IamS1FieldProtectionVO protection = fields.get(value.toLowerCase());
+            IamS1FieldProtectionVO protection = fields.get(value.toLowerCase(Locale.ROOT));
             if (protection == null || "HIDDEN".equals(protection.getProtectionLevel())) return false;
         }
         return true;
     }
 
-    @SuppressWarnings("unchecked")
+    /**
+     * 按输出列名（小写规范化，与 {@code maskResultByFields} 的口径一致）汇总脱敏策略。
+     * <p>
+     * Python 侧同样会拒绝多策略冲突，但 Java 是最终保护边界，不能依赖上游校验结果：
+     * 历史持久化任务、异常来源或协议回归都可能带来含有冲突的 sourceTrace，而按列名
+     * 生效的脱敏只能取其一，必然用错误策略处理另一部分数据。此处独立判定并 fail-closed。
+     * </p>
+     */
     private Map<String, String> deriveOutputMasks(Object rawTrace, IamS1DataAuthorizationSnapshot snapshot) {
         Map<String, IamS1FieldProtectionVO> fieldMap = new HashMap<>();
         snapshot.getTables().forEach(table -> table.getFieldProtections().forEach(field ->
-                fieldMap.put((table.getTableName() + "." + field.getColumnName()).toLowerCase(), field)));
-        Map<String, String> result = new LinkedHashMap<>();
+                fieldMap.put((table.getTableName() + "." + field.getColumnName()).toLowerCase(Locale.ROOT), field)));
+        Map<String, Set<String>> policies = new LinkedHashMap<>();
+        Map<String, String> outputNames = new LinkedHashMap<>();
         if (rawTrace instanceof Map<?, ?> wrapper) {
             rawTrace = wrapper.get("entries");
         }
@@ -327,14 +354,31 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 String output = String.valueOf(trace.get("outputColumn"));
                 Object source = trace.get("sources");
                 if (!(source instanceof List<?> sources)) continue;
+                String key = output.toLowerCase(Locale.ROOT);
                 for (Object item : sources) {
-                    IamS1FieldProtectionVO protection = fieldMap.get(String.valueOf(item).toLowerCase());
-                    if (protection != null && "MASKED".equals(protection.getProtectionLevel())) {
-                        result.put(output, protection.getMaskPolicy());
-                    }
+                    IamS1FieldProtectionVO protection = fieldMap.get(String.valueOf(item).toLowerCase(Locale.ROOT));
+                    if (protection == null || !"MASKED".equals(protection.getProtectionLevel())) continue;
+                    outputNames.putIfAbsent(key, output);
+                    Set<String> found = policies.computeIfAbsent(key, ignored -> new LinkedHashSet<>());
+                    String policy = protection.getMaskPolicy();
+                    if (policy != null && !policy.isBlank()) found.add(policy);
                 }
             }
         }
+        List<String> conflicts = policies.entrySet().stream()
+                .filter(entry -> entry.getValue().size() > 1)
+                .map(entry -> entry.getKey() + " -> " + String.join(", ", entry.getValue()))
+                .toList();
+        if (!conflicts.isEmpty()) {
+            log.warn("S1 结果存在脱敏策略冲突 conflicts={}", conflicts);
+            throw new IamS1MaskPolicyConflictException("同一输出列存在多种脱敏策略", conflicts);
+        }
+        Map<String, String> result = new LinkedHashMap<>();
+        policies.forEach((key, found) -> {
+            if (!found.isEmpty()) {
+                result.put(outputNames.getOrDefault(key, key), found.iterator().next());
+            }
+        });
         return result;
     }
 
@@ -461,7 +505,20 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         } catch (Exception ex) { throw new BusinessException("S1 结果读取失败"); }
     }
     private List<String> readList(String json) { try { return json == null ? List.of() : objectMapper.readValue(json, new TypeReference<>() {}); } catch (Exception ex) { return List.of(); } }
-    private void applyCurrentProtection(QueryTaskVO vo, QueryTask task, IamS1DataAuthorizationSnapshot current) { if (!isSubsetOfCurrent(vo.getUsedColumns(), current)) throw new BusinessException("权限已变化，请重新查询"); Map<String, String> masks = deriveOutputMasks(vo.getSourceTrace(), current); if (!masks.isEmpty()) vo.setData(maskingService.maskResultByFields(vo.getData(), masks)); vo.setMaskedFields(masks); }
+    private void applyCurrentProtection(QueryTaskVO vo, QueryTask task, IamS1DataAuthorizationSnapshot current) {
+        // 失败任务没有结果载荷，可被再保护的字段集为空。此时必须放行读取，
+        // 否则真实失败原因会被"权限已变化"覆盖，失败任务也无法再次读取。
+        if (vo.getData() == null && vo.getColumns() == null) return;
+        if (!isSubsetOfCurrent(vo.getUsedColumns(), current)) throw new BusinessException("权限已变化，请重新查询");
+        Map<String, String> masks;
+        try {
+            masks = deriveOutputMasks(vo.getSourceTrace(), current);
+        } catch (IamS1MaskPolicyConflictException ex) {
+            // 读取阶段同样 fail-closed：历史任务或异常来源带来的冲突 trace 不得返回结果。
+            throw new BusinessException("结果脱敏策略冲突，已拒绝返回");
+        }
+        if (!masks.isEmpty()) vo.setData(maskingService.maskResultByFields(vo.getData(), masks)); vo.setMaskedFields(masks);
+    }
 
     private boolean containsRowCondition(String snapshotJson) {
         return snapshotJson != null && snapshotJson.contains("\"rowCondition\":{");
