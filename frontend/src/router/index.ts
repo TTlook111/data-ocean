@@ -78,6 +78,12 @@ const router = createRouter({
       meta: { title: '智能问答', section: '智能查询' },
     },
     {
+      path: '/query/iam-s1',
+      name: 'query-iam-s1',
+      component: () => import('../views/query/IamS1QueryView.vue'),
+      meta: { title: 'IAM-SIMPLE-1 安全问数', section: '智能查询' },
+    },
+    {
       path: '/admin',
       component: AdminShell,
       children: [
@@ -210,6 +216,24 @@ const router = createRouter({
           name: 'admin-access-organization',
           component: OrganizationView,
           meta: { title: '组织与角色', domainKey: 'access', workspaceKey: 'organization', contextMode: 'none' },
+        },
+        {
+          path: 'access/iam',
+          name: 'admin-access-iam',
+          component: () => import('../views/admin/access/IamS1AccessWorkspaceView.vue'),
+          meta: { title: '授权配置', domainKey: 'access', workspaceKey: 'iam-access', contextMode: 'none', iamS1: true },
+        },
+        {
+          path: 'access/iam-approvals',
+          name: 'admin-access-iam-approvals',
+          component: () => import('../views/admin/access/IamS1ApprovalView.vue'),
+          meta: { title: '访问申请与审批', domainKey: 'access', workspaceKey: 'iam-approvals', contextMode: 'none', iamS1: true },
+        },
+        {
+          path: 'access/iam-organization',
+          name: 'admin-access-iam-organization',
+          component: () => import('../views/admin/access/IamS1OrganizationView.vue'),
+          meta: { title: '角色与负责源', domainKey: 'access', workspaceKey: 'iam-organization', contextMode: 'none', iamS1: true },
         },
         {
           path: 'operations/queries',

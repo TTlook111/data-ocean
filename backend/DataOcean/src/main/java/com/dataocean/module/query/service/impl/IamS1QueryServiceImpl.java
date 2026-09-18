@@ -473,12 +473,14 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             if (table == null || table.getTableName() == null || table.getTableName().isBlank()
                     || table.getReferencedColumns() == null || table.getReferencedColumns().isEmpty()
                     || table.getColumnUsages() == null) {
-                throw new BusinessException("S1 表字段范围或字段 usage 缺失");
+                throw new BusinessException("S1 表字段范围或字段 usage 缺失：请求必须声明表、字段和每个字段的 usage");
             }
             for (String column : table.getReferencedColumns()) {
                 if (column == null || column.isBlank() || !table.getColumnUsages().containsKey(column)
                         || table.getColumnUsages().get(column) == null || table.getColumnUsages().get(column).isEmpty()) {
-                    throw new BusinessException("S1 字段 usage 缺失");
+                    // 明确给出缺失位置，避免前端只能看到“usage 缺失”而定位不到字段。
+                    throw new BusinessException("S1 字段 usage 缺失：表 " + table.getTableName()
+                            + " 的字段 " + column + " 没有声明使用位置（默认应为 PROJECTION/FILTER/JOIN）");
                 }
             }
         }

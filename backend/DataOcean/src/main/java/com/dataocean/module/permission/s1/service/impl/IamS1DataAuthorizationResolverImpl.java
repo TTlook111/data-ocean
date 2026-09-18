@@ -174,6 +174,34 @@ public class IamS1DataAuthorizationResolverImpl implements IamS1DataAuthorizatio
         }
     }
 
+    @Override
+    public boolean hasEffectiveAllowGrant(Long userId, Long datasourceId, LocalDateTime at) {
+        if (userId == null || datasourceId == null) {
+            return false;
+        }
+        LocalDateTime now = at == null ? LocalDateTime.now() : at;
+        IamS1UserIdentity user = userIdentityMapper.selectIdentity(userId);
+        if (user == null || !Integer.valueOf(IamS1Constants.ENABLED).equals(user.getStatus())) {
+            return false;
+        }
+        // 与 resolve 完全相同的主体匹配与有效期判定：部门路径损坏时按“无授权”处理，不放大范围。
+        DepartmentPath path = resolveDepartmentPath(user.getDepartmentId());
+        if (!path.valid()) {
+            return false;
+        }
+        List<IamS1DataGrant> grants = dataGrantMapper.selectActiveByDatasource(
+                IamS1Constants.PROTOCOL_VERSION, datasourceId);
+        if (grants == null) {
+            return false;
+        }
+        for (IamS1DataGrant grant : matchGrants(grants, userId, path)) {
+            if (IamS1Constants.EFFECT_ALLOW.equals(grant.getEffect()) && isEffective(grant, now)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private Computation compute(IamS1DataAuthorizationRequestDTO request, List<IamS1DataGrant> grants,
                                 List<IamS1DataGrantColumn> grantColumns, List<IamS1RowCondition> conditions,
                                 List<IamS1FieldProtection> protections, DepartmentPath departmentPath,

@@ -20,6 +20,8 @@ public final class IamS1Constants {
     public static final String EFFECT_ALLOW = "ALLOW";
     public static final String EFFECT_DENY = "DENY";
     public static final String GRANT_SOURCE_MANUAL = "MANUAL";
+    /** B4：访问审批通过后生成的个人临时授权来源。 */
+    public static final String GRANT_SOURCE_APPROVAL = "APPROVAL";
     public static final String PROTECTION_NORMAL = "NORMAL";
     public static final String PROTECTION_HIDDEN = "HIDDEN";
     public static final String PROTECTION_MASKED = "MASKED";

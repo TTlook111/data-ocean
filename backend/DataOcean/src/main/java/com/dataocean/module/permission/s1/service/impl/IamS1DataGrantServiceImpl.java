@@ -50,6 +50,11 @@ import java.util.UUID;
 @Slf4j
 public class IamS1DataGrantServiceImpl implements IamS1DataGrantService {
 
+    /** 管理员直接配置数据授权所需的 S1 功能码。 */
+    private static final String MANAGE_FUNCTION = "security:permission:manage";
+    /** B4：访问审批通过生成个人临时授权所需的 S1 功能码。 */
+    private static final String APPROVAL_FUNCTION = "security:approval:review";
+
     private final IamS1DataGrantMapper dataGrantMapper;
     private final IamS1DataGrantColumnMapper dataGrantColumnMapper;
     private final IamS1RowConditionMapper rowConditionMapper;
@@ -69,7 +74,7 @@ public class IamS1DataGrantServiceImpl implements IamS1DataGrantService {
     public Long createGrant(Long operatorUserId, IamS1DataGrantSaveDTO request) {
         Long targetId = null;
         try {
-            IamS1DataGrant grant = buildGrant(operatorUserId, request, null);
+            IamS1DataGrant grant = buildGrant(operatorUserId, request, null, MANAGE_FUNCTION);
             targetId = grant.getId();
             grant.setRevisionNo(0L);
             try {
@@ -117,7 +122,7 @@ public class IamS1DataGrantServiceImpl implements IamS1DataGrantService {
     }
 
     private void createGrantInCurrentTransaction(Long operatorUserId, IamS1DataGrantSaveDTO request) {
-        IamS1DataGrant grant = buildGrant(operatorUserId, request, null);
+        IamS1DataGrant grant = buildGrant(operatorUserId, request, null, MANAGE_FUNCTION);
         grant.setRevisionNo(0L);
         dataGrantMapper.insert(grant);
         if (grant.getId() == null) {
@@ -138,12 +143,12 @@ public class IamS1DataGrantServiceImpl implements IamS1DataGrantService {
     public void updateGrant(Long operatorUserId, Long grantId, IamS1DataGrantSaveDTO request) {
         try {
             IamS1DataGrant current = requireGrant(grantId);
-            ensureOperator(operatorUserId, current.getDatasourceId());
+            ensureOperator(operatorUserId, current.getDatasourceId(), MANAGE_FUNCTION);
             ensureNotSelfTarget(operatorUserId, current.getSubjectType(), current.getSubjectId(),
                     current.getDepartmentScope());
-            IamS1DataGrant replacement = buildGrant(operatorUserId, request, current);
+            IamS1DataGrant replacement = buildGrant(operatorUserId, request, current, MANAGE_FUNCTION);
             if (!current.getDatasourceId().equals(replacement.getDatasourceId())) {
-                ensureOperator(operatorUserId, replacement.getDatasourceId());
+                ensureOperator(operatorUserId, replacement.getDatasourceId(), MANAGE_FUNCTION);
             }
             Long revisionNo = revisionService.record("DATA_GRANT", grantId, "UPDATE", operatorUserId,
                     safeReason(request.getReason()));
@@ -173,7 +178,7 @@ public class IamS1DataGrantServiceImpl implements IamS1DataGrantService {
     public void revokeGrant(Long operatorUserId, Long grantId, String reason) {
         try {
             IamS1DataGrant grant = requireGrant(grantId);
-            ensureOperator(operatorUserId, grant.getDatasourceId());
+            ensureOperator(operatorUserId, grant.getDatasourceId(), MANAGE_FUNCTION);
             ensureNotSelfTarget(operatorUserId, grant.getSubjectType(), grant.getSubjectId(),
                     grant.getDepartmentScope());
             Long revisionNo = revisionService.record("DATA_GRANT", grantId, "REVOKE", operatorUserId,
@@ -191,14 +196,63 @@ public class IamS1DataGrantServiceImpl implements IamS1DataGrantService {
         }
     }
 
+    @Override
+    @Transactional
+    public Long createApprovalGrant(Long reviewerId, Long requestId, IamS1DataGrantSaveDTO request) {
+        Long targetId = null;
+        try {
+            if (requestId == null) {
+                throw new BusinessException("访问申请 ID 不能为空");
+            }
+            if (request == null || !IamS1Constants.EFFECT_ALLOW.equals(upper(request.getEffect()))) {
+                throw new BusinessException("审批通过只能生成允许查询的个人授权");
+            }
+            if (request.getRowConditions() != null && !request.getRowConditions().isEmpty()) {
+                throw new BusinessException("第一期审批不支持记录级条件，请按全部记录批准");
+            }
+            // 审批生成的事实固定为个人、来源 APPROVAL 并关联申请，避免被误认为管理员直接配置。
+            request.setGrantSource(IamS1Constants.GRANT_SOURCE_APPROVAL);
+            request.setSourceReferenceId(requestId);
+            if (request.getValidFrom() == null) {
+                request.setValidFrom(LocalDateTime.now());
+            }
+            IamS1DataGrant grant = buildGrant(reviewerId, request, null, APPROVAL_FUNCTION);
+            targetId = grant.getId();
+            grant.setRevisionNo(0L);
+            try {
+                dataGrantMapper.insert(grant);
+            } catch (DuplicateKeyException exception) {
+                throw new BusinessException("S1 数据授权写入冲突，请刷新后重试");
+            }
+            targetId = grant.getId();
+            if (targetId == null) {
+                throw new BusinessException("S1 数据授权写入失败");
+            }
+            Long revisionNo = revisionService.record("DATA_GRANT", targetId, "APPROVAL_CREATE", reviewerId,
+                    safeReason(request.getReason()));
+            grant.setRevisionNo(revisionNo);
+            dataGrantMapper.updateById(grant);
+            saveChildren(grant, request);
+            permissionCacheService.invalidateAfterCommit(grant.getDatasourceId());
+            auditEventService.recordSuccess("DATA_GRANT_APPROVAL_CREATED", reviewerId, "DATA_GRANT", grant.getId(),
+                    null, grantSummary(grant, revisionNo), safeReason(request.getReason()),
+                    UUID.randomUUID().toString());
+            return grant.getId();
+        } catch (RuntimeException exception) {
+            recordFailureSafely("DATA_GRANT_APPROVAL_CREATE_FAILED", reviewerId, targetId,
+                    request == null ? null : request.getReason(), exception);
+            throw exception;
+        }
+    }
+
     private IamS1DataGrant buildGrant(Long operatorUserId, IamS1DataGrantSaveDTO request,
-                                      IamS1DataGrant current) {
+                                      IamS1DataGrant current, String guardFunction) {
         validateEnvelope(request);
         String subjectType = upper(request.getSubjectType());
         String effect = upper(request.getEffect());
         String resourceScope = upper(request.getResourceScope());
         validateSubject(subjectType, request.getSubjectId());
-        ensureOperator(operatorUserId, request.getDatasourceId());
+        ensureOperator(operatorUserId, request.getDatasourceId(), guardFunction);
         ensureNotSelfTarget(operatorUserId, subjectType, request.getSubjectId(), request.getDepartmentScope());
         validateDepartmentScope(subjectType, request.getDepartmentScope());
         validateResource(request, resourceScope, effect);
@@ -378,14 +432,15 @@ public class IamS1DataGrantServiceImpl implements IamS1DataGrantService {
         }
     }
 
-    private void ensureOperator(Long operatorUserId, Long datasourceId) {
+    private void ensureOperator(Long operatorUserId, Long datasourceId, String functionCode) {
         if (operatorUserId == null || datasourceId == null) {
             throw new BusinessException("操作者和数据源不能为空");
         }
-        var decision = authorizationResolver.resolveAdminAction(operatorUserId,
-                "security:permission:manage", datasourceId);
+        var decision = authorizationResolver.resolveAdminAction(operatorUserId, functionCode, datasourceId);
         if (!decision.isAllowed()) {
-            throw new BusinessException("没有维护该数据源 S1 授权的权限");
+            throw new BusinessException(APPROVAL_FUNCTION.equals(functionCode)
+                    ? "没有审批该数据源访问申请的权限"
+                    : "没有维护该数据源 S1 授权的权限");
         }
     }
 

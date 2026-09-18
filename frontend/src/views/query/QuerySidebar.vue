@@ -3,10 +3,19 @@
  * 数据源通过单一入口展开选择，避免与主区域重复展示。
  */
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Check, ChevronDown, Database, History, LogOut, MessageSquarePlus, RefreshCw, Search, ShieldCheck, Trash2, UserCog, UserRound } from 'lucide-vue-next'
 import type { DatasourceReadiness, UserDatasourceItem } from '../../api/datasource'
 import type { LocalSession } from '../../composables/useQuerySession'
+import { useIamS1Store } from '../../stores/iamS1'
+
+/** IAM-SIMPLE-1 能力摘要：只有 Java 判定具备“使用问数”时才展示新链路入口。 */
+const iamS1 = useIamS1Store()
+
+onMounted(() => {
+  // 读取失败时保持入口隐藏，不静默回退旧权限。
+  void iamS1.load()
+})
 
 const props = defineProps<{
   datasources: UserDatasourceItem[]
@@ -127,6 +136,13 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
           <button type="button" role="menuitem" @click="runUserCommand('profile')"><UserRound :size="16" /><span>个人资料</span></button>
           <button type="button" role="menuitem" @click="runUserCommand('password')"><ShieldCheck :size="16" /><span>修改密码</span></button>
           <button v-if="canEnterAdmin" type="button" role="menuitem" @click="runUserCommand('admin')"><UserCog :size="16" /><span>后台管理</span></button>
+          <RouterLink
+            v-if="iamS1.queryUse"
+            class="menu-link"
+            role="menuitem"
+            to="/query/iam-s1"
+            @click="userMenuOpen = false"
+          ><ShieldCheck :size="16" /><span>IAM-SIMPLE-1 安全问数</span></RouterLink>
           <div class="menu-divider"></div>
           <button type="button" role="menuitem" class="danger" @click="runUserCommand('logout')"><LogOut :size="16" /><span>退出登录</span></button>
         </div>
@@ -208,6 +224,8 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 .sidebar-user-menu > button:hover { background: var(--do-bg); }
 .sidebar-user-menu > button.danger { color: #b42318; }
 .sidebar-user-menu > button.danger:hover { background: #fef2f2; }
+.sidebar-user-menu > .menu-link { width: 100%; min-height: 38px; display: flex; align-items: center; gap: 10px; padding: 0 9px; border-radius: 8px; color: var(--do-ink); font-size: 12px; text-decoration: none; }
+.sidebar-user-menu > .menu-link:hover { background: var(--do-bg); }
 .menu-divider { height: 1px; margin: 6px 4px; background: var(--do-line); }
 .user-menu-enter-active, .user-menu-leave-active { transition: opacity 140ms ease, transform 140ms ease; transform-origin: bottom left; }
 .user-menu-enter-from, .user-menu-leave-to { opacity: 0; transform: translateY(6px) scale(.98); }
