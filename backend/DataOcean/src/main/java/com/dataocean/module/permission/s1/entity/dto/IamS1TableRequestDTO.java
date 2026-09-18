@@ -1,6 +1,7 @@
 package com.dataocean.module.permission.s1.entity.dto;
 
 import com.dataocean.module.permission.s1.enums.IamS1ColumnUsage;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -14,6 +15,7 @@ import java.util.Set;
 @Getter
 @Setter
 @NoArgsConstructor
+@JsonIgnoreProperties(ignoreUnknown = false)
 public class IamS1TableRequestDTO {
     private String tableName;
     private Set<String> referencedColumns = new LinkedHashSet<>();

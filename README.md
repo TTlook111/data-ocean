@@ -148,7 +148,7 @@ output/          联调截图与验证产物（按需生成，默认不存在）
 [`docs/development/DataOcean后台重构状态与整改计划.md`](docs/development/DataOcean后台重构状态与整改计划.md) 为准。
 `specs/` 下的文件是早期设计资料，仅供追溯，不再作为当前实现范围或任务完成度的依据。
 
-当前核心实现已包含 Java 管理的持久化会话与异步长期摘要、Python 请求级上下文组装，以及 Python 负责的 token-aware Schema RAG、Milvus 检索和安全发布流程。轨道 B 的 IAM-SIMPLE-1 B1 已提交并推送（`e373c8152b095048ab8a3d7ea7b571e188f29b9a`），聚焦测试 34 个、完整 Java 测试 188 个通过；B2 代码已完成但未提交/推送，新增 77 个 B2 测试，`IamS1*Test` 合计 111 个、完整 Java 测试 265 个通过。B2 的 V55 尚未执行真实数据库升级，服务/浏览器验收、真实 bootstrap、B5 和 B3～B6 尚未完成；Python 与 Vue 未修改。RAG 的真实 Milvus 验证、效果评测和正式全量重建入口仍以状态文档和专项方案中的待办为准。
+当前核心实现已包含 Java 管理的持久化会话与异步长期摘要、Python 请求级上下文组装，以及 Python 负责的 token-aware Schema RAG、Milvus 检索和安全发布流程。轨道 B 的 IAM-SIMPLE-1 B1 已提交并推送（`e373c8152b095048ab8a3d7ea7b571e188f29b9a`）；B2/B3 代码保持未提交/未推送。B3 已新增独立 S1 查询入口、Context Firewall、真实 Milvus 检索后权限过滤、全字段 SQL AST、参数化记录条件、来源追踪、Java 最终保护、事务提交后调度和任务/历史/SQL/CSV/反馈/SSE 当前权限复查，并修复直接 execute、RIGHT JOIN、空来源、binding 和危险函数/LIMIT/深度边界；`IamS1*Test` 116 个、完整 Java 270 个、Python B3 聚焦 13 个、完整 Python 177 passed/4 skipped/1 warning 通过。V55/V56 尚未执行真实数据库升级，服务/浏览器验收、真实 bootstrap、B5 和 B4～B6 尚未完成；Vue 未修改。RAG 的效果评测和正式全量重建入口仍以状态文档和专项方案中的待办为准。
 
 ## 文档入口
 
@@ -161,7 +161,7 @@ output/          联调截图与验证产物（按需生成，默认不存在）
 | [`docs/development/DataOcean后台重构状态与整改计划.md`](docs/development/DataOcean后台重构状态与整改计划.md) | 当前真实完成度、轨道 A 整改、导航决策、验证基线与后续优先级的唯一入口。 |
 | [`docs/development/后续开发.md`](docs/development/后续开发.md) | 仅列下一步执行队列，方便判断当前先做什么。 |
 | [`docs/development/guides/DataOcean-完整权限体系设计.md`](docs/development/guides/DataOcean-完整权限体系设计.md) | 简明权限目标设计：中文功能说明、部门默认数据、明确授权与实际权限预览；IAM-SIMPLE-1 与旧权限事实隔离，显式初始化新系统管理员，先验收新体系再按清单删除旧权限。 |
-| [`docs/development/轨道B-B0权限清单与决策冻结.md`](docs/development/轨道B-B0权限清单与决策冻结.md) | B0 权限消费清单、IAM-SIMPLE-1 独立新表方案、新 Java/Python 契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线；B0 已评审，B1 已提交/推送，B2 代码已完成但待复审，未进行真实升级或切换。 |
+| [`docs/development/轨道B-B0权限清单与决策冻结.md`](docs/development/轨道B-B0权限清单与决策冻结.md) | B0 权限消费清单、IAM-SIMPLE-1 独立新表方案、新 Java/Python 契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线；B0 已评审，B1 已提交/推送，B2/B3 代码已完成但未提交/推送，未进行真实升级或切换。 |
 | [`docs/archive/nl2sql-单库多表版-项目构想.md`](docs/archive/nl2sql-单库多表版-项目构想.md) | 历史设计思路、架构决策和 NL2SQL 方案背景。 |
 | [`frontend/README.md`](frontend/README.md) | 前端工程说明。 |
 

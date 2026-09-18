@@ -41,6 +41,12 @@ public class QueryTaskVO {
     private String errorMessage;
     private Integer retryCount;
     private Integer totalTimeMs;
+    private String protocolVersion;
+    private Long activeMetadataSnapshotId;
+    private Long permissionRevision;
+    private Map<String, Object> sourceTrace;
+    private String finalProtectionStatus;
+    private Boolean canViewSql;
     private LocalDateTime createdAt;
     private LocalDateTime completedAt;
     /** 是否允许导出（前端据此控制导出按钮显示） */

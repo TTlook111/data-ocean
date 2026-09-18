@@ -51,6 +51,7 @@ async def execute(
     connection_config: dict,
     mask_columns: dict[str, str] | None = None,
     task_id: str | None = None,
+    parameters: dict[str, object] | None = None,
 ) -> ExecutionResult:
     """在沙箱中执行 SQL
 
@@ -87,7 +88,7 @@ async def execute(
 
     try:
         result = await asyncio.wait_for(
-            asyncio.to_thread(_execute_readonly, engine, sql, connection_id_holder),
+            asyncio.to_thread(_execute_readonly, engine, sql, connection_id_holder, parameters or {}),
             timeout=sandbox_config.max_execution_time,
         )
         result.execution_time_ms = int((time.time() - start) * 1000)
@@ -133,7 +134,12 @@ async def execute(
             success=False, error=str(e), error_type=error_type, execution_time_ms=elapsed)
 
 
-def _execute_readonly(engine, sql: str, connection_id_holder: list[int]) -> ExecutionResult:
+def _execute_readonly(
+    engine,
+    sql: str,
+    connection_id_holder: list[int],
+    parameters: dict[str, object] | None = None,
+) -> ExecutionResult:
     """在只读事务中同步执行 SQL"""
     from decimal import Decimal
     from sqlalchemy import text
@@ -152,7 +158,10 @@ def _execute_readonly(engine, sql: str, connection_id_holder: list[int]) -> Exec
         conn.execute(text(f"SET max_execution_time = {sandbox_config.max_execution_time * 1000}"))
 
         # SQL 已经过 validator AST 校验 + 注入模式检测，此处直接执行是安全的
-        result = conn.execute(text(sql))
+        # IAM-SIMPLE-1 passes only server-created named bindings.  The legacy
+        # route keeps the empty mapping and therefore retains its existing
+        # behavior; S1 never interpolates values into SQL text.
+        result = conn.execute(text(sql), parameters or {})
         columns = [
             {"name": col, "type": str(result.cursor.description[i][1]) if result.cursor.description else ""}
             for i, col in enumerate(result.keys())
