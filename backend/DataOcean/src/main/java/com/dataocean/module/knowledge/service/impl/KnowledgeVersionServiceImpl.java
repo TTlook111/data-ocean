@@ -9,6 +9,7 @@ import com.dataocean.module.knowledge.dto.KnowledgeSourceSnapshotVO;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.VectorIndexTask;
 import com.dataocean.module.knowledge.entity.KnowledgeReviewTask;
 import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.enums.GenerationSource;
@@ -20,6 +21,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
+import com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.user.entity.SysUser;
@@ -58,6 +60,8 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
     private final MetadataSnapshotMapper metadataSnapshotMapper;
     private final VectorIndexTaskService vectorIndexTaskService;
     private final KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
+    /** 版本 / 来源快照 / 向量任务的归属校验统一入口（见类注释）。 */
+    private final KnowledgeOwnershipValidator ownershipValidator;
     private final UserMapper userMapper;
 
     /**
@@ -66,10 +70,18 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
     @Override
     public List<KnowledgeDocVersion> listVersions(Long docId) {
         // 按文档 ID 查询所有版本，按版本号降序排列
-        return knowledgeDocVersionMapper.selectList(
+        List<KnowledgeDocVersion> versions = knowledgeDocVersionMapper.selectList(
                 new LambdaQueryWrapper<KnowledgeDocVersion>()
                         .eq(KnowledgeDocVersion::getDocId, docId)
                         .orderByDesc(KnowledgeDocVersion::getVersionNo));
+        // 版本列表是「按 docId 读取历史版本」的入口：每个版本的 datasourceId 与来源快照
+        // 都必须与文档一致，否则会以“负责文档所在源”的身份读到另一个数据源的内容。
+        List<KnowledgeDocVersion> checked = versions == null ? List.of() : versions;
+        if (!checked.isEmpty()) {
+            ownershipValidator.requireVersionsOwnership(
+                    knowledgeDocMapper.selectById(docId), checked);
+        }
+        return checked;
     }
 
     /**
@@ -85,6 +97,9 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
         if (version == null) {
             throw new BusinessException("版本不存在");
         }
+        // 版本差异与回滚都走这里：归属不合法必须在**任何读取或写入之前**失败，
+        // 否则回滚会把一条跨源历史版本的内容重新写入并创建向量化任务。
+        ownershipValidator.requireVersionOwnership(knowledgeDocMapper.selectById(docId), version);
         return version;
     }
 
@@ -108,6 +123,10 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
         // 查询当前最大版本号
         Integer maxVersionNo = doc.getCurrentVersion();
         int newVersionNo = (maxVersionNo == null ? 0 : maxVersionNo) + 1;
+
+        // 写入前先校验来源快照：客户端可以指定 snapshotId（生成草稿），
+        // 让它落成一条跨源版本、之后再在读取时 409，不如现在就拒绝。
+        ownershipValidator.requireSnapshotOwnership(doc.getDatasourceId(), snapshotId);
 
         // 构建版本实体
         KnowledgeDocVersion version = KnowledgeDocVersion.builder()
@@ -354,6 +373,18 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
      * 其余字段为 null——来源缺失这件事本身对调用方是有用信息。
      * </p>
      */
+    @Override
+    public List<VectorIndexTask> listVectorTasksOfDocument(Long docId) {
+        List<VectorIndexTask> tasks = vectorIndexTaskService.listTasksByTarget("DOC", docId);
+        List<VectorIndexTask> checked = tasks == null ? List.of() : tasks;
+        if (!checked.isEmpty()) {
+            // 任务与文档不一致说明事实已错位：继续返回会把别的数据源的索引状态
+            // 展示成本文档的状态。
+            ownershipValidator.requireVectorTaskOwnership(knowledgeDocMapper.selectById(docId), checked);
+        }
+        return checked;
+    }
+
     @Override
     public List<KnowledgeSourceSnapshotVO> listSourceSnapshots(Long docId) {
         List<KnowledgeDocVersion> versions = listVersions(docId);

@@ -88,12 +88,43 @@ public class IamS1AuthorizationAspect {
      * <p>**不解析资源、不裁剪数据**：可见数据源由 Service 调
      * {@code responsibleDatasourcesWithFunction()} 取得并下推 SQL。这里刻意不校验负责源，
      * 因为“一个负责源都没有”是合法的（返回空页），不是准入失败。</p>
+     *
+     * <p>范围语义接受两种：</p>
+     * <ul>
+     *   <li>{@code RESOURCE}（源范围）：入口没有单一资源 ID，范围由 Service 下推；</li>
+     *   <li>{@code MIXED}（源/全混合，如 {@code glossary:*}）：同一功能在“已关联数据源”时按源、
+     *       未关联时按全局。这里只做功能级准入，**动态范围由对应 Service 完成**——
+     *       切面拿不到“这个术语关联了哪几个源”这类业务事实，也不应该去拼业务查询。</li>
+     * </ul>
+     *
+     * <p>{@code GLOBAL} 功能仍然拒绝：全局功能没有“负责源”概念，用本注解声明会让
+     * “范围由 Service 下推”的约定名不副实。</p>
      */
     @Before("@annotation(iamS1ScopedList)")
     public void checkScopedList(JoinPoint joinPoint, IamS1ScopedList iamS1ScopedList) {
         String functionCode = iamS1ScopedList.value();
-        requireScope(functionCode, IamS1FunctionCatalog.FunctionScope.RESOURCE, "@IamS1ScopedList");
+        requireScopedListScope(functionCode);
         adminGuard.requireGlobalFunction(UserContext.currentUserId(), functionCode);
+    }
+
+    /**
+     * {@code @IamS1ScopedList} 的范围校验：接受「源」与已定稿的「源/全」混合码。
+     *
+     * <p>与 {@link #requireScope} 分开的原因是三者语义不同：
+     * {@code @IamS1Global} / {@code @IamS1Resource} 都要求**唯一确定**的范围语义，
+     * 混合码在这两处都会把未定的动态范围固化成一个错误结论；而
+     * {@code @IamS1ScopedList} 本来就只表达“功能级准入 + 范围另算”，
+     * 混合码的“范围另算”正好落在它身上。</p>
+     */
+    private void requireScopedListScope(String functionCode) {
+        IamS1FunctionCatalog.FunctionScope actual = IamS1FunctionCatalog.scopeOf(functionCode);
+        if (actual == null) {
+            throw new BusinessException(500, "@IamS1ScopedList 使用了未知功能码：" + functionCode);
+        }
+        if (actual == IamS1FunctionCatalog.FunctionScope.GLOBAL) {
+            throw new BusinessException(500,
+                    "@IamS1ScopedList 与功能码范围语义不一致：" + functionCode + " 实际为 GLOBAL");
+        }
     }
 
     /**
@@ -175,8 +206,11 @@ public class IamS1AuthorizationAspect {
             throw new BusinessException(500, annotation + " 使用了未知功能码：" + functionCode);
         }
         if (actual == IamS1FunctionCatalog.FunctionScope.MIXED) {
+            // 混合码的范围是动态的（关联了哪些源要查业务事实），
+            // 用这两个注解声明会把动态范围固化成一个错误的静态结论。
             throw new BusinessException(500,
-                    annotation + " 不能用于语义未定稿的混合功能码：" + functionCode);
+                    annotation + " 不能用于「源/全」混合功能码：" + functionCode
+                            + "，请使用 @IamS1ScopedList 并由 Service 落实动态范围");
         }
         if (actual != expected) {
             throw new BusinessException(500,

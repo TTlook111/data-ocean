@@ -270,6 +270,24 @@ Migration 关联完整盘点：V1 建旧用户/角色/权限四表，V2 初始�
 | 53 `system:ai-config:view` | 查看 AI 配置：模型/供应商摘要和运行状态，密钥只显示摘要。 | 运行与平台→AI 配置 `/admin/platform/ai`；自定义 Tab：对话模型、Embedding 模型；查看。 | `GET /api/admin/system/ai-config`、`/providers`；当前已有同名字符串，Controller view 表达式同时允许旧 manage；Python 内部配置读取另由内部令牌保护。 | 全；依赖=无；详=供应商，批=—，统=模型配置，导=—；消费结论=有（目标码直接消费=旧表/旧 authority）。 | B1 新目录同名但新关系独立；B4 前端只读判断改用 Java 返回的 S1 能力摘要。E-SYSTEM、E-PROMPT。 |
 | 54 `system:ai-config:manage` | 维护 AI 配置：修改供应商/模型/运行参数，不显示已有密钥原值。 | AI 配置两个 Tab；保存配置、供应商增删改、测试连接、同步模型、检测维度、切换。 | `PUT /api/admin/system/ai-config`、`POST/PUT/DELETE /providers`、`POST /providers/{id}/test`、`/sync-models`、`POST /detect-dimension`；当前已有同名字符串，Controller manage 表达式旧 authority，前端 `AiConfig.vue:117-119` 判断旧权限数组。 | 全；依赖=system:ai-config:view；详=供应商，批=—，统=—，导=—；消费结论=有（目标码直接消费=旧表/旧 authority）。 | B4 改为 S1 能力快照；保留 AI 配置业务资产和密钥安全存储，不让配置查看权泄露密钥。E-SYSTEM。 |
 
+
+### 3.2.1 `glossary:*` 混合语义定稿（批次 5，2026-09-20）
+
+第 21～23 项的「关联源存在时=源；未绑定源时=全」在批次 5 定稿为：
+
+- **未关联任何数据源**：只校验功能，不推导任何数据源权限；
+- **已关联**：查看只返回负责源内的关联字段（已绑定术语至少一个可见关联源才返回，无可见源不返回，
+  未绑定术语按全局语义显示）；写操作对全部关联源逐源校验、任一无权整体拒绝；
+- **关联/解除字段**：先校验术语现有源，再解析目标实体的**真实**数据源并校验，不采信前端传入；
+- **术语表更新/删除**：汇总其下全部术语关联源后逐源校验；
+- **审核**：独立 `glossary:approve`，不自动带来维护权或业务查询权。
+
+**范围状态是三态，不是「空集合即未绑定」**（修复轮定稿）：`UNBOUND`（确实没有关联关系）按全局功能；`BOUND`（关联完整）逐源校验；`BROKEN`（**存在**关联但实体丢失、读取失败或缺少 `datasource_id`）——查看列表不返回该术语，写/审核/删除/关联一律 409，术语表含 BROKEN 术语时改删术语表同样 409。术语只要有一条关联解析不出归属即整术语 BROKEN；术语表任一术语 BROKEN 即整表 BROKEN。
+
+注解侧：三个码保持 `FunctionScope.MIXED`；`@IamS1ScopedList` 接受 RESOURCE 或 MIXED 而继续拒绝 GLOBAL，
+`@IamS1Global` / `@IamS1Resource` 继续拒绝 MIXED；动态范围由 `GlossaryScopeService` 落实。
+完整规则见 `docs/development/guides/DataOcean-IAM-SIMPLE-1鉴权接入设计.md` §11.7.1。
+
 ### 3.3 当前目标码缺口汇总
 
 目标目录本身已按主设计提取为 54 个唯一值；但当前 Controller 主要消费旧码、通配符或无细粒度 guard。明确缺口如下：

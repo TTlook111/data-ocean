@@ -470,3 +470,211 @@ B5 才执行真实 migration、bootstrap、初始化新角色/负责源/数据�
   断言「权限拒绝时 Service 零调用」；
 - 切面生效后，`@IamS1Resource` 的 SpEL 表达式会真正求值：参数名写错会变成运行时恒 403。
   `IamS1EndpointCoverageTest#resourceExpressionsReferenceRealParameters` 按真实参数名静态核对根变量。
+
+## 11.7 批次 5（语义中心）实施补充
+
+批次 5 迁移 `GlossaryController` 14 + `KnowledgeDocController` 18 + `PromptTemplateController` 10 =
+**42 个方法级端点**（以 `RequestMappingHandlerMapping` 实际枚举为准），例外清单 162 → **120**。
+
+> 复核说明：本轮任务书按「Glossary 14 + Knowledge 19 + Prompt 10 = 43」给出基线。实际枚举为 42——
+> 任务书 Knowledge 清单的第 19 项是「复核 Controller 实际映射，确保没有漏项或重复计数」这条**说明**，
+> 不是端点。`KnowledgeDocController` 真实映射就是 18 个方法（8 个 GET、9 个 POST、1 个 PUT），
+> 与例外清单删除条数一致，**没有漏项**。
+
+### 11.7.1 `glossary:*` MIXED 语义冻结（本轮定稿）
+
+`glossary:view` / `glossary:manage` / `glossary:approve` **保持 `FunctionScope.MIXED`**，
+不改成 `GLOBAL` 或 `RESOURCE`。冻结规则：
+
+| 场景 | 规则 |
+| --- | --- |
+| 术语/术语表**未关联任何数据源** | 三个码都**只校验功能**；不因为“未绑定”推导任何数据源权限 |
+| **查看**（已关联） | 只返回调用者在 `glossary:view` 下负责源内的关联字段；未绑定术语继续按全局语义显示；已绑定术语**至少有一个可见关联源**时才显示基本信息；无任何可见关联源时**不返回**该术语；不得泄露无权源的字段名、FQN、实体 ID 或关联关系 |
+| **写**（修改/删除/提交审核/退回草稿/审核，已关联） | 解析术语当前关联的**全部** datasourceId，每个源都要求同一绑定上的对应功能 + 负责源；**任意一个无权则整体拒绝**；未关联源时按全局功能判断 |
+| **关联新字段** | 校验术语当前全部关联源 → 解析目标 `entityId` 的**真实** datasourceId → 再校验目标源；任一无权整体拒绝；**不采信前端传入的数据源** |
+| **解除字段** | 校验术语当前全部关联源 → 校验被解除实体的真实 datasourceId；任一无权整体拒绝 |
+| **术语表更新/删除** | 汇总该术语表下全部术语关联的数据源；无关联源时按全局功能，有关联源时逐源校验；删除前继续执行现有非空、状态与关联保护 |
+| **审核** | 使用独立的 `glossary:approve`；**不自动拥有** `glossary:manage`，**不自动拥有**业务查询权；多源术语必须逐源校验 |
+
+**框架接入方式**：Glossary 的 14 个端点统一用 `@IamS1ScopedList` 做功能级入口准入；
+`@IamS1ScopedList` 的范围校验扩展为**接受 `RESOURCE` 或 `MIXED`、仍拒绝 `GLOBAL`**；
+`@IamS1Global` 与 `@IamS1Resource` 继续**拒绝 `MIXED`**（它们要求唯一确定的范围语义，
+会把动态范围固化成一个错误结论）。
+
+MIXED 的动态范围由 `GlossaryScopeService` 落实，授权判定复用 `IamS1AdminGuard` /
+`IamS1CapabilityService`，**不复制任何授权 SQL**：
+
+- `termDatasourceIds(termId)` / `termDatasourceIdsByTerm(Collection)` —— 一次关系查询
+  （`GLOSSARY_OF` 关系行）+ 一次实体批量查询，查询次数与术语数量无关（无 N+1）；
+- `glossaryDatasourceIds(glossaryId)` —— 术语表下全部术语关联源的并集；
+- `entityDatasourceIds(Collection)` —— 实体 → 真实数据源（从 `entity_metadata.datasource_id` 解析）；
+- `requireFunctionOnSources(userId, code, datasourceIds)` —— 空集合只校验功能；非空逐个校验、
+  任一无权立即 403（排序后校验，行为确定）；
+- `GlossaryScopeService.visibleIn(termSources, visibleDatasources)` —— 纯函数可见性规则
+  （未绑定 → 可见；已绑定 → 至少一个可见源），便于列表先算一次可见集合再逐条判定。
+
+术语表（`glossary`）自身不携带数据源归属，因此列表只返回术语表基本信息（名称、描述、状态），
+不含任何字段名、FQN、实体 ID 或关联关系；作用域规则作用在**术语**与**关联字段**上。
+
+### 11.7.2 Knowledge 端点功能码与资源范围
+
+| 功能码 | 端点 |
+| --- | --- |
+| `knowledge:view` | 列表、详情、审核记录(`review-tasks`)、来源快照(`source-snapshots`)、版本列表、版本详情、版本差异、索引任务(`vector-tasks`)、切分预览(`preview-chunks`) |
+| `knowledge:manage` | 新建、编辑、提交审核(`submit-review`)、生成草稿(`generate-draft`)、按快照批量生成(`generate-from-snapshot`) |
+| `knowledge:approve` | 审核通过、驳回 |
+| `knowledge:publish` | 发布、回滚 |
+
+**只读 POST 例外**：`POST /api/admin/knowledge-docs/{id}/preview-chunks` 虽然方法是 POST，
+但按 B0 冻结为**只读预览**（模拟切片、不落库），必须使用 `knowledge:view`。
+覆盖扫描按**精确的 HTTP 方法 + 完整路径**登记该例外（`READ_ONLY_POST_ENDPOINTS`），
+并有 `readOnlyPostAllowlistStaysExact` 校验其只含 POST 且真实存在；
+**禁止放宽成“所有 POST + view”或路径前缀匹配**。
+
+**新增资源类型 `KNOWLEDGE_DOCUMENT`** 与 `KnowledgeDocumentResourceResolver`：
+
+```text
+documentId → knowledge_doc.datasource_id → 当前版本（current_version）
+           → 版本 datasource_id / metadata_snapshot_id（如存在）
+```
+
+- 文档不存在 → **404**；
+- `datasourceId` 缺失 → **409**；
+- 当前版本的 `datasource_id` 与文档不一致 → **409**；
+- 当前版本的来源快照缺失、归属不完整或属于其它数据源 → **409**；
+- 不读取任何旧权限事实。
+
+**列表范围**：`listDocs` 用 `@IamS1ScopedList("knowledge:view")`，
+`KnowledgeDocCrudService.listDocsInDatasources` 把负责源**下推 SQL**（`WHERE datasource_id IN (...)`）；
+空负责源返回空页；调用方**显式筛选**一个自己无权的 `datasourceId` 时直接 **403**——
+返回空页会把「无权」伪装成「该数据源没有文档」（与批次 4 对指定无权快照的处理一致）。
+
+**其余端点的归属复核**：文档详情/修改/生命周期操作使用 `KNOWLEDGE_DOCUMENT`（文档真实归属）；
+`createDoc` 从请求 DTO 取 `datasourceId` 并由 `DATASOURCE` 解析器复查；
+`generate-from-snapshot` 使用 `SNAPSHOT` 解析器，并在 Service 内**额外**校验
+「请求的 datasourceId == 快照真实归属」——只校验快照等于允许
+「用一个自己负责的快照 + 一个自己无权源的数据源 ID」去读别人数据源的表结构并交给 Python，
+校验发生在任何读取与外部调用之前（零元数据读取、零 Python 调用、零文档写入）。
+
+**RAG 生命周期不变**：`APPROVED → INDEXING → Python chunk/vectorize → verify → PUBLISHED →
+commit 后清理旧版本`；「新版本验证成功前保留旧向量」的安全规则未被本批次触碰。
+
+### 11.7.3 Prompt 三个功能码
+
+`prompt:view` / `prompt:manage` / `prompt:approve` 都是 B0 冻结的**全局**功能，使用 `@IamS1Global`，
+三者**互不包含**：
+
+| 功能码 | 端点 |
+| --- | --- |
+| `prompt:view` | 列表、效果统计(`effectiveness`)、详情、版本历史 |
+| `prompt:manage` | 更新(`PUT {code}`)、提交审核、启停(`PATCH {code}/enabled`)、回滚 |
+| `prompt:approve` | 审核通过、驳回 |
+
+- 类级与全部方法级旧 `@PreAuthorize` 已删除（含原先把 view/manage/approve 混在一起的查看表达式）；
+- `enabled` 原先允许 `prompt:manage` 或 `prompt:approve`，现按 B0 归入 `prompt:manage`（收紧）；
+- 查看接口只返回模板内容与状态，不返回任何密钥或秘密配置；状态机与审计保持不变；
+- Python 侧读取 Prompt 仍只走 `/internal/prompts/**` 的**内部服务令牌**，
+  **不接入后台用户注解**，`/internal/prompts/**` 的安全边界未改动。
+
+### 11.7.4 覆盖扫描与例外
+
+- `MIGRATED_CONTROLLERS` 增加 `GlossaryController` / `KnowledgeDocController` / `PromptTemplateController`，
+  已迁移 Controller 共 **9 个**；
+- 例外清单删除批次 5 的 **42** 条：162 → **120**；
+- 继续保证：每个已迁移 Handler 恰好一个 S1 方法级注解、Controller 被真实 AOP 代理、
+  资源表达式引用真实参数、无旧 `@PreAuthorize`、新旧权限不混用、例外 key/value 与真实 Handler
+  双向一致、新增未注解端点立即失败。
+
+### 11.7.5 P0 回归保护（继续生效）
+
+2026-09-20 发现的 `@Aspect` 缺失 P0 的四项保护全部保留，并在批次 5 扩展到新 Controller：
+
+1. 切面同时声明 `@Aspect` 与 `@Component`；
+2. `IamS1EndpointCoverageTest#migratedControllersAreActuallyProxiedSoTheAnnotationsRun`
+   —— 真实容器中 9 个已迁移 Controller 全部拿到 AOP 代理；
+3. `IamS1EndpointCoverageTest#resourceExpressionsReferenceRealParameters`
+   —— 每个 `@IamS1Resource` 表达式的根变量都能在真实参数名里找到；
+4. 三个新 Controller 各自的 `AspectJProxyFactory` 真实代理调用测试：
+   - `GlossaryControllerAuthorizationTest`（9 个）：MIXED 范围拒绝发生在写入前、未绑定只校验功能、
+     术语不存在时 404 而不是按未关联放行、审核权不带来维护权、关联同时校验术语源与目标实体源、
+     目标实体归属断链 fail-closed、关联字段只返回可见源、可见性纯函数规则、未登录不进 Service；
+   - `KnowledgeDocControllerAuthorizationTest`（9 个）：无权 publish/approve/rollback 零 Service 调用、
+     `generate-from-snapshot` 按快照真实归属拒绝且零 Python 调用、只读 `preview-chunks` 用 view 码、
+     列表范围下推、空负责源传空集合；
+   - `PromptTemplateControllerAuthorizationTest`（6 个）：三码独立（approve 不等于 manage、
+     manage 不等于 approve）、查看只需 view、拒绝时 Service 零调用。
+
+以上测试全部用 `AspectJProxyFactory` 代理**真实 Controller**，
+**不允许**只直接调用 `aspect.check...()` 冒充代理生效。
+
+### 11.8 批次 5 复审修复（2026-09-20）
+
+复审在批次 5 中发现两个 P1 与一个 P2，修复如下。
+
+#### 11.8.1 P1：术语范围必须是**三态**，空集合不能兼表「未绑定」
+
+**缺陷**：术语存在 `GLOSSARY_OF` 关系、但目标实体不存在 / 读取失败 / 缺少 `datasource_id` 时，
+该关系不贡献数据源，术语最终得到**空集合**；而空集合的定义是「未绑定 → 全局放行」。
+这会把「已绑定但归属损坏」**错误升级**成「合法未绑定」。
+
+**修复**：`GlossaryScopeService` 返回 `Scope(status, datasourceIds)`，状态互斥：
+
+| 状态 | 含义 | 处理 |
+| --- | --- | --- |
+| `UNBOUND` | 确实没有任何关联关系 | 按全局功能（不推导任何数据源权限） |
+| `BOUND` | 关联完整，已解析出数据源集合 | 逐源校验 |
+| `BROKEN` | **存在**关联，但实体不存在 / 读取失败 / 缺少数据源归属 | 查看列表**不返回**该术语；写、审核、删除、关联一律 **409**；术语表含 BROKEN 术语时更新/删除术语表同样 **409** |
+
+要点：
+
+- 术语只要**有一条**关联解析不出归属，整个术语即 `BROKEN`——不能只丢掉坏的那条、
+  把剩下的当成「合法的已绑定集合」。
+- 术语表的范围是其下术语的汇总：**任一**术语 `BROKEN` 即整表 `BROKEN`，
+  否则「改术语表」会成为绕过该术语 409 的旁路。
+- 术语不存在仍是 **404**，不会因为「查不到关联源」退化成 `UNBOUND`。
+- `GET /terms/{termId}/linked-columns` 对 `BROKEN` 术语返回 **409**（返回空列表会把
+  「关联已损坏」伪装成「这个术语本来就没有关联字段」，与批次 4 对无权快照的处理同一原则）。
+  这是超出任务书字面要求的一处判断，如需改成「返回空列表」请明确。
+
+#### 11.8.2 P1：知识文档的**历史版本链**归属保护
+
+**缺陷**：文档级注解只解析文档与**当前版本**，但版本列表 / 版本详情 / 版本差异 / 审核记录 /
+来源快照 / 回滚 / 索引任务都会读取**历史版本**。`KnowledgeVersionServiceImpl` 原先直接按
+`docId` 返回版本，不校验每个版本的 `datasource_id` 与 `metadata_snapshot_id`。
+其中 **rollback** 会把归属错误的历史版本内容重新写入并创建向量化任务。
+
+**修复**：新增 `KnowledgeOwnershipValidator`（`module/knowledge/support`），
+所有版本、快照与向量任务的读取/写入共用同一个校验点：
+
+```text
+版本 datasourceId 必须存在且 == doc.datasourceId          → 否则 409
+版本的 metadataSnapshotId 若存在：快照必须存在、
+  归属完整、且 == doc.datasourceId                        → 否则 409
+向量任务的 datasourceId 必须 == doc.datasourceId          → 否则 409
+```
+
+接入位置：
+
+| 位置 | 说明 |
+| --- | --- |
+| `listVersions` | 校验返回的**全部**版本（版本列表 / 审核记录 / 来源快照都由它派生） |
+| `getVersion` | 校验该版本；**版本差异与回滚都经过它** |
+| `createVersion` | 写入前校验来源快照归属（生成草稿的 `snapshotId` 由客户端指定） |
+| `listVectorTasksOfDocument` | 新增的文档级读取入口，校验每个任务的数据源 |
+| `KnowledgeDocumentResourceResolver` | 改为复用同一校验器 |
+
+Document Resolver 同时修正为：
+
+- `currentVersion > 0` 但**版本记录不存在** → 409；
+- 当前版本 `datasourceId` 为空 → 409；
+- `currentVersion` 为空或 `≤ 0` 表示历史「尚无版本」，**显式允许并有测试钉住**，
+  不是「任意缺失都放行」。
+
+`metadataSnapshotId` 为空仍是**合法**状态（手工创建的文档没有来源快照）。
+
+#### 11.8.3 P2：术语只能关联**物理列**实体
+
+`link-column` 原先接受任何带数据源归属的 `MetadataEntity`（表、库、数据源本身都能建
+`GLOSSARY_OF`），会稀释「术语 → 字段」的语义，也让按列做的字段级判定失去前提。
+现强制 `MetadataEntity.TYPE_COLUMN.equals(entity.getEntityType())`，否则返回 **400**。
+解除关联不再重复该校验（历史脏数据需要可修复路径），但**仍然**校验术语现有源与被解除实体的真实源。

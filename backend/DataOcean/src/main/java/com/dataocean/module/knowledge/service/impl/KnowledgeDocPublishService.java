@@ -14,9 +14,12 @@ import com.dataocean.module.knowledge.enums.GenerationSource;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
+import com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.entity.DbTableMeta;
+import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
@@ -65,6 +68,34 @@ public class KnowledgeDocPublishService {
     private final FieldTagMapper fieldTagMapper;
     private final TransactionTemplate transactionTemplate;
     private final KnowledgeDocHelper helper;
+    /** 校验请求里的 datasourceId 与快照真实归属一致（B0 §6.3：不得只信任传入的 datasourceId）。 */
+    private final MetadataSnapshotMapper metadataSnapshotMapper;
+    /** 版本 / 来源快照归属的统一校验点。 */
+    private final KnowledgeOwnershipValidator ownershipValidator;
+
+    /**
+     * 校验「请求里的 datasourceId」与「快照的真实归属」一致。
+     *
+     * <p>批量生成会按传入的 `datasourceId` 读取该数据源的表结构并交给 Python。
+     * 接口同时收到 `datasourceId` 与 `snapshotId` 时，只校验快照就等于允许
+     * “用一个自己负责的快照 + 一个自己无权源的数据源 ID”去读别人数据源的元数据。
+     * 因此这里必须读快照的真实归属并逐项比对，不一致直接拒绝。</p>
+     */
+    private void requireSnapshotBelongsToDatasource(Long datasourceId, Long snapshotId) {
+        if (datasourceId == null || snapshotId == null) {
+            throw new BusinessException(400, "必须同时指定数据源与快照");
+        }
+        MetadataSnapshot snapshot = metadataSnapshotMapper.selectById(snapshotId);
+        if (snapshot == null) {
+            throw new BusinessException(404, "快照不存在");
+        }
+        if (snapshot.getDatasourceId() == null) {
+            throw new BusinessException(409, "快照缺少数据源归属，无法判定负责范围");
+        }
+        if (!datasourceId.equals(snapshot.getDatasourceId())) {
+            throw new BusinessException(409, "快照不属于请求指定的数据源，拒绝生成");
+        }
+    }
 
     /**
      * 生成 AI 草稿。
@@ -80,6 +111,9 @@ public class KnowledgeDocPublishService {
     public String generateDraft(Long docId, Long snapshotId) {
         log.info("生成 AI 草稿 docId={} snapshotId={}", docId, snapshotId);
         KnowledgeDoc doc = helper.requireDoc(docId);
+        // 本方法自己拼版本行、不经过 createVersion，所以快照归属必须在这里单独校验：
+        // 否则一个跨源 snapshotId 会先被送给 Python、再落成一条来源错位的版本。
+        ownershipValidator.requireSnapshotOwnership(doc.getDatasourceId(), snapshotId);
 
         // 加载元数据
         List<Map<String, Object>> tablesMetadata = loadTablesMetadata(doc.getDatasourceId());
@@ -144,6 +178,7 @@ public class KnowledgeDocPublishService {
      */
     public List<Map<String, Object>> batchGenerateFromSnapshot(Long datasourceId, Long snapshotId) {
         log.info("AI 批量生成 skills.md datasourceId={} snapshotId={}", datasourceId, snapshotId);
+        requireSnapshotBelongsToDatasource(datasourceId, snapshotId);
 
         // 加载元数据
         List<Map<String, Object>> tablesMetadata = loadTablesMetadata(datasourceId);

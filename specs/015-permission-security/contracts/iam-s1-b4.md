@@ -207,3 +207,76 @@ Java `IamS1QueryServiceImpl.requireExplicitUsages` 强制要求每个字段声�
 **验证**：`mvn clean test` 438 passed / 0 failures / 0 errors / 0 skipped；前端 `vue-tsc -b && vite build` 通过，Vitest 8 文件 44 个通过。
 
 **未完成**：权限与组织域 22 个 `IamS1*` 端点的注解迁移；`glossary:*` 混合语义定稿。
+
+## B4 批次 5：语义中心接入（2026-09-20，未提交）
+
+`GlossaryController` 14 + `KnowledgeDocController` 18 + `PromptTemplateController` 10 = **42 个方法级端点**
+（以 `RequestMappingHandlerMapping` 实际枚举为准），例外清单 162 → **120**。
+
+> 任务书基线写的是 43（Knowledge 19）。实际为 42：Knowledge 清单第 19 项是
+> 「复核 Controller 实际映射」这条说明，不是端点；`KnowledgeDocController` 真实映射为 18 个方法
+> （8 GET + 9 POST + 1 PUT），与例外清单删除条数一致，无漏项。
+
+### glossary MIXED 语义冻结
+
+`glossary:view` / `glossary:manage` / `glossary:approve` 保持 `FunctionScope.MIXED`：
+
+- **未关联任何数据源** → 只校验功能，不推导任何数据源权限；
+**范围状态是三态，不是「空集合即未绑定」**（修复轮定稿）：`UNBOUND`（确实没有关联关系）按全局功能；`BOUND`（关联完整）逐源校验；`BROKEN`（**存在**关联但实体丢失、读取失败或缺少 `datasource_id`）——查看列表不返回该术语，写/审核/删除/关联一律 409，术语表含 BROKEN 术语时改删术语表同样 409。术语只要有一条关联解析不出归属即整术语 BROKEN；术语表任一术语 BROKEN 即整表 BROKEN。
+- **已关联** → 查看只返回负责源内的关联字段（已绑定术语至少一个可见关联源才返回，无可见源不返回）；
+  写操作解析术语当前全部关联源并**逐源**校验，任一无权整体拒绝；
+- **关联/解除字段** → 先校验术语现有源，再解析目标实体的**真实**数据源并校验，不采信前端传入；
+- **术语表更新/删除** → 汇总其下全部术语关联源后逐源校验；
+- **审核** → 独立 `glossary:approve`，不自动带来维护权或业务查询权。
+
+接入方式：14 个端点统一 `@IamS1ScopedList`（功能级准入）；`@IamS1ScopedList` 的范围校验扩展为
+**接受 RESOURCE 或 MIXED、仍拒绝 GLOBAL**；`@IamS1Global` / `@IamS1Resource` 继续拒绝 MIXED。
+动态范围由 `GlossaryScopeService` 落实（复用 `IamS1AdminGuard` / `IamS1CapabilityService`，
+不复制授权 SQL；一次关系查询 + 一次实体批量查询，无 N+1）。
+
+### Knowledge 功能码与范围
+
+| 功能码 | 端点 |
+| --- | --- |
+| `knowledge:view` | listDocs、getDoc、review-tasks、source-snapshots、versions、version detail、versions/diff、vector-tasks、preview-chunks |
+| `knowledge:manage` | createDoc、updateDoc、submit-review、generate-draft、generate-from-snapshot |
+| `knowledge:approve` | approve、reject |
+| `knowledge:publish` | publish、rollback |
+
+**只读 POST 例外**：`POST /api/admin/knowledge-docs/{id}/preview-chunks` 按 B0 冻结为只读预览，
+使用 `knowledge:view`；覆盖扫描按精确「HTTP 方法 + 完整路径」登记（`READ_ONLY_POST_ENDPOINTS`）
+并有 `readOnlyPostAllowlistStaysExact` 校验，禁止放宽成「所有 POST + view」或前缀匹配。
+
+**新增 `IamS1ResourceType.KNOWLEDGE_DOCUMENT` + `KnowledgeDocumentResourceResolver`**：
+文档不存在 404、`datasourceId` 缺失 409、当前版本归属与文档不一致 409、
+来源快照缺失/归属不完整/属于其它数据源 409。
+
+**列表范围**：`listDocsInDatasources` 下推 `WHERE datasource_id IN (...)`；空负责源返回空页；
+显式筛选无权 `datasourceId` 直接 403。
+
+**批量生成归属复核**：`generate-from-snapshot` 除 `SNAPSHOT` 解析器外，Service 内额外校验
+「请求 datasourceId == 快照真实归属」，校验先于任何读取与 Python 调用。
+
+**历史版本链归属**：文档级注解只解析文档与当前版本，而版本列表 / 版本详情 / 版本差异 / 审核记录 / 来源快照 / 回滚 / 索引任务都会读取历史版本。新增 `KnowledgeOwnershipValidator` 作为统一校验点：版本 `datasource_id` 必须存在且等于文档、来源快照若存在必须存在且同源、向量任务的 `datasource_id` 必须等于文档，任一不合法 409（`metadataSnapshotId` 为空是合法状态）。`listVersions` 校验全部版本、`getVersion` 校验单版本（版本差异与回滚都经此处）、`createVersion` 写入前校验客户端指定的 `snapshotId`、`listVectorTasksOfDocument` 校验任务归属；Document Resolver 复用同一校验器，并对「`currentVersion > 0` 但版本记录不存在」和「当前版本无归属」返回 409，`currentVersion` 为空或 ≤ 0 才按「尚无版本」显式放行。
+
+**术语只能关联物理列**：`link-column` 强制 `MetadataEntity.TYPE_COLUMN`，否则 400。
+
+**RAG 生命周期未改动**：`APPROVED → INDEXING → chunk/vectorize → verify → PUBLISHED → commit 后清理旧版本`；
+「新版本验证成功前保留旧向量」不变。
+
+### Prompt 三码独立
+
+`prompt:view`（列表/效果/详情/版本）、`prompt:manage`（更新/提交/启停/回滚）、
+`prompt:approve`（通过/驳回）全部 `@IamS1Global`，互不包含；`enabled` 从
+「manage 或 approve」收紧为仅 `manage`。查看不返回密钥；`/internal/prompts/**` 的内部令牌边界未改动。
+
+### 验证
+
+- Java `mvn -o clean test`：**512 passed / 0 failures / 0 errors / 0 skipped**（批次 4 后为 438；批次 5 首轮 +47，复审修复轮 +27）；
+- 前端 `vue-tsc -b && vite build` 通过，Vitest **9 文件 59 个通过**（批次 4 后为 8 文件 44 个）；
+- 三个新 Controller 旧 `@PreAuthorize` 计数为 0；批次 5 生产代码无旧权限表 / 旧 authority / 兼容兜底引用；
+- 已迁移 Controller 9 个，全部为真实 AOP 代理；例外清单 162 → 120（减少 42）；
+- `git diff --check` 通过。
+
+**未完成**：权限与组织域 22 个 `IamS1*` 端点的注解迁移；批次 6（运营与平台）未开始；
+未执行 migration、bootstrap、服务/浏览器验收或正式切换。

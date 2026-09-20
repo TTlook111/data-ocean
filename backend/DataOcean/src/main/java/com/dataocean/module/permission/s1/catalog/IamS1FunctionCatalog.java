@@ -120,8 +120,18 @@ public final class IamS1FunctionCatalog {
 
     /**
      * B0 标为「源/全」的混合码：同一功能在“术语关联了数据源”时按源校验、
-     * 未关联时按全局校验。语义尚未定稿，注解框架**拒绝**使用这些码，
-     * 待批次 5（语义中心）明确后再开放，避免用注解把未定语义固化下来。
+     * 未关联时按全局校验。**语义已于批次 5 定稿**（见
+     * `docs/development/guides/DataOcean-IAM-SIMPLE-1鉴权接入设计.md` §11.7）：
+     *
+     * <ul>
+     *   <li>术语/术语表**未关联任何数据源**时只校验功能，不推导任何数据源权限；</li>
+     *   <li>**已关联**时，查看只返回负责源内的关联字段，写操作对全部关联源逐源校验、
+     *       任意一个无权则整体拒绝。</li>
+     * </ul>
+     *
+     * <p>注解侧只允许 {@code @IamS1ScopedList} 使用这些码做功能级准入；动态范围由
+     * {@code GlossaryScopeService} 落实。{@code @IamS1Global} 与 {@code @IamS1Resource}
+     * 仍然拒绝——它们要求唯一确定的范围语义，会把动态范围固化成一个错误结论。</p>
      */
     private static final Set<String> MIXED_CODES = Set.of(
             "glossary:view", "glossary:manage", "glossary:approve");

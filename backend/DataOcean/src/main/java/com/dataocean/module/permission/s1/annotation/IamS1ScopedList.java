@@ -28,12 +28,17 @@ import java.lang.annotation.Target;
  *
  * <p>没有该功能时拒绝；有功能但没有同绑定负责源时返回**空范围**，
  * 不能退化成全局查询。</p>
+ *
+ * <p><b>范围语义</b>：接受 {@code RESOURCE}（「源」）与 {@code MIXED}（「源/全」混合，如
+ * {@code glossary:view/manage/approve}）。混合码在“术语关联了数据源”时按源校验、未关联时按全局；
+ * 这个动态范围**必须由对应 Service 落实**（切面拿不到业务事实，也不应该去拼业务查询）。
+ * {@code GLOBAL} 功能仍然拒绝——它没有“负责源”概念，声明成本注解会让语义名不副实。</p>
  */
 @Documented
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
 public @interface IamS1ScopedList {
 
-    /** 固定 54 码目录中的功能码，且必须被定义为「源」范围功能。 */
+    /** 固定 54 码目录中的功能码，且必须被定义为「源」或已定稿的「源/全」混合功能。 */
     String value();
 }

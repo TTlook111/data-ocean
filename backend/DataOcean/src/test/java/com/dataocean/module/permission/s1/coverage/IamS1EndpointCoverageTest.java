@@ -55,7 +55,10 @@ class IamS1EndpointCoverageTest {
             "MetadataCatalogController",
             "MetadataCollectionController",
             "SnapshotVersionController",
-            "MetadataGovernanceController");
+            "MetadataGovernanceController",
+            "GlossaryController",
+            "KnowledgeDocController",
+            "PromptTemplateController");
 
     /**
      * 逐端点临时例外清单（键为 `HTTP 方法 + 完整路径`，值为 `Controller#Handler方法|原因`）。
@@ -125,9 +128,14 @@ class IamS1EndpointCoverageTest {
                     != IamS1FunctionCatalog.FunctionScope.RESOURCE) {
                 violations.add(describe(handler) + " 把非源范围功能标成了 @IamS1Resource：" + resource.function());
             }
-            if (scopedList != null && IamS1FunctionCatalog.scopeOf(scopedList.value())
-                    != IamS1FunctionCatalog.FunctionScope.RESOURCE) {
-                violations.add(describe(handler) + " 把非源范围功能标成了 @IamS1ScopedList：" + scopedList.value());
+            // @IamS1ScopedList 接受「源」与已定稿的「源/全」混合码（动态范围由 Service 落实），
+            // 但拒绝真正的全局功能：全局功能没有“负责源”，声明成本注解会让语义名不副实。
+            if (scopedList != null) {
+                IamS1FunctionCatalog.FunctionScope scope = IamS1FunctionCatalog.scopeOf(scopedList.value());
+                if (scope != IamS1FunctionCatalog.FunctionScope.RESOURCE
+                        && scope != IamS1FunctionCatalog.FunctionScope.MIXED) {
+                    violations.add(describe(handler) + " 把非源范围功能标成了 @IamS1ScopedList：" + scopedList.value());
+                }
             }
         }
         assertThat(violations).isEmpty();
@@ -167,10 +175,37 @@ class IamS1EndpointCoverageTest {
             // 用真实 HTTP 方法判定写操作，不用方法名启发式：
             // publishedSnapshot 这类读端点名字以 publish 开头，按名字判会误报。
             if (isWriteHandler(handler) && code.endsWith(":view")) {
+                if (READ_ONLY_POST_ENDPOINTS.contains(keyOfHandler(handler))) {
+                    continue;
+                }
                 violations.add(describe(handler) + " 是写操作却只声明了查看功能：" + code);
             }
         }
         assertThat(violations).isEmpty();
+    }
+
+    /**
+     * 经明确审核的**只读 POST** 端点。
+     *
+     * <p>HTTP 方法不等于权限语义：`POST /knowledge-docs/{id}/preview-chunks` 带请求体，
+     * 但 B0 冻结为**只读预览**（模拟切片、不落库），必须用 `knowledge:view`，
+     * 不能因为是 POST 就错误提升成 `knowledge:manage`。</p>
+     *
+     * <p>放行粒度是**精确的 HTTP 方法 + 完整路径**：禁止写成“所有 POST + view”，
+     * 也禁止路径前缀匹配——那会让任何新增的写接口只要挂上 `:view` 就自动通过检查。</p>
+     */
+    private static final Set<String> READ_ONLY_POST_ENDPOINTS = Set.of(
+            "POST /api/admin/knowledge-docs/{id}/preview-chunks");
+
+    @Test
+    void readOnlyPostAllowlistStaysExact() {
+        // 该清单只能包含 POST，且必须能在真实映射里找到——否则就是一条过期放行。
+        for (String key : READ_ONLY_POST_ENDPOINTS) {
+            assertThat(key).as("只读 POST 放行清单只能登记 POST 端点").startsWith("POST ");
+            assertThat(adminEntries().stream().map(entry -> keyOf(entry.getKey())))
+                    .as("只读 POST 放行清单出现了不存在的端点：" + key)
+                    .contains(key);
+        }
     }
 
     @Test
@@ -343,6 +378,16 @@ class IamS1EndpointCoverageTest {
             count++;
         }
         return count;
+    }
+
+    /** 该 Handler 在真实映射里的键（`HTTP方法 路径`），与例外清单同一口径。 */
+    private String keyOfHandler(HandlerMethod handler) {
+        for (Map.Entry<RequestMappingInfo, HandlerMethod> entry : handlerMapping.getHandlerMethods().entrySet()) {
+            if (entry.getValue().equals(handler)) {
+                return keyOf(entry.getKey());
+            }
+        }
+        return "";
     }
 
     /** 该 Handler 是否绑定到写方法（POST/PUT/PATCH/DELETE）。 */

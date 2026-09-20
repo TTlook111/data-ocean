@@ -25,5 +25,13 @@ public enum IamS1ResourceType {
      *
      * <p>问题的 datasourceId 与它所属快照的 datasourceId 必须一致；不一致视为事实断链，拒绝。</p>
      */
-    GOVERNANCE_ISSUE
+    GOVERNANCE_ISSUE,
+
+    /**
+     * 语义知识文档：输入 documentId，解析到 `knowledge_doc` 归属的数据源。
+     *
+     * <p>文档的 datasourceId 必须存在；当前版本与版本上的来源快照若存在，
+     * 其归属必须与文档一致，不一致视为事实断链并拒绝。</p>
+     */
+    KNOWLEDGE_DOCUMENT
 }

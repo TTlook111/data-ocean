@@ -140,6 +140,28 @@ async function settle() {
 }
 
 /**
+ * 等待某条数据行渲染出来。
+ *
+ * 页面要在若干次异步链路之后才渲染表格；只等固定轮次在机器负载高时会读到空 DOM，
+ * 而「按钮不存在」这类断言在空 DOM 上会**空洞地通过**——先确认行存在，断言才有意义。
+ */
+async function waitForRow(wrapper: ReturnType<typeof mountPage>, rowText: string) {
+  return vi.waitFor(() => {
+    const row = wrapper.findAll('.el-table__row').find((item) => item.text().includes(rowText))
+    if (!row) throw new Error(`数据行「${rowText}」尚未渲染`)
+    return row
+  })
+}
+
+/** 等待某行的某个按钮渲染出来，用于点击前的先决条件。 */
+async function waitForRowButton(wrapper: ReturnType<typeof mountPage>, rowText: string, buttonText: string) {
+  return vi.waitFor(() => {
+    const button = rowButton(wrapper, rowText, buttonText)
+    if (!button) throw new Error(`行「${rowText}」的按钮「${buttonText}」尚未渲染`)
+    return button
+  })
+}
+/**
  * 在**真实数据行**里找按钮。
  *
  * 不能直接 `findAll('button')`：`el-table` 会在隐藏列区域里再渲染一份列模板，
@@ -187,6 +209,7 @@ describe('IssueList 的能力控制', () => {
 
     // 有查看权、无处理权：不应出现任何会触发写接口的按钮
     expect(wrapper.text()).toContain('无处理权限')
+    await waitForRow(wrapper, 'orders')
     expect(rowButton(wrapper, 'orders', '确认')).toBeUndefined()
     expect(rowButton(wrapper, 'orders', '驳回')).toBeUndefined()
     expect(api.handleIssue).not.toHaveBeenCalled()
@@ -198,8 +221,7 @@ describe('IssueList 的能力控制', () => {
     await settle()
 
     expect(wrapper.text()).not.toContain('无处理权限')
-    const confirm = rowButton(wrapper, 'orders', '确认')
-    expect(confirm).toBeTruthy()
+    const confirm = await waitForRowButton(wrapper, 'orders', '确认')
 
     await confirm!.trigger('click')
     await settle()
@@ -228,6 +250,7 @@ describe('IssueList 的能力控制', () => {
     const wrapper = mountPage(IssueList)
     await settle()
 
+    await waitForRow(wrapper, 'orders')
     expect(wrapper.text()).toContain('无处理权限')
     expect(rowButton(wrapper, 'orders', '确认')).toBeUndefined()
   })
@@ -237,7 +260,8 @@ describe('IssueList 的能力控制', () => {
     const wrapper = mountPage(IssueList)
     await settle()
 
-    await rowButton(wrapper, 'orders', '详情')!.trigger('click')
+    const detail = await waitForRowButton(wrapper, 'orders', '详情')
+    await detail.trigger('click')
     await settle()
 
     // 审核记录属于 metadata:release:view，治理查看权不自动包含它
@@ -253,7 +277,8 @@ describe('IssueList 的能力控制', () => {
     const wrapper = mountPage(IssueList)
     await settle()
 
-    await rowButton(wrapper, 'orders', '详情')!.trigger('click')
+    const detail = await waitForRowButton(wrapper, 'orders', '详情')
+    await detail.trigger('click')
     await settle()
 
     expect(api.listReviewRecords).toHaveBeenCalledWith(8, expect.objectContaining({ tableName: 'orders' }))
