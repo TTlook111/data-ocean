@@ -395,9 +395,22 @@ export async function listIamS1Datasources() {
   return data
 }
 
-export async function listIamS1Subjects(subjectType?: string, keyword?: string) {
+/**
+ * 主体选择的用途，必填；服务端按用途做不同的权限判定：
+ * - `GRANT`：`security:permission:view` + 该数据源负责源（同一绑定）
+ * - `EFFECTIVE`：`security:effective:view` + 该数据源负责源（同一绑定）
+ * - `ORGANIZATION`：`organization:user:view`（全局，不接受 datasourceId）
+ */
+export type IamS1SubjectScope = 'GRANT' | 'EFFECTIVE' | 'ORGANIZATION'
+
+export async function listIamS1Subjects(
+  scope: IamS1SubjectScope,
+  datasourceId?: number,
+  subjectType?: string,
+  keyword?: string,
+) {
   const { data } = await http.get<ApiResult<IamS1SubjectOption[]>>(`${BASE}/subjects`, {
-    params: { subjectType, keyword },
+    params: { scope, datasourceId, subjectType, keyword },
   })
   return data
 }
@@ -594,8 +607,24 @@ export async function listIamS1MyAccessRequests() {
   return data
 }
 
-export async function listIamS1AccessRequestQueue() {
-  const { data } = await http.get<ApiResult<IamS1AccessRequestView[]>>(`${BASE}/access-requests/queue`)
+/** 审批队列分组：待审批 / 已处理；留空表示不按状态过滤。 */
+export type IamS1QueueStatusGroup = 'PENDING' | 'HANDLED'
+
+/**
+ * 审批队列：按状态分组真分页。
+ *
+ * 后端原先对每个负责源固定取 100 条再合并，待审批记录会被同源的已处理记录挤出，
+ * 且超出部分没有任何入口能看到或处理；现在按状态下推到数据库并分页。
+ */
+export async function listIamS1AccessRequestQueue(
+  status?: IamS1QueueStatusGroup,
+  page = 1,
+  size = 20,
+) {
+  const { data } = await http.get<ApiResult<PageResult<IamS1AccessRequestView>>>(
+    `${BASE}/access-requests/queue`,
+    { params: { status, page, size } },
+  )
   return data
 }
 

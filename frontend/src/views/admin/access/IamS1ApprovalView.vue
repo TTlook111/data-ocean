@@ -34,7 +34,14 @@ const snapshots = ref<Array<{ id: number; snapshotVersion?: number }>>([])
 const tables = ref<IamS1TableOption[]>([])
 const columns = ref<IamS1ColumnOption[]>([])
 const mine = ref<IamS1AccessRequestView[]>([])
-const queue = ref<IamS1AccessRequestView[]>([])
+// 两个 Tab 各自分页：待审批不再被同源的已处理记录挤出（后端按状态下推到数据库分页）。
+const pendingRequests = ref<IamS1AccessRequestView[]>([])
+const handledRequests = ref<IamS1AccessRequestView[]>([])
+const pendingTotal = ref(0)
+const handledTotal = ref(0)
+const pendingPage = ref(1)
+const handledPage = ref(1)
+const QUEUE_PAGE_SIZE = 20
 const submitting = ref(false)
 const reviewing = ref<number>()
 
@@ -48,9 +55,22 @@ const form = reactive({
 })
 
 const canSubmit = computed(() => iamS1.queryUse)
-const canReview = computed(() => iamS1.hasGlobal('security:approval:view'))
-const pendingRequests = computed(() => queue.value.filter((item) => item.status === 'PENDING'))
-const handledRequests = computed(() => queue.value.filter((item) => item.status !== 'PENDING'))
+/** 读取审批队列需要“查看访问申请”，与后端 GET /access-requests/queue 的校验一致。 */
+const canViewQueue = computed(() => iamS1.hasGlobal('security:approval:view'))
+/**
+ * Tab 级粗判用“审批”功能码本身，不用 security:approval:view：
+ * 只有 view 的角色会看到可点的同意/拒绝按钮，点了必然 403。
+ */
+const canReview = computed(() => iamS1.hasGlobal('security:approval:review'))
+
+/**
+ * 逐条判定审批权：后端 `requireDatasourceFunction` 要求
+ * “审批功能与负责源在同一个角色绑定上同时成立”，所以必须按申请的数据源判定，
+ * 不能用全局功能码一刀切。
+ */
+function canReviewOn(row: IamS1AccessRequestView): boolean {
+  return iamS1.canOnDatasource('security:approval:review', row.datasourceId)
+}
 
 async function loadDatasources() {
   // 申请入口使用用户侧资源接口（scope=APPLY）：只要求“使用问数”，
@@ -101,16 +121,33 @@ async function loadMine() {
 }
 
 async function loadQueue() {
-  if (!canReview.value) return
+  if (!canViewQueue.value) return
   loading.value = true
   try {
-    const result = await listIamS1AccessRequestQueue()
-    queue.value = result.data ?? []
+    // 两个 Tab 各查各的页：待审批只查 PENDING，不会再被同源的已处理记录挤出。
+    const [pending, handled] = await Promise.all([
+      listIamS1AccessRequestQueue('PENDING', pendingPage.value, QUEUE_PAGE_SIZE),
+      listIamS1AccessRequestQueue('HANDLED', handledPage.value, QUEUE_PAGE_SIZE),
+    ])
+    pendingRequests.value = pending.data?.records ?? []
+    handledRequests.value = handled.data?.records ?? []
+    pendingTotal.value = pending.data?.total ?? 0
+    handledTotal.value = handled.data?.total ?? 0
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '读取审批队列失败')
   } finally {
     loading.value = false
   }
+}
+
+function changePendingPage(page: number) {
+  pendingPage.value = page
+  void loadQueue()
+}
+
+function changeHandledPage(page: number) {
+  handledPage.value = page
+  void loadQueue()
 }
 
 async function submitRequest() {
@@ -158,9 +195,14 @@ async function withdraw(item: IamS1AccessRequestView) {
 
 const MAX_APPROVAL_DAYS = 30
 
+/**
+ * 审批弹窗输入框的显示格式，**必须与下方 inputPattern 完全一致**（空格分隔、不含秒）。
+ * 它只用于预填；提交时再转成后端 LocalDateTime 需要的 `YYYY-MM-DDTHH:mm:00`。
+ * 两处格式不一致会让“不改日期直接点同意”被自己的校验规则拒绝。
+ */
 function formatLocal(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
 /** 默认批准到期时间：申请时长与 7 天中的较小值；审批不允许生成永久权限。 */
@@ -325,7 +367,7 @@ onMounted(async () => {
         <section class="panel">
           <EmptyState
             v-if="!canReview"
-            message="没有“查看访问申请”权限：需要 IAM-SIMPLE-1 角色包含该功能，并且该角色负责目标数据源。"
+            message="没有“审批访问申请”权限：需要 IAM-SIMPLE-1 角色包含该功能，并且该角色负责目标数据源。"
           />
           <EmptyState v-else-if="!pendingRequests.length" message="没有待审批的申请。" />
           <el-table v-else v-loading="loading" :data="pendingRequests" size="small">
@@ -345,18 +387,29 @@ onMounted(async () => {
                 <el-button
                   link
                   type="primary"
+                  :disabled="!canReviewOn(row)"
                   :loading="reviewing === row.id"
                   @click="review(row, 'APPROVE')"
                 >同意</el-button>
                 <el-button
                   link
                   type="danger"
+                  :disabled="!canReviewOn(row)"
                   :loading="reviewing === row.id"
                   @click="review(row, 'REJECT')"
                 >拒绝</el-button>
               </template>
             </el-table-column>
           </el-table>
+          <el-pagination
+            v-if="pendingTotal > QUEUE_PAGE_SIZE"
+            class="pager"
+            layout="total, prev, pager, next"
+            :total="pendingTotal"
+            :page-size="QUEUE_PAGE_SIZE"
+            :current-page="pendingPage"
+            @current-change="changePendingPage"
+          />
           <p class="hint">
             通过范围必须是申请范围的子集，时间不超过申请时长；禁止规则、隐藏字段和未发布资源不能审批开通。
           </p>
@@ -383,6 +436,15 @@ onMounted(async () => {
               </template>
             </el-table-column>
           </el-table>
+          <el-pagination
+            v-if="handledTotal > QUEUE_PAGE_SIZE"
+            class="pager"
+            layout="total, prev, pager, next"
+            :total="handledTotal"
+            :page-size="QUEUE_PAGE_SIZE"
+            :current-page="handledPage"
+            @current-change="changeHandledPage"
+          />
         </section>
       </el-tab-pane>
     </el-tabs>
@@ -395,6 +457,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 16px;
 }
+.pager { margin-top: 16px; justify-content: flex-end; }
 .panel {
   border: 1px solid var(--do-line);
   border-radius: 10px;

@@ -1,5 +1,6 @@
 package com.dataocean.module.permission.s1.service.impl;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.permission.s1.entity.IamS1AccessRequest;
 import com.dataocean.module.permission.s1.entity.IamS1ColumnFact;
@@ -8,6 +9,8 @@ import com.dataocean.module.permission.s1.entity.IamS1DatasourceFact;
 import com.dataocean.module.permission.s1.entity.IamS1FieldProtection;
 import com.dataocean.module.permission.s1.entity.dto.IamS1AccessRequestSubmitDTO;
 import com.dataocean.module.permission.s1.entity.dto.IamS1AccessReviewDTO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1AccessRequestVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.mapper.IamS1AccessApprovalMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1AccessRequestMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1DataGrantMapper;
@@ -23,6 +26,7 @@ import com.dataocean.module.permission.s1.service.IamS1PermissionRevisionService
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import com.dataocean.module.permission.s1.support.IamS1MetadataValidationService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -32,6 +36,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -365,6 +370,68 @@ class IamS1AccessRequestServiceImplTest {
             facts.put(name, fact);
         }
         return facts;
+    }
+
+    @Test
+    void listQueueRejectsWhenFunctionAndResponsibleScopeAreOnDifferentBindings() {
+        Fixture fixture = new Fixture();
+        // 同一绑定上没有“查看访问申请 + 负责源”的数据源时必须拒绝：
+        // 不得回退成“任意绑定的功能 + 任意绑定的负责源”的交叉相乘，
+        // 否则没有审批权的角色能借另一个角色的负责源看到全部申请。
+        when(fixture.capabilityService.responsibleDatasourcesWithFunction(7L, "security:approval:view"))
+                .thenReturn(List.of());
+
+        Throwable thrown = catchThrowable(() -> fixture.service.listQueue(7L, "PENDING", 1, 20));
+
+        assertThat(thrown).isInstanceOf(BusinessException.class);
+        assertThat(thrown.getMessage()).contains("同一个角色绑定");
+        verify(fixture.accessRequestMapper, never()).selectPage(any(), any());
+    }
+
+    @Test
+    void listQueueReadsOnlyDatasourcesWhereFunctionAndScopeShareOneBinding() {
+        Fixture fixture = new Fixture();
+        when(fixture.capabilityService.responsibleDatasourcesWithFunction(7L, "security:approval:view"))
+                .thenReturn(List.of(new IamS1DatasourceRefVO(5L, "销售库", true)));
+        when(fixture.accessRequestMapper.selectPage(any(), any())).thenReturn(new Page<>());
+
+        Page<IamS1AccessRequestVO> result = fixture.service.listQueue(7L, "PENDING", 1, 20);
+
+        assertThat(result.getRecords()).isEmpty();
+        verify(fixture.capabilityService).responsibleDatasourcesWithFunction(7L, "security:approval:view");
+    }
+
+    @Test
+    void listQueuePassesPagingThroughToTheDatabase() {
+        // 回归：原实现对每个负责源固定取 100 条再合并，超出部分没有任何入口能看到或处理。
+        Fixture fixture = new Fixture();
+        when(fixture.capabilityService.responsibleDatasourcesWithFunction(7L, "security:approval:view"))
+                .thenReturn(List.of(new IamS1DatasourceRefVO(5L, "销售库", true)));
+        when(fixture.accessRequestMapper.selectPage(any(), any())).thenReturn(new Page<>());
+
+        fixture.service.listQueue(7L, "HANDLED", 3, 50);
+
+        ArgumentCaptor<Page<IamS1AccessRequest>> captor = pageCaptor();
+        verify(fixture.accessRequestMapper).selectPage(captor.capture(), any());
+        assertThat(captor.getValue().getCurrent()).isEqualTo(3L);
+        assertThat(captor.getValue().getSize()).isEqualTo(50L);
+    }
+
+    @Test
+    void listQueueRejectsUnknownStatusGroup() {
+        Fixture fixture = new Fixture();
+        when(fixture.capabilityService.responsibleDatasourcesWithFunction(7L, "security:approval:view"))
+                .thenReturn(List.of(new IamS1DatasourceRefVO(5L, "销售库", true)));
+
+        Throwable thrown = catchThrowable(() -> fixture.service.listQueue(7L, "WHATEVER", 1, 20));
+
+        assertThat(thrown).isInstanceOf(BusinessException.class);
+        assertThat(thrown.getMessage()).contains("PENDING");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ArgumentCaptor<Page<IamS1AccessRequest>> pageCaptor() {
+        return ArgumentCaptor.forClass(Page.class);
     }
 
     private static final class Fixture {

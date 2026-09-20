@@ -27,37 +27,10 @@ public interface IamS1AccessRequestMapper extends BaseMapper<IamS1AccessRequest>
                                                @Param("requesterId") Long requesterId,
                                                @Param("limit") int limit);
 
+    /**
+     * 审批前锁定申请行，防止并发重复审批。
+     */
     @Select("""
-            SELECT id, protocol_version, requester_id, datasource_id, metadata_snapshot_id,
-                   table_name, requested_columns_json, row_scope, requested_valid_until,
-                   purpose, status, revision_no, created_by, updated_by, created_at, updated_at
-            FROM iam_s1_access_request
-            WHERE protocol_version = #{protocolVersion}
-              AND datasource_id = #{datasourceId}
-              AND status = 'PENDING'
-            ORDER BY id DESC
-            LIMIT #{limit}
-            """)
-    List<IamS1AccessRequest> selectPendingByDatasource(@Param("protocolVersion") String protocolVersion,
-                                                       @Param("datasourceId") Long datasourceId,
-                                                       @Param("limit") int limit);
-
-    /** 负责源队列：按数据源返回全部状态的申请（页面再按待审批/已处理分 Tab）。 */
-    @Select("""
-            SELECT id, protocol_version, requester_id, datasource_id, metadata_snapshot_id,
-                   table_name, requested_columns_json, row_scope, requested_valid_until,
-                   purpose, status, revision_no, created_by, updated_by, created_at, updated_at
-            FROM iam_s1_access_request
-            WHERE protocol_version = #{protocolVersion}
-              AND datasource_id = #{datasourceId}
-            ORDER BY id DESC
-            LIMIT #{limit}
-            """)
-    List<IamS1AccessRequest> selectByDatasource(@Param("protocolVersion") String protocolVersion,
-                                                @Param("datasourceId") Long datasourceId,
-                                                @Param("limit") int limit);
-
-    /** 审批前锁定申请行，防止并发重复审批。 */    @Select("""
             SELECT id, protocol_version, requester_id, datasource_id, metadata_snapshot_id,
                    table_name, requested_columns_json, row_scope, requested_valid_until,
                    purpose, status, revision_no, created_by, updated_by, created_at, updated_at

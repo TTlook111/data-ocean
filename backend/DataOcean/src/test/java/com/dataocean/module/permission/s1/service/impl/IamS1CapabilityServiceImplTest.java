@@ -18,10 +18,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.dataocean.common.exception.BusinessException;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** B4：能力摘要按 Java 结论返回，模板只引用固定目录中的功能码。 */
@@ -108,11 +113,81 @@ class IamS1CapabilityServiceImplTest {
         ordinaryRole.setStatus(1);
         when(fixture.roleMapper.selectList(any())).thenReturn(List.of(protectedRole, ordinaryRole));
 
-        List<IamS1SubjectOptionVO> options = fixture.service.subjectOptions(1L, "ROLE", null);
+        List<IamS1SubjectOptionVO> options = fixture.service.subjectOptions(1L, "ORGANIZATION", null, "ROLE", null);
 
         assertThat(options).hasSize(1);
         assertThat(options.get(0).name()).isEqualTo("数据复核员");
         assertThat(options.get(0).subjectTypeName()).isEqualTo("角色");
+    }
+
+    @Test
+    void subjectOptionsRequireScope() {
+        Fixture fixture = new Fixture();
+
+        Throwable thrown = catchThrowable(() -> fixture.service.subjectOptions(1L, null, 5L, "USER", null));
+
+        assertThat(thrown).isInstanceOf(BusinessException.class);
+        assertThat(thrown.getMessage()).contains("scope");
+    }
+
+    @Test
+    void subjectOptionsRejectUnknownScope() {
+        Fixture fixture = new Fixture();
+
+        Throwable thrown = catchThrowable(() -> fixture.service.subjectOptions(1L, "WHATEVER", 5L, "USER", null));
+
+        assertThat(thrown).isInstanceOf(BusinessException.class);
+        assertThat(thrown.getMessage()).contains("GRANT");
+    }
+
+    @Test
+    void grantAndEffectiveScopesRequireDatasourceId() {
+        Fixture fixture = new Fixture();
+
+        Throwable grant = catchThrowable(() -> fixture.service.subjectOptions(1L, "GRANT", null, "USER", null));
+        assertThat(grant).isInstanceOf(BusinessException.class);
+        assertThat(grant.getMessage()).contains("datasourceId");
+
+        Throwable effective = catchThrowable(
+                () -> fixture.service.subjectOptions(1L, "EFFECTIVE", null, "USER", null));
+        assertThat(effective).isInstanceOf(BusinessException.class);
+        assertThat(effective.getMessage()).contains("datasourceId");
+    }
+
+    @Test
+    void grantScopeChecksFunctionAndResponsibleScopeOnTheRequestedDatasource() {
+        // 回归：原实现只校验全局 security:permission:view，负责 A 源的人可以按 B 源的用途加载主体。
+        Fixture fixture = new Fixture();
+        when(fixture.subjectQueryMapper.searchEnabledUsers(any(), anyInt())).thenReturn(List.of());
+
+        fixture.service.subjectOptions(1L, "GRANT", 5L, "USER", null);
+
+        verify(fixture.adminGuard).requireDatasourceFunction(1L, "security:permission:view", 5L);
+    }
+
+    @Test
+    void effectiveScopeChecksItsOwnFunctionCodeOnTheRequestedDatasource() {
+        Fixture fixture = new Fixture();
+        when(fixture.subjectQueryMapper.searchEnabledUsers(any(), anyInt())).thenReturn(List.of());
+
+        fixture.service.subjectOptions(1L, "EFFECTIVE", 5L, "USER", null);
+
+        verify(fixture.adminGuard).requireDatasourceFunction(1L, "security:effective:view", 5L);
+    }
+
+    @Test
+    void organizationScopeUsesReadOnlyFunctionAndRejectsDatasourceId() {
+        Fixture fixture = new Fixture();
+
+        // 只读的用户选项不应要求 organization:user:manage——那是维护权限。
+        Throwable thrown = catchThrowable(() -> fixture.service.subjectOptions(1L, "ORGANIZATION", 5L, "USER", null));
+        assertThat(thrown).isInstanceOf(BusinessException.class);
+        assertThat(thrown.getMessage()).contains("datasourceId");
+
+        when(fixture.subjectQueryMapper.searchEnabledUsers(any(), anyInt())).thenReturn(List.of());
+        fixture.service.subjectOptions(1L, "ORGANIZATION", null, "USER", null);
+
+        verify(fixture.adminGuard).requireGlobalFunction(1L, "organization:user:view");
     }
 
     private static final class Fixture {

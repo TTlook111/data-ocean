@@ -1,6 +1,6 @@
 # IAM-SIMPLE-1 B4 页面与业务接入合同
 
-状态：B4 代码已实现并完成一轮 P1 复核修复（未提交、未推送）。范围结论见“B4 复核后的范围结论”：这是“权限与组织域 + 独立安全问数入口”的 B4 初版，**不是完整 B4，不能据此进入 B5 验收**。V57 只新增 S1 前向表，未执行真实数据库升级；未启动服务、未做浏览器验收、未执行 bootstrap、未正式切换、未清理旧权限。
+状态：B4 代码已实现并完成一轮 P1 复核修复，已提交并推送（`8a9c5a1`，94 文件 / +9644 行）。2026-09-20 复审新发现前端 6 个 P1 与后端 4 个 P2，已修复全部 6 个前端 P1 与后端 B1 / B2 两项（见文末“2026-09-20 复审发现”），修复尚未提交、未推送、未做浏览器验收。范围结论见“B4 复核后的范围结论”：这是“权限与组织域 + 独立安全问数入口”的 B4 初版，**不是完整 B4，不能据此进入 B5 验收**。V57 只新增 S1 前向表，未执行真实数据库升级；未启动服务、未做浏览器验收、未执行 bootstrap、未正式切换、未清理旧权限。
 
 ## 目标与边界
 
@@ -21,7 +21,7 @@ B4 把 IAM-SIMPLE-1 从“服务端已实现”推进到“页面与业务成对
 | 角色模板 | `GET /api/iam-s1/templates/role-templates` | 只引用固定目录功能码 |
 | 授权模板 | `GET /api/iam-s1/templates/grant-templates` | 静态中文模板 |
 | 可选数据源 | `GET /api/iam-s1/datasources` | 负责范围（系统管理员为全部启用源） |
-| 选择对象 | `GET /api/iam-s1/subjects` | `security:permission:view`（全局），只返回必要名称 |
+| 选择对象 | `GET /api/iam-s1/subjects?scope=&datasourceId=&subjectType=&keyword=` | `scope` **必填枚举**，缺失或未知值一律拒绝（无旧调用需要兼容）。`GRANT` → `security:permission:view` + **请求中的 datasourceId** 负责源（同一绑定）；`EFFECTIVE` → `security:effective:view` + 该数据源负责源；`ORGANIZATION` → `organization:user:view`（全局，不接受 `datasourceId`，只读不要求 `manage`）。只返回必要名称 |
 | 功能目录 | `GET /api/iam-s1/functions` | `organization:permission:view`，只读 |
 | 角色 | `GET/POST /api/iam-s1/roles`、`GET/PUT/DELETE /api/iam-s1/roles/{id}` | `organization:role:view` / `organization:role:manage` + 敏感功能仅系统管理员 |
 | 角色成员 | `GET /api/iam-s1/roles/{id}/members` | `organization:role:view` |
@@ -32,7 +32,7 @@ B4 把 IAM-SIMPLE-1 从“服务端已实现”推进到“页面与业务成对
 | 字段保护 | `GET/POST /api/iam-s1/field-protections`、`DELETE /{id}` | `security:mask:view` / `security:mask:manage` + 负责源 |
 | 实际权限预览 | `POST /api/iam-s1/effective-permissions/preview` | 本人预览需 `query:use`；查看他人需 `security:effective:view` + 负责源；复用统一 Resolver |
 | 我的申请 | `POST /api/iam-s1/access-requests`、`GET /mine`、`POST /{id}/withdraw` | `query:use`，只能看/撤回本人申请 |
-| 审批队列 | `GET /api/iam-s1/access-requests/queue` | `security:approval:view` + 负责源 |
+| 审批队列 | `GET /api/iam-s1/access-requests/queue?status=&page=&size=` | `security:approval:view` + 负责源（**同一角色绑定**）；`status` 取 `PENDING` / `HANDLED` / 留空，跨负责源单条查询 + 数据库分页，返回 `Page<VO>` |
 | 审批 | `POST /api/iam-s1/access-requests/{id}/review` | `security:approval:review` + 负责源；不能审批本人；批准范围必须是申请子集；批准到期时间必填且有上限 |
 
 ## 用户侧资源接口（`/api/iam-s1/query-resources/**`）
@@ -121,4 +121,28 @@ Java `IamS1QueryServiceImpl.requireExplicitUsages` 强制要求每个字段声�
 ## 已知待办（不属本轮修复）
 
 - 表/字段选项的“可选”装配逻辑在管理端授权面板与用户侧资源服务中各有一份实现，两处口径必须保持一致，计划在 B5 前合并为共用装配器。
+
+## 2026-09-20 复审发现（已修复，未提交）
+
+### 前端 P1
+
+| 编号 | 问题 | 位置 | 修复 |
+|---|---|---|---|
+| F1 | 路由守卫把 `query:use` 当成后台能力，只有“普通问数用户”角色的用户可被放行进 `/admin/**`；`iamS1.reset()` 生产零调用点，同一标签页切换账号沿用上一用户的能力快照 | `router/guards.ts:78-85`、`stores/iamS1.ts:26-29` | `hasAnyAdminCapability` 排除 `query:use` / `query:sql:view` / `query:export`；`auth.login` / `auth.logout` 调用 `iamS1.reset()` |
+| F2 | `currentTaskId` 在 `finally` 中被清空，查询完成后“查看 SQL / 导出 CSV / 反馈”全部静默失效 | `views/query/IamS1QueryView.vue:245,260,277,288,303` | 改为在 `ask()` 开始时清空，完成后保留 |
+| F3 | 审批弹窗预填时间带 `T` 与秒，与 `inputPattern`（要求空格、无秒）冲突，不改日期直接确认必被拒 | `views/admin/access/IamS1ApprovalView.vue:161-174,187` | `formatLocal` 改为空格无秒，提交时再转 `T…:00` |
+| F4 | 「实际权限」Tab 的放行条件与面板数据依赖自相矛盾，普通问数用户打开后快照/表/字段永远为空 | `IamS1AccessWorkspaceView.vue:24`、`IamS1EffectivePermissionPanel.vue:139-148` | `loadUsers()` 自行降级；本人预览改走 `query-resources/**?scope=QUERY` |
+| F5 | DECIMAL 列 + 整数值被前端推断为 `INTEGER`，被后端拒绝且界面无修正入口 | `IamS1DataGrantPanel.vue:186-198` | 值类型只由列的元数据类型决定，与后端 `ensureTypeCompatible` 分支对应 |
+| F6 | 能力判定全部用按任意绑定的 `hasGlobal`；store 中同绑定实现 `canOnDatasource` 零调用点 | `stores/iamS1.ts:41-46` 及各视图 | 新增 `datasourcesWithFunction()`，两个面板的数据源下拉按同绑定过滤；审批按钮逐条 `canOnDatasource` |
+
+### 后端 P2
+
+| 编号 | 问题 | 位置 | 修复 |
+|---|---|---|---|
+| B1 | `safeSummary()` 对 `purpose` / `reason` 做关键词黑名单，命中 `database` / `token` / `secret` 等词抛异常并回滚申请或审批（审批路径连带回滚已生成授权）；且统一按 2000 判断而 `reason` 列只有 500 | `IamS1AuditEventServiceImpl.java:56-70`，调用点 `IamS1AccessRequestServiceImpl.java:143,261` | 改为就地屏蔽 + 按列截断（500 / 2000 / 100），不再抛异常 |
+| B2 | `/api/iam-s1/subjects` 与审批队列读路径的“功能 + 负责源”可分别由不同角色绑定满足，与同一绑定规则不一致 | `IamS1CapabilityServiceImpl.java:144`、`IamS1AccessRequestServiceImpl.java:189` | 队列改用 `responsibleDatasourcesWithFunction()`（SQL 要求 `rd.user_role_id = ur.id`）；`/subjects` 改为按上文 `scope` 三用途分派校验——`GRANT` / `EFFECTIVE` 必须校验**请求中的 datasourceId**（不能只要求“至少负责一个源”，否则负责 A 源的人能按 B 源的用途加载主体），`ORGANIZATION` 走全局只读码 |
+| B3 | 审批队列 `QUEUE_LIMIT_PER_DATASOURCE = 100` 且无重复申请限制，可被刷量挤占 | `IamS1AccessRequestServiceImpl.java:64` | 队列改为按状态分组真分页（`status` + `page` + `size`，跨负责源单条查询走 MyBatis-Plus 分页插件），待审批不再被同源的已处理记录挤出，也不再有无入口可处理的截断；删除了不再使用的 `selectByDatasource` / `selectPendingByDatasource`。批量写入另加服务端 100 条上限（`MAX_BATCH_GRANTS`）。**“无重复申请限制”仍未处理** |
+| B4 | `review` 的权限判定排在存在性与状态判定之后，可借错误消息差异枚举 requestId | `IamS1AccessRequestServiceImpl.java:207-214` | 未修复 |
+
+未发现 P0 级越权：10 个 Controller 均有服务端强制校验，审批的并发 / 重复 / 自审批 / 时限 / 字段子集处理正确，事务边界正确，全包无 SQL 拼接。
 

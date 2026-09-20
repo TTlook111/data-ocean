@@ -8,6 +8,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import EmptyState from '../../../../components/common/EmptyState.vue'
+import { useIamS1Store } from '../../../../stores/iamS1'
 import {
   listIamS1Columns,
   listIamS1Datasources,
@@ -21,6 +22,8 @@ import {
   type IamS1FieldProtectionItem,
   type IamS1TableOption,
 } from '../../../../api/iamS1'
+
+const iamS1 = useIamS1Store()
 
 const datasources = ref<IamS1DatasourceRef[]>([])
 const datasourceId = ref<number>()
@@ -51,7 +54,10 @@ const maskedCount = computed(() => columns.value.filter((item) => item.protectio
 
 async function loadDatasources() {
   const result = await listIamS1Datasources()
-  datasources.value = result.data ?? []
+  // 同数据授权面板：服务端只按“负责源”下发，必须再按“查看字段保护”过滤，
+  // 否则下拉会出现该绑定没有此功能的源，选中后保存/读取一律被后端拒绝。
+  const allowed = new Set(iamS1.datasourcesWithFunction('security:mask:view'))
+  datasources.value = (result.data ?? []).filter((item) => allowed.has(item.id))
   datasourceId.value = datasources.value[0]?.id
 }
 

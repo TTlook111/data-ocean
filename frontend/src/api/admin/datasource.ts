@@ -87,17 +87,6 @@ export interface DatasourceTestResult {
   message: string
 }
 
-export interface DatasourceAccessItem {
-  id: number
-  datasourceId: number
-  userId: number
-  username?: string
-  realName?: string
-  grantedBy?: number
-  grantedAt?: string
-  expiresAt?: string
-}
-
 export async function listDatasources(params: DatasourceQuery) {
   const { data } = await http.get<ApiResult<PageResult<DatasourceItem>>>('/api/admin/datasources', { params })
   return data
@@ -175,20 +164,5 @@ export async function testDatasourceConnection(payload: DatasourceTestPayload) {
 
 export async function testSavedDatasourceConnection(id: number) {
   const { data } = await http.post<ApiResult<DatasourceTestResult>>(`/api/admin/datasources/${id}/test-connection`)
-  return data
-}
-
-export async function listDatasourceAccess(id: number) {
-  const { data } = await http.get<ApiResult<DatasourceAccessItem[]>>(`/api/admin/datasources/${id}/access`)
-  return data
-}
-
-export async function grantDatasourceAccess(id: number, userIds: number[]) {
-  const { data } = await http.post<ApiResult<{ granted: number }>>(`/api/admin/datasources/${id}/access`, { userIds })
-  return data
-}
-
-export async function revokeDatasourceAccess(id: number, userId: number) {
-  const { data } = await http.delete<ApiResult<null>>(`/api/admin/datasources/${id}/access/${userId}`)
   return data
 }

@@ -13,7 +13,10 @@ import { useIamS1Store } from '../../../../stores/iamS1'
 import {
   listIamS1Columns,
   listIamS1Datasources,
+  listIamS1QueryResourceColumns,
   listIamS1QueryResourceDatasources,
+  listIamS1QueryResourceSnapshots,
+  listIamS1QueryResourceTables,
   listIamS1Snapshots,
   listIamS1Subjects,
   listIamS1Tables,
@@ -42,6 +45,9 @@ const previewing = ref(false)
 const snapshot = ref<IamS1AuthorizationSnapshot | null>(null)
 
 const selfUserId = computed(() => auth.currentUser?.id ?? auth.user?.userId)
+
+/** 预览目标是否为本人（未选择也按本人处理）；决定资源接口按用户侧还是管理端走。 */
+const previewingSelf = computed(() => !targetUserId.value || targetUserId.value === selfUserId.value)
 
 const reasonText = (code?: string) => {
   if (!code) return '未提供原因'
@@ -76,8 +82,20 @@ async function loadDatasources() {
 }
 
 async function loadUsers() {
-  const result = await listIamS1Subjects('USER')
-  users.value = result.data ?? []
+  // 用户下拉只服务“查看他人”，EFFECTIVE 用途要求 security:effective:view
+  // 与“请求中的 datasourceId 负责源”在同一角色绑定上，所以按当前数据源加载。
+  // 普通问数用户没有该功能，这里失败必须降级为空列表，
+  // 否则会中断 onMounted 后续的本人预览初始化（快照/表/字段永远为空）。
+  if (!datasourceId.value) {
+    users.value = []
+    return
+  }
+  try {
+    const result = await listIamS1Subjects('EFFECTIVE', datasourceId.value, 'USER')
+    users.value = result.data ?? []
+  } catch {
+    users.value = []
+  }
 }
 
 async function loadSnapshots() {
@@ -88,7 +106,11 @@ async function loadSnapshots() {
   tableName.value = undefined
   snapshot.value = null
   if (!datasourceId.value) return
-  const result = await listIamS1Snapshots(datasourceId.value)
+  // 本人预览只需“使用问数”，走用户侧资源接口；
+  // 查看他人需要后台负责源，走管理端接口。两者严格分离，不能混用。
+  const result = previewingSelf.value
+    ? await listIamS1QueryResourceSnapshots(datasourceId.value, 'QUERY')
+    : await listIamS1Snapshots(datasourceId.value)
   snapshots.value = result.data ?? []
   snapshotId.value = snapshots.value[0]?.id
   await loadTables()
@@ -99,7 +121,9 @@ async function loadTables() {
   columns.value = []
   selectedColumns.value = []
   if (!datasourceId.value || !snapshotId.value) return
-  const result = await listIamS1Tables(datasourceId.value, snapshotId.value)
+  const result = previewingSelf.value
+    ? await listIamS1QueryResourceTables(datasourceId.value, snapshotId.value, 'QUERY')
+    : await listIamS1Tables(datasourceId.value, snapshotId.value)
   tables.value = result.data ?? []
 }
 
@@ -107,7 +131,9 @@ async function loadColumns() {
   selectedColumns.value = []
   columns.value = []
   if (!datasourceId.value || !snapshotId.value || !tableName.value) return
-  const result = await listIamS1Columns(datasourceId.value, snapshotId.value, tableName.value)
+  const result = previewingSelf.value
+    ? await listIamS1QueryResourceColumns(datasourceId.value, snapshotId.value, tableName.value, 'QUERY')
+    : await listIamS1Columns(datasourceId.value, snapshotId.value, tableName.value)
   columns.value = result.data ?? []
 }
 
@@ -139,13 +165,21 @@ async function preview() {
 onMounted(async () => {
   await iamS1.load()
   try {
-    await Promise.all([loadDatasources(), loadUsers()])
+    // loadUsers 依赖已选中的数据源，必须排在 loadDatasources 之后。
+    await loadDatasources()
     targetUserId.value = selfUserId.value
+    await loadUsers()
     await loadSnapshots()
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '初始化实际权限预览失败')
   }
 })
+
+/** 切换数据源：可预览的用户列表也要按新数据源重新判定。 */
+async function onDatasourceChange() {
+  await loadUsers()
+  await loadSnapshots()
+}
 </script>
 
 <template>
@@ -157,7 +191,7 @@ onMounted(async () => {
         查看其他人需要“查看用户实际权限”并负责目标数据源。
       </p>
       <div class="inline">
-        <el-select v-model="targetUserId" placeholder="选择用户" filterable class="w240">
+        <el-select v-model="targetUserId" placeholder="选择用户" filterable class="w240" @change="loadSnapshots">
           <el-option
             v-if="selfUserId"
             :label="'本人（' + (auth.currentUser?.realName || auth.user?.username || '当前账号') + '）'"
@@ -165,7 +199,7 @@ onMounted(async () => {
           />
           <el-option v-for="item in users" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
-        <el-select v-model="datasourceId" placeholder="数据源" class="w200" @change="loadSnapshots">
+        <el-select v-model="datasourceId" placeholder="数据源" class="w200" @change="onDatasourceChange">
           <el-option v-for="item in datasources" :key="item.id" :label="item.name" :value="item.id" />
         </el-select>
         <el-select v-model="snapshotId" placeholder="已发布快照" class="w200" @change="loadTables">

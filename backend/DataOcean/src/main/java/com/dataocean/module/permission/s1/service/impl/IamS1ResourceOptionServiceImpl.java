@@ -90,18 +90,10 @@ public class IamS1ResourceOptionServiceImpl implements IamS1ResourceOptionServic
             if (protection.getColumnMetaId() != null) {
                 // 敏感分类与保护策略冲突时采用更严格的状态，页面与后端使用同一判定。
                 levels.merge(protection.getColumnMetaId(), protection.getProtectionLevel(),
-                        (left, right) -> stricter(left, right));
+                        IamS1Constants::stricterProtection);
             }
         }
         return levels;
-    }
-
-    private String stricter(String left, String right) {
-        List<String> order = List.of(IamS1Constants.PROTECTION_NORMAL, IamS1Constants.PROTECTION_MASKED,
-                IamS1Constants.PROTECTION_HIDDEN);
-        int leftIndex = order.indexOf(left);
-        int rightIndex = order.indexOf(right);
-        return leftIndex >= rightIndex ? left : right;
     }
 
     /** 供列表页展示的中文名：优先字段注释，其次物理名。 */

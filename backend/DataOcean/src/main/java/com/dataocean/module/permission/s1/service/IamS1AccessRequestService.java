@@ -1,5 +1,6 @@
 package com.dataocean.module.permission.s1.service;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.permission.s1.entity.dto.IamS1AccessRequestSubmitDTO;
 import com.dataocean.module.permission.s1.entity.dto.IamS1AccessReviewDTO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1AccessRequestVO;
@@ -24,8 +25,15 @@ public interface IamS1AccessRequestService {
     /** 我的申请：只返回本人申请。 */
     List<IamS1AccessRequestVO> listMine(Long requesterId);
 
-    /** 管理员队列：只返回本人负责数据源的申请。 */
-    List<IamS1AccessRequestVO> listQueue(Long reviewerId);
+    /**
+     * 管理员队列：只返回本人负责数据源的申请，按状态分组**真分页**。
+     *
+     * <p>原实现对每个负责源各取固定 100 条再合并，一是待审批记录会被同源的已处理记录挤出，
+     * 二是没有任何分页入口，超出部分既看不到也处理不了。现改为单条跨源查询 + 数据库分页。</p>
+     *
+     * @param statusGroup `PENDING`（待审批）/ `HANDLED`（已处理）/ 空（全部）
+     */
+    Page<IamS1AccessRequestVO> listQueue(Long reviewerId, String statusGroup, int page, int size);
 
     /** 审批：同意或拒绝；不能审批本人申请。 */
     Long review(Long reviewerId, Long requestId, IamS1AccessReviewDTO request);

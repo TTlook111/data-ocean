@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -46,6 +47,42 @@ public class MetadataEntityServiceImpl extends ServiceImpl<MetadataEntityMapper,
     public List<MetadataEntity> search(String query, String entityType, Long datasourceId, int page, int size) {
         int offset = (page - 1) * size;
         return baseMapper.fullTextSearch(query, entityType, datasourceId, size, offset);
+    }
+
+    @Override
+    public List<MetadataEntity> searchScoped(String query, String entityType, Collection<Long> datasourceIds,
+                                             int page, int size) {
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return List.of();
+        }
+        int offset = (page - 1) * size;
+        return baseMapper.fullTextSearchScoped(query, entityType, datasourceIds, size, offset);
+    }
+
+    @Override
+    public Long getDatasourceIdByEntityId(Long entityId) {
+        return entityId == null ? null : baseMapper.selectDatasourceIdByEntityId(entityId);
+    }
+
+    @Override
+    public MetadataEntity getEntityByIdForUpdate(Long entityId) {
+        return entityId == null ? null : baseMapper.selectByIdForUpdate(entityId);
+    }
+
+    @Override
+    public List<MetadataEntity> getByDatasourceIdsAndType(Collection<Long> datasourceIds, String entityType) {
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return List.of();
+        }
+        return baseMapper.selectByDatasourceIdsAndType(datasourceIds, entityType);
+    }
+
+    @Override
+    public java.util.Set<Long> getEntityIdsByDatasourceIds(java.util.Collection<Long> datasourceIds) {
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return java.util.Set.of();
+        }
+        return new java.util.HashSet<>(baseMapper.selectEntityIdsByDatasourceIds(datasourceIds));
     }
 
     @Override

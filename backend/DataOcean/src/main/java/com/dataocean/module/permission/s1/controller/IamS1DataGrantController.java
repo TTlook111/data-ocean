@@ -58,7 +58,7 @@ public class IamS1DataGrantController {
     }
 
     @PostMapping("/batch")
-    public Result<Void> createBatch(@Valid @RequestBody List<IamS1DataGrantSaveDTO> requests,
+    public Result<Void> createBatch(@Valid @RequestBody List<@Valid IamS1DataGrantSaveDTO> requests,
                                     @RequestParam(required = false) String reason) {
         dataGrantService.createGrants(UserContext.currentUserId(), requests, reason);
         return Result.success("数据授权已批量保存", null);

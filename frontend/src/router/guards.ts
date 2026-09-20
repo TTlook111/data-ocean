@@ -73,14 +73,15 @@ export function setupRouterGuards(router: Router) {
     }
 
     if (to.path === '/admin' || to.path.startsWith('/admin/')) {
-      // 先按旧环境权限放行，再补一次 S1 能力判定：只有 S1 新绑定的账号也能进入后台，
-      // 进入具体工作区后由页面和能力摘要给出明确中文提示，后端仍会独立校验每个接口。
-      if (hasLegacyAdminAccess(user)) return true
+      // 六个后台业务域已改用 S1 能力摘要判定页面可见性，所以必须先加载能力摘要，
+      // 再进任何放行分支——否则带旧权限的账号进页面后会读到空摘要，把有权限的卡片判成无权限。
       try {
         await iamS1.load()
       } catch {
         // 读取失败时按“无能力”处理，不静默回退旧权限
       }
+      // 切换前旧环境仍在运行，保留旧权限放行分支；B6 删除旧权限时一并移除。
+      if (hasLegacyAdminAccess(user)) return true
       if (iamS1.hasAnyAdminCapability) return true
       return '/query'
     }

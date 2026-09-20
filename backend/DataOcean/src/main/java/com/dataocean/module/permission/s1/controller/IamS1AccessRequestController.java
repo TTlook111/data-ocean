@@ -1,5 +1,7 @@
 package com.dataocean.module.permission.s1.controller;
 
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.pagination.PageRequest;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.permission.s1.entity.dto.IamS1AccessRequestSubmitDTO;
@@ -44,9 +46,17 @@ public class IamS1AccessRequestController {
         return Result.success(accessRequestService.listMine(UserContext.currentUserId()));
     }
 
+    /**
+     * 审批队列：按状态分组真分页，避免待审批记录被同源的已处理记录挤出。
+     *
+     * @param status `PENDING`（待审批）/ `HANDLED`（已处理）/ 留空（全部）
+     */
     @GetMapping("/queue")
-    public Result<List<IamS1AccessRequestVO>> queue() {
-        return Result.success(accessRequestService.listQueue(UserContext.currentUserId()));
+    public Result<Page<IamS1AccessRequestVO>> queue(@RequestParam(required = false) String status,
+                                                    @RequestParam(defaultValue = "1") Integer page,
+                                                    @RequestParam(defaultValue = "20") Integer size) {
+        return Result.success(accessRequestService.listQueue(UserContext.currentUserId(), status,
+                (int) PageRequest.page(page), (int) PageRequest.size(size)));
     }
 
     @PostMapping("/{requestId}/withdraw")

@@ -8,6 +8,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import EmptyState from '../../../../components/common/EmptyState.vue'
+import { useIamS1Store } from '../../../../stores/iamS1'
 import {
   createIamS1DataGrant,
   listIamS1Columns,
@@ -31,6 +32,8 @@ const props = defineProps<{
   /** 进入工作区时默认选中的数据源（来自侧栏上下文） */
   defaultDatasourceId?: number
 }>()
+
+const iamS1 = useIamS1Store()
 
 const loading = ref(false)
 const datasources = ref<IamS1DatasourceRef[]>([])
@@ -91,7 +94,10 @@ const missingItems = computed(() => {
 
 async function loadDatasources() {
   const result = await listIamS1Datasources()
-  datasources.value = result.data ?? []
+  // 服务端按“负责源”下发，不按功能过滤；这里必须再按“查看权限配置”过滤，
+  // 否则下拉里会出现“有负责源但该绑定没有此功能”的源，选中后一律被后端拒绝。
+  const allowed = new Set(iamS1.datasourcesWithFunction('security:permission:view'))
+  datasources.value = (result.data ?? []).filter((item) => allowed.has(item.id))
   if (!datasourceId.value) {
     const preferred = datasources.value.find((item) => item.id === props.defaultDatasourceId)
     datasourceId.value = preferred?.id ?? datasources.value[0]?.id
@@ -99,7 +105,13 @@ async function loadDatasources() {
 }
 
 async function loadSubjects() {
-  const result = await listIamS1Subjects()
+  // GRANT 用途：服务端要求 security:permission:view 与“请求中的 datasourceId 负责源”
+  // 落在同一个角色绑定上，所以主体列表必须按当前选中的数据源加载，切换数据源时也要重载。
+  if (!datasourceId.value) {
+    subjects.value = []
+    return
+  }
+  const result = await listIamS1Subjects('GRANT', datasourceId.value)
   subjects.value = result.data ?? []
 }
 
@@ -183,17 +195,25 @@ function addCondition() {
   form.conditions.push({ columnName: first?.columnName ?? '', operatorCode: 'EQ', value: '' })
 }
 
-function inferValueType(columnName: string, value: string): string {
+/**
+ * 条件值类型必须**只由列的元数据类型决定**，不能看“用户填的值像什么”。
+ *
+ * 反例：DECIMAL(10,2) 的金额列填 `100`，按“值像整数”会被推成 INTEGER，
+ * 而后端 `IamS1RowConditionValidator.ensureTypeCompatible` 对 INTEGER 只接受
+ * 含 INT / YEAR / BIT 的类型，`DECIMAL(10,2)` 不在其中 → 保存必然失败，
+ * 而界面没有让用户改值类型的入口。
+ *
+ * 规则与后端 ensureTypeCompatible 的分支逐一对应，改动必须两侧同步。
+ */
+function inferValueType(columnName: string): string {
   const column = columns.value.find((item) => item.columnName === columnName)
   const dataType = (column?.dataType ?? '').toUpperCase()
-  const numeric = /INT|DECIMAL|NUMERIC|DOUBLE|FLOAT|REAL/.test(dataType)
-  const booleanType = /BOOL|BIT/.test(dataType)
-  const dateType = /DATE/.test(dataType)
-  const timeType = /TIME/.test(dataType)
-  if (timeType) return 'DATETIME'
-  if (dateType) return 'DATE'
-  if (booleanType) return 'BOOLEAN'
-  if (numeric) return /^[-+]?\d+$/.test(value.trim()) ? 'INTEGER' : 'DECIMAL'
+  if (/BOOL|BIT/.test(dataType)) return 'BOOLEAN'
+  if (/INT|YEAR/.test(dataType)) return 'INTEGER'
+  if (/DECIMAL|NUMERIC|DOUBLE|FLOAT|REAL/.test(dataType)) return 'DECIMAL'
+  // TIME 必须排在 DATE 之前：DATETIME / TIMESTAMP 同时含两者。
+  if (/TIME/.test(dataType)) return 'DATETIME'
+  if (/DATE/.test(dataType)) return 'DATE'
   return 'STRING'
 }
 
@@ -204,7 +224,7 @@ function buildConditions(): IamS1RowConditionPayload[] {
       const column = columns.value.find((entry) => entry.columnName === item.columnName)
       const nullOperator = item.operatorCode === 'IS_NULL' || item.operatorCode === 'IS_NOT_NULL'
       const collection = item.operatorCode === 'IN' || item.operatorCode === 'NOT_IN'
-      const scalarType = nullOperator ? 'NULL' : inferValueType(item.columnName, item.value)
+      const scalarType = nullOperator ? 'NULL' : inferValueType(item.columnName)
       const valueType = collection ? `${scalarType}_LIST` : scalarType
       const values = item.value
         .split(',')
@@ -297,7 +317,9 @@ async function revoke(grant: IamS1DataGrant) {
 
 onMounted(async () => {
   try {
-    await Promise.all([loadDatasources(), loadSubjects(), loadTemplates()])
+    // loadSubjects 依赖选中的数据源，必须排在 loadDatasources 之后。
+    await Promise.all([loadDatasources(), loadTemplates()])
+    await loadSubjects()
     await loadSnapshots()
     await loadTables()
     await loadGrants()
@@ -305,6 +327,14 @@ onMounted(async () => {
     ElMessage.error(error instanceof Error ? error.message : '初始化授权配置失败')
   }
 })
+
+/** 切换数据源：主体列表也要按新数据源重新判定。 */
+async function onDatasourceChange() {
+  await loadSubjects()
+  await loadSnapshots()
+  await loadTables()
+  await loadGrants()
+}
 </script>
 
 <template>
@@ -353,7 +383,7 @@ onMounted(async () => {
 
         <label class="field">
           <span class="label">哪个数据源（必选）</span>
-          <el-select v-model="datasourceId" placeholder="选择数据源" @change="loadSnapshots().then(loadTables).then(loadGrants)">
+          <el-select v-model="datasourceId" placeholder="选择数据源" @change="onDatasourceChange">
             <el-option v-for="item in datasources" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </label>

@@ -1,5 +1,7 @@
 package com.dataocean.module.permission.s1.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.permission.s1.IamS1Constants;
 import com.dataocean.module.permission.s1.entity.IamS1AccessApproval;
@@ -44,6 +46,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -61,7 +64,6 @@ import java.util.UUID;
 public class IamS1AccessRequestServiceImpl implements IamS1AccessRequestService {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final int QUEUE_LIMIT_PER_DATASOURCE = 100;
     private static final int MINE_LIMIT = 100;
     /** 审批生成的临时授权最长天数：审批只能给出有期限的临时授权，不允许永久。 */
     private static final int MAX_APPROVAL_DAYS = 30;
@@ -185,19 +187,44 @@ public class IamS1AccessRequestServiceImpl implements IamS1AccessRequestService 
     }
 
     @Override
-    public List<IamS1AccessRequestVO> listQueue(Long reviewerId) {
-        adminGuard.requireGlobalFunction(reviewerId, "security:approval:view");
-        List<IamS1DatasourceRefVO> datasources = capabilityService.responsibleDatasources(reviewerId);
+    public Page<IamS1AccessRequestVO> listQueue(Long reviewerId, String statusGroup, int page, int size) {
+        // 队列可见性必须按“功能与负责源在同一角色绑定上同时成立”判定。
+        // 原先用 requireGlobalFunction（任意绑定）叠加 responsibleDatasources（任意绑定），
+        // 两条判定可由两个不同角色分别满足：持有“查看访问申请”但无负责源的角色，
+        // 会借另一个角色的负责源看到该源上的全部申请。
+        List<IamS1DatasourceRefVO> datasources =
+                capabilityService.responsibleDatasourcesWithFunction(reviewerId, "security:approval:view");
         if (datasources.isEmpty()) {
-            throw new BusinessException("没有负责该申请的数据源，无法查看审批队列");
+            throw new BusinessException(
+                    "没有可查看的审批队列：需要“查看访问申请”功能与负责源在同一个角色绑定上同时成立");
         }
-        List<IamS1AccessRequest> requests = new ArrayList<>();
-        for (IamS1DatasourceRefVO datasource : datasources) {
-            requests.addAll(accessRequestMapper.selectByDatasource(IamS1Constants.PROTOCOL_VERSION,
-                    datasource.id(), QUEUE_LIMIT_PER_DATASOURCE));
+        List<Long> datasourceIds = datasources.stream().map(IamS1DatasourceRefVO::id).toList();
+        List<String> statuses = queueStatuses(statusGroup);
+        // 单条跨源查询 + 数据库分页。原实现是“每个负责源各取固定 100 条再合并”：
+        // 待审批记录会被同源的已处理记录挤出，且超出部分没有任何入口能看到或处理。
+        LambdaQueryWrapper<IamS1AccessRequest> wrapper = new LambdaQueryWrapper<IamS1AccessRequest>()
+                .eq(IamS1AccessRequest::getProtocolVersion, IamS1Constants.PROTOCOL_VERSION)
+                .in(IamS1AccessRequest::getDatasourceId, datasourceIds)
+                .in(statuses != null, IamS1AccessRequest::getStatus, statuses)
+                .orderByDesc(IamS1AccessRequest::getId);
+        Page<IamS1AccessRequest> found =
+                accessRequestMapper.selectPage(new Page<>(page, size), wrapper);
+        Page<IamS1AccessRequestVO> result =
+                new Page<>(found.getCurrent(), found.getSize(), found.getTotal());
+        result.setRecords(toVOs(found.getRecords()));
+        return result;
+    }
+
+    /** 队列分组 → 具体状态集合；null 表示不按状态过滤。 */
+    private List<String> queueStatuses(String statusGroup) {
+        if (statusGroup == null || statusGroup.isBlank()) {
+            return null;
         }
-        requests.sort((left, right) -> Long.compare(right.getId(), left.getId()));
-        return toVOs(requests);
+        return switch (statusGroup.trim().toUpperCase(Locale.ROOT)) {
+            case "PENDING" -> List.of("PENDING");
+            case "HANDLED" -> List.of("APPROVED", "REJECTED", "WITHDRAWN");
+            default -> throw new BusinessException("审批队列状态只支持 PENDING、HANDLED 或留空");
+        };
     }
 
     @Override
@@ -394,17 +421,11 @@ public class IamS1AccessRequestServiceImpl implements IamS1AccessRequestService 
         }
         for (IamS1FieldProtection protection : protections) {
             if (protection.getColumnName() != null) {
-                levels.merge(protection.getColumnName(), protection.getProtectionLevel(), this::stricterLevel);
+                levels.merge(protection.getColumnName(), protection.getProtectionLevel(),
+                        IamS1Constants::stricterProtection);
             }
         }
         return levels;
-    }
-
-    private String stricterLevel(String left, String right) {
-        List<String> order = List.of(com.dataocean.module.permission.s1.IamS1Constants.PROTECTION_NORMAL,
-                com.dataocean.module.permission.s1.IamS1Constants.PROTECTION_MASKED,
-                com.dataocean.module.permission.s1.IamS1Constants.PROTECTION_HIDDEN);
-        return order.indexOf(left) >= order.indexOf(right) ? left : right;
     }
 
     private String denyReasonName(String reasonCode) {

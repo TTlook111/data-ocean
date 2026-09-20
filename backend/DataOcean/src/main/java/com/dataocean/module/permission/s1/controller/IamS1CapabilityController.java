@@ -52,10 +52,18 @@ public class IamS1CapabilityController {
         return Result.success(capabilityService.selectableDatasources(UserContext.currentUserId()));
     }
 
-    /** 表单选择对象：只返回必要名称。 */
+    /**
+     * 表单选择对象：只返回必要名称。
+     *
+     * <p>`scope` 必填，缺失或未知值一律拒绝；`datasourceId` 对 `GRANT` / `EFFECTIVE` 必填，
+     * 对 `ORGANIZATION` 不接受。判定方式见 {@code IamS1CapabilityService#subjectOptions}。</p>
+     */
     @GetMapping("/subjects")
-    public Result<List<IamS1SubjectOptionVO>> subjects(@RequestParam(required = false) String subjectType,
+    public Result<List<IamS1SubjectOptionVO>> subjects(@RequestParam(required = false) String scope,
+                                                       @RequestParam(required = false) Long datasourceId,
+                                                       @RequestParam(required = false) String subjectType,
                                                        @RequestParam(required = false) String keyword) {
-        return Result.success(capabilityService.subjectOptions(UserContext.currentUserId(), subjectType, keyword));
+        return Result.success(capabilityService.subjectOptions(UserContext.currentUserId(), scope, datasourceId,
+                subjectType, keyword));
     }
 }

@@ -32,6 +32,41 @@ public final class IamS1Constants {
     public static final int ENABLED = 1;
     public static final int DISABLED = 0;
 
+    /**
+     * 字段保护等级的严格程度，数值越大越严格。
+     *
+     * <p>**未知等级按最严格的 HIDDEN 处理（fail-closed）**：展示层的“字段是否可选/可授权”
+     * 必须与统一 Resolver 的 `mergeProtection` 用同一套排序，否则页面会把一个真实查询时
+     * 会被隐藏的字段显示成“正常可用”。</p>
+     */
+    public static int protectionRank(String level) {
+        if (PROTECTION_HIDDEN.equals(level)) {
+            return 3;
+        }
+        if (PROTECTION_MASKED.equals(level)) {
+            return 2;
+        }
+        if (PROTECTION_NORMAL.equals(level)) {
+            return 1;
+        }
+        return 3;
+    }
+
+    /**
+     * 取两个保护等级中更严格的一个，并把未知等级规范化为 HIDDEN。
+     *
+     * <p>不要用 `order.indexOf(level)` 比较：未知等级会得到 `-1`，与 NORMAL / MASKED 比较时
+     * 结果不可靠——例如未知等级会被判成比 NORMAL 更宽松，从而在页面上放行一个应当隐藏的字段。</p>
+     */
+    public static String stricterProtection(String left, String right) {
+        int strongest = Math.max(protectionRank(left), protectionRank(right));
+        return switch (strongest) {
+            case 3 -> PROTECTION_HIDDEN;
+            case 2 -> PROTECTION_MASKED;
+            default -> PROTECTION_NORMAL;
+        };
+    }
+
     private IamS1Constants() {
     }
 }

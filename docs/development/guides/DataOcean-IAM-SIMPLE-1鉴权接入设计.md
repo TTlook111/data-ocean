@@ -1,0 +1,392 @@
+# DataOcean IAM-SIMPLE-1 鉴权接入设计
+
+## 1. 文档目的
+
+本文定义 IAM-SIMPLE-1（以下简称 S1）在 Java 后台接口中的统一接入方式，解决六个后台业务域接入过程中重复调用 `IamS1AdminGuard`、资源归属解析分散、接口遗漏权限声明和列表范围过滤不一致的问题。
+
+本文只定义 S1 的接口动作准入、资源范围解析和业务 Service 边界，不改变以下已冻结规则：
+
+- 新权限不读取、不映射、不回填旧角色权限、旧 JWT authority、旧数据授权或旧权限缓存；
+- 一个 HTTP 请求只允许命中一套权限实现；
+- 后台功能和负责源必须在同一个启用的用户角色绑定上同时成立；
+- 业务查询权来自独立数据授权，不由后台负责源推导；
+- 前端路由、Tab 和按钮隐藏不是安全边界；
+- Java 仍是管理生命周期、持久化、审计和最终响应保护的责任方；
+- 查询链的表列授权、记录条件、SQL AST 和最终脱敏继续使用 B2/B3 已建立的专用链路。
+
+## 2. 阶段结论
+
+本设计必须在 **B4** 完成，不能留到 B5。
+
+具体安排为：
+
+1. 在 B4 六域接入中增加前置子阶段 **B4-A：S1 鉴权接入框架**；
+2. 先实现注解、切面、资源解析器、覆盖扫描测试；
+3. 把已经完成的“工作台”和“数据接入”两个批次迁移到该框架，验证全局功能、直接数据源、列表裁剪和写操作；
+4. 验证通过后，再继续 B4 批次 3～6；
+5. B4 全部代码、自动化测试和静态复审通过后，才允许进入 B5；
+6. B5 只负责维护窗口内的部署、migration、bootstrap、新角色/负责源/数据授权初始化、真实接口与浏览器验收和正式切换，不再引入新的鉴权框架。
+
+原因：如果先让剩余 117 个端点继续显式散布 Guard 调用，再在 B5 前重构，会扩大重复修改和漏检范围；如果拖到 B5 才引入切面，则会把架构改造与真实迁移、初始化、切换混在同一个高风险窗口中。
+
+## 3. 总体设计
+
+```text
+HTTP 请求
+  -> Spring Security：只确认登录身份并提供 userId
+  -> S1 鉴权切面：校验动作功能与资源负责范围
+  -> Application/Domain Service：数据范围下推、批量逐项校验、业务约束
+  -> Repository/Mapper：只读取或修改获准范围
+  -> 响应保护：字段隐藏、脱敏、SQL/导出能力和审计
+```
+
+职责划分：
+
+| 层 | 负责 | 不负责 |
+| --- | --- | --- |
+| Spring Security | 认证、JWT 有效性、提供当前用户 ID | 不把旧 JWT authority 作为 S1 授权事实 |
+| S1 注解与切面 | 动作功能准入、单资源归属解析、同绑定“功能 + 负责源”校验、统一拒绝 | 不拼业务查询条件，不替代领域规则 |
+| `IamS1AuthorizationResolver` / `IamS1AdminGuard` | 唯一 S1 后台授权算法和中文拒绝原因 | 不感知具体 Controller 参数布局 |
+| 资源解析器 | 把 snapshot、entity、task、document 等资源 ID 安全解析到 datasourceId 等归属事实 | 不接受调用方伪造的 datasourceId 覆盖真实归属 |
+| Service | 列表范围、分页下推、批量原子校验、审批子集、状态机、本人边界 | 不读取旧权限事实作为兼容兜底 |
+| B2/B3 查询安全链 | 数据授权、记录条件、字段 usage、SQL AST、revision、最终脱敏 | 不由通用后台切面简化替代 |
+
+## 4. 注解模型
+
+### 4.1 全局功能
+
+全局功能不依赖负责源，但仍从 S1 角色绑定实时计算：
+
+```java
+@IamS1Global("organization:user:view")
+public Result<?> listUsers(...) {
+    // 列表字段与业务范围仍由 Service 控制
+}
+```
+
+适用示例：
+
+- `admin:workbench:view`；
+- `organization:user:view`；
+- `organization:role:view`；
+- `organization:department:view`；
+- 其他在 B0 冻结为“全”的功能。
+
+### 4.2 资源范围功能
+
+资源范围功能必须同时解析资源归属，并在同一个用户角色绑定上校验功能与负责源：
+
+```java
+@IamS1Resource(
+        function = "datasource:manage",
+        resourceType = IamS1ResourceType.DATASOURCE,
+        resourceId = "#id"
+)
+public Result<?> updateDatasource(Long id, ...) {
+    ...
+}
+```
+
+间接资源示例：
+
+```java
+@IamS1Resource(
+        function = "metadata:release:view",
+        resourceType = IamS1ResourceType.SNAPSHOT,
+        resourceId = "#snapshotId"
+)
+public Result<?> getSnapshot(Long snapshotId) {
+    ...
+}
+```
+
+### 4.3 约束
+
+- 注解中的功能码必须来自固定 54 码目录；应用启动或自动化测试发现未知码时失败；
+- `resourceId` 只允许受控的方法参数表达式，不允许执行任意 Bean 方法；
+- 参数为空、资源不存在、资源归属不完整、解析异常时默认拒绝；
+- 同一方法不能同时声明旧 `@PreAuthorize` 权限和 S1 注解；
+- 不允许通过注解参数直接声明“跳过负责源”；全局或资源型必须由固定目录和接口消费清单决定；
+- 注解只做准入声明，不能把动态 SQL、字段列表或审批范围放进表达式。
+
+## 5. 切面执行规则
+
+新增一个 S1 权限切面，内部继续复用现有 `IamS1AdminGuard`，不得复制授权算法。
+
+### 5.1 全局功能流程
+
+1. 从 `UserContext` 获取当前用户 ID；
+2. 验证功能码属于固定目录且被定义为全局功能；
+3. 调用 `IamS1AdminGuard.requireGlobalFunction()`；
+4. 失败时返回统一 401/403 和中文原因；
+5. 记录不包含秘密值的拒绝审计。
+
+### 5.2 资源范围流程
+
+1. 获取当前用户 ID；
+2. 解析注解中的方法参数；
+3. 根据 `resourceType` 选择固定资源解析器；
+4. 从真实资源事实解析 datasourceId；
+5. 调用 `IamS1AdminGuard.requireDatasourceFunction()`；
+6. 授权通过后才进入业务方法；
+7. 解析失败、事实冲突或授权事实读取失败时 fail-closed。
+
+### 5.3 切面顺序
+
+- 身份认证在 S1 切面之前；
+- S1 动作准入在业务事务与写操作之前；
+- 业务 Service 内的对象状态、并发锁和子集检查不能因切面而删除；
+- 操作日志切面仍记录最终成功或失败结果，不负责授予权限；
+- 禁止依赖同类内部调用触发 Spring 代理；安全入口应放在 Controller 调用的公开 Service 方法或 Controller 入口，并由覆盖测试保证所有直接 API 均受保护。
+
+## 6. 资源解析器
+
+### 6.1 固定接口
+
+```java
+public interface IamS1ResourceResolver {
+    IamS1ResourceType supports();
+    IamS1ResolvedResource resolve(Object resourceId);
+}
+```
+
+`IamS1ResolvedResource` 至少包含：
+
+- 资源类型；
+- 资源 ID；
+- datasourceId；
+- 可选的 ownerUserId、snapshotId、tableName；
+- 解析使用的 S1/业务事实版本信息。
+
+### 6.2 第一批资源类型
+
+| 资源类型 | 输入 | 归属解析 |
+| --- | --- | --- |
+| `DATASOURCE` | datasourceId | 直接读取启用的数据源身份事实 |
+| `SNAPSHOT` | snapshotId | snapshot → datasourceId |
+| `METADATA_ENTITY` | entityId | entity/snapshot → datasourceId |
+| `METADATA_COLUMN` | columnId | column/table/snapshot → datasourceId |
+| `KNOWLEDGE_DOCUMENT` | documentId | document → datasourceId |
+| `QUERY_TASK` | taskId | task → datasourceId + ownerUserId |
+| `AUDIT_LOG` | auditId | audit → datasourceId |
+| `LINEAGE_ENTITY` | entityId | lineage endpoint resource → datasourceId |
+
+新增资源类型必须同步增加：解析器、成功测试、不存在测试、跨源伪造测试和接口消费矩阵记录。
+
+### 6.3 防止参数欺骗
+
+如果接口同时收到 `datasourceId` 和 `snapshotId`，不得只相信传入的 datasourceId。解析器必须读取 snapshot 的真实 datasourceId，并校验两者一致；不一致直接拒绝。
+
+## 7. 不能交给 AOP 的权限逻辑
+
+### 7.1 列表与分页
+
+列表不是简单的“允许/拒绝整个接口”。Service 必须先计算当前用户在指定功能下可负责的数据源集合，并将范围下推到 SQL：
+
+```text
+visibleDatasourceIdsWithFunction(userId, functionCode)
+  -> WHERE datasource_id IN (...)
+  -> ORDER BY / LIMIT / OFFSET
+```
+
+禁止先从数据库分页再在 Java 内过滤，否则会出现总数错误、空页和越过分页边界的可见性问题。无可见范围时返回空页；如果接口语义要求至少一个负责源，则由 Service 明确拒绝。
+
+### 7.2 批量操作
+
+批量操作必须：
+
+1. 限制单批数量；
+2. 一次查询全部对象与真实归属；
+3. 去重并校验每个对象；
+4. 任意对象无权则整批拒绝；
+5. 全部通过后才在同一事务执行；
+6. 审计中记录安全摘要，不记录秘密值或业务原值。
+
+### 7.3 领域规则
+
+以下规则继续留在 Service：
+
+- 不能审批本人；
+- 审批批准范围必须是申请范围的子集；
+- 临时授权必须有期限且不能超过上限；
+- 受保护系统管理员、最后管理员绑定和本人负责源保护；
+- ALLOW/DENY、部门继承、有效期和字段保护合并；
+- 治理状态、发布快照、废弃/阻断资源校验；
+- 查询任务归属、revision 复查、SQL/导出能力、最终脱敏；
+- 创建资源后如何建立负责源关系等事务内规则。
+
+## 8. 特殊接口处理
+
+### 8.1 工作台
+
+入口使用 `admin:workbench:view` 全局功能。每张卡片继续由 Service 按所属域功能和负责源分别裁剪；入口注解不能代表用户自动拥有所有卡片的数据。
+
+### 8.2 无现成资源 ID 的创建接口
+
+例如创建数据源、测试尚未保存的连接：
+
+- 入口校验对应全局管理功能；
+- 创建成功后是否建立负责源关系，按 B0 冻结规则在同一事务处理；
+- 不能因为拥有创建功能就推导业务数据查询授权。
+
+### 8.3 列表、统计和导出
+
+- 列表与统计必须按负责源在查询层裁剪；
+- 详情必须重新解析目标资源，不得因为从列表进入就跳过校验；
+- 导出除查看范围外还要检查独立导出功能；
+- 批量、统计、导出和直接 API 与页面入口使用相同的 S1 强制点。
+
+### 8.4 S1 安全问数
+
+`/api/iam-s1/query` 保留 B2/B3 专用实现。通用后台鉴权切面不能代替：
+
+- 数据授权 Resolver；
+- Context Firewall；
+- RAG 表列过滤；
+- SQL AST 校验与记录条件注入；
+- permission revision；
+- Java 最终脱敏与当前权限复查。
+
+## 9. 建议包结构
+
+```text
+com.dataocean.module.permission.s1
+  annotation/
+    IamS1Global.java
+    IamS1Resource.java
+  aspect/
+    IamS1AuthorizationAspect.java
+  resource/
+    IamS1ResourceType.java
+    IamS1ResolvedResource.java
+    IamS1ResourceResolver.java
+    IamS1ResourceResolverRegistry.java
+    impl/
+      DatasourceResourceResolver.java
+      SnapshotResourceResolver.java
+      MetadataEntityResourceResolver.java
+      KnowledgeDocumentResourceResolver.java
+      QueryTaskResourceResolver.java
+      AuditLogResourceResolver.java
+  support/
+    IamS1AdminGuard.java
+    IamS1ReasonMessages.java
+```
+
+解析器只能依赖最小只读 Mapper/查询 Service，避免反向依赖 Controller 或触发带副作用的业务 Service。
+
+## 10. B4-A 实施步骤
+
+### A1：框架骨架
+
+- 新增两个注解、资源类型、解析器接口和注册表；
+- 新增授权切面，底层只调用现有 Guard/Resolver；
+- 定义切面与事务、审计切面的顺序；
+- 未知功能、未知资源类型、空参数和解析异常全部默认拒绝。
+
+### A2：用现有两个批次验证
+
+- 工作台入口迁移到全局功能注解；
+- 数据源详情、编辑、删除、启停、已保存连接测试迁移到资源注解；
+- 数据源列表继续由 Service 做可见范围 SQL 下推；
+- 创建数据源和未保存连接测试使用全局管理功能；
+- 删除 Controller 中等价的重复 Guard 调用，保留 Service 范围和业务校验。
+
+### A3：资源解析器
+
+按 B4 批次顺序实现：
+
+1. datasource；
+2. snapshot、metadata entity/column；
+3. governance issue/rule 所属资源；
+4. knowledge/glossary/prompt 所属范围；
+5. audit、lineage、system operation resource。
+
+### A4：接口覆盖测试
+
+自动扫描 Controller，要求：
+
+- 所有纳入 B0 消费矩阵的直接 API 都有 S1 注解或进入显式例外清单；
+- 例外清单只能包含登录、健康检查、明确的 S1 专用查询链等已说明入口；
+- 已迁移接口不存在旧 `@PreAuthorize`；
+- 功能码存在且全局/资源类型与 B0 一致；
+- 写接口不能只声明查看功能；
+- 同一路径不能同时命中新旧权限实现；
+- Controller 新增方法未声明权限时测试失败。
+
+### A5：继续六域批次
+
+B4 批次 3～6 必须在框架和覆盖测试就绪后继续。每个批次同时完成：
+
+- Controller 动作准入注解；
+- 资源解析器；
+- Service 列表/统计范围下推；
+- 详情、批量、导出和写操作校验；
+- 前端路由、Tab、按钮能力显示；
+- 单元测试和接口覆盖测试。
+
+## 11. 测试要求
+
+### 11.1 切面测试
+
+- 未登录返回 401；
+- 未授予功能返回 403；
+- 功能和负责源位于不同角色绑定时拒绝；
+- 同一启用绑定同时拥有功能和负责源时通过；
+- 禁用用户、角色、绑定或数据源时拒绝；
+- 资源不存在、参数为空、解析异常时拒绝；
+- 切面只读取 S1 事实，不读取旧 JWT authority 和旧权限表。
+
+### 11.2 资源解析测试
+
+- 每种资源正确解析 datasourceId；
+- 路径 datasourceId 与真实归属不一致时拒绝；
+- 跨数据源伪造 ID 时拒绝；
+- 批量包含一个无权对象时整批拒绝；
+- 禁用、断链和未知归属默认拒绝。
+
+### 11.3 列表与响应测试
+
+- SQL 查询包含可见 datasourceId 范围；
+- 空范围返回空页且总数正确；
+- 分页、排序、统计不在过滤前执行；
+- 详情、导出、批量接口不能绕过列表范围；
+- 前端隐藏按钮之外，直接调用 API 同样被拒绝。
+
+### 11.4 架构测试
+
+- 固定 54 码无未知引用；
+- B0 消费矩阵中的接口无遗漏；
+- 已迁移 Controller 无旧权限注解；
+- S1 切面和 Resolver 生产代码无旧权限依赖；
+- 不允许同一请求路径同时调用旧、新授权算法。
+
+## 12. B4-A 完成标准
+
+以下条件全部满足，才算 B4-A 完成并允许继续全面扩散：
+
+- 注解、切面、Resolver 注册表和首批资源解析器已实现；
+- 工作台、数据源两个已完成批次迁移并验证；
+- 列表范围仍在 Service/SQL 层正确裁剪；
+- 接口覆盖扫描能够发现未声明权限的新接口；
+- 旧权限事实未进入 S1 判断；
+- 聚焦测试、完整 Java 测试和 `git diff --check` 通过；
+- 代码完成复审并提交到 B4 分支；
+- 未执行真实 migration、bootstrap、部署或正式切换。
+
+## 13. B4 到 B5 的最终门禁
+
+只有同时满足以下条件才能进入 B5：
+
+1. B4-A 完成；
+2. 六个后台域全部接入 S1；
+3. 134 个端点以 B0 实际消费矩阵复核，无遗漏、无新旧混用；
+4. 路由、工作区、Tab、按钮和直接 API 的功能码一致；
+5. 列表、详情、批量、统计、导出均按负责源强制；
+6. B4 剩余复审问题关闭；
+7. Java、Python、前端测试与构建通过；
+8. B4 代码已提交、推送并停止继续增加架构改动；
+9. migration 顺序、V53 编号处理、备份、回退和维护窗口方案已确认。
+
+B5 才执行真实 migration、bootstrap、初始化新角色/负责源/数据授权、服务启动、接口与浏览器验收和正式切换。B5 失败时只能在切换前回退并继续运行旧体系，不能让一次授权判断同时读取新旧权限。
+

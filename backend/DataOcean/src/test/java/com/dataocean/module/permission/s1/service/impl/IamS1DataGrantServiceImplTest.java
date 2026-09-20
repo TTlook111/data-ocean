@@ -33,6 +33,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -253,6 +254,23 @@ class IamS1DataGrantServiceImplTest {
         verify(grantColumnMapper).deleteByGrantId(77L);
         verify(conditionMapper).deleteByGrantId(77L);
         verify(grantMapper).updateById(any(IamS1DataGrant.class));
+    }
+
+    @Test
+    void batchWriteRejectsMoreThanTheServerSideLimit() {
+        // 回归：批量接口原先没有任何条数上限，@Valid 又不会级联到 List 元素，
+        // 一次请求可以写入任意多条授权（每条都推进 revision 并触发缓存失效）。
+        // 服务端上限为 100，构造 101 条即可触发。
+        List<IamS1DataGrantSaveDTO> requests = new ArrayList<>();
+        for (int index = 0; index < 101; index++) {
+            requests.add(request());
+        }
+
+        assertThatThrownBy(() -> service.createGrants(1L, requests, "批量授权"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("不能超过");
+        verify(auditEventService).recordFailure(eq("DATA_GRANT_BATCH_CREATE_FAILED"), eq(1L), eq("DATA_GRANT"),
+                eq(null), eq("批量授权"), any(), any());
     }
 
     @Test

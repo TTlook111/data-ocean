@@ -602,9 +602,13 @@ public class IamS1DataAuthorizationResolverImpl implements IamS1DataAuthorizatio
                 hidden.setMaskPolicy(null);
                 rule = hidden;
             }
-            if (strongest == null || protectionRank(rule.getProtectionLevel()) > protectionRank(strongest.getProtectionLevel())) {
+            if (strongest == null
+                    || IamS1Constants.protectionRank(rule.getProtectionLevel())
+                    > IamS1Constants.protectionRank(strongest.getProtectionLevel())) {
                 strongest = rule;
-            } else if (strongest != null && protectionRank(rule.getProtectionLevel()) == protectionRank(strongest.getProtectionLevel())
+            } else if (strongest != null
+                    && IamS1Constants.protectionRank(rule.getProtectionLevel())
+                    == IamS1Constants.protectionRank(strongest.getProtectionLevel())
                     && IamS1Constants.PROTECTION_MASKED.equals(rule.getProtectionLevel())
                     && !java.util.Objects.equals(rule.getMaskPolicy(), strongest.getMaskPolicy())) {
                 IamS1FieldProtection hidden = new IamS1FieldProtection();
@@ -714,14 +718,6 @@ public class IamS1DataAuthorizationResolverImpl implements IamS1DataAuthorizatio
         };
     }
 
-    private int protectionRank(String level) {
-        return switch (level) {
-            case IamS1Constants.PROTECTION_HIDDEN -> 3;
-            case IamS1Constants.PROTECTION_MASKED -> 2;
-            case IamS1Constants.PROTECTION_NORMAL -> 1;
-            default -> 3;
-        };
-    }
 
     private boolean isKnownProtectionLevel(String level) {
         return IamS1Constants.PROTECTION_NORMAL.equals(level)

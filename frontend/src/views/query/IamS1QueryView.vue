@@ -232,6 +232,8 @@ async function ask() {
   submitting.value = true
   result.value = null
   sqlText.value = ''
+  // 新查询开始前丢弃上一次任务的引用，避免提交失败后仍能对旧任务执行查看/导出/反馈。
+  currentTaskId.value = undefined
   progressMessage.value = '正在提交 IAM-SIMPLE-1 查询...'
   const controller = new AbortController()
   abortController.value = controller
@@ -257,7 +259,8 @@ async function ask() {
     ElMessage.error(error instanceof Error ? error.message : 'IAM-SIMPLE-1 查询失败')
   } finally {
     submitting.value = false
-    currentTaskId.value = undefined
+    // 故意保留 currentTaskId：查询完成后“查看 SQL / 导出 CSV / 反馈”都要用它。
+    // 清空会让这三个结果操作全部静默失效（方法首行的 if (!currentTaskId) return）。
     abortController.value = undefined
   }
 }

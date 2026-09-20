@@ -130,7 +130,9 @@ async function loadDatasources() {
 }
 
 async function loadUsers() {
-  const result = await listIamS1Subjects('USER')
+  // ORGANIZATION 用途：只读的用户选项要求 organization:user:view，
+  // 不要求 organization:user:manage——维护操作由写接口单独校验。
+  const result = await listIamS1Subjects('ORGANIZATION', undefined, 'USER')
   users.value = result.data ?? []
 }
 

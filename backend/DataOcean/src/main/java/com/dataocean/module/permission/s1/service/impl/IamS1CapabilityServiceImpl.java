@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** IAM-SIMPLE-1 能力摘要、中文模板与表单选择对象实现。 */
@@ -136,13 +137,43 @@ public class IamS1CapabilityServiceImpl implements IamS1CapabilityService {
     }
 
     @Override
+    public List<IamS1DatasourceRefVO> responsibleDatasourcesWithFunction(Long userId, String functionCode) {
+        if (userId == null) {
+            throw new BusinessException(401, "未登录，无法读取 IAM-SIMPLE-1 后台负责范围");
+        }
+        if (functionCode == null || functionCode.isBlank()) {
+            return List.of();
+        }
+        if (authorizationResolver.isSystemAdmin(userId)) {
+            return allEnabledDatasources();
+        }
+        List<IamS1DatasourceRefVO> result = new ArrayList<>();
+        LinkedHashSet<Long> seen = new LinkedHashSet<>();
+        for (IamS1ResponsibleDatasourceFact fact : capabilityMapper.selectResponsibleDatasources(userId)) {
+            if (fact.getDatasourceId() == null || !seen.add(fact.getDatasourceId())) {
+                continue;
+            }
+            // selectDatasourceFunctionCodes 要求 rd.user_role_id = ur.id，
+            // 即“功能 + 负责源”在同一绑定上同时成立，与 resolveAdminAction 的规则一致。
+            if (!capabilityMapper.selectDatasourceFunctionCodes(userId, fact.getDatasourceId())
+                    .contains(functionCode)) {
+                continue;
+            }
+            result.add(new IamS1DatasourceRefVO(fact.getDatasourceId(), fact.getDatasourceName(),
+                    Integer.valueOf(IamS1Constants.ENABLED).equals(fact.getDatasourceStatus())));
+        }
+        return result;
+    }
+
+    @Override
     public List<IamS1DatasourceRefVO> selectableDatasources(Long userId) {
         return responsibleDatasources(userId);
     }
 
     @Override
-    public List<IamS1SubjectOptionVO> subjectOptions(Long operatorUserId, String subjectType, String keyword) {
-        adminGuard.requireGlobalFunction(operatorUserId, "security:permission:view");
+    public List<IamS1SubjectOptionVO> subjectOptions(Long operatorUserId, String scope, Long datasourceId,
+                                                    String subjectType, String keyword) {
+        requireSubjectScope(operatorUserId, scope, datasourceId);
         String normalized = subjectType == null ? "" : subjectType.trim().toUpperCase();
         String search = keyword == null || keyword.isBlank() ? null : keyword.trim();
         if (normalized.isBlank() || IamS1Constants.SUBJECT_USER.equals(normalized)) {
@@ -162,6 +193,46 @@ public class IamS1CapabilityServiceImpl implements IamS1CapabilityService {
             return selectDepartments();
         }
         throw new BusinessException("授权主体只支持用户、角色或部门");
+    }
+
+    /**
+     * 主体选择列表的用途校验。
+     *
+     * <p>`scope` 是必填枚举，缺失或未知值一律拒绝——没有兼容旧调用的必要，显式合同更安全。
+     * 三种用途对应 B0 冻结的两套语义：</p>
+     *
+     * <ul>
+     *   <li>`GRANT`：`security:permission:view`，且与**请求中的 datasourceId** 负责源在同一绑定上。
+     *       不能只要求“至少负责某个数据源”，否则负责 A 源的人可以按 B 源的用途加载主体。</li>
+     *   <li>`EFFECTIVE`：`security:effective:view` + 同一数据源负责范围。</li>
+     *   <li>`ORGANIZATION`：`organization:user:view`（全局）。这里只是读取用户选项，不要求
+     *       `organization:user:manage`——维护操作由各自的写接口单独校验。</li>
+     * </ul>
+     */
+    private void requireSubjectScope(Long operatorUserId, String scope, Long datasourceId) {
+        if (scope == null || scope.isBlank()) {
+            throw new BusinessException("必须指定 scope：GRANT、EFFECTIVE 或 ORGANIZATION");
+        }
+        switch (scope.trim().toUpperCase(Locale.ROOT)) {
+            case "GRANT" -> adminGuard.requireDatasourceFunction(operatorUserId,
+                    "security:permission:view", requireScopeDatasource(datasourceId, "GRANT"));
+            case "EFFECTIVE" -> adminGuard.requireDatasourceFunction(operatorUserId,
+                    "security:effective:view", requireScopeDatasource(datasourceId, "EFFECTIVE"));
+            case "ORGANIZATION" -> {
+                if (datasourceId != null) {
+                    throw new BusinessException("ORGANIZATION 用途不接受 datasourceId");
+                }
+                adminGuard.requireGlobalFunction(operatorUserId, "organization:user:view");
+            }
+            default -> throw new BusinessException("scope 只支持 GRANT、EFFECTIVE 或 ORGANIZATION");
+        }
+    }
+
+    private Long requireScopeDatasource(Long datasourceId, String scope) {
+        if (datasourceId == null) {
+            throw new BusinessException(scope + " 用途必须指定 datasourceId");
+        }
+        return datasourceId;
     }
 
     private List<IamS1SubjectOptionVO> selectUsers(String keyword) {

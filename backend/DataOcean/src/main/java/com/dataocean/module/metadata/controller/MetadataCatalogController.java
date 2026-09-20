@@ -1,6 +1,8 @@
 package com.dataocean.module.metadata.controller;
 
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
+import com.dataocean.common.security.UserContext;
 import com.dataocean.module.metadata.entity.dto.ConfirmMaskCandidateRequest;
 import jakarta.validation.Valid;
 import com.dataocean.module.system.aspect.AdminAuditLog;
@@ -9,13 +11,11 @@ import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
-import com.dataocean.module.permission.entity.DatasourceAccessPolicy;
-import com.dataocean.module.permission.event.PermissionChangedEvent;
-import com.dataocean.module.permission.mapper.DatasourceAccessPolicyMapper;
-import org.springframework.context.ApplicationEventPublisher;
+import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
+import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
+import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -38,15 +38,47 @@ import java.util.Set;
 @RestController
 @RequestMapping("/api/admin/catalog")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyAuthority('metadata:manage', '*')")
 @AdminAuditLog(logReads = false)
 public class MetadataCatalogController {
 
+    /** 读取资产结构：负责源范围内的目录、快照与关系。 */
+    private static final String VIEW_FUNCTION = "metadata:view";
+    /** 血缘与影响分析：独立功能码，负责源范围内。 */
+    private static final String LINEAGE_FUNCTION = "lineage:view";
+    /** 字段治理写入：标签确认等。 */
+    private static final String FIELD_MANAGE_FUNCTION = "governance:field:manage";
+    /** 掩码候选：查看与确认分属两个功能码，都由 security 域负责源约束。 */
+    private static final String MASK_VIEW_FUNCTION = "security:mask:view";
+    private static final String MASK_MANAGE_FUNCTION = "security:mask:manage";
+
     private final MetadataEntityService entityService;
     private final MetadataRelationshipService relationshipService;
-    private final DatasourceAccessPolicyMapper policyMapper;
-    private final ApplicationEventPublisher eventPublisher;
     private final LineageEdgeService lineageEdgeService;
+    private final IamS1AdminGuard adminGuard;
+    private final IamS1CapabilityService capabilityService;
+    private final com.dataocean.module.metadata.service.MetadataMaskCandidateService maskCandidateService;
+
+    /**
+     * 校验调用者在指定功能上有权访问该实体所属的数据源。
+     *
+     * <p>元数据实体本身不带 datasourceId 字段，归属存在 `entity_metadata.datasource_id`，
+     * 所以必须先解析出所属数据源再做负责源判定，不能只检查全局功能码。</p>
+     */
+    private void requireEntityScope(Long userId, Long entityId, String functionCode) {
+        Long datasourceId = entityService.getDatasourceIdByEntityId(entityId);
+        if (datasourceId == null) {
+            throw new BusinessException(404, "实体不存在或没有数据源归属");
+        }
+        adminGuard.requireDatasourceFunction(userId, functionCode, datasourceId);
+    }
+
+    /** 调用者在指定功能上负责的数据源 ID。 */
+    private List<Long> visibleDatasourceIds(Long userId, String functionCode) {
+        return capabilityService.responsibleDatasourcesWithFunction(userId, functionCode)
+                .stream()
+                .map(IamS1DatasourceRefVO::id)
+                .toList();
+    }
 
     /**
      * 全文搜索实体
@@ -65,8 +97,18 @@ public class MetadataCatalogController {
             @RequestParam(required = false) Long datasourceId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        List<MetadataEntity> results = entityService.search(q, type, datasourceId, page, size);
-        return Result.success(results);
+        Long userId = UserContext.currentUserId();
+        // 未指定数据源时按调用者的负责源范围收窄；指定时还要确认该源确实在范围内，
+        // 否则会变成“按无权源的用途查询”，等于绕过范围过滤。
+        List<Long> visible = visibleDatasourceIds(userId, VIEW_FUNCTION);
+        if (datasourceId != null) {
+            adminGuard.requireDatasourceFunction(userId, VIEW_FUNCTION, datasourceId);
+            if (!visible.contains(datasourceId)) {
+                return Result.success(List.of());
+            }
+            return Result.success(entityService.search(q, type, datasourceId, page, size));
+        }
+        return Result.success(entityService.searchScoped(q, type, visible, page, size));
     }
 
     /**
@@ -77,13 +119,25 @@ public class MetadataCatalogController {
      */
     @GetMapping("/entities/{entityId}")
     public Result<Map<String, Object>> getEntityDetail(@PathVariable Long entityId) {
+        requireEntityScope(UserContext.currentUserId(), entityId, VIEW_FUNCTION);
         MetadataEntity entity = entityService.getById(entityId);
         if (entity == null) {
             return Result.error(404, "实体不存在");
         }
 
-        List<MetadataRelationship> outgoing = relationshipService.getBySource(entityId, entity.getEntityType());
-        List<MetadataRelationship> incoming = relationshipService.getByTarget(entityId, entity.getEntityType());
+        // 关系另一侧可能属于调用者无负责权限的数据源：与血缘同样只返回两端都可见的边。
+        Set<Long> detailEntityScope = entityService.getEntityIdsByDatasourceIds(
+                visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION));
+        List<MetadataRelationship> outgoing = relationshipService.getBySource(entityId, entity.getEntityType())
+                .stream()
+                .filter(rel -> detailEntityScope.contains(rel.getSourceId())
+                        && detailEntityScope.contains(rel.getTargetId()))
+                .toList();
+        List<MetadataRelationship> incoming = relationshipService.getByTarget(entityId, entity.getEntityType())
+                .stream()
+                .filter(rel -> detailEntityScope.contains(rel.getSourceId())
+                        && detailEntityScope.contains(rel.getTargetId()))
+                .toList();
 
         Map<String, Object> result = new HashMap<>();
         result.put("entity", entity);
@@ -111,9 +165,13 @@ public class MetadataCatalogController {
             @PathVariable Long entityId,
             @RequestParam(defaultValue = "1") int depth,
             @RequestParam(required = false) String lineageType) {
+        Long lineageUserId = UserContext.currentUserId();
+        requireEntityScope(lineageUserId, entityId, LINEAGE_FUNCTION);
+        List<Long> lineageScope = visibleDatasourceIds(lineageUserId, LINEAGE_FUNCTION);
         // 无过滤时保持原有行为（向后兼容）
         if (lineageType == null || lineageType.isBlank()) {
-            List<MetadataRelationship> lineage = relationshipService.getLineage(entityId);
+            // 血缘跨数据源：只返回两端都在负责范围内的边。
+            List<MetadataRelationship> lineage = relationshipService.getLineage(entityId, lineageScope);
             return Result.success(lineage);
         }
 
@@ -126,9 +184,11 @@ public class MetadataCatalogController {
             }
         }
 
-        // 委托给 LineageEdgeService 提供增强响应（含节点和列映射摘要）
-        com.dataocean.module.audit.entity.vo.LineageGraphVO vo =
-                lineageEdgeService.getEnrichedLineage(entityId, depth, lineageTypes);
+        // 委托给 LineageEdgeService 提供增强响应（含节点和列映射摘要）。
+        // 可见范围在 BFS 的**遍历阶段**生效：只做返回前过滤会留下
+        // “A 可见 → B 无权 → C 可见”这类孤立节点，等于泄露存在隐藏路径的拓扑信号。
+        com.dataocean.module.audit.entity.vo.LineageGraphVO vo = lineageEdgeService.getEnrichedLineage(
+                entityId, depth, lineageTypes, entityService.getEntityIdsByDatasourceIds(lineageScope));
         return Result.success(vo);
     }
 
@@ -149,6 +209,8 @@ public class MetadataCatalogController {
             @PathVariable Long columnId,
             @RequestParam(defaultValue = "3") int depth,
             @RequestParam(defaultValue = "both") String direction) {
+        Long columnUserId = UserContext.currentUserId();
+        requireEntityScope(columnUserId, columnId, LINEAGE_FUNCTION);
         MetadataEntity column = entityService.getById(columnId);
         if (column == null || !MetadataEntity.TYPE_COLUMN.equals(column.getEntityType())) {
             return Result.error(404, "列实体不存在");
@@ -159,14 +221,19 @@ public class MetadataCatalogController {
         result.put("columnName", column.getName());
         result.put("fqn", column.getFqn());
 
+        Set<Long> lineageEntityScope = entityService.getEntityIdsByDatasourceIds(
+                visibleDatasourceIds(columnUserId, LINEAGE_FUNCTION));
+
         // 获取上游 DERIVED_FROM 链（该列是 target，即哪些源列派生出了它）
         if ("upstream".equals(direction) || "both".equals(direction)) {
-            result.put("upstream", traceDerivedFromChain(columnId, depth, true, new HashSet<>()));
+            result.put("upstream",
+                    traceDerivedFromChain(columnId, depth, true, new HashSet<>(), lineageEntityScope));
         }
 
         // 获取下游 DERIVED_FROM 链（该列是 source，即它派生出了哪些列）
         if ("downstream".equals(direction) || "both".equals(direction)) {
-            result.put("downstream", traceDerivedFromChain(columnId, depth, false, new HashSet<>()));
+            result.put("downstream",
+                    traceDerivedFromChain(columnId, depth, false, new HashSet<>(), lineageEntityScope));
         }
 
         return Result.success(result);
@@ -181,12 +248,12 @@ public class MetadataCatalogController {
      * @param visited    已访问节点集合（防止循环血缘导致无限递归）
      * @return 递归嵌套的列血缘链 [{"entity":..., "relationship":..., "children":[...]}, ...]
      */
-    private List<Map<String, Object>> traceDerivedFromChain(Long columnId, int depth, boolean upstream, Set<Long> visited) {
+    private List<Map<String, Object>> traceDerivedFromChain(Long columnId, int depth, boolean upstream,
+                                                            Set<Long> visited, Set<Long> visibleEntityIds) {
         List<Map<String, Object>> chain = new ArrayList<>();
         if (depth <= 0 || visited.contains(columnId)) return chain;
         visited.add(columnId);
 
-        Set<Long> nextIds = new HashSet<>();
         List<MetadataRelationship> rels = upstream
                 ? relationshipService.getByTarget(columnId, MetadataEntity.TYPE_COLUMN)
                 : relationshipService.getBySource(columnId, MetadataEntity.TYPE_COLUMN);
@@ -195,6 +262,11 @@ public class MetadataCatalogController {
             if (!MetadataRelationship.TYPE_DERIVED_FROM.equals(rel.getRelationType())) continue;
 
             Long relatedColId = upstream ? rel.getSourceId() : rel.getTargetId();
+            // 列级血缘同样是跨数据源的图：无权节点既不返回，也不继续向下递归，
+            // 否则会用它当跳板把更深层的可见列也带出来。
+            if (visibleEntityIds != null && !visibleEntityIds.contains(relatedColId)) {
+                continue;
+            }
             MetadataEntity relatedCol = entityService.getById(relatedColId);
             if (relatedCol == null) continue;
 
@@ -203,7 +275,8 @@ public class MetadataCatalogController {
             node.put("relationship", rel);
 
             // 递归获取更深层
-            List<Map<String, Object>> children = traceDerivedFromChain(relatedColId, depth - 1, upstream, visited);
+            List<Map<String, Object>> children =
+                    traceDerivedFromChain(relatedColId, depth - 1, upstream, visited, visibleEntityIds);
             if (!children.isEmpty()) {
                 node.put("children", children);
             }
@@ -226,7 +299,10 @@ public class MetadataCatalogController {
     public Result<List<MetadataRelationship>> getDownstream(
             @PathVariable Long entityId,
             @RequestParam(defaultValue = "10") int maxDepth) {
-        List<MetadataRelationship> downstream = relationshipService.getDownstream(entityId, maxDepth);
+        Long downstreamUserId = UserContext.currentUserId();
+        requireEntityScope(downstreamUserId, entityId, LINEAGE_FUNCTION);
+        List<MetadataRelationship> downstream = relationshipService.getDownstream(entityId, maxDepth,
+                visibleDatasourceIds(downstreamUserId, LINEAGE_FUNCTION));
         return Result.success(downstream);
     }
 
@@ -239,6 +315,7 @@ public class MetadataCatalogController {
     @GetMapping("/entities")
     public Result<List<MetadataEntity>> getEntitiesByDatasource(
             @RequestParam Long datasourceId) {
+        adminGuard.requireDatasourceFunction(UserContext.currentUserId(), VIEW_FUNCTION, datasourceId);
         List<MetadataEntity> entities = entityService.getByDatasourceId(datasourceId);
         return Result.success(entities);
     }
@@ -255,6 +332,7 @@ public class MetadataCatalogController {
     public Result<Void> confirmTag(
             @PathVariable Long entityId,
             @RequestBody Map<String, String> body) {
+        requireEntityScope(UserContext.currentUserId(), entityId, FIELD_MANAGE_FUNCTION);
         String tagFqn = body.get("tagFqn");
         if (tagFqn == null || tagFqn.isBlank()) {
             return Result.error(400, "tagFqn 不能为空");
@@ -302,6 +380,7 @@ public class MetadataCatalogController {
     public Result<Void> unconfirmTag(
             @PathVariable Long entityId,
             @PathVariable String tagFqn) {
+        requireEntityScope(UserContext.currentUserId(), entityId, FIELD_MANAGE_FUNCTION);
         MetadataEntity tagEntity = entityService.getByFqn("tag." + tagFqn.toLowerCase());
         if (tagEntity == null) {
             return Result.error(404, "标签不存在");
@@ -323,6 +402,7 @@ public class MetadataCatalogController {
      */
     @GetMapping("/entities/{entityId}/tags")
     public Result<List<MetadataEntity>> getEntityTags(@PathVariable Long entityId) {
+        requireEntityScope(UserContext.currentUserId(), entityId, VIEW_FUNCTION);
         var rels = relationshipService.getBySource(entityId, null);
         List<MetadataEntity> tags = new java.util.ArrayList<>();
         for (MetadataRelationship rel : rels) {
@@ -344,10 +424,18 @@ public class MetadataCatalogController {
     @GetMapping("/mask-candidates")
     public Result<List<Map<String, Object>>> getMaskCandidates(
             @RequestParam(required = false) Long datasourceId) {
-        // 查找所有 COLUMN 实体中 pending_mask 非空的
-        List<MetadataEntity> columns = datasourceId != null
-                ? entityService.getByDatasourceId(datasourceId)
-                : entityService.search("*", MetadataEntity.TYPE_COLUMN, null, 1, 1000);
+        Long userId = UserContext.currentUserId();
+        // 查找 COLUMN 实体中 pending_mask 非空的。
+        // 未指定数据源时**不能**退化成全局扫描——原实现走 search("*", …, null, …)，
+        // 任何持码者都能读到所有数据源的掩码候选。
+        List<MetadataEntity> columns;
+        if (datasourceId != null) {
+            adminGuard.requireDatasourceFunction(userId, MASK_VIEW_FUNCTION, datasourceId);
+            columns = entityService.getByDatasourceId(datasourceId);
+        } else {
+            columns = entityService.getByDatasourceIdsAndType(
+                    visibleDatasourceIds(userId, MASK_VIEW_FUNCTION), MetadataEntity.TYPE_COLUMN);
+        }
 
         List<Map<String, Object>> candidates = new java.util.ArrayList<>();
         for (MetadataEntity col : columns) {
@@ -385,75 +473,12 @@ public class MetadataCatalogController {
     public Result<Void> confirmMaskCandidate(
             @PathVariable Long entityId,
             @Valid @RequestBody ConfirmMaskCandidateRequest body) {
-        String maskStrategy = body.getMaskStrategy();
-
-        MetadataEntity entity = entityService.getById(entityId);
-        if (entity == null) {
-            return Result.error(404, "实体不存在");
-        }
-
-        // 从 entity_metadata 解析表名和列名
-        String tableName = null;
-        String columnName = entity.getName();
-        Long datasourceId = null;
-        try {
-            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-            var node = om.readTree(entity.getEntityMetadata());
-            if (node.has("datasource_id")) datasourceId = node.get("datasource_id").asLong();
-        } catch (Exception e) {
-            log.warn("解析实体元数据失败 entityId={}: {}", entityId, e.getMessage());
-        }
-
-        // 从 FQN 解析表名：datasource.db.table.column → table
-        String fqn = entity.getFqn();
-        String[] parts = fqn.split("\\.");
-        if (parts.length >= 3) {
-            tableName = parts[parts.length - 2];
-        }
-
-        if (datasourceId == null || tableName == null) {
-            return Result.error(400, "无法从实体元数据解析数据源或表名");
-        }
-
-        // 检查是否已有 MASK 策略
-        var existingPolicies = policyMapper.selectBySubject(datasourceId, "USER", 0L); // 检查全局策略
-        for (DatasourceAccessPolicy p : existingPolicies) {
-            if ("MASK".equals(p.getAccessType())
-                    && tableName.equals(p.getTableName())
-                    && columnName.equals(p.getColumnName())) {
-                return Result.error(400, "该列已有 MASK 策略");
-            }
-        }
-
-        // 创建 MASK 策略（全局，subjectType=USER, subjectId=0 表示所有用户）
-        DatasourceAccessPolicy policy = new DatasourceAccessPolicy();
-        policy.setDatasourceId(datasourceId);
-        policy.setSubjectType("USER");
-        policy.setSubjectId(0L);
-        policy.setTableName(tableName);
-        policy.setColumnName(columnName);
-        policy.setAccessType("MASK");
-        policy.setMaskStrategy(maskStrategy);
-        policy.setPriority(50); // PII 标签生成的策略优先级高
-        policyMapper.insert(policy);
-
-        // 清除 entity_metadata 中的 pending_mask
-        try {
-            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-            var node = om.readTree(entity.getEntityMetadata());
-            if (node instanceof com.fasterxml.jackson.databind.node.ObjectNode objNode) {
-                objNode.remove("pending_mask");
-                entity.setEntityMetadata(om.writeValueAsString(objNode));
-                entityService.updateById(entity);
-            }
-        } catch (Exception e) {
-            log.warn("清除 pending_mask 失败 entityId={}: {}", entityId, e.getMessage());
-        }
-
-        // 触发权限缓存失效
-        eventPublisher.publishEvent(new PermissionChangedEvent(this, 0L, datasourceId));
-
-        return Result.success("MASK 策略已确认生效", null);
+        // S1 字段保护写入与候选标记清理在同一事务内完成，并做幂等处理：
+        // 编排与幂等逻辑见 MetadataMaskCandidateService。
+        Long userId = UserContext.currentUserId();
+        requireEntityScope(userId, entityId, MASK_MANAGE_FUNCTION);
+        maskCandidateService.confirm(userId, entityId, body.getMaskStrategy());
+        return Result.success("字段保护已生效", null);
     }
 
     /**
@@ -461,22 +486,10 @@ public class MetadataCatalogController {
      */
     @PostMapping("/mask-candidates/{entityId}/reject")
     public Result<Void> rejectMaskCandidate(@PathVariable Long entityId) {
-        MetadataEntity entity = entityService.getById(entityId);
-        if (entity == null) {
-            return Result.error(404, "实体不存在");
-        }
-        // 清除 pending_mask
-        try {
-            com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-            var node = om.readTree(entity.getEntityMetadata());
-            if (node instanceof com.fasterxml.jackson.databind.node.ObjectNode objNode) {
-                objNode.remove("pending_mask");
-                entity.setEntityMetadata(om.writeValueAsString(objNode));
-                entityService.updateById(entity);
-            }
-        } catch (Exception e) {
-            log.warn("清除 pending_mask 失败 entityId={}: {}", entityId, e.getMessage());
-        }
+        requireEntityScope(UserContext.currentUserId(), entityId, MASK_MANAGE_FUNCTION);
+        Long userId = UserContext.currentUserId();
+        requireEntityScope(userId, entityId, MASK_MANAGE_FUNCTION);
+        maskCandidateService.reject(userId, entityId);
         return Result.success("已拒绝 MASK 策略候选", null);
     }
 

@@ -262,7 +262,7 @@ public class IamS1UserResourceServiceImpl implements IamS1UserResourceService {
         for (IamS1FieldProtection protection : protections) {
             if (protection.getColumnName() != null) {
                 levels.merge(protection.getColumnName(), protection.getProtectionLevel(),
-                        (left, right) -> stricter(left, right));
+                        IamS1Constants::stricterProtection);
             }
         }
         return levels;
@@ -354,16 +354,10 @@ public class IamS1UserResourceServiceImpl implements IamS1UserResourceService {
         for (IamS1FieldProtection protection : protections) {
             if (protection.getColumnMetaId() != null) {
                 levels.merge(protection.getColumnMetaId(), protection.getProtectionLevel(),
-                        (left, right) -> stricter(left, right));
+                        IamS1Constants::stricterProtection);
             }
         }
         return levels;
-    }
-
-    private String stricter(String left, String right) {
-        List<String> order = List.of(IamS1Constants.PROTECTION_NORMAL, IamS1Constants.PROTECTION_MASKED,
-                IamS1Constants.PROTECTION_HIDDEN);
-        return order.indexOf(left) >= order.indexOf(right) ? left : right;
     }
 
     private Set<String> namesOf(List<IamS1ColumnOptionFact> columns) {

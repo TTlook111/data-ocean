@@ -169,6 +169,22 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
 
     @Override
     public LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageTypes) {
+        return getEnrichedLineage(entityId, depth, lineageTypes, null);
+    }
+
+    /**
+     * 增强血缘：可见范围在**遍历阶段**生效，而不是遍历完再过滤结果。
+     *
+     * <p>只做“返回前过滤”会留下两个问题：BFS 仍会穿过无权节点，于是
+     * A（可见）→ B（无权）→ C（可见）会返回一个与起点没有边的孤立节点 C，
+     * 等于把“存在一条隐藏路径”这个拓扑信号泄露出去；同时无权子图的规模也会影响遍历耗时。
+     * 因此这里在把节点加入 `nextLevel` 之前就裁剪。</p>
+     *
+     * @param visibleEntityIds 可见实体集合；null 表示不限制
+     */
+    @Override
+    public LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageTypes,
+                                             Set<Long> visibleEntityIds) {
         // 1. BFS 遍历获取带列映射的血缘关系
         Set<Long> visited = new HashSet<>();
         Map<Long, MetadataRelationship> edgeMap = new LinkedHashMap<>();
@@ -188,6 +204,12 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
                         if (!lineageTypes.contains(lt)) continue;
                     }
                     if (edgeMap.containsKey(rel.getId())) continue;
+                    // 两端都必须可见：任一不可见的边既不返回，也不作为继续遍历的跳板。
+                    if (visibleEntityIds != null
+                            && (!visibleEntityIds.contains(rel.getSourceId())
+                            || !visibleEntityIds.contains(rel.getTargetId()))) {
+                        continue;
+                    }
                     edgeMap.put(rel.getId(), rel);
                     allEntityIds.add(rel.getSourceId());
                     allEntityIds.add(rel.getTargetId());

@@ -55,6 +55,9 @@ public class IamS1DataGrantServiceImpl implements IamS1DataGrantService {
     /** B4：访问审批通过生成个人临时授权所需的 S1 功能码。 */
     private static final String APPROVAL_FUNCTION = "security:approval:review";
 
+    /** 单次批量授权条数上限，与 governance 的批量操作约定一致（`IssueBatchHandleDTO`）。 */
+    private static final int MAX_BATCH_GRANTS = 100;
+
     private final IamS1DataGrantMapper dataGrantMapper;
     private final IamS1DataGrantColumnMapper dataGrantColumnMapper;
     private final IamS1RowConditionMapper rowConditionMapper;
@@ -109,8 +112,17 @@ public class IamS1DataGrantServiceImpl implements IamS1DataGrantService {
             if (requests == null || requests.isEmpty()) {
                 throw new BusinessException("批量数据授权不能为空");
             }
+            // 服务端强制上限：不能依赖前端的 @Valid（它对 List 元素不级联），
+            // 否则一次请求可以写入任意多条授权，每一条都会推进 revision 并触发缓存失效。
+            if (requests.size() > MAX_BATCH_GRANTS) {
+                throw new BusinessException("单次批量授权不能超过 " + MAX_BATCH_GRANTS + " 条");
+            }
             for (IamS1DataGrantSaveDTO request : requests) {
-                if (request != null && (request.getReason() == null || request.getReason().isBlank())) {
+                // 注意不要用 requests.contains(null)：List.of 产生的不可变列表对 null 查询会抛 NPE。
+                if (request == null) {
+                    throw new BusinessException("批量数据授权包含空项");
+                }
+                if (request.getReason() == null || request.getReason().isBlank()) {
                     request.setReason(reason);
                 }
                 createGrantInCurrentTransaction(operatorUserId, request);
