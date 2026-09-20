@@ -3,6 +3,7 @@ package com.dataocean.module.dashboard.controller;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.dashboard.entity.vo.DashboardStatsVO;
+import com.dataocean.module.permission.s1.annotation.IamS1Global;
 import com.dataocean.module.dashboard.service.DashboardService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,7 +31,10 @@ public class DashboardController {
      * @return 首页统计视图（按调用者的功能与负责源裁剪）
      */
     @GetMapping("/stats")
+    @IamS1Global("admin:workbench:view")
     public Result<DashboardStatsVO> getStats() {
+        // 入口准入由 @IamS1Global 承担；每张卡片仍由 Service 按所属域功能与负责源分别裁剪，
+        // 入口注解不代表调用者自动拥有所有卡片的数据。
         return Result.success(dashboardService.getStats(UserContext.currentUserId()));
     }
 }

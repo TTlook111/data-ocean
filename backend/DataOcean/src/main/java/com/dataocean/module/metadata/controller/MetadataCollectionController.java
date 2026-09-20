@@ -22,6 +22,9 @@ import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.metadata.mapper.SchemaSyncTaskMapper;
 import com.dataocean.module.metadata.service.SchemaCollectionService;
 import com.dataocean.module.metadata.service.SchemaDiffService;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
@@ -79,15 +82,6 @@ public class MetadataCollectionController {
                 .toList();
     }
 
-    /** 校验调用者在指定功能上有权访问该快照所属的数据源。 */
-    private void requireSnapshotScope(Long userId, Long snapshotId, String functionCode) {
-        MetadataSnapshot snapshot = snapshotId == null ? null : snapshotMapper.selectById(snapshotId);
-        if (snapshot == null || snapshot.getDatasourceId() == null) {
-            throw new com.dataocean.common.exception.BusinessException(404, "快照不存在");
-        }
-        adminGuard.requireDatasourceFunction(userId, functionCode, snapshot.getDatasourceId());
-    }
-
     /**
      * 手动触发元数据同步任务。
      *
@@ -95,9 +89,8 @@ public class MetadataCollectionController {
      * @return 新建同步任务 ID
      */
     @PostMapping("/sync")
+    @IamS1Resource(function = COLLECT_RUN_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#request.datasourceId")
     public Result<Map<String, Long>> triggerSync(@Valid @RequestBody SyncTriggerDTO request) {
-        adminGuard.requireDatasourceFunction(UserContext.currentUserId(), COLLECT_RUN_FUNCTION,
-                request.getDatasourceId());
         Long taskId = collectionService.executeFullSync(request.getDatasourceId(), request.getIncludeStatistics());
         return Result.success("同步任务已触发", Map.of("taskId", taskId));
     }
@@ -111,6 +104,7 @@ public class MetadataCollectionController {
      * @return 同步任务分页列表
      */
     @GetMapping("/sync-tasks")
+    @IamS1ScopedList(COLLECT_VIEW_FUNCTION)
     public Result<Page<SyncTaskVO>> listSyncTasks(@RequestParam(required = false) Long datasourceId,
                                                    @RequestParam(defaultValue = "1") Integer page,
                                                   @RequestParam(defaultValue = "20") Integer size) {
@@ -145,6 +139,7 @@ public class MetadataCollectionController {
      * @return 快照分页列表
      */
     @GetMapping("/snapshots")
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<Page<SnapshotVO>> listSnapshots(@RequestParam(required = false) Long datasourceId,
                                                    @RequestParam(defaultValue = "1") Integer page,
                                                   @RequestParam(defaultValue = "20") Integer size) {
@@ -176,8 +171,8 @@ public class MetadataCollectionController {
      * @return 快照、表和字段元数据详情
      */
     @GetMapping("/snapshots/{id}")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#id")
     public Result<Map<String, Object>> getSnapshotDetail(@PathVariable Long id) {
-        requireSnapshotScope(UserContext.currentUserId(), id, VIEW_FUNCTION);
         MetadataSnapshot snapshot = snapshotMapper.selectById(id);
         if (snapshot == null) {
             return Result.error(404, "快照不存在");
@@ -204,8 +199,8 @@ public class MetadataCollectionController {
      * @return 表元数据列表
      */
     @GetMapping("/snapshots/{id}/tables")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#id")
     public Result<List<DbTableMeta>> listSnapshotTables(@PathVariable Long id) {
-        requireSnapshotScope(UserContext.currentUserId(), id, VIEW_FUNCTION);
         List<DbTableMeta> tables = tableMetaMapper.selectList(
                 new LambdaQueryWrapper<DbTableMeta>()
                         .eq(DbTableMeta::getSnapshotId, id)
@@ -221,9 +216,9 @@ public class MetadataCollectionController {
      * @return 字段元数据列表
      */
     @GetMapping("/snapshots/{id}/tables/{tableName}/columns")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#id")
     public Result<List<DbColumnMeta>> listSnapshotTableColumns(@PathVariable Long id,
                                                                 @PathVariable String tableName) {
-        requireSnapshotScope(UserContext.currentUserId(), id, VIEW_FUNCTION);
         List<DbColumnMeta> columns = columnMetaMapper.selectList(
                 new LambdaQueryWrapper<DbColumnMeta>()
                         .eq(DbColumnMeta::getSnapshotId, id)
@@ -240,11 +235,10 @@ public class MetadataCollectionController {
      * @return 快照差异结果
      */
     @GetMapping("/snapshots/diff")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = {"#oldId", "#newId"})
     public Result<SchemaDiffVO> diffSnapshots(@RequestParam Long oldId, @RequestParam Long newId) {
         Long userId = UserContext.currentUserId();
         // 两个快照都要校验：只校验其中一个就能借无权快照读到无权数据源的差异。
-        requireSnapshotScope(userId, oldId, VIEW_FUNCTION);
-        requireSnapshotScope(userId, newId, VIEW_FUNCTION);
         return Result.success(diffService.compareSnapshots(oldId, newId));
     }
 
@@ -259,10 +253,9 @@ public class MetadataCollectionController {
      * @return 快照差异结果
      */
     @PostMapping("/snapshots/diff/record")
+    @IamS1Resource(function = COLLECT_RUN_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = {"#oldId", "#newId"})
     public Result<SchemaDiffVO> recordSnapshotDiff(@RequestParam Long oldId, @RequestParam Long newId) {
         Long userId = UserContext.currentUserId();
-        requireSnapshotScope(userId, oldId, VIEW_FUNCTION);
-        requireSnapshotScope(userId, newId, VIEW_FUNCTION);
         return Result.success("变更事件已记录", diffService.compareAndRecordChanges(oldId, newId));
     }
 

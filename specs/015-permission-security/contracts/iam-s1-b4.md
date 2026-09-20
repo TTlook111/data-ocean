@@ -146,3 +146,23 @@ Java `IamS1QueryServiceImpl.requireExplicitUsages` 强制要求每个字段声�
 
 未发现 P0 级越权：10 个 Controller 均有服务端强制校验，审批的并发 / 重复 / 自审批 / 时限 / 字段子集处理正确，事务边界正确，全包无 SQL 拼接。
 
+
+## B4-A 统一鉴权接入框架（2026-09-20，未提交）
+
+新增三个**方法级**注解，语义严格区分：
+
+| 注解 | 语义 | 服务端判定 |
+|---|---|---|
+| `@IamS1Global(code)` | 全局功能 | 校验功能码为 B0 冻结的「全」语义 + `requireGlobalFunction` |
+| `@IamS1Resource(function, resourceType, resourceIds)` | 资源范围功能 | 逐个解析资源真实归属（解析器重查，不采信请求自带 datasourceId）+ `requireDatasourceFunction`；多资源任意一个无权即整体拒绝 |
+| `@IamS1ScopedList(code)` | 源范围功能的**功能级**准入 | 只校验功能码为「源」语义 + `requireGlobalFunction`；用于列表/搜索/统计入口与无现成资源 ID 的创建/探测入口。**不解析资源、不裁剪数据**——可见范围由 Service 下推 SQL |
+
+切面 `IamS1AuthorizationAspect`（`@Order(HIGHEST_PRECEDENCE + 10)`，在事务切面之前）复用 `IamS1AdminGuard`，不复制授权算法；`IamS1FunctionCatalog.scopeOf()` 校验注解语义与 B0 一致，源范围功能错标为全局会直接拒绝执行。`glossary:*` 三个「源/全」混合码标为 `MIXED`，注解框架拒绝使用。
+
+资源解析器固定注册表：DATASOURCE / SNAPSHOT / METADATA_ENTITY / METADATA_COLUMN；一种类型有且只有一个解析器；未注册类型、资源不存在、归属断链、参数为空、表达式失败一律 fail-closed。受限 SpEL 用 `SimpleEvaluationContext.forReadOnlyDataBinding()`，禁止 Bean、类型引用、构造对象与任意方法调用。
+
+**已迁移 41 个端点**：Dashboard 1、DatasourceAdmin 11、MetadataCatalog 12、MetadataCollection 8、SnapshotVersion 9。列表范围、批量校验、双侧快照校验、血缘裁剪、事务锁与业务规则保留在 Service。
+
+覆盖扫描 `IamS1EndpointCoverageTest` 用 `RequestMappingHandlerMapping` 枚举真实 HandlerMethod。例外清单：已迁移范围精确到 Handler 方法，未迁移部分按 Controller + 计划批次登记，不使用路径前缀匹配。
+
+**未完成**：完整 `confirm()` 并发事务集成测试；权限与组织域 22 个 `IamS1*` 端点仍是显式 Guard。

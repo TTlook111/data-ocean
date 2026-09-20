@@ -8,7 +8,10 @@ import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.entity.vo.SchemaDiffVO;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import com.dataocean.module.versioning.entity.SnapshotAuditLog;
@@ -62,15 +65,6 @@ public class SnapshotVersionController {
                 .toList();
     }
 
-    /** 校验调用者在指定功能上有权访问该快照所属的数据源。 */
-    private void requireSnapshotScope(Long userId, Long snapshotId, String functionCode) {
-        MetadataSnapshot snapshot = snapshotId == null ? null : snapshotMapper.selectById(snapshotId);
-        if (snapshot == null || snapshot.getDatasourceId() == null) {
-            throw new com.dataocean.common.exception.BusinessException(404, "快照不存在");
-        }
-        adminGuard.requireDatasourceFunction(userId, functionCode, snapshot.getDatasourceId());
-    }
-
     /**
      * 变更快照状态。
      *
@@ -79,11 +73,11 @@ public class SnapshotVersionController {
      * @return 操作结果
      */
     @PatchMapping("/snapshots/{snapshotId}/status")
+    @IamS1Resource(function = RELEASE_REVIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
     public Result<Void> changeStatus(@PathVariable Long snapshotId,
                                       @Valid @RequestBody SnapshotStatusChangeDTO request) {
         Long operatorId = UserContext.currentUserId();
         // 审核码只允许状态流转，发布有独立的功能码，审核不会自动带来发布权。
-        requireSnapshotScope(operatorId, snapshotId, RELEASE_REVIEW_FUNCTION);
         lifecycleService.changeStatus(snapshotId, request.getTargetStatus(), operatorId, request.getReason());
         return Result.success();
     }
@@ -95,9 +89,9 @@ public class SnapshotVersionController {
      * @return 操作结果
      */
     @PostMapping("/snapshots/{snapshotId}/publish")
+    @IamS1Resource(function = RELEASE_PUBLISH_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
     public Result<Void> publish(@PathVariable Long snapshotId) {
         Long operatorId = UserContext.currentUserId();
-        requireSnapshotScope(operatorId, snapshotId, RELEASE_PUBLISH_FUNCTION);
         publishService.publishSnapshot(snapshotId, operatorId);
         return Result.success();
     }
@@ -110,13 +104,13 @@ public class SnapshotVersionController {
      * @return 操作结果
      */
     @PostMapping("/snapshots/{snapshotId}/revoke")
+    @IamS1Resource(function = RELEASE_PUBLISH_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
     public Result<Void> revoke(@PathVariable Long snapshotId,
                                 @RequestBody SnapshotStatusChangeDTO request) {
         if (request.getReason() == null || request.getReason().isBlank()) {
             return Result.error(400, "撤回操作必须填写原因");
         }
         Long operatorId = UserContext.currentUserId();
-        requireSnapshotScope(operatorId, snapshotId, RELEASE_PUBLISH_FUNCTION);
         publishService.revokeSnapshot(snapshotId, operatorId, request.getReason());
         return Result.success();
     }
@@ -130,6 +124,7 @@ public class SnapshotVersionController {
      * @return 快照版本历史分页列表
      */
     @GetMapping("/datasources/{datasourceId}/version-history")
+    @IamS1Resource(function = RELEASE_VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#datasourceId")
     public Result<Page<SnapshotVersionHistoryVO>> versionHistory(
             @PathVariable Long datasourceId,
             @RequestParam(defaultValue = "1") int page,
@@ -148,6 +143,7 @@ public class SnapshotVersionController {
      * @return 快照版本历史分页列表
      */
     @GetMapping("/version-history")
+    @IamS1ScopedList(RELEASE_VIEW_FUNCTION)
     public Result<Page<SnapshotVersionHistoryVO>> allVersionHistory(
             @RequestParam(required = false) Long datasourceId,
             @RequestParam(defaultValue = "1") int page,
@@ -171,6 +167,7 @@ public class SnapshotVersionController {
      * @return 当前已发布快照；不存在时返回 null
      */
     @GetMapping("/datasources/{datasourceId}/published-snapshot")
+    @IamS1Resource(function = RELEASE_VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#datasourceId")
     public Result<SnapshotVersionHistoryVO> publishedSnapshot(@PathVariable Long datasourceId) {
         adminGuard.requireDatasourceFunction(UserContext.currentUserId(), RELEASE_VIEW_FUNCTION, datasourceId);
         MetadataSnapshot snapshot = lifecycleService.getPublishedSnapshot(datasourceId);
@@ -198,11 +195,11 @@ public class SnapshotVersionController {
      * @return 审计日志分页列表
      */
     @GetMapping("/snapshots/{snapshotId}/audit-logs")
+    @IamS1Resource(function = RELEASE_VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
     public Result<Page<SnapshotAuditLogVO>> auditLogs(
             @PathVariable Long snapshotId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        requireSnapshotScope(UserContext.currentUserId(), snapshotId, RELEASE_VIEW_FUNCTION);
         Page<SnapshotAuditLog> logPage = auditLogService.listAuditLogs(snapshotId, page, size);
         Page<SnapshotAuditLogVO> voPage = convertToVOPage(logPage);
         return Result.success(voPage);
@@ -218,6 +215,7 @@ public class SnapshotVersionController {
      * @return 审计日志分页列表
      */
     @GetMapping("/datasources/{datasourceId}/audit-logs")
+    @IamS1Resource(function = RELEASE_VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#datasourceId")
     public Result<Page<SnapshotAuditLogVO>> datasourceAuditLogs(
             @PathVariable Long datasourceId,
             @RequestParam(required = false) String action,
@@ -237,12 +235,11 @@ public class SnapshotVersionController {
      * @return 快照差异结果
      */
     @GetMapping("/snapshots/{snapshotId}/diff/{compareSnapshotId}")
+    @IamS1Resource(function = RELEASE_VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = {"#snapshotId", "#compareSnapshotId"})
     public Result<SchemaDiffVO> compareVersions(@PathVariable Long snapshotId,
                                                  @PathVariable Long compareSnapshotId) {
         Long userId = UserContext.currentUserId();
         // 两个快照都要校验：只校验其中一个就能借无权快照读到无权数据源的差异。
-        requireSnapshotScope(userId, snapshotId, RELEASE_VIEW_FUNCTION);
-        requireSnapshotScope(userId, compareSnapshotId, RELEASE_VIEW_FUNCTION);
         return Result.success(lifecycleService.compareVersions(snapshotId, compareSnapshotId));
     }
 

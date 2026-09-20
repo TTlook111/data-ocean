@@ -16,7 +16,10 @@ import com.dataocean.module.datasource.entity.vo.DatasourceVO;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.service.DatasourceReadinessService;
 import com.dataocean.module.datasource.service.DatasourceService;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import com.dataocean.module.system.aspect.AdminAuditLog;
@@ -75,9 +78,9 @@ public class DatasourceAdminController {
      * <p>只返回调用者在 `datasource:view` 上负责的源；数据源总量有限，这里用内存过滤即可。</p>
      */
     @GetMapping("/simple")
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<List<DatasourceSimpleVO>> listSimple() {
         Long userId = UserContext.currentUserId();
-        adminGuard.requireGlobalFunction(userId, VIEW_FUNCTION);
         List<Long> visible = visibleDatasourceIds(userId, VIEW_FUNCTION);
         if (visible.isEmpty()) {
             return Result.success(List.of());
@@ -94,9 +97,10 @@ public class DatasourceAdminController {
      * @return 分页数据源列表（只含负责范围内的源）
      */
     @GetMapping
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<Page<DatasourceVO>> listDatasources(@ModelAttribute DatasourceQuery request) {
+        // 可见范围继续下推到 SQL：先分页再在内存过滤会让总数与分页边界出错。
         Long userId = UserContext.currentUserId();
-        adminGuard.requireGlobalFunction(userId, VIEW_FUNCTION);
         return Result.success(datasourceService.listDatasources(request, visibleDatasourceIds(userId, VIEW_FUNCTION)));
     }
 
@@ -107,8 +111,9 @@ public class DatasourceAdminController {
      * @return 数据源详情
      */
     @GetMapping("/{id}")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE,
+            resourceIds = "#id")
     public Result<DatasourceVO> getDatasource(@PathVariable Long id) {
-        adminGuard.requireDatasourceFunction(UserContext.currentUserId(), VIEW_FUNCTION, id);
         return Result.success(datasourceService.getDatasourceById(id));
     }
 
@@ -119,8 +124,8 @@ public class DatasourceAdminController {
      * @return 可询问状态
      */
     @GetMapping("/{id}/readiness")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#id")
     public Result<DatasourceReadinessVO> getReadiness(@PathVariable Long id) {
-        adminGuard.requireDatasourceFunction(UserContext.currentUserId(), VIEW_FUNCTION, id);
         return Result.success(readinessService.getAdminReadiness(id));
     }
 
@@ -131,6 +136,7 @@ public class DatasourceAdminController {
      * @return 可询问状态列表
      */
     @GetMapping("/readiness/batch")
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<List<DatasourceReadinessVO>> getBatchReadiness(@RequestParam List<Long> datasourceIds) {
         if (datasourceIds == null || datasourceIds.isEmpty()) {
             return Result.success(List.of());
@@ -158,8 +164,8 @@ public class DatasourceAdminController {
      * @return 创建后的数据源详情
      */
     @PostMapping
+    @IamS1ScopedList(MANAGE_FUNCTION)
     public Result<DatasourceVO> createDatasource(@Valid @RequestBody DatasourceCreateDTO request) {
-        adminGuard.requireGlobalFunction(UserContext.currentUserId(), MANAGE_FUNCTION);
         log.debug("收到创建数据源请求 name={} host={} database={}", request.getName(), request.getHost(), request.getDatabaseName());
         return Result.success("创建成功", datasourceService.createDatasource(request));
     }
@@ -172,9 +178,10 @@ public class DatasourceAdminController {
      * @return 更新后的数据源详情
      */
     @PutMapping("/{id}")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE,
+            resourceIds = "#id")
     public Result<DatasourceVO> updateDatasource(@PathVariable Long id,
                                                  @Valid @RequestBody DatasourceUpdateDTO request) {
-        adminGuard.requireDatasourceFunction(UserContext.currentUserId(), MANAGE_FUNCTION, id);
         log.debug("收到更新数据源请求 datasourceId={} name={}", id, request.getName());
         return Result.success("更新成功", datasourceService.updateDatasource(id, request));
     }
@@ -186,8 +193,9 @@ public class DatasourceAdminController {
      * @return 操作结果
      */
     @DeleteMapping("/{id}")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE,
+            resourceIds = "#id")
     public Result<Void> deleteDatasource(@PathVariable Long id) {
-        adminGuard.requireDatasourceFunction(UserContext.currentUserId(), MANAGE_FUNCTION, id);
         datasourceService.deleteDatasource(id);
         return Result.success("删除成功", null);
     }
@@ -200,9 +208,10 @@ public class DatasourceAdminController {
      * @return 更新后的数据源详情
      */
     @PatchMapping("/{id}/status")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE,
+            resourceIds = "#id")
     public Result<DatasourceVO> updateStatus(@PathVariable Long id,
                                              @Valid @RequestBody DatasourceStatusUpdateDTO request) {
-        adminGuard.requireDatasourceFunction(UserContext.currentUserId(), MANAGE_FUNCTION, id);
         return Result.success("状态更新成功", datasourceService.updateStatus(id, request.getStatus()));
     }
 
@@ -215,8 +224,8 @@ public class DatasourceAdminController {
      * @return 连接测试结果
      */
     @PostMapping("/test-connection")
+    @IamS1ScopedList(MANAGE_FUNCTION)
     public Result<DatasourceConnectionTestVO> testConnection(@Valid @RequestBody DatasourceTestDTO request) {
-        adminGuard.requireGlobalFunction(UserContext.currentUserId(), MANAGE_FUNCTION);
         log.debug("收到数据源连接测试请求 host={} database={}", request.getHost(), request.getDatabaseName());
         return Result.success(datasourceService.testConnection(request));
     }
@@ -228,8 +237,9 @@ public class DatasourceAdminController {
      * @return 连接测试结果
      */
     @PostMapping("/{id}/test-connection")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE,
+            resourceIds = "#id")
     public Result<DatasourceConnectionTestVO> testSavedConnection(@PathVariable Long id) {
-        adminGuard.requireDatasourceFunction(UserContext.currentUserId(), MANAGE_FUNCTION, id);
         return Result.success(datasourceService.testSavedConnection(id));
     }
 

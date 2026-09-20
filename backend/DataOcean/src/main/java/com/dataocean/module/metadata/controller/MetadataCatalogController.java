@@ -11,7 +11,10 @@ import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import lombok.RequiredArgsConstructor;
@@ -58,20 +61,6 @@ public class MetadataCatalogController {
     private final IamS1CapabilityService capabilityService;
     private final com.dataocean.module.metadata.service.MetadataMaskCandidateService maskCandidateService;
 
-    /**
-     * 校验调用者在指定功能上有权访问该实体所属的数据源。
-     *
-     * <p>元数据实体本身不带 datasourceId 字段，归属存在 `entity_metadata.datasource_id`，
-     * 所以必须先解析出所属数据源再做负责源判定，不能只检查全局功能码。</p>
-     */
-    private void requireEntityScope(Long userId, Long entityId, String functionCode) {
-        Long datasourceId = entityService.getDatasourceIdByEntityId(entityId);
-        if (datasourceId == null) {
-            throw new BusinessException(404, "实体不存在或没有数据源归属");
-        }
-        adminGuard.requireDatasourceFunction(userId, functionCode, datasourceId);
-    }
-
     /** 调用者在指定功能上负责的数据源 ID。 */
     private List<Long> visibleDatasourceIds(Long userId, String functionCode) {
         return capabilityService.responsibleDatasourcesWithFunction(userId, functionCode)
@@ -91,6 +80,7 @@ public class MetadataCatalogController {
      * @return 搜索结果
      */
     @GetMapping("/search")
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<List<MetadataEntity>> search(
             @RequestParam String q,
             @RequestParam(required = false) String type,
@@ -102,7 +92,6 @@ public class MetadataCatalogController {
         // 否则会变成“按无权源的用途查询”，等于绕过范围过滤。
         List<Long> visible = visibleDatasourceIds(userId, VIEW_FUNCTION);
         if (datasourceId != null) {
-            adminGuard.requireDatasourceFunction(userId, VIEW_FUNCTION, datasourceId);
             if (!visible.contains(datasourceId)) {
                 return Result.success(List.of());
             }
@@ -118,8 +107,9 @@ public class MetadataCatalogController {
      * @return 实体详情和关系列表
      */
     @GetMapping("/entities/{entityId}")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY,
+            resourceIds = "#entityId")
     public Result<Map<String, Object>> getEntityDetail(@PathVariable Long entityId) {
-        requireEntityScope(UserContext.currentUserId(), entityId, VIEW_FUNCTION);
         MetadataEntity entity = entityService.getById(entityId);
         if (entity == null) {
             return Result.error(404, "实体不存在");
@@ -161,12 +151,14 @@ public class MetadataCatalogController {
      * @return 血缘关系列表或增强图谱
      */
     @GetMapping("/entities/{entityId}/lineage")
+    @IamS1Resource(function = LINEAGE_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY,
+            resourceIds = "#entityId")
     public Result<?> getLineage(
             @PathVariable Long entityId,
             @RequestParam(defaultValue = "1") int depth,
             @RequestParam(required = false) String lineageType) {
         Long lineageUserId = UserContext.currentUserId();
-        requireEntityScope(lineageUserId, entityId, LINEAGE_FUNCTION);
+        // 准入由注解承担；这里保留的是血缘图的可见性裁剪（Service 职责）。
         List<Long> lineageScope = visibleDatasourceIds(lineageUserId, LINEAGE_FUNCTION);
         // 无过滤时保持原有行为（向后兼容）
         if (lineageType == null || lineageType.isBlank()) {
@@ -205,12 +197,12 @@ public class MetadataCatalogController {
      * @return 列级血缘链
      */
     @GetMapping("/entities/{columnId}/column-lineage")
+    @IamS1Resource(function = LINEAGE_FUNCTION, resourceType = IamS1ResourceType.METADATA_COLUMN, resourceIds = "#columnId")
     public Result<Map<String, Object>> getColumnLineage(
             @PathVariable Long columnId,
             @RequestParam(defaultValue = "3") int depth,
             @RequestParam(defaultValue = "both") String direction) {
         Long columnUserId = UserContext.currentUserId();
-        requireEntityScope(columnUserId, columnId, LINEAGE_FUNCTION);
         MetadataEntity column = entityService.getById(columnId);
         if (column == null || !MetadataEntity.TYPE_COLUMN.equals(column.getEntityType())) {
             return Result.error(404, "列实体不存在");
@@ -296,11 +288,11 @@ public class MetadataCatalogController {
      * @return 下游关系列表
      */
     @GetMapping("/entities/{entityId}/downstream")
+    @IamS1Resource(function = LINEAGE_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY, resourceIds = "#entityId")
     public Result<List<MetadataRelationship>> getDownstream(
             @PathVariable Long entityId,
             @RequestParam(defaultValue = "10") int maxDepth) {
         Long downstreamUserId = UserContext.currentUserId();
-        requireEntityScope(downstreamUserId, entityId, LINEAGE_FUNCTION);
         List<MetadataRelationship> downstream = relationshipService.getDownstream(entityId, maxDepth,
                 visibleDatasourceIds(downstreamUserId, LINEAGE_FUNCTION));
         return Result.success(downstream);
@@ -313,6 +305,7 @@ public class MetadataCatalogController {
      * @return 实体列表
      */
     @GetMapping("/entities")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#datasourceId")
     public Result<List<MetadataEntity>> getEntitiesByDatasource(
             @RequestParam Long datasourceId) {
         adminGuard.requireDatasourceFunction(UserContext.currentUserId(), VIEW_FUNCTION, datasourceId);
@@ -329,10 +322,10 @@ public class MetadataCatalogController {
      * @param body     { "tagFqn": "PII.手机号" }
      */
     @PostMapping("/entities/{entityId}/confirm-tag")
+    @IamS1Resource(function = FIELD_MANAGE_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY, resourceIds = "#entityId")
     public Result<Void> confirmTag(
             @PathVariable Long entityId,
             @RequestBody Map<String, String> body) {
-        requireEntityScope(UserContext.currentUserId(), entityId, FIELD_MANAGE_FUNCTION);
         String tagFqn = body.get("tagFqn");
         if (tagFqn == null || tagFqn.isBlank()) {
             return Result.error(400, "tagFqn 不能为空");
@@ -377,10 +370,10 @@ public class MetadataCatalogController {
      * 取消标签关联
      */
     @DeleteMapping("/entities/{entityId}/unconfirm-tag/{tagFqn}")
+    @IamS1Resource(function = FIELD_MANAGE_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY, resourceIds = "#entityId")
     public Result<Void> unconfirmTag(
             @PathVariable Long entityId,
             @PathVariable String tagFqn) {
-        requireEntityScope(UserContext.currentUserId(), entityId, FIELD_MANAGE_FUNCTION);
         MetadataEntity tagEntity = entityService.getByFqn("tag." + tagFqn.toLowerCase());
         if (tagEntity == null) {
             return Result.error(404, "标签不存在");
@@ -401,8 +394,8 @@ public class MetadataCatalogController {
      * 查询实体的已确认标签
      */
     @GetMapping("/entities/{entityId}/tags")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY, resourceIds = "#entityId")
     public Result<List<MetadataEntity>> getEntityTags(@PathVariable Long entityId) {
-        requireEntityScope(UserContext.currentUserId(), entityId, VIEW_FUNCTION);
         var rels = relationshipService.getBySource(entityId, null);
         List<MetadataEntity> tags = new java.util.ArrayList<>();
         for (MetadataRelationship rel : rels) {
@@ -422,6 +415,7 @@ public class MetadataCatalogController {
      * @param datasourceId 数据源 ID（可选）
      */
     @GetMapping("/mask-candidates")
+    @IamS1ScopedList(MASK_VIEW_FUNCTION)
     public Result<List<Map<String, Object>>> getMaskCandidates(
             @RequestParam(required = false) Long datasourceId) {
         Long userId = UserContext.currentUserId();
@@ -470,13 +464,13 @@ public class MetadataCatalogController {
      * @param body     { "maskStrategy": "PHONE" }
      */
     @PostMapping("/mask-candidates/{entityId}/confirm")
+    @IamS1Resource(function = MASK_MANAGE_FUNCTION, resourceType = IamS1ResourceType.METADATA_COLUMN, resourceIds = "#entityId")
     public Result<Void> confirmMaskCandidate(
             @PathVariable Long entityId,
             @Valid @RequestBody ConfirmMaskCandidateRequest body) {
         // S1 字段保护写入与候选标记清理在同一事务内完成，并做幂等处理：
         // 编排与幂等逻辑见 MetadataMaskCandidateService。
         Long userId = UserContext.currentUserId();
-        requireEntityScope(userId, entityId, MASK_MANAGE_FUNCTION);
         maskCandidateService.confirm(userId, entityId, body.getMaskStrategy());
         return Result.success("字段保护已生效", null);
     }
@@ -485,10 +479,9 @@ public class MetadataCatalogController {
      * 拒绝 MASK 策略候选
      */
     @PostMapping("/mask-candidates/{entityId}/reject")
+    @IamS1Resource(function = MASK_MANAGE_FUNCTION, resourceType = IamS1ResourceType.METADATA_COLUMN, resourceIds = "#entityId")
     public Result<Void> rejectMaskCandidate(@PathVariable Long entityId) {
-        requireEntityScope(UserContext.currentUserId(), entityId, MASK_MANAGE_FUNCTION);
         Long userId = UserContext.currentUserId();
-        requireEntityScope(userId, entityId, MASK_MANAGE_FUNCTION);
         maskCandidateService.reject(userId, entityId);
         return Result.success("已拒绝 MASK 策略候选", null);
     }

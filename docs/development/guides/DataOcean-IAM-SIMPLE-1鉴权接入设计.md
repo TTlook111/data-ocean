@@ -361,6 +361,59 @@ B4 批次 3～6 必须在框架和覆盖测试就绪后继续。每个批次同�
 - S1 切面和 Resolver 生产代码无旧权限依赖；
 - 不允许同一请求路径同时调用旧、新授权算法。
 
+## 11.5 实施状态（2026-09-20）
+
+### 已实现
+
+| 组件 | 位置 | 说明 |
+| --- | --- | --- |
+| `@IamS1Global` | `permission/s1/annotation` | 全局功能准入，只允许用于 B0 冻结为「全」的功能 |
+| `@IamS1Resource` | 同上 | 资源功能准入，`resourceIds` 支持单值与多值，逐个解析校验 |
+| `@IamS1ScopedList` | 同上 | 源范围功能的**功能级准入**：用于列表/搜索/统计入口，以及无现成资源 ID 的创建/探测入口 |
+| `IamS1AuthorizationAspect` | `permission/s1/aspect` | 三种注解的准入切面；`@Order(HIGHEST_PRECEDENCE + 10)`，在事务切面之前 |
+| `IamS1ResourceType` / `IamS1ResolvedResource` / `IamS1ResourceResolver` / `IamS1ResourceResolverRegistry` | `permission/s1/resource` | 固定注册表；一种类型有且只有一个解析器；未注册类型 fail-closed |
+| `DatasourceResourceResolver` | `resource/impl` | datasourceId → 未删除的数据源身份 |
+| `SnapshotResourceResolver` | 同上 | snapshotId → datasourceId（归属断链拒绝） |
+| `MetadataEntityResourceResolver` | 同上 | entityId → `entity_metadata.datasource_id` |
+| `MetadataColumnResourceResolver` | 同上 | 列实体 → snapshot / datasource / table（非 COLUMN 实体拒绝） |
+
+`IamS1FunctionCatalog` 增加 `FunctionScope`（`GLOBAL` / `RESOURCE` / `MIXED`）与 `scopeOf(code)`：切面据此校验「注解语义与 B0 冻结一致」，把源范围功能标成全局功能会直接拒绝执行。`glossary:*` 三个「源/全」混合码标为 `MIXED`，注解框架拒绝使用，待批次 5 定稿后再开放。
+
+受限 SpEL 用 `SimpleEvaluationContext.forReadOnlyDataBinding()`：禁止 Bean 引用、类型引用、构造对象与任意方法调用；表达式只提取资源 ID，真实归属一律由解析器重新查询。
+
+### 已迁移（批次 1～3，共 41 个端点）
+
+| Controller | 端点数 |
+| --- | --- |
+| `DashboardController` | 1 |
+| `DatasourceAdminController` | 11 |
+| `MetadataCatalogController` | 12 |
+| `MetadataCollectionController` | 8 |
+| `SnapshotVersionController` | 9 |
+
+迁移只删除与注解等价的准入调用；列表范围下推、批量逐项校验、双侧快照校验、血缘可见性裁剪、事务锁与业务规则全部保留在 Service。
+
+### 覆盖扫描
+
+`IamS1EndpointCoverageTest` 用 `RequestMappingHandlerMapping` 枚举真实 HandlerMethod，断言：已迁移 Controller 每个方法恰好一个 S1 注解、无旧 `@PreAuthorize`、功能码来自固定目录且全局/资源语义一致、写接口不能只声明查看功能、未迁移 Controller 必须显式登记、已迁移 Controller 不得出现在例外清单。
+
+例外清单**粒度**：已迁移范围精确到 Handler 方法；未迁移部分按 Controller + 计划批次登记（31 个 Controller / 174 个端点）。每迁移一批就移出对应 Controller，移出后立即接受精确到方法的检查。例外不使用路径前缀匹配。
+
+### 例外清单粒度（门禁要求）
+
+例外清单**逐端点**冻结在 `IamS1EndpointExemptions`：键为 `HTTP 方法 + 完整路径`，值为 `Controller#Handler方法|原因`，共 **174** 条。每迁移一个端点删除一条、不新增条目；新增未注解 Handler 会立即失败。测试另校验清单不存在过期条目。禁止改成路径前缀或 Controller 级豁免——那会让该 Controller 新增的未注解方法自动通过。
+
+### 完整 confirm() 事务集成测试
+
+`MetadataMaskCandidateConfirmTransactionTest`（4 个用例）走真实 `MetadataMaskCandidateService` + 真实 Mapper + 真实 Spring 事务，覆盖：写入唯一 ACTIVE 保护并清除候选、候选已清除后再次确认幂等、**两个并发 confirm 最终只保留一条 ACTIVE**、候选不可清理时不产生新事实。
+
+**H2 边界（必须如实说明）**：H2 能验证 Spring 事务与 Mapper 配合、行锁串行化和幂等结果，但**不能替代 B5 在真实 MySQL REPEATABLE READ 下的验收**。
+
+### 尚未完成
+
+- 权限与组织域的 22 个 `IamS1*` 端点仍是显式 Guard，未迁到注解框架（已逐端点登记在例外清单）。
+- `glossary:*` 三个「源/全」混合码的最终语义必须在进入批次 5 前确定，当前注解框架拒绝使用。
+
 ## 12. B4-A 完成标准
 
 以下条件全部满足，才算 B4-A 完成并允许继续全面扩散：

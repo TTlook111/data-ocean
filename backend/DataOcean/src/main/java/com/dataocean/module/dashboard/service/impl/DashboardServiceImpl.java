@@ -12,7 +12,6 @@ import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
-import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.versioning.entity.SnapshotAuditLog;
 import com.dataocean.module.versioning.mapper.SnapshotAuditLogMapper;
@@ -40,7 +39,6 @@ public class DashboardServiceImpl implements DashboardService {
     private final MetadataSnapshotMapper snapshotMapper;
     private final MetadataQualityIssueMapper qualityIssueMapper;
     private final SnapshotAuditLogMapper auditLogMapper;
-    private final IamS1AdminGuard adminGuard;
     private final IamS1AuthorizationResolver authorizationResolver;
     private final IamS1CapabilityService capabilityService;
 
@@ -49,8 +47,8 @@ public class DashboardServiceImpl implements DashboardService {
      */
     @Override
     public DashboardStatsVO getStats(Long userId) {
-        adminGuard.requireGlobalFunction(userId, "admin:workbench:view");
-
+        // 入口准入已由 DashboardController 上的 @IamS1Global("admin:workbench:view") 承担，
+        // 这里不再重复显式 Guard；保留的是每张卡片按所属域功能与负责源的裁剪。
         DashboardStatsVO stats = new DashboardStatsVO();
 
         // 用户总数属于组织域，与数据源负责范围无关：按全局功能码决定是否统计，

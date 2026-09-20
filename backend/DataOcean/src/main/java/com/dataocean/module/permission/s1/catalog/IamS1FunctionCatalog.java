@@ -84,6 +84,88 @@ public final class IamS1FunctionCatalog {
             d("system:ai-config:manage", "维护 AI 配置", "维护供应商、模型和运行参数，不显示密钥原值。", "运营与平台", "AI 配置", "system:ai-config:view")
     );
 
+    /**
+     * B0 冻结为「全」的功能码：只校验功能本身，不依赖负责源。
+     */
+    private static final Set<String> GLOBAL_CODES = Set.of(
+            "admin:workbench:view",
+            "prompt:view", "prompt:manage", "prompt:approve",
+            "organization:user:view", "organization:user:manage", "organization:user:export",
+            "organization:role:view", "organization:role:manage",
+            "organization:department:view", "organization:department:manage",
+            "organization:permission:view",
+            "system:runtime:view", "system:runtime:manage",
+            "operation-log:view",
+            "system:ai-config:view", "system:ai-config:manage");
+
+    /**
+     * B0 冻结为「源」的功能码：必须解析资源归属，并在同一条启用绑定上同时校验功能与负责源。
+     */
+    private static final Set<String> RESOURCE_CODES = Set.of(
+            "query:use", "query:sql:view", "query:export",
+            "datasource:view", "datasource:manage",
+            "metadata:collect:view", "metadata:collect:run", "metadata:view",
+            "metadata:release:view", "metadata:release:review", "metadata:release:publish",
+            "governance:view", "governance:check",
+            "governance:issue:view", "governance:issue:manage",
+            "governance:rule:view", "governance:rule:manage",
+            "governance:field:view", "governance:field:manage",
+            "knowledge:view", "knowledge:manage", "knowledge:approve", "knowledge:publish",
+            "security:permission:view", "security:permission:manage",
+            "security:mask:view", "security:mask:manage",
+            "security:effective:view",
+            "security:approval:view", "security:approval:review",
+            "audit:view", "audit:export",
+            "lineage:view", "lineage:manage");
+
+    /**
+     * B0 标为「源/全」的混合码：同一功能在“术语关联了数据源”时按源校验、
+     * 未关联时按全局校验。语义尚未定稿，注解框架**拒绝**使用这些码，
+     * 待批次 5（语义中心）明确后再开放，避免用注解把未定语义固化下来。
+     */
+    private static final Set<String> MIXED_CODES = Set.of(
+            "glossary:view", "glossary:manage", "glossary:approve");
+
+    /** 功能在 B0 中的范围语义。 */
+    public enum FunctionScope {
+        /** 只看功能本身，不依赖负责源。 */
+        GLOBAL,
+        /** 必须解析资源归属并在同一绑定上校验“功能 + 负责源”。 */
+        RESOURCE,
+        /** “源/全”未定语义，注解框架拒绝使用。 */
+        MIXED
+    }
+
+    /**
+     * 查询功能码的范围语义；未知码返回 null。
+     *
+     * <p>三个集合必须覆盖全部 54 码且互不重叠，由
+     * {@code IamS1FunctionCatalogScopeTest} 钉住。</p>
+     */
+    public static FunctionScope scopeOf(String code) {
+        if (code == null) {
+            return null;
+        }
+        if (GLOBAL_CODES.contains(code)) {
+            return FunctionScope.GLOBAL;
+        }
+        if (RESOURCE_CODES.contains(code)) {
+            return FunctionScope.RESOURCE;
+        }
+        if (MIXED_CODES.contains(code)) {
+            return FunctionScope.MIXED;
+        }
+        return null;
+    }
+
+    /** 仅测试与覆盖扫描使用：已声明范围语义的全部功能码。 */
+    public static Set<String> scopedCodes() {
+        LinkedHashSet<String> codes = new LinkedHashSet<>(GLOBAL_CODES);
+        codes.addAll(RESOURCE_CODES);
+        codes.addAll(MIXED_CODES);
+        return codes;
+    }
+
     private IamS1FunctionCatalog() {
     }
 
