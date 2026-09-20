@@ -280,3 +280,68 @@ Java `IamS1QueryServiceImpl.requireExplicitUsages` 强制要求每个字段声�
 
 **未完成**：权限与组织域 22 个 `IamS1*` 端点的注解迁移；批次 6（运营与平台）未开始；
 未执行 migration、bootstrap、服务/浏览器验收或正式切换。
+
+## B4 批次 6：组织基础数据 + 运营与平台 + 遗漏治理入口（未完成，未提交）
+
+### 清单校准
+
+原“运营与平台 32 个端点”不完整，且遗漏非 `/api/admin/**` 路径。以 `RequestMappingHandlerMapping`
+重新枚举的真实口径：例外清单标记「批次6」的 57 条中，14 条属旧权限配置链路（不迁移），
+**43 条管理端 Handler** 应迁移；另有 **18 个非 admin 路径 Handler**（`/api/lineage/**` 4、
+`/api/field-tags/**` 6、`/api/field-confidence/**` 5、`/api/feedback-reviews/**` 3）
+**此前完全不在覆盖扫描范围内**。合计 **61**，与任务书一致。
+
+覆盖扫描改用显式白名单 `S1_PROTECTED_PATH_PREFIXES`（新增上述四个前缀），
+**不**扫描全部 `/api/**` 后用宽泛例外掩盖登录/验证码/用户端问数。
+
+### 不迁移的旧入口
+
+`RoleController`、`PermissionController`、`DatasourcePermissionController`、`AccessPolicyController`、
+`AccessApprovalController` —— 它们读写旧角色、旧 permission tree、旧数据授权与旧审批事实；
+新 S1 已有独立的角色、功能目录、数据授权与审批 API。加 S1 注解会形成
+「新权限授权操作旧权限事实」的混合体系。例外原因已改标「旧权限配置链路，待 B6 删除」，后端保留不动。
+
+### 功能码
+
+| Controller | 端点 | 功能码 |
+|---|---|---|
+| `UserController` | 列表/详情/导入模板 | `organization:user:view` |
+| | 创建/修改/启停/删除/重置密码/导入 | `organization:user:manage` |
+| | 导出 | `organization:user:export` |
+| `DepartmentController` | 树 | `organization:department:view` |
+| | 增删改 | `organization:department:manage` |
+| `AuditLogController` | 列表/慢查询/统计 | `audit:view` + 负责源下推 |
+| | 详情 | `audit:view` + `AUDIT_LOG` 解析器 |
+| `LineageController` | 4 个查询 | `lineage:view` + DATASOURCE |
+| `LineageEdgeController` | 创建 | `lineage:manage` + METADATA_ENTITY 双侧 |
+| | 删除/批量 | `lineage:manage` 功能级（双侧校验在 Service，见下） |
+| `AlertController` | 列表 | `system:runtime:view` |
+| | 增删改/启停 | `system:runtime:manage` |
+| `SystemHealthController` | health / sql-pools | `system:runtime:view` |
+| | 重置连接池 | `system:runtime:manage` + 显式解析数据源 + 受保护系统管理员 + 确认与原因 |
+| `OperationLogController` | 列表 | `operation-log:view`（不因拥有 `audit:view` 自动获得） |
+| `SyncScheduleController` | 查看/修改 | `metadata:collect:view` / `metadata:collect:run` + 写操作要求受保护系统管理员 |
+| `AiConfigController` | 查看类 | `system:ai-config:view` |
+| | 维护类 | `system:ai-config:manage` |
+| `FieldAdminController` | 趋势 | `governance:field:view` + `COLUMN_META` |
+| | 导入标签/自动打标 | `governance:field:manage`（自动打标 + DATASOURCE） |
+| `FieldTagController` | 按列/预置 | `governance:field:view`（`COLUMN_META` / 功能级） |
+| | 按标签 | `governance:field:view` 功能级（范围下推**未完成**） |
+| | 新增/批量/删除 | `governance:field:manage`（删除用 `FIELD_TAG_RELATION`） |
+| `FieldConfidenceController` | 分页/详情/批量/事件 | `governance:field:view`（详情/事件用 `COLUMN_META`） |
+| | 改分 | `governance:field:manage` + `COLUMN_META` |
+| `FeedbackReviewController` | 待审列表 | `governance:field:view` 功能级（范围下推**未完成**） |
+| | 通过/驳回 | `governance:field:manage` + `FEEDBACK_REVIEW` |
+
+### 新增资源类型
+
+`AUDIT_LOG`、`COLUMN_META`、`FIELD_TAG_RELATION`、`FEEDBACK_REVIEW`。归属缺失、实体不存在、
+归属断链一律 404/409，不做「解析不到即放行」。
+
+### 未完成（不得验收）
+
+- 字段治理列表范围下推；`LineageEdgeController` 批量/删除、`FieldTagController` 批量、
+  `FieldAdminController` CSV 导入的「全部预解析 + 整批零写入」校验；血缘双侧可见性裁剪。
+- 批次 6 前端能力接入。
+- 上述未完成项对应的测试。
+- 覆盖例外 **120 → 77**、已迁移 Controller **9 → 23**；Java `mvn -o clean test` **524 passed**（批次 6 进行中）。

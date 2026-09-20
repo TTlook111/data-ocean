@@ -33,5 +33,34 @@ public enum IamS1ResourceType {
      * <p>文档的 datasourceId 必须存在；当前版本与版本上的来源快照若存在，
      * 其归属必须与文档一致，不一致视为事实断链并拒绝。</p>
      */
-    KNOWLEDGE_DOCUMENT
+    KNOWLEDGE_DOCUMENT,
+
+    /**
+     * 查询审计记录：输入 auditId，解析到 `query_audit_log.datasource_id`。
+     *
+     * <p>审计记录不带业务原值，但详情会返回问题与 SQL；归属缺失同样 fail-closed。</p>
+     */
+    AUDIT_LOG,
+
+    /**
+     * 字段元数据（列）：输入 columnMetaId，解析到 `db_column_meta.datasource_id`。
+     *
+     * <p>字段治理的绝大多数读写都以列为目标，这是它们的统一归属入口。</p>
+     */
+    COLUMN_META,
+
+    /**
+     * 字段标签关系：输入标签关系 ID，解析到它所属列的 `datasource_id`。
+     *
+     * <p>删除标签时必须按**关系自身**的真实归属判定，不能相信请求里传来的数据源。</p>
+     */
+    FIELD_TAG_RELATION,
+
+    /**
+     * 用户反馈审核：输入 feedbackId，解析到反馈指向的真实数据源。
+     *
+     * <p>反馈可能挂在字段上（`column_meta_id`），也可能只挂在查询任务上
+     * （`query_task_id`）；两者都解析不出归属时 fail-closed。</p>
+     */
+    FEEDBACK_REVIEW
 }

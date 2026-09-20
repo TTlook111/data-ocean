@@ -48,6 +48,21 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test")
 class IamS1EndpointCoverageTest {
 
+    /**
+     * 纳入 S1 覆盖扫描的路径前缀。
+     *
+     * <p>**必须是显式白名单**：直接扫描所有 `/api/**` 再用宽泛例外把登录、验证码、用户端问数等接口
+     * 盖过去，等于让「新增未注解端点」这类问题被例外清单静默吸收。这里只登记 B0 已冻结、
+     * 且本轮仍然保留的后台接口路径。</p>
+     */
+    private static final List<String> S1_PROTECTED_PATH_PREFIXES = List.of(
+            "/api/admin/",
+            "/api/iam-s1/",
+            "/api/lineage/",
+            "/api/field-tags/",
+            "/api/field-confidence/",
+            "/api/feedback-reviews/");
+
     /** 已完成 S1 注解迁移的 Controller：类内每个 Handler 都必须有 S1 注解。 */
     private static final Set<String> MIGRATED_CONTROLLERS = Set.of(
             "DashboardController",
@@ -58,7 +73,22 @@ class IamS1EndpointCoverageTest {
             "MetadataGovernanceController",
             "GlossaryController",
             "KnowledgeDocController",
-            "PromptTemplateController");
+            "PromptTemplateController",
+            // 批次 6：组织基础数据 + 运营与平台 + 遗漏治理入口
+            "UserController",
+            "DepartmentController",
+            "AuditLogController",
+            "LineageController",
+            "LineageEdgeController",
+            "AlertController",
+            "SystemHealthController",
+            "OperationLogController",
+            "AiConfigController",
+            "SyncScheduleController",
+            "FieldAdminController",
+            "FieldTagController",
+            "FieldConfidenceController",
+            "FeedbackReviewController");
 
     /**
      * 逐端点临时例外清单（键为 `HTTP 方法 + 完整路径`，值为 `Controller#Handler方法|原因`）。
@@ -347,7 +377,8 @@ class IamS1EndpointCoverageTest {
             String pattern = String.valueOf(entry.getKey().getPathPatternsCondition() != null
                     ? entry.getKey().getPathPatternsCondition().getPatterns()
                     : entry.getKey().getPatternValues());
-            if (pattern.contains("/api/admin/") || pattern.contains("/api/iam-s1/")) {
+            boolean protectedPath = S1_PROTECTED_PATH_PREFIXES.stream().anyMatch(pattern::contains);
+            if (protectedPath) {
                 entries.add(entry);
             }
         }

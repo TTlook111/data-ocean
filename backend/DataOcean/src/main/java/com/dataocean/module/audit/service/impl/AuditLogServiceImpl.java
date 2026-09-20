@@ -83,7 +83,29 @@ public class AuditLogServiceImpl implements AuditLogService {
 
     @Override
     public Page<AuditLogVO> listAuditLogs(AuditLogQueryDTO query) {
+        return queryAuditLogs(query, null);
+    }
+
+    @Override
+    public Page<AuditLogVO> listAuditLogsInDatasources(AuditLogQueryDTO query,
+                                                       java.util.Collection<Long> visibleDatasourceIds) {
+        // 显式筛选一个自己无权的数据源时直接拒绝，而不是返回空页：
+        // 空页会把「无权」伪装成「该数据源没有审计记录」。
+        if (query.getDatasourceId() != null
+                && (visibleDatasourceIds == null || !visibleDatasourceIds.contains(query.getDatasourceId()))) {
+            throw new BusinessException(403, "没有负责该数据源，无法查看其审计记录");
+        }
+        if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
+            return new Page<>(query.getPageNo(), query.getPageSize(), 0);
+        }
+        return queryAuditLogs(query, visibleDatasourceIds);
+    }
+
+    /** `scopedDatasourceIds == null` 表示不按数据源限制（仅供既有内部调用）。 */
+    private Page<AuditLogVO> queryAuditLogs(AuditLogQueryDTO query,
+                                            java.util.Collection<Long> scopedDatasourceIds) {
         LambdaQueryWrapper<QueryAuditLog> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(scopedDatasourceIds != null, QueryAuditLog::getDatasourceId, scopedDatasourceIds);
         if (query.getUserId() != null) {
             wrapper.eq(QueryAuditLog::getUserId, query.getUserId());
         }
@@ -126,7 +148,22 @@ public class AuditLogServiceImpl implements AuditLogService {
 
     @Override
     public Page<AuditLogVO> listSlowQueries(int page, int pageSize) {
+        return querySlowQueries(page, pageSize, null);
+    }
+
+    @Override
+    public Page<AuditLogVO> listSlowQueriesInDatasources(int page, int pageSize,
+                                                         java.util.Collection<Long> visibleDatasourceIds) {
+        if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
+            return new Page<>(page, pageSize, 0);
+        }
+        return querySlowQueries(page, pageSize, visibleDatasourceIds);
+    }
+
+    private Page<AuditLogVO> querySlowQueries(int page, int pageSize,
+                                              java.util.Collection<Long> scopedDatasourceIds) {
         LambdaQueryWrapper<QueryAuditLog> wrapper = new LambdaQueryWrapper<QueryAuditLog>()
+                .in(scopedDatasourceIds != null, QueryAuditLog::getDatasourceId, scopedDatasourceIds)
                 .eq(QueryAuditLog::getIsSlow, true)
                 .orderByDesc(QueryAuditLog::getExecutionTimeMs);
         Page<QueryAuditLog> result = auditLogMapper.selectPage(new Page<>(page, pageSize), wrapper);
@@ -137,8 +174,35 @@ public class AuditLogServiceImpl implements AuditLogService {
 
     @Override
     public AuditStatsVO getStats(Long datasourceId, int days) {
+        return queryStats(datasourceId, days, null);
+    }
+
+    @Override
+    public AuditStatsVO getStatsInDatasources(Long datasourceId, int days,
+                                              java.util.Collection<Long> visibleDatasourceIds) {
+        if (datasourceId != null
+                && (visibleDatasourceIds == null || !visibleDatasourceIds.contains(datasourceId))) {
+            throw new BusinessException(403, "没有负责该数据源，无法查看其审计统计");
+        }
+        if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
+            // 空负责源返回全零统计，不能退化成全局统计
+            AuditStatsVO empty = new AuditStatsVO();
+            empty.setTotalQueries(0L);
+            empty.setSuccessCount(0L);
+            empty.setSlowQueryCount(0L);
+            empty.setSuccessRate(0.0);
+            empty.setSlowQueryRate(0.0);
+            empty.setAvgExecutionTimeMs(0.0);
+            return empty;
+        }
+        return queryStats(datasourceId, days, visibleDatasourceIds);
+    }
+
+    private AuditStatsVO queryStats(Long datasourceId, int days,
+                                    java.util.Collection<Long> scopedDatasourceIds) {
         LocalDateTime startTime = LocalDateTime.now().minusDays(days);
         LambdaQueryWrapper<QueryAuditLog> baseWrapper = new LambdaQueryWrapper<QueryAuditLog>()
+                .in(scopedDatasourceIds != null, QueryAuditLog::getDatasourceId, scopedDatasourceIds)
                 .ge(QueryAuditLog::getCreatedAt, startTime);
         if (datasourceId != null) {
             baseWrapper.eq(QueryAuditLog::getDatasourceId, datasourceId);
@@ -147,6 +211,7 @@ public class AuditLogServiceImpl implements AuditLogService {
         Long totalQueries = auditLogMapper.selectCount(baseWrapper);
 
         LambdaQueryWrapper<QueryAuditLog> successWrapper = new LambdaQueryWrapper<QueryAuditLog>()
+                .in(scopedDatasourceIds != null, QueryAuditLog::getDatasourceId, scopedDatasourceIds)
                 .ge(QueryAuditLog::getCreatedAt, startTime)
                 .eq(QueryAuditLog::getIsSuccess, true);
         if (datasourceId != null) {
@@ -155,6 +220,7 @@ public class AuditLogServiceImpl implements AuditLogService {
         Long successCount = auditLogMapper.selectCount(successWrapper);
 
         LambdaQueryWrapper<QueryAuditLog> slowWrapper = new LambdaQueryWrapper<QueryAuditLog>()
+                .in(scopedDatasourceIds != null, QueryAuditLog::getDatasourceId, scopedDatasourceIds)
                 .ge(QueryAuditLog::getCreatedAt, startTime)
                 .eq(QueryAuditLog::getIsSlow, true);
         if (datasourceId != null) {
@@ -165,6 +231,7 @@ public class AuditLogServiceImpl implements AuditLogService {
         // 平均耗时：取有执行时间的记录计算
         LambdaQueryWrapper<QueryAuditLog> avgWrapper = new LambdaQueryWrapper<QueryAuditLog>()
                 .select(QueryAuditLog::getExecutionTimeMs)
+                .in(scopedDatasourceIds != null, QueryAuditLog::getDatasourceId, scopedDatasourceIds)
                 .ge(QueryAuditLog::getCreatedAt, startTime)
                 .isNotNull(QueryAuditLog::getExecutionTimeMs);
         if (datasourceId != null) {

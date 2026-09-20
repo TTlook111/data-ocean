@@ -49,6 +49,17 @@ public interface AuditLogService {
     AuditLogVO getAuditLogDetail(Long id);
 
     /**
+     * 按**负责源范围**分页查询审计日志。
+     *
+     * <p>`visibleDatasourceIds` 必须是调用者在 `audit:view` 上负责的数据源：空集合直接返回空页，
+     * 不退化成全局查询；范围下推到 SQL（先分页再在内存过滤会让总数与分页边界出错）。</p>
+     *
+     * <p>调用方显式筛选的 `datasourceId` 不在负责范围内时抛出 403——返回空页会把「无权」
+     * 伪装成「这个数据源没有审计记录」。</p>
+     */
+    Page<AuditLogVO> listAuditLogsInDatasources(AuditLogQueryDTO query, java.util.Collection<Long> visibleDatasourceIds);
+
+    /**
      * 查询慢查询列表
      *
      * @param page     页码
@@ -56,6 +67,9 @@ public interface AuditLogService {
      * @return 慢查询分页结果
      */
     Page<AuditLogVO> listSlowQueries(int page, int pageSize);
+
+    /** 按负责源范围查询慢查询；空范围返回空页。 */
+    Page<AuditLogVO> listSlowQueriesInDatasources(int page, int pageSize, java.util.Collection<Long> visibleDatasourceIds);
 
     /**
      * 查询审计统计数据
@@ -65,5 +79,8 @@ public interface AuditLogService {
      * @return 统计结果
      */
     AuditStatsVO getStats(Long datasourceId, int days);
+
+    /** 按负责源范围统计；空范围返回全零统计而不是全局统计。 */
+    AuditStatsVO getStatsInDatasources(Long datasourceId, int days, java.util.Collection<Long> visibleDatasourceIds);
 
 }

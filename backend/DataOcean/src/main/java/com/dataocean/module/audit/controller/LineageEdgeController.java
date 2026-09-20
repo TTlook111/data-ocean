@@ -2,6 +2,9 @@ package com.dataocean.module.audit.controller;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.audit.entity.dto.LineageCreateRequest;
 import com.dataocean.module.audit.entity.vo.LineageEdgeVO;
 import com.dataocean.module.audit.entity.vo.LineageGraphVO;
@@ -11,7 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.access.prepost.PreAuthorize;
+
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -34,8 +37,10 @@ import java.util.*;
 @RestController
 @RequestMapping("/api/admin/catalog/lineage")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyAuthority('metadata:manage', '*')")
 public class LineageEdgeController {
+
+    /** 维护数据血缘关系：新增、批量导入与删除。 */
+    private static final String MANAGE_FUNCTION = "lineage:manage";
 
     private final LineageEdgeService lineageEdgeService;
     private final ObjectMapper objectMapper;
@@ -53,6 +58,7 @@ public class LineageEdgeController {
      * @return 创建结果
      */
     @PostMapping
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY, resourceIds = {"#request.sourceId", "#request.targetId"})
     public Result<LineageEdgeVO> createLineage(@Valid @RequestBody LineageCreateRequest request) {
         LineageEdgeVO vo = lineageEdgeService.createLineage(request);
         return Result.success("血缘关系创建成功", vo);
@@ -73,6 +79,7 @@ public class LineageEdgeController {
      * @return 操作结果
      */
     @DeleteMapping("/{relationshipId}")
+    @IamS1ScopedList(MANAGE_FUNCTION)
     public Result<Map<String, Object>> deleteLineage(
             @PathVariable Long relationshipId,
             @RequestParam(defaultValue = "false") boolean cascadeDerived) {
@@ -105,6 +112,7 @@ public class LineageEdgeController {
      * @return 批量创建结果
      */
     @PostMapping("/batch")
+    @IamS1ScopedList(MANAGE_FUNCTION)
     public Result<List<LineageEdgeVO>> batchCreateLineage(@RequestParam MultipartFile file) {
         if (file.isEmpty()) {
             return Result.error(400, "上传文件不能为空");
