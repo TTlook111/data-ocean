@@ -18,5 +18,12 @@ public enum IamS1ResourceType {
     METADATA_ENTITY,
 
     /** 元数据字段（列实体）：输入 columnId，解析 snapshot → datasourceId。 */
-    METADATA_COLUMN
+    METADATA_COLUMN,
+
+    /**
+     * 数据治理质量问题：输入 issueId，解析到 `metadata_quality_issue` 归属的数据源。
+     *
+     * <p>问题的 datasourceId 与它所属快照的 datasourceId 必须一致；不一致视为事实断链，拒绝。</p>
+     */
+    GOVERNANCE_ISSUE
 }

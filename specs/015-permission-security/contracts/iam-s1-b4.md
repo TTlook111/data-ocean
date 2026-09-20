@@ -166,3 +166,44 @@ Java `IamS1QueryServiceImpl.requireExplicitUsages` 强制要求每个字段声�
 覆盖扫描 `IamS1EndpointCoverageTest` 用 `RequestMappingHandlerMapping` 枚举真实 HandlerMethod。例外清单：已迁移范围精确到 Handler 方法，未迁移部分按 Controller + 计划批次登记，不使用路径前缀匹配。
 
 **未完成**：完整 `confirm()` 并发事务集成测试；权限与组织域 22 个 `IamS1*` 端点仍是显式 Guard。
+
+## B4 批次 4：数据治理域接入（2026-09-20，未提交；含复审后修复）
+
+`MetadataGovernanceController` 12 个端点迁入方法级注解，例外清单 174 → 162。
+
+| 端点 | 功能码 | 资源语义 |
+|---|---|---|
+| POST `/api/admin/snapshots/{snapshotId}/quality-check` | `governance:check` | SNAPSHOT |
+| GET `/api/admin/quality-rules` | `governance:rule:view` | ScopedList |
+| PATCH `/api/admin/quality-rules/{ruleId}` | `governance:rule:manage` | ScopedList + Service 强制受保护系统管理员 |
+| GET `/api/admin/snapshots/{snapshotId}/quality-issues` | `governance:issue:view` | SNAPSHOT |
+| GET `/api/admin/quality-issues` | `governance:issue:view` | ScopedList + SQL 范围下推 |
+| PATCH `/api/admin/quality-issues/{issueId}/status` | `governance:issue:manage` | GOVERNANCE_ISSUE |
+| PATCH `/api/admin/quality-issues/batch-status` | `governance:issue:manage` | ScopedList + Service 权限/归属预校验整批原子 |
+| POST `/api/admin/quality-issues/{issueId}/assign` | `governance:issue:manage` | GOVERNANCE_ISSUE |
+| PATCH `/api/admin/snapshots/{sid}/tables/{tableName}/governance-status` | `governance:rule:manage` | SNAPSHOT |
+| PATCH `/api/admin/snapshots/{sid}/columns/{columnId}/governance-status` | `governance:rule:manage` | SNAPSHOT |
+| PATCH `/api/admin/snapshots/{sid}/tables/{tableName}/batch-governance-status` | `governance:rule:manage` | SNAPSHOT |
+| GET `/api/admin/snapshots/{snapshotId}/review-records` | `metadata:release:view` | SNAPSHOT |
+
+**全局规则与表列状态的权限差异**：`governance:rule:manage` 不被改成系统管理员专属。全局规则启停（无 datasourceId）在 Service 内要求受保护系统管理员；表/列治理状态仍由“功能 + 目标负责源”放行。
+
+**新增资源类型**：`GOVERNANCE_ISSUE`，归属以快照的真实 datasourceId 为准并校验与问题行一致。**问题行的 `datasource_id` 为空同样 409**（该列自 V11 起 `NOT NULL`，为空是事实缺失，不能回退成「信任快照」）。
+
+**列表范围**：`listIssuesInDatasources(Collection<Long>, …)` 下推 `WHERE datasource_id IN (...)`；空集合返回空页。
+
+**指定快照**：`?snapshotId=` 先解析真实归属——不存在 404、归属断链 409、不在传入的可见数据源集合内 403，通过后才分页查询。只塞进 `WHERE` 会让无权快照返回空页，把「无权」伪装成「没有数据」。
+
+**批量原子边界（表述已修正）**：去重 → 一次读取全部事实 → 数量一致校验 → 逐项按真实 datasourceId 判定 → 任一失败整批拒绝且零修改，这是**权限与归属预校验整批原子**；**状态流转允许部分成功**并如实返回 `skipped`，不是「整批业务原子」。
+
+**分派**：写入前校验责任人存在（404）且启用（400）；分派只写工作归属，不产生任何数据授权。
+
+**表列归属**：经核查现有 Service 已校验（表按 snapshot+table 查、列校验 snapshotId、批量按 snapshot+table 查列），未重复添加，只补测试钉住。
+
+**🔴 复审发现的 P0（已修）**：`IamS1AuthorizationAspect` 缺 `@Aspect`，Spring AOP 不代理已迁移端点，而旧 `@PreAuthorize` 已被删除、`/api/admin/**` 只要求 `authenticated()`——53 个已迁移端点当时对任何已登录用户开放。修复后新增三类只在「代理生效」时才成立的断言：真实容器中的 AOP 代理断言、`AspectJProxyFactory` 代理真实 Controller 的「拒绝时 Service 零调用」断言、资源表达式根变量与真实参数名的静态核对。
+
+**前端（已补齐）**：`QualityDashboard.vue`（质量校验）、`IssueList.vue`（问题处理/批量/分派按 `governance:issue:manage` + 问题所属数据源；同表治理记录与返回发布流程按 `metadata:release:view`）、`StatusEditor.vue`（规则查看 `governance:rule:view`、全局规则启停仅系统管理员、表列状态 `governance:rule:manage`、读取 `metadata:view`）、`GovernanceFieldsView.vue`（脱敏候选 `security:mask:view` / `security:mask:manage`）、`ReleasesView.vue`（日志 `metadata:release:view`、开始检查 `governance:check`）。
+
+**验证**：`mvn clean test` 438 passed / 0 failures / 0 errors / 0 skipped；前端 `vue-tsc -b && vite build` 通过，Vitest 8 文件 44 个通过。
+
+**未完成**：权限与组织域 22 个 `IamS1*` 端点的注解迁移；`glossary:*` 混合语义定稿。

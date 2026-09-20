@@ -12,6 +12,7 @@ import com.dataocean.module.permission.s1.resource.IamS1ResourceResolverRegistry
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.JoinPoint;
+import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Before;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,8 +40,15 @@ import java.lang.reflect.Method;
  *
  * <p>执行顺序：Spring Security 先确认登录身份（filter 层），本切面在业务事务之前
  * （{@code @Order} 高于事务切面的 {@code LOWEST_PRECEDENCE}），操作日志切面最后记录结果。</p>
+ *
+ * <p><b>{@code @Aspect} 不能省。</b>只有 {@code @Component} 时 Spring AOP 不会把这个类当成切面，
+ * 这些 {@code @Before} 通知一条都不会执行；而接入本框架时对应的旧 {@code @PreAuthorize} 已被删除，
+ * {@code /api/admin/**} 在 SecurityConfig 里又只要求 {@code authenticated()}，
+ * 结果就是**已迁移端点对任何已登录用户开放**。{@link MetadataGovernanceControllerAuthorizationTest}
+ * 用 AspectJ 代理真实 Controller 验证“权限拒绝时 Service 零调用”，防止该注解再次被漏掉。</p>
  */
 @Slf4j
+@Aspect
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
 public class IamS1AuthorizationAspect {

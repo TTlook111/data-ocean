@@ -29,5 +29,12 @@ public interface QualityRuleService {
      * @param ruleId   规则 ID
      * @param enabled  是否启用
      */
-    void updateEnabled(Long ruleId, boolean enabled);
+    /**
+     * 启用或停用全局质量规则。
+     *
+     * <p>全局规则没有 datasourceId，启停影响所有数据源，因此只允许受保护系统管理员执行——
+     * 非系统管理员即使在某个负责源上有 {@code governance:rule:manage} 也不能改全局规则。
+     * 表/列治理状态不受此限制。</p>
+     */
+    void updateEnabled(Long ruleId, boolean enabled, Long operatorUserId);
 }

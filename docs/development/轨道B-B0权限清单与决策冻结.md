@@ -558,3 +558,22 @@ B1 必须同时满足以下条件，否则停止在 B0：
 ## 11. 停止点
 
 B0 到此结束并已评审通过。本文未进入 B1，本轮不实施数据库、新权限代码、前端改造、切换、初始化或 B6 清理；后续开发从 B1 独立新表/Mapper/Resolver 任务开始，并按 §9.2 逐项关闭实施阻塞。
+
+---
+
+## 附录：批次 4 冻结的消费结论（2026-09-20）
+
+**`governance:rule:manage` 的两种范围共存，不是系统管理员专属功能码。**
+
+功能码 18 `governance:rule:manage` 同时服务两类写入：
+
+- **全局质量规则启停**（`metadata_quality_rule`，无 datasourceId）：启停影响所有数据源，因此**只允许受保护 S1 系统管理员**执行。非系统管理员即使在某个负责源上持有该功能码，也不能修改全局规则。
+- **表/列治理状态写入**（有 `snapshotId` 归属）：由“功能 + 目标负责源在同一启用绑定上同时成立”放行，**负责源管理员可正常维护**。
+
+**因此不得把整个 `governance:rule:manage` 改成系统管理员专属**，否则会错误阻止负责源管理员维护表列治理状态。差异在 `QualityRuleServiceImpl.updateEnabled` 内强制，不在注解层表达。
+
+**质量问题列表的范围语义**：`GET /api/admin/quality-issues` 未指定快照时必须按 `governance:issue:view` 的负责源在 SQL 层下推；空负责源返回空页，不退化成全局查询。`QualityIssueService.listIssuesInDatasources` 用集合表达范围——**空集合表示空页，不用 null 表示“有时全局、有时空范围”**。
+
+**质量问题资源归属**：新增 `IamS1ResourceType.GOVERNANCE_ISSUE`。归属以**快照的真实 datasourceId** 为准，并校验问题行上的 `datasource_id` 与之一致；不一致返回 409 而非择一使用。
+
+**审核记录归属**：`GET /api/admin/snapshots/{snapshotId}/review-records` 使用 `metadata:release:view`，**不因持有治理查看权而自动获得**快照版本审核记录。

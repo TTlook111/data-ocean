@@ -443,3 +443,30 @@ B4 批次 3～6 必须在框架和覆盖测试就绪后继续。每个批次同�
 
 B5 才执行真实 migration、bootstrap、初始化新角色/负责源/数据授权、服务启动、接口与浏览器验收和正式切换。B5 失败时只能在切换前回退并继续运行旧体系，不能让一次授权判断同时读取新旧权限。
 
+
+## 11.6 批次 4（数据治理域）实施补充
+
+- 新增资源类型 `GOVERNANCE_ISSUE` 与 `GovernanceIssueResourceResolver`：归属以**快照真实 datasourceId**为准并校验与问题行一致。**问题行的 `datasource_id` 为空同样 409**——该列自 V11 起就是 `NOT NULL`，为空是事实缺失而不是「以快照为准」的合法历史形态。
+- **同一个功能码可以有两种范围**：`governance:rule:manage` 既覆盖全局规则启停（无 datasourceId，Service 强制系统管理员），也覆盖表/列治理状态（功能 + 负责源）。注解只表达动作准入，这种差异必须留在 Service，不能把功能码整体改成系统管理员专属。
+- 列表范围用**集合参数**表达（`listIssuesInDatasources`），空集合即空页；禁止用 `null` 兼表“全局”。
+- **指定快照必须直接判归属**：`?snapshotId=` 不能只塞进 `WHERE`——那会让无权快照返回空页，把「无权」伪装成「没有数据」，并把无权资源变成可探测目标。顺序是快照不存在 404 → 归属断链 409 → 不在传入的可见数据源集合内 403 → 通过后才分页查询。
+- 批量处理的原子边界要写准确：**权限与归属预校验整批原子**（任一无权/不存在/断链即整批拒绝且零修改）；**状态流转本身允许部分成功**并如实返回 `skipped`。不要笼统描述成「整批业务原子」；若要真正的全有或全无，必须先验证所有状态流转再统一修改，不能捕获异常继续。
+- 分派责任人只写工作归属，**不产生任何数据授权**；写入前必须校验账号存在且启用。
+
+### 11.6.1 切面必须声明 `@Aspect`（2026-09-20 复审发现的 P0）
+
+`IamS1AuthorizationAspect` 一度只有 `@Component` 没有 `@Aspect`。Spring AOP 不会把这样的类当成切面，
+`@Before` 通知一条都不执行；而接入本框架时对应的旧 `@PreAuthorize` 已被删除，`/api/admin/**` 在
+`SecurityConfig` 里又只要求 `authenticated()`——**已迁移端点当时对任何已登录用户开放**，
+而全部既有测试仍然是绿色。
+
+因此：
+
+- 切面类必须同时声明 `@Aspect` 与 `@Component`，二者缺一不可；
+- 只断言「注解存在」的测试不足以覆盖这条链路，必须有**代理层**的断言：
+  `IamS1EndpointCoverageTest#migratedControllersAreActuallyProxiedSoTheAnnotationsRun` 在真实容器里
+  断言每个已迁移 Controller 都拿到了 AOP 代理，并核对确实扫到了全部已迁移 Controller；
+- `MetadataGovernanceControllerAuthorizationTest` 用 `AspectJProxyFactory` 代理真实 Controller，
+  断言「权限拒绝时 Service 零调用」；
+- 切面生效后，`@IamS1Resource` 的 SpEL 表达式会真正求值：参数名写错会变成运行时恒 403。
+  `IamS1EndpointCoverageTest#resourceExpressionsReferenceRealParameters` 按真实参数名静态核对根变量。

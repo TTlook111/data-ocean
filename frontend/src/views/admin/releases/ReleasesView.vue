@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, GitCompareArrows, RefreshCw, Send, RotateCcw } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useIamS1Store } from '../../../stores/iamS1'
 import { snapshotStatusLabel } from '../../../utils/enumLabels'
 import { listSnapshots, getSnapshotDetail, type SnapshotDetail, type SnapshotItem } from '../../../api/admin/metadata'
 import {
@@ -29,6 +30,7 @@ import EmptyState from '../../../components/common/EmptyState.vue'
 const route = useRoute()
 const router = useRouter()
 const context = useAdminContextStore()
+const iamS1 = useIamS1Store()
 const activeTab = ref(String(route.query.tab || 'candidates'))
 const history = ref<VersionHistoryItem[]>([])
 const snapshots = ref<SnapshotItem[]>([])
@@ -48,6 +50,29 @@ const requestId = ref(0)
 
 const datasourceId = computed(() => context.datasourceId)
 const selectedId = computed(() => Number(route.query.snapshotId) || undefined)
+
+const RELEASE_VIEW_FUNCTION = 'metadata:release:view'
+const CHECK_FUNCTION = 'governance:check'
+
+/** 行内数据源：优先用版本历史自带的归属，缺失时回落到当前上下文。 */
+function rowDatasourceId(row: VersionHistoryItem): number | undefined {
+  return row.datasourceId ?? datasourceId.value
+}
+
+/**
+ * 快照审计记录（本页「日志」）走发布域功能码 `metadata:release:view`。
+ * 拥有数据资产查看权不会自动带上它，所以这里按行的真实数据源判定。
+ */
+function canViewAuditRecords(row: VersionHistoryItem): boolean {
+  const id = rowDatasourceId(row)
+  return id ? iamS1.canOnDatasource(RELEASE_VIEW_FUNCTION, id) : iamS1.systemAdmin
+}
+
+/** 「开始检查」调用的是治理域的质量校验（`governance:check`），不是发布域功能。 */
+function canRunQualityCheck(row: VersionHistoryItem): boolean {
+  const id = rowDatasourceId(row)
+  return id ? iamS1.canOnDatasource(CHECK_FUNCTION, id) : iamS1.systemAdmin
+}
 const timelineItems = computed(() => history.value.map((item) => ({
   time: item.createdAt,
   action: '快照 v' + item.snapshotVersion + ' · ' + item.status,
@@ -131,6 +156,10 @@ function issueCenterTarget(row: VersionHistoryItem) {
 async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
   const labels: Record<string, string> = { CHECKING: '开始质量检查', APPROVED: '批准快照' }
   if (actionLoading.value) return
+  if (targetStatus === 'CHECKING' && !canRunQualityCheck(item)) {
+    ElMessage.warning('没有“执行质量检查”能力：需要 IAM-SIMPLE-1 角色包含 governance:check 并负责该快照所属数据源。')
+    return
+  }
   // ISSUE_FOUND → APPROVED 不可逆：状态机没有回到 ISSUE_FOUND 的边，且未解决的高危
   // 治理问题仍会阻止后续发布。必须显式说明影响（开发指导 §16.5）。
   const irreversibleApproval = item.status === 'ISSUE_FOUND' && targetStatus === 'APPROVED'
@@ -188,6 +217,11 @@ async function revoke(item: VersionHistoryItem) {
 }
 
 async function showAudit(item: VersionHistoryItem) {
+  if (!canViewAuditRecords(item)) {
+    // 后端会拒绝，但先说明原因，避免用户点了才发现这是必然失败的请求。
+    ElMessage.warning('没有“查看元数据版本”能力：快照审计记录属于发布域（metadata:release:view），需要该功能与该数据源同一绑定。')
+    return
+  }
   auditVisible.value = true
   try {
     auditLogs.value = (await listSnapshotAuditLogs(item.snapshotId, { page: 1, size: 50 })).data.records || []
@@ -229,7 +263,7 @@ async function loadDiff() {
 
 onMounted(async () => {
   try {
-    await context.initialize()
+    await Promise.all([context.initialize(), iamS1.load()])
     await load()
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : '数据源范围加载失败'
@@ -291,7 +325,14 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
             <el-table-column label="操作" min-width="300" fixed="right">
               <template #default="{ row }">
                 <el-button link @click="selectSnapshot(row.snapshotId)">详情</el-button>
-                <el-button v-if="row.status === 'DRAFT'" link type="primary" @click="changeStatus(row, 'CHECKING')">开始检查</el-button>
+                <el-button
+                  v-if="row.status === 'DRAFT'"
+                  link
+                  type="primary"
+                  :disabled="!canRunQualityCheck(row)"
+                  :title="canRunQualityCheck(row) ? '' : '需要 IAM-SIMPLE-1 角色包含 governance:check 并负责该数据源'"
+                  @click="changeStatus(row, 'CHECKING')"
+                >开始检查</el-button>
                 <RouterLink
                   v-if="row.status === 'ISSUE_FOUND'"
                   class="releases-page__primary-link"
@@ -300,7 +341,12 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
                 <el-button v-if="row.status === 'ISSUE_FOUND'" link @click="changeStatus(row, 'APPROVED')">批准</el-button>
                 <el-button v-if="row.status === 'APPROVED'" link type="primary" @click="publish(row)"><Send :size="14" />发布</el-button>
                 <el-button v-if="row.status === 'PUBLISHED'" link type="danger" @click="revoke(row)"><RotateCcw :size="14" />撤回</el-button>
-                <el-button link @click="showAudit(row)"><Clock :size="14" />日志</el-button>
+                <el-button
+                  link
+                  :disabled="!canViewAuditRecords(row)"
+                  :title="canViewAuditRecords(row) ? '' : '需要 IAM-SIMPLE-1 角色包含 metadata:release:view 并负责该数据源'"
+                  @click="showAudit(row)"
+                ><Clock :size="14" />日志</el-button>
               </template>
             </el-table-column>
           </el-table>

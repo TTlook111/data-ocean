@@ -17,6 +17,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -52,7 +54,8 @@ class IamS1EndpointCoverageTest {
             "DatasourceAdminController",
             "MetadataCatalogController",
             "MetadataCollectionController",
-            "SnapshotVersionController");
+            "SnapshotVersionController",
+            "MetadataGovernanceController");
 
     /**
      * 逐端点临时例外清单（键为 `HTTP 方法 + 完整路径`，值为 `Controller#Handler方法|原因`）。
@@ -62,9 +65,16 @@ class IamS1EndpointCoverageTest {
      */
     private static final Map<String, String> EXEMPTIONS = IamS1EndpointExemptions.EXEMPTIONS;
 
+    /** 与切面使用同一个参数名发现器：切面解析不到的名字，这里也必须判定为不可用。 */
+    private static final org.springframework.core.ParameterNameDiscoverer PARAMETER_NAME_DISCOVERER =
+            new org.springframework.core.DefaultParameterNameDiscoverer();
+
     @Autowired
     @Qualifier("requestMappingHandlerMapping")
     private RequestMappingHandlerMapping handlerMapping;
+
+    @Autowired
+    private org.springframework.context.ApplicationContext applicationContext;
 
     @Test
     void everyMigratedEndpointDeclaresExactlyOneS1Annotation() {
@@ -161,6 +171,82 @@ class IamS1EndpointCoverageTest {
             }
         }
         assertThat(violations).isEmpty();
+    }
+
+    @Test
+    void migratedControllersAreActuallyProxiedSoTheAnnotationsRun() {
+        // 只断言“注解存在”是不够的：2026-09-20 复审发现 IamS1AuthorizationAspect 缺 @Aspect，
+        // Spring AOP 因此完全不代理这些端点，而迁移时旧 @PreAuthorize 已被删除、
+        // /api/admin/** 在 SecurityConfig 里只要求 authenticated()——12 个端点对任何已登录用户开放，
+        // 所有既有测试却都是绿色。这里在真实容器里断言这些 Controller 确实拿到了代理。
+        Set<String> checked = new TreeSet<>();
+        for (Object bean : applicationContext.getBeansWithAnnotation(
+                org.springframework.web.bind.annotation.RestController.class).values()) {
+            Class<?> userClass = org.springframework.aop.support.AopUtils.getTargetClass(bean);
+            if (!MIGRATED_CONTROLLERS.contains(userClass.getSimpleName())) {
+                continue;
+            }
+            checked.add(userClass.getSimpleName());
+            assertThat(org.springframework.aop.support.AopUtils.isAopProxy(bean))
+                    .as("已迁移的 Controller 必须被 S1 切面代理，否则注解形同虚设：" + userClass.getSimpleName())
+                    .isTrue();
+        }
+        // 一个都没扫到时上面的断言会静默通过，等于没测
+        assertThat(checked)
+                .as("必须真实扫到全部已迁移 Controller")
+                .containsExactlyInAnyOrderElementsOf(MIGRATED_CONTROLLERS);
+    }
+
+    @Test
+    void resourceExpressionsReferenceRealParameters() {
+        // 切面用受限 SpEL 从方法参数里取资源 ID，取不到就 fail-closed 抛 403。
+        // 表达式写错（参数改名、写错大小写、用了 DTO 上不存在的属性）不会在编译期或启动期暴露，
+        // 而是变成运行时“这个接口永远 403”。这里按真实参数名静态核对每个表达式的根变量。
+        List<String> violations = new ArrayList<>();
+        for (HandlerMethod handler : adminHandlers()) {
+            IamS1Resource resource = handler.getMethodAnnotation(IamS1Resource.class);
+            if (resource == null) {
+                continue;
+            }
+            Method method = handler.getMethod();
+            Set<String> allowed = new HashSet<>();
+            for (int index = 0; index < method.getParameterCount(); index++) {
+                allowed.add("p" + index);
+                allowed.add("a" + index);
+            }
+            String[] parameterNames = PARAMETER_NAME_DISCOVERER.getParameterNames(method);
+            if (parameterNames != null) {
+                allowed.addAll(Arrays.asList(parameterNames));
+            }
+            for (String expression : resource.resourceIds()) {
+                String root = rootVariable(expression);
+                if (root == null || !allowed.contains(root)) {
+                    violations.add(describe(handler) + " 的资源表达式引用了不存在的参数：" + expression);
+                }
+            }
+        }
+        assertThat(violations).isEmpty();
+    }
+
+    /** 取 `#foo.bar` 的根变量名 `foo`；不是 `#变量` 形式则返回 null。 */
+    private String rootVariable(String expression) {
+        if (expression == null) {
+            return null;
+        }
+        String trimmed = expression.trim();
+        if (!trimmed.startsWith("#") || trimmed.length() < 2) {
+            return null;
+        }
+        String body = trimmed.substring(1);
+        int end = body.length();
+        for (String delimiter : new String[]{".", "[", " "}) {
+            int index = body.indexOf(delimiter);
+            if (index >= 0 && index < end) {
+                end = index;
+            }
+        }
+        String root = body.substring(0, end);
+        return root.isBlank() ? null : root;
     }
 
     @Test
