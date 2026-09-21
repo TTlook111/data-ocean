@@ -1,18 +1,9 @@
 <script setup lang="ts">
 /**
- * 组织与角色工作区（开发指导 §7.15）
+ * 组织与角色（旧）工作区——切换前入口
  *
- * 固定 Tab：`用户 | 角色 | 部门 | 权限项`，Tab 由 `?tab=` 恢复。
- *
- * 权限项是原实现最缺的一块：只有只读标签，没有创建/编辑/删除——而开发指导 §7.15
- * 明确要求「权限项保留列表、创建、编辑和删除能力」，后端 `PermissionController`
- * 也早已提供对应端点（写操作需 `role:manage`）。本次补齐 API 封装与页面操作。
- *
- * **Tab 切换使用 `push`**：开发指导 §15 要求「URL 刷新、前进和后退恢复」，
- * 原实现用 `replace`，刷新能恢复但浏览器后退不能切回上一个 Tab。
- *
- * 后端能力缺口（如实标注）：`DepartmentController` 只有 `/tree` 与增删改，
- * **没有部门成员接口**，因此 §7.15「部门…展示成员摘要」在前后端两侧都不成立。
+ * 只保留旧角色和权限项。用户、部门已迁到正式入口 `/admin/access/iam-organization`。
+ * 打开 `?tab=users` / `?tab=departments` 会重定向到正式页。B5 必须移除本路由。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -30,22 +21,19 @@ import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
-import UserList from './UserList.vue'
 import RoleList from './RoleList.vue'
-import DepartmentTree from './DepartmentTree.vue'
 
 const TABS = [
-  { name: 'users', label: '用户', title: '用户' },
   { name: 'roles', label: '角色', title: '角色' },
-  { name: 'departments', label: '部门', title: '部门' },
   { name: 'permissions', label: '权限项', title: '权限项' },
 ] as const
+const OFFICIAL_TABS = new Set(['users', 'departments'])
 
 const route = useRoute()
 const router = useRouter()
 
-const activeTab = ref(TABS.some((t) => t.name === route.query.tab) ? String(route.query.tab) : 'users')
-const tabTitle = computed(() => TABS.find((t) => t.name === activeTab.value)?.title || '组织与角色')
+const activeTab = ref(TABS.some((t) => t.name === route.query.tab) ? String(route.query.tab) : 'roles')
+const tabTitle = computed(() => TABS.find((t) => t.name === activeTab.value)?.title || '组织与角色（旧）')
 
 const permissions = ref<PermissionItem[]>([])
 const permissionsLoading = ref(false)
@@ -77,6 +65,12 @@ function apiError(cause: unknown, fallback: string) {
   return message || (cause instanceof Error ? cause.message : fallback)
 }
 
+function redirectOfficialTab(tab: string) {
+  if (!OFFICIAL_TABS.has(tab)) return false
+  router.replace({ path: '/admin/access/iam-organization', query: { tab } })
+  return true
+}
+
 function selectTab(name: string | number) {
   activeTab.value = String(name)
   router.push({ query: { ...route.query, tab: activeTab.value } })
@@ -84,7 +78,9 @@ function selectTab(name: string | number) {
 }
 
 watch(() => route.query.tab, (value) => {
-  const next = TABS.some((tab) => tab.name === value) ? String(value) : 'users'
+  const raw = String(value || '')
+  if (redirectOfficialTab(raw)) return
+  const next = TABS.some((tab) => tab.name === value) ? String(value) : 'roles'
   if (next !== activeTab.value) activeTab.value = next
 })
 
@@ -175,6 +171,7 @@ async function removePermission(row: PermissionItem) {
 }
 
 onMounted(() => {
+  if (redirectOfficialTab(String(route.query.tab || ''))) return
   if (activeTab.value === 'permissions') loadPermissions()
 })
 </script>
@@ -182,8 +179,8 @@ onMounted(() => {
 <template>
   <div class="admin-page organization-page">
     <TaskPageHeader
-      title="组织与角色"
-      description="在一个工作区中维护用户、角色、部门和权限项；完成主体管理后再进入授权管理配置访问范围。"
+      title="组织与角色（旧）"
+      description="切换前入口：只维护旧角色和权限项。用户、部门、S1 角色与负责源请使用正式入口「组织、角色与负责源」。"
     >
       <template #status><span class="organization-page__tab-label">当前：{{ tabTitle }}</span></template>
       <template #actions>
@@ -196,12 +193,13 @@ onMounted(() => {
       </template>
     </TaskPageHeader>
 
+    <p class="organization-page__banner">
+      这是切换前旧入口，B5 会移除本页。用户、部门和新权限请前往
+      <router-link to="/admin/access/iam-organization">组织、角色与负责源</router-link>。
+    </p>
+
     <el-tabs :model-value="activeTab" class="organization-page__tabs" @update:model-value="selectTab">
-      <el-tab-pane label="用户" name="users" lazy><UserList /></el-tab-pane>
       <el-tab-pane label="角色" name="roles" lazy><RoleList /></el-tab-pane>
-      <el-tab-pane label="部门" name="departments" lazy>
-        <DepartmentTree />
-      </el-tab-pane>
       <el-tab-pane label="权限项" name="permissions" lazy>
         <section class="organization-page__panel">
           <div class="organization-page__toolbar">
@@ -268,6 +266,17 @@ onMounted(() => {
 .organization-page__tab-label {
   color: var(--do-muted);
   font-size: 13px;
+}
+
+.organization-page__banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-primary-soft);
+  color: var(--do-ink);
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .organization-page__tabs :deep(.el-tab-pane) {

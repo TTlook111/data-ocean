@@ -169,7 +169,10 @@ public interface IamS1ResourceResolver {
 | `KNOWLEDGE_DOCUMENT` | documentId | document → datasourceId |
 | `QUERY_TASK` | taskId | task → datasourceId + ownerUserId |
 | `AUDIT_LOG` | auditId | audit → datasourceId |
-| `LINEAGE_ENTITY` | entityId | lineage endpoint resource → datasourceId |
+| `LINEAGE_RELATIONSHIP` | relationshipId | relationship → source entity → datasourceId；目标端由 Service 另验 |
+| `COLUMN_META` | columnMetaId | db_column_meta → datasourceId |
+| `FIELD_TAG_RELATION` | tagId | field_tag → column → datasourceId |
+| `FEEDBACK_REVIEW` | feedbackId | feedback → column / query task → datasourceId |
 
 新增资源类型必须同步增加：解析器、成功测试、不存在测试、跨源伪造测试和接口消费矩阵记录。
 
@@ -678,3 +681,63 @@ Document Resolver 同时修正为：
 `GLOSSARY_OF`），会稀释「术语 → 字段」的语义，也让按列做的字段级判定失去前提。
 现强制 `MetadataEntity.TYPE_COLUMN.equals(entity.getEntityType())`，否则返回 **400**。
 解除关联不再重复该校验（历史脏数据需要可修复路径），但**仍然**校验术语现有源与被解除实体的真实源。
+
+### 11.9 批次 6 资源边界（2026-09-21）
+
+批次 6 把组织基础、运营与平台、字段治理、血缘写入迁到注解后，复审发现注解准入
+**不等于**资源范围。以下规则已落实，验收不得再把「Controller 被 AOP 代理」当成范围正确。
+
+#### 11.9.1 P0：血缘写入必须校验关系两端
+
+`LINEAGE_RELATIONSHIP` 解析器只返回**源实体**的 datasource，供删除接口做动作准入。
+Service 必须在写入前收集全部 `source` / `target` / 列映射实体，逐源调用
+`IamS1AdminGuard.requireDatasourceFunction(..., lineage:manage, datasourceId)`。
+`batchCreateLineage` 限制 200 条，任一无权、不存在或断链即整批零写入。
+
+#### 11.9.2 P0：字段标签批量与 CSV 必须先校验再写
+
+`governance:field:manage` 在批量接口上只能做功能级准入。写入前由
+`FieldGovernanceScopeSupport.requireColumnsWritable` 限制数量、批量读取
+`db_column_meta` 真实归属并逐源校验。CSV 必须先完整解析再调用该方法，禁止边读边写。
+CSV 同时限制最多 200 行和文件大小 1MB。
+
+#### 11.9.3 P1：字段治理列表必须 SQL 下推
+
+`@IamS1ScopedList` 不能裁剪数据。`by-tag`、可信度分页/批量、待审反馈必须把负责源
+推进 SQL（或先把可见列 ID 推进 `IN`）。空负责源返回空页；调用方显式传入无权
+`datasourceId` 返回 403，不能伪装成空结果。`batchGetConfidence` 对显式字段 ID
+不能静默过滤：任一无权或不存在即整批 403/404，并限制最多 200 个。
+字段与查询任务同时存在但 datasource 不一致时，`FEEDBACK_REVIEW` 解析器返回 409。
+
+#### 11.9.4 P1：一个请求只命中一套权限实现
+
+`LineageController` 使用 S1 注解后，`LineageServiceImpl` **不得**再调用旧
+`DatasourceAccessService`。可见性裁剪留在血缘 Service；旧授权不能成为新授权的前置条件。
+
+#### 11.9.5 P1：新用户管理不得操作旧角色事实
+
+`organization:user:manage` 只管理账号与部门。非空旧 `roleIds` 返回 400；创建用户
+不写 `sys_user_role`。S1 角色绑定只走 `/api/iam-s1/users/{id}/roles`。列表/详情的
+角色字段保持为空。删除/禁用必须保护最后一个仍可登录的受保护系统管理员绑定，
+不能只拦固定 `id=1`。
+
+删除用户必须在同一事务内：锁定该用户 S1 绑定 → 最后管理员保护 → 将全部
+ACTIVE `iam_s1_user_role` 改为 DISABLED → 将直接 USER grant 改为 REVOKED
+（行保留为历史事实）→ 记录 S1 revision 与审计 → 再逻辑删除用户。
+**不得**再把旧 `PermissionChangedEvent` 当作新权限失效机制。
+
+#### 11.9.6 P1：组织事实变化必须递增 S1 revision
+
+S1 Resolver 的授权输入包含用户状态、主部门、部门启停和部门路径。
+`UserServiceImpl` / `DepartmentServiceImpl` 在同一事务内必须调用
+`IamS1PermissionRevisionService.record`：用户主部门变化、禁用/锁定/删除/重新启用；
+部门创建、改名、改父级、启停、删除。事务回滚时 revision 与业务修改一起回滚。
+部门删除同样把该部门 ACTIVE grant 标为 REVOKED。
+
+#### 11.9.7 P1：正式组织入口不得混用旧角色权限
+
+B4 保留旧 `RoleController` / `PermissionController`，但旧页面
+`/admin/access/organization` 只作为切换前入口（旧角色 + 权限项）。
+正式入口 `/admin/access/iam-organization` 只使用 S1 用户/部门能力与
+`/api/iam-s1/**`。B5 切换时必须移除旧导航和旧路由。正式 S1 页面不得引用
+`listRoles` / `listPermissions` / `updateRolePermissions` / `assignRoleToUser`。

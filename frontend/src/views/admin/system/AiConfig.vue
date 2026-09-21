@@ -39,12 +39,12 @@ import {
   type AiProvider,
   type AiProviderPayload,
 } from '../../../api/admin/system'
-import { useAuthStore } from '../../../stores/auth'
+import { useIamS1Store } from '../../../stores/iamS1'
 import EmptyState from '../../../components/common/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()
-const auth = useAuthStore()
+const iamS1 = useIamS1Store()
 const loading = ref(false)
 const saving = ref(false)
 const providerDialogVisible = ref(false)
@@ -114,10 +114,8 @@ const providerForm = reactive<AiProviderPayload>({
 })
 
 const providers = computed(() => config.value?.providers ?? [])
-const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
-const canManageAiConfig = computed(
-  () => permissions.value.includes('*') || permissions.value.includes('system:ai-config:manage'),
-)
+const canViewAiConfig = computed(() => iamS1.hasGlobal('system:ai-config:view'))
+const canManageAiConfig = computed(() => iamS1.hasGlobal('system:ai-config:manage'))
 
 const activeChat = computed(() => config.value?.activeChat)
 const activeEmbedding = computed(() => config.value?.activeEmbedding)
@@ -173,6 +171,11 @@ function expandEmbeddingProvider(provider: AiProvider) {
 }
 
 async function fetchConfig() {
+  if (!canViewAiConfig.value) {
+    config.value = null
+    loading.value = false
+    return
+  }
   loading.value = true
   try {
     const res = await getAiConfig()
@@ -431,7 +434,7 @@ fetchConfig()
         </div>
       </div>
       <div class="header-actions">
-        <el-button :icon="Plus" @click="openCreateProvider">添加供应商</el-button>
+        <el-button :icon="Plus" :disabled="!canManageAiConfig" :title="canManageAiConfig ? '' : '需要 system:ai-config:manage'" @click="openCreateProvider">添加供应商</el-button>
         <el-button :icon="RefreshCw" :loading="loading" @click="fetchConfig">刷新</el-button>
       </div>
     </section>

@@ -1,6 +1,7 @@
 package com.dataocean.module.fieldtag.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
@@ -49,15 +50,14 @@ public class FeedbackReviewServiceImpl implements FeedbackReviewService {
      * {@inheritDoc}
      */
     @Override
-    public Page<FeedbackVO> listPendingReviews(int page, int pageSize) {
-        // 查询待审核的审核记录
-        Page<FeedbackReview> reviewPage = reviewMapper.selectPage(
-                new Page<>(page, pageSize),
-                new LambdaQueryWrapper<FeedbackReview>()
-                        .eq(FeedbackReview::getReviewStatus, FeedbackReview.STATUS_PENDING)
-                        .orderByAsc(FeedbackReview::getId)
-        );
-        // 转换为 FeedbackVO（先取出本页所有反馈实体，再批量补全字段名/表名/用户名，避免 N+1 查询）
+    public Page<FeedbackVO> listPendingReviews(int page, int pageSize,
+                                               java.util.Collection<Long> visibleDatasourceIds) {
+        if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
+            return new Page<>(page, pageSize, 0);
+        }
+        Page<FeedbackReview> queryPage = new Page<>(page, pageSize);
+        IPage<FeedbackReview> reviewPage = reviewMapper.selectPendingInDatasources(
+                queryPage, FeedbackReview.STATUS_PENDING, visibleDatasourceIds);
         Page<FeedbackVO> resultPage = new Page<>(page, pageSize, reviewPage.getTotal());
 
         // feedbackId -> reviewStatus 映射，用于回填审核状态

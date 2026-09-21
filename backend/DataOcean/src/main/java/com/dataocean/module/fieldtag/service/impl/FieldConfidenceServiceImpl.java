@@ -2,6 +2,7 @@ package com.dataocean.module.fieldtag.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.fieldtag.entity.FieldConfidence;
 import com.dataocean.module.fieldtag.entity.FieldConfidenceEvent;
@@ -11,6 +12,7 @@ import com.dataocean.module.fieldtag.mapper.FieldConfidenceEventMapper;
 import com.dataocean.module.fieldtag.mapper.FieldConfidenceMapper;
 import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.fieldtag.service.FieldConfidenceService;
+import com.dataocean.module.fieldtag.support.FieldGovernanceScopeSupport;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import lombok.RequiredArgsConstructor;
@@ -40,31 +42,29 @@ public class FieldConfidenceServiceImpl implements FieldConfidenceService {
     private final FieldConfidenceEventMapper eventMapper;
     private final ConfidenceCalculator confidenceCalculator;
     private final DbColumnMetaMapper dbColumnMetaMapper;
+    private final FieldGovernanceScopeSupport fieldScope;
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public Page<ConfidenceVO> pageConfidence(int page, int pageSize, String level, Long datasourceId) {
-        // 构建查询条件：按等级过滤，按分数降序展示
+    public Page<ConfidenceVO> pageConfidence(int page, int pageSize, String level, Long datasourceId,
+                                             java.util.Collection<Long> visibleDatasourceIds) {
+        fieldScope.rejectExplicitDatasourceOutsideScope(datasourceId, visibleDatasourceIds);
+        if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
+            return new Page<>(page, pageSize, 0);
+        }
+        java.util.Collection<Long> scope = datasourceId == null ? visibleDatasourceIds : List.of(datasourceId);
+        List<Long> columnIds = fieldScope.columnIdsInDatasources(scope);
+        if (columnIds.isEmpty()) {
+            return new Page<>(page, pageSize, 0);
+        }
+
         LambdaQueryWrapper<FieldConfidence> wrapper = new LambdaQueryWrapper<FieldConfidence>()
+                .in(FieldConfidence::getColumnMetaId, columnIds)
                 .eq(level != null && !level.isBlank(), FieldConfidence::getLevel, level)
                 .orderByDesc(FieldConfidence::getScore)
                 .orderByDesc(FieldConfidence::getUpdatedAt);
-
-        // 若指定数据源，先查出该数据源下的字段 ID 集合再过滤（可信度表无 datasourceId 字段）
-        if (datasourceId != null) {
-            List<Long> columnIds = dbColumnMetaMapper.selectList(
-                            new LambdaQueryWrapper<DbColumnMeta>()
-                                    .eq(DbColumnMeta::getDatasourceId, datasourceId)
-                                    .select(DbColumnMeta::getId))
-                    .stream().map(DbColumnMeta::getId).collect(Collectors.toList());
-            if (columnIds.isEmpty()) {
-                // 该数据源下没有任何字段，直接返回空分页
-                return new Page<>(page, pageSize, 0);
-            }
-            wrapper.in(FieldConfidence::getColumnMetaId, columnIds);
-        }
 
         Page<FieldConfidence> confidencePage = confidenceMapper.selectPage(new Page<>(page, pageSize), wrapper);
 
@@ -114,13 +114,19 @@ public class FieldConfidenceServiceImpl implements FieldConfidenceService {
      * {@inheritDoc}
      */
     @Override
-    public List<ConfidenceVO> batchGetConfidence(List<Long> columnMetaIds) {
+    public List<ConfidenceVO> batchGetConfidence(List<Long> columnMetaIds,
+                                                 java.util.Collection<Long> visibleDatasourceIds) {
         if (columnMetaIds == null || columnMetaIds.isEmpty()) {
             return new ArrayList<>();
         }
+        if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
+            throw new BusinessException(403, "无权查看该数据源的字段治理数据");
+        }
+        fieldScope.requireColumnsVisible(columnMetaIds);
+        List<Long> distinctIds = FieldGovernanceScopeSupport.distinctIds(columnMetaIds);
         List<FieldConfidence> confidences = confidenceMapper.selectList(
                 new LambdaQueryWrapper<FieldConfidence>()
-                        .in(FieldConfidence::getColumnMetaId, columnMetaIds)
+                        .in(FieldConfidence::getColumnMetaId, distinctIds)
         );
         return confidences.stream().map(this::toVO).collect(Collectors.toList());
     }

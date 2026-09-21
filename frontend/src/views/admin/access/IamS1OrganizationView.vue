@@ -1,15 +1,18 @@
 <script setup lang="ts">
 /**
- * IAM-SIMPLE-1 角色与负责源工作区
+ * IAM-SIMPLE-1 组织、角色与负责源工作区
  *
- * 三个 Tab：角色 / 用户角色与负责源 / 功能目录。
- * 角色首屏使用中文名称、作用和能力摘要；技术码只在排查详情折叠展示；
- * 功能目录只读，不提供任意字符串功能码的新增入口。
+ * Tab：用户 / 部门 / 角色 / 用户角色与负责源 / 功能目录。
+ * 用户和部门复用 S1 能力组件；角色与负责源只调用 /api/iam-s1/**。
+ * 旧角色、权限树不在本页。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import EmptyState from '../../../components/common/EmptyState.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
+import UserList from '../user/UserList.vue'
+import DepartmentTree from '../user/DepartmentTree.vue'
 import { useIamS1Store } from '../../../stores/iamS1'
 import {
   assignIamS1UserRole,
@@ -35,7 +38,22 @@ import {
 } from '../../../api/iamS1'
 
 const iamS1 = useIamS1Store()
-const activeTab = ref<'roles' | 'bindings' | 'catalog'>('roles')
+const TABS = ['users', 'departments', 'roles', 'bindings', 'catalog'] as const
+type OrgTab = (typeof TABS)[number]
+const route = useRoute()
+const router = useRouter()
+const activeTab = ref<OrgTab>(TABS.includes(route.query.tab as OrgTab) ? route.query.tab as OrgTab : 'users')
+
+function selectTab(name: string | number) {
+  const next = String(name) as OrgTab
+  activeTab.value = next
+  router.push({ query: { ...route.query, tab: next } })
+}
+
+watch(() => route.query.tab, (value) => {
+  const next = TABS.includes(value as OrgTab) ? value as OrgTab : 'users'
+  if (next !== activeTab.value) activeTab.value = next
+})
 
 const roles = ref<IamS1Role[]>([])
 const templates = ref<IamS1RoleTemplate[]>([])
@@ -270,11 +288,17 @@ onMounted(async () => {
 <template>
   <div class="iam-s1-org">
     <TaskPageHeader
-      title="角色与负责源"
-      description="角色管功能，负责源只限制后台工作范围，不授予业务数据查询权。功能组合使用固定中文目录，不能创建任意功能码。"
+      title="组织、角色与负责源"
+      description="正式入口：用户和部门使用 S1 能力；角色、功能目录和负责源只走 /api/iam-s1/**。负责源只限制后台工作范围，不授予业务数据查询权。"
     />
 
-    <el-tabs v-model="activeTab">
+    <el-tabs :model-value="activeTab" @update:model-value="selectTab">
+      <el-tab-pane label="用户" name="users" lazy>
+        <UserList />
+      </el-tab-pane>
+      <el-tab-pane label="部门" name="departments" lazy>
+        <DepartmentTree />
+      </el-tab-pane>
       <el-tab-pane label="角色" name="roles">
         <EmptyState
           v-if="!canViewRoles"

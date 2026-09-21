@@ -22,8 +22,8 @@ import org.springframework.stereotype.Component;
  *   <li>`query_task_id` → `query_task.datasource_id`（只挂在查询任务上的反馈）。</li>
  * </ol>
  *
- * <p>两条都解析不出归属时 409。**不允许**因为「解析不到源」就按无限制放行：
- * 反馈审核通过会写入字段置信度，属于字段治理写入，必须落在真实负责源内。</p>
+ * <p>两条都解析不出归属时 409。字段与查询任务同时存在但 datasource 不一致时也 409，
+ * 不能只信其中一侧。不允许因为「解析不到源」就按无限制放行。</p>
  */
 @Component
 @RequiredArgsConstructor
@@ -49,6 +49,7 @@ public class FeedbackReviewResourceResolver implements IamS1ResourceResolver {
             throw new BusinessException(404, "反馈不存在");
         }
 
+        Long columnDatasourceId = null;
         Long snapshotId = null;
         String tableName = null;
         String columnName = null;
@@ -60,13 +61,13 @@ public class FeedbackReviewResourceResolver implements IamS1ResourceResolver {
             if (column.getDatasourceId() == null) {
                 throw new BusinessException(409, "反馈关联的字段缺少数据源归属，无法判定负责范围");
             }
+            columnDatasourceId = column.getDatasourceId();
             snapshotId = column.getSnapshotId();
             tableName = column.getTableName();
             columnName = column.getColumnName();
-            return new IamS1ResolvedResource(IamS1ResourceType.FEEDBACK_REVIEW, id,
-                    column.getDatasourceId(), snapshotId, tableName, columnName);
         }
 
+        Long taskDatasourceId = null;
         if (feedback.getQueryTaskId() != null) {
             QueryTask task = queryTaskMapper.selectById(feedback.getQueryTaskId());
             if (task == null) {
@@ -75,8 +76,20 @@ public class FeedbackReviewResourceResolver implements IamS1ResourceResolver {
             if (task.getDatasourceId() == null) {
                 throw new BusinessException(409, "反馈关联的查询任务缺少数据源归属，无法判定负责范围");
             }
+            taskDatasourceId = task.getDatasourceId();
+        }
+
+        if (columnDatasourceId != null && taskDatasourceId != null
+                && !columnDatasourceId.equals(taskDatasourceId)) {
+            throw new BusinessException(409, "反馈的字段归属与查询任务归属不一致，无法判定负责范围");
+        }
+        if (columnDatasourceId != null) {
             return new IamS1ResolvedResource(IamS1ResourceType.FEEDBACK_REVIEW, id,
-                    task.getDatasourceId(), null, null, null);
+                    columnDatasourceId, snapshotId, tableName, columnName);
+        }
+        if (taskDatasourceId != null) {
+            return new IamS1ResolvedResource(IamS1ResourceType.FEEDBACK_REVIEW, id,
+                    taskDatasourceId, null, null, null);
         }
 
         throw new BusinessException(409, "反馈既没有字段归属也没有任务归属，无法判定负责范围");

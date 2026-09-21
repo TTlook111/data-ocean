@@ -32,6 +32,7 @@ import {
   type AlertRule,
 } from '../../../api/admin/audit'
 import { listSimpleDatasources } from '../../../api/admin/datasource'
+import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
@@ -53,6 +54,13 @@ const NOTIFICATION_TYPES = [
   { value: 'SYSTEM', label: '系统通知' },
   { value: 'EMAIL', label: '邮件' },
 ]
+
+const iamS1 = useIamS1Store()
+const canViewRuntime = computed(() => iamS1.hasGlobal('system:runtime:view'))
+const canManageRuntime = computed(() => iamS1.hasGlobal('system:runtime:manage'))
+const canResetPool = computed(() => iamS1.systemAdmin && canManageRuntime.value)
+const RESET_HINT = '重置连接池只能由受保护的系统管理员执行'
+const MANAGE_HINT = '需要 system:runtime:manage'
 
 const route = useRoute()
 const router = useRouter()
@@ -119,6 +127,12 @@ function statusMeta(status: string) {
 }
 
 async function fetchHealth() {
+  if (!canViewRuntime.value) {
+    health.value = null
+    healthLoading.value = false
+    healthError.value = ''
+    return
+  }
   healthLoading.value = true
   healthError.value = ''
   try {
@@ -134,6 +148,12 @@ async function fetchHealth() {
 }
 
 async function fetchPools() {
+  if (!canViewRuntime.value) {
+    pool.value = null
+    poolLoading.value = false
+    poolError.value = ''
+    return
+  }
   poolLoading.value = true
   poolError.value = ''
   try {
@@ -151,6 +171,12 @@ async function fetchPools() {
 }
 
 async function fetchRules() {
+  if (!canViewRuntime.value) {
+    rules.value = []
+    rulesLoading.value = false
+    rulesError.value = ''
+    return
+  }
   rulesLoading.value = true
   rulesError.value = ''
   try {
@@ -173,23 +199,24 @@ async function fetchDatasourceNames() {
 }
 
 async function handleResetPool(datasourceId: number) {
-  // 高风险操作：展示目标对象、影响范围并要求二次确认（§7.18、§9 门禁）
-  try {
-    await ElMessageBox.confirm(
-      `重置数据源「${datasourceNameOf(datasourceId)}」的 SQL 连接池？`
-      + '该数据源上正在执行的查询会失去连接，正在排队的请求会重新建连。确认继续？',
-      '确认重置连接池',
-      { type: 'warning', confirmButtonText: '确认重置', cancelButtonText: '取消' },
-    )
-  } catch {
+  if (!canResetPool.value) {
+    ElMessage.warning(RESET_HINT)
     return
   }
-  resettingDatasourceId.value = datasourceId
+  // 高风险操作：展示目标对象、影响范围并要求二次确认（§7.18、§9 门禁）
   try {
-    await resetDatasourcePool(datasourceId)
+    const { value: reason } = await ElMessageBox.prompt(
+      `重置数据源「${datasourceNameOf(datasourceId)}」的 SQL 连接池？`
+      + '该数据源上正在执行的查询会失去连接。请填写重置原因。',
+      '确认重置连接池',
+      { type: 'warning', confirmButtonText: '确认重置', cancelButtonText: '取消', inputPlaceholder: '重置原因', inputPattern: /\S+/, inputErrorMessage: '必须说明重置原因' },
+    )
+    resettingDatasourceId.value = datasourceId
+    await resetDatasourcePool(datasourceId, { confirmed: true, reason: String(reason) })
     ElMessage.success('连接池已重置')
     await fetchPools()
   } catch (cause) {
+    if (cause === 'cancel' || cause === 'close') return
     ElMessage.error(apiError(cause, '连接池重置失败'))
   } finally {
     resettingDatasourceId.value = undefined
@@ -197,6 +224,10 @@ async function handleResetPool(datasourceId: number) {
 }
 
 function openCreateRule() {
+  if (!canManageRuntime.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   editingRuleId.value = undefined
   ruleForm.metric = 'ERROR_RATE'
   ruleForm.threshold = 5
@@ -206,6 +237,10 @@ function openCreateRule() {
 }
 
 function openEditRule(row: AlertRule) {
+  if (!canManageRuntime.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   editingRuleId.value = row.id
   ruleForm.metric = row.metric
   ruleForm.threshold = Number(row.threshold)
@@ -215,6 +250,10 @@ function openEditRule(row: AlertRule) {
 }
 
 async function saveRule() {
+  if (!canManageRuntime.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   if (!ruleForm.metric || Number.isNaN(Number(ruleForm.threshold))) {
     ElMessage.warning('请选择监控指标并填写有效阈值')
     return
@@ -244,6 +283,10 @@ async function saveRule() {
 }
 
 async function handleToggleRule(row: AlertRule) {
+  if (!canManageRuntime.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   try {
     await toggleAlertRule(row.id)
     row.enabled = !row.enabled
@@ -396,6 +439,8 @@ watch(() => route.query.tab, (value) => {
                   size="small"
                   :icon="RotateCcw"
                   :loading="resettingDatasourceId === row.datasourceId"
+                  :disabled="!canResetPool"
+                  :title="canResetPool ? '' : RESET_HINT"
                   @click="handleResetPool(row.datasourceId)"
                 >重置连接池</el-button>
               </template>
@@ -415,7 +460,7 @@ watch(() => route.query.tab, (value) => {
                 恢复率或历史趋势。
               </p>
             </div>
-            <el-button type="primary" :icon="Plus" @click="openCreateRule">新增规则</el-button>
+            <el-button type="primary" :icon="Plus" :disabled="!canManageRuntime" :title="canManageRuntime ? '' : MANAGE_HINT" @click="openCreateRule">新增规则</el-button>
           </div>
           <ErrorState v-if="rulesError" :message="rulesError" @retry="fetchRules" />
           <LoadingState v-else-if="rulesLoading" variant="skeleton" :rows="4" />
@@ -439,13 +484,13 @@ watch(() => route.query.tab, (value) => {
             </el-table-column>
             <el-table-column label="启用" width="90" align="center">
               <template #default="{ row }">
-                <el-switch :model-value="row.enabled" size="small" @change="handleToggleRule(row)" />
+                <el-switch :model-value="row.enabled" size="small" :disabled="!canManageRuntime" @change="handleToggleRule(row)" />
               </template>
             </el-table-column>
             <el-table-column prop="createdAt" label="创建时间" width="175" />
             <el-table-column label="操作" width="100" align="center">
               <template #default="{ row }">
-                <el-button link type="primary" @click="openEditRule(row)">编辑</el-button>
+                <el-button link type="primary" :disabled="!canManageRuntime" @click="openEditRule(row)">编辑</el-button>
               </template>
             </el-table-column>
           </el-table>

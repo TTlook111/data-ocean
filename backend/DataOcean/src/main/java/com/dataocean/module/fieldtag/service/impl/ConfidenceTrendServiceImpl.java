@@ -13,6 +13,7 @@ import com.dataocean.module.fieldtag.mapper.FieldConfidenceMapper;
 import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
 import com.dataocean.module.fieldtag.mapper.PredefinedTagMapper;
 import com.dataocean.module.fieldtag.service.ConfidenceTrendService;
+import com.dataocean.module.fieldtag.support.FieldGovernanceScopeSupport;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,7 @@ public class ConfidenceTrendServiceImpl implements ConfidenceTrendService {
     private final FieldTagMapper fieldTagMapper;
     private final PredefinedTagMapper predefinedTagMapper;
     private final DbColumnMetaMapper dbColumnMetaMapper;
+    private final FieldGovernanceScopeSupport fieldScope;
 
     /** 自动打标规则：字段名后缀 → 标签编码 */
     private static final Map<String, String> AUTO_TAG_RULES = Map.of(
@@ -105,76 +107,104 @@ public class ConfidenceTrendServiceImpl implements ConfidenceTrendService {
         if (file == null || file.isEmpty()) {
             throw new BusinessException("CSV 文件不能为空");
         }
-        int success = 0;
-        int failed = 0;
-        Long currentUserId = UserContext.currentUserId();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            boolean firstLine = true;
-            while ((line = reader.readLine()) != null) {
-                line = line.trim();
-                if (line.isEmpty()) {
-                    continue;
-                }
-                // 跳过表头
-                if (firstLine && (line.startsWith("column") || line.startsWith("字段"))) {
-                    firstLine = false;
-                    continue;
-                }
-                firstLine = false;
-                // 解析 CSV 行
-                String[] parts = line.split(",");
-                if (parts.length < 2) {
-                    failed++;
-                    continue;
-                }
-                try {
-                    Long columnId = Long.parseLong(parts[0].trim());
-                    String tagCode = parts[1].trim();
-                    if (dbColumnMetaMapper.selectById(columnId) == null) {
-                        failed++;
-                        continue;
-                    }
-                    // 校验标签编码
-                    PredefinedTag predefined = predefinedTagMapper.selectOne(
-                            new LambdaQueryWrapper<PredefinedTag>()
-                                    .eq(PredefinedTag::getTagCode, tagCode)
-                    );
-                    if (predefined == null) {
-                        failed++;
-                        continue;
-                    }
-                    // 检查是否已存在
-                    Long count = fieldTagMapper.selectCount(
-                            new LambdaQueryWrapper<FieldTag>()
-                                    .eq(FieldTag::getColumnMetaId, columnId)
-                                    .eq(FieldTag::getTagCode, tagCode)
-                    );
-                    if (count > 0) {
-                        failed++;
-                        continue;
-                    }
-                    // 插入标签
-                    FieldTag tag = new FieldTag();
-                    tag.setColumnMetaId(columnId);
-                    tag.setTagCode(tagCode);
-                    tag.setTagName(predefined.getTagName());
-                    tag.setSource("SYSTEM");
-                    tag.setCreatedBy(currentUserId);
-                    tag.setCreatedAt(LocalDateTime.now());
-                    fieldTagMapper.insert(tag);
-                    success++;
-                } catch (NumberFormatException e) {
-                    failed++;
-                }
-            }
+        if (file.getSize() > FieldGovernanceScopeSupport.MAX_CSV_BYTES) {
+            throw new BusinessException(400, "CSV 文件不能超过 1MB");
+        }
+        List<CsvTagRow> rows;
+        try {
+            rows = parseTagCsv(file);
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("CSV 导入标签失败", e);
             throw new BusinessException("CSV 文件解析失败：" + e.getMessage());
         }
-        log.info("CSV 导入标签完成 success={} failed={}", success, failed);
-        return Map.of("success", success, "failed", failed);
+        if (rows.isEmpty()) {
+            throw new BusinessException(400, "文件中无有效数据");
+        }
+        if (rows.size() > FieldGovernanceScopeSupport.MAX_BATCH_COLUMNS) {
+            throw new BusinessException(400, "单次最多导入 "
+                    + FieldGovernanceScopeSupport.MAX_BATCH_COLUMNS + " 行，当前: " + rows.size());
+        }
+
+        List<Long> columnIds = rows.stream().map(CsvTagRow::columnId).toList();
+        // 先完整读取归属并逐源校验：任一无权、不存在或断链即整批零写入。
+        fieldScope.requireColumnsWritable(columnIds);
+
+        Map<String, PredefinedTag> tagsByCode = new HashMap<>();
+        for (CsvTagRow row : rows) {
+            PredefinedTag predefined = tagsByCode.computeIfAbsent(row.tagCode(), this::loadPredefinedTag);
+            if (predefined == null) {
+                throw new BusinessException(400, "第 " + row.line() + " 行标签编码无效：" + row.tagCode());
+            }
+        }
+
+        Long currentUserId = UserContext.currentUserId();
+        int success = 0;
+        int skipped = 0;
+        for (CsvTagRow row : rows) {
+            PredefinedTag predefined = tagsByCode.get(row.tagCode());
+            Long count = fieldTagMapper.selectCount(
+                    new LambdaQueryWrapper<FieldTag>()
+                            .eq(FieldTag::getColumnMetaId, row.columnId())
+                            .eq(FieldTag::getTagCode, row.tagCode())
+            );
+            if (count != null && count > 0) {
+                skipped++;
+                continue;
+            }
+            FieldTag tag = new FieldTag();
+            tag.setColumnMetaId(row.columnId());
+            tag.setTagCode(row.tagCode());
+            tag.setTagName(predefined.getTagName());
+            tag.setSource("SYSTEM");
+            tag.setCreatedBy(currentUserId);
+            tag.setCreatedAt(LocalDateTime.now());
+            fieldTagMapper.insert(tag);
+            success++;
+        }
+        log.info("CSV 导入标签完成 success={} skipped={}", success, skipped);
+        return Map.of("success", success, "skipped", skipped);
+    }
+
+    private List<CsvTagRow> parseTagCsv(MultipartFile file) throws Exception {
+        List<CsvTagRow> rows = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            boolean firstLine = true;
+            int lineNumber = 0;
+            while ((line = reader.readLine()) != null) {
+                lineNumber++;
+                line = line.trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (firstLine && (line.toLowerCase().startsWith("column") || line.startsWith("字段"))) {
+                    firstLine = false;
+                    continue;
+                }
+                firstLine = false;
+                String[] parts = line.split(",", 2);
+                if (parts.length < 2 || parts[0].isBlank() || parts[1].isBlank()) {
+                    throw new BusinessException(400, "第 " + lineNumber + " 行格式不正确，需要 column_id,tag_code");
+                }
+                try {
+                    rows.add(new CsvTagRow(lineNumber, Long.parseLong(parts[0].trim()), parts[1].trim()));
+                } catch (NumberFormatException e) {
+                    throw new BusinessException(400, "第 " + lineNumber + " 行字段 ID 不是数字");
+                }
+            }
+        }
+        return rows;
+    }
+
+    private PredefinedTag loadPredefinedTag(String tagCode) {
+        return predefinedTagMapper.selectOne(
+                new LambdaQueryWrapper<PredefinedTag>().eq(PredefinedTag::getTagCode, tagCode));
+    }
+
+    private record CsvTagRow(int line, Long columnId, String tagCode) {
     }
 
     /**

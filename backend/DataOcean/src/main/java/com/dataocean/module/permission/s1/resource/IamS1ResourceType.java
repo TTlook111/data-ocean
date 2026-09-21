@@ -62,5 +62,13 @@ public enum IamS1ResourceType {
      * <p>反馈可能挂在字段上（`column_meta_id`），也可能只挂在查询任务上
      * （`query_task_id`）；两者都解析不出归属时 fail-closed。</p>
      */
-    FEEDBACK_REVIEW
+    FEEDBACK_REVIEW,
+
+    /**
+     * 血缘关系：输入 relationshipId，解析到源实体的真实数据源。
+     *
+     * <p>切面用源端归属做动作准入；源、目标以及列映射两端的逐项负责源校验
+     * 必须留在 Service——一条 LINEAGE 边可以跨源，只看源端会放行对目标源的写入。</p>
+     */
+    LINEAGE_RELATIONSHIP
 }

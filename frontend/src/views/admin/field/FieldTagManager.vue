@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
+import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Tag, RefreshCw } from 'lucide-vue-next'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
@@ -14,11 +14,18 @@ import {
 import { listSnapshotTables, listSnapshotTableColumns, type ColumnMetaItem } from '../../../api/admin/governance'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useIamS1Store } from '../../../stores/iamS1'
 
 const loading = ref(false)
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
 const adminContext = useAdminContextStore()
+const iamS1 = useIamS1Store()
+const FIELD_VIEW = 'governance:field:view'
+const FIELD_MANAGE = 'governance:field:manage'
+const MANAGE_HINT = '需要 governance:field:manage 与当前数据源同一绑定'
+const canViewFields = computed(() => iamS1.canOnDatasource(FIELD_VIEW, adminContext.datasourceId || undefined))
+const canManageFields = computed(() => iamS1.canOnDatasource(FIELD_MANAGE, adminContext.datasourceId || undefined))
 const predefinedTags = ref<PredefinedTag[]>([])
 const columns = ref<ColumnMetaItem[]>([])
 const selectedColumnIds = ref<number[]>([])
@@ -79,6 +86,10 @@ async function handleSnapshotChange(id?: number) {
 }
 
 async function fetchPredefinedTags() {
+  if (!canViewFields.value) {
+    predefinedTags.value = []
+    return
+  }
   const res = await listPredefinedTags()
   predefinedTags.value = res.data ?? []
 }
@@ -88,6 +99,10 @@ function handleSelectionChange(rows: ColumnMetaItem[]) {
 }
 
 function openBatchTagDialog() {
+  if (!canManageFields.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   if (selectedColumnIds.value.length === 0) {
     ElMessage.warning('请先选择字段')
     return
@@ -121,6 +136,10 @@ async function viewColumnTags(row: ColumnMetaItem) {
 }
 
 async function handleAutoTag() {
+  if (!canManageFields.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   if (!query.snapshotId) return
   const snapshot = snapshots.value.find(s => s.id === query.snapshotId)
   if (!snapshot?.datasourceId) {
@@ -167,10 +186,10 @@ watch(
   <main ref="pageRef" class="field-tag-page post-login-page">
     <section class="page-actions">
       <div class="header-actions">
-        <el-button @click="handleAutoTag">
+        <el-button :disabled="!canManageFields" :title="canManageFields ? '' : MANAGE_HINT" @click="handleAutoTag">
           <RefreshCw :size="16" style="margin-right: 4px" />自动打标
         </el-button>
-        <el-button type="primary" @click="openBatchTagDialog">
+        <el-button type="primary" :disabled="!canManageFields" :title="canManageFields ? '' : MANAGE_HINT" @click="openBatchTagDialog">
           <Tag :size="16" style="margin-right: 4px" />批量打标
         </el-button>
       </div>

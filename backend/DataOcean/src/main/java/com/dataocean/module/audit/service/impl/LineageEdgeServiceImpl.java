@@ -12,6 +12,7 @@ import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
+import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -21,12 +22,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -52,6 +55,11 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
     private final MetadataRelationshipService relationshipService;
     private final MetadataRelationshipMapper relationshipMapper;
     private final ObjectMapper objectMapper;
+    private final IamS1AdminGuard adminGuard;
+
+    /** 维护血缘：源、目标和列映射两端都必须在同一绑定上拥有该功能。 */
+    private static final String MANAGE_FUNCTION = "lineage:manage";
+    private static final int MAX_BATCH = 200;
 
     // ========== 转换类型映射 ==========
 
@@ -73,6 +81,11 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
     @Override
     @Transactional
     public LineageEdgeVO createLineage(LineageCreateRequest request) {
+        requireManagedEntities(collectEntityIds(request));
+        return doCreateLineage(request);
+    }
+
+    private LineageEdgeVO doCreateLineage(LineageCreateRequest request) {
         // 1. 校验血缘类型
         validateLineageType(request.getLineageType());
 
@@ -116,6 +129,8 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
         if (!MetadataRelationship.TYPE_LINEAGE.equals(rel.getRelationType())) {
             throw new BusinessException(400, "仅支持删除 LINEAGE 类型关系，当前类型: " + rel.getRelationType());
         }
+        // 源、目标以及级联列映射两端都必须在负责范围内；任一无权整笔拒绝、零删除。
+        requireManagedEntities(collectRelationshipEntityIds(rel, cascadeDerived));
 
         // 2. 查询关联的 DERIVED_FROM 边数量
         int derivedCount = countDerivedFromEdges(rel);
@@ -141,27 +156,22 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
         if (requests == null || requests.isEmpty()) {
             throw new BusinessException(400, "批量创建请求列表不能为空");
         }
-        if (requests.size() > 200) {
-            throw new BusinessException(400, "单次批量创建最多 200 条，当前: " + requests.size());
+        if (requests.size() > MAX_BATCH) {
+            throw new BusinessException(400, "单次批量创建最多 " + MAX_BATCH + " 条，当前: " + requests.size());
         }
 
-        List<LineageEdgeVO> results = new ArrayList<>(requests.size());
-        for (int i = 0; i < requests.size(); i++) {
-            try {
-                LineageEdgeVO vo = createLineage(requests.get(i));
-                results.add(vo);
-            } catch (Exception e) {
-                log.warn("批量创建血缘第 {} 条失败: {}", i + 1, e.getMessage());
-                // 记录失败的条目（继续执行后续条目，不中断整个批量操作）
-                LineageEdgeVO errorVo = new LineageEdgeVO();
-                errorVo.setSourceEntityId(requests.get(i).getSourceEntityId());
-                errorVo.setTargetEntityId(requests.get(i).getTargetEntityId());
-                errorVo.setDescription("创建失败: " + e.getMessage());
-                results.add(errorVo);
-            }
+        // 权限与归属预校验整批原子：一次收集全部源/目标/列实体，任一无权、不存在或断链即整批零写入。
+        List<Long> allEntityIds = new ArrayList<>();
+        for (LineageCreateRequest request : requests) {
+            allEntityIds.addAll(collectEntityIds(request));
         }
-        log.info("批量创建血缘完成 total={} success={}", requests.size(),
-                results.stream().filter(r -> r.getRelationshipId() != null).count());
+        requireManagedEntities(allEntityIds);
+
+        List<LineageEdgeVO> results = new ArrayList<>(requests.size());
+        for (LineageCreateRequest request : requests) {
+            results.add(doCreateLineage(request));
+        }
+        log.info("批量创建血缘完成 total={}", requests.size());
         return results;
     }
 
@@ -247,6 +257,72 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
     }
 
     // ========== 私有辅助方法 ==========
+
+    /**
+     * 写入前逐项校验：收集到的每个实体都必须存在、有数据源归属，且调用者在同一绑定上
+     * 拥有 {@code lineage:manage}。任一无权、不存在或断链立即拒绝。
+     */
+    private void requireManagedEntities(Collection<Long> entityIds) {
+        List<Long> distinct = entityIds == null ? List.of()
+                : entityIds.stream().filter(Objects::nonNull).distinct().sorted().toList();
+        if (distinct.isEmpty()) {
+            throw new BusinessException(400, "血缘操作缺少实体参数");
+        }
+        Long userId = UserContext.currentUserId();
+        Set<Long> datasourceIds = new LinkedHashSet<>();
+        for (Long entityId : distinct) {
+            Long datasourceId = entityService.getDatasourceIdByEntityId(entityId);
+            if (datasourceId == null) {
+                throw new BusinessException(404, "实体不存在或没有数据源归属，ID: " + entityId);
+            }
+            datasourceIds.add(datasourceId);
+        }
+        for (Long datasourceId : datasourceIds) {
+            adminGuard.requireDatasourceFunction(userId, MANAGE_FUNCTION, datasourceId);
+        }
+    }
+
+    private List<Long> collectEntityIds(LineageCreateRequest request) {
+        List<Long> ids = new ArrayList<>();
+        if (request == null) {
+            return ids;
+        }
+        ids.add(request.getSourceEntityId());
+        ids.add(request.getTargetEntityId());
+        if (request.getColumnMappings() != null) {
+            for (ColumnMappingItem mapping : request.getColumnMappings()) {
+                if (mapping.getFromColumns() != null) {
+                    ids.addAll(mapping.getFromColumns());
+                }
+                ids.add(mapping.getToColumn());
+            }
+        }
+        return ids;
+    }
+
+    private List<Long> collectRelationshipEntityIds(MetadataRelationship rel, boolean includeDerivedColumns) {
+        List<Long> ids = new ArrayList<>();
+        ids.add(rel.getSourceId());
+        ids.add(rel.getTargetId());
+        if (includeDerivedColumns) {
+            for (Map<String, Object> mapping : extractColumnMappings(rel)) {
+                @SuppressWarnings("unchecked")
+                List<Number> fromIds = (List<Number>) mapping.get("from_column_ids");
+                Number toId = (Number) mapping.get("to_column_id");
+                if (fromIds != null) {
+                    for (Number fromId : fromIds) {
+                        if (fromId != null) {
+                            ids.add(fromId.longValue());
+                        }
+                    }
+                }
+                if (toId != null) {
+                    ids.add(toId.longValue());
+                }
+            }
+        }
+        return ids;
+    }
 
     /**
      * 校验血缘类型仅允许 ETL 或 MANUAL

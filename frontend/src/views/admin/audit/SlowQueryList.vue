@@ -9,13 +9,16 @@
  * 另修错误态：原 `fetchData` 只有 `try/finally` 没有 `catch`，
  * 接口失败会静默变成空列表（§11.3、§18）。
  */
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
 import { listSlowQueries, type AuditLogVO } from '../../../api/admin/audit'
+import { useIamS1Store } from '../../../stores/iamS1'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
 
+const iamS1 = useIamS1Store()
+const canViewAudit = computed(() => iamS1.systemAdmin || iamS1.datasourcesWithFunction('audit:view').length > 0)
 const loading = ref(false)
 const error = ref('')
 const pageRef = ref<HTMLElement | null>(null)
@@ -27,6 +30,13 @@ const page = ref(1)
 const pageSize = ref(20)
 
 async function fetchData() {
+  if (!canViewAudit.value) {
+    logs.value = []
+    total.value = 0
+    loading.value = false
+    error.value = ''
+    return
+  }
   loading.value = true
   error.value = ''
   try {
@@ -59,6 +69,10 @@ onMounted(() => {
     <section class="content-panel">
       <ErrorState v-if="error" :message="error" @retry="fetchData" />
       <LoadingState v-else-if="loading && !logs.length" variant="skeleton" :rows="5" />
+      <EmptyState
+        v-else-if="!canViewAudit"
+        message="没有“查看查询审计”能力（audit:view）：需要 IAM-SIMPLE-1 角色包含该功能并负责至少一个数据源。"
+      />
       <EmptyState
         v-else-if="!logs.length"
         message="没有慢查询记录。查询耗时超过慢查询阈值时才会进入这里。"

@@ -2,12 +2,14 @@ package com.dataocean.module.fieldtag.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
+import com.dataocean.common.security.UserContext;
 import com.dataocean.module.permission.s1.annotation.IamS1Resource;
 import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.fieldtag.entity.dto.FeedbackReviewRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.FeedbackVO;
 import com.dataocean.module.fieldtag.service.FeedbackReviewService;
+import com.dataocean.module.fieldtag.support.FieldGovernanceScopeSupport;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +42,7 @@ public class FeedbackReviewController {
     private static final String MANAGE_FUNCTION = "governance:field:manage";
 
     private final FeedbackReviewService feedbackReviewService;
+    private final FieldGovernanceScopeSupport fieldScope;
 
     /**
      * 分页查询待审核反馈列表
@@ -53,7 +56,8 @@ public class FeedbackReviewController {
     public Result<Page<FeedbackVO>> listPendingReviews(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
-        return Result.success(feedbackReviewService.listPendingReviews(page, pageSize));
+        return Result.success(feedbackReviewService.listPendingReviews(page, pageSize,
+                fieldScope.visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION)));
     }
 
     /**

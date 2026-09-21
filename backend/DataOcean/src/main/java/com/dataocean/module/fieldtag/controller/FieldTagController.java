@@ -1,6 +1,7 @@
 package com.dataocean.module.fieldtag.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.common.security.UserContext;
 import com.dataocean.module.permission.s1.annotation.IamS1Resource;
 import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
@@ -9,6 +10,7 @@ import com.dataocean.module.fieldtag.entity.dto.BatchTagRequestDTO;
 import com.dataocean.module.fieldtag.entity.dto.FieldTagRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.FieldTagVO;
 import com.dataocean.module.fieldtag.service.FieldTagService;
+import com.dataocean.module.fieldtag.support.FieldGovernanceScopeSupport;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +47,7 @@ public class FieldTagController {
     private static final String MANAGE_FUNCTION = "governance:field:manage";
 
     private final FieldTagService fieldTagService;
+    private final FieldGovernanceScopeSupport fieldScope;
 
     /**
      * 为字段添加标签
@@ -53,7 +56,8 @@ public class FieldTagController {
      * @return 创建的标签信息
      */
     @PostMapping
-    @IamS1ScopedList(MANAGE_FUNCTION)
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.COLUMN_META,
+            resourceIds = "#request.columnMetaId")
     public Result<FieldTagVO> addTag(@Valid @RequestBody FieldTagRequestDTO request) {
         return Result.success("打标成功", fieldTagService.addTag(request));
     }
@@ -105,7 +109,8 @@ public class FieldTagController {
     @GetMapping("/by-tag/{tagCode}")
     @IamS1ScopedList(VIEW_FUNCTION)
     public Result<List<Long>> getColumnsByTag(@PathVariable String tagCode) {
-        return Result.success(fieldTagService.getColumnIdsByTagCode(tagCode));
+        return Result.success(fieldTagService.getColumnIdsByTagCodeInDatasources(
+                tagCode, fieldScope.visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION)));
     }
 
     /**

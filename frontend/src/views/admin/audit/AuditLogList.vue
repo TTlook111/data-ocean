@@ -11,7 +11,7 @@
  *
  * 筛选项与分页写入 URL 查询参数，刷新/分享/前进后退都能恢复（§15、§8.3）。
  */
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Search } from 'lucide-vue-next'
 import {
@@ -23,6 +23,7 @@ import {
 } from '../../../api/admin/audit'
 import { listSimpleDatasources } from '../../../api/admin/datasource'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useIamS1Store } from '../../../stores/iamS1'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
@@ -31,6 +32,10 @@ import EmptyState from '../../../components/common/EmptyState.vue'
 const route = useRoute()
 const router = useRouter()
 const adminContext = useAdminContextStore()
+const iamS1 = useIamS1Store()
+const AUDIT_VIEW = 'audit:view'
+const canViewAudit = computed(() => iamS1.systemAdmin || iamS1.datasourcesWithFunction(AUDIT_VIEW).length > 0)
+const visibleAuditDatasourceIds = computed(() => new Set(iamS1.datasourcesWithFunction(AUDIT_VIEW)))
 // 与同工作区的「性能分析」Tab 保持一致的进场动画
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
@@ -80,6 +85,13 @@ function persistQuery() {
 }
 
 async function fetchLogs() {
+  if (!canViewAudit.value) {
+    logs.value = []
+    total.value = 0
+    loading.value = false
+    error.value = ''
+    return
+  }
   loading.value = true
   error.value = ''
   try {
@@ -103,6 +115,11 @@ async function fetchLogs() {
 }
 
 async function fetchStats() {
+  if (!canViewAudit.value) {
+    stats.value = null
+    statsError.value = ''
+    return
+  }
   statsError.value = ''
   try {
     const res = await getAuditStats({ datasourceId: query.datasourceId, days: 30 })
@@ -148,7 +165,9 @@ async function openDetail(row: AuditLogVO) {
 
 async function loadDatasources() {
   try {
-    datasources.value = (await listSimpleDatasources()).data || []
+    datasources.value = ((await listSimpleDatasources()).data || []).filter(
+      (item) => iamS1.systemAdmin || visibleAuditDatasourceIds.value.has(item.id),
+    )
   } catch {
     datasources.value = []
   }

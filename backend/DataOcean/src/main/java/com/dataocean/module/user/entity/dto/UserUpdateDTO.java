@@ -32,6 +32,6 @@ public class UserUpdateDTO {
     /** 所属部门ID */
     private Long departmentId;
 
-    /** 分配的角色ID列表 */
+    /** 分配的角色ID列表。S1 角色绑定只走 /api/iam-s1/users/{id}/roles，这里拒绝非空值。 */
     private List<Long> roleIds;
 }

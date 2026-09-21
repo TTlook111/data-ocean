@@ -39,6 +39,7 @@ import {
 } from '../../../api/admin/lineageApi'
 import { analyzeImpact, queryColumnLineage, queryTableLineage, type ImpactAnalysisVO, type LineageColumnVO, type LineageTableVO } from '../../../api/admin/audit'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useIamS1Store } from '../../../stores/iamS1'
 import { entityTypeLabel, lineageTypeLabel } from '../../../utils/enumLabels'
 import AddLineageDialog from './AddLineageDialog.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
@@ -46,12 +47,18 @@ import ErrorState from '../../../components/common/ErrorState.vue'
 
 const route = useRoute()
 const adminContext = useAdminContextStore()
+const iamS1 = useIamS1Store()
+const LINEAGE_VIEW = 'lineage:view'
+const LINEAGE_MANAGE = 'lineage:manage'
+const MANAGE_HINT = '需要 lineage:manage 与当前数据源同一绑定'
 
 // ========== 数据源（来自全局上下文，可被 URL 覆盖） ==========
 const datasourceId = computed<number | null>(() => {
   const fromUrl = Number(route.query.datasourceId) || undefined
   return fromUrl ?? adminContext.datasourceId ?? null
 })
+const canViewLineage = computed(() => iamS1.canOnDatasource(LINEAGE_VIEW, datasourceId.value || undefined))
+const canManageLineage = computed(() => iamS1.canOnDatasource(LINEAGE_MANAGE, datasourceId.value || undefined))
 
 // ========== 图谱数据 ==========
 const entities = ref<MetadataEntityItem[]>([])
@@ -214,7 +221,7 @@ const prefilledTargetId = ref<number | null>(null)
 
 /** 加载图谱数据 */
 async function loadGraph() {
-  if (!datasourceId.value) return
+  if (!datasourceId.value || !canViewLineage.value) return
   if (loading.value && loadingDatasourceId === datasourceId.value) return
   const currentRequest = ++graphRequestId
   loadingDatasourceId = datasourceId.value
@@ -489,6 +496,10 @@ function handleViewDetail() {
 
 /** 删除血缘边 */
 async function handleDeleteEdge() {
+  if (!canManageLineage.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   const edgeData = contextMenu.value.data
   if (!edgeData?.id) return
   closeContextMenu()
@@ -638,6 +649,10 @@ async function handleSearch() {
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
 function handleBatchImport() {
+  if (!canManageLineage.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   fileInputRef.value?.click()
 }
 
@@ -763,7 +778,7 @@ onBeforeUnmount(() => {
 
       <!-- 操作按钮：一个主操作 + 更多菜单（§11.2 一个页面只允许一个最突出的主要操作） -->
       <div class="panel-section panel-actions">
-        <el-button type="primary" :icon="Plus" @click="addDialogVisible = true">
+        <el-button type="primary" :icon="Plus" :disabled="!canManageLineage" :title="canManageLineage ? '' : MANAGE_HINT" @click="addDialogVisible = true">
           添加血缘
         </el-button>
         <el-dropdown trigger="click">
@@ -773,7 +788,7 @@ onBeforeUnmount(() => {
               <el-dropdown-item :icon="Crosshair" :disabled="!selectedEntity" @click="handleAnalyzeImpact()">
                 影响分析
               </el-dropdown-item>
-              <el-dropdown-item :icon="Upload" @click="handleBatchImport">批量导入</el-dropdown-item>
+              <el-dropdown-item :icon="Upload" :disabled="!canManageLineage" @click="handleBatchImport">批量导入</el-dropdown-item>
               <el-dropdown-item :icon="Download" @click="handleExportPng">导出 PNG</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -802,6 +817,9 @@ onBeforeUnmount(() => {
         <Network :size="48" style="color: var(--do-muted); margin-bottom: 12px;" />
         <p>请先选择数据源查看血缘图谱</p>
       </div>
+      <div v-else-if="!canViewLineage" class="empty-hint">
+        <p>没有“查看数据血缘”能力（lineage:view）：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。</p>
+      </div>
       <div v-else-if="!loading && entities.length === 0" class="empty-hint">
         <p>该数据源暂无实体数据，请先发布快照</p>
       </div>
@@ -822,14 +840,14 @@ onBeforeUnmount(() => {
             <button @click="handleExpandDownstream">🔍 展开下游</button>
             <button @click="handleAnalyzeImpact(contextMenu.data?._entity)">🎯 影响分析</button>
             <hr />
-            <button @click="handleAddDownstream">➕ 添加下游血缘</button>
+            <button v-if="canManageLineage" @click="handleAddDownstream">➕ 添加下游血缘</button>
           </template>
           <!-- 边菜单。后端只有创建与删除血缘的接口，没有更新接口，
                因此这里不提供「编辑」——不做一个点了必然失败的菜单项。 -->
           <template v-else-if="contextMenu.type === 'edge'">
             <button @click="handleViewDetail">📋 查看详情</button>
             <hr />
-            <button class="danger" @click="handleDeleteEdge">🗑️ 删除此血缘</button>
+            <button v-if="canManageLineage" class="danger" @click="handleDeleteEdge">🗑️ 删除此血缘</button>
           </template>
           <!-- 空白区域菜单 -->
           <template v-else>

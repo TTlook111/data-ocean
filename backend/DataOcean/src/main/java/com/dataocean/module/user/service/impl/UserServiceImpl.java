@@ -3,23 +3,27 @@ package com.dataocean.module.user.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.permission.event.PermissionChangedEvent;
+import com.dataocean.common.security.UserContext;
+import com.dataocean.module.permission.s1.IamS1Constants;
+import com.dataocean.module.permission.s1.entity.IamS1DataGrant;
+import com.dataocean.module.permission.s1.entity.IamS1UserRole;
+import com.dataocean.module.permission.s1.mapper.IamS1DataGrantMapper;
+import com.dataocean.module.permission.s1.mapper.IamS1UserRoleMapper;
+import com.dataocean.module.permission.s1.service.IamS1AuditEventService;
+import com.dataocean.module.permission.s1.service.IamS1PermissionRevisionService;
 import com.dataocean.module.user.entity.dto.UserCreateDTO;
 import com.dataocean.module.user.entity.query.UserQuery;
 import com.dataocean.module.user.entity.dto.UserUpdateDTO;
 import com.dataocean.module.user.entity.vo.UserVO;
 import com.dataocean.module.user.entity.SysDepartment;
-import com.dataocean.module.user.entity.SysRole;
 import com.dataocean.module.user.entity.SysUser;
 import com.dataocean.module.user.entity.SysUserRole;
 import com.dataocean.module.user.mapper.DepartmentMapper;
-import com.dataocean.module.user.mapper.RoleMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.mapper.UserRoleMapper;
 import com.dataocean.module.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -29,7 +33,9 @@ import org.springframework.util.StringUtils;
 import java.security.SecureRandom;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -48,12 +54,14 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
-    private final RoleMapper roleMapper;
     private final DepartmentMapper departmentMapper;
     private final UserRoleMapper userRoleMapper;
+    private final IamS1UserRoleMapper iamS1UserRoleMapper;
+    private final IamS1DataGrantMapper iamS1DataGrantMapper;
+    private final IamS1PermissionRevisionService revisionService;
+    private final IamS1AuditEventService auditEventService;
     private final PasswordEncoder passwordEncoder;
     private final StringRedisTemplate stringRedisTemplate;
-    private final ApplicationEventPublisher eventPublisher;
 
     /** 安全随机数生成器，用于生成临时密码 */
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
@@ -72,26 +80,23 @@ public class UserServiceImpl implements UserService {
      * {@inheritDoc}
      * <p>
      * 实现逻辑：
-     * 1. 校验用户名唯一性
-     * 2. 校验部门有效性（存在且启用）
-     * 3. 校验角色有效性（存在且启用）
-     * 4. 创建用户记录（密码加密存储）
-     * 5. 绑定用户-角色关联
+     * 1. 拒绝非空旧 roleIds（S1 角色绑定只走独立接口）
+     * 2. 校验用户名唯一性
+     * 3. 校验部门有效性（存在且启用）
+     * 4. 创建用户记录（密码加密存储），不建立任何角色权限事实
      * </p>
      */
     @Transactional
     @Override
     public Long createUser(UserCreateDTO request) {
-        log.info("开始创建用户 username={} departmentId={} roleIds={}",
-                request.getUsername(), request.getDepartmentId(), request.getRoleIds());
+        log.info("开始创建用户 username={} departmentId={}", request.getUsername(), request.getDepartmentId());
+        rejectLegacyRoleIds(request.getRoleIds());
         // 校验用户名唯一性
         ensureUsernameAvailable(request.getUsername());
         // 校验部门有效性
         validateDepartment(request.getDepartmentId());
-        // 校验角色有效性
-        validateRoles(request.getRoleIds());
 
-        // 构建用户实体
+        // 构建用户实体。不建立任何角色权限事实：S1 角色绑定只走 /api/iam-s1/users/{id}/roles。
         SysUser user = new SysUser();
         user.setUsername(request.getUsername());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
@@ -103,10 +108,7 @@ public class UserServiceImpl implements UserService {
         user.setStatus(SysUser.STATUS_NORMAL);
         user.setDeleted(0);
         userMapper.insert(user);
-        // 绑定用户角色关联
-        bindRoles(user.getId(), request.getRoleIds());
-        eventPublisher.publishEvent(new PermissionChangedEvent(this, user.getId(), null));
-        log.info("用户创建成功 userId={} username={} roleCount={}", user.getId(), user.getUsername(), request.getRoleIds().size());
+        log.info("用户创建成功 userId={} username={}", user.getId(), user.getUsername());
         return user.getId();
     }
 
@@ -114,25 +116,23 @@ public class UserServiceImpl implements UserService {
      * {@inheritDoc}
      * <p>
      * 实现逻辑：
-     * 1. 校验用户存在性
-     * 2. 校验部门和角色有效性
-     * 3. 更新用户基本信息
-     * 4. 若传入 roleIds 则重新绑定角色（先删后插）
+     * 1. 拒绝非空旧 roleIds
+     * 2. 校验用户存在性
+     * 3. 校验部门有效性
+     * 4. 更新用户基本信息，不写入任何旧角色权限事实
      * </p>
      */
     @Transactional
     @Override
     public void updateUser(Long id, UserUpdateDTO request) {
-        log.info("开始更新用户 userId={} departmentId={} roleIds={}", id, request.getDepartmentId(), request.getRoleIds());
+        log.info("开始更新用户 userId={} departmentId={}", id, request.getDepartmentId());
+        rejectLegacyRoleIds(request.getRoleIds());
         // 校验用户存在性
         SysUser user = requireUser(id);
         // 校验部门有效性
         validateDepartment(request.getDepartmentId());
-        // 校验角色有效性（仅在传入 roleIds 时）
-        if (request.getRoleIds() != null) {
-            validateRoles(request.getRoleIds());
-        }
-        // 更新用户基本信息
+        boolean departmentChanged = !Objects.equals(user.getDepartmentId(), request.getDepartmentId());
+        // 更新用户基本信息。不写入任何旧角色权限事实。
         if (StringUtils.hasText(request.getRealName())) {
             user.setRealName(request.getRealName());
         }
@@ -140,41 +140,39 @@ public class UserServiceImpl implements UserService {
         user.setPhone(request.getPhone());
         user.setDepartmentId(request.getDepartmentId());
         userMapper.updateById(user);
-        // 重新绑定角色关联
-        if (request.getRoleIds() != null) {
-            bindRoles(id, request.getRoleIds());
+        if (departmentChanged) {
+            recordOrganizationRevision("USER", id, "DEPARTMENT_CHANGE",
+                    "userId=" + id + ";departmentId=" + request.getDepartmentId(),
+                    "调整用户主部门");
         }
-        eventPublisher.publishEvent(new PermissionChangedEvent(this, id, null));
         log.info("用户更新成功 userId={} username={}", id, user.getUsername());
     }
 
     /**
      * {@inheritDoc}
      * <p>
-     * 实现逻辑：
-     * 1. 禁止删除超级管理员（ID=1）
-     * 2. 校验用户存在性
-     * 3. 逻辑删除用户记录
-     * 4. 清除用户角色关联
-     * 5. 递增令牌版本号使已签发 JWT 失效
+     * 同一事务内：锁定该用户 S1 绑定 → 最后管理员保护 → 停用 ACTIVE 绑定并撤回直接用户 grant
+     * → 记录 S1 revision/审计 → 再逻辑删除用户。不依赖旧 PermissionChangedEvent。
      * </p>
      */
     @Transactional
     @Override
     public void deleteUser(Long id) {
         log.info("开始删除用户 userId={}", id);
-        // 超级管理员保护
-        if (Long.valueOf(1L).equals(id)) {
-            throw new BusinessException("不允许删除超级管理员");
-        }
         requireUser(id);
-        // 逻辑删除用户
+        List<IamS1UserRole> bindings = iamS1UserRoleMapper.selectByUserIdForUpdate(id);
+        ensureNotLastProtectedAdmin(id, "删除");
+        Long operatorId = operatorId();
+        long disabledCount = countActive(bindings);
+        Long revisionNo = revisionService.record("USER", id, "DELETE", operatorId, "删除用户并停用其 S1 绑定");
+        disableS1BindingsAndRevokeUserGrants(id, bindings, revisionNo, operatorId);
+        auditEventService.recordSuccess("USER_DELETE", operatorId, "USER", id, null,
+                "userId=" + id + ";disabledBindings=" + disabledCount + ";revision=" + revisionNo,
+                "删除用户并停用其 S1 绑定", UUID.randomUUID().toString());
         userMapper.deleteById(id);
-        // 清除用户角色关联
+        // 旧关系只服务切换前环境，B6 删除表；这里清掉已删账号的旧角色行，避免旧链路继续算权。
         userRoleMapper.delete(new LambdaQueryWrapper<SysUserRole>().eq(SysUserRole::getUserId, id));
-        // 递增令牌版本号，使该用户已签发的 JWT 立即失效
         stringRedisTemplate.opsForValue().increment(tokenVersionKey(id));
-        eventPublisher.publishEvent(new PermissionChangedEvent(this, id, null));
         log.info("用户删除成功 userId={}", id);
     }
 
@@ -193,7 +191,7 @@ public class UserServiceImpl implements UserService {
      * 1. 构建动态查询条件（用户名/姓名模糊匹配，部门/状态精确匹配）
      * 2. 分页查询用户列表
      * 3. 批量查询关联的部门名称
-     * 4. 批量查询关联的角色信息
+     * 4. 不回填旧 sys_role，避免把旧角色显示成新权限角色
      * 5. 组装 UserVO 返回
      * </p>
      */
@@ -225,40 +223,23 @@ public class UserServiceImpl implements UserService {
                 departmentMapper.selectByIds(deptIds).stream()
                         .collect(Collectors.toMap(SysDepartment::getId, SysDepartment::getDeptName));
 
-        // 批量查询用户角色关联，避免 N+1 查询
-        List<Long> userIds = users.stream().map(SysUser::getId).toList();
-        List<SysUserRole> userRoles = userRoleMapper.selectList(
-                new LambdaQueryWrapper<SysUserRole>().in(SysUserRole::getUserId, userIds));
-        Set<Long> roleIds = userRoles.stream().map(SysUserRole::getRoleId).collect(Collectors.toSet());
-        Map<Long, SysRole> roleMap = roleIds.isEmpty() ? Map.of() :
-                roleMapper.selectByIds(roleIds).stream()
-                        .collect(Collectors.toMap(SysRole::getId, r -> r));
-        // 按用户 ID 分组角色列表
-        Map<Long, List<SysRole>> userRoleMap = userRoles.stream()
-                .filter(ur -> roleMap.containsKey(ur.getRoleId()))
-                .collect(Collectors.groupingBy(SysUserRole::getUserId,
-                        Collectors.mapping(ur -> roleMap.get(ur.getRoleId()), Collectors.toList())));
-
-        // 组装分页结果
+        // 组装分页结果。角色字段固定为空：S1 角色请走 /api/iam-s1/users/{id}/roles。
         Page<UserVO> result = new Page<>(userPage.getCurrent(), userPage.getSize(), userPage.getTotal());
-        result.setRecords(users.stream().map(user -> {
-            List<SysRole> roles = userRoleMap.getOrDefault(user.getId(), List.of());
-            return UserVO.builder()
-                    .id(user.getId())
-                    .username(user.getUsername())
-                    .realName(user.getRealName())
-                    .email(user.getEmail())
-                    .phone(user.getPhone())
-                    .departmentId(user.getDepartmentId())
-                    .departmentName(user.getDepartmentId() == null ? null : deptNameMap.get(user.getDepartmentId()))
-                    .roleIds(roles.stream().map(SysRole::getId).toList())
-                    .roleNames(roles.stream().map(SysRole::getRoleName).toList())
-                    .roleCodes(roles.stream().map(SysRole::getRoleCode).toList())
-                    .status(user.getStatus())
-                    .lastLoginAt(user.getLastLoginAt())
-                    .createdAt(user.getCreatedAt())
-                    .build();
-        }).toList());
+        result.setRecords(users.stream().map(user -> UserVO.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .realName(user.getRealName())
+                .email(user.getEmail())
+                .phone(user.getPhone())
+                .departmentId(user.getDepartmentId())
+                .departmentName(user.getDepartmentId() == null ? null : deptNameMap.get(user.getDepartmentId()))
+                .roleIds(List.of())
+                .roleNames(List.of())
+                .roleCodes(List.of())
+                .status(user.getStatus())
+                .lastLoginAt(user.getLastLoginAt())
+                .createdAt(user.getCreatedAt())
+                .build()).toList());
         return result;
     }
 
@@ -267,7 +248,7 @@ public class UserServiceImpl implements UserService {
      * <p>
      * 实现逻辑：
      * 1. 校验用户存在性
-     * 2. 超级管理员保护（不允许禁用/锁定）
+     * 2. 保护最后一个有效 S1 系统管理员（不允许禁用/锁定）
      * 3. 校验目标状态合法性
      * 4. 更新状态
      * 5. 禁用/锁定时清除登录失败计数并使 JWT 失效
@@ -278,9 +259,8 @@ public class UserServiceImpl implements UserService {
     public void updateStatus(Long id, Integer status) {
         SysUser user = requireUser(id);
         Integer oldStatus = user.getStatus();
-        // 超级管理员保护
-        if (Long.valueOf(1L).equals(id) && !Integer.valueOf(SysUser.STATUS_NORMAL).equals(status)) {
-            throw new BusinessException("不允许禁用或锁定超级管理员");
+        if (!Integer.valueOf(SysUser.STATUS_NORMAL).equals(status)) {
+            ensureNotLastProtectedAdmin(id, "禁用或锁定");
         }
         // 校验目标状态合法性
         if (!List.of(SysUser.STATUS_NORMAL, SysUser.STATUS_DISABLED, SysUser.STATUS_LOCKED).contains(status)) {
@@ -289,9 +269,15 @@ public class UserServiceImpl implements UserService {
         user.setStatus(status);
         userMapper.updateById(user);
         clearLoginLock(user.getUsername());
+        if (!Objects.equals(oldStatus, status)) {
+            String changeType = Integer.valueOf(SysUser.STATUS_NORMAL).equals(status) ? "ENABLE"
+                    : Integer.valueOf(SysUser.STATUS_LOCKED).equals(status) ? "LOCK" : "DISABLE";
+            recordOrganizationRevision("USER", id, changeType,
+                    "userId=" + id + ";oldStatus=" + oldStatus + ";newStatus=" + status,
+                    "变更用户状态");
+        }
         // 禁用或锁定时需要使已签发 JWT 失效并清除失败计数
         if (Integer.valueOf(SysUser.STATUS_DISABLED).equals(status) || Integer.valueOf(SysUser.STATUS_LOCKED).equals(status)) {
-            // 递增令牌版本号，使该用户已签发的 JWT 立即失效
             stringRedisTemplate.opsForValue().increment(tokenVersionKey(id));
         }
         log.info("用户状态更新成功 userId={} username={} oldStatus={} newStatus={}",
@@ -378,45 +364,94 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * 校验角色列表有效性（非空、存在且启用）。
-     * <p>
-     * 数据库不创建外键，角色关联有效性统一在业务层校验。
-     * </p>
-     *
-     * @param roleIds 角色 ID 列表
-     * @throws BusinessException 角色列表为空、角色不存在或已禁用时抛出
+     * 新用户接口拒绝非空旧 roleIds。空列表或未传表示「这里不绑定角色」，允许通过。
      */
-    private void validateRoles(List<Long> roleIds) {
-        if (roleIds == null || roleIds.isEmpty()) {
-            throw new BusinessException("至少选择一个角色");
-        }
-        // 数据库不创建外键，角色关联有效性统一在业务层校验
-        List<SysRole> roles = roleMapper.selectByIds(roleIds);
-        if (roles.size() != Set.copyOf(roleIds).size() || roles.stream().anyMatch(role -> !Integer.valueOf(1).equals(role.getStatus()))) {
-            throw new BusinessException("角色不存在或已禁用");
+    private void rejectLegacyRoleIds(List<Long> roleIds) {
+        if (roleIds != null && !roleIds.isEmpty()) {
+            throw new BusinessException(400, "用户角色请在「角色与负责源」中绑定，不能通过旧 roleIds 写入");
         }
     }
 
     /**
-     * 绑定用户角色关联（先删后插策略）。
-     * <p>
-     * 先删除该用户所有已有角色关联，再逐条插入新的关联记录。
-     * </p>
-     *
-     * @param userId  用户 ID
-     * @param roleIds 角色 ID 列表
+     * 删除或禁用前保护最后一个仍可登录的 S1 系统管理员。
+     * 锁定全部有效受保护绑定后再数当前状态为正常的账号，不能只拦固定 id=1。
      */
-    private void bindRoles(Long userId, List<Long> roleIds) {
-        log.debug("绑定用户角色 userId={} roleIds={}", userId, roleIds);
-        // 先删除已有角色关联
-        userRoleMapper.delete(new LambdaQueryWrapper<SysUserRole>().eq(SysUserRole::getUserId, userId));
-        // 逐条插入新的角色关联
-        for (Long roleId : roleIds) {
-            SysUserRole userRole = new SysUserRole();
-            userRole.setUserId(userId);
-            userRole.setRoleId(roleId);
-            userRoleMapper.insert(userRole);
+    private void ensureNotLastProtectedAdmin(Long userId, String action) {
+        List<IamS1UserRole> bindings = iamS1UserRoleMapper.selectActiveProtectedBindingsForUpdate();
+        Set<Long> adminUserIds = bindings.stream()
+                .map(IamS1UserRole::getUserId)
+                .filter(id -> id != null)
+                .collect(Collectors.toSet());
+        if (!adminUserIds.contains(userId)) {
+            return;
         }
+        Map<Long, SysUser> admins = adminUserIds.isEmpty() ? Map.of()
+                : userMapper.selectByIds(adminUserIds).stream()
+                .collect(Collectors.toMap(SysUser::getId, user -> user, (a, b) -> a));
+        long enabledCount = adminUserIds.stream()
+                .map(admins::get)
+                .filter(user -> user != null && Integer.valueOf(SysUser.STATUS_NORMAL).equals(user.getStatus()))
+                .count();
+        SysUser target = admins.get(userId);
+        boolean currentlyEnabled = target != null && Integer.valueOf(SysUser.STATUS_NORMAL).equals(target.getStatus());
+        long remaining = currentlyEnabled ? enabledCount - 1 : enabledCount;
+        if (remaining < 1) {
+            throw new BusinessException("不能" + action + "最后一个有效 S1 系统管理员");
+        }
+    }
+
+    /**
+     * 停用该用户全部仍生效的 S1 角色绑定，并把直接用户 grant 标为 REVOKED。
+     * 行保留为历史事实（B6 不删 S1 表）；Resolver 只读 ACTIVE/ENABLED。
+     */
+    private void disableS1BindingsAndRevokeUserGrants(Long userId, List<IamS1UserRole> bindings,
+                                                     Long revisionNo, Long operatorId) {
+        if (bindings != null) {
+            for (IamS1UserRole binding : bindings) {
+                if (binding == null || !Integer.valueOf(IamS1Constants.ENABLED).equals(binding.getStatus())) {
+                    continue;
+                }
+                binding.setStatus(IamS1Constants.DISABLED);
+                binding.setRevisionNo(revisionNo);
+                binding.setUpdatedBy(operatorId);
+                iamS1UserRoleMapper.updateById(binding);
+            }
+        }
+        List<IamS1DataGrant> grants = iamS1DataGrantMapper.selectActiveBySubjectForUpdate(
+                IamS1Constants.PROTOCOL_VERSION, IamS1Constants.SUBJECT_USER, userId);
+        if (grants != null) {
+            for (IamS1DataGrant grant : grants) {
+                grant.setStatus(IamS1Constants.DATA_GRANT_STATUS_REVOKED);
+                grant.setRevisionNo(revisionNo);
+                grant.setUpdatedBy(operatorId);
+                iamS1DataGrantMapper.updateById(grant);
+            }
+        }
+    }
+
+    private void recordOrganizationRevision(String targetType, Long targetId, String changeType,
+                                            String afterSummary, String reason) {
+        Long operatorId = operatorId();
+        Long revisionNo = revisionService.record(targetType, targetId, changeType, operatorId, reason);
+        auditEventService.recordSuccess(targetType + "_" + changeType, operatorId, targetType, targetId,
+                null, afterSummary + ";revision=" + revisionNo, reason, UUID.randomUUID().toString());
+    }
+
+    private Long operatorId() {
+        try {
+            return UserContext.currentUserId();
+        } catch (BusinessException ignored) {
+            return null;
+        }
+    }
+
+    private static long countActive(List<IamS1UserRole> bindings) {
+        if (bindings == null) {
+            return 0;
+        }
+        return bindings.stream()
+                .filter(binding -> binding != null && Integer.valueOf(IamS1Constants.ENABLED).equals(binding.getStatus()))
+                .count();
     }
 
     /**
@@ -484,7 +519,7 @@ public class UserServiceImpl implements UserService {
     /**
      * 将用户实体转换为视图对象。
      * <p>
-     * 查询关联的部门名称和角色列表，组装完整的 UserVO。
+     * 查询关联的部门名称。角色字段固定为空，避免把旧 sys_role 显示成新权限角色。
      * </p>
      *
      * @param user 用户实体
@@ -493,8 +528,6 @@ public class UserServiceImpl implements UserService {
     private UserVO toVO(SysUser user) {
         // 查询关联部门
         SysDepartment department = user.getDepartmentId() == null ? null : departmentMapper.selectById(user.getDepartmentId());
-        // 查询关联角色列表
-        List<SysRole> roles = roleMapper.selectByUserId(user.getId());
         return UserVO.builder()
                 .id(user.getId())
                 .username(user.getUsername())
@@ -503,9 +536,9 @@ public class UserServiceImpl implements UserService {
                 .phone(user.getPhone())
                 .departmentId(user.getDepartmentId())
                 .departmentName(department == null ? null : department.getDeptName())
-                .roleIds(roles.stream().map(SysRole::getId).toList())
-                .roleNames(roles.stream().map(SysRole::getRoleName).toList())
-                .roleCodes(roles.stream().map(SysRole::getRoleCode).toList())
+                .roleIds(List.of())
+                .roleNames(List.of())
+                .roleCodes(List.of())
                 .status(user.getStatus())
                 .lastLoginAt(user.getLastLoginAt())
                 .createdAt(user.getCreatedAt())

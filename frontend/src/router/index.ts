@@ -215,7 +215,7 @@ const router = createRouter({
           path: 'access/organization',
           name: 'admin-access-organization',
           component: OrganizationView,
-          meta: { title: '组织与角色', domainKey: 'access', workspaceKey: 'organization', contextMode: 'none' },
+          meta: { title: '组织与角色（旧）', domainKey: 'access', workspaceKey: 'organization', contextMode: 'none' },
         },
         {
           path: 'access/iam',
@@ -233,7 +233,7 @@ const router = createRouter({
           path: 'access/iam-organization',
           name: 'admin-access-iam-organization',
           component: () => import('../views/admin/access/IamS1OrganizationView.vue'),
-          meta: { title: '角色与负责源', domainKey: 'access', workspaceKey: 'iam-organization', contextMode: 'none', iamS1: true },
+          meta: { title: '组织、角色与负责源', domainKey: 'access', workspaceKey: 'iam-organization', contextMode: 'none', iamS1: true },
         },
         {
           path: 'operations/queries',

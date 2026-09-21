@@ -54,6 +54,14 @@ public interface FieldTagService {
     List<Long> getColumnIdsByTagCode(String tagCode);
 
     /**
+     * 按标签编码查询负责源范围内的字段 ID。
+     *
+     * <p>{@code visibleDatasourceIds} 必须是调用者在 {@code governance:field:view} 上负责的数据源：
+     * 空集合返回空列表，不得退化为全库。</p>
+     */
+    List<Long> getColumnIdsByTagCodeInDatasources(String tagCode, java.util.Collection<Long> visibleDatasourceIds);
+
+    /**
      * 查询所有预定义标签
      *
      * @return 预定义标签列表（tagCode + tagName + category）

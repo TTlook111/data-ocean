@@ -2,6 +2,7 @@ package com.dataocean.module.fieldtag.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
+import com.dataocean.common.security.UserContext;
 import com.dataocean.module.permission.s1.annotation.IamS1Resource;
 import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
@@ -9,6 +10,7 @@ import com.dataocean.module.fieldtag.entity.dto.ConfidenceUpdateRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.ConfidenceEventVO;
 import com.dataocean.module.fieldtag.entity.vo.ConfidenceVO;
 import com.dataocean.module.fieldtag.service.FieldConfidenceService;
+import com.dataocean.module.fieldtag.support.FieldGovernanceScopeSupport;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +43,7 @@ public class FieldConfidenceController {
     private static final String MANAGE_FUNCTION = "governance:field:manage";
 
     private final FieldConfidenceService fieldConfidenceService;
+    private final FieldGovernanceScopeSupport fieldScope;
 
     /**
      * 分页查询字段可信度列表（看板用，返回真实存在可信度记录的字段）
@@ -58,7 +61,8 @@ public class FieldConfidenceController {
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(required = false) String level,
             @RequestParam(required = false) Long datasourceId) {
-        return Result.success(fieldConfidenceService.pageConfidence(page, pageSize, level, datasourceId));
+        java.util.List<Long> visible = fieldScope.visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION);
+        return Result.success(fieldConfidenceService.pageConfidence(page, pageSize, level, datasourceId, visible));
     }
 
     /**
@@ -82,7 +86,8 @@ public class FieldConfidenceController {
     @GetMapping("/batch")
     @IamS1ScopedList(VIEW_FUNCTION)
     public Result<List<ConfidenceVO>> batchGetConfidence(@RequestParam List<Long> columnMetaIds) {
-        return Result.success(fieldConfidenceService.batchGetConfidence(columnMetaIds));
+        java.util.List<Long> visible = fieldScope.visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION);
+        return Result.success(fieldConfidenceService.batchGetConfidence(columnMetaIds, visible));
     }
 
     /**

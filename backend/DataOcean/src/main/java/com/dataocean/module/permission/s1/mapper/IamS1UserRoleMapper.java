@@ -40,6 +40,17 @@ public interface IamS1UserRoleMapper extends BaseMapper<IamS1UserRole> {
             """)
     long countActiveByUserAndRole(@Param("userId") Long userId, @Param("roleId") Long roleId);
 
+    /** 锁定某用户全部绑定，删除账号前必须先拿到这些行再改状态。 */
+    @Select("""
+            SELECT id, user_id, role_id, status, revision_no,
+                   created_by, updated_by, created_at, updated_at
+            FROM iam_s1_user_role
+            WHERE user_id = #{userId}
+            ORDER BY id
+            FOR UPDATE
+            """)
+    List<IamS1UserRole> selectByUserIdForUpdate(@Param("userId") Long userId);
+
     /** 锁定全部有效系统管理员绑定，防止并发移除最后一个管理员。 */
     @Select("""
             SELECT ur.id, ur.user_id, ur.role_id, ur.status, ur.revision_no,

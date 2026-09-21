@@ -58,7 +58,8 @@ public class LineageEdgeController {
      * @return 创建结果
      */
     @PostMapping
-    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY, resourceIds = {"#request.sourceId", "#request.targetId"})
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY,
+            resourceIds = {"#request.sourceEntityId", "#request.targetEntityId"})
     public Result<LineageEdgeVO> createLineage(@Valid @RequestBody LineageCreateRequest request) {
         LineageEdgeVO vo = lineageEdgeService.createLineage(request);
         return Result.success("血缘关系创建成功", vo);
@@ -79,7 +80,8 @@ public class LineageEdgeController {
      * @return 操作结果
      */
     @DeleteMapping("/{relationshipId}")
-    @IamS1ScopedList(MANAGE_FUNCTION)
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.LINEAGE_RELATIONSHIP,
+            resourceIds = "#relationshipId")
     public Result<Map<String, Object>> deleteLineage(
             @PathVariable Long relationshipId,
             @RequestParam(defaultValue = "false") boolean cascadeDerived) {
@@ -135,6 +137,9 @@ public class LineageEdgeController {
 
         if (requests.isEmpty()) {
             return Result.error(400, "文件中无有效数据");
+        }
+        if (requests.size() > 200) {
+            return Result.error(400, "单次批量创建最多 200 条，当前: " + requests.size());
         }
 
         List<LineageEdgeVO> results = lineageEdgeService.batchCreateLineage(requests);

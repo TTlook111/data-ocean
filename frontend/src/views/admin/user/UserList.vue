@@ -10,18 +10,17 @@ import {
   getUser,
   importUsers,
   listDepartments,
-  listRoles,
   listUsers,
   resetUserPassword,
   updateUser,
   updateUserStatus,
   type DepartmentNode,
-  type RoleItem,
   type UserItem,
   type UserPayload,
   type UserQuery,
 } from '../../../api/admin/user'
 import { useAuthStore } from '../../../stores/auth'
+import { useIamS1Store } from '../../../stores/iamS1'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
@@ -31,6 +30,7 @@ const STATUS_DISABLED = 2
 const STATUS_LOCKED = 3
 
 const auth = useAuthStore()
+const iamS1 = useIamS1Store()
 const formRef = ref<FormInstance>()
 const importInputRef = ref<HTMLInputElement>()
 const loading = ref(false)
@@ -41,7 +41,6 @@ const exportLoading = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref<number>()
 const users = ref<UserItem[]>([])
-const roles = ref<RoleItem[]>([])
 const departments = ref<DepartmentNode[]>([])
 const total = ref(0)
 const errorMessage = ref('')
@@ -60,7 +59,6 @@ const form = reactive<UserPayload>({
   email: '',
   phone: '',
   departmentId: undefined,
-  roleIds: [],
 })
 
 const statusOptions = [
@@ -89,8 +87,18 @@ const rules = computed<FormRules>(() => ({
   email: [{ type: 'email', message: '邮箱格式不正确', trigger: 'blur' }],
   phone: [{ pattern: /^1\d{10}$/, message: '请输入11位手机号', trigger: 'blur' }],
   departmentId: [{ required: true, message: '请选择部门', trigger: 'change' }],
-  roleIds: [{ required: true, type: 'array', min: 1, message: '至少选择一个角色', trigger: 'change' }],
 }))
+
+const VIEW_FUNCTION = 'organization:user:view'
+const MANAGE_FUNCTION = 'organization:user:manage'
+const EXPORT_FUNCTION = 'organization:user:export'
+const MANAGE_HINT = '需要 organization:user:manage'
+const EXPORT_HINT = '需要 organization:user:export'
+const ROLE_BINDING_HINT = 'S1 角色请到「组织、角色与负责源」绑定，不能把旧角色当成新权限角色。'
+
+const canViewUsers = computed(() => iamS1.hasGlobal(VIEW_FUNCTION))
+const canManageUsers = computed(() => iamS1.hasGlobal(MANAGE_FUNCTION))
+const canExportUsers = computed(() => iamS1.hasGlobal(EXPORT_FUNCTION))
 
 const currentUserId = computed(() => auth.currentUser?.id || auth.user?.userId)
 const isFiltered = computed(() => Boolean(query.username || query.realName || query.departmentId || query.status))
@@ -141,7 +149,6 @@ function resetForm() {
     email: '',
     phone: '',
     departmentId: undefined,
-    roleIds: [],
   })
   formRef.value?.clearValidate()
 }
@@ -161,14 +168,6 @@ function departmentText(row: UserItem) {
     return departmentPathMap.value.get(row.departmentId)
   }
   return row.departmentName || '未分配'
-}
-
-function visibleRoleNames(row: UserItem) {
-  return (row.roleNames || []).slice(0, 2)
-}
-
-function hiddenRoleNames(row: UserItem) {
-  return (row.roleNames || []).slice(2)
 }
 
 function fullTime(value?: string) {
@@ -209,6 +208,13 @@ function extractError(error: unknown, fallback: string) {
 }
 
 async function fetchUsers() {
+  if (!canViewUsers.value) {
+    users.value = []
+    total.value = 0
+    loading.value = false
+    errorMessage.value = ''
+    return
+  }
   loading.value = true
   errorMessage.value = ''
   try {
@@ -227,9 +233,7 @@ async function fetchUsers() {
 async function fetchOptions() {
   optionLoading.value = true
   try {
-    const [roleResult, departmentResult] = await Promise.all([listRoles(), listDepartments()])
-    roles.value = roleResult.data
-    departments.value = departmentResult.data
+    departments.value = (await listDepartments()).data || []
   } catch (error) {
     ElMessage.error(extractError(error, '筛选选项加载失败'))
   } finally {
@@ -266,6 +270,10 @@ async function openDetail(row: UserItem) {
 }
 
 function openCreate() {
+  if (!canManageUsers.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   resetForm()
   dialogVisible.value = true
 }
@@ -279,22 +287,28 @@ function openEdit(user: UserItem) {
     email: user.email || '',
     phone: user.phone || '',
     departmentId: user.departmentId,
-    roleIds: user.roleIds || [],
   })
   dialogVisible.value = true
   formRef.value?.clearValidate()
 }
 
 async function saveUser() {
+  if (!canManageUsers.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
 
   saving.value = true
   try {
-    const payload = { ...form }
+    const payload: UserPayload = {
+      realName: form.realName,
+      email: form.email,
+      phone: form.phone,
+      departmentId: form.departmentId,
+    }
     if (editingId.value) {
-      delete payload.username
-      delete payload.password
       await updateUser(editingId.value, payload)
       const index = users.value.findIndex((item) => item.id === editingId.value)
       if (index >= 0) {
@@ -305,13 +319,18 @@ async function saveUser() {
           phone: form.phone,
           departmentId: form.departmentId,
           departmentName: form.departmentId ? departmentPathMap.value.get(form.departmentId)?.split('/').at(-1) : undefined,
-          roleIds: [...form.roleIds],
-          roleNames: roles.value.filter((role) => form.roleIds.includes(role.id)).map((role) => role.roleName),
+          roleIds: [],
+          roleNames: [],
+          roleCodes: [],
         }
       }
       ElMessage.success('用户更新成功')
     } else {
-      await createUser(payload)
+      await createUser({
+        ...payload,
+        username: form.username,
+        password: form.password,
+      })
       query.page = 1
       ElMessage.success('用户创建成功')
       await fetchUsers()
@@ -325,6 +344,10 @@ async function saveUser() {
 }
 
 async function changeStatus(user: UserItem, status: number) {
+  if (!canManageUsers.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   if (status === STATUS_DISABLED) {
     await ElMessageBox.confirm(`确定禁用用户「${user.username}」吗？禁用后该用户将无法登录。`, '禁用用户', {
       type: 'warning',
@@ -351,6 +374,10 @@ async function changeStatus(user: UserItem, status: number) {
 }
 
 async function removeUser(user: UserItem) {
+  if (!canManageUsers.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   await ElMessageBox.confirm(`确定删除用户「${user.username}」？此操作不可恢复。`, '删除用户', {
     type: 'error',
     confirmButtonText: '确认删除',
@@ -380,6 +407,10 @@ async function copyPassword(password: string) {
 }
 
 async function resetPassword(user: UserItem) {
+  if (!canManageUsers.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   await ElMessageBox.confirm(`确定重置用户「${user.username}」的密码吗？重置后该用户需使用临时密码登录并修改密码。`, '重置密码', {
     type: 'warning',
     confirmButtonText: '确认重置',
@@ -433,6 +464,10 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 async function downloadTemplate() {
+  if (!canManageUsers.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   try {
     const blob = await downloadUserImportTemplate()
     downloadBlob(blob, 'dataocean-user-import-template.csv')
@@ -442,6 +477,10 @@ async function downloadTemplate() {
 }
 
 function openImportPicker() {
+  if (!canManageUsers.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   importInputRef.value?.click()
 }
 
@@ -469,6 +508,10 @@ async function handleImportFile(event: Event) {
 }
 
 async function exportCurrentUsers() {
+  if (!canExportUsers.value) {
+    ElMessage.warning(EXPORT_HINT)
+    return
+  }
   exportLoading.value = true
   try {
     const blob = await exportUsers(query)
@@ -485,7 +528,9 @@ function canDelete(row: UserItem) {
 }
 
 onMounted(async () => {
-  await fetchOptions()
+  if (canViewUsers.value) {
+    await fetchOptions()
+  }
   await fetchUsers()
   filtersReady.value = true
 })
@@ -500,19 +545,19 @@ onBeforeUnmount(() => {
     <section class="page-actions">
       <div class="header-actions">
         <input ref="importInputRef" type="file" accept=".csv,text/csv" class="hidden-file-input" @change="handleImportFile" />
-        <el-button @click="downloadTemplate">
+        <el-button :disabled="!canManageUsers" :title="canManageUsers ? '' : MANAGE_HINT" @click="downloadTemplate">
           <Download :size="16" />
           导入模板
         </el-button>
-        <el-button :loading="importLoading" @click="openImportPicker">
+        <el-button :disabled="!canManageUsers" :title="canManageUsers ? '' : MANAGE_HINT" :loading="importLoading" @click="openImportPicker">
           <Upload :size="16" />
           导入用户
         </el-button>
-        <el-button :loading="exportLoading" @click="exportCurrentUsers">
+        <el-button :disabled="!canExportUsers" :title="canExportUsers ? '' : EXPORT_HINT" :loading="exportLoading" @click="exportCurrentUsers">
           <Download :size="16" />
           导出
         </el-button>
-        <el-button type="primary" @click="openCreate">新增用户</el-button>
+        <el-button type="primary" :disabled="!canManageUsers" :title="canManageUsers ? '' : MANAGE_HINT" @click="openCreate">新增用户</el-button>
       </div>
     </section>
 
@@ -548,9 +593,13 @@ onBeforeUnmount(() => {
       <ErrorState v-else-if="errorMessage" :message="errorMessage" @retry="fetchUsers" />
 
       <EmptyState
+        v-else-if="!canViewUsers"
+        message="没有“查看用户”能力（organization:user:view）。"
+      />
+      <EmptyState
         v-else-if="!users.length"
         :message="isFiltered ? '未找到匹配的用户，试试调整筛选条件。' : '暂无用户数据。可以手工创建，或使用右上角的导入功能批量导入。'"
-        :action-text="isFiltered ? '重置筛选' : '新建用户'"
+        :action-text="isFiltered ? '重置筛选' : (canManageUsers ? '新建用户' : undefined)"
         @action="isFiltered ? resetFilters() : openCreate()"
       />
 
@@ -562,13 +611,9 @@ onBeforeUnmount(() => {
             <span>{{ departmentText(row) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="角色" min-width="170">
-          <template #default="{ row }">
-            <el-tag v-for="role in visibleRoleNames(row)" :key="role" class="role-tag">{{ role }}</el-tag>
-            <el-tooltip v-if="hiddenRoleNames(row).length" :content="hiddenRoleNames(row).join('、')" placement="top">
-              <el-tag class="role-tag" type="info">+{{ hiddenRoleNames(row).length }}</el-tag>
-            </el-tooltip>
-            <span v-if="!row.roleNames?.length" class="muted-text">未分配</span>
+        <el-table-column label="角色" min-width="200">
+          <template #default>
+            <span class="muted-text">{{ ROLE_BINDING_HINT }}</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="90">
@@ -586,18 +631,18 @@ onBeforeUnmount(() => {
         <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button v-if="row.status === STATUS_NORMAL" link type="warning" @click="changeStatus(row, STATUS_DISABLED)">
+            <el-button link type="primary" :disabled="!canManageUsers" :title="canManageUsers ? '' : MANAGE_HINT" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="row.status === STATUS_NORMAL" link type="warning" :disabled="!canManageUsers" @click="changeStatus(row, STATUS_DISABLED)">
               禁用
             </el-button>
-            <el-button v-if="row.status === STATUS_DISABLED" link type="success" @click="changeStatus(row, STATUS_NORMAL)">
+            <el-button v-if="row.status === STATUS_DISABLED" link type="success" :disabled="!canManageUsers" @click="changeStatus(row, STATUS_NORMAL)">
               启用
             </el-button>
-            <el-button v-if="row.status === STATUS_LOCKED" link type="warning" @click="changeStatus(row, STATUS_NORMAL)">
+            <el-button v-if="row.status === STATUS_LOCKED" link type="warning" :disabled="!canManageUsers" @click="changeStatus(row, STATUS_NORMAL)">
               解锁
             </el-button>
-            <el-button link type="primary" @click="resetPassword(row)">重置密码</el-button>
-            <el-button v-if="canDelete(row)" link type="danger" @click="removeUser(row)">删除</el-button>
+            <el-button link type="primary" :disabled="!canManageUsers" @click="resetPassword(row)">重置密码</el-button>
+            <el-button v-if="canDelete(row)" link type="danger" :disabled="!canManageUsers" @click="removeUser(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -626,10 +671,7 @@ onBeforeUnmount(() => {
           <div>
             <dt>角色</dt>
             <dd>
-              <template v-if="detail.roleNames?.length">
-                <el-tag v-for="name in detail.roleNames" :key="name" size="small" class="user-detail__tag">{{ name }}</el-tag>
-              </template>
-              <span v-else class="muted-text">未分配角色</span>
+              <span class="muted-text">{{ ROLE_BINDING_HINT }}</span>
             </dd>
           </div>
           <div>
@@ -675,10 +717,8 @@ onBeforeUnmount(() => {
             :props="{ label: 'deptName', children: 'children' }"
           />
         </el-form-item>
-        <el-form-item label="角色" prop="roleIds" required>
-          <el-select v-model="form.roleIds" multiple placeholder="请选择角色">
-            <el-option v-for="role in roles" :key="role.id" :label="role.roleName" :value="role.id" />
-          </el-select>
+        <el-form-item label="角色">
+          <p class="muted-text">{{ ROLE_BINDING_HINT }}</p>
         </el-form-item>
       </el-form>
       <template #footer>

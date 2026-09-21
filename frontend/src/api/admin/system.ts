@@ -68,8 +68,8 @@ export async function getSystemHealth() {
   return data
 }
 
-export async function resetDatasourcePool(datasourceId: number) {
-  const { data } = await http.post<ApiResult<void>>(`/api/admin/system/sql-pools/${datasourceId}/reset`)
+export async function resetDatasourcePool(datasourceId: number, payload: { confirmed: true; reason: string }) {
+  const { data } = await http.post<ApiResult<void>>(`/api/admin/system/sql-pools/${datasourceId}/reset`, payload)
   return data
 }
 

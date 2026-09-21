@@ -2,7 +2,12 @@ package com.dataocean.module.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.permission.event.PermissionChangedEvent;
+import com.dataocean.common.security.UserContext;
+import com.dataocean.module.permission.s1.IamS1Constants;
+import com.dataocean.module.permission.s1.entity.IamS1DataGrant;
+import com.dataocean.module.permission.s1.mapper.IamS1DataGrantMapper;
+import com.dataocean.module.permission.s1.service.IamS1AuditEventService;
+import com.dataocean.module.permission.s1.service.IamS1PermissionRevisionService;
 import com.dataocean.module.user.entity.dto.DepartmentCreateDTO;
 import com.dataocean.module.user.entity.dto.DepartmentUpdateDTO;
 import com.dataocean.module.user.entity.vo.DepartmentTreeVO;
@@ -13,7 +18,6 @@ import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.service.DepartmentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,12 +26,15 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
 /**
  * 部门管理业务实现类。
  * <p>
  * 实现 {@link DepartmentService} 接口，提供部门树查询、创建和删除的具体逻辑。
  * 部门采用 parent_id 自关联实现树形结构，在内存中组装树形层级。
+ * 创建、改名、改父级、启停和删除都写入 S1 revision；部门 grant 在删除时标为 REVOKED。
  * </p>
  *
  * @author DataOcean
@@ -39,7 +46,9 @@ public class DepartmentServiceImpl implements DepartmentService {
 
     private final DepartmentMapper departmentMapper;
     private final UserMapper userMapper;
-    private final ApplicationEventPublisher eventPublisher;
+    private final IamS1DataGrantMapper iamS1DataGrantMapper;
+    private final IamS1PermissionRevisionService revisionService;
+    private final IamS1AuditEventService auditEventService;
 
     /**
      * {@inheritDoc}
@@ -94,6 +103,7 @@ public class DepartmentServiceImpl implements DepartmentService {
      * 1. 校验上级部门存在性（若指定了 parentId）
      * 2. 校验部门编码唯一性
      * 3. 构建部门实体并插入数据库
+     * 4. 记录 S1 revision（部门路径进入 Resolver 授权输入）
      * </p>
      */
     @Transactional
@@ -120,7 +130,9 @@ public class DepartmentServiceImpl implements DepartmentService {
         department.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
         department.setStatus(1);
         departmentMapper.insert(department);
-        eventPublisher.publishEvent(new PermissionChangedEvent(this, department.getId(), null));
+        recordOrganizationRevision("DEPARTMENT", department.getId(), "CREATE",
+                "departmentId=" + department.getId() + ";parentId=" + department.getParentId(),
+                "创建部门");
         log.info("部门创建成功 departmentId={} deptCode={}", department.getId(), department.getDeptCode());
         return department.getId();
     }
@@ -145,13 +157,30 @@ public class DepartmentServiceImpl implements DepartmentService {
         if (sameCode != null && sameCode > 0) {
             throw new BusinessException("部门编码已存在");
         }
+        boolean parentChanged = !Objects.equals(normalizeParentId(department.getParentId()), parentId);
+        Integer newStatus = request.getStatus() == null ? 1 : request.getStatus();
+        boolean statusChanged = !Objects.equals(department.getStatus(), newStatus);
+        boolean renamed = !Objects.equals(department.getDeptName(), request.getDeptName())
+                || !Objects.equals(department.getDeptCode(), request.getDeptCode());
         department.setParentId(parentId);
         department.setDeptName(request.getDeptName());
         department.setDeptCode(request.getDeptCode());
         department.setSortOrder(request.getSortOrder() == null ? 0 : request.getSortOrder());
-        department.setStatus(request.getStatus() == null ? 1 : request.getStatus());
+        department.setStatus(newStatus);
         departmentMapper.updateById(department);
-        eventPublisher.publishEvent(new PermissionChangedEvent(this, id, null));
+        String changeType = parentChanged ? "PARENT_CHANGE"
+                : statusChanged ? (Integer.valueOf(1).equals(newStatus) ? "ENABLE" : "DISABLE")
+                : "UPDATE";
+        if (parentChanged || statusChanged || renamed) {
+            recordOrganizationRevision("DEPARTMENT", id, changeType,
+                    "departmentId=" + id + ";parentId=" + parentId + ";status=" + newStatus,
+                    "更新部门");
+        } else {
+            // 仅排序变化也改变树展示，仍递增 revision，避免 Resolver 部门路径陈旧。
+            recordOrganizationRevision("DEPARTMENT", id, "UPDATE",
+                    "departmentId=" + id + ";sortOrder=" + department.getSortOrder(),
+                    "更新部门");
+        }
     }
 
     /**
@@ -160,13 +189,14 @@ public class DepartmentServiceImpl implements DepartmentService {
      * 实现逻辑：
      * 1. 检查部门下是否有关联用户
      * 2. 检查部门下是否有子部门
-     * 3. 若部门非空则拒绝删除，否则执行物理删除
+     * 3. 若部门非空则拒绝删除，否则撤回该部门 ACTIVE grant 并物理删除
      * </p>
      */
     @Transactional
     @Override
     public void deleteDepartment(Long id) {
         log.info("开始删除部门 departmentId={}", id);
+        requireDepartment(id);
         // 检查部门下是否有关联用户
         Long userCount = userMapper.selectCount(new LambdaQueryWrapper<SysUser>().eq(SysUser::getDepartmentId, id));
         // 检查部门下是否有子部门
@@ -177,8 +207,12 @@ public class DepartmentServiceImpl implements DepartmentService {
                     id, userCount, childCount);
             throw new BusinessException("非空部门禁止删除");
         }
+        Long operatorId = operatorId();
+        Long revisionNo = revisionService.record("DEPARTMENT", id, "DELETE", operatorId, "删除部门");
+        revokeDepartmentGrants(id, revisionNo, operatorId);
+        auditEventService.recordSuccess("DEPARTMENT_DELETE", operatorId, "DEPARTMENT", id, null,
+                "departmentId=" + id + ";revision=" + revisionNo, "删除部门", UUID.randomUUID().toString());
         departmentMapper.deleteById(id);
-        eventPublisher.publishEvent(new PermissionChangedEvent(this, id, null));
         log.info("部门删除成功 departmentId={}", id);
     }
 
@@ -221,5 +255,35 @@ public class DepartmentServiceImpl implements DepartmentService {
             current = parentId;
         }
         return false;
+    }
+
+    private void revokeDepartmentGrants(Long departmentId, Long revisionNo, Long operatorId) {
+        List<IamS1DataGrant> grants = iamS1DataGrantMapper.selectActiveBySubjectForUpdate(
+                IamS1Constants.PROTOCOL_VERSION, IamS1Constants.SUBJECT_DEPARTMENT, departmentId);
+        if (grants == null) {
+            return;
+        }
+        for (IamS1DataGrant grant : grants) {
+            grant.setStatus(IamS1Constants.DATA_GRANT_STATUS_REVOKED);
+            grant.setRevisionNo(revisionNo);
+            grant.setUpdatedBy(operatorId);
+            iamS1DataGrantMapper.updateById(grant);
+        }
+    }
+
+    private void recordOrganizationRevision(String targetType, Long targetId, String changeType,
+                                            String afterSummary, String reason) {
+        Long operatorId = operatorId();
+        Long revisionNo = revisionService.record(targetType, targetId, changeType, operatorId, reason);
+        auditEventService.recordSuccess(targetType + "_" + changeType, operatorId, targetType, targetId,
+                null, afterSummary + ";revision=" + revisionNo, reason, UUID.randomUUID().toString());
+    }
+
+    private Long operatorId() {
+        try {
+            return UserContext.currentUserId();
+        } catch (BusinessException ignored) {
+            return null;
+        }
     }
 }
