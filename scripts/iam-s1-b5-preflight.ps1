@@ -280,6 +280,33 @@ if ($b0) {
 $handbook = Find-Doc (Join-Path $RepoRoot "docs\development\guides") "*IAM-S1-B5*.md"
 if ($handbook) {
     Add-Pass "B5 handbook exists"
+    $handbookText = Get-FileText $handbook
+    $requiredHandbook = @(
+        "DRILL_HOST",
+        "DRILL_PORT",
+        "event_scheduler",
+        "@@server_uuid",
+        "--set-gtid-purged=OFF",
+        "--hex-blob",
+        "--quick",
+        "--no-tablespaces",
+        "--binary-mode=1",
+        "backup is incomplete: Dump completed marker missing",
+        "backup unexpectedly contains iam_s1 tables",
+        "Length -lt 4",
+        "restoring events/routines onto the same instance is forbidden"
+    )
+    $missingHandbook = @($requiredHandbook | Where-Object { $handbookText -notmatch [regex]::Escape($_) })
+    if ($missingHandbook.Count -eq 0) {
+        Add-Pass "B5 handbook requires isolated drill instance, dump safety flags, and failing backup assertions"
+    } else {
+        Add-Fail ("B5 handbook missing required restore-drill guards: " + ($missingHandbook -join ", "))
+    }
+    if ($handbookText -match 'mysql --host=\$env:DB_HOST --port=\$env:DB_PORT --user=\$env:DB_USERNAME --password --execute="CREATE DATABASE \$env:DRILL_DB') {
+        Add-Fail "B5 handbook still restores the drill database onto the production MySQL instance"
+    } else {
+        Add-Pass "B5 handbook does not create DRILL_DB on the production host"
+    }
 }
 
 # --- 待用户确认项：不从旧权限推导，也不读取密钥 ---
@@ -288,10 +315,11 @@ Write-Host "User confirmation required before real B5 (values are not read from 
 Add-Pending "bootstrap userId (IAM_S1_BOOTSTRAP_USER_ID / iam.s1.bootstrap.user-id). Do not infer from old ADMIN, old roles, or old *"
 Add-Pending "B5_EXPECTED_SHA equal to git rev-parse HEAD, with a clean working tree"
 Add-Pending "confirmed enabled undeleted account for that userId"
-Add-Pending "MySQL full backup path and checksum"
+Add-Pending "production MySQL backup directory; SHA256 is computed after dump, not supplied in advance"
+Add-Pending "isolated drill MySQL instance DRILL_HOST/DRILL_PORT plus DRILL_DB; same instance as production is forbidden"
 Add-Pending "maintenance window start/end"
 Add-Pending "new role bindings, responsible datasources, and data grants from the handbook template"
-Add-Pending "live-DB read-only SQL gate in the handbook section 4.4; this script does not connect"
+Add-Pending "live-DB read-only SQL gate in the handbook section 4.4; run only after isolated-instance restore drill; this script does not connect"
 
 $userId = [Environment]::GetEnvironmentVariable("IAM_S1_BOOTSTRAP_USER_ID")
 if (-not [string]::IsNullOrWhiteSpace($userId)) {

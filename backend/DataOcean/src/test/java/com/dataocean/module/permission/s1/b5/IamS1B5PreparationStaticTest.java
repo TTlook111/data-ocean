@@ -173,15 +173,32 @@ class IamS1B5PreparationStaticTest {
         assertThat(handbook).contains("--default-character-set=utf8mb4");
         assertThat(handbook).contains("禁止覆盖式导入");
         assertThat(handbook).contains("隔离恢复演练");
+        assertThat(handbook).contains("DRILL_HOST");
+        assertThat(handbook).contains("DRILL_PORT");
+        assertThat(handbook).contains("event_scheduler");
+        assertThat(handbook).contains("@@server_uuid");
+        assertThat(handbook).contains("--set-gtid-purged=OFF");
+        assertThat(handbook).contains("--hex-blob");
+        assertThat(handbook).contains("--quick");
+        assertThat(handbook).contains("--no-tablespaces");
+        assertThat(handbook).contains("--binary-mode=1");
+        assertThat(handbook).contains("backup is incomplete: Dump completed marker missing");
+        assertThat(handbook).contains("backup unexpectedly contains iam_s1 tables");
+        assertThat(handbook).contains("Length -lt 4");
+        assertThat(handbook).contains("restoring events/routines onto the same instance is forbidden");
         assertThat(handbook).contains("B5_EXPECTED_SHA");
         assertThat(handbook).contains("^[1-9]\\d*$");
         assertThat(handbook).doesNotContain(" > \"$env:BACKUP_DIR");
         assertThat(handbook).doesNotContain("--routines --triggers --databases");
+        assertThat(handbook).doesNotContain(
+                "mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --execute=\"CREATE DATABASE $env:DRILL_DB");
         String preflight = read(Path.of("..", "..", "scripts/iam-s1-b5-preflight.ps1"));
         assertThat(preflight).contains("^[1-9]\\d*$");
         assertThat(preflight).contains("(?m)^\\s*@Aspect\\s*$");
         assertThat(preflight).contains("(?m)^\\s*@Component\\s*$");
         assertThat(preflight).contains("B5_EXPECTED_SHA");
+        assertThat(preflight).contains("DRILL_HOST");
+        assertThat(preflight).contains("SHA256 is computed after dump");
         assertThat(preflight).doesNotContain("-match '@Aspect'");
         assertThat(preflight).doesNotContain("-match '@Component'");
         String b0 = read(Path.of("..", "..", "docs/development/轨道B-B0权限清单与决策冻结.md"));
@@ -190,6 +207,7 @@ class IamS1B5PreparationStaticTest {
         String followUp = read(Path.of("..", "..", "docs/development/后续开发.md"));
         assertThat(followUp).contains("V53 永久不再使用");
         assertThat(followUp).contains("B5_EXPECTED_SHA");
+        assertThat(followUp).contains("独立 MySQL 实例");
         assertThat(followUp).doesNotContain("必须在本轮迁移执行前补上");
     }
 

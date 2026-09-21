@@ -104,10 +104,12 @@ B4 自动化验证 ≠ B5 完成。本手册写完后，B5 仍未执行。
 | --- | --- | --- |
 | 维护窗口起止 | `<WINDOW_START>` / `<WINDOW_END>` | 是 |
 | 最终部署 SHA | `$B5_EXPECTED_SHA`，必须等于 `git rev-parse HEAD`，且工作树干净 | 是，写入备份、切换和验收记录 |
-| MySQL 主机/库名 | `$DB_HOST` / `$DB_NAME` | 是 |
-| MySQL 账号 | `$DB_USERNAME` | 是；密码只走环境变量或本地密钥，不入库 |
-| 备份文件目录 | `$BACKUP_DIR` | 是 |
-| 隔离演练空库名 | `$DRILL_DB`，不得等于 `$DB_NAME` | 是；仅用于恢复演练 |
+| 生产 MySQL 主机/端口/库名 | `$DB_HOST` / `$DB_PORT` / `$DB_NAME` | 是 |
+| 生产 MySQL 账号 | `$DB_USERNAME` | 是；密码只走环境变量或本地密钥，不入库 |
+| 备份文件目录 | `$BACKUP_DIR` | 是；SHA256 在备份生成后计算并记录，不要求用户预先提供 |
+| 隔离演练 MySQL 主机/端口 | `$DRILL_HOST` / `$DRILL_PORT` | 是；必须是独立 MySQL 实例，禁止等于生产实例 |
+| 隔离演练账号 | `$DRILL_USERNAME` | 是；只连演练实例。不得用生产账号连演练实例，也不得用演练账号连生产 |
+| 隔离演练空库名 | `$DRILL_DB`，不得等于 `$DB_NAME` | 是；仅用于恢复演练，且只建在演练实例上 |
 | Redis 主机 | `$REDIS_HOST` | 是 |
 | 首个新系统管理员 `userId` | 见第 5 节 | 是 |
 
@@ -125,30 +127,39 @@ B4 自动化验证 ≠ B5 完成。本手册写完后，B5 仍未执行。
 
 ```powershell
 $backupFile = Join-Path $env:BACKUP_DIR "dataocean-before-b5-$env:B5_EXPECTED_SHA.sql"
-mysqldump --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --single-transaction --routines --triggers --events --default-character-set=utf8mb4 --result-file=$backupFile $env:DB_NAME
+if ($backupFile -match "'") { throw "backup file path must not contain a single quote" }
+mysqldump --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --single-transaction --quick --hex-blob --set-gtid-purged=OFF --no-tablespaces --routines --triggers --events --default-character-set=utf8mb4 --result-file=$backupFile $env:DB_NAME
 ```
 
 - 不要加 `--databases`。dump 里不得带 `CREATE DATABASE` / `USE $DB_NAME`，才能导入到干净的空库或演练库。
-- `--events` 必须显式打开；`--routines`、`--triggers` 一并带上。
+- `--events` 必须显式打开；`--routines`、`--triggers` 一并带上。完整备份因此包含 events、routines、triggers 与 DEFINER。
+- `--quick`：逐行读大表，避免客户端把整表载入内存。
+- `--hex-blob`：避免二进制字段在文本 dump 中损坏。
+- `--set-gtid-purged=OFF`：GTID 开启时默认 dump 可能写出 `SET @@GLOBAL.GTID_PURGED`；恢复到演练实例或同实例可能失败或要求高权限。
+- `--no-tablespaces`：避免不必要的 PROCESS 权限和 tablespace 语句。
 - `--default-character-set=utf8mb4` 必须与库字符集一致。
+- `$backupFile` 路径不得包含单引号，否则后续 `SOURCE '...'` 会解析异常。
 - 密码通过交互或环境提供，不要写进命令历史文档。
 
-备份后必须完成下列校验，任一失败则停止，不得进入迁移：
+备份后必须完成下列校验，任一失败则停止，不得进入迁移。这些检查必须 `throw`，不能只打印 `Select-String` 结果：
 
 ```powershell
 if (-not (Test-Path -LiteralPath $backupFile)) { throw "backup file missing" }
 $item = Get-Item -LiteralPath $backupFile
-if ($item.Length -le 0) { throw "backup file is empty" }
-Get-FileHash -LiteralPath $backupFile -Algorithm SHA256
+if ($item.Length -lt 4) { throw "backup file is too small to be a valid dump" }
+$hash = Get-FileHash -LiteralPath $backupFile -Algorithm SHA256
 $headBytes = [System.IO.File]::ReadAllBytes($backupFile)[0..3]
 if ($headBytes[0] -eq 0xFF -and $headBytes[1] -eq 0xFE) { throw "UTF-16 BOM detected; dump must not use PowerShell redirection" }
 if ($headBytes[0] -ne 0x2D -or $headBytes[1] -ne 0x2D) { throw "dump must start with -- (mysqldump header)" }
-Select-String -LiteralPath $backupFile -Pattern "^-- Dump completed" | Select-Object -Last 1
-Select-String -LiteralPath $backupFile -Pattern "(?i)CREATE TABLE.*iam_s1_"
-# 上一行在迁移前必须无匹配。出现 iam_s1_ 建表语句则停止。
+if (-not (Select-String -LiteralPath $backupFile -Pattern '^-- Dump completed' -Quiet)) {
+    throw 'backup is incomplete: Dump completed marker missing'
+}
+if (Select-String -LiteralPath $backupFile -Pattern '(?i)CREATE TABLE.*iam_s1_' -Quiet) {
+    throw 'backup unexpectedly contains iam_s1 tables'
+}
 ```
 
-把文件路径、字节大小、SHA256、`Dump completed` 是否存在写入切换记录。备份完成后立刻做第 4.3.2 节隔离恢复演练；演练未通过对生产库零写入，也不进入第 4.4 节。
+把文件路径、字节大小、备份生成后计算的 SHA256、`Dump completed` 断言结果写入切换记录。不要在备份前向用户索取 SHA256。备份完成后立刻做第 4.3.2 节隔离实例恢复演练；演练未通过对生产库零写入，也不进入第 4.4 节。
 
 4. **真实库只读 SQL 门禁**（必须完整执行第 4.4 节）
    只查 `flyway_schema_history` 不够。必须同时核对这些不可重入对象是否已被手工或失败迁移留下：`query_task.suggested_questions`、V56 的 8 个证据列及索引、全部 `iam_s1_%` 表。任一状态与预期不一致时 **停止，不执行 migrate**。本准备轮不得连接真实库；真实 B5 开始后，仅在用户提供连接时只读执行。
@@ -180,8 +191,8 @@ redis-cli -h $env:REDIS_HOST -p $env:REDIS_PORT --scan --pattern "user:token-ver
 
 | 停止点 | 判定 | 动作 |
 | --- | --- | --- |
-| S0 备份前 | 无法停止写入、工作树不干净、HEAD ≠ `B5_EXPECTED_SHA`、缺少确认的 userId | 取消窗口，不碰数据库 |
-| S1 备份后、迁移前 | 备份文件空、编码/校验失败、隔离演练对象不一致、第 4.4 节 SQL 门禁失败、仓库 preflight 失败 | 恢复服务到旧体系，不迁移 |
+| S0 备份前 | 无法停止写入、工作树不干净、HEAD ≠ `B5_EXPECTED_SHA`、缺少确认的 userId、缺少独立演练 MySQL 实例 | 取消窗口，不碰数据库 |
+| S1 备份后、迁移前 | 备份文件过小、编码/校验断言失败、演练实例等于生产、`event_scheduler` 非 OFF、隔离演练对象不一致、第 4.4 节 SQL 门禁失败、仓库 preflight 失败 | 恢复服务到旧体系，不迁移 |
 | S2 V51/V52 失败 | `flyway_schema_history` 出现失败行或应用无法启动 | 停止后续迁移；按 4.3.1 恢复到干净库；不手工改失败脚本后重跑已成功版本 |
 | S3 V54～V57 失败 | S1 表不完整 | 视为未切换；按 4.3.1 恢复到干净库；继续旧体系 |
 | S4 迁移成功、bootstrap 失败 | `iam_s1_bootstrap_state` 仍非对目标账号 `COMPLETED` | 未正式切换。可按 4.3.1 恢复备份并继续旧体系；不要用旧 `ADMIN`/`*` 补救 |
@@ -218,47 +229,99 @@ CREATE DATABASE confirmed_db_name CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_
 导入必须指定 utf8mb4，并用 mysql 客户端 `SOURCE`，避免 PowerShell 重定向：
 
 ```powershell
+if ($backupFile -match "'") { throw "backup file path must not contain a single quote" }
 $backupUnix = ($backupFile -replace '\\','/')
-mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --default-character-set=utf8mb4 --database=$env:DB_NAME --execute="SOURCE '$backupUnix'"
+mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --default-character-set=utf8mb4 --binary-mode=1 --database=$env:DB_NAME --execute="SOURCE '$backupUnix'"
 ```
 
 导入后立刻核对该库 **不存在** 任何 `iam_s1_%` 表，Flyway 最大成功版本回到 V50，且 `query_task.suggested_questions` 与 V56 证据列均不存在。对象集合必须与备份前记录的清单一致。
 
 ### 4.3.2 隔离恢复演练及对象核对
 
-真实 B5 在通过备份校验之后、对生产库执行第 4.4 节 SQL 门禁之前，必须先在 **隔离空库** 演练一次恢复。本准备轮不连接真实库，因此也不做这次演练。
+真实 B5 在通过备份校验之后、对生产库执行第 4.4 节 SQL 门禁之前，必须先在 **独立 MySQL 实例** 上的空库演练一次恢复。只换 schema 名、仍连同一个 `$DB_HOST` **不算隔离**。本准备轮不连接真实库，因此也不做这次演练。
 
-约束：
+完整备份包含 events、routines、triggers 与 DEFINER。恢复后事件可能立即启用，例程也可能显式访问业务库或外部资源。因此：
 
-- `$DRILL_DB` 由用户确认，且不得等于 `$DB_NAME`。
-- 只允许 `CREATE DATABASE` 一个空的演练库、导入备份、只读核对、然后 `DROP DATABASE` 该演练库。
-- 不得对 `$DB_NAME` 做 DROP、导入或任何写操作。
-- 导入同样禁止 PowerShell `>` / 管道。
+- 用户必须提供独立的 `$DRILL_HOST` / `$DRILL_PORT`。
+- 演练实例 **禁止** 等于生产 MySQL 实例。`localhost` / `127.0.0.1` / `::1` 与相同端口视为同一实例。
+- 若只能使用同一 MySQL 实例，则 **不能** 把含 events/routines 的完整备份拿来做安全演练，B5 停止。
+- 演练实例必须 `event_scheduler=OFF`。
+- 演练实例不能访问生产账号或生产业务库：只用 `$DRILL_USERNAME` 连演练实例，只用 `$DB_USERNAME` 连生产；不要把生产密码交给演练命令。
+- 验证完成后 **只** 删除演练实例中的 `$DRILL_DB`，不得对生产主机执行 `DROP DATABASE`。
 
 ```powershell
+function Convert-MysqlEndpoint([string]$HostName, [string]$Port) {
+    if ([string]::IsNullOrWhiteSpace($HostName) -or [string]::IsNullOrWhiteSpace($Port)) {
+        throw "MySQL host and port are required"
+    }
+    $normalizedHost = $HostName.Trim().ToLowerInvariant()
+    if ($normalizedHost -in @("localhost", "127.0.0.1", "::1", "0.0.0.0")) {
+        $normalizedHost = "loopback"
+    }
+    if ($Port -notmatch '^[0-9]+$') { throw "invalid MySQL port" }
+    return "${normalizedHost}:${Port}"
+}
+
+if ([string]::IsNullOrWhiteSpace($env:DRILL_HOST) -or [string]::IsNullOrWhiteSpace($env:DRILL_PORT)) {
+    throw "DRILL_HOST and DRILL_PORT are required; renaming the schema on the production instance is not isolation"
+}
+if ([string]::IsNullOrWhiteSpace($env:DRILL_USERNAME)) {
+    throw "DRILL_USERNAME is required; do not reuse the production account against the drill instance"
+}
+$prodEndpoint = Convert-MysqlEndpoint $env:DB_HOST $env:DB_PORT
+$drillEndpoint = Convert-MysqlEndpoint $env:DRILL_HOST $env:DRILL_PORT
+if ($prodEndpoint -eq $drillEndpoint) {
+    throw "drill MySQL instance must not equal the production instance; restoring events/routines onto the same instance is forbidden"
+}
+
+$prodUuid = mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --skip-column-names --silent --execute="SELECT @@server_uuid"
+$drillUuid = mysql --host=$env:DRILL_HOST --port=$env:DRILL_PORT --user=$env:DRILL_USERNAME --password --skip-column-names --silent --execute="SELECT @@server_uuid"
+if ([string]::IsNullOrWhiteSpace($prodUuid) -or [string]::IsNullOrWhiteSpace($drillUuid)) {
+    throw "unable to read @@server_uuid from production or drill instance"
+}
+if ($prodUuid.Trim() -eq $drillUuid.Trim()) {
+    throw "drill @@server_uuid equals production; same MySQL instance cannot be used for events/routines restore drill"
+}
+
+mysql --host=$env:DRILL_HOST --port=$env:DRILL_PORT --user=$env:DRILL_USERNAME --password --execute="SET GLOBAL event_scheduler = OFF"
+$scheduler = mysql --host=$env:DRILL_HOST --port=$env:DRILL_PORT --user=$env:DRILL_USERNAME --password --skip-column-names --silent --execute="SELECT @@GLOBAL.event_scheduler"
+if ($scheduler.Trim() -ne "OFF") { throw "drill instance event_scheduler must be OFF" }
+
 if ($env:DRILL_DB -notmatch '^[A-Za-z0-9_]+$') { throw "invalid DRILL_DB" }
 if ($env:DRILL_DB -eq $env:DB_NAME) { throw "DRILL_DB must not equal DB_NAME" }
-mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --execute="CREATE DATABASE $env:DRILL_DB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+if ($backupFile -match "'") { throw "backup file path must not contain a single quote" }
+
+mysql --host=$env:DRILL_HOST --port=$env:DRILL_PORT --user=$env:DRILL_USERNAME --password --execute="CREATE DATABASE $env:DRILL_DB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
 $backupUnix = ($backupFile -replace '\\','/')
-mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --default-character-set=utf8mb4 --database=$env:DRILL_DB --execute="SOURCE '$backupUnix'"
+mysql --host=$env:DRILL_HOST --port=$env:DRILL_PORT --user=$env:DRILL_USERNAME --password --default-character-set=utf8mb4 --binary-mode=1 --database=$env:DRILL_DB --execute="SOURCE '$backupUnix'"
 ```
+
+约束补充：
+
+- 只允许在 **演练实例** 上 `CREATE DATABASE` 一个空的 `$DRILL_DB`、导入备份、只读核对，然后 `DROP DATABASE` 该演练库。
+- 不得对生产 `$DB_NAME` 做 DROP、导入或任何写操作。
+- 不得用 `$DB_HOST`/`$DB_USERNAME` 对演练库做恢复。
+- 导入同样禁止 PowerShell `>` / 管道。
 
 演练库必须全部成立，否则停止，不进入 4.4，不 migrate：
 
 | 核对 | 预期 |
 | --- | --- |
+| 演练实例身份 | `$DRILL_HOST:$DRILL_PORT` 与生产不等；`@@server_uuid` 与生产不等 |
+| 演练实例 `event_scheduler` | `OFF` |
 | 演练库字符集 | `utf8mb4` / `utf8mb4_unicode_ci` |
 | `iam_s1_%` 表 | 0 |
 | Flyway 最大成功版本 | 50，且无失败记录 |
 | `query_task.suggested_questions` | 不存在 |
 | V56 的 8 个证据列与 `idx_query_task_iam_protocol` | 全部不存在 |
 | V51 依赖的知识表列、`query_task.masked_fields` / `datasource_id` / `user_id` | 存在 |
-| 表/例程/事件/触发器名字集合 | 与备份前对 `$DB_NAME` 记录的只读清单一致 |
-| dump 校验和 | 与备份记录中的 SHA256 相同（文件未被改写） |
+| 表/例程/事件/触发器名字集合 | 与备份前对生产 `$DB_NAME` 记录的只读清单一致 |
+| dump 校验和 | 与备份生成后记录的 SHA256 相同（文件未被改写） |
 
-备份前只读记录对象清单（对 `$DB_NAME`，不写库）：
+备份前只读记录对象清单（对生产 `$DB_NAME`，不写库）：
 
 ```sql
+SELECT @@server_uuid;
 SELECT TABLE_NAME FROM information_schema.TABLES
 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
 ORDER BY TABLE_NAME;
@@ -273,7 +336,13 @@ WHERE TRIGGER_SCHEMA = DATABASE()
 ORDER BY TRIGGER_NAME;
 ```
 
-演练通过后，经用户确认再 `DROP DATABASE` 演练库。随后才允许对生产库跑第 4.4 节只读 SQL 门禁。
+演练通过后，经用户确认再 **只在演练实例** 删除演练库：
+
+```powershell
+mysql --host=$env:DRILL_HOST --port=$env:DRILL_PORT --user=$env:DRILL_USERNAME --password --execute="DROP DATABASE $env:DRILL_DB"
+```
+
+禁止对 `$DB_HOST` 执行该 `DROP DATABASE`。随后才允许对生产库跑第 4.4 节只读 SQL 门禁。
 
 ### 4.4 真实库只读 SQL 门禁（migrate 前必须）
 
@@ -625,7 +694,7 @@ bootstrap 成功并完成第 8 节切换验收后：
 | `@Aspect` 真实代理 | 源码同时有 `@Aspect` 与 `@Component` | `migratedControllersAreActuallyProxiedSoTheAnnotationsRun` 等 | 不涉及 | 待确认生产同样代理 | 不直接测 |
 | 旧 JWT / 旧权限不能授权 | 禁止映射已写入 B0 | 静态扫描 Resolver 无旧表 | 待确认未回填 | **必做**：旧 token 缺协议字段被拒 | 待 |
 | V51～V57 真实执行 | 本手册第 3 节 | **无**（测试关 Flyway） | **B5 必做** | 启动后版本=57 | 不直接测 |
-| 真实库 SQL 门禁 | 第 4.4 节只读 SQL | 脚本不连库 | **B5 必做，失败则不 migrate** | 不涉及 | 不涉及 |
+| 真实库 SQL 门禁 | 第 4.4 节只读 SQL | 脚本不连库 | **B5 必做，失败则不 migrate**；须先完成独立实例恢复演练 | 不涉及 | 不涉及 |
 | 最终部署 SHA | `B5_EXPECTED_SHA` = `git rev-parse HEAD` 且工作树干净 | preflight 校验 | 写入备份/切换/验收记录 | 部署该 SHA | 证据目录记录同一 SHA |
 
 ---
@@ -635,7 +704,7 @@ bootstrap 成功并完成第 8 节切换验收后：
 只有第 5、第 6 节用户输入已确认，第 4 节备份成功，仓库 preflight 静态检查通过，第 4.4 节 SQL 门禁全部 `ok = 1`，`HEAD == B5_EXPECTED_SHA` 且工作树干净，维护窗口已开始，才能执行下列步骤。本准备轮 **停止在手册**，不 migrate。
 
 1. **最终备份**
-   按 4.2 用 `mysqldump --result-file` 再做一次 MySQL 全量备份（含 `--events`、utf8mb4），文件名包含 `B5_EXPECTED_SHA`。完成校验和、第 4.3.2 节隔离恢复演练、第 4.4 节 SQL 门禁，记录 Flyway=V50、确认 SHA、Redis key 计数。禁止 PowerShell `>` 保存 dump。
+   按 4.2 用 `mysqldump --result-file` 再做一次 MySQL 全量备份（含 `--events`、`--quick`、`--hex-blob`、`--set-gtid-purged=OFF`、`--no-tablespaces`、utf8mb4），文件名包含 `B5_EXPECTED_SHA`。完成强制校验断言、备份生成后的 SHA256、第 4.3.2 节 **独立 MySQL 实例** 恢复演练、第 4.4 节 SQL 门禁，记录 Flyway=V50、确认 SHA、Redis key 计数。禁止 PowerShell `>` 保存 dump。禁止把含 events/routines 的完整备份恢复到生产 MySQL 实例做演练。
 
 2. **部署已确认 SHA 的构建**
    部署 `B5_EXPECTED_SHA`。该 SHA 必须包含 `1a6e426`，但“包含 `1a6e426`”本身不够，当前 HEAD 必须等于用户批准的 SHA。此时仍不要对用户开放新入口。旧体系进程应已停止写入。
@@ -677,12 +746,15 @@ bootstrap 成功并完成第 8 节切换验收后：
 本轮未向用户索取真实值，以下全部保持待确认：
 
 1. 首个新系统管理员的明确 `userId`（`^[1-9]\d*$`，存在、启用、未删除；不接受 0）。
-2. 最终部署 SHA（`B5_EXPECTED_SHA`，必须等于执行时 `git rev-parse HEAD`）。**不要批准 `17f2b96`。** 本轮手册修复提交后产生新的候选 SHA，须由用户另行决定是否批准。
+2. 最终部署 SHA（`B5_EXPECTED_SHA`，必须等于执行时 `git rev-parse HEAD`）。**不要批准 `17f2b96`。不要批准 `f6b1423b3f57184ee9e8277346f4e577ce88d709`。** 本轮手册修复提交后产生新的候选 SHA，须由用户另行决定是否批准。
 3. 该账号是否已有其他受保护管理员绑定（预期首次为否）。
 4. 维护窗口起止时间。
-5. MySQL 全量备份目录、演练空库名 `$DRILL_DB`（不得等于 `$DB_NAME`），以及备份文件 SHA256（备份与演练在真实 B5 执行，不在本轮做）。
-6. 真实库只读连接（仅用于第 4.4 节 SQL 门禁；必须先完成 4.3.2 演练。本准备轮不连接）。
-7. 第 6 节每一行新角色、绑定、负责源、数据授权、字段保护、审批人。
-8. 正式切换时由谁操作、证据目录路径。
+5. 生产 MySQL 全量备份目录 `$BACKUP_DIR`。备份文件 SHA256 在 dump 生成后计算并记录，不要求用户预先提供。
+6. 独立演练 MySQL 实例 `$DRILL_HOST` / `$DRILL_PORT`、演练账号 `$DRILL_USERNAME`、演练库名 `$DRILL_DB`（不得等于 `$DB_NAME`，且不得与生产实例相同）。若只能使用同一 MySQL 实例，则不能恢复含 events/routines 的完整备份做安全演练。
+7. 真实库只读连接（仅用于第 4.4 节 SQL 门禁；必须先完成 4.3.2 独立实例演练。本准备轮不连接）。
+8. 第 6 节每一行新角色、绑定、负责源、数据授权、字段保护、审批人。
+9. 正式切换时由谁操作、证据目录路径。
+
+SHA 批准后的执行顺序：先收集第 1、4、5、6、8 项；再备份并在隔离实例恢复演练；演练通过后，才使用只读连接执行第 4.4 节门禁。
 
 在这些输入给出之前，不得执行真实 migration、bootstrap、部署或切换。覆盖式导入备份不算回退。
