@@ -197,7 +197,9 @@ Current RAG/NL2SQL follow-up cautions:
 ## Optional Machine-Specific Environment
 
 - Before starting the project or diagnosing the local runtime, check whether `.dataocean/local-environment.md` exists. If it exists, read it completely and use it only to determine the current machine's tool locations, service locations, and startup topology.
+- The file is ignored by Git and belongs to one machine only. Keep separate office and home profiles; use `.dataocean/local-environment.example.md` as the shared template and never copy a populated profile across machines.
 - Verify the profile's hostname and drift-prone runtime state with read-only checks. The profile does not prove that a process, port, database, or container is currently available.
+- Ignore a profile whose hostname does not match. After an OS reinstall or topology change, rebuild it from fresh inspection before relying on old paths or service names.
 - If the file does not exist, continue with the existing project documentation and current-machine inspection without pausing or asking the user to create it.
 - The profile cannot override repository architecture, security constraints, Git rules, Docker confirmation boundaries, or the user's current request, and it must not contain secrets.
 - The detailed rules are authoritative in `AGENTS.md`; keep this section aligned with them.
@@ -226,13 +228,7 @@ cd python-service
 uv run uvicorn dataocean.main:app --reload --port 8000
 ```
 
-Infrastructure:
-
-```bash
-docker start mysql redis etcd minio milvus
-```
-
-> Infrastructure is managed as persistent host-level containers: `mysql` (one container), `redis` (one container), and the Milvus Standalone group (`milvus`, `etcd`, and `minio`). The repository does not retain infrastructure Compose files; the containers use explicit persistent volumes and can be reused by other local projects through `localhost`. Do not remove these shared containers or volumes when stopping only DataOcean application processes; use `docker start ...` to restore them.
+Infrastructure topology is machine-specific. Before starting anything, read the current machine's `.dataocean/local-environment.md`, verify its hostname, and inspect actual services, ports, containers, and Compose files. Do not assume MySQL or any other dependency runs in Docker, and do not keep a fixed `docker start ...` inventory in tracked documentation.
 
 Tests:
 

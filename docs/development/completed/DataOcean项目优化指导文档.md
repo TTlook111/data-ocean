@@ -360,8 +360,8 @@ cd python-service && uv run pytest
 # 运行 Java 测试
 cd backend/DataOcean && mvn test
 
-# 恢复已创建的公共基础设施
-docker start mysql redis etcd minio milvus
+# 基础设施按当前机器的 .dataocean/local-environment.md 核对并启动；
+# 不假定固定容器名，也不假定 MySQL 运行在 Docker。
 cd frontend && npm run dev
 cd backend/DataOcean && mvn spring-boot:run
 cd python-service && uv run uvicorn dataocean.main:app --reload --port 8000

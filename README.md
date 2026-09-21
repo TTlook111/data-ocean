@@ -166,6 +166,18 @@ DRAFT → PENDING_REVIEW → APPROVED → INDEXING → PUBLISHED
 
 > 仓库当前不内置基础设施 Compose。请先准备 MySQL、Redis 与 Milvus，并在本地配置文件中填写连接信息；不要提交真实密钥。
 
+### 每台电脑独立的启动环境说明
+
+如果同一仓库会在公司电脑、家里电脑等不同机器上运行，请在每台机器分别创建：
+
+```text
+.dataocean/local-environment.md
+```
+
+可以从 [`.dataocean/local-environment.example.md`](.dataocean/local-environment.example.md) 复制模板，但不要复制另一台电脑已经填写的文件。该文件已被 Git 忽略，只记录当前机器的 hostname、工具路径、端口、已有服务/容器和启动顺序，不得记录密码、Token 或 API Key。
+
+启动或诊断前应先核对 hostname、端口、进程和基础设施状态。系统重装或服务拓扑变化后，应重新探测并重建当前机器的文件，不能继续依赖旧路径。
+
 ### 1. 启动 Java 网关
 
 ```bash

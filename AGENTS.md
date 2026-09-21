@@ -336,7 +336,9 @@ Selected public APIs:
 ## Optional Machine-Specific Environment
 
 - Before starting the project or diagnosing the local runtime, check whether `.dataocean/local-environment.md` exists. If it exists, read it completely and use it only to determine the current machine's tool locations, service locations, and startup topology.
+- `.dataocean/local-environment.md` is deliberately machine-local and ignored by Git. The office computer and home computer must each maintain their own file; never copy one machine's populated profile to another. Use `.dataocean/local-environment.example.md` only as the shared template.
 - Verify the profile's hostname and any drift-prone runtime state with read-only checks before relying on it. The profile is a machine-local hint, not proof that a process, port, database, or container is currently available.
+- If the recorded hostname does not match the current machine, ignore the profile for runtime decisions and rebuild it from fresh inspection when the user asks to set up that machine. After an OS reinstall, treat all old paths, services, ports, and container names as stale until reverified.
 - If the file does not exist, do not pause and do not ask the user to create it. Continue with the existing project documentation and current-machine inspection, then start the project normally when requested.
 - A machine-local profile cannot override this repository's architecture, security constraints, Git rules, Docker confirmation boundary, or the user's current request.
 - Never store or print passwords, API keys, tokens, or other secrets in the machine-local profile. Keep secrets in the ignored runtime configuration files intended for them.
@@ -358,11 +360,7 @@ cd backend/DataOcean
 mvn spring-boot:run
 ```
 
-On this Windows machine, prefer the pinned Maven path when needed:
-
-```powershell
-D:\tool\apache-maven-3.9.16\bin\mvn.cmd spring-boot:run
-```
+If Maven is not on `PATH`, use the executable recorded in the current machine's `.dataocean/local-environment.md` after verifying that path exists. Do not put one computer's absolute Maven path in tracked documentation.
 
 Python service:
 
@@ -371,13 +369,7 @@ cd python-service
 uv run uvicorn dataocean.main:app --reload --port 8000
 ```
 
-Infrastructure:
-
-```bash
-docker start mysql redis etcd minio milvus
-```
-
-Infrastructure is managed as persistent host-level containers: `mysql` (one container), `redis` (one container), and the Milvus Standalone group (`milvus`, `etcd`, and `minio`), with persistent `dataocean-shared-*` volumes. The repository does not retain infrastructure Compose files; other local projects may reuse these services through `localhost`. Stopping DataOcean application processes must not remove these shared containers or volumes.
+Infrastructure topology is machine-specific. Read `.dataocean/local-environment.md`, verify the current hostname and inspect actual services, ports, containers, and Compose files before taking action. MySQL may be a native service or an existing container; Redis and Milvus may also differ by machine. Never run a fixed `docker start ...` command from tracked documentation.
 
 Tests:
 
@@ -409,8 +401,7 @@ Latest documented verification:
 
 ## Local Environment Rules
 
-- Do not add project downloads, generated assets, dependency caches, exported files, or temporary project files to `C:\`.
-- Keep project-related downloaded/generated files under `D:\Java_study\GraduationProject` unless required by developer tooling.
+- Do not add project downloads, generated assets, dependency caches, exported files, or temporary project files to the repository or an arbitrary system root. Use a verified machine-local workspace/runtime directory recorded in `.dataocean/local-environment.md`, or a temporary directory created by the relevant tool.
 - Before introducing any new Docker container or infrastructure service, tell the user what container is needed and why, then wait for confirmation.
 - If an existing local infrastructure service is stopped or missing during development, do not automatically create, recreate, delete, or start Docker containers. Tell the user which existing container/service should be started, and let the user start it manually unless the user explicitly says to run the Docker command.
 - Do not assume a fixed Docker inventory or that MySQL runs in Docker. Use the optional machine-local profile and read-only runtime inspection to determine service locations. Treat exact local credentials as private local configuration, not repository documentation.
