@@ -107,6 +107,7 @@ B4 自动化验证 ≠ B5 完成。本手册写完后，B5 仍未执行。
 | MySQL 主机/库名 | `$DB_HOST` / `$DB_NAME` | 是 |
 | MySQL 账号 | `$DB_USERNAME` | 是；密码只走环境变量或本地密钥，不入库 |
 | 备份文件目录 | `$BACKUP_DIR` | 是 |
+| 隔离演练空库名 | `$DRILL_DB`，不得等于 `$DB_NAME` | 是；仅用于恢复演练 |
 | Redis 主机 | `$REDIS_HOST` | 是 |
 | 首个新系统管理员 `userId` | 见第 5 节 | 是 |
 
@@ -120,11 +121,34 @@ B4 自动化验证 ≠ B5 完成。本手册写完后，B5 仍未执行。
 
 3. **MySQL 全量备份**（只示例，不执行）
 
+禁止用 PowerShell `>` 或管道保存 dump：会把 `\n` 转成 `\r\n`，并可能写成 UTF-16，导致备份无法按原样恢复。必须让 `mysqldump` 自己写文件。
+
 ```powershell
-mysqldump --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --single-transaction --routines --triggers --databases $env:DB_NAME > "$env:BACKUP_DIR\dataocean-before-b5-$env:B5_EXPECTED_SHA.sql"
+$backupFile = Join-Path $env:BACKUP_DIR "dataocean-before-b5-$env:B5_EXPECTED_SHA.sql"
+mysqldump --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --single-transaction --routines --triggers --events --default-character-set=utf8mb4 --result-file=$backupFile $env:DB_NAME
 ```
 
-密码通过交互或环境提供，不要写进命令历史文档。备份后校验文件非空，并另存一份校验和。
+- 不要加 `--databases`。dump 里不得带 `CREATE DATABASE` / `USE $DB_NAME`，才能导入到干净的空库或演练库。
+- `--events` 必须显式打开；`--routines`、`--triggers` 一并带上。
+- `--default-character-set=utf8mb4` 必须与库字符集一致。
+- 密码通过交互或环境提供，不要写进命令历史文档。
+
+备份后必须完成下列校验，任一失败则停止，不得进入迁移：
+
+```powershell
+if (-not (Test-Path -LiteralPath $backupFile)) { throw "backup file missing" }
+$item = Get-Item -LiteralPath $backupFile
+if ($item.Length -le 0) { throw "backup file is empty" }
+Get-FileHash -LiteralPath $backupFile -Algorithm SHA256
+$headBytes = [System.IO.File]::ReadAllBytes($backupFile)[0..3]
+if ($headBytes[0] -eq 0xFF -and $headBytes[1] -eq 0xFE) { throw "UTF-16 BOM detected; dump must not use PowerShell redirection" }
+if ($headBytes[0] -ne 0x2D -or $headBytes[1] -ne 0x2D) { throw "dump must start with -- (mysqldump header)" }
+Select-String -LiteralPath $backupFile -Pattern "^-- Dump completed" | Select-Object -Last 1
+Select-String -LiteralPath $backupFile -Pattern "(?i)CREATE TABLE.*iam_s1_"
+# 上一行在迁移前必须无匹配。出现 iam_s1_ 建表语句则停止。
+```
+
+把文件路径、字节大小、SHA256、`Dump completed` 是否存在写入切换记录。备份完成后立刻做第 4.3.2 节隔离恢复演练；演练未通过对生产库零写入，也不进入第 4.4 节。
 
 4. **真实库只读 SQL 门禁**（必须完整执行第 4.4 节）
    只查 `flyway_schema_history` 不够。必须同时核对这些不可重入对象是否已被手工或失败迁移留下：`query_task.suggested_questions`、V56 的 8 个证据列及索引、全部 `iam_s1_%` 表。任一状态与预期不一致时 **停止，不执行 migrate**。本准备轮不得连接真实库；真实 B5 开始后，仅在用户提供连接时只读执行。
@@ -157,19 +181,99 @@ redis-cli -h $env:REDIS_HOST -p $env:REDIS_PORT --scan --pattern "user:token-ver
 | 停止点 | 判定 | 动作 |
 | --- | --- | --- |
 | S0 备份前 | 无法停止写入、工作树不干净、HEAD ≠ `B5_EXPECTED_SHA`、缺少确认的 userId | 取消窗口，不碰数据库 |
-| S1 备份后、迁移前 | 备份文件空、第 4.4 节 SQL 门禁失败（含 Flyway 不是 V50、存在失败记录、发现未记录的部分 DDL）、仓库 preflight 失败 | 恢复服务到旧体系，不迁移 |
-| S2 V51/V52 失败 | `flyway_schema_history` 出现失败行或应用无法启动 | 停止后续迁移；按备份恢复整个库；不手工改失败脚本后重跑已成功版本 |
-| S3 V54～V57 失败 | S1 表不完整 | 视为未切换；整库恢复备份；继续旧体系 |
-| S4 迁移成功、bootstrap 失败 | `iam_s1_bootstrap_state` 仍非对目标账号 `COMPLETED` | 未正式切换。可恢复备份并继续旧体系；不要用旧 `ADMIN`/`*` 补救 |
-| S5 初始化未完成 | 新角色/负责源/数据授权清单有未确认项 | 不得开放正式入口；可回退备份 |
+| S1 备份后、迁移前 | 备份文件空、编码/校验失败、隔离演练对象不一致、第 4.4 节 SQL 门禁失败、仓库 preflight 失败 | 恢复服务到旧体系，不迁移 |
+| S2 V51/V52 失败 | `flyway_schema_history` 出现失败行或应用无法启动 | 停止后续迁移；按 4.3.1 恢复到干净库；不手工改失败脚本后重跑已成功版本 |
+| S3 V54～V57 失败 | S1 表不完整 | 视为未切换；按 4.3.1 恢复到干净库；继续旧体系 |
+| S4 迁移成功、bootstrap 失败 | `iam_s1_bootstrap_state` 仍非对目标账号 `COMPLETED` | 未正式切换。可按 4.3.1 恢复备份并继续旧体系；不要用旧 `ADMIN`/`*` 补救 |
+| S5 初始化未完成 | 新角色/负责源/数据授权清单有未确认项 | 不得开放正式入口；可按 4.3.1 回退 |
 | S6 已产生新的 S1 业务操作 | 已有新授权、申请、S1 查询任务或管理员写操作 | **不能**用删除 `iam_s1_*` 表回退 |
 
 ### 4.3 回退边界
 
-- **可以整库恢复备份并继续旧系统的条件**：migration / bootstrap / 新权限配置已经做完，但 **尚未正式切换**，且没有对真实用户开放新入口，也没有产生新的 S1 业务操作。
+- **可以按备份回退并继续旧系统的条件**：migration / bootstrap / 新权限配置已经做完，但 **尚未正式切换**，且没有对真实用户开放新入口，也没有产生新的 S1 业务操作。回退必须走 4.3.1，不能覆盖式导入。
 - **一旦正式产生新的 S1 业务操作**（新角色绑定、负责源、数据授权、访问申请、S1 查询任务、字段保护变更），不能简单删除新表回退。那些行已经是新体系事实。
 - **禁止新旧权限双读兜底。** 一次 HTTP 请求只允许命中一套权限实现。S1 拒绝时不得调用旧 Resolver、旧 `PermissionCalculator` 或旧 JWT authorities。
 - **禁止通过旧权限恢复新权限授权。** 回退到旧系统后，旧 `sys_role_permission` / `datasource_access` 不能用来重建 `iam_s1_*`。若将来再次切换，必须重新 bootstrap 并按第 6 节重新确认。
+
+### 4.3.1 整库回退方式（禁止覆盖式导入）
+
+`mysqldump` 默认会为 **dump 中存在的表** 写出 `DROP TABLE IF EXISTS`，但 **不会删除 dump 之后新建、且备份中不存在的表**。把 V50 备份直接导入仍含 `iam_s1_*` 的原库，这些新表会留下来，与“整库恢复”不一致。
+
+禁止：
+
+- 对仍有业务数据或备份后新建对象的目标库执行覆盖式导入（包括对非空原库 `SOURCE`、PowerShell 管道、`<` 重定向进原库）。
+- 指望 dump 里的 `DROP TABLE` 自动清掉 `iam_s1_*`。
+
+允许且必须二选一，并取得用户明确授权后才执行：
+
+1. **恢复到预先建好的空库**（新库名，或已经是空库）。空库定义：无用户表、无 `iam_s1_%`、无业务 routines/events。
+2. **先删除并重建目标库，再导入。** 仅在用户书面确认库名等于 `$DB_NAME` 后执行：
+
+```sql
+-- 必须由用户明确授权。执行前再次核对该名字等于确认的 $DB_NAME。
+DROP DATABASE IF EXISTS confirmed_db_name;
+CREATE DATABASE confirmed_db_name CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
+导入必须指定 utf8mb4，并用 mysql 客户端 `SOURCE`，避免 PowerShell 重定向：
+
+```powershell
+$backupUnix = ($backupFile -replace '\\','/')
+mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --default-character-set=utf8mb4 --database=$env:DB_NAME --execute="SOURCE '$backupUnix'"
+```
+
+导入后立刻核对该库 **不存在** 任何 `iam_s1_%` 表，Flyway 最大成功版本回到 V50，且 `query_task.suggested_questions` 与 V56 证据列均不存在。对象集合必须与备份前记录的清单一致。
+
+### 4.3.2 隔离恢复演练及对象核对
+
+真实 B5 在通过备份校验之后、对生产库执行第 4.4 节 SQL 门禁之前，必须先在 **隔离空库** 演练一次恢复。本准备轮不连接真实库，因此也不做这次演练。
+
+约束：
+
+- `$DRILL_DB` 由用户确认，且不得等于 `$DB_NAME`。
+- 只允许 `CREATE DATABASE` 一个空的演练库、导入备份、只读核对、然后 `DROP DATABASE` 该演练库。
+- 不得对 `$DB_NAME` 做 DROP、导入或任何写操作。
+- 导入同样禁止 PowerShell `>` / 管道。
+
+```powershell
+if ($env:DRILL_DB -notmatch '^[A-Za-z0-9_]+$') { throw "invalid DRILL_DB" }
+if ($env:DRILL_DB -eq $env:DB_NAME) { throw "DRILL_DB must not equal DB_NAME" }
+mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --execute="CREATE DATABASE $env:DRILL_DB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+$backupUnix = ($backupFile -replace '\\','/')
+mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --default-character-set=utf8mb4 --database=$env:DRILL_DB --execute="SOURCE '$backupUnix'"
+```
+
+演练库必须全部成立，否则停止，不进入 4.4，不 migrate：
+
+| 核对 | 预期 |
+| --- | --- |
+| 演练库字符集 | `utf8mb4` / `utf8mb4_unicode_ci` |
+| `iam_s1_%` 表 | 0 |
+| Flyway 最大成功版本 | 50，且无失败记录 |
+| `query_task.suggested_questions` | 不存在 |
+| V56 的 8 个证据列与 `idx_query_task_iam_protocol` | 全部不存在 |
+| V51 依赖的知识表列、`query_task.masked_fields` / `datasource_id` / `user_id` | 存在 |
+| 表/例程/事件/触发器名字集合 | 与备份前对 `$DB_NAME` 记录的只读清单一致 |
+| dump 校验和 | 与备份记录中的 SHA256 相同（文件未被改写） |
+
+备份前只读记录对象清单（对 `$DB_NAME`，不写库）：
+
+```sql
+SELECT TABLE_NAME FROM information_schema.TABLES
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
+ORDER BY TABLE_NAME;
+SELECT ROUTINE_TYPE, ROUTINE_NAME FROM information_schema.ROUTINES
+WHERE ROUTINE_SCHEMA = DATABASE()
+ORDER BY ROUTINE_TYPE, ROUTINE_NAME;
+SELECT EVENT_NAME FROM information_schema.EVENTS
+WHERE EVENT_SCHEMA = DATABASE()
+ORDER BY EVENT_NAME;
+SELECT TRIGGER_NAME, EVENT_OBJECT_TABLE FROM information_schema.TRIGGERS
+WHERE TRIGGER_SCHEMA = DATABASE()
+ORDER BY TRIGGER_NAME;
+```
+
+演练通过后，经用户确认再 `DROP DATABASE` 演练库。随后才允许对生产库跑第 4.4 节只读 SQL 门禁。
 
 ### 4.4 真实库只读 SQL 门禁（migrate 前必须）
 
@@ -531,7 +635,7 @@ bootstrap 成功并完成第 8 节切换验收后：
 只有第 5、第 6 节用户输入已确认，第 4 节备份成功，仓库 preflight 静态检查通过，第 4.4 节 SQL 门禁全部 `ok = 1`，`HEAD == B5_EXPECTED_SHA` 且工作树干净，维护窗口已开始，才能执行下列步骤。本准备轮 **停止在手册**，不 migrate。
 
 1. **最终备份**
-   按 4.2 再做一次 MySQL 全量备份，文件名包含 `B5_EXPECTED_SHA`。记录第 4.4 节 SQL 门禁结果、Flyway=V50、确认 SHA、Redis key 计数。
+   按 4.2 用 `mysqldump --result-file` 再做一次 MySQL 全量备份（含 `--events`、utf8mb4），文件名包含 `B5_EXPECTED_SHA`。完成校验和、第 4.3.2 节隔离恢复演练、第 4.4 节 SQL 门禁，记录 Flyway=V50、确认 SHA、Redis key 计数。禁止 PowerShell `>` 保存 dump。
 
 2. **部署已确认 SHA 的构建**
    部署 `B5_EXPECTED_SHA`。该 SHA 必须包含 `1a6e426`，但“包含 `1a6e426`”本身不够，当前 HEAD 必须等于用户批准的 SHA。此时仍不要对用户开放新入口。旧体系进程应已停止写入。
@@ -540,7 +644,7 @@ bootstrap 成功并完成第 8 节切换验收后：
    仅当第 4.4 节门禁通过后，以 `flyway.enabled=true` 启动一次只做升级的过程，或使用受控 Flyway 命令。顺序必须是 V51、V52、V54、V55、V56、V57。禁止开启 `outOfOrder` 去补 V53。失败立即进入 4.2 停止点。
 
 4. **执行 bootstrap**
-   使用用户确认的 `userId`，按第 5 节非 Web 启动。确认 `COMPLETED`、审计事件存在、目标账号绑定受保护系统管理员角色。失败则整库恢复，不改用旧权限补救。
+   使用用户确认的 `userId`，按第 5 节非 Web 启动。确认 `COMPLETED`、审计事件存在、目标账号绑定受保护系统管理员角色。失败则按 4.3.1 恢复到干净库，不改用旧权限补救。
 
 5. **初始化新角色、负责源和数据授权**
    仅写入第 6 节已确认的行。系统管理员仍须另配业务数据授权才能问数。禁止从旧表拷贝。
@@ -573,12 +677,12 @@ bootstrap 成功并完成第 8 节切换验收后：
 本轮未向用户索取真实值，以下全部保持待确认：
 
 1. 首个新系统管理员的明确 `userId`（`^[1-9]\d*$`，存在、启用、未删除；不接受 0）。
-2. 最终部署 SHA（`B5_EXPECTED_SHA`，必须等于执行时 `git rev-parse HEAD`）。
+2. 最终部署 SHA（`B5_EXPECTED_SHA`，必须等于执行时 `git rev-parse HEAD`）。**不要批准 `17f2b96`。** 本轮手册修复提交后产生新的候选 SHA，须由用户另行决定是否批准。
 3. 该账号是否已有其他受保护管理员绑定（预期首次为否）。
 4. 维护窗口起止时间。
-5. MySQL 全量备份位置与校验和（备份本身在真实 B5 执行，不在本轮做）。
-6. 真实库只读连接（仅用于第 4.4 节 SQL 门禁，本准备轮不连接）。
+5. MySQL 全量备份目录、演练空库名 `$DRILL_DB`（不得等于 `$DB_NAME`），以及备份文件 SHA256（备份与演练在真实 B5 执行，不在本轮做）。
+6. 真实库只读连接（仅用于第 4.4 节 SQL 门禁；必须先完成 4.3.2 演练。本准备轮不连接）。
 7. 第 6 节每一行新角色、绑定、负责源、数据授权、字段保护、审批人。
 8. 正式切换时由谁操作、证据目录路径。
 
-在这些输入给出之前，不得执行真实 migration、bootstrap、部署或切换。
+在这些输入给出之前，不得执行真实 migration、bootstrap、部署或切换。覆盖式导入备份不算回退。

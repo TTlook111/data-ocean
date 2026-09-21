@@ -168,8 +168,15 @@ class IamS1B5PreparationStaticTest {
         assertThat(handbook).contains("iam_protocol_version");
         assertThat(handbook).contains("idx_query_task_iam_protocol");
         assertThat(handbook).contains("iam_s1_%");
+        assertThat(handbook).contains("--result-file=");
+        assertThat(handbook).contains("--events");
+        assertThat(handbook).contains("--default-character-set=utf8mb4");
+        assertThat(handbook).contains("禁止覆盖式导入");
+        assertThat(handbook).contains("隔离恢复演练");
         assertThat(handbook).contains("B5_EXPECTED_SHA");
         assertThat(handbook).contains("^[1-9]\\d*$");
+        assertThat(handbook).doesNotContain(" > \"$env:BACKUP_DIR");
+        assertThat(handbook).doesNotContain("--routines --triggers --databases");
         String preflight = read(Path.of("..", "..", "scripts/iam-s1-b5-preflight.ps1"));
         assertThat(preflight).contains("^[1-9]\\d*$");
         assertThat(preflight).contains("(?m)^\\s*@Aspect\\s*$");
