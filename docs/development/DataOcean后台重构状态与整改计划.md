@@ -2,7 +2,7 @@
 
 > 文档状态：唯一有效入口
 >
-> 更新日期：2026-09-18
+> 更新日期：2026-09-21
 >
 > 适用范围：后台前端重构、轨道 A 验收、后续整改、导航信息架构和后续开发顺序
 
@@ -40,11 +40,11 @@
 | 项目 | 当前结果 | 是否阻断轨道 A |
 | --- | --- | --- |
 | 本机 MySQL、Redis、Milvus、Java、Python、前端启动 | 真实启动并连通 | 否 |
-| Java 单元测试 | 188 个通过、0 失败、0 错误 | 否 |
-| 前端 Vitest | 4 个文件、10 个通过 | 否 |
+| Java 单元测试 | B4 最新基线 **557** 通过；B5 准备轮复跑为 **563** 通过、0 失败、0 错误 | 否 |
+| 前端 Vitest | B4 最新基线 **11 文件 67** 通过 | 否 |
 | 前端生产构建 | `vue-tsc` 与 Vite 通过 | 否 |
-| Python 单元测试 | 164 通过、4 跳过、1 警告 | 否 |
-| Flyway | 真实 MySQL 已执行至 V52 | 否 |
+| Python 单元测试 | 204 通过、4 跳过、1 警告（B4 记录） | 否 |
+| Flyway | 真实 MySQL **仍停留 V50**；V51/V52/V54/V55/V56/V57 未执行 | 否 |
 | 旧后台 URL 兼容层 | 已删除；32 个旧 URL 统一 NotFound/404 | 否 |
 | 浏览器截图 | 当前证据目录 92 张桌面截图，无失败截图 | 否 |
 | 数据源创建、测试连接和采集 | 真实业务库成功采集最新快照 | 否 |
@@ -60,7 +60,7 @@
 | 轨道 B-B1 新配置基础 | B1 已提交并推送：提交 `e373c8152b095048ab8a3d7ea7b571e188f29b9a`；V54 独立 S1 表/固定 54 码/角色关系/负责源关系/修订审计/启动式 bootstrap 基础；聚焦测试 34 个、完整 Java 测试 188 个通过。已补 SpringFactoriesLoader 注册、完整 Environment bootstrap Web 隔离、调度隔离、敏感功能配置与后台角色转授边界、管理员并发锁、失效 bootstrap 拒绝、稳定 revision target 和失败审计。未做真实数据库升级、服务/浏览器验收或真实 bootstrap | 否 |
 | 轨道 B-B2 数据授权与统一计算 | B2 代码已提交到本地（包含在 `6eb5427`）：V55 独立建立数据授权、明确字段、结构化记录条件和字段保护；统一 Resolver/实际权限预览和 Redis revision 快照缓存保留。B2 基线聚焦 111 个、完整 Java 265 个通过。未执行 V55 真实数据库升级 | 否 |
 | 轨道 B-B3 安全查询链路 | B3 已提交到本地（`d9a0c3b`）：V56 前向 migration、独立 `/api/iam-s1/query` 与 `/internal/iam-s1/*`、严格 S1 合同、Context Firewall、真实 Milvus 检索后权限过滤、全字段 SQL AST、参数化行条件、来源追踪、Java 最终保护、事务提交后调度和任务/历史/SQL/CSV/反馈/SSE 当前权限复查。已修复直接 execute 绕过、RIGHT JOIN 保留侧、空来源落库、连字符 binding、危险函数/LIMIT/深度缺口。B3.1（P1）：外层行数封顶不再被子查询/派生表/UNION 分支 LIMIT 阻断（`limit_rule` 检查全部 LIMIT 节点）、字段 usage 的 PROJECTION/FILTER/JOIN 在 AST 层强制且星号只展开可投影字段、SSE 复用 `get` 同一读取路径并按当前权限再脱敏；另修复失败/取消任务被误报「权限已变化」并统一 Java/Python usage 取值集合。B3.2（阻断）：表别名/CTE/派生表按作用域解析、禁止跨库限定表名、记录条件只注入到持有该表的作用域且逗号/交叉连接落 WHERE、`query:use` 改为读取时复查。B3.3（P0 脱敏绕过）：集合运算按列位置汇总全部分支来源，修复后续分支脱敏字段漏标导致的最终脱敏绕过。B3.4（P1 保护一致性）：同一输出列汇入多种非空脱敏策略时拒绝，集合运算分支列数改为双向校验。B3.5（P1 规范化）：脱敏冲突判定按小写规范化（与 Java `maskResultByFields` 口径一致，Java 侧 8 处 `toLowerCase` 改用 `Locale.ROOT`），集合运算分支的常量/无来源输出在 AST 阶段直接拒绝。B3.6（P1 最终保护）：Java `deriveOutputMasks` 独立按小写列名聚合策略并在冲突时 fail-closed（完成阶段拒绝落库、任务/历史读取阶段拒绝返回）。B3.1～B3.6 与配置忽略提交（`d08d37f`）已随 `70d4999` 提交到本地，分支本地提交尚未推送。测试结果：Java `IamS1*Test` 122 个、完整 276 个通过（B3 提交时记录值）；Python B3 聚焦 40 个、完整 204 passed/4 skipped/1 warning。未执行 V55/V56 真实数据库升级、服务/浏览器验收、真实 bootstrap 或 B5 切换 | 否 |
-| 轨道 B-B4 页面和业务接入 | **B4-A 统一鉴权接入框架已完成（未提交）**：三个方法级注解（`@IamS1Global` / `@IamS1Resource` / `@IamS1ScopedList`）+ 准入切面 + 固定资源解析器注册表 + 四个解析器（DATASOURCE / SNAPSHOT / METADATA_ENTITY / METADATA_COLUMN）；`IamS1FunctionCatalog` 增加 `FunctionScope` 供切面校验注解语义与 B0 一致；批次 1～4 共 **53 个端点**迁入注解（Dashboard 1 / DatasourceAdmin 11 / MetadataCatalog 12 / MetadataCollection 8 / SnapshotVersion 9 / **MetadataGovernance 12**）；批次 4 新增 `GOVERNANCE_ISSUE` 解析器，全局质量规则启停由 Service 强制受保护系统管理员，问题列表范围下推 SQL，指定快照直接判归属（404/409/403），批量处理的权限与归属预校验整批原子（状态流转允许部分成功并返回 `skipped`），分派校验责任人存在且启用；**并在复审中发现并修复 P0：`IamS1AuthorizationAspect` 缺 `@Aspect`，Spring AOP 未代理已迁移端点，而旧 `@PreAuthorize` 已删除、`/api/admin/**` 只要求 `authenticated()`——53 个已迁移端点当时对任何已登录用户开放**；已补真实容器 AOP 代理断言、`AspectJProxyFactory` 代理真实 Controller 的「拒绝时 Service 零调用」断言、资源表达式与真实参数名的静态核对。批次 4 前端已完成 `QualityDashboard.vue` / `IssueList.vue` / `StatusEditor.vue` / `GovernanceFieldsView.vue` / `ReleasesView.vue` 的能力接入。**批次 5（语义中心 42 个端点）已完成（未提交）**：`GlossaryController` 14 + `KnowledgeDocController` 18 + `PromptTemplateController` 10；`glossary:*` 的「源/全」混合语义已定稿（未关联源只校验功能、已关联逐源校验、关联/解除同时校验目标实体真实源、审核独立且不带来维护权），`@IamS1ScopedList` 扩展为接受 RESOURCE 或 MIXED 而继续拒绝 GLOBAL，动态范围由新增 `GlossaryScopeService` 落实（复用 Guard/CapabilityService，不复制授权 SQL，无 N+1）；新增 `KNOWLEDGE_DOCUMENT` 解析器（404/409/409）与列表范围下推、`generate-from-snapshot` 的服务端归属复核；Prompt 三码独立且 `enabled` 收紧为仅 `prompt:manage`；只读 POST `preview-chunks` 按精确路径登记例外。例外清单 162 → 120。复审（2026-09-20）发现 2 个 P1 与 1 个 P2 并已修复：①术语范围改为三态 `UNBOUND`/`BOUND`/`BROKEN`——原先「关系存在但目标实体丢失或缺少 `datasource_id`」得到空集合，会被当成「合法未绑定、全局放行」，现在 BROKEN 时列表不返回该术语、写/审核/删除/关联 409、术语表含 BROKEN 术语时改删术语表也 409（术语只要有一条关联解析不出归属即整术语 BROKEN）；②新增 `KnowledgeOwnershipValidator` 统一校验**历史版本链**——版本 `datasource_id`、版本来源快照、向量任务 `datasource_id` 都必须与文档一致，否则 409，`listVersions`/`getVersion`/`createVersion`/`listVectorTasksOfDocument` 与 Document Resolver 共用，回滚在归属不合法时零状态修改、零向量任务；③术语只能关联 `TYPE_COLUMN` 实体，否则 400。修复轮新增 Java 测试 27 个，`mvn -o clean test` **512 passed**（批次 6 进行中为 524）。覆盖扫描测试用 `RequestMappingHandlerMapping` 枚举真实 HandlerMethod（11 个断言），例外清单**逐端点**冻结（`IamS1EndpointExemptions`，**174 → 120 条**，键为 HTTP 方法 + 完整路径 + Handler 校验）。完整 `confirm()` 事务集成测试已补（4 个用例，含两个并发 confirm 最终只保留一条 ACTIVE；H2 不能替代 B5 对真实 MySQL REPEATABLE READ 的验收）。锚点：位置别名 `#p0`/`#a0` 已修（原先在参数名不可用时恰好失效）。**未完成**：权限与组织域 22 个 `IamS1*` 端点的注解迁移。**批次 6（组织基础数据 + 运营与平台 + 遗漏治理入口）未完成、未提交**：清单校准后应迁移 **61** 个 Handler（管理端 43 + 此前未被扫描覆盖的非 admin 路径 18），已全部迁入方法级注解，已迁移 Controller **9 → 23**、精确例外 **120 → 77**；覆盖扫描改为显式白名单并新增 `/api/lineage/**`、`/api/field-tags/**`、`/api/field-confidence/**`、`/api/feedback-reviews/**` 四个此前完全没有 S1 检查的路径；新增 `AUDIT_LOG` / `COLUMN_META` / `FIELD_TAG_RELATION` / `FEEDBACK_REVIEW` 四个资源解析器；审计列表/慢查询/统计改为负责源下推 SQL；全局采集计划写操作额外要求受保护系统管理员；连接池重置要求显式解析数据源 + 受保护系统管理员 + 确认参数与原因；用户导出改为独立功能码并逐页流式读完（不再用第一页 100 条冒充完整导出）；用户导入不再绑定任何角色；`RoleController` / `PermissionController` / `DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController` 五条旧权限配置链路**不迁移**，例外原因改标「旧权限配置链路，待 B6 删除」。**仍未完成**：字段治理列表的范围下推与批量/CSV 导入的整批零写入校验、血缘双侧可见性裁剪、批次 6 前端能力接入、上述未完成项对应的测试。 `glossary:*` 混合语义已于批次 5 定稿。此前 B4 主体已提交（`228a306`，61 文件 / +2772 行）：V57 新增 `iam_s1_access_request` / `iam_s1_access_approval` 前向迁移；新增 `/api/iam-s1` 管理端接口（能力摘要、中文模板、只读功能目录、角色、用户角色与后台负责源、资源选项、数据授权、字段保护、实际权限预览、访问申请与审批）；新增 `IamS1AdminGuard` 统一服务端强制校验与 S1 中文原因提示，并注册 `IamS1MaskPolicyConflictException` 全局处理（409）。前端只读 Java 返回的 S1 能力摘要（`stores/iamS1.ts`），不把旧 `permissions`/`roles` 作为新体系授权来源；新增 `/admin/access/iam`（数据授权/字段保护/实际权限）、`/admin/access/iam-approvals`（我的申请/待我审批/已处理）、`/admin/access/iam-organization`（角色/用户角色与负责源/功能目录）与 `/query/iam-s1` 独立安全问数入口（资源声明 → 提交 → 任务读取/SQL/导出/反馈/SSE 全部使用 `/api/iam-s1/query`，SSE 订阅失败只用 S1 轮询兜底，不回退旧链路）。契约见 `specs/015-permission-security/contracts/iam-s1-b4.md`。实测（2026-09-20 复跑）：完整 Java **328 passed / 0 failures / 0 errors / 0 skipped**，Python **204 passed / 4 skipped / 1 warning**，前端 `vue-tsc -b && vite build` 通过且 Vitest 6 文件 20 个通过；但测试 profile 为 `flyway.enabled=false` + H2，**没有任何自动化测试覆盖 V51～V57 迁移**。范围结论：这是**“权限与组织域 + 独立安全问数入口”的 B4 初版，不是完整 B4，不能据此进入 B5 验收**——其余六个后台业务域的后端接口仍走切换前旧链路。复核后已修复 4 个 P1：①问数入口补齐 `columnUsages`（新增 `IamS1UsageDefaults`，前后端默认集合各有测试钉住）；②新增用户侧资源接口 `/api/iam-s1/query-resources/**`（QUERY 用统一 Resolver 的授权判定、APPLY 只要求 `query:use` + 已发布快照），不再让普通问数用户复用管理员负责源逻辑；③审批通过必须指定批准到期时间且有 30 天上限，不能生成永久授权；④禁止规则判定改为复用统一 Resolver，不再用自建简化遍历误伤未命中主体/已过期/未覆盖字段的 DENY。同时修正前端把 `toISOString()`（带 `Z`）发给 LocalDateTime 字段的问题。未执行 V57 真实数据库升级、服务运行、浏览器验收、bootstrap、B5 切换或 B6 清理。2026-09-20 复审另发现前端 6 个 P1 与后端 4 个 P2，其中前端 6 个 P1 与后端 B1/B2 已修复（未提交、未做浏览器验收），后端 B3/B4 与 P3 三项仍未处理；真实数据库停留在 V50，V51/V52/V54/V55/V56/V57 共 6 个迁移未执行，`iam_s1*` 表在真实库中不存在 | 否 |
+| 轨道 B-B4 页面和业务接入 | **B4 批次 1～6 代码与自动化验证已完成并合入 `1f0a5f4`（含 `1a6e426`）**，不是“未提交的工作树草稿”。B4-A 注解框架（`@IamS1Global` / `@IamS1Resource` / `@IamS1ScopedList` + `@Aspect` `@Component` 切面）已落地；已迁移 Controller **23** 个；批次 6 实际 **61** 个 Handler；精确例外 **77** 条。B4 最新自动化基线：Java **557**、前端 Vitest **67**。旧 Role/Permission/DatasourcePermission/AccessPolicy/AccessApproval **不迁移**，保留到 B6；正式旧组织导航 `/admin/access/organization` 在 **B5 切换时移除**。权限与组织域 22 个 `IamS1*` 端点仍是显式 Guard。测试 profile 关闭 Flyway，自动化全绿不能证明 V51～V57 已在真实 MySQL 执行。**B4 没有真实服务或浏览器验收。B5 尚未执行。真实数据库仍为 V50。** B5 手册已补真实库只读 SQL 门禁，preflight 已加固 userId/`@Aspect`/`B5_EXPECTED_SHA`；准备完成不等于 B5 已执行。 | 否 |
 
 ### 3.1 已通过且需要保留的结果
 
@@ -298,11 +298,11 @@ Python suggestedQuestions 产出
 
 ### 7.1 轨道 B：权限体系重构
 
-轨道 A 和导航结构已冻结。目标输入为 `docs/development/guides/DataOcean-完整权限体系设计.md` 的简明版 1.4 / IAM-SIMPLE-1。B0-1.1 已评审通过；B1 已提交并推送；B2、B3、B3.1～B3.6 与 B4 均已提交并推送（分支 `codex/iam-simple-1-implementation`，HEAD `8a9c5a1`）。各阶段只有自动化测试结果，不代表真实数据库升级、正式运行、浏览器验收、bootstrap 或 B5 切换。真实数据库停留在 V50：V51、V52、V54、V55、V56、V57 共 6 个迁移未执行，`iam_s1*` 表在真实库中不存在。
+轨道 A 和导航结构已冻结。目标输入为 `docs/development/guides/DataOcean-完整权限体系设计.md` 的简明版 1.4 / IAM-SIMPLE-1。B0～B4（含 B4-A 与批次 1～6）的代码与自动化验证已合入 `codex/iam-s1-b5-preparation` 的 `1f0a5f4`（包含 IAM 实现提交 `1a6e426`）。已迁移 Controller **23** 个；批次 6 实际 **61** 个 Handler。B4 最新自动化基线：Java **557**、前端 Vitest **67**。旧 Role/Permission/DatasourcePermission/AccessPolicy/AccessApproval 入口保留到 B6；正式旧组织导航 `/admin/access/organization` 在 B5 切换时移除。各阶段的自动化结果不代表真实数据库升级、正式运行、浏览器验收、bootstrap 或 B5 切换。**B5 尚未执行。** 真实数据库停留在 V50：V51、V52、V54、V55、V56、V57 共 6 个迁移未执行，`iam_s1*` 表在真实库中不存在。V53 永久不再使用。B5 手册见 `docs/development/guides/DataOcean-IAM-S1-B5切换与回退手册.md`。
 
 用户要求权限简单易懂，采用“角色管功能、部门默认数据与个人/角色授权管可查数据、后台角色绑定负责源”的模型。管理员首屏使用中文名称、作用与例子；查询/SQL/导出功能只在角色配置，数据授权不重复开关，不建设多层委派或数字优先级。
 
-替换严格按“建立并验收新权限 → 切换且真实复验通过 → 删除旧权限”。不做旧授权映射、回填、双读双写或兼容兜底；切换前保留旧体系运行，新体系独立配置验收。旧角色/权限/策略、旧 JWT 与旧缓存不得输入新 Resolver，同名权限码不继承旧关系。账号、密码、真实组织、业务资产、会话与审计保留；新角色关系/数据授权重新初始化，首个新系统管理员通过一次性受控流程显式绑定。B1 已完成提交/推送；B2、B3、B3.1～B3.6 与 B4 均已提交并推送（`d9a0c3b`、`d08d37f`、`70d4999`、`8a9c5a1`、`228a306`）；B4-A 统一鉴权接入框架已完成但**未提交**；B4 已完成 V57 前向迁移、`/api/iam-s1` 管理端接口与前后端成对页面接入，2026-09-20 复审在 B4 代码中发现前端 6 个 P1 与后端 4 个 P2，其中前端 6 个 P1 与后端 B1/B2 已修复（未提交、未做浏览器验收），B3/B4 与 P3 三项待处理；未执行 V51/V52/V54/V55/V56/V57 真实数据库升级（真实库停留在 V50）、服务启动、浏览器验收、真实 bootstrap、正式切换或旧权限清理。
+替换严格按“建立并验收新权限 → 切换且真实复验通过 → 删除旧权限”。不做旧授权映射、回填、双读双写或兼容兜底；切换前保留旧体系运行，新体系独立配置验收。旧角色/权限/策略、旧 JWT 与旧缓存不得输入新 Resolver，同名权限码不继承旧关系。账号、密码、真实组织、业务资产、会话与审计保留；新角色关系/数据授权重新初始化，首个新系统管理员通过一次性受控流程显式绑定。B4 批次 1～6 的代码与自动化验证已完成并合入 `1f0a5f4`；B4 没有真实服务或浏览器验收。B5 准备轮已写出切换/回退手册、真实库只读 SQL 门禁与只读 preflight，**尚未**执行真实 migration、bootstrap、部署或正式切换。未提供 bootstrap userId、最终 SHA、维护窗口、备份位置与校验和、初始化角色/负责源/授权清单之前，不得开始真实 B5。
 
 ### 7.2 轨道 C：功能待办
 
@@ -311,7 +311,7 @@ Python suggestedQuestions 产出
 1. Agent workflow 测试补强；
 2. RAG 真实 Milvus 验证和 Hit@K、MRR、nDCG 基线；
 3. 文档/版本级 RAG 全量重建编排，不得先删除活动向量；
-4. P9 告警评估：新增定时评估任务，按启用规则计算错误率和慢查询数，调用 `NotificationService`，同一规则恢复前只通知一次；新增 V53 `alert_history`，记录触发、恢复、指标值和阈值；
+4. P9 告警评估：新增定时评估任务，按启用规则计算错误率和慢查询数，调用 `NotificationService`，同一规则恢复前只通知一次；告警历史表使用 **V58 或更高未占用版本**。**V53 永久不再使用**，不为填编号创建空 migration，V54～V57 执行后禁止再新增 V53；
 5. P12 告警历史前端：依赖 P9，复用现有规则 CRUD，在“运营与平台”的侧栏二级工作区内提供历史查询，不新增一级入口。
 
 ### 7.3 仍未完成的质量项
