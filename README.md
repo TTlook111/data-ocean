@@ -174,9 +174,9 @@ DRAFT → PENDING_REVIEW → APPROVED → INDEXING → PUBLISHED
 .dataocean/local-environment.md
 ```
 
-可以从 [`.dataocean/local-environment.example.md`](.dataocean/local-environment.example.md) 复制模板，但不要复制另一台电脑已经填写的文件。该文件已被 Git 忽略，只记录当前机器的 hostname、工具路径、端口、已有服务/容器和启动顺序，不得记录密码、Token 或 API Key。
+可以从 [`.dataocean/local-environment.example.md`](.dataocean/local-environment.example.md) 复制模板，但不要复制另一台电脑已经填写的文件。公司电脑与家庭电脑必须各自维护独立文件。该文件已被 Git 忽略，只记录当前机器的 hostname、工具路径、端口、已有服务/容器和启动顺序，不得记录密码、Token 或 API Key。
 
-启动或诊断前应先核对 hostname、端口、进程和基础设施状态。系统重装或服务拓扑变化后，应重新探测并重建当前机器的文件，不能继续依赖旧路径。
+启动或诊断前应先核对 hostname、端口、进程和基础设施状态。若文件中的 hostname 与当前机器不一致，必须忽略该配置并按当前机器重新探测，不得继续使用。系统重装或服务拓扑变化后，应重新探测并重建当前机器的文件，不能复用另一台电脑的配置或旧路径。
 
 ### 1. 启动 Java 网关
 
