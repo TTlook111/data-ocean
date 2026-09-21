@@ -34,7 +34,7 @@ export interface UserPayload {
   email?: string
   phone?: string
   departmentId?: number
-  roleIds: number[]
+  roleIds?: number[]
 }
 
 export interface RoleItem {

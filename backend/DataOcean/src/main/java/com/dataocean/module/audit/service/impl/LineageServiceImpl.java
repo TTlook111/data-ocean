@@ -1,7 +1,6 @@
 package com.dataocean.module.audit.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.audit.entity.QueryLineageColumn;
 import com.dataocean.module.audit.entity.QueryLineageTable;
 import com.dataocean.module.audit.entity.vo.ImpactAnalysisVO;
@@ -10,7 +9,6 @@ import com.dataocean.module.audit.entity.vo.LineageTableVO;
 import com.dataocean.module.audit.mapper.QueryLineageColumnMapper;
 import com.dataocean.module.audit.mapper.QueryLineageTableMapper;
 import com.dataocean.module.audit.service.LineageService;
-import com.dataocean.module.datasource.service.DatasourceAccessService;
 import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
@@ -33,7 +31,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
@@ -44,7 +41,6 @@ public class LineageServiceImpl implements LineageService {
     private final QueryLineageTableMapper tableMapper;
     private final QueryLineageColumnMapper columnMapper;
     private final QueryTaskMapper queryTaskMapper;
-    private final DatasourceAccessService datasourceAccessService;
     private final MetadataEntityService entityService;
     private final MetadataRelationshipService relationshipService;
     private final MetadataRelationshipMapper relationshipMapper;
@@ -405,7 +401,6 @@ public class LineageServiceImpl implements LineageService {
 
     @Override
     public List<LineageTableVO> queryTableLineage(Long datasourceId, String tableName) {
-        requireDatasourceAccess(datasourceId);
         List<QueryLineageTable> records = tableMapper.selectByTableAndDatasource(tableName, datasourceId, 100);
         Map<Long, String> questionMap = loadQuestionMap(datasourceId, records.stream()
                 .map(QueryLineageTable::getQueryTaskId)
@@ -424,7 +419,6 @@ public class LineageServiceImpl implements LineageService {
 
     @Override
     public List<LineageColumnVO> queryColumnLineage(Long datasourceId, String tableName, String columnName) {
-        requireDatasourceAccess(datasourceId);
         List<QueryLineageColumn> records = columnMapper.selectByColumnAndDatasource(tableName, columnName, datasourceId, 100);
         Map<Long, String> questionMap = loadQuestionMap(datasourceId, records.stream()
                 .map(QueryLineageColumn::getQueryTaskId)
@@ -444,7 +438,6 @@ public class LineageServiceImpl implements LineageService {
 
     @Override
     public ImpactAnalysisVO analyzeImpact(Long datasourceId, String tableName, String columnName) {
-        requireDatasourceAccess(datasourceId);
         if (columnName == null || columnName.isBlank()) {
             List<LineageTableVO> rows = queryTableLineage(datasourceId, tableName);
             ImpactAnalysisVO vo = new ImpactAnalysisVO();
@@ -544,12 +537,6 @@ public class LineageServiceImpl implements LineageService {
             case "FROM", "JOIN", "SUBQUERY" -> normalized;
             default -> "FROM";
         };
-    }
-
-    private void requireDatasourceAccess(Long datasourceId) {
-        if (datasourceId == null || !datasourceAccessService.checkAccess(datasourceId)) {
-            throw new BusinessException(403, "无权查看该数据源血缘");
-        }
     }
 
     private Map<Long, String> loadQuestionMap(Long datasourceId, Set<Long> taskIds) {

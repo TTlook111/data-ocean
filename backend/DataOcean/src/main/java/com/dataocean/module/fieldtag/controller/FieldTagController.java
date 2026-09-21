@@ -1,16 +1,21 @@
 package com.dataocean.module.fieldtag.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.common.security.UserContext;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.fieldtag.entity.PredefinedTag;
 import com.dataocean.module.fieldtag.entity.dto.BatchTagRequestDTO;
 import com.dataocean.module.fieldtag.entity.dto.FieldTagRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.FieldTagVO;
 import com.dataocean.module.fieldtag.service.FieldTagService;
+import com.dataocean.module.fieldtag.support.FieldGovernanceScopeSupport;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.access.prepost.PreAuthorize;
+
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,12 +37,17 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/field-tags")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyAuthority('field-tag:manage', '*')")
 @AdminAuditLog
 @Slf4j
 public class FieldTagController {
 
+    /** 查看字段标签。 */
+    private static final String VIEW_FUNCTION = "governance:field:view";
+    /** 维护字段标签：新增、批量、删除。 */
+    private static final String MANAGE_FUNCTION = "governance:field:manage";
+
     private final FieldTagService fieldTagService;
+    private final FieldGovernanceScopeSupport fieldScope;
 
     /**
      * 为字段添加标签
@@ -46,6 +56,8 @@ public class FieldTagController {
      * @return 创建的标签信息
      */
     @PostMapping
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.COLUMN_META,
+            resourceIds = "#request.columnMetaId")
     public Result<FieldTagVO> addTag(@Valid @RequestBody FieldTagRequestDTO request) {
         return Result.success("打标成功", fieldTagService.addTag(request));
     }
@@ -57,6 +69,7 @@ public class FieldTagController {
      * @return 成功打标的数量
      */
     @PostMapping("/batch")
+    @IamS1ScopedList(MANAGE_FUNCTION)
     public Result<Map<String, Integer>> batchAddTags(@Valid @RequestBody BatchTagRequestDTO request) {
         int count = fieldTagService.batchAddTags(request);
         return Result.success("批量打标成功", Map.of("tagged", count));
@@ -69,6 +82,7 @@ public class FieldTagController {
      * @return 操作结果
      */
     @DeleteMapping("/{id}")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.FIELD_TAG_RELATION, resourceIds = "#id")
     public Result<Void> removeTag(@PathVariable Long id) {
         fieldTagService.removeTag(id);
         return Result.success("移除成功", null);
@@ -81,6 +95,7 @@ public class FieldTagController {
      * @return 标签列表
      */
     @GetMapping("/column/{columnMetaId}")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.COLUMN_META, resourceIds = "#columnMetaId")
     public Result<List<FieldTagVO>> getTagsByColumn(@PathVariable Long columnMetaId) {
         return Result.success(fieldTagService.getTagsByColumnMetaId(columnMetaId));
     }
@@ -92,8 +107,10 @@ public class FieldTagController {
      * @return 字段ID列表
      */
     @GetMapping("/by-tag/{tagCode}")
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<List<Long>> getColumnsByTag(@PathVariable String tagCode) {
-        return Result.success(fieldTagService.getColumnIdsByTagCode(tagCode));
+        return Result.success(fieldTagService.getColumnIdsByTagCodeInDatasources(
+                tagCode, fieldScope.visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION)));
     }
 
     /**
@@ -102,6 +119,7 @@ public class FieldTagController {
      * @return 预定义标签列表
      */
     @GetMapping("/predefined")
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<List<PredefinedTag>> listPredefinedTags() {
         return Result.success(fieldTagService.listPredefinedTags());
     }

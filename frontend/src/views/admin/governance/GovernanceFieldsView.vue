@@ -8,6 +8,7 @@ import ConfidenceDashboard from '../field/ConfidenceDashboard.vue'
 import FeedbackReview from '../field/FeedbackReview.vue'
 import { confirmMaskCandidate, listMaskCandidates, rejectMaskCandidate, type MaskCandidate } from '../../../api/admin/catalog'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useIamS1Store } from '../../../stores/iamS1'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
@@ -15,6 +16,7 @@ import EmptyState from '../../../components/common/EmptyState.vue'
 const route = useRoute()
 const router = useRouter()
 const adminContext = useAdminContextStore()
+const iamS1 = useIamS1Store()
 const activeTab = ref(String(route.query.tab || 'tags'))
 const candidates = ref<MaskCandidate[]>([])
 const maskLoading = ref(false)
@@ -37,6 +39,19 @@ const maskTag = (candidate: MaskCandidate) => {
 
 const hasDatasource = computed(() => Boolean(adminContext.datasourceId))
 
+const MASK_VIEW_FUNCTION = 'security:mask:view'
+const MASK_MANAGE_FUNCTION = 'security:mask:manage'
+
+/** 查看脱敏候选：`security:mask:view` 与当前数据源必须在同一条启用绑定上。 */
+const canViewMaskCandidates = computed(
+  () => iamS1.canOnDatasource(MASK_VIEW_FUNCTION, adminContext.datasourceId || undefined),
+)
+
+/** 确认/拒绝脱敏候选：`security:mask:manage`，与查看分属两个功能码。 */
+const canManageMaskCandidates = computed(
+  () => iamS1.canOnDatasource(MASK_MANAGE_FUNCTION, adminContext.datasourceId || undefined),
+)
+
 function selectTab(tab: string) {
   activeTab.value = tab
   router.replace({ query: { ...route.query, tab } })
@@ -47,6 +62,13 @@ async function fetchCandidates() {
   if (!adminContext.datasourceId) {
     candidates.value = []
     maskError.value = ''
+    return
+  }
+  // 无 `security:mask:view` 时不要发这个必然 403 的请求：清空后由模板说明原因。
+  if (!canViewMaskCandidates.value) {
+    candidates.value = []
+    maskError.value = ''
+    maskLoading.value = false
     return
   }
   const datasourceId = adminContext.datasourceId
@@ -66,6 +88,10 @@ async function fetchCandidates() {
 }
 
 async function confirmCandidate(candidate: MaskCandidate) {
+  if (!canManageMaskCandidates.value) {
+    ElMessage.warning('没有“维护字段保护”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。')
+    return
+  }
   const strategy = maskStrategy(candidate)
   if (!strategy) {
     ElMessage.warning('当前候选的脱敏策略无法识别，已阻止确认，请先修复后端候选数据')
@@ -92,6 +118,10 @@ async function confirmCandidate(candidate: MaskCandidate) {
 }
 
 async function rejectCandidate(candidate: MaskCandidate) {
+  if (!canManageMaskCandidates.value) {
+    ElMessage.warning('没有“维护字段保护”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。')
+    return
+  }
   if (candidateBusy[candidate.entityId]) return
   candidateBusy[candidate.entityId] = true
   try {
@@ -113,7 +143,7 @@ async function rejectCandidate(candidate: MaskCandidate) {
 }
 
 onMounted(async () => {
-  await adminContext.initialize()
+  await Promise.all([adminContext.initialize(), iamS1.load()])
   if (activeTab.value === 'mask') await fetchCandidates()
 })
 
@@ -157,6 +187,10 @@ onBeforeUnmount(() => {
           <ErrorState v-if="maskError" :message="maskError" @retry="fetchCandidates" />
           <LoadingState v-else-if="maskLoading" text="正在读取脱敏候选…" />
           <EmptyState v-else-if="!hasDatasource" message="请先选择数据源，再查看该数据源的脱敏候选。" />
+          <EmptyState
+            v-else-if="!canViewMaskCandidates"
+            message="没有“查看字段保护”能力（security:mask:view）：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。"
+          />
           <EmptyState v-else-if="!candidates.length" message="当前数据源暂无待确认的脱敏候选。" />
         <el-table v-else :data="candidates" stripe>
             <el-table-column label="字段" min-width="180">
@@ -167,11 +201,28 @@ onBeforeUnmount(() => {
             <el-table-column label="建议策略" width="150"><template #default="{ row }"><el-tag :type="maskStrategy(row) ? 'warning' : 'danger'">{{ maskStrategy(row) || '策略无法识别' }}</el-tag></template></el-table-column>
             <el-table-column label="操作" width="170" fixed="right">
               <template #default="{ row }">
-                <el-button link type="primary" :loading="candidateBusy[row.entityId]" :disabled="!maskStrategy(row)" @click="confirmCandidate(row)">确认生效</el-button>
-                <el-button link type="danger" :loading="candidateBusy[row.entityId]" @click="rejectCandidate(row)">拒绝</el-button>
+                <el-button
+                  link
+                  type="primary"
+                  :loading="candidateBusy[row.entityId]"
+                  :disabled="!maskStrategy(row) || !canManageMaskCandidates"
+                  :title="canManageMaskCandidates ? '' : '需要 security:mask:manage 与当前数据源同一绑定'"
+                  @click="confirmCandidate(row)"
+                >确认生效</el-button>
+                <el-button
+                  link
+                  type="danger"
+                  :loading="candidateBusy[row.entityId]"
+                  :disabled="!canManageMaskCandidates"
+                  :title="canManageMaskCandidates ? '' : '需要 security:mask:manage 与当前数据源同一绑定'"
+                  @click="rejectCandidate(row)"
+                >拒绝</el-button>
               </template>
             </el-table-column>
           </el-table>
+          <p v-if="canViewMaskCandidates && !canManageMaskCandidates" class="mask-panel__hint">
+            你可以查看脱敏候选，但没有“维护字段保护”能力（security:mask:manage），因此不能确认或拒绝。
+          </p>
         </section>
       </el-tab-pane>
     </el-tabs>
@@ -185,4 +236,5 @@ onBeforeUnmount(() => {
 .mask-panel__heading span, .mask-panel__heading p { color: var(--do-muted); font-size: 12px; }
 .mask-panel__heading h2 { margin: 5px 0; color: var(--do-ink); font-size: 18px; }
 .mask-panel__heading p { margin: 0; }
+.mask-panel__hint { margin: 12px 0 0; color: var(--do-muted); font-size: 12px; line-height: 1.6; }
 </style>

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { computed, ref, onMounted, nextTick, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { TrendingUp, Settings } from 'lucide-vue-next'
 import * as echarts from 'echarts'
 import { useGsapMotion } from '../../../composables/useGsapMotion'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useIamS1Store } from '../../../stores/iamS1'
 import {
   pageConfidence,
   adminSetConfidence,
@@ -16,6 +17,12 @@ import {
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
 const adminContext = useAdminContextStore()
+const iamS1 = useIamS1Store()
+const FIELD_VIEW = 'governance:field:view'
+const FIELD_MANAGE = 'governance:field:manage'
+const MANAGE_HINT = '需要 governance:field:manage 与当前数据源同一绑定'
+const canViewFields = computed(() => iamS1.canOnDatasource(FIELD_VIEW, adminContext.datasourceId || undefined))
+const canManageFields = computed(() => iamS1.canOnDatasource(FIELD_MANAGE, adminContext.datasourceId || undefined))
 
 const loading = ref(false)
 const confidenceList = ref<ConfidenceVO[]>([])
@@ -51,6 +58,12 @@ const levelType = (level: string) => {
 }
 
 async function fetchConfidenceList() {
+  if (!canViewFields.value) {
+    confidenceList.value = []
+    total.value = 0
+    loading.value = false
+    return
+  }
   loading.value = true
   try {
     const res = await pageConfidence({
@@ -171,6 +184,10 @@ function disposeChart() {
 }
 
 function openSetDialog(columnMetaId: number, currentScore: number) {
+  if (!canManageFields.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   currentFieldId.value = columnMetaId
   setForm.value = { score: currentScore, reason: '' }
   showSetDialog.value = true
@@ -254,7 +271,7 @@ watch(
             <el-button link type="primary" size="small" @click="openTrend(row.columnMetaId)">
               <TrendingUp :size="14" style="margin-right: 2px" />趋势
             </el-button>
-            <el-button link type="warning" size="small" @click="openSetDialog(row.columnMetaId, row.score)">
+            <el-button link type="warning" size="small" :disabled="!canManageFields" :title="canManageFields ? '' : MANAGE_HINT" @click="openSetDialog(row.columnMetaId, row.score)">
               <Settings :size="14" style="margin-right: 2px" />设置
             </el-button>
           </template>

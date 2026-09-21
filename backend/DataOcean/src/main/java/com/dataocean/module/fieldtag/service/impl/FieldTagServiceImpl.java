@@ -10,8 +10,7 @@ import com.dataocean.module.fieldtag.entity.dto.FieldTagRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.FieldTagVO;
 import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
 import com.dataocean.module.fieldtag.mapper.PredefinedTagMapper;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
+import com.dataocean.module.fieldtag.support.FieldGovernanceScopeSupport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -37,7 +36,7 @@ public class FieldTagServiceImpl implements com.dataocean.module.fieldtag.servic
 
     private final FieldTagMapper fieldTagMapper;
     private final PredefinedTagMapper predefinedTagMapper;
-    private final DbColumnMetaMapper dbColumnMetaMapper;
+    private final FieldGovernanceScopeSupport fieldScope;
 
     /**
      * {@inheritDoc}
@@ -45,8 +44,7 @@ public class FieldTagServiceImpl implements com.dataocean.module.fieldtag.servic
     @Override
     @Transactional(rollbackFor = Exception.class)
     public FieldTagVO addTag(FieldTagRequestDTO request) {
-        // 校验字段是否存在
-        validateColumnExists(request.getColumnMetaId());
+        fieldScope.requireColumnsWritable(List.of(request.getColumnMetaId()));
         // 校验标签编码是否在预定义列表中
         PredefinedTag predefinedTag = validateTagCode(request.getTagCode());
         // 检查是否已存在相同标签
@@ -77,15 +75,12 @@ public class FieldTagServiceImpl implements com.dataocean.module.fieldtag.servic
     @Override
     @Transactional(rollbackFor = Exception.class)
     public int batchAddTags(BatchTagRequestDTO request) {
+        // 权限与归属预校验整批原子：任一无权、不存在或断链即整批零写入。
+        fieldScope.requireColumnsWritable(request.getColumnMetaIds());
         // 校验标签编码
         PredefinedTag predefinedTag = validateTagCode(request.getTagCode());
         Long currentUserId = UserContext.currentUserId();
-        List<Long> columnMetaIds = request.getColumnMetaIds();
-        // 批量查询哪些字段实际存在
-        List<DbColumnMeta> existingColumns = dbColumnMetaMapper.selectBatchIds(columnMetaIds);
-        Set<Long> existingColumnIds = existingColumns.stream()
-                .map(DbColumnMeta::getId)
-                .collect(Collectors.toSet());
+        List<Long> columnMetaIds = FieldGovernanceScopeSupport.distinctIds(request.getColumnMetaIds());
         // 批量查询哪些字段已有该标签
         List<FieldTag> existingTags = fieldTagMapper.selectList(
                 new LambdaQueryWrapper<FieldTag>()
@@ -95,13 +90,8 @@ public class FieldTagServiceImpl implements com.dataocean.module.fieldtag.servic
         Set<Long> alreadyTaggedIds = existingTags.stream()
                 .map(FieldTag::getColumnMetaId)
                 .collect(Collectors.toSet());
-        // 构建待插入列表（仅包含存在且未打标的字段）
         List<FieldTag> tagsToInsert = new ArrayList<>();
         for (Long columnMetaId : columnMetaIds) {
-            if (!existingColumnIds.contains(columnMetaId)) {
-                log.warn("批量打标跳过不存在的字段 columnMetaId={}", columnMetaId);
-                continue;
-            }
             if (alreadyTaggedIds.contains(columnMetaId)) {
                 continue;
             }
@@ -117,7 +107,6 @@ public class FieldTagServiceImpl implements com.dataocean.module.fieldtag.servic
         if (tagsToInsert.isEmpty()) {
             return 0;
         }
-        // 批量插入
         fieldTagMapper.batchInsert(tagsToInsert);
         log.info("批量打标完成，标签={} 成功数量={}", request.getTagCode(), tagsToInsert.size());
         return tagsToInsert.size();
@@ -133,6 +122,7 @@ public class FieldTagServiceImpl implements com.dataocean.module.fieldtag.servic
         if (tag == null) {
             throw new BusinessException("标签不存在");
         }
+        fieldScope.requireColumnsWritable(List.of(tag.getColumnMetaId()));
         fieldTagMapper.deleteById(id);
         log.info("移除字段标签 id={} columnMetaId={} tagCode={}", id, tag.getColumnMetaId(), tag.getTagCode());
     }
@@ -155,12 +145,16 @@ public class FieldTagServiceImpl implements com.dataocean.module.fieldtag.servic
      */
     @Override
     public List<Long> getColumnIdsByTagCode(String tagCode) {
-        List<FieldTag> tags = fieldTagMapper.selectList(
-                new LambdaQueryWrapper<FieldTag>()
-                        .eq(FieldTag::getTagCode, tagCode)
-                        .select(FieldTag::getColumnMetaId)
-        );
-        return tags.stream().map(FieldTag::getColumnMetaId).collect(Collectors.toList());
+        return getColumnIdsByTagCodeInDatasources(tagCode, null);
+    }
+
+    @Override
+    public List<Long> getColumnIdsByTagCodeInDatasources(String tagCode,
+                                                        java.util.Collection<Long> visibleDatasourceIds) {
+        if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
+            return List.of();
+        }
+        return fieldTagMapper.selectColumnIdsByTagCodeInDatasources(tagCode, visibleDatasourceIds);
     }
 
     /**
@@ -172,15 +166,6 @@ public class FieldTagServiceImpl implements com.dataocean.module.fieldtag.servic
                 new LambdaQueryWrapper<PredefinedTag>()
                         .orderByAsc(PredefinedTag::getSortOrder)
         );
-    }
-
-    /**
-     * 校验字段元数据是否存在
-     */
-    private void validateColumnExists(Long columnMetaId) {
-        if (dbColumnMetaMapper.selectById(columnMetaId) == null) {
-            throw new BusinessException(404, "字段不存在，columnMetaId=" + columnMetaId);
-        }
     }
 
     /**

@@ -30,6 +30,24 @@ public class QueryTask {
     /** 数据源 ID */
     private Long datasourceId;
 
+    /** IAM-SIMPLE-1 查询协议；旧任务保持为空。 */
+    private String iamProtocolVersion;
+
+    /** S1 活动元数据快照与权限修订证据。 */
+    private Long activeMetadataSnapshotId;
+    private Long permissionRevision;
+
+    /** 不含记录参数原值的 S1 执行快照。 */
+    private String iamExecutionSnapshot;
+    /** 本次查询实际引用资源请求的安全 JSON。 */
+    private String iamResourceRequest;
+    /** Python 返回的来源追踪安全摘要。 */
+    private String iamSourceTrace;
+    /** query/viewSql/export 能力摘要。 */
+    private String iamCapabilities;
+    /** 最终保护状态，例如 FINAL_MASKED / REJECTED_ON_RECHECK。 */
+    private String iamFinalProtectionStatus;
+
     /** 关联的会话 ID */
     private Long conversationId;
 

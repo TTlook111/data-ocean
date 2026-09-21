@@ -2,13 +2,18 @@ package com.dataocean.module.fieldtag.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
+import com.dataocean.common.security.UserContext;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.fieldtag.entity.dto.FeedbackReviewRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.FeedbackVO;
 import com.dataocean.module.fieldtag.service.FeedbackReviewService;
+import com.dataocean.module.fieldtag.support.FieldGovernanceScopeSupport;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.access.prepost.PreAuthorize;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,12 +32,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/feedback-reviews")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyAuthority('field-tag:manage', '*')")
 @AdminAuditLog
 @Slf4j
 public class FeedbackReviewController {
 
+    /** 查看待审反馈。 */
+    private static final String VIEW_FUNCTION = "governance:field:view";
+    /** 通过/驳回反馈。 */
+    private static final String MANAGE_FUNCTION = "governance:field:manage";
+
     private final FeedbackReviewService feedbackReviewService;
+    private final FieldGovernanceScopeSupport fieldScope;
 
     /**
      * 分页查询待审核反馈列表
@@ -42,10 +52,12 @@ public class FeedbackReviewController {
      * @return 分页反馈列表
      */
     @GetMapping
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<Page<FeedbackVO>> listPendingReviews(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
-        return Result.success(feedbackReviewService.listPendingReviews(page, pageSize));
+        return Result.success(feedbackReviewService.listPendingReviews(page, pageSize,
+                fieldScope.visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION)));
     }
 
     /**
@@ -56,6 +68,7 @@ public class FeedbackReviewController {
      * @return 操作结果
      */
     @PostMapping("/{feedbackId}/approve")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.FEEDBACK_REVIEW, resourceIds = "#feedbackId")
     public Result<Void> approveFeedback(@PathVariable Long feedbackId,
                                         @RequestBody(required = false) FeedbackReviewRequestDTO request) {
         String comment = request != null ? request.getReviewComment() : null;
@@ -71,6 +84,7 @@ public class FeedbackReviewController {
      * @return 操作结果
      */
     @PostMapping("/{feedbackId}/reject")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.FEEDBACK_REVIEW, resourceIds = "#feedbackId")
     public Result<Void> rejectFeedback(@PathVariable Long feedbackId,
                                        @RequestBody(required = false) FeedbackReviewRequestDTO request) {
         String comment = request != null ? request.getReviewComment() : null;

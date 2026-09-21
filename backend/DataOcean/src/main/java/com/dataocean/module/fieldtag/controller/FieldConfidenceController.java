@@ -2,14 +2,19 @@ package com.dataocean.module.fieldtag.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
+import com.dataocean.common.security.UserContext;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.fieldtag.entity.dto.ConfidenceUpdateRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.ConfidenceEventVO;
 import com.dataocean.module.fieldtag.entity.vo.ConfidenceVO;
 import com.dataocean.module.fieldtag.service.FieldConfidenceService;
+import com.dataocean.module.fieldtag.support.FieldGovernanceScopeSupport;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.access.prepost.PreAuthorize;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -32,7 +37,13 @@ import java.util.List;
 @Slf4j
 public class FieldConfidenceController {
 
+    /** 查看字段可信度。 */
+    private static final String VIEW_FUNCTION = "governance:field:view";
+    /** 维护字段可信度。 */
+    private static final String MANAGE_FUNCTION = "governance:field:manage";
+
     private final FieldConfidenceService fieldConfidenceService;
+    private final FieldGovernanceScopeSupport fieldScope;
 
     /**
      * 分页查询字段可信度列表（看板用，返回真实存在可信度记录的字段）
@@ -44,12 +55,14 @@ public class FieldConfidenceController {
      * @return 可信度分页列表
      */
     @GetMapping
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<Page<ConfidenceVO>> pageConfidence(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(required = false) String level,
             @RequestParam(required = false) Long datasourceId) {
-        return Result.success(fieldConfidenceService.pageConfidence(page, pageSize, level, datasourceId));
+        java.util.List<Long> visible = fieldScope.visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION);
+        return Result.success(fieldConfidenceService.pageConfidence(page, pageSize, level, datasourceId, visible));
     }
 
     /**
@@ -59,6 +72,7 @@ public class FieldConfidenceController {
      * @return 可信度信息
      */
     @GetMapping("/{columnMetaId}")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.COLUMN_META, resourceIds = "#columnMetaId")
     public Result<ConfidenceVO> getConfidence(@PathVariable Long columnMetaId) {
         return Result.success(fieldConfidenceService.getConfidence(columnMetaId));
     }
@@ -70,8 +84,10 @@ public class FieldConfidenceController {
      * @return 可信度列表
      */
     @GetMapping("/batch")
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<List<ConfidenceVO>> batchGetConfidence(@RequestParam List<Long> columnMetaIds) {
-        return Result.success(fieldConfidenceService.batchGetConfidence(columnMetaIds));
+        java.util.List<Long> visible = fieldScope.visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION);
+        return Result.success(fieldConfidenceService.batchGetConfidence(columnMetaIds, visible));
     }
 
     /**
@@ -82,7 +98,8 @@ public class FieldConfidenceController {
      * @return 设置后的可信度信息
      */
     @PutMapping("/{columnMetaId}")
-@PreAuthorize("hasAnyAuthority('field-tag:manage', '*')")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.COLUMN_META, resourceIds = "#columnMetaId")
+
     public Result<ConfidenceVO> adminSetScore(@PathVariable Long columnMetaId,
                                               @Valid @RequestBody ConfidenceUpdateRequestDTO request) {
         return Result.success("设置成功", fieldConfidenceService.adminSetScore(
@@ -96,6 +113,7 @@ public class FieldConfidenceController {
      * @return 变更事件列表
      */
     @GetMapping("/{columnMetaId}/events")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.COLUMN_META, resourceIds = "#columnMetaId")
     public Result<List<ConfidenceEventVO>> getEventHistory(@PathVariable Long columnMetaId) {
         return Result.success(fieldConfidenceService.getEventHistory(columnMetaId));
     }

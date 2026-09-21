@@ -1,0 +1,276 @@
+package com.dataocean.module.metadata.service.impl;
+
+import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.service.MetadataMaskCandidateService;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.jdbc.Sql;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+
+/**
+ * 完整 confirm() 事务集成测试：走真实 {@link MetadataMaskCandidateService}、真实 Mapper 与真实事务。
+ *
+ * <p>验证并发确认同一候选时的最终状态，以及候选清理失败时整笔回滚。</p>
+ *
+ * <p><b>H2 的边界（必须如实说明）</b>：H2 能验证 Spring 事务与 Mapper 配合、行锁串行化和
+ * “候选已处理不再重复写入”的幂等结果，但**不能替代 B5 在真实 MySQL REPEATABLE READ 下的验收**——
+ * H2 的锁与隔离级别实现与 MySQL 不同。本测试没有启动或创建任何 MySQL/Docker。</p>
+ */
+@SpringBootTest
+@ActiveProfiles("test")
+// 用独立的 H2 内存库：类里的 @SpyBean 会让 Spring 建一个独立 context，
+// 若与其他 @SpringBootTest 共用默认内存库，@Sql 的 DROP/CREATE 会互相破坏。
+@org.springframework.test.context.TestPropertySource(properties =
+        "spring.datasource.url=jdbc:h2:mem:maskcandidate;MODE=MySQL;DATABASE_TO_LOWER=TRUE;"
+                + "CASE_INSENSITIVE_IDENTIFIERS=TRUE;DB_CLOSE_DELAY=-1")
+@Sql(statements = {
+        "DROP TABLE IF EXISTS sys_user",
+        "DROP TABLE IF EXISTS datasource",
+        "DROP TABLE IF EXISTS metadata_snapshot",
+        "DROP TABLE IF EXISTS db_table_meta",
+        "DROP TABLE IF EXISTS db_column_meta",
+        "DROP TABLE IF EXISTS metadata_entity",
+        "DROP TABLE IF EXISTS iam_s1_function",
+        "DROP TABLE IF EXISTS iam_s1_role",
+        "DROP TABLE IF EXISTS iam_s1_user_role",
+        "DROP TABLE IF EXISTS iam_s1_role_function",
+        "DROP TABLE IF EXISTS iam_s1_role_datasource",
+        "DROP TABLE IF EXISTS iam_s1_field_protection",
+        "DROP TABLE IF EXISTS iam_s1_permission_revision",
+        "DROP TABLE IF EXISTS iam_s1_audit_event",
+
+        "CREATE TABLE sys_user (id BIGINT PRIMARY KEY, username VARCHAR(100), status INT, deleted INT)",
+        "CREATE TABLE datasource (id BIGINT PRIMARY KEY, name VARCHAR(200), status INT, deleted BIGINT)",
+        "CREATE TABLE metadata_snapshot (id BIGINT PRIMARY KEY, datasource_id BIGINT, status VARCHAR(30))",
+        "CREATE TABLE db_table_meta (id BIGINT PRIMARY KEY, snapshot_id BIGINT, datasource_id BIGINT, "
+                + "table_name VARCHAR(200), governance_status VARCHAR(30))",
+        "CREATE TABLE db_column_meta (id BIGINT PRIMARY KEY, snapshot_id BIGINT, table_meta_id BIGINT, "
+                + "datasource_id BIGINT, table_name VARCHAR(200), column_name VARCHAR(200), "
+                + "data_type VARCHAR(50), governance_status VARCHAR(30), ordinal_position INT)",
+        "CREATE TABLE metadata_entity (id BIGINT PRIMARY KEY, entity_type VARCHAR(30), entity_uuid VARCHAR(64), "
+                + "fqn VARCHAR(500), name VARCHAR(200), display_name VARCHAR(500), description VARCHAR(1000), "
+                + "entity_metadata CLOB, owner_id BIGINT, version INT, created_at TIMESTAMP, updated_at TIMESTAMP)",
+
+        "CREATE TABLE iam_s1_function (id BIGINT PRIMARY KEY, function_code VARCHAR(100), "
+                + "function_name VARCHAR(100), function_description VARCHAR(500), business_domain VARCHAR(50), "
+                + "workspace VARCHAR(50), status VARCHAR(20), dependency_codes VARCHAR(500), "
+                + "created_at TIMESTAMP, updated_at TIMESTAMP)",
+        "CREATE TABLE iam_s1_role (id BIGINT PRIMARY KEY, role_code VARCHAR(100), role_name VARCHAR(100), "
+                + "description VARCHAR(500), status INT, protected_role INT, built_in INT, "
+                + "created_by BIGINT, updated_by BIGINT, created_at TIMESTAMP, updated_at TIMESTAMP)",
+        "CREATE TABLE iam_s1_user_role (id BIGINT PRIMARY KEY, user_id BIGINT, role_id BIGINT, status INT, "
+                + "revision_no BIGINT, created_by BIGINT, updated_by BIGINT, created_at TIMESTAMP, updated_at TIMESTAMP)",
+        "CREATE TABLE iam_s1_role_function (role_id BIGINT, function_id BIGINT)",
+        "CREATE TABLE iam_s1_role_datasource (id BIGINT PRIMARY KEY, user_role_id BIGINT, datasource_id BIGINT, "
+                + "status INT, created_by BIGINT, created_at TIMESTAMP)",
+        "CREATE TABLE iam_s1_field_protection (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+                + "protocol_version VARCHAR(50), datasource_id BIGINT, metadata_snapshot_id BIGINT, "
+                + "table_name VARCHAR(200), column_meta_id BIGINT, column_name VARCHAR(200), "
+                + "protection_level VARCHAR(20), mask_policy VARCHAR(100), status VARCHAR(20), revision_no BIGINT, "
+                + "created_by BIGINT, updated_by BIGINT, created_at TIMESTAMP, updated_at TIMESTAMP)",
+        "CREATE TABLE iam_s1_permission_revision (revision_no BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+                + "target_type VARCHAR(50), target_id BIGINT, change_type VARCHAR(50), operator_id BIGINT, "
+                + "reason VARCHAR(500), created_at TIMESTAMP)",
+        "CREATE TABLE iam_s1_audit_event (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, "
+                + "event_type VARCHAR(50), operator_id BIGINT, target_type VARCHAR(50), target_id BIGINT, "
+                + "before_summary VARCHAR(2000), after_summary VARCHAR(2000), reason VARCHAR(500), "
+                + "execution_id VARCHAR(100), success TINYINT, failure_reason VARCHAR(500), created_at TIMESTAMP)",
+
+        // 一个可维护字段保护的用户：启用用户 + 系统管理员角色绑定 + 启用的数据源
+        "INSERT INTO sys_user (id, username, status, deleted) VALUES (9, 'operator', 1, 0)",
+        "INSERT INTO datasource (id, name, status, deleted) VALUES (5, '销售库', 1, 0)",
+        "INSERT INTO metadata_snapshot (id, datasource_id, status) VALUES (8, 5, 'PUBLISHED')",
+        "INSERT INTO db_table_meta (id, snapshot_id, datasource_id, table_name, governance_status) "
+                + "VALUES (70, 8, 5, 'orders', 'NORMAL')",
+        "INSERT INTO db_column_meta (id, snapshot_id, table_meta_id, datasource_id, table_name, column_name, "
+                + "data_type, governance_status, ordinal_position) "
+                + "VALUES (77, 8, 70, 5, 'orders', 'phone', 'VARCHAR', 'NORMAL', 1)",
+        // 候选实体：pending_mask 在 entity_metadata 里（Java 侧解析，不经 SQL JSON 函数）
+        "INSERT INTO metadata_entity (id, entity_type, entity_uuid, fqn, name, display_name, description, "
+                + "entity_metadata, owner_id, version) VALUES (100, 'COLUMN', 'uuid-100', "
+                + "'ds.db.orders.phone', 'phone', 'phone', 'phone', "
+                + "'{\"datasource_id\":5,\"snapshot_id\":8,\"pending_mask\":{\"strategy\":\"PHONE\"}}', 9, 1)",
+        // 系统管理员绑定：受保护角色唯一 + 该用户是唯一受保护绑定 → isSystemAdmin 通过
+        "INSERT INTO iam_s1_role (id, role_code, role_name, description, status, protected_role, built_in) "
+                + "VALUES (1, 'IAM_S1_SYSTEM_ADMIN', '系统管理员', '内置受保护角色', 1, 1, 1)",
+        "INSERT INTO iam_s1_user_role (id, user_id, role_id, status, revision_no) VALUES (1, 9, 1, 1, 1)",
+        // resolveAdminAction 会先查功能目录（在 isSystemAdmin 之前），所以功能码必须存在
+        "INSERT INTO iam_s1_function (id, function_code, function_name, function_description, business_domain, "
+                + "workspace, status, dependency_codes) VALUES (34, 'security:mask:manage', '维护字段保护', "
+                + "'维护字段隐藏、保护和值展示策略。', '权限与组织', '字段保护', 'ACTIVE', 'security:mask:view')"
+}, executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
+@Sql(statements = {
+        "DROP TABLE IF EXISTS sys_user", "DROP TABLE IF EXISTS datasource",
+        "DROP TABLE IF EXISTS metadata_snapshot", "DROP TABLE IF EXISTS db_table_meta",
+        "DROP TABLE IF EXISTS db_column_meta", "DROP TABLE IF EXISTS metadata_entity",
+        "DROP TABLE IF EXISTS iam_s1_function", "DROP TABLE IF EXISTS iam_s1_role",
+        "DROP TABLE IF EXISTS iam_s1_user_role", "DROP TABLE IF EXISTS iam_s1_role_function",
+        "DROP TABLE IF EXISTS iam_s1_role_datasource", "DROP TABLE IF EXISTS iam_s1_field_protection",
+        "DROP TABLE IF EXISTS iam_s1_permission_revision", "DROP TABLE IF EXISTS iam_s1_audit_event"
+}, executionPhase = Sql.ExecutionPhase.AFTER_TEST_METHOD)
+class MetadataMaskCandidateConfirmTransactionTest {
+
+    private static final Long OPERATOR = 9L;
+    private static final Long ENTITY_ID = 100L;
+
+    @Autowired
+    private MetadataMaskCandidateService maskCandidateService;
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+    /** 只用于让清理阶段返回 false；其余调用走真实实现。 */
+    @org.springframework.boot.test.mock.mockito.SpyBean
+    private com.dataocean.module.metadata.service.MetadataEntityService entityService;
+    /** 观察缓存失效是否被登记（真实实现只在事务提交后才执行）。 */
+    @org.springframework.boot.test.mock.mockito.SpyBean
+    private com.dataocean.module.permission.s1.service.impl.IamS1PermissionCacheService permissionCacheService;
+
+    @Test
+    void confirmWritesOneActiveProtectionAndClearsTheCandidate() {
+        maskCandidateService.confirm(OPERATOR, ENTITY_ID, "PHONE");
+
+        assertThat(activeProtectionPolicies()).containsExactly("PHONE");
+        assertThat(pendingMaskOf(ENTITY_ID)).isNull();
+        assertThat(auditCount("FIELD_PROTECTION_SAVED")).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void confirmIsIdempotentWhenCalledAgainAfterTheCandidateIsGone() {
+        maskCandidateService.confirm(OPERATOR, ENTITY_ID, "PHONE");
+        // 候选已被清除，再次确认应当是幂等的 no-op，而不是再插一条 ACTIVE
+        maskCandidateService.confirm(OPERATOR, ENTITY_ID, "PHONE");
+
+        assertThat(activeProtectionPolicies()).containsExactly("PHONE");
+    }
+
+    @Test
+    void twoConcurrentConfirmsLeaveExactlyOneActiveProtection() throws Exception {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<?> first = executor.submit(() -> runAfter(start));
+            Future<?> second = executor.submit(() -> runAfter(start));
+            start.countDown();
+            first.get(30, TimeUnit.SECONDS);
+            second.get(30, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        // 关键断言：V55 没有字段保护唯一约束，只有“先锁后读”才能保证并发下不出现两条 ACTIVE。
+        assertThat(activeProtectionPolicies()).as("并发确认最终只能保留一条 ACTIVE").containsExactly("PHONE");
+        assertThat(pendingMaskOf(ENTITY_ID)).isNull();
+    }
+
+    @Test
+    void confirmIsIdempotentWhenTheCandidateRowHoldsNoPendingMask() {
+        // 候选实体本身没有 pending_mask（从未生成候选）：confirm 走“已处理”的幂等分支，
+        // 不写保护也不清理。这是幂等语义，不是回滚路径——回滚由下一个用例覆盖。
+        jdbcTemplate.update("UPDATE metadata_entity SET entity_metadata = ? WHERE id = ?",
+                "{\"datasource_id\":5,\"snapshot_id\":8}", ENTITY_ID);
+
+        long protectionsBefore = protectionRowCount();
+        long revisionsBefore = revisionRowCount();
+
+        maskCandidateService.confirm(OPERATOR, ENTITY_ID, "PHONE");
+
+        assertThat(protectionRowCount()).isEqualTo(protectionsBefore);
+        assertThat(revisionRowCount()).isEqualTo(revisionsBefore);
+    }
+
+    @Test
+    void confirmRollsBackProtectionRevisionAndAuditWhenTheCandidateCannotBeCleared() {
+        // 让清理阶段失败：updateById 返回 false 表示更新 0 行。
+        // 只 spy 这一步，其余（S1 Mapper、revision、审计、事务）都保持真实实现。
+        doReturn(false).when(entityService).updateById(any(MetadataEntity.class));
+
+        long protectionsBefore = protectionRowCount();
+        long revisionsBefore = revisionRowCount();
+        long successAuditsBefore = successAuditCount();
+
+        Throwable thrown = catchThrowable(() -> maskCandidateService.confirm(OPERATOR, ENTITY_ID, "PHONE"));
+
+        assertThat(thrown)
+                .as("清理候选失败必须让整笔确认失败")
+                .isInstanceOf(BusinessException.class);
+        assertThat(thrown.getMessage()).contains("已被其他操作更新");
+
+        // 字段保护、revision、成功审计三者都必须随事务一起回滚
+        assertThat(protectionRowCount()).as("字段保护必须回滚").isEqualTo(protectionsBefore);
+        assertThat(revisionRowCount()).as("revision 必须回滚").isEqualTo(revisionsBefore);
+        assertThat(successAuditCount()).as("成功审计必须回滚").isEqualTo(successAuditsBefore);
+        // 候选仍挂着（清理没成功，也随事务回滚）
+        assertThat(pendingMaskOf(ENTITY_ID)).as("pending_mask 必须仍在").isNotNull();
+
+        // 缓存失效：saveProtection 走 invalidateAfterCommit → 注册 afterCommit 回调，
+        // 真正删除缓存的动作只在事务**提交后**执行。这里事务已回滚，Spring 不会调用 afterCommit，
+        // 因此缓存失效没有发生——由上面三层回滚（保护 / revision / 审计）确证事务确实回滚。
+        // （invalidateNow 是 private，无法直接 spy；这里断言的是“已登记失效”，
+        //   而“未执行”由上一条事务回滚事实保证。）
+        verify(permissionCacheService).invalidateAfterCommit(5L);
+    }
+
+    // ---------- 辅助 ----------
+
+    private void runAfter(CountDownLatch start) {
+        try {
+            start.await(10, TimeUnit.SECONDS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+        maskCandidateService.confirm(OPERATOR, ENTITY_ID, "PHONE");
+    }
+
+    private List<String> activeProtectionPolicies() {
+        return jdbcTemplate.queryForList(
+                "SELECT mask_policy FROM iam_s1_field_protection WHERE column_meta_id = 77 AND status = 'ACTIVE'",
+                String.class);
+    }
+
+    private String pendingMaskOf(Long entityId) {
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT entity_metadata FROM metadata_entity WHERE id = ?", entityId);
+        if (rows.isEmpty()) {
+            return null;
+        }
+        Object metadata = rows.get(0).get("entity_metadata");
+        String text = metadata == null ? "" : metadata.toString();
+        return text.contains("pending_mask") ? text : null;
+    }
+
+    private long protectionRowCount() {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM iam_s1_field_protection", Long.class);
+    }
+
+    private long revisionRowCount() {
+        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM iam_s1_permission_revision", Long.class);
+    }
+
+    private long auditCount(String eventType) {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM iam_s1_audit_event WHERE event_type = ?", Long.class, eventType);
+    }
+
+    private long successAuditCount() {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM iam_s1_audit_event WHERE success = 1", Long.class);
+    }
+}

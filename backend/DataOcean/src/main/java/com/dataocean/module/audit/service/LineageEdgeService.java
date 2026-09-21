@@ -65,4 +65,15 @@ public interface LineageEdgeService {
      * @return 增强血缘图谱
      */
     LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageTypes);
+
+    /**
+     * 增强血缘，按可见实体集合在**遍历阶段**裁剪。
+     *
+     * <p>不能只过滤返回结果：BFS 会穿过无权节点，把与起点没有边的孤立节点也带出来，
+     * 泄露“存在隐藏路径”的拓扑信号。</p>
+     *
+     * @param visibleEntityIds 可见实体集合；null 表示不限制
+     */
+    LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageTypes,
+                                      Set<Long> visibleEntityIds);
 }

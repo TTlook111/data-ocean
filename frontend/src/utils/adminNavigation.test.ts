@@ -13,6 +13,10 @@ describe('admin navigation metadata', () => {
       ADMIN_DOMAIN_KEYS.operations,
     ]))
     expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/datasources')
+    expect(ADMIN_WORKSPACES.find((item) => item.key === 'iam-organization')?.label)
+      .toBe('组织、角色与负责源')
+    expect(ADMIN_WORKSPACES.find((item) => item.key === 'organization')?.label)
+      .toBe('组织与角色（旧）')
   })
 
   it('按目标工作区的 contextMode 白名单继承上下文', () => {

@@ -33,6 +33,7 @@ import { getPublishedSnapshot, type VersionHistoryItem } from '../../../api/admi
 import { knowledgeStatusLabel } from '../../../utils/enumLabels'
 import { findDomainHome, resolveReadinessAction } from '../../../utils/adminNavigation'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
@@ -44,6 +45,24 @@ const router = useRouter()
 // 未知 readiness 状态码的安全落点：当前业务域的首个工作区
 const domainHome = computed(() => findDomainHome(String(route.meta.domainKey || '')))
 const context = useAdminContextStore()
+
+const iamS1 = useIamS1Store()
+
+/**
+ * 知识文档的四个功能码都属于「源」范围，同一绑定上必须同时有功能与该文档数据源的负责范围。
+ *
+ * 这里只做粗粒度按钮可用性：页面不知道每份文档的具体归属，真正的判定由后端按
+ * 文档真实 datasourceId 完成（KNOWLEDGE_DOCUMENT 解析器 + 同绑定校验）。
+ * 判定值只来自 Java 的 S1 能力摘要，不读取旧 permissions / roles / JWT authority。
+ */
+const canManage = computed(
+  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:manage').length > 0,
+)
+const canApprove = computed(
+  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:approve').length > 0,
+)
+const MANAGE_HINT = '没有“维护知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:manage 并负责目标数据源。'
+const APPROVE_HINT = '没有“审核知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:approve 并负责目标数据源。审核权不自动带来维护或发布权。'
 
 const activeTab = ref(String(route.query.tab || 'documents'))
 const docs = ref<KnowledgeDocItem[]>([])
@@ -255,6 +274,7 @@ function goDetail(id: number) {
 }
 
 function goCreate() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   router.push({ name: 'admin-semantic-knowledge-new' })
 }
 
@@ -263,6 +283,7 @@ function goAsk() {
 }
 
 async function approve(doc: KnowledgeDocItem) {
+  if (!canApprove.value) { ElMessage.warning(APPROVE_HINT); return }
   try {
     await ElMessageBox.confirm(`通过「${doc.title}」的审核？通过后仍需执行发布会进入索引阶段。`, '审核通过')
     actionLoading.value = true
@@ -277,6 +298,7 @@ async function approve(doc: KnowledgeDocItem) {
 }
 
 async function reject(doc: KnowledgeDocItem) {
+  if (!canApprove.value) { ElMessage.warning(APPROVE_HINT); return }
   try {
     const result = await ElMessageBox.prompt(`请说明驳回「${doc.title}」的原因`, '审核驳回', {
       inputValidator: (value) => Boolean(value?.trim()) || '驳回原因不能为空',
@@ -303,6 +325,7 @@ const snapshots = ref<SnapshotItem[]>([])
 const generatedDocs = ref<Array<{ id: number; title: string; tableNames: string[] }>>([])
 
 function openGenerateDialog() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   generateForm.datasourceId = datasourceId.value
   generateForm.snapshotId = context.snapshotId
   snapshots.value = []
@@ -329,6 +352,7 @@ function onGenerateDatasourceChange(id?: number) {
 }
 
 async function runGenerate() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!generateForm.datasourceId || !generateForm.snapshotId) {
     ElMessage.warning('请选择数据源和快照')
     return
@@ -348,6 +372,7 @@ async function runGenerate() {
 
 onMounted(async () => {
   await Promise.allSettled([context.initialize(), loadDatasources()])
+  await Promise.allSettled([context.initialize(), iamS1.load(), loadDatasources()])
   await Promise.allSettled([loadDocs(), loadStats(), loadPublishedSnapshot()])
 })
 
@@ -383,8 +408,8 @@ watch(() => route.query.page, (value) => {
     >
       <template #actions>
         <el-button :icon="RefreshCw" :loading="loading" @click="loadDocs(); loadStats(); loadReadiness()">刷新</el-button>
-        <el-button :icon="Plus" @click="goCreate">手动新建</el-button>
-        <el-button type="primary" :icon="Sparkles" @click="openGenerateDialog">AI 一键生成</el-button>
+        <el-button :icon="Plus" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="goCreate">手动新建</el-button>
+        <el-button type="primary" :icon="Sparkles" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="openGenerateDialog">AI 一键生成</el-button>
       </template>
     </TaskPageHeader>
 
@@ -529,8 +554,8 @@ watch(() => route.query.page, (value) => {
           <template #default="{ row }">
             <el-button link type="primary" @click="goDetail(row.id)">详情</el-button>
             <template v-if="activeTab === 'review' && row.status === 'PENDING_REVIEW'">
-              <el-button link type="success" @click="approve(row)"><Check :size="14" />通过</el-button>
-              <el-button link type="danger" @click="reject(row)"><X :size="14" />驳回</el-button>
+              <el-button link type="success" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="approve(row)"><Check :size="14" />通过</el-button>
+              <el-button link type="danger" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="reject(row)"><X :size="14" />驳回</el-button>
             </template>
             <el-button v-else-if="row.status === 'PUBLISHED'" link @click="goAsk()">
               <MessageSquareText :size="14" />去问数
@@ -588,7 +613,7 @@ watch(() => route.query.page, (value) => {
 
       <template #footer>
         <el-button @click="generateDialogVisible = false">{{ generatedDocs.length ? '关闭' : '取消' }}</el-button>
-        <el-button v-if="!generatedDocs.length" type="primary" :loading="generateLoading" @click="runGenerate">
+        <el-button v-if="!generatedDocs.length" type="primary" :loading="generateLoading" :disabled="!canManage" @click="runGenerate">
           <Sparkles :size="15" style="margin-right: 6px" />开始生成
         </el-button>
       </template>

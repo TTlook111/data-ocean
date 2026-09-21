@@ -1,13 +1,16 @@
 package com.dataocean.module.fieldtag.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.fieldtag.entity.vo.ConfidenceTrendPointVO;
 import com.dataocean.module.fieldtag.service.ConfidenceTrendService;
 import com.dataocean.module.fieldtag.service.FieldTagService;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.access.prepost.PreAuthorize;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,10 +32,14 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/fields")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyAuthority('field-tag:manage', '*')")
 @AdminAuditLog
 @Slf4j
 public class FieldAdminController {
+
+    /** 查看字段治理：字段说明、标签与可信度。 */
+    private static final String VIEW_FUNCTION = "governance:field:view";
+    /** 维护字段治理：导入标签、自动打标。 */
+    private static final String MANAGE_FUNCTION = "governance:field:manage";
 
     private final ConfidenceTrendService confidenceTrendService;
     private final FieldTagService fieldTagService;
@@ -45,6 +52,7 @@ public class FieldAdminController {
      * @return 趋势数据点列表
      */
     @GetMapping("/{fieldId}/confidence-trend")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.COLUMN_META, resourceIds = "#fieldId")
     public Result<List<ConfidenceTrendPointVO>> getConfidenceTrend(
             @PathVariable Long fieldId,
             @RequestParam(defaultValue = "30") int days) {
@@ -61,6 +69,7 @@ public class FieldAdminController {
      * @return 导入结果（成功数/失败数）
      */
     @PostMapping("/import-tags")
+    @IamS1ScopedList(MANAGE_FUNCTION)
     public Result<Map<String, Integer>> importTags(@RequestParam("file") MultipartFile file) {
         Map<String, Integer> result = confidenceTrendService.importTagsFromCsv(file);
         return Result.success("导入完成", result);
@@ -76,6 +85,7 @@ public class FieldAdminController {
      * @return 自动打标结果
      */
     @PostMapping("/auto-tag")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#datasourceId")
     public Result<Map<String, Integer>> autoTag(@RequestParam Long datasourceId) {
         Map<String, Integer> result = confidenceTrendService.autoTagByPattern(datasourceId);
         return Result.success("自动打标完成", result);

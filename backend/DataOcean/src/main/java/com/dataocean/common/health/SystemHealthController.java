@@ -1,14 +1,25 @@
 package com.dataocean.common.health;
 
+import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.health.dto.SqlPoolResetDTO;
 import com.dataocean.common.result.Result;
+import com.dataocean.common.security.UserContext;
+
+import com.dataocean.module.permission.s1.resource.IamS1ResolvedResource;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceResolverRegistry;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
+import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
+import com.dataocean.module.permission.s1.annotation.IamS1Global;
 import com.dataocean.module.datasource.client.PythonPoolClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
+
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -27,11 +38,17 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/admin/system")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyAuthority('*')")
 @Slf4j
 public class SystemHealthController {
 
+    /** 查看服务状态与连接池。 */
+    private static final String VIEW_FUNCTION = "system:runtime:view";
+    /** 维护运行监控：重置连接池属于高影响操作。 */
+    private static final String MANAGE_FUNCTION = "system:runtime:manage";
+
     private final PythonHealthChecker pythonHealthChecker;
+    private final IamS1AdminGuard adminGuard;
+    private final IamS1ResourceResolverRegistry datasourceResolverRegistry;
     private final PythonPoolClient pythonPoolClient;
     private final DataSource dataSource;
     private final StringRedisTemplate stringRedisTemplate;
@@ -40,6 +57,7 @@ public class SystemHealthController {
      * 获取系统各服务健康状态
      */
     @GetMapping("/health")
+    @IamS1Global(VIEW_FUNCTION)
     public Result<Map<String, Object>> getSystemHealth() {
         Map<String, Object> healthMap = new HashMap<>();
 
@@ -75,17 +93,50 @@ public class SystemHealthController {
      * 获取 Python 侧 SQL 连接池仪表盘
      */
     @GetMapping("/sql-pools")
+    @IamS1Global(VIEW_FUNCTION)
     public Result<Map<String, Object>> getSqlPoolDashboard() {
         return Result.success(pythonPoolClient.getPoolDashboard());
     }
 
     /**
-     * 重置指定数据源的 SQL 连接池
+     * 重置指定数据源的 SQL 连接池。
+     *
+     * <p>重置会中断该数据源**正在执行**的查询，属于高影响操作，因此除
+     * `system:runtime:manage` + 目标数据源负责范围外，还要求：</p>
+     *
+     * <ul>
+     *   <li>受保护 S1 系统管理员——只负责一个数据源的人不应能重置别人的连接池；</li>
+     *   <li>请求体里显式的确认标记与原因，避免误触与无据可查；</li>
+     *   <li>审计记录数据源 ID、原因与影响说明。</li>
+     * </ul>
+     *
+     * <p>响应与日志都不包含连接串或密码。</p>
      */
     @PostMapping("/sql-pools/{datasourceId}/reset")
-    public Result<Void> resetSqlPool(@PathVariable Long datasourceId) {
-        pythonPoolClient.resetPool(datasourceId);
-        return Result.success("连接池已重置", null);
+    @IamS1Global(MANAGE_FUNCTION)
+    public Result<Void> resetSqlPool(@PathVariable Long datasourceId,
+                                     @RequestBody(required = false) SqlPoolResetDTO request) {
+        if (request == null || !Boolean.TRUE.equals(request.getConfirmed())) {
+            throw new BusinessException(400, "重置连接池会中断该数据源正在执行的查询，必须显式确认");
+        }
+        if (!StringUtils.hasText(request.getReason())) {
+            throw new BusinessException(400, "必须说明重置原因");
+        }
+        // `system:runtime:manage` 在 B0 冻结为**全局**功能，因此负责源校验不能靠注解表达，
+        // 这里显式走 DATASOURCE 解析器：数据源不存在 404、归属断链 409，一律先 fail-closed。
+        IamS1ResolvedResource resolved = datasourceResolverRegistry
+                .require(IamS1ResourceType.DATASOURCE)
+                .resolve(datasourceId);
+        if (resolved == null || !resolved.hasDatasource()) {
+            throw new BusinessException(409, "数据源归属不完整，无法判定重置范围");
+        }
+        if (!adminGuard.isSystemAdmin(UserContext.currentUserId())) {
+            throw new BusinessException(403, "重置连接池只能由受保护的系统管理员执行");
+        }
+        // 审计：谁在什么时候为什么重置了哪个源。不记录连接串或密码。
+        log.warn("重置 SQL 连接池 datasourceId={} 原因={}", resolved.datasourceId(), request.getReason());
+        pythonPoolClient.resetPool(resolved.datasourceId());
+        return Result.success("连接池已重置；该数据源正在执行的查询已被中断", null);
     }
 
     /** 检查 MySQL 健康状态：尝试获取连接并校验有效性（2 秒超时） */

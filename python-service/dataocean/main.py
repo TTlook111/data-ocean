@@ -20,6 +20,7 @@ from dataocean.agent.router import router as agent_router
 from dataocean.sandbox.router import router as sandbox_router
 from dataocean.chart.router import router as chart_router
 from dataocean.prompt.router import router as prompt_router
+from dataocean.iam_s1.router import router as iam_s1_router
 from dataocean.infra.health import router as health_router
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,12 @@ app.include_router(
     prompt_router,
     prefix="/internal/prompts",
     tags=["prompt"],
+    dependencies=[Depends(verify_internal_token)],
+)
+app.include_router(
+    iam_s1_router,
+    prefix="/internal/iam-s1",
+    tags=["iam-s1"],
     dependencies=[Depends(verify_internal_token)],
 )
 

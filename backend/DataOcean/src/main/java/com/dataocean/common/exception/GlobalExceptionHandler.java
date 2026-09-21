@@ -88,6 +88,23 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 处理 IAM-SIMPLE-1 结果脱敏策略冲突异常
+     * <p>
+     * Java 是最终保护边界：同一输出列存在多种非空脱敏策略时无法安全取其一，必须 fail-closed。
+     * 统一返回 409 与可公开的中文原因，不把冲突明细中的业务列值暴露给调用方。
+     * </p>
+     *
+     * @param exception 脱敏策略冲突异常
+     * @return 409 响应
+     */
+    @ExceptionHandler(IamS1MaskPolicyConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Result<Void> handleIamS1MaskPolicyConflict(IamS1MaskPolicyConflictException exception) {
+        log.warn("S1 结果脱敏策略冲突已拒绝 conflictCount={}", exception.getConflicts().size());
+        return Result.error(409, "结果脱敏策略冲突，已拒绝返回，请联系管理员修正字段保护配置");
+    }
+
+    /**
      * 处理业务异常
      * <p>根据异常中的错误码动态设置 HTTP 状态码</p>
      *

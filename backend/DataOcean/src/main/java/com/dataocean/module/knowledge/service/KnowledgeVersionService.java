@@ -3,6 +3,7 @@ package com.dataocean.module.knowledge.service;
 import com.dataocean.module.knowledge.dto.KnowledgeReviewRecordVO;
 import com.dataocean.module.knowledge.dto.KnowledgeSourceSnapshotVO;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.VectorIndexTask;
 
 import java.util.List;
 import java.util.Map;
@@ -96,4 +97,13 @@ public interface KnowledgeVersionService {
      * @return 来源快照列表；文档无版本或无来源快照时返回空列表
      */
     List<KnowledgeSourceSnapshotVO> listSourceSnapshots(Long docId);
+
+    /**
+     * 查询文档的向量化任务。
+     *
+     * <p>与 {@code VectorIndexTaskService#listTasksByTarget} 的区别：这里会校验每个任务的
+     * `datasource_id` 与文档一致，不一致直接 409——否则另一个数据源的索引状态会被
+     * 展示成本文档的状态。</p>
+     */
+    List<VectorIndexTask> listVectorTasksOfDocument(Long docId);
 }

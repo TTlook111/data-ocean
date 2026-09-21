@@ -15,6 +15,7 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useIamS1Store } from '../../../stores/iamS1'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CheckCircle2, Power, RefreshCw, RotateCcw, Save, Search, Send, XCircle } from 'lucide-vue-next'
 import {
@@ -46,6 +47,19 @@ const NODE_LABEL_MAP: Record<string, string> = {
 
 const route = useRoute()
 const router = useRouter()
+const iamS1 = useIamS1Store()
+
+/**
+ * Prompt 三个功能码都是 B0 冻结的**全局**功能（模板不挂数据源），三者互不包含：
+ * 查看用 prompt:view，保存/启停/提交/回滚用 prompt:manage，审核通过/驳回用 prompt:approve。
+ * 这里与后端 @IamS1Global 同一判定口径；前端不是安全边界，后端仍会独立拒绝。
+ */
+const canView = computed(() => iamS1.hasGlobal('prompt:view'))
+const canManage = computed(() => iamS1.hasGlobal('prompt:manage'))
+const canApprove = computed(() => iamS1.hasGlobal('prompt:approve'))
+const VIEW_HINT = '没有“查看 AI 提示词”能力：需要 IAM-SIMPLE-1 角色包含 prompt:view。'
+const MANAGE_HINT = '没有“维护 AI 提示词”能力：需要 IAM-SIMPLE-1 角色包含 prompt:manage。审核权不自动带来维护权。'
+const APPROVE_HINT = '没有“审核 AI 提示词”能力：需要 IAM-SIMPLE-1 角色包含 prompt:approve。维护权不自动带来审核权。'
 
 const templates = ref<PromptTemplateVO[]>([])
 const versions = ref<PromptVersionVO[]>([])
@@ -129,6 +143,12 @@ function selectTab(tab: string) {
 }
 
 async function loadTemplates(preferredCode?: string) {
+  // 无 prompt:view 时不要发这个必然 403 的请求，改为在页面上说明原因
+  if (!canView.value) {
+    templates.value = []
+    loading.value = false
+    return
+  }
   loading.value = true
   error.value = ''
   try {
@@ -171,6 +191,7 @@ async function selectTemplate(code: string) {
  * 后端仅允许对 APPROVED 状态的模板启停。
  */
 async function toggleEnabled() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   const template = selected.value
   if (!template) return
   const next = !template.enabled
@@ -229,6 +250,7 @@ async function loadEffectiveness() {
 }
 
 async function save() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!selected.value) return
   if (!editContent.value.trim()) {
     ElMessage.warning('模板内容不能为空')
@@ -251,6 +273,7 @@ async function save() {
 }
 
 async function submit() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!selected.value) return
   try {
     await ElMessageBox.confirm(
@@ -269,6 +292,7 @@ async function submit() {
 }
 
 async function approve() {
+  if (!canApprove.value) { ElMessage.warning(APPROVE_HINT); return }
   if (!selected.value) return
   try {
     const result = await ElMessageBox.prompt(
@@ -292,6 +316,7 @@ async function approve() {
 }
 
 async function reject() {
+  if (!canApprove.value) { ElMessage.warning(APPROVE_HINT); return }
   if (!selected.value) return
   try {
     const result = await ElMessageBox.prompt('请说明拒绝原因', '审核拒绝', {
@@ -319,6 +344,7 @@ function showVersion(item: PromptVersionVO) {
 }
 
 async function rollback(item: PromptVersionVO) {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!selected.value) return
   try {
     await ElMessageBox.confirm(
@@ -337,7 +363,8 @@ async function rollback(item: PromptVersionVO) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await iamS1.load()
   // loadTemplates 会在选中第一个模板时经 selectTemplate 触发一次 loadEffectiveness，
   // 这里必须与 :128/:356 用同一个 !effectiveness.value.length 守卫，否则首屏会并发两次。
   loadTemplates()
@@ -375,15 +402,15 @@ watch(() => route.query.code, (value) => {
     >
       <template #actions>
         <el-button :icon="RefreshCw" :loading="loading" @click="loadTemplates(activeCode)">刷新</el-button>
-        <el-button v-if="canEdit && selected" :type="status === 'APPROVED' ? 'primary' : 'default'" :icon="Save" :loading="saving" @click="save">
+        <el-button v-if="canEdit && selected" :type="status === 'APPROVED' ? 'primary' : 'default'" :icon="Save" :loading="saving" :disabled="!canManage" @click="save">
           保存并创建新版本
         </el-button>
-        <el-button v-if="selected && (status === 'DRAFT' || status === 'REJECTED')" type="primary" :icon="Send" :loading="actionLoading" @click="submit">
+        <el-button v-if="selected && (status === 'DRAFT' || status === 'REJECTED')" type="primary" :icon="Send" :loading="actionLoading" :disabled="!canManage" @click="submit">
           提交审核
         </el-button>
         <template v-if="selected && status === 'PENDING_REVIEW'">
-          <el-button type="primary" :icon="CheckCircle2" :loading="actionLoading" @click="approve">审核通过</el-button>
-          <el-button type="danger" plain :icon="XCircle" :loading="actionLoading" @click="reject">审核拒绝</el-button>
+          <el-button type="primary" :icon="CheckCircle2" :loading="actionLoading" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="approve">审核通过</el-button>
+          <el-button type="danger" plain :icon="XCircle" :loading="actionLoading" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="reject">审核拒绝</el-button>
         </template>
       </template>
     </TaskPageHeader>
@@ -400,6 +427,7 @@ watch(() => route.query.code, (value) => {
         </header>
         <el-input v-model="keyword" placeholder="搜索编码 / 名称 / 场景" clearable :prefix-icon="Search" />
         <LoadingState v-if="loading" text="正在读取模板…" />
+        <EmptyState v-else-if="!canView" :message="VIEW_HINT" />
         <EmptyState v-else-if="!filteredTemplates.length" message="没有匹配的 Prompt 模板。" />
         <ul v-else class="template-list">
           <li
@@ -441,6 +469,8 @@ watch(() => route.query.code, (value) => {
                 :type="selected.enabled ? 'danger' : 'primary'"
                 plain
                 :loading="actionLoading"
+                :disabled="!canManage"
+                :title="canManage ? '' : MANAGE_HINT"
                 @click="toggleEnabled"
               >{{ selected.enabled ? '停用' : '启用' }}</el-button>
             </div>
@@ -466,7 +496,7 @@ watch(() => route.query.code, (value) => {
                 class="content-summary"
               />
               <div v-if="canEdit" class="content-actions">
-                <el-button type="primary" :icon="Save" :loading="saving" @click="save">保存并创建新版本</el-button>
+                <el-button type="primary" :icon="Save" :loading="saving" :disabled="!canManage" @click="save">保存并创建新版本</el-button>
               </div>
               <p class="note">
                 保存会新建一个草稿版本，模板状态回到草稿；只有审核通过后新内容才会成为活跃模板。
@@ -484,12 +514,12 @@ watch(() => route.query.code, (value) => {
                 与知识文档的「已发布」含义不同，页面不做混用。
               </p>
               <div class="flow-actions">
-                <el-button v-if="status === 'DRAFT' || status === 'REJECTED'" type="primary" :icon="Send" :loading="actionLoading" @click="submit">
+                <el-button v-if="status === 'DRAFT' || status === 'REJECTED'" type="primary" :icon="Send" :loading="actionLoading" :disabled="!canManage" @click="submit">
                   提交审核
                 </el-button>
                 <template v-if="status === 'PENDING_REVIEW'">
-                  <el-button type="primary" :icon="CheckCircle2" :loading="actionLoading" @click="approve">审核通过</el-button>
-                  <el-button type="danger" plain :icon="XCircle" :loading="actionLoading" @click="reject">审核拒绝</el-button>
+                  <el-button type="primary" :icon="CheckCircle2" :loading="actionLoading" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="approve">审核通过</el-button>
+                  <el-button type="danger" plain :icon="XCircle" :loading="actionLoading" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="reject">审核拒绝</el-button>
                 </template>
                 <span v-if="status === 'APPROVED'" class="note">
                   当前版本已生效。如需修改，请在「当前内容」保存新版本并重新走审核。
@@ -519,7 +549,7 @@ watch(() => route.query.code, (value) => {
                   <template #default="{ row }">
                     <el-button link type="primary" @click="showVersion(row)">查看</el-button>
                     <el-button
-                      v-if="!row.isActive && status !== 'PENDING_REVIEW'"
+                      v-if="!row.isActive && status !== 'PENDING_REVIEW' && canManage"
                       link
                       type="warning"
                       :loading="actionLoading"

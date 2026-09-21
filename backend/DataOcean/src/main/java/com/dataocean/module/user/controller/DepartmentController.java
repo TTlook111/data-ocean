@@ -1,6 +1,7 @@
 package com.dataocean.module.user.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.permission.s1.annotation.IamS1Global;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.user.entity.dto.DepartmentCreateDTO;
 import com.dataocean.module.user.entity.dto.DepartmentUpdateDTO;
@@ -9,7 +10,7 @@ import com.dataocean.module.user.service.DepartmentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.access.prepost.PreAuthorize;
+
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,31 +30,36 @@ import java.util.Map;
 @AdminAuditLog
 public class DepartmentController {
 
+    /** 部门树：只读。 */
+    private static final String VIEW_FUNCTION = "organization:department:view";
+    /** 创建、修改、删除部门。 */
+    private static final String MANAGE_FUNCTION = "organization:department:manage";
+
     private final DepartmentService departmentService;
 
     @GetMapping("/tree")
-    @PreAuthorize("hasAnyAuthority('department:manage', 'user:manage', '*')")
+    @IamS1Global(VIEW_FUNCTION)
     public Result<List<DepartmentTreeVO>> tree() {
         log.debug("list department tree");
         return Result.success(departmentService.tree());
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('department:manage', '*')")
+    @IamS1Global(MANAGE_FUNCTION)
     public Result<Map<String, Long>> createDepartment(@Valid @RequestBody DepartmentCreateDTO request) {
         Long id = departmentService.createDepartment(request);
         return Result.success("创建成功", Map.of("id", id));
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('department:manage', '*')")
+    @IamS1Global(MANAGE_FUNCTION)
     public Result<Void> updateDepartment(@PathVariable Long id, @Valid @RequestBody DepartmentUpdateDTO request) {
         departmentService.updateDepartment(id, request);
         return Result.success("部门更新成功", null);
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('department:manage', '*')")
+    @IamS1Global(MANAGE_FUNCTION)
     public Result<Void> deleteDepartment(@PathVariable Long id) {
         departmentService.deleteDepartment(id);
         return Result.success("删除成功", null);

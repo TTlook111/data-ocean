@@ -24,6 +24,7 @@ import {
 import { listSnapshots } from '../../../api/admin/metadata'
 import { qualityDimensionLabel, severityLabel } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useIamS1Store } from '../../../stores/iamS1'
 
 interface SnapshotOption {
   id: number
@@ -48,6 +49,15 @@ let snapshotRequestId = 0
 let issueRequestId = 0
 let disposed = false
 const adminContext = useAdminContextStore()
+const iamS1 = useIamS1Store()
+
+/**
+ * 执行质量检查要求 `governance:check` 与**当前数据源负责范围**在同一条启用绑定上同时成立。
+ * 前端只控制按钮可见性，后端仍会独立拒绝；无能力时给出中文原因而不是静默失败。
+ */
+const canRunCheck = computed(() =>
+  iamS1.canOnDatasource('governance:check', adminContext.datasourceId || undefined),
+)
 const router = useRouter()
 
 const selectedSnapshot = computed(() => snapshots.value.find((item) => item.id === selectedSnapshotId.value))
@@ -193,6 +203,10 @@ async function fetchIssues() {
 }
 
 async function runCheck() {
+  if (!canRunCheck.value) {
+    ElMessage.warning('没有“执行质量检查”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。')
+    return
+  }
   if (!selectedSnapshotId.value) {
     ElMessage.warning('请选择快照')
     return
@@ -293,9 +307,18 @@ watch(
           />
         </el-select>
       </div>
-      <el-button type="primary" :icon="Play" :loading="checkLoading" @click="runCheck">
+      <el-button
+        type="primary"
+        :icon="Play"
+        :loading="checkLoading"
+        :disabled="!canRunCheck"
+        @click="runCheck"
+      >
         执行质量校验
       </el-button>
+      <span v-if="!canRunCheck" class="muted-text">
+        没有“执行质量检查”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。
+      </span>
       <el-button v-if="hasUnresolvedIssues" @click="openIssueCenter">进入问题中心</el-button>
       <el-button v-else-if="canReturnToRelease" @click="openReleaseFlow">返回版本发布</el-button>
     </section>

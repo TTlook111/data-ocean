@@ -37,6 +37,7 @@ import {
 import { getEntitiesByDatasource } from '../../../api/admin/catalog'
 import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { glossaryStatusLabel, glossaryTermStatusLabel } from '../../../utils/enumLabels'
+import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
@@ -45,6 +46,23 @@ import EmptyState from '../../../components/common/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()
+const iamS1 = useIamS1Store()
+
+/**
+ * `glossary:view` / `glossary:manage` / `glossary:approve` 是「源/全」混合码：
+ * 术语未关联任何数据源时只校验功能，已关联时由后端按**关联源**逐源校验。
+ *
+ * `hasGlobal` 与后端 `@IamS1ScopedList` 的功能级准入同源（都是“启用角色是否授予该功能码”，
+ * 与负责源无关），因此这里用它做粗粒度入口判定；前端**不知道**某个术语具体关联了哪些源，
+ * 动态范围一律由后端拒绝，按钮可见性不是安全边界。
+ */
+const canView = computed(() => iamS1.hasGlobal('glossary:view'))
+const canManage = computed(() => iamS1.hasGlobal('glossary:manage'))
+const canApprove = computed(() => iamS1.hasGlobal('glossary:approve'))
+
+/** 权限不足时的中文原因，避免“点了才发现必然失败”。 */
+const MANAGE_HINT = '没有“维护业务术语”能力：需要 IAM-SIMPLE-1 角色包含 glossary:manage 并负责该术语关联的数据源。'
+const APPROVE_HINT = '没有“审核术语”能力：需要 IAM-SIMPLE-1 角色包含 glossary:approve 并负责该术语关联的数据源。审核权不自动带来维护权。'
 
 const glossaries = ref<GlossaryItem[]>([])
 const terms = ref<GlossaryTermItem[]>([])
@@ -214,12 +232,14 @@ const editingGlossaryId = ref<number>()
 const glossaryForm = reactive({ name: '', displayName: '', description: '', status: 'DRAFT' })
 
 function openCreateGlossary() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   editingGlossaryId.value = undefined
   Object.assign(glossaryForm, { name: '', displayName: '', description: '', status: 'DRAFT' })
   glossaryDialogVisible.value = true
 }
 
 function openEditGlossary(item: GlossaryItem) {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   editingGlossaryId.value = item.id
   Object.assign(glossaryForm, {
     name: item.name,
@@ -231,6 +251,7 @@ function openEditGlossary(item: GlossaryItem) {
 }
 
 async function saveGlossary() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!glossaryForm.name.trim()) {
     ElMessage.warning('术语表名称不能为空')
     return
@@ -254,6 +275,7 @@ async function saveGlossary() {
 }
 
 async function removeGlossary(item: GlossaryItem) {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   try {
     await ElMessageBox.confirm(
       `删除术语表「${item.displayName || item.name}」后，其下术语将不再出现在业务术语工作区。确认删除？`,
@@ -279,6 +301,7 @@ const editingTermId = ref<number>()
 const termForm = reactive({ name: '', displayName: '', description: '', synonyms: '', relatedTerms: '' })
 
 function openCreateTerm() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!selectedGlossaryId.value) {
     ElMessage.warning('请先选择或创建术语表')
     return
@@ -289,6 +312,7 @@ function openCreateTerm() {
 }
 
 function openEditTerm(term: GlossaryTermItem) {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   editingTermId.value = term.id
   Object.assign(termForm, {
     name: term.name,
@@ -301,6 +325,7 @@ function openEditTerm(term: GlossaryTermItem) {
 }
 
 async function saveTerm() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!selectedGlossaryId.value) return
   if (!termForm.name.trim()) {
     ElMessage.warning('术语名不能为空')
@@ -333,6 +358,7 @@ async function saveTerm() {
 }
 
 async function removeTerm(term: GlossaryTermItem) {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   try {
     await ElMessageBox.confirm(`确认删除术语「${term.displayName || term.name}」？`, '删除术语', {
       type: 'warning',
@@ -352,6 +378,7 @@ async function removeTerm(term: GlossaryTermItem) {
 }
 
 async function submitTerm(term: GlossaryTermItem) {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   try {
     await ElMessageBox.confirm(
       `提交术语「${term.displayName || term.name}」审核？提交后需先完成审核才能继续修改。`,
@@ -376,6 +403,7 @@ async function submitTerm(term: GlossaryTermItem) {
  * 绕过路径不受限」的倒挂，前端只能把已通过术语整体锁成只读。
  */
 async function revertTerm(term: GlossaryTermItem) {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   try {
     await ElMessageBox.confirm(
       `把术语「${term.displayName || term.name}」退回草稿？退回会清空审核人与审核时间，`
@@ -395,6 +423,7 @@ async function revertTerm(term: GlossaryTermItem) {
 }
 
 async function review(term: GlossaryTermItem, approved: boolean) {
+  if (!canApprove.value) { ElMessage.warning(APPROVE_HINT); return }
   const action = approved ? '通过' : '拒绝'
   try {
     let reason: string | undefined
@@ -469,6 +498,7 @@ const filteredLinkCandidates = computed(() => {
 })
 
 async function linkColumn(entity: LinkedColumnItem) {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!selectedTermId.value) return
   actionLoading.value = true
   try {
@@ -483,6 +513,7 @@ async function linkColumn(entity: LinkedColumnItem) {
 }
 
 async function unlinkColumn(entity: LinkedColumnItem) {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!selectedTermId.value) return
   try {
     await ElMessageBox.confirm(`解除与「${entity.displayName || entity.name}」的关联？`, '解除关联', {
@@ -502,11 +533,17 @@ async function unlinkColumn(entity: LinkedColumnItem) {
 }
 
 onMounted(async () => {
+  // 先取 S1 能力摘要：无 glossary:view 时不应发那个必然 403 的列表请求
+  await iamS1.load()
   try {
     const result = await listSimpleDatasources()
     datasources.value = result.data || []
   } catch {
     datasources.value = []
+  }
+  if (!canView.value) {
+    glossaries.value = []
+    return
   }
   await loadGlossaries()
 })
@@ -542,7 +579,7 @@ watch(() => route.query.termId, (value) => {
     >
       <template #actions>
         <el-button :icon="RefreshCw" :loading="loadingGlossaries" @click="loadGlossaries()">刷新</el-button>
-        <el-button type="primary" :icon="Plus" @click="openCreateGlossary">新建术语表</el-button>
+        <el-button type="primary" :icon="Plus" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="openCreateGlossary">新建术语表</el-button>
       </template>
     </TaskPageHeader>
 
@@ -578,8 +615,8 @@ watch(() => route.query.termId, (value) => {
             <div class="glossary-list__meta">
               <BusinessStatusBadge :status="item.status" :label="glossaryStatusLabel(item.status)" />
               <span class="glossary-list__actions">
-                <el-button link :icon="Pencil" aria-label="编辑术语表" @click="openEditGlossary(item)" />
-                <el-button link type="danger" :icon="Trash2" aria-label="删除术语表" @click="removeGlossary(item)" />
+                <el-button link :icon="Pencil" aria-label="编辑术语表" :disabled="!canManage" @click="openEditGlossary(item)" />
+                <el-button link type="danger" :icon="Trash2" aria-label="删除术语表" :disabled="!canManage" @click="removeGlossary(item)" />
               </span>
             </div>
           </li>
@@ -598,7 +635,7 @@ watch(() => route.query.termId, (value) => {
             </p>
             <p v-else>请选择左侧术语表</p>
           </div>
-          <el-button type="primary" :icon="Plus" :disabled="!selectedGlossary" @click="openCreateTerm">新增术语</el-button>
+          <el-button type="primary" :icon="Plus" :disabled="!selectedGlossary || !canManage" :title="canManage ? '' : MANAGE_HINT" @click="openCreateTerm">新增术语</el-button>
         </header>
 
         <div v-if="selectedGlossary" class="term-toolbar">
@@ -678,16 +715,16 @@ watch(() => route.query.termId, (value) => {
           <!-- 状态门禁：动作以后端状态机为准 -->
           <div class="term-detail__actions">
             <template v-if="selectedTerm.status === 'DRAFT' || selectedTerm.status === 'REJECTED'">
-              <el-button type="primary" :icon="Pencil" @click="openEditTerm(selectedTerm)">编辑</el-button>
-              <el-button :icon="Send" :loading="actionLoading" @click="submitTerm(selectedTerm)">提交审核</el-button>
-              <el-button type="danger" plain :icon="Trash2" @click="removeTerm(selectedTerm)">删除</el-button>
+              <el-button type="primary" :icon="Pencil" :disabled="!canManage" @click="openEditTerm(selectedTerm)">编辑</el-button>
+              <el-button :icon="Send" :loading="actionLoading" :disabled="!canManage" @click="submitTerm(selectedTerm)">提交审核</el-button>
+              <el-button type="danger" plain :icon="Trash2" :disabled="!canManage" @click="removeTerm(selectedTerm)">删除</el-button>
             </template>
             <template v-else-if="selectedTerm.status === 'PENDING_REVIEW'">
-              <el-button type="primary" :icon="Check" :loading="actionLoading" @click="review(selectedTerm, true)">审核通过</el-button>
-              <el-button type="danger" plain :icon="X" :loading="actionLoading" @click="review(selectedTerm, false)">审核拒绝</el-button>
+              <el-button type="primary" :icon="Check" :loading="actionLoading" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="review(selectedTerm, true)">审核通过</el-button>
+              <el-button type="danger" plain :icon="X" :loading="actionLoading" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="review(selectedTerm, false)">审核拒绝</el-button>
             </template>
             <template v-else>
-              <el-button :icon="RotateCcw" :loading="actionLoading" @click="revertTerm(selectedTerm)">退回草稿</el-button>
+              <el-button :icon="RotateCcw" :loading="actionLoading" :disabled="!canManage" @click="revertTerm(selectedTerm)">退回草稿</el-button>
               <p class="term-detail__locked">
                 已通过的术语不能直接修改，需先退回草稿。退回会清空审核人与审核时间——
                 原审核结论不再代表修改后的内容，修改后必须重新提交审核。
@@ -734,7 +771,7 @@ watch(() => route.query.termId, (value) => {
                   <strong>{{ column.displayName || column.name }}</strong>
                   <small>{{ column.fqn }}</small>
                 </div>
-                <el-button link type="danger" aria-label="解除关联" @click="unlinkColumn(column)">解除</el-button>
+                <el-button link type="danger" aria-label="解除关联" :disabled="!canManage" @click="unlinkColumn(column)">解除</el-button>
               </li>
             </ul>
           </section>
@@ -818,7 +855,7 @@ watch(() => route.query.termId, (value) => {
             <strong>{{ entity.displayName || entity.name }}</strong>
             <small>{{ entity.fqn }}</small>
           </div>
-          <el-button link type="primary" :loading="actionLoading" @click="linkColumn(entity)">关联</el-button>
+          <el-button link type="primary" :loading="actionLoading" :disabled="!canManage" @click="linkColumn(entity)">关联</el-button>
         </li>
       </ul>
       <template #footer>

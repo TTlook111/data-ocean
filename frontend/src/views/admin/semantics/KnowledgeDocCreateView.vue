@@ -5,13 +5,14 @@
  * 手工创建的文档没有来源快照和覆盖表，需要作者自行维护内容；
  * 基于快照生成请回到语义知识列表使用「AI 一键生成」。
  */
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Save } from 'lucide-vue-next'
 import { createKnowledgeDoc } from '../../../api/admin/knowledge'
 import type { DatasourceSimpleItem } from '../../../api/admin/datasource'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useIamS1Store } from '../../../stores/iamS1'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
@@ -21,6 +22,21 @@ import EmptyState from '../../../components/common/EmptyState.vue'
 
 const router = useRouter()
 const context = useAdminContextStore()
+const iamS1 = useIamS1Store()
+
+/**
+ * 手工新建文档走 `knowledge:manage`，后端按请求里的 datasourceId 经 DATASOURCE 解析器复核真实归属。
+ * 这里按「功能 + 目标数据源同一绑定」过滤可选数据源，避免下拉里出现后端一定拒绝的源。
+ */
+const selectableDatasources = computed(() => {
+  const allowed = new Set(iamS1.datasourcesWithFunction('knowledge:manage'))
+  if (iamS1.systemAdmin) return datasources.value
+  return datasources.value.filter((item) => allowed.has(item.id))
+})
+const canManage = computed(
+  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:manage').length > 0,
+)
+const MANAGE_HINT = '没有“维护知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:manage 并负责目标数据源。'
 
 const datasources = ref<DatasourceSimpleItem[]>([])
 const loadingDatasources = ref(true)
@@ -35,6 +51,7 @@ function apiError(cause: unknown, fallback: string) {
 }
 
 async function save() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!form.datasourceId) {
     ElMessage.warning('请选择数据源')
     return
@@ -67,6 +84,7 @@ async function save() {
 }
 
 async function loadDatasources() {
+  await iamS1.load()
   loadingDatasources.value = true
   datasourcesError.value = ''
   try {
@@ -100,15 +118,17 @@ onMounted(loadDatasources)
       description="手工创建的文档需要自己维护内容与覆盖范围。基于已发布快照生成草稿会更省事，且能带上来源信息。"
     >
       <template #actions>
-        <el-button type="primary" :icon="Save" :loading="saving" @click="save">创建文档</el-button>
+        <el-button type="primary" :icon="Save" :loading="saving" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="save">创建文档</el-button>
       </template>
     </TaskPageHeader>
 
     <ErrorState v-if="datasourcesError" :message="datasourcesError" @retry="loadDatasources" />
     <LoadingState v-else-if="loadingDatasources" variant="skeleton" :rows="4" />
     <EmptyState
-      v-else-if="!datasources.length"
-      message="当前没有可用的数据源，无法创建知识文档。请先在数据接入中创建数据源并完成采集与快照发布。"
+      v-else-if="!selectableDatasources.length"
+      :message="canManage
+        ? '当前没有可用的数据源，无法创建知识文档。请先在数据接入中创建数据源并完成采集与快照发布。'
+        : MANAGE_HINT"
       action-text="去数据源接入"
       @action="router.push('/admin/data-sources')"
     />
@@ -117,7 +137,7 @@ onMounted(loadDatasources)
       <el-form label-width="96px">
         <el-form-item label="数据源">
           <el-select v-model="form.datasourceId" placeholder="选择数据源" style="width: 320px">
-            <el-option v-for="item in datasources" :key="item.id" :label="item.name" :value="item.id" />
+            <el-option v-for="item in selectableDatasources" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="文档标题">

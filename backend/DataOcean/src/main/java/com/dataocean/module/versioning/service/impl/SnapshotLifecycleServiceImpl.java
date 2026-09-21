@@ -23,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -86,10 +87,21 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
      */
     @Override
     public Page<SnapshotVersionHistoryVO> listVersionHistory(Long datasourceId, int page, int size) {
+        return listVersionHistoryInDatasources(
+                datasourceId == null ? null : List.of(datasourceId), page, size);
+    }
+
+    @Override
+    public Page<SnapshotVersionHistoryVO> listVersionHistoryInDatasources(Collection<Long> datasourceIds,
+                                                                          int page, int size) {
+        // 空集合表示没有任何负责源：直接返回空页，不能退化成“全部数据源”。
+        if (datasourceIds != null && datasourceIds.isEmpty()) {
+            return new Page<>(page, size, 0);
+        }
         Page<MetadataSnapshot> snapshotPage = snapshotMapper.selectPage(
                 new Page<>(page, size),
                 new LambdaQueryWrapper<MetadataSnapshot>()
-                        .eq(datasourceId != null, MetadataSnapshot::getDatasourceId, datasourceId)
+                        .in(datasourceIds != null, MetadataSnapshot::getDatasourceId, datasourceIds)
                         .orderByDesc(MetadataSnapshot::getCreatedAt)
         );
 

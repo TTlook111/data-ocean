@@ -2,13 +2,15 @@ package com.dataocean.module.audit.controller;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.audit.entity.vo.ImpactAnalysisVO;
 import com.dataocean.module.audit.entity.vo.LineageColumnVO;
 import com.dataocean.module.audit.entity.vo.LineageTableVO;
 import com.dataocean.module.audit.service.LineageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.access.prepost.PreAuthorize;
+
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -23,14 +25,17 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/lineage")
 @RequiredArgsConstructor
-@PreAuthorize("hasAnyAuthority('audit:view', '*')")
 @Slf4j
 public class LineageController {
+
+    /** 查看数据血缘：负责源范围内。 */
+    private static final String VIEW_FUNCTION = "lineage:view";
 
     private final LineageService lineageService;
 
     /** 表级血缘查询 */
     @GetMapping("/table/{tableName}")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#datasourceId")
     public Result<List<LineageTableVO>> queryTableLineage(
             @RequestParam Long datasourceId, @PathVariable String tableName) {
         requireDatasourceId(datasourceId);
@@ -39,6 +44,7 @@ public class LineageController {
 
     /** 字段级血缘查询 */
     @GetMapping("/column/{tableName}/{columnName}")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#datasourceId")
     public Result<List<LineageColumnVO>> queryColumnLineage(
             @RequestParam Long datasourceId, @PathVariable String tableName, @PathVariable String columnName) {
         requireDatasourceId(datasourceId);
@@ -47,6 +53,7 @@ public class LineageController {
 
     /** 变更影响分析 */
     @GetMapping("/impact/{tableName}/{columnName}")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#datasourceId")
     public Result<ImpactAnalysisVO> analyzeImpact(
             @RequestParam Long datasourceId, @PathVariable String tableName, @PathVariable String columnName) {
         requireDatasourceId(datasourceId);
@@ -55,6 +62,7 @@ public class LineageController {
 
     /** 表级变更影响分析 */
     @GetMapping("/impact/{tableName}")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#datasourceId")
     public Result<ImpactAnalysisVO> analyzeTableImpact(
             @RequestParam Long datasourceId, @PathVariable String tableName) {
         requireDatasourceId(datasourceId);

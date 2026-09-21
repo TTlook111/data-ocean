@@ -184,10 +184,15 @@ public class DatasourceServiceImpl implements DatasourceService {
      * {@inheritDoc}
      */
     @Override
-    public Page<DatasourceVO> listDatasources(DatasourceQuery request) {
-        // 构建查询条件：未删除 + 可选的名称模糊/状态/健康状态过滤
+    public Page<DatasourceVO> listDatasources(DatasourceQuery request, List<Long> visibleDatasourceIds) {
+        // 可见范围下推到 SQL：先查全量再过滤会让 LIMIT/OFFSET 在过滤前生效，分页数会错。
+        if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
+            return new Page<>(request.resolvedPage(), request.resolvedPageSize(), 0);
+        }
+        // 构建查询条件：未删除 + 负责范围 + 可选的名称模糊/状态/健康状态过滤
         LambdaQueryWrapper<Datasource> wrapper = new LambdaQueryWrapper<Datasource>()
                 .eq(Datasource::getDeleted, 0L)
+                .in(Datasource::getId, visibleDatasourceIds)
                 .like(StringUtils.hasText(request.getName()), Datasource::getName, request.getName())
                 .eq(request.getStatus() != null, Datasource::getStatus, request.getStatus())
                 .eq(StringUtils.hasText(request.getHealthStatus()), Datasource::getHealthStatus, request.getHealthStatus())

@@ -1,13 +1,15 @@
 package com.dataocean.module.system.controller;
 
 import com.dataocean.common.result.Result;
+import com.dataocean.module.permission.s1.annotation.IamS1Global;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.system.client.PythonAiConfigClient;
 import com.dataocean.module.system.entity.dto.AiConfigDTO;
 import com.dataocean.module.system.entity.vo.AiConfigVO;
 import com.dataocean.module.system.service.AiConfigService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.access.prepost.PreAuthorize;
+
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -26,8 +28,11 @@ import java.util.Map;
 @Slf4j
 public class AiConfigController {
 
-    private static final String AI_CONFIG_VIEW_AUTH = "hasAnyAuthority('*', 'system:ai-config:view', 'system:ai-config:manage')";
-    private static final String AI_CONFIG_MANAGE_AUTH = "hasAnyAuthority('*', 'system:ai-config:manage')";
+    /** 查看 AI 配置：只返回供应商与模型摘要，不返回密钥原值。 */
+    private static final String VIEW_FUNCTION = "system:ai-config:view";
+    /** 维护 AI 配置：保存、增删改供应商、测试连接、同步模型、检测维度。 */
+    private static final String MANAGE_FUNCTION = "system:ai-config:manage";
+
 
     private final AiConfigService aiConfigService;
     private final PythonAiConfigClient pythonAiConfigClient;
@@ -41,7 +46,7 @@ public class AiConfigController {
      * 获取完整 AI 配置
      */
     @GetMapping
-    @PreAuthorize(AI_CONFIG_VIEW_AUTH)
+    @IamS1Global(VIEW_FUNCTION)
     public Result<AiConfigVO> getConfig() {
         return Result.success(aiConfigService.getConfig());
     }
@@ -50,7 +55,7 @@ public class AiConfigController {
      * 更新 AI 配置
      */
     @PutMapping
-    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
+    @IamS1Global(MANAGE_FUNCTION)
     public Result<AiConfigVO> updateConfig(@RequestBody AiConfigDTO dto) {
         return Result.success(aiConfigService.updateConfig(dto));
     }
@@ -59,7 +64,7 @@ public class AiConfigController {
      * 获取所有供应商列表
      */
     @GetMapping("/providers")
-    @PreAuthorize(AI_CONFIG_VIEW_AUTH)
+    @IamS1Global(VIEW_FUNCTION)
     public Result<List<AiConfigVO.Provider>> listProviders() {
         return Result.success(aiConfigService.getProviders(false));
     }
@@ -68,7 +73,7 @@ public class AiConfigController {
      * 创建供应商
      */
     @PostMapping("/providers")
-    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
+    @IamS1Global(MANAGE_FUNCTION)
     public Result<AiConfigVO.Provider> createProvider(@RequestBody AiConfigDTO.ProviderPayload payload) {
         aiConfigService.upsertProvider(payload);
         return Result.success(aiConfigService.getProvider(payload.getId(), false));
@@ -78,7 +83,7 @@ public class AiConfigController {
      * 更新供应商
      */
     @PutMapping("/providers/{id}")
-    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
+    @IamS1Global(MANAGE_FUNCTION)
     public Result<AiConfigVO.Provider> updateProvider(@PathVariable String id, @RequestBody AiConfigDTO.ProviderPayload payload) {
         payload.setId(id);
         aiConfigService.upsertProvider(payload);
@@ -89,7 +94,7 @@ public class AiConfigController {
      * 删除供应商
      */
     @DeleteMapping("/providers/{id}")
-    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
+    @IamS1Global(MANAGE_FUNCTION)
     public Result<Void> deleteProvider(@PathVariable String id) {
         aiConfigService.deleteProvider(id);
         return Result.success();
@@ -99,7 +104,7 @@ public class AiConfigController {
      * 测试供应商连接
      */
     @PostMapping("/providers/{id}/test")
-    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
+    @IamS1Global(MANAGE_FUNCTION)
     public Result<AiConfigVO.Provider> testProvider(@PathVariable String id) {
         AiConfigVO.Provider provider = aiConfigService.getProvider(id, true);
         boolean success = false;
@@ -126,7 +131,7 @@ public class AiConfigController {
      * 同步模型列表（等同于测试连接）
      */
     @PostMapping("/providers/{id}/sync-models")
-    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
+    @IamS1Global(MANAGE_FUNCTION)
     public Result<AiConfigVO.Provider> syncModels(@PathVariable String id) {
         return testProvider(id);
     }
@@ -135,7 +140,7 @@ public class AiConfigController {
      * 检测嵌入维度
      */
     @PostMapping("/detect-dimension")
-    @PreAuthorize(AI_CONFIG_MANAGE_AUTH)
+    @IamS1Global(MANAGE_FUNCTION)
     public Result<Map<String, Object>> detectDimension(@RequestBody Map<String, Object> payload) {
         return Result.success(pythonAiConfigClient.detectDimension(payload));
     }

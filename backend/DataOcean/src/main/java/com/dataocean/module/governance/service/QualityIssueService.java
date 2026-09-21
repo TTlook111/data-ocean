@@ -26,6 +26,22 @@ public interface QualityIssueService {
                                      String status, String tableName, Long assigneeId, int page, int size);
 
     /**
+     * 按**负责源范围**分页查询质量问题。
+     *
+     * <p>`datasourceIds` 必须是调用者在 `governance:issue:view` 上负责的数据源：
+     * 空集合表示没有任何负责源，直接返回空页——**不用 null 表示“有时全局、有时空范围”**。
+     * 范围必须下推到 SQL（`WHERE datasource_id IN (...)`），先分页再在内存过滤会让总数和分页边界出错。</p>
+     *
+     * <p>传 `snapshotId` 时**直接判定该快照的归属**，而不是只把它塞进 `WHERE`：
+     * 快照不存在返回 404，归属断链返回 409，快照的真实数据源不在 `datasourceIds` 中返回 403，
+     * 全部通过后才执行分页查询。否则无权快照会返回空页，把“无权”伪装成“没有数据”，
+     * 也让无权资源变成可探测的目标。</p>
+     */
+    Page<QualityIssueVO> listIssuesInDatasources(java.util.Collection<Long> datasourceIds, Long snapshotId,
+                                                 String dimension, String severity, String status,
+                                                 String tableName, Long assigneeId, int page, int size);
+
+    /**
      * 处理单个质量问题状态。
      *
      * @param issueId         质量问题 ID

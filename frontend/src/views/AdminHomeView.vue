@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ArrowRight, CheckCircle2, Database, MessageSquareText, ShieldAlert } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { useIamS1Store } from '../stores/iamS1'
 import { getDashboardStats, type DashboardStats } from '../api/admin/dashboard'
 import { getBatchDatasourceReadiness, listSimpleDatasources, type DatasourceReadiness } from '../api/admin/datasource'
 import TaskPageHeader from '../components/admin/TaskPageHeader.vue'
@@ -15,7 +15,7 @@ import ErrorState from '../components/common/ErrorState.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 
 const router = useRouter()
-const auth = useAuthStore()
+const iamS1 = useIamS1Store()
 const stats = ref<DashboardStats | null>(null)
 const readiness = ref<DatasourceReadiness[]>([])
 const loading = ref(true)
@@ -26,7 +26,8 @@ const readinessError = ref('')
 const readinessPartialError = ref('')
 const selectedDatasource = ref<DatasourceReadiness | null>(null)
 
-const isSuperAdmin = computed(() => auth.permissions.includes('*'))
+/** 工作台入口功能：与后端 DashboardController 的 admin:workbench:view 一致。 */
+const canViewWorkbench = computed(() => iamS1.hasGlobal('admin:workbench:view'))
 const readyCount = computed(() => readiness.value.filter((item) => item.askable).length)
 const blockedItems = computed(() => readiness.value.filter((item) => !item.askable && item.blockReasons.length))
 const progressingCount = computed(() => readiness.value.filter((item) => !item.askable && !item.blockReasons.length).length)
@@ -39,8 +40,8 @@ const activityItems = computed(() => (stats.value?.recentActivities || []).map((
 async function loadStats() {
   statsLoading.value = true
   statsError.value = ''
-  if (!isSuperAdmin.value) {
-    statsError.value = '工作台统计接口当前仅对拥有 * 权限的超级管理员开放。'
+  if (!canViewWorkbench.value) {
+    statsError.value = '没有“查看工作台”功能：需要 IAM-SIMPLE-1 角色包含该功能。'
     statsLoading.value = false
     return
   }

@@ -11,9 +11,17 @@ import {
   type DepartmentNode,
   type DepartmentPayload,
 } from '../../../api/admin/user'
+import { useIamS1Store } from '../../../stores/iamS1'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+
+const iamS1 = useIamS1Store()
+const VIEW_FUNCTION = 'organization:department:view'
+const MANAGE_FUNCTION = 'organization:department:manage'
+const MANAGE_HINT = '需要 organization:department:manage'
+const canViewDepartments = computed(() => iamS1.hasGlobal(VIEW_FUNCTION))
+const canManageDepartments = computed(() => iamS1.hasGlobal(MANAGE_FUNCTION))
 
 const loading = ref(false)
 /** 部门树加载失败的原因；此前失败只弹 toast 并把数组置空，页面显示成「暂无部门数据」 */
@@ -41,6 +49,12 @@ function extractError(error: unknown, fallback: string) {
 }
 
 async function fetchDepartments() {
+  if (!canViewDepartments.value) {
+    departments.value = []
+    loading.value = false
+    errorMessage.value = ''
+    return
+  }
   loading.value = true
   errorMessage.value = ''
   try {
@@ -73,12 +87,20 @@ function resetForm() {
 }
 
 function openCreate(parent?: DepartmentNode) {
+  if (!canManageDepartments.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   resetForm()
   form.parentId = parent?.id
   dialogVisible.value = true
 }
 
 function openEdit(node: DepartmentNode) {
+  if (!canManageDepartments.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   editingId.value = node.id
   Object.assign(form, {
     parentId: node.parentId,
@@ -90,6 +112,10 @@ function openEdit(node: DepartmentNode) {
 }
 
 async function saveDepartment() {
+  if (!canManageDepartments.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   if (!form.deptName.trim() || !form.deptCode.trim()) {
     ElMessage.warning('请填写部门名称和编码')
     return
@@ -113,6 +139,10 @@ async function saveDepartment() {
 }
 
 async function removeDepartment(node: DepartmentNode) {
+  if (!canManageDepartments.value) {
+    ElMessage.warning(MANAGE_HINT)
+    return
+  }
   await ElMessageBox.confirm(`确定删除部门「${node.deptName}」吗？如有下级部门将一并删除。`, '删除部门', {
     type: 'warning',
     confirmButtonText: '确定删除',
@@ -137,7 +167,7 @@ onMounted(fetchDepartments)
 <template>
   <main class="admin-page post-login-page">
     <section class="page-actions">
-      <el-button type="primary" @click="openCreate()">
+      <el-button type="primary" :disabled="!canManageDepartments" :title="canManageDepartments ? '' : MANAGE_HINT" @click="openCreate()">
         <FolderPlus :size="16" />
         新增部门
       </el-button>
@@ -170,6 +200,10 @@ onMounted(fetchDepartments)
       <ErrorState v-else-if="errorMessage" :message="errorMessage" @retry="fetchDepartments" />
 
       <EmptyState
+        v-else-if="!canViewDepartments"
+        message="没有“查看部门”能力（organization:department:view）。"
+      />
+      <EmptyState
         v-else-if="!departments.length && !loading"
         message="暂无部门数据。创建部门后可以把用户归属到组织下。"
       />
@@ -191,15 +225,15 @@ onMounted(fetchDepartments)
               <small>成员 {{ memberCounts[data.id] ?? '—' }} 人</small>
             </span>
             <span class="tree-node-actions">
-              <el-button link type="primary" size="small" @click.stop="openCreate(data)">
+              <el-button link type="primary" size="small" :disabled="!canManageDepartments" @click.stop="openCreate(data)">
                 <FolderPlus :size="14" />
                 新增下级
               </el-button>
-              <el-button link type="primary" size="small" @click.stop="openEdit(data)">
+              <el-button link type="primary" size="small" :disabled="!canManageDepartments" @click.stop="openEdit(data)">
                 <Edit3 :size="14" />
                 编辑
               </el-button>
-              <el-button link type="danger" size="small" @click.stop="removeDepartment(data)">
+              <el-button link type="danger" size="small" :disabled="!canManageDepartments" @click.stop="removeDepartment(data)">
                 <Trash2 :size="14" />
                 删除
               </el-button>

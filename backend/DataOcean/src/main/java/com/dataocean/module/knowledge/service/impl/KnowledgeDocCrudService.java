@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.Collection;
+
 /**
  * 知识文档 CRUD 服务。
  * <p>
@@ -36,6 +38,37 @@ public class KnowledgeDocCrudService {
     private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
     private final KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
     private final KnowledgeDocHelper helper;
+
+    /**
+     * 按**负责源范围**分页查询知识文档。
+     *
+     * <p>`visibleDatasourceIds` 必须是调用者在 `knowledge:view` 上负责的数据源：</p>
+     * <ul>
+     *   <li>空集合 → 直接返回空页，**不退化成全局查询**；</li>
+     *   <li>范围下推到 SQL（`WHERE datasource_id IN (...)`）——先分页再在内存过滤
+     *       会让总数和分页边界出错；</li>
+     *   <li>调用方显式筛选的 `datasourceId` 不在负责范围内 → 403。
+     *       这里**不能返回空页**：那会把“无权”伪装成“这个数据源没有文档”，
+     *       与批次 4 对“指定无权快照”的处理保持一致。</li>
+     * </ul>
+     */
+    public Page<KnowledgeDoc> listDocsInDatasources(Collection<Long> visibleDatasourceIds, Long datasourceId,
+                                                    String status, Integer page, Integer pageSize) {
+        if (datasourceId != null && (visibleDatasourceIds == null || !visibleDatasourceIds.contains(datasourceId))) {
+            throw new BusinessException(403, "没有负责该数据源，无法查看其知识文档");
+        }
+        if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
+            return new Page<>(page == null ? 1 : page, pageSize == null ? 10 : pageSize, 0);
+        }
+        log.debug("按负责源查询知识文档列表 datasourceId={} status={} page={} pageSize={}",
+                datasourceId, status, page, pageSize);
+        LambdaQueryWrapper<KnowledgeDoc> wrapper = new LambdaQueryWrapper<KnowledgeDoc>()
+                .in(KnowledgeDoc::getDatasourceId, visibleDatasourceIds)
+                .eq(datasourceId != null, KnowledgeDoc::getDatasourceId, datasourceId)
+                .eq(StringUtils.hasText(status), KnowledgeDoc::getStatus, status)
+                .orderByDesc(KnowledgeDoc::getCreatedAt);
+        return knowledgeDocMapper.selectPage(new Page<>(page, pageSize), wrapper);
+    }
 
     /**
      * 分页查询知识文档列表。

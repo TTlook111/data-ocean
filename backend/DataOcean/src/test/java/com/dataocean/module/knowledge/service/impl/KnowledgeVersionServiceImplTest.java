@@ -18,6 +18,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
+import com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.user.entity.SysUser;
@@ -63,6 +64,12 @@ class KnowledgeVersionServiceImplTest {
     private VectorIndexTaskService vectorIndexTaskService;
     @Mock
     private KnowledgeDependencySnapshotBuilder dependencySnapshotBuilder;
+    /**
+     * 归属校验在这一组用例里被 mock 掉：它自身的规则与“各读取路径确实调用了它”
+     * 由 KnowledgeVersionOwnershipTest 用真实校验器覆盖，这里只关心版本服务本身的逻辑。
+     */
+    @Mock
+    private KnowledgeOwnershipValidator ownershipValidator;
     @Mock
     private UserMapper userMapper;
 

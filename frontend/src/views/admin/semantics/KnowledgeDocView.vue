@@ -56,6 +56,7 @@ import {
   vectorTaskStatusType,
 } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useIamS1Store } from '../../../stores/iamS1'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import LifecycleStepper from '../../../components/admin/LifecycleStepper.vue'
@@ -67,6 +68,31 @@ import EmptyState from '../../../components/common/EmptyState.vue'
 const route = useRoute()
 const router = useRouter()
 const context = useAdminContextStore()
+
+const iamS1 = useIamS1Store()
+
+/**
+ * 文档详情页的四个功能码都是「源」范围，后端按**文档真实 datasourceId** 复核归属
+ * （KNOWLEDGE_DOCUMENT 解析器：文档不存在 404、归属缺失或版本/来源快照不一致 409）。
+ *
+ * 这里只做按钮可用性；前端不是安全边界，后端仍会独立拒绝。
+ */
+const mayView = computed(
+  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:view').length > 0,
+)
+const mayManage = computed(
+  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:manage').length > 0,
+)
+const mayApprove = computed(
+  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:approve').length > 0,
+)
+const mayPublish = computed(
+  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:publish').length > 0,
+)
+const VIEW_HINT = '没有“查看知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:view 并负责该文档的数据源。'
+const MANAGE_HINT = '没有“维护知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:manage 并负责该文档的数据源。'
+const APPROVE_HINT = '没有“审核知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:approve 并负责该文档的数据源。'
+const PUBLISH_HINT = '没有“发布/回滚知识”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:publish 并负责该文档的数据源。审核权不自动带来发布权。'
 
 const docId = computed(() => Number(route.params.id))
 const activeTab = ref(String(route.query.tab || 'content'))
@@ -177,6 +203,12 @@ function selectTab(tab: string) {
 }
 
 async function loadDoc() {
+  // 无 knowledge:view 时不要发这个必然 403 的请求，改为展示中文原因
+  if (!mayView.value) {
+    loading.value = false
+    error.value = VIEW_HINT
+    return
+  }
   loading.value = true
   error.value = ''
   try {
@@ -242,6 +274,7 @@ async function loadChunks() {
 }
 
 async function save() {
+  if (!mayManage.value) { ElMessage.warning(MANAGE_HINT); return }
   if (!doc.value) return
   if (!title.value.trim()) {
     ElMessage.warning('文档标题不能为空')
@@ -270,6 +303,7 @@ async function save() {
 }
 
 async function submit() {
+  if (!mayManage.value) { ElMessage.warning(MANAGE_HINT); return }
   try {
     await ElMessageBox.confirm('提交审核后文档将不可编辑，直到审核完成。确认提交？', '提交审核')
     actionLoading.value = true
@@ -284,6 +318,7 @@ async function submit() {
 }
 
 async function approve() {
+  if (!mayApprove.value) { ElMessage.warning(APPROVE_HINT); return }
   try {
     await ElMessageBox.confirm('确认通过审核？通过后文档进入已批准，需要再执行发布才会构建索引。', '审核通过')
     actionLoading.value = true
@@ -298,6 +333,7 @@ async function approve() {
 }
 
 async function reject() {
+  if (!mayApprove.value) { ElMessage.warning(APPROVE_HINT); return }
   try {
     const result = await ElMessageBox.prompt('请说明驳回原因，作者会据此修改后重新提交。', '审核驳回', {
       inputValidator: (value) => Boolean(value?.trim()) || '驳回原因不能为空',
@@ -316,6 +352,7 @@ async function reject() {
 }
 
 async function publish() {
+  if (!mayPublish.value) { ElMessage.warning(PUBLISH_HINT); return }
   try {
     await ElMessageBox.confirm(
       '发布后文档将进入索引阶段，内容会被切分并写入向量库。索引成功前旧版本向量会保留。确认发布？',
@@ -340,6 +377,7 @@ const generateLoading = ref(false)
 const generateSnapshotId = ref<number>()
 
 function openGenerate() {
+  if (!mayManage.value) { ElMessage.warning(MANAGE_HINT); return }
   generateSnapshotId.value = context.snapshotId || snapshots.value[0]?.id
   generateVisible.value = true
 }
@@ -375,6 +413,7 @@ function showVersion(item: KnowledgeVersionItem) {
 }
 
 async function rollback(item: KnowledgeVersionItem) {
+  if (!mayPublish.value) { ElMessage.warning(PUBLISH_HINT); return }
   try {
     await ElMessageBox.confirm(
       `回滚到版本 ${item.versionNo}？影响范围：后端会以该版本内容创建一个新的 ROLLBACK 版本，`
@@ -508,6 +547,7 @@ async function loadVectorTasks() {
 }
 
 onMounted(async () => {
+  await iamS1.load()
   try {
     datasources.value = (await listSimpleDatasources()).data || []
   } catch {
@@ -575,19 +615,19 @@ watch(() => route.query.tab, (value) => {
         </template>
         <template #actions>
           <el-button :icon="RefreshCw" :loading="loading" @click="loadDoc">刷新</el-button>
-          <el-button v-if="canEdit" :icon="Save" :loading="saving" @click="save">
+          <el-button v-if="canEdit && mayManage" :icon="Save" :loading="saving" @click="save">
             {{ status === 'DRAFT' ? '保存' : '保存并新建版本' }}
           </el-button>
-          <el-button v-if="canEdit" :icon="Sparkles" @click="openGenerate">AI 生成草稿</el-button>
+          <el-button v-if="canEdit && mayManage" :icon="Sparkles" @click="openGenerate">AI 生成草稿</el-button>
 
-          <el-button v-if="canSubmitReview" type="primary" :icon="Send" :loading="actionLoading" @click="submit">
+          <el-button v-if="canSubmitReview && mayManage" type="primary" :icon="Send" :loading="actionLoading" @click="submit">
             提交审核
           </el-button>
           <template v-else-if="canReview">
-            <el-button type="primary" :loading="actionLoading" @click="approve">审核通过</el-button>
-            <el-button type="danger" plain :loading="actionLoading" @click="reject">驳回</el-button>
+            <el-button type="primary" :loading="actionLoading" :disabled="!mayApprove" :title="mayApprove ? '' : APPROVE_HINT" @click="approve">审核通过</el-button>
+            <el-button type="danger" plain :loading="actionLoading" :disabled="!mayApprove" :title="mayApprove ? '' : APPROVE_HINT" @click="reject">驳回</el-button>
           </template>
-          <el-button v-else-if="canPublish" type="primary" :icon="Upload" :loading="actionLoading" @click="publish">
+          <el-button v-else-if="canPublish" type="primary" :icon="Upload" :loading="actionLoading" :disabled="!mayPublish" :title="mayPublish ? '' : PUBLISH_HINT" @click="publish">
             发布并构建索引
           </el-button>
           <el-button v-else-if="isPublished" type="primary" :icon="MessageSquareText" @click="router.push('/query')">
@@ -812,7 +852,7 @@ watch(() => route.query.tab, (value) => {
                 <template #default="{ row }">
                   <el-button link type="primary" @click="showVersion(row)">查看</el-button>
                   <el-button
-                    v-if="canRollback && row.versionNo !== doc.currentVersion"
+                    v-if="canRollback && mayPublish && row.versionNo !== doc.currentVersion"
                     link
                     type="warning"
                     :loading="actionLoading"

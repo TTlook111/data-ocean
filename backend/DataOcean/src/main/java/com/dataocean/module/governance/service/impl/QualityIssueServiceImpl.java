@@ -11,6 +11,9 @@ import com.dataocean.module.governance.entity.MetadataQualityIssue;
 import com.dataocean.module.governance.entity.vo.IssueBatchHandleResultVO;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
+import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
+import com.dataocean.module.permission.s1.resource.IamS1ResolvedResource;
 import com.dataocean.module.governance.service.QualityIssueService;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.entity.SysUser;
@@ -40,11 +43,18 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class QualityIssueServiceImpl implements QualityIssueService {
 
+    /** 批量处理逐项校验用的功能码，与单条处理保持同一个码。 */
+    private static final String BATCH_MANAGE_FUNCTION = "governance:issue:manage";
+
     private final MetadataQualityIssueMapper issueMapper;
     private final UserMapper userMapper;
     private final DatasourceMapper datasourceMapper;
+    /** 校验“指定快照”的真实归属：快照归属不能由调用方自己声称。 */
+    private final MetadataSnapshotMapper snapshotMapper;
     // Phase 1 #6: 治理-置信度联动
     private final ConfidenceCalculator confidenceCalculator;
+    private final com.dataocean.module.permission.s1.support.IamS1AdminGuard adminGuard;
+    private final com.dataocean.module.permission.s1.resource.impl.GovernanceIssueResourceResolver issueResourceResolver;
 
     // 合法的状态流转（安全优先：REOPENED 必须经过 CONFIRMED 才能 RESOLVED）
     private static final Set<String> VALID_FROM_OPEN = Set.of(
@@ -66,7 +76,42 @@ public class QualityIssueServiceImpl implements QualityIssueService {
     public Page<QualityIssueVO> listIssues(Long snapshotId, String dimension, String severity,
                                            String status, String tableName, Long assigneeId,
                                            int page, int size) {
+        return queryIssues(null, snapshotId, dimension, severity, status, tableName, assigneeId, page, size);
+    }
+
+    @Override
+    public Page<QualityIssueVO> listIssuesInDatasources(java.util.Collection<Long> datasourceIds, Long snapshotId,
+                                                        String dimension, String severity, String status,
+                                                        String tableName, Long assigneeId, int page, int size) {
+        if (snapshotId != null) {
+            // 显式指定快照时必须**直接判定归属**。只把 snapshotId 塞进 WHERE 是不行的：
+            // 无权快照会返回一个空页，把“无权”伪装成“该快照没有问题”，既误导用户，
+            // 也把无权资源变成了可探测的目标。先解析快照的真实归属，再决定放行还是拒绝。
+            MetadataSnapshot snapshot = snapshotMapper.selectById(snapshotId);
+            if (snapshot == null) {
+                throw new BusinessException(404, "快照不存在");
+            }
+            if (snapshot.getDatasourceId() == null) {
+                throw new BusinessException(409, "快照缺少数据源归属，无法判定负责范围");
+            }
+            if (datasourceIds == null || !datasourceIds.contains(snapshot.getDatasourceId())) {
+                throw new BusinessException(403, "没有负责该快照所属的数据源，无法查看其质量问题");
+            }
+        }
+        // 未指定快照时，空负责源直接返回空页：不能退化成“返回全部数据源”。
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return new Page<>(page, size, 0);
+        }
+        return queryIssues(datasourceIds, snapshotId, dimension, severity, status, tableName,
+                assigneeId, page, size);
+    }
+
+    /** `scopeDatasourceIds == null` 表示不按数据源限制（仅供既有内部调用），空集合由调用方先行处理。 */
+    private Page<QualityIssueVO> queryIssues(java.util.Collection<Long> scopeDatasourceIds, Long snapshotId,
+                                             String dimension, String severity, String status,
+                                             String tableName, Long assigneeId, int page, int size) {
         LambdaQueryWrapper<MetadataQualityIssue> qw = new LambdaQueryWrapper<MetadataQualityIssue>()
+                .in(scopeDatasourceIds != null, MetadataQualityIssue::getDatasourceId, scopeDatasourceIds)
                 .eq(snapshotId != null, MetadataQualityIssue::getSnapshotId, snapshotId)
                 .eq(StringUtils.hasText(dimension), MetadataQualityIssue::getDimension, dimension)
                 .eq(StringUtils.hasText(severity), MetadataQualityIssue::getSeverity, severity)
@@ -141,9 +186,27 @@ public class QualityIssueServiceImpl implements QualityIssueService {
     @Transactional
     @Override
     public IssueBatchHandleResultVO batchHandle(List<Long> issueIds, String targetStatus, Long operatorId) {
+        // 原子性的准确边界：**权限与归属预校验整批原子**——任一问题无权、不存在或归属断链就整批拒绝，
+        // 不能“先改几条再发现越权”。所以校验统一前置，全部通过后才进入修改。
+        // 但**状态流转本身不是全有或全无**：单条状态机不允许的流转会被跳过并在响应里如实返回，
+        // 这是既有的产品语义（见 IssueBatchHandleResultVO），不是“整批业务原子”。
+        List<Long> distinctIds = issueIds == null ? List.of()
+                : issueIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinctIds.isEmpty()) {
+            throw new BusinessException(400, "批量处理的问题列表不能为空");
+        }
+        List<MetadataQualityIssue> issues = issueMapper.selectBatchIds(distinctIds);
+        if (issues == null || issues.size() != distinctIds.size()) {
+            throw new BusinessException(404, "批量处理包含不存在的问题，已整批拒绝");
+        }
+        for (MetadataQualityIssue issue : issues) {
+            IamS1ResolvedResource resolved = issueResourceResolver.resolve(issue.getId());
+            adminGuard.requireDatasourceFunction(operatorId, BATCH_MANAGE_FUNCTION, resolved.datasourceId());
+        }
+
         int updated = 0;
         List<IssueBatchHandleResultVO.SkippedIssue> skippedIssues = new ArrayList<>();
-        for (Long issueId : issueIds) {
+        for (Long issueId : distinctIds) {
             try {
                 handleIssue(issueId, targetStatus, null, operatorId);
                 updated++;
@@ -171,6 +234,20 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         if (issue == null) {
             throw new BusinessException(404, "问题不存在");
         }
+        if (assigneeId == null) {
+            throw new BusinessException(400, "必须指定责任人");
+        }
+        // 责任人必须是**存在且启用**的账号：此前直接写入 assigneeId，
+        // 不存在或已禁用的用户也能被设为负责人，列表随即显示出无人可处理的“幽灵责任人”。
+        SysUser assignee = userMapper.selectById(assigneeId);
+        if (assignee == null) {
+            throw new BusinessException(404, "责任人不存在");
+        }
+        if (assignee.getStatus() == null || assignee.getStatus() != SysUser.STATUS_NORMAL) {
+            throw new BusinessException(400, "责任人账号未启用，不能作为负责人");
+        }
+        // 分派只写 assignee_id：它是工作归属，不是数据授权事实。
+        // 被分派人不会因此获得该数据源上的任何查询、治理或授权能力。
         issue.setAssigneeId(assigneeId);
         issueMapper.updateById(issue);
         log.info("问题分派 issueId={} assigneeId={}", issueId, assigneeId);

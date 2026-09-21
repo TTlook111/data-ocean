@@ -21,6 +21,7 @@ import {
 } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useAuthStore } from '../../../stores/auth'
+import { useIamS1Store } from '../../../stores/iamS1'
 import ResourceScopeSelector from '../../../components/ResourceScopeSelector.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
@@ -56,11 +57,52 @@ let detailRequestId = 0
 let disposed = false
 const adminContext = useAdminContextStore()
 const auth = useAuthStore()
+const iamS1 = useIamS1Store()
 const route = useRoute()
 const router = useRouter()
 
 /** 当前登录用户 ID：用于「分配给我的」快捷筛选 */
 const currentUserId = computed(() => auth.currentUser?.id ?? auth.user?.userId)
+
+const MANAGE_FUNCTION = 'governance:issue:manage'
+const VIEW_FUNCTION = 'governance:issue:view'
+const RELEASE_VIEW_FUNCTION = 'metadata:release:view'
+
+/**
+ * 能否处理某条问题。
+ *
+ * 处理要求 `governance:issue:manage` 与**该问题所属数据源**落在同一条启用的角色绑定上。
+ * 前端只控制按钮可见性，后端仍会独立拒绝；给出中文原因而不是让用户点了才失败。
+ */
+function canManageIssue(issue: { datasourceId?: number } | null | undefined): boolean {
+  if (!issue?.datasourceId) return iamS1.systemAdmin
+  return iamS1.canOnDatasource(MANAGE_FUNCTION, issue.datasourceId)
+}
+
+/** 同表治理记录与「返回发布流程」属于发布域，不因拥有治理查看权而自动获得。 */
+function canViewReleaseRecords(issue: { datasourceId?: number } | null | undefined): boolean {
+  if (!issue?.datasourceId) return iamS1.systemAdmin
+  return iamS1.canOnDatasource(RELEASE_VIEW_FUNCTION, issue.datasourceId)
+}
+
+/** 当前页里可处理的问题 ID；批量操作必须整批都可处理，否则后端会整批拒绝。 */
+const manageableIssueIds = computed(
+  () => new Set(issues.value.filter((issue) => canManageIssue(issue)).map((issue) => issue.id)),
+)
+const canBatchManage = computed(
+  () => selectedIds.value.length > 0
+    && selectedIds.value.every((id) => manageableIssueIds.value.has(id)),
+)
+
+/**
+ * 是否在任何数据源上拥有问题查看能力。
+ *
+ * 列表本身由后端按负责源下推 SQL，一个负责源都没有时会返回空页——
+ * 这跟“这个数据源确实没有质量问题”在界面上长得一模一样，必须显式区分。
+ */
+const canViewIssuesSomewhere = computed(
+  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction(VIEW_FUNCTION).length > 0,
+)
 
 const query = reactive({
   snapshotId: undefined as number | undefined,
@@ -204,7 +246,12 @@ function persistQuery() {
   router.replace({ query: nextQuery })
 }
 
-async function doHandle(issueId: number, status: string) {
+async function doHandle(issue: QualityIssueItem, status: string) {
+  if (!canManageIssue(issue)) {
+    ElMessage.warning('没有“处理质量问题”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责该问题所属数据源。')
+    return
+  }
+  const issueId = issue.id
   try {
     await handleIssue(issueId, { status })
     ElMessage.success('操作成功')
@@ -240,6 +287,10 @@ async function submitAssignment() {
   const issue = selectedIssue.value
   const assigneeId = assigneeSelection.value
   if (!issue || !assigneeId || assigneeId === issue.assigneeId) return
+  if (!canManageIssue(issue)) {
+    ElMessage.warning('没有“处理质量问题”能力：不能分派负责人。')
+    return
+  }
   assignLoading.value = true
   try {
     await assignIssue(issue.id, assigneeId)
@@ -259,6 +310,12 @@ async function submitAssignment() {
 
 async function doBatchHandle(status: string) {
   if (!selectedIds.value.length) { ElMessage.warning('请选择问题'); return }
+  if (!canBatchManage.value) {
+    // 后端对批量是“权限与归属预校验整批原子”：只要有一条无权就整批拒绝、零修改。
+    // 与其发一个必然失败的请求，不如先说明哪些选中项不在可处理范围内。
+    ElMessage.warning('所选问题中包含没有处理权限的条目，后端会整批拒绝。请只选择你负责的数据源下的问题。')
+    return
+  }
   const requested = selectedIds.value.length
   try {
     const res = await batchHandleIssues({ issueIds: selectedIds.value, status })
@@ -293,6 +350,10 @@ function onSelectionChange(rows: QualityIssueItem[]) {
 }
 
 async function reopenIssue(issue: QualityIssueItem) {
+  if (!canManageIssue(issue)) {
+    ElMessage.warning('没有“处理质量问题”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责该问题所属数据源。')
+    return
+  }
   try {
     await ElMessageBox.confirm('重新打开后，该问题会重新进入治理流程，需再次确认后才能解决。确认继续吗？', '重新打开问题', {
       type: 'warning',
@@ -315,9 +376,15 @@ async function openIssueDetail(issue: QualityIssueItem) {
   selectedIssue.value = issue
   reviewRecords.value = []
   detailVisible.value = true
-  detailLoading.value = true
   assigneeSelection.value = issue.assigneeId
   loadUserOptions()
+  // 同表治理记录来自发布域的 `metadata:release:view`，治理查看权不自动包含它。
+  // 无能力时不要发这个必然 403 的请求，改为在抽屉里说明原因。
+  if (!canViewReleaseRecords(issue)) {
+    detailLoading.value = false
+    return
+  }
+  detailLoading.value = true
   try {
     const result = await listReviewRecords(issue.snapshotId, { tableName: issue.tableName, page: 1, size: 20 })
     if (disposed || currentRequest !== detailRequestId || selectedIssue.value?.id !== issue.id) return
@@ -331,7 +398,7 @@ async function openIssueDetail(issue: QualityIssueItem) {
 }
 
 onMounted(async () => {
-  await adminContext.initialize()
+  await Promise.all([adminContext.initialize(), iamS1.load()])
   scopeDatasourceId.value = adminContext.datasourceId
   query.snapshotId = adminContext.snapshotId
   if (route.query.snapshotId) query.snapshotId = Number(route.query.snapshotId) || query.snapshotId
@@ -432,8 +499,11 @@ onBeforeUnmount(() => {
 
     <section class="batch-bar" v-if="selectedIds.length">
       <span>已选 {{ selectedIds.length }} 项</span>
-      <el-button size="small" @click="doBatchHandle('CONFIRMED')">批量确认</el-button>
-      <el-button size="small" type="danger" @click="doBatchHandle('REJECTED')">批量驳回</el-button>
+      <el-button size="small" :disabled="!canBatchManage" @click="doBatchHandle('CONFIRMED')">批量确认</el-button>
+      <el-button size="small" type="danger" :disabled="!canBatchManage" @click="doBatchHandle('REJECTED')">批量驳回</el-button>
+      <span v-if="!canBatchManage" class="muted-text">
+        所选条目中包含没有处理权限的问题：后端对批量是整批原子校验，会整批拒绝。请只选择你负责的数据源下的问题。
+      </span>
     </section>
 
     <section class="table-shell">
@@ -481,30 +551,41 @@ onBeforeUnmount(() => {
         </el-table-column>
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
-            <template v-if="row.status === 'OPEN' || row.status === 'REOPENED'">
-              <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
-              <el-button link size="small" @click="doHandle(row.id, 'CONFIRMED')">确认</el-button>
-              <el-button link size="small" type="danger" @click="doHandle(row.id, 'REJECTED')">驳回</el-button>
+            <!-- 可处理：显示状态机允许的动作。无处理权限时只留「详情」，并说明原因，
+                 而不是渲染一组点了必然被后端拒绝的按钮。 -->
+            <template v-if="canManageIssue(row)">
+              <template v-if="row.status === 'OPEN' || row.status === 'REOPENED'">
+                <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
+                <el-button link size="small" @click="doHandle(row, 'CONFIRMED')">确认</el-button>
+                <el-button link size="small" type="danger" @click="doHandle(row, 'REJECTED')">驳回</el-button>
+              </template>
+              <template v-else-if="row.status === 'CONFIRMED'">
+                <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
+                <el-button link size="small" type="success" @click="doHandle(row, 'RESOLVED')">解决</el-button>
+                <el-button link size="small" type="danger" @click="doHandle(row, 'REJECTED')">驳回</el-button>
+              </template>
+              <template v-else-if="row.status === 'RESOLVED' || row.status === 'REJECTED'">
+                <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
+                <el-button link size="small" type="warning" @click="reopenIssue(row)">重新打开</el-button>
+              </template>
+              <el-button v-else link size="small" @click="openIssueDetail(row)">详情</el-button>
             </template>
-            <template v-else-if="row.status === 'CONFIRMED'">
+            <template v-else>
               <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
-              <el-button link size="small" type="success" @click="doHandle(row.id, 'RESOLVED')">解决</el-button>
-              <el-button link size="small" type="danger" @click="doHandle(row.id, 'REJECTED')">驳回</el-button>
+              <span class="muted-text" title="需要 IAM-SIMPLE-1 角色包含“处理质量问题”并负责该数据源">无处理权限</span>
             </template>
-            <template v-else-if="row.status === 'RESOLVED' || row.status === 'REJECTED'">
-              <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
-              <el-button link size="small" type="warning" @click="reopenIssue(row)">重新打开</el-button>
-            </template>
-            <el-button v-else link size="small" @click="openIssueDetail(row)">详情</el-button>
             <RouterLink
-              v-if="row.snapshotId"
+              v-if="row.snapshotId && canViewReleaseRecords(row)"
               class="return-link"
               :to="{ path: '/admin/releases', query: { datasourceId: row.datasourceId ? String(row.datasourceId) : undefined, snapshotId: String(row.snapshotId), tab: 'candidates' } }"
             >返回发布流程</RouterLink>
-            <span v-else class="muted-text">-</span>
           </template>
         </el-table-column>
       </el-table>
+      <EmptyState
+        v-else-if="!loading && !canViewIssuesSomewhere"
+        message="你的 IAM-SIMPLE-1 角色没有在任何数据源上包含“查看质量问题”能力，所以列表为空。请联系系统管理员为该角色分配该功能与负责源。"
+      />
       <EmptyState v-else-if="!loading" message="当前范围和筛选条件下没有治理问题。" />
     </section>
 
@@ -530,39 +611,53 @@ onBeforeUnmount(() => {
           </dl>
           <section class="issue-detail__assign">
             <h3>分派责任人</h3>
-            <div class="issue-detail__assign-controls">
-              <el-select
-                v-model="assigneeSelection"
-                class="issue-detail__assign-select"
-                filterable
-                clearable
-                size="small"
-                :loading="userOptionsLoading"
-                :disabled="Boolean(assigneeError)"
-                placeholder="选择用户"
-              >
-                <el-option v-for="option in assigneeOptions" :key="option.id" :label="option.label" :value="option.id" />
-              </el-select>
-              <el-button size="small" type="primary" :loading="assignLoading" :disabled="!canAssign" @click="submitAssignment">分派</el-button>
-            </div>
-            <p v-if="assigneeError" class="muted-text">{{ assigneeError }}</p>
-            <p v-else-if="userOptionsTotal > USER_PAGE_SIZE" class="muted-text">
-              共 {{ userOptionsTotal }} 名用户，下拉仅显示前 {{ USER_PAGE_SIZE }} 名，目标用户可能不在列表中。
+            <p v-if="!canManageIssue(selectedIssue)" class="muted-text">
+              没有“处理质量问题”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责该问题所属数据源。分派只写工作归属，不产生任何数据授权。
             </p>
+            <template v-else>
+              <div class="issue-detail__assign-controls">
+                <el-select
+                  v-model="assigneeSelection"
+                  class="issue-detail__assign-select"
+                  filterable
+                  clearable
+                  size="small"
+                  :loading="userOptionsLoading"
+                  :disabled="Boolean(assigneeError)"
+                  placeholder="选择用户"
+                >
+                  <el-option v-for="option in assigneeOptions" :key="option.id" :label="option.label" :value="option.id" />
+                </el-select>
+                <el-button size="small" type="primary" :loading="assignLoading" :disabled="!canAssign" @click="submitAssignment">分派</el-button>
+              </div>
+              <p v-if="assigneeError" class="muted-text">{{ assigneeError }}</p>
+              <p v-else-if="userOptionsTotal > USER_PAGE_SIZE" class="muted-text">
+                共 {{ userOptionsTotal }} 名用户，下拉仅显示前 {{ USER_PAGE_SIZE }} 名，目标用户可能不在列表中。
+              </p>
+            </template>
           </section>
           <div class="issue-detail__actions">
             <RouterLink class="return-link" :to="{ path: '/admin/governance', query: { datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined, snapshotId: String(selectedIssue.snapshotId) } }">回治理复查</RouterLink>
-            <RouterLink class="return-link" :to="{ path: '/admin/releases', query: { datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined, snapshotId: String(selectedIssue.snapshotId), tab: 'candidates' } }">回发布流程</RouterLink>
+            <RouterLink
+              v-if="canViewReleaseRecords(selectedIssue)"
+              class="return-link"
+              :to="{ path: '/admin/releases', query: { datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined, snapshotId: String(selectedIssue.snapshotId), tab: 'candidates' } }"
+            >回发布流程</RouterLink>
           </div>
           <h3>同表治理记录</h3>
-          <p class="muted-text">以下记录来自当前快照同一数据表，后端暂未提供单个问题的独立历史接口。</p>
-          <el-table :data="reviewRecords" size="small" stripe>
-            <el-table-column prop="action" label="动作" width="110" />
-            <el-table-column label="状态" width="150"><template #default="{ row }">{{ row.oldStatus || '-' }} → {{ row.newStatus || '-' }}</template></el-table-column>
-            <el-table-column prop="operatorName" label="操作人" width="100" />
-            <el-table-column prop="createdAt" label="时间" width="160" />
-          </el-table>
-          <el-empty v-if="!reviewRecords.length" description="暂无同表治理记录" />
+          <template v-if="canViewReleaseRecords(selectedIssue)">
+            <p class="muted-text">以下记录来自当前快照同一数据表，后端暂未提供单个问题的独立历史接口。</p>
+            <el-table :data="reviewRecords" size="small" stripe>
+              <el-table-column prop="action" label="动作" width="110" />
+              <el-table-column label="状态" width="150"><template #default="{ row }">{{ row.oldStatus || '-' }} → {{ row.newStatus || '-' }}</template></el-table-column>
+              <el-table-column prop="operatorName" label="操作人" width="100" />
+              <el-table-column prop="createdAt" label="时间" width="160" />
+            </el-table>
+            <el-empty v-if="!reviewRecords.length" description="暂无同表治理记录" />
+          </template>
+          <p v-else class="muted-text">
+            没有“查看元数据版本”能力：审核记录属于发布域（<code>metadata:release:view</code>），拥有治理查看权不会自动获得它。
+          </p>
         </div>
       </template>
     </el-drawer>

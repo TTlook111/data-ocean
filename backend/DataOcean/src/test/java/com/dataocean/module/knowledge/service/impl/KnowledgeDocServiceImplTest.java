@@ -10,6 +10,7 @@ import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
+import com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator;
 import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.entity.DbTableMeta;
@@ -73,6 +74,12 @@ class KnowledgeDocServiceImplTest {
     private TransactionTemplate transactionTemplate;
     @Mock
     private KnowledgeDocHelper helper;
+    /**
+     * 来源快照归属校验：规则本身由 KnowledgeVersionOwnershipTest / KnowledgeDocPublishServiceOwnershipTest
+     * 用真实校验器覆盖，这里只按 mock 处理，避免与用例关注点混在一起。
+     */
+    @Mock
+    private KnowledgeOwnershipValidator ownershipValidator;
 
     @InjectMocks
     private KnowledgeDocPublishService publishService;

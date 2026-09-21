@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -44,8 +45,56 @@ public class MetadataRelationshipServiceImpl extends ServiceImpl<MetadataRelatio
         return baseMapper.selectLineageByEntityId(entityId);
     }
 
+    /**
+     * 血缘只保留**两端实体都属于可见数据源**的边。
+     *
+     * <p>血缘是跨实体的图：只校验起点的话，关系另一侧可能属于调用者无负责权限的数据源，
+     * 于是接口会把它连带的元数据一起返回。这里对源端与目标端都做可见性判定。</p>
+     */
+    @Override
+    public List<MetadataRelationship> getLineage(Long entityId, Collection<Long> visibleDatasourceIds) {
+        Set<Long> visible = entityService.getEntityIdsByDatasourceIds(visibleDatasourceIds);
+        return baseMapper.selectLineageByEntityId(entityId).stream()
+                .filter(rel -> visible.contains(rel.getSourceId()) && visible.contains(rel.getTargetId()))
+                .toList();
+    }
+
+    /** 实体详情用：只返回两端都可见的关系。 */
+    @Override
+    public List<MetadataRelationship> getVisibleRelations(Long entityId, String entityType,
+                                                          Collection<Long> visibleDatasourceIds) {
+        Set<Long> visible = entityService.getEntityIdsByDatasourceIds(visibleDatasourceIds);
+        List<MetadataRelationship> result = new ArrayList<>();
+        for (MetadataRelationship rel : baseMapper.selectBySource(entityId, entityType)) {
+            if (visible.contains(rel.getSourceId()) && visible.contains(rel.getTargetId())) {
+                result.add(rel);
+            }
+        }
+        for (MetadataRelationship rel : baseMapper.selectByTarget(entityId, entityType)) {
+            if (visible.contains(rel.getSourceId()) && visible.contains(rel.getTargetId())) {
+                result.add(rel);
+            }
+        }
+        return result;
+    }
+
     @Override
     public List<MetadataRelationship> getDownstream(Long entityId, int maxDepth) {
+        return getDownstream(entityId, maxDepth, null);
+    }
+
+    /**
+     * 下游影响分析：只返回两端可见的边，并**在遇到无权节点时停止向下遍历**。
+     *
+     * <p>仅过滤返回结果是不够的——继续沿无权节点遍历会把更下游的可见节点也带出来，
+     * 等于用一条越界的边把无权子图的形状暴露出去。</p>
+     */
+    @Override
+    public List<MetadataRelationship> getDownstream(Long entityId, int maxDepth,
+                                                    Collection<Long> visibleDatasourceIds) {
+        Set<Long> visible = visibleDatasourceIds == null
+                ? null
+                : entityService.getEntityIdsByDatasourceIds(visibleDatasourceIds);
         // BFS 遍历下游依赖
         List<MetadataRelationship> result = new ArrayList<>();
         Set<Long> visited = new HashSet<>();
@@ -60,6 +109,10 @@ public class MetadataRelationshipServiceImpl extends ServiceImpl<MetadataRelatio
                         .filter(r -> MetadataRelationship.TYPE_LINEAGE.equals(r.getRelationType()))
                         .toList();
                 for (MetadataRelationship rel : downstream) {
+                    if (visible != null && !visible.contains(rel.getTargetId())) {
+                        // 目标节点不可见：不返回该边，也不再向它的下游继续。
+                        continue;
+                    }
                     result.add(rel);
                     if (!visited.contains(rel.getTargetId())) {
                         nextLevel.add(rel.getTargetId());

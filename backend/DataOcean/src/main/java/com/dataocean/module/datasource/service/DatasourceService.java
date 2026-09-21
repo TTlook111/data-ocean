@@ -8,6 +8,8 @@ import com.dataocean.module.datasource.entity.dto.DatasourceUpdateDTO;
 import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceVO;
 
+import java.util.List;
+
 /**
  * 数据源管理服务接口
  * <p>
@@ -63,12 +65,17 @@ public interface DatasourceService {
     DatasourceVO getDatasourceById(Long id);
 
     /**
-     * 分页查询数据源列表
+     * 分页查询数据源列表。
      *
-     * @param request 查询条件（名称模糊、状态、健康状态、分页参数）
+     * <p>`visibleDatasourceIds` 是调用者在 `datasource:view` 上负责的数据源，
+     * **必须下推到 SQL**：先查全量再按范围过滤会让 LIMIT/OFFSET 在过滤前生效，分页总数和页内容都会错。
+     * 传入空集合表示没有任何负责源，直接返回空页。</p>
+     *
+     * @param request              查询条件（名称模糊、状态、健康状态、分页参数）
+     * @param visibleDatasourceIds 可见范围
      * @return 分页结果
      */
-    Page<DatasourceVO> listDatasources(DatasourceQuery request);
+    Page<DatasourceVO> listDatasources(DatasourceQuery request, List<Long> visibleDatasourceIds);
 
     /**
      * 更新数据源启用/禁用状态

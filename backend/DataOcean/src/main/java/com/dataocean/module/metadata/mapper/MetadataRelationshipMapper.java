@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -49,4 +50,21 @@ public interface MetadataRelationshipMapper extends BaseMapper<MetadataRelations
      */
     @Select("SELECT * FROM metadata_relationship WHERE relation_type = 'LINEAGE' AND (source_id = #{entityId} OR target_id = #{entityId})")
     List<MetadataRelationship> selectLineageByEntityId(@Param("entityId") Long entityId);
+
+    /**
+     * 批量读取这些术语的 `GLOSSARY_OF` 关系行（含 `source_id` 与 `target_id`）。
+     *
+     * <p>术语的「源/全」混合范围要按术语关联的实体反查数据源；逐个术语调用
+     * {@link #selectBySource} 会产生 N+1，这里一次查出全部关系行，由调用方按
+     * `source_id` 分组。返回整行而不是只返回 `target_id`——只取目标就还原不出它属于哪个术语。</p>
+     */
+    @Select("""
+            <script>
+            SELECT * FROM metadata_relationship
+            WHERE source_type = 'GLOSSARY_TERM' AND relation_type = 'GLOSSARY_OF'
+              AND source_id IN
+            <foreach collection="termIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    List<MetadataRelationship> selectGlossaryOfRelations(@Param("termIds") Collection<Long> termIds);
 }

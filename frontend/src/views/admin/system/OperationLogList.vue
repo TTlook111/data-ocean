@@ -18,10 +18,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ClipboardList, Clock3, RefreshCw, Search, X } from 'lucide-vue-next'
 import { listOperationLogs, type OperationLogItem, type OperationLogQuery } from '../../../api/admin/operation-log'
+import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+
+const iamS1 = useIamS1Store()
+const canViewOperationLogs = computed(() => iamS1.hasGlobal('operation-log:view'))
 
 const route = useRoute()
 const router = useRouter()
@@ -101,6 +105,13 @@ const avgExecutionMs = computed(() => {
 })
 
 async function fetchLogs() {
+  if (!canViewOperationLogs.value) {
+    logs.value = []
+    total.value = 0
+    loading.value = false
+    error.value = ''
+    return
+  }
   loading.value = true
   error.value = ''
   try {
@@ -343,6 +354,10 @@ onMounted(fetchLogs)
 
       <ErrorState v-if="error" :message="error" @retry="fetchLogs" />
       <LoadingState v-else-if="loading && !logs.length" variant="skeleton" :rows="6" />
+      <EmptyState
+        v-else-if="!canViewOperationLogs"
+        message="没有“查看操作日志”能力（operation-log:view）。"
+      />
       <EmptyState
         v-else-if="!logs.length"
         :message="hasFilter ? '当前筛选条件下没有操作日志。尝试放宽筛选或重置条件。' : '还没有操作日志。后台管理动作会在执行后记录在这里。'"
