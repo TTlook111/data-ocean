@@ -46,7 +46,7 @@ Important boundary:
 
 ## Current Status
 
-Last updated: 2026-09-21.
+Last updated: 2026-09-22.
 
 The main end-to-end chain is implemented:
 
@@ -61,7 +61,7 @@ Module status summary:
 | --- | --- |
 | Frontend query app | Core complete |
 | Frontend admin governance app | Core complete |
-| Java user/auth/permission modules | Legacy implementation remains for pre-switch operation; IAM-SIMPLE-1 B0–B4 (including B4-A and batches 1–6) code and automation are in `1f0a5f4`; 23 controllers migrated; B5 has not been executed and the live database is still V50 |
+| Java user/auth/permission modules | Legacy permission-specific objects remain pending B6 cleanup; IAM-SIMPLE-1 B0–B4 (including B4-A and batches 1–6) code and automation are in `1f0a5f4`; 23 controllers migrated; current code switch commit is `1e2f458`; B5 local-development switch and core browser acceptance are complete on IT-GO-1225, while B6 has not executed |
 | Java datasource/metadata/governance/versioning modules | Complete; metadata entity graph and event recording are implemented |
 | Java glossary module | Complete; glossary and term approval flow are implemented |
 | Java knowledge/skills.md lifecycle | Complete, with Python chunking integration |
@@ -75,9 +75,11 @@ Module status summary:
 
 Current status, Track A remediation, and navigation decisions — see `docs/development/DataOcean后台重构状态与整改计划.md`, the single source of truth. For the ordered next-action queue, see `docs/development/后续开发.md`.
 
-Track B targets the simple permission design in `docs/development/guides/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1). B0 through B4, including B4-A and batches 1–6, are merged at `1f0a5f4` on `codex/iam-s1-b5-preparation` (IAM implementation commit `1a6e426`). **23 controllers** are annotation-migrated; batch 6 is **61 handlers**; the B4 automation baseline is Java **557** and frontend Vitest **67**. `RoleController` / `PermissionController` / `DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController` stay on the pre-switch path until B6. The formal legacy organization nav `/admin/access/organization` is removed at B5 switch. The 22 `IamS1*` permission-domain endpoints remain on explicit guards. `IamS1AuthorizationAspect` must carry `@Aspect` as well as `@Component`. **B5 has not been executed.** The live database is still V50; V51, V52, V54, V55, V56 and V57 have never been applied against real MySQL; no `iam_s1*` table exists; bootstrap and browser acceptance have not been run. V53 is permanently unused. The B5 handbook is `docs/development/guides/DataOcean-IAM-S1-B5切换与回退手册.md`. Automation passing does not mean B5 is complete. Do not map or backfill old grants, mix permission algorithms, or delete old permissions during initial setup.
+Track B targets the simple permission design in `docs/development/guides/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1). B0 through B4, including B4-A and batches 1–6, are merged at `1f0a5f4` on `codex/iam-s1-b5-preparation` (IAM implementation commit `1a6e426`). **23 controllers** are annotation-migrated; batch 6 is **61 handlers**; the B4 automation baseline is Java **557** and frontend Vitest **67**. The current code switch commit is `1e2f458`; it removes the formal legacy organization nav and `/admin/access/organization` route. `RoleController` / `PermissionController` / `DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController` and their services/tables stay on the pre-B6 path. The 22 `IamS1*` permission-domain endpoints remain on explicit guards. `IamS1AuthorizationAspect` must carry `@Aspect` as well as `@Component`. New authorization decisions must read only isolated IAM-SIMPLE-1 facts; do not map or backfill old roles, grants, JWT authorities, or caches. On IT-GO-1225, the local development database completed V51 → V52 → V54 → V55 → V56 → V57 to V57; bootstrap completed for userId=1; the fixed catalog has 54 codes; `iam_s1_data_grant` remains 0; and core service/browser acceptance completed. This is not production evidence or a claim about other machines. Recovery rehearsal on an independent MySQL instance and the two real-user negative scenarios remain gaps; B6 has not executed. V53 is permanently unused; P9 must use V58 or higher. The B5 handbook remains the generic procedure for other environments. Automation passing does not mean B5 is production-complete. Do not map or backfill old grants, mix permission algorithms, or delete old permissions during initial setup.
 
-B0 文档已评审通过；`docs/development/轨道B-B0权限清单与决策冻结.md` 已固化权限消费清单、IAM-SIMPLE-1 独立新表方案、新契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线。B1～B4 代码与自动化验证已合入 `1f0a5f4`。B4 最新基线：Java **557**、前端 Vitest **67**。真实数据库停留在 V50，V51/V52/V54/V55/V56/V57 六个迁移均未执行，`iam_s1*` 表在真实库中不存在；未执行服务/浏览器验收、真实 bootstrap 或 B5。V53 永久不再使用。B5 准备见 `docs/development/guides/DataOcean-IAM-S1-B5切换与回退手册.md`（含真实库只读 SQL 门禁；备份用 `mysqldump --result-file`；回退禁止覆盖式导入；恢复演练必须使用独立 MySQL 实例，禁止只换库名连同一主机）。准备完成不等于 B5 已执行。**不要批准 `17f2b96` 或 `f6b1423` 为最终 B5 SHA。** 未提供 bootstrap userId、最终 SHA、维护窗口、生产备份目录、独立演练实例与初始化清单之前，不得 migrate。备份 SHA256 在 dump 生成后计算，不要求预先提供。
+B0 文档已评审通过；`docs/development/轨道B-B0权限清单与决策冻结.md` 已固化权限消费清单、IAM-SIMPLE-1 独立新表方案、新契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线。B1～B4 代码与自动化验证已合入 `1f0a5f4`，B4 最新基线为 Java **557**、前端 Vitest **67**。IT-GO-1225 本机开发环境的 B5 切换和核心验收已完成，但恢复演练与两个真实用户负向场景仍缺；`iam_s1_data_grant` 为 0，B6 未执行。V53 永久不使用，P9 使用 V58 或更高未占用版本。B5 准备手册仍保留真实环境的只读 SQL 门禁、`mysqldump --result-file`、禁止覆盖式导入和独立 MySQL 恢复演练要求；该通用流程不等于其他环境已执行 B5。账号、部门、数据源、元数据、知识、会话、审计等业务数据保留，旧权限专用对象只在 B6 按冻结清单处理。
+
+- B5 验收摘要（仅 IT-GO-1225 本机）：固定功能目录 54 项，浏览器 Console error/warn 为 0，前端定向测试 6/6、全量 Vitest 67/67、构建和 `git diff --check` 通过；针对 `1e2f458` 的只读 preflight 为 failures=0、exit code=0。
 
 Latest addition:
 
@@ -354,10 +356,11 @@ Migration notes:
 - `V55` adds IAM-SIMPLE-1 B2 data grants, explicit grant columns, structured row conditions, and field protection; committed and pushed.
 - `V56` adds B3 S1 query execution evidence, safe resource/source/capability summaries, revision/snapshot identifiers, and final protection status; committed with B3 (`d9a0c3b`).
 - `V57` adds the B4 S1 access-request and access-approval tables (S1 tables only, forward-only; it does not alter V54/V55/V56); committed with B4 (`8a9c5a1`).
-- **None of V51, V52, V54, V55, V56 or V57 has ever been executed against real MySQL.** The live database is still at V50, so no `iam_s1*` table exists and `query_task.suggested_questions` (V52) is missing from the live schema even though the `QueryTask` entity maps it. Production runs `flyway.enabled=true`, so the first real startup will apply all six unverified migrations at once; the test profile runs `flyway.enabled=false` on H2, so no automated test covers any of them.
+- **Machine-local migration fact (IT-GO-1225 only):** the local development MySQL database completed V51, V52, V54, V55, V56 and V57 in order and is at V57; Flyway failure records are 0, 14 `iam_s1_*` tables exist, the fixed IAM-SIMPLE-1 catalog has 54 codes, and bootstrap completed for userId=1. This does not establish the state of any other machine or production environment; reverify those environments before any operation.
+- The IT-GO-1225 B5 result is a local development switch and core acceptance, not a production release. Backup integrity was checked, but restore rehearsal on an independent MySQL instance remains unverified. Only one real user exists, so the enabled-without-S1-binding and legacy-only negative scenarios remain uncovered. No business roles, responsible datasources, table/field grants, or approvers were initialized; `iam_s1_data_grant` remains 0. B6 has not executed, and the old permission-specific controllers, services, tables, and compatibility objects remain until B6.
 - There is no `V53` migration file, and **V53 is permanently unused**. P9 alert history must use V58 or a higher unused version. Because `outOfOrder` is not enabled, adding V53 *after* V54–V57 have been applied would fail validation and break startup. Do not create an empty V53 just to fill the number gap.
 - `V51` backfills `knowledge_doc_version.review_status`. That column existed since V13 with `NOT NULL DEFAULT 'PENDING'` but was never written, so every row read as "pending review" including published ones. V51 restores rows that can be resolved from `knowledge_review_task` and marks the rest `UNKNOWN`; the application now writes the column on create/approve/reject.
-- `V52` adds `query_task.suggested_questions` (JSON, anchored `AFTER masked_fields`), persisting the follow-up questions Python already returned but Java never stored. Like V51 it has **never been executed against a real MySQL**, and Flyway is disabled in the test profile, so no automated run covers it.
+- `V52` adds `query_task.suggested_questions` (JSON, anchored `AFTER masked_fields`), persisting the follow-up questions Python already returned but Java never stored. It was applied on the IT-GO-1225 local development database as part of the V57 sequence; other environments require independent verification, and Flyway is disabled in the test profile, so automated tests do not prove migration state.
 
 ## Python Service Notes
 
