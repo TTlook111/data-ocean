@@ -19,6 +19,8 @@ describe('admin navigation metadata', () => {
       .toBe('/admin/access/iam')
     expect(ADMIN_WORKSPACES.find((item) => item.key === 'iam-approvals')?.path)
       .toBe('/admin/access/iam-approvals')
+    expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/access')
+    expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/access/approvals')
     expect(ADMIN_WORKSPACES.find((item) => item.key === 'organization')).toBeUndefined()
     expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/access/organization')
   })

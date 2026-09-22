@@ -15,6 +15,7 @@ import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.fieldtag.service.UserFeedbackService;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
+import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import lombok.RequiredArgsConstructor;
@@ -34,7 +35,7 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * 处理用户反馈提交逻辑：
  * - LIKE：直接触发可信度 +10
- * - DISLIKE（管理员/分析师）：Redis 限频检查 → 创建反馈 → 直接触发可信度 -45
+ * - DISLIKE（具备 S1 字段治理维护能力）：Redis 限频检查 → 创建反馈 → 直接触发可信度 -45
  * - DISLIKE（普通用户）：Redis 限频检查 → 创建反馈 → 进入审核队列 → 群体阈值检测
  * </p>
  */
@@ -58,6 +59,7 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
     private final ConfidenceCalculator confidenceCalculator;
     private final StringRedisTemplate stringRedisTemplate;
     private final ApplicationEventPublisher eventPublisher;
+    private final IamS1AuthorizationResolver authorizationResolver;
 
     /**
      * {@inheritDoc}
@@ -117,16 +119,15 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
             stringRedisTemplate.opsForValue().set(rateLimitKey, "1", RATE_LIMIT_TTL_HOURS, TimeUnit.HOURS);
             // 保存反馈
             insertFeedback(feedback);
-            // 管理员/分析师：跳过审核队列，直接生效（3 倍权重）
-            List<String> roles = UserContext.currentRoles();
-            if (roles.contains("ADMIN") || roles.contains("ANALYST")) {
+            // 只有冻结目录中的字段治理维护能力可以跳过审核；旧 ADMIN/ANALYST 不再生效。
+            if (canBypassReview(userId, column.getDatasourceId())) {
                 confidenceCalculator.adjustScore(
                         request.getColumnMetaId(),
                         FieldConfidenceEvent.TYPE_ADMIN_DISLIKE_CONFIRMED,
                         userId,
                         request.getQueryTaskId()
                 );
-                log.info("管理员/分析师踩直接生效 userId={} roles={} columnMetaId={}", userId, roles, request.getColumnMetaId());
+                log.info("S1 字段治理维护者踩直接生效 userId={} columnMetaId={}", userId, request.getColumnMetaId());
             } else {
                 // 普通用户：创建审核记录 → 群体阈值检测
                 FeedbackReview review = new FeedbackReview();
@@ -139,6 +140,13 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
             }
         }
         return toVO(feedback);
+    }
+
+    /** B6-1：反馈特权只由冻结的 S1 字段治理功能决定。 */
+    boolean canBypassReview(Long userId, Long datasourceId) {
+        return authorizationResolver
+                .resolveAdminAction(userId, "governance:field:manage", datasourceId)
+                .isAllowed();
     }
 
     private void insertFeedback(UserFeedback feedback) {

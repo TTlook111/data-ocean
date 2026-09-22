@@ -284,7 +284,7 @@ class IamS1AuthorizationAspectTest {
 
     private static void login(Long userId) {
         com.dataocean.common.security.LoginUser loginUser = new com.dataocean.common.security.LoginUser(
-                userId, "tester", "password", "测试员", List.of(), List.of(), List.of());
+                userId, "tester", "password", "测试员", List.of());
         org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
                 new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
                         loginUser, null, loginUser.getAuthorities()));

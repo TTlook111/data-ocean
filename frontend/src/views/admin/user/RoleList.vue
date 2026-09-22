@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Edit3, KeyRound, Plus, RefreshCw, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-vue-next'
-import { useAuthStore } from '../../../stores/auth'
+import { useIamS1Store } from '../../../stores/iamS1'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
@@ -50,7 +50,7 @@ const checkedPermissionIds = ref<number[]>([])
 const roleDialogVisible = ref(false)
 const editingRoleId = ref<number>()
 const roleFormRef = ref<FormInstance>()
-const auth = useAuthStore()
+const iamS1 = useIamS1Store()
 
 const roleForm = reactive<RolePayload>({
   roleCode: '',
@@ -69,7 +69,7 @@ const roleRules: FormRules = {
 }
 
 const activeRole = computed(() => roles.value.find((role) => role.id === activeRoleId.value))
-const canManageRoles = computed(() => auth.hasAnyPermission(['role:manage', '*']))
+const canManageRoles = computed(() => iamS1.hasGlobal('organization:role:manage'))
 /**
  * 成员增删的权限边界与角色本身不同。
  *
@@ -77,7 +77,7 @@ const canManageRoles = computed(() => auth.hasAnyPermission(['role:manage', '*']
  * `hasAnyAuthority('role:manage', 'user:manage')`，所以只有 `user:manage` 的账号
  * 合法但看不到入口。这里按端点实际要求放宽，与后端对齐。
  */
-const canManageMembers = computed(() => auth.hasAnyPermission(['role:manage', 'user:manage', '*']))
+const canManageMembers = computed(() => iamS1.hasGlobal('organization:user:manage'))
 const assignedUserIds = computed(() => new Set(roleMembers.value.map((user) => user.id)))
 const selectableUsers = computed(() => userOptions.value.filter((user) => !assignedUserIds.value.has(user.id) && user.status === 1))
 const permissionTreeData = computed<PermissionTreeNode[]>(() =>
@@ -312,6 +312,7 @@ async function removeMember(user: UserItem) {
 }
 
 onMounted(async () => {
+  await iamS1.load()
   await Promise.all([fetchRoles(), fetchUserOptions(), fetchPermissions()])
 })
 </script>

@@ -112,9 +112,6 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
 
     @Override
     public List<DatasourceSimpleVO> listAccessibleDatasources() {
-        if (hasAllPermission()) {
-            return datasourceMapper.selectEnabledSimple();
-        }
         Long userId = UserContext.currentUserId();
         List<Long> roleIds = roleMapper.selectByUserId(userId).stream()
                 .map(SysRole::getId)
@@ -153,7 +150,8 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
                 .toList();
         Long deptId = userMapper.selectDepartmentIdByUserId(userId);
         List<Long> deptIds = collectDepartmentPath(deptId);
-        return calculateDecision(userId, datasourceId, roleIds, deptId, deptIds, hasAllPermission(userId));
+        // 旧通配权限不再参与认证或数据源访问判断；旧链路保留时也必须默认收窄。
+        return calculateDecision(userId, datasourceId, roleIds, deptId, deptIds, false);
     }
 
     private DatasourcePermissionDecisionVO calculateDecision(Long userId, Long datasourceId, List<Long> roleIds, Long deptId, List<Long> deptIds, boolean hasAllPermission) {
@@ -303,14 +301,6 @@ public class DatasourceAccessServiceImpl implements DatasourceAccessService {
             current = department.getParentId();
         }
         return deptIds;
-    }
-
-    private boolean hasAllPermission() {
-        return UserContext.currentPermissions().contains("*");
-    }
-
-    private boolean hasAllPermission(Long userId) {
-        return userMapper.selectPermissionCodesByUserId(userId).contains("*");
     }
 
     private void updateExisting(Long datasourceId, Long userId, LocalDateTime expiresAt, Long grantedBy) {

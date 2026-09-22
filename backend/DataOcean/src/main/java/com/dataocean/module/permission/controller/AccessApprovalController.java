@@ -10,7 +10,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -79,7 +78,7 @@ public class AccessApprovalController {
 
     /** 当前调用方是否可以查看全部审批请求（审批人视角） */
     private boolean canReviewAllRequests() {
-        List<String> permissions = UserContext.currentPermissions();
-        return permissions != null && (permissions.contains("*") || permissions.contains("security:manage"));
+        // 旧审批链路保留到 B6；不再从旧 authority 判断全量队列，避免旧权限事实继续生效。
+        return false;
     }
 }

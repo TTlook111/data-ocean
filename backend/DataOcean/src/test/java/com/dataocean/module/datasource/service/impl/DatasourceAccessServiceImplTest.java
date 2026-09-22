@@ -48,24 +48,21 @@ class DatasourceAccessServiceImplTest {
     }
 
     @Test
-    void calculateDecisionUsesTargetUserWildcardPermission() {
+    void calculateDecisionDoesNotUseLegacyWildcardPermission() {
         when(roleMapper.selectByUserId(10L)).thenReturn(List.of());
         when(userMapper.selectDepartmentIdByUserId(10L)).thenReturn(null);
-        when(userMapper.selectPermissionCodesByUserId(10L)).thenReturn(List.of("*"));
 
         var decision = service.calculateDecision(10L, 1L);
 
-        assertThat(decision.isCanQuery()).isTrue();
-        assertThat(decision.isCanExport()).isTrue();
-        assertThat(decision.isCanViewSql()).isTrue();
-        assertThat(decision.getDecisionSource()).isEqualTo("*");
+        assertThat(decision.isCanQuery()).isFalse();
+        assertThat(decision.isCanExport()).isFalse();
+        assertThat(decision.isCanViewSql()).isFalse();
     }
 
     @Test
     void calculateDecisionInheritsParentDepartmentGrant() {
         when(roleMapper.selectByUserId(10L)).thenReturn(List.of());
         when(userMapper.selectDepartmentIdByUserId(10L)).thenReturn(30L);
-        when(userMapper.selectPermissionCodesByUserId(10L)).thenReturn(List.of());
         when(departmentMapper.selectById(30L)).thenReturn(department(30L, 20L));
         when(departmentMapper.selectById(20L)).thenReturn(department(20L, null));
         when(accessMapper.selectValidGrantsForUser(eq(1L), eq(10L), anyList(), eq(List.of(30L, 20L))))
@@ -86,7 +83,6 @@ class DatasourceAccessServiceImplTest {
         roleB.setId(102L);
         when(roleMapper.selectByUserId(10L)).thenReturn(List.of(roleA, roleB));
         when(userMapper.selectDepartmentIdByUserId(10L)).thenReturn(null);
-        when(userMapper.selectPermissionCodesByUserId(10L)).thenReturn(List.of());
         when(accessMapper.selectValidGrantsForUser(eq(1L), eq(10L), eq(List.of(101L, 102L)), anyList()))
                 .thenReturn(List.of(
                         grant("ROLE", 101L, true, false, false, "ALLOW"),
@@ -107,7 +103,6 @@ class DatasourceAccessServiceImplTest {
         role.setId(101L);
         when(roleMapper.selectByUserId(10L)).thenReturn(List.of(role));
         when(userMapper.selectDepartmentIdByUserId(10L)).thenReturn(30L);
-        when(userMapper.selectPermissionCodesByUserId(10L)).thenReturn(List.of());
         when(departmentMapper.selectById(30L)).thenReturn(department(30L, null));
         when(accessMapper.selectValidGrantsForUser(eq(1L), eq(10L), eq(List.of(101L)), eq(List.of(30L))))
                 .thenReturn(List.of(

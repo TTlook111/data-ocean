@@ -15,8 +15,6 @@ export interface LoginResult {
   username: string
   realName: string
   passwordChanged: boolean
-  roles: string[]
-  permissions: string[]
 }
 
 export interface CurrentUser {
@@ -26,8 +24,6 @@ export interface CurrentUser {
   email?: string
   phone?: string
   passwordChanged: boolean
-  roles: string[]
-  permissions: string[]
 }
 
 import type { ApiResult } from './types'

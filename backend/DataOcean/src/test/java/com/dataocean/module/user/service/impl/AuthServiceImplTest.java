@@ -191,8 +191,6 @@ class AuthServiceImplTest {
                 "admin",
                 "encoded-password",
                 "管理员",
-                List.of("ADMIN"),
-                List.of("user:manage"),
                 List.of(
                         new SimpleGrantedAuthority("user:manage"),
                         new SimpleGrantedAuthority("ROLE_ADMIN")

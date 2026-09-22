@@ -29,6 +29,8 @@ describe('正式 S1 组织入口不得引用旧角色权限 API', () => {
     expect(official?.path).toBe('/admin/access/iam-organization')
     expect(ADMIN_WORKSPACES.find((item) => item.key === 'iam-access')?.path).toBe('/admin/access/iam')
     expect(ADMIN_WORKSPACES.find((item) => item.key === 'iam-approvals')?.path).toBe('/admin/access/iam-approvals')
+    expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/access')
+    expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/access/approvals')
     expect(ADMIN_WORKSPACES.find((item) => item.key === 'organization')).toBeUndefined()
     expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/access/organization')
 

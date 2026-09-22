@@ -18,7 +18,7 @@ import java.util.UUID;
  * JWT 令牌提供者
  * <p>
  * 负责 JWT 令牌的生成、解析和验证，使用 HS256 算法签名。
- * 令牌中携带用户 ID、用户名、角色、权限和令牌版本号等信息。
+ * 令牌中携带用户 ID、用户名和令牌版本号等身份/会话信息；不携带业务角色或权限。
  * </p>
  */
 @Component
@@ -58,8 +58,6 @@ public class JwtTokenProvider {
                 .claim("uid", user.getUserId())
                 .claim("tokenVersion", tokenVersion)
                 .claim("realName", user.getRealName())
-                .claim("roles", user.getRoles())
-                .claim("permissions", user.getPermissions())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(expirationSeconds)))
                 .signWith(secretKey)

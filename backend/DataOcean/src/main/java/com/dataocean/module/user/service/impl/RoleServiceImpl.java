@@ -2,7 +2,6 @@ package com.dataocean.module.user.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.common.security.UserContext;
 import com.dataocean.module.permission.event.PermissionChangedEvent;
 import com.dataocean.module.user.entity.SysPermission;
 import com.dataocean.module.user.entity.SysRole;
@@ -149,8 +148,9 @@ public class RoleServiceImpl implements RoleService {
                 .map(SysRolePermission::getPermissionId)
                 .anyMatch(this::isWildcardPermission);
         boolean requestedHasWildcard = requestedPermissionIds.stream().anyMatch(this::isWildcardPermission);
-        if ((currentHasWildcard || requestedHasWildcard) && !UserContext.currentPermissions().contains("*")) {
-            throw new BusinessException("只有超级管理员可以分配或移除全部权限");
+        if (currentHasWildcard || requestedHasWildcard) {
+            // 旧角色链路不再从登录 authority 识别超级管理员；B6 前保持 fail-closed。
+            throw new BusinessException("旧权限链路不支持修改通配权限");
         }
     }
 

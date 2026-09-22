@@ -12,7 +12,7 @@ import {
 } from 'lucide-vue-next'
 import { useGsapMotion } from '../../composables/useGsapMotion'
 import { useAuthStore } from '../../stores/auth'
-import { roleCodesLabel } from '../../utils/enumLabels'
+import { useIamS1Store } from '../../stores/iamS1'
 import { useQuerySession } from '../../composables/useQuerySession'
 import { useQuerySubmit } from '../../composables/useQuerySubmit'
 import { useQueryExport } from '../../composables/useQueryExport'
@@ -21,15 +21,10 @@ import QuerySidebar from './QuerySidebar.vue'
 import QueryInput from './QueryInput.vue'
 import QueryResult from './QueryResult.vue'
 
-const adminPermissionCodes = [
-  'admin:view', 'datasource:manage', 'metadata:manage', 'skills:manage', 'prompt:manage',
-  'field:manage', 'field-tag:manage', 'feedback:review', 'audit:view', 'user:manage',
-  'role:manage', 'role:view', 'department:manage', 'knowledge:manage',
-]
-
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+const iamS1 = useIamS1Store()
 const workspaceRef = ref<HTMLElement | null>(null)
 const queryInputRef = ref<InstanceType<typeof QueryInput>>()
 const resultPanelOpen = ref(false)
@@ -37,10 +32,9 @@ const datasourceInitialized = ref(false)
 let datasourceSyncRequest = 0
 const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(workspaceRef)
 
-const permissions = computed(() => auth.currentUser?.permissions || auth.user?.permissions || [])
-const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPermissionCodes.some((code) => permissions.value.includes(code)))
+const canEnterAdmin = computed(() => iamS1.hasAnyAdminCapability)
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
-const roleText = computed(() => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, '普通用户'))
+const roleText = computed(() => iamS1.systemAdmin ? 'S1 系统管理员' : 'S1 权限动态判定')
 
 const exampleQuestions = [
   '统计最近30天订单金额趋势',
@@ -205,6 +199,7 @@ watch(() => route.query.datasourceId, () => {
 })
 
 onMounted(() => {
+  void iamS1.load()
   withContext(() => reveal('.query-brand, .new-session-button, .datasource-section, .history-section, .sidebar-user, .query-topbar, .chat-composer', { y: 14, stagger: 0.04 }))
   void initializeDatasource()
 })

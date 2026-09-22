@@ -44,6 +44,25 @@ public interface IamS1RoleMapper extends BaseMapper<IamS1Role> {
             """)
     long countAllActiveProtectedBindings();
 
+    /**
+     * 查询有效 S1 系统管理员账号。用户状态和逻辑删除状态属于账号身份事实，
+     * 不通过旧角色表回退；DISTINCT 防止异常重复绑定造成重复通知。
+     */
+    @Select("""
+            SELECT DISTINCT ur.user_id
+            FROM iam_s1_user_role ur
+            JOIN iam_s1_role r ON r.id = ur.role_id
+            JOIN sys_user u ON u.id = ur.user_id
+            WHERE ur.status = 1
+              AND r.status = 1
+              AND r.protected_role = 1
+              AND r.built_in = 1
+              AND u.status = 1
+              AND u.deleted = 0
+            ORDER BY ur.user_id
+            """)
+    List<Long> selectActiveProtectedAdminUserIds();
+
     @Select("""
             SELECT COUNT(*)
             FROM iam_s1_user_role ur

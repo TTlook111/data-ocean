@@ -65,7 +65,6 @@ class FieldGovernanceWriteAndListTest {
     void login() {
         LoginUser loginUser = new LoginUser(
                 7L, "alice", "x", "Alice",
-                List.of("ROLE"), List.of("governance:field:manage"),
                 List.of(new SimpleGrantedAuthority("governance:field:manage")));
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(loginUser, null, loginUser.getAuthorities()));

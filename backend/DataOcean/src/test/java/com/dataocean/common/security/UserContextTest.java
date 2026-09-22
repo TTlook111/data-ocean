@@ -25,8 +25,6 @@ class UserContextTest {
                 "admin",
                 "password",
                 "管理员",
-                List.of("ADMIN"),
-                List.of("user:manage"),
                 List.of(new SimpleGrantedAuthority("user:manage"))
         );
         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
@@ -41,8 +39,6 @@ class UserContextTest {
         assertThat(UserContext.currentUserId()).isEqualTo(7L);
         assertThat(UserContext.currentUsername()).isEqualTo("admin");
         assertThat(UserContext.currentRealName()).isEqualTo("管理员");
-        assertThat(UserContext.currentRoles()).containsExactly("ADMIN");
-        assertThat(UserContext.currentPermissions()).containsExactly("user:manage");
     }
 
     @Test
