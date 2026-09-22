@@ -13,7 +13,6 @@ const SnapshotDiffView = () => import('../views/admin/releases/SnapshotDiffView.
 const AssetEntityDetailView = () => import('../views/admin/assets/AssetEntityDetailView.vue')
 const SnapshotDetailView = () => import('../views/admin/releases/SnapshotDetailView.vue')
 const AccessApprovalView = () => import('../views/admin/permission/AccessApprovalView.vue')
-const OrganizationView = () => import('../views/admin/user/OrganizationView.vue')
 const QueryAnalysisView = () => import('../views/admin/audit/QueryAnalysisView.vue')
 const ChangePassword = () => import('../views/profile/ChangePassword.vue')
 const ProfileView = () => import('../views/profile/ProfileView.vue')
@@ -210,12 +209,6 @@ const router = createRouter({
           name: 'admin-access-approvals',
           component: AccessApprovalView,
           meta: { title: '访问审批', domainKey: 'access', workspaceKey: 'access-approvals', contextMode: 'none' },
-        },
-        {
-          path: 'access/organization',
-          name: 'admin-access-organization',
-          component: OrganizationView,
-          meta: { title: '组织与角色（旧）', domainKey: 'access', workspaceKey: 'organization', contextMode: 'none' },
         },
         {
           path: 'access/iam',

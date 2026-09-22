@@ -52,7 +52,6 @@ export const ADMIN_WORKSPACES: AdminWorkspace[] = [
   { key: 'iam-approvals', domainKey: ADMIN_DOMAIN_KEYS.access, label: '访问申请与审批', path: '/admin/access/iam-approvals', contextMode: 'none' },
     { key: 'iam-organization', domainKey: ADMIN_DOMAIN_KEYS.access, label: '组织、角色与负责源', path: '/admin/access/iam-organization', contextMode: 'none' },
   { key: 'access-approvals', domainKey: ADMIN_DOMAIN_KEYS.access, label: '访问审批（旧）', path: '/admin/access/approvals', contextMode: 'none' },
-  { key: 'organization', domainKey: ADMIN_DOMAIN_KEYS.access, label: '组织与角色（旧）', path: '/admin/access/organization', contextMode: 'none' },
   { key: 'queries', domainKey: ADMIN_DOMAIN_KEYS.operations, label: '查询分析', path: '/admin/operations/queries', contextMode: 'none' },
   { key: 'lineage', domainKey: ADMIN_DOMAIN_KEYS.operations, label: '数据血缘', path: '/admin/operations/lineage', contextMode: 'datasource' },
   { key: 'runtime', domainKey: ADMIN_DOMAIN_KEYS.operations, label: '运行监控', path: '/admin/platform/runtime', contextMode: 'none' },

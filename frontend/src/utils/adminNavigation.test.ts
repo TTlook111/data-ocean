@@ -15,8 +15,12 @@ describe('admin navigation metadata', () => {
     expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/datasources')
     expect(ADMIN_WORKSPACES.find((item) => item.key === 'iam-organization')?.label)
       .toBe('组织、角色与负责源')
-    expect(ADMIN_WORKSPACES.find((item) => item.key === 'organization')?.label)
-      .toBe('组织与角色（旧）')
+    expect(ADMIN_WORKSPACES.find((item) => item.key === 'iam-access')?.path)
+      .toBe('/admin/access/iam')
+    expect(ADMIN_WORKSPACES.find((item) => item.key === 'iam-approvals')?.path)
+      .toBe('/admin/access/iam-approvals')
+    expect(ADMIN_WORKSPACES.find((item) => item.key === 'organization')).toBeUndefined()
+    expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/access/organization')
   })
 
   it('按目标工作区的 contextMode 白名单继承上下文', () => {

@@ -23,13 +23,22 @@ function readFrontend(relativePath: string) {
 }
 
 describe('正式 S1 组织入口不得引用旧角色权限 API', () => {
-  it('正式导航使用组织、角色与负责源，旧页明确标为切换前入口', () => {
+  it('正式导航与路由只保留 S1 入口，不再挂旧组织工作区', () => {
     const official = ADMIN_WORKSPACES.find((item) => item.key === 'iam-organization')
-    const legacy = ADMIN_WORKSPACES.find((item) => item.key === 'organization')
     expect(official?.label).toBe('组织、角色与负责源')
     expect(official?.path).toBe('/admin/access/iam-organization')
-    expect(legacy?.label).toBe('组织与角色（旧）')
-    expect(legacy?.path).toBe('/admin/access/organization')
+    expect(ADMIN_WORKSPACES.find((item) => item.key === 'iam-access')?.path).toBe('/admin/access/iam')
+    expect(ADMIN_WORKSPACES.find((item) => item.key === 'iam-approvals')?.path).toBe('/admin/access/iam-approvals')
+    expect(ADMIN_WORKSPACES.find((item) => item.key === 'organization')).toBeUndefined()
+    expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/access/organization')
+
+    const routes = readFrontend('src/router/index.ts')
+    expect(routes).toContain("path: 'access/iam-organization'")
+    expect(routes).toContain("path: 'access/iam'")
+    expect(routes).toContain("path: 'access/iam-approvals'")
+    expect(routes).toContain("path: '/query/iam-s1'")
+    expect(routes).not.toContain("path: 'access/organization'")
+    expect(routes).not.toContain('admin-access-organization')
   })
 
   it('正式 S1 页面不引用 listRoles/listPermissions/updateRolePermissions/assignRoleToUser', () => {
