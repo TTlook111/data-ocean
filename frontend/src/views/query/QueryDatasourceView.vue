@@ -20,6 +20,8 @@ import { parseDatasourceId } from '../../utils/queryDatasource'
 import QuerySidebar from './QuerySidebar.vue'
 import QueryInput from './QueryInput.vue'
 import QueryResult from './QueryResult.vue'
+import IamS1ResourceSelector from './IamS1ResourceSelector.vue'
+import type { IamS1TableDeclaration } from '../../api/iamS1'
 
 const router = useRouter()
 const route = useRoute()
@@ -29,6 +31,7 @@ const workspaceRef = ref<HTMLElement | null>(null)
 const queryInputRef = ref<InstanceType<typeof QueryInput>>()
 const resultPanelOpen = ref(false)
 const datasourceInitialized = ref(false)
+const resourceDeclarations = ref<IamS1TableDeclaration[]>([])
 let datasourceSyncRequest = 0
 const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(workspaceRef)
 
@@ -54,6 +57,7 @@ const submit = useQuerySubmit({
   activeMessages: session.activeMessages,
   canAskSelectedDatasource: session.canAskSelectedDatasource,
   selectedBlockReason: session.selectedBlockReason,
+  resourceDeclarations,
   createSession: session.createSession,
   async animateNewMessages() {
     await nextTick()
@@ -123,6 +127,7 @@ async function applyDatasource(id: number) {
   await submit.cancelCurrentQuery()
   submit.question.value = ''
   resultPanelOpen.value = false
+  resourceDeclarations.value = []
   await session.selectDatasource(id, { afterSelect: afterDatasourceSelected })
 }
 
@@ -179,6 +184,11 @@ function handleStartNewSession() {
   session.startNewSession({ focusQuestionInput: () => queryInputRef.value?.focusQuestionInput() })
   submit.question.value = ''
   resultPanelOpen.value = false
+}
+
+function handleResultTab(tab: 'table' | 'sql' | 'chart' | 'trust') {
+  submit.resultTab.value = tab
+  if (tab === 'sql') void submit.refreshSql()
 }
 
 function handleSelectSession(sessionId: string) {
@@ -281,13 +291,19 @@ onMounted(() => {
         </section>
       </section>
 
+      <IamS1ResourceSelector
+        v-if="session.selectedId.value"
+        v-model="resourceDeclarations"
+        :datasource-id="session.selectedId.value"
+        :can-query="session.canAskSelectedDatasource.value"
+      />
       <QueryInput
         ref="queryInputRef"
         :question="submit.question.value"
         :is-querying="submit.isQuerying.value"
         :selected-id="session.selectedId.value"
         :selected-datasource-name="session.selectedDatasource.value?.name"
-        :can-ask="session.canAskSelectedDatasource.value"
+        :can-ask="session.canAskSelectedDatasource.value && resourceDeclarations.length > 0"
         :readiness-loading="session.readinessLoading.value"
         :selected-block-reason="session.selectedBlockReason.value"
         :selected-readiness="session.selectedReadiness.value"
@@ -313,7 +329,7 @@ onMounted(() => {
       :is-latest-processing="submit.isLatestProcessing.value"
       :trust-summary="submit.trustSummary.value"
       @close="resultPanelOpen = false"
-      @update:result-tab="submit.resultTab.value = $event"
+      @update:result-tab="handleResultTab"
       @switch-chart-type="submit.chartType.value = $event"
       @export-csv="exportUtil.exportCsv"
       @export-png="exportUtil.exportPng"

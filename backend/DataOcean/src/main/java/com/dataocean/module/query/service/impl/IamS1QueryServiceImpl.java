@@ -15,6 +15,12 @@ import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.audit.service.AuditLogService;
+import com.dataocean.module.glossary.entity.GlossaryTerm;
+import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
+import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.service.MetadataEntityService;
+import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import com.dataocean.module.permission.s1.IamS1Constants;
 import com.dataocean.module.permission.s1.entity.dto.IamS1DataAuthorizationRequestDTO;
 import com.dataocean.module.permission.s1.entity.dto.IamS1TableRequestDTO;
@@ -28,12 +34,15 @@ import com.dataocean.module.query.controller.IamS1QuerySseController;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.entity.dto.IamS1ExecutionBinding;
 import com.dataocean.module.query.entity.dto.IamS1QueryAskRequestDTO;
+import com.dataocean.module.query.entity.dto.ConversationContextDTO;
 import com.dataocean.module.query.entity.query.QueryHistoryQuery;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 import com.dataocean.module.query.enums.QueryTaskStatus;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.dataocean.module.query.service.IamS1QueryService;
 import com.dataocean.module.query.service.IamS1RowBindingService;
+import com.dataocean.module.query.service.ConversationService;
+import com.dataocean.module.query.service.ConversationContextSummaryService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -70,6 +79,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final IamS1RowBindingService rowBindingService;
     private final IamS1PythonClient pythonClient;
     private final IamS1QuerySseController sseController;
+    private final ConversationService conversationService;
+    private final ConversationContextSummaryService conversationContextSummaryService;
+    private final GlossaryTermMapper glossaryTermMapper;
+    private final MetadataEntityService metadataEntityService;
+    private final MetadataRelationshipService metadataRelationshipService;
     private final DatasourceMapper datasourceMapper;
     private final DatasourceSecretMapper datasourceSecretMapper;
     private final DatasourceSecretService datasourceSecretService;
@@ -100,6 +114,9 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             throw new BusinessException("当前 S1 数据范围不允许查询：" + snapshot.getReasonCode());
         }
         List<IamS1ExecutionBinding> bindings = rowBindingService.build(snapshot);
+        Long conversationId = conversationService.getOrCreateConversation(
+                userId, request.getDatasourceId(), request.getConversationId(), request.getQuestion());
+        conversationService.saveUserMessage(conversationId, request.getQuestion());
         Map<String, Object> safeSnapshot = buildSnapshot(taskId, request, snapshot);
         Map<String, Object> capabilities = capabilities(userId, request.getDatasourceId());
         QueryTask task = QueryTask.builder()
@@ -110,12 +127,12 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 .iamExecutionSnapshot(writeJson(safeSnapshot))
                 .iamResourceRequest(writeJson(request.getTables()))
                 .iamCapabilities(writeJson(capabilities))
-                .question(request.getQuestion()).conversationId(request.getConversationId())
+                .question(request.getQuestion()).conversationId(conversationId)
                 .status(QueryTaskStatus.PROCESSING.name()).retryCount(0).createdAt(LocalDateTime.now())
                 .build();
         queryTaskMapper.insert(task);
 
-        Map<String, Object> pythonRequest = buildPythonRequest(taskId, userId, request, snapshot,
+        Map<String, Object> pythonRequest = buildPythonRequest(taskId, userId, conversationId, request, snapshot,
                 safeSnapshot, capabilities, bindings);
         Runnable dispatch = () -> pythonClient.executeAsync(taskId, pythonRequest, result -> {
             complete(taskId, result);
@@ -168,6 +185,14 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         result.setCanExport(Boolean.TRUE.equals(caps.get("export")));
         if (!viewSql) result.setSql(null);
         return result;
+    }
+
+    @Override
+    public Long conversationId(String taskId, Long userId) {
+        QueryTask task = find(taskId, userId);
+        if (!isS1(task)) throw new BusinessException("任务不属于 IAM-SIMPLE-1");
+        requireQueryUse(userId);
+        return task.getConversationId();
     }
 
     @Override
@@ -251,13 +276,17 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 return;
             }
             data = maskingService.maskResultByFields(data, outputMasks);
+            String safeSql = safeSql((String) result.get("sql"));
+            String safeExplanation = safeExplanation((String) result.get("sqlExplanation"));
+            String safeChart = safeChartConfig(result.get("chartConfig"), outputMasks);
+            List<String> suggestions = safeSuggestions(result.get("suggestedQuestions"));
             LambdaUpdateWrapper<QueryTask> update = new LambdaUpdateWrapper<QueryTask>()
                     .eq(QueryTask::getTaskId, taskId).eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
-                    .set(QueryTask::getStatus, "COMPLETED").set(QueryTask::getResultSql, safeSql((String) result.get("sql")))
-                    .set(QueryTask::getSqlExplanation, safeExplanation((String) result.get("sqlExplanation")))
+                    .set(QueryTask::getStatus, "COMPLETED").set(QueryTask::getResultSql, safeSql)
+                    .set(QueryTask::getSqlExplanation, safeExplanation)
                     .set(QueryTask::getResultData, writeJson(data)).set(QueryTask::getResultColumns, writeJson(result.get("columns")))
-                    .set(QueryTask::getChartConfig, safeChartConfig(result.get("chartConfig")))
-                    .set(QueryTask::getSuggestedQuestions, writeJson(safeSuggestions(result.get("suggestedQuestions"))))
+                    .set(QueryTask::getChartConfig, safeChart)
+                    .set(QueryTask::getSuggestedQuestions, writeJson(suggestions))
                     .set(QueryTask::getUsedTables, writeJson(result.get("usedTables")))
                     .set(QueryTask::getUsedColumns, writeJson(usedColumns))
                     .set(QueryTask::getIamSourceTrace, writeJson(Map.of(
@@ -270,8 +299,13 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     .set(QueryTask::getTotalTimeMs, number(result.get("totalTimeMs")))
                     .set(QueryTask::getIamFinalProtectionStatus, outputMasks.isEmpty() ? "FINAL_PROTECTED" : "FINAL_MASKED")
                     .set(QueryTask::getCompletedAt, LocalDateTime.now());
-            queryTaskMapper.update(null, update);
+            int updated = queryTaskMapper.update(null, update);
             auditLogService.recordAudit(task.getId());
+            if (updated > 0) {
+                saveCompletedConversationMessage(task, result, data, outputMasks, safeSql, safeExplanation,
+                        safeChart, suggestions);
+                refreshConversationContext(task.getConversationId(), task.getUserId(), task.getTaskId());
+            }
         } catch (BusinessException ex) {
             fail(taskId, "权限已变化，请重新查询", "REJECTED_ON_RECHECK");
         } catch (Exception ex) {
@@ -296,6 +330,53 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         QueryTaskVO vo = get(taskId, userId);
         if (!Boolean.TRUE.equals(vo.getCanExport())) throw new BusinessException("没有当前 S1 导出能力");
         return vo.getData() == null ? List.of() : vo.getData();
+    }
+
+    @Override
+    public List<?> conversations(Long userId, Long datasourceId) {
+        requireQueryUse(userId);
+        return conversationService.listConversations(userId, datasourceId).stream()
+                .filter(item -> item instanceof com.dataocean.module.query.entity.Conversation conversation
+                        && queryTaskMapper.selectCount(new LambdaQueryWrapper<QueryTask>()
+                        .eq(QueryTask::getConversationId, conversation.getId())
+                        .eq(QueryTask::getIamProtocolVersion, IamS1Constants.PROTOCOL_VERSION)) > 0)
+                .toList();
+    }
+
+    @Override
+    public List<com.dataocean.module.query.entity.vo.ConversationMessageVO> conversationMessages(
+            Long conversationId, Long userId, Integer page, Integer pageSize) {
+        requireQueryUse(userId);
+        List<com.dataocean.module.query.entity.vo.ConversationMessageVO> messages =
+                conversationService.listMessages(conversationId, userId, page, pageSize);
+        for (var message : messages) {
+            if (!"assistant".equals(message.getRole())) {
+                continue;
+            }
+            if (message.getTaskId() == null || message.getTaskId().isBlank()) {
+                message.setContent("该历史结果不属于 IAM-SIMPLE-1，已隐藏");
+                message.setMetadata(null);
+                continue;
+            }
+            QueryTaskVO safe = get(message.getTaskId(), userId);
+            message.setMetadata(writeJson(safe));
+            if (safe.getErrorMessage() != null && !safe.getErrorMessage().isBlank()) {
+                message.setContent(safe.getErrorMessage());
+            }
+        }
+        return messages;
+    }
+
+    @Override
+    public void archiveConversation(Long conversationId, Long userId) {
+        requireQueryUse(userId);
+        conversationService.archiveConversation(conversationId, userId);
+    }
+
+    private void requireQueryUse(Long userId) {
+        if (!authorizationResolver.hasGlobalFunction(userId, "query:use")) {
+            throw new BusinessException("没有 IAM-SIMPLE-1 问数功能");
+        }
     }
 
     private IamS1DataAuthorizationSnapshot resolve(Long userId, IamS1QueryAskRequestDTO request, Long snapshotId) {
@@ -418,7 +499,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         map.put("rowCondition", source.getRowCondition()); return map;
     }
 
-    private Map<String, Object> buildPythonRequest(String taskId, Long userId, IamS1QueryAskRequestDTO request,
+    private Map<String, Object> buildPythonRequest(String taskId, Long userId, Long conversationId,
+                                                   IamS1QueryAskRequestDTO request,
                                                    IamS1DataAuthorizationSnapshot snapshot, Map<String, Object> safeSnapshot,
                                                    Map<String, Object> capabilities, List<IamS1ExecutionBinding> bindings) {
         Map<String, Object> body = new LinkedHashMap<>(); body.put("protocolVersion", IamS1Constants.PROTOCOL_VERSION); body.put("taskId", taskId);
@@ -426,8 +508,150 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         body.put("permissionRevision", snapshot.getPermissionRevision()); body.put("permissionSnapshot", safeSnapshot); body.put("executionBindings", bindings);
         body.put("question", request.getQuestion()); body.put("connectionConfig", connectionConfig(request.getDatasourceId()));
         List<Map<String, Object>> chunks = loadKnowledgeChunks(snapshot.getActiveMetadataSnapshotId(), request.getDatasourceId());
-        body.put("conversationHistory", List.of()); body.put("conversationSummary", null); body.put("ragChunks", chunks);
-        body.put("fallbackChunks", chunks); body.put("glossaryTerms", List.of()); body.put("fewShotExamples", List.of()); return body;
+        ConversationContextDTO conversation = conversationContextSummaryService
+                .buildQueryContext(conversationId, userId);
+        if (conversation == null) {
+            conversation = ConversationContextDTO.builder().history(List.of()).summary(null).build();
+        }
+        body.put("conversationHistory", conversation.getHistory() == null ? List.of() : conversation.getHistory());
+        body.put("conversationSummary", conversation.getSummary());
+        body.put("ragChunks", chunks);
+        body.put("fallbackChunks", chunks);
+        body.put("glossaryTerms", loadApprovedGlossaryTerms(snapshot));
+        body.put("fewShotExamples", loadFewShotExamples(userId, request.getDatasourceId(), snapshot, request));
+        return body;
+    }
+
+    private void refreshConversationContext(Long conversationId, Long userId, String taskId) {
+        if (conversationId == null) return;
+        try {
+            conversationContextSummaryService.refreshAsync(conversationId, userId);
+        } catch (java.util.concurrent.RejectedExecutionException ex) {
+            log.warn("S1 会话摘要线程池繁忙，跳过本次摘要刷新 conversationId={} taskId={}", conversationId, taskId);
+        }
+    }
+
+    private List<Map<String, Object>> loadFewShotExamples(Long userId, Long datasourceId,
+                                                           IamS1DataAuthorizationSnapshot snapshot,
+                                                           IamS1QueryAskRequestDTO request) {
+        Set<String> requestedTables = request.getTables().stream()
+                .map(IamS1TableRequestDTO::getTableName)
+                .filter(java.util.Objects::nonNull)
+                .map(value -> value.toLowerCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.toSet());
+        Set<String> requestedColumns = request.getTables().stream()
+                .flatMap(table -> table.getReferencedColumns().stream()
+                        .map(column -> table.getTableName() + "." + column))
+                .map(value -> value.toLowerCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.toSet());
+        List<QueryTask> tasks = queryTaskMapper.selectList(new LambdaQueryWrapper<QueryTask>()
+                .eq(QueryTask::getUserId, userId)
+                .eq(QueryTask::getDatasourceId, datasourceId)
+                .eq(QueryTask::getIamProtocolVersion, IamS1Constants.PROTOCOL_VERSION)
+                .eq(QueryTask::getStatus, QueryTaskStatus.COMPLETED.name())
+                .isNotNull(QueryTask::getResultSql)
+                .orderByDesc(QueryTask::getCreatedAt)
+                .last("LIMIT 8"));
+        List<Map<String, Object>> examples = new ArrayList<>();
+        for (QueryTask task : tasks == null ? List.<QueryTask>of() : tasks) {
+            List<String> tables = readList(task.getUsedTables());
+            List<String> columns = readList(task.getUsedColumns());
+            if (tables.isEmpty() || columns.isEmpty()) continue;
+            boolean withinRequestedTables = tables.stream()
+                    .map(value -> value.toLowerCase(Locale.ROOT))
+                    .allMatch(requestedTables::contains);
+            boolean withinRequestedColumns = columns.stream()
+                    .map(value -> value.toLowerCase(Locale.ROOT))
+                    .allMatch(requestedColumns::contains);
+            if (!withinRequestedTables || !withinRequestedColumns) continue;
+            Map<String, Object> example = new LinkedHashMap<>();
+            example.put("question", task.getQuestion());
+            example.put("sql", safeSql(task.getResultSql()));
+            example.put("datasourceId", datasourceId);
+            example.put("activeMetadataSnapshotId", snapshot.getActiveMetadataSnapshotId());
+            example.put("tables", tables);
+            example.put("columns", columns);
+            examples.add(example);
+            if (examples.size() >= 3) break;
+        }
+        return examples;
+    }
+
+    private List<Map<String, Object>> loadApprovedGlossaryTerms(IamS1DataAuthorizationSnapshot snapshot) {
+        List<GlossaryTerm> terms = glossaryTermMapper.selectList(new LambdaQueryWrapper<GlossaryTerm>()
+                .eq(GlossaryTerm::getStatus, GlossaryTerm.STATUS_APPROVED));
+        if (terms == null || terms.isEmpty()) return List.of();
+        Map<Long, List<String>> relatedColumns = new HashMap<>();
+        Set<Long> invalidTerms = new java.util.HashSet<>();
+        try {
+            List<Long> termIds = terms.stream().map(GlossaryTerm::getId).filter(java.util.Objects::nonNull).toList();
+            if (termIds.size() != terms.size()) {
+                for (GlossaryTerm term : terms) {
+                    if (term.getId() == null) invalidTerms.add(null);
+                }
+            }
+            if (termIds.isEmpty()) return List.of();
+            List<MetadataRelationship> relations = metadataRelationshipService.list(
+                    new LambdaQueryWrapper<MetadataRelationship>()
+                            .eq(MetadataRelationship::getRelationType, MetadataRelationship.TYPE_GLOSSARY_OF)
+                            .in(MetadataRelationship::getSourceId, termIds));
+            if (relations == null) return List.of();
+            Map<Long, MetadataEntity> entityById = new HashMap<>();
+            List<Long> entityIds = relations.stream().map(MetadataRelationship::getTargetId)
+                    .filter(java.util.Objects::nonNull).distinct().toList();
+            List<MetadataEntity> entities = entityIds.isEmpty()
+                    ? List.of() : metadataEntityService.listByIds(entityIds);
+            if (entities == null) return List.of();
+            for (MetadataEntity entity : entities) {
+                if (entity != null && entity.getId() != null) entityById.put(entity.getId(), entity);
+            }
+            Set<Long> knownTermIds = new java.util.HashSet<>(termIds);
+            for (MetadataRelationship relation : relations) {
+                Long termId = relation.getSourceId();
+                if (!knownTermIds.contains(termId)) continue;
+                MetadataEntity entity = entityById.get(relation.getTargetId());
+                String column = entity == null ? null : normalizeGlossaryColumn(entity.getFqn(), snapshot);
+                if (column == null) {
+                    invalidTerms.add(termId);
+                } else {
+                    relatedColumns.computeIfAbsent(termId, ignored -> new ArrayList<>()).add(column);
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("S1 术语关联读取失败，按 fail-closed 返回空 glossary", ex);
+            return List.of();
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (GlossaryTerm term : terms) {
+            if (invalidTerms.contains(term.getId())) continue;
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("name", term.getName());
+            item.put("displayName", term.getDisplayName());
+            item.put("description", term.getDescription());
+            item.put("synonyms", term.getSynonyms());
+            item.put("fqn", term.getFqn());
+            if (relatedColumns.containsKey(term.getId())) {
+                item.put("columns", relatedColumns.get(term.getId()));
+            }
+            result.add(item);
+        }
+        return result;
+    }
+
+    private String normalizeGlossaryColumn(String fqn, IamS1DataAuthorizationSnapshot snapshot) {
+        if (fqn == null || fqn.isBlank() || snapshot == null || snapshot.getDatasourceName() == null) return null;
+        String[] parts = fqn.trim().split("\\.");
+        if (parts.length < 4 || !parts[0].equalsIgnoreCase(snapshot.getDatasourceName())) return null;
+        String tableName = parts[parts.length - 2];
+        String columnName = parts[parts.length - 1];
+        if (tableName.isBlank() || columnName.isBlank()) return null;
+        for (var table : snapshot.getTables()) {
+            if (tableName.equalsIgnoreCase(table.getTableName()) && table.getAllowedColumns().stream()
+                    .anyMatch(column -> columnName.equalsIgnoreCase(column))) {
+                return tableName.toLowerCase(Locale.ROOT) + "." + columnName.toLowerCase(Locale.ROOT);
+            }
+        }
+        return null;
     }
 
     private List<Map<String, Object>> loadKnowledgeChunks(Long snapshotId, Long datasourceId) {
@@ -488,11 +712,88 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private String writeJson(Object value) { try { return objectMapper.writeValueAsString(value); } catch (Exception ex) { throw new BusinessException("S1 安全摘要序列化失败"); } }
     private String safeSql(String sql) { return sql == null ? null : sql.replaceAll("(?i)('(?:''|[^'])*')", "?"); }
     private String safeExplanation(String value) { return value == null ? null : value.replaceAll("(?i)(select|from|where)\\s+[^\\n]{0,200}", "SQL 说明已隐藏"); }
-    private String safeChartConfig(Object value) { return value == null ? null : writeJson(Map.of("status", "chart_not_emitted_by_b3")); }
+    private String safeChartConfig(Object value, Map<String, String> outputMasks) {
+        if (value == null || (outputMasks != null && !outputMasks.isEmpty())) return null;
+        Object chart = objectMapper.convertValue(value, Object.class);
+        return writeJson(sanitizeChartNode(chart, outputMasks));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object sanitizeChartNode(Object value, Map<String, String> outputMasks) {
+        if (value instanceof Map<?, ?> raw) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : raw.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                Object item = entry.getValue();
+                if ("data".equals(key) && raw.get("name") != null) {
+                    String strategy = outputMasks.get(String.valueOf(raw.get("name")));
+                    if (strategy != null && item instanceof List<?> values) {
+                        item = values.stream().map(element -> element == null ? null
+                                : maskingService.maskValue(String.valueOf(element), strategy)).toList();
+                    }
+                }
+                result.put(key, sanitizeChartNode(item, outputMasks));
+            }
+            return result;
+        }
+        if (value instanceof List<?> list) {
+            return list.stream().map(item -> sanitizeChartNode(item, outputMasks)).toList();
+        }
+        return value;
+    }
     private List<String> safeSuggestions(Object value) { return value instanceof List<?> list ? list.stream().filter(item -> item instanceof String).map(String.class::cast).limit(5).toList() : List.of(); }
     private String safeError(String error) { return error == null || error.isBlank() ? "S1 查询失败" : error.replaceAll("(?i)(iam_s1_[a-z0-9_-]+)", "?"); }
     private Integer number(Object value) { return value instanceof Number n ? n.intValue() : 0; }
-    private void fail(String taskId, String message, String protection) { queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId).set(QueryTask::getStatus, QueryTaskStatus.FAILED.name()).set(QueryTask::getErrorMessage, message).set(QueryTask::getIamFinalProtectionStatus, protection).set(QueryTask::getCompletedAt, LocalDateTime.now())); }
+
+    private void fail(String taskId, String message, String protection) {
+        QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                .eq(QueryTask::getTaskId, taskId)
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                .set(QueryTask::getStatus, QueryTaskStatus.FAILED.name())
+                .set(QueryTask::getErrorMessage, message)
+                .set(QueryTask::getIamFinalProtectionStatus, protection)
+                .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+        if (updated > 0 && task != null && task.getConversationId() != null) {
+            Map<String, Object> failureMetadata = new LinkedHashMap<>();
+            failureMetadata.put("taskId", taskId);
+            failureMetadata.put("status", QueryTaskStatus.FAILED.name());
+            failureMetadata.put("question", task.getQuestion());
+            failureMetadata.put("errorMessage", message);
+            conversationService.saveAssistantMessage(task.getConversationId(), message, taskId,
+                    writeJson(failureMetadata));
+            refreshConversationContext(task.getConversationId(), task.getUserId(), taskId);
+        }
+    }
+
+    private void saveCompletedConversationMessage(QueryTask task, Map<String, Object> rawResult,
+                                                   List<Map<String, Object>> data,
+                                                   Map<String, String> outputMasks,
+                                                   String safeSql, String safeExplanation,
+                                                   String safeChart, List<String> suggestions) {
+        if (task.getConversationId() == null) return;
+        boolean canViewSql = authorizationResolver.hasGlobalFunction(task.getUserId(), "query:sql:view");
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("taskId", task.getTaskId());
+        metadata.put("status", QueryTaskStatus.COMPLETED.name());
+        metadata.put("question", task.getQuestion());
+        metadata.put("sql", canViewSql ? safeSql : null);
+        metadata.put("sqlExplanation", canViewSql ? safeExplanation : null);
+        metadata.put("data", data);
+        metadata.put("columns", rawResult.get("columns"));
+        metadata.put("rowCount", data.size());
+        metadata.put("chartConfig", safeChart);
+        metadata.put("suggestedQuestions", suggestions);
+        metadata.put("usedTables", rawResult.getOrDefault("usedTables", List.of()));
+        metadata.put("usedColumns", rawResult.getOrDefault("usedColumns", List.of()));
+        metadata.put("maskedFields", outputMasks);
+        metadata.put("canExport", authorizationResolver.hasGlobalFunction(task.getUserId(), "query:export"));
+        metadata.put("degraded", Boolean.TRUE.equals(rawResult.get("degraded")));
+        metadata.put("degradeNotice", rawResult.get("degradeNotice"));
+        metadata.put("totalTimeMs", number(rawResult.get("totalTimeMs")));
+        String content = safeExplanation == null || safeExplanation.isBlank() ? "查询完成" : safeExplanation;
+        conversationService.saveAssistantMessage(task.getConversationId(), content, task.getTaskId(), writeJson(metadata));
+    }
 
     @SuppressWarnings("unchecked")
     private QueryTaskVO toVO(QueryTask task) {

@@ -262,6 +262,25 @@ async def run_query(request: S1QueryExecuteRequest) -> dict[str, Any]:
         )
         if not execution["success"]:
             return {"taskId": request.taskId, "protocolVersion": request.protocolVersion, "status": "FAILED", "error": execution["error"], "trace": execution["trace"]}
+        chart_config = None
+        try:
+            from dataocean.chart.service import generate_chart
+
+            column_types = {
+                str(column.get("name")): str(column.get("type") or "UNKNOWN")
+                for column in execution.get("columns", [])
+                if column.get("name")
+            }
+            chart = await generate_chart(
+                question=request.question,
+                data_preview=execution.get("data", []),
+                column_types=column_types,
+                total_rows=int(execution.get("rowCount") or 0),
+            )
+            chart_config = chart.echarts_option
+        except Exception as exc:
+            # 图表是查询结果的可选增强，生成失败不能让已通过权限和 AST 的表格查询失败。
+            logger.warning("S1 图表生成失败 task_id=%s reason=%s", request.taskId, exc)
         return {
             "taskId": request.taskId,
             "protocolVersion": request.protocolVersion,
@@ -275,7 +294,7 @@ async def run_query(request: S1QueryExecuteRequest) -> dict[str, Any]:
             "usedColumns": validation.used_columns,
             "sourceTrace": execution["trace"]["sourceTrace"],
             "maskedFields": validation.masked_fields,
-            "chartConfig": None,
+            "chartConfig": chart_config,
             "suggestedQuestions": [],
             "permissionRevision": request.permissionRevision,
             "activeMetadataSnapshotId": request.activeMetadataSnapshotId,

@@ -5,11 +5,14 @@
 import { computed, ref, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  submitQuery,
-  getTaskResult,
-  cancelTask,
-  type QueryTaskResult,
-} from '../api/query'
+  iamS1Ask,
+  iamS1CancelTask,
+  iamS1GetTask,
+  iamS1StreamTask,
+  iamS1ViewSql,
+  type IamS1QueryTaskResult,
+  type IamS1TableDeclaration,
+} from '../api/iamS1'
 import type { LocalMessage, LocalSession } from './useQuerySession'
 
 /** 轮询配置常量 */
@@ -31,6 +34,7 @@ export function useQuerySubmit(options: {
   activeMessages: Ref<LocalMessage[]>
   canAskSelectedDatasource: Ref<boolean>
   selectedBlockReason: Ref<{ message?: string } | undefined>
+  resourceDeclarations: Ref<IamS1TableDeclaration[]>
   createSession: (datasourceId: number) => LocalSession
   animateNewMessages?: () => Promise<void>
   animateMessageUpdate?: (messageId: string) => Promise<void>
@@ -42,6 +46,7 @@ export function useQuerySubmit(options: {
     activeMessages,
     canAskSelectedDatasource,
     selectedBlockReason,
+    resourceDeclarations,
     createSession,
     animateNewMessages,
     animateMessageUpdate,
@@ -59,7 +64,7 @@ export function useQuerySubmit(options: {
   // ---- Computed ----
   const latestResult = computed(() => {
     const msgs = activeMessages.value
-    let result: QueryTaskResult | null = null
+    let result: IamS1QueryTaskResult | null = null
     for (let i = msgs.length - 1; i >= 0; i--) {
       if (msgs[i].role === 'assistant' && msgs[i].queryResult) {
         result = msgs[i].queryResult!
@@ -141,7 +146,7 @@ export function useQuerySubmit(options: {
   /**
    * 构建查询完成消息，处理降级状态提示
    */
-  function buildCompletionMessage(result: QueryTaskResult): string {
+  function buildCompletionMessage(result: IamS1QueryTaskResult): string {
     const degradeNotice = result.degraded
       ? '\n⚠️ 知识库暂时不可用，召回精度可能降低'
       : ''
@@ -157,17 +162,28 @@ export function useQuerySubmit(options: {
     signal?: AbortSignal,
     maxAttempts = 60,
     intervalMs = 2000,
-    onProgress?: (task: QueryTaskResult) => void,
-  ): Promise<QueryTaskResult> {
+    onProgress?: (task: IamS1QueryTaskResult) => void,
+  ): Promise<IamS1QueryTaskResult> {
     let consecutiveErrors = 0
+    void iamS1StreamTask(taskId, {
+      signal,
+      onEvent: (event) => {
+        if (event.type !== 'progress') return
+        try {
+          onProgress?.(JSON.parse(event.data) as IamS1QueryTaskResult)
+        } catch {
+          // 最终任务读取仍是唯一结果来源。
+        }
+      },
+    }).catch(() => undefined)
 
     for (let i = 0; i < maxAttempts; i++) {
       if (signal?.aborted) {
-        return { status: 'CANCELLED', errorMessage: '查询已取消' } as any
+        return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
       }
 
       try {
-        const res = await getTaskResult(taskId)
+        const res = await iamS1GetTask(taskId)
         const task = res.data
         consecutiveErrors = 0
 
@@ -181,7 +197,7 @@ export function useQuerySubmit(options: {
         consecutiveErrors++
         console.warn(`轮询任务结果失败 (连续第 ${consecutiveErrors} 次) taskId=${taskId}`, error)
         if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
-          return { status: 'FAILED', errorMessage: `网络连接异常，连续 ${POLL_MAX_CONSECUTIVE_ERRORS} 次请求失败` } as any
+          return { taskId, status: 'FAILED', errorMessage: `网络连接异常，连续 ${POLL_MAX_CONSECUTIVE_ERRORS} 次请求失败` }
         }
       }
 
@@ -190,10 +206,10 @@ export function useQuerySubmit(options: {
         signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')) }, { once: true })
       }).catch(() => null)
       if (signal?.aborted) {
-        return { status: 'CANCELLED', errorMessage: '查询已取消' } as any
+        return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
       }
     }
-    return { status: 'TIMEOUT', errorMessage: '查询仍在执行中，可稍后从历史任务查看结果' } as any
+    return { taskId, status: 'TIMEOUT', errorMessage: '查询仍在执行中，可稍后从历史任务查看结果' }
   }
 
   /**
@@ -206,7 +222,12 @@ export function useQuerySubmit(options: {
       ElMessage.warning(selectedBlockReason.value?.message || '当前数据源暂未达到可询问状态')
       return
     }
+    if (!resourceDeclarations.value.length) {
+      ElMessage.warning('请先声明本次查询要使用的表和字段')
+      return
+    }
     isQuerying.value = true
+    currentTaskId.value = undefined
 
     const session = activeSession.value || createSession(selectedId.value)
     const now = new Date().toISOString()
@@ -240,10 +261,11 @@ export function useQuerySubmit(options: {
     await focusQuestionInput?.()
 
     try {
-      const askResult = await submitQuery({
+      const askResult = await iamS1Ask({
         datasourceId: selectedId.value,
         question: text,
         conversationId: session.conversationId,
+        tables: resourceDeclarations.value,
       })
       const taskId = askResult.data.taskId
       session.conversationId = askResult.data.conversationId
@@ -285,7 +307,6 @@ export function useQuerySubmit(options: {
       }
     } finally {
       isQuerying.value = false
-      currentTaskId.value = undefined
       pollAbortController.value = undefined
     }
   }
@@ -297,9 +318,21 @@ export function useQuerySubmit(options: {
     if (!currentTaskId.value || !isQuerying.value) return
     pollAbortController.value?.abort()
     try {
-      await cancelTask(currentTaskId.value)
+      await iamS1CancelTask(currentTaskId.value)
     } catch {
       // 取消请求失败不影响 UI 状态恢复
+    }
+  }
+
+  async function refreshSql() {
+    const taskId = latestResult.value?.taskId
+    if (!taskId) return
+    try {
+      const response = await iamS1ViewSql(taskId)
+      if (latestResult.value) latestResult.value.sql = response.data.sql
+    } catch {
+      if (latestResult.value) latestResult.value.sql = undefined
+      ElMessage.error('当前权限不允许查看 SQL，或结果已失效')
     }
   }
 
@@ -385,6 +418,7 @@ export function useQuerySubmit(options: {
     // 方法
     sendQuestion,
     cancelCurrentQuery,
+    refreshSql,
     retryQuery,
     continueWaiting,
     buildCompletionMessage,

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import ValidationError
 
-from dataocean.iam_s1.firewall import build_model_context, filter_chunk, filter_schema
+from dataocean.iam_s1.firewall import build_model_context, filter_chunk, filter_glossary, filter_schema
 from dataocean.iam_s1.schema import (
     S1Capabilities,
     S1Column,
@@ -18,13 +18,14 @@ from dataocean.iam_s1.schema import (
     S1PermissionSnapshot,
     S1Predicate,
     S1Resource,
+    S1QueryExecuteRequest,
     S1RagRetrieveRequest,
     S1RowCondition,
     S1SqlExecuteRequest,
     S1SqlValidateRequest,
 )
 from dataocean.iam_s1.sql_security import inject_row_conditions, validate_sql
-from dataocean.iam_s1.service import execute_validated, retrieve, validate_request
+from dataocean.iam_s1.service import execute_validated, retrieve, run_query, validate_request
 
 
 def snapshot(masked: bool = False, condition: bool = False) -> S1PermissionSnapshot:
@@ -176,6 +177,25 @@ def test_firewall_applies_same_filter_to_rag_fallback_fewshot_and_history():
     assert context["fewShot"] == [safe]
     assert context["conversationHistory"]
     assert "sample_values" not in context["conversationSummary"]
+
+
+def test_glossary_drops_terms_bound_to_other_datasource_columns():
+    current = snapshot()
+    terms = [
+        {"name": "订单", "columns": ["orders.id"]},
+        {"name": "客户", "columns": ["customers.secret"]},
+        {"name": "无绑定术语"},
+    ]
+
+    filtered = filter_glossary(terms, current)
+
+    assert [term["name"] for term in filtered] == ["订单", "无绑定术语"]
+
+
+def test_glossary_rejects_unnormalized_metadata_fqn_at_firewall_boundary():
+    current = snapshot()
+
+    assert filter_glossary([{"name": "订单", "columns": ["ds.db.orders.id"]}], current) == []
 
 
 def test_row_condition_requires_binding_and_does_not_fallback_to_literal_sql():
@@ -512,3 +532,31 @@ async def test_s1_rag_calls_milvus_pipeline_then_filters_sources():
         result = await retrieve(request)
     retrieve_mock.assert_awaited_once()
     assert result[0]["columns"] == ["orders.id"]
+
+
+@pytest.mark.asyncio
+async def test_s1_query_preserves_chart_generation_result():
+    from dataocean.chart.service import ChartResult
+
+    current = snapshot()
+    current.taskId = "task-chart"
+    request = S1QueryExecuteRequest(
+        protocolVersion="IAM-SIMPLE-1", taskId="task-chart", userId=7, datasourceId=1,
+        activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
+        executionBindings=[], question="统计订单数量", connectionConfig=S1ConnectionConfig(
+            host="localhost", port=3306, database="db", username="u", password="p"),
+        conversationHistory=[], conversationSummary=None, ragChunks=[], fallbackChunks=[],
+        glossaryTerms=[], fewShotExamples=[],
+    )
+    with patch("dataocean.iam_s1.service.retrieve", new=AsyncMock(return_value=[])), \
+            patch("dataocean.iam_s1.service.call_llm", new=AsyncMock(return_value="SELECT id FROM orders")), \
+            patch("dataocean.iam_s1.service.execute_validated", new=AsyncMock(return_value={
+                "success": True, "data": [{"id": 1}], "columns": [{"name": "id", "type": "INT"}],
+                "rowCount": 1, "trace": {"sourceTrace": [], "usedTables": ["orders"], "usedColumns": ["orders.id"]},
+            })), \
+            patch("dataocean.chart.service.generate_chart", new=AsyncMock(return_value=ChartResult(
+                chart_type="bar", echarts_option={"series": [{"type": "bar", "data": [1]}]}))):
+        result = await run_query(request)
+
+    assert result["status"] == "COMPLETED"
+    assert result["chartConfig"]["series"][0]["type"] == "bar"

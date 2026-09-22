@@ -1,4 +1,4 @@
-import type { ConversationMessageItem, QueryTaskResult } from '../api/query'
+import type { IamS1ConversationMessageItem as ConversationMessageItem, IamS1QueryTaskResult as QueryTaskResult } from '../api/iamS1'
 
 function asSuggestedQuestions(value: unknown): string[] {
   if (!Array.isArray(value)) return []

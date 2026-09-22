@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.HashMap;
 
 /**
- * B3 独立用户查询入口。B4 前不接入 Vue，也不替换旧 /api/query。
+ * IAM-SIMPLE-1 正式用户查询入口。旧 /api/query 仅保留给 B6-3 清理。
  */
 @RestController
 @RequestMapping("/api/iam-s1/query")
@@ -28,7 +28,12 @@ public class IamS1QueryController {
     @PostMapping("/ask")
     public Result<Map<String, Object>> ask(@Valid @RequestBody IamS1QueryAskRequestDTO request) {
         String taskId = queryService.submit(UserContext.currentUserId(), request);
-        return Result.success("IAM-SIMPLE-1 查询已提交", Map.of("taskId", taskId, "protocolVersion", "IAM-SIMPLE-1"));
+        Long conversationId = queryService.conversationId(taskId, UserContext.currentUserId());
+        Map<String, Object> response = new HashMap<>();
+        response.put("taskId", taskId);
+        response.put("protocolVersion", "IAM-SIMPLE-1");
+        if (conversationId != null) response.put("conversationId", conversationId);
+        return Result.success("IAM-SIMPLE-1 查询已提交", response);
     }
 
     @GetMapping("/tasks/{taskId}")
@@ -55,6 +60,25 @@ public class IamS1QueryController {
     @GetMapping("/history")
     public Result<?> history(@ModelAttribute QueryHistoryQuery query) {
         return Result.success(queryService.history(UserContext.currentUserId(), query));
+    }
+
+    @GetMapping("/conversations")
+    public Result<?> conversations(@RequestParam(required = false) Long datasourceId) {
+        return Result.success(queryService.conversations(UserContext.currentUserId(), datasourceId));
+    }
+
+    @GetMapping("/conversations/{conversationId}/messages")
+    public Result<?> conversationMessages(@PathVariable Long conversationId,
+                                          @RequestParam(defaultValue = "1") Integer page,
+                                          @RequestParam(defaultValue = "50") Integer pageSize) {
+        return Result.success(queryService.conversationMessages(
+                conversationId, UserContext.currentUserId(), page, pageSize));
+    }
+
+    @DeleteMapping("/conversations/{conversationId}")
+    public Result<Void> archiveConversation(@PathVariable Long conversationId) {
+        queryService.archiveConversation(conversationId, UserContext.currentUserId());
+        return Result.success("会话已删除", null);
     }
 
     @GetMapping("/tasks/{taskId}/export")

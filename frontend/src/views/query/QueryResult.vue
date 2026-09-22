@@ -13,7 +13,7 @@ import {
   ThumbsUp,
   X,
 } from 'lucide-vue-next'
-import type { QueryTaskResult } from '../../api/query'
+import type { IamS1QueryTaskResult as QueryTaskResult } from '../../api/iamS1'
 import ChartContainer from '../../components/chart/ChartContainer.vue'
 import QueryProgress from './QueryProgress.vue'
 

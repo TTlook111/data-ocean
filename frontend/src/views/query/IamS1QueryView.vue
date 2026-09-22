@@ -2,8 +2,8 @@
 /**
  * IAM-SIMPLE-1 独立安全问数入口
  *
- * 本页面只调用 `/api/iam-s1/query` 新链路：提交、任务读取、SQL 查看、导出、反馈、SSE 全部使用新接口，
- * 单次请求不混用旧 `/api/query`。旧问数入口在 B5 正式切换前继续独立运行。
+ * 本页面只调用 IAM-SIMPLE-1 新链路；正式路由由 QueryDatasourceView 承载，
+ * 本文件保留为 B6-2 前的 S1 资源声明参考实现，不再挂载独立正式路由。
  *
  * 与旧入口的关键差异：S1 要求先声明本次查询要用的表和字段（“资源声明”），
  * 服务端据此生成权限快照，因此不会出现“先查询、后补权限”的不安全顺序。
@@ -31,6 +31,7 @@ import {
   type IamS1ColumnOption,
   type IamS1ColumnUsage,
   type IamS1DatasourceRef,
+  type IamS1QueryTaskResult,
   type IamS1TableDeclaration,
   type IamS1TableOption,
 } from '../../api/iamS1'
@@ -58,10 +59,10 @@ const submitting = ref(false)
 const currentTaskId = ref<string>()
 const abortController = ref<AbortController>()
 const progressMessage = ref('')
-const result = ref<Record<string, unknown> | null>(null)
+const result = ref<IamS1QueryTaskResult | null>(null)
 const resultTab = ref<'table' | 'sql' | 'trust'>('table')
 const sqlText = ref('')
-const history = ref<Record<string, unknown>[]>([])
+const history = ref<IamS1QueryTaskResult[]>([])
 const loadingHistory = ref(false)
 
 const canQuery = computed(() => iamS1.queryUse)
@@ -165,7 +166,7 @@ async function loadHistory() {
   loadingHistory.value = true
   try {
     const result = await iamS1QueryHistory({ page: 1, pageSize: 10 })
-    history.value = (result.data?.records as Record<string, unknown>[]) ?? []
+    history.value = result.data?.records ?? []
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '读取历史任务失败')
   } finally {
