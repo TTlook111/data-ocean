@@ -1,12 +1,14 @@
-package com.dataocean.module.permission.service.impl;
+package com.dataocean.common.security;
 
-import com.dataocean.module.permission.entity.vo.PermissionContextVO;
-import com.dataocean.module.permission.enums.MaskStrategy;
-import com.dataocean.module.permission.service.DataMaskingService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * 数据脱敏服务实现
@@ -19,35 +21,6 @@ import java.util.*;
 @Service
 @Slf4j
 public class DataMaskingServiceImpl implements DataMaskingService {
-
-    @Override
-    public List<Map<String, Object>> maskResult(List<Map<String, Object>> data,
-                                                 List<PermissionContextVO.MaskColumnItem> maskColumns) {
-        if (data == null || data.isEmpty() || maskColumns == null || maskColumns.isEmpty()) {
-            return data;
-        }
-
-        // 构建 tableName.columnName → 脱敏策略映射（复合键匹配，避免同名列误脱敏）
-        Map<String, String> columnStrategyMap = new HashMap<>();
-        for (PermissionContextVO.MaskColumnItem item : maskColumns) {
-            String key = (item.getTableName() + "." + item.getColumnName()).toLowerCase(Locale.ROOT);
-            columnStrategyMap.put(key, item.getMaskType());
-        }
-
-        // 对每行数据执行脱敏
-        List<Map<String, Object>> maskedData = new ArrayList<>(data.size());
-        for (Map<String, Object> row : data) {
-            Map<String, Object> maskedRow = new LinkedHashMap<>(row);
-            for (Map.Entry<String, Object> entry : maskedRow.entrySet()) {
-                String strategy = columnStrategyMap.get(entry.getKey().toLowerCase(Locale.ROOT));
-                if (strategy != null && entry.getValue() != null) {
-                    entry.setValue(maskValue(String.valueOf(entry.getValue()), strategy));
-                }
-            }
-            maskedData.add(maskedRow);
-        }
-        return maskedData;
-    }
 
     @Override
     public List<Map<String, Object>> maskResultByFields(List<Map<String, Object>> data,

@@ -90,7 +90,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final KnowledgeChunkMapper knowledgeChunkMapper;
     private final AuditLogService auditLogService;
     private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
-    private final com.dataocean.module.permission.service.DataMaskingService maskingService;
+    private final com.dataocean.common.security.DataMaskingService maskingService;
 
     @Override
     @Transactional

@@ -1,4 +1,4 @@
-package com.dataocean.module.permission.enums;
+package com.dataocean.common.security;
 
 import lombok.Getter;
 
@@ -6,6 +6,11 @@ import lombok.Getter;
  * 数据脱敏策略枚举
  * <p>
  * 定义各类敏感字段的脱敏规则，每种策略对应一种数据类型的脱敏方式。
+ * </p>
+ * <p>
+ * B6 批次 3：由 {@code module.permission.enums} 迁入。旧权限体系删除后，
+ * 脱敏是 IAM-SIMPLE-1 查询链路仍在使用的通用数据保护能力，不属于任何一套权限模型，
+ * 因此放在 {@code common.security} 而不是任一权限包内。
  * </p>
  *
  * @author dataocean

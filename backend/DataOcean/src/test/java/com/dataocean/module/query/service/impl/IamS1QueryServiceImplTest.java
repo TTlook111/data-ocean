@@ -79,7 +79,7 @@ class IamS1QueryServiceImplTest {
     @Mock private KnowledgeChunkMapper knowledgeChunkMapper;
     @Mock private AuditLogService auditLogService;
     @Mock private com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
-    @Mock private com.dataocean.module.permission.service.DataMaskingService maskingService;
+    @Mock private com.dataocean.common.security.DataMaskingService maskingService;
     @InjectMocks private IamS1QueryServiceImpl service;
 
     @org.junit.jupiter.api.BeforeAll
