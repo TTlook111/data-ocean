@@ -7,6 +7,11 @@ spring:
   flyway:
     enabled: false
 
+jwt:
+  # 签名密钥无默认值，测试环境必须显式提供，否则所有 @SpringBootTest 启动失败。
+  # 长度必须满足 JwtTokenProvider 的 32 字节下限。
+  secret: test-jwt-secret-0123456789abcdefghijkl
+
 dataocean:
   # 内部令牌无默认值，测试环境必须显式提供，否则所有 @SpringBootTest 启动失败。
   # 长度必须满足 InternalTokenValidator 的最小长度要求。

@@ -390,8 +390,8 @@ Latest documented verification:
 
 - Frontend (2026-09-25): Vitest 70 passed (12 files); `npm run build` passed.
 - Python (2026-09-25, internal-token hardening): **228 passed, 4 skipped, 1 warning**. Pre-existing count on that machine was 207 (older docs record 204 from the B4 phase); 21 new tests live in `tests/test_internal_auth.py`.
-- Java (2026-09-25, internal-token hardening): **597 passed, 0 failures, 0 errors, 0 skipped**. Prior baseline was 581; 557 is the B4 baseline. The 16 new tests are `InternalTokenValidatorTest` and `InternalTokenFilterTest`.
-- `mvn test` needs no external service; `@SpringBootTest` uses H2 with Flyway disabled.
+- Java (2026-09-25, required-secrets hardening): **603 passed, 0 failures, 0 errors, 0 skipped**. Prior baseline was 581; 557 is the B4 baseline. The 22 new tests are `InternalTokenValidatorTest` (10), `InternalTokenFilterTest` (6), and 6 added to `JwtTokenProviderTest`.
+- `mvn test` needs no external service; `@SpringBootTest` uses H2 with Flyway disabled. `src/test/resources/application-test.yml` must supply both `internal.token` and `jwt.secret` — neither has a default, so omitting either makes every `@SpringBootTest` fail to start.
 - Remaining test gap: Agent workflow coverage around query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 
 ## Security Constraints
@@ -410,6 +410,9 @@ Latest documented verification:
   - Java grants `ROLE_INTERNAL` in `InternalTokenFilter` and `SecurityConfig` requires that authority for `/internal/**`; the filter and the authorization rule share one `RequestMatcher`. Never restore `permitAll()` for `/internal/**` — that turns "filter skipped" into "request allowed".
   - Compare in constant time, encoding to UTF-8 bytes first (header values arrive latin-1 decoded; a non-ASCII byte would otherwise raise instead of returning 403).
   - Java and Python must be configured with the same value; a mismatch surfaces as 403s, so keep the 401/403 warn-level logging in `schema_retriever` rather than lowering it to debug.
+- `jwt.secret` is required with no usable default, and a public value would let anyone forge any user's session. Keep it absent from **both** `application.yml` and `application-dev.yml` (the dev copy is the one that takes effect, since `dev` is the default profile). Validation lives in `JwtTokenProvider#buildSecretKey`; a missing, blank, whitespace-containing, or sub-32-byte secret must fail startup. Local development supplies it from the gitignored `config/application-local.yml`. `openssl rand -base64 32` generates a suitable value.
+- Note the asymmetry: the internal token must match across Java and Python; `jwt.secret` is Java-only (Python never verifies JWTs), so it never needs to be shared between services.
+- AI model, API key, temperature and similar settings do **not** belong in this category: they are managed through the admin page, stored in `sys_config`, and pushed to Python at runtime. Missing AI config in `.env` only logs a warning and must never block startup. Do not "harden" them into required variables.
 
 ## Local Environment Rules
 

@@ -199,6 +199,16 @@ Current RAG/NL2SQL follow-up cautions:
 - Local development supplies the value from gitignored files: `python-service/.env` and `backend/DataOcean/config/application-local.yml`.
 - Coverage tests are the guard against silent regressions here: `InternalTokenFilterTest` enumerates every registered `/internal/**` handler and asserts anonymous requests are rejected; `tests/test_internal_auth.py` enumerates Python `/internal` routes and asserts each carries `verify_internal_token`. Extend them rather than adding per-endpoint checks.
 
+## JWT Signing Secret
+
+`jwt.secret` is the second required secret with no usable default, and unlike the internal token it is read only by Java (`JwtTokenProvider`) — Python never verifies JWTs, so there is no cross-service consistency requirement.
+
+- **Both tracked config files must stay default-free.** The public placeholder used to be duplicated in `application.yml` *and* `application-dev.yml`. The dev copy was the one that mattered, because `dev` is the default active profile — fixing only the base file would have changed nothing. Check both when touching this.
+- **Fail-fast on a missing, blank, whitespace-containing, or sub-32-byte secret.** Validation lives in `JwtTokenProvider.buildSecretKey` (the single reader), so no separate validator class is needed. The error message names the property, the local file, and the generation command.
+- Generating a value: `openssl rand -base64 32`. A base64 value decodes to 32 raw bytes; any other string is treated as a UTF-8 passphrase and must still be at least 32 bytes.
+- Local development supplies it from the gitignored `backend/DataOcean/config/application-local.yml`, which `application-dev.yml` imports via `spring.config.import`. Imports win over the importing document's own placeholders — this was verified on 2026-09-25 by resolving `jwt.secret` and `dataocean.internal.token` under the `dev` profile with a throwaway test that only read the `Environment` (no beans, no database), not by inspection. If precedence is ever in doubt, redo that probe rather than reasoning about it.
+- **Rotating this value invalidates every issued login token**, so all users must sign in again. Say so before rotating a shared environment.
+
 ## Core Domain Concepts
 
 - `skills.md`: business semantic knowledge generated from metadata governance results, reviewed by humans, then published into RAG.
@@ -259,7 +269,7 @@ mvn test
 
 Latest verified test result:
 
-- Java (2026-09-25, internal-token hardening): **597 tests passed, 0 failures, 0 errors, 0 skipped**. Previous baseline on the same machine was **581** (for `5f13efd`, before this work); the docs' older **557** figure is the B4 baseline and **563** a B5 preparation re-run. The 16 new tests are `InternalTokenValidatorTest` (10) and `InternalTokenFilterTest` (6). `mvn test` needs no external service — Mockito unit tests plus `@SpringBootTest` instances backed by H2 + `src/test/resources/application-test.yml` (Flyway disabled there).
+- Java (2026-09-25, required-secrets hardening): **603 tests passed, 0 failures, 0 errors, 0 skipped**. Previous baseline on the same machine was **581** (for `5f13efd`, before this work); the docs' older **557** figure is the B4 baseline and **563** a B5 preparation re-run. The 22 new tests are `InternalTokenValidatorTest` (10), `InternalTokenFilterTest` (6), and 6 added to `JwtTokenProviderTest`. `mvn test` needs no external service — Mockito unit tests plus `@SpringBootTest` instances backed by H2 + `src/test/resources/application-test.yml` (Flyway disabled there; that file must supply both `internal.token` and `jwt.secret` or every `@SpringBootTest` fails to start).
 - Python (2026-09-25, internal-token hardening): **228 passed, 4 skipped, 1 warning**. The pre-existing tests on this machine numbered **207** (the docs' older **204** figure is a B4-era record). The 21 new tests are in `tests/test_internal_auth.py`.
 - Java (2026-09-12): **145 tests passed** — the stage 5–8 review fix round. The suite was briefly **uncompilable** in that round (an ambiguous `insert(any())` in `GlossaryTermServiceImplTest`), so any "all fixed" claim made while it was broken had no executable evidence behind it.
 - Python (2026-09-07): 152 passed, 4 skipped (E2E tests require full environment).
