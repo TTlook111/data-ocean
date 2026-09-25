@@ -10,7 +10,10 @@ spring:
       password:
 
 jwt:
-  secret: change-me-to-a-local-secret-at-least-32-bytes
+  # 必填，无默认值：未配置或不足 32 字节时应用拒绝启动。
+  # 不要照抄占位符——生成一个真实随机值：openssl rand -base64 32
+  # 注意：更换该值会让所有已签发的登录令牌立即失效，用户需要重新登录。
+  secret:
   expiration: 86400
 
 dataocean:

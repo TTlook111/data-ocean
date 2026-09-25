@@ -7,6 +7,10 @@ import com.dataocean.module.permission.s1.entity.vo.IamS1ColumnOptionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1TableOptionVO;
 import com.dataocean.module.permission.s1.service.IamS1UserResourceService;
+import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
+import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.datasource.entity.vo.DatasourceReadinessVO;
+import com.dataocean.module.datasource.service.DatasourceReadinessService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,11 +37,26 @@ import java.util.List;
 public class IamS1UserResourceController {
 
     private final IamS1UserResourceService userResourceService;
+    private final IamS1AdminGuard iamS1AdminGuard;
+    private final DatasourceReadinessService readinessService;
 
     /** 可选数据源：scope=QUERY 为有数据授权的源，scope=APPLY 为可申请（存在已发布快照）的源。 */
     @GetMapping("/datasources")
     public Result<List<IamS1DatasourceRefVO>> datasources(@RequestParam(required = false) String scope) {
         return Result.success(userResourceService.datasources(UserContext.currentUserId(), scope));
+    }
+
+    /** 正式问数入口使用的生命周期 readiness；权限字段由 S1 用户路径计算。 */
+    @GetMapping("/datasources/{datasourceId}/readiness")
+    public Result<DatasourceReadinessVO> readiness(@PathVariable Long datasourceId) {
+        Long userId = UserContext.currentUserId();
+        iamS1AdminGuard.requireGlobalFunction(userId, "query:use");
+        boolean visible = userResourceService.datasources(userId, "QUERY").stream()
+                .anyMatch(item -> datasourceId.equals(item.id()));
+        if (!visible) {
+            throw new BusinessException(403, "当前 IAM-SIMPLE-1 数据范围不可见");
+        }
+        return Result.success(readinessService.getCurrentUserReadiness(datasourceId));
     }
 
     @GetMapping("/datasources/{datasourceId}/snapshots")

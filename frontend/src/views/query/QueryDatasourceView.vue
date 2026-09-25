@@ -12,7 +12,7 @@ import {
 } from 'lucide-vue-next'
 import { useGsapMotion } from '../../composables/useGsapMotion'
 import { useAuthStore } from '../../stores/auth'
-import { roleCodesLabel } from '../../utils/enumLabels'
+import { useIamS1Store } from '../../stores/iamS1'
 import { useQuerySession } from '../../composables/useQuerySession'
 import { useQuerySubmit } from '../../composables/useQuerySubmit'
 import { useQueryExport } from '../../composables/useQueryExport'
@@ -20,27 +20,24 @@ import { parseDatasourceId } from '../../utils/queryDatasource'
 import QuerySidebar from './QuerySidebar.vue'
 import QueryInput from './QueryInput.vue'
 import QueryResult from './QueryResult.vue'
-
-const adminPermissionCodes = [
-  'admin:view', 'datasource:manage', 'metadata:manage', 'skills:manage', 'prompt:manage',
-  'field:manage', 'field-tag:manage', 'feedback:review', 'audit:view', 'user:manage',
-  'role:manage', 'role:view', 'department:manage', 'knowledge:manage',
-]
+import IamS1ResourceSelector from './IamS1ResourceSelector.vue'
+import type { IamS1TableDeclaration } from '../../api/iamS1'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+const iamS1 = useIamS1Store()
 const workspaceRef = ref<HTMLElement | null>(null)
 const queryInputRef = ref<InstanceType<typeof QueryInput>>()
 const resultPanelOpen = ref(false)
 const datasourceInitialized = ref(false)
+const resourceDeclarations = ref<IamS1TableDeclaration[]>([])
 let datasourceSyncRequest = 0
 const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(workspaceRef)
 
-const permissions = computed(() => auth.currentUser?.permissions || auth.user?.permissions || [])
-const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPermissionCodes.some((code) => permissions.value.includes(code)))
+const canEnterAdmin = computed(() => iamS1.hasAnyAdminCapability)
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
-const roleText = computed(() => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, '普通用户'))
+const roleText = computed(() => iamS1.systemAdmin ? 'S1 系统管理员' : 'S1 权限动态判定')
 
 const exampleQuestions = [
   '统计最近30天订单金额趋势',
@@ -60,6 +57,7 @@ const submit = useQuerySubmit({
   activeMessages: session.activeMessages,
   canAskSelectedDatasource: session.canAskSelectedDatasource,
   selectedBlockReason: session.selectedBlockReason,
+  resourceDeclarations,
   createSession: session.createSession,
   async animateNewMessages() {
     await nextTick()
@@ -129,6 +127,7 @@ async function applyDatasource(id: number) {
   await submit.cancelCurrentQuery()
   submit.question.value = ''
   resultPanelOpen.value = false
+  resourceDeclarations.value = []
   await session.selectDatasource(id, { afterSelect: afterDatasourceSelected })
 }
 
@@ -187,6 +186,11 @@ function handleStartNewSession() {
   resultPanelOpen.value = false
 }
 
+function handleResultTab(tab: 'table' | 'sql' | 'chart' | 'trust') {
+  submit.resultTab.value = tab
+  if (tab === 'sql') void submit.refreshSql()
+}
+
 function handleSelectSession(sessionId: string) {
   submit.question.value = ''
   resultPanelOpen.value = false
@@ -205,6 +209,7 @@ watch(() => route.query.datasourceId, () => {
 })
 
 onMounted(() => {
+  void iamS1.load()
   withContext(() => reveal('.query-brand, .new-session-button, .datasource-section, .history-section, .sidebar-user, .query-topbar, .chat-composer', { y: 14, stagger: 0.04 }))
   void initializeDatasource()
 })
@@ -286,13 +291,19 @@ onMounted(() => {
         </section>
       </section>
 
+      <IamS1ResourceSelector
+        v-if="session.selectedId.value"
+        v-model="resourceDeclarations"
+        :datasource-id="session.selectedId.value"
+        :can-query="session.canAskSelectedDatasource.value"
+      />
       <QueryInput
         ref="queryInputRef"
         :question="submit.question.value"
         :is-querying="submit.isQuerying.value"
         :selected-id="session.selectedId.value"
         :selected-datasource-name="session.selectedDatasource.value?.name"
-        :can-ask="session.canAskSelectedDatasource.value"
+        :can-ask="session.canAskSelectedDatasource.value && resourceDeclarations.length > 0"
         :readiness-loading="session.readinessLoading.value"
         :selected-block-reason="session.selectedBlockReason.value"
         :selected-readiness="session.selectedReadiness.value"
@@ -318,7 +329,7 @@ onMounted(() => {
       :is-latest-processing="submit.isLatestProcessing.value"
       :trust-summary="submit.trustSummary.value"
       @close="resultPanelOpen = false"
-      @update:result-tab="submit.resultTab.value = $event"
+      @update:result-tab="handleResultTab"
       @switch-chart-type="submit.chartType.value = $event"
       @export-csv="exportUtil.exportCsv"
       @export-png="exportUtil.exportPng"

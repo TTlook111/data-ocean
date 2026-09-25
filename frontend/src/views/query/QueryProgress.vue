@@ -4,7 +4,7 @@
  */
 <script setup lang="ts">
 import { ShieldCheck, ShieldAlert } from 'lucide-vue-next'
-import type { QueryTaskResult } from '../../api/query'
+import type { IamS1QueryTaskResult as QueryTaskResult } from '../../api/iamS1'
 
 defineProps<{
   agentProgress: Array<{ key: string; label: string; status: 'done' | 'active' | 'pending' | 'failed' }>

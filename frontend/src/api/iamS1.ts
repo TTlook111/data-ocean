@@ -8,6 +8,7 @@
  */
 import { http } from './http'
 import type { ApiResult, PageResult } from './types'
+import type { DatasourceReadiness } from './admin/datasource'
 
 const BASE = '/api/iam-s1'
 
@@ -687,6 +688,59 @@ export interface IamS1QueryAskPayload {
 export interface IamS1QueryAskResult {
   taskId: string
   protocolVersion: string
+  conversationId?: number
+}
+
+export interface IamS1QueryTaskResult {
+  taskId: string
+  status: string
+  progressNode?: string
+  progressMessage?: string
+  question?: string
+  rewrittenQuery?: string
+  sql?: string
+  sqlExplanation?: string
+  data?: Record<string, unknown>[]
+  columns?: { name: string; type: string; comment?: string }[]
+  rowCount?: number
+  chartConfig?: Record<string, unknown>
+  usedTables?: string[]
+  usedColumns?: string[]
+  errorMessage?: string
+  retryCount?: number
+  totalTimeMs?: number
+  suggestedQuestions?: string[]
+  canViewSql?: boolean
+  canExport?: boolean
+  promptVersions?: Array<Record<string, unknown>>
+  degraded?: boolean
+  degradeNotice?: string
+  createdAt?: string
+  completedAt?: string
+  maskedFields?: Record<string, string>
+  protocolVersion?: string
+  activeMetadataSnapshotId?: number
+  permissionRevision?: number
+  finalProtectionStatus?: string
+}
+
+export interface IamS1ConversationItem {
+  id: number
+  userId: number
+  datasourceId: number
+  title: string
+  status: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface IamS1ConversationMessageItem {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  taskId?: string
+  metadata?: string
+  createdAt: string
 }
 
 export async function iamS1Ask(payload: IamS1QueryAskPayload) {
@@ -713,7 +767,7 @@ export async function iamS1Ask(payload: IamS1QueryAskPayload) {
 }
 
 export async function iamS1GetTask(taskId: string) {
-  const { data } = await http.get<ApiResult<Record<string, unknown>>>(
+  const { data } = await http.get<ApiResult<IamS1QueryTaskResult>>(
     `${BASE}/query/tasks/${taskId}`,
     { timeout: 30000 },
   )
@@ -733,7 +787,7 @@ export async function iamS1CancelTask(taskId: string) {
 }
 
 export async function iamS1QueryHistory(params: Record<string, unknown> = {}) {
-  const { data } = await http.get<ApiResult<PageResult<Record<string, unknown>>>>(
+  const { data } = await http.get<ApiResult<PageResult<IamS1QueryTaskResult>>>(
     `${BASE}/query/history`,
     { params },
   )
@@ -758,6 +812,29 @@ export async function iamS1SubmitFeedback(taskId: string, feedbackType: 'LIKE' |
   const { data } = await http.post<ApiResult<void>>(`${BASE}/query/tasks/${taskId}/feedback`, {
     feedbackType,
   })
+  return data
+}
+
+export async function iamS1ListConversations(datasourceId?: number) {
+  const { data } = await http.get<ApiResult<IamS1ConversationItem[]>>(`${BASE}/query/conversations`, {
+    params: { datasourceId },
+  })
+  return data
+}
+
+export async function iamS1ListConversationMessages(
+  conversationId: number,
+  params: { page?: number; pageSize?: number } = {},
+) {
+  const { data } = await http.get<ApiResult<IamS1ConversationMessageItem[]>>(
+    `${BASE}/query/conversations/${conversationId}/messages`,
+    { params },
+  )
+  return data
+}
+
+export async function iamS1DeleteConversation(conversationId: number) {
+  const { data } = await http.delete<ApiResult<void>>(`${BASE}/query/conversations/${conversationId}`)
   return data
 }
 
@@ -825,6 +902,13 @@ export async function listIamS1QueryResourceDatasources(scope: IamS1ResourceScop
   const { data } = await http.get<ApiResult<IamS1DatasourceRef[]>>(
     `${BASE}/query-resources/datasources`,
     { params: { scope } },
+  )
+  return data
+}
+
+export async function iamS1GetDatasourceReadiness(datasourceId: number) {
+  const { data } = await http.get<ApiResult<DatasourceReadiness>>(
+    `${BASE}/query-resources/datasources/${datasourceId}/readiness`,
   )
   return data
 }

@@ -16,7 +16,7 @@ from dataocean.core.logging import setup_logging
 from dataocean.infra.auth import verify_internal_token
 from dataocean.knowledge.router import router as knowledge_router
 from dataocean.rag.router import router as rag_router
-from dataocean.agent.router import router as agent_router
+from dataocean.conversation.router import router as conversation_router
 from dataocean.sandbox.router import router as sandbox_router
 from dataocean.chart.router import router as chart_router
 from dataocean.prompt.router import router as prompt_router
@@ -137,9 +137,11 @@ app.include_router(
     dependencies=[Depends(verify_internal_token)],
 )
 app.include_router(
-    agent_router,
+    conversation_router,
+    # 路径沿用旧的 /internal/query/context-summary：会话摘要仍由 Java 调用，
+    # 保留原路径可避免为纯搬迁而改动 Java 侧客户端。
     prefix="/internal/query",
-    tags=["agent"],
+    tags=["conversation"],
     dependencies=[Depends(verify_internal_token)],
 )
 app.include_router(

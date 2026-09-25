@@ -1,5 +1,6 @@
 package com.dataocean.common.config;
 
+import com.dataocean.common.security.InternalTokenValidator;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.client.RestClient;
@@ -31,11 +32,13 @@ class PythonRestClientConfigTest {
         });
         server.start();
 
-        String configuredToken = "unit-test-internal-token";
+        // 长度需满足 InternalTokenValidator 的最小长度要求（≥32）
+        String configuredToken = "unit-test-internal-token-0123456789ab";
         try {
-            PythonRestClientConfig config = new PythonRestClientConfig();
+            // 令牌由 InternalTokenValidator 统一持有，出站客户端从它取值
+            PythonRestClientConfig config =
+                    new PythonRestClientConfig(new InternalTokenValidator(configuredToken));
             setField(config, "pythonBaseUrl", "http://127.0.0.1:" + server.getAddress().getPort());
-            setField(config, "internalToken", configuredToken);
 
             List<RestClient> clients = List.of(
                     config.pythonRestClient(),

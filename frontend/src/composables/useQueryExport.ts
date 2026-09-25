@@ -4,10 +4,10 @@
  */
 import { computed, ref, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { submitQueryFeedback, type QueryTaskResult } from '../api/query'
+import { iamS1ExportCsv, iamS1SubmitFeedback, type IamS1QueryTaskResult } from '../api/iamS1'
 
 export function useQueryExport(options: {
-  latestResult: Ref<QueryTaskResult | null>
+  latestResult: Ref<IamS1QueryTaskResult | null>
 }) {
   const { latestResult } = options
 
@@ -21,27 +21,21 @@ export function useQueryExport(options: {
     return data.slice(start, start + tablePageSize)
   })
 
-  function exportCsv() {
+  async function exportCsv() {
     const result = latestResult.value
-    if (!result?.data?.length || !result?.columns?.length) return
-    const escapeCsvField = (val: string) => {
-      if (val.includes(',') || val.includes('"') || val.includes('\n')) {
-        return `"${val.replace(/"/g, '""')}"`
-      }
-      return val
+    if (!result?.taskId || result.canExport === false) return
+    try {
+      const blob = await iamS1ExportCsv(result.taskId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `query_result_${Date.now()}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      ElMessage.success('CSV 导出成功')
+    } catch {
+      ElMessage.error('当前权限不允许导出，或结果已失效')
     }
-    const headers = result.columns.map(c => escapeCsvField(c.comment || c.name))
-    const keys = result.columns.map(c => c.name)
-    const rows = result.data.map(row => keys.map(k => escapeCsvField(String(row[k] ?? ''))).join(','))
-    const csv = [headers.join(','), ...rows].join('\n')
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `query_result_${Date.now()}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    ElMessage.success('CSV 导出成功')
   }
 
   function exportPng() {
@@ -53,7 +47,7 @@ export function useQueryExport(options: {
     const result = latestResult.value
     if (!result?.taskId) return
     try {
-      await submitQueryFeedback(result.taskId, type)
+      await iamS1SubmitFeedback(result.taskId, type)
       ElMessage.success(type === 'LIKE' ? '感谢您的肯定' : '已收到反馈，我们会持续改进')
     } catch {
       ElMessage.error('反馈提交失败')

@@ -159,40 +159,6 @@ def test_fallback_supports_chinese_keyword_matching() -> None:
     assert score > 0
 
 
-@pytest.mark.asyncio
-async def test_schema_retriever_passes_multi_table_metadata_to_agent_state() -> None:
-    from dataocean.agent.nodes.schema_retriever import run_schema_retriever
-    from dataocean.rag.schema import RetrievedSchema, RetrieveResponse
-
-    response = RetrieveResponse(results=[
-        RetrievedSchema(
-            table_name="orders",
-            score=0.9,
-            chunk_type="JOIN_PATH",
-            related_tables=["orders", "customers"],
-            related_columns=["orders.customer_id", "customers.id"],
-        )
-    ])
-    with patch(
-        "dataocean.agent.nodes.schema_retriever.retrieve_schemas",
-        new=AsyncMock(return_value=response),
-    ), patch(
-        "dataocean.agent.nodes.schema_retriever._enrich_with_relationships",
-        new=AsyncMock(side_effect=lambda items, task_id: items),
-    ):
-        result = await run_schema_retriever({
-            "rewritten_query": "查询订单和客户",
-            "datasource_id": 10,
-            "active_snapshot_id": 5,
-            "task_id": "task-1",
-        })
-
-    context = result["schema_context"][0]
-    assert context["related_tables"] == ["orders", "customers"]
-    assert context["related_columns"] == ["orders.customer_id", "customers.id"]
-    assert context["related_column"] == "customer_id"
-
-
 def test_existing_milvus_collection_rejects_non_ip_metric() -> None:
     client = MagicMock()
     client.describe_collection.return_value = {

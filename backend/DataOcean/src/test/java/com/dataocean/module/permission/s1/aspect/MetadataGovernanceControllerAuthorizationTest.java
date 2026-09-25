@@ -152,8 +152,7 @@ class MetadataGovernanceControllerAuthorizationTest {
         }
 
         void login(Long userId) {
-            LoginUser loginUser = new LoginUser(userId, "tester", "password", "测试员",
-                    List.of(), List.of(), List.of());
+            LoginUser loginUser = new LoginUser(userId, "tester", "password", "测试员", List.of());
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(loginUser, null, loginUser.getAuthorities()));
         }

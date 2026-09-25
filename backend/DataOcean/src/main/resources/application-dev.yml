@@ -12,5 +12,7 @@ spring:
       password: ${REDIS_PASSWORD:}
 
 jwt:
-  secret: ${JWT_SECRET:dataocean-local-dev-secret-key-change-me-at-least-256-bits}
+  # 与 application.yml 一致：不提供默认值（此处曾是同一个公开默认值的第二份副本，
+  # 而 dev profile 恰恰是默认激活的，只改 application.yml 不会生效）
+  secret: ${JWT_SECRET:}
   expiration: ${JWT_EXPIRATION:86400}

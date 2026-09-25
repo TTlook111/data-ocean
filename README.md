@@ -178,6 +178,40 @@ DRAFT → PENDING_REVIEW → APPROVED → INDEXING → PUBLISHED
 
 启动或诊断前应先核对 hostname、端口、进程和基础设施状态。若文件中的 hostname 与当前机器不一致，必须忽略该配置并按当前机器重新探测，不得继续使用。系统重装或服务拓扑变化后，应重新探测并重建当前机器的文件，不能复用另一台电脑的配置或旧路径。
 
+### 0. 配置两个必需的密钥（首次启动前完成）
+
+以下两项都**没有默认值**，未配置时对应服务会拒绝启动。这一步不能跳过。
+
+> **模型、API key、温度等 AI 配置不在这里填。** 那些由管理端页面（`/admin/platform/ai-config`）管理，
+> Java 保存到 `sys_config` 后主动推送给 Python。`.env` 里的 AI 相关项只是页面未配置时的初始值，
+> 缺失只会记 warning，不影响启动。
+
+**1) 内部服务令牌**：保护 Java 与 Python 之间的 `/internal/*` 调用（可执行 SQL、写向量库、触发 Agent）。
+生成一个值，**同时**写入下面两个文件——两侧必须完全一致，单边修改会让内部调用全部 403：
+
+```bash
+python -c "import secrets;print(secrets.token_urlsafe(48))"
+```
+
+| 文件 | 配置项 | 是否纳入 Git |
+| --- | --- | --- |
+| `python-service/.env` | `INTERNAL_TOKEN=<值>` | 否（已忽略） |
+| `backend/DataOcean/config/application-local.yml` | `dataocean.internal.token: <值>` | 否（已忽略） |
+
+**2) 登录令牌签名密钥**：决定 JWT 的可信度。持有它即可伪造任意用户的登录态，因此不能使用公开默认值。
+
+```bash
+openssl rand -base64 32
+```
+
+| 文件 | 配置项 | 是否纳入 Git |
+| --- | --- | --- |
+| `backend/DataOcean/config/application-local.yml` | `jwt.secret: <值>` | 否（已忽略） |
+
+> 更换 `jwt.secret` 会让**所有已签发的登录令牌立即失效**，所有用户需要重新登录。
+
+两项也都可以改用环境变量提供（`INTERNAL_TOKEN`、`JWT_SECRET`），环境变量优先级高于上述文件。
+
 ### 1. 启动 Java 网关
 
 ```bash
@@ -192,7 +226,7 @@ mvn spring-boot:run
 ```bash
 cd python-service
 cp .env.example .env
-# 编辑 .env，配置 DASHSCOPE_API_KEY 与基础设施连接
+# 编辑 .env，配置 DASHSCOPE_API_KEY、基础设施连接，以及第 0 步生成的 INTERNAL_TOKEN
 uv sync
 uv run uvicorn dataocean.main:app --reload --port 8000
 ```
@@ -239,7 +273,7 @@ Java 查询任务 → Python Agent → Query Rewrite / Schema RAG
 | Java | 119 tests passed |
 | 端到端 | 智能问数与治理后台已完成真实桌面浏览器验收 |
 
-这是一个持续迭代的个人工程化项目，目标是验证“治理驱动的可信 NL2SQL”完整方案；当前不宣称可以未经配置直接用于生产环境。真实完成度、已知风险与后续优先级以 [`DataOcean后台重构状态与整改计划.md`](docs/development/DataOcean后台重构状态与整改计划.md) 为准。
+这是一个持续迭代的个人工程化项目，目标是验证“治理驱动的可信 NL2SQL”完整方案；当前不宣称可以未经配置直接用于生产环境。真实完成度、已知风险与后续优先级以 [`DataOcean后台重构状态与整改计划.md`](docs/development/completed/DataOcean后台重构状态与整改计划.md) 为准。
 
 ## 文档导航
 
@@ -248,9 +282,9 @@ Java 查询任务 → Python Agent → Query Rewrite / Schema RAG
 | [`AGENTS.md`](AGENTS.md) | 项目架构、代码边界、开发约束与验证命令 |
 | [`CLAUDE.md`](CLAUDE.md) | AI 编码 Agent 工作手册与当前实现基线 |
 | [`DataOcean技术栈与模块职责.md`](docs/development/DataOcean技术栈与模块职责.md) | 技术栈、模块职责、数据归属与异步边界 |
-| [`DataOcean后台重构状态与整改计划.md`](docs/development/DataOcean后台重构状态与整改计划.md) | 当前真实状态、风险、验收基线与后续计划 |
+| [`DataOcean后台重构状态与整改计划.md`](docs/development/completed/DataOcean后台重构状态与整改计划.md) | 当前真实状态、风险、验收基线与后续计划 |
 | [`DataOcean-RAG问题修复与知识文档切分优化方案.md`](docs/development/completed/DataOcean-RAG问题修复与知识文档切分优化方案.md) | RAG 切分、检索与发布可靠性实现 |
-| [`DataOcean-完整权限体系设计.md`](docs/development/guides/DataOcean-完整权限体系设计.md) | 权限体系的目标设计与迁移边界 |
+| [`DataOcean-完整权限体系设计.md`](docs/development/completed/DataOcean-完整权限体系设计.md) | 权限体系的目标设计与迁移边界 |
 
 ## License
 

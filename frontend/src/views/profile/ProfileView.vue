@@ -4,9 +4,10 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { ArrowLeft, Settings, UserRound } from 'lucide-vue-next'
 import { me, updateProfile } from '../../api/auth'
 import { useAuthStore } from '../../stores/auth'
-import { roleCodesLabel } from '../../utils/enumLabels'
+import { useIamS1Store } from '../../stores/iamS1'
 
 const auth = useAuthStore()
+const iamS1 = useIamS1Store()
 const loading = ref(false)
 const saving = ref(false)
 const formRef = ref<FormInstance>()
@@ -26,24 +27,8 @@ const rules: FormRules = {
 }
 
 const displayName = () => auth.currentUser?.realName || auth.user?.realName || form.realName || '用户'
-const roleText = () => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, '—')
-const canEnterAdmin = computed(() =>
-  auth.hasAnyPermission([
-    'admin:view',
-    'datasource:manage',
-    'metadata:manage',
-    'skills:manage',
-    'prompt:manage',
-    'field:manage',
-    'field-tag:manage',
-    'feedback:review',
-    'audit:view',
-    'user:manage',
-    'role:manage',
-    'role:view',
-    'department:manage',
-  ]),
-)
+const roleText = () => iamS1.systemAdmin ? 'S1 系统管理员' : 'S1 权限动态判定'
+const canEnterAdmin = computed(() => iamS1.hasAnyAdminCapability)
 
 async function fetchProfile() {
   loading.value = true
@@ -82,7 +67,10 @@ async function saveProfile() {
   }
 }
 
-onMounted(fetchProfile)
+onMounted(() => {
+  void iamS1.load()
+  void fetchProfile()
+})
 </script>
 
 <template>

@@ -18,11 +18,14 @@ import java.util.UUID;
  * JWT 令牌提供者
  * <p>
  * 负责 JWT 令牌的生成、解析和验证，使用 HS256 算法签名。
- * 令牌中携带用户 ID、用户名、角色、权限和令牌版本号等信息。
+ * 令牌中携带用户 ID、用户名和令牌版本号等身份/会话信息；不携带业务角色或权限。
  * </p>
  */
 @Component
 public class JwtTokenProvider {
+
+    /** HS256 要求的最小密钥字节数（256 位） */
+    static final int MIN_SECRET_BYTES = 32;
 
     /** 签名密钥 */
     private final SecretKey secretKey;
@@ -58,8 +61,6 @@ public class JwtTokenProvider {
                 .claim("uid", user.getUserId())
                 .claim("tokenVersion", tokenVersion)
                 .claim("realName", user.getRealName())
-                .claim("roles", user.getRoles())
-                .claim("permissions", user.getPermissions())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(expirationSeconds)))
                 .signWith(secretKey)
@@ -145,25 +146,43 @@ public class JwtTokenProvider {
 
     /**
      * 构建签名密钥
-     * <p>优先尝试 Base64 解码，失败则按 UTF-8 字节处理</p>
+     * <p>
+     * 优先尝试 Base64 解码，失败则按 UTF-8 字节处理。
+     * 校验在 Bean 构造期执行，配置不合格会直接导致启动失败——签名密钥决定登录令牌的
+     * 可信度，用它换取"能启动"是不划算的：持有该密钥即可伪造任意用户的登录态。
+     * </p>
      *
      * @param secret 密钥字符串
      * @return HMAC 签名密钥
      */
     private SecretKey buildSecretKey(String secret) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException(
+                    "jwt.secret 未配置。签名密钥不存在可用的默认值——依赖公开默认值意味着"
+                            + "任何人都能伪造任意用户的登录态。请通过环境变量 JWT_SECRET 提供，"
+                            + "或在被 Git 忽略的 config/application-local.yml 中设置 jwt.secret；"
+                            + "生成方式：openssl rand -base64 32");
+        }
+        // 拒绝任何空白：配置里混入行尾空白或换行会让密钥与预期不符，且难以排查
+        if (secret.chars().anyMatch(Character::isWhitespace)) {
+            throw new IllegalStateException(
+                    "jwt.secret 不能包含空格、制表符或换行，请检查配置是否误写成多行");
+        }
         try {
             // 尝试 Base64 解码
             byte[] decoded = Decoders.BASE64.decode(secret);
-            if (decoded.length >= 32) {
+            if (decoded.length >= MIN_SECRET_BYTES) {
                 return Keys.hmacShaKeyFor(decoded);
             }
         } catch (RuntimeException ignored) {
-            // 本地开发允许使用明文密钥，后续会按 UTF-8 字节处理
+            // 非 Base64 内容：按 UTF-8 明文密钥处理
         }
         // 按 UTF-8 编码处理明文密钥
         byte[] bytes = secret.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length < 32) {
-            throw new IllegalArgumentException("令牌密钥长度至少需要 32 字节才能用于 HS256");
+        if (bytes.length < MIN_SECRET_BYTES) {
+            throw new IllegalStateException(
+                    "jwt.secret 长度不足：HS256 至少需要 " + MIN_SECRET_BYTES + " 字节（当前 "
+                            + bytes.length + " 字节）。生成方式：openssl rand -base64 32");
         }
         return Keys.hmacShaKeyFor(bytes);
     }

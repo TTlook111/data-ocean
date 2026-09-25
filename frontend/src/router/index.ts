@@ -12,7 +12,6 @@ const ReleasesView = () => import('../views/admin/releases/ReleasesView.vue')
 const SnapshotDiffView = () => import('../views/admin/releases/SnapshotDiffView.vue')
 const AssetEntityDetailView = () => import('../views/admin/assets/AssetEntityDetailView.vue')
 const SnapshotDetailView = () => import('../views/admin/releases/SnapshotDetailView.vue')
-const AccessApprovalView = () => import('../views/admin/permission/AccessApprovalView.vue')
 const QueryAnalysisView = () => import('../views/admin/audit/QueryAnalysisView.vue')
 const ChangePassword = () => import('../views/profile/ChangePassword.vue')
 const ProfileView = () => import('../views/profile/ProfileView.vue')
@@ -28,7 +27,6 @@ const GlossariesView = () => import('../views/admin/semantics/GlossariesView.vue
 const NotFound = () => import('../views/NotFound.vue')
 const GovernanceFieldsView = () => import('../views/admin/governance/GovernanceFieldsView.vue')
 const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
-const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
 const RuntimeView = () => import('../views/admin/system/RuntimeView.vue')
 const AiConfig = () => import('../views/admin/system/AiConfig.vue')
 const OperationLogList = () => import('../views/admin/system/OperationLogList.vue')
@@ -74,13 +72,13 @@ const router = createRouter({
       path: '/query',
       name: 'query',
       component: QueryDatasourceView,
-      meta: { title: '智能问答', section: '智能查询' },
+      meta: { title: 'IAM-SIMPLE-1 智能问数', section: '智能查询' },
     },
     {
       path: '/query/iam-s1',
       name: 'query-iam-s1',
-      component: () => import('../views/query/IamS1QueryView.vue'),
-      meta: { title: 'IAM-SIMPLE-1 安全问数', section: '智能查询' },
+      redirect: (to) => ({ path: '/query', query: to.query }),
+      meta: { title: 'IAM-SIMPLE-1 智能问数', section: '智能查询' },
     },
     {
       path: '/admin',
@@ -197,18 +195,6 @@ const router = createRouter({
           name: 'admin-semantic-prompts',
           component: PromptsView,
           meta: { title: 'Prompt 策略', domainKey: 'semantics', workspaceKey: 'prompts', contextMode: 'none' },
-        },
-        {
-          path: 'access',
-          name: 'admin-access',
-          component: AccessControl,
-          meta: { title: '授权管理', domainKey: 'access', workspaceKey: 'access', contextMode: 'datasource' },
-        },
-        {
-          path: 'access/approvals',
-          name: 'admin-access-approvals',
-          component: AccessApprovalView,
-          meta: { title: '访问审批', domainKey: 'access', workspaceKey: 'access-approvals', contextMode: 'none' },
         },
         {
           path: 'access/iam',

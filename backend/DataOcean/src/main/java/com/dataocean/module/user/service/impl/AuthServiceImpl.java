@@ -98,7 +98,7 @@ public class AuthServiceImpl implements AuthService {
         LoginUser loginUser = (LoginUser) userDetailsService.loadUserByUsername(user.getUsername());
         long tokenVersion = ensureTokenVersion(user.getId());
         String token = jwtTokenProvider.generateToken(loginUser, tokenVersion);
-        log.info("用户登录成功 userId={} username={} roles={}", user.getId(), user.getUsername(), loginUser.getRoles());
+        log.info("用户登录成功 userId={} username={}", user.getId(), user.getUsername());
         return LoginVO.builder()
                 .token(token)
                 .tokenType("Bearer")
@@ -107,8 +107,6 @@ public class AuthServiceImpl implements AuthService {
                 .username(loginUser.getUsername())
                 .realName(loginUser.getRealName())
                 .passwordChanged(isPasswordChanged(user))
-                .roles(loginUser.getRoles())
-                .permissions(loginUser.getPermissions())
                 .build();
     }
 
@@ -148,8 +146,6 @@ public class AuthServiceImpl implements AuthService {
                 .email(user.getEmail())
                 .phone(user.getPhone())
                 .passwordChanged(isPasswordChanged(user))
-                .roles(loginUser.getRoles())
-                .permissions(loginUser.getPermissions())
                 .build();
     }
 

@@ -7,8 +7,6 @@ import json
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from dataocean.agent import sse
-
 from .schema import S1QueryExecuteRequest, S1RagRetrieveRequest, S1SqlExecuteRequest, S1SqlValidateRequest
 from .service import execute_validated, retrieve, run_query, validate_request
 from dataocean.infra.cancellation import cancel_task as do_cancel

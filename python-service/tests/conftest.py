@@ -12,6 +12,13 @@ from io import BytesIO
 # 单元测试不得向外部 LangSmith 服务发送追踪数据；本地 .env 中的开发配置不应影响测试结果。
 os.environ["LANGCHAIN_TRACING_V2"] = "false"
 
+# 内部服务令牌没有默认值（缺失或过短会让 Settings 构造失败）。
+# 在 conftest 顶层设置可保证它先于任何测试模块 import dataocean.core.config，
+# 同时避免测试结果依赖开发者本地 .env 中的取值。
+TEST_INTERNAL_TOKEN = "test-internal-token-0123456789abcdef"
+assert len(TEST_INTERNAL_TOKEN) >= 32, "测试令牌必须满足最小长度要求"
+os.environ["INTERNAL_TOKEN"] = TEST_INTERNAL_TOKEN
+
 
 def parse_sse_stream(stream: BytesIO) -> list[dict]:
     """模拟 Java 端的 SSE 解析逻辑

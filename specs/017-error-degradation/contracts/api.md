@@ -36,9 +36,13 @@ Python 服务健康检查（Java 定时调用）。
 }
 ```
 
-### GET /internal/health (Python, internal)
+### ~~GET /internal/health~~ (Python, internal) — 已于 2026-09-25 移除
 
-详细健康状态（含延迟指标），供 Java 内部调用。
+**该端点已删除，不再存在（请求返回 404）。** 原因：它没有任何调用方（Java 的 `PythonHealthChecker` 调用的是公开的 `/health`），却在注册时遗漏了 `X-Internal-Token` 校验，是唯一未受保护的 `/internal/*` 路径，并且会把底层异常原文通过 `{"error": str(e)}` 返回。无调用方的未认证接口属纯攻击面，故直接删除而非加固。
+
+公开的 `GET /health`（返回 `{"status": "ok"}`）不受影响，Java 侧健康检查继续使用它。若将来需要内部健康详情，请新建独立 router 并挂上 `verify_internal_token`。
+
+以下为该端点被删除前的契约记录，仅作历史参考。
 
 **Response 200**:
 ```json

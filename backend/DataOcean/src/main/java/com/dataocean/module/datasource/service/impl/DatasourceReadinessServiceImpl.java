@@ -3,12 +3,8 @@ package com.dataocean.module.datasource.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.datasource.entity.Datasource;
-import com.dataocean.module.datasource.entity.DatasourceAccess;
-import com.dataocean.module.datasource.entity.vo.DatasourcePermissionDecisionVO;
 import com.dataocean.module.datasource.entity.vo.DatasourceReadinessVO;
-import com.dataocean.module.datasource.mapper.DatasourceAccessMapper;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
-import com.dataocean.module.datasource.service.DatasourceAccessService;
 import com.dataocean.module.datasource.service.DatasourceReadinessService;
 import com.dataocean.module.governance.entity.MetadataQualityIssue;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
@@ -16,7 +12,19 @@ import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.entity.DbTableMeta;
+import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
+import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
+import com.dataocean.common.security.UserContext;
+import com.dataocean.module.permission.s1.IamS1Constants;
+import com.dataocean.module.permission.s1.entity.dto.IamS1DataAuthorizationRequestDTO;
+import com.dataocean.module.permission.s1.entity.dto.IamS1TableRequestDTO;
+import com.dataocean.module.permission.s1.enums.IamS1ColumnUsage;
+import com.dataocean.module.permission.s1.entity.IamS1DataGrant;
+import com.dataocean.module.permission.s1.mapper.IamS1DataGrantMapper;
+import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -59,8 +67,10 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
     private final MetadataSnapshotMapper snapshotMapper;
     private final MetadataQualityIssueMapper qualityIssueMapper;
     private final KnowledgeDocMapper knowledgeDocMapper;
-    private final DatasourceAccessMapper accessMapper;
-    private final DatasourceAccessService accessService;
+    private final IamS1DataGrantMapper iamS1DataGrantMapper;
+    private final DbTableMetaMapper tableMetaMapper;
+    private final DbColumnMetaMapper columnMetaMapper;
+    private final IamS1DataAuthorizationResolver iamS1DataAuthorizationResolver;
 
     @Override
     public DatasourceReadinessVO getAdminReadiness(Long datasourceId) {
@@ -99,7 +109,9 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
 
         long blockingIssueCount = countBlockingIssues(publishedSnapshot);
         vo.setGovernanceReady(blockingIssueCount == 0);
-        vo.setPermissionReady(currentUserScope ? currentUserCanQuery(datasourceId) : hasAnyQueryGrant(datasourceId));
+        vo.setPermissionReady(currentUserScope
+                ? currentUserCanQuery(datasourceId, publishedSnapshot)
+                : hasAnyQueryGrant(datasourceId));
 
         appendBlockReasons(vo, datasource, blockingIssueCount, currentUserScope);
         vo.setAskable(vo.isConnectionReady()
@@ -181,24 +193,46 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
      * </p>
      */
     private boolean hasAnyQueryGrant(Long datasourceId) {
-        return accessMapper.selectCount(new LambdaQueryWrapper<DatasourceAccess>()
-                .eq(DatasourceAccess::getDatasourceId, datasourceId)
-                .eq(DatasourceAccess::getCanQuery, true)
-                // 排除已过期的授权
-                .and(wrapper -> wrapper
-                        .isNull(DatasourceAccess::getExpiresAt)
-                        .or()
-                        .gt(DatasourceAccess::getExpiresAt, LocalDateTime.now()))
-                // 排除显式拒绝的授权（null 视为 ALLOW）
-                .and(wrapper -> wrapper
-                        .ne(DatasourceAccess::getAccessEffect, "DENY")
-                        .or()
-                        .isNull(DatasourceAccess::getAccessEffect))) > 0;
+        LocalDateTime now = LocalDateTime.now();
+        return iamS1DataGrantMapper.selectCount(new LambdaQueryWrapper<IamS1DataGrant>()
+                .eq(IamS1DataGrant::getProtocolVersion, IamS1Constants.PROTOCOL_VERSION)
+                .eq(IamS1DataGrant::getDatasourceId, datasourceId)
+                .eq(IamS1DataGrant::getStatus, IamS1Constants.DATA_GRANT_STATUS_ACTIVE)
+                .eq(IamS1DataGrant::getEffect, IamS1Constants.EFFECT_ALLOW)
+                .and(wrapper -> wrapper.isNull(IamS1DataGrant::getValidFrom)
+                        .or().le(IamS1DataGrant::getValidFrom, now))
+                .and(wrapper -> wrapper.isNull(IamS1DataGrant::getValidUntil)
+                        .or().gt(IamS1DataGrant::getValidUntil, now))) > 0;
     }
 
-    private boolean currentUserCanQuery(Long datasourceId) {
-        DatasourcePermissionDecisionVO decision = accessService.calculateCurrentUserDecision(datasourceId);
-        return decision != null && decision.isCanQuery() && !"DENY".equals(decision.getAccessEffect());
+    private boolean currentUserCanQuery(Long datasourceId, MetadataSnapshot publishedSnapshot) {
+        Long userId = UserContext.currentUserId();
+        if (userId == null || publishedSnapshot == null) return false;
+        List<DbTableMeta> tables = tableMetaMapper.selectList(new LambdaQueryWrapper<DbTableMeta>()
+                .eq(DbTableMeta::getDatasourceId, datasourceId)
+                .eq(DbTableMeta::getSnapshotId, publishedSnapshot.getId()));
+        for (DbTableMeta table : tables) {
+            List<DbColumnMeta> columns = columnMetaMapper.selectList(new LambdaQueryWrapper<DbColumnMeta>()
+                    .eq(DbColumnMeta::getDatasourceId, datasourceId)
+                    .eq(DbColumnMeta::getSnapshotId, publishedSnapshot.getId())
+                    .eq(DbColumnMeta::getTableMetaId, table.getId()));
+            for (DbColumnMeta column : columns) {
+                IamS1TableRequestDTO tableRequest = new IamS1TableRequestDTO(
+                        table.getTableName(), java.util.Set.of(column.getColumnName()));
+                tableRequest.setColumnUsages(Map.of(column.getColumnName(),
+                        java.util.Set.of(IamS1ColumnUsage.PROJECTION)));
+                IamS1DataAuthorizationRequestDTO request = new IamS1DataAuthorizationRequestDTO();
+                request.setProtocolVersion(IamS1Constants.PROTOCOL_VERSION);
+                request.setUserId(userId);
+                request.setDatasourceId(datasourceId);
+                request.setActiveMetadataSnapshotId(publishedSnapshot.getId());
+                request.setCalculatedAt(LocalDateTime.now());
+                request.setTables(List.of(tableRequest));
+                var decision = iamS1DataAuthorizationResolver.resolve(request);
+                if (decision != null && decision.isAllowed()) return true;
+            }
+        }
+        return false;
     }
 
     private void appendBlockReasons(DatasourceReadinessVO vo,

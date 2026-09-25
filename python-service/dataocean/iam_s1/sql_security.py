@@ -147,6 +147,70 @@ def _declared_usages(meta: dict[str, Any]) -> set[str]:
     return {str(item).upper() for item in meta.get("usage") or []}
 
 
+def _assign_output_aliases(scopes: dict[int, Any]) -> None:
+    """给未加别名的**表达式**投影指定确定性别名。
+
+    数据库会用表达式原文作为未加别名投影的列名（`COUNT(*)` 的列名就是 `COUNT(*)`），
+    而 sqlglot 的 ``alias_or_name`` 对这类表达式返回的是 ``*`` 这样的值。两者不一致时，
+    Java 侧的来源完整性检查会因"追踪到的输出列名覆盖不了实际结果列名"而拒绝整个结果
+    （用户看到的是"结果来源不完整，请重新查询"）。
+
+    显式加别名后，列名由本服务决定，不再依赖数据库的列命名规则。
+    只处理「无别名且不是裸列」的投影：裸列的名字本来就和结果列名一致，无需改动；
+    已带别名的投影也保持原样。
+
+    别名按位置生成，因此对同一段 SQL 是幂等的——已加别名的投影不会二次改写，
+    ``execute_validated`` 里"执行 SQL 与已校验并注入的 SQL 不一致"的比对因此仍然成立。
+    """
+    for scope in scopes.values():
+        select = scope.expression
+        if not isinstance(select, exp.Select):
+            continue
+        taken = {output.alias_or_name.lower() for output in select.expressions}
+        index = 0
+        rebuilt: list[exp.Expression] = []
+        changed = False
+        for output in select.expressions:
+            if output.args.get("alias") or isinstance(output, exp.Column):
+                rebuilt.append(output)
+                continue
+            index += 1
+            name = f"s1_c{index}"
+            while name in taken:
+                index += 1
+                name = f"s1_c{index}"
+            taken.add(name)
+            rebuilt.append(exp.alias_(output, name))
+            changed = True
+        if changed:
+            select.set("expressions", rebuilt)
+
+
+def _reject_unexpanded_projection_stars(scopes: dict[int, Any]) -> None:
+    """拒绝仍未展开的**投影位置**星号。
+
+    只检查 SELECT 的投影列表本身（`SELECT *` / `SELECT t.*`），不检查函数参数里的
+    星号：`COUNT(*)` 是"统计行数"的标准写法，它不把任何列带进结果集，与
+    `SELECT *` 会拉入未声明字段的风险无关。
+
+    这曾经是一个真实缺陷：兜底检查用的是 `tree.find(exp.Star)`，会命中
+    `COUNT(*)` 内部的星号，导致 `SELECT COUNT(*) FROM t` 被无条件拒绝——
+    而"表里有多少条记录"这类问题的正确 SQL 恰恰就是它。
+    `_expand_stars` 只处理投影位置的星号，无法展开时它自己会抛错，所以本函数
+    是那道防线的精确定义。
+    """
+    for scope in scopes.values():
+        select = scope.expression
+        if not isinstance(select, exp.Select):
+            continue
+        for expression in select.expressions:
+            is_projection_star = isinstance(expression, exp.Star) or (
+                isinstance(expression, exp.Column) and expression.name == "*"
+            )
+            if is_projection_star:
+                raise S1SqlSecurityError("无法安全展开 SQL 中的星号字段")
+
+
 def _expand_stars(scopes: dict[int, Any], snapshot: S1PermissionSnapshot) -> None:
     allowed = resource_index(snapshot)
     for scope in scopes.values():
@@ -452,11 +516,20 @@ def _trace(tree: exp.Expression, scopes: dict[int, Any], allowed: dict[str, dict
                 policy = str(meta.get("maskPolicy") or "")
                 if policy:
                     found.add(policy)
-            trace.append({
+            resolved_sources = sorted({f"{table}.{name}" for table, name in sources})
+            entry = {
                 "outputColumn": output_name,
-                "sources": sorted({f"{table}.{name}" for table, name in sources}),
+                "sources": resolved_sources,
                 "expression": expression_sql,
-            })
+            }
+            if not resolved_sources:
+                # COUNT(*) 与常量这类输出不携带任何列数据，来源列表本就为空——没有列
+                # 要脱敏，也没有列会泄漏。但必须**显式声明**：Java 侧的来源完整性检查
+                # 把"空来源"一律视为来源缺失，会把整个结果判为不可信并拒绝
+                # （表现为"结果来源不完整，请重新查询"）。显式标记让那条检查仍能
+                # fail-closed：未声明却为空 → 仍然拒绝。
+                entry["sourceKind"] = "NO_COLUMN_SOURCE"
+            trace.append(entry)
     conflicts = {name: sorted(found) for name, found in mask_policies.items() if len(found) > 1}
     if conflicts:
         detail = "; ".join(f"{name} -> {', '.join(found)}" for name, found in sorted(conflicts.items()))
@@ -502,8 +575,8 @@ def validate_sql(sql: str, snapshot: S1PermissionSnapshot, *, enforce_usage: boo
         _validate_tables(scopes, snapshot)
         _validate_set_operations(scopes)
         _expand_stars(scopes, snapshot)
-        if tree.find(exp.Star) is not None:
-            raise S1SqlSecurityError("无法安全展开 SQL 中的星号字段")
+        _reject_unexpanded_projection_stars(scopes)
+        _assign_output_aliases(scopes)
         for rule in (function_rule.check(sql), depth_rule.check(sql), limit_rule.check(sql)):
             if not rule.passed:
                 raise S1SqlSecurityError(rule.reason)

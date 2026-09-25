@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pydantic import ValidationError
 
-from dataocean.iam_s1.firewall import build_model_context, filter_chunk, filter_schema
+from dataocean.iam_s1.firewall import build_model_context, filter_chunk, filter_glossary, filter_schema
 from dataocean.iam_s1.schema import (
     S1Capabilities,
     S1Column,
@@ -18,13 +18,14 @@ from dataocean.iam_s1.schema import (
     S1PermissionSnapshot,
     S1Predicate,
     S1Resource,
+    S1QueryExecuteRequest,
     S1RagRetrieveRequest,
     S1RowCondition,
     S1SqlExecuteRequest,
     S1SqlValidateRequest,
 )
 from dataocean.iam_s1.sql_security import inject_row_conditions, validate_sql
-from dataocean.iam_s1.service import execute_validated, retrieve, validate_request
+from dataocean.iam_s1.service import execute_validated, retrieve, run_query, validate_request
 
 
 def snapshot(masked: bool = False, condition: bool = False) -> S1PermissionSnapshot:
@@ -92,6 +93,87 @@ def test_star_expansion_requires_at_least_one_projectable_field():
         column.usage = ["FILTER"]
     assert not validate_sql("SELECT * FROM orders", current).passed
     assert not validate_sql("SELECT orders.* FROM orders", current).passed
+
+
+def test_aggregate_without_column_source_is_aliased_and_marked_no_column_source():
+    """COUNT(*) 这类不携带列数据的输出必须被显式标记，且列名由本服务决定。
+
+    背景（B6 后的真实缺陷）：数据库会把未加别名的表达式原文当作列名（`COUNT(*)`），
+    而 sqlglot 的 alias_or_name 返回 `*`；两者不一致时 Java 的来源完整性检查会拒绝
+    整个结果（"结果来源不完整，请重新查询"）。同时它没有列来源，Java 把空来源一律
+    视为来源缺失，也需要一个显式标记才放行。
+    """
+    current = snapshot()
+    result = validate_sql("SELECT COUNT(*) FROM orders", current)
+
+    assert result.passed
+    # 列名由本服务决定，不再依赖数据库对未加别名表达式的命名
+    assert "AS s1_c1" in result.sql
+    assert result.source_trace == [{
+        "outputColumn": "s1_c1",
+        "sources": [],
+        "expression": "COUNT(*) AS s1_c1",
+        "sourceKind": "NO_COLUMN_SOURCE",
+    }]
+
+
+def test_only_bare_columns_and_existing_aliases_are_left_untouched():
+    """只给「无别名且不是裸列」的投影补别名；裸列与已有别名保持原样。
+
+    裸列的名字本来就和结果列名一致；已有别名是调用方（或模型）的显式选择，
+    改写它会让返回给用户的列名变样。
+    """
+    current = snapshot()
+    result = validate_sql("SELECT id, COUNT(*) AS cnt FROM orders GROUP BY id", current)
+
+    assert result.passed
+    assert "id" in result.sql and "AS cnt" in result.sql
+    assert "s1_c1" not in result.sql
+    assert [entry["outputColumn"] for entry in result.source_trace] == ["id", "cnt"]
+    # 有列来源的输出不得带 NO_COLUMN_SOURCE 标记
+    assert all("sourceKind" not in entry for entry in result.source_trace if entry["sources"])
+
+
+@pytest.mark.asyncio
+async def test_sql_prompt_prefers_managed_template(monkeypatch):
+    """S1 的 SQL 生成提示词必须优先走 Java 受管模板。
+
+    这是"管理员能在 Prompt 策略页调整 SQL 生成行为"的前提。此前 S1 把提示词写死在
+    Python 代码里，页面上改了没有任何效果。
+    """
+    from dataocean.iam_s1 import service as s1_service
+
+    async def fake_managed(code, variables):
+        assert code == "sql_generation"
+        return "受管模板内容 " + variables["question"], 3
+
+    monkeypatch.setattr(s1_service, "render_prompt_with_metadata", fake_managed)
+    prompt = await s1_service.render_sql_prompt("有多少订单", {"schema": [], "rag": [], "glossary": [], "fewShot": [], "conversationHistory": [], "conversationSummary": {}})
+
+    assert prompt.startswith("受管模板内容")
+    assert "有多少订单" in prompt
+
+
+@pytest.mark.asyncio
+async def test_sql_prompt_falls_back_to_local_template(monkeypatch):
+    """Java 不可用或模板缺失时退回本地模板，且问题与数据必须渲染进去。
+
+    降级不能降成空提示词——那会让模型在没有 schema 的情况下凭空生成 SQL。
+    """
+    from dataocean.iam_s1 import service as s1_service
+
+    async def broken_managed(code, variables):
+        raise RuntimeError("Java 不可达")
+
+    monkeypatch.setattr(s1_service, "render_prompt_with_metadata", broken_managed)
+    schema = [{"tableName": "orders", "columns": [{"name": "id"}]}]
+    prompt = await s1_service.render_sql_prompt("有多少订单", {"schema": schema, "rag": [], "glossary": [], "fewShot": [], "conversationHistory": [], "conversationSummary": {}})
+
+    assert "有多少订单" in prompt
+    assert "orders" in prompt
+    assert "{{" not in prompt, "本地模板不得残留未渲染的占位符"
+    # 聚合别名要求是修复"结果列名显示成 s1_c1"的根因手段，不能在降级模板里丢掉
+    assert "AS" in prompt and "别名" in prompt
 
 
 def test_field_usage_is_enforced_for_projection_filter_and_join():
@@ -176,6 +258,25 @@ def test_firewall_applies_same_filter_to_rag_fallback_fewshot_and_history():
     assert context["fewShot"] == [safe]
     assert context["conversationHistory"]
     assert "sample_values" not in context["conversationSummary"]
+
+
+def test_glossary_drops_terms_bound_to_other_datasource_columns():
+    current = snapshot()
+    terms = [
+        {"name": "订单", "columns": ["orders.id"]},
+        {"name": "客户", "columns": ["customers.secret"]},
+        {"name": "无绑定术语"},
+    ]
+
+    filtered = filter_glossary(terms, current)
+
+    assert [term["name"] for term in filtered] == ["订单", "无绑定术语"]
+
+
+def test_glossary_rejects_unnormalized_metadata_fqn_at_firewall_boundary():
+    current = snapshot()
+
+    assert filter_glossary([{"name": "订单", "columns": ["ds.db.orders.id"]}], current) == []
 
 
 def test_row_condition_requires_binding_and_does_not_fallback_to_literal_sql():
@@ -512,3 +613,31 @@ async def test_s1_rag_calls_milvus_pipeline_then_filters_sources():
         result = await retrieve(request)
     retrieve_mock.assert_awaited_once()
     assert result[0]["columns"] == ["orders.id"]
+
+
+@pytest.mark.asyncio
+async def test_s1_query_preserves_chart_generation_result():
+    from dataocean.chart.service import ChartResult
+
+    current = snapshot()
+    current.taskId = "task-chart"
+    request = S1QueryExecuteRequest(
+        protocolVersion="IAM-SIMPLE-1", taskId="task-chart", userId=7, datasourceId=1,
+        activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
+        executionBindings=[], question="统计订单数量", connectionConfig=S1ConnectionConfig(
+            host="localhost", port=3306, database="db", username="u", password="p"),
+        conversationHistory=[], conversationSummary=None, ragChunks=[], fallbackChunks=[],
+        glossaryTerms=[], fewShotExamples=[],
+    )
+    with patch("dataocean.iam_s1.service.retrieve", new=AsyncMock(return_value=[])), \
+            patch("dataocean.iam_s1.service.call_llm", new=AsyncMock(return_value="SELECT id FROM orders")), \
+            patch("dataocean.iam_s1.service.execute_validated", new=AsyncMock(return_value={
+                "success": True, "data": [{"id": 1}], "columns": [{"name": "id", "type": "INT"}],
+                "rowCount": 1, "trace": {"sourceTrace": [], "usedTables": ["orders"], "usedColumns": ["orders.id"]},
+            })), \
+            patch("dataocean.chart.service.generate_chart", new=AsyncMock(return_value=ChartResult(
+                chart_type="bar", echarts_option={"series": [{"type": "bar", "data": [1]}]}))):
+        result = await run_query(request)
+
+    assert result["status"] == "COMPLETED"
+    assert result["chartConfig"]["series"][0]["type"] == "bar"

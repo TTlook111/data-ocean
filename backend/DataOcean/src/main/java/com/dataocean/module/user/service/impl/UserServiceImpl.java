@@ -17,10 +17,8 @@ import com.dataocean.module.user.entity.dto.UserUpdateDTO;
 import com.dataocean.module.user.entity.vo.UserVO;
 import com.dataocean.module.user.entity.SysDepartment;
 import com.dataocean.module.user.entity.SysUser;
-import com.dataocean.module.user.entity.SysUserRole;
 import com.dataocean.module.user.mapper.DepartmentMapper;
 import com.dataocean.module.user.mapper.UserMapper;
-import com.dataocean.module.user.mapper.UserRoleMapper;
 import com.dataocean.module.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -55,7 +53,6 @@ public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
     private final DepartmentMapper departmentMapper;
-    private final UserRoleMapper userRoleMapper;
     private final IamS1UserRoleMapper iamS1UserRoleMapper;
     private final IamS1DataGrantMapper iamS1DataGrantMapper;
     private final IamS1PermissionRevisionService revisionService;
@@ -170,8 +167,6 @@ public class UserServiceImpl implements UserService {
                 "userId=" + id + ";disabledBindings=" + disabledCount + ";revision=" + revisionNo,
                 "删除用户并停用其 S1 绑定", UUID.randomUUID().toString());
         userMapper.deleteById(id);
-        // 旧关系只服务切换前环境，B6 删除表；这里清掉已删账号的旧角色行，避免旧链路继续算权。
-        userRoleMapper.delete(new LambdaQueryWrapper<SysUserRole>().eq(SysUserRole::getUserId, id));
         stringRedisTemplate.opsForValue().increment(tokenVersionKey(id));
         log.info("用户删除成功 userId={}", id);
     }

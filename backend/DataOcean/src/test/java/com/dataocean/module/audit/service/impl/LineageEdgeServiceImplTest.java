@@ -57,7 +57,6 @@ class LineageEdgeServiceImplTest {
     void login() {
         LoginUser loginUser = new LoginUser(
                 7L, "alice", "x", "Alice",
-                List.of("ROLE"), List.of("lineage:manage"),
                 List.of(new SimpleGrantedAuthority("lineage:manage")));
         SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(loginUser, null, loginUser.getAuthorities()));

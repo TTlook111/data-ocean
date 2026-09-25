@@ -5,17 +5,16 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  listMyDatasources,
-  getMyDatasourceReadiness,
-  type DatasourceReadiness,
-  type UserDatasourceItem,
-} from '../api/datasource'
-import {
-  listConversations,
-  listConversationMessages,
-  deleteConversation,
-  type ConversationMessageItem,
-} from '../api/query'
+  iamS1DeleteConversation,
+  iamS1GetDatasourceReadiness,
+  iamS1ListConversationMessages,
+  iamS1ListConversations,
+  listIamS1QueryResourceDatasources,
+  type IamS1ConversationMessageItem,
+  type IamS1DatasourceRef,
+  type IamS1QueryTaskResult,
+} from '../api/iamS1'
+import type { DatasourceReadiness } from '../api/admin/datasource'
 import { parseStoredQueryResult } from '../utils/queryResult'
 
 /** 单条消息 */
@@ -26,7 +25,7 @@ export interface LocalMessage {
   createdAt: string
   taskId?: string
   status?: string
-  queryResult?: import('../api/query').QueryTaskResult
+  queryResult?: IamS1QueryTaskResult
   originalQuestion?: string
 }
 
@@ -45,7 +44,7 @@ export function useQuerySession() {
   const loading = ref(false)
   const readinessLoading = ref(false)
   const errorMessage = ref('')
-  const datasources = ref<UserDatasourceItem[]>([])
+  const datasources = ref<IamS1DatasourceRef[]>([])
   const readinessMap = ref<Record<number, DatasourceReadiness>>({})
   const selectedId = ref<number>()
   const activeSessionId = ref<string>()
@@ -91,7 +90,7 @@ export function useQuerySession() {
     return session
   }
 
-  function toLocalMessage(message: ConversationMessageItem): LocalMessage {
+  function toLocalMessage(message: IamS1ConversationMessageItem): LocalMessage {
     const result = message.role === 'assistant' ? parseStoredQueryResult(message) : undefined
     return {
       id: `remote-${message.id}`,
@@ -106,7 +105,7 @@ export function useQuerySession() {
 
   async function hydrateSessionMessages(session: LocalSession) {
     if (!session.conversationId) return
-    const res = await listConversationMessages(session.conversationId, { page: 1, pageSize: 80 })
+    const res = await iamS1ListConversationMessages(session.conversationId, { page: 1, pageSize: 80 })
     session.messages = res.data.map(toLocalMessage)
     let latestQuestion = ''
     session.messages.forEach((message) => {
@@ -120,7 +119,7 @@ export function useQuerySession() {
 
   async function loadRemoteSessions(datasourceId: number, activateFirst = true) {
     if (loadedDatasourceIds.value.has(datasourceId)) return
-    const res = await listConversations(datasourceId)
+    const res = await iamS1ListConversations(datasourceId)
     const remoteSessions: LocalSession[] = res.data.map((item) => ({
       id: `remote-${item.id}`,
       datasourceId: item.datasourceId,
@@ -215,7 +214,7 @@ export function useQuerySession() {
         cancelButtonText: '取消',
       })
       if (session.conversationId) {
-        await deleteConversation(session.conversationId)
+        await iamS1DeleteConversation(session.conversationId)
       }
       const index = sessions.findIndex((item) => item.id === session.id)
       if (index >= 0) sessions.splice(index, 1)
@@ -244,7 +243,7 @@ export function useQuerySession() {
     loading.value = true
     errorMessage.value = ''
     try {
-      const result = await listMyDatasources()
+      const result = await listIamS1QueryResourceDatasources('QUERY')
       datasources.value = result.data
       await fetchDatasourceReadiness(result.data)
       const selectedStillAccessible = Boolean(selectedId.value && result.data.some((item) => item.id === selectedId.value))
@@ -280,13 +279,13 @@ export function useQuerySession() {
     }
   }
 
-  async function fetchDatasourceReadiness(items: UserDatasourceItem[]) {
+  async function fetchDatasourceReadiness(items: IamS1DatasourceRef[]) {
     readinessLoading.value = true
     try {
       const entries = await Promise.all(
         items.map(async (item) => {
           try {
-            const result = await getMyDatasourceReadiness(item.id)
+            const result = await iamS1GetDatasourceReadiness(item.id)
             return [item.id, result.data] as const
           } catch {
             return null

@@ -9,10 +9,13 @@ from __future__ import annotations
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from dataocean.core.error_messages import sanitize_error
 from dataocean.infra.llm import call_llm
+from dataocean.prompt.renderer import render_template_file
+from dataocean.prompt.service import render_prompt_with_metadata
 from dataocean.sandbox.executor import execute as execute_sql
 
 from .firewall import build_model_context, resource_index
@@ -27,6 +30,48 @@ from .schema import (
 from .sql_security import S1SqlSecurityError, S1SqlValidation, inject_row_conditions, validate_sql
 
 logger = logging.getLogger(__name__)
+
+# SQL 生成的提示词走 Java 受管模板（Prompt 策略页可调、有版本与审批）。
+# 变量契约见 V59 迁移：question / schema / rag / glossary / few_shot / history / summary。
+_SQL_GENERATION_TEMPLATE_CODE = "sql_generation"
+_LOCAL_SQL_GENERATION_TEMPLATE = Path(__file__).parent / "prompts" / "sql_generation.j2"
+
+# 安全框架保留在代码里，不随受管模板下发：权限的执行边界在 Context Firewall 与
+# SQL AST 校验器，但"只生成 SELECT、只用给定表字段"属于职责与身份约束，
+# 不应该成为可以被配置关掉的可选项。
+_SYSTEM_PROMPT = (
+    "你是 IAM-SIMPLE-1 安全问数 SQL 生成器。只生成 SELECT，"
+    "只使用用户消息中给出的表与字段，不输出解释之外的权限信息。"
+)
+
+
+async def render_sql_prompt(question: str, context: dict[str, Any]) -> str:
+    """渲染 SQL 生成提示词：优先 Java 受管模板，失败时退回本地模板。
+
+    变量契约见 `V59__s1_sql_generation_prompt.sql`：
+    question / schema / rag / glossary / few_shot / history / summary。
+
+    调用方只传防火墙过滤后的上下文；**执行绑定值不在此列**——绑定值只存在于
+    Java 与 Python 的内存对象中，绝不进入模型上下文。
+    """
+    variables = {
+        "question": question,
+        "schema": json.dumps(context["schema"], ensure_ascii=False),
+        "rag": json.dumps(context["rag"], ensure_ascii=False),
+        "glossary": json.dumps(context["glossary"], ensure_ascii=False),
+        "few_shot": json.dumps(context["fewShot"], ensure_ascii=False),
+        "history": json.dumps(context["conversationHistory"], ensure_ascii=False),
+        "summary": json.dumps(context["conversationSummary"], ensure_ascii=False),
+    }
+    try:
+        user_prompt, _ = await render_prompt_with_metadata(_SQL_GENERATION_TEMPLATE_CODE, variables)
+        if not user_prompt:
+            raise RuntimeError("managed SQL 生成模板为空")
+        return user_prompt
+    except Exception as exc:
+        # Java 不可用或模板缺失时退回本地模板，与该项目其它受管提示词的降级方式一致。
+        logger.info("managed SQL 生成模板不可用，使用本地模板: %s", exc)
+        return render_template_file(_LOCAL_SQL_GENERATION_TEMPLATE, **variables)
 
 
 def _safe_error(message: str | None, bindings: list[S1ExecutionBinding]) -> str:
@@ -213,20 +258,11 @@ async def run_query(request: S1QueryExecuteRequest) -> dict[str, Any]:
         request.conversationSummary,
         [binding.value for binding in request.executionBindings],
     )
-    prompt = {
-        "question": request.question,
-        "schema": context["schema"],
-        "rag": context["rag"],
-        "glossary": context["glossary"],
-        "fewShot": context["fewShot"],
-        "history": context["conversationHistory"],
-        "summary": context["conversationSummary"],
-        # Explicitly no executionBindings here.
-    }
+    user_prompt = await render_sql_prompt(request.question, context)
     try:
         generated = await call_llm(
-            system_prompt="你是 IAM-SIMPLE-1 安全问数 SQL 生成器。只生成 SELECT，不输出解释之外的权限信息。",
-            user_prompt=json.dumps(prompt, ensure_ascii=False),
+            system_prompt=_SYSTEM_PROMPT,
+            user_prompt=user_prompt,
             temperature=0.1,
         )
         sql = generated.strip().replace("```sql", "").replace("```", "").strip()
@@ -262,6 +298,25 @@ async def run_query(request: S1QueryExecuteRequest) -> dict[str, Any]:
         )
         if not execution["success"]:
             return {"taskId": request.taskId, "protocolVersion": request.protocolVersion, "status": "FAILED", "error": execution["error"], "trace": execution["trace"]}
+        chart_config = None
+        try:
+            from dataocean.chart.service import generate_chart
+
+            column_types = {
+                str(column.get("name")): str(column.get("type") or "UNKNOWN")
+                for column in execution.get("columns", [])
+                if column.get("name")
+            }
+            chart = await generate_chart(
+                question=request.question,
+                data_preview=execution.get("data", []),
+                column_types=column_types,
+                total_rows=int(execution.get("rowCount") or 0),
+            )
+            chart_config = chart.echarts_option
+        except Exception as exc:
+            # 图表是查询结果的可选增强，生成失败不能让已通过权限和 AST 的表格查询失败。
+            logger.warning("S1 图表生成失败 task_id=%s reason=%s", request.taskId, exc)
         return {
             "taskId": request.taskId,
             "protocolVersion": request.protocolVersion,
@@ -275,7 +330,7 @@ async def run_query(request: S1QueryExecuteRequest) -> dict[str, Any]:
             "usedColumns": validation.used_columns,
             "sourceTrace": execution["trace"]["sourceTrace"],
             "maskedFields": validation.masked_fields,
-            "chartConfig": None,
+            "chartConfig": chart_config,
             "suggestedQuestions": [],
             "permissionRevision": request.permissionRevision,
             "activeMetadataSnapshotId": request.activeMetadataSnapshotId,

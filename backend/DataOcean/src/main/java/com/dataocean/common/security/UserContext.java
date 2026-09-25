@@ -4,13 +4,11 @@ import com.dataocean.common.exception.BusinessException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
-import java.util.List;
-
 /**
  * 用户上下文工具类
  * <p>
  * 提供静态方法从 Spring Security 上下文中获取当前登录用户信息，
- * 供 Service 层和其他组件便捷获取当前操作用户的 ID、用户名、角色等。
+ * 供 Service 层和其他组件便捷获取当前操作用户的 ID、用户名等身份信息。
  * </p>
  */
 public final class UserContext {
@@ -61,24 +59,6 @@ public final class UserContext {
      */
     public static String currentRealName() {
         return currentUser().getRealName();
-    }
-
-    /**
-     * 获取当前登录用户的角色列表
-     *
-     * @return 角色编码列表
-     */
-    public static List<String> currentRoles() {
-        return currentUser().getRoles();
-    }
-
-    /**
-     * 获取当前登录用户的权限列表
-     *
-     * @return 权限标识列表
-     */
-    public static List<String> currentPermissions() {
-        return currentUser().getPermissions();
     }
 
     /**

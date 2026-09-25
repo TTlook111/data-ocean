@@ -12,52 +12,89 @@ DataOcean 是企业级 NL2SQL 智能数据查询与治理平台。前端服务�
 
 ## 权限模型（核心）
 
+**前端不持有角色或权限数组，也不再按权限码裁剪任何东西。**
+判权的唯一来源是 Java 返回的 IAM-SIMPLE-1 能力摘要（capability snapshot）。
+
 ### 数据流
 
 ```
-登录 → LoginResult { roles, permissions } → Pinia auth store → 组件消费
-     → 同时调 /api/auth/me 获取 CurrentUser 补充信息
+登录 → LoginResult { token, user }（已不含 roles / permissions）
+     → Pinia auth store 只存 token 与身份字段
+     → 需要判权时：useIamS1Store().load() → 拉取能力摘要
+     → 组件按能力决定可见性与可用性
 ```
 
-### 权限粒度
+- `api/auth.ts` 的 `LoginResult` / `CurrentUser` **不再有** `roles` / `permissions` 字段。
+- 旧写法 `auth.user?.permissions?.includes('xxx:manage')` **已失效**：`auth.user` 上根本没有该字段，
+  表达式恒为 `false`，会把有权限的按钮判成无权限。**不要再用。**
+- Java 始终在服务端强制校验；前端能力摘要只影响显示，**不是**安全边界。
 
-| 权限标识 | 含义 | 对应页面/功能 |
-|---------|------|-------------|
-| `*` | 超级管理员，拥有所有权限 | 全部 |
-| `user:manage` | 用户管理 | `/admin/access/organization?tab=users` |
-| `role:view` | 角色查看 | `/admin/access/organization?tab=roles` |
-| `department:manage` | 部门管理 | `/admin/access/organization?tab=departments` |
-| `datasource:manage` | 数据源管理 | `/admin/data-sources` |
-| （无特殊权限） | 普通用户 | `/query`, `/profile` |
+### 能力摘要 API（`stores/iamS1.ts`）
 
-> `/admin/users`、`/admin/roles`、`/admin/departments`、`/admin/datasources` 是重构前的旧 URL，当前不再由 `router/index.ts` 兼容或重定向；新代码只能引用正式路由。
+| 名称 | 用途 |
+| --- | --- |
+| `iamS1.load(force?)` | 拉取能力摘要（幂等，已加载则跳过；`force` 强制刷新） |
+| `iamS1.hasAnyAdminCapability` | 能否进入 `/admin/*`（路由守卫用） |
+| `iamS1.systemAdmin` | 是否为系统管理员 |
+| `iamS1.hasGlobal(code)` | 是否拥有某个全局功能码 |
+| `iamS1.canOnDatasource(code, datasourceId?)` | 在指定数据源（或数据集）上是否拥有该功能码 |
+| `iamS1.queryUse` / `viewSql` / `exportResult` | 问数、查看 SQL、导出结果三项用户端能力 |
+| `iamS1.globalFunctions` / `datasourceCapabilities` | 原始能力列表（优先用上面的读方法） |
+| `iamS1.errorMessage` | 摘要读取失败原因；页面必须显式展示，**不得降级为空能力或全零统计** |
+
+功能码是 Java 侧冻结的固定目录（54 项，如 `security:permission:view`、`governance:check`），
+前端**不得自造**功能码。
 
 ### 前端权限使用规则
 
-1. **导航可见性**：轨道 A 已通过“一级业务域 + 二级工作区都在左侧侧栏”。`router/adminNavigation.ts` 的 `ADMIN_WORKSPACES` 继续作为工作区元数据来源；`AdminWorkspaceNav.vue` 已删除，内容区不得恢复全局二级导航。
-   > 轨道 A 整改期间**不按旧权限码裁剪菜单**：使用真实 `*` 超级管理员账号，七个业务域和工作区全部可见。菜单权限的重新设计在轨道 B 实施，详见 `docs/development/DataOcean后台重构状态与整改计划.md`。
+1. **导航可见性**：七个一级业务域与二级工作区均放在左侧侧栏，`router/adminNavigation.ts` 的
+   `ADMIN_WORKSPACES` 是唯一工作区元数据来源；内容区不得恢复全局二级导航。
 
-   **导航项的两条约定**（2026-09-12 起）：
-   - **高亮判定用路由显式声明的 key，不用路径前缀匹配。** `AdminDomainNav` 用 `route.meta.domainKey`，侧栏二级入口用 `route.meta.workspaceKey` 做等值比较。路径前缀匹配会因 `/admin/governance` 是 `/admin/governance/issues` 的前缀而同时高亮两项。新增路由时必须填对 `domainKey` / `workspaceKey`。
-   - **导航链接要继承跨工作区上下文。** 两级导航都通过 `utils/adminNavigation.ts` 的 `buildContextQuery(contextMode, source)` 构造 `:to`，按目标工作区的 `contextMode` 决定是否带上 `datasourceId` / `snapshotId`（来源优先取 URL 参数，缺失时回落 `adminContext` store）。用白名单构造，**不要**复制当前 `route.query`——`tab`、`page`、筛选项属于页面本地状态，泄漏到目标页会与目标页自己的默认值冲突。目的：URL 自描述，可分享、可在刷新和前进后退时恢复。
-2. **路由守卫**：`guards.ts` 只做登录校验和后台入口校验（`hasAdminAccess`），无后台权限时重定向到 `/query`。轨道 A 由真实 `*` 超级管理员验收，后台路由**不使用** `meta.permission`；轨道 B 再按权限模型改造消费层。
-3. **页面内按钮/操作**：需要在组件内根据 permissions 控制。模式：
+   **导航项的三条约定**：
+   - **高亮判定用路由显式声明的 key，不用路径前缀匹配。** `AdminDomainNav` 用 `route.meta.domainKey`，
+     侧栏二级入口用 `route.meta.workspaceKey` 做等值比较。路径前缀匹配会因 `/admin/governance` 是
+     `/admin/governance/issues` 的前缀而同时高亮两项。新增路由时必须填对这两个 meta。
+   - **导航链接要继承跨工作区上下文。** 通过 `utils/adminNavigation.ts` 的
+     `buildContextQuery(contextMode, source)` 构造 `:to`，按目标工作区的 `contextMode` 决定是否带上
+     `datasourceId` / `snapshotId`（来源优先 URL 参数，缺失时回落 `adminContext` store）。用白名单构造，
+     **不要**复制当前 `route.query`——`tab`、`page`、筛选项属于页面本地状态，泄漏到目标页会与目标页
+     默认值冲突。目的：URL 自描述，可分享、可在刷新和前进后退时恢复。
+   - **一级域的跳转目标由 `findDomainHome(domainKey)` 从 `ADMIN_WORKSPACES` 推导**，不要在导航组件里
+     硬编码路径。曾出现 `access` 域被写成裸域路径 `/admin/access`，而路由表只有 `/admin/access/iam`
+     等子路径，点击直接落到 404。`utils/adminNavigation.test.ts` 现有断言守着这条不变量。
+2. **路由守卫**：`router/guards.ts` 先 `await iamS1.load()`，再用 `iamS1.hasAnyAdminCapability` 决定能否进
+   `/admin/*`，否则重定向 `/query`。后台路由**不使用** `meta.permission`。能力摘要读取失败时按"无能力"
+   处理，**不静默回退旧权限**。
+3. **页面内按钮/操作**：按能力码判断，例如：
    ```vue
-   const auth = useAuthStore()
-   const canManage = computed(() =>
-     auth.user?.permissions?.includes('*') || auth.user?.permissions?.includes('xxx:manage')
-   )
+   const iamS1 = useIamS1Store()
+   const canViewGrants = computed(() => iamS1.hasGlobal('security:permission:view'))
+   const canQuery = computed(() => iamS1.queryUse)
    ```
-4. **工作台首页**：必须根据用户权限展示不同的待办、风险、生命周期状态和统计卡片。管理员看治理入口，普通用户看查询入口。
-5. **新增后台页面归属**：新增 `/admin/*` 页面前，先读 `docs/development/DataOcean后台重构状态与整改计划.md` 的导航决策（工作台、数据接入、数据资产、数据治理、语义中心、权限与组织、运营与平台）和该业务域下已有的二级工作区。一级与二级均放在侧栏；不要在业务域外新建一级入口，详情页和 Tab 不作为二级菜单。
+   S1 正式页面不做前端细粒度拦截：页面按能力摘要显示明确中文提示，后端始终强制校验。
+4. **工作台首页**：按能力摘要展示不同的待办、风险、生命周期状态和统计卡片。管理员看治理入口，
+   普通用户看查询入口。
+5. **新增后台页面归属**：新增 `/admin/*` 页面前，先读
+   `../docs/development/completed/DataOcean后台重构状态与整改计划.md` 的导航决策（工作台、数据接入、数据资产、
+   数据治理、语义中心、权限与组织、运营与平台）和该业务域下已有的二级工作区。一级与二级均放在侧栏；
+   不要在业务域外新建一级入口，详情页和 Tab 不作为二级菜单。
 
-### 角色与页面对应关系
+### 旧权限体系已删除（2026-09-25）
 
-| 角色 | 可见页面 | 工作台展示重点 |
-|------|---------|-------------|
-| 超级管理员 | 全部 | 治理统计 + 所有快捷入口 |
-| 数据治理员 | 数据源管理、元数据相关 | 数据源健康 + 治理任务 |
-| 普通用户 | 问答端、个人资料 | 查询入口 + 最近查询 |
+轨道 B 的 B6 已移除旧权限体系：`sys_role`、`sys_permission`、`sys_user_role`、`sys_role_permission`、
+`datasource_access`、`datasource_access_policy` 六张表已在 `V58` 删除，对应的 Controller、Service、
+前端页面与 API 模块均已删除。因此：
+
+- `/api/admin/roles`、`/api/admin/permissions`、`/api/admin/access-policies`、
+  `/api/admin/datasource-access`、`/api/admin/access-approvals` **都不存在了**，新代码不得引用。
+- `frontend/src/api/admin/permission.ts` 与 `api/query.ts` 已删除；问数走 `api/iamS1.ts`。
+- 权限与组织域只有三个正式页面：`/admin/access/iam`（授权配置）、`/admin/access/iam-approvals`
+  （访问申请与审批）、`/admin/access/iam-organization`（组织、角色与负责源）。
+- 用户与部门仍由 `/api/admin/users`、`/api/admin/departments` 管理（`api/admin/user.ts`），
+  但 `UserItem` 上的 `roleIds` / `roleNames` / `roleCodes` **固定为空**——角色改由 S1 绑定表达，
+  不要把旧角色显示成新权限角色。
+- `/admin/users`、`/admin/roles`、`/admin/departments`、`/admin/datasources` 是重构前的旧 URL，
+  不兼容也不重定向；新代码只能引用正式路由。
 
 ## 视觉规范
 
@@ -184,7 +221,7 @@ function extractError(error: unknown, fallback: string): string {
 开发任何新页面前，确认：
 1. [ ] 该页面的目标用户是谁？属于哪个一级业务域和二级工作区？
 2. [ ] 路由是否使用了状态文档导航决策中的正式 URL，且 meta 包含 `title` / `domainKey` / `workspaceKey` / `contextMode`？（后台路由**不**添加 `meta.permission`）
-3. [ ] 页面归属和侧栏层级是否符合 `docs/development/DataOcean后台重构状态与整改计划.md`？
+3. [ ] 页面归属和侧栏层级是否符合 `../docs/development/completed/DataOcean后台重构状态与整改计划.md`？
 4. [ ] 如果需要导航入口，是加到 `router/adminNavigation.ts` 的 `ADMIN_WORKSPACES`，而不是侧边栏直接加技术模块？
 5. [ ] 如果页面需要数据源/快照范围，是否复用了 `ScopeBar` 与 `adminScope`，而没有在页面内另建一套数据源选择器？
 6. [ ] 状态和允许的操作是否**以后端返回的状态为准**，而不是前端自行推断？阻断原因是否直接复用 readiness 的 `blockReasons`？

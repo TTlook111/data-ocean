@@ -5,7 +5,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { Check, ChevronDown, Database, History, LogOut, MessageSquarePlus, RefreshCw, Search, ShieldCheck, Trash2, UserCog, UserRound } from 'lucide-vue-next'
-import type { DatasourceReadiness, UserDatasourceItem } from '../../api/datasource'
+import type { DatasourceReadiness } from '../../api/admin/datasource'
+import type { IamS1DatasourceRef } from '../../api/iamS1'
 import type { LocalSession } from '../../composables/useQuerySession'
 import { useIamS1Store } from '../../stores/iamS1'
 
@@ -18,7 +19,7 @@ onMounted(() => {
 })
 
 const props = defineProps<{
-  datasources: UserDatasourceItem[]
+  datasources: IamS1DatasourceRef[]
   readinessMap: Record<number, DatasourceReadiness>
   selectedId: number | undefined
   datasourceSessions: LocalSession[]
@@ -86,7 +87,7 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
         <span class="source-icon"><Database :size="17" /></span>
         <span class="source-copy">
           <strong>{{ selectedDatasource?.name || '选择数据源' }}</strong>
-          <small v-if="selectedDatasource"><i :class="{ ready: selectedReadiness?.askable }"></i>{{ selectedReadiness?.askable ? '数据源已就绪' : (selectedReadiness?.stageLabel || selectedDatasource.databaseName) }}</small>
+          <small v-if="selectedDatasource"><i :class="{ ready: selectedReadiness?.askable }"></i>{{ selectedReadiness?.askable ? '数据源已就绪' : (selectedReadiness?.stageLabel || '当前数据源') }}</small>
         </span>
         <ChevronDown :size="16" class="source-chevron" />
       </button>
@@ -98,7 +99,7 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
         <template v-else>
           <button v-for="datasource in datasources" :key="datasource.id" type="button" class="datasource-option" :class="{ active: datasource.id === selectedId }" @click="chooseDatasource(datasource.id)">
             <Database :size="15" />
-            <span><strong>{{ datasource.name }}</strong><small>{{ readinessMap[datasource.id]?.askable ? '可询问' : (readinessMap[datasource.id]?.stageLabel || datasource.databaseName) }}</small></span>
+            <span><strong>{{ datasource.name }}</strong><small>{{ readinessMap[datasource.id]?.askable ? '可询问' : (readinessMap[datasource.id]?.stageLabel || '当前数据源') }}</small></span>
             <Check v-if="datasource.id === selectedId" :size="15" />
           </button>
         </template>
@@ -136,13 +137,6 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
           <button type="button" role="menuitem" @click="runUserCommand('profile')"><UserRound :size="16" /><span>个人资料</span></button>
           <button type="button" role="menuitem" @click="runUserCommand('password')"><ShieldCheck :size="16" /><span>修改密码</span></button>
           <button v-if="canEnterAdmin" type="button" role="menuitem" @click="runUserCommand('admin')"><UserCog :size="16" /><span>后台管理</span></button>
-          <RouterLink
-            v-if="iamS1.queryUse"
-            class="menu-link"
-            role="menuitem"
-            to="/query/iam-s1"
-            @click="userMenuOpen = false"
-          ><ShieldCheck :size="16" /><span>IAM-SIMPLE-1 安全问数</span></RouterLink>
           <div class="menu-divider"></div>
           <button type="button" role="menuitem" class="danger" @click="runUserCommand('logout')"><LogOut :size="16" /><span>退出登录</span></button>
         </div>

@@ -12,21 +12,24 @@ import { computed } from 'vue'
 import { useRoute, type RouteLocationRaw } from 'vue-router'
 import { ADMIN_DOMAIN_KEYS, ADMIN_WORKSPACES, type AdminWorkspace } from '../../router/adminNavigation'
 import { useAdminContextStore } from '../../stores/adminContext'
-import { buildContextQuery, findWorkspaceContextMode, type AdminContextSource } from '../../utils/adminNavigation'
+import { buildContextQuery, findDomainHome, findWorkspaceContextMode, type AdminContextSource } from '../../utils/adminNavigation'
 
 const props = defineProps<{ collapsed: boolean }>()
 const route = useRoute()
 const context = useAdminContextStore()
 const emit = defineEmits<{ navigate: []; 'expand-sidebar': [] }>()
 
+// 刻意不在这里写死跳转路径：一级域的目标由 ADMIN_WORKSPACES 推导（见 targetFor）。
+// 曾经这里每个域各带一个 path，其中 '权限与组织' 写成裸域路径 /admin/access，
+// 而路由表里只有 /admin/access/iam 等子路径 → 点击落到 404。
 const domains = [
-  { key: ADMIN_DOMAIN_KEYS.workbench, label: '工作台', path: '/admin/workbench', icon: LayoutDashboard },
-  { key: ADMIN_DOMAIN_KEYS.dataEntry, label: '数据接入', path: '/admin/data-sources', icon: Database },
-  { key: ADMIN_DOMAIN_KEYS.dataAssets, label: '数据资产', path: '/admin/assets', icon: FolderKanban },
-  { key: ADMIN_DOMAIN_KEYS.governance, label: '数据治理', path: '/admin/governance', icon: SlidersHorizontal },
-  { key: ADMIN_DOMAIN_KEYS.semantics, label: '语义中心', path: '/admin/semantics/glossaries', icon: BookOpen },
-  { key: ADMIN_DOMAIN_KEYS.access, label: '权限与组织', path: '/admin/access', icon: ShieldCheck },
-  { key: ADMIN_DOMAIN_KEYS.operations, label: '运营与平台', path: '/admin/operations/queries', icon: BarChart3 },
+  { key: ADMIN_DOMAIN_KEYS.workbench, label: '工作台', icon: LayoutDashboard },
+  { key: ADMIN_DOMAIN_KEYS.dataEntry, label: '数据接入', icon: Database },
+  { key: ADMIN_DOMAIN_KEYS.dataAssets, label: '数据资产', icon: FolderKanban },
+  { key: ADMIN_DOMAIN_KEYS.governance, label: '数据治理', icon: SlidersHorizontal },
+  { key: ADMIN_DOMAIN_KEYS.semantics, label: '语义中心', icon: BookOpen },
+  { key: ADMIN_DOMAIN_KEYS.access, label: '权限与组织', icon: ShieldCheck },
+  { key: ADMIN_DOMAIN_KEYS.operations, label: '运营与平台', icon: BarChart3 },
 ]
 
 const activeKey = computed(() => String(route.meta.domainKey || (route.path === '/admin/workbench' ? ADMIN_DOMAIN_KEYS.workbench : '')))
@@ -55,8 +58,10 @@ const contextSource = computed<AdminContextSource>(() => ({
 }))
 
 // 一级导航进入该域第一个工作区，并按目标工作区的 contextMode 继承上下文。
-function targetFor(domain: { path: string }): RouteLocationRaw {
-  return { path: domain.path, query: buildContextQuery(findWorkspaceContextMode(domain.path), contextSource.value) }
+// 目标路径由 ADMIN_WORKSPACES 推导而不是各自硬编码，保证一级入口永远指向真实路由。
+function targetFor(domain: { key: string }): RouteLocationRaw {
+  const { path } = findDomainHome(domain.key)
+  return { path, query: buildContextQuery(findWorkspaceContextMode(path), contextSource.value) }
 }
 </script>
 

@@ -20,10 +20,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langchain_core.documents import Document
 
-from dataocean.agent.state import AgentState
-from dataocean.agent.nodes.sql_generator import run_sql_generator
-from dataocean.agent.nodes.sql_validator import run_sql_validator
-from dataocean.agent.nodes.sql_executor import run_sql_executor
 from dataocean.core.config import reload_config, get_config_version
 from dataocean.rag.reranker import DataOceanReranker, rerank
 from dataocean.rag.schema import ChunkItem, RetrieveRequest, RetrievedSchema
@@ -194,124 +190,6 @@ class TestRerankerClamp:
 
 # ============================================================
 # Agent Retry Count 边界修复回归测试
-# ============================================================
-
-class TestAgentRetryCount:
-    """Agent retry_count 边界修复"""
-
-    @pytest.mark.asyncio
-    async def test_validator_reject_increments_retry(self):
-        """SQL 校验失败时递增 retry_count"""
-        base_state = {
-            "task_id": "test-001",
-            "question": "test",
-            "datasource_id": 1,
-            "user_id": 1,
-            "generated_sql": "INVALID SQL",
-            "error_message": "",
-            "retry_count": 0,
-            "user_permissions": {
-                "allowed_tables": ["orders"],
-                "table_scope_mode": "ALLOWLIST",
-            },
-        }
-
-        with patch("dataocean.agent.nodes.sql_validator.validate") as mock_validate:
-            mock_validate.return_value = MagicMock(
-                passed=False,
-                reasons=["SQL syntax error"],
-            )
-
-            result = await run_sql_validator(base_state)
-
-            assert result.get("validation_result", {}).get("valid") is False
-            # REJECT level 不递增 retry_count
-            assert result.get("retry_count", 0) == 0
-
-    @pytest.mark.asyncio
-    async def test_executor_failure_increments_retry(self):
-        """SQL 执行失败时递增 retry_count"""
-        base_state = {
-            "task_id": "test-001",
-            "question": "test",
-            "datasource_id": 1,
-            "user_id": 1,
-            "generated_sql": "SELECT 1",
-            "validation_result": {
-                "valid": True,
-                "rewritten_sql": "SELECT 1",
-            },
-            "error_message": "",
-            "retry_count": 0,
-            "connection_config": {
-                "host": "localhost",
-                "port": 3306,
-                "database": "test",
-                "username": "root",
-                "password": "test",
-            },
-        }
-
-        with patch("dataocean.sandbox.executor.execute", new_callable=AsyncMock) as mock_execute, \
-             patch("dataocean.agent.nodes.sql_executor.sse.emit_progress", new_callable=AsyncMock):
-            mock_execute.return_value = MagicMock(
-                success=False,
-                columns=[],
-                rows=[],
-                row_count=0,
-                execution_time_ms=10,
-                error="Connection failed",
-            )
-
-            result = await run_sql_executor(base_state)
-
-            assert result.get("execution_result", {}).get("error") is not None
-            assert result.get("retry_count", 0) == 1
-
-
-# ============================================================
-# 模板变量一致性回归测试
-# ============================================================
-
-class TestTemplateVariableConsistency:
-    """模板变量一致性"""
-
-    @pytest.mark.asyncio
-    async def test_sql_generator_uses_all_variables(self):
-        """SQL 生成器使用所有变量"""
-        base_state = {
-            "task_id": "test-001",
-            "question": "查询订单",
-            "rewritten_query": "查询订单列表",
-            "extracted_intent": {"dimensions": [], "metrics": [], "filters": []},
-            "schema_context": [
-                {
-                    "table_name": "orders",
-                    "chunk_type": "TABLE_DESC",
-                    "chunk_text": "订单表",
-                    "confidence_score": 90,
-                    "governance_status": "NORMAL",
-                }
-            ],
-            "confidence_scores": {"orders": 90},
-            "conversation_history": [],
-            "error_message": "",
-            "retry_count": 0,
-            "generated_sql": "",
-        }
-
-        mock_response = "```sql\nSELECT * FROM orders LIMIT 100\n```\ntest"
-
-        with patch("dataocean.agent.nodes.sql_generator.call_llm", new_callable=AsyncMock, return_value=mock_response), \
-             patch("dataocean.agent.nodes.sql_generator.render_prompt_with_metadata", new_callable=AsyncMock, return_value=("prompt", 1)):
-            result = await run_sql_generator(base_state)
-
-            assert result.get("generated_sql") is not None
-            assert "SELECT" in result.get("generated_sql", "")
-
-
-# ============================================================
-# 配置热重载竞态修复回归测试
 # ============================================================
 
 class TestConfigReloadRaceCondition:

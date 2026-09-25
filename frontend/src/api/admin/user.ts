@@ -37,37 +37,6 @@ export interface UserPayload {
   roleIds?: number[]
 }
 
-export interface RoleItem {
-  id: number
-  roleCode: string
-  roleName: string
-  description?: string
-  status: number
-  createdAt?: string
-}
-
-export interface RolePayload {
-  roleCode: string
-  roleName: string
-  description?: string
-  status?: number
-  permissionIds?: number[]
-}
-
-export interface PermissionItem {
-  id: number
-  permissionCode: string
-  permissionName: string
-  module: string
-  description?: string
-}
-
-export interface PermissionGroup {
-  module: string
-  moduleName: string
-  permissions: PermissionItem[]
-}
-
 export interface DepartmentNode {
   id: number
   parentId?: number
@@ -133,95 +102,9 @@ export async function exportUsers(params: UserQuery) {
   return data
 }
 
-export async function listRoles() {
-  const { data } = await http.get<ApiResult<RoleItem[]>>('/api/admin/roles')
-  return data
-}
-
-export async function createRole(payload: RolePayload) {
-  const { data } = await http.post<ApiResult<{ id: number }>>('/api/admin/roles', payload)
-  return data
-}
-
-export async function updateRole(id: number, payload: RolePayload) {
-  const { data } = await http.put<ApiResult<null>>(`/api/admin/roles/${id}`, payload)
-  return data
-}
-
-export async function deleteRole(id: number) {
-  const { data } = await http.delete<ApiResult<null>>(`/api/admin/roles/${id}`)
-  return data
-}
-
-export async function listRolePermissionIds(roleId: number) {
-  const { data } = await http.get<ApiResult<number[]>>(`/api/admin/roles/${roleId}/permissions`)
-  return data
-}
-
-export async function updateRolePermissions(roleId: number, permissionIds: number[]) {
-  const { data } = await http.put<ApiResult<null>>(`/api/admin/roles/${roleId}/permissions`, { permissionIds })
-  return data
-}
-
-export async function listPermissionsTree() {
-  const { data } = await http.get<ApiResult<PermissionGroup[]>>('/api/admin/permissions/tree')
-  return data
-}
-
-export interface PermissionItem {
-  id: number
-  permissionCode: string
-  permissionName: string
-  module: string
-  description?: string
-}
-
-export interface PermissionPayload {
-  permissionCode: string
-  permissionName: string
-  module: string
-  description?: string
-}
-
-/** 权限项平铺列表。写操作需要 `role:manage`（后端 `PermissionController` 的方法级限制） */
-export async function listPermissions() {
-  const { data } = await http.get<ApiResult<PermissionItem[]>>('/api/admin/permissions')
-  return data
-}
-
-export async function createPermission(payload: PermissionPayload) {
-  const { data } = await http.post<ApiResult<{ id: number }>>('/api/admin/permissions', payload)
-  return data
-}
-
-export async function updatePermission(id: number, payload: PermissionPayload) {
-  const { data } = await http.put<ApiResult<null>>(`/api/admin/permissions/${id}`, payload)
-  return data
-}
-
-export async function deletePermission(id: number) {
-  const { data } = await http.delete<ApiResult<null>>(`/api/admin/permissions/${id}`)
-  return data
-}
-
 /** 用户详情。开发指导 §7.15 要求用户详情显示所属部门、角色和状态 */
 export async function getUser(id: number) {
   const { data } = await http.get<ApiResult<UserItem>>(`/api/admin/users/${id}`)
-  return data
-}
-
-export async function listRoleUsers(roleId: number) {
-  const { data } = await http.get<ApiResult<UserItem[]>>(`/api/admin/roles/${roleId}/users`)
-  return data
-}
-
-export async function assignRoleToUser(roleId: number, userId: number) {
-  const { data } = await http.post<ApiResult<null>>(`/api/admin/roles/${roleId}/users`, { userId })
-  return data
-}
-
-export async function removeRoleFromUser(roleId: number, userId: number) {
-  const { data } = await http.delete<ApiResult<null>>(`/api/admin/roles/${roleId}/users/${userId}`)
   return data
 }
 

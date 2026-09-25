@@ -10,12 +10,10 @@ import com.dataocean.module.permission.s1.service.IamS1AuditEventService;
 import com.dataocean.module.permission.s1.service.IamS1PermissionRevisionService;
 import com.dataocean.module.user.entity.SysDepartment;
 import com.dataocean.module.user.entity.SysUser;
-import com.dataocean.module.user.entity.SysUserRole;
 import com.dataocean.module.user.entity.dto.UserCreateDTO;
 import com.dataocean.module.user.entity.dto.UserUpdateDTO;
 import com.dataocean.module.user.mapper.DepartmentMapper;
 import com.dataocean.module.user.mapper.UserMapper;
-import com.dataocean.module.user.mapper.UserRoleMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -37,6 +35,12 @@ import static org.mockito.Mockito.when;
 
 /**
  * 新用户接口不得写入旧角色事实；删除必须停用 S1 绑定并记录 revision。
+ * <p>
+ * B6 批次 3 说明：原先还有 4 处 {@code verify(userRoleMapper, never())} 断言
+ * （证明服务不去碰旧 {@code sys_user_role} 表）。随旧 {@code UserRoleMapper} /
+ * {@code SysUserRole} 删除，这些断言已无法编写——该约束现在由**编译期**保证，
+ * 比运行期断言更强，故不是覆盖缺失。
+ * </p>
  */
 @ExtendWith(MockitoExtension.class)
 class UserServiceImplS1GuardTest {
@@ -45,8 +49,6 @@ class UserServiceImplS1GuardTest {
     private UserMapper userMapper;
     @Mock
     private DepartmentMapper departmentMapper;
-    @Mock
-    private UserRoleMapper userRoleMapper;
     @Mock
     private IamS1UserRoleMapper iamS1UserRoleMapper;
     @Mock
@@ -77,7 +79,6 @@ class UserServiceImplS1GuardTest {
                 .hasMessageContaining("roleIds");
 
         verify(userMapper, never()).insert(any(SysUser.class));
-        verify(userRoleMapper, never()).insert(any(SysUserRole.class));
         verify(revisionService, never()).record(any(), any(), any(), any(), any());
     }
 
@@ -92,8 +93,6 @@ class UserServiceImplS1GuardTest {
                 .hasMessageContaining("roleIds");
 
         verify(userMapper, never()).updateById(any(SysUser.class));
-        verify(userRoleMapper, never()).insert(any(SysUserRole.class));
-        verify(userRoleMapper, never()).delete(any());
     }
 
     @Test
@@ -125,7 +124,6 @@ class UserServiceImplS1GuardTest {
                 .hasMessageContaining("最后一个有效 S1 系统管理员");
 
         verify(userMapper, never()).deleteById(9L);
-        verify(userRoleMapper, never()).delete(any());
         verify(iamS1UserRoleMapper, never()).updateById(any(IamS1UserRole.class));
         verify(revisionService, never()).record(any(), any(), any(), any(), any());
     }

@@ -2,6 +2,7 @@ package com.dataocean.module.fieldtag.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.LoginUser;
+import com.dataocean.module.fieldtag.entity.FeedbackReview;
 import com.dataocean.module.fieldtag.entity.UserFeedback;
 import com.dataocean.module.fieldtag.entity.dto.FeedbackRequestDTO;
 import com.dataocean.module.fieldtag.mapper.FeedbackReviewMapper;
@@ -12,6 +13,8 @@ import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
+import com.dataocean.module.permission.s1.entity.vo.IamS1AuthorizationDecision;
+import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -20,6 +23,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -27,8 +31,12 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
+import static org.mockito.ArgumentMatchers.any;
 
 @ExtendWith(MockitoExtension.class)
 class UserFeedbackServiceImplTest {
@@ -55,7 +63,13 @@ class UserFeedbackServiceImplTest {
     private StringRedisTemplate stringRedisTemplate;
 
     @Mock
+    private ValueOperations<String, String> valueOperations;
+
+    @Mock
     private ApplicationEventPublisher eventPublisher;
+
+    @Mock
+    private IamS1AuthorizationResolver authorizationResolver;
 
     private UserFeedbackServiceImpl service;
 
@@ -69,7 +83,8 @@ class UserFeedbackServiceImplTest {
                 queryTaskMapper,
                 confidenceCalculator,
                 stringRedisTemplate,
-                eventPublisher
+                eventPublisher,
+                authorizationResolver
         );
         setCurrentUser(7L);
     }
@@ -103,6 +118,34 @@ class UserFeedbackServiceImplTest {
         verifyNoInteractions(feedbackMapper, confidenceCalculator, stringRedisTemplate);
     }
 
+    @Test
+    void dislikeWithS1FieldGovernanceManageBypassesReview() {
+        FeedbackRequestDTO request = buildRequest();
+        request.setFeedbackType(UserFeedback.TYPE_DISLIKE);
+        when(dbColumnMetaMapper.selectById(20L)).thenReturn(buildColumn(1L));
+        when(queryTaskMapper.selectById(10L)).thenReturn(buildTask(7L, 1L));
+        when(feedbackMapper.selectCount(any())).thenReturn(0L);
+        when(stringRedisTemplate.hasKey(any())).thenReturn(false);
+        when(stringRedisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(authorizationResolver.resolveAdminAction(7L, "governance:field:manage", 1L))
+                .thenReturn(IamS1AuthorizationDecision.allow("governance:field:manage", 1L));
+
+        service.submitFeedback(request);
+
+        verify(confidenceCalculator).adjustScore(20L, "ADMIN_DISLIKE_CONFIRMED", 7L, 10L);
+        verify(reviewMapper, never()).insert(any(FeedbackReview.class));
+    }
+
+    @Test
+    void oldRoleWithoutS1FieldGovernanceManageStaysInReview() {
+        when(authorizationResolver.resolveAdminAction(7L, "governance:field:manage", 1L))
+                .thenReturn(IamS1AuthorizationDecision.deny(
+                        "NO_S1_BINDING", "governance:field:manage", 1L));
+
+        assertThat(service.canBypassReview(7L, 1L)).isFalse();
+        verify(authorizationResolver).resolveAdminAction(7L, "governance:field:manage", 1L);
+    }
+
     private FeedbackRequestDTO buildRequest() {
         FeedbackRequestDTO request = new FeedbackRequestDTO();
         request.setQueryTaskId(10L);
@@ -132,8 +175,6 @@ class UserFeedbackServiceImplTest {
                 "tester",
                 "password",
                 "tester",
-                List.of("USER"),
-                List.of("field-tag:manage"),
                 List.of(new SimpleGrantedAuthority("field-tag:manage"))
         );
         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(

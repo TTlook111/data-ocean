@@ -165,8 +165,6 @@ class KnowledgeDocLifecycleServiceTest {
                 "admin",
                 "password",
                 "管理员",
-                List.of("ADMIN"),
-                List.of("knowledge:manage"),
                 List.of(new SimpleGrantedAuthority("knowledge:manage"))
         );
         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(

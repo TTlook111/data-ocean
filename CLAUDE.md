@@ -25,7 +25,7 @@ Spring Boot Java gateway
         | internal HTTP (RestClient)
         v
 Python FastAPI AI service
-  - query rewrite, Schema RAG, SQL generation
+  - S1 query orchestration (RAG retrieval, SQL generation on the managed prompt template)
   - SQL AST validation and sandbox execution
   - chart generation, chunking, embedding, reranking
         |
@@ -61,29 +61,40 @@ Module status summary:
 | --- | --- |
 | Frontend query app | Core complete |
 | Frontend admin governance app | Core complete |
-| Java user/auth/permission modules | Legacy permission-specific objects remain pending B6 cleanup; IAM-SIMPLE-1 B0–B4 (including B4-A and batches 1–6) code and automation are in `1f0a5f4`; 23 controllers migrated; current code switch commit is `1e2f458`; B5 local-development switch and core browser acceptance are complete on IT-GO-1225, while B6 has not executed |
+| Java user/auth/permission modules | IAM-SIMPLE-1 B0–B4 (including B4-A and batches 1–6) code and automation are in `1f0a5f4`; 23 controllers migrated; code switch commit `1e2f458`; B5 local-development switch and core browser acceptance complete on IT-GO-1225. **B6 executed on `codex/iam-s1-b6-cleanup` (2026-09-25, batches 0–4): the legacy permission system is removed** — `RoleController` / `PermissionController` / `DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController`, the legacy query chain (`QueryController`, `PythonAgentClientImpl`, `PermissionCalculator`, `DatasourceAccessService`), the frontend orphan pages and `api/admin/permission.ts`, and the Python `agent/` package are all deleted; the six legacy tables were dropped by `V58`. `permission_change_log` and `access_approval_request` are kept as read-only history |
 | Java datasource/metadata/governance/versioning modules | Complete; metadata entity graph and event recording are implemented |
 | Java glossary module | Complete; glossary and term approval flow are implemented |
 | Java knowledge/skills.md lifecycle | Complete, with Python chunking integration |
 | Java query/audit/field confidence modules | Core complete; conversation persistence and feedback confidence updates are implemented |
 | Java prompt module | Complete, including template approval workflow and version rollback |
 | Java system/dashboard modules | Complete; AI config management and admin dashboard are implemented |
-| Python Agent workflow | Core complete, with Schema Linking, self-learning few-shot, Redis-backed cache/enrichment, timeout/cancel handling and degraded result propagation |
+| Python S1 query path (`iam_s1`) | Core complete: firewall-filtered model context (schema / RAG / glossary / few-shot / history / summary), a single SQL-generation LLM call rendered from the Java-managed `sql_generation` template, field-usage-enforcing SQL AST validation with output aliasing, parameterised row conditions, explicit source trace, sandbox execution, timeout/cancel handling. **The legacy LangGraph Agent workflow, query rewrite, Schema Linking and LLM self-correction were deleted in B6** |
 | Python RAG/vectorization | Core complete, with token-aware context-enriched chunking, 900/1000-token budget, 150-token overlap, chunk metadata propagation, snapshot-safe fallback, and verified Milvus rebuild semantics |
 | Python SQL sandbox | Core complete, with precise multi-table column rejection |
 | Python chart generation | Complete |
 
-Current status, Track A remediation, and navigation decisions — see `docs/development/DataOcean后台重构状态与整改计划.md`, the single source of truth. For the ordered next-action queue, see `docs/development/后续开发.md`.
+Current status, Track A remediation, and navigation decisions — see `docs/development/completed/DataOcean后台重构状态与整改计划.md`, the single source of truth. For the ordered next-action queue, see `docs/development/后续开发.md`.
 
-Track B targets the simple permission design in `docs/development/guides/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1). B0 through B4, including B4-A and batches 1–6, are merged at `1f0a5f4` on `codex/iam-s1-b5-preparation` (IAM implementation commit `1a6e426`). **23 controllers** are annotation-migrated; batch 6 is **61 handlers**; the B4 automation baseline is Java **557** and frontend Vitest **67**. The current code switch commit is `1e2f458`; it removes the formal legacy organization nav and `/admin/access/organization` route. `RoleController` / `PermissionController` / `DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController` and their services/tables stay on the pre-B6 path. The 22 `IamS1*` permission-domain endpoints remain on explicit guards. `IamS1AuthorizationAspect` must carry `@Aspect` as well as `@Component`. New authorization decisions must read only isolated IAM-SIMPLE-1 facts; do not map or backfill old roles, grants, JWT authorities, or caches. On IT-GO-1225, the local development database completed V51 → V52 → V54 → V55 → V56 → V57 to V57; bootstrap completed for userId=1; the fixed catalog has 54 codes; `iam_s1_data_grant` remains 0; and core service/browser acceptance completed. This is not production evidence or a claim about other machines. Recovery rehearsal on an independent MySQL instance and the two real-user negative scenarios remain gaps; B6 has not executed. V53 is permanently unused; P9 must use V58 or higher. The B5 handbook remains the generic procedure for other environments. Automation passing does not mean B5 is production-complete. Do not map or backfill old grants, mix permission algorithms, or delete old permissions during initial setup.
+Track B targets the simple permission design in `docs/development/completed/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1). B0 through B4, including B4-A and batches 1–6, are merged at `1f0a5f4` on `codex/iam-s1-b5-preparation` (IAM implementation commit `1a6e426`). **23 controllers** are annotation-migrated; batch 6 is **61 handlers**; the B4 automation baseline is Java **557** and frontend Vitest **67**. The current code switch commit is `1e2f458`; it removes the formal legacy organization nav and `/admin/access/organization` route. `RoleController` / `PermissionController` / `DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController` and their services/tables stay on the pre-B6 path. The 22 `IamS1*` permission-domain endpoints remain on explicit guards. `IamS1AuthorizationAspect` must carry `@Aspect` as well as `@Component`. New authorization decisions must read only isolated IAM-SIMPLE-1 facts; do not map or backfill old roles, grants, JWT authorities, or caches. On IT-GO-1225, the local development database completed V51 → V52 → V54 → V55 → V56 → V57 to V57; bootstrap completed for userId=1; the fixed catalog has 54 codes; `iam_s1_data_grant` remains 0; and core service/browser acceptance completed. This is not production evidence or a claim about other machines. Recovery rehearsal on an independent MySQL instance and the two real-user negative scenarios remain gaps.
 
-B0 文档已评审通过；`docs/development/轨道B-B0权限清单与决策冻结.md` 已固化权限消费清单、IAM-SIMPLE-1 独立新表方案、新契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线。B1～B4 代码与自动化验证已合入 `1f0a5f4`，B4 最新基线为 Java **557**、前端 Vitest **67**。IT-GO-1225 本机开发环境的 B5 切换和核心验收已完成，但恢复演练与两个真实用户负向场景仍缺；`iam_s1_data_grant` 为 0，B6 未执行。V53 永久不使用，P9 使用 V58 或更高未占用版本。B5 准备手册仍保留真实环境的只读 SQL 门禁、`mysqldump --result-file`、禁止覆盖式导入和独立 MySQL 恢复演练要求；该通用流程不等于其他环境已执行 B5。账号、部门、数据源、元数据、知识、会话、审计等业务数据保留，旧权限专用对象只在 B6 按冻结清单处理。
+B6 executed on `codex/iam-s1-b6-cleanup` (2026-09-25). Batches 0–4 are done and each was committed separately with its own full test run: the legacy permission system is deleted end to end (see the execution record in `docs/development/completed/轨道B-B6删除清单与执行顺序.md`). Highlights and the traps that were caught while doing it:
+
+- The legacy admin endpoints had been **unreachable for a while** before deletion: `UserDetailsServiceImpl` grants only `AUTHENTICATED_USER`, so the 17 `hasAnyAuthority('security:manage', '*')` expressions were already unsatisfiable — they returned 403 to everyone, including admins. What remained was the corpse.
+- The legacy **query** chain, by contrast, was still live (`QueryController` had no authorization annotation and depended on `PermissionCalculator` plus two legacy tables). Retiring it required checking parity first: `IamS1QueryController` is a **superset** of `QueryController` (all 8 old endpoints have counterparts, plus 3 export endpoints).
+- `DataMaskingService` is a **generic capability, not a permission object** — the S1 query path uses it. It moved to `common/security` and only the `PermissionContextVO`-typed overload was deleted. Order matters: deleting the legacy chain first is what makes the move safe, otherwise `common` would depend on `module`.
+- Python's `POST /internal/query/context-summary` is **still called** by the S1 path (`IamS1QueryServiceImpl` → `ConversationContextSummaryService` → `ConversationSummaryClient`). It moved to `dataocean/conversation/` with the route path unchanged.
+- MyBatis SQL resolves at **runtime**, not compile time: two dead `DatasourceMapper` methods still contained `JOIN datasource_access` and had to be removed before the table could be dropped.
+- `authProtocolVersion` / `sessionEpoch` / `iam-s1:session:*` still have **zero** references in Java main code, and `jwt:blacklist:{jti}` / `user:token-version:{userId}` remain the only session-invalidation mechanism. B6 rows 497/498 are still half-done and `tokenVersion` is deliberately still live — build the replacement before removing it.
+
+Test baselines after B6: Java **585**, Python **105** (228 − 123 deleted legacy tests, reconciled file by file), frontend Vitest **73**. V53 is permanently unused and is now moot; the next free version is V59. The B5 handbook remains the generic procedure for other environments. Do not map or backfill old grants, mix permission algorithms, or delete old permissions during initial setup.
+
+B0 文档已评审通过；`docs/development/completed/轨道B-B0权限清单与决策冻结.md` 已固化权限消费清单、IAM-SIMPLE-1 独立新表方案、新契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线。B1～B4 代码与自动化验证已合入 `1f0a5f4`，B4 最新基线为 Java **557**、前端 Vitest **67**。IT-GO-1225 本机开发环境的 B5 切换和核心验收已完成，但恢复演练与两个真实用户负向场景仍缺；`iam_s1_data_grant` 为 0。B6 清理已在 `codex/iam-s1-b6-cleanup` 开始（`fa0ca89`，已推送）但**未收口**：已移除 `LoginUser`/`UserContext` 旧角色权限字段、JWT 的 `roles`/`permissions` claim、`LoginVO`/`CurrentUserVO` 角色权限字段、`UserDetailsServiceImpl` 旧权限加载和前端 `guards.ts`/`stores/auth.ts` 旧权限数组；`DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController`、其服务与 Mapper、前端 `api/admin/permission.ts`、`PermissionCalculatorImpl` 的 Caffeine 权限缓存和旧权限表仍保留。冻结清单第 497/498 行的替代物 `authProtocolVersion` / `sessionEpoch` / `iam-s1:session:*` 在 Java 主代码中为 0 处引用，`jwt:blacklist:{jti}` / `user:token-version:{userId}` 仍是唯一在用的会话失效机制。V53 永久不使用，P9 使用 V58 或更高未占用版本。B5 准备手册仍保留真实环境的只读 SQL 门禁、`mysqldump --result-file`、禁止覆盖式导入和独立 MySQL 恢复演练要求；该通用流程不等于其他环境已执行 B5。账号、部门、数据源、元数据、知识、会话、审计等业务数据保留，旧权限专用对象只在 B6 按冻结清单处理。
 
 - B5 验收摘要（仅 IT-GO-1225 本机）：固定功能目录 54 项，浏览器 Console error/warn 为 0，前端定向测试 6/6、全量 Vitest 67/67、构建和 `git diff --check` 通过；针对 `1e2f458` 的只读 preflight 为 failures=0、exit code=0。
 
 Latest addition:
 
-- **阶段 5–8 审查问题代码修复**（2026-09-12）：历史审查项已处理，包括删除伪入口、补齐“猜你想问”代码链、修复审批列表条件渲染和数据源分页绑定。2026-09-13 真实验收仍发现阻断，当前边界和整改统一见 `docs/development/DataOcean后台重构状态与整改计划.md`。
+- **阶段 5–8 审查问题代码修复**（2026-09-12）：历史审查项已处理，包括删除伪入口、补齐“猜你想问”代码链、修复审批列表条件渲染和数据源分页绑定。2026-09-13 真实验收仍发现阻断，当前边界和整改统一见 `docs/development/completed/DataOcean后台重构状态与整改计划.md`。
   - 附一条可复用的检查结论：`frontend/tsconfig*.json` 未配置 `vueCompilerOptions.strictTemplates`，`vue-tsc` **不校验模板中的组件解析**，未导入的组件能穿过 `npm run build` 且退出码为 0。对「模板引用了不存在的东西」这一类缺陷，**构建通过不构成任何证据**，需要另做「模板 PascalCase 标签 vs script 导入」的脚本化交叉核对。
 
 - **后端缺陷修复轮完成**（2026-09-12，提交 `fcd7bd3`/`af29e6b`/`cbd1ff4` + 前端 `0c852a7`）：修复知识回滚前置校验、知识版本审核状态、术语退回状态机、目录数据源过滤和多数据源同名表列血缘解析。后续真实验收发现的新阻断统一见当前整改文档。
@@ -111,7 +122,7 @@ Recently completed or verified:
 - **阶段五：分类标签与质量深化已完成**（2026-06-14）：(1) 创建 classification 和 tag 表（V39 迁移），预置 PII/数据分级/业务域三类 14 个标签；(2) 实现 Python AutoTagger 标签自动推断器（基于列名模式匹配 PII/业务域标签）；(3) 扩展 metadata_quality_rule 表新增 check_type/check_expression/threshold 字段；(4) 新增 4 条数据级质量规则（空值率、唯一性、外键孤儿、数据陈旧）；(5) 创建 quality_check_result 质量趋势时序表；(6) 标记 PredefinedTag 为 @Deprecated。详见 `docs/development/completed/DataOcean统一执行路线图.md`。
 - **阶段六：权限增强已完成**（2026-06-14）：(1) 为 datasource_access_policy 表添加 priority（策略优先级）、valid_from/valid_until/time_schedule（时间条件）字段（V40 迁移）；(2) 实现基于优先级的策略评估（优先级越低越优先，高优先级 DENY 短路）；(3) 实现时间条件过滤（绝对时间范围 + 周期性时间计划）；(4) 创建 permission_change_log 权限变更审计表；(5) 在策略 CRUD 操作中集成审计日志记录。详见 `docs/development/completed/DataOcean统一执行路线图.md`。
 - **阶段七：事件驱动已完成**（2026-06-14）：(1) 创建 metadata_change_event 表（V41 迁移），记录元数据实体变更历史；(2) 实现 MetadataChangeEventService 事件记录服务；(3) 集成到 SnapshotEntitySyncListener，快照发布时自动记录变更事件；(4) 创建 access_approval_request 表（V41 迁移），支持数据访问审批流程；(5) 实现 AccessApprovalService 审批服务（提交→审批→生成临时 ALLOW 策略→过期自动清理）；(6) 实现 AccessApprovalController 审批 API；(7) 安全约束：BLOCKED/DEPRECATED 表列不允许申请访问，临时策略有有效期和审计记录。详见 `docs/development/completed/DataOcean统一执行路线图.md`。
-- **七个重构阶段全部完成**（2026-06-14）：统一路线图的七个重构阶段（权限治理修复、RAG 重构、实体关系图谱、业务术语表、分类标签与质量深化、权限增强、事件驱动）已全部完成并通过测试。后续新增功能另见 `docs/development/DataOcean后台重构状态与整改计划.md`。
+- **七个重构阶段全部完成**（2026-06-14）：统一路线图的七个重构阶段（权限治理修复、RAG 重构、实体关系图谱、业务术语表、分类标签与质量深化、权限增强、事件驱动）已全部完成并通过测试。后续新增功能另见 `docs/development/completed/DataOcean后台重构状态与整改计划.md`。
 - **P1 通知系统完善完成**（2026-06-21）：新增前端通知铃铛、未读角标、通知下拉和 `frontend/src/api/notification.ts`；字段群体阈值、快照发布/过期事件已接入系统通知，管理员和相关操作人会收到定向通知。
 - **P2 操作日志前端接入完成**（2026-06-21）：新增 `frontend/src/api/admin/operation-log.ts`、`OperationLogList.vue`、`/admin/platform/operation-logs` 路由和运营与平台二级工作区入口，复用后端 `OperationLogController`，权限沿用 `audit:view`。
 - **数据源授权语义补齐**：`V42__datasource_access_effect.sql` 已加入，使数据源授权的 allow/deny 决策显式化。
@@ -181,8 +192,31 @@ Recent RAG lifecycle change:
 Current RAG/NL2SQL follow-up cautions:
 
 - Do not implement datasource-wide force vectorization as "delete old vectors, then write new vectors". Prefer `doc_id`/version-scoped rebuilds or staging writes verified before cleanup.
-- Internal Python APIs currently rely heavily on network isolation; future hardening should add a shared internal token or equivalent guard across `/internal/*`.
+- Internal APIs (`/internal/*` on both services) are protected by a single shared token sent as `X-Internal-Token`; network isolation is no longer the primary control. See the "Internal service token" bullet below.
 - Empty table allowlists need an explicit protocol: "not provided" should not silently mean unrestricted access.
+
+## Internal Service Token
+
+`/internal/*` on both services is protected by one shared token in the `X-Internal-Token` header. It is the only control on those paths — Java's `SecurityConfig` does not treat `/internal/**` as public, and Python relies on router-level dependencies — so treat misconfiguration as a security failure, not a convenience problem.
+
+- **No default value anywhere.** `application.yml` uses `${INTERNAL_TOKEN:}` and `python-service/.env.example` ships `INTERNAL_TOKEN=` empty. If either service starts without a usable token that is a bug, not a feature.
+- **Fail-fast at startup.** `InternalTokenValidator` (Java) and a `Settings` field validator in `python-service/dataocean/core/config.py` reject a missing, blank, whitespace-containing, or shorter-than-32-character token and refuse to start. There is deliberately no profile check: an earlier design gated the guard on `spring.profiles.active`, which was hardcoded to `dev` in tracked config, so the guard never fired in practice.
+- **Single source of truth per service.** Java: `InternalTokenValidator` holds the token; both the inbound filter and the outbound `PythonRestClientConfig` read from it. Python: `settings.internal_token`; the four former `os.getenv("INTERNAL_TOKEN", ...)` call sites now read it.
+- **The two services must share the same value.** A mismatch produces 403s, not a schema error. `schema_retriever` logs 401/403 at warn level for exactly this reason — do not downgrade those back to debug.
+- **Fail-closed, not fail-open.** `InternalTokenFilter` grants `ROLE_INTERNAL` and `SecurityConfig` *requires* that authority for `/internal/**`; the filter and the authorization rule share one `RequestMatcher`. Never revert `/internal/**` to `permitAll()` — that would make "filter skipped" mean "request allowed".
+- **Constant-time comparison, encoding first.** Java uses `MessageDigest.isEqual` on UTF-8 bytes; Python uses `hmac.compare_digest` on UTF-8 bytes. Encoding first matters: header values are decoded as latin-1, so a non-ASCII byte would otherwise raise instead of returning 403.
+- Local development supplies the value from gitignored files: `python-service/.env` and `backend/DataOcean/config/application-local.yml`.
+- Coverage tests are the guard against silent regressions here: `InternalTokenFilterTest` enumerates every registered `/internal/**` handler and asserts anonymous requests are rejected; `tests/test_internal_auth.py` enumerates Python `/internal` routes and asserts each carries `verify_internal_token`. Extend them rather than adding per-endpoint checks.
+
+## JWT Signing Secret
+
+`jwt.secret` is the second required secret with no usable default, and unlike the internal token it is read only by Java (`JwtTokenProvider`) — Python never verifies JWTs, so there is no cross-service consistency requirement.
+
+- **Both tracked config files must stay default-free.** The public placeholder used to be duplicated in `application.yml` *and* `application-dev.yml`. The dev copy was the one that mattered, because `dev` is the default active profile — fixing only the base file would have changed nothing. Check both when touching this.
+- **Fail-fast on a missing, blank, whitespace-containing, or sub-32-byte secret.** Validation lives in `JwtTokenProvider.buildSecretKey` (the single reader), so no separate validator class is needed. The error message names the property, the local file, and the generation command.
+- Generating a value: `openssl rand -base64 32`. A base64 value decodes to 32 raw bytes; any other string is treated as a UTF-8 passphrase and must still be at least 32 bytes.
+- Local development supplies it from the gitignored `backend/DataOcean/config/application-local.yml`, which `application-dev.yml` imports via `spring.config.import`. Imports win over the importing document's own placeholders — this was verified on 2026-09-25 by resolving `jwt.secret` and `dataocean.internal.token` under the `dev` profile with a throwaway test that only read the `Environment` (no beans, no database), not by inspection. If precedence is ever in doubt, redo that probe rather than reasoning about it.
+- **Rotating this value invalidates every issued login token**, so all users must sign in again. Say so before rotating a shared environment.
 
 ## Core Domain Concepts
 
@@ -244,10 +278,15 @@ mvn test
 
 Latest verified test result:
 
+- Java (2026-09-25, after B6): **585 passed, 0 failures, 0 errors, 0 skipped**. The drop from 603 is exactly the 18 legacy tests deleted with their subjects (`PermissionCalculatorImplTest`, `DatasourceAccessServiceImplTest`, `RoleServiceImplTest`, `WildcardAuthorizationAnnotationTest`, `PythonAgentClientImplTest`, `AccessApprovalServiceImplTest`); no kept test was lost. `mvn test` needs no external service — Mockito unit tests plus `@SpringBootTest` instances backed by H2 + `src/test/resources/application-test.yml` (Flyway disabled there; that file must supply both `internal.token` and `jwt.secret` or every `@SpringBootTest` fails to start).
+- Python (2026-09-25, after B6): **105 passed**. The drop from 228 is exactly the 123 legacy tests removed (120 in the 11 deleted test files, 2 agent classes from `test_f0_regression.py`, 1 from `test_rag_context_contract.py`), reconciled file by file.
+- Frontend (2026-09-25, after B6): Vitest **73 passed** (12 files); `npm run build` exit 0.
+- Java (2026-09-25, before B6): **603 passed** — the required-secrets hardening baseline (token + JWT secret). The 22 tests added then are `InternalTokenValidatorTest` (10), `InternalTokenFilterTest` (6), and 6 in `JwtTokenProviderTest`.
+- Python (2026-09-25, before B6): **228 passed, 4 skipped**. Pre-existing tests on this machine numbered **207** (the docs' older **204** figure is a B4-era record); the 21 added then are in `tests/test_internal_auth.py`.
+- Java (2026-09-12): **145 tests passed** — the stage 5–8 review fix round. The suite was briefly **uncompilable** in that round (an ambiguous `insert(any())` in `GlossaryTermServiceImplTest`), so any "all fixed" claim made while it was broken had no executable evidence behind it.
 - Python (2026-09-07): 152 passed, 4 skipped (E2E tests require full environment).
-- Java (2026-09-12): **145 tests passed, 0 failures, 0 skipped** — re-run after the stage 5–8 review fix round. The suite was briefly **uncompilable** in that round (an ambiguous `insert(any())` in `GlossaryTermServiceImplTest`), so any "all fixed" claim made while it was broken had no executable evidence behind it. (Was 143 before that round, 119 before the 2026-09-12 defect rounds, which added `KnowledgeDocLifecycleServiceTest` (4), `GlossaryTermServiceImplTest` (9), `AccessApprovalServiceImplTest` (2), and extended `KnowledgeVersionServiceImplTest` / `QualityIssueServiceImplTest`.) `mvn test` needs no external service — the suite is Mockito unit tests plus one `@SpringBootTest` backed by H2 + `src/test/resources/application-test.yml`.
 
-The next testing gap is Agent workflow coverage: query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
+The next testing gap is the S1 query path end to end: SQL generation/validation/execution, output aliasing, source-trace completeness, RAG degradation, and Java query integration. The legacy Agent workflow it replaced no longer exists.
 
 ## Repository Structure
 
@@ -297,7 +336,7 @@ docs/
 ```
 
 **文档管理原则**：
-- `docs/development/DataOcean后台重构状态与整改计划.md` 是后台重构当前状态、轨道 A 整改、导航决策和待办的唯一入口
+- `docs/development/completed/DataOcean后台重构状态与整改计划.md` 是后台重构当前状态、轨道 A 整改、导航决策和待办的唯一入口
 - `docs/development/后续开发.md` 只维护下一步执行顺序，不重复状态和验收结论
 - `docs/development/completed/` 存放已完成的开发文档，作为历史记录
 - `docs/development/guides/` 存放需要持续遵守的开发规范
@@ -357,7 +396,7 @@ Migration notes:
 - `V56` adds B3 S1 query execution evidence, safe resource/source/capability summaries, revision/snapshot identifiers, and final protection status; committed with B3 (`d9a0c3b`).
 - `V57` adds the B4 S1 access-request and access-approval tables (S1 tables only, forward-only; it does not alter V54/V55/V56); committed with B4 (`8a9c5a1`).
 - **Machine-local migration fact (IT-GO-1225 only):** the local development MySQL database completed V51, V52, V54, V55, V56 and V57 in order and is at V57; Flyway failure records are 0, 14 `iam_s1_*` tables exist, the fixed IAM-SIMPLE-1 catalog has 54 codes, and bootstrap completed for userId=1. This does not establish the state of any other machine or production environment; reverify those environments before any operation.
-- The IT-GO-1225 B5 result is a local development switch and core acceptance, not a production release. Backup integrity was checked, but restore rehearsal on an independent MySQL instance remains unverified. Only one real user exists, so the enabled-without-S1-binding and legacy-only negative scenarios remain uncovered. No business roles, responsible datasources, table/field grants, or approvers were initialized; `iam_s1_data_grant` remains 0. B6 has not executed, and the old permission-specific controllers, services, tables, and compatibility objects remain until B6.
+- The IT-GO-1225 B5 result is a local development switch and core acceptance, not a production release. Backup integrity was checked, but restore rehearsal on an independent MySQL instance remains unverified. Only one real user exists, so the enabled-without-S1-binding and legacy-only negative scenarios remain uncovered. No business roles, responsible datasources, table/field grants, or approvers were initialized; `iam_s1_data_grant` remains 0. B6 cleanup started on `codex/iam-s1-b6-cleanup` (`fa0ca89`) but is not closed out; the old permission-specific controllers, services, mappers, frontend `permission.ts`, Caffeine permission cache and tables still remain.
 - There is no `V53` migration file, and **V53 is permanently unused**. P9 alert history must use V58 or a higher unused version. Because `outOfOrder` is not enabled, adding V53 *after* V54–V57 have been applied would fail validation and break startup. Do not create an empty V53 just to fill the number gap.
 - `V51` backfills `knowledge_doc_version.review_status`. That column existed since V13 with `NOT NULL DEFAULT 'PENDING'` but was never written, so every row read as "pending review" including published ones. V51 restores rows that can be resolved from `knowledge_review_task` and marks the rest `UNKNOWN`; the application now writes the column on create/approve/reject.
 - `V52` adds `query_task.suggested_questions` (JSON, anchored `AFTER masked_fields`), persisting the follow-up questions Python already returned but Java never stored. It was applied on the IT-GO-1225 local development database as part of the V57 sequence; other environments require independent verification, and Flyway is disabled in the test profile, so automated tests do not prove migration state.
@@ -399,15 +438,15 @@ Frontend routes are split between business-oriented domains:
 - `/query`: user-facing intelligent query flow.
 - `/admin/*`: the admin app uses `AdminShell.vue` with seven first-level business domains: 工作台、数据接入、数据资产、数据治理、语义中心、权限与组织、运营与平台.
 - The current code places both first-level domains and second-level workspaces in the desktop sidebar; `router/adminNavigation.ts` (`ADMIN_WORKSPACES`) remains the route metadata source. The content area has no global secondary workspace bar.
-- New admin pages must follow `docs/development/DataOcean后台重构状态与整改计划.md` before adding routes or navigation entries.
+- New admin pages must follow `docs/development/completed/DataOcean后台重构状态与整改计划.md` before adding routes or navigation entries.
 - Target admin routes remain `/admin/workbench`、`/admin/data-sources`、`/admin/collections`、`/admin/assets`、`/admin/releases`、`/admin/governance/*`、`/admin/semantics/*`、`/admin/access/*`、`/admin/operations/*`、`/admin/platform/*`.
 - Legacy admin URLs are intentionally not compatible with the current information architecture. They are not emitted by active frontend/backend code and should resolve to the unified NotFound/404 behavior. Use only the formal routes in `frontend/src/router/index.ts` and `frontend/src/router/adminNavigation.ts`.
 - The admin frontend refactor stage status (as of 2026-09-13):
-  - **Stages 0–8 and Track A are implemented and passed real desktop acceptance.** The single current status and evidence index is `docs/development/DataOcean后台重构状态与整改计划.md`; raw browser evidence remains under `output/playwright/`.
+  - **Stages 0–8 and Track A are implemented and passed real desktop acceptance.** The single current status and evidence index is `docs/development/completed/DataOcean后台重构状态与整改计划.md`; raw browser evidence remains under `output/playwright/`.
   - Stages 6–7 (`/admin/access`, `/admin/operations/*`, `/admin/platform/*`) were **rebuilt** to the §7.13–§7.18 target design, not patched. Before that they were the pre-refactor implementations — e.g. `AccessControl.vue` had no `el-tab-pane` at all while §7.13 requires three fixed tabs. Stage 8 then deleted 27 superseded files (24 unreachable code files + dead assets); a re-run of the reachability check reports **0 unreachable code files**.
   - ⚠️ **Do not infer stage completion from file existence, file size, or route reachability.** On 2026-09-12 this exact inference was made and written into the status docs, and it was wrong; it was corrected by the project owner. Judge completion by checking against the target design in the guide, item by item.
   - **Runtime verification:** the final 2026-09-13 browser walkthrough used a 1440×1000 desktop viewport, covered 45 page scenarios and 35 assertions, and recorded 129 result entries with no unexplained console/page/request errors. F7 remains only as a backend defensive `UNKNOWN` fallback and is not a browser acceptance item; the old F8/F9 code paths no longer exist.
-- The identified frontend defects and Track A runtime blockers were fixed and verified on 2026-09-13. Use `docs/development/DataOcean后台重构状态与整改计划.md` for the current acceptance boundary.
+- The identified frontend defects and Track A runtime blockers were fixed and verified on 2026-09-13. Use `docs/development/completed/DataOcean后台重构状态与整改计划.md` for the current acceptance boundary.
 
 The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`. It also checks `/api/datasources/{datasourceId}/readiness` so users can only ask against sources whose lifecycle is ready.
 

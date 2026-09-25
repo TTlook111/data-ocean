@@ -1,5 +1,7 @@
 package com.dataocean.common.config;
 
+import com.dataocean.common.security.InternalTokenFilter;
+import com.dataocean.common.security.InternalTokenValidator;
 import com.dataocean.common.security.JwtAuthenticationFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dataocean.common.result.Result;
@@ -47,6 +49,9 @@ public class SecurityConfig {
     /** JWT 认证过滤器，负责从请求头解析和验证 Token */
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
+    /** 内部服务间令牌的唯一来源，同为入站校验与出站发送取值 */
+    private final InternalTokenValidator internalTokenValidator;
+
     /** JSON 序列化工具，用于异常响应体的序列化 */
     private final ObjectMapper objectMapper;
 
@@ -64,6 +69,11 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         log.info("配置无状态安全过滤器链");
+        // 刻意不注册成 Bean：Filter 类型的 Bean 会被 Spring Boot 额外注册为 Servlet 过滤器，
+        // 造成同一请求被处理两次。此处只在安全过滤器链内注册一次。
+        InternalTokenFilter internalTokenFilter =
+                new InternalTokenFilter(internalTokenValidator, objectMapper);
+
         http.csrf(AbstractHttpConfigurer::disable)
                 // 设置无状态会话策略，不使用 Session
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -71,8 +81,11 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // 登录和验证码接口允许匿名访问
                         .requestMatchers("/api/auth/login", "/api/auth/captcha").permitAll()
-                        // 内部服务间调用接口放行（由 X-Internal-Token 自行校验）
-                        .requestMatchers("/internal/**").permitAll()
+                        // 内部服务间调用：要求过滤器写入的内部权限，而不是放行。
+                        // 这样过滤器一旦未执行，请求会被授权层拒绝（fail-closed），
+                        // 不会退化成"跳过过滤器即放行"。路径匹配复用过滤器的同一个匹配器。
+                        .requestMatchers(internalTokenFilter.internalPathMatcher())
+                        .hasAuthority(InternalTokenFilter.AUTHORITY)
                         // 认证相关接口需要已登录
                         .requestMatchers("/api/auth/logout", "/api/auth/me", "/api/auth/password", "/api/auth/profile").authenticated()
                         // 数据源和管理端接口需要已登录
@@ -100,7 +113,10 @@ public class SecurityConfig {
                         })
                 )
                 // 在 UsernamePasswordAuthenticationFilter 之前插入 JWT 过滤器
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // 内部令牌过滤器排在 JWT 之前：内部调用不需要解析 JWT，
+                // 先判定可以避免非法内部请求白跑一次 Redis 黑名单/版本查询。
+                .addFilterBefore(internalTokenFilter, JwtAuthenticationFilter.class);
         return http.build();
     }
 

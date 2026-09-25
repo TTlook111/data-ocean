@@ -56,7 +56,7 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
                     : new ArrayList<>(conversationService.getRecentMessages(
                             conversationId, userId, RECENT_CONTEXT_MESSAGE_COUNT + 1));
 
-            // QueryController 已先保存当前用户消息，这条消息由 question 单独传给 Python，不能重复放入历史。
+            // 调用方（IamS1QueryServiceImpl）已先保存当前用户消息，这条消息由 question 单独传给 Python，不能重复放入历史。
             if (!messages.isEmpty() && "user".equals(messages.get(messages.size() - 1).getRole())) {
                 messages.remove(messages.size() - 1);
             }
