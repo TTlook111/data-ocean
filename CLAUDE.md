@@ -25,7 +25,7 @@ Spring Boot Java gateway
         | internal HTTP (RestClient)
         v
 Python FastAPI AI service
-  - query rewrite, Schema RAG, SQL generation
+  - S1 query orchestration (RAG retrieval, SQL generation on the managed prompt template)
   - SQL AST validation and sandbox execution
   - chart generation, chunking, embedding, reranking
         |
@@ -68,7 +68,7 @@ Module status summary:
 | Java query/audit/field confidence modules | Core complete; conversation persistence and feedback confidence updates are implemented |
 | Java prompt module | Complete, including template approval workflow and version rollback |
 | Java system/dashboard modules | Complete; AI config management and admin dashboard are implemented |
-| Python Agent workflow | Core complete, with Schema Linking, self-learning few-shot, Redis-backed cache/enrichment, timeout/cancel handling and degraded result propagation |
+| Python S1 query path (`iam_s1`) | Core complete: firewall-filtered model context (schema / RAG / glossary / few-shot / history / summary), a single SQL-generation LLM call rendered from the Java-managed `sql_generation` template, field-usage-enforcing SQL AST validation with output aliasing, parameterised row conditions, explicit source trace, sandbox execution, timeout/cancel handling. **The legacy LangGraph Agent workflow, query rewrite, Schema Linking and LLM self-correction were deleted in B6** |
 | Python RAG/vectorization | Core complete, with token-aware context-enriched chunking, 900/1000-token budget, 150-token overlap, chunk metadata propagation, snapshot-safe fallback, and verified Milvus rebuild semantics |
 | Python SQL sandbox | Core complete, with precise multi-table column rejection |
 | Python chart generation | Complete |
@@ -286,7 +286,7 @@ Latest verified test result:
 - Java (2026-09-12): **145 tests passed** — the stage 5–8 review fix round. The suite was briefly **uncompilable** in that round (an ambiguous `insert(any())` in `GlossaryTermServiceImplTest`), so any "all fixed" claim made while it was broken had no executable evidence behind it.
 - Python (2026-09-07): 152 passed, 4 skipped (E2E tests require full environment).
 
-The next testing gap is Agent workflow coverage: query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
+The next testing gap is the S1 query path end to end: SQL generation/validation/execution, output aliasing, source-trace completeness, RAG degradation, and Java query integration. The legacy Agent workflow it replaced no longer exists.
 
 ## Repository Structure
 

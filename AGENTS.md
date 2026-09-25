@@ -38,8 +38,8 @@ Spring Boot Java gateway
         | internal HTTP (RestClient)
         v
 Python FastAPI AI service
-  - query rewrite, glossary expansion, Schema RAG
-  - SQL generation, SQL AST validation, sandbox execution
+  - S1 query orchestration: glossary/RAG context assembly, SQL generation
+  - SQL AST validation and sandbox execution
   - chart generation, chunking, embedding, reranking
         |
         v
@@ -53,7 +53,7 @@ Important boundaries:
 
 - Frontend calls Java only. Java calls Python through internal APIs.
 - Java owns management lifecycle: users, permissions, data sources, metadata governance, review, versioning, publishing, task state, masking, audit, and durable persistence.
-- Python owns AI/RAG execution: query rewrite, glossary hints, chunking, embedding, Milvus writes, retrieval, reranking, SQL generation, SQL validation, and sandbox execution.
+- Python owns AI/RAG execution: chunking, embedding, Milvus writes, retrieval, reranking, glossary/RAG context assembly, SQL generation, SQL validation, and sandbox execution.
 - Java to Python calls use `RestClient`; knowledge/RAG clients use `@Retryable` where configured. SSE streaming and health checks should not be blindly retried.
 - Java asynchronous work uses dedicated executors for query execution, conversation summaries, and datasource health checks; saturation must not make request threads run the full Agent or summary LLM call.
 - Query results are not cached because similar questions, relative dates, and permission differences can make reuse unsafe.
@@ -65,7 +65,7 @@ Last updated: 2026-09-22.
 The main end-to-end chain is implemented and has been run through:
 
 ```text
-Java query task -> Python Agent -> query rewrite/glossary hints -> RAG retrieval
+Java query task -> Python S1 path -> RAG retrieval
 -> SQL generation -> sqlglot AST validation/rewrite -> sandbox execution
 -> Java persistence/masking -> frontend table/chart rendering
 ```
@@ -83,7 +83,7 @@ Module status summary:
 | Java query/audit/field confidence modules | Core complete; conversation persistence and feedback confidence updates are implemented; confidence read-time decay with configurable half-life (30d default) added |
 | Java prompt module | Complete, including approval workflow, version history, and rollback |
 | Java system/dashboard modules | Complete; AI config management and admin dashboard are implemented |
-| Python Agent workflow | Core complete, with timeout/cancel handling, glossary hints, degraded result propagation, column-level Schema Linking, LLM self-correction on execution failure, and agent graph parallel fan-out (Rewriter + Metadata Prefetch) |
+| Python S1 query path (`iam_s1`) | Core complete: firewall-filtered context, one SQL-generation LLM call on the managed `sql_generation` template, SQL AST validation with output aliasing, source trace, sandbox execution, timeout/cancel handling. **The legacy LangGraph Agent workflow (query rewrite, Schema Linking, self-correction, parallel fan-out) was deleted in B6** |
 | Python RAG/vectorization | Core complete; token-aware skills.md chunking (target 900/max 1000, overlap 150), chunk metadata propagation, snapshot-safe fallback, adjacent context expansion, verified staging rebuild, and model/config-aware embedding cache are implemented |
 | Python SQL sandbox | Core complete; SQL-to-Schema hallucination detection added (zero extra LLM calls) |
 | Python chart generation | Complete with fallback behavior |
@@ -133,7 +133,7 @@ B0 文档已评审通过；`docs/development/轨道B-B0权限清单与决策冻�
 - RAG admission control: only approved and allowed governance states should enter retrieval. `DEPRECATED` and `BLOCKED` fields must not be retrieved or used.
 - Sensitive fields: may enter RAG with mask metadata, but Java gateway performs final masking.
 - Entity relationship graph: metadata entities, relationships, glossary terms, tags, lineage, and downstream impact analysis share the `metadata_entity`/`metadata_relationship` model.
-- Glossary: approved terms and synonyms are sent from Java to Python and used during query rewrite.
+- Glossary: approved terms and synonyms are sent from Java to Python and injected as model context during SQL generation.
 - Access approval: users can request temporary data access; approval creates auditable temporary allow policies with expiry.
 - Conversation persistence: Java owns durable conversation, message, and structured long-term summary storage. For each query Java sends Python request-scoped `conversation_history` plus `conversation_summary`; Python does not receive `conversationId` or persist session state. Summary refresh is an asynchronous Python LLM call triggered by Java after an assistant message is saved.
 
@@ -400,7 +400,7 @@ Latest documented verification:
 - Frontend (2026-09-25, after B6): Vitest **73 passed** (12 files); `npm run build` exit 0.
 - Before B6 the same day: Java **603**, Python **228** (4 skipped, pre-existing count 207), frontend Vitest **70** — the required-secrets hardening baseline (internal token + JWT secret; 22 tests added then across `InternalTokenValidatorTest`, `InternalTokenFilterTest`, `JwtTokenProviderTest`).
 - `mvn test` needs no external service; `@SpringBootTest` uses H2 with Flyway disabled. `src/test/resources/application-test.yml` must supply both `internal.token` and `jwt.secret` — neither has a default, so omitting either makes every `@SpringBootTest` fail to start.
-- Remaining test gap: Agent workflow coverage around query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
+- Remaining test gap: the S1 query path end to end — SQL generation/validation/execution, output aliasing, source-trace completeness, RAG degradation, and Java query integration. The legacy Agent workflow it replaced no longer exists.
 
 ## Security Constraints
 
