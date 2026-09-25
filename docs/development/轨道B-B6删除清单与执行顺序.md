@@ -16,9 +16,32 @@
 | 批次 0 修导航 404 | ✅ 完成 | 前端测试 73 通过、构建 exit 0；实测 `router.resolve('/admin/access')` → `name=not-found`，修复后指向 `/admin/access/iam` |
 | 批次 1 前端孤儿 | ✅ 完成 | 删 7 个文件 + `api/admin/user.ts` 的 14 个角色/权限函数（保留用户/部门相关 14 个）+ 更新读旧文件的测试；测试 73 通过、构建 exit 0 |
 | 批次 2 后端旧权限管理端 | ✅ 完成 | 删 15 个文件（3 个 Controller + 2 组 Service/Impl + 定时任务 + 2 个 Entity + 2 个 Mapper + 2 个 DTO + 1 个测试）；同步删 13 条 `IamS1EndpointExemptions` 条目、从 `WildcardAuthorizationAnnotationTest` 移除 3 个类；Java 测试 **601 通过**（603 − 2） |
-| 批次 3 旧问数链路 | ⏳ 未开始 | — |
+| 批次 3 旧问数链路（Java） | ✅ 完成 | 删 52 文件（−5201 行）：旧问数链路 + 旧权限计算 + 旧数据源授权 + 旧角色权限配置；脱敏能力迁到 `common/security`。Java 测试 **585 通过**（601 − 16） |
+| 批次 3 旧问数链路（Python） | ✅ 完成 | 删 42 文件（−6829 行）：整个旧 Agent 包 + sandbox 旧模块 + `infra/sse.py` + 11 个旧测试文件。Python 测试 **105 通过**（228 − 123，逐文件核对吻合） |
 | 批次 4 数据库删表 | ⏳ 未开始 | — |
 | 批次 5 文档 | ⏳ 未开始 | — |
+
+### 批次 3 执行中发现的两处「不能删」
+
+原计划把 Python 的 `agent/` 整包删除，实测发现两处必须保留：
+
+1. **`POST /internal/query/context-summary` 仍被 S1 链路调用**。链路是
+   `IamS1QueryServiceImpl` → `ConversationContextSummaryService` → `ConversationSummaryClientImpl`
+   → Python `/internal/query/context-summary`（原在 `agent/router.py`）。
+   因此该端点连同 `agent/conversation_summary.py` 与两个模型、以及本地兜底模板
+   `agent/prompts/conversation_summary.j2` 一起**迁到新的 `dataocean/conversation/` 包**，
+   **路由路径保持不变**以免为纯搬迁而改 Java 侧客户端。
+2. **`iam_s1` 从 sandbox 复用** `executor.py`、`config.py`、`rules/{depth,function,limit}_rule.py`，
+   从 `agent/` 只复用 `sse.py`——但进一步核实发现 `iam_s1/router.py` 的 `from dataocean.agent import sse`
+   是**未使用的死 import**（它自己用手写 `_event()` + `StreamingResponse` 组流）。
+   因此 `agent/sse.py` 与只被它引用的 `infra/sse.py` 一并删除。
+
+### 批次 3 的执行顺序（实际）
+
+与 §3.5 的修正一致：**先删旧链路 → 再删旧重载 → 再搬脱敏**。
+Java 与 Python 都在同一步内完成，中间态无跨服务契约不一致——
+因为 Java 侧删除后已无任何代码调用 Python 的 `/internal/query/execute`，
+该端点成为无调用方的死端点，两个服务之间仍然一致。
 
 ### 执行中修正的两处归类错误
 

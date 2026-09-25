@@ -19,14 +19,16 @@ from dataocean.main import app
 
 # 受 verify_internal_token 保护、且不依赖 Milvus / Redis / LLM 的端点，
 # 可用于断言"正确令牌 → 200"。
-SAFE_PROTECTED_PATH = "/internal/query/health"
+# 注：B6 批次 3 删除了旧 Agent 路由，原先这里用的 /internal/query/health 已不存在，
+# 改用 sandbox 的连接池健康检查（只读内存中的池状态）。
+SAFE_PROTECTED_PATH = "/internal/sql/health"
 
 # 覆盖各 router 级依赖的 403 用例路径。认证依赖在端点函数体之前执行，
 # 因此这些请求不会真正触碰外部依赖。
 PROTECTED_PATHS = [
-    "/internal/query/health",
-    "/internal/rag/health",
     "/internal/sql/health",
+    "/internal/sql/pools/dashboard",
+    "/internal/rag/health",
     "/internal/prompts/some-template-code",
 ]
 

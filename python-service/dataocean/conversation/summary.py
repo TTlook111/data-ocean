@@ -2,6 +2,10 @@
 
 Java 负责完整消息和摘要的持久化，本模块只在请求中接收消息增量，
 调用现有外部 LLM 生成结构化摘要，不保存 conversationId 或会话状态。
+
+B6 批次 3：由 `agent/conversation_summary.py` 迁入。旧 Agent 工作流已整条退役，
+但会话摘要仍由 Java 的 IamS1QueryServiceImpl → ConversationContextSummaryService →
+ConversationSummaryClient 调用（POST /internal/query/context-summary），因此必须保留。
 """
 
 from __future__ import annotations
