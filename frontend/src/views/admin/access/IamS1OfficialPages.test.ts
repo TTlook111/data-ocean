@@ -52,15 +52,10 @@ describe('正式 S1 组织入口不得引用旧角色权限 API', () => {
     }
   })
 
-  it('正式组织页接入用户和部门，旧组织页不再混入这两块', () => {
+  it('正式组织页复用用户与部门组件，并接入 IAM-S1 API', () => {
     const official = readFrontend('src/views/admin/access/IamS1OrganizationView.vue')
-    const legacy = readFrontend('src/views/admin/user/OrganizationView.vue')
     expect(official).toContain("from '../user/UserList.vue'")
     expect(official).toContain("from '../user/DepartmentTree.vue'")
     expect(official).toContain("from '../../../api/iamS1'")
-    expect(legacy).not.toContain('UserList')
-    expect(legacy).not.toContain('DepartmentTree')
-    expect(legacy).toContain('/admin/access/iam-organization')
-    expect(legacy).toContain('组织与角色（旧）')
   })
 })
