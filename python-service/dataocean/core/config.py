@@ -10,7 +10,7 @@ import logging
 import threading
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,16 @@ class Settings(BaseSettings):
     # 服务配置
     log_level: str = "INFO"
 
+    # 内部服务间调用认证（Java <-> Python）
+    # 这是 /internal/* 的唯一防线（Java 侧 SecurityConfig 对 /internal/** 是 permitAll），
+    # 因此不提供任何默认值：缺失或过短时在 Settings 构造阶段直接失败，禁止静默降级。
+    internal_token: str = Field(
+        default="",
+        validate_default=True,
+        description="内部服务间共享令牌；必须显式配置且至少 32 字符",
+    )
+    java_gateway_url: str = "http://127.0.0.1:8080"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @field_validator('milvus_port')
@@ -114,6 +124,36 @@ class Settings(BaseSettings):
         """校验相似度阈值"""
         if not 0.0 <= v <= 1.0:
             raise ValueError('相似度阈值必须在 0.0-1.0 之间')
+        return v
+
+    @field_validator('internal_token')
+    @classmethod
+    def validate_internal_token(cls, v: str) -> str:
+        """校验内部服务间令牌
+
+        /internal/* 由该令牌独占保护，因此不接受空值，也不接受过短的值。
+        校验失败会让进程在启动阶段直接退出，不会带着可预测的凭据继续对外服务。
+
+        注意：报错文案里不能带上令牌的值——ValidationError 会打到控制台和日志采集。
+        """
+        if not v or not v.strip():
+            raise ValueError(
+                '必须配置 INTERNAL_TOKEN：它是 /internal/* 的唯一防线，不存在默认值。'
+                '请写入 python-service/.env，并把同一个值写入 '
+                'backend/DataOcean/config/application-local.yml 的 dataocean.internal.token'
+                '（两侧必须是同一个值，单边修改会导致静默降级）'
+            )
+        # 拒绝任何空白：.env / YAML 里的行尾空格或误写多行都会让两侧取值悄悄发散，
+        # 那种情况下校验会通过、比较却永远失败，排查成本极高。直接报错要求修配置。
+        if any(ch.isspace() for ch in v):
+            raise ValueError(
+                'INTERNAL_TOKEN 不能包含空格、制表符或换行（检查 .env 是否误写成多行或行尾有多余空白）'
+            )
+        if len(v) < 32:
+            raise ValueError(
+                f'INTERNAL_TOKEN 至少需要 32 个字符（当前 {len(v)} 个）。'
+                '可用 python -c "import secrets;print(secrets.token_urlsafe(48))" 生成'
+            )
         return v
 
 

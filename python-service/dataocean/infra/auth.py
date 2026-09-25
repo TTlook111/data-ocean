@@ -4,16 +4,19 @@
 Java 调用 Python 内部接口时必须携带此 token。
 """
 
+import hmac
 import logging
-import os
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
 
+from dataocean.core.config import settings
+
 logger = logging.getLogger(__name__)
 
-# 从环境变量读取内部 token，默认值仅用于开发环境
-INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "dataocean-internal-default")
+# 令牌的单一来源是 core.config.Settings，此处不存在默认值：
+# 未配置或长度不足 32 会在 Settings 构造阶段直接让进程启动失败。
+INTERNAL_TOKEN = settings.internal_token
 
 # 定义 API Key header 提取器
 _internal_token_header = APIKeyHeader(
@@ -44,7 +47,9 @@ async def verify_internal_token(
             detail="内部接口禁止外部访问：缺少认证 token"
         )
 
-    if token != INTERNAL_TOKEN:
+    # 常量时间比较。先编码为 UTF-8 字节：header 值可能含非 ASCII 字符，
+    # 而 hmac.compare_digest 对含非 ASCII 的 str 会抛 TypeError（会变成 500 而非 403）。
+    if not hmac.compare_digest(token.encode("utf-8"), INTERNAL_TOKEN.encode("utf-8")):
         logger.warning("内部接口访问被拒绝：token 不匹配")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

@@ -192,6 +192,9 @@ Migration 关联完整盘点：V1 建旧用户/角色/权限四表，V2 初始�
 | 内部入口 | Python `main.py` 为 `/internal/query`、`/internal/rag`、`/internal/sql` 等统一加 `X-Internal-Token`；Java `SecurityConfig` 对 `/internal/**` 放行给内部令牌逻辑。当前 Python 路由装饰器共 27 个，含配置和健康路由。 | 内部令牌只证明服务调用身份，不证明最终用户数据权限；不能替代请求级 IAM 快照。 |
 | 模型上下文 | SQL 生成 Prompt 使用 `schema_context`、问题、会话历史、摘要、few-shot；图表节点使用查询结果；SQL 自校正使用原始 SQL、错误和 Schema。 | B3 必须增加 LLM Context Firewall：所有 Schema、chunk、关系、few-shot、术语、历史、摘要、错误和图表数据先按快照过滤/脱敏，绑定参数永不进入模型。 |
 
+> **取代说明（2026-09-25）**：本节表格是 B0 评审时点的状态快照，其中的**内部令牌**相关描述已被后续实现取代，阅读时不要当作当前行为：
+> `InternalMetadataController` / `PromptInternalController` / `InternalAiConfigController` 三处方法内校验（`requireInternal`、`validateInternalCall`、`getRawConfig` 的 header 判断）**已全部删除**，改由 `common/security/InternalTokenFilter` 在 `/internal/**` 上统一保护；`SecurityConfig` 不再对 `/internal/**` 使用 `permitAll()`，而是要求过滤器写入的 `ROLE_INTERNAL`（fail-closed）。令牌不再有任何默认值，缺失/含空白/短于 32 字符时两个服务都拒绝启动。本文档的 B6 删除/保留基线不受影响。
+
 ### 2.6 `specs/015-permission-security` 与 B0 的关系
 
 | 文件 | 已读到的现行内容 | B0 处理 |

@@ -5,9 +5,7 @@ import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.system.entity.vo.AiConfigVO;
 import com.dataocean.module.system.service.SysConfigService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -15,13 +13,17 @@ import java.util.Map;
 
 /**
  * AI 配置内部接口（供 Python 服务调用）。
+ * <p>
+ * 令牌校验由 {@code InternalTokenFilter} 在 {@code /internal/**} 上统一完成，
+ * 本类不再自行校验，避免多处口径不一致（此处此前返回 HTTP 200 + body code 403，
+ * 与另外两个内部控制器的 403 / 500 行为都不一致）。
+ * </p>
  */
 @RestController
 @RequestMapping("/internal/ai-config")
 @RequiredArgsConstructor
 public class InternalAiConfigController {
 
-    private static final String UNSAFE_DEFAULT_TOKEN = "dataocean-internal-default";
     private static final String PROVIDER_PREFIX = "ai.provider.";
     private static final String ACTIVE_CHAT_KEY = "ai.active.chat";
     private static final String ACTIVE_EMBEDDING_KEY = "ai.active.embedding";
@@ -31,26 +33,8 @@ public class InternalAiConfigController {
     private final DatasourceSecretService secretService;
     private final ObjectMapper objectMapper;
 
-    @Value("${dataocean.internal.token:dataocean-internal-default}")
-    private String expectedToken;
-
-    @Value("${spring.profiles.active:dev}")
-    private String activeProfile;
-
-    @PostConstruct
-    void validateTokenConfig() {
-        boolean devProfile = activeProfile != null && activeProfile.contains("dev");
-        if (UNSAFE_DEFAULT_TOKEN.equals(expectedToken) && !devProfile) {
-            throw new IllegalStateException("Production profile must configure dataocean.internal.token explicitly");
-        }
-    }
-
     @GetMapping
-    public Result<Map<String, String>> getRawConfig(
-            @RequestHeader(value = "X-Internal-Token", defaultValue = "") String token) {
-        if (!expectedToken.equals(token)) {
-            return Result.error(403, "无权访问");
-        }
+    public Result<Map<String, String>> getRawConfig() {
         AiConfigVO.ChatConfig chat = readJson(ACTIVE_CHAT_KEY, AiConfigVO.ChatConfig.class, defaultChat());
         AiConfigVO.EmbeddingConfig embedding = readJson(ACTIVE_EMBEDDING_KEY, AiConfigVO.EmbeddingConfig.class, defaultEmbedding());
         AiConfigVO.Provider chatProvider = readJson(PROVIDER_PREFIX + chat.getProviderId(), AiConfigVO.Provider.class, defaultProvider());

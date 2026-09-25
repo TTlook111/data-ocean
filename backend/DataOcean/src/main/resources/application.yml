@@ -43,7 +43,11 @@ security:
 
 dataocean:
   internal:
-    token: ${INTERNAL_TOKEN:dataocean-internal-default}
+    # 内部服务间令牌：/internal/** 的唯一防线，刻意不提供默认值。
+    # 未配置时应用拒绝启动（见 InternalTokenValidator）。
+    # 本地开发请写入被 Git 忽略的 config/application-local.yml，
+    # 且必须与 python-service/.env 的 INTERNAL_TOKEN 一致。
+    token: ${INTERNAL_TOKEN:}
   python-service:
     base-url: ${PYTHON_SERVICE_BASE_URL:http://localhost:8000}
     connect-timeout: ${PYTHON_SERVICE_CONNECT_TIMEOUT:5000}

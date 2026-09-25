@@ -5,10 +5,8 @@ import com.dataocean.module.metadata.entity.MetadataEntity;
 import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
@@ -18,7 +16,8 @@ import java.util.*;
  * <p>
  * Phase 3：为 Schema Linking 提供实体关系数据（FOREIGN_KEY / LINEAGE / DERIVED_FROM），
  * 使 RAG 能推荐 JOIN 条件、表关联和字段派生解释。
- * 通过 X-Internal-Token 请求头校验内部调用身份。
+ * 令牌校验由 {@code InternalTokenFilter} 在 {@code /internal/**} 上统一完成，
+ * 本类不再自行校验（此前此处遗漏了启动守卫，且抛裸 RuntimeException 会被兜底成 500）。
  * </p>
  *
  * @author dataocean
@@ -31,19 +30,6 @@ public class InternalMetadataController {
 
     private final MetadataEntityService entityService;
     private final MetadataRelationshipService relationshipService;
-
-    @Value("${dataocean.internal.token:dataocean-internal-default}")
-    private String internalToken;
-
-    /**
-     * 校验内部调用 token，防止外部未授权访问。
-     */
-    private void requireInternal(HttpServletRequest request) {
-        String token = request.getHeader("X-Internal-Token");
-        if (token == null || !token.equals(internalToken)) {
-            throw new RuntimeException("未授权的内部 API 调用");
-        }
-    }
 
     /**
      * 获取实体相关的所有关系（供 Python Schema Linking 消费）
@@ -62,10 +48,7 @@ public class InternalMetadataController {
     @GetMapping("/entities/{entityId}/relationships")
     public Result<List<Map<String, Object>>> getEntityRelationships(
             @PathVariable Long entityId,
-            @RequestParam(required = false) String relationType,
-            HttpServletRequest request) {
-        requireInternal(request);
-
+            @RequestParam(required = false) String relationType) {
         MetadataEntity entity = entityService.getById(entityId);
         if (entity == null) {
             return Result.error(404, "实体不存在");

@@ -388,9 +388,10 @@ mvn test
 
 Latest documented verification:
 
-- Frontend: `npm run build` passed.
-- Python (2026-09-07): 152 tests passed, 4 skipped, 1 deprecation warning.
-- Java: 119 tests passed.
+- Frontend (2026-09-25): Vitest 70 passed (12 files); `npm run build` passed.
+- Python (2026-09-25, internal-token hardening): **228 passed, 4 skipped, 1 warning**. Pre-existing count on that machine was 207 (older docs record 204 from the B4 phase); 21 new tests live in `tests/test_internal_auth.py`.
+- Java (2026-09-25, internal-token hardening): **597 passed, 0 failures, 0 errors, 0 skipped**. Prior baseline was 581; 557 is the B4 baseline. The 16 new tests are `InternalTokenValidatorTest` and `InternalTokenFilterTest`.
+- `mvn test` needs no external service; `@SpringBootTest` uses H2 with Flyway disabled.
 - Remaining test gap: Agent workflow coverage around query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 
 ## Security Constraints
@@ -403,6 +404,12 @@ Latest documented verification:
 - `DEPRECATED` and `BLOCKED` tables/columns must not be retrieved, used for SQL generation, or approved through temporary access requests.
 - JWT blacklist lives in Redis; logout invalidates tokens.
 - Do not log passwords, raw JWTs, API keys, or secrets.
+- `/internal/*` on both services is guarded by one shared `X-Internal-Token` value, and that token is the only control on those paths. Rules that must not be relaxed:
+  - No default value in tracked config (`application.yml` uses `${INTERNAL_TOKEN:}`, `.env.example` ships it empty).
+  - Missing, blank, whitespace-containing, or sub-32-character tokens must make the service refuse to start. The check must stay independent of `spring.profiles.active`.
+  - Java grants `ROLE_INTERNAL` in `InternalTokenFilter` and `SecurityConfig` requires that authority for `/internal/**`; the filter and the authorization rule share one `RequestMatcher`. Never restore `permitAll()` for `/internal/**` — that turns "filter skipped" into "request allowed".
+  - Compare in constant time, encoding to UTF-8 bytes first (header values arrive latin-1 decoded; a non-ASCII byte would otherwise raise instead of returning 403).
+  - Java and Python must be configured with the same value; a mismatch surfaces as 403s, so keep the 401/403 warn-level logging in `schema_retriever` rather than lowering it to debug.
 
 ## Local Environment Rules
 

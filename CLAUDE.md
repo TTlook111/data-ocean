@@ -183,8 +183,21 @@ Recent RAG lifecycle change:
 Current RAG/NL2SQL follow-up cautions:
 
 - Do not implement datasource-wide force vectorization as "delete old vectors, then write new vectors". Prefer `doc_id`/version-scoped rebuilds or staging writes verified before cleanup.
-- Internal Python APIs currently rely heavily on network isolation; future hardening should add a shared internal token or equivalent guard across `/internal/*`.
+- Internal APIs (`/internal/*` on both services) are protected by a single shared token sent as `X-Internal-Token`; network isolation is no longer the primary control. See the "Internal service token" bullet below.
 - Empty table allowlists need an explicit protocol: "not provided" should not silently mean unrestricted access.
+
+## Internal Service Token
+
+`/internal/*` on both services is protected by one shared token in the `X-Internal-Token` header. It is the only control on those paths — Java's `SecurityConfig` does not treat `/internal/**` as public, and Python relies on router-level dependencies — so treat misconfiguration as a security failure, not a convenience problem.
+
+- **No default value anywhere.** `application.yml` uses `${INTERNAL_TOKEN:}` and `python-service/.env.example` ships `INTERNAL_TOKEN=` empty. If either service starts without a usable token that is a bug, not a feature.
+- **Fail-fast at startup.** `InternalTokenValidator` (Java) and a `Settings` field validator in `python-service/dataocean/core/config.py` reject a missing, blank, whitespace-containing, or shorter-than-32-character token and refuse to start. There is deliberately no profile check: an earlier design gated the guard on `spring.profiles.active`, which was hardcoded to `dev` in tracked config, so the guard never fired in practice.
+- **Single source of truth per service.** Java: `InternalTokenValidator` holds the token; both the inbound filter and the outbound `PythonRestClientConfig` read from it. Python: `settings.internal_token`; the four former `os.getenv("INTERNAL_TOKEN", ...)` call sites now read it.
+- **The two services must share the same value.** A mismatch produces 403s, not a schema error. `schema_retriever` logs 401/403 at warn level for exactly this reason — do not downgrade those back to debug.
+- **Fail-closed, not fail-open.** `InternalTokenFilter` grants `ROLE_INTERNAL` and `SecurityConfig` *requires* that authority for `/internal/**`; the filter and the authorization rule share one `RequestMatcher`. Never revert `/internal/**` to `permitAll()` — that would make "filter skipped" mean "request allowed".
+- **Constant-time comparison, encoding first.** Java uses `MessageDigest.isEqual` on UTF-8 bytes; Python uses `hmac.compare_digest` on UTF-8 bytes. Encoding first matters: header values are decoded as latin-1, so a non-ASCII byte would otherwise raise instead of returning 403.
+- Local development supplies the value from gitignored files: `python-service/.env` and `backend/DataOcean/config/application-local.yml`.
+- Coverage tests are the guard against silent regressions here: `InternalTokenFilterTest` enumerates every registered `/internal/**` handler and asserts anonymous requests are rejected; `tests/test_internal_auth.py` enumerates Python `/internal` routes and asserts each carries `verify_internal_token`. Extend them rather than adding per-endpoint checks.
 
 ## Core Domain Concepts
 
@@ -246,8 +259,10 @@ mvn test
 
 Latest verified test result:
 
+- Java (2026-09-25, internal-token hardening): **597 tests passed, 0 failures, 0 errors, 0 skipped**. Previous baseline on the same machine was **581** (for `5f13efd`, before this work); the docs' older **557** figure is the B4 baseline and **563** a B5 preparation re-run. The 16 new tests are `InternalTokenValidatorTest` (10) and `InternalTokenFilterTest` (6). `mvn test` needs no external service — Mockito unit tests plus `@SpringBootTest` instances backed by H2 + `src/test/resources/application-test.yml` (Flyway disabled there).
+- Python (2026-09-25, internal-token hardening): **228 passed, 4 skipped, 1 warning**. The pre-existing tests on this machine numbered **207** (the docs' older **204** figure is a B4-era record). The 21 new tests are in `tests/test_internal_auth.py`.
+- Java (2026-09-12): **145 tests passed** — the stage 5–8 review fix round. The suite was briefly **uncompilable** in that round (an ambiguous `insert(any())` in `GlossaryTermServiceImplTest`), so any "all fixed" claim made while it was broken had no executable evidence behind it.
 - Python (2026-09-07): 152 passed, 4 skipped (E2E tests require full environment).
-- Java (2026-09-12): **145 tests passed, 0 failures, 0 skipped** — re-run after the stage 5–8 review fix round. The suite was briefly **uncompilable** in that round (an ambiguous `insert(any())` in `GlossaryTermServiceImplTest`), so any "all fixed" claim made while it was broken had no executable evidence behind it. (Was 143 before that round, 119 before the 2026-09-12 defect rounds, which added `KnowledgeDocLifecycleServiceTest` (4), `GlossaryTermServiceImplTest` (9), `AccessApprovalServiceImplTest` (2), and extended `KnowledgeVersionServiceImplTest` / `QualityIssueServiceImplTest`.) `mvn test` needs no external service — the suite is Mockito unit tests plus one `@SpringBootTest` backed by H2 + `src/test/resources/application-test.yml`.
 
 The next testing gap is Agent workflow coverage: query rewrite, SQL generation/validation/execution, visualization fallback, RAG degradation, and Java query integration.
 

@@ -178,6 +178,24 @@ DRAFT → PENDING_REVIEW → APPROVED → INDEXING → PUBLISHED
 
 启动或诊断前应先核对 hostname、端口、进程和基础设施状态。若文件中的 hostname 与当前机器不一致，必须忽略该配置并按当前机器重新探测，不得继续使用。系统重装或服务拓扑变化后，应重新探测并重建当前机器的文件，不能复用另一台电脑的配置或旧路径。
 
+### 0. 配置内部服务令牌（必需，首次启动前完成）
+
+Java 与 Python 之间的 `/internal/*` 调用（可执行 SQL、写向量库、触发 Agent）由同一个共享令牌保护。
+该令牌**没有默认值**：未配置或长度不足 32 个字符时，两个服务都会拒绝启动。
+
+生成一个值，然后把它**同时**写入下面两个文件（两个值必须完全一致，单边修改会导致内部调用全部 403）：
+
+```bash
+python -c "import secrets;print(secrets.token_urlsafe(48))"
+```
+
+| 文件 | 配置项 | 是否纳入 Git |
+| --- | --- | --- |
+| `python-service/.env` | `INTERNAL_TOKEN=<值>` | 否（已忽略） |
+| `backend/DataOcean/config/application-local.yml` | `dataocean.internal.token: <值>` | 否（已忽略） |
+
+也可以改用环境变量 `INTERNAL_TOKEN` 提供（环境变量优先级高于上述文件）。
+
 ### 1. 启动 Java 网关
 
 ```bash
@@ -192,7 +210,7 @@ mvn spring-boot:run
 ```bash
 cd python-service
 cp .env.example .env
-# 编辑 .env，配置 DASHSCOPE_API_KEY 与基础设施连接
+# 编辑 .env，配置 DASHSCOPE_API_KEY、基础设施连接，以及第 0 步生成的 INTERNAL_TOKEN
 uv sync
 uv run uvicorn dataocean.main:app --reload --port 8000
 ```

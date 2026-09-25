@@ -6,19 +6,18 @@
 
 import json
 import logging
-import os
 from typing import Any
 
 import httpx
 
+from dataocean.core.config import settings
 from .renderer import render_template
 
 logger = logging.getLogger(__name__)
 
-# Java 网关地址
-JAVA_BASE_URL = os.getenv("JAVA_GATEWAY_URL", "http://127.0.0.1:8080")
-# 内部调用 Token（与 Java 端 dataocean.internal.token 配置一致）
-INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "dataocean-internal-default")
+# Java 网关地址与内部调用 Token 的单一来源（与 Java 端 dataocean.internal.token 必须一致）
+JAVA_BASE_URL = settings.java_gateway_url
+INTERNAL_TOKEN = settings.internal_token
 
 
 async def fetch_template(template_code: str) -> dict[str, Any]:

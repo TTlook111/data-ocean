@@ -11,11 +11,11 @@ Phase 3: 查询 Java 内部 API 获取表间关系（FOREIGN_KEY / LINEAGE / DER
 from __future__ import annotations
 
 import logging
-import os
 import asyncio
 
 import httpx
 
+from dataocean.core.config import settings
 from dataocean.rag.service import retrieve_schemas
 from dataocean.rag.schema import RetrieveRequest
 from dataocean.rag.fallback import get_degradation_notice
@@ -24,8 +24,27 @@ from ..state import AgentState
 
 logger = logging.getLogger(__name__)
 
-JAVA_BASE_URL = os.getenv("JAVA_GATEWAY_URL", "http://127.0.0.1:8080")
-INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "dataocean-internal-default")
+JAVA_BASE_URL = settings.java_gateway_url
+INTERNAL_TOKEN = settings.internal_token
+
+
+def _log_internal_call_failure(scope: str, exc: Exception) -> None:
+    """记录内部接口调用失败
+
+    401/403 是内部令牌两侧不一致的信号——那是配置问题，必须显式可见。
+    否则它的表现只是"RAG 不再推荐 JOIN"，没有任何报错，排查成本极高。
+    其余失败（超时、连接被拒等）属瞬时故障，保持 debug 以免刷屏。
+    """
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status in (401, 403):
+        logger.warning(
+            "内部接口认证失败（HTTP %s）scope=%s："
+            "请检查 Java 的 dataocean.internal.token 与 Python 的 INTERNAL_TOKEN 是否一致",
+            status,
+            scope,
+        )
+    else:
+        logger.debug("内部接口调用失败 scope=%s error=%s", scope, exc)
 
 
 async def run_schema_retriever(state: AgentState) -> AgentState:
@@ -189,7 +208,7 @@ async def _fetch_relationships_batch(entity_ids: list[int]) -> dict[int, list[di
                     if data.get("code") == 200:
                         return entity_id, data.get("data", [])
                 except Exception as e:
-                    logger.debug("关系数据查询失败 entity_id=%s error=%s", entity_id, e)
+                    _log_internal_call_failure(f"metadata.relationships entity_id={entity_id}", e)
                 return entity_id, []
 
         values = await asyncio.gather(*(fetch(entity_id) for entity_id in entity_ids))
@@ -216,5 +235,5 @@ async def _fetch_relationships(entity_id: int) -> list[dict]:
                 return data.get("data", [])
             return []
     except Exception as e:
-        logger.debug("关系数据查询失败 entity_id=%s error=%s", entity_id, e)
+        _log_internal_call_failure(f"metadata.relationships entity_id={entity_id}", e)
         return []
