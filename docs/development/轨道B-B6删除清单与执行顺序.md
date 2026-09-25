@@ -18,8 +18,17 @@
 | 批次 2 后端旧权限管理端 | ✅ 完成 | 删 15 个文件（3 个 Controller + 2 组 Service/Impl + 定时任务 + 2 个 Entity + 2 个 Mapper + 2 个 DTO + 1 个测试）；同步删 13 条 `IamS1EndpointExemptions` 条目、从 `WildcardAuthorizationAnnotationTest` 移除 3 个类；Java 测试 **601 通过**（603 − 2） |
 | 批次 3 旧问数链路（Java） | ✅ 完成 | 删 52 文件（−5201 行）：旧问数链路 + 旧权限计算 + 旧数据源授权 + 旧角色权限配置；脱敏能力迁到 `common/security`。Java 测试 **585 通过**（601 − 16） |
 | 批次 3 旧问数链路（Python） | ✅ 完成 | 删 42 文件（−6829 行）：整个旧 Agent 包 + sandbox 旧模块 + `infra/sse.py` + 11 个旧测试文件。Python 测试 **105 通过**（228 − 123，逐文件核对吻合） |
-| 批次 4 数据库删表 | ⏳ 未开始 | — |
+| 批次 4 数据库删表 | ✅ 完成 | 新增 `V58__b6_drop_legacy_permission_tables.sql`，本机库已应用（`Successfully applied 1 migration ... now at version v58`，失败数 0）。6 张旧权限表已删除；`permission_change_log`（0 行）与 `access_approval_request`（**2 行历史完好**）按冻结清单保留只读；`iam_s1_*` 仍为 14 张。表数 56 → 70 → 64 算术吻合。Java 测试 **585 通过** |
 | 批次 5 文档 | ⏳ 未开始 | — |
+
+### 批次 4 执行前的两项核对（发现一个运行期炸弹）
+
+1. **外键**：全库 `information_schema` 实测 **0 外键、0 视图、0 触发器**，因此 DROP 无依赖顺序问题。
+2. **运行期 SQL 引用**（关键）：MyBatis 的 SQL 是**运行期解析**的，编译不会报错。
+   扫描发现 `DatasourceMapper` 里 `selectAccessibleByUserId` 与 `selectAccessibleMultiDimension`
+   仍带 `JOIN datasource_access` 的注解 SQL，且全仓库**无任何调用方**（旧权限体系的死方法）。
+   已在批次 4 内一并删除这两个方法——否则删表后一旦被调用就是运行期错误。
+   `DatasourceSimpleVO` 因仍被 `DatasourceAdminController.listSimple()` 使用而保留。
 
 ### 批次 3 执行中发现的两处「不能删」
 
