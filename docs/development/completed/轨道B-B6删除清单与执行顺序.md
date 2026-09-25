@@ -2,10 +2,10 @@
 
 > 生成日期：2026-09-25。基于对当前工作区的只读盘点，每项都有 `文件:行号` 依据。
 >
-> 本文只回答"删什么、按什么顺序、删的时候要同步改什么"。**不构成执行授权**：
-> `docs/development/后续开发.md` 中「B6 必须单独获得授权」仍然有效，未获授权前不执行这些删除。
+> 本文只回答"删什么、按什么顺序、删的时候要同步改什么"。 **不构成执行授权**：
+> `../后续开发.md` 中「B6 必须单独获得授权」仍然有效，未获授权前不执行这些删除。
 >
-> 按批次提交，**每个批次独立跑一次全量测试**，不要合并成大提交。
+> 按批次提交， **每个批次独立跑一次全量测试**，不要合并成大提交。
 
 ---
 
@@ -19,9 +19,9 @@
 | 批次 3 旧问数链路（Java） | ✅ 完成 | 删 52 文件（−5201 行）：旧问数链路 + 旧权限计算 + 旧数据源授权 + 旧角色权限配置；脱敏能力迁到 `common/security`。Java 测试 **585 通过**（601 − 16） |
 | 批次 3 旧问数链路（Python） | ✅ 完成 | 删 42 文件（−6829 行）：整个旧 Agent 包 + sandbox 旧模块 + `infra/sse.py` + 11 个旧测试文件。Python 测试 **105 通过**（228 − 123，逐文件核对吻合） |
 | 批次 4 数据库删表 | ✅ 完成 | 新增 `V58__b6_drop_legacy_permission_tables.sql`，本机库已应用（`Successfully applied 1 migration ... now at version v58`，失败数 0）。6 张旧权限表已删除；`permission_change_log`（0 行）与 `access_approval_request`（**2 行历史完好**）按冻结清单保留只读；`iam_s1_*` 仍为 14 张。表数 56 → 70 → 64 算术吻合。Java 测试 **585 通过** |
-| 批次 5 文档 | ✅ 完成 | `frontend/CLAUDE.md` 的权限章节重写（原章节仍在教已失效的 `auth.user?.permissions?.includes()`）；`CLAUDE.md`、`AGENTS.md` 的状态表/Track B 段落/测试基线；整改计划的状态与残余风险；`后续开发.md` 的队列改为「B6 已完成，仅剩会话机制」 |
+| 批次 5 文档 | ✅ 完成 | `../../../frontend/CLAUDE.md` 的权限章节重写（原章节仍在教已失效的 `auth.user?.permissions?.includes()`）；`CLAUDE.md`、`AGENTS.md` 的状态表/Track B 段落/测试基线；整改计划的状态与残余风险；`后续开发.md` 的队列改为「B6 已完成，仅剩会话机制」 |
 
-**B6 全部完成。** 唯一未处理的遗留项是冻结清单第 497/498 行的会话机制替代物，属独立任务（见 `后续开发.md`）。
+**B6 全部完成。** 唯一未处理的遗留项是冻结清单第 497/498 行的会话机制替代物，属独立任务（见 `../后续开发.md`）。
 
 ### B6 之后的 S1 问数链路端到端验证（2026-09-25）
 
@@ -97,7 +97,7 @@ S1 的 SQL 生成提示词应要求对表达式投影使用业务化别名；浏
 
 | 文件 | 必须包含 |
 | --- | --- |
-| `后续开发.md` | `V53 永久不再使用`、`B6 必须单独获得授权`、`只删除冻结清单中的旧权限专用入口、代码和表`、`P9 若实施必须使用 V58 或更高的未占用版本`、`独立 MySQL 恢复演练` |
+| `../后续开发.md` | `V53 永久不再使用`、`B6 必须单独获得授权`、`只删除冻结清单中的旧权限专用入口、代码和表`、`P9 若实施必须使用 V58 或更高的未占用版本`、`独立 MySQL 恢复演练` |
 | `轨道B-B0权限清单与决策冻结.md` | `## 7. B6 删除清单`、`DatasourcePermissionController`、`sys_role_permission` |
 
 其中 `P9 若实施必须使用 V58 或更高的未占用版本` 在 V58 被占用后已经过时，但**不能改字面**——
@@ -203,7 +203,7 @@ Java 与 Python 都在同一步内完成，中间态无跨服务契约不一致�
 
 1. `frontend/src/views/admin/access/IamS1OfficialPages.test.ts:55-65` —— 这条用例 `readFrontend()` 读取
    `src/views/admin/user/OrganizationView.vue` 的内容做断言。文件删除后必须整条删除该用例。
-2. `frontend/src/api/admin/user.ts` —— 删除 14 个只服务旧页面角色/权限的函数：
+2. `../../../frontend/src/api/admin/user.ts` —— 删除 14 个只服务旧页面角色/权限的函数：
    `listRoles` `createRole` `updateRole` `deleteRole` `listRolePermissionIds` `updateRolePermissions`
    `listPermissionsTree` `listPermissions` `createPermission` `updatePermission` `deletePermission`
    `listRoleUsers` `assignRoleToUser` `removeRoleFromUser`。
@@ -348,7 +348,7 @@ Java 与 Python 都在同一步内完成，中间态无跨服务契约不一致�
 它是**通用**的 Spring Cache（Caffeine）配置，没有权限专属的缓存名；冻结清单第 2 条也告诫
 "非权限的...通用 AI/Embedding 实例缓存...不因名称相近而误删"。`PermissionCalculatorImpl:60-67`
 里那个**私有的** Caffeine 权限缓存随该类一起删除即可。
-（另注：该项目自己的 `CLAUDE.md` 规定查询路径缓存只用 Redis；`CacheConfig` 目前无人使用，
+（另注：该项目自己的 `../../../CLAUDE.md` 规定查询路径缓存只用 Redis；`CacheConfig` 目前无人使用，
 属独立的清理议题，不在 B6 范围内。）
 
 ---
@@ -356,7 +356,7 @@ Java 与 Python 都在同一步内完成，中间态无跨服务契约不一致�
 ## 批次 4：数据库（受 B5 前置条件约束，现在不能执行）
 
 - 13 个 migration 中**没有任何 `DROP TABLE`**，全部前向增量 → 删表必须新增 migration。
-- **必须 ≥ V58**。V53 永久不使用（见 B0 §7 与 `后续开发.md`）。
+- **必须 ≥ V58**。V53 永久不使用（见 B0 §7 与 `../后续开发.md`）。
 - 要 DROP 的 **6 张**：`sys_permission`、`sys_role`、`sys_user_role`、`sys_role_permission`、
   `datasource_access`、`datasource_access_policy`。
 - **保留为只读历史（2026-09-25 决定，与冻结清单一致）**：`permission_change_log`、`access_approval_request`。
@@ -380,9 +380,9 @@ B0 §7 那句"删除必须在 B5 正式切换、真实复验通过且输出本�
 | 文件 | 需要改什么 |
 | --- | --- |
 | `frontend/CLAUDE.md:28,48` | 仍在教 `auth.user?.permissions?.includes('xnxx:manage')` 这套**已失效**的写法，"权限模型"整章需重写 |
-| `CLAUDE.md` / `AGENTS.md` | 状态表、测试基线、旧权限对象清单 |
-| `docs/development/DataOcean后台重构状态与整改计划.md` | 状态行 |
-| `docs/development/后续开发.md` | 队列（注意不要删除「B6 必须单独获得授权」，有守护测试断言它） |
+| `../../../CLAUDE.md` / `AGENTS.md` | 状态表、测试基线、旧权限对象清单 |
+| `DataOcean后台重构状态与整改计划.md` | 状态行 |
+| `../后续开发.md` | 队列（注意不要删除「B6 必须单独获得授权」，有守护测试断言它） |
 
 ---
 
@@ -397,7 +397,7 @@ B0 §7 那句"删除必须在 B5 正式切换、真实复验通过且输出本�
 | `IamS1B5PreparationStaticTest:62-79,97-142` | 同上，静态门禁 |
 | `views/admin/access/IamS1OfficialPages.test.ts` | S1 正式页面不得引用 `listRoles`/`listPermissions`/`updateRolePermissions`/`assignRoleToUser` |
 | `views/query/IamS1FormalEntry.test.ts:34-36` | 正式查询入口不得引用 `api/query` 或 `/api/query/` |
-| `IamS1B5PreparationStaticTest:209` | `后续开发.md` 必须写明「B6 必须单独获得授权」 |
+| `IamS1B5PreparationStaticTest:209` | `../后续开发.md` 必须写明「B6 必须单独获得授权」 |
 
 ---
 

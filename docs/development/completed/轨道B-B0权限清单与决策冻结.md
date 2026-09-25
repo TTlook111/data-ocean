@@ -4,7 +4,7 @@
 >
 > 状态：B0 文档已完成并评审通过。本文件只冻结开发基线，不表示 B1、数据库升级、权限代码或真实运行验收已经完成。
 >
-> 主设计：[`docs/development/guides/DataOcean-完整权限体系设计.md`](guides/DataOcean-完整权限体系设计.md) 简明版 1.4；执行协议：`IAM-SIMPLE-1`。
+> 主设计：[`DataOcean-完整权限体系设计.md`](DataOcean-完整权限体系设计.md) 简明版 1.4；执行协议：`IAM-SIMPLE-1`。
 
 ## 0. B0 范围与冻结结论
 
@@ -48,7 +48,7 @@
 | Java 用户/管理 API 注解 | 208 | 211 减去 `InternalMetadataController`、`PromptInternalController`、`InternalAiConfigController` 的 3 个内部方法级 API。 |
 | 公开路径变体 | 226 | 208 个公开 API 加上 `RoleController`、`DepartmentController`、`PermissionController` 三个双前缀 Controller 产生的 18 个额外路径变体。 |
 | Python 路由声明 | 27 | `main.py` 注册的 Agent、RAG、SQL、知识、Prompt、图表、配置和健康路由；其中 25 个模块/配置路由由统一内部令牌依赖保护，健康路由单独注册；不等同 Java API 数。 |
-| 后台正式路由声明 | 26 | `frontend/src/router/index.ts` 的 `/admin` 子路由，含 20 个工作区入口和 6 个详情/新建/差异对象页。 |
+| 后台正式路由声明 | 26 | `../../../frontend/src/router/index.ts` 的 `/admin` 子路由，含 20 个工作区入口和 6 个详情/新建/差异对象页。 |
 | 正式工作区 | 20 | 7 个一级业务域；工作台 1 个加固定工作区 19 个。 |
 | 功能 Tab | 49 | 后台 `el-tab-pane` 的运行时功能项 43 个，AI 配置自定义 Tab 2 个，问数结果 Tab 4 个。动态审批 Tab 按运行时 3 个计。 |
 | 按钮标签/组件声明 | 277 | 后台视图 237、后台 Shell 6、问数视图 34；包含刷新、取消、关闭、重试等通用控件。目标矩阵只标记与权限动作有关的控件。 |
@@ -155,7 +155,7 @@
 
 Migration 关联完整盘点：V1 建旧用户/角色/权限四表，V2 初始化旧角色与管理员，V4 建旧数据源授权，V8/V13/V19/V25/V27/V28/V34/V36 写旧权限码或关系，V40 增加旧策略增强和权限审计，V41 增加旧审批，V42 补旧授权效果。已执行 Flyway 文件一律保留，B1/B2/B6 只能使用新的前向 migration。
 
-规格差异也已冻结：`specs/015-permission-security/data-model.md` 的示例声明了数据库外键，但当前 V1/V4/V25/V40/V41 migration 实际没有创建外键；B0 遵循仓库规则，S1 仍不创建数据库外键。规格中的 `datasource_access`、`datasource_access_policy`、`can_query/can_export/can_view_sql` 和字符串 `row_filter_expression` 是现行实现的历史形状，不是 S1 新表合同。
+规格差异也已冻结：`../../../specs/015-permission-security/data-model.md` 的示例声明了数据库外键，但当前 V1/V4/V25/V40/V41 migration 实际没有创建外键；B0 遵循仓库规则，S1 仍不创建数据库外键。规格中的 `datasource_access`、`datasource_access_policy`、`can_query/can_export/can_view_sql` 和字符串 `row_filter_expression` 是现行实现的历史形状，不是 S1 新表合同。
 
 ### 2.4 权限加载、JWT、会话和缓存
 
@@ -195,7 +195,7 @@ Migration 关联完整盘点：V1 建旧用户/角色/权限四表，V2 初始�
 > **取代说明（2026-09-25）**：本节表格是 B0 评审时点的状态快照，其中的**内部令牌**相关描述已被后续实现取代，阅读时不要当作当前行为：
 > `InternalMetadataController` / `PromptInternalController` / `InternalAiConfigController` 三处方法内校验（`requireInternal`、`validateInternalCall`、`getRawConfig` 的 header 判断）**已全部删除**，改由 `common/security/InternalTokenFilter` 在 `/internal/**` 上统一保护；`SecurityConfig` 不再对 `/internal/**` 使用 `permitAll()`，而是要求过滤器写入的 `ROLE_INTERNAL`（fail-closed）。令牌不再有任何默认值，缺失/含空白/短于 32 字符时两个服务都拒绝启动。本文档的 B6 删除/保留基线不受影响。
 
-### 2.6 `specs/015-permission-security` 与 B0 的关系
+### 2.6 `../../../specs/015-permission-security` 与 B0 的关系
 
 | 文件 | 已读到的现行内容 | B0 处理 |
 |---|---|---|
@@ -289,7 +289,7 @@ Migration 关联完整盘点：V1 建旧用户/角色/权限四表，V2 初始�
 
 注解侧：三个码保持 `FunctionScope.MIXED`；`@IamS1ScopedList` 接受 RESOURCE 或 MIXED 而继续拒绝 GLOBAL，
 `@IamS1Global` / `@IamS1Resource` 继续拒绝 MIXED；动态范围由 `GlossaryScopeService` 落实。
-完整规则见 `docs/development/guides/DataOcean-IAM-SIMPLE-1鉴权接入设计.md` §11.7.1。
+完整规则见 `DataOcean-IAM-SIMPLE-1鉴权接入设计.md` §11.7.1。
 
 ### 3.3 当前目标码缺口汇总
 
@@ -499,8 +499,8 @@ Java 是快照唯一产生者。推荐传输结构如下，字段名在 B3 合�
 | 所有 Controller 的旧 `@PreAuthorize` 字符串、旧权限别名、`hasAnyAuthority('*')` 的业务授权绕过 | S1 `AuthorizationDecision` + 资源范围检查 | B4 所有 54 码接入、B5 后 | 直接 API 对列表/详情/批量/统计/导出逐项做拒绝测试；静态扫描无旧表达式 | 操作审计保留 | `*` 仅作为静态历史证据，不保留为新运行入口 |
 | `JwtTokenProvider` 旧 claim `roles/permissions/tokenVersion`、`UserDetailsServiceImpl` 旧权限加载、`JwtAuthenticationFilter` 旧解析路径 | S1 身份 JWT：`authProtocolVersion`、`sessionEpoch`；S1 Resolver 动态生成能力 | B5 入口切换、旧会话失效确认后 | 旧 JWT 缺协议字段被拒绝；新 JWT 不含权限数组；账号启停/密码变更会使 S1 会话失效 | 认证审计保留 | `sys_user.password_hash`、登录失败/验证码机制保留；只删旧 claim 解析和旧权限加载 |
 | `jwt:blacklist:{jti}`、`user:token-version:{userId}` 旧会话键；权限计算的 Caffeine `userId:datasourceId`、`CacheConfig` Caffeine 权限配置 | `iam-s1:session:*`、`iam-s1:permission:*:revision` Redis 键 | B5 作废旧会话、S1 Redis 回源验证后 | Redis 键前缀扫描、失效/回源/故障演练；无 Caffeine 权限实例 | 会话失效事件保留 | 保留账号安全的限频/验证码键和非权限业务缓存；逐前缀删除，禁止全库清理 |
-| `frontend/src/router/guards.ts` 的旧 adminPermissions、`auth.ts` 旧 permission 数组和 `hasPermission` | Java S1 capability snapshot 仅用于 UI 可见性；路由后端仍强制 | B4 新 UI 守卫和直接 API 验收、B5 后 | 无旧权限数组作为前端授权源；刷新后从 Java 获取 S1 capability | 登录/导航审计保留 | 不删除登录 token、个人资料、query 会话状态；仅清理权限入口逻辑 |
-| `OrganizationView` 的“权限项”任意 CRUD、`RoleList` 的旧权限树/权限 ID 配置、`frontend/src/api/admin/user.ts` 旧 permission CRUD | 固定 54 项中文只读目录；角色使用固定矩阵 | B4 中文角色配置通过、B5 后 | 不能创建未知码；54 码目录数为 54；角色保存由后端校验 | 操作日志保留 | `RoleList` 的角色/成员业务入口保留并接入 S1；只删旧权限 CRUD 子树 |
+| `../../../frontend/src/router/guards.ts` 的旧 adminPermissions、`auth.ts` 旧 permission 数组和 `hasPermission` | Java S1 capability snapshot 仅用于 UI 可见性；路由后端仍强制 | B4 新 UI 守卫和直接 API 验收、B5 后 | 无旧权限数组作为前端授权源；刷新后从 Java 获取 S1 capability | 登录/导航审计保留 | 不删除登录 token、个人资料、query 会话状态；仅清理权限入口逻辑 |
+| `OrganizationView` 的“权限项”任意 CRUD、`RoleList` 的旧权限树/权限 ID 配置、`../../../frontend/src/api/admin/user.ts` 旧 permission CRUD | 固定 54 项中文只读目录；角色使用固定矩阵 | B4 中文角色配置通过、B5 后 | 不能创建未知码；54 码目录数为 54；角色保存由后端校验 | 操作日志保留 | `RoleList` 的角色/成员业务入口保留并接入 S1；只删旧权限 CRUD 子树 |
 | `frontend/src/api/admin/permission.ts` 旧 access/policy/approval API、`AccessControl.vue` 旧表列策略表单和分散 MASK 写入口 | S1 授权、字段保护、实际权限、申请/审批页面 | B4 页面与新 API 成对验收、B5 后 | UI 与 API route graph 对照；按钮直连不存在的旧 API 时构建失败 | 历史页面访问记录保留 | 组织、数据源、元数据页面保留；不删除通用 `ResourceScopeSelector`，只移除旧授权消费 |
 | 旧 Java/Python/前端测试：`UserDetailsServiceImplTest`、`WildcardAuthorizationAnnotationTest`、`DatasourceAccessServiceImplTest`、`PermissionCalculatorImplTest`、`AccessApprovalServiceImplTest`、`AuthServiceImplTest`、`PythonAgentClientImplTest`、`test_sql_nodes.py`、`test_sse_polling.py`、`test_sandbox_regression.py` 以及旧 guard/query 断言 | S1 默认拒绝、隔离、快照、资源范围、结果保护、初始化、切换和清理测试 | B1-B5 新测试全部通过后，删除旧专属用例；业务安全通用测试迁移后再删 | 测试清单逐项标注迁移/删除；B6 后 `rg` 无旧运行引用 | 测试文件不属于业务审计；历史测试结果保留 Git history | 不删除通用 AST、RAG、只读 SQL、密码和账号测试；先迁移有效安全断言 |
 

@@ -6,9 +6,9 @@
 >
 > 适用分支：`codex/iam-s1-b5-preparation`（HEAD 基于 `1f0a5f4`，已包含 IAM 实现提交 `1a6e426`）
 >
-> 配套检查：`scripts/iam-s1-b5-preflight.ps1`（仓库只读，不连真实库）；真实库只读 SQL 门禁见第 4.4 节
+> 配套检查：`../../../scripts/iam-s1-b5-preflight.ps1`（仓库只读，不连真实库）；真实库只读 SQL 门禁见第 4.4 节
 >
-> 本文件不代替 `docs/development/DataOcean后台重构状态与整改计划.md`。当前完成度仍以该状态文档为准。
+> 本文件不代替 `DataOcean后台重构状态与整改计划.md`。当前完成度仍以该状态文档为准。
 
 ---
 
@@ -60,7 +60,7 @@ B4 自动化验证 ≠ B5 完成。本手册写完后，B5 仍未执行。
 
 ## 3. migration 清单与静态审查
 
-审查范围：`backend/DataOcean/src/main/resources/db/migration/` 中的 V51、V52、V54、V55、V56、V57，以及对应 Java Entity/Mapper 字段。本轮 **未** 连接真实数据库，**未** 执行 Flyway。
+审查范围：`../../../backend/DataOcean/src/main/resources/db/migration` 中的 V51、V52、V54、V55、V56、V57，以及对应 Java Entity/Mapper 字段。本轮 **未** 连接真实数据库，**未** 执行 Flyway。
 
 公共结论：
 
@@ -185,7 +185,7 @@ redis-cli -h $env:REDIS_HOST -p $env:REDIS_PORT --scan --pattern "user:token-ver
 若 Redis 需要密码，使用本地环境注入，不要把密码写进脚本仓库。
 
 7. **执行仓库只读 preflight**
-   运行 `scripts/iam-s1-b5-preflight.ps1`。静态检查必须通过，且 `B5_EXPECTED_SHA`、bootstrap `userId`（`^[1-9]\d*$`）已由用户确认。脚本不得连接业务库，不得做 DDL。第 4.4 节 SQL 门禁是独立步骤，不由本脚本代跑。
+   运行 `../../../scripts/iam-s1-b5-preflight.ps1`。静态检查必须通过，且 `B5_EXPECTED_SHA`、bootstrap `userId`（`^[1-9]\d*$`）已由用户确认。脚本不得连接业务库，不得做 DDL。第 4.4 节 SQL 门禁是独立步骤，不由本脚本代跑。
 
 8. **失败时的停止点**
 
@@ -731,7 +731,7 @@ bootstrap 成功并完成第 8 节切换验收后：
    使用切换前签发的 token、只持有旧同名码的账号、空 S1 绑定的启用用户，访问 `/api/admin/**` 与 `/api/iam-s1/**` 均应失败。
 
 10. **记录切换时间、确认 SHA 和验收证据**
-    写入状态文档与 `output/playwright/` 证据目录，三处都使用同一个 `B5_EXPECTED_SHA`。明确区分自动化与真实验收。
+    写入状态文档与 `../../../output/playwright` 证据目录，三处都使用同一个 `B5_EXPECTED_SHA`。明确区分自动化与真实验收。
 
 11. **切换成功后关闭 bootstrap**
     按 5.3 删除启动开关。

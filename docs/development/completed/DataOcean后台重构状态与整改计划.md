@@ -16,9 +16,9 @@
 - 后台一级、二级、三级导航的最终规则；
 - 轨道 B、轨道 C 和其他未完成工作。
 
-代码实现、单元测试、浏览器验收和最终通过是四个不同状态，不得互相替代。以后只在本文更新当前状态；`后续开发.md` 仅维护下一步执行顺序。历史过程通过 Git history、截图和机器证据追溯，不再创建新的“状态看板”“阶段总结”或重复验收说明。
+代码实现、单元测试、浏览器验收和最终通过是四个不同状态，不得互相替代。以后只在本文更新当前状态；`../后续开发.md` 仅维护下一步执行顺序。历史过程通过 Git history、截图和机器证据追溯，不再创建新的“状态看板”“阶段总结”或重复验收说明。
 
-复验的原始输出、截图和机器结果直接保存到 `output/playwright/`；不再为后台重构创建平行的叙述性状态报告，最终结论只回写本文。
+复验的原始输出、截图和机器结果直接保存到 `../../../output/playwright`；不再为后台重构创建平行的叙述性状态报告，最终结论只回写本文。
 
 ## 2. 当前结论
 
@@ -39,7 +39,7 @@
 
 在 `IT-GO-1225` 本机开发环境，IAM-SIMPLE-1 B5 的数据库切换和核心验收已完成：本机开发数据库已按 `V51 -> V52 -> V54 -> V55 -> V56 -> V57` 迁移至 V57，Flyway 失败记录为 0；V53 永久不使用。启动式 bootstrap 已完成，`state=COMPLETED`、`target_user_id=1`，userId=1 已绑定受保护的 `IAM_S1_SYSTEM_ADMIN`。固定功能目录为 54 项，`iam_s1_data_grant` 仍为 0，系统管理员未因后台身份自动获得业务问数数据权限。Java、Python、前端、Redis、Milvus 和 MySQL 已在本机启动，admin 已完成强制改密并重新登录，S1 组织、角色、功能目录、授权配置、访问申请与审批、无授权问数、旧组织 URL 和未登录 API 边界已完成核心浏览器验收；正式旧组织导航和 `/admin/access/organization` 路由已移除。浏览器 Console error/warn 为 0，未发现非预期 5xx；前端定向测试 6/6、全量 Vitest 67/67、构建和 `git diff --check` 通过；针对 `1e2f458` 的只读 preflight 为 failures=0、exit code=0。
 
-本段只描述 `IT-GO-1225` 本机开发环境直接切换测试，不代表生产环境发布或其他机器状态。当前状态为：**本机开发环境切换和核心验收已完成，仍有恢复演练及双用户负向场景缺口；B6 已在 `codex/iam-s1-b6-cleanup` 分支执行完成（批次 0～4，见 `docs/development/轨道B-B6删除清单与执行顺序.md`）。**
+本段只描述 `IT-GO-1225` 本机开发环境直接切换测试，不代表生产环境发布或其他机器状态。当前状态为：**本机开发环境切换和核心验收已完成，仍有恢复演练及双用户负向场景缺口；B6 已在 `codex/iam-s1-b6-cleanup` 分支执行完成（批次 0～4，见 `轨道B-B6删除清单与执行顺序.md`）。**
 
 B5 必须保留的限制和残余风险：
 
@@ -245,11 +245,11 @@ Python suggestedQuestions 产出
 
 **涉及位置**：
 
-- `frontend/src/components/admin/AdminShell.vue`
-- `frontend/src/components/admin/AdminDomainNav.vue`
+- `../../../frontend/src/components/admin/AdminShell.vue`
+- `../../../frontend/src/components/admin/AdminDomainNav.vue`
 - `frontend/src/components/admin/AdminWorkspaceNav.vue`
-- `frontend/src/router/adminNavigation.ts`
-- `frontend/src/router/index.ts`
+- `../../../frontend/src/router/adminNavigation.ts`
+- `../../../frontend/src/router/index.ts`
 
 **修改要求**：按第 4 节完成桌面展开和折叠状态；删除内容区顶部的二级工作区条，不改变现有 URL 与路由元数据语义。
 
@@ -277,7 +277,7 @@ Python suggestedQuestions 产出
 ### 6.1 自动化基线
 
 1. `frontend`: `npm run build`
-2. `backend/DataOcean`: `mvn test`
+2. `../../../backend/DataOcean`: `mvn test`
 3. `python-service`: `uv run pytest`
 
 三项都必须通过；构建通过不替代浏览器验收。
@@ -319,7 +319,7 @@ Python suggestedQuestions 产出
 
 ### 7.1 轨道 B：权限体系重构
 
-轨道 A 和导航结构已冻结。目标输入为 `docs/development/guides/DataOcean-完整权限体系设计.md` 的简明版 1.4 / IAM-SIMPLE-1。B0～B4（含 B4-A 与批次 1～6）的代码与自动化验证已合入 `codex/iam-s1-b5-preparation` 的 `1f0a5f4`（包含 IAM 实现提交 `1a6e426`）。当前代码切换提交为 `1e2f458`，已移除正式旧组织导航和 `/admin/access/organization` 路由。已迁移 Controller **23** 个；批次 6 实际 **61** 个 Handler。B4 最新自动化基线：Java **557**、前端 Vitest **67**。旧 Role/Permission/DatasourcePermission/AccessPolicy/AccessApproval 入口、服务和表仍保留到 B6。各阶段自动化结果与本机开发验收仍不代表生产发布。`IT-GO-1225` 本机开发数据库已完成 V51→V52→V54→V55→V56→V57 至 V57 的切换，bootstrap 和核心浏览器验收已完成，固定功能目录为 54 项，业务数据授权仍为 0；恢复演练和双用户负向场景仍缺。B6 已在 `codex/iam-s1-b6-cleanup` 分支执行完成（批次 0～4）：旧权限 Controller/Service/前端页面/旧问数链路/旧 Agent 包全部删除，6 张旧表由 `V58` 删除，`permission_change_log` 与 `access_approval_request` 保留只读。V53 永久不再使用。B5 手册见 `docs/development/guides/DataOcean-IAM-S1-B5切换与回退手册.md`。
+轨道 A 和导航结构已冻结。目标输入为 `DataOcean-完整权限体系设计.md` 的简明版 1.4 / IAM-SIMPLE-1。B0～B4（含 B4-A 与批次 1～6）的代码与自动化验证已合入 `codex/iam-s1-b5-preparation` 的 `1f0a5f4`（包含 IAM 实现提交 `1a6e426`）。当前代码切换提交为 `1e2f458`，已移除正式旧组织导航和 `/admin/access/organization` 路由。已迁移 Controller **23** 个；批次 6 实际 **61** 个 Handler。B4 最新自动化基线：Java **557**、前端 Vitest **67**。旧 Role/Permission/DatasourcePermission/AccessPolicy/AccessApproval 入口、服务和表仍保留到 B6。各阶段自动化结果与本机开发验收仍不代表生产发布。`IT-GO-1225` 本机开发数据库已完成 V51→V52→V54→V55→V56→V57 至 V57 的切换，bootstrap 和核心浏览器验收已完成，固定功能目录为 54 项，业务数据授权仍为 0；恢复演练和双用户负向场景仍缺。B6 已在 `codex/iam-s1-b6-cleanup` 分支执行完成（批次 0～4）：旧权限 Controller/Service/前端页面/旧问数链路/旧 Agent 包全部删除，6 张旧表由 `V58` 删除，`permission_change_log` 与 `access_approval_request` 保留只读。V53 永久不再使用。B5 手册见 `completed/DataOcean-IAM-S1-B5切换与回退手册.md`。
 
 用户要求权限简单易懂，采用“角色管功能、部门默认数据与个人/角色授权管可查数据、后台角色绑定负责源”的模型。管理员首屏使用中文名称、作用与例子；查询/SQL/导出功能只在角色配置，数据授权不重复开关，不建设多层委派或数字优先级。
 
@@ -361,11 +361,11 @@ Python suggestedQuestions 产出
 
 ## 8. 现有验收证据
 
-- 浏览器脚本：`output/playwright/轨道A浏览器验收.cjs`
-- 最终机器证据：`output/playwright/轨道A浏览器验收证据.json`
-- 截图目录：`output/playwright/`（最终复验为桌面视口）
-- 主业务库夹具：`docs/review/fixtures/轨道A-业务库.sql`
-- 辅助数据源夹具：`docs/review/fixtures/轨道A-辅助数据源.sql`
+- 浏览器脚本：`../../../output/playwright/轨道A浏览器验收.cjs`
+- 最终机器证据：`../../../output/playwright/轨道A浏览器验收证据.json`
+- 截图目录：`../../../output/playwright`（最终复验为桌面视口）
+- 主业务库夹具：`../../review/fixtures/轨道A-业务库.sql`
+- 辅助数据源夹具：`../../review/fixtures/轨道A-辅助数据源.sql`
 
 最终证据对应真实接口与浏览器复验；早期失败过程仍可通过 Git history 和运行日志追溯，不作为当前结论。
 
@@ -374,7 +374,7 @@ Python suggestedQuestions 产出
 - 本文只保留当前状态和未完成事项，完成项压缩到“已通过结果”。
 - 设计决策发生变化时先更新本文，再改代码。
 - 每次复验只在本文更新最终结论；原始日志和截图作为证据文件保存。
-- `README.md`、`AGENTS.md`、`CLAUDE.md` 和前端协作说明统一链接本文。
+- `../../../README.md`、`AGENTS.md`、`CLAUDE.md` 和前端协作说明统一链接本文。
 - 任何新文档不得自称“唯一状态入口”或复制本文的进度表。
 
 ### 9.1 本次已合并并删除的文档

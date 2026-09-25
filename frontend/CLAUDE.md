@@ -75,7 +75,7 @@ DataOcean 是企业级 NL2SQL 智能数据查询与治理平台。前端服务�
 4. **工作台首页**：按能力摘要展示不同的待办、风险、生命周期状态和统计卡片。管理员看治理入口，
    普通用户看查询入口。
 5. **新增后台页面归属**：新增 `/admin/*` 页面前，先读
-   `docs/development/DataOcean后台重构状态与整改计划.md` 的导航决策（工作台、数据接入、数据资产、
+   `../docs/development/completed/DataOcean后台重构状态与整改计划.md` 的导航决策（工作台、数据接入、数据资产、
    数据治理、语义中心、权限与组织、运营与平台）和该业务域下已有的二级工作区。一级与二级均放在侧栏；
    不要在业务域外新建一级入口，详情页和 Tab 不作为二级菜单。
 
@@ -221,7 +221,7 @@ function extractError(error: unknown, fallback: string): string {
 开发任何新页面前，确认：
 1. [ ] 该页面的目标用户是谁？属于哪个一级业务域和二级工作区？
 2. [ ] 路由是否使用了状态文档导航决策中的正式 URL，且 meta 包含 `title` / `domainKey` / `workspaceKey` / `contextMode`？（后台路由**不**添加 `meta.permission`）
-3. [ ] 页面归属和侧栏层级是否符合 `docs/development/DataOcean后台重构状态与整改计划.md`？
+3. [ ] 页面归属和侧栏层级是否符合 `../docs/development/completed/DataOcean后台重构状态与整改计划.md`？
 4. [ ] 如果需要导航入口，是加到 `router/adminNavigation.ts` 的 `ADMIN_WORKSPACES`，而不是侧边栏直接加技术模块？
 5. [ ] 如果页面需要数据源/快照范围，是否复用了 `ScopeBar` 与 `adminScope`，而没有在页面内另建一套数据源选择器？
 6. [ ] 状态和允许的操作是否**以后端返回的状态为准**，而不是前端自行推断？阻断原因是否直接复用 readiness 的 `blockReasons`？

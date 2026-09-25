@@ -273,7 +273,7 @@ Java 查询任务 → Python Agent → Query Rewrite / Schema RAG
 | Java | 119 tests passed |
 | 端到端 | 智能问数与治理后台已完成真实桌面浏览器验收 |
 
-这是一个持续迭代的个人工程化项目，目标是验证“治理驱动的可信 NL2SQL”完整方案；当前不宣称可以未经配置直接用于生产环境。真实完成度、已知风险与后续优先级以 [`DataOcean后台重构状态与整改计划.md`](docs/development/DataOcean后台重构状态与整改计划.md) 为准。
+这是一个持续迭代的个人工程化项目，目标是验证“治理驱动的可信 NL2SQL”完整方案；当前不宣称可以未经配置直接用于生产环境。真实完成度、已知风险与后续优先级以 [`DataOcean后台重构状态与整改计划.md`](docs/development/completed/DataOcean后台重构状态与整改计划.md) 为准。
 
 ## 文档导航
 
@@ -282,9 +282,9 @@ Java 查询任务 → Python Agent → Query Rewrite / Schema RAG
 | [`AGENTS.md`](AGENTS.md) | 项目架构、代码边界、开发约束与验证命令 |
 | [`CLAUDE.md`](CLAUDE.md) | AI 编码 Agent 工作手册与当前实现基线 |
 | [`DataOcean技术栈与模块职责.md`](docs/development/DataOcean技术栈与模块职责.md) | 技术栈、模块职责、数据归属与异步边界 |
-| [`DataOcean后台重构状态与整改计划.md`](docs/development/DataOcean后台重构状态与整改计划.md) | 当前真实状态、风险、验收基线与后续计划 |
+| [`DataOcean后台重构状态与整改计划.md`](docs/development/completed/DataOcean后台重构状态与整改计划.md) | 当前真实状态、风险、验收基线与后续计划 |
 | [`DataOcean-RAG问题修复与知识文档切分优化方案.md`](docs/development/completed/DataOcean-RAG问题修复与知识文档切分优化方案.md) | RAG 切分、检索与发布可靠性实现 |
-| [`DataOcean-完整权限体系设计.md`](docs/development/guides/DataOcean-完整权限体系设计.md) | 权限体系的目标设计与迁移边界 |
+| [`DataOcean-完整权限体系设计.md`](docs/development/completed/DataOcean-完整权限体系设计.md) | 权限体系的目标设计与迁移边界 |
 
 ## License
 
