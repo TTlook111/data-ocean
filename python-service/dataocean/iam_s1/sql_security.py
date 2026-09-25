@@ -147,6 +147,31 @@ def _declared_usages(meta: dict[str, Any]) -> set[str]:
     return {str(item).upper() for item in meta.get("usage") or []}
 
 
+def _reject_unexpanded_projection_stars(scopes: dict[int, Any]) -> None:
+    """拒绝仍未展开的**投影位置**星号。
+
+    只检查 SELECT 的投影列表本身（`SELECT *` / `SELECT t.*`），不检查函数参数里的
+    星号：`COUNT(*)` 是"统计行数"的标准写法，它不把任何列带进结果集，与
+    `SELECT *` 会拉入未声明字段的风险无关。
+
+    这曾经是一个真实缺陷：兜底检查用的是 `tree.find(exp.Star)`，会命中
+    `COUNT(*)` 内部的星号，导致 `SELECT COUNT(*) FROM t` 被无条件拒绝——
+    而"表里有多少条记录"这类问题的正确 SQL 恰恰就是它。
+    `_expand_stars` 只处理投影位置的星号，无法展开时它自己会抛错，所以本函数
+    是那道防线的精确定义。
+    """
+    for scope in scopes.values():
+        select = scope.expression
+        if not isinstance(select, exp.Select):
+            continue
+        for expression in select.expressions:
+            is_projection_star = isinstance(expression, exp.Star) or (
+                isinstance(expression, exp.Column) and expression.name == "*"
+            )
+            if is_projection_star:
+                raise S1SqlSecurityError("无法安全展开 SQL 中的星号字段")
+
+
 def _expand_stars(scopes: dict[int, Any], snapshot: S1PermissionSnapshot) -> None:
     allowed = resource_index(snapshot)
     for scope in scopes.values():
@@ -502,8 +527,7 @@ def validate_sql(sql: str, snapshot: S1PermissionSnapshot, *, enforce_usage: boo
         _validate_tables(scopes, snapshot)
         _validate_set_operations(scopes)
         _expand_stars(scopes, snapshot)
-        if tree.find(exp.Star) is not None:
-            raise S1SqlSecurityError("无法安全展开 SQL 中的星号字段")
+        _reject_unexpanded_projection_stars(scopes)
         for rule in (function_rule.check(sql), depth_rule.check(sql), limit_rule.check(sql)):
             if not rule.passed:
                 raise S1SqlSecurityError(rule.reason)

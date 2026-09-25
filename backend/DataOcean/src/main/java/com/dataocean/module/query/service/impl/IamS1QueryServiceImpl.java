@@ -469,8 +469,13 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         output.put("protocolVersion", IamS1Constants.PROTOCOL_VERSION); output.put("taskId", taskId);
         output.put("userId", snapshot.getUserId()); output.put("datasourceId", snapshot.getDatasourceId());
         output.put("activeMetadataSnapshotId", snapshot.getActiveMetadataSnapshotId());
-        output.put("permissionRevision", snapshot.getPermissionRevision()); output.put("calculatedAt", snapshot.getCalculatedAt());
-        output.put("nextEffectiveAt", snapshot.getNextEffectiveAt());
+        output.put("permissionRevision", snapshot.getPermissionRevision());
+        // S1 契约把这两个字段声明为字符串。PythonRestClientConfig 用的是静态 RestClient.builder()，
+        // 其 Jackson converter 不套用本应用的日期配置，会把 LocalDateTime 序列化成时间戳数组，
+        // 导致 Python 侧 422（"Input should be a valid string"）。因此在此显式格式化为 ISO-8601，
+        // 不依赖客户端的序列化设置——凡是要跨到 Python 的日期字段都必须这样处理。
+        output.put("calculatedAt", isoOrNull(snapshot.getCalculatedAt()));
+        output.put("nextEffectiveAt", isoOrNull(snapshot.getNextEffectiveAt()));
         List<Map<String, Object>> resources = new ArrayList<>();
         for (var table : snapshot.getTables()) {
             IamS1TableRequestDTO tableRequest = request.getTables().stream()
@@ -491,6 +496,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         }
         output.put("resources", resources); output.put("capabilities", capabilities(snapshot.getUserId(), snapshot.getDatasourceId()));
         return output;
+    }
+
+    /** 跨服务传输的日期统一用 ISO-8601 字符串；null 保持 null。 */
+    private static String isoOrNull(LocalDateTime value) {
+        return value == null ? null : value.toString();
     }
 
     private Map<String, Object> grantMap(IamS1GrantSourceVO source) {
