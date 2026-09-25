@@ -67,9 +67,12 @@ export function resolveReadinessAction(
         query: { tab: 'review', ...buildContextQuery('datasource', context) },
       }
     case 'QUERY_PERMISSION_NOT_CONFIGURED':
+      // 目标改为 IAM-SIMPLE-1 的授权配置页。旧页面读 ?tab=，新页面不读
+      // （IamS1AccessWorkspaceView 直接默认落在 grants 页签），因此不再传 tab。
+      // datasourceId 仍带上，该页会用它预选数据源。
       return {
-        path: '/admin/access',
-        query: { tab: 'grants', ...buildContextQuery('datasource', context) },
+        path: '/admin/access/iam',
+        query: buildContextQuery('datasource', context),
       }
     default:
       return undefined
