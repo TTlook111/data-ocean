@@ -72,6 +72,15 @@ import java.util.UUID;
 @Slf4j
 public class IamS1QueryServiceImpl implements IamS1QueryService {
 
+    /**
+     * 来源追踪中"该输出不携带任何列数据"的显式标记（Python 侧写入）。
+     * <p>
+     * 用于区分"合法地没有列来源"（{@code COUNT(*)}、常量）与"来源漏报"。
+     * 只有带此标记的条目才允许 {@code sources} 为空。
+     * </p>
+     */
+    static final String NO_COLUMN_SOURCE = "NO_COLUMN_SOURCE";
+
     private final QueryTaskMapper queryTaskMapper;
     private final ObjectMapper objectMapper;
     private final IamS1DataAuthorizationResolver dataResolver;
@@ -262,7 +271,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 return;
             }
             List<String> usedColumns = objectMapper.convertValue(result.getOrDefault("usedColumns", List.of()), new TypeReference<>() {});
-            if (!isSubsetOfCurrent(usedColumns, current)) {
+            if (!isSubsetOfCurrent(usedColumns, result.getOrDefault("sourceTrace", List.of()), current)) {
                 fail(taskId, "权限已变化，请重新查询", "REJECTED_ON_RECHECK");
                 return;
             }
@@ -307,6 +316,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 refreshConversationContext(task.getConversationId(), task.getUserId(), task.getTaskId());
             }
         } catch (BusinessException ex) {
+            // 这个 catch 覆盖整个完成阶段（最终保护、落库、会话消息与摘要刷新），
+            // 其中任何业务异常都会被报成"权限已变化"。对用户保留该文案（不泄漏内部原因），
+            // 但必须把真实原因记进日志——否则真正的失败（例如会话摘要调用失败）
+            // 会被这句话完全掩盖，排查时只能看到误导性的结论。
+            log.warn("S1 完成阶段业务异常 taskId={} message={}", taskId, ex.getMessage());
             fail(taskId, "权限已变化，请重新查询", "REJECTED_ON_RECHECK");
         } catch (Exception ex) {
             log.warn("S1 结果保护失败 taskId={}", taskId);
@@ -400,14 +414,43 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         catch (Exception ex) { throw new BusinessException("无法确认当前 S1 权限"); }
     }
 
-    private boolean isSubsetOfCurrent(List<String> usedColumns, IamS1DataAuthorizationSnapshot current) {
-        if (usedColumns == null || usedColumns.isEmpty() || current == null) return false;
+    private boolean isSubsetOfCurrent(List<String> usedColumns, Object rawTrace, IamS1DataAuthorizationSnapshot current) {
+        if (current == null) return false;
+        if (usedColumns == null || usedColumns.isEmpty()) {
+            // 不引用任何列的查询（COUNT(*) 或常量输出）没有列级子集证据可查。
+            // 此时安全性依据是"每个输出都不携带列数据"，由 sourceTrace 的
+            // NO_COLUMN_SOURCE 标记证明。不能简单放行空列表：若某个输出确实取列
+            // 却漏报了来源，这里仍须拒绝（fail-closed）。
+            return traceIsEntirelyColumnFree(rawTrace);
+        }
         Map<String, IamS1FieldProtectionVO> fields = new HashMap<>();
         current.getTables().forEach(table -> table.getFieldProtections().forEach(field ->
                 fields.put((table.getTableName() + "." + field.getColumnName()).toLowerCase(Locale.ROOT), field)));
         for (String value : usedColumns) {
             IamS1FieldProtectionVO protection = fields.get(value.toLowerCase(Locale.ROOT));
             if (protection == null || "HIDDEN".equals(protection.getProtectionLevel())) return false;
+        }
+        return true;
+    }
+
+    /**
+     * 判断整份 sourceTrace 是否都由「不携带列数据」的输出组成。
+     * <p>
+     * `COUNT(*)`、常量这类输出不引用任何列，因此列级子集证据（usedColumns）本就为空。
+     * 只有整份 trace 的每一条都带 {@link #NO_COLUMN_SOURCE} 标记且来源为空时，
+     * 空 usedColumns 才算合法证据；只要有一条输出声称取过列，就说明证据不完整。
+     * </p>
+     */
+    private boolean traceIsEntirelyColumnFree(Object rawTrace) {
+        Object value = rawTrace;
+        // 持久化形态下 trace 被包在 {"permissionRevision":..,"entries":[..]} 里，
+        // 读取路径拿到的是包装 Map，查询结果里则是裸列表——两种都要能处理。
+        if (value instanceof Map<?, ?> wrapper) value = wrapper.get("entries");
+        if (!(value instanceof List<?> entries) || entries.isEmpty()) return false;
+        for (Object rawEntry : entries) {
+            if (!(rawEntry instanceof Map<?, ?> entry)) return false;
+            if (!(entry.get("sources") instanceof List<?> sources) || !sources.isEmpty()) return false;
+            if (!NO_COLUMN_SOURCE.equals(String.valueOf(entry.get("sourceKind")))) return false;
         }
         return true;
     }
@@ -822,7 +865,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         // 失败任务没有结果载荷，可被再保护的字段集为空。此时必须放行读取，
         // 否则真实失败原因会被"权限已变化"覆盖，失败任务也无法再次读取。
         if (vo.getData() == null && vo.getColumns() == null) return;
-        if (!isSubsetOfCurrent(vo.getUsedColumns(), current)) throw new BusinessException("权限已变化，请重新查询");
+        if (!isSubsetOfCurrent(vo.getUsedColumns(), vo.getSourceTrace(), current)) throw new BusinessException("权限已变化，请重新查询");
         Map<String, String> masks;
         try {
             masks = deriveOutputMasks(vo.getSourceTrace(), current);
@@ -849,7 +892,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             Object trace = objectMapper.readValue(task.getIamSourceTrace(), Object.class);
             Object columns = objectMapper.readValue(task.getResultColumns(), Object.class);
             if (trace instanceof Map<?, ?> wrapper) trace = wrapper.get("entries");
-            return isSubsetEvidencePresent(usedColumns) && hasCompleteSourceTrace(trace, columns);
+            return (isSubsetEvidencePresent(usedColumns) || traceIsEntirelyColumnFree(trace))
+                    && hasCompleteSourceTrace(trace, columns);
         } catch (Exception ex) {
             return false;
         }
@@ -874,7 +918,13 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         java.util.Set<String> traced = new java.util.HashSet<>();
         for (Object rawEntry : entries) {
             if (!(rawEntry instanceof Map<?, ?> entry) || entry.get("outputColumn") == null
-                    || !(entry.get("sources") instanceof List<?> sources) || sources.isEmpty()) return false;
+                    || !(entry.get("sources") instanceof List<?> sources)) return false;
+            // 空来源是合法的，但 Python 必须显式声明该输出不携带任何列数据
+            // （COUNT(*) 或常量）。未声明却为空仍判为来源不完整——保持 fail-closed：
+            // 万一 Python 对某个真正取数的列漏报了来源，这里不会放行。
+            if (sources.isEmpty() && !NO_COLUMN_SOURCE.equals(String.valueOf(entry.get("sourceKind")))) {
+                return false;
+            }
             String output = String.valueOf(entry.get("outputColumn"));
             if (sources.stream().anyMatch(source -> source == null || String.valueOf(source).isBlank())) return false;
             traced.add(output);

@@ -95,6 +95,45 @@ def test_star_expansion_requires_at_least_one_projectable_field():
     assert not validate_sql("SELECT orders.* FROM orders", current).passed
 
 
+def test_aggregate_without_column_source_is_aliased_and_marked_no_column_source():
+    """COUNT(*) 这类不携带列数据的输出必须被显式标记，且列名由本服务决定。
+
+    背景（B6 后的真实缺陷）：数据库会把未加别名的表达式原文当作列名（`COUNT(*)`），
+    而 sqlglot 的 alias_or_name 返回 `*`；两者不一致时 Java 的来源完整性检查会拒绝
+    整个结果（"结果来源不完整，请重新查询"）。同时它没有列来源，Java 把空来源一律
+    视为来源缺失，也需要一个显式标记才放行。
+    """
+    current = snapshot()
+    result = validate_sql("SELECT COUNT(*) FROM orders", current)
+
+    assert result.passed
+    # 列名由本服务决定，不再依赖数据库对未加别名表达式的命名
+    assert "AS s1_c1" in result.sql
+    assert result.source_trace == [{
+        "outputColumn": "s1_c1",
+        "sources": [],
+        "expression": "COUNT(*) AS s1_c1",
+        "sourceKind": "NO_COLUMN_SOURCE",
+    }]
+
+
+def test_only_bare_columns_and_existing_aliases_are_left_untouched():
+    """只给「无别名且不是裸列」的投影补别名；裸列与已有别名保持原样。
+
+    裸列的名字本来就和结果列名一致；已有别名是调用方（或模型）的显式选择，
+    改写它会让返回给用户的列名变样。
+    """
+    current = snapshot()
+    result = validate_sql("SELECT id, COUNT(*) AS cnt FROM orders GROUP BY id", current)
+
+    assert result.passed
+    assert "id" in result.sql and "AS cnt" in result.sql
+    assert "s1_c1" not in result.sql
+    assert [entry["outputColumn"] for entry in result.source_trace] == ["id", "cnt"]
+    # 有列来源的输出不得带 NO_COLUMN_SOURCE 标记
+    assert all("sourceKind" not in entry for entry in result.source_trace if entry["sources"])
+
+
 def test_field_usage_is_enforced_for_projection_filter_and_join():
     current = snapshot()
     # id: PROJECTION only, region: FILTER only
