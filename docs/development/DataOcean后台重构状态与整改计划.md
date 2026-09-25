@@ -39,7 +39,7 @@
 
 在 `IT-GO-1225` 本机开发环境，IAM-SIMPLE-1 B5 的数据库切换和核心验收已完成：本机开发数据库已按 `V51 -> V52 -> V54 -> V55 -> V56 -> V57` 迁移至 V57，Flyway 失败记录为 0；V53 永久不使用。启动式 bootstrap 已完成，`state=COMPLETED`、`target_user_id=1`，userId=1 已绑定受保护的 `IAM_S1_SYSTEM_ADMIN`。固定功能目录为 54 项，`iam_s1_data_grant` 仍为 0，系统管理员未因后台身份自动获得业务问数数据权限。Java、Python、前端、Redis、Milvus 和 MySQL 已在本机启动，admin 已完成强制改密并重新登录，S1 组织、角色、功能目录、授权配置、访问申请与审批、无授权问数、旧组织 URL 和未登录 API 边界已完成核心浏览器验收；正式旧组织导航和 `/admin/access/organization` 路由已移除。浏览器 Console error/warn 为 0，未发现非预期 5xx；前端定向测试 6/6、全量 Vitest 67/67、构建和 `git diff --check` 通过；针对 `1e2f458` 的只读 preflight 为 failures=0、exit code=0。
 
-本段只描述 `IT-GO-1225` 本机开发环境直接切换测试，不代表生产环境发布或其他机器状态。当前状态为：**本机开发环境切换和核心验收已完成，仍有恢复演练及双用户负向场景缺口；B6 未执行。**
+本段只描述 `IT-GO-1225` 本机开发环境直接切换测试，不代表生产环境发布或其他机器状态。当前状态为：**本机开发环境切换和核心验收已完成，仍有恢复演练及双用户负向场景缺口；B6 清理已在 `codex/iam-s1-b6-cleanup` 分支开始（`fa0ca89`，已推送）但未收口。**
 
 B5 必须保留的限制和残余风险：
 
@@ -47,16 +47,18 @@ B5 必须保留的限制和残余风险：
 2. 当前只有一个真实用户，未覆盖“启用但没有 S1 绑定的用户”和“只有旧权限、没有 S1 权限的用户”两个负向场景。
 3. 尚未初始化普通问数用户、业务分析人员等业务角色、负责数据源、表/字段授权或审批人。
 4. “访问审批（旧）”仍保留，本轮不处理。
-5. 旧 `RoleController`、`PermissionController`、`DatasourcePermissionController`、`AccessPolicyController`、`AccessApprovalController` 及其服务、数据库表和相关遗留对象仍保留，等待 B6；B6 只按冻结清单处理旧权限专用入口，不删除账号、部门、数据源、元数据、知识、会话、审计等业务数据。
-6. 本轮没有生产环境验收；B6 尚未获得执行授权，不能把 B5 写成无任何遗留项的完全完成。
+5. 旧 `RoleController`、`PermissionController`、`DatasourcePermissionController`、`AccessPolicyController`、`AccessApprovalController` 及其服务、数据库表和相关遗留对象仍保留，等待 B6；B6 只按冻结清单处理旧权限专用入口，不删除账号、部门、数据源、元数据、知识、会话、审计等业务数据。**B6 清理已在 `codex/iam-s1-b6-cleanup` 分支开始（`fa0ca89`，已推送 `origin`），但未收口**：已移除 `LoginUser`/`UserContext` 旧角色权限字段、JWT 的 `roles`/`permissions` claim、`LoginVO`/`CurrentUserVO` 角色权限字段、`UserDetailsServiceImpl` 旧权限加载和前端 `guards.ts`/`stores/auth.ts` 旧权限数组；`DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController`、其服务与 Mapper、前端 `api/admin/permission.ts`、`PermissionCalculatorImpl` 的 Caffeine 权限缓存和旧权限表仍保留。冻结清单第 497/498 行的替代物 `authProtocolVersion` / `sessionEpoch` / `iam-s1:session:*` 在 Java 主代码中为 0 处引用，`jwt:blacklist:{jti}` / `user:token-version:{userId}` 仍是唯一在用的会话失效机制，因此这两行只完成“删旧 claim”的一半，`tokenVersion` 仍在使用。
+6. 本轮没有生产环境验收；不能把 B5 写成无任何遗留项的完全完成。B6 未收口前，旧权限专用对象继续按冻结清单保留。
+7. 同一分支上的 `5f13efd` **不是删除提交**：它延续 IAM-S1 迁移（数据源就绪检查与查询对话，把旧的权限访问逻辑替换为 S1 路径）。因此该分支应理解为 **IAM-S1 迁移收尾分支**，而不是纯粹的 B6 删除分支；此定性由项目负责人在 2026-09-25 决定，不拆分该提交。
+8. 2026-09-25 对 `5f13efd` 的验证结果：Java `mvn test` **581** 通过、0 失败、0 错误、0 跳过；前端 Vitest **12 文件 70** 通过；`npm run build` exit code 0。
 
 ## 3. 当前状态
 
 | 项目 | 当前结果 | 是否阻断轨道 A |
 | --- | --- | --- |
 | 本机 MySQL、Redis、Milvus、Java、Python、前端启动 | 真实启动并连通 | 否 |
-| Java 单元测试 | B4 最新基线 **557** 通过；B5 准备轮复跑为 **563** 通过、0 失败、0 错误 | 否 |
-| 前端 Vitest | B4 最新基线 **11 文件 67** 通过 | 否 |
+| Java 单元测试 | B4 最新基线 **557** 通过；B5 准备轮复跑为 **563** 通过、0 失败、0 错误；2026-09-25 对 `5f13efd` 复跑为 **581** 通过、0 失败、0 错误、0 跳过 | 否 |
+| 前端 Vitest | B4 最新基线 **11 文件 67** 通过；2026-09-25 对 `5f13efd` 复跑为 **12 文件 70** 通过 | 否 |
 | 前端生产构建 | `vue-tsc` 与 Vite 通过 | 否 |
 | Python 单元测试 | 204 通过、4 跳过、1 警告（B4 记录） | 否 |
 | Flyway | `IT-GO-1225` 本机开发 MySQL 已按 V51→V52→V54→V55→V56→V57 迁移至 V57，Flyway 失败记录为 0；V53 永久不使用。该事实不推导其他机器或生产环境 | 否 |
@@ -76,7 +78,7 @@ B5 必须保留的限制和残余风险：
 | 轨道 B-B2 数据授权与统一计算 | B2 代码已提交到本地（包含在 `6eb5427`）：V55 独立建立数据授权、明确字段、结构化记录条件和字段保护；统一 Resolver/实际权限预览和 Redis revision 快照缓存保留。B2 基线聚焦 111 个、完整 Java 265 个通过。**B2 阶段历史记录：**当时未执行 V55 真实数据库升级 | 否 |
 | 轨道 B-B3 安全查询链路 | B3 已提交到本地（`d9a0c3b`）：V56 前向 migration、独立 `/api/iam-s1/query` 与 `/internal/iam-s1/*`、严格 S1 合同、Context Firewall、真实 Milvus 检索后权限过滤、全字段 SQL AST、参数化行条件、来源追踪、Java 最终保护、事务提交后调度和任务/历史/SQL/CSV/反馈/SSE 当前权限复查。已修复直接 execute 绕过、RIGHT JOIN 保留侧、空来源落库、连字符 binding、危险函数/LIMIT/深度缺口。B3.1（P1）：外层行数封顶不再被子查询/派生表/UNION 分支 LIMIT 阻断（`limit_rule` 检查全部 LIMIT 节点）、字段 usage 的 PROJECTION/FILTER/JOIN 在 AST 层强制且星号只展开可投影字段、SSE 复用 `get` 同一读取路径并按当前权限再脱敏；另修复失败/取消任务被误报「权限已变化」并统一 Java/Python usage 取值集合。B3.2（阻断）：表别名/CTE/派生表按作用域解析、禁止跨库限定表名、记录条件只注入到持有该表的作用域且逗号/交叉连接落 WHERE、`query:use` 改为读取时复查。B3.3（P0 脱敏绕过）：集合运算按列位置汇总全部分支来源，修复后续分支脱敏字段漏标导致的最终脱敏绕过。B3.4（P1 保护一致性）：同一输出列汇入多种非空脱敏策略时拒绝，集合运算分支列数改为双向校验。B3.5（P1 规范化）：脱敏冲突判定按小写规范化（与 Java `maskResultByFields` 口径一致，Java 侧 8 处 `toLowerCase` 改用 `Locale.ROOT`），集合运算分支的常量/无来源输出在 AST 阶段直接拒绝。B3.6（P1 最终保护）：Java `deriveOutputMasks` 独立按小写列名聚合策略并在冲突时 fail-closed（完成阶段拒绝落库、任务/历史读取阶段拒绝返回）。B3.1～B3.6 与配置忽略提交（`d08d37f`）已随 `70d4999` 提交到本地，分支本地提交尚未推送。测试结果：Java `IamS1*Test` 122 个、完整 276 个通过（B3 提交时记录值）；Python B3 聚焦 40 个、完整 204 passed/4 skipped/1 warning。**B3 阶段历史记录：**当时未执行 V55/V56 真实数据库升级、服务/浏览器验收、真实 bootstrap 或 B5 切换 | 否 |
 | 轨道 B-B4 页面和业务接入 | **B4 批次 1～6 代码与自动化验证已完成并合入 `1f0a5f4`（含 `1a6e426`）**，不是“未提交的工作树草稿”。B4-A 注解框架（`@IamS1Global` / `@IamS1Resource` / `@IamS1ScopedList` + `@Aspect` `@Component` 切面）已落地；已迁移 Controller **23** 个；批次 6 实际 **61** 个 Handler；精确例外 **77** 条。B4 最新自动化基线：Java **557**、前端 Vitest **67**。旧 Role/Permission/DatasourcePermission/AccessPolicy/AccessApproval **不迁移**，保留到 B6；B4 阶段的真实服务/浏览器未验收属于历史阶段记录，不代表当前 B5 状态。权限与组织域 22 个 `IamS1*` 端点仍是显式 Guard。 | 否 |
-| 轨道 B-B5 本机切换和核心验收 | `IT-GO-1225` 本机开发环境已迁移至 V57；bootstrap 已完成，固定功能目录 54 项，userId=1 绑定受保护的 `IAM_S1_SYSTEM_ADMIN`，`iam_s1_data_grant=0`；核心服务和浏览器验收通过，旧组织正式入口已移除。仍缺独立 MySQL 恢复演练和双用户负向场景；B6 未执行 | 否 |
+| 轨道 B-B5 本机切换和核心验收 | `IT-GO-1225` 本机开发环境已迁移至 V57；bootstrap 已完成，固定功能目录 54 项，userId=1 绑定受保护的 `IAM_S1_SYSTEM_ADMIN`，`iam_s1_data_grant=0`；核心服务和浏览器验收通过，旧组织正式入口已移除。仍缺独立 MySQL 恢复演练和双用户负向场景。B6 清理已在 `codex/iam-s1-b6-cleanup` 开始但未收口 | 否 |
 
 ### 3.1 已通过且需要保留的结果
 
@@ -314,11 +316,11 @@ Python suggestedQuestions 产出
 
 ### 7.1 轨道 B：权限体系重构
 
-轨道 A 和导航结构已冻结。目标输入为 `docs/development/guides/DataOcean-完整权限体系设计.md` 的简明版 1.4 / IAM-SIMPLE-1。B0～B4（含 B4-A 与批次 1～6）的代码与自动化验证已合入 `codex/iam-s1-b5-preparation` 的 `1f0a5f4`（包含 IAM 实现提交 `1a6e426`）。当前代码切换提交为 `1e2f458`，已移除正式旧组织导航和 `/admin/access/organization` 路由。已迁移 Controller **23** 个；批次 6 实际 **61** 个 Handler。B4 最新自动化基线：Java **557**、前端 Vitest **67**。旧 Role/Permission/DatasourcePermission/AccessPolicy/AccessApproval 入口、服务和表仍保留到 B6。各阶段自动化结果与本机开发验收仍不代表生产发布。`IT-GO-1225` 本机开发数据库已完成 V51→V52→V54→V55→V56→V57 至 V57 的切换，bootstrap 和核心浏览器验收已完成，固定功能目录为 54 项，业务数据授权仍为 0；恢复演练和双用户负向场景仍缺，B6 未执行。V53 永久不再使用。B5 手册见 `docs/development/guides/DataOcean-IAM-S1-B5切换与回退手册.md`。
+轨道 A 和导航结构已冻结。目标输入为 `docs/development/guides/DataOcean-完整权限体系设计.md` 的简明版 1.4 / IAM-SIMPLE-1。B0～B4（含 B4-A 与批次 1～6）的代码与自动化验证已合入 `codex/iam-s1-b5-preparation` 的 `1f0a5f4`（包含 IAM 实现提交 `1a6e426`）。当前代码切换提交为 `1e2f458`，已移除正式旧组织导航和 `/admin/access/organization` 路由。已迁移 Controller **23** 个；批次 6 实际 **61** 个 Handler。B4 最新自动化基线：Java **557**、前端 Vitest **67**。旧 Role/Permission/DatasourcePermission/AccessPolicy/AccessApproval 入口、服务和表仍保留到 B6。各阶段自动化结果与本机开发验收仍不代表生产发布。`IT-GO-1225` 本机开发数据库已完成 V51→V52→V54→V55→V56→V57 至 V57 的切换，bootstrap 和核心浏览器验收已完成，固定功能目录为 54 项，业务数据授权仍为 0；恢复演练和双用户负向场景仍缺。B6 清理已在 `codex/iam-s1-b6-cleanup` 分支开始（`fa0ca89`，已推送）但未收口。V53 永久不再使用。B5 手册见 `docs/development/guides/DataOcean-IAM-S1-B5切换与回退手册.md`。
 
 用户要求权限简单易懂，采用“角色管功能、部门默认数据与个人/角色授权管可查数据、后台角色绑定负责源”的模型。管理员首屏使用中文名称、作用与例子；查询/SQL/导出功能只在角色配置，数据授权不重复开关，不建设多层委派或数字优先级。
 
-替换严格按“建立并验收新权限 → 切换且真实复验通过 → 删除旧权限”。不做旧授权映射、回填、双读双写或兼容兜底；切换前保留旧体系运行，新体系独立配置验收。旧角色/权限/策略、旧 JWT 与旧缓存不得输入新 Resolver，同名权限码不继承旧关系。账号、密码、真实组织、业务资产、会话与审计保留；新角色关系/数据授权重新初始化，首个新系统管理员通过一次性受控流程显式绑定。B4 批次 1～6 的代码与自动化验证已完成并合入 `1f0a5f4`；B5 在 `IT-GO-1225` 本机开发环境完成切换和核心验收，但不等同于生产发布。备份只完成文件完整性校验，尚未在独立 MySQL 实例完成恢复验证；当前只有一个真实用户，两个双用户负向场景未覆盖；尚未初始化业务角色、负责源、表/字段授权或审批人。旧权限 Controller、服务和表只在 B6 按冻结清单处理；B6 尚未授权。直接替换边界仍不变：不映射、不回填、不兼容，不提前删除旧权限对象。
+替换严格按“建立并验收新权限 → 切换且真实复验通过 → 删除旧权限”。不做旧授权映射、回填、双读双写或兼容兜底；切换前保留旧体系运行，新体系独立配置验收。旧角色/权限/策略、旧 JWT 与旧缓存不得输入新 Resolver，同名权限码不继承旧关系。账号、密码、真实组织、业务资产、会话与审计保留；新角色关系/数据授权重新初始化，首个新系统管理员通过一次性受控流程显式绑定。B4 批次 1～6 的代码与自动化验证已完成并合入 `1f0a5f4`；B5 在 `IT-GO-1225` 本机开发环境完成切换和核心验收，但不等同于生产发布。备份只完成文件完整性校验，尚未在独立 MySQL 实例完成恢复验证；当前只有一个真实用户，两个双用户负向场景未覆盖；尚未初始化业务角色、负责源、表/字段授权或审批人。旧权限 Controller、服务和表只在 B6 按冻结清单处理；B6 清理已在 `codex/iam-s1-b6-cleanup` 分支开始（`fa0ca89`）但未收口，旧权限专用对象多数仍保留，收口授权与剩余删除范围待定。直接替换边界仍不变：不映射、不回填、不兼容，不提前删除旧权限对象。
 
 ### 7.2 轨道 C：功能待办
 
