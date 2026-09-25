@@ -19,8 +19,10 @@ import org.springframework.stereotype.Component;
 /**
  * 权限校验支持类。
  * <p>
- * 封装权限模块共用的校验逻辑，避免在 DatasourcePermissionServiceImpl 和
- * AccessPolicyServiceImpl 中重复相同的代码。
+ * 封装权限模块共用的校验逻辑。B6 批次 2 已删除与它共用这段逻辑的
+ * {@code AccessPolicyServiceImpl}；当前唯一调用方是 {@code DatasourcePermissionServiceImpl}，
+ * 后者仍挂在旧问数链路上，属批次 3（见
+ * {@code docs/development/轨道B-B6删除清单与执行顺序.md}）。
  * </p>
  */
 @Component
