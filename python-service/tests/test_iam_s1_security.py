@@ -134,6 +134,48 @@ def test_only_bare_columns_and_existing_aliases_are_left_untouched():
     assert all("sourceKind" not in entry for entry in result.source_trace if entry["sources"])
 
 
+@pytest.mark.asyncio
+async def test_sql_prompt_prefers_managed_template(monkeypatch):
+    """S1 的 SQL 生成提示词必须优先走 Java 受管模板。
+
+    这是"管理员能在 Prompt 策略页调整 SQL 生成行为"的前提。此前 S1 把提示词写死在
+    Python 代码里，页面上改了没有任何效果。
+    """
+    from dataocean.iam_s1 import service as s1_service
+
+    async def fake_managed(code, variables):
+        assert code == "sql_generation"
+        return "受管模板内容 " + variables["question"], 3
+
+    monkeypatch.setattr(s1_service, "render_prompt_with_metadata", fake_managed)
+    prompt = await s1_service.render_sql_prompt("有多少订单", {"schema": [], "rag": [], "glossary": [], "fewShot": [], "conversationHistory": [], "conversationSummary": {}})
+
+    assert prompt.startswith("受管模板内容")
+    assert "有多少订单" in prompt
+
+
+@pytest.mark.asyncio
+async def test_sql_prompt_falls_back_to_local_template(monkeypatch):
+    """Java 不可用或模板缺失时退回本地模板，且问题与数据必须渲染进去。
+
+    降级不能降成空提示词——那会让模型在没有 schema 的情况下凭空生成 SQL。
+    """
+    from dataocean.iam_s1 import service as s1_service
+
+    async def broken_managed(code, variables):
+        raise RuntimeError("Java 不可达")
+
+    monkeypatch.setattr(s1_service, "render_prompt_with_metadata", broken_managed)
+    schema = [{"tableName": "orders", "columns": [{"name": "id"}]}]
+    prompt = await s1_service.render_sql_prompt("有多少订单", {"schema": schema, "rag": [], "glossary": [], "fewShot": [], "conversationHistory": [], "conversationSummary": {}})
+
+    assert "有多少订单" in prompt
+    assert "orders" in prompt
+    assert "{{" not in prompt, "本地模板不得残留未渲染的占位符"
+    # 聚合别名要求是修复"结果列名显示成 s1_c1"的根因手段，不能在降级模板里丢掉
+    assert "AS" in prompt and "别名" in prompt
+
+
 def test_field_usage_is_enforced_for_projection_filter_and_join():
     current = snapshot()
     # id: PROJECTION only, region: FILTER only
