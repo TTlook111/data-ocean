@@ -23,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
@@ -42,6 +43,7 @@ import java.util.stream.IntStream;
  * writes, retrieval, and reranking.
  */
 @Component
+@Profile("!test")
 @RequiredArgsConstructor
 @Slf4j
 public class VectorIndexTaskScheduler {

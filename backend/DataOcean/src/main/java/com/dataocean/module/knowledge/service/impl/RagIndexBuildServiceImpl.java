@@ -164,6 +164,15 @@ public class RagIndexBuildServiceImpl implements RagIndexBuildService {
         return activeBuildFromState(state);
     }
 
+    @Override
+    public RagIndexBuild buildForQuery(String buildId, Long datasourceId) {
+        if (buildId == null || datasourceId == null) return null;
+        RagIndexBuild build = buildMapper.selectById(buildId);
+        if (build == null || !datasourceId.equals(build.getDatasourceId())
+                || STATUS_CLEANED.equals(build.getStatus()) || STATUS_FAILED.equals(build.getStatus())) return null;
+        return build;
+    }
+
     private RagIndexBuild activeBuildFromState(RagIndexState state) {
         if (state == null || state.getActiveBuildId() == null) return null;
         RagIndexBuild build = buildMapper.selectById(state.getActiveBuildId());

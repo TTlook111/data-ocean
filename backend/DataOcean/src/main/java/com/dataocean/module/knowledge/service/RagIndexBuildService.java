@@ -16,6 +16,9 @@ public interface RagIndexBuildService {
     /** Locks the active pointer until the caller commits its query task row. */
     RagIndexBuild activeBuildForQuery(Long datasourceId);
 
+    /** Load the build pinned to an already-created in-flight task for safe recovery. */
+    RagIndexBuild buildForQuery(String buildId, Long datasourceId);
+
     /** Decrypted provider key for one request; never persist this map. */
     Map<String, Object> embeddingConfigForQuery(RagIndexBuild build);
 
