@@ -743,6 +743,12 @@ export interface IamS1ConversationMessageItem {
   createdAt: string
 }
 
+export interface IamS1ConversationMessagePage {
+  items: IamS1ConversationMessageItem[]
+  nextBeforeMessageId?: number
+  hasMore: boolean
+}
+
 export async function iamS1Ask(payload: IamS1QueryAskPayload) {
   const { data } = await http.post<ApiResult<IamS1QueryAskResult>>(`${BASE}/query/ask`, {
     protocolVersion: 'IAM-SIMPLE-1',
@@ -824,9 +830,9 @@ export async function iamS1ListConversations(datasourceId?: number) {
 
 export async function iamS1ListConversationMessages(
   conversationId: number,
-  params: { page?: number; pageSize?: number } = {},
+  params: { beforeMessageId?: number; pageSize?: number } = {},
 ) {
-  const { data } = await http.get<ApiResult<IamS1ConversationMessageItem[]>>(
+  const { data } = await http.get<ApiResult<IamS1ConversationMessagePage>>(
     `${BASE}/query/conversations/${conversationId}/messages`,
     { params },
   )

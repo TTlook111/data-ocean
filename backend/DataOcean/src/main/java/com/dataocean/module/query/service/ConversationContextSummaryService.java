@@ -8,10 +8,11 @@ public interface ConversationContextSummaryService {
     /**
      * 构建一次查询所需的上下文：长期摘要 + 最近对话。
      */
-    ConversationContextDTO buildQueryContext(Long conversationId, Long userId);
+    ConversationContextDTO buildQueryContext(Long conversationId, Long userId, Long currentUserMessageId,
+                                             Long permissionRevision);
 
     /**
      * 异步刷新会话长期摘要。失败不能阻塞查询主链路。
      */
-    void refreshAsync(Long conversationId, Long userId);
+    void refreshAsync(Long conversationId, Long userId, Long permissionRevision);
 }

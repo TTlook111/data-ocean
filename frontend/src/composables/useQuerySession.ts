@@ -37,6 +37,9 @@ export interface LocalSession {
   updatedAt: string
   messages: LocalMessage[]
   conversationId?: number
+  historyBeforeMessageId?: number
+  hasMoreHistory?: boolean
+  historyLoading?: boolean
 }
 
 export function useQuerySession() {
@@ -105,8 +108,10 @@ export function useQuerySession() {
 
   async function hydrateSessionMessages(session: LocalSession) {
     if (!session.conversationId) return
-    const res = await iamS1ListConversationMessages(session.conversationId, { page: 1, pageSize: 80 })
-    session.messages = res.data.map(toLocalMessage)
+    const res = await iamS1ListConversationMessages(session.conversationId, { pageSize: 50 })
+    session.messages = res.data.items.map(toLocalMessage)
+    session.historyBeforeMessageId = res.data.nextBeforeMessageId
+    session.hasMoreHistory = res.data.hasMore
     let latestQuestion = ''
     session.messages.forEach((message) => {
       if (message.role === 'user') {
@@ -115,6 +120,26 @@ export function useQuerySession() {
         message.originalQuestion = message.queryResult?.question || latestQuestion || undefined
       }
     })
+  }
+
+  async function loadOlderMessages(session: LocalSession) {
+    if (!session.conversationId || !session.hasMoreHistory || session.historyLoading) return
+    session.historyLoading = true
+    try {
+      const res = await iamS1ListConversationMessages(session.conversationId, {
+        beforeMessageId: session.historyBeforeMessageId,
+        pageSize: 50,
+      })
+      const older = res.data.items.map(toLocalMessage)
+      const existing = new Set(session.messages.map((message) => message.id))
+      session.messages.unshift(...older.filter((message) => !existing.has(message.id)))
+      session.historyBeforeMessageId = res.data.nextBeforeMessageId
+      session.hasMoreHistory = res.data.hasMore
+    } catch {
+      ElMessage.error('更早的会话消息加载失败')
+    } finally {
+      session.historyLoading = false
+    }
   }
 
   async function loadRemoteSessions(datasourceId: number, activateFirst = true) {
@@ -331,5 +356,6 @@ export function useQuerySession() {
     fetchDatasources,
     fetchDatasourceReadiness,
     hydrateSessionMessages,
+    loadOlderMessages,
   }
 }

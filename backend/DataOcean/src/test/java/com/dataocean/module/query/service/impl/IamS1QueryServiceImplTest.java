@@ -43,6 +43,7 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -82,6 +83,7 @@ class IamS1QueryServiceImplTest {
     @Mock private AuditLogService auditLogService;
     @Mock private com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     @Mock private com.dataocean.common.security.DataMaskingService maskingService;
+    @Mock private PlatformTransactionManager transactionManager;
     @InjectMocks private IamS1QueryServiceImpl service;
 
     @org.junit.jupiter.api.BeforeAll
@@ -98,6 +100,7 @@ class IamS1QueryServiceImplTest {
                 .status("PROCESSING").iamResourceRequest("[{\"tableName\":\"orders\",\"referencedColumns\":[\"id\"],\"columnUsages\":{\"id\":[\"PROJECTION\"]}}]")
                 .iamExecutionSnapshot("{\"resources\":[]}").build();
         lenient().when(queryTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
+        lenient().when(conversationService.isVisible(any(), any())).thenReturn(true);
     }
 
     @Test
@@ -168,7 +171,8 @@ class IamS1QueryServiceImplTest {
         when(dataResolver.resolve(any())).thenReturn(snapshot());
         when(rowBindingService.build(any())).thenReturn(List.of());
         when(conversationService.getOrCreateConversation(7L, 1L, null, "查询订单")).thenReturn(42L);
-        when(conversationContextSummaryService.buildQueryContext(42L, 7L))
+        when(conversationService.saveUserMessage(eq(42L), eq("查询订单"), any(String.class))).thenReturn(23L);
+        when(conversationContextSummaryService.buildQueryContext(42L, 7L, 23L, 100L))
                 .thenReturn(ConversationContextDTO.builder()
                         .history(List.of(Map.of("role", "user", "content", "上一轮订单")))
                         .summary(Map.of("intent", "订单统计"))
@@ -208,7 +212,8 @@ class IamS1QueryServiceImplTest {
             TransactionSynchronizationManager.clearSynchronization();
         }
 
-        verify(conversationService).saveUserMessage(42L, "查询订单");
+        verify(conversationService).acquireTurn(eq(42L), eq(7L), eq(1L), any(String.class));
+        verify(conversationService).saveUserMessage(eq(42L), eq("查询订单"), any(String.class));
         verify(pythonClient).executeAsync(any(), body.capture(), any());
         assertThat(body.getValue().get("conversationHistory")).isEqualTo(
                 List.of(Map.of("role", "user", "content", "上一轮订单")));
@@ -237,7 +242,7 @@ class IamS1QueryServiceImplTest {
                 "chartConfig", Map.of("series", List.of(Map.of("name", "id", "data", List.of(1)))))));
 
         verify(conversationService).saveAssistantMessage(eq(42L), any(), eq("task-1"), any());
-        verify(conversationContextSummaryService).refreshAsync(42L, 7L);
+        verify(conversationContextSummaryService).refreshAsync(42L, 7L, 100L);
     }
 
     @Test
@@ -250,7 +255,7 @@ class IamS1QueryServiceImplTest {
                 "error", "SQL 未通过校验")));
 
         verify(conversationService).saveAssistantMessage(eq(42L), eq("SQL 未通过校验"), eq("task-1"), any());
-        verify(conversationContextSummaryService).refreshAsync(42L, 7L);
+        verify(conversationContextSummaryService).refreshAsync(42L, 7L, 100L);
     }
 
     @Test
@@ -336,10 +341,30 @@ class IamS1QueryServiceImplTest {
     void conversationHistoryIsDeniedAfterQueryUseRevocation() {
         when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(false);
 
-        assertThatThrownBy(() -> service.conversationMessages(42L, 7L, 1, 50))
+        assertThatThrownBy(() -> service.conversationMessages(42L, 7L, null, 50))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("问数功能");
         verifyNoConversationRead();
+    }
+
+    @Test
+    void oneUnverifiableHistoricalResultDoesNotFailTheRestOfTheMessagePage() {
+        when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(true);
+        when(queryTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
+        var page = com.dataocean.module.query.entity.vo.ConversationMessagePageVO.builder()
+                .items(new java.util.ArrayList<>(List.of(
+                        ConversationMessageVO.builder().id(1L).role("user").content("question").build(),
+                        ConversationMessageVO.builder().id(2L).role("assistant").content("old answer")
+                                .taskId("missing-task").build())))
+                .nextBeforeMessageId(1L).hasMore(false).build();
+        when(conversationService.listMessagePage(42L, 7L, null, 50)).thenReturn(page);
+
+        var result = service.conversationMessages(42L, 7L, null, 50);
+
+        assertThat(result.getItems()).hasSize(2);
+        assertThat(result.getItems().get(0).getContent()).isEqualTo("question");
+        assertThat(result.getItems().get(1).getContent()).contains("当前权限隐藏");
+        assertThat(result.getItems().get(1).getMetadata()).isNull();
     }
 
     private void verifyNoConversationRead() {

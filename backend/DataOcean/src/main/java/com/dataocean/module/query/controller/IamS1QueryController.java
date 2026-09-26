@@ -69,10 +69,10 @@ public class IamS1QueryController {
 
     @GetMapping("/conversations/{conversationId}/messages")
     public Result<?> conversationMessages(@PathVariable Long conversationId,
-                                          @RequestParam(defaultValue = "1") Integer page,
+                                          @RequestParam(required = false) Long beforeMessageId,
                                           @RequestParam(defaultValue = "50") Integer pageSize) {
         return Result.success(queryService.conversationMessages(
-                conversationId, UserContext.currentUserId(), page, pageSize));
+                conversationId, UserContext.currentUserId(), beforeMessageId, pageSize));
     }
 
     @DeleteMapping("/conversations/{conversationId}")

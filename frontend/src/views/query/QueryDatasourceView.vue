@@ -277,6 +277,15 @@ onMounted(() => {
         </div>
 
         <section v-else class="conversation-stream" aria-label="对话">
+          <button
+            v-if="session.activeSession.value?.hasMoreHistory"
+            class="load-older-messages"
+            type="button"
+            :disabled="session.activeSession.value.historyLoading"
+            @click="session.loadOlderMessages(session.activeSession.value)"
+          >
+            {{ session.activeSession.value.historyLoading ? '正在加载…' : '加载更早消息' }}
+          </button>
           <article v-for="message in session.activeMessages.value" :key="message.id" class="message-item" :class="message.role" :data-message-id="message.id">
             <span class="message-avatar"><UserRound v-if="message.role === 'user'" :size="16" /><MessageSquareText v-else :size="16" /></span>
             <div class="message-bubble">
@@ -377,6 +386,8 @@ onMounted(() => {
 .empty-chat p { margin: 0; font-size: 13px; }
 .empty-chat button { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 0 13px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-primary-strong); background: #fff; font-size: 12px; cursor: pointer; }
 .conversation-stream { width: min(860px, 100%); display: grid; gap: 28px; margin: 0 auto; padding: 12px 0 30px; }
+.load-older-messages { display: block; margin: 0 auto 14px; padding: 7px 12px; border: 1px solid var(--do-line); border-radius: 999px; color: var(--do-primary-strong); background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.load-older-messages:disabled { cursor: wait; opacity: .55; }
 .message-item { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; }
 .message-item.user { grid-template-columns: minmax(0, 1fr) 34px; }
 .message-item.user .message-avatar { grid-column: 2; }

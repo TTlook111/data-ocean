@@ -37,6 +37,9 @@ public class ConversationContextSummary {
 
     private Integer summaryVersion;
 
+    /** 创建摘要时的 IAM-SIMPLE-1 权限修订；不一致时必须重新核验。 */
+    private Long permissionRevision;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

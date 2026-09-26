@@ -55,6 +55,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -107,6 +109,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final AuditLogService auditLogService;
     private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     private final com.dataocean.common.security.DataMaskingService maskingService;
+    private final PlatformTransactionManager transactionManager;
 
     @Override
     @Transactional
@@ -133,7 +136,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         RagIndexBuild ragBuild = ragIndexBuildService.activeBuildForQuery(request.getDatasourceId());
         Long conversationId = conversationService.getOrCreateConversation(
                 userId, request.getDatasourceId(), request.getConversationId(), request.getQuestion());
-        conversationService.saveUserMessage(conversationId, request.getQuestion());
+        conversationService.acquireTurn(conversationId, userId, request.getDatasourceId(), taskId);
+        Long currentUserMessageId = conversationService.saveUserMessage(conversationId, request.getQuestion(), taskId);
         Map<String, Object> safeSnapshot = buildSnapshot(taskId, request, snapshot);
         Map<String, Object> capabilities = capabilities(userId, request.getDatasourceId());
         QueryTask task = QueryTask.builder()
@@ -151,21 +155,29 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 .build();
         queryTaskMapper.insert(task);
 
-        Map<String, Object> pythonRequest = buildPythonRequest(taskId, userId, conversationId, request, snapshot,
+        Map<String, Object> pythonRequest = buildPythonRequest(taskId, userId, conversationId, currentUserMessageId, request, snapshot,
                 safeSnapshot, capabilities, bindings, ragBuild);
-        Runnable dispatch = () -> pythonClient.executeAsync(taskId, pythonRequest, result -> {
-            complete(taskId, result);
+        Runnable dispatch = () -> {
             try {
-                // 必须复用 get：SSE 与 REST 走同一条读取路径，才能在推送前
-                // 完成 viewSql 能力判定、当前权限复查和最终脱敏。
-                sseController.sendResult(taskId, get(taskId, userId));
-            } catch (BusinessException ex) {
-                // get 拒绝呈现时只推送可公开的原因，不推送任何结果载荷。
-                sseController.sendError(taskId, ex.getMessage());
+                pythonClient.executeAsync(taskId, pythonRequest, result -> {
+                    completeInTransaction(taskId, result);
+                    try {
+                        // 必须复用 get：SSE 与 REST 走同一条读取路径，才能在推送前
+                        // 完成 viewSql 能力判定、当前权限复查和最终脱敏。
+                        sseController.sendResult(taskId, get(taskId, userId));
+                    } catch (BusinessException ex) {
+                        sseController.sendError(taskId, ex.getMessage());
+                    } catch (Exception ex) {
+                        log.warn("S1 结果 SSE 推送失败 taskId={}", taskId);
+                    }
+                });
             } catch (Exception ex) {
-                log.warn("S1 结果 SSE 推送失败 taskId={}", taskId);
+                log.warn("S1 查询提交 Python 失败 taskId={}", taskId, ex);
+                completeInTransaction(taskId, writeJson(Map.of("taskId", taskId,
+                        "protocolVersion", IamS1Constants.PROTOCOL_VERSION,
+                        "status", "FAILED", "error", "查询服务暂不可用，请重试")));
             }
-        });
+        };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
@@ -187,6 +199,9 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         // 任务读取、历史、导出、反馈或 SSE 取回。
         if (!authorizationResolver.hasGlobalFunction(userId, "query:use")) {
             throw new BusinessException("没有 IAM-SIMPLE-1 问数功能");
+        }
+        if (task.getConversationId() != null && !conversationService.isVisible(task.getConversationId(), userId)) {
+            throw new BusinessException("会话已删除或超出在线保留期");
         }
         IamS1DataAuthorizationSnapshot current = recheck(task, userId);
         if (!java.util.Objects.equals(current.getPermissionRevision(), task.getPermissionRevision())
@@ -244,12 +259,21 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         if (!QueryTaskStatus.PROCESSING.name().equals(task.getStatus())) {
             throw new BusinessException("任务已结束");
         }
-        queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
                 .eq(QueryTask::getTaskId, taskId).eq(QueryTask::getUserId, userId)
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
                 .set(QueryTask::getStatus, QueryTaskStatus.CANCELLED.name())
                 .set(QueryTask::getIamFinalProtectionStatus, "CANCELLED")
                 .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+        if (updated == 0) throw new BusinessException("任务已结束");
         pythonClient.cancelTask(taskId);
+        if (task.getConversationId() != null) {
+            conversationService.saveAssistantMessage(task.getConversationId(), "查询已取消", taskId,
+                    writeJson(Map.of("taskId", taskId, "status", QueryTaskStatus.CANCELLED.name(),
+                            "question", task.getQuestion())));
+            conversationService.releaseTurn(task.getConversationId(), taskId);
+            refreshConversationContext(task.getConversationId(), userId, task.getPermissionRevision(), taskId);
+        }
     }
 
     @Override
@@ -271,6 +295,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             }
             if (!hasCompleteSourceTrace(result.get("sourceTrace"), result.get("columns"))) {
                 fail(taskId, "结果来源不完整，请重新查询", "REJECTED_SOURCE_TRACE");
+                return;
+            }
+            if (task.getConversationId() != null && !conversationService.isVisible(task.getConversationId(), task.getUserId())) {
+                fail(taskId, "会话已删除或超出在线保留期", "REJECTED_ON_RECHECK");
                 return;
             }
             IamS1DataAuthorizationSnapshot current = recheck(task, task.getUserId());
@@ -323,7 +351,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             if (updated > 0) {
                 saveCompletedConversationMessage(task, result, data, outputMasks, safeSql, safeExplanation,
                         safeChart, suggestions);
-                refreshConversationContext(task.getConversationId(), task.getUserId(), task.getTaskId());
+                conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
+                refreshConversationContext(task.getConversationId(), task.getUserId(), task.getPermissionRevision(), task.getTaskId());
             }
         } catch (BusinessException ex) {
             // 这个 catch 覆盖整个完成阶段（最终保护、落库、会话消息与摘要刷新），
@@ -368,11 +397,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     }
 
     @Override
-    public List<com.dataocean.module.query.entity.vo.ConversationMessageVO> conversationMessages(
-            Long conversationId, Long userId, Integer page, Integer pageSize) {
+    public com.dataocean.module.query.entity.vo.ConversationMessagePageVO conversationMessages(
+            Long conversationId, Long userId, Long beforeMessageId, Integer pageSize) {
         requireQueryUse(userId);
-        List<com.dataocean.module.query.entity.vo.ConversationMessageVO> messages =
-                conversationService.listMessages(conversationId, userId, page, pageSize);
+        var messagePage = conversationService.listMessagePage(conversationId, userId, beforeMessageId, pageSize);
+        List<com.dataocean.module.query.entity.vo.ConversationMessageVO> messages = messagePage.getItems();
         for (var message : messages) {
             if (!"assistant".equals(message.getRole())) {
                 continue;
@@ -382,25 +411,50 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 message.setMetadata(null);
                 continue;
             }
-            QueryTaskVO safe = get(message.getTaskId(), userId);
-            message.setMetadata(writeJson(safe));
-            if (safe.getErrorMessage() != null && !safe.getErrorMessage().isBlank()) {
-                message.setContent(safe.getErrorMessage());
+            try {
+                QueryTaskVO safe = get(message.getTaskId(), userId);
+                message.setMetadata(writeJson(safe));
+                if (safe.getMaskedFields() != null && !safe.getMaskedFields().isEmpty()) {
+                    message.setContent("本轮查询完成，部分字段已按当前规则脱敏");
+                } else if (safe.getSqlExplanation() != null && !safe.getSqlExplanation().isBlank()) {
+                    message.setContent(safe.getSqlExplanation());
+                } else if (safe.getErrorMessage() != null && !safe.getErrorMessage().isBlank()) {
+                    message.setContent(safe.getErrorMessage());
+                } else message.setContent("本轮查询已完成");
+            } catch (BusinessException ex) {
+                message.setContent("历史结果已按当前权限隐藏；原始对话仍可查看");
+                message.setMetadata(null);
             }
         }
-        return messages;
+        return messagePage;
     }
 
     @Override
+    @Transactional
     public void archiveConversation(Long conversationId, Long userId) {
         requireQueryUse(userId);
-        conversationService.archiveConversation(conversationId, userId);
+        String activeTaskId = conversationService.deleteConversation(conversationId, userId);
+        if (activeTaskId != null && !activeTaskId.isBlank()) {
+            queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                    .eq(QueryTask::getTaskId, activeTaskId)
+                    .eq(QueryTask::getUserId, userId)
+                    .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                    .set(QueryTask::getStatus, QueryTaskStatus.CANCELLED.name())
+                    .set(QueryTask::getIamFinalProtectionStatus, "CANCELLED")
+                    .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+            pythonClient.cancelTask(activeTaskId);
+        }
     }
 
     private void requireQueryUse(Long userId) {
         if (!authorizationResolver.hasGlobalFunction(userId, "query:use")) {
             throw new BusinessException("没有 IAM-SIMPLE-1 问数功能");
         }
+    }
+
+    /** Python SSE 回调运行在 servlet 外的异步线程，显式开启事务处理终态与轮次释放。 */
+    private void completeInTransaction(String taskId, String resultJson) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> complete(taskId, resultJson));
     }
 
     private IamS1DataAuthorizationSnapshot resolve(Long userId, IamS1QueryAskRequestDTO request, Long snapshotId) {
@@ -563,6 +617,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     }
 
     private Map<String, Object> buildPythonRequest(String taskId, Long userId, Long conversationId,
+                                                   Long currentUserMessageId,
                                                    IamS1QueryAskRequestDTO request,
                                                    IamS1DataAuthorizationSnapshot snapshot, Map<String, Object> safeSnapshot,
                                                    Map<String, Object> capabilities, List<IamS1ExecutionBinding> bindings,
@@ -571,9 +626,17 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         body.put("userId", userId); body.put("datasourceId", request.getDatasourceId()); body.put("activeMetadataSnapshotId", snapshot.getActiveMetadataSnapshotId());
         body.put("permissionRevision", snapshot.getPermissionRevision()); body.put("permissionSnapshot", safeSnapshot); body.put("executionBindings", bindings);
         body.put("question", request.getQuestion()); body.put("connectionConfig", connectionConfig(request.getDatasourceId()));
+        body.put("conversationId", conversationId);
+        body.put("conversationThreadId", "iam-s1:" + userId + ":" + request.getDatasourceId() + ":" + conversationId);
         List<Map<String, Object>> chunks = loadKnowledgeChunks(ragBuild, request.getDatasourceId(), snapshot);
-        ConversationContextDTO conversation = conversationContextSummaryService
-                .buildQueryContext(conversationId, userId);
+        ConversationContextDTO conversation;
+        try {
+            conversation = conversationContextSummaryService
+                    .buildQueryContext(conversationId, userId, currentUserMessageId, snapshot.getPermissionRevision());
+        } catch (BusinessException ex) {
+            refreshConversationContext(conversationId, userId, snapshot.getPermissionRevision(), taskId);
+            throw ex;
+        }
         if (conversation == null) {
             conversation = ConversationContextDTO.builder().history(List.of()).summary(null).build();
         }
@@ -590,10 +653,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         return body;
     }
 
-    private void refreshConversationContext(Long conversationId, Long userId, String taskId) {
+    private void refreshConversationContext(Long conversationId, Long userId, Long permissionRevision, String taskId) {
         if (conversationId == null) return;
         try {
-            conversationContextSummaryService.refreshAsync(conversationId, userId);
+            conversationContextSummaryService.refreshAsync(conversationId, userId, permissionRevision);
         } catch (java.util.concurrent.RejectedExecutionException ex) {
             log.warn("S1 会话摘要线程池繁忙，跳过本次摘要刷新 conversationId={} taskId={}", conversationId, taskId);
         }
@@ -868,7 +931,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             failureMetadata.put("errorMessage", message);
             conversationService.saveAssistantMessage(task.getConversationId(), message, taskId,
                     writeJson(failureMetadata));
-            refreshConversationContext(task.getConversationId(), task.getUserId(), taskId);
+            conversationService.releaseTurn(task.getConversationId(), taskId);
+            refreshConversationContext(task.getConversationId(), task.getUserId(), task.getPermissionRevision(), taskId);
         }
     }
 

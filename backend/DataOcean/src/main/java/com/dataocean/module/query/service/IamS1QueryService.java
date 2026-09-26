@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.query.entity.dto.IamS1QueryAskRequestDTO;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 import com.dataocean.module.query.entity.vo.ConversationMessageVO;
+import com.dataocean.module.query.entity.vo.ConversationMessagePageVO;
 import com.dataocean.module.query.entity.query.QueryHistoryQuery;
 
 import java.util.List;
@@ -19,6 +20,6 @@ public interface IamS1QueryService {
     void feedback(String taskId, Long userId, String feedbackType);
     List<java.util.Map<String, Object>> export(String taskId, Long userId);
     List<?> conversations(Long userId, Long datasourceId);
-    List<ConversationMessageVO> conversationMessages(Long conversationId, Long userId, Integer page, Integer pageSize);
+    ConversationMessagePageVO conversationMessages(Long conversationId, Long userId, Long beforeMessageId, Integer pageSize);
     void archiveConversation(Long conversationId, Long userId);
 }

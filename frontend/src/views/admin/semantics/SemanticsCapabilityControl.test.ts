@@ -285,7 +285,7 @@ describe('KnowledgeView 的能力控制', () => {
 
     expect(api.listKnowledgeDocs).toHaveBeenCalled()
     expect(buttonWithText(wrapper, '手动新建')!.attributes('disabled')).toBeDefined()
-    const generate = wrapper.findAll('button').find((button) => button.text().includes('AI 一键生成'))
+    const generate = wrapper.findAll('button').find((button) => button.text().includes('生成快照目录'))
     expect(generate!.attributes('disabled')).toBeDefined()
   })
 
