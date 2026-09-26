@@ -6,7 +6,7 @@
     "expectedRows": [
       {"region": "East", "revenue": "40.00"},
       {"region": "North", "revenue": "50.00"},
-      {"region": "South", "revenue": "90.00"}
+      {"region": "South", "revenue": "120.00"}
     ]
   },
   {
