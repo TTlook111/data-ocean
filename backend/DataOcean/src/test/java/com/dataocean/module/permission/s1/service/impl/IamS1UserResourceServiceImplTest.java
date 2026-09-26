@@ -177,10 +177,101 @@ class IamS1UserResourceServiceImplTest {
                     ? allowSnapshot()
                     : denySnapshot("NO_ALLOW_COVERING_FIELDS");
         });
+        when(fixture.dataAuthorizationResolver.resolveVisibleColumns(eq(2L), eq(5L), eq(88L), eq("orders"), any()))
+                .thenReturn(List.of(visibleColumnPermission("orders", "amount")));
 
         List<IamS1ColumnOptionVO> columns = fixture.service.columns(2L, "QUERY", 5L, 88L, "orders");
 
         assertThat(columns).extracting(IamS1ColumnOptionVO::columnName).containsExactly("amount");
+    }
+
+    @Test
+    void queryScopeDoesNotTreatTablesAfterTheTwentiethAsUnauthorized() {
+        Fixture fixture = new Fixture();
+        when(fixture.datasourceIdentityMapper.countEnabledDatasource(5L)).thenReturn(1L);
+        when(fixture.dataAuthorizationResolver.hasEffectiveAllowGrant(eq(2L), eq(5L), any(LocalDateTime.class)))
+                .thenReturn(true);
+        when(fixture.resourceOptionMapper.countPublishedSnapshot(5L, 88L)).thenReturn(1L);
+        List<IamS1TableOptionFact> tables = new java.util.ArrayList<>();
+        for (int index = 0; index < 25; index++) {
+            String name = "table_" + index;
+            tables.add(tableFact(name));
+            when(fixture.resourceOptionMapper.selectColumns(5L, 88L, name))
+                    .thenReturn(List.of(columnFact(100L + index, "id")));
+        }
+        when(fixture.resourceOptionMapper.selectTables(5L, 88L)).thenReturn(tables);
+        when(fixture.dataAuthorizationResolver.resolve(any())).thenReturn(allowSnapshot());
+
+        List<IamS1TableOptionVO> visible = fixture.service.tables(2L, "QUERY", 5L, 88L);
+
+        assertThat(visible).hasSize(25);
+        assertThat(visible).extracting(IamS1TableOptionVO::tableName).contains("table_24");
+    }
+
+    @Test
+    void queryScopeDoesNotTreatFieldsAfterTheSixtiethProbeAsUnauthorized() {
+        Fixture fixture = new Fixture();
+        when(fixture.datasourceIdentityMapper.countEnabledDatasource(5L)).thenReturn(1L);
+        when(fixture.dataAuthorizationResolver.hasEffectiveAllowGrant(eq(2L), eq(5L), any(LocalDateTime.class)))
+                .thenReturn(true);
+        when(fixture.resourceOptionMapper.countPublishedSnapshot(5L, 88L)).thenReturn(1L);
+        List<com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact> fields = new java.util.ArrayList<>();
+        for (int index = 0; index < 61; index++) fields.add(columnFact(200L + index, "field_" + index));
+        when(fixture.resourceOptionMapper.selectColumns(5L, 88L, "orders")).thenReturn(fields);
+        when(fixture.dataAuthorizationResolver.resolve(any())).thenReturn(denySnapshot("NO_ALLOW_COVERING_FIELDS"));
+        when(fixture.dataAuthorizationResolver.resolveVisibleColumns(eq(2L), eq(5L), eq(88L), eq("orders"), any()))
+                .thenReturn(List.of(visibleColumnPermission("orders", "field_60")));
+
+        List<IamS1ColumnOptionVO> visible = fixture.service.columns(2L, "QUERY", 5L, 88L, "orders");
+
+        assertThat(visible).extracting(IamS1ColumnOptionVO::columnName).containsExactly("field_60");
+        verify(fixture.dataAuthorizationResolver).resolveVisibleColumns(eq(2L), eq(5L), eq(88L), eq("orders"), any());
+    }
+
+    @Test
+    void candidateCatalogContainsAllVisibleColumnsButNeverHiddenFields() {
+        Fixture fixture = new Fixture();
+        when(fixture.datasourceIdentityMapper.countEnabledDatasource(5L)).thenReturn(1L);
+        when(fixture.dataAuthorizationResolver.hasEffectiveAllowGrant(eq(2L), eq(5L), any(LocalDateTime.class)))
+                .thenReturn(true);
+        when(fixture.resourceOptionMapper.countPublishedSnapshot(5L, 88L)).thenReturn(1L);
+        when(fixture.resourceOptionMapper.selectTables(5L, 88L)).thenReturn(List.of(tableFact("orders")));
+        var visible = columnFact(301L, "amount");
+        var hidden = columnFact(302L, "private_note");
+        when(fixture.resourceOptionMapper.selectColumns(5L, 88L, "orders")).thenReturn(List.of(visible, hidden));
+        when(fixture.dataAuthorizationResolver.resolve(any())).thenReturn(allowSnapshot());
+        when(fixture.dataAuthorizationResolver.resolveVisibleColumns(eq(2L), eq(5L), eq(88L), eq("orders"), any()))
+                .thenReturn(List.of(visibleColumnPermission("orders", "amount")));
+        when(fixture.dataAuthorizationResolver.currentPermissionRevision()).thenReturn(9L);
+        IamS1FieldProtection hiddenRule = new IamS1FieldProtection();
+        hiddenRule.setColumnMetaId(302L);
+        hiddenRule.setColumnName("private_note");
+        hiddenRule.setProtectionLevel("HIDDEN");
+        when(fixture.fieldProtectionMapper.selectActiveBySnapshot("IAM-SIMPLE-1", 5L, 88L))
+                .thenReturn(List.of(hiddenRule));
+
+        var catalog = fixture.service.candidateCatalog(2L, 5L, 88L);
+
+        assertThat(catalog.datasourceId()).isEqualTo(5L);
+        assertThat(catalog.activeMetadataSnapshotId()).isEqualTo(88L);
+        assertThat(catalog.permissionRevision()).isEqualTo(9L);
+        assertThat(catalog.tables()).hasSize(1);
+        assertThat(catalog.tables().get(0).columns()).extracting("columnName").containsExactly("amount");
+    }
+
+    @Test
+    void candidateCatalogFailsClosedIfPermissionRevisionChangesDuringConstruction() {
+        Fixture fixture = new Fixture();
+        when(fixture.datasourceIdentityMapper.countEnabledDatasource(5L)).thenReturn(1L);
+        when(fixture.dataAuthorizationResolver.hasEffectiveAllowGrant(eq(2L), eq(5L), any(LocalDateTime.class)))
+                .thenReturn(true);
+        when(fixture.resourceOptionMapper.countPublishedSnapshot(5L, 88L)).thenReturn(1L);
+        when(fixture.resourceOptionMapper.selectTables(5L, 88L)).thenReturn(List.of());
+        when(fixture.dataAuthorizationResolver.currentPermissionRevision()).thenReturn(9L, 10L);
+
+        Throwable thrown = catchThrowable(() -> fixture.service.candidateCatalog(2L, 5L, 88L));
+
+        assertThat(thrown).isInstanceOf(BusinessException.class).hasMessageContaining("权限");
     }
 
     @Test
@@ -221,6 +312,12 @@ class IamS1UserResourceServiceImplTest {
         fact.setTableName(tableName);
         fact.setGovernanceStatus("RELEASED");
         return fact;
+    }
+
+    private com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO visibleColumnPermission(
+            String tableName, String columnName) {
+        return new com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO(
+                true, "ALLOWED", tableName, List.of(columnName), List.of(), List.of(), List.of());
     }
 
     private com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact columnFact(Long id, String name) {

@@ -175,6 +175,86 @@ public class IamS1DataAuthorizationResolverImpl implements IamS1DataAuthorizatio
     }
 
     @Override
+    public Long currentPermissionRevision() {
+        return permissionRevisionMapper.selectCurrentRevision();
+    }
+
+    @Override
+    public List<IamS1TablePermissionVO> resolveVisibleColumns(Long userId, Long datasourceId, Long snapshotId,
+                                                              String tableName, LocalDateTime at) {
+        if (userId == null || datasourceId == null || snapshotId == null
+                || tableName == null || tableName.isBlank()) return List.of();
+        LocalDateTime calculatedAt = at == null ? LocalDateTime.now() : at;
+        try {
+            IamS1UserIdentity user = userIdentityMapper.selectIdentity(userId);
+            var datasource = datasourceIdentityMapper.selectIdentity(datasourceId);
+            IamS1MetadataSnapshotFact snapshot = metadataResourceMapper.selectSnapshot(snapshotId, datasourceId);
+            if (user == null || !Integer.valueOf(IamS1Constants.ENABLED).equals(user.getStatus())
+                    || datasource == null || !Integer.valueOf(IamS1Constants.ENABLED).equals(datasource.getStatus())
+                    || snapshot == null || !"PUBLISHED".equals(snapshot.getStatus())) return List.of();
+            DepartmentPath departmentPath = resolveDepartmentPath(user.getDepartmentId());
+            if (!departmentPath.valid()) return List.of();
+
+            List<IamS1DataGrant> allGrants = dataGrantMapper.selectActiveByDatasource(
+                    IamS1Constants.PROTOCOL_VERSION, datasourceId);
+            if (allGrants == null) return List.of();
+            List<IamS1DataGrant> grants = matchGrants(allGrants, userId, departmentPath);
+            List<Long> grantIds = grants.stream().map(IamS1DataGrant::getId)
+                    .filter(java.util.Objects::nonNull).toList();
+            List<IamS1DataGrantColumn> grantColumns = grantIds.isEmpty()
+                    ? List.of() : dataGrantColumnMapper.selectByGrantIds(grantIds);
+            List<IamS1RowCondition> conditions = grantIds.isEmpty()
+                    ? List.of() : rowConditionMapper.selectByGrantIds(grantIds);
+            List<IamS1FieldProtection> protections = fieldProtectionMapper.selectActiveBySnapshot(
+                    IamS1Constants.PROTOCOL_VERSION, datasourceId, snapshotId);
+            if (grantColumns == null || conditions == null || protections == null) return List.of();
+
+            IamS1TableFact tableFact = metadataResourceMapper.selectTable(snapshotId, datasourceId, tableName.trim());
+            List<IamS1ColumnFact> columns = metadataResourceMapper.selectColumns(
+                    snapshotId, datasourceId, tableName.trim());
+            if (tableFact == null || isBlocked(tableFact.getGovernanceStatus()) || columns == null || columns.isEmpty()) {
+                return List.of();
+            }
+            Map<Long, List<IamS1DataGrantColumn>> columnsByGrant = grantColumns.stream()
+                    .filter(item -> item.getGrantId() != null)
+                    .collect(Collectors.groupingBy(IamS1DataGrantColumn::getGrantId, LinkedHashMap::new,
+                            Collectors.toList()));
+            Map<Long, List<IamS1RowCondition>> conditionsByGrant = conditions.stream()
+                    .filter(item -> item.getGrantId() != null)
+                    .collect(Collectors.groupingBy(IamS1RowCondition::getGrantId, LinkedHashMap::new,
+                            Collectors.toList()));
+            Map<String, List<IamS1FieldProtection>> protectionsByColumn = protections.stream()
+                    .filter(item -> item.getTableName() != null && item.getColumnMetaId() != null)
+                    .collect(Collectors.groupingBy(item -> protectionKey(item.getTableName(), item.getColumnMetaId()),
+                            LinkedHashMap::new, Collectors.toList()));
+
+            List<IamS1TablePermissionVO> visible = new ArrayList<>();
+            for (IamS1ColumnFact column : columns) {
+                if (column == null || column.getColumnName() == null || isBlocked(column.getGovernanceStatus())) continue;
+                IamS1TableRequestDTO tableRequest = new IamS1TableRequestDTO(tableName.trim(),
+                        Set.of(column.getColumnName()));
+                tableRequest.setColumnUsages(Map.of(column.getColumnName(), Set.of(IamS1ColumnUsage.PROJECTION)));
+                IamS1DataAuthorizationRequestDTO request = new IamS1DataAuthorizationRequestDTO();
+                request.setProtocolVersion(IamS1Constants.PROTOCOL_VERSION);
+                request.setUserId(userId);
+                request.setDatasourceId(datasourceId);
+                request.setActiveMetadataSnapshotId(snapshotId);
+                request.setCalculatedAt(calculatedAt);
+                request.setTables(List.of(tableRequest));
+                TableComputation result = computeTable(request, tableName.trim(), tableRequest, grants,
+                        columnsByGrant, conditionsByGrant, protectionsByColumn, departmentPath, calculatedAt,
+                        tableFact, columns);
+                if (result.allowed()) visible.add(result.permission());
+            }
+            return List.copyOf(visible);
+        } catch (RuntimeException exception) {
+            log.warn("S1 候选字段完整权限计算失败 userId={} datasourceId={} tableName={}",
+                    userId, datasourceId, tableName);
+            return List.of();
+        }
+    }
+
+    @Override
     public boolean hasEffectiveAllowGrant(Long userId, Long datasourceId, LocalDateTime at) {
         if (userId == null || datasourceId == null) {
             return false;
@@ -239,16 +319,25 @@ public class IamS1DataAuthorizationResolverImpl implements IamS1DataAuthorizatio
                                            Map<Long, List<IamS1RowCondition>> conditionsByGrant,
                                            Map<String, List<IamS1FieldProtection>> protectionsByColumn,
                                            DepartmentPath departmentPath, LocalDateTime calculatedAt) {
-        IamS1TableFact tableFact = metadataResourceMapper.selectTable(
-                request.getActiveMetadataSnapshotId(), request.getDatasourceId(), tableName);
+        return computeTable(request, tableName, tableRequest, grants, columnsByGrant, conditionsByGrant,
+                protectionsByColumn, departmentPath, calculatedAt,
+                metadataResourceMapper.selectTable(request.getActiveMetadataSnapshotId(), request.getDatasourceId(), tableName),
+                metadataResourceMapper.selectColumns(request.getActiveMetadataSnapshotId(), request.getDatasourceId(), tableName));
+    }
+
+    private TableComputation computeTable(IamS1DataAuthorizationRequestDTO request, String tableName,
+                                           IamS1TableRequestDTO tableRequest, List<IamS1DataGrant> grants,
+                                           Map<Long, List<IamS1DataGrantColumn>> columnsByGrant,
+                                           Map<Long, List<IamS1RowCondition>> conditionsByGrant,
+                                           Map<String, List<IamS1FieldProtection>> protectionsByColumn,
+                                           DepartmentPath departmentPath, LocalDateTime calculatedAt,
+                                           IamS1TableFact tableFact, List<IamS1ColumnFact> allColumns) {
         if (tableFact == null) {
             return tableDeny(tableName, "TABLE_NOT_IN_SNAPSHOT", "表不在当前已发布快照中");
         }
         if (isBlocked(tableFact.getGovernanceStatus())) {
             return tableDeny(tableName, governanceReason(tableFact.getGovernanceStatus()), "表的治理状态不允许问数");
         }
-        List<IamS1ColumnFact> allColumns = metadataResourceMapper.selectColumns(
-                request.getActiveMetadataSnapshotId(), request.getDatasourceId(), tableName);
         if (allColumns == null || allColumns.isEmpty()) {
             return tableDeny(tableName, "TABLE_COLUMNS_NOT_PUBLISHED", "表没有可用的已发布字段");
         }

@@ -672,3 +672,68 @@ async def test_s1_query_preserves_chart_generation_result():
 
     assert result["status"] == "COMPLETED"
     assert result["chartConfig"]["series"][0]["type"] == "bar"
+
+
+def test_candidate_catalog_contract_is_snapshot_bound_and_rejects_empty_columns():
+    from pydantic import ValidationError
+    from dataocean.iam_s1.schema import S1CandidateCatalog
+
+    catalog = S1CandidateCatalog.model_validate({
+        "datasourceId": 1,
+        "activeMetadataSnapshotId": 88,
+        "permissionRevision": 9,
+        "tables": [{
+            "tableName": "orders",
+            "tableComment": "订单",
+            "governanceStatus": "NORMAL",
+            "columns": [{
+                "columnMetaId": 101,
+                "columnName": "id",
+                "columnComment": "订单 ID",
+                "dataType": "BIGINT",
+                "governanceStatus": "NORMAL",
+                "protectionLevel": "NORMAL",
+                "maskPolicy": None,
+                "allowedUsages": ["PROJECTION", "FILTER"],
+                "grantSources": [{
+                    "grantId": 77,
+                    "subjectType": "USER",
+                    "subjectId": 7,
+                    "sourceSummary": "用户个人授权",
+                    "departmentScope": None,
+                    "grantSource": "MANUAL",
+                    "sourceReferenceId": None,
+                    "validFrom": "2026-09-26T00:00:00",
+                    "validUntil": None,
+                    "explicitColumns": ["id"],
+                    "rowCondition": {
+                        "matchType": "ALL",
+                        "predicates": [{
+                            "columnMetaId": 102,
+                            "columnName": "region",
+                            "operatorCode": "EQ",
+                            "valueType": "STRING",
+                            "parameterReference": "region_param",
+                            "bindingReference": "grant-77-condition-1",
+                        }],
+                    },
+                }],
+            }],
+        }],
+    })
+    assert catalog.activeMetadataSnapshotId == 88
+    assert catalog.tables[0].columns[0].allowedUsages == ["PROJECTION", "FILTER"]
+    assert catalog.tables[0].columns[0].grantSources[0].rowCondition.predicates[0].columnMetaId == 102
+
+    with pytest.raises(ValidationError):
+        S1CandidateCatalog.model_validate({
+            "datasourceId": 1,
+            "activeMetadataSnapshotId": 88,
+            "permissionRevision": 9,
+            "tables": [{
+                "tableName": "orders",
+                "tableComment": None,
+                "governanceStatus": "NORMAL",
+                "columns": [],
+            }],
+        })

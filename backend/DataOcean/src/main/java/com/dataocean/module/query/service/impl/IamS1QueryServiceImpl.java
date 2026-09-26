@@ -33,6 +33,7 @@ import com.dataocean.module.permission.s1.entity.vo.IamS1FieldProtectionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1GrantSourceVO;
 import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
+import com.dataocean.module.permission.s1.service.IamS1UserResourceService;
 import com.dataocean.module.query.client.IamS1PythonClient;
 import com.dataocean.module.query.controller.IamS1QuerySseController;
 import com.dataocean.module.query.entity.QueryTask;
@@ -91,6 +92,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final QueryTaskMapper queryTaskMapper;
     private final ObjectMapper objectMapper;
     private final IamS1DataAuthorizationResolver dataResolver;
+    private final IamS1UserResourceService userResourceService;
     private final IamS1AuthorizationResolver authorizationResolver;
     private final IamS1RowBindingService rowBindingService;
     private final IamS1PythonClient pythonClient;
@@ -628,6 +630,12 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         body.put("question", request.getQuestion()); body.put("connectionConfig", connectionConfig(request.getDatasourceId()));
         body.put("conversationId", conversationId);
         body.put("conversationThreadId", "iam-s1:" + userId + ":" + request.getDatasourceId() + ":" + conversationId);
+        var candidateCatalog = userResourceService.candidateCatalog(
+                userId, request.getDatasourceId(), snapshot.getActiveMetadataSnapshotId());
+        if (candidateCatalog == null || !Objects.equals(candidateCatalog.permissionRevision(), snapshot.getPermissionRevision())) {
+            throw new BusinessException("权限在资源规划期间发生变化，请重新提问");
+        }
+        body.put("candidateCatalog", candidateCatalog);
         List<Map<String, Object>> chunks = loadKnowledgeChunks(ragBuild, request.getDatasourceId(), snapshot);
         ConversationContextDTO conversation;
         try {

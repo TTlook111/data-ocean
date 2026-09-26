@@ -47,11 +47,16 @@ class S1RowCondition(S1Model):
 
 class S1GrantSource(S1Model):
     grantId: int
+    subjectType: str | None = None
+    subjectId: int | None = None
     sourceSummary: str
+    departmentScope: str | None = None
     grantSource: str
     sourceReferenceId: int | None
+    validFrom: str | None = None
+    validUntil: str | None = None
     explicitColumns: list[str]
-    rowCondition: S1RowCondition | None
+    rowCondition: S1RowCondition | None = None
 
 
 class S1Resource(S1Model):
@@ -91,6 +96,63 @@ class S1ConversationTurn(S1Model):
     content: str
 
 
+class S1CandidatePredicate(S1Model):
+    columnMetaId: int
+    columnName: str
+    operatorCode: Literal["EQ", "NE", "GT", "GE", "LT", "LE", "IN", "NOT_IN", "IS_NULL", "IS_NOT_NULL"]
+    valueType: Literal[
+        "STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATETIME",
+        "STRING_LIST", "INTEGER_LIST", "DECIMAL_LIST", "NULL",
+    ]
+    parameterReference: str | None
+    bindingReference: str
+
+
+class S1CandidateRowCondition(S1Model):
+    matchType: Literal["ALL", "ANY"]
+    predicates: list[S1CandidatePredicate]
+
+
+class S1CandidateGrantSource(S1Model):
+    grantId: int
+    subjectType: str | None = None
+    subjectId: int | None = None
+    sourceSummary: str
+    departmentScope: str | None = None
+    grantSource: str
+    sourceReferenceId: int | None
+    validFrom: str | None = None
+    validUntil: str | None = None
+    explicitColumns: list[str]
+    rowCondition: S1CandidateRowCondition | None = None
+
+
+class S1CandidateColumn(S1Model):
+    columnMetaId: int
+    columnName: str
+    columnComment: str | None = None
+    dataType: str | None = None
+    governanceStatus: str
+    protectionLevel: Literal["NORMAL", "HIDDEN", "MASKED"]
+    maskPolicy: str | None = None
+    allowedUsages: list[Literal["PROJECTION", "FILTER", "JOIN", "ORDER", "GROUP", "HAVING", "FUNCTION", "SUBQUERY"]] = Field(min_length=1)
+    grantSources: list[S1CandidateGrantSource] = Field(min_length=1)
+
+
+class S1CandidateTable(S1Model):
+    tableName: str
+    tableComment: str | None = None
+    governanceStatus: str
+    columns: list[S1CandidateColumn] = Field(min_length=1)
+
+
+class S1CandidateCatalog(S1Model):
+    datasourceId: int
+    activeMetadataSnapshotId: int
+    permissionRevision: int
+    tables: list[S1CandidateTable]
+
+
 class S1ConnectionConfig(S1Model):
     host: str
     port: int
@@ -112,6 +174,9 @@ class S1QueryExecuteRequest(S1Model):
     ragSourceSnapshotId: int | None = None
     ragCollectionName: str | None = None
     ragEmbeddingConfig: dict[str, Any] | None = None
+    conversationId: int | None = None
+    conversationThreadId: str | None = None
+    candidateCatalog: S1CandidateCatalog | None = None
     question: str = Field(min_length=1, max_length=500)
     connectionConfig: S1ConnectionConfig
     conversationHistory: list[S1ConversationTurn]

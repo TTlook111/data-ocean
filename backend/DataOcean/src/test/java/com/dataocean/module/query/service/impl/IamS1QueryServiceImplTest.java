@@ -65,6 +65,7 @@ class IamS1QueryServiceImplTest {
     @Mock private QueryTaskMapper queryTaskMapper;
     @Spy private ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     @Mock private IamS1DataAuthorizationResolver dataResolver;
+    @Mock private com.dataocean.module.permission.s1.service.IamS1UserResourceService userResourceService;
     @Mock private IamS1AuthorizationResolver authorizationResolver;
     @Mock private IamS1RowBindingService rowBindingService;
     @Mock private IamS1PythonClient pythonClient;
@@ -101,6 +102,9 @@ class IamS1QueryServiceImplTest {
                 .iamExecutionSnapshot("{\"resources\":[]}").build();
         lenient().when(queryTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
         lenient().when(conversationService.isVisible(any(), any())).thenReturn(true);
+        lenient().when(userResourceService.candidateCatalog(any(), any(), any()))
+                .thenReturn(new com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO(
+                        1L, 88L, 100L, List.of()));
     }
 
     @Test

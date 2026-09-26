@@ -9,6 +9,9 @@ import com.dataocean.module.permission.s1.entity.IamS1TableOptionFact;
 import com.dataocean.module.permission.s1.entity.vo.IamS1ColumnOptionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1TableOptionVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateColumnVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateTableVO;
 import com.dataocean.module.permission.s1.mapper.IamS1CapabilityMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1DatasourceIdentityMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1FieldProtectionMapper;
@@ -53,11 +56,6 @@ public class IamS1UserResourceServiceImpl implements IamS1UserResourceService {
     private static final Set<String> BLOCKED_GOVERNANCE = Set.of("BLOCKED", "DEPRECATED");
     /** 数据源级禁止：整源都不可查询，不能因为存在历史 ALLOW 而显示成“可用”。 */
     private static final String DATASOURCE_DENY = "DATASOURCE_DENY";
-    /** 单次请求允许的统一 Resolver 探测次数上限，避免大快照下的无界调用。 */
-    private static final int MAX_RESOLVER_PROBES = 60;
-    /** 单次请求最多核对的表数量上限。 */
-    private static final int MAX_TABLES_PROBED = 20;
-
     private final IamS1AdminGuard adminGuard;
     private final IamS1DataAuthorizationResolver dataAuthorizationResolver;
     private final IamS1CapabilityMapper capabilityMapper;
@@ -111,7 +109,7 @@ public class IamS1UserResourceServiceImpl implements IamS1UserResourceService {
             return applyColumns(datasourceId, snapshotId, tableName, facts, levels);
         }
         Set<String> allowed = queryAllowedColumns(userId, datasourceId, snapshotId, tableName.trim(),
-                namesOf(facts), levelsByName, new int[]{MAX_RESOLVER_PROBES});
+                namesOf(facts), levelsByName);
         List<IamS1ColumnOptionVO> options = new ArrayList<>();
         for (IamS1ColumnOptionFact column : facts) {
             if (!allowed.contains(column.getColumnName())) {
@@ -121,6 +119,76 @@ public class IamS1UserResourceServiceImpl implements IamS1UserResourceService {
             options.add(toColumn(datasourceId, snapshotId, tableName, column, levels));
         }
         return options;
+    }
+
+    @Override
+    public IamS1QueryCandidateCatalogVO candidateCatalog(Long userId, Long datasourceId, Long snapshotId) {
+        requireVisibleDatasource(userId, SCOPE_QUERY, datasourceId);
+        requirePublishedSnapshot(datasourceId, snapshotId);
+        Long permissionRevision = dataAuthorizationResolver.currentPermissionRevision();
+        if (permissionRevision == null) throw new BusinessException("当前 IAM-SIMPLE-1 权限修订不可用");
+        List<IamS1TableOptionFact> tableFacts = resourceOptionMapper.selectTables(datasourceId, snapshotId);
+        if (tableFacts == null) throw new BusinessException("当前快照的表目录读取失败");
+        Map<Long, String> protectionLevels = activeProtectionLevels(datasourceId, snapshotId);
+        Map<String, String> maskPolicies = activeMaskPolicies(datasourceId, snapshotId);
+        List<IamS1QueryCandidateTableVO> catalog = new ArrayList<>();
+        for (IamS1TableOptionFact table : tableFacts) {
+            if (table == null || table.getTableName() == null || table.getGovernanceStatus() == null
+                    || BLOCKED_GOVERNANCE.contains(table.getGovernanceStatus())) continue;
+            List<IamS1ColumnOptionFact> sourceColumns = resourceOptionMapper.selectColumns(
+                    datasourceId, snapshotId, table.getTableName());
+            if (sourceColumns == null || sourceColumns.isEmpty()) continue;
+            List<com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO> permissions =
+                    dataAuthorizationResolver.resolveVisibleColumns(
+                            userId, datasourceId, snapshotId, table.getTableName(), LocalDateTime.now());
+            Map<String, com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO> permissionByColumn =
+                    new LinkedHashMap<>();
+            for (var permission : permissions == null ? List.<com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO>of() : permissions) {
+                if (permission != null && permission.isAllowed() && table.getTableName().equals(permission.getTableName())) {
+                    for (String columnName : permission.getAllowedColumns()) permissionByColumn.put(columnName, permission);
+                }
+            }
+            List<IamS1QueryCandidateColumnVO> columns = new ArrayList<>();
+            for (IamS1ColumnOptionFact column : sourceColumns) {
+                if (column == null || column.getColumnName() == null || column.getId() == null
+                        || column.getGovernanceStatus() == null || BLOCKED_GOVERNANCE.contains(column.getGovernanceStatus())) continue;
+                var permission = permissionByColumn.get(column.getColumnName());
+                if (permission == null) continue;
+                String protection = protectionLevels.getOrDefault(column.getId(), IamS1Constants.PROTECTION_NORMAL);
+                if (IamS1Constants.PROTECTION_HIDDEN.equals(protection)) continue;
+                columns.add(new IamS1QueryCandidateColumnVO(
+                        column.getId(), column.getColumnName(), column.getColumnComment(), column.getDataType(),
+                        column.getGovernanceStatus(), protection,
+                        maskPolicies.get(table.getTableName() + "#" + column.getColumnName()),
+                        IamS1UsageDefaults.forProtectionLevel(protection).stream().toList(),
+                        permission.getGrantSources()));
+            }
+            if (!columns.isEmpty()) {
+                catalog.add(new IamS1QueryCandidateTableVO(table.getTableName(), table.getTableComment(),
+                        table.getGovernanceStatus(), List.copyOf(columns)));
+            }
+        }
+        Long afterRevision = dataAuthorizationResolver.currentPermissionRevision();
+        if (!java.util.Objects.equals(permissionRevision, afterRevision)) {
+            throw new BusinessException("权限在资源规划期间发生变化，请重试");
+        }
+        return new IamS1QueryCandidateCatalogVO(datasourceId, snapshotId, permissionRevision, List.copyOf(catalog));
+    }
+
+    private Map<String, String> activeMaskPolicies(Long datasourceId, Long snapshotId) {
+        Map<String, String> policies = new LinkedHashMap<>();
+        List<IamS1FieldProtection> protections = fieldProtectionMapper.selectActiveBySnapshot(
+                IamS1Constants.PROTOCOL_VERSION, datasourceId, snapshotId);
+        if (protections == null) return policies;
+        for (IamS1FieldProtection protection : protections) {
+            if (IamS1Constants.PROTECTION_MASKED.equals(protection.getProtectionLevel())
+                    && protection.getTableName() != null && protection.getColumnName() != null
+                    && protection.getMaskPolicy() != null) {
+                policies.putIfAbsent(protection.getTableName() + "#" + protection.getColumnName(),
+                        protection.getMaskPolicy());
+            }
+        }
+        return policies;
     }
 
     // ------------------------------------------------------------------ QUERY
@@ -169,18 +237,14 @@ public class IamS1UserResourceServiceImpl implements IamS1UserResourceService {
                                                  List<IamS1TableOptionFact> facts) {
         Map<Long, String> levels = activeProtectionLevels(datasourceId, snapshotId);
         Map<String, String> levelsByName = protectionLevelsByName(datasourceId, snapshotId);
-        int[] budget = {MAX_RESOLVER_PROBES};
         List<IamS1TableOptionVO> options = new ArrayList<>();
-        int probed = 0;
         for (IamS1TableOptionFact table : facts) {
-            if (probed >= MAX_TABLES_PROBED || budget[0] <= 0) {
-                break;
-            }
-            probed++;
+            String governance = table.getGovernanceStatus();
+            if (governance == null || BLOCKED_GOVERNANCE.contains(governance)) continue;
             List<IamS1ColumnOptionFact> columns = resourceOptionMapper.selectColumns(datasourceId, snapshotId,
                     table.getTableName());
             Set<String> allowed = queryAllowedColumns(userId, datasourceId, snapshotId, table.getTableName(),
-                    namesOf(columns), levelsByName, budget);
+                    namesOf(columns), levelsByName);
             if (allowed.isEmpty()) {
                 // 该表在当前时间没有任何可查询字段，QUERY 模式不返回。
                 continue;
@@ -192,34 +256,25 @@ public class IamS1UserResourceServiceImpl implements IamS1UserResourceService {
     }
 
     /**
-     * 按“用户 + 表 + 字段 + 当前时间”核对可查询字段。
-     * <p>
-     * 先整表探测；整表不通过时按字段逐个探测（受预算限制），以保留“部分字段授权”的能力。
-     * 全部判定都来自统一 Resolver，不在本类实现第二套匹配算法。
-     * </p>
+     * 先尝试一次整表 Resolver；部分字段授权时交给同一 Resolver 在共享授权事实快照上完整计算每个字段。
+     * 本类不实现第二套 grant、deny、治理或保护匹配规则，也不以探测预算截断候选。
      */
     private Set<String> queryAllowedColumns(Long userId, Long datasourceId, Long snapshotId, String tableName,
-                                            Set<String> columnNames, Map<String, String> levelsByName,
-                                            int[] budget) {
+                                            Set<String> columnNames, Map<String, String> levelsByName) {
         Set<String> allowed = new LinkedHashSet<>();
-        if (columnNames.isEmpty() || budget[0] <= 0) {
-            return allowed;
-        }
+        if (columnNames.isEmpty()) return allowed;
         LocalDateTime now = LocalDateTime.now();
-        budget[0]--;
         var whole = resolve(userId, datasourceId, snapshotId, tableName, columnNames, levelsByName, now);
         if (whole.isAllowed()) {
             allowed.addAll(columnNames);
             return allowed;
         }
-        for (String column : columnNames) {
-            if (budget[0] <= 0) {
-                break;
-            }
-            budget[0]--;
-            var single = resolve(userId, datasourceId, snapshotId, tableName, Set.of(column), levelsByName, now);
-            if (single.isAllowed()) {
-                allowed.add(column);
+        List<com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO> perColumn =
+                dataAuthorizationResolver.resolveVisibleColumns(userId, datasourceId, snapshotId, tableName, now);
+        if (perColumn == null) return allowed;
+        for (var permission : perColumn) {
+            if (permission != null && permission.isAllowed() && tableName.equals(permission.getTableName())) {
+                allowed.addAll(permission.getAllowedColumns());
             }
         }
         return allowed;

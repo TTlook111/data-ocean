@@ -93,7 +93,12 @@ G0 自动化结果：Python 原有测试 109 passed；新增 fixture guardrails 
 
 ## C：自然语言资源规划
 
-待实现/验收。
+服务端候选资源目录与严格模型合同已实现；实际自然语言自动 Schema Linking 与图执行验收随 D 完成：
+
+- 增加 Java `candidateCatalog`，严格按当前已发布 `snapshotId` 和 IAM-SIMPLE-1 当前授权调用统一 Resolver，完整列出当前可见表/字段、治理状态、保护等级、允许 usage、对应授权来源及不含原值的结构化行条件引用；目录构建前后核对权限修订。治理阻断、无授权和隐藏字段不进入目录，脱敏字段仅开放投影。该目录只用于规划，D 阶段仍会对 SQL AST 引用重新 Resolver 授权后才能执行。
+- 删除原查询资源选择实现中的 20 表和 60 次探测上限。探测超过旧预算的候选继续逐字段由 Resolver 判定，不能从未遍历误判为无权。Python 合同增加来源快照绑定候选目录与稳定会话 thread ID，仍禁止额外字段。
+- Python S1 Milvus 的 ANN 前 chunk ID 白名单、事实依赖再验证、邻块限制、混合 chunk 拒绝与 MySQL fallback 过滤已在 A 的自动化覆盖；D 继续把服务端候选目录接入最终图节点。
+- Java 定向测试验证 25 个表候选均可返回、61 个字段中只命中第 61 个的授权仍可发现、隐藏字段不会进入完整 Schema Linking 目录；Python S1 安全用例 48 passed。
 
 ## D：LangGraph 闭环
 
