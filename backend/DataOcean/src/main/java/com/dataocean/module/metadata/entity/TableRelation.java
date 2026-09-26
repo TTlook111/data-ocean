@@ -58,6 +58,15 @@ public class TableRelation {
     /** 关系置信度（0~1，外键为1.0） */
     private BigDecimal confidence;
 
+    /** 关系事实审核状态：FK 为源数据库确认；人工 Join 需明确确认；推断关系保持待审核。 */
+    private String reviewStatus;
+
+    /** 确认人 ID；系统采集的 FK 为空。 */
+    private Long reviewedBy;
+
+    /** 明确确认时间；系统采集的 FK 为空。 */
+    private LocalDateTime reviewedAt;
+
     /** 创建时间（自动填充） */
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

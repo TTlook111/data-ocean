@@ -13,7 +13,11 @@ import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.RagIndexBuild;
+import com.dataocean.module.knowledge.entity.RagIndexBuildChunk;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
+import com.dataocean.module.knowledge.mapper.RagIndexBuildChunkMapper;
+import com.dataocean.module.knowledge.service.RagIndexBuildService;
 import com.dataocean.module.audit.service.AuditLogService;
 import com.dataocean.module.glossary.entity.GlossaryTerm;
 import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
@@ -61,6 +65,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -97,6 +102,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final DatasourceSecretMapper datasourceSecretMapper;
     private final DatasourceSecretService datasourceSecretService;
     private final KnowledgeChunkMapper knowledgeChunkMapper;
+    private final RagIndexBuildChunkMapper ragIndexBuildChunkMapper;
+    private final RagIndexBuildService ragIndexBuildService;
     private final AuditLogService auditLogService;
     private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     private final com.dataocean.common.security.DataMaskingService maskingService;
@@ -123,6 +130,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             throw new BusinessException("当前 S1 数据范围不允许查询：" + snapshot.getReasonCode());
         }
         List<IamS1ExecutionBinding> bindings = rowBindingService.build(snapshot);
+        RagIndexBuild ragBuild = ragIndexBuildService.activeBuildForQuery(request.getDatasourceId());
         Long conversationId = conversationService.getOrCreateConversation(
                 userId, request.getDatasourceId(), request.getConversationId(), request.getQuestion());
         conversationService.saveUserMessage(conversationId, request.getQuestion());
@@ -133,6 +141,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 .iamProtocolVersion(IamS1Constants.PROTOCOL_VERSION)
                 .activeMetadataSnapshotId(snapshot.getActiveMetadataSnapshotId())
                 .permissionRevision(snapshot.getPermissionRevision())
+                .ragBuildId(ragBuild == null ? null : ragBuild.getBuildId())
+                .ragSourceSnapshotId(ragBuild == null ? null : ragBuild.getSourceSnapshotId())
                 .iamExecutionSnapshot(writeJson(safeSnapshot))
                 .iamResourceRequest(writeJson(request.getTables()))
                 .iamCapabilities(writeJson(capabilities))
@@ -142,7 +152,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         queryTaskMapper.insert(task);
 
         Map<String, Object> pythonRequest = buildPythonRequest(taskId, userId, conversationId, request, snapshot,
-                safeSnapshot, capabilities, bindings);
+                safeSnapshot, capabilities, bindings, ragBuild);
         Runnable dispatch = () -> pythonClient.executeAsync(taskId, pythonRequest, result -> {
             complete(taskId, result);
             try {
@@ -555,12 +565,13 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private Map<String, Object> buildPythonRequest(String taskId, Long userId, Long conversationId,
                                                    IamS1QueryAskRequestDTO request,
                                                    IamS1DataAuthorizationSnapshot snapshot, Map<String, Object> safeSnapshot,
-                                                   Map<String, Object> capabilities, List<IamS1ExecutionBinding> bindings) {
+                                                   Map<String, Object> capabilities, List<IamS1ExecutionBinding> bindings,
+                                                   RagIndexBuild ragBuild) {
         Map<String, Object> body = new LinkedHashMap<>(); body.put("protocolVersion", IamS1Constants.PROTOCOL_VERSION); body.put("taskId", taskId);
         body.put("userId", userId); body.put("datasourceId", request.getDatasourceId()); body.put("activeMetadataSnapshotId", snapshot.getActiveMetadataSnapshotId());
         body.put("permissionRevision", snapshot.getPermissionRevision()); body.put("permissionSnapshot", safeSnapshot); body.put("executionBindings", bindings);
         body.put("question", request.getQuestion()); body.put("connectionConfig", connectionConfig(request.getDatasourceId()));
-        List<Map<String, Object>> chunks = loadKnowledgeChunks(snapshot.getActiveMetadataSnapshotId(), request.getDatasourceId());
+        List<Map<String, Object>> chunks = loadKnowledgeChunks(ragBuild, request.getDatasourceId(), snapshot);
         ConversationContextDTO conversation = conversationContextSummaryService
                 .buildQueryContext(conversationId, userId);
         if (conversation == null) {
@@ -570,6 +581,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         body.put("conversationSummary", conversation.getSummary());
         body.put("ragChunks", chunks);
         body.put("fallbackChunks", chunks);
+        body.put("ragBuildId", ragBuild == null ? null : ragBuild.getBuildId());
+        body.put("ragSourceSnapshotId", ragBuild == null ? null : ragBuild.getSourceSnapshotId());
+        body.put("ragCollectionName", ragBuild == null ? null : ragBuild.getCollectionName());
+        body.put("ragEmbeddingConfig", ragBuild == null ? null : ragIndexBuildService.embeddingConfigForQuery(ragBuild));
         body.put("glossaryTerms", loadApprovedGlossaryTerms(snapshot));
         body.put("fewShotExamples", loadFewShotExamples(userId, request.getDatasourceId(), snapshot, request));
         return body;
@@ -707,25 +722,63 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         return null;
     }
 
-    private List<Map<String, Object>> loadKnowledgeChunks(Long snapshotId, Long datasourceId) {
-        List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectList(new LambdaQueryWrapper<KnowledgeChunk>()
-                .eq(KnowledgeChunk::getMetadataSnapshotId, snapshotId)
-                .eq(KnowledgeChunk::getReviewStatus, "APPROVED")
-                .eq(KnowledgeChunk::getVectorStatus, "INDEXED")
-                .orderByAsc(KnowledgeChunk::getChunkIndex));
+    private List<Map<String, Object>> loadKnowledgeChunks(
+            RagIndexBuild build, Long datasourceId, IamS1DataAuthorizationSnapshot snapshot) {
+        if (build == null) return List.of();
+        Set<String> visibleDependencies = new java.util.HashSet<>();
+        for (var table : snapshot.getTables()) {
+            String tableName = table.getTableName().toLowerCase(Locale.ROOT);
+            visibleDependencies.add("table:" + tableName);
+            for (String column : table.getAllowedColumns()) {
+                visibleDependencies.add("column:" + tableName + "." + column.toLowerCase(Locale.ROOT));
+            }
+        }
+        List<RagIndexBuildChunk> membership = ragIndexBuildChunkMapper.selectList(
+                new LambdaQueryWrapper<RagIndexBuildChunk>()
+                        .eq(RagIndexBuildChunk::getBuildId, build.getBuildId())
+                        .eq(RagIndexBuildChunk::getDatasourceId, datasourceId)
+                        .eq(RagIndexBuildChunk::getSourceSnapshotId, build.getSourceSnapshotId())
+                        .eq(RagIndexBuildChunk::getFactReviewStatus, "APPROVED")
+                        .orderByAsc(RagIndexBuildChunk::getChunkId));
+        List<Long> chunkIds = membership.stream().map(RagIndexBuildChunk::getChunkId).toList();
+        if (chunkIds.isEmpty()) return List.of();
+        Map<Long, RagIndexBuildChunk> membershipByChunk = membership.stream()
+                .collect(java.util.stream.Collectors.toMap(RagIndexBuildChunk::getChunkId, item -> item));
+        List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectBatchIds(chunkIds);
         List<Map<String, Object>> result = new ArrayList<>();
         for (KnowledgeChunk chunk : chunks == null ? List.<KnowledgeChunk>of() : chunks) {
             try {
+                RagIndexBuildChunk membershipRow = membershipByChunk.get(chunk.getId());
+                if (membershipRow == null || !Objects.equals(chunk.getMetadataSnapshotId(), build.getSourceSnapshotId())
+                        || !"APPROVED".equals(chunk.getReviewStatus())
+                        || !"APPROVED".equals(chunk.getFactReviewStatus())
+                        || !List.of("NORMAL", "RECOMMENDED", "SENSITIVE").contains(chunk.getGovernanceStatus())) continue;
                 List<String> tables = chunk.getRelatedTables() == null
                         ? (chunk.getRelatedTable() == null ? List.of() : List.of(chunk.getRelatedTable()))
                         : objectMapper.readValue(chunk.getRelatedTables(), new TypeReference<>() {});
                 List<String> columns = chunk.getRelatedColumns() == null
                         ? (chunk.getRelatedColumn() == null || tables.isEmpty() ? List.of() : List.of(tables.get(0) + "." + chunk.getRelatedColumn()))
                         : objectMapper.readValue(chunk.getRelatedColumns(), new TypeReference<>() {});
-                if (tables.isEmpty() || columns.isEmpty()) continue;
+                List<String> dependencies = objectMapper.readValue(
+                        membershipRow.getResourceDependencies(), new TypeReference<>() {});
+                List<String> factSourceIds = objectMapper.readValue(
+                        membershipRow.getFactSourceIds(), new TypeReference<>() {});
+                if (tables.isEmpty() || columns.isEmpty() || dependencies.isEmpty() || factSourceIds.isEmpty()) continue;
+                if (!dependencies.stream().map(value -> value.toLowerCase(Locale.ROOT)).allMatch(visibleDependencies::contains)) {
+                    continue;
+                }
                 Map<String, Object> item = new LinkedHashMap<>(); item.put("datasourceId", datasourceId);
-                item.put("activeMetadataSnapshotId", snapshotId); item.put("tables", tables); item.put("columns", columns);
-                item.put("chunkText", chunk.getChunkText()); item.put("chunkType", chunk.getChunkType()); item.put("docId", chunk.getDocId()); item.put("versionNo", chunk.getVersionNo());
+                item.put("activeMetadataSnapshotId", build.getSourceSnapshotId());
+                item.put("sourceSnapshotId", build.getSourceSnapshotId());
+                item.put("ragBuildId", build.getBuildId());
+                item.put("sourceId", chunk.getId());
+                item.put("tables", tables); item.put("columns", columns);
+                item.put("resourceDependencies", dependencies); item.put("factSourceIds", factSourceIds);
+                item.put("factType", chunk.getFactType()); item.put("factReviewStatus", chunk.getFactReviewStatus());
+                item.put("governanceStatus", chunk.getGovernanceStatus());
+                item.put("reviewStatus", chunk.getReviewStatus());
+                item.put("chunkText", chunk.getChunkText()); item.put("chunkType", chunk.getChunkType());
+                item.put("docId", chunk.getDocId()); item.put("versionNo", chunk.getVersionNo());
                 result.add(item);
             } catch (Exception ignored) {
                 // 来源字段不完整时安全降级为无 RAG 上下文。
@@ -857,7 +910,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             Map<String, Object> caps = task.getIamCapabilities() == null ? Map.of() : objectMapper.readValue(task.getIamCapabilities(), new TypeReference<>() {});
             Map<String, Object> chart = task.getChartConfig() == null ? null : objectMapper.readValue(task.getChartConfig(), new TypeReference<>() {});
             List<String> suggestions = task.getSuggestedQuestions() == null ? List.of() : objectMapper.readValue(task.getSuggestedQuestions(), new TypeReference<>() {});
-            return QueryTaskVO.builder().taskId(task.getTaskId()).status(task.getStatus()).question(task.getQuestion()).sql(task.getResultSql()).sqlExplanation(task.getSqlExplanation()).data(data).columns(columns).rowCount(data == null ? 0 : data.size()).chartConfig(chart).suggestedQuestions(suggestions).usedTables(readList(task.getUsedTables())).usedColumns(readList(task.getUsedColumns())).errorMessage(task.getErrorMessage()).degraded(task.getDegraded()).degradeNotice(task.getDegradeNotice()).retryCount(task.getRetryCount()).totalTimeMs(task.getTotalTimeMs()).protocolVersion(task.getIamProtocolVersion()).activeMetadataSnapshotId(task.getActiveMetadataSnapshotId()).permissionRevision(task.getPermissionRevision()).sourceTrace(trace).finalProtectionStatus(task.getIamFinalProtectionStatus()).canViewSql(Boolean.TRUE.equals(caps.get("viewSql"))).canExport(Boolean.TRUE.equals(caps.get("export"))).createdAt(task.getCreatedAt()).completedAt(task.getCompletedAt()).build();
+            return QueryTaskVO.builder().taskId(task.getTaskId()).status(task.getStatus()).question(task.getQuestion()).sql(task.getResultSql()).sqlExplanation(task.getSqlExplanation()).data(data).columns(columns).rowCount(data == null ? 0 : data.size()).chartConfig(chart).suggestedQuestions(suggestions).usedTables(readList(task.getUsedTables())).usedColumns(readList(task.getUsedColumns())).errorMessage(task.getErrorMessage()).degraded(task.getDegraded()).degradeNotice(task.getDegradeNotice()).retryCount(task.getRetryCount()).totalTimeMs(task.getTotalTimeMs()).protocolVersion(task.getIamProtocolVersion()).activeMetadataSnapshotId(task.getActiveMetadataSnapshotId()).permissionRevision(task.getPermissionRevision()).ragBuildId(task.getRagBuildId()).ragSourceSnapshotId(task.getRagSourceSnapshotId()).sourceTrace(trace).finalProtectionStatus(task.getIamFinalProtectionStatus()).canViewSql(Boolean.TRUE.equals(caps.get("viewSql"))).canExport(Boolean.TRUE.equals(caps.get("export"))).createdAt(task.getCreatedAt()).completedAt(task.getCompletedAt()).build();
         } catch (Exception ex) { throw new BusinessException("S1 结果读取失败"); }
     }
     private List<String> readList(String json) { try { return json == null ? List.of() : objectMapper.readValue(json, new TypeReference<>() {}); } catch (Exception ex) { return List.of(); } }

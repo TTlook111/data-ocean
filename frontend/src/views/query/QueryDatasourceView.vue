@@ -47,6 +47,10 @@ const exampleQuestions = [
 ]
 
 const session = useQuerySession()
+const selectedReadiness = computed(() => {
+  const id = session.selectedId.value
+  return id ? session.readinessMap.value[id] : undefined
+})
 const sessionTitle = computed(() => {
   const title = session.activeSession.value?.title
   return title && title !== '新的对话' ? title : '智能问答'
@@ -241,7 +245,15 @@ onMounted(() => {
 
     <section class="query-main">
       <header class="query-topbar">
-        <div class="workspace-title"><h1>{{ sessionTitle }}</h1></div>
+        <div class="workspace-title">
+          <h1>{{ sessionTitle }}</h1>
+          <small v-if="session.selectedId.value && selectedReadiness" class="query-version-context">
+            <span>最新采集 v{{ selectedReadiness.latestCollectedSnapshotVersion ?? '—' }}</span>
+            <span>当前发布 v{{ selectedReadiness.snapshotVersion ?? '—' }}</span>
+            <span>RAG 来源 v{{ selectedReadiness.ragSourceSnapshotVersion ?? '—' }}</span>
+            <strong v-if="selectedReadiness.ragStale" role="status">知识版本落后，SQL 仍按当前快照与权限校验</strong>
+          </small>
+        </div>
         <div class="topbar-actions">
           <button v-if="submit.latestResult.value && !resultPanelOpen" class="result-toggle" type="button" @click="resultPanelOpen = true">
             <PanelRightOpen :size="16" /><span>查看结果</span>
@@ -347,6 +359,8 @@ onMounted(() => {
 .query-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 20px; border-bottom: 1px solid rgba(226, 232, 240, .84); background: rgba(255, 255, 255, .72); backdrop-filter: blur(14px); }
 .workspace-title { min-width: 0; }
 .workspace-title h1 { max-width: 600px; margin: 0; overflow: hidden; color: var(--do-ink); font-size: 14px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.query-version-context { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 3px; color: var(--do-muted); font-size: 10px; }
+.query-version-context strong { color: #a66a00; font-weight: 700; }
 .topbar-actions { display: flex; align-items: center; gap: 9px; }
 .result-toggle { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-primary-strong); background: var(--do-surface); font-size: 12px; font-weight: 700; cursor: pointer; }
 .result-toggle:hover { border-color: rgba(77, 143, 220, .45); background: var(--do-primary-soft); }

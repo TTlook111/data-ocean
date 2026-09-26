@@ -8,6 +8,7 @@ implements its own chunking rules.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 
@@ -41,6 +42,8 @@ _MARKDOWN_SPLITTER = MarkdownHeaderTextSplitter(
     headers_to_split_on=[
         ("##", "section"),
         ("###", "heading"),
+        ("####", "subheading"),
+        ("#####", "detail"),
     ],
     strip_headers=False,
 )
@@ -149,7 +152,7 @@ def chunk_tables(tables_metadata: list[dict]) -> list[ChunkItem]:
     return chunks
 
 
-def validate_skills_md_structure(content: str) -> list[str]:
+def validate_skills_md_structure(content: str, expected_snapshot_id: int | None = None) -> list[str]:
     """校验待发布 skills.md 的结构，不判断业务事实真假。
 
     业务事实仍由 Java 的元数据、审核流程和发布前治理校验负责；这里仅
@@ -177,10 +180,47 @@ def validate_skills_md_structure(content: str) -> list[str]:
     if "{{" in content or "}}" in content:
         errors.append("文档仍包含未渲染的模板占位符")
 
+    table_ids: list[int] = []
+    column_ids: list[int] = []
+    snapshot_ids: set[int] = set()
+    markers = list(_FACT_MARKER_PATTERN.finditer(content))
+    if not markers:
+        errors.append("缺少带来源快照和完整资源依赖的 fact marker")
+    for match in markers:
+        try:
+            marker = json.loads(match.group(1))
+        except (TypeError, ValueError):
+            errors.append("fact marker JSON 无效")
+            continue
+        snapshot_id = marker.get("snapshotId")
+        fact_type = marker.get("factType")
+        source_ids = marker.get("sourceIds")
+        dependencies = marker.get("dependencies")
+        if not isinstance(snapshot_id, int) or snapshot_id <= 0:
+            errors.append("fact marker 缺少有效 snapshotId")
+        else:
+            snapshot_ids.add(snapshot_id)
+            if expected_snapshot_id is not None and snapshot_id != expected_snapshot_id:
+                errors.append("fact marker 与请求的 snapshotId 不一致")
+        if not isinstance(source_ids, list) or not source_ids:
+            errors.append("fact marker 缺少来源 ID")
+        if not isinstance(dependencies, list) or not dependencies:
+            errors.append("fact marker 缺少资源依赖")
+        if fact_type == "TABLE_STRUCTURE" and isinstance(source_ids, list) and source_ids:
+            table_ids.append(int(source_ids[0]))
+        elif fact_type == "COLUMN_STRUCTURE" and isinstance(source_ids, list) and len(source_ids) == 2:
+            column_ids.append(int(source_ids[1]))
+    if len(snapshot_ids) > 1:
+        errors.append("文档 fact marker 混入多个 snapshotId")
+    if not table_ids or len(table_ids) != len(set(table_ids)):
+        errors.append("表结构事实缺失或重复")
+    if not column_ids or len(column_ids) != len(set(column_ids)):
+        errors.append("字段结构事实缺失或重复")
+
     return errors
 
 
-def chunk_skills_md(content: str) -> list[ChunkItem]:
+def chunk_skills_md(content: str, expected_snapshot_id: int | None = None) -> list[ChunkItem]:
     """Split skills.md into retrieval-oriented chunks.
 
     LangChain handles Markdown header splitting and recursive long-text
@@ -199,11 +239,42 @@ def chunk_skills_md(content: str) -> list[ChunkItem]:
         heading = str(document.metadata.get("heading", ""))
         if _should_skip_section(section or heading):
             continue
-
-        chunk_type = _infer_chunk_type(section, heading, document.page_content)
-        table_names = _extract_table_names(document.page_content, heading)
+        marker, machine_text = _extract_fact_marker(document.page_content)
+        if marker is None:
+            logger.warning("skills.md chunk rejected because it has no source/dependency marker heading=%s", heading)
+            continue
+        if not marker.get("dependencies") or not marker.get("sourceIds"):
+            logger.warning("skills.md chunk rejected because its source/dependency list is empty heading=%s", heading)
+            continue
+        snapshot_id = marker.get("snapshotId")
+        if not isinstance(snapshot_id, int) or snapshot_id <= 0:
+            logger.warning("skills.md chunk rejected because its snapshot binding is invalid heading=%s", heading)
+            continue
+        if expected_snapshot_id is not None and snapshot_id != expected_snapshot_id:
+            logger.warning("skills.md chunk rejected because it belongs to another snapshot expected=%s actual=%s",
+                           expected_snapshot_id, snapshot_id)
+            continue
+        fact_type = str(marker.get("factType") or "")
+        chunk_type = _fact_chunk_type(fact_type)
+        if chunk_type is None:
+            logger.warning("skills.md chunk rejected because fact type is unsupported type=%s", fact_type)
+            continue
+        resource_dependencies = list(dict.fromkeys(
+            str(item) for item in marker.get("dependencies", []) if str(item).strip()
+        ))
+        table_names = list(dict.fromkeys(
+            item.split(":", 1)[1] for item in resource_dependencies if item.startswith("table:")
+        ))
+        column_names = list(dict.fromkeys(
+            item.split(":", 1)[1] for item in resource_dependencies if item.startswith("column:")
+        ))
         table_name = table_names[0] if table_names else ""
-        column_names = _extract_column_names(document.page_content, heading)
+        source_ids = [str(item) for item in marker.get("sourceIds", [])]
+        fact_review_status = str(marker.get("reviewStatus") or "PENDING").upper()
+        if fact_review_status not in {"APPROVED", "PENDING", "REJECTED"}:
+            logger.warning("skills.md chunk rejected because review status is invalid status=%s", fact_review_status)
+            continue
+        governance_status = str(marker.get("governanceStatus") or "NORMAL").upper()
 
         # 生成上下文前缀（参考 Anthropic Contextual Retrieval）
         context_prefix = _build_context_prefix(chunk_type, section, heading, table_name)
@@ -224,10 +295,10 @@ def chunk_skills_md(content: str) -> list[ChunkItem]:
             chunk_type,
             section,
             heading,
-            document.page_content,
+            "|".join([fact_type, *source_ids]),
         )
 
-        for text in _split_long_chunk(document.page_content, content_budget):
+        for text in _split_long_chunk(machine_text, content_budget):
             normalized = text.strip()
             if len(normalized) < MIN_CHUNK_TEXT_LENGTH:
                 continue
@@ -247,13 +318,46 @@ def chunk_skills_md(content: str) -> list[ChunkItem]:
                     chunk_index=chunk_index,
                     chunk_group_id=chunk_group_id,
                     content_hash=_content_hash(enriched_text),
-                    governance_status="NORMAL",
-                    review_status="APPROVED",
+                    governance_status=governance_status,
+                    review_status=fact_review_status,
+                    source_snapshot_id=snapshot_id,
+                    resource_dependencies=resource_dependencies,
+                    fact_source_ids=source_ids,
+                    fact_type=fact_type,
+                    fact_review_status=fact_review_status,
                 )
             )
 
     logger.info("skills.md chunking complete chunks=%d splitter=langchain", len(chunks))
     return chunks
+
+
+_FACT_MARKER_PATTERN = re.compile(r"<!--\s*dataocean-fact:\s*(\{.*?\})\s*-->", re.DOTALL)
+
+
+def _extract_fact_marker(text: str) -> tuple[dict | None, str]:
+    markers = list(_FACT_MARKER_PATTERN.finditer(text))
+    if len(markers) != 1:
+        return None, ""
+    try:
+        marker = json.loads(markers[0].group(1))
+    except (TypeError, ValueError):
+        return None, ""
+    machine_text = _FACT_MARKER_PATTERN.sub("", text).strip()
+    return (marker if isinstance(marker, dict) else None), machine_text
+
+
+def _fact_chunk_type(fact_type: str) -> str | None:
+    return {
+        "TABLE_STRUCTURE": "TABLE_DESC",
+        "TABLE_COMMENT": "TABLE_DESC",
+        "COLUMN_STRUCTURE": "FIELD_NOTE",
+        "COLUMN_COMMENT": "FIELD_NOTE",
+        "JOIN_PATH": "JOIN_PATH",
+        "JOIN_CANDIDATE": "JOIN_CANDIDATE",
+        "LINEAGE": "LINEAGE",
+        "DERIVED_FROM": "LINEAGE",
+    }.get(fact_type)
 
 
 def _split_long_chunk(text: str, content_budget: int = TARGET_CHUNK_TOKENS) -> list[str]:

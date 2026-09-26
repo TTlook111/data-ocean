@@ -29,6 +29,14 @@ public class DatasourceReadinessVO {
     private Integer progress;
     private Long publishedSnapshotId;
     private Integer snapshotVersion;
+    private Long latestCollectedSnapshotId;
+    private Integer latestCollectedSnapshotVersion;
+    private String ragBuildId;
+    private Long ragSourceSnapshotId;
+    private Integer ragSourceSnapshotVersion;
+    private String ragStatus;
+    private boolean ragStale;
+    private String ragNotice;
     private Long publishedKnowledgeDocId;
     private Integer knowledgeVersion;
     private boolean connectionReady;

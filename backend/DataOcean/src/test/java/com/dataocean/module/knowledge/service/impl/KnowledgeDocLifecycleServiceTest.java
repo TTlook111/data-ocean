@@ -13,6 +13,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
+import com.dataocean.module.knowledge.support.KnowledgeSnapshotFactValidator;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -56,6 +57,8 @@ class KnowledgeDocLifecycleServiceTest {
     private DbColumnMetaMapper dbColumnMetaMapper;
     @Mock
     private KnowledgeDocHelper helper;
+    @Mock
+    private KnowledgeSnapshotFactValidator snapshotFactValidator;
 
     @InjectMocks
     private KnowledgeDocLifecycleService lifecycleService;
@@ -135,6 +138,26 @@ class KnowledgeDocLifecycleServiceTest {
                 .hasMessageContaining("只有待审核状态的文档才能审核");
 
         verify(knowledgeReviewTaskMapper, never()).insert(any(KnowledgeReviewTask.class));
+    }
+
+    @Test
+    void publishDoesNotAutomaticallyScheduleVectorization() {
+        setLoginUser();
+        stubSuccessfulDocumentUpdate();
+        KnowledgeDoc doc = knowledgeDoc("2", DocStatus.APPROVED);
+        doc.setContent("snapshot-bound knowledge");
+        KnowledgeDocVersion version = version(200L, 2);
+        version.setMetadataSnapshotId(5L);
+        version.setReviewStatus(ReviewStatus.APPROVED.name());
+        when(helper.requireDoc(1L)).thenReturn(doc);
+        when(helper.requireVersion(1L, 2)).thenReturn(version);
+        when(dbColumnMetaMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+
+        lifecycleService.publish(1L);
+
+        assertThat(doc.getStatus()).isEqualTo(DocStatus.PUBLISHED.name());
+        verify(knowledgeDocMapper).updateById(doc);
+        verify(vectorIndexTaskService, never()).createTask(any(), any(), any(), any(), any(), any());
     }
 
     private void stubSuccessfulDocumentUpdate() {

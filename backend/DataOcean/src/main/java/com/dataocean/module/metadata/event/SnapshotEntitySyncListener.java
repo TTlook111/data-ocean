@@ -194,6 +194,10 @@ public class SnapshotEntitySyncListener {
                 }
             }
 
+            // 人工/ETL 血缘以 relation_metadata 中的 source_fqn/target_fqn 为持久身份。
+            // 快照切换删除旧实体后按稳定 FQN 重新绑定；缺失端保持 UNBOUND 并不进入知识生成。
+            relationshipService.rebindConfirmedLineageForSnapshot(datasourceId, snapshotId);
+
             log.info("快照实体同步完成 datasourceId={} tables={} columns={} fkRelations={}",
                     datasourceId, tableCount, columnCount, fkCount);
 

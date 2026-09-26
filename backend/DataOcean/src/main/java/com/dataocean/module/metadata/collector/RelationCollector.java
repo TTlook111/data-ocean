@@ -48,6 +48,7 @@ public class RelationCollector {
                 relation.setTargetColumn(rs.getString("PKCOLUMN_NAME"));
                 relation.setRelationType(TableRelation.TYPE_FK);
                 relation.setConfidence(BigDecimal.ONE);
+                relation.setReviewStatus("CONFIRMED");
                 relations.add(relation);
             }
         }

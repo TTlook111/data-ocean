@@ -223,6 +223,11 @@ public class VectorIndexTaskScheduler {
                 .entityIds(entityIdsJson(payload, entityIds))
                 .trustScore(toNullableInt(payload.get("trustScore"), null))
                 .contentHash(text(payload, "contentHash", "content_hash"))
+                .resourceDependencies(jsonText(payload, "resourceDependencies", "resource_dependencies"))
+                .factSourceIds(jsonText(payload, "factSourceIds", "fact_source_ids"))
+                .factType(text(payload, "factType", "fact_type"))
+                .factReviewStatus(defaultText(payload, "PENDING", "factReviewStatus", "fact_review_status"))
+                .governanceStatus(defaultText(payload, "UNKNOWN", "governanceStatus", "governance_status"))
                 .reviewStatus(defaultText(payload, ReviewStatus.APPROVED.name(), "reviewStatus", "review_status"))
                 .vectorStatus("PENDING")
                 .build();

@@ -73,22 +73,66 @@ def filter_schema(schema: list[dict[str, Any]], snapshot: S1PermissionSnapshot) 
     return result
 
 
-def filter_chunk(chunk: dict[str, Any], snapshot: S1PermissionSnapshot) -> dict[str, Any] | None:
-    """Return a chunk only when its datasource/snapshot and complete source bind."""
+def _allowed_fact_dependency(dependency: Any, allowed: dict[str, dict[str, dict[str, Any]]]) -> bool:
+    if not isinstance(dependency, str) or ":" not in dependency:
+        return False
+    kind, value = dependency.split(":", 1)
+    if kind == "table":
+        return value.lower() in allowed
+    if kind == "column" and "." in value:
+        table, field = value.split(".", 1)
+        return field.lower() in allowed.get(table.lower(), {})
+    return False
+
+
+def filter_chunk(
+    chunk: dict[str, Any],
+    snapshot: S1PermissionSnapshot,
+    *,
+    rag_source_snapshot_id: int | None = None,
+    rag_build_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return a reviewed chunk only when its full fact dependency set is visible."""
     if not isinstance(chunk, dict):
         return None
     datasource = chunk.get("datasourceId", chunk.get("datasource_id"))
-    source_snapshot = chunk.get("activeMetadataSnapshotId", chunk.get("snapshotId", chunk.get("snapshot_id")))
-    if datasource != snapshot.datasourceId or source_snapshot != snapshot.activeMetadataSnapshotId:
+    source_snapshot = chunk.get(
+        "sourceSnapshotId",
+        chunk.get("activeMetadataSnapshotId", chunk.get("snapshotId", chunk.get("snapshot_id"))),
+    )
+    expected_source_snapshot = rag_source_snapshot_id or snapshot.activeMetadataSnapshotId
+    if datasource != snapshot.datasourceId or source_snapshot != expected_source_snapshot:
+        return None
+    if rag_build_id is not None and chunk.get("ragBuildId", chunk.get("buildId")) != rag_build_id:
+        return None
+    if str(chunk.get("reviewStatus", chunk.get("review_status", ""))).upper() != "APPROVED":
+        return None
+    if str(chunk.get("factReviewStatus", chunk.get("fact_review_status", ""))).upper() != "APPROVED":
+        return None
+    governance = str(chunk.get("governanceStatus", chunk.get("governance_status", ""))).upper()
+    if governance not in {"NORMAL", "RECOMMENDED", "SENSITIVE"}:
         return None
 
     tables = chunk.get("tables", chunk.get("tableNames"))
     columns = chunk.get("columns", chunk.get("columnNames"))
-    if not isinstance(tables, list) or not tables or not isinstance(columns, list) or not columns:
+    dependencies = chunk.get("resourceDependencies", chunk.get("resource_dependencies"))
+    fact_source_ids = chunk.get("factSourceIds", chunk.get("fact_source_ids"))
+    fact_type = chunk.get("factType", chunk.get("fact_type"))
+    if (
+        not isinstance(tables, list) or not tables
+        or not isinstance(columns, list)
+        or not isinstance(dependencies, list) or not dependencies
+        or not isinstance(fact_source_ids, list) or not fact_source_ids
+        or not isinstance(fact_type, str) or not fact_type
+    ):
+        return None
+    if not columns and fact_type not in {"TABLE_STRUCTURE", "TABLE_COMMENT"}:
         return None
     allowed = resource_index(snapshot)
     normalized_tables = {str(table).lower() for table in tables}
     if not normalized_tables.issubset(allowed):
+        return None
+    if any(not _allowed_fact_dependency(dependency, allowed) for dependency in dependencies):
         return None
     for column in columns:
         if not isinstance(column, str) or "." not in column:
@@ -100,8 +144,23 @@ def filter_chunk(chunk: dict[str, Any], snapshot: S1PermissionSnapshot) -> dict[
     return _drop_sensitive_values(chunk)
 
 
-def filter_chunks(chunks: list[dict[str, Any]], snapshot: S1PermissionSnapshot) -> list[dict[str, Any]]:
-    return [filtered for chunk in chunks if (filtered := filter_chunk(chunk, snapshot)) is not None]
+def filter_chunks(
+    chunks: list[dict[str, Any]],
+    snapshot: S1PermissionSnapshot,
+    *,
+    rag_source_snapshot_id: int | None = None,
+    rag_build_id: str | None = None,
+) -> list[dict[str, Any]]:
+    return [
+        filtered
+        for chunk in chunks
+        if (filtered := filter_chunk(
+            chunk,
+            snapshot,
+            rag_source_snapshot_id=rag_source_snapshot_id,
+            rag_build_id=rag_build_id,
+        )) is not None
+    ]
 
 
 def filter_glossary(terms: list[dict[str, Any]], snapshot: S1PermissionSnapshot) -> list[dict[str, Any]]:
@@ -158,11 +217,18 @@ def build_model_context(
     history: list[dict[str, Any]],
     summary: dict[str, Any] | None,
     sensitive_values: list[Any] | None = None,
+    rag_source_snapshot_id: int | None = None,
+    rag_build_id: str | None = None,
 ) -> dict[str, Any]:
     """Apply the same firewall to every model input node."""
     return {
         "schema": filter_schema(schema, snapshot),
-        "rag": filter_chunks(chunks, snapshot),
+        "rag": filter_chunks(
+            chunks,
+            snapshot,
+            rag_source_snapshot_id=rag_source_snapshot_id,
+            rag_build_id=rag_build_id,
+        ),
         "glossary": filter_glossary(glossary, snapshot),
         "fewShot": [
             item for item in filter_chunks(few_shot, snapshot)

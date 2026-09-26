@@ -64,11 +64,19 @@ def test_firewall_removes_hidden_and_masked_sample_values():
 
 def test_firewall_rejects_unbound_or_wrong_snapshot_chunks_and_keeps_safe_chunks():
     current = snapshot()
-    safe = {"datasourceId": 1, "activeMetadataSnapshotId": 88, "tables": ["orders"], "columns": ["orders.id"], "chunkText": "safe"}
+    safe = {
+        "datasourceId": 1, "activeMetadataSnapshotId": 88, "sourceSnapshotId": 88,
+        "tables": ["orders"], "columns": ["orders.id"],
+        "resourceDependencies": ["table:orders", "column:orders.id"],
+        "sourceId": 10, "factSourceIds": ["field:orders.id"], "factType": "COLUMN_STRUCTURE",
+        "factReviewStatus": "APPROVED", "reviewStatus": "APPROVED", "governanceStatus": "NORMAL",
+        "chunkText": "safe",
+    }
     assert filter_chunk(safe, current) is not None
-    assert filter_chunk({**safe, "activeMetadataSnapshotId": 89}, current) is None
-    assert filter_chunk({**safe, "columns": ["orders.secret"]}, current) is None
-    assert filter_chunk({**safe, "columns": []}, current) is None
+    assert filter_chunk({**safe, "sourceSnapshotId": 89}, current) is None
+    assert filter_chunk({**safe, "columns": ["orders.secret"], "resourceDependencies": ["column:orders.secret"]}, current) is None
+    assert filter_chunk({**safe, "resourceDependencies": ["table:orders", "column:orders.id", "column:orders.secret"]}, current) is None
+    assert filter_chunk({**safe, "resourceDependencies": []}, current) is None
 
 
 def test_ast_checks_all_resources_and_expands_star():
@@ -251,8 +259,18 @@ def test_ast_checks_join_group_order_having_and_nested_sources():
 
 def test_firewall_applies_same_filter_to_rag_fallback_fewshot_and_history():
     current = snapshot()
-    safe = {"datasourceId": 1, "activeMetadataSnapshotId": 88, "tables": ["orders"], "columns": ["orders.id"], "content": "safe"}
-    unsafe = {"datasourceId": 1, "activeMetadataSnapshotId": 88, "tables": ["orders"], "columns": ["orders.secret"], "content": "unsafe"}
+    safe = {
+        "datasourceId": 1, "activeMetadataSnapshotId": 88, "sourceSnapshotId": 88,
+        "tables": ["orders"], "columns": ["orders.id"],
+        "resourceDependencies": ["table:orders", "column:orders.id"],
+        "factSourceIds": ["field:orders.id"], "factType": "COLUMN_STRUCTURE",
+        "factReviewStatus": "APPROVED", "reviewStatus": "APPROVED", "governanceStatus": "NORMAL",
+        "content": "safe",
+    }
+    unsafe = {
+        **safe, "columns": ["orders.secret"],
+        "resourceDependencies": ["table:orders", "column:orders.secret"], "content": "unsafe",
+    }
     context = build_model_context(current, [{"tableName": "orders", "columns": [{"name": "id"}]}], [safe, unsafe], [], [safe, unsafe], [{"role": "user", "content": "查询订单"}], {"sample_values": ["raw"]})
     assert context["rag"] == [safe]
     assert context["fewShot"] == [safe]
@@ -602,12 +620,25 @@ async def test_s1_rag_calls_milvus_pipeline_then_filters_sources():
     current = snapshot()
     response = SimpleNamespace(results=[SimpleNamespace(
         related_tables=["orders"], related_columns=["orders.id"], chunk_text="safe", chunk_type="TABLE_DESC",
-        score=0.9, doc_id=1, source_version=1,
+        score=0.9, doc_id=1, source_version=1, source_id=11, snapshot_id=88,
+        resource_dependencies=["table:orders", "column:orders.id"], fact_source_ids=["field:1"],
+        fact_type="COLUMN_STRUCTURE", fact_review_status="APPROVED", review_status="APPROVED",
+        governance_status="NORMAL", build_id="build-1",
     )])
+    chunks = [{
+        "datasourceId": 1, "sourceSnapshotId": 88, "activeMetadataSnapshotId": 88,
+        "ragBuildId": "build-1", "sourceId": 11,
+        "tables": ["orders"], "columns": ["orders.id"],
+        "resourceDependencies": ["table:orders", "column:orders.id"],
+        "factSourceIds": ["field:1"], "factType": "COLUMN_STRUCTURE",
+        "factReviewStatus": "APPROVED", "reviewStatus": "APPROVED", "governanceStatus": "NORMAL",
+        "chunkText": "safe",
+    }]
     request = S1RagRetrieveRequest(
         protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
         activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
-        question="查询订单", chunks=[],
+        question="查询订单", chunks=chunks, ragBuildId="build-1", ragSourceSnapshotId=88,
+        ragCollectionName="test-build-collection", ragEmbeddingConfig={"providerId": "test", "model": "test"},
     )
     with patch("dataocean.rag.service.retrieve_schemas", new_callable=AsyncMock, return_value=response) as retrieve_mock:
         result = await retrieve(request)

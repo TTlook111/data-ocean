@@ -35,6 +35,14 @@ export interface DatasourceReadiness {
   progress: number
   publishedSnapshotId?: number
   snapshotVersion?: number
+  latestCollectedSnapshotId?: number
+  latestCollectedSnapshotVersion?: number
+  ragBuildId?: string
+  ragSourceSnapshotId?: number
+  ragSourceSnapshotVersion?: number
+  ragStatus?: string
+  ragStale?: boolean
+  ragNotice?: string
   publishedKnowledgeDocId?: number
   knowledgeVersion?: number
   connectionReady: boolean

@@ -11,7 +11,9 @@ import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
+import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
+import com.dataocean.module.metadata.service.MetadataEntityService;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -46,7 +48,7 @@ class KnowledgeDocPublishServiceOwnershipTest {
         // 零元数据读取、零 Python 调用、零文档写入
         verify(fixture.tableMetaMapper, never()).selectList(any());
         verify(fixture.pythonKnowledgeClient, never()).analyzeAndGenerate(
-                anyLong(), anyLong(), any(), any(), any());
+                anyLong(), anyLong(), any(), any(), any(), any());
     }
 
     @Test
@@ -78,16 +80,16 @@ class KnowledgeDocPublishServiceOwnershipTest {
     void proceedsWhenTheSnapshotReallyBelongsToTheDatasource() {
         Fixture fixture = new Fixture();
         fixture.snapshot(8L, 5L);
-        when(fixture.pythonKnowledgeClient.analyzeAndGenerate(anyLong(), anyLong(), any(), any(), any()))
-                .thenReturn(java.util.Map.of("docs", java.util.List.of()));
+        when(fixture.pythonKnowledgeClient.generateDraft(anyLong(), anyLong(), any(), any(), any(), any()))
+                .thenReturn(java.util.Map.of("content", "目录", "coverage", java.util.Map.of(
+                        "snapshotId", 8L, "tableIds", java.util.List.of(), "columnIds", java.util.List.of(),
+                        "tableCoverage", 1.0, "columnCoverage", 1.0)));
 
-        // 归属一致后才会走到 Python；文档列表为空时按现有语义抛业务异常
-        assertThatThrownBy(() -> fixture.service.batchGenerateFromSnapshot(5L, 8L))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("未返回任何文档");
+        // 归属一致后，Python 收到 snapshot-scoped 的完整目录请求。
+        fixture.service.batchGenerateFromSnapshot(5L, 8L);
 
-        verify(fixture.pythonKnowledgeClient).analyzeAndGenerate(
-                anyLong(), anyLong(), any(), any(), any());
+        verify(fixture.pythonKnowledgeClient).generateDraft(
+                anyLong(), anyLong(), any(), any(), any(), any());
     }
 
     @Test
@@ -107,7 +109,7 @@ class KnowledgeDocPublishServiceOwnershipTest {
         // 零元数据读取、零 Python 调用、零版本写入
         verify(fixture.tableMetaMapper, never()).selectList(any());
         verify(fixture.pythonKnowledgeClient, never()).generateDraft(
-                anyLong(), anyLong(), any(), any(), any());
+                anyLong(), anyLong(), any(), any(), any(), any());
     }
 
     private static final class Fixture {
@@ -131,6 +133,8 @@ class KnowledgeDocPublishServiceOwnershipTest {
                     tableMetaMapper,
                     mock(DbColumnMetaMapper.class),
                     mock(TableRelationMapper.class),
+                    mock(MetadataRelationshipMapper.class),
+                    mock(MetadataEntityService.class),
                     mock(FieldTagMapper.class),
                     mock(TransactionTemplate.class),
                     helper,

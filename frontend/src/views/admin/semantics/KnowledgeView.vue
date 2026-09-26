@@ -9,7 +9,7 @@
  *   未限定数据源时展示全部文档并给出说明。
  *
  * 后端事实：知识文档状态为 DRAFT -> PENDING_REVIEW -> APPROVED -> INDEXING -> PUBLISHED，
- * 审核通过与索引入库是两个独立阶段，页面必须分开表达。
+ * 审核、文档发布和数据源级 RAG build 是三个独立的人工确认阶段。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -17,9 +17,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, FileText, MessageSquareText, Plus, RefreshCw, Sparkles, X } from 'lucide-vue-next'
 import {
   approveDoc,
+  confirmRagBuild,
   generateFromSnapshot,
   listKnowledgeDocs,
+  listRagBuilds,
   rejectDoc,
+  type RagIndexBuildSummary,
   type KnowledgeDocItem,
 } from '../../../api/admin/knowledge'
 import {
@@ -39,6 +42,7 @@ import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.v
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import ManualJoinPathPanel from './ManualJoinPathPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -63,6 +67,18 @@ const canApprove = computed(
 )
 const MANAGE_HINT = '没有“维护知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:manage 并负责目标数据源。'
 const APPROVE_HINT = '没有“审核知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:approve 并负责目标数据源。审核权不自动带来维护或发布权。'
+const PUBLISH_HINT = '没有“发布知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:publish 并负责目标数据源。'
+
+function canPublishForDatasource(id: number) {
+  return iamS1.systemAdmin
+    || iamS1.datasourcesWithFunction('knowledge:publish').includes(id)
+}
+const canViewManualJoins = computed(
+  () => iamS1.systemAdmin || (context.datasourceId != null && iamS1.datasourcesWithFunction('lineage:view').includes(context.datasourceId)),
+)
+const canManageManualJoins = computed(
+  () => iamS1.systemAdmin || (context.datasourceId != null && iamS1.datasourcesWithFunction('lineage:manage').includes(context.datasourceId)),
+)
 
 const activeTab = ref(String(route.query.tab || 'documents'))
 const docs = ref<KnowledgeDocItem[]>([])
@@ -72,6 +88,10 @@ const error = ref('')
 const actionLoading = ref(false)
 const datasources = ref<DatasourceSimpleItem[]>([])
 const publishedSnapshot = ref<VersionHistoryItem | null>(null)
+const ragBuilds = ref<RagIndexBuildSummary[]>([])
+const ragBuildsLoading = ref(false)
+const ragBuildActionDatasourceId = ref<number | null>(null)
+const ragBuildError = ref('')
 const page = ref(Number(route.query.page) || 1)
 const pageSize = 20
 
@@ -96,6 +116,7 @@ const snapshotsError = ref('')
 let requestId = 0
 
 const datasourceId = computed(() => context.datasourceId)
+const activeRagCount = computed(() => readinessList.value.filter((row) => Boolean(row.ragBuildId)).length)
 const datasourceName = (id: number) => datasources.value.find((item) => item.id === id)?.name || `数据源 #${id}`
 const readinessAction = (row: DatasourceReadiness) => {
   const reason = row.blockReasons?.[0]
@@ -222,7 +243,7 @@ async function loadReadiness() {
   }
 }
 
-/** 判断当前数据源是否已有正式发布快照，用作「快照发布 → 生成知识」的下一步引导 */
+/** 判断当前数据源是否已有正式发布快照，用作生成完整快照目录的输入。 */
 async function loadPublishedSnapshot() {
   publishedSnapshotError.value = ''
   if (!datasourceId.value) {
@@ -234,6 +255,49 @@ async function loadPublishedSnapshot() {
   } catch (cause) {
     publishedSnapshot.value = null
     publishedSnapshotError.value = apiError(cause, '已发布快照加载失败')
+  }
+}
+
+async function loadRagBuilds() {
+  ragBuildError.value = ''
+  if (!datasourceId.value) {
+    ragBuilds.value = []
+    return
+  }
+  ragBuildsLoading.value = true
+  try {
+    ragBuilds.value = (await listRagBuilds(datasourceId.value)).data || []
+  } catch (cause) {
+    ragBuilds.value = []
+    ragBuildError.value = apiError(cause, 'RAG 构建状态加载失败')
+  } finally {
+    ragBuildsLoading.value = false
+  }
+}
+
+async function confirmBuild(row: DatasourceReadiness) {
+  if (!canPublishForDatasource(row.datasourceId)) {
+    ElMessage.warning(PUBLISH_HINT)
+    return
+  }
+  if (!row.publishedSnapshotId) {
+    ElMessage.warning('当前没有已发布元数据快照，不能构建 RAG')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认从元数据快照 v${row.snapshotVersion ?? '—'} 构建该数据源的新 RAG？系统会在隔离索引中切分、向量化和核验；全部通过后才切换活动 build。旧 build 会等在途查询结束后清理，MySQL 知识文档和审核历史会保留。`,
+      '明确确认 RAG 构建',
+      { confirmButtonText: '确认构建', cancelButtonText: '取消', type: 'warning' },
+    )
+    ragBuildActionDatasourceId.value = row.datasourceId
+    await confirmRagBuild(row.datasourceId, row.publishedSnapshotId)
+    ElMessage.success('已创建构建任务；旧索引仍可继续服务，验证通过后自动切换')
+    await Promise.all([loadRagBuilds(), loadReadiness()])
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, 'RAG 构建确认失败'))
+  } finally {
+    ragBuildActionDatasourceId.value = null
   }
 }
 
@@ -258,7 +322,7 @@ const emptyAction = computed(() => {
   if (activeTab.value === 'review') return ''
   if (publishedSnapshotError.value) return ''
   if (!publishedSnapshot.value && datasourceId.value) return '去版本发布'
-  return 'AI 一键生成'
+  return '生成快照目录'
 })
 
 function handleEmptyAction() {
@@ -285,7 +349,7 @@ function goAsk() {
 async function approve(doc: KnowledgeDocItem) {
   if (!canApprove.value) { ElMessage.warning(APPROVE_HINT); return }
   try {
-    await ElMessageBox.confirm(`通过「${doc.title}」的审核？通过后仍需执行发布会进入索引阶段。`, '审核通过')
+    await ElMessageBox.confirm(`通过「${doc.title}」的审核？发布文档后还需要有权人员单独确认数据源级 RAG build。`, '审核通过')
     actionLoading.value = true
     await approveDoc(doc.id)
     ElMessage.success('审核已通过，下一步是发布并构建索引')
@@ -316,7 +380,7 @@ async function reject(doc: KnowledgeDocItem) {
   }
 }
 
-/* ---------------- AI 一键生成 ---------------- */
+/* ---------------- 快照目录生成 ---------------- */
 
 const generateDialogVisible = ref(false)
 const generateLoading = ref(false)
@@ -361,10 +425,10 @@ async function runGenerate() {
   try {
     const result = await generateFromSnapshot(generateForm.datasourceId, generateForm.snapshotId)
     generatedDocs.value = result.data || []
-    ElMessage.success(`已生成 ${generatedDocs.value.length} 份 skills.md 草稿`)
+    ElMessage.success(`已生成 ${generatedDocs.value.length} 份完整快照知识目录草稿`)
     await Promise.all([loadDocs(), loadStats()])
   } catch (cause) {
-    ElMessage.error(apiError(cause, 'AI 生成失败'))
+    ElMessage.error(apiError(cause, '快照知识目录生成失败'))
   } finally {
     generateLoading.value = false
   }
@@ -373,12 +437,12 @@ async function runGenerate() {
 onMounted(async () => {
   await Promise.allSettled([context.initialize(), loadDatasources()])
   await Promise.allSettled([context.initialize(), iamS1.load(), loadDatasources()])
-  await Promise.allSettled([loadDocs(), loadStats(), loadPublishedSnapshot()])
+  await Promise.allSettled([loadDocs(), loadStats(), loadPublishedSnapshot(), loadRagBuilds()])
 })
 
 watch(datasourceId, async () => {
   page.value = 1
-  await Promise.all([loadDocs(), loadStats(), loadPublishedSnapshot()])
+  await Promise.all([loadDocs(), loadStats(), loadPublishedSnapshot(), loadRagBuilds()])
 })
 
 watch(() => route.query.tab, (value) => {
@@ -404,20 +468,20 @@ watch(() => route.query.page, (value) => {
     <TaskPageHeader
       eyebrow="语义中心"
       title="语义知识"
-      description="把已发布快照转成 skills.md，经过审核、发布和索引后进入 RAG。批准、索引和发布是三个不同阶段。"
+      description="从单一已发布快照生成完整字段目录；逐份审核并发布文档后，有权人员再明确确认数据源级 RAG build。"
     >
       <template #actions>
         <el-button :icon="RefreshCw" :loading="loading" @click="loadDocs(); loadStats(); loadReadiness()">刷新</el-button>
         <el-button :icon="Plus" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="goCreate">手动新建</el-button>
-        <el-button type="primary" :icon="Sparkles" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="openGenerateDialog">AI 一键生成</el-button>
+        <el-button type="primary" :icon="Sparkles" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="openGenerateDialog">生成快照目录</el-button>
       </template>
     </TaskPageHeader>
 
     <ErrorState v-if="statsError" :message="statsError" @retry="loadStats" />
     <section v-else class="knowledge-page__stats">
       <div class="stat"><span>文档总数</span><strong>{{ stats.total }}</strong></div>
-      <div class="stat stat--success"><span>已发布（可检索）</span><strong>{{ stats.published }}</strong></div>
-      <div class="stat stat--warning"><span>索引中</span><strong>{{ stats.indexing }}</strong></div>
+      <div class="stat stat--success"><span>已发布文档</span><strong>{{ stats.published }}</strong></div>
+      <div class="stat stat--warning"><span>活动 RAG build</span><strong>{{ activeRagCount }}</strong></div>
       <div class="stat stat--warning"><span>待审核</span><strong>{{ stats.pending }}</strong></div>
       <div class="stat"><span>草稿</span><strong>{{ stats.draft }}</strong></div>
     </section>
@@ -428,8 +492,7 @@ watch(() => route.query.page, (value) => {
         <div>
           <h3>数据源知识准备情况</h3>
           <p>
-            逐个数据源确认是否已有可检索的语义知识。知识需由已发布快照生成，并经审核、
-            索引、发布后才会进入 RAG 检索。
+            并列显示最新采集、当前发布和活动 RAG 来源快照。版本落后只提示；问数仍按活动 build 规划，并由当前 S1 快照和权限最终复核。
           </p>
         </div>
         <el-button :icon="RefreshCw" :loading="readinessLoading" @click="loadReadiness">刷新准备情况</el-button>
@@ -443,16 +506,27 @@ watch(() => route.query.page, (value) => {
       />
       <el-table v-else :data="readinessList" stripe size="small">
         <el-table-column prop="datasourceName" label="数据源" min-width="150" />
-        <el-table-column label="知识状态" width="150">
+        <el-table-column label="知识 / RAG" width="150">
           <template #default="{ row }">
             <BusinessStatusBadge
-              :status="row.knowledgeReady ? 'PUBLISHED' : 'DRAFT'"
-              :label="row.knowledgeReady ? '已发布可检索' : '尚未发布'"
+              :status="row.ragBuildId ? (row.ragStale ? 'WARNING' : 'PUBLISHED') : 'DRAFT'"
+              :label="row.ragBuildId ? (row.ragStale ? '旧 build 继续服务' : 'build 已生效') : '尚无活动 build'"
             />
           </template>
         </el-table-column>
-        <el-table-column label="知识版本" width="100">
-          <template #default="{ row }">{{ row.knowledgeVersion ? 'v' + row.knowledgeVersion : '—' }}</template>
+        <el-table-column label="最新采集" width="110">
+          <template #default="{ row }">{{ row.latestCollectedSnapshotVersion ? 'v' + row.latestCollectedSnapshotVersion : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="当前发布" width="110">
+          <template #default="{ row }">{{ row.snapshotVersion ? 'v' + row.snapshotVersion : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="RAG 来源" width="110">
+          <template #default="{ row }">{{ row.ragSourceSnapshotVersion ? 'v' + row.ragSourceSnapshotVersion : '—' }}</template>
+        </el-table-column>
+        <el-table-column label="版本提示" min-width="220">
+          <template #default="{ row }">
+            <span class="knowledge-page__muted">{{ row.ragNotice || '—' }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="当前阶段" width="130">
           <template #default="{ row }">
@@ -479,6 +553,41 @@ watch(() => route.query.page, (value) => {
             <span v-else class="knowledge-page__muted">等待后端状态</span>
           </template>
         </el-table-column>
+        <el-table-column label="操作" width="150" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              size="small"
+              type="primary"
+              :disabled="!row.publishedSnapshotId || !canPublishForDatasource(row.datasourceId)"
+              :loading="ragBuildActionDatasourceId === row.datasourceId"
+              :title="canPublishForDatasource(row.datasourceId) ? '' : PUBLISH_HINT"
+              @click="confirmBuild(row)"
+            >确认构建 RAG</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+
+    <section v-if="datasourceId" class="knowledge-page__readiness">
+      <div class="knowledge-page__readiness-heading">
+        <div>
+          <h3>RAG 构建记录 · {{ datasourceName(datasourceId) }}</h3>
+          <p>只有经过授权人员明确确认的构建会排队；旧索引在新索引通过数量核验并切换前保持活动。</p>
+        </div>
+        <el-button :icon="RefreshCw" :loading="ragBuildsLoading" @click="loadRagBuilds">刷新构建记录</el-button>
+      </div>
+      <ErrorState v-if="ragBuildError" :message="ragBuildError" @retry="loadRagBuilds" />
+      <el-table v-else :data="ragBuilds" stripe size="small">
+        <el-table-column label="来源快照" width="110">
+          <template #default="{ row }">{{ row.sourceSnapshotId }}</template>
+        </el-table-column>
+        <el-table-column prop="embeddingModel" label="Embedding" min-width="170" />
+        <el-table-column label="向量核验" width="150">
+          <template #default="{ row }">{{ row.actualVectorCount }} / {{ row.expectedChunkCount }}</template>
+        </el-table-column>
+        <el-table-column prop="status" label="状态" width="170" />
+        <el-table-column prop="confirmedAt" label="确认时间" min-width="180" />
+        <el-table-column prop="errorMessage" label="错误信息" min-width="220" show-overflow-tooltip />
       </el-table>
     </section>
 
@@ -487,8 +596,16 @@ watch(() => route.query.page, (value) => {
       当前未限定数据源，列表展示全部知识文档。使用顶部的数据源范围可以聚焦到单个数据源。
     </p>
     <p v-else-if="publishedSnapshot" class="knowledge-page__scope-note is-ok">
-      当前数据源已发布快照 v{{ publishedSnapshot.snapshotVersion }}，可以基于该快照生成或更新语义知识。
+      当前数据源已发布快照 v{{ publishedSnapshot.snapshotVersion }}。先生成并人工审核知识文档，文档发布后再单独确认 RAG 构建。
     </p>
+
+    <ManualJoinPathPanel
+      v-if="datasourceId && publishedSnapshot?.snapshotId && canViewManualJoins"
+      :datasource-id="datasourceId"
+      :snapshot-id="publishedSnapshot.snapshotId"
+      :can-view="canViewManualJoins"
+      :can-manage="canManageManualJoins"
+    />
 
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="全部文档" name="documents">
@@ -577,11 +694,11 @@ watch(() => route.query.page, (value) => {
       @current-change="(value: number) => router.replace({ query: { ...route.query, page: value } })"
     />
 
-    <el-dialog v-model="generateDialogVisible" title="AI 一键生成 skills.md" width="580px" :close-on-click-modal="!generateLoading">
+    <el-dialog v-model="generateDialogVisible" title="从快照生成完整知识目录" width="580px" :close-on-click-modal="!generateLoading">
       <template v-if="!generatedDocs.length">
         <p class="generate-hint">
-          AI 会分析所选快照的表结构，识别业务域，并为每个域生成一份独立的 skills.md 草稿。
-          生成结果是草稿，仍需人工编辑、审核、发布和索引。
+          按所选 snapshotId 确定性列出该快照的全部表和字段，标出字段来源、治理状态、已确认关系与血缘。
+          缺少可靠释义时保留“待确认”。草稿仍需人工审核、发布，再单独确认数据源级 RAG build。
         </p>
         <el-form label-width="88px">
           <el-form-item label="数据源">
@@ -599,7 +716,7 @@ watch(() => route.query.page, (value) => {
       </template>
 
       <template v-else>
-        <el-alert type="success" :closable="false" show-icon :title="`已生成 ${generatedDocs.length} 份 skills.md 草稿，下一步是逐份编辑并提交审核`" />
+        <el-alert type="success" :closable="false" show-icon :title="`已生成 ${generatedDocs.length} 份完整快照目录草稿，下一步是检查、编辑并提交审核`" />
         <ul class="generated-list">
           <li v-for="doc in generatedDocs" :key="doc.id">
             <div>

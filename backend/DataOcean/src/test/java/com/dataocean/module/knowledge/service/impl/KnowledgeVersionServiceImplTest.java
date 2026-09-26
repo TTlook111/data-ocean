@@ -84,7 +84,7 @@ class KnowledgeVersionServiceImplTest {
     // ==================== 回滚 ====================
 
     @Test
-    void rollbackUsesCurrentlyIndexedVersionAsPreviousVectorVersion() {
+    void rollbackCreatesDraftWithoutChangingActiveVectorBuild() {
         setLoginUser();
         stubSuccessfulDocumentUpdate();
         long docId = 99L;
@@ -95,11 +95,6 @@ class KnowledgeVersionServiceImplTest {
                 .versionNo(1)
                 .content("rollback content")
                 .reviewStatus(ReviewStatus.APPROVED.name())
-                .build();
-        KnowledgeDocVersion createdVersion = KnowledgeDocVersion.builder()
-                .docId(docId)
-                .versionNo(4)
-                .content("rollback content")
                 .build();
         KnowledgeDoc docWithDraftVersion = KnowledgeDoc.builder()
                 .id(docId)
@@ -108,33 +103,24 @@ class KnowledgeVersionServiceImplTest {
                 .content("draft content")
                 .status(DocStatus.PUBLISHED.name())
                 .build();
-        KnowledgeChunk indexedChunk = KnowledgeChunk.builder()
-                .docId(docId)
-                .versionNo(2)
-                .vectorStatus("INDEXED")
-                .build();
-
-        // 第一次 selectOne 是回滚前的目标版本校验，第二次是回滚后取新版本行写审核状态
-        when(knowledgeDocVersionMapper.selectOne(any(Wrapper.class)))
-                .thenReturn(targetVersion, createdVersion);
-        when(knowledgeChunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of(indexedChunk));
+        when(knowledgeDocVersionMapper.selectOne(any(Wrapper.class))).thenReturn(targetVersion);
         when(knowledgeDocMapper.selectById(docId)).thenReturn(docWithDraftVersion);
         when(dependencySnapshotBuilder.build(eq(10L), eq(5L), eq("ROLLBACK"))).thenReturn("{}");
 
         Integer newVersionNo = knowledgeVersionService.rollback(docId, 1);
 
         assertThat(newVersionNo).isEqualTo(4);
-        verify(vectorIndexTaskService).createTask(10L, "DOC", docId, 5L, 4, 2);
+        verify(vectorIndexTaskService, never()).createTask(any(), any(), any(), any(), any(), any());
         ArgumentCaptor<KnowledgeDoc> docCaptor = ArgumentCaptor.forClass(KnowledgeDoc.class);
         verify(knowledgeDocMapper, times(2)).updateById(docCaptor.capture());
         KnowledgeDoc finalDoc = docCaptor.getAllValues().get(1);
-        assertThat(finalDoc.getStatus()).isEqualTo(DocStatus.INDEXING.name());
+        assertThat(finalDoc.getStatus()).isEqualTo(DocStatus.DRAFT.name());
         assertThat(finalDoc.getCurrentVersion()).isEqualTo(4);
         assertThat(finalDoc.getContent()).isEqualTo("rollback content");
     }
 
     @Test
-    void rollbackMarksNewVersionAsApprovedWithOperatorAsReviewer() {
+    void rollbackCreatesANewPendingDraftInsteadOfPublishingItAutomatically() {
         setLoginUser();
         stubSuccessfulDocumentUpdate();
         long docId = 99L;
@@ -146,10 +132,6 @@ class KnowledgeVersionServiceImplTest {
                 .content("rollback content")
                 .reviewStatus(ReviewStatus.APPROVED.name())
                 .build();
-        KnowledgeDocVersion createdVersion = KnowledgeDocVersion.builder()
-                .docId(docId)
-                .versionNo(4)
-                .build();
         KnowledgeDoc doc = KnowledgeDoc.builder()
                 .id(docId)
                 .datasourceId(10L)
@@ -157,20 +139,16 @@ class KnowledgeVersionServiceImplTest {
                 .status(DocStatus.PUBLISHED.name())
                 .build();
 
-        when(knowledgeDocVersionMapper.selectOne(any(Wrapper.class)))
-                .thenReturn(targetVersion, createdVersion);
-        when(knowledgeChunkMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        when(knowledgeDocVersionMapper.selectOne(any(Wrapper.class))).thenReturn(targetVersion);
         when(knowledgeDocMapper.selectById(docId)).thenReturn(doc);
         when(dependencySnapshotBuilder.build(any(), any(), any())).thenReturn("{}");
 
         knowledgeVersionService.rollback(docId, 1);
 
-        // 回滚版本的内容来自已校验为 APPROVED 的目标版本，因此其审核状态记为 APPROVED，
-        // 审核人记为执行回滚的操作人（登录用户 7L）。
-        ArgumentCaptor<KnowledgeDocVersion> versionCaptor = ArgumentCaptor.forClass(KnowledgeDocVersion.class);
-        verify(knowledgeDocVersionMapper).updateById(versionCaptor.capture());
-        assertThat(versionCaptor.getValue().getReviewStatus()).isEqualTo(ReviewStatus.APPROVED.name());
-        assertThat(versionCaptor.getValue().getReviewerId()).isEqualTo(7L);
+        // createVersion 保持 PENDING；文档回到 DRAFT，后续仍需独立审核、发布和 RAG build 确认。
+        verify(knowledgeDocVersionMapper, never()).updateById(any(KnowledgeDocVersion.class));
+        verify(vectorIndexTaskService, never()).createTask(any(), any(), any(), any(), any(), any());
+        assertThat(doc.getStatus()).isEqualTo(DocStatus.DRAFT.name());
     }
 
     @Test

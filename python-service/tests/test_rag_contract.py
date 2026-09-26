@@ -141,15 +141,18 @@ class RagContractTest(unittest.IsolatedAsyncioTestCase):
 
 ## 核心表说明
 ### orders - 订单表
+<!-- dataocean-fact: {"snapshotId":5,"factType":"TABLE_STRUCTURE","sourceIds":[1],"dependencies":["table:orders"],"reviewStatus":"APPROVED","governanceStatus":"NORMAL"} -->
 适用表: orders
 字段: order_id, pay_amount
 
 ### customers - 客户表
+<!-- dataocean-fact: {"snapshotId":5,"factType":"TABLE_STRUCTURE","sourceIds":[2],"dependencies":["table:customers"],"reviewStatus":"APPROVED","governanceStatus":"NORMAL"} -->
 适用表: customers
 字段: customer_id
 
 ## Join Path
 ### orders ↔ customers
+<!-- dataocean-fact: {"snapshotId":5,"factType":"JOIN_PATH","sourceIds":[3],"dependencies":["table:orders","table:customers","column:orders.customer_id","column:customers.customer_id"],"reviewStatus":"APPROVED","governanceStatus":"NORMAL"} -->
 涉及表: orders, customers
 ON orders.customer_id = customers.customer_id
 """
@@ -236,7 +239,7 @@ ON orders.customer_id = customers.customer_id
         self.assertIn('review_status == "APPROVED"', filter_expr)
         self.assertIn('"NORMAL"', filter_expr)
         self.assertIn('"RECOMMENDED"', filter_expr)
-        self.assertNotIn('"SENSITIVE"', filter_expr)
+        self.assertIn('"SENSITIVE"', filter_expr)
 
         with patch(
             "dataocean.rag.retriever.search_by_vector",

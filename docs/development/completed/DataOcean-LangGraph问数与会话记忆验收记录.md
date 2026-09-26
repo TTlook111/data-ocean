@@ -12,6 +12,7 @@
 - MySQL 问数凭据：`langgraph_fixture_reader`，只有 `products` 和 `sales_orders` 的 `SELECT` 权限；不存在对应用或共享数据库的连接配置。
 - 数据源编号 701、用户编号 9001、权限修订 1、元数据快照 8801。IAM-SIMPLE-1 权限快照只允许 `sales_orders` 与 `products`；`customers`、`employee_pay` 为明确拒绝资源。
 - 只给当前 S1 回退路径两条本地已审核知识 chunk；为避免触碰共享 Milvus，本轮基线不读取或写入任何既有向量集合。
+- Redis checkpointer 预检：专用容器 Redis 8.10.2；`langgraph-checkpoint-redis` 0.3.9 的 `AsyncRedisSaver.asetup()` 成功，并在关闭后重开 saver 读取到同一 thread 的 checkpoint。当前共享 Redis 7.4.11 不满足该 saver 要求，验收与开发服务必须指向专用 Redis 8 容器；普通缓存升级尚未操作。
 - 固定题集：6 道可答题（地区销售额、月度订单数、商品类别销售额、季度销售额、订单数、月销售额）和 2 道拒答题（无权客户联系方式、缺少广告归因事实）。结果和题目保存在 `scripts/langgraph-acceptance/fixtures/`。
 
 启动并初始化：
@@ -66,11 +67,18 @@ Set-Location python-service
 | 固定拒答题正确拒绝目标 | 2 / 2 |
 | 越权执行与无权知识入模 | 0 容忍 |
 
-G0 自动化结果：Python 原有测试 109 passed；新增 fixture 安全与口径测试另随 G0 批次运行。实际在线基线结果是一次可复核测量，不是生产 SLA。
+G0 自动化结果：Python 原有测试 109 passed；新增 fixture guardrails 4 passed。Redis checkpoint 重启读回 1 passed。实际在线基线结果是一次可复核测量，不是生产 SLA。
 
 ## A：知识与 RAG
 
-待实现/验收。
+实现与隔离验证已完成，真实服务链路继续纳入 E 阶段联调：
+
+- 技能文档由 Java 针对一个明确 `snapshotId` 读取完整表、字段、治理状态、关系及已确认血缘，Python 用确定性模板生成；返回覆盖 ID 集合必须和快照完全一致，释义缺失标“待确认”。事实标识、审核状态、来源 ID、完整资源依赖随 chunk 保存。已确认血缘在新快照发布时按 FQN 重新绑定；Join 与血缘分开展示，自动推断关系默认待审核，人工 Join 必须显式确认。
+- 发布知识文档只保留 MySQL 文档/版本/审核历史，不自动建索引。用户确认后生成独立 `buildId` 和 Milvus collection；按冻结的已审核文档版本重新切分，校验来源快照/事实清单，成功验证 Milvus 数量后才原子切换 active 指针。失败不影响旧 build。旧 build 没有运行中查询引用后，删除专属 collection 并验证 collection 不存在/向量为零。MySQL fallback 与正常检索都使用当前 active build 的事实成员及完整依赖过滤。
+- 查询固定 active build 对应的 embedding provider/model/base URL/dimension；缓存键包含配置身份。Embeddings 从 A 改 B 再改回 A 时，未生效的 B 变更不会成为索引选择条件。RAG 来源快照落后只提示；数据源 readiness 的阻断条件只看当前快照、治理、连通性和 S1 授权。
+- 新增 V60，永不占用 V53。隔离 `dataocean_app` 测试库从空库启动，Flyway 完整应用 59 个迁移并到达 V60；不连接共享业务库。
+- 定向 Java 验证：知识快照事实校验、发布权限/所有权、RAG 构建服务、关系可见性/跨快照重绑定、人工 Join 权限、readiness、版本回滚及 S1 查询，共 13 个测试类通过；Java `test-compile` 通过。Python 全套 125 passed（含隔离 Redis 8 checkpoint 读回与 RAG 访问控制/构建删除测试）；前端 `npm run build` 通过。
+- 自动索引入口已停止为普通文档发布及回滚触发；产品中的新构建按钮要求有权限用户明确确认。本阶段未读取、覆盖或清理共享 Milvus 集合。
 
 ## B：会话与记忆
 

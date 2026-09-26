@@ -5,7 +5,7 @@
 - JDK 17+
 - Maven 3.8+
 - MySQL 8 (或 Docker)
-- Redis 7+ (或 Docker)
+- Redis 8+（LangGraph 会话 checkpoint 使用 `langgraph-checkpoint-redis`；仅缓存时 Redis 7+ 仍可运行，但问数服务要求 Redis 8+）
 
 ## Quick Setup
 

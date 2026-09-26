@@ -77,6 +77,8 @@ class IamS1QueryServiceImplTest {
     @Mock private DatasourceSecretMapper datasourceSecretMapper;
     @Mock private DatasourceSecretService datasourceSecretService;
     @Mock private KnowledgeChunkMapper knowledgeChunkMapper;
+    @Mock private com.dataocean.module.knowledge.mapper.RagIndexBuildChunkMapper ragIndexBuildChunkMapper;
+    @Mock private com.dataocean.module.knowledge.service.RagIndexBuildService ragIndexBuildService;
     @Mock private AuditLogService auditLogService;
     @Mock private com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     @Mock private com.dataocean.common.security.DataMaskingService maskingService;
@@ -135,7 +137,6 @@ class IamS1QueryServiceImplTest {
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
         when(dataResolver.resolve(any())).thenReturn(snapshot());
         when(rowBindingService.build(any())).thenReturn(List.of());
-        when(knowledgeChunkMapper.selectList(any())).thenReturn(List.of());
         Datasource datasource = new Datasource();
         datasource.setId(1L); datasource.setHost("localhost"); datasource.setPort(3306); datasource.setDatabaseName("db");
         DatasourceSecret secret = new DatasourceSecret(); secret.setDatasourceId(1L); secret.setUsername("u"); secret.setEncryptedPassword("enc");
@@ -166,7 +167,6 @@ class IamS1QueryServiceImplTest {
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
         when(dataResolver.resolve(any())).thenReturn(snapshot());
         when(rowBindingService.build(any())).thenReturn(List.of());
-        when(knowledgeChunkMapper.selectList(any())).thenReturn(List.of());
         when(conversationService.getOrCreateConversation(7L, 1L, null, "查询订单")).thenReturn(42L);
         when(conversationContextSummaryService.buildQueryContext(42L, 7L))
                 .thenReturn(ConversationContextDTO.builder()
@@ -359,7 +359,6 @@ class IamS1QueryServiceImplTest {
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
         when(dataResolver.resolve(any())).thenReturn(snapshot());
         when(rowBindingService.build(any())).thenReturn(List.of());
-        when(knowledgeChunkMapper.selectList(any())).thenReturn(List.of());
         when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:use"))).thenReturn(true);
         when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:sql:view"))).thenReturn(false);
         when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:export"))).thenReturn(false);
@@ -413,7 +412,6 @@ class IamS1QueryServiceImplTest {
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata).thenReturn(null);
         when(dataResolver.resolve(any())).thenReturn(snapshot());
         when(rowBindingService.build(any())).thenReturn(List.of());
-        when(knowledgeChunkMapper.selectList(any())).thenReturn(List.of());
         when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
         Datasource datasource = new Datasource();
         datasource.setId(1L); datasource.setHost("localhost"); datasource.setPort(3306); datasource.setDatabaseName("db");

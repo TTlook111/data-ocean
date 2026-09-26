@@ -26,6 +26,7 @@ public interface PythonKnowledgeClient {
     Map<String, Object> generateDraft(Long snapshotId, Long datasourceId,
                                        List<Map<String, Object>> tablesMetadata,
                                        List<Map<String, Object>> foreignKeys,
+                                       List<Map<String, Object>> lineageFacts,
                                        List<Map<String, Object>> indexes);
 
     /**
@@ -41,5 +42,6 @@ public interface PythonKnowledgeClient {
     Map<String, Object> analyzeAndGenerate(Long snapshotId, Long datasourceId,
                                             List<Map<String, Object>> tablesMetadata,
                                             List<Map<String, Object>> foreignKeys,
+                                            List<Map<String, Object>> lineageFacts,
                                             List<Map<String, Object>> indexes);
 }

@@ -6,6 +6,7 @@ import com.dataocean.module.knowledge.controller.KnowledgeDocController;
 import com.dataocean.module.knowledge.dto.BatchGenerateDTO;
 import com.dataocean.module.knowledge.dto.RollbackDTO;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
+import com.dataocean.module.knowledge.service.RagIndexBuildService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeDocCrudService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeDocLifecycleService;
@@ -184,6 +185,7 @@ class KnowledgeDocControllerAuthorizationTest {
         private final KnowledgeVersionService versionService = mock(KnowledgeVersionService.class);
         private final VectorIndexTaskService vectorIndexTaskService = mock(VectorIndexTaskService.class);
         private final IamS1CapabilityService capabilityService = mock(IamS1CapabilityService.class);
+        private final RagIndexBuildService ragIndexBuildService = mock(RagIndexBuildService.class);
         private final IamS1AdminGuard adminGuard = mock(IamS1AdminGuard.class);
         private final IamS1ResourceResolver documentResolver = mock(IamS1ResourceResolver.class);
         private final IamS1ResourceResolver snapshotResolver = mock(IamS1ResourceResolver.class);
@@ -191,7 +193,7 @@ class KnowledgeDocControllerAuthorizationTest {
 
         Fixture() {
             KnowledgeDocController target = new KnowledgeDocController(crudService, lifecycleService,
-                    publishService, versionService, vectorIndexTaskService, capabilityService);
+                    publishService, versionService, vectorIndexTaskService, capabilityService, ragIndexBuildService);
             when(documentResolver.supports()).thenReturn(IamS1ResourceType.KNOWLEDGE_DOCUMENT);
             when(snapshotResolver.supports()).thenReturn(IamS1ResourceType.SNAPSHOT);
             IamS1ResourceResolverRegistry registry =

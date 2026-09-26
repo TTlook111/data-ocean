@@ -151,7 +151,7 @@ async def test_chunk_document_offloads_token_work(monkeypatch):
 
     monkeypatch.setattr(rag_router.asyncio, "to_thread", tracked_to_thread)
 
-    def fake_chunk(_content):
+    def fake_chunk(_content, _snapshot_id=None):
         return []
 
     monkeypatch.setattr(rag_router, "chunk_skills_md", fake_chunk)

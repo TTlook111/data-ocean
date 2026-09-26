@@ -117,11 +117,24 @@ def _chunks() -> list[dict[str, Any]]:
         {
             "datasourceId": 701,
             "activeMetadataSnapshotId": 8801,
+            "sourceSnapshotId": 8801,
+            "ragBuildId": "g0-fixture-build",
+            "sourceId": 1001,
             "tables": ["sales_orders"],
             "columns": [
                 "sales_orders.order_date", "sales_orders.region", "sales_orders.product_id",
                 "sales_orders.quantity", "sales_orders.unit_price", "sales_orders.status",
             ],
+            "resourceDependencies": [
+                "table:sales_orders", "column:sales_orders.order_date", "column:sales_orders.region",
+                "column:sales_orders.product_id", "column:sales_orders.quantity",
+                "column:sales_orders.unit_price", "column:sales_orders.status",
+            ],
+            "factSourceIds": ["g0:metric:revenue", "g0:metric:completed-orders"],
+            "factType": "METRIC",
+            "factReviewStatus": "APPROVED",
+            "reviewStatus": "APPROVED",
+            "governanceStatus": "NORMAL",
             "chunkText": (
                 "APPROVED 事实：已完成订单为 status='COMPLETED'；" 
                 "销售额定义为 SUM(quantity * unit_price)；" 
@@ -135,8 +148,20 @@ def _chunks() -> list[dict[str, Any]]:
         {
             "datasourceId": 701,
             "activeMetadataSnapshotId": 8801,
+            "sourceSnapshotId": 8801,
+            "ragBuildId": "g0-fixture-build",
+            "sourceId": 1002,
             "tables": ["sales_orders", "products"],
             "columns": ["sales_orders.product_id", "products.product_id", "products.category"],
+            "resourceDependencies": [
+                "table:sales_orders", "table:products", "column:sales_orders.product_id",
+                "column:products.product_id", "column:products.category",
+            ],
+            "factSourceIds": ["g0:fk:product-id"],
+            "factType": "JOIN_PATH",
+            "factReviewStatus": "APPROVED",
+            "reviewStatus": "APPROVED",
+            "governanceStatus": "NORMAL",
             "chunkText": (
                 "APPROVED Join Path：sales_orders.product_id = products.product_id。"
                 "这是 snapshot 8801 中确认的外键关系。"
@@ -227,6 +252,10 @@ async def main() -> None:
                 fallbackChunks=[],
                 glossaryTerms=[],
                 fewShotExamples=[],
+                ragBuildId="g0-fixture-build",
+                ragSourceSnapshotId=8801,
+                ragCollectionName="g0-fixture-collection",
+                ragEmbeddingConfig={"providerId": "test", "model": "qwen-flash", "dimension": 1024},
             )
             answer = await s1.run_query(request)
             elapsed_ms = round((time.perf_counter() - started) * 1000)

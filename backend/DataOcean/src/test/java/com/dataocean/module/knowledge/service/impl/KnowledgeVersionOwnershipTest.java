@@ -192,7 +192,6 @@ class KnowledgeVersionOwnershipTest {
         private final KnowledgeVersionServiceImpl service = new KnowledgeVersionServiceImpl(
                 versionMapper,
                 docMapper,
-                mock(KnowledgeChunkMapper.class),
                 mock(KnowledgeReviewTaskMapper.class),
                 snapshotMapper,
                 vectorIndexTaskService,

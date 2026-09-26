@@ -105,12 +105,14 @@ export const glossaryStatusTypes: Record<string, string> = {
 
 export const generationSourceLabels: Record<string, string> = {
   MANUAL: '人工编辑',
+  SNAPSHOT_GENERATED: '快照结构生成',
   AI_GENERATED: 'AI 生成',
   ROLLBACK: '版本回滚',
 }
 
 export const generationSourceTypes: Record<string, string> = {
   MANUAL: 'info',
+  SNAPSHOT_GENERATED: 'primary',
   AI_GENERATED: 'success',
   ROLLBACK: 'warning',
 }

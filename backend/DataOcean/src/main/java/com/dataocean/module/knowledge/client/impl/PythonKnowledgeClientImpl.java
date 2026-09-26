@@ -53,6 +53,7 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
     public Map<String, Object> generateDraft(Long snapshotId, Long datasourceId,
                                               List<Map<String, Object>> tablesMetadata,
                                               List<Map<String, Object>> foreignKeys,
+                                              List<Map<String, Object>> lineageFacts,
                                               List<Map<String, Object>> indexes) {
         // 构建请求体
         Map<String, Object> requestBody = new HashMap<>();
@@ -60,6 +61,7 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
         requestBody.put("datasource_id", datasourceId);
         requestBody.put("tables_metadata", tablesMetadata);
         requestBody.put("foreign_keys", foreignKeys);
+        requestBody.put("lineage_facts", lineageFacts);
         requestBody.put("indexes", indexes);
 
         try {
@@ -103,6 +105,7 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
     public Map<String, Object> analyzeAndGenerate(Long snapshotId, Long datasourceId,
                                                     List<Map<String, Object>> tablesMetadata,
                                                     List<Map<String, Object>> foreignKeys,
+                                                    List<Map<String, Object>> lineageFacts,
                                                     List<Map<String, Object>> indexes) {
         // 构建请求体（与 generateDraft 相同）
         Map<String, Object> requestBody = new HashMap<>();
@@ -110,6 +113,7 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
         requestBody.put("datasource_id", datasourceId);
         requestBody.put("tables_metadata", tablesMetadata);
         requestBody.put("foreign_keys", foreignKeys);
+        requestBody.put("lineage_facts", lineageFacts);
         requestBody.put("indexes", indexes);
 
         try {
@@ -150,6 +154,7 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
                                                            Long datasourceId,
                                                            List<Map<String, Object>> tablesMetadata,
                                                            List<Map<String, Object>> foreignKeys,
+                                                           List<Map<String, Object>> lineageFacts,
                                                            List<Map<String, Object>> indexes) {
         log.error("Python 知识库调用重试后仍失败 snapshotId={} reason={}", snapshotId, exception.getMessage(), exception);
         throw new BusinessException("AI 知识库服务暂时不可用，请稍后重试");

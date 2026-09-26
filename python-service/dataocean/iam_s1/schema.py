@@ -108,6 +108,10 @@ class S1QueryExecuteRequest(S1Model):
     permissionRevision: int
     permissionSnapshot: S1PermissionSnapshot
     executionBindings: list[S1ExecutionBinding]
+    ragBuildId: str | None = None
+    ragSourceSnapshotId: int | None = None
+    ragCollectionName: str | None = None
+    ragEmbeddingConfig: dict[str, Any] | None = None
     question: str = Field(min_length=1, max_length=500)
     connectionConfig: S1ConnectionConfig
     conversationHistory: list[S1ConversationTurn]
@@ -154,3 +158,7 @@ class S1RagRetrieveRequest(S1Model):
     permissionSnapshot: S1PermissionSnapshot
     question: str = Field(min_length=1, max_length=500)
     chunks: list[dict[str, Any]]
+    ragBuildId: str | None = None
+    ragSourceSnapshotId: int | None = None
+    ragCollectionName: str | None = None
+    ragEmbeddingConfig: dict[str, Any] | None = None
