@@ -292,9 +292,11 @@ public class PythonRagClientImpl implements PythonRagClient {
                 .body(new ParameterizedTypeReference<>() {});
     }
 
-    private Map<String, Object> toChunkPayload(KnowledgeChunk chunk) {
+    Map<String, Object> toChunkPayload(KnowledgeChunk chunk) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("sourceId", chunk.getId());
+        // Python rejects a build chunk without the exact source snapshot identity.
+        payload.put("sourceSnapshotId", chunk.getMetadataSnapshotId());
         payload.put("chunkType", chunk.getChunkType());
         payload.put("chunkText", chunk.getChunkText());
         payload.put("tableName", chunk.getRelatedTable());
