@@ -13,5 +13,5 @@ public record IamS1QueryCandidateColumnVO(
         String protectionLevel,
         String maskPolicy,
         List<IamS1ColumnUsage> allowedUsages,
-        List<IamS1GrantSourceVO> grantSources) {
+        List<IamS1QueryCandidateGrantSourceVO> grantSources) {
 }

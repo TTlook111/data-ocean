@@ -161,7 +161,7 @@ public class IamS1UserResourceServiceImpl implements IamS1UserResourceService {
                         column.getGovernanceStatus(), protection,
                         maskPolicies.get(table.getTableName() + "#" + column.getColumnName()),
                         IamS1UsageDefaults.forProtectionLevel(protection).stream().toList(),
-                        permission.getGrantSources()));
+                        permission.getGrantSources().stream().map(this::toCandidateGrantSource).toList()));
             }
             if (!columns.isEmpty()) {
                 catalog.add(new IamS1QueryCandidateTableVO(table.getTableName(), table.getTableComment(),
@@ -189,6 +189,16 @@ public class IamS1UserResourceServiceImpl implements IamS1UserResourceService {
             }
         }
         return policies;
+    }
+
+    private com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateGrantSourceVO toCandidateGrantSource(
+            com.dataocean.module.permission.s1.entity.vo.IamS1GrantSourceVO source) {
+        return new com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateGrantSourceVO(
+                source.getGrantId(), source.getSubjectType(), source.getSubjectId(), source.getSourceSummary(),
+                source.getDepartmentScope(), source.getGrantSource(), source.getSourceReferenceId(),
+                source.getValidFrom() == null ? null : source.getValidFrom().toString(),
+                source.getValidUntil() == null ? null : source.getValidUntil().toString(),
+                source.getExplicitColumns(), source.getRowCondition());
     }
 
     // ------------------------------------------------------------------ QUERY

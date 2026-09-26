@@ -60,6 +60,11 @@ async def lifespan(application: FastAPI):
     """应用生命周期管理"""
     setup_logging(settings.log_level)
     _validate_config()
+    if settings.langgraph_checkpoint_redis_url:
+        from dataocean.iam_s1.graph import initialize_checkpointer
+        await initialize_checkpointer()
+    else:
+        logger.warning("LANGGRAPH_CHECKPOINT_REDIS_URL 未配置；IAM-SIMPLE-1 LangGraph 问数保持 fail-closed")
     # 启动连接池定时清理后台任务
     cleanup_task = asyncio.create_task(_periodic_pool_cleanup())
     logger.info("DataOcean AI Service 启动完成")
@@ -73,6 +78,8 @@ async def lifespan(application: FastAPI):
     # 销毁所有连接池
     # 关闭连接池同样使用同步 SQLAlchemy API，放到线程中执行。
     await asyncio.to_thread(_destroy_all_pools)
+    from dataocean.iam_s1.graph import close_checkpointer
+    await close_checkpointer()
     logger.info("DataOcean AI Service 已关闭")
 
 

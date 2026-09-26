@@ -63,6 +63,7 @@ import static org.mockito.ArgumentMatchers.eq;
 @ExtendWith(MockitoExtension.class)
 class IamS1QueryServiceImplTest {
     @Mock private QueryTaskMapper queryTaskMapper;
+    @Mock private com.dataocean.module.query.mapper.QueryAttemptMapper queryAttemptMapper;
     @Spy private ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     @Mock private IamS1DataAuthorizationResolver dataResolver;
     @Mock private com.dataocean.module.permission.s1.service.IamS1UserResourceService userResourceService;
@@ -104,7 +105,14 @@ class IamS1QueryServiceImplTest {
         lenient().when(conversationService.isVisible(any(), any())).thenReturn(true);
         lenient().when(userResourceService.candidateCatalog(any(), any(), any()))
                 .thenReturn(new com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO(
-                        1L, 88L, 100L, List.of()));
+                        1L, 88L, 100L, List.of(new com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateTableVO(
+                                "orders", "订单", "NORMAL", List.of(
+                                new com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateColumnVO(
+                                        101L, "id", "订单 ID", "BIGINT", "NORMAL", "NORMAL", null,
+                                        List.of(com.dataocean.module.permission.s1.enums.IamS1ColumnUsage.PROJECTION,
+                                                com.dataocean.module.permission.s1.enums.IamS1ColumnUsage.FILTER,
+                                                com.dataocean.module.permission.s1.enums.IamS1ColumnUsage.JOIN),
+                                        List.of()))))));
     }
 
     @Test
@@ -143,24 +151,16 @@ class IamS1QueryServiceImplTest {
         when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
         when(dataResolver.resolve(any())).thenReturn(snapshot());
-        when(rowBindingService.build(any())).thenReturn(List.of());
-        Datasource datasource = new Datasource();
-        datasource.setId(1L); datasource.setHost("localhost"); datasource.setPort(3306); datasource.setDatabaseName("db");
-        DatasourceSecret secret = new DatasourceSecret(); secret.setDatasourceId(1L); secret.setUsername("u"); secret.setEncryptedPassword("enc");
-        when(datasourceMapper.selectById(1L)).thenReturn(datasource);
-        when(datasourceSecretMapper.selectOne(any())).thenReturn(secret);
-        when(datasourceSecretService.decrypt("enc")).thenReturn("pwd");
-
         IamS1QueryAskRequestDTO request = askRequest();
 
         TransactionSynchronizationManager.initSynchronization();
         try {
             String taskId = service.submit(7L, request);
-            verify(pythonClient, never()).executeAsync(any(), any(), any());
+            verify(pythonClient, never()).executeAsync(any(), any(), any(), any());
             for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
                 synchronization.afterCommit();
             }
-            verify(pythonClient).executeAsync(eq(taskId), any(), any());
+            verify(pythonClient).executeAsync(eq(taskId), any(), any(), any());
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
@@ -173,7 +173,6 @@ class IamS1QueryServiceImplTest {
         when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
         when(dataResolver.resolve(any())).thenReturn(snapshot());
-        when(rowBindingService.build(any())).thenReturn(List.of());
         when(conversationService.getOrCreateConversation(7L, 1L, null, "查询订单")).thenReturn(42L);
         when(conversationService.saveUserMessage(eq(42L), eq("查询订单"), any(String.class))).thenReturn(23L);
         when(conversationContextSummaryService.buildQueryContext(42L, 7L, 23L, 100L))
@@ -198,13 +197,6 @@ class IamS1QueryServiceImplTest {
                 .question("客户信息").resultSql("SELECT secret FROM customers")
                 .usedTables("[\"customers\"]").usedColumns("[\"customers.secret\"]").build();
         when(queryTaskMapper.selectList(any())).thenReturn(List.of(previous, foreign));
-        Datasource datasource = new Datasource();
-        datasource.setId(1L); datasource.setHost("localhost"); datasource.setPort(3306); datasource.setDatabaseName("db");
-        DatasourceSecret secret = new DatasourceSecret(); secret.setDatasourceId(1L); secret.setUsername("u"); secret.setEncryptedPassword("enc");
-        when(datasourceMapper.selectById(1L)).thenReturn(datasource);
-        when(datasourceSecretMapper.selectOne(any())).thenReturn(secret);
-        when(datasourceSecretService.decrypt("enc")).thenReturn("pwd");
-
         ArgumentCaptor<Map<String, Object>> body = ArgumentCaptor.forClass(Map.class);
         TransactionSynchronizationManager.initSynchronization();
         try {
@@ -218,7 +210,7 @@ class IamS1QueryServiceImplTest {
 
         verify(conversationService).acquireTurn(eq(42L), eq(7L), eq(1L), any(String.class));
         verify(conversationService).saveUserMessage(eq(42L), eq("查询订单"), any(String.class));
-        verify(pythonClient).executeAsync(any(), body.capture(), any());
+        verify(pythonClient).executeAsync(any(), body.capture(), any(), any());
         assertThat(body.getValue().get("conversationHistory")).isEqualTo(
                 List.of(Map.of("role", "user", "content", "上一轮订单")));
         assertThat(body.getValue().get("conversationSummary")).isEqualTo(Map.of("intent", "订单统计"));
@@ -352,6 +344,46 @@ class IamS1QueryServiceImplTest {
     }
 
     @Test
+    void processingCandidateTaskCanReadProgressWithoutAUserSelectedTableList() {
+        task.setConversationId(42L);
+        task.setIamResourceRequest("[]");
+        when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(true);
+        when(dataResolver.currentPermissionRevision()).thenReturn(100L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(conversationService.isActiveTurn(42L, "task-1")).thenReturn(true);
+
+        QueryTaskVO result = service.get("task-1", 7L);
+
+        assertThat(result.getStatus()).isEqualTo("PROCESSING");
+        assertThat(result.getSql()).isNull();
+        assertThat(result.getData()).isNull();
+        verify(dataResolver, never()).resolve(any());
+    }
+
+    @Test
+    void resumeRebuildsCandidateContextFromMysqlAndUsesStableConversationThread() {
+        task.setConversationId(42L);
+        task.setQuestion("统计订单");
+        task.setCreatedAt(LocalDateTime.now());
+        task.setIamResourceRequest("[]");
+        when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(true);
+        when(dataResolver.currentPermissionRevision()).thenReturn(100L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(conversationService.isActiveTurn(42L, "task-1")).thenReturn(true);
+        when(conversationService.userMessageIdForTask(42L, 7L, "task-1")).thenReturn(23L);
+        when(conversationContextSummaryService.buildQueryContext(42L, 7L, 23L, 100L))
+                .thenReturn(ConversationContextDTO.builder().history(List.of()).summary(null).build());
+        ArgumentCaptor<Map<String, Object>> request = ArgumentCaptor.forClass(Map.class);
+
+        service.resume("task-1", 7L);
+
+        verify(pythonClient).executeAsync(eq("task-1"), request.capture(), any(), any());
+        assertThat(request.getValue()).containsEntry("resume", true)
+                .containsEntry("conversationThreadId", "iam-s1:7:1:42");
+        assertThat(request.getValue()).doesNotContainKey("connectionConfig");
+    }
+
+    @Test
     void oneUnverifiableHistoricalResultDoesNotFailTheRestOfTheMessagePage() {
         when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(true);
         when(queryTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
@@ -387,17 +419,10 @@ class IamS1QueryServiceImplTest {
         metadata.setId(88L);
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
         when(dataResolver.resolve(any())).thenReturn(snapshot());
-        when(rowBindingService.build(any())).thenReturn(List.of());
         when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:use"))).thenReturn(true);
         when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:sql:view"))).thenReturn(false);
         when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:export"))).thenReturn(false);
         when(maskingService.maskResultByFields(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
-        Datasource datasource = new Datasource();
-        datasource.setId(1L); datasource.setHost("localhost"); datasource.setPort(3306); datasource.setDatabaseName("db");
-        DatasourceSecret secret = new DatasourceSecret(); secret.setDatasourceId(1L); secret.setUsername("u"); secret.setEncryptedPassword("enc");
-        when(datasourceMapper.selectById(1L)).thenReturn(datasource);
-        when(datasourceSecretMapper.selectOne(any())).thenReturn(secret);
-        when(datasourceSecretService.decrypt("enc")).thenReturn("pwd");
         // 任务已按当前权限落库了注入后的 SQL，但该用户没有 query:sql:view。
         task.setStatus("COMPLETED");
         task.setResultSql("SELECT id FROM orders LIMIT 10000");
@@ -418,7 +443,7 @@ class IamS1QueryServiceImplTest {
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
-        verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture());
+        verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture(), any());
         callback.getValue().accept(objectMapper.writeValueAsString(Map.of(
                 "taskId", taskId, "protocolVersion", "IAM-SIMPLE-1", "status", "COMPLETED",
                 "usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
@@ -440,15 +465,7 @@ class IamS1QueryServiceImplTest {
         metadata.setId(88L);
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata).thenReturn(null);
         when(dataResolver.resolve(any())).thenReturn(snapshot());
-        when(rowBindingService.build(any())).thenReturn(List.of());
         when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
-        Datasource datasource = new Datasource();
-        datasource.setId(1L); datasource.setHost("localhost"); datasource.setPort(3306); datasource.setDatabaseName("db");
-        DatasourceSecret secret = new DatasourceSecret(); secret.setDatasourceId(1L); secret.setUsername("u"); secret.setEncryptedPassword("enc");
-        when(datasourceMapper.selectById(1L)).thenReturn(datasource);
-        when(datasourceSecretMapper.selectOne(any())).thenReturn(secret);
-        when(datasourceSecretService.decrypt("enc")).thenReturn("pwd");
-
         ArgumentCaptor<Consumer<String>> callback = ArgumentCaptor.forClass(Consumer.class);
         String taskId;
         TransactionSynchronizationManager.initSynchronization();
@@ -460,7 +477,7 @@ class IamS1QueryServiceImplTest {
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
-        verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture());
+        verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture(), any());
         callback.getValue().accept("{\"taskId\":\"" + taskId
                 + "\",\"protocolVersion\":\"IAM-SIMPLE-1\",\"status\":\"FAILED\"}");
 

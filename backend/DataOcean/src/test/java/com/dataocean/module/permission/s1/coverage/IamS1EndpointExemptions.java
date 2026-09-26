@@ -61,6 +61,7 @@ final class IamS1EndpointExemptions {
             Map.entry("POST /api/iam-s1/field-protections", "IamS1FieldProtectionController#save|权限与组织域 B4 已完成，仍是显式 Guard"),
             Map.entry("POST /api/iam-s1/query/ask", "IamS1QueryController#ask|B2/B3 专用安全链，不接入通用切面"),
             Map.entry("POST /api/iam-s1/query/tasks/{taskId}/cancel", "IamS1QueryController#cancel|B2/B3 专用安全链，不接入通用切面"),
+            Map.entry("POST /api/iam-s1/query/tasks/{taskId}/resume", "IamS1QueryController#resume|服务按当前 query:use、任务归属、活动轮次、修订、快照与活动 build 复核"),
             Map.entry("POST /api/iam-s1/query/tasks/{taskId}/feedback", "IamS1QueryController#feedback|B2/B3 专用安全链，不接入通用切面"),
             Map.entry("DELETE /api/iam-s1/query/conversations/{conversationId}", "IamS1QueryController#archiveConversation|B6-2 正式 S1 会话链"),
             Map.entry("POST /api/iam-s1/roles", "IamS1RoleController#create|权限与组织域 B4 已完成，仍是显式 Guard"),

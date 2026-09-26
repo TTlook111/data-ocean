@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     redis_port: int = 6379
     redis_password: str = ""
     redis_db: int = 0
+    # LangGraph checkpoint must use a Redis 8 instance with JSON/RediSearch modules.
+    # It is deliberately separate from the app's generic Redis cache configuration.
+    langgraph_checkpoint_redis_url: str = ""
 
     # LangSmith 可观测性
     langchain_api_key: str = ""

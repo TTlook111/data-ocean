@@ -16,6 +16,8 @@ public interface IamS1QueryService {
     QueryTaskVO get(String taskId, Long userId);
     Page<QueryTaskVO> history(Long userId, QueryHistoryQuery query);
     void cancel(String taskId, Long userId);
+
+    void resume(String taskId, Long userId);
     void complete(String taskId, String resultJson);
     void feedback(String taskId, Long userId, String feedbackType);
     List<java.util.Map<String, Object>> export(String taskId, Long userId);

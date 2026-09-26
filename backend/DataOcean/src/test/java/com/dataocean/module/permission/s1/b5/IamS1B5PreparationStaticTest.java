@@ -159,7 +159,7 @@ class IamS1B5PreparationStaticTest {
 
     @Test
     void b5HandbookAndB6InventoryExistWithFrozenV53Decision() throws IOException {
-        String handbook = read(Path.of("..", "..", "docs/development/guides/DataOcean-IAM-S1-B5切换与回退手册.md"));
+        String handbook = read(Path.of("..", "..", "docs/development/completed/DataOcean-IAM-S1-B5切换与回退手册.md"));
         assertThat(handbook).contains("V53 编号永久不再使用", "真实数据库 Flyway 版本", "V50");
         assertThat(handbook).contains("禁止新旧权限双读兜底");
         assertThat(handbook).contains("真实库只读 SQL 门禁");
@@ -201,7 +201,7 @@ class IamS1B5PreparationStaticTest {
         assertThat(preflight).contains("SHA256 is computed after dump");
         assertThat(preflight).doesNotContain("-match '@Aspect'");
         assertThat(preflight).doesNotContain("-match '@Component'");
-        String b0 = read(Path.of("..", "..", "docs/development/轨道B-B0权限清单与决策冻结.md"));
+        String b0 = read(Path.of("..", "..", "docs/development/completed/轨道B-B0权限清单与决策冻结.md"));
         assertThat(b0).contains("## 7. B6 删除清单");
         assertThat(b0).contains("DatasourcePermissionController", "sys_role_permission");
         String followUp = read(Path.of("..", "..", "docs/development/后续开发.md"));

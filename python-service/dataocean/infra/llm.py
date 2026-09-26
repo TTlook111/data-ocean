@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # 缓存不同 (model, temperature) 组合的 ChatOpenAI 实例，避免重复构造
 # 使用 threading.Lock 保护，防止配置热重载时并发创建重复实例
-_chat_cache: dict[tuple[str, str, float], ChatOpenAI] = {}
+_chat_cache: dict[tuple[str, str, float, int | None], ChatOpenAI] = {}
 _chat_cache_lock = threading.Lock()
 
 
@@ -38,6 +38,7 @@ def get_chat_model(
     model: str | None = None,
     temperature: float | None = None,
     max_retries: int | None = None,
+    max_tokens: int | None = None,
 ) -> ChatOpenAI:
     """获取（缓存的）ChatOpenAI 实例，指向 DashScope OpenAI 兼容端点。
 
@@ -56,7 +57,7 @@ def get_chat_model(
     temperature = temperature if temperature is not None else settings.llm_temperature
     retries = max_retries if max_retries is not None else settings.llm_max_retries
 
-    cache_key = (settings.dashscope_base_url, model, temperature)
+    cache_key = (settings.dashscope_base_url, model, temperature, max_tokens)
 
     # 快速路径：缓存命中（无锁）
     cached = _chat_cache.get(cache_key)
@@ -75,6 +76,7 @@ def get_chat_model(
             base_url=settings.dashscope_base_url,
             timeout=float(settings.llm_timeout),
             max_retries=retries,
+            max_tokens=max_tokens,
         )
         _chat_cache[cache_key] = chat
         logger.info("ChatOpenAI 实例已创建 model=%s temperature=%.1f", model, temperature)
@@ -120,6 +122,40 @@ async def call_llm(
     if not content or not isinstance(content, str):
         raise LLMException("LLM 响应格式异常：content 为空")
     return content
+
+
+async def call_llm_with_usage(
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    model: str | None = None,
+    temperature: float | None = None,
+    max_retries: int = 0,
+    max_tokens: int = 1024,
+) -> tuple[str, dict[str, int] | None]:
+    """One bounded call returning provider usage when the adapter supplies it."""
+    chat = get_chat_model(model=model, temperature=temperature, max_retries=max_retries,
+                          max_tokens=max_tokens)
+    messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
+    try:
+        response = await chat.ainvoke(messages)
+    except Exception as exc:
+        settings = get_settings()
+        logger.error("LLM 调用失败 model=%s error=%s", model or settings.qwen_model, exc)
+        raise LLMException(f"AI 服务暂时不可用：{exc}") from exc
+    content = response.content
+    if not content or not isinstance(content, str):
+        raise LLMException("LLM 响应格式异常：content 为空")
+    usage = getattr(response, "usage_metadata", None)
+    if not isinstance(usage, dict):
+        usage = getattr(response, "response_metadata", {}).get("token_usage")
+    if not isinstance(usage, dict):
+        return content, None
+    input_tokens = usage.get("input_tokens", usage.get("prompt_tokens"))
+    output_tokens = usage.get("output_tokens", usage.get("completion_tokens"))
+    if not isinstance(input_tokens, int) or not isinstance(output_tokens, int):
+        return content, None
+    return content, {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
 
 async def ping_llm() -> bool:

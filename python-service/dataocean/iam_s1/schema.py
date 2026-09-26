@@ -36,7 +36,7 @@ class S1Predicate(S1Model):
         "STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATETIME",
         "STRING_LIST", "INTEGER_LIST", "DECIMAL_LIST", "NULL",
     ]
-    parameterReference: str | None
+    parameterReference: str | None = None
     bindingReference: str
 
 
@@ -52,7 +52,7 @@ class S1GrantSource(S1Model):
     sourceSummary: str
     departmentScope: str | None = None
     grantSource: str
-    sourceReferenceId: int | None
+    sourceReferenceId: int | None = None
     validFrom: str | None = None
     validUntil: str | None = None
     explicitColumns: list[str]
@@ -104,7 +104,7 @@ class S1CandidatePredicate(S1Model):
         "STRING", "INTEGER", "DECIMAL", "BOOLEAN", "DATE", "DATETIME",
         "STRING_LIST", "INTEGER_LIST", "DECIMAL_LIST", "NULL",
     ]
-    parameterReference: str | None
+    parameterReference: str | None = None
     bindingReference: str
 
 
@@ -120,7 +120,7 @@ class S1CandidateGrantSource(S1Model):
     sourceSummary: str
     departmentScope: str | None = None
     grantSource: str
-    sourceReferenceId: int | None
+    sourceReferenceId: int | None = None
     validFrom: str | None = None
     validUntil: str | None = None
     explicitColumns: list[str]
@@ -168,8 +168,8 @@ class S1QueryExecuteRequest(S1Model):
     datasourceId: int
     activeMetadataSnapshotId: int
     permissionRevision: int
-    permissionSnapshot: S1PermissionSnapshot
-    executionBindings: list[S1ExecutionBinding]
+    permissionSnapshot: S1PermissionSnapshot | None = None
+    executionBindings: list[S1ExecutionBinding] = Field(default_factory=list)
     ragBuildId: str | None = None
     ragSourceSnapshotId: int | None = None
     ragCollectionName: str | None = None
@@ -177,8 +177,14 @@ class S1QueryExecuteRequest(S1Model):
     conversationId: int | None = None
     conversationThreadId: str | None = None
     candidateCatalog: S1CandidateCatalog | None = None
+    capabilities: S1Capabilities | None = None
+    deadlineEpochSeconds: float | None = None
+    resume: bool = False
+    sqlAttemptsUsed: int = 0
+    llmCallsUsed: int = 0
+    resumeProtectedResult: dict[str, Any] | None = None
     question: str = Field(min_length=1, max_length=500)
-    connectionConfig: S1ConnectionConfig
+    connectionConfig: S1ConnectionConfig | None = None
     conversationHistory: list[S1ConversationTurn]
     conversationSummary: dict[str, Any] | None
     ragChunks: list[dict[str, Any]]

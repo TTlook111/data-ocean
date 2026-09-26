@@ -14,5 +14,7 @@ public enum QueryTaskStatus {
     /** 已取消 */
     CANCELLED,
     /** 超时 */
-    TIMEOUT
+    TIMEOUT,
+    /** 证据不足或问题含糊，需要用户补充条件 */
+    CLARIFICATION_REQUIRED
 }

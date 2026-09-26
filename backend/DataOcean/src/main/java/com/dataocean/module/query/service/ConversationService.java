@@ -42,6 +42,8 @@ public interface ConversationService {
     /** 当前用户是否仍可读取该会话。 */
     boolean isVisible(Long conversationId, Long userId);
 
+    boolean isActiveTurn(Long conversationId, String taskId);
+
     /**
      * 保存助手消息（含查询结果元数据）。
      *
@@ -90,6 +92,8 @@ public interface ConversationService {
     List<ConversationMessageVO> getRecentMessagesBefore(Long conversationId, Long userId, Long beforeMessageId, int limit);
 
     Long getLatestMessageIdBefore(Long conversationId, Long userId, Long beforeMessageId);
+
+    Long userMessageIdForTask(Long conversationId, Long userId, String taskId);
 
     /**
      * 查询指定消息之后的全部会话消息（按时间正序），用于增量生成长期摘要。

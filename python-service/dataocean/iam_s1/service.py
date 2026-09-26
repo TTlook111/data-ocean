@@ -289,15 +289,29 @@ async def execute_validated(request: S1SqlExecuteRequest) -> dict[str, Any]:
         "trace": {
             "permissionRevision": request.permissionRevision,
             "activeMetadataSnapshotId": request.activeMetadataSnapshotId,
-            "usedTables": validation.used_tables,
-            "usedColumns": validation.used_columns,
-            "sourceTrace": validation.source_trace,
-            "maskedFields": validation.masked_fields,
+            # The final AST pass includes Java-injected row predicates. Persist
+            # only the original model-authored usage evidence; policy columns do
+            # not become user-visible result fields.
+            "usedTables": original_validation.used_tables,
+            "usedColumns": original_validation.used_columns,
+            "sourceTrace": original_validation.source_trace,
+            "maskedFields": original_validation.masked_fields,
         },
     }
 
 
-async def run_query(request: S1QueryExecuteRequest) -> dict[str, Any]:
+async def run_query(request: S1QueryExecuteRequest, *, progress_callback=None, resume: bool = False) -> dict[str, Any]:
+    if request.candidateCatalog is not None:
+        from .graph import run_query_graph
+
+        return await run_query_graph(request, progress_callback=progress_callback, resume=resume)
+    return await _run_query_legacy(request)
+
+
+async def _run_query_legacy(request: S1QueryExecuteRequest) -> dict[str, Any]:
+    if request.permissionSnapshot is None or request.connectionConfig is None:
+        return {"taskId": request.taskId, "protocolVersion": request.protocolVersion,
+                "status": "FAILED", "error": "S1 legacy context incomplete"}
     _contract_matches(request, request.permissionSnapshot)
     start = time.time()
     safe_rag = await retrieve(S1RagRetrieveRequest(

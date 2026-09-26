@@ -126,6 +126,14 @@ public class ConversationServiceImpl implements ConversationService {
                     || !conversation.getUpdatedAt().isBefore(LocalDateTime.now().minusDays(365)));
     }
 
+    @Override
+    public boolean isActiveTurn(Long conversationId, String taskId) {
+        if (conversationId == null || taskId == null) return false;
+        Conversation conversation = conversationMapper.selectById(conversationId);
+        return conversation != null && "ACTIVE".equals(conversation.getStatus())
+                && taskId.equals(conversation.getActiveTurnTaskId());
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -298,6 +306,18 @@ public class ConversationServiceImpl implements ConversationService {
                 .select(ConversationMessage::getId)
                 .last("LIMIT 1"));
         return latest == null ? null : latest.getId();
+    }
+
+    @Override
+    public Long userMessageIdForTask(Long conversationId, Long userId, String taskId) {
+        if (!isVisible(conversationId, userId)) throw new BusinessException("会话不存在或无权访问");
+        ConversationMessage message = conversationMessageMapper.selectOne(new LambdaQueryWrapper<ConversationMessage>()
+                .eq(ConversationMessage::getConversationId, conversationId)
+                .eq(ConversationMessage::getRole, "user")
+                .eq(ConversationMessage::getTaskId, taskId)
+                .orderByDesc(ConversationMessage::getId)
+                .last("LIMIT 1"));
+        return message == null ? null : message.getId();
     }
 
     @Override

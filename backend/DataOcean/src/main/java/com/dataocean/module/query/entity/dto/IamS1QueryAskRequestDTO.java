@@ -4,7 +4,6 @@ import com.dataocean.module.permission.s1.entity.dto.IamS1TableRequestDTO;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -28,7 +27,6 @@ public class IamS1QueryAskRequestDTO {
 
     private Long conversationId;
 
-    @NotEmpty(message = "必须明确提供本次查询表字段范围")
     @Valid
     private List<IamS1TableRequestDTO> tables = new ArrayList<>();
 }

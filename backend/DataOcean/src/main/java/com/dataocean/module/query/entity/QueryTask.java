@@ -115,6 +115,11 @@ public class QueryTask {
     /** 重试次数 */
     private Integer retryCount;
 
+    /** G0 hard call-count and cost budget, durably shared with the Python graph. */
+    private Integer llmCallCount;
+    private Integer embeddingCallCount;
+    private java.math.BigDecimal estimatedAiCostCny;
+
     /** 总耗时（毫秒） */
     private Integer totalTimeMs;
 

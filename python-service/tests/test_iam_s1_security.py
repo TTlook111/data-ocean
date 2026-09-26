@@ -24,7 +24,7 @@ from dataocean.iam_s1.schema import (
     S1SqlExecuteRequest,
     S1SqlValidateRequest,
 )
-from dataocean.iam_s1.sql_security import inject_row_conditions, validate_sql
+from dataocean.iam_s1.sql_security import inject_row_conditions, missing_reviewed_predicates, validate_sql
 from dataocean.iam_s1.service import execute_validated, retrieve, run_query, validate_request
 
 
@@ -95,6 +95,77 @@ def test_ast_checks_all_resources_and_expands_star():
     assert not validate_sql("SELECT id FROM orders WHERE secret = 1", current).passed
 
 
+def test_ast_produces_complete_per_column_usage_evidence_for_java_resolver():
+    result = validate_sql("SELECT id FROM orders WHERE region = '华东'", snapshot())
+    assert result.passed
+    assert result.column_usages == {
+        "orders.id": ["PROJECTION"],
+        "orders.region": ["FILTER"],
+    }
+
+
+def test_ast_resolves_order_by_alias_to_its_projection_source():
+    current = snapshot()
+    current.resources[0].columns[1].usage = ["PROJECTION", "FILTER", "GROUP", "ORDER"]
+
+    result = validate_sql(
+        "SELECT region AS month, COUNT(*) AS order_count FROM orders "
+        "GROUP BY region ORDER BY month",
+        current,
+    )
+
+    assert result.passed, result.violations
+    assert result.used_columns == ["orders.region"]
+
+
+def test_ast_requires_group_by_for_aggregate_dimension_queries():
+    current = snapshot()
+    current.resources[0].columns[1].usage = ["PROJECTION", "FILTER", "GROUP"]
+
+    missing = validate_sql("SELECT region, SUM(id) AS total FROM orders", current)
+    valid = validate_sql("SELECT region, SUM(id) AS total FROM orders GROUP BY region", current)
+
+    assert not missing.passed
+    assert missing.violations[0].startswith("SQL_SYNTAX:")
+    assert valid.passed
+
+
+def test_reviewed_glossary_exact_filter_is_required_for_matching_question():
+    terms = [{
+        "name": "sales_order_status_enum",
+        "displayName": "销售订单状态值",
+        "synonyms": '["已完成", "COMPLETED"]',
+        "description": "sales_orders.status = 'COMPLETED'; confirmed Join sales_orders.product_id = products.product_id",
+        "columns": ["sales_orders.status"],
+    }]
+
+    assert missing_reviewed_predicates(
+        "SELECT COUNT(*) FROM sales_orders",
+        "已完成订单一共有多少笔？",
+        terms,
+    ) == ["sales_orders.status = 'COMPLETED'"]
+    assert missing_reviewed_predicates(
+        "SELECT COUNT(*) FROM sales_orders s WHERE s.status = '已完成'",
+        "已完成订单一共有多少笔？",
+        terms,
+    ) == ["sales_orders.status = 'COMPLETED'"]
+    assert missing_reviewed_predicates(
+        "SELECT COUNT(*) FROM sales_orders WHERE status = COMPLETED",
+        "已完成订单一共有多少笔？",
+        terms,
+    ) == ["sales_orders.status = 'COMPLETED'"]
+    assert missing_reviewed_predicates(
+        "SELECT COUNT(*) FROM sales_orders s WHERE s.status = 'COMPLETED'",
+        "已完成订单一共有多少笔？",
+        terms,
+    ) == []
+    assert missing_reviewed_predicates(
+        "SELECT COUNT(*) FROM sales_orders",
+        "哪个广告活动带来的销售额最高？",
+        terms,
+    ) == []
+
+
 def test_star_expansion_requires_at_least_one_projectable_field():
     current = snapshot()
     for column in current.resources[0].columns:
@@ -115,6 +186,7 @@ def test_aggregate_without_column_source_is_aliased_and_marked_no_column_source(
     result = validate_sql("SELECT COUNT(*) FROM orders", current)
 
     assert result.passed
+    assert result.used_tables == ["orders"]
     # 列名由本服务决定，不再依赖数据库对未加别名表达式的命名
     assert "AS s1_c1" in result.sql
     assert result.source_trace == [{
@@ -613,6 +685,31 @@ async def test_execute_entry_rejects_sql_without_reinjected_row_policy():
         with pytest.raises(ValueError, match="不一致"):
             await execute_validated(request)
         execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_trace_keeps_java_injected_row_columns_out_of_user_ast_evidence():
+    current = snapshot(condition=True)
+    validation = validate_request(S1SqlValidateRequest(
+        protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
+        activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
+        executionBindings=[S1ExecutionBinding(reference="g1", valueType="STRING", value="华东")],
+        sql="SELECT id FROM orders",
+    ))
+    request = S1SqlExecuteRequest(
+        protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
+        activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
+        executionBindings=[S1ExecutionBinding(reference="g1", valueType="STRING", value="华东")],
+        originalSql="SELECT id FROM orders", validatedSql=validation.sql,
+        connectionConfig=S1ConnectionConfig(host="localhost", port=3306, database="db", username="u", password="p"),
+    )
+    result = SimpleNamespace(success=True, rows=[{"id": 1}], columns=[{"name": "id", "type": "INT"}],
+                             row_count=1, execution_time_ms=2, error=None, error_type=None)
+    with patch("dataocean.iam_s1.service.execute_sql", new_callable=AsyncMock, return_value=result):
+        executed = await execute_validated(request)
+
+    assert executed["trace"]["usedColumns"] == ["orders.id"]
+    assert executed["trace"]["sourceTrace"][0]["sources"] == ["orders.id"]
 
 
 @pytest.mark.asyncio

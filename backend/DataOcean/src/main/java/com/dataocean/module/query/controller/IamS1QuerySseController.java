@@ -67,6 +67,16 @@ public class IamS1QuerySseController {
         }
     }
 
+    public void sendProgress(String taskId, Object progress) {
+        SseEmitter emitter = emitters.get(taskId);
+        if (emitter == null) return;
+        try {
+            emitter.send(SseEmitter.event().name("progress").data(progress));
+        } catch (IOException ex) {
+            log.debug("S1 SSE 进度推送失败 taskId={}", taskId);
+        }
+    }
+
     /**
      * 结果无法按当前权限安全呈现时只推送可公开的原因，绝不带任何结果载荷。
      * 调用方必须传入已经过 IamS1QueryService.get 处置的结果或固定文案。
