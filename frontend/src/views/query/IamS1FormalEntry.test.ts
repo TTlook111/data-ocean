@@ -23,7 +23,6 @@ describe('B6-2 formal query entry', () => {
       'src/views/query/QuerySidebar.vue',
       'src/views/query/QueryResult.vue',
       'src/views/query/QueryProgress.vue',
-      'src/views/query/IamS1ResourceSelector.vue',
       'src/composables/useQuerySession.ts',
       'src/composables/useQuerySubmit.ts',
       'src/composables/useQueryExport.ts',
@@ -34,6 +33,8 @@ describe('B6-2 formal query entry', () => {
     expect(source).not.toContain("from '../../api/query'")
     expect(source).not.toContain("from '../api/query'")
     expect(source).not.toContain('/api/query/')
+    expect(source).not.toContain('IamS1ResourceSelector')
+    expect(source).not.toContain('resourceDeclarations')
   })
 
   it('does not leave the retired access routes in formal navigation', () => {

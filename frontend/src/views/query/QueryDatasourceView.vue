@@ -20,8 +20,6 @@ import { parseDatasourceId } from '../../utils/queryDatasource'
 import QuerySidebar from './QuerySidebar.vue'
 import QueryInput from './QueryInput.vue'
 import QueryResult from './QueryResult.vue'
-import IamS1ResourceSelector from './IamS1ResourceSelector.vue'
-import type { IamS1TableDeclaration } from '../../api/iamS1'
 
 const router = useRouter()
 const route = useRoute()
@@ -31,7 +29,6 @@ const workspaceRef = ref<HTMLElement | null>(null)
 const queryInputRef = ref<InstanceType<typeof QueryInput>>()
 const resultPanelOpen = ref(false)
 const datasourceInitialized = ref(false)
-const resourceDeclarations = ref<IamS1TableDeclaration[]>([])
 let datasourceSyncRequest = 0
 const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(workspaceRef)
 
@@ -61,7 +58,6 @@ const submit = useQuerySubmit({
   activeMessages: session.activeMessages,
   canAskSelectedDatasource: session.canAskSelectedDatasource,
   selectedBlockReason: session.selectedBlockReason,
-  resourceDeclarations,
   createSession: session.createSession,
   async animateNewMessages() {
     await nextTick()
@@ -131,7 +127,6 @@ async function applyDatasource(id: number) {
   await submit.cancelCurrentQuery()
   submit.question.value = ''
   resultPanelOpen.value = false
-  resourceDeclarations.value = []
   await session.selectDatasource(id, { afterSelect: afterDatasourceSelected })
 }
 
@@ -304,6 +299,9 @@ onMounted(() => {
                 <button @click="submit.retryQuery(message.originalQuestion || '')" :disabled="submit.isQuerying.value"><RefreshCw :size="14" />重试查询</button>
                 <button @click="submit.continueWaiting(message.taskId || '')" :disabled="submit.isQuerying.value"><History :size="14" />继续等待</button>
               </div>
+              <div v-if="message.role === 'assistant' && message.status === 'CLARIFICATION_REQUIRED'" class="message-actions">
+                <button @click="submit.prepareClarification(message.originalQuestion || '')" :disabled="submit.isQuerying.value">补充查询条件</button>
+              </div>
               <div v-if="message.role === 'assistant' && (message.status === 'FAILED' || message.status === 'error')" class="message-actions">
                 <button @click="submit.retryQuery(message.originalQuestion || '')" :disabled="submit.isQuerying.value || !message.originalQuestion"><RefreshCw :size="14" />重新提问</button>
               </div>
@@ -312,19 +310,13 @@ onMounted(() => {
         </section>
       </section>
 
-      <IamS1ResourceSelector
-        v-if="session.selectedId.value"
-        v-model="resourceDeclarations"
-        :datasource-id="session.selectedId.value"
-        :can-query="session.canAskSelectedDatasource.value"
-      />
       <QueryInput
         ref="queryInputRef"
         :question="submit.question.value"
         :is-querying="submit.isQuerying.value"
         :selected-id="session.selectedId.value"
         :selected-datasource-name="session.selectedDatasource.value?.name"
-        :can-ask="session.canAskSelectedDatasource.value && resourceDeclarations.length > 0"
+        :can-ask="session.canAskSelectedDatasource.value"
         :readiness-loading="session.readinessLoading.value"
         :selected-block-reason="session.selectedBlockReason.value"
         :selected-readiness="session.selectedReadiness.value"

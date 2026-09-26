@@ -3,6 +3,7 @@
  * 包含结果标签页（表格/SQL/图表/可信度）
  */
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import {
   BarChart3,
   Download,
@@ -39,6 +40,9 @@ const emit = defineEmits<{
   'update:tablePage': [page: number]
   'close': []
 }>()
+
+const chartFailed = ref(false)
+watch(() => props.latestResult?.taskId, () => { chartFailed.value = false })
 </script>
 
 <template>
@@ -77,7 +81,11 @@ const emit = defineEmits<{
 
     <!-- 表格结果 -->
     <div v-else-if="resultTab === 'table'" class="result-table-wrap">
-      <div v-if="isLatestProcessing" class="result-empty">
+      <div v-if="latestResult.status === 'CLARIFICATION_REQUIRED'" class="result-empty clarification-result">
+        <strong>需要补充说明</strong>
+        <span>{{ latestResult.sqlExplanation || latestResult.errorMessage || '请回到输入框补充指标、时间范围或筛选口径。' }}</span>
+      </div>
+      <div v-else-if="isLatestProcessing" class="result-empty">
         <strong>{{ latestResult.progressMessage || '查询正在执行中' }}</strong>
         <span>可以切换到"可信依据"查看 Agent 当前进度。</span>
       </div>
@@ -110,7 +118,7 @@ const emit = defineEmits<{
 
     <!-- 图表结果 -->
     <div v-else-if="resultTab === 'chart'" class="result-chart-wrap">
-      <div v-if="latestResult.chartConfig" class="chart-toolbar">
+      <div v-if="latestResult.chartConfig && !chartFailed" class="chart-toolbar">
         <div class="chart-type-switcher">
           <button :class="{ active: chartType === 'bar' }" @click="emit('switch-chart-type', 'bar')">柱状图</button>
           <button :class="{ active: chartType === 'line' }" @click="emit('switch-chart-type', 'line')">折线图</button>
@@ -118,8 +126,16 @@ const emit = defineEmits<{
         </div>
         <button class="export-btn" @click="emit('export-png')" :disabled="latestResult.canExport === false"><Download :size="14" />导出 PNG</button>
       </div>
-      <ChartContainer v-if="latestResult.chartConfig" :option="chartOption" />
-      <div v-else class="result-empty"><strong>无图表数据</strong></div>
+      <ChartContainer v-if="latestResult.chartConfig && !chartFailed" :option="chartOption" @error="chartFailed = true" />
+      <div v-if="!latestResult.chartConfig || chartFailed" class="chart-fallback">
+        <p class="result-empty">
+          <strong>{{ chartFailed ? '图表渲染失败，以下为受保护的数据表' : '当前结果不适合绘制图表，以下为受保护的数据表' }}</strong>
+        </p>
+        <el-table v-if="latestResult.data?.length" :data="pagedTableData" border stripe max-height="320" size="small">
+          <el-table-column v-for="col in (latestResult.columns || [])" :key="col.name" :prop="col.name" :label="col.comment || col.name" min-width="120" show-overflow-tooltip />
+        </el-table>
+        <div v-else class="result-empty"><strong>没有可展示的数据行</strong></div>
+      </div>
     </div>
 
     <!-- 可信依据 -->

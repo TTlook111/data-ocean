@@ -8,10 +8,10 @@ import {
   iamS1Ask,
   iamS1CancelTask,
   iamS1GetTask,
+  iamS1ResumeTask,
   iamS1StreamTask,
   iamS1ViewSql,
   type IamS1QueryTaskResult,
-  type IamS1TableDeclaration,
 } from '../api/iamS1'
 import type { LocalMessage, LocalSession } from './useQuerySession'
 
@@ -20,12 +20,14 @@ const POLL_MAX_CONSECUTIVE_ERRORS = 3
 
 /** Agent 节点定义 */
 const agentNodes = [
-  { key: 'query_rewriter', label: '理解问题' },
-  { key: 'schema_retriever', label: '召回知识' },
-  { key: 'sql_generator', label: '生成 SQL' },
-  { key: 'sql_validator', label: '安全校验' },
-  { key: 'sql_executor', label: '执行查询' },
-  { key: 'data_visualizer', label: '生成图表' },
+  { key: 'rag_retrieval', label: '检索已授权知识' },
+  { key: 'schema_linking', label: '理解问题并关联字段' },
+  { key: 'sql_generation', label: '生成 SQL' },
+  { key: 'sql_semantic_check', label: '核对问题语义' },
+  { key: 'execution_authorization', label: '复核当前权限' },
+  { key: 'sql_execution', label: '只读执行' },
+  { key: 'result_verification', label: '核对结果' },
+  { key: 'clarification', label: '需要补充说明' },
 ]
 
 export function useQuerySubmit(options: {
@@ -34,7 +36,6 @@ export function useQuerySubmit(options: {
   activeMessages: Ref<LocalMessage[]>
   canAskSelectedDatasource: Ref<boolean>
   selectedBlockReason: Ref<{ message?: string } | undefined>
-  resourceDeclarations: Ref<IamS1TableDeclaration[]>
   createSession: (datasourceId: number) => LocalSession
   animateNewMessages?: () => Promise<void>
   animateMessageUpdate?: (messageId: string) => Promise<void>
@@ -46,7 +47,6 @@ export function useQuerySubmit(options: {
     activeMessages,
     canAskSelectedDatasource,
     selectedBlockReason,
-    resourceDeclarations,
     createSession,
     animateNewMessages,
     animateMessageUpdate,
@@ -80,7 +80,7 @@ export function useQuerySubmit(options: {
     const currentIndex = agentNodes.findIndex((node) => node.key === result.progressNode)
     return agentNodes.map((node, index) => {
       let status: 'done' | 'active' | 'pending' | 'failed' = 'pending'
-      if (result.status === 'COMPLETED') {
+      if (result.status === 'COMPLETED' || result.status === 'CLARIFICATION_REQUIRED') {
         status = 'done'
       } else if (result.status === 'FAILED' || result.status === 'TIMEOUT' || result.status === 'CANCELLED') {
         status = currentIndex >= 0 && index === currentIndex ? 'failed' : index < currentIndex ? 'done' : 'pending'
@@ -147,6 +147,9 @@ export function useQuerySubmit(options: {
    * 构建查询完成消息，处理降级状态提示
    */
   function buildCompletionMessage(result: IamS1QueryTaskResult): string {
+    if (result.status === 'CLARIFICATION_REQUIRED') {
+      return result.sqlExplanation || result.errorMessage || '请补充指标、时间范围或筛选口径。'
+    }
     const degradeNotice = result.degraded
       ? '\n⚠️ 知识库暂时不可用，召回精度可能降低'
       : ''
@@ -222,10 +225,6 @@ export function useQuerySubmit(options: {
       ElMessage.warning(selectedBlockReason.value?.message || '当前数据源暂未达到可询问状态')
       return
     }
-    if (!resourceDeclarations.value.length) {
-      ElMessage.warning('请先声明本次查询要使用的表和字段')
-      return
-    }
     isQuerying.value = true
     currentTaskId.value = undefined
 
@@ -265,7 +264,6 @@ export function useQuerySubmit(options: {
         datasourceId: selectedId.value,
         question: text,
         conversationId: session.conversationId,
-        tables: resourceDeclarations.value,
       })
       const taskId = askResult.data.taskId
       session.conversationId = askResult.data.conversationId
@@ -290,6 +288,8 @@ export function useQuerySubmit(options: {
         assistantMsg.status = result.status
         assistantMsg.queryResult = result
         if (result.status === 'COMPLETED') {
+          assistantMsg.content = buildCompletionMessage(result)
+        } else if (result.status === 'CLARIFICATION_REQUIRED') {
           assistantMsg.content = buildCompletionMessage(result)
         } else if (result.status === 'TIMEOUT') {
           assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
@@ -345,6 +345,12 @@ export function useQuerySubmit(options: {
     sendQuestion()
   }
 
+  function prepareClarification(originalQuestion: string) {
+    if (isQuerying.value) return
+    question.value = originalQuestion ? `${originalQuestion}\n补充条件：` : ''
+    void focusQuestionInput?.()
+  }
+
   /**
    * 继续等待：重新轮询当前任务
    */
@@ -373,6 +379,10 @@ export function useQuerySubmit(options: {
     pollAbortController.value = abortCtrl
 
     try {
+      // A reconnect may find either a live worker or a suspended graph. The Java
+      // resume endpoint is idempotent for live tasks and restores from Redis/MySQL
+      // when the original Python worker is gone.
+      await iamS1ResumeTask(taskId).catch(() => undefined)
       const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
         if (assistantMsg.status === 'loading') {
           assistantMsg.queryResult = task
@@ -385,6 +395,8 @@ export function useQuerySubmit(options: {
       assistantMsg.status = result.status
       assistantMsg.queryResult = result
       if (result.status === 'COMPLETED') {
+        assistantMsg.content = buildCompletionMessage(result)
+      } else if (result.status === 'CLARIFICATION_REQUIRED') {
         assistantMsg.content = buildCompletionMessage(result)
       } else if (result.status === 'TIMEOUT') {
         assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
@@ -420,6 +432,7 @@ export function useQuerySubmit(options: {
     cancelCurrentQuery,
     refreshSql,
     retryQuery,
+    prepareClarification,
     continueWaiting,
     buildCompletionMessage,
     pollTaskResult,
