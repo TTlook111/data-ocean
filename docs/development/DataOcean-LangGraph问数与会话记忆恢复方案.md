@@ -1,6 +1,6 @@
 # DataOcean 自然语言问数、LangGraph 编排与会话记忆方案
 
-> 状态：G0、A～E 的代码实现及自动化检查已记录在 [`completed/DataOcean-LangGraph问数与会话记忆验收记录.md`](completed/DataOcean-LangGraph问数与会话记忆验收记录.md)。最终审查修复后的固定 G0 八题已通过本机 V64 隔离环境真实 IAM-SIMPLE-1 API 复跑（6/6 可答、2/2 正确拒答/澄清、无受限泄漏）；E 的历史 NORMAL→MASKED 负向重读和桌面/390 CSS px 视觉验收也仅在本机隔离环境通过。此前 390px iframe 中的五条 `MutationObserver.observe` 错误仍无法归因，继续列为未解决项。V64 仅应用于 `dataocean_e_acceptance_20260927`，既有 `dataocean` 保持 V59。本文第 8 节是实施前的 d8cda57 基线差距对照，不代表当前代码仍缺少这些功能。
+> 状态：G0、A～E 的代码实现及自动化检查已记录在 [`completed/DataOcean-LangGraph问数与会话记忆验收记录.md`](completed/DataOcean-LangGraph问数与会话记忆验收记录.md)。最终审查修复后的固定 G0 八题已通过本机 V64 隔离环境真实 IAM-SIMPLE-1 API 复跑（6/6 可答、2/2 正确拒答/澄清、无受限泄漏）；E 的历史 NORMAL→MASKED 负向重读和桌面/390 CSS px 视觉验收也仅在本机隔离环境通过。此前 390px iframe 中的五条 `MutationObserver.observe` 错误仍无法归因，继续列为未解决项。V64 先应用于隔离验收库 `dataocean_e_acceptance_20260927`；2026-09-27 本机常用开发库 `dataocean` 随后也由 V59 顺序迁移到 V64。这两次数据库操作与验收证据分别记录。本文第 8 节是实施前的 d8cda57 基线差距对照，不代表当前代码仍缺少这些功能。
 > 基线：main 的 d8cda57；代码事实核查日期 2026-09-25；按 2026-09-26 对产品目标的澄清整理。
 > 本文说明本次实施的产品边界、数据保护合同和验收顺序。实施只使用隔离的本地合成测试环境；生产部署、真实业务数据、自动发布、分支推送、PR 与合并不在授权范围内。
 
