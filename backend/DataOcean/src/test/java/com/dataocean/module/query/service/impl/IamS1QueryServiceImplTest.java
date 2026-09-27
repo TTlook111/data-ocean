@@ -32,6 +32,9 @@ import com.dataocean.module.query.entity.dto.IamS1QueryAskRequestDTO;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 import com.dataocean.module.query.entity.vo.ConversationMessageVO;
 import com.dataocean.module.permission.s1.entity.dto.IamS1TableRequestDTO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1GrantSourceVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1RowConditionVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1RowPredicateVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
@@ -279,6 +282,218 @@ class IamS1QueryServiceImplTest {
         Object sanitized = method.invoke(service, chart, Map.of("phone", "PHONE"));
 
         assertThat(sanitized).isNull();
+    }
+
+    @Test
+    void normalHistoricalResultIsReprotectedAcrossTaskHistoryConversationAndExportJson() throws Exception {
+        prepareHistoricalPhoneResult(100L, "{}", null);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(101L, "MASKED", "PHONE", List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        when(maskingService.maskResultByFields(any(), any())).thenReturn(List.of(Map.of("phone", "138****0000")));
+
+        QueryTaskVO taskJson = service.get("task-1", 7L);
+        assertThat(taskJson.getData()).containsExactly(Map.of("phone", "138****0000"));
+        assertThat(taskJson.getChartConfig()).isNull();
+        assertThat(taskJson.getSqlExplanation()).isNull();
+        assertThat(taskJson.getSuggestedQuestions()).isEmpty();
+        assertThat(taskJson.getMaskedFields()).containsEntry("phone", "PHONE");
+        assertThat(taskJson.getFinalProtectionStatus()).isEqualTo("FINAL_MASKED");
+        assertJsonDoesNotContain(taskJson, "RAW_PHONE_VALUE_83d2");
+
+        var conversationPage = com.dataocean.module.query.entity.vo.ConversationMessagePageVO.builder()
+                .items(new java.util.ArrayList<>(List.of(ConversationMessageVO.builder().id(2L)
+                        .role("assistant").content("RAW_PHONE_VALUE_83d2")
+                        .metadata("{\"chartConfig\":\"RAW_PHONE_VALUE_83d2\"}")
+                        .taskId("task-1").build())))
+                .nextBeforeMessageId(null).hasMore(false).build();
+        when(conversationService.listMessagePage(42L, 7L, null, 50)).thenReturn(conversationPage);
+        var protectedMessages = service.conversationMessages(42L, 7L, null, 50);
+        assertJsonDoesNotContain(protectedMessages, "RAW_PHONE_VALUE_83d2");
+
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<QueryTask> taskPage =
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 20, 1);
+        taskPage.setRecords(List.of(task));
+        when(queryTaskMapper.selectPage(any(), any())).thenReturn(taskPage);
+        var history = service.history(7L, new com.dataocean.module.query.entity.query.QueryHistoryQuery());
+        assertJsonDoesNotContain(history, "RAW_PHONE_VALUE_83d2");
+
+        var exportedRows = service.export("task-1", 7L);
+        assertThat(exportedRows).containsExactly(Map.of("phone", "138****0000"));
+        assertJsonDoesNotContain(exportedRows, "RAW_PHONE_VALUE_83d2");
+    }
+
+    @Test
+    void historicalResultWithAnAlreadyMaskedFieldIsDeniedIfItsMaskPolicyChanges() {
+        prepareHistoricalPhoneResult(100L, "{\"phone\":\"PHONE\"}", null);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(101L, "MASKED", "EMAIL", List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("脱敏策略已变化");
+    }
+
+    @Test
+    void historicalResultNeverRestoresRowsMaskedUnderThePreviousPolicy() throws Exception {
+        prepareHistoricalPhoneResult(100L, "{\"phone\":\"PHONE\"}", null);
+        task.setResultData("[{\"phone\":\"138****0000\"}]");
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(101L, "NORMAL", null, List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        QueryTaskVO result = service.get("task-1", 7L);
+
+        assertThat(result.getData()).containsExactly(Map.of("phone", "138****0000"));
+        assertThat(result.getMaskedFields()).containsEntry("phone", "PHONE");
+        assertThat(result.getFinalProtectionStatus()).isEqualTo("FINAL_MASKED");
+        assertThat(result.getChartConfig()).isNull();
+        assertThat(result.getSqlExplanation()).isNull();
+        assertThat(result.getSuggestedQuestions()).isEmpty();
+        assertJsonDoesNotContain(result, "RAW_PHONE_VALUE_83d2");
+    }
+
+    @Test
+    void historicalResultIsDeniedWhenAReferencedFieldBecomesHidden() {
+        prepareHistoricalPhoneResult(100L, "{}", null);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(101L, "HIDDEN", null, List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("权限已变化");
+    }
+
+    @Test
+    void historicalResultIsDeniedWhenTraceNamesHiddenSourceOmittedFromUsedColumns() {
+        prepareHistoricalPhoneResult(100L, "{}", null);
+        task.setUsedColumns("[\"users.name\"]");
+        var hiddenPhone = new IamS1FieldProtectionVO(2L, "users", "phone", "HIDDEN", null, "hidden");
+        var visibleName = new IamS1FieldProtectionVO(3L, "users", "name", "NORMAL", null, "normal");
+        var table = new IamS1TablePermissionVO(true, "ALLOWED", "users", List.of("phone", "name"),
+                List.of(), List.of(hiddenPhone, visibleName), List.of());
+        var current = new IamS1DataAuthorizationSnapshot(true, "ALLOWED", "IAM-SIMPLE-1", 7L, 1L,
+                "db", 88L, 101L, LocalDateTime.now(), null, List.of(table));
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(current);
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("权限已变化");
+    }
+
+    @Test
+    void historicalResultIsDeniedWhenDataContainsAKeyOutsideColumnMetadata() throws Exception {
+        prepareHistoricalPhoneResult(100L, "{}", null);
+        task.setResultData("[{\"phone\":\"RAW_PHONE_VALUE_83d2\",\"untracked\":\"UNTRACKED_RAW_VALUE\"}]");
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(100L, "NORMAL", null, List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("结果来源不完整");
+    }
+
+    @Test
+    void historicalResultIsDeniedWhenRowPermissionIsTightened() {
+        prepareHistoricalPhoneResult(100L, "{}",
+                "{\"resources\":[{\"grantSources\":[{\"rowCondition\":{}}]}]}");
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(101L, "NORMAL", null, List.of(rowGrant())));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("权限已变化");
+    }
+
+    @Test
+    void completedSsePayloadUsesCurrentProtectionForPreviouslyNormalHistory() throws Exception {
+        prepareHistoricalPhoneResult(100L, "{}", null);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(snapshot(),
+                userSnapshot(101L, "MASKED", "PHONE", List.of()),
+                userSnapshot(101L, "MASKED", "PHONE", List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        when(maskingService.maskResultByFields(any(), any())).thenReturn(List.of(Map.of("phone", "138****0000")));
+
+        ArgumentCaptor<Consumer<String>> callback = ArgumentCaptor.forClass(Consumer.class);
+        String taskId;
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            taskId = service.submit(7L, askRequest());
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        task.setTaskId(taskId);
+        verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture(), any());
+        callback.getValue().accept(objectMapper.writeValueAsString(Map.of(
+                "taskId", taskId, "protocolVersion", "IAM-SIMPLE-1", "status", "COMPLETED",
+                "usedColumns", List.of("users.phone"), "usedTables", List.of("users"),
+                "sourceTrace", List.of(Map.of("outputColumn", "phone", "sources", List.of("users.phone"))),
+                "columns", List.of(Map.of("name", "phone")), "data", List.of(Map.of("phone", "RAW_PHONE_VALUE_83d2")))));
+
+        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
+        verify(sseController).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO ssePayload = (QueryTaskVO) pushed.getValue();
+        assertThat(ssePayload.getData()).containsExactly(Map.of("phone", "138****0000"));
+        assertThat(ssePayload.getChartConfig()).isNull();
+        assertThat(ssePayload.getSqlExplanation()).isNull();
+        assertThat(ssePayload.getSuggestedQuestions()).isEmpty();
+        assertThat(ssePayload.getFinalProtectionStatus()).isEqualTo("FINAL_MASKED");
+        assertJsonDoesNotContain(ssePayload, "RAW_PHONE_VALUE_83d2");
+    }
+
+    private void prepareHistoricalPhoneResult(Long resultRevision, String persistedMasks,
+                                              String executionSnapshot) {
+        task.setStatus("COMPLETED");
+        task.setQuestion("查询手机号");
+        task.setConversationId(42L);
+        task.setPermissionRevision(resultRevision);
+        task.setIamResourceRequest("[{\"tableName\":\"users\",\"referencedColumns\":[\"phone\"],"
+                + "\"columnUsages\":{\"phone\":[\"PROJECTION\"]}}]");
+        task.setIamExecutionSnapshot(executionSnapshot == null ? "{\"resources\":[]}" : executionSnapshot);
+        task.setUsedColumns("[\"users.phone\"]");
+        task.setUsedTables("[\"users\"]");
+        task.setResultColumns("[{\"name\":\"phone\"}]");
+        task.setResultData("[{\"phone\":\"RAW_PHONE_VALUE_83d2\"}]");
+        task.setIamSourceTrace("{\"permissionRevision\":100,\"activeMetadataSnapshotId\":88,"
+                + "\"entries\":[{\"outputColumn\":\"phone\",\"sources\":[\"users.phone\"]}]}");
+        task.setMaskedFields(persistedMasks);
+        task.setChartConfig("{\"xAxis\":{\"data\":[\"RAW_PHONE_VALUE_83d2\"]},"
+                + "\"series\":[{\"name\":\"phone\",\"data\":[\"RAW_PHONE_VALUE_83d2\"]}]}");
+        task.setSqlExplanation("手机号 RAW_PHONE_VALUE_83d2 的查询说明");
+        task.setSuggestedQuestions("[\"查询 RAW_PHONE_VALUE_83d2 的订单\"]");
+        task.setIamCapabilities("{\"viewSql\":true,\"export\":true}");
+        task.setIamFinalProtectionStatus("FINAL_PROTECTED");
+    }
+
+    private IamS1GrantSourceVO rowGrant() {
+        var predicate = new IamS1RowPredicateVO(2L, "region", "EQ", "STRING", null, "current_department");
+        var condition = new IamS1RowConditionVO("ALL", List.of(predicate));
+        return new IamS1GrantSourceVO(9L, "USER", 7L, "用户个人授权", null, "MANUAL", null,
+                LocalDateTime.now().minusDays(1), null, List.of("phone"), condition);
+    }
+
+    private IamS1DataAuthorizationSnapshot userSnapshot(Long revision, String protection, String policy,
+                                                        List<IamS1GrantSourceVO> grantSources) {
+        IamS1FieldProtectionVO phone = new IamS1FieldProtectionVO(2L, "users", "phone", protection, policy,
+                "HIDDEN".equals(protection) ? "hidden" : "normal");
+        IamS1TablePermissionVO table = new IamS1TablePermissionVO(true, "ALLOWED", "users", List.of("phone"),
+                grantSources, List.of(phone), List.of());
+        return new IamS1DataAuthorizationSnapshot(true, "ALLOWED", "IAM-SIMPLE-1", 7L, 1L, "db", 88L,
+                revision, LocalDateTime.now(), null, List.of(table));
+    }
+
+    private void assertJsonDoesNotContain(Object value, String secret) throws Exception {
+        assertThat(objectMapper.writeValueAsString(value)).doesNotContain(secret);
     }
 
     @Test

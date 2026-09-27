@@ -1,6 +1,6 @@
 # DataOcean 自然语言问数、LangGraph 编排与会话记忆方案
 
-> 状态：G0、A～E 的代码实现及自动化检查已记录在 [`completed/DataOcean-LangGraph问数与会话记忆验收记录.md`](completed/DataOcean-LangGraph问数与会话记忆验收记录.md)；E 阶段浏览器交互与视觉验收仍未通过。当前工作树含后续审查修复和未应用的 V64。本文第 8 节是实施前的 d8cda57 基线差距对照，不代表当前代码仍缺少这些功能。
+> 状态：G0、A～E 的代码实现及自动化检查已记录在 [`completed/DataOcean-LangGraph问数与会话记忆验收记录.md`](completed/DataOcean-LangGraph问数与会话记忆验收记录.md)。最终审查修复后的固定 G0 八题已通过本机 V64 隔离环境真实 IAM-SIMPLE-1 API 复跑（6/6 可答、2/2 正确拒答/澄清、无受限泄漏）；E 的历史 NORMAL→MASKED 负向重读和桌面/390 CSS px 视觉验收也仅在本机隔离环境通过。此前 390px iframe 中的五条 `MutationObserver.observe` 错误仍无法归因，继续列为未解决项。V64 仅应用于 `dataocean_e_acceptance_20260927`，既有 `dataocean` 保持 V59。本文第 8 节是实施前的 d8cda57 基线差距对照，不代表当前代码仍缺少这些功能。
 > 基线：main 的 d8cda57；代码事实核查日期 2026-09-25；按 2026-09-26 对产品目标的澄清整理。
 > 本文说明本次实施的产品边界、数据保护合同和验收顺序。实施只使用隔离的本地合成测试环境；生产部署、真实业务数据、自动发布、分支推送、PR 与合并不在授权范围内。
 
@@ -153,7 +153,7 @@ Java 先生成不可由模型改写的快照清单：以本轮 snapshotId 查出
 
 checkpoint 只存恢复所需的安全状态、任务/轮次标识和游标，不存连接配置、执行绑定原值、未保护结果或可绕过 Java 再授权的许可。恢复时先核对 Java 持久任务终态、当前会话归属、快照与权限修订、deadline 和取消标记；节点可能重新执行的外部调用必须按 taskId、轮次及尝试 ID 幂等。任何无法证明安全的续跑都以明确失败结束，不能从旧 checkpoint 直接重新执行 SQL。
 
-Redis 不是完整聊天历史的事实源；它是**本方案选定的 LangGraph checkpoint 存储**。实施前的本机 Redis 7.4.11 不含 RedisJSON/RediSearch。2026-09-27 本机既有 Redis 容器已替换为 8.10.2，保留原端口和卷；`AsyncRedisSaver` 在 DB 0 的初始化与断开重连读回通过，DB 15 的索引创建受 Redis Search 限制。该机器局部验证不等于 E 阶段浏览器验收，也不代表其他环境已升级。
+Redis 不是完整聊天历史的事实源；它是**本方案选定的 LangGraph checkpoint 存储**。实施前的本机 Redis 7.4.11 不含 RedisJSON/RediSearch。2026-09-27 本机既有 Redis 容器已替换为 8.10.2，保留原端口和卷；`AsyncRedisSaver` 在 DB 0 的初始化与断开重连读回通过，DB 15 的索引创建受 Redis Search 限制。这项 Redis 局部验证本身不等于 E 阶段验收；后续 E 的本机隔离验收结果与边界见配套验收记录，也不代表其他环境已升级。
 
 ## 7. 系统分工与安全底线
 
@@ -190,7 +190,7 @@ LangGraph 每次准备执行候选 SQL 时，向 Java 提交 taskId、尝试 ID�
 | B | 用户消息、助手终态消息和轮次 ID 的对应；最近 5 个已完成轮次、coveredMessageId 与失败摘要的补齐规则；同会话单活动轮次；Redis checkpoint 白名单、过期及安全恢复判据；365 天在线证据引用与 ACTIVE/ARCHIVED/DELETED 可见性 | 不从不完整摘要或不安全 checkpoint 续跑；保留 MySQL 原始消息并给出明确失败/占位 |
 | C | 完整可见候选的分页或批量 Resolver 协议；`ragSourceSnapshotId`、`ragBuildId`、`s1SnapshotId` 各自用途；Milvus、邻块和 MySQL fallback 共用候选依赖与授权过滤 | 未探测资源不得标记为无权；无法证明安全的知识不进入模型 |
 | D | 每次候选 SQL 的 taskId/轮次/尝试 ID、可信 AST 资源与 usage 证据、当前快照和权限修订、Java 再授权判定及绑定、统一 deadline/取消/幂等状态；G0 实测后的重试、时长、成本和正确率数值 | 授权、快照或合同变化直接终止；只对可修正错误回环，预算耗尽明确停止 |
-| E | Java 最终保护数据到图表/回答生成的载荷协议；历史结果、图表与说明按当前权限一起重护或隐藏 | 无法保护的图表不展示，可信数据表仍可展示 |
+| E | Java 最终保护数据到图表/回答生成的载荷协议；任务 GET、会话消息、导出和 SSE 均按当前权限重读历史结果。NORMAL→MASKED 只对仍持有原值的行重新脱敏并清除无法证明安全的旧图表、说明和推荐问题；已有脱敏策略改变、HIDDEN 字段或行权限收紧且无法证明安全时，整个结果受限 | 不展示无法证明安全的图表或说明；仍安全的数据表可以展示，已脱敏数据不得尝试恢复原值 |
 
 Milvus collection 布局、LangGraph 节点细分和页面提示文案可留在相应批次选型；它们不得改变以上事实来源、权限和数据保护边界。G0 需验证选定 Redis saver 的模块要求、初始化、持久化和重启读回，但不据此改变最近 5 轮与 365 天的产品口径。
 

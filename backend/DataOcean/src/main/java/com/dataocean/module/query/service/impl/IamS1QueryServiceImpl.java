@@ -63,6 +63,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -253,7 +254,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         boolean viewSql = Boolean.TRUE.equals(caps.get("viewSql"));
         result.setCanViewSql(viewSql);
         result.setCanExport(Boolean.TRUE.equals(caps.get("export")));
-        if (!viewSql) result.setSql(null);
+        if (!viewSql) {
+            result.setSql(null);
+            result.setSqlExplanation(null);
+        }
         return result;
     }
 
@@ -662,9 +666,35 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         Map<String, IamS1FieldProtectionVO> fields = new HashMap<>();
         current.getTables().forEach(table -> table.getFieldProtections().forEach(field ->
                 fields.put((table.getTableName() + "." + field.getColumnName()).toLowerCase(Locale.ROOT), field)));
+        Set<String> authorizedColumns = new HashSet<>();
         for (String value : usedColumns) {
-            IamS1FieldProtectionVO protection = fields.get(value.toLowerCase(Locale.ROOT));
+            if (value == null || value.isBlank()) return false;
+            String normalized = value.toLowerCase(Locale.ROOT);
+            IamS1FieldProtectionVO protection = fields.get(normalized);
             if (protection == null || "HIDDEN".equals(protection.getProtectionLevel())) return false;
+            authorizedColumns.add(normalized);
+        }
+
+        Object traceValue = rawTrace;
+        if (traceValue instanceof Map<?, ?> wrapper) traceValue = wrapper.get("entries");
+        if (!(traceValue instanceof List<?> entries) || entries.isEmpty()) return false;
+        for (Object rawEntry : entries) {
+            if (!(rawEntry instanceof Map<?, ?> entry)
+                    || !(entry.get("sources") instanceof List<?> sources)) return false;
+            if (sources.isEmpty()) {
+                if (!NO_COLUMN_SOURCE.equals(String.valueOf(entry.get("sourceKind")))) return false;
+                continue;
+            }
+            if (NO_COLUMN_SOURCE.equals(String.valueOf(entry.get("sourceKind")))) return false;
+            for (Object source : sources) {
+                if (source == null || String.valueOf(source).isBlank()) return false;
+                String normalized = String.valueOf(source).toLowerCase(Locale.ROOT);
+                IamS1FieldProtectionVO protection = fields.get(normalized);
+                // sourceTrace is independent provenance evidence. Do not let an omitted or
+                // stale usedColumns list hide a currently hidden source field.
+                if (!authorizedColumns.contains(normalized) || protection == null
+                        || "HIDDEN".equals(protection.getProtectionLevel())) return false;
+            }
         }
         return true;
     }
@@ -721,7 +751,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     outputNames.putIfAbsent(key, output);
                     Set<String> found = policies.computeIfAbsent(key, ignored -> new LinkedHashSet<>());
                     String policy = protection.getMaskPolicy();
-                    if (policy != null && !policy.isBlank()) found.add(policy);
+                    if (policy == null || policy.isBlank()) {
+                        throw new IamS1MaskPolicyConflictException("字段脱敏策略缺失",
+                                List.of(output + " -> missing mask policy"));
+                    }
+                    found.add(policy);
                 }
             }
         }
@@ -1300,7 +1334,50 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             // 读取阶段同样 fail-closed：历史任务或异常来源带来的冲突 trace 不得返回结果。
             throw new BusinessException("结果脱敏策略冲突，已拒绝返回");
         }
-        if (!masks.isEmpty()) vo.setData(maskingService.maskResultByFields(vo.getData(), masks)); vo.setMaskedFields(masks);
+        Map<String, String> previousMasks = persistedMaskPolicies(task);
+        Map<String, String> previousPoliciesByOutput = new HashMap<>();
+        previousMasks.forEach((output, policy) -> previousPoliciesByOutput.put(
+                output.toLowerCase(Locale.ROOT), policy));
+        Map<String, String> masksToApply = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : masks.entrySet()) {
+            String previousPolicy = previousPoliciesByOutput.get(entry.getKey().toLowerCase(Locale.ROOT));
+            if (previousPolicy != null && !previousPolicy.equals(entry.getValue())) {
+                // 持久化行已按旧策略脱敏，原值无法恢复，也不能证明把新策略套在旧掩码上安全。
+                throw new BusinessException("历史结果的脱敏策略已变化，已拒绝返回");
+            }
+            if (previousPolicy == null) masksToApply.put(entry.getKey(), entry.getValue());
+        }
+        if (!masksToApply.isEmpty()) {
+            vo.setData(maskingService.maskResultByFields(vo.getData(), masksToApply));
+        }
+        Map<String, String> effectiveMasks = new LinkedHashMap<>(previousMasks);
+        masks.forEach(effectiveMasks::putIfAbsent);
+        vo.setMaskedFields(effectiveMasks);
+        if (!effectiveMasks.isEmpty()) vo.setFinalProtectionStatus("FINAL_MASKED");
+
+        boolean authorizationChanged = !Objects.equals(current.getPermissionRevision(), task.getPermissionRevision())
+                || !Objects.equals(current.getActiveMetadataSnapshotId(), task.getActiveMetadataSnapshotId());
+        if (authorizationChanged || !effectiveMasks.isEmpty()) {
+            // 图表、说明和推荐问题可能包含行/列值。它们没有足够的血缘证据按新规则重建。
+            vo.setChartConfig(null);
+            vo.setSqlExplanation(null);
+            vo.setSuggestedQuestions(List.of());
+        }
+    }
+
+    private Map<String, String> persistedMaskPolicies(QueryTask task) {
+        String value = task.getMaskedFields();
+        if (value == null || value.isBlank()) return Map.of();
+        try {
+            Map<String, String> masks = objectMapper.readValue(value, new TypeReference<>() {});
+            if (masks == null) throw new IllegalArgumentException("empty mask policy map");
+            if (masks.values().stream().anyMatch(policy -> policy == null || policy.isBlank())) {
+                throw new IllegalArgumentException("empty mask policy");
+            }
+            return masks;
+        } catch (Exception ex) {
+            throw new BusinessException("历史结果脱敏记录无法验证，已拒绝返回");
+        }
     }
 
     private boolean containsRowCondition(String snapshotJson) {
@@ -1318,12 +1395,33 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             List<String> usedColumns = objectMapper.readValue(task.getUsedColumns(), new TypeReference<>() {});
             Object trace = objectMapper.readValue(task.getIamSourceTrace(), Object.class);
             Object columns = objectMapper.readValue(task.getResultColumns(), Object.class);
+            Object data = objectMapper.readValue(task.getResultData(), Object.class);
             if (trace instanceof Map<?, ?> wrapper) trace = wrapper.get("entries");
             return (isSubsetEvidencePresent(usedColumns) || traceIsEntirelyColumnFree(trace))
-                    && hasCompleteSourceTrace(trace, columns);
+                    && hasCompleteSourceTrace(trace, columns)
+                    && dataKeysAreCoveredByColumns(data, columns);
         } catch (Exception ex) {
             return false;
         }
+    }
+
+    private boolean dataKeysAreCoveredByColumns(Object rawData, Object rawColumns) {
+        if (!(rawData instanceof List<?> rows) || !(rawColumns instanceof List<?> columns)) return false;
+        Set<String> knownColumns = new HashSet<>();
+        for (Object rawColumn : columns) {
+            if (!(rawColumn instanceof Map<?, ?> column) || column.get("name") == null) return false;
+            knownColumns.add(String.valueOf(column.get("name")).toLowerCase(Locale.ROOT));
+        }
+        if (knownColumns.isEmpty()) return false;
+        for (Object rawRow : rows) {
+            if (!(rawRow instanceof Map<?, ?> row)) return false;
+            for (Object rawKey : row.keySet()) {
+                if (rawKey == null || !knownColumns.contains(String.valueOf(rawKey).toLowerCase(Locale.ROOT))) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private boolean isSubsetEvidencePresent(List<String> usedColumns) {

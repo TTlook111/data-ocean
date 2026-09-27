@@ -408,4 +408,65 @@ onMounted(() => {
   .query-workspace.result-open { grid-template-columns: 250px minmax(0, 1fr); }
   .query-workspace.result-open :deep(.result-rail) { position: fixed; top: 0; right: 0; z-index: 80; width: min(500px, calc(100vw - 250px)); }
 }
+@media (max-width: 768px) {
+  .query-workspace,
+  .query-workspace.result-open {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow-x: clip;
+  }
+  .query-workspace :deep(.query-sidebar) {
+    position: relative;
+    top: auto;
+    height: auto;
+    grid-template-rows: auto auto auto auto;
+    gap: 8px;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--do-line);
+  }
+  .query-workspace :deep(.query-brand) { height: 38px; }
+  .query-workspace :deep(.new-session-button) { height: 38px; }
+  .query-workspace :deep(.history-section) {
+    max-height: 108px;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 4px;
+  }
+  .query-workspace :deep(.history-list) {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+  }
+  .query-workspace :deep(.history-row) { flex: 0 0 min(220px, 68vw); }
+  .query-workspace :deep(.history-delete) { opacity: 1; }
+  .query-main {
+    height: auto;
+    min-height: calc(100vh - 300px);
+    grid-template-rows: auto minmax(220px, 1fr) auto;
+  }
+  .query-topbar { min-height: 58px; gap: 8px; padding: 8px 12px; }
+  .chat-surface { min-height: 220px; padding: 16px 12px 12px; }
+  .conversation-stream { width: 100%; gap: 16px; padding-bottom: 20px; }
+  .message-item { grid-template-columns: 30px minmax(0, 1fr); gap: 8px; }
+  .message-item.user { grid-template-columns: minmax(0, 1fr) 30px; }
+  .message-avatar { width: 30px; height: 30px; }
+  .message-bubble { max-width: 100%; padding: 11px 12px; }
+  .message-item.user .message-bubble { max-width: 92%; }
+  .message-actions { flex-wrap: wrap; }
+  .query-input { width: calc(100% - 24px); margin-bottom: 10px; }
+  .query-workspace.result-open :deep(.result-rail) {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: 0;
+    z-index: 80;
+    width: 100vw;
+    max-width: 100vw;
+    height: min(82vh, 680px);
+    border-left: 0;
+    border-radius: 14px 14px 0 0;
+  }
+}
 </style>

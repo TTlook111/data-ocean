@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import importlib.util
 
 import pytest
 
@@ -12,6 +13,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "scripts" / "langgraph-acceptance" / "fixtures"
 BASELINE = REPO_ROOT / "scripts" / "langgraph-acceptance" / "baseline.py"
+CURRENT_RUNNER = REPO_ROOT / "scripts" / "langgraph-acceptance" / "run_iam_s1_g0_e_isolation.ps1"
+ISOLATED_GUARD = REPO_ROOT / "scripts" / "langgraph-acceptance" / "verify_isolated_e_target.py"
 
 
 def _load_baseline():
@@ -59,3 +62,51 @@ def test_baseline_compares_values_without_requiring_llm_alias_choice():
         [{"s1_c1": "181.0", "s1_c2": "Furniture"}],
         [{"revenue": "180.00", "category": "Furniture"}],
     )
+
+
+def test_current_e_runner_pins_the_existing_isolated_target_and_frozen_budgets():
+    runner = CURRENT_RUNNER.read_text(encoding="utf-8")
+    guard = ISOLATED_GUARD.read_text(encoding="utf-8")
+    for frozen_value in (
+        "dataocean_e_acceptance_20260927",
+        "langgraph_fixture_e_20260927",
+        "g0_reader_e27",
+        "1473e4ce-96fe-4483-82ef-2c64664bb0ab",
+        "expectedReaderId = 9002",
+        "sqlCalls -gt 3",
+        "llmCalls -gt 8",
+        "embeddingCalls -gt 2",
+        "duration -gt 90000",
+        "cost -gt [decimal]0.10",
+    ):
+        assert frozen_value in runner or frozen_value in guard
+    assert "LANGGRAPH_ACCEPTANCE_READER_PASSWORD" in runner
+    assert "SHOW GRANTS FOR CURRENT_USER()" in guard
+    assert "dataocean_e_acceptance_20260927" in guard
+
+
+def test_current_e_fixture_account_guard_rejects_any_write_or_wildcard_grant():
+    spec = importlib.util.spec_from_file_location("isolated_e_guard", ISOLATED_GUARD)
+    guard = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(guard)
+
+    valid = [
+        "GRANT USAGE ON *.* TO `g0_reader_e27`@`%`",
+        "GRANT SELECT ON `langgraph_fixture_e_20260927`.`products` TO `g0_reader_e27`@`%`",
+        "GRANT SELECT ON `langgraph_fixture_e_20260927`.`sales_orders` TO `g0_reader_e27`@`%`",
+    ]
+    guard._assert_read_only_grants(valid, "langgraph_fixture_e_20260927")
+    with pytest.raises(ValueError, match="not restricted"):
+        guard._assert_read_only_grants(
+            valid + ["GRANT INSERT ON `langgraph_fixture_e_20260927`.`sales_orders` TO `g0_reader_e27`@`%`"],
+            "langgraph_fixture_e_20260927",
+        )
+    with pytest.raises(ValueError, match="not restricted"):
+        guard._assert_read_only_grants(
+            [
+                "GRANT USAGE ON *.* TO `g0_reader_e27`@`%`",
+                "GRANT SELECT ON `langgraph_fixture_e_20260927`.* TO `g0_reader_e27`@`%`",
+            ],
+            "langgraph_fixture_e_20260927",
+        )

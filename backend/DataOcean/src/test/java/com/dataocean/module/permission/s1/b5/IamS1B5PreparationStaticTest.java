@@ -207,7 +207,7 @@ class IamS1B5PreparationStaticTest {
         String followUp = read(Path.of("..", "..", "docs/development/后续开发.md"));
         assertThat(followUp).contains("V53 永久不再使用");
         assertThat(followUp).contains("B6 必须单独获得授权", "只删除冻结清单中的旧权限专用入口、代码和表");
-        assertThat(followUp).contains("P9 若实施必须使用 V58 或更高的未占用版本");
+        assertThat(followUp).contains("当前工作树已有 V64", "V65");
         assertThat(followUp).doesNotContain("B5_EXPECTED_SHA");
         assertThat(followUp).contains("独立 MySQL 恢复演练");
         assertThat(followUp).doesNotContain("必须在本轮迁移执行前补上");
