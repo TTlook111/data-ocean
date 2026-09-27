@@ -425,8 +425,12 @@ Latest documented verification:
 ## Local Environment Rules
 
 - Do not add project downloads, generated assets, dependency caches, exported files, or temporary project files to the repository or an arbitrary system root. Use a verified machine-local workspace/runtime directory recorded in `.dataocean/local-environment.md`, or a temporary directory created by the relevant tool.
-- Before introducing any new Docker container or infrastructure service, tell the user what container is needed and why, then wait for confirmation.
-- If an existing local infrastructure service is stopped or missing during development, do not automatically create, recreate, delete, or start Docker containers. Tell the user which existing container/service should be started, and let the user start it manually unless the user explicitly says to run the Docker command.
+- Docker work starts with a read-only inventory: inspect `docker ps -a` and the relevant container details (status, labels, ports, mounts, and Compose group) to identify containers the user already started and verify their purpose before connecting to or changing data in them.
+- An instruction to use already-started containers authorizes reuse of suitable existing containers only. It does not authorize `docker run`, `docker compose up`, creating/replacing containers or volumes, or starting stopped containers.
+- Reuse an existing container only after confirming it is the intended isolated test service. Do not create a replacement because a container is stopped, missing, on a different port, or has an incompatible version.
+- If no suitable running container exists, or its data/purpose cannot be verified, do not create, recreate, start, delete, seed, or reset it. Tell the user the exact service/container needed and ask them to start it; continue independent work that does not depend on it.
+- Creating any new container or infrastructure service requires a separate, explicit user request for that setup. Before running the requested Docker command, state the exact service/container, ports, data volume, and reason, and wait for confirmation. Broad permission to use local test infrastructure is not permission to provision it.
+- Never run destructive database operations against an existing container until its disposable test purpose and target database have been verified. If that cannot be established read-only, stop that operation and ask the user.
 - Do not assume a fixed Docker inventory or that MySQL runs in Docker. Use the optional machine-local profile and read-only runtime inspection to determine service locations. Treat exact local credentials as private local configuration, not repository documentation.
 - This project currently has no Figma prototype. Do not use Figma-related workflows by default.
 
