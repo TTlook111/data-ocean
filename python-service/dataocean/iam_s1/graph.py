@@ -1096,6 +1096,15 @@ async def _generate_sql_node(state: S1GraphState) -> S1GraphState:
         next_state["clarification"] = "已达到 SQL 尝试上限，当前问题未能安全完成，请缩小问题范围后重试。"
         next_state["status"] = "CLARIFICATION_REQUIRED"
         return next_state
+    # A result belongs to the exact SQL attempt that produced it. Once a new
+    # candidate starts, an earlier protected result must not influence routing
+    # or be offered to result verification if this attempt fails.
+    attempt_state = dict(state)
+    attempt_state["protectedResult"] = {}
+    attempt_state["recoveredProtectedResult"] = False
+    attempt_state["currentAttemptId"] = ""
+    attempt_state["currentSqlHash"] = ""
+    attempt_state["currentSql"] = ""
     await _progress(state, "sql_generation", attempt_no)
     # The local AST firewall accepts resource declarations (column-name strings),
     # while linkedSchema is the richer prompt DTO (column objects).
@@ -1125,11 +1134,17 @@ async def _generate_sql_node(state: S1GraphState) -> S1GraphState:
             "没有已审核筛选值时不要猜测，要求澄清。"
         )
         generated, budgeted = await _budgeted_llm(
-            state, "sql_generation", sql_system,
+            attempt_state, "sql_generation", sql_system,
             prompt, f"sql:{attempt_no}", max_output_tokens=MAX_OUTPUT_TOKENS,
         )
     except BudgetExceeded as exc:
         raise
+    budgeted = dict(budgeted)
+    budgeted["protectedResult"] = {}
+    budgeted["recoveredProtectedResult"] = False
+    budgeted["currentAttemptId"] = ""
+    budgeted["currentSqlHash"] = ""
+    budgeted["currentSql"] = ""
     sql = _clean_sql(generated)
     validation = validate_sql(sql, linked_snapshot)
     unsupported_aliases = _unsupported_reviewed_output_aliases(validation.source_trace, state.get("glossaryTerms", []))
@@ -1247,6 +1262,12 @@ async def _authorize_execute_protect_node(state: S1GraphState) -> S1GraphState:
             result["status"] = "FAILED"
             return result
         if decision.get("status") == "PROTECTED":
+            if (decision.get("attemptId") != state.get("currentAttemptId")
+                    or decision.get("sqlHash") != state.get("currentSqlHash")):
+                result = dict(state)
+                result["error"] = "Java 返回的保护结果不属于当前 SQL 尝试"
+                result["status"] = "FAILED"
+                return result
             result = dict(state)
             result["protectedResult"] = decision
             return result
@@ -1304,6 +1325,12 @@ async def _authorize_execute_protect_node(state: S1GraphState) -> S1GraphState:
                 result["repairFeedback"] = repair_feedback
             result["status"] = "FAILED"
             return result
+        if (result_callback.get("attemptId") != state.get("currentAttemptId")
+                or result_callback.get("sqlHash") != state.get("currentSqlHash")):
+            result = dict(state)
+            result["error"] = "Java 返回的保护结果不属于当前 SQL 尝试"
+            result["status"] = "FAILED"
+            return result
         result = dict(state)
         result["protectedResult"] = result_callback
         result["status"] = "PROCESSING"
@@ -1322,6 +1349,11 @@ async def _authorize_execute_protect_node(state: S1GraphState) -> S1GraphState:
 
 async def _verify_result_node(state: S1GraphState) -> S1GraphState:
     _check_deadline(state)
+    if not _has_current_protected_result(state):
+        next_state = dict(state)
+        next_state["error"] = "当前 SQL 尝试没有匹配的 Java 保护结果"
+        next_state["status"] = "FAILED"
+        return next_state
     result = state.get("protectedResult") or {}
     rows = result.get("data") if isinstance(result.get("data"), list) else []
     columns = result.get("columns") if isinstance(result.get("columns"), list) else []
@@ -1467,7 +1499,7 @@ async def _dispatch_node(state: S1GraphState) -> S1GraphState:
 
 
 def _after_dispatch(state: S1GraphState) -> str:
-    if state.get("protectedResult", {}).get("status") == "PROTECTED": return "verify_result"
+    if _has_current_protected_result(state): return "verify_result"
     return "retrieve"
 
 
@@ -1495,11 +1527,24 @@ def _after_semantic(state: S1GraphState) -> str:
 
 
 def _after_execution(state: S1GraphState) -> str:
-    if state.get("protectedResult", {}).get("status") == "PROTECTED": return "verify_result"
+    if _has_current_protected_result(state): return "verify_result"
     error = str(state.get("errorType", "")) + " " + str(state.get("error", ""))
     if _is_repairable_execution_error(error) and int(state.get("attemptCount", 0)) < MAX_SQL_ATTEMPTS:
         return "generate_sql"
     return "fail"
+
+
+def _has_current_protected_result(state: S1GraphState) -> bool:
+    result = state.get("protectedResult") or {}
+    attempt_id = state.get("currentAttemptId")
+    sql_hash = state.get("currentSqlHash")
+    return bool(
+        result.get("status") == "PROTECTED"
+        and attempt_id
+        and sql_hash
+        and result.get("attemptId") == attempt_id
+        and result.get("sqlHash") == sql_hash
+    )
 
 
 def _after_result(state: S1GraphState) -> str:

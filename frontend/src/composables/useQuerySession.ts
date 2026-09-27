@@ -27,6 +27,8 @@ export interface LocalMessage {
   status?: string
   queryResult?: IamS1QueryTaskResult
   originalQuestion?: string
+  /** 本地轮询达到等待上限，但 Java 任务仍处于 PROCESSING。 */
+  localWaitTimedOut?: boolean
 }
 
 /** 会话 */
@@ -106,20 +108,25 @@ export function useQuerySession() {
     }
   }
 
+  function associateOriginalQuestions(messages: LocalMessage[]) {
+    let latestQuestion = ''
+    for (const message of messages) {
+      if (message.role === 'user') {
+        latestQuestion = message.content
+      } else {
+        const question = message.queryResult?.question || latestQuestion
+        if (question) message.originalQuestion = question
+      }
+    }
+  }
+
   async function hydrateSessionMessages(session: LocalSession) {
     if (!session.conversationId) return
     const res = await iamS1ListConversationMessages(session.conversationId, { pageSize: 50 })
     session.messages = res.data.items.map(toLocalMessage)
     session.historyBeforeMessageId = res.data.nextBeforeMessageId
     session.hasMoreHistory = res.data.hasMore
-    let latestQuestion = ''
-    session.messages.forEach((message) => {
-      if (message.role === 'user') {
-        latestQuestion = message.content
-      } else if (!message.originalQuestion) {
-        message.originalQuestion = message.queryResult?.question || latestQuestion || undefined
-      }
-    })
+    associateOriginalQuestions(session.messages)
   }
 
   async function loadOlderMessages(session: LocalSession) {
@@ -133,6 +140,7 @@ export function useQuerySession() {
       const older = res.data.items.map(toLocalMessage)
       const existing = new Set(session.messages.map((message) => message.id))
       session.messages.unshift(...older.filter((message) => !existing.has(message.id)))
+      associateOriginalQuestions(session.messages)
       session.historyBeforeMessageId = res.data.nextBeforeMessageId
       session.hasMoreHistory = res.data.hasMore
     } catch {

@@ -73,7 +73,8 @@ public class QueryTaskCleanupScheduler {
                     conversationService.saveAssistantMessage(task.getConversationId(), "查询执行超时，请重新提问",
                             task.getTaskId(), "{\"taskId\":\"" + task.getTaskId() + "\",\"status\":\"TIMEOUT\"}");
                     conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
-                    conversationContextSummaryService.refreshAsync(task.getConversationId(), task.getUserId(), task.getPermissionRevision());
+                    conversationContextSummaryService.refreshAsync(
+                            task.getConversationId(), task.getUserId(), task.getDatasourceId());
                 }
             }
         }

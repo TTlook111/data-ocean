@@ -297,7 +297,10 @@ onMounted(() => {
               </div>
               <div v-if="message.role === 'assistant' && message.status === 'TIMEOUT'" class="message-actions">
                 <button @click="submit.retryQuery(message.originalQuestion || '')" :disabled="submit.isQuerying.value"><RefreshCw :size="14" />重试查询</button>
-                <button @click="submit.continueWaiting(message.taskId || '')" :disabled="submit.isQuerying.value"><History :size="14" />继续等待</button>
+              </div>
+              <div v-if="message.role === 'assistant' && submit.isLocallyResumable(message)" class="message-actions">
+                <button @click="submit.retryQuery(message.originalQuestion || '')" :disabled="submit.isQuerying.value"><RefreshCw :size="14" />重新提问</button>
+                <button @click="submit.continueWaiting(message.taskId || '')" :disabled="submit.isQuerying.value || !message.taskId"><History :size="14" />恢复等待</button>
               </div>
               <div v-if="message.role === 'assistant' && message.status === 'CLARIFICATION_REQUIRED'" class="message-actions">
                 <button @click="submit.prepareClarification(message.originalQuestion || '')" :disabled="submit.isQuerying.value">补充查询条件</button>

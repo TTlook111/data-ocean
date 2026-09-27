@@ -715,16 +715,18 @@ async def test_execute_trace_keeps_java_injected_row_columns_out_of_user_ast_evi
 @pytest.mark.asyncio
 async def test_s1_rag_calls_milvus_pipeline_then_filters_sources():
     current = snapshot()
+    build_id = "abcdef12-3456-7890-abcd-ef1234567890"
+    collection_name = "dataocean_rag_ds1_babcdef1234567890abcdef1234567890"
     response = SimpleNamespace(results=[SimpleNamespace(
         related_tables=["orders"], related_columns=["orders.id"], chunk_text="safe", chunk_type="TABLE_DESC",
         score=0.9, doc_id=1, source_version=1, source_id=11, snapshot_id=88,
         resource_dependencies=["table:orders", "column:orders.id"], fact_source_ids=["field:1"],
         fact_type="COLUMN_STRUCTURE", fact_review_status="APPROVED", review_status="APPROVED",
-        governance_status="NORMAL", build_id="build-1",
+        governance_status="NORMAL", build_id=build_id,
     )])
     chunks = [{
         "datasourceId": 1, "sourceSnapshotId": 88, "activeMetadataSnapshotId": 88,
-        "ragBuildId": "build-1", "sourceId": 11,
+        "ragBuildId": build_id, "sourceId": 11,
         "tables": ["orders"], "columns": ["orders.id"],
         "resourceDependencies": ["table:orders", "column:orders.id"],
         "factSourceIds": ["field:1"], "factType": "COLUMN_STRUCTURE",
@@ -734,13 +736,59 @@ async def test_s1_rag_calls_milvus_pipeline_then_filters_sources():
     request = S1RagRetrieveRequest(
         protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
         activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
-        question="查询订单", chunks=chunks, ragBuildId="build-1", ragSourceSnapshotId=88,
-        ragCollectionName="test-build-collection", ragEmbeddingConfig={"providerId": "test", "model": "test"},
+        question="查询订单", chunks=chunks, ragBuildId=build_id, ragSourceSnapshotId=88,
+        ragCollectionName=collection_name, ragEmbeddingConfig={"providerId": "test", "model": "test"},
     )
     with patch("dataocean.rag.service.retrieve_schemas", new_callable=AsyncMock, return_value=response) as retrieve_mock:
         result = await retrieve(request)
     retrieve_mock.assert_awaited_once()
+    passed_request = retrieve_mock.await_args.args[0]
+    assert passed_request.build_id == build_id
+    assert passed_request.collection_name == collection_name
     assert result[0]["columns"] == ["orders.id"]
+
+
+@pytest.mark.asyncio
+async def test_s1_rejects_default_collection_even_when_a_build_id_is_present():
+    current = snapshot()
+    build_id = "abcdef12-3456-7890-abcd-ef1234567890"
+    chunks = [{
+        "datasourceId": 1, "sourceSnapshotId": 88, "activeMetadataSnapshotId": 88,
+        "ragBuildId": build_id, "sourceId": 11,
+        "tables": ["orders"], "columns": ["orders.id"],
+        "resourceDependencies": ["table:orders", "column:orders.id"],
+        "factSourceIds": ["field:1"], "factType": "COLUMN_STRUCTURE",
+        "factReviewStatus": "APPROVED", "reviewStatus": "APPROVED", "governanceStatus": "NORMAL",
+        "chunkText": "safe",
+    }]
+    request = S1RagRetrieveRequest(
+        protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
+        activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
+        question="查询订单", chunks=chunks, ragBuildId=build_id, ragSourceSnapshotId=88,
+        ragCollectionName="schema_knowledge", ragEmbeddingConfig={"providerId": "test", "model": "test"},
+    )
+    with patch("dataocean.rag.service.retrieve_schemas", new_callable=AsyncMock) as retrieve_mock:
+        result = await retrieve(request)
+
+    retrieve_mock.assert_not_awaited()
+    assert result[0]["chunkText"] == "safe"
+    assert result[0]["ragBuildId"] == build_id
+
+
+@pytest.mark.asyncio
+async def test_s1_without_active_build_never_reads_default_collection():
+    current = snapshot()
+    request = S1RagRetrieveRequest(
+        protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
+        activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
+        question="查询订单", chunks=[], ragBuildId=None, ragSourceSnapshotId=None,
+        ragCollectionName="schema_knowledge", ragEmbeddingConfig={"providerId": "test", "model": "test"},
+    )
+    with patch("dataocean.rag.service.retrieve_schemas", new_callable=AsyncMock) as retrieve_mock:
+        result = await retrieve(request)
+
+    retrieve_mock.assert_not_awaited()
+    assert result == []
 
 
 @pytest.mark.asyncio

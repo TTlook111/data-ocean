@@ -305,6 +305,29 @@ def test_build_candidate_filter_drops_mixed_or_stale_facts_before_reranking() ->
 
 
 @pytest.mark.asyncio
+async def test_rag_retrieval_rejects_default_collection_for_a_build_id() -> None:
+    from dataocean.rag.schema import RetrieveRequest
+    from dataocean.rag.service import retrieve_schemas
+
+    request = RetrieveRequest(
+        datasourceId=10,
+        activeSnapshotId=4,
+        question="查询订单",
+        topK=1,
+        buildId="build-a",
+        collectionName="schema_knowledge",
+        authorizedResources=["table:orders", "column:orders.id"],
+        authorizedChunkIds=[7],
+    )
+    with patch("dataocean.rag.service.retrieve_from_milvus", new_callable=AsyncMock) as search:
+        response = await retrieve_schemas(request)
+
+    search.assert_not_awaited()
+    assert response.results == []
+    assert "专属 collection" in response.message
+
+
+@pytest.mark.asyncio
 async def test_neighbor_expansion_drops_unlisted_chunks_before_reranking() -> None:
     from langchain_core.documents import Document
     from dataocean.rag.retriever import retrieve_from_milvus

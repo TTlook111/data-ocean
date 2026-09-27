@@ -34,7 +34,7 @@ class QueryTaskCleanupSchedulerTest {
         ConversationService conversations = mock(ConversationService.class);
         ConversationContextSummaryService summaries = mock(ConversationContextSummaryService.class);
         IamS1PythonClient python = mock(IamS1PythonClient.class);
-        QueryTask task = QueryTask.builder().id(5L).taskId("stale-task").userId(7L).conversationId(42L)
+        QueryTask task = QueryTask.builder().id(5L).taskId("stale-task").userId(7L).datasourceId(1L).conversationId(42L)
                 .iamProtocolVersion("IAM-SIMPLE-1").permissionRevision(23L).createdAt(LocalDateTime.now().minusMinutes(5))
                 .build();
         when(tasks.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(task));
@@ -47,7 +47,7 @@ class QueryTaskCleanupSchedulerTest {
                 "{\"taskId\":\"stale-task\",\"status\":\"TIMEOUT\"}");
         verify(conversations).releaseTurn(42L, "stale-task");
         verify(python).cancelTask("stale-task");
-        verify(summaries).refreshAsync(42L, 7L, 23L);
+        verify(summaries).refreshAsync(42L, 7L, 1L);
     }
 
     @Test

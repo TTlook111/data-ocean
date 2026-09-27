@@ -2,12 +2,113 @@ from __future__ import annotations
 
 import json
 import time
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from dataocean.iam_s1 import graph as graph_module
 from dataocean.iam_s1.sql_security import validate_sql
+
+
+def test_failed_new_attempt_cannot_route_old_protected_result_to_verification():
+    state = {
+        "taskId": "task-attempt-binding",
+        "attemptCount": 1,
+        "currentAttemptId": "task-attempt-binding-2-bbbbbbbbbbbb",
+        "currentSqlHash": "b" * 64,
+        "protectedResult": {
+            "status": "PROTECTED",
+            "attemptId": "task-attempt-binding-1-aaaaaaaaaaaa",
+            "sqlHash": "a" * 64,
+            "data": [{"old": 1}],
+        },
+        "errorType": "REPAIRABLE_SQL",
+        "error": "Unknown column: order_total",
+    }
+
+    assert graph_module._has_current_protected_result(state) is False
+    assert graph_module._after_execution(state) == "generate_sql"
+
+
+@pytest.mark.asyncio
+async def test_result_verification_fails_closed_when_result_belongs_to_previous_attempt(monkeypatch):
+    budget_call = AsyncMock(side_effect=AssertionError("stale data must not reach the verifier"))
+    monkeypatch.setattr(graph_module, "_budgeted_llm", budget_call)
+    state = {
+        "taskId": "task-attempt-binding",
+        "deadlineEpochSeconds": time.time() + 30,
+        "attemptCount": 2,
+        "currentAttemptId": "task-attempt-binding-2-bbbbbbbbbbbb",
+        "currentSqlHash": "b" * 64,
+        "protectedResult": {
+            "status": "PROTECTED",
+            "attemptId": "task-attempt-binding-1-aaaaaaaaaaaa",
+            "sqlHash": "a" * 64,
+            "data": [{"old": 1}],
+        },
+    }
+
+    result = await graph_module._verify_result_node(state)
+
+    assert result["status"] == "FAILED"
+    assert "没有匹配的 Java 保护结果" in result["error"]
+    budget_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_starting_repair_attempt_clears_previous_protected_result(monkeypatch):
+    observed = {}
+
+    async def budgeted(state, *_args, **_kwargs):
+        observed["protectedResult"] = state["protectedResult"]
+        observed["recoveredProtectedResult"] = state["recoveredProtectedResult"]
+        return "SELECT id FROM orders", dict(state)
+
+    monkeypatch.setattr(graph_module, "_progress", AsyncMock())
+    monkeypatch.setattr(graph_module, "_planning_snapshot", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(graph_module, "_linked_rag", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(graph_module, "build_model_context", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(graph_module, "render_sql_prompt", AsyncMock(return_value="prompt"))
+    monkeypatch.setattr(graph_module, "_budgeted_llm", budgeted)
+    monkeypatch.setattr(graph_module, "validate_sql", lambda *_args, **_kwargs: SimpleNamespace(
+        passed=True,
+        source_trace=[],
+        sql="SELECT id FROM orders",
+        used_tables=["orders"],
+        used_columns=["orders.id"],
+        column_usages={"orders.id": ["PROJECTION"]},
+        violations=[],
+    ))
+    monkeypatch.setattr(graph_module, "_unsupported_reviewed_output_aliases", lambda *_args, **_kwargs: [])
+    state = {
+        "taskId": "task-attempt-binding",
+        "deadlineEpochSeconds": time.time() + 30,
+        "attemptCount": 1,
+        "candidateCatalog": {},
+        "linkedResources": [],
+        "linkedSchema": [],
+        "safeRag": [],
+        "glossaryTerms": [],
+        "fewShotExamples": [],
+        "conversationHistory": [],
+        "conversationSummary": None,
+        "question": "统计订单数",
+        "questionIntent": {},
+        "rewrittenQuestion": "",
+        "ragBuildId": None,
+        "ragSourceSnapshotId": None,
+        "repairFeedback": "修正分组字段",
+        "protectedResult": {"status": "PROTECTED", "attemptId": "old-attempt", "sqlHash": "a" * 64},
+        "recoveredProtectedResult": False,
+    }
+
+    result = await graph_module._generate_sql_node(state)
+
+    assert observed == {"protectedResult": {}, "recoveredProtectedResult": False}
+    assert result["protectedResult"] == {}
+    assert result["currentAttemptId"] != "old-attempt"
+    assert result["currentSqlHash"] == graph_module.hashlib.sha256(result["currentSql"].encode()).hexdigest()
 
 
 @pytest.mark.asyncio

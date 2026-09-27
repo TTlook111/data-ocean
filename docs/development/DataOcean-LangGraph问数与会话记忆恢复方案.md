@@ -1,6 +1,6 @@
 # DataOcean 自然语言问数、LangGraph 编排与会话记忆方案
 
-> 状态：用户已于 2026-09-26 授权在 `codex/langgraph-query-memory` 进行本地实施；阶段验收记录见 [`completed/DataOcean-LangGraph问数与会话记忆验收记录.md`](completed/DataOcean-LangGraph问数与会话记忆验收记录.md)。
+> 状态：G0、A～E 的代码实现及自动化检查已记录在 [`completed/DataOcean-LangGraph问数与会话记忆验收记录.md`](completed/DataOcean-LangGraph问数与会话记忆验收记录.md)；E 阶段浏览器交互与视觉验收仍未通过。当前工作树含后续审查修复和未应用的 V64。本文第 8 节是实施前的 d8cda57 基线差距对照，不代表当前代码仍缺少这些功能。
 > 基线：main 的 d8cda57；代码事实核查日期 2026-09-25；按 2026-09-26 对产品目标的澄清整理。
 > 本文说明本次实施的产品边界、数据保护合同和验收顺序。实施只使用隔离的本地合成测试环境；生产部署、真实业务数据、自动发布、分支推送、PR 与合并不在授权范围内。
 
@@ -153,7 +153,7 @@ Java 先生成不可由模型改写的快照清单：以本轮 snapshotId 查出
 
 checkpoint 只存恢复所需的安全状态、任务/轮次标识和游标，不存连接配置、执行绑定原值、未保护结果或可绕过 Java 再授权的许可。恢复时先核对 Java 持久任务终态、当前会话归属、快照与权限修订、deadline 和取消标记；节点可能重新执行的外部调用必须按 taskId、轮次及尝试 ID 幂等。任何无法证明安全的续跑都以明确失败结束，不能从旧 checkpoint 直接重新执行 SQL。
 
-Redis 不是保存聊天历史的唯一位置，也不是实现多轮语义的理论前提；它是**本方案选定的 LangGraph checkpoint 存储**。当前 S1 没有 Redis checkpointer，仓库也没有对应 saver 依赖。原稿对本工作区配置所连 Redis 的只读检查显示版本为 7.4.11、未加载 RedisJSON/RediSearch；若采用官方 Redis saver，实施前必须验证所需模块、setup、持久化和重启读回，必要时使用独立兼容实例。该检查不代表其他环境。
+Redis 不是完整聊天历史的事实源；它是**本方案选定的 LangGraph checkpoint 存储**。实施前的本机 Redis 7.4.11 不含 RedisJSON/RediSearch。2026-09-27 本机既有 Redis 容器已替换为 8.10.2，保留原端口和卷；`AsyncRedisSaver` 在 DB 0 的初始化与断开重连读回通过，DB 15 的索引创建受 Redis Search 限制。该机器局部验证不等于 E 阶段浏览器验收，也不代表其他环境已升级。
 
 ## 7. 系统分工与安全底线
 

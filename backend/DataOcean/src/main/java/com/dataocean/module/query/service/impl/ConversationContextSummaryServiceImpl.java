@@ -10,6 +10,11 @@ import com.dataocean.module.query.mapper.ConversationContextSummaryMapper;
 import com.dataocean.module.query.service.ConversationContextSummaryService;
 import com.dataocean.module.query.service.ConversationService;
 import com.dataocean.module.query.service.IamS1QueryService;
+import com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateColumnVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateTableVO;
+import com.dataocean.module.permission.s1.service.IamS1UserResourceService;
+import com.dataocean.module.metadata.service.SchemaSnapshotService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +24,12 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,11 +53,16 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
     private final ConversationSummaryClient summaryClient;
     private final ObjectMapper objectMapper;
     private final ObjectProvider<IamS1QueryService> queryServiceProvider;
+    private final IamS1UserResourceService userResourceService;
+    private final SchemaSnapshotService schemaSnapshotService;
 
     @Override
     public ConversationContextDTO buildQueryContext(Long conversationId, Long userId,
-                                                    Long currentUserMessageId, Long permissionRevision) {
+                                                    Long currentUserMessageId,
+                                                    IamS1QueryCandidateCatalogVO currentCatalog) {
         if (conversationId == null) return emptyContext();
+        if (currentCatalog == null) throw new BusinessException("当前 IAM-SIMPLE-1 权限目录不可用");
+        String currentScopeFingerprint = permissionScopeFingerprint(currentCatalog);
 
         ConversationContextSummary summaryEntity = findSummary(conversationId);
         List<ConversationMessageVO> recentWindow = conversationService.getRecentMessagesBefore(
@@ -61,7 +75,8 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
 
         Map<String, Object> summary = Map.of();
         boolean summaryCurrent = summaryEntity != null
-                && java.util.Objects.equals(summaryEntity.getPermissionRevision(), permissionRevision);
+                && java.util.Objects.equals(summaryEntity.getPermissionRevision(), currentCatalog.permissionRevision())
+                && java.util.Objects.equals(summaryEntity.getPermissionScopeFingerprint(), currentScopeFingerprint);
         if (summaryCurrent) summary = parseSummary(summaryEntity);
         boolean summaryUsable = summaryCurrent && !summary.isEmpty();
 
@@ -94,12 +109,20 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
 
     @Override
     @Async("conversationSummaryExecutor")
-    public void refreshAsync(Long conversationId, Long userId, Long permissionRevision) {
-        if (conversationId == null) return;
+    public void refreshAsync(Long conversationId, Long userId, Long datasourceId) {
+        if (conversationId == null || datasourceId == null) return;
         try {
+            var metadata = schemaSnapshotService.getPublishedSnapshot(datasourceId);
+            if (metadata == null) return;
+            IamS1QueryCandidateCatalogVO currentCatalog = userResourceService.candidateCatalog(
+                    userId, datasourceId, metadata.getId());
+            if (currentCatalog == null) return;
+            Long permissionRevision = currentCatalog.permissionRevision();
+            String scopeFingerprint = permissionScopeFingerprint(currentCatalog);
             ConversationContextSummary existing = findSummary(conversationId);
             boolean samePermissionRevision = existing != null
-                    && java.util.Objects.equals(existing.getPermissionRevision(), permissionRevision);
+                    && java.util.Objects.equals(existing.getPermissionRevision(), permissionRevision)
+                    && java.util.Objects.equals(existing.getPermissionScopeFingerprint(), scopeFingerprint);
             Map<String, Object> existingSummary = samePermissionRevision ? parseSummary(existing) : Map.of();
             boolean existingSummaryUsable = samePermissionRevision && !existingSummary.isEmpty();
             Long cursor = existingSummaryUsable ? existing.getCoveredMessageId() : null;
@@ -128,7 +151,7 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
             }
 
             Long coveredMessageId = delta.get(delta.size() - 1).getId();
-            saveIfStillLatest(conversationId, generated, coveredMessageId, permissionRevision);
+            saveIfStillLatest(conversationId, generated, coveredMessageId, permissionRevision, scopeFingerprint);
         } catch (Exception e) {
             // 摘要是增强能力，失败时保留已有摘要与 MySQL 原文，不影响结果落库。
             log.warn("刷新会话长期摘要失败 conversationId={}，保留原文并等待重试", conversationId, e);
@@ -172,9 +195,11 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
     }
 
     private void saveIfStillLatest(Long conversationId, Map<String, Object> summary,
-                                   Long coveredMessageId, Long permissionRevision) throws Exception {
+                                   Long coveredMessageId, Long permissionRevision,
+                                   String scopeFingerprint) throws Exception {
         ConversationContextSummary current = findSummary(conversationId);
         if (current != null && java.util.Objects.equals(current.getPermissionRevision(), permissionRevision)
+                && java.util.Objects.equals(current.getPermissionScopeFingerprint(), scopeFingerprint)
                 && !parseSummary(current).isEmpty()
                 && current.getCoveredMessageId() != null && coveredMessageId != null
                 && current.getCoveredMessageId() >= coveredMessageId) {
@@ -187,6 +212,7 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
             ConversationContextSummary entity = ConversationContextSummary.builder()
                     .conversationId(conversationId).summaryJson(summaryJson).coveredMessageId(coveredMessageId)
                     .summaryVersion(1).permissionRevision(permissionRevision)
+                    .permissionScopeFingerprint(scopeFingerprint)
                     .createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build();
             summaryMapper.insert(entity);
             return;
@@ -195,6 +221,7 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
         current.setSummaryJson(summaryJson);
         current.setCoveredMessageId(coveredMessageId);
         current.setPermissionRevision(permissionRevision);
+        current.setPermissionScopeFingerprint(scopeFingerprint);
         current.setSummaryVersion((current.getSummaryVersion() == null ? 0 : current.getSummaryVersion()) + 1);
         current.setUpdatedAt(LocalDateTime.now());
         summaryMapper.updateById(current);
@@ -214,6 +241,48 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
             return Map.of();
         }
     }
+
+    String permissionScopeFingerprint(IamS1QueryCandidateCatalogVO catalog) {
+        try {
+            List<ScopeTable> tables = (catalog.tables() == null ? List.<IamS1QueryCandidateTableVO>of() : catalog.tables())
+                    .stream()
+                    .sorted(Comparator.comparing(IamS1QueryCandidateTableVO::tableName,
+                            Comparator.nullsFirst(String::compareTo)))
+                    .map(table -> new ScopeTable(table.tableName(), table.governanceStatus(),
+                            (table.columns() == null ? List.<IamS1QueryCandidateColumnVO>of() : table.columns())
+                                    .stream()
+                                    .sorted(Comparator.comparing(IamS1QueryCandidateColumnVO::columnName,
+                                            Comparator.nullsFirst(String::compareTo)))
+                                    .map(column -> {
+                                        List<String> usages = column.allowedUsages() == null ? List.of()
+                                                : column.allowedUsages().stream().map(Enum::name).sorted().toList();
+                                        List<String> grantSources = column.grantSources() == null ? List.of()
+                                                : column.grantSources().stream().map(source -> {
+                                                    try {
+                                                        return objectMapper.writeValueAsString(source);
+                                                    } catch (Exception ex) {
+                                                        throw new IllegalStateException("无法规范化 IAM-SIMPLE-1 授权来源", ex);
+                                                    }
+                                                }).sorted().toList();
+                                        return new ScopeColumn(column.columnMetaId(), column.columnName(),
+                                                column.governanceStatus(), column.protectionLevel(), column.maskPolicy(),
+                                                usages, grantSources);
+                                    }).toList()))
+                    .toList();
+            String canonical = objectMapper.writeValueAsString(
+                    new ScopeSnapshot(catalog.datasourceId(), catalog.activeMetadataSnapshotId(), tables));
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (Exception e) {
+            throw new IllegalStateException("无法计算当前 IAM-SIMPLE-1 会话权限范围", e);
+        }
+    }
+
+    private record ScopeSnapshot(Long datasourceId, Long activeMetadataSnapshotId, List<ScopeTable> tables) {}
+    private record ScopeTable(String tableName, String governanceStatus, List<ScopeColumn> columns) {}
+    private record ScopeColumn(Long columnMetaId, String columnName, String governanceStatus,
+                               String protectionLevel, String maskPolicy, List<String> allowedUsages,
+                               List<String> grantSources) {}
 
     private Map<String, Object> toSummaryMessage(ConversationMessageVO message, Long userId) {
         Map<String, Object> result = new LinkedHashMap<>();

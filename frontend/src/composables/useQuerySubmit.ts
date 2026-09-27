@@ -18,6 +18,12 @@ import type { LocalMessage, LocalSession } from './useQuerySession'
 /** 轮询配置常量 */
 const POLL_MAX_CONSECUTIVE_ERRORS = 3
 
+export type QueryPollResult = IamS1QueryTaskResult & { localWaitTimedOut?: boolean }
+
+export function isLocallyResumable(message: Pick<LocalMessage, 'status' | 'localWaitTimedOut'>): boolean {
+  return message.status === 'PROCESSING' && message.localWaitTimedOut === true
+}
+
 /** Agent 节点定义 */
 const agentNodes = [
   { key: 'rag_retrieval', label: '检索已授权知识' },
@@ -166,8 +172,9 @@ export function useQuerySubmit(options: {
     maxAttempts = 60,
     intervalMs = 2000,
     onProgress?: (task: IamS1QueryTaskResult) => void,
-  ): Promise<IamS1QueryTaskResult> {
+  ): Promise<QueryPollResult> {
     let consecutiveErrors = 0
+    let lastTask: IamS1QueryTaskResult | undefined
     void iamS1StreamTask(taskId, {
       signal,
       onEvent: (event) => {
@@ -188,6 +195,7 @@ export function useQuerySubmit(options: {
       try {
         const res = await iamS1GetTask(taskId)
         const task = res.data
+        lastTask = task
         consecutiveErrors = 0
 
         if (task.status !== 'PROCESSING') {
@@ -212,7 +220,28 @@ export function useQuerySubmit(options: {
         return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
       }
     }
-    return { taskId, status: 'TIMEOUT', errorMessage: '查询仍在执行中，可稍后从历史任务查看结果' }
+    return {
+      ...(lastTask || { taskId, status: 'PROCESSING' as const }),
+      localWaitTimedOut: true,
+      errorMessage: '本地等待达到上限，服务端任务仍在处理中',
+    }
+  }
+
+  function applyPollResult(assistantMsg: LocalMessage, result: QueryPollResult) {
+    assistantMsg.status = result.status
+    assistantMsg.queryResult = result
+    assistantMsg.localWaitTimedOut = result.localWaitTimedOut === true
+    if (result.localWaitTimedOut) {
+      assistantMsg.content = '本地等待已到上限，任务仍在处理中。可重新连接继续等待，或重新提问。'
+    } else if (result.status === 'COMPLETED') {
+      assistantMsg.content = buildCompletionMessage(result)
+    } else if (result.status === 'CLARIFICATION_REQUIRED') {
+      assistantMsg.content = buildCompletionMessage(result)
+    } else if (result.status === 'TIMEOUT') {
+      assistantMsg.content = '服务端已终止本次查询（TIMEOUT），没有可恢复中的任务，请重新提问。'
+    } else {
+      assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
+    }
   }
 
   /**
@@ -285,17 +314,7 @@ export function useQuerySubmit(options: {
       const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
       if (assistantMsg) {
         assistantMsg.taskId = taskId
-        assistantMsg.status = result.status
-        assistantMsg.queryResult = result
-        if (result.status === 'COMPLETED') {
-          assistantMsg.content = buildCompletionMessage(result)
-        } else if (result.status === 'CLARIFICATION_REQUIRED') {
-          assistantMsg.content = buildCompletionMessage(result)
-        } else if (result.status === 'TIMEOUT') {
-          assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
-        } else {
-          assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
-        }
+        applyPollResult(assistantMsg, result)
         await animateMessageUpdate?.(assistantMsgId)
       }
     } catch (error: unknown) {
@@ -373,6 +392,7 @@ export function useQuerySubmit(options: {
     }
 
     assistantMsg.status = 'loading'
+    assistantMsg.localWaitTimedOut = false
     assistantMsg.content = '继续等待查询结果...'
 
     const abortCtrl = new AbortController()
@@ -382,8 +402,30 @@ export function useQuerySubmit(options: {
       // A reconnect may find either a live worker or a suspended graph. The Java
       // resume endpoint is idempotent for live tasks and restores from Redis/MySQL
       // when the original Python worker is gone.
-      await iamS1ResumeTask(taskId).catch(() => undefined)
-      const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
+      let terminalResult: QueryPollResult | undefined
+      try {
+        await iamS1ResumeTask(taskId)
+      } catch (error) {
+        // A timeout may become terminal between the local wait and resume call.
+        // Read the server state once before reporting a true restore failure.
+        try {
+          const latest = await iamS1GetTask(taskId)
+          if (latest.data.status !== 'PROCESSING') terminalResult = latest.data
+        } catch {
+          // Preserve the resume error below when the task state is also unavailable.
+        }
+        if (!terminalResult) {
+          const reason = extractError(error, '服务端未能恢复当前任务')
+          assistantMsg.status = 'error'
+          assistantMsg.localWaitTimedOut = false
+          assistantMsg.content = `恢复查询失败：${reason}`
+          ElMessage.error('当前任务未能恢复，可以重新提问')
+          await animateMessageUpdate?.(assistantMsg.id)
+          return
+        }
+      }
+
+      const result = terminalResult ?? await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
         if (assistantMsg.status === 'loading') {
           assistantMsg.queryResult = task
           if (task.progressMessage) {
@@ -392,17 +434,7 @@ export function useQuerySubmit(options: {
         }
       })
 
-      assistantMsg.status = result.status
-      assistantMsg.queryResult = result
-      if (result.status === 'COMPLETED') {
-        assistantMsg.content = buildCompletionMessage(result)
-      } else if (result.status === 'CLARIFICATION_REQUIRED') {
-        assistantMsg.content = buildCompletionMessage(result)
-      } else if (result.status === 'TIMEOUT') {
-        assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
-      } else {
-        assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
-      }
+      applyPollResult(assistantMsg, result)
       await animateMessageUpdate?.(assistantMsg.id)
     } catch (error) {
       assistantMsg.status = 'error'
@@ -436,6 +468,7 @@ export function useQuerySubmit(options: {
     continueWaiting,
     buildCompletionMessage,
     pollTaskResult,
+    isLocallyResumable,
     extractError,
   }
 }

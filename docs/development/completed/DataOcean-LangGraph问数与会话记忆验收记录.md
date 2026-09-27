@@ -12,7 +12,7 @@
 - MySQL 问数凭据：`langgraph_fixture_reader`，只有 `products` 和 `sales_orders` 的 `SELECT` 权限；不存在对应用或共享数据库的连接配置。
 - 数据源编号 701、用户编号 9001、权限修订 1、元数据快照 8801。IAM-SIMPLE-1 权限快照只允许 `sales_orders` 与 `products`；`customers`、`employee_pay` 为明确拒绝资源。
 - 只给当前 S1 回退路径两条本地已审核知识 chunk；为避免触碰共享 Milvus，本轮基线不读取或写入任何既有向量集合。
-- Redis checkpointer 预检：专用容器 Redis 8.10.2；`langgraph-checkpoint-redis` 0.3.9 的 `AsyncRedisSaver.asetup()` 成功，并在关闭后重开 saver 读取到同一 thread 的 checkpoint。当前共享 Redis 7.4.11 不满足该 saver 要求，验收与开发服务必须指向专用 Redis 8 容器；普通缓存升级尚未操作。
+- Redis checkpointer 的 G0 预检使用当时的专用 Redis 8.10.2；`langgraph-checkpoint-redis` 0.3.9 的 `AsyncRedisSaver.asetup()` 成功，并在关闭后重开 saver 读取到同一 thread 的 checkpoint。当时通用 Redis 为 7.4.11 且没有 RedisJSON/RediSearch，因此该次验收使用专用容器。2026-09-27 通用容器已升级，见 E 阶段后续环境记录；不要把两次环境混作同一次验收。
 - 固定题集：6 道可答题（地区销售额、月度订单数、商品类别销售额、季度销售额、订单数、月销售额）和 2 道拒答题（无权客户联系方式、缺少广告归因事实）。结果和题目保存在 `scripts/langgraph-acceptance/fixtures/`。
 
 启动并初始化：
@@ -157,27 +157,30 @@ G0 自动化结果：Python 原有测试 109 passed；新增 fixture guardrails 
 | 无权客户字段 | `CLARIFICATION_REQUIRED`，无 SQL/表字段/数据 |
 | 缺失广告归因事实 | `CLARIFICATION_REQUIRED`，无 SQL/表字段/数据 |
 
-该真实链路证明了 Java→Python→活动 RAG→S1 AST→MySQL 只读执行→Java 最终保护→会话落库/API 历史恢复和图表结果的服务间路径。前端 API client 已切换为只发自然语言且不提交 `tables`；但 integrated Browser 的自动控制组件本机缺少其请求的 `browser-service.mjs` 版本，未完成可视化浏览器点击/截图验收。不会把该项写成通过，详见 E 风险记录。
+该真实链路证明了 Java→Python→活动 RAG→S1 AST→MySQL 只读执行→Java 最终保护→会话落库/API 历史恢复和图表结果的服务间路径。前端 API client 已切换为只发自然语言且不提交 `tables`。此前 Browser 缓存缺失的问题已恢复；当前隔离 UI 服务不可用，因此 E 阶段的完整可视化验收仍未通过，详见下文。
 
 ## E：前端与端到端验收
 
 - 查询入口仅显示所选数据源、会话和自然语言输入；删除表/字段预选组件与代码文件。API 在无 `tables` 时只上传 datasourceId/question/conversationId，Java 返回完整、当前授权的 candidate catalog。
-- 前端恢复按消息 ID 分页；重连/“继续等待”调用 Java resume endpoint；澄清状态给出“补充查询条件”入口，进度节点对应真实 LangGraph 阶段。ECharts 是首选结果视图，图表配置缺失或渲染报错时显示同一份 Java 已保护数据表。
-- 前端静态/组件和 API 端测试：Vitest 12 files / 74 tests passed；`npm run build` passed。完整 G0 API 题集由上述脚本 6/6 + 2/2 通过。
-- browser 页面的 DOM/可视布局与交互回归未通过 Browser 工具执行：本机已提供的 Browser 控制入口加载时报告缺少 `browser/26.924.20706/scripts/browser-service.mjs`（可用缓存只有 `26.908.70816`）。没有使用其他浏览器控制器绕过；仍需在 Browser service 修复后补一轮登录、发问、图表/表格和历史分页的可视验收。
+- 前端恢复按消息 ID 分页；本地轮询到上限且服务端仍为 `PROCESSING` 时才显示“恢复等待”，服务端 `TIMEOUT` 显示重试入口；恢复请求失败会显示错误。澄清状态给出“补充查询条件”入口，进度节点对应真实 LangGraph 阶段。ECharts 是首选结果视图，图表配置缺失或渲染报错时显示同一份 Java 已保护数据表。
+- 前端完整 Vitest：14 files / 79 tests passed；`npm run build` passed。G0 固定题集上一次隔离 API 验收为 6/6 可答题、2/2 拒答/澄清；本次未重跑固定题集，题目、fixture、预算及权限边界均未修改。
+- Browser 技能缓存已恢复为 `26.924.22138`，其中 `scripts/browser-client.mjs` 与 `scripts/browser-service.mjs` 均存在；Codex In-app Browser 已成功连接。用独立 Vite 端口 `127.0.0.1:5179`、只代理到 `127.0.0.1:18080` 打开了登录页，桌面截图保存为 [`login-shell-only.jpg`](../../../output/playwright/langgraph-query-memory-review/login-shell-only.jpg)，浏览器 Console 证据为 [`browser-console.json`](../../../output/playwright/langgraph-query-memory-review/browser-console.json)。Console error/warn 为 0；Vite 记录到 `/api/auth/captcha` 对 `127.0.0.1:18080` 返回 `ECONNREFUSED`，见 [`vite-proxy-error.log`](../../../output/playwright/langgraph-query-memory-review/vite-proxy-error.log)。这只是登录外壳截图，不代表问数页面验收通过。
+- **E 阶段仍未通过。** 此前登录页检查时，带 `langgraph-acceptance` 标签的 MySQL/Redis 8/Milvus 容器未运行，端口 `13316/16379/19531` 无监听；`18080` Java API 也未启动。彼时通用 Redis 为 7.4.11，Python 尚未配置 `LANGGRAPH_CHECKPOINT_REDIS_URL`。2026-09-27 通用 `redis` 容器升级为 8.10.2，保持 `127.0.0.1:6379`、`redis_default` 网络和 `dataocean-shared-redis-data` 卷；RedisJSON/RediSearch 已加载。项目的 `AsyncRedisSaver` 在 DB 0 完成初始化和断开重连读回；DB 15 创建索引返回 `Cannot create index on db != 0`，故本机忽略的 `python-service/.env` 将 checkpoint 地址配置为 DB 0。升级前停机 RDB/容器配置和重建配置保存在 `.dataocean/local-environment.md` 所记的本机路径。Redis 升级没有执行 E 页面验收；最近只读检查仍显示 Java/Python 验收端口无监听、`dataocean` 应用库为 V59 且缺少 V60 的 build 映射，本轮也没有新的登录、发问、澄清、重连、历史翻页、图表、表格回退或窄屏证据。
 
 ## 全量自动化验证
 
-- Java：`mvn test`，623 tests passed，0 failures / 0 errors；Spring integration tests 使用 H2 `test` profile，不访问专用验收 MySQL。`IamS1EndpointCoverageTest` 已覆盖新的 resume endpoint 审计豁免，旧 endpoint handler 仍有精确例外清单。
-- Python：`pytest -q`，148 passed，4 个 `langgraph-checkpoint-redis` 上游 `redisvl` deprecation warnings；恢复测试和异步 saver 测试连接专用 Redis 8 的 DB 15，与问数链使用的 DB 0 隔离。
-- 前端：`npm run test:run -- --reporter=dot`，12 files / 74 tests passed；`npm run build` 通过。Vite 仍提示 ECharts bundle 大于 500 kB，这是现有分包体积提示，不影响构建。
-- Flyway：隔离 `dataocean_app` 从 V62 应用 V63 成功，当前专用库为 V63；V53 仍未使用。
+- Java：本次 `mvn -q test`，645 tests passed，0 failures / 0 errors；针对最后一次摘要存储调整，再跑 `ConversationContextSummaryServiceImplTest`、`IamS1QueryServiceImplTest`、`QueryTaskCleanupSchedulerTest` 均通过。Spring integration tests 使用 H2 `test` profile；该 profile 关闭 Flyway，本次没有对 MySQL 执行迁移。
+- Python：本次定向 LangGraph/权限/RAG 隔离回归 92 passed / 1 skipped；覆盖 stale protected result 清除/路由、到期权限摘要、默认 collection 拒绝及 buildId/collection 绑定。
+- G0 fixture guardrails：`test_langgraph_acceptance_fixture.py` 4 passed；固定 8 题、授权 fixture 与预算运行器未改。由于专用验收栈未运行，本次没有重跑真实 G0 固定题集。
+- 前端：`npm run test:run -- --reporter=dot`，14 files / 79 tests passed；`npm run build` 通过。Vite 仍提示 ECharts bundle 大于 500 kB，这是现有分包体积提示，不影响构建。
+- 新增 V64 `conversation_context_summary.permission_scope_fingerprint`。`V53` 仍永久未使用；本次不在任何持久数据库上运行 Flyway。
 
 ## 仍需人工审查/未验证项
 
-- integrated Browser 自动化环境无法加载工具运行所需的 `browser-service.mjs`，所以 E 阶段的可视 DOM/点击/截图验收没有执行。API 级完整题集、受保护结果、会话分页、持久 ECharts JSON 和前端单元/构建均通过，但不能把实际浏览器交互写成通过。
-- 专用 Milvus 仍保留默认 `schema_knowledge` 集合的 241 条既有向量；其来源在本轮未重建，本流程未读取、覆盖或删除它。问数记录绑定的活动 collection 是每个 `buildId` 独立的 collection。检查共享 Milvus、清理默认 collection 或做任何知识库重建均不属于本次授权范围。
-- Browser 工具恢复后，需要人工查看 ECharts 图表主题/布局、窄屏结果表格回退、Clarification 输入和重连后页面进度；本轮 API 结果没有代替这些视觉审查。
+- Browser 控制工具已恢复；Redis 8 checkpoint 的本机阻断已解除，但隔离验收应用、迁移至 V64 的应用库、活动 build 映射和测试登录配置仍未就绪。E 阶段保持未通过；登录页截图和 Console/代理错误只记录当时阻断状态。
+- 当前 Python 配置连接的本地 Milvus `localhost:19530` 只读元数据显示 `schema_knowledge` 为 241 行；集合描述为空、aliases 为空、properties 只有 `timezone=UTC`，可见字段为 primary `id` 与 1024 维 `embedding`，collection-level metadata 没有 owner/source/build 标记。另有 `dataocean_rag_ds1_b25e0fc01f03246149d9a8adec28f1263` collection 计数为 3；但当前 MySQL 为 V59，缺少 active build 映射表，且连接的 Docker 服务不是 `langgraph-acceptance` 标签容器，因此不能据此确认 `schema_knowledge` 的来源或归属，继续保留为未解决风险。**没有读取任何向量内容，也没有覆盖、删除或重建该集合。**
+- 代码路径核对：Java 新查询从 `activeBuildForQuery` 选定活动 build 并持久化 `buildId` / 来源快照；collection 名按 `dataocean_rag_ds{datasourceId}_b{buildId 去连字符}` 生成并传给 Python。S1 Python 仅接受与 datasourceId/buildId 严格相符的专属 collection；无活动 build 时只过滤 Java 给出的 fallback chunks，错误的 `schema_knowledge` 指针也不会进入 Milvus 检索。通用 RAG 检索同样拒绝默认或不匹配 collection。授权恢复继续使用任务固定的原 build，直至其可安全清理。
+- `schema_knowledge` 仍是通用配置和若干低层 helper 的默认名，但没有发现 IAM-SIMPLE-1 问数检索调用该默认集合的路径；collection source ownership 仍需后续在真正隔离的应用库/容器环境中核验。
 
 ## 验收边界
 

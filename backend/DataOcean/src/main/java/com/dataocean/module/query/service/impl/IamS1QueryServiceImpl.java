@@ -308,7 +308,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     writeJson(Map.of("taskId", taskId, "status", QueryTaskStatus.CANCELLED.name(),
                             "question", task.getQuestion())));
             conversationService.releaseTurn(task.getConversationId(), taskId);
-            refreshConversationContext(task.getConversationId(), userId, task.getPermissionRevision(), taskId);
+            refreshConversationContext(task.getConversationId(), userId, task.getDatasourceId(), taskId);
         }
     }
 
@@ -488,7 +488,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 saveCompletedConversationMessage(task, result, data, outputMasks, safeSql, safeExplanation,
                         safeChart, suggestions);
                 conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
-                refreshConversationContext(task.getConversationId(), task.getUserId(), task.getPermissionRevision(), task.getTaskId());
+                refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), task.getTaskId());
             }
         } catch (BusinessException ex) {
             // 这个 catch 覆盖整个完成阶段（最终保护、落库、会话消息与摘要刷新），
@@ -819,9 +819,9 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         ConversationContextDTO conversation;
         try {
             conversation = conversationContextSummaryService
-                    .buildQueryContext(conversationId, userId, currentUserMessageId, candidateCatalog.permissionRevision());
+                    .buildQueryContext(conversationId, userId, currentUserMessageId, candidateCatalog);
         } catch (BusinessException ex) {
-            refreshConversationContext(conversationId, userId, candidateCatalog.permissionRevision(), taskId);
+            refreshConversationContext(conversationId, userId, request.getDatasourceId(), taskId);
             throw ex;
         }
         if (conversation == null) {
@@ -897,12 +897,14 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         return request;
     }
 
-    private void refreshConversationContext(Long conversationId, Long userId, Long permissionRevision, String taskId) {
+    private void refreshConversationContext(Long conversationId, Long userId, Long datasourceId, String taskId) {
         if (conversationId == null) return;
         try {
-            conversationContextSummaryService.refreshAsync(conversationId, userId, permissionRevision);
+            conversationContextSummaryService.refreshAsync(conversationId, userId, datasourceId);
         } catch (java.util.concurrent.RejectedExecutionException ex) {
             log.warn("S1 会话摘要线程池繁忙，跳过本次摘要刷新 conversationId={} taskId={}", conversationId, taskId);
+        } catch (Exception ex) {
+            log.warn("S1 会话摘要当前权限范围不可用，跳过本次刷新 conversationId={} taskId={}", conversationId, taskId);
         }
     }
 
@@ -1217,7 +1219,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             conversationService.saveAssistantMessage(task.getConversationId(), message, taskId,
                     writeJson(failureMetadata));
             conversationService.releaseTurn(task.getConversationId(), taskId);
-            refreshConversationContext(task.getConversationId(), task.getUserId(), task.getPermissionRevision(), taskId);
+            refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), taskId);
         }
     }
 
@@ -1241,7 +1243,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         metadata.put("clarification", message);
         conversationService.saveAssistantMessage(task.getConversationId(), message, task.getTaskId(), writeJson(metadata));
         conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
-        refreshConversationContext(task.getConversationId(), task.getUserId(), task.getPermissionRevision(), task.getTaskId());
+        refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), task.getTaskId());
     }
 
     private void saveCompletedConversationMessage(QueryTask task, Map<String, Object> rawResult,

@@ -1,7 +1,7 @@
 # DataOcean 技术栈与模块职责
 
 > 本文档是 DataOcean 当前实现的技术栈、模块职责、数据归属和异步边界的详细说明。
-> 更新日期：2026-09-13。版本号以 `frontend/package.json`、`backend/DataOcean/pom.xml` 和 `python-service/pyproject.toml` 为准。
+> 更新日期：2026-09-27。版本号以 `frontend/package.json`、`backend/DataOcean/pom.xml` 和 `python-service/pyproject.toml` 为准；阶段验收结果见 [`completed/DataOcean-LangGraph问数与会话记忆验收记录.md`](completed/DataOcean-LangGraph问数与会话记忆验收记录.md)。
 
 ## 1. 文档定位
 
@@ -30,7 +30,7 @@ Spring Boot Java 网关
           │ 内部 HTTP / SSE
           ▼
 Python FastAPI AI 服务
-  ├─ LangGraph Agent 工作流
+  ├─ iam_s1/graph.py：有预算的 LangGraph 问数工作流
   ├─ LangChain 模型、Prompt、工具和输出解析
   ├─ Schema RAG、Embedding、Milvus 检索与重排
   └─ sqlglot 校验、权限改写和只读 SQL Sandbox
@@ -46,9 +46,9 @@ Python FastAPI AI 服务
 Java MySQL：conversation、conversation_message、conversation_context_summary
         │ 每次查询组装
         ▼
-Python：conversation_history + conversation_summary + 当前请求
-        │ 请求级状态，执行结束即释放
-        └─ 不接收 conversationId，不持久化完整会话
+Python：Java 提供的 conversationId/threadId、最近 5 轮、较早摘要和当前请求
+        │ Redis 8 checkpoint 仅保存可恢复的安全图状态
+        └─ 不以 Redis 保存完整聊天历史；MySQL 仍是会话事实源
 ```
 
 ## 3. 技术栈与职责矩阵
@@ -75,7 +75,6 @@ Python：conversation_history + conversation_summary + 当前请求
 | MyBatis-Plus 3.5.9 | Java 各业务模块 | MySQL 实体、Mapper、分页和条件查询 | 不替代 Python 的 SQL Sandbox |
 | Flyway | `db/migration` | 数据库结构和增量迁移 | 不迁移外部业务数据 |
 | Spring Data Redis | `user`、`common`、`query`、`fieldtag` 等 | JWT、验证码、限频、缓存和临时数据 | 不作为完整会话历史主库 |
-| Spring Cache、Caffeine | 当前权限计算模块 | 当前进程内权限缓存 | 不是新增缓存的首选；新增缓存遵循项目 Redis 约定 |
 | RestClient、Spring Retry | Java/Python client | Java 调用 Python 内部 API；Java RestClient 统一携带 `X-Internal-Token`，SSE 使用原始流消费，按配置重试知识/RAG调用 | SSE 和健康检查不盲目重试 |
 | Spring `@Async`、`@Scheduled`、事件监听 | 查询、同步、审计、通知、维护 | 受控后台任务和定时任务 | 不应把权限、安全校验和查询依赖改成丢失结果的后台任务 |
 | AOP、操作日志、审计 | `audit`、`system`、权限和管理端 | 横切日志、审计和运行记录 | 不记录密码、Token、API Key 或密钥 |
@@ -85,18 +84,18 @@ Python：conversation_history + conversation_summary + 当前请求
 | 技术 | 参与模块 | 主要职责 | 不负责 |
 | --- | --- | --- | --- |
 | Python 3.13、FastAPI、Uvicorn | `python-service/dataocean` | 内部 AI/RAG API、健康检查和 SSE | 不向浏览器提供公共业务 API |
-| Pydantic | `agent`、`rag`、`sandbox` 等 schema | 请求、响应和 Agent 状态边界校验 | 不持久化会话 |
+| Pydantic | `iam_s1`、`rag`、`sandbox` 等 schema | 请求、响应和图状态边界校验 | 不持久化完整会话 |
 | HTTPX | Prompt、配置和部分内部外部 HTTP 调用 | 异步 HTTP 客户端；本机 Java 内部回环调用不读取代理环境 | 不拥有 Java 业务事务 |
-| LangGraph | `agent/graph.py`、Agent workflow | StateGraph、节点、边、条件路由、并行 fan-out、重试和请求级状态 | 不保存长期会话，不替代 MySQL |
-| LangChain | `agent`、`infra`、`rag` | 模型抽象、Prompt、工具、输出解析、Agent 组装、Document 等基础组件 | 不决定业务权限，不是工作流持久化层 |
+| LangGraph | `iam_s1/graph.py` | StateGraph、有界检索/规划/生成/语义与结果核对、按尝试授权、恢复和取消；Redis checkpoint 保存短期安全图状态 | 不保存完整会话历史，不替代 Java/MySQL |
+| LangChain | `iam_s1`、`infra`、`rag` | 模型抽象、Prompt、输出解析和 Document 等基础组件 | 不决定业务权限，不是工作流持久化层 |
 | `langchain-openai` | `infra/llm.py`、`infra/embeddings.py` | 通过 OpenAI 兼容协议调用 Qwen/Embedding 服务 | 不保存模型会话 |
 | `langchain-text-splitters` | `rag/chunker.py` | 对 `skills.md` 做文档切分 | 不负责发布状态和任务状态 |
 | `tiktoken` | `rag/chunker.py` | 作为本地 token-aware 切分预算器，目标约 900、最大 1000，长单元 overlap 约 150 | 不代表 Qwen 服务端 tokenizer，也不负责计费限制 |
 | SQLAlchemy、PyMySQL | `sandbox`、连接池 | 使用只读账号连接外部业务 MySQL 并执行安全 SQL | 不负责 Java 应用库的业务持久化 |
-| sqlglot | `sandbox`、Agent SQL 节点 | SQL AST 解析、安全规则、权限改写、LIMIT、深度和危险函数检查 | 不依赖 Prompt 作为唯一安全措施 |
+| sqlglot | `sandbox`、`iam_s1/sql_security.py` | SQL AST 解析、来源追踪、安全规则、行条件改写、LIMIT、深度和危险函数检查 | 不依赖 Prompt 作为唯一安全措施 |
 | PyMilvus、Milvus 客户端 | `rag/vector_store.py`、`vectorizer.py` | 向量写入、检索、删除和数量校验 | 不作为业务事实源，索引失败不能覆盖 Java 状态 |
-| Python Redis asyncio | `infra/memory.py`、`rag`、Few-shot | Embedding、Schema/Fallback、用户偏好和 Few-shot 等缓存/增强记忆 | 不保存 Java 的完整会话历史 |
-| Jinja2、LangChain PromptTemplate | `agent/prompts`、`prompt` | Prompt 模板渲染 | 不执行模型安全校验 |
+| Python Redis asyncio、`langgraph-checkpoint-redis` | `iam_s1/graph.py`、`rag`、`infra` | LangGraph 安全 checkpoint，以及 Embedding/Fallback 等缓存 | 不保存 Java 的完整会话历史；checkpoint 失效时 S1 问数须明确失败 |
+| Jinja2、LangChain PromptTemplate | `iam_s1`、`prompt` | Prompt 模板渲染 | 不执行模型安全校验 |
 
 ### 3.4 数据与模型基础设施
 
@@ -104,8 +103,8 @@ Python：conversation_history + conversation_summary + 当前请求
 | --- | --- | --- | --- |
 | Java 应用 MySQL | Java 持久化数据库 | 用户、数据源、元数据、权限、任务、会话、消息、摘要、审计、知识切片 | 业务事实和会话事实的权威源 |
 | 外部业务 MySQL | 被查询的数据源 | 业务表和业务数据 | 查询结果的外部数据源；必须只读 |
-| Redis | 临时状态和缓存 | JWT、验证码、限频、Embedding、Glossary、Fallback、Few-shot、用户偏好 | 可失效、可降级，不是持久化事实源 |
-| Milvus | RAG 向量索引 | `skills.md` 和 Schema 向量 | 可重建的派生索引，不是权威源 |
+| Redis 8（含 RedisJSON/RediSearch） | 缓存与 LangGraph checkpoint | JWT、验证码、限频、Embedding/Fallback 缓存和 S1 安全图状态 | 缓存故障可降级；S1 checkpoint 不可用时拒绝启动问数；不是完整会话事实源 |
+| Milvus | RAG 向量索引 | 经确认的 buildId 专属活动 collection | 可重建的派生索引，不是权威源；默认 `schema_knowledge` 来源未核验，不作为 S1 活动集合 |
 | Qwen/外部 OpenAI 兼容 API | 模型服务 | 查询改写、SQL 生成、摘要、Embedding、图表等模型调用 | 只提供推理结果，不保存项目业务状态 |
 
 RAG 的数据归属进一步明确为：Python 负责语义切分、Embedding、Milvus 写入/检索/重排和
@@ -118,8 +117,8 @@ Milvus 中的 metadata 是用于过滤和扩展的轻量副本，不替代 Java 
 
 1. LangChain 是“组件层”：模型客户端、Prompt、工具、Document、Embedding、输出解析器和 Agent 构建能力都属于这一层。
 2. LangGraph 是“流程层”：把改写、元数据预取、RAG、SQL 生成、校验、执行和图表生成组织成有状态的节点图。
-3. LangGraph 中的状态是一次查询的请求级状态，不等于用户会话记忆。
-4. 长期会话仍由 Java 写入 MySQL；Python 只接受 Java 组装好的历史消息和摘要。
+3. LangGraph 的图状态以用户、数据源和会话绑定 threadId，由 Redis 8 保存安全 checkpoint；它不是完整聊天历史。
+4. 长期会话仍由 Java 写入 MySQL；Python 接受 Java 组装的最近轮次、摘要和会话标识，用于受控恢复。
 
 ## 5. 异步边界
 
@@ -167,7 +166,7 @@ Milvus 中的 metadata 是用于过滤和扩展的轻量副本，不替代 Java 
 ## 6. 数据一致性和失败原则
 
 1. Java MySQL 是会话、任务、治理和发布状态的权威来源。
-2. Redis 故障应降级为无缓存或较慢路径，不能阻断核心查询。
+2. 一般 Redis 缓存故障可降级为较慢路径；IAM-SIMPLE-1 LangGraph checkpoint 是安全恢复边界，不可用时问数明确失败，不退回无 checkpoint 的执行路径。
 3. Milvus 是派生索引。新版本向量未写入并校验成功前，不能删除旧版本向量；Java 发布事务提交后清理失败也不能回滚已发布的新版本，应通过 `CLEANUP_PENDING` 重试。
 4. 外部模型 API 失败时，查询任务必须进入明确的失败或降级状态，不能把异常吞掉后伪装成成功。
 5. 后台副作用如果将来具备审计或合规上的“不能丢失”要求，应采用 MySQL outbox/任务表保证投递；当前项目没有为此额外引入消息平台。

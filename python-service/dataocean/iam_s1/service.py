@@ -175,6 +175,16 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
             request.permissionSnapshot,
             rag_source_snapshot_id=request.ragSourceSnapshotId or request.activeMetadataSnapshotId,
         )
+    from dataocean.rag.collection_names import is_build_collection_name
+    if not is_build_collection_name(request.datasourceId, request.ragBuildId, request.ragCollectionName):
+        # Never let a stale or malformed Java build pointer fall back to the
+        # configured default collection (schema_knowledge).
+        return filter_chunks(
+            request.chunks,
+            request.permissionSnapshot,
+            rag_source_snapshot_id=request.ragSourceSnapshotId or request.activeMetadataSnapshotId,
+            rag_build_id=request.ragBuildId,
+        )
     if not request.ragSourceSnapshotId or not request.ragCollectionName or not request.ragEmbeddingConfig:
         return []
     try:

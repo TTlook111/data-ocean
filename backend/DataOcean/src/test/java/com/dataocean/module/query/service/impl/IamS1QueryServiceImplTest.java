@@ -12,6 +12,7 @@ import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.entity.DatasourceSecret;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
+import com.dataocean.module.knowledge.entity.RagIndexBuild;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DataAuthorizationSnapshot;
 import com.dataocean.module.permission.s1.entity.vo.IamS1FieldProtectionVO;
@@ -173,9 +174,16 @@ class IamS1QueryServiceImplTest {
         when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
         when(dataResolver.resolve(any())).thenReturn(snapshot());
+        String buildId = "abcdef12-3456-7890-abcd-ef1234567890";
+        String collectionName = "dataocean_rag_ds1_babcdef1234567890abcdef1234567890";
+        RagIndexBuild activeBuild = RagIndexBuild.builder().buildId(buildId).datasourceId(1L)
+                .sourceSnapshotId(88L).collectionName(collectionName).status("ACTIVE").build();
+        when(ragIndexBuildService.activeBuildForQuery(1L)).thenReturn(activeBuild);
+        when(ragIndexBuildService.embeddingConfigForQuery(activeBuild)).thenReturn(Map.of("providerId", "test", "model", "test"));
         when(conversationService.getOrCreateConversation(7L, 1L, null, "查询订单")).thenReturn(42L);
         when(conversationService.saveUserMessage(eq(42L), eq("查询订单"), any(String.class))).thenReturn(23L);
-        when(conversationContextSummaryService.buildQueryContext(42L, 7L, 23L, 100L))
+        when(conversationContextSummaryService.buildQueryContext(
+                eq(42L), eq(7L), eq(23L), any(com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO.class)))
                 .thenReturn(ConversationContextDTO.builder()
                         .history(List.of(Map.of("role", "user", "content", "上一轮订单")))
                         .summary(Map.of("intent", "订单统计"))
@@ -214,6 +222,9 @@ class IamS1QueryServiceImplTest {
         assertThat(body.getValue().get("conversationHistory")).isEqualTo(
                 List.of(Map.of("role", "user", "content", "上一轮订单")));
         assertThat(body.getValue().get("conversationSummary")).isEqualTo(Map.of("intent", "订单统计"));
+        assertThat(body.getValue()).containsEntry("ragBuildId", buildId)
+                .containsEntry("ragCollectionName", collectionName)
+                .containsEntry("ragSourceSnapshotId", 88L);
         assertThat(body.getValue().get("glossaryTerms").toString()).contains("订单");
         assertThat(body.getValue().get("fewShotExamples").toString()).contains("上一轮订单");
         assertThat(body.getValue().get("fewShotExamples").toString()).contains("datasourceId=1");
@@ -238,7 +249,7 @@ class IamS1QueryServiceImplTest {
                 "chartConfig", Map.of("series", List.of(Map.of("name", "id", "data", List.of(1)))))));
 
         verify(conversationService).saveAssistantMessage(eq(42L), any(), eq("task-1"), any());
-        verify(conversationContextSummaryService).refreshAsync(42L, 7L, 100L);
+        verify(conversationContextSummaryService).refreshAsync(42L, 7L, 1L);
     }
 
     @Test
@@ -251,7 +262,7 @@ class IamS1QueryServiceImplTest {
                 "error", "SQL 未通过校验")));
 
         verify(conversationService).saveAssistantMessage(eq(42L), eq("SQL 未通过校验"), eq("task-1"), any());
-        verify(conversationContextSummaryService).refreshAsync(42L, 7L, 100L);
+        verify(conversationContextSummaryService).refreshAsync(42L, 7L, 1L);
     }
 
     @Test
@@ -371,7 +382,8 @@ class IamS1QueryServiceImplTest {
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
         when(conversationService.isActiveTurn(42L, "task-1")).thenReturn(true);
         when(conversationService.userMessageIdForTask(42L, 7L, "task-1")).thenReturn(23L);
-        when(conversationContextSummaryService.buildQueryContext(42L, 7L, 23L, 100L))
+        when(conversationContextSummaryService.buildQueryContext(
+                eq(42L), eq(7L), eq(23L), any(com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO.class)))
                 .thenReturn(ConversationContextDTO.builder().history(List.of()).summary(null).build());
         ArgumentCaptor<Map<String, Object>> request = ArgumentCaptor.forClass(Map.class);
 

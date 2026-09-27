@@ -13,6 +13,7 @@ from dataocean.core.config import get_config_version, get_settings, settings
 from dataocean.infra.embeddings import embed_single
 from dataocean.infra.memory import _get_redis  # Phase 1 #1: Redis 缓存
 
+from .collection_names import is_build_collection_name
 from .fallback import fallback_retrieve
 from .reranker import rerank
 from .retriever import retrieve_from_milvus
@@ -36,6 +37,8 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
     start = perf_counter()
     if not request.build_id or not request.collection_name or not request.active_snapshot_id:
         return _response(message="缺少当前生效 RAG build，拒绝读取默认或旧索引", start=start)
+    if not is_build_collection_name(request.datasource_id, request.build_id, request.collection_name):
+        return _response(message="buildId 与专属 collection 不一致，拒绝检索", start=start)
     if not request.authorized_chunk_ids:
         return _response(message="当前用户在生效 RAG build 中没有可见事实", start=start)
     try:
