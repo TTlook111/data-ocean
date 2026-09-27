@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+import re
 from time import perf_counter
 
 from fastapi import APIRouter, HTTPException
@@ -43,6 +44,11 @@ class DimensionDetectRequest(BaseModel):
     model: str
 
 
+class BuildCollectionRequest(BaseModel):
+    build_id: str = Field(alias="buildId")
+    collection_name: str = Field(alias="collectionName")
+
+
 @router.post("/chunk", response_model=ChunkDocumentResponse)
 async def chunk_document(request: ChunkDocumentRequest) -> ChunkDocumentResponse:
     """Split a skills.md document in the Python RAG layer.
@@ -50,13 +56,17 @@ async def chunk_document(request: ChunkDocumentRequest) -> ChunkDocumentResponse
     Java keeps the document lifecycle and stores this returned chunk snapshot for
     observability/rebuilds; Python owns the chunking strategy.
     """
-    if request.validate_structure:
-        errors = await asyncio.to_thread(validate_skills_md_structure, request.content)
+    if request.validate_structure or request.snapshot_id is not None:
+        errors = await asyncio.to_thread(
+            validate_skills_md_structure,
+            request.content,
+            request.snapshot_id,
+        )
         if errors:
             raise HTTPException(status_code=422, detail={"message": "skills.md 结构校验失败", "errors": errors})
 
     # skills.md 切分包含 token 计算和较多字符串处理，放入线程池避免阻塞事件循环。
-    chunks = await asyncio.to_thread(chunk_skills_md, request.content)
+    chunks = await asyncio.to_thread(chunk_skills_md, request.content, request.snapshot_id)
     logger.info(
         "skills.md chunked datasource_id=%s doc_id=%s version_no=%s chunks=%d",
         request.datasource_id,
@@ -76,6 +86,20 @@ async def vectorize(request: VectorizeRequest) -> VectorizeResponse:
         len(request.chunks),
         request.force,
     )
+    if not request.build_id or not request.target_collection:
+        raise HTTPException(status_code=400, detail="向量写入必须绑定到已确认的 ragBuildId 专属 collection")
+    if request.build_id:
+        expected_suffix = request.build_id.replace("-", "").lower()
+        if not request.target_collection or not request.target_collection.endswith("_b" + expected_suffix):
+            raise HTTPException(status_code=400, detail="buildId 与隔离 collection 不一致")
+        if any(
+            chunk.fact_review_status != "APPROVED"
+            or chunk.source_snapshot_id != request.snapshot_id
+            or not chunk.resource_dependencies
+            or not chunk.fact_source_ids
+            for chunk in request.chunks
+        ):
+            raise HTTPException(status_code=422, detail="build 只接受本快照中已审核且依赖完整的事实 chunk")
     response = await vectorize_chunks(
         datasource_id=request.datasource_id,
         snapshot_id=request.snapshot_id,
@@ -87,6 +111,7 @@ async def vectorize(request: VectorizeRequest) -> VectorizeResponse:
         target_collection=request.target_collection,
         target_dimension=request.target_dimension,
         embedding_config=request.embedding_config,
+        build_id=request.build_id,
     )
     response.task_id = request.task_id
     return response
@@ -101,6 +126,71 @@ async def retrieve(request: RetrieveRequest) -> RetrieveResponse:
         request.question[:50],
     )
     return await retrieve_schemas(request)
+
+
+@router.post("/builds/count")
+async def count_build_collection(request: BuildCollectionRequest) -> dict:
+    """Read an exact count for a build-isolated collection."""
+    _validate_build_collection(request)
+    return await asyncio.to_thread(_inspect_build_collection, request, False)
+
+
+@router.post("/builds/delete")
+async def delete_build_collection(request: BuildCollectionRequest) -> dict:
+    """Drop one build-owned collection and verify the remaining vector count is zero."""
+    _validate_build_collection(request)
+    return await asyncio.to_thread(_inspect_build_collection, request, True)
+
+
+def _validate_build_collection(request: BuildCollectionRequest) -> None:
+    suffix = request.build_id.replace("-", "").lower()
+    expected = rf"^dataocean_rag_ds[1-9][0-9]*_b{re.escape(suffix)}$"
+    if len(suffix) < 16 or re.fullmatch(expected, request.collection_name) is None:
+        raise HTTPException(status_code=400, detail="拒绝操作非 build 专属 Milvus collection")
+
+
+def _inspect_build_collection(request: BuildCollectionRequest, drop: bool) -> dict:
+    client = get_client()
+    if not client.has_collection(request.collection_name):
+        return {
+            "buildId": request.build_id,
+            "collectionName": request.collection_name,
+            "beforeCount": 0,
+            "vectorCount": 0,
+            "collectionExists": False,
+            "verified": True,
+        }
+    before = _count_collection(client, request.collection_name)
+    if not drop:
+        return {
+            "buildId": request.build_id,
+            "collectionName": request.collection_name,
+            "beforeCount": before,
+            "vectorCount": before,
+            "collectionExists": True,
+            "verified": True,
+        }
+    client.drop_collection(request.collection_name)
+    exists_after = client.has_collection(request.collection_name)
+    after = _count_collection(client, request.collection_name) if exists_after else 0
+    verified = not exists_after and after == 0
+    if not verified:
+        raise RuntimeError(f"build collection cleanup not verified collection={request.collection_name} count={after}")
+    return {
+        "buildId": request.build_id,
+        "collectionName": request.collection_name,
+        "beforeCount": before,
+        "vectorCount": after,
+        "collectionExists": exists_after,
+        "verified": verified,
+    }
+
+
+def _count_collection(client, collection_name: str) -> int:
+    rows = client.query(collection_name=collection_name, filter="", output_fields=["count(*)"])
+    if not rows:
+        return 0
+    return int(rows[0].get("count(*)", 0))
 
 
 @router.delete("/vectors/{datasource_id}")

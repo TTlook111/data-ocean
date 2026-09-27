@@ -6,8 +6,10 @@ import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.knowledge.dto.*;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.RagIndexBuild;
 import com.dataocean.module.knowledge.entity.VectorIndexTask;
 import com.dataocean.module.knowledge.service.KnowledgeVersionService;
+import com.dataocean.module.knowledge.service.RagIndexBuildService;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeDocCrudService;
 import com.dataocean.module.knowledge.service.impl.KnowledgeDocLifecycleService;
@@ -76,6 +78,7 @@ public class KnowledgeDocController {
     private final KnowledgeVersionService knowledgeVersionService;
     private final VectorIndexTaskService vectorIndexTaskService;
     private final IamS1CapabilityService capabilityService;
+    private final RagIndexBuildService ragIndexBuildService;
 
     /** 调用者在指定功能上负责的数据源 ID；空列表表示没有任何负责源。 */
     private List<Long> visibleDatasourceIds(Long userId, String functionCode) {
@@ -213,6 +216,46 @@ public class KnowledgeDocController {
         log.debug("收到发布文档请求 docId={}", id);
         lifecycleService.publish(id);
         return Result.success("发布成功", null);
+    }
+
+    /** 页面明确确认后，为一个元数据快照建立隔离 RAG build。 */
+    @PostMapping("/rag-builds")
+    @IamS1Resource(function = PUBLISH_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE,
+            resourceIds = "#request.datasourceId")
+    public Result<Map<String, Object>> confirmRagBuild(@Valid @RequestBody RagIndexBuildRequest request) {
+        RagIndexBuild build = ragIndexBuildService.confirmBuild(
+                request.getDatasourceId(), request.getSnapshotId(), UserContext.currentUserId(),
+                Boolean.TRUE.equals(request.getConfirmed()));
+        return Result.success("已确认 RAG 构建；旧活动 build 继续服务到新 build 验证并切换", ragBuildSummary(build));
+    }
+
+    /** 查询该数据源的构建状态与活动来源版本。 */
+    @GetMapping("/rag-builds")
+    @IamS1ScopedList(VIEW_FUNCTION)
+    public Result<List<Map<String, Object>>> listRagBuilds(@RequestParam Long datasourceId) {
+        if (!visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION).contains(datasourceId)) {
+            throw new com.dataocean.common.exception.BusinessException("无权查看该数据源的 RAG 构建状态");
+        }
+        return Result.success(ragIndexBuildService.listForDatasource(datasourceId).stream()
+                .map(this::ragBuildSummary).toList());
+    }
+
+    private Map<String, Object> ragBuildSummary(RagIndexBuild build) {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("buildId", build.getBuildId());
+        result.put("datasourceId", build.getDatasourceId());
+        result.put("sourceSnapshotId", build.getSourceSnapshotId());
+        result.put("embeddingModel", build.getEmbeddingModel());
+        result.put("embeddingDimension", build.getEmbeddingDimension());
+        result.put("generation", build.getBuildGeneration());
+        result.put("status", build.getStatus());
+        result.put("expectedChunkCount", build.getExpectedChunkCount());
+        result.put("actualVectorCount", build.getActualVectorCount());
+        result.put("confirmedAt", build.getConfirmedAt());
+        result.put("activatedAt", build.getActivatedAt());
+        result.put("cleanupVerifiedAt", build.getCleanupVerifiedAt());
+        result.put("errorMessage", build.getErrorMessage());
+        return result;
     }
 
     // === AI 草稿生成 ===

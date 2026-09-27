@@ -18,6 +18,8 @@ import com.dataocean.module.metadata.entity.TableRelation;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
+import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
+import com.dataocean.module.metadata.service.MetadataEntityService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,6 +71,10 @@ class KnowledgeDocServiceImplTest {
     @Mock
     private TableRelationMapper tableRelationMapper;
     @Mock
+    private MetadataRelationshipMapper metadataRelationshipMapper;
+    @Mock
+    private MetadataEntityService metadataEntityService;
+    @Mock
     private FieldTagMapper fieldTagMapper;
     @Mock
     private TransactionTemplate transactionTemplate;
@@ -112,6 +118,7 @@ class KnowledgeDocServiceImplTest {
         DbTableMeta table = new DbTableMeta();
         table.setId(100L);
         table.setDatasourceId(datasourceId);
+        table.setSnapshotId(snapshotId);
         table.setTableName("orders");
         table.setTableComment("订单表");
         when(dbTableMetaMapper.selectList(any(Wrapper.class))).thenReturn(List.of(table));
@@ -120,6 +127,7 @@ class KnowledgeDocServiceImplTest {
         column.setId(200L);
         column.setTableMetaId(table.getId());
         column.setDatasourceId(datasourceId);
+        column.setSnapshotId(snapshotId);
         column.setTableName("orders");
         column.setColumnName("pay_amount");
         column.setDataType("DECIMAL(10,2)");
@@ -128,9 +136,11 @@ class KnowledgeDocServiceImplTest {
         column.setConfidenceScore(92);
         when(dbColumnMetaMapper.selectList(any(Wrapper.class))).thenReturn(List.of(column));
         when(tableRelationMapper.selectList(any(Wrapper.class))).thenReturn(List.<TableRelation>of());
-        when(pythonKnowledgeClient.generateDraft(eq(snapshotId), eq(datasourceId), anyList(), anyList(), anyList()))
-                .thenReturn(Map.of("content", "generated skills"));
-        when(dependencySnapshotBuilder.build(eq(datasourceId), eq(snapshotId), eq("AI_GENERATED"), any()))
+        when(pythonKnowledgeClient.generateDraft(eq(snapshotId), eq(datasourceId), anyList(), anyList(), anyList(), anyList()))
+                .thenReturn(Map.of("content", "generated skills", "coverage", Map.of(
+                        "snapshotId", snapshotId, "tableIds", List.of(100L), "columnIds", List.of(200L),
+                        "tableCoverage", 1.0, "columnCoverage", 1.0)));
+        when(dependencySnapshotBuilder.build(eq(datasourceId), eq(snapshotId), eq("SNAPSHOT_GENERATED"), any()))
                 .thenReturn("{}");
         org.mockito.Mockito.doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -149,6 +159,7 @@ class KnowledgeDocServiceImplTest {
                 eq(snapshotId),
                 eq(datasourceId),
                 tablesCaptor.capture(),
+                anyList(),
                 anyList(),
                 anyList()
         );

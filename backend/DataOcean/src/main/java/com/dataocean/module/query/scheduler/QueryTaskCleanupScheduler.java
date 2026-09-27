@@ -5,11 +5,16 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.dataocean.module.query.entity.QueryTask;
 import com.dataocean.module.query.enums.QueryTaskStatus;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
+import com.dataocean.module.query.service.ConversationService;
+import com.dataocean.module.query.service.ConversationContextSummaryService;
+import com.dataocean.module.query.client.IamS1PythonClient;
+import com.dataocean.module.permission.s1.IamS1Constants;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -17,7 +22,7 @@ import java.util.List;
 /**
  * 查询任务僵尸清理定时任务。
  * <p>
- * 每 60 秒扫描一次，将超过 3 分钟仍处于 PROCESSING 状态的任务
+ * 每 60 秒扫描一次，将超过 2 分钟仍处于 PROCESSING 状态的任务
  * 标记为 TIMEOUT，防止因 Python 服务异常或网络中断导致任务永久停留在处理中。
  * </p>
  */
@@ -28,6 +33,9 @@ import java.util.List;
 public class QueryTaskCleanupScheduler {
 
     private final QueryTaskMapper queryTaskMapper;
+    private final ConversationService conversationService;
+    private final ConversationContextSummaryService conversationContextSummaryService;
+    private final IamS1PythonClient pythonClient;
 
     /**
      * 清理僵尸任务。
@@ -38,19 +46,38 @@ public class QueryTaskCleanupScheduler {
      * </p>
      */
     @Scheduled(fixedRate = 60000)
+    @Transactional
     public void cleanupZombieTasks() {
-        // 超时阈值：创建时间早于当前时间 3 分钟
-        LocalDateTime timeoutThreshold = LocalDateTime.now().minusMinutes(3);
+        // G0 freezes the total query deadline at 90 seconds; allow a bounded
+        // handoff margin, then stop both Java and Python sides.
+        LocalDateTime timeoutThreshold = LocalDateTime.now().minusMinutes(2);
 
         // 构造原子更新：仅更新 status 仍为 PROCESSING 且创建时间超过阈值的任务
-        LambdaUpdateWrapper<QueryTask> wrapper = new LambdaUpdateWrapper<QueryTask>()
+        List<QueryTask> stale = queryTaskMapper.selectList(new LambdaQueryWrapper<QueryTask>()
                 .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
-                .lt(QueryTask::getCreatedAt, timeoutThreshold)
-                .set(QueryTask::getStatus, QueryTaskStatus.TIMEOUT.name())
-                .set(QueryTask::getErrorMessage, "查询执行超时（任务清理）")
-                .set(QueryTask::getCompletedAt, LocalDateTime.now());
-
-        int updated = queryTaskMapper.update(null, wrapper);
+                .lt(QueryTask::getCreatedAt, timeoutThreshold));
+        int updated = 0;
+        for (QueryTask task : stale) {
+            int changed = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                    .eq(QueryTask::getId, task.getId())
+                    .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                    .set(QueryTask::getStatus, QueryTaskStatus.TIMEOUT.name())
+                    .set(QueryTask::getErrorMessage, "查询执行超时（任务清理）")
+                    .set(QueryTask::getIamFinalProtectionStatus, "TIMEOUT")
+                    .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+            if (changed > 0) {
+                updated += changed;
+                if (task.getConversationId() != null
+                        && IamS1Constants.PROTOCOL_VERSION.equals(task.getIamProtocolVersion())) {
+                    pythonClient.cancelTask(task.getTaskId());
+                    conversationService.saveAssistantMessage(task.getConversationId(), "查询执行超时，请重新提问",
+                            task.getTaskId(), "{\"taskId\":\"" + task.getTaskId() + "\",\"status\":\"TIMEOUT\"}");
+                    conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
+                    conversationContextSummaryService.refreshAsync(
+                            task.getConversationId(), task.getUserId(), task.getDatasourceId());
+                }
+            }
+        }
         if (updated > 0) {
             log.info("清理僵尸任务完成，超时任务数={}", updated);
         }
@@ -75,6 +102,8 @@ public class QueryTaskCleanupScheduler {
                         QueryTaskStatus.CANCELLED.name(),
                         QueryTaskStatus.TIMEOUT.name())
                 .lt(QueryTask::getCreatedAt, retentionThreshold)
+                .and(wrapper -> wrapper.isNull(QueryTask::getIamProtocolVersion)
+                        .or().ne(QueryTask::getIamProtocolVersion, IamS1Constants.PROTOCOL_VERSION))
                 .select(QueryTask::getId);
 
         List<Long> idsToDelete = queryTaskMapper.selectList(queryWrapper).stream()

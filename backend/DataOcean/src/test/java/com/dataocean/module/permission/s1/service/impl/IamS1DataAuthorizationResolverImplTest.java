@@ -352,6 +352,18 @@ class IamS1DataAuthorizationResolverImplTest {
     }
 
     @Test
+    void visibleColumnBatchUsesTheSameResolverRulesWithoutPerFieldProbeBudget() {
+        IamS1DataGrant allow = allowGrant(124L, IamS1Constants.SUBJECT_USER, 7L, "order_id", "amount");
+        stubGrants(List.of(allow), columns(124L, 101L, 124L, 103L));
+
+        List<IamS1TablePermissionVO> visible = resolver.resolveVisibleColumns(7L, 1L, 88L, "orders", NOW);
+
+        assertThat(visible).extracting(IamS1TablePermissionVO::getAllowedColumns)
+                .containsExactly(List.of("order_id"), List.of("amount"));
+        assertThat(visible).allSatisfy(column -> assertThat(column.getGrantSources()).hasSize(1));
+    }
+
+    @Test
     void persistedOperatorMustBeWhitelisted() {
         IamS1DataGrant grant = allowGrant(123L, IamS1Constants.SUBJECT_USER, 7L, "order_id");
         stubGrants(List.of(grant), columns(123L, 101L), List.of(condition(123L, 1231L, "华东", "LIKE")));

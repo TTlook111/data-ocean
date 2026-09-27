@@ -7,14 +7,12 @@ import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.dto.KnowledgeReviewRecordVO;
 import com.dataocean.module.knowledge.dto.KnowledgeSourceSnapshotVO;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
-import com.dataocean.module.knowledge.entity.KnowledgeChunk;
 import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
 import com.dataocean.module.knowledge.entity.VectorIndexTask;
 import com.dataocean.module.knowledge.entity.KnowledgeReviewTask;
 import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.enums.GenerationSource;
 import com.dataocean.module.knowledge.enums.ReviewStatus;
-import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
@@ -55,7 +53,6 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
 
     private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
     private final KnowledgeDocMapper knowledgeDocMapper;
-    private final KnowledgeChunkMapper knowledgeChunkMapper;
     private final KnowledgeReviewTaskMapper knowledgeReviewTaskMapper;
     private final MetadataSnapshotMapper metadataSnapshotMapper;
     private final VectorIndexTaskService vectorIndexTaskService;
@@ -164,15 +161,13 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
      * {@inheritDoc}
      * <p>
      * 实现逻辑：
-     * 1. 校验回滚前置条件（文档已发布、目标版本审核已通过）
-     * 2. 查询目标版本内容
-     * 3. 以 ROLLBACK 来源创建新版本
-     * 4. 创建向量化任务更新 RAG 索引
+     * 1. 校验文档已发布且目标版本审核已通过
+     * 2. 以 ROLLBACK 来源创建一个待审核草稿版本
+     * 3. 该版本必须重新经过审核、文档发布和单独确认的 datasource RAG build
      * </p>
      * <p>
-     * <b>前置校验不可省略。</b>回滚会把目标版本内容直接置为「索引中」并触发向量化任务，
-     * 不经过「提交审核 → 审核通过 → 发布」。缺少校验时，任何调用方都能对一份 DRAFT 文档
-     * 执行回滚，把任意历史版本的内容写进 Milvus，绕过全部审核流程并污染 RAG 检索结果。
+     * 回滚会创建一个新的待审核版本，不会直接改动活动 RAG 索引。发布和 build 仍是
+     * 独立的有权人员确认动作。
      * </p>
      */
     @Transactional
@@ -194,8 +189,6 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
             throw new BusinessException("只能回滚到审核已通过的版本，版本 " + targetVersionNo
                     + " 的审核状态为：" + targetVersion.getReviewStatus());
         }
-        Integer previousVersionNo = findCurrentIndexedVersionNo(docId);
-
         // 以 ROLLBACK 来源创建新版本
         Integer newVersionNo = createVersion(
                 docId,
@@ -204,44 +197,16 @@ public class KnowledgeVersionServiceImpl implements KnowledgeVersionService {
                 targetVersion.getMetadataSnapshotId(),
                 "回滚到版本 " + targetVersionNo);
 
-        // 回滚版本记为「审核通过」：其内容来自上面已校验为 APPROVED 的目标版本，
-        // 且只允许由已发布文档发起，因此其内容确属已审核内容。
-        // 审核人记为执行回滚的操作人——是这次受校验约束的操作把该内容带入索引。
-        KnowledgeDocVersion newVersion = getVersion(docId, newVersionNo);
-        newVersion.setReviewStatus(ReviewStatus.APPROVED.name());
-        newVersion.setReviewerId(UserContext.currentUserId());
-        knowledgeDocVersionMapper.updateById(newVersion);
-
-        // 重新查询文档：createVersion 已更新主表的 currentVersion 与 content，
-        // 沿用上面的旧对象会把刚写入的版本号覆盖掉。
+        // 重新查询文档后回到 DRAFT，重新走标准审核/发布流程。
         KnowledgeDoc refreshedDoc = knowledgeDocMapper.selectById(docId);
-        refreshedDoc.setStatus(DocStatus.INDEXING.name());
+        refreshedDoc.setStatus(DocStatus.DRAFT.name());
+        refreshedDoc.setReviewStatus(ReviewStatus.PENDING.name());
         OptimisticLockSupport.requireUpdated(
                 knowledgeDocMapper.updateById(refreshedDoc),
                 "文档发布状态已被其他人修改，请刷新后重试");
-        vectorIndexTaskService.createTask(
-                refreshedDoc.getDatasourceId(),
-                "DOC",
-                docId,
-                targetVersion.getMetadataSnapshotId(),
-                newVersionNo,
-                previousVersionNo);
 
-        log.info("文档版本回滚成功 docId={} fromVersion={} newVersion={}", docId, targetVersionNo, newVersionNo);
+        log.info("文档版本回滚为待审核草稿 docId={} fromVersion={} newVersion={}", docId, targetVersionNo, newVersionNo);
         return newVersionNo;
-    }
-
-    private Integer findCurrentIndexedVersionNo(Long docId) {
-        List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectList(
-                new LambdaQueryWrapper<KnowledgeChunk>()
-                        .eq(KnowledgeChunk::getDocId, docId)
-                        .eq(KnowledgeChunk::getVectorStatus, "INDEXED")
-                        .orderByDesc(KnowledgeChunk::getVersionNo)
-                        .last("LIMIT 1"));
-        if (chunks.isEmpty()) {
-            return null;
-        }
-        return chunks.get(0).getVersionNo();
     }
 
     /**

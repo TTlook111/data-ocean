@@ -18,7 +18,7 @@ from .milvus_client import get_client, ensure_collection
 
 logger = logging.getLogger(__name__)
 
-RAG_ELIGIBLE_STATUSES = ("NORMAL", "RECOMMENDED")
+RAG_ELIGIBLE_STATUSES = ("NORMAL", "RECOMMENDED", "SENSITIVE")
 
 # collection 统计信息缓存（避免每次搜索都调用 Milvus RPC）
 _stats_cache: dict[str, tuple[int, float]] = {}  # {collection_name: (total_vectors, timestamp)}
@@ -97,69 +97,97 @@ async def search_by_vector(
     datasource_id: int,
     snapshot_id: int,
     limit: int,
+    collection_name: str | None = None,
+    filter_expr: str | None = None,
+    authorized_chunk_ids: list[int] | None = None,
+    build_id: str | None = None,
 ) -> list[SearchHit]:
-    """向量检索"""
-    expr = build_filter_expr(datasource_id, snapshot_id)
+    """Search only MySQL-authorized source chunk IDs before ANN TopK is applied."""
+    if authorized_chunk_ids is not None and not authorized_chunk_ids:
+        return []
+    base_expr = filter_expr or build_filter_expr(datasource_id, snapshot_id)
+    if build_id is not None:
+        safe_build_id = build_id.replace('"', '')
+        base_expr += f' and build_id == "{safe_build_id}"'
 
     def _search() -> list[SearchHit]:
         client = get_client()
-        name = settings.milvus_collection_name
+        name = collection_name or settings.milvus_collection_name
 
         # 动态计算 nprobe：根据 collection 向量总数调整
         # 小数据集 nprobe=1（FLAT 索引忽略此参数），大数据集 nprobe=16
         nprobe = _get_nprobe(client, name)
 
-        results = client.search(
-            collection_name=name,
-            data=[embedding],
-            limit=limit,
-            filter=expr,
-            anns_field="embedding",
-            output_fields=[
+        allowed_batches = (
+            [None]
+            if authorized_chunk_ids is None
+            else [authorized_chunk_ids[start:start + 500] for start in range(0, len(authorized_chunk_ids), 500)]
+        )
+        best_by_source: dict[str, SearchHit] = {}
+        for allowed_batch in allowed_batches:
+            expr = base_expr
+            if allowed_batch is not None:
+                numeric_ids = sorted({int(item) for item in allowed_batch})
+                if not numeric_ids:
+                    continue
+                expr += f" and source_id in [{', '.join(str(item) for item in numeric_ids)}]"
+            results = client.search(
+                collection_name=name,
+                data=[embedding],
+                limit=limit,
+                filter=expr,
+                anns_field="embedding",
+                output_fields=[
                     "datasource_id", "snapshot_id", "knowledge_version_no",
                     "doc_id", "source_id", "chunk_index", "chunk_group_id",
                     "chunk_type", "governance_status", "review_status", "chunk_text",
                     "related_table", "related_column", "related_tables", "related_columns",
-                    "entity_ids", "trust_score", "content_hash",
+                    "entity_ids", "trust_score", "content_hash", "source_snapshot_id",
+                    "resource_dependencies", "fact_source_ids", "fact_type",
+                    "fact_review_status", "build_id",
                 ],
-            search_params={"metric_type": "IP", "params": {"nprobe": nprobe}},
-        )
-
-        search_hits = []
-        for hits in results:
-            for hit in hits:
-
-                entity = hit.get("entity", {})
-                score = hit.get("distance", 0.0)
-
-                # 构建 Document
-                document = Document(
-                    page_content=entity.get("chunk_text", ""),
-                    metadata={
-                        "table_name": entity.get("related_table", ""),
-                        "chunk_type": entity.get("chunk_type", ""),
-                        "governance_status": entity.get("governance_status", ""),
-                        "review_status": entity.get("review_status", ""),
-                        "score": score,
-                        "relevance_score": score,
-                        "source_type": "SCHEMA",
-                        "source_version": entity.get("knowledge_version_no", 0),
-                        "snapshot_id": entity.get("snapshot_id"),
-                        "doc_id": entity.get("doc_id"),
-                        "source_id": entity.get("source_id"),
-                        "chunk_index": entity.get("chunk_index"),
-                        "chunk_group_id": entity.get("chunk_group_id", ""),
-                        "related_column": entity.get("related_column", ""),
-                        "related_tables": entity.get("related_tables", ""),
-                        "related_columns": entity.get("related_columns", ""),
-                        "entity_ids": entity.get("entity_ids", ""),
-                        "trust_score": entity.get("trust_score"),
-                        "content_hash": entity.get("content_hash", ""),
-                    },
-                )
-                search_hits.append(SearchHit(document=document, score=score))
-
-        return search_hits
+                search_params={"metric_type": "IP", "params": {"nprobe": nprobe}},
+            )
+            for hits in results:
+                for hit in hits:
+                    entity = hit.get("entity", {})
+                    score = hit.get("distance", 0.0)
+                    source_id = entity.get("source_id")
+                    document = Document(
+                        page_content=entity.get("chunk_text", ""),
+                        metadata={
+                            "table_name": entity.get("related_table", ""),
+                            "chunk_type": entity.get("chunk_type", ""),
+                            "governance_status": entity.get("governance_status", ""),
+                            "review_status": entity.get("review_status", ""),
+                            "score": score,
+                            "relevance_score": score,
+                            "source_type": "SCHEMA",
+                            "source_version": entity.get("knowledge_version_no", 0),
+                            "snapshot_id": entity.get("snapshot_id"),
+                            "doc_id": entity.get("doc_id"),
+                            "source_id": source_id,
+                            "chunk_index": entity.get("chunk_index"),
+                            "chunk_group_id": entity.get("chunk_group_id", ""),
+                            "related_column": entity.get("related_column", ""),
+                            "related_tables": entity.get("related_tables", ""),
+                            "related_columns": entity.get("related_columns", ""),
+                            "entity_ids": entity.get("entity_ids", ""),
+                            "trust_score": entity.get("trust_score"),
+                            "content_hash": entity.get("content_hash", ""),
+                            "source_snapshot_id": entity.get("source_snapshot_id", entity.get("snapshot_id")),
+                            "resource_dependencies": entity.get("resource_dependencies", ""),
+                            "fact_source_ids": entity.get("fact_source_ids", ""),
+                            "fact_type": entity.get("fact_type", ""),
+                            "fact_review_status": entity.get("fact_review_status", "PENDING"),
+                            "build_id": entity.get("build_id", ""),
+                        },
+                    )
+                    candidate = SearchHit(document=document, score=score)
+                    key = str(source_id) if source_id is not None else document.page_content
+                    if key not in best_by_source or best_by_source[key].score < score:
+                        best_by_source[key] = candidate
+        return sorted(best_by_source.values(), key=lambda item: item.score, reverse=True)[:limit]
 
     return await asyncio.to_thread(_search)
 

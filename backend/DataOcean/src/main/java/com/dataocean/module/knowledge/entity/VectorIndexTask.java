@@ -48,6 +48,12 @@ public class VectorIndexTask {
     /** 新版本写入成功后需要清理的上一版知识文档版本号 */
     private Integer previousVersionNo;
 
+    /** RAG build 隔离标识；旧的单文档任务为空且不再由调度器处理。 */
+    private String buildId;
+
+    /** build 专属 Milvus collection。 */
+    private String targetCollection;
+
     /** 任务状态（参见 VectorTaskStatus 枚举） */
     private String status;
 

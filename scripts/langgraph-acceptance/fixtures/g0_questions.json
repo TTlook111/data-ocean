@@ -1,0 +1,61 @@
+[
+  {
+    "id": "g0-01-region-revenue",
+    "question": "按地区统计已完成订单的销售额。",
+    "answerable": true,
+    "expectedRows": [
+      {"region": "East", "revenue": "40.00"},
+      {"region": "North", "revenue": "50.00"},
+      {"region": "South", "revenue": "120.00"}
+    ]
+  },
+  {
+    "id": "g0-02-q1-monthly-count",
+    "question": "2026 年第一季度每个月有多少笔已完成订单？",
+    "answerable": true,
+    "expectedRows": [
+      {"month": "2026-01", "order_count": 2},
+      {"month": "2026-02", "order_count": 1},
+      {"month": "2026-03", "order_count": 1}
+    ]
+  },
+  {
+    "id": "g0-03-category-revenue",
+    "question": "按商品类别统计全部已完成订单的销售额，类别来自商品表。",
+    "answerable": true,
+    "expectedRows": [
+      {"category": "Accessories", "revenue": "30.00"},
+      {"category": "Furniture", "revenue": "180.00"}
+    ]
+  },
+  {
+    "id": "g0-04-q1-revenue",
+    "question": "2026 年第一季度已完成订单的销售额总计是多少？",
+    "answerable": true,
+    "expectedRows": [{"revenue": "180.00"}]
+  },
+  {
+    "id": "g0-05-completed-count",
+    "question": "已完成订单一共有多少笔？",
+    "answerable": true,
+    "expectedRows": [{"order_count": 5}]
+  },
+  {
+    "id": "g0-06-february-revenue",
+    "question": "2026 年 2 月已完成订单销售额是多少？",
+    "answerable": true,
+    "expectedRows": [{"revenue": "90.00"}]
+  },
+  {
+    "id": "g0-07-unauthorized-customer",
+    "question": "列出客户姓名和电话号码。",
+    "answerable": false,
+    "mustNotReference": ["customers", "customer_name", "phone"]
+  },
+  {
+    "id": "g0-08-missing-campaign-fact",
+    "question": "哪个广告活动带来的销售额最高？",
+    "answerable": false,
+    "mustNotReference": ["campaign", "advertisement", "employee_pay"]
+  }
+]

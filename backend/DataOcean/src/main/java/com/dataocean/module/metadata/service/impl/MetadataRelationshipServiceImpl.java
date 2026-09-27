@@ -7,6 +7,8 @@ import com.dataocean.module.metadata.entity.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -15,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -29,6 +32,7 @@ public class MetadataRelationshipServiceImpl extends ServiceImpl<MetadataRelatio
         implements MetadataRelationshipService {
 
     private final MetadataEntityService entityService;
+    private final ObjectMapper objectMapper;
 
     @Override
     public List<MetadataRelationship> getBySource(Long sourceId, String sourceType) {
@@ -146,13 +150,104 @@ public class MetadataRelationshipServiceImpl extends ServiceImpl<MetadataRelatio
 
         List<Long> entityIds = entities.stream().map(MetadataEntity::getId).toList();
 
-        // 删除这些实体作为 source 的所有关系
-        baseMapper.delete(new LambdaQueryWrapper<MetadataRelationship>()
-                .in(MetadataRelationship::getSourceId, entityIds));
-        // 删除这些实体作为 target 的所有关系
-        baseMapper.delete(new LambdaQueryWrapper<MetadataRelationship>()
-                .in(MetadataRelationship::getTargetId, entityIds));
+        // 已确认的 MANUAL/ETL 血缘以 FQN 为稳定身份，发布后由
+        // rebindConfirmedLineageForSnapshot 绑定新实体；其它图边随快照重建。
+        List<MetadataRelationship> related = baseMapper.selectList(new LambdaQueryWrapper<MetadataRelationship>()
+                .and(wrapper -> wrapper.in(MetadataRelationship::getSourceId, entityIds)
+                        .or().in(MetadataRelationship::getTargetId, entityIds)));
+        for (MetadataRelationship relationship : related) {
+            if (isConfirmedPersistentLineage(relationship)) continue;
+            baseMapper.deleteById(relationship.getId());
+        }
 
         log.info("已清理数据源 {} 的所有关系", datasourceId);
+    }
+
+    @Override
+    public void rebindConfirmedLineageForSnapshot(Long datasourceId, Long snapshotId) {
+        List<MetadataEntity> currentEntities = entityService.getByDatasourceId(datasourceId);
+        Map<String, MetadataEntity> byFqn = currentEntities.stream()
+                .filter(entity -> entity.getFqn() != null && entity.getId() != null)
+                .collect(java.util.stream.Collectors.toMap(
+                        entity -> entity.getFqn().toLowerCase(), entity -> entity, (left, right) -> left));
+        String datasourceFqnPrefix = currentEntities.stream()
+                .filter(entity -> MetadataEntity.TYPE_DATASOURCE.equals(entity.getEntityType()))
+                .map(MetadataEntity::getFqn)
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElseGet(() -> currentEntities.stream()
+                        .filter(entity -> MetadataEntity.TYPE_TABLE.equals(entity.getEntityType()))
+                        .map(MetadataEntity::getFqn)
+                        .filter(java.util.Objects::nonNull)
+                        .map(fqn -> fqn.substring(0, fqn.indexOf('.')))
+                        .findFirst().orElse("")).toLowerCase();
+        List<MetadataRelationship> candidates = baseMapper.selectList(
+                new LambdaQueryWrapper<MetadataRelationship>()
+                        .in(MetadataRelationship::getRelationType,
+                                MetadataRelationship.TYPE_LINEAGE,
+                                MetadataRelationship.TYPE_DERIVED_FROM));
+        int rebound = 0;
+        int unbound = 0;
+        for (MetadataRelationship relationship : candidates) {
+            if (!isConfirmedPersistentLineage(relationship)) continue;
+            Map<String, Object> metadata = parseMetadata(relationship.getRelationMetadata());
+            String sourceFqn = stringValue(metadata.get("source_fqn"));
+            String targetFqn = stringValue(metadata.get("target_fqn"));
+            if (sourceFqn == null || targetFqn == null) continue;
+            if (!sourceFqn.toLowerCase().startsWith(datasourceFqnPrefix + ".")
+                    && !targetFqn.toLowerCase().startsWith(datasourceFqnPrefix + ".")) {
+                continue;
+            }
+            MetadataEntity source = byFqn.get(sourceFqn.toLowerCase());
+            MetadataEntity target = byFqn.get(targetFqn.toLowerCase());
+            if (source == null || target == null) {
+                metadata.put("binding_status", "UNBOUND");
+                metadata.put("bound_snapshot_id", null);
+                relationship.setRelationMetadata(writeMetadata(metadata));
+                baseMapper.updateById(relationship);
+                unbound++;
+                continue;
+            }
+            relationship.setSourceId(source.getId());
+            relationship.setSourceType(source.getEntityType());
+            relationship.setTargetId(target.getId());
+            relationship.setTargetType(target.getEntityType());
+            metadata.put("binding_status", "BOUND");
+            metadata.put("bound_snapshot_id", snapshotId);
+            metadata.putIfAbsent("confirmation_status", "CONFIRMED");
+            relationship.setRelationMetadata(writeMetadata(metadata));
+            baseMapper.updateById(relationship);
+            rebound++;
+        }
+        log.info("确认血缘快照重绑定完成 datasourceId={} snapshotId={} rebound={} unbound={}",
+                datasourceId, snapshotId, rebound, unbound);
+    }
+
+    private boolean isConfirmedPersistentLineage(MetadataRelationship relationship) {
+        if (!MetadataRelationship.TYPE_LINEAGE.equals(relationship.getRelationType())
+                && !MetadataRelationship.TYPE_DERIVED_FROM.equals(relationship.getRelationType())) return false;
+        Map<String, Object> metadata = parseMetadata(relationship.getRelationMetadata());
+        return "CONFIRMED".equalsIgnoreCase(stringValue(metadata.get("confirmation_status")));
+    }
+
+    private Map<String, Object> parseMetadata(String json) {
+        if (json == null || json.isBlank()) return new java.util.LinkedHashMap<>();
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {});
+        } catch (Exception e) {
+            return new java.util.LinkedHashMap<>();
+        }
+    }
+
+    private String writeMetadata(Map<String, Object> metadata) {
+        try {
+            return objectMapper.writeValueAsString(metadata);
+        } catch (Exception e) {
+            throw new IllegalStateException("无法持久化血缘绑定状态", e);
+        }
+    }
+
+    private String stringValue(Object value) {
+        return value == null || String.valueOf(value).isBlank() ? null : String.valueOf(value);
     }
 }

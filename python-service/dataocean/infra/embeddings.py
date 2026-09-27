@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 
 from langchain_openai import OpenAIEmbeddings
@@ -26,7 +27,7 @@ MAX_PROVIDER_BATCH_SIZE = 10
 
 _embeddings: OpenAIEmbeddings | None = None
 _embeddings_lock = asyncio.Lock()
-_embedding_cache: dict[tuple[str, str, str], OpenAIEmbeddings] = {}
+_embedding_cache: dict[tuple[str, str, str, str, str], OpenAIEmbeddings] = {}
 _embedding_cache_lock = asyncio.Lock()
 
 
@@ -80,7 +81,8 @@ async def _get_embeddings_for_config(config: EmbeddingConfig) -> OpenAIEmbedding
     base_url = config.base_url or settings.dashscope_base_url
     api_key = config.api_key or settings.dashscope_api_key or "dummy"
     provider_id = config.provider_id or base_url
-    cache_key = (provider_id, base_url, config.model)
+    key_fingerprint = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+    cache_key = (provider_id, base_url, config.model, str(config.dimension or ""), key_fingerprint)
 
     # 快速路径：缓存命中
     cached = _embedding_cache.get(cache_key)
@@ -146,10 +148,14 @@ async def embed_texts_with_config(
         raise LLMException(f"Embedding 生成失败：{e}")
 
 
-async def embed_single(text: str) -> list[float]:
+async def embed_single(text: str, embedding_config: EmbeddingConfig | None = None) -> list[float]:
     """生成单条文本向量"""
     try:
-        embeddings = await _get_embeddings()
+        embeddings = (
+            await _get_embeddings_for_config(embedding_config)
+            if embedding_config is not None
+            else await _get_embeddings()
+        )
         return await embeddings.aembed_query(text)
     except Exception as e:
         logger.error("Embedding 单条生成失败 error=%s", e)

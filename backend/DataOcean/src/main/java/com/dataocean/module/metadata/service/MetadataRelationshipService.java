@@ -59,4 +59,10 @@ public interface MetadataRelationshipService extends IService<MetadataRelationsh
      * 删除指定数据源的所有关系（快照发布时清理旧数据）
      */
     void deleteBySourceDatasource(Long datasourceId);
+
+    /**
+     * 将已确认的人工作业/ETL 血缘按稳定 FQN 重新绑定到新发布快照中的实体。
+     * 如果任一端在新快照缺失，事实保留为 UNBOUND，不得进入问数知识。
+     */
+    void rebindConfirmedLineageForSnapshot(Long datasourceId, Long snapshotId);
 }

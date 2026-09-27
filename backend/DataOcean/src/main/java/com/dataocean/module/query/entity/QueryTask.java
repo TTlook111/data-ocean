@@ -37,6 +37,10 @@ public class QueryTask {
     private Long activeMetadataSnapshotId;
     private Long permissionRevision;
 
+    /** 该任务固定使用的 RAG 构建与来源快照；允许比当前 S1 快照旧。 */
+    private String ragBuildId;
+    private Long ragSourceSnapshotId;
+
     /** 不含记录参数原值的 S1 执行快照。 */
     private String iamExecutionSnapshot;
     /** 本次查询实际引用资源请求的安全 JSON。 */
@@ -110,6 +114,11 @@ public class QueryTask {
 
     /** 重试次数 */
     private Integer retryCount;
+
+    /** G0 hard call-count and cost budget, durably shared with the Python graph. */
+    private Integer llmCallCount;
+    private Integer embeddingCallCount;
+    private java.math.BigDecimal estimatedAiCostCny;
 
     /** 总耗时（毫秒） */
     private Integer totalTimeMs;

@@ -58,6 +58,70 @@ export interface ColumnMetaItem {
   governanceStatus: string
 }
 
+export interface ManualJoinPath {
+  id: number
+  snapshotId: number
+  datasourceId: number
+  sourceTable: string
+  sourceColumn: string
+  targetTable: string
+  targetColumn: string
+  relationType: string
+  confidence: number
+  reviewStatus: string
+  reviewedBy?: number
+  reviewedAt?: string
+}
+
+export interface ManualJoinPathOptions {
+  snapshotId: number
+  tables: Array<{
+    id: number
+    tableName: string
+    columns: Array<{ id: number; columnName: string; dataType: string; governanceStatus: string }>
+  }>
+}
+
+export async function getManualJoinPathOptions(datasourceId: number, snapshotId: number) {
+  const { data } = await http.get<ApiResult<ManualJoinPathOptions>>(
+    `/api/admin/catalog/datasources/${datasourceId}/join-paths/options`,
+    { params: { snapshotId } },
+  )
+  return data
+}
+
+export async function listManualJoinPaths(datasourceId: number, snapshotId: number) {
+  const { data } = await http.get<ApiResult<ManualJoinPath[]>>(
+    `/api/admin/catalog/datasources/${datasourceId}/join-paths`,
+    { params: { snapshotId } },
+  )
+  return data
+}
+
+export async function createManualJoinPath(
+  datasourceId: number,
+  payload: {
+    snapshotId: number
+    sourceTable: string
+    sourceColumn: string
+    targetTable: string
+    targetColumn: string
+    confirmed: true
+  },
+) {
+  const { data } = await http.post<ApiResult<ManualJoinPath>>(
+    `/api/admin/catalog/datasources/${datasourceId}/join-paths`, payload,
+  )
+  return data
+}
+
+export async function deleteManualJoinPath(datasourceId: number, relationId: number) {
+  const { data } = await http.delete<ApiResult<null>>(
+    `/api/admin/catalog/datasources/${datasourceId}/join-paths/${relationId}`,
+  )
+  return data
+}
+
 export interface SchemaDiffResult {
   addedTables: string[]
   removedTables: string[]

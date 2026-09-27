@@ -31,7 +31,8 @@ public class IamS1PythonClientImpl implements IamS1PythonClient {
 
     @Async("queryExecutor")
     @Override
-    public void executeAsync(String taskId, Map<String, Object> request, Consumer<String> resultConsumer) {
+    public void executeAsync(String taskId, Map<String, Object> request, Consumer<String> resultConsumer,
+                             Consumer<Map<String, Object>> progressConsumer) {
         try {
             String result = restClient.post()
                     .uri("/internal/iam-s1/query/execute")
@@ -46,7 +47,7 @@ public class IamS1PythonClientImpl implements IamS1PythonClient {
                                     + response.getStatusCode().value() + " body=" + detail);
                         }
                         try {
-                            return consume(response.getBody(), taskId);
+                            return consume(response.getBody(), taskId, progressConsumer);
                         } catch (Exception ex) {
                             throw new IllegalStateException("IAM-SIMPLE-1 SSE 读取失败", ex);
                         }
@@ -77,7 +78,8 @@ public class IamS1PythonClientImpl implements IamS1PythonClient {
         }
     }
 
-    private String consume(InputStream stream, String taskId) throws Exception {
+    private String consume(InputStream stream, String taskId,
+                           Consumer<Map<String, Object>> progressConsumer) throws Exception {
         String event = null;
         StringBuilder data = new StringBuilder();
         String finalData = null;
@@ -87,6 +89,14 @@ public class IamS1PythonClientImpl implements IamS1PythonClient {
                 if (line.isEmpty()) {
                     if ("result".equals(event) && data.length() > 0) {
                         finalData = data.toString().trim();
+                    } else if ("progress".equals(event) && data.length() > 0 && progressConsumer != null) {
+                        try {
+                            Map<String, Object> progress = objectMapper.readValue(
+                                    data.toString().trim(), new TypeReference<>() {});
+                            progressConsumer.accept(progress);
+                        } catch (Exception ex) {
+                            log.debug("忽略格式无效的 S1 进度事件 taskId={}", taskId);
+                        }
                     }
                     event = null;
                     data.setLength(0);

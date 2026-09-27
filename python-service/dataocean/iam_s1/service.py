@@ -105,6 +105,22 @@ def _schema_from_snapshot(snapshot: S1PermissionSnapshot) -> list[dict[str, Any]
     ]
 
 
+def _dedupe_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        source_id = chunk.get("sourceId", chunk.get("source_id"))
+        build_id = chunk.get("ragBuildId", chunk.get("buildId", ""))
+        key = (str(build_id), str(source_id if source_id is not None else chunk.get("chunkText", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(chunk)
+    return result
+
+
 def _contract_matches(request: Any, snapshot: S1PermissionSnapshot) -> None:
     if request.protocolVersion != "IAM-SIMPLE-1":
         raise S1SqlSecurityError("未知 IAM-SIMPLE-1 协议")
@@ -151,16 +167,55 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
     # pipeline, then applies the S1 table/column intersection once more before
     # anything reaches a model.  The supplied chunks are the fail-closed
     # fallback input for Milvus outages.
+    if request.ragBuildId is None:
+        # No active pointer means no query-visible collection. Keep only explicitly
+        # bound request fallback facts; production Java sends an empty list here.
+        return filter_chunks(
+            request.chunks,
+            request.permissionSnapshot,
+            rag_source_snapshot_id=request.ragSourceSnapshotId or request.activeMetadataSnapshotId,
+        )
+    from dataocean.rag.collection_names import is_build_collection_name
+    if not is_build_collection_name(request.datasourceId, request.ragBuildId, request.ragCollectionName):
+        # Never let a stale or malformed Java build pointer fall back to the
+        # configured default collection (schema_knowledge).
+        return filter_chunks(
+            request.chunks,
+            request.permissionSnapshot,
+            rag_source_snapshot_id=request.ragSourceSnapshotId or request.activeMetadataSnapshotId,
+            rag_build_id=request.ragBuildId,
+        )
+    if not request.ragSourceSnapshotId or not request.ragCollectionName or not request.ragEmbeddingConfig:
+        return []
     try:
         from dataocean.rag.schema import RetrieveRequest
         from dataocean.rag.service import retrieve_schemas
 
+        allowed_resources = []
+        for resource in request.permissionSnapshot.resources:
+            allowed_resources.append(f"table:{resource.tableName}")
+            allowed_resources.extend(
+                f"column:{resource.tableName}.{column.name}" for column in resource.columns
+                if column.protectionLevel != "HIDDEN"
+            )
+        allowed_chunk_ids = []
+        for chunk in request.chunks:
+            source_id = chunk.get("sourceId", chunk.get("source_id"))
+            try:
+                allowed_chunk_ids.append(int(source_id))
+            except (TypeError, ValueError):
+                continue
         response = await retrieve_schemas(RetrieveRequest(
             datasourceId=request.datasourceId,
             question=request.question,
             topK=10,
-            activeSnapshotId=request.activeMetadataSnapshotId,
+            activeSnapshotId=request.ragSourceSnapshotId,
             fallbackChunks=request.chunks,
+            buildId=request.ragBuildId,
+            collectionName=request.ragCollectionName,
+            embeddingConfig=request.ragEmbeddingConfig,
+            authorizedResources=allowed_resources,
+            authorizedChunkIds=allowed_chunk_ids,
         ))
         candidates: list[dict[str, Any]] = []
         for item in response.results:
@@ -172,23 +227,41 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
                 columns = [f"{tables[0]}.{column.name}" for column in item.columns]
             candidates.append({
                 "datasourceId": request.datasourceId,
-                "activeMetadataSnapshotId": request.activeMetadataSnapshotId,
+                "activeMetadataSnapshotId": request.ragSourceSnapshotId,
+                "sourceSnapshotId": request.ragSourceSnapshotId,
+                "ragBuildId": request.ragBuildId,
                 "tables": tables,
                 "columns": columns,
+                "resourceDependencies": list(getattr(item, "resource_dependencies", []) or []),
+                "factSourceIds": list(getattr(item, "fact_source_ids", []) or []),
+                "factType": getattr(item, "fact_type", ""),
+                "factReviewStatus": getattr(item, "fact_review_status", ""),
+                "reviewStatus": getattr(item, "review_status", ""),
+                "governanceStatus": getattr(item, "governance_status", ""),
                 "chunkText": getattr(item, "chunk_text", ""),
                 "chunkType": getattr(item, "chunk_type", ""),
                 "score": getattr(item, "score", 0),
                 "docId": getattr(item, "doc_id", None),
                 "versionNo": getattr(item, "source_version", 0),
             })
-        filtered = filter_chunks(candidates, request.permissionSnapshot)
+        filtered = filter_chunks(
+            candidates,
+            request.permissionSnapshot,
+            rag_source_snapshot_id=request.ragSourceSnapshotId,
+            rag_build_id=request.ragBuildId,
+        )
         if filtered:
             return filtered
     except Exception:
         # Retrieval failure is allowed to degrade only to the same filtered
         # fallback; it never sends an unfiltered vector result onward.
         pass
-    return filter_chunks(request.chunks, request.permissionSnapshot)
+    return filter_chunks(
+        request.chunks,
+        request.permissionSnapshot,
+        rag_source_snapshot_id=request.ragSourceSnapshotId,
+        rag_build_id=request.ragBuildId,
+    )
 
 
 async def execute_validated(request: S1SqlExecuteRequest) -> dict[str, Any]:
@@ -226,15 +299,29 @@ async def execute_validated(request: S1SqlExecuteRequest) -> dict[str, Any]:
         "trace": {
             "permissionRevision": request.permissionRevision,
             "activeMetadataSnapshotId": request.activeMetadataSnapshotId,
-            "usedTables": validation.used_tables,
-            "usedColumns": validation.used_columns,
-            "sourceTrace": validation.source_trace,
-            "maskedFields": validation.masked_fields,
+            # The final AST pass includes Java-injected row predicates. Persist
+            # only the original model-authored usage evidence; policy columns do
+            # not become user-visible result fields.
+            "usedTables": original_validation.used_tables,
+            "usedColumns": original_validation.used_columns,
+            "sourceTrace": original_validation.source_trace,
+            "maskedFields": original_validation.masked_fields,
         },
     }
 
 
-async def run_query(request: S1QueryExecuteRequest) -> dict[str, Any]:
+async def run_query(request: S1QueryExecuteRequest, *, progress_callback=None, resume: bool = False) -> dict[str, Any]:
+    if request.candidateCatalog is not None:
+        from .graph import run_query_graph
+
+        return await run_query_graph(request, progress_callback=progress_callback, resume=resume)
+    return await _run_query_legacy(request)
+
+
+async def _run_query_legacy(request: S1QueryExecuteRequest) -> dict[str, Any]:
+    if request.permissionSnapshot is None or request.connectionConfig is None:
+        return {"taskId": request.taskId, "protocolVersion": request.protocolVersion,
+                "status": "FAILED", "error": "S1 legacy context incomplete"}
     _contract_matches(request, request.permissionSnapshot)
     start = time.time()
     safe_rag = await retrieve(S1RagRetrieveRequest(
@@ -246,7 +333,11 @@ async def run_query(request: S1QueryExecuteRequest) -> dict[str, Any]:
         permissionRevision=request.permissionRevision,
         permissionSnapshot=request.permissionSnapshot,
         question=request.question,
-        chunks=request.ragChunks + request.fallbackChunks,
+        chunks=_dedupe_chunks(request.ragChunks + request.fallbackChunks),
+        ragBuildId=request.ragBuildId,
+        ragSourceSnapshotId=request.ragSourceSnapshotId,
+        ragCollectionName=request.ragCollectionName,
+        ragEmbeddingConfig=request.ragEmbeddingConfig,
     ))
     context = build_model_context(
         request.permissionSnapshot,
@@ -257,6 +348,8 @@ async def run_query(request: S1QueryExecuteRequest) -> dict[str, Any]:
         [turn.model_dump() for turn in request.conversationHistory],
         request.conversationSummary,
         [binding.value for binding in request.executionBindings],
+        rag_source_snapshot_id=request.ragSourceSnapshotId,
+        rag_build_id=request.ragBuildId,
     )
     user_prompt = await render_sql_prompt(request.question, context)
     try:
@@ -337,7 +430,7 @@ async def run_query(request: S1QueryExecuteRequest) -> dict[str, Any]:
             "ragUsed": bool(context["rag"]),
             "degraded": not bool(context["rag"]),
             "degradeNotice": None if context["rag"] else "无可验证的 S1 知识上下文，已安全降级",
-            "totalTimeMs": int((time.time() - start) * 1000),
+        "totalTimeMs": int((time.time() - start) * 1000),
         }
     except Exception as exc:  # sanitized, no binding/SQL value is returned
         return {

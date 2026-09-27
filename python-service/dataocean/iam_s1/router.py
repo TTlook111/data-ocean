@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from fastapi import APIRouter
@@ -21,9 +22,30 @@ def _event(name: str, data: object) -> str:
 @router.post("/query/execute")
 async def execute_query(request: S1QueryExecuteRequest) -> StreamingResponse:
     async def stream():
-        yield _event("progress", {"taskId": request.taskId, "protocolVersion": request.protocolVersion, "permissionRevision": request.permissionRevision, "node": "S1_FIREWALL", "status": "completed"})
-        result = await run_query(request)
-        yield _event("result", result)
+        progress_queue: asyncio.Queue[dict] = asyncio.Queue()
+
+        async def publish_progress(event: dict) -> None:
+            await progress_queue.put(event)
+
+        running = asyncio.create_task(run_query(
+            request, progress_callback=publish_progress, resume=bool(request.resume),
+        ))
+        try:
+            while not running.done() or not progress_queue.empty():
+                try:
+                    progress = await asyncio.wait_for(progress_queue.get(), timeout=0.25)
+                    yield _event("progress", progress)
+                except TimeoutError:
+                    continue
+            result = await running
+            yield _event("result", result)
+        finally:
+            if not running.done():
+                running.cancel()
+                try:
+                    await running
+                except asyncio.CancelledError:
+                    pass
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 

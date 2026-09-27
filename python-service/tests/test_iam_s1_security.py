@@ -24,7 +24,7 @@ from dataocean.iam_s1.schema import (
     S1SqlExecuteRequest,
     S1SqlValidateRequest,
 )
-from dataocean.iam_s1.sql_security import inject_row_conditions, validate_sql
+from dataocean.iam_s1.sql_security import inject_row_conditions, missing_reviewed_predicates, validate_sql
 from dataocean.iam_s1.service import execute_validated, retrieve, run_query, validate_request
 
 
@@ -64,11 +64,19 @@ def test_firewall_removes_hidden_and_masked_sample_values():
 
 def test_firewall_rejects_unbound_or_wrong_snapshot_chunks_and_keeps_safe_chunks():
     current = snapshot()
-    safe = {"datasourceId": 1, "activeMetadataSnapshotId": 88, "tables": ["orders"], "columns": ["orders.id"], "chunkText": "safe"}
+    safe = {
+        "datasourceId": 1, "activeMetadataSnapshotId": 88, "sourceSnapshotId": 88,
+        "tables": ["orders"], "columns": ["orders.id"],
+        "resourceDependencies": ["table:orders", "column:orders.id"],
+        "sourceId": 10, "factSourceIds": ["field:orders.id"], "factType": "COLUMN_STRUCTURE",
+        "factReviewStatus": "APPROVED", "reviewStatus": "APPROVED", "governanceStatus": "NORMAL",
+        "chunkText": "safe",
+    }
     assert filter_chunk(safe, current) is not None
-    assert filter_chunk({**safe, "activeMetadataSnapshotId": 89}, current) is None
-    assert filter_chunk({**safe, "columns": ["orders.secret"]}, current) is None
-    assert filter_chunk({**safe, "columns": []}, current) is None
+    assert filter_chunk({**safe, "sourceSnapshotId": 89}, current) is None
+    assert filter_chunk({**safe, "columns": ["orders.secret"], "resourceDependencies": ["column:orders.secret"]}, current) is None
+    assert filter_chunk({**safe, "resourceDependencies": ["table:orders", "column:orders.id", "column:orders.secret"]}, current) is None
+    assert filter_chunk({**safe, "resourceDependencies": []}, current) is None
 
 
 def test_ast_checks_all_resources_and_expands_star():
@@ -85,6 +93,77 @@ def test_ast_checks_all_resources_and_expands_star():
     assert not validate_sql("SELECT SLEEP(5) FROM orders", current).passed
     assert not validate_sql("SELECT id FROM customers", current).passed
     assert not validate_sql("SELECT id FROM orders WHERE secret = 1", current).passed
+
+
+def test_ast_produces_complete_per_column_usage_evidence_for_java_resolver():
+    result = validate_sql("SELECT id FROM orders WHERE region = '华东'", snapshot())
+    assert result.passed
+    assert result.column_usages == {
+        "orders.id": ["PROJECTION"],
+        "orders.region": ["FILTER"],
+    }
+
+
+def test_ast_resolves_order_by_alias_to_its_projection_source():
+    current = snapshot()
+    current.resources[0].columns[1].usage = ["PROJECTION", "FILTER", "GROUP", "ORDER"]
+
+    result = validate_sql(
+        "SELECT region AS month, COUNT(*) AS order_count FROM orders "
+        "GROUP BY region ORDER BY month",
+        current,
+    )
+
+    assert result.passed, result.violations
+    assert result.used_columns == ["orders.region"]
+
+
+def test_ast_requires_group_by_for_aggregate_dimension_queries():
+    current = snapshot()
+    current.resources[0].columns[1].usage = ["PROJECTION", "FILTER", "GROUP"]
+
+    missing = validate_sql("SELECT region, SUM(id) AS total FROM orders", current)
+    valid = validate_sql("SELECT region, SUM(id) AS total FROM orders GROUP BY region", current)
+
+    assert not missing.passed
+    assert missing.violations[0].startswith("SQL_SYNTAX:")
+    assert valid.passed
+
+
+def test_reviewed_glossary_exact_filter_is_required_for_matching_question():
+    terms = [{
+        "name": "sales_order_status_enum",
+        "displayName": "销售订单状态值",
+        "synonyms": '["已完成", "COMPLETED"]',
+        "description": "sales_orders.status = 'COMPLETED'; confirmed Join sales_orders.product_id = products.product_id",
+        "columns": ["sales_orders.status"],
+    }]
+
+    assert missing_reviewed_predicates(
+        "SELECT COUNT(*) FROM sales_orders",
+        "已完成订单一共有多少笔？",
+        terms,
+    ) == ["sales_orders.status = 'COMPLETED'"]
+    assert missing_reviewed_predicates(
+        "SELECT COUNT(*) FROM sales_orders s WHERE s.status = '已完成'",
+        "已完成订单一共有多少笔？",
+        terms,
+    ) == ["sales_orders.status = 'COMPLETED'"]
+    assert missing_reviewed_predicates(
+        "SELECT COUNT(*) FROM sales_orders WHERE status = COMPLETED",
+        "已完成订单一共有多少笔？",
+        terms,
+    ) == ["sales_orders.status = 'COMPLETED'"]
+    assert missing_reviewed_predicates(
+        "SELECT COUNT(*) FROM sales_orders s WHERE s.status = 'COMPLETED'",
+        "已完成订单一共有多少笔？",
+        terms,
+    ) == []
+    assert missing_reviewed_predicates(
+        "SELECT COUNT(*) FROM sales_orders",
+        "哪个广告活动带来的销售额最高？",
+        terms,
+    ) == []
 
 
 def test_star_expansion_requires_at_least_one_projectable_field():
@@ -107,6 +186,7 @@ def test_aggregate_without_column_source_is_aliased_and_marked_no_column_source(
     result = validate_sql("SELECT COUNT(*) FROM orders", current)
 
     assert result.passed
+    assert result.used_tables == ["orders"]
     # 列名由本服务决定，不再依赖数据库对未加别名表达式的命名
     assert "AS s1_c1" in result.sql
     assert result.source_trace == [{
@@ -251,8 +331,18 @@ def test_ast_checks_join_group_order_having_and_nested_sources():
 
 def test_firewall_applies_same_filter_to_rag_fallback_fewshot_and_history():
     current = snapshot()
-    safe = {"datasourceId": 1, "activeMetadataSnapshotId": 88, "tables": ["orders"], "columns": ["orders.id"], "content": "safe"}
-    unsafe = {"datasourceId": 1, "activeMetadataSnapshotId": 88, "tables": ["orders"], "columns": ["orders.secret"], "content": "unsafe"}
+    safe = {
+        "datasourceId": 1, "activeMetadataSnapshotId": 88, "sourceSnapshotId": 88,
+        "tables": ["orders"], "columns": ["orders.id"],
+        "resourceDependencies": ["table:orders", "column:orders.id"],
+        "factSourceIds": ["field:orders.id"], "factType": "COLUMN_STRUCTURE",
+        "factReviewStatus": "APPROVED", "reviewStatus": "APPROVED", "governanceStatus": "NORMAL",
+        "content": "safe",
+    }
+    unsafe = {
+        **safe, "columns": ["orders.secret"],
+        "resourceDependencies": ["table:orders", "column:orders.secret"], "content": "unsafe",
+    }
     context = build_model_context(current, [{"tableName": "orders", "columns": [{"name": "id"}]}], [safe, unsafe], [], [safe, unsafe], [{"role": "user", "content": "查询订单"}], {"sample_values": ["raw"]})
     assert context["rag"] == [safe]
     assert context["fewShot"] == [safe]
@@ -598,21 +688,107 @@ async def test_execute_entry_rejects_sql_without_reinjected_row_policy():
 
 
 @pytest.mark.asyncio
+async def test_execute_trace_keeps_java_injected_row_columns_out_of_user_ast_evidence():
+    current = snapshot(condition=True)
+    validation = validate_request(S1SqlValidateRequest(
+        protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
+        activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
+        executionBindings=[S1ExecutionBinding(reference="g1", valueType="STRING", value="华东")],
+        sql="SELECT id FROM orders",
+    ))
+    request = S1SqlExecuteRequest(
+        protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
+        activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
+        executionBindings=[S1ExecutionBinding(reference="g1", valueType="STRING", value="华东")],
+        originalSql="SELECT id FROM orders", validatedSql=validation.sql,
+        connectionConfig=S1ConnectionConfig(host="localhost", port=3306, database="db", username="u", password="p"),
+    )
+    result = SimpleNamespace(success=True, rows=[{"id": 1}], columns=[{"name": "id", "type": "INT"}],
+                             row_count=1, execution_time_ms=2, error=None, error_type=None)
+    with patch("dataocean.iam_s1.service.execute_sql", new_callable=AsyncMock, return_value=result):
+        executed = await execute_validated(request)
+
+    assert executed["trace"]["usedColumns"] == ["orders.id"]
+    assert executed["trace"]["sourceTrace"][0]["sources"] == ["orders.id"]
+
+
+@pytest.mark.asyncio
 async def test_s1_rag_calls_milvus_pipeline_then_filters_sources():
     current = snapshot()
+    build_id = "abcdef12-3456-7890-abcd-ef1234567890"
+    collection_name = "dataocean_rag_ds1_babcdef1234567890abcdef1234567890"
     response = SimpleNamespace(results=[SimpleNamespace(
         related_tables=["orders"], related_columns=["orders.id"], chunk_text="safe", chunk_type="TABLE_DESC",
-        score=0.9, doc_id=1, source_version=1,
+        score=0.9, doc_id=1, source_version=1, source_id=11, snapshot_id=88,
+        resource_dependencies=["table:orders", "column:orders.id"], fact_source_ids=["field:1"],
+        fact_type="COLUMN_STRUCTURE", fact_review_status="APPROVED", review_status="APPROVED",
+        governance_status="NORMAL", build_id=build_id,
     )])
+    chunks = [{
+        "datasourceId": 1, "sourceSnapshotId": 88, "activeMetadataSnapshotId": 88,
+        "ragBuildId": build_id, "sourceId": 11,
+        "tables": ["orders"], "columns": ["orders.id"],
+        "resourceDependencies": ["table:orders", "column:orders.id"],
+        "factSourceIds": ["field:1"], "factType": "COLUMN_STRUCTURE",
+        "factReviewStatus": "APPROVED", "reviewStatus": "APPROVED", "governanceStatus": "NORMAL",
+        "chunkText": "safe",
+    }]
     request = S1RagRetrieveRequest(
         protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
         activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
-        question="查询订单", chunks=[],
+        question="查询订单", chunks=chunks, ragBuildId=build_id, ragSourceSnapshotId=88,
+        ragCollectionName=collection_name, ragEmbeddingConfig={"providerId": "test", "model": "test"},
     )
     with patch("dataocean.rag.service.retrieve_schemas", new_callable=AsyncMock, return_value=response) as retrieve_mock:
         result = await retrieve(request)
     retrieve_mock.assert_awaited_once()
+    passed_request = retrieve_mock.await_args.args[0]
+    assert passed_request.build_id == build_id
+    assert passed_request.collection_name == collection_name
     assert result[0]["columns"] == ["orders.id"]
+
+
+@pytest.mark.asyncio
+async def test_s1_rejects_default_collection_even_when_a_build_id_is_present():
+    current = snapshot()
+    build_id = "abcdef12-3456-7890-abcd-ef1234567890"
+    chunks = [{
+        "datasourceId": 1, "sourceSnapshotId": 88, "activeMetadataSnapshotId": 88,
+        "ragBuildId": build_id, "sourceId": 11,
+        "tables": ["orders"], "columns": ["orders.id"],
+        "resourceDependencies": ["table:orders", "column:orders.id"],
+        "factSourceIds": ["field:1"], "factType": "COLUMN_STRUCTURE",
+        "factReviewStatus": "APPROVED", "reviewStatus": "APPROVED", "governanceStatus": "NORMAL",
+        "chunkText": "safe",
+    }]
+    request = S1RagRetrieveRequest(
+        protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
+        activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
+        question="查询订单", chunks=chunks, ragBuildId=build_id, ragSourceSnapshotId=88,
+        ragCollectionName="schema_knowledge", ragEmbeddingConfig={"providerId": "test", "model": "test"},
+    )
+    with patch("dataocean.rag.service.retrieve_schemas", new_callable=AsyncMock) as retrieve_mock:
+        result = await retrieve(request)
+
+    retrieve_mock.assert_not_awaited()
+    assert result[0]["chunkText"] == "safe"
+    assert result[0]["ragBuildId"] == build_id
+
+
+@pytest.mark.asyncio
+async def test_s1_without_active_build_never_reads_default_collection():
+    current = snapshot()
+    request = S1RagRetrieveRequest(
+        protocolVersion="IAM-SIMPLE-1", taskId="task-1", userId=7, datasourceId=1,
+        activeMetadataSnapshotId=88, permissionRevision=100, permissionSnapshot=current,
+        question="查询订单", chunks=[], ragBuildId=None, ragSourceSnapshotId=None,
+        ragCollectionName="schema_knowledge", ragEmbeddingConfig={"providerId": "test", "model": "test"},
+    )
+    with patch("dataocean.rag.service.retrieve_schemas", new_callable=AsyncMock) as retrieve_mock:
+        result = await retrieve(request)
+
+    retrieve_mock.assert_not_awaited()
+    assert result == []
 
 
 @pytest.mark.asyncio
@@ -641,3 +817,68 @@ async def test_s1_query_preserves_chart_generation_result():
 
     assert result["status"] == "COMPLETED"
     assert result["chartConfig"]["series"][0]["type"] == "bar"
+
+
+def test_candidate_catalog_contract_is_snapshot_bound_and_rejects_empty_columns():
+    from pydantic import ValidationError
+    from dataocean.iam_s1.schema import S1CandidateCatalog
+
+    catalog = S1CandidateCatalog.model_validate({
+        "datasourceId": 1,
+        "activeMetadataSnapshotId": 88,
+        "permissionRevision": 9,
+        "tables": [{
+            "tableName": "orders",
+            "tableComment": "订单",
+            "governanceStatus": "NORMAL",
+            "columns": [{
+                "columnMetaId": 101,
+                "columnName": "id",
+                "columnComment": "订单 ID",
+                "dataType": "BIGINT",
+                "governanceStatus": "NORMAL",
+                "protectionLevel": "NORMAL",
+                "maskPolicy": None,
+                "allowedUsages": ["PROJECTION", "FILTER"],
+                "grantSources": [{
+                    "grantId": 77,
+                    "subjectType": "USER",
+                    "subjectId": 7,
+                    "sourceSummary": "用户个人授权",
+                    "departmentScope": None,
+                    "grantSource": "MANUAL",
+                    "sourceReferenceId": None,
+                    "validFrom": "2026-09-26T00:00:00",
+                    "validUntil": None,
+                    "explicitColumns": ["id"],
+                    "rowCondition": {
+                        "matchType": "ALL",
+                        "predicates": [{
+                            "columnMetaId": 102,
+                            "columnName": "region",
+                            "operatorCode": "EQ",
+                            "valueType": "STRING",
+                            "parameterReference": "region_param",
+                            "bindingReference": "grant-77-condition-1",
+                        }],
+                    },
+                }],
+            }],
+        }],
+    })
+    assert catalog.activeMetadataSnapshotId == 88
+    assert catalog.tables[0].columns[0].allowedUsages == ["PROJECTION", "FILTER"]
+    assert catalog.tables[0].columns[0].grantSources[0].rowCondition.predicates[0].columnMetaId == 102
+
+    with pytest.raises(ValidationError):
+        S1CandidateCatalog.model_validate({
+            "datasourceId": 1,
+            "activeMetadataSnapshotId": 88,
+            "permissionRevision": 9,
+            "tables": [{
+                "tableName": "orders",
+                "tableComment": None,
+                "governanceStatus": "NORMAL",
+                "columns": [],
+            }],
+        })

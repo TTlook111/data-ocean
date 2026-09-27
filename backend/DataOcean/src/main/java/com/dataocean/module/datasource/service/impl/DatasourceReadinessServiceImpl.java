@@ -11,6 +11,8 @@ import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
 import com.dataocean.module.knowledge.entity.KnowledgeDoc;
 import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
+import com.dataocean.module.knowledge.entity.RagIndexBuild;
+import com.dataocean.module.knowledge.service.RagIndexBuildService;
 import com.dataocean.module.metadata.entity.MetadataSnapshot;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.entity.DbTableMeta;
@@ -67,6 +69,7 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
     private final MetadataSnapshotMapper snapshotMapper;
     private final MetadataQualityIssueMapper qualityIssueMapper;
     private final KnowledgeDocMapper knowledgeDocMapper;
+    private final RagIndexBuildService ragIndexBuildService;
     private final IamS1DataGrantMapper iamS1DataGrantMapper;
     private final DbTableMetaMapper tableMetaMapper;
     private final DbColumnMetaMapper columnMetaMapper;
@@ -89,14 +92,16 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
         }
 
         MetadataSnapshot publishedSnapshot = latestPublishedSnapshot(datasourceId);
+        MetadataSnapshot latestCollectedSnapshot = latestCollectedSnapshot(datasourceId);
         KnowledgeDoc publishedDoc = latestPublishedKnowledgeDoc(datasourceId);
+        RagIndexBuild activeBuild = ragIndexBuildService.activeBuild(datasourceId);
 
         DatasourceReadinessVO vo = DatasourceReadinessVO.builder()
                 .datasourceId(datasource.getId())
                 .datasourceName(datasource.getName())
                 .connectionReady(isConnectionReady(datasource))
                 .metadataReady(publishedSnapshot != null)
-                .knowledgeReady(publishedDoc != null)
+                .knowledgeReady(activeBuild != null)
                 .build();
         if (publishedSnapshot != null) {
             vo.setPublishedSnapshotId(publishedSnapshot.getId());
@@ -106,6 +111,7 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
             vo.setPublishedKnowledgeDocId(publishedDoc.getId());
             vo.setKnowledgeVersion(publishedDoc.getCurrentVersion());
         }
+        populateSnapshotAndRagState(vo, latestCollectedSnapshot, publishedSnapshot, activeBuild);
 
         long blockingIssueCount = countBlockingIssues(publishedSnapshot);
         vo.setGovernanceReady(blockingIssueCount == 0);
@@ -117,7 +123,6 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
         vo.setAskable(vo.isConnectionReady()
                 && vo.isMetadataReady()
                 && vo.isGovernanceReady()
-                && vo.isKnowledgeReady()
                 && vo.isPermissionReady());
         applyStage(vo);
         return vo;
@@ -134,6 +139,45 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                 .eq(MetadataSnapshot::getStatus, MetadataSnapshot.STATUS_PUBLISHED)
                 .orderByDesc(MetadataSnapshot::getSnapshotVersion)
                 .last("LIMIT 1"));
+    }
+
+    private MetadataSnapshot latestCollectedSnapshot(Long datasourceId) {
+        return snapshotMapper.selectOne(new LambdaQueryWrapper<MetadataSnapshot>()
+                .eq(MetadataSnapshot::getDatasourceId, datasourceId)
+                .orderByDesc(MetadataSnapshot::getCreatedAt)
+                .orderByDesc(MetadataSnapshot::getSnapshotVersion)
+                .last("LIMIT 1"));
+    }
+
+    private void populateSnapshotAndRagState(DatasourceReadinessVO vo,
+                                             MetadataSnapshot latestCollected,
+                                             MetadataSnapshot published,
+                                             RagIndexBuild activeBuild) {
+        if (latestCollected != null) {
+            vo.setLatestCollectedSnapshotId(latestCollected.getId());
+            vo.setLatestCollectedSnapshotVersion(latestCollected.getSnapshotVersion());
+        }
+        if (activeBuild == null) {
+            vo.setRagStatus("NONE");
+            vo.setRagStale(false);
+            vo.setRagNotice("尚无生效 RAG build；问数仍可使用当前快照和 S1 权限校验。");
+            return;
+        }
+        vo.setRagBuildId(activeBuild.getBuildId());
+        vo.setRagSourceSnapshotId(activeBuild.getSourceSnapshotId());
+        vo.setRagStatus(activeBuild.getStatus());
+        MetadataSnapshot ragSnapshot = snapshotMapper.selectById(activeBuild.getSourceSnapshotId());
+        if (ragSnapshot != null) vo.setRagSourceSnapshotVersion(ragSnapshot.getSnapshotVersion());
+        int latestVersion = Math.max(
+                latestCollected == null || latestCollected.getSnapshotVersion() == null ? 0 : latestCollected.getSnapshotVersion(),
+                published == null || published.getSnapshotVersion() == null ? 0 : published.getSnapshotVersion());
+        int ragVersion = ragSnapshot == null || ragSnapshot.getSnapshotVersion() == null ? 0 : ragSnapshot.getSnapshotVersion();
+        boolean stale = latestVersion > ragVersion;
+        vo.setRagStale(stale);
+        vo.setRagNotice(stale
+                ? "RAG 来源快照 v" + ragVersion + " 落后于最新采集/发布 v" + latestVersion
+                    + "；仅用于规划，最终 SQL 仍按当前快照和权限校验。"
+                : "RAG 与当前最新快照一致。");
     }
 
     private KnowledgeDoc latestPublishedKnowledgeDoc(Long datasourceId) {
@@ -255,9 +299,6 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                     "数据管理员", "处理治理问题", "/admin/governance/issues?datasourceId=" + datasource.getId()
                             + "&snapshotId=" + vo.getPublishedSnapshotId());
         }
-        if (!vo.isKnowledgeReady()) {
-            addReason(vo, "KNOWLEDGE_NOT_PUBLISHED", "skills.md 尚未发布或向量化未完成", "数据分析师", "前往知识审核", "/admin/semantics/knowledge?datasourceId=" + datasource.getId() + "&tab=review");
-        }
         if (!vo.isPermissionReady()) {
             addReason(vo,
                     currentUserScope ? "CURRENT_USER_NOT_GRANTED" : "QUERY_PERMISSION_NOT_CONFIGURED",
@@ -292,10 +333,6 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
         }
         if (!vo.isGovernanceReady()) {
             setStage(vo, "GOVERNANCE_BLOCKED", "治理阻塞", PROGRESS_GOVERNANCE);
-            return;
-        }
-        if (!vo.isKnowledgeReady()) {
-            setStage(vo, "KNOWLEDGE_PENDING", "知识待发布", PROGRESS_KNOWLEDGE);
             return;
         }
         if (!vo.isPermissionReady()) {
@@ -347,6 +384,16 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
                 (existing, replacement) -> existing.getSnapshotVersion() > replacement.getSnapshotVersion()
                         ? existing : replacement
         ));
+        Map<Long, MetadataSnapshot> latestCollectedMap = snapshotMapper.selectList(
+                new LambdaQueryWrapper<MetadataSnapshot>()
+                        .in(MetadataSnapshot::getDatasourceId, datasourceIds)
+                        .orderByDesc(MetadataSnapshot::getSnapshotVersion)
+        ).stream().collect(Collectors.toMap(
+                MetadataSnapshot::getDatasourceId,
+                snapshot -> snapshot,
+                (existing, replacement) -> existing.getSnapshotVersion() >= replacement.getSnapshotVersion()
+                        ? existing : replacement
+        ));
 
         // 批量查询知识文档
         Map<Long, KnowledgeDoc> knowledgeMap = knowledgeDocMapper.selectList(
@@ -386,12 +433,15 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
             if (datasource == null) continue;
 
             MetadataSnapshot snapshot = snapshotMap.get(datasourceId);
+            MetadataSnapshot latestCollected = latestCollectedMap.get(datasourceId);
             KnowledgeDoc knowledge = knowledgeMap.get(datasourceId);
+            RagIndexBuild activeBuild = ragIndexBuildService.activeBuild(datasourceId);
             long blockingCount = snapshot != null
                     ? blockingIssueCountMap.getOrDefault(snapshot.getId(), 0L)
                     : 0;
 
-            DatasourceReadinessVO vo = buildReadinessFromCache(datasource, snapshot, knowledge, blockingCount);
+            DatasourceReadinessVO vo = buildReadinessFromCache(
+                    datasource, snapshot, latestCollected, knowledge, activeBuild, blockingCount);
             results.add(vo);
         }
 
@@ -403,14 +453,16 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
      */
     private DatasourceReadinessVO buildReadinessFromCache(Datasource datasource,
                                                           MetadataSnapshot snapshot,
+                                                          MetadataSnapshot latestCollected,
                                                           KnowledgeDoc knowledge,
+                                                          RagIndexBuild activeBuild,
                                                           long blockingIssueCount) {
         DatasourceReadinessVO vo = DatasourceReadinessVO.builder()
                 .datasourceId(datasource.getId())
                 .datasourceName(datasource.getName())
                 .connectionReady(isConnectionReady(datasource))
                 .metadataReady(snapshot != null)
-                .knowledgeReady(knowledge != null)
+                .knowledgeReady(activeBuild != null)
                 .build();
 
         if (snapshot != null) {
@@ -421,6 +473,7 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
             vo.setPublishedKnowledgeDocId(knowledge.getId());
             vo.setKnowledgeVersion(knowledge.getCurrentVersion());
         }
+        populateSnapshotAndRagState(vo, latestCollected, snapshot, activeBuild);
 
         vo.setGovernanceReady(blockingIssueCount == 0);
         vo.setPermissionReady(hasAnyQueryGrant(datasource.getId()));
@@ -429,7 +482,6 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
         vo.setAskable(vo.isConnectionReady()
                 && vo.isMetadataReady()
                 && vo.isGovernanceReady()
-                && vo.isKnowledgeReady()
                 && vo.isPermissionReady());
         applyStage(vo);
         return vo;

@@ -37,6 +37,13 @@ public class ConversationContextSummary {
 
     private Integer summaryVersion;
 
+    /** 创建摘要时的 IAM-SIMPLE-1 权限修订；不一致时必须重新核验。 */
+    private Long permissionRevision;
+
+    /** 当前有效资源范围指纹；授权时间窗到期时即使修订不变，也要重建摘要。 */
+    @TableField("permission_scope_fingerprint")
+    private String permissionScopeFingerprint;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

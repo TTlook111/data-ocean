@@ -15,6 +15,7 @@ import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -413,6 +414,14 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
         // 构建 relation_metadata JSON
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("lineage_type", request.getLineageType().toUpperCase());
+        metadata.put("source_fqn", sourceEntity.getFqn());
+        metadata.put("target_fqn", targetEntity.getFqn());
+        metadata.put("source_snapshot_id", snapshotId(sourceEntity));
+        metadata.put("target_snapshot_id", snapshotId(targetEntity));
+        metadata.put("bound_snapshot_id", snapshotId(sourceEntity));
+        metadata.put("binding_status", "BOUND");
+        // This API is an explicit lineage-management action by an authorized user.
+        metadata.put("confirmation_status", "CONFIRMED");
         if (request.getDescription() != null && !request.getDescription().isBlank()) {
             metadata.put("description", request.getDescription());
         }
@@ -512,6 +521,15 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
                 meta.put("source", mergeSourceField(existingMeta, "MANUAL"));
                 meta.put("parent_lineage_table_source_id", sourceTable.getId());
                 meta.put("parent_lineage_table_target_id", targetTable.getId());
+                MetadataEntity sourceColumn = entityService.getById(fromColId);
+                MetadataEntity targetColumn = entityService.getById(mapping.getToColumn());
+                meta.put("source_fqn", sourceColumn == null ? null : sourceColumn.getFqn());
+                meta.put("target_fqn", targetColumn == null ? null : targetColumn.getFqn());
+                meta.put("source_snapshot_id", sourceColumn == null ? null : snapshotId(sourceColumn));
+                meta.put("target_snapshot_id", targetColumn == null ? null : snapshotId(targetColumn));
+                meta.put("bound_snapshot_id", snapshotId(sourceTable));
+                meta.put("binding_status", "BOUND");
+                meta.put("confirmation_status", "CONFIRMED");
 
                 // 对齐 OpenLineage ColumnLineageDatasetFacet
                 Map<String, Object> transformation = new LinkedHashMap<>();
@@ -559,6 +577,17 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
             return "DIRECT";
         }
         return TRANSFORMATION_TO_EXPRESSION.getOrDefault(transformationType, "DIRECT");
+    }
+
+    private Long snapshotId(MetadataEntity entity) {
+        if (entity == null || entity.getEntityMetadata() == null) return null;
+        try {
+            JsonNode metadata = objectMapper.readTree(entity.getEntityMetadata());
+            JsonNode value = metadata.get("snapshot_id");
+            return value == null || value.isNull() ? null : value.asLong();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**

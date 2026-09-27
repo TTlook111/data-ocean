@@ -97,6 +97,8 @@ public class VectorIndexTaskServiceImpl implements VectorIndexTaskService {
                 new LambdaQueryWrapper<VectorIndexTask>()
                         .in(VectorIndexTask::getStatus,
                                 List.of(VectorTaskStatus.PENDING.name(), VectorTaskStatus.CLEANUP_PENDING.name()))
+                        // Legacy tasks without buildId must never write the default/shared collection.
+                        .isNotNull(VectorIndexTask::getBuildId)
                         .orderByAsc(VectorIndexTask::getCreatedAt));
     }
 

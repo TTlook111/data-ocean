@@ -13,7 +13,11 @@ import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.knowledge.entity.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.RagIndexBuild;
+import com.dataocean.module.knowledge.entity.RagIndexBuildChunk;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
+import com.dataocean.module.knowledge.mapper.RagIndexBuildChunkMapper;
+import com.dataocean.module.knowledge.service.RagIndexBuildService;
 import com.dataocean.module.audit.service.AuditLogService;
 import com.dataocean.module.glossary.entity.GlossaryTerm;
 import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
@@ -29,9 +33,11 @@ import com.dataocean.module.permission.s1.entity.vo.IamS1FieldProtectionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1GrantSourceVO;
 import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
+import com.dataocean.module.permission.s1.service.IamS1UserResourceService;
 import com.dataocean.module.query.client.IamS1PythonClient;
 import com.dataocean.module.query.controller.IamS1QuerySseController;
 import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.QueryAttempt;
 import com.dataocean.module.query.entity.dto.IamS1ExecutionBinding;
 import com.dataocean.module.query.entity.dto.IamS1QueryAskRequestDTO;
 import com.dataocean.module.query.entity.dto.ConversationContextDTO;
@@ -39,6 +45,7 @@ import com.dataocean.module.query.entity.query.QueryHistoryQuery;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 import com.dataocean.module.query.enums.QueryTaskStatus;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
+import com.dataocean.module.query.mapper.QueryAttemptMapper;
 import com.dataocean.module.query.service.IamS1QueryService;
 import com.dataocean.module.query.service.IamS1RowBindingService;
 import com.dataocean.module.query.service.ConversationService;
@@ -51,9 +58,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -61,6 +71,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -82,8 +93,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     static final String NO_COLUMN_SOURCE = "NO_COLUMN_SOURCE";
 
     private final QueryTaskMapper queryTaskMapper;
+    private final QueryAttemptMapper queryAttemptMapper;
     private final ObjectMapper objectMapper;
     private final IamS1DataAuthorizationResolver dataResolver;
+    private final IamS1UserResourceService userResourceService;
     private final IamS1AuthorizationResolver authorizationResolver;
     private final IamS1RowBindingService rowBindingService;
     private final IamS1PythonClient pythonClient;
@@ -97,19 +110,23 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final DatasourceSecretMapper datasourceSecretMapper;
     private final DatasourceSecretService datasourceSecretService;
     private final KnowledgeChunkMapper knowledgeChunkMapper;
+    private final RagIndexBuildChunkMapper ragIndexBuildChunkMapper;
+    private final RagIndexBuildService ragIndexBuildService;
     private final AuditLogService auditLogService;
     private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     private final com.dataocean.common.security.DataMaskingService maskingService;
+    private final PlatformTransactionManager transactionManager;
+    private final Set<String> activePythonTasks = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     @Override
     @Transactional
     public String submit(Long userId, IamS1QueryAskRequestDTO request) {
+        LocalDateTime submittedAt = LocalDateTime.now();
         requireProtocol(request.getProtocolVersion());
-        if (userId == null || request.getDatasourceId() == null || request.getTables() == null
-                || request.getTables().isEmpty()) {
-            throw new BusinessException("S1 查询缺少必填资源");
+        if (userId == null || request.getDatasourceId() == null) {
+            throw new BusinessException("S1 查询缺少数据源");
         }
-        requireExplicitUsages(request.getTables());
+        if (request.getTables() != null && !request.getTables().isEmpty()) requireExplicitUsages(request.getTables());
         if (!authorizationResolver.hasGlobalFunction(userId, "query:use")) {
             throw new BusinessException("没有 IAM-SIMPLE-1 问数功能");
         }
@@ -118,55 +135,76 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             throw new BusinessException("当前数据源没有已发布元数据快照");
         }
         String taskId = UUID.randomUUID().toString();
-        IamS1DataAuthorizationSnapshot snapshot = resolve(userId, request, metadata.getId());
-        if (!snapshot.isAllowed()) {
-            throw new BusinessException("当前 S1 数据范围不允许查询：" + snapshot.getReasonCode());
+        IamS1DataAuthorizationSnapshot initialSelection = request.getTables() == null || request.getTables().isEmpty()
+                ? null : resolve(userId, request, metadata.getId());
+        if (initialSelection != null && !initialSelection.isAllowed()) {
+            throw new BusinessException("当前 S1 数据范围不允许查询：" + initialSelection.getReasonCode());
         }
-        List<IamS1ExecutionBinding> bindings = rowBindingService.build(snapshot);
+        var candidateCatalog = userResourceService.candidateCatalog(userId, request.getDatasourceId(), metadata.getId());
+        if (candidateCatalog == null || candidateCatalog.tables().isEmpty()) {
+            throw new BusinessException("当前快照没有可见且可查询的表字段");
+        }
+        if (initialSelection != null && !Objects.equals(initialSelection.getPermissionRevision(), candidateCatalog.permissionRevision())) {
+            throw new BusinessException("权限在资源规划期间发生变化，请重新提问");
+        }
+        RagIndexBuild ragBuild = ragIndexBuildService.activeBuildForQuery(request.getDatasourceId());
         Long conversationId = conversationService.getOrCreateConversation(
                 userId, request.getDatasourceId(), request.getConversationId(), request.getQuestion());
-        conversationService.saveUserMessage(conversationId, request.getQuestion());
-        Map<String, Object> safeSnapshot = buildSnapshot(taskId, request, snapshot);
+        conversationService.acquireTurn(conversationId, userId, request.getDatasourceId(), taskId);
+        Long currentUserMessageId = conversationService.saveUserMessage(conversationId, request.getQuestion(), taskId);
         Map<String, Object> capabilities = capabilities(userId, request.getDatasourceId());
         QueryTask task = QueryTask.builder()
                 .taskId(taskId).userId(userId).datasourceId(request.getDatasourceId())
                 .iamProtocolVersion(IamS1Constants.PROTOCOL_VERSION)
-                .activeMetadataSnapshotId(snapshot.getActiveMetadataSnapshotId())
-                .permissionRevision(snapshot.getPermissionRevision())
-                .iamExecutionSnapshot(writeJson(safeSnapshot))
-                .iamResourceRequest(writeJson(request.getTables()))
+                .activeMetadataSnapshotId(candidateCatalog.activeMetadataSnapshotId())
+                .permissionRevision(candidateCatalog.permissionRevision())
+                .ragBuildId(ragBuild == null ? null : ragBuild.getBuildId())
+                .ragSourceSnapshotId(ragBuild == null ? null : ragBuild.getSourceSnapshotId())
+                .iamExecutionSnapshot(writeJson(candidateCatalog))
+                .iamResourceRequest(writeJson(List.of()))
                 .iamCapabilities(writeJson(capabilities))
                 .question(request.getQuestion()).conversationId(conversationId)
-                .status(QueryTaskStatus.PROCESSING.name()).retryCount(0).createdAt(LocalDateTime.now())
+                .status(QueryTaskStatus.PROCESSING.name()).retryCount(0).createdAt(submittedAt)
                 .build();
         queryTaskMapper.insert(task);
 
-        Map<String, Object> pythonRequest = buildPythonRequest(taskId, userId, conversationId, request, snapshot,
-                safeSnapshot, capabilities, bindings);
-        Runnable dispatch = () -> pythonClient.executeAsync(taskId, pythonRequest, result -> {
-            complete(taskId, result);
+        Map<String, Object> pythonRequest = buildPythonRequest(taskId, userId, conversationId,
+                currentUserMessageId, request, initialSelection, capabilities, ragBuild, candidateCatalog, submittedAt);
+        dispatchAfterCommit(taskId, userId, pythonRequest);
+        return taskId;
+    }
+
+    private void dispatchAfterCommit(String taskId, Long userId, Map<String, Object> pythonRequest) {
+        Runnable dispatch = () -> {
+            if (!activePythonTasks.add(taskId)) return;
             try {
-                // 必须复用 get：SSE 与 REST 走同一条读取路径，才能在推送前
-                // 完成 viewSql 能力判定、当前权限复查和最终脱敏。
-                sseController.sendResult(taskId, get(taskId, userId));
-            } catch (BusinessException ex) {
-                // get 拒绝呈现时只推送可公开的原因，不推送任何结果载荷。
-                sseController.sendError(taskId, ex.getMessage());
+                pythonClient.executeAsync(taskId, pythonRequest, result -> {
+                    try {
+                        completeInTransaction(taskId, result);
+                        try {
+                            sseController.sendResult(taskId, get(taskId, userId));
+                        } catch (BusinessException ex) {
+                            sseController.sendError(taskId, ex.getMessage());
+                        } catch (Exception ex) {
+                            log.warn("S1 结果 SSE 推送失败 taskId={}", taskId);
+                        }
+                    } finally {
+                        activePythonTasks.remove(taskId);
+                    }
+                }, progress -> recordProgress(taskId, userId, progress));
             } catch (Exception ex) {
-                log.warn("S1 结果 SSE 推送失败 taskId={}", taskId);
+                activePythonTasks.remove(taskId);
+                log.warn("S1 查询提交 Python 失败 taskId={} reason={}", taskId, ex.getClass().getSimpleName());
+                completeInTransaction(taskId, writeJson(Map.of("taskId", taskId,
+                        "protocolVersion", IamS1Constants.PROTOCOL_VERSION,
+                        "status", "FAILED", "error", "查询服务暂不可用，请重试")));
             }
-        });
+        };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    dispatch.run();
-                }
+                @Override public void afterCommit() { dispatch.run(); }
             });
-        } else {
-            dispatch.run();
-        }
-        return taskId;
+        } else dispatch.run();
     }
 
     @Override
@@ -177,6 +215,30 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         // 任务读取、历史、导出、反馈或 SSE 取回。
         if (!authorizationResolver.hasGlobalFunction(userId, "query:use")) {
             throw new BusinessException("没有 IAM-SIMPLE-1 问数功能");
+        }
+        if (task.getConversationId() != null && !conversationService.isVisible(task.getConversationId(), userId)) {
+            throw new BusinessException("会话已删除或超出在线保留期");
+        }
+        if (task.getIamResourceRequest() == null || task.getIamResourceRequest().isBlank()
+                || "[]".equals(task.getIamResourceRequest())) {
+            Long revision = dataResolver.currentPermissionRevision();
+            var currentMetadata = schemaSnapshotService.getPublishedSnapshot(task.getDatasourceId());
+            if (!Objects.equals(revision, task.getPermissionRevision()) || currentMetadata == null
+                    || !Objects.equals(currentMetadata.getId(), task.getActiveMetadataSnapshotId())) {
+                throw new BusinessException("权限或元数据快照已变化");
+            }
+            if (QueryTaskStatus.PROCESSING.name().equals(task.getStatus()) && task.getConversationId() != null
+                    && !conversationService.isActiveTurn(task.getConversationId(), task.getTaskId())) {
+                throw new BusinessException("会话轮次已取消或结束");
+            }
+            QueryTaskVO progressOnly = toVO(task);
+            progressOnly.setCanViewSql(Boolean.TRUE.equals(authorizationResolver.hasGlobalFunction(userId, "query:sql:view")));
+            progressOnly.setCanExport(Boolean.TRUE.equals(authorizationResolver.hasGlobalFunction(userId, "query:export")));
+            progressOnly.setSql(null);
+            progressOnly.setData(null);
+            progressOnly.setChartConfig(null);
+            progressOnly.setSourceTrace(null);
+            return progressOnly;
         }
         IamS1DataAuthorizationSnapshot current = recheck(task, userId);
         if (!java.util.Objects.equals(current.getPermissionRevision(), task.getPermissionRevision())
@@ -192,7 +254,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         boolean viewSql = Boolean.TRUE.equals(caps.get("viewSql"));
         result.setCanViewSql(viewSql);
         result.setCanExport(Boolean.TRUE.equals(caps.get("export")));
-        if (!viewSql) result.setSql(null);
+        if (!viewSql) {
+            result.setSql(null);
+            result.setSqlExplanation(null);
+        }
         return result;
     }
 
@@ -234,12 +299,89 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         if (!QueryTaskStatus.PROCESSING.name().equals(task.getStatus())) {
             throw new BusinessException("任务已结束");
         }
-        queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
                 .eq(QueryTask::getTaskId, taskId).eq(QueryTask::getUserId, userId)
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
                 .set(QueryTask::getStatus, QueryTaskStatus.CANCELLED.name())
                 .set(QueryTask::getIamFinalProtectionStatus, "CANCELLED")
                 .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+        if (updated == 0) throw new BusinessException("任务已结束");
         pythonClient.cancelTask(taskId);
+        if (task.getConversationId() != null) {
+            conversationService.saveAssistantMessage(task.getConversationId(), "查询已取消", taskId,
+                    writeJson(Map.of("taskId", taskId, "status", QueryTaskStatus.CANCELLED.name(),
+                            "question", task.getQuestion())));
+            conversationService.releaseTurn(task.getConversationId(), taskId);
+            refreshConversationContext(task.getConversationId(), userId, task.getDatasourceId(), taskId);
+        }
+    }
+
+    @Override
+    public void resume(String taskId, Long userId) {
+        QueryTask task = find(taskId, userId);
+        if (!isS1(task) || !QueryTaskStatus.PROCESSING.name().equals(task.getStatus())) {
+            throw new BusinessException("只有处理中且属于当前账号的 S1 任务可以恢复");
+        }
+        if (activePythonTasks.contains(taskId)) return;
+        if (task.getCreatedAt() != null && task.getCreatedAt().plusSeconds(90).isBefore(LocalDateTime.now())) {
+            pythonClient.cancelTask(taskId);
+            finishWithoutData(task, QueryTaskStatus.TIMEOUT.name(), "查询超过总时限，未返回结果，请重试。");
+            return;
+        }
+        requireQueryUse(userId);
+        if (task.getConversationId() == null || !conversationService.isVisible(task.getConversationId(), userId)
+                || !conversationService.isActiveTurn(task.getConversationId(), taskId)) {
+            throw new BusinessException("会话已删除或当前轮次已结束，不能恢复");
+        }
+        var metadata = schemaSnapshotService.getPublishedSnapshot(task.getDatasourceId());
+        if (metadata == null || !Objects.equals(metadata.getId(), task.getActiveMetadataSnapshotId())
+                || !Objects.equals(dataResolver.currentPermissionRevision(), task.getPermissionRevision())) {
+            fail(taskId, "权限或元数据快照已变化，请重新提问", "REJECTED_ON_RECHECK");
+            throw new BusinessException("权限或元数据快照已变化，请重新提问");
+        }
+        QueryAttempt latestAttempt = queryAttemptMapper.selectOne(new LambdaQueryWrapper<QueryAttempt>()
+                .eq(QueryAttempt::getTaskId, taskId)
+                .orderByDesc(QueryAttempt::getAttemptNo)
+                .last("LIMIT 1"));
+        if (latestAttempt != null && Set.of("EXECUTING", "UNCERTAIN").contains(latestAttempt.getStatus())) {
+            fail(taskId, "执行状态无法安全确认，请重新提问", "REJECTED_FINAL_PROTECTION");
+            throw new BusinessException("执行状态无法安全确认；该任务已停止，请重新提问");
+        }
+        var candidateCatalog = userResourceService.candidateCatalog(userId, task.getDatasourceId(), metadata.getId());
+        if (candidateCatalog == null || !Objects.equals(candidateCatalog.permissionRevision(), task.getPermissionRevision())) {
+            fail(taskId, "权限在恢复时发生变化，请重新提问", "REJECTED_ON_RECHECK");
+            throw new BusinessException("权限在恢复时发生变化，请重新提问");
+        }
+        RagIndexBuild ragBuild = task.getRagBuildId() == null ? null
+                : ragIndexBuildService.buildForQuery(task.getRagBuildId(), task.getDatasourceId());
+        if (task.getRagBuildId() != null && ragBuild == null) {
+            fail(taskId, "原 RAG 构建已不可恢复，请重新提问", "REJECTED_ON_RECHECK");
+            throw new BusinessException("原 RAG 构建已不可恢复，请重新提问");
+        }
+        Long currentMessageId = conversationService.userMessageIdForTask(
+                task.getConversationId(), userId, taskId);
+        if (currentMessageId == null) throw new BusinessException("会话当前问题原文不存在，不能恢复");
+        IamS1QueryAskRequestDTO request = new IamS1QueryAskRequestDTO();
+        request.setProtocolVersion(IamS1Constants.PROTOCOL_VERSION);
+        request.setDatasourceId(task.getDatasourceId());
+        request.setQuestion(task.getQuestion());
+        request.setConversationId(task.getConversationId());
+        Map<String, Object> body = buildPythonRequest(taskId, userId, task.getConversationId(), currentMessageId,
+                request, null, capabilities(userId, task.getDatasourceId()), ragBuild, candidateCatalog,
+                task.getCreatedAt());
+        body.put("resume", true);
+        if (task.getCreatedAt() != null) {
+            body.put("deadlineEpochSeconds", task.getCreatedAt().atZone(java.time.ZoneId.systemDefault())
+                    .plusSeconds(90).toEpochSecond());
+        }
+        Long attemptCount = queryAttemptMapper.selectCount(new LambdaQueryWrapper<QueryAttempt>()
+                .eq(QueryAttempt::getTaskId, taskId));
+        body.put("sqlAttemptsUsed", attemptCount == null ? 0 : attemptCount.intValue());
+        body.put("llmCallsUsed", task.getLlmCallCount() == null ? 0 : task.getLlmCallCount());
+        if (latestAttempt != null && "PROTECTED".equals(latestAttempt.getStatus())) {
+            body.put("resumeProtectedResult", attemptServiceResult(latestAttempt));
+        }
+        dispatchAfterCommit(taskId, userId, body);
     }
 
     @Override
@@ -255,12 +397,60 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 return;
             }
             String status = String.valueOf(result.getOrDefault("status", "FAILED"));
+            if ("CLARIFICATION_REQUIRED".equals(status)) {
+                finishWithoutData(task, status, safeError(String.valueOf(result.getOrDefault(
+                        "clarification", "目前缺少足够的已审核证据，请补充查询条件。"))));
+                return;
+            }
+            if (QueryTaskStatus.TIMEOUT.name().equals(status)) {
+                finishWithoutData(task, QueryTaskStatus.TIMEOUT.name(), "查询超过总时限，未返回结果，请重试。");
+                return;
+            }
             if (!"COMPLETED".equals(status)) {
                 fail(taskId, safeError(String.valueOf(result.getOrDefault("error", "S1 查询失败"))), "FAILED");
                 return;
             }
+            // Every COMPLETED IAM-SIMPLE-1 callback, including callbacks from any
+            // retained Python compatibility path, must be backed by this exact
+            // Java-protected execution attempt. A missing id never selects a
+            // weaker legacy completion contract.
+            Object rawAttemptId = result.get("attemptId");
+            Object rawSqlHash = result.get("sqlHash");
+            if (!(rawAttemptId instanceof String attemptId) || attemptId.isBlank()
+                    || !(rawSqlHash instanceof String sqlHash) || sqlHash.isBlank()) {
+                fail(taskId, "Java 未完成该 SQL 尝试的结果保护", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
+            QueryAttempt attempt = queryAttemptMapper.selectForUpdate(taskId, attemptId);
+            if (attempt == null || !Objects.equals(attempt.getTaskId(), taskId)
+                    || !Objects.equals(attempt.getAttemptId(), attemptId)
+                    || !"PROTECTED".equals(attempt.getStatus())
+                    || !Objects.equals(attempt.getSqlHash(), sqlHash)
+                    || attempt.getProtectedData() == null || attempt.getProtectedColumns() == null
+                    || attempt.getSourceTrace() == null) {
+                fail(taskId, "Java 未完成该 SQL 尝试的结果保护", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
+            result.put("data", readAttemptJson(attempt.getProtectedData()));
+            result.put("columns", readAttemptJson(attempt.getProtectedColumns()));
+            result.put("sourceTrace", readAttemptJson(attempt.getSourceTrace()));
+            result.put("maskedFields", readAttemptJson(attempt.getMaskedFields()));
+            result.put("usedTables", readAttemptJson(attempt.getUsedTables()));
+            result.put("usedColumns", readAttemptJson(attempt.getUsedColumns()));
+            result.put("sql", attempt.getSafeSql());
+            result.put("rowCount", attempt.getRowCount());
+            result.put("totalTimeMs", number(result.get("totalTimeMs"))
+                    + (attempt.getExecutionTimeMs() == null ? 0 : attempt.getExecutionTimeMs()));
             if (!hasCompleteSourceTrace(result.get("sourceTrace"), result.get("columns"))) {
                 fail(taskId, "结果来源不完整，请重新查询", "REJECTED_SOURCE_TRACE");
+                return;
+            }
+            if (!IamS1ResultIntegrity.dataKeysAreCoveredByColumns(result.get("data"), result.get("columns"))) {
+                fail(taskId, "Java 保护结果列证据不完整，请重新查询", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
+            if (task.getConversationId() != null && !conversationService.isVisible(task.getConversationId(), task.getUserId())) {
+                fail(taskId, "会话已删除或超出在线保留期", "REJECTED_ON_RECHECK");
                 return;
             }
             IamS1DataAuthorizationSnapshot current = recheck(task, task.getUserId());
@@ -284,7 +474,6 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 fail(taskId, "结果脱敏策略冲突，拒绝落库", "REJECTED_FINAL_PROTECTION");
                 return;
             }
-            data = maskingService.maskResultByFields(data, outputMasks);
             String safeSql = safeSql((String) result.get("sql"));
             String safeExplanation = safeExplanation((String) result.get("sqlExplanation"));
             String safeChart = safeChartConfig(result.get("chartConfig"), outputMasks);
@@ -296,6 +485,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     .set(QueryTask::getResultData, writeJson(data)).set(QueryTask::getResultColumns, writeJson(result.get("columns")))
                     .set(QueryTask::getChartConfig, safeChart)
                     .set(QueryTask::getSuggestedQuestions, writeJson(suggestions))
+                    .set(QueryTask::getRewrittenQuery, (String) result.get("rewrittenQuery"))
                     .set(QueryTask::getUsedTables, writeJson(result.get("usedTables")))
                     .set(QueryTask::getUsedColumns, writeJson(usedColumns))
                     .set(QueryTask::getIamSourceTrace, writeJson(Map.of(
@@ -304,6 +494,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                             "entries", result.getOrDefault("sourceTrace", List.of()))))
                     .set(QueryTask::getMaskedFields, writeJson(outputMasks))
                     .set(QueryTask::getDegraded, Boolean.TRUE.equals(result.get("degraded")))
+                    .set(QueryTask::getRetryCount, number(result.get("retryCount")))
                     .set(QueryTask::getDegradeNotice, (String) result.get("degradeNotice"))
                     .set(QueryTask::getTotalTimeMs, number(result.get("totalTimeMs")))
                     .set(QueryTask::getIamFinalProtectionStatus, outputMasks.isEmpty() ? "FINAL_PROTECTED" : "FINAL_MASKED")
@@ -313,7 +504,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             if (updated > 0) {
                 saveCompletedConversationMessage(task, result, data, outputMasks, safeSql, safeExplanation,
                         safeChart, suggestions);
-                refreshConversationContext(task.getConversationId(), task.getUserId(), task.getTaskId());
+                conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
+                refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), task.getTaskId());
             }
         } catch (BusinessException ex) {
             // 这个 catch 覆盖整个完成阶段（最终保护、落库、会话消息与摘要刷新），
@@ -323,7 +515,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             log.warn("S1 完成阶段业务异常 taskId={} message={}", taskId, ex.getMessage());
             fail(taskId, "权限已变化，请重新查询", "REJECTED_ON_RECHECK");
         } catch (Exception ex) {
-            log.warn("S1 结果保护失败 taskId={}", taskId);
+            log.warn("S1 结果保护失败 taskId={} exceptionType={} reason={}", taskId,
+                    ex.getClass().getSimpleName(), safeError(ex.getMessage()));
             fail(taskId, "查询结果无法完成最终保护", "REJECTED_FINAL_PROTECTION");
         }
     }
@@ -358,11 +551,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     }
 
     @Override
-    public List<com.dataocean.module.query.entity.vo.ConversationMessageVO> conversationMessages(
-            Long conversationId, Long userId, Integer page, Integer pageSize) {
+    public com.dataocean.module.query.entity.vo.ConversationMessagePageVO conversationMessages(
+            Long conversationId, Long userId, Long beforeMessageId, Integer pageSize) {
         requireQueryUse(userId);
-        List<com.dataocean.module.query.entity.vo.ConversationMessageVO> messages =
-                conversationService.listMessages(conversationId, userId, page, pageSize);
+        var messagePage = conversationService.listMessagePage(conversationId, userId, beforeMessageId, pageSize);
+        List<com.dataocean.module.query.entity.vo.ConversationMessageVO> messages = messagePage.getItems();
         for (var message : messages) {
             if (!"assistant".equals(message.getRole())) {
                 continue;
@@ -372,25 +565,85 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 message.setMetadata(null);
                 continue;
             }
-            QueryTaskVO safe = get(message.getTaskId(), userId);
-            message.setMetadata(writeJson(safe));
-            if (safe.getErrorMessage() != null && !safe.getErrorMessage().isBlank()) {
-                message.setContent(safe.getErrorMessage());
+            try {
+                QueryTaskVO safe = get(message.getTaskId(), userId);
+                message.setMetadata(writeJson(safe));
+                if (safe.getMaskedFields() != null && !safe.getMaskedFields().isEmpty()) {
+                    message.setContent("本轮查询完成，部分字段已按当前规则脱敏");
+                } else if (safe.getSqlExplanation() != null && !safe.getSqlExplanation().isBlank()) {
+                    message.setContent(safe.getSqlExplanation());
+                } else if (safe.getErrorMessage() != null && !safe.getErrorMessage().isBlank()) {
+                    message.setContent(safe.getErrorMessage());
+                } else message.setContent("本轮查询已完成");
+            } catch (BusinessException ex) {
+                message.setContent("历史结果已按当前权限隐藏；原始对话仍可查看");
+                message.setMetadata(null);
             }
         }
-        return messages;
+        return messagePage;
     }
 
     @Override
+    @Transactional
     public void archiveConversation(Long conversationId, Long userId) {
         requireQueryUse(userId);
-        conversationService.archiveConversation(conversationId, userId);
+        String activeTaskId = conversationService.deleteConversation(conversationId, userId);
+        if (activeTaskId != null && !activeTaskId.isBlank()) {
+            queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                    .eq(QueryTask::getTaskId, activeTaskId)
+                    .eq(QueryTask::getUserId, userId)
+                    .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                    .set(QueryTask::getStatus, QueryTaskStatus.CANCELLED.name())
+                    .set(QueryTask::getIamFinalProtectionStatus, "CANCELLED")
+                    .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+            pythonClient.cancelTask(activeTaskId);
+        }
     }
 
     private void requireQueryUse(Long userId) {
         if (!authorizationResolver.hasGlobalFunction(userId, "query:use")) {
             throw new BusinessException("没有 IAM-SIMPLE-1 问数功能");
         }
+    }
+
+    /** Python SSE 回调运行在 servlet 外的异步线程，显式开启事务处理终态与轮次释放。 */
+    private void completeInTransaction(String taskId, String resultJson) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> complete(taskId, resultJson));
+    }
+
+    private void recordProgress(String taskId, Long userId, Map<String, Object> event) {
+        if (event == null || !taskId.equals(event.get("taskId"))
+                || !IamS1Constants.PROTOCOL_VERSION.equals(event.get("protocolVersion"))) return;
+        String node = String.valueOf(event.getOrDefault("node", ""));
+        String message = progressMessage(node, event.get("attemptNo"));
+        if (message == null) return;
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                .eq(QueryTask::getTaskId, taskId)
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                .set(QueryTask::getProgressNode, node)
+                .set(QueryTask::getProgressMessage, message));
+        if (updated == 0) return;
+        try {
+            sseController.sendProgress(taskId, get(taskId, userId));
+        } catch (BusinessException ex) {
+            sseController.sendError(taskId, ex.getMessage());
+        }
+    }
+
+    private String progressMessage(String node, Object attemptNo) {
+        int attempt = attemptNo instanceof Number number ? number.intValue() : 0;
+        return switch (node) {
+            case "question_rewrite" -> "正在理解问题和会话上下文";
+            case "rag_retrieval" -> "正在检索当前授权知识";
+            case "schema_linking" -> "正在关联当前快照中的表和字段";
+            case "sql_generation" -> attempt > 0 ? "正在生成第 " + attempt + " 次候选 SQL" : "正在生成候选 SQL";
+            case "sql_semantic_check" -> "正在核对 SQL 与问题是否一致";
+            case "execution_authorization" -> "正在按当前权限重新授权";
+            case "sql_execution" -> "正在执行只读查询";
+            case "result_verification" -> "正在核对受保护的查询结果";
+            case "clarification" -> "正在整理需要确认的问题";
+            default -> null;
+        };
     }
 
     private IamS1DataAuthorizationSnapshot resolve(Long userId, IamS1QueryAskRequestDTO request, Long snapshotId) {
@@ -401,7 +654,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         return dataResolver.resolve(auth);
     }
 
-    private IamS1DataAuthorizationSnapshot recheck(QueryTask task, Long userId) {
+    IamS1DataAuthorizationSnapshot recheck(QueryTask task, Long userId) {
         try {
             List<IamS1TableRequestDTO> tables = objectMapper.readValue(task.getIamResourceRequest(), new TypeReference<>() {});
             IamS1QueryAskRequestDTO request = new IamS1QueryAskRequestDTO();
@@ -426,9 +679,35 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         Map<String, IamS1FieldProtectionVO> fields = new HashMap<>();
         current.getTables().forEach(table -> table.getFieldProtections().forEach(field ->
                 fields.put((table.getTableName() + "." + field.getColumnName()).toLowerCase(Locale.ROOT), field)));
+        Set<String> authorizedColumns = new HashSet<>();
         for (String value : usedColumns) {
-            IamS1FieldProtectionVO protection = fields.get(value.toLowerCase(Locale.ROOT));
+            if (value == null || value.isBlank()) return false;
+            String normalized = value.toLowerCase(Locale.ROOT);
+            IamS1FieldProtectionVO protection = fields.get(normalized);
             if (protection == null || "HIDDEN".equals(protection.getProtectionLevel())) return false;
+            authorizedColumns.add(normalized);
+        }
+
+        Object traceValue = rawTrace;
+        if (traceValue instanceof Map<?, ?> wrapper) traceValue = wrapper.get("entries");
+        if (!(traceValue instanceof List<?> entries) || entries.isEmpty()) return false;
+        for (Object rawEntry : entries) {
+            if (!(rawEntry instanceof Map<?, ?> entry)
+                    || !(entry.get("sources") instanceof List<?> sources)) return false;
+            if (sources.isEmpty()) {
+                if (!NO_COLUMN_SOURCE.equals(String.valueOf(entry.get("sourceKind")))) return false;
+                continue;
+            }
+            if (NO_COLUMN_SOURCE.equals(String.valueOf(entry.get("sourceKind")))) return false;
+            for (Object source : sources) {
+                if (source == null || String.valueOf(source).isBlank()) return false;
+                String normalized = String.valueOf(source).toLowerCase(Locale.ROOT);
+                IamS1FieldProtectionVO protection = fields.get(normalized);
+                // sourceTrace is independent provenance evidence. Do not let an omitted or
+                // stale usedColumns list hide a currently hidden source field.
+                if (!authorizedColumns.contains(normalized) || protection == null
+                        || "HIDDEN".equals(protection.getProtectionLevel())) return false;
+            }
         }
         return true;
     }
@@ -463,7 +742,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
      * 生效的脱敏只能取其一，必然用错误策略处理另一部分数据。此处独立判定并 fail-closed。
      * </p>
      */
-    private Map<String, String> deriveOutputMasks(Object rawTrace, IamS1DataAuthorizationSnapshot snapshot) {
+    Map<String, String> deriveOutputMasks(Object rawTrace, IamS1DataAuthorizationSnapshot snapshot) {
         Map<String, IamS1FieldProtectionVO> fieldMap = new HashMap<>();
         snapshot.getTables().forEach(table -> table.getFieldProtections().forEach(field ->
                 fieldMap.put((table.getTableName() + "." + field.getColumnName()).toLowerCase(Locale.ROOT), field)));
@@ -485,7 +764,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     outputNames.putIfAbsent(key, output);
                     Set<String> found = policies.computeIfAbsent(key, ignored -> new LinkedHashSet<>());
                     String policy = protection.getMaskPolicy();
-                    if (policy != null && !policy.isBlank()) found.add(policy);
+                    if (policy == null || policy.isBlank()) {
+                        throw new IamS1MaskPolicyConflictException("字段脱敏策略缺失",
+                                List.of(output + " -> missing mask policy"));
+                    }
+                    found.add(policy);
                 }
             }
         }
@@ -506,7 +789,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         return result;
     }
 
-    private Map<String, Object> buildSnapshot(String taskId, IamS1QueryAskRequestDTO request,
+    Map<String, Object> buildSnapshot(String taskId, IamS1QueryAskRequestDTO request,
                                                IamS1DataAuthorizationSnapshot snapshot) {
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("protocolVersion", IamS1Constants.PROTOCOL_VERSION); output.put("taskId", taskId);
@@ -553,16 +836,41 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     }
 
     private Map<String, Object> buildPythonRequest(String taskId, Long userId, Long conversationId,
+                                                   Long currentUserMessageId,
                                                    IamS1QueryAskRequestDTO request,
-                                                   IamS1DataAuthorizationSnapshot snapshot, Map<String, Object> safeSnapshot,
-                                                   Map<String, Object> capabilities, List<IamS1ExecutionBinding> bindings) {
+                                                   IamS1DataAuthorizationSnapshot initialSelection,
+                                                   Map<String, Object> capabilities,
+                                                   RagIndexBuild ragBuild,
+                                                   com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO candidateCatalog,
+                                                   LocalDateTime queryCreatedAt) {
         Map<String, Object> body = new LinkedHashMap<>(); body.put("protocolVersion", IamS1Constants.PROTOCOL_VERSION); body.put("taskId", taskId);
-        body.put("userId", userId); body.put("datasourceId", request.getDatasourceId()); body.put("activeMetadataSnapshotId", snapshot.getActiveMetadataSnapshotId());
-        body.put("permissionRevision", snapshot.getPermissionRevision()); body.put("permissionSnapshot", safeSnapshot); body.put("executionBindings", bindings);
-        body.put("question", request.getQuestion()); body.put("connectionConfig", connectionConfig(request.getDatasourceId()));
-        List<Map<String, Object>> chunks = loadKnowledgeChunks(snapshot.getActiveMetadataSnapshotId(), request.getDatasourceId());
-        ConversationContextDTO conversation = conversationContextSummaryService
-                .buildQueryContext(conversationId, userId);
+        body.put("userId", userId); body.put("datasourceId", request.getDatasourceId());
+        body.put("activeMetadataSnapshotId", candidateCatalog.activeMetadataSnapshotId());
+        body.put("permissionRevision", candidateCatalog.permissionRevision());
+        body.put("permissionSnapshot", initialSelection == null ? null : buildSnapshot(taskId, request, initialSelection));
+        body.put("executionBindings", List.of());
+        body.put("question", request.getQuestion());
+        body.put("capabilities", capabilities);
+        body.put("deadlineEpochSeconds", (queryCreatedAt == null ? LocalDateTime.now() : queryCreatedAt)
+                .atZone(java.time.ZoneId.systemDefault()).plusSeconds(90).toEpochSecond());
+        body.put("resume", false);
+        body.put("sqlAttemptsUsed", 0);
+        body.put("llmCallsUsed", 0);
+        body.put("conversationId", conversationId);
+        body.put("conversationThreadId", "iam-s1:" + userId + ":" + request.getDatasourceId() + ":" + conversationId);
+        body.put("candidateCatalog", candidateCatalog);
+        List<Map<String, Object>> chunks = loadKnowledgeChunks(ragBuild, request.getDatasourceId(), candidateCatalog);
+        IamS1DataAuthorizationSnapshot planningSnapshot = candidatePlanningSnapshot(
+                userId, request.getDatasourceId(), candidateCatalog);
+        IamS1QueryAskRequestDTO planningRequest = candidatePlanningRequest(request, candidateCatalog);
+        ConversationContextDTO conversation;
+        try {
+            conversation = conversationContextSummaryService
+                    .buildQueryContext(conversationId, userId, currentUserMessageId, candidateCatalog);
+        } catch (BusinessException ex) {
+            refreshConversationContext(conversationId, userId, request.getDatasourceId(), taskId);
+            throw ex;
+        }
         if (conversation == null) {
             conversation = ConversationContextDTO.builder().history(List.of()).summary(null).build();
         }
@@ -570,17 +878,80 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         body.put("conversationSummary", conversation.getSummary());
         body.put("ragChunks", chunks);
         body.put("fallbackChunks", chunks);
-        body.put("glossaryTerms", loadApprovedGlossaryTerms(snapshot));
-        body.put("fewShotExamples", loadFewShotExamples(userId, request.getDatasourceId(), snapshot, request));
+        body.put("ragBuildId", ragBuild == null ? null : ragBuild.getBuildId());
+        body.put("ragSourceSnapshotId", ragBuild == null ? null : ragBuild.getSourceSnapshotId());
+        body.put("ragCollectionName", ragBuild == null ? null : ragBuild.getCollectionName());
+        body.put("ragEmbeddingConfig", ragBuild == null ? null : ragIndexBuildService.embeddingConfigForQuery(ragBuild));
+        body.put("glossaryTerms", loadApprovedGlossaryTerms(planningSnapshot));
+        body.put("fewShotExamples", loadFewShotExamples(userId, request.getDatasourceId(), planningSnapshot, planningRequest));
         return body;
     }
 
-    private void refreshConversationContext(Long conversationId, Long userId, String taskId) {
+    private IamS1DataAuthorizationSnapshot candidatePlanningSnapshot(
+            Long userId, Long datasourceId,
+            com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO catalog) {
+        Datasource datasource = datasourceMapper.selectById(datasourceId);
+        List<com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO> tables = new ArrayList<>();
+        for (var candidateTable : catalog.tables()) {
+            List<String> allowedColumns = candidateTable.columns().stream()
+                    .map(com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateColumnVO::columnName).toList();
+            List<IamS1FieldProtectionVO> protections = candidateTable.columns().stream().map(column ->
+                    new IamS1FieldProtectionVO(column.columnMetaId(), candidateTable.tableName(), column.columnName(),
+                            column.protectionLevel(), column.maskPolicy(), "当前 S1 候选字段")).toList();
+            Map<Long, IamS1GrantSourceVO> grantSources = new LinkedHashMap<>();
+            for (var column : candidateTable.columns()) {
+                for (var candidateSource : column.grantSources()) {
+                    IamS1GrantSourceVO source = new IamS1GrantSourceVO(
+                            candidateSource.grantId(), candidateSource.subjectType(), candidateSource.subjectId(),
+                            candidateSource.sourceSummary(), candidateSource.departmentScope(),
+                            candidateSource.grantSource(), candidateSource.sourceReferenceId(),
+                            candidateSource.validFrom() == null ? null : LocalDateTime.parse(candidateSource.validFrom()),
+                            candidateSource.validUntil() == null ? null : LocalDateTime.parse(candidateSource.validUntil()),
+                            candidateSource.explicitColumns(), candidateSource.rowCondition());
+                    grantSources.putIfAbsent(source.getGrantId(), source);
+                }
+            }
+            tables.add(new com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO(
+                    true, "ALLOWED", candidateTable.tableName(), allowedColumns,
+                    List.copyOf(grantSources.values()), protections, List.of()));
+        }
+        return new IamS1DataAuthorizationSnapshot(true, "ALLOWED", IamS1Constants.PROTOCOL_VERSION,
+                userId, datasourceId, datasource == null ? null : datasource.getName(),
+                catalog.activeMetadataSnapshotId(), catalog.permissionRevision(), LocalDateTime.now(), null, tables);
+    }
+
+    private IamS1QueryAskRequestDTO candidatePlanningRequest(
+            IamS1QueryAskRequestDTO original,
+            com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO catalog) {
+        IamS1QueryAskRequestDTO request = new IamS1QueryAskRequestDTO();
+        request.setProtocolVersion(IamS1Constants.PROTOCOL_VERSION);
+        request.setDatasourceId(original.getDatasourceId());
+        request.setQuestion(original.getQuestion());
+        List<IamS1TableRequestDTO> tables = new ArrayList<>();
+        for (var candidateTable : catalog.tables()) {
+            IamS1TableRequestDTO table = new IamS1TableRequestDTO(candidateTable.tableName(), Set.of());
+            Set<String> columns = new LinkedHashSet<>();
+            Map<String, Set<com.dataocean.module.permission.s1.enums.IamS1ColumnUsage>> usages = new LinkedHashMap<>();
+            for (var column : candidateTable.columns()) {
+                columns.add(column.columnName());
+                usages.put(column.columnName(), new LinkedHashSet<>(column.allowedUsages()));
+            }
+            table.setReferencedColumns(columns);
+            table.setColumnUsages(usages);
+            tables.add(table);
+        }
+        request.setTables(tables);
+        return request;
+    }
+
+    private void refreshConversationContext(Long conversationId, Long userId, Long datasourceId, String taskId) {
         if (conversationId == null) return;
         try {
-            conversationContextSummaryService.refreshAsync(conversationId, userId);
+            conversationContextSummaryService.refreshAsync(conversationId, userId, datasourceId);
         } catch (java.util.concurrent.RejectedExecutionException ex) {
             log.warn("S1 会话摘要线程池繁忙，跳过本次摘要刷新 conversationId={} taskId={}", conversationId, taskId);
+        } catch (Exception ex) {
+            log.warn("S1 会话摘要当前权限范围不可用，跳过本次刷新 conversationId={} taskId={}", conversationId, taskId);
         }
     }
 
@@ -707,25 +1078,82 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         return null;
     }
 
-    private List<Map<String, Object>> loadKnowledgeChunks(Long snapshotId, Long datasourceId) {
-        List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectList(new LambdaQueryWrapper<KnowledgeChunk>()
-                .eq(KnowledgeChunk::getMetadataSnapshotId, snapshotId)
-                .eq(KnowledgeChunk::getReviewStatus, "APPROVED")
-                .eq(KnowledgeChunk::getVectorStatus, "INDEXED")
-                .orderByAsc(KnowledgeChunk::getChunkIndex));
+    private List<Map<String, Object>> loadKnowledgeChunks(
+            RagIndexBuild build, Long datasourceId, IamS1DataAuthorizationSnapshot snapshot) {
+        Set<String> visibleDependencies = new java.util.HashSet<>();
+        for (var table : snapshot.getTables()) {
+            String tableName = table.getTableName().toLowerCase(Locale.ROOT);
+            visibleDependencies.add("table:" + tableName);
+            for (String column : table.getAllowedColumns()) {
+                visibleDependencies.add("column:" + tableName + "." + column.toLowerCase(Locale.ROOT));
+            }
+        }
+        return loadKnowledgeChunks(build, datasourceId, visibleDependencies);
+    }
+
+    private List<Map<String, Object>> loadKnowledgeChunks(
+            RagIndexBuild build, Long datasourceId,
+            com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO catalog) {
+        Set<String> visibleDependencies = new java.util.HashSet<>();
+        for (var table : catalog.tables()) {
+            String tableName = table.tableName().toLowerCase(Locale.ROOT);
+            visibleDependencies.add("table:" + tableName);
+            for (var column : table.columns()) {
+                visibleDependencies.add("column:" + tableName + "." + column.columnName().toLowerCase(Locale.ROOT));
+            }
+        }
+        return loadKnowledgeChunks(build, datasourceId, visibleDependencies);
+    }
+
+    private List<Map<String, Object>> loadKnowledgeChunks(
+            RagIndexBuild build, Long datasourceId, Set<String> visibleDependencies) {
+        if (build == null) return List.of();
+        List<RagIndexBuildChunk> membership = ragIndexBuildChunkMapper.selectList(
+                new LambdaQueryWrapper<RagIndexBuildChunk>()
+                        .eq(RagIndexBuildChunk::getBuildId, build.getBuildId())
+                        .eq(RagIndexBuildChunk::getDatasourceId, datasourceId)
+                        .eq(RagIndexBuildChunk::getSourceSnapshotId, build.getSourceSnapshotId())
+                        .eq(RagIndexBuildChunk::getFactReviewStatus, "APPROVED")
+                        .orderByAsc(RagIndexBuildChunk::getChunkId));
+        List<Long> chunkIds = membership.stream().map(RagIndexBuildChunk::getChunkId).toList();
+        if (chunkIds.isEmpty()) return List.of();
+        Map<Long, RagIndexBuildChunk> membershipByChunk = membership.stream()
+                .collect(java.util.stream.Collectors.toMap(RagIndexBuildChunk::getChunkId, item -> item));
+        List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectBatchIds(chunkIds);
         List<Map<String, Object>> result = new ArrayList<>();
         for (KnowledgeChunk chunk : chunks == null ? List.<KnowledgeChunk>of() : chunks) {
             try {
+                RagIndexBuildChunk membershipRow = membershipByChunk.get(chunk.getId());
+                if (membershipRow == null || !Objects.equals(chunk.getMetadataSnapshotId(), build.getSourceSnapshotId())
+                        || !"APPROVED".equals(chunk.getReviewStatus())
+                        || !"APPROVED".equals(chunk.getFactReviewStatus())
+                        || !List.of("NORMAL", "RECOMMENDED", "SENSITIVE").contains(chunk.getGovernanceStatus())) continue;
                 List<String> tables = chunk.getRelatedTables() == null
                         ? (chunk.getRelatedTable() == null ? List.of() : List.of(chunk.getRelatedTable()))
                         : objectMapper.readValue(chunk.getRelatedTables(), new TypeReference<>() {});
                 List<String> columns = chunk.getRelatedColumns() == null
                         ? (chunk.getRelatedColumn() == null || tables.isEmpty() ? List.of() : List.of(tables.get(0) + "." + chunk.getRelatedColumn()))
                         : objectMapper.readValue(chunk.getRelatedColumns(), new TypeReference<>() {});
-                if (tables.isEmpty() || columns.isEmpty()) continue;
+                List<String> dependencies = objectMapper.readValue(
+                        membershipRow.getResourceDependencies(), new TypeReference<>() {});
+                List<String> factSourceIds = objectMapper.readValue(
+                        membershipRow.getFactSourceIds(), new TypeReference<>() {});
+                if (tables.isEmpty() || columns.isEmpty() || dependencies.isEmpty() || factSourceIds.isEmpty()) continue;
+                if (!dependencies.stream().map(value -> value.toLowerCase(Locale.ROOT)).allMatch(visibleDependencies::contains)) {
+                    continue;
+                }
                 Map<String, Object> item = new LinkedHashMap<>(); item.put("datasourceId", datasourceId);
-                item.put("activeMetadataSnapshotId", snapshotId); item.put("tables", tables); item.put("columns", columns);
-                item.put("chunkText", chunk.getChunkText()); item.put("chunkType", chunk.getChunkType()); item.put("docId", chunk.getDocId()); item.put("versionNo", chunk.getVersionNo());
+                item.put("activeMetadataSnapshotId", build.getSourceSnapshotId());
+                item.put("sourceSnapshotId", build.getSourceSnapshotId());
+                item.put("ragBuildId", build.getBuildId());
+                item.put("sourceId", chunk.getId());
+                item.put("tables", tables); item.put("columns", columns);
+                item.put("resourceDependencies", dependencies); item.put("factSourceIds", factSourceIds);
+                item.put("factType", chunk.getFactType()); item.put("factReviewStatus", chunk.getFactReviewStatus());
+                item.put("governanceStatus", chunk.getGovernanceStatus());
+                item.put("reviewStatus", chunk.getReviewStatus());
+                item.put("chunkText", chunk.getChunkText()); item.put("chunkType", chunk.getChunkType());
+                item.put("docId", chunk.getDocId()); item.put("versionNo", chunk.getVersionNo());
                 result.add(item);
             } catch (Exception ignored) {
                 // 来源字段不完整时安全降级为无 RAG 上下文。
@@ -734,13 +1162,13 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         return result;
     }
 
-    private Map<String, Object> connectionConfig(Long datasourceId) {
+    Map<String, Object> connectionConfig(Long datasourceId) {
         Datasource datasource = datasourceMapper.selectById(datasourceId); DatasourceSecret secret = datasourceSecretMapper.selectOne(new LambdaQueryWrapper<DatasourceSecret>().eq(DatasourceSecret::getDatasourceId, datasourceId));
         if (datasource == null || secret == null) throw new BusinessException("数据源连接配置不完整");
         Map<String, Object> config = new LinkedHashMap<>(); config.put("host", datasource.getHost()); config.put("port", datasource.getPort()); config.put("database", datasource.getDatabaseName()); config.put("username", secret.getUsername()); config.put("password", datasourceSecretService.decrypt(secret.getEncryptedPassword())); return config;
     }
 
-    private Map<String, Object> capabilities(Long userId, Long datasourceId) { Map<String, Object> result = new LinkedHashMap<>(); result.put("query", authorizationResolver.hasGlobalFunction(userId, "query:use")); result.put("viewSql", authorizationResolver.hasGlobalFunction(userId, "query:sql:view")); result.put("export", authorizationResolver.hasGlobalFunction(userId, "query:export")); return result; }
+    Map<String, Object> capabilities(Long userId, Long datasourceId) { Map<String, Object> result = new LinkedHashMap<>(); result.put("query", authorizationResolver.hasGlobalFunction(userId, "query:use")); result.put("viewSql", authorizationResolver.hasGlobalFunction(userId, "query:sql:view")); result.put("export", authorizationResolver.hasGlobalFunction(userId, "query:export")); return result; }
 
     private QueryTask find(String taskId, Long userId) { QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId).eq(QueryTask::getUserId, userId)); if (task == null) throw new BusinessException("S1 任务不存在或无权访问"); return task; }
     private boolean isS1(QueryTask task) { return IamS1Constants.PROTOCOL_VERSION.equals(task.getIamProtocolVersion()); }
@@ -762,8 +1190,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             }
         }
     }
-    private String writeJson(Object value) { try { return objectMapper.writeValueAsString(value); } catch (Exception ex) { throw new BusinessException("S1 安全摘要序列化失败"); } }
-    private String safeSql(String sql) { return sql == null ? null : sql.replaceAll("(?i)('(?:''|[^'])*')", "?"); }
+    String writeJson(Object value) { try { return objectMapper.writeValueAsString(value); } catch (Exception ex) { throw new BusinessException("S1 安全摘要序列化失败"); } }
+    String safeSql(String sql) { return sql == null ? null : sql.replaceAll("(?i)('(?:''|[^'])*')", "?"); }
     private String safeExplanation(String value) { return value == null ? null : value.replaceAll("(?i)(select|from|where)\\s+[^\\n]{0,200}", "SQL 说明已隐藏"); }
     private String safeChartConfig(Object value, Map<String, String> outputMasks) {
         if (value == null || (outputMasks != null && !outputMasks.isEmpty())) return null;
@@ -795,8 +1223,30 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         return value;
     }
     private List<String> safeSuggestions(Object value) { return value instanceof List<?> list ? list.stream().filter(item -> item instanceof String).map(String.class::cast).limit(5).toList() : List.of(); }
-    private String safeError(String error) { return error == null || error.isBlank() ? "S1 查询失败" : error.replaceAll("(?i)(iam_s1_[a-z0-9_-]+)", "?"); }
-    private Integer number(Object value) { return value instanceof Number n ? n.intValue() : 0; }
+    String safeError(String error) { return error == null || error.isBlank() ? "S1 查询失败" : error.replaceAll("(?i)(iam_s1_[a-z0-9_-]+)", "?"); }
+    Integer number(Object value) { return value instanceof Number n ? n.intValue() : 0; }
+
+    private Object readAttemptJson(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        try { return objectMapper.readValue(value, Object.class); }
+        catch (Exception ex) { throw new BusinessException("受保护的执行结果无法读取"); }
+    }
+
+    private Map<String, Object> attemptServiceResult(QueryAttempt attempt) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", "PROTECTED");
+        result.put("attemptId", attempt.getAttemptId());
+        result.put("sqlHash", attempt.getSqlHash());
+        result.put("sql", attempt.getSafeSql());
+        result.put("data", readAttemptJson(attempt.getProtectedData()));
+        result.put("columns", readAttemptJson(attempt.getProtectedColumns()));
+        result.put("sourceTrace", readAttemptJson(attempt.getSourceTrace()));
+        result.put("maskedFields", readAttemptJson(attempt.getMaskedFields()));
+        result.put("usedTables", readAttemptJson(attempt.getUsedTables()));
+        result.put("usedColumns", readAttemptJson(attempt.getUsedColumns()));
+        result.put("rowCount", attempt.getRowCount() == null ? 0 : attempt.getRowCount());
+        return result;
+    }
 
     private void fail(String taskId, String message, String protection) {
         QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
@@ -815,8 +1265,32 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             failureMetadata.put("errorMessage", message);
             conversationService.saveAssistantMessage(task.getConversationId(), message, taskId,
                     writeJson(failureMetadata));
-            refreshConversationContext(task.getConversationId(), task.getUserId(), taskId);
+            conversationService.releaseTurn(task.getConversationId(), taskId);
+            refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), taskId);
         }
+    }
+
+    private void finishWithoutData(QueryTask task, String terminalStatus, String message) {
+        if (task == null || task.getTaskId() == null) return;
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                .eq(QueryTask::getTaskId, task.getTaskId())
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                .set(QueryTask::getStatus, terminalStatus)
+                .set(QueryTask::getErrorMessage, message)
+                .set(QueryTask::getResultData, writeJson(List.of()))
+                .set(QueryTask::getResultColumns, writeJson(List.of()))
+                .set(QueryTask::getChartConfig, null)
+                .set(QueryTask::getIamFinalProtectionStatus, "NO_RESULT")
+                .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+        if (updated <= 0 || task.getConversationId() == null) return;
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("taskId", task.getTaskId());
+        metadata.put("status", terminalStatus);
+        metadata.put("question", task.getQuestion());
+        metadata.put("clarification", message);
+        conversationService.saveAssistantMessage(task.getConversationId(), message, task.getTaskId(), writeJson(metadata));
+        conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
+        refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), task.getTaskId());
     }
 
     private void saveCompletedConversationMessage(QueryTask task, Map<String, Object> rawResult,
@@ -857,7 +1331,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             Map<String, Object> caps = task.getIamCapabilities() == null ? Map.of() : objectMapper.readValue(task.getIamCapabilities(), new TypeReference<>() {});
             Map<String, Object> chart = task.getChartConfig() == null ? null : objectMapper.readValue(task.getChartConfig(), new TypeReference<>() {});
             List<String> suggestions = task.getSuggestedQuestions() == null ? List.of() : objectMapper.readValue(task.getSuggestedQuestions(), new TypeReference<>() {});
-            return QueryTaskVO.builder().taskId(task.getTaskId()).status(task.getStatus()).question(task.getQuestion()).sql(task.getResultSql()).sqlExplanation(task.getSqlExplanation()).data(data).columns(columns).rowCount(data == null ? 0 : data.size()).chartConfig(chart).suggestedQuestions(suggestions).usedTables(readList(task.getUsedTables())).usedColumns(readList(task.getUsedColumns())).errorMessage(task.getErrorMessage()).degraded(task.getDegraded()).degradeNotice(task.getDegradeNotice()).retryCount(task.getRetryCount()).totalTimeMs(task.getTotalTimeMs()).protocolVersion(task.getIamProtocolVersion()).activeMetadataSnapshotId(task.getActiveMetadataSnapshotId()).permissionRevision(task.getPermissionRevision()).sourceTrace(trace).finalProtectionStatus(task.getIamFinalProtectionStatus()).canViewSql(Boolean.TRUE.equals(caps.get("viewSql"))).canExport(Boolean.TRUE.equals(caps.get("export"))).createdAt(task.getCreatedAt()).completedAt(task.getCompletedAt()).build();
+            return QueryTaskVO.builder().taskId(task.getTaskId()).status(task.getStatus()).question(task.getQuestion()).sql(task.getResultSql()).sqlExplanation(task.getSqlExplanation()).data(data).columns(columns).rowCount(data == null ? 0 : data.size()).chartConfig(chart).suggestedQuestions(suggestions).usedTables(readList(task.getUsedTables())).usedColumns(readList(task.getUsedColumns())).errorMessage(task.getErrorMessage()).degraded(task.getDegraded()).degradeNotice(task.getDegradeNotice()).retryCount(task.getRetryCount()).totalTimeMs(task.getTotalTimeMs()).protocolVersion(task.getIamProtocolVersion()).activeMetadataSnapshotId(task.getActiveMetadataSnapshotId()).permissionRevision(task.getPermissionRevision()).ragBuildId(task.getRagBuildId()).ragSourceSnapshotId(task.getRagSourceSnapshotId()).sourceTrace(trace).finalProtectionStatus(task.getIamFinalProtectionStatus()).canViewSql(Boolean.TRUE.equals(caps.get("viewSql"))).canExport(Boolean.TRUE.equals(caps.get("export"))).createdAt(task.getCreatedAt()).completedAt(task.getCompletedAt()).build();
         } catch (Exception ex) { throw new BusinessException("S1 结果读取失败"); }
     }
     private List<String> readList(String json) { try { return json == null ? List.of() : objectMapper.readValue(json, new TypeReference<>() {}); } catch (Exception ex) { return List.of(); } }
@@ -873,7 +1347,50 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             // 读取阶段同样 fail-closed：历史任务或异常来源带来的冲突 trace 不得返回结果。
             throw new BusinessException("结果脱敏策略冲突，已拒绝返回");
         }
-        if (!masks.isEmpty()) vo.setData(maskingService.maskResultByFields(vo.getData(), masks)); vo.setMaskedFields(masks);
+        Map<String, String> previousMasks = persistedMaskPolicies(task);
+        Map<String, String> previousPoliciesByOutput = new HashMap<>();
+        previousMasks.forEach((output, policy) -> previousPoliciesByOutput.put(
+                output.toLowerCase(Locale.ROOT), policy));
+        Map<String, String> masksToApply = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : masks.entrySet()) {
+            String previousPolicy = previousPoliciesByOutput.get(entry.getKey().toLowerCase(Locale.ROOT));
+            if (previousPolicy != null && !previousPolicy.equals(entry.getValue())) {
+                // 持久化行已按旧策略脱敏，原值无法恢复，也不能证明把新策略套在旧掩码上安全。
+                throw new BusinessException("历史结果的脱敏策略已变化，已拒绝返回");
+            }
+            if (previousPolicy == null) masksToApply.put(entry.getKey(), entry.getValue());
+        }
+        if (!masksToApply.isEmpty()) {
+            vo.setData(maskingService.maskResultByFields(vo.getData(), masksToApply));
+        }
+        Map<String, String> effectiveMasks = new LinkedHashMap<>(previousMasks);
+        masks.forEach(effectiveMasks::putIfAbsent);
+        vo.setMaskedFields(effectiveMasks);
+        if (!effectiveMasks.isEmpty()) vo.setFinalProtectionStatus("FINAL_MASKED");
+
+        boolean authorizationChanged = !Objects.equals(current.getPermissionRevision(), task.getPermissionRevision())
+                || !Objects.equals(current.getActiveMetadataSnapshotId(), task.getActiveMetadataSnapshotId());
+        if (authorizationChanged || !effectiveMasks.isEmpty()) {
+            // 图表、说明和推荐问题可能包含行/列值。它们没有足够的血缘证据按新规则重建。
+            vo.setChartConfig(null);
+            vo.setSqlExplanation(null);
+            vo.setSuggestedQuestions(List.of());
+        }
+    }
+
+    private Map<String, String> persistedMaskPolicies(QueryTask task) {
+        String value = task.getMaskedFields();
+        if (value == null || value.isBlank()) return Map.of();
+        try {
+            Map<String, String> masks = objectMapper.readValue(value, new TypeReference<>() {});
+            if (masks == null) throw new IllegalArgumentException("empty mask policy map");
+            if (masks.values().stream().anyMatch(policy -> policy == null || policy.isBlank())) {
+                throw new IllegalArgumentException("empty mask policy");
+            }
+            return masks;
+        } catch (Exception ex) {
+            throw new BusinessException("历史结果脱敏记录无法验证，已拒绝返回");
+        }
     }
 
     private boolean containsRowCondition(String snapshotJson) {
@@ -891,9 +1408,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             List<String> usedColumns = objectMapper.readValue(task.getUsedColumns(), new TypeReference<>() {});
             Object trace = objectMapper.readValue(task.getIamSourceTrace(), Object.class);
             Object columns = objectMapper.readValue(task.getResultColumns(), Object.class);
+            Object data = objectMapper.readValue(task.getResultData(), Object.class);
             if (trace instanceof Map<?, ?> wrapper) trace = wrapper.get("entries");
             return (isSubsetEvidencePresent(usedColumns) || traceIsEntirelyColumnFree(trace))
-                    && hasCompleteSourceTrace(trace, columns);
+                    && hasCompleteSourceTrace(trace, columns)
+                    && IamS1ResultIntegrity.dataKeysAreCoveredByColumns(data, columns);
         } catch (Exception ex) {
             return false;
         }
@@ -905,7 +1424,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     }
 
     @SuppressWarnings("unchecked")
-    private boolean hasCompleteSourceTrace(Object rawTrace, Object rawColumns) {
+    boolean hasCompleteSourceTrace(Object rawTrace, Object rawColumns) {
         if (!(rawTrace instanceof List<?> entries) || entries.isEmpty()) return false;
         java.util.Set<String> outputs = new java.util.HashSet<>();
         if (!(rawColumns instanceof List<?> columns) || columns.isEmpty()) return false;

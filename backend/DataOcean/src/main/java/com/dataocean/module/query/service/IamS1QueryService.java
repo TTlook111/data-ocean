@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.query.entity.dto.IamS1QueryAskRequestDTO;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
 import com.dataocean.module.query.entity.vo.ConversationMessageVO;
+import com.dataocean.module.query.entity.vo.ConversationMessagePageVO;
 import com.dataocean.module.query.entity.query.QueryHistoryQuery;
 
 import java.util.List;
@@ -15,10 +16,18 @@ public interface IamS1QueryService {
     QueryTaskVO get(String taskId, Long userId);
     Page<QueryTaskVO> history(Long userId, QueryHistoryQuery query);
     void cancel(String taskId, Long userId);
+
+    void resume(String taskId, Long userId);
+
+    /**
+     * Accept a terminal IAM-SIMPLE-1 callback. COMPLETED results require an exact,
+     * task-local SQL attempt whose hash matches and whose Java protection status is PROTECTED.
+     * There is no attempt-free legacy completion fallback.
+     */
     void complete(String taskId, String resultJson);
     void feedback(String taskId, Long userId, String feedbackType);
     List<java.util.Map<String, Object>> export(String taskId, Long userId);
     List<?> conversations(Long userId, Long datasourceId);
-    List<ConversationMessageVO> conversationMessages(Long conversationId, Long userId, Integer page, Integer pageSize);
+    ConversationMessagePageVO conversationMessages(Long conversationId, Long userId, Long beforeMessageId, Integer pageSize);
     void archiveConversation(Long conversationId, Long userId);
 }

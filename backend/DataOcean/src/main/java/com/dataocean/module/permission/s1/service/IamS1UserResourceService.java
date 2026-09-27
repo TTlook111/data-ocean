@@ -4,6 +4,7 @@ import com.dataocean.module.permission.s1.entity.IamS1SnapshotOption;
 import com.dataocean.module.permission.s1.entity.vo.IamS1ColumnOptionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1TableOptionVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO;
 
 import java.util.List;
 
@@ -34,4 +35,7 @@ public interface IamS1UserResourceService {
     /** 表字段；隐藏字段或治理状态不允许的字段标记为不可选。 */
     List<IamS1ColumnOptionVO> columns(Long userId, String scope, Long datasourceId, Long snapshotId,
                                       String tableName);
+
+    /** 服务端为 Schema Linking 构造当前快照下的完整可见候选，无表数或字段探测截断。 */
+    IamS1QueryCandidateCatalogVO candidateCatalog(Long userId, Long datasourceId, Long snapshotId);
 }

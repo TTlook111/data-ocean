@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.module.datasource.entity.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
+import com.dataocean.module.knowledge.service.RagIndexBuildService;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
@@ -26,6 +27,7 @@ class DatasourceReadinessServiceImplTest {
     @Mock private DatasourceMapper datasourceMapper;
     @Mock private MetadataSnapshotMapper snapshotMapper;
     @Mock private KnowledgeDocMapper knowledgeDocMapper;
+    @Mock private RagIndexBuildService ragIndexBuildService;
     @Mock private IamS1DataGrantMapper iamS1DataGrantMapper;
     @Mock private DbTableMetaMapper tableMetaMapper;
     @Mock private DbColumnMetaMapper columnMetaMapper;

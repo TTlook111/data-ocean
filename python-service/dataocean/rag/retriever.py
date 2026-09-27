@@ -30,6 +30,9 @@ async def retrieve_from_milvus(
         datasource_id=request.datasource_id,
         snapshot_id=request.active_snapshot_id,
         limit=request.top_k * 2,
+        collection_name=request.collection_name,
+        authorized_chunk_ids=request.authorized_chunk_ids if request.build_id else None,
+        build_id=request.build_id,
     )
 
     if not hits:
@@ -59,6 +62,7 @@ async def retrieve_from_milvus(
             chunk_contexts=chunk_contexts,
             datasource_id=request.datasource_id,
             snapshot_id=request.active_snapshot_id,
+            collection_name=request.collection_name,
             limit=max(1, len(chunk_contexts) * 3),
         )
         # 优先按 source_id 去重；兼容旧索引时再按文本去重。
@@ -68,8 +72,15 @@ async def retrieve_from_milvus(
             if hit.document.metadata.get("source_id") is not None
         }
         existing_texts = {hit.document.page_content for hit in expanded_hits}
+        allowed_adjacent_ids = set(request.authorized_chunk_ids) if request.build_id else None
         for adj_hit in adjacent_hits:
             source_id = adj_hit.document.metadata.get("source_id")
+            if allowed_adjacent_ids is not None:
+                try:
+                    if int(source_id) not in allowed_adjacent_ids:
+                        continue
+                except (TypeError, ValueError):
+                    continue
             if (
                 (source_id is not None and source_id not in existing_ids)
                 or (source_id is None and adj_hit.document.page_content not in existing_texts)
@@ -113,6 +124,11 @@ async def retrieve_from_milvus(
                 trust_score=metadata.get("trust_score"),
                 context_expansion=bool(metadata.get("context_expansion", False)),
                 chunk_text=hit.document.page_content,
+                resource_dependencies=_as_string_list(metadata.get("resource_dependencies")),
+                fact_source_ids=_as_string_list(metadata.get("fact_source_ids")),
+                fact_type=str(metadata.get("fact_type") or ""),
+                fact_review_status=str(metadata.get("fact_review_status") or metadata.get("review_status") or "PENDING"),
+                build_id=metadata.get("build_id"),
                 governance_status=metadata.get("governance_status", ""),
                 review_status=metadata.get("review_status", ""),
             )
@@ -131,6 +147,7 @@ async def _fetch_adjacent_chunks(
     chunk_contexts: list[dict[str, Any]],
     datasource_id: int,
     snapshot_id: int,
+    collection_name: str | None = None,
     limit: int = 20,
 ) -> list:
     """查询与命中 chunk 同文档的相邻 chunk（上下文扩展）
@@ -152,7 +169,7 @@ async def _fetch_adjacent_chunks(
 
     def _query() -> list:
         client = get_client()
-        name = settings.milvus_collection_name
+        name = collection_name or settings.milvus_collection_name
 
         # 构建过滤条件：同数据源 + 同快照 + 同文档 + 准入状态
         eligible_statuses = ", ".join(f'"{s}"' for s in RAG_ELIGIBLE_STATUSES)
@@ -198,7 +215,8 @@ async def _fetch_adjacent_chunks(
                     "doc_id", "source_id", "chunk_index", "chunk_group_id", "chunk_type",
                     "governance_status", "review_status", "chunk_text", "related_table",
                     "related_column", "related_tables", "related_columns", "entity_ids",
-                    "trust_score", "content_hash",
+                    "trust_score", "content_hash", "source_snapshot_id", "resource_dependencies",
+                    "fact_source_ids", "fact_type", "fact_review_status", "build_id",
                 ],
                 limit=limit,
             )
@@ -227,6 +245,12 @@ async def _fetch_adjacent_chunks(
                         "entity_ids": entity.get("entity_ids", ""),
                         "trust_score": entity.get("trust_score"),
                         "content_hash": entity.get("content_hash", ""),
+                        "source_snapshot_id": entity.get("source_snapshot_id", entity.get("snapshot_id")),
+                        "resource_dependencies": entity.get("resource_dependencies", ""),
+                        "fact_source_ids": entity.get("fact_source_ids", ""),
+                        "fact_type": entity.get("fact_type", ""),
+                        "fact_review_status": entity.get("fact_review_status", "PENDING"),
+                        "build_id": entity.get("build_id", ""),
                         "context_expansion": True,
                     },
                 )

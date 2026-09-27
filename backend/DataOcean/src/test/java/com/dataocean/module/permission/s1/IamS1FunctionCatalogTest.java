@@ -90,7 +90,7 @@ class IamS1FunctionCatalogTest {
     }
 
     private String readDesignSection() throws IOException {
-        Path design = Path.of("..", "..", "docs/development/guides/DataOcean-完整权限体系设计.md");
+        Path design = Path.of("..", "..", "docs/development/completed/DataOcean-完整权限体系设计.md");
         String content = Files.readString(design, StandardCharsets.UTF_8);
         int start = content.indexOf("## 4. 角色功能目录");
         int end = content.indexOf("## 5. 用户和角色管理", start);

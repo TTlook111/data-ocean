@@ -14,7 +14,7 @@
  *   只能显示状态，无法显示进度与失败原因。
  * - `knowledge_doc_version.review_status` 自 2026-09-12（V51）起由 approve/reject 真实写入；
  *   V51 之前的历史行被回填为 UNKNOWN 或按审核任务还原，不再是「恒为待审核」的死列。
- * - rollback 自 2026-09-12 起要求文档为 PUBLISHED 且目标版本审核已通过，前端仍只对已发布文档开放该入口。
+ * - rollback 仅创建待审核草稿，不会直接改动活动 RAG build。
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -24,6 +24,7 @@ import {
   approveDoc,
   diffVersions,
   getKnowledgeDoc,
+  listRagBuilds,
   listReviewTasks,
   listSourceSnapshots,
   listVectorTasks,
@@ -41,6 +42,7 @@ import {
   type KnowledgeReviewRecord,
   type KnowledgeSourceSnapshot,
   type KnowledgeVersionItem,
+  type RagIndexBuildSummary,
   type VectorIndexTaskItem,
 } from '../../../api/admin/knowledge'
 import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
@@ -122,14 +124,17 @@ const actionLoading = ref(false)
 const versionsLoading = ref(false)
 const chunksLoading = ref(false)
 const chunkError = ref('')
+const ragBuilds = ref<RagIndexBuildSummary[]>([])
+const ragBuildsLoading = ref(false)
+const ragBuildsError = ref('')
 
 const title = ref('')
 const content = ref('')
 
-/** 生命周期步骤：索引中与已发布是两件事，必须分开显示 */
+/** 文档流转只到 PUBLISHED；datasource RAG build 是单独确认的索引生命周期。 */
 const lifecycleSteps = computed(() => {
   const status = doc.value?.status || 'DRAFT'
-  const order = ['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'INDEXING', 'PUBLISHED']
+  const order = ['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'PUBLISHED']
   const index = order.indexOf(status)
   return order.map((key, position) => ({
     key,
@@ -173,21 +178,21 @@ const coveredTables = computed<string[]>(() => {
 /** 下一步说明：让用户明确当前卡在哪一步，以及完成后的去向 */
 const nextStepHint = computed(() => {
   if (isIndexing.value) {
-    return '文档正在构建索引。此阶段重复发布不会生效，请等待任务结束后刷新状态。'
+    return '检测到旧版文档级索引任务。活动索引以数据源级 RAG build 指针为准。'
   }
   if (status.value === 'APPROVED') {
-    return '文档已批准但尚未进入检索。发布并构建索引成功后，内容才会被 RAG 检索使用。'
+    return '文档已审核通过。发布文档后，有权人员还需单独确认数据源级 RAG build。'
   }
   if (status.value === 'PENDING_REVIEW') {
-    return '等待审核。审核通过后进入已批准，仍需发布才会构建索引。'
+    return '等待审核。审核通过后需要发布文档，再单独确认 RAG build。'
   }
   if (status.value === 'PUBLISHED') {
-    return '文档已发布并可被检索。直接修改内容会创建新版本并回到草稿，需要重新审核与发布。'
+    return '文档已发布；是否进入检索由活动 RAG build 决定。直接修改会创建新版本并回到草稿。'
   }
   if (status.value === 'DEPRECATED') {
     return '文档已废弃，不再参与检索，当前页面保持只读。'
   }
-  return '草稿状态。完成编辑后提交审核，审核通过再发布并构建索引。'
+  return '草稿状态。完成编辑后提交审核，审核通过再发布；随后由有权人员确认数据源级 RAG build。'
 })
 
 function apiError(cause: unknown, fallback: string) {
@@ -320,10 +325,10 @@ async function submit() {
 async function approve() {
   if (!mayApprove.value) { ElMessage.warning(APPROVE_HINT); return }
   try {
-    await ElMessageBox.confirm('确认通过审核？通过后文档进入已批准，需要再执行发布才会构建索引。', '审核通过')
+    await ElMessageBox.confirm('确认通过审核？随后还需发布该文档；数据源级 RAG build 由有权人员单独确认。', '审核通过')
     actionLoading.value = true
     await approveDoc(docId.value)
-    ElMessage.success('审核已通过，下一步是发布并构建索引')
+    ElMessage.success('审核已通过，下一步是发布文档，再确认数据源级 RAG build')
     await loadDoc()
   } catch (cause) {
     if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '审核通过失败'))
@@ -355,13 +360,13 @@ async function publish() {
   if (!mayPublish.value) { ElMessage.warning(PUBLISH_HINT); return }
   try {
     await ElMessageBox.confirm(
-      '发布后文档将进入索引阶段，内容会被切分并写入向量库。索引成功前旧版本向量会保留。确认发布？',
-      '发布并构建索引',
+      '发布会保存该已审核文档版本，但不会自动构建或切换 RAG。你可以在语义知识页预览版本与来源快照后，单独确认数据源级 RAG build。确认发布文档？',
+      '发布文档',
       { type: 'warning', confirmButtonText: '确认发布', cancelButtonText: '取消' },
     )
     actionLoading.value = true
     await publishDoc(docId.value)
-    ElMessage.success('已提交发布，文档进入索引中')
+    ElMessage.success('文档已发布。RAG build 仍需有权人员单独确认。')
     await loadDoc()
   } catch (cause) {
     if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '发布失败'))
@@ -394,7 +399,7 @@ async function runGenerate() {
     // 后端生成草稿时会写入新版本并递增乐观锁 version，必须重新拉取后再覆盖展示内容
     await loadDoc()
     content.value = result.data?.content || content.value
-    ElMessage.success('AI 草稿已生成，请核对后保存')
+    ElMessage.success('完整快照目录已生成；请核对“待确认”释义后保存')
   } catch (cause) {
     ElMessage.error(apiError(cause, 'AI 生成失败'))
   } finally {
@@ -417,13 +422,13 @@ async function rollback(item: KnowledgeVersionItem) {
   try {
     await ElMessageBox.confirm(
       `回滚到版本 ${item.versionNo}？影响范围：后端会以该版本内容创建一个新的 ROLLBACK 版本，`
-      + '把文档状态置为「索引中」，并立即触发向量化任务；此操作不经过审核。',
+      + '创建一个待审核的 ROLLBACK 草稿版本；回滚不会直接改动活动 RAG build。',
       '版本回滚',
-      { type: 'warning', confirmButtonText: '确认回滚并重新索引', cancelButtonText: '取消' },
+      { type: 'warning', confirmButtonText: '创建回滚草稿', cancelButtonText: '取消' },
     )
     actionLoading.value = true
     await rollbackVersion(docId.value, item.versionNo)
-    ElMessage.success('回滚已提交，文档进入索引中')
+    ElMessage.success('回滚草稿已创建；需重新审核、发布并确认 RAG build')
     await Promise.all([loadDoc(), loadVersions()])
   } catch (cause) {
     if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '回滚失败'))
@@ -546,6 +551,24 @@ async function loadVectorTasks() {
   }
 }
 
+async function loadRagBuilds() {
+  const datasourceId = doc.value?.datasourceId
+  ragBuildsError.value = ''
+  if (!datasourceId) {
+    ragBuilds.value = []
+    return
+  }
+  ragBuildsLoading.value = true
+  try {
+    ragBuilds.value = (await listRagBuilds(datasourceId)).data || []
+  } catch (cause) {
+    ragBuilds.value = []
+    ragBuildsError.value = apiError(cause, 'RAG 构建状态加载失败')
+  } finally {
+    ragBuildsLoading.value = false
+  }
+}
+
 onMounted(async () => {
   await iamS1.load()
   try {
@@ -554,6 +577,7 @@ onMounted(async () => {
     datasources.value = []
   }
   await loadDoc()
+  await loadRagBuilds()
   await loadSnapshots()
   // 版本记录支撑「来源与覆盖」「审核记录」「版本」三个 Tab，因此在加载时就取回
   loadVersions()
@@ -568,8 +592,10 @@ watch(docId, async () => {
   chunks.value = []
   reviewRecords.value = []
   vectorTasks.value = []
+  ragBuilds.value = []
   sourceSnapshots.value = []
   await loadDoc()
+  await loadRagBuilds()
   await loadSnapshots()
   loadVersions()
   if (activeTab.value === 'source') loadSourceSnapshots()
@@ -587,7 +613,7 @@ watch(() => route.query.tab, (value) => {
   if (next === 'review' && !reviewRecords.value.length) loadReviewRecords()
   // 切分预览与索引状态已拆为两个 Tab（开发指导 §7.11），各自独立加载
   if (next === 'chunks' && !chunks.value.length) loadChunks()
-  if (next === 'index') loadVectorTasks()
+  if (next === 'index') { loadRagBuilds(); loadVectorTasks() }
 })
 </script>
 
@@ -607,7 +633,7 @@ watch(() => route.query.tab, (value) => {
       <TaskPageHeader
         eyebrow="知识文档"
         :title="doc.title"
-        description="编辑内容、提交审核、发布并构建索引。批准、索引和发布是三个不同阶段，页面按状态只突出一个主操作。"
+        description="编辑同一快照的完整字段目录、提交审核并发布文档。数据源级 RAG build 由有权人员在语义知识页另行确认。"
       >
         <template #status>
           <BusinessStatusBadge :status="doc.status" :label="knowledgeStatusLabel(doc.status)" />
@@ -618,7 +644,7 @@ watch(() => route.query.tab, (value) => {
           <el-button v-if="canEdit && mayManage" :icon="Save" :loading="saving" @click="save">
             {{ status === 'DRAFT' ? '保存' : '保存并新建版本' }}
           </el-button>
-          <el-button v-if="canEdit && mayManage" :icon="Sparkles" @click="openGenerate">AI 生成草稿</el-button>
+          <el-button v-if="canEdit && mayManage" :icon="Sparkles" @click="openGenerate">按快照生成目录</el-button>
 
           <el-button v-if="canSubmitReview && mayManage" type="primary" :icon="Send" :loading="actionLoading" @click="submit">
             提交审核
@@ -628,7 +654,10 @@ watch(() => route.query.tab, (value) => {
             <el-button type="danger" plain :loading="actionLoading" :disabled="!mayApprove" :title="mayApprove ? '' : APPROVE_HINT" @click="reject">驳回</el-button>
           </template>
           <el-button v-else-if="canPublish" type="primary" :icon="Upload" :loading="actionLoading" :disabled="!mayPublish" :title="mayPublish ? '' : PUBLISH_HINT" @click="publish">
-            发布并构建索引
+            发布文档
+          </el-button>
+          <el-button v-else-if="isPublished && mayPublish" :icon="RefreshCw" @click="router.push({ name: 'admin-semantic-knowledge', query: { datasourceId: String(doc.datasourceId) } })">
+            RAG build 状态
           </el-button>
           <el-button v-else-if="isPublished" type="primary" :icon="MessageSquareText" @click="router.push('/query')">
             进入智能问数
@@ -903,25 +932,36 @@ watch(() => route.query.tab, (value) => {
           <section class="knowledge-doc-page__card">
             <div class="card-heading">
               <div>
-                <h3>索引状态</h3>
-                <p>索引任务按文档记录，失败时可在下方看到原因；索引中的文档重复发布不会生效。</p>
+                <h3>数据源级 RAG build</h3>
+                <p>文档发布不会自动写入或切换向量。只有经过授权人员明确确认并通过核验的 build 才会成为活动索引。</p>
               </div>
-              <BusinessStatusBadge :status="doc.status" :label="knowledgeStatusLabel(doc.status)" />
+              <el-button v-if="mayPublish" type="primary" :icon="RefreshCw" @click="router.push({ name: 'admin-semantic-knowledge', query: { datasourceId: String(doc.datasourceId) } })">
+                管理 RAG build
+              </el-button>
             </div>
             <dl class="facts">
-              <div><dt>可检索</dt><dd>{{ isPublished ? '是，已发布并完成索引' : '否' }}</dd></div>
+              <div><dt>文档状态</dt><dd>{{ knowledgeStatusLabel(doc.status) }}</dd></div>
               <div><dt>当前版本</dt><dd>v{{ doc.currentVersion }}</dd></div>
+              <div><dt>活动 RAG build</dt><dd>{{ ragBuilds.find((item) => item.status === 'ACTIVE')?.buildId || '尚无活动 build' }}</dd></div>
+              <div><dt>RAG 来源快照</dt><dd>{{ ragBuilds.find((item) => item.status === 'ACTIVE')?.sourceSnapshotId || '—' }}</dd></div>
             </dl>
-            <p class="muted">
-              任务表可看到状态、起止时间与失败原因，但<strong>看不到进度百分比</strong>：
-              后端 <code>vector_index_task</code> 没有已处理/总数这类进度列，
-              前端无法据此推算。该缺口属后端能力缺失，不是前端遗漏。
-            </p>
+            <ErrorState v-if="ragBuildsError" :message="ragBuildsError" @retry="loadRagBuilds" />
+            <LoadingState v-else-if="ragBuildsLoading" text="正在读取 RAG build…" />
+            <el-table v-else-if="ragBuilds.length" :data="ragBuilds" stripe size="small">
+              <el-table-column prop="buildId" label="buildId" min-width="250" />
+              <el-table-column prop="sourceSnapshotId" label="来源快照" width="110" />
+              <el-table-column prop="embeddingModel" label="Embedding" min-width="160" />
+              <el-table-column prop="status" label="状态" width="170" />
+              <el-table-column label="向量数" width="130"><template #default="{ row }">{{ row.actualVectorCount }} / {{ row.expectedChunkCount }}</template></el-table-column>
+              <el-table-column prop="errorMessage" label="错误信息" min-width="220" show-overflow-tooltip />
+            </el-table>
+            <EmptyState v-else message="该数据源尚无 RAG build。前往语义知识页查看快照版本并明确确认构建。" />
+            <p class="muted">旧版文档级 vector_index_task 仅保留历史记录，不会自动启动或切换活动 RAG。</p>
             <ErrorState v-if="taskError" :message="taskError" @retry="loadVectorTasks" />
             <LoadingState v-else-if="tasksLoading" text="正在读取索引任务…" />
             <EmptyState
               v-else-if="!vectorTasks.length"
-              message="还没有索引任务。文档发布后会创建向量化任务，在这里可以看到执行结果与失败原因。"
+              message="没有旧版单文档向量任务。当前 build 状态见上方数据源级记录。"
             />
             <el-table v-else :data="vectorTasks" stripe size="small">
               <el-table-column label="任务" width="80">
@@ -950,10 +990,10 @@ watch(() => route.query.tab, (value) => {
       </el-tabs>
     </template>
 
-    <!-- AI 生成草稿 -->
-    <el-dialog v-model="generateVisible" title="AI 生成草稿" width="480px">
+    <!-- 快照生成 -->
+    <el-dialog v-model="generateVisible" title="生成快照字段目录" width="480px">
       <p class="muted">
-        选择一个元数据快照，AI 会基于快照内容生成 skills.md 草稿。生成结果会直接写入文档内容并创建新版本。
+        选择一个元数据快照，系统会按该快照的稳定表/字段 ID 生成完整目录。缺少可靠业务释义时标为“待确认”；结果会写入草稿新版本。
       </p>
       <ErrorState v-if="snapshotError" :message="snapshotError" @retry="loadSnapshots" />
       <EmptyState
@@ -970,7 +1010,7 @@ watch(() => route.query.tab, (value) => {
       </el-select>
       <template #footer>
         <el-button @click="generateVisible = false">取消</el-button>
-        <el-button type="primary" :loading="generateLoading" @click="runGenerate">生成</el-button>
+        <el-button type="primary" :loading="generateLoading" @click="runGenerate">生成目录</el-button>
       </template>
     </el-dialog>
 

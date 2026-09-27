@@ -13,6 +13,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
+import com.dataocean.module.knowledge.support.KnowledgeSnapshotFactValidator;
 import com.dataocean.module.metadata.entity.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +46,7 @@ public class KnowledgeDocLifecycleService {
     private final VectorIndexTaskService vectorIndexTaskService;
     private final DbColumnMetaMapper dbColumnMetaMapper;
     private final KnowledgeDocHelper helper;
+    private final KnowledgeSnapshotFactValidator snapshotFactValidator;
 
     /**
      * 提交审核（DRAFT → PENDING_REVIEW）。
@@ -124,14 +126,8 @@ public class KnowledgeDocLifecycleService {
     }
 
     /**
-     * 发布文档（APPROVED → INDEXING）。
-     * <p>
-     * 发布流程：
-     * 1. 校验状态为 APPROVED
-     * 2. 发布前校验引用字段的治理状态
-     * 3. 更新为 INDEXING
-     * 4. 创建向量化任务
-     * </p>
+     * 发布已审核的文档内容。发布本身不构建或切换 RAG；
+     * 有权人员还需在数据源级 RAG 页面明确确认一次完整 build。
      *
      * @param id 文档 ID
      */
@@ -139,31 +135,25 @@ public class KnowledgeDocLifecycleService {
     public void publish(Long id) {
         log.info("发布知识文档 docId={}", id);
         KnowledgeDoc doc = helper.requireDoc(id);
-        Integer previousPublishedVersionNo = helper.findCurrentPublishedVersionNo(doc.getId());
-        boolean rebuildCurrentVersion = previousPublishedVersionNo != null
-                && previousPublishedVersionNo.equals(doc.getCurrentVersion());
         // 校验当前状态必须为审核通过
         if (!DocStatus.APPROVED.name().equals(doc.getStatus())) {
             throw new BusinessException("只有审核通过的文档才能发布");
         }
         // 发布前校验：检查引用字段的治理状态
         validateBeforePublish(doc);
-        // 更新文档状态为索引中
+        // 文档审核与向量构建是两个独立的人为确认动作。
         KnowledgeDocVersion currentVersion = helper.requireVersion(doc.getId(), doc.getCurrentVersion());
-        doc.setStatus(DocStatus.INDEXING.name());
+        if (!ReviewStatus.APPROVED.name().equals(currentVersion.getReviewStatus())) {
+            throw new BusinessException("当前文档版本尚未审核通过");
+        }
+        snapshotFactValidator.validate(doc.getDatasourceId(), currentVersion.getMetadataSnapshotId(),
+                currentVersion.getContent());
+        doc.setStatus(DocStatus.PUBLISHED.name());
         doc.setUpdatedBy(UserContext.currentUserId());
         OptimisticLockSupport.requireUpdated(
                 knowledgeDocMapper.updateById(doc),
                 "文档发布状态已被其他人修改，请刷新后重试");
-        // 创建带版本上下文的向量化任务；新版本写入成功后再清理旧版本向量。
-        vectorIndexTaskService.createTask(
-                doc.getDatasourceId(),
-                "DOC",
-                doc.getId(),
-                currentVersion.getMetadataSnapshotId(),
-                doc.getCurrentVersion(),
-                rebuildCurrentVersion ? doc.getCurrentVersion() : previousPublishedVersionNo);
-        log.info("知识文档发布成功 docId={}", id);
+        log.info("知识文档发布成功（等待数据源级 RAG build 明确确认） docId={}", id);
     }
 
     /**

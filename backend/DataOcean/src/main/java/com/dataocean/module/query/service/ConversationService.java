@@ -1,6 +1,7 @@
 package com.dataocean.module.query.service;
 
 import com.dataocean.module.query.entity.vo.ConversationMessageVO;
+import com.dataocean.module.query.entity.vo.ConversationMessagePageVO;
 
 import java.util.List;
 
@@ -30,7 +31,18 @@ public interface ConversationService {
      * @param conversationId 会话 ID
      * @param content        消息内容
      */
-    void saveUserMessage(Long conversationId, String content);
+    Long saveUserMessage(Long conversationId, String content, String taskId);
+
+    /** 原子占用会话的唯一活动轮次。 */
+    void acquireTurn(Long conversationId, Long userId, Long datasourceId, String taskId);
+
+    /** 只允许对应 taskId 释放轮次，避免迟到回调释放新轮次。 */
+    void releaseTurn(Long conversationId, String taskId);
+
+    /** 当前用户是否仍可读取该会话。 */
+    boolean isVisible(Long conversationId, Long userId);
+
+    boolean isActiveTurn(Long conversationId, String taskId);
 
     /**
      * 保存助手消息（含查询结果元数据）。
@@ -53,6 +65,9 @@ public interface ConversationService {
      */
     List<ConversationMessageVO> listMessages(Long conversationId, Long userId, Integer page, Integer pageSize);
 
+    /** 按消息 ID 倒序查页，返回前端时恢复为正序。 */
+    ConversationMessagePageVO listMessagePage(Long conversationId, Long userId, Long beforeMessageId, Integer pageSize);
+
     /**
      * 查询用户的会话列表。
      *
@@ -62,7 +77,7 @@ public interface ConversationService {
      */
     List<?> listConversations(Long userId, Long datasourceId);
 
-    void archiveConversation(Long conversationId, Long userId);
+    String deleteConversation(Long conversationId, Long userId);
 
     /**
      * 获取会话最近 N 条消息（内部调用，校验用户归属）。
@@ -73,6 +88,12 @@ public interface ConversationService {
      * @return 消息列表（按时间正序）
      */
     List<ConversationMessageVO> getRecentMessages(Long conversationId, Long userId, int limit);
+
+    List<ConversationMessageVO> getRecentMessagesBefore(Long conversationId, Long userId, Long beforeMessageId, int limit);
+
+    Long getLatestMessageIdBefore(Long conversationId, Long userId, Long beforeMessageId);
+
+    Long userMessageIdForTask(Long conversationId, Long userId, String taskId);
 
     /**
      * 查询指定消息之后的全部会话消息（按时间正序），用于增量生成长期摘要。

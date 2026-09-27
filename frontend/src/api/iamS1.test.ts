@@ -92,6 +92,16 @@ describe('iamS1Ask', () => {
     expect(body.tables[0].columnUsages.region).toEqual(['PROJECTION', 'GROUP'])
     expect(body.tables[0].columnUsages.amount).toEqual(['PROJECTION', 'ORDER'])
   })
+
+  it('正式自然语言入口可以只提交数据源和问题', async () => {
+    mockedPost.mockResolvedValue({
+      data: { code: 200, message: 'success', data: { taskId: 't-natural', protocolVersion: 'IAM-SIMPLE-1' } },
+    })
+    await iamS1Ask({ datasourceId: 8, question: '最近一周的销售额是多少？' })
+    const body = mockedPost.mock.calls[0][1] as Record<string, unknown>
+    expect(body).toMatchObject({ datasourceId: 8, question: '最近一周的销售额是多少？' })
+    expect(body).not.toHaveProperty('tables')
+  })
 })
 
 describe('iamS1StreamTask', () => {

@@ -217,6 +217,39 @@ export interface KnowledgeSourceSnapshot {
   createdAt?: string
 }
 
+export interface RagIndexBuildSummary {
+  buildId: string
+  datasourceId: number
+  sourceSnapshotId: number
+  embeddingModel: string
+  embeddingDimension: number
+  generation: number
+  status: string
+  expectedChunkCount: number
+  actualVectorCount: number
+  confirmedAt: string
+  activatedAt?: string
+  cleanupVerifiedAt?: string
+  errorMessage?: string
+}
+
+/** Explicit user confirmation starts a new isolated RAG build. */
+export async function confirmRagBuild(datasourceId: number, snapshotId: number) {
+  const { data } = await http.post<ApiResult<RagIndexBuildSummary>>('/api/admin/knowledge-docs/rag-builds', {
+    datasourceId,
+    snapshotId,
+    confirmed: true,
+  })
+  return data
+}
+
+export async function listRagBuilds(datasourceId: number) {
+  const { data } = await http.get<ApiResult<RagIndexBuildSummary[]>>('/api/admin/knowledge-docs/rag-builds', {
+    params: { datasourceId },
+  })
+  return data
+}
+
 /** 查询文档各版本的来源快照 */
 export async function listSourceSnapshots(docId: number) {
   const { data } = await http.get<ApiResult<KnowledgeSourceSnapshot[]>>(

@@ -20,8 +20,6 @@ import { parseDatasourceId } from '../../utils/queryDatasource'
 import QuerySidebar from './QuerySidebar.vue'
 import QueryInput from './QueryInput.vue'
 import QueryResult from './QueryResult.vue'
-import IamS1ResourceSelector from './IamS1ResourceSelector.vue'
-import type { IamS1TableDeclaration } from '../../api/iamS1'
 
 const router = useRouter()
 const route = useRoute()
@@ -31,7 +29,6 @@ const workspaceRef = ref<HTMLElement | null>(null)
 const queryInputRef = ref<InstanceType<typeof QueryInput>>()
 const resultPanelOpen = ref(false)
 const datasourceInitialized = ref(false)
-const resourceDeclarations = ref<IamS1TableDeclaration[]>([])
 let datasourceSyncRequest = 0
 const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(workspaceRef)
 
@@ -47,6 +44,10 @@ const exampleQuestions = [
 ]
 
 const session = useQuerySession()
+const selectedReadiness = computed(() => {
+  const id = session.selectedId.value
+  return id ? session.readinessMap.value[id] : undefined
+})
 const sessionTitle = computed(() => {
   const title = session.activeSession.value?.title
   return title && title !== '新的对话' ? title : '智能问答'
@@ -57,7 +58,6 @@ const submit = useQuerySubmit({
   activeMessages: session.activeMessages,
   canAskSelectedDatasource: session.canAskSelectedDatasource,
   selectedBlockReason: session.selectedBlockReason,
-  resourceDeclarations,
   createSession: session.createSession,
   async animateNewMessages() {
     await nextTick()
@@ -127,7 +127,6 @@ async function applyDatasource(id: number) {
   await submit.cancelCurrentQuery()
   submit.question.value = ''
   resultPanelOpen.value = false
-  resourceDeclarations.value = []
   await session.selectDatasource(id, { afterSelect: afterDatasourceSelected })
 }
 
@@ -241,7 +240,15 @@ onMounted(() => {
 
     <section class="query-main">
       <header class="query-topbar">
-        <div class="workspace-title"><h1>{{ sessionTitle }}</h1></div>
+        <div class="workspace-title">
+          <h1>{{ sessionTitle }}</h1>
+          <small v-if="session.selectedId.value && selectedReadiness" class="query-version-context">
+            <span>最新采集 v{{ selectedReadiness.latestCollectedSnapshotVersion ?? '—' }}</span>
+            <span>当前发布 v{{ selectedReadiness.snapshotVersion ?? '—' }}</span>
+            <span>RAG 来源 v{{ selectedReadiness.ragSourceSnapshotVersion ?? '—' }}</span>
+            <strong v-if="selectedReadiness.ragStale" role="status">知识版本落后，SQL 仍按当前快照与权限校验</strong>
+          </small>
+        </div>
         <div class="topbar-actions">
           <button v-if="submit.latestResult.value && !resultPanelOpen" class="result-toggle" type="button" @click="resultPanelOpen = true">
             <PanelRightOpen :size="16" /><span>查看结果</span>
@@ -265,6 +272,15 @@ onMounted(() => {
         </div>
 
         <section v-else class="conversation-stream" aria-label="对话">
+          <button
+            v-if="session.activeSession.value?.hasMoreHistory"
+            class="load-older-messages"
+            type="button"
+            :disabled="session.activeSession.value.historyLoading"
+            @click="session.loadOlderMessages(session.activeSession.value)"
+          >
+            {{ session.activeSession.value.historyLoading ? '正在加载…' : '加载更早消息' }}
+          </button>
           <article v-for="message in session.activeMessages.value" :key="message.id" class="message-item" :class="message.role" :data-message-id="message.id">
             <span class="message-avatar"><UserRound v-if="message.role === 'user'" :size="16" /><MessageSquareText v-else :size="16" /></span>
             <div class="message-bubble">
@@ -281,7 +297,13 @@ onMounted(() => {
               </div>
               <div v-if="message.role === 'assistant' && message.status === 'TIMEOUT'" class="message-actions">
                 <button @click="submit.retryQuery(message.originalQuestion || '')" :disabled="submit.isQuerying.value"><RefreshCw :size="14" />重试查询</button>
-                <button @click="submit.continueWaiting(message.taskId || '')" :disabled="submit.isQuerying.value"><History :size="14" />继续等待</button>
+              </div>
+              <div v-if="message.role === 'assistant' && submit.isLocallyResumable(message)" class="message-actions">
+                <button @click="submit.retryQuery(message.originalQuestion || '')" :disabled="submit.isQuerying.value"><RefreshCw :size="14" />重新提问</button>
+                <button @click="submit.continueWaiting(message.taskId || '')" :disabled="submit.isQuerying.value || !message.taskId"><History :size="14" />恢复等待</button>
+              </div>
+              <div v-if="message.role === 'assistant' && message.status === 'CLARIFICATION_REQUIRED'" class="message-actions">
+                <button @click="submit.prepareClarification(message.originalQuestion || '')" :disabled="submit.isQuerying.value">补充查询条件</button>
               </div>
               <div v-if="message.role === 'assistant' && (message.status === 'FAILED' || message.status === 'error')" class="message-actions">
                 <button @click="submit.retryQuery(message.originalQuestion || '')" :disabled="submit.isQuerying.value || !message.originalQuestion"><RefreshCw :size="14" />重新提问</button>
@@ -291,19 +313,13 @@ onMounted(() => {
         </section>
       </section>
 
-      <IamS1ResourceSelector
-        v-if="session.selectedId.value"
-        v-model="resourceDeclarations"
-        :datasource-id="session.selectedId.value"
-        :can-query="session.canAskSelectedDatasource.value"
-      />
       <QueryInput
         ref="queryInputRef"
         :question="submit.question.value"
         :is-querying="submit.isQuerying.value"
         :selected-id="session.selectedId.value"
         :selected-datasource-name="session.selectedDatasource.value?.name"
-        :can-ask="session.canAskSelectedDatasource.value && resourceDeclarations.length > 0"
+        :can-ask="session.canAskSelectedDatasource.value"
         :readiness-loading="session.readinessLoading.value"
         :selected-block-reason="session.selectedBlockReason.value"
         :selected-readiness="session.selectedReadiness.value"
@@ -347,6 +363,8 @@ onMounted(() => {
 .query-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 20px; border-bottom: 1px solid rgba(226, 232, 240, .84); background: rgba(255, 255, 255, .72); backdrop-filter: blur(14px); }
 .workspace-title { min-width: 0; }
 .workspace-title h1 { max-width: 600px; margin: 0; overflow: hidden; color: var(--do-ink); font-size: 14px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.query-version-context { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 3px; color: var(--do-muted); font-size: 10px; }
+.query-version-context strong { color: #a66a00; font-weight: 700; }
 .topbar-actions { display: flex; align-items: center; gap: 9px; }
 .result-toggle { height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-primary-strong); background: var(--do-surface); font-size: 12px; font-weight: 700; cursor: pointer; }
 .result-toggle:hover { border-color: rgba(77, 143, 220, .45); background: var(--do-primary-soft); }
@@ -363,6 +381,8 @@ onMounted(() => {
 .empty-chat p { margin: 0; font-size: 13px; }
 .empty-chat button { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 0 13px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-primary-strong); background: #fff; font-size: 12px; cursor: pointer; }
 .conversation-stream { width: min(860px, 100%); display: grid; gap: 28px; margin: 0 auto; padding: 12px 0 30px; }
+.load-older-messages { display: block; margin: 0 auto 14px; padding: 7px 12px; border: 1px solid var(--do-line); border-radius: 999px; color: var(--do-primary-strong); background: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+.load-older-messages:disabled { cursor: wait; opacity: .55; }
 .message-item { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; }
 .message-item.user { grid-template-columns: minmax(0, 1fr) 34px; }
 .message-item.user .message-avatar { grid-column: 2; }
@@ -387,5 +407,66 @@ onMounted(() => {
 @media (max-width: 1280px) {
   .query-workspace.result-open { grid-template-columns: 250px minmax(0, 1fr); }
   .query-workspace.result-open :deep(.result-rail) { position: fixed; top: 0; right: 0; z-index: 80; width: min(500px, calc(100vw - 250px)); }
+}
+@media (max-width: 768px) {
+  .query-workspace,
+  .query-workspace.result-open {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow-x: clip;
+  }
+  .query-workspace :deep(.query-sidebar) {
+    position: relative;
+    top: auto;
+    height: auto;
+    grid-template-rows: auto auto auto auto;
+    gap: 8px;
+    padding: 10px 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--do-line);
+  }
+  .query-workspace :deep(.query-brand) { height: 38px; }
+  .query-workspace :deep(.new-session-button) { height: 38px; }
+  .query-workspace :deep(.history-section) {
+    max-height: 108px;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 4px;
+  }
+  .query-workspace :deep(.history-list) {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 2px;
+  }
+  .query-workspace :deep(.history-row) { flex: 0 0 min(220px, 68vw); }
+  .query-workspace :deep(.history-delete) { opacity: 1; }
+  .query-main {
+    height: auto;
+    min-height: calc(100vh - 300px);
+    grid-template-rows: auto minmax(220px, 1fr) auto;
+  }
+  .query-topbar { min-height: 58px; gap: 8px; padding: 8px 12px; }
+  .chat-surface { min-height: 220px; padding: 16px 12px 12px; }
+  .conversation-stream { width: 100%; gap: 16px; padding-bottom: 20px; }
+  .message-item { grid-template-columns: 30px minmax(0, 1fr); gap: 8px; }
+  .message-item.user { grid-template-columns: minmax(0, 1fr) 30px; }
+  .message-avatar { width: 30px; height: 30px; }
+  .message-bubble { max-width: 100%; padding: 11px 12px; }
+  .message-item.user .message-bubble { max-width: 92%; }
+  .message-actions { flex-wrap: wrap; }
+  .query-input { width: calc(100% - 24px); margin-bottom: 10px; }
+  .query-workspace.result-open :deep(.result-rail) {
+    position: fixed;
+    top: auto;
+    right: 0;
+    bottom: 0;
+    z-index: 80;
+    width: 100vw;
+    max-width: 100vw;
+    height: min(82vh, 680px);
+    border-left: 0;
+    border-radius: 14px 14px 0 0;
+  }
 }
 </style>

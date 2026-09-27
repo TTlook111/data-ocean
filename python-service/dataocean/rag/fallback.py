@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # 降级时保留的 chunk 类型集合（模块级常量，避免每次调用重新创建）
 _FALLBACK_CHUNK_TYPES = {
     "TABLE_DESC", "CORE_TABLE", "SCHEMA",
-    "JOIN_PATH", "METRIC", "FIELD_NOTE", "QUERY_SCENE",
+    "JOIN_PATH", "METRIC", "FIELD_NOTE", "QUERY_SCENE", "LINEAGE",
 }
 
 
@@ -47,15 +47,30 @@ def fallback_retrieve(
     active_snapshot_id: int | None = None,
     question: str = "",
     limit: int | None = None,
+    build_id: str | None = None,
+    authorized_resources: list[str] | None = None,
 ) -> RetrieveResponse:
     """降级检索：只使用 Java 传入的当前快照数据，并做确定性排序。"""
     logger.warning("RAG 降级触发 datasource_id=%d snapshot_id=%s", datasource_id, active_snapshot_id)
 
     candidates: list[tuple[float, dict]] = []
+    authorized = set(authorized_resources or [])
     for chunk in fallback_chunks or []:
         chunk_type = chunk.get("chunk_type") or chunk.get("chunkType")
         if chunk_type not in _FALLBACK_CHUNK_TYPES:
             continue
+        if build_id is not None:
+            if chunk.get("ragBuildId", chunk.get("buildId")) != build_id:
+                continue
+            if str(chunk.get("reviewStatus", "")).upper() != "APPROVED":
+                continue
+            if str(chunk.get("factReviewStatus", "")).upper() != "APPROVED":
+                continue
+            if str(chunk.get("governanceStatus", "")).upper() not in {"NORMAL", "RECOMMENDED", "SENSITIVE"}:
+                continue
+            dependencies = _as_list(chunk.get("resourceDependencies"))
+            if not dependencies or not set(dependencies).issubset(authorized):
+                continue
 
         snapshot_id = _first_non_none(
             chunk, "snapshot_id", "snapshotId", "metadata_snapshot_id", "metadataSnapshotId"
@@ -140,6 +155,11 @@ def _to_retrieved_schema(match_score: float, chunk: dict) -> RetrievedSchema:
         chunk_text=_first_non_none(chunk, "chunk_text", "chunkText") or "",
         governance_status=_first_non_none(chunk, "governance_status", "governanceStatus") or "",
         review_status=_first_non_none(chunk, "review_status", "reviewStatus") or "",
+        resource_dependencies=_as_list(_first_non_none(chunk, "resource_dependencies", "resourceDependencies")),
+        fact_source_ids=_as_list(_first_non_none(chunk, "fact_source_ids", "factSourceIds")),
+        fact_type=_first_non_none(chunk, "fact_type", "factType") or "",
+        fact_review_status=_first_non_none(chunk, "fact_review_status", "factReviewStatus") or "PENDING",
+        build_id=_first_non_none(chunk, "build_id", "buildId", "ragBuildId"),
     )
 
 

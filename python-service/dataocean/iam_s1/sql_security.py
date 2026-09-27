@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 import re
 from typing import Any
@@ -36,6 +37,7 @@ class S1SqlValidation:
     used_columns: list[str] = field(default_factory=list)
     source_trace: list[dict[str, Any]] = field(default_factory=list)
     masked_fields: dict[str, str] = field(default_factory=dict)
+    column_usages: dict[str, list[str]] = field(default_factory=dict)
     violations: list[str] = field(default_factory=list)
 
 
@@ -57,6 +59,32 @@ def _scope_index(tree: exp.Expression) -> dict[int, Any]:
         raise
     except Exception as exc:  # fail-closed: an unresolved scope cannot be trusted
         raise S1SqlSecurityError(f"无法解析 SQL 作用域: {exc}") from exc
+
+
+def _validate_aggregate_grouping(scopes: dict[int, Any]) -> None:
+    """Reject aggregate projections with dimensions when GROUP BY is missing."""
+    for scope in scopes.values():
+        select = scope.expression
+        if not isinstance(select, exp.Select):
+            continue
+        if not any(isinstance(node, exp.AggFunc) for node in select.find_all(exp.AggFunc)):
+            continue
+        group = select.args.get("group")
+        if group is not None and group.expressions:
+            continue
+        for output in select.expressions:
+            for column in output.find_all(exp.Column):
+                cursor = column.parent
+                inside_aggregate = False
+                while cursor is not None and cursor is not output:
+                    if isinstance(cursor, exp.AggFunc):
+                        inside_aggregate = True
+                        break
+                    cursor = cursor.parent
+                if not inside_aggregate:
+                    raise S1SqlSecurityError(
+                        "SQL_SYNTAX: 聚合查询选择了非聚合字段但缺少 GROUP BY"
+                    )
 
 
 def _scope_of(node: exp.Expression | None, scopes: dict[int, Any]) -> Any | None:
@@ -406,6 +434,30 @@ def _resolve_column(
         if not resolved:
             raise S1SqlSecurityError(f"引用了未授权字段: {qualifier}.{name}")
         return resolved
+    # MySQL permits a SELECT output alias in ORDER BY. Resolve that alias back
+    # to its projection expression so a safe order such as
+    # `DATE_FORMAT(order_date, ...) AS month ... ORDER BY month` keeps its
+    # physical source evidence. Only ORDER BY receives this treatment; an
+    # unqualified alias elsewhere must still resolve to a physical field.
+    cursor: exp.Expression | None = column
+    in_order_clause = False
+    while cursor is not None and cursor is not scope.expression:
+        if isinstance(cursor, exp.Order):
+            in_order_clause = True
+            break
+        cursor = cursor.parent
+    if in_order_clause and isinstance(scope.expression, exp.Select):
+        aliases = [
+            output for output in scope.expression.expressions
+            if isinstance(output, exp.Alias) and (output.alias_or_name or "").lower() == name
+        ]
+        if aliases:
+            if len(aliases) != 1:
+                raise S1SqlSecurityError(f"ORDER BY 输出别名不唯一: {name}")
+            resolved = _sources_of(aliases[0], allowed, scopes, seen)
+            if not resolved:
+                raise S1SqlSecurityError(f"ORDER BY 输出别名没有可追踪来源: {name}")
+            return resolved
     matches: set[tuple[str, str]] = set()
     for alias, entry in local.items():
         matches.update(_resolve_source(entry, name, alias, allowed, scopes, seen))
@@ -463,9 +515,10 @@ def _enforce_usage(column: exp.Column, table: str, name: str, allowed: dict[str,
 
 
 def _trace(tree: exp.Expression, scopes: dict[int, Any], allowed: dict[str, dict[str, Any]],
-           enforce_usage: bool = True) -> tuple[list[str], list[str], list[dict[str, Any]], dict[str, str]]:
+           enforce_usage: bool = True) -> tuple[list[str], list[str], list[dict[str, Any]], dict[str, str], dict[str, list[str]]]:
     used_tables: set[str] = set()
     used_columns: set[str] = set()
+    column_usages: dict[str, set[str]] = {}
     trace: list[dict[str, Any]] = []
     # 每个输出列名对应的脱敏策略集合。最终脱敏按列名生效，Java 侧
     # `maskResultByFields` 会把脱敏映射的键与数据列名都转小写后再匹配，因此
@@ -473,13 +526,29 @@ def _trace(tree: exp.Expression, scopes: dict[int, Any], allowed: dict[str, dict
     # `email AS x` 会被当成两个键，落到 Java 后撞成同一个键并静默取其一。
     mask_policies: dict[str, set[str]] = {}
     mask_output_names: dict[str, str] = {}
+    # COUNT(*) and similar row-only queries have no exp.Column nodes, but Java
+    # still needs the physical table list to re-authorize the table and select
+    # a visible field anchor. Keep table evidence independent of column lineage.
+    for scope in scopes.values():
+        for _, source in _physical_sources(scope):
+            table_name = (source.name or "").lower()
+            if table_name:
+                used_tables.add(table_name)
     for column in tree.find_all(exp.Column):
         for table, name in _resolve_column(column, _scope_of(column, scopes), allowed, scopes, frozenset()):
             _protection(column, table, name, allowed)
             if enforce_usage:
                 _enforce_usage(column, table, name, allowed)
             used_tables.add(table)
-            used_columns.add(f"{table}.{name}")
+            fqn = f"{table}.{name}"
+            used_columns.add(fqn)
+            # Java needs complete per-field AST usage evidence to rebuild the exact
+            # IAM-SIMPLE-1 request before it releases execution bindings. B3 defers
+            # ORDER/GROUP/HAVING usage enforcement; a normal field still carries a
+            # nonempty projection declaration, while masked fields are rejected above
+            # unless the exact AST role is direct projection.
+            usage = _usage_role(column) or "PROJECTION"
+            column_usages.setdefault(fqn, set()).add(usage)
     for scope in scopes.values():
         node = scope.expression
         entries: list[tuple[str, str, list[tuple[str, str]]]] = []
@@ -538,7 +607,105 @@ def _trace(tree: exp.Expression, scopes: dict[int, Any], allowed: dict[str, dict
         mask_output_names[name]: (next(iter(found)) if found else "")
         for name, found in mask_policies.items()
     }
-    return sorted(used_tables), sorted(used_columns), trace, masked
+    return (
+        sorted(used_tables),
+        sorted(used_columns),
+        trace,
+        masked,
+        {key: sorted(value) for key, value in sorted(column_usages.items())},
+    )
+
+
+_REVIEWED_LITERAL_PREDICATE = re.compile(
+    r"(?P<column>[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?)\s*=\s*"
+    r"(?:'(?P<single>[^']*)'|\"(?P<double>[^\"]*)\"|(?P<bare>[A-Z][A-Z0-9_]*))",
+)
+
+
+def missing_reviewed_predicates(sql: str, question: str,
+                                glossary_terms: list[dict[str, Any]] | None) -> list[str]:
+    """Return reviewed, question-matched equality filters omitted from SQL.
+
+    Glossary prose is human-reviewed but model generation is probabilistic. For
+    exact enum filters expressed as ``table.column = literal`` in a matching
+    approved term, require the predicate to exist in a WHERE clause before any
+    Java authorization or SQL execution is attempted.
+    """
+    if not sql or not question or not glossary_terms:
+        return []
+    required: set[tuple[str, str, str]] = set()
+    folded_question = question.casefold()
+    for term in glossary_terms:
+        if not isinstance(term, dict):
+            continue
+        labels = [str(term.get("name", "")), str(term.get("displayName", ""))]
+        synonyms = term.get("synonyms", [])
+        if isinstance(synonyms, str):
+            try:
+                decoded = json.loads(synonyms)
+                synonyms = decoded if isinstance(decoded, list) else [synonyms]
+            except Exception:
+                synonyms = re.split(r"[,;|]", synonyms)
+        if isinstance(synonyms, list):
+            labels.extend(str(item) for item in synonyms)
+        if not any(label and label.casefold() in folded_question for label in labels):
+            continue
+        description = str(term.get("description", ""))
+        for match in _REVIEWED_LITERAL_PREDICATE.finditer(description):
+            column = match.group("column").lower()
+            if "." not in column:
+                linked = [str(item).lower() for item in term.get("columns", [])
+                          if str(item).lower().endswith("." + column)]
+                if len(linked) != 1:
+                    continue
+                column = linked[0]
+            literal = next((match.group(key) for key in ("single", "double", "bare")
+                            if match.group(key) is not None), "")
+            if literal:
+                table, name = column.rsplit(".", 1)
+                required.add((table, name, literal))
+    if not required:
+        return []
+    try:
+        tree = sqlglot.parse_one(sql, read="mysql")
+    except Exception:
+        return [f"{table}.{column} = '{value}'" for table, column, value in sorted(required)]
+
+    physical_tables = {(node.name or "").lower() for node in tree.find_all(exp.Table) if node.name}
+    alias_to_table: dict[str, str] = {}
+    for node in tree.find_all(exp.Table):
+        if not node.name:
+            continue
+        table_name = node.name.lower()
+        alias_to_table[table_name] = table_name
+        if node.alias:
+            alias_to_table[node.alias.lower()] = table_name
+
+    present: set[tuple[str, str, str]] = set()
+    for comparison in tree.find_all(exp.EQ):
+        cursor: exp.Expression | None = comparison
+        in_where = False
+        while cursor is not None:
+            if isinstance(cursor, exp.Where):
+                in_where = True
+                break
+            if isinstance(cursor, (exp.Select, exp.Subquery)):
+                break
+            cursor = cursor.parent
+        if not in_where:
+            continue
+        pairs = ((comparison.this, comparison.expression), (comparison.expression, comparison.this))
+        for left, right in pairs:
+            if not isinstance(left, exp.Column) or not isinstance(right, exp.Literal) or not right.is_string:
+                continue
+            column_name = (left.name or "").lower()
+            qualifier = (left.table or "").lower()
+            table_name = alias_to_table.get(qualifier, qualifier)
+            if not table_name and len(physical_tables) == 1:
+                table_name = next(iter(physical_tables))
+            if table_name:
+                present.add((table_name, column_name, str(right.this)))
+    return [f"{table}.{column} = '{value}'" for table, column, value in sorted(required - present)]
 
 
 def _top_level_query(tree: exp.Expression) -> exp.Expression:
@@ -577,6 +744,7 @@ def validate_sql(sql: str, snapshot: S1PermissionSnapshot, *, enforce_usage: boo
         _expand_stars(scopes, snapshot)
         _reject_unexpanded_projection_stars(scopes)
         _assign_output_aliases(scopes)
+        _validate_aggregate_grouping(scopes)
         for rule in (function_rule.check(sql), depth_rule.check(sql), limit_rule.check(sql)):
             if not rule.passed:
                 raise S1SqlSecurityError(rule.reason)
@@ -588,9 +756,19 @@ def validate_sql(sql: str, snapshot: S1PermissionSnapshot, *, enforce_usage: boo
         if query.args.get("limit") is None:
             raise S1SqlSecurityError("无法为 SQL 注入行数上限")
         allowed = resource_index(snapshot)
-        used_tables, used_columns, trace, masked = _trace(tree, scopes, allowed, enforce_usage)
-        return S1SqlValidation(True, tree.sql(dialect="mysql"), used_tables, used_columns, trace, masked)
-    except (sqlglot.errors.ParseError, S1SqlSecurityError) as exc:
+        used_tables, used_columns, trace, masked, column_usages = _trace(tree, scopes, allowed, enforce_usage)
+        return S1SqlValidation(
+            passed=True,
+            sql=tree.sql(dialect="mysql"),
+            used_tables=used_tables,
+            used_columns=used_columns,
+            source_trace=trace,
+            masked_fields=masked,
+            column_usages=column_usages,
+        )
+    except sqlglot.errors.ParseError as exc:
+        return S1SqlValidation(False, violations=[f"SQL_SYNTAX: {exc}"])
+    except S1SqlSecurityError as exc:
         return S1SqlValidation(False, violations=[str(exc)])
 
 

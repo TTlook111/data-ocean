@@ -86,7 +86,8 @@ class MetadataRelationshipVisibilityTest {
 
         private static MetadataRelationshipServiceImpl newService(MetadataRelationshipMapper mapper,
                                                                   MetadataEntityService entityService) {
-            MetadataRelationshipServiceImpl impl = new MetadataRelationshipServiceImpl(entityService);
+            MetadataRelationshipServiceImpl impl = new MetadataRelationshipServiceImpl(entityService,
+                    new com.fasterxml.jackson.databind.ObjectMapper());
             org.springframework.test.util.ReflectionTestUtils.setField(impl, "baseMapper", mapper);
             return impl;
         }

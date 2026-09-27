@@ -23,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 
@@ -42,6 +43,7 @@ import java.util.stream.IntStream;
  * writes, retrieval, and reranking.
  */
 @Component
+@Profile("!test")
 @RequiredArgsConstructor
 @Slf4j
 public class VectorIndexTaskScheduler {
@@ -223,6 +225,11 @@ public class VectorIndexTaskScheduler {
                 .entityIds(entityIdsJson(payload, entityIds))
                 .trustScore(toNullableInt(payload.get("trustScore"), null))
                 .contentHash(text(payload, "contentHash", "content_hash"))
+                .resourceDependencies(jsonText(payload, "resourceDependencies", "resource_dependencies"))
+                .factSourceIds(jsonText(payload, "factSourceIds", "fact_source_ids"))
+                .factType(text(payload, "factType", "fact_type"))
+                .factReviewStatus(defaultText(payload, "PENDING", "factReviewStatus", "fact_review_status"))
+                .governanceStatus(defaultText(payload, "UNKNOWN", "governanceStatus", "governance_status"))
                 .reviewStatus(defaultText(payload, ReviewStatus.APPROVED.name(), "reviewStatus", "review_status"))
                 .vectorStatus("PENDING")
                 .build();

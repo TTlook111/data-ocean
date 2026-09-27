@@ -44,6 +44,8 @@ public class QueryTaskVO {
     private String protocolVersion;
     private Long activeMetadataSnapshotId;
     private Long permissionRevision;
+    private String ragBuildId;
+    private Long ragSourceSnapshotId;
     private Map<String, Object> sourceTrace;
     private String finalProtectionStatus;
     private Boolean canViewSql;

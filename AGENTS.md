@@ -60,21 +60,22 @@ Important boundaries:
 
 ## Current Status
 
-Last updated: 2026-09-22.
+Last updated: 2026-09-27.
 
 The main end-to-end chain is implemented and has been run through:
 
 ```text
-Java query task -> Python S1 path -> RAG retrieval
--> SQL generation -> sqlglot AST validation/rewrite -> sandbox execution
--> Java persistence/masking -> frontend table/chart rendering
+Java S1 query task -> Python iam_s1 LangGraph -> build-bound RAG and schema planning
+-> bounded SQL generation/semantic check -> Java per-attempt authorization
+-> S1 AST validation/read-only execution -> Java final protection
+-> conversation persistence -> frontend table/chart rendering
 ```
 
 Module status summary:
 
 | Area | Status |
 | --- | --- |
-| Frontend query app | Core complete; server-side conversation restore is implemented |
+| Frontend query app | Natural-language-only entry, clarification, progress, message-ID history paging, and protected table/chart fallback are implemented; E-stage browser interaction, visual acceptance, and historical NORMAL→MASKED negative reread passed in local isolated acceptance; see the acceptance record for remaining limits |
 | Frontend admin governance app | Core complete; includes catalog search, glossary, permissions, audit, system pages |
 | Java user/auth/permission modules | IAM-SIMPLE-1 B0–B4 (including B4-A and batches 1–6) code and automation are in `1f0a5f4`; 23 controllers migrated; code switch commit `1e2f458`; B5 local-development switch and core browser acceptance complete on IT-GO-1225. **B6 executed on `codex/iam-s1-b6-cleanup` (2026-09-25, batches 0–4): the legacy permission system is removed** — the legacy permission controllers, the legacy query chain (`QueryController`, `PythonAgentClientImpl`, `PermissionCalculator`, `DatasourceAccessService`), the frontend orphan pages and `api/admin/permission.ts`, and the Python `agent/` package are deleted; the six legacy tables were dropped by `V58`. `permission_change_log` and `access_approval_request` are kept as read-only history |
 | Java datasource/metadata/governance/versioning modules | Complete; metadata entity graph and event recording are implemented |
@@ -83,7 +84,7 @@ Module status summary:
 | Java query/audit/field confidence modules | Core complete; conversation persistence and feedback confidence updates are implemented; confidence read-time decay with configurable half-life (30d default) added |
 | Java prompt module | Complete, including approval workflow, version history, and rollback |
 | Java system/dashboard modules | Complete; AI config management and admin dashboard are implemented |
-| Python S1 query path (`iam_s1`) | Core complete: firewall-filtered context, one SQL-generation LLM call on the managed `sql_generation` template, SQL AST validation with output aliasing, source trace, sandbox execution, timeout/cancel handling. **The legacy LangGraph Agent workflow (query rewrite, Schema Linking, self-correction, parallel fan-out) was deleted in B6** |
+| Python S1 query path (`iam_s1`) | Bounded LangGraph orchestration in `iam_s1/graph.py` covers retrieval, planning, SQL generation, semantic/result checks, Java per-attempt authorization and final protection, recovery, cancellation, and time/call/cost budgets. The old `agent/` package deleted in B6 remains retired; this is a new S1 graph |
 | Python RAG/vectorization | Core complete; token-aware skills.md chunking (target 900/max 1000, overlap 150), chunk metadata propagation, snapshot-safe fallback, adjacent context expansion, verified staging rebuild, and model/config-aware embedding cache are implemented |
 | Python SQL sandbox | Core complete; SQL-to-Schema hallucination detection added (zero extra LLM calls) |
 | Python chart generation | Complete with fallback behavior |
@@ -91,7 +92,11 @@ Module status summary:
 
 Current status, Track A remediation details, and admin navigation rules live in `docs/development/completed/DataOcean后台重构状态与整改计划.md`; treat it as the single source of truth. The ordered next-action queue lives in `docs/development/后续开发.md` and must not duplicate status claims. The seven-stage refactor roadmap is complete; do not treat `docs/development/completed/DataOcean统一执行路线图.md` as an active implementation plan unless the user explicitly asks to revisit it.
 
-Track B targets the simple permission design in `docs/development/completed/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1). B0 through B4, including B4-A and batches 1–6, are merged at `1f0a5f4` on `codex/iam-s1-b5-preparation` (IAM implementation commit `1a6e426`). **23 controllers** are annotation-migrated; batch 6 is **61 handlers**; the B4 automation baseline is Java **557** and frontend Vitest **67**. The current code switch commit is `1e2f458`; it removes the formal legacy organization nav and `/admin/access/organization` route. `RoleController` / `PermissionController` / `DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController` and their services/tables stay on the pre-B6 path. The 22 `IamS1*` permission-domain endpoints remain on explicit guards. `IamS1AuthorizationAspect` must keep `@Aspect` **and** `@Component`. New authorization decisions must read only isolated IAM-SIMPLE-1 facts; do not map or backfill old roles, grants, JWT authorities, or caches. On IT-GO-1225, the local development database completed V51 → V52 → V54 → V55 → V56 → V57 to V57; bootstrap completed for userId=1; the fixed catalog has 54 codes; `iam_s1_data_grant` remains 0; and core service/browser acceptance completed. This is not production evidence or a claim about other machines. Recovery rehearsal on an independent MySQL instance and the two real-user negative scenarios remain gaps.
+The LangGraph query and conversation-memory implementation plan is complete and archived at `docs/development/completed/DataOcean-LangGraph问数与会话记忆恢复方案.md`; its local acceptance evidence is in the companion record. Track the remaining Browser/Milvus provenance questions in `docs/development/后续开发.md`.
+
+LangGraph G0/A/B/C/D code and executable acceptance are recorded in `docs/development/completed/DataOcean-LangGraph问数与会话记忆验收记录.md`. The final P1 completion-contract-fixed G0 run through the real IAM-SIMPLE-1 API passed 6/6 answerable and 2/2 refusal/clarification cases with zero restricted SQL/result/identifier leaks; per-question maxima were SQL 1, LLM 4, Embedding 1, 15.028 seconds, and ¥0.002352. Task IDs, protected payloads, and budget ledger are in `output/playwright/langgraph-query-memory-final-g0-20260927/g0-final-p1-completion-final.json`. Every IAM-SIMPLE-1 `COMPLETED` callback must carry a nonblank attemptId and exact SQL hash for the same task's `PROTECTED` QueryAttempt; attempt-free results from the retained Python legacy branch are rejected and never receive a weaker fallback. The G0/E results are local synthetic evidence. On 2026-09-27 the existing machine-local development `dataocean` schema was also migrated from V59 through V64; that migration was separate from the G0/E run. E interaction, desktop/390 CSS-pixel visuals, and the synthetic NORMAL→MASKED history reread also passed only in the local isolated environment. Five earlier Browser iframe `MutationObserver.observe` errors still have no captured stack or source URL; the app source has no direct observer call, while Element Plus and the Browser Playwright injection both contain observer code, so attribution remains unresolved. Redis DB 0 was reused without clearing it. The provenance of the existing 241 vectors in the default Milvus `schema_knowledge` collection remains unknown; S1 retrieval uses buildId-specific collections, and this acceptance did not read or modify that default collection. Keep these limits explicit in status reports.
+
+Track B targets the simple permission design in `docs/development/completed/DataOcean-完整权限体系设计.md` (IAM-SIMPLE-1). B0 through B4, including B4-A and batches 1–6, are merged at `1f0a5f4` on `codex/iam-s1-b5-preparation` (IAM implementation commit `1a6e426`). **23 controllers** are annotation-migrated; batch 6 is **61 handlers**; the B4 automation baseline is Java **557** and frontend Vitest **67**. The current code switch commit is `1e2f458`; it removes the formal legacy organization nav and `/admin/access/organization` route. `RoleController` / `PermissionController` / `DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController` and their services/tables were retained before B6 and have since been removed. The 22 `IamS1*` permission-domain endpoints remain on explicit guards. `IamS1AuthorizationAspect` must keep `@Aspect` **and** `@Component`. New authorization decisions must read only isolated IAM-SIMPLE-1 facts; do not map or backfill old roles, grants, JWT authorities, or caches. On IT-GO-1225, the local development database completed V51 → V52 → V54 → V55 → V56 → V57 to V57; bootstrap completed for userId=1; the fixed catalog has 54 codes; `iam_s1_data_grant` remains 0; and core service/browser acceptance completed. This is not production evidence or a claim about other machines. Recovery rehearsal on an independent MySQL instance and the two real-user negative scenarios remain gaps.
 
 B6 executed on `codex/iam-s1-b6-cleanup` (2026-09-25) in batches 0–4, each committed separately with its own full test run. Execution record: `docs/development/completed/轨道B-B6删除清单与执行顺序.md`. Traps worth remembering:
 
@@ -102,7 +107,7 @@ B6 executed on `codex/iam-s1-b6-cleanup` (2026-09-25) in batches 0–4, each com
 - MyBatis SQL resolves at **runtime**: two dead `DatasourceMapper` methods still had `JOIN datasource_access` and had to go before the table could be dropped.
 - `authProtocolVersion` / `sessionEpoch` / `iam-s1:session:*` still have **zero** references in Java main code, and `jwt:blacklist:{jti}` / `user:token-version:{userId}` remain the only session-invalidation mechanism. Rows 497/498 of the frozen checklist are still half-done and `tokenVersion` is deliberately still live — build the replacement before removing it.
 
-B0 文档已评审通过；`docs/development/completed/轨道B-B0权限清单与决策冻结.md` 是权限消费清单、IAM-SIMPLE-1 独立新表方案、新契约、启动式首个管理员 bootstrap 和 B6 删除/保留基线。B1～B4 代码与自动化验证已合入 `1f0a5f4`，B4 最新基线为 Java **557**、前端 Vitest **67**。IT-GO-1225 本机开发环境的 B5 切换和核心验收已完成，但恢复演练与两个真实用户负向场景仍缺；`iam_s1_data_grant` 为 0。B6 清理已在 `codex/iam-s1-b6-cleanup` 开始（`fa0ca89`，已推送）但**未收口**：已移除 `LoginUser`/`UserContext` 旧角色权限字段、JWT 的 `roles`/`permissions` claim、`LoginVO`/`CurrentUserVO` 角色权限字段、`UserDetailsServiceImpl` 旧权限加载和前端 `guards.ts`/`stores/auth.ts` 旧权限数组；`DatasourcePermissionController` / `AccessPolicyController` / `AccessApprovalController`、其服务与 Mapper、前端 `api/admin/permission.ts`、`PermissionCalculatorImpl` 的 Caffeine 权限缓存和旧权限表仍保留。冻结清单第 497/498 行的替代物 `authProtocolVersion` / `sessionEpoch` / `iam-s1:session:*` 在 Java 主代码中为 0 处引用，`jwt:blacklist:{jti}` / `user:token-version:{userId}` 仍是唯一在用的会话失效机制。V53 永久不使用，P9 使用 V58 或更高未占用版本。B5 手册保留真实环境的只读 SQL 门禁、`mysqldump --result-file`、禁止覆盖式导入和独立 MySQL 恢复演练要求；该通用流程不等于其他环境已执行 B5。账号、部门、数据源、元数据、知识、会话、审计等业务数据保留，旧权限专用对象只在 B6 按冻结清单处理。
+B0 权限冻结清单与 B1～B4 实现已完成；B5 的 IT-GO-1225 验收仅代表当时本机开发环境。B6 批次 0～4 已执行并删除旧权限专用对象；`authProtocolVersion` / `sessionEpoch` 的替代会话机制仍未建立，删除 `tokenVersion` 前须先完成该独立任务。V53 永久不用；新迁移号按当前最高已占用版本重新核对。其他环境的正式切换仍须遵循 B5 手册，账号、部门、数据源、元数据、知识、会话和审计等业务数据不属于旧权限专用清理对象。
 
 - B5 验收摘要（仅 IT-GO-1225 本机）：固定功能目录 54 项，浏览器 Console error/warn 为 0，前端定向测试 6/6、全量 Vitest 67/67、构建和 `git diff --check` 通过；针对 `1e2f458` 的只读 preflight 为 failures=0、exit code=0。
 
@@ -135,42 +140,35 @@ B0 文档已评审通过；`docs/development/completed/轨道B-B0权限清单与
 - Entity relationship graph: metadata entities, relationships, glossary terms, tags, lineage, and downstream impact analysis share the `metadata_entity`/`metadata_relationship` model.
 - Glossary: approved terms and synonyms are sent from Java to Python and injected as model context during SQL generation.
 - Access approval: users can request temporary data access; approval creates auditable temporary allow policies with expiry.
-- Conversation persistence: Java owns durable conversation, message, and structured long-term summary storage. For each query Java sends Python request-scoped `conversation_history` plus `conversation_summary`; Python does not receive `conversationId` or persist session state. Summary refresh is an asynchronous Python LLM call triggered by Java after an assistant message is saved.
+- Conversation persistence: Java owns durable conversation, message, and structured long-term summary storage. For each query Java sends Python the conversationId, a stable user/datasource/conversation threadId, the most recent five completed turns, and a current-permission-checked older summary. Redis stores only safe LangGraph checkpoints; summary refresh is an asynchronous Python LLM call triggered by Java after an assistant message is saved.
 
 ## RAG And skills.md Lifecycle
 
-The current RAG implementation intentionally uses Python for chunking and vector operations.
+The current RAG implementation uses Python for chunking and vector operations. Knowledge document publication and RAG activation are separate operations.
 
 Responsibilities:
 
-- Java manages `skills.md` lifecycle: `DRAFT -> PENDING_REVIEW -> APPROVED -> INDEXING -> PUBLISHED`.
-- Java manages review, versioning, publish task state, rollback state, audit, and MySQL chunk snapshots.
-- Python chunks `skills.md` through `/internal/rag/chunk`, embeds chunks, writes vectors to Milvus, verifies vector counts, and serves retrieval/reranking.
-- Java marks the new version active only after Milvus write and verification succeed; old-vector cleanup is a post-commit compensating action.
-- Old active vectors remain available when new vectorization or the publish transaction fails.
+- Java manages `skills.md` draft/review/publication, snapshot-bound fact validation, approved document versions, explicit build confirmation, build state, audit, and MySQL chunk/build membership.
+- Publishing a document does **not** automatically index it. An authorized user explicitly confirms a RAG build for a source metadata snapshot.
+- Python chunks the frozen approved versions, embeds and writes vectors to a buildId-specific Milvus collection, verifies vector counts, and serves filtered retrieval/reranking.
+- Java switches the datasource's active build pointer only after count and manifest verification. Old active collections remain available to in-flight queries; superseded build cleanup is deferred until no query references them.
 
-Publishing flow:
+Document and RAG build flow:
 
 ```text
-APPROVED document
-  -> Java marks INDEXING and creates vector task
-  -> Python chunks skills.md
-  -> Java stores returned chunk snapshot in MySQL
-  -> Python embeds and writes Milvus vectors
-  -> Python verifies Milvus vector count
-  -> Java transaction marks chunks INDEXED, document PUBLISHED, task COMPLETED
-  -> Python cleans previous version vectors
-  -> cleanup failure: task enters CLEANUP_PENDING and is retried without re-vectorization
+APPROVED document -> Java publishes reviewed version without automatic indexing
+  -> authorized user confirms source-snapshot RAG build
+  -> Java freezes approved version manifest and buildId
+  -> Python chunks, embeds and writes build-specific collection
+  -> Python verifies vectors; Java atomically switches active build pointer
+  -> old build waits for in-flight queries, then collection cleanup/verification
 ```
 
 Failure rule:
 
-- If chunking or vectorization fails, Java restores the document to `APPROVED`.
-- Old active vectors are not deleted before the replacement version is successfully verified.
-- The Java publish transaction commits before old-vector cleanup; cleanup failure leaves the new version published and enters `CLEANUP_PENDING` for retry.
-- If the publish transaction itself fails after vectorization, Java compensates by deleting the current version vectors while preserving the old version.
-- Same-version rebuilds delete only `doc_id + version_no`, not all vectors for the document.
-- Do not implement datasource-wide force vectorization as "delete old vectors, then write new vectors". Use doc/version scoped rebuilds or verified staging writes.
+- Failed or superseded builds do not replace the active pointer; their own collection is cleaned or remains in cleanup-pending state for retry.
+- Never delete an active or in-flight build collection before the replacement is verified and activated.
+- S1 retrieval requires the task-pinned buildId, matching datasource-specific collection name, approved fact membership, full resource dependencies, and current IAM visibility. The default `schema_knowledge` collection is not an S1 query source; its 241 existing vectors have unverified provenance.
 
 Current RAG details:
 
@@ -248,9 +246,13 @@ Migration notes:
 - `V55`: adds IAM-SIMPLE-1 B2 data grants, explicit grant columns, structured row conditions, and field protection; committed and pushed.
 - `V56`: adds B3 S1 query execution evidence, safe snapshot/resource/source/capability summaries, revision/snapshot identifiers and final protection status; committed with B3 (`d9a0c3b`).
 - `V57`: adds the B4 S1 access-request and access-approval tables; committed with B4 (`8a9c5a1`).
-- **Machine-local migration fact (IT-GO-1225 only):** the local development MySQL database completed V51, V52, V54, V55, V56 and V57 in order and is at V57; Flyway failure records are 0, 14 `iam_s1_*` tables exist, the fixed IAM-SIMPLE-1 catalog has 54 codes, and bootstrap completed for userId=1. This does not establish the state of any other machine or production environment; reverify those environments before any operation.
-- The IT-GO-1225 B5 result is a local development switch and core acceptance, not a production release. Backup integrity was checked, but restore rehearsal on an independent MySQL instance remains unverified. Only one real user exists, so the enabled-without-S1-binding and legacy-only negative scenarios remain uncovered. No business roles, responsible datasources, table/field grants, or approvers were initialized; `iam_s1_data_grant` remains 0. B6 cleanup executed on `codex/iam-s1-b6-cleanup` (2026-09-25): the legacy permission controllers, services, mappers, frontend `permission.ts` and all legacy query/role code are deleted, and the six legacy tables were dropped by `V58` (this machine is now at V58; `access_approval_request` keeps its 2 historical rows read-only).
-- There is no `V53` migration file, and **V53 is permanently unused**. P9 alert history must use V58 or a higher unused version. Because `outOfOrder` is not enabled, adding V53 *after* V54–V57 have been applied would fail validation and break startup. Do not create an empty V53 just to fill the number gap.
+- `V58`: removes the six legacy permission-only tables after B6 cleanup.
+- `V59`: adds the S1 SQL generation prompt; `V60` adds snapshot facts and buildId-scoped RAG lifecycle.
+- `V61`: adds conversation turn/message cursors and memory revision; `V62`: adds S1 SQL attempt and model-call budget evidence; `V63`: extends task status for clarification.
+- `V64`: adds the conversation-summary permission scope fingerprint. Flyway V64 was first applied to the separate `dataocean_e_acceptance_20260927` schema for local acceptance; the machine-local development `dataocean` schema was later migrated from V59 through V64 on 2026-09-27.
+- **Historical IT-GO-1225 B5 snapshot:** the local development database reached V57 during the B5 switch, with 14 `iam_s1_*` tables, a 54-code catalog, and bootstrap for userId=1. This was evidence for that date only; the same machine-local `dataocean` schema was read at V59 on 2026-09-27. Verify every target environment independently before migration.
+- The IT-GO-1225 B5 result was a local development switch, not a production release. B6 cleanup deleted the legacy permission-only path and six tables. The machine-local development `dataocean` schema was at V59 before the 2026-09-27 upgrade and is now at V64, with five successful new Flyway entries and no failed entries. Other environments require their own verification.
+- There is no `V53` migration file, and **V53 is permanently unused**. New migrations must use a version higher than the highest occupied version (currently V64 in this working tree); recheck before implementing P9. `outOfOrder` is not enabled, so do not add V53 later or create an empty placeholder.
 
 ## Python Service Notes
 
@@ -262,7 +264,8 @@ python-service/dataocean/
 
 Important modules:
 
-- `agent`: LangGraph NL2SQL workflow.
+- `iam_s1/graph.py`: current IAM-SIMPLE-1 LangGraph NL2SQL workflow and Redis checkpoint recovery; the legacy `agent/` package was deleted in B6.
+- `conversation`: Java-requested conversation summary generation at the unchanged `/internal/query/context-summary` route.
 - `rag`: chunking, embedding, Milvus vectorization, retrieval, reranking.
 - `sandbox`: SQL AST validation, permission rewriting, read-only execution.
 - `knowledge`: skills.md draft generation.
@@ -272,7 +275,7 @@ Important modules:
 
 Python route notes:
 
-- `/internal/query`: Agent execution/cancel/health.
+- `/internal/query/context-summary`: structured conversation summary generation for Java.
 - `/internal/iam-s1/query`: independent IAM-SIMPLE-1 query execution/cancel SSE.
 - `/internal/rag`: chunking, vectorization, retrieval, and vector management.
 - `/internal/sql`: SQL validation, execution, and connection-pool management.
@@ -298,7 +301,7 @@ Frontend routes are split between business-oriented domains:
 - `/admin/platform/operation-logs`: operation log management.
 - `/admin/platform/ai`: AI provider/model/embedding configuration.
 
-The query page persists server-side conversations and can reload historical messages through `/api/query/conversations` and `/api/query/conversations/{id}/messages`. It also checks `/api/datasources/{datasourceId}/readiness` so users can only ask against sources whose lifecycle is ready.
+The query page persists server-side conversations and reloads message-ID-paged history through `/api/iam-s1/query/conversations` and `/api/iam-s1/query/conversations/{conversationId}/messages`. It also checks `/api/datasources/{datasourceId}/readiness` so users can only ask against sources whose lifecycle is ready.
 
 Frontend API modules live under `frontend/src/api/`, including notification and admin modules for catalog, glossary, metadata, operation-log, permission, prompt, system, user, versioning, and related domains.
 
@@ -308,9 +311,10 @@ Internal service APIs:
 
 | Direction | Path | Purpose |
 | --- | --- | --- |
-| Java -> Python | `POST /internal/query/execute` | Start NL2SQL query through SSE |
+| Java -> Python | `POST /internal/iam-s1/query/execute` | Start S1 LangGraph query through SSE |
 | Java -> Python | `POST /internal/query/context-summary` | Generate a structured conversation summary from Java-provided message deltas |
-| Java -> Python | `POST /internal/query/tasks/{taskId}/cancel` | Cancel query |
+| Java -> Python | `POST /internal/iam-s1/query/tasks/{taskId}/cancel` | Cancel S1 query |
+| Python -> Java | `POST /internal/iam-s1/query/tasks/{taskId}/attempts/authorize` | Reauthorize one SQL attempt before execution |
 | Java -> Python | `POST /internal/rag/retrieve` | RAG retrieval |
 | Java -> Python | `POST /internal/rag/vectorize` | Vectorization |
 | Java -> Python | `POST /internal/rag/chunk` | Python-owned chunking |
@@ -326,10 +330,11 @@ Selected public APIs:
 | --- | --- | --- |
 | `POST` | `/api/auth/login` | Login |
 | `GET` | `/api/auth/me` | Current user |
-| `POST` | `/api/query/ask` | Start query |
-| `GET` | `/api/query/tasks/{taskId}` | Query task result |
-| `GET` | `/api/query/conversations` | Conversation list |
-| `GET` | `/api/query/conversations/{id}/messages` | Conversation messages |
+| `POST` | `/api/iam-s1/query/ask` | Start S1 query |
+| `GET` | `/api/iam-s1/query/tasks/{taskId}` | Query task result |
+| `POST` | `/api/iam-s1/query/tasks/{taskId}/resume` | Resume a processing task |
+| `GET` | `/api/iam-s1/query/conversations` | Conversation list |
+| `GET` | `/api/iam-s1/query/conversations/{conversationId}/messages` | Message-ID-paged conversation history |
 | `GET` | `/api/datasources/{datasourceId}/readiness` | Current user's datasource askability |
 | `GET` | `/api/admin/datasources/{id}/readiness` | Admin datasource lifecycle readiness |
 | `GET` | `/api/admin/catalog/search` | Metadata catalog search |
@@ -337,9 +342,9 @@ Selected public APIs:
 | `GET` | `/api/admin/glossary` | Glossary list |
 | `POST` | `/api/admin/glossary/{id}/terms` | Create glossary term |
 | `POST` | `/api/admin/glossary/terms/{id}/review` | Review glossary term |
-| `GET` | `/api/admin/access-approvals` | Access approval list |
-| `POST` | `/api/admin/access-approvals` | Submit access request |
-| `POST` | `/api/admin/access-approvals/{id}/review` | Review access request |
+| `POST` | `/api/iam-s1/access-requests` | Submit S1 access request |
+| `GET` | `/api/iam-s1/access-requests/queue` | Review queue |
+| `POST` | `/api/iam-s1/access-requests/{requestId}/review` | Review S1 access request |
 | `GET` | `/api/admin/operation-logs` | Operation log list (multi-condition query) |
 | `GET` | `/api/notifications` | Current user notifications |
 | `PATCH` | `/api/notifications/{id}/read` | Mark notification read |
@@ -425,8 +430,12 @@ Latest documented verification:
 ## Local Environment Rules
 
 - Do not add project downloads, generated assets, dependency caches, exported files, or temporary project files to the repository or an arbitrary system root. Use a verified machine-local workspace/runtime directory recorded in `.dataocean/local-environment.md`, or a temporary directory created by the relevant tool.
-- Before introducing any new Docker container or infrastructure service, tell the user what container is needed and why, then wait for confirmation.
-- If an existing local infrastructure service is stopped or missing during development, do not automatically create, recreate, delete, or start Docker containers. Tell the user which existing container/service should be started, and let the user start it manually unless the user explicitly says to run the Docker command.
+- Docker work starts with a read-only inventory: inspect `docker ps -a` and the relevant container details (status, labels, ports, mounts, and Compose group) to identify containers the user already started and verify their purpose before connecting to or changing data in them.
+- An instruction to use already-started containers authorizes reuse of suitable existing containers only. It does not authorize `docker run`, `docker compose up`, creating/replacing containers or volumes, or starting stopped containers.
+- Reuse an existing container only after confirming it is the intended isolated test service. Do not create a replacement because a container is stopped, missing, on a different port, or has an incompatible version.
+- If no suitable running container exists, or its data/purpose cannot be verified, do not create, recreate, start, delete, seed, or reset it. Tell the user the exact service/container needed and ask them to start it; continue independent work that does not depend on it.
+- Creating any new container or infrastructure service requires a separate, explicit user request for that setup. Before running the requested Docker command, state the exact service/container, ports, data volume, and reason, and wait for confirmation. Broad permission to use local test infrastructure is not permission to provision it.
+- Never run destructive database operations against an existing container until its disposable test purpose and target database have been verified. If that cannot be established read-only, stop that operation and ask the user.
 - Do not assume a fixed Docker inventory or that MySQL runs in Docker. Use the optional machine-local profile and read-only runtime inspection to determine service locations. Treat exact local credentials as private local configuration, not repository documentation.
 - This project currently has no Figma prototype. Do not use Figma-related workflows by default.
 
@@ -448,9 +457,9 @@ Latest documented verification:
 - Keep Java responsible for governance and lifecycle state.
 - Keep Python responsible for AI execution, chunking, embedding, Milvus, retrieval, reranking, and SQL sandbox behavior.
 - Never delete active RAG vectors until the replacement version is written and verified.
-- Java owns durable conversation history and long-term summaries. Python receives request-scoped history and summary data only; do not add a Python session ID or let Java and Python both persist the same conversation state.
+- Java owns durable conversation history and long-term summaries. Python receives Java's conversationId/threadId for safe LangGraph checkpointing plus request-scoped history and summary; do not create an independent Python conversation store or duplicate Java's history authority.
 - Java consumes Python SSE as a client. Do not replace this with Spring `SseEmitter`; fix client-side SSE parsing and read timeouts instead.
-- **Caching is Redis-only**: All new caching uses the existing `RedisTemplate<String, Object>` bean (Java) or `_get_redis()` (Python). Do not introduce new local-cache layers. Cache failures must gracefully degrade — `try/catch` with warning logs, never block the main path.
+- **Caching is Redis-only**: New best-effort caches use the existing `RedisTemplate<String, Object>` bean (Java) or `_get_redis()` (Python). Cache failures degrade with warning logs. The S1 LangGraph Redis checkpoint is a separate required safety boundary: its initialization/recovery failure must fail the query explicitly, never fall through to execution without a checkpoint.
 - Use focused tests when changing lifecycle, RAG, SQL safety, permissions, or public API behavior.
 - Preserve user changes in the working tree; do not reset or revert unrelated files.
 - Important module work should update `AGENTS.md`, `CLAUDE.md`, and relevant `README`/docs when project facts change.

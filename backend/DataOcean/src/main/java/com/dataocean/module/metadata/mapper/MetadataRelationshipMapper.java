@@ -5,6 +5,8 @@ import com.dataocean.module.metadata.entity.MetadataRelationship;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import java.util.Collection;
+import java.util.List;
 
 import java.util.Collection;
 import java.util.List;
@@ -42,8 +44,20 @@ public interface MetadataRelationshipMapper extends BaseMapper<MetadataRelations
      */
     @Select("SELECT * FROM metadata_relationship WHERE source_id = #{sourceId} AND target_id = #{targetId} AND relation_type = #{relationType} LIMIT 1")
     MetadataRelationship selectBetween(@Param("sourceId") Long sourceId,
-                                        @Param("targetId") Long targetId,
-                                        @Param("relationType") String relationType);
+                                       @Param("targetId") Long targetId,
+                                       @Param("relationType") String relationType);
+
+    @Select({
+            "<script>",
+            "SELECT DISTINCT * FROM metadata_relationship",
+            "WHERE relation_type IN ('LINEAGE', 'DERIVED_FROM')",
+            "AND (source_id IN",
+            "<foreach collection='entityIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>",
+            "OR target_id IN",
+            "<foreach collection='entityIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>)",
+            "</script>"
+    })
+    List<MetadataRelationship> selectByEntityIds(@Param("entityIds") Collection<Long> entityIds);
 
     /**
      * 查询指定实体的血缘关系（上游或下游）

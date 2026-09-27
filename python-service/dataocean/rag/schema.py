@@ -109,8 +109,36 @@ class ChunkItem(RagBaseModel):
         validation_alias=AliasChoices("trust_score", "trustScore"),
         serialization_alias="trustScore",
     )
+    source_snapshot_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("source_snapshot_id", "sourceSnapshotId"),
+        serialization_alias="sourceSnapshotId",
+    )
+    resource_dependencies: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("resource_dependencies", "resourceDependencies"),
+        serialization_alias="resourceDependencies",
+    )
+    fact_source_ids: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("fact_source_ids", "factSourceIds"),
+        serialization_alias="factSourceIds",
+    )
+    fact_type: str = Field(
+        default="",
+        validation_alias=AliasChoices("fact_type", "factType"),
+        serialization_alias="factType",
+    )
+    fact_review_status: str = Field(
+        default="PENDING",
+        validation_alias=AliasChoices("fact_review_status", "factReviewStatus"),
+        serialization_alias="factReviewStatus",
+    )
 
-    @field_validator("related_tables", "related_columns", "entity_ids", mode="before")
+    @field_validator(
+        "related_tables", "related_columns", "entity_ids", "resource_dependencies", "fact_source_ids",
+        mode="before",
+    )
     @classmethod
     def normalize_metadata_lists(cls, value: Any) -> Any:
         """兼容 Java MySQL 中以 JSON 文本保存的多值 metadata。"""
@@ -258,6 +286,11 @@ class VectorizeRequest(RagBaseModel):
         validation_alias=AliasChoices("embedding_config", "embeddingConfig"),
         serialization_alias="embeddingConfig",
     )
+    build_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("build_id", "buildId"),
+        serialization_alias="buildId",
+    )
 
 
 class VectorizeResponse(RagBaseModel):
@@ -340,6 +373,31 @@ class RetrieveRequest(RagBaseModel):
         default=None,
         validation_alias=AliasChoices("fallback_chunks", "fallbackChunks"),
         serialization_alias="fallbackChunks",
+    )
+    build_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("build_id", "buildId"),
+        serialization_alias="buildId",
+    )
+    collection_name: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("collection_name", "collectionName"),
+        serialization_alias="collectionName",
+    )
+    embedding_config: EmbeddingConfig | None = Field(
+        default=None,
+        validation_alias=AliasChoices("embedding_config", "embeddingConfig"),
+        serialization_alias="embeddingConfig",
+    )
+    authorized_resources: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("authorized_resources", "authorizedResources"),
+        serialization_alias="authorizedResources",
+    )
+    authorized_chunk_ids: list[int] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("authorized_chunk_ids", "authorizedChunkIds"),
+        serialization_alias="authorizedChunkIds",
     )
 
 
@@ -445,6 +503,31 @@ class RetrievedSchema(RagBaseModel):
         default="",
         validation_alias=AliasChoices("review_status", "reviewStatus"),
         serialization_alias="reviewStatus",
+    )
+    resource_dependencies: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("resource_dependencies", "resourceDependencies"),
+        serialization_alias="resourceDependencies",
+    )
+    fact_source_ids: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("fact_source_ids", "factSourceIds"),
+        serialization_alias="factSourceIds",
+    )
+    fact_type: str = Field(
+        default="",
+        validation_alias=AliasChoices("fact_type", "factType"),
+        serialization_alias="factType",
+    )
+    fact_review_status: str = Field(
+        default="PENDING",
+        validation_alias=AliasChoices("fact_review_status", "factReviewStatus"),
+        serialization_alias="factReviewStatus",
+    )
+    build_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("build_id", "buildId"),
+        serialization_alias="buildId",
     )
 
     @field_validator("columns", mode="before")

@@ -73,6 +73,21 @@ public class KnowledgeChunk {
     /** 切片内容 SHA-256 */
     private String contentHash;
 
+    /** 该事实的完整资源依赖 JSON；不能从正文正则猜测来代替。 */
+    private String resourceDependencies;
+
+    /** 来源事实 ID 列表 JSON。 */
+    private String factSourceIds;
+
+    /** 快照事实类型：FIELD/TABLE/JOIN_PATH/LINEAGE 等。 */
+    private String factType;
+
+    /** 单条事实审核状态；PENDING/REJECTED 不进入活动 RAG。 */
+    private String factReviewStatus;
+
+    /** 来源快照中的治理状态；索引构建排除 BLOCKED/DEPRECATED。 */
+    private String governanceStatus;
+
     /** 审核状态（参见 ReviewStatus 枚举） */
     private String reviewStatus;
 

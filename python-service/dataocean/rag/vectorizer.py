@@ -31,6 +31,7 @@ async def vectorize_chunks(
     target_collection: str | None = None,
     target_dimension: int | None = None,
     embedding_config: EmbeddingConfig | None = None,
+    build_id: str | None = None,
 ) -> VectorizeResponse:
     """Embed chunks and write them through LangChain's Milvus VectorStore."""
     start = perf_counter()
@@ -149,6 +150,12 @@ async def vectorize_chunks(
             "content_hash": chunk.content_hash or hashlib.sha256(
                 chunk.chunk_text.encode("utf-8")
             ).hexdigest(),
+            "source_snapshot_id": chunk.source_snapshot_id or snapshot_id,
+            "resource_dependencies": json.dumps(chunk.resource_dependencies, ensure_ascii=False),
+            "fact_source_ids": json.dumps(chunk.fact_source_ids, ensure_ascii=False),
+            "fact_type": chunk.fact_type,
+            "fact_review_status": chunk.fact_review_status,
+            "build_id": build_id or "",
         }
         for index, chunk in enumerate(chunks)
     ]

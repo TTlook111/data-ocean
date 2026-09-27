@@ -682,7 +682,8 @@ export interface IamS1QueryAskPayload {
   datasourceId: number
   question: string
   conversationId?: number
-  tables: IamS1TableDeclaration[]
+  /** Optional for older clients; the formal query flow sends no client-selected schema. */
+  tables?: IamS1TableDeclaration[]
 }
 
 export interface IamS1QueryAskResult {
@@ -743,22 +744,31 @@ export interface IamS1ConversationMessageItem {
   createdAt: string
 }
 
+export interface IamS1ConversationMessagePage {
+  items: IamS1ConversationMessageItem[]
+  nextBeforeMessageId?: number
+  hasMore: boolean
+}
+
 export async function iamS1Ask(payload: IamS1QueryAskPayload) {
+  const declarations = payload.tables?.length
+    ? payload.tables.map((table) => ({
+        tableName: table.tableName,
+        referencedColumns: table.referencedColumns,
+        // 缺省补齐默认使用位置：后端对每个字段强制要求 usage，缺失即拒绝提交。
+        columnUsages: Object.fromEntries(
+          table.referencedColumns.map((column) => [
+            column,
+            table.columnUsages?.[column]?.length
+              ? table.columnUsages[column]
+              : [...IAM_S1_DEFAULT_QUERY_USAGES],
+          ]),
+        ),
+      }))
+    : undefined
   const { data } = await http.post<ApiResult<IamS1QueryAskResult>>(`${BASE}/query/ask`, {
     protocolVersion: 'IAM-SIMPLE-1',
-    tables: payload.tables.map((table) => ({
-      tableName: table.tableName,
-      referencedColumns: table.referencedColumns,
-      // 缺省补齐默认使用位置：后端对每个字段强制要求 usage，缺失即拒绝提交。
-      columnUsages: Object.fromEntries(
-        table.referencedColumns.map((column) => [
-          column,
-          table.columnUsages?.[column]?.length
-            ? table.columnUsages[column]
-            : [...IAM_S1_DEFAULT_QUERY_USAGES],
-        ]),
-      ),
-    })),
+    ...(declarations ? { tables: declarations } : {}),
     datasourceId: payload.datasourceId,
     question: payload.question,
     conversationId: payload.conversationId,
@@ -783,6 +793,11 @@ export async function iamS1ViewSql(taskId: string) {
 
 export async function iamS1CancelTask(taskId: string) {
   const { data } = await http.post<ApiResult<void>>(`${BASE}/query/tasks/${taskId}/cancel`)
+  return data
+}
+
+export async function iamS1ResumeTask(taskId: string) {
+  const { data } = await http.post<ApiResult<void>>(`${BASE}/query/tasks/${taskId}/resume`)
   return data
 }
 
@@ -824,9 +839,9 @@ export async function iamS1ListConversations(datasourceId?: number) {
 
 export async function iamS1ListConversationMessages(
   conversationId: number,
-  params: { page?: number; pageSize?: number } = {},
+  params: { beforeMessageId?: number; pageSize?: number } = {},
 ) {
-  const { data } = await http.get<ApiResult<IamS1ConversationMessageItem[]>>(
+  const { data } = await http.get<ApiResult<IamS1ConversationMessagePage>>(
     `${BASE}/query/conversations/${conversationId}/messages`,
     { params },
   )

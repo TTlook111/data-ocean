@@ -30,8 +30,11 @@ public class Conversation {
     /** 会话标题 */
     private String title;
 
-    /** 会话状态：ACTIVE/ARCHIVED */
+    /** 会话状态：ACTIVE/ARCHIVED/DELETED */
     private String status;
+
+    /** 当前唯一活动问数轮次；终态提交时按 taskId 条件清除。 */
+    private String activeTurnTaskId;
 
     /** 创建时间 */
     @TableField(fill = FieldFill.INSERT)

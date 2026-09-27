@@ -57,6 +57,12 @@ public class IamS1QueryController {
         return Result.success("S1 任务已取消", null);
     }
 
+    @PostMapping("/tasks/{taskId}/resume")
+    public Result<Void> resume(@PathVariable String taskId) {
+        queryService.resume(taskId, UserContext.currentUserId());
+        return Result.success("S1 任务恢复检查已提交", null);
+    }
+
     @GetMapping("/history")
     public Result<?> history(@ModelAttribute QueryHistoryQuery query) {
         return Result.success(queryService.history(UserContext.currentUserId(), query));
@@ -69,10 +75,10 @@ public class IamS1QueryController {
 
     @GetMapping("/conversations/{conversationId}/messages")
     public Result<?> conversationMessages(@PathVariable Long conversationId,
-                                          @RequestParam(defaultValue = "1") Integer page,
+                                          @RequestParam(required = false) Long beforeMessageId,
                                           @RequestParam(defaultValue = "50") Integer pageSize) {
         return Result.success(queryService.conversationMessages(
-                conversationId, UserContext.currentUserId(), page, pageSize));
+                conversationId, UserContext.currentUserId(), beforeMessageId, pageSize));
     }
 
     @DeleteMapping("/conversations/{conversationId}")

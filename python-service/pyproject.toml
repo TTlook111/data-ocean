@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn[standard]~=0.32.0",
     "langchain>=1.0.0,<2.0.0",
     "langgraph>=1.0.0,<2.0.0",
+    "langgraph-checkpoint-redis>=0.3.2,<0.4.0",
     "sqlalchemy~=2.0.36",
     "pymysql~=1.1.0",
     "cryptography~=43.0.0",
