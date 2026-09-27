@@ -289,6 +289,7 @@ Java S1 查询任务 → Python iam_s1 LangGraph → 活动 build RAG 与资源�
 | [`DataOcean技术栈与模块职责.md`](docs/development/DataOcean技术栈与模块职责.md) | 技术栈、模块职责、数据归属与异步边界 |
 | [`DataOcean后台重构状态与整改计划.md`](docs/development/completed/DataOcean后台重构状态与整改计划.md) | 当前真实状态、风险、验收基线与后续计划 |
 | [`DataOcean-LangGraph问数与会话记忆验收记录.md`](docs/development/completed/DataOcean-LangGraph问数与会话记忆验收记录.md) | G0/E 本机隔离验收证据与边界 |
+| [`DataOcean-LangGraph问数与会话记忆恢复方案.md`](docs/development/completed/DataOcean-LangGraph问数与会话记忆恢复方案.md) | 已完成的 LangGraph 问数与会话记忆实施方案 |
 | [`DataOcean-RAG问题修复与知识文档切分优化方案.md`](docs/development/completed/DataOcean-RAG问题修复与知识文档切分优化方案.md) | RAG 切分、检索与发布可靠性实现 |
 | [`DataOcean-完整权限体系设计.md`](docs/development/completed/DataOcean-完整权限体系设计.md) | 权限体系的目标设计与迁移边界 |
 

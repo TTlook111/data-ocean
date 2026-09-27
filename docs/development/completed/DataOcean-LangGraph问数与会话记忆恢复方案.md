@@ -1,6 +1,6 @@
 # DataOcean 自然语言问数、LangGraph 编排与会话记忆方案
 
-> 状态：G0、A～E 的代码实现及自动化检查已记录在 [`completed/DataOcean-LangGraph问数与会话记忆验收记录.md`](completed/DataOcean-LangGraph问数与会话记忆验收记录.md)。最终审查修复后的固定 G0 八题已通过本机 V64 隔离环境真实 IAM-SIMPLE-1 API 复跑（6/6 可答、2/2 正确拒答/澄清、无受限泄漏）；E 的历史 NORMAL→MASKED 负向重读和桌面/390 CSS px 视觉验收也仅在本机隔离环境通过。此前 390px iframe 中的五条 `MutationObserver.observe` 错误仍无法归因，继续列为未解决项。V64 先应用于隔离验收库 `dataocean_e_acceptance_20260927`；2026-09-27 本机常用开发库 `dataocean` 随后也由 V59 顺序迁移到 V64。这两次数据库操作与验收证据分别记录。本文第 8 节是实施前的 d8cda57 基线差距对照，不代表当前代码仍缺少这些功能。
+> 状态：**已完成（2026-09-27，本机开发与隔离验收）**。最终审查修复后的 G0 固定八题经真实 IAM-SIMPLE-1 API 复跑为可答 6/6、正确拒答或澄清 2/2、受限泄漏 0；E 的桌面/390 CSS px 交互及历史 NORMAL→MASKED 负向重读通过。详细任务、预算、截图和测试见 [`DataOcean-LangGraph问数与会话记忆验收记录.md`](DataOcean-LangGraph问数与会话记忆验收记录.md)。本机常用开发库与独立验收库均已迁移至 V64，G0/E 成绩仍只来自隔离合成环境。默认 Milvus `schema_knowledge` 来源和早期 iframe `MutationObserver` 错误保留为独立待办，不改变本方案的完成结论。第 8 节为实施前 d8cda57 的历史差距对照。
 > 基线：main 的 d8cda57；代码事实核查日期 2026-09-25；按 2026-09-26 对产品目标的澄清整理。
 > 本文说明本次实施的产品边界、数据保护合同和验收顺序。实施只使用隔离的本地合成测试环境；生产部署、真实业务数据、自动发布、分支推送、PR 与合并不在授权范围内。
 
@@ -71,7 +71,7 @@ skills.md 类文档是**一个数据源的可检索业务说明书**。文档体
 
 **完整覆盖不等于 AI 可以编造完整释义。** 表字段的名称、所属关系、类型和治理状态必须直接从所绑定快照生成，不能交给模型自由补全；AI 只依据已有元数据和已审核业务事实撰写用途、释义及场景草稿，不能仅凭字段名推断业务意思或虚构 Join、指标。缺少注释或人工确认的字段仍列入清单，但业务释义标为“待确认”；依赖该释义的自动口径选择必须等待确认。人可以按实际业务逐步补齐释义，不因一个字段待确认就阻断整个数据源中其他可信字段。
 
-现有 [skills.md 生成模板](../../python-service/dataocean/knowledge/prompts/skills_md_template.j2) 只要求每表列出 3～5 个核心字段，字段防坑指南也只覆盖易误用字段，**还没有达到上述完整字段覆盖目标**。实施时应让发布的文档体系列出该快照全部表字段，并为已有依据的字段提供可检索的已审核解释；Java 的结构化字段字典是校验字段存在、类型和治理状态的权威来源。释义待确认的字段仍应出现在文档清单中，不能把“有一篇文档”或“chunk 数量足够”当成覆盖完整。
+现有 [skills.md 生成模板](../../../python-service/dataocean/knowledge/prompts/skills_md_template.j2) 只要求每表列出 3～5 个核心字段，字段防坑指南也只覆盖易误用字段，**还没有达到上述完整字段覆盖目标**。实施时应让发布的文档体系列出该快照全部表字段，并为已有依据的字段提供可检索的已审核解释；Java 的结构化字段字典是校验字段存在、类型和治理状态的权威来源。释义待确认的字段仍应出现在文档清单中，不能把“有一篇文档”或“chunk 数量足够”当成覆盖完整。
 
 **发布前必须逐表逐字段校验。** 以快照中的表 ID、字段 ID 或稳定表字段标识为基准，比对整套 skills.md 类文档：表和字段覆盖率必须为 100%，不得漏项、重复、错属表、改错字段名/类型，也不得出现快照中不存在的表字段。Join 条件、指标表达式和业务释义须能指向已确认的来源；无法证明的内容标为待确认，不写成事实。生成草稿不合格时报告具体差异并重新生成或人工修订；结构校验与人工业务审核都通过后才能发布并进入 RAG。禁用、废弃字段仍保留在内部文档清单中并标明限制，但不得作为可用字段进入问数检索或 SQL 规划；敏感字段仅在获授权时携带保护信息进入检索，最终结果仍由 Java 脱敏。
 
@@ -167,7 +167,7 @@ LangGraph 每次准备执行候选 SQL 时，向 Java 提交 taskId、尝试 ID�
 
 旧的 Python agent/ 包在 B6 已删除，且使用过时的权限契约；本方案以当前 IAM-SIMPLE-1 问数链为基础新增图，不整体回退旧 Agent。
 
-## 8. 当前实现与主要差距
+## 8. 实施前基线与差距（d8cda57 历史快照）
 
 以下是 d8cda57 基线上的代码事实，不把本方案写成已经实现的功能：
 
@@ -176,8 +176,8 @@ LangGraph 每次准备执行候选 SQL 时，向 Java 提交 taskId、尝试 ID�
 | 治理与 RAG | Java 管理快照和 skills.md 生命周期，Python 切分、Embedding、Milvus 检索；当前 chunk 的相关表字段由文本模式提取，Milvus 候选按数据源/快照过滤，S1 再做后置资源过滤 | 全表字段覆盖、经事实来源核验的 chunk 完整依赖与检索前授权裁剪、现行 buildId 的检索/邻块/回退过滤，以及新构建后旧 Milvus chunk 清理与零残留核验 |
 | skills.md 生成输入 | 当前 Java 按 datasourceId 装载表字段与 table_relation，未限定请求的 snapshotId；发给 Python 的关系列表没有类型/置信度，索引参数为空，未包含血缘和已审核业务事实；快照发布同步会清理旧图关系 | 按本轮 snapshotId 取数；区分 FK、推断、人工确认、表级血缘和字段派生；让已确认血缘持久化并可绑定新快照，保留来源与审核状态，不能把血缘误作 Join |
 | 数据源快照版本 | metadata_snapshot 已按数据源记录 snapshot_version、schema_hash、发布/过期状态和差异；当前 S1 与 RAG 都按已发布 snapshotId 检索 | 界面并列显示最新采集、当前发布和 RAG 来源快照；RAG 落后时仍检索其来源快照，生成的 SQL 再按当前已发布快照与 S1 校验 |
-| 正式问数 | [S1 服务](../../python-service/dataocean/iam_s1/service.py) 能检索、一次生成 SQL、校验、执行和尝试生成图表；Java 在任务开始和结果完成时授权/复查，Python 执行沿用初始快照及绑定 | 自然语言自动找资源、LangGraph 改写/检索/语义检查/有限回环、结果核对，以及每次候选 SQL 执行前由 Java 按当前授权再签发本次执行判定 |
-| 用户输入 | 当前 [请求 DTO](../../backend/DataOcean/src/main/java/com/dataocean/module/query/entity/dto/IamS1QueryAskRequestDTO.java) 和 [选择器](../../frontend/src/views/query/IamS1ResourceSelector.vue) 要求先提交表字段 | 用户只选数据源、会话并提问；服务端构造完整可见候选，不能把现有 20 表/60 次探测上限误作“其余无权限” |
+| 正式问数 | [S1 服务](../../../python-service/dataocean/iam_s1/service.py) 能检索、一次生成 SQL、校验、执行和尝试生成图表；Java 在任务开始和结果完成时授权/复查，Python 执行沿用初始快照及绑定 | 自然语言自动找资源、LangGraph 改写/检索/语义检查/有限回环、结果核对，以及每次候选 SQL 执行前由 Java 按当前授权再签发本次执行判定 |
+| 用户输入 | 当前 [请求 DTO](../../../backend/DataOcean/src/main/java/com/dataocean/module/query/entity/dto/IamS1QueryAskRequestDTO.java) 和 已删除的 `frontend/src/views/query/IamS1ResourceSelector.vue` 要求先提交表字段 | 用户只选数据源、会话并提问；服务端构造完整可见候选，不能把现有 20 表/60 次探测上限误作“其余无权限” |
 | 对话历史 | MySQL 已有 conversation、conversation_message、conversation_context_summary | 前端目前只取第一页 80 条；后端当前保留 3 轮且无摘要时可能输入全部历史；同会话并发尚无轮次串行；30 天任务清理与长期历史结果证据冲突；单条历史结果复查失败会中断整页；当前对外删除只是归档，按 ID 仍可读 |
 | Redis | 现有 Redis 用于缓存和偏好 | 增加会话隔离的 LangGraph checkpoint、失效清理和故障恢复 |
 | 回答和图表 | 有消息气泡、结果表和图表能力；目前 Python 用原始执行数据尝试制图，Java 落库时可丢弃需脱敏的图表，但历史读取收紧保护时未同步重护旧图表 | 用 Java 已保护的数据生成 ECharts 图表并作为主要展示，附必要说明和数据表；图表模型不能先收到未保护的原始样本，历史图表与表格使用同一当前权限判定 |

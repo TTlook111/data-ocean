@@ -1,7 +1,7 @@
 # DataOcean LangGraph 问数与会话记忆验收记录
 
 > 实施分支：`codex/langgraph-query-memory`
-> 方案来源：`docs/development/DataOcean-LangGraph问数与会话记忆恢复方案.md`
+> 方案来源：[`DataOcean-LangGraph问数与会话记忆恢复方案.md`](DataOcean-LangGraph问数与会话记忆恢复方案.md)（已完成并归档）
 > 记录创建：2026-09-26；最终验收更新：2026-09-27。所有端到端数据均为隔离合成测试数据。
 
 ## G0：S1 基线与 D 阶段预算冻结
