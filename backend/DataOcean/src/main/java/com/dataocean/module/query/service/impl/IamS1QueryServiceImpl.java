@@ -392,30 +392,9 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         if (task == null || !isS1(task)) return;
         try {
             Map<String, Object> result = objectMapper.readValue(resultJson, new TypeReference<>() {});
-            boolean dataAlreadyProtectedByJava = false;
             if (!taskId.equals(result.get("taskId")) || !IamS1Constants.PROTOCOL_VERSION.equals(result.get("protocolVersion"))) {
                 fail(taskId, "S1 结果合同不一致", "REJECTED_CONTRACT");
                 return;
-            }
-            if (result.get("attemptId") instanceof String attemptId && !attemptId.isBlank()) {
-                QueryAttempt attempt = queryAttemptMapper.selectOne(new LambdaQueryWrapper<QueryAttempt>()
-                        .eq(QueryAttempt::getTaskId, taskId).eq(QueryAttempt::getAttemptId, attemptId));
-                if (attempt == null || !"PROTECTED".equals(attempt.getStatus())
-                        || !Objects.equals(attempt.getSqlHash(), result.get("sqlHash"))) {
-                    fail(taskId, "Java 未完成该 SQL 尝试的结果保护", "REJECTED_FINAL_PROTECTION");
-                    return;
-                }
-                result.put("data", readAttemptJson(attempt.getProtectedData()));
-                result.put("columns", readAttemptJson(attempt.getProtectedColumns()));
-                result.put("sourceTrace", readAttemptJson(attempt.getSourceTrace()));
-                result.put("maskedFields", readAttemptJson(attempt.getMaskedFields()));
-                result.put("usedTables", readAttemptJson(attempt.getUsedTables()));
-                result.put("usedColumns", readAttemptJson(attempt.getUsedColumns()));
-                result.put("sql", attempt.getSafeSql());
-                result.put("rowCount", attempt.getRowCount());
-                result.put("totalTimeMs", number(result.get("totalTimeMs"))
-                        + (attempt.getExecutionTimeMs() == null ? 0 : attempt.getExecutionTimeMs()));
-                dataAlreadyProtectedByJava = true;
             }
             String status = String.valueOf(result.getOrDefault("status", "FAILED"));
             if ("CLARIFICATION_REQUIRED".equals(status)) {
@@ -431,8 +410,43 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 fail(taskId, safeError(String.valueOf(result.getOrDefault("error", "S1 查询失败"))), "FAILED");
                 return;
             }
+            // Every COMPLETED IAM-SIMPLE-1 callback, including callbacks from any
+            // retained Python compatibility path, must be backed by this exact
+            // Java-protected execution attempt. A missing id never selects a
+            // weaker legacy completion contract.
+            Object rawAttemptId = result.get("attemptId");
+            Object rawSqlHash = result.get("sqlHash");
+            if (!(rawAttemptId instanceof String attemptId) || attemptId.isBlank()
+                    || !(rawSqlHash instanceof String sqlHash) || sqlHash.isBlank()) {
+                fail(taskId, "Java 未完成该 SQL 尝试的结果保护", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
+            QueryAttempt attempt = queryAttemptMapper.selectForUpdate(taskId, attemptId);
+            if (attempt == null || !Objects.equals(attempt.getTaskId(), taskId)
+                    || !Objects.equals(attempt.getAttemptId(), attemptId)
+                    || !"PROTECTED".equals(attempt.getStatus())
+                    || !Objects.equals(attempt.getSqlHash(), sqlHash)
+                    || attempt.getProtectedData() == null || attempt.getProtectedColumns() == null
+                    || attempt.getSourceTrace() == null) {
+                fail(taskId, "Java 未完成该 SQL 尝试的结果保护", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
+            result.put("data", readAttemptJson(attempt.getProtectedData()));
+            result.put("columns", readAttemptJson(attempt.getProtectedColumns()));
+            result.put("sourceTrace", readAttemptJson(attempt.getSourceTrace()));
+            result.put("maskedFields", readAttemptJson(attempt.getMaskedFields()));
+            result.put("usedTables", readAttemptJson(attempt.getUsedTables()));
+            result.put("usedColumns", readAttemptJson(attempt.getUsedColumns()));
+            result.put("sql", attempt.getSafeSql());
+            result.put("rowCount", attempt.getRowCount());
+            result.put("totalTimeMs", number(result.get("totalTimeMs"))
+                    + (attempt.getExecutionTimeMs() == null ? 0 : attempt.getExecutionTimeMs()));
             if (!hasCompleteSourceTrace(result.get("sourceTrace"), result.get("columns"))) {
                 fail(taskId, "结果来源不完整，请重新查询", "REJECTED_SOURCE_TRACE");
+                return;
+            }
+            if (!IamS1ResultIntegrity.dataKeysAreCoveredByColumns(result.get("data"), result.get("columns"))) {
+                fail(taskId, "Java 保护结果列证据不完整，请重新查询", "REJECTED_FINAL_PROTECTION");
                 return;
             }
             if (task.getConversationId() != null && !conversationService.isVisible(task.getConversationId(), task.getUserId())) {
@@ -460,7 +474,6 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 fail(taskId, "结果脱敏策略冲突，拒绝落库", "REJECTED_FINAL_PROTECTION");
                 return;
             }
-            if (!dataAlreadyProtectedByJava) data = maskingService.maskResultByFields(data, outputMasks);
             String safeSql = safeSql((String) result.get("sql"));
             String safeExplanation = safeExplanation((String) result.get("sqlExplanation"));
             String safeChart = safeChartConfig(result.get("chartConfig"), outputMasks);
@@ -1399,29 +1412,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             if (trace instanceof Map<?, ?> wrapper) trace = wrapper.get("entries");
             return (isSubsetEvidencePresent(usedColumns) || traceIsEntirelyColumnFree(trace))
                     && hasCompleteSourceTrace(trace, columns)
-                    && dataKeysAreCoveredByColumns(data, columns);
+                    && IamS1ResultIntegrity.dataKeysAreCoveredByColumns(data, columns);
         } catch (Exception ex) {
             return false;
         }
-    }
-
-    private boolean dataKeysAreCoveredByColumns(Object rawData, Object rawColumns) {
-        if (!(rawData instanceof List<?> rows) || !(rawColumns instanceof List<?> columns)) return false;
-        Set<String> knownColumns = new HashSet<>();
-        for (Object rawColumn : columns) {
-            if (!(rawColumn instanceof Map<?, ?> column) || column.get("name") == null) return false;
-            knownColumns.add(String.valueOf(column.get("name")).toLowerCase(Locale.ROOT));
-        }
-        if (knownColumns.isEmpty()) return false;
-        for (Object rawRow : rows) {
-            if (!(rawRow instanceof Map<?, ?> row)) return false;
-            for (Object rawKey : row.keySet()) {
-                if (rawKey == null || !knownColumns.contains(String.valueOf(rawKey).toLowerCase(Locale.ROOT))) {
-                    return false;
-                }
-            }
-        }
-        return true;
     }
 
     private boolean isSubsetEvidencePresent(List<String> usedColumns) {

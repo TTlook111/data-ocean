@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
+import subprocess
 from pathlib import Path
-import importlib.util
 
 import pytest
 
@@ -81,6 +82,8 @@ def test_current_e_runner_pins_the_existing_isolated_target_and_frozen_budgets()
     ):
         assert frozen_value in runner or frozen_value in guard
     assert "LANGGRAPH_ACCEPTANCE_READER_PASSWORD" in runner
+    assert "Evaluate-G0QuestionSecurity" in runner
+    assert "$summary.securityViolations -ne 0" in runner
     assert "SHOW GRANTS FOR CURRENT_USER()" in guard
     assert "dataocean_e_acceptance_20260927" in guard
 
@@ -110,3 +113,40 @@ def test_current_e_fixture_account_guard_rejects_any_write_or_wildcard_grant():
             ],
             "langgraph_fixture_e_20260927",
         )
+
+
+def test_runner_exits_nonzero_when_only_assistant_history_metadata_leaks(tmp_path):
+    powershell = shutil.which("pwsh") or shutil.which("powershell")
+    if not powershell:
+        pytest.skip("PowerShell is required to execute the G0 runner self-test")
+    report_path = tmp_path / "assistant-history-leak.json"
+    completed = subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-File",
+            str(CURRENT_RUNNER),
+            "-SyntheticHistoryLeakTest",
+            "-ReportPath",
+            str(report_path),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=20,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    report = json.loads(report_path.read_text(encoding="utf-8-sig"))
+    question = report["questions"][0]
+    assert question["protectedResult"]["data"] == []
+    assert question["assistantHistory"][0]["content"] == "本轮查询已完成"
+    assert question["assistantHistory"][0]["metadata"]["note"] == "hidden phone value"
+    assert question["passed"] is False
+    assert question["leakedIdentifiers"] == ["phone"]
+    assert report["securityViolations"] == 1
+    assert report["securityCounterRejected"] is True
+    assert any("assistant history" in failure for failure in report["failures"])

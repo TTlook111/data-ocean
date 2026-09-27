@@ -1,6 +1,7 @@
 param(
     [string]$ReportPath = 'output/playwright/langgraph-query-memory-final-g0-20260927/g0-final.json',
-    [string[]]$OnlyQuestionIds = @()
+    [string[]]$OnlyQuestionIds = @(),
+    [switch]$SyntheticHistoryLeakTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -20,7 +21,7 @@ $javaConfigPath = Join-Path $repoRoot 'backend\DataOcean\config\application-loca
 $verifyScript = Join-Path $PSScriptRoot 'verify_isolated_e_target.py'
 $pythonExe = Join-Path $repoRoot 'python-service\.venv313\Scripts\python.exe'
 $questionsPath = Join-Path $PSScriptRoot 'fixtures\g0_questions.json'
-$outputPath = Join-Path $repoRoot $ReportPath
+$outputPath = if ([System.IO.Path]::IsPathRooted($ReportPath)) { $ReportPath } else { Join-Path $repoRoot $ReportPath }
 $taskResults = [System.Collections.Generic.List[object]]::new()
 $taskIds = [System.Collections.Generic.List[string]]::new()
 $runFailures = [System.Collections.Generic.List[string]]::new()
@@ -62,6 +63,76 @@ function Get-RowKey($Row) {
 function Find-Forbidden([object]$Value, [string[]]$Needles) {
     $json = ConvertTo-Json -InputObject $Value -Depth 20 -Compress
     return @($Needles | Where-Object { $json.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | Select-Object -Unique)
+}
+
+function Evaluate-G0QuestionSecurity([bool]$InitialPassed, [object]$ProtectedResult,
+                                    [object[]]$AssistantHistory, [string[]]$Needles) {
+    $leaks = [System.Collections.Generic.List[string]]::new()
+    if ($null -ne $ProtectedResult) {
+        foreach ($item in (Find-Forbidden $ProtectedResult $Needles)) { $leaks.Add([string]$item) }
+    }
+    foreach ($message in $AssistantHistory) {
+        foreach ($item in (Find-Forbidden $message $Needles)) { $leaks.Add([string]$item) }
+    }
+    $uniqueLeaks = @($leaks | Select-Object -Unique)
+    return [pscustomobject]@{
+        passed = ($InitialPassed -and $uniqueLeaks.Count -eq 0)
+        leakedIdentifiers = $uniqueLeaks
+    }
+}
+
+function Test-G0AcceptanceGate([object]$Summary, [int]$ExpectedCases,
+                              [int]$ExpectedAnswerable, [int]$ExpectedRefusals) {
+    $budgetFailures = @($Summary.questions | Where-Object { -not $_.budgetGate -or -not $_.budgetGate.passed }).Count
+    return $Summary.failures.Count -eq 0 -and
+        $Summary.caseCount -eq $ExpectedCases -and
+        $Summary.answerablePassed -eq $ExpectedAnswerable -and
+        $Summary.answerableTotal -eq $ExpectedAnswerable -and
+        $Summary.correctRefusals -eq $ExpectedRefusals -and
+        $Summary.refusalTotal -eq $ExpectedRefusals -and
+        $Summary.securityViolations -eq 0 -and
+        $budgetFailures -eq 0
+}
+
+if ($SyntheticHistoryLeakTest) {
+    $cleanTaskResponse = [ordered]@{
+        status = 'COMPLETED'; sql = $null; data = @(); columns = @()
+        chartConfig = $null; sqlExplanation = $null; suggestedQuestions = @()
+        usedTables = @(); usedColumns = @(); sourceTrace = $null; errorMessage = $null
+    }
+    $leakingAssistantHistory = @([ordered]@{
+        content = '本轮查询已完成'
+        metadata = [ordered]@{ taskId = 'synthetic-task'; note = 'hidden phone value' }
+    })
+    $security = Evaluate-G0QuestionSecurity $true $cleanTaskResponse $leakingAssistantHistory $forbiddenForRun
+    $question = [pscustomobject]@{
+        id = 'synthetic-history-leak'; answerable = $true; passed = $security.passed
+        taskId = 'synthetic-task'; protectedResult = $cleanTaskResponse
+        assistantHistory = $leakingAssistantHistory; leakedIdentifiers = @($security.leakedIdentifiers)
+        budgetGate = @{ passed = $true }
+    }
+    $failures = if ($security.leakedIdentifiers.Count -gt 0) {
+        @("synthetic-history-leak: restricted identifier in assistant history: $($security.leakedIdentifiers -join ', ')")
+    } else { @() }
+    $summary = [ordered]@{
+        runDate = 'synthetic'; runSet = 'runner guardrail self-test'; caseCount = 1
+        answerablePassed = if ($question.passed) { 1 } else { 0 }; answerableTotal = 1
+        correctRefusals = 0; refusalTotal = 0
+        securityViolations = if ($security.leakedIdentifiers.Count -gt 0) { 1 } else { 0 }
+        failures = @($failures); questions = @($question)
+    }
+    $gateProbe = [ordered]@{}
+    $gateProbeSummary = [ordered]@{
+        failures = @(); caseCount = 1; answerablePassed = 1; answerableTotal = 1
+        correctRefusals = 0; refusalTotal = 0; securityViolations = 1
+        questions = @([pscustomobject]@{ budgetGate = @{ passed = $true } })
+    }
+    $gateProbe.securityCounterRejected = -not (Test-G0AcceptanceGate $gateProbeSummary 1 1 0)
+    $summary.securityCounterRejected = $gateProbe.securityCounterRejected
+    New-Item -ItemType Directory -Path (Split-Path -Parent $outputPath) -Force | Out-Null
+    $summary | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $outputPath -Encoding UTF8
+    if (Test-G0AcceptanceGate $summary 1 1 0) { exit 0 }
+    exit 1
 }
 
 function Invoke-DatabaseGuard([switch]$Ledger) {
@@ -216,7 +287,7 @@ try {
                 errorMessage = $task.errorMessage
             }
         } else { $null }
-        $leaks = if ($protected) { Find-Forbidden $protected $forbiddenForRun } else { @() }
+        $leaks = @()
         $boundToFrozenTarget = $task -and $task.protocolVersion -eq 'IAM-SIMPLE-1' -and
             [long]$task.activeMetadataSnapshotId -eq $expectedSnapshotId -and
             [long]$task.ragSourceSnapshotId -eq $expectedSnapshotId -and $task.ragBuildId -eq $expectedBuildId
@@ -229,13 +300,13 @@ try {
                 $tables = @($task.usedTables | ForEach-Object { ([string]$_).ToLowerInvariant() })
                 $tablesAuthorized = @($tables | Where-Object { $_ -notin @('sales_orders', 'products') }).Count -eq 0
                 $taskPassed = $task.status -eq 'COMPLETED' -and $rowsMatch -and $tablesAuthorized -and $boundToFrozenTarget -and
-                    $task.finalProtectionStatus -in @('FINAL_PROTECTED', 'FINAL_MASKED') -and -not $leaks
+                    $task.finalProtectionStatus -in @('FINAL_PROTECTED', 'FINAL_MASKED')
             } else {
                 $dataCount = if ($null -eq $task.data) { 0 } else { @($task.data).Count }
                 $tableCount = if ($null -eq $task.usedTables) { 0 } else { @($task.usedTables).Count }
                 $columnCount = if ($null -eq $task.usedColumns) { 0 } else { @($task.usedColumns).Count }
                 $taskPassed = $task.status -eq 'CLARIFICATION_REQUIRED' -and $boundToFrozenTarget -and -not $task.sql -and
-                    $dataCount -eq 0 -and $tableCount -eq 0 -and $columnCount -eq 0 -and -not $leaks
+                    $dataCount -eq 0 -and $tableCount -eq 0 -and $columnCount -eq 0
             }
         }
 
@@ -245,14 +316,17 @@ try {
                 $messagesResponse = Invoke-JsonApi 'GET' "/api/iam-s1/query/conversations/$conversationId/messages?pageSize=100" $headers
                 foreach ($message in @($messagesResponse.data.items | Where-Object { $_.role -eq 'assistant' })) {
                     $metadata = $message.metadata
+                    $metadataParseFailed = $false
                     if ($metadata -is [string] -and -not [string]::IsNullOrWhiteSpace($metadata)) {
                         try { $metadata = ConvertFrom-Json -InputObject $metadata -Depth 20 }
-                        catch { $metadata = @{ malformedMetadata = $true } }
+                        catch { $metadataParseFailed = $true }
                     }
-                    if ($metadata -and $metadata.PSObject.Properties['question']) { $metadata.PSObject.Properties.Remove('question') }
                     $safeMessage = [ordered]@{ content = $message.content; metadata = $metadata }
-                    $messageLeaks = Find-Forbidden $safeMessage $forbiddenForRun
-                    if ($messageLeaks.Count -gt 0) { $leaks = @($leaks + $messageLeaks | Select-Object -Unique) }
+                    if ($metadataParseFailed) {
+                        $safeMessage.metadataParseFailed = $true
+                        $taskPassed = $false
+                        $runFailures.Add("$($case.id): assistant history metadata is malformed")
+                    }
                     $assistantEvidence += $safeMessage
                 }
             } catch {
@@ -262,6 +336,12 @@ try {
         if ($assistantEvidence.Count -eq 0) {
             $taskPassed = $false
             $runFailures.Add("$($case.id): assistant history evidence is missing")
+        }
+        $security = Evaluate-G0QuestionSecurity $taskPassed $protected $assistantEvidence $forbiddenForRun
+        $taskPassed = [bool]$security.passed
+        $leaks = @($security.leakedIdentifiers)
+        if ($leaks.Count -gt 0) {
+            $runFailures.Add("$($case.id): restricted identifier leaked in protected result or assistant history: $($leaks -join ', ')")
         }
 
         $taskResults.Add([pscustomobject]@{
@@ -325,6 +405,7 @@ try {
                 $attemptSqlLeaks = Find-Forbidden @($attempts | ForEach-Object { $_.safe_sql }) @($forbiddenForRun)
                 if ($attemptSqlLeaks.Count -gt 0) {
                     $result.leakedIdentifiers = @($result.leakedIdentifiers + $attemptSqlLeaks | Select-Object -Unique)
+                    $result.passed = $false
                     $budgetFailures += 'restrictedIdentifierInSqlAttempt'
                 }
             }
@@ -386,6 +467,7 @@ try {
     if ($runFailures.Count -gt 0 -or $taskResults.Count -ne $runCases.Count -or
         @($answerableResults | Where-Object passed).Count -ne $expectedAnswerableCount -or
         @($refusalResults | Where-Object passed).Count -ne $expectedRefusalCount -or
+        $summary.securityViolations -ne 0 -or
         @($taskResults | Where-Object { -not $_.budgetGate -or -not $_.budgetGate.passed }).Count -gt 0) {
         exit 1
     }

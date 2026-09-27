@@ -234,6 +234,9 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
         }
         List<Map<String, Object>> rawRows = request.getData() == null ? List.of() : request.getData();
         if (rawRows.size() > MAX_RESULT_ROWS) return rejectAttempt(attempt, "执行结果超过安全行数上限");
+        if (!IamS1ResultIntegrity.dataKeysAreCoveredByColumns(rawRows, request.getColumns())) {
+            return rejectAttempt(attempt, "执行结果包含未声明列，拒绝保护");
+        }
         Map<String, String> masks = queryService.deriveOutputMasks(request.getSourceTrace(), current);
         List<Map<String, Object>> protectedRows = maskingService.maskResultByFields(rawRows, masks);
         List<Map<String, Object>> safeTrace = sanitizeTrace(request.getSourceTrace());

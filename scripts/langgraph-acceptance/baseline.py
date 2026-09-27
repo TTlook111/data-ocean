@@ -136,8 +136,8 @@ def _chunks() -> list[dict[str, Any]]:
             "reviewStatus": "APPROVED",
             "governanceStatus": "NORMAL",
             "chunkText": (
-                "APPROVED 事实：已完成订单为 status='COMPLETED'；" 
-                "销售额定义为 SUM(quantity * unit_price)；" 
+                "APPROVED 事实：已完成订单为 status='COMPLETED'；"
+                "销售额定义为 SUM(quantity * unit_price)；"
                 "时间范围使用左闭右开区间。来源：G0 fixture review 2026-09-26。"
             ),
             "chunkType": "METRIC",

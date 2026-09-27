@@ -159,12 +159,22 @@ G0 自动化结果：Python 原有测试 109 passed；新增 fixture guardrails 
 
 该真实链路证明了 Java→Python→活动 RAG→S1 AST→MySQL 只读执行→Java 最终保护→会话落库/API 历史恢复和图表结果的服务间路径。前端 API client 已切换为只发自然语言且不提交 tables。E 阶段桌面、390 CSS px 窄屏和历史结果 NORMAL→MASKED 真实负向验收已在本机隔离环境通过；最终审查修复后的固定 G0 八题复跑见下节。
 
-### G0 最终审查修复后的完整复跑（2026-09-27，V64 本机隔离环境）
+### G0 attempt-guard 基线复跑（2026-09-27，V64 本机隔离环境；P1 完成合同收口前）
 
 - 复用 V64 app schema `dataocean_e_acceptance_20260927`、只读合成库 `langgraph_fixture_e_20260927`、IAM-SIMPLE-1 测试账号 userId 9002 / datasourceId 1、snapshot 1 和活动 build `1473e4ce-96fe-4483-82ef-2c64664bb0ab`。runner 通过真实 `/api/iam-s1/query/ask`、任务 GET 与会话消息 API 提问；数据库只读预检确认 fixture 账号 `g0_reader_e27` 仅能 SELECT `products` 和 `sales_orders`。八道问题与期望值直接读取固定 `g0_questions.json`，冻结预算没有改动。
-- 最终结果：可答题 **6/6** 且均为 `COMPLETED` / `FINAL_PROTECTED`，正确拒答/澄清 **2/2**，越权 SQL/数据及无权标识泄漏 **0**。每问最多 SQL 1/3、LLM 4/8、Embedding 1/2；客户端耗时最多 9,728ms、服务端耗时最多 9,259ms、估算费用最多 ¥0.002272，均低于 90 秒与 ¥0.10 冻结上限。完整任务 ID、状态、受保护结果、助手历史 metadata、SQL attempt、模型调用/Token/费用账本和每问失败明细均在[`最终 G0 报告`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/g0-final.json)；该次通过报告 failures 为空，先前未达门槛轮次保留为 `g0-attempt-1.json` 至 `g0-attempt-5.json`。
+- attempt-guard 基线结果：可答题 **6/6** 且均为 `COMPLETED` / `FINAL_PROTECTED`，正确拒答/澄清 **2/2**，越权 SQL/数据及无权标识泄漏 **0**。每问最多 SQL 1/3、LLM 6/8、Embedding 1/2；客户端耗时最多 23,945ms、服务端耗时最多 23,904ms、估算费用最多 ¥0.003280，均低于 90 秒与 ¥0.10 冻结上限。完整任务 ID、状态、受保护结果、助手历史 metadata、SQL attempt、模型调用/Token/费用账本和每问失败明细保留在[`attempt-guard G0 报告`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/g0-final.json)；failure 轮次保留为 `g0-attempt-1.json` 至 `g0-attempt-5.json`，上次代码修复前的成功报告另存为 `g0-prior-final-before-attempt-guard.json`。
 - 初轮暴露 V64 合成 metadata entity scope 缺陷：snapshot 1 的若干 `metadata_entity` 实体未保存 `datasource_id`，导致正常 glossary 字段关联被负责源校验拒绝；我只在 V64 隔离 app schema 内将 10 个 synthetic 列实体范围元数据对齐到已有 `db_column_meta` snapshot 1，并通过 API 把 fixture 中已审核的收入公式、月度订单数、商品类别 Join 和输出别名登记到测试 glossary。交易 fixture 行未改，活动 build 和向量内容未改，迁移仍为 V64。变更证据见[`实体范围修复`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/metadata-entity-scope-repair.json)、[`审核术语映射`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/approved-glossary-mappings.json)、[`审核输出别名`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/approved-glossary-output-aliases.json)、[`复合地区销售额映射`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/approved-glossary-region-revenue.json)、[`字段规则恢复`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/fixture-baseline-restoration.json)及[`应用进程生命周期`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/application-lifecycle-evidence.json)。未达门槛的逐轮任务和失败明细保留在同目录 `g0-attempt-1.json` 至 `g0-attempt-5.json`；最终整套复跑在既定上限内通过，仍应把模型输出波动视作本机验收的复现限制。
 - 前置 E 负向复读留下的 `sales_orders.region` MASKED/NAME 规则在最终 G0 前通过 IAM-SIMPLE-1 字段保护 API 软撤销，保留审计历史并恢复 fixture 默认 NORMAL；否则地区期望行会被脱敏。runner 仅在 127.0.0.1 启动 Python/Java，结束后两服务均停止；没有创建/重建容器，没有改 V59 `dataocean`，没有读取或修改 Milvus 默认 `schema_knowledge`。Redis DB 0 继续保留且未清空。该验收仅代表本机隔离合成环境，不是生产或其他环境证据。
+
+### P1 完成回调合同收口与 G0 全量复跑（2026-09-27，V64 本机隔离环境）
+
+- `IamS1QueryServiceImpl.complete()` 对所有 IAM-SIMPLE-1 `COMPLETED` 结果统一要求非空 `attemptId`、完全匹配的 SQL hash、相同 taskId 的 `QueryAttempt` 且状态为 `PROTECTED`；受保护记录还须包含 data/columns/sourceTrace，并再次核对行键都被声明列覆盖。缺失/空白 attemptId、hash 不一致、`AUTHORIZED`/`EXECUTING` 或受保护证据不完整均终止为安全失败，不落库 Python 的行、chart、说明或推荐问题。不会根据缺少 attemptId 推断旧路径或启用弱合同。
+- 路径核对：Java 新建和恢复的查询均发送 `candidateCatalog`，Python 据此选择 LangGraph；保留的 `_run_query_legacy` 仅在没有 `candidateCatalog` 时运行且返回不带 Java attempt 的 `COMPLETED` 结果。Java 完成接口不再接受任何 attempt-free 的 S1 完成回调，因此该旧 Python 路径不能绕过逐次授权、行条件与结果保护。
+- 回归覆盖缺失/空白 attemptId、hash 错配、`AUTHORIZED`、`EXECUTING` 和有效 `PROTECTED`。拒绝测试检查任务更新不包含 result_data/result_columns/chart_config/sql_explanation/sourceTrace，失败会话 metadata 无原始 marker；另经实际 SSE callback、GET、任务历史和会话历史读取确认 `RAW_COMPLETION_ROW`、chart 和 explanation marker 均不可取回。
+- 干净全量 Java `mvn clean test`：**640 tests passed，0 failures / 0 errors / 0 skipped**（103 suites）；`IamS1QueryServiceImplTest` 34 项通过。受影响服务测试定向运行也通过。
+- 使用同一 V64 app schema `dataocean_e_acceptance_20260927`、fixture `langgraph_fixture_e_20260927`、reader userId 9002/datasourceId 1、snapshot 1、只读账号 `g0_reader_e27` 和活动 build `1473e4ce-96fe-4483-82ef-2c64664bb0ab`，经真实 IAM-SIMPLE-1 API 完整重跑固定 G0 八题。最终结果 **6/6 可答、2/2 正确澄清、securityViolations=0、failures 为空**；每题最大 SQL 1/3、LLM 4/8、Embedding 1/2、客户端 15,028ms、服务端 14,604ms、估算费用 ¥0.002352。逐题 taskId、状态、protectedResult、助手历史、attempt 与预算账本见[`最终 P1 完成合同复跑报告`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/g0-final-p1-completion-final.json)。题目、期望值及冻结预算均未更改。
+- 可追溯的中间轮次均保留：添加 protected-row 二次列覆盖复核后的首轮全量中，G0-03 因 LangGraph 本轮未匹配到已审核映射而澄清（无 SQL attempt、零泄漏）；同题固定口径单题重跑通过，随后全量八题通过。首轮失败与单题恢复证据分别为 `g0-final-p1-completion-after-row-recheck.json` 和 `g0-targeted-p1-q3-retry1.json`；上一轮完整 P1 报告 `g0-final-p1-completion.json` 也保留。
+- P1 复跑只在 loopback 启动 Python/Java，结束时均已停止；没有创建/重建或停止基础设施容器，没有修改日常 `dataocean` 业务数据，没有读取或修改 `schema_knowledge`。进程与隔离边界证据见[`P1 应用生命周期记录`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/application-lifecycle-p1-completion.json)。attempt-guard 基线报告 `g0-final.json` 保留，P1 各轮使用独立报告文件。
 
 ## E：前端与端到端验收
 
@@ -192,9 +202,9 @@ G0 自动化结果：Python 原有测试 109 passed；新增 fixture guardrails 
 
 ## 全量自动化验证
 
-- Java：修复与回归测试完成后执行干净全量 `mvn clean test`，**633 tests passed，0 failures / 0 errors / 0 skipped**（103 suites，H2 `test` profile）；其中 `IamS1QueryServiceImplTest` 28 项通过，覆盖 NORMAL→MASKED、旧 mask policy 变化/旧掩码不恢复、HIDDEN、行权限收紧、sourceTrace 隐藏字段和未跟踪数据键 fail-closed、会话/历史/导出/SSE 读取。另修正了文档静态测试中过时的 V58 下限断言，改为检查当前 V64/V65；未对 MySQL 执行迁移。
+- Java：P1 attempt-completion 合同收口后再次执行干净全量 `mvn clean test`，**640 tests passed，0 failures / 0 errors / 0 skipped**（103 suites，H2 `test` profile）；`IamS1QueryServiceImplTest` 34 项、`IamS1QueryAttemptServiceImplTest` 6 项和历史读取/最终保护回归均通过。本次全量测试未对 MySQL 执行迁移。
 - Python：服务端 LangGraph/权限/RAG 回归的先前记录为 57 passed / 1 skipped；本轮没有改动 Python 服务逻辑，临时诊断字段已撤回。针对本轮 runner/隔离目标校验执行 `test_langgraph_acceptance_fixture.py`，6 passed。
-- G0 runner/fixture guardrails：本轮 `test_langgraph_acceptance_fixture.py` **6 passed**；新增当前 E 隔离目标身份、V64、只读权限和冻结预算门禁检查。固定 8 题、期望值与预算没有改动；最终完整 G0 运行的逐题及预算证据见上节。
+- G0 runner/fixture guardrails：本轮 `test_langgraph_acceptance_fixture.py` **7 passed**；覆盖当前 E 隔离目标身份、V64、只读权限、冻结预算及“任务响应干净但助手历史 metadata 泄漏”的非零退出/报告用例。合成违规报告保存在[`runner 历史泄漏负向证据`](../../../output/playwright/langgraph-query-memory-final-g0-20260927/g0-runner-history-leak-self-test.json)：task response 无泄漏，assistant metadata 命中 `phone`，runner 返回非零并记录 `securityViolations=1`。固定 8 题、期望值与预算没有改动；最终完整 G0 运行的逐题及预算证据见上节。
 - 前端：本轮没有改动前端代码；之前的 `npm run test:run -- --reporter=dot` 为 14 files / 79 tests passed，`npm run build` 通过。Vite 的 ECharts bundle >500 kB 提示仍是现有分包体积提示，不影响构建。
 - 新增 V64 `conversation_context_summary.permission_scope_fingerprint`。该轮验收只对新的隔离 `dataocean_e_acceptance_20260927` 执行 Flyway 至 V64；常用开发库 `dataocean` 彼时为 V59，后续迁移见文末独立记录。`V53` 仍永久未使用。
 

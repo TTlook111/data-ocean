@@ -18,6 +18,12 @@ public interface IamS1QueryService {
     void cancel(String taskId, Long userId);
 
     void resume(String taskId, Long userId);
+
+    /**
+     * Accept a terminal IAM-SIMPLE-1 callback. COMPLETED results require an exact,
+     * task-local SQL attempt whose hash matches and whose Java protection status is PROTECTED.
+     * There is no attempt-free legacy completion fallback.
+     */
     void complete(String taskId, String resultJson);
     void feedback(String taskId, Long userId, String feedbackType);
     List<java.util.Map<String, Object>> export(String taskId, Long userId);

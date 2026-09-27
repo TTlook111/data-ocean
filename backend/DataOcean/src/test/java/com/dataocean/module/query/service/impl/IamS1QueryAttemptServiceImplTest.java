@@ -24,10 +24,12 @@ import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver
 import com.dataocean.common.security.DataMaskingService;
 import com.dataocean.module.query.service.IamS1QueryAttemptService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -56,7 +58,7 @@ class IamS1QueryAttemptServiceImplTest {
             mock(com.dataocean.module.metadata.service.SchemaSnapshotService.class);
     private final DataMaskingService masking = mock(DataMaskingService.class);
     private final IamS1QueryServiceImpl queryService = mock(IamS1QueryServiceImpl.class);
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final IamS1QueryAttemptServiceImpl service = new IamS1QueryAttemptServiceImpl(
             tasks, attempts, dataResolver, authorization, bindings, conversations, resources, snapshots,
             masking, mapper, queryService);
@@ -199,6 +201,52 @@ class IamS1QueryAttemptServiceImplTest {
         assertThat(attempt.getProtectedData()).contains("138****8000").doesNotContain("13800138000");
         assertThat(attempt.getSourceTrace()).doesNotContain("expression");
         assertThat(attempt.getStatus()).isEqualTo("PROTECTED");
+    }
+
+    @Test
+    void protectedResultRejectsAnUntrackedRowKeyBeforeMaskingOrPersistence() throws Exception {
+        task.setIamResourceRequest("[{\"tableName\":\"users\",\"referencedColumns\":[\"phone\"]}]");
+        String attemptId = "attempt-untracked-key";
+        QueryAttempt attempt = QueryAttempt.builder().id(3L).taskId("task-1").attemptId(attemptId)
+                .attemptNo(1).sqlHash("b".repeat(64)).status("EXECUTING")
+                .permissionRevision(9L).activeMetadataSnapshotId(88L)
+                .usedTables("[\"users\"]").usedColumns("[\"users.phone\"]")
+                .resourceRequestJson("[]").executionSnapshotJson("{}").build();
+        when(attempts.selectForUpdate("task-1", attemptId)).thenReturn(attempt);
+        var field = new IamS1FieldProtectionVO(202L, "users", "phone", "MASKED", "PHONE", "masked");
+        var table = new IamS1TablePermissionVO(true, "ALLOWED", "users", List.of("phone"), List.of(),
+                List.of(field), List.of());
+        var current = new IamS1DataAuthorizationSnapshot(true, "ALLOWED", "IAM-SIMPLE-1", 7L, 5L,
+                "fixture", 88L, 9L, LocalDateTime.now(), null, List.of(table));
+        when(queryService.recheck(task, 7L)).thenReturn(current);
+        when(queryService.hasCompleteSourceTrace(any(), any())).thenReturn(true);
+
+        IamS1AttemptResultRequestDTO raw = new IamS1AttemptResultRequestDTO();
+        raw.setAttemptId(attemptId);
+        raw.setSqlHash("b".repeat(64));
+        raw.setSuccess(true);
+        raw.setData(List.of(Map.of("phone", "13800138000", "untracked", "UNTRACKED_RAW_VALUE")));
+        raw.setColumns(List.of(Map.of("name", "phone", "type", "VARCHAR")));
+        raw.setUsedTables(List.of("users"));
+        raw.setUsedColumns(List.of("users.phone"));
+        raw.setSourceTrace(List.of(Map.of("outputColumn", "phone", "sources", List.of("users.phone"),
+                "expression", "phone")));
+        raw.setRowCount(1);
+        raw.setExecutionTimeMs(12);
+
+        Map<String, Object> result = service.protectResult("task-1", raw);
+
+        assertThat(result.get("allowed")).isEqualTo(false);
+        assertThat(result.get("status")).isEqualTo("REJECTED");
+        assertThat(mapper.writeValueAsString(result)).doesNotContain("UNTRACKED_RAW_VALUE");
+        ArgumentCaptor<QueryAttempt> persisted = ArgumentCaptor.forClass(QueryAttempt.class);
+        verify(attempts).updateById(persisted.capture());
+        assertThat(mapper.writeValueAsString(persisted.getValue())).doesNotContain("UNTRACKED_RAW_VALUE");
+        assertThat(persisted.getValue().getStatus()).isEqualTo("REJECTED");
+        assertThat(persisted.getValue().getProtectedData()).isNull();
+        assertThat(persisted.getValue().getProtectedColumns()).isNull();
+        verify(masking, never()).maskResultByFields(any(), any());
+        verify(queryService, never()).deriveOutputMasks(any(), any());
     }
 
     private IamS1AttemptAuthorizeRequestDTO authorizeRequest(String sql, String sqlHash) {

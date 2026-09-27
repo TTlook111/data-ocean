@@ -22,7 +22,9 @@ import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver
 import com.dataocean.module.permission.s1.enums.IamS1ColumnUsage;
 import com.dataocean.module.query.client.IamS1PythonClient;
 import com.dataocean.module.query.controller.IamS1QuerySseController;
+import com.dataocean.module.query.entity.QueryAttempt;
 import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.query.QueryHistoryQuery;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.dataocean.module.query.service.IamS1RowBindingService;
 import com.dataocean.module.query.service.ConversationService;
@@ -37,9 +39,14 @@ import com.dataocean.module.permission.s1.entity.vo.IamS1RowConditionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1RowPredicateVO;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -51,9 +58,11 @@ import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -63,6 +72,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 
 @ExtendWith(MockitoExtension.class)
 class IamS1QueryServiceImplTest {
@@ -121,10 +131,14 @@ class IamS1QueryServiceImplTest {
 
     @Test
     void completeRejectsEmptyUsedColumnsAndSourceTraceBeforePersistingData() throws Exception {
-        service.complete("task-1", objectMapper.writeValueAsString(Map.of(
-                "taskId", "task-1", "protocolVersion", "IAM-SIMPLE-1", "status", "COMPLETED",
-                "usedColumns", List.of(), "sourceTrace", List.of(), "columns", List.of(Map.of("name", "id")),
-                "data", List.of(Map.of("id", 1)))));
+        QueryAttempt attempt = protectedAttempt("task-1", "attempt-empty-trace", "PROTECTED",
+                "[]", "[{\"name\":\"id\"}]", "[]");
+        when(queryAttemptMapper.selectForUpdate("task-1", attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of(), "sourceTrace", List.of(),
+                "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1))));
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
 
         verify(queryTaskMapper).update(any(), any());
         verify(auditLogService, never()).recordAudit(17L);
@@ -136,13 +150,16 @@ class IamS1QueryServiceImplTest {
         metadata.setId(88L);
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
         when(dataResolver.resolve(any())).thenReturn(snapshot());
-        when(maskingService.maskResultByFields(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
-
-        service.complete("task-1", objectMapper.writeValueAsString(Map.of(
-                "taskId", "task-1", "protocolVersion", "IAM-SIMPLE-1", "status", "COMPLETED",
-                "usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
+        QueryAttempt attempt = protectedAttempt("task-1", "attempt-valid", "PROTECTED",
+                "[{\"id\":1}]", "[{\"name\":\"id\"}]",
+                "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate("task-1", attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
                 "sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))),
-                "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1)))));
+                "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1))));
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
 
         verify(queryTaskMapper).update(any(), any());
         verify(auditLogService).recordAudit(17L);
@@ -227,7 +244,8 @@ class IamS1QueryServiceImplTest {
         assertThat(body.getValue().get("conversationSummary")).isEqualTo(Map.of("intent", "订单统计"));
         assertThat(body.getValue()).containsEntry("ragBuildId", buildId)
                 .containsEntry("ragCollectionName", collectionName)
-                .containsEntry("ragSourceSnapshotId", 88L);
+                .containsEntry("ragSourceSnapshotId", 88L)
+                .containsKey("candidateCatalog");
         assertThat(body.getValue().get("glossaryTerms").toString()).contains("订单");
         assertThat(body.getValue().get("fewShotExamples").toString()).contains("上一轮订单");
         assertThat(body.getValue().get("fewShotExamples").toString()).contains("datasourceId=1");
@@ -240,19 +258,140 @@ class IamS1QueryServiceImplTest {
         task.setConversationId(42L);
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
         when(dataResolver.resolve(any())).thenReturn(snapshot());
-        when(maskingService.maskResultByFields(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
         when(queryTaskMapper.update(any(), any())).thenReturn(1);
-
-        service.complete("task-1", objectMapper.writeValueAsString(Map.of(
-                "taskId", "task-1", "protocolVersion", "IAM-SIMPLE-1", "status", "COMPLETED",
-                "usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
+        QueryAttempt attempt = protectedAttempt("task-1", "attempt-assistant", "PROTECTED",
+                "[{\"id\":1}]", "[{\"name\":\"id\"}]",
+                "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate("task-1", attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
                 "sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))),
                 "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1)),
-                "chartConfig", Map.of("series", List.of(Map.of("name", "id", "data", List.of(1)))))));
+                "chartConfig", Map.of("series", List.of(Map.of("name", "id", "data", List.of(1))))));
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
 
         verify(conversationService).saveAssistantMessage(eq(42L), any(), eq("task-1"), any());
         verify(conversationContextSummaryService).refreshAsync(42L, 7L, 1L);
+    }
+
+    static Stream<Arguments> invalidCompletedAttemptCases() {
+        return Stream.of(
+                Arguments.of("missing attemptId", "missing", null, null, true),
+                Arguments.of("blank attemptId", "blank", "   ", null, true),
+                Arguments.of("mismatched SQL hash", "attempt-1", "attempt-1", "PROTECTED", false),
+                Arguments.of("AUTHORIZED attempt", "attempt-1", "attempt-1", "AUTHORIZED", true),
+                Arguments.of("EXECUTING attempt", "attempt-1", "attempt-1", "EXECUTING", true));
+    }
+
+    @ParameterizedTest(name = "COMPLETED callback rejects {0}")
+    @MethodSource("invalidCompletedAttemptCases")
+    void completeRejectsCompletedResultsWithoutTheExactProtectedAttempt(
+            String scenario, String attemptCase, String suppliedAttemptId,
+            String attemptStatus, boolean matchingSqlHash) throws Exception {
+        String expectedHash = "a".repeat(64);
+        String storedHash = matchingSqlHash ? expectedHash : "b".repeat(64);
+        if (!"missing".equals(attemptCase) && !"blank".equals(attemptCase)) {
+            QueryAttempt attempt = protectedAttempt("task-1", suppliedAttemptId, storedHash,
+                    attemptStatus, "[{\"id\":\"PROTECTED_ATTEMPT_VALUE\"}]",
+                    "[{\"name\":\"id\"}]",
+                    "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]",
+                    "[\"orders\"]", "[\"orders.id\"]");
+            when(queryAttemptMapper.selectForUpdate("task-1", suppliedAttemptId)).thenReturn(attempt);
+        }
+        Map<String, Object> result = completedResult("task-1", expectedHash);
+        if (!"missing".equals(attemptCase)) result.put("attemptId", suppliedAttemptId);
+        result.putAll(untrustedCompletionFields());
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
+
+        ArgumentCaptor<LambdaUpdateWrapper<QueryTask>> update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(isNull(), update.capture());
+        assertRejectedCompletionUpdateContainsNoPayload(update.getValue());
+        verify(auditLogService, never()).recordAudit(17L);
+        verify(conversationService, never()).saveAssistantMessage(any(), any(), any(), any());
+        if ("missing".equals(attemptCase) || "blank".equals(attemptCase)) {
+            verify(queryAttemptMapper, never()).selectForUpdate(any(), any());
+        }
+    }
+
+    @Test
+    void missingAttemptCompletionCannotPersistOrExposePythonPayloadThroughReadPathsOrSse() throws Exception {
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        when(queryTaskMapper.update(any(), any())).thenAnswer(invocation -> {
+            task.setStatus("FAILED");
+            task.setErrorMessage("Java 未完成该 SQL 尝试的结果保护");
+            task.setIamFinalProtectionStatus("REJECTED_FINAL_PROTECTION");
+            task.setResultData(null);
+            task.setResultColumns(null);
+            task.setChartConfig(null);
+            task.setSqlExplanation(null);
+            task.setSuggestedQuestions(null);
+            return 1;
+        });
+
+        ArgumentCaptor<Consumer<String>> callback = ArgumentCaptor.forClass(Consumer.class);
+        String taskId;
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            taskId = service.submit(7L, askRequest());
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        task.setTaskId(taskId);
+        task.setConversationId(42L);
+        verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture(), any());
+        Map<String, Object> pythonResult = completedResult(taskId, "a".repeat(64));
+        pythonResult.remove("attemptId");
+        pythonResult.putAll(untrustedCompletionFields());
+        callback.getValue().accept(objectMapper.writeValueAsString(pythonResult));
+
+        ArgumentCaptor<LambdaUpdateWrapper<QueryTask>> update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(isNull(), update.capture());
+        assertRejectedCompletionUpdateContainsNoPayload(update.getValue());
+        ArgumentCaptor<String> failureContent = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> failureMetadata = ArgumentCaptor.forClass(String.class);
+        verify(conversationService).saveAssistantMessage(eq(42L), failureContent.capture(), eq(taskId), failureMetadata.capture());
+        assertThat(failureContent.getValue()).doesNotContain("RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+        assertThat(failureMetadata.getValue()).doesNotContain("RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+        assertThat(task.getResultData()).isNull();
+        assertThat(task.getChartConfig()).isNull();
+        assertThat(task.getSqlExplanation()).isNull();
+
+        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
+        verify(sseController).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO ssePayload = (QueryTaskVO) pushed.getValue();
+        assertThat(ssePayload.getStatus()).isEqualTo("FAILED");
+        assertJsonDoesNotContain(ssePayload, "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+        verify(sseController, never()).sendError(eq(taskId), any());
+
+        QueryTaskVO getPayload = service.get(taskId, 7L);
+        assertThat(getPayload.getStatus()).isEqualTo("FAILED");
+        assertJsonDoesNotContain(getPayload, "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+
+        Page<QueryTask> taskPage = new Page<>(1, 20, 1);
+        taskPage.setRecords(List.of(task));
+        when(queryTaskMapper.selectPage(any(), any())).thenReturn(taskPage);
+        var history = service.history(7L, new QueryHistoryQuery());
+        assertThat(history.getRecords()).hasSize(1);
+        assertJsonDoesNotContain(history.getRecords().get(0),
+                "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+
+        var message = com.dataocean.module.query.entity.vo.ConversationMessageVO.builder()
+                .role("assistant").taskId(taskId).content(failureContent.getValue())
+                .metadata(failureMetadata.getValue()).build();
+        var messagePage = com.dataocean.module.query.entity.vo.ConversationMessagePageVO.builder()
+                .items(new java.util.ArrayList<>(List.of(message))).hasMore(false).build();
+        when(conversationService.listMessagePage(42L, 7L, null, 50)).thenReturn(messagePage);
+        var historyMessages = service.conversationMessages(42L, 7L, null, 50);
+        assertJsonDoesNotContain(historyMessages,
+                "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
     }
 
     @Test
@@ -434,11 +573,16 @@ class IamS1QueryServiceImplTest {
         }
         task.setTaskId(taskId);
         verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture(), any());
-        callback.getValue().accept(objectMapper.writeValueAsString(Map.of(
-                "taskId", taskId, "protocolVersion", "IAM-SIMPLE-1", "status", "COMPLETED",
-                "usedColumns", List.of("users.phone"), "usedTables", List.of("users"),
+        QueryAttempt attempt = protectedAttempt(taskId, "attempt-history-sse", "a".repeat(64), "PROTECTED",
+                "[{\"phone\":\"RAW_PHONE_VALUE_83d2\"}]", "[{\"name\":\"phone\"}]",
+                "[{\"outputColumn\":\"phone\",\"sources\":[\"users.phone\"]}]",
+                "[\"users\"]", "[\"users.phone\"]");
+        when(queryAttemptMapper.selectForUpdate(taskId, attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("users.phone"), "usedTables", List.of("users"),
                 "sourceTrace", List.of(Map.of("outputColumn", "phone", "sources", List.of("users.phone"))),
-                "columns", List.of(Map.of("name", "phone")), "data", List.of(Map.of("phone", "RAW_PHONE_VALUE_83d2")))));
+                "columns", List.of(Map.of("name", "phone")), "data", List.of(Map.of("phone", "RAW_PHONE_VALUE_83d2"))));
+        callback.getValue().accept(objectMapper.writeValueAsString(result));
 
         ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
         verify(sseController).sendResult(eq(taskId), pushed.capture());
@@ -494,6 +638,65 @@ class IamS1QueryServiceImplTest {
 
     private void assertJsonDoesNotContain(Object value, String secret) throws Exception {
         assertThat(objectMapper.writeValueAsString(value)).doesNotContain(secret);
+    }
+
+    private void assertJsonDoesNotContain(Object value, String... secrets) throws Exception {
+        String json = objectMapper.writeValueAsString(value);
+        for (String secret : secrets) assertThat(json).doesNotContain(secret);
+    }
+
+    private Map<String, Object> completedResult(QueryAttempt attempt) {
+        Map<String, Object> result = completedResult(attempt.getTaskId(), attempt.getSqlHash());
+        result.put("attemptId", attempt.getAttemptId());
+        return result;
+    }
+
+    private Map<String, Object> completedResult(String taskId, String sqlHash) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("taskId", taskId);
+        result.put("protocolVersion", "IAM-SIMPLE-1");
+        result.put("status", "COMPLETED");
+        result.put("sqlHash", sqlHash);
+        return result;
+    }
+
+    private Map<String, Object> untrustedCompletionFields() {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("data", List.of(Map.of("id", "RAW_COMPLETION_ROW_8c1e")));
+        fields.put("columns", List.of(Map.of("name", "id")));
+        fields.put("sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))));
+        fields.put("usedTables", List.of("orders"));
+        fields.put("usedColumns", List.of("orders.id"));
+        fields.put("sql", "SELECT id FROM orders");
+        fields.put("sqlExplanation", "RAW_COMPLETION_EXPLANATION_1d0c");
+        fields.put("chartConfig", Map.of("title", "RAW_COMPLETION_CHART_45af",
+                "series", List.of(Map.of("name", "id", "data", List.of("RAW_COMPLETION_CHART_45af")))));
+        fields.put("suggestedQuestions", List.of("RAW_COMPLETION_EXPLANATION_1d0c"));
+        return fields;
+    }
+
+    private QueryAttempt protectedAttempt(String taskId, String attemptId, String status,
+                                          String protectedData, String protectedColumns, String sourceTrace) {
+        return protectedAttempt(taskId, attemptId, "a".repeat(64), status, protectedData,
+                protectedColumns, sourceTrace, "[\"orders\"]", "[\"orders.id\"]");
+    }
+
+    private QueryAttempt protectedAttempt(String taskId, String attemptId, String sqlHash, String status,
+                                          String protectedData, String protectedColumns, String sourceTrace,
+                                          String usedTables, String usedColumns) {
+        return QueryAttempt.builder().taskId(taskId).attemptId(attemptId).sqlHash(sqlHash)
+                .status(status).safeSql("SELECT id FROM orders")
+                .protectedData(protectedData).protectedColumns(protectedColumns).sourceTrace(sourceTrace)
+                .maskedFields("{}").usedTables(usedTables).usedColumns(usedColumns)
+                .rowCount(1).executionTimeMs(3).build();
+    }
+
+    private void assertRejectedCompletionUpdateContainsNoPayload(LambdaUpdateWrapper<QueryTask> update) {
+        String assignments = update.getSqlSet().toLowerCase(java.util.Locale.ROOT);
+        assertThat(assignments).doesNotContain("result_data", "result_columns", "chart_config",
+                "sql_explanation", "result_sql", "iam_source_trace", "suggested_questions");
+        assertThat(update.getParamNameValuePairs().values().toString()).doesNotContain(
+                "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
     }
 
     @Test
@@ -649,7 +852,6 @@ class IamS1QueryServiceImplTest {
         when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:use"))).thenReturn(true);
         when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:sql:view"))).thenReturn(false);
         when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:export"))).thenReturn(false);
-        when(maskingService.maskResultByFields(any(), any())).thenAnswer(invocation -> invocation.getArgument(0));
         // 任务已按当前权限落库了注入后的 SQL，但该用户没有 query:sql:view。
         task.setStatus("COMPLETED");
         task.setResultSql("SELECT id FROM orders LIMIT 10000");
@@ -671,12 +873,16 @@ class IamS1QueryServiceImplTest {
             TransactionSynchronizationManager.clearSynchronization();
         }
         verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture(), any());
-        callback.getValue().accept(objectMapper.writeValueAsString(Map.of(
-                "taskId", taskId, "protocolVersion", "IAM-SIMPLE-1", "status", "COMPLETED",
-                "usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
+        QueryAttempt attempt = protectedAttempt(taskId, "attempt-sse-sql-view", "PROTECTED",
+                "[{\"id\":1}]", "[{\"name\":\"id\"}]",
+                "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate(taskId, attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
                 "sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))),
                 "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1)),
-                "sql", "SELECT id FROM orders LIMIT 10000")));
+                "sql", "SELECT id FROM orders LIMIT 10000"));
+        callback.getValue().accept(objectMapper.writeValueAsString(result));
 
         ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
         verify(sseController).sendResult(eq(taskId), pushed.capture());
@@ -755,14 +961,20 @@ class IamS1QueryServiceImplTest {
         metadata.setId(88L);
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
         when(dataResolver.resolve(any())).thenReturn(maskedSnapshot());
-
-        service.complete("task-1", objectMapper.writeValueAsString(Map.of(
-                "taskId", "task-1", "protocolVersion", "IAM-SIMPLE-1", "status", "COMPLETED",
-                "usedColumns", List.of("users.phone", "users.email"), "usedTables", List.of("users"),
+        QueryAttempt attempt = protectedAttempt("task-1", "attempt-conflicting-mask", "a".repeat(64), "PROTECTED",
+                "[{\"x\":\"13800000000\"}]", "[{\"name\":\"x\"}]",
+                "[{\"outputColumn\":\"x\",\"sources\":[\"users.phone\"]},"
+                        + "{\"outputColumn\":\"X\",\"sources\":[\"users.email\"]}]",
+                "[\"users\"]", "[\"users.phone\",\"users.email\"]");
+        when(queryAttemptMapper.selectForUpdate("task-1", attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("users.phone", "users.email"), "usedTables", List.of("users"),
                 "sourceTrace", List.of(
                         Map.of("outputColumn", "x", "sources", List.of("users.phone")),
                         Map.of("outputColumn", "X", "sources", List.of("users.email"))),
-                "columns", List.of(Map.of("name", "x")), "data", List.of(Map.of("x", "13800000000")))));
+                "columns", List.of(Map.of("name", "x")), "data", List.of(Map.of("x", "13800000000"))));
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
 
         // 冲突结果只能按其中一个策略脱敏，必须在落库前 fail-closed。
         verify(queryTaskMapper).update(any(), any());
