@@ -25,6 +25,8 @@ import { listSnapshots } from '../../../api/admin/metadata'
 import { qualityDimensionLabel, severityLabel } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
+import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
+import ErrorState from '../../../components/common/ErrorState.vue'
 
 interface SnapshotOption {
   id: number
@@ -45,6 +47,9 @@ const checkResult = ref<QualityCheckResult | null>(null)
 const rules = ref<QualityRule[]>([])
 const issues = ref<QualityIssueItem[]>([])
 const unresolvedCounts = ref({ OPEN: 0, CONFIRMED: 0, REOPENED: 0 })
+const pageError = ref('')
+const issuesError = ref('')
+const rulesError = ref('')
 let snapshotRequestId = 0
 let issueRequestId = 0
 let disposed = false
@@ -67,7 +72,7 @@ const highIssues = computed(() => issues.value.filter((item) => item.severity ==
 const unresolvedIssueTotal = computed(() => unresolvedCounts.value.OPEN + unresolvedCounts.value.CONFIRMED + unresolvedCounts.value.REOPENED)
 const hasUnresolvedIssues = computed(() => unresolvedIssueTotal.value > 0)
 const canReturnToRelease = computed(() => Boolean(
-  selectedSnapshot.value
+  !issuesError.value && !loading.value && selectedSnapshot.value
   && ['APPROVED', 'PUBLISHED', 'EXPIRED'].includes(String(selectedSnapshot.value.status))
   && !hasUnresolvedIssues.value
   && (checkResult.value || latestScore.value !== undefined),
@@ -145,12 +150,8 @@ function statusType(value?: string) {
   return 'info'
 }
 
-function formatSnapshotLabel(item: SnapshotOption) {
-  const score = item.qualityScore === undefined ? '' : ` / ${item.qualityScore} 分`
-  return `${item.datasourceName || '数据源'} · v${item.snapshotVersion}${score}`
-}
-
 async function fetchSnapshots() {
+  pageError.value = ''
   const currentRequest = ++snapshotRequestId
   const datasourceId = adminContext.datasourceId
   issues.value = []
@@ -176,18 +177,30 @@ async function fetchSnapshots() {
 }
 
 async function fetchRules() {
-  const res = await listQualityRules()
-  rules.value = res.data ?? []
+  rulesError.value = ''
+  if (!iamS1.hasGlobal('governance:rule:view')) {
+    rules.value = []
+    rulesError.value = '当前账号没有查看质量规则的功能权限。'
+    return
+  }
+  try {
+    const res = await listQualityRules()
+    rules.value = res.data ?? []
+  } catch {
+    rulesError.value = '质量规则读取失败，请重试。'
+  }
 }
 
 async function fetchIssues() {
   const currentRequest = ++issueRequestId
+  issuesError.value = ''
   const snapshotId = selectedSnapshotId.value
   if (!snapshotId) {
     issues.value = []
     unresolvedCounts.value = { OPEN: 0, CONFIRMED: 0, REOPENED: 0 }
     return
   }
+  try {
   const [openResult, confirmedResult, reopenedResult] = await Promise.all([
     listQualityIssues(snapshotId, { page: 1, size: 6, status: 'OPEN' }),
     listQualityIssues(snapshotId, { page: 1, size: 1, status: 'CONFIRMED' }),
@@ -199,6 +212,10 @@ async function fetchIssues() {
     OPEN: openResult.data?.total ?? 0,
     CONFIRMED: confirmedResult.data?.total ?? 0,
     REOPENED: reopenedResult.data?.total ?? 0,
+  }
+  } catch {
+    if (disposed || currentRequest !== issueRequestId || snapshotId !== selectedSnapshotId.value) return
+    issuesError.value = '治理问题读取失败，无法确认是否有待处理事项。'
   }
 }
 
@@ -226,27 +243,26 @@ async function runCheck() {
   }
 }
 
-async function handleSnapshotChange(id?: number) {
-  adminContext.selectSnapshot(id)
-  checkResult.value = null
-  await fetchIssues()
-}
-
 async function toggleRule(rule: QualityRule) {
+  if (!iamS1.systemAdmin) return
   const nextEnabled = rule.enabled !== 1
   await updateRuleEnabled(rule.id, nextEnabled)
   rule.enabled = nextEnabled ? 1 : 0
 }
 
-onMounted(async () => {
+async function load() {
   loading.value = true
+  pageError.value = ''
   try {
     await adminContext.initialize()
     await Promise.all([fetchSnapshots(), fetchRules()])
+  } catch {
+    pageError.value = '治理范围或快照读取失败，请重试。'
   } finally {
     loading.value = false
   }
-})
+}
+onMounted(load)
 
 onBeforeUnmount(() => {
   disposed = true
@@ -257,7 +273,7 @@ onBeforeUnmount(() => {
 watch(
   () => adminContext.snapshotId,
   async (snapshotId) => {
-    if (!snapshotId || selectedSnapshotId.value === snapshotId) return
+    if (selectedSnapshotId.value === snapshotId) return
     selectedSnapshotId.value = snapshotId
     checkResult.value = null
     await fetchIssues()
@@ -268,18 +284,21 @@ watch(
   () => adminContext.datasourceId,
   async () => {
     checkResult.value = null
-    await fetchSnapshots()
+    try { await fetchSnapshots() } catch { pageError.value = '当前数据源的快照读取失败，请重试。' }
   },
 )
 </script>
 
 <template>
   <main v-loading="loading" class="quality-page post-login-page">
+    <TaskPageHeader title="治理总览" description="查看当前快照的质量结果，优先处理影响使用的问题。" />
+    <ErrorState v-if="pageError" :message="pageError" @retry="load" />
+    <template v-else>
     <section class="quality-hero">
       <div class="quality-title">
         <span>治理质量</span>
         <h2>{{ selectedSnapshot?.datasourceName || adminContext.currentDatasource?.name || '选择数据源后开始治理' }}</h2>
-        <p>围绕同一个数据源快照完成校验、规则启停和问题处理。</p>
+        <p>{{ selectedSnapshot ? '当前快照 v' + selectedSnapshot.snapshotVersion : '请在上方选择数据源和快照' }} · {{ checkResult ? '本次校验结果' : '显示快照记录的综合评分' }}</p>
       </div>
       <div class="score-summary" :style="{ color: scoreColor(latestScore) }">
         <strong>{{ latestScore ?? '--' }}</strong>
@@ -288,30 +307,11 @@ watch(
     </section>
 
     <section class="context-panel">
-      <div class="snapshot-picker">
-        <span>
-          <GitBranch :size="16" />
-          快照
-        </span>
-        <el-select
-          v-model="selectedSnapshotId"
-          placeholder="选择快照"
-          filterable
-          @change="handleSnapshotChange"
-        >
-          <el-option
-            v-for="item in snapshots"
-            :key="item.id"
-            :value="item.id"
-            :label="formatSnapshotLabel(item)"
-          />
-        </el-select>
-      </div>
       <el-button
         type="primary"
         :icon="Play"
         :loading="checkLoading"
-        :disabled="!canRunCheck"
+        :disabled="!canRunCheck || !selectedSnapshotId"
         @click="runCheck"
       >
         执行质量校验
@@ -323,7 +323,9 @@ watch(
       <el-button v-else-if="canReturnToRelease" @click="openReleaseFlow">返回版本发布</el-button>
     </section>
 
-    <section class="flow-panel">
+    <details class="quality-details">
+      <summary>查看治理流程</summary>
+      <section class="flow-panel">
       <div v-for="(step, index) in flowSteps" :key="step.title" class="flow-step" :class="{ done: step.done }">
         <div class="flow-line" :class="{ filled: index === 0 || flowSteps[index - 1]?.done }" />
         <div class="flow-node">
@@ -333,7 +335,8 @@ watch(
         <strong>{{ step.title }}</strong>
         <span>{{ step.text }}</span>
       </div>
-    </section>
+      </section>
+    </details>
 
     <section class="governance-layout">
       <div class="result-area">
@@ -342,7 +345,7 @@ watch(
             <span>校验结果</span>
             <h3>{{ checkResult ? '本次校验' : '当前快照' }}</h3>
           </div>
-          <el-tag :type="highIssues.length ? 'danger' : 'success'">
+          <el-tag v-if="selectedSnapshotId && !issuesError" :type="highIssues.length ? 'danger' : 'success'">
             {{ highIssues.length ? `${highIssues.length} 个高危` : '无高危' }}
           </el-tag>
         </div>
@@ -355,10 +358,10 @@ watch(
         </div>
         <div v-else class="empty-state">
           <ClipboardCheck :size="28" />
-          <span>执行质量校验后展示维度得分</span>
+          <span>上方评分来自快照记录。本页执行校验后展示本次维度得分。</span>
         </div>
 
-        <div class="issue-strip">
+        <div v-if="checkResult" class="issue-strip">
           <span>问题分布</span>
           <el-tag type="danger" size="small">高 {{ checkResult?.issueCount.HIGH || highIssues.length }}</el-tag>
           <el-tag type="warning" size="small">中 {{ checkResult?.issueCount.MEDIUM || 0 }}</el-tag>
@@ -370,7 +373,7 @@ watch(
         <div class="area-header">
           <div>
             <span>待处理问题</span>
-            <h3>{{ issues.length ? '优先处理这些项' : '暂无待处理项' }}</h3>
+            <h3>{{ issuesError ? '问题状态暂不可用' : !selectedSnapshotId ? '请先选择快照' : issues.length ? '优先处理这些项' : '暂无待处理项' }}</h3>
           </div>
           <div class="issue-header-actions">
             <el-button v-if="hasUnresolvedIssues" link type="primary" @click="openIssueCenter">查看全部</el-button>
@@ -378,7 +381,8 @@ watch(
           </div>
         </div>
 
-        <div v-if="issues.length" class="issue-list">
+        <ErrorState v-if="issuesError" :message="issuesError" @retry="fetchIssues" />
+        <div v-else-if="issues.length" class="issue-list">
           <div v-for="issue in issues" :key="issue.id" class="issue-item">
             <div>
               <strong>{{ issue.tableName }}{{ issue.columnName ? `.${issue.columnName}` : '' }}</strong>
@@ -389,12 +393,15 @@ watch(
         </div>
         <div v-else class="empty-state">
           <ShieldCheck :size="28" />
-          <span>当前快照没有打开状态的问题</span>
+          <span>{{ selectedSnapshotId ? '当前快照没有打开状态的问题' : '选择快照后查看待处理问题' }}</span>
         </div>
       </div>
     </section>
 
-    <section class="rules-area">
+    <details class="rules-area quality-details">
+      <summary>质量规则 · {{ rulesError ? '暂不可用' : enabledRules.length + ' / ' + rules.length + ' 已启用' }} · 展开查看</summary>
+      <ErrorState v-if="rulesError" :message="rulesError" @retry="fetchRules" />
+      <template v-else>
       <div class="area-header">
         <div>
           <span>质量规则</span>
@@ -413,15 +420,19 @@ watch(
             <el-tag size="small">{{ qualityDimensionLabel(rule.dimension) }}</el-tag>
             <el-tag :type="statusType(rule.severity)" size="small">{{ severityLabel(rule.severity) }}</el-tag>
             <span>-{{ rule.deductionPoints }}</span>
-            <el-switch :model-value="rule.enabled === 1" size="small" @change="toggleRule(rule)" />
+            <el-switch :model-value="rule.enabled === 1" size="small" :disabled="!iamS1.systemAdmin" :title="iamS1.systemAdmin ? '' : '只有系统管理员可以启停全局规则'" @change="toggleRule(rule)" />
           </div>
         </div>
       </div>
-    </section>
+      </template>
+    </details>
+    </template>
   </main>
 </template>
 
 <style scoped>
+.quality-details summary { cursor: pointer; color: var(--do-ink); font-size: 14px; padding: 12px 0; }
+.quality-details[open] summary { margin-bottom: 16px; }
 .quality-page {
   display: grid;
   gap: 16px;
@@ -495,9 +506,9 @@ watch(
 }
 
 .context-panel {
-  display: grid;
-  grid-template-columns: minmax(240px, 420px) auto;
-  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 14px;
   padding: 16px;
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import { computed, reactive, ref, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RefreshCw } from 'lucide-vue-next'
@@ -297,6 +298,7 @@ watch(
 
 <template>
   <main class="status-page post-login-page">
+    <TaskPageHeader title="规则与状态" description="查看质量规则，维护表和字段的使用状态。" />
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="质量规则" name="rules">
         <section class="rules-panel">

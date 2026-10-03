@@ -706,6 +706,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="data-lineage-page post-login-page">
+    <h1 class="lineage-page-heading">数据血缘</h1>
     <!-- ===== 左侧面板 (320px) ===== -->
     <aside class="left-panel">
       <!-- 数据源范围由顶部 ScopeBar 提供，页面不再自建选择器（§6.2 规则 8） -->
@@ -980,6 +981,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.lineage-page-heading { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .scope-hint {
   display: grid;
   gap: 3px;

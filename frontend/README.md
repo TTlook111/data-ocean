@@ -2,6 +2,8 @@
 
 DataOcean 前端项目，基于 Vue 3 + TypeScript + Vite + Element Plus 构建。
 
+后台产品体验约定见 [后台产品体验优化建议](../docs/development/DataOcean-后台产品体验优化建议.md)；导航及当前验收边界见 [后台重构状态文档](../docs/development/completed/DataOcean后台重构状态与整改计划.md)。账号入口统一放在侧栏左下角，正文以用户任务、状态和下一步为主。
+
 ## 启动
 
 ```bash

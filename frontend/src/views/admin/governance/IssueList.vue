@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RefreshCw } from 'lucide-vue-next'
@@ -443,6 +444,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="issue-page post-login-page">
+    <TaskPageHeader title="问题中心" description="查找、分配并处理当前范围的治理问题。" />
     <section class="page-actions">
       <el-button :icon="RefreshCw" @click="fetchIssues">刷新</el-button>
     </section>

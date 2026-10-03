@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, type Component } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ArrowRight, Database, PlugZap, RefreshCw, Sparkles, Table2, Workflow } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, CheckCircle2, CircleAlert, Database, PlugZap, RefreshCw, Workflow } from 'lucide-vue-next'
 import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import {
   getDatasource,
@@ -17,15 +17,12 @@ import { listSnapshots, listSyncTasks, triggerSync, type SnapshotItem, type Sync
 import { listQualityIssues, type QualityIssueItem } from '../../../api/admin/governance'
 import { listKnowledgeDocs, type KnowledgeDocItem } from '../../../api/admin/knowledge'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
-import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
-import LifecycleStepper from '../../../components/admin/LifecycleStepper.vue'
 import ReadinessPanel from '../../../components/admin/ReadinessPanel.vue'
 import NextActionCard from '../../../components/admin/NextActionCard.vue'
 import ActivityTimeline from '../../../components/admin/ActivityTimeline.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
-import EmptyState from '../../../components/common/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -40,13 +37,15 @@ const loading = ref(true)
 const actionLoading = ref(false)
 const error = ref('')
 
-const latestSnapshot = computed(() => snapshots.value[0])
 
 // 快照列表来自 Promise.allSettled，空数组也可能只是「请求失败」。
 // 区分这两种情况，避免在明明有草稿快照时误判为「还没采集」。
 const snapshotRequestOk = ref(false)
 /** 语义知识文档请求是否成功；失败要显示错误态，不能伪装成「没有知识文档」 */
 const knowledgeRequestOk = ref(false)
+const syncRequestOk = ref(false)
+const issuesError = ref('')
+const publishedSnapshot = computed(() => snapshots.value.find(item => item.id === readiness.value?.publishedSnapshotId))
 
 interface PrimaryAction {
   key: string
@@ -70,10 +69,10 @@ const INLINE_ACTIONS: Record<string, { key: string; icon: Component }> = {
  */
 const primaryAction = computed<PrimaryAction>(() => {
   if (!readiness.value) return { key: 'reload', label: '刷新状态' }
-  // 可证明 blockReasons 为空等价于 askable：后端 appendBlockReasons 的 6 个条件
-  // 正好是 askable 五个分量的否定。
   const reason = readiness.value.blockReasons?.[0]
-  if (!reason) return { key: 'query', label: '进入智能问数', icon: ArrowRight }
+  if (!reason) return readiness.value.askable
+    ? { key: 'navigate', label: '查看数据资产', icon: Database, to: { path: '/admin/assets', query: { datasourceId: String(datasourceId.value) } } }
+    : { key: 'reload', label: '刷新状态', icon: RefreshCw }
 
   // 后端用同一个 code 表达了两种情况（metadataReady = publishedSnapshot != null）：
   // 一条快照都没有 vs 有草稿快照但未发布。两者该做的事相反，必须按页面已有数据分流。
@@ -95,40 +94,6 @@ const primaryAction = computed<PrimaryAction>(() => {
   // 未知状态不得猜测：回退为刷新状态，而不是跳到占位目标。
   if (!target) return { key: 'reload', label: '刷新状态', icon: RefreshCw }
   return { key: 'navigate', label: reason.actionText || '去处理', icon: ArrowRight, to: target }
-})
-
-/**
- * 后端 `applyStage` 只会产出这 7 个 stage 取值
- * （DatasourceReadinessServiceImpl.applyStage）。这里做显式翻译，
- * 不用字符串 `includes` 猜测——未知取值落到空串、不高亮任何步骤，
- * 后端新增 stage 时会显式失配而不是静默错配。
- */
-const STAGE_TO_STEP: Record<string, string> = {
-  CONNECTION_CHECK_REQUIRED: 'connection',
-  SNAPSHOT_PENDING: 'collection',
-  GOVERNANCE_BLOCKED: 'governance',
-  KNOWLEDGE_PENDING: 'knowledge',
-  PERMISSION_PENDING: 'permission',
-  ASKABLE: 'askable',
-  // UNKNOWN 在后端不可达：applyStage 先判 askable，而五个 !isX 全不成立等价于 askable=true。
-  UNKNOWN: '',
-}
-
-const currentStepKey = computed(() => STAGE_TO_STEP[readiness.value?.stage || ''] || '')
-
-const lifecycleSteps = computed(() => {
-  // 「快照发布」不再是独立步骤：后端 metadataReady 同时表示「已采集」和「已发布」
-  // （metadataReady = publishedSnapshot != null），与 publishedSnapshotId 布尔值恒等，
-  // 该步骤永远不可能成为当前步。6 步对应后端 6 个就绪维度。
-  const values = [
-    { key: 'connection', label: '连接', done: Boolean(readiness.value?.connectionReady) },
-    { key: 'collection', label: '采集', done: Boolean(readiness.value?.metadataReady) },
-    { key: 'governance', label: '治理', done: Boolean(readiness.value?.governanceReady) },
-    { key: 'knowledge', label: '知识发布', done: Boolean(readiness.value?.knowledgeReady) },
-    { key: 'permission', label: '授权', done: Boolean(readiness.value?.permissionReady) },
-    { key: 'askable', label: '可问数', done: Boolean(readiness.value?.askable) },
-  ]
-  return values.map((item) => ({ ...item, current: item.key === currentStepKey.value }))
 })
 
 const activityItems = computed(() => [
@@ -159,6 +124,12 @@ async function load() {
   error.value = ''
   snapshotRequestOk.value = false
   knowledgeRequestOk.value = false
+  syncRequestOk.value = false
+  issuesError.value = ''
+  snapshots.value = []
+  syncTasks.value = []
+  knowledgeDocs.value = []
+  qualityIssues.value = []
   try {
     const [sourceResult, readinessResult] = await Promise.all([
       getDatasource(datasourceId.value),
@@ -178,14 +149,17 @@ async function load() {
     snapshotRequestOk.value = snapshotResult.status === 'fulfilled'
     if (snapshotResult.status === 'fulfilled') snapshots.value = snapshotResult.value.data.records || []
     if (taskResult.status === 'fulfilled') syncTasks.value = taskResult.value.data.records || []
+    syncRequestOk.value = taskResult.status === 'fulfilled'
     knowledgeRequestOk.value = knowledgeResult.status === 'fulfilled'
     if (knowledgeResult.status === 'fulfilled') knowledgeDocs.value = knowledgeResult.value.data.records || []
 
-    if (latestSnapshot.value) {
-      const issueResult = await listQualityIssues(latestSnapshot.value.id, { page: 1, size: 5, status: 'OPEN' }).catch(() => null)
-      qualityIssues.value = issueResult?.data.records || []
-    } else {
-      qualityIssues.value = []
+    if (readiness.value?.publishedSnapshotId) {
+      try {
+        const issueResult = await listQualityIssues(readiness.value.publishedSnapshotId, { page: 1, size: 5, status: 'OPEN' })
+        qualityIssues.value = issueResult.data.records || []
+      } catch (cause) {
+        issuesError.value = apiError(cause, '治理问题读取失败，请重试')
+      }
     }
   } catch (cause) {
     error.value = apiError(cause, '数据源详情加载失败，请稍后重试')
@@ -238,7 +212,6 @@ function runPrimaryAction() {
   if (action.key === 'test') return testConnection()
   if (action.key === 'enable') return enableDatasource()
   if (action.key === 'collect') return startCollection()
-  if (action.key === 'query') return router.push('/query')
   if (action.key === 'navigate' && action.to) return router.push(action.to)
   return load()
 }
@@ -255,234 +228,77 @@ onMounted(async () => {
 
 <template>
   <div class="admin-page datasource-cockpit">
-    <ObjectContextSummary
-      v-if="datasource"
-      :title="datasource.name"
-      :description="datasource.host + ':' + datasource.port + ' / ' + datasource.databaseName"
-      back-to="/admin/data-sources"
-      source-label="数据源接入"
-    />
-    <TaskPageHeader
-      title="数据源驾驶舱"
-      :description="readiness?.blockReasons?.length ? '当前存在阻断原因，请按责任角色和行动入口推进。' : '沿着连接、采集、治理、发布、知识和授权完成上线。'"
-    >
-      <template #status>
-        <BusinessStatusBadge v-if="datasource" :status="datasource.status === 1 ? 'ENABLED' : 'DISABLED'" />
-        <BusinessStatusBadge v-if="readiness" :status="readiness.askable ? 'PUBLISHED' : readiness.stage" :label="readiness.askable ? '可以问数' : readiness.stageLabel" />
-      </template>
-      <template #actions>
-        <el-button :icon="RefreshCw" :loading="loading" @click="load">刷新状态</el-button>
-        <el-button v-if="primaryAction.icon" type="primary" :icon="primaryAction.icon" :loading="actionLoading" @click="runPrimaryAction">{{ primaryAction.label }}</el-button>
-      </template>
+    <RouterLink class="datasource-back" to="/admin/data-sources"><ArrowLeft :size="15" aria-hidden="true" />返回数据源</RouterLink>
+    <TaskPageHeader :title="datasource?.name || '数据源详情'" :description="datasource ? datasource.dbType + ' · ' + datasource.databaseName : '查看准备条件和待处理事项。'">
+      <template #actions><el-button :icon="RefreshCw" :loading="loading" @click="load">刷新状态</el-button><el-button v-if="primaryAction.icon && primaryAction.key !== 'reload'" type="primary" :icon="primaryAction.icon" :loading="actionLoading" :disabled="loading || !!error" @click="runPrimaryAction">{{ primaryAction.label }}</el-button></template>
     </TaskPageHeader>
-
-    <LoadingState v-if="loading" variant="skeleton" :rows="8" />
+    <LoadingState v-if="loading" variant="skeleton" :rows="7" />
     <ErrorState v-else-if="error" :message="error" @retry="load" />
     <template v-else-if="readiness">
-      <section class="datasource-cockpit__lifecycle">
-        <div class="section-heading"><div><h2>上线流程</h2><p>当前动作由 readiness 和数据源服务端状态共同决定。</p></div></div>
-        <LifecycleStepper :steps="lifecycleSteps" />
+      <section class="source-outcome" :class="{ ready: readiness.askable }">
+        <component :is="readiness.askable ? CheckCircle2 : CircleAlert" :size="28" aria-hidden="true" />
+        <div><strong>{{ readiness.askable ? '已具备问数条件 · 当前没有阻断项' : readiness.stageLabel }}</strong><p>{{ readiness.askable ? '准备条件已满足，可继续查看数据资产或管理知识与授权。' : '先处理下方具体事项，再刷新状态确认准备情况。' }}</p></div>
       </section>
-
       <div class="datasource-cockpit__grid">
         <div class="datasource-cockpit__main">
           <ReadinessPanel :readiness="readiness" />
-          <NextActionCard :reasons="readiness.blockReasons" :datasource-id="datasourceId" />
+          <NextActionCard v-if="readiness.blockReasons.length" :reasons="readiness.blockReasons" :datasource-id="datasourceId" :snapshot-id="readiness.publishedSnapshotId" />
           <section class="datasource-cockpit__card">
-            <div class="section-heading">
-              <div><h2>当前阶段</h2><p>{{ readiness.stageLabel }} · {{ readiness.progress }}%</p></div>
-              <el-button text @click="runPrimaryAction">{{ primaryAction.label }}</el-button>
-            </div>
-            <div v-if="currentStepKey === 'collection'" class="stage-callout">
-              <Table2 :size="20" />
-              <div><strong>采集会形成新的元数据快照</strong><span>采集成功后进入版本发布和治理检查，草稿快照不会直接变成正式资产。</span></div>
-            </div>
-            <div v-else-if="readiness.askable" class="stage-callout stage-callout--success">
-              <Sparkles :size="20" />
-              <div><strong>数据源已达到可问数条件</strong><span>可以进入智能问数，也可以继续通过审计、反馈和治理工作区运营。</span></div>
-            </div>
-            <div v-else class="stage-callout">
-              <Workflow :size="20" />
-              <div><strong>{{ readiness.stageLabel }}</strong><span>优先处理上方阻断原因，再回到此驾驶舱刷新状态。</span></div>
-            </div>
+            <div class="section-heading"><h2>治理问题</h2><RouterLink class="inline-link" :to="{ path: '/admin/governance/issues', query: { datasourceId: String(datasourceId), snapshotId: readiness.publishedSnapshotId ? String(readiness.publishedSnapshotId) : undefined } }">查看问题中心<ArrowRight :size="14" aria-hidden="true" /></RouterLink></div>
+            <ErrorState v-if="issuesError" :message="issuesError" @retry="load" />
+            <p v-else-if="!readiness.publishedSnapshotId" class="muted">发布快照后，可在这里查看对应的治理问题。</p>
+            <p v-else-if="qualityIssues.length" class="muted">最近 {{ qualityIssues.length }} 个待处理问题可在问题中心继续处理。</p>
+            <p v-else class="muted">当前发布快照没有读取到待处理问题。</p>
           </section>
         </div>
-
         <aside class="datasource-cockpit__side">
           <section class="datasource-cockpit__card">
-            <div class="section-heading"><div><h2>最近快照</h2><p>正式发布资产由版本发布工作区管理。</p></div></div>
-            <div v-if="snapshots.length" class="compact-list">
-              <button v-for="snapshot in snapshots" :key="snapshot.id" type="button" class="compact-list__item" @click="openSnapshot(snapshot.id)">
-                <span><strong>v{{ snapshot.snapshotVersion }}</strong><small>{{ snapshot.tableCount }} 表 · {{ snapshot.columnCount }} 字段</small></span>
-                <BusinessStatusBadge :status="snapshot.status" :label="snapshotStatusLabel(snapshot.status)" />
-              </button>
+            <h2>数据源信息</h2>
+            <dl class="source-facts"><div><dt>数据源类型</dt><dd>{{ datasource?.dbType }}</dd></div><div><dt>数据库</dt><dd>{{ datasource?.databaseName }}</dd></div><div><dt>连接地址</dt><dd>{{ datasource?.host }}:{{ datasource?.port }}</dd></div><div><dt>使用状态</dt><dd><BusinessStatusBadge :status="datasource?.status === 1 ? 'ENABLED' : 'DISABLED'" /></dd></div></dl>
+            <div class="source-detail-section">
+              <h2>当前发布快照</h2>
+              <ErrorState v-if="!snapshotRequestOk" message="快照读取失败，无法展示快照详情。" @retry="load" />
+              <button v-else-if="readiness.publishedSnapshotId" type="button" class="compact-list__item" @click="openSnapshot(readiness.publishedSnapshotId)"><span><strong>{{ readiness.snapshotVersion ? 'v' + readiness.snapshotVersion : '已发布快照' }}</strong><small v-if="publishedSnapshot">{{ publishedSnapshot.tableCount }} 张表 · {{ publishedSnapshot.columnCount }} 个字段</small></span><BusinessStatusBadge status="PUBLISHED" /></button>
+              <p v-else class="muted">还没有已发布快照。采集后需审核并发布。</p>
+              <details v-if="snapshots.length" class="source-details"><summary>查看最近快照</summary><div class="compact-list"><button v-for="snapshot in snapshots" :key="snapshot.id" class="compact-list__item" type="button" @click="openSnapshot(snapshot.id)"><span>v{{ snapshot.snapshotVersion }}</span><BusinessStatusBadge :status="snapshot.status" :label="snapshotStatusLabel(snapshot.status)" /></button></div></details>
             </div>
-            <EmptyState v-else message="暂无快照，连接正常后可以开始采集。" action-text="开始采集" @action="startCollection" />
-          </section>
-          <section class="datasource-cockpit__card">
-            <div class="section-heading"><div><h2>最近活动</h2><p>采集和快照记录。</p></div></div>
-            <ActivityTimeline :items="activityItems" />
-          </section>
-          <section class="datasource-cockpit__card">
-            <div class="section-heading"><div><h2>语义知识</h2><p>最近的 skills.md 文档与发布状态。</p></div></div>
-            <div v-if="knowledgeDocs.length" class="compact-list">
-              <RouterLink v-for="doc in knowledgeDocs" :key="doc.id" class="compact-list__item" :to="'/admin/semantics/knowledge/' + doc.id">
-                <span><strong>{{ doc.title }}</strong><small>v{{ doc.currentVersion }} · {{ knowledgeStatusLabel(doc.status) }}</small></span>
-                <ArrowRight :size="15" />
-              </RouterLink>
+            <div class="source-detail-section">
+              <h2>语义知识</h2>
+              <ErrorState v-if="!knowledgeRequestOk" message="知识文档读取失败，请重试。" @retry="load" />
+              <div v-else-if="knowledgeDocs.length" class="compact-list"><RouterLink v-for="doc in knowledgeDocs" :key="doc.id" class="compact-list__item" :to="'/admin/semantics/knowledge/' + doc.id"><span><strong>{{ doc.title }}</strong><small>v{{ doc.currentVersion }} · {{ knowledgeStatusLabel(doc.status) }}</small></span><ArrowRight :size="15" aria-hidden="true" /></RouterLink></div>
+              <p v-else class="muted">还没有知识文档。通过准备清单进入语义知识工作区。</p>
             </div>
-            <!-- 请求失败必须说成失败：空态会把「接口挂了」读成「还没有知识文档」 -->
-            <EmptyState
-              v-else-if="!knowledgeRequestOk"
-              message="语义知识文档加载失败，无法确认当前是否已有知识文档。"
-              action-text="重试"
-              @action="load"
-            />
-            <EmptyState
-              v-else
-              message="该数据源还没有语义知识文档。"
-              action-text="去准备知识"
-              @action="router.push({ path: '/admin/semantics/knowledge', query: { datasourceId: String(datasourceId) } })"
-            />
           </section>
-          <section class="datasource-cockpit__card">
-            <div class="section-heading"><div><h2>治理问题</h2><p>当前快照待处理问题。</p></div></div>
-            <RouterLink v-if="qualityIssues.length" class="inline-link" :to="{ path: '/admin/governance/issues', query: { datasourceId: String(datasourceId), snapshotId: String(latestSnapshot?.id || '') } }">
-              {{ qualityIssues.length }} 个问题需要处理 <ArrowRight :size="15" />
-            </RouterLink>
-            <EmptyState v-else message="当前没有加载到待处理问题" />
-          </section>
+          <details class="datasource-cockpit__card source-details"><summary>最近采集与快照活动</summary><ErrorState v-if="!syncRequestOk" message="采集记录读取失败，请重试。" @retry="load" /><ActivityTimeline v-else :items="activityItems" /></details>
         </aside>
       </div>
     </template>
   </div>
 </template>
-
 <style scoped>
-.datasource-cockpit {
-  display: grid;
-  gap: 18px;
-}
-
-.datasource-cockpit__lifecycle,
-.datasource-cockpit__card {
-  padding: 20px;
-  border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-lg);
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
-}
-
-.section-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.section-heading h2 {
-  margin: 0;
-  color: var(--do-ink);
-  font-size: 16px;
-}
-
-.section-heading p {
-  margin: 5px 0 0;
-  color: var(--do-muted);
-  font-size: 12px;
-}
-
-.datasource-cockpit__grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(300px, .7fr);
-  gap: 18px;
-}
-
-.datasource-cockpit__main,
-.datasource-cockpit__side {
-  display: grid;
-  align-content: start;
-  gap: 18px;
-  min-width: 0;
-}
-
-.stage-callout {
-  display: flex;
-  gap: 12px;
-  padding: 16px;
-  border-radius: var(--do-radius-md);
-  color: var(--do-primary-strong);
-  background: var(--do-primary-soft);
-}
-
-.stage-callout--success {
-  color: var(--do-success);
-  background: var(--do-success-soft);
-}
-
-.stage-callout div {
-  display: grid;
-  gap: 5px;
-}
-
-.stage-callout strong {
-  color: var(--do-ink);
-  font-size: 14px;
-}
-
-.stage-callout span {
-  color: var(--do-muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.compact-list {
-  display: grid;
-  gap: 8px;
-}
-
-.compact-list__item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  padding: 10px;
-  border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-md);
-  background: var(--do-surface);
-  cursor: pointer;
-  text-align: left;
-}
-
-.compact-list__item:hover {
-  border-color: var(--do-primary);
-  background: var(--do-primary-soft);
-}
-
-.compact-list__item span {
-  display: grid;
-  gap: 3px;
-}
-
-.compact-list__item strong {
-  color: var(--do-ink);
-  font-size: 13px;
-}
-
-.compact-list__item small {
-  color: var(--do-muted);
-  font-size: 11px;
-}
-
-.inline-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--do-primary-strong);
-  font-size: 13px;
-  font-weight: 800;
-}
-
+.datasource-back { display: inline-flex; align-items: center; gap: 7px; color: var(--do-primary-strong); margin-bottom: 18px; font-size: 13px; }
+.source-outcome { display: flex; align-items: center; gap: 16px; padding: 20px 24px; margin-bottom: 24px; color: var(--do-warning); background: var(--do-warning-soft); border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); }
+.source-outcome.ready { color: var(--do-success); background: var(--do-success-soft); }
+.source-outcome strong { font-size: 18px; color: var(--do-ink); }
+.source-outcome p { margin: 7px 0 0; color: var(--do-muted); font-size: 14px; line-height: 1.6; }
+.datasource-cockpit__grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, .8fr); gap: 24px; }
+.datasource-cockpit__main, .datasource-cockpit__side { display: grid; align-content: start; gap: 24px; min-width: 0; }
+.datasource-cockpit__card { padding: 24px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); min-width: 0; }
+h2 { margin: 0 0 18px; color: var(--do-ink); font-size: 18px; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.section-heading h2 { margin: 0; }
+.source-facts { display: grid; gap: 18px; margin: 0; }
+.source-facts div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; font-size: 13px; }
+dt, .muted { color: var(--do-muted); } dd { margin: 0; color: var(--do-ink); overflow-wrap: anywhere; }
+.muted { font-size: 13px; line-height: 1.7; }
+.source-detail-section { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--do-line); }
+.compact-list { display: grid; gap: 8px; }
+.compact-list__item { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 14px 0; border: 0; border-bottom: 1px solid var(--do-line); color: var(--do-ink); background: transparent; cursor: pointer; text-align: left; min-width: 0; }
+.compact-list__item:hover { color: var(--do-primary-strong); }
+.compact-list__item > span { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.compact-list__item strong { font-size: 14px; } .compact-list__item small { color: var(--do-muted); font-size: 12px; }
+.source-details summary { cursor: pointer; color: var(--do-muted); font-size: 13px; padding: 8px 0; }
+.source-details[open] summary { margin-bottom: 16px; color: var(--do-ink); }
+.inline-link { display: inline-flex; align-items: center; gap: 5px; color: var(--do-primary-strong); font-size: 13px; }
+@media (max-width: 1150px) { .datasource-cockpit__grid { grid-template-columns: 1fr; } }
 </style>

@@ -27,6 +27,8 @@ const unreadCount = ref(0)
 const userMenuVisible = ref(false)
 const userDropdown = ref<DropdownInstance>()
 let notificationTimer: number | undefined
+let narrowScreen: MediaQueryList | undefined
+function adaptSidebar(event: MediaQueryListEvent) { if (event.matches) collapsed.value = true }
 
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
 const initial = computed(() => displayName.value.slice(0, 1).toUpperCase())
@@ -34,7 +36,6 @@ const roleText = computed(() => iamS1.systemAdmin ? '系统管理员' : '当前�
 const routeTitle = computed(() => String(route.meta.title || 'DataOcean 后台'))
 const workspace = computed(() => findWorkspace(String(route.meta.workspaceKey || '')))
 const contextMode = computed<AdminContextMode>(() => (route.meta.contextMode as AdminContextMode) || workspace.value?.contextMode || 'none')
-const hasWorkspace = computed(() => Boolean(workspace.value))
 const hasUnread = computed(() => notifications.value.some((item) => !item.isRead))
 
 function closeUserMenu() {
@@ -99,11 +100,15 @@ function notificationTime(value: string) {
 }
 
 onMounted(() => {
+  narrowScreen = window.matchMedia('(max-width: 640px)')
+  if (narrowScreen.matches) collapsed.value = true
+  narrowScreen.addEventListener('change', adaptSidebar)
   fetchUnreadCount()
   notificationTimer = window.setInterval(fetchUnreadCount, 60_000)
 })
 
 onBeforeUnmount(() => {
+  narrowScreen?.removeEventListener('change', adaptSidebar)
   if (notificationTimer) window.clearInterval(notificationTimer)
 })
 </script>
@@ -152,10 +157,12 @@ onBeforeUnmount(() => {
 
     <main class="admin-shell__main">
       <header class="admin-shell__topbar">
-        <div class="admin-shell__title">
-          <span v-if="hasWorkspace">{{ workspace?.label }}</span>
-          <h1>{{ routeTitle }}</h1>
-        </div>
+        <nav class="admin-shell__title" aria-label="当前位置">
+          <RouterLink to="/admin/workbench">DataOcean</RouterLink>
+          <span aria-hidden="true">/</span>
+          <span v-if="workspace && workspace.label !== routeTitle">{{ workspace.label }}<span aria-hidden="true"> / </span></span>
+          <span aria-current="page">{{ routeTitle }}</span>
+        </nav>
 
         <div class="admin-shell__topbar-actions">
           <el-popover placement="bottom-end" width="360" trigger="click" @show="fetchNotifications">
@@ -202,6 +209,7 @@ onBeforeUnmount(() => {
 .admin-shell.is-collapsed {
   grid-template-columns: 76px minmax(0, 1fr);
 }
+.admin-shell :deep(.el-button--primary) { --el-button-bg-color: var(--do-primary-strong); --el-button-border-color: var(--do-primary-strong); --el-button-hover-bg-color: var(--do-primary-strong); --el-button-hover-border-color: var(--do-primary-strong); }
 
 .admin-shell__sidebar {
   position: sticky;
@@ -308,23 +316,17 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
-}
-
-.admin-shell__title span {
   color: var(--do-muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: 14px;
+  flex-wrap: wrap;
 }
 
-.admin-shell__title h1 {
-  margin: 4px 0 0;
-  overflow: hidden;
-  color: var(--do-ink);
-  font-size: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.admin-shell__title [aria-current] { color: var(--do-ink); font-weight: 600; }
+.admin-shell__title a:hover { color: var(--do-primary-strong); }
 
 .admin-shell__topbar-actions {
   display: flex;
@@ -460,5 +462,13 @@ onBeforeUnmount(() => {
 
 .admin-shell.is-collapsed .admin-shell__sidebar-footer { padding: 8px; }
 .admin-shell.is-collapsed .admin-shell__user { grid-template-columns: 36px; justify-content: center; padding: 0; }
+
+@media (max-width: 760px) {
+  .admin-shell { grid-template-columns: 208px minmax(0, 1fr); }
+  .admin-shell__brand { padding: 0 12px; }
+  .admin-shell__brand-copy small { display: none; }
+  .admin-shell__content { padding: 18px; }
+  .admin-shell__topbar { padding: 0 18px; }
+}
 
 </style>

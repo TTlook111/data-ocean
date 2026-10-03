@@ -38,7 +38,7 @@ const actions = computed(() => props.reasons.map((reason) => {
       <CircleAlert :size="18" />
       <div>
         <h2>{{ actions.length ? '需要处理的事项' : '下一步' }}</h2>
-        <p>{{ actions.length ? '以下原因来自数据源就绪度接口。' : emptyText }}</p>
+        <p>{{ actions.length ? '按以下原因进入对应工作区处理，再刷新准备情况。' : emptyText }}</p>
       </div>
     </div>
 

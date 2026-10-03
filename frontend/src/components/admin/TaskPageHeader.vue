@@ -63,6 +63,12 @@ p {
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 900px) {
+  .task-page-header { flex-wrap: wrap; }
+  .task-page-header__actions { justify-content: flex-start; }
 }
 
 </style>

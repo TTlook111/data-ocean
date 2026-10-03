@@ -434,6 +434,8 @@ Python async boundary notes (2026-09-07): native async is used for LLM, Embeddin
 
 ## Frontend Notes
 
+后台产品体验参考 `docs/development/DataOcean-后台产品体验优化建议.md`。主体主标题、顶部位置提示、左下角账号入口、任务优先与按需展开的约定须保持一致；项目状态和验收仍以后台重构状态文档为准。
+
 Frontend routes are split between business-oriented domains:
 
 - `/query`: user-facing intelligent query flow.

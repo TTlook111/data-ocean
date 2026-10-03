@@ -27,7 +27,8 @@ body {
     linear-gradient(180deg, rgba(238, 248, 255, 0.88) 0, rgba(248, 250, 252, 0.92) 260px, var(--do-bg) 100%);
 }
 
-body:has(.query-workspace) {
+body:has(.query-workspace),
+body:has(.admin-shell) {
   min-width: 320px;
 }
 

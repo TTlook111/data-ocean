@@ -4,6 +4,7 @@ import { computed } from 'vue'
 const props = withDefaults(defineProps<{
   status?: string | number | boolean | null
   label?: string
+  showCode?: boolean
 }>(), {
   status: '',
 })
@@ -51,7 +52,7 @@ const tone = computed(() => tones[key.value] || 'muted')
   <span class="business-status-badge" :class="'business-status-badge--' + tone">
     <i aria-hidden="true"></i>
     {{ text }}
-    <small v-if="key && text !== key">{{ key }}</small>
+    <small v-if="showCode && key && text !== key">{{ key }}</small>
   </span>
 </template>
 
@@ -82,9 +83,9 @@ const tone = computed(() => tones[key.value] || 'muted')
   opacity: .7;
 }
 
-.business-status-badge--success { color: var(--do-success); background: var(--do-success-soft); }
+.business-status-badge--success { color: color-mix(in srgb, var(--do-success) 75%, var(--do-ink)); background: var(--do-success-soft); }
 .business-status-badge--info { color: var(--do-info); background: var(--do-info-soft); }
-.business-status-badge--warning { color: var(--do-warning); background: var(--do-warning-soft); }
+.business-status-badge--warning { color: color-mix(in srgb, var(--do-warning) 70%, var(--do-ink)); background: var(--do-warning-soft); }
 .business-status-badge--danger { color: var(--do-danger); background: var(--do-danger-soft); }
 .business-status-badge--muted { color: var(--do-muted); background: var(--do-bg); }
 </style>

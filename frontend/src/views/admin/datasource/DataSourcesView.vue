@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { Database, ExternalLink, Pencil, PlugZap, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, Database, Pencil, PlugZap, RefreshCw, Search, Trash2 } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import {
   createDatasource,
@@ -41,7 +41,10 @@ const lastTestedPassword = ref<string | null>(null)
 const formRef = ref<FormInstance>()
 
 const query = reactive<DatasourceQuery>({
-  page: 1,
+  name: typeof route.query.name === 'string' ? route.query.name : undefined,
+  status: ['0', '1'].includes(String(route.query.status)) ? Number(route.query.status) : undefined,
+  healthStatus: ['HEALTHY', 'UNHEALTHY', 'UNKNOWN'].includes(String(route.query.healthStatus)) ? String(route.query.healthStatus) : undefined,
+  page: Math.max(1, Number(route.query.page) || 1),
   pageSize: 20,
 })
 
@@ -124,6 +127,13 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
+    const filters = { ...route.query }
+    for (const key of ['name', 'status', 'healthStatus', 'page'] as const) {
+      const value = query[key]
+      if (value === undefined || value === '' || (key === 'page' && value === 1)) delete filters[key]
+      else filters[key] = String(value)
+    }
+    await router.replace({ query: filters })
     const result = await listDatasources(query)
     rows.value = result.data.records
     total.value = result.data.total
@@ -316,9 +326,8 @@ onMounted(async () => {
 <template>
   <div class="admin-page data-sources-page">
     <TaskPageHeader
-      eyebrow="数据接入"
       title="数据源"
-      description="先完成连接测试，再保存并进入数据源驾驶舱。数据源列表只负责接入和基础状态，授权配置在权限与组织工作区完成。"
+      description="管理连接，查看准备情况，继续数据治理。"
     >
       <template #actions>
         <el-button type="primary" :icon="Database" @click="openCreate">新增数据源</el-button>
@@ -326,7 +335,7 @@ onMounted(async () => {
     </TaskPageHeader>
 
     <section class="data-sources-page__filters">
-      <el-input v-model="query.name" clearable placeholder="搜索数据源名称" @keyup.enter="query.page = 1; load()" />
+      <el-input v-model="query.name" clearable placeholder="搜索数据源名称，按 Enter 搜索" aria-label="搜索数据源名称" @clear="query.page = 1; load()" @keyup.enter="query.page = 1; load()"><template #prefix><Search :size="16" aria-hidden="true" /></template></el-input>
       <el-select v-model="query.status" clearable placeholder="全部状态" @change="query.page = 1; load()">
         <el-option label="启用" :value="1" />
         <el-option label="禁用" :value="0" />
@@ -339,10 +348,11 @@ onMounted(async () => {
       <el-button :icon="RefreshCw" @click="load">刷新</el-button>
     </section>
 
+    <p v-if="!loading && !error" class="data-sources-page__count">共 {{ total }} 个匹配数据源<span v-if="total > rows.length"> · 本页 {{ rows.length }} 个</span></p>
     <ErrorState v-if="error" :message="error" @retry="load" />
     <LoadingState v-else-if="loading" variant="skeleton" :rows="6" />
     <section v-else-if="rows.length" class="data-sources-page__table">
-      <el-table :data="rows" stripe>
+      <el-table :data="rows">
         <el-table-column label="数据源" min-width="190">
           <template #default="{ row }">
             <div class="source-cell">
@@ -352,29 +362,30 @@ onMounted(async () => {
           </template>
         </el-table-column>
         <el-table-column label="连接" min-width="180">
-          <template #default="{ row }">{{ row.host }}:{{ row.port }}</template>
+          <template #default="{ row }"><div class="source-cell"><span>{{ row.host }}:{{ row.port }}</span><BusinessStatusBadge :status="row.healthStatus" :label="row.healthStatus === 'HEALTHY' ? '连接正常' : row.healthStatus === 'UNHEALTHY' ? '连接异常' : '尚未检测'" /></div></template>
         </el-table-column>
         <el-table-column label="状态" width="120">
           <template #default="{ row }"><BusinessStatusBadge :status="row.status === 1 ? 'ENABLED' : 'DISABLED'" /></template>
         </el-table-column>
-        <el-table-column label="就绪度" min-width="190">
+        <el-table-column label="准备状态" min-width="160">
           <template #default="{ row }">
             <div v-if="readiness[row.id]" class="readiness-cell">
-              <BusinessStatusBadge :status="readiness[row.id]?.askable ? 'PUBLISHED' : readiness[row.id]?.stage" :label="readiness[row.id]?.askable ? '可以问数' : readiness[row.id]?.stageLabel" />
-              <el-progress :percentage="readiness[row.id]?.progress || 0" :show-text="false" />
+              <BusinessStatusBadge :status="readiness[row.id]?.askable ? 'PUBLISHED' : readiness[row.id]?.stage" :label="readiness[row.id]?.askable ? '可问数' : readiness[row.id]?.stageLabel" />
+              <span v-if="readiness[row.id]?.blockReasons.length" class="muted">{{ readiness[row.id]?.blockReasons[0]?.message }}</span>
             </div>
-            <span v-else class="muted">就绪度暂不可用</span>
+            <span v-else class="muted">准备情况读取失败，请刷新重试</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="当前快照" width="130"><template #default="{ row }"><span v-if="readiness[row.id]?.snapshotVersion">v{{ readiness[row.id]?.snapshotVersion }} · 已发布</span><span v-else class="muted">{{ readiness[row.id] ? '尚未发布' : '暂不可用' }}</span></template></el-table-column>
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" :icon="ExternalLink" @click="router.push('/admin/data-sources/' + row.id)">驾驶舱</el-button>
-            <el-button link :icon="Pencil" @click="openEdit(row)">编辑</el-button>
-            <el-button link :icon="PlugZap" @click="router.push('/admin/data-sources/' + row.id + '?action=test')">连接</el-button>
+            <el-button link type="primary" @click="router.push('/admin/data-sources/' + row.id)">查看详情</el-button>
             <el-dropdown trigger="click">
-              <el-button link>更多</el-button>
+              <el-button link :aria-label="row.name + '的更多操作'">更多<ChevronDown :size="14" aria-hidden="true" /></el-button>
               <template #dropdown>
                 <el-dropdown-menu>
+                  <el-dropdown-item @click="openEdit(row)"><Pencil :size="14" aria-hidden="true" />编辑数据源</el-dropdown-item>
+                  <el-dropdown-item @click="router.push('/admin/data-sources/' + row.id + '?action=test')"><PlugZap :size="14" aria-hidden="true" />测试连接</el-dropdown-item>
                   <el-dropdown-item @click="toggleStatus(row)">{{ row.status === 1 ? '禁用数据源' : '启用数据源' }}</el-dropdown-item>
                   <el-dropdown-item divided @click="remove(row)"><Trash2 :size="14" />删除数据源</el-dropdown-item>
                 </el-dropdown-menu>
@@ -448,6 +459,12 @@ onMounted(async () => {
   border-radius: var(--do-radius-lg);
   background: var(--do-surface);
 }
+.data-sources-page__count { margin: 24px 0 16px; color: var(--do-muted); font-size: 14px; }
+.data-sources-page__table :deep(.el-table .cell) { padding-block: 12px; }
+.data-sources-page__table :deep(.el-table th.el-table__cell) { background: var(--do-surface); color: var(--do-muted); font-weight: 500; }
+.source-cell { justify-items: start; }
+@media (max-width: 1100px) { .data-sources-page__filters { grid-template-columns: minmax(160px, 1fr) 160px; } }
+@media (max-width: 760px) { .data-sources-page__filters { grid-template-columns: minmax(0, 1fr); } }
 
 .source-cell,
 .readiness-cell {

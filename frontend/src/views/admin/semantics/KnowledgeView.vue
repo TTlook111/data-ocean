@@ -99,6 +99,7 @@ const filters = reactive({ status: '', keyword: '' })
 const stats = reactive({ total: 0, published: 0, indexing: 0, pending: 0, draft: 0 })
 /** 统计口径来自服务端 total；失败时记录错误而不静默保留旧值（§11.3） */
 const statsError = ref('')
+const statsLoading = ref(true)
 /**
  * 每个数据源的知识准备情况。
  *
@@ -185,6 +186,7 @@ async function loadDocs() {
 
 /** 各状态全量计数：分别按状态取 total，避免用当前分页数据推断全局 */
 async function loadStats() {
+  statsLoading.value = true
   statsError.value = ''
   try {
     const base = { datasourceId: datasourceId.value, page: 1, pageSize: 1 }
@@ -206,6 +208,8 @@ async function loadStats() {
     // 统计失败不阻断主列表，但必须说明统计不可用——不能让用户把「统计失败」
     // 读成「全都是 0」（§11.3、§18）。
     statsError.value = apiError(cause, '状态统计加载失败')
+  } finally {
+    statsLoading.value = false
   }
 }
 
@@ -466,9 +470,8 @@ watch(() => route.query.page, (value) => {
 <template>
   <div class="admin-page knowledge-page">
     <TaskPageHeader
-      eyebrow="语义中心"
       title="语义知识"
-      description="从单一已发布快照生成完整字段目录；逐份审核并发布文档后，有权人员再明确确认数据源级 RAG build。"
+      description="准备并审核业务知识，让用户更准确地问数。文档发布后，需单独确认知识索引构建。"
     >
       <template #actions>
         <el-button :icon="RefreshCw" :loading="loading" @click="loadDocs(); loadStats(); loadReadiness()">刷新</el-button>
@@ -478,10 +481,11 @@ watch(() => route.query.page, (value) => {
     </TaskPageHeader>
 
     <ErrorState v-if="statsError" :message="statsError" @retry="loadStats" />
+    <LoadingState v-else-if="statsLoading" text="正在读取知识统计..." />
     <section v-else class="knowledge-page__stats">
       <div class="stat"><span>文档总数</span><strong>{{ stats.total }}</strong></div>
       <div class="stat stat--success"><span>已发布文档</span><strong>{{ stats.published }}</strong></div>
-      <div class="stat stat--warning"><span>活动 RAG build</span><strong>{{ activeRagCount }}</strong></div>
+      <div class="stat stat--success"><span>已生效知识索引</span><strong>{{ readinessLoading || readinessError || datasourcesError || readinessWarning ? '—' : activeRagCount }}</strong></div>
       <div class="stat stat--warning"><span>待审核</span><strong>{{ stats.pending }}</strong></div>
       <div class="stat"><span>草稿</span><strong>{{ stats.draft }}</strong></div>
     </section>
@@ -490,9 +494,9 @@ watch(() => route.query.page, (value) => {
     <section class="knowledge-page__readiness">
       <div class="knowledge-page__readiness-heading">
         <div>
-          <h3>数据源知识准备情况</h3>
+          <h2>数据源知识准备情况</h2>
           <p>
-            并列显示最新采集、当前发布和活动 RAG 来源快照。版本落后只提示；问数仍按活动 build 规划，并由当前 S1 快照和权限最终复核。
+            对照采集、发布和索引版本，确认知识是否已生效。发布文档与构建知识索引是两个独立步骤。
           </p>
         </div>
         <el-button :icon="RefreshCw" :loading="readinessLoading" @click="loadReadiness">刷新准备情况</el-button>
@@ -506,31 +510,19 @@ watch(() => route.query.page, (value) => {
       />
       <el-table v-else :data="readinessList" stripe size="small">
         <el-table-column prop="datasourceName" label="数据源" min-width="150" />
-        <el-table-column label="知识 / RAG" width="150">
+        <el-table-column label="知识索引" min-width="165">
           <template #default="{ row }">
             <BusinessStatusBadge
               :status="row.ragBuildId ? (row.ragStale ? 'WARNING' : 'PUBLISHED') : 'DRAFT'"
-              :label="row.ragBuildId ? (row.ragStale ? '旧 build 继续服务' : 'build 已生效') : '尚无活动 build'"
+              :label="row.ragBuildId ? (row.ragStale ? '使用已有索引' : '索引已生效') : '尚未构建索引'"
             />
+            <span class="knowledge-page__stage">{{ row.stageLabel || '状态待确认' }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="最新采集" width="110">
-          <template #default="{ row }">{{ row.latestCollectedSnapshotVersion ? 'v' + row.latestCollectedSnapshotVersion : '—' }}</template>
-        </el-table-column>
-        <el-table-column label="当前发布" width="110">
-          <template #default="{ row }">{{ row.snapshotVersion ? 'v' + row.snapshotVersion : '—' }}</template>
-        </el-table-column>
-        <el-table-column label="RAG 来源" width="110">
-          <template #default="{ row }">{{ row.ragSourceSnapshotVersion ? 'v' + row.ragSourceSnapshotVersion : '—' }}</template>
-        </el-table-column>
-        <el-table-column label="版本提示" min-width="220">
+        <el-table-column label="版本对照" min-width="240">
           <template #default="{ row }">
-            <span class="knowledge-page__muted">{{ row.ragNotice || '—' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="当前阶段" width="130">
-          <template #default="{ row }">
-            <span class="knowledge-page__muted">{{ row.stageLabel || row.stage || '—' }}</span>
+            <div class="knowledge-versions"><span>最新采集 {{ row.latestCollectedSnapshotVersion ? 'v' + row.latestCollectedSnapshotVersion : '—' }}</span><span>当前发布 {{ row.snapshotVersion ? 'v' + row.snapshotVersion : '—' }}</span><span>索引来源 {{ row.ragSourceSnapshotVersion ? 'v' + row.ragSourceSnapshotVersion : '—' }}</span></div>
+            <details v-if="row.ragNotice" class="knowledge-version-note"><summary>查看版本说明</summary><p>{{ row.ragNotice }}</p></details>
           </template>
         </el-table-column>
         <el-table-column label="下一步" width="150">
@@ -562,16 +554,17 @@ watch(() => route.query.page, (value) => {
               :loading="ragBuildActionDatasourceId === row.datasourceId"
               :title="canPublishForDatasource(row.datasourceId) ? '' : PUBLISH_HINT"
               @click="confirmBuild(row)"
-            >确认构建 RAG</el-button>
+            >{{ row.ragBuildId ? '更新索引' : '确认构建索引' }}</el-button>
           </template>
         </el-table-column>
       </el-table>
     </section>
 
-    <section v-if="datasourceId" class="knowledge-page__readiness">
+    <details v-if="datasourceId" class="knowledge-page__readiness knowledge-page__details">
+      <summary>知识索引构建记录 · 展开查看</summary>
       <div class="knowledge-page__readiness-heading">
         <div>
-          <h3>RAG 构建记录 · {{ datasourceName(datasourceId) }}</h3>
+          <h3>知识索引构建记录 · {{ datasourceName(datasourceId) }}</h3>
           <p>只有经过授权人员明确确认的构建会排队；旧索引在新索引通过数量核验并切换前保持活动。</p>
         </div>
         <el-button :icon="RefreshCw" :loading="ragBuildsLoading" @click="loadRagBuilds">刷新构建记录</el-button>
@@ -589,23 +582,25 @@ watch(() => route.query.page, (value) => {
         <el-table-column prop="confirmedAt" label="确认时间" min-width="180" />
         <el-table-column prop="errorMessage" label="错误信息" min-width="220" show-overflow-tooltip />
       </el-table>
-    </section>
+    </details>
 
     <ErrorState v-if="publishedSnapshotError" :message="publishedSnapshotError" @retry="loadPublishedSnapshot" />
     <p v-else-if="!datasourceId" class="knowledge-page__scope-note">
       当前未限定数据源，列表展示全部知识文档。使用顶部的数据源范围可以聚焦到单个数据源。
     </p>
     <p v-else-if="publishedSnapshot" class="knowledge-page__scope-note is-ok">
-      当前数据源已发布快照 v{{ publishedSnapshot.snapshotVersion }}。先生成并人工审核知识文档，文档发布后再单独确认 RAG 构建。
+      当前数据源已发布快照 v{{ publishedSnapshot.snapshotVersion }}。先审核并发布知识文档，再单独确认知识索引构建。
     </p>
 
-    <ManualJoinPathPanel
-      v-if="datasourceId && publishedSnapshot?.snapshotId && canViewManualJoins"
+    <details v-if="datasourceId && publishedSnapshot?.snapshotId && canViewManualJoins" class="knowledge-page__details">
+      <summary>表关联配置 · 展开管理</summary>
+      <ManualJoinPathPanel
       :datasource-id="datasourceId"
-      :snapshot-id="publishedSnapshot.snapshotId"
+      :snapshot-id="publishedSnapshot!.snapshotId"
       :can-view="canViewManualJoins"
       :can-manage="canManageManualJoins"
     />
+    </details>
 
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="全部文档" name="documents">
@@ -740,18 +735,19 @@ watch(() => route.query.page, (value) => {
 
 <style scoped>
 .knowledge-page { display: grid; gap: 16px; }
+.knowledge-page__details summary { cursor: pointer; padding: 12px 0; font-size: 14px; color: var(--do-ink); }
+.knowledge-page__details[open] summary { margin-bottom: 16px; }
+.knowledge-page__details { display: block; }
 
 .knowledge-page__stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .stat {
   display: grid;
   gap: 4px;
   padding: 14px 16px;
-  border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-lg);
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
+  border-right: 1px solid var(--do-line);
 }
 .stat span { color: var(--do-muted); font-size: 12px; }
+.stat:last-child { border: 0; }
 .stat strong { color: var(--do-ink); font-size: 24px; }
 .stat--success strong { color: var(--do-success); }
 .stat--warning strong { color: var(--do-warning); }
@@ -774,7 +770,12 @@ watch(() => route.query.page, (value) => {
   gap: 12px;
   flex-wrap: wrap;
 }
-.knowledge-page__readiness-heading h3 { margin: 0; color: var(--do-ink); font-size: 15px; }
+.knowledge-page__readiness-heading h2, .knowledge-page__readiness-heading h3 { margin: 0; color: var(--do-ink); font-size: 16px; }
+.knowledge-page__stage { display: block; margin-top: 6px; color: var(--do-muted); font-size: 12px; }
+.knowledge-versions { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; }
+.knowledge-version-note { margin-top: 8px; color: var(--do-muted); font-size: 12px; }
+.knowledge-version-note summary { cursor: pointer; }
+.knowledge-version-note p { margin: 8px 0 0; white-space: normal; line-height: 1.6; }
 .knowledge-page__readiness-heading p { margin: 5px 0 0; color: var(--do-muted); font-size: 12px; max-width: 720px; }
 .knowledge-page__link { color: var(--do-primary-strong); font-size: 12px; font-weight: 800; }
 .knowledge-page__muted { color: var(--do-muted); }

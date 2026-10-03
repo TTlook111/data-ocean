@@ -4,6 +4,7 @@ import { Database, LockKeyhole, RefreshCw } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminContextStore } from '../../stores/adminContext'
 import type { AdminContextMode } from '../../router/adminNavigation'
+import { snapshotStatusLabel } from '../../utils/enumLabels'
 
 const props = defineProps<{ mode: AdminContextMode }>()
 const route = useRoute()
@@ -112,7 +113,7 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
           v-for="item in context.snapshots"
           :key="item.id"
           :value="item.id"
-          :label="'v' + item.snapshotVersion + ' · ' + item.status"
+          :label="'v' + item.snapshotVersion + ' · ' + snapshotStatusLabel(item.status)"
         />
       </el-select>
       <el-button :icon="RefreshCw" :loading="context.loading" aria-label="刷新范围" @click="context.refresh" />
@@ -171,5 +172,7 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
   color: var(--do-danger);
   font-size: 12px;
 }
+@media (max-width: 1150px) { .scope-bar { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .scope-bar { margin: 14px 18px 0; } .scope-bar__controls { flex-wrap: wrap; } .scope-bar__controls :deep(.el-select) { flex: 1 1 150px; } }
 
 </style>

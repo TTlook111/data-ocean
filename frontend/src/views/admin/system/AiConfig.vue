@@ -429,7 +429,7 @@ fetchConfig()
       <div class="header-title">
         <Cpu :size="22" />
         <div>
-          <h2>AI 服务配置</h2>
+          <h1>AI 服务配置</h1>
           <p>管理供应商、模型和参数。点击卡片展开详情，选择使用的配置。</p>
         </div>
       </div>
@@ -851,7 +851,7 @@ fetchConfig()
   color: var(--do-primary-strong);
 }
 
-.header-title h2 {
+.header-title h1 {
   margin: 0;
   color: var(--do-ink);
 }

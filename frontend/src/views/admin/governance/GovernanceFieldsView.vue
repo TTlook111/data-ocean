@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ShieldCheck } from 'lucide-vue-next'
@@ -164,6 +165,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="governance-fields-page post-login-page">
+    <TaskPageHeader title="字段治理" description="管理标签、可信度、反馈和脱敏候选。" />
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="标签" name="tags">
         <FieldTagManager v-if="activeTab === 'tags'" :key="`tags-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
