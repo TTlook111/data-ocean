@@ -14,6 +14,7 @@ import {
   type IamS1QueryTaskResult,
 } from '../api/iamS1'
 import type { LocalMessage, LocalSession } from './useQuerySession'
+import { resolveQueryDisplayState } from '../utils/queryDisplayState'
 
 /** 轮询配置常量 */
 const POLL_MAX_CONSECUTIVE_ERRORS = 3
@@ -35,6 +36,16 @@ const agentNodes = [
   { key: 'result_verification', label: '核对结果' },
   { key: 'clarification', label: '需要补充说明' },
 ]
+
+export function buildAgentProgress(result: IamS1QueryTaskResult | null) {
+  if (!result || result.status !== 'PROCESSING') return []
+  const currentIndex = agentNodes.findIndex((node) => node.key === result.progressNode)
+  if (currentIndex < 0) return []
+  return agentNodes.map((node, index) => ({
+    ...node,
+    status: index < currentIndex ? 'done' as const : index === currentIndex ? 'active' as const : 'pending' as const,
+  }))
+}
 
 export function useQuerySubmit(options: {
   selectedId: Ref<number | undefined>
@@ -64,45 +75,46 @@ export function useQuerySubmit(options: {
   const isQuerying = ref(false)
   const currentTaskId = ref<string>()
   const pollAbortController = ref<AbortController>()
-  const resultTab = ref<'table' | 'sql' | 'chart' | 'trust'>('table')
+  const resultTab = ref<'table' | 'sql' | 'chart' | 'trust'>('chart')
   const chartType = ref<'bar' | 'line' | 'pie'>('bar')
+  const selectedResultTaskId = ref<string>()
+  const selectedTaskResult = ref<IamS1QueryTaskResult | null>(null)
+  const resultSelectionLoading = ref(false)
+  const resultSelectionError = ref('')
+  const sqlLoading = ref(false)
+  const sqlErrorTaskId = ref<string>()
+  const sqlErrorMessage = ref('')
+  let resultSelectionRequest = 0
+  let sqlReadRequest = 0
+  let cancelRequested = false
 
   // ---- Computed ----
-  const latestResult = computed(() => {
-    const msgs = activeMessages.value
-    let result: IamS1QueryTaskResult | null = null
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === 'assistant' && msgs[i].queryResult) {
-        result = msgs[i].queryResult!
-        break
-      }
+  const latestAssistantMessage = computed(() => {
+    for (let i = activeMessages.value.length - 1; i >= 0; i--) {
+      if (activeMessages.value[i].role === 'assistant') return activeMessages.value[i]
     }
-    return result
+    return undefined
   })
+  const latestResult = computed(() => latestAssistantMessage.value?.queryResult ?? null)
+  const displayResult = computed(() => selectedResultTaskId.value ? selectedTaskResult.value : latestResult.value)
+  const displayTaskId = computed(() => selectedResultTaskId.value || displayResult.value?.taskId)
+  const displayState = computed(() => resolveQueryDisplayState({
+    result: displayResult.value,
+    messageStatus: selectedResultTaskId.value ? selectedTaskResult.value?.status : latestAssistantMessage.value?.status,
+    isSubmitting: isQuerying.value && !selectedResultTaskId.value,
+    localWaitTimedOut: !selectedResultTaskId.value && latestAssistantMessage.value?.localWaitTimedOut === true,
+    selectionLoading: resultSelectionLoading.value,
+    selectionError: resultSelectionError.value,
+  }))
 
   const agentProgress = computed(() => {
-    const result = latestResult.value
-    if (!result) return []
-    const currentIndex = agentNodes.findIndex((node) => node.key === result.progressNode)
-    return agentNodes.map((node, index) => {
-      let status: 'done' | 'active' | 'pending' | 'failed' = 'pending'
-      if (result.status === 'COMPLETED' || result.status === 'CLARIFICATION_REQUIRED') {
-        status = 'done'
-      } else if (result.status === 'FAILED' || result.status === 'TIMEOUT' || result.status === 'CANCELLED') {
-        status = currentIndex >= 0 && index === currentIndex ? 'failed' : index < currentIndex ? 'done' : 'pending'
-      } else if (currentIndex >= 0) {
-        status = index < currentIndex ? 'done' : index === currentIndex ? 'active' : 'pending'
-      } else if (index === 0 && result.status === 'PROCESSING') {
-        status = 'active'
-      }
-      return { ...node, status }
-    })
+    return buildAgentProgress(displayResult.value)
   })
 
-  const isLatestProcessing = computed(() => latestResult.value?.status === 'PROCESSING')
+  const isLatestProcessing = computed(() => displayState.value.kind === 'processing')
 
   const trustSummary = computed(() => {
-    const result = latestResult.value
+    const result = displayResult.value
     if (!result) return []
     const maskedCount = result.maskedFields ? Object.keys(result.maskedFields).length : 0
     return [
@@ -147,6 +159,46 @@ export function useQuerySubmit(options: {
       if (typeof msg === 'string') return msg
     }
     return fallback
+  }
+
+  async function selectResultForTask(taskId: string) {
+    if (!taskId) return null
+    const requestId = ++resultSelectionRequest
+    sqlReadRequest++
+    selectedResultTaskId.value = taskId
+    selectedTaskResult.value = null
+    resultSelectionError.value = ''
+    resultSelectionLoading.value = true
+    sqlLoading.value = false
+    sqlErrorTaskId.value = undefined
+    sqlErrorMessage.value = ''
+    resultTab.value = 'chart'
+    try {
+      const response = await iamS1GetTask(taskId)
+      if (requestId !== resultSelectionRequest) return null
+      if (response.data.taskId !== taskId) throw new Error('返回的任务与所选消息不一致')
+      selectedTaskResult.value = response.data
+      return response.data
+    } catch (error) {
+      if (requestId !== resultSelectionRequest) return null
+      resultSelectionError.value = extractError(error, '所选查询结果读取失败，请重试。')
+      return null
+    } finally {
+      if (requestId === resultSelectionRequest) resultSelectionLoading.value = false
+    }
+  }
+
+  function followLatestResult() {
+    resultSelectionRequest++
+    sqlReadRequest++
+    selectedResultTaskId.value = undefined
+    selectedTaskResult.value = null
+    resultSelectionLoading.value = false
+    resultSelectionError.value = ''
+    sqlLoading.value = false
+    sqlErrorTaskId.value = undefined
+    sqlErrorMessage.value = ''
+    resultTab.value = 'chart'
   }
 
   /**
@@ -254,6 +306,8 @@ export function useQuerySubmit(options: {
       ElMessage.warning(selectedBlockReason.value?.message || '当前数据源暂未达到可询问状态')
       return
     }
+    followLatestResult()
+    cancelRequested = false
     isQuerying.value = true
     currentTaskId.value = undefined
 
@@ -301,6 +355,25 @@ export function useQuerySubmit(options: {
       const abortCtrl = new AbortController()
       pollAbortController.value = abortCtrl
 
+      if (cancelRequested) {
+        try {
+          await iamS1CancelTask(taskId)
+        } catch {
+          cancelRequested = false
+          ElMessage.error('停止请求未能确认，仍在获取服务端状态')
+        }
+        if (cancelRequested) {
+          abortCtrl.abort()
+          const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
+          if (assistantMsg) {
+            assistantMsg.taskId = taskId
+            applyPollResult(assistantMsg, { taskId, status: 'CANCELLED', errorMessage: '查询已取消' })
+            await animateMessageUpdate?.(assistantMsgId)
+          }
+          return
+        }
+      }
+
       const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
         const loadingMsg = session.messages.find((m) => m.id === assistantMsgId)
         if (loadingMsg && loadingMsg.status === 'loading') {
@@ -334,24 +407,47 @@ export function useQuerySubmit(options: {
    * 取消当前查询
    */
   async function cancelCurrentQuery() {
-    if (!currentTaskId.value || !isQuerying.value) return
-    pollAbortController.value?.abort()
+    if (!isQuerying.value) return
+    cancelRequested = true
+    const taskId = currentTaskId.value
+    if (!taskId) return
     try {
-      await iamS1CancelTask(currentTaskId.value)
+      await iamS1CancelTask(taskId)
+      pollAbortController.value?.abort()
     } catch {
-      // 取消请求失败不影响 UI 状态恢复
+      cancelRequested = false
+      ElMessage.error('停止请求未能确认，仍在获取服务端状态')
     }
   }
 
-  async function refreshSql() {
-    const taskId = latestResult.value?.taskId
+  async function refreshSql(targetResult: IamS1QueryTaskResult | null = displayResult.value) {
+    const taskId = targetResult?.taskId
     if (!taskId) return
+    if (targetResult?.canViewSql === false) return
+    const requestId = ++sqlReadRequest
+    sqlLoading.value = true
+    sqlErrorTaskId.value = undefined
+    sqlErrorMessage.value = ''
     try {
       const response = await iamS1ViewSql(taskId)
-      if (latestResult.value) latestResult.value.sql = response.data.sql
+      if (requestId !== sqlReadRequest || displayResult.value?.taskId !== taskId) return
+      if (selectedResultTaskId.value === taskId && selectedTaskResult.value) {
+        selectedTaskResult.value = { ...selectedTaskResult.value, sql: response.data.sql }
+      } else if (latestAssistantMessage.value?.queryResult?.taskId === taskId) {
+        latestAssistantMessage.value.queryResult.sql = response.data.sql
+      }
     } catch {
-      if (latestResult.value) latestResult.value.sql = undefined
+      if (requestId !== sqlReadRequest || displayResult.value?.taskId !== taskId) return
+      if (selectedResultTaskId.value === taskId && selectedTaskResult.value) {
+        selectedTaskResult.value = { ...selectedTaskResult.value, sql: undefined }
+      } else if (latestAssistantMessage.value?.queryResult?.taskId === taskId) {
+        latestAssistantMessage.value.queryResult.sql = undefined
+      }
+      sqlErrorTaskId.value = taskId
+      sqlErrorMessage.value = '当前权限不允许查看 SQL，或结果已失效。'
       ElMessage.error('当前权限不允许查看 SQL，或结果已失效')
+    } finally {
+      if (requestId === sqlReadRequest) sqlLoading.value = false
     }
   }
 
@@ -375,6 +471,7 @@ export function useQuerySubmit(options: {
    */
   async function continueWaiting(taskId: string) {
     if (isQuerying.value) return
+    cancelRequested = false
     isQuerying.value = true
     currentTaskId.value = taskId
 
@@ -456,6 +553,16 @@ export function useQuerySubmit(options: {
     chartType,
     // Computed
     latestResult,
+    latestAssistantMessage,
+    displayResult,
+    displayTaskId,
+    displayState,
+    selectedResultTaskId,
+    resultSelectionLoading,
+    resultSelectionError,
+    sqlLoading,
+    sqlErrorTaskId,
+    sqlErrorMessage,
     agentProgress,
     isLatestProcessing,
     trustSummary,
@@ -463,6 +570,8 @@ export function useQuerySubmit(options: {
     sendQuestion,
     cancelCurrentQuery,
     refreshSql,
+    selectResultForTask,
+    followLatestResult,
     retryQuery,
     prepareClarification,
     continueWaiting,

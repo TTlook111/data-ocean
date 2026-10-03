@@ -3,13 +3,20 @@ import * as echarts from 'echarts'
 
 export function useChart(containerRef: Ref<HTMLDivElement | null>) {
   let instance: echarts.ECharts | null = null
+  let resizeObserver: ResizeObserver | null = null
+
+  function observeContainer() {
+    const container = containerRef.value
+    if (!container || resizeObserver || typeof ResizeObserver === 'undefined') return
+    resizeObserver = new ResizeObserver(() => resize())
+    resizeObserver.observe(container)
+  }
 
   function init() {
     if (!containerRef.value) return null
-    if (instance) {
-      instance.dispose()
-    }
+    if (instance) return instance
     instance = echarts.init(containerRef.value)
+    observeContainer()
     return instance
   }
 
@@ -19,6 +26,7 @@ export function useChart(containerRef: Ref<HTMLDivElement | null>) {
     }
     if (instance) {
       instance.setOption(option, true)
+      resize()
     }
   }
 
@@ -27,6 +35,8 @@ export function useChart(containerRef: Ref<HTMLDivElement | null>) {
   }
 
   function dispose() {
+    resizeObserver?.disconnect()
+    resizeObserver = null
     instance?.dispose()
     instance = null
   }
@@ -41,10 +51,10 @@ export function useChart(containerRef: Ref<HTMLDivElement | null>) {
   }
 
   const handleResize = () => resize()
-  window.addEventListener('resize', handleResize)
+  if (typeof window !== 'undefined') window.addEventListener('resize', handleResize)
 
   onBeforeUnmount(() => {
-    window.removeEventListener('resize', handleResize)
+    if (typeof window !== 'undefined') window.removeEventListener('resize', handleResize)
     dispose()
   })
 

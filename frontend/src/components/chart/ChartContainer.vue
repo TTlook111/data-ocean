@@ -33,7 +33,7 @@ watch(() => props.option, renderChart)
 <style scoped>
 .chart-container {
   width: 100%;
-  height: 360px;
-  min-height: 280px;
+  height: clamp(230px, 34dvh, 360px);
+  min-height: 220px;
 }
 </style>

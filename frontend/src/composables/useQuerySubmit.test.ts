@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { iamS1GetTask, iamS1ResumeTask, iamS1StreamTask } from '../api/iamS1'
+import { iamS1Ask, iamS1CancelTask, iamS1ExportCsv, iamS1GetTask, iamS1ResumeTask, iamS1StreamTask, iamS1SubmitFeedback, iamS1ViewSql } from '../api/iamS1'
 import type { LocalMessage, LocalSession } from './useQuerySession'
-import { isLocallyResumable, useQuerySubmit } from './useQuerySubmit'
+import { isLocallyResumable, buildAgentProgress, useQuerySubmit } from './useQuerySubmit'
+import { useQueryExport } from './useQueryExport'
 
 vi.mock('../api/iamS1', () => ({
   iamS1Ask: vi.fn(),
@@ -12,6 +13,8 @@ vi.mock('../api/iamS1', () => ({
   iamS1ResumeTask: vi.fn(),
   iamS1StreamTask: vi.fn(),
   iamS1ViewSql: vi.fn(),
+  iamS1ExportCsv: vi.fn(),
+  iamS1SubmitFeedback: vi.fn(),
 }))
 
 vi.mock('element-plus', () => ({
@@ -20,6 +23,7 @@ vi.mock('element-plus', () => ({
 
 describe('useQuerySubmit recovery state', () => {
   beforeEach(() => vi.clearAllMocks())
+  afterEach(() => vi.unstubAllGlobals())
 
   it('marks only local wait exhaustion as resumable, not a server TIMEOUT', () => {
     expect(isLocallyResumable({ status: 'PROCESSING', localWaitTimedOut: true })).toBe(true)
@@ -80,6 +84,140 @@ describe('useQuerySubmit recovery state', () => {
     expect(iamS1GetTask).toHaveBeenCalledTimes(1)
     expect(iamS1StreamTask).not.toHaveBeenCalled()
     expect(ElMessage.error).toHaveBeenCalledWith('当前任务未能恢复，可以重新提问')
+  })
+
+  it('only marks reported live stages and never marks every terminal branch complete', () => {
+    expect(buildAgentProgress({ taskId: 'done', status: 'COMPLETED' })).toEqual([])
+    expect(buildAgentProgress({ taskId: 'clarify', status: 'CLARIFICATION_REQUIRED' })).toEqual([])
+    expect(buildAgentProgress({ taskId: 'failed', status: 'FAILED', progressNode: 'sql_generation' })).toEqual([])
+    expect(buildAgentProgress({ taskId: 'unknown', status: 'PROCESSING' })).toEqual([])
+    expect(buildAgentProgress({ taskId: 'live', status: 'PROCESSING', progressNode: 'sql_generation' }).slice(0, 4)).toMatchObject([
+      { key: 'rag_retrieval', status: 'done' },
+      { key: 'schema_linking', status: 'done' },
+      { key: 'sql_generation', status: 'active' },
+      { key: 'sql_semantic_check', status: 'pending' },
+    ])
+  })
+
+  it('keeps display, SQL, CSV, feedback, and table rows bound to one selected task', async () => {
+    const latest: LocalMessage = {
+      id: 'assistant-latest',
+      role: 'assistant',
+      content: 'latest',
+      createdAt: '2026-09-27T00:00:00Z',
+      taskId: 'task-latest',
+      status: 'COMPLETED',
+      queryResult: { taskId: 'task-latest', status: 'COMPLETED', data: [{ amount: 999 }], canViewSql: true },
+    }
+    const selected = { taskId: 'task-old', status: 'COMPLETED', data: [{ amount: 50 }], canViewSql: true, canExport: true }
+    vi.mocked(iamS1GetTask).mockResolvedValue({ data: selected } as never)
+    vi.mocked(iamS1ViewSql).mockResolvedValue({ data: { sql: 'SELECT 50' } } as never)
+    vi.mocked(iamS1ExportCsv).mockResolvedValue(new Blob(['csv']))
+    vi.mocked(iamS1SubmitFeedback).mockResolvedValue(undefined as never)
+    vi.stubGlobal('URL', { createObjectURL: vi.fn(() => 'blob:task-old'), revokeObjectURL: vi.fn() })
+
+    const submit = createSubmit(latest)
+    await submit.selectResultForTask('task-old')
+    const exportUtil = useQueryExport({ latestResult: submit.displayResult, canExport: ref(true) })
+
+    expect(submit.latestResult.value?.taskId).toBe('task-latest')
+    expect(submit.displayTaskId.value).toBe('task-old')
+    expect(exportUtil.pagedTableData.value).toEqual([{ amount: 50 }])
+
+    await submit.refreshSql(submit.displayResult.value)
+    await exportUtil.exportCsv()
+    await exportUtil.handleFeedback('LIKE')
+
+    expect(iamS1ViewSql).toHaveBeenCalledWith('task-old')
+    expect(submit.displayResult.value?.sql).toBe('SELECT 50')
+    expect(iamS1ExportCsv).toHaveBeenCalledWith('task-old')
+    expect(iamS1SubmitFeedback).toHaveBeenCalledWith('task-old', 'LIKE')
+  })
+
+  it('ignores a late result read after returning to follow the current session', async () => {
+    const latest: LocalMessage = {
+      id: 'assistant-latest',
+      role: 'assistant',
+      content: 'latest',
+      createdAt: '2026-09-27T00:00:00Z',
+      taskId: 'task-latest',
+      status: 'COMPLETED',
+      queryResult: { taskId: 'task-latest', status: 'COMPLETED', data: [{ amount: 999 }] },
+    }
+    let resolveOld!: (value: unknown) => void
+    vi.mocked(iamS1GetTask).mockReturnValue(new Promise((resolve) => { resolveOld = resolve }) as never)
+    const submit = createSubmit(latest)
+    const oldRead = submit.selectResultForTask('task-old')
+    submit.followLatestResult()
+    resolveOld({ data: { taskId: 'task-old', status: 'COMPLETED', data: [{ amount: 50 }] } })
+    await oldRead
+
+    expect(submit.displayTaskId.value).toBe('task-latest')
+    expect(submit.displayResult.value?.data).toEqual([{ amount: 999 }])
+    expect(submit.resultSelectionError.value).toBe('')
+  })
+
+  it('does not retain another task SQL when reading SQL for the selected task fails', async () => {
+    const latest: LocalMessage = {
+      id: 'assistant-latest',
+      role: 'assistant',
+      content: 'latest',
+      createdAt: '2026-09-27T00:00:00Z',
+      taskId: 'task-latest',
+      status: 'COMPLETED',
+      queryResult: { taskId: 'task-latest', status: 'COMPLETED', data: [{ amount: 999 }], sql: 'SELECT latest' },
+    }
+    vi.mocked(iamS1GetTask).mockResolvedValue({
+      data: { taskId: 'task-old', status: 'COMPLETED', data: [{ amount: 50 }], canViewSql: true },
+    } as never)
+    vi.mocked(iamS1ViewSql).mockRejectedValue(new Error('sql read failed'))
+    const submit = createSubmit(latest)
+
+    await submit.selectResultForTask('task-old')
+    await submit.refreshSql(submit.displayResult.value)
+
+    expect(submit.displayTaskId.value).toBe('task-old')
+    expect(submit.displayResult.value?.sql).toBeUndefined()
+    expect(submit.sqlErrorTaskId.value).toBe('task-old')
+    expect(submit.sqlErrorMessage.value).toContain('当前权限不允许查看 SQL')
+    expect(submit.latestResult.value?.sql).toBe('SELECT latest')
+    expect(iamS1ViewSql).toHaveBeenCalledWith('task-old')
+  })
+
+  it('does not call server export when either task or capability summary denies it', async () => {
+    const result = { taskId: 'task-no-export', status: 'COMPLETED', data: [{ amount: 1 }], canExport: true }
+    vi.mocked(iamS1ExportCsv).mockResolvedValue(new Blob(['csv']))
+    const exportUtil = useQueryExport({ latestResult: ref(result), canExport: ref(false) })
+
+    await exportUtil.exportCsv()
+
+    expect(iamS1ExportCsv).not.toHaveBeenCalled()
+
+    const taskDeniedExport = useQueryExport({
+      latestResult: ref({ ...result, canExport: false }),
+      canExport: ref(true),
+    })
+    await taskDeniedExport.exportCsv()
+    expect(iamS1ExportCsv).not.toHaveBeenCalled()
+  })
+
+  it('sends a confirmed cancellation when Stop is clicked before task submission returns', async () => {
+    let resolveAsk!: (value: unknown) => void
+    vi.mocked(iamS1Ask).mockReturnValue(new Promise((resolve) => { resolveAsk = resolve }) as never)
+    vi.mocked(iamS1CancelTask).mockResolvedValue(undefined as never)
+    const submit = createSubmit()
+    submit.question.value = '统计订单'
+
+    const sending = submit.sendQuestion()
+    expect(submit.isQuerying.value).toBe(true)
+    await submit.cancelCurrentQuery()
+    resolveAsk({ data: { taskId: 'task-stop', conversationId: 42 } })
+    await sending
+
+    expect(iamS1CancelTask).toHaveBeenCalledWith('task-stop')
+    expect(iamS1GetTask).not.toHaveBeenCalled()
+    expect(submit.latestAssistantMessage.value).toMatchObject({ status: 'CANCELLED', taskId: 'task-stop' })
+    expect(submit.isQuerying.value).toBe(false)
   })
 })
 
