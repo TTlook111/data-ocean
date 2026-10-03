@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { Bell, ChevronDown, LogOut, MessageSquareText, PanelLeftClose, PanelLeftOpen, UserRound } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
+import type { DropdownInstance } from 'element-plus'
 import { useAuthStore } from '../../stores/auth'
+import { useIamS1Store } from '../../stores/iamS1'
 import {
   getUnreadNotificationCount,
   listNotifications,
@@ -17,24 +19,37 @@ import ScopeBar from './ScopeBar.vue'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const iamS1 = useIamS1Store()
 const collapsed = ref(false)
 const notifications = ref<NotificationItem[]>([])
 const notificationLoading = ref(false)
 const unreadCount = ref(0)
 const userMenuVisible = ref(false)
+const userDropdown = ref<DropdownInstance>()
 let notificationTimer: number | undefined
 
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
 const initial = computed(() => displayName.value.slice(0, 1).toUpperCase())
+const roleText = computed(() => iamS1.systemAdmin ? '系统管理员' : '当前账号')
 const routeTitle = computed(() => String(route.meta.title || 'DataOcean 后台'))
 const workspace = computed(() => findWorkspace(String(route.meta.workspaceKey || '')))
 const contextMode = computed<AdminContextMode>(() => (route.meta.contextMode as AdminContextMode) || workspace.value?.contextMode || 'none')
 const hasWorkspace = computed(() => Boolean(workspace.value))
 const hasUnread = computed(() => notifications.value.some((item) => !item.isRead))
 
-function handleUserCommand(command: string) {
+function closeUserMenu() {
+  userDropdown.value?.handleClose()
   userMenuVisible.value = false
-  if (command === 'query') router.push('/query')
+}
+
+function toggleSidebar() {
+  closeUserMenu()
+  collapsed.value = !collapsed.value
+}
+
+function handleUserCommand(command: string) {
+  closeUserMenu()
+  if (command === 'query' && iamS1.queryUse) router.push('/query')
   if (command === 'profile') router.push('/profile')
   if (command === 'password') router.push('/change-password')
   if (command === 'logout') {
@@ -104,7 +119,7 @@ onBeforeUnmount(() => {
             <small>数据查询治理平台</small>
           </span>
         </RouterLink>
-        <button class="admin-shell__collapse" type="button" :aria-label="collapsed ? '展开导航' : '收起导航'" :aria-expanded="!collapsed" @click="collapsed = !collapsed">
+        <button class="admin-shell__collapse" type="button" :aria-label="collapsed ? '展开导航' : '收起导航'" :aria-expanded="!collapsed" @click="toggleSidebar">
           <PanelLeftOpen v-if="collapsed" :size="17" />
           <PanelLeftClose v-else :size="17" />
         </button>
@@ -112,15 +127,26 @@ onBeforeUnmount(() => {
 
       <AdminDomainNav
         :collapsed="collapsed"
-        @navigate="userMenuVisible = false"
+        @navigate="closeUserMenu"
         @expand-sidebar="collapsed = false"
       />
 
       <div class="admin-shell__sidebar-footer">
-        <RouterLink class="admin-shell__query-link" to="/query" :title="collapsed ? '进入智能问数' : undefined">
-          <MessageSquareText :size="17" />
-          <span>进入智能问数</span>
-        </RouterLink>
+        <el-dropdown ref="userDropdown" class="admin-shell__account-menu" :placement="collapsed ? 'right-end' : 'top-start'" trigger="click" @command="handleUserCommand" @visible-change="userMenuVisible = $event">
+          <button class="admin-shell__user" type="button" aria-label="打开用户菜单" aria-haspopup="menu" :aria-expanded="userMenuVisible" :title="collapsed ? displayName : undefined">
+            <span class="admin-shell__avatar" aria-hidden="true">{{ initial }}</span>
+            <span class="admin-shell__user-copy"><strong>{{ displayName }}</strong><small>{{ roleText }}</small></span>
+            <ChevronDown class="admin-shell__user-chevron" :size="15" aria-hidden="true" />
+          </button>
+          <template #dropdown>
+            <el-dropdown-menu @keydown.esc.stop.prevent="closeUserMenu">
+              <el-dropdown-item command="profile"><UserRound :size="15" aria-hidden="true" />个人资料</el-dropdown-item>
+              <el-dropdown-item command="password">修改密码</el-dropdown-item>
+              <el-dropdown-item v-if="iamS1.queryUse" command="query"><MessageSquareText :size="15" aria-hidden="true" />智能问数</el-dropdown-item>
+              <el-dropdown-item divided command="logout"><LogOut :size="15" aria-hidden="true" />退出登录</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </aside>
 
@@ -154,21 +180,6 @@ onBeforeUnmount(() => {
             </div>
           </el-popover>
 
-          <el-dropdown trigger="click" @command="handleUserCommand">
-            <button class="admin-shell__user" type="button" aria-label="用户菜单">
-              <span class="admin-shell__avatar">{{ initial }}</span>
-              <span class="admin-shell__user-name">{{ displayName }}</span>
-              <ChevronDown :size="15" />
-            </button>
-            <template #dropdown>
-              <el-dropdown-menu>
-                <el-dropdown-item command="profile"><UserRound :size="15" />个人资料</el-dropdown-item>
-                <el-dropdown-item command="password">修改密码</el-dropdown-item>
-                <el-dropdown-item command="query"><MessageSquareText :size="15" />进入智能问数</el-dropdown-item>
-                <el-dropdown-item divided command="logout"><LogOut :size="15" />退出登录</el-dropdown-item>
-              </el-dropdown-menu>
-            </template>
-          </el-dropdown>
         </div>
       </header>
 
@@ -267,22 +278,13 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__sidebar-footer {
+  flex: 0 0 auto;
+  margin-top: auto;
   padding: 12px;
   border-top: 1px solid var(--do-line);
 }
 
-.admin-shell__query-link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 42px;
-  padding: 0 12px;
-  border-radius: var(--do-radius-md);
-  color: var(--do-primary-strong);
-  background: var(--do-primary-soft);
-  font-size: 13px;
-  font-weight: 800;
-}
+.admin-shell__account-menu { width: 100%; }
 
 .admin-shell__main {
   display: flex;
@@ -330,8 +332,7 @@ onBeforeUnmount(() => {
   gap: 10px;
 }
 
-.admin-shell__icon-button,
-.admin-shell__user {
+.admin-shell__icon-button {
   border: 1px solid var(--do-line);
   border-radius: var(--do-radius-md);
   color: var(--do-ink);
@@ -347,27 +348,35 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__user {
-  display: flex;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 15px;
+  width: 100%;
   align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 3px 10px 3px 4px;
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--do-radius-md);
+  color: var(--do-ink);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
 }
 
 .admin-shell__avatar {
-  width: 30px;
-  height: 30px;
-  font-size: 13px;
+  width: 36px;
+  height: 36px;
+  background: var(--do-primary);
+  font-size: 12px;
 }
 
-.admin-shell__user-name {
-  max-width: 130px;
-  overflow: hidden;
-  font-size: 13px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.admin-shell__user-copy { min-width: 0; display: grid; gap: 4px; }
+.admin-shell__user-copy strong, .admin-shell__user-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-shell__user-copy strong { font-size: 13px; font-weight: 700; }
+.admin-shell__user-copy small { color: var(--do-muted); font-size: 12px; }
+.admin-shell__user-chevron { color: var(--do-muted); }
+.admin-shell__user:hover { background: color-mix(in srgb, var(--do-primary) 8%, transparent); }
+.admin-shell__user:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 28%, transparent); outline-offset: 2px; }
 
 .admin-shell__content {
   width: 100%;
@@ -434,8 +443,8 @@ onBeforeUnmount(() => {
 
 .admin-shell.is-collapsed .admin-shell__brand-copy,
 .admin-shell.is-collapsed .admin-domain-nav__item span,
-.admin-shell.is-collapsed .admin-shell__query-link span,
-.admin-shell.is-collapsed .admin-shell__user-name {
+.admin-shell.is-collapsed .admin-shell__user-copy,
+.admin-shell.is-collapsed .admin-shell__user-chevron {
   display: none;
 }
 
@@ -444,10 +453,12 @@ onBeforeUnmount(() => {
   height: 32px;
 }
 
-.admin-shell.is-collapsed .admin-domain-nav__item,
-.admin-shell.is-collapsed .admin-shell__query-link {
+.admin-shell.is-collapsed .admin-domain-nav__item {
   justify-content: center;
   padding: 0;
 }
+
+.admin-shell.is-collapsed .admin-shell__sidebar-footer { padding: 8px; }
+.admin-shell.is-collapsed .admin-shell__user { grid-template-columns: 36px; justify-content: center; padding: 0; }
 
 </style>

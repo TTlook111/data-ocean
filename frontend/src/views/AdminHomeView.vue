@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowRight, CheckCircle2, Database, MessageSquareText, ShieldAlert } from 'lucide-vue-next'
+import { ArrowRight, Database, ShieldAlert } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import { useIamS1Store } from '../stores/iamS1'
 import { getDashboardStats, type DashboardStats } from '../api/admin/dashboard'
@@ -99,11 +99,7 @@ onMounted(load)
       eyebrow="DATAOCEAN / WORKBENCH"
       title="工作台"
       description="从数据源准备情况开始，定位阻断原因并沿着业务生命周期推进到可问数。"
-    >
-      <template #actions>
-        <el-button type="primary" :icon="MessageSquareText" @click="router.push('/query')">进入智能问数</el-button>
-      </template>
-    </TaskPageHeader>
+    />
 
     <LoadingState v-if="loading" variant="skeleton" :rows="7" />
     <template v-else>
@@ -210,7 +206,6 @@ onMounted(load)
             <div class="section-heading"><div><h2>快捷入口</h2><p>继续当前业务任务。</p></div></div>
             <RouterLink class="workbench-link" to="/admin/data-sources"><Database :size="16" />数据源接入<ArrowRight :size="15" /></RouterLink>
             <RouterLink class="workbench-link" to="/admin/governance/issues"><ShieldAlert :size="16" />问题中心<ArrowRight :size="15" /></RouterLink>
-            <RouterLink class="workbench-link" to="/query"><CheckCircle2 :size="16" />进入智能问数<ArrowRight :size="15" /></RouterLink>
           </section>
         </aside>
       </div>

@@ -8,17 +8,17 @@
 
 交付是接入现有服务的 Vue 页面，不是新建应用或静态展示图。布局、层级、蓝色风格以参考图为准；数据、权限、问题、历史和状态来自现有接口。设计图中的示例名称、日期、数字与推荐问题不写进正式页面。
 
-- [已选参考图](../../output/design/query-experience-20261003/selected-option-2.png)
-- [本轮体验审查与截图证据](../../output/design/query-experience-20261003/audit.md)
+- [已选参考图](../../../output/design/query-experience-20261003/selected-option-2.png)
+- [本轮体验审查与截图证据](../../../output/design/query-experience-20261003/audit.md)
 - [可直接交给执行模型的 Prompt](DataOcean-问数页方案二执行Prompt.md)
 
 参考图 SHA-256：`FCA3BCE9CBEE5FD106BC525EE9D80386889BF62BEB9668C5F83767799C379A7B`。图片保存在本机输出目录，未加入 Git；同一工作区的其他模型可直接读取，换机器时需一并提供图片。
 
 ## 2. 范围与已有约束
 
-先读根 `AGENTS.md`、`frontend/CLAUDE.md` 和本文。查询改版不改变后台七个业务域、两级侧栏导航、Java/Python 职责或 IAM-SIMPLE-1 契约。
+先读根 `../../../AGENTS.md`、`frontend/CLAUDE.md` 和本文。查询改版不改变后台七个业务域、两级侧栏导航、Java/Python 职责或 IAM-SIMPLE-1 契约。
 
-沿用 Vue、Element Plus、ECharts、Lucide 和已有 composable。使用 `frontend/src/styles/variables.css` 中的令牌；其中的实际值优先于旧文字说明里的色值。问数页新增的尺寸令牌局限在本页面，第一轮不重写全站主题。
+沿用 Vue、Element Plus、ECharts、Lucide 和已有 composable。使用 `../../../frontend/src/styles/variables.css` 中的令牌；其中的实际值优先于旧文字说明里的色值。问数页新增的尺寸令牌局限在本页面，第一轮不重写全站主题。
 
 本轮包括：页面布局、数据源选择器位置、结果状态、选中结果的一致性、图表/表格联动展示、详细信息、窄屏和键盘可用性。保留自然语言提问、SSE/轮询、停止、澄清、重试、恢复等待、历史分页、CSV 与反馈。
 
@@ -51,16 +51,16 @@ python C:/Users/MuYou/.codex/skills/ui-ux-pro-max/scripts/search.py "error recov
 
 | 文件 | 用途与本轮关注点 |
 | --- | --- |
-| `frontend/src/views/query/QueryDatasourceView.vue` | 页面组装、数据源 URL 同步、会话切换、结果打开状态；当前 `watch(submit.latestResult)` 对每次结果更新自动打开面板 |
-| `frontend/src/views/query/QuerySidebar.vue` | 数据源菜单、历史搜索/切换/删除、账号菜单；将数据源选择迁到工作区头部时复用现有逻辑 |
-| `frontend/src/views/query/QueryInput.vue` | 输入、示例回填、发送/停止、readiness 提示和输入焦点 |
-| `frontend/src/views/query/QueryResult.vue` | 表格、图表、SQL、可信依据与操作栏；当前空结果条件会与澄清状态同时成立 |
-| `frontend/src/views/query/QueryProgress.vue` | 执行阶段展示 |
-| `frontend/src/composables/useQuerySession.ts` | 按数据源隔离会话、消息 ID 分页、旧消息与原问题关联 |
-| `frontend/src/composables/useQuerySubmit.ts` | 任务状态、轮询、恢复、SQL 读取；当前终态把所有阶段都标为 done |
-| `frontend/src/composables/useQueryExport.ts` | 当前结果的分页、CSV、反馈；PNG 目前只是“开发中”提示 |
-| `frontend/src/api/iamS1.ts`、`frontend/src/stores/iamS1.ts` | 已有接口、任务结果字段、能力摘要；按需读问数相关部分 |
-| `frontend/src/components/chart/ChartContainer.vue`、`frontend/src/composables/useChart.ts` | 图表渲染、错误回退、resize/dispose；当前 useChart 仅监听 window resize |
+| `../../../frontend/src/views/query/QueryDatasourceView.vue` | 页面组装、数据源 URL 同步、会话切换、结果打开状态；当前 `watch(submit.latestResult)` 对每次结果更新自动打开面板 |
+| `../../../frontend/src/views/query/QuerySidebar.vue` | 数据源菜单、历史搜索/切换/删除、账号菜单；将数据源选择迁到工作区头部时复用现有逻辑 |
+| `../../../frontend/src/views/query/QueryInput.vue` | 输入、示例回填、发送/停止、readiness 提示和输入焦点 |
+| `../../../frontend/src/views/query/QueryResult.vue` | 表格、图表、SQL、可信依据与操作栏；当前空结果条件会与澄清状态同时成立 |
+| `../../../frontend/src/views/query/QueryProgress.vue` | 执行阶段展示 |
+| `../../../frontend/src/composables/useQuerySession.ts` | 按数据源隔离会话、消息 ID 分页、旧消息与原问题关联 |
+| `../../../frontend/src/composables/useQuerySubmit.ts` | 任务状态、轮询、恢复、SQL 读取；当前终态把所有阶段都标为 done |
+| `../../../frontend/src/composables/useQueryExport.ts` | 当前结果的分页、CSV、反馈；PNG 目前只是“开发中”提示 |
+| `../../../frontend/src/api/iamS1.ts`、`frontend/src/stores/iamS1.ts` | 已有接口、任务结果字段、能力摘要；按需读问数相关部分 |
+| `../../../frontend/src/components/chart/ChartContainer.vue`、`frontend/src/composables/useChart.ts` | 图表渲染、错误回退、resize/dispose；当前 useChart 仅监听 window resize |
 
 允许新增一个复用的数据源选择器和小型结果状态辅助模块；必要时调整图表容器 resize。按这张表局部阅读，避免无目的扫描后台与 Python 全项目。
 
@@ -202,7 +202,7 @@ npm run build
 
 在仓库根执行 `git diff --check`。不要删除或放宽原有保护断言来让测试变绿。
 
-完成实现后，应用 Product Design 的 `design-qa`，将质量检查记录保存为仓库根 `design-qa.md`；包含已选图路径、实现截图、视口/状态、主要差异与修正、实际证据和 `final result: passed` 或 `blocked`。缺少真实截图或仍有影响使用的差异时记录 blocked，不能用构建通过替代视觉验证。
+完成实现后，应用 Product Design 的 `design-qa`，将质量检查记录保存为仓库根 `../../../design-qa.md`；包含已选图路径、实现截图、视口/状态、主要差异与修正、实际证据和 `final result: passed` 或 `blocked`。缺少真实截图或仍有影响使用的差异时记录 blocked，不能用构建通过替代视觉验证。
 
 | 验证项 | 通过条件 |
 | --- | --- |
@@ -231,6 +231,6 @@ npm run build
 2. 每项测试/构建的结果，失败与未验证部分单独说明。
 3. 宽屏、中等宽度、窄屏及关键状态截图，能与已选图对照。
 4. 未解决的后端/环境事项，尤其供应商拒绝限制。
-5. 实际使用的技能、应用结果及 `design-qa.md`，区分已验证与受阻部分。
+5. 实际使用的技能、应用结果及 `../../../design-qa.md`，区分已验证与受阻部分。
 
 不要只返回计划或截图漂亮的静态页面；完成标准是布局接入真实流程、功能回归通过并有真实浏览器证据。
