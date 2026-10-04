@@ -72,13 +72,13 @@ const router = createRouter({
       path: '/query',
       name: 'query',
       component: QueryDatasourceView,
-      meta: { title: 'IAM-SIMPLE-1 智能问数', section: '智能查询' },
+      meta: { title: '智能问数', section: '智能查询' },
     },
     {
       path: '/query/iam-s1',
       name: 'query-iam-s1',
       redirect: (to) => ({ path: '/query', query: to.query }),
-      meta: { title: 'IAM-SIMPLE-1 智能问数', section: '智能查询' },
+      meta: { title: '智能问数', section: '智能查询' },
     },
     {
       path: '/admin',

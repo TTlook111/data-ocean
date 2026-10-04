@@ -12,8 +12,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import {
-  Cpu,
   Database,
   HardDrive,
   Plus,
@@ -425,19 +425,12 @@ fetchConfig()
 
 <template>
   <div class="ai-config-page" v-loading="loading">
-    <section class="page-actions">
-      <div class="header-title">
-        <Cpu :size="22" />
-        <div>
-          <h1>AI 服务配置</h1>
-          <p>管理供应商、模型和参数。点击卡片展开详情，选择使用的配置。</p>
-        </div>
-      </div>
-      <div class="header-actions">
+    <TaskPageHeader title="AI 服务配置" description="管理供应商、模型和参数。点击卡片展开详情，选择使用的配置。">
+      <template #actions>
         <el-button :icon="Plus" :disabled="!canManageAiConfig" :title="canManageAiConfig ? '' : '需要 system:ai-config:manage'" @click="openCreateProvider">添加供应商</el-button>
         <el-button :icon="RefreshCw" :loading="loading" @click="fetchConfig">刷新</el-button>
-      </div>
-    </section>
+      </template>
+    </TaskPageHeader>
 
     <!-- 当前状态 -->
     <section v-if="config" class="status-section">
@@ -845,35 +838,14 @@ fetchConfig()
   max-width: 1080px;
 }
 
-.header-title {
-  display: flex;
-  gap: 12px;
-  color: var(--do-primary-strong);
-}
-
-.header-title h1 {
-  margin: 0;
-  color: var(--do-ink);
-}
-
-.header-title p {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: var(--do-muted);
-}
-
-.header-actions {
-  display: flex;
-  gap: 8px;
-}
 
 /* 状态区域 */
 .status-section {
   padding: 18px 20px;
   margin-bottom: 18px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: var(--do-surface);
+  border: 1px solid var(--do-glass-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-glass-data-bg);
 }
 
 .status-grid {
@@ -889,8 +861,8 @@ fetchConfig()
   gap: 12px;
   padding: 12px;
   border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  border-radius: var(--do-radius-md);
+  background: var(--do-glass-panel-bg);
 }
 
 .status-tile.active {
@@ -979,12 +951,12 @@ fetchConfig()
 
 .tab-header button:hover {
   color: var(--do-ink);
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--do-primary-soft);
 }
 
 .tab-header button.active {
   color: var(--do-primary-strong);
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--do-glass-data-bg);
   border-bottom: 2px solid var(--do-primary);
 }
 
@@ -1004,14 +976,14 @@ fetchConfig()
 
 .provider-card {
   border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.7);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-glass-data-bg);
   transition: all 0.2s;
 }
 
 .provider-card:hover {
   border-color: var(--do-primary);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--do-shadow-hover);
 }
 
 .provider-card.expanded {
@@ -1079,7 +1051,7 @@ fetchConfig()
   padding: 12px;
   border: 1px solid var(--do-line);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--do-glass-panel-bg);
 }
 
 .model-item.active {
@@ -1103,7 +1075,7 @@ fetchConfig()
   font-size: 11px;
   color: var(--do-muted);
   padding: 2px 6px;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--do-primary-soft);
   border-radius: 4px;
 }
 

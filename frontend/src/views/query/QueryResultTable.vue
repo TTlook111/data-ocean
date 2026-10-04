@@ -13,7 +13,7 @@ const emit = defineEmits<{ 'update:page': [page: number] }>()
 
 <template>
   <div class="query-result-table">
-    <el-table :data="rows" border stripe max-height="360" size="small" aria-label="受保护的查询结果">
+    <el-table :data="rows" border stripe max-height="360" aria-label="受保护的查询结果">
       <el-table-column
         v-for="column in (result.columns || [])"
         :key="column.name"
@@ -38,6 +38,7 @@ const emit = defineEmits<{ 'update:page': [page: number] }>()
 <style scoped>
 .query-result-table { min-width: 0; display: grid; gap: 8px; }
 .query-result-table :deep(.el-table) { width: 100%; }
+.query-result-table :deep(.el-table .cell) { padding-block: 5px; font-size: 14px; line-height: 1.6; }
 .query-result-table :deep(.el-table__header th) { background: var(--do-bg); color: var(--do-ink); }
 .query-result-table :deep(.el-pagination) { justify-content: flex-end; }
 </style>

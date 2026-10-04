@@ -70,7 +70,7 @@ const canManageStatus = computed(
 )
 
 const NO_STATUS_CAPABILITY_HINT =
-  '没有“维护治理规则”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。'
+  '没有“维护治理规则”能力：需要角色拥有该功能并负责当前数据源。'
 
 function selectTab(tab: string) {
   activeTab.value = tab
@@ -339,7 +339,7 @@ watch(
             <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} 版本 ${s.snapshotVersion}`" />
           </el-select>
           <span v-if="!canViewMetadata" class="capability-hint">
-            没有“查看资产结构”能力（<code>metadata:view</code>）：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。
+            没有“查看资产结构”能力（<code>metadata:view</code>）：需要角色拥有该功能并负责当前数据源。
           </span>
           <span v-else-if="!canManageStatus" class="capability-hint">
             可以查看表与字段，但没有“维护治理规则”能力，状态修改不可用。

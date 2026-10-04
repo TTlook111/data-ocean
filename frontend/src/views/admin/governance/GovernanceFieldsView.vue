@@ -90,7 +90,7 @@ async function fetchCandidates() {
 
 async function confirmCandidate(candidate: MaskCandidate) {
   if (!canManageMaskCandidates.value) {
-    ElMessage.warning('没有“维护字段保护”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。')
+    ElMessage.warning('没有“维护字段保护”能力：需要角色拥有该功能并负责当前数据源。')
     return
   }
   const strategy = maskStrategy(candidate)
@@ -120,7 +120,7 @@ async function confirmCandidate(candidate: MaskCandidate) {
 
 async function rejectCandidate(candidate: MaskCandidate) {
   if (!canManageMaskCandidates.value) {
-    ElMessage.warning('没有“维护字段保护”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。')
+    ElMessage.warning('没有“维护字段保护”能力：需要角色拥有该功能并负责当前数据源。')
     return
   }
   if (candidateBusy[candidate.entityId]) return
@@ -191,7 +191,7 @@ onBeforeUnmount(() => {
           <EmptyState v-else-if="!hasDatasource" message="请先选择数据源，再查看该数据源的脱敏候选。" />
           <EmptyState
             v-else-if="!canViewMaskCandidates"
-            message="没有“查看字段保护”能力（security:mask:view）：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。"
+            message="没有“查看字段保护”能力（security:mask:view）：需要角色拥有该功能并负责当前数据源。"
           />
           <EmptyState v-else-if="!candidates.length" message="当前数据源暂无待确认的脱敏候选。" />
         <el-table v-else :data="candidates" stripe>

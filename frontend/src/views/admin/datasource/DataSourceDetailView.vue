@@ -283,7 +283,7 @@ onMounted(async () => {
 .source-outcome p { margin: 7px 0 0; color: var(--do-muted); font-size: 14px; line-height: 1.6; }
 .datasource-cockpit__grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, .8fr); gap: 24px; }
 .datasource-cockpit__main, .datasource-cockpit__side { display: grid; align-content: start; gap: 24px; min-width: 0; }
-.datasource-cockpit__card { padding: 24px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); min-width: 0; }
+.datasource-cockpit__card { padding: 24px; border: 1px solid var(--do-glass-line); border-radius: var(--do-radius-lg); background: var(--do-glass-data-bg); box-shadow: var(--do-shadow); min-width: 0; }
 h2 { margin: 0 0 18px; color: var(--do-ink); font-size: 18px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .section-heading h2 { margin: 0; }

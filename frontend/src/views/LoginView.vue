@@ -207,7 +207,7 @@ onUnmounted(() => {
     @pointerleave="resetCharacters"
     @pointercancel="resetCharacters"
   >
-    <section class="login-visual" aria-label="DataOcean 平台说明">
+    <section class="login-visual do-glass-shell" aria-label="DataOcean 平台说明">
       <div class="brand-pill">
         <span class="login-brand-mark">DO</span>
         <strong>DataOcean</strong>
@@ -240,7 +240,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section class="login-panel" aria-label="登录表单">
+    <section class="login-panel do-glass-panel" aria-label="登录表单">
       <div class="form-shell">
         <header class="form-heading">
           <h2>欢迎回来！</h2>
@@ -279,11 +279,10 @@ onUnmounted(() => {
             <div class="captcha-field">
               <input id="login-captcha" v-model="form.captchaCode" type="text" autocomplete="off"
                 placeholder="请输入验证码" maxlength="4" :aria-describedby="captchaError ? 'captcha-error' : undefined" />
-              <button class="captcha-image-button" type="button" aria-label="刷新验证码" :disabled="captchaLoading" @click="refreshCaptcha">
+              <button class="captcha-image-button" type="button" aria-label="刷新验证码" title="点击图片刷新验证码" :disabled="captchaLoading" @click="refreshCaptcha">
                 <img v-if="captchaImage" :src="captchaImage" alt="验证码" class="captcha-img" />
                 <span v-else>{{ captchaLoading ? '加载中' : '重新获取' }}</span>
               </button>
-              <button class="captcha-refresh" type="button" :disabled="captchaLoading" @click="refreshCaptcha">换一张</button>
             </div>
             <p v-if="captchaError" id="captcha-error" class="captcha-error" role="status">验证码加载失败，请点击重新获取。</p>
           </div>
@@ -300,30 +299,58 @@ onUnmounted(() => {
 
 <style scoped>
 .login-page {
-  --login-blue: #2d68cc;
+  position: relative;
+  isolation: isolate;
+  --login-blue: var(--do-primary-strong);
+  --login-panel-min-height: calc(100svh - 2 * clamp(18px, 3.8vh, 40px));
   min-height: 100svh;
   display: grid;
-  grid-template-columns: 51% minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.04fr) minmax(0, 0.98fr);
+  align-items: stretch;
+  gap: 0;
+  padding: clamp(18px, 3.8vh, 40px) clamp(20px, 2.6vw, 40px);
   color: var(--do-ink);
-  background: var(--do-surface);
+  background: transparent;
+}
+.login-page::before {
+  position: absolute;
+  z-index: -1;
+  inset: clamp(18px, 3.8vh, 40px) clamp(20px, 2.6vw, 40px);
+  border-radius: 20px;
+  box-shadow: var(--do-glass-shadow-raised);
+  content: "";
+  pointer-events: none;
 }
 .login-visual {
   position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
-  min-height: 100svh;
-  padding: clamp(40px, 8vh, 82px) clamp(40px, 5.4vw, 80px) clamp(60px, 12vh, 124px);
+  min-height: var(--login-panel-min-height);
+  padding: clamp(42px, 7vh, 76px) clamp(34px, 4.7vw, 72px) clamp(44px, 8vh, 84px);
   overflow: hidden;
-  background: linear-gradient(110deg, #e8f4ff 0%, #f2f8ff 70%, #fff 100%);
+  border-right: 0;
+  border-radius: 20px 0 0 20px;
+  color: white;
+  background:
+    linear-gradient(150deg, rgba(97, 176, 255, .42), rgba(13, 104, 232, .74) 36%, rgba(55, 145, 237, .44) 78%),
+    var(--do-ocean-art);
+  background-size: cover;
+  background-position: 26% center;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
+.login-visual::before { position: absolute; z-index: -1; inset: 42% -18% -30%; border-radius: 50%; background: radial-gradient(ellipse, rgba(224, 242, 255, 0.42), transparent 67%); content: ""; pointer-events: none; }
+.login-visual::after { position: absolute; z-index: -1; inset: 0; background: linear-gradient(155deg, rgba(255,255,255,.16), transparent 32%, transparent 72%, rgba(255,255,255,.16)); content: ""; pointer-events: none; }
 .brand-pill { position: relative; z-index: 1; display: flex; align-items: center; gap: 18px; width: fit-content; }
-.login-brand-mark { display: grid; place-items: center; width: 62px; height: 62px; border-radius: 12px; color: white; background: var(--do-primary-strong); font-size: 27px; font-weight: 600; letter-spacing: -1px; }
-.brand-pill strong { font-size: clamp(25px, 2.3vw, 34px); font-weight: 650; letter-spacing: -1.2px; }
-.visual-copy { position: relative; z-index: 1; margin-top: clamp(60px, 9vh, 96px); }
-.visual-copy h1 { margin: 0; font-size: clamp(48px, 5.1vw, 76px); font-weight: 750; line-height: 1.25; letter-spacing: -2px; }
-.visual-copy p { margin: 18px 0 0; color: var(--do-muted); font-size: clamp(18px, 2vw, 28px); line-height: 1.6; }
-.monster-scene { position: relative; z-index: 1; width: 100%; max-width: 520px; aspect-ratio: 520 / 320; flex-shrink: 0; margin-top: max(48px, 7vh); }
-.monster { position: absolute; bottom: 0; display: block; transform-origin: center bottom; box-shadow: 0 8px 14px rgb(57 79 113 / 6%); }
+.login-brand-mark { display: grid; place-items: center; width: 62px; height: 62px; border: 1px solid rgba(255,255,255,.35); border-radius: 14px; color: white; background: linear-gradient(145deg, #1264f3, #2878ff); box-shadow: 0 8px 20px rgba(13, 70, 177, .2); font-size: 27px; font-weight: 650; letter-spacing: -1px; }
+.brand-pill strong { color: #10203b; font-size: clamp(25px, 2.3vw, 34px); font-weight: 700; letter-spacing: -1.2px; }
+.visual-copy { position: relative; z-index: 1; margin-top: clamp(56px, 9vh, 96px); }
+.visual-copy h1 { margin: 0; color: #fff; font-size: clamp(48px, 6.5vw, 96px); font-weight: 760; line-height: 1.12; letter-spacing: -2px; text-shadow: 0 2px 14px rgba(25, 87, 175, .14); }
+.visual-copy p { margin: 18px 0 0; color: rgba(255,255,255,.94); font-size: clamp(18px, 2vw, 28px); line-height: 1.55; }
+.monster-scene { position: relative; z-index: 1; width: 100%; max-width: 520px; aspect-ratio: 520 / 320; flex-shrink: 0; margin: auto 0 0; }
+.monster { position: absolute; bottom: 0; display: block; transform-origin: center bottom; box-shadow: 0 16px 26px rgb(31 63 118 / 17%), inset 0 4px 9px rgba(255,255,255,.2); }
 .monster-orange { z-index: 5; left: 0; width: 40%; height: 40%; border-radius: 110px 110px 3px 3px; background: linear-gradient(135deg, #ffb792, #ff9c75); }
 .monster-purple { z-index: 2; left: 27%; width: 29%; height: 100%; border-radius: 15px 15px 3px 3px; background: linear-gradient(150deg, #8ba9ff, #6d8cf4); }
 .monster-black { z-index: 4; left: 48%; width: 23%; height: 71%; border-radius: 8px 8px 3px 3px; background: linear-gradient(140deg, #46516a, #293447); }
@@ -347,73 +374,83 @@ onUnmounted(() => {
 .mouth { position: absolute; left: 31%; top: 52%; width: 38%; height: 12%; border-bottom: 2px solid #233954; border-radius: 0 0 40px 40px; transition: height 180ms ease; }
 .is-pointer-down .mouth { height: 18%; }
 .ground-line { position: absolute; z-index: 7; inset: auto -2% -3px; height: 3px; border-radius: 50%; background: rgb(79 128 180 / 10%); }
-.login-panel { display: flex; align-items: center; justify-content: center; min-height: 100svh; padding: 56px 48px 72px 28px; }
+.login-panel { position: relative; isolation: isolate; display: flex; align-items: center; justify-content: center; min-height: var(--login-panel-min-height); padding: clamp(40px, 5vw, 70px) clamp(32px, 4.8vw, 72px); border-left: 0; border-radius: 0 20px 20px 0; background: rgba(249, 253, 255, .52); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.login-panel::before { position: absolute; z-index: -1; inset: 0; border-radius: inherit; clip-path: inset(0 round 0 20px 20px 0); backdrop-filter: blur(20px) saturate(125%); -webkit-backdrop-filter: blur(20px) saturate(125%); content: ''; pointer-events: none; }
 .form-shell { width: 100%; max-width: 570px; }
-.form-heading { margin-bottom: 40px; }
-.form-heading h2 { margin: 0; font-size: clamp(32px, 3.2vw, 46px); font-weight: 700; line-height: 1.2; letter-spacing: -1px; }
-.form-heading span { display: block; margin-top: 14px; color: var(--do-muted); font-size: 18px; line-height: 1.5; font-weight: 400; }
-.login-form { display: grid; gap: 26px; }
-.field { display: grid; gap: 12px; font-size: 16px; font-weight: 500; min-width: 0; }
-.field input { width: 100%; min-width: 0; height: 62px; border: 1px solid var(--do-line); border-radius: 9px; padding: 0 20px; color: var(--do-ink); background: white; font-size: 17px; font-weight: 400; transition: border-color 160ms ease, box-shadow 160ms ease; }
-.field input::placeholder { color: #8391a5; }
-.field input:focus { outline: none; border-color: var(--login-blue); box-shadow: 0 0 0 3px rgb(45 104 204 / 12%); }
+.form-heading { margin-bottom: 34px; }
+.form-heading h2 { margin: 0; font-size: clamp(32px, 4.3vw, 64px); font-weight: 700; line-height: 1.2; letter-spacing: -1px; }
+.form-heading span { display: block; margin-top: 12px; color: var(--do-muted); font-size: 19px; line-height: 1.5; font-weight: 400; }
+.login-form { display: grid; gap: 23px; }
+.field { display: grid; gap: 12px; font-size: 18px; font-weight: 500; min-width: 0; }
+.field input { width: 100%; min-width: 0; height: 60px; border: 1px solid rgba(142, 178, 225, .42); border-radius: 9px; padding: 0 18px; color: var(--do-ink); background: rgba(255,255,255,.76); font-size: 18px; font-weight: 400; transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease; }
+.field input::placeholder { color: var(--do-muted); }
+.field input:focus { outline: none; border-color: var(--login-blue); background: rgba(255,255,255,.96); box-shadow: 0 0 0 3px rgba(45,104,204,.14); }
 .password-field { position: relative; }
 .password-field input { padding-right: 60px; }
 .password-field button { position: absolute; inset: 9px 10px 9px auto; width: 44px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--do-muted); background: transparent; cursor: pointer; }
 .password-field button:hover { color: var(--login-blue); background: var(--do-primary-soft); }
 .captcha-field { display: flex; align-items: center; gap: 10px; }
 .captcha-field input { flex: 1 1 0; }
-.captcha-image-button { width: 120px; height: 62px; flex-shrink: 0; padding: 0; overflow: hidden; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-muted); background: white; cursor: pointer; }
+.captcha-image-button { width: 150px; height: 60px; flex-shrink: 0; padding: 0; overflow: hidden; border: 1px solid rgba(142,178,225,.42); border-radius: 8px; color: var(--do-muted); background: rgba(255,255,255,.76); cursor: pointer; }
 .captcha-img { width: 100%; height: 100%; object-fit: contain; }
-.captcha-refresh { min-height: 44px; padding: 0 2px; flex-shrink: 0; color: var(--login-blue); background: transparent; border: 0; font-size: 14px; cursor: pointer; }
 .captcha-error { margin: 0; color: var(--do-danger); font-size: 13px; line-height: 1.5; font-weight: 400; }
-.submit-button { display: flex; align-items: center; justify-content: center; gap: 10px; height: 64px; margin-top: 8px; border: 0; border-radius: 9px; color: white; background: var(--login-blue); font-size: 20px; font-weight: 500; cursor: pointer; transition: background 160ms ease; }
-.submit-button:hover { background: #235bb8; }
-.submit-button:disabled, .captcha-image-button:disabled, .captcha-refresh:disabled { opacity: .65; cursor: wait; }
+.submit-button { display: flex; align-items: center; justify-content: center; gap: 10px; height: 62px; margin-top: 6px; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; color: white; background: linear-gradient(110deg, #1766f4, #2871ef); box-shadow: 0 9px 20px rgba(37,99,235,.18); font-size: 19px; font-weight: 650; cursor: pointer; transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
+.submit-button:hover { background: linear-gradient(110deg, #115bdf, #1f63de); box-shadow: 0 11px 24px rgba(37,99,235,.24); }
+.submit-button:active { transform: translateY(1px); }
+.submit-button:disabled, .captcha-image-button:disabled { opacity: .65; cursor: wait; }
 button:focus-visible { outline: 3px solid rgb(45 104 204 / 45%); outline-offset: 3px; }
 @media (max-height: 820px) and (min-width: 901px) {
-  .login-visual { padding-block: 42px 60px; }
+  .login-visual { padding-block: 38px 44px; }
   .login-brand-mark { width: 48px; height: 48px; font-size: 23px; }
-  .visual-copy { margin-top: 50px; }
-  .visual-copy h1 { font-size: 58px; }
-  .visual-copy p { font-size: 22px; }
-  .monster-scene { max-width: 440px; margin-top: 36px; }
-  .login-panel { padding-block: 40px; }
-  .form-heading { margin-bottom: 30px; }
+  .visual-copy { margin-top: 40px; }
+  .visual-copy h1 { font-size: 54px; }
+  .visual-copy p { font-size: 20px; }
+  .monster-scene { max-width: 400px; }
+  .login-panel { padding-block: 34px; }
+  .form-heading { margin-bottom: 24px; }
   .form-heading h2 { font-size: 36px; }
-  .login-form { gap: 22px; }
-  .field input, .captcha-image-button { height: 52px; }
-  .submit-button { height: 54px; font-size: 18px; }
+  .login-form { gap: 16px; }
+  .field { gap: 8px; }
+  .field input, .captcha-image-button { height: 48px; }
+  .submit-button { height: 50px; font-size: 17px; }
 }
 @media (max-width: 1100px) {
-  .login-visual { padding-inline: 36px; }
-  .login-panel { padding-inline: 28px; }
+  .login-visual { padding-inline: 30px; }
+  .login-panel { padding-inline: 26px; }
   .brand-pill { gap: 12px; }
   .visual-copy h1 { font-size: 52px; }
   .visual-copy p { font-size: 20px; }
   .captcha-image-button { width: 100px; }
 }
 @media (max-width: 900px) {
-  .login-page { grid-template-columns: minmax(0, 1fr); }
-  .login-visual { min-height: auto; padding: 30px 28px 26px; }
+  .login-page { grid-template-columns: minmax(0, 1fr); align-items: start; align-content: start; gap: 0; padding: 14px; }
+  .login-page::before { display: none; }
+  .login-visual { min-height: auto; padding: 26px 28px 28px; border-right: 1px solid var(--do-glass-border); border-bottom: 0; border-radius: 20px 20px 0 0; }
   .brand-pill strong { font-size: 25px; }
   .login-brand-mark { width: 42px; height: 42px; font-size: 20px; }
   .visual-copy { margin-top: 28px; }
-  .visual-copy h1 { font-size: 36px; }
+  .visual-copy h1 { font-size: 34px; }
   .visual-copy h1 br { display: none; }
   .visual-copy p { margin-top: 10px; font-size: 16px; }
   .monster-scene { display: none; }
-  .login-panel { min-height: auto; padding: 34px 28px 56px; }
+  .login-panel { min-height: auto; padding: 28px 24px 34px; border-left: 1px solid var(--do-glass-border); border-top: 0; border-radius: 0 0 20px 20px; }
+  .login-panel::before { clip-path: inset(0 round 0 0 20px 20px); }
   .form-shell { max-width: 440px; }
-  .form-heading { margin-bottom: 28px; }
+  .form-heading { margin-bottom: 24px; }
   .form-heading h2 { font-size: 30px; }
   .form-heading span { font-size: 15px; }
-  .login-form { gap: 20px; }
+  .login-form { gap: 18px; }
   .field { font-size: 14px; gap: 8px; }
   .field input, .captcha-image-button { height: 48px; font-size: 15px; padding-inline: 12px; }
   .captcha-image-button { width: 90px; padding: 0; }
-  .captcha-refresh { font-size: 13px; }
   .submit-button { height: 50px; font-size: 17px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .login-panel { background: rgba(249, 253, 255, .96); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .login-panel { background: rgba(249, 253, 255, .98); }
+  .login-panel::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
 </style>

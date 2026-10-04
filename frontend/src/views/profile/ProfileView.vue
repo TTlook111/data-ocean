@@ -27,7 +27,7 @@ const rules: FormRules = {
 }
 
 const displayName = () => auth.currentUser?.realName || auth.user?.realName || form.realName || '用户'
-const roleText = () => iamS1.systemAdmin ? 'S1 系统管理员' : 'S1 权限动态判定'
+const roleText = () => iamS1.systemAdmin ? '系统管理员' : '按角色与负责数据源授权'
 const canEnterAdmin = computed(() => iamS1.hasAnyAdminCapability)
 
 async function fetchProfile() {

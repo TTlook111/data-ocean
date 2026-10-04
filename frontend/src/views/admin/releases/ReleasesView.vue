@@ -157,7 +157,7 @@ async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
   const labels: Record<string, string> = { CHECKING: '开始质量检查', APPROVED: '批准快照' }
   if (actionLoading.value) return
   if (targetStatus === 'CHECKING' && !canRunQualityCheck(item)) {
-    ElMessage.warning('没有“执行质量检查”能力：需要 IAM-SIMPLE-1 角色包含 governance:check 并负责该快照所属数据源。')
+    ElMessage.warning('没有“执行质量检查”能力：需要角色拥有 governance:check 并负责该快照所属数据源。')
     return
   }
   // ISSUE_FOUND → APPROVED 不可逆：状态机没有回到 ISSUE_FOUND 的边，且未解决的高危
@@ -330,7 +330,7 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
                   link
                   type="primary"
                   :disabled="!canRunQualityCheck(row)"
-                  :title="canRunQualityCheck(row) ? '' : '需要 IAM-SIMPLE-1 角色包含 governance:check 并负责该数据源'"
+                  :title="canRunQualityCheck(row) ? '' : '需要角色拥有 governance:check 并负责该数据源'"
                   @click="changeStatus(row, 'CHECKING')"
                 >开始检查</el-button>
                 <RouterLink
@@ -344,7 +344,7 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
                 <el-button
                   link
                   :disabled="!canViewAuditRecords(row)"
-                  :title="canViewAuditRecords(row) ? '' : '需要 IAM-SIMPLE-1 角色包含 metadata:release:view 并负责该数据源'"
+                  :title="canViewAuditRecords(row) ? '' : '需要角色拥有 metadata:release:view 并负责该数据源'"
                   @click="showAudit(row)"
                 ><Clock :size="14" />日志</el-button>
               </template>
@@ -396,7 +396,7 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
 .releases-page__published,
 .releases-page__card,
 .releases-page__detail { padding: 18px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); box-shadow: var(--do-shadow); }
-.releases-page__published { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--do-success-soft); border-color: rgba(22, 163, 74, .2); }
+.releases-page__published { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--do-success-soft); border-color: color-mix(in srgb, var(--do-success) 22%, var(--do-line)); }
 .releases-page__published div { display: grid; gap: 4px; }
 .releases-page__published span, .releases-page__published small { color: var(--do-muted); font-size: 12px; }
 .releases-page__published strong { color: var(--do-ink); font-size: 24px; }

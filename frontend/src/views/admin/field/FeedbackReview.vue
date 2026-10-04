@@ -141,6 +141,6 @@ onMounted(() => {
 
 <style scoped>
 .feedback-review-page { padding: 24px; }
-.content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; }
+.content-panel { background: var(--do-glass-data-bg); border: 1px solid var(--do-glass-line); border-radius: var(--do-radius-lg); box-shadow: var(--do-shadow); padding: 16px; }
 .pager { margin-top: 16px; justify-content: flex-end; }
 </style>

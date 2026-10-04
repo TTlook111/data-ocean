@@ -48,14 +48,14 @@ function toggleSidebar() {
   collapsed.value = !collapsed.value
 }
 
-function handleUserCommand(command: string) {
+async function handleUserCommand(command: string) {
   closeUserMenu()
   if (command === 'query' && iamS1.queryUse) router.push('/query')
   if (command === 'profile') router.push('/profile')
   if (command === 'password') router.push('/change-password')
   if (command === 'logout') {
-    auth.logout()
-    router.push('/login')
+    await auth.logout()
+    await router.push('/login')
   }
 }
 
@@ -115,7 +115,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="admin-shell" :class="{ 'is-collapsed': collapsed }">
-    <aside class="admin-shell__sidebar">
+    <aside class="admin-shell__sidebar do-glass-shell">
       <div class="admin-shell__brand">
         <RouterLink to="/admin/workbench" class="admin-shell__brand-link" aria-label="DataOcean 工作台">
           <span class="admin-shell__brand-mark">DO</span>
@@ -156,7 +156,7 @@ onBeforeUnmount(() => {
     </aside>
 
     <main class="admin-shell__main">
-      <header class="admin-shell__topbar">
+      <header class="admin-shell__topbar do-glass-panel">
         <nav class="admin-shell__title" aria-label="当前位置">
           <RouterLink to="/admin/workbench">DataOcean</RouterLink>
           <span aria-hidden="true">/</span>
@@ -203,7 +203,9 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
   min-height: 100vh;
-  background: var(--do-bg);
+  gap: 10px;
+  padding: 10px;
+  background: transparent;
 }
 
 .admin-shell.is-collapsed {
@@ -213,12 +215,50 @@ onBeforeUnmount(() => {
 
 .admin-shell__sidebar {
   position: sticky;
-  top: 0;
+  top: 10px;
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  border-right: 1px solid var(--do-line);
-  background: linear-gradient(180deg, #f2f8ff 0%, var(--do-surface) 42%);
+  height: calc(100vh - 20px);
+  border-radius: 16px;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  isolation: isolate;
+}
+
+/* Bound the glass layer while leaving menus, shadows and content unclipped. */
+.admin-shell__sidebar::before,
+.admin-shell__topbar::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  content: '';
+}
+
+.admin-shell__sidebar::before {
+  background: var(--do-glass-shell-bg);
+  backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
+  -webkit-backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
+  clip-path: inset(0 round 16px);
+}
+
+.admin-shell__topbar::before {
+  background: var(--do-glass-panel-bg);
+  backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
+  -webkit-backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
+  clip-path: inset(0 round 15px);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .admin-shell__sidebar::before { background: rgba(239, 247, 255, .96); }
+  .admin-shell__topbar::before { background: rgba(250, 253, 255, .98); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .admin-shell__sidebar::before { background: rgba(239, 247, 255, .97); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .admin-shell__topbar::before { background: rgba(250, 253, 255, .98); backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
 
 .admin-shell__brand {
@@ -244,7 +284,7 @@ onBeforeUnmount(() => {
   place-items: center;
   border-radius: var(--do-radius-md);
   color: #fff;
-  background: linear-gradient(135deg, var(--do-primary), #6aa84f);
+  background: linear-gradient(145deg, #1766f4, #2d78f2);
   font-weight: 900;
 }
 
@@ -262,13 +302,13 @@ onBeforeUnmount(() => {
 
 .admin-shell__brand-copy strong {
   color: var(--do-ink);
-  font-size: 16px;
+  font-size: 18px;
 }
 
 .admin-shell__brand-copy small {
   overflow: hidden;
   color: var(--do-muted);
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -295,6 +335,9 @@ onBeforeUnmount(() => {
 .admin-shell__account-menu { width: 100%; }
 
 .admin-shell__main {
+  /* Keep page content above the adjacent sidebar's glass layer. */
+  position: relative;
+  z-index: 0;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -302,17 +345,20 @@ onBeforeUnmount(() => {
 
 .admin-shell__topbar {
   position: sticky;
-  top: 0;
+  top: 10px;
   z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  min-height: 72px;
+  min-height: 62px;
   padding: 0 24px;
-  border-bottom: 1px solid var(--do-line);
-  background: rgba(255, 255, 255, .92);
-  backdrop-filter: blur(14px);
+  border-radius: 15px;
+  border-color: var(--do-glass-border);
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  isolation: isolate;
 }
 
 .admin-shell__title {
@@ -384,7 +430,7 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: 1600px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 44px 22px 28px;
 }
 
 .admin-shell__notification-panel {
@@ -467,7 +513,7 @@ onBeforeUnmount(() => {
   .admin-shell { grid-template-columns: 208px minmax(0, 1fr); }
   .admin-shell__brand { padding: 0 12px; }
   .admin-shell__brand-copy small { display: none; }
-  .admin-shell__content { padding: 18px; }
+  .admin-shell__content { padding: 18px 12px; }
   .admin-shell__topbar { padding: 0 18px; }
 }
 

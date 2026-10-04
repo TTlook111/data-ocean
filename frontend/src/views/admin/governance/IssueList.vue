@@ -249,7 +249,7 @@ function persistQuery() {
 
 async function doHandle(issue: QualityIssueItem, status: string) {
   if (!canManageIssue(issue)) {
-    ElMessage.warning('没有“处理质量问题”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责该问题所属数据源。')
+    ElMessage.warning('没有“处理质量问题”能力：需要角色拥有该功能并负责该问题所属数据源。')
     return
   }
   const issueId = issue.id
@@ -352,7 +352,7 @@ function onSelectionChange(rows: QualityIssueItem[]) {
 
 async function reopenIssue(issue: QualityIssueItem) {
   if (!canManageIssue(issue)) {
-    ElMessage.warning('没有“处理质量问题”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责该问题所属数据源。')
+    ElMessage.warning('没有“处理质量问题”能力：需要角色拥有该功能并负责该问题所属数据源。')
     return
   }
   try {
@@ -574,7 +574,7 @@ onBeforeUnmount(() => {
             </template>
             <template v-else>
               <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
-              <span class="muted-text" title="需要 IAM-SIMPLE-1 角色包含“处理质量问题”并负责该数据源">无处理权限</span>
+              <span class="muted-text" title="需要角色拥有“处理质量问题”并负责该数据源">无处理权限</span>
             </template>
             <RouterLink
               v-if="row.snapshotId && canViewReleaseRecords(row)"
@@ -586,7 +586,7 @@ onBeforeUnmount(() => {
       </el-table>
       <EmptyState
         v-else-if="!loading && !canViewIssuesSomewhere"
-        message="你的 IAM-SIMPLE-1 角色没有在任何数据源上包含“查看质量问题”能力，所以列表为空。请联系系统管理员为该角色分配该功能与负责源。"
+        message="你的角色没有在任何数据源上包含“查看质量问题”能力，所以列表为空。请联系系统管理员为该角色分配该功能与负责源。"
       />
       <EmptyState v-else-if="!loading" message="当前范围和筛选条件下没有治理问题。" />
     </section>
@@ -614,7 +614,7 @@ onBeforeUnmount(() => {
           <section class="issue-detail__assign">
             <h3>分派责任人</h3>
             <p v-if="!canManageIssue(selectedIssue)" class="muted-text">
-              没有“处理质量问题”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责该问题所属数据源。分派只写工作归属，不产生任何数据授权。
+              没有“处理质量问题”能力：需要角色拥有该功能并负责该问题所属数据源。分派只写工作归属，不产生任何数据授权。
             </p>
             <template v-else>
               <div class="issue-detail__assign-controls">
@@ -679,14 +679,14 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 .metric-chip.danger {
-  color: #b91c1c;
-  background: #fef2f2;
-  border-color: #fecaca;
+  color: var(--do-danger);
+  background: var(--do-danger-soft);
+  border-color: color-mix(in srgb, var(--do-danger) 22%, var(--do-line));
 }
 .metric-chip.success {
-  color: #15803d;
-  background: #f0fdf4;
-  border-color: #bbf7d0;
+  color: var(--do-success);
+  background: var(--do-success-soft);
+  border-color: color-mix(in srgb, var(--do-success) 22%, var(--do-line));
 }
 .batch-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding: 8px 12px; background: var(--do-primary-soft); border-radius: 6px; font-size: 13px; }
 .table-shell {
@@ -697,7 +697,7 @@ onBeforeUnmount(() => {
   box-shadow: var(--do-shadow);
 }
 .issue-description {
-  color: #334155;
+  color: var(--do-ink);
   font-size: 13px;
 }
 .pager { margin-top: 16px; justify-content: flex-end; }

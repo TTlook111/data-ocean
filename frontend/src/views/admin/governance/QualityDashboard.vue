@@ -129,10 +129,10 @@ const flowSteps = computed(() => [
 ])
 
 function scoreColor(score?: number): string {
-  if (score === undefined) return '#64748b'
-  if (score >= 80) return '#16a34a'
-  if (score >= 60) return '#d97706'
-  return '#dc2626'
+  if (score === undefined) return 'var(--do-muted)'
+  if (score >= 80) return 'var(--do-success)'
+  if (score >= 60) return 'var(--do-warning)'
+  return 'var(--do-danger)'
 }
 
 function scoreLabel(score?: number) {
@@ -221,7 +221,7 @@ async function fetchIssues() {
 
 async function runCheck() {
   if (!canRunCheck.value) {
-    ElMessage.warning('没有“执行质量检查”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。')
+    ElMessage.warning('没有“执行质量检查”能力：需要角色拥有该功能并负责当前数据源。')
     return
   }
   if (!selectedSnapshotId.value) {
@@ -317,7 +317,7 @@ watch(
         执行质量校验
       </el-button>
       <span v-if="!canRunCheck" class="muted-text">
-        没有“执行质量检查”能力：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。
+        没有“执行质量检查”能力：需要角色拥有该功能并负责当前数据源。
       </span>
       <el-button v-if="hasUnresolvedIssues" @click="openIssueCenter">进入问题中心</el-button>
       <el-button v-else-if="canReturnToRelease" @click="openReleaseFlow">返回版本发布</el-button>
@@ -445,10 +445,10 @@ watch(
 .result-area,
 .issue-area,
 .rules-area {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
+  border: 1px solid var(--do-glass-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-glass-data-bg);
+  box-shadow: var(--do-shadow);
 }
 
 .quality-hero {
@@ -465,14 +465,14 @@ watch(
 
 .quality-title span,
 .area-header span {
-  color: #64748b;
+  color: var(--do-muted);
   font-size: 13px;
 }
 
 .quality-title h2,
 .area-header h3 {
   margin: 6px 0 0;
-  color: #0f172a;
+  color: var(--do-ink);
   line-height: 1.3;
 }
 
@@ -485,7 +485,7 @@ watch(
 
 .quality-title p {
   margin: 10px 0 0;
-  color: #64748b;
+  color: var(--do-muted);
 }
 
 .score-summary {
@@ -523,7 +523,7 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #475569;
+  color: var(--do-muted);
   font-weight: 700;
 }
 
@@ -548,11 +548,11 @@ watch(
   left: 0;
   width: 100%;
   height: 2px;
-  background: #cbd5e1;
+  background: var(--do-line-strong);
 }
 
 .flow-line.filled {
-  background: #22c55e;
+  background: var(--do-success);
 }
 
 .flow-node {
@@ -562,26 +562,26 @@ watch(
   place-items: center;
   width: 34px;
   height: 34px;
-  color: #64748b;
-  border: 2px solid #cbd5e1;
+  color: var(--do-muted);
+  border: 2px solid var(--do-line-strong);
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--do-glass-data-bg);
 }
 
 .flow-step.done .flow-node {
   color: #ffffff;
-  border-color: #22c55e;
-  background: #22c55e;
+  border-color: var(--do-success);
+  background: var(--do-success);
 }
 
 .flow-step strong {
-  color: #0f172a;
+  color: var(--do-ink);
 }
 
 .flow-step span {
   max-width: 100%;
   overflow: hidden;
-  color: #64748b;
+  color: var(--do-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -604,7 +604,7 @@ watch(
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #2563eb;
+  color: var(--do-primary-strong);
 }
 
 .dimension-grid {
@@ -618,7 +618,7 @@ watch(
   display: grid;
   gap: 6px;
   padding: 14px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--do-glass-line);
   border-radius: 8px;
 }
 
@@ -628,7 +628,7 @@ watch(
 }
 
 .dimension-item span {
-  color: #64748b;
+  color: var(--do-muted);
   font-size: 12px;
 }
 
@@ -638,7 +638,7 @@ watch(
   align-items: center;
   gap: 8px;
   margin-top: 18px;
-  color: #475569;
+  color: var(--do-muted);
 }
 
 .issue-list,
@@ -655,7 +655,7 @@ watch(
   align-items: center;
   gap: 14px;
   padding: 12px 0;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--do-glass-line);
 }
 
 .issue-item:last-child,
@@ -673,7 +673,7 @@ watch(
 .issue-item strong,
 .rule-main strong {
   overflow: hidden;
-  color: #0f172a;
+  color: var(--do-ink);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -681,7 +681,7 @@ watch(
 .issue-item span,
 .rule-main span {
   overflow: hidden;
-  color: #64748b;
+  color: var(--do-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -693,7 +693,7 @@ watch(
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  color: #64748b;
+  color: var(--do-muted);
 }
 
 .empty-state {
@@ -702,7 +702,7 @@ watch(
   gap: 10px;
   min-height: 150px;
   padding: 32px;
-  color: #64748b;
+  color: var(--do-muted);
 }
 
 </style>

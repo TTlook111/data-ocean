@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import AdminShell from './AdminShell.vue'
 
 const state = vi.hoisted(() => ({
@@ -43,7 +43,7 @@ function createShell() {
 }
 
 describe('admin account menu capability', () => {
-  beforeEach(() => { vi.clearAllMocks(); state.iam.systemAdmin = true; state.iam.queryUse = false })
+  beforeEach(() => { vi.clearAllMocks(); state.logout.mockReset().mockResolvedValue(undefined); state.iam.systemAdmin = true; state.iam.queryUse = false })
   afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()) })
 
   it('shows identity without inferring query capability from an administrator label', async () => {
@@ -73,6 +73,19 @@ describe('admin account menu capability', () => {
     expect(state.push).toHaveBeenLastCalledWith('/change-password')
     await dropdown.vm.$emit('command', 'logout')
     expect(state.logout).toHaveBeenCalledOnce()
+    expect(state.push).toHaveBeenLastCalledWith('/login')
+  })
+
+  it('waits for logout to clear the session before navigating to login', async () => {
+    let finishLogout!: () => void
+    state.logout.mockImplementation(() => new Promise<void>(resolve => { finishLogout = resolve }))
+    const wrapper = createShell()
+    wrapper.findComponent(AccountDropdown).vm.$emit('command', 'logout')
+    await Promise.resolve()
+    expect(state.logout).toHaveBeenCalledOnce()
+    expect(state.push).not.toHaveBeenCalledWith('/login')
+    finishLogout()
+    await flushPromises()
     expect(state.push).toHaveBeenLastCalledWith('/login')
   })
 })

@@ -94,7 +94,7 @@ const MANAGE_FUNCTION = 'organization:user:manage'
 const EXPORT_FUNCTION = 'organization:user:export'
 const MANAGE_HINT = '需要 organization:user:manage'
 const EXPORT_HINT = '需要 organization:user:export'
-const ROLE_BINDING_HINT = 'S1 角色请到「组织、角色与负责源」绑定，不能把旧角色当成新权限角色。'
+const ROLE_BINDING_HINT = '请到「组织、角色与负责源」页面分配角色和负责数据源。'
 
 const canViewUsers = computed(() => iamS1.hasGlobal(VIEW_FUNCTION))
 const canManageUsers = computed(() => iamS1.hasGlobal(MANAGE_FUNCTION))

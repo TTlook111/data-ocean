@@ -367,7 +367,7 @@ onMounted(async () => {
         <section class="panel">
           <EmptyState
             v-if="!canReview"
-            message="没有“审批访问申请”权限：需要 IAM-SIMPLE-1 角色包含该功能，并且该角色负责目标数据源。"
+            message="没有“审批访问申请”权限：需要角色拥有该功能，并且该角色负责目标数据源。"
           />
           <EmptyState v-else-if="!pendingRequests.length" message="没有待审批的申请。" />
           <el-table v-else v-loading="loading" :data="pendingRequests" size="small">

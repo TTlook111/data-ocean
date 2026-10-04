@@ -49,7 +49,7 @@ function handleEnter(event: KeyboardEvent) {
         :value="question"
         :disabled="!selectedId || !canAsk"
         rows="1"
-        :placeholder="!selectedId ? '请先从左侧选择数据源' : canAsk ? `向 ${selectedDatasourceName || '当前数据源'} 提问` : '当前数据源暂不可询问'"
+        :placeholder="!selectedId ? '请先选择数据源' : canAsk ? `向 ${selectedDatasourceName || '当前数据源'} 提问` : '当前数据源暂不可询问'"
         @input="emit('update:question', ($event.target as HTMLTextAreaElement).value)"
         @keydown.enter="handleEnter"
       ></textarea>

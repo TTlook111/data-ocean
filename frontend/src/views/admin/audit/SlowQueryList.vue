@@ -71,7 +71,7 @@ onMounted(() => {
       <LoadingState v-else-if="loading && !logs.length" variant="skeleton" :rows="5" />
       <EmptyState
         v-else-if="!canViewAudit"
-        message="没有“查看查询审计”能力（audit:view）：需要 IAM-SIMPLE-1 角色包含该功能并负责至少一个数据源。"
+        message="没有“查看查询审计”能力（audit:view）：需要角色拥有该功能并负责至少一个数据源。"
       />
       <EmptyState
         v-else-if="!logs.length"

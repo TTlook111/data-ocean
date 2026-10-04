@@ -53,7 +53,7 @@ const reasonText = (code?: string) => {
   if (!code) return '未提供原因'
   const map: Record<string, string> = {
     ALLOWED: '允许',
-    NO_S1_BINDING: '当前账号没有任何可用的 IAM-SIMPLE-1 角色绑定',
+    NO_S1_BINDING: '当前账号尚未分配可用角色',
     FUNCTION_NOT_GRANTED: '角色不包含该功能',
     DATASOURCE_NOT_ASSIGNED: '角色不负责该数据源',
     SAME_BINDING_REQUIRED: '功能与负责源不在同一个角色绑定上',
@@ -62,7 +62,7 @@ const reasonText = (code?: string) => {
     EMPTY_RESOURCE: '没有配置可查询的表和字段',
     SNAPSHOT_NOT_PUBLISHED: '元数据快照不存在或未发布',
     USER_NOT_ENABLED: '账号不存在或已禁用',
-    PROTOCOL_MISMATCH: '请求不是 IAM-SIMPLE-1 协议',
+    PROTOCOL_MISMATCH: '权限校验信息不匹配，请刷新页面后重试',
   }
   return map[code] ?? `未识别的原因码：${code}`
 }

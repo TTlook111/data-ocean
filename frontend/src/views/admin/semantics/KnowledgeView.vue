@@ -65,9 +65,9 @@ const canManage = computed(
 const canApprove = computed(
   () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:approve').length > 0,
 )
-const MANAGE_HINT = '没有“维护知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:manage 并负责目标数据源。'
-const APPROVE_HINT = '没有“审核知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:approve 并负责目标数据源。审核权不自动带来维护或发布权。'
-const PUBLISH_HINT = '没有“发布知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:publish 并负责目标数据源。'
+const MANAGE_HINT = '没有“维护知识文档”能力：需要角色拥有 knowledge:manage 并负责目标数据源。'
+const APPROVE_HINT = '没有“审核知识文档”能力：需要角色拥有 knowledge:approve 并负责目标数据源。审核权不自动带来维护或发布权。'
+const PUBLISH_HINT = '没有“发布知识文档”能力：需要角色拥有 knowledge:publish 并负责目标数据源。'
 
 function canPublishForDatasource(id: number) {
   return iamS1.systemAdmin
@@ -760,7 +760,7 @@ watch(() => route.query.page, (value) => {
   padding: 18px;
   border: 1px solid var(--do-line);
   border-radius: var(--do-radius-lg);
-  background: var(--do-surface);
+  background: var(--do-glass-data-bg);
   box-shadow: var(--do-shadow);
 }
 .knowledge-page__readiness-heading {
@@ -785,9 +785,9 @@ watch(() => route.query.page, (value) => {
 .knowledge-page__toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
 
 .knowledge-page__card {
-  border: 1px solid var(--do-line);
+  border: 1px solid var(--do-glass-line);
   border-radius: var(--do-radius-lg);
-  background: var(--do-surface);
+  background: var(--do-glass-data-bg);
   box-shadow: var(--do-shadow);
   overflow: hidden;
 }

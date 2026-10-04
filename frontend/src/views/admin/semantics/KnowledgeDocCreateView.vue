@@ -36,7 +36,7 @@ const selectableDatasources = computed(() => {
 const canManage = computed(
   () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:manage').length > 0,
 )
-const MANAGE_HINT = '没有“维护知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:manage 并负责目标数据源。'
+const MANAGE_HINT = '没有“维护知识文档”能力：需要角色拥有 knowledge:manage 并负责目标数据源。'
 
 const datasources = ref<DatasourceSimpleItem[]>([])
 const loadingDatasources = ref(true)

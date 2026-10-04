@@ -250,5 +250,5 @@ watch(
 .field-tag-page { padding: 24px; }
 .header-actions { display: flex; gap: 8px; }
 .toolbar { display: flex; gap: 12px; margin-bottom: 16px; }
-.content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; }
+.content-panel { background: var(--do-glass-data-bg); border: 1px solid var(--do-glass-line); border-radius: var(--do-radius-lg); box-shadow: var(--do-shadow); padding: 16px; }
 </style>

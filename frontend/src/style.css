@@ -21,10 +21,15 @@ body,
 }
 
 body {
+  position: relative;
+  isolation: isolate;
   min-width: 1024px;
   margin: 0;
-  background:
-    linear-gradient(180deg, rgba(238, 248, 255, 0.88) 0, rgba(248, 250, 252, 0.92) 260px, var(--do-bg) 100%);
+  background: var(--do-ocean-canvas);
+  background-color: var(--do-bg);
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
 }
 
 body:has(.query-workspace),
@@ -47,9 +52,81 @@ a {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 264px minmax(0, 1fr);
-  background:
-    linear-gradient(180deg, rgba(238, 248, 255, 0.9) 0, rgba(248, 250, 252, 0.78) 300px, transparent 640px),
-    var(--do-bg);
+  background: transparent;
+}
+
+/* Glass is reserved for real shells and panels; data remains on a nearly opaque surface. */
+.do-glass-shell,
+.do-glass-panel,
+.do-glass-data {
+  border: 1px solid var(--do-glass-border);
+  box-shadow: var(--do-glass-shadow);
+}
+
+/* Only the background layer is blurred; its paint stays inside the panel. */
+.do-glass-shell:not(.login-visual),
+.do-glass-panel:not(.login-panel) {
+  position: relative;
+  isolation: isolate;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.do-glass-shell:not(.login-visual)::before,
+.do-glass-panel:not(.login-panel)::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  clip-path: inset(0 round var(--do-glass-corner, 16px));
+  content: '';
+  pointer-events: none;
+}
+
+.do-glass-shell:not(.login-visual)::before {
+  backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
+  -webkit-backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
+}
+
+.do-glass-panel:not(.login-panel)::before {
+  backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
+  -webkit-backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
+}
+
+.do-glass-shell {
+  background: var(--do-glass-shell-bg);
+  backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
+  -webkit-backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
+}
+
+.do-glass-panel {
+  background: var(--do-glass-panel-bg);
+  backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
+  -webkit-backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
+}
+
+.do-glass-data {
+  background: var(--do-glass-data-bg);
+  box-shadow: var(--do-shadow);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .do-glass-shell { background: rgba(239, 247, 255, 0.96); }
+  .do-glass-panel { background: rgba(250, 253, 255, 0.98); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .do-glass-shell { background: rgba(239, 247, 255, 0.97); }
+  .do-glass-panel { background: rgba(250, 253, 255, 0.98); }
+  .do-glass-shell::before, .do-glass-panel::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:not([tabindex="-1"]):focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.48);
+  outline-offset: 2px;
 }
 
 .app-shell.is-collapsed {
@@ -63,10 +140,11 @@ a {
   display: flex;
   flex-direction: column;
   color: var(--do-ink);
-  background:
-    linear-gradient(180deg, rgba(238, 248, 255, 0.96) 0, rgba(248, 251, 255, 0.98) 210px, var(--do-sidebar) 100%);
+  background: var(--do-glass-shell-bg);
   border-right: 1px solid var(--do-line);
-  box-shadow: 8px 0 30px rgba(15, 23, 42, 0.05);
+  box-shadow: var(--do-glass-shadow);
+  backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
+  -webkit-backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
 }
 
 .sidebar-brand {
@@ -94,7 +172,7 @@ a {
   place-items: center;
   border-radius: 8px;
   color: #fff;
-  background: linear-gradient(135deg, #4d8fdc 0%, #6aa84f 100%);
+  background: linear-gradient(145deg, #1766f4, #2d78f2);
   font-size: 13px;
   font-weight: 900;
 }
@@ -135,7 +213,7 @@ a {
 .nav-item:hover,
 .nav-item.active {
   color: var(--do-primary-strong);
-  background: rgba(77, 143, 220, 0.14);
+  background: var(--do-primary-soft);
 }
 
 .side-nav {
@@ -210,9 +288,10 @@ a {
   justify-content: space-between;
   gap: 18px;
   padding: 0 24px;
-  border-bottom: 1px solid var(--do-line);
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--do-glass-line);
+  background: var(--do-glass-panel-bg);
+  backdrop-filter: blur(var(--do-glass-panel-blur));
+  -webkit-backdrop-filter: blur(var(--do-glass-panel-blur));
 }
 
 .topbar-title {
@@ -308,7 +387,9 @@ a {
   gap: 12px;
   padding: 10px 28px;
   border-bottom: 1px solid var(--do-line);
-  background: rgba(248, 251, 255, 0.92);
+  background: var(--do-glass-panel-bg);
+  backdrop-filter: blur(var(--do-glass-panel-blur));
+  -webkit-backdrop-filter: blur(var(--do-glass-panel-blur));
 }
 
 .context-control {
@@ -360,7 +441,7 @@ a {
   place-items: center;
   border-radius: 10px;
   color: #fff;
-  background: linear-gradient(135deg, var(--do-primary), var(--do-accent));
+  background: linear-gradient(145deg, #1766f4, #2d78f2);
   font-weight: 900;
   font-size: 18px;
 }
@@ -402,11 +483,11 @@ a {
 }
 
 .drawer-item--danger {
-  color: #ef4444;
+  color: var(--do-danger);
 }
 
 .drawer-item--danger:hover {
-  background: #fef2f2;
+  background: var(--do-danger-soft);
 }
 
 .drawer-divider {
@@ -428,7 +509,7 @@ a {
 
 .logout-button:hover {
   color: var(--do-danger);
-  background: #fff0ec;
+  background: var(--do-danger-soft);
 }
 
 .app-content {
@@ -455,11 +536,11 @@ a {
 .post-login-page .el-card,
 .post-login-page .el-dialog,
 .post-login-page .department-tree {
-  background: var(--do-surface);
+  background: var(--do-glass-data-bg);
 }
 
 .post-login-page .el-table th.el-table__cell {
-  background: #f8fafc;
+  background: var(--do-soft);
   color: var(--do-ink);
   font-weight: 800;
 }
@@ -491,8 +572,8 @@ a {
   --el-button-border-color: var(--do-primary);
   --el-button-hover-bg-color: var(--do-primary-strong);
   --el-button-hover-border-color: var(--do-primary-strong);
-  --el-button-active-bg-color: #28639f;
-  --el-button-active-border-color: #28639f;
+  --el-button-active-bg-color: #1c56c8;
+  --el-button-active-border-color: #1c56c8;
 }
 
 .post-login-page .el-tag--success {
@@ -521,8 +602,10 @@ a {
   padding: 14px;
   border: 1px solid var(--do-line);
   border-radius: var(--do-radius);
-  background: var(--do-surface);
+  background: var(--do-glass-panel-bg);
   box-shadow: var(--do-shadow);
+  backdrop-filter: blur(var(--do-glass-panel-blur));
+  -webkit-backdrop-filter: blur(var(--do-glass-panel-blur));
   transition: border-color 200ms ease;
 }
 
@@ -538,7 +621,7 @@ a {
 .content-panel {
   border: 1px solid var(--do-line);
   border-radius: var(--do-radius-lg);
-  background: var(--do-surface);
+  background: var(--do-glass-data-bg);
   box-shadow: var(--do-shadow);
 }
 
@@ -630,12 +713,12 @@ a {
   align-items: center;
   gap: 18px;
   padding: 18px;
-  border: 1px solid rgba(77, 143, 220, 0.18);
-  border-radius: 12px;
+  border: 1px solid var(--do-glass-line);
+  border-radius: var(--do-radius-lg);
   background:
-    linear-gradient(135deg, rgba(77, 143, 220, 0.12), rgba(106, 168, 79, 0.07) 42%, rgba(255, 255, 255, 0.95) 100%),
-    var(--do-surface);
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
+    linear-gradient(135deg, var(--do-primary-soft), rgba(255, 255, 255, 0.96) 76%),
+    var(--do-glass-data-bg);
+  box-shadow: var(--do-shadow);
 }
 
 .command-title {
@@ -679,7 +762,7 @@ a {
   padding: 14px;
   border: 1px solid var(--do-line);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--do-glass-panel-bg);
   box-shadow: var(--do-shadow);
 }
 

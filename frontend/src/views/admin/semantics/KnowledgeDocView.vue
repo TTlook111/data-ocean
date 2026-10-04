@@ -91,10 +91,10 @@ const mayApprove = computed(
 const mayPublish = computed(
   () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:publish').length > 0,
 )
-const VIEW_HINT = '没有“查看知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:view 并负责该文档的数据源。'
-const MANAGE_HINT = '没有“维护知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:manage 并负责该文档的数据源。'
-const APPROVE_HINT = '没有“审核知识文档”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:approve 并负责该文档的数据源。'
-const PUBLISH_HINT = '没有“发布/回滚知识”能力：需要 IAM-SIMPLE-1 角色包含 knowledge:publish 并负责该文档的数据源。审核权不自动带来发布权。'
+const VIEW_HINT = '没有“查看知识文档”能力：需要角色拥有 knowledge:view 并负责该文档的数据源。'
+const MANAGE_HINT = '没有“维护知识文档”能力：需要角色拥有 knowledge:manage 并负责该文档的数据源。'
+const APPROVE_HINT = '没有“审核知识文档”能力：需要角色拥有 knowledge:approve 并负责该文档的数据源。'
+const PUBLISH_HINT = '没有“发布/回滚知识”能力：需要角色拥有 knowledge:publish 并负责该文档的数据源。审核权不自动带来发布权。'
 
 const docId = computed(() => Number(route.params.id))
 const activeTab = ref(String(route.query.tab || 'content'))

@@ -61,8 +61,8 @@ const canManage = computed(() => iamS1.hasGlobal('glossary:manage'))
 const canApprove = computed(() => iamS1.hasGlobal('glossary:approve'))
 
 /** 权限不足时的中文原因，避免“点了才发现必然失败”。 */
-const MANAGE_HINT = '没有“维护业务术语”能力：需要 IAM-SIMPLE-1 角色包含 glossary:manage 并负责该术语关联的数据源。'
-const APPROVE_HINT = '没有“审核术语”能力：需要 IAM-SIMPLE-1 角色包含 glossary:approve 并负责该术语关联的数据源。审核权不自动带来维护权。'
+const MANAGE_HINT = '没有“维护业务术语”能力：需要角色拥有 glossary:manage 并负责该术语关联的数据源。'
+const APPROVE_HINT = '没有“审核术语”能力：需要角色拥有 glossary:approve 并负责该术语关联的数据源。审核权不自动带来维护权。'
 
 const glossaries = ref<GlossaryItem[]>([])
 const terms = ref<GlossaryTermItem[]>([])

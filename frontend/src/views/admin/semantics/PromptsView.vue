@@ -57,9 +57,9 @@ const iamS1 = useIamS1Store()
 const canView = computed(() => iamS1.hasGlobal('prompt:view'))
 const canManage = computed(() => iamS1.hasGlobal('prompt:manage'))
 const canApprove = computed(() => iamS1.hasGlobal('prompt:approve'))
-const VIEW_HINT = '没有“查看 AI 提示词”能力：需要 IAM-SIMPLE-1 角色包含 prompt:view。'
-const MANAGE_HINT = '没有“维护 AI 提示词”能力：需要 IAM-SIMPLE-1 角色包含 prompt:manage。审核权不自动带来维护权。'
-const APPROVE_HINT = '没有“审核 AI 提示词”能力：需要 IAM-SIMPLE-1 角色包含 prompt:approve。维护权不自动带来审核权。'
+const VIEW_HINT = '没有“查看 AI 提示词”能力：需要角色拥有 prompt:view。'
+const MANAGE_HINT = '没有“维护 AI 提示词”能力：需要角色拥有 prompt:manage。审核权不自动带来维护权。'
+const APPROVE_HINT = '没有“审核 AI 提示词”能力：需要角色拥有 prompt:approve。维护权不自动带来审核权。'
 
 const templates = ref<PromptTemplateVO[]>([])
 const versions = ref<PromptVersionVO[]>([])

@@ -47,7 +47,7 @@ export const ADMIN_WORKSPACES: AdminWorkspace[] = [
   { key: 'glossaries', domainKey: ADMIN_DOMAIN_KEYS.semantics, label: '业务术语', path: '/admin/semantics/glossaries', contextMode: 'none' },
   { key: 'knowledge', domainKey: ADMIN_DOMAIN_KEYS.semantics, label: '语义知识', path: '/admin/semantics/knowledge', contextMode: 'datasource' },
   { key: 'prompts', domainKey: ADMIN_DOMAIN_KEYS.semantics, label: 'Prompt 策略', path: '/admin/semantics/prompts', contextMode: 'none' },
-  { key: 'iam-access', domainKey: ADMIN_DOMAIN_KEYS.access, label: '授权配置（IAM-SIMPLE-1）', path: '/admin/access/iam', contextMode: 'none' },
+  { key: 'iam-access', domainKey: ADMIN_DOMAIN_KEYS.access, label: '授权配置', path: '/admin/access/iam', contextMode: 'none' },
   { key: 'iam-approvals', domainKey: ADMIN_DOMAIN_KEYS.access, label: '访问申请与审批', path: '/admin/access/iam-approvals', contextMode: 'none' },
   { key: 'iam-organization', domainKey: ADMIN_DOMAIN_KEYS.access, label: '组织、角色与负责源', path: '/admin/access/iam-organization', contextMode: 'none' },
   { key: 'queries', domainKey: ADMIN_DOMAIN_KEYS.operations, label: '查询分析', path: '/admin/operations/queries', contextMode: 'none' },

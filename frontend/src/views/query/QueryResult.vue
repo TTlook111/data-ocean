@@ -100,7 +100,7 @@ defineExpose({ openDetails })
 </script>
 
 <template>
-  <aside class="result-preview result-rail" aria-label="查询结果">
+  <aside class="result-preview result-rail do-glass-data" aria-label="查询结果">
     <header class="result-header">
       <div class="result-title">
         <strong>查询结果</strong>
@@ -225,11 +225,11 @@ defineExpose({ openDetails })
 </template>
 
 <style scoped>
-.result-preview { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border-left: 1px solid var(--do-line); background: var(--do-surface); }
+.result-preview { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border-color: var(--do-glass-line); border-radius: 15px; background: var(--do-glass-data-bg); }
 .result-header { min-width: 0; min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--do-line); }
 .result-title { min-width: 0; }
 .result-title strong, .result-title small { display: block; }
-.result-title strong { color: var(--do-ink); font-size: 17px; }
+.result-title strong { color: var(--do-ink); font-size: 20px; }
 .result-title small { max-width: 100%; margin-top: 3px; overflow: hidden; color: var(--do-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .result-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
 .details-button, .close-button, .back-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 1px solid transparent; border-radius: var(--do-radius-sm); color: var(--do-muted); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
@@ -246,7 +246,7 @@ defineExpose({ openDetails })
 .chart-result-view, .table-result-view { grid-row: 2; }
 .chart-heading { min-width: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
 .result-meta { min-width: 0; display: grid; gap: 5px; }
-.result-meta h3 { margin: 0; color: var(--do-ink); font-size: 16px; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
+.result-meta h3 { margin: 0; color: var(--do-ink); font-size: 18px; font-weight: 700; line-height: 1.5; overflow-wrap: anywhere; }
 .result-meta span { color: var(--do-muted); font-size: 12px; }
 .chart-type-switcher { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--do-line); border-radius: var(--do-radius-md); background: var(--do-bg); }
 .chart-type-switcher button { min-height: 34px; padding: 0 10px; border: 0; border-radius: var(--do-radius-sm); color: var(--do-muted); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }

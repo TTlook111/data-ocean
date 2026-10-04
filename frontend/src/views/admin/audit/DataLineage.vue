@@ -819,7 +819,7 @@ onBeforeUnmount(() => {
         <p>请先选择数据源查看血缘图谱</p>
       </div>
       <div v-else-if="!canViewLineage" class="empty-hint">
-        <p>没有“查看数据血缘”能力（lineage:view）：需要 IAM-SIMPLE-1 角色包含该功能并负责当前数据源。</p>
+        <p>没有“查看数据血缘”能力（lineage:view）：需要角色拥有该功能并负责当前数据源。</p>
       </div>
       <div v-else-if="!loading && entities.length === 0" class="empty-hint">
         <p>该数据源暂无实体数据，请先发布快照</p>

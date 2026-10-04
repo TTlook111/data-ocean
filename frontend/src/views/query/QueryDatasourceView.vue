@@ -123,13 +123,13 @@ watch(submit.resultTab, () => {
   })
 })
 
-function handleUserCommand(command: string) {
+async function handleUserCommand(command: string) {
   if (command === 'admin') router.push('/admin')
   if (command === 'profile') router.push('/profile')
   if (command === 'password') router.push('/change-password')
   if (command === 'logout') {
-    auth.logout()
-    router.push('/login')
+    await auth.logout()
+    await router.push('/login')
   }
 }
 
@@ -317,7 +317,7 @@ onMounted(() => {
     />
 
     <section class="query-main">
-      <header class="query-topbar">
+      <header class="query-topbar do-glass-panel">
         <div class="topbar-heading">
           <h1>智能问数</h1>
           <QueryDatasourceSelector
@@ -349,7 +349,7 @@ onMounted(() => {
       </header>
 
       <div class="workspace-content">
-        <section class="conversation-pane" aria-label="当前对话">
+        <section class="conversation-pane do-glass-panel" aria-label="当前对话">
           <header class="conversation-heading"><h2>当前对话</h2></header>
           <div class="chat-surface">
             <div v-if="!session.selectedId.value" class="empty-chat">
@@ -457,11 +457,11 @@ onMounted(() => {
 
 <style scoped>
 /* Keep desktop split and compact single-view breakpoints in sync with the workspace state. */
-.query-workspace { width: 100%; height: 100dvh; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr); overflow: hidden; color: var(--do-ink); background: var(--do-bg); }
-.query-main { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--do-surface); }
-.query-topbar { min-width: 0; min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 18px; border-bottom: 1px solid var(--do-line); background: var(--do-surface); }
+.query-workspace { width: 100%; height: 100dvh; min-height: 0; display: grid; grid-template-columns: 256px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 10px; padding: 10px; overflow: hidden; color: var(--do-ink); background: transparent; }
+.query-main { position: relative; z-index: 0; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 0; padding: 10px 10px 10px 0; background: transparent; }
+.query-topbar { min-width: 0; min-height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 18px; border-color: var(--do-glass-border); border-radius: 15px; }
 .topbar-heading { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.topbar-heading h1 { flex: 0 0 auto; margin: 0; color: var(--do-ink); font-size: 20px; font-weight: 780; }
+.topbar-heading h1 { flex: 0 0 auto; margin: 0; color: var(--do-ink); font-size: 22px; font-weight: 750; }
 .readiness-note { max-width: 300px; color: var(--do-warning); font-size: 11px; line-height: 1.4; }
 .capability-error { flex: 1 1 100%; color: var(--do-danger); font-size: 12px; line-height: 1.45; }
 .capability-error button { min-height: 34px; margin-left: 5px; padding: 0 8px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; cursor: pointer; }
@@ -471,11 +471,11 @@ onMounted(() => {
 .workspace-switch { display: none; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--do-line); border-radius: var(--do-radius-md); background: var(--do-bg); }
 .workspace-switch button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--do-muted); background: transparent; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .workspace-switch button.active { color: var(--do-primary-strong); background: var(--do-surface); box-shadow: var(--do-shadow); }
-.workspace-content { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+.workspace-content { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; column-gap: 10px; padding-top: 10px; }
 .query-workspace.result-open .workspace-content { grid-template-columns: minmax(460px, 1.1fr) minmax(400px, .9fr); }
-.conversation-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); grid-column: 1; grid-row: 1; }
+.conversation-pane { --do-glass-corner: 15px 15px 0 0; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); grid-column: 1; grid-row: 1; border: 1px solid var(--do-glass-line); border-bottom: 0; border-radius: 15px 15px 0 0; }
 .conversation-heading { min-height: 60px; display: flex; align-items: center; padding: 0 24px; border-bottom: 1px solid var(--do-line); }
-.conversation-heading h2 { max-width: 100%; margin: 0; overflow: hidden; color: var(--do-ink); font-size: 17px; font-weight: 740; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-heading h2 { max-width: 100%; margin: 0; overflow: hidden; color: var(--do-ink); font-size: 19px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .chat-surface { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 24px 24px; }
 .welcome-state { min-height: 100%; display: grid; place-items: center; align-content: center; gap: 8px; padding: 20px; text-align: center; }
 .welcome-logo { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: #fff; background: var(--do-primary); font-size: 13px; font-weight: 900; }
@@ -497,27 +497,27 @@ onMounted(() => {
 .message-item.user .message-avatar { color: #fff; background: var(--do-primary); }
 .assistant-mark { font-size: 10px; font-weight: 900; }
 .message-bubble { min-width: 0; max-width: 720px; padding: 13px 15px; border: 1px solid var(--do-line); border-radius: 13px; color: var(--do-ink); background: var(--do-surface); box-shadow: var(--do-shadow); }
-.message-bubble p { margin: 0; font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-bubble p { margin: 0; font-size: 15px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-suggestions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
 .message-suggestions small { flex-basis: 100%; color: var(--do-muted); font-size: 11px; }
 .message-suggestions button { min-height: 36px; padding: 0 11px; border: 1px solid var(--do-line); border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 12px; cursor: pointer; }
 .message-suggestions button:hover { border-color: var(--do-primary); background: var(--do-primary-soft); }
 .message-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--do-muted); }
-.message-meta small { font-size: 11px; }
+.message-meta small { font-size: 12px; }
 .message-meta button { min-height: 32px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; color: var(--do-primary-strong); background: transparent; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
 .message-meta button:hover { border-color: var(--do-line); background: var(--do-primary-soft); }
 .message-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--do-line); }
 .message-actions button { min-height: 36px; padding: 0 10px; border: 1px solid var(--do-line); border-radius: 7px; color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
 .message-actions button:hover:not(:disabled) { border-color: var(--do-primary); background: var(--do-primary-soft); }
 .message-actions button:disabled { cursor: not-allowed; opacity: .5; }
-.query-workspace :deep(.query-input) { width: auto; min-width: 0; margin: 0; padding: 12px 20px 14px; border-top: 1px solid var(--do-line); background: var(--do-surface); }
+.query-workspace :deep(.query-input) { width: auto; min-width: 0; margin: 0; padding: 9px 20px 14px; border: 1px solid var(--do-glass-line); border-top: 0; border-radius: 0 0 15px 15px; background: var(--do-glass-panel-bg); }
 .query-workspace :deep(.chat-composer) { padding: 9px 9px 9px 14px; box-shadow: var(--do-shadow); }
 .query-workspace :deep(.send-button), .query-workspace :deep(.cancel-button) { min-width: 88px; min-height: 44px; }
 .query-workspace :deep(.composer-hint) { margin-top: 5px; font-size: 11px; }
 .query-workspace :deep(.composer-readiness) { color: var(--do-warning); }
 .query-workspace.result-open .result-rail { grid-column: 2; grid-row: 1 / 3; }
 .query-workspace :deep(.result-rail) { grid-column: 1; grid-row: 1 / 2; }
-.query-workspace :deep(.result-rail) { box-shadow: none; }
+.query-workspace :deep(.result-rail) { border-radius: 15px; box-shadow: var(--do-shadow); }
 .query-workspace :deep(.result-rail .result-actions) { margin: 0; }
 .query-workspace :deep(.result-rail .result-scroll) { scrollbar-gutter: stable; }
 .query-workspace.result-mode .conversation-pane { display: block; }
@@ -530,6 +530,7 @@ onMounted(() => {
   .query-workspace.result-mode .conversation-pane { display: none; }
   .query-workspace.result-mode :deep(.result-rail) { display: grid; grid-column: 1; grid-row: 1; }
   .query-workspace :deep(.query-input) { padding-inline: 16px; }
+  .query-main { padding-left: 0; }
   .query-topbar { padding-inline: 14px; }
   .topbar-heading { gap: 10px; }
   .topbar-heading h1 { font-size: 18px; }
@@ -537,8 +538,8 @@ onMounted(() => {
   .readiness-note { display: none; }
 }
 @media (max-width: 768px) {
-  .query-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .query-main { min-height: 0; grid-template-rows: auto minmax(0, 1fr); }
+  .query-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 8px; padding: 8px; }
+  .query-main { min-height: 0; grid-template-rows: auto minmax(0, 1fr); padding: 0; }
   .query-topbar { min-height: 0; flex-wrap: wrap; align-items: flex-start; gap: 8px; padding: 10px 12px; }
   .topbar-heading { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; }
   .topbar-heading h1 { font-size: 16px; }
@@ -569,7 +570,7 @@ onMounted(() => {
   .query-workspace :deep(.chat-composer textarea) { min-height: 42px; padding-inline: 5px; }
   .query-workspace :deep(.send-button), .query-workspace :deep(.cancel-button) { min-width: 78px; }
   .query-workspace :deep(.composer-hint) { text-align: left; }
-  .query-workspace :deep(.result-rail) { border: 0; }
+  .query-workspace :deep(.result-rail) { border-radius: 15px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .message-meta button, .message-actions button, .message-suggestions button, .workspace-switch button { transition-duration: 1ms; }

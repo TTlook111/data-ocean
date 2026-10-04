@@ -595,13 +595,13 @@ async function onDatasourceChange() {
   font-size: 12px;
 }
 .hint.warn {
-  color: #d48806;
+  color: var(--do-warning);
 }
 .summary {
   margin: 16px 0 12px;
   padding: 12px;
   border-radius: 8px;
-  background: var(--do-surface-muted, #f6f7f9);
+  background: var(--do-soft);
   font-size: 13px;
   line-height: 1.6;
 }

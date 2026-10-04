@@ -193,9 +193,10 @@ onMounted(fetchSchedule)
 .schedule-page { display: grid; gap: 16px; }
 
 .config-card {
-  background: var(--do-surface);
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
+  background: var(--do-glass-data-bg);
+  border: 1px solid var(--do-glass-line);
+  border-radius: var(--do-radius-lg);
+  box-shadow: var(--do-shadow);
   padding: 24px;
 }
 

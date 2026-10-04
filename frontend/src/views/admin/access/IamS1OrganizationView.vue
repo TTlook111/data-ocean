@@ -289,7 +289,7 @@ onMounted(async () => {
   <div class="iam-s1-org">
     <TaskPageHeader
       title="组织、角色与负责源"
-      description="正式入口：用户和部门使用 S1 能力；角色、功能目录和负责源只走 /api/iam-s1/**。负责源只限制后台工作范围，不授予业务数据查询权。"
+      description="管理用户、部门、角色与负责数据源。负责源限定后台管理范围；数据查询权限需单独授权。"
     />
 
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
@@ -302,7 +302,7 @@ onMounted(async () => {
       <el-tab-pane label="角色" name="roles">
         <EmptyState
           v-if="!canViewRoles"
-          message="没有“查看角色”权限：需要 IAM-SIMPLE-1 角色包含“查看角色”。"
+          message="没有“查看角色”权限：需要角色拥有“查看角色”。"
         />
         <template v-else>
           <section class="panel">
@@ -379,7 +379,7 @@ onMounted(async () => {
         <section class="panel">
           <EmptyState
             v-if="!canManageBindings"
-            message="后台角色与负责数据源只能由 IAM-SIMPLE-1 系统管理员分配；如需调整请联系系统管理员。"
+            message="后台角色与负责数据源只能由系统管理员分配；如需调整请联系系统管理员。"
           />
           <template v-else>
             <div class="inline">
@@ -401,7 +401,7 @@ onMounted(async () => {
               </el-select>
             </div>
 
-            <EmptyState v-if="!bindings.length" message="该用户还没有 IAM-SIMPLE-1 角色绑定。请分配角色并选择它负责的数据源。" />
+            <EmptyState v-if="!bindings.length" message="该用户还未分配角色。请分配角色并选择它负责的数据源。" />
             <div v-for="binding in bindings" :key="binding.userRoleId" class="binding-block">
               <h4>
                 {{ binding.roleName }}
@@ -433,7 +433,7 @@ onMounted(async () => {
         <section class="panel">
           <EmptyState
             v-if="!canViewCatalog"
-            message="没有“查看功能说明”权限：需要 IAM-SIMPLE-1 角色包含“查看功能说明”。"
+            message="没有“查看功能说明”权限：需要角色拥有“查看功能说明”。"
           />
           <template v-else>
             <p class="hint">
@@ -538,7 +538,7 @@ onMounted(async () => {
   font-size: 12px;
 }
 .tag-lock {
-  color: #d4380d;
+  color: var(--do-danger);
   font-size: 12px;
 }
 .tag-included {

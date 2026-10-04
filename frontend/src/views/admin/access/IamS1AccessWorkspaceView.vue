@@ -62,7 +62,7 @@ onMounted(async () => {
       show-icon
       :closable="false"
       :title="iamS1.errorMessage"
-      description="无法确认当前账号的 IAM-SIMPLE-1 能力，请联系系统管理员检查角色绑定与负责数据源。"
+      description="无法确认当前账号的权限，请联系系统管理员检查角色绑定与负责数据源。"
     />
 
     <el-tabs v-model="activeTab" class="workspace-tabs">
@@ -70,7 +70,7 @@ onMounted(async () => {
         <IamS1DataGrantPanel v-if="canViewGrants" :default-datasource-id="datasourceIdFromContext" />
         <EmptyState
           v-else
-          message="没有“查看授权配置”权限：需要 IAM-SIMPLE-1 角色包含该功能，并且该角色负责目标数据源。直接调用接口同样会被后端拒绝。"
+          message="没有“查看授权配置”权限：需要角色拥有该功能，并且该角色负责目标数据源。直接调用接口同样会被后端拒绝。"
         />
       </el-tab-pane>
 
@@ -78,7 +78,7 @@ onMounted(async () => {
         <IamS1FieldProtectionPanel v-if="canViewProtections" />
         <EmptyState
           v-else
-          message="没有“查看字段保护”权限：需要 IAM-SIMPLE-1 角色包含该功能，并且该角色负责目标数据源。"
+          message="没有“查看字段保护”权限：需要角色拥有该功能，并且该角色负责目标数据源。"
         />
       </el-tab-pane>
 

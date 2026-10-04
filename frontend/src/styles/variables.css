@@ -9,27 +9,44 @@
   /* ===== 颜色 ===== */
 
   /* 主色调 */
-  --do-primary: #4d8fdc;
-  --do-primary-strong: #2563eb;
-  --do-primary-soft: #eef5ff;
+  --do-primary: #1769ee;
+  --do-primary-strong: #0963ff;
+  --do-primary-soft: #edf5ff;
   --do-accent: #6aa84f;
   --do-accent-strong: #4f8f36;
 
   /* 文本颜色 */
-  --do-ink: #172033;
-  --do-muted: #64748b;
+  --do-ink: #13213a;
+  --do-muted: #52647e;
 
   /* 背景颜色 */
-  --do-bg: #f8fafc;
+  --do-bg: #edf5ff;
   --do-surface: #ffffff;
   --do-paper: #ffffff;
-  --do-sidebar: #f8fbff;
-  --do-sidebar-muted: #64748b;
-  --do-soft: #f8fafc;
+  --do-sidebar: #f2f8ff;
+  --do-sidebar-muted: #52647e;
+  --do-soft: #f5f9ff;
 
   /* 边框颜色 */
-  --do-line: #e2e8f0;
-  --do-line-strong: #cbd5e1;
+  --do-line: #dbe6f5;
+  --do-line-strong: #c4d5ee;
+
+  /* ===== 海蓝画布与玻璃材质 ===== */
+
+  --do-ocean-highlight: rgba(96, 159, 255, 0.48);
+  --do-ocean-mist: rgba(119, 181, 247, 0.36);
+  --do-ocean-art: url('../assets/ocean/ocean-light.webp');
+  --do-ocean-canvas: var(--do-ocean-art);
+  --do-glass-shell-bg: rgba(247, 252, 255, 0.48);
+  --do-glass-panel-bg: rgba(255, 255, 255, 0.68);
+  --do-glass-data-bg: rgba(255, 255, 255, 0.95);
+  --do-glass-ocean-bg: url('../assets/ocean/ocean-focus.webp');
+  --do-glass-border: rgba(255, 255, 255, 0.95);
+  --do-glass-line: rgba(118, 158, 211, 0.2);
+  --do-glass-shadow: 0 12px 34px rgba(33, 78, 140, 0.1);
+  --do-glass-shadow-raised: 0 18px 44px rgba(33, 78, 140, 0.14);
+  --do-glass-blur: 22px;
+  --do-glass-panel-blur: 18px;
 
   /* 语义颜色 */
   --do-success: #16a34a;
@@ -43,17 +60,17 @@
 
   /* ===== 阴影 ===== */
 
-  --do-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  --do-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.15);
-  --do-shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.1);
+  --do-shadow: 0 2px 8px rgba(34, 72, 126, 0.07);
+  --do-shadow-hover: 0 8px 22px rgba(34, 72, 126, 0.12);
+  --do-shadow-lg: 0 16px 38px rgba(34, 72, 126, 0.14);
 
   /* ===== 圆角 ===== */
 
-  --do-radius-sm: 6px;
-  --do-radius-md: 8px;
-  --do-radius-lg: 10px;
-  --do-radius-xl: 12px;
-  --do-radius: 8px;
+  --do-radius-sm: 8px;
+  --do-radius-md: 10px;
+  --do-radius-lg: 14px;
+  --do-radius-xl: 16px;
+  --do-radius: 10px;
   --do-radius-full: 9999px;
 
   /* ===== 间距 ===== */
@@ -98,4 +115,8 @@
   --el-color-warning: var(--do-warning);
   --el-color-danger: var(--do-danger);
   --el-border-radius-base: var(--do-radius-sm);
+  --el-bg-color-overlay: var(--do-glass-data-bg);
+  --el-border-color-light: var(--do-glass-line);
+  --el-box-shadow-light: var(--do-shadow-lg);
+  --el-fill-color-light: var(--do-soft);
 }

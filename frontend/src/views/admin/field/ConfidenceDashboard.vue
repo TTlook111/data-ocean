@@ -57,6 +57,26 @@ const levelType = (level: string) => {
   }
 }
 
+function cssToken(name: string, fallback: string) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
+}
+
+function rgbaColor(color: string, alpha: number) {
+  const match = color.match(/^#([\da-f]{3}|[\da-f]{6})$/i)
+  if (!match) return color
+  const digits = match[1]!.length === 3 ? [...match[1]!].map((digit) => digit + digit).join('') : match[1]!
+  const red = Number.parseInt(digits.slice(0, 2), 16)
+  const green = Number.parseInt(digits.slice(2, 4), 16)
+  const blue = Number.parseInt(digits.slice(4, 6), 16)
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`
+}
+
+function confidenceColor(level: string) {
+  if (level === 'HIGH') return cssToken('--do-success', '#16a34a')
+  if (level === 'MEDIUM') return cssToken('--do-warning', '#d97706')
+  return cssToken('--do-danger', '#dc2626')
+}
+
 async function fetchConfidenceList() {
   if (!canViewFields.value) {
     confidenceList.value = []
@@ -130,6 +150,9 @@ function renderChart() {
   chartInstance = echarts.init(chartRef.value)
   const xData = trendData.value.map(p => p.time?.substring(0, 16) || '')
   const yData = trendData.value.map(p => p.cumulativeScore)
+  const primary = cssToken('--do-primary', '#2d68cc')
+  const success = cssToken('--do-success', '#16a34a')
+  const warning = cssToken('--do-warning', '#d97706')
   chartInstance.setOption({
     tooltip: {
       trigger: 'axis',
@@ -157,19 +180,19 @@ function renderChart() {
       smooth: true,
       symbol: 'circle',
       symbolSize: 6,
-      lineStyle: { color: '#4d8fdc', width: 2 },
-      itemStyle: { color: '#4d8fdc' },
+      lineStyle: { color: primary, width: 2 },
+      itemStyle: { color: primary },
       areaStyle: {
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(77, 143, 220, 0.3)' },
-          { offset: 1, color: 'rgba(77, 143, 220, 0.02)' }
+          { offset: 0, color: rgbaColor(primary, 0.3) },
+          { offset: 1, color: rgbaColor(primary, 0.02) }
         ])
       },
       markLine: {
         silent: true,
         data: [
-          { yAxis: 70, lineStyle: { color: '#67c23a', type: 'dashed' }, label: { formatter: 'HIGH' } },
-          { yAxis: 40, lineStyle: { color: '#e6a23c', type: 'dashed' }, label: { formatter: 'MEDIUM' } }
+          { yAxis: 70, lineStyle: { color: success, type: 'dashed' }, label: { formatter: 'HIGH' } },
+          { yAxis: 40, lineStyle: { color: warning, type: 'dashed' }, label: { formatter: 'MEDIUM' } }
         ]
       }
     }]
@@ -256,7 +279,7 @@ watch(
         </el-table-column>
         <el-table-column prop="score" label="分数" width="160">
           <template #default="{ row }">
-            <el-progress :percentage="row.score" :color="row.level === 'HIGH' ? '#67c23a' : row.level === 'MEDIUM' ? '#e6a23c' : '#f56c6c'" :stroke-width="10" />
+            <el-progress :percentage="row.score" :color="confidenceColor(row.level)" :stroke-width="10" />
           </template>
         </el-table-column>
         <el-table-column prop="level" label="等级" width="90">
@@ -317,10 +340,10 @@ watch(
 .stat-card { flex: 1; padding: 16px; border-radius: 8px; border: 1px solid var(--do-line); background: var(--do-surface); text-align: center; }
 .stat-card .stat-value { display: block; font-size: 28px; font-weight: 600; }
 .stat-card .stat-label { font-size: 13px; color: var(--do-muted); }
-.stat-card.high .stat-value { color: #67c23a; }
-.stat-card.medium .stat-value { color: #e6a23c; }
-.stat-card.low .stat-value { color: #f56c6c; }
-.content-panel { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px; }
+.stat-card.high .stat-value { color: var(--do-success); }
+.stat-card.medium .stat-value { color: var(--do-warning); }
+.stat-card.low .stat-value { color: var(--do-danger); }
+.content-panel { background: var(--do-glass-data-bg); border: 1px solid var(--do-glass-line); border-radius: var(--do-radius-lg); box-shadow: var(--do-shadow); padding: 16px; }
 .toolbar { display: flex; gap: 12px; margin-bottom: 12px; }
 .pagination-bar { display: flex; justify-content: flex-end; margin-top: 16px; }
 .trend-chart { width: 100%; height: 360px; }
