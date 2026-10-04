@@ -28,7 +28,8 @@ body {
 }
 
 body:has(.query-workspace),
-body:has(.admin-shell) {
+body:has(.admin-shell),
+body:has(.login-page) {
   min-width: 320px;
 }
 
