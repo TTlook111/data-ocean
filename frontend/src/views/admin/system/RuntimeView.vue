@@ -34,6 +34,7 @@ import {
 import { listSimpleDatasources } from '../../../api/admin/datasource'
 import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
+import TitleHelp from '../../../components/admin/TitleHelp.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
@@ -452,13 +453,10 @@ watch(() => route.query.tab, (value) => {
       <el-tab-pane label="告警规则" name="alerts">
         <section class="runtime-page__panel">
           <div class="runtime-page__section-heading">
-            <div>
+            <div class="runtime-page__section-title">
+              <TitleHelp label="告警规则配置" text="当前只支持规则配置：可以定义监控指标与阈值并启停。后端没有告警执行记录、历史、恢复与去重闭环，因此本页不展示告警次数、恢复率或历史趋势。" />
               <h3>告警规则配置</h3>
-              <p>
-                当前只支持规则配置：可以定义监控指标与阈值并启停。
-                后端没有告警执行记录、历史、恢复与去重闭环，因此本页不展示告警次数、
-                恢复率或历史趋势。
-              </p>
+              <span class="runtime-page__configuration-only">仅支持配置</span>
             </div>
             <el-button type="primary" :icon="Plus" :disabled="!canManageRuntime" :title="canManageRuntime ? '' : MANAGE_HINT" @click="openCreateRule">新增规则</el-button>
           </div>
@@ -624,6 +622,8 @@ watch(() => route.query.tab, (value) => {
   gap: 12px;
   flex-wrap: wrap;
 }
+.runtime-page__section-title { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding-right: 14px; }
+.runtime-page__configuration-only { padding: 3px 8px; border-radius: var(--do-radius-full); color: var(--do-muted); background: var(--do-soft); font-size: 12px; }
 
 .runtime-page__section-heading h3 {
   margin: 0;

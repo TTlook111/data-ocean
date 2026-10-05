@@ -20,6 +20,7 @@ import {
 } from '../../../api/admin/versioning'
 import { triggerQualityCheck } from '../../../api/admin/governance'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
+import TitleHelp from '../../../components/admin/TitleHelp.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import ActivityTimeline from '../../../components/admin/ActivityTimeline.vue'
@@ -353,7 +354,7 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
           <EmptyState v-else message="当前数据源暂无快照记录，请先完成元数据采集。" action-text="去采集任务" @action="router.push({ path: '/admin/collections', query: { datasourceId: String(datasourceId) } })" />
         </section>
         <section v-if="selected" class="releases-page__detail">
-          <div class="section-heading"><div><h2>快照 v{{ selected.snapshot.snapshotVersion }} 详情</h2><p>查看对象规模后，再进入治理或执行允许的发布动作。</p></div><BusinessStatusBadge :status="selected.snapshot.status" :label="snapshotStatusLabel(selected.snapshot.status)" /></div>
+          <div class="section-heading"><div class="section-title"><TitleHelp label="快照详情" text="查看对象规模后，再进入治理或执行允许的发布动作。" /><h2>快照 v{{ selected.snapshot.snapshotVersion }} 详情</h2></div><BusinessStatusBadge :status="selected.snapshot.status" :label="snapshotStatusLabel(selected.snapshot.status)" /></div>
           <div class="detail-metrics"><span>{{ selected.tables.length }} 张表</span><span>{{ selected.columns.length }} 个字段</span><span>质量分：{{ selected.snapshot.qualityScore ?? '待检查' }}</span></div>
           <div class="detail-links">
             <RouterLink :to="'/admin/releases/snapshots/' + selected.snapshot.id">打开可分享详情</RouterLink>
@@ -405,6 +406,7 @@ watch(() => [route.query.oldId, route.query.newId, route.query.tab], async () =>
 .releases-page__tabs :deep(.el-tab-pane) { padding-top: 8px; }
 .releases-page__detail { margin-top: 16px; }
 .section-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.section-title { position: relative; width: fit-content; max-width: 100%; padding-right: 14px; }
 .section-heading h2 { margin: 0; color: var(--do-ink); font-size: 16px; }
 .section-heading p { margin: 5px 0 0; color: var(--do-muted); font-size: 12px; }
 .detail-metrics, .diff-summary { display: flex; flex-wrap: wrap; gap: 10px; color: var(--do-muted); font-size: 13px; }

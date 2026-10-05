@@ -232,7 +232,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.governance-fields-page { display: grid; gap: 16px; }
+.governance-fields-page { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.governance-fields-page :deep(.el-tabs),
+.governance-fields-page :deep(.el-tabs__content),
+.governance-fields-page :deep(.el-tab-pane) { min-width: 0; max-width: 100%; }
 .mask-panel { padding: 18px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); box-shadow: var(--do-shadow); }
 .mask-panel__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; color: var(--do-primary-strong); }
 .mask-panel__heading span, .mask-panel__heading p { color: var(--do-muted); font-size: 12px; }

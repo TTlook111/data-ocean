@@ -335,7 +335,7 @@ watch(
 </template>
 
 <style scoped>
-.confidence-page { padding: 24px; }
+.confidence-page { min-width: 0; width: 100%; padding: 0; }
 .stats-row { display: flex; gap: 16px; margin-bottom: 20px; }
 .stat-card { flex: 1; padding: 16px; border-radius: 8px; border: 1px solid var(--do-line); background: var(--do-surface); text-align: center; }
 .stat-card .stat-value { display: block; font-size: 28px; font-weight: 600; }

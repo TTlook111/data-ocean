@@ -127,9 +127,6 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
             message="召回包含低置信度上下文，请核对 SQL 与结果" if context_degraded else "",
         )
 
-    except ValueError as e:
-        logger.error("检索参数错误: %s", e)
-        return _response(message=str(e), start=start)
     except Exception as e:
         logger.error("RAG 检索异常，触发降级: %s", e, exc_info=True)
         response = fallback_retrieve(
@@ -142,6 +139,9 @@ async def retrieve_schemas(request: RetrieveRequest) -> RetrieveResponse:
             authorized_resources=request.authorized_resources if request.build_id else None,
         )
         response.retrieval_time_ms = _elapsed_ms(start)
+        if not response.results:
+            # An outage without usable fallback is not a successful empty search.
+            raise
         return response
 
 

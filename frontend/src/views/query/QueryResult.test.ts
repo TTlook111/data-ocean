@@ -23,6 +23,29 @@ config.global.stubs = { 'el-table': true, 'el-table-column': true, 'el-paginatio
 describe('QueryResult protected result views', () => {
   afterEach(() => vi.restoreAllMocks())
 
+  it('shows provider failure as failure and retries the same question without asking for clarification', async () => {
+    const question = '已完成订单一共有多少笔？'
+    const result: IamS1QueryTaskResult = {
+      taskId: 'task-provider-failure', status: 'FAILED', question,
+      errorMessage: 'AI 服务因账户欠费或额度不足暂不可用，请联系管理员处理后重试',
+    }
+    const wrapper = mount(QueryResult, { props: {
+      latestResult: result, viewState: resolveQueryDisplayState({ result }),
+      resultTab: 'chart', chartType: 'bar', chartOption: null,
+      pagedTableData: [], tablePage: 1, tablePageSize: 50,
+      agentProgress: [], trustSummary: [], datasourceFacts: [], canViewSql: false, canExport: false,
+      sqlLoading: false, sqlErrorMessage: '', originalQuestion: question,
+    } })
+    expect(wrapper.text()).toContain('查询未能完成')
+    expect(wrapper.text()).toContain('账户欠费或额度不足')
+    expect(wrapper.text()).not.toContain('需要补充查询条件')
+    expect(wrapper.text()).not.toContain('补充查询条件')
+    await wrapper.get('.status-actions button').trigger('click')
+    expect(wrapper.emitted('retry')).toEqual([[question]])
+    expect(wrapper.find('.result-actions').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('shows the concise metric once and keeps the complete question in details', async () => {
     const question = '按商品类别统计全部已完成订单的销售额，其中销售额为 quantity 与 unit_price 的乘积。'
     const result: IamS1QueryTaskResult = {

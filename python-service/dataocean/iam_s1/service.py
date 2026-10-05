@@ -255,7 +255,15 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
     except Exception:
         # Retrieval failure is allowed to degrade only to the same filtered
         # fallback; it never sends an unfiltered vector result onward.
-        pass
+        fallback = filter_chunks(
+            request.chunks,
+            request.permissionSnapshot,
+            rag_source_snapshot_id=request.ragSourceSnapshotId,
+            rag_build_id=request.ragBuildId,
+        )
+        if not fallback:
+            raise
+        return fallback
     return filter_chunks(
         request.chunks,
         request.permissionSnapshot,

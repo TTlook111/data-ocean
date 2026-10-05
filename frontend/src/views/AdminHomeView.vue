@@ -6,6 +6,7 @@ import { useIamS1Store } from '../stores/iamS1'
 import { getDashboardStats, type DashboardStats } from '../api/admin/dashboard'
 import { getBatchDatasourceReadiness, listSimpleDatasources, type DatasourceReadiness, type DatasourceSimpleItem } from '../api/admin/datasource'
 import TaskPageHeader from '../components/admin/TaskPageHeader.vue'
+import TitleHelp from '../components/admin/TitleHelp.vue'
 import ReadinessPanel from '../components/admin/ReadinessPanel.vue'
 import BusinessStatusBadge from '../components/admin/BusinessStatusBadge.vue'
 import ActivityTimeline from '../components/admin/ActivityTimeline.vue'
@@ -138,7 +139,7 @@ onMounted(load)
       </div>
       <div class="workbench-columns">
       <section class="workbench-section workbench-sources do-glass-panel" aria-labelledby="workbench-sources">
-        <div class="section-heading"><div><h2 id="workbench-sources">数据源准备情况</h2><p>需要处理的数据源排在前面。打开详情查看完整条件。</p></div><el-button text :loading="readinessLoading" @click="loadReadiness">刷新</el-button></div>
+        <div class="section-heading"><div class="section-title"><TitleHelp label="数据源准备情况" text="需要处理的数据源排在前面。打开详情查看完整条件。" /><h2 id="workbench-sources">数据源准备情况</h2></div><el-button text :loading="readinessLoading" @click="loadReadiness">刷新</el-button></div>
         <el-alert v-if="readinessPartialError" :title="readinessPartialError" type="warning" :closable="false" show-icon />
         <ErrorState v-if="readinessError" :message="readinessError" @retry="loadReadiness" />
         <LoadingState v-else-if="readinessLoading" text="正在读取准备情况..." />
@@ -168,7 +169,6 @@ onMounted(load)
 </template>
 <style scoped>
 .workbench-page :deep(.task-page-header h1) { font-size: clamp(36px, 4.3vw, 64px); letter-spacing: -.04em; }
-.workbench-page :deep(.task-page-header p) { font-size: 16px; }
 .workbench-overview { display: grid; grid-template-columns: minmax(0, 2.05fr) minmax(270px, .95fr); align-items: stretch; gap: 22px; }
 .workbench-attention { --do-glass-corner: 18px; min-width: 0; min-height: 246px; display: grid; grid-template-columns: 136px minmax(0, 1fr); align-items: center; gap: 16px 24px; padding: 28px; border-radius: 18px; color: #fff; background: var(--do-glass-ocean-bg); background-size: cover; background-position: center bottom; box-shadow: var(--do-glass-shadow-raised), inset 0 1px 0 rgba(255,255,255,.65); }
 .workbench-attention__count { grid-column: 1; grid-row: 1 / 3; }
@@ -199,6 +199,7 @@ dt { color: var(--do-muted); font-size: 13px; } dd { margin: 7px 0 0; font-size:
 .workbench-section { min-width: 0; margin: 0; padding: 21px 22px; border-radius: 16px; }
 .workbench-sources { background: var(--do-glass-panel-bg); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.section-title { position: relative; width: fit-content; max-width: 100%; padding-right: 14px; }
 .section-heading h2 { margin: 0; color: var(--do-ink); font-size: 20px; }
 .section-heading p, .workbench-empty { margin: 8px 0 0; color: var(--do-muted); font-size: 14px; line-height: 1.6; }
 .workbench-source-list { border-block: 1px solid var(--do-glass-line); padding-inline: 4px; }

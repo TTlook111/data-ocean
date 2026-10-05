@@ -38,6 +38,7 @@ import { findDomainHome, resolveReadinessAction } from '../../../utils/adminNavi
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
+import TitleHelp from '../../../components/admin/TitleHelp.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
@@ -493,11 +494,9 @@ watch(() => route.query.page, (value) => {
     <!-- 每个数据源的知识准备情况（开发指导 §7.11） -->
     <section class="knowledge-page__readiness">
       <div class="knowledge-page__readiness-heading">
-        <div>
+        <div class="knowledge-page__section-title">
+          <TitleHelp label="数据源知识准备情况" text="对照采集、发布和索引版本，确认知识是否已生效。发布文档与构建知识索引是两个独立步骤。" />
           <h2>数据源知识准备情况</h2>
-          <p>
-            对照采集、发布和索引版本，确认知识是否已生效。发布文档与构建知识索引是两个独立步骤。
-          </p>
         </div>
         <el-button :icon="RefreshCw" :loading="readinessLoading" @click="loadReadiness">刷新准备情况</el-button>
       </div>
@@ -564,8 +563,7 @@ watch(() => route.query.page, (value) => {
       <summary>知识索引构建记录 · 展开查看</summary>
       <div class="knowledge-page__readiness-heading">
         <div>
-          <h3>知识索引构建记录 · {{ datasourceName(datasourceId) }}</h3>
-          <p>只有经过授权人员明确确认的构建会排队；旧索引在新索引通过数量核验并切换前保持活动。</p>
+          <div class="knowledge-page__section-title"><TitleHelp label="知识索引构建记录" text="只有经过授权人员明确确认的构建会排队；旧索引在新索引通过数量核验并切换前保持活动。" /><h3>知识索引构建记录 · {{ datasourceName(datasourceId) }}</h3></div>
         </div>
         <el-button :icon="RefreshCw" :loading="ragBuildsLoading" @click="loadRagBuilds">刷新构建记录</el-button>
       </div>
@@ -735,6 +733,7 @@ watch(() => route.query.page, (value) => {
 
 <style scoped>
 .knowledge-page { display: grid; gap: 16px; }
+.knowledge-page__section-title { position: relative; width: fit-content; max-width: 100%; padding-right: 14px; }
 .knowledge-page__details summary { cursor: pointer; padding: 12px 0; font-size: 14px; color: var(--do-ink); }
 .knowledge-page__details[open] summary { margin-bottom: 16px; }
 .knowledge-page__details { display: block; }

@@ -125,7 +125,7 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
         return await embeddings.aembed_documents(texts)
     except Exception as e:
         logger.error("Embedding 批量生成失败 count=%d error=%s", len(texts), e)
-        raise LLMException(f"Embedding 生成失败：{e}")
+        raise LLMException(f"Embedding 生成失败：{e}") from e
 
 
 async def embed_texts_with_config(
@@ -145,7 +145,7 @@ async def embed_texts_with_config(
             len(texts),
             e,
         )
-        raise LLMException(f"Embedding 生成失败：{e}")
+        raise LLMException(f"Embedding 生成失败：{e}") from e
 
 
 async def embed_single(text: str, embedding_config: EmbeddingConfig | None = None) -> list[float]:
@@ -159,4 +159,4 @@ async def embed_single(text: str, embedding_config: EmbeddingConfig | None = Non
         return await embeddings.aembed_query(text)
     except Exception as e:
         logger.error("Embedding 单条生成失败 error=%s", e)
-        raise LLMException(f"Embedding 生成失败：{e}")
+        raise LLMException(f"Embedding 生成失败：{e}") from e

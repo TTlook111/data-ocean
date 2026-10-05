@@ -140,7 +140,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.feedback-review-page { padding: 24px; }
+.feedback-review-page { min-width: 0; width: 100%; padding: 0; }
 .content-panel { background: var(--do-glass-data-bg); border: 1px solid var(--do-glass-line); border-radius: var(--do-radius-lg); box-shadow: var(--do-shadow); padding: 16px; }
 .pager { margin-top: 16px; justify-content: flex-end; }
 </style>

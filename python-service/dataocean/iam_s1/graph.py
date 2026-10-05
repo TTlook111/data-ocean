@@ -19,7 +19,9 @@ from contextlib import AbstractAsyncContextManager
 from typing import Any, Awaitable, Callable, TypedDict
 
 from dataocean.core.config import get_settings
-from dataocean.iam_s1.firewall import build_model_context
+from dataocean.core.error_messages import sanitize_error
+from dataocean.core.exceptions import LLMException
+from dataocean.iam_s1.firewall import build_model_context, filter_chunks
 from dataocean.iam_s1.java_gateway import (
     JavaAttemptError,
     authorize_attempt,
@@ -581,10 +583,14 @@ async def _retrieve_node(state: S1GraphState) -> S1GraphState:
         ragCollectionName=state.get("ragCollectionName"),
             ragEmbeddingConfig=embedding_config,
         )))
-    except Exception:
+    except TimeoutError:
+        raise
+    except Exception as exc:
         response = filter_chunks(chunks, snapshot,
                                  rag_source_snapshot_id=state.get("ragSourceSnapshotId"),
                                  rag_build_id=state.get("ragBuildId"))
+        if not response:
+            return _service_failure_state(state, exc)
         next_state = dict(state)
         next_state["safeRag"] = response
         next_state["ragDegraded"] = True
@@ -1023,17 +1029,15 @@ async def _plan_node(state: S1GraphState) -> S1GraphState:
         "只返回 JSON：rewrittenQuestion, intent, selectedResources, clarificationNeeded, clarification。"
     )
     prompt = json.dumps(prompt_payload, ensure_ascii=False)
+    budgeted = state
     try:
         text, budgeted = await _budgeted_llm(state, "schema_linking", system, prompt,
                                              f"plan:{int(state.get('ragRefreshCount', 0))}")
         parsed = _parse_json(text)
-    except BudgetExceeded as exc:
+    except (BudgetExceeded, TimeoutError):
         raise
-    except Exception:
-        next_state = dict(state)
-        next_state["clarification"] = "当前问题无法形成可靠的表字段规划，请改写问题或补充口径。"
-        next_state["status"] = "CLARIFICATION_REQUIRED"
-        return next_state
+    except Exception as exc:
+        return _service_failure_state(budgeted, exc)
     next_state = dict(budgeted)
     rewritten = parsed.get("rewrittenQuestion")
     next_state["rewrittenQuestion"] = rewritten if isinstance(rewritten, str) and rewritten.strip() else state["question"]
@@ -1139,6 +1143,8 @@ async def _generate_sql_node(state: S1GraphState) -> S1GraphState:
         )
     except BudgetExceeded as exc:
         raise
+    except LLMException as exc:
+        return _service_failure_state(attempt_state, exc)
     budgeted = dict(budgeted)
     budgeted["protectedResult"] = {}
     budgeted["recoveredProtectedResult"] = False
@@ -1209,20 +1215,22 @@ async def _semantic_check_node(state: S1GraphState) -> S1GraphState:
         "不能当作可修复错误。逐项核对 SQL 字面值与 reviewedGlossaryTerms，特别是枚举编码；"
         "中文显示名不能替代数据库中的英文枚举值。只返回 JSON：decision(MATCH/RETRY/RETRIEVE/CLARIFY/UNSAFE), reason。"
     )
-    text, budgeted = await _budgeted_llm(
-        state, "sql_semantic_check", system, json.dumps(payload, ensure_ascii=False),
-        f"semantic:{int(state.get('attemptCount', 0))}", max_output_tokens=512,
-    )
+    try:
+        text, budgeted = await _budgeted_llm(
+            state, "sql_semantic_check", system, json.dumps(payload, ensure_ascii=False),
+            f"semantic:{int(state.get('attemptCount', 0))}", max_output_tokens=512,
+        )
+    except LLMException as exc:
+        return _service_failure_state(state, exc)
     try:
         parsed = _parse_json(text)
-    except Exception:
-        parsed = {"decision": "RETRY" if state.get("sqlPrecheckError") else "CLARIFY",
-                  "reason": "无法核对候选 SQL 的意图"}
-    decision = str(parsed.get("decision", "CLARIFY")).upper()
+    except Exception as exc:
+        return _service_failure_state(budgeted, exc)
+    decision = str(parsed.get("decision", "")).upper()
+    if decision not in {"MATCH", "RETRY", "RETRIEVE", "CLARIFY", "UNSAFE"}:
+        return _service_failure_state(budgeted, ValueError("invalid semantic decision"))
     if state.get("sqlPrecheckError") and _is_repairable_syntax(state["sqlPrecheckError"]) and decision == "MATCH":
         decision = "RETRY"
-    if decision not in {"MATCH", "RETRY", "RETRIEVE", "CLARIFY", "UNSAFE"}:
-        decision = "CLARIFY"
     result = dict(budgeted)
     result["semanticDecision"] = decision
     result["semanticReason"] = str(parsed.get("reason", ""))[:300]
@@ -1385,15 +1393,20 @@ async def _verify_result_node(state: S1GraphState) -> S1GraphState:
         "若结果可回答，给出简短 answer；若查询口径仍不清，要求澄清；若 SQL 结果结构明显不符且有已审核证据，"
         "可请求一次有界修正。只返回 JSON：decision(ANSWER/RETRY/CLARIFY), answer, reason。"
     )
-    text, budgeted = await _budgeted_llm(
-        state, "result_verification", system, prompt,
-        f"result:{int(state.get('attemptCount', 0))}", max_output_tokens=512,
-    )
+    try:
+        text, budgeted = await _budgeted_llm(
+            state, "result_verification", system, prompt,
+            f"result:{int(state.get('attemptCount', 0))}", max_output_tokens=512,
+        )
+    except LLMException as exc:
+        return _service_failure_state(state, exc)
     try:
         parsed = _parse_json(text)
-    except Exception:
-        parsed = {"decision": "ANSWER", "answer": f"查询已安全完成，共返回 {len(rows)} 行。"}
-    decision = str(parsed.get("decision", "CLARIFY")).upper()
+    except Exception as exc:
+        return _service_failure_state(budgeted, exc)
+    decision = str(parsed.get("decision", "")).upper()
+    if decision not in {"ANSWER", "RETRY", "CLARIFY"}:
+        return _service_failure_state(budgeted, ValueError("invalid result decision"))
     next_state = dict(budgeted)
     if decision == "RETRY" and int(state.get("attemptCount", 0)) < MAX_SQL_ATTEMPTS:
         next_state["repairFeedback"] = str(parsed.get("reason") or "结果结构与问题意图不一致")[:300]
@@ -1516,6 +1529,7 @@ def _after_generate(state: S1GraphState) -> str:
 
 
 def _after_semantic(state: S1GraphState) -> str:
+    if state.get("status") == "FAILED": return "fail"
     decision = state.get("semanticDecision")
     if decision == "MATCH": return "authorize_execute_protect"
     if decision == "RETRY":
@@ -1548,6 +1562,7 @@ def _has_current_protected_result(state: S1GraphState) -> bool:
 
 
 def _after_result(state: S1GraphState) -> str:
+    if state.get("status") == "FAILED": return "fail"
     if state.get("status") == "COMPLETED": return "finish"
     if state.get("status") == "CLARIFICATION_REQUIRED": return "clarify"
     if state.get("repairFeedback"):
@@ -1722,4 +1737,12 @@ def _public_error(exc: Exception) -> str:
     if isinstance(exc, JavaAttemptError): return str(exc)
     if "S1_CANCELLED" in str(exc): return "查询已取消"
     if "S1_CHECKPOINTER_UNAVAILABLE" in str(exc): return "Redis 8 LangGraph checkpoint 不可用，查询未启动"
-    return "当前查询无法安全完成，请调整问题后重试"
+    return sanitize_error(exc)
+
+
+def _service_failure_state(state: S1GraphState, exc: Exception) -> S1GraphState:
+    """Only safe messages enter checkpoints; failures must not request clarification."""
+    result = dict(state)
+    result.update(status="FAILED", error=_public_error(exc), errorType="AI_SERVICE_ERROR",
+                  clarification="", semanticDecision="", repairFeedback="")
+    return result

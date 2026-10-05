@@ -116,7 +116,7 @@ async def call_llm(
     except Exception as e:
         settings = get_settings()
         logger.error("LLM 调用失败 model=%s error=%s", model or settings.qwen_model, e)
-        raise LLMException(f"AI 服务暂时不可用：{e}")
+        raise LLMException(f"AI 服务暂时不可用：{e}") from e
 
     content = response.content
     if not content or not isinstance(content, str):

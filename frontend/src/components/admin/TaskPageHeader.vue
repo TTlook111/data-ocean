@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import TitleHelp from './TitleHelp.vue'
+
 defineProps<{
   title: string
   description?: string
   eyebrow?: string
+  descriptionMode?: 'tooltip' | 'inline'
 }>()
 </script>
 
@@ -10,8 +13,11 @@ defineProps<{
   <header class="task-page-header">
     <div class="task-page-header__copy">
       <span v-if="eyebrow" class="task-page-header__eyebrow">{{ eyebrow }}</span>
-      <h1>{{ title }}</h1>
-      <p v-if="description">{{ description }}</p>
+      <div class="task-page-header__title">
+        <TitleHelp v-if="descriptionMode !== 'inline'" :text="description" :label="title" />
+        <h1>{{ title }}</h1>
+      </div>
+      <p v-if="description && descriptionMode === 'inline'">{{ description }}</p>
     </div>
     <div class="task-page-header__actions">
       <slot name="status" />
@@ -33,6 +39,13 @@ defineProps<{
   min-width: 0;
 }
 
+.task-page-header__title {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  padding-right: 14px;
+}
+
 .task-page-header__eyebrow {
   display: block;
   margin-bottom: 6px;
@@ -47,6 +60,7 @@ h1 {
   color: var(--do-ink);
   font-size: clamp(24px, 3vw, 32px);
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 p {

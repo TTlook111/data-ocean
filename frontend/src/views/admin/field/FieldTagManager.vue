@@ -247,8 +247,9 @@ watch(
 </template>
 
 <style scoped>
-.field-tag-page { padding: 24px; }
+.field-tag-page { min-width: 0; width: 100%; padding: 0; }
 .header-actions { display: flex; gap: 8px; }
-.toolbar { display: flex; gap: 12px; margin-bottom: 16px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.toolbar :deep(.el-select) { min-width: 0; max-width: 100%; }
 .content-panel { background: var(--do-glass-data-bg); border: 1px solid var(--do-glass-line); border-radius: var(--do-radius-lg); box-shadow: var(--do-shadow); padding: 16px; }
 </style>

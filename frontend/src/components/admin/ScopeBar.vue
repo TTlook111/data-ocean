@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAdminContextStore } from '../../stores/adminContext'
 import type { AdminContextMode } from '../../router/adminNavigation'
 import { snapshotStatusLabel } from '../../utils/enumLabels'
+import TitleHelp from './TitleHelp.vue'
 
 const props = defineProps<{ mode: AdminContextMode }>()
 const route = useRoute()
@@ -77,10 +78,12 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
     <div class="scope-bar__intro">
       <LockKeyhole v-if="mode === 'locked-resource'" :size="16" />
       <Database v-else :size="16" />
-      <div>
+      <div class="scope-bar__title">
+        <TitleHelp
+          :label="mode === 'datasource-snapshot' ? '数据源与快照范围' : '数据源范围'"
+          :text="mode === 'datasource-snapshot' ? '只查看当前数据源的快照和治理对象' : '选择后，当前工作区会使用该数据源上下文'"
+        />
         <strong>{{ mode === 'datasource-snapshot' ? '数据源与快照范围' : '数据源范围' }}</strong>
-        <span v-if="mode === 'datasource-snapshot'">只查看当前数据源的快照和治理对象</span>
-        <span v-else>选择后，当前工作区会使用该数据源上下文</span>
       </div>
     </div>
 
@@ -124,6 +127,7 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
 </template>
 
 <style scoped>
+.scope-bar__title { position: relative; padding-right: 14px; }
 .scope-bar {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(360px, 1.2fr);

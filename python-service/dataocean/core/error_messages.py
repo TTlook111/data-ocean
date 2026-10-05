@@ -3,10 +3,39 @@
 所有用户可见的错误消息在此集中定义，避免技术细节泄露到前端。
 """
 
+import re
+
 # LLM 相关
-LLM_TIMEOUT = "AI 服务响应超时，请简化问题后重试"
-LLM_UNAVAILABLE = "AI 服务暂时不可用，请稍后再试"
+LLM_TIMEOUT = "AI 服务响应超时，请稍后重试"
+LLM_UNAVAILABLE = "AI 服务暂时不可用，请稍后重试或联系管理员"
 LLM_RATE_LIMITED = "AI 服务繁忙，请稍后再试"
+LLM_QUOTA_EXHAUSTED = "AI 服务因账户欠费或额度不足暂不可用，请联系管理员处理后重试"
+LLM_AUTH_FAILED = "AI 服务认证失败，请联系管理员检查服务配置"
+
+
+def _provider_details(exception: Exception) -> tuple[set[str], set[int]]:
+    """Read only classification fields; never return provider bodies or URLs."""
+    codes: set[str] = set()
+    statuses: set[int] = set()
+    seen: set[int] = set()
+    current: BaseException | None = exception
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        status = getattr(current, "status_code", None)
+        if isinstance(status, int):
+            statuses.add(status)
+        body = getattr(current, "body", None)
+        error = body.get("error", body) if isinstance(body, dict) else None
+        if isinstance(error, dict):
+            for key in ("code", "type"):
+                value = error.get(key)
+                if isinstance(value, str):
+                    codes.add(value.casefold())
+        code = getattr(current, "code", None)
+        if isinstance(code, str):
+            codes.add(code.casefold())
+        current = current.__cause__ or current.__context__
+    return codes, statuses
 
 # SQL 生成
 SQL_GENERATION_FAILED = "SQL 生成失败，请换个问法试试"
@@ -47,9 +76,20 @@ def sanitize_error(exception: Exception) -> str:
 
     # LLM 异常（最具体，优先判断）
     if isinstance(exception, LLMException):
+        codes, statuses = _provider_details(exception)
+        quota_codes = {"arrearage", "insufficient_quota", "quota_exceeded", "quotaexceeded",
+                       "insufficient_balance", "balance_not_enough", "credit_balance_too_low"}
+        if codes & quota_codes or (not codes and re.search(
+            r"\b(?:arrearage|insufficient_quota|quota_exceeded|insufficient_balance|balance_not_enough)\b", msg,
+        )):
+            return LLM_QUOTA_EXHAUSTED
+        if codes & {"invalid_api_key", "invalidapikey", "authentication_error", "unauthorized"} or statuses & {401, 403}:
+            return LLM_AUTH_FAILED
         if "timeout" in msg or "timed out" in msg:
             return LLM_TIMEOUT
-        if "rate" in msg or "429" in msg:
+        if 429 in statuses or codes & {"rate_limit_exceeded", "rate_limit_error"} or re.search(
+            r"\b(?:rate[_ -]?limit(?:ed)?|too many requests|429)\b", msg,
+        ):
             return LLM_RATE_LIMITED
         return LLM_UNAVAILABLE
 

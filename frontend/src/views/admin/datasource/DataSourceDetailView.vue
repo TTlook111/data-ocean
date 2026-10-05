@@ -229,7 +229,7 @@ onMounted(async () => {
 <template>
   <div class="admin-page datasource-cockpit">
     <RouterLink class="datasource-back" to="/admin/data-sources"><ArrowLeft :size="15" aria-hidden="true" />返回数据源</RouterLink>
-    <TaskPageHeader :title="datasource?.name || '数据源详情'" :description="datasource ? datasource.dbType + ' · ' + datasource.databaseName : '查看准备条件和待处理事项。'">
+    <TaskPageHeader :title="datasource?.name || '数据源详情'" description-mode="inline" :description="datasource ? datasource.dbType + ' · ' + datasource.databaseName : '查看准备条件和待处理事项。'">
       <template #actions><el-button :icon="RefreshCw" :loading="loading" @click="load">刷新状态</el-button><el-button v-if="primaryAction.icon && primaryAction.key !== 'reload'" type="primary" :icon="primaryAction.icon" :loading="actionLoading" :disabled="loading || !!error" @click="runPrimaryAction">{{ primaryAction.label }}</el-button></template>
     </TaskPageHeader>
     <LoadingState v-if="loading" variant="skeleton" :rows="7" />
