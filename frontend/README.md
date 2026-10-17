@@ -1,40 +1,30 @@
 # DataOcean Frontend
 
-DataOcean 前端项目，基于 Vue 3 + TypeScript + Vite + Element Plus 构建。
+Vue 3 + TypeScript + Vite 的查询端与治理后台，共用身份与 IAM-SIMPLE-1 能力摘要，前端只调用 Java。
 
-后台产品体验约定见 [后台产品体验优化建议](../docs/development/DataOcean-后台产品体验优化建议.md)；导航及当前验收边界见 [后台重构状态文档](../docs/development/completed/DataOcean后台重构状态与整改计划.md)。账号入口统一放在侧栏左下角，正文以用户任务、状态和下一步为主。
+## 本地运行
 
-## 启动
+先按[本地开发指南](../docs/development/本地开发与验证.md)核对 Node/Vite 要求、网关与当前机器环境。在 frontend 目录执行：
 
-```bash
-npm install
+```powershell
+npm ci
 npm run dev
 ```
 
-## 构建
+## 验证
 
-```bash
+```powershell
+npm run test:run
 npm run build
 ```
 
-## 类型检查
+build 已包含 vue-tsc 与 Vite。定向检查使用已有 Vitest 命令并传入测试路径；历史测试数量见验收记录，不在这里复制。
 
-```bash
-npx vue-tsc --noEmit
-```
+## 按任务阅读
 
-## 目录说明
+- 界面、两级侧栏、上下文、能力摘要、状态与视觉：[前端开发规范](../docs/development/前端开发规范.md)。
+- 问数与历史：[S1 问数与会话记忆](../docs/modules/008-query-memory.md)。
+- Agent 约束：[本目录 CLAUDE.md](CLAUDE.md)与[根 AGENTS.md](../AGENTS.md)。
+- 当前覆盖和限制：[项目现状](../docs/项目现状.md)；既有对照过程：[前端设计验收记录](../docs/acceptance/前端设计验收记录.md)。
 
-```
-src/
-├── api/           API 请求模块
-├── components/    公共组件（AppShell 布局等）
-├── router/        路由配置与守卫
-├── stores/        Pinia 状态管理
-├── views/
-│   ├── admin/     管理端页面
-│   ├── login/     登录页
-│   ├── profile/   个人资料
-│   └── query/     问答端页面
-└── style.css      全局样式与设计令牌
-```
+代码入口为 src/api、components、composables、router、stores、views；共享视觉入口为 src/styles/variables.css 与 src/style.css。正式页面和路由以当前源码为准，不从历史规格恢复已删除页面。

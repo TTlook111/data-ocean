@@ -1,65 +1,34 @@
-# 003 元数据采集
+# 003 元数据采集与资产目录
 
-## 概述
-元数据采集模块负责从业务数据源中自动采集数据库结构信息（表、字段、索引、外键关系、统计信息），生成元数据快照，为后续的元数据治理、Schema RAG 和 SQL 生成提供数据基础。
+> 文档类型：现行模块说明；核对日期：2026-10-17；代码基线：`619bca6`。本轮静态核对，运行验收见[项目现状](../项目现状.md)。
 
-## 解决的问题
-- 自动化采集业务库的表结构、字段信息、索引和外键关系
-- 采集字段级统计信息（空值率、去重计数、TopN 值）用于可信度评估
-- 快照化管理：每次采集生成独立快照，支持版本对比
-- 增量变更检测：对比两个快照发现新增/删除/修改的表和字段
+## 概览与主流程
 
-## 实现方案
-- **采集器模式**: 5 个独立 Collector 组件分别负责表、字段、索引、关系、统计信息的采集
-- **JDBC 直连**: 通过 INFORMATION_SCHEMA 查询元数据，不依赖特定 MySQL 版本
-- **快照机制**: 每次全量采集生成新快照（metadata_snapshot），关联所有采集到的表和字段记录
-- **异步执行**: 采集任务异步执行，通过 schema_sync_task 跟踪进度和状态
-- **差异对比**: SchemaDiffService 对比两个快照，输出表级和字段级的变更明细
+Java 从选定数据源采集表、字段、索引、关系与统计，形成独立元数据快照，并提供差异、资产目录和实体关系。采集完成不等于已审核发布，也不自动激活 RAG。
 
-## 代码位置
+数据源与授权检查 → schema_sync_task → Collector/JDBC 采集 → metadata_snapshot 及表字段 → 差异与目录 → [治理](004-metadata-governance.md) → [版本审核](005-metadata-versioning.md)。
 
-### 后端
-- Controller: `backend/DataOcean/src/main/java/com/dataocean/module/metadata/controller/MetadataCollectionController.java`
-- Service: `backend/DataOcean/src/main/java/com/dataocean/module/metadata/service/`
-  - `SchemaCollectionService.java` / `impl/SchemaCollectionServiceImpl.java` — 采集编排
-  - `SchemaSyncTaskService.java` / `impl/SchemaSyncTaskServiceImpl.java` — 任务管理
-  - `SchemaSnapshotService.java` / `impl/SchemaSnapshotServiceImpl.java` — 快照管理
-  - `SchemaDiffService.java` / `impl/SchemaDiffServiceImpl.java` — 差异对比
-  - `SchemaStatisticsService.java` / `impl/SchemaStatisticsServiceImpl.java` — 统计采集
-- Collector: `backend/DataOcean/src/main/java/com/dataocean/module/metadata/collector/`
-  - `TableCollector.java` — 表信息采集
-  - `ColumnCollector.java` — 字段信息采集
-  - `IndexCollector.java` — 索引信息采集
-  - `RelationCollector.java` — 外键/推断关系采集
-  - `StatisticsCollector.java` — 字段统计信息采集
-- Entity: `backend/DataOcean/src/main/java/com/dataocean/module/metadata/entity/`
-  - `DbTableMeta.java`, `DbColumnMeta.java`, `TableRelation.java`, `SchemaSyncTask.java`, `SchemaChangeEvent.java`, `MetadataSnapshot.java`
+## 实现边界
 
-### 前端
-- 页面:
-  - `frontend/src/views/admin/metadata/SyncTask.vue` — 同步任务列表
-  - `frontend/src/views/admin/metadata/SnapshotList.vue` — 快照列表
-  - `frontend/src/views/admin/metadata/TableExplorer.vue` — 表浏览器
-  - `frontend/src/views/admin/metadata/SnapshotDiff.vue` — 快照差异对比
-  - `frontend/src/views/admin/metadata/SyncSchedule.vue` — 同步调度配置
-- API: `frontend/src/api/admin/metadata.ts`
+- 采集编排和任务状态归 Java；采样值、统计与关系以实际快照为准，不将字段命名推断当成已审核业务事实。
+- 采集通过默认执行器的 `@Async` 方法运行；返回任务 ID 不等于在执行器饱和时也能立即返回，具体边界见[异步执行约束](../技术栈与模块职责.md#54-执行约束)。
+- `metadata_entity/metadata_relationship`承载实体、关系、术语、标签与血缘连接，FQN 标识资源；事件保留变更记录。
+- catalog 搜索的 datasourceId 与分页范围在 SQL 内过滤，不能先分页再内存过滤。
+- 手工 Join Path、术语和指标仍需来源与审核；收集到外键不代表所有业务 Join 已被批准。
 
-### 数据库
-- 迁移脚本: `V7__create_metadata_tables.sql`, `V8__add_metadata_permission.sql`, `V9__add_table_indexes_info.sql`
-- 涉及表: `db_table_meta`, `db_column_meta`, `table_relation`, `schema_sync_task`, `schema_change_event`, `metadata_snapshot`
+## 入口
 
-## API 接口清单
+| 代码 | 用途 |
+| --- | --- |
+| [MetadataCollectionController](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/controller/MetadataCollectionController.java) | `/api/admin/metadata`下 sync、sync-tasks、snapshots、tables、columns、diff |
+| [MetadataCatalogController](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/controller/MetadataCatalogController.java) | 目录搜索与实体查询 |
+| [metadata/collector](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/collector/) | 表、列、索引、关系、统计采集 |
+| [metadata/service](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/service/) | 编排、快照、差异、实体关系和事件 |
+| [CollectionsView](../../frontend/src/views/admin/metadata/CollectionsView.vue)、[AssetsView](../../frontend/src/views/admin/assets/AssetsView.vue) | 正式采集与资产工作区 |
+| [metadata API](../../frontend/src/api/admin/metadata.ts)、[catalog API](../../frontend/src/api/admin/catalog.ts) | 前端接线 |
 
-| 方法 | 路径 | 用途 | 调用方 |
-|------|------|------|--------|
-| POST | `/api/admin/metadata/sync` | 触发元数据同步 | 前端同步任务页 |
-| GET | `/api/admin/metadata/sync-tasks` | 查询同步任务列表 | 前端同步任务页 |
-| GET | `/api/admin/metadata/snapshots` | 查询快照列表 | 前端快照列表页 |
-| GET | `/api/admin/metadata/snapshots/{id}` | 快照详情 | 前端表浏览器 |
-| GET | `/api/admin/metadata/snapshots/{id}/tables` | 快照中的表列表 | 前端表浏览器/治理页 |
-| GET | `/api/admin/metadata/snapshots/{id}/tables/{tableName}/columns` | 表的字段列表 | 前端表浏览器/治理页 |
-| GET | `/api/admin/metadata/snapshots/diff` | 快照差异对比 | 前端差异对比页 |
+旧独立 SnapshotList/TableExplorer 等页面路径不作为当前入口。字段采样由 V45、实体关系由 V37 等历史迁移引入；完整数据结构以[迁移目录](../../backend/DataOcean/src/main/resources/db/migration/)为准。
 
-## 模块间依赖
-- **被依赖**: 004 元数据治理（基于快照做质量检查）、005 版本审核（管理快照生命周期）、006 知识库（基于快照生成 skills.md）
-- **依赖**: 002 数据源管理（获取连接信息）
+## 修改与验证
+
+采集器变更检查标识符、动态 SQL、空值/采样和故障传播；目录变更检查 SQL 级范围及分页。发布、过期与 buildId 约束转到版本与 RAG 模块，不能在采集完成回调里自行切换知识索引。

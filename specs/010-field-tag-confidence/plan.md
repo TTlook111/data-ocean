@@ -1,5 +1,8 @@
 # Implementation Plan: 字段 Tag 与可信度模块
 
+> 适用性（2026-10-17 核对，代码基线 `619bca6`）：部分适用；结合当前可信度衰减与治理反馈。
+> 本文保留原规格/阶段记录；Draft、任务勾选、测试数量和临时执行限制只属于原记录时点。实施前先读[当前说明](../../docs/modules/004-metadata-governance.md)与[规格索引](../README.md)；用户后续明确指正优先。
+
 **Branch**: `001-full-module-specs` | **Date**: 2026-05-16 | **Spec**: [spec.md](spec.md)
 
 ## Summary

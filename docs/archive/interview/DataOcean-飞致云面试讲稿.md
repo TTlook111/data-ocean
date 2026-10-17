@@ -1,5 +1,9 @@
 # DataOcean 项目面试讲稿
 
+> 文档类型：历史方案，不能据此启动实施；归档日期：2026-10-17。
+> 正文中的阶段状态、唯一入口、待执行任务与当时授权仅描述原记录时点；已被指正的要求以现行文档为准。
+> 当前入口：[项目现状](../../项目现状.md)、[文档导航](../../README.md)、[后续开发](../../development/后续开发.md)。
+
 > 适用场景：飞致云 / SQLBot 相关岗位面试  
 > 项目角色：核心开发  
 > 项目时间：2026.05 - 2026.06  
@@ -456,14 +460,13 @@ AST 校验只能证明 SQL 在语法和安全规则上可接受，不能证明�
 
 面试复习时可结合以下文件查看真实实现和设计：
 
-- `README.md`：项目定位、总体架构和核心能力；
-- `AGENTS.md`：当前实现状态、模块边界、接口与安全约束；
-- `docs/nl2sql-单库多表版-项目构想.md`：架构决策和设计背景；
-- `docs/modules/006-knowledge.md`：`skills.md` 生命周期与向量切换；
-- `specs/008-nl2sql-agent/plan.md`：LangGraph Agent 设计；
-- `specs/009-sql-security-sandbox/plan.md`：SQL AST 安全沙箱设计；
-- `docs/development/智能问数链路诊断报告.md`：端到端联调问题与修复；
-- `../../development/completed/DataOcean后台重构状态与整改计划.md`：当前状态、轨道 A 整改和仍需继续建设的能力。
+- [项目 README](../../../README.md)：项目定位、总体架构和核心能力；
+- [AGENTS.md](../../../AGENTS.md)：协作、安全与架构约束；
+- [早期项目构想](../nl2sql-单库多表版-项目构想.md)：历史设计背景；
+- [知识文档](../../modules/006-knowledge.md)与[RAG](../../modules/009-schema-rag.md)：发布、显式构建和向量切换；
+- [S1 问数与记忆](../../modules/008-query-memory.md)：当前 LangGraph、SQL 安全与会话边界；
+- [问数验收记录](../../acceptance/LangGraph问数与会话记忆验收记录.md)：真实隔离联调证据与覆盖限制；
+- [项目现状](../../项目现状.md)与[后续开发](../../development/后续开发.md)：当前能力与剩余动作。
 
 ## 十五、外部资料
 

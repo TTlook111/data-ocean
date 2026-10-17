@@ -13,7 +13,7 @@
 
 - Java 17: `<path-or-command>`
 - Maven: `<absolute-path-to-mvn-or-mvn.cmd>`
-- Node.js 20+: `<path-or-command>`
+- Node.js: `<version-and-command>`; follow the [current runtime requirements](../docs/development/本地开发与验证.md#工具与配置).
 - npm: `<path-or-command>`
 - Python 3.13 / uv: `<path-or-command>`
 
@@ -28,6 +28,7 @@
 
 - MySQL: `<native-service-or-existing-container>`; endpoint `<host:port>`; database `<database-name>`
 - Redis: `<native-service-or-existing-container>`; endpoint `<host:port>`
+- LangGraph checkpoint Redis: `<host:port>`; DB `0`; Redis 8 with JSON/Search. Record the actual endpoint even if it shares the cache Redis instance.
 - Milvus: `<existing-topology>`; SDK endpoint `<host:port>`; health endpoint `<url>`
 - Docker host/runtime: `<none-or-runtime-location>`
 - Existing Compose file, if any: `<absolute-path>`

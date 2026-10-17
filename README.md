@@ -4,66 +4,17 @@
 
 <h1 align="center">DataOcean</h1>
 
-<p align="center">
-  <strong>元数据治理驱动的企业级 NL2SQL 智能查询平台</strong>
-</p>
+<p align="center"><strong>元数据治理驱动的企业级 NL2SQL 智能查询平台</strong></p>
 
-<p align="center">
-  让业务人员用自然语言查询数据，同时把 Schema 语义、权限策略、SQL 安全与审计反馈纳入同一条可信执行链路。
-</p>
-
-<p align="center">
-  <a href="#为什么是-dataocean">项目定位</a> ·
-  <a href="#核心能力">核心能力</a> ·
-  <a href="#系统架构">系统架构</a> ·
-  <a href="#langgraph-agent-工作流">Agent 工作流</a> ·
-  <a href="#快速开始">快速开始</a> ·
-  <a href="#项目状态">项目状态</a>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/Java-17-F97316?style=flat-square" alt="Java 17" />
-  <img src="https://img.shields.io/badge/Spring%20Boot-3.x-6DB33F?style=flat-square" alt="Spring Boot 3.x" />
-  <img src="https://img.shields.io/badge/Vue-3-42B883?style=flat-square" alt="Vue 3" />
-  <img src="https://img.shields.io/badge/Python-3.13-3776AB?style=flat-square" alt="Python 3.13" />
-  <img src="https://img.shields.io/badge/LangGraph-Agent-7C5CFC?style=flat-square" alt="LangGraph Agent" />
-  <img src="https://img.shields.io/badge/Milvus-2.x-00A1EA?style=flat-square" alt="Milvus 2.x" />
-  <img src="https://img.shields.io/badge/License-MIT-20C997?style=flat-square" alt="MIT License" />
-</p>
-
-## 为什么是 DataOcean
-
-很多 NL2SQL Demo 的链路是：把数据库 Schema 塞进 Prompt，让大模型直接生成 SQL。这个方案可以演示，但很难回答企业场景真正关心的问题：
-
-- 模型看到的表、字段和指标口径是否经过治理？
-- SQL 是否越过用户的数据权限，或包含危险函数和深层子查询？
-- 执行失败后能否根据错误类型恢复，而不是机械地重复生成？
-- 查询使用了哪些字段，结果如何审计，错误反馈怎样回流到治理侧？
-
-DataOcean 的核心思路是：**AI 只能在可信元数据、明确权限和可审计执行链路内查询数据。**
-
-| 普通 NL2SQL Demo | DataOcean |
-| --- | --- |
-| 一次 Prompt 直接生成 SQL | LangGraph 编排多节点工作流，并支持条件路由与恢复 |
-| 依赖原始 DDL 或全量 Schema | 从已发布快照、`skills.md`、术语和可信度中召回上下文 |
-| 依靠 Prompt 提醒模型“注意安全” | 使用 sqlglot AST 校验、权限改写和只读沙箱强制执行 |
-| 生成失败即返回错误 | 校验失败、表不存在和可修复执行错误走不同恢复路径 |
-| 查询与数据治理相互独立 | 血缘、审计和反馈持续回流到元数据治理闭环 |
-
-> 当前范围：每次查询选择一个 MySQL 数据源，支持该数据库内的多表关联查询。
+业务用户选择一个 MySQL 数据源，用自然语言查询同库多表；系统在可信元数据、当前权限和可审计执行链内生成 SQL，返回受保护的表格与图表。
 
 ## 核心能力
 
-| 能力 | 实现方式 |
-| --- | --- |
-| 自然语言问数 | 用户选择数据源后直接提问；服务端从当前 IAM 可见目录和已审核知识中规划资源，返回受保护的数据表或 ECharts 图表。 |
-| S1 LangGraph | 有界检索、规划、SQL 生成、语义/结果核对和修正；每次执行前由 Java 重新授权，Redis 8 保存安全 checkpoint。 |
-| Schema RAG | 将表语义、Join Path、指标口径、字段说明和查询场景切分向量化，通过 Milvus 召回、重排和相邻上下文扩展。 |
-| 元数据治理 | 覆盖采集、质量检查、问题修复、审核发布、版本快照、术语表、分类标签和字段可信度。 |
-| SQL 安全沙箱 | 仅允许安全 `SELECT`，执行注入检测、危险函数拦截、表白名单、子查询深度限制、权限改写和强制 `LIMIT`。 |
-| 权限与脱敏 | Java 管理数据源与行列级授权，Python 在 AST 层执行约束，Java 对查询结果完成最终脱敏。 |
-| 可追溯查询 | 持久化会话、任务状态、Prompt 版本、查询审计、SQL 血缘和用户反馈。 |
-| 可靠发布 | 知识文档先审核发布；有权用户确认后构建独立 RAG build，向量和来源验证成功才切换活动指针。 |
+- 元数据采集、质量问题闭环、快照审核、术语、标签、字段可信度与语义知识。
+- 文档审核发布与显式 RAG build 分离；绑定来源和版本，验证后切换活动索引。
+- IAM-SIMPLE-1 功能与数据授权，候选 SQL 逐次授权、AST 校验、参数化记录条件和只读执行。
+- S1 LangGraph 有界规划与修正，任务取消/恢复、会话历史、长期摘要及 Redis 安全 checkpoint。
+- 查询审计、来源与血缘、最终脱敏、图表回退和反馈。
 
 ## 系统架构
 
@@ -71,31 +22,14 @@ DataOcean 的核心思路是：**AI 只能在可信元数据、明确权限和�
   <img src="docs/images/dataocean-architecture-v2.svg" alt="DataOcean system architecture" width="96%" />
 </p>
 
-DataOcean 将业务治理与 AI 执行明确分层：
-
-- **Vue 3 前端**：智能问数工作台，以及数据接入、资产、治理、语义、权限和运营后台。
-- **Spring Boot 网关**：负责认证、权限、数据源、元数据、知识发布、会话持久化、审计和结果脱敏。
-- **FastAPI AI 服务**：负责 IAM-SIMPLE-1 LangGraph 编排、RAG 检索、SQL 生成、AST 校验、只读执行和受保护结果制图。
-- **基础设施**：MySQL 保存治理、任务和完整会话，Milvus 保存 buildId 专属知识向量，Redis 8 承担缓存与 LangGraph checkpoint，Qwen 提供模型与 Embedding 能力。
-
-关键边界：**前端只调用 Java；Java 管理治理状态与持久化；Python 专注 AI、RAG 和 SQL 执行。**
-
-## LangGraph Agent 工作流
-
-```mermaid
-flowchart LR
-    A[选择数据源并自然语言提问] --> B[Java 组装当前 IAM 可见目录、会话上下文及活动 RAG build]
-    B --> C[Python S1 LangGraph 检索、规划、生成与语义核对]
-    C --> D[Java 对每次 SQL 尝试重新授权]
-    D --> E[sqlglot AST 校验与只读沙箱执行]
-    E --> F[Java 最终保护结果并持久化]
-    F --> G[结果核对、ECharts 或受保护表格]
-    G --> H[任务进度、历史恢复与追问]
-    C -->|证据不足| I[澄清]
-    E -->|可修正错误且预算未耗尽| C
+```text
+Vue 3 查询端与治理后台
+  → Spring Boot Java：身份、权限、治理、发布、任务、持久化与最终保护
+  → FastAPI Python：S1 LangGraph、RAG、SQL 安全执行与图表
+  → MySQL / Milvus / Redis / 模型供应商
 ```
 
-每问限制最多 3 次 SQL、8 次 LLM、2 次 Embedding、90 秒和 ¥0.10 估算费用。危险 SQL、越权、取消与无法安全恢复的执行状态会明确停止；完整对话保存在 Java/MySQL，Redis checkpoint 只保存可恢复的安全图状态。
+前端只调用 Java；Java/MySQL 是会话和治理事实源；Python 不维护第二套完整聊天历史。详细版本、服务职责与异步边界见[技术栈与模块职责](docs/技术栈与模块职责.md)。
 
 ## 可信查询闭环
 
@@ -103,196 +37,55 @@ flowchart LR
   <img src="docs/images/dataocean-governance-loop.svg" alt="DataOcean governance-driven trusted query loop" width="96%" />
 </p>
 
-DataOcean 不直接把采集到的 Schema 暴露给模型。元数据需经过质量检查、人工审核和快照发布，再生成结构化 `skills.md` 知识文档进入 RAG。查询产生的字段使用情况、SQL 血缘、审计记录和用户反馈又会更新字段可信度与治理任务。
-
-### `skills.md` 知识生命周期
-
-```text
-草稿 → 提交审核 → 审核通过 → 发布文档
-                         → 有权用户确认 RAG build → 专属 collection 写入与验证 → 切换活动 build
-```
-
-文档发布不自动建索引。每次构建绑定来源快照与审核通过的事实；新 build 验证成功后才切换活动指针，运行中查询固定使用原 build，旧 collection 待引用结束后再清理。
-
-## 工程设计亮点
-
-### 1. 可恢复的 Agent 编排
-
-- LangGraph `StateGraph` 管理节点状态与条件边，不用一段超长 Prompt 承担全部职责。
-- 检索、规划、语义核对、SQL 执行和结果核对按有界条件路由；候选 SQL 均重新经过 Java 授权。
-- 每问共享时间、调用次数和费用预算，并支持任务取消、SSE 进度与安全恢复。
-
-### 2. 治理驱动的 Schema RAG
-
-- 检索内容不仅包含表字段，还包含 Join Path、指标口径、术语、字段防坑和常见查询场景。
-- Python 负责 token-aware 语义切分，长单元按约 900 tokens 切分，最大 1000 tokens，并保留约 150 tokens 重叠。
-- 检索后执行意图感知重排、相邻 Chunk 扩展和列级 Schema Linking，控制上下文噪声。
-- `DEPRECATED`、`BLOCKED` 等不可用治理状态不会进入生成链路。
-
-### 3. Prompt 之外的 SQL 安全
-
-- sqlglot AST 规则链：仅允许 `SELECT`、禁止多语句与注释注入、危险函数和 `SELECT *`。
-- 校验表白名单、最大子查询深度与 SQL-to-Schema 幻觉，不额外增加 LLM 调用。
-- 在 AST 上注入行过滤、检查列权限并强制结果行数限制。
-- 业务库使用只读连接，执行支持超时与取消；Java 对敏感字段执行最终脱敏。
-
-### 4. 清晰的服务职责
-
-- Java 持久化会话、消息和长期摘要；Python 接收 Java 绑定的会话 threadId 与本次所需上下文，不维护第二套完整聊天历史。
-- Java 作为 Python SSE 客户端接收 Agent 进度，前端始终只面对统一网关。
-- 普通缓存故障可降级；S1 Redis checkpoint 不可用时查询明确失败。Milvus 不可用或图表生成失败有受控回退，不把失败伪装成成功。
-
-## 技术栈
-
-| 模块 | 技术 |
-| --- | --- |
-| 前端 | Vue 3, Vite, TypeScript, Vue Router, Pinia, Element Plus, ECharts, GSAP |
-| Java 网关 | Spring Boot 3.x, JDK 17, Spring Security, JWT, MyBatis-Plus, Flyway, Redis |
-| Python AI 服务 | Python 3.13, FastAPI, LangGraph, LangChain, SQLAlchemy 2.x, PyMySQL, sqlglot |
-| 数据与检索 | MySQL 8, Milvus 2.x Standalone, Redis 8（含 RedisJSON/RediSearch） |
-| 模型服务 | Qwen / 通义千问 API, `text-embedding-v4` |
-
-技术与模块的详细对应关系见 [`docs/development/DataOcean技术栈与模块职责.md`](docs/development/DataOcean技术栈与模块职责.md)。
+元数据经过质量检查、审核和快照发布，再生成并审核发布 `skills.md`；有权用户显式确认 RAG 构建后，知识才进入活动索引。查询产生的字段使用、SQL 血缘、审计和反馈继续回流到治理侧。
 
 ## 快速开始
 
-### 环境要求
-
-- JDK 17、Maven 3.9+
-- Node.js 20+
-- Python 3.13、[uv](https://docs.astral.sh/uv/)
-- MySQL 8、Redis 8（含 RedisJSON/RediSearch）、Milvus 2.x
-- 可用的 Qwen API Key
-
-> 仓库当前不内置基础设施 Compose。请先准备 MySQL、Redis 与 Milvus，并在本地配置文件中填写连接信息；不要提交真实密钥。
-
-### 每台电脑独立的启动环境说明
-
-如果同一仓库会在公司电脑、家里电脑等不同机器上运行，请在每台机器分别创建：
-
-```text
-.dataocean/local-environment.md
-```
-
-可以从 [`.dataocean/local-environment.example.md`](.dataocean/local-environment.example.md) 复制模板，但不要复制另一台电脑已经填写的文件。公司电脑与家庭电脑必须各自维护独立文件。该文件已被 Git 忽略，只记录当前机器的 hostname、工具路径、端口、已有服务/容器和启动顺序，不得记录密码、Token 或 API Key。
-
-启动或诊断前应先核对 hostname、端口、进程和基础设施状态。若文件中的 hostname 与当前机器不一致，必须忽略该配置并按当前机器重新探测，不得继续使用。系统重装或服务拓扑变化后，应重新探测并重建当前机器的文件，不能复用另一台电脑的配置或旧路径。
-
-### 0. 配置两个必需的密钥（首次启动前完成）
-
-以下两项都**没有默认值**，未配置时对应服务会拒绝启动。这一步不能跳过。
-
-> **模型、API key、温度等 AI 配置不在这里填。** 那些由管理端页面（`/admin/platform/ai-config`）管理，
-> Java 保存到 `sys_config` 后主动推送给 Python。`.env` 里的 AI 相关项只是页面未配置时的初始值，
-> 缺失只会记 warning，不影响启动。
-
-**1) 内部服务令牌**：保护 Java 与 Python 之间的 `/internal/*` 调用（可执行 SQL、写向量库、触发 Agent）。
-生成一个值，**同时**写入下面两个文件——两侧必须完全一致，单边修改会让内部调用全部 403：
+Java、Python 和 Vue 在本机运行。配置、首次初始化、启动命令与排障统一见[本地开发与验证](docs/development/本地开发与验证.md)，已有环境按该文档填写实际连接信息。
 
 ```bash
-python -c "import secrets;print(secrets.token_urlsafe(48))"
+git clone https://github.com/TTlook111/data-ocean.git DataOcean
+cd DataOcean
 ```
 
-| 文件 | 配置项 | 是否纳入 Git |
-| --- | --- | --- |
-| `python-service/.env` | `INTERNAL_TOKEN=<值>` | 否（已忽略） |
-| `backend/DataOcean/config/application-local.yml` | `dataocean.internal.token: <值>` | 否（已忽略） |
+| 环境 | 内容 |
+| --- | --- |
+| 本机应用工具 | JDK 17 / Maven、Node.js / npm、Python 3.13 / uv；具体版本要求见启动指南 |
+| 基础依赖 | MySQL、Milvus，以及具备 JSON/Search 能力的 Redis 8 checkpoint 环境 |
+| 模型配置 | 启动后在后台设置供应商、LLM 和 Embedding；实际问数还需只读业务数据源、知识构建和数据授权 |
 
-**2) 登录令牌签名密钥**：决定 JWT 的可信度。持有它即可伪造任意用户的登录态，因此不能使用公开默认值。
+### 可选的依赖环境配置
 
-```bash
-openssl rand -base64 32
-```
+如果尚未准备基础依赖，可以参考 [docker-compose.yml](docker-compose.yml) 和 [.env.example](.env.example) 一键准备 MySQL、Redis、Milvus 及其配套服务。具体配置方法见启动指南的[可选 Compose 配置](docs/development/本地开发与验证.md#可选-compose-配置)。
 
-| 文件 | 配置项 | 是否纳入 Git |
-| --- | --- | --- |
-| `backend/DataOcean/config/application-local.yml` | `jwt.secret: <值>` | 否（已忽略） |
+已有依赖环境的用户可以跳过 Compose。该文件只负责依赖环境，三个应用仍按启动指南在本机分别运行。
 
-> 更换 `jwt.secret` 会让**所有已签发的登录令牌立即失效**，所有用户需要重新登录。
+## 项目现状与文档
 
-两项也都可以改用环境变量提供（`INTERNAL_TOKEN`、`JWT_SECRET`），环境变量优先级高于上述文件。
+当前主链及 IAM-SIMPLE-1 已实现，已有本机真实/隔离验收记录；完整范围、未覆盖场景与剩余限制统一见[项目现状](docs/项目现状.md)。历史验收不代表当前机器或生产环境已验证。
 
-### 1. 启动 Java 网关
-
-```bash
-cd backend/DataOcean
-mvn spring-boot:run
-```
-
-默认地址：`http://127.0.0.1:8080`
-
-Java 启动时 Flyway 会把所连接的开发库按未执行的版本顺序迁移；当前最高迁移文件为 V64，V53 永久留空。每台开发电脑应核对自己的 `flyway_schema_history`，不沿用另一台机器的版本判断。
-
-### 2. 启动 Python AI 服务
-
-```bash
-cd python-service
-cp .env.example .env
-# 编辑 .env，配置 DASHSCOPE_API_KEY、基础设施连接、INTERNAL_TOKEN，
-# 并设置 LANGGRAPH_CHECKPOINT_REDIS_URL 指向支持 Search/JSON 的 Redis DB 0
-uv sync
-uv run uvicorn dataocean.main:app --reload --port 8000
-```
-
-默认地址：`http://127.0.0.1:8000`
-
-### 3. 启动前端
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-默认地址：`http://127.0.0.1:5173`
+| 需要的信息 | 入口 |
+| --- | --- |
+| 按目的查文档 | [文档导航](docs/README.md) |
+| 当前架构与服务分工 | [技术栈与模块职责](docs/技术栈与模块职责.md) |
+| 修改模块 | [模块导航](docs/modules/README.md) |
+| 修改前端 | [前端开发规范](docs/development/前端开发规范.md) |
+| 下一步任务 | [后续开发](docs/development/后续开发.md) |
+| 验收范围与证据 | [验收索引](docs/acceptance/README.md) |
+| 历史方案与规格适用性 | [历史材料](docs/archive/README.md)、[specs 索引](specs/README.md) |
+| Agent 开发约束 | [AGENTS.md](AGENTS.md) |
 
 ## 项目结构
 
 ```text
-data-ocean/
-├── frontend/         # Vue 3 查询端与治理后台
-├── backend/          # Spring Boot 网关、治理、权限与持久化
-├── python-service/   # FastAPI + LangGraph + RAG + SQL Sandbox
-├── docs/             # 架构、开发、评审与模块文档
-└── specs/            # 历史规格、计划与接口契约
+frontend/              Vue 查询端与治理后台
+backend/DataOcean/     Java 网关、权限、治理与持久化
+python-service/        AI/RAG、S1 编排和 SQL 沙箱
+docs/                  当前说明、开发指南、验收与历史归档
+specs/                 原始规格与阶段契约，先看适用性索引
+output/playwright/     本机原始验证输出，许多文件不纳入 Git
 ```
-
-## 项目状态
-
-IAM-SIMPLE-1 问数主链已完成实现及本机隔离端到端验收：
-
-```text
-Java S1 查询任务 → Python iam_s1 LangGraph → 活动 build RAG 与资源规划
-→ SQL 生成、语义核对 → Java 逐次授权 → AST 校验与只读执行
-→ Java 最终保护与会话持久化 → 前端 ECharts / 受保护表格
-```
-
-最近一次本机隔离验证记录（2026-09-27）：
-
-| 模块 | 验证结果 |
-| --- | --- |
-| 前端 | Vitest 79 项及 `npm run build` 通过 |
-| Python | 相关用例 57 passed / 1 skipped；固定题 fixture guardrails 6 passed |
-| Java | 修复后干净全量 `mvn clean test`：633 passed，0 failures/errors/skipped |
-| G0 固定题集 | 真实 S1 API 八题：可答 6/6，拒答或澄清 2/2，越权与无权标识泄漏 0；预算均在冻结上限内 |
-| E 浏览器 | 本机隔离环境的桌面、390 CSS px、历史恢复、图表/表格及 NORMAL→MASKED 负向重读通过 |
-| 开发库 | 本机常用 `dataocean` 与独立验收库均已迁移至 V64；G0/E 成绩只来自合成隔离库 |
-
-项目仍处开发阶段。上述结果只代表本机隔离验收；默认 Milvus `schema_knowledge` 的既有向量来源、早期 390px iframe 的 `MutationObserver` 异常仍未查明。问数最新证据见 [`DataOcean-LangGraph问数与会话记忆验收记录.md`](docs/development/completed/DataOcean-LangGraph问数与会话记忆验收记录.md)；后台重构状态见 [`DataOcean后台重构状态与整改计划.md`](docs/development/completed/DataOcean后台重构状态与整改计划.md)，待办顺序见 [`后续开发.md`](docs/development/后续开发.md)。
-
-## 文档导航
-
-| 文档 | 内容 |
-| --- | --- |
-| [`AGENTS.md`](AGENTS.md) | 项目架构、代码边界、开发约束与验证命令 |
-| [`CLAUDE.md`](CLAUDE.md) | AI 编码 Agent 工作手册与当前实现基线 |
-| [`DataOcean技术栈与模块职责.md`](docs/development/DataOcean技术栈与模块职责.md) | 技术栈、模块职责、数据归属与异步边界 |
-| [`DataOcean后台重构状态与整改计划.md`](docs/development/completed/DataOcean后台重构状态与整改计划.md) | 当前真实状态、风险、验收基线与后续计划 |
-| [`DataOcean-LangGraph问数与会话记忆验收记录.md`](docs/development/completed/DataOcean-LangGraph问数与会话记忆验收记录.md) | G0/E 本机隔离验收证据与边界 |
-| [`DataOcean-LangGraph问数与会话记忆恢复方案.md`](docs/development/completed/DataOcean-LangGraph问数与会话记忆恢复方案.md) | 已完成的 LangGraph 问数与会话记忆实施方案 |
-| [`DataOcean-RAG问题修复与知识文档切分优化方案.md`](docs/development/completed/DataOcean-RAG问题修复与知识文档切分优化方案.md) | RAG 切分、检索与发布可靠性实现 |
-| [`DataOcean-完整权限体系设计.md`](docs/development/completed/DataOcean-完整权限体系设计.md) | 权限体系的目标设计与迁移边界 |
 
 ## License
 
-本项目采用 MIT License。
+本项目声明采用 MIT License；仓库暂未附带独立的 `LICENSE` 文件，许可证文本待补充。

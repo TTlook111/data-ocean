@@ -1,5 +1,8 @@
 # Research: skills.md 业务知识库模块
 
+> 适用性（2026-10-17 核对，代码基线 `619bca6`）：部分适用；发布即自动索引的流程已被替代。
+> 本文保留原规格/阶段记录；Draft、任务勾选、测试数量和临时执行限制只属于原记录时点。实施前先读[当前说明](../../docs/modules/006-knowledge.md)与[规格索引](../README.md)；用户后续明确指正优先。
+
 ## AI 草稿生成方案
 
 **Decision**: Python FastAPI 端点接收快照数据，使用 Jinja2 模板构造 Prompt，调用 Qwen API 生成 Markdown 草稿

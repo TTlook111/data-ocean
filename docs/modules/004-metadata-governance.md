@@ -1,63 +1,34 @@
-# 004 元数据治理
+# 004 元数据治理与可信度
 
-## 概述
-元数据治理模块对采集到的元数据进行质量评估和状态管理，通过多维度质量检查（完整性、准确性、一致性、时效性、可追溯性）发现问题，并提供治理状态流转（DISCOVERED → NORMAL → RECOMMENDED / DEPRECATED / BLOCKED），决定哪些字段可以进入 RAG 被 SQL 生成引用。
+> 文档类型：现行模块说明；核对日期：2026-10-17；代码基线：`619bca6`。本轮静态核对，运行验收见[项目现状](../项目现状.md)。
 
-## 解决的问题
-- 元数据质量自动化评估（5 个维度、可配置规则）
-- 质量问题发现、分派和处理闭环
-- 表/字段级治理状态管理（控制 RAG 准入）
-- 治理操作审计记录
+## 概览与主流程
 
-## 实现方案
-- **质量检查器模式**: 5 个独立 Checker 组件（Accuracy/Completeness/Consistency/Timeliness/Traceability），每个检查器实现特定维度的规则
-- **规则引擎**: `metadata_quality_rule` 表存储可配置的质量规则，支持启用/停用和扣分权重
-- **治理状态**: 字段级状态控制 RAG 准入 — NORMAL/RECOMMENDED 可进入，DEPRECATED/BLOCKED 禁止
-- **审计追踪**: 每次状态变更记录到 `metadata_review_record`
+负责质量规则、真实检查、问题发现/分派/处理/复查、表字段治理状态，以及与可信度、标签和治理反馈的连接。
 
-## 代码位置
+选定源与快照 → 质量检查 → 问题分派与处理 → 复查/必要时 REOPENED → 审核发布 → 查询血缘、使用与反馈回流。
 
-### 后端
-- Controller: `backend/DataOcean/src/main/java/com/dataocean/module/governance/controller/MetadataGovernanceController.java`
-- Service: `backend/DataOcean/src/main/java/com/dataocean/module/governance/service/`
-  - `QualityCheckService.java` / `impl/QualityCheckServiceImpl.java`
-  - `QualityRuleService.java` / `impl/QualityRuleServiceImpl.java`
-  - `QualityIssueService.java` / `impl/QualityIssueServiceImpl.java`
-  - `GovernanceStatusService.java` / `impl/GovernanceStatusServiceImpl.java`
-  - `MetadataReviewService.java` / `impl/MetadataReviewServiceImpl.java`
-- Checker: `backend/DataOcean/src/main/java/com/dataocean/module/governance/checker/`
-  - `QualityChecker.java`（接口）
-  - `AccuracyChecker.java`, `CompletenessChecker.java`, `ConsistencyChecker.java`, `TimelinessChecker.java`, `TraceabilityChecker.java`
-- Entity: `backend/DataOcean/src/main/java/com/dataocean/module/governance/entity/`
-  - `MetadataQualityIssue.java`, `MetadataQualityRule.java`, `MetadataReviewRecord.java`
+## 关键边界
 
-### 前端
-- 页面:
-  - `frontend/src/views/admin/governance/QualityDashboard.vue` — 质量看板
-  - `frontend/src/views/admin/governance/IssueList.vue` — 问题清单
-  - `frontend/src/views/admin/governance/StatusEditor.vue` — 治理状态编辑
-- API: `frontend/src/api/admin/governance.ts`
+- DISCOVERED、NORMAL、RECOMMENDED、DEPRECATED、BLOCKED 等治理状态按现有服务规则流转，不等同于审核状态。
+- DEPRECATED/BLOCKED 表字段禁止进入检索、SQL 生成和临时访问批准；NORMAL/RECOMMENDED 本身也不能跳过来源快照、审核、build membership 或当前 IAM 检查。
+- 质量分与字段可信度是辅助决策，不代替权限。可信度读时衰减可配置，默认半衰期 30 天。
+- 批量处理返回 `updated/skipped/skippedIssues`；跳过是正常部分成功结果，前端必须显示原因，不整体抛错或报全成功。
+- 两个问题列表的 assigneeId 和目录的数据源范围均下推 SQL，禁止分页后再过滤。
 
-### 数据库
-- 迁移脚本: `V11__create_governance_tables.sql`
-- 涉及表: `metadata_quality_issue`, `metadata_quality_rule`, `metadata_review_record`
+## 代码与接口
 
-## API 接口清单
+| 代码 | 用途 |
+| --- | --- |
+| [MetadataGovernanceController](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/controller/MetadataGovernanceController.java) | `/api/admin`下 quality-check、quality-rules、quality-issues、治理状态与 review-records |
+| [governance/checker](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/checker/) | 元数据维度与数据质量检查 |
+| [governance/service](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/) | 问题、状态、审核与质量聚合 |
+| [fieldtag](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldtag/) | 标签、可信度、反馈 |
+| [QualityDashboard](../../frontend/src/views/admin/governance/QualityDashboard.vue)、[IssueList](../../frontend/src/views/admin/governance/IssueList.vue) | 正式质量与问题页面 |
+| [governance API](../../frontend/src/api/admin/governance.ts) | 请求 DTO、筛选与批量返回 |
 
-| 方法 | 路径 | 用途 | 调用方 |
-|------|------|------|--------|
-| POST | `/api/admin/snapshots/{snapshotId}/quality-check` | 触发质量校验 | 前端质量看板 |
-| GET | `/api/admin/quality-rules` | 查询质量规则 | 前端规则配置 |
-| PATCH | `/api/admin/quality-rules/{ruleId}` | 启用/停用规则 | 前端规则配置 |
-| GET | `/api/admin/snapshots/{snapshotId}/quality-issues` | 查询质量问题 | 前端问题清单 |
-| PATCH | `/api/admin/quality-issues/{issueId}/status` | 处理问题 | 前端问题清单 |
-| PATCH | `/api/admin/quality-issues/batch-status` | 批量处理 | 前端问题清单 |
-| POST | `/api/admin/quality-issues/{issueId}/assign` | 分派负责人 | 前端问题清单 |
-| PATCH | `/api/admin/snapshots/{snapshotId}/tables/{tableName}/governance-status` | 更新表治理状态 | 前端治理状态页 |
-| PATCH | `/api/admin/snapshots/{snapshotId}/columns/{columnId}/governance-status` | 更新字段治理状态 | 前端治理状态页 |
-| PATCH | `/api/admin/snapshots/{snapshotId}/tables/{tableName}/batch-governance-status` | 批量更新字段状态 | 前端治理状态页 |
-| GET | `/api/admin/snapshots/{snapshotId}/review-records` | 查询审核记录 | 前端治理状态页 |
+## 修改与验证
 
-## 模块间依赖
-- **被依赖**: 006 知识库（发布前校验字段治理状态）、007 Schema RAG（RAG 准入控制）
-- **依赖**: 003 元数据采集（基于快照数据做质量检查）
+质量检查必须针对实际选定源和快照，记录 SQL 异常和结果；不以脚本静态通过宣称真实质量闭环。检查部分成功、无权、无快照、失败与复查。发布前和读取时仍检查治理准入，历史正常状态不能覆盖当前禁止状态。
+
+历史审查中的缺陷是当时记录。未复核的项目不直接写成当前缺陷或新待办；需先定位现存代码，再进入[后续开发](../development/后续开发.md)。

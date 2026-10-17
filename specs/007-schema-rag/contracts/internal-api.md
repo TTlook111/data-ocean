@@ -1,5 +1,8 @@
 # Internal API Contracts: Schema RAG 召回模块
 
+> 适用性（2026-10-17 核对，代码基线 `619bca6`）：部分适用；默认集合和旧重建流程不能用于 S1。
+> 本文保留原规格/阶段记录；Draft、任务勾选、测试数量和临时执行限制只属于原记录时点。实施前先读[当前说明](../../../docs/modules/009-schema-rag.md)与[规格索引](../../README.md)；用户后续明确指正优先。
+
 ## Base URL
 
 Python 内部服务: `/internal/rag/*`
