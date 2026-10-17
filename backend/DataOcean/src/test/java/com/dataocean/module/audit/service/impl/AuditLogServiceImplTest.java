@@ -1,8 +1,8 @@
 package com.dataocean.module.audit.service.impl;
 
-import com.dataocean.module.audit.entity.QueryAuditLog;
+import com.dataocean.module.audit.entity.po.QueryAuditLog;
 import com.dataocean.module.audit.mapper.QueryAuditLogMapper;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

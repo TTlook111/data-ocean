@@ -1,20 +1,20 @@
 package com.dataocean.module.audit.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.audit.entity.QueryLineageColumn;
-import com.dataocean.module.audit.entity.QueryLineageTable;
+import com.dataocean.module.audit.entity.po.QueryLineageColumn;
+import com.dataocean.module.audit.entity.po.QueryLineageTable;
 import com.dataocean.module.audit.entity.vo.ImpactAnalysisVO;
 import com.dataocean.module.audit.entity.vo.LineageColumnVO;
 import com.dataocean.module.audit.entity.vo.LineageTableVO;
 import com.dataocean.module.audit.mapper.QueryLineageColumnMapper;
 import com.dataocean.module.audit.mapper.QueryLineageTableMapper;
 import com.dataocean.module.audit.service.LineageService;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;

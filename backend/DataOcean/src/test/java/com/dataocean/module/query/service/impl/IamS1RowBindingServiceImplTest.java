@@ -1,6 +1,6 @@
 package com.dataocean.module.query.service.impl;
 
-import com.dataocean.module.permission.s1.entity.IamS1RowCondition;
+import com.dataocean.module.permission.s1.entity.po.IamS1RowCondition;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DataAuthorizationSnapshot;
 import com.dataocean.module.permission.s1.entity.vo.IamS1FieldProtectionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1GrantSourceVO;

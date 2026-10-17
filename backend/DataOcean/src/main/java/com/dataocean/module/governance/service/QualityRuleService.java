@@ -1,6 +1,6 @@
 package com.dataocean.module.governance.service;
 
-import com.dataocean.module.governance.entity.MetadataQualityRule;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
 
 import java.util.List;
 

@@ -1,7 +1,7 @@
 package com.dataocean.module.glossary.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.glossary.entity.Glossary;
+import com.dataocean.module.glossary.entity.po.Glossary;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

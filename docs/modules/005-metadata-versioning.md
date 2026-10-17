@@ -6,7 +6,7 @@
 
 Java 管理快照的质量阶段、审核、发布、过期、撤回、版本历史与审计。只有合规版本才能作为知识事实来源；快照发布不是 RAG 活动 build 切换。
 
-[SnapshotStatus](../../backend/DataOcean/src/main/java/com/dataocean/module/versioning/entity/SnapshotStatus.java)定义：
+[SnapshotStatus](../../backend/DataOcean/src/main/java/com/dataocean/module/versioning/enums/SnapshotStatus.java)定义：
 
 ```text
 DRAFT → CHECKING → ISSUE_FOUND → APPROVED → PUBLISHED → EXPIRED

@@ -3,7 +3,7 @@ package com.dataocean.module.permission.s1.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.permission.s1.catalog.IamS1FunctionCatalog;
-import com.dataocean.module.permission.s1.entity.IamS1Function;
+import com.dataocean.module.permission.s1.entity.po.IamS1Function;
 import com.dataocean.module.permission.s1.mapper.IamS1FunctionMapper;
 import com.dataocean.module.permission.s1.service.IamS1FunctionService;
 import lombok.RequiredArgsConstructor;

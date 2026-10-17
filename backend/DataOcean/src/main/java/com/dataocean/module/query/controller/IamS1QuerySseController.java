@@ -3,7 +3,7 @@ package com.dataocean.module.query.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1PermissionRevisionMapper;
 import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;

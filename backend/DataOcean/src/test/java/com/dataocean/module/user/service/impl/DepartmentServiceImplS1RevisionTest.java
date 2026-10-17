@@ -2,11 +2,11 @@ package com.dataocean.module.user.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.permission.s1.IamS1Constants;
-import com.dataocean.module.permission.s1.entity.IamS1DataGrant;
+import com.dataocean.module.permission.s1.entity.po.IamS1DataGrant;
 import com.dataocean.module.permission.s1.mapper.IamS1DataGrantMapper;
 import com.dataocean.module.permission.s1.service.IamS1AuditEventService;
 import com.dataocean.module.permission.s1.service.IamS1PermissionRevisionService;
-import com.dataocean.module.user.entity.SysDepartment;
+import com.dataocean.module.user.entity.po.SysDepartment;
 import com.dataocean.module.user.entity.dto.DepartmentCreateDTO;
 import com.dataocean.module.user.entity.dto.DepartmentUpdateDTO;
 import com.dataocean.module.user.mapper.DepartmentMapper;

@@ -1,7 +1,7 @@
 package com.dataocean.module.datasource.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.datasource.entity.DatasourceSecret;
+import com.dataocean.module.datasource.entity.po.DatasourceSecret;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

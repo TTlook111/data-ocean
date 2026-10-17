@@ -1,7 +1,7 @@
 package com.dataocean.module.fieldtag.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.fieldtag.entity.FeedbackReview;
+import com.dataocean.module.fieldtag.entity.po.FeedbackReview;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;

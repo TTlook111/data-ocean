@@ -1,7 +1,7 @@
 package com.dataocean.module.audit.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.audit.entity.QueryLineageColumn;
+import com.dataocean.module.audit.entity.po.QueryLineageColumn;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;

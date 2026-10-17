@@ -2,7 +2,7 @@ package com.dataocean.module.permission.s1.controller;
 
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
-import com.dataocean.module.permission.s1.entity.IamS1SnapshotOption;
+import com.dataocean.module.permission.s1.entity.po.IamS1SnapshotOption;
 import com.dataocean.module.permission.s1.entity.vo.IamS1ColumnOptionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1TableOptionVO;
 import com.dataocean.module.permission.s1.service.IamS1ResourceOptionService;

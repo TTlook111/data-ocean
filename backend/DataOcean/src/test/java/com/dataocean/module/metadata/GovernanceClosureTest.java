@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata;
 
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.event.SnapshotEntitySyncListener;
 import com.dataocean.module.glossary.controller.GlossaryController;
 import org.junit.jupiter.api.DisplayName;

@@ -2,12 +2,12 @@ package com.dataocean.module.permission.s1.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.permission.s1.IamS1Constants;
-import com.dataocean.module.permission.s1.entity.IamS1ColumnFact;
-import com.dataocean.module.permission.s1.entity.IamS1DataGrant;
-import com.dataocean.module.permission.s1.entity.IamS1DataGrantColumn;
-import com.dataocean.module.permission.s1.entity.IamS1FieldProtection;
-import com.dataocean.module.permission.s1.entity.IamS1Role;
-import com.dataocean.module.permission.s1.entity.IamS1UserIdentity;
+import com.dataocean.module.permission.s1.entity.po.IamS1ColumnFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1DataGrant;
+import com.dataocean.module.permission.s1.entity.po.IamS1DataGrantColumn;
+import com.dataocean.module.permission.s1.entity.po.IamS1FieldProtection;
+import com.dataocean.module.permission.s1.entity.po.IamS1Role;
+import com.dataocean.module.permission.s1.entity.po.IamS1UserIdentity;
 import com.dataocean.module.permission.s1.entity.dto.IamS1DataGrantColumnDTO;
 import com.dataocean.module.permission.s1.entity.dto.IamS1DataGrantSaveDTO;
 import com.dataocean.module.permission.s1.entity.dto.IamS1RowConditionDTO;
@@ -193,7 +193,7 @@ class IamS1DataGrantServiceImplTest {
             return 1;
         }).when(grantMapper).insert(any(IamS1DataGrant.class));
         service.createGrant(1L, request);
-        verify(conditionMapper).insert(any(com.dataocean.module.permission.s1.entity.IamS1RowCondition.class));
+        verify(conditionMapper).insert(any(com.dataocean.module.permission.s1.entity.po.IamS1RowCondition.class));
     }
 
     @Test
@@ -210,7 +210,7 @@ class IamS1DataGrantServiceImplTest {
         }).when(grantMapper).insert(any(IamS1DataGrant.class));
         service.createGrant(1L, request);
         verify(conditionMapper, org.mockito.Mockito.times(2))
-                .insert(any(com.dataocean.module.permission.s1.entity.IamS1RowCondition.class));
+                .insert(any(com.dataocean.module.permission.s1.entity.po.IamS1RowCondition.class));
     }
 
     @Test
@@ -339,8 +339,8 @@ class IamS1DataGrantServiceImplTest {
         return user;
     }
 
-    private com.dataocean.module.permission.s1.entity.IamS1DepartmentNode department(Long id, Long parentId) {
-        com.dataocean.module.permission.s1.entity.IamS1DepartmentNode node = new com.dataocean.module.permission.s1.entity.IamS1DepartmentNode();
+    private com.dataocean.module.permission.s1.entity.po.IamS1DepartmentNode department(Long id, Long parentId) {
+        com.dataocean.module.permission.s1.entity.po.IamS1DepartmentNode node = new com.dataocean.module.permission.s1.entity.po.IamS1DepartmentNode();
         node.setId(id);
         node.setParentId(parentId);
         node.setStatus(1);

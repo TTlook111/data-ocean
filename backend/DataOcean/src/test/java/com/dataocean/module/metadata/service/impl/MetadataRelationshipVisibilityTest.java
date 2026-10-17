@@ -1,6 +1,6 @@
 package com.dataocean.module.metadata.service.impl;
 
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import org.junit.jupiter.api.Test;

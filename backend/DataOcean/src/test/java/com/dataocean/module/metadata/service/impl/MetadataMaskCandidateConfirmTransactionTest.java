@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
 import com.dataocean.module.metadata.service.MetadataMaskCandidateService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

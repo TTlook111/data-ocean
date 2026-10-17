@@ -1,6 +1,6 @@
 package com.dataocean.module.permission.s1.service.impl;
 
-import com.dataocean.module.permission.s1.entity.IamS1Function;
+import com.dataocean.module.permission.s1.entity.po.IamS1Function;
 import com.dataocean.module.permission.s1.entity.vo.IamS1AuthorizationDecision;
 import com.dataocean.module.permission.s1.mapper.IamS1DatasourceIdentityMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1FunctionMapper;

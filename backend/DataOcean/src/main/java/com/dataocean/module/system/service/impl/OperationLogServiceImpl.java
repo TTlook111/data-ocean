@@ -2,8 +2,8 @@ package com.dataocean.module.system.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.system.entity.SysOperationLog;
-import com.dataocean.module.system.entity.dto.OperationLogQueryDTO;
+import com.dataocean.module.system.entity.po.SysOperationLog;
+import com.dataocean.module.system.entity.query.OperationLogQuery;
 import com.dataocean.module.system.mapper.SysOperationLogMapper;
 import com.dataocean.module.system.service.OperationLogService;
 import lombok.RequiredArgsConstructor;
@@ -46,15 +46,11 @@ public class OperationLogServiceImpl implements OperationLogService {
      * @param query 查询条件（操作人/类型/状态/时间范围/IP/路径/目标资源/目标ID/关键词）
      */
     @Override
-    public Page<SysOperationLog> listLogs(OperationLogQueryDTO query) {
+    public Page<SysOperationLog> listLogs(OperationLogQuery query) {
         if (query == null) {
-            query = new OperationLogQueryDTO();
+            query = new OperationLogQuery();
         }
-        int page = query.getPage() == null || query.getPage() < 1 ? 1 : query.getPage();
-        int pageSize = query.getPageSize() == null || query.getPageSize() < 1 ? 20 : query.getPageSize();
-
-        LambdaQueryWrapper<SysOperationLog> wrapper = new LambdaQueryWrapper<SysOperationLog>()
-                .orderByDesc(SysOperationLog::getCreatedAt);
+        LambdaQueryWrapper<SysOperationLog> wrapper = new LambdaQueryWrapper<>();
 
         wrapper.like(StringUtils.hasText(query.getOperatorName()), SysOperationLog::getOperatorName, trim(query.getOperatorName()));
         wrapper.eq(StringUtils.hasText(query.getOperationType()), SysOperationLog::getOperationType, trim(query.getOperationType()));
@@ -87,7 +83,7 @@ public class OperationLogServiceImpl implements OperationLogService {
                     .or().like(SysOperationLog::getRequestPath, normalizedKeyword));
         }
 
-        return operationLogMapper.selectPage(new Page<>(page, pageSize), wrapper);
+        return operationLogMapper.selectPage(query.toMpPageDefaultSortByCreatedAtDesc(), wrapper);
     }
 
     private String trim(String value) {

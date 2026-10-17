@@ -1,7 +1,7 @@
 package com.dataocean.module.user.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.user.entity.SysDepartment;
+import com.dataocean.module.user.entity.po.SysDepartment;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

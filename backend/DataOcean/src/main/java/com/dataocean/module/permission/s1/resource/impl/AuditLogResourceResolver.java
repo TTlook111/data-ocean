@@ -1,7 +1,7 @@
 package com.dataocean.module.permission.s1.resource.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.audit.entity.QueryAuditLog;
+import com.dataocean.module.audit.entity.po.QueryAuditLog;
 import com.dataocean.module.audit.mapper.QueryAuditLogMapper;
 import com.dataocean.module.permission.s1.resource.IamS1ResolvedResource;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceResolver;

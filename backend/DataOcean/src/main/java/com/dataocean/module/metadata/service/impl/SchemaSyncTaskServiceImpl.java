@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.metadata.entity.SchemaSyncTask;
+import com.dataocean.module.metadata.entity.po.SchemaSyncTask;
 import com.dataocean.module.metadata.mapper.SchemaSyncTaskMapper;
 import com.dataocean.module.metadata.service.SchemaSyncTaskService;
 import lombok.RequiredArgsConstructor;

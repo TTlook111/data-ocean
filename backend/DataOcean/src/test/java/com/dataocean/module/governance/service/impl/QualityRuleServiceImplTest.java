@@ -1,7 +1,7 @@
 package com.dataocean.module.governance.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
 import com.dataocean.module.governance.mapper.MetadataQualityRuleMapper;
 import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import org.junit.jupiter.api.Test;

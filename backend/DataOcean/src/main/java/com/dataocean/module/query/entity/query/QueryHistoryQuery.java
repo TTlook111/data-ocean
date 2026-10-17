@@ -1,9 +1,14 @@
 package com.dataocean.module.query.entity.query;
 
+import com.dataocean.common.entity.query.PageQuery;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+import java.util.Map;
 
 @Data
-public class QueryHistoryQuery {
+@EqualsAndHashCode(callSuper = true)
+public class QueryHistoryQuery extends PageQuery {
 
     private Long datasourceId;
 
@@ -11,7 +16,8 @@ public class QueryHistoryQuery {
 
     private String keyword;
 
-    private Integer page = 1;
-
-    private Integer pageSize = 20;
+    @Override
+    protected Map<String, String> sortColumns() {
+        return Map.of("createdAt", "created_at", "created_at", "created_at", "status", "status");
+    }
 }

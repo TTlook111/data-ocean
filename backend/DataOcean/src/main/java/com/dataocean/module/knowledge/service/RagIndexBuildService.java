@@ -1,6 +1,6 @@
 package com.dataocean.module.knowledge.service;
 
-import com.dataocean.module.knowledge.entity.RagIndexBuild;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuild;
 
 import java.util.List;
 import java.util.Map;

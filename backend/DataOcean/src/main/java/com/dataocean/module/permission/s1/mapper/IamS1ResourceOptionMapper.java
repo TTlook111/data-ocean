@@ -1,8 +1,8 @@
 package com.dataocean.module.permission.s1.mapper;
 
-import com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact;
-import com.dataocean.module.permission.s1.entity.IamS1SnapshotOption;
-import com.dataocean.module.permission.s1.entity.IamS1TableOptionFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1SnapshotOption;
+import com.dataocean.module.permission.s1.entity.po.IamS1TableOptionFact;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;

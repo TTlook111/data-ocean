@@ -1,6 +1,6 @@
 package com.dataocean.module.metadata.service;
 
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 
 /**
  * 元数据快照服务接口。

@@ -1,9 +1,9 @@
 package com.dataocean.module.permission.s1.resource;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.permission.s1.resource.impl.GovernanceIssueResourceResolver;
 import org.junit.jupiter.api.Test;

@@ -1,6 +1,6 @@
 package com.dataocean.module.metadata.collector;
 
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 

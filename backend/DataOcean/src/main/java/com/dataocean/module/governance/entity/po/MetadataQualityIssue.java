@@ -1,0 +1,52 @@
+package com.dataocean.module.governance.entity.po;
+
+import com.baomidou.mybatisplus.annotation.FieldFill;
+import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
+import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.Data;
+
+import java.time.LocalDateTime;
+
+/**
+ * 元数据质量问题实体。
+ * <p>
+ * 记录质量校验过程中发现的问题、严重级别、处理状态、负责人和解决信息。
+ * </p>
+ */
+@Data
+@TableName("metadata_quality_issue")
+public class MetadataQualityIssue {
+
+    public static final String STATUS_OPEN = "OPEN";
+    public static final String STATUS_CONFIRMED = "CONFIRMED";
+    public static final String STATUS_RESOLVED = "RESOLVED";
+    public static final String STATUS_REJECTED = "REJECTED";
+    public static final String STATUS_REOPENED = "REOPENED";
+    public static final String STATUS_AUTO_CLOSED = "AUTO_CLOSED";
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+    private Long snapshotId;
+    private Long datasourceId;
+    private Long ruleId;
+    private String dimension;
+    private String severity;
+    private String tableName;
+    private String columnName;
+    private String issueDescription;
+    private String suggestion;
+    private String status;
+    private Long assigneeId;
+    private Long resolvedBy;
+    private LocalDateTime resolvedAt;
+    private String resolutionNote;
+    @TableField(fill = FieldFill.INSERT)
+    private LocalDateTime createdAt;
+    @TableField(fill = FieldFill.INSERT_UPDATE)
+    private LocalDateTime updatedAt;
+
+    /** Phase 1 #6: 关联的 DbColumnMeta.id，便于 handleIssue() 审核时直接 O(1) 联动置信度 */
+    private Long columnMetaId;
+}

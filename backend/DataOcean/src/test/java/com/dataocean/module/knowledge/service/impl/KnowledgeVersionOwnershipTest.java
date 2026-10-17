@@ -1,9 +1,9 @@
 package com.dataocean.module.knowledge.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.knowledge.entity.KnowledgeDoc;
-import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
-import com.dataocean.module.knowledge.entity.VectorIndexTask;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDoc;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.po.VectorIndexTask;
 import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.enums.ReviewStatus;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
@@ -13,7 +13,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import org.junit.jupiter.api.Test;

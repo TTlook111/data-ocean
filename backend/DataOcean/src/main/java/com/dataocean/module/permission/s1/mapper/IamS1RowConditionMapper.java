@@ -1,7 +1,7 @@
 package com.dataocean.module.permission.s1.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.permission.s1.entity.IamS1RowCondition;
+import com.dataocean.module.permission.s1.entity.po.IamS1RowCondition;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;

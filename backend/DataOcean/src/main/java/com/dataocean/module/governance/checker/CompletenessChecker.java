@@ -1,9 +1,9 @@
 package com.dataocean.module.governance.checker;
 
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
+import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;

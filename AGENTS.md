@@ -99,7 +99,7 @@ Steps:
 - Python package name: `dataocean.*`.
 - Database migrations: `backend/DataOcean/src/main/resources/db/migration/V{version}__{description}.sql`.
 - API prefixes: `/api/*` for user APIs, `/api/admin/*` for admin APIs, `/internal/*` for internal Java/Python APIs.
-- Entity-related Java objects live under `entity`: database entities in `entity`, request/transport DTOs in `entity.dto` with `*DTO`, query objects in `entity.query` with `*Query`, and response/view objects in `entity.vo` with `*VO`.
+- Entity-related Java objects live under `entity`: database entities and persistence projections in `entity.po`, request/transport DTOs in `entity.dto` with `*DTO`, query objects in `entity.query` with `*Query`, and response/view objects in `entity.vo` with `*VO`. Paginated query objects extend `com.dataocean.common.entity.query.PageQuery`; do not duplicate pagination fields or put query conditions in DTOs. Map client sort fields through an endpoint whitelist before constructing MyBatis-Plus orders.
 - Mapper classes live in `mapper`, controllers in `controller`, service interfaces in `service`, implementations in `service.impl` with `*ServiceImpl`.
 - External service clients such as Python clients live in a module-local `client` package, with implementations in `client.impl`; do not mix them into `service`.
 - Do not create database-level foreign key constraints. Keep association IDs and ordinary indexes, and validate relationship integrity in service-layer business logic.

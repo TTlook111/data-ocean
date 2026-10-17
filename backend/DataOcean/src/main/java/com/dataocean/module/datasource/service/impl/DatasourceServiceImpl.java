@@ -4,9 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
-import com.dataocean.module.datasource.entity.Datasource;
-import com.dataocean.module.datasource.entity.DatasourceHealthCheck;
-import com.dataocean.module.datasource.entity.DatasourceSecret;
+import com.dataocean.module.datasource.entity.po.Datasource;
+import com.dataocean.module.datasource.entity.po.DatasourceHealthCheck;
+import com.dataocean.module.datasource.entity.po.DatasourceSecret;
 import com.dataocean.module.datasource.entity.query.DatasourceQuery;
 import com.dataocean.module.datasource.entity.dto.DatasourceCreateDTO;
 import com.dataocean.module.datasource.entity.dto.DatasourceTestDTO;
@@ -187,7 +187,7 @@ public class DatasourceServiceImpl implements DatasourceService {
     public Page<DatasourceVO> listDatasources(DatasourceQuery request, List<Long> visibleDatasourceIds) {
         // 可见范围下推到 SQL：先查全量再过滤会让 LIMIT/OFFSET 在过滤前生效，分页数会错。
         if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
-            return new Page<>(request.resolvedPage(), request.resolvedPageSize(), 0);
+            return request.toMpPageDefaultSortByCreatedAtDesc();
         }
         // 构建查询条件：未删除 + 负责范围 + 可选的名称模糊/状态/健康状态过滤
         LambdaQueryWrapper<Datasource> wrapper = new LambdaQueryWrapper<Datasource>()
@@ -195,10 +195,9 @@ public class DatasourceServiceImpl implements DatasourceService {
                 .in(Datasource::getId, visibleDatasourceIds)
                 .like(StringUtils.hasText(request.getName()), Datasource::getName, request.getName())
                 .eq(request.getStatus() != null, Datasource::getStatus, request.getStatus())
-                .eq(StringUtils.hasText(request.getHealthStatus()), Datasource::getHealthStatus, request.getHealthStatus())
-                .orderByDesc(Datasource::getCreatedAt);
+                .eq(StringUtils.hasText(request.getHealthStatus()), Datasource::getHealthStatus, request.getHealthStatus());
         // 执行分页查询
-        Page<Datasource> datasourcePage = datasourceMapper.selectPage(new Page<>(request.resolvedPage(), request.resolvedPageSize()), wrapper);
+        Page<Datasource> datasourcePage = datasourceMapper.selectPage(request.toMpPageDefaultSortByCreatedAtDesc(), wrapper);
         // 批量转换为 VO 分页结果（避免 N+1 查询）
         Page<DatasourceVO> result = new Page<>(datasourcePage.getCurrent(), datasourcePage.getSize(), datasourcePage.getTotal());
         List<Long> ids = datasourcePage.getRecords().stream().map(Datasource::getId).toList();

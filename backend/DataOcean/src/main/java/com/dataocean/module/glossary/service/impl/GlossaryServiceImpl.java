@@ -1,7 +1,7 @@
 package com.dataocean.module.glossary.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.dataocean.module.glossary.entity.Glossary;
+import com.dataocean.module.glossary.entity.po.Glossary;
 import com.dataocean.module.glossary.mapper.GlossaryMapper;
 import com.dataocean.module.glossary.service.GlossaryService;
 import com.dataocean.module.glossary.service.GlossaryTermService;

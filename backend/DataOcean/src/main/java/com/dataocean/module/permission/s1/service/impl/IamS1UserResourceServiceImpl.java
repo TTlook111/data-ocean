@@ -2,10 +2,10 @@ package com.dataocean.module.permission.s1.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.permission.s1.IamS1Constants;
-import com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact;
-import com.dataocean.module.permission.s1.entity.IamS1FieldProtection;
-import com.dataocean.module.permission.s1.entity.IamS1SnapshotOption;
-import com.dataocean.module.permission.s1.entity.IamS1TableOptionFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1FieldProtection;
+import com.dataocean.module.permission.s1.entity.po.IamS1SnapshotOption;
+import com.dataocean.module.permission.s1.entity.po.IamS1TableOptionFact;
 import com.dataocean.module.permission.s1.entity.vo.IamS1ColumnOptionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1TableOptionVO;

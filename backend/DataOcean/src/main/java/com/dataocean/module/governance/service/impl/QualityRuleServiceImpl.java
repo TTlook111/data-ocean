@@ -1,7 +1,7 @@
 package com.dataocean.module.governance.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
 import com.dataocean.module.governance.mapper.MetadataQualityRuleMapper;
 import com.dataocean.module.governance.service.QualityRuleService;
 import com.dataocean.common.exception.BusinessException;

@@ -1,6 +1,6 @@
 package com.dataocean.module.permission.s1.mapper;
 
-import com.dataocean.module.permission.s1.entity.IamS1UserRole;
+import com.dataocean.module.permission.s1.entity.po.IamS1UserRole;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

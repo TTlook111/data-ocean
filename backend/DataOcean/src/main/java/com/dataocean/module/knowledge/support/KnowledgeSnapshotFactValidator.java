@@ -2,10 +2,10 @@ package com.dataocean.module.knowledge.support;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;

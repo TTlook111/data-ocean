@@ -1,11 +1,11 @@
 package com.dataocean.module.governance.checker;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.datasource.entity.Datasource;
+import com.dataocean.module.datasource.entity.po.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

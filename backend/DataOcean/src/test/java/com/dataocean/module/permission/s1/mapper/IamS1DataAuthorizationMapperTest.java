@@ -1,8 +1,8 @@
 package com.dataocean.module.permission.s1.mapper;
 
 import com.dataocean.module.permission.s1.IamS1Constants;
-import com.dataocean.module.permission.s1.entity.IamS1DataGrant;
-import com.dataocean.module.permission.s1.entity.IamS1PermissionRevision;
+import com.dataocean.module.permission.s1.entity.po.IamS1DataGrant;
+import com.dataocean.module.permission.s1.entity.po.IamS1PermissionRevision;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

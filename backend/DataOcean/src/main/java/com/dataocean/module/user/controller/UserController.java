@@ -1,6 +1,7 @@
 package com.dataocean.module.user.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.entity.query.PageQuery;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.permission.s1.annotation.IamS1Global;
@@ -53,14 +54,14 @@ public class UserController {
     /** 导出是独立功能：拥有查看权不等于可以批量导出。 */
     private static final String EXPORT_FUNCTION = "organization:user:export";
     /** 导出分页大小：逐页读完，不再用“第一页 100 条”冒充完整导出。 */
-    private static final long EXPORT_PAGE_SIZE = 500L;
+    private static final long EXPORT_PAGE_SIZE = PageQuery.MAX_PAGE_SIZE;
 
     private final UserService userService;
 
     @GetMapping
     @IamS1Global(VIEW_FUNCTION)
     public Result<Page<UserVO>> listUsers(@ModelAttribute UserQuery request) {
-        log.debug("list users page={} pageSize={}", request.resolvedPage(), request.resolvedPageSize());
+        log.debug("list users page={} pageSize={}", request.getPageNo(), request.getPageSize());
         return Result.success(userService.listUsers(request));
     }
 
@@ -177,7 +178,7 @@ public class UserController {
         long exported = 0;
         long page = 1;
         while (true) {
-            query.setPage(page);
+            query.setPageNo(page);
             query.setPageSize(EXPORT_PAGE_SIZE);
             Page<UserVO> result = userService.listUsers(query);
             List<UserVO> records = result.getRecords();
@@ -196,7 +197,7 @@ public class UserController {
                         + "," + escapeCsv(user.getCreatedAt() == null ? "" : user.getCreatedAt().toString()));
                 exported++;
             }
-            if (page * EXPORT_PAGE_SIZE >= result.getTotal()) {
+            if (result.getCurrent() >= result.getPages()) {
                 break;
             }
             page++;

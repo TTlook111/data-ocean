@@ -1,7 +1,7 @@
 package com.dataocean.module.permission.s1.resource.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.permission.s1.resource.IamS1ResolvedResource;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceResolver;

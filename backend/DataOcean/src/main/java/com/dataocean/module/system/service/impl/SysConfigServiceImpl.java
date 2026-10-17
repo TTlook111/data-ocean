@@ -1,7 +1,7 @@
 package com.dataocean.module.system.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.system.entity.SysConfig;
+import com.dataocean.module.system.entity.po.SysConfig;
 import com.dataocean.module.system.mapper.SysConfigMapper;
 import com.dataocean.module.system.service.SysConfigService;
 import lombok.RequiredArgsConstructor;

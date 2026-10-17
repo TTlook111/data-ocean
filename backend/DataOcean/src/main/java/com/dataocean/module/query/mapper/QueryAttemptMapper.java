@@ -1,7 +1,7 @@
 package com.dataocean.module.query.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.query.entity.QueryAttempt;
+import com.dataocean.module.query.entity.po.QueryAttempt;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;

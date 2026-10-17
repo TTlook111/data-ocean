@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.security.UserContext;
-import com.dataocean.module.system.entity.SysNotification;
+import com.dataocean.module.system.entity.po.SysNotification;
 import com.dataocean.module.system.mapper.SysNotificationMapper;
 import com.dataocean.module.system.service.NotificationService;
 import lombok.RequiredArgsConstructor;

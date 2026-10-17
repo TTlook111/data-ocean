@@ -1,8 +1,8 @@
 package com.dataocean.module.governance.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
-import com.dataocean.module.governance.entity.QualityCheckResult;
+import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.po.QualityCheckResult;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
 import com.dataocean.module.governance.mapper.QualityCheckResultMapper;
 import lombok.RequiredArgsConstructor;

@@ -2,7 +2,7 @@ package com.dataocean.module.knowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.knowledge.entity.VectorIndexTask;
+import com.dataocean.module.knowledge.entity.po.VectorIndexTask;
 import com.dataocean.module.knowledge.enums.VectorTaskStatus;
 import com.dataocean.module.knowledge.mapper.VectorIndexTaskMapper;
 import com.dataocean.module.knowledge.service.VectorIndexTaskService;

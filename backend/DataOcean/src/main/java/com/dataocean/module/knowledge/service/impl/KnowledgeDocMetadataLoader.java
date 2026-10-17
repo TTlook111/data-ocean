@@ -1,11 +1,11 @@
 package com.dataocean.module.knowledge.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.fieldtag.entity.FieldTag;
+import com.dataocean.module.fieldtag.entity.po.FieldTag;
 import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;

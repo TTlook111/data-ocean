@@ -1,7 +1,7 @@
 package com.dataocean.module.permission.s1.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.common.pagination.PageRequest;
+import com.dataocean.common.entity.query.PageQuery;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.permission.s1.entity.dto.IamS1AccessRequestSubmitDTO;
@@ -56,7 +56,7 @@ public class IamS1AccessRequestController {
                                                     @RequestParam(defaultValue = "1") Integer page,
                                                     @RequestParam(defaultValue = "20") Integer size) {
         return Result.success(accessRequestService.listQueue(UserContext.currentUserId(), status,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }
 
     @PostMapping("/{requestId}/withdraw")

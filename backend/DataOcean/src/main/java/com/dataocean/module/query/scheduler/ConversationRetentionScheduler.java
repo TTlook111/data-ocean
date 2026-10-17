@@ -1,9 +1,9 @@
 package com.dataocean.module.query.scheduler;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.query.entity.Conversation;
-import com.dataocean.module.query.entity.ConversationMessage;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.po.Conversation;
+import com.dataocean.module.query.entity.po.ConversationMessage;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.mapper.ConversationContextSummaryMapper;
 import com.dataocean.module.query.mapper.ConversationMapper;
 import com.dataocean.module.query.mapper.ConversationMessageMapper;
@@ -48,16 +48,16 @@ public class ConversationRetentionScheduler {
             Long id = conversation.getId();
             conversationMessageMapper.delete(new LambdaQueryWrapper<ConversationMessage>()
                     .eq(ConversationMessage::getConversationId, id));
-            summaryMapper.delete(new LambdaQueryWrapper<com.dataocean.module.query.entity.ConversationContextSummary>()
-                    .eq(com.dataocean.module.query.entity.ConversationContextSummary::getConversationId, id));
+            summaryMapper.delete(new LambdaQueryWrapper<com.dataocean.module.query.entity.po.ConversationContextSummary>()
+                    .eq(com.dataocean.module.query.entity.po.ConversationContextSummary::getConversationId, id));
             List<String> taskIds = queryTaskMapper.selectList(new LambdaQueryWrapper<QueryTask>()
                     .eq(QueryTask::getConversationId, id)
                     .select(QueryTask::getTaskId)).stream().map(QueryTask::getTaskId).toList();
             if (!taskIds.isEmpty()) {
-                queryAttemptMapper.delete(new LambdaQueryWrapper<com.dataocean.module.query.entity.QueryAttempt>()
-                        .in(com.dataocean.module.query.entity.QueryAttempt::getTaskId, taskIds));
-                queryModelCallMapper.delete(new LambdaQueryWrapper<com.dataocean.module.query.entity.QueryModelCall>()
-                        .in(com.dataocean.module.query.entity.QueryModelCall::getTaskId, taskIds));
+                queryAttemptMapper.delete(new LambdaQueryWrapper<com.dataocean.module.query.entity.po.QueryAttempt>()
+                        .in(com.dataocean.module.query.entity.po.QueryAttempt::getTaskId, taskIds));
+                queryModelCallMapper.delete(new LambdaQueryWrapper<com.dataocean.module.query.entity.po.QueryModelCall>()
+                        .in(com.dataocean.module.query.entity.po.QueryModelCall::getTaskId, taskIds));
                 queryTaskMapper.delete(new LambdaQueryWrapper<QueryTask>()
                         .in(QueryTask::getTaskId, taskIds));
             }

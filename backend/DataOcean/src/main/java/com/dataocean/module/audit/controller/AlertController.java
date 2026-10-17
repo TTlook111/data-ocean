@@ -3,7 +3,7 @@ package com.dataocean.module.audit.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.permission.s1.annotation.IamS1Global;
-import com.dataocean.module.audit.entity.AlertRule;
+import com.dataocean.module.audit.entity.po.AlertRule;
 import com.dataocean.module.audit.entity.dto.AlertRuleDTO;
 import com.dataocean.module.audit.service.AlertRuleService;
 import com.dataocean.module.system.aspect.AdminAuditLog;

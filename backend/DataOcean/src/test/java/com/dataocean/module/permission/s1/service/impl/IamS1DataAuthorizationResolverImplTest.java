@@ -1,18 +1,18 @@
 package com.dataocean.module.permission.s1.service.impl;
 
 import com.dataocean.module.permission.s1.IamS1Constants;
-import com.dataocean.module.permission.s1.entity.IamS1ColumnFact;
-import com.dataocean.module.permission.s1.entity.IamS1DataGrant;
-import com.dataocean.module.permission.s1.entity.IamS1DataGrantColumn;
-import com.dataocean.module.permission.s1.entity.IamS1DepartmentNode;
-import com.dataocean.module.permission.s1.entity.IamS1DatasourceFact;
-import com.dataocean.module.permission.s1.entity.IamS1FieldProtection;
-import com.dataocean.module.permission.s1.entity.IamS1MetadataSnapshotFact;
-import com.dataocean.module.permission.s1.entity.IamS1RowCondition;
-import com.dataocean.module.permission.s1.entity.IamS1Role;
-import com.dataocean.module.permission.s1.entity.IamS1TableFact;
-import com.dataocean.module.permission.s1.entity.IamS1UserIdentity;
-import com.dataocean.module.permission.s1.entity.IamS1UserRole;
+import com.dataocean.module.permission.s1.entity.po.IamS1ColumnFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1DataGrant;
+import com.dataocean.module.permission.s1.entity.po.IamS1DataGrantColumn;
+import com.dataocean.module.permission.s1.entity.po.IamS1DepartmentNode;
+import com.dataocean.module.permission.s1.entity.po.IamS1DatasourceFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1FieldProtection;
+import com.dataocean.module.permission.s1.entity.po.IamS1MetadataSnapshotFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1RowCondition;
+import com.dataocean.module.permission.s1.entity.po.IamS1Role;
+import com.dataocean.module.permission.s1.entity.po.IamS1TableFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1UserIdentity;
+import com.dataocean.module.permission.s1.entity.po.IamS1UserRole;
 import com.dataocean.module.permission.s1.entity.dto.IamS1DataAuthorizationRequestDTO;
 import com.dataocean.module.permission.s1.entity.dto.IamS1TableRequestDTO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DataAuthorizationSnapshot;
@@ -654,8 +654,8 @@ class IamS1DataAuthorizationResolverImplTest {
         return user;
     }
 
-    private com.dataocean.module.permission.s1.entity.IamS1DatasourceFact datasource(Long id, int status) {
-        com.dataocean.module.permission.s1.entity.IamS1DatasourceFact datasource = new com.dataocean.module.permission.s1.entity.IamS1DatasourceFact();
+    private com.dataocean.module.permission.s1.entity.po.IamS1DatasourceFact datasource(Long id, int status) {
+        com.dataocean.module.permission.s1.entity.po.IamS1DatasourceFact datasource = new com.dataocean.module.permission.s1.entity.po.IamS1DatasourceFact();
         datasource.setId(id);
         datasource.setName("销售库");
         datasource.setStatus(status);

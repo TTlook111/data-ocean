@@ -1,8 +1,8 @@
 package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.fasterxml.jackson.databind.ObjectMapper;

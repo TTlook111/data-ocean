@@ -1,7 +1,7 @@
 package com.dataocean.module.permission.s1.resource.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.knowledge.entity.KnowledgeDoc;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDoc;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator;
 import com.dataocean.module.permission.s1.resource.IamS1ResolvedResource;

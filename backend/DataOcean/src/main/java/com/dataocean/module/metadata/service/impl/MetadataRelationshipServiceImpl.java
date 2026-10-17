@@ -2,8 +2,8 @@ package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;

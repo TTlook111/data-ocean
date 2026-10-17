@@ -1,17 +1,17 @@
 package com.dataocean.module.metadata.event;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.datasource.entity.Datasource;
+import com.dataocean.module.datasource.entity.po.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
-import com.dataocean.module.metadata.entity.MetadataChangeEvent;
+import com.dataocean.module.metadata.entity.po.MetadataChangeEvent;
 import com.dataocean.module.metadata.service.MetadataChangeEventService;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;

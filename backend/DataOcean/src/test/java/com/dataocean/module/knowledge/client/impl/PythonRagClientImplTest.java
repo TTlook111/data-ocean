@@ -1,6 +1,6 @@
 package com.dataocean.module.knowledge.client.impl;
 
-import com.dataocean.module.knowledge.entity.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.po.KnowledgeChunk;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

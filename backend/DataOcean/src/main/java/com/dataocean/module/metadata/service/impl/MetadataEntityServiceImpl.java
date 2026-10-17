@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
 import com.dataocean.module.metadata.mapper.MetadataEntityMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import lombok.RequiredArgsConstructor;

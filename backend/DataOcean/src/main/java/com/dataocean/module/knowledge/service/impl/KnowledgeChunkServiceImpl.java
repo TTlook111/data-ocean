@@ -1,7 +1,7 @@
 package com.dataocean.module.knowledge.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.dataocean.module.knowledge.entity.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.po.KnowledgeChunk;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.knowledge.service.KnowledgeChunkService;
 import lombok.extern.slf4j.Slf4j;

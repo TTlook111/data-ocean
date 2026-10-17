@@ -7,7 +7,7 @@ import com.dataocean.module.knowledge.client.PythonRagClient;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
@@ -97,8 +97,8 @@ class KnowledgeDocPublishServiceOwnershipTest {
         Fixture fixture = new Fixture();
         // 快照 8 归属数据源 6，而文档属于数据源 5
         fixture.snapshot(8L, 6L);
-        com.dataocean.module.knowledge.entity.KnowledgeDoc doc =
-                com.dataocean.module.knowledge.entity.KnowledgeDoc.builder()
+        com.dataocean.module.knowledge.entity.po.KnowledgeDoc doc =
+                com.dataocean.module.knowledge.entity.po.KnowledgeDoc.builder()
                         .id(11L).datasourceId(5L).currentVersion(1).build();
         when(fixture.helper.requireDoc(11L)).thenReturn(doc);
 

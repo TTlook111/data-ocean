@@ -1,12 +1,12 @@
 package com.dataocean.module.permission.s1.resource;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.knowledge.entity.KnowledgeDoc;
-import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDoc;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDocVersion;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.permission.s1.resource.impl.KnowledgeDocumentResourceResolver;
 import org.junit.jupiter.api.Test;

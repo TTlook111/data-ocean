@@ -10,6 +10,7 @@
 | 判断当前能力与限制 | [项目现状](项目现状.md) | [验收记录](acceptance/README.md) |
 | 本地配置、首次初始化、启动或排查 | [本地开发与验证](development/本地开发与验证.md) | [本机环境模板](../.dataocean/local-environment.example.md) |
 | 修改某个模块 | [模块导航](modules/README.md) | 对应代码、测试和关键契约 |
+| 修改 Java 对象分层、分页与排序 | [Java 对象目录与分页查询](技术栈与模块职责.md#java-对象目录与分页查询) | [分页回归说明](development/本地开发与验证.md#java-对象分层与分页回归) |
 | 修改界面与导航 | [前端开发规范](development/前端开发规范.md) | [前端验收时间线](acceptance/前端设计验收记录.md) |
 | 选择下一步任务 | [后续开发](development/后续开发.md) | 相关模块与验收限制 |
 | 查历史方案和规格 | [历史材料索引](archive/README.md)、[规格适用性索引](../specs/README.md) | 原方案、历史合同与研究 |

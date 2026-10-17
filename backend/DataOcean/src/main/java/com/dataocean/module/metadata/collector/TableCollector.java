@@ -1,6 +1,6 @@
 package com.dataocean.module.metadata.collector;
 
-import com.dataocean.module.metadata.entity.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 

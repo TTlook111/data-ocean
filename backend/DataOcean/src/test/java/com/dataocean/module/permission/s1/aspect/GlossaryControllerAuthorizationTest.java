@@ -5,15 +5,15 @@ import com.dataocean.common.security.LoginUser;
 import com.dataocean.module.glossary.controller.GlossaryController;
 import com.dataocean.module.glossary.dto.TermLinkColumnDTO;
 import com.dataocean.module.glossary.dto.TermReviewDTO;
-import com.dataocean.module.glossary.entity.Glossary;
-import com.dataocean.module.glossary.entity.GlossaryTerm;
+import com.dataocean.module.glossary.entity.po.Glossary;
+import com.dataocean.module.glossary.entity.po.GlossaryTerm;
 import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
 import com.dataocean.module.glossary.service.GlossaryScopeService;
 import com.dataocean.module.glossary.service.GlossaryService;
 import com.dataocean.module.glossary.service.GlossaryTermService;
 import com.dataocean.module.glossary.service.impl.GlossaryScopeServiceImpl;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.MetadataEntityMapper;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
@@ -62,7 +62,7 @@ class GlossaryControllerAuthorizationTest {
         com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
                 new org.apache.ibatis.builder.MapperBuilderAssistant(
                         new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
-                com.dataocean.module.glossary.entity.GlossaryTerm.class);
+                com.dataocean.module.glossary.entity.po.GlossaryTerm.class);
     }
 
     @AfterEach

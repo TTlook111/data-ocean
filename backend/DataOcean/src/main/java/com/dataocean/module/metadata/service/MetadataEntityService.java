@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
 
 import java.util.Collection;
 

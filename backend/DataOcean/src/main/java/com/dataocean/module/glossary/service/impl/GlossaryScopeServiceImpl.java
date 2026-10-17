@@ -2,11 +2,11 @@ package com.dataocean.module.glossary.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.glossary.entity.GlossaryTerm;
+import com.dataocean.module.glossary.entity.po.GlossaryTerm;
 import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
 import com.dataocean.module.glossary.service.GlossaryScopeService;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.MetadataEntityMapper;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;

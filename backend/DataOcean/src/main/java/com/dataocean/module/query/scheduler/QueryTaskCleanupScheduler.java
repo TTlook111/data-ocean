@@ -2,7 +2,7 @@ package com.dataocean.module.query.scheduler;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.enums.QueryTaskStatus;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.dataocean.module.query.service.ConversationService;

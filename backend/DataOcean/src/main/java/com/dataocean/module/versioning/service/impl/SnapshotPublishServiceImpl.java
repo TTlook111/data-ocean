@@ -2,7 +2,7 @@ package com.dataocean.module.versioning.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.versioning.event.SnapshotExpiredEvent;
 import com.dataocean.module.versioning.event.SnapshotPublishedEvent;

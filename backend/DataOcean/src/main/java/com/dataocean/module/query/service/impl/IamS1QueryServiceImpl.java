@@ -5,24 +5,23 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.exception.IamS1MaskPolicyConflictException;
-import com.dataocean.common.pagination.PageRequest;
 import com.dataocean.common.security.UserContext;
-import com.dataocean.module.datasource.entity.Datasource;
-import com.dataocean.module.datasource.entity.DatasourceSecret;
+import com.dataocean.module.datasource.entity.po.Datasource;
+import com.dataocean.module.datasource.entity.po.DatasourceSecret;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
-import com.dataocean.module.knowledge.entity.KnowledgeChunk;
-import com.dataocean.module.knowledge.entity.RagIndexBuild;
-import com.dataocean.module.knowledge.entity.RagIndexBuildChunk;
+import com.dataocean.module.knowledge.entity.po.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuild;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuildChunk;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.knowledge.mapper.RagIndexBuildChunkMapper;
 import com.dataocean.module.knowledge.service.RagIndexBuildService;
 import com.dataocean.module.audit.service.AuditLogService;
-import com.dataocean.module.glossary.entity.GlossaryTerm;
+import com.dataocean.module.glossary.entity.po.GlossaryTerm;
 import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import com.dataocean.module.permission.s1.IamS1Constants;
@@ -36,8 +35,8 @@ import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver
 import com.dataocean.module.permission.s1.service.IamS1UserResourceService;
 import com.dataocean.module.query.client.IamS1PythonClient;
 import com.dataocean.module.query.controller.IamS1QuerySseController;
-import com.dataocean.module.query.entity.QueryTask;
-import com.dataocean.module.query.entity.QueryAttempt;
+import com.dataocean.module.query.entity.po.QueryTask;
+import com.dataocean.module.query.entity.po.QueryAttempt;
 import com.dataocean.module.query.entity.dto.IamS1ExecutionBinding;
 import com.dataocean.module.query.entity.dto.IamS1QueryAskRequestDTO;
 import com.dataocean.module.query.entity.dto.ConversationContextDTO;
@@ -272,12 +271,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     @Override
     public Page<QueryTaskVO> history(Long userId, QueryHistoryQuery query) {
         Page<QueryTask> page = queryTaskMapper.selectPage(
-                new Page<>(PageRequest.page(query.getPage()), PageRequest.size(query.getPageSize())),
+                query.toMpPageDefaultSortByCreatedAtDesc(),
                 new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getUserId, userId)
                         .eq(QueryTask::getIamProtocolVersion, IamS1Constants.PROTOCOL_VERSION)
                         .eq(query.getDatasourceId() != null, QueryTask::getDatasourceId, query.getDatasourceId())
-                        .eq(query.getStatus() != null && !query.getStatus().isBlank(), QueryTask::getStatus, query.getStatus())
-                        .orderByDesc(QueryTask::getCreatedAt));
+                        .eq(query.getStatus() != null && !query.getStatus().isBlank(), QueryTask::getStatus, query.getStatus()));
         Page<QueryTaskVO> result = new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
         List<QueryTaskVO> records = new ArrayList<>();
         for (QueryTask task : page.getRecords()) {
@@ -543,7 +541,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     public List<?> conversations(Long userId, Long datasourceId) {
         requireQueryUse(userId);
         return conversationService.listConversations(userId, datasourceId).stream()
-                .filter(item -> item instanceof com.dataocean.module.query.entity.Conversation conversation
+                .filter(item -> item instanceof com.dataocean.module.query.entity.po.Conversation conversation
                         && queryTaskMapper.selectCount(new LambdaQueryWrapper<QueryTask>()
                         .eq(QueryTask::getConversationId, conversation.getId())
                         .eq(QueryTask::getIamProtocolVersion, IamS1Constants.PROTOCOL_VERSION)) > 0)

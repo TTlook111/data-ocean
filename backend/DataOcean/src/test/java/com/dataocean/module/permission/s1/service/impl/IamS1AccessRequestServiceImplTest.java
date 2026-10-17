@@ -2,11 +2,11 @@ package com.dataocean.module.permission.s1.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.permission.s1.entity.IamS1AccessRequest;
-import com.dataocean.module.permission.s1.entity.IamS1ColumnFact;
-import com.dataocean.module.permission.s1.entity.IamS1DataGrant;
-import com.dataocean.module.permission.s1.entity.IamS1DatasourceFact;
-import com.dataocean.module.permission.s1.entity.IamS1FieldProtection;
+import com.dataocean.module.permission.s1.entity.po.IamS1AccessRequest;
+import com.dataocean.module.permission.s1.entity.po.IamS1ColumnFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1DataGrant;
+import com.dataocean.module.permission.s1.entity.po.IamS1DatasourceFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1FieldProtection;
 import com.dataocean.module.permission.s1.entity.dto.IamS1AccessRequestSubmitDTO;
 import com.dataocean.module.permission.s1.entity.dto.IamS1AccessReviewDTO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1AccessRequestVO;
@@ -118,7 +118,7 @@ class IamS1AccessRequestServiceImplTest {
         assertThat(thrown).isInstanceOf(BusinessException.class);
         assertThat(thrown.getMessage()).contains("不能审批本人的申请");
         verify(fixture.accessApprovalMapper, never())
-                .insert(any(com.dataocean.module.permission.s1.entity.IamS1AccessApproval.class));
+                .insert(any(com.dataocean.module.permission.s1.entity.po.IamS1AccessApproval.class));
     }
 
     @Test
@@ -175,7 +175,7 @@ class IamS1AccessRequestServiceImplTest {
         assertThat(thrown).isInstanceOf(BusinessException.class);
         assertThat(thrown.getMessage()).contains("必须指定批准到期时间");
         verify(fixture.accessApprovalMapper, never())
-                .insert(any(com.dataocean.module.permission.s1.entity.IamS1AccessApproval.class));
+                .insert(any(com.dataocean.module.permission.s1.entity.po.IamS1AccessApproval.class));
         verify(fixture.dataGrantService, never()).createApprovalGrant(any(), any(), any());
     }
 

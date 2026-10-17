@@ -1,11 +1,11 @@
 package com.dataocean.module.knowledge.support;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.knowledge.entity.KnowledgeDoc;
-import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
-import com.dataocean.module.knowledge.entity.VectorIndexTask;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDoc;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.po.VectorIndexTask;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;

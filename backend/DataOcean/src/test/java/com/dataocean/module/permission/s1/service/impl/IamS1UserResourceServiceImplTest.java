@@ -1,9 +1,9 @@
 package com.dataocean.module.permission.s1.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.permission.s1.entity.IamS1FieldProtection;
-import com.dataocean.module.permission.s1.entity.IamS1SnapshotOption;
-import com.dataocean.module.permission.s1.entity.IamS1TableOptionFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1FieldProtection;
+import com.dataocean.module.permission.s1.entity.po.IamS1SnapshotOption;
+import com.dataocean.module.permission.s1.entity.po.IamS1TableOptionFact;
 import com.dataocean.module.permission.s1.entity.vo.IamS1ColumnOptionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1TableOptionVO;
@@ -116,8 +116,8 @@ class IamS1UserResourceServiceImplTest {
         when(fixture.dataAuthorizationResolver.hasEffectiveAllowGrant(eq(2L), eq(5L), any(LocalDateTime.class)))
                 .thenReturn(true);
         when(fixture.resourceOptionMapper.countPublishedSnapshot(5L, 88L)).thenReturn(1L);
-        com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact hidden =
-                new com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact();
+        com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact hidden =
+                new com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact();
         hidden.setId(11L);
         hidden.setColumnName("secret");
         hidden.setDataType("VARCHAR(64)");
@@ -162,9 +162,9 @@ class IamS1UserResourceServiceImplTest {
         when(fixture.dataAuthorizationResolver.hasEffectiveAllowGrant(eq(2L), eq(5L), any(LocalDateTime.class)))
                 .thenReturn(true);
         when(fixture.resourceOptionMapper.countPublishedSnapshot(5L, 88L)).thenReturn(1L);
-        com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact amount =
+        com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact amount =
                 columnFact(21L, "amount");
-        com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact secret =
+        com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact secret =
                 columnFact(22L, "secret_cost");
         when(fixture.resourceOptionMapper.selectColumns(5L, 88L, "orders"))
                 .thenReturn(List.of(amount, secret));
@@ -215,7 +215,7 @@ class IamS1UserResourceServiceImplTest {
         when(fixture.dataAuthorizationResolver.hasEffectiveAllowGrant(eq(2L), eq(5L), any(LocalDateTime.class)))
                 .thenReturn(true);
         when(fixture.resourceOptionMapper.countPublishedSnapshot(5L, 88L)).thenReturn(1L);
-        List<com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact> fields = new java.util.ArrayList<>();
+        List<com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact> fields = new java.util.ArrayList<>();
         for (int index = 0; index < 61; index++) fields.add(columnFact(200L + index, "field_" + index));
         when(fixture.resourceOptionMapper.selectColumns(5L, 88L, "orders")).thenReturn(fields);
         when(fixture.dataAuthorizationResolver.resolve(any())).thenReturn(denySnapshot("NO_ALLOW_COVERING_FIELDS"));
@@ -281,7 +281,7 @@ class IamS1UserResourceServiceImplTest {
         when(fixture.dataAuthorizationResolver.hasEffectiveAllowGrant(eq(2L), eq(5L), any(LocalDateTime.class)))
                 .thenReturn(true);
         when(fixture.resourceOptionMapper.countPublishedSnapshot(5L, 88L)).thenReturn(1L);
-        com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact masked = columnFact(23L, "phone");
+        com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact masked = columnFact(23L, "phone");
         when(fixture.resourceOptionMapper.selectColumns(5L, 88L, "users")).thenReturn(List.of(masked));
         IamS1FieldProtection protection = new IamS1FieldProtection();
         protection.setColumnMetaId(23L);
@@ -320,9 +320,9 @@ class IamS1UserResourceServiceImplTest {
                 true, "ALLOWED", tableName, List.of(columnName), List.of(), List.of(), List.of());
     }
 
-    private com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact columnFact(Long id, String name) {
-        com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact fact =
-                new com.dataocean.module.permission.s1.entity.IamS1ColumnOptionFact();
+    private com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact columnFact(Long id, String name) {
+        com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact fact =
+                new com.dataocean.module.permission.s1.entity.po.IamS1ColumnOptionFact();
         fact.setId(id);
         fact.setColumnName(name);
         fact.setDataType("VARCHAR(64)");

@@ -1,8 +1,8 @@
 package com.dataocean.module.audit.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.audit.entity.QueryAuditLog;
-import com.dataocean.module.audit.entity.dto.AuditLogQueryDTO;
+import com.dataocean.module.audit.entity.po.QueryAuditLog;
+import com.dataocean.module.audit.entity.query.AuditLogQuery;
 import com.dataocean.module.audit.entity.vo.AuditLogVO;
 import com.dataocean.module.audit.entity.vo.AuditStatsVO;
 
@@ -38,7 +38,7 @@ public interface AuditLogService {
      * @param query 查询条件
      * @return 分页结果
      */
-    Page<AuditLogVO> listAuditLogs(AuditLogQueryDTO query);
+    Page<AuditLogVO> listAuditLogs(AuditLogQuery query);
 
     /**
      * 获取审计日志详情
@@ -57,7 +57,7 @@ public interface AuditLogService {
      * <p>调用方显式筛选的 `datasourceId` 不在负责范围内时抛出 403——返回空页会把「无权」
      * 伪装成「这个数据源没有审计记录」。</p>
      */
-    Page<AuditLogVO> listAuditLogsInDatasources(AuditLogQueryDTO query, java.util.Collection<Long> visibleDatasourceIds);
+    Page<AuditLogVO> listAuditLogsInDatasources(AuditLogQuery query, java.util.Collection<Long> visibleDatasourceIds);
 
     /**
      * 查询慢查询列表

@@ -1,11 +1,11 @@
 package com.dataocean.module.governance.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.common.pagination.PageRequest;
+import com.dataocean.common.entity.query.PageQuery;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.system.aspect.AdminAuditLog;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
 import com.dataocean.module.governance.entity.dto.*;
 import com.dataocean.module.governance.entity.vo.IssueBatchHandleResultVO;
 import com.dataocean.module.governance.entity.vo.QualityCheckResultVO;
@@ -150,7 +150,7 @@ public class MetadataGovernanceController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.success(qualityIssueService.listIssues(snapshotId, dimension, severity, status, tableName,
-                assigneeId, (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                assigneeId, (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }
 
     /**
@@ -182,7 +182,7 @@ public class MetadataGovernanceController {
         List<Long> visible = visibleDatasourceIds(UserContext.currentUserId(), ISSUE_VIEW_FUNCTION);
         return Result.success(qualityIssueService.listIssuesInDatasources(visible, snapshotId,
                 dimension, severity, status, tableName, assigneeId,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }
 
     /**
@@ -309,6 +309,6 @@ public class MetadataGovernanceController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.success(reviewService.listRecords(snapshotId, tableName,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }
 }

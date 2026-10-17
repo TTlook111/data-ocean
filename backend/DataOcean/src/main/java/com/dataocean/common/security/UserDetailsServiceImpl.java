@@ -1,7 +1,7 @@
 package com.dataocean.common.security;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.entity.po.SysUser;
 import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.metadata.service.SchemaSnapshotService;
 import lombok.RequiredArgsConstructor;

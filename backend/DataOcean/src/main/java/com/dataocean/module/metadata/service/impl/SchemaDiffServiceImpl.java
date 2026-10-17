@@ -1,10 +1,10 @@
 package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
-import com.dataocean.module.metadata.entity.SchemaChangeEvent;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.SchemaChangeEvent;
 import com.dataocean.module.metadata.entity.vo.SchemaDiffVO;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;

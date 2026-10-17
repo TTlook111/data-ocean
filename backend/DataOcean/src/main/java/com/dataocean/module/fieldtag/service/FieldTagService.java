@@ -66,5 +66,5 @@ public interface FieldTagService {
      *
      * @return 预定义标签列表（tagCode + tagName + category）
      */
-    List<com.dataocean.module.fieldtag.entity.PredefinedTag> listPredefinedTags();
+    List<com.dataocean.module.fieldtag.entity.po.PredefinedTag> listPredefinedTags();
 }
