@@ -65,6 +65,19 @@ public class GlossaryTerm {
     /** 状态（DRAFT / PENDING_REVIEW / APPROVED / REJECTED） */
     private String status;
 
+    /** 聚合修订：定义、映射及状态共享同一并发版本。 */
+    private Long revision;
+
+    @TableField(exist = false)
+    private Integer linkedColumnCount;
+
+    @TableField(exist = false)
+    private java.util.List<String> datasourceNames;
+
+    /** 提交审核时冻结的内容摘要；历史术语为空，须重新确认。 */
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String reviewHash;
+
     /** 审核人 ID */
     private Long reviewerId;
 

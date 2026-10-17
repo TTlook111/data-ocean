@@ -80,7 +80,8 @@ class KnowledgeDocPublishServiceOwnershipTest {
     void proceedsWhenTheSnapshotReallyBelongsToTheDatasource() {
         Fixture fixture = new Fixture();
         fixture.snapshot(8L, 5L);
-        when(fixture.pythonKnowledgeClient.generateDraft(anyLong(), anyLong(), any(), any(), any(), any()))
+        when(fixture.sources.inputs(5L, 8L)).thenReturn(java.util.Map.of("glossaryFacts", java.util.List.of(), "excludedTerms", java.util.List.of()));
+        when(fixture.pythonKnowledgeClient.generateSnapshotDraft(any()))
                 .thenReturn(java.util.Map.of("content", "目录", "coverage", java.util.Map.of(
                         "snapshotId", 8L, "tableIds", java.util.List.of(), "columnIds", java.util.List.of(),
                         "tableCoverage", 1.0, "columnCoverage", 1.0)));
@@ -88,8 +89,7 @@ class KnowledgeDocPublishServiceOwnershipTest {
         // 归属一致后，Python 收到 snapshot-scoped 的完整目录请求。
         fixture.service.batchGenerateFromSnapshot(5L, 8L);
 
-        verify(fixture.pythonKnowledgeClient).generateDraft(
-                anyLong(), anyLong(), any(), any(), any(), any());
+        verify(fixture.pythonKnowledgeClient).generateSnapshotDraft(any());
     }
 
     @Test
@@ -121,11 +121,12 @@ class KnowledgeDocPublishServiceOwnershipTest {
         private final com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator ownershipValidator =
                 new com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator(
                         mock(KnowledgeDocVersionMapper.class), snapshotMapper);
+        private final GlossaryKnowledgeSourceServiceImpl sources = mock(GlossaryKnowledgeSourceServiceImpl.class);
         private final KnowledgeDocPublishService service;
 
         Fixture() {
             service = new KnowledgeDocPublishService(
-                    docMapper,
+                    sources, docMapper,
                     mock(KnowledgeDocVersionMapper.class),
                     pythonKnowledgeClient,
                     mock(PythonRagClient.class),

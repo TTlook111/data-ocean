@@ -14,6 +14,9 @@ import org.apache.ibatis.annotations.Select;
 @Mapper
 public interface GlossaryTermMapper extends BaseMapper<GlossaryTerm> {
 
+    @Select("SELECT * FROM glossary_term WHERE id = #{id} FOR UPDATE")
+    GlossaryTerm selectForUpdate(@Param("id") Long id);
+
     /**
      * 按 FQN 精确查询术语
      */

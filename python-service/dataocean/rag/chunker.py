@@ -206,9 +206,9 @@ def validate_skills_md_structure(content: str, expected_snapshot_id: int | None 
             errors.append("fact marker 缺少来源 ID")
         if not isinstance(dependencies, list) or not dependencies:
             errors.append("fact marker 缺少资源依赖")
-        if fact_type == "TABLE_STRUCTURE" and isinstance(source_ids, list) and source_ids:
+        if fact_type in {"TABLE_STRUCTURE", "TABLE_EXCLUDED"} and isinstance(source_ids, list) and source_ids:
             table_ids.append(int(source_ids[0]))
-        elif fact_type == "COLUMN_STRUCTURE" and isinstance(source_ids, list) and len(source_ids) == 2:
+        elif fact_type in {"COLUMN_STRUCTURE", "COLUMN_EXCLUDED"} and isinstance(source_ids, list) and len(source_ids) == 2:
             column_ids.append(int(source_ids[1]))
     if len(snapshot_ids) > 1:
         errors.append("文档 fact marker 混入多个 snapshotId")
@@ -357,6 +357,8 @@ def _fact_chunk_type(fact_type: str) -> str | None:
         "JOIN_CANDIDATE": "JOIN_CANDIDATE",
         "LINEAGE": "LINEAGE",
         "DERIVED_FROM": "LINEAGE",
+        "GLOSSARY_TERM": "FIELD_NOTE",
+        "SEMANTIC_NOTE": "FIELD_NOTE",
     }.get(fact_type)
 
 

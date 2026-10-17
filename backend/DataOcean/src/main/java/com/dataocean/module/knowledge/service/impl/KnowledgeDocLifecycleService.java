@@ -140,7 +140,6 @@ public class KnowledgeDocLifecycleService {
             throw new BusinessException("只有审核通过的文档才能发布");
         }
         // 发布前校验：检查引用字段的治理状态
-        validateBeforePublish(doc);
         // 文档审核与向量构建是两个独立的人为确认动作。
         KnowledgeDocVersion currentVersion = helper.requireVersion(doc.getId(), doc.getCurrentVersion());
         if (!ReviewStatus.APPROVED.name().equals(currentVersion.getReviewStatus())) {
@@ -148,6 +147,8 @@ public class KnowledgeDocLifecycleService {
         }
         snapshotFactValidator.validate(doc.getDatasourceId(), currentVersion.getMetadataSnapshotId(),
                 currentVersion.getContent());
+        if (!java.util.Objects.equals(doc.getContent(), currentVersion.getContent())) throw new BusinessException("文档与已审核版本内容不一致");
+        validateBeforePublish(doc);
         doc.setStatus(DocStatus.PUBLISHED.name());
         doc.setUpdatedBy(UserContext.currentUserId());
         OptimisticLockSupport.requireUpdated(
@@ -171,6 +172,21 @@ public class KnowledgeDocLifecycleService {
         if (!StringUtils.hasText(content)) {
             throw new BusinessException("文档内容为空，无法发布到 RAG");
         }
+        // 经来源校验的行政核对条目不进入检索；只从本次文本检查中移除这些独立单元。
+        var sections = java.util.regex.Pattern.compile("(?m)^#{1,6} ").split(content);
+        var searchable = new StringBuilder();
+        for (var section : sections) {
+            boolean excluded = false;
+            var facts = java.util.regex.Pattern.compile("<!--\\s*dataocean-fact:\\s*(\\{.*?\\})\\s*-->", java.util.regex.Pattern.DOTALL).matcher(section);
+            if (facts.find()) {
+                try {
+                    var marker = new com.fasterxml.jackson.databind.ObjectMapper().readTree(facts.group(1));
+                    excluded = java.util.Set.of("TABLE_EXCLUDED", "COLUMN_EXCLUDED").contains(marker.path("factType").asText()) && !facts.find();
+                } catch (Exception ex) { throw new BusinessException("治理核对清单来源格式错误"); }
+            }
+            if (!excluded) searchable.append(section);
+        }
+        content = searchable.toString();
         // 查询该数据源下所有治理状态为 DEPRECATED 或 BLOCKED 的字段
         List<DbColumnMeta> blockedColumns = dbColumnMetaMapper.selectList(
                 new LambdaQueryWrapper<DbColumnMeta>()

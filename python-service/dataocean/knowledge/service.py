@@ -115,6 +115,22 @@ def _validate_snapshot_manifest(request: GenerateDraftRequest) -> None:
             column_ids.add(column.column_id)
             column_names.add(key)
 
+    eligible = set()
+    for table in request.tables_metadata:
+        if (table.governance_status or "").upper() in {"BLOCKED", "DEPRECATED"}:
+            continue
+        eligible.add(f"table:{table.table_name}")
+        eligible.update(f"column:{table.table_name}.{column.column_name}" for column in table.columns
+                        if (column.governance_status or "").upper() not in {"BLOCKED", "DEPRECATED"})
+    for fact in request.glossary_facts:
+        deps = fact.get("dependencies")
+        if (not isinstance(deps, list) or not deps or not set(deps).issubset(eligible)
+                or not any(d.startswith("column:") for d in deps)
+                or not isinstance(fact.get("term_id"), int) or fact["term_id"] <= 0
+                or not isinstance(fact.get("review_id"), int) or fact["review_id"] <= 0
+                or not re.fullmatch(r"[0-9a-f]{64}", str(fact.get("content_hash", "")))):
+            raise ValueError("术语来源或依赖不属于本次合规快照")
+
     for relation in request.foreign_keys:
         relation_snapshot = relation.get("snapshot_id", relation.get("source_snapshot_id"))
         if relation_snapshot is not None and int(relation_snapshot) != request.snapshot_id:
@@ -143,17 +159,18 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
 
     for table in sorted(request.tables_metadata, key=lambda item: (item.table_name, item.table_id or 0)):
         table_ids.append(table.table_id)
+        table_excluded = (table.governance_status or "").upper() in {"BLOCKED", "DEPRECATED"}
         table_dependencies = [f"table:{table.table_name}"]
         lines.extend([
             f"### `{_markdown_identifier(table.table_name)}`",
-            _fact_marker(request.snapshot_id, "TABLE_STRUCTURE", [table.table_id], table_dependencies,
-                         "APPROVED", table.governance_status or "DISCOVERED"),
+            _fact_marker(request.snapshot_id, "TABLE_EXCLUDED" if table_excluded else "TABLE_STRUCTURE", [table.table_id], table_dependencies,
+                         "PENDING" if table_excluded else "APPROVED", table.governance_status or "DISCOVERED"),
             f"- Snapshot table ID: `{table.table_id}`",
             f"- Table type: `{_plain(table.table_type or 'UNKNOWN')}`",
             f"- Governance status: `{_plain(table.governance_status or 'DISCOVERED')}`",
             "- Business meaning: 待确认。",
         ])
-        if table.table_comment:
+        if table.table_comment and not table_excluded:
             unresolved_comments += 1
             warnings.append(f"表 {table.table_name} 的原始注释尚未经过业务释义审核")
             lines.extend([
@@ -165,6 +182,7 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
 
         for column in sorted(table.columns, key=lambda item: (item.ordinal_position or 0, item.column_name)):
             column_ids.append(column.column_id)
+            column_excluded = table_excluded or (column.governance_status or "").upper() in {"BLOCKED", "DEPRECATED"}
             column_dependencies = [
                 f"table:{table.table_name}",
                 f"column:{table.table_name}.{column.column_name}",
@@ -174,10 +192,10 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
                 f"#### `{_markdown_identifier(column.column_name)}`",
                 _fact_marker(
                     request.snapshot_id,
-                    "COLUMN_STRUCTURE",
+                    "COLUMN_EXCLUDED" if column_excluded else "COLUMN_STRUCTURE",
                     [table.table_id, column.column_id],
                     column_dependencies,
-                    "APPROVED",
+                    "PENDING" if column_excluded else "APPROVED",
                     column.governance_status or "DISCOVERED",
                 ),
                 f"- Column ID: `{column.column_id}`",
@@ -186,7 +204,7 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
                 f"- Governance status: `{_plain(column.governance_status or 'DISCOVERED')}`",
                 f"- Business meaning: {'待确认' if not column.column_comment else '原始注释待业务确认'}。",
             ])
-            if column.column_comment:
+            if column.column_comment and not column_excluded:
                 unresolved_comments += 1
                 warnings.append(f"字段 {table.table_name}.{column.column_name} 的原始注释尚未经过业务释义审核")
                 lines.extend([
@@ -209,6 +227,13 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
         for column in table.columns
     }
     known_tables = {table.table_name for table in request.tables_metadata}
+    eligible_resources = set()
+    for table in request.tables_metadata:
+        if (table.governance_status or "").upper() in {"BLOCKED", "DEPRECATED"}:
+            continue
+        eligible_resources.add(f"table:{table.table_name}")
+        eligible_resources.update(f"column:{table.table_name}.{column.column_name}" for column in table.columns
+                                  if (column.governance_status or "").upper() not in {"BLOCKED", "DEPRECATED"})
     for relation in sorted(request.foreign_keys, key=lambda item: str(item.get("relation_id", ""))):
         source_table = str(relation.get("source_table") or "")
         source_column = str(relation.get("source_column") or "")
@@ -218,6 +243,9 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
         target_ref = f"{target_table}.{target_column}"
         if source_table not in known_tables or target_table not in known_tables or source_ref not in known_columns or target_ref not in known_columns:
             raise ValueError("关系事实引用了本次快照不存在的表或字段")
+        if not {f"table:{source_table}", f"table:{target_table}", f"column:{source_ref}", f"column:{target_ref}"}.issubset(eligible_resources):
+            warnings.append("已排除涉及阻断或废弃资源的关系事实")
+            continue
         relation_type = str(relation.get("relation_type") or "FK").upper()
         review_status = str(relation.get("review_status") or "PENDING").upper()
         approved = relation_type == "FK" or (
@@ -264,6 +292,9 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
         target_fqn = str(fact.get("target_fqn") or "")
         relation_type = str(fact.get("relation_type") or "LINEAGE").upper()
         dependencies = _lineage_dependencies(fact)
+        if not set(dependencies).issubset(eligible_resources):
+            warnings.append("已排除涉及不可用资源的血缘事实")
+            continue
         approved = review_status in {"APPROVED", "CONFIRMED"} and binding_status == "BOUND"
         status = "APPROVED" if approved else "PENDING"
         if approved:
@@ -299,6 +330,22 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
         "完整结构目录包含快照中的所有表和字段。字段是否可查询由当前治理状态、IAM-SIMPLE-1 权限及执行时校验决定。",
     ])
 
+    lines.extend(["", "## 10. 已审核业务术语", ""])
+    for fact in request.glossary_facts:
+        if not fact.get("dependencies") or not fact.get("content_hash") or not fact.get("body"):
+            raise ValueError("术语事实缺少审核来源或字段依赖")
+        marker = {
+            "snapshotId": request.snapshot_id, "factType": "GLOSSARY_TERM",
+            "sourceIds": [fact["term_id"], fact["review_id"]],
+            "sourceHash": fact["content_hash"], "sourceRevision": fact["revision"],
+            "dependencies": fact["dependencies"], "reviewStatus": "APPROVED", "governanceStatus": "NORMAL",
+        }
+        import json
+        lines.extend([f"### 业务术语：{_plain(fact['name'])}",
+                      "<!-- dataocean-fact: " + json.dumps(marker, ensure_ascii=False, separators=(",", ":")) + " -->",
+                      str(fact["body"]), ""])
+    for excluded in request.excluded_terms:
+        warnings.append(f"术语 {excluded.get('name', '')} 未纳入：{excluded.get('reason', '来源不完整')}")
     content = "\n".join(lines).rstrip() + "\n"
     errors = _validate_generated_coverage(content, request)
     if errors:
@@ -356,9 +403,9 @@ def _validate_generated_coverage(content: str, request: GenerateDraftRequest) ->
             return ["fact marker JSON 无效"]
         fact_type = marker.get("factType")
         source_ids = marker.get("sourceIds") or []
-        if fact_type == "TABLE_STRUCTURE":
+        if fact_type in {"TABLE_STRUCTURE", "TABLE_EXCLUDED"}:
             table_ids.extend(int(item) for item in source_ids)
-        elif fact_type == "COLUMN_STRUCTURE":
+        elif fact_type in {"COLUMN_STRUCTURE", "COLUMN_EXCLUDED"}:
             if len(source_ids) != 2:
                 return ["字段结构 marker 必须包含表和字段 ID"]
             column_ids.append(int(source_ids[1]))

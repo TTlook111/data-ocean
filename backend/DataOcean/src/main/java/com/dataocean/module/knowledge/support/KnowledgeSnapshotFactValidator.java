@@ -37,6 +37,8 @@ public class KnowledgeSnapshotFactValidator {
     private final TableRelationMapper tableRelationMapper;
     private final MetadataRelationshipMapper relationshipMapper;
     private final ObjectMapper objectMapper;
+    private final com.dataocean.module.knowledge.service.impl.GlossaryKnowledgeSourceServiceImpl glossarySources;
+    private final com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl semanticSources;
 
     public void validate(Long datasourceId, Long snapshotId, String content) {
         if (datasourceId == null || snapshotId == null || content == null || content.isBlank()) {
@@ -88,9 +90,32 @@ public class KnowledgeSnapshotFactValidator {
             if (!Set.of("APPROVED", "PENDING", "REJECTED").contains(review)) {
                 throw new BusinessException("知识事实 marker 审核状态无效");
             }
+            if (type.equals("TABLE_EXCLUDED") || type.equals("COLUMN_EXCLUDED")) {
+                boolean excluded;
+                if (type.equals("TABLE_EXCLUDED")) {
+                    var table = sourceIds.size() == 1 ? tableById.get(sourceIds.get(0)) : null;
+                    excluded = table != null && forbidden(table.getGovernanceStatus());
+                } else {
+                    var column = sourceIds.size() == 2 ? columnById.get(sourceIds.get(1)) : null;
+                    var table = column == null ? null : tableById.get(column.getTableMetaId());
+                    excluded = column != null && table != null && (forbidden(column.getGovernanceStatus()) || forbidden(table.getGovernanceStatus()));
+                }
+                if (!excluded || !"PENDING".equals(review)) throw new BusinessException("不可用资源清单与治理状态不一致");
+            } else {
+                for (var dependency : dependencies) {
+                    if (dependency.startsWith("table:")) {
+                        var id = tableIdByName.get(dependency.substring(6).toLowerCase());
+                        if (id != null && forbidden(tableById.get(id).getGovernanceStatus())) throw new BusinessException("知识事实引用已阻断或废弃的表");
+                    }
+                    for (var column : columns) if (dependency.equalsIgnoreCase("column:" + column.getTableName() + "." + column.getColumnName())
+                            && forbidden(column.getGovernanceStatus())) throw new BusinessException("知识事实引用已阻断或废弃的字段");
+                }
+            }
             switch (type) {
-                case "TABLE_STRUCTURE" -> validateTableStructure(sourceIds, dependencies, fact, factBody, tableById, seenTables);
-                case "COLUMN_STRUCTURE" -> validateColumnStructure(sourceIds, dependencies, fact, factBody,
+                case "SEMANTIC_NOTE" -> semanticSources.validate(datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
+                case "GLOSSARY_TERM" -> glossarySources.validate(datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
+                case "TABLE_STRUCTURE", "TABLE_EXCLUDED" -> validateTableStructure(sourceIds, dependencies, fact, factBody, tableById, seenTables);
+                case "COLUMN_STRUCTURE", "COLUMN_EXCLUDED" -> validateColumnStructure(sourceIds, dependencies, fact, factBody,
                         tableById, columnById, seenColumns);
                 case "TABLE_COMMENT" -> validateTableComment(sourceIds, dependencies, fact, tableById);
                 case "COLUMN_COMMENT" -> validateColumnComment(sourceIds, dependencies, fact, tableById, columnById);
@@ -104,6 +129,14 @@ public class KnowledgeSnapshotFactValidator {
         if (markerCount == 0 || !seenTables.equals(tableById.keySet()) || !seenColumns.equals(columnById.keySet())) {
             throw new BusinessException("知识文档未完整覆盖所选快照全部表和字段");
         }
+    }
+
+    private boolean forbidden(String status) { return "BLOCKED".equals(status) || "DEPRECATED".equals(status); }
+
+    public static String factUnit(String content, int afterMarker) {
+        var heading = Pattern.compile("(?m)^#{1,3} ").matcher(content);
+        int end = heading.find(afterMarker) ? heading.start() : content.length();
+        return content.substring(afterMarker, end).strip();
     }
 
     private void validateTableStructure(List<Long> sourceIds, List<String> dependencies,

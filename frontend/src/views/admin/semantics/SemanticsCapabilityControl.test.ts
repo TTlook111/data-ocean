@@ -20,6 +20,12 @@ const api = vi.hoisted(() => ({
   listGlossaries: vi.fn(),
   listTerms: vi.fn(),
   getLinkedColumns: vi.fn(),
+  getTermWorkspace: vi.fn(),
+  getTermFieldSources: vi.fn(),
+  saveTermDraft: vi.fn(),
+  getTermFieldTables: vi.fn(),
+  getTermFieldColumns: vi.fn(),
+  getGenerationInputs: vi.fn(),
   createGlossary: vi.fn(),
   updateGlossary: vi.fn(),
   deleteGlossary: vi.fn(),
@@ -56,6 +62,11 @@ vi.mock('../../../api/admin/glossary', () => ({
   listGlossaries: api.listGlossaries,
   listTerms: api.listTerms,
   getLinkedColumns: api.getLinkedColumns,
+  getTermWorkspace: api.getTermWorkspace,
+  getTermFieldSources: api.getTermFieldSources,
+  saveTermDraft: api.saveTermDraft,
+  getTermFieldTables: api.getTermFieldTables,
+  getTermFieldColumns: api.getTermFieldColumns,
   createGlossary: api.createGlossary,
   updateGlossary: api.updateGlossary,
   deleteGlossary: api.deleteGlossary,
@@ -80,6 +91,7 @@ vi.mock('../../../api/admin/knowledge', () => ({
   approveDoc: api.approveDoc,
   rejectDoc: api.rejectDoc,
   generateFromSnapshot: api.generateFromSnapshot,
+  getGenerationInputs: api.getGenerationInputs,
 }))
 vi.mock('../../../api/admin/prompt', () => ({
   listPromptTemplates: api.listPromptTemplates,
@@ -205,6 +217,9 @@ beforeEach(() => {
   api.listGlossaries.mockResolvedValue({ data: [glossary] })
   api.listTerms.mockResolvedValue({ data: [term] })
   api.getLinkedColumns.mockResolvedValue({ data: [] })
+  api.getTermWorkspace.mockResolvedValue({ data: { term: { ...term, revision: 1 }, columns: [], reviews: [], needsReview: false } })
+  api.getTermFieldSources.mockResolvedValue({ data: [] })
+  api.getGenerationInputs.mockResolvedValue({ data: { glossaryFacts: [], excludedTerms: [] } })
   api.getEntitiesByDatasource.mockResolvedValue({ data: [] })
   api.getBatchDatasourceReadiness.mockResolvedValue({ data: [] })
   api.listKnowledgeDocs.mockResolvedValue({ data: { records: [knowledgeDoc], total: 1 } })
@@ -230,7 +245,7 @@ describe('GlossariesView 的能力控制', () => {
     await settle()
 
     expect(api.listGlossaries).toHaveBeenCalled()
-    const create = buttonWithText(wrapper, '新建术语表')
+    const create = buttonWithText(wrapper, '新建分组')
     expect(create).toBeTruthy()
     expect(create!.attributes('disabled')).toBeDefined()
 
@@ -244,7 +259,7 @@ describe('GlossariesView 的能力控制', () => {
     const wrapper = mountPage(GlossariesView)
     await settle()
 
-    expect(buttonWithText(wrapper, '新建术语表')!.attributes('disabled')).toBeUndefined()
+    expect(buttonWithText(wrapper, '新建分组')!.attributes('disabled')).toBeUndefined()
   })
 
   it('审核权与维护权相互独立', async () => {
@@ -257,7 +272,7 @@ describe('GlossariesView 的能力控制', () => {
     const approve = buttonWithText(wrapper, '审核通过')
     expect(approve).toBeTruthy()
     expect(approve!.attributes('disabled')).toBeUndefined()
-    expect(buttonWithText(wrapper, '新建术语表')!.attributes('disabled')).toBeDefined()
+    expect(buttonWithText(wrapper, '新建分组')!.attributes('disabled')).toBeDefined()
   })
 
   it('没有审核权时审核按钮不可用且不调用审核接口', async () => {
@@ -396,4 +411,17 @@ describe('能力摘要读取失败时', () => {
     expect(glossaries.text()).toBeTruthy()
     expect(prompts.text()).toBeTruthy()
   })
+})
+
+
+it('读取术语详情后保留列表的字段关联摘要', async () => {
+  respond(capability({ global: ['glossary:view'], onDatasource: ['glossary:view'] }))
+  routeState.query = { glossaryId: '1', termId: '11' }
+  api.listTerms.mockResolvedValue({ data: [{ ...term, revision: 1, linkedColumnCount: 1, datasourceNames: ['销售库'] }] })
+  api.getTermWorkspace.mockResolvedValue({ data: { term: { ...term, revision: 1, linkedColumnCount: null, datasourceNames: null },
+    columns: [{ entityId: 20, datasourceName: '销售库', tableName: 'orders', columnName: 'amount' }], reviews: [], needsReview: false } })
+  const wrapper = mountPage(GlossariesView)
+  await settle()
+  expect(wrapper.text()).toContain('已关联 1 个可见字段')
+  expect(wrapper.text()).toContain('关联字段（1）')
 })

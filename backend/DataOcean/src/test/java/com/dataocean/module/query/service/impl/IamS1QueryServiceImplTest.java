@@ -96,6 +96,7 @@ class IamS1QueryServiceImplTest {
     @Mock private KnowledgeChunkMapper knowledgeChunkMapper;
     @Mock private com.dataocean.module.knowledge.mapper.RagIndexBuildChunkMapper ragIndexBuildChunkMapper;
     @Mock private com.dataocean.module.knowledge.service.RagIndexBuildService ragIndexBuildService;
+    @Mock private com.dataocean.module.glossary.service.GlossaryTermWorkflowService termWorkflow;
     @Mock private AuditLogService auditLogService;
     @Mock private com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     @Mock private com.dataocean.common.security.DataMaskingService maskingService;
@@ -246,7 +247,7 @@ class IamS1QueryServiceImplTest {
                 .containsEntry("ragCollectionName", collectionName)
                 .containsEntry("ragSourceSnapshotId", 88L)
                 .containsKey("candidateCatalog");
-        assertThat(body.getValue().get("glossaryTerms").toString()).contains("订单");
+        assertThat((List<?>) body.getValue().get("glossaryTerms")).isEmpty();
         assertThat(body.getValue().get("fewShotExamples").toString()).contains("上一轮订单");
         assertThat(body.getValue().get("fewShotExamples").toString()).contains("datasourceId=1");
         assertThat(body.getValue().get("fewShotExamples").toString()).contains("activeMetadataSnapshotId=88");
@@ -702,6 +703,8 @@ class IamS1QueryServiceImplTest {
     @Test
     void glossaryConvertsRealMetadataFqnToFirewallTableColumnContract() throws Exception {
         var term = approvedTerm(9L, "订单");
+        term.setReviewHash("reviewed-hash");
+        when(termWorkflow.factValid(9L, "reviewed-hash")).thenReturn(true);
         var relation = new com.dataocean.module.metadata.entity.po.MetadataRelationship();
         relation.setSourceId(9L);
         relation.setTargetId(20L);

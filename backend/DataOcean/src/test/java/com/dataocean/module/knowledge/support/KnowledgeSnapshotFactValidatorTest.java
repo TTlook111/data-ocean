@@ -90,7 +90,7 @@ class KnowledgeSnapshotFactValidatorTest {
         private final TableRelationMapper relations = mock(TableRelationMapper.class);
         private final MetadataRelationshipMapper lineage = mock(MetadataRelationshipMapper.class);
         private final KnowledgeSnapshotFactValidator validator = new KnowledgeSnapshotFactValidator(
-                tables, columns, relations, lineage, new ObjectMapper());
+                tables, columns, relations, lineage, new ObjectMapper(), mock(com.dataocean.module.knowledge.service.impl.GlossaryKnowledgeSourceServiceImpl.class), mock(com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl.class));
 
         private Fixture() {
             DbTableMeta table = new DbTableMeta();

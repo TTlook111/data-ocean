@@ -5,8 +5,10 @@
 """
 
 import logging
+import asyncio
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from .schema import (
     BatchGenerateResponse,
@@ -19,12 +21,37 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+from .semantic import SemanticRequest, supplement
+
+
+@router.post("/supplement-semantics", response_model=None)
+async def supplement_semantics(request: SemanticRequest):
+    try:
+        return await supplement(request)
+    except Exception as exc:
+        def leaves(error):
+            if isinstance(error, ExceptionGroup):
+                return [leaf for child in error.exceptions for leaf in leaves(child)]
+            return [error]
+
+        errors = leaves(exc)
+        if any("Arrearage" in str(error) for error in errors):
+            code, message = "AI_BILLING_REQUIRED", "AI 供应商账户欠费，请处理后重试"
+        elif any(isinstance(error, (TimeoutError, asyncio.TimeoutError)) for error in errors):
+            code, message = "AI_GENERATION_TIMEOUT", "业务释义生成超时，请稍后重试"
+        elif all(isinstance(error, ValueError) for error in errors):
+            code, message = "AI_INVALID_OUTPUT", "业务释义内容或字段依据无效，请调整范围或重新生成"
+        else:
+            code, message = "AI_GENERATION_UNAVAILABLE", "AI 业务释义服务暂不可用，请稍后重试"
+        logger.warning("业务释义补写失败 code=%s", code)
+        return JSONResponse(status_code=502, content={"code": code, "message": message})
+
 
 @router.post("/generate-draft", response_model=GenerateDraftResponse)
 async def generate_draft_endpoint(request: GenerateDraftRequest) -> GenerateDraftResponse:
     """生成 skills.md 草稿接口
 
-    接收元数据快照信息，调用 LLM 生成结构化的 skills.md 草稿。
+    接收固定元数据与审核来源，由程序生成完整结构目录，不调用 LLM。
     """
     logger.info("收到草稿生成请求 snapshot_id=%d", request.snapshot_id)
     return await generate_draft(request)
@@ -32,9 +59,9 @@ async def generate_draft_endpoint(request: GenerateDraftRequest) -> GenerateDraf
 
 @router.post("/analyze-and-generate", response_model=BatchGenerateResponse)
 async def analyze_and_generate_endpoint(request: GenerateDraftRequest) -> BatchGenerateResponse:
-    """AI 自动分析业务域并批量生成 skills.md
+    """按快照结构生成 skills.md 文档集合
 
-    AI 分析表结构识别业务域，每个域生成一份独立的 skills.md。
+    完整覆盖固定快照中的表字段；AI 释义使用独立候选入口。
     返回所有生成的文档列表。
     """
     logger.info("收到域分析+批量生成请求 snapshot_id=%d", request.snapshot_id)

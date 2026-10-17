@@ -11,4 +11,6 @@ import org.apache.ibatis.annotations.Mapper;
  */
 @Mapper
 public interface GlossaryMapper extends BaseMapper<Glossary> {
+    @org.apache.ibatis.annotations.Select("SELECT * FROM glossary WHERE id=#{id} FOR UPDATE")
+    Glossary selectForUpdate(@org.apache.ibatis.annotations.Param("id") Long id);
 }

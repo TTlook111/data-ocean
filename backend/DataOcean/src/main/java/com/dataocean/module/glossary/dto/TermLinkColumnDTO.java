@@ -7,6 +7,8 @@ import lombok.Data;
  */
 @Data
 public class TermLinkColumnDTO {
+    private Long revision;
+
     /** 元数据实体 ID */
     private Long entityId;
 }

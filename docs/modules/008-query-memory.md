@@ -1,6 +1,6 @@
 # 008 S1 问数与会话记忆
 
-> 文档类型：现行模块说明；核对日期：2026-10-17；代码基线：`619bca6`。本轮静态核对，运行验收见[项目现状](../项目现状.md)。
+> 文档类型：现行模块说明；核对日期：2026-10-18；本次术语改造工作树基于 `cbb7e9a`。已补验单源新知识参与的受保护分类统计及历史重读，范围见[验收结论](../acceptance/业务术语与语义知识验收记录.md#验收结论)与[项目现状](../项目现状.md)。
 
 ## 概览与主流程
 
@@ -50,6 +50,12 @@ Java 持久化对象位于 `query/entity/po`。历史查询条件 `entity.query.
 | [conversation](../../python-service/dataocean/conversation/) | 保留 `/internal/query/context-summary`路径的摘要能力 |
 | [error_messages.py](../../python-service/dataocean/core/error_messages.py) | 安全的服务故障分类与提示 |
 | [QueryDatasourceView](../../frontend/src/views/query/QueryDatasourceView.vue) | 问数工作区及历史恢复 |
+
+## 术语来源有效性
+
+直接传给规划器的已审核术语，必须同时有当前修订的定义/完整映射审核快照并通过内容摘要核对；仅保留旧 `APPROVED` 状态的历史记录不自动成为新问数依据。RAG 的术语/人工释义片段在 Java 生成授权 membership 时复核精确来源，再与当前 S1 可见依赖取交集。来源变化不删除活动 collection，也不改变已绑定任务的 build、权限、AST 或完成合同。
+
+COUNT(*) 的唯一输出别名可以排序，其表级来源与无列来源输出标记仍必须保留；这不放行 COUNT(脱敏字段) 或重复别名。生成提示词使用原字段名、经审核的业务别名或技术别名，不能用模板的通用命名建议覆盖别名来源门禁。上下文预算超限返回安全失败，仍受原上限约束。
 
 ## 验证入口
 

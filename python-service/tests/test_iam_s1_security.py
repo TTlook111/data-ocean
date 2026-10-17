@@ -197,6 +197,23 @@ def test_aggregate_without_column_source_is_aliased_and_marked_no_column_source(
     }]
 
 
+def test_count_star_alias_can_order_with_table_provenance_and_no_column_value():
+    result = validate_sql("SELECT id, COUNT(*) AS cnt FROM orders GROUP BY id ORDER BY cnt DESC", snapshot())
+    assert result.passed
+    assert result.used_tables == ["orders"]
+    assert result.used_columns == ["orders.id"]
+    count = next(entry for entry in result.source_trace if entry["outputColumn"] == "cnt")
+    assert count["sources"] == [] and count["sourceKind"] == "NO_COLUMN_SOURCE"
+
+
+def test_count_column_order_alias_does_not_bypass_masked_column_protection():
+    assert not validate_sql("SELECT COUNT(phone) AS cnt FROM orders ORDER BY cnt", snapshot(masked=True)).passed
+
+
+def test_count_star_does_not_make_duplicate_output_alias_unambiguous():
+    assert not validate_sql("SELECT COUNT(*) AS n, id AS n FROM orders GROUP BY id ORDER BY n", snapshot()).passed
+
+
 def test_only_bare_columns_and_existing_aliases_are_left_untouched():
     """只给「无别名且不是裸列」的投影补别名；裸列与已有别名保持原样。
 

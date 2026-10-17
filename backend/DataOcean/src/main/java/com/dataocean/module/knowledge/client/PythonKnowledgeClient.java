@@ -13,6 +13,9 @@ import java.util.Map;
  */
 public interface PythonKnowledgeClient {
 
+    Map<String, Object> generateSnapshotDraft(Map<String, Object> request);
+    Map<String, Object> supplementSemantics(Map<String, Object> request);
+
     /**
      * 调用 Python 服务生成 skills.md 草稿
      *

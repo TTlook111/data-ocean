@@ -327,7 +327,7 @@ async def _run_query_graph_once(request: Any, *, resume: bool = False) -> dict[s
     except TimeoutError:
         return _timeout_result(task_id)
     except BudgetExceeded as exc:
-        return _clarification_result(task_id, str(exc))
+        return _failed_result(task_id, str(exc))
     except Exception as exc:
         if is_cancelled(task_id):
             return _cancelled_result(task_id)
@@ -1129,12 +1129,22 @@ async def _generate_sql_node(state: S1GraphState) -> S1GraphState:
     if state.get("repairFeedback"):
         question = question + "\n上次尝试的可修复反馈（仅修正 SQL，不扩大授权范围）：" + state["repairFeedback"]
     prompt = await render_sql_prompt(question, context)
+    # 受管模板中的通用中文别名建议不能覆盖现行输出来源门禁。
+    prompt += (
+        "\n本次必须遵守的输出命名契约：原字段可不加别名，或使用原字段名；"
+        "业务别名只能逐字使用 reviewedGlossary 已审核的名称或同义词。"
+        "其他计算列统一使用 s1_c1、s1_c2 等技术别名，例如 COUNT(*) AS s1_c1，"
+        "排序也引用该技术别名。不要为计算列自行起中文名称。"
+    )
     try:
         sql_system = (
             "你是 IAM-SIMPLE-1 安全 SQL 生成器。只输出单条 SELECT SQL。"
             "优先严格遵循 reviewed glossary 中的业务公式和筛选值。"
             "数据库枚举值、编码和字面值必须按已审核口径逐字复制，并用单引号包住 SQL 字符串字面值；"
             "不得把中文显示名翻译成 SQL 值；"
+            "输出别名只能使用原字段名、reviewedGlossary 明确给出的完整名称或同义词，"
+            "或 s1_c1、s1_c2 等技术别名。COUNT(*) 等无列来源表达式必须用 s1_cN 技术别名；"
+            "不得自行编造中文指标或维度别名。排序引用相同的输出别名。"
             "没有已审核筛选值时不要猜测，要求澄清。"
         )
         generated, budgeted = await _budgeted_llm(

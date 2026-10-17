@@ -75,6 +75,8 @@ public class KnowledgeDocController {
     private final KnowledgeDocCrudService crudService;
     private final KnowledgeDocLifecycleService lifecycleService;
     private final KnowledgeDocPublishService publishService;
+    private final com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl semanticService;
+    private final com.dataocean.module.knowledge.service.impl.KnowledgeSourceStatusServiceImpl sourceStatusService;
     private final KnowledgeVersionService knowledgeVersionService;
     private final VectorIndexTaskService vectorIndexTaskService;
     private final IamS1CapabilityService capabilityService;
@@ -156,6 +158,33 @@ public class KnowledgeDocController {
                 request.getVersion(),
                 request.getChangeSummary());
         return Result.success("更新成功", null);
+    }
+
+    @PostMapping("/{id}/semantic-draft")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.KNOWLEDGE_DOCUMENT, resourceIds = "#id")
+    public Result<List<Map<String, Object>>> semanticDraft(@PathVariable Long id,
+            @RequestBody com.dataocean.module.knowledge.entity.dto.SemanticDraftDTO request) {
+        return Result.success(semanticService.generate(id, request));
+    }
+
+    @GetMapping("/{id}/source-status")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.KNOWLEDGE_DOCUMENT, resourceIds = "#id")
+    public Result<com.dataocean.module.knowledge.entity.vo.KnowledgeSourceStatusVO> sourceStatus(@PathVariable Long id) {
+        return Result.success(sourceStatusService.status(id));
+    }
+
+    @PostMapping("/{id}/semantic-confirm")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.KNOWLEDGE_DOCUMENT, resourceIds = "#id")
+    public Result<Void> semanticConfirm(@PathVariable Long id,
+            @RequestBody com.dataocean.module.knowledge.entity.dto.SemanticConfirmDTO request) {
+        semanticService.confirm(id, request);
+        return Result.success();
+    }
+
+    @GetMapping("/generation-inputs")
+    @IamS1Resource(function = MANAGE_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#datasourceId")
+    public Result<Map<String, Object>> generationInputs(@RequestParam Long datasourceId, @RequestParam Long snapshotId) {
+        return Result.success(publishService.generationInputs(datasourceId, snapshotId));
     }
 
     // === 审核流程 ===
@@ -276,10 +305,10 @@ public class KnowledgeDocController {
     }
 
     /**
-     * AI 一键生成（自动分析业务域，批量创建文档）
+     * 按已发布快照生成完整目录
      * <p>
-     * 用户选择一个元数据快照，AI 分析表结构识别业务域，
-     * 每个域自动创建一份独立的 skills.md 文档（DRAFT 状态）。
+     * 用户选择已发布快照，程序组装完整结构与已审核术语，
+     * 创建有来源的 skills.md 草稿文档（DRAFT 状态）。
      * </p>
      *
      * @param datasourceId 数据源 ID
@@ -291,9 +320,9 @@ public class KnowledgeDocController {
     public Result<List<Map<String, Object>>> generateFromSnapshot(
             @RequestParam Long datasourceId,
             @Valid @RequestBody BatchGenerateDTO request) {
-        log.info("收到 AI 一键生成请求 datasourceId={} snapshotId={}", datasourceId, request.getSnapshotId());
+        log.info("收到快照目录生成请求 datasourceId={} snapshotId={}", datasourceId, request.getSnapshotId());
         List<Map<String, Object>> docs = publishService.batchGenerateFromSnapshot(datasourceId, request.getSnapshotId());
-        return Result.success("AI 生成成功", docs);
+        return Result.success("快照目录生成成功", docs);
     }
 
     /**

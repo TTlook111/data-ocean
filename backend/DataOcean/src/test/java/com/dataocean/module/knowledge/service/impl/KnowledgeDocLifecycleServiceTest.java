@@ -148,6 +148,7 @@ class KnowledgeDocLifecycleServiceTest {
         doc.setContent("snapshot-bound knowledge");
         KnowledgeDocVersion version = version(200L, 2);
         version.setMetadataSnapshotId(5L);
+        version.setContent(doc.getContent());
         version.setReviewStatus(ReviewStatus.APPROVED.name());
         when(helper.requireDoc(1L)).thenReturn(doc);
         when(helper.requireVersion(1L, 2)).thenReturn(version);

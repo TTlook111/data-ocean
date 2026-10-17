@@ -12,4 +12,6 @@ import org.apache.ibatis.annotations.Mapper;
  */
 @Mapper
 public interface KnowledgeDocMapper extends BaseMapper<KnowledgeDoc> {
+    @org.apache.ibatis.annotations.Select("SELECT * FROM knowledge_doc WHERE id=#{id} AND deleted=0 FOR UPDATE")
+    KnowledgeDoc selectForUpdate(@org.apache.ibatis.annotations.Param("id") Long id);
 }

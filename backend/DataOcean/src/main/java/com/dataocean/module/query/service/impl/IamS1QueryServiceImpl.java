@@ -103,6 +103,9 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final ConversationService conversationService;
     private final ConversationContextSummaryService conversationContextSummaryService;
     private final GlossaryTermMapper glossaryTermMapper;
+    private final com.dataocean.module.knowledge.service.impl.GlossaryKnowledgeSourceServiceImpl glossarySources;
+    private final com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl semanticSources;
+    private final com.dataocean.module.glossary.service.GlossaryTermWorkflowService termWorkflow;
     private final MetadataEntityService metadataEntityService;
     private final MetadataRelationshipService metadataRelationshipService;
     private final DatasourceMapper datasourceMapper;
@@ -1045,7 +1048,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         }
         List<Map<String, Object>> result = new ArrayList<>();
         for (GlossaryTerm term : terms) {
-            if (invalidTerms.contains(term.getId())) continue;
+            if (invalidTerms.contains(term.getId()) || term.getReviewHash() == null
+                    || !termWorkflow.factValid(term.getId(), term.getReviewHash())) continue;
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("name", term.getName());
             item.put("displayName", term.getDisplayName());
@@ -1137,6 +1141,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 List<String> factSourceIds = objectMapper.readValue(
                         membershipRow.getFactSourceIds(), new TypeReference<>() {});
                 if (tables.isEmpty() || columns.isEmpty() || dependencies.isEmpty() || factSourceIds.isEmpty()) continue;
+                if ("GLOSSARY_TERM".equals(chunk.getFactType()) && !glossarySources.membershipValid(factSourceIds)) continue;
+                if ("SEMANTIC_NOTE".equals(chunk.getFactType()) && !semanticSources.membershipValid(factSourceIds)) continue;
                 if (!dependencies.stream().map(value -> value.toLowerCase(Locale.ROOT)).allMatch(visibleDependencies::contains)) {
                     continue;
                 }

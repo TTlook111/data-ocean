@@ -55,6 +55,8 @@ import static org.mockito.Mockito.when;
 class KnowledgeDocServiceImplTest {
 
     @Mock
+    private GlossaryKnowledgeSourceServiceImpl glossarySources;
+    @Mock
     private KnowledgeDocMapper knowledgeDocMapper;
     @Mock
     private KnowledgeDocVersionMapper knowledgeDocVersionMapper;
@@ -110,7 +112,7 @@ class KnowledgeDocServiceImplTest {
         KnowledgeDoc doc = KnowledgeDoc.builder()
                 .id(docId)
                 .datasourceId(datasourceId)
-                .title("skills.md")
+                .title("skills.md").status("DRAFT").version(0)
                 .currentVersion(0)
                 .build();
         when(helper.requireDoc(docId)).thenReturn(doc);
@@ -136,7 +138,8 @@ class KnowledgeDocServiceImplTest {
         column.setConfidenceScore(92);
         when(dbColumnMetaMapper.selectList(any(Wrapper.class))).thenReturn(List.of(column));
         when(tableRelationMapper.selectList(any(Wrapper.class))).thenReturn(List.<TableRelation>of());
-        when(pythonKnowledgeClient.generateDraft(eq(snapshotId), eq(datasourceId), anyList(), anyList(), anyList(), anyList()))
+        when(glossarySources.inputs(datasourceId, snapshotId)).thenReturn(Map.of("glossaryFacts", List.of(), "excludedTerms", List.of()));
+        when(pythonKnowledgeClient.generateSnapshotDraft(any()))
                 .thenReturn(Map.of("content", "generated skills", "coverage", Map.of(
                         "snapshotId", snapshotId, "tableIds", List.of(100L), "columnIds", List.of(200L),
                         "tableCoverage", 1.0, "columnCoverage", 1.0)));
@@ -154,17 +157,11 @@ class KnowledgeDocServiceImplTest {
         assertThat(content).isEqualTo("generated skills");
 
         @SuppressWarnings({"rawtypes", "unchecked"})
-        ArgumentCaptor<List<Map<String, Object>>> tablesCaptor = ArgumentCaptor.forClass(List.class);
-        verify(pythonKnowledgeClient).generateDraft(
-                eq(snapshotId),
-                eq(datasourceId),
-                tablesCaptor.capture(),
-                anyList(),
-                anyList(),
-                anyList()
-        );
-
-        List<Map<String, Object>> tablesMetadata = tablesCaptor.getValue();
+        ArgumentCaptor<Map<String, Object>> requestCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(pythonKnowledgeClient).generateSnapshotDraft(requestCaptor.capture());
+        assertThat(requestCaptor.getValue()).containsEntry("snapshot_id", snapshotId).containsEntry("datasource_id", datasourceId);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> tablesMetadata = (List<Map<String, Object>>) requestCaptor.getValue().get("tables_metadata");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> columns = (List<Map<String, Object>>) tablesMetadata.get(0).get("columns");
         assertThat(columns.get(0))

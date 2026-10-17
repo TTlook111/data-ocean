@@ -37,7 +37,7 @@ Steps:
 - IAM decisions use isolated S1 facts only: no old roles, JWT authorities, grants, cache mapping/backfill or compatibility fallback. IamS1AuthorizationAspect must retain both @Aspect and @Component.
 - Knowledge publication and explicit RAG build confirmation are separate. Pin snapshot/version/build membership; verify replacement before pointer switching, and preserve active/in-flight collections until references end.
 - COMPLETED needs a nonblank attemptId and exact SQL hash matching the same task's PROTECTED attempt. Never weaken the completion contract.
-- V53 is permanently unused. Recheck the highest occupied migration before choosing a new version; do not add V53 or empty placeholders. The current tree reaches V64.
+- V53 is permanently unused. Recheck the highest occupied migration before choosing a new version; do not add V53 or empty placeholders. Current migration state belongs in docs/项目现状.md, not in this instruction file.
 - tokenVersion and the current JWT invalidation keys stay until a replacement session mechanism is implemented and verified.
 - Code existence, test success, API acceptance and browser acceptance are distinct. Never infer completion from file size or route reachability.
 
