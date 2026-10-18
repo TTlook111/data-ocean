@@ -36,6 +36,162 @@ export interface EntityDetail {
   incomingRelations: MetadataRelationshipItem[]
 }
 
+/** 已发布快照对应的数据对象目录。syncStatus 为空表示历史版本未记录同步状态。 */
+export interface PublishedCatalog {
+  datasourceId: number
+  publishedSnapshotId?: number
+  snapshotVersion?: number
+  syncStatus?: string
+  syncError?: string
+  syncedAt?: string
+  tableCount: number
+  columnCount: number
+  entities: MetadataEntityItem[]
+}
+
+export type OverviewSectionStatus = 'OK' | 'FORBIDDEN' | 'ERROR' | 'UNAVAILABLE'
+
+export interface OverviewSection<T> {
+  status: OverviewSectionStatus
+  message?: string
+  items: T[]
+}
+
+export interface OverviewDatasource {
+  id: number
+  name: string
+  databaseName?: string
+}
+
+export interface OverviewSnapshot {
+  id: number
+  version: number
+  status: string
+  entitySyncStatus?: string
+  entitySyncError?: string
+  entitySyncedAt?: string
+}
+
+export interface OverviewTable {
+  entityId?: number
+  tableName: string
+  displayName?: string
+  comment?: string
+  tableType?: string
+  governanceStatus?: string
+}
+
+export interface OverviewColumn {
+  entityId?: number
+  columnMetaId?: number
+  name: string
+  displayName?: string
+  dataType?: string
+  nullable?: boolean
+  primaryKey?: boolean
+  comment?: string
+  governanceStatus?: string
+  tableName?: string
+  ordinalPosition?: number
+  usageLimits?: string[]
+}
+
+export interface OverviewCounts {
+  columns: number
+  structureRelations: number
+  terms: number
+  tags: number
+  fieldTags: number
+  lineage: number
+  downstream: number
+}
+
+export interface OverviewRelationItem {
+  id: number
+  relationType: string
+  direction: string
+  sourceType: string
+  sourceId: number
+  sourceName?: string
+  targetType: string
+  targetId: number
+  targetName?: string
+  bindingStatus?: string
+}
+
+export interface OverviewTermItem {
+  termId: number
+  glossaryId?: number
+  name: string
+  displayName?: string
+  description?: string
+  status: string
+  currentlyValid: boolean
+  validityMessage?: string
+  verificationCode: string
+  linkMode: 'DIRECT_COLUMN' | 'DIRECT_TABLE' | 'VIA_COLUMNS' | 'BROKEN'
+  viaColumns: string[]
+  revision?: number
+}
+
+export interface OverviewTagItem {
+  id?: number
+  name: string
+  displayName?: string
+  description?: string
+  kind: 'CONFIRMED' | 'CANDIDATE' | 'UNBOUND' | 'BROKEN'
+  source: string
+  confirmed: boolean
+  bindingStatus?: string
+}
+
+export interface OverviewFieldTagItem {
+  id: number
+  columnMetaId: number
+  tagCode: string
+  tagName: string
+  source: string
+}
+
+export interface OverviewLineageItem {
+  id: number
+  relationType: string
+  direction: 'UPSTREAM' | 'DOWNSTREAM'
+  sourceType: string
+  sourceId: number
+  sourceName?: string
+  targetType: string
+  targetId: number
+  targetName?: string
+  lineageType?: string
+  bindingStatus?: string
+  description?: string
+}
+
+/** 表 / 字段对象详情聚合结果。 */
+export interface CatalogEntityOverview {
+  entity: MetadataEntityItem
+  entityType: string
+  datasource?: OverviewDatasource
+  /** 本次详情实际使用的来源快照。 */
+  sourceSnapshot?: OverviewSnapshot
+  /** 当前数据源的发布目标，可能因同步未完成而不同于来源快照。 */
+  publishedSnapshot?: OverviewSnapshot
+  sourceVerified: boolean
+  sourceMatchesPublished: boolean
+  sourceMessage?: string
+  table?: OverviewTable
+  column?: OverviewColumn
+  columns: OverviewSection<OverviewColumn>
+  counts: OverviewCounts
+  structureRelations: OverviewSection<OverviewRelationItem>
+  terms: OverviewSection<OverviewTermItem>
+  tags: OverviewSection<OverviewTagItem>
+  fieldTags: OverviewSection<OverviewFieldTagItem>
+  lineage: OverviewSection<OverviewLineageItem>
+  downstream: OverviewSection<OverviewLineageItem>
+}
+
 export interface MaskCandidate {
   entityId: number
   fqn: string
@@ -108,6 +264,20 @@ export async function getEntitiesByDatasource(datasourceId: number) {
   const { data } = await http.get<ApiResult<MetadataEntityItem[]>>('/api/admin/catalog/entities', {
     params: { datasourceId },
   })
+  return data
+}
+
+/** 读取当前已发布快照对应的表 / 字段目录，并返回目录同步状态。 */
+export async function getPublishedCatalog(datasourceId: number) {
+  const { data } = await http.get<ApiResult<PublishedCatalog>>('/api/admin/catalog/published-entities', {
+    params: { datasourceId },
+  })
+  return data
+}
+
+/** 读取表 / 字段对象详情；关联区块各自返回 OK/FORBIDDEN/ERROR。 */
+export async function getEntityOverview(entityId: number) {
+  const { data } = await http.get<ApiResult<CatalogEntityOverview>>(`/api/admin/catalog/entities/${entityId}/overview`)
   return data
 }
 

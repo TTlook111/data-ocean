@@ -40,6 +40,15 @@ public class MetadataSnapshot {
     /** 快照状态：已过期 */
     public static final String STATUS_EXPIRED = "EXPIRED";
 
+    /** 目录同步状态：同步中 */
+    public static final String ENTITY_SYNC_SYNCING = "SYNCING";
+
+    /** 目录同步状态：已同步 */
+    public static final String ENTITY_SYNC_SYNCED = "SYNCED";
+
+    /** 目录同步状态：同步失败 */
+    public static final String ENTITY_SYNC_FAILED = "FAILED";
+
     /** 主键ID */
     @TableId(type = IdType.AUTO)
     private Long id;
@@ -79,6 +88,15 @@ public class MetadataSnapshot {
 
     /** 发布时间 */
     private LocalDateTime publishedAt;
+
+    /** 目录同步状态：SYNCING / SYNCED / FAILED；历史版本可能为空 */
+    private String entitySyncStatus;
+
+    /** 目录同步失败原因 */
+    private String entitySyncError;
+
+    /** 目录同步完成时间 */
+    private LocalDateTime entitySyncedAt;
 
     /** 过期时间 */
     private LocalDateTime expiredAt;

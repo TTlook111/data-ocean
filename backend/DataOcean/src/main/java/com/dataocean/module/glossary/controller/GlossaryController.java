@@ -24,6 +24,7 @@ import com.dataocean.module.metadata.entity.po.MetadataEntity;
 import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.dataocean.module.metadata.support.RelationshipBindingStatus;
 import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import lombok.RequiredArgsConstructor;
@@ -239,6 +240,9 @@ public class GlossaryController {
                     .eq(MetadataRelationship::getSourceType, "GLOSSARY_TERM")
                     .eq(MetadataRelationship::getRelationType, "GLOSSARY_OF"));
             if (relations != null && !relations.isEmpty()) {
+                relations = relations.stream()
+                        .filter(relation -> !RelationshipBindingStatus.isInactive(relation))
+                        .toList();
                 var ids = relations.stream().map(MetadataRelationship::getTargetId).filter(java.util.Objects::nonNull).distinct().toList();
                 var ownership = scopeService.entityDatasourceIds(ids);
                 var entities = ids.isEmpty() ? List.<MetadataEntity>of() : entityService.listByIds(ids);
@@ -409,7 +413,8 @@ public class GlossaryController {
         var rels = relationshipService.getBySource(termId, "GLOSSARY_TERM");
         List<MetadataEntity> entities = new ArrayList<>();
         for (MetadataRelationship rel : rels) {
-            if (MetadataRelationship.TYPE_GLOSSARY_OF.equals(rel.getRelationType())) {
+            if (MetadataRelationship.TYPE_GLOSSARY_OF.equals(rel.getRelationType())
+                    && !RelationshipBindingStatus.isInactive(rel)) {
                 MetadataEntity entity = entityService.getById(rel.getTargetId());
                 if (entity != null) {
                     entities.add(entity);

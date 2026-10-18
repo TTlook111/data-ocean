@@ -465,10 +465,19 @@ public class KnowledgeDocPublishService {
                     && !MetadataRelationship.TYPE_DERIVED_FROM.equals(relationship.getRelationType())) continue;
             Map<String, Object> metadata = readJsonMap(relationship.getRelationMetadata());
             if (!"CONFIRMED".equalsIgnoreCase(String.valueOf(metadata.get("confirmation_status")))
-                    || !"BOUND".equalsIgnoreCase(String.valueOf(metadata.get("binding_status")))
-                    || !String.valueOf(snapshotId).equals(String.valueOf(metadata.get("bound_snapshot_id")))) continue;
+                    || !"BOUND".equalsIgnoreCase(String.valueOf(metadata.get("binding_status")))) continue;
+            // 两端快照分别核验：同一篇文档只要求属于本文档数据源的一端匹配 snapshotId，
+            // 跨源另一端必须是它自己数据源当前已核验的快照，不能用单侧 bound_snapshot_id 代替。
+            String sourceBound = boundSnapshot(metadata, "source_bound_snapshot_id");
+            String targetBound = boundSnapshot(metadata, "target_bound_snapshot_id");
+            if (sourceBound == null || targetBound == null) continue;
             MetadataEntity source = entityById.get(relationship.getSourceId());
             MetadataEntity target = entityById.get(relationship.getTargetId());
+            boolean sourceInScope = source != null;
+            boolean targetInScope = target != null;
+            if (!sourceInScope && !targetInScope) continue;
+            if (sourceInScope && !String.valueOf(snapshotId).equals(sourceBound)) continue;
+            if (targetInScope && !String.valueOf(snapshotId).equals(targetBound)) continue;
             String sourceFqn = valueOr(metadata.get("source_fqn"), source == null ? null : source.getFqn());
             String targetFqn = valueOr(metadata.get("target_fqn"), target == null ? null : target.getFqn());
             if (sourceFqn == null || targetFqn == null) continue;
@@ -479,6 +488,9 @@ public class KnowledgeDocPublishService {
             fact.put("relation_type", relationship.getRelationType());
             fact.put("source_snapshot_id", metadata.get("source_snapshot_id"));
             fact.put("target_snapshot_id", metadata.get("target_snapshot_id"));
+            fact.put("source_bound_snapshot_id", sourceBound);
+            fact.put("target_bound_snapshot_id", targetBound);
+            // 该字段只表示本文档所属数据源一侧的绑定快照，不再是“两端同一快照”的声明。
             fact.put("bound_snapshot_id", snapshotId);
             fact.put("binding_status", "BOUND");
             fact.put("confirmation_status", "CONFIRMED");
@@ -490,6 +502,15 @@ public class KnowledgeDocPublishService {
             facts.add(fact);
         }
         return facts;
+    }
+
+    /** 端点自己的绑定快照；历史记录没有端点字段时回退到旧的单侧 bound_snapshot_id。 */
+    private String boundSnapshot(Map<String, Object> metadata, String key) {
+        Object value = metadata.get(key);
+        if (value == null || String.valueOf(value).isBlank()) {
+            value = metadata.get("bound_snapshot_id");
+        }
+        return value == null || String.valueOf(value).isBlank() ? null : String.valueOf(value);
     }
 
     private Map<String, Object> readJsonMap(String json) {

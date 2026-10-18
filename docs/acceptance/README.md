@@ -8,6 +8,7 @@
 | [Java 对象分层与分页验证](../项目现状.md#已有验收证据) | 2026-10-17 工作树：干净编译、Java 全量测试、分页与用户导出回归 | 测试配置下验证；未做真实 MySQL 迁移、API 或浏览器验收；复跑命令见[开发指南](../development/本地开发与验证.md#java-对象分层与分页回归) |
 | [LangGraph 问数与会话记忆](LangGraph问数与会话记忆验收记录.md) | 2026-09-27 G0/A/B/C/D/E、预算、保护与历史读取 | 本机隔离合成库；Redis 复用、Browser 归因与默认集合来源限制见原文 |
 | [前端设计完整时间线](前端设计验收记录.md) | 2026-10-03～05 问数、后台、统一视觉、后续用户修正与回归 | 各轮环境/页面不同；旧阻塞可能已解决，旧 passed 也不能覆盖后来全部改动 |
+| [数据对象目录与字段治理人工确认](前端设计验收记录.md#2026-10-18-数据对象目录与字段治理人工确认) | 2026-10-18 用户手工操作与截图：目录/表/字段读取、历史术语核验原因、quantity 治理定位及自动弹窗 | 局部成功路径；不含真实请求乱序、返回滚动、标签写入、超首批历史快照或跨源发布验收 |
 | [轨道 A/B 历史执行与状态记录](../archive/plans/DataOcean后台重构状态与整改计划.md) | 原记录截至 2026-10-05，含 9 月轨道验收 | 混合阶段状态，不再是当前状态入口；当前结论见[项目现状](../项目现状.md) |
 
 ## 原始机器证据
@@ -22,6 +23,7 @@
 - `output/playwright/title-help-20261005/verification.md`：右上角标题说明与嵌入页修正。
 - `output/playwright/query-service-failure-20261005/real-failure-evidence.json`：服务失败分类、任务与历史重读。
 - `output/playwright/query-service-failure-20261005/python-tests.txt`：该轮 Python 输出。
+- `output/playwright/2026-10-18-catalog-user-verification/`：用户提供的目录、详情及 quantity 治理弹窗截图和来源清单；不是本轮代理浏览器自动化产物。
 
 ## 后续如何记录
 

@@ -10,8 +10,11 @@ import com.dataocean.module.glossary.mapper.*;
 import com.dataocean.module.glossary.service.*;
 import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.dataocean.module.metadata.support.RelationshipBindingStatus;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
@@ -20,6 +23,7 @@ import java.time.LocalDateTime;
 import java.util.*;
 
 /** 定义、映射及审核共用同一行锁和修订，所有公共写入口均经过此服务。 */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class GlossaryTermWorkflowServiceImpl implements GlossaryTermWorkflowService {
@@ -59,6 +63,8 @@ public class GlossaryTermWorkflowServiceImpl implements GlossaryTermWorkflowServ
     public List<Long> linkedIds(Long termId) {
         return relationshipService.getBySource(termId, "GLOSSARY_TERM").stream()
                 .filter(r -> "GLOSSARY_OF".equals(r.getRelationType()))
+                // 快照发布后端点消失的映射保留历史，但不再参与当前定义、审核摘要和写入门禁。
+                .filter(r -> !RelationshipBindingStatus.isInactive(r))
                 .map(MetadataRelationship::getTargetId).distinct().sorted().toList();
     }
 
@@ -139,13 +145,48 @@ public class GlossaryTermWorkflowServiceImpl implements GlossaryTermWorkflowServ
         save(term.getGlossaryId(), termId, draft);
     }
 
+    /** 对外输出（审核快照、知识生成）保留完整字段来源。 */
     private Map<String, Object> content(GlossaryTerm term) {
+        return content(term, resolve(linkedIds(term.getId()), false));
+    }
+
+    private Map<String, Object> content(GlossaryTerm term, List<TermColumnVO> columns) {
         var result = new LinkedHashMap<String, Object>();
         result.put("termId", term.getId()); result.put("name", term.getName());
         result.put("displayName", term.getDisplayName()); result.put("description", term.getDescription());
         result.put("synonyms", arrayValue(term.getSynonyms())); result.put("relatedTerms", arrayValue(term.getRelatedTerms()));
-        result.put("columns", resolve(linkedIds(term.getId()), false));
+        result.put("columns", columns);
         return result;
+    }
+
+    /**
+     * 审核摘要只使用字段 FQN 等稳定身份，不包含快照/实体/表/字段的数字 ID。
+     *
+     * <p>否则每次发布新快照都会改变摘要，把所有仍然有效的审核结论误判为失效；
+     * 同时不能把快照期号写进审阅证据，让同一逻辑字段的结论无法跨发布延续。</p>
+     */
+    private Map<String, Object> stableContent(GlossaryTerm term) {
+        return stableContent(term, resolve(linkedIds(term.getId()), false));
+    }
+
+    private Map<String, Object> stableContent(GlossaryTerm term, List<TermColumnVO> columns) {
+        var result = new LinkedHashMap<String, Object>();
+        result.put("termId", term.getId()); result.put("name", term.getName());
+        result.put("displayName", term.getDisplayName()); result.put("description", term.getDescription());
+        result.put("synonyms", arrayValue(term.getSynonyms())); result.put("relatedTerms", arrayValue(term.getRelatedTerms()));
+        result.put("columns", columns.stream().map(this::stableColumnIdentity).toList());
+        return result;
+    }
+
+    private Map<String, Object> stableColumnIdentity(TermColumnVO column) {
+        var identity = new LinkedHashMap<String, Object>();
+        identity.put("fqn", column.fqn() == null ? null : column.fqn().toLowerCase());
+        identity.put("datasourceId", column.datasourceId());
+        identity.put("tableName", column.tableName());
+        identity.put("columnName", column.columnName());
+        identity.put("columnType", column.columnType());
+        identity.put("description", column.description());
+        return identity;
     }
 
     private Object arrayValue(String value) {
@@ -177,19 +218,27 @@ public class GlossaryTermWorkflowServiceImpl implements GlossaryTermWorkflowServ
 
     private void record(GlossaryTerm term, String action, String reason) {
         Object snapshot;
+        String contentHash;
         if ("REVERTED".equals(action)) {
             snapshot = Map.of("termId", term.getId(), "name", term.getName(), "mappingEntityIds", linkedIds(term.getId()));
+            contentHash = hash(snapshot);
         } else if ("REJECTED".equals(action)) {
             var submitted = reviewMapper.selectOne(new LambdaQueryWrapper<GlossaryTermReview>()
                     .eq(GlossaryTermReview::getTermId, term.getId()).eq(GlossaryTermReview::getAction, "SUBMITTED")
                     .orderByDesc(GlossaryTermReview::getId).last("LIMIT 1"));
-            try { snapshot = submitted == null ? Map.of("termId", term.getId(), "name", term.getName())
-                    : objectMapper.readTree(submitted.getSnapshotJson()); }
-            catch (Exception ex) { throw new BusinessException("原审核快照读取失败"); }
-        } else snapshot = content(term);
+            try {
+                snapshot = submitted == null ? Map.of("termId", term.getId(), "name", term.getName())
+                        : objectMapper.readTree(submitted.getSnapshotJson());
+                // 拒绝记录沿用被拒绝的提交摘要，不能按包含快照期号的完整正文重新计算。
+                contentHash = submitted == null ? hash(stableContent(term)) : submitted.getContentHash();
+            } catch (Exception ex) { throw new BusinessException("原审核快照读取失败"); }
+        } else {
+            snapshot = content(term);
+            contentHash = term.getReviewHash() != null ? term.getReviewHash() : hash(stableContent(term));
+        }
         var review = new GlossaryTermReview();
         review.setTermId(term.getId()); review.setRevision(term.getRevision()); review.setAction(action);
-        review.setContentHash(hash(snapshot)); review.setSnapshotJson(json(snapshot));
+        review.setContentHash(contentHash); review.setSnapshotJson(json(snapshot));
         review.setReason(reason); review.setActorId(UserContext.currentUserId());
         review.setCreatedAt(LocalDateTime.now()); reviewMapper.insert(review);
     }
@@ -198,7 +247,7 @@ public class GlossaryTermWorkflowServiceImpl implements GlossaryTermWorkflowServ
         editable(term);
         if (term.getDescription() == null || term.getDescription().isBlank() || linkedIds(term.getId()).isEmpty())
             throw new BusinessException(400, "提交审核前请填写业务定义并关联字段；也可先保存草稿");
-        term.setReviewHash(hash(content(term))); term.setStatus("PENDING_REVIEW");
+        term.setReviewHash(hash(stableContent(term))); term.setStatus("PENDING_REVIEW");
         persist(term); record(term, "SUBMITTED", null);
     }
 
@@ -217,7 +266,8 @@ public class GlossaryTermWorkflowServiceImpl implements GlossaryTermWorkflowServ
         }
         if (!reviewing || !"PENDING_REVIEW".equals(term.getStatus()))
             throw new BusinessException(409, "术语当前不在待审核状态");
-        if (request.isApproved() && (term.getReviewHash() == null || !term.getReviewHash().equals(hash(content(term)))))
+        if (request.isApproved() && (term.getReviewHash() == null
+                || !term.getReviewHash().equals(hash(stableContent(term)))))
             throw new BusinessException(409, "定义或字段来源已变化，请重新提交审核");
         if (!request.isApproved() && (request.getReason() == null || request.getReason().isBlank()))
             throw new BusinessException(400, "请填写审核拒绝原因");
@@ -246,24 +296,221 @@ public class GlossaryTermWorkflowServiceImpl implements GlossaryTermWorkflowServ
         var reviews = reviewMapper.selectList(new LambdaQueryWrapper<GlossaryTermReview>()
                 .eq(GlossaryTermReview::getTermId, termId).orderByDesc(GlossaryTermReview::getId));
         return new TermWorkspaceVO(term, columns, error, "APPROVED".equals(term.getStatus())
-                && (term.getReviewHash() == null || !factValid(termId, term.getReviewHash())), reviews);
+                && (term.getReviewHash() == null || !factValid(termId, term.getReviewHash())), reviews,
+                invalidMappings(termId));
+    }
+
+    /** 失效映射保留历史但不再参与当前定义与审核；页面明确提示需要重新确认。 */
+    private List<TermInvalidMappingVO> invalidMappings(Long termId) {
+        List<TermInvalidMappingVO> result = new ArrayList<>();
+        for (MetadataRelationship relation : relationshipService.getBySource(termId, "GLOSSARY_TERM")) {
+            if (!"GLOSSARY_OF".equals(relation.getRelationType())
+                    || !RelationshipBindingStatus.isInactive(relation)) {
+                continue;
+            }
+            Map<String, Object> metadata = Map.of();
+            try {
+                if (relation.getRelationMetadata() != null && !relation.getRelationMetadata().isBlank()) {
+                    metadata = objectMapper.readValue(relation.getRelationMetadata(), new TypeReference<>() {});
+                }
+            } catch (Exception ignored) {
+                // 元数据损坏时仍返回失效记录本身，原因显示为通用提示。
+            }
+            result.add(new TermInvalidMappingVO(relation.getTargetId(),
+                    stringValue(metadata.get(RelationshipBindingStatus.KEY_PREVIOUS_TARGET_FQN)),
+                    stringValue(metadata.get(RelationshipBindingStatus.KEY_REASON)),
+                    asLong(metadata.get(RelationshipBindingStatus.KEY_INVALIDATED_SNAPSHOT))));
+        }
+        return result;
+    }
+
+    private String stringValue(Object value) {
+        return value == null || String.valueOf(value).isBlank() ? null : String.valueOf(value);
+    }
+
+    private Long asLong(Object value) {
+        if (value instanceof Number number) return number.longValue();
+        if (value == null) return null;
+        try {
+            return Long.parseLong(String.valueOf(value));
+        } catch (NumberFormatException exception) {
+            return null;
+        }
     }
 
     @Override
     public Map<String, Object> approvedFact(Long termId) {
         var term = termMapper.selectById(termId);
-        if (term == null || !"APPROVED".equals(term.getStatus()) || term.getReviewHash() == null)
+        if (term == null) {
             throw new BusinessException(409, "术语尚未完成定义与字段映射的修订审核");
-        var snapshot = content(term);
-        if (!term.getReviewHash().equals(hash(snapshot))) throw new BusinessException(409, "术语审核来源已变化");
-        var latest = reviewMapper.selectOne(new LambdaQueryWrapper<GlossaryTermReview>()
-                .eq(GlossaryTermReview::getTermId, termId).eq(GlossaryTermReview::getAction, "APPROVED")
-                .eq(GlossaryTermReview::getRevision, term.getRevision()).last("LIMIT 1"));
-        if (latest == null || !term.getReviewHash().equals(latest.getContentHash()))
-            throw new BusinessException(409, "缺少可核验的术语审核快照");
-        snapshot.put("revision", term.getRevision()); snapshot.put("reviewId", latest.getId());
+        }
+        var verification = assess(term);
+        if (!verification.valid()) {
+            // 与 verify() 共用同一套规则；这里只把失败原因转成原有 409 保护。
+            throw new BusinessException(409, verification.message());
+        }
+        var snapshot = content(term, verification.columns());
+        snapshot.put("revision", term.getRevision());
+        snapshot.put("reviewId", verification.review().getId());
         snapshot.put("contentHash", term.getReviewHash());
         return snapshot;
+    }
+
+    @Override
+    public GlossaryTermVerificationVO verify(Long termId) {
+        GlossaryTerm term;
+        try {
+            term = termId == null ? null : termMapper.selectById(termId);
+        } catch (Exception exception) {
+            log.warn("术语核验读取失败 termId={}: {}", termId, exception.getMessage());
+            return new GlossaryTermVerificationVO(false,
+                    GlossaryTermVerificationVO.SYSTEM_ERROR,
+                    "术语记录读取失败，当前有效性无法确认。",
+                    null, null, null, null);
+        }
+        if (term == null) {
+            return new GlossaryTermVerificationVO(false,
+                    GlossaryTermVerificationVO.TERM_MISSING,
+                    "关联的术语记录已不存在，无法核验当前有效性。",
+                    null, null, null, null);
+        }
+        Verification verification = assess(term);
+        return new GlossaryTermVerificationVO(
+                verification.valid(), verification.code(), verification.message(),
+                term.getStatus(), term.getRevision(),
+                verification.review() == null ? null : verification.review().getId(),
+                verification.valid() ? term.getReviewHash() : null);
+    }
+
+    /**
+     * 现有审核与来源规则的唯一核验实现。
+     *
+     * <p>分类只来自这里的控制流，不解析异常文案：审核证据缺失、内容变化、
+     * 来源失效和读取/解析异常分别返回不同 code。</p>
+     */
+    private Verification assess(GlossaryTerm term) {
+        if (!"APPROVED".equals(term.getStatus())) {
+            return Verification.failure(GlossaryTermVerificationVO.NOT_APPROVED,
+                    notApprovedMessage(term.getStatus()));
+        }
+        if (term.getReviewHash() == null) {
+            return Verification.failure(GlossaryTermVerificationVO.EVIDENCE_MISSING,
+                    "缺少审核摘要或与当前修订匹配的审核记录，历史审核证据不足，需要重新确认。");
+        }
+
+        List<TermColumnVO> columns;
+        try {
+            columns = resolve(linkedIds(term.getId()), false);
+        } catch (BusinessException exception) {
+            return Verification.failure(GlossaryTermVerificationVO.SOURCE_INVALID,
+                    sourceFailureMessage(exception));
+        } catch (Exception exception) {
+            log.warn("术语来源核验失败 termId={}: {}", term.getId(), exception.getMessage());
+            return Verification.failure(GlossaryTermVerificationVO.SYSTEM_ERROR,
+                    "术语来源读取失败，当前有效性无法确认。");
+        }
+
+        GlossaryTermReview latest;
+        try {
+            latest = reviewMapper.selectOne(new LambdaQueryWrapper<GlossaryTermReview>()
+                    .eq(GlossaryTermReview::getTermId, term.getId())
+                    .eq(GlossaryTermReview::getAction, "APPROVED")
+                    .eq(GlossaryTermReview::getRevision, term.getRevision())
+                    .last("LIMIT 1"));
+        } catch (Exception exception) {
+            log.warn("术语审核记录读取失败 termId={}: {}", term.getId(), exception.getMessage());
+            return Verification.failure(GlossaryTermVerificationVO.SYSTEM_ERROR,
+                    "术语审核记录读取失败，当前有效性无法确认。");
+        }
+        if (latest == null || !term.getReviewHash().equals(latest.getContentHash())) {
+            return Verification.failure(GlossaryTermVerificationVO.EVIDENCE_MISSING,
+                    "缺少与当前修订匹配的审核摘要或审核记录，历史审核证据不足，需要重新确认。");
+        }
+
+        try {
+            String currentStableHash = hash(stableContent(term, columns));
+            if (!term.getReviewHash().equals(currentStableHash)) {
+                // 兼容改造前包含快照/实体数字 ID 的旧审核记录；只有稳定内容相同才继续有效。
+                String reviewedStableHash = stableHashOfReviewSnapshot(latest.getSnapshotJson(), term.getId());
+                if (!currentStableHash.equals(reviewedStableHash)) {
+                    return Verification.failure(GlossaryTermVerificationVO.CONTENT_CHANGED,
+                            "业务定义、字段映射或来源内容已发生变化，需要重新确认。");
+                }
+            }
+        } catch (BusinessException exception) {
+            log.warn("术语内容核验失败 termId={}: {}", term.getId(), exception.getMessage());
+            return Verification.failure(GlossaryTermVerificationVO.SYSTEM_ERROR,
+                    "术语定义或审核快照解析失败，当前有效性无法确认。");
+        } catch (Exception exception) {
+            log.warn("术语内容核验异常 termId={}: {}", term.getId(), exception.getMessage());
+            return Verification.failure(GlossaryTermVerificationVO.SYSTEM_ERROR,
+                    "术语核验读取失败，当前有效性无法确认。");
+        }
+        return new Verification(true, GlossaryTermVerificationVO.VALID,
+                "已通过审核，当前定义与字段来源仍可核验。", columns, latest);
+    }
+
+    private String notApprovedMessage(String status) {
+        return switch (status == null ? "" : status) {
+            case "PENDING_REVIEW" -> "待审核，当前不能作为已审核业务事实。";
+            case "REJECTED" -> "审核未通过，当前不能作为业务事实。";
+            case "DRAFT" -> "仍为草稿，尚未提交审核。";
+            default -> "状态未知，不能宣称当前可用。";
+        };
+    }
+
+    private String sourceFailureMessage(BusinessException exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) {
+            return "关联字段来源已失效或无法核验，需要重新关联并确认。";
+        }
+        return "关联字段来源已失效或无法核验：" + message;
+    }
+
+    private record Verification(boolean valid, String code, String message,
+                                 List<TermColumnVO> columns, GlossaryTermReview review) {
+        static Verification failure(String code, String message) {
+            return new Verification(false, code, message, List.of(), null);
+        }
+    }
+
+    /** 从不可变审核快照 JSON 重建稳定摘要；无法解析时按不通过处理。 */
+    private String stableHashOfReviewSnapshot(String snapshotJson, Long termId) {
+        try {
+            var node = objectMapper.readTree(snapshotJson);
+            var stable = new LinkedHashMap<String, Object>();
+            stable.put("termId", node.hasNonNull("termId") ? node.get("termId").asLong() : termId);
+            stable.put("name", text(node, "name"));
+            stable.put("displayName", text(node, "displayName"));
+            stable.put("description", text(node, "description"));
+            stable.put("synonyms", node.has("synonyms") ? node.get("synonyms") : objectMapper.createArrayNode());
+            stable.put("relatedTerms", node.has("relatedTerms") ? node.get("relatedTerms") : objectMapper.createArrayNode());
+            var columns = new ArrayList<Map<String, Object>>();
+            if (node.has("columns") && node.get("columns").isArray()) {
+                for (var column : node.get("columns")) {
+                    var identity = new LinkedHashMap<String, Object>();
+                    identity.put("fqn", text(column, "fqn") == null ? null : text(column, "fqn").toLowerCase());
+                    identity.put("datasourceId", longOrNull(column, "datasourceId"));
+                    identity.put("tableName", text(column, "tableName"));
+                    identity.put("columnName", text(column, "columnName"));
+                    identity.put("columnType", text(column, "columnType"));
+                    identity.put("description", text(column, "description"));
+                    columns.add(identity);
+                }
+            }
+            stable.put("columns", columns);
+            return hash(stable);
+        } catch (Exception exception) {
+            throw new BusinessException(409, "术语审核快照无法核验");
+        }
+    }
+
+    private String text(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        return node != null && node.hasNonNull(field) ? node.get(field).asText() : null;
+    }
+
+    private Long longOrNull(com.fasterxml.jackson.databind.JsonNode node, String field) {
+        return node != null && node.hasNonNull(field) ? node.get(field).asLong() : null;
     }
 
     @Override

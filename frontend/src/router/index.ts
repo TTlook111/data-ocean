@@ -116,13 +116,13 @@ const router = createRouter({
           path: 'assets',
           name: 'admin-assets',
           component: AssetsView,
-          meta: { title: '资产目录', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'datasource' },
+          meta: { title: '数据对象目录', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'datasource' },
         },
         {
           path: 'assets/entities/:entityId',
           name: 'admin-asset-detail',
           component: AssetEntityDetailView,
-          meta: { title: '资产详情', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'locked-resource', breadcrumbParent: '/admin/assets' },
+          meta: { title: '对象详情', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'locked-resource', breadcrumbParent: '/admin/assets' },
         },
         {
           path: 'releases',

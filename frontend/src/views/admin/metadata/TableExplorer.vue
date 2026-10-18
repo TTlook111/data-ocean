@@ -167,10 +167,6 @@ watch(
 
 <template>
   <main class="table-explorer-page post-login-page">
-    <section class="page-actions">
-      <el-button :icon="RefreshCw" :loading="loading || snapshotLoading" @click="fetchDetail">刷新</el-button>
-    </section>
-
     <section class="snapshot-toolbar">
       <el-select
         v-model="selectedSnapshotId"
@@ -190,6 +186,7 @@ watch(
         <el-tag :type="snapshotStatusType(selectedSnapshot.status)" size="small">
           {{ snapshotStatusLabel(selectedSnapshot.status) }}
         </el-tag>
+        <span>版本：v{{ selectedSnapshot.snapshotVersion }}</span>
         <el-tooltip content="当前快照采集到的数据表数量">
           <span>数据表：{{ selectedSnapshot.tableCount }} 张</span>
         </el-tooltip>
@@ -200,6 +197,8 @@ watch(
           <span>质量分：{{ selectedSnapshot.qualityScore ?? '未校验' }}</span>
         </el-tooltip>
       </div>
+
+      <el-button class="snapshot-refresh" :icon="RefreshCw" :loading="loading || snapshotLoading" @click="fetchDetail">刷新结构</el-button>
     </section>
 
     <div class="explorer-layout" v-loading="loading">
@@ -295,18 +294,17 @@ watch(
 </template>
 
 <style scoped>
-.table-explorer-page { display: grid; gap: 16px; }
+.table-explorer-page { display: block; }
 .snapshot-toolbar {
   min-height: 48px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: var(--do-surface);
+  gap: 10px 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--do-line);
 }
+.snapshot-refresh { margin-left: auto; }
 .snapshot-option-main {
   display: inline-block;
   min-width: 190px;
@@ -323,10 +321,11 @@ watch(
 .explorer-layout {
   display: flex;
   gap: 0;
+  margin: 12px 16px 16px;
   border: 1px solid var(--do-line);
   border-radius: 8px;
   background: var(--do-surface);
-  min-height: 600px;
+  min-height: 520px;
   box-shadow: var(--do-shadow);
   overflow: hidden;
 }

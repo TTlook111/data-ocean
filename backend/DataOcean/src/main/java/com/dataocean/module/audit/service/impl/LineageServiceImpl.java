@@ -217,7 +217,8 @@ public class LineageServiceImpl implements LineageService {
             // 构建 DERIVED_FROM 的 relation_metadata（§4.2.4：合并 source 来源历史）
             // 先查询是否已有同对列的 DERIVED_FROM 边，用于合并来源
             MetadataRelationship existingDerived = relationshipMapper
-                    .selectBetween(sourceCol.getId(), targetCol.getId(),
+                    .selectBetweenTyped(sourceCol.getId(), MetadataEntity.TYPE_COLUMN,
+                            targetCol.getId(), MetadataEntity.TYPE_COLUMN,
                             MetadataRelationship.TYPE_DERIVED_FROM);
             Map<String, Object> existingMeta = null;
             MetadataRelationship derivedRel;

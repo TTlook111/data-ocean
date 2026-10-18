@@ -6,6 +6,7 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.*;
 import com.dataocean.module.glossary.entity.dto.*;
 import com.dataocean.module.glossary.entity.po.*;
+import com.dataocean.module.glossary.entity.vo.GlossaryTermVerificationVO;
 import com.dataocean.module.glossary.entity.vo.TermColumnVO;
 import com.dataocean.module.glossary.mapper.*;
 import com.dataocean.module.glossary.service.*;
@@ -81,7 +82,89 @@ class GlossaryTermWorkflowServiceImplTest {
 
     @Test void legacyApprovedTermWithoutSnapshotIsNotKnowledgeEvidence() {
         when(mapper.selectById(1L)).thenReturn(term); term.setStatus("APPROVED");
-        assertThatThrownBy(() -> service.approvedFact(1L)).hasMessageContaining("修订审核");
+        assertThatThrownBy(() -> service.approvedFact(1L)).hasMessageContaining("历史审核证据不足");
+    }
+
+    @Test void historicalApprovedWithoutReviewHashIsClassifiedAsEvidenceMissing() {
+        term.setStatus("APPROVED");
+
+        var verification = service.verify(1L);
+
+        assertThat(verification.valid()).isFalse();
+        assertThat(verification.code()).isEqualTo(GlossaryTermVerificationVO.EVIDENCE_MISSING);
+        assertThat(verification.message()).contains("历史审核证据不足");
+    }
+
+    @Test void validApprovedReviewStaysValidAndContentChangeIsDistinguished() {
+        setupValidApprovedTerm();
+
+        var valid = service.verify(1L);
+        assertThat(valid.valid()).isTrue();
+        assertThat(valid.code()).isEqualTo(GlossaryTermVerificationVO.VALID);
+
+        term.setDescription("客户唯一标识（已修改）");
+        var changed = service.verify(1L);
+        assertThat(changed.valid()).isFalse();
+        assertThat(changed.code()).isEqualTo(GlossaryTermVerificationVO.CONTENT_CHANGED);
+        assertThat(changed.message()).contains("发生变化");
+    }
+
+    @Test void invalidSourceIsClassifiedSeparatelyFromEvidenceAndContent() {
+        term.setStatus("APPROVED");
+        term.setReviewHash("hash");
+        var relation = new MetadataRelationship();
+        relation.setTargetId(30L);
+        relation.setRelationType("GLOSSARY_OF");
+        when(relations.getBySource(1L, "GLOSSARY_TERM")).thenReturn(List.of(relation));
+        when(fields.resolve(30L)).thenThrow(new BusinessException(409, "该字段已不在当前已发布快照中"));
+
+        var verification = service.verify(1L);
+
+        assertThat(verification.valid()).isFalse();
+        assertThat(verification.code()).isEqualTo(GlossaryTermVerificationVO.SOURCE_INVALID);
+        assertThat(verification.message()).contains("来源已失效");
+    }
+
+    @Test void parseFailureIsClassifiedAsSystemErrorNotContentChange() {
+        term.setStatus("APPROVED");
+        term.setReviewHash("hash");
+        term.setSynonyms("not-json");
+        when(relations.getBySource(1L, "GLOSSARY_TERM")).thenReturn(List.of());
+        var approved = new GlossaryTermReview();
+        approved.setAction("APPROVED");
+        approved.setContentHash("hash");
+        approved.setSnapshotJson("{}");
+        when(reviews.selectOne(any())).thenReturn(approved);
+
+        var verification = service.verify(1L);
+
+        assertThat(verification.valid()).isFalse();
+        assertThat(verification.code()).isEqualTo(GlossaryTermVerificationVO.SYSTEM_ERROR);
+    }
+
+    private void setupValidApprovedTerm() {
+        var relation = new MetadataRelationship();
+        relation.setTargetId(30L);
+        relation.setRelationType("GLOSSARY_OF");
+        when(relations.getBySource(1L, "GLOSSARY_TERM")).thenReturn(List.of(relation));
+        when(fields.resolve(30L)).thenReturn(new TermColumnVO(30L, 9L, "商品库", 2L, 3L, 4L,
+                "products", "id", "bigint", "编号", "source.db.products.id"));
+        when(mapper.updateById(any(GlossaryTerm.class))).thenReturn(1);
+        List<GlossaryTermReview> inserted = new ArrayList<>();
+        doAnswer(invocation -> {
+            inserted.add(invocation.getArgument(0));
+            return 1;
+        }).when(reviews).insert(any(GlossaryTermReview.class));
+        var submit = new TermActionDTO();
+        submit.setRevision(4L);
+        service.action(1L, "SUBMIT", submit);
+        var review = new TermActionDTO();
+        review.setRevision(term.getRevision());
+        review.setApproved(true);
+        service.action(1L, "REVIEW", review);
+        when(reviews.selectOne(any())).thenAnswer(invocation -> inserted.stream()
+                .filter(item -> "APPROVED".equals(item.getAction()))
+                .findFirst().orElse(null));
     }
 
     @Test void reviewRejectsFieldMeaningChangedSinceSubmission() {

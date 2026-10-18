@@ -86,6 +86,21 @@ public class MetadataEntityServiceImpl extends ServiceImpl<MetadataEntityMapper,
     }
 
     @Override
+    public java.util.Set<String> getEntityKeysByDatasourceIds(java.util.Collection<Long> datasourceIds) {
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return java.util.Set.of();
+        }
+        java.util.Set<String> keys = new java.util.HashSet<>();
+        for (MetadataEntity entity : baseMapper.selectEntityTypeIdPairsByDatasourceIds(datasourceIds)) {
+            String key = MetadataEntity.endpointKey(entity.getEntityType(), entity.getId());
+            if (key != null) {
+                keys.add(key);
+            }
+        }
+        return keys;
+    }
+
+    @Override
     public MetadataEntity upsert(MetadataEntity entity) {
         // 按 FQN 去重
         MetadataEntity existing = baseMapper.selectByFqn(entity.getFqn());
@@ -94,7 +109,10 @@ public class MetadataEntityServiceImpl extends ServiceImpl<MetadataEntityMapper,
             existing.setDisplayName(entity.getDisplayName());
             existing.setDescription(entity.getDescription());
             existing.setEntityMetadata(entity.getEntityMetadata());
-            existing.setOwnerId(entity.getOwnerId());
+            // 负责人是人工维护字段，采集同步没有负责人信息时不能把它清空。
+            if (entity.getOwnerId() != null) {
+                existing.setOwnerId(entity.getOwnerId());
+            }
             existing.setVersion(existing.getVersion() + 1);
             baseMapper.updateById(existing);
             log.debug("实体已更新 fqn={} version={}", entity.getFqn(), existing.getVersion());

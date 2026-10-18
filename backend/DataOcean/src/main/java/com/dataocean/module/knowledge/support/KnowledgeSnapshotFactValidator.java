@@ -251,9 +251,17 @@ public class KnowledgeSnapshotFactValidator {
         }
         Map<String, Object> metadata = parse(relationship.getRelationMetadata());
         if (!"CONFIRMED".equalsIgnoreCase(String.valueOf(metadata.get("confirmation_status")))
-                || !"BOUND".equalsIgnoreCase(String.valueOf(metadata.get("binding_status")))
-                || !String.valueOf(snapshotId).equals(String.valueOf(metadata.get("bound_snapshot_id")))) {
-            throw new BusinessException("血缘事实尚未确认或未绑定到本次快照");
+                || !"BOUND".equalsIgnoreCase(String.valueOf(metadata.get("binding_status")))) {
+            throw new BusinessException("血缘事实尚未确认或未绑定");
+        }
+        // 两端都必须有各自已核验的快照；本文档的 snapshotId 至少匹配其中一端。
+        // 跨源关系不能用单个 bound_snapshot_id 代表两端。
+        String sourceBound = boundSnapshot(metadata, "source_bound_snapshot_id");
+        String targetBound = boundSnapshot(metadata, "target_bound_snapshot_id");
+        if (sourceBound == null || targetBound == null
+                || (!String.valueOf(snapshotId).equals(sourceBound)
+                && !String.valueOf(snapshotId).equals(targetBound))) {
+            throw new BusinessException("血缘事实端点未绑定到各自快照或与本次快照不匹配");
         }
         String sourceFqn = String.valueOf(metadata.get("source_fqn"));
         String targetFqn = String.valueOf(metadata.get("target_fqn"));
@@ -262,6 +270,15 @@ public class KnowledgeSnapshotFactValidator {
         }
         Set<String> expected = new HashSet<>(lineageDependencies(sourceFqn, targetFqn));
         if (!expected.equals(new HashSet<>(dependencies))) throw new BusinessException("血缘资源依赖与来源实体不一致");
+    }
+
+    /** 端点自己的绑定快照；历史记录没有端点字段时回退到旧的单侧 bound_snapshot_id。 */
+    private String boundSnapshot(Map<String, Object> metadata, String key) {
+        Object value = metadata.get(key);
+        if (value == null || String.valueOf(value).isBlank()) {
+            value = metadata.get("bound_snapshot_id");
+        }
+        return value == null || String.valueOf(value).isBlank() ? null : String.valueOf(value);
     }
 
     private List<String> lineageDependencies(String sourceFqn, String targetFqn) {

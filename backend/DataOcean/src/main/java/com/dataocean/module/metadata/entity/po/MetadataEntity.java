@@ -83,6 +83,26 @@ public class MetadataEntity {
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 
+    // ========== 端点身份工具方法 ==========
+
+    /**
+     * 关系端点身份：类型 + ID。
+     *
+     * <p>术语、标签和元数据实体来自不同表，数字 ID 可能重合；只用 ID 去重或判定可见性
+     * 会把不同对象当成同一个。所有关系查询、去重和权限裁剪都应使用该键。</p>
+     */
+    public static String endpointKey(String entityType, Long id) {
+        if (entityType == null || entityType.isBlank() || id == null) {
+            return null;
+        }
+        return entityType.trim().toUpperCase() + "#" + id;
+    }
+
+    /** 当前实体的端点身份。 */
+    public String endpointKey() {
+        return endpointKey(entityType, id);
+    }
+
     // ========== FQN 构建工具方法 ==========
 
     /**

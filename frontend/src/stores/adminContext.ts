@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { listSimpleDatasources, type DatasourceSimpleItem } from '../api/admin/datasource'
 import { listKnowledgeDocs, type KnowledgeDocItem } from '../api/admin/knowledge'
-import { listSnapshots, type SnapshotItem } from '../api/admin/metadata'
+import { getSnapshotDetail, listSnapshots, type SnapshotItem } from '../api/admin/metadata'
 
 const STORAGE_KEY = 'dataocean_admin_context'
 
@@ -146,6 +146,33 @@ export const useAdminContextStore = defineStore('admin-context', () => {
     }
   }
 
+  /**
+   * 确保指定快照可用于当前上下文。
+   *
+   * 首批快照列表可能不包含历史快照；此时按 ID 使用有权限校验的详情接口读取。
+   * 找不到、无权或数据源不一致时抛出错误，调用方不得静默切换到其他快照。
+   */
+  async function ensureSnapshot(id?: number): Promise<SnapshotItem | undefined> {
+    if (!id) return undefined
+    const existing = snapshots.value.find((item) => item.id === id)
+    if (existing) return existing
+    const result = await getSnapshotDetail(id)
+    const detail = result.data
+    if (!detail?.snapshot) {
+      throw new Error('指定的快照不存在或无法读取')
+    }
+    if (datasourceId.value && detail.snapshot.datasourceId !== datasourceId.value) {
+      throw new Error('指定的快照不属于当前数据源')
+    }
+    const item: SnapshotItem = {
+      ...detail.snapshot,
+      datasourceName: detail.datasourceName || detail.snapshot.datasourceName || '',
+    }
+    snapshots.value = [...snapshots.value.filter((snapshot) => snapshot.id !== id), item]
+      .sort(latestSnapshotFirst)
+    return item
+  }
+
   function selectSnapshot(id?: number) {
     snapshotId.value = id
     persist()
@@ -170,6 +197,7 @@ export const useAdminContextStore = defineStore('admin-context', () => {
     currentKnowledgeDoc,
     initialize,
     selectDatasource,
+    ensureSnapshot,
     selectSnapshot,
     selectKnowledgeDoc,
     refresh,

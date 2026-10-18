@@ -4,6 +4,7 @@ import { Database, LockKeyhole, RefreshCw } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminContextStore } from '../../stores/adminContext'
 import type { AdminContextMode } from '../../router/adminNavigation'
+import { getHttpErrorMessage } from '../../utils/httpError'
 import { snapshotStatusLabel } from '../../utils/enumLabels'
 import TitleHelp from './TitleHelp.vue'
 
@@ -40,11 +41,25 @@ async function syncFromUrl() {
     }
 
     if (showSnapshot.value && querySnapshotId.value) {
-      if (!context.snapshots.some((item) => item.id === querySnapshotId.value)) {
-        invalidContext.value = 'URL 中的快照不属于当前数据源，已清除该快照范围。'
+      let found = context.snapshots.some((item) => item.id === querySnapshotId.value)
+      if (!found) {
+        // 首批 50 条之外的快照按 ID 精确读取；失败时保留明确错误，不回退到最新快照。
+        try {
+          await context.ensureSnapshot(querySnapshotId.value)
+          found = context.snapshots.some((item) => item.id === querySnapshotId.value)
+        } catch (cause) {
+          invalidContext.value = `指定的快照无法加载：${getHttpErrorMessage(
+            cause,
+            '快照不存在、无权访问或加载失败',
+          )}。未切换到其他快照。`
+        }
+      }
+      if (found) {
+        if (context.snapshotId !== querySnapshotId.value) {
+          context.selectSnapshot(querySnapshotId.value)
+        }
+      } else {
         context.selectSnapshot(undefined)
-      } else if (context.snapshotId !== querySnapshotId.value) {
-        context.selectSnapshot(querySnapshotId.value)
       }
     }
   } catch (cause) {

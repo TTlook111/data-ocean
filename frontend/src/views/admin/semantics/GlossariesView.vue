@@ -20,6 +20,7 @@ import {
   getTermWorkspace,
   getTermFieldSources,
   type TermColumn,
+  type TermInvalidMapping,
   type TermReview,
   deleteGlossary,
   deleteTerm,
@@ -78,6 +79,7 @@ const glossaryError = ref('')
 const termError = ref('')
 const datasourceError = ref('')
 const linkedError = ref('')
+const invalidMappings = ref<TermInvalidMapping[]>([])
 
 const termKeyword = ref('')
 const termStatusFilter = ref('')
@@ -210,7 +212,7 @@ let linkedRequestId = 0
 async function loadLinkedColumns() {
   const requestId = ++linkedRequestId
   const termId = selectedTermId.value
-  if (!termId) { linkedColumns.value = []; reviews.value = []; loadingLinked.value = false; return }
+  if (!termId) { linkedColumns.value = []; reviews.value = []; invalidMappings.value = []; loadingLinked.value = false; return }
   loadingLinked.value = true
   linkedError.value = ''
   try {
@@ -218,6 +220,7 @@ async function loadLinkedColumns() {
     if (requestId !== linkedRequestId || selectedTermId.value !== termId) return
     linkedColumns.value = result.data.columns || []
     reviews.value = result.data.reviews || []
+    invalidMappings.value = result.data.invalidMappings || []
     needsReview.value = result.data.needsReview
     linkedError.value = result.data.mappingError || ''
     const index = terms.value.findIndex(term => term.id === termId)
@@ -230,7 +233,7 @@ async function loadLinkedColumns() {
     }
   } catch (cause) {
     if (requestId === linkedRequestId && selectedTermId.value === termId) {
-      linkedColumns.value = []; reviews.value = []
+      linkedColumns.value = []; reviews.value = []; invalidMappings.value = []
       linkedError.value = apiError(cause, '关联字段加载失败')
     }
   } finally { if (requestId === linkedRequestId) loadingLinked.value = false }
@@ -618,15 +621,30 @@ watch(() => route.query.termId, (value) => {
             </div>
             <ErrorState v-if="linkedError" :message="linkedError" @retry="loadLinkedColumns" />
             <LoadingState v-else-if="loadingLinked" text="正在读取关联字段…" />
-            <EmptyState v-else-if="!linkedColumns.length" message="该术语尚未绑定物理字段，未绑定字段的术语无法在 SQL 生成中定位。" />
-            <ul v-else class="linked-list">
-              <li v-for="column in linkedColumns" :key="column.entityId">
-                <div>
-                  <strong>{{ column.description || column.columnName }}</strong>
-                  <small>{{ column.datasourceName }} / {{ column.tableName }} / {{ column.columnName }}</small>
-                </div>
-              </li>
-            </ul>
+            <template v-else>
+              <el-alert
+                v-if="invalidMappings.length"
+                type="warning"
+                :closable="false"
+                title="部分字段映射在最近一次快照发布后失效，已保留历史但不再参与当前定义与审核。"
+              >
+                <ul class="invalid-mappings">
+                  <li v-for="mapping in invalidMappings" :key="mapping.entityId">
+                    {{ mapping.previousFqn || '字段 #' + mapping.entityId }}
+                    <span>需要重新关联并重新提交审核。</span>
+                  </li>
+                </ul>
+              </el-alert>
+              <EmptyState v-if="!linkedColumns.length" message="该术语尚未绑定物理字段，未绑定字段的术语无法在 SQL 生成中定位。" />
+              <ul v-else class="linked-list">
+                <li v-for="column in linkedColumns" :key="column.entityId">
+                  <div>
+                    <strong>{{ column.description || column.columnName }}</strong>
+                    <small>{{ column.datasourceName }} / {{ column.tableName }} / {{ column.columnName }}</small>
+                  </div>
+                </li>
+              </ul>
+            </template>
           </section>
           <el-alert v-if="selectedTerm.status === 'PENDING_REVIEW'" :title="reviewChanges" type="info" :closable="false" />
           <!-- 状态门禁：动作以后端状态机为准 -->
@@ -832,6 +850,10 @@ watch(() => route.query.termId, (value) => {
 
 .term-detail__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .term-detail__locked { margin: 0; padding: 10px 12px; border-radius: var(--do-radius-md); background: var(--do-bg); color: var(--do-muted); font-size: 12px; line-height: 1.7; }
+
+.invalid-mappings { margin: 6px 0 0; padding-left: 18px; }
+.invalid-mappings li { color: var(--do-ink); font-size: 12px; line-height: 1.6; word-break: break-all; }
+.invalid-mappings li span { color: var(--do-muted); }
 
 .term-detail__section { display: grid; gap: 10px; padding-top: 14px; border-top: 1px solid var(--do-line); }
 .term-detail__section h3 { margin: 0; color: var(--do-ink); font-size: 13px; }

@@ -141,9 +141,12 @@ export interface TermReview {
   id: number; revision: number; action: string; reason?: string; actorId: number
   createdAt: string; snapshotJson: string; contentHash: string
 }
+export interface TermInvalidMapping {
+  entityId: number; previousFqn?: string; reason?: string; invalidatedSnapshotId?: number
+}
 export interface TermWorkspace {
   term: GlossaryTermItem; columns: TermColumn[]; mappingError?: string
-  needsReview: boolean; reviews: TermReview[]
+  needsReview: boolean; reviews: TermReview[]; invalidMappings?: TermInvalidMapping[]
 }
 export interface TermDraft {
   revision?: number; name: string; displayName?: string; description: string

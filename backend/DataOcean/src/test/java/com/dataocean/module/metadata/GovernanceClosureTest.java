@@ -28,7 +28,8 @@ class GovernanceClosureTest {
      * 创建 SnapshotEntitySyncListener 实例（所有依赖传 null，仅用于测试私有方法）
      */
     private SnapshotEntitySyncListener createListener() {
-        return new SnapshotEntitySyncListener(null, null, null, null, null, null, null);
+        return new SnapshotEntitySyncListener(null, null, null, null, null, null, null,
+                null, null, null);
     }
 
     @Test
@@ -37,7 +38,8 @@ class GovernanceClosureTest {
         Method method = SnapshotEntitySyncListener.class.getDeclaredMethod("inferTagCandidates", String.class, String.class);
         method.setAccessible(true);
 
-        String result = (String) method.invoke(createListener(), "phone_number", "用户手机号");
+        @SuppressWarnings("unchecked")
+        List<String> result = (List<String>) method.invoke(createListener(), "phone_number", "用户手机号");
         assertThat(result).contains("PII.手机号");
     }
 
@@ -47,7 +49,8 @@ class GovernanceClosureTest {
         Method method = SnapshotEntitySyncListener.class.getDeclaredMethod("inferTagCandidates", String.class, String.class);
         method.setAccessible(true);
 
-        String result = (String) method.invoke(createListener(), "total_amount", "订单总金额");
+        @SuppressWarnings("unchecked")
+        List<String> result = (List<String>) method.invoke(createListener(), "total_amount", "订单总金额");
         assertThat(result).contains("业务域.财务");
     }
 
@@ -57,8 +60,9 @@ class GovernanceClosureTest {
         Method method = SnapshotEntitySyncListener.class.getDeclaredMethod("inferTagCandidates", String.class, String.class);
         method.setAccessible(true);
 
-        String result = (String) method.invoke(createListener(), "status", "状态标志");
-        assertThat(result).isEqualTo("[]");
+        @SuppressWarnings("unchecked")
+        List<String> result = (List<String>) method.invoke(createListener(), "status", "状态标志");
+        assertThat(result).isEmpty();
     }
 
     @ParameterizedTest
@@ -77,7 +81,8 @@ class GovernanceClosureTest {
         Method method = SnapshotEntitySyncListener.class.getDeclaredMethod("inferTagCandidates", String.class, String.class);
         method.setAccessible(true);
 
-        String result = (String) method.invoke(createListener(), colName, comment);
+        @SuppressWarnings("unchecked")
+        List<String> result = (List<String>) method.invoke(createListener(), colName, comment);
         assertThat(result).contains(expectedTag);
     }
 

@@ -5,9 +5,10 @@ import com.dataocean.module.system.service.NotificationRecipientResolver;
 import com.dataocean.module.system.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -40,7 +41,7 @@ public class SnapshotPublishedEventListener {
      * @param event 快照发布事件
      */
     @Async
-    @EventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onSnapshotPublished(SnapshotPublishedEvent event) {
         log.info("Snapshot published snapshotId={} datasourceId={} operatorId={}",
                 event.getSnapshotId(), event.getDatasourceId(), event.getOperatorId());
@@ -58,7 +59,7 @@ public class SnapshotPublishedEventListener {
      * @param event 快照过期事件
      */
     @Async
-    @EventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onSnapshotExpired(SnapshotExpiredEvent event) {
         log.info("Snapshot expired snapshotId={} datasourceId={} replacedBySnapshotId={}",
                 event.getSnapshotId(), event.getDatasourceId(), event.getReplacedBySnapshotId());

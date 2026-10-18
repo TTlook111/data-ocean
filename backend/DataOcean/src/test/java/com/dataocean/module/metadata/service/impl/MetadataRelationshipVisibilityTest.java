@@ -1,5 +1,6 @@
 package com.dataocean.module.metadata.service.impl;
 
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
 import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
@@ -11,8 +12,9 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -28,7 +30,7 @@ class MetadataRelationshipVisibilityTest {
     void lineageDropsEdgesWhoseOtherSideIsNotVisible() {
         Fixture fixture = new Fixture();
         // 1 → 2 两端可见；1 → 99 的另一端不可见。
-        when(fixture.mapper.selectLineageByEntityId(1L)).thenReturn(List.of(
+        when(fixture.mapper.selectLineageByEntityKey(1L, MetadataEntity.TYPE_TABLE)).thenReturn(List.of(
                 edge(10L, 1L, 2L), edge(11L, 1L, 99L)));
 
         List<MetadataRelationship> visible = fixture.service.getLineage(1L, List.of(5L));
@@ -42,10 +44,17 @@ class MetadataRelationshipVisibilityTest {
         // 图：1（可见）→ 2（无权）→ 3（可见）。
         // 只过滤返回结果会返回一个孤立的 3；正确行为是不返回 2→3 这条边，也不再继续。
         // 所以可见集合里刻意不含实体 2。
-        when(fixture.entityService.getEntityIdsByDatasourceIds(any())).thenReturn(Set.of(1L, 3L));
-        when(fixture.mapper.selectBySource(eq(1L), isNull())).thenReturn(List.of(lineageEdge(1L, 2L)));
-        when(fixture.mapper.selectBySource(eq(2L), isNull())).thenReturn(List.of(lineageEdge(2L, 3L)));
-        when(fixture.mapper.selectBySource(eq(3L), isNull())).thenReturn(List.of());
+        when(fixture.entityService.getEntityKeysByDatasourceIds(any()))
+                .thenReturn(Set.of("TABLE#1", "TABLE#3"));
+        when(fixture.mapper.selectBySourceAndRelationType(
+                eq(1L), eq(MetadataEntity.TYPE_TABLE), eq(MetadataRelationship.TYPE_LINEAGE)))
+                .thenReturn(List.of(lineageEdge(1L, 2L)));
+        when(fixture.mapper.selectBySourceAndRelationType(
+                eq(2L), eq(MetadataEntity.TYPE_TABLE), eq(MetadataRelationship.TYPE_LINEAGE)))
+                .thenReturn(List.of(lineageEdge(2L, 3L)));
+        when(fixture.mapper.selectBySourceAndRelationType(
+                eq(3L), eq(MetadataEntity.TYPE_TABLE), eq(MetadataRelationship.TYPE_LINEAGE)))
+                .thenReturn(List.of());
 
         List<MetadataRelationship> result = fixture.service.getDownstream(1L, 5, List.of(5L));
 
@@ -55,8 +64,12 @@ class MetadataRelationshipVisibilityTest {
     @Test
     void downstreamReturnsEdgesWithinVisibleScope() {
         Fixture fixture = new Fixture();
-        when(fixture.mapper.selectBySource(eq(1L), isNull())).thenReturn(List.of(lineageEdge(1L, 2L)));
-        when(fixture.mapper.selectBySource(eq(2L), isNull())).thenReturn(List.of());
+        when(fixture.mapper.selectBySourceAndRelationType(
+                eq(1L), eq(MetadataEntity.TYPE_TABLE), eq(MetadataRelationship.TYPE_LINEAGE)))
+                .thenReturn(List.of(lineageEdge(1L, 2L)));
+        when(fixture.mapper.selectBySourceAndRelationType(
+                eq(2L), eq(MetadataEntity.TYPE_TABLE), eq(MetadataRelationship.TYPE_LINEAGE)))
+                .thenReturn(List.of());
 
         List<MetadataRelationship> result = fixture.service.getDownstream(1L, 5, List.of(5L));
 
@@ -64,11 +77,59 @@ class MetadataRelationshipVisibilityTest {
         assertThat(result.get(0).getTargetId()).isEqualTo(2L);
     }
 
+    @Test
+    void sameNumericIdWithDifferentTypeDoesNotMakeEndpointVisible() {
+        Fixture fixture = new Fixture();
+        // 可见集合里有 COLUMN#2，但没有 TABLE#2；边的目标端是 TABLE#2。
+        when(fixture.entityService.getEntityKeysByDatasourceIds(any()))
+                .thenReturn(Set.of("TABLE#1", "COLUMN#2"));
+        when(fixture.mapper.selectBySourceAndRelationType(
+                eq(1L), eq(MetadataEntity.TYPE_TABLE), eq(MetadataRelationship.TYPE_LINEAGE)))
+                .thenReturn(List.of(lineageEdge(1L, 2L)));
+
+        List<MetadataRelationship> result = fixture.service.getDownstream(1L, 5, List.of(5L));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void unboundLineageIsNotUsedAsTraversalBridge() {
+        Fixture fixture = new Fixture();
+        MetadataRelationship edge = lineageEdge(1L, 2L);
+        edge.setRelationMetadata("{\"binding_status\":\"UNBOUND\"}");
+        when(fixture.mapper.selectBySourceAndRelationType(
+                eq(1L), eq(MetadataEntity.TYPE_TABLE), eq(MetadataRelationship.TYPE_LINEAGE)))
+                .thenReturn(List.of(edge));
+
+        List<MetadataRelationship> result = fixture.service.getDownstream(1L, 5, List.of(5L));
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void upsertDeduplicatesByEndpointTypesNotOnlyNumericIds() {
+        Fixture fixture = new Fixture();
+        MetadataRelationship relationship = edge(100L, 1L, 2L);
+        relationship.setRelationType(MetadataRelationship.TYPE_TAGGED_WITH);
+        when(fixture.mapper.selectBetweenTyped(1L, MetadataEntity.TYPE_TABLE,
+                2L, MetadataEntity.TYPE_TABLE, MetadataRelationship.TYPE_TAGGED_WITH))
+                .thenReturn(null);
+
+        fixture.service.upsert(relationship);
+
+        verify(fixture.mapper).selectBetweenTyped(1L, MetadataEntity.TYPE_TABLE,
+                2L, MetadataEntity.TYPE_TABLE, MetadataRelationship.TYPE_TAGGED_WITH);
+        verify(fixture.mapper, never()).selectBetween(any(), any(), any());
+        verify(fixture.mapper).insert(relationship);
+    }
+
     private static MetadataRelationship edge(Long id, Long source, Long target) {
         MetadataRelationship rel = new MetadataRelationship();
         rel.setId(id);
         rel.setSourceId(source);
+        rel.setSourceType(MetadataEntity.TYPE_TABLE);
         rel.setTargetId(target);
+        rel.setTargetType(MetadataEntity.TYPE_TABLE);
         return rel;
     }
 
@@ -87,14 +148,20 @@ class MetadataRelationshipVisibilityTest {
         private static MetadataRelationshipServiceImpl newService(MetadataRelationshipMapper mapper,
                                                                   MetadataEntityService entityService) {
             MetadataRelationshipServiceImpl impl = new MetadataRelationshipServiceImpl(entityService,
+                    mock(com.dataocean.module.metadata.service.SchemaSnapshotService.class),
                     new com.fasterxml.jackson.databind.ObjectMapper());
             org.springframework.test.util.ReflectionTestUtils.setField(impl, "baseMapper", mapper);
             return impl;
         }
 
         {
-            // 可见源 5 只包含实体 1、2、3
-            when(entityService.getEntityIdsByDatasourceIds(any())).thenReturn(Set.of(1L, 2L, 3L));
+            MetadataEntity table = new MetadataEntity();
+            table.setId(1L);
+            table.setEntityType(MetadataEntity.TYPE_TABLE);
+            when(entityService.getById(1L)).thenReturn(table);
+            // 可见源 5 只包含实体 1、2、3（按端点类型 + ID 表示）
+            when(entityService.getEntityKeysByDatasourceIds(any()))
+                    .thenReturn(Set.of("TABLE#1", "TABLE#2", "TABLE#3"));
         }
     }
 }

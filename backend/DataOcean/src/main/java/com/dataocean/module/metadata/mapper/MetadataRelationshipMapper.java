@@ -8,9 +8,6 @@ import org.apache.ibatis.annotations.Select;
 import java.util.Collection;
 import java.util.List;
 
-import java.util.Collection;
-import java.util.List;
-
 /**
  * 统一关系边 Mapper 接口
  *
@@ -40,12 +37,32 @@ public interface MetadataRelationshipMapper extends BaseMapper<MetadataRelations
     List<MetadataRelationship> selectByRelationType(@Param("relationType") String relationType);
 
     /**
-     * 查询两个实体之间的指定类型关系
+     * 查询两个实体之间的指定类型关系。
+     *
+     * <p>保留该方法供历史调用点使用；新代码必须使用
+     * {@link #selectBetweenTyped(Long, String, Long, String, String)}，
+     * 否则数字 ID 相同、类型不同的端点会被误认为同一条关系。</p>
      */
     @Select("SELECT * FROM metadata_relationship WHERE source_id = #{sourceId} AND target_id = #{targetId} AND relation_type = #{relationType} LIMIT 1")
     MetadataRelationship selectBetween(@Param("sourceId") Long sourceId,
                                        @Param("targetId") Long targetId,
                                        @Param("relationType") String relationType);
+
+    /**
+     * 按“源类型 + 源 ID + 目标类型 + 目标 ID + 关系类型”精确查询一条关系。
+     */
+    @Select("""
+            SELECT * FROM metadata_relationship
+            WHERE source_id = #{sourceId} AND source_type = #{sourceType}
+              AND target_id = #{targetId} AND target_type = #{targetType}
+              AND relation_type = #{relationType}
+            LIMIT 1
+            """)
+    MetadataRelationship selectBetweenTyped(@Param("sourceId") Long sourceId,
+                                            @Param("sourceType") String sourceType,
+                                            @Param("targetId") Long targetId,
+                                            @Param("targetType") String targetType,
+                                            @Param("relationType") String relationType);
 
     @Select({
             "<script>",
@@ -64,6 +81,44 @@ public interface MetadataRelationshipMapper extends BaseMapper<MetadataRelations
      */
     @Select("SELECT * FROM metadata_relationship WHERE relation_type = 'LINEAGE' AND (source_id = #{entityId} OR target_id = #{entityId})")
     List<MetadataRelationship> selectLineageByEntityId(@Param("entityId") Long entityId);
+
+    /**
+     * 按实体“类型 + ID”查询 LINEAGE 边。
+     *
+     * <p>同一数字 ID 可能对应不同类型的实体；类型条件保证血缘图不会沿错误端点扩展。</p>
+     */
+    @Select("""
+            SELECT * FROM metadata_relationship
+            WHERE relation_type = 'LINEAGE'
+              AND ((source_id = #{entityId} AND source_type = #{entityType})
+                OR (target_id = #{entityId} AND target_type = #{entityType}))
+            """)
+    List<MetadataRelationship> selectLineageByEntityKey(@Param("entityId") Long entityId,
+                                                        @Param("entityType") String entityType);
+
+    /**
+     * 查询指定实体（类型 + ID）出向的指定关系类型。
+     */
+    @Select("""
+            SELECT * FROM metadata_relationship
+            WHERE source_id = #{entityId} AND source_type = #{entityType}
+              AND relation_type = #{relationType}
+            """)
+    List<MetadataRelationship> selectBySourceAndRelationType(@Param("entityId") Long entityId,
+                                                             @Param("entityType") String entityType,
+                                                             @Param("relationType") String relationType);
+
+    /**
+     * 查询指定实体（类型 + ID）入向的指定关系类型。
+     */
+    @Select("""
+            SELECT * FROM metadata_relationship
+            WHERE target_id = #{entityId} AND target_type = #{entityType}
+              AND relation_type = #{relationType}
+            """)
+    List<MetadataRelationship> selectByTargetAndRelationType(@Param("entityId") Long entityId,
+                                                             @Param("entityType") String entityType,
+                                                             @Param("relationType") String relationType);
 
     /**
      * 批量读取这些术语的 `GLOSSARY_OF` 关系行（含 `source_id` 与 `target_id`）。
