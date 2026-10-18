@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick } from 'vue'
 import { gsap } from 'gsap'
 
 function reduceMotion() {
@@ -12,7 +13,9 @@ function handleBeforeEnter(el: Element) {
 
 function handleEnter(el: Element, done: () => void) {
   if (reduceMotion()) {
-    done()
+    // 不能在钩子内同步调用 done()：out-in 模式下会在同一补丁周期重入渲染，
+    // 抛出 parentNode 空指针并中断过渡，导致登录跳转后页面空白
+    nextTick(done)
     return
   }
   gsap.to(el, {
@@ -27,7 +30,7 @@ function handleEnter(el: Element, done: () => void) {
 
 function handleLeave(el: Element, done: () => void) {
   if (reduceMotion()) {
-    done()
+    nextTick(done)
     return
   }
   gsap.to(el, {
