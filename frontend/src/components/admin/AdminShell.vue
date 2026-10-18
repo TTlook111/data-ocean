@@ -553,6 +553,21 @@ onBeforeUnmount(() => {
 /* 目录页桌面固定表格模式下，底部留白由后台父容器统一收取，避免面板与侧栏底边错位。 */
 .admin-shell .admin-shell__content:has(.assets-page--fixed-catalog) { padding-bottom: 0; }
 
+/*
+ * 对象详情桌面固定模式：外层主内容区停止滚动，页面用父容器实际剩余高度约束正文。
+ * 选择器只在详情页应用固定模式时生效，不影响目录和其他后台页面。
+ */
+.admin-shell .admin-shell__content:has(.entity-detail-page--fixed) {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+.admin-shell .admin-shell__content:has(.entity-detail-page--fixed) > .entity-detail-page--fixed {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 /* 后台账号菜单沿用数据源列表“更多”菜单的排版规范。 */
 .admin-account-actions-popper.el-popper {
   width: 172px;

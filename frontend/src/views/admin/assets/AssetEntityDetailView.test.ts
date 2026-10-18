@@ -119,9 +119,11 @@ const TableStub = defineComponent({
 })
 
 const wrappers: VueWrapper[] = []
+const hosts: HTMLElement[] = []
 
-function mountView() {
+function mountView(attachTo?: HTMLElement) {
   const wrapper = mount(AssetEntityDetailView, {
+    ...(attachTo ? { attachTo } : {}),
     global: {
       stubs: {
         TaskPageHeader: TaskHeaderStub,
@@ -144,6 +146,72 @@ function mountView() {
   })
   wrappers.push(wrapper)
   return wrapper
+}
+
+/** 详情页在真实后台里挂在 .admin-shell__content 内，测试用同样的父容器提供剩余高度。 */
+function mountInShell(clientHeight: number) {
+  const host = document.createElement('div')
+  host.className = 'admin-shell__content'
+  Object.defineProperty(host, 'clientHeight', { configurable: true, get: () => clientHeight })
+  document.body.appendChild(host)
+  hosts.push(host)
+  return { wrapper: mountView(host), host }
+}
+
+function stubDesktopViewport() {
+  vi.spyOn(window, 'matchMedia').mockImplementation(((query: string) => ({
+    matches: true,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })) as unknown as typeof window.matchMedia)
+}
+
+/** 所有稳定区域取同一高度，测试通过改变它模拟长标题、提示增减等真实内容变化。 */
+function stubStableAreaHeight(initial: number) {
+  let height = initial
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({
+    height,
+    width: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  }) as DOMRect)
+  return (next: number) => { height = next }
+}
+
+function fieldsOverview(count: number) {
+  const items: OverviewColumn[] = Array.from({ length: count }, (_, index) => ({
+    entityId: 100 + index,
+    columnMetaId: index + 1,
+    name: `column_${index + 1}`,
+    displayName: `字段 ${index + 1}`,
+    dataType: 'INT',
+    nullable: true,
+    primaryKey: false,
+    comment: '',
+    governanceStatus: 'NORMAL',
+    tableName: 'orders',
+    ordinalPosition: index + 1,
+    usageLimits: [],
+  }))
+  return overview(1, 'orders', {
+    columns: { status: 'OK', items },
+    counts: { columns: count, structureRelations: 0, terms: 0, tags: 0, fieldTags: 0, lineage: 0, downstream: 0 },
+  })
+}
+
+function isFixed(wrapper: VueWrapper) {
+  return wrapper.find('[data-test="entity-detail-page"]').classes()
+    .includes('entity-detail-page--fixed')
 }
 
 function deferred<T>() {
@@ -258,7 +326,9 @@ beforeEach(() => {
 
 afterEach(() => {
   wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+  hosts.splice(0).forEach((host) => host.remove())
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe('asset detail request isolation', () => {
@@ -709,5 +779,141 @@ describe('field governance location', () => {
       path: '/admin/assets/entities/101',
       query: { q: '订单', type: 'TABLE' },
     })
+  })
+})
+
+describe('desktop fixed scrolling layout', () => {
+  it('uses the remaining body height with a fixed table header and visible pagination', async () => {
+    stubDesktopViewport()
+    stubStableAreaHeight(80)
+    const base = fieldsOverview(13)
+    const relation = {
+      id: 1, relationType: 'CONTAINS', direction: 'OUT', sourceType: 'TABLE', sourceId: 1,
+      sourceName: 'orders', targetType: 'COLUMN', targetId: 2, targetName: 'column_1',
+      bindingStatus: 'BOUND',
+    }
+    const lineageItem = {
+      id: 2, relationType: 'LINEAGE', direction: 'UPSTREAM' as const, sourceType: 'TABLE',
+      sourceId: 3, sourceName: 'source_orders', targetType: 'TABLE', targetId: 1,
+      targetName: 'orders', lineageType: 'TABLE', bindingStatus: 'BOUND',
+    }
+    const downstreamItem = { ...lineageItem, id: 3, direction: 'DOWNSTREAM' as const }
+    api.getEntityOverview.mockResolvedValue({
+      data: {
+        ...base,
+        structureRelations: { status: 'OK', items: [relation] },
+        lineage: { status: 'OK', items: [lineageItem] },
+        downstream: { status: 'OK', items: [downstreamItem] },
+      },
+    })
+
+    const { wrapper } = mountInShell(900)
+    await flushPromises()
+    await nextTick()
+    await nextTick()
+
+    expect(isFixed(wrapper)).toBe(true)
+    const fieldsPane = wrapper.find('[data-pane="fields"]')
+    const region = fieldsPane.find('.entity-detail__table-region')
+    expect(region.exists()).toBe(true)
+    // 固定表头依赖 el-table 的 height；自然模式下不设置高度。
+    expect(region.find('.el-table-stub').attributes('height')).toBe('100%')
+    // 有表格的其他 Tab 采用相同规则。
+    for (const name of ['relations', 'lineage', 'downstream']) {
+      expect(wrapper.find(`[data-pane="${name}"] .entity-detail__table-region .el-table-stub`)
+        .attributes('height')).toBe('100%')
+    }
+    // 分页位于表格滚动区域之外，表体滚动时保持可见。
+    expect(region.find('el-pagination-stub').exists()).toBe(false)
+    expect(fieldsPane.find('el-pagination-stub').exists()).toBe(true)
+  })
+
+  it('falls back to natural content scrolling when the remaining height is insufficient', async () => {
+    stubDesktopViewport()
+    stubStableAreaHeight(120)
+    api.getEntityOverview.mockResolvedValue({ data: fieldsOverview(13) })
+
+    const { wrapper } = mountInShell(500)
+    await flushPromises()
+    await nextTick()
+    await nextTick()
+
+    expect(isFixed(wrapper)).toBe(false)
+    expect(wrapper.find('[data-pane="fields"] .el-table-stub').attributes('height')).toBeUndefined()
+  })
+
+  it('re-evaluates after the window or stable content changes and can return to fixed mode', async () => {
+    stubDesktopViewport()
+    const setStableHeight = stubStableAreaHeight(120)
+    api.getEntityOverview.mockResolvedValue({ data: fieldsOverview(2) })
+
+    const { wrapper } = mountInShell(900)
+    await flushPromises()
+    await nextTick()
+    await nextTick()
+    expect(isFixed(wrapper)).toBe(true)
+
+    // 长标题或新增提示把稳定区域撑大，正文空间不足时退出固定模式。
+    setStableHeight(220)
+    window.dispatchEvent(new Event('resize'))
+    await nextTick()
+    await nextTick()
+    expect(isFixed(wrapper)).toBe(false)
+
+    setStableHeight(60)
+    window.dispatchEvent(new Event('resize'))
+    await nextTick()
+    await nextTick()
+    expect(isFixed(wrapper)).toBe(true)
+  })
+
+  it('drops fixed mode when an asynchronous warning grows the stable area', async () => {
+    stubDesktopViewport()
+    stubStableAreaHeight(180)
+    api.getEntityOverview.mockImplementation((id: number) => Promise.resolve({
+      data: id === 1
+        ? overview(1, 'orders')
+        : overview(2, 'orders', { sourceMessage: '来源快照存在差异，结构可能尚未同步。' }),
+    }))
+
+    const { wrapper } = mountInShell(1000)
+    await flushPromises()
+    await nextTick()
+    await nextTick()
+    expect(isFixed(wrapper)).toBe(true)
+
+    holders.route.params.entityId = '2'
+    await nextTick()
+    await flushPromises()
+    await nextTick()
+    await nextTick()
+
+    expect(wrapper.text()).toContain('来源快照存在差异')
+    expect(isFixed(wrapper)).toBe(false)
+  })
+
+  it('disconnects layout observation and listeners when the detail page unmounts', async () => {
+    stubDesktopViewport()
+    const observers: Array<{ disconnect: ReturnType<typeof vi.fn> }> = []
+    class FakeResizeObserver {
+      disconnect = vi.fn()
+      observe = vi.fn()
+      unobserve = vi.fn()
+      constructor(_callback: ResizeObserverCallback) {
+        observers.push(this)
+      }
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
+    api.getEntityOverview.mockResolvedValue({ data: fieldsOverview(2) })
+    const removeListener = vi.spyOn(window, 'removeEventListener')
+
+    const { wrapper } = mountInShell(900)
+    await flushPromises()
+    await nextTick()
+
+    wrapper.unmount()
+    expect(observers.length).toBeGreaterThan(0)
+    observers.forEach((observer) => expect(observer.disconnect).toHaveBeenCalled())
+    expect(removeListener).toHaveBeenCalledWith('resize', expect.any(Function))
   })
 })

@@ -54,6 +54,7 @@ const overview = ref<CatalogEntityOverview | null>(null)
 const columnPage = ref(1)
 const columnPageSize = 12
 const commentExpanded = ref(false)
+const technicalOpen = ref<string[]>([])
 const expandedTerms = ref<Set<number>>(new Set())
 const expandedReasons = ref<Set<number>>(new Set())
 /** 只有实际渲染发生三行截断的术语才显示展开入口。 */
@@ -64,6 +65,15 @@ let termMeasureScheduled = false
 const entityId = computed(() => Number(route.params.entityId))
 let detailRequestId = 0
 let disposed = false
+
+/** 桌面固定模式依赖父容器真实剩余高度，不在样式里写死表格高度。 */
+const pageRoot = ref<HTMLElement | null>(null)
+const fixedLayout = ref(false)
+const FIXED_LAYOUT_MIN_BODY_HEIGHT = 360
+let layoutMedia: MediaQueryList | undefined
+let layoutObserver: ResizeObserver | null = null
+let layoutMeasureScheduled = false
+const observedLayoutTargets = new Set<HTMLElement>()
 
 const isTable = computed(() => overview.value?.entityType === 'TABLE')
 const isColumn = computed(() => overview.value?.entityType === 'COLUMN')
@@ -507,6 +517,99 @@ function scheduleTermMeasure() {
   })
 }
 
+/** 读取 px 数值；计算样式缺失时按 0 处理，不写死版式数字。 */
+function pxValue(value: string | null | undefined) {
+  const parsed = Number.parseFloat(value || '')
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+/** 详情页仍需受后台主内容区的滚动约束，测量以真实父容器为准。 */
+function contentElement(): HTMLElement | null {
+  return pageRoot.value?.closest('.admin-shell__content') as HTMLElement | null
+}
+
+/**
+ * 固定模式下只有活动正文参与伸缩，其余直接子元素（标题、提示、基本信息、技术信息）
+ * 保持自然高度；用这些稳定区域与父容器高度计算正文实际可用空间。
+ */
+function stableAreaHeight(page: HTMLElement) {
+  const children = Array.from(page.children) as HTMLElement[]
+  const style = getComputedStyle(page)
+  const gap = pxValue(style.rowGap || style.gap)
+  let total = 0
+  for (const child of children) {
+    if (child.classList.contains('entity-detail__panel')) continue
+    total += child.getBoundingClientRect().height
+  }
+  return total + gap * Math.max(0, children.length - 1)
+}
+
+function measureAndApplyLayout() {
+  const page = pageRoot.value
+  const content = contentElement()
+  const panel = page?.querySelector('.entity-detail__panel')
+  // 加载、空态和错误态没有可伸缩正文，保持后台自然滚动。
+  const canUseFixed = Boolean(
+    page
+    && content
+    && panel
+    && overview.value
+    && !loading.value
+    && !error.value
+    && (layoutMedia?.matches ?? true),
+  )
+  if (!page || !content || !canUseFixed) {
+    fixedLayout.value = false
+    return
+  }
+  const contentStyle = getComputedStyle(content)
+  const contentHeight = content.clientHeight
+    - pxValue(contentStyle.paddingTop)
+    - pxValue(contentStyle.paddingBottom)
+  const available = contentHeight - stableAreaHeight(page)
+  fixedLayout.value = available >= FIXED_LAYOUT_MIN_BODY_HEIGHT
+}
+
+/** 只增删变化的观察目标，避免重复 observe 触发新的 ResizeObserver 初始回调。 */
+function refreshLayoutTargets() {
+  const observer = layoutObserver
+  if (!observer) return
+  const targets = new Set<HTMLElement>()
+  const content = contentElement()
+  if (content) targets.add(content)
+  const page = pageRoot.value
+  if (page) {
+    for (const child of Array.from(page.children)) {
+      if (!child.classList.contains('entity-detail__panel')) targets.add(child as HTMLElement)
+    }
+  }
+  observedLayoutTargets.forEach((element) => {
+    if (!targets.has(element)) {
+      observer.unobserve(element)
+      observedLayoutTargets.delete(element)
+    }
+  })
+  targets.forEach((element) => {
+    if (!observedLayoutTargets.has(element)) {
+      observer.observe(element)
+      observedLayoutTargets.add(element)
+    }
+  })
+}
+
+function scheduleLayoutMeasure() {
+  if (disposed || layoutMeasureScheduled) return
+  layoutMeasureScheduled = true
+  // 与数据加载共用请求序号：旧对象的延后测量不能改写新对象的布局状态。
+  const requestToken = detailRequestId
+  nextTick(() => {
+    layoutMeasureScheduled = false
+    if (disposed || requestToken !== detailRequestId) return
+    measureAndApplyLayout()
+    refreshLayoutTargets()
+  })
+}
+
 function setTermDefinitionRef(
   termId: number,
   element: Element | ComponentPublicInstance | null,
@@ -723,30 +826,70 @@ watch(() => route.query.tab, () => { requestedTab.value = queryTabValue() })
 watch(activeTab, (tab) => {
   // 术语 Tab 采用懒渲染，进入时元素才出现，需要重新测量。
   if (tab === 'terms') scheduleTermMeasure()
+  scheduleLayoutMeasure()
 })
+// 标题换行、提示增减、基本信息注释展开和技术信息开合都会改变稳定区域高度。
+watch(
+  [
+    loading,
+    error,
+    overview,
+    snapshotWarning,
+    fieldGovernanceUnavailableReason,
+    commentExpanded,
+    technicalOpen,
+  ],
+  () => scheduleLayoutMeasure(),
+)
+
+function handleViewportChange() {
+  scheduleTermMeasure()
+  scheduleLayoutMeasure()
+}
+
 onMounted(() => {
   if (typeof ResizeObserver !== 'undefined') {
     termResizeObserver = new ResizeObserver(() => scheduleTermMeasure())
     termDefinitionElements.forEach((element) => termResizeObserver?.observe(element))
+    layoutObserver = new ResizeObserver(() => scheduleLayoutMeasure())
   }
-  if (typeof window !== 'undefined') window.addEventListener('resize', scheduleTermMeasure)
+  if (typeof window !== 'undefined') {
+    if (typeof window.matchMedia === 'function') {
+      layoutMedia = window.matchMedia('(min-width: 1024px)')
+      layoutMedia.addEventListener('change', scheduleLayoutMeasure)
+    }
+    window.addEventListener('resize', handleViewportChange)
+  }
   iamS1.load().catch(() => {
     // 能力摘要失败时只影响写入按钮可见性，不影响详情阅读；后端仍是最终安全边界。
   })
   load()
+  scheduleLayoutMeasure()
 })
 onBeforeUnmount(() => {
   disposed = true
   detailRequestId++
   termResizeObserver?.disconnect()
   termResizeObserver = null
-  if (typeof window !== 'undefined') window.removeEventListener('resize', scheduleTermMeasure)
+  layoutObserver?.disconnect()
+  layoutObserver = null
+  observedLayoutTargets.clear()
+  if (typeof window !== 'undefined') {
+    layoutMedia?.removeEventListener('change', scheduleLayoutMeasure)
+    layoutMedia = undefined
+    window.removeEventListener('resize', handleViewportChange)
+  }
   termDefinitionElements.clear()
 })
 </script>
 
 <template>
-  <div class="admin-page entity-detail-page">
+  <div
+    ref="pageRoot"
+    class="admin-page entity-detail-page"
+    :class="{ 'entity-detail-page--fixed': fixedLayout }"
+    data-test="entity-detail-page"
+  >
     <TaskPageHeader
       :title="primaryName"
       :help="isTable ? '表详情展示所在位置、字段结构、业务术语、标签与治理、所属关系及影响范围。' : '字段详情展示所属位置、原始注释、业务术语、标签与治理、使用限制及影响范围。'"
@@ -873,7 +1016,7 @@ onBeforeUnmount(() => {
               </span>
             </template>
 
-            <div v-if="tab.key === 'fields'" class="entity-detail__pane">
+            <div v-if="tab.key === 'fields'" class="entity-detail__pane entity-detail__pane--table">
               <el-alert
                 v-if="sectionUnavailable(overview.columns)"
                 :type="sectionAlertType(overview.columns.status)"
@@ -881,7 +1024,8 @@ onBeforeUnmount(() => {
                 :title="overview.columns.message || '字段列表来源不可用'"
               />
               <template v-else-if="columnItems.length">
-                <el-table :data="pagedColumns" size="small">
+                <div class="entity-detail__table-region">
+                  <el-table :data="pagedColumns" size="small" :height="fixedLayout ? '100%' : undefined">
                   <el-table-column label="字段" min-width="240">
                     <template #default="{ row }">
                       <div class="entity-detail__field-name">
@@ -920,7 +1064,8 @@ onBeforeUnmount(() => {
                       <el-button link type="primary" :icon="ArrowRight" :disabled="!row.entityId" @click="openColumn(row)">查看字段</el-button>
                     </template>
                   </el-table-column>
-                </el-table>
+                  </el-table>
+                </div>
                 <el-pagination
                   v-if="columnItems.length > columnPageSize"
                   v-model:current-page="columnPage"
@@ -938,7 +1083,7 @@ onBeforeUnmount(() => {
               />
             </div>
 
-            <div v-else-if="tab.key === 'terms'" class="entity-detail__pane">
+            <div v-else-if="tab.key === 'terms'" class="entity-detail__pane entity-detail__pane--scroll">
               <el-alert
                 v-if="sectionUnavailable(overview.terms)"
                 :type="sectionAlertType(overview.terms.status)"
@@ -1022,7 +1167,7 @@ onBeforeUnmount(() => {
               />
             </div>
 
-            <div v-else-if="tab.key === 'tags'" class="entity-detail__pane">
+            <div v-else-if="tab.key === 'tags'" class="entity-detail__pane entity-detail__pane--scroll">
               <section class="entity-detail__subsection">
                 <div class="entity-detail__subhead">
                   <h3>目录标签</h3>
@@ -1133,18 +1278,19 @@ onBeforeUnmount(() => {
               <p class="entity-detail__hint">标签用于分类与提示，不等同于权限、治理状态或已生效的脱敏策略。</p>
             </div>
 
-            <div v-else-if="tab.key === 'relations'" class="entity-detail__pane">
+            <div v-else-if="tab.key === 'relations'" class="entity-detail__pane entity-detail__pane--table">
               <el-alert
                 v-if="sectionUnavailable(overview.structureRelations)"
                 :type="sectionAlertType(overview.structureRelations.status)"
                 :closable="false"
                 :title="overview.structureRelations.message || '所属关系读取失败'"
               />
-              <el-table
-                v-else-if="overview.structureRelations.items.length"
-                :data="overview.structureRelations.items"
-                size="small"
-              >
+              <div v-else-if="overview.structureRelations.items.length" class="entity-detail__table-region">
+                <el-table
+                  :data="overview.structureRelations.items"
+                  size="small"
+                  :height="fixedLayout ? '100%' : undefined"
+                >
                 <el-table-column label="关系" width="110">
                   <template #default="{ row }">{{ structureRelationLabel(row) }}</template>
                 </el-table-column>
@@ -1159,21 +1305,27 @@ onBeforeUnmount(() => {
                     >{{ bindingStatusLabel(row.bindingStatus) }}</span>
                   </template>
                 </el-table-column>
-              </el-table>
+                </el-table>
+              </div>
               <template v-else>
                 <EmptyState class="entity-detail__empty" message="暂无已记录的所属或引用关系。" />
                 <p class="entity-detail__hint">关系记录来自当前结构与人工关联，没有记录不代表对象没有关联。</p>
               </template>
             </div>
 
-            <div v-else-if="tab.key === 'lineage'" class="entity-detail__pane">
+            <div v-else-if="tab.key === 'lineage'" class="entity-detail__pane entity-detail__pane--table">
               <el-alert
                 v-if="sectionUnavailable(overview.lineage)"
                 :type="sectionAlertType(overview.lineage.status)"
                 :closable="false"
                 :title="overview.lineage.message || '血缘读取失败'"
               />
-              <el-table v-else-if="overview.lineage.items.length" :data="overview.lineage.items" size="small">
+              <div v-else-if="overview.lineage.items.length" class="entity-detail__table-region">
+                <el-table
+                  :data="overview.lineage.items"
+                  size="small"
+                  :height="fixedLayout ? '100%' : undefined"
+                >
                 <el-table-column label="方向" width="80">
                   <template #default="{ row }">{{ lineageDirectionLabel(row) }}</template>
                 </el-table-column>
@@ -1191,21 +1343,27 @@ onBeforeUnmount(() => {
                     >{{ bindingStatusLabel(row.bindingStatus) }}</span>
                   </template>
                 </el-table-column>
-              </el-table>
+                </el-table>
+              </div>
               <template v-else>
                 <EmptyState class="entity-detail__empty" message="暂无已记录血缘。" />
                 <p class="entity-detail__hint">没有记录不代表已经证明该对象没有业务影响。</p>
               </template>
             </div>
 
-            <div v-else-if="tab.key === 'downstream'" class="entity-detail__pane">
+            <div v-else-if="tab.key === 'downstream'" class="entity-detail__pane entity-detail__pane--table">
               <el-alert
                 v-if="sectionUnavailable(overview.downstream)"
                 :type="sectionAlertType(overview.downstream.status)"
                 :closable="false"
                 :title="overview.downstream.message || '下游影响读取失败'"
               />
-              <el-table v-else-if="overview.downstream.items.length" :data="overview.downstream.items" size="small">
+              <div v-else-if="overview.downstream.items.length" class="entity-detail__table-region">
+                <el-table
+                  :data="overview.downstream.items"
+                  size="small"
+                  :height="fixedLayout ? '100%' : undefined"
+                >
                 <el-table-column label="类型" width="120">
                   <template #default="{ row }">{{ lineageDisplayType(row) }}</template>
                 </el-table-column>
@@ -1223,7 +1381,8 @@ onBeforeUnmount(() => {
                     >{{ bindingStatusLabel(row.bindingStatus) }}</span>
                   </template>
                 </el-table-column>
-              </el-table>
+                </el-table>
+              </div>
               <template v-else>
                 <EmptyState class="entity-detail__empty" message="暂无已记录的下游影响。" />
                 <p class="entity-detail__hint">未记录下游边不代表已经证明该对象没有影响。</p>
@@ -1234,7 +1393,7 @@ onBeforeUnmount(() => {
       </section>
 
       <section class="entity-detail__technical">
-        <el-collapse>
+        <el-collapse v-model="technicalOpen">
           <el-collapse-item name="technical">
             <template #title><Info :size="15" />技术标识与原始元数据</template>
             <dl class="entity-detail__technical-list">
@@ -1442,6 +1601,64 @@ onBeforeUnmount(() => {
 .entity-detail__tab-count--zero { background: transparent; opacity: .65; }
 .entity-detail__tab-state { color: var(--do-muted); font-size: 11px; }
 .entity-detail__pane { min-width: 0; display: grid; gap: 12px; }
+.entity-detail__table-region { min-width: 0; min-height: 0; }
+
+/*
+ * 桌面固定模式：页面高度取自后台主内容区，标题、提示、基本信息和 Tab 不移动，
+ * 只有活动正文滚动。表格正文由 el-table 自己滚动，分页留在表格外保持可见；
+ * 非表格 Tab 只让当前正文容器滚动，避免与外层同时出现纵向滚动条。
+ */
+.entity-detail-page--fixed {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+.entity-detail-page--fixed > * { flex: 0 0 auto; }
+.entity-detail-page--fixed > .entity-detail__panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.entity-detail-page--fixed .entity-detail__tabs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.entity-detail-page--fixed .entity-detail__tabs :deep(.el-tabs__header) { flex: 0 0 auto; }
+.entity-detail-page--fixed .entity-detail__tabs :deep(.el-tabs__content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.entity-detail-page--fixed .entity-detail__tabs :deep(.el-tab-pane) {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+.entity-detail-page--fixed .entity-detail__pane { height: 100%; min-height: 0; }
+.entity-detail-page--fixed .entity-detail__pane--table {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+.entity-detail-page--fixed .entity-detail__pane--table > :not(.entity-detail__table-region) {
+  flex: 0 0 auto;
+}
+.entity-detail-page--fixed .entity-detail__table-region { flex: 1 1 auto; min-height: 0; }
+.entity-detail-page--fixed .entity-detail__pane--table :deep(.el-table) { height: 100%; }
+.entity-detail-page--fixed .entity-detail__pane--scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
 
 .entity-detail__pane :deep(.el-table) {
   --el-table-bg-color: transparent;
