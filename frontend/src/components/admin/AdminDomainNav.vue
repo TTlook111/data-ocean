@@ -78,7 +78,7 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
         :aria-controls="domainWorkspaces(domain.key).length && !props.collapsed ? `admin-workspaces-${domain.key}` : undefined"
         @click="emit('navigate'); expandCollapsedNavigation()"
       >
-        <component :is="domain.icon" :size="21" aria-hidden="true" />
+        <component :is="domain.icon" :size="19" aria-hidden="true" />
         <span v-if="!props.collapsed">{{ domain.label }}</span>
       </RouterLink>
 
@@ -109,29 +109,31 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-height: 0;
   overflow: auto;
-  padding: 24px 12px;
+  padding: 16px 10px;
 }
 
 .admin-domain-nav__group {
   display: grid;
-  gap: 4px;
+  gap: 3px;
 }
 
 .admin-domain-nav__item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 64px;
+  gap: 10px;
+  min-height: 46px;
   padding: 0 12px;
   border-radius: var(--do-radius-md);
   color: var(--do-ink);
-  font-size: 16px;
+  font-size: 14.5px;
   font-weight: 600;
   transition: background var(--do-transition-fast), color var(--do-transition-fast);
 }
+
+.admin-domain-nav__item > svg { flex: 0 0 auto; }
 
 .admin-domain-nav__item:hover,
 .admin-domain-nav__item.active {
@@ -151,17 +153,17 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 
 .admin-domain-nav__workspace-list {
   display: grid;
-  gap: 3px;
-  margin: 0 0 6px 16px;
-  padding: 4px 0 4px 15px;
+  gap: 2px;
+  margin: 0 0 4px 14px;
+  padding: 3px 0 3px 13px;
   border-left: 1px solid rgba(77, 143, 220, .26);
 }
 
 .admin-domain-nav__workspace-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 36px;
+  gap: 7px;
+  min-height: 34px;
   padding: 0 10px;
   border-radius: var(--do-radius-sm);
   color: var(--do-muted);

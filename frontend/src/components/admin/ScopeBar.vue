@@ -7,7 +7,9 @@ import type { AdminContextMode } from '../../router/adminNavigation'
 import { snapshotStatusLabel } from '../../utils/enumLabels'
 import TitleHelp from './TitleHelp.vue'
 
-const props = defineProps<{ mode: AdminContextMode }>()
+const props = withDefaults(defineProps<{ mode: AdminContextMode; refreshLabel?: string }>(), {
+  refreshLabel: '',
+})
 const route = useRoute()
 const router = useRouter()
 const context = useAdminContextStore()
@@ -17,6 +19,10 @@ let syncing = false
 const showSnapshot = computed(() => props.mode === 'datasource-snapshot')
 const queryDatasourceId = computed(() => Number(route.query.datasourceId) || undefined)
 const querySnapshotId = computed(() => Number(route.query.snapshotId) || undefined)
+const selectedDatasourceLabel = computed(() => {
+  const item = context.datasources.find((datasource) => datasource.id === context.datasourceId)
+  return item ? `${item.name} / ${item.databaseName}` : undefined
+})
 
 async function syncFromUrl() {
   if (syncing) return
@@ -94,6 +100,7 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
         filterable
         clearable
         placeholder="选择数据源"
+        :title="selectedDatasourceLabel"
         @update:model-value="handleDatasourceChange"
       >
         <el-option
@@ -119,7 +126,9 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
           :label="'v' + item.snapshotVersion + ' · ' + snapshotStatusLabel(item.status)"
         />
       </el-select>
-      <el-button :icon="RefreshCw" :loading="context.loading" aria-label="刷新范围" @click="context.refresh" />
+      <el-button :icon="RefreshCw" :loading="context.loading" :aria-label="refreshLabel || '刷新范围'" @click="context.refresh">
+        <span v-if="refreshLabel">{{ refreshLabel }}</span>
+      </el-button>
     </div>
 
     <p v-if="invalidContext" class="scope-bar__warning">{{ invalidContext }}</p>

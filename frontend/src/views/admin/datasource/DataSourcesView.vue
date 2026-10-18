@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
-import { ChevronDown, Database, Pencil, PlugZap, RefreshCw, Search, Trash2 } from 'lucide-vue-next'
+import { Ban, ChevronDown, CircleCheck, Database, Pencil, PlugZap, RefreshCw, Search, Trash2 } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import {
   createDatasource,
@@ -35,6 +35,7 @@ const testing = ref(false)
 const editingId = ref<number>()
 const testedOk = ref(false)
 const connectionDirty = ref(false)
+const testError = ref('')
 // 仅保留在当前编辑弹窗内，保存时使用最近一次测试成功的密码。
 // 不写入列表、路由、Store 或持久化存储。
 const lastTestedPassword = ref<string | null>(null)
@@ -86,16 +87,45 @@ const saveHint = computed(() => {
   if (connectionDirty.value) return '连接配置已变化，请重新测试连接'
   return ''
 })
+const testStatusText = computed(() => {
+  if (testing.value) return '正在测试连接…'
+  if (testError.value) return '连接测试失败，请检查配置后重试。'
+  if (connectionDirty.value) return '连接配置已修改，请重新测试连接。'
+  if (testedOk.value) return '连接测试已通过，可以保存。'
+  return '连接测试成功后即可保存。'
+})
+const testStatusTone = computed(() => {
+  if (testing.value) return 'testing'
+  if (testError.value) return 'danger'
+  if (connectionDirty.value) return 'warning'
+  if (testedOk.value) return 'success'
+  return 'muted'
+})
 
 function apiError(error: unknown, fallback: string) {
   const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
   return message || (error instanceof Error ? error.message : fallback)
 }
 
+function sourceLabel(row: DatasourceItem) {
+  return `${row.name} · ${row.dbType} · ${row.databaseName}`
+}
+
+function connectionLabel(row: DatasourceItem) {
+  return `${row.host}:${row.port}`
+}
+
+function healthLabel(status?: string) {
+  if (status === 'HEALTHY') return '连接正常'
+  if (status === 'UNHEALTHY') return '连接异常'
+  return '尚未检测'
+}
+
 function resetForm() {
   editingId.value = undefined
   testedOk.value = false
   connectionDirty.value = false
+  testError.value = ''
   lastTestedPassword.value = null
   Object.assign(form, {
     name: '',
@@ -156,6 +186,7 @@ function openEdit(row: DatasourceItem) {
   editingId.value = row.id
   testedOk.value = true
   connectionDirty.value = false
+  testError.value = ''
   lastTestedPassword.value = null
   Object.assign(form, {
     name: row.name,
@@ -186,6 +217,7 @@ async function testConnection() {
   }
 
   testing.value = true
+  testError.value = ''
   try {
     const result = await testDatasourceConnection({
       host: form.host,
@@ -197,7 +229,7 @@ async function testConnection() {
     })
     if (!result.data.success) {
       testedOk.value = false
-      ElMessage.error('连接失败：' + result.data.message)
+      testError.value = '连接失败：' + result.data.message
       return
     }
     testedOk.value = true
@@ -213,7 +245,7 @@ async function testConnection() {
     ElMessage.success('连接测试成功')
   } catch (cause) {
     testedOk.value = false
-    ElMessage.error(apiError(cause, '连接测试失败，请检查配置'))
+    testError.value = apiError(cause, '连接测试失败，请检查配置')
   } finally {
     testing.value = false
   }
@@ -311,7 +343,10 @@ watch(
       || form.username !== originalConnection.username
       || form.password !== (lastTestedPassword.value ?? '')
     connectionDirty.value = changed
-    if (changed) testedOk.value = false
+    if (changed) {
+      testedOk.value = false
+      testError.value = ''
+    }
   },
 )
 
@@ -334,182 +369,355 @@ onMounted(async () => {
       </template>
     </TaskPageHeader>
 
-    <section class="data-sources-page__filters">
-      <el-input v-model="query.name" clearable placeholder="搜索数据源名称，按 Enter 搜索" aria-label="搜索数据源名称" @clear="query.page = 1; load()" @keyup.enter="query.page = 1; load()"><template #prefix><Search :size="16" aria-hidden="true" /></template></el-input>
-      <el-select v-model="query.status" clearable placeholder="全部状态" @change="query.page = 1; load()">
-        <el-option label="启用" :value="1" />
-        <el-option label="禁用" :value="0" />
-      </el-select>
-      <el-select v-model="query.healthStatus" clearable placeholder="全部连接状态" @change="query.page = 1; load()">
-        <el-option label="连接正常" value="HEALTHY" />
-        <el-option label="连接异常" value="UNHEALTHY" />
-        <el-option label="未检测" value="UNKNOWN" />
-      </el-select>
-      <el-button :icon="RefreshCw" @click="load">刷新</el-button>
-    </section>
+    <section class="data-sources-panel do-glass-panel">
+      <div class="data-sources-panel__toolbar">
+        <el-input
+          v-model="query.name"
+          class="data-sources-panel__search"
+          clearable
+          placeholder="搜索数据源名称，按 Enter 搜索"
+          aria-label="搜索数据源名称"
+          @clear="query.page = 1; load()"
+          @keyup.enter="query.page = 1; load()"
+        ><template #prefix><Search :size="16" aria-hidden="true" /></template></el-input>
+        <el-select v-model="query.status" class="data-sources-panel__filter" clearable placeholder="全部状态" @change="query.page = 1; load()">
+          <el-option label="启用" :value="1" />
+          <el-option label="禁用" :value="0" />
+        </el-select>
+        <el-select v-model="query.healthStatus" class="data-sources-panel__filter" clearable placeholder="全部连接状态" @change="query.page = 1; load()">
+          <el-option label="连接正常" value="HEALTHY" />
+          <el-option label="连接异常" value="UNHEALTHY" />
+          <el-option label="未检测" value="UNKNOWN" />
+        </el-select>
+        <span v-if="!loading && !error" class="data-sources-panel__count">共 {{ total }} 个匹配数据源<span v-if="total > rows.length"> · 本页 {{ rows.length }} 个</span></span>
+        <el-button class="data-sources-panel__refresh" :icon="RefreshCw" @click="load">刷新</el-button>
+      </div>
 
-    <p v-if="!loading && !error" class="data-sources-page__count">共 {{ total }} 个匹配数据源<span v-if="total > rows.length"> · 本页 {{ rows.length }} 个</span></p>
-    <ErrorState v-if="error" :message="error" @retry="load" />
-    <LoadingState v-else-if="loading" variant="skeleton" :rows="6" />
-    <section v-else-if="rows.length" class="data-sources-page__table">
-      <el-table :data="rows">
-        <el-table-column label="数据源" min-width="190">
-          <template #default="{ row }">
-            <div class="source-cell">
-              <strong>{{ row.name }}</strong>
-              <span>{{ row.dbType }} · {{ row.databaseName }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="连接" min-width="180">
-          <template #default="{ row }"><div class="source-cell"><span>{{ row.host }}:{{ row.port }}</span><BusinessStatusBadge :status="row.healthStatus" :label="row.healthStatus === 'HEALTHY' ? '连接正常' : row.healthStatus === 'UNHEALTHY' ? '连接异常' : '尚未检测'" /></div></template>
-        </el-table-column>
-        <el-table-column label="状态" width="120">
-          <template #default="{ row }"><BusinessStatusBadge :status="row.status === 1 ? 'ENABLED' : 'DISABLED'" /></template>
-        </el-table-column>
-        <el-table-column label="准备状态" min-width="160">
-          <template #default="{ row }">
-            <div v-if="readiness[row.id]" class="readiness-cell">
-              <BusinessStatusBadge :status="readiness[row.id]?.askable ? 'PUBLISHED' : readiness[row.id]?.stage" :label="readiness[row.id]?.askable ? '可问数' : readiness[row.id]?.stageLabel" />
-              <span v-if="readiness[row.id]?.blockReasons.length" class="muted">{{ readiness[row.id]?.blockReasons[0]?.message }}</span>
-            </div>
-            <span v-else class="muted">准备情况读取失败，请刷新重试</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="当前快照" width="130"><template #default="{ row }"><span v-if="readiness[row.id]?.snapshotVersion">v{{ readiness[row.id]?.snapshotVersion }} · 已发布</span><span v-else class="muted">{{ readiness[row.id] ? '尚未发布' : '暂不可用' }}</span></template></el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="router.push('/admin/data-sources/' + row.id)">查看详情</el-button>
-            <el-dropdown trigger="click">
-              <el-button link :aria-label="row.name + '的更多操作'">更多<ChevronDown :size="14" aria-hidden="true" /></el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item @click="openEdit(row)"><Pencil :size="14" aria-hidden="true" />编辑数据源</el-dropdown-item>
-                  <el-dropdown-item @click="router.push('/admin/data-sources/' + row.id + '?action=test')"><PlugZap :size="14" aria-hidden="true" />测试连接</el-dropdown-item>
-                  <el-dropdown-item @click="toggleStatus(row)">{{ row.status === 1 ? '禁用数据源' : '启用数据源' }}</el-dropdown-item>
-                  <el-dropdown-item divided @click="remove(row)"><Trash2 :size="14" />删除数据源</el-dropdown-item>
-                </el-dropdown-menu>
+      <ErrorState v-if="error" :message="error" @retry="load" />
+      <LoadingState v-else-if="loading" variant="skeleton" :rows="5" />
+      <template v-else-if="rows.length">
+        <div class="data-sources-panel__table">
+          <el-table :data="rows">
+            <el-table-column label="数据源" min-width="250">
+              <template #default="{ row }">
+                <el-tooltip :content="sourceLabel(row)" placement="top-start" effect="light" :show-after="300" :trigger="['hover', 'focus']" popper-class="data-source-cell-tooltip">
+                  <div class="source-cell" tabindex="0" :aria-label="sourceLabel(row)">
+                    <strong class="notranslate" translate="no">{{ row.name }}</strong>
+                    <span class="source-cell__meta notranslate" translate="no">{{ row.dbType }} · {{ row.databaseName }}</span>
+                  </div>
+                </el-tooltip>
               </template>
-            </el-dropdown>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-pagination
-        v-if="total > (query.pageSize || 20)"
-        v-model:current-page="query.page"
-        v-model:page-size="query.pageSize"
-        class="data-sources-page__pagination"
-        layout="total, sizes, prev, pager, next"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        @current-change="load"
-        @size-change="() => { query.page = 1; load() }"
+            </el-table-column>
+            <el-table-column label="连接" min-width="180">
+              <template #default="{ row }">
+                <div class="connection-cell">
+                  <el-tooltip :content="connectionLabel(row)" placement="top-start" effect="light" :show-after="300" :trigger="['hover', 'focus']" popper-class="data-source-cell-tooltip">
+                    <span class="connection-cell__address" tabindex="0" translate="no" :aria-label="connectionLabel(row)">{{ row.host }}:{{ row.port }}</span>
+                  </el-tooltip>
+                  <BusinessStatusBadge :status="row.healthStatus" :label="healthLabel(row.healthStatus)" />
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="启用状态" width="96">
+              <template #default="{ row }"><BusinessStatusBadge :status="row.status === 1 ? 'ENABLED' : 'DISABLED'" /></template>
+            </el-table-column>
+            <el-table-column label="准备状态" width="140">
+              <template #default="{ row }">
+                <div v-if="readiness[row.id]" class="readiness-cell">
+                  <BusinessStatusBadge :status="readiness[row.id]?.askable ? 'PUBLISHED' : readiness[row.id]?.stage" :label="readiness[row.id]?.askable ? '可问数' : readiness[row.id]?.stageLabel" />
+                  <span v-if="readiness[row.id]?.blockReasons.length" class="readiness-cell__reason">{{ readiness[row.id]?.blockReasons[0]?.message }}</span>
+                </div>
+                <span v-else class="cell-muted">准备情况读取失败，请刷新重试</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="当前快照" width="100">
+              <template #default="{ row }">
+                <span v-if="readiness[row.id]?.snapshotVersion" class="snapshot-cell">v{{ readiness[row.id]?.snapshotVersion }} · 已发布</span>
+                <span v-else class="cell-muted">{{ readiness[row.id] ? '尚未发布' : '暂不可用' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="184" fixed="right">
+              <template #default="{ row }">
+                <div class="row-actions">
+                  <el-button link type="primary" @click="router.push('/admin/data-sources/' + row.id)">查看详情</el-button>
+                  <el-dropdown trigger="click" popper-class="data-source-actions-popper">
+                    <el-button link class="row-actions__more" :aria-label="row.name + '的更多操作'">更多<ChevronDown :size="14" aria-hidden="true" /></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item @click="openEdit(row)"><Pencil :size="17" aria-hidden="true" />编辑数据源</el-dropdown-item>
+                        <el-dropdown-item @click="router.push('/admin/data-sources/' + row.id + '?action=test')"><PlugZap :size="17" aria-hidden="true" />测试连接</el-dropdown-item>
+                        <el-dropdown-item @click="toggleStatus(row)">
+                          <Ban v-if="row.status === 1" :size="17" aria-hidden="true" />
+                          <CircleCheck v-else :size="17" aria-hidden="true" />
+                          {{ row.status === 1 ? '禁用数据源' : '启用数据源' }}
+                        </el-dropdown-item>
+                        <el-dropdown-item divided class="data-source-actions__danger" @click="remove(row)"><Trash2 :size="17" aria-hidden="true" />删除数据源</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <div v-if="total > (query.pageSize || 20)" class="data-sources-panel__pagination">
+          <el-pagination
+            v-model:current-page="query.page"
+            v-model:page-size="query.pageSize"
+            layout="total, sizes, prev, pager, next"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="total"
+            @current-change="load"
+            @size-change="() => { query.page = 1; load() }"
+          />
+        </div>
+      </template>
+      <EmptyState
+        v-else
+        :message="query.name || query.status !== undefined || query.healthStatus ? '当前筛选条件下没有匹配的数据源。' : '还没有数据源，请先完成连接测试并创建一个数据源。'"
+        :action-text="query.name || query.status !== undefined || query.healthStatus ? '' : '新增数据源'"
+        @action="openCreate"
       />
     </section>
-    <EmptyState
-      v-else
-      :message="query.name || query.status !== undefined || query.healthStatus ? '当前筛选条件下没有匹配的数据源。' : '还没有数据源，请先完成连接测试并创建一个数据源。'"
-      :action-text="query.name || query.status !== undefined || query.healthStatus ? '' : '新增数据源'"
-      @action="openCreate"
-    />
 
-    <el-dialog v-model="dialogVisible" :title="editingId ? '编辑数据源' : '新增数据源'" width="720px" @closed="resetForm">
-      <el-alert
-        title="连接测试是保存门禁"
-        description="新建数据源必须测试连接成功后才能保存；编辑时修改连接配置也需要重新测试。"
-        type="info"
-        :closable="false"
-        show-icon
-      />
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px" class="data-source-form">
-        <el-form-item label="名称" prop="name"><el-input v-model="form.name" placeholder="例如：生产订单库" /></el-form-item>
-        <el-form-item label="说明" prop="description"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item>
-        <el-divider content-position="left">连接配置</el-divider>
-        <el-form-item label="主机" prop="host"><el-input v-model="form.host" placeholder="127.0.0.1 或数据库域名" /></el-form-item>
-        <el-form-item label="端口" prop="port"><el-input-number v-model="form.port" :min="1" :max="65535" controls-position="right" /></el-form-item>
-        <el-form-item label="数据库" prop="databaseName"><el-input v-model="form.databaseName" /></el-form-item>
-        <el-form-item label="字符集" prop="charset"><el-select v-model="form.charset"><el-option v-for="item in ['utf8mb4', 'utf8', 'latin1', 'gbk']" :key="item" :label="item" :value="item" /></el-select></el-form-item>
-        <el-form-item label="只读账号" prop="username"><el-input v-model="form.username" /></el-form-item>
-        <el-form-item label="密码" prop="password"><el-input v-model="form.password" type="password" show-password :placeholder="editingId ? '留空则沿用原密码' : '请输入密码'" /></el-form-item>
-        <el-form-item>
-          <el-button :loading="testing" :icon="PlugZap" @click="testConnection">测试连接</el-button>
-          <span v-if="canSave" class="form-success">连接已测试，可以保存</span>
-          <span v-else class="form-hint">{{ saveHint }}</span>
-        </el-form-item>
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editingId ? '编辑数据源' : '新增数据源'"
+      class="data-source-dialog"
+      width="760px"
+      top="6vh"
+      @closed="resetForm"
+    >
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="data-source-form">
+        <section class="data-source-dialog__section">
+          <h3 class="data-source-dialog__section-title">基本信息</h3>
+          <div class="data-source-dialog__stack">
+            <el-form-item label="名称" prop="name"><el-input v-model="form.name" placeholder="例如：生产订单库" /></el-form-item>
+            <el-form-item label="说明" prop="description"><el-input v-model="form.description" type="textarea" :rows="2" placeholder="选填，简要说明这个数据源的用途" /></el-form-item>
+          </div>
+        </section>
+
+        <section class="data-source-dialog__section">
+          <h3 class="data-source-dialog__section-title">连接配置</h3>
+          <div class="data-source-dialog__row data-source-dialog__row--main">
+            <el-form-item label="主机" prop="host"><el-input v-model="form.host" placeholder="127.0.0.1 或数据库域名" /></el-form-item>
+            <el-form-item label="端口" prop="port"><el-input-number v-model="form.port" class="data-source-dialog__port" :min="1" :max="65535" controls-position="right" /></el-form-item>
+            <el-form-item label="数据库" prop="databaseName"><el-input v-model="form.databaseName" /></el-form-item>
+            <el-form-item label="字符集" prop="charset"><el-select v-model="form.charset"><el-option v-for="item in ['utf8mb4', 'utf8', 'latin1', 'gbk']" :key="item" :label="item" :value="item" /></el-select></el-form-item>
+          </div>
+        </section>
+
+        <section class="data-source-dialog__section">
+          <h3 class="data-source-dialog__section-title">访问凭据</h3>
+          <div class="data-source-dialog__row data-source-dialog__row--credentials">
+            <el-form-item label="只读账号" prop="username"><el-input v-model="form.username" /></el-form-item>
+            <el-form-item label="密码" prop="password"><el-input v-model="form.password" type="password" show-password :placeholder="editingId ? '留空则沿用原密码' : '请输入密码'" /></el-form-item>
+          </div>
+        </section>
+
+        <p v-if="testError" class="data-source-dialog__test-error" role="alert">{{ testError }}</p>
       </el-form>
+
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" :disabled="!canSave" @click="save">保存并进入下一步</el-button>
+        <div class="data-source-dialog__footer">
+          <div class="data-source-dialog__test">
+            <el-button :loading="testing" :icon="PlugZap" @click="testConnection">测试连接</el-button>
+            <span class="data-source-dialog__test-status" :class="`is-${testStatusTone}`" role="status" aria-live="polite">{{ testStatusText }}</span>
+          </div>
+          <div class="data-source-dialog__footer-actions">
+            <el-button @click="dialogVisible = false">取消</el-button>
+            <el-button type="primary" :loading="saving" :disabled="!canSave" @click="save">{{ editingId ? '保存' : '保存并查看详情' }}</el-button>
+          </div>
+        </div>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <style scoped>
-.data-sources-page__filters {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) 160px 180px auto;
-  gap: 10px;
-  margin-bottom: 16px;
-}
+.data-sources-page :deep(.task-page-header) { align-items: center; margin-bottom: 14px; }
+.data-sources-page :deep(.task-page-header h1) { font-size: clamp(28px, 2.4vw, 32px); line-height: 1.2; letter-spacing: -.025em; }
 
-.data-sources-page__table {
-  padding: 16px;
-  border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-lg);
-  background: var(--do-surface);
-}
-.data-sources-page__count { margin: 24px 0 16px; color: var(--do-muted); font-size: 14px; }
-.data-sources-page__table :deep(.el-table .cell) { padding-block: 12px; }
-.data-sources-page__table :deep(.el-table th.el-table__cell) { background: var(--do-surface); color: var(--do-muted); font-weight: 500; }
-.source-cell { justify-items: start; }
-@media (max-width: 1100px) { .data-sources-page__filters { grid-template-columns: minmax(160px, 1fr) 160px; } }
-@media (max-width: 760px) { .data-sources-page__filters { grid-template-columns: minmax(0, 1fr); } }
+.data-sources-panel { min-width: 0; padding: 0; overflow: hidden; border-color: var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-glass-panel-bg); box-shadow: var(--do-shadow); }
+.data-sources-panel__toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--do-line); }
+.data-sources-panel__search { flex: 1 1 280px; min-width: 200px; max-width: 360px; }
+.data-sources-panel__filter { flex: 0 1 160px; min-width: 140px; }
+.data-sources-panel__toolbar :deep(.el-input__wrapper),
+.data-sources-panel__toolbar :deep(.el-select__wrapper) { min-height: 36px; }
+.data-sources-panel__toolbar :deep(.el-input__inner),
+.data-sources-panel__toolbar :deep(.el-select__selected-item) { font-size: 13px; }
+.data-sources-panel__count { margin-left: auto; color: var(--do-muted); font-size: 12px; white-space: nowrap; }
+.data-sources-panel__refresh.el-button { flex: 0 0 auto; height: 36px; }
 
-.source-cell,
-.readiness-cell {
-  display: grid;
-  gap: 4px;
-}
-
-.source-cell strong {
+.data-sources-panel__table { min-width: 0; }
+.data-sources-panel :deep(.el-table) {
+  --el-table-bg-color: var(--do-surface);
+  --el-table-tr-bg-color: var(--do-surface);
+  --el-table-header-bg-color: var(--do-soft);
+  --el-table-border-color: var(--do-line);
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--do-primary) 5%, var(--do-surface));
   color: var(--do-ink);
 }
+.data-sources-panel :deep(.el-table::before),
+.data-sources-panel :deep(.el-table__inner-wrapper::before) { display: none; }
+.data-sources-panel :deep(.el-table th.el-table__cell) { height: 42px; padding: 0; background: var(--do-soft); color: var(--do-muted); font-size: 12px; font-weight: 600; }
+.data-sources-panel :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 42px; }
+.data-sources-panel :deep(.el-table td.el-table__cell) { padding: 13px 0; vertical-align: middle; border-bottom-color: var(--do-line); }
+.data-sources-panel :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.45; }
+.data-sources-panel :deep(.el-table th.el-table__cell:first-child .cell),
+.data-sources-panel :deep(.el-table td.el-table__cell:first-child .cell) { padding-left: 16px; }
+.data-sources-panel :deep(.el-table th.el-table__cell:last-child .cell),
+.data-sources-panel :deep(.el-table td.el-table__cell:last-child .cell) { padding-right: 16px; }
+.data-sources-panel :deep(.el-table__body tr:last-child td.el-table__cell) { border-bottom: 0; }
 
-.source-cell span,
-.muted,
-.form-hint {
+.source-cell { min-width: 0; min-height: 46px; display: grid; align-content: center; justify-items: start; gap: 4px; border-radius: 6px; outline: none; }
+.source-cell:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 2px; }
+.source-cell strong, .source-cell__meta { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-cell strong { color: var(--do-ink); font-size: 14px; font-weight: 650; }
+.source-cell__meta { color: var(--do-muted); font-size: 12px; }
+
+.connection-cell { min-width: 0; min-height: 46px; display: grid; align-content: center; justify-items: start; gap: 4px; }
+.connection-cell__address { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 6px; outline: none; color: var(--do-ink); font-size: 12.5px; }
+.connection-cell__address:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 2px; }
+.connection-cell :deep(.business-status-badge) { min-height: auto; padding: 0; gap: 5px; background: transparent; font-size: 12px; font-weight: 500; }
+
+.readiness-cell { min-width: 0; display: grid; align-content: center; justify-items: start; gap: 4px; }
+.readiness-cell :deep(.business-status-badge) { justify-self: start; width: fit-content; max-width: 100%; }
+.readiness-cell__reason { color: var(--do-muted); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.snapshot-cell { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--do-ink); font-size: 12px; }
+.cell-muted { color: var(--do-muted); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.row-actions { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+.row-actions__more.el-button { padding: 3px 6px; border-radius: 6px; color: var(--do-ink); font-weight: 600; }
+.row-actions__more.el-button:hover:not(.is-disabled) { color: var(--do-primary-strong); background: var(--do-primary-soft); }
+.row-actions__more.el-button.is-disabled,
+.row-actions__more.el-button:disabled { color: var(--do-muted); background: transparent; opacity: .6; cursor: not-allowed; }
+
+.data-sources-panel__pagination { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--do-line); background: var(--do-surface); }
+.data-sources-panel__pagination :deep(.el-pagination) { flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
+
+
+@media (max-width: 900px) {
+  .data-sources-panel__toolbar { padding: 10px 12px; gap: 8px; }
+  .data-sources-panel__search { flex: 1 1 100%; max-width: none; }
+  .data-sources-panel__filter { flex: 1 1 140px; }
+  .data-sources-panel__count { margin-left: 0; }
+  .data-sources-panel__refresh { margin-left: auto; }
+}
+</style>
+
+<style>
+.data-source-cell-tooltip.el-popper.el-tooltip__popper {
+  max-width: min(360px, calc(100vw - 24px));
+  border-color: var(--do-line);
+  color: var(--do-ink);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.data-source-actions-popper.el-popper {
+  width: 172px;
+  min-width: 172px;
+  max-width: calc(100vw - 24px);
+  padding: 0;
+  border-color: var(--do-line);
+  border-radius: var(--do-radius-md);
+  background: rgba(255, 255, 255, .99);
+  box-shadow: var(--do-shadow-lg);
+}
+.data-source-actions-popper .el-popper__arrow::before { border-color: var(--do-line); background: #fff; }
+.data-source-actions-popper .el-dropdown-menu { padding: 6px; background: transparent; }
+.data-source-actions-popper .el-dropdown-menu__item {
+  min-height: 38px;
+  padding: 0 12px;
+  gap: 8px;
+  border-radius: 7px;
+  color: var(--do-ink);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.data-source-actions-popper .el-dropdown-menu__item > svg { flex: 0 0 auto; width: 17px; height: 17px; }
+.data-source-actions-popper .el-dropdown-menu__item:not(.is-disabled):hover,
+.data-source-actions-popper .el-dropdown-menu__item:not(.is-disabled):focus {
+  color: var(--do-primary-strong);
+  background: var(--do-primary-soft);
+}
+.data-source-actions-popper .el-dropdown-menu__item--divided { margin: 6px 0 0; border-top-color: var(--do-line); }
+.data-source-actions-popper .el-dropdown-menu__item.data-source-actions__danger { color: var(--do-danger); }
+.data-source-actions-popper .el-dropdown-menu__item.data-source-actions__danger:not(.is-disabled):hover,
+.data-source-actions-popper .el-dropdown-menu__item.data-source-actions__danger:not(.is-disabled):focus {
+  color: var(--do-danger);
+  background: var(--do-danger-soft);
+}
+.data-source-actions-popper .el-dropdown-menu__item.is-disabled {
   color: var(--do-muted);
+  background: transparent;
+  opacity: .6;
+  cursor: not-allowed;
+}
+
+.el-dialog.data-source-dialog,
+.data-source-dialog .el-dialog { max-width: calc(100vw - 32px); overflow: hidden; border-radius: var(--do-radius-lg); }
+.data-source-dialog .el-dialog__header { padding: 16px 20px 12px; margin-right: 0; }
+.data-source-dialog .el-dialog__body { max-height: calc(100vh - 250px); max-height: calc(100dvh - 250px); padding: 4px 20px 12px; overflow-y: auto; }
+.data-source-dialog .el-dialog__footer { padding: 12px 20px 14px; border-top: 1px solid var(--do-line); background: rgba(255, 255, 255, .6); }
+.data-source-dialog .el-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 30%, transparent); outline-offset: 2px; }
+
+.data-source-form { display: grid; gap: 14px; }
+.data-source-dialog__section { display: grid; gap: 8px; }
+.data-source-dialog__section-title { margin: 0; padding-bottom: 6px; border-bottom: 1px solid var(--do-line); color: var(--do-ink); font-size: 13px; font-weight: 700; }
+.data-source-dialog__stack { display: grid; gap: 12px; }
+.data-source-dialog__row { display: grid; gap: 12px 16px; }
+.data-source-dialog__row--main { grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); }
+.data-source-dialog__row--credentials { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.data-source-form .el-form-item { margin-bottom: 0; }
+.data-source-form .el-form-item__label { padding-bottom: 6px; color: var(--do-muted); font-size: 13px; line-height: 1.4; }
+.data-source-form .el-form-item__error { padding-top: 3px; font-size: 11.5px; line-height: 1.4; }
+.data-source-form .el-input__wrapper,
+.data-source-form .el-select__wrapper { min-height: 36px; }
+.data-source-form .el-input__inner,
+.data-source-form .el-select__selected-item,
+.data-source-form .el-textarea__inner { font-size: 13.5px; }
+.data-source-form .el-textarea__inner { line-height: 1.6; }
+.data-source-form .el-input,
+.data-source-form .el-select,
+.data-source-form .el-input-number { width: 100%; }
+.data-source-dialog__port .el-input__inner { text-align: left; }
+
+.data-source-dialog__test-error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--do-danger) 24%, var(--do-line));
+  border-radius: var(--do-radius-sm);
+  color: var(--do-danger);
+  background: var(--do-danger-soft);
   font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
-.readiness-cell :deep(.el-progress) {
-  width: 150px;
-}
+.data-source-dialog__footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; }
+.data-source-dialog__test { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.data-source-dialog__test-status { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.data-source-dialog__test-status.is-muted { color: var(--do-muted); }
+.data-source-dialog__test-status.is-testing { color: var(--do-primary-strong); }
+.data-source-dialog__test-status.is-success { color: var(--do-success); }
+.data-source-dialog__test-status.is-warning { color: color-mix(in srgb, var(--do-warning) 68%, var(--do-ink)); }
+.data-source-dialog__test-status.is-danger { color: var(--do-danger); }
+.data-source-dialog__footer-actions { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.data-source-dialog__footer .el-button { min-height: 36px; }
 
-.data-sources-page__pagination {
-  justify-content: flex-end;
-  margin-top: 16px;
+@media (max-width: 720px) {
+  .data-source-dialog__row--main,
+  .data-source-dialog__row--credentials { grid-template-columns: minmax(0, 1fr); }
+  .data-source-dialog .el-dialog__body { max-height: calc(100vh - 280px); max-height: calc(100dvh - 280px); }
+  .data-source-dialog__footer { align-items: stretch; }
+  .data-source-dialog__test,
+  .data-source-dialog__footer-actions { width: 100%; }
+  .data-source-dialog__footer-actions { margin-left: 0; justify-content: flex-end; }
 }
-
-.data-source-form {
-  margin-top: 18px;
-}
-
-.data-source-form :deep(.el-input),
-.data-source-form :deep(.el-select),
-.data-source-form :deep(.el-input-number) {
-  width: 100%;
-}
-
-.form-success {
-  margin-left: 10px;
-  color: var(--do-success);
-  font-size: 12px;
-}
-
-.form-hint {
-  margin-left: 10px;
-}
-
 </style>

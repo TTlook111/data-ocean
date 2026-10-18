@@ -3,9 +3,14 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Clock, RefreshCw } from 'lucide-vue-next'
 import { getSyncSchedule, updateSyncSchedule, type SyncScheduleInfo } from '../../../api/admin/system'
+import ErrorState from '../../../components/common/ErrorState.vue'
 
 const loading = ref(false)
 const saving = ref(false)
+const loaded = ref(false)
+const loadError = ref('')
+const savedCron = ref('')
+const savedEnabled = ref(false)
 
 const schedule = reactive<SyncScheduleInfo>({
   cron: '0 0 2 * * ?',
@@ -36,6 +41,9 @@ const weekDays = [
   { label: '周日', value: 0 }
 ]
 
+const isDirty = computed(() => loaded.value && (buildCron() !== savedCron.value || schedule.enabled !== savedEnabled.value))
+const runningText = computed(() => schedule.running ? '自动同步执行中' : '自动同步当前未执行')
+
 const cronDescription = computed(() => {
   if (presetMode.value === 'daily') {
     return `每天 ${dailyTime.value} 执行`
@@ -44,6 +52,18 @@ const cronDescription = computed(() => {
     return `每${day?.label} ${weeklyTime.value} 执行`
   }
   return `自定义表达式: ${customCron.value}`
+})
+
+const previewState = computed(() => {
+  if (isDirty.value) return schedule.enabled ? '当前设置 · 保存后生效' : '当前设置 · 保存后关闭'
+  if (!schedule.enabled) return '已保存配置 · 当前未启用'
+  return '已保存配置'
+})
+const previewText = computed(() => {
+  const plan = cronDescription.value
+  if (!schedule.enabled) return `自动同步当前关闭；启用并保存后，才会按「${plan}」生效。`
+  if (isDirty.value) return `当前设置：${plan}。保存后生效。`
+  return `已保存配置：${plan}。`
 })
 
 function buildCron(): string {
@@ -81,22 +101,29 @@ function parseCronToUI(cron: string) {
 
 async function fetchSchedule() {
   loading.value = true
+  loadError.value = ''
   try {
     const res = await getSyncSchedule()
     if (res.data) {
       schedule.cron = res.data.cron
       schedule.enabled = res.data.enabled
       schedule.running = res.data.running
+      savedCron.value = res.data.cron
+      savedEnabled.value = res.data.enabled
       parseCronToUI(res.data.cron)
+      loaded.value = true
+    } else {
+      loadError.value = '未读取到同步计划配置，请刷新重试。'
     }
   } catch (e: any) {
-    ElMessage.error('获取调度配置失败')
+    loadError.value = e?.response?.data?.message || e?.message || '获取调度配置失败，请刷新重试。'
   } finally {
     loading.value = false
   }
 }
 
 async function handleSave() {
+  if (saving.value || !loaded.value || loadError.value) return
   const cron = buildCron()
   saving.value = true
   try {
@@ -105,6 +132,9 @@ async function handleSave() {
       schedule.cron = res.data.cron
       schedule.enabled = res.data.enabled
       schedule.running = res.data.running
+      savedCron.value = res.data.cron
+      savedEnabled.value = res.data.enabled
+      parseCronToUI(res.data.cron)
       ElMessage.success('调度配置已更新')
     } else {
       ElMessage.error(res.message || '保存失败')
@@ -121,108 +151,211 @@ onMounted(fetchSchedule)
 
 <template>
   <main class="schedule-page post-login-page" v-loading="loading">
-    <section class="page-actions">
-      <el-button :icon="RefreshCw" @click="fetchSchedule">刷新</el-button>
-    </section>
-
     <section class="config-card">
-      <div class="config-row">
-        <label>启用自动同步</label>
-        <div class="config-control">
-          <el-switch v-model="schedule.enabled" />
-          <el-tag v-if="schedule.running" type="success" size="small" style="margin-left: 12px">运行中</el-tag>
-          <el-tag v-else type="info" size="small" style="margin-left: 12px">未运行</el-tag>
+      <div class="config-header">
+        <div class="config-scope">
+          <el-tag type="info" effect="plain" round>全局配置</el-tag>
+          <span>作用于全部数据源</span>
         </div>
+        <el-button :icon="RefreshCw" @click="fetchSchedule">刷新配置</el-button>
       </div>
 
-      <div class="config-row">
-        <label>同步频率</label>
-        <div class="config-control">
-          <el-radio-group v-model="presetMode">
-            <el-radio-button v-for="opt in presetOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </el-radio-button>
-          </el-radio-group>
-        </div>
-      </div>
+      <ErrorState v-if="!loaded && loadError" :message="loadError" @retry="fetchSchedule" />
+      <p v-else-if="!loaded" class="schedule-loading">正在读取同步计划…</p>
+      <template v-else>
+        <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon class="schedule-load-error" />
 
-      <div class="config-row" v-if="presetMode === 'daily'">
-        <label>执行时间</label>
-        <div class="config-control">
-          <el-time-select v-model="dailyTime" start="00:00" step="00:15" end="23:45"
-                          placeholder="选择时间" style="width: 140px" />
-        </div>
-      </div>
+        <div class="schedule-form">
+          <div class="config-row">
+            <label>启用自动同步</label>
+            <div class="config-control">
+              <el-switch v-model="schedule.enabled" />
+              <span class="run-state" :class="{ 'is-running': schedule.running }"><i aria-hidden="true"></i>{{ runningText }}</span>
+            </div>
+          </div>
 
-      <div class="config-row" v-if="presetMode === 'weekly'">
-        <label>执行日期</label>
-        <div class="config-control">
-          <el-select v-model="weeklyDay" style="width: 100px">
-            <el-option v-for="d in weekDays" :key="d.value" :label="d.label" :value="d.value" />
-          </el-select>
-          <el-time-select v-model="weeklyTime" start="00:00" step="00:15" end="23:45"
-                          placeholder="选择时间" style="width: 140px; margin-left: 12px" />
-        </div>
-      </div>
+          <div class="config-row">
+            <label>同步频率</label>
+            <div class="config-control">
+              <el-radio-group v-model="presetMode" class="schedule-frequency">
+                <el-radio-button v-for="opt in presetOptions" :key="opt.value" :value="opt.value">
+                  {{ opt.label }}
+                </el-radio-button>
+              </el-radio-group>
+            </div>
+          </div>
 
-      <div class="config-row" v-if="presetMode === 'custom'">
-        <label>Cron 表达式</label>
-        <div class="config-control">
-          <el-input v-model="customCron" placeholder="0 0 2 * * ?" style="width: 240px">
-            <template #prefix><Clock :size="14" /></template>
-          </el-input>
-          <span class="cron-hint">秒 分 时 日 月 周（Spring Cron 6位格式）</span>
-        </div>
-      </div>
+          <div class="config-row" v-if="presetMode === 'daily'">
+            <label>执行时间</label>
+            <div class="config-control">
+              <el-time-select v-model="dailyTime" start="00:00" step="00:15" end="23:45"
+                              placeholder="选择时间" style="width: 140px" />
+            </div>
+          </div>
 
-      <div class="config-row summary-row">
-        <label>执行说明</label>
-        <div class="config-control">
-          <span class="cron-desc">{{ cronDescription }}</span>
-        </div>
-      </div>
+          <div class="config-row" v-if="presetMode === 'weekly'">
+            <label>执行日期</label>
+            <div class="config-control">
+              <el-select v-model="weeklyDay" style="width: 100px">
+                <el-option v-for="d in weekDays" :key="d.value" :label="d.label" :value="d.value" />
+              </el-select>
+              <el-time-select v-model="weeklyTime" start="00:00" step="00:15" end="23:45"
+                              placeholder="选择时间" style="width: 140px" />
+            </div>
+          </div>
 
-      <div class="config-actions">
-        <el-button type="primary" :loading="saving" @click="handleSave">保存配置</el-button>
-      </div>
+          <div class="config-row" v-if="presetMode === 'custom'">
+            <label>Cron 表达式</label>
+            <div class="config-control">
+              <el-input v-model="customCron" placeholder="0 0 2 * * ?" style="width: 240px">
+                <template #prefix><Clock :size="14" /></template>
+              </el-input>
+              <span class="cron-hint">秒 分 时 日 月 周（Spring Cron 6位格式）</span>
+            </div>
+          </div>
+
+          <div class="config-row config-row--preview">
+            <label>计划预览</label>
+            <div class="config-control">
+              <div class="schedule-preview" :class="{ 'is-off': !schedule.enabled, 'is-dirty': isDirty }">
+                <span class="schedule-preview__state">{{ previewState }}</span>
+                <p>{{ previewText }}</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="config-actions">
+            <div class="save-panel">
+              <el-button type="primary" :loading="saving" :disabled="!loaded || !!loadError" @click="handleSave">保存配置</el-button>
+              <span class="save-note">修改保存后生效。</span>
+              <span v-if="isDirty" class="save-dirty">当前设置尚未保存</span>
+            </div>
+          </div>
+        </div>
+      </template>
     </section>
   </main>
 </template>
 
 <style scoped>
-.schedule-page { display: grid; gap: 16px; }
+.schedule-page { display: block; }
 
 .config-card {
   background: var(--do-glass-data-bg);
   border: 1px solid var(--do-glass-line);
   border-radius: var(--do-radius-lg);
   box-shadow: var(--do-shadow);
-  padding: 24px;
+  padding: 18px 20px;
 }
 
-.config-row {
+.config-header {
   display: flex;
   align-items: center;
-  padding: 16px 0;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--do-line);
 }
-.config-row:last-of-type { border-bottom: none; }
-.config-row label {
-  width: 120px;
-  flex-shrink: 0;
-  font-size: 14px;
-  color: var(--do-ink);
-  font-weight: 500;
-}
-.config-control { flex: 1; display: flex; align-items: center; }
+.config-scope { display: flex; align-items: center; gap: 8px; color: var(--do-muted); font-size: 12.5px; }
+.config-header :deep(.el-button) { min-height: 36px; }
 
-.cron-hint { margin-left: 12px; font-size: 12px; color: var(--do-muted); }
-.cron-desc { font-size: 13px; color: var(--do-muted); }
-.summary-row { border-bottom: none; }
+.schedule-loading { margin: 14px 0 0; color: var(--do-muted); font-size: 13px; }
+.schedule-load-error { margin-top: 12px; }
+
+.schedule-form { width: 100%; max-width: 720px; min-width: 0; margin-top: 18px; }
+.config-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 16px;
+}
+.config-row + .config-row { margin-top: 22px; }
+.config-row--preview { align-items: start; }
+.config-row label {
+  width: auto;
+  color: var(--do-ink);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.config-control { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; }
+
+.schedule-frequency {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--do-line);
+  border-radius: 9px;
+  background: var(--do-bg);
+}
+.schedule-frequency :deep(.el-radio-button) { margin: 0; }
+.schedule-frequency :deep(.el-radio-button__inner) {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 7px;
+  outline: 0;
+  box-shadow: none;
+  color: var(--do-muted);
+  background: transparent;
+  font-size: 12.5px;
+}
+.schedule-frequency :deep(.el-radio-button__inner:hover) {
+  color: var(--do-primary-strong);
+  background: var(--do-primary-soft);
+}
+.schedule-frequency :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  color: var(--do-primary-strong);
+  background: var(--do-surface);
+  box-shadow: 0 1px 4px rgba(34, 72, 126, .1);
+}
+.schedule-frequency :deep(.el-radio-button:first-child .el-radio-button__inner),
+.schedule-frequency :deep(.el-radio-button:last-child .el-radio-button__inner) { border-radius: 7px; }
+.schedule-frequency :deep(.el-radio-button__original-radio:focus-visible + .el-radio-button__inner) {
+  border: 0;
+  outline: 2px solid color-mix(in srgb, var(--do-primary) 32%, transparent);
+  outline-offset: 1px;
+}
+
+.run-state { display: inline-flex; align-items: center; gap: 6px; color: var(--do-muted); font-size: 12px; line-height: 1.5; }
+.run-state i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
+.run-state.is-running { color: color-mix(in srgb, var(--do-success) 72%, var(--do-ink)); }
+
+.cron-hint { margin: 0; color: var(--do-muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
+
+.schedule-preview {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-sm);
+  background: var(--do-bg);
+}
+.schedule-preview__state { display: inline-block; margin-bottom: 4px; color: var(--do-primary-strong); font-size: 11.5px; font-weight: 700; }
+.schedule-preview.is-dirty .schedule-preview__state { color: color-mix(in srgb, var(--do-warning) 68%, var(--do-ink)); }
+.schedule-preview.is-off .schedule-preview__state { color: var(--do-muted); }
+.schedule-preview p { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
 
 .config-actions {
-  padding-top: 20px;
+  margin-top: 24px;
+  padding-top: 16px;
+  padding-left: 126px;
   border-top: 1px solid var(--do-line);
-  margin-top: 8px;
+}
+.save-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; }
+.save-note { color: var(--do-muted); font-size: 12px; line-height: 1.5; }
+.save-dirty { color: color-mix(in srgb, var(--do-warning) 68%, var(--do-ink)); font-size: 11.5px; }
+
+@media (max-width: 760px) {
+  .schedule-form { margin-top: 14px; }
+  .config-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .config-row + .config-row { margin-top: 20px; }
+  .config-actions { padding-left: 0; }
+  .schedule-frequency { width: 100%; }
+  .schedule-frequency :deep(.el-radio-button) { flex: 1 1 0; }
+  .schedule-frequency :deep(.el-radio-button__inner) { width: 100%; padding-inline: 8px; }
 }
 </style>

@@ -11,8 +11,8 @@ import {
   type DatasourceItem,
   type DatasourceReadiness,
 } from '../../../api/admin/datasource'
-import { resolveReadinessAction } from '../../../utils/adminNavigation'
-import { knowledgeStatusLabel, snapshotStatusLabel } from '../../../utils/enumLabels'
+import { buildContextQuery, resolveReadinessAction } from '../../../utils/adminNavigation'
+import { knowledgeStatusLabel, severityLabel, snapshotStatusLabel } from '../../../utils/enumLabels'
 import { listSnapshots, listSyncTasks, triggerSync, type SnapshotItem, type SyncTaskItem } from '../../../api/admin/metadata'
 import { listQualityIssues, type QualityIssueItem } from '../../../api/admin/governance'
 import { listKnowledgeDocs, type KnowledgeDocItem } from '../../../api/admin/knowledge'
@@ -46,6 +46,24 @@ const knowledgeRequestOk = ref(false)
 const syncRequestOk = ref(false)
 const issuesError = ref('')
 const publishedSnapshot = computed(() => snapshots.value.find(item => item.id === readiness.value?.publishedSnapshotId))
+const primaryReasonMessage = computed(() => readiness.value?.blockReasons?.[0]?.message || '')
+const knowledgePreview = computed(() => knowledgeDocs.value.slice(0, 3))
+const qualityIssuePreview = computed(() => qualityIssues.value.slice(0, 3))
+const knowledgeWorkspaceLink = computed<RouteLocationRaw>(() => ({
+  path: '/admin/semantics/knowledge',
+  query: buildContextQuery('datasource', {
+    datasourceId: datasourceId.value,
+    snapshotId: readiness.value?.publishedSnapshotId,
+  }),
+}))
+const datasourceAddress = computed(() => datasource.value ? `${datasource.value.host}:${datasource.value.port}` : '')
+
+function formatCompactTime(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date)
+}
 
 interface PrimaryAction {
   key: string
@@ -141,7 +159,7 @@ async function load() {
     const optionalResults = await Promise.allSettled([
       listSnapshots({ datasourceId: datasourceId.value, page: 1, size: 5 }),
       listSyncTasks({ datasourceId: datasourceId.value, page: 1, size: 5 }),
-      listKnowledgeDocs({ datasourceId: datasourceId.value, page: 1, pageSize: 5 }),
+      listKnowledgeDocs({ datasourceId: datasourceId.value, page: 1, pageSize: 3 }),
     ])
     const snapshotResult = optionalResults[0]
     const taskResult = optionalResults[1]
@@ -236,69 +254,161 @@ onMounted(async () => {
     <ErrorState v-else-if="error" :message="error" @retry="load" />
     <template v-else-if="readiness">
       <section class="source-outcome" :class="{ ready: readiness.askable }">
-        <component :is="readiness.askable ? CheckCircle2 : CircleAlert" :size="28" aria-hidden="true" />
-        <div><strong>{{ readiness.askable ? '已具备问数条件 · 当前没有阻断项' : readiness.stageLabel }}</strong><p>{{ readiness.askable ? '准备条件已满足，可继续查看数据资产或管理知识与授权。' : '先处理下方具体事项，再刷新状态确认准备情况。' }}</p></div>
+        <component :is="readiness.askable ? CheckCircle2 : CircleAlert" :size="22" aria-hidden="true" />
+        <div>
+          <strong>{{ readiness.askable ? '已具备问数条件' : readiness.stageLabel }}</strong>
+          <p>{{ readiness.askable ? '当前没有阻断项，可以继续查看数据资产与知识。' : (primaryReasonMessage || '查看下方准备条件，处理后再刷新状态。') }}</p>
+        </div>
       </section>
+
       <div class="datasource-cockpit__grid">
         <div class="datasource-cockpit__main">
           <ReadinessPanel :readiness="readiness" />
           <NextActionCard v-if="readiness.blockReasons.length" :reasons="readiness.blockReasons" :datasource-id="datasourceId" :snapshot-id="readiness.publishedSnapshotId" />
           <section class="datasource-cockpit__card">
-            <div class="section-heading"><h2>治理问题</h2><RouterLink class="inline-link" :to="{ path: '/admin/governance/issues', query: { datasourceId: String(datasourceId), snapshotId: readiness.publishedSnapshotId ? String(readiness.publishedSnapshotId) : undefined } }">查看问题中心<ArrowRight :size="14" aria-hidden="true" /></RouterLink></div>
+            <div class="section-heading">
+              <h2>治理问题</h2>
+              <RouterLink class="inline-link" :to="{ path: '/admin/governance/issues', query: { datasourceId: String(datasourceId), snapshotId: readiness.publishedSnapshotId ? String(readiness.publishedSnapshotId) : undefined } }">查看问题中心<ArrowRight :size="14" aria-hidden="true" /></RouterLink>
+            </div>
             <ErrorState v-if="issuesError" :message="issuesError" @retry="load" />
             <p v-else-if="!readiness.publishedSnapshotId" class="muted">发布快照后，可在这里查看对应的治理问题。</p>
-            <p v-else-if="qualityIssues.length" class="muted">最近 {{ qualityIssues.length }} 个待处理问题可在问题中心继续处理。</p>
-            <p v-else class="muted">当前发布快照没有读取到待处理问题。</p>
+            <ul v-else-if="qualityIssuePreview.length" class="issue-preview">
+              <li v-for="issue in qualityIssuePreview" :key="issue.id">
+                <strong>{{ issue.issueDescription }}</strong>
+                <small>{{ issue.tableName }}{{ issue.columnName ? '.' + issue.columnName : '' }} · {{ severityLabel(issue.severity) }}</small>
+              </li>
+            </ul>
+            <p v-else class="muted">当前发布快照暂无待处理问题。</p>
           </section>
         </div>
+
         <aside class="datasource-cockpit__side">
           <section class="datasource-cockpit__card">
             <h2>数据源信息</h2>
-            <dl class="source-facts"><div><dt>数据源类型</dt><dd>{{ datasource?.dbType }}</dd></div><div><dt>数据库</dt><dd>{{ datasource?.databaseName }}</dd></div><div><dt>连接地址</dt><dd>{{ datasource?.host }}:{{ datasource?.port }}</dd></div><div><dt>使用状态</dt><dd><BusinessStatusBadge :status="datasource?.status === 1 ? 'ENABLED' : 'DISABLED'" /></dd></div></dl>
-            <div class="source-detail-section">
-              <h2>当前发布快照</h2>
-              <ErrorState v-if="!snapshotRequestOk" message="快照读取失败，无法展示快照详情。" @retry="load" />
-              <button v-else-if="readiness.publishedSnapshotId" type="button" class="compact-list__item" @click="openSnapshot(readiness.publishedSnapshotId)"><span><strong>{{ readiness.snapshotVersion ? 'v' + readiness.snapshotVersion : '已发布快照' }}</strong><small v-if="publishedSnapshot">{{ publishedSnapshot.tableCount }} 张表 · {{ publishedSnapshot.columnCount }} 个字段</small></span><BusinessStatusBadge status="PUBLISHED" /></button>
-              <p v-else class="muted">还没有已发布快照。采集后需审核并发布。</p>
-              <details v-if="snapshots.length" class="source-details"><summary>查看最近快照</summary><div class="compact-list"><button v-for="snapshot in snapshots" :key="snapshot.id" class="compact-list__item" type="button" @click="openSnapshot(snapshot.id)"><span>v{{ snapshot.snapshotVersion }}</span><BusinessStatusBadge :status="snapshot.status" :label="snapshotStatusLabel(snapshot.status)" /></button></div></details>
-            </div>
-            <div class="source-detail-section">
-              <h2>语义知识</h2>
-              <ErrorState v-if="!knowledgeRequestOk" message="知识文档读取失败，请重试。" @retry="load" />
-              <div v-else-if="knowledgeDocs.length" class="compact-list"><RouterLink v-for="doc in knowledgeDocs" :key="doc.id" class="compact-list__item" :to="'/admin/semantics/knowledge/' + doc.id"><span><strong>{{ doc.title }}</strong><small>v{{ doc.currentVersion }} · {{ knowledgeStatusLabel(doc.status) }}</small></span><ArrowRight :size="15" aria-hidden="true" /></RouterLink></div>
-              <p v-else class="muted">还没有知识文档。通过准备清单进入语义知识工作区。</p>
-            </div>
+            <dl class="source-facts">
+              <div><dt>数据源类型</dt><dd>{{ datasource?.dbType }}</dd></div>
+              <div><dt>数据库</dt><dd class="source-facts__long" :title="datasource?.databaseName">{{ datasource?.databaseName }}</dd></div>
+              <div><dt>连接地址</dt><dd class="source-facts__long" :title="datasourceAddress">{{ datasourceAddress }}</dd></div>
+              <div><dt>使用状态</dt><dd><BusinessStatusBadge :status="datasource?.status === 1 ? 'ENABLED' : 'DISABLED'" /></dd></div>
+            </dl>
           </section>
-          <details class="datasource-cockpit__card source-details"><summary>最近采集与快照活动</summary><ErrorState v-if="!syncRequestOk" message="采集记录读取失败，请重试。" @retry="load" /><ActivityTimeline v-else :items="activityItems" /></details>
+
+          <section class="datasource-cockpit__card">
+            <h2>当前发布快照</h2>
+            <ErrorState v-if="!snapshotRequestOk" message="快照读取失败，无法展示快照详情。" @retry="load" />
+            <template v-else-if="readiness.publishedSnapshotId">
+              <button type="button" class="compact-list__item compact-list__item--current" @click="openSnapshot(readiness.publishedSnapshotId)">
+                <span class="compact-list__copy">
+                  <strong>{{ readiness.snapshotVersion ? 'v' + readiness.snapshotVersion : '已发布快照' }}</strong>
+                  <small v-if="publishedSnapshot">{{ publishedSnapshot.tableCount }} 张表 · {{ publishedSnapshot.columnCount }} 个字段</small>
+                  <small v-else>快照详情暂不可用</small>
+                </span>
+                <BusinessStatusBadge status="PUBLISHED" label="已发布" />
+              </button>
+            </template>
+            <p v-else class="muted">还没有已发布快照。采集后需审核并发布。</p>
+            <details v-if="snapshots.length" class="source-details">
+              <summary>查看最近快照</summary>
+              <div class="compact-list">
+                <button v-for="snapshot in snapshots" :key="snapshot.id" class="compact-list__item" type="button" @click="openSnapshot(snapshot.id)">
+                  <span class="compact-list__copy">
+                    <strong>v{{ snapshot.snapshotVersion }}</strong>
+                    <small>{{ snapshotStatusLabel(snapshot.status) }} · {{ formatCompactTime(snapshot.createdAt) }}</small>
+                  </span>
+                  <BusinessStatusBadge :status="snapshot.status" :label="snapshotStatusLabel(snapshot.status)" />
+                </button>
+              </div>
+            </details>
+          </section>
+
+          <section class="datasource-cockpit__card">
+            <h2>语义知识</h2>
+            <ErrorState v-if="!knowledgeRequestOk" message="知识文档读取失败，请重试。" @retry="load" />
+            <template v-else-if="knowledgePreview.length">
+              <div class="compact-list">
+                <RouterLink v-for="doc in knowledgePreview" :key="doc.id" class="compact-list__item compact-list__item--knowledge" :to="'/admin/semantics/knowledge/' + doc.id">
+                  <span class="compact-list__copy">
+                    <strong :title="doc.title">{{ doc.title }}</strong>
+                    <small>v{{ doc.currentVersion }} · {{ formatCompactTime(doc.updatedAt) }}</small>
+                  </span>
+                  <BusinessStatusBadge :status="doc.status" :label="knowledgeStatusLabel(doc.status)" />
+                  <ArrowRight :size="14" aria-hidden="true" />
+                </RouterLink>
+              </div>
+              <RouterLink class="compact-list__more" :to="knowledgeWorkspaceLink">查看全部<ArrowRight :size="14" aria-hidden="true" /></RouterLink>
+            </template>
+            <p v-else class="muted">还没有知识文档。通过准备清单进入语义知识工作区。</p>
+          </section>
+
+          <details class="datasource-cockpit__card source-details activity-details">
+            <summary>最近采集与快照活动</summary>
+            <ErrorState v-if="!syncRequestOk" message="采集记录读取失败，请重试。" @retry="load" />
+            <ActivityTimeline v-else :items="activityItems" />
+          </details>
         </aside>
       </div>
     </template>
   </div>
 </template>
 <style scoped>
-.datasource-back { display: inline-flex; align-items: center; gap: 7px; color: var(--do-primary-strong); margin-bottom: 18px; font-size: 13px; }
-.source-outcome { display: flex; align-items: center; gap: 16px; padding: 20px 24px; margin-bottom: 24px; color: var(--do-warning); background: var(--do-warning-soft); border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); }
+.datasource-cockpit :deep(.task-page-header) { align-items: center; margin-bottom: 14px; }
+.datasource-cockpit :deep(.task-page-header__copy) { flex: 1 1 auto; min-width: 0; }
+.datasource-cockpit :deep(.task-page-header h1) { font-size: clamp(28px, 2.4vw, 32px); line-height: 1.2; letter-spacing: -.025em; }
+.datasource-cockpit :deep(.task-page-header p) { margin-top: 4px; font-size: 13px; line-height: 1.5; }
+.datasource-cockpit :deep(.task-page-header__actions) { flex: 0 1 auto; max-width: 48%; justify-content: flex-end; }
+.datasource-cockpit :deep(.task-page-header__actions .el-button) { height: auto; min-height: 36px; padding-block: 6px; line-height: 1.35; white-space: normal; text-align: center; }
+
+.datasource-back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; color: var(--do-primary-strong); font-size: 12.5px; }
+.source-outcome { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; padding: 12px 16px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); color: var(--do-warning); background: var(--do-warning-soft); }
 .source-outcome.ready { color: var(--do-success); background: var(--do-success-soft); }
-.source-outcome strong { font-size: 18px; color: var(--do-ink); }
-.source-outcome p { margin: 7px 0 0; color: var(--do-muted); font-size: 14px; line-height: 1.6; }
-.datasource-cockpit__grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, .8fr); gap: 24px; }
-.datasource-cockpit__main, .datasource-cockpit__side { display: grid; align-content: start; gap: 24px; min-width: 0; }
-.datasource-cockpit__card { padding: 24px; border: 1px solid var(--do-glass-line); border-radius: var(--do-radius-lg); background: var(--do-glass-data-bg); box-shadow: var(--do-shadow); min-width: 0; }
-h2 { margin: 0 0 18px; color: var(--do-ink); font-size: 18px; }
-.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.source-outcome > svg { flex: 0 0 auto; }
+.source-outcome strong { color: var(--do-ink); font-size: 15px; line-height: 1.4; }
+.source-outcome p { margin: 3px 0 0; color: var(--do-muted); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere; }
+
+.datasource-cockpit__grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, .85fr); align-items: start; gap: 18px; }
+.datasource-cockpit__main { display: grid; align-content: start; gap: 16px; min-width: 0; }
+.datasource-cockpit__side { display: grid; align-content: start; gap: 14px; min-width: 0; }
+.datasource-cockpit__card { min-width: 0; padding: 18px 20px; border: 1px solid var(--do-glass-line); border-radius: 14px; background: var(--do-glass-data-bg); box-shadow: var(--do-shadow); }
+.datasource-cockpit__card h2 { margin: 0 0 12px; color: var(--do-ink); font-size: 15px; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .section-heading h2 { margin: 0; }
-.source-facts { display: grid; gap: 18px; margin: 0; }
-.source-facts div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; font-size: 13px; }
-dt, .muted { color: var(--do-muted); } dd { margin: 0; color: var(--do-ink); overflow-wrap: anywhere; }
-.muted { font-size: 13px; line-height: 1.7; }
-.source-detail-section { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--do-line); }
-.compact-list { display: grid; gap: 8px; }
-.compact-list__item { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 14px 0; border: 0; border-bottom: 1px solid var(--do-line); color: var(--do-ink); background: transparent; cursor: pointer; text-align: left; min-width: 0; }
+
+.source-facts { display: grid; gap: 10px; margin: 0; }
+.source-facts div { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: start; gap: 10px; font-size: 12.5px; }
+dt { color: var(--do-muted); line-height: 1.5; }
+dd { margin: 0; color: var(--do-ink); line-height: 1.5; overflow-wrap: anywhere; }
+.source-facts__long { word-break: break-word; }
+.muted { margin: 6px 0 0; color: var(--do-muted); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.section-heading + .muted { margin-top: 0; }
+
+.compact-list { display: grid; }
+.compact-list__item { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 10px 0; border: 0; border-bottom: 1px solid var(--do-line); color: var(--do-ink); background: transparent; font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.compact-list__item:last-child { border-bottom: 0; }
 .compact-list__item:hover { color: var(--do-primary-strong); }
-.compact-list__item > span { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
-.compact-list__item strong { font-size: 14px; } .compact-list__item small { color: var(--do-muted); font-size: 12px; }
-.source-details summary { cursor: pointer; color: var(--do-muted); font-size: 13px; padding: 8px 0; }
-.source-details[open] summary { margin-bottom: 16px; color: var(--do-ink); }
-.inline-link { display: inline-flex; align-items: center; gap: 5px; color: var(--do-primary-strong); font-size: 13px; }
-@media (max-width: 1150px) { .datasource-cockpit__grid { grid-template-columns: 1fr; } }
+.compact-list__copy { min-width: 0; display: grid; gap: 3px; }
+.compact-list__copy strong { color: inherit; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.compact-list__copy small { color: var(--do-muted); font-size: 11.5px; line-height: 1.45; }
+.compact-list__item--current .compact-list__copy strong { font-size: 16px; }
+.compact-list__item--knowledge { display: grid; grid-template-columns: minmax(0, 1fr) auto 14px; }
+.compact-list__item--knowledge > svg { flex: 0 0 auto; color: var(--do-muted); }
+.compact-list__more { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; color: var(--do-primary-strong); font-size: 12.5px; }
+
+.issue-preview { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.issue-preview li { min-width: 0; display: grid; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--do-line); }
+.issue-preview li:last-child { border-bottom: 0; }
+.issue-preview strong { color: var(--do-ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.issue-preview small { color: var(--do-muted); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+
+.source-details summary { padding: 0; color: var(--do-muted); font-size: 12.5px; cursor: pointer; }
+.source-details[open] summary { margin-bottom: 10px; color: var(--do-ink); }
+.activity-details summary { color: var(--do-muted); font-size: 13px; font-weight: 600; }
+.activity-details[open] summary { margin-bottom: 12px; }
+.inline-link { display: inline-flex; align-items: center; gap: 5px; color: var(--do-primary-strong); font-size: 12.5px; white-space: nowrap; }
+
+@media (max-width: 1150px) {
+  .datasource-cockpit__grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .datasource-cockpit :deep(.task-page-header__actions) { max-width: none; justify-content: flex-start; }
+}
 </style>

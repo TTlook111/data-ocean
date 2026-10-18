@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { Bell, ChevronDown, LogOut, MessageSquareText, PanelLeftClose, PanelLeftOpen, UserRound } from 'lucide-vue-next'
+import { Bell, ChevronDown, KeyRound, LogOut, MessageSquareText, PanelLeftClose, PanelLeftOpen, UserRound } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import type { DropdownInstance } from 'element-plus'
 import { useAuthStore } from '../../stores/auth'
@@ -118,9 +118,9 @@ onBeforeUnmount(() => {
     <aside class="admin-shell__sidebar do-glass-shell">
       <div class="admin-shell__brand">
         <RouterLink to="/admin/workbench" class="admin-shell__brand-link" aria-label="DataOcean 工作台">
-          <span class="admin-shell__brand-mark">DO</span>
+          <span class="admin-shell__brand-mark notranslate" aria-hidden="true" translate="no">DO</span>
           <span class="admin-shell__brand-copy">
-            <strong>DataOcean</strong>
+            <strong class="notranslate" translate="no">DataOcean</strong>
             <small>数据查询治理平台</small>
           </span>
         </RouterLink>
@@ -137,18 +137,18 @@ onBeforeUnmount(() => {
       />
 
       <div class="admin-shell__sidebar-footer">
-        <el-dropdown ref="userDropdown" class="admin-shell__account-menu" :placement="collapsed ? 'right-end' : 'top-start'" trigger="click" @command="handleUserCommand" @visible-change="userMenuVisible = $event">
+        <el-dropdown ref="userDropdown" class="admin-shell__account-menu" popper-class="admin-account-actions-popper" :placement="collapsed ? 'right-end' : 'top-start'" trigger="click" @command="handleUserCommand" @visible-change="userMenuVisible = $event">
           <button class="admin-shell__user" type="button" aria-label="打开用户菜单" aria-haspopup="menu" :aria-expanded="userMenuVisible" :title="collapsed ? displayName : undefined">
             <span class="admin-shell__avatar" aria-hidden="true">{{ initial }}</span>
-            <span class="admin-shell__user-copy"><strong>{{ displayName }}</strong><small>{{ roleText }}</small></span>
+            <span class="admin-shell__user-copy"><strong class="notranslate" translate="no">{{ displayName }}</strong><small>{{ roleText }}</small></span>
             <ChevronDown class="admin-shell__user-chevron" :size="15" aria-hidden="true" />
           </button>
           <template #dropdown>
             <el-dropdown-menu @keydown.esc.stop.prevent="closeUserMenu">
-              <el-dropdown-item command="profile"><UserRound :size="15" aria-hidden="true" />个人资料</el-dropdown-item>
-              <el-dropdown-item command="password">修改密码</el-dropdown-item>
-              <el-dropdown-item v-if="iamS1.queryUse" command="query"><MessageSquareText :size="15" aria-hidden="true" />智能问数</el-dropdown-item>
-              <el-dropdown-item divided command="logout"><LogOut :size="15" aria-hidden="true" />退出登录</el-dropdown-item>
+              <el-dropdown-item command="profile"><UserRound :size="16" aria-hidden="true" />个人资料</el-dropdown-item>
+              <el-dropdown-item command="password"><KeyRound :size="16" aria-hidden="true" />修改密码</el-dropdown-item>
+              <el-dropdown-item v-if="iamS1.queryUse" command="query"><MessageSquareText :size="16" aria-hidden="true" />智能问数</el-dropdown-item>
+              <el-dropdown-item divided command="logout"><LogOut :size="16" aria-hidden="true" />退出登录</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -158,7 +158,7 @@ onBeforeUnmount(() => {
     <main class="admin-shell__main">
       <header class="admin-shell__topbar do-glass-panel">
         <nav class="admin-shell__title" aria-label="当前位置">
-          <RouterLink to="/admin/workbench">DataOcean</RouterLink>
+          <RouterLink to="/admin/workbench" class="notranslate" translate="no">DataOcean</RouterLink>
           <span aria-hidden="true">/</span>
           <span v-if="workspace && workspace.label !== routeTitle">{{ workspace.label }}<span aria-hidden="true"> / </span></span>
           <span aria-current="page">{{ routeTitle }}</span>
@@ -190,8 +190,8 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <ScopeBar v-if="contextMode === 'datasource' || contextMode === 'datasource-snapshot'" :mode="contextMode" />
-      <section class="admin-shell__content">
+      <ScopeBar v-if="(contextMode === 'datasource' || contextMode === 'datasource-snapshot') && route.name !== 'admin-collections'" :mode="contextMode" />
+      <section class="admin-shell__content" :class="{ 'admin-shell__content--compact': route.name === 'admin-workbench' || route.name === 'admin-data-sources' || route.name === 'admin-data-source-detail' || route.name === 'admin-collections' }">
         <RouterView />
       </section>
     </main>
@@ -202,9 +202,14 @@ onBeforeUnmount(() => {
 .admin-shell {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
-  min-height: 100vh;
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   gap: 10px;
   padding: 10px;
+  overflow: hidden;
   background: transparent;
 }
 
@@ -214,11 +219,10 @@ onBeforeUnmount(() => {
 .admin-shell :deep(.el-button--primary) { --el-button-bg-color: var(--do-primary-strong); --el-button-border-color: var(--do-primary-strong); --el-button-hover-bg-color: var(--do-primary-strong); --el-button-hover-border-color: var(--do-primary-strong); }
 
 .admin-shell__sidebar {
-  position: sticky;
-  top: 10px;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 20px);
+  min-height: 0;
   border-radius: 16px;
   background: transparent;
   backdrop-filter: none;
@@ -272,6 +276,7 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__brand-link {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -289,20 +294,29 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__brand-mark {
+  flex: 0 0 auto;
   width: 38px;
   height: 38px;
+  overflow: hidden;
   font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .admin-shell__brand-copy {
   display: grid;
   gap: 3px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .admin-shell__brand-copy strong {
+  overflow: hidden;
   color: var(--do-ink);
   font-size: 18px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .admin-shell__brand-copy small {
@@ -314,6 +328,7 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__collapse {
+  flex: 0 0 auto;
   display: grid;
   width: 32px;
   height: 32px;
@@ -338,15 +353,19 @@ onBeforeUnmount(() => {
   /* Keep page content above the adjacent sidebar's glass layer. */
   position: relative;
   z-index: 0;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
+.admin-shell__main > .scope-bar { flex: 0 0 auto; }
 
 .admin-shell__topbar {
-  position: sticky;
-  top: 10px;
+  position: relative;
   z-index: 10;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -429,9 +448,20 @@ onBeforeUnmount(() => {
 .admin-shell__content {
   width: 100%;
   max-width: 1600px;
+  min-height: 0;
+  flex: 1 1 0;
   margin: 0 auto;
   padding: 44px 22px 28px;
+  overflow-y: auto;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--do-primary) 22%, transparent) transparent;
 }
+.admin-shell__content::-webkit-scrollbar { width: 6px; }
+.admin-shell__content::-webkit-scrollbar-track { background: transparent; }
+.admin-shell__content::-webkit-scrollbar-thumb { border-radius: var(--do-radius-full); background: color-mix(in srgb, var(--do-primary) 20%, transparent); }
+.admin-shell__content--compact { padding-top: 20px; }
 
 .admin-shell__notification-panel {
   min-height: 80px;
@@ -517,4 +547,37 @@ onBeforeUnmount(() => {
   .admin-shell__topbar { padding: 0 18px; }
 }
 
+</style>
+
+<style>
+/* 后台账号菜单沿用数据源列表“更多”菜单的排版规范。 */
+.admin-account-actions-popper.el-popper {
+  width: 172px;
+  min-width: 172px;
+  max-width: calc(100vw - 24px);
+  padding: 0;
+  border-color: var(--do-line);
+  border-radius: var(--do-radius-md);
+  background: rgba(255, 255, 255, .99);
+  box-shadow: var(--do-shadow-lg);
+}
+.admin-account-actions-popper .el-popper__arrow::before { border-color: var(--do-line); background: #fff; }
+.admin-account-actions-popper .el-dropdown-menu { padding: 6px; background: transparent; }
+.admin-account-actions-popper .el-dropdown-menu__item {
+  min-height: 38px;
+  padding: 0 12px;
+  gap: 8px;
+  border-radius: 7px;
+  color: var(--do-ink);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.admin-account-actions-popper .el-dropdown-menu__item > svg { flex: 0 0 auto; width: 16px; height: 16px; }
+.admin-account-actions-popper .el-dropdown-menu__item:not(.is-disabled):hover,
+.admin-account-actions-popper .el-dropdown-menu__item:not(.is-disabled):focus {
+  color: var(--do-primary-strong);
+  background: var(--do-primary-soft);
+}
+.admin-account-actions-popper .el-dropdown-menu__item--divided { margin: 6px 0 0; border-top-color: var(--do-line); }
 </style>
