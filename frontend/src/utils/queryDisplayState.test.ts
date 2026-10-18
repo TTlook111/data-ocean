@@ -18,7 +18,7 @@ describe('resolveQueryDisplayState', () => {
     })
 
     expect(state.kind).toBe('clarification')
-    expect(state.title).toBe('需要补充查询条件')
+    expect(state.title).toBe('需要补充信息')
   })
 
   it.each(['FAILED', 'CANCELLED', 'TIMEOUT'])('does not expose residual rows as success for %s', (status) => {

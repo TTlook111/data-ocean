@@ -26,6 +26,7 @@ const props = defineProps<{
   sqlLoading: boolean
   sqlErrorMessage: string
   originalQuestion: string
+  contextLabel?: string
 }>()
 
 const emit = defineEmits<{
@@ -44,6 +45,7 @@ const emit = defineEmits<{
 
 const chartFailed = ref(false)
 const detailsOpen = ref(false)
+const panelTitle = computed(() => ['success-data', 'success-empty'].includes(props.viewState.kind) ? '查询结果' : '查询状态')
 const detailsTab = ref<'trust' | 'sql'>('trust')
 const lastResultTab = ref<'table' | 'chart'>('chart')
 const hasRows = computed(() => props.viewState.kind === 'success-data')
@@ -103,8 +105,9 @@ defineExpose({ openDetails })
   <aside class="result-preview result-rail do-glass-data" aria-label="查询结果">
     <header class="result-header">
       <div class="result-title">
-        <strong>查询结果</strong>
+        <strong>{{ panelTitle }}</strong>
       </div>
+      <small v-if="contextLabel" class="result-context">{{ contextLabel }}</small>
       <div class="result-header-actions">
         <button type="button" class="close-button" aria-label="收起查询结果" @click="emit('close')"><X :size="18" aria-hidden="true" /></button>
       </div>
@@ -124,7 +127,7 @@ defineExpose({ openDetails })
         <div class="status-actions">
           <button v-if="viewState.kind === 'selection-error' && displayTaskId" type="button" @click="emit('reload-result', displayTaskId)">重新读取</button>
           <button v-if="viewState.canResume && displayTaskId" type="button" @click="emit('resume', displayTaskId)">恢复等待</button>
-          <button v-if="viewState.kind === 'clarification' && originalQuestion" type="button" @click="emit('clarify', originalQuestion)">补充查询条件</button>
+          <button v-if="viewState.kind === 'clarification' && originalQuestion" type="button" class="status-primary" @click="emit('clarify', originalQuestion)">补充问题</button>
           <button v-if="['failed', 'cancelled', 'timeout'].includes(viewState.kind) && originalQuestion" type="button" @click="emit('retry', originalQuestion)">保留原问题重试</button>
         </div>
       </section>
@@ -225,13 +228,12 @@ defineExpose({ openDetails })
 </template>
 
 <style scoped>
-.result-preview { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border-color: var(--do-glass-line); border-radius: 15px; background: var(--do-glass-data-bg); }
-.result-header { min-width: 0; min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--do-line); }
-.result-title { min-width: 0; }
-.result-title strong, .result-title small { display: block; }
-.result-title strong { color: var(--do-ink); font-size: 20px; }
-.result-title small { max-width: 100%; margin-top: 3px; overflow: hidden; color: var(--do-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.result-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+.result-preview { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border-color: var(--do-glass-line); border-radius: 16px; background: var(--do-glass-data-bg); }
+.result-header { min-width: 0; min-height: 54px; display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 16px; border-bottom: 1px solid var(--do-line); }
+.result-title { flex: 0 0 auto; min-width: 0; }
+.result-title strong { color: var(--do-ink); font-size: 16px; font-weight: 750; }
+.result-context { flex: 0 1 auto; min-width: 0; overflow: hidden; padding: 2px 7px; border: 1px solid color-mix(in srgb, var(--do-primary) 20%, transparent); border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 10.5px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.result-header-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; margin-left: auto; }
 .details-button, .close-button, .back-button { min-height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 1px solid transparent; border-radius: var(--do-radius-sm); color: var(--do-muted); background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
 .details-button:hover, .close-button:hover, .back-button:hover { border-color: var(--do-line); color: var(--do-primary-strong); background: var(--do-primary-soft); }
 .result-body { min-width: 0; min-height: 0; overflow: hidden; display: grid; grid-template-rows: auto minmax(0, 1fr); }
@@ -254,8 +256,8 @@ defineExpose({ openDetails })
 .chart-type-switcher button.active { color: var(--do-surface); background: var(--do-primary-strong); }
 .chart-type-switcher button:disabled { opacity: .45; cursor: not-allowed; }
 .chart-note { margin: 0 0 8px; color: var(--do-muted); font-size: 12px; line-height: 1.6; }
-.chart-result-view :deep(.chart-container) { height: clamp(280px, 36dvh, 380px); min-height: 260px; }
-.chart-fallback { padding: 10px 12px; border: 1px solid var(--do-warning); border-radius: var(--do-radius-sm); color: var(--do-warning); background: var(--do-warning-soft); font-size: 12px; line-height: 1.5; }
+.chart-result-view :deep(.chart-container) { height: clamp(300px, 38dvh, 420px); min-height: 270px; }
+.chart-fallback { padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--do-warning) 55%, var(--do-line)); border-radius: var(--do-radius-sm); color: color-mix(in srgb, var(--do-warning) 60%, var(--do-ink)); background: var(--do-warning-soft); font-size: 12px; line-height: 1.5; }
 .data-detail-heading { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 7px; }
 .data-detail-heading h3 { margin: 0; color: var(--do-ink); font-size: 15px; }
 .data-detail-heading small { color: var(--do-muted); font-size: 11px; }
@@ -270,8 +272,10 @@ defineExpose({ openDetails })
 .symbol-failed, .symbol-timeout, .symbol-cancelled { color: var(--do-danger); }
 .state-success-empty .success-icon { color: var(--do-muted); }
 .status-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 5px; }
-.status-actions button { min-height: 40px; padding: 0 12px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+.status-actions button { min-height: 38px; padding: 0 13px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
 .status-actions button:hover { border-color: var(--do-primary); background: var(--do-primary-soft); }
+.status-actions .status-primary { border-color: var(--do-primary); color: #fff; background: var(--do-primary); }
+.status-actions .status-primary:hover { background: var(--do-primary-strong); }
 .details-view { grid-column: 1; grid-row: 1 / -1; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .details-toolbar { justify-content: space-between; }
 .back-button { min-height: 36px; padding-inline: 7px; }
@@ -301,8 +305,9 @@ defineExpose({ openDetails })
 .symbol-processing svg, .symbol-selection-loading svg { animation: status-spin 900ms linear infinite; }
 @media (max-width: 768px) {
   .result-preview { border-left: 0; }
-  .result-header { min-height: 56px; padding-inline: 12px; }
+  .result-header { min-height: 50px; padding-inline: 12px 8px; }
   .result-title strong { font-size: 15px; }
+  .result-context { font-size: 10px; }
   .result-scroll, .details-scroll { padding: 12px; }
   .chart-result-view :deep(.chart-container) { height: clamp(250px, 32dvh, 320px); min-height: 240px; }
   .details-toolbar { padding-inline: 8px; }

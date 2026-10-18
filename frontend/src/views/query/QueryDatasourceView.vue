@@ -2,11 +2,11 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Info, PanelRightOpen, RefreshCw, UserRound } from 'lucide-vue-next'
+import { CircleHelp, Info, PanelRightOpen, RefreshCw, UserRound } from 'lucide-vue-next'
 import { useGsapMotion } from '../../composables/useGsapMotion'
 import { useAuthStore } from '../../stores/auth'
 import { useIamS1Store } from '../../stores/iamS1'
-import { useQuerySession } from '../../composables/useQuerySession'
+import { useQuerySession, type LocalMessage } from '../../composables/useQuerySession'
 import { useQuerySubmit } from '../../composables/useQuerySubmit'
 import { useQueryExport } from '../../composables/useQueryExport'
 import { parseDatasourceId } from '../../utils/queryDatasource'
@@ -64,6 +64,17 @@ const submit = useQuerySubmit({
 const displayResult = submit.displayResult
 const resultContextAvailable = computed(() => submit.displayState.value.kind !== 'empty')
 const showResultPanel = computed(() => resultPanelOpen.value && resultContextAvailable.value)
+const conversationTitle = computed(() => {
+  const title = session.activeSession.value?.title?.trim()
+  return !title || title === '新的对话' ? '新对话' : title
+})
+const earlierResultLabel = computed(() => {
+  const selectedTaskId = submit.selectedResultTaskId.value
+  if (!selectedTaskId) return ''
+  if (submit.latestAssistantMessage.value?.taskId === selectedTaskId) return ''
+  const message = session.activeMessages.value.find((item) => item.role === 'assistant' && item.taskId === selectedTaskId)
+  return message ? `历史结果 · ${formatMessageTime(message.createdAt)}` : '历史结果'
+})
 const displayDatasourceId = computed(() => session.activeSession.value?.datasourceId ?? session.selectedId.value)
 const datasourceFacts = computed(() => {
   const readiness = selectedReadiness.value
@@ -111,10 +122,11 @@ watch(() => displayResult.value?.taskId, () => {
 watch([() => displayResult.value?.taskId, () => displayResult.value?.chartConfig], ([taskId, config], [previousTaskId, previousConfig]) => {
   if (config && (taskId !== previousTaskId || !previousConfig)) submit.chartType.value = getDefaultQueryChartType(config)
 })
-watch(() => submit.latestResult.value?.taskId, (taskId) => {
-  if (!taskId) return
-  resultPanelOpen.value = true
+watch(() => submit.latestResult.value?.taskId, (taskId, previousTaskId) => {
+  if (!taskId || taskId === previousTaskId) return
   exportUtil.tablePage.value = 1
+  // 只有真实完成的结果才默认并排打开；澄清、失败和处理只留在对话中说明。
+  if (submit.latestResult.value?.status === 'COMPLETED') resultPanelOpen.value = true
 })
 watch(submit.resultTab, () => {
   nextTick(() => {
@@ -133,8 +145,54 @@ async function handleUserCommand(command: string) {
   }
 }
 
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+function pad(value: number) {
+  return String(value).padStart(2, '0')
+}
+
+/** 消息时间只保留当天时分；跨天再补月日，减少正文旁的辅助信息。 */
+function formatMessageTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`
+  const now = new Date()
+  return date.toDateString() === now.toDateString() ? time : `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${time}`
+}
+
+function isClarification(message: LocalMessage) {
+  return message.role === 'assistant' && message.status === 'CLARIFICATION_REQUIRED'
+}
+
+function canOpenMessageResult(message: LocalMessage) {
+  return message.role === 'assistant' && message.queryResult?.status === 'COMPLETED'
+}
+
+/** 助手消息的可执行操作只出现在澄清、超时、失败等需要用户接手的终态。 */
+function hasMessageActions(message: LocalMessage) {
+  return message.status === 'CLARIFICATION_REQUIRED'
+    || message.status === 'TIMEOUT'
+    || submit.isLocallyResumable(message)
+    || ['FAILED', 'CANCELLED', 'error'].includes(message.status || '')
+}
+
+function messageState(message: LocalMessage): { label: string; tone: 'processing' | 'success' | 'danger' | 'muted' } | undefined {
+  if (message.role !== 'assistant') return undefined
+  switch (message.status) {
+    case 'loading':
+      return { label: '正在查询', tone: 'processing' }
+    case 'PROCESSING':
+      return { label: message.localWaitTimedOut ? '仍在处理' : '正在查询', tone: 'processing' }
+    case 'COMPLETED':
+      return { label: '已完成', tone: 'success' }
+    case 'FAILED':
+    case 'error':
+      return { label: '未完成', tone: 'danger' }
+    case 'TIMEOUT':
+      return { label: '已超时', tone: 'danger' }
+    case 'CANCELLED':
+      return { label: '已停止', tone: 'muted' }
+    default:
+      return undefined
+  }
 }
 
 function applySuggestion(text: string) {
@@ -228,6 +286,12 @@ function handleResultTab(tab: 'table' | 'sql' | 'chart' | 'trust') {
 
 function handleRetrySql() {
   if (canViewSql.value) void submit.refreshSql(displayResult.value)
+}
+
+function toggleResultPanel() {
+  if (!resultContextAvailable.value) return
+  resultPanelOpen.value = !resultPanelOpen.value
+  workspaceMode.value = resultPanelOpen.value ? 'result' : 'conversation'
 }
 
 async function handleOpenDetails() {
@@ -330,27 +394,51 @@ onMounted(() => {
             @select="handleSelectDatasource"
             @refresh="refreshDatasources"
           />
-          <small v-if="selectedReadiness?.ragStale" class="readiness-note" role="status">知识版本落后，查询仍按当前快照与权限校验</small>
+          <small v-if="selectedReadiness?.ragStale" class="readiness-note" role="status">知识版本落后，按当前快照与权限校验</small>
           <small v-if="iamS1.errorMessage" class="capability-error" role="alert">
             {{ iamS1.errorMessage }}
             <button type="button" @click="iamS1.load(true)">重试能力检查</button>
           </small>
         </div>
         <div class="topbar-actions">
-          <button v-if="resultContextAvailable && !showResultPanel" type="button" class="result-toggle" @click="resultPanelOpen = true; workspaceMode = 'result'">
-            <PanelRightOpen :size="16" aria-hidden="true" /><span>查看结果</span>
-          </button>
-          <div v-if="resultContextAvailable" class="workspace-switch" role="tablist" aria-label="工作区视图">
-            <button type="button" role="tab" :aria-selected="workspaceMode === 'conversation'" :class="{ active: workspaceMode === 'conversation' }" @click="workspaceMode = 'conversation'"><UserRound :size="15" aria-hidden="true" />对话</button>
-            <button type="button" role="tab" :aria-selected="workspaceMode === 'result'" :class="{ active: workspaceMode === 'result' }" @click="resultPanelOpen = true; workspaceMode = 'result'"><PanelRightOpen :size="15" aria-hidden="true" />结果</button>
+          <div class="workspace-switch" role="tablist" aria-label="工作区视图">
+            <button type="button" role="tab" :aria-selected="workspaceMode === 'conversation'" :class="{ active: workspaceMode === 'conversation' }" @click="workspaceMode = 'conversation'"><UserRound :size="14" aria-hidden="true" />对话</button>
+            <button
+              type="button"
+              role="tab"
+              :aria-selected="workspaceMode === 'result'"
+              :class="{ active: workspaceMode === 'result' }"
+              :disabled="!resultContextAvailable"
+              :title="resultContextAvailable ? undefined : '发起一次提问后可查看结果'"
+              @click="resultPanelOpen = true; workspaceMode = 'result'"
+            ><PanelRightOpen :size="14" aria-hidden="true" />结果</button>
           </div>
-          <button v-if="showResultPanel" type="button" class="details-toggle" @click="handleOpenDetails"><Info :size="15" aria-hidden="true" />详细信息</button>
+          <button
+            type="button"
+            class="result-toggle"
+            :disabled="!resultContextAvailable"
+            :aria-expanded="showResultPanel"
+            :title="resultContextAvailable ? (showResultPanel ? '收起结果面板' : '展开结果面板') : '发起一次提问后可查看结果'"
+            @click="toggleResultPanel"
+          >
+            <PanelRightOpen :size="15" aria-hidden="true" /><span>{{ showResultPanel ? '收起结果' : '查看结果' }}</span>
+          </button>
+          <button
+            type="button"
+            class="details-toggle"
+            :disabled="!resultContextAvailable"
+            :title="resultContextAvailable ? '打开结果详细信息' : '发起一次提问后可查看详细信息'"
+            @click="handleOpenDetails"
+          ><Info :size="14" aria-hidden="true" />详细信息</button>
         </div>
       </header>
 
       <div class="workspace-content">
         <section class="conversation-pane do-glass-panel" aria-label="当前对话">
-          <header class="conversation-heading"><h2>当前对话</h2></header>
+          <header class="conversation-heading">
+            <h2 :title="conversationTitle">{{ conversationTitle }}</h2>
+            <span v-if="session.activeMessages.value.length" class="conversation-count">{{ session.activeMessages.value.length }} 条消息</span>
+          </header>
           <div class="chat-surface">
             <div v-if="!session.selectedId.value" class="empty-chat">
               <h3>选择数据源开始提问</h3>
@@ -373,30 +461,34 @@ onMounted(() => {
               >
                 {{ session.activeSession.value.historyLoading ? '正在加载…' : '加载更早消息' }}
               </button>
-              <article v-for="message in session.activeMessages.value" :key="message.id" class="message-item" :class="message.role" :data-message-id="message.id">
-                <span class="message-avatar" aria-hidden="true"><UserRound v-if="message.role === 'user'" :size="16" /><span v-else class="assistant-mark">DO</span></span>
+              <article v-for="message in session.activeMessages.value" :key="message.id" class="message-item" :class="[message.role, { clarification: isClarification(message) }]" :data-message-id="message.id">
+                <span class="message-avatar" aria-hidden="true"><UserRound v-if="message.role === 'user'" :size="14" /><span v-else class="assistant-mark">DO</span></span>
                 <div class="message-bubble">
+                  <div v-if="isClarification(message)" class="message-state-title" role="status">
+                    <CircleHelp :size="14" aria-hidden="true" /><span>需要补充信息</span>
+                  </div>
                   <p>{{ message.content }}</p>
                   <div v-if="message.role === 'assistant' && message.queryResult?.suggestedQuestions?.length" class="message-suggestions" aria-label="推荐追问">
                     <small>推荐追问</small>
                     <button v-for="suggestion in message.queryResult.suggestedQuestions" :key="suggestion" type="button" @click="applySuggestion(suggestion)">{{ suggestion }}</button>
                   </div>
-                  <div class="message-meta">
-                    <small>{{ formatTime(message.createdAt) }}</small>
-                    <button v-if="message.role === 'assistant' && message.taskId" type="button" @click="handleViewResult(message.taskId)"><PanelRightOpen :size="14" aria-hidden="true" />查看结果</button>
-                  </div>
-                  <div v-if="message.role === 'assistant' && message.status === 'TIMEOUT'" class="message-actions">
-                    <button type="button" :disabled="submit.isQuerying.value" @click="submit.retryQuery(message.originalQuestion || message.queryResult?.question || '')">重新提问</button>
-                  </div>
-                  <div v-if="message.role === 'assistant' && submit.isLocallyResumable(message)" class="message-actions">
-                    <button type="button" :disabled="submit.isQuerying.value || !message.originalQuestion" @click="submit.retryQuery(message.originalQuestion || '')">重新提问</button>
-                    <button type="button" :disabled="submit.isQuerying.value || !message.taskId" @click="submit.continueWaiting(message.taskId || '')">恢复等待</button>
-                  </div>
-                  <div v-if="message.role === 'assistant' && message.status === 'CLARIFICATION_REQUIRED'" class="message-actions">
-                    <button type="button" :disabled="submit.isQuerying.value" @click="submit.prepareClarification(message.originalQuestion || message.queryResult?.question || '')">补充查询条件</button>
-                  </div>
-                  <div v-if="message.role === 'assistant' && ['FAILED', 'CANCELLED', 'error'].includes(message.status || '')" class="message-actions">
-                    <button type="button" :disabled="submit.isQuerying.value" @click="submit.retryQuery(message.originalQuestion || message.queryResult?.question || '')">保留原问题重试</button>
+                  <div class="message-footer">
+                    <div v-if="message.role === 'assistant' && hasMessageActions(message)" class="message-actions">
+                      <button v-if="message.status === 'CLARIFICATION_REQUIRED'" type="button" class="message-primary-action" :disabled="submit.isQuerying.value" @click="submit.prepareClarification(message.originalQuestion || message.queryResult?.question || '')">补充问题</button>
+                      <button v-if="message.status === 'TIMEOUT'" type="button" :disabled="submit.isQuerying.value" @click="submit.retryQuery(message.originalQuestion || message.queryResult?.question || '')">重新提问</button>
+                      <template v-if="submit.isLocallyResumable(message)">
+                        <button type="button" :disabled="submit.isQuerying.value || !message.originalQuestion" @click="submit.retryQuery(message.originalQuestion || '')">重新提问</button>
+                        <button type="button" :disabled="submit.isQuerying.value || !message.taskId" @click="submit.continueWaiting(message.taskId || '')">恢复等待</button>
+                      </template>
+                      <button v-if="['FAILED', 'CANCELLED', 'error'].includes(message.status || '')" type="button" :disabled="submit.isQuerying.value" @click="submit.retryQuery(message.originalQuestion || message.queryResult?.question || '')">保留原问题重试</button>
+                    </div>
+                    <div class="message-meta">
+                      <span class="message-meta-note">
+                        <small class="message-time">{{ formatMessageTime(message.createdAt) }}</small>
+                        <span v-if="messageState(message)" class="message-state-chip" :class="messageState(message)?.tone"><i aria-hidden="true"></i>{{ messageState(message)?.label }}</span>
+                      </span>
+                      <button v-if="canOpenMessageResult(message)" type="button" class="message-result-link" @click="handleViewResult(message.taskId || '')"><PanelRightOpen :size="13" aria-hidden="true" />查看结果</button>
+                    </div>
                   </div>
                 </div>
               </article>
@@ -438,6 +530,7 @@ onMounted(() => {
           :sql-loading="submit.sqlLoading.value"
           :sql-error-message="sqlErrorMessage"
           :original-question="displayOriginalQuestion"
+          :context-label="earlierResultLabel"
           @close="handleResultClose"
           @update:result-tab="handleResultTab"
           @switch-chart-type="submit.chartType.value = $event"
@@ -457,122 +550,144 @@ onMounted(() => {
 
 <style scoped>
 /* Keep desktop split and compact single-view breakpoints in sync with the workspace state. */
-.query-workspace { width: 100%; height: 100dvh; min-height: 0; display: grid; grid-template-columns: 256px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 10px; padding: 10px; overflow: hidden; color: var(--do-ink); background: transparent; }
-.query-main { position: relative; z-index: 0; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 0; padding: 10px 10px 10px 0; background: transparent; }
-.query-topbar { min-width: 0; min-height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 18px; border-color: var(--do-glass-border); border-radius: 15px; }
-.topbar-heading { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
-.topbar-heading h1 { flex: 0 0 auto; margin: 0; color: var(--do-ink); font-size: 22px; font-weight: 750; }
-.readiness-note { max-width: 300px; color: var(--do-warning); font-size: 11px; line-height: 1.4; }
+.query-workspace { width: 100%; height: 100dvh; min-height: 0; display: grid; grid-template-columns: 248px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); align-items: stretch; gap: 10px; padding: 10px; overflow: hidden; color: var(--do-ink); background: transparent; }
+.query-main { position: relative; z-index: 0; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 0; padding: 0; background: transparent; }
+.query-topbar { min-width: 0; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 14px; border-color: var(--do-glass-border); border-radius: 14px; }
+.query-topbar.do-glass-panel { background: rgba(255, 255, 255, .76); }
+.topbar-heading { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.topbar-heading h1 { flex: 0 0 auto; margin: 0; color: var(--do-ink); font-size: 18px; font-weight: 750; letter-spacing: -.01em; }
+.readiness-note { max-width: 320px; color: color-mix(in srgb, var(--do-warning) 65%, var(--do-ink)); font-size: 10.5px; font-weight: 600; line-height: 1.4; }
 .capability-error { flex: 1 1 100%; color: var(--do-danger); font-size: 12px; line-height: 1.45; }
-.capability-error button { min-height: 34px; margin-left: 5px; padding: 0 8px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; cursor: pointer; }
-.topbar-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
-.result-toggle, .details-toggle { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 12px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
-.result-toggle:hover, .details-toggle:hover { border-color: var(--do-primary); background: var(--do-primary-soft); }
-.workspace-switch { display: none; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--do-line); border-radius: var(--do-radius-md); background: var(--do-bg); }
-.workspace-switch button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--do-muted); background: transparent; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
-.workspace-switch button.active { color: var(--do-primary-strong); background: var(--do-surface); box-shadow: var(--do-shadow); }
+.capability-error button { min-height: 32px; margin-left: 5px; padding: 0 8px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; cursor: pointer; }
+.topbar-actions { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.result-toggle, .details-toggle { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 11px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-primary-strong); background: rgba(255, 255, 255, .9); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+.result-toggle:hover:not(:disabled), .details-toggle:hover:not(:disabled) { border-color: var(--do-primary); background: var(--do-primary-soft); }
+.result-toggle:disabled, .details-toggle:disabled { color: var(--do-muted); cursor: not-allowed; opacity: .55; }
+.workspace-switch { display: none; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--do-line); border-radius: 9px; background: rgba(255, 255, 255, .8); }
+.workspace-switch button { min-height: 30px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--do-muted); background: transparent; font: inherit; font-size: 11.5px; font-weight: 650; cursor: pointer; }
+.workspace-switch button.active { color: var(--do-primary-strong); background: var(--do-surface); box-shadow: 0 1px 4px rgba(34, 72, 126, .1); }
+.workspace-switch button:disabled { color: var(--do-muted); cursor: not-allowed; opacity: .55; }
 .workspace-content { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; column-gap: 10px; padding-top: 10px; }
-.query-workspace.result-open .workspace-content { grid-template-columns: minmax(460px, 1.1fr) minmax(400px, .9fr); }
-.conversation-pane { --do-glass-corner: 15px 15px 0 0; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); grid-column: 1; grid-row: 1; border: 1px solid var(--do-glass-line); border-bottom: 0; border-radius: 15px 15px 0 0; }
-.conversation-heading { min-height: 60px; display: flex; align-items: center; padding: 0 24px; border-bottom: 1px solid var(--do-line); }
-.conversation-heading h2 { max-width: 100%; margin: 0; overflow: hidden; color: var(--do-ink); font-size: 19px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.chat-surface { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 20px 24px 24px; }
+.query-workspace.result-open .workspace-content { grid-template-columns: minmax(440px, 1fr) minmax(420px, 1fr); }
+.conversation-pane { --do-glass-corner: 16px 16px 0 0; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); grid-column: 1; grid-row: 1; border: 1px solid var(--do-glass-line); border-bottom: 0; border-radius: 16px 16px 0 0; }
+.conversation-pane.do-glass-panel { background: rgba(255, 255, 255, .95); }
+.conversation-heading { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 28px; border-bottom: 1px solid var(--do-line); }
+.conversation-heading h2 { flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; color: var(--do-muted); font-size: 12.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-count { flex: 0 0 auto; color: var(--do-muted); font-size: 10.5px; font-variant-numeric: tabular-nums; opacity: .85; }
+.chat-surface { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 18px 28px 24px; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--do-primary) 20%, transparent) transparent; }
+.chat-surface::-webkit-scrollbar { width: 6px; }
+.chat-surface::-webkit-scrollbar-track { background: transparent; }
+.chat-surface::-webkit-scrollbar-thumb { border-radius: var(--do-radius-full); background: color-mix(in srgb, var(--do-primary) 18%, transparent); }
 .welcome-state { min-height: 100%; display: grid; place-items: center; align-content: center; gap: 8px; padding: 20px; text-align: center; }
-.welcome-logo { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: #fff; background: var(--do-primary); font-size: 13px; font-weight: 900; }
-.welcome-state strong { color: var(--do-ink); font-size: 22px; }
-.welcome-state p { max-width: 380px; margin: 5px 0 0; color: var(--do-muted); font-size: 14px; line-height: 1.6; }
+.welcome-logo { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 11px; color: #fff; background: var(--do-primary); font-size: 12px; font-weight: 900; }
+.welcome-state strong { color: var(--do-ink); font-size: 20px; }
+.welcome-state p { max-width: 380px; margin: 4px 0 0; color: var(--do-muted); font-size: 13.5px; line-height: 1.65; }
 .empty-chat { min-height: 100%; display: grid; place-items: center; align-content: center; gap: 10px; color: var(--do-muted); text-align: center; }
-.empty-chat h3 { margin: 0; color: var(--do-ink); font-size: 18px; }
+.empty-chat h3 { margin: 0; color: var(--do-ink); font-size: 17px; }
 .empty-chat p { margin: 0; font-size: 13px; line-height: 1.6; }
-.empty-chat button { min-height: 42px; display: inline-flex; align-items: center; gap: 7px; margin-top: 7px; padding: 0 13px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 12px; cursor: pointer; }
+.empty-chat button { min-height: 38px; display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 0 12px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 12px; cursor: pointer; }
 .empty-chat button:disabled { cursor: wait; opacity: .55; }
-.conversation-stream { width: min(860px, 100%); display: grid; align-content: start; gap: 24px; margin: 0 auto; padding: 10px 0 30px; }
-.load-older-messages { min-height: 40px; justify-self: center; padding: 0 13px; border: 1px solid var(--do-line); border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 12px; cursor: pointer; }
+.conversation-stream { width: min(780px, 100%); display: grid; align-content: start; gap: 22px; margin: 0 auto; padding: 8px 0 12px; }
+.load-older-messages { min-height: 32px; justify-self: center; padding: 0 12px; border: 1px solid var(--do-line); border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 11px; cursor: pointer; }
 .load-older-messages:disabled { cursor: wait; opacity: .55; }
-.message-item { min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 11px; }
-.message-item.user { grid-template-columns: minmax(0, 1fr) 36px; }
+.message-item { min-width: 0; display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: start; gap: 10px; }
+.message-item.user { grid-template-columns: minmax(0, 1fr) 28px; }
 .message-item.user .message-avatar { grid-column: 2; }
-.message-item.user .message-bubble { grid-column: 1; grid-row: 1; justify-self: end; max-width: 80%; border-color: transparent; background: var(--do-primary-soft); box-shadow: none; }
-.message-avatar { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; color: var(--do-primary-strong); background: var(--do-primary-soft); }
+.message-item.user .message-bubble { grid-column: 1; grid-row: 1; justify-self: end; max-width: 76%; padding: 10px 13px; border-color: color-mix(in srgb, var(--do-primary) 10%, transparent); background: var(--do-primary-soft); box-shadow: none; }
+.message-avatar { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; color: var(--do-primary-strong); background: var(--do-primary-soft); }
 .message-item.user .message-avatar { color: #fff; background: var(--do-primary); }
-.assistant-mark { font-size: 10px; font-weight: 900; }
-.message-bubble { min-width: 0; max-width: 720px; padding: 13px 15px; border: 1px solid var(--do-line); border-radius: 13px; color: var(--do-ink); background: var(--do-surface); box-shadow: var(--do-shadow); }
-.message-bubble p { margin: 0; font-size: 15px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
-.message-suggestions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
-.message-suggestions small { flex-basis: 100%; color: var(--do-muted); font-size: 11px; }
-.message-suggestions button { min-height: 36px; padding: 0 11px; border: 1px solid var(--do-line); border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 12px; cursor: pointer; }
+.assistant-mark { font-size: 8.5px; font-weight: 900; letter-spacing: .02em; }
+.message-bubble { min-width: 0; max-width: 100%; padding: 12px 14px 10px; border: 1px solid var(--do-line); border-radius: 14px; color: var(--do-ink); background: var(--do-surface); box-shadow: none; }
+.message-item.assistant .message-bubble { width: 100%; max-width: 620px; justify-self: start; }
+.message-bubble p { margin: 0; font-size: 15px; line-height: 1.65; letter-spacing: .004em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-state-title { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 7px; padding: 3px 8px; border-radius: var(--do-radius-full); color: color-mix(in srgb, var(--do-warning) 60%, var(--do-ink)); background: var(--do-warning-soft); font-size: 11px; font-weight: 700; line-height: 1.4; }
+.message-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.message-suggestions small { flex-basis: 100%; color: var(--do-muted); font-size: 10.5px; }
+.message-suggestions button { min-height: 30px; padding: 0 10px; border: 1px solid var(--do-line); border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 11.5px; cursor: pointer; }
 .message-suggestions button:hover { border-color: var(--do-primary); background: var(--do-primary-soft); }
-.message-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; color: var(--do-muted); }
-.message-meta small { font-size: 12px; }
-.message-meta button { min-height: 32px; display: inline-flex; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; color: var(--do-primary-strong); background: transparent; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
-.message-meta button:hover { border-color: var(--do-line); background: var(--do-primary-soft); }
-.message-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--do-line); }
-.message-actions button { min-height: 36px; padding: 0 10px; border: 1px solid var(--do-line); border-radius: 7px; color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 11px; font-weight: 650; cursor: pointer; }
+.message-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 10px; margin-top: 8px; }
+.message-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 0; padding-top: 0; border-top: 0; }
+.message-actions button { min-height: 32px; padding: 0 11px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 11.5px; font-weight: 650; cursor: pointer; }
 .message-actions button:hover:not(:disabled) { border-color: var(--do-primary); background: var(--do-primary-soft); }
 .message-actions button:disabled { cursor: not-allowed; opacity: .5; }
-.query-workspace :deep(.query-input) { width: auto; min-width: 0; margin: 0; padding: 9px 20px 14px; border: 1px solid var(--do-glass-line); border-top: 0; border-radius: 0 0 15px 15px; background: var(--do-glass-panel-bg); }
-.query-workspace :deep(.chat-composer) { padding: 9px 9px 9px 14px; box-shadow: var(--do-shadow); }
-.query-workspace :deep(.send-button), .query-workspace :deep(.cancel-button) { min-width: 88px; min-height: 44px; }
-.query-workspace :deep(.composer-hint) { margin-top: 5px; font-size: 11px; }
-.query-workspace :deep(.composer-readiness) { color: var(--do-warning); }
+.message-actions .message-primary-action { border-color: var(--do-primary); color: #fff; background: var(--do-primary); }
+.message-actions .message-primary-action:hover:not(:disabled) { border-color: var(--do-primary-strong); background: var(--do-primary-strong); }
+.message-meta { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 0; margin-left: auto; padding: 0; border: 0; color: var(--do-muted); }
+.message-meta-note { min-width: 0; display: inline-flex; align-items: center; gap: 8px; }
+.message-time { color: var(--do-muted); font-size: 10px; opacity: .82; font-variant-numeric: tabular-nums; }
+.message-state-chip { display: inline-flex; align-items: center; gap: 4px; color: var(--do-muted); font-size: 10.5px; font-weight: 600; }
+.message-state-chip i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.message-state-chip.processing { color: var(--do-primary-strong); }
+.message-state-chip.processing i { animation: state-pulse 1.4s ease-in-out infinite; }
+.message-state-chip.success { color: color-mix(in srgb, var(--do-success) 65%, var(--do-ink)); }
+.message-state-chip.danger { color: var(--do-danger); }
+.message-state-chip.muted { color: var(--do-muted); }
+.message-result-link { min-height: 26px; display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; border: 1px solid transparent; border-radius: 6px; color: var(--do-primary-strong); background: transparent; font: inherit; font-size: 10.5px; font-weight: 650; cursor: pointer; }
+.message-result-link:hover { border-color: var(--do-line); background: var(--do-primary-soft); }
+.query-workspace :deep(.query-input) { grid-column: 1; grid-row: 2; align-self: end; width: auto; min-width: 0; margin: 0; padding: 8px 28px 10px; border: 1px solid var(--do-glass-line); border-top: 0; border-radius: 0 0 16px 16px; background: rgba(255, 255, 255, .95); }
+.query-workspace :deep(.composer-readiness) { color: color-mix(in srgb, var(--do-warning) 65%, var(--do-ink)); }
 .query-workspace.result-open .result-rail { grid-column: 2; grid-row: 1 / 3; }
-.query-workspace :deep(.result-rail) { grid-column: 1; grid-row: 1 / 2; }
-.query-workspace :deep(.result-rail) { border-radius: 15px; box-shadow: var(--do-shadow); }
+.query-workspace :deep(.result-rail) { grid-column: 1; grid-row: 1 / 2; border-radius: 16px; box-shadow: var(--do-shadow); }
 .query-workspace :deep(.result-rail .result-actions) { margin: 0; }
 .query-workspace :deep(.result-rail .result-scroll) { scrollbar-gutter: stable; }
-.query-workspace.result-mode .conversation-pane { display: block; }
-.result-toggle:focus-visible, .details-toggle:focus-visible, .workspace-switch button:focus-visible, .message-meta button:focus-visible, .message-actions button:focus-visible, .message-suggestions button:focus-visible, .empty-chat button:focus-visible, .load-older-messages:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 30%, transparent); outline-offset: 2px; }
+.result-toggle:focus-visible, .details-toggle:focus-visible, .workspace-switch button:focus-visible, .message-result-link:focus-visible, .message-actions button:focus-visible, .message-suggestions button:focus-visible, .empty-chat button:focus-visible, .load-older-messages:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 30%, transparent); outline-offset: 2px; }
+@keyframes state-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.8); } }
 @media (max-width: 1279px) and (min-width: 769px) {
-  .query-workspace { grid-template-columns: 220px minmax(0, 1fr); }
+  .query-workspace { grid-template-columns: 240px minmax(0, 1fr); }
   .query-workspace.result-open .workspace-content { grid-template-columns: minmax(0, 1fr); }
   .workspace-switch { display: flex; }
+  .result-toggle { display: none; }
   .query-workspace:not(.result-mode) :deep(.result-rail) { display: none; }
   .query-workspace.result-mode .conversation-pane { display: none; }
   .query-workspace.result-mode :deep(.result-rail) { display: grid; grid-column: 1; grid-row: 1; }
-  .query-workspace :deep(.query-input) { padding-inline: 16px; }
-  .query-main { padding-left: 0; }
-  .query-topbar { padding-inline: 14px; }
-  .topbar-heading { gap: 10px; }
-  .topbar-heading h1 { font-size: 18px; }
-  .topbar-heading { flex-wrap: nowrap; }
+  .query-workspace :deep(.query-input) { padding-inline: 20px; }
+  .query-topbar { padding-inline: 12px; }
+  .topbar-heading { gap: 8px 10px; flex-wrap: nowrap; }
+  .topbar-heading h1 { font-size: 17px; }
   .readiness-note { display: none; }
+  .conversation-heading { padding-inline: 20px; }
+  .chat-surface { padding-inline: 20px; }
+}
+@media (max-width: 899px) and (min-width: 769px) {
+  /* 中等宽度下把操作区换到第二行，避免数据源选择器与视图切换互相覆盖。 */
+  .query-topbar { flex-wrap: wrap; row-gap: 6px; }
+  .topbar-heading { flex: 1 1 100%; }
+  .topbar-actions { width: 100%; justify-content: flex-end; }
 }
 @media (max-width: 768px) {
   .query-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: 8px; padding: 8px; }
   .query-main { min-height: 0; grid-template-rows: auto minmax(0, 1fr); padding: 0; }
-  .query-topbar { min-height: 0; flex-wrap: wrap; align-items: flex-start; gap: 8px; padding: 10px 12px; }
+  .query-topbar { min-height: 0; flex-wrap: wrap; align-items: flex-start; gap: 8px; padding: 9px 11px; }
   .topbar-heading { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px 10px; }
   .topbar-heading h1 { font-size: 16px; }
   .readiness-note { grid-column: 1 / -1; display: block; max-width: none; }
   .capability-error { grid-column: 1 / -1; }
   .topbar-actions { width: 100%; justify-content: space-between; }
   .workspace-switch { display: flex; flex: 1; }
-  .workspace-switch button { flex: 1; min-height: 42px; }
-  .result-toggle, .details-toggle { min-height: 42px; }
+  .result-toggle { display: none; }
+  .workspace-switch button { flex: 1; min-height: 36px; }
+  .result-toggle, .details-toggle { min-height: 38px; }
   .workspace-content, .query-workspace.result-open .workspace-content { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
   .query-workspace:not(.result-mode) :deep(.result-rail) { display: none; }
   .query-workspace.result-mode .conversation-pane { display: none; }
   .query-workspace.result-mode :deep(.result-rail) { display: grid; grid-column: 1; grid-row: 1; }
-  .conversation-heading { min-height: 48px; padding: 0 14px; }
-  .conversation-heading h2 { font-size: 15px; }
+  .conversation-heading { min-height: 38px; padding-inline: 14px; }
+  .conversation-heading h2 { font-size: 11.5px; }
   .chat-surface { padding: 12px 12px 16px; }
   .welcome-logo { width: 38px; height: 38px; }
-  .welcome-state strong { font-size: 19px; }
+  .welcome-state strong { font-size: 18px; }
   .welcome-state p { font-size: 13px; }
-  .conversation-stream { gap: 16px; padding: 4px 0 18px; }
-  .message-item { grid-template-columns: 32px minmax(0, 1fr); gap: 8px; }
-  .message-item.user { grid-template-columns: minmax(0, 1fr) 32px; }
-  .message-avatar { width: 32px; height: 32px; }
-  .message-bubble { padding: 10px 11px; }
-  .message-item.user .message-bubble { max-width: 94%; }
-  .query-workspace :deep(.query-input) { padding: 9px 12px max(10px, env(safe-area-inset-bottom)); }
-  .query-workspace :deep(.chat-composer) { gap: 7px; padding: 7px; }
-  .query-workspace :deep(.chat-composer textarea) { min-height: 42px; padding-inline: 5px; }
-  .query-workspace :deep(.send-button), .query-workspace :deep(.cancel-button) { min-width: 78px; }
-  .query-workspace :deep(.composer-hint) { text-align: left; }
-  .query-workspace :deep(.result-rail) { border-radius: 15px; }
+  .conversation-stream { gap: 16px; padding: 4px 0 8px; }
+  .message-item { grid-template-columns: 26px minmax(0, 1fr); gap: 8px; }
+  .message-item.user { grid-template-columns: minmax(0, 1fr) 26px; }
+  .message-avatar { width: 26px; height: 26px; }
+  .message-bubble { padding: 10px 12px 9px; }
+  .message-item.user .message-bubble { max-width: 90%; }
+  .query-workspace :deep(.query-input) { padding: 7px 12px max(8px, env(safe-area-inset-bottom)); }
+  .query-workspace :deep(.result-rail) { border-radius: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {
+  .message-state-chip.processing i { animation: none; }
   .message-meta button, .message-actions button, .message-suggestions button, .workspace-switch button { transition-duration: 1ms; }
 }
 </style>
