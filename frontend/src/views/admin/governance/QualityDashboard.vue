@@ -320,7 +320,7 @@ watch(
         没有“执行质量检查”能力：需要角色拥有该功能并负责当前数据源。
       </span>
       <el-button v-if="hasUnresolvedIssues" @click="openIssueCenter">进入问题中心</el-button>
-      <el-button v-else-if="canReturnToRelease" @click="openReleaseFlow">返回版本发布</el-button>
+      <el-button v-else-if="canReturnToRelease" @click="openReleaseFlow">返回元数据版本</el-button>
     </section>
 
     <details class="quality-details">

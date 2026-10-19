@@ -128,7 +128,7 @@ const router = createRouter({
           path: 'releases',
           name: 'admin-releases',
           component: ReleasesView,
-          meta: { title: '版本发布', domainKey: 'data-assets', workspaceKey: 'releases', contextMode: 'datasource' },
+          meta: { title: '元数据版本', domainKey: 'data-assets', workspaceKey: 'releases', contextMode: 'datasource' },
         },
         {
           path: 'releases/snapshots/:snapshotId',

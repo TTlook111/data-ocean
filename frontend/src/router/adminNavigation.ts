@@ -39,7 +39,7 @@ export const ADMIN_WORKSPACES: AdminWorkspace[] = [
   { key: 'data-sources', domainKey: ADMIN_DOMAIN_KEYS.dataEntry, label: '数据源', path: '/admin/data-sources', contextMode: 'none' },
   { key: 'collections', domainKey: ADMIN_DOMAIN_KEYS.dataEntry, label: '采集任务', path: '/admin/collections', contextMode: 'datasource' },
   { key: 'assets', domainKey: ADMIN_DOMAIN_KEYS.dataAssets, label: '数据对象目录', path: '/admin/assets', contextMode: 'datasource' },
-  { key: 'releases', domainKey: ADMIN_DOMAIN_KEYS.dataAssets, label: '版本发布', path: '/admin/releases', contextMode: 'datasource' },
+  { key: 'releases', domainKey: ADMIN_DOMAIN_KEYS.dataAssets, label: '元数据版本', path: '/admin/releases', contextMode: 'datasource' },
   { key: 'governance', domainKey: ADMIN_DOMAIN_KEYS.governance, label: '治理总览', path: '/admin/governance', contextMode: 'datasource-snapshot' },
   { key: 'governance-issues', domainKey: ADMIN_DOMAIN_KEYS.governance, label: '问题中心', path: '/admin/governance/issues', contextMode: 'datasource-snapshot' },
   { key: 'governance-rules', domainKey: ADMIN_DOMAIN_KEYS.governance, label: '规则与状态', path: '/admin/governance/rules', contextMode: 'datasource-snapshot' },

@@ -8,8 +8,9 @@ import { getHttpErrorMessage } from '../../utils/httpError'
 import { snapshotStatusLabel } from '../../utils/enumLabels'
 import TitleHelp from './TitleHelp.vue'
 
-const props = withDefaults(defineProps<{ mode: AdminContextMode; refreshLabel?: string }>(), {
+const props = withDefaults(defineProps<{ mode: AdminContextMode; refreshLabel?: string; compact?: boolean }>(), {
   refreshLabel: '',
+  compact: false,
 })
 const route = useRoute()
 const router = useRouter()
@@ -95,7 +96,7 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
 </script>
 
 <template>
-  <section class="scope-bar" aria-label="后台业务范围">
+  <section class="scope-bar" :class="{ 'scope-bar--compact': compact }" aria-label="后台业务范围">
     <div class="scope-bar__intro">
       <LockKeyhole v-if="mode === 'locked-resource'" :size="16" />
       <Database v-else :size="16" />
@@ -109,39 +110,61 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
     </div>
 
     <div class="scope-bar__controls">
-      <el-select
-        :model-value="context.datasourceId"
-        :loading="context.loading"
-        filterable
-        clearable
-        placeholder="选择数据源"
-        :title="selectedDatasourceLabel"
-        @update:model-value="handleDatasourceChange"
+      <div class="scope-bar__datasource-control">
+        <span v-if="compact" class="scope-bar__control-label">数据源</span>
+        <el-select
+          :model-value="context.datasourceId"
+          :loading="context.loading"
+          filterable
+          clearable
+          placeholder="选择数据源"
+          :aria-label="selectedDatasourceLabel ? `数据源：${selectedDatasourceLabel}` : '选择数据源'"
+          :title="selectedDatasourceLabel"
+          @update:model-value="handleDatasourceChange"
+        >
+          <el-option
+            v-for="item in context.datasources"
+            :key="item.id"
+            :value="item.id"
+            :label="item.name + ' / ' + item.databaseName"
+            :title="item.name + ' / ' + item.databaseName"
+          />
+        </el-select>
+      </div>
+      <div v-if="showSnapshot" class="scope-bar__snapshot-control">
+        <span v-if="compact" class="scope-bar__control-label">快照</span>
+        <el-select
+          :model-value="context.snapshotId"
+          :loading="context.loading"
+          clearable
+          :disabled="!context.datasourceId"
+          placeholder="选择快照"
+          @update:model-value="handleSnapshotChange"
+        >
+          <el-option
+            v-for="item in context.snapshots"
+            :key="item.id"
+            :value="item.id"
+            :label="'v' + item.snapshotVersion + ' · ' + snapshotStatusLabel(item.status)"
+          />
+        </el-select>
+      </div>
+      <el-tooltip
+        v-if="compact"
+        class="scope-bar__refresh-tooltip"
+        :content="refreshLabel || '刷新范围'"
+        :trigger="['hover', 'focus']"
+        placement="top"
       >
-        <el-option
-          v-for="item in context.datasources"
-          :key="item.id"
-          :value="item.id"
-          :label="item.name + ' / ' + item.databaseName"
+        <el-button
+          class="scope-bar__refresh-icon"
+          :icon="RefreshCw"
+          :loading="context.loading"
+          :aria-label="refreshLabel || '刷新范围'"
+          @click="context.refresh"
         />
-      </el-select>
-      <el-select
-        v-if="showSnapshot"
-        :model-value="context.snapshotId"
-        :loading="context.loading"
-        clearable
-        :disabled="!context.datasourceId"
-        placeholder="选择快照"
-        @update:model-value="handleSnapshotChange"
-      >
-        <el-option
-          v-for="item in context.snapshots"
-          :key="item.id"
-          :value="item.id"
-          :label="'v' + item.snapshotVersion + ' · ' + snapshotStatusLabel(item.status)"
-        />
-      </el-select>
-      <el-button :icon="RefreshCw" :loading="context.loading" :aria-label="refreshLabel || '刷新范围'" @click="context.refresh">
+      </el-tooltip>
+      <el-button v-else :icon="RefreshCw" :loading="context.loading" :aria-label="refreshLabel || '刷新范围'" @click="context.refresh">
         <span v-if="refreshLabel">{{ refreshLabel }}</span>
       </el-button>
     </div>
@@ -163,6 +186,61 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
   border-radius: var(--do-radius-lg);
   background: linear-gradient(120deg, var(--do-primary-soft), var(--do-surface) 60%);
 }
+
+.scope-bar--compact { display: contents; }
+.scope-bar--compact .scope-bar__intro { display: none; }
+.scope-bar--compact .scope-bar__controls { display: contents; }
+.scope-bar--compact .scope-bar__datasource-control,
+.scope-bar--compact .scope-bar__snapshot-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.scope-bar__datasource-control,
+.scope-bar__snapshot-control {
+  display: contents;
+}
+.scope-bar__control-label {
+  flex: 0 0 auto;
+  color: var(--do-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.scope-bar--compact .scope-bar__datasource-control {
+  flex: 0 1 488px;
+  min-width: 240px;
+  max-width: 488px;
+}
+.scope-bar--compact .scope-bar__datasource-control :deep(.el-select) {
+  flex: 1 1 400px;
+  width: 400px;
+  min-width: 180px;
+  max-width: 440px;
+}
+.scope-bar--compact .scope-bar__snapshot-control { flex: 0 1 240px; }
+.scope-bar--compact .scope-bar__snapshot-control :deep(.el-select) {
+  flex: 1 1 180px;
+  width: 180px;
+  min-width: 160px;
+  max-width: 200px;
+}
+.scope-bar--compact :deep(.el-select__wrapper) { min-height: 36px; }
+.scope-bar--compact .scope-bar__refresh-tooltip { display: inline-flex; flex: 0 0 auto; }
+.scope-bar--compact .scope-bar__refresh-icon {
+  width: 36px;
+  padding: 0;
+  min-height: 36px;
+  border-color: transparent;
+  color: var(--do-muted);
+  background: transparent;
+  box-shadow: none;
+}
+.scope-bar--compact .scope-bar__refresh-icon:hover {
+  color: var(--do-primary-strong);
+  background: var(--do-primary-soft);
+}
+.scope-bar--compact .scope-bar__warning { flex: 1 1 100%; margin: 0; }
 
 .scope-bar__intro,
 .scope-bar__controls {
@@ -202,5 +280,9 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
 }
 @media (max-width: 1150px) { .scope-bar { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .scope-bar { margin: 14px 18px 0; } .scope-bar__controls { flex-wrap: wrap; } .scope-bar__controls :deep(.el-select) { flex: 1 1 150px; } }
+@media (max-width: 760px) {
+  .scope-bar--compact .scope-bar__datasource-control { flex: 1 1 100%; max-width: none; }
+  .scope-bar--compact .scope-bar__datasource-control :deep(.el-select) { width: auto; min-width: 0; }
+}
 
 </style>

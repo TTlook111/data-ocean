@@ -190,8 +190,8 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <ScopeBar v-if="(contextMode === 'datasource' || contextMode === 'datasource-snapshot') && route.name !== 'admin-collections' && route.name !== 'admin-assets'" :mode="contextMode" />
-      <section class="admin-shell__content" :class="{ 'admin-shell__content--compact': route.name === 'admin-workbench' || route.name === 'admin-data-sources' || route.name === 'admin-data-source-detail' || route.name === 'admin-collections' || route.name === 'admin-assets' || route.name === 'admin-asset-detail' }">
+      <ScopeBar v-if="(contextMode === 'datasource' || contextMode === 'datasource-snapshot') && route.name !== 'admin-collections' && route.name !== 'admin-assets' && route.name !== 'admin-releases'" :mode="contextMode" />
+      <section class="admin-shell__content" :class="{ 'admin-shell__content--compact': route.name === 'admin-workbench' || route.name === 'admin-data-sources' || route.name === 'admin-data-source-detail' || route.name === 'admin-collections' || route.name === 'admin-assets' || route.name === 'admin-asset-detail' || route.name === 'admin-releases' }">
         <RouterView />
       </section>
     </main>
@@ -550,8 +550,31 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
+/* 元数据版本沿用后台公共海蓝画布；此处仅保留本路由的布局尺寸规则。 */
+.admin-shell .admin-shell__content:has(.releases-page) {
+  max-width: none;
+  margin: 0;
+  padding: 20px 24px 24px;
+  overflow-x: hidden;
+}
+@media (max-width: 760px) {
+  .admin-shell .admin-shell__content:has(.releases-page) { padding: 18px 12px; }
+}
+
 /* 目录页桌面固定表格模式下，底部留白由后台父容器统一收取，避免面板与侧栏底边错位。 */
 .admin-shell .admin-shell__content:has(.assets-page--fixed-catalog) { padding-bottom: 0; }
+
+/* 数据对象目录的快照表结构仅在宽屏和足够窗口高度时使用正文内滚动。 */
+.admin-shell .admin-shell__content:has(.assets-page--fixed-tables) {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+.admin-shell .admin-shell__content:has(.assets-page--fixed-tables) > .assets-page--fixed-tables {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 
 /*
  * 对象详情桌面固定模式：外层主内容区停止滚动，页面用父容器实际剩余高度约束正文。

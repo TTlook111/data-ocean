@@ -327,7 +327,7 @@ const emptyMessage = computed(() => {
 const emptyAction = computed(() => {
   if (activeTab.value === 'review') return ''
   if (publishedSnapshotError.value) return ''
-  if (!publishedSnapshot.value && datasourceId.value) return '去版本发布'
+  if (!publishedSnapshot.value && datasourceId.value) return '去元数据版本'
   return '生成快照目录'
 })
 

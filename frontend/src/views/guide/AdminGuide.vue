@@ -84,7 +84,7 @@ const steps: StepDef[] = [
     icon: History,
     color: 'purple',
     title: '发布快照',
-    desc: '治理完成后在「版本发布」中发布一个冻结版本。发布后的快照作为 AI 查询的可信数据依据。',
+    desc: '治理完成后在「元数据版本」中发布一个冻结版本。发布后的快照作为 AI 查询的可信数据依据。',
     action: { label: '去发布', to: '/admin/releases' },
     detailTitle: '快照版本说明',
     details: [

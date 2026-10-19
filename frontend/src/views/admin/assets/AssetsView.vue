@@ -25,14 +25,19 @@ const readiness = ref<DatasourceReadiness | null>(null)
 const loading = ref(false)
 const error = ref('')
 const requestId = ref(0)
+const assetsPageRef = ref<HTMLElement>()
 const fixedCatalogHeight = ref(false)
+const fixedTablesHeight = ref(false)
 const expandedPaths = ref<Set<number>>(new Set())
 let catalogMedia: MediaQueryList | undefined
+let tableMedia: MediaQueryList | undefined
+let layoutResizeObserver: ResizeObserver | undefined
+let observedLayoutElements = new Set<Element>()
+let layoutFrame: number | undefined
 let queryTimer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 
-const purposeText = '查找已发布的表和字段，查看所在位置、技术信息、业务含义与关联影响。'
-const helpText = '这里只展示已发布快照同步后的正式目录。表对象代表一张数据库表，字段对象代表表中的一列；业务术语、标签和字段治理状态作为对象关联信息展示，并进入各自的维护工作区处理。'
+const helpText = '查找已发布的表和字段，查看所在位置、技术信息、业务含义与关联影响。这里只展示已发布快照同步后的正式目录。表对象代表一张数据库表，字段对象代表表中的一列；业务术语、标签和字段治理状态作为对象关联信息展示，并进入各自的维护工作区处理。'
 
 const typeOptions = [
   { value: 'TABLE' as const, label: entityTypeLabel('TABLE'), icon: Table2 },
@@ -83,7 +88,7 @@ const catalogWarning = computed(() => {
       : '目录同步失败，列表可能是不完整或旧内容，不代表本次快照已完整可用。'
   }
   if (status === 'SYNCING') return '目录正在同步本次快照，列表可能尚未完整。'
-  if (!status) return '历史发布版本没有记录目录同步状态，当前目录内容可能不完整，请以版本发布记录为准。'
+  if (!status) return '历史发布版本没有记录目录同步状态，当前目录内容可能不完整，请以元数据版本记录为准。'
   return ''
 })
 const catalogWarningType = computed<'error' | 'warning'>(
@@ -282,8 +287,67 @@ async function load() {
   }
 }
 
-function syncCatalogMedia(event?: MediaQueryListEvent) {
+function syncAssetsMedia(event?: MediaQueryListEvent) {
   fixedCatalogHeight.value = event ? event.matches : (catalogMedia?.matches ?? false)
+  scheduleTableLayoutCheck()
+}
+
+function observeAssetsLayout() {
+  if (!layoutResizeObserver || !assetsPageRef.value) return
+  const page = assetsPageRef.value
+  const targets = new Set<Element>([
+    page.closest('.admin-shell__content'),
+    page.querySelector('.task-page-header'),
+    page.querySelector('.assets-page__tabs'),
+    page.querySelector('.snapshot-toolbar'),
+  ].filter((element): element is Element => element != null))
+  for (const element of observedLayoutElements) {
+    if (!targets.has(element)) {
+      layoutResizeObserver.unobserve(element)
+      observedLayoutElements.delete(element)
+    }
+  }
+  for (const element of targets) {
+    if (observedLayoutElements.has(element)) continue
+    layoutResizeObserver.observe(element)
+    observedLayoutElements.add(element)
+  }
+}
+
+function scheduleTableLayoutCheck() {
+  if (layoutFrame != null) cancelAnimationFrame(layoutFrame)
+  void nextTick(() => {
+    if (disposed) return
+    layoutFrame = requestAnimationFrame(() => {
+      layoutFrame = undefined
+      if (disposed) return
+      const page = assetsPageRef.value
+      const content = page?.closest('.admin-shell__content') as HTMLElement | null
+      const header = page?.querySelector('.task-page-header') as HTMLElement | null
+      const tabs = page?.querySelector('.assets-page__tabs') as HTMLElement | null
+      const toolbar = page?.querySelector('.snapshot-toolbar') as HTMLElement | null
+      if (!page || activeView.value !== 'tables' || !tableMedia?.matches || !content || !header || !tabs || !toolbar) {
+        fixedTablesHeight.value = false
+        observeAssetsLayout()
+        return
+      }
+
+      const contentStyle = getComputedStyle(content)
+      const availableHeight = content.clientHeight
+        - (Number.parseFloat(contentStyle.paddingTop) || 0)
+        - (Number.parseFloat(contentStyle.paddingBottom) || 0)
+      const pageGap = Number.parseFloat(getComputedStyle(page).rowGap) || 0
+      const remaining = availableHeight
+        - header.getBoundingClientRect().height
+        - tabs.getBoundingClientRect().height
+        - toolbar.getBoundingClientRect().height
+        - pageGap * 2
+
+      // 保留标题/属性区与至少约 240px 的字段正文；阈值只决定滚动模式，不设置表格固定高度。
+      fixedTablesHeight.value = remaining >= 480
+      observeAssetsLayout()
+    })
+  })
 }
 
 watch([keyword, entityType], () => {
@@ -305,8 +369,16 @@ watch(() => route.query.type, (value) => {
 
 onMounted(async () => {
   catalogMedia = window.matchMedia('(min-width: 960px) and (min-height: 700px)')
-  syncCatalogMedia()
-  catalogMedia.addEventListener('change', syncCatalogMedia)
+  tableMedia = window.matchMedia('(min-width: 960px)')
+  if (typeof ResizeObserver !== 'undefined') {
+    layoutResizeObserver = new ResizeObserver(scheduleTableLayoutCheck)
+  }
+  window.addEventListener('resize', scheduleTableLayoutCheck)
+  tableMedia.addEventListener('change', scheduleTableLayoutCheck)
+  syncAssetsMedia()
+  catalogMedia.addEventListener('change', syncAssetsMedia)
+  observeAssetsLayout()
+  scheduleTableLayoutCheck()
   try {
     await context.initialize()
     await load()
@@ -320,7 +392,19 @@ onBeforeUnmount(() => {
   captureScroll()
   disposed = true
   if (queryTimer) clearTimeout(queryTimer)
-  catalogMedia?.removeEventListener('change', syncCatalogMedia)
+  if (layoutFrame != null) cancelAnimationFrame(layoutFrame)
+  layoutResizeObserver?.disconnect()
+  layoutResizeObserver = undefined
+  observedLayoutElements.clear()
+  window.removeEventListener('resize', scheduleTableLayoutCheck)
+  tableMedia?.removeEventListener('change', scheduleTableLayoutCheck)
+  catalogMedia?.removeEventListener('change', syncAssetsMedia)
+})
+
+watch(activeView, async () => {
+  await nextTick()
+  observeAssetsLayout()
+  scheduleTableLayoutCheck()
 })
 
 // 数据源切换会触发重新加载；先用同步 watcher 记录旧数据源目录的真实滚动位置。
@@ -329,11 +413,16 @@ watch(() => context.datasourceId, load)
 </script>
 
 <template>
-  <div class="admin-page assets-page" :class="{ 'assets-page--fixed-catalog': activeView === 'catalog' && fixedCatalogHeight }">
+  <div
+    ref="assetsPageRef"
+    class="admin-page assets-page"
+    :class="{
+      'assets-page--fixed-catalog': activeView === 'catalog' && fixedCatalogHeight,
+      'assets-page--fixed-tables': activeView === 'tables' && fixedTablesHeight,
+    }"
+  >
     <TaskPageHeader
       title="数据对象目录"
-      :description="purposeText"
-      description-mode="inline"
       :help="helpText"
     >
       <template #actions>
@@ -347,9 +436,9 @@ watch(() => context.datasourceId, load)
     </el-tabs>
 
     <section class="assets-panel do-glass-panel">
-      <div class="assets-panel__scope">
+      <div v-if="activeView === 'catalog'" class="assets-panel__scope">
         <div class="assets-panel__scope-picker">
-          <ScopeBar mode="datasource" refresh-label="刷新数据源列表" />
+          <ScopeBar mode="datasource" refresh-label="刷新数据源列表" compact />
         </div>
         <span class="assets-panel__scope-note">{{ scopeNote }}</span>
       </div>
@@ -394,7 +483,7 @@ watch(() => context.datasourceId, load)
             <EmptyState message="请选择数据源后，再查看已发布对象。" action-text="去数据源接入" @action="$router.push('/admin/data-sources')" />
           </template>
           <template v-else-if="!readiness?.publishedSnapshotId">
-            <EmptyState message="当前数据源没有已发布快照，暂无可浏览的已发布对象。" action-text="去版本发布" @action="$router.push({ path: '/admin/releases', query: { datasourceId: String(context.datasourceId) } })" />
+            <EmptyState message="当前数据源没有已发布快照，暂无可浏览的已发布对象。" action-text="去元数据版本" @action="$router.push({ path: '/admin/releases', query: { datasourceId: String(context.datasourceId) } })" />
           </template>
           <template v-else-if="catalog?.syncStatus === 'FAILED' && !filteredEntities.length">
             <ErrorState :message="catalogWarning" @retry="load" />
@@ -464,7 +553,11 @@ watch(() => context.datasourceId, load)
       </template>
 
       <EmptyState v-else-if="!context.datasourceId" message="请选择数据源后查看快照表结构。" action-text="去数据源接入" @action="$router.push('/admin/data-sources')" />
-      <TableExplorer v-else />
+      <TableExplorer v-else :fixed-height="fixedTablesHeight">
+        <template #datasource-scope>
+          <ScopeBar mode="datasource" refresh-label="刷新数据源列表" compact />
+        </template>
+      </TableExplorer>
     </section>
   </div>
 </template>
@@ -472,13 +565,15 @@ watch(() => context.datasourceId, load)
 <style scoped>
 .assets-page { min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 .assets-page--fixed-catalog { height: 100%; }
+.assets-page--fixed-tables { height: 100%; flex: 1 1 auto; min-height: 0; }
 .assets-page--fixed-catalog :deep(.task-page-header),
-.assets-page--fixed-catalog .assets-page__tabs { flex: 0 0 auto; }
+.assets-page--fixed-catalog .assets-page__tabs,
+.assets-page--fixed-tables :deep(.task-page-header),
+.assets-page--fixed-tables .assets-page__tabs { flex: 0 0 auto; }
 .assets-page :deep(.task-page-header) { align-items: center; margin-bottom: 0; }
 .assets-page :deep(.task-page-header__copy) { flex: 1 1 auto; min-width: 0; }
-.assets-page :deep(.task-page-header h1) { font-size: clamp(28px, 2.4vw, 32px); line-height: 1.2; letter-spacing: -.025em; }
-.assets-page :deep(.task-page-header p) { margin-top: 4px; font-size: 13px; line-height: 1.5; }
-.assets-page__tabs :deep(.el-tabs__header) { margin-bottom: 12px; }
+.assets-page :deep(.task-page-header h1) { font-size: clamp(24px, 2.2vw, 28px); line-height: 1.2; letter-spacing: -.025em; }
+.assets-page__tabs :deep(.el-tabs__header) { margin-bottom: 10px; }
 .assets-page__tabs :deep(.el-tab-pane) { padding-top: 0; }
 
 .assets-panel {
@@ -487,19 +582,23 @@ watch(() => context.datasourceId, load)
   overflow: hidden;
   border-color: var(--do-line);
   border-radius: var(--do-radius-lg);
-  background: var(--do-glass-panel-bg);
-  box-shadow: var(--do-shadow);
+  background: var(--do-glass-data-bg);
+  box-shadow: none;
   clip-path: inset(0 round var(--do-radius-lg));
 }
 
-.assets-panel__scope { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px 16px; border-bottom: 1px solid var(--do-line); }
-.assets-panel__scope-picker { min-width: 0; flex: 1 1 auto; display: flex; }
+.assets-panel__scope { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px 20px; border-bottom: 1px solid var(--do-line); }
+.assets-panel__scope-picker { min-width: 0; flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 8px; }
 .assets-panel__scope-picker :deep(.scope-bar) { display: block; width: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .assets-panel__scope-picker :deep(.scope-bar__intro) { display: none; }
-.assets-panel__scope-picker :deep(.scope-bar__controls) { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.assets-panel__scope-picker :deep(.scope-bar__controls .el-select) { flex: 0 1 440px; min-width: 320px; max-width: 440px; }
-.assets-panel__scope-picker :deep(.scope-bar__controls .el-select__wrapper),
-.assets-panel__scope-picker :deep(.scope-bar__controls .el-button) { min-height: 36px; }
+.assets-panel__scope-picker :deep(.scope-bar--compact),
+.assets-panel__scope-picker :deep(.scope-bar--compact .scope-bar__controls) { display: contents; }
+.assets-panel__scope-picker :deep(.scope-bar__controls) { align-items: center; flex-wrap: wrap; gap: 8px; }
+.assets-panel__scope-picker :deep(.scope-bar__datasource-control) { flex: 0 1 488px; min-width: 240px; max-width: 488px; }
+.assets-panel__scope-picker :deep(.scope-bar__datasource-control .el-select) { flex: 1 1 400px; width: 400px; min-width: 180px; max-width: 440px; }
+.assets-panel__scope-picker :deep(.scope-bar__controls .el-select__wrapper) { min-height: 36px; }
+.assets-page :deep(.scope-bar--compact .scope-bar__refresh-icon) { min-height: 36px; padding: 0; border-color: transparent; color: var(--do-muted); background: transparent; box-shadow: none; }
+.assets-page :deep(.scope-bar--compact .scope-bar__refresh-icon:hover) { color: var(--do-primary-strong); background: var(--do-primary-soft); }
 .assets-panel__scope-picker :deep(.scope-bar__warning) { margin-top: 6px; }
 .assets-panel__scope-note { margin-left: auto; color: var(--do-muted); font-size: 12px; line-height: 1.5; text-align: right; }
 
@@ -518,6 +617,9 @@ watch(() => context.datasourceId, load)
 .assets-page--fixed-catalog .assets-panel__sync-warning { flex: 0 0 auto; }
 .assets-page--fixed-catalog .assets-panel__body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .assets-page--fixed-catalog .assets-panel__table { flex: 1 1 auto; min-height: 0; }
+
+.assets-page--fixed-tables .assets-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.assets-page--fixed-tables :deep(.table-explorer-page) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
 .assets-panel__table { min-width: 0; }
 .assets-panel :deep(.el-table) {
@@ -564,7 +666,8 @@ watch(() => context.datasourceId, load)
 
 @media (max-width: 900px) {
   .assets-panel__scope-picker { flex: 1 1 100%; }
-  .assets-panel__scope-picker :deep(.scope-bar__controls .el-select) { flex: 1 1 100%; min-width: 0; max-width: none; }
+  .assets-panel__scope-picker :deep(.scope-bar__datasource-control) { flex: 1 1 100%; min-width: 0; max-width: none; }
+  .assets-panel__scope-picker :deep(.scope-bar__datasource-control .el-select) { flex: 1 1 180px; width: auto; min-width: 0; max-width: none; }
   .assets-panel__scope-note { margin-left: 0; text-align: left; }
   .assets-panel__filters { padding: 10px 12px; }
   .assets-panel__search { flex: 1 1 100%; max-width: none; }
