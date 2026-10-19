@@ -473,6 +473,7 @@ function openGovernance() {
     query: {
       datasourceId: String(snapshot.datasourceId),
       snapshotId: String(snapshot.id),
+      returnTo: '/admin/releases',
     },
   })
 }

@@ -8,6 +8,8 @@ import com.dataocean.module.governance.service.MetadataReviewService;
 import com.dataocean.module.governance.service.QualityCheckService;
 import com.dataocean.module.governance.service.QualityIssueService;
 import com.dataocean.module.governance.service.QualityRuleService;
+import com.dataocean.module.governance.service.QualityRuleTemplateRegistry;
+import com.dataocean.module.governance.service.QualityCheckBatchService;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.resource.IamS1ResolvedResource;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceResolver;
@@ -79,7 +81,7 @@ class MetadataGovernanceControllerAuthorizationTest {
 
         // 拒绝必须发生在业务之前：不创建校验任务、不产生问题、不触发任何异步副作用
         verify(fixture.qualityCheckService, never())
-                .executeQualityCheck(anyLong(), any(), any());
+                .executeQualityCheck(anyLong(), any(), any(), any());
     }
 
     @Test
@@ -91,7 +93,7 @@ class MetadataGovernanceControllerAuthorizationTest {
         fixture.controller.triggerQualityCheck(8L, null);
 
         verify(fixture.adminGuard).requireDatasourceFunction(7L, "governance:check", 5L);
-        verify(fixture.qualityCheckService).executeQualityCheck(eq(8L), any(), any());
+        verify(fixture.qualityCheckService).executeQualityCheck(eq(8L), any(), any(), eq(7L));
     }
 
     @Test
@@ -121,7 +123,7 @@ class MetadataGovernanceControllerAuthorizationTest {
         assertThatThrownBy(() -> fixture.controller.triggerQualityCheck(8L, null))
                 .isInstanceOf(BusinessException.class);
 
-        verify(fixture.qualityCheckService, never()).executeQualityCheck(anyLong(), any(), any());
+        verify(fixture.qualityCheckService, never()).executeQualityCheck(anyLong(), any(), any(), any());
     }
 
     // ---------- 夹具 ----------
@@ -141,7 +143,9 @@ class MetadataGovernanceControllerAuthorizationTest {
                     qualityIssueService,
                     mock(GovernanceStatusService.class),
                     mock(MetadataReviewService.class),
-                    capabilityService);
+                    capabilityService,
+                    new QualityRuleTemplateRegistry(),
+                    mock(QualityCheckBatchService.class));
             when(snapshotResolver.supports()).thenReturn(IamS1ResourceType.SNAPSHOT);
             IamS1ResourceResolverRegistry registry = new IamS1ResourceResolverRegistry(List.of(snapshotResolver));
             IamS1AuthorizationAspect aspect = new IamS1AuthorizationAspect(adminGuard, registry);

@@ -27,6 +27,9 @@ public class QualityCheckResult {
     /** 快照 ID */
     private Long snapshotId;
 
+    /** 真实执行批次；NULL 表示旧历史无法证明完整覆盖。 */
+    private Long checkBatchId;
+
     /** 加权总分（维度级结果记录总分） */
     private BigDecimal totalScore;
 

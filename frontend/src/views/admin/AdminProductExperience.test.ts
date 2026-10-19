@@ -11,13 +11,14 @@ const api = vi.hoisted(() => ({
   getDatasource: vi.fn(), getDatasourceReadiness: vi.fn(), listSnapshots: vi.fn(), listSyncTasks: vi.fn(),
   listKnowledgeDocs: vi.fn(), listQualityIssues: vi.fn(), push: vi.fn(),
   listQualityRules: vi.fn(), updateRuleEnabled: vi.fn(),
+  getLatestQualityCheckBatch: vi.fn(), getQualityRuleSummary: vi.fn(), getSnapshotQualityIssueSummary: vi.fn(),
 }))
 vi.mock('vue-router', async importOriginal => ({
   ...await importOriginal<typeof import('vue-router')>(),
   useRoute: () => ({ params: { id: '1' }, query: {}, meta: { domainKey: 'data-entry' } }),
   useRouter: () => ({ push: api.push }),
 }))
-vi.mock('../../stores/iamS1', () => ({ useIamS1Store: () => ({ hasGlobal: () => true, canOnDatasource: () => true, systemAdmin: false }) }))
+vi.mock('../../stores/iamS1', () => ({ useIamS1Store: () => ({ hasGlobal: () => true, canOnDatasource: () => true, systemAdmin: false, load: async () => {} }) }))
 vi.mock('../../stores/adminContext', () => ({ useAdminContextStore: () => ({ initialize: async () => {}, datasourceId: 1, snapshotId: 10, currentDatasource: { name: '销售库' }, selectSnapshot: vi.fn() }) }))
 vi.mock('../../api/admin/dashboard', () => ({ getDashboardStats: api.getDashboardStats }))
 vi.mock('../../api/admin/datasource', () => ({
@@ -27,7 +28,15 @@ vi.mock('../../api/admin/datasource', () => ({
 }))
 vi.mock('../../api/admin/metadata', () => ({ listSnapshots: api.listSnapshots, listSyncTasks: api.listSyncTasks, triggerSync: vi.fn() }))
 vi.mock('../../api/admin/knowledge', () => ({ listKnowledgeDocs: api.listKnowledgeDocs }))
-vi.mock('../../api/admin/governance', () => ({ listQualityIssues: api.listQualityIssues, listQualityRules: api.listQualityRules, updateRuleEnabled: api.updateRuleEnabled, triggerQualityCheck: vi.fn() }))
+vi.mock('../../api/admin/governance', () => ({
+  listQualityIssues: api.listQualityIssues,
+  listQualityRules: api.listQualityRules,
+  updateRuleEnabled: api.updateRuleEnabled,
+  getLatestQualityCheckBatch: api.getLatestQualityCheckBatch,
+  getQualityRuleSummary: api.getQualityRuleSummary,
+  getSnapshotQualityIssueSummary: api.getSnapshotQualityIssueSummary,
+  triggerQualityCheck: vi.fn(),
+}))
 
 const ready = { datasourceId: 1, datasourceName: '销售库', askable: true, stage: 'ASKABLE', stageLabel: '可询问', progress: 100, publishedSnapshotId: 10, snapshotVersion: 1, connectionReady: true, metadataReady: true, governanceReady: true, knowledgeReady: true, permissionReady: true, blockReasons: [] }
 const wrappers: VueWrapper[] = []
@@ -49,6 +58,9 @@ beforeEach(() => {
   api.listKnowledgeDocs.mockResolvedValue({ data: { records: [] } })
   api.listQualityIssues.mockResolvedValue({ data: { records: [] } })
   api.listQualityRules.mockResolvedValue({ data: [{ id: 1, ruleName: '字段注释检查', enabled: 1 }] })
+  api.getLatestQualityCheckBatch.mockResolvedValue({ data: null })
+  api.getQualityRuleSummary.mockResolvedValue({ data: { enabledCount: 1, applicableCount: 1, unsupportedCount: 0, overriddenCount: 0, executedCount: 0 } })
+  api.getSnapshotQualityIssueSummary.mockResolvedValue({ data: { totalUnresolved: 0, statusCounts: { OPEN: 0, CONFIRMED: 0, REOPENED: 0 }, recentIssues: [] } })
 })
 afterEach(() => wrappers.splice(0).forEach(wrapper => wrapper.unmount()))
 
@@ -94,16 +106,16 @@ describe('后台任务与未知状态', () => {
     expect(api.push).not.toHaveBeenCalledWith('/query')
   })
   it('治理问题读取失败时不显示无高危或暂无待处理项', async () => {
-    api.listQualityIssues.mockRejectedValue(new Error('不可用'))
+    api.getSnapshotQualityIssueSummary.mockRejectedValue(new Error('不可用'))
     const wrapper = await render(QualityDashboard)
-    expect(wrapper.text()).toContain('问题状态暂不可用')
-    expect(wrapper.text()).not.toContain('暂无待处理项')
-    expect(wrapper.text()).not.toContain('无高危')
+    expect(wrapper.text()).toContain('待处理问题统计读取失败')
+    expect(wrapper.text()).not.toContain('当前没有待处理问题')
   })
-  it('治理总览的普通管理员不能启停全局规则', async () => {
+  it('治理总览不显示常驻规则开关，规则管理通过摘要入口进入', async () => {
     const wrapper = await render(QualityDashboard)
-    expect(wrapper.find('.el-switch').classes()).toContain('is-disabled')
-    await wrapper.find('.el-switch').trigger('click')
+    expect(wrapper.find('.el-switch').exists()).toBe(false)
+    expect(wrapper.text()).toContain('质量规则')
+    expect(wrapper.text()).toContain('1 项适用')
     expect(api.updateRuleEnabled).not.toHaveBeenCalled()
   })
 })

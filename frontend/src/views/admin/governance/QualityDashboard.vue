@@ -1,708 +1,440 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { AlertTriangle, ArrowRight, ClipboardCheck, RefreshCw } from 'lucide-vue-next'
+import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
+import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
+import ErrorState from '../../../components/common/ErrorState.vue'
 import {
-  AlertTriangle,
-  CheckCircle2,
-  ClipboardCheck,
-  Database,
-  FileWarning,
-  GitBranch,
-  Play,
-  ShieldCheck,
-} from 'lucide-vue-next'
-import {
-  listQualityIssues,
-  listQualityRules,
+  getLatestQualityCheckBatch,
+  getQualityRuleSummary,
+  getSnapshotQualityIssueSummary,
   triggerQualityCheck,
-  updateRuleEnabled,
-  type QualityCheckResult,
-  type QualityIssueItem,
-  type QualityRule,
+  type QualityCheckBatch,
+  type QualityIssueSummary,
+  type QualityRuleSummary,
 } from '../../../api/admin/governance'
-import { listSnapshots } from '../../../api/admin/metadata'
-import { qualityDimensionLabel, severityLabel } from '../../../utils/enumLabels'
+import { qualityDimensionLabel, severityLabel, snapshotStatusLabel } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
-import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
-import ErrorState from '../../../components/common/ErrorState.vue'
+import { buildContextQuery } from '../../../utils/adminNavigation'
 
-interface SnapshotOption {
-  id: number
-  datasourceName?: string
-  snapshotVersion: number
-  qualityScore?: number
-  tableCount?: number
-  columnCount?: number
-  status?: string
-  createdAt?: string
-}
-
-const loading = ref(false)
-const checkLoading = ref(false)
-const selectedSnapshotId = ref<number | undefined>()
-const snapshots = ref<SnapshotOption[]>([])
-const checkResult = ref<QualityCheckResult | null>(null)
-const rules = ref<QualityRule[]>([])
-const issues = ref<QualityIssueItem[]>([])
-const unresolvedCounts = ref({ OPEN: 0, CONFIRMED: 0, REOPENED: 0 })
-const pageError = ref('')
-const issuesError = ref('')
-const rulesError = ref('')
-let snapshotRequestId = 0
-let issueRequestId = 0
-let disposed = false
-const adminContext = useAdminContextStore()
+const context = useAdminContextStore()
 const iamS1 = useIamS1Store()
-
-/**
- * 执行质量检查要求 `governance:check` 与**当前数据源负责范围**在同一条启用绑定上同时成立。
- * 前端只控制按钮可见性，后端仍会独立拒绝；无能力时给出中文原因而不是静默失败。
- */
-const canRunCheck = computed(() =>
-  iamS1.canOnDatasource('governance:check', adminContext.datasourceId || undefined),
-)
+const route = useRoute()
 const router = useRouter()
 
-const selectedSnapshot = computed(() => snapshots.value.find((item) => item.id === selectedSnapshotId.value))
-const latestScore = computed(() => checkResult.value?.qualityScore ?? selectedSnapshot.value?.qualityScore)
-const enabledRules = computed(() => rules.value.filter((item) => item.enabled === 1))
-const highIssues = computed(() => issues.value.filter((item) => item.severity === 'HIGH'))
-const unresolvedIssueTotal = computed(() => unresolvedCounts.value.OPEN + unresolvedCounts.value.CONFIRMED + unresolvedCounts.value.REOPENED)
-const hasUnresolvedIssues = computed(() => unresolvedIssueTotal.value > 0)
-const canReturnToRelease = computed(() => Boolean(
-  !issuesError.value && !loading.value && selectedSnapshot.value
-  && ['APPROVED', 'PUBLISHED', 'EXPIRED'].includes(String(selectedSnapshot.value.status))
-  && !hasUnresolvedIssues.value
-  && (checkResult.value || latestScore.value !== undefined),
-))
+const latestBatch = ref<QualityCheckBatch | null>(null)
+const issueSummary = ref<QualityIssueSummary | null>(null)
+const ruleSummary = ref<QualityRuleSummary | null>(null)
+const batchLoading = ref(false)
+const issueLoading = ref(false)
+const rulesLoading = ref(false)
+const loading = ref(false)
+const checkLoading = ref(false)
+const pageError = ref('')
+const batchError = ref('')
+const issueError = ref('')
+const rulesError = ref('')
+let requestId = 0
+let disposed = false
 
-function openIssueCenter() {
-  if (!selectedSnapshotId.value) return
-  router.push({
-    path: '/admin/governance/issues',
-    query: {
-      datasourceId: String(adminContext.datasourceId || ''),
-      snapshotId: String(selectedSnapshotId.value),
-    },
-  })
-}
+const datasourceId = computed(() => context.datasourceId)
+const snapshotId = computed(() => context.snapshotId)
+const snapshot = computed(() => context.currentSnapshot)
+const canViewOverview = computed(() => iamS1.canOnDatasource('governance:view', datasourceId.value))
+const canRunCheck = computed(() => iamS1.canOnDatasource('governance:check', datasourceId.value))
+const canViewIssues = computed(() => iamS1.canOnDatasource('governance:issue:view', datasourceId.value))
+const canViewRules = computed(() => iamS1.canOnDatasource('governance:rule:view', datasourceId.value))
+const canReturnToRelease = computed(() => String(route.query.returnTo ?? '') === '/admin/releases'
+  || String(route.query.source ?? '') === 'release')
 
-function openReleaseFlow() {
-  if (!selectedSnapshotId.value) return
-  router.push({
-    path: '/admin/releases',
-    query: {
-      datasourceId: String(adminContext.datasourceId || ''),
-      snapshotId: String(selectedSnapshotId.value),
-      tab: 'candidates',
-    },
-  })
-}
-
-const flowSteps = computed(() => [
-  {
-    title: '选定数据源',
-    icon: Database,
-    done: Boolean(adminContext.datasourceId),
-    text: adminContext.currentDatasource?.name || selectedSnapshot.value?.datasourceName || '未选择',
-  },
-  {
-    title: '选定快照',
-    icon: GitBranch,
-    done: Boolean(selectedSnapshotId.value),
-    text: selectedSnapshot.value ? `v${selectedSnapshot.value.snapshotVersion}` : '未选择',
-  },
-  {
-    title: '执行校验',
-    icon: ClipboardCheck,
-    done: Boolean(checkResult.value || latestScore.value !== undefined),
-    text: latestScore.value !== undefined ? `${latestScore.value} 分` : '等待执行',
-  },
-  {
-    title: '处理问题',
-    icon: ShieldCheck,
-    done: !hasUnresolvedIssues.value && Boolean(selectedSnapshotId.value),
-    text: hasUnresolvedIssues.value ? `${unresolvedIssueTotal.value} 个未解决` : '暂无阻塞',
-  },
-])
-
-function scoreColor(score?: number): string {
-  if (score === undefined) return 'var(--do-muted)'
-  if (score >= 80) return 'var(--do-success)'
-  if (score >= 60) return 'var(--do-warning)'
-  return 'var(--do-danger)'
-}
-
-function scoreLabel(score?: number) {
-  if (score === undefined) return '待校验'
-  if (score >= 80) return '质量稳定'
-  if (score >= 60) return '需要治理'
-  return '优先处理'
-}
-
-function statusType(value?: string) {
-  if (!value) return 'info'
-  if (['HIGH', 'FAILED', 'BLOCKED'].includes(value)) return 'danger'
-  if (['MEDIUM', 'OPEN', 'PENDING'].includes(value)) return 'warning'
-  if (['LOW', 'SUCCESS', 'RESOLVED'].includes(value)) return 'success'
-  return 'info'
-}
-
-async function fetchSnapshots() {
-  pageError.value = ''
-  const currentRequest = ++snapshotRequestId
-  const datasourceId = adminContext.datasourceId
-  issues.value = []
-  unresolvedCounts.value = { OPEN: 0, CONFIRMED: 0, REOPENED: 0 }
-  if (!datasourceId) {
-    snapshots.value = []
-    selectedSnapshotId.value = undefined
-    adminContext.selectSnapshot(undefined)
-    return
-  }
-  const res = await listSnapshots({ datasourceId, page: 1, size: 50 })
-  if (disposed || currentRequest !== snapshotRequestId || datasourceId !== adminContext.datasourceId) return
-  snapshots.value = res.data?.records ?? []
-
-  if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
-    selectedSnapshotId.value = adminContext.snapshotId
-  } else {
-    selectedSnapshotId.value = snapshots.value[0]?.id
-  }
-
-  adminContext.selectSnapshot(selectedSnapshotId.value)
-  await fetchIssues()
-}
-
-async function fetchRules() {
+function clearSnapshotState() {
+  latestBatch.value = null
+  issueSummary.value = null
+  ruleSummary.value = null
+  batchError.value = ''
+  issueError.value = ''
   rulesError.value = ''
-  if (!iamS1.hasGlobal('governance:rule:view')) {
-    rules.value = []
-    rulesError.value = '当前账号没有查看质量规则的功能权限。'
-    return
-  }
-  try {
-    const res = await listQualityRules()
-    rules.value = res.data ?? []
-  } catch {
-    rulesError.value = '质量规则读取失败，请重试。'
-  }
 }
 
-async function fetchIssues() {
-  const currentRequest = ++issueRequestId
-  issuesError.value = ''
-  const snapshotId = selectedSnapshotId.value
-  if (!snapshotId) {
-    issues.value = []
-    unresolvedCounts.value = { OPEN: 0, CONFIRMED: 0, REOPENED: 0 }
-    return
+async function loadSnapshotState(expectedSnapshotId = snapshotId.value, expectedDatasourceId = datasourceId.value) {
+  const current = ++requestId
+  clearSnapshotState()
+  if (!expectedSnapshotId || !expectedDatasourceId) return
+
+  const requests: Promise<void>[] = []
+  batchLoading.value = canViewOverview.value
+  if (canViewOverview.value) requests.push(getLatestQualityCheckBatch(expectedSnapshotId)
+    .then((response) => {
+      if (!isCurrent(current, expectedDatasourceId, expectedSnapshotId)) return
+      latestBatch.value = response.data ?? null
+    })
+    .catch(() => {
+      if (isCurrent(current, expectedDatasourceId, expectedSnapshotId)) batchError.value = '最近一次校验结果读取失败。'
+    })
+    .finally(() => { if (isCurrent(current, expectedDatasourceId, expectedSnapshotId)) batchLoading.value = false }))
+
+  if (canViewIssues.value) {
+    issueLoading.value = true
+    requests.push(getSnapshotQualityIssueSummary(expectedSnapshotId)
+      .then((response) => {
+        if (!isCurrent(current, expectedDatasourceId, expectedSnapshotId)) return
+        issueSummary.value = response.data ?? null
+      })
+      .catch(() => {
+        if (isCurrent(current, expectedDatasourceId, expectedSnapshotId)) issueError.value = '待处理问题统计读取失败，无法确认问题数量。'
+      })
+      .finally(() => { if (isCurrent(current, expectedDatasourceId, expectedSnapshotId)) issueLoading.value = false }))
+  } else {
+    issueLoading.value = false
   }
+
+  if (canViewRules.value) {
+    rulesLoading.value = true
+    requests.push(getQualityRuleSummary(expectedSnapshotId)
+      .then((response) => {
+        if (!isCurrent(current, expectedDatasourceId, expectedSnapshotId)) return
+        ruleSummary.value = response.data ?? null
+      })
+      .catch(() => {
+        if (isCurrent(current, expectedDatasourceId, expectedSnapshotId)) rulesError.value = '当前范围规则摘要读取失败。'
+      })
+      .finally(() => { if (isCurrent(current, expectedDatasourceId, expectedSnapshotId)) rulesLoading.value = false }))
+  } else {
+    rulesLoading.value = false
+  }
+  await Promise.all(requests)
+}
+
+function isCurrent(id: number, expectedDatasourceId: number, expectedSnapshotId: number) {
+  return !disposed && id === requestId && expectedDatasourceId === datasourceId.value
+    && expectedSnapshotId === snapshotId.value
+}
+
+async function refresh() {
+  loading.value = true
+  pageError.value = ''
   try {
-  const [openResult, confirmedResult, reopenedResult] = await Promise.all([
-    listQualityIssues(snapshotId, { page: 1, size: 6, status: 'OPEN' }),
-    listQualityIssues(snapshotId, { page: 1, size: 1, status: 'CONFIRMED' }),
-    listQualityIssues(snapshotId, { page: 1, size: 1, status: 'REOPENED' }),
-  ])
-  if (disposed || currentRequest !== issueRequestId || snapshotId !== selectedSnapshotId.value) return
-  issues.value = openResult.data?.records ?? []
-  unresolvedCounts.value = {
-    OPEN: openResult.data?.total ?? 0,
-    CONFIRMED: confirmedResult.data?.total ?? 0,
-    REOPENED: reopenedResult.data?.total ?? 0,
-  }
+    await Promise.all([context.initialize(true), iamS1.load()])
+    await loadSnapshotState()
   } catch {
-    if (disposed || currentRequest !== issueRequestId || snapshotId !== selectedSnapshotId.value) return
-    issuesError.value = '治理问题读取失败，无法确认是否有待处理事项。'
+    pageError.value = '治理范围或权限能力读取失败，请重试。'
+  } finally {
+    loading.value = false
   }
 }
 
 async function runCheck() {
+  const currentDatasourceId = datasourceId.value
+  const currentSnapshotId = snapshotId.value
+  if (!currentDatasourceId || !currentSnapshotId) {
+    ElMessage.warning('请选择数据源和快照后再执行质量校验。')
+    return
+  }
   if (!canRunCheck.value) {
-    ElMessage.warning('没有“执行质量检查”能力：需要角色拥有该功能并负责当前数据源。')
+    ElMessage.warning('当前账号没有执行质量校验的负责源权限。')
     return
   }
-  if (!selectedSnapshotId.value) {
-    ElMessage.warning('请选择快照')
-    return
-  }
-
-  checkResult.value = null
   checkLoading.value = true
   try {
-    const res = await triggerQualityCheck(selectedSnapshotId.value)
-    checkResult.value = res.data ?? null
-    await fetchSnapshots()
-    ElMessage.success(`质量校验完成，综合得分 ${res.data?.qualityScore}`)
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '校验失败')
+    const response = await triggerQualityCheck(currentSnapshotId)
+    if (currentSnapshotId !== snapshotId.value || currentDatasourceId !== datasourceId.value) return
+    const result = response.data
+    const verifiedSnapshotScore = result?.complete && result.requestedScope === 'FULL'
+      ? result.qualityScore : undefined
+    if (verifiedSnapshotScore != null) {
+      context.snapshots = context.snapshots.map((item) => item.id === currentSnapshotId
+        ? { ...item, qualityScore: verifiedSnapshotScore, status: result?.snapshotStatus || item.status }
+        : item)
+    }
+    await loadSnapshotState(currentSnapshotId, currentDatasourceId)
+    if (result?.status === 'SUCCESS' && result.complete) ElMessage.success('质量校验已完整完成。')
+    else if (result?.status === 'PARTIAL') ElMessage.warning('质量校验部分完成；本次评分不作为完整结果。')
+    else ElMessage.error('质量校验未完成，请查看失败覆盖说明。')
+  } catch (error) {
+    if (currentSnapshotId !== snapshotId.value || currentDatasourceId !== datasourceId.value) return
+    await loadSnapshotState(currentSnapshotId, currentDatasourceId)
+    const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+    ElMessage.error(message || '质量校验请求失败，已刷新最近批次状态。')
   } finally {
     checkLoading.value = false
   }
 }
 
-async function toggleRule(rule: QualityRule) {
-  if (!iamS1.systemAdmin) return
-  const nextEnabled = rule.enabled !== 1
-  await updateRuleEnabled(rule.id, nextEnabled)
-  rule.enabled = nextEnabled ? 1 : 0
+function openIssueCenter() {
+  if (!snapshotId.value || !datasourceId.value) return
+  router.push({
+    path: '/admin/governance/issues',
+    query: buildContextQuery('datasource-snapshot', { datasourceId: datasourceId.value, snapshotId: snapshotId.value }),
+  })
 }
 
-async function load() {
-  loading.value = true
-  pageError.value = ''
-  try {
-    await adminContext.initialize()
-    await Promise.all([fetchSnapshots(), fetchRules()])
-  } catch {
-    pageError.value = '治理范围或快照读取失败，请重试。'
-  } finally {
-    loading.value = false
-  }
+function openRules() {
+  router.push({
+    path: '/admin/governance/rules',
+    query: buildContextQuery('datasource-snapshot', {
+      datasourceId: datasourceId.value,
+      snapshotId: snapshotId.value,
+    }),
+  })
 }
-onMounted(load)
 
+function openReleasePage() {
+  if (!snapshotId.value || !datasourceId.value) return
+  router.push({
+    path: '/admin/releases',
+    query: buildContextQuery('datasource-snapshot', {
+      datasourceId: datasourceId.value,
+      snapshotId: snapshotId.value,
+    }),
+  })
+}
+
+function stateLabel(status?: string) {
+  if (!status) return '暂无可核验结果'
+  return ({ RUNNING: '正在执行', SUCCESS: '完整完成', PARTIAL: '部分失败', FAILED: '执行失败', LEGACY: '历史结果覆盖未知' } as Record<string, string>)[status] || status
+}
+
+function coverageLabel(status: string) {
+  return ({ SUCCESS: '已检查', FAILURE: '检查失败', NOT_APPLICABLE: '不适用', NOT_EXECUTED: '未执行' } as Record<string, string>)[status] || status
+}
+
+function severityType(severity: string) {
+  return severity === 'HIGH' ? 'danger' : severity === 'MEDIUM' ? 'warning' : 'info'
+}
+
+function requestedScopeLabel(batch: QualityCheckBatch) {
+  if (batch.legacyLimited || !batch.requestedScope) return '历史批次范围未知'
+  if (batch.requestedScope === 'FULL') return '全量快照'
+  if (batch.requestedScope === 'TABLE') return `局部表范围 · ${(batch.requestedTableNames || []).join('、')}`
+  return `局部维度 · ${(batch.requestedDimensions || []).map(qualityDimensionLabel).join('、')}`
+}
+
+function formatTime(value?: string) {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value.replace('T', ' ')
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  }).format(date)
+}
+
+onMounted(refresh)
+watch(() => [context.datasourceId, context.snapshotId], () => {
+  void loadSnapshotState()
+})
 onBeforeUnmount(() => {
   disposed = true
-  snapshotRequestId++
-  issueRequestId++
+  requestId++
 })
-
-watch(
-  () => adminContext.snapshotId,
-  async (snapshotId) => {
-    if (selectedSnapshotId.value === snapshotId) return
-    selectedSnapshotId.value = snapshotId
-    checkResult.value = null
-    await fetchIssues()
-  },
-)
-
-watch(
-  () => adminContext.datasourceId,
-  async () => {
-    checkResult.value = null
-    try { await fetchSnapshots() } catch { pageError.value = '当前数据源的快照读取失败，请重试。' }
-  },
-)
 </script>
 
 <template>
-  <main v-loading="loading" class="quality-page post-login-page">
-    <TaskPageHeader title="治理总览" description="查看当前快照的质量结果，优先处理影响使用的问题。" />
-    <ErrorState v-if="pageError" :message="pageError" @retry="load" />
-    <template v-else>
-    <section class="quality-hero">
-      <div class="quality-title">
-        <span>治理质量</span>
-        <h2>{{ selectedSnapshot?.datasourceName || adminContext.currentDatasource?.name || '选择数据源后开始治理' }}</h2>
-        <p>{{ selectedSnapshot ? '当前快照 v' + selectedSnapshot.snapshotVersion : '请在上方选择数据源和快照' }} · {{ checkResult ? '本次校验结果' : '显示快照记录的综合评分' }}</p>
-      </div>
-      <div class="score-summary" :style="{ color: scoreColor(latestScore) }">
-        <strong>{{ latestScore ?? '--' }}</strong>
-        <span>{{ scoreLabel(latestScore) }}</span>
-      </div>
-    </section>
-
-    <section class="context-panel">
-      <el-button
-        type="primary"
-        :icon="Play"
-        :loading="checkLoading"
-        :disabled="!canRunCheck || !selectedSnapshotId"
-        @click="runCheck"
-      >
-        执行质量校验
-      </el-button>
-      <span v-if="!canRunCheck" class="muted-text">
-        没有“执行质量检查”能力：需要角色拥有该功能并负责当前数据源。
-      </span>
-      <el-button v-if="hasUnresolvedIssues" @click="openIssueCenter">进入问题中心</el-button>
-      <el-button v-else-if="canReturnToRelease" @click="openReleaseFlow">返回元数据版本</el-button>
-    </section>
-
-    <details class="quality-details">
-      <summary>查看治理流程</summary>
-      <section class="flow-panel">
-      <div v-for="(step, index) in flowSteps" :key="step.title" class="flow-step" :class="{ done: step.done }">
-        <div class="flow-line" :class="{ filled: index === 0 || flowSteps[index - 1]?.done }" />
-        <div class="flow-node">
-          <CheckCircle2 v-if="step.done" :size="19" />
-          <component :is="step.icon" v-else :size="19" />
-        </div>
-        <strong>{{ step.title }}</strong>
-        <span>{{ step.text }}</span>
-      </div>
-      </section>
-    </details>
-
-    <section class="governance-layout">
-      <div class="result-area">
-        <div class="area-header">
-          <div>
-            <span>校验结果</span>
-            <h3>{{ checkResult ? '本次校验' : '当前快照' }}</h3>
-          </div>
-          <el-tag v-if="selectedSnapshotId && !issuesError" :type="highIssues.length ? 'danger' : 'success'">
-            {{ highIssues.length ? `${highIssues.length} 个高危` : '无高危' }}
-          </el-tag>
-        </div>
-
-        <div v-if="checkResult" class="dimension-grid">
-          <div v-for="(score, dim) in checkResult.dimensionScores" :key="dim" class="dimension-item">
-            <strong :style="{ color: scoreColor(score) }">{{ score }}</strong>
-            <span>{{ qualityDimensionLabel(String(dim)) }}</span>
-          </div>
-        </div>
-        <div v-else class="empty-state">
-          <ClipboardCheck :size="28" />
-          <span>上方评分来自快照记录。本页执行校验后展示本次维度得分。</span>
-        </div>
-
-        <div v-if="checkResult" class="issue-strip">
-          <span>问题分布</span>
-          <el-tag type="danger" size="small">高 {{ checkResult?.issueCount.HIGH || highIssues.length }}</el-tag>
-          <el-tag type="warning" size="small">中 {{ checkResult?.issueCount.MEDIUM || 0 }}</el-tag>
-          <el-tag size="small">低 {{ checkResult?.issueCount.LOW || 0 }}</el-tag>
-        </div>
-      </div>
-
-      <div class="issue-area">
-        <div class="area-header">
-          <div>
-            <span>待处理问题</span>
-            <h3>{{ issuesError ? '问题状态暂不可用' : !selectedSnapshotId ? '请先选择快照' : issues.length ? '优先处理这些项' : '暂无待处理项' }}</h3>
-          </div>
-          <div class="issue-header-actions">
-            <el-button v-if="hasUnresolvedIssues" link type="primary" @click="openIssueCenter">查看全部</el-button>
-            <FileWarning :size="20" />
-          </div>
-        </div>
-
-        <ErrorState v-if="issuesError" :message="issuesError" @retry="fetchIssues" />
-        <div v-else-if="issues.length" class="issue-list">
-          <div v-for="issue in issues" :key="issue.id" class="issue-item">
-            <div>
-              <strong>{{ issue.tableName }}{{ issue.columnName ? `.${issue.columnName}` : '' }}</strong>
-              <span>{{ issue.issueDescription }}</span>
-            </div>
-            <el-tag :type="statusType(issue.severity)" size="small">{{ severityLabel(issue.severity) }}</el-tag>
-          </div>
-        </div>
-        <div v-else class="empty-state">
-          <ShieldCheck :size="28" />
-          <span>{{ selectedSnapshotId ? '当前快照没有打开状态的问题' : '选择快照后查看待处理问题' }}</span>
-        </div>
-      </div>
-    </section>
-
-    <details class="rules-area quality-details">
-      <summary>质量规则 · {{ rulesError ? '暂不可用' : enabledRules.length + ' / ' + rules.length + ' 已启用' }} · 展开查看</summary>
-      <ErrorState v-if="rulesError" :message="rulesError" @retry="fetchRules" />
-      <template v-else>
-      <div class="area-header">
-        <div>
-          <span>质量规则</span>
-          <h3>{{ enabledRules.length }} / {{ rules.length }} 已启用</h3>
-        </div>
-        <AlertTriangle :size="20" />
-      </div>
-
-      <div class="rules-grid">
-        <div v-for="rule in rules" :key="rule.id" class="rule-item">
-          <div class="rule-main">
-            <strong>{{ rule.ruleName }}</strong>
-            <span>{{ rule.description }}</span>
-          </div>
-          <div class="rule-meta">
-            <el-tag size="small">{{ qualityDimensionLabel(rule.dimension) }}</el-tag>
-            <el-tag :type="statusType(rule.severity)" size="small">{{ severityLabel(rule.severity) }}</el-tag>
-            <span>-{{ rule.deductionPoints }}</span>
-            <el-switch :model-value="rule.enabled === 1" size="small" :disabled="!iamS1.systemAdmin" :title="iamS1.systemAdmin ? '' : '只有系统管理员可以启停全局规则'" @change="toggleRule(rule)" />
-          </div>
-        </div>
-      </div>
+  <main class="quality-page post-login-page">
+    <TaskPageHeader
+      title="治理总览"
+      description="查看所选快照最近一次可核验的校验批次、待处理问题和适用规则。快照记录评分与本次检查状态分别展示。"
+    >
+      <template #actions>
+        <el-button :icon="RefreshCw" :loading="loading || batchLoading || issueLoading || rulesLoading" @click="refresh">刷新总览</el-button>
+        <el-button v-if="canReturnToRelease" @click="openReleasePage">返回元数据版本</el-button>
       </template>
-    </details>
-    </template>
+    </TaskPageHeader>
+
+    <ErrorState v-if="pageError" :message="pageError" @retry="refresh" />
+    <section v-else class="quality-page__status" aria-label="当前快照校验状态">
+      <div class="quality-page__status-heading">
+        <div>
+          <span class="quality-page__eyebrow">当前范围</span>
+          <h2 v-if="snapshot">v{{ snapshot.snapshotVersion }} · {{ snapshotStatusLabel(snapshot.status) }}</h2>
+          <h2 v-else-if="snapshotId">快照 #{{ snapshotId }}</h2>
+          <h2 v-else>尚未选择快照</h2>
+          <p>{{ context.currentDatasource?.name || '未选择数据源' }}</p>
+        </div>
+        <div class="quality-page__primary-action">
+          <BusinessStatusBadge v-if="latestBatch" :status="latestBatch.status" :label="stateLabel(latestBatch.status)" />
+          <span v-else-if="!canViewOverview" class="quality-page__muted">没有治理总览查看权限</span>
+          <span v-else-if="batchLoading" class="quality-page__muted" role="status">正在读取校验状态…</span>
+          <span v-else class="quality-page__muted">暂无可核验结果</span>
+          <el-button type="primary" :icon="ClipboardCheck" :loading="checkLoading" :disabled="!snapshotId || !canRunCheck || checkLoading" @click="runCheck">
+            执行质量校验
+          </el-button>
+        </div>
+      </div>
+
+      <div class="quality-page__metrics">
+        <div>
+          <span>快照记录评分</span>
+          <strong v-if="snapshot?.qualityScore != null">{{ snapshot.qualityScore }} 分</strong>
+          <strong v-else>未记录</strong>
+        </div>
+        <div>
+          <span>最近校验</span>
+          <strong v-if="latestBatch">{{ formatTime(latestBatch.startedAt) }}</strong>
+          <strong v-else-if="batchLoading">读取中…</strong>
+          <strong v-else>暂无可核验结果</strong>
+        </div>
+        <div>
+          <span>最近批次覆盖</span>
+          <strong v-if="latestBatch">{{ requestedScopeLabel(latestBatch) }}</strong>
+          <strong v-else>未记录</strong>
+        </div>
+        <div>
+          <span>本次检查评分</span>
+          <strong v-if="latestBatch?.complete && latestBatch.totalScore != null">{{ latestBatch.totalScore }} 分</strong>
+          <strong v-else-if="latestBatch?.status === 'PARTIAL'">不完整</strong>
+          <strong v-else-if="latestBatch?.status === 'FAILED'">未生成</strong>
+          <strong v-else>—</strong>
+        </div>
+      </div>
+      <ErrorState v-if="batchError" :message="batchError" @retry="loadSnapshotState()" />
+      <p v-if="!latestBatch && snapshot?.qualityScore != null" class="quality-page__history-note">
+        当前快照有历史评分记录，但没有可核验的校验批次；不能据此判断最近检查覆盖或问题数量。
+      </p>
+      <p v-if="latestBatch?.legacyLimited" class="quality-page__history-note" role="status">
+        该历史结果缺少规则版本与覆盖记录，不能还原当时的完整检查依据。
+      </p>
+      <div v-if="latestBatch?.errorSummary" class="quality-page__failure" role="alert">
+        <AlertTriangle :size="17" aria-hidden="true" />
+        <span>{{ latestBatch.errorSummary }}</span>
+      </div>
+      <p v-if="!canRunCheck && datasourceId" class="quality-page__hint">当前账号没有此数据源的「执行质量校验」权限。</p>
+    </section>
+
+    <section class="quality-page__issues" aria-label="待处理问题">
+      <header class="quality-page__section-heading">
+        <div><span>风险处理</span><h2>待处理问题</h2></div>
+        <el-button v-if="canViewIssues && snapshotId" link type="primary" @click="openIssueCenter">进入问题中心<ArrowRight :size="14" aria-hidden="true" /></el-button>
+      </header>
+      <ErrorState v-if="issueError" :message="issueError" @retry="loadSnapshotState()" />
+      <p v-else-if="!canViewIssues && datasourceId" class="quality-page__hint">没有此数据源的「查看质量问题」权限，问题统计不可见。</p>
+      <div v-else-if="issueLoading" class="quality-page__inline-state" role="status">正在读取问题统计…</div>
+      <template v-else-if="issueSummary">
+        <div class="quality-page__issue-counts">
+          <span>待处理 <strong>{{ issueSummary.totalUnresolved }}</strong></span>
+          <span>待确认 {{ issueSummary.statusCounts.OPEN ?? 0 }}</span>
+          <span>已确认 {{ issueSummary.statusCounts.CONFIRMED ?? 0 }}</span>
+          <span>重新打开 {{ issueSummary.statusCounts.REOPENED ?? 0 }}</span>
+        </div>
+        <div v-if="issueSummary.recentIssues.length" class="quality-page__issue-list">
+          <article v-for="issue in issueSummary.recentIssues" :key="issue.id" class="quality-page__issue-row">
+            <div class="quality-page__issue-copy">
+              <div class="quality-page__issue-meta">
+                <el-tag size="small" :type="severityType(issue.severity)">{{ severityLabel(issue.severity) }}</el-tag>
+                <span>{{ issue.tableName }}<template v-if="issue.columnName">.{{ issue.columnName }}</template></span>
+                <span class="quality-page__muted">{{ formatTime(issue.createdAt) }}</span>
+              </div>
+              <strong>{{ issue.issueDescription }}</strong>
+              <p v-if="issue.suggestion">{{ issue.suggestion }}</p>
+            </div>
+            <el-button v-if="canViewIssues" link type="primary" @click="openIssueCenter">处理</el-button>
+          </article>
+          <button v-if="issueSummary.totalUnresolved > issueSummary.recentIssues.length" class="quality-page__more-issues" type="button" @click="openIssueCenter">
+            查看其余 {{ issueSummary.totalUnresolved - issueSummary.recentIssues.length }} 个问题
+          </button>
+        </div>
+        <p v-else class="quality-page__no-issues">当前没有待处理问题。</p>
+      </template>
+      <p v-else-if="snapshotId" class="quality-page__muted">暂无统计结果。</p>
+      <p v-else class="quality-page__muted">选择数据源和快照后查看问题。</p>
+    </section>
+
+    <section class="quality-page__details" aria-label="校验明细">
+      <header class="quality-page__section-heading">
+        <div><span>执行覆盖</span><h2>校验明细</h2></div>
+        <button v-if="snapshotId" class="quality-page__rules-link" type="button" @click="openRules">
+          质量规则
+          <template v-if="ruleSummary && !rulesError">
+            · {{ ruleSummary.applicableCount }} 项适用 / {{ ruleSummary.enabledCount }} 项启用 / {{ ruleSummary.executedCount ?? '—' }} 项实际执行
+          </template>
+          <ArrowRight :size="14" aria-hidden="true" />
+        </button>
+      </header>
+      <ErrorState v-if="rulesError" :message="rulesError" @retry="loadSnapshotState()" />
+      <p v-else-if="!canViewRules && datasourceId" class="quality-page__hint">没有此数据源的「查看治理规则」权限，规则摘要不可见。</p>
+      <p v-else-if="rulesLoading" class="quality-page__inline-state" role="status">正在读取规则摘要…</p>
+      <p v-else-if="ruleSummary?.unsupportedCount" class="quality-page__failure" role="alert">
+        有 {{ ruleSummary.unsupportedCount }} 条规则尚未映射到受支持的执行模板；本次检查会将其记为失败覆盖。
+      </p>
+      <details v-if="latestBatch" class="quality-page__batch-details">
+        <summary>
+          {{ stateLabel(latestBatch.status) }}<template v-if="!latestBatch.legacyLimited"> · {{ latestBatch.executedRuleCount ?? '—' }} 项已执行 · {{ latestBatch.failedRuleCount ?? '—' }} 项失败 · {{ latestBatch.notApplicableRuleCount ?? '—' }} 项不适用</template>
+        </summary>
+        <p v-if="latestBatch.legacyLimited" class="quality-page__history-note">此历史结果没有可证明的规则配置版本和执行覆盖；当前配置不会被用来补造历史依据。</p>
+        <div v-if="Object.keys(latestBatch.dimensionScores || {}).length" class="quality-page__dimension-list">
+          <div v-for="[dimension, score] in Object.entries(latestBatch.dimensionScores || {})" :key="dimension">
+            <span>{{ qualityDimensionLabel(dimension) }}</span><strong>{{ score }} 分</strong>
+          </div>
+        </div>
+        <div v-if="latestBatch.rules.length" class="quality-page__coverage-list">
+          <article v-for="rule in latestBatch.rules" :key="`${rule.ruleId}-${rule.ruleVersion}`" class="quality-page__coverage-row">
+            <div><strong>{{ rule.ruleName }}</strong><span>{{ qualityDimensionLabel(rule.dimension) }} · {{ rule.scopeType }}<template v-if="rule.targetTableName"> · {{ rule.targetTableName }}</template><template v-if="rule.targetColumnName">.{{ rule.targetColumnName }}</template></span></div>
+            <div class="quality-page__coverage-status">
+              <el-tag size="small" :type="rule.status === 'SUCCESS' ? 'success' : rule.status === 'FAILURE' ? 'danger' : 'info'">{{ coverageLabel(rule.status) }}</el-tag>
+              <small>v{{ rule.ruleVersion }} · {{ rule.issueCount }} 个问题</small>
+              <p v-if="rule.reason">{{ rule.reason }}</p>
+            </div>
+          </article>
+        </div>
+        <p v-else class="quality-page__muted">本批次没有规则覆盖记录。</p>
+      </details>
+      <p v-else-if="!batchLoading && !batchError" class="quality-page__muted">尚无可核验的校验明细。执行一次质量校验后将在此显示规则版本和覆盖状态。</p>
+    </section>
   </main>
 </template>
 
 <style scoped>
-.quality-details summary { cursor: pointer; color: var(--do-ink); font-size: 14px; padding: 12px 0; }
-.quality-details[open] summary { margin-bottom: 16px; }
-.quality-page {
-  display: grid;
-  gap: 16px;
-  min-width: 0;
+.quality-page { display: grid; gap: 16px; min-width: 0; }
+.quality-page__status,
+.quality-page__issues,
+.quality-page__details { min-width: 0; padding: 18px 20px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
+.quality-page__status-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 24px; }
+.quality-page__eyebrow,
+.quality-page__section-heading > div > span { color: var(--do-muted); font-size: 12px; }
+.quality-page__status-heading h2 { margin: 4px 0; color: var(--do-ink); font-size: 20px; }
+.quality-page__status-heading p { margin: 0; color: var(--do-muted); font-size: 13px; }
+.quality-page__primary-action { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.quality-page__metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--do-line); }
+.quality-page__metrics > div { display: grid; align-content: start; gap: 5px; min-width: 0; }
+.quality-page__metrics span { color: var(--do-muted); font-size: 12px; }
+.quality-page__metrics strong { overflow-wrap: anywhere; color: var(--do-ink); font-size: 14px; font-weight: 600; }
+.quality-page__history-note,.quality-page__hint { margin: 14px 0 0; color: var(--do-muted); font-size: 12px; line-height: 1.5; }
+.quality-page__failure { display: flex; align-items: flex-start; gap: 8px; margin: 14px 0 0; color: var(--do-danger); font-size: 13px; line-height: 1.5; }
+.quality-page__section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.quality-page__section-heading h2 { margin: 3px 0 0; color: var(--do-ink); font-size: 17px; }
+.quality-page__section-heading :deep(.el-button),
+.quality-page__rules-link { display: inline-flex; align-items: center; gap: 5px; }
+.quality-page__issue-counts { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 12px; color: var(--do-muted); font-size: 12px; }
+.quality-page__issue-counts strong { color: var(--do-ink); font-size: 16px; }
+.quality-page__issue-list { display: grid; }
+.quality-page__issue-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--do-line); }
+.quality-page__issue-copy { min-width: 0; }
+.quality-page__issue-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 5px; color: var(--do-muted); font-size: 12px; }
+.quality-page__issue-copy > strong { display: block; overflow-wrap: anywhere; color: var(--do-ink); font-size: 14px; font-weight: 600; }
+.quality-page__issue-copy p { margin: 4px 0 0; color: var(--do-muted); font-size: 12px; }
+.quality-page__more-issues,.quality-page__rules-link { border: 0; padding: 0; color: var(--do-primary-strong); background: transparent; cursor: pointer; font-size: 13px; font-weight: 600; }
+.quality-page__more-issues { margin-top: 10px; }
+.quality-page__inline-state { margin: 6px 0; color: var(--do-muted); font-size: 13px; }
+.quality-page__muted { color: var(--do-muted); font-size: 12px; }
+.quality-page__no-issues { margin: 8px 0 0; color: var(--do-muted); font-size: 13px; }
+.quality-page__batch-details { border-top: 1px solid var(--do-line); }
+.quality-page__batch-details summary { padding: 12px 0 2px; color: var(--do-ink); cursor: pointer; font-size: 13px; font-weight: 600; }
+.quality-page__dimension-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 16px; padding: 12px 0; }
+.quality-page__dimension-list > div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--do-line); font-size: 13px; }
+.quality-page__dimension-list span { color: var(--do-muted); }
+.quality-page__coverage-list { display: grid; }
+.quality-page__coverage-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--do-line); }
+.quality-page__coverage-row > div:first-child { display: grid; gap: 4px; }
+.quality-page__coverage-row strong { color: var(--do-ink); font-size: 13px; }
+.quality-page__coverage-row span,.quality-page__coverage-row small,.quality-page__coverage-row p { color: var(--do-muted); font-size: 12px; }
+.quality-page__coverage-status { display: grid; justify-items: end; gap: 4px; text-align: right; }
+.quality-page__coverage-status p { margin: 0; }
+@media (max-width: 760px) {
+  .quality-page__status,.quality-page__issues,.quality-page__details { padding: 14px 12px; }
+  .quality-page__metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quality-page__coverage-row { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .quality-page__coverage-status { justify-items: start; text-align: left; }
 }
-
-.quality-hero,
-.context-panel,
-.flow-panel,
-.result-area,
-.issue-area,
-.rules-area {
-  border: 1px solid var(--do-glass-line);
-  border-radius: var(--do-radius-lg);
-  background: var(--do-glass-data-bg);
-  box-shadow: var(--do-shadow);
-}
-
-.quality-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 20px;
-  padding: 24px;
-}
-
-.quality-title {
-  min-width: 0;
-}
-
-.quality-title span,
-.area-header span {
-  color: var(--do-muted);
-  font-size: 13px;
-}
-
-.quality-title h2,
-.area-header h3 {
-  margin: 6px 0 0;
-  color: var(--do-ink);
-  line-height: 1.3;
-}
-
-.quality-title h2 {
-  overflow: hidden;
-  font-size: 24px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.quality-title p {
-  margin: 10px 0 0;
-  color: var(--do-muted);
-}
-
-.score-summary {
-  display: grid;
-  justify-items: center;
-  min-width: 110px;
-}
-
-.score-summary strong {
-  font-size: 44px;
-  line-height: 1;
-}
-
-.score-summary span {
-  margin-top: 6px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.context-panel {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
-}
-
-.snapshot-picker {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.snapshot-picker span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--do-muted);
-  font-weight: 700;
-}
-
-.flow-panel {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding: 22px 14px;
-}
-
-.flow-step {
-  position: relative;
-  display: grid;
-  justify-items: center;
-  gap: 7px;
-  min-width: 0;
-  text-align: center;
-}
-
-.flow-line {
-  position: absolute;
-  top: 16px;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  background: var(--do-line-strong);
-}
-
-.flow-line.filled {
-  background: var(--do-success);
-}
-
-.flow-node {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  color: var(--do-muted);
-  border: 2px solid var(--do-line-strong);
-  border-radius: 999px;
-  background: var(--do-glass-data-bg);
-}
-
-.flow-step.done .flow-node {
-  color: #ffffff;
-  border-color: var(--do-success);
-  background: var(--do-success);
-}
-
-.flow-step strong {
-  color: var(--do-ink);
-}
-
-.flow-step span {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--do-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.governance-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
-}
-
-.result-area,
-.issue-area,
-.rules-area {
-  padding: 18px;
-}
-
-.area-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--do-primary-strong);
-}
-
-.dimension-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 18px;
-}
-
-.dimension-item {
-  display: grid;
-  gap: 6px;
-  padding: 14px;
-  border: 1px solid var(--do-glass-line);
-  border-radius: 8px;
-}
-
-.dimension-item strong {
-  font-size: 28px;
-  line-height: 1;
-}
-
-.dimension-item span {
-  color: var(--do-muted);
-  font-size: 12px;
-}
-
-.issue-strip {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 18px;
-  color: var(--do-muted);
-}
-
-.issue-list,
-.rules-grid {
-  display: grid;
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.issue-item,
-.rule-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--do-glass-line);
-}
-
-.issue-item:last-child,
-.rule-item:last-child {
-  border-bottom: 0;
-}
-
-.issue-item div,
-.rule-main {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-}
-
-.issue-item strong,
-.rule-main strong {
-  overflow: hidden;
-  color: var(--do-ink);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.issue-item span,
-.rule-main span {
-  overflow: hidden;
-  color: var(--do-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rule-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  color: var(--do-muted);
-}
-
-.empty-state {
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-  min-height: 150px;
-  padding: 32px;
-  color: var(--do-muted);
-}
-
 </style>

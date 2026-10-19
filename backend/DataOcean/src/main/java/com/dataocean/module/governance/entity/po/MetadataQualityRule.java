@@ -40,6 +40,7 @@ public class MetadataQualityRule {
     @TableId(type = IdType.AUTO)
     private Long id;
     private String ruleCode;
+    private String templateCode;
     private String ruleName;
     private String dimension;
     private String severity;
@@ -54,6 +55,16 @@ public class MetadataQualityRule {
     private Integer enabled;
     private BigDecimal deductionPoints;
     private Integer builtin;
+    private String scopeType;
+    private Long datasourceId;
+    private String targetTableName;
+    private String targetColumnName;
+    private String parametersJson;
+    private Integer configVersion;
+    private LocalDateTime deletedAt;
+    private Long deletedBy;
+    private Long createdBy;
+    private Long updatedBy;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
     @TableField(fill = FieldFill.INSERT_UPDATE)

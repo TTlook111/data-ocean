@@ -8,6 +8,7 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.vo.QualityIssueVO;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
 import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
@@ -94,6 +95,37 @@ class QualityIssueServiceImplTest {
 
         // 范围必须下推：先分页再在内存过滤会让总数和分页边界出错
         assertThat(fixture.capturedWrapper()).contains("datasource_id");
+    }
+
+    @Test
+    void overviewCountsAllOpenConfirmedAndReopenedIssuesBeyondThePreviewPage() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot(8L, 5L);
+        when(fixture.issueMapper.selectCount(any(Wrapper.class))).thenReturn(4L, 2L, 1L);
+        MetadataQualityIssue recent = new MetadataQualityIssue();
+        recent.setId(90L);
+        recent.setSnapshotId(8L);
+        recent.setDatasourceId(5L);
+        recent.setDimension("COMPLETENESS");
+        recent.setSeverity("HIGH");
+        recent.setTableName("orders");
+        recent.setIssueDescription("字段说明缺失");
+        recent.setStatus(MetadataQualityIssue.STATUS_OPEN);
+        Page<MetadataQualityIssue> issuePage = new Page<>(1, 3, 7);
+        issuePage.setRecords(List.of(recent));
+        when(fixture.issueMapper.selectPage(any(Page.class), any(Wrapper.class))).thenReturn(issuePage);
+        when(fixture.datasourceMapper.selectByIds(any())).thenReturn(List.of());
+
+        var summary = fixture.service.snapshotIssueSummary(List.of(5L), 8L, 3);
+
+        assertThat(summary.getTotalUnresolved()).isEqualTo(7L);
+        assertThat(summary.getStatusCounts()).containsEntry("OPEN", 4L)
+                .containsEntry("CONFIRMED", 2L).containsEntry("REOPENED", 1L);
+        assertThat(summary.getRecentIssues()).extracting(QualityIssueVO::getId).containsExactly(90L);
+        @SuppressWarnings({"rawtypes", "unchecked"})
+        ArgumentCaptor<Wrapper<MetadataQualityIssue>> wrappers = ArgumentCaptor.forClass(Wrapper.class);
+        verify(fixture.issueMapper, Mockito.times(2)).selectPage(any(Page.class), wrappers.capture());
+        assertThat(wrappers.getAllValues().get(1).getCustomSqlSegment()).contains("status").contains("IN");
     }
 
     @Test

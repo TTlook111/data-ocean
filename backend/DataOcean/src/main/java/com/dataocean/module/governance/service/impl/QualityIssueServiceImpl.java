@@ -10,6 +10,7 @@ import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
 import com.dataocean.module.governance.entity.vo.IssueBatchHandleResultVO;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
+import com.dataocean.module.governance.entity.vo.QualityIssueSummaryVO;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
 import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
@@ -106,16 +107,54 @@ public class QualityIssueServiceImpl implements QualityIssueService {
                 assigneeId, page, size);
     }
 
+    @Transactional(readOnly = true)
+    @Override
+    public QualityIssueSummaryVO snapshotIssueSummary(java.util.Collection<Long> datasourceIds, Long snapshotId,
+                                                       int recentLimit) {
+        // 先复用既有快照负责源校验；不能把无权快照伪装成零问题。
+        listIssuesInDatasources(datasourceIds, snapshotId, null, null, null, null, null, 1, 1);
+        long open = countSnapshotStatus(snapshotId, MetadataQualityIssue.STATUS_OPEN);
+        long confirmed = countSnapshotStatus(snapshotId, MetadataQualityIssue.STATUS_CONFIRMED);
+        long reopened = countSnapshotStatus(snapshotId, MetadataQualityIssue.STATUS_REOPENED);
+        Page<QualityIssueVO> recent = queryIssues(datasourceIds, snapshotId,
+                null, null, null, null, null, 1, Math.max(1, Math.min(recentLimit, 20)),
+                java.util.Set.of(MetadataQualityIssue.STATUS_OPEN, MetadataQualityIssue.STATUS_CONFIRMED,
+                        MetadataQualityIssue.STATUS_REOPENED));
+        QualityIssueSummaryVO result = new QualityIssueSummaryVO();
+        result.setStatusCounts(Map.of(
+                MetadataQualityIssue.STATUS_OPEN, open,
+                MetadataQualityIssue.STATUS_CONFIRMED, confirmed,
+                MetadataQualityIssue.STATUS_REOPENED, reopened));
+        result.setTotalUnresolved(open + confirmed + reopened);
+        result.setRecentIssues(recent.getRecords());
+        return result;
+    }
+
+    private long countSnapshotStatus(Long snapshotId, String status) {
+        return issueMapper.selectCount(new LambdaQueryWrapper<MetadataQualityIssue>()
+                .eq(MetadataQualityIssue::getSnapshotId, snapshotId)
+                .eq(MetadataQualityIssue::getStatus, status));
+    }
+
     /** `scopeDatasourceIds == null` 表示不按数据源限制（仅供既有内部调用），空集合由调用方先行处理。 */
     private Page<QualityIssueVO> queryIssues(java.util.Collection<Long> scopeDatasourceIds, Long snapshotId,
                                              String dimension, String severity, String status,
                                              String tableName, Long assigneeId, int page, int size) {
+        return queryIssues(scopeDatasourceIds, snapshotId, dimension, severity, status,
+                tableName, assigneeId, page, size, null);
+    }
+
+    private Page<QualityIssueVO> queryIssues(java.util.Collection<Long> scopeDatasourceIds, Long snapshotId,
+                                             String dimension, String severity, String status,
+                                             String tableName, Long assigneeId, int page, int size,
+                                             java.util.Collection<String> statuses) {
         LambdaQueryWrapper<MetadataQualityIssue> qw = new LambdaQueryWrapper<MetadataQualityIssue>()
                 .in(scopeDatasourceIds != null, MetadataQualityIssue::getDatasourceId, scopeDatasourceIds)
                 .eq(snapshotId != null, MetadataQualityIssue::getSnapshotId, snapshotId)
                 .eq(StringUtils.hasText(dimension), MetadataQualityIssue::getDimension, dimension)
                 .eq(StringUtils.hasText(severity), MetadataQualityIssue::getSeverity, severity)
                 .eq(StringUtils.hasText(status), MetadataQualityIssue::getStatus, status)
+                .in(statuses != null && !statuses.isEmpty(), MetadataQualityIssue::getStatus, statuses)
                 .eq(StringUtils.hasText(tableName), MetadataQualityIssue::getTableName, tableName)
                 .eq(assigneeId != null, MetadataQualityIssue::getAssigneeId, assigneeId)
                 .orderByDesc(MetadataQualityIssue::getCreatedAt);

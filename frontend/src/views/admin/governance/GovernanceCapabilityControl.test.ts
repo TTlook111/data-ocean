@@ -11,7 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElSelect } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
 
@@ -26,6 +26,18 @@ const api = vi.hoisted(() => ({
   assignIssue: vi.fn(),
   listReviewRecords: vi.fn(),
   listQualityRules: vi.fn(),
+  listQualityRuleTemplates: vi.fn(),
+  createQualityRule: vi.fn(),
+  editQualityRule: vi.fn(),
+  copyQualityRule: vi.fn(),
+  getQualityRule: vi.fn(),
+  getQualityRuleHistory: vi.fn(),
+  getQualityRuleRevisions: vi.fn(),
+  deleteQualityRule: vi.fn(),
+  restoreQualityRule: vi.fn(),
+  getLatestQualityCheckBatch: vi.fn(),
+  getQualityRuleSummary: vi.fn(),
+  getSnapshotQualityIssueSummary: vi.fn(),
   updateRuleEnabled: vi.fn(),
   listSnapshotTables: vi.fn(),
   listSnapshotTableColumns: vi.fn(),
@@ -49,6 +61,18 @@ vi.mock('../../../api/admin/governance', () => ({
   assignIssue: api.assignIssue,
   listReviewRecords: api.listReviewRecords,
   listQualityRules: api.listQualityRules,
+  listQualityRuleTemplates: api.listQualityRuleTemplates,
+  createQualityRule: api.createQualityRule,
+  editQualityRule: api.editQualityRule,
+  copyQualityRule: api.copyQualityRule,
+  getQualityRule: api.getQualityRule,
+  getQualityRuleHistory: api.getQualityRuleHistory,
+  getQualityRuleRevisions: api.getQualityRuleRevisions,
+  deleteQualityRule: api.deleteQualityRule,
+  restoreQualityRule: api.restoreQualityRule,
+  getLatestQualityCheckBatch: api.getLatestQualityCheckBatch,
+  getQualityRuleSummary: api.getQualityRuleSummary,
+  getSnapshotQualityIssueSummary: api.getSnapshotQualityIssueSummary,
   updateRuleEnabled: api.updateRuleEnabled,
   listSnapshotTables: api.listSnapshotTables,
   listSnapshotTableColumns: api.listSnapshotTableColumns,
@@ -78,8 +102,11 @@ vi.mock('vue-router', async (importOriginal) => {
 
 import IssueList from './IssueList.vue'
 import StatusEditor from './StatusEditor.vue'
+import QualityRulesView from './QualityRulesView.vue'
+import QualityDashboard from './QualityDashboard.vue'
 import GovernanceFieldsView from './GovernanceFieldsView.vue'
 import { useIamS1Store } from '../../../stores/iamS1'
+import { useAdminContextStore } from '../../../stores/adminContext'
 
 const DATASOURCE_ID = 5
 
@@ -196,6 +223,17 @@ beforeEach(() => {
   api.listUsers.mockResolvedValue({ data: { records: [], total: 0 } })
   api.listQualityIssues.mockResolvedValue({ data: { records: [issue], total: 1 } })
   api.listQualityRules.mockResolvedValue({ data: [] })
+  api.listQualityRuleTemplates.mockResolvedValue({ data: [{
+    code: 'COMP_COLUMN_COMMENT_MISSING', name: '字段注释缺失', dimension: 'COMPLETENESS',
+    targetType: 'COLUMN', checkType: 'SCHEMA', description: '检查字段说明',
+    allowedScopes: ['GLOBAL', 'DATASOURCE', 'TABLE', 'COLUMN'], parameters: [],
+  }] })
+  api.getQualityRule.mockImplementation(async (ruleId: number) => ({ data: { id: ruleId } }))
+  api.getQualityRuleHistory.mockResolvedValue({ data: [] })
+  api.getQualityRuleRevisions.mockResolvedValue({ data: [] })
+  api.getLatestQualityCheckBatch.mockResolvedValue({ data: null })
+  api.getQualityRuleSummary.mockResolvedValue({ data: { enabledCount: 0, applicableCount: 0, unsupportedCount: 0, overriddenCount: 0, executedCount: 0 } })
+  api.getSnapshotQualityIssueSummary.mockResolvedValue({ data: { totalUnresolved: 0, statusCounts: { OPEN: 0, CONFIRMED: 0, REOPENED: 0 }, recentIssues: [] } })
   api.listSnapshotTables.mockResolvedValue({ data: [] })
   api.listMaskCandidates.mockResolvedValue({ data: [] })
   api.listReviewRecords.mockResolvedValue({ data: { records: [], total: 0 } })
@@ -285,41 +323,171 @@ describe('IssueList 的能力控制', () => {
   })
 })
 
-describe('StatusEditor 的能力控制', () => {
-  it('没有 governance:rule:view 时不请求规则列表', async () => {
+describe('资产状态维护的能力控制', () => {
+  it('资产状态页面不再读取质量规则列表', async () => {
     respond(capability({ global: [] }))
     const wrapper = mountPage(StatusEditor)
     await settle()
 
     expect(api.listQualityRules).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('governance:rule:view')
+    expect(wrapper.text()).toContain('资产状态')
   })
 
-  it('规则是全局定义：非系统管理员只能查看，开关不可用', async () => {
-    respond(capability({ global: ['governance:rule:view'], onDatasource: ['metadata:view', 'governance:rule:manage'] }))
-    api.listQualityRules.mockResolvedValue({
-      data: [{ id: 3, ruleName: '空值率', dimension: 'COMPLETENESS', severity: 'HIGH', deductionPoints: 5, description: '', enabled: 1 }],
-    })
+  it('没有 metadata:view 时不自行请求快照列表', async () => {
+    respond(capability({ onDatasource: ['governance:rule:manage'] }))
     const wrapper = mountPage(StatusEditor)
+    await settle()
+
+    expect(api.listSnapshots).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('metadata:view')
+  })
+})
+
+describe('质量规则管理的能力控制', () => {
+  const globalRule = {
+    id: 3, ruleCode: 'QR-3', templateCode: 'COMP_COLUMN_COMMENT_MISSING', ruleName: '字段说明规则',
+    dimension: 'COMPLETENESS', severity: 'HIGH', description: '', checkTarget: 'COLUMN', checkType: 'SCHEMA',
+    scopeType: 'GLOBAL', parameters: {}, configVersion: 1, enabled: 1, deductionPoints: 5,
+    builtin: 1, supported: true,
+  }
+
+  it('没有治理规则查看权限时不请求规则或模板列表', async () => {
+    respond(capability({ onDatasource: ['metadata:view'] }))
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+
+    expect(api.listQualityRules).not.toHaveBeenCalled()
+    expect(api.listQualityRuleTemplates).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('没有当前范围的“查看治理规则”权限')
+  })
+
+  it('规则列表读取失败显示错误而不是空列表', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    api.listQualityRules.mockRejectedValue(new Error('network unavailable'))
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+
+    expect(wrapper.text()).toContain('质量规则读取失败，请重试。')
+    expect(wrapper.text()).not.toContain('当前筛选范围没有质量规则')
+  })
+
+  it('普通管理员可读全局规则但不能编辑或启用', async () => {
+    respond(capability({
+      global: ['governance:rule:view'],
+      onDatasource: ['metadata:view', 'governance:rule:view', 'governance:rule:manage'],
+    }))
+    api.listQualityRules.mockResolvedValue({
+      data: [globalRule],
+    })
+    const wrapper = mountPage(QualityRulesView)
     await settle()
 
     expect(api.listQualityRules).toHaveBeenCalled()
-    // 全局规则启停只允许受保护系统管理员：非管理员即使在某负责源上有 governance:rule:manage 也不能改
-    expect(wrapper.text()).toContain('只能由受保护的系统管理员执行')
-    await wrapper.find('.el-switch').trigger('click')
+    expect(wrapper.text()).toContain('字段说明规则')
+    const toggle = wrapper.find('.el-switch')
+    expect(toggle.classes()).toContain('is-disabled')
+    await toggle.trigger('click')
     expect(api.updateRuleEnabled).not.toHaveBeenCalled()
   })
 
-  it('系统管理员可以启停全局规则', async () => {
+  it('受保护系统管理员可进入全局范围并启停全局规则', async () => {
     respond(capability({ global: ['governance:rule:view'], systemAdmin: true }))
     api.listQualityRules.mockResolvedValue({
-      data: [{ id: 3, ruleName: '空值率', dimension: 'COMPLETENESS', severity: 'HIGH', deductionPoints: 5, description: '', enabled: 1 }],
+      data: [globalRule],
     })
-    const wrapper = mountPage(StatusEditor)
+    const wrapper = mountPage(QualityRulesView)
     await settle()
 
-    expect(wrapper.text()).not.toContain('只能由受保护的系统管理员执行')
-    expect(wrapper.find('.el-switch').attributes('disabled')).toBeUndefined()
+    await wrapper.findAll('button').find((button) => button.text() === '全局规则')!.trigger('click')
+    await settle()
+    expect(wrapper.find('.el-switch').classes()).not.toContain('is-disabled')
+  })
+
+  it('有数据源规则管理权时复制现有规则，新副本由后端建立为停用状态', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
+    api.listQualityRules.mockResolvedValue({ data: [{
+      id: 30, ruleCode: 'QR-30', templateCode: 'COMP_COLUMN_COMMENT_MISSING', ruleName: '字段说明',
+      dimension: 'COMPLETENESS', severity: 'MEDIUM', checkTarget: 'COLUMN', checkType: 'SCHEMA',
+      scopeType: 'DATASOURCE', datasourceId: DATASOURCE_ID, parameters: {}, configVersion: 1,
+      enabled: 1, deductionPoints: 2, builtin: 0, supported: true,
+    }] })
+    api.copyQualityRule.mockResolvedValue({ data: { id: 31, enabled: 0 } })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+
+    const row = await waitForRow(wrapper, '字段说明')
+    await row.findAll('button').find((button) => button.text().includes('复制'))!.trigger('click')
+    await settle()
+
+    expect(api.copyQualityRule).toHaveBeenCalledWith(30)
+    expect(api.listQualityRules).toHaveBeenCalledTimes(3)
+    expect(api.updateRuleEnabled).not.toHaveBeenCalled()
+  })
+
+  it('新增表单从可执行模板读取参数定义并发送结构化规则配置', async () => {
+    respond(capability({ onDatasource: ['metadata:view', 'governance:rule:view', 'governance:rule:manage'] }))
+    api.listQualityRuleTemplates.mockResolvedValue({ data: [{
+      code: 'DATA_NULL_RATE_HIGH', name: '列空值率过高', dimension: 'COMPLETENESS',
+      targetType: 'COLUMN', checkType: 'DATA', description: '样本检查',
+      allowedScopes: ['GLOBAL', 'DATASOURCE', 'TABLE', 'COLUMN'],
+      parameters: [{ key: 'threshold', label: '空值率阈值', type: 'NUMBER', minimum: 0, maximum: 1, defaultValue: 0.3 }],
+    }] })
+    api.createQualityRule.mockResolvedValue({ data: { id: 51 } })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    await wrapper.findAll('button').find((button) => button.text().includes('新增规则'))!.trigger('click')
+    await settle()
+
+    const templateSelect = wrapper.findAllComponents(ElSelect)
+      .find((select) => select.props('modelValue') === '' && !select.props('placeholder'))
+    expect(templateSelect).toBeTruthy()
+    await templateSelect!.vm.$emit('update:modelValue', 'DATA_NULL_RATE_HIGH')
+    await templateSelect!.vm.$emit('change', 'DATA_NULL_RATE_HIGH')
+    await settle()
+    expect(document.body.textContent).toContain('空值率阈值')
+
+    const nameInput = document.body.querySelector<HTMLInputElement>('.el-dialog input[maxlength="200"]')
+    expect(nameInput).toBeTruthy()
+    nameInput!.value = '订单金额空值率'
+    nameInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    await settle()
+    const saveButton = document.body.querySelector<HTMLButtonElement>('.el-dialog__footer .el-button--primary')
+    expect(saveButton).toBeTruthy()
+    saveButton!.click()
+    await settle()
+
+    expect(api.createQualityRule).toHaveBeenCalledWith(expect.objectContaining({
+      ruleName: '订单金额空值率',
+      templateCode: 'DATA_NULL_RATE_HIGH',
+      scopeType: 'DATASOURCE',
+      datasourceId: DATASOURCE_ID,
+      parameters: { threshold: 0.3 },
+      enabled: true,
+    }))
+  })
+
+  it('规则保存失败保留表单并显示后端冲突原因', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
+    api.createQualityRule.mockRejectedValueOnce({ response: { data: { message: '同一检查模板、同一目标和同一级范围已有启用规则' } } })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    await wrapper.findAll('button').find((button) => button.text().includes('新增规则'))!.trigger('click')
+    await settle()
+    const templateSelect = wrapper.findAllComponents(ElSelect)
+      .find((select) => select.props('modelValue') === '' && !select.props('placeholder'))
+    await templateSelect!.vm.$emit('update:modelValue', 'COMP_COLUMN_COMMENT_MISSING')
+    await templateSelect!.vm.$emit('change', 'COMP_COLUMN_COMMENT_MISSING')
+    await settle()
+    const nameInput = document.body.querySelector<HTMLInputElement>('.el-dialog input[maxlength="200"]')
+    nameInput!.value = '重复规则'
+    nameInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    await settle()
+    document.body.querySelector<HTMLButtonElement>('.el-dialog__footer .el-button--primary')!.click()
+    await settle()
+
+    expect(api.createQualityRule).toHaveBeenCalled()
+    expect(document.body.querySelector('.el-dialog')).toBeTruthy()
+    expect(document.body.textContent).toContain('同一检查模板、同一目标和同一级范围已有启用规则')
   })
 
   it('没有 governance:rule:manage 时表状态下拉不可用', async () => {
@@ -337,14 +505,52 @@ describe('StatusEditor 的能力控制', () => {
     expect(statusSelect!.find('.el-select__wrapper').classes()).toContain('is-disabled')
   })
 
-  it('没有 metadata:view 时不自行请求快照列表', async () => {
-    respond(capability({ onDatasource: ['governance:rule:manage'] }))
-    const wrapper = mountPage(StatusEditor)
+})
+
+describe('治理总览的批次恢复与范围隔离', () => {
+  it('问题统计读取失败时不显示零问题', async () => {
+    respond(capability({ onDatasource: [
+      'governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view',
+    ] }))
+    api.getSnapshotQualityIssueSummary.mockRejectedValue(new Error('network unavailable'))
+    const wrapper = mountPage(QualityDashboard)
     await settle()
 
-    // adminContext.initialize() 自己会取一次快照列表；页面在无能力时不得再补一次
-    expect(api.listSnapshots).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('metadata:view')
+    expect(wrapper.text()).toContain('待处理问题统计读取失败，无法确认问题数量。')
+    expect(wrapper.text()).not.toContain('待处理 0')
+  })
+
+  it('快照切换后较晚返回的旧批次不能覆盖当前结果', async () => {
+    respond(capability({ onDatasource: [
+      'governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view',
+    ] }))
+    let resolveOld!: (value: { data: Record<string, unknown> }) => void
+    api.getLatestQualityCheckBatch.mockImplementation((snapshotId: number) => {
+      if (snapshotId === 8) return new Promise((resolve) => { resolveOld = resolve })
+      return Promise.resolve({ data: {
+        id: 22, datasourceId: DATASOURCE_ID, snapshotId, requestedScope: 'FULL',
+        requestedDimensions: [], requestedTableNames: [], status: 'PARTIAL', complete: false,
+        ruleCount: 2, executedRuleCount: 1, failedRuleCount: 1, notApplicableRuleCount: 0,
+        rules: [], dimensionScores: {}, startedAt: '2026-10-19T10:00:00',
+      } })
+    })
+    const wrapper = mountPage(QualityDashboard)
+    await vi.waitFor(() => expect(api.getLatestQualityCheckBatch).toHaveBeenCalledWith(8))
+    const adminContext = useAdminContextStore()
+    adminContext.selectSnapshot(9)
+    await settle()
+    expect(api.getLatestQualityCheckBatch).toHaveBeenCalledWith(9)
+    expect(wrapper.text()).toContain('部分失败')
+
+    resolveOld({ data: {
+      id: 11, datasourceId: DATASOURCE_ID, snapshotId: 8, requestedScope: 'FULL',
+      requestedDimensions: [], requestedTableNames: [], status: 'FAILED', complete: false,
+      ruleCount: 1, executedRuleCount: 0, failedRuleCount: 1, notApplicableRuleCount: 0,
+      rules: [], dimensionScores: {}, startedAt: '2026-10-18T10:00:00',
+    } })
+    await settle()
+    expect(wrapper.text()).toContain('部分失败')
+    expect(wrapper.text()).not.toContain('执行失败')
   })
 })
 

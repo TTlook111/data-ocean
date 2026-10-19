@@ -31,6 +31,7 @@ public class MetadataQualityIssue {
     private Long snapshotId;
     private Long datasourceId;
     private Long ruleId;
+    private Long checkBatchId;
     private String dimension;
     private String severity;
     private String tableName;

@@ -10,11 +10,8 @@ import {
   batchUpdateGovernanceStatus,
   listSnapshotTables,
   listSnapshotTableColumns,
-  listQualityRules,
-  updateRuleEnabled,
   type TableMetaItem,
   type ColumnMetaItem,
-  type QualityRule,
 } from '../../../api/admin/governance'
 import { listSnapshots } from '../../../api/admin/metadata'
 import { governanceStatusLabel } from '../../../utils/enumLabels'
@@ -31,8 +28,6 @@ const adminContext = useAdminContextStore()
 const iamS1 = useIamS1Store()
 const route = useRoute()
 const router = useRouter()
-const activeTab = ref(String(route.query.tab || 'status'))
-const rules = ref<QualityRule[]>([])
 const tableActionLoading = reactive<Record<string, boolean>>({})
 const columnActionLoading = reactive<Record<number, boolean>>({})
 const batchActionLoading = ref(false)
@@ -43,21 +38,8 @@ let disposed = false
 
 const statusOptions = ['DISCOVERED', 'NORMAL', 'RECOMMENDED', 'DEPRECATED', 'SENSITIVE', 'BLOCKED']
 
-const RULE_VIEW_FUNCTION = 'governance:rule:view'
 const RULE_MANAGE_FUNCTION = 'governance:rule:manage'
 const METADATA_VIEW_FUNCTION = 'metadata:view'
-
-/** 读取全局质量规则定义：全局功能，不依赖负责源；读取不推导任何数据源访问权。 */
-const canViewRules = computed(() => iamS1.hasGlobal(RULE_VIEW_FUNCTION))
-
-/**
- * 启停全局质量规则。
- *
- * `governance:rule:manage` 这一个功能码覆盖两种范围：表/列治理状态由“功能 + 负责源”放行，
- * 而全局规则没有 datasourceId、启停会影响所有数据源，Service 内额外要求**受保护系统管理员**。
- * 因此非系统管理员即使持有该功能码，开关也必须保持不可用。
- */
-const canToggleRule = computed(() => iamS1.systemAdmin)
 
 /** 读取快照 / 表 / 字段：要求 `metadata:view` 与当前数据源在同一绑定上成立。 */
 const canViewMetadata = computed(
@@ -71,11 +53,6 @@ const canManageStatus = computed(
 
 const NO_STATUS_CAPABILITY_HINT =
   '没有“维护治理规则”能力：需要角色拥有该功能并负责当前数据源。'
-
-function selectTab(tab: string) {
-  activeTab.value = tab
-  router.replace({ query: { ...route.query, tab } })
-}
 
 async function fetchSnapshots() {
   const currentRequest = ++datasourceRequestId
@@ -120,35 +97,6 @@ async function fetchSnapshots() {
     columns.value = []
     selectedTable.value = ''
     ElMessage.error('获取快照列表失败')
-  }
-}
-
-async function fetchRules() {
-  // 无 `governance:rule:view` 时不要发这个必然 403 的请求。
-  if (!canViewRules.value) {
-    rules.value = []
-    return
-  }
-  try {
-    const res = await listQualityRules()
-    rules.value = res.data || []
-  } catch {
-    ElMessage.error('获取质量规则失败')
-  }
-}
-
-async function toggleRule(rule: QualityRule) {
-  if (!canToggleRule.value) {
-    ElMessage.warning('全局质量规则没有数据源归属，启停会影响所有数据源，只能由受保护的系统管理员执行。')
-    fetchRules()
-    return
-  }
-  try {
-    const enabled = rule.enabled !== 1
-    await updateRuleEnabled(rule.id, enabled)
-    rule.enabled = enabled ? 1 : 0
-  } catch (error: any) {
-    ElMessage.error(error?.response?.data?.message || '更新质量规则失败')
   }
 }
 
@@ -265,11 +213,7 @@ async function batchSetColumns(newStatus: string) {
 
 onMounted(async () => {
   await Promise.all([adminContext.initialize(), iamS1.load()])
-  await Promise.all([fetchSnapshots(), fetchRules()])
-})
-
-watch(() => route.query.tab, (tab) => {
-  activeTab.value = String(tab || 'status')
+  await fetchSnapshots()
 })
 
 watch(
@@ -298,41 +242,10 @@ watch(
 
 <template>
   <main class="status-page post-login-page">
-    <TaskPageHeader title="规则与状态" description="查看质量规则，维护表和字段的使用状态。" />
-    <el-tabs :model-value="activeTab" @update:model-value="selectTab">
-      <el-tab-pane label="质量规则" name="rules">
-        <section class="rules-panel">
-          <div class="rules-panel__heading">
-            <div><span>检查执行配置</span><h2>质量规则</h2><p>这里只操作后端已有的规则启停，不在前端改写质量计算逻辑。</p></div>
-            <el-button :icon="RefreshCw" @click="fetchRules">刷新规则</el-button>
-          </div>
-          <p v-if="!canViewRules" class="capability-hint">
-            没有“查看治理规则”能力（<code>governance:rule:view</code>），因此不展示规则列表。
-          </p>
-          <template v-else>
-            <p v-if="!canToggleRule" class="capability-hint">
-              规则是全局定义（没有数据源归属），启停会影响所有数据源，只能由受保护的系统管理员执行；你当前可以查看但不能修改。
-            </p>
-            <el-table :data="rules" stripe>
-              <el-table-column prop="ruleName" label="规则" min-width="170" />
-              <el-table-column prop="dimension" label="维度" width="110" />
-              <el-table-column prop="severity" label="级别" width="90" />
-              <el-table-column prop="deductionPoints" label="扣分" width="80" />
-              <el-table-column prop="description" label="说明" min-width="260" show-overflow-tooltip />
-              <el-table-column label="启用" width="90">
-                <template #default="{ row }">
-                  <el-switch :model-value="row.enabled === 1" :disabled="!canToggleRule" @change="toggleRule(row)" />
-                </template>
-              </el-table-column>
-            </el-table>
-            <el-empty v-if="!rules.length" description="暂无质量规则" />
-          </template>
-        </section>
-      </el-tab-pane>
-      <el-tab-pane label="资产状态" name="status">
-        <section class="page-actions">
-          <el-button :icon="RefreshCw" @click="fetchTables">刷新</el-button>
-        </section>
+    <TaskPageHeader title="资产状态" description="维护当前快照中表和字段的治理状态。" />
+    <section class="page-actions">
+      <el-button :icon="RefreshCw" @click="fetchTables">刷新</el-button>
+    </section>
 
         <section class="toolbar">
           <el-select v-model="selectedSnapshotId" :disabled="!adminContext.datasourceId || !canViewMetadata" placeholder="选择快照" style="width: 220px" @change="handleSnapshotChange">
@@ -388,9 +301,7 @@ watch(
           </el-table-column>
         </el-table>
       </section>
-        </div>
-      </el-tab-pane>
-    </el-tabs>
+    </div>
   </main>
 </template>
 
@@ -399,11 +310,6 @@ watch(
 .toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .capability-hint { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.6; }
 .capability-hint code { font-size: 12px; }
-.rules-panel { padding: 18px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); box-shadow: var(--do-shadow); }
-.rules-panel__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-.rules-panel__heading span, .rules-panel__heading p { color: var(--do-muted); font-size: 12px; }
-.rules-panel__heading h2 { margin: 5px 0; color: var(--do-ink); font-size: 18px; }
-.rules-panel__heading p { margin: 0; }
 
 .split-layout { display: flex; gap: 16px; }
 .table-list-panel {
