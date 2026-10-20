@@ -5,6 +5,7 @@ import com.dataocean.module.metadata.entity.po.DbColumnMeta;
 import com.dataocean.module.metadata.entity.po.DbTableMeta;
 import com.dataocean.module.metadata.entity.po.TableRelation;
 import com.dataocean.module.governance.checker.QualityRuleParameterReader;
+import com.dataocean.module.governance.checker.QualityStaleTimeFieldSelector;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -132,6 +133,9 @@ public class QualityRuleExecutionPlanner {
                     winner.checkedTargetCount++;
                 } else {
                     winner.unsupportedTargetCount++;
+                    if ("DATA_STALE_TABLE".equals(template.getCode())) {
+                        winner.unsupportedReason = "没有治理状态允许的时间字段，未执行时效读取";
+                    }
                 }
             }
         }
@@ -186,7 +190,9 @@ public class QualityRuleExecutionPlanner {
                     execution.reason = "部分目标为废弃或阻断状态，未执行数据读取";
                 } else if (execution.unsupportedTargetCount > 0) {
                     execution.blocking = true;
-                    execution.reason = "部分目标因治理状态或检查条件不适用，已跳过";
+                    execution.reason = execution.unsupportedReason == null
+                            ? "部分目标因治理状态或检查条件不适用，已跳过"
+                            : "部分目标没有治理状态允许的时间字段，已跳过时效读取";
                 } else if (execution.overriddenCount > 0) execution.reason = "部分目标由更具体范围覆盖";
                 continue;
             }
@@ -195,7 +201,9 @@ public class QualityRuleExecutionPlanner {
                 continue;
             }
             if (execution.unsupportedTargetCount > 0) {
-                execution.notApplicable("目标对象不符合安全或模板适用条件", true);
+                execution.notApplicable(execution.unsupportedReason == null
+                        ? "目标对象不符合安全或模板适用条件"
+                        : execution.unsupportedReason, true);
                 continue;
             }
             if (execution.targetCount > 0) {
@@ -300,9 +308,7 @@ public class QualityRuleExecutionPlanner {
     private boolean tableSupported(QualityRuleTemplateRegistry.Definition template,
                                    DbTableMeta table, List<DbColumnMeta> columns) {
         if (!"DATA_STALE_TABLE".equals(template.getCode())) return true;
-        Set<String> timeNames = Set.of("update_time", "updated_at", "modify_time", "modified_at", "gmt_modified");
-        return columns.stream().anyMatch(column -> table.getTableName().equals(column.getTableName())
-                && timeNames.contains(column.getColumnName().toLowerCase()));
+        return QualityStaleTimeFieldSelector.select(table, columns) != null;
     }
 
     private boolean relationUsable(TableRelation relation, List<DbTableMeta> tables, List<DbColumnMeta> columns) {
@@ -377,6 +383,7 @@ public class QualityRuleExecutionPlanner {
         private int overriddenCount;
         private String status = "NOT_EXECUTED";
         private String reason;
+        private String unsupportedReason;
         private boolean blocking;
 
         private MutableExecution(MetadataQualityRule rule, QualityRuleTemplateRegistry.Definition template) {

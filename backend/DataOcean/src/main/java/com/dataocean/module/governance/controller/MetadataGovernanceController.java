@@ -165,8 +165,9 @@ public class MetadataGovernanceController {
     @IamS1ScopedList(RULE_VIEW_FUNCTION)
     public Result<List<com.dataocean.module.governance.entity.vo.QualityCheckBatchRuleVO>> ruleHistory(
             @PathVariable Long ruleId) {
-        qualityRuleService.getRule(ruleId, UserContext.currentUserId(), true);
-        return Result.success(batchService.history(ruleId));
+        Long operatorUserId = UserContext.currentUserId();
+        qualityRuleService.getRule(ruleId, operatorUserId, true);
+        return Result.success(batchService.history(ruleId, operatorUserId));
     }
 
     @GetMapping("/quality-rules/{ruleId}/revisions")

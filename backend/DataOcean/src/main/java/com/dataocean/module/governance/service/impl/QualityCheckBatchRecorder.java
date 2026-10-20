@@ -11,6 +11,9 @@ import com.dataocean.module.governance.mapper.QualityCheckBatchMapper;
 import com.dataocean.module.governance.mapper.QualityCheckBatchRuleMapper;
 import com.dataocean.module.governance.mapper.QualityCheckResultMapper;
 import com.dataocean.module.governance.service.QualityCheckBatchService;
+import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
+import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
+import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -30,10 +33,13 @@ import java.util.HashMap;
 @Service
 @RequiredArgsConstructor
 public class QualityCheckBatchRecorder implements QualityCheckBatchService {
+    private static final String RULE_VIEW = "governance:rule:view";
     private final QualityCheckBatchMapper batchMapper;
     private final QualityCheckBatchRuleMapper batchRuleMapper;
     private final QualityCheckResultMapper checkResultMapper;
     private final ObjectMapper objectMapper;
+    private final IamS1AuthorizationResolver authorizationResolver;
+    private final IamS1CapabilityService capabilityService;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Long begin(Long datasourceId, Long snapshotId, String requestedScope,
@@ -125,7 +131,11 @@ public class QualityCheckBatchRecorder implements QualityCheckBatchService {
 
     @Transactional(readOnly = true)
     @Override
-    public List<QualityCheckBatchRuleVO> history(Long ruleId) {
+    public List<QualityCheckBatchRuleVO> history(Long ruleId, Long operatorUserId) {
+        boolean systemAdmin = authorizationResolver.isSystemAdmin(operatorUserId);
+        List<Long> visibleSources = systemAdmin ? List.of() : capabilityService
+                .responsibleDatasourcesWithFunction(operatorUserId, RULE_VIEW).stream()
+                .map(IamS1DatasourceRefVO::id).toList();
         List<QualityCheckBatchRule> rows = batchRuleMapper.selectList(new LambdaQueryWrapper<QualityCheckBatchRule>()
                 .eq(QualityCheckBatchRule::getRuleId, ruleId)
                 .orderByDesc(QualityCheckBatchRule::getBatchId)
@@ -134,7 +144,11 @@ public class QualityCheckBatchRecorder implements QualityCheckBatchService {
         for (QualityCheckBatchRule row : rows) {
             batches.computeIfAbsent(row.getBatchId(), batchMapper::selectById);
         }
-        return rows.stream().map(row -> {
+        return rows.stream().filter(row -> {
+            QualityCheckBatch batch = batches.get(row.getBatchId());
+            return batch != null && (systemAdmin || batch.getDatasourceId() != null
+                    && visibleSources.contains(batch.getDatasourceId()));
+        }).map(row -> {
             QualityCheckBatchRuleVO vo = toRuleVO(row);
             QualityCheckBatch batch = batches.get(row.getBatchId());
             if (batch != null) {

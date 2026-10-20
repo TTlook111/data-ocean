@@ -116,6 +116,17 @@ class MetadataGovernanceControllerAuthorizationTest {
     }
 
     @Test
+    void ruleExecutionHistoryPassesAuthenticatedUserToDatasourceScopedBatchService() {
+        Fixture fixture = new Fixture();
+        fixture.login(7L);
+
+        fixture.controller.ruleHistory(42L);
+
+        verify(fixture.qualityRuleService).getRule(42L, 7L, true);
+        verify(fixture.batchService).history(42L, 7L);
+    }
+
+    @Test
     void notLoggedInNeverReachesTheService() {
         Fixture fixture = new Fixture();
         SecurityContextHolder.clearContext();
@@ -131,6 +142,8 @@ class MetadataGovernanceControllerAuthorizationTest {
     private static final class Fixture {
         private final QualityCheckService qualityCheckService = mock(QualityCheckService.class);
         private final QualityIssueService qualityIssueService = mock(QualityIssueService.class);
+        private final QualityRuleService qualityRuleService = mock(QualityRuleService.class);
+        private final QualityCheckBatchService batchService = mock(QualityCheckBatchService.class);
         private final IamS1AdminGuard adminGuard = mock(IamS1AdminGuard.class);
         private final IamS1CapabilityService capabilityService = mock(IamS1CapabilityService.class);
         private final IamS1ResourceResolver snapshotResolver = mock(IamS1ResourceResolver.class);
@@ -139,13 +152,13 @@ class MetadataGovernanceControllerAuthorizationTest {
         Fixture() {
             MetadataGovernanceController target = new MetadataGovernanceController(
                     qualityCheckService,
-                    mock(QualityRuleService.class),
+                    qualityRuleService,
                     qualityIssueService,
                     mock(GovernanceStatusService.class),
                     mock(MetadataReviewService.class),
                     capabilityService,
                     new QualityRuleTemplateRegistry(),
-                    mock(QualityCheckBatchService.class));
+                    batchService);
             when(snapshotResolver.supports()).thenReturn(IamS1ResourceType.SNAPSHOT);
             IamS1ResourceResolverRegistry registry = new IamS1ResourceResolverRegistry(List.of(snapshotResolver));
             IamS1AuthorizationAspect aspect = new IamS1AuthorizationAspect(adminGuard, registry);

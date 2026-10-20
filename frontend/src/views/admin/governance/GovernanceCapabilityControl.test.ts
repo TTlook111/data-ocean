@@ -8,10 +8,10 @@
  * - 有查看能力但没有操作能力时，按钮不可用并给出中文原因；
  * - 能力结论只来自 IAM-SIMPLE-1 能力摘要，且必须“功能 + 负责源”在同一绑定上成立。
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
-import ElementPlus, { ElSelect } from 'element-plus'
+import ElementPlus, { ElDialog, ElSelect } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
 
@@ -52,6 +52,7 @@ const api = vi.hoisted(() => ({
   listKnowledgeDocs: vi.fn(),
   listUsers: vi.fn(),
 }))
+const mountedPages: Array<{ unmount: () => void }> = []
 
 vi.mock('../../../api/iamS1', () => ({ getIamS1Capabilities: api.getIamS1Capabilities }))
 vi.mock('../../../api/admin/governance', () => ({
@@ -145,12 +146,14 @@ function respond(snapshot: IamS1CapabilitySnapshot) {
 }
 
 function mountPage(component: unknown) {
-  return mount(component as never, {
+  const wrapper = mount(component as never, {
     global: {
       plugins: [ElementPlus],
       stubs: { RouterLink: { template: '<a><slot /></a>' } },
     },
   })
+  mountedPages.push(wrapper)
+  return wrapper
 }
 
 /**
@@ -187,6 +190,16 @@ async function waitForRowButton(wrapper: ReturnType<typeof mountPage>, rowText: 
     if (!button) throw new Error(`行「${rowText}」的按钮「${buttonText}」尚未渲染`)
     return button
   })
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, resolve, reject }
 }
 /**
  * 在**真实数据行**里找按钮。
@@ -237,6 +250,11 @@ beforeEach(() => {
   api.listSnapshotTables.mockResolvedValue({ data: [] })
   api.listMaskCandidates.mockResolvedValue({ data: [] })
   api.listReviewRecords.mockResolvedValue({ data: { records: [], total: 0 } })
+})
+
+afterEach(() => {
+  mountedPages.splice(0).forEach((wrapper) => wrapper.unmount())
+  document.body.innerHTML = ''
 })
 
 describe('IssueList 的能力控制', () => {
@@ -488,6 +506,102 @@ describe('质量规则管理的能力控制', () => {
     expect(api.createQualityRule).toHaveBeenCalled()
     expect(document.body.querySelector('.el-dialog')).toBeTruthy()
     expect(document.body.textContent).toContain('同一检查模板、同一目标和同一级范围已有启用规则')
+  })
+
+  it('编辑 A 慢、B 快时保存仍使用 B 的规则 ID、范围和目标', async () => {
+    respond(capability({ onDatasource: ['metadata:view', 'governance:rule:view', 'governance:rule:manage'] }))
+    api.listQualityRuleTemplates.mockResolvedValue({ data: [{
+      code: 'DATA_NULL_RATE_HIGH', name: '列空值率过高', dimension: 'COMPLETENESS',
+      targetType: 'COLUMN', checkType: 'DATA', description: '样本检查',
+      allowedScopes: ['GLOBAL', 'DATASOURCE', 'TABLE', 'COLUMN'],
+      parameters: [{ key: 'threshold', label: '空值率阈值', type: 'NUMBER', minimum: 0, maximum: 1, defaultValue: 0.3 }],
+    }] })
+    const ruleA = {
+      id: 101, ruleCode: 'QR-A', templateCode: 'DATA_NULL_RATE_HIGH', ruleName: '规则 A',
+      dimension: 'COMPLETENESS', severity: 'MEDIUM', description: '', checkTarget: 'COLUMN', checkType: 'DATA',
+      scopeType: 'COLUMN', datasourceId: DATASOURCE_ID, targetTableName: 'orders', targetColumnName: 'amount',
+      parameters: { threshold: 0.4 }, configVersion: 1, enabled: 0, deductionPoints: 3, builtin: 0, supported: true,
+    }
+    const ruleB = {
+      ...ruleA, id: 102, ruleCode: 'QR-B', ruleName: '规则 B',
+      targetTableName: 'customers', targetColumnName: 'customer_id',
+    }
+    api.listQualityRules.mockResolvedValue({ data: [ruleA, ruleB] })
+    api.listSnapshotTables.mockResolvedValue({ data: [{ tableName: 'orders' }, { tableName: 'customers' }] })
+    const slowAColumns = deferred<{ data: Array<{ columnName: string }> }>()
+    api.listSnapshotTableColumns.mockImplementation((_snapshotId: number, tableName: string) => {
+      if (tableName === 'orders') return slowAColumns.promise
+      return Promise.resolve({ data: [{ columnName: 'customer_id' }] })
+    })
+    api.editQualityRule.mockResolvedValue({ data: ruleB })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+
+    const editA = await waitForRowButton(wrapper, '规则 A', '编辑')
+    void editA!.trigger('click')
+    await vi.waitFor(() => expect(api.listSnapshotTableColumns).toHaveBeenCalledWith(8, 'orders'))
+    const editB = await waitForRowButton(wrapper, '规则 B', '编辑')
+    void editB!.trigger('click')
+    await vi.waitFor(() => expect(api.listSnapshotTableColumns).toHaveBeenCalledWith(8, 'customers'))
+    await settle()
+
+    expect(document.body.querySelector<HTMLInputElement>('.el-dialog input[maxlength="200"]')?.value).toBe('规则 B')
+    slowAColumns.resolve({ data: [{ columnName: 'amount' }] })
+    await settle()
+    expect(document.body.querySelector<HTMLInputElement>('.el-dialog input[maxlength="200"]')?.value).toBe('规则 B')
+
+    document.body.querySelector<HTMLButtonElement>('.el-dialog__footer .el-button--primary')!.click()
+    await settle()
+
+    expect(api.editQualityRule).toHaveBeenCalledWith(102, expect.objectContaining({
+      scopeType: 'COLUMN', datasourceId: DATASOURCE_ID,
+      targetTableName: 'customers', targetColumnName: 'customer_id',
+    }))
+  })
+
+  it('切换到 B 后关闭编辑器，A 的旧字段请求返回不能重新打开弹窗或保存', async () => {
+    respond(capability({ onDatasource: ['metadata:view', 'governance:rule:view', 'governance:rule:manage'] }))
+    api.listQualityRuleTemplates.mockResolvedValue({ data: [{
+      code: 'DATA_NULL_RATE_HIGH', name: '列空值率过高', dimension: 'COMPLETENESS',
+      targetType: 'COLUMN', checkType: 'DATA', description: '样本检查',
+      allowedScopes: ['GLOBAL', 'DATASOURCE', 'TABLE', 'COLUMN'],
+      parameters: [{ key: 'threshold', label: '空值率阈值', type: 'NUMBER', minimum: 0, maximum: 1, defaultValue: 0.3 }],
+    }] })
+    const ruleA = {
+      id: 103, ruleCode: 'QR-C', templateCode: 'DATA_NULL_RATE_HIGH', ruleName: '规则 C',
+      dimension: 'COMPLETENESS', severity: 'MEDIUM', description: '', checkTarget: 'COLUMN', checkType: 'DATA',
+      scopeType: 'COLUMN', datasourceId: DATASOURCE_ID, targetTableName: 'orders', targetColumnName: 'amount',
+      parameters: { threshold: 0.4 }, configVersion: 1, enabled: 0, deductionPoints: 3, builtin: 0, supported: true,
+    }
+    const ruleB = { ...ruleA, id: 104, ruleCode: 'QR-D', ruleName: '规则 D', targetTableName: 'customers', targetColumnName: 'customer_id' }
+    api.listQualityRules.mockResolvedValue({ data: [ruleA, ruleB] })
+    api.listSnapshotTables.mockResolvedValue({ data: [{ tableName: 'orders' }, { tableName: 'customers' }] })
+    const delayedColumns = deferred<{ data: Array<{ columnName: string }> }>()
+    api.listSnapshotTableColumns.mockImplementation((_snapshotId: number, tableName: string) => tableName === 'orders'
+      ? delayedColumns.promise
+      : Promise.resolve({ data: [{ columnName: 'customer_id' }] }))
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+
+    const editA = await waitForRowButton(wrapper, '规则 C', '编辑')
+    void editA!.trigger('click')
+    await vi.waitFor(() => expect(api.listSnapshotTableColumns).toHaveBeenCalledWith(8, 'orders'))
+    const editB = await waitForRowButton(wrapper, '规则 D', '编辑')
+    void editB!.trigger('click')
+    await vi.waitFor(() => expect(api.listSnapshotTableColumns).toHaveBeenCalledWith(8, 'customers'))
+    await settle()
+
+    expect(document.body.querySelector('.el-dialog')).toBeTruthy()
+    const openEditor = wrapper.findAllComponents(ElDialog).find((dialog) => dialog.props('modelValue') === true)
+    expect(openEditor).toBeTruthy()
+    await openEditor!.vm.$emit('update:modelValue', false)
+    await settle()
+    expect(openEditor!.props('modelValue')).toBe(false)
+    delayedColumns.resolve({ data: [{ columnName: 'amount' }] })
+    await settle()
+
+    expect(openEditor!.props('modelValue')).toBe(false)
+    expect(api.editQualityRule).not.toHaveBeenCalled()
   })
 
   it('没有 governance:rule:manage 时表状态下拉不可用', async () => {

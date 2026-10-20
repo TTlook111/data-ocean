@@ -24,5 +24,5 @@ public interface QualityCheckBatchService {
 
     QualityCheckBatchVO get(Long batchId);
 
-    List<QualityCheckBatchRuleVO> history(Long ruleId);
+    List<QualityCheckBatchRuleVO> history(Long ruleId, Long operatorUserId);
 }

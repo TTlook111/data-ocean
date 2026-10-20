@@ -129,6 +129,7 @@ public class DataQualityChecker implements QualityChecker {
                 rule.getThreshold() != null ? rule.getThreshold() : new BigDecimal("0.5"));
 
         for (DbColumnMeta column : context.columns()) {
+            if (!usableColumn(context, column)) continue;
             try {
                 String escapedColumn = escapeIdentifier(column.getColumnName());
                 String escapedTable = escapeIdentifier(column.getTableName());
@@ -173,6 +174,7 @@ public class DataQualityChecker implements QualityChecker {
 
         boolean primaryKeyOnly = QualityRuleParameterReader.bool(rule, "primaryKeyOnly", true);
         for (DbColumnMeta column : context.columns()) {
+            if (!usableColumn(context, column)) continue;
             if (primaryKeyOnly && (column.getIsPrimaryKey() == null || column.getIsPrimaryKey() != 1)) {
                 continue;
             }
@@ -212,6 +214,7 @@ public class DataQualityChecker implements QualityChecker {
         List<MetadataQualityIssue> issues = new ArrayList<>();
 
         for (TableRelation relation : context.relations()) {
+            if (!usableRelation(context, relation)) continue;
             String childTable = relation.getSourceTable();
             String childColumn = relation.getSourceColumn();
             String parentTable = relation.getTargetTable();
@@ -265,7 +268,7 @@ public class DataQualityChecker implements QualityChecker {
 
         for (DbTableMeta table : context.tables()) {
             // 找到该表的时间列
-            String timeColumn = findTimeColumn(context.columns(), table.getTableName());
+            String timeColumn = QualityStaleTimeFieldSelector.select(table, context.columns());
             if (timeColumn == null) {
                 continue;
             }
@@ -302,20 +305,33 @@ public class DataQualityChecker implements QualityChecker {
         return issues;
     }
 
-    /**
-     * 查找表的时间列（update_time / updated_at / modify_time 等）
-     */
-    private String findTimeColumn(List<DbColumnMeta> columns, String tableName) {
-        List<String> timePatterns = List.of("update_time", "updated_at", "modify_time", "modified_at", "gmt_modified");
-        for (DbColumnMeta col : columns) {
-            if (tableName.equals(col.getTableName())) {
-                String colName = col.getColumnName().toLowerCase();
-                if (timePatterns.contains(colName)) {
-                    return col.getColumnName();
-                }
-            }
-        }
-        return null;
+    private boolean usableColumn(CheckContext context, DbColumnMeta column) {
+        if (QualityStaleTimeFieldSelector.restricted(column.getGovernanceStatus())) return false;
+        DbTableMeta table = findTable(context.tables(), column.getTableName());
+        return table != null && !QualityStaleTimeFieldSelector.restricted(table.getGovernanceStatus());
+    }
+
+    private boolean usableRelation(CheckContext context, TableRelation relation) {
+        if (relation.getSourceTable() == null || relation.getSourceColumn() == null
+                || relation.getTargetTable() == null || relation.getTargetColumn() == null) return false;
+        DbTableMeta sourceTable = findTable(context.tables(), relation.getSourceTable());
+        DbTableMeta targetTable = findTable(context.tables(), relation.getTargetTable());
+        DbColumnMeta sourceColumn = findColumn(context.columns(), relation.getSourceTable(), relation.getSourceColumn());
+        DbColumnMeta targetColumn = findColumn(context.columns(), relation.getTargetTable(), relation.getTargetColumn());
+        return sourceTable != null && targetTable != null && sourceColumn != null && targetColumn != null
+                && !QualityStaleTimeFieldSelector.restricted(sourceTable.getGovernanceStatus())
+                && !QualityStaleTimeFieldSelector.restricted(targetTable.getGovernanceStatus())
+                && !QualityStaleTimeFieldSelector.restricted(sourceColumn.getGovernanceStatus())
+                && !QualityStaleTimeFieldSelector.restricted(targetColumn.getGovernanceStatus());
+    }
+
+    private DbTableMeta findTable(List<DbTableMeta> tables, String tableName) {
+        return tables.stream().filter(table -> tableName.equals(table.getTableName())).findFirst().orElse(null);
+    }
+
+    private DbColumnMeta findColumn(List<DbColumnMeta> columns, String tableName, String columnName) {
+        return columns.stream().filter(column -> tableName.equals(column.getTableName())
+                && columnName.equals(column.getColumnName())).findFirst().orElse(null);
     }
 
     /**
