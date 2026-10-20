@@ -190,8 +190,12 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <ScopeBar v-if="(contextMode === 'datasource' || contextMode === 'datasource-snapshot') && route.name !== 'admin-collections' && route.name !== 'admin-assets' && route.name !== 'admin-releases'" :mode="contextMode" />
-      <section class="admin-shell__content" :class="{ 'admin-shell__content--compact': route.name === 'admin-workbench' || route.name === 'admin-data-sources' || route.name === 'admin-data-source-detail' || route.name === 'admin-collections' || route.name === 'admin-assets' || route.name === 'admin-asset-detail' || route.name === 'admin-releases' }">
+      <ScopeBar
+        v-if="(contextMode === 'datasource' || contextMode === 'datasource-snapshot') && route.name !== 'admin-collections' && route.name !== 'admin-assets' && route.name !== 'admin-releases'"
+        :mode="contextMode"
+        :show-control-labels="route.name === 'admin-governance'"
+      />
+      <section class="admin-shell__content" :class="{ 'admin-shell__content--compact': route.name === 'admin-workbench' || route.name === 'admin-data-sources' || route.name === 'admin-data-source-detail' || route.name === 'admin-collections' || route.name === 'admin-assets' || route.name === 'admin-asset-detail' || route.name === 'admin-releases' || route.name === 'admin-governance' }">
         <RouterView />
       </section>
     </main>

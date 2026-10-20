@@ -7,10 +7,11 @@ import AdminShell from './AdminShell.vue'
 const state = vi.hoisted(() => ({
   iam: { systemAdmin: true, queryUse: false },
   push: vi.fn(), logout: vi.fn(), close: vi.fn(),
+  route: { path: '/admin/workbench', name: 'admin-workbench', meta: { title: '工作台', workspaceKey: 'workbench', domainKey: 'workbench', contextMode: 'none' } },
 }))
 
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ path: '/admin/workbench', meta: { title: '工作台', workspaceKey: 'workbench', domainKey: 'workbench', contextMode: 'none' } }),
+  useRoute: () => state.route,
   useRouter: () => ({ push: state.push }),
 }))
 vi.mock('../../stores/auth', () => ({ useAuthStore: () => ({ currentUser: { realName: '验收管理员' }, user: null, logout: state.logout }) }))
@@ -30,10 +31,15 @@ const AccountDropdown = defineComponent({
     return () => h('div', [slots.default?.(), slots.dropdown?.()])
   },
 })
+const ScopeBarStub = defineComponent({
+  name: 'ScopeBar',
+  props: ['mode', 'showControlLabels'],
+  template: '<div data-testid="scope-bar"></div>',
+})
 const wrappers: VueWrapper[] = []
 function createShell() {
   const wrapper = mount(AdminShell, { global: { stubs: {
-    AdminDomainNav: true, ScopeBar: true, RouterLink: { template: '<a><slot /></a>' }, RouterView: true,
+    AdminDomainNav: true, ScopeBar: ScopeBarStub, RouterLink: { template: '<a><slot /></a>' }, RouterView: true,
     'el-dropdown': AccountDropdown, 'el-dropdown-menu': { template: '<div><slot /></div>' },
     'el-dropdown-item': { template: '<button><slot /></button>' },
     'el-popover': { template: '<div><slot name="reference" /></div>' }, 'el-badge': { template: '<span><slot /></span>' }, 'el-empty': true,
@@ -43,7 +49,13 @@ function createShell() {
 }
 
 describe('admin account menu capability', () => {
-  beforeEach(() => { vi.clearAllMocks(); state.logout.mockReset().mockResolvedValue(undefined); state.iam.systemAdmin = true; state.iam.queryUse = false })
+  beforeEach(() => {
+    vi.clearAllMocks()
+    state.logout.mockReset().mockResolvedValue(undefined)
+    state.iam.systemAdmin = true
+    state.iam.queryUse = false
+    state.route = { path: '/admin/workbench', name: 'admin-workbench', meta: { title: '工作台', workspaceKey: 'workbench', domainKey: 'workbench', contextMode: 'none' } }
+  })
   afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()) })
 
   it('shows identity without inferring query capability from an administrator label', async () => {
@@ -87,5 +99,17 @@ describe('admin account menu capability', () => {
     finishLogout()
     await flushPromises()
     expect(state.push).toHaveBeenLastCalledWith('/login')
+  })
+
+  it('uses labeled scope controls and compact content spacing only for the governance overview', () => {
+    state.route = { path: '/admin/governance', name: 'admin-governance', meta: { title: '治理总览', workspaceKey: 'governance', domainKey: 'governance', contextMode: 'datasource-snapshot' } }
+    const overview = createShell()
+    expect(overview.findComponent(ScopeBarStub).props('showControlLabels')).toBe(true)
+    expect(overview.find('.admin-shell__content').classes()).toContain('admin-shell__content--compact')
+
+    state.route = { path: '/admin/knowledge', name: 'admin-knowledge', meta: { title: '知识库', workspaceKey: 'knowledge', domainKey: 'knowledge', contextMode: 'datasource' } }
+    const otherPage = createShell()
+    expect(otherPage.findComponent(ScopeBarStub).props('showControlLabels')).toBe(false)
+    expect(otherPage.find('.admin-shell__content').classes()).not.toContain('admin-shell__content--compact')
   })
 })

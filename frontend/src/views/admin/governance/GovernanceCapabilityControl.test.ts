@@ -16,7 +16,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
 
 /** 可变的“当前路由”，让用例能把页面直接挂载在指定 Tab 上。 */
-const routeState = vi.hoisted(() => ({ query: {} as Record<string, unknown> }))
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, unknown>, push: vi.fn() }))
 
 const api = vi.hoisted(() => ({
   getIamS1Capabilities: vi.fn(),
@@ -36,6 +36,7 @@ const api = vi.hoisted(() => ({
   deleteQualityRule: vi.fn(),
   restoreQualityRule: vi.fn(),
   getLatestQualityCheckBatch: vi.fn(),
+  triggerQualityCheck: vi.fn(),
   getQualityRuleSummary: vi.fn(),
   getSnapshotQualityIssueSummary: vi.fn(),
   updateRuleEnabled: vi.fn(),
@@ -72,6 +73,7 @@ vi.mock('../../../api/admin/governance', () => ({
   deleteQualityRule: api.deleteQualityRule,
   restoreQualityRule: api.restoreQualityRule,
   getLatestQualityCheckBatch: api.getLatestQualityCheckBatch,
+  triggerQualityCheck: api.triggerQualityCheck,
   getQualityRuleSummary: api.getQualityRuleSummary,
   getSnapshotQualityIssueSummary: api.getSnapshotQualityIssueSummary,
   updateRuleEnabled: api.updateRuleEnabled,
@@ -97,7 +99,7 @@ vi.mock('vue-router', async (importOriginal) => {
   return {
     ...actual,
     useRoute: () => routeState,
-    useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+    useRouter: () => ({ replace: vi.fn(), push: routeState.push }),
   }
 })
 
@@ -228,6 +230,7 @@ const issue = {
 beforeEach(() => {
   setActivePinia(createPinia())
   routeState.query = {}
+  routeState.push.mockReset()
   localStorage.clear()
   Object.values(api).forEach((fn) => fn.mockReset())
   api.listSimpleDatasources.mockResolvedValue({ data: [{ id: DATASOURCE_ID, name: '销售库' }] })
@@ -622,6 +625,160 @@ describe('质量规则管理的能力控制', () => {
 })
 
 describe('治理总览的批次恢复与范围隔离', () => {
+  const overviewPermissions = ['governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view']
+
+  it.each([100, 0])('没有批次时将历史评分 %i 分与快照状态放在次要上下文中', async (qualityScore) => {
+    respond(capability({ onDatasource: overviewPermissions }))
+    api.listSnapshots.mockResolvedValue({ data: { records: [{ id: 8, snapshotVersion: 1, qualityScore, status: 'PUBLISHED' }], total: 1 } })
+    api.getQualityRuleSummary.mockResolvedValue({ data: {
+      enabledCount: 15, applicableCount: 14, unsupportedCount: 0, overriddenCount: 1, executedCount: 0,
+    } })
+    const wrapper = mountPage(QualityDashboard)
+    await settle()
+
+    const text = wrapper.text().replace(/\s/g, '')
+    expect(text).toContain('尚无可核验的校验批次')
+    expect(text).toContain('已有历史评分记录，尚无法确认对应的规则覆盖。')
+    const scopeContext = wrapper.find('.quality-page__scope-context').text().replace(/\s/g, '')
+    expect(scopeContext).toContain('快照v1')
+    expect(scopeContext).toContain('已发布')
+    expect(scopeContext).toContain(`历史评分${qualityScore}分`)
+    expect(wrapper.find('[aria-label="评分与批次信息"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="最近批次执行情况"]').exists()).toBe(false)
+    expect(text).not.toContain('校验明细')
+    expect(text).not.toContain('总数来自服务端统计')
+    expect(text).not.toContain('0项实际执行')
+    expect(text).toContain('当前无待处理问题记录')
+  })
+
+  it('没有选择快照时给出范围提示并且不请求快照统计', async () => {
+    respond(capability({ onDatasource: overviewPermissions }))
+    api.listSnapshots.mockResolvedValue({ data: { records: [], total: 0 } })
+    const wrapper = mountPage(QualityDashboard)
+    await settle()
+
+    expect(wrapper.text()).toContain('等待选择校验范围')
+    expect(wrapper.text()).toContain('选择数据源和快照后查看问题。')
+    expect(api.getLatestQualityCheckBatch).not.toHaveBeenCalled()
+    expect(api.getSnapshotQualityIssueSummary).not.toHaveBeenCalled()
+    expect(api.getQualityRuleSummary).not.toHaveBeenCalled()
+  })
+
+  it('批次仍在读取时显示加载状态，不提前宣称没有批次', async () => {
+    respond(capability({ onDatasource: overviewPermissions }))
+    const pendingBatch = deferred<{ data: null }>()
+    api.getLatestQualityCheckBatch.mockReturnValue(pendingBatch.promise)
+    const wrapper = mountPage(QualityDashboard)
+    await vi.waitFor(() => expect(api.getLatestQualityCheckBatch).toHaveBeenCalledWith(8))
+
+    expect(wrapper.text()).toContain('正在读取校验状态')
+    expect(wrapper.text()).not.toContain('尚无可核验的校验批次')
+    pendingBatch.resolve({ data: null })
+    await settle()
+    expect(wrapper.text()).toContain('尚无可核验的校验批次')
+    expect(wrapper.text()).not.toContain('历史评分')
+    expect(wrapper.find('[aria-label="评分与批次信息"]').exists()).toBe(false)
+  })
+
+  it('没有治理总览查看权限时显示无权状态而不是无批次', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view', 'governance:rule:view'] }))
+    const wrapper = mountPage(QualityDashboard)
+    await settle()
+
+    expect(wrapper.text()).toContain('无权查看校验状态')
+    expect(wrapper.text()).not.toContain('尚无可核验的校验批次')
+    expect(api.getLatestQualityCheckBatch).not.toHaveBeenCalled()
+  })
+
+  it('批次读取失败与无批次分开显示，且不丢历史评分', async () => {
+    respond(capability({ onDatasource: overviewPermissions }))
+    api.listSnapshots.mockResolvedValue({ data: { records: [{ id: 8, snapshotVersion: 1, qualityScore: 100 }], total: 1 } })
+    api.getLatestQualityCheckBatch.mockRejectedValue(new Error('network unavailable'))
+    const wrapper = mountPage(QualityDashboard)
+    await settle()
+
+    expect(wrapper.text()).toContain('校验状态读取失败')
+    expect(wrapper.text()).toContain('最近一次校验结果读取失败。')
+    expect(wrapper.text()).toContain('历史评分')
+    expect(wrapper.text()).toContain('100分')
+    expect(wrapper.text()).not.toContain('尚无可核验的校验批次')
+    expect(wrapper.text()).toContain('读取失败，无法核对实际执行数。')
+  })
+
+  it('批次中真实执行数为零时保留零，并直接展示部分失败与覆盖原因', async () => {
+    respond(capability({ onDatasource: overviewPermissions }))
+    api.getLatestQualityCheckBatch.mockResolvedValue({ data: {
+      id: 24, datasourceId: DATASOURCE_ID, snapshotId: 8, requestedScope: 'FULL',
+      requestedDimensions: [], requestedTableNames: [], status: 'PARTIAL', complete: false,
+      ruleCount: 1, executedRuleCount: 0, failedRuleCount: 1, notApplicableRuleCount: 0,
+      errorSummary: '时效字段被阻断，未执行该规则。', rules: [{
+        batchId: 24, ruleId: 77, ruleName: '订单时效检查', dimension: 'TIMELINESS', severity: 'HIGH',
+        deductionPoints: 5, scopeType: 'TABLE', targetTableName: 'orders', parameters: {},
+        status: 'FAILURE', reason: 'updated_at 字段处于 BLOCKED 状态。', targetCount: 1,
+        checkedTargetCount: 0, issueCount: 0, ruleVersion: 2,
+      }],
+      dimensionScores: {}, startedAt: '2026-10-20T10:00:00',
+    } })
+    const wrapper = mountPage(QualityDashboard)
+    await settle()
+
+    expect(wrapper.text()).toContain('校验部分完成')
+    expect(wrapper.text().replace(/\s/g, '')).toContain('0项实际执行')
+    expect(wrapper.text()).toContain('时效字段被阻断，未执行该规则。')
+    const details = wrapper.find('details')
+    expect(details.exists()).toBe(true)
+    ;(details.element as HTMLDetailsElement).open = true
+    await nextTick()
+    expect(wrapper.text()).toContain('updated_at 字段处于 BLOCKED 状态。')
+    expect(wrapper.text()).not.toContain('校验已完整完成')
+  })
+
+  it.each([
+    { status: 'RUNNING', complete: false, legacyLimited: false, label: '正在执行质量校验' },
+    { status: 'SUCCESS', complete: true, legacyLimited: false, label: '校验已完整完成' },
+    { status: 'FAILED', complete: false, legacyLimited: false, label: '校验未完成' },
+    { status: 'LEGACY', complete: false, legacyLimited: true, label: '历史结果覆盖有限' },
+  ])('$status 状态以独立的批次证据表达', async ({ status, complete, legacyLimited, label }) => {
+    respond(capability({ onDatasource: overviewPermissions }))
+    api.getLatestQualityCheckBatch.mockResolvedValue({ data: {
+      id: 25, datasourceId: DATASOURCE_ID, snapshotId: 8, requestedScope: 'FULL',
+      requestedDimensions: [], requestedTableNames: [], status, complete, legacyLimited,
+      ruleCount: legacyLimited ? null : 1, executedRuleCount: legacyLimited ? null : 1,
+      failedRuleCount: legacyLimited ? null : 0, notApplicableRuleCount: legacyLimited ? null : 0,
+      rules: [], dimensionScores: {}, startedAt: '2026-10-20T10:00:00',
+    } })
+    const wrapper = mountPage(QualityDashboard)
+    await settle()
+
+    expect(wrapper.text()).toContain(label)
+    if (legacyLimited) expect(wrapper.text()).toContain('实际执行数不可核验')
+  })
+
+  it('保留校验动作和问题中心的当前范围跳转', async () => {
+    respond(capability({ onDatasource: overviewPermissions }))
+    api.triggerQualityCheck.mockResolvedValue({ data: {
+      snapshotId: 8, status: 'SUCCESS', complete: true, requestedScope: 'FULL', qualityScore: 91,
+      snapshotStatus: 'APPROVED', dimensionScores: {}, totalIssues: 0, issueCount: {},
+      executedRuleCount: 1, failedRuleCount: 0, notApplicableRuleCount: 0,
+    } })
+    const wrapper = mountPage(QualityDashboard)
+    await settle()
+
+    const runButton = wrapper.findAll('button').find((button) => button.text().includes('执行质量校验'))
+    expect(runButton).toBeTruthy()
+    await runButton!.trigger('click')
+    await settle()
+    expect(api.triggerQualityCheck).toHaveBeenCalledWith(8)
+
+    const issueCenterButton = wrapper.findAll('button').find((button) => button.text().includes('问题中心'))
+    expect(issueCenterButton).toBeTruthy()
+    await issueCenterButton!.trigger('click')
+    expect(routeState.push).toHaveBeenCalledWith(expect.objectContaining({
+      path: '/admin/governance/issues',
+      query: expect.objectContaining({ datasourceId: '5', snapshotId: '8' }),
+    }))
+  })
+
   it('问题统计读取失败时不显示零问题', async () => {
     respond(capability({ onDatasource: [
       'governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view',
@@ -654,7 +811,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
     adminContext.selectSnapshot(9)
     await settle()
     expect(api.getLatestQualityCheckBatch).toHaveBeenCalledWith(9)
-    expect(wrapper.text()).toContain('部分失败')
+    expect(wrapper.text()).toContain('校验部分完成')
 
     resolveOld({ data: {
       id: 11, datasourceId: DATASOURCE_ID, snapshotId: 8, requestedScope: 'FULL',
@@ -663,8 +820,8 @@ describe('治理总览的批次恢复与范围隔离', () => {
       rules: [], dimensionScores: {}, startedAt: '2026-10-18T10:00:00',
     } })
     await settle()
-    expect(wrapper.text()).toContain('部分失败')
-    expect(wrapper.text()).not.toContain('执行失败')
+    expect(wrapper.text()).toContain('校验部分完成')
+    expect(wrapper.text()).not.toContain('校验未完成')
   })
 })
 

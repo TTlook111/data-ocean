@@ -8,9 +8,15 @@ import { getHttpErrorMessage } from '../../utils/httpError'
 import { snapshotStatusLabel } from '../../utils/enumLabels'
 import TitleHelp from './TitleHelp.vue'
 
-const props = withDefaults(defineProps<{ mode: AdminContextMode; refreshLabel?: string; compact?: boolean }>(), {
+const props = withDefaults(defineProps<{
+  mode: AdminContextMode
+  refreshLabel?: string
+  compact?: boolean
+  showControlLabels?: boolean
+}>(), {
   refreshLabel: '',
   compact: false,
+  showControlLabels: false,
 })
 const route = useRoute()
 const router = useRouter()
@@ -96,7 +102,7 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
 </script>
 
 <template>
-  <section class="scope-bar" :class="{ 'scope-bar--compact': compact }" aria-label="后台业务范围">
+  <section class="scope-bar" :class="{ 'scope-bar--compact': compact, 'scope-bar--labeled-inline': showControlLabels && !compact }" aria-label="后台业务范围">
     <div class="scope-bar__intro">
       <LockKeyhole v-if="mode === 'locked-resource'" :size="16" />
       <Database v-else :size="16" />
@@ -111,7 +117,7 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
 
     <div class="scope-bar__controls">
       <div class="scope-bar__datasource-control">
-        <span v-if="compact" class="scope-bar__control-label">数据源</span>
+        <span v-if="compact || showControlLabels" class="scope-bar__control-label">数据源</span>
         <el-select
           :model-value="context.datasourceId"
           :loading="context.loading"
@@ -132,13 +138,15 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
         </el-select>
       </div>
       <div v-if="showSnapshot" class="scope-bar__snapshot-control">
-        <span v-if="compact" class="scope-bar__control-label">快照</span>
+        <span v-if="compact || showControlLabels" class="scope-bar__control-label">快照</span>
         <el-select
           :model-value="context.snapshotId"
           :loading="context.loading"
           clearable
           :disabled="!context.datasourceId"
           placeholder="选择快照"
+          :aria-label="context.currentSnapshot ? `快照：v${context.currentSnapshot.snapshotVersion} · ${snapshotStatusLabel(context.currentSnapshot.status)}` : '选择快照'"
+          :title="context.currentSnapshot ? `v${context.currentSnapshot.snapshotVersion} · ${snapshotStatusLabel(context.currentSnapshot.status)}` : undefined"
           @update:model-value="handleSnapshotChange"
         >
           <el-option
@@ -150,7 +158,7 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
         </el-select>
       </div>
       <el-tooltip
-        v-if="compact"
+        v-if="compact || showControlLabels"
         class="scope-bar__refresh-tooltip"
         :content="refreshLabel || '刷新范围'"
         :trigger="['hover', 'focus']"
@@ -283,6 +291,59 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
 @media (max-width: 760px) {
   .scope-bar--compact .scope-bar__datasource-control { flex: 1 1 100%; max-width: none; }
   .scope-bar--compact .scope-bar__datasource-control :deep(.el-select) { width: auto; min-width: 0; }
+}
+
+/* Governance overview: keep the shared range controls in one local, labeled row. */
+.scope-bar--labeled-inline {
+  grid-template-columns: minmax(190px, .75fr) minmax(560px, 1.8fr);
+  gap: 12px 20px;
+  margin-top: 0;
+  padding: 10px 14px;
+}
+.scope-bar--labeled-inline .scope-bar__controls {
+  display: grid;
+  grid-template-columns: minmax(340px, 420px) minmax(160px, 200px) auto;
+  gap: 10px 12px;
+  min-width: 0;
+}
+.scope-bar--labeled-inline .scope-bar__datasource-control,
+.scope-bar--labeled-inline .scope-bar__snapshot-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.scope-bar--labeled-inline .scope-bar__datasource-control :deep(.el-select),
+.scope-bar--labeled-inline .scope-bar__snapshot-control :deep(.el-select) {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.scope-bar--labeled-inline .scope-bar__datasource-control :deep(.el-select) { max-width: 420px; }
+.scope-bar--labeled-inline .scope-bar__snapshot-control :deep(.el-select) { max-width: 200px; }
+.scope-bar--labeled-inline :deep(.el-select__selected-item) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope-bar--labeled-inline .scope-bar__refresh-tooltip { display: inline-flex; flex: 0 0 36px; align-self: center; }
+.scope-bar--labeled-inline .scope-bar__refresh-icon {
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  justify-content: center;
+}
+@media (max-width: 1150px) {
+  .scope-bar--labeled-inline { grid-template-columns: minmax(0, 1fr); }
+  .scope-bar--labeled-inline .scope-bar__controls {
+    grid-template-columns: minmax(0, 1fr) minmax(160px, 200px) auto;
+  }
+}
+@media (max-width: 760px) {
+  .scope-bar--labeled-inline { margin: 0 0 14px; padding: 12px; }
+  .scope-bar--labeled-inline .scope-bar__controls { grid-template-columns: minmax(0, 1fr) 36px; gap: 10px; }
+  .scope-bar--labeled-inline .scope-bar__datasource-control { grid-column: 1 / -1; }
+  .scope-bar--labeled-inline .scope-bar__datasource-control :deep(.el-select) { max-width: none; }
+  .scope-bar--labeled-inline .scope-bar__snapshot-control { grid-column: 1; max-width: 240px; }
+  .scope-bar--labeled-inline .scope-bar__refresh-tooltip { grid-column: 2; align-self: end; }
 }
 
 </style>
