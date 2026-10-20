@@ -160,7 +160,7 @@ public class JwtTokenProvider {
             throw new IllegalStateException(
                     "jwt.secret 未配置。签名密钥不存在可用的默认值——依赖公开默认值意味着"
                             + "任何人都能伪造任意用户的登录态。请通过环境变量 JWT_SECRET 提供，"
-                            + "或在被 Git 忽略的 config/application-local.yml 中设置 jwt.secret；"
+                            + "或在被 Git 忽略的 src/main/resources/application-local.yml 中设置 jwt.secret；"
                             + "生成方式：openssl rand -base64 32");
         }
         // 拒绝任何空白：配置里混入行尾空白或换行会让密钥与预期不符，且难以排查

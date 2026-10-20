@@ -53,7 +53,7 @@ public class InternalTokenValidator {
             throw new IllegalStateException(
                     PROPERTY_NAME + " 未配置。该令牌是 /internal/** 的唯一防线，不存在默认值。"
                             + "请通过环境变量 INTERNAL_TOKEN 提供，或在被 Git 忽略的 "
-                            + "config/application-local.yml 中设置 dataocean.internal.token；"
+                            + "src/main/resources/application-local.yml 中设置 dataocean.internal.token；"
                             + "两侧必须是同一个值");
         }
         // 拒绝任何空白：配置里混入行尾空白或换行会让校验通过、比较却永远失败，

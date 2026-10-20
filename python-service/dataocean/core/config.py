@@ -143,7 +143,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 '必须配置 INTERNAL_TOKEN：它是 /internal/* 的唯一防线，不存在默认值。'
                 '请写入 python-service/.env，并把同一个值写入 '
-                'backend/DataOcean/config/application-local.yml 的 dataocean.internal.token'
+                'backend/DataOcean/src/main/resources/application-local.yml 的 dataocean.internal.token'
                 '（两侧必须是同一个值，单边修改会导致静默降级）'
             )
         # 拒绝任何空白：.env / YAML 里的行尾空格或误写多行都会让两侧取值悄悄发散，
