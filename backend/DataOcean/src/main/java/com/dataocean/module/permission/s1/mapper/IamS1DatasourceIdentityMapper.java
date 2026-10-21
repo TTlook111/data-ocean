@@ -1,6 +1,6 @@
 package com.dataocean.module.permission.s1.mapper;
 
-import com.dataocean.module.permission.s1.entity.IamS1DatasourceFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1DatasourceFact;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;

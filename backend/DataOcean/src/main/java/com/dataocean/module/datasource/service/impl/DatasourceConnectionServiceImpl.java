@@ -1,8 +1,8 @@
 package com.dataocean.module.datasource.service.impl;
 
 import com.dataocean.common.util.JdbcUrlBuilder;
-import com.dataocean.module.datasource.entity.Datasource;
-import com.dataocean.module.datasource.entity.DatasourceHealthCheck;
+import com.dataocean.module.datasource.entity.po.Datasource;
+import com.dataocean.module.datasource.entity.po.DatasourceHealthCheck;
 import com.dataocean.module.datasource.entity.vo.DatasourceConnectionTestVO;
 import com.dataocean.module.datasource.mapper.DatasourceHealthCheckMapper;
 import com.dataocean.module.datasource.service.DatasourceConnectionService;

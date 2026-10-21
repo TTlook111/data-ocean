@@ -1,8 +1,8 @@
 package com.dataocean.module.permission.s1.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.permission.s1.entity.IamS1Role;
-import com.dataocean.module.permission.s1.entity.IamS1UserRole;
+import com.dataocean.module.permission.s1.entity.po.IamS1Role;
+import com.dataocean.module.permission.s1.entity.po.IamS1UserRole;
 import com.dataocean.module.permission.s1.mapper.IamS1RoleDatasourceMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1RoleMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1UserIdentityMapper;

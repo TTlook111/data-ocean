@@ -1,7 +1,7 @@
 package com.dataocean.module.glossary.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.glossary.entity.GlossaryTerm;
+import com.dataocean.module.glossary.entity.po.GlossaryTerm;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -13,6 +13,9 @@ import org.apache.ibatis.annotations.Select;
  */
 @Mapper
 public interface GlossaryTermMapper extends BaseMapper<GlossaryTerm> {
+
+    @Select("SELECT * FROM glossary_term WHERE id = #{id} FOR UPDATE")
+    GlossaryTerm selectForUpdate(@Param("id") Long id);
 
     /**
      * 按 FQN 精确查询术语

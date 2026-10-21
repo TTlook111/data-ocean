@@ -2,9 +2,9 @@ package com.dataocean.module.query.service.impl;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
-import com.dataocean.module.query.entity.QueryAttempt;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.query.entity.po.QueryAttempt;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.entity.dto.IamS1ExecutionBinding;
 import com.dataocean.module.query.entity.dto.IamS1AttemptAuthorizeRequestDTO;
 import com.dataocean.module.query.entity.dto.IamS1AttemptColumnEvidenceDTO;

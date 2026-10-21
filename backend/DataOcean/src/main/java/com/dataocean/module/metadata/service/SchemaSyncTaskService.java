@@ -1,6 +1,6 @@
 package com.dataocean.module.metadata.service;
 
-import com.dataocean.module.metadata.entity.SchemaSyncTask;
+import com.dataocean.module.metadata.entity.po.SchemaSyncTask;
 
 /**
  * Schema 同步任务服务接口。

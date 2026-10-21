@@ -3,6 +3,7 @@ package com.dataocean.module.governance.service;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.module.governance.entity.vo.IssueBatchHandleResultVO;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
+import com.dataocean.module.governance.entity.vo.QualityIssueSummaryVO;
 
 /**
  * 元数据质量问题服务。
@@ -40,6 +41,8 @@ public interface QualityIssueService {
     Page<QualityIssueVO> listIssuesInDatasources(java.util.Collection<Long> datasourceIds, Long snapshotId,
                                                  String dimension, String severity, String status,
                                                  String tableName, Long assigneeId, int page, int size);
+
+    QualityIssueSummaryVO snapshotIssueSummary(java.util.Collection<Long> datasourceIds, Long snapshotId, int recentLimit);
 
     /**
      * 处理单个质量问题状态。

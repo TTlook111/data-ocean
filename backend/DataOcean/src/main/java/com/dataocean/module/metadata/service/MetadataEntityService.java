@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
 
 import java.util.Collection;
 
@@ -66,6 +66,13 @@ public interface MetadataEntityService extends IService<MetadataEntity> {
      * `datasourceIds` 为空返回空集合。
      */
     java.util.Set<Long> getEntityIdsByDatasourceIds(java.util.Collection<Long> datasourceIds);
+
+    /**
+     * 属于这些数据源的实体“类型 + ID”身份集合。
+     *
+     * <p>关系端点可见性按类型和 ID 一起判定；只用 ID 集合会混淆不同对象类型。</p>
+     */
+    java.util.Set<String> getEntityKeysByDatasourceIds(java.util.Collection<Long> datasourceIds);
 
     /**
      * 按负责源范围读取指定类型的全部实体；`datasourceIds` 为空返回空列表。

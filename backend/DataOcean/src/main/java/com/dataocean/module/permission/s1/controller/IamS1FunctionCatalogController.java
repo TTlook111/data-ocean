@@ -5,7 +5,7 @@ import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.permission.s1.IamS1Constants;
 import com.dataocean.module.permission.s1.catalog.IamS1FunctionCatalog;
-import com.dataocean.module.permission.s1.entity.IamS1Function;
+import com.dataocean.module.permission.s1.entity.po.IamS1Function;
 import com.dataocean.module.permission.s1.entity.vo.IamS1FunctionCatalogVO;
 import com.dataocean.module.permission.s1.mapper.IamS1FunctionMapper;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;

@@ -2,8 +2,8 @@ package com.dataocean.module.fieldtag.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.fieldtag.entity.FieldConfidence;
-import com.dataocean.module.fieldtag.entity.FieldConfidenceEvent;
+import com.dataocean.module.fieldtag.entity.po.FieldConfidence;
+import com.dataocean.module.fieldtag.entity.po.FieldConfidenceEvent;
 import com.dataocean.module.fieldtag.entity.vo.ConfidenceVO;
 import com.dataocean.module.fieldtag.mapper.FieldConfidenceEventMapper;
 import com.dataocean.module.fieldtag.mapper.FieldConfidenceMapper;

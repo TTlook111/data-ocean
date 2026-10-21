@@ -2,11 +2,11 @@ package com.dataocean.module.query.service.impl;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
-import com.dataocean.module.query.entity.QueryModelCall;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.po.QueryModelCall;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.entity.dto.IamS1ModelCallBudgetDTO;
 import com.dataocean.module.query.mapper.QueryModelCallMapper;
 import com.dataocean.module.query.mapper.QueryTaskMapper;

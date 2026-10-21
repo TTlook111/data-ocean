@@ -1,7 +1,7 @@
 package com.dataocean.module.permission.s1.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.permission.s1.entity.IamS1PermissionRevision;
+import com.dataocean.module.permission.s1.entity.po.IamS1PermissionRevision;
 import com.dataocean.module.permission.s1.mapper.IamS1PermissionRevisionMapper;
 import com.dataocean.module.permission.s1.service.IamS1PermissionRevisionService;
 import lombok.RequiredArgsConstructor;

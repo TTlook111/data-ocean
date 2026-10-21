@@ -21,7 +21,7 @@ const dimensions = computed(() => {
     <h2 v-if="!compact">数据源准备情况</h2>
     <ul>
       <li v-for="item in dimensions" :key="item.key" :class="{ ready: item.ready }">
-        <component :is="item.ready ? CheckCircle2 : CircleAlert" :size="compact ? 16 : 24" class="readiness-panel__icon" aria-hidden="true" />
+        <component :is="item.ready ? CheckCircle2 : CircleAlert" :size="compact ? 14 : 20" class="readiness-panel__icon" aria-hidden="true" />
         <div class="readiness-panel__copy"><strong>{{ item.label }}</strong><span v-if="!compact">{{ item.ready ? item.description : '尚未满足准备条件，请查看下方待处理事项。' }}</span></div>
         <span class="readiness-panel__state">{{ item.ready ? '已就绪' : '待处理' }}</span>
         <RouterLink v-if="!compact" class="readiness-panel__action" :to="item.to">{{ item.action }}<ArrowRight :size="14" aria-hidden="true" /></RouterLink>
@@ -30,23 +30,28 @@ const dimensions = computed(() => {
   </div>
 </template>
 <style scoped>
-.readiness-panel { padding: 24px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
-h2 { margin: 0 0 8px; color: var(--do-ink); font-size: 18px; }
+.readiness-panel { padding: 18px 20px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
+h2 { margin: 0 0 10px; color: var(--do-ink); font-size: 15px; }
 ul { margin: 0; padding: 0; list-style: none; }
-li { display: grid; grid-template-columns: 24px minmax(0, 1fr) 76px 116px; align-items: center; gap: 18px; padding: 22px 0; border-bottom: 1px solid var(--do-line); }
+li { min-height: 64px; display: grid; grid-template-columns: 20px minmax(0, 1fr) 76px 128px; align-items: center; gap: 10px 14px; padding: 12px 0; border-bottom: 1px solid var(--do-line); }
 li:last-child { border-bottom: 0; }
 .readiness-panel__icon { color: var(--do-warning); }
 .ready .readiness-panel__icon { color: var(--do-success); }
-.readiness-panel__copy { display: grid; gap: 6px; min-width: 0; }
-.readiness-panel__copy strong { color: var(--do-ink); font-size: 16px; }
-.readiness-panel__copy span { color: var(--do-muted); font-size: 13px; line-height: 1.6; }
-.readiness-panel__state { justify-self: center; color: var(--do-warning); background: var(--do-warning-soft); border-radius: var(--do-radius-full); padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+.readiness-panel__copy { display: grid; gap: 3px; min-width: 0; }
+.readiness-panel__copy strong { color: var(--do-ink); font-size: 14px; }
+.readiness-panel__copy span { color: var(--do-muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.readiness-panel__state { justify-self: center; color: var(--do-warning); background: var(--do-warning-soft); border-radius: var(--do-radius-full); padding: 3px 8px; font-size: 11.5px; white-space: nowrap; }
 .ready .readiness-panel__state { color: color-mix(in srgb, var(--do-success) 75%, var(--do-ink)); background: var(--do-success-soft); }
-.readiness-panel__action { display: grid; grid-template-columns: minmax(0, 1fr) 14px; align-items: center; gap: 8px; width: 116px; color: var(--do-primary-strong); font-size: 13px; padding: 8px 0; white-space: nowrap; }
+.readiness-panel__action { justify-self: end; display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; padding: 4px 0; color: var(--do-primary-strong); font-size: 12.5px; white-space: nowrap; }
 .readiness-panel--compact { padding: 0; border: 0; background: transparent; }
-.readiness-panel--compact ul { display: flex; flex-wrap: wrap; gap: 12px; }
-.readiness-panel--compact li { display: grid; grid-template-columns: 16px auto; padding: 0; border: 0; gap: 3px 5px; }
-.readiness-panel--compact .readiness-panel__copy strong { font-size: 12px; color: var(--do-muted); font-weight: 400; }
-.readiness-panel--compact .readiness-panel__state { grid-column: 2; justify-self: start; padding: 0; color: var(--do-ink); background: transparent; font-size: 12px; }
-@media (max-width: 1150px) { li { grid-template-columns: 24px minmax(0, 1fr) 76px; gap: 10px 14px; } .readiness-panel__action { grid-column: 2 / -1; } }
+.readiness-panel--compact ul { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.readiness-panel--compact li { display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--do-warning) 26%, var(--do-line)); border-radius: var(--do-radius-full); color: color-mix(in srgb, var(--do-warning) 68%, var(--do-ink)); background: var(--do-warning-soft); }
+.readiness-panel--compact li.ready { min-height: 22px; padding: 0; border: 0; border-radius: 0; color: var(--do-ink); background: transparent; }
+.readiness-panel--compact .readiness-panel__icon { color: currentColor; }
+.readiness-panel--compact li.ready .readiness-panel__icon { color: var(--do-success); }
+.readiness-panel--compact .readiness-panel__copy { display: block; }
+.readiness-panel--compact .readiness-panel__copy strong { font-size: 11.5px; color: inherit; font-weight: 600; }
+.readiness-panel--compact .readiness-panel__state { display: none; }
+.readiness-panel--compact li:not(.ready) .readiness-panel__state { display: inline; justify-self: auto; padding: 0; color: inherit; background: transparent; font-size: 11px; font-weight: 500; opacity: .82; }
+@media (max-width: 760px) { li { grid-template-columns: 20px minmax(0, 1fr) 76px; gap: 10px 14px; } .readiness-panel__action { grid-column: 2 / -1; justify-self: end; } }
 </style>

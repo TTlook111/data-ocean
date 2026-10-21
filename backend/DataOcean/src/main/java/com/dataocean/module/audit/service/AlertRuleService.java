@@ -1,7 +1,7 @@
 package com.dataocean.module.audit.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.audit.entity.AlertRule;
+import com.dataocean.module.audit.entity.po.AlertRule;
 
 /**
  * 告警规则服务接口

@@ -7,7 +7,7 @@ import com.dataocean.module.knowledge.client.PythonRagClient;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
@@ -80,7 +80,8 @@ class KnowledgeDocPublishServiceOwnershipTest {
     void proceedsWhenTheSnapshotReallyBelongsToTheDatasource() {
         Fixture fixture = new Fixture();
         fixture.snapshot(8L, 5L);
-        when(fixture.pythonKnowledgeClient.generateDraft(anyLong(), anyLong(), any(), any(), any(), any()))
+        when(fixture.sources.inputs(5L, 8L)).thenReturn(java.util.Map.of("glossaryFacts", java.util.List.of(), "excludedTerms", java.util.List.of()));
+        when(fixture.pythonKnowledgeClient.generateSnapshotDraft(any()))
                 .thenReturn(java.util.Map.of("content", "目录", "coverage", java.util.Map.of(
                         "snapshotId", 8L, "tableIds", java.util.List.of(), "columnIds", java.util.List.of(),
                         "tableCoverage", 1.0, "columnCoverage", 1.0)));
@@ -88,8 +89,7 @@ class KnowledgeDocPublishServiceOwnershipTest {
         // 归属一致后，Python 收到 snapshot-scoped 的完整目录请求。
         fixture.service.batchGenerateFromSnapshot(5L, 8L);
 
-        verify(fixture.pythonKnowledgeClient).generateDraft(
-                anyLong(), anyLong(), any(), any(), any(), any());
+        verify(fixture.pythonKnowledgeClient).generateSnapshotDraft(any());
     }
 
     @Test
@@ -97,8 +97,8 @@ class KnowledgeDocPublishServiceOwnershipTest {
         Fixture fixture = new Fixture();
         // 快照 8 归属数据源 6，而文档属于数据源 5
         fixture.snapshot(8L, 6L);
-        com.dataocean.module.knowledge.entity.KnowledgeDoc doc =
-                com.dataocean.module.knowledge.entity.KnowledgeDoc.builder()
+        com.dataocean.module.knowledge.entity.po.KnowledgeDoc doc =
+                com.dataocean.module.knowledge.entity.po.KnowledgeDoc.builder()
                         .id(11L).datasourceId(5L).currentVersion(1).build();
         when(fixture.helper.requireDoc(11L)).thenReturn(doc);
 
@@ -121,11 +121,12 @@ class KnowledgeDocPublishServiceOwnershipTest {
         private final com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator ownershipValidator =
                 new com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator(
                         mock(KnowledgeDocVersionMapper.class), snapshotMapper);
+        private final GlossaryKnowledgeSourceServiceImpl sources = mock(GlossaryKnowledgeSourceServiceImpl.class);
         private final KnowledgeDocPublishService service;
 
         Fixture() {
             service = new KnowledgeDocPublishService(
-                    docMapper,
+                    sources, docMapper,
                     mock(KnowledgeDocVersionMapper.class),
                     pythonKnowledgeClient,
                     mock(PythonRagClient.class),

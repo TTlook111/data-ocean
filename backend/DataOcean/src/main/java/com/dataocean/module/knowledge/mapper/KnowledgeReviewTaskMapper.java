@@ -1,7 +1,7 @@
 package com.dataocean.module.knowledge.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.knowledge.entity.KnowledgeReviewTask;
+import com.dataocean.module.knowledge.entity.po.KnowledgeReviewTask;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

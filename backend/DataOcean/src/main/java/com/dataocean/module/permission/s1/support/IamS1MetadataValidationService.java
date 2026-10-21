@@ -1,9 +1,9 @@
 package com.dataocean.module.permission.s1.support;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.permission.s1.entity.IamS1ColumnFact;
-import com.dataocean.module.permission.s1.entity.IamS1MetadataSnapshotFact;
-import com.dataocean.module.permission.s1.entity.IamS1TableFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1ColumnFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1MetadataSnapshotFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1TableFact;
 import com.dataocean.module.permission.s1.mapper.IamS1MetadataResourceMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

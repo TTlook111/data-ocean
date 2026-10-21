@@ -1,8 +1,8 @@
 package com.dataocean.module.governance.checker;
 
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
-import com.dataocean.module.metadata.entity.DbTableMeta;
+import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
 public class TimelinessChecker implements QualityChecker {
 
     // 快照超过此天数视为过期
-    private static final long SNAPSHOT_EXPIRE_DAYS = 7;
+    private static final int DEFAULT_SNAPSHOT_EXPIRE_DAYS = 7;
 
     /**
      * {@inheritDoc}
@@ -62,13 +62,16 @@ public class TimelinessChecker implements QualityChecker {
 
         MetadataQualityRule snapshotExpiredRule = ruleMap.get("TIME_SNAPSHOT_EXPIRED");
         MetadataQualityRule tableNoUpdateRule = ruleMap.get("TIME_TABLE_NO_UPDATE");
+        int snapshotExpireDays = snapshotExpiredRule == null ? DEFAULT_SNAPSHOT_EXPIRE_DAYS
+                : QualityRuleParameterReader.integer(snapshotExpiredRule, "maxAgeDays",
+                snapshotExpiredRule.getThreshold() == null ? DEFAULT_SNAPSHOT_EXPIRE_DAYS : snapshotExpiredRule.getThreshold().intValue());
 
         // 快照过期检测：基于快照创建时间判断
         if (snapshotExpiredRule != null && !context.tables().isEmpty()) {
             DbTableMeta firstTable = context.tables().get(0);
             if (firstTable.getCreatedAt() != null) {
                 long daysSinceSync = ChronoUnit.DAYS.between(firstTable.getCreatedAt(), LocalDateTime.now());
-                if (daysSinceSync > SNAPSHOT_EXPIRE_DAYS) {
+                if (daysSinceSync > snapshotExpireDays) {
                     MetadataQualityIssue issue = new MetadataQualityIssue();
                     issue.setSnapshotId(context.snapshotId());
                     issue.setDatasourceId(context.datasourceId());
@@ -77,7 +80,7 @@ public class TimelinessChecker implements QualityChecker {
                     issue.setSeverity(snapshotExpiredRule.getSeverity());
                     issue.setTableName("*");
                     issue.setIssueDescription(String.format("快照距上次同步已超过 %d 天（阈值 %d 天），元数据可能已过期",
-                            daysSinceSync, SNAPSHOT_EXPIRE_DAYS));
+                            daysSinceSync, snapshotExpireDays));
                     issue.setSuggestion("建议重新执行元数据同步，获取最新的数据库结构信息");
                     issue.setStatus(MetadataQualityIssue.STATUS_OPEN);
                     resolveAndSetColumnMetaId(issue, context.columns());  // Phase 1 #6

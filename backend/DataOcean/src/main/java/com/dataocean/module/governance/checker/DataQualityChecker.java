@@ -4,16 +4,16 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.util.JdbcUrlBuilder;
 import com.dataocean.common.util.SqlIdentifierValidator;
-import com.dataocean.module.datasource.entity.Datasource;
-import com.dataocean.module.datasource.entity.DatasourceSecret;
+import com.dataocean.module.datasource.entity.po.Datasource;
+import com.dataocean.module.datasource.entity.po.DatasourceSecret;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -125,15 +125,20 @@ public class DataQualityChecker implements QualityChecker {
     private List<MetadataQualityIssue> checkNullRate(Connection conn, CheckContext context,
                                                       MetadataQualityRule rule) {
         List<MetadataQualityIssue> issues = new ArrayList<>();
-        BigDecimal threshold = rule.getThreshold() != null ? rule.getThreshold() : new BigDecimal("0.5");
+        BigDecimal threshold = QualityRuleParameterReader.decimal(rule, "threshold",
+                rule.getThreshold() != null ? rule.getThreshold() : new BigDecimal("0.5"));
 
         for (DbColumnMeta column : context.columns()) {
+            if (!usableColumn(context, column)) continue;
             try {
+                String escapedColumn = escapeIdentifier(column.getColumnName());
+                String escapedTable = escapeIdentifier(column.getTableName());
                 String sql = String.format(
-                        "SELECT COUNT(*) AS total, SUM(CASE WHEN `%s` IS NULL THEN 1 ELSE 0 END) AS nulls FROM `%s` LIMIT %d",
-                        escapeIdentifier(column.getColumnName()), escapeIdentifier(column.getTableName()), MAX_SAMPLE_ROWS);
+                        "SELECT COUNT(*) AS total, SUM(CASE WHEN sampled.`sample_value` IS NULL THEN 1 ELSE 0 END) AS nulls "
+                                + "FROM (SELECT `%s` AS `sample_value` FROM `%s` LIMIT %d) AS sampled",
+                        escapedColumn, escapedTable, MAX_SAMPLE_ROWS);
                 try (Statement stmt = conn.createStatement();
-                     ResultSet rs = stmt.executeQuery(sql)) {
+                     ResultSet rs = query(stmt, sql)) {
                     if (rs.next()) {
                         long total = rs.getLong("total");
                         long nulls = rs.getLong("nulls");
@@ -151,8 +156,9 @@ public class DataQualityChecker implements QualityChecker {
                     }
                 }
             } catch (SQLException | IllegalArgumentException e) {
-                log.warn("空值率规则执行失败，已跳过 datasourceId={} table={} column={} reason={}",
-                        context.datasourceId(), column.getTableName(), column.getColumnName(), e.getMessage(), e);
+                log.error("空值率规则执行失败 datasourceId={} table={} column={}",
+                        context.datasourceId(), column.getTableName(), column.getColumnName(), e);
+                throw new BusinessException(500, "空值率检查未完成");
             }
         }
         return issues;
@@ -166,24 +172,23 @@ public class DataQualityChecker implements QualityChecker {
                                                         MetadataQualityRule rule) {
         List<MetadataQualityIssue> issues = new ArrayList<>();
 
-        // 找出标记为唯一的列
-        Set<String> uniqueColumns = context.columns().stream()
-                .filter(c -> c.getIsPrimaryKey() != null && c.getIsPrimaryKey() == 1)
-                .map(c -> c.getTableName() + "." + c.getColumnName())
-                .collect(Collectors.toSet());
-
-        // 也检查有主键约束的列
+        boolean primaryKeyOnly = QualityRuleParameterReader.bool(rule, "primaryKeyOnly", true);
         for (DbColumnMeta column : context.columns()) {
-            if (column.getIsPrimaryKey() == null || column.getIsPrimaryKey() != 1) {
+            if (!usableColumn(context, column)) continue;
+            if (primaryKeyOnly && (column.getIsPrimaryKey() == null || column.getIsPrimaryKey() != 1)) {
                 continue;
             }
 
             try {
+                String escapedColumn = escapeIdentifier(column.getColumnName());
+                String escapedTable = escapeIdentifier(column.getTableName());
                 String sql = String.format(
-                        "SELECT `%s`, COUNT(*) AS cnt FROM `%s` GROUP BY `%s` HAVING COUNT(*) > 1 LIMIT 5",
-                        escapeIdentifier(column.getColumnName()), escapeIdentifier(column.getTableName()), escapeIdentifier(column.getColumnName()));
+                        "SELECT sampled.`unique_value`, COUNT(*) AS cnt FROM "
+                                + "(SELECT `%s` AS `unique_value` FROM `%s` LIMIT %d) AS sampled "
+                                + "GROUP BY sampled.`unique_value` HAVING COUNT(*) > 1 LIMIT 5",
+                        escapedColumn, escapedTable, MAX_SAMPLE_ROWS);
                 try (Statement stmt = conn.createStatement();
-                     ResultSet rs = stmt.executeQuery(sql)) {
+                     ResultSet rs = query(stmt, sql)) {
                     if (rs.next()) {
                         issues.add(buildIssue(context, rule, column.getTableName(), column.getColumnName(),
                                 String.format("字段 %s.%s 存在重复值（应唯一）",
@@ -192,8 +197,9 @@ public class DataQualityChecker implements QualityChecker {
                     }
                 }
             } catch (SQLException | IllegalArgumentException e) {
-                log.warn("唯一性规则执行失败，已跳过 datasourceId={} table={} column={} reason={}",
-                        context.datasourceId(), column.getTableName(), column.getColumnName(), e.getMessage(), e);
+                log.error("唯一性规则执行失败 datasourceId={} table={} column={}",
+                        context.datasourceId(), column.getTableName(), column.getColumnName(), e);
+                throw new BusinessException(500, "唯一性检查未完成");
             }
         }
         return issues;
@@ -208,6 +214,7 @@ public class DataQualityChecker implements QualityChecker {
         List<MetadataQualityIssue> issues = new ArrayList<>();
 
         for (TableRelation relation : context.relations()) {
+            if (!usableRelation(context, relation)) continue;
             String childTable = relation.getSourceTable();
             String childColumn = relation.getSourceColumn();
             String parentTable = relation.getTargetTable();
@@ -218,12 +225,18 @@ public class DataQualityChecker implements QualityChecker {
             }
 
             try {
+                String escapedChildTable = escapeIdentifier(childTable);
+                String escapedChildColumn = escapeIdentifier(childColumn);
+                String escapedParentTable = escapeIdentifier(parentTable);
+                String escapedParentColumn = escapeIdentifier(parentColumn);
                 String sql = String.format(
-                        "SELECT COUNT(*) AS orphans FROM `%s` c WHERE c.`%s` IS NOT NULL " +
-                                "AND c.`%s` NOT IN (SELECT p.`%s` FROM `%s` p WHERE p.`%s` IS NOT NULL) LIMIT 1",
-                        escapeIdentifier(childTable), escapeIdentifier(childColumn), escapeIdentifier(childColumn), escapeIdentifier(parentColumn), escapeIdentifier(parentTable), escapeIdentifier(parentColumn));
+                        "SELECT COUNT(*) AS orphans FROM "
+                                + "(SELECT `%s` AS `child_value` FROM `%s` WHERE `%s` IS NOT NULL LIMIT %d) AS c "
+                                + "WHERE NOT EXISTS (SELECT 1 FROM `%s` AS p WHERE p.`%s` = c.`child_value` LIMIT 1) LIMIT 1",
+                        escapedChildColumn, escapedChildTable, escapedChildColumn, MAX_SAMPLE_ROWS,
+                        escapedParentTable, escapedParentColumn);
                 try (Statement stmt = conn.createStatement();
-                     ResultSet rs = stmt.executeQuery(sql)) {
+                     ResultSet rs = query(stmt, sql)) {
                     if (rs.next()) {
                         long orphans = rs.getLong("orphans");
                         if (orphans > 0) {
@@ -235,8 +248,9 @@ public class DataQualityChecker implements QualityChecker {
                     }
                 }
             } catch (SQLException | IllegalArgumentException e) {
-                log.warn("外键完整性规则执行失败，已跳过 datasourceId={} table={} column={} reason={}",
-                        context.datasourceId(), childTable, childColumn, e.getMessage(), e);
+                log.error("外键完整性规则执行失败 datasourceId={} table={} column={}",
+                        context.datasourceId(), childTable, childColumn, e);
+                throw new BusinessException(500, "外键完整性检查未完成");
             }
         }
         return issues;
@@ -249,20 +263,25 @@ public class DataQualityChecker implements QualityChecker {
     private List<MetadataQualityIssue> checkDataStaleness(Connection conn, CheckContext context,
                                                            MetadataQualityRule rule) {
         List<MetadataQualityIssue> issues = new ArrayList<>();
-        int thresholdDays = rule.getThreshold() != null ? rule.getThreshold().intValue() : 30;
+        int thresholdDays = QualityRuleParameterReader.integer(rule, "staleDays",
+                rule.getThreshold() != null ? rule.getThreshold().intValue() : 30);
 
         for (DbTableMeta table : context.tables()) {
             // 找到该表的时间列
-            String timeColumn = findTimeColumn(context.columns(), table.getTableName());
+            String timeColumn = QualityStaleTimeFieldSelector.select(table, context.columns());
             if (timeColumn == null) {
                 continue;
             }
 
             try {
+                String escapedColumn = escapeIdentifier(timeColumn);
+                String escapedTable = escapeIdentifier(table.getTableName());
                 String sql = String.format(
-                        "SELECT MAX(`%s`) AS last_update FROM `%s` LIMIT 1", escapeIdentifier(timeColumn), escapeIdentifier(table.getTableName()));
+                        "SELECT MAX(sampled.`time_value`) AS last_update FROM "
+                                + "(SELECT `%s` AS `time_value` FROM `%s` ORDER BY `%s` DESC LIMIT %d) AS sampled LIMIT 1",
+                        escapedColumn, escapedTable, escapedColumn, MAX_SAMPLE_ROWS);
                 try (Statement stmt = conn.createStatement();
-                     ResultSet rs = stmt.executeQuery(sql)) {
+                     ResultSet rs = query(stmt, sql)) {
                     if (rs.next()) {
                         Timestamp lastUpdate = rs.getTimestamp("last_update");
                         if (lastUpdate != null) {
@@ -278,27 +297,41 @@ public class DataQualityChecker implements QualityChecker {
                     }
                 }
             } catch (SQLException | IllegalArgumentException e) {
-                log.warn("数据时效规则执行失败，已跳过 datasourceId={} table={} reason={}",
-                        context.datasourceId(), table.getTableName(), e.getMessage(), e);
+                log.error("数据时效规则执行失败 datasourceId={} table={}",
+                        context.datasourceId(), table.getTableName(), e);
+                throw new BusinessException(500, "数据时效检查未完成");
             }
         }
         return issues;
     }
 
-    /**
-     * 查找表的时间列（update_time / updated_at / modify_time 等）
-     */
-    private String findTimeColumn(List<DbColumnMeta> columns, String tableName) {
-        List<String> timePatterns = List.of("update_time", "updated_at", "modify_time", "modified_at", "gmt_modified");
-        for (DbColumnMeta col : columns) {
-            if (tableName.equals(col.getTableName())) {
-                String colName = col.getColumnName().toLowerCase();
-                if (timePatterns.contains(colName)) {
-                    return col.getColumnName();
-                }
-            }
-        }
-        return null;
+    private boolean usableColumn(CheckContext context, DbColumnMeta column) {
+        if (QualityStaleTimeFieldSelector.restricted(column.getGovernanceStatus())) return false;
+        DbTableMeta table = findTable(context.tables(), column.getTableName());
+        return table != null && !QualityStaleTimeFieldSelector.restricted(table.getGovernanceStatus());
+    }
+
+    private boolean usableRelation(CheckContext context, TableRelation relation) {
+        if (relation.getSourceTable() == null || relation.getSourceColumn() == null
+                || relation.getTargetTable() == null || relation.getTargetColumn() == null) return false;
+        DbTableMeta sourceTable = findTable(context.tables(), relation.getSourceTable());
+        DbTableMeta targetTable = findTable(context.tables(), relation.getTargetTable());
+        DbColumnMeta sourceColumn = findColumn(context.columns(), relation.getSourceTable(), relation.getSourceColumn());
+        DbColumnMeta targetColumn = findColumn(context.columns(), relation.getTargetTable(), relation.getTargetColumn());
+        return sourceTable != null && targetTable != null && sourceColumn != null && targetColumn != null
+                && !QualityStaleTimeFieldSelector.restricted(sourceTable.getGovernanceStatus())
+                && !QualityStaleTimeFieldSelector.restricted(targetTable.getGovernanceStatus())
+                && !QualityStaleTimeFieldSelector.restricted(sourceColumn.getGovernanceStatus())
+                && !QualityStaleTimeFieldSelector.restricted(targetColumn.getGovernanceStatus());
+    }
+
+    private DbTableMeta findTable(List<DbTableMeta> tables, String tableName) {
+        return tables.stream().filter(table -> tableName.equals(table.getTableName())).findFirst().orElse(null);
+    }
+
+    private DbColumnMeta findColumn(List<DbColumnMeta> columns, String tableName, String columnName) {
+        return columns.stream().filter(column -> tableName.equals(column.getTableName())
+                && columnName.equals(column.getColumnName())).findFirst().orElse(null);
     }
 
     /**
@@ -357,6 +390,12 @@ public class DataQualityChecker implements QualityChecker {
      */
     private static String escapeIdentifier(String identifier) {
         return SqlIdentifierValidator.validate(identifier);
+    }
+
+    private static ResultSet query(Statement statement, String sql) throws SQLException {
+        statement.setQueryTimeout(QUERY_TIMEOUT_SECONDS);
+        statement.setMaxRows(5);
+        return statement.executeQuery(sql);
     }
 
     /**

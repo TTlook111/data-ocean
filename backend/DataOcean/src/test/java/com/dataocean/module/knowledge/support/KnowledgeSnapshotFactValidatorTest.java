@@ -1,8 +1,8 @@
 package com.dataocean.module.knowledge.support;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
@@ -90,7 +90,7 @@ class KnowledgeSnapshotFactValidatorTest {
         private final TableRelationMapper relations = mock(TableRelationMapper.class);
         private final MetadataRelationshipMapper lineage = mock(MetadataRelationshipMapper.class);
         private final KnowledgeSnapshotFactValidator validator = new KnowledgeSnapshotFactValidator(
-                tables, columns, relations, lineage, new ObjectMapper());
+                tables, columns, relations, lineage, new ObjectMapper(), mock(com.dataocean.module.knowledge.service.impl.GlossaryKnowledgeSourceServiceImpl.class), mock(com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl.class));
 
         private Fixture() {
             DbTableMeta table = new DbTableMeta();

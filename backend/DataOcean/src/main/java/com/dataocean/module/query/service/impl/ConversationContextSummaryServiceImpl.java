@@ -3,7 +3,7 @@ package com.dataocean.module.query.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.query.client.ConversationSummaryClient;
-import com.dataocean.module.query.entity.ConversationContextSummary;
+import com.dataocean.module.query.entity.po.ConversationContextSummary;
 import com.dataocean.module.query.entity.dto.ConversationContextDTO;
 import com.dataocean.module.query.entity.vo.ConversationMessageVO;
 import com.dataocean.module.query.mapper.ConversationContextSummaryMapper;

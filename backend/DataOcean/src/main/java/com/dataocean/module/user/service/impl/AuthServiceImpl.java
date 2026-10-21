@@ -11,7 +11,7 @@ import com.dataocean.module.user.entity.dto.LoginDTO;
 import com.dataocean.module.user.entity.dto.ProfileUpdateDTO;
 import com.dataocean.module.user.entity.vo.CurrentUserVO;
 import com.dataocean.module.user.entity.vo.LoginVO;
-import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.entity.po.SysUser;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.service.AuthService;
 import com.dataocean.module.user.service.CaptchaService;

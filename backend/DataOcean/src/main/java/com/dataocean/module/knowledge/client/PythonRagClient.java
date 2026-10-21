@@ -1,8 +1,8 @@
 package com.dataocean.module.knowledge.client;
 
-import com.dataocean.module.knowledge.entity.KnowledgeChunk;
-import com.dataocean.module.knowledge.entity.VectorIndexTask;
-import com.dataocean.module.knowledge.entity.RagIndexBuild;
+import com.dataocean.module.knowledge.entity.po.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.po.VectorIndexTask;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuild;
 
 import java.util.List;
 import java.util.Map;

@@ -193,7 +193,7 @@ class KnowledgeDocControllerAuthorizationTest {
 
         Fixture() {
             KnowledgeDocController target = new KnowledgeDocController(crudService, lifecycleService,
-                    publishService, versionService, vectorIndexTaskService, capabilityService, ragIndexBuildService);
+                    publishService, mock(com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl.class), mock(com.dataocean.module.knowledge.service.impl.KnowledgeSourceStatusServiceImpl.class), versionService, vectorIndexTaskService, capabilityService, ragIndexBuildService);
             when(documentResolver.supports()).thenReturn(IamS1ResourceType.KNOWLEDGE_DOCUMENT);
             when(snapshotResolver.supports()).thenReturn(IamS1ResourceType.SNAPSHOT);
             IamS1ResourceResolverRegistry registry =

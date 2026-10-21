@@ -1,16 +1,22 @@
 package com.dataocean.module.governance.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.common.pagination.PageRequest;
+import com.dataocean.common.entity.query.PageQuery;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.system.aspect.AdminAuditLog;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
 import com.dataocean.module.governance.entity.dto.*;
 import com.dataocean.module.governance.entity.vo.IssueBatchHandleResultVO;
+import com.dataocean.module.governance.entity.vo.QualityCheckBatchVO;
 import com.dataocean.module.governance.entity.vo.QualityCheckResultVO;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
+import com.dataocean.module.governance.entity.vo.QualityIssueSummaryVO;
+import com.dataocean.module.governance.entity.vo.QualityRuleTemplateVO;
+import com.dataocean.module.governance.entity.vo.QualityRuleSummaryVO;
+import com.dataocean.module.governance.entity.vo.QualityRuleVO;
+import com.dataocean.module.governance.entity.vo.QualityRuleRevisionVO;
 import com.dataocean.module.governance.entity.vo.ReviewRecordVO;
+import com.dataocean.module.governance.entity.query.QualityRuleQuery;
 import com.dataocean.module.governance.service.*;
 import com.dataocean.module.permission.s1.annotation.IamS1Resource;
 import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
@@ -61,6 +67,8 @@ public class MetadataGovernanceController {
     private final GovernanceStatusService governanceStatusService;
     private final MetadataReviewService reviewService;
     private final IamS1CapabilityService capabilityService;
+    private final QualityRuleTemplateRegistry templateRegistry;
+    private final QualityCheckBatchService batchService;
 
     /** 调用者在指定功能上负责的数据源 ID；空列表表示没有任何负责源。 */
     private List<Long> visibleDatasourceIds(Long userId, String functionCode) {
@@ -86,21 +94,125 @@ public class MetadataGovernanceController {
             @RequestBody(required = false) QualityCheckRequestDTO request) {
         List<String> dimensions = request != null ? request.getDimensions() : null;
         List<String> tableNames = request != null ? request.getTableNames() : null;
-        QualityCheckResultVO result = qualityCheckService.executeQualityCheck(snapshotId, dimensions, tableNames);
+        QualityCheckResultVO result = qualityCheckService.executeQualityCheck(
+                snapshotId, dimensions, tableNames, UserContext.currentUserId());
         return Result.success(result);
+    }
+
+    @GetMapping("/snapshots/{snapshotId}/quality-check-batches/latest")
+    @IamS1Resource(function = "governance:view", resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
+    public Result<QualityCheckBatchVO> latestQualityCheckBatch(@PathVariable Long snapshotId) {
+        return Result.success(batchService.latest(snapshotId));
+    }
+
+    @GetMapping("/snapshots/{snapshotId}/quality-rules/summary")
+    @IamS1Resource(function = RULE_VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
+    public Result<QualityRuleSummaryVO> snapshotRuleSummary(@PathVariable Long snapshotId) {
+        return Result.success(qualityCheckService.ruleSummary(snapshotId));
+    }
+
+    @GetMapping("/snapshots/{snapshotId}/quality-issues/summary")
+    @IamS1Resource(function = ISSUE_VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
+    public Result<QualityIssueSummaryVO> snapshotIssueSummary(@PathVariable Long snapshotId,
+                                                               @RequestParam(defaultValue = "5") int recentLimit) {
+        List<Long> visible = visibleDatasourceIds(UserContext.currentUserId(), ISSUE_VIEW_FUNCTION);
+        return Result.success(qualityIssueService.snapshotIssueSummary(visible, snapshotId, recentLimit));
     }
 
     // ========== 质量规则 ==========
 
-    /**
-     * 查询全部质量规则。
-     *
-     * @return 质量规则列表
-     */
+    /** 查询当前账号可见的数据源规则与全局规则。 */
     @GetMapping("/quality-rules")
     @IamS1ScopedList(RULE_VIEW_FUNCTION)
-    public Result<List<MetadataQualityRule>> listRules() {
-        return Result.success(qualityRuleService.listAllRules());
+    public Result<List<QualityRuleVO>> listRules(@ModelAttribute QualityRuleQuery query) {
+        return Result.success(qualityRuleService.listRules(query, UserContext.currentUserId()));
+    }
+
+    @GetMapping("/quality-rules/templates")
+    @IamS1ScopedList(RULE_VIEW_FUNCTION)
+    public Result<List<QualityRuleTemplateVO>> listRuleTemplates() {
+        return Result.success(templateRegistry.all().stream().map(definition -> {
+            QualityRuleTemplateVO vo = new QualityRuleTemplateVO();
+            vo.setCode(definition.getCode());
+            vo.setName(definition.getName());
+            vo.setDimension(definition.getDimension());
+            vo.setTargetType(definition.getTargetType());
+            vo.setCheckType(definition.getCheckType());
+            vo.setDescription(definition.getDescription());
+            vo.setAllowedScopes(List.copyOf(definition.getAllowedScopes()));
+            vo.setParameters(definition.getParameters().stream().map(parameter -> {
+                QualityRuleTemplateVO.ParameterVO parameterVO = new QualityRuleTemplateVO.ParameterVO();
+                parameterVO.setKey(parameter.getKey());
+                parameterVO.setLabel(parameter.getLabel());
+                parameterVO.setType(parameter.getType());
+                parameterVO.setMinimum(parameter.getMinimum());
+                parameterVO.setMaximum(parameter.getMaximum());
+                parameterVO.setDefaultValue(parameter.getDefaultValue());
+                return parameterVO;
+            }).toList());
+            return vo;
+        }).toList());
+    }
+
+    @GetMapping("/quality-rules/{ruleId}")
+    @IamS1ScopedList(RULE_VIEW_FUNCTION)
+    public Result<QualityRuleVO> getRule(@PathVariable Long ruleId,
+                                         @RequestParam(defaultValue = "false") boolean includeDeleted) {
+        return Result.success(qualityRuleService.getRule(ruleId, UserContext.currentUserId(), includeDeleted));
+    }
+
+    @GetMapping("/quality-rules/{ruleId}/history")
+    @IamS1ScopedList(RULE_VIEW_FUNCTION)
+    public Result<List<com.dataocean.module.governance.entity.vo.QualityCheckBatchRuleVO>> ruleHistory(
+            @PathVariable Long ruleId) {
+        Long operatorUserId = UserContext.currentUserId();
+        qualityRuleService.getRule(ruleId, operatorUserId, true);
+        return Result.success(batchService.history(ruleId, operatorUserId));
+    }
+
+    @GetMapping("/quality-rules/{ruleId}/revisions")
+    @IamS1ScopedList(RULE_VIEW_FUNCTION)
+    public Result<List<QualityRuleRevisionVO>> ruleRevisions(@PathVariable Long ruleId) {
+        return Result.success(qualityRuleService.history(ruleId, UserContext.currentUserId()));
+    }
+
+    @PostMapping("/quality-rules")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<QualityRuleVO> createRule(@Valid @RequestBody QualityRuleDTO request) {
+        return Result.success(qualityRuleService.createRule(request, UserContext.currentUserId()));
+    }
+
+    @PutMapping("/quality-rules/{ruleId}")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<QualityRuleVO> editRule(@PathVariable Long ruleId, @Valid @RequestBody QualityRuleDTO request) {
+        return Result.success(qualityRuleService.updateRule(ruleId, request, UserContext.currentUserId()));
+    }
+
+    @PostMapping("/quality-rules/{ruleId}/copy")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<QualityRuleVO> copyRule(@PathVariable Long ruleId) {
+        return Result.success(qualityRuleService.copyRule(ruleId, UserContext.currentUserId()));
+    }
+
+    @PatchMapping("/quality-rules/{ruleId}/enabled")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<Void> setRuleEnabled(@PathVariable Long ruleId, @Valid @RequestBody RuleEnabledDTO request) {
+        qualityRuleService.updateEnabled(ruleId, Boolean.TRUE.equals(request.getEnabled()), UserContext.currentUserId());
+        return Result.success();
+    }
+
+    @DeleteMapping("/quality-rules/{ruleId}")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<Void> deleteRule(@PathVariable Long ruleId) {
+        qualityRuleService.deleteRule(ruleId, UserContext.currentUserId());
+        return Result.success();
+    }
+
+    @PostMapping("/quality-rules/{ruleId}/restore")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<Void> restoreRule(@PathVariable Long ruleId) {
+        qualityRuleService.restoreRule(ruleId, UserContext.currentUserId());
+        return Result.success();
     }
 
     /**
@@ -150,7 +262,7 @@ public class MetadataGovernanceController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.success(qualityIssueService.listIssues(snapshotId, dimension, severity, status, tableName,
-                assigneeId, (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                assigneeId, (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }
 
     /**
@@ -182,7 +294,7 @@ public class MetadataGovernanceController {
         List<Long> visible = visibleDatasourceIds(UserContext.currentUserId(), ISSUE_VIEW_FUNCTION);
         return Result.success(qualityIssueService.listIssuesInDatasources(visible, snapshotId,
                 dimension, severity, status, tableName, assigneeId,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }
 
     /**
@@ -309,6 +421,6 @@ public class MetadataGovernanceController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
         return Result.success(reviewService.listRecords(snapshotId, tableName,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }
 }

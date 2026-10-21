@@ -1,8 +1,8 @@
 package com.dataocean.module.permission.s1.service.impl;
 
 import com.dataocean.module.permission.s1.catalog.IamS1FunctionCatalog;
-import com.dataocean.module.permission.s1.entity.IamS1ResponsibleDatasourceFact;
-import com.dataocean.module.permission.s1.entity.IamS1Role;
+import com.dataocean.module.permission.s1.entity.po.IamS1ResponsibleDatasourceFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1Role;
 import com.dataocean.module.permission.s1.entity.vo.IamS1CapabilitySnapshotVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1RoleTemplateVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1SubjectOptionVO;

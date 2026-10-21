@@ -3,7 +3,7 @@ package com.dataocean.module.system.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
-import com.dataocean.module.system.entity.SysNotification;
+import com.dataocean.module.system.entity.po.SysNotification;
 import com.dataocean.module.system.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;

@@ -5,8 +5,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.permission.s1.IamS1Constants;
-import com.dataocean.module.permission.s1.entity.IamS1DataGrant;
-import com.dataocean.module.permission.s1.entity.IamS1UserRole;
+import com.dataocean.module.permission.s1.entity.po.IamS1DataGrant;
+import com.dataocean.module.permission.s1.entity.po.IamS1UserRole;
 import com.dataocean.module.permission.s1.mapper.IamS1DataGrantMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1UserRoleMapper;
 import com.dataocean.module.permission.s1.service.IamS1AuditEventService;
@@ -15,8 +15,8 @@ import com.dataocean.module.user.entity.dto.UserCreateDTO;
 import com.dataocean.module.user.entity.query.UserQuery;
 import com.dataocean.module.user.entity.dto.UserUpdateDTO;
 import com.dataocean.module.user.entity.vo.UserVO;
-import com.dataocean.module.user.entity.SysDepartment;
-import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.entity.po.SysDepartment;
+import com.dataocean.module.user.entity.po.SysUser;
 import com.dataocean.module.user.mapper.DepartmentMapper;
 import com.dataocean.module.user.mapper.UserMapper;
 import com.dataocean.module.user.service.UserService;
@@ -194,16 +194,15 @@ public class UserServiceImpl implements UserService {
     public Page<UserVO> listUsers(UserQuery request) {
         log.debug("查询用户列表 username={} realName={} departmentId={} status={} page={} pageSize={}",
                 request.getUsername(), request.getRealName(), request.getDepartmentId(), request.getStatus(),
-                request.resolvedPage(), request.resolvedPageSize());
+                request.getPageNo(), request.getPageSize());
         // 构建动态查询条件
         LambdaQueryWrapper<SysUser> wrapper = new LambdaQueryWrapper<SysUser>()
                 .like(StringUtils.hasText(request.getUsername()), SysUser::getUsername, request.getUsername())
                 .like(StringUtils.hasText(request.getRealName()), SysUser::getRealName, request.getRealName())
                 .eq(request.getDepartmentId() != null, SysUser::getDepartmentId, request.getDepartmentId())
-                .eq(request.getStatus() != null, SysUser::getStatus, request.getStatus())
-                .orderByDesc(SysUser::getCreatedAt);
+                .eq(request.getStatus() != null, SysUser::getStatus, request.getStatus());
         // 执行分页查询
-        Page<SysUser> userPage = userMapper.selectPage(new Page<>(request.resolvedPage(), request.resolvedPageSize()), wrapper);
+        Page<SysUser> userPage = userMapper.selectPage(request.toMpPageDefaultSortByCreatedAtDesc(), wrapper);
 
         List<SysUser> users = userPage.getRecords();
         if (users.isEmpty()) {

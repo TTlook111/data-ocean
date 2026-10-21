@@ -3,13 +3,13 @@ package com.dataocean.module.audit.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.audit.entity.QueryAuditLog;
-import com.dataocean.module.audit.entity.dto.AuditLogQueryDTO;
+import com.dataocean.module.audit.entity.po.QueryAuditLog;
+import com.dataocean.module.audit.entity.query.AuditLogQuery;
 import com.dataocean.module.audit.entity.vo.AuditLogVO;
 import com.dataocean.module.audit.entity.vo.AuditStatsVO;
 import com.dataocean.module.audit.mapper.QueryAuditLogMapper;
 import com.dataocean.module.audit.service.AuditLogService;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -82,12 +82,12 @@ public class AuditLogServiceImpl implements AuditLogService {
     }
 
     @Override
-    public Page<AuditLogVO> listAuditLogs(AuditLogQueryDTO query) {
+    public Page<AuditLogVO> listAuditLogs(AuditLogQuery query) {
         return queryAuditLogs(query, null);
     }
 
     @Override
-    public Page<AuditLogVO> listAuditLogsInDatasources(AuditLogQueryDTO query,
+    public Page<AuditLogVO> listAuditLogsInDatasources(AuditLogQuery query,
                                                        java.util.Collection<Long> visibleDatasourceIds) {
         // 显式筛选一个自己无权的数据源时直接拒绝，而不是返回空页：
         // 空页会把「无权」伪装成「该数据源没有审计记录」。
@@ -96,13 +96,13 @@ public class AuditLogServiceImpl implements AuditLogService {
             throw new BusinessException(403, "没有负责该数据源，无法查看其审计记录");
         }
         if (visibleDatasourceIds == null || visibleDatasourceIds.isEmpty()) {
-            return new Page<>(query.getPageNo(), query.getPageSize(), 0);
+            return query.toMpPageDefaultSortByCreatedAtDesc();
         }
         return queryAuditLogs(query, visibleDatasourceIds);
     }
 
     /** `scopedDatasourceIds == null` 表示不按数据源限制（仅供既有内部调用）。 */
-    private Page<AuditLogVO> queryAuditLogs(AuditLogQueryDTO query,
+    private Page<AuditLogVO> queryAuditLogs(AuditLogQuery query,
                                             java.util.Collection<Long> scopedDatasourceIds) {
         LambdaQueryWrapper<QueryAuditLog> wrapper = new LambdaQueryWrapper<>();
         wrapper.in(scopedDatasourceIds != null, QueryAuditLog::getDatasourceId, scopedDatasourceIds);
@@ -127,12 +127,10 @@ public class AuditLogServiceImpl implements AuditLogService {
         if (StringUtils.hasText(query.getEndTime())) {
             wrapper.le(QueryAuditLog::getCreatedAt, LocalDateTime.parse(query.getEndTime(), DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         }
-        wrapper.orderByDesc(QueryAuditLog::getCreatedAt);
-
         Page<QueryAuditLog> page = auditLogMapper.selectPage(
-                new Page<>(query.getPageNo(), query.getPageSize()), wrapper);
+                query.toMpPageDefaultSortByCreatedAtDesc(), wrapper);
 
-        Page<AuditLogVO> result = new Page<>(query.getPageNo(), query.getPageSize(), page.getTotal());
+        Page<AuditLogVO> result = new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
         result.setRecords(page.getRecords().stream().map(this::toVO).toList());
         return result;
     }

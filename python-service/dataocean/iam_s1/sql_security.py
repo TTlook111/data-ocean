@@ -456,6 +456,11 @@ def _resolve_column(
                 raise S1SqlSecurityError(f"ORDER BY 输出别名不唯一: {name}")
             resolved = _sources_of(aliases[0], allowed, scopes, seen)
             if not resolved:
+                # COUNT(*) 依赖已授权表的行数，不携带字段值。其唯一输出别名
+                # 可以参与排序；表级来源仍由 _trace 独立记录并交给 Java 复核。
+                expression = aliases[0].this
+                if isinstance(expression, exp.Count) and isinstance(expression.this, exp.Star):
+                    return []
                 raise S1SqlSecurityError(f"ORDER BY 输出别名没有可追踪来源: {name}")
             return resolved
     matches: set[tuple[str, str]] = set()

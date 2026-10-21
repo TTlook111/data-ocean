@@ -83,6 +83,8 @@ export const glossaryTermStatusLabels: Record<string, string> = {
   PENDING_REVIEW: '待审核',
   APPROVED: '已通过',
   REJECTED: '已拒绝',
+  // 仅用于对象详情发现“关系存在但术语主记录丢失”的完整性提示，不是后端术语状态。
+  MISSING: '记录缺失',
 }
 
 export const glossaryTermStatusTypes: Record<string, string> = {
@@ -90,6 +92,7 @@ export const glossaryTermStatusTypes: Record<string, string> = {
   PENDING_REVIEW: 'warning',
   APPROVED: 'success',
   REJECTED: 'danger',
+  MISSING: 'danger',
 }
 
 /** 术语表状态（后端 Glossary 常量，当前只有草稿与已发布） */
@@ -220,6 +223,17 @@ export const entityTypeLabels: Record<string, string> = {
   TAG: '标签',
 }
 
+/**
+ * 真实数据表类型（`table_type`，来自数据库采集或目录元数据）。
+ * 只映射已确认类型；未知值返回空串，由调用方决定如何保留原值，不能一律归为普通表。
+ */
+export const tableTypeLabels: Record<string, string> = {
+  TABLE: '普通表',
+  'BASE TABLE': '普通表',
+  VIEW: '视图',
+  'SYSTEM VIEW': '系统视图',
+}
+
 /** 血缘类型 */
 export const lineageTypeLabels: Record<string, string> = {
   QUERY: '查询血缘',
@@ -236,6 +250,12 @@ export const glossaryStatusType = (status?: string | null) => enumType(glossaryS
 export const glossaryTermStatusLabel = (status?: string | null) => enumLabel(glossaryTermStatusLabels, status)
 export const glossaryTermStatusType = (status?: string | null) => enumType(glossaryTermStatusTypes, status)
 export const entityTypeLabel = (type?: string | null) => enumLabel(entityTypeLabels, type)
+/** 只返回已确认的中文表类型；未知或缺失返回空串，避免误标为普通表。 */
+export const tableTypeLabel = (type?: string | null) => {
+  const raw = type?.trim()
+  if (!raw) return ''
+  return tableTypeLabels[raw.toUpperCase()] || ''
+}
 export const lineageTypeLabel = (type?: string | null) => enumLabel(lineageTypeLabels, type)
 export const syncStatusLabel = (status?: string | null) => enumLabel(syncStatusLabels, status)
 export const syncStatusType = (status?: string | null) => enumType(syncStatusTypes, status)

@@ -226,6 +226,7 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
             if not columns and tables:
                 columns = [f"{tables[0]}.{column.name}" for column in item.columns]
             candidates.append({
+                "sourceId": getattr(item, "source_id", None),
                 "datasourceId": request.datasourceId,
                 "activeMetadataSnapshotId": request.ragSourceSnapshotId,
                 "sourceSnapshotId": request.ragSourceSnapshotId,

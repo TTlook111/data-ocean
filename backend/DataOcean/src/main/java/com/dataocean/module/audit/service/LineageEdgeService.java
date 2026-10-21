@@ -76,4 +76,16 @@ public interface LineageEdgeService {
      */
     LineageGraphVO getEnrichedLineage(Long entityId, int depth, Set<String> lineageTypes,
                                       Set<Long> visibleEntityIds);
+
+    /**
+     * 增强血缘，按端点“类型 + ID”在遍历阶段裁剪。
+     *
+     * @param entityType       起点实体类型
+     * @param entityId         起点实体 ID
+     * @param depth            BFS 深度
+     * @param lineageTypes     血缘类型过滤
+     * @param visibleEntityKeys 可见端点身份（类型#ID）；null 表示不限制
+     */
+    LineageGraphVO getEnrichedLineage(String entityType, Long entityId, int depth,
+                                      Set<String> lineageTypes, Set<String> visibleEntityKeys);
 }

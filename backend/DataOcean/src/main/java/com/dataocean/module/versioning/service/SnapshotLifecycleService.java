@@ -1,7 +1,7 @@
 package com.dataocean.module.versioning.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.entity.vo.SchemaDiffVO;
 import com.dataocean.module.versioning.entity.vo.SnapshotVersionHistoryVO;
 

@@ -1,6 +1,6 @@
 package com.dataocean.module.knowledge.service;
 
-import com.dataocean.module.knowledge.entity.VectorIndexTask;
+import com.dataocean.module.knowledge.entity.po.VectorIndexTask;
 
 import java.util.List;
 

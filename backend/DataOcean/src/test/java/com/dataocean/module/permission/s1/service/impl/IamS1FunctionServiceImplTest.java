@@ -1,7 +1,7 @@
 package com.dataocean.module.permission.s1.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.dataocean.module.permission.s1.entity.IamS1Function;
+import com.dataocean.module.permission.s1.entity.po.IamS1Function;
 import com.dataocean.module.permission.s1.mapper.IamS1FunctionMapper;
 import org.junit.jupiter.api.Test;
 

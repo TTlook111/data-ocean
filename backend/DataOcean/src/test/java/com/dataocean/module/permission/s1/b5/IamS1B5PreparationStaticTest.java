@@ -159,7 +159,7 @@ class IamS1B5PreparationStaticTest {
 
     @Test
     void b5HandbookAndB6InventoryExistWithFrozenV53Decision() throws IOException {
-        String handbook = read(Path.of("..", "..", "docs/development/completed/DataOcean-IAM-S1-B5切换与回退手册.md"));
+        String handbook = read(Path.of("..", "..", "docs/archive/plans/DataOcean-IAM-S1-B5切换与回退手册.md"));
         assertThat(handbook).contains("V53 编号永久不再使用", "真实数据库 Flyway 版本", "V50");
         assertThat(handbook).contains("禁止新旧权限双读兜底");
         assertThat(handbook).contains("真实库只读 SQL 门禁");
@@ -201,13 +201,24 @@ class IamS1B5PreparationStaticTest {
         assertThat(preflight).contains("SHA256 is computed after dump");
         assertThat(preflight).doesNotContain("-match '@Aspect'");
         assertThat(preflight).doesNotContain("-match '@Component'");
-        String b0 = read(Path.of("..", "..", "docs/development/completed/轨道B-B0权限清单与决策冻结.md"));
+        String b0 = read(Path.of("..", "..", "docs/archive/plans/轨道B-B0权限清单与决策冻结.md"));
         assertThat(b0).contains("## 7. B6 删除清单");
         assertThat(b0).contains("DatasourcePermissionController", "sys_role_permission");
         String followUp = read(Path.of("..", "..", "docs/development/后续开发.md"));
-        assertThat(followUp).contains("V53 永久不再使用");
-        assertThat(followUp).contains("B6 必须单独获得授权", "只删除冻结清单中的旧权限专用入口、代码和表");
-        assertThat(followUp).contains("当前工作树已有 V64", "V65");
+        assertThat(followUp).contains("V53 永久不用");
+        assertThat(followUp).contains("B6 删除在其他环境仍需单独授权并保留业务数据");
+        // 现行文档跟随真实迁移目录，不再要求保留 B5 当时的版本上限。
+        try (Stream<Path> migrations = Files.list(Path.of("src/main/resources/db/migration"))) {
+            int highestVersion = migrations
+                    .map(path -> path.getFileName().toString())
+                    .filter(name -> name.matches("V\\d+__.*\\.sql"))
+                    .mapToInt(name -> Integer.parseInt(name.substring(1, name.indexOf("__"))))
+                    .max()
+                    .orElseThrow();
+            String latestMigration = "V" + highestVersion;
+            assertThat(followUp).contains(latestMigration);
+            assertThat(read(Path.of("..", "..", "docs/项目现状.md"))).contains(latestMigration);
+        }
         assertThat(followUp).doesNotContain("B5_EXPECTED_SHA");
         assertThat(followUp).contains("独立 MySQL 恢复演练");
         assertThat(followUp).doesNotContain("必须在本轮迁移执行前补上");

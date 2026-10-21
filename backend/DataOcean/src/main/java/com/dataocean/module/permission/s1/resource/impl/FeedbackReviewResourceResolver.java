@@ -1,14 +1,14 @@
 package com.dataocean.module.permission.s1.resource.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.fieldtag.entity.UserFeedback;
+import com.dataocean.module.fieldtag.entity.po.UserFeedback;
 import com.dataocean.module.fieldtag.mapper.UserFeedbackMapper;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.permission.s1.resource.IamS1ResolvedResource;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceResolver;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;

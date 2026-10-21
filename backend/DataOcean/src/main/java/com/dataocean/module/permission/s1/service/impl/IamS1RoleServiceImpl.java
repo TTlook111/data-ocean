@@ -4,9 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.permission.s1.IamS1Constants;
 import com.dataocean.module.permission.s1.catalog.IamS1FunctionCatalog;
-import com.dataocean.module.permission.s1.entity.IamS1Function;
-import com.dataocean.module.permission.s1.entity.IamS1Role;
-import com.dataocean.module.permission.s1.entity.IamS1RoleFunction;
+import com.dataocean.module.permission.s1.entity.po.IamS1Function;
+import com.dataocean.module.permission.s1.entity.po.IamS1Role;
+import com.dataocean.module.permission.s1.entity.po.IamS1RoleFunction;
 import com.dataocean.module.permission.s1.entity.dto.IamS1RoleSaveDTO;
 import com.dataocean.module.permission.s1.mapper.IamS1RoleFunctionMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1RoleMapper;
@@ -149,8 +149,8 @@ public class IamS1RoleServiceImpl implements IamS1RoleService {
         IamS1Role role = requireRole(roleId);
         ensureOrdinaryRole(role);
         ensureNotHoldingRole(operatorUserId, roleId);
-        Long memberCount = userRoleMapper.selectCount(new LambdaQueryWrapper<com.dataocean.module.permission.s1.entity.IamS1UserRole>()
-                .eq(com.dataocean.module.permission.s1.entity.IamS1UserRole::getRoleId, roleId));
+        Long memberCount = userRoleMapper.selectCount(new LambdaQueryWrapper<com.dataocean.module.permission.s1.entity.po.IamS1UserRole>()
+                .eq(com.dataocean.module.permission.s1.entity.po.IamS1UserRole::getRoleId, roleId));
         if (memberCount != null && memberCount > 0) {
             throw new BusinessException("S1 角色仍有成员，无法删除");
         }

@@ -98,14 +98,14 @@ def _request() -> GenerateDraftRequest:
             {
                 "relationship_id": 401,
                 "source_fqn": "sales.sales_orders",
-                "target_fqn": "sales.monthly_sales",
+                "target_fqn": "sales.products",
                 "source_snapshot_id": 8800,
                 "bound_snapshot_id": 8801,
                 "binding_status": "BOUND",
                 "confirmation_status": "CONFIRMED",
                 "relation_type": "LINEAGE",
                 "description": "ETL 输出",
-                "dependencies": ["table:sales_orders", "table:monthly_sales"],
+                "dependencies": ["table:sales_orders", "table:products"],
             }
         ],
     )
@@ -124,7 +124,8 @@ async def test_snapshot_document_covers_every_table_and_field_with_provenance():
     assert "#### `secret_note`" in result.content
     assert "`BLOCKED`" in result.content
     assert "Business meaning: 待确认" in result.content
-    assert result.content.count('"factType":"COLUMN_STRUCTURE"') == 5
+    assert result.content.count('"factType":"COLUMN_STRUCTURE"') == 4
+    assert result.content.count('"factType":"COLUMN_EXCLUDED"') == 1
     assert "sales_orders.product_id = products.product_id" in result.content
     confirmed_joins = result.content.split("## 3. Confirmed Join Paths", 1)[1].split(
         "## 4. Unconfirmed relationship candidates", 1
@@ -157,3 +158,14 @@ async def test_generation_rejects_lineage_not_rebound_to_the_requested_snapshot(
     request.lineage_facts[0]["bound_snapshot_id"] = 8800
     with pytest.raises(ValueError, match="未绑定"):
         await generate_draft(request)
+
+
+@pytest.mark.asyncio
+async def test_out_of_snapshot_lineage_is_not_generation_evidence():
+    request = _request()
+    request.lineage_facts[0]["target_fqn"] = "sales.monthly_sales"
+    request.lineage_facts[0]["dependencies"] = ["table:sales_orders", "table:monthly_sales"]
+    result = await generate_draft(request)
+    assert result.coverage["confirmedLineageCount"] == 0
+    assert "monthly_sales" not in result.content
+    assert any("血缘" in warning for warning in result.warnings)

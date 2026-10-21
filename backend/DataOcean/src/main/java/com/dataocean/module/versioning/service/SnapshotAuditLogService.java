@@ -1,7 +1,7 @@
 package com.dataocean.module.versioning.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.versioning.entity.SnapshotAuditLog;
+import com.dataocean.module.versioning.entity.po.SnapshotAuditLog;
 
 /**
  * 快照审计日志服务。

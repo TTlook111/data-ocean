@@ -7,15 +7,16 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.vo.QualityIssueVO;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.permission.s1.resource.IamS1ResolvedResource;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.permission.s1.resource.impl.GovernanceIssueResourceResolver;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
-import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.entity.po.SysUser;
 import com.dataocean.module.user.mapper.UserMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -97,6 +98,37 @@ class QualityIssueServiceImplTest {
     }
 
     @Test
+    void overviewCountsAllOpenConfirmedAndReopenedIssuesBeyondThePreviewPage() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot(8L, 5L);
+        when(fixture.issueMapper.selectCount(any(Wrapper.class))).thenReturn(4L, 2L, 1L);
+        MetadataQualityIssue recent = new MetadataQualityIssue();
+        recent.setId(90L);
+        recent.setSnapshotId(8L);
+        recent.setDatasourceId(5L);
+        recent.setDimension("COMPLETENESS");
+        recent.setSeverity("HIGH");
+        recent.setTableName("orders");
+        recent.setIssueDescription("字段说明缺失");
+        recent.setStatus(MetadataQualityIssue.STATUS_OPEN);
+        Page<MetadataQualityIssue> issuePage = new Page<>(1, 3, 7);
+        issuePage.setRecords(List.of(recent));
+        when(fixture.issueMapper.selectPage(any(Page.class), any(Wrapper.class))).thenReturn(issuePage);
+        when(fixture.datasourceMapper.selectByIds(any())).thenReturn(List.of());
+
+        var summary = fixture.service.snapshotIssueSummary(List.of(5L), 8L, 3);
+
+        assertThat(summary.getTotalUnresolved()).isEqualTo(7L);
+        assertThat(summary.getStatusCounts()).containsEntry("OPEN", 4L)
+                .containsEntry("CONFIRMED", 2L).containsEntry("REOPENED", 1L);
+        assertThat(summary.getRecentIssues()).extracting(QualityIssueVO::getId).containsExactly(90L);
+        @SuppressWarnings({"rawtypes", "unchecked"})
+        ArgumentCaptor<Wrapper<MetadataQualityIssue>> wrappers = ArgumentCaptor.forClass(Wrapper.class);
+        verify(fixture.issueMapper, Mockito.times(2)).selectPage(any(Page.class), wrappers.capture());
+        assertThat(wrappers.getAllValues().get(1).getCustomSqlSegment()).contains("status").contains("IN");
+    }
+
+    @Test
     void listIssuesInDatasourcesRejectsASnapshotOutsideTheResponsibleScope() {
         Fixture fixture = new Fixture();
         // 快照 8 真实归属数据源 6，调用者只负责 5
@@ -145,7 +177,7 @@ class QualityIssueServiceImplTest {
         assertThatThrownBy(() -> fixture.service.handleIssue(1L, MetadataQualityIssue.STATUS_RESOLVED, "done", 99L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不允许从 REOPENED 转换到 RESOLVED");
-        verify(fixture.issueMapper, never()).updateById(any(MetadataQualityIssue.class));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
@@ -155,11 +187,14 @@ class QualityIssueServiceImplTest {
         issue.setId(1L);
         issue.setStatus(MetadataQualityIssue.STATUS_REOPENED);
         when(fixture.issueMapper.selectById(1L)).thenReturn(issue);
+        when(fixture.issueMapper.update(Mockito.isNull(), any(Wrapper.class))).thenReturn(1);
 
         fixture.service.handleIssue(1L, MetadataQualityIssue.STATUS_CONFIRMED, null, 99L);
 
-        assertThat(issue.getStatus()).isEqualTo(MetadataQualityIssue.STATUS_CONFIRMED);
-        verify(fixture.issueMapper).updateById(issue);
+        ArgumentCaptor<Wrapper<MetadataQualityIssue>> update = ArgumentCaptor.forClass(Wrapper.class);
+        verify(fixture.issueMapper).update(Mockito.isNull(), update.capture());
+        assertThat(update.getValue().getSqlSet()).contains("status", "resolved_by", "resolved_at", "resolution_note");
+        assertThat(update.getValue().getCustomSqlSegment()).contains("status");
     }
 
     // ---------- 批量：权限与归属预校验整批原子 ----------
@@ -188,7 +223,7 @@ class QualityIssueServiceImplTest {
                 .isInstanceOf(BusinessException.class);
 
         // 整批零修改
-        verify(fixture.issueMapper, never()).updateById(any(MetadataQualityIssue.class));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
@@ -200,7 +235,7 @@ class QualityIssueServiceImplTest {
 
         assertThatThrownBy(() -> fixture.service.batchHandle(ids, MetadataQualityIssue.STATUS_CONFIRMED, 99L))
                 .isInstanceOf(BusinessException.class);
-        verify(fixture.issueMapper, never()).updateById(any(MetadataQualityIssue.class));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
@@ -234,7 +269,7 @@ class QualityIssueServiceImplTest {
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getCode()).isEqualTo(404));
 
-        verify(fixture.issueMapper, never()).updateById(any(MetadataQualityIssue.class));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
@@ -248,19 +283,21 @@ class QualityIssueServiceImplTest {
                         assertThat(exception.getCode()).isEqualTo(400));
 
         // 禁用账号不能被设为负责人，否则列表里会出现无人可处理的“幽灵责任人”
-        verify(fixture.issueMapper, never()).updateById(any(MetadataQualityIssue.class));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
     void assignIssueWritesOnlyTheAssigneeAndCreatesNoAuthorization() {
         Fixture fixture = new Fixture();
-        MetadataQualityIssue issue = fixture.issue(1L, MetadataQualityIssue.STATUS_OPEN);
+        fixture.issue(1L, MetadataQualityIssue.STATUS_OPEN);
         fixture.user(77L, SysUser.STATUS_NORMAL);
+        when(fixture.issueMapper.update(Mockito.isNull(), any(Wrapper.class))).thenReturn(1);
 
         fixture.service.assignIssue(1L, 77L);
 
-        assertThat(issue.getAssigneeId()).isEqualTo(77L);
-        verify(fixture.issueMapper).updateById(issue);
+        ArgumentCaptor<Wrapper<MetadataQualityIssue>> update = ArgumentCaptor.forClass(Wrapper.class);
+        verify(fixture.issueMapper).update(Mockito.isNull(), update.capture());
+        assertThat(update.getValue().getSqlSet()).contains("assignee_id", "updated_at").doesNotContain("status");
         // 分派是工作归属而不是数据授权：不触碰任何 S1 授权判定入口
         verify(fixture.adminGuard, never()).requireDatasourceFunction(any(), any(), anyLong());
     }

@@ -106,7 +106,7 @@ class FieldGovernanceWriteAndListTest {
         assertThatThrownBy(() -> csvService.importTagsFromCsv(file))
                 .isInstanceOf(BusinessException.class);
 
-        verify(fieldTagMapper, never()).insert(any(com.dataocean.module.fieldtag.entity.FieldTag.class));
+        verify(fieldTagMapper, never()).insert(any(com.dataocean.module.fieldtag.entity.po.FieldTag.class));
     }
 
     @Test
@@ -168,6 +168,6 @@ class FieldGovernanceWriteAndListTest {
                 .hasMessageContaining("1MB");
 
         verify(fieldScope, never()).requireColumnsWritable(anyCollection());
-        verify(fieldTagMapper, never()).insert(any(com.dataocean.module.fieldtag.entity.FieldTag.class));
+        verify(fieldTagMapper, never()).insert(any(com.dataocean.module.fieldtag.entity.po.FieldTag.class));
     }
 }

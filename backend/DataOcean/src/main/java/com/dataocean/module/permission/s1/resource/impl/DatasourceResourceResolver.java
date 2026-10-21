@@ -1,7 +1,7 @@
 package com.dataocean.module.permission.s1.resource.impl;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.permission.s1.entity.IamS1DatasourceFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1DatasourceFact;
 import com.dataocean.module.permission.s1.mapper.IamS1DatasourceIdentityMapper;
 import com.dataocean.module.permission.s1.resource.IamS1ResolvedResource;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceResolver;

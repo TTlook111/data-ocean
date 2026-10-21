@@ -1,7 +1,7 @@
 package com.dataocean.module.versioning.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.versioning.entity.SnapshotAuditLog;
+import com.dataocean.module.versioning.entity.po.SnapshotAuditLog;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

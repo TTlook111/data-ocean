@@ -6,28 +6,28 @@ import com.dataocean.common.persistence.OptimisticLockSupport;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
 import com.dataocean.module.knowledge.client.PythonRagClient;
-import com.dataocean.module.knowledge.entity.KnowledgeDoc;
-import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
-import com.dataocean.module.knowledge.entity.VectorIndexTask;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDoc;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDocVersion;
+import com.dataocean.module.knowledge.entity.po.VectorIndexTask;
 import com.dataocean.module.knowledge.enums.DocStatus;
 import com.dataocean.module.knowledge.enums.GenerationSource;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
-import com.dataocean.module.fieldtag.entity.FieldTag;
+import com.dataocean.module.fieldtag.entity.po.FieldTag;
 import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,9 +46,9 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 知识文档发布与 AI 生成服务。
+ * 知识文档目录生成与预览服务。
  * <p>
- * 负责 AI 草稿生成、批量生成、元数据加载、切片预览等发布相关操作。
+ * 负责快照目录生成、批量生成、元数据加载和切片预览。
  * 从 KnowledgeDocServiceImpl 拆分而来，职责单一。
  * </p>
  *
@@ -62,6 +62,7 @@ public class KnowledgeDocPublishService {
     /** JSON 解析用的 ObjectMapper（线程安全，复用实例） */
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
+    private final GlossaryKnowledgeSourceServiceImpl glossarySources;
     private final KnowledgeDocMapper knowledgeDocMapper;
     private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
     private final PythonKnowledgeClient pythonKnowledgeClient;
@@ -105,9 +106,9 @@ public class KnowledgeDocPublishService {
     }
 
     /**
-     * 生成 AI 草稿。
+     * 按快照生成目录草稿。
      * <p>
-     * 调用 Python AI 服务基于元数据快照生成知识文档草稿内容，
+     * 调用 Python 根据固定元数据快照与审核来源生成目录草稿，
      * 并创建新版本记录。
      * </p>
      *
@@ -116,35 +117,38 @@ public class KnowledgeDocPublishService {
      * @return 生成的草稿内容
      */
     public String generateDraft(Long docId, Long snapshotId) {
-        log.info("生成 AI 草稿 docId={} snapshotId={}", docId, snapshotId);
+        log.info("生成快照目录 docId={} snapshotId={}", docId, snapshotId);
         KnowledgeDoc doc = helper.requireDoc(docId);
         // 本方法自己拼版本行、不经过 createVersion，所以快照归属必须在这里单独校验：
         // 否则一个跨源 snapshotId 会先被送给 Python、再落成一条来源错位的版本。
         ownershipValidator.requireSnapshotOwnership(doc.getDatasourceId(), snapshotId);
 
+        if (!DocStatus.DRAFT.name().equals(doc.getStatus())) throw new BusinessException(409, "只能在草稿中生成目录，请先建立草稿版本");
         // 加载元数据
         List<Map<String, Object>> tablesMetadata = loadTablesMetadata(doc.getDatasourceId(), snapshotId);
         List<Map<String, Object>> foreignKeys = loadForeignKeys(doc.getDatasourceId(), snapshotId);
         List<Map<String, Object>> lineageFacts = loadConfirmedLineage(doc.getDatasourceId(), snapshotId);
 
-        // 调用 Python AI 服务生成草稿
+        Map<String, Object> generationInput = generationRequest(doc.getDatasourceId(), snapshotId, tablesMetadata, foreignKeys, lineageFacts);
+        // 调用 Python 服务生成有来源的目录
         String draftContent;
         Map<String, Object> result;
         try {
-            result = pythonKnowledgeClient.generateDraft(
-                    snapshotId, doc.getDatasourceId(), tablesMetadata, foreignKeys, lineageFacts, List.of());
+            result = pythonKnowledgeClient.generateSnapshotDraft(generationInput);
             draftContent = (String) result.get("content");
             validateDraftCoverage(result, tablesMetadata);
         } catch (Exception e) {
-            log.error("AI 草稿生成失败 docId={} snapshotId={}", docId, snapshotId, e);
-            throw new BusinessException("AI 草稿生成失败，请稍后重试");
+            log.error("快照目录生成失败 docId={} snapshotId={}", docId, snapshotId, e);
+            throw new BusinessException("快照目录生成失败，请稍后重试");
         }
         if (!StringUtils.hasText(draftContent)) {
-            throw new BusinessException("AI 草稿生成失败：内容为空");
+            throw new BusinessException("快照目录生成失败：内容为空");
         }
 
         transactionTemplate.executeWithoutResult(status -> {
             KnowledgeDoc latestDoc = helper.requireDoc(docId);
+            if (!DocStatus.DRAFT.name().equals(latestDoc.getStatus()) || !Objects.equals(doc.getVersion(), latestDoc.getVersion()))
+                throw new BusinessException(409, "生成期间文档已修改，原有草稿已保留，请刷新重试");
             KnowledgeDocVersion version = KnowledgeDocVersion.builder()
                     .docId(docId)
                     .datasourceId(latestDoc.getDatasourceId())
@@ -153,11 +157,11 @@ public class KnowledgeDocPublishService {
                             latestDoc.getDatasourceId(),
                             snapshotId,
                             GenerationSource.SNAPSHOT_GENERATED.name(),
-                            Map.of("warnings", resultWarnings(result))))
+                            Map.of("warnings", resultWarnings(result), "glossaryInputs", generationInput.get("glossary_facts"))))
                     .versionNo((latestDoc.getCurrentVersion() == null ? 0 : latestDoc.getCurrentVersion()) + 1)
                     .content(draftContent)
-                    .generationSource(GenerationSource.AI_GENERATED.name())
-                    .changeSummary("AI 自动生成草稿")
+                    .generationSource(GenerationSource.SNAPSHOT_GENERATED.name())
+                    .changeSummary("按快照生成目录及已审核术语")
                     .createdBy(UserContext.currentUserId())
                     .build();
             knowledgeDocVersionMapper.insert(version);
@@ -169,16 +173,16 @@ public class KnowledgeDocPublishService {
                     knowledgeDocMapper.updateById(latestDoc),
                     "知识文档已被其他人修改，请刷新后重试");
 
-            log.info("AI 草稿生成成功 docId={} versionNo={}", docId, version.getVersionNo());
+            log.info("快照目录生成成功 docId={} versionNo={}", docId, version.getVersionNo());
         });
         return draftContent;
     }
 
     /**
-     * AI 自动分析业务域并批量生成 skills.md 文档。
+     * 按快照完整覆盖表字段并生成 skills.md 文档集合。
      * <p>
-     * 用户选择一个元数据快照，AI 分析表结构识别业务域，
-     * 每个域自动创建一份独立的 skills.md 文档（DRAFT 状态）。
+     * 用户选择一个已发布的元数据快照，程序整理完整结构与审核来源，
+     * 创建相应的 skills.md 文档（DRAFT 状态）。
      * </p>
      *
      * @param datasourceId 数据源 ID
@@ -193,10 +197,10 @@ public class KnowledgeDocPublishService {
         List<Map<String, Object>> tablesMetadata = loadTablesMetadata(datasourceId, snapshotId);
         List<Map<String, Object>> foreignKeys = loadForeignKeys(datasourceId, snapshotId);
         List<Map<String, Object>> lineageFacts = loadConfirmedLineage(datasourceId, snapshotId);
+        Map<String, Object> generationInput = generationRequest(datasourceId, snapshotId, tablesMetadata, foreignKeys, lineageFacts);
         Map<String, Object> result;
         try {
-            result = pythonKnowledgeClient.generateDraft(
-                    snapshotId, datasourceId, tablesMetadata, foreignKeys, lineageFacts, List.of());
+            result = pythonKnowledgeClient.generateSnapshotDraft(generationInput);
             validateDraftCoverage(result, tablesMetadata);
         } catch (Exception e) {
             log.error("按快照生成完整知识目录失败 datasourceId={} snapshotId={}", datasourceId, snapshotId, e);
@@ -227,7 +231,7 @@ public class KnowledgeDocPublishService {
                     .dependencySnapshot(dependencySnapshotBuilder.build(
                             datasourceId, snapshotId, GenerationSource.SNAPSHOT_GENERATED.name(),
                             Map.of("coverage", result.getOrDefault("coverage", Map.of()),
-                                    "warnings", resultWarnings(result))))
+                                    "warnings", resultWarnings(result), "glossaryInputs", generationInput.get("glossary_facts"))))
                     .versionNo(1)
                     .content(content)
                     .generationSource(GenerationSource.SNAPSHOT_GENERATED.name())
@@ -244,6 +248,22 @@ public class KnowledgeDocPublishService {
         });
         log.info("完整快照知识目录生成成功 datasourceId={} snapshotId={}", datasourceId, snapshotId);
         return createdDocs == null ? List.of() : createdDocs;
+    }
+
+    public Map<String, Object> generationInputs(Long datasourceId, Long snapshotId) {
+        return glossarySources.inputs(datasourceId, snapshotId);
+    }
+
+    private Map<String, Object> generationRequest(Long datasourceId, Long snapshotId,
+            List<Map<String, Object>> tables, List<Map<String, Object>> relations, List<Map<String, Object>> lineage) {
+        var input = glossarySources.inputs(datasourceId, snapshotId);
+        var request = new HashMap<String, Object>();
+        request.put("snapshot_id", snapshotId); request.put("datasource_id", datasourceId);
+        request.put("tables_metadata", tables); request.put("foreign_keys", relations);
+        request.put("lineage_facts", lineage); request.put("indexes", List.of());
+        request.put("glossary_facts", input.get("glossaryFacts"));
+        request.put("excluded_terms", input.get("excludedTerms"));
+        return request;
     }
 
     /**
@@ -445,10 +465,19 @@ public class KnowledgeDocPublishService {
                     && !MetadataRelationship.TYPE_DERIVED_FROM.equals(relationship.getRelationType())) continue;
             Map<String, Object> metadata = readJsonMap(relationship.getRelationMetadata());
             if (!"CONFIRMED".equalsIgnoreCase(String.valueOf(metadata.get("confirmation_status")))
-                    || !"BOUND".equalsIgnoreCase(String.valueOf(metadata.get("binding_status")))
-                    || !String.valueOf(snapshotId).equals(String.valueOf(metadata.get("bound_snapshot_id")))) continue;
+                    || !"BOUND".equalsIgnoreCase(String.valueOf(metadata.get("binding_status")))) continue;
+            // 两端快照分别核验：同一篇文档只要求属于本文档数据源的一端匹配 snapshotId，
+            // 跨源另一端必须是它自己数据源当前已核验的快照，不能用单侧 bound_snapshot_id 代替。
+            String sourceBound = boundSnapshot(metadata, "source_bound_snapshot_id");
+            String targetBound = boundSnapshot(metadata, "target_bound_snapshot_id");
+            if (sourceBound == null || targetBound == null) continue;
             MetadataEntity source = entityById.get(relationship.getSourceId());
             MetadataEntity target = entityById.get(relationship.getTargetId());
+            boolean sourceInScope = source != null;
+            boolean targetInScope = target != null;
+            if (!sourceInScope && !targetInScope) continue;
+            if (sourceInScope && !String.valueOf(snapshotId).equals(sourceBound)) continue;
+            if (targetInScope && !String.valueOf(snapshotId).equals(targetBound)) continue;
             String sourceFqn = valueOr(metadata.get("source_fqn"), source == null ? null : source.getFqn());
             String targetFqn = valueOr(metadata.get("target_fqn"), target == null ? null : target.getFqn());
             if (sourceFqn == null || targetFqn == null) continue;
@@ -459,6 +488,9 @@ public class KnowledgeDocPublishService {
             fact.put("relation_type", relationship.getRelationType());
             fact.put("source_snapshot_id", metadata.get("source_snapshot_id"));
             fact.put("target_snapshot_id", metadata.get("target_snapshot_id"));
+            fact.put("source_bound_snapshot_id", sourceBound);
+            fact.put("target_bound_snapshot_id", targetBound);
+            // 该字段只表示本文档所属数据源一侧的绑定快照，不再是“两端同一快照”的声明。
             fact.put("bound_snapshot_id", snapshotId);
             fact.put("binding_status", "BOUND");
             fact.put("confirmation_status", "CONFIRMED");
@@ -470,6 +502,15 @@ public class KnowledgeDocPublishService {
             facts.add(fact);
         }
         return facts;
+    }
+
+    /** 端点自己的绑定快照；历史记录没有端点字段时回退到旧的单侧 bound_snapshot_id。 */
+    private String boundSnapshot(Map<String, Object> metadata, String key) {
+        Object value = metadata.get(key);
+        if (value == null || String.valueOf(value).isBlank()) {
+            value = metadata.get("bound_snapshot_id");
+        }
+        return value == null || String.valueOf(value).isBlank() ? null : String.valueOf(value);
     }
 
     private Map<String, Object> readJsonMap(String json) {
@@ -500,7 +541,7 @@ public class KnowledgeDocPublishService {
     }
 
     /**
-     * 从 AI 生成结果中安全提取 warnings 列表。
+     * 从目录生成结果中安全提取 warnings 列表。
      */
     private List<?> resultWarnings(Map<String, Object> result) {
         Object warnings = result.get("warnings");

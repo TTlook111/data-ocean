@@ -2,16 +2,16 @@ package com.dataocean.module.metadata.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.common.pagination.PageRequest;
+import com.dataocean.common.entity.query.PageQuery;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.system.aspect.AdminAuditLog;
-import com.dataocean.module.datasource.entity.Datasource;
+import com.dataocean.module.datasource.entity.po.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
-import com.dataocean.module.metadata.entity.SchemaSyncTask;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.SchemaSyncTask;
 import com.dataocean.module.metadata.entity.dto.SyncTriggerDTO;
 import com.dataocean.module.metadata.entity.vo.SchemaDiffVO;
 import com.dataocean.module.metadata.entity.vo.SnapshotVO;
@@ -116,9 +116,9 @@ public class MetadataCollectionController {
         }
         List<Long> scope = datasourceId != null ? List.of(datasourceId) : visible;
         if (scope.isEmpty()) {
-            return Result.success(new Page<>(PageRequest.page(page), PageRequest.size(size), 0));
+            return Result.success(new Page<>(PageQuery.normalizePage(page), PageQuery.normalizePageSize(size), 0));
         }
-        Page<SchemaSyncTask> pageParam = new Page<>(PageRequest.page(page), PageRequest.size(size));
+        Page<SchemaSyncTask> pageParam = new Page<>(PageQuery.normalizePage(page), PageQuery.normalizePageSize(size));
         LambdaQueryWrapper<SchemaSyncTask> wrapper = new LambdaQueryWrapper<SchemaSyncTask>()
                 .in(SchemaSyncTask::getDatasourceId, scope)
                 .orderByDesc(SchemaSyncTask::getCreatedAt);
@@ -150,9 +150,9 @@ public class MetadataCollectionController {
         }
         List<Long> scope = datasourceId != null ? List.of(datasourceId) : visible;
         if (scope.isEmpty()) {
-            return Result.success(new Page<>(PageRequest.page(page), PageRequest.size(size), 0));
+            return Result.success(new Page<>(PageQuery.normalizePage(page), PageQuery.normalizePageSize(size), 0));
         }
-        Page<MetadataSnapshot> pageParam = new Page<>(PageRequest.page(page), PageRequest.size(size));
+        Page<MetadataSnapshot> pageParam = new Page<>(PageQuery.normalizePage(page), PageQuery.normalizePageSize(size));
         LambdaQueryWrapper<MetadataSnapshot> wrapper = new LambdaQueryWrapper<MetadataSnapshot>()
                 .in(MetadataSnapshot::getDatasourceId, scope)
                 .orderByDesc(MetadataSnapshot::getCreatedAt);

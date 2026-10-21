@@ -2,13 +2,13 @@ package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataMaskCandidateService;
 import com.dataocean.module.permission.s1.IamS1Constants;
-import com.dataocean.module.permission.s1.entity.IamS1FieldProtection;
+import com.dataocean.module.permission.s1.entity.po.IamS1FieldProtection;
 import com.dataocean.module.permission.s1.entity.dto.IamS1FieldProtectionSaveDTO;
 import com.dataocean.module.permission.s1.mapper.IamS1FieldProtectionMapper;
 import com.dataocean.module.permission.s1.service.IamS1FieldProtectionService;

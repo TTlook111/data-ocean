@@ -37,7 +37,7 @@ Steps:
 - IAM decisions use isolated S1 facts only: no old roles, JWT authorities, grants, cache mapping/backfill or compatibility fallback. IamS1AuthorizationAspect must retain both @Aspect and @Component.
 - Knowledge publication and explicit RAG build confirmation are separate. Pin snapshot/version/build membership; verify replacement before pointer switching, and preserve active/in-flight collections until references end.
 - COMPLETED needs a nonblank attemptId and exact SQL hash matching the same task's PROTECTED attempt. Never weaken the completion contract.
-- V53 is permanently unused. Recheck the highest occupied migration before choosing a new version; do not add V53 or empty placeholders. The current tree reaches V64.
+- V53 is permanently unused. Recheck the highest occupied migration before choosing a new version; do not add V53 or empty placeholders. Current migration state belongs in docs/项目现状.md, not in this instruction file.
 - tokenVersion and the current JWT invalidation keys stay until a replacement session mechanism is implemented and verified.
 - Code existence, test success, API acceptance and browser acceptance are distinct. Never infer completion from file size or route reachability.
 
@@ -77,7 +77,7 @@ Steps:
   - Java grants `ROLE_INTERNAL` in `InternalTokenFilter` and `SecurityConfig` requires that authority for `/internal/**`; the filter and the authorization rule share one `RequestMatcher`. Never restore `permitAll()` for `/internal/**` — that turns "filter skipped" into "request allowed".
   - Compare in constant time, encoding to UTF-8 bytes first (header values arrive latin-1 decoded; a non-ASCII byte would otherwise raise instead of returning 403).
   - Java and Python must be configured with the same value; a mismatch surfaces as 403s, so keep the 401/403 warn-level logging in `schema_retriever` rather than lowering it to debug.
-- `jwt.secret` is required with no usable default, and a public value would let anyone forge any user's session. Keep it absent from **both** `application.yml` and `application-dev.yml` (the dev copy is the one that takes effect, since `dev` is the default profile). Validation lives in `JwtTokenProvider#buildSecretKey`; a missing, blank, whitespace-containing, or sub-32-byte secret must fail startup. Local development supplies it from the gitignored `config/application-local.yml`. `openssl rand -base64 32` generates a suitable value.
+- `jwt.secret` is required with no usable default, and a public value would let anyone forge any user's session. Keep usable secrets absent from tracked configuration; `application.yml` uses `${JWT_SECRET:}`. Validation lives in `JwtTokenProvider#buildSecretKey`; a missing, blank, whitespace-containing, or sub-32-byte secret must fail startup. Local development supplies it from the gitignored `src/main/resources/application-local.yml`. Exclude that file and `application-local.example.yml` from final JARs while retaining local configuration on the development classpath. `openssl rand -base64 32` generates a suitable value.
 - Note the asymmetry: the internal token must match across Java and Python; `jwt.secret` is Java-only (Python never verifies JWTs), so it never needs to be shared between services.
 - AI model, API key, temperature and similar settings do **not** belong in this category: they are managed through the admin page, stored in `sys_config`, and pushed to Python at runtime. Missing AI config in `.env` only logs a warning and must never block startup. Do not "harden" them into required variables.
 
@@ -99,7 +99,7 @@ Steps:
 - Python package name: `dataocean.*`.
 - Database migrations: `backend/DataOcean/src/main/resources/db/migration/V{version}__{description}.sql`.
 - API prefixes: `/api/*` for user APIs, `/api/admin/*` for admin APIs, `/internal/*` for internal Java/Python APIs.
-- Entity-related Java objects live under `entity`: database entities in `entity`, request/transport DTOs in `entity.dto` with `*DTO`, query objects in `entity.query` with `*Query`, and response/view objects in `entity.vo` with `*VO`.
+- Entity-related Java objects live under `entity`: database entities and persistence projections in `entity.po`, request/transport DTOs in `entity.dto` with `*DTO`, query objects in `entity.query` with `*Query`, and response/view objects in `entity.vo` with `*VO`. Paginated query objects extend `com.dataocean.common.entity.query.PageQuery`; do not duplicate pagination fields or put query conditions in DTOs. Map client sort fields through an endpoint whitelist before constructing MyBatis-Plus orders.
 - Mapper classes live in `mapper`, controllers in `controller`, service interfaces in `service`, implementations in `service.impl` with `*ServiceImpl`.
 - External service clients such as Python clients live in a module-local `client` package, with implementations in `client.impl`; do not mix them into `service`.
 - Do not create database-level foreign key constraints. Keep association IDs and ordinary indexes, and validate relationship integrity in service-layer business logic.

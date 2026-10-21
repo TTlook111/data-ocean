@@ -1,7 +1,7 @@
 package com.dataocean.module.permission.s1.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.permission.s1.entity.IamS1UserRole;
+import com.dataocean.module.permission.s1.entity.po.IamS1UserRole;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;

@@ -8,12 +8,12 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.audit.service.AuditLogService;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
-import com.dataocean.module.datasource.entity.Datasource;
-import com.dataocean.module.datasource.entity.DatasourceSecret;
+import com.dataocean.module.datasource.entity.po.Datasource;
+import com.dataocean.module.datasource.entity.po.DatasourceSecret;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
-import com.dataocean.module.knowledge.entity.RagIndexBuild;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuild;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DataAuthorizationSnapshot;
 import com.dataocean.module.permission.s1.entity.vo.IamS1FieldProtectionVO;
 import com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO;
@@ -22,8 +22,8 @@ import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver
 import com.dataocean.module.permission.s1.enums.IamS1ColumnUsage;
 import com.dataocean.module.query.client.IamS1PythonClient;
 import com.dataocean.module.query.controller.IamS1QuerySseController;
-import com.dataocean.module.query.entity.QueryAttempt;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.po.QueryAttempt;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.entity.query.QueryHistoryQuery;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.dataocean.module.query.service.IamS1RowBindingService;
@@ -96,6 +96,7 @@ class IamS1QueryServiceImplTest {
     @Mock private KnowledgeChunkMapper knowledgeChunkMapper;
     @Mock private com.dataocean.module.knowledge.mapper.RagIndexBuildChunkMapper ragIndexBuildChunkMapper;
     @Mock private com.dataocean.module.knowledge.service.RagIndexBuildService ragIndexBuildService;
+    @Mock private com.dataocean.module.glossary.service.GlossaryTermWorkflowService termWorkflow;
     @Mock private AuditLogService auditLogService;
     @Mock private com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     @Mock private com.dataocean.common.security.DataMaskingService maskingService;
@@ -208,12 +209,12 @@ class IamS1QueryServiceImplTest {
                         .history(List.of(Map.of("role", "user", "content", "上一轮订单")))
                         .summary(Map.of("intent", "订单统计"))
                         .build());
-        com.dataocean.module.glossary.entity.GlossaryTerm glossaryTerm =
-                new com.dataocean.module.glossary.entity.GlossaryTerm();
+        com.dataocean.module.glossary.entity.po.GlossaryTerm glossaryTerm =
+                new com.dataocean.module.glossary.entity.po.GlossaryTerm();
         glossaryTerm.setId(9L);
         glossaryTerm.setName("订单");
         glossaryTerm.setDisplayName("订单");
-        glossaryTerm.setStatus(com.dataocean.module.glossary.entity.GlossaryTerm.STATUS_APPROVED);
+        glossaryTerm.setStatus(com.dataocean.module.glossary.entity.po.GlossaryTerm.STATUS_APPROVED);
         when(glossaryTermMapper.selectList(any())).thenReturn(List.of(glossaryTerm));
         when(metadataRelationshipService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of());
         QueryTask previous = QueryTask.builder().userId(7L).datasourceId(1L)
@@ -246,7 +247,7 @@ class IamS1QueryServiceImplTest {
                 .containsEntry("ragCollectionName", collectionName)
                 .containsEntry("ragSourceSnapshotId", 88L)
                 .containsKey("candidateCatalog");
-        assertThat(body.getValue().get("glossaryTerms").toString()).contains("订单");
+        assertThat((List<?>) body.getValue().get("glossaryTerms")).isEmpty();
         assertThat(body.getValue().get("fewShotExamples").toString()).contains("上一轮订单");
         assertThat(body.getValue().get("fewShotExamples").toString()).contains("datasourceId=1");
         assertThat(body.getValue().get("fewShotExamples").toString()).contains("activeMetadataSnapshotId=88");
@@ -702,10 +703,12 @@ class IamS1QueryServiceImplTest {
     @Test
     void glossaryConvertsRealMetadataFqnToFirewallTableColumnContract() throws Exception {
         var term = approvedTerm(9L, "订单");
-        var relation = new com.dataocean.module.metadata.entity.MetadataRelationship();
+        term.setReviewHash("reviewed-hash");
+        when(termWorkflow.factValid(9L, "reviewed-hash")).thenReturn(true);
+        var relation = new com.dataocean.module.metadata.entity.po.MetadataRelationship();
         relation.setSourceId(9L);
         relation.setTargetId(20L);
-        var entity = new com.dataocean.module.metadata.entity.MetadataEntity();
+        var entity = new com.dataocean.module.metadata.entity.po.MetadataEntity();
         entity.setId(20L);
         entity.setFqn("db.sales.orders.id");
         when(glossaryTermMapper.selectList(any())).thenReturn(List.of(term));
@@ -721,7 +724,7 @@ class IamS1QueryServiceImplTest {
     @Test
     void glossaryDropsTermWhenRelatedEntityIsMissingOrCrossDatasource() throws Exception {
         var term = approvedTerm(9L, "订单");
-        var relation = new com.dataocean.module.metadata.entity.MetadataRelationship();
+        var relation = new com.dataocean.module.metadata.entity.po.MetadataRelationship();
         relation.setSourceId(9L);
         relation.setTargetId(20L);
         when(glossaryTermMapper.selectList(any())).thenReturn(List.of(term));
@@ -729,7 +732,7 @@ class IamS1QueryServiceImplTest {
         when(metadataEntityService.listByIds(any())).thenReturn(List.of());
         assertThat(invokeGlossary(snapshot())).isEmpty();
 
-        var crossDatasource = new com.dataocean.module.metadata.entity.MetadataEntity();
+        var crossDatasource = new com.dataocean.module.metadata.entity.po.MetadataEntity();
         crossDatasource.setId(20L);
         crossDatasource.setFqn("other.sales.orders.id");
         when(metadataEntityService.listByIds(any())).thenReturn(List.of(crossDatasource));
@@ -745,12 +748,12 @@ class IamS1QueryServiceImplTest {
         assertThat(invokeGlossary(snapshot())).isEmpty();
     }
 
-    private com.dataocean.module.glossary.entity.GlossaryTerm approvedTerm(Long id, String name) {
-        var term = new com.dataocean.module.glossary.entity.GlossaryTerm();
+    private com.dataocean.module.glossary.entity.po.GlossaryTerm approvedTerm(Long id, String name) {
+        var term = new com.dataocean.module.glossary.entity.po.GlossaryTerm();
         term.setId(id);
         term.setName(name);
         term.setDisplayName(name);
-        term.setStatus(com.dataocean.module.glossary.entity.GlossaryTerm.STATUS_APPROVED);
+        term.setStatus(com.dataocean.module.glossary.entity.po.GlossaryTerm.STATUS_APPROVED);
         return term;
     }
 

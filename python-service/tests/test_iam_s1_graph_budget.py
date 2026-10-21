@@ -10,6 +10,27 @@ from dataocean.iam_s1 import graph as graph_module
 
 
 @pytest.mark.asyncio
+async def test_context_budget_failure_returns_safe_terminal_instead_of_undefined_handler(monkeypatch):
+    class Graph:
+        async def aget_state(self, _config):
+            return SimpleNamespace(values={})
+
+        async def astream(self, *_args, **_kwargs):
+            raise graph_module.BudgetExceeded("当前候选上下文超过模型预算，请缩小问题范围后重试。")
+            yield  # 保持与真实图相同的异步迭代接口。
+
+    monkeypatch.setattr(graph_module, "_checkpointer", object())
+    monkeypatch.setattr(graph_module, "_graph", AsyncMock(return_value=Graph()))
+    monkeypatch.setattr(graph_module, "_initial_state", lambda _request: {})
+    request = SimpleNamespace(taskId="context-budget", userId=7, datasourceId=1,
+        conversationId=42, conversationThreadId="iam-s1:7:1:42", activeMetadataSnapshotId=88,
+        permissionRevision=9, candidateCatalog=SimpleNamespace(datasourceId=1, activeMetadataSnapshotId=88, permissionRevision=9))
+    result = await graph_module._run_query_graph_once(request)
+    assert result["status"] == "FAILED"
+    assert "上下文超过模型预算" in result["error"]
+
+
+@pytest.mark.asyncio
 async def test_graph_model_calls_reserve_and_settle_durable_budget(monkeypatch):
     from dataocean.core.config import settings
 

@@ -1,7 +1,7 @@
 package com.dataocean.module.fieldtag.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.fieldtag.entity.PredefinedTag;
+import com.dataocean.module.fieldtag.entity.po.PredefinedTag;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

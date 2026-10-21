@@ -1,8 +1,8 @@
 package com.dataocean.module.governance.checker;
 
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -42,8 +42,8 @@ public class AccuracyChecker implements QualityChecker {
     private static final Pattern ID_PATTERN = Pattern.compile(".*_id$", Pattern.CASE_INSENSITIVE);
     private static final Set<String> TIME_TYPES = Set.of("datetime", "timestamp", "date", "time");
     private static final Set<String> INT_TYPES = Set.of("int", "bigint", "integer", "smallint", "tinyint", "mediumint");
-    // 枚举字段的 distinct_count 阈值：超过此值认为不是枚举
-    private static final long ENUM_DISTINCT_THRESHOLD = 50;
+    // 兼容旧规则；新实例从受支持模板的结构化参数读取阈值。
+    private static final int DEFAULT_ENUM_DISTINCT_THRESHOLD = 50;
 
     /**
      * {@inheritDoc}
@@ -65,6 +65,8 @@ public class AccuracyChecker implements QualityChecker {
 
         MetadataQualityRule typeMismatchRule = ruleMap.get("ACCU_TYPE_NAME_MISMATCH");
         MetadataQualityRule enumAnomalyRule = ruleMap.get("ACCU_ENUM_ANOMALY");
+        int enumDistinctThreshold = enumAnomalyRule == null ? DEFAULT_ENUM_DISTINCT_THRESHOLD
+                : QualityRuleParameterReader.integer(enumAnomalyRule, "maxDistinctValues", DEFAULT_ENUM_DISTINCT_THRESHOLD);
 
         for (DbColumnMeta col : context.columns()) {
             String colName = col.getColumnName().toLowerCase();
@@ -92,10 +94,10 @@ public class AccuracyChecker implements QualityChecker {
 
             // 枚举值异常：字段名含 status/type/level 但 distinct_count 过高
             if (enumAnomalyRule != null && col.getDistinctCount() != null) {
-                if (isLikelyEnumField(colName) && col.getDistinctCount() > ENUM_DISTINCT_THRESHOLD) {
+                if (isLikelyEnumField(colName) && col.getDistinctCount() > enumDistinctThreshold) {
                     issues.add(buildIssue(context, enumAnomalyRule, col.getTableName(), col.getColumnName(),
                             String.format("字段 %s.%s 命名暗示枚举类型，但去重值数量为 %d（超过阈值 %d）",
-                                    col.getTableName(), col.getColumnName(), col.getDistinctCount(), ENUM_DISTINCT_THRESHOLD),
+                                    col.getTableName(), col.getColumnName(), col.getDistinctCount(), enumDistinctThreshold),
                             "建议确认该字段是否为枚举字段，如是则检查数据质量"));
                 }
             }

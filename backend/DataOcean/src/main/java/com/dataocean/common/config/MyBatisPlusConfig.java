@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.handlers.MetaObjectHandler;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
+import com.dataocean.common.entity.query.PageQuery;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.reflection.MetaObject;
 import org.springframework.context.annotation.Bean;
@@ -39,7 +40,7 @@ public class MyBatisPlusConfig {
         // 创建分页内置拦截器，指定 MySQL 方言
         PaginationInnerInterceptor pagination = new PaginationInnerInterceptor(DbType.MYSQL);
         // 限制单页最大查询 100 条，防止一次性拉取过多数据
-        pagination.setMaxLimit(100L);
+        pagination.setMaxLimit(PageQuery.MAX_PAGE_SIZE);
         interceptor.addInnerInterceptor(pagination);
         return interceptor;
     }

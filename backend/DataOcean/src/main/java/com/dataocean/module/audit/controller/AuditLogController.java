@@ -8,7 +8,7 @@ import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
 import com.dataocean.module.permission.s1.annotation.IamS1Resource;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
-import com.dataocean.module.audit.entity.dto.AuditLogQueryDTO;
+import com.dataocean.module.audit.entity.query.AuditLogQuery;
 import com.dataocean.module.audit.entity.vo.AuditLogVO;
 import com.dataocean.module.audit.entity.vo.AuditStatsVO;
 import com.dataocean.module.audit.service.AuditLogService;
@@ -49,7 +49,7 @@ public class AuditLogController {
     /** 多维度筛选分页查询 */
     @GetMapping
     @IamS1ScopedList(VIEW_FUNCTION)
-    public Result<Page<AuditLogVO>> listAuditLogs(@ModelAttribute AuditLogQueryDTO query) {
+    public Result<Page<AuditLogVO>> listAuditLogs(@ModelAttribute AuditLogQuery query) {
         // 负责源范围下推 SQL；空范围返回空页，显式筛选无权数据源时 Service 抛 403。
         return Result.success(auditLogService.listAuditLogsInDatasources(query, visibleDatasourceIds()));
     }

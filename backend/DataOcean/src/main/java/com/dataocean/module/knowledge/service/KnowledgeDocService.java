@@ -1,7 +1,7 @@
 package com.dataocean.module.knowledge.service;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.knowledge.entity.KnowledgeDoc;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDoc;
 
 import java.util.List;
 import java.util.Map;

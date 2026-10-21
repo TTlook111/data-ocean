@@ -1,25 +1,25 @@
 package com.dataocean.module.permission.s1.resource;
 
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataEntityMapper;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.permission.s1.resource.impl.LineageRelationshipResourceResolver;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
-import com.dataocean.module.fieldtag.entity.UserFeedback;
+import com.dataocean.module.fieldtag.entity.po.UserFeedback;
 import com.dataocean.module.fieldtag.mapper.UserFeedbackMapper;
-import com.dataocean.module.permission.s1.entity.IamS1DatasourceFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1DatasourceFact;
 import com.dataocean.module.permission.s1.mapper.IamS1DatasourceIdentityMapper;
 import com.dataocean.module.permission.s1.resource.impl.DatasourceResourceResolver;
 import com.dataocean.module.permission.s1.resource.impl.FeedbackReviewResourceResolver;
 import com.dataocean.module.permission.s1.resource.impl.MetadataColumnResourceResolver;
 import com.dataocean.module.permission.s1.resource.impl.MetadataEntityResourceResolver;
 import com.dataocean.module.permission.s1.resource.impl.SnapshotResourceResolver;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import org.junit.jupiter.api.Test;
 

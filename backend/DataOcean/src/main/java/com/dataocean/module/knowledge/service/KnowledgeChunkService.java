@@ -1,7 +1,7 @@
 package com.dataocean.module.knowledge.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.dataocean.module.knowledge.entity.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.po.KnowledgeChunk;
 
 /**
  * 知识文档切片服务接口

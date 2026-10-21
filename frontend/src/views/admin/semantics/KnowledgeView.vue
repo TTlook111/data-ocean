@@ -37,6 +37,7 @@ import { knowledgeStatusLabel } from '../../../utils/enumLabels'
 import { findDomainHome, resolveReadinessAction } from '../../../utils/adminNavigation'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
+import KnowledgeSourcePreview from '../../../components/admin/KnowledgeSourcePreview.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import TitleHelp from '../../../components/admin/TitleHelp.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
@@ -326,7 +327,7 @@ const emptyMessage = computed(() => {
 const emptyAction = computed(() => {
   if (activeTab.value === 'review') return ''
   if (publishedSnapshotError.value) return ''
-  if (!publishedSnapshot.value && datasourceId.value) return '去版本发布'
+  if (!publishedSnapshot.value && datasourceId.value) return '去元数据版本'
   return '生成快照目录'
 })
 
@@ -389,6 +390,7 @@ async function reject(doc: KnowledgeDocItem) {
 
 const generateDialogVisible = ref(false)
 const generateLoading = ref(false)
+const generationReady = ref(false)
 const generateForm = reactive<{ datasourceId?: number; snapshotId?: number }>({})
 const snapshots = ref<SnapshotItem[]>([])
 const generatedDocs = ref<Array<{ id: number; title: string; tableNames: string[] }>>([])
@@ -706,6 +708,7 @@ watch(() => route.query.page, (value) => {
             </el-select>
           </el-form-item>
         </el-form>
+        <KnowledgeSourcePreview :datasource-id="generateForm.datasourceId" :snapshot-id="generateForm.snapshotId" @ready="generationReady = $event" />
       </template>
 
       <template v-else>
@@ -723,7 +726,7 @@ watch(() => route.query.page, (value) => {
 
       <template #footer>
         <el-button @click="generateDialogVisible = false">{{ generatedDocs.length ? '关闭' : '取消' }}</el-button>
-        <el-button v-if="!generatedDocs.length" type="primary" :loading="generateLoading" :disabled="!canManage" @click="runGenerate">
+        <el-button v-if="!generatedDocs.length" type="primary" :loading="generateLoading" :disabled="!canManage || !generationReady" @click="runGenerate">
           <Sparkles :size="15" style="margin-right: 6px" />开始生成
         </el-button>
       </template>
@@ -732,7 +735,8 @@ watch(() => route.query.page, (value) => {
 </template>
 
 <style scoped>
-.knowledge-page { display: grid; gap: 16px; }
+.knowledge-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.knowledge-page > * { min-width: 0; }
 .knowledge-page__section-title { position: relative; width: fit-content; max-width: 100%; padding-right: 14px; }
 .knowledge-page__details summary { cursor: pointer; padding: 12px 0; font-size: 14px; color: var(--do-ink); }
 .knowledge-page__details[open] summary { margin-bottom: 16px; }

@@ -7,6 +7,8 @@ import lombok.Data;
  */
 @Data
 public class TermReviewDTO {
+    private Long revision;
+
     /** 是否通过 */
     private boolean approved;
     /** 审核原因 */

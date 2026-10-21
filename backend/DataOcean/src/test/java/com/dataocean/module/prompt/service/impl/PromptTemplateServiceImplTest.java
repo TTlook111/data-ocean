@@ -1,7 +1,7 @@
 package com.dataocean.module.prompt.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.audit.entity.QueryAuditLog;
+import com.dataocean.module.audit.entity.po.QueryAuditLog;
 import com.dataocean.module.audit.mapper.QueryAuditLogMapper;
 import com.dataocean.module.prompt.entity.vo.PromptEffectivenessVO;
 import com.dataocean.module.prompt.mapper.PromptTemplateMapper;

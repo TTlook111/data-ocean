@@ -2,11 +2,11 @@ package com.dataocean.module.governance.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.governance.entity.MetadataReviewRecord;
+import com.dataocean.module.governance.entity.po.MetadataReviewRecord;
 import com.dataocean.module.governance.mapper.MetadataReviewRecordMapper;
 import com.dataocean.module.governance.service.GovernanceStatusService;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import lombok.RequiredArgsConstructor;

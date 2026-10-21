@@ -1,7 +1,7 @@
 package com.dataocean.module.audit.entity.vo;
 
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import lombok.Data;
 
 import java.util.List;

@@ -1,6 +1,6 @@
 package com.dataocean.common.security;
 
-import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.entity.po.SysUser;
 import com.dataocean.module.user.mapper.UserMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.core.userdetails.UserDetails;

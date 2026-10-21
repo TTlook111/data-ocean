@@ -4,23 +4,54 @@ import { Database, LockKeyhole, RefreshCw } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { useAdminContextStore } from '../../stores/adminContext'
 import type { AdminContextMode } from '../../router/adminNavigation'
+import { getHttpErrorMessage } from '../../utils/httpError'
 import { snapshotStatusLabel } from '../../utils/enumLabels'
 import TitleHelp from './TitleHelp.vue'
 
-const props = defineProps<{ mode: AdminContextMode }>()
+const props = withDefaults(defineProps<{
+  mode: AdminContextMode
+  refreshLabel?: string
+  compact?: boolean
+  showControlLabels?: boolean
+  /** 仅供需要把列表加载与路由范围校验串联的页面观察同步状态。 */
+  trackRouteSync?: boolean
+  /** 刷新后重新校验 URL 中显式指定的快照，避免回落到最新快照。 */
+  preserveRouteContextOnRefresh?: boolean
+}>(), {
+  refreshLabel: '',
+  compact: false,
+  showControlLabels: false,
+  trackRouteSync: false,
+  preserveRouteContextOnRefresh: false,
+})
 const route = useRoute()
 const router = useRouter()
 const context = useAdminContextStore()
 const invalidContext = ref('')
 let syncing = false
+let syncPending = false
+const scopeRefreshLoading = ref(false)
 
 const showSnapshot = computed(() => props.mode === 'datasource-snapshot')
 const queryDatasourceId = computed(() => Number(route.query.datasourceId) || undefined)
 const querySnapshotId = computed(() => Number(route.query.snapshotId) || undefined)
+const selectedDatasourceLabel = computed(() => {
+  const item = context.datasources.find((datasource) => datasource.id === context.datasourceId)
+  return item ? `${item.name} / ${item.databaseName}` : undefined
+})
 
 async function syncFromUrl() {
-  if (syncing) return
+  if (syncing) {
+    syncPending = true
+    return
+  }
   syncing = true
+  context.routeSyncError = ''
+  if (props.trackRouteSync) {
+    context.routeSyncing = true
+  } else {
+    context.routeSyncing = false
+  }
   invalidContext.value = ''
   try {
     await context.initialize()
@@ -34,19 +65,59 @@ async function syncFromUrl() {
     }
 
     if (showSnapshot.value && querySnapshotId.value) {
-      if (!context.snapshots.some((item) => item.id === querySnapshotId.value)) {
-        invalidContext.value = 'URL 中的快照不属于当前数据源，已清除该快照范围。'
+      let found = context.snapshots.some((item) => item.id === querySnapshotId.value)
+      if (!found) {
+        // 首批 50 条之外的快照按 ID 精确读取；失败时保留明确错误，不回退到最新快照。
+        try {
+          await context.ensureSnapshot(querySnapshotId.value)
+          found = context.snapshots.some((item) => item.id === querySnapshotId.value)
+        } catch (cause) {
+          invalidContext.value = `指定的快照无法加载：${getHttpErrorMessage(
+            cause,
+            '快照不存在、无权访问或加载失败',
+          )}。未切换到其他快照。`
+          if (props.trackRouteSync) context.routeSyncError = invalidContext.value
+        }
+      }
+      if (found) {
+        if (context.snapshotId !== querySnapshotId.value) {
+          context.selectSnapshot(querySnapshotId.value)
+        }
+      } else {
         context.selectSnapshot(undefined)
-      } else if (context.snapshotId !== querySnapshotId.value) {
-        context.selectSnapshot(querySnapshotId.value)
       }
     }
   } catch (cause) {
     invalidContext.value = cause instanceof Error
       ? cause.message
       : '数据源范围加载失败，请检查后台服务后重试。'
+    if (props.trackRouteSync) context.routeSyncError = invalidContext.value
   } finally {
     syncing = false
+    if (syncPending) {
+      syncPending = false
+      void syncFromUrl()
+    } else {
+      context.routeSyncing = false
+    }
+  }
+}
+
+async function refreshScope() {
+  context.routeSyncError = ''
+  if (!props.preserveRouteContextOnRefresh) {
+    await context.refresh()
+    return
+  }
+  scopeRefreshLoading.value = true
+  try {
+    await context.refresh()
+    await syncFromUrl()
+  } catch (cause) {
+    invalidContext.value = cause instanceof Error ? cause.message : '范围刷新失败，请重试。'
+    context.routeSyncError = invalidContext.value
+  } finally {
+    scopeRefreshLoading.value = false
   }
 }
 
@@ -60,11 +131,13 @@ function updateQuery(next: Record<string, number | undefined>) {
 }
 
 async function handleDatasourceChange(id?: number) {
+  context.routeSyncError = ''
   await context.selectDatasource(id)
   updateQuery({ datasourceId: id, snapshotId: undefined })
 }
 
 function handleSnapshotChange(id?: number) {
+  context.routeSyncError = ''
   context.selectSnapshot(id)
   updateQuery({ snapshotId: id })
 }
@@ -74,7 +147,7 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
 </script>
 
 <template>
-  <section class="scope-bar" aria-label="后台业务范围">
+  <section class="scope-bar" :class="{ 'scope-bar--compact': compact, 'scope-bar--labeled-inline': showControlLabels && !compact }" aria-label="后台业务范围">
     <div class="scope-bar__intro">
       <LockKeyhole v-if="mode === 'locked-resource'" :size="16" />
       <Database v-else :size="16" />
@@ -88,38 +161,65 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
     </div>
 
     <div class="scope-bar__controls">
-      <el-select
-        :model-value="context.datasourceId"
-        :loading="context.loading"
-        filterable
-        clearable
-        placeholder="选择数据源"
-        @update:model-value="handleDatasourceChange"
+      <div class="scope-bar__datasource-control">
+        <span v-if="compact || showControlLabels" class="scope-bar__control-label">数据源</span>
+        <el-select
+          :model-value="context.datasourceId"
+          :loading="context.loading"
+          filterable
+          clearable
+          placeholder="选择数据源"
+          :aria-label="selectedDatasourceLabel ? `数据源：${selectedDatasourceLabel}` : '选择数据源'"
+          :title="selectedDatasourceLabel"
+          @update:model-value="handleDatasourceChange"
+        >
+          <el-option
+            v-for="item in context.datasources"
+            :key="item.id"
+            :value="item.id"
+            :label="item.name + ' / ' + item.databaseName"
+            :title="item.name + ' / ' + item.databaseName"
+          />
+        </el-select>
+      </div>
+      <div v-if="showSnapshot" class="scope-bar__snapshot-control">
+        <span v-if="compact || showControlLabels" class="scope-bar__control-label">快照</span>
+        <el-select
+          :model-value="context.snapshotId"
+          :loading="context.loading"
+          clearable
+          :disabled="!context.datasourceId"
+          placeholder="选择快照"
+          :aria-label="context.currentSnapshot ? `快照：v${context.currentSnapshot.snapshotVersion} · ${snapshotStatusLabel(context.currentSnapshot.status)}` : '选择快照'"
+          :title="context.currentSnapshot ? `v${context.currentSnapshot.snapshotVersion} · ${snapshotStatusLabel(context.currentSnapshot.status)}` : undefined"
+          @update:model-value="handleSnapshotChange"
+        >
+          <el-option
+            v-for="item in context.snapshots"
+            :key="item.id"
+            :value="item.id"
+            :label="'v' + item.snapshotVersion + ' · ' + snapshotStatusLabel(item.status)"
+          />
+        </el-select>
+      </div>
+      <el-tooltip
+        v-if="compact || showControlLabels"
+        class="scope-bar__refresh-tooltip"
+        :content="refreshLabel || '刷新范围'"
+        :trigger="['hover', 'focus']"
+        placement="top"
       >
-        <el-option
-          v-for="item in context.datasources"
-          :key="item.id"
-          :value="item.id"
-          :label="item.name + ' / ' + item.databaseName"
+        <el-button
+          class="scope-bar__refresh-icon"
+          :icon="RefreshCw"
+          :loading="context.loading || scopeRefreshLoading"
+          :aria-label="refreshLabel || '刷新范围'"
+          @click="refreshScope"
         />
-      </el-select>
-      <el-select
-        v-if="showSnapshot"
-        :model-value="context.snapshotId"
-        :loading="context.loading"
-        clearable
-        :disabled="!context.datasourceId"
-        placeholder="选择快照"
-        @update:model-value="handleSnapshotChange"
-      >
-        <el-option
-          v-for="item in context.snapshots"
-          :key="item.id"
-          :value="item.id"
-          :label="'v' + item.snapshotVersion + ' · ' + snapshotStatusLabel(item.status)"
-        />
-      </el-select>
-      <el-button :icon="RefreshCw" :loading="context.loading" aria-label="刷新范围" @click="context.refresh" />
+      </el-tooltip>
+      <el-button v-else :icon="RefreshCw" :loading="context.loading" :aria-label="refreshLabel || '刷新范围'" @click="refreshScope">
+        <span v-if="refreshLabel">{{ refreshLabel }}</span>
+      </el-button>
     </div>
 
     <p v-if="invalidContext" class="scope-bar__warning">{{ invalidContext }}</p>
@@ -139,6 +239,61 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
   border-radius: var(--do-radius-lg);
   background: linear-gradient(120deg, var(--do-primary-soft), var(--do-surface) 60%);
 }
+
+.scope-bar--compact { display: contents; }
+.scope-bar--compact .scope-bar__intro { display: none; }
+.scope-bar--compact .scope-bar__controls { display: contents; }
+.scope-bar--compact .scope-bar__datasource-control,
+.scope-bar--compact .scope-bar__snapshot-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.scope-bar__datasource-control,
+.scope-bar__snapshot-control {
+  display: contents;
+}
+.scope-bar__control-label {
+  flex: 0 0 auto;
+  color: var(--do-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.scope-bar--compact .scope-bar__datasource-control {
+  flex: 0 1 488px;
+  min-width: 240px;
+  max-width: 488px;
+}
+.scope-bar--compact .scope-bar__datasource-control :deep(.el-select) {
+  flex: 1 1 400px;
+  width: 400px;
+  min-width: 180px;
+  max-width: 440px;
+}
+.scope-bar--compact .scope-bar__snapshot-control { flex: 0 1 240px; }
+.scope-bar--compact .scope-bar__snapshot-control :deep(.el-select) {
+  flex: 1 1 180px;
+  width: 180px;
+  min-width: 160px;
+  max-width: 200px;
+}
+.scope-bar--compact :deep(.el-select__wrapper) { min-height: 36px; }
+.scope-bar--compact .scope-bar__refresh-tooltip { display: inline-flex; flex: 0 0 auto; }
+.scope-bar--compact .scope-bar__refresh-icon {
+  width: 36px;
+  padding: 0;
+  min-height: 36px;
+  border-color: transparent;
+  color: var(--do-muted);
+  background: transparent;
+  box-shadow: none;
+}
+.scope-bar--compact .scope-bar__refresh-icon:hover {
+  color: var(--do-primary-strong);
+  background: var(--do-primary-soft);
+}
+.scope-bar--compact .scope-bar__warning { flex: 1 1 100%; margin: 0; }
 
 .scope-bar__intro,
 .scope-bar__controls {
@@ -178,5 +333,62 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
 }
 @media (max-width: 1150px) { .scope-bar { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .scope-bar { margin: 14px 18px 0; } .scope-bar__controls { flex-wrap: wrap; } .scope-bar__controls :deep(.el-select) { flex: 1 1 150px; } }
+@media (max-width: 760px) {
+  .scope-bar--compact .scope-bar__datasource-control { flex: 1 1 100%; max-width: none; }
+  .scope-bar--compact .scope-bar__datasource-control :deep(.el-select) { width: auto; min-width: 0; }
+}
+
+/* Governance overview: keep the shared range controls in one local, labeled row. */
+.scope-bar--labeled-inline {
+  grid-template-columns: minmax(190px, .75fr) minmax(560px, 1.8fr);
+  gap: 12px 20px;
+  margin-top: 0;
+  padding: 10px 14px;
+}
+.scope-bar--labeled-inline .scope-bar__controls {
+  display: grid;
+  grid-template-columns: minmax(340px, 420px) minmax(160px, 200px) auto;
+  gap: 10px 12px;
+  min-width: 0;
+}
+.scope-bar--labeled-inline .scope-bar__datasource-control,
+.scope-bar--labeled-inline .scope-bar__snapshot-control {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.scope-bar--labeled-inline .scope-bar__datasource-control :deep(.el-select),
+.scope-bar--labeled-inline .scope-bar__snapshot-control :deep(.el-select) {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.scope-bar--labeled-inline .scope-bar__datasource-control :deep(.el-select) { max-width: 420px; }
+.scope-bar--labeled-inline .scope-bar__snapshot-control :deep(.el-select) { max-width: 200px; }
+.scope-bar--labeled-inline :deep(.el-select__selected-item) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scope-bar--labeled-inline .scope-bar__refresh-tooltip { display: inline-flex; flex: 0 0 36px; align-self: center; }
+.scope-bar--labeled-inline .scope-bar__refresh-icon {
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  justify-content: center;
+}
+@media (max-width: 1150px) {
+  .scope-bar--labeled-inline { grid-template-columns: minmax(0, 1fr); }
+  .scope-bar--labeled-inline .scope-bar__controls {
+    grid-template-columns: minmax(0, 1fr) minmax(160px, 200px) auto;
+  }
+}
+@media (max-width: 760px) {
+  .scope-bar--labeled-inline { margin: 0 0 14px; padding: 12px; }
+  .scope-bar--labeled-inline .scope-bar__controls { grid-template-columns: minmax(0, 1fr) 36px; gap: 10px; }
+  .scope-bar--labeled-inline .scope-bar__datasource-control { grid-column: 1 / -1; }
+  .scope-bar--labeled-inline .scope-bar__datasource-control :deep(.el-select) { max-width: none; }
+  .scope-bar--labeled-inline .scope-bar__snapshot-control { grid-column: 1; max-width: 240px; }
+  .scope-bar--labeled-inline .scope-bar__refresh-tooltip { grid-column: 2; align-self: end; }
+}
 
 </style>

@@ -3,7 +3,7 @@ package com.dataocean.module.fieldtag.support;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.LoginUser;
 import com.dataocean.common.security.UserContext;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;

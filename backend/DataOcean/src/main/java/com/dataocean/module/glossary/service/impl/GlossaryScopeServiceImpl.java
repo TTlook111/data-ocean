@@ -2,13 +2,14 @@ package com.dataocean.module.glossary.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.glossary.entity.GlossaryTerm;
+import com.dataocean.module.glossary.entity.po.GlossaryTerm;
 import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
 import com.dataocean.module.glossary.service.GlossaryScopeService;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.MetadataEntityMapper;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
+import com.dataocean.module.metadata.support.RelationshipBindingStatus;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
@@ -105,6 +106,18 @@ public class GlossaryScopeServiceImpl implements GlossaryScopeService {
             if (termId == null) {
                 continue;
             }
+            // 快照发布已明确标记失效的映射保留历史，但不参与当前定义与审核；
+            // 权限范围仍沿用失效前的数据源，不能因为变成“无映射”就退化成全局可见。
+            if (RelationshipBindingStatus.isInactive(relation)) {
+                Long previousDatasourceId = previousDatasourceId(relation);
+                if (previousDatasourceId == null) {
+                    // 无法还原失效前归属时 fail-closed，不能当成合法的未绑定。
+                    brokenTerms.add(termId);
+                } else {
+                    resolved.computeIfAbsent(termId, key -> new LinkedHashSet<>()).add(previousDatasourceId);
+                }
+                continue;
+            }
             Long datasourceId = entityToDatasource.get(relation.getTargetId());
             if (datasourceId == null) {
                 brokenTerms.add(termId);
@@ -191,6 +204,32 @@ public class GlossaryScopeServiceImpl implements GlossaryScopeService {
         for (Long datasourceId : new TreeSet<>(scope.datasourceIds())) {
             adminGuard.requireDatasourceFunction(userId, functionCode, datasourceId);
         }
+    }
+
+    /**
+     * 失效映射保留的旧数据源归属。
+     *
+     * <p>字段被删除后术语不能再按当前实体解析归属；若直接当“未绑定”，会从
+     * “仅负责该源的人可见”扩大成“任何 glossary:view 用户可见”。</p>
+     */
+    private Long previousDatasourceId(MetadataRelationship relation) {
+        if (relation.getRelationMetadata() == null || relation.getRelationMetadata().isBlank()) {
+            return null;
+        }
+        try {
+            var node = OBJECT_MAPPER.readTree(relation.getRelationMetadata());
+            for (String field : new String[]{
+                    RelationshipBindingStatus.KEY_PREVIOUS_TARGET_DATASOURCE_ID,
+                    RelationshipBindingStatus.KEY_PREVIOUS_SOURCE_DATASOURCE_ID}) {
+                if (node.hasNonNull(field)) {
+                    return node.get(field).asLong();
+                }
+            }
+        } catch (Exception exception) {
+            log.warn("解析失效关联的旧数据源归属失败 relationId={}: {}",
+                    relation.getId(), exception.getMessage());
+        }
+        return null;
     }
 
     /** 从实体元数据解析数据源归属；解析不出按“没有归属”返回，由调用方 fail-closed。 */

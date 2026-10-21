@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ArrowLeft, LockKeyhole } from 'lucide-vue-next'
+import type { RouteLocationRaw } from 'vue-router'
 
 defineProps<{
   title: string
   description?: string
-  backTo: string
+  backTo: RouteLocationRaw
   sourceLabel?: string
 }>()
 </script>

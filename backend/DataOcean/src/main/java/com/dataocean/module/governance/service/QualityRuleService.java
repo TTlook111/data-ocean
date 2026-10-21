@@ -1,6 +1,10 @@
 package com.dataocean.module.governance.service;
 
-import com.dataocean.module.governance.entity.MetadataQualityRule;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
+import com.dataocean.module.governance.entity.dto.QualityRuleDTO;
+import com.dataocean.module.governance.entity.query.QualityRuleQuery;
+import com.dataocean.module.governance.entity.vo.QualityRuleVO;
+import com.dataocean.module.governance.entity.vo.QualityRuleRevisionVO;
 
 import java.util.List;
 
@@ -22,6 +26,24 @@ public interface QualityRuleService {
      * @return 启用规则列表
      */
     List<MetadataQualityRule> listEnabledRules();
+
+    List<MetadataQualityRule> listEnabledRules(Long datasourceId);
+
+    List<QualityRuleVO> listRules(QualityRuleQuery query, Long operatorUserId);
+
+    QualityRuleVO getRule(Long ruleId, Long operatorUserId, boolean includeDeleted);
+
+    List<QualityRuleRevisionVO> history(Long ruleId, Long operatorUserId);
+
+    QualityRuleVO createRule(QualityRuleDTO request, Long operatorUserId);
+
+    QualityRuleVO updateRule(Long ruleId, QualityRuleDTO request, Long operatorUserId);
+
+    QualityRuleVO copyRule(Long ruleId, Long operatorUserId);
+
+    void deleteRule(Long ruleId, Long operatorUserId);
+
+    void restoreRule(Long ruleId, Long operatorUserId);
 
     /**
      * 更新质量规则启用状态。

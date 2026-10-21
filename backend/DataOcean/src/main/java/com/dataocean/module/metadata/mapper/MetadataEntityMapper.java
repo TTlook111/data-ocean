@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -124,6 +124,21 @@ public interface MetadataEntityMapper extends BaseMapper<MetadataEntity> {
             </script>
             """)
     List<Long> selectEntityIdsByDatasourceIds(@Param("datasourceIds") Collection<Long> datasourceIds);
+
+    /**
+     * 属于这些数据源的实体“类型 + ID”身份。
+     *
+     * <p>关系端点的可见性必须按类型和 ID 一起判断：术语 ID 与实体 ID 来自不同表，
+     * 数字可能重合，只拿 ID 集合裁剪会把类型不同的对象误当成同一个。</p>
+     */
+    @Select("""
+            <script>
+            SELECT id, entity_type FROM metadata_entity
+            WHERE JSON_EXTRACT(entity_metadata, '$.datasource_id') IN
+            <foreach collection="datasourceIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    List<MetadataEntity> selectEntityTypeIdPairsByDatasourceIds(@Param("datasourceIds") Collection<Long> datasourceIds);
 
     /**
      * 按实体 ID 做**当前读**并加行锁。

@@ -1,6 +1,25 @@
 import { http } from '../http'
 import type { ApiResult, PageResult } from './user'
 
+export interface GenerationInputs {
+  tableNames?: string[]; datasourceId: number; snapshotId: number; snapshotVersion?: number; tableCount?: number; columnCount?: number
+  glossaryFacts: Array<{ term_id: number; name: string; description: string; revision: number; dependencies: string[] }>
+  excludedTerms: Array<{ termId: number; name: string; reason: string }>
+}
+export async function getGenerationInputs(datasourceId: number, snapshotId: number) {
+  return (await http.get<ApiResult<GenerationInputs>>('/api/admin/knowledge-docs/generation-inputs', { params: { datasourceId, snapshotId } })).data
+}
+export interface SemanticCandidate { id: number; text: string; dependencies: string[] }
+export async function getKnowledgeSourceStatus(id: number) {
+  return (await http.get<ApiResult<{ valid: boolean; snapshotId?: number; reasons: string[] }>>(`/api/admin/knowledge-docs/${id}/source-status`)).data
+}
+export async function generateSemanticDraft(id: number, version: number, tableNames: string[] = []) {
+  return (await http.post<ApiResult<SemanticCandidate[]>>(`/api/admin/knowledge-docs/${id}/semantic-draft`, { version, tableNames }, { timeout: 180000 })).data
+}
+export async function confirmSemanticDraft(id: number, version: number, selections: Array<{ id: number; text: string }>, confirmed: boolean) {
+  return (await http.post<ApiResult<null>>(`/api/admin/knowledge-docs/${id}/semantic-confirm`, { version, selections, confirmed })).data
+}
+
 export interface KnowledgeDocItem {
   id: number
   datasourceId: number

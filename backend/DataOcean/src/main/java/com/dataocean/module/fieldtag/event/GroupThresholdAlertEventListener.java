@@ -1,7 +1,7 @@
 package com.dataocean.module.fieldtag.event;
 
 import com.dataocean.module.fieldtag.service.impl.UserFeedbackServiceImpl.GroupThresholdAlertEvent;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.system.service.NotificationRecipientResolver;
 import com.dataocean.module.system.service.NotificationService;

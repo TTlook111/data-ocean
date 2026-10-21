@@ -4,8 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.system.entity.SysOperationLog;
-import com.dataocean.module.system.entity.dto.OperationLogQueryDTO;
+import com.dataocean.module.system.entity.po.SysOperationLog;
+import com.dataocean.module.system.entity.query.OperationLogQuery;
 import com.dataocean.module.system.mapper.SysOperationLogMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeAll;
@@ -36,7 +36,7 @@ class OperationLogServiceImplTest {
     void listLogsWithEmptyQueryAppliesNoFilter() {
         when(mapper.selectPage(any(), any())).thenReturn(new Page<>());
 
-        service.listLogs(new OperationLogQueryDTO());
+        service.listLogs(new OperationLogQuery());
 
         ArgumentCaptor<LambdaQueryWrapper<SysOperationLog>> wrapperCaptor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         ArgumentCaptor<Page<SysOperationLog>> pageCaptor = ArgumentCaptor.forClass(Page.class);
@@ -44,6 +44,10 @@ class OperationLogServiceImplTest {
 
         assertThat(pageCaptor.getValue().getCurrent()).isEqualTo(1);
         assertThat(pageCaptor.getValue().getSize()).isEqualTo(20);
+        assertThat(pageCaptor.getValue().orders()).singleElement().satisfies(order -> {
+            assertThat(order.getColumn()).isEqualTo("created_at");
+            assertThat(order.isAsc()).isFalse();
+        });
         assertThat(wrapperCaptor.getValue().getCustomSqlSegment())
                 .doesNotContain("=")
                 .doesNotContain("LIKE");
@@ -53,7 +57,7 @@ class OperationLogServiceImplTest {
     void listLogsAppliesAllFilters() {
         when(mapper.selectPage(any(), any())).thenReturn(new Page<>());
 
-        OperationLogQueryDTO q = new OperationLogQueryDTO();
+        OperationLogQuery q = new OperationLogQuery();
         q.setOperatorName("admin");
         q.setOperationType("CREATE");
         q.setIsSuccess(true);
@@ -86,10 +90,12 @@ class OperationLogServiceImplTest {
     void listLogsHonorsPageOverrides() {
         when(mapper.selectPage(any(), any())).thenReturn(new Page<>());
 
-        OperationLogQueryDTO q = new OperationLogQueryDTO();
-        q.setPage(3);
-        q.setPageSize(50);
+        OperationLogQuery q = new OperationLogQuery();
+        q.setPage(3L);
+        q.setPageSize(50L);
         q.setIsSuccess(false);
+        q.setSortBy("operatorName");
+        q.setIsAsc(false);
 
         service.listLogs(q);
 
@@ -99,6 +105,10 @@ class OperationLogServiceImplTest {
 
         assertThat(pageCaptor.getValue().getCurrent()).isEqualTo(3);
         assertThat(pageCaptor.getValue().getSize()).isEqualTo(50);
+        assertThat(pageCaptor.getValue().orders()).singleElement().satisfies(order -> {
+            assertThat(order.getColumn()).isEqualTo("operator_name");
+            assertThat(order.isAsc()).isFalse();
+        });
         assertThat(wrapperCaptor.getValue().getCustomSqlSegment()).containsIgnoringCase("is_success =");
     }
 
@@ -106,7 +116,7 @@ class OperationLogServiceImplTest {
     void listLogsIgnoresInvalidTimeRangeWhenStartAfterEnd() {
         when(mapper.selectPage(any(), any())).thenReturn(new Page<>());
 
-        OperationLogQueryDTO q = new OperationLogQueryDTO();
+        OperationLogQuery q = new OperationLogQuery();
         q.setStartTime("2026-08-14 00:00:00");
         q.setEndTime("2026-08-01 00:00:00");
 
@@ -124,7 +134,7 @@ class OperationLogServiceImplTest {
     void listLogsAppliesEndBoundWhenStartUnparseable() {
         when(mapper.selectPage(any(), any())).thenReturn(new Page<>());
 
-        OperationLogQueryDTO q = new OperationLogQueryDTO();
+        OperationLogQuery q = new OperationLogQuery();
         q.setStartTime("not-a-date");
         q.setEndTime("2026-08-14 23:59:59");
 

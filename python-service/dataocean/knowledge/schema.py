@@ -39,6 +39,8 @@ class GenerateDraftRequest(BaseModel):
     tables_metadata: list[TableMetadata]
     foreign_keys: list[dict] = Field(default_factory=list)
     indexes: list[dict] = Field(default_factory=list)
+    glossary_facts: list[dict] = Field(default_factory=list)
+    excluded_terms: list[dict] = Field(default_factory=list)
     lineage_facts: list[dict] = Field(default_factory=list)
 
 

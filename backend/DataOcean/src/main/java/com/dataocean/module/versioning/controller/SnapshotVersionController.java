@@ -1,11 +1,11 @@
 package com.dataocean.module.versioning.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.common.pagination.PageRequest;
+import com.dataocean.common.entity.query.PageQuery;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.system.aspect.AdminAuditLog;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.entity.vo.SchemaDiffVO;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.permission.s1.annotation.IamS1Resource;
@@ -14,7 +14,7 @@ import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
 import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
-import com.dataocean.module.versioning.entity.SnapshotAuditLog;
+import com.dataocean.module.versioning.entity.po.SnapshotAuditLog;
 import com.dataocean.module.versioning.entity.dto.SnapshotStatusChangeDTO;
 import com.dataocean.module.versioning.entity.vo.SnapshotAuditLogVO;
 import com.dataocean.module.versioning.entity.vo.SnapshotVersionHistoryVO;
@@ -131,7 +131,7 @@ public class SnapshotVersionController {
             @RequestParam(defaultValue = "10") int size) {
         adminGuard.requireDatasourceFunction(UserContext.currentUserId(), RELEASE_VIEW_FUNCTION, datasourceId);
         return Result.success(lifecycleService.listVersionHistory(datasourceId,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }
 
     /**
@@ -157,7 +157,7 @@ public class SnapshotVersionController {
                 ? List.of(datasourceId)
                 : visibleDatasourceIds(userId, RELEASE_VIEW_FUNCTION);
         return Result.success(lifecycleService.listVersionHistoryInDatasources(scope,
-                (int) PageRequest.page(page), (int) PageRequest.size(size)));
+                (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }
 
     /**

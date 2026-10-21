@@ -5,16 +5,26 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.glossary.dto.TermLinkColumnDTO;
+import com.dataocean.module.glossary.entity.dto.TermDraftDTO;
+import com.dataocean.module.glossary.entity.dto.TermActionDTO;
+import com.dataocean.module.glossary.entity.query.TermFieldQuery;
+import com.dataocean.module.glossary.entity.vo.TermWorkspaceVO;
+import com.dataocean.module.glossary.entity.vo.TermColumnVO;
+import com.dataocean.module.glossary.service.GlossaryTermWorkflowService;
+import com.dataocean.module.glossary.service.GlossaryFieldService;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.dataocean.module.glossary.dto.TermReviewDTO;
-import com.dataocean.module.glossary.entity.Glossary;
-import com.dataocean.module.glossary.entity.GlossaryTerm;
+import com.dataocean.module.glossary.entity.po.Glossary;
+import com.dataocean.module.glossary.entity.po.GlossaryTerm;
 import com.dataocean.module.glossary.service.GlossaryScopeService;
 import com.dataocean.module.glossary.service.GlossaryService;
 import com.dataocean.module.glossary.service.GlossaryTermService;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.dataocean.module.metadata.support.RelationshipBindingStatus;
 import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import lombok.RequiredArgsConstructor;
@@ -61,7 +71,81 @@ public class GlossaryController {
     private final MetadataEntityService entityService;
     private final MetadataRelationshipService relationshipService;
 
-    // ========== 术语表 CRUD ==========
+    private final GlossaryTermWorkflowService workflowService;
+    private final GlossaryFieldService fieldService;
+
+    @GetMapping("/field-sources")
+    @IamS1ScopedList(MANAGE_FUNCTION)
+    public Result<List<Map<String, Object>>> fieldSources() {
+        return Result.success(fieldService.sources(scopeService.visibleDatasourceIds(
+                UserContext.currentUserId(), MANAGE_FUNCTION)));
+    }
+
+    @PostMapping("/{glossaryId}/drafts")
+    @IamS1ScopedList(MANAGE_FUNCTION)
+    public Result<GlossaryTerm> createDraft(@PathVariable Long glossaryId, @RequestBody TermDraftDTO request) {
+        return Result.success(workflowService.save(glossaryId, null, request));
+    }
+
+    @PutMapping("/terms/{termId}/draft")
+    @IamS1ScopedList(MANAGE_FUNCTION)
+    public Result<GlossaryTerm> saveDraft(@PathVariable Long termId, @RequestBody TermDraftDTO request) {
+        return Result.success(workflowService.save(null, termId, request));
+    }
+
+    @GetMapping("/terms/{termId}/workspace")
+    @IamS1ScopedList(VIEW_FUNCTION)
+    public Result<TermWorkspaceVO> workspace(@PathVariable Long termId) {
+        return Result.success(workflowService.workspace(termId));
+    }
+
+    @PostMapping("/terms/{termId}/actions/SUBMIT")
+    @IamS1ScopedList(MANAGE_FUNCTION)
+    public Result<Void> submitAction(@PathVariable Long termId, @RequestBody TermActionDTO request) {
+        workflowService.action(termId, "SUBMIT", request);
+        return Result.success(null);
+    }
+
+    @PostMapping("/terms/{termId}/actions/REVIEW")
+    @IamS1ScopedList(APPROVE_FUNCTION)
+    public Result<Void> reviewAction(@PathVariable Long termId, @RequestBody TermActionDTO request) {
+        workflowService.action(termId, "REVIEW", request);
+        return Result.success(null);
+    }
+
+    @PostMapping("/terms/{termId}/actions/REVERT")
+    @IamS1ScopedList(MANAGE_FUNCTION)
+    public Result<Void> revertAction(@PathVariable Long termId, @RequestBody TermActionDTO request) {
+        workflowService.action(termId, "REVERT", request);
+        return Result.success(null);
+    }
+
+    @GetMapping("/field-tables")
+    @IamS1ScopedList(MANAGE_FUNCTION)
+    public Result<List<DbTableMeta>> fieldTables(@RequestParam Long datasourceId) {
+        scopeService.requireWritableScope(UserContext.currentUserId(), MANAGE_FUNCTION,
+                GlossaryScopeService.Scope.bound(Set.of(datasourceId)));
+        return Result.success(fieldService.tables(datasourceId));
+    }
+
+    @GetMapping("/field-columns")
+    @IamS1ScopedList(MANAGE_FUNCTION)
+    public Result<IPage<TermColumnVO>> fieldColumns(TermFieldQuery query) {
+        if (query.getDatasourceId() == null) throw new BusinessException(400, "请选择数据源");
+        scopeService.requireWritableScope(UserContext.currentUserId(), MANAGE_FUNCTION,
+                GlossaryScopeService.Scope.bound(Set.of(query.getDatasourceId())));
+        return Result.success(fieldService.columns(query));
+    }
+
+    private TermDraftDTO draftOf(GlossaryTerm term) {
+        var request = new TermDraftDTO();
+        request.setRevision(term.getRevision()); request.setName(term.getName());
+        request.setDisplayName(term.getDisplayName()); request.setDescription(term.getDescription());
+        request.setSynonyms(term.getSynonyms()); request.setRelatedTerms(term.getRelatedTerms());
+        return request;
+    }
+
+    // ========== 术语分组 CRUD ==========
 
     /**
      * 查询术语表列表。
@@ -150,6 +234,33 @@ public class GlossaryController {
                 visible.add(term);
             }
         }
+        if (!visible.isEmpty()) {
+            var relations = relationshipService.list(new LambdaQueryWrapper<MetadataRelationship>()
+                    .in(MetadataRelationship::getSourceId, visible.stream().map(GlossaryTerm::getId).toList())
+                    .eq(MetadataRelationship::getSourceType, "GLOSSARY_TERM")
+                    .eq(MetadataRelationship::getRelationType, "GLOSSARY_OF"));
+            if (relations != null && !relations.isEmpty()) {
+                relations = relations.stream()
+                        .filter(relation -> !RelationshipBindingStatus.isInactive(relation))
+                        .toList();
+                var ids = relations.stream().map(MetadataRelationship::getTargetId).filter(java.util.Objects::nonNull).distinct().toList();
+                var ownership = scopeService.entityDatasourceIds(ids);
+                var entities = ids.isEmpty() ? List.<MetadataEntity>of() : entityService.listByIds(ids);
+                var byId = new java.util.HashMap<Long, MetadataEntity>();
+                if (entities != null) entities.forEach(e -> byId.put(e.getId(), e));
+                var sourceNames = new java.util.HashMap<Long, String>();
+                fieldService.sources(visibleDatasourceIds).forEach(source -> sourceNames.put(
+                        ((Number) source.get("id")).longValue(), String.valueOf(source.get("name"))));
+                for (var term : visible) {
+                    var columns = relations.stream().filter(r -> term.getId().equals(r.getSourceId()))
+                            .filter(r -> ownership.get(r.getTargetId()) != null && visibleDatasourceIds.contains(ownership.get(r.getTargetId())))
+                            .map(r -> byId.get(r.getTargetId())).filter(java.util.Objects::nonNull)
+                            .filter(e -> "COLUMN".equals(e.getEntityType())).toList();
+                    term.setLinkedColumnCount(columns.size());
+                    term.setDatasourceNames(columns.stream().map(e -> sourceNames.getOrDefault(ownership.get(e.getId()), "已停用数据源")).distinct().sorted().toList());
+                }
+            } else visible.forEach(t -> { t.setLinkedColumnCount(0); t.setDatasourceNames(List.of()); });
+        }
         return Result.success(visible);
     }
 
@@ -160,7 +271,7 @@ public class GlossaryController {
             @PathVariable Long glossaryId,
             @RequestBody GlossaryTerm term) {
         term.setGlossaryId(glossaryId);
-        GlossaryTerm created = termService.createTerm(term);
+        GlossaryTerm created = workflowService.save(glossaryId, null, draftOf(term));
         return Result.success("术语创建成功", Map.of("id", created.getId()));
     }
 
@@ -175,16 +286,18 @@ public class GlossaryController {
     @IamS1ScopedList(MANAGE_FUNCTION)
     public Result<Void> updateTerm(@PathVariable Long termId, @RequestBody GlossaryTerm term) {
         requireTermFunction(termId, MANAGE_FUNCTION);
-        termService.updateTerm(termId, term);
+        var request = draftOf(term);
+        request.setEntityIds(workflowService.linkedIds(termId));
+        workflowService.save(null, termId, request);
         return Result.success("术语更新成功", null);
     }
 
     /** 删除术语（清理关联关系与悬空的父术语引用）。 */
     @DeleteMapping("/terms/{termId}")
     @IamS1ScopedList(MANAGE_FUNCTION)
-    public Result<Void> deleteTerm(@PathVariable Long termId) {
+    public Result<Void> deleteTerm(@PathVariable Long termId, @RequestParam Long revision) {
         requireTermFunction(termId, MANAGE_FUNCTION);
-        termService.deleteTerm(termId);
+        workflowService.delete(termId, revision);
         return Result.success("术语已删除", null);
     }
 
@@ -193,9 +306,9 @@ public class GlossaryController {
     /** 提交术语审核。 */
     @PostMapping("/terms/{termId}/submit")
     @IamS1ScopedList(MANAGE_FUNCTION)
-    public Result<Void> submitForReview(@PathVariable Long termId) {
+    public Result<Void> submitForReview(@PathVariable Long termId, @RequestBody TermActionDTO request) {
         requireTermFunction(termId, MANAGE_FUNCTION);
-        termService.submitForReview(termId);
+        workflowService.action(termId, "SUBMIT", request);
         return Result.success("术语已提交审核", null);
     }
 
@@ -211,7 +324,9 @@ public class GlossaryController {
             @PathVariable Long termId,
             @RequestBody TermReviewDTO request) {
         requireTermFunction(termId, APPROVE_FUNCTION);
-        termService.reviewTerm(termId, UserContext.currentUserId(), request.isApproved(), request.getReason());
+        var action = new TermActionDTO();
+        action.setRevision(request.getRevision()); action.setApproved(request.isApproved()); action.setReason(request.getReason());
+        workflowService.action(termId, "REVIEW", action);
         return Result.success(request.isApproved() ? "术语审核通过" : "术语审核拒绝", null);
     }
 
@@ -225,9 +340,9 @@ public class GlossaryController {
      */
     @PostMapping("/terms/{termId}/revert")
     @IamS1ScopedList(MANAGE_FUNCTION)
-    public Result<Void> revertTermToDraft(@PathVariable Long termId) {
+    public Result<Void> revertTermToDraft(@PathVariable Long termId, @RequestBody TermActionDTO request) {
         requireTermFunction(termId, MANAGE_FUNCTION);
-        termService.revertToDraft(termId);
+        workflowService.action(termId, "REVERT", request);
         return Result.success("术语已退回草稿，修改后需重新提交审核", null);
     }
 
@@ -258,13 +373,7 @@ public class GlossaryController {
         requireTermFunction(termId, MANAGE_FUNCTION);
         requireEntityFunction(entityId, MANAGE_FUNCTION);
 
-        MetadataRelationship rel = new MetadataRelationship();
-        rel.setSourceId(termId);
-        rel.setSourceType("GLOSSARY_TERM");
-        rel.setTargetId(entityId);
-        rel.setTargetType(entity.getEntityType());
-        rel.setRelationType(MetadataRelationship.TYPE_GLOSSARY_OF);
-        relationshipService.upsert(rel);
+        workflowService.link(termId, entityId, request.getRevision(), false);
 
         return Result.success("关联成功", null);
     }
@@ -278,7 +387,7 @@ public class GlossaryController {
     @IamS1ScopedList(MANAGE_FUNCTION)
     public Result<Void> unlinkTermFromColumn(
             @PathVariable Long termId,
-            @PathVariable Long entityId) {
+            @PathVariable Long entityId, @RequestParam Long revision) {
         if (termService.getById(termId) == null) {
             return Result.error(404, "术语不存在");
         }
@@ -288,14 +397,7 @@ public class GlossaryController {
         requireTermFunction(termId, MANAGE_FUNCTION);
         requireEntityFunction(entityId, MANAGE_FUNCTION);
 
-        var rels = relationshipService.getBySource(termId, "GLOSSARY_TERM");
-        for (MetadataRelationship rel : rels) {
-            if (MetadataRelationship.TYPE_GLOSSARY_OF.equals(rel.getRelationType())
-                    && rel.getTargetId().equals(entityId)) {
-                relationshipService.removeById(rel.getId());
-                break;
-            }
-        }
+        workflowService.link(termId, entityId, revision, true);
         return Result.success("已取消关联", null);
     }
 
@@ -311,7 +413,8 @@ public class GlossaryController {
         var rels = relationshipService.getBySource(termId, "GLOSSARY_TERM");
         List<MetadataEntity> entities = new ArrayList<>();
         for (MetadataRelationship rel : rels) {
-            if (MetadataRelationship.TYPE_GLOSSARY_OF.equals(rel.getRelationType())) {
+            if (MetadataRelationship.TYPE_GLOSSARY_OF.equals(rel.getRelationType())
+                    && !RelationshipBindingStatus.isInactive(rel)) {
                 MetadataEntity entity = entityService.getById(rel.getTargetId());
                 if (entity != null) {
                     entities.add(entity);

@@ -36,6 +36,7 @@ import {
   submitReview,
   updateKnowledgeDoc,
   generateDraft,
+  getKnowledgeSourceStatus,
   type KnowledgeChunkPreview,
   type KnowledgeDiffLine,
   type KnowledgeDocItem,
@@ -60,6 +61,8 @@ import {
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
+import KnowledgeSourcePreview from '../../../components/admin/KnowledgeSourcePreview.vue'
+import KnowledgeSemanticAssistant from '../../../components/admin/KnowledgeSemanticAssistant.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import LifecycleStepper from '../../../components/admin/LifecycleStepper.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
@@ -130,6 +133,15 @@ const ragBuildsError = ref('')
 
 const title = ref('')
 const content = ref('')
+const sourceStatus = ref<{ valid: boolean; reasons: string[] }>()
+const sourceStatusError = ref('')
+let sourceStatusRequestId = 0
+async function loadSourceStatus() {
+  const requestId = ++sourceStatusRequestId
+  sourceStatus.value = undefined; sourceStatusError.value = ''
+  try { const result = await getKnowledgeSourceStatus(docId.value); if (requestId === sourceStatusRequestId) sourceStatus.value = result.data }
+  catch (cause) { if (requestId === sourceStatusRequestId) sourceStatusError.value = apiError(cause, '来源状态读取失败') }
+}
 
 /** 文档流转只到 PUBLISHED；datasource RAG build 是单独确认的索引生命周期。 */
 const lifecycleSteps = computed(() => {
@@ -201,10 +213,7 @@ function apiError(cause: unknown, fallback: string) {
 }
 
 function selectTab(tab: string) {
-  activeTab.value = tab
   router.push({ query: { ...route.query, tab } })
-  if (tab === 'versions' && !versions.value.length) loadVersions()
-  if (tab === 'chunks' && !chunks.value.length) loadChunks()
 }
 
 async function loadDoc() {
@@ -221,6 +230,7 @@ async function loadDoc() {
     doc.value = result.data || null
     title.value = doc.value?.title || ''
     content.value = doc.value?.content || ''
+    await loadSourceStatus()
     if (doc.value) {
       context.selectDatasource(doc.value.datasourceId)
       context.selectKnowledgeDoc(doc.value.id)
@@ -246,6 +256,14 @@ async function loadVersions() {
   } finally {
     versionsLoading.value = false
   }
+}
+
+async function refreshDocument() {
+  await loadDoc()
+  await loadVersions()
+  if (activeTab.value === 'source') await loadSourceSnapshots()
+  if (activeTab.value === 'review') await loadReviewRecords()
+  if (activeTab.value === 'chunks') await loadChunks()
 }
 
 /**
@@ -299,7 +317,7 @@ async function save() {
     ElMessage.success(contentChanged
       ? '已保存。内容已变更，后端创建了新版本并把文档状态重置为草稿。'
       : titleChanged ? '标题已保存；内容未变化，版本与状态保持不变。' : '已保存。内容没有变化，版本与状态保持不变。')
-    await loadDoc()
+    await refreshDocument()
   } catch (cause) {
     ElMessage.error(apiError(cause, '保存失败'))
   } finally {
@@ -314,7 +332,7 @@ async function submit() {
     actionLoading.value = true
     await submitReview(docId.value)
     ElMessage.success('已提交审核')
-    await loadDoc()
+    await refreshDocument()
   } catch (cause) {
     if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '提交审核失败'))
   } finally {
@@ -329,7 +347,7 @@ async function approve() {
     actionLoading.value = true
     await approveDoc(docId.value)
     ElMessage.success('审核已通过，下一步是发布文档，再确认数据源级 RAG build')
-    await loadDoc()
+    await refreshDocument()
   } catch (cause) {
     if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '审核通过失败'))
   } finally {
@@ -348,7 +366,7 @@ async function reject() {
     actionLoading.value = true
     await rejectDoc(docId.value, result.value)
     ElMessage.success('已驳回，文档回到草稿')
-    await loadDoc()
+    await refreshDocument()
   } catch (cause) {
     if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '驳回失败'))
   } finally {
@@ -367,7 +385,7 @@ async function publish() {
     actionLoading.value = true
     await publishDoc(docId.value)
     ElMessage.success('文档已发布。RAG build 仍需有权人员单独确认。')
-    await loadDoc()
+    await refreshDocument()
   } catch (cause) {
     if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '发布失败'))
   } finally {
@@ -379,6 +397,8 @@ async function publish() {
 
 const generateVisible = ref(false)
 const generateLoading = ref(false)
+const generationReady = ref(false)
+const semanticAssistant = ref<InstanceType<typeof KnowledgeSemanticAssistant>>()
 const generateSnapshotId = ref<number>()
 
 function openGenerate() {
@@ -397,7 +417,7 @@ async function runGenerate() {
     const result = await generateDraft(docId.value, generateSnapshotId.value)
     generateVisible.value = false
     // 后端生成草稿时会写入新版本并递增乐观锁 version，必须重新拉取后再覆盖展示内容
-    await loadDoc()
+    await refreshDocument()
     content.value = result.data?.content || content.value
     ElMessage.success('完整快照目录已生成；请核对“待确认”释义后保存')
   } catch (cause) {
@@ -640,11 +660,12 @@ watch(() => route.query.tab, (value) => {
           <span class="doc-version">v{{ doc.currentVersion }}</span>
         </template>
         <template #actions>
-          <el-button :icon="RefreshCw" :loading="loading" @click="loadDoc">刷新</el-button>
+          <el-button :icon="RefreshCw" :loading="loading" @click="refreshDocument">刷新</el-button>
           <el-button v-if="canEdit && mayManage" :icon="Save" :loading="saving" @click="save">
             {{ status === 'DRAFT' ? '保存' : '保存并新建版本' }}
           </el-button>
-          <el-button v-if="canEdit && mayManage" :icon="Sparkles" @click="openGenerate">按快照生成目录</el-button>
+          <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" @click="openGenerate">按快照生成目录</el-button>
+          <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" :disabled="content !== (doc.content || '')" title="请先保存当前编辑内容，再补写业务释义" @click="semanticAssistant?.open()">AI 辅助补写</el-button>
 
           <el-button v-if="canSubmitReview && mayManage" type="primary" :icon="Send" :loading="actionLoading" @click="submit">
             提交审核
@@ -670,6 +691,9 @@ watch(() => route.query.tab, (value) => {
         <p class="knowledge-doc-page__hint">{{ nextStepHint }}</p>
       </section>
 
+      <ErrorState v-if="sourceStatusError" :message="sourceStatusError" @retry="loadSourceStatus" />
+      <el-alert v-else-if="sourceStatus && !sourceStatus.valid" :title="sourceStatus.reasons.join(' ')" type="warning" :closable="false" show-icon />
+      <el-alert v-else-if="sourceStatus?.valid" title="已保存版本的结构与术语来源校验通过；文档发布和 RAG 构建仍需分别确认。" type="success" :closable="false" />
       <el-tabs :model-value="activeTab" @update:model-value="selectTab">
         <!-- 内容 -->
         <el-tab-pane label="内容" name="content">
@@ -990,6 +1014,7 @@ watch(() => route.query.tab, (value) => {
       </el-tabs>
     </template>
 
+    <KnowledgeSemanticAssistant v-if="doc" ref="semanticAssistant" :doc="doc" @saved="refreshDocument" />
     <!-- 快照生成 -->
     <el-dialog v-model="generateVisible" title="生成快照字段目录" width="480px">
       <p class="muted">
@@ -1008,9 +1033,10 @@ watch(() => route.query.tab, (value) => {
           :label="`v${item.snapshotVersion} · ${item.status}`"
         />
       </el-select>
+      <KnowledgeSourcePreview :datasource-id="doc?.datasourceId" :snapshot-id="generateSnapshotId" @ready="generationReady = $event" />
       <template #footer>
         <el-button @click="generateVisible = false">取消</el-button>
-        <el-button type="primary" :loading="generateLoading" @click="runGenerate">生成目录</el-button>
+        <el-button type="primary" :loading="generateLoading" :disabled="!generationReady" @click="runGenerate">生成目录</el-button>
       </template>
     </el-dialog>
 
@@ -1045,7 +1071,9 @@ watch(() => route.query.tab, (value) => {
 </template>
 
 <style scoped>
-.knowledge-doc-page { display: grid; gap: 16px; }
+.knowledge-doc-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.knowledge-doc-page > * { min-width: 0; }
+.knowledge-doc-page :deep(.object-context-summary) { flex-wrap: wrap; }
 
 .doc-version { color: var(--do-muted); font-size: 12px; }
 
@@ -1060,6 +1088,10 @@ watch(() => route.query.tab, (value) => {
 }
 
 .knowledge-doc-page__hint { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.7; }
+
+.knowledge-doc-page :deep(.task-page-header) { flex-wrap: wrap; }
+.knowledge-doc-page :deep(.task-page-header__copy) { flex: 1 1 280px; }
+.knowledge-doc-page :deep(.task-page-header__actions) { flex: 1 1 480px; min-width: 0; max-width: 100%; justify-content: flex-start; }
 
 .knowledge-doc-page__card {
   display: grid;

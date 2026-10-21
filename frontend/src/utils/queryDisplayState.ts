@@ -66,7 +66,7 @@ export function resolveQueryDisplayState(options: {
     case 'CLARIFICATION_REQUIRED':
       return {
         kind: 'clarification',
-        title: '需要补充查询条件',
+        title: '需要补充信息',
         description: result?.sqlExplanation || result?.errorMessage || '请补充指标、时间范围或筛选口径。',
       }
     case 'FAILED':

@@ -2,8 +2,8 @@ package com.dataocean.module.permission.s1.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.permission.s1.IamS1Constants;
-import com.dataocean.module.permission.s1.entity.IamS1ColumnFact;
-import com.dataocean.module.permission.s1.entity.IamS1FieldProtection;
+import com.dataocean.module.permission.s1.entity.po.IamS1ColumnFact;
+import com.dataocean.module.permission.s1.entity.po.IamS1FieldProtection;
 import com.dataocean.module.permission.s1.entity.dto.IamS1FieldProtectionSaveDTO;
 import com.dataocean.module.permission.s1.mapper.IamS1DataGrantMapper;
 import com.dataocean.module.permission.s1.mapper.IamS1DatasourceIdentityMapper;

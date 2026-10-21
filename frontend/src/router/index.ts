@@ -17,6 +17,7 @@ const ChangePassword = () => import('../views/profile/ChangePassword.vue')
 const ProfileView = () => import('../views/profile/ProfileView.vue')
 const QueryDatasourceView = () => import('../views/query/QueryDatasourceView.vue')
 const QualityDashboard = () => import('../views/admin/governance/QualityDashboard.vue')
+const QualityRulesView = () => import('../views/admin/governance/QualityRulesView.vue')
 const IssueList = () => import('../views/admin/governance/IssueList.vue')
 const StatusEditor = () => import('../views/admin/governance/StatusEditor.vue')
 const KnowledgeView = () => import('../views/admin/semantics/KnowledgeView.vue')
@@ -116,19 +117,19 @@ const router = createRouter({
           path: 'assets',
           name: 'admin-assets',
           component: AssetsView,
-          meta: { title: '资产目录', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'datasource' },
+          meta: { title: '数据对象目录', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'datasource' },
         },
         {
           path: 'assets/entities/:entityId',
           name: 'admin-asset-detail',
           component: AssetEntityDetailView,
-          meta: { title: '资产详情', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'locked-resource', breadcrumbParent: '/admin/assets' },
+          meta: { title: '对象详情', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'locked-resource', breadcrumbParent: '/admin/assets' },
         },
         {
           path: 'releases',
           name: 'admin-releases',
           component: ReleasesView,
-          meta: { title: '版本发布', domainKey: 'data-assets', workspaceKey: 'releases', contextMode: 'datasource' },
+          meta: { title: '元数据版本', domainKey: 'data-assets', workspaceKey: 'releases', contextMode: 'datasource' },
         },
         {
           path: 'releases/snapshots/:snapshotId',
@@ -157,8 +158,14 @@ const router = createRouter({
         {
           path: 'governance/rules',
           name: 'admin-governance-rules',
+          component: QualityRulesView,
+          meta: { title: '质量规则', domainKey: 'governance', workspaceKey: 'governance-rules', contextMode: 'datasource-snapshot' },
+        },
+        {
+          path: 'governance/status',
+          name: 'admin-governance-status',
           component: StatusEditor,
-          meta: { title: '规则与状态', domainKey: 'governance', workspaceKey: 'governance-rules', contextMode: 'datasource-snapshot' },
+          meta: { title: '资产状态', domainKey: 'governance', workspaceKey: 'governance-status', contextMode: 'datasource-snapshot' },
         },
         {
           path: 'governance/fields',

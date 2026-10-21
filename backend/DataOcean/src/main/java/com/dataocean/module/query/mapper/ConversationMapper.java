@@ -1,7 +1,7 @@
 package com.dataocean.module.query.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.query.entity.Conversation;
+import com.dataocean.module.query.entity.po.Conversation;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

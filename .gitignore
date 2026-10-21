@@ -41,7 +41,7 @@ Desktop.ini
 # Environment and secrets
 .env
 .env.*
-backend/**/config/application-local.yml
+backend/**/src/main/resources/application-local.yml
 .dataocean/local-environment.md
 !.env.example
 !.env.*.example
@@ -115,3 +115,8 @@ output/
 .claude/
 
 .tmp/
+backend/DataOcean/src/main/resources/application-dev.yml
+backend/DataOcean/src/main/resources/application.yml
+frontend/vite.config.ts
+backend/DataOcean/src/main/resources/application.yml
+frontend/vite.config.ts

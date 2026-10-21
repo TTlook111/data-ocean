@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
-import com.dataocean.module.metadata.entity.MetadataChangeEvent;
+import com.dataocean.module.metadata.entity.po.MetadataChangeEvent;
 
 /**
  * 元数据变更事件服务接口

@@ -2,7 +2,7 @@ package com.dataocean.module.query.service.impl;
 
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.query.client.ConversationSummaryClient;
-import com.dataocean.module.query.entity.ConversationContextSummary;
+import com.dataocean.module.query.entity.po.ConversationContextSummary;
 import com.dataocean.module.query.entity.dto.ConversationContextDTO;
 import com.dataocean.module.query.entity.vo.ConversationMessageVO;
 import com.dataocean.module.query.mapper.ConversationContextSummaryMapper;
@@ -144,8 +144,8 @@ class ConversationContextSummaryServiceImplTest {
         IamS1QueryCandidateCatalogVO afterExpiry = currentCatalog(100L, false);
         ConversationContextSummary existing = summary(2L, 100L, previouslyAuthorized);
         when(summaryMapper.selectOne(any())).thenReturn(existing);
-        com.dataocean.module.metadata.entity.MetadataSnapshot metadata =
-                new com.dataocean.module.metadata.entity.MetadataSnapshot();
+        com.dataocean.module.metadata.entity.po.MetadataSnapshot metadata =
+                new com.dataocean.module.metadata.entity.po.MetadataSnapshot();
         metadata.setId(88L);
         when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
         when(userResourceService.candidateCatalog(7L, 1L, 88L)).thenReturn(afterExpiry);

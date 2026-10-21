@@ -1,7 +1,7 @@
 package com.dataocean.module.audit.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.audit.entity.AlertRule;
+import com.dataocean.module.audit.entity.po.AlertRule;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

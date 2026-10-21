@@ -5,7 +5,7 @@ import com.dataocean.common.security.UserContext;
 import com.dataocean.module.permission.s1.annotation.IamS1Resource;
 import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
-import com.dataocean.module.fieldtag.entity.PredefinedTag;
+import com.dataocean.module.fieldtag.entity.po.PredefinedTag;
 import com.dataocean.module.fieldtag.entity.dto.BatchTagRequestDTO;
 import com.dataocean.module.fieldtag.entity.dto.FieldTagRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.FieldTagVO;

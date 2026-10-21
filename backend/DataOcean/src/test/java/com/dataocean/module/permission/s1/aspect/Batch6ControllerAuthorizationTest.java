@@ -5,7 +5,7 @@ import com.dataocean.common.security.LoginUser;
 import com.dataocean.module.audit.controller.AlertController;
 import com.dataocean.module.audit.controller.AuditLogController;
 import com.dataocean.module.audit.controller.LineageController;
-import com.dataocean.module.audit.entity.dto.AuditLogQueryDTO;
+import com.dataocean.module.audit.entity.query.AuditLogQuery;
 import com.dataocean.module.audit.service.AlertRuleService;
 import com.dataocean.module.audit.service.AuditLogService;
 import com.dataocean.module.audit.service.LineageService;
@@ -72,7 +72,7 @@ class Batch6ControllerAuthorizationTest {
         fixture.login(7L);
         fixture.denyGlobal(7L, "audit:view");
 
-        assertThatThrownBy(() -> fixture.auditLogController.listAuditLogs(new AuditLogQueryDTO()))
+        assertThatThrownBy(() -> fixture.auditLogController.listAuditLogs(new AuditLogQuery()))
                 .isInstanceOf(BusinessException.class);
 
         verify(fixture.auditLogService, never()).listAuditLogsInDatasources(any(), any());
@@ -85,7 +85,7 @@ class Batch6ControllerAuthorizationTest {
         when(fixture.capabilityService.responsibleDatasourcesWithFunction(7L, "audit:view"))
                 .thenReturn(List.of(new IamS1DatasourceRefVO(5L, "销售库", true)));
 
-        fixture.auditLogController.listAuditLogs(new AuditLogQueryDTO());
+        fixture.auditLogController.listAuditLogs(new AuditLogQuery());
 
         verify(fixture.auditLogService).listAuditLogsInDatasources(any(), eq(List.of(5L)));
     }
@@ -216,7 +216,7 @@ class Batch6ControllerAuthorizationTest {
         Fixture fixture = new Fixture();
         SecurityContextHolder.clearContext();
 
-        assertThatThrownBy(() -> fixture.auditLogController.listAuditLogs(new AuditLogQueryDTO()))
+        assertThatThrownBy(() -> fixture.auditLogController.listAuditLogs(new AuditLogQuery()))
                 .isInstanceOf(BusinessException.class);
         assertThatThrownBy(() -> fixture.alertController.listRules(1, 20))
                 .isInstanceOf(BusinessException.class);

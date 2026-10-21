@@ -5,7 +5,7 @@ import com.dataocean.common.security.LoginUser;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.audit.entity.dto.ColumnMappingItem;
 import com.dataocean.module.audit.entity.dto.LineageCreateRequest;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;

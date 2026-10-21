@@ -147,6 +147,11 @@ def _schema_to_document(item: RetrievedSchema) -> Document:
             "context_expansion": item.context_expansion,
             "governance_status": item.governance_status,
             "review_status": item.review_status,
+            "resource_dependencies": item.resource_dependencies,
+            "fact_source_ids": item.fact_source_ids,
+            "fact_type": item.fact_type,
+            "fact_review_status": item.fact_review_status,
+            "build_id": item.build_id,
         },
     )
 
@@ -178,6 +183,11 @@ def _document_to_schema(document: Document) -> RetrievedSchema:
         chunk_text=document.page_content,
         governance_status=metadata.get("governance_status", ""),
         review_status=metadata.get("review_status", ""),
+        resource_dependencies=metadata.get("resource_dependencies", []),
+        fact_source_ids=metadata.get("fact_source_ids", []),
+        fact_type=metadata.get("fact_type", ""),
+        fact_review_status=metadata.get("fact_review_status", "PENDING"),
+        build_id=metadata.get("build_id"),
     )
 
 

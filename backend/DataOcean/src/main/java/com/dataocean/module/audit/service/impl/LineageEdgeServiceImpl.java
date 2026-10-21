@@ -7,11 +7,12 @@ import com.dataocean.module.audit.entity.dto.LineageCreateRequest;
 import com.dataocean.module.audit.entity.vo.LineageEdgeVO;
 import com.dataocean.module.audit.entity.vo.LineageGraphVO;
 import com.dataocean.module.audit.service.LineageEdgeService;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
+import com.dataocean.module.metadata.support.RelationshipBindingStatus;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -209,6 +210,8 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
                 if (!visited.add(id)) continue;
                 List<MetadataRelationship> lineage = relationshipService.getLineage(id);
                 for (MetadataRelationship rel : lineage) {
+                    // 失效关系不能作为血缘图的遍历跳板。
+                    if (RelationshipBindingStatus.isInactive(rel)) continue;
                     // 按血缘类型过滤
                     if (lineageTypes != null && !lineageTypes.isEmpty()) {
                         String lt = extractLineageType(rel);
@@ -255,6 +258,77 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
         vo.setColumnMappingsByEdge(columnMappingsByEdge);
         vo.setDepth(depth);
         return vo;
+    }
+
+    /**
+     * 增强血缘（类型 + ID 版本）：BFS 只沿 LINEAGE 边扩展，端点可见性在入队前判定。
+     */
+    @Override
+    public LineageGraphVO getEnrichedLineage(String entityType, Long entityId, int depth,
+                                             Set<String> lineageTypes, Set<String> visibleEntityKeys) {
+        Set<String> visited = new HashSet<>();
+        Map<Long, MetadataRelationship> edgeMap = new LinkedHashMap<>();
+        Set<Long> allEntityIds = new LinkedHashSet<>();
+        allEntityIds.add(entityId);
+
+        List<EntityNode> currentLevel = List.of(new EntityNode(entityType, entityId));
+        for (int d = 0; d < Math.min(depth, 10) && !currentLevel.isEmpty(); d++) {
+            List<EntityNode> nextLevel = new ArrayList<>();
+            for (EntityNode node : currentLevel) {
+                String nodeKey = MetadataEntity.endpointKey(node.type(), node.id());
+                if (nodeKey == null || !visited.add(nodeKey)) continue;
+                for (MetadataRelationship rel : relationshipMapper.selectLineageByEntityKey(
+                        node.id(), node.type())) {
+                    // 失效关系不能作为血缘图的遍历跳板。
+                    if (RelationshipBindingStatus.isInactive(rel)) continue;
+                    if (lineageTypes != null && !lineageTypes.isEmpty()) {
+                        String lt = extractLineageType(rel);
+                        if (!lineageTypes.contains(lt)) continue;
+                    }
+                    if (edgeMap.containsKey(rel.getId())) continue;
+                    String sourceKey = MetadataEntity.endpointKey(rel.getSourceType(), rel.getSourceId());
+                    String targetKey = MetadataEntity.endpointKey(rel.getTargetType(), rel.getTargetId());
+                    if (visibleEntityKeys != null
+                            && (!visibleEntityKeys.contains(sourceKey) || !visibleEntityKeys.contains(targetKey))) {
+                        continue;
+                    }
+                    edgeMap.put(rel.getId(), rel);
+                    allEntityIds.add(rel.getSourceId());
+                    allEntityIds.add(rel.getTargetId());
+                    if (!visited.contains(sourceKey)) {
+                        nextLevel.add(new EntityNode(rel.getSourceType(), rel.getSourceId()));
+                    }
+                    if (!visited.contains(targetKey)) {
+                        nextLevel.add(new EntityNode(rel.getTargetType(), rel.getTargetId()));
+                    }
+                }
+            }
+            currentLevel = nextLevel;
+        }
+
+        List<MetadataEntity> nodes = new ArrayList<>();
+        for (Long nid : allEntityIds) {
+            MetadataEntity entity = entityService.getById(nid);
+            if (entity != null) nodes.add(entity);
+        }
+
+        Map<Long, List<Map<String, Object>>> columnMappingsByEdge = new HashMap<>();
+        for (MetadataRelationship rel : edgeMap.values()) {
+            List<Map<String, Object>> mappings = extractColumnMappings(rel);
+            if (!mappings.isEmpty()) {
+                columnMappingsByEdge.put(rel.getId(), mappings);
+            }
+        }
+
+        LineageGraphVO vo = new LineageGraphVO();
+        vo.setNodes(nodes);
+        vo.setEdges(new ArrayList<>(edgeMap.values()));
+        vo.setColumnMappingsByEdge(columnMappingsByEdge);
+        vo.setDepth(depth);
+        return vo;
+    }
+
+    private record EntityNode(String type, Long id) {
     }
 
     // ========== 私有辅助方法 ==========
@@ -416,10 +490,24 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
         metadata.put("lineage_type", request.getLineageType().toUpperCase());
         metadata.put("source_fqn", sourceEntity.getFqn());
         metadata.put("target_fqn", targetEntity.getFqn());
-        metadata.put("source_snapshot_id", snapshotId(sourceEntity));
-        metadata.put("target_snapshot_id", snapshotId(targetEntity));
-        metadata.put("bound_snapshot_id", snapshotId(sourceEntity));
-        metadata.put("binding_status", "BOUND");
+        Long sourceSnapshot = snapshotId(sourceEntity);
+        Long targetSnapshot = snapshotId(targetEntity);
+        metadata.put("source_snapshot_id", sourceSnapshot);
+        metadata.put("target_snapshot_id", targetSnapshot);
+        metadata.put(RelationshipBindingStatus.KEY_SOURCE_BOUND_SNAPSHOT_ID, sourceSnapshot);
+        metadata.put(RelationshipBindingStatus.KEY_TARGET_BOUND_SNAPSHOT_ID, targetSnapshot);
+        boolean bothBound = sourceSnapshot != null && targetSnapshot != null;
+        if (bothBound && Objects.equals(sourceSnapshot, targetSnapshot)) {
+            // 同源关系可以用单个快照号；跨源关系只保留端点级快照。
+            metadata.put("bound_snapshot_id", sourceSnapshot);
+        } else {
+            metadata.remove("bound_snapshot_id");
+        }
+        metadata.put(RelationshipBindingStatus.KEY_STATUS,
+                bothBound ? RelationshipBindingStatus.BOUND : RelationshipBindingStatus.UNBOUND);
+        if (!bothBound) {
+            metadata.put(RelationshipBindingStatus.KEY_REASON, "ENDPOINT_SNAPSHOT_UNKNOWN");
+        }
         // This API is an explicit lineage-management action by an authorized user.
         metadata.put("confirmation_status", "CONFIRMED");
         if (request.getDescription() != null && !request.getDescription().isBlank()) {
@@ -525,10 +613,23 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
                 MetadataEntity targetColumn = entityService.getById(mapping.getToColumn());
                 meta.put("source_fqn", sourceColumn == null ? null : sourceColumn.getFqn());
                 meta.put("target_fqn", targetColumn == null ? null : targetColumn.getFqn());
-                meta.put("source_snapshot_id", sourceColumn == null ? null : snapshotId(sourceColumn));
-                meta.put("target_snapshot_id", targetColumn == null ? null : snapshotId(targetColumn));
-                meta.put("bound_snapshot_id", snapshotId(sourceTable));
-                meta.put("binding_status", "BOUND");
+                Long sourceSnapshot = sourceColumn == null ? null : snapshotId(sourceColumn);
+                Long targetSnapshot = targetColumn == null ? null : snapshotId(targetColumn);
+                meta.put("source_snapshot_id", sourceSnapshot);
+                meta.put("target_snapshot_id", targetSnapshot);
+                meta.put(RelationshipBindingStatus.KEY_SOURCE_BOUND_SNAPSHOT_ID, sourceSnapshot);
+                meta.put(RelationshipBindingStatus.KEY_TARGET_BOUND_SNAPSHOT_ID, targetSnapshot);
+                boolean bothBound = sourceSnapshot != null && targetSnapshot != null;
+                if (bothBound && Objects.equals(sourceSnapshot, targetSnapshot)) {
+                    meta.put("bound_snapshot_id", sourceSnapshot);
+                } else {
+                    meta.remove("bound_snapshot_id");
+                }
+                meta.put(RelationshipBindingStatus.KEY_STATUS,
+                        bothBound ? RelationshipBindingStatus.BOUND : RelationshipBindingStatus.UNBOUND);
+                if (!bothBound) {
+                    meta.put(RelationshipBindingStatus.KEY_REASON, "ENDPOINT_SNAPSHOT_UNKNOWN");
+                }
                 meta.put("confirmation_status", "CONFIRMED");
 
                 // 对齐 OpenLineage ColumnLineageDatasetFacet
@@ -701,8 +802,10 @@ public class LineageEdgeServiceImpl implements LineageEdgeService {
         // 利用 MetadataRelationshipMapper.selectBetween 按 source/target/relationType 查找
         // selectBetween 是带 LIMIT 1 的查询，适合此场景
         try {
-            return relationshipMapper.selectBetween(
-                    sourceColId, targetColId, MetadataRelationship.TYPE_DERIVED_FROM);
+            return relationshipMapper.selectBetweenTyped(
+                    sourceColId, MetadataEntity.TYPE_COLUMN,
+                    targetColId, MetadataEntity.TYPE_COLUMN,
+                    MetadataRelationship.TYPE_DERIVED_FROM);
         } catch (Exception e) {
             log.debug("查找 DERIVED_FROM 边失败 source={} target={}: {}", sourceColId, targetColId, e.getMessage());
             return null;

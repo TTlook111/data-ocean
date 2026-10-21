@@ -5,15 +5,15 @@ import com.dataocean.common.security.LoginUser;
 import com.dataocean.module.glossary.controller.GlossaryController;
 import com.dataocean.module.glossary.dto.TermLinkColumnDTO;
 import com.dataocean.module.glossary.dto.TermReviewDTO;
-import com.dataocean.module.glossary.entity.Glossary;
-import com.dataocean.module.glossary.entity.GlossaryTerm;
+import com.dataocean.module.glossary.entity.po.Glossary;
+import com.dataocean.module.glossary.entity.po.GlossaryTerm;
 import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
 import com.dataocean.module.glossary.service.GlossaryScopeService;
 import com.dataocean.module.glossary.service.GlossaryService;
 import com.dataocean.module.glossary.service.GlossaryTermService;
 import com.dataocean.module.glossary.service.impl.GlossaryScopeServiceImpl;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
 import com.dataocean.module.metadata.mapper.MetadataEntityMapper;
 import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
@@ -62,7 +62,7 @@ class GlossaryControllerAuthorizationTest {
         com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
                 new org.apache.ibatis.builder.MapperBuilderAssistant(
                         new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
-                com.dataocean.module.glossary.entity.GlossaryTerm.class);
+                com.dataocean.module.glossary.entity.po.GlossaryTerm.class);
     }
 
     @AfterEach
@@ -95,7 +95,7 @@ class GlossaryControllerAuthorizationTest {
 
         fixture.controller.updateTerm(1L, new GlossaryTerm());
 
-        verify(fixture.termService).updateTerm(eq(1L), any());
+        verify(fixture.workflowService).save(org.mockito.ArgumentMatchers.isNull(), eq(1L), any());
         verify(fixture.adminGuard, never()).requireDatasourceFunction(any(), any(), anyLong());
     }
 
@@ -106,7 +106,7 @@ class GlossaryControllerAuthorizationTest {
         // 术语不存在：必须 404，不能因为“查不到关联源”就按未关联放行
         when(fixture.termService.getById(404L)).thenReturn(null);
 
-        assertThatThrownBy(() -> fixture.controller.deleteTerm(404L))
+        assertThatThrownBy(() -> fixture.controller.deleteTerm(404L, 0L))
                 .isInstanceOf(BusinessException.class);
         verify(fixture.termService, never()).deleteTerm(anyLong());
     }
@@ -125,7 +125,7 @@ class GlossaryControllerAuthorizationTest {
         fixture.controller.reviewTerm(1L, request);
 
         // TermReviewDTO.reason 默认是空串（不是 null），控制器原样透传
-        verify(fixture.termService).reviewTerm(1L, 7L, true, "");
+        verify(fixture.workflowService).action(eq(1L), eq("REVIEW"), any());
         // 审核不自动获得维护权：同一调用者不能改术语
         assertThatThrownBy(() -> fixture.controller.updateTerm(1L, new GlossaryTerm()))
                 .isInstanceOf(BusinessException.class);
@@ -217,7 +217,7 @@ class GlossaryControllerAuthorizationTest {
         assertThatThrownBy(() -> fixture.controller.reviewTerm(1L, review))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getCode()).isEqualTo(409));
-        assertThatThrownBy(() -> fixture.controller.deleteTerm(1L))
+        assertThatThrownBy(() -> fixture.controller.deleteTerm(1L, 0L))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getCode()).isEqualTo(409));
 
@@ -309,6 +309,7 @@ class GlossaryControllerAuthorizationTest {
         private final GlossaryTermMapper glossaryTermMapper = mock(GlossaryTermMapper.class);
         private final MetadataRelationshipMapper relationshipMapper = mock(MetadataRelationshipMapper.class);
         private final MetadataEntityMapper entityMapper = mock(MetadataEntityMapper.class);
+        private final com.dataocean.module.glossary.service.GlossaryTermWorkflowService workflowService = mock(com.dataocean.module.glossary.service.GlossaryTermWorkflowService.class);
         private final GlossaryController controller;
 
         /** 术语 → 实体 → 数据源 的种子关联，供真实范围服务的只读 Mapper 应答。 */
@@ -320,7 +321,7 @@ class GlossaryControllerAuthorizationTest {
             GlossaryScopeService scopeService = new GlossaryScopeServiceImpl(
                     capabilityService, adminGuard, glossaryTermMapper, relationshipMapper, entityMapper);
             GlossaryController target = new GlossaryController(glossaryService, termService, scopeService,
-                    entityService, relationshipService);
+                    entityService, relationshipService, workflowService, mock(com.dataocean.module.glossary.service.GlossaryFieldService.class));
             IamS1AuthorizationAspect aspect = new IamS1AuthorizationAspect(adminGuard,
                     new IamS1ResourceResolverRegistry(List.of()));
             AspectJProxyFactory factory = new AspectJProxyFactory(target);

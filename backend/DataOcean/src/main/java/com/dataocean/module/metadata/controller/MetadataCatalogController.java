@@ -7,10 +7,16 @@ import com.dataocean.module.metadata.entity.dto.ConfirmMaskCandidateRequest;
 import jakarta.validation.Valid;
 import com.dataocean.module.system.aspect.AdminAuditLog;
 import com.dataocean.module.audit.service.LineageEdgeService;
-import com.dataocean.module.metadata.entity.MetadataEntity;
-import com.dataocean.module.metadata.entity.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.vo.CatalogEntityOverviewVO;
+import com.dataocean.module.metadata.entity.vo.PublishedCatalogVO;
+import com.dataocean.module.metadata.service.CatalogOverviewService;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.dataocean.module.metadata.service.SchemaSnapshotService;
+import com.dataocean.module.metadata.support.RelationshipBindingStatus;
 import com.dataocean.module.permission.s1.annotation.IamS1Resource;
 import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
@@ -57,6 +63,8 @@ public class MetadataCatalogController {
     private final MetadataEntityService entityService;
     private final MetadataRelationshipService relationshipService;
     private final LineageEdgeService lineageEdgeService;
+    private final CatalogOverviewService catalogOverviewService;
+    private final SchemaSnapshotService snapshotService;
     private final IamS1AdminGuard adminGuard;
     private final IamS1CapabilityService capabilityService;
     private final com.dataocean.module.metadata.service.MetadataMaskCandidateService maskCandidateService;
@@ -116,17 +124,22 @@ public class MetadataCatalogController {
         }
 
         // 关系另一侧可能属于调用者无负责权限的数据源：与血缘同样只返回两端都可见的边。
-        Set<Long> detailEntityScope = entityService.getEntityIdsByDatasourceIds(
+        // 可见性按“类型 + ID”判定，避免数字 ID 相同但类型不同的端点被误认为同一对象。
+        Set<String> detailEntityScope = entityService.getEntityKeysByDatasourceIds(
                 visibleDatasourceIds(UserContext.currentUserId(), VIEW_FUNCTION));
         List<MetadataRelationship> outgoing = relationshipService.getBySource(entityId, entity.getEntityType())
                 .stream()
-                .filter(rel -> detailEntityScope.contains(rel.getSourceId())
-                        && detailEntityScope.contains(rel.getTargetId()))
+                .filter(rel -> isMetadataEndpoint(rel.getSourceType())
+                        && isMetadataEndpoint(rel.getTargetType()))
+                .filter(rel -> detailEntityScope.contains(endpointKey(rel.getSourceType(), rel.getSourceId()))
+                        && detailEntityScope.contains(endpointKey(rel.getTargetType(), rel.getTargetId())))
                 .toList();
         List<MetadataRelationship> incoming = relationshipService.getByTarget(entityId, entity.getEntityType())
                 .stream()
-                .filter(rel -> detailEntityScope.contains(rel.getSourceId())
-                        && detailEntityScope.contains(rel.getTargetId()))
+                .filter(rel -> isMetadataEndpoint(rel.getSourceType())
+                        && isMetadataEndpoint(rel.getTargetType()))
+                .filter(rel -> detailEntityScope.contains(endpointKey(rel.getSourceType(), rel.getSourceId()))
+                        && detailEntityScope.contains(endpointKey(rel.getTargetType(), rel.getTargetId())))
                 .toList();
 
         Map<String, Object> result = new HashMap<>();
@@ -134,6 +147,66 @@ public class MetadataCatalogController {
         result.put("outgoingRelations", outgoing);
         result.put("incomingRelations", incoming);
         return Result.success(result);
+    }
+
+    /**
+     * 数据对象详情聚合读取。
+     *
+     * <p>所属关系、术语、标签、字段治理标签、血缘和下游影响分别返回状态；
+     * 单个区块无权限或读取失败不会导致整个详情无法打开，也不会伪装成空记录。</p>
+     */
+    @GetMapping("/entities/{entityId}/overview")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY,
+            resourceIds = "#entityId")
+    public Result<CatalogEntityOverviewVO> getEntityOverview(@PathVariable Long entityId) {
+        return Result.success(catalogOverviewService.overview(UserContext.currentUserId(), entityId));
+    }
+
+    /**
+     * 当前已发布快照对应的数据对象目录（表 / 字段）。
+     *
+     * <p>与“快照表结构”区分：这里只返回发布后同步到实体图谱的目录对象，
+     * 并携带目录同步状态；历史版本没有同步记录时状态为空，页面必须提示可能不完整。</p>
+     */
+    @GetMapping("/published-entities")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE,
+            resourceIds = "#datasourceId")
+    public Result<PublishedCatalogVO> getPublishedEntities(@RequestParam Long datasourceId) {
+        adminGuard.requireDatasourceFunction(UserContext.currentUserId(), VIEW_FUNCTION, datasourceId);
+        MetadataSnapshot snapshot = snapshotService.getPublishedSnapshot(datasourceId);
+        if (snapshot == null) {
+            return Result.success(new PublishedCatalogVO(datasourceId, null, null, null, null,
+                    null, 0, 0, List.of()));
+        }
+        List<MetadataEntity> entities = entityService.getByDatasourceId(datasourceId).stream()
+                .filter(entity -> MetadataEntity.TYPE_TABLE.equals(entity.getEntityType())
+                        || MetadataEntity.TYPE_COLUMN.equals(entity.getEntityType()))
+                .toList();
+        int tableCount = (int) entities.stream()
+                .filter(entity -> MetadataEntity.TYPE_TABLE.equals(entity.getEntityType())).count();
+        int columnCount = (int) entities.stream()
+                .filter(entity -> MetadataEntity.TYPE_COLUMN.equals(entity.getEntityType())).count();
+        return Result.success(new PublishedCatalogVO(datasourceId, snapshot.getId(),
+                snapshot.getSnapshotVersion(), snapshot.getEntitySyncStatus(),
+                snapshot.getEntitySyncError(), snapshot.getEntitySyncedAt(),
+                tableCount, columnCount, entities));
+    }
+
+    private String endpointKey(String type, Long id) {
+        return MetadataEntity.endpointKey(type, id);
+    }
+
+    /**
+     * 通用实体关系列表只承载元数据实体端点。
+     *
+     * <p>术语和标签的端点身份来自各自主表，不能借用同数字 ID 的元数据实体判定权限；
+     * 它们由对象详情聚合接口按术语/标签主记录和各自范围规则单独读取。</p>
+     */
+    private boolean isMetadataEndpoint(String type) {
+        return MetadataEntity.TYPE_DATASOURCE.equals(type)
+                || MetadataEntity.TYPE_DATABASE.equals(type)
+                || MetadataEntity.TYPE_TABLE.equals(type)
+                || MetadataEntity.TYPE_COLUMN.equals(type);
     }
 
     /**
@@ -158,12 +231,20 @@ public class MetadataCatalogController {
             @RequestParam(defaultValue = "1") int depth,
             @RequestParam(required = false) String lineageType) {
         Long lineageUserId = UserContext.currentUserId();
+        MetadataEntity lineageEntity = entityService.getById(entityId);
+        if (lineageEntity == null) {
+            return Result.error(404, "实体不存在");
+        }
         // 准入由注解承担；这里保留的是血缘图的可见性裁剪（Service 职责）。
         List<Long> lineageScope = visibleDatasourceIds(lineageUserId, LINEAGE_FUNCTION);
         // 无过滤时保持原有行为（向后兼容）
         if (lineageType == null || lineageType.isBlank()) {
             // 血缘跨数据源：只返回两端都在负责范围内的边。
-            List<MetadataRelationship> lineage = relationshipService.getLineage(entityId, lineageScope);
+            List<MetadataRelationship> lineage = relationshipService.getLineage(
+                    lineageEntity.getEntityType(), entityId, lineageScope).stream()
+                    // 失效关系保留在对象详情的历史区块中；通用血缘接口不作为有效血缘返回。
+                    .filter(rel -> !RelationshipBindingStatus.isInactive(rel))
+                    .toList();
             return Result.success(lineage);
         }
 
@@ -180,7 +261,8 @@ public class MetadataCatalogController {
         // 可见范围在 BFS 的**遍历阶段**生效：只做返回前过滤会留下
         // “A 可见 → B 无权 → C 可见”这类孤立节点，等于泄露存在隐藏路径的拓扑信号。
         com.dataocean.module.audit.entity.vo.LineageGraphVO vo = lineageEdgeService.getEnrichedLineage(
-                entityId, depth, lineageTypes, entityService.getEntityIdsByDatasourceIds(lineageScope));
+                lineageEntity.getEntityType(), entityId, depth, lineageTypes,
+                entityService.getEntityKeysByDatasourceIds(lineageScope));
         return Result.success(vo);
     }
 
@@ -213,7 +295,7 @@ public class MetadataCatalogController {
         result.put("columnName", column.getName());
         result.put("fqn", column.getFqn());
 
-        Set<Long> lineageEntityScope = entityService.getEntityIdsByDatasourceIds(
+        Set<String> lineageEntityScope = entityService.getEntityKeysByDatasourceIds(
                 visibleDatasourceIds(columnUserId, LINEAGE_FUNCTION));
 
         // 获取上游 DERIVED_FROM 链（该列是 target，即哪些源列派生出了它）
@@ -241,7 +323,7 @@ public class MetadataCatalogController {
      * @return 递归嵌套的列血缘链 [{"entity":..., "relationship":..., "children":[...]}, ...]
      */
     private List<Map<String, Object>> traceDerivedFromChain(Long columnId, int depth, boolean upstream,
-                                                            Set<Long> visited, Set<Long> visibleEntityIds) {
+                                                            Set<Long> visited, Set<String> visibleEntityKeys) {
         List<Map<String, Object>> chain = new ArrayList<>();
         if (depth <= 0 || visited.contains(columnId)) return chain;
         visited.add(columnId);
@@ -252,15 +334,19 @@ public class MetadataCatalogController {
 
         for (MetadataRelationship rel : rels) {
             if (!MetadataRelationship.TYPE_DERIVED_FROM.equals(rel.getRelationType())) continue;
+            // 失效关系不能继续作为列级下游链的跳板。
+            if (RelationshipBindingStatus.isInactive(rel)) continue;
 
             Long relatedColId = upstream ? rel.getSourceId() : rel.getTargetId();
+            String relatedType = upstream ? rel.getSourceType() : rel.getTargetType();
             // 列级血缘同样是跨数据源的图：无权节点既不返回，也不继续向下递归，
             // 否则会用它当跳板把更深层的可见列也带出来。
-            if (visibleEntityIds != null && !visibleEntityIds.contains(relatedColId)) {
+            if (visibleEntityKeys != null
+                    && !visibleEntityKeys.contains(endpointKey(relatedType, relatedColId))) {
                 continue;
             }
             MetadataEntity relatedCol = entityService.getById(relatedColId);
-            if (relatedCol == null) continue;
+            if (relatedCol == null || !MetadataEntity.TYPE_COLUMN.equals(relatedCol.getEntityType())) continue;
 
             Map<String, Object> node = new LinkedHashMap<>();
             node.put("entity", relatedCol);
@@ -268,7 +354,7 @@ public class MetadataCatalogController {
 
             // 递归获取更深层
             List<Map<String, Object>> children =
-                    traceDerivedFromChain(relatedColId, depth - 1, upstream, visited, visibleEntityIds);
+                    traceDerivedFromChain(relatedColId, depth - 1, upstream, visited, visibleEntityKeys);
             if (!children.isEmpty()) {
                 node.put("children", children);
             }
@@ -293,7 +379,12 @@ public class MetadataCatalogController {
             @PathVariable Long entityId,
             @RequestParam(defaultValue = "10") int maxDepth) {
         Long downstreamUserId = UserContext.currentUserId();
-        List<MetadataRelationship> downstream = relationshipService.getDownstream(entityId, maxDepth,
+        MetadataEntity entity = entityService.getById(entityId);
+        if (entity == null) {
+            return Result.error(404, "实体不存在");
+        }
+        List<MetadataRelationship> downstream = relationshipService.getDownstream(
+                entity.getEntityType(), entityId, maxDepth,
                 visibleDatasourceIds(downstreamUserId, LINEAGE_FUNCTION));
         return Result.success(downstream);
     }
@@ -374,20 +465,27 @@ public class MetadataCatalogController {
     public Result<Void> unconfirmTag(
             @PathVariable Long entityId,
             @PathVariable String tagFqn) {
+        MetadataEntity entity = entityService.getById(entityId);
+        if (entity == null) {
+            return Result.error(404, "实体不存在");
+        }
         MetadataEntity tagEntity = entityService.getByFqn("tag." + tagFqn.toLowerCase());
         if (tagEntity == null) {
             return Result.error(404, "标签不存在");
         }
 
-        var rels = relationshipService.getBySource(entityId, null);
+        // 必须使用当前实体的真实类型；传 null 会生成 source_type = NULL，取消永远不会生效。
+        var rels = relationshipService.getBySource(entityId, entity.getEntityType());
         for (MetadataRelationship rel : rels) {
             if (MetadataRelationship.TYPE_TAGGED_WITH.equals(rel.getRelationType())
+                    && (rel.getTargetType() == null
+                    || MetadataEntity.TYPE_TAG.equals(rel.getTargetType()))
                     && rel.getTargetId().equals(tagEntity.getId())) {
                 relationshipService.removeById(rel.getId());
-                break;
+                return Result.success("已取消标签", null);
             }
         }
-        return Result.success("已取消标签", null);
+        return Result.error(404, "未找到该标签与当前对象的关联");
     }
 
     /**
@@ -396,12 +494,20 @@ public class MetadataCatalogController {
     @GetMapping("/entities/{entityId}/tags")
     @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.METADATA_ENTITY, resourceIds = "#entityId")
     public Result<List<MetadataEntity>> getEntityTags(@PathVariable Long entityId) {
-        var rels = relationshipService.getBySource(entityId, null);
+        MetadataEntity entity = entityService.getById(entityId);
+        if (entity == null) {
+            return Result.error(404, "实体不存在");
+        }
+        // 必须使用当前实体的真实类型；source_type = NULL 在 SQL 中不会匹配任何行。
+        var rels = relationshipService.getBySource(entityId, entity.getEntityType());
         List<MetadataEntity> tags = new java.util.ArrayList<>();
         for (MetadataRelationship rel : rels) {
             if (MetadataRelationship.TYPE_TAGGED_WITH.equals(rel.getRelationType())) {
                 MetadataEntity tag = entityService.getById(rel.getTargetId());
-                if (tag != null) tags.add(tag);
+                // 以真实加载到的实体类型为准，兼容历史 target_type 为空的标签关系。
+                if (tag != null && MetadataEntity.TYPE_TAG.equals(tag.getEntityType())) {
+                    tags.add(tag);
+                }
             }
         }
         return Result.success(tags);

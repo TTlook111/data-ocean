@@ -3,8 +3,8 @@ package com.dataocean.module.system.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
 import com.dataocean.module.permission.s1.annotation.IamS1Global;
-import com.dataocean.module.system.entity.SysOperationLog;
-import com.dataocean.module.system.entity.dto.OperationLogQueryDTO;
+import com.dataocean.module.system.entity.po.SysOperationLog;
+import com.dataocean.module.system.entity.query.OperationLogQuery;
 import com.dataocean.module.system.service.OperationLogService;
 import lombok.RequiredArgsConstructor;
 
@@ -28,7 +28,7 @@ public class OperationLogController {
      */
     @GetMapping
     @IamS1Global(VIEW_FUNCTION)
-    public Result<Page<SysOperationLog>> list(@ModelAttribute OperationLogQueryDTO query) {
+    public Result<Page<SysOperationLog>> list(@ModelAttribute OperationLogQuery query) {
         return Result.success(operationLogService.listLogs(query));
     }
 }

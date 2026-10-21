@@ -1,6 +1,6 @@
 package com.dataocean.module.permission.s1.service;
 
-import com.dataocean.module.permission.s1.entity.IamS1Function;
+import com.dataocean.module.permission.s1.entity.po.IamS1Function;
 
 import java.util.Collection;
 import java.util.List;

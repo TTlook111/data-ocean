@@ -1,7 +1,7 @@
 package com.dataocean.module.system.aspect;
 
 import com.dataocean.common.security.UserContext;
-import com.dataocean.module.system.entity.SysOperationLog;
+import com.dataocean.module.system.entity.po.SysOperationLog;
 import com.dataocean.module.system.service.OperationLogService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
