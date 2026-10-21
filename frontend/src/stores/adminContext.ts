@@ -40,6 +40,8 @@ export const useAdminContextStore = defineStore('admin-context', () => {
   const snapshotId = ref<number | undefined>(persisted.snapshotId)
   const knowledgeDocId = ref<number | undefined>(persisted.knowledgeDocId)
   const loading = ref(false)
+  const routeSyncing = ref(false)
+  const routeSyncError = ref('')
   const initialized = ref(false)
   let initPromise: Promise<void> | null = null
   let selectionRequest = 0
@@ -191,6 +193,8 @@ export const useAdminContextStore = defineStore('admin-context', () => {
     snapshotId,
     knowledgeDocId,
     loading,
+    routeSyncing,
+    routeSyncError,
     initialized,
     currentDatasource,
     currentSnapshot,

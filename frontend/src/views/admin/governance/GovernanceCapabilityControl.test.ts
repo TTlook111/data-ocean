@@ -10,13 +10,15 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
-import ElementPlus, { ElDialog, ElSelect } from 'element-plus'
+import { nextTick, reactive } from 'vue'
+import ElementPlus, { ElDialog, ElMessage, ElSelect } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
+import type { QualityIssueItem } from '../../../api/admin/governance'
 
 /** 可变的“当前路由”，让用例能把页面直接挂载在指定 Tab 上。 */
-const routeState = vi.hoisted(() => ({ query: {} as Record<string, unknown>, push: vi.fn() }))
+const routeState = vi.hoisted(() => ({ query: {} as Record<string, unknown>, push: vi.fn(), replace: vi.fn() }))
+const reactiveRouteState = reactive(routeState)
 
 const api = vi.hoisted(() => ({
   getIamS1Capabilities: vi.fn(),
@@ -50,6 +52,7 @@ const api = vi.hoisted(() => ({
   rejectMaskCandidate: vi.fn(),
   listSimpleDatasources: vi.fn(),
   listSnapshots: vi.fn(),
+  getSnapshotDetail: vi.fn(),
   listKnowledgeDocs: vi.fn(),
   listUsers: vi.fn(),
 }))
@@ -90,7 +93,7 @@ vi.mock('../../../api/admin/catalog', () => ({
 }))
 vi.mock('../../../api/admin/user', () => ({ listUsers: api.listUsers }))
 vi.mock('../../../api/admin/datasource', () => ({ listSimpleDatasources: api.listSimpleDatasources }))
-vi.mock('../../../api/admin/metadata', () => ({ listSnapshots: api.listSnapshots }))
+vi.mock('../../../api/admin/metadata', () => ({ listSnapshots: api.listSnapshots, getSnapshotDetail: api.getSnapshotDetail }))
 vi.mock('../../../api/admin/knowledge', () => ({ listKnowledgeDocs: api.listKnowledgeDocs }))
 // 只替换页面用到的那两个组合式函数：`src/api/http.ts` 会在 401 时用真实 router 跳转，
 // 整体替换模块会让它拿不到 createRouter。
@@ -98,8 +101,8 @@ vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>()
   return {
     ...actual,
-    useRoute: () => routeState,
-    useRouter: () => ({ replace: vi.fn(), push: routeState.push }),
+    useRoute: () => reactiveRouteState,
+    useRouter: () => ({ replace: routeState.replace, push: routeState.push }),
   }
 })
 
@@ -108,6 +111,7 @@ import StatusEditor from './StatusEditor.vue'
 import QualityRulesView from './QualityRulesView.vue'
 import QualityDashboard from './QualityDashboard.vue'
 import GovernanceFieldsView from './GovernanceFieldsView.vue'
+import ScopeBar from '../../../components/admin/ScopeBar.vue'
 import { useIamS1Store } from '../../../stores/iamS1'
 import { useAdminContextStore } from '../../../stores/adminContext'
 
@@ -153,6 +157,37 @@ function mountPage(component: unknown) {
       plugins: [ElementPlus],
       stubs: { RouterLink: { template: '<a><slot /></a>' } },
     },
+  })
+  mountedPages.push(wrapper)
+  return wrapper
+}
+
+function mountIssuePage(scope: { datasourceId?: number | null; snapshotId?: number | null } = {}) {
+  const selectedDatasourceId = scope.datasourceId === null ? undefined : scope.datasourceId ?? DATASOURCE_ID
+  const selectedSnapshotId = scope.snapshotId === null ? undefined : scope.snapshotId ?? 8
+  const context = useAdminContextStore()
+  context.$patch({
+    datasources: selectedDatasourceId ? [{ id: selectedDatasourceId, name: '销售库', databaseName: 'sales' }] : [],
+    snapshots: selectedSnapshotId ? [{ id: selectedSnapshotId, datasourceId: selectedDatasourceId, snapshotVersion: 1, status: 'PUBLISHED' }] : [],
+    datasourceId: selectedDatasourceId,
+    snapshotId: selectedSnapshotId,
+    loading: false,
+    routeSyncing: false,
+    routeSyncError: '',
+    initialized: true,
+  })
+  return mountPage(IssueList)
+}
+
+function mountScopeBar() {
+  const wrapper = mount(ScopeBar, {
+    props: {
+      mode: 'datasource-snapshot',
+      showControlLabels: true,
+      trackRouteSync: true,
+      preserveRouteContextOnRefresh: true,
+    },
+    global: { plugins: [ElementPlus] },
   })
   mountedPages.push(wrapper)
   return wrapper
@@ -229,12 +264,17 @@ const issue = {
 
 beforeEach(() => {
   setActivePinia(createPinia())
-  routeState.query = {}
+  reactiveRouteState.query = {}
   routeState.push.mockReset()
+  routeState.replace.mockReset().mockImplementation(({ query }: { query: Record<string, unknown> }) => {
+    reactiveRouteState.query = query
+  })
   localStorage.clear()
   Object.values(api).forEach((fn) => fn.mockReset())
   api.listSimpleDatasources.mockResolvedValue({ data: [{ id: DATASOURCE_ID, name: '销售库' }] })
   api.listSnapshots.mockResolvedValue({ data: { records: [{ id: 8, snapshotVersion: 1 }], total: 1 } })
+  api.getSnapshotDetail.mockRejectedValue(new Error('快照不存在'))
+  api.listSnapshotTables.mockResolvedValue({ data: [{ tableName: 'orders', tableComment: '订单表' }] })
   api.listKnowledgeDocs.mockResolvedValue({ data: { records: [], total: 0 } })
   api.listUsers.mockResolvedValue({ data: { records: [], total: 0 } })
   api.listQualityIssues.mockResolvedValue({ data: { records: [issue], total: 1 } })
@@ -250,7 +290,7 @@ beforeEach(() => {
   api.getLatestQualityCheckBatch.mockResolvedValue({ data: null })
   api.getQualityRuleSummary.mockResolvedValue({ data: { enabledCount: 0, applicableCount: 0, unsupportedCount: 0, overriddenCount: 0, executedCount: 0 } })
   api.getSnapshotQualityIssueSummary.mockResolvedValue({ data: { totalUnresolved: 0, statusCounts: { OPEN: 0, CONFIRMED: 0, REOPENED: 0 }, recentIssues: [] } })
-  api.listSnapshotTables.mockResolvedValue({ data: [] })
+  api.listSnapshotTables.mockResolvedValue({ data: [{ tableName: 'orders', tableComment: '订单表' }] })
   api.listMaskCandidates.mockResolvedValue({ data: [] })
   api.listReviewRecords.mockResolvedValue({ data: { records: [], total: 0 } })
 })
@@ -258,12 +298,13 @@ beforeEach(() => {
 afterEach(() => {
   mountedPages.splice(0).forEach((wrapper) => wrapper.unmount())
   document.body.innerHTML = ''
+  vi.restoreAllMocks()
 })
 
 describe('IssueList 的能力控制', () => {
   it('没有处理能力时不渲染任何写操作按钮，只显示原因', async () => {
-    respond(capability({ global: ['governance:issue:view'] }))
-    const wrapper = mountPage(IssueList)
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    const wrapper = mountIssuePage()
     await settle()
 
     // 有查看权、无处理权：不应出现任何会触发写接口的按钮
@@ -275,8 +316,8 @@ describe('IssueList 的能力控制', () => {
   })
 
   it('在负责源上拥有处理能力时才渲染操作按钮', async () => {
-    respond(capability({ global: ['governance:issue:view'], onDatasource: ['governance:issue:manage'] }))
-    const wrapper = mountPage(IssueList)
+    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    const wrapper = mountIssuePage()
     await settle()
 
     expect(wrapper.text()).not.toContain('无处理权限')
@@ -288,8 +329,7 @@ describe('IssueList 的能力控制', () => {
     expect(api.handleIssue).toHaveBeenCalledWith(1, { status: 'CONFIRMED' })
   })
 
-  it('功能与负责源不在同一绑定时不渲染操作按钮', async () => {
-    // 功能码授予在另一个数据源上：服务端能力摘要不会把它挂到 5 上
+  it('globalFunctions 有查看码但当前数据源无查看能力时不读取列表', async () => {
     respond(capability({ global: ['governance:issue:view'] }))
     api.getIamS1Capabilities.mockResolvedValue({
       code: 200,
@@ -306,17 +346,46 @@ describe('IssueList 的能力控制', () => {
         ],
       },
     })
-    const wrapper = mountPage(IssueList)
+    const wrapper = mountIssuePage()
+    await settle()
+
+    expect(wrapper.text()).toContain('没有查看所选数据源质量问题的权限')
+    expect(api.listQualityIssues).not.toHaveBeenCalled()
+  })
+
+  it('查看能力只绑定到其他数据源时当前源仍无权', async () => {
+    api.getIamS1Capabilities.mockResolvedValue({
+      code: 200,
+      message: 'ok',
+      data: {
+        ...capability({}),
+        datasourceCapabilities: [{
+          datasourceId: 9,
+          datasourceName: '财务库',
+          functionCodes: ['governance:issue:view', 'governance:issue:manage'],
+          functionNames: ['查看质量问题', '处理质量问题'],
+        }],
+      },
+    })
+    const wrapper = mountIssuePage()
+    await settle()
+
+    expect(wrapper.text()).toContain('没有查看所选数据源质量问题的权限')
+    expect(api.listQualityIssues).not.toHaveBeenCalled()
+  })
+
+  it('受保护系统管理员通过当前源能力门禁', async () => {
+    respond(capability({ systemAdmin: true }))
+    const wrapper = mountIssuePage()
     await settle()
 
     await waitForRow(wrapper, 'orders')
-    expect(wrapper.text()).toContain('无处理权限')
-    expect(rowButton(wrapper, 'orders', '确认')).toBeUndefined()
+    expect(api.listQualityIssues).toHaveBeenCalledWith(8, expect.any(Object))
   })
 
   it('没有发布域能力时不请求同表治理记录', async () => {
-    respond(capability({ global: ['governance:issue:view'], onDatasource: ['governance:issue:manage'] }))
-    const wrapper = mountPage(IssueList)
+    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    const wrapper = mountIssuePage()
     await settle()
 
     const detail = await waitForRowButton(wrapper, 'orders', '详情')
@@ -330,10 +399,9 @@ describe('IssueList 的能力控制', () => {
 
   it('拥有发布域能力时才请求同表治理记录', async () => {
     respond(capability({
-      global: ['governance:issue:view'],
-      onDatasource: ['governance:issue:manage', 'metadata:release:view'],
+      onDatasource: ['governance:issue:view', 'governance:issue:manage', 'metadata:release:view'],
     }))
-    const wrapper = mountPage(IssueList)
+    const wrapper = mountIssuePage()
     await settle()
 
     const detail = await waitForRowButton(wrapper, 'orders', '详情')
@@ -341,6 +409,358 @@ describe('IssueList 的能力控制', () => {
     await settle()
 
     expect(api.listReviewRecords).toHaveBeenCalledWith(8, expect.objectContaining({ tableName: 'orders' }))
+  })
+})
+
+describe('问题中心分派详情会话隔离', () => {
+  const issueA = issue
+  const issueB = { ...issue, id: 2, tableName: 'customers', issueDescription: '客户记录问题', assigneeId: 1 }
+
+  async function openIssue(wrapper: ReturnType<typeof mountPage>, tableName: string) {
+    const detail = await waitForRowButton(wrapper, tableName, '详情')
+    await detail.trigger('click')
+    await settle()
+  }
+
+  async function startAssignment(wrapper: ReturnType<typeof mountPage>, assigneeId: number) {
+    const selects = wrapper.findAllComponents(ElSelect)
+    const detailAssigneeSelect = selects[selects.length - 1]
+    if (!detailAssigneeSelect) throw new Error('详情责任人选择器尚未渲染')
+    await detailAssigneeSelect.vm.$emit('update:modelValue', assigneeId)
+    await nextTick()
+    const submit = wrapper.findAll('button').find((button) => button.text() === '分派')
+    if (!submit) throw new Error('详情分派按钮尚未渲染')
+    await submit.trigger('click')
+    await vi.waitFor(() => expect(api.assignIssue).toHaveBeenCalled())
+  }
+
+  async function closeDrawer(wrapper: ReturnType<typeof mountPage>) {
+    const drawer = wrapper.findComponent({ name: 'ElDrawer' })
+    if (!drawer.exists()) throw new Error('问题详情抽屉尚未渲染')
+    await drawer.vm.$emit('update:modelValue', false)
+    await settle()
+  }
+
+  function currentDetailHeading(wrapper: ReturnType<typeof mountPage>) {
+    const heading = wrapper.find('.issue-detail__headline strong')
+    return heading.exists() ? heading.text() : undefined
+  }
+
+  it('A 的慢分派在关闭 A 并打开 B 后不能覆盖 B 详情', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    api.listQualityIssues.mockResolvedValue({ data: { records: [issueA, issueB], total: 2 } })
+    api.listUsers.mockResolvedValue({ data: { records: [{ id: 77, realName: '责任人A', status: 1 }], total: 1 } })
+    const pendingA = deferred<{ data: null }>()
+    api.assignIssue.mockReturnValue(pendingA.promise)
+    const success = vi.spyOn(ElMessage, 'success')
+    const wrapper = mountIssuePage()
+    await settle()
+
+    await openIssue(wrapper, 'orders')
+    await startAssignment(wrapper, 77)
+    expect(api.assignIssue).toHaveBeenCalledWith(1, 77)
+    await closeDrawer(wrapper)
+    await openIssue(wrapper, 'customers')
+    expect(currentDetailHeading(wrapper)).toBe('customers')
+
+    pendingA.resolve({ data: null })
+    await settle()
+    expect(currentDetailHeading(wrapper)).toBe('customers')
+    expect(wrapper.text()).toContain('客户记录问题')
+    expect(success).not.toHaveBeenCalled()
+    success.mockRestore()
+  })
+
+  it('关闭详情后分派响应返回不重新打开抽屉', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    api.listQualityIssues.mockResolvedValue({ data: { records: [issueA], total: 1 } })
+    api.listUsers.mockResolvedValue({ data: { records: [{ id: 77, realName: '责任人A', status: 1 }], total: 1 } })
+    const pending = deferred<{ data: null }>()
+    api.assignIssue.mockReturnValue(pending.promise)
+    const wrapper = mountIssuePage()
+    await settle()
+
+    await openIssue(wrapper, 'orders')
+    await startAssignment(wrapper, 77)
+    await closeDrawer(wrapper)
+    expect(currentDetailHeading(wrapper)).toBeUndefined()
+
+    pending.resolve({ data: null })
+    await settle()
+    expect(currentDetailHeading(wrapper)).toBeUndefined()
+    expect(wrapper.text()).not.toContain('分派失败')
+  })
+
+  it('切换数据源或快照期间的分派响应不刷新新范围', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    api.listQualityIssues.mockResolvedValue({ data: { records: [issueA], total: 1 } })
+    api.listUsers.mockResolvedValue({ data: { records: [{ id: 77, realName: '责任人A', status: 1 }], total: 1 } })
+    const pending = deferred<{ data: null }>()
+    api.assignIssue.mockReturnValue(pending.promise)
+    const wrapper = mountIssuePage()
+    await settle()
+
+    await openIssue(wrapper, 'orders')
+    await startAssignment(wrapper, 77)
+    reactiveRouteState.query = { datasourceId: '5', snapshotId: '9' }
+    useAdminContextStore().$patch({
+      snapshots: [{ id: 9, datasourceId: 5, snapshotVersion: 2, status: 'PUBLISHED' }],
+      snapshotId: 9,
+    })
+    await vi.waitFor(() => expect(api.listQualityIssues).toHaveBeenLastCalledWith(9, expect.any(Object)))
+    const requestsAtNewScope = api.listQualityIssues.mock.calls.length
+
+    pending.resolve({ data: null })
+    await settle()
+    expect(api.listQualityIssues).toHaveBeenCalledTimes(requestsAtNewScope)
+    expect(currentDetailHeading(wrapper)).toBeUndefined()
+  })
+
+  it('旧分派 finally 不会清除 B 的新分派加载状态', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    api.listQualityIssues.mockResolvedValue({ data: { records: [issueA, issueB], total: 2 } })
+    api.listUsers.mockResolvedValue({ data: { records: [
+      { id: 77, realName: '责任人A', status: 1 }, { id: 88, realName: '责任人B', status: 1 },
+    ], total: 2 } })
+    const pendingA = deferred<{ data: null }>()
+    const pendingB = deferred<{ data: null }>()
+    api.assignIssue.mockImplementation((issueId: number) => issueId === 1 ? pendingA.promise : pendingB.promise)
+    const wrapper = mountIssuePage()
+    await settle()
+
+    await openIssue(wrapper, 'orders')
+    await startAssignment(wrapper, 77)
+    await closeDrawer(wrapper)
+    await openIssue(wrapper, 'customers')
+    await startAssignment(wrapper, 88)
+    const submitB = wrapper.findAll('button').find((button) => button.text() === '分派')!
+    expect(submitB.attributes('disabled')).toBeDefined()
+
+    pendingA.resolve({ data: null })
+    await settle()
+    expect(currentDetailHeading(wrapper)).toBe('customers')
+    expect(submitB.attributes('disabled')).toBeDefined()
+
+    pendingB.resolve({ data: null })
+    await settle()
+    expect(currentDetailHeading(wrapper)).toBe('customers')
+  })
+})
+
+describe('问题中心的范围、筛选和结果表达', () => {
+  it('范围由公共上下文提供，页面只有问题筛选且刷新进入标题操作区', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    const wrapper = mountIssuePage()
+    await settle()
+
+    const filters = wrapper.find('.issue-workbench__filters')
+    expect(filters.findAllComponents(ElSelect)).toHaveLength(5)
+    expect(filters.findAll('input').map((input) => input.attributes('aria-label'))).toEqual([
+      '按表筛选', '按维度筛选', '按级别筛选', '按状态筛选', '按责任人筛选',
+    ])
+    expect(filters.text()).not.toContain('数据源')
+    expect(filters.text()).not.toContain('快照')
+    expect(filters.text()).toContain('分配给我的')
+    expect(filters.text()).toContain('清除筛选')
+    expect(wrapper.find('.page-actions').exists()).toBe(false)
+    expect(wrapper.find('.task-page-header__actions').text()).toContain('刷新问题')
+    expect(api.listSimpleDatasources).not.toHaveBeenCalled()
+    expect(api.listSnapshots).not.toHaveBeenCalled()
+    expect(api.listQualityIssues).toHaveBeenCalledWith(8, expect.objectContaining({ page: 1, size: 20, assigneeId: undefined }))
+  })
+
+  it('显示接口 total 而非当前页记录数，也不显示当前页分类汇总', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    api.listQualityIssues.mockResolvedValue({ data: { records: [issue], total: 37 } })
+    const wrapper = mountIssuePage()
+    await settle()
+
+    expect(wrapper.text().replace(/\s/g, '')).toContain('筛选结果共37条')
+    expect(wrapper.text()).not.toContain('高危 1')
+    expect(wrapper.text()).not.toContain('待处理 1')
+    expect(wrapper.text()).not.toContain('Total 0')
+    expect(wrapper.find('.issue-workbench__pagination').exists()).toBe(true)
+
+    await wrapper.find('.btn-next').trigger('click')
+    await settle()
+    expect(api.listQualityIssues).toHaveBeenLastCalledWith(8, expect.objectContaining({ page: 2, size: 20 }))
+  })
+
+  it('清除问题筛选会回到第一页并保留数据源和快照上下文', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    reactiveRouteState.query = {
+      datasourceId: '5', snapshotId: '8', tableName: 'orders', dimension: 'COMPLETENESS',
+      severity: 'HIGH', status: 'OPEN', assigneeId: '7', page: '3',
+    }
+    const wrapper = mountIssuePage()
+    await settle()
+    expect(api.listQualityIssues).toHaveBeenLastCalledWith(8, expect.objectContaining({
+      tableName: 'orders', dimension: 'COMPLETENESS', severity: 'HIGH', status: 'OPEN', assigneeId: 7, page: 3,
+    }))
+
+    const clear = wrapper.findAll('button').find((button) => button.text() === '清除筛选')
+    expect(clear).toBeTruthy()
+    await clear!.trigger('click')
+    await settle()
+
+    expect(useAdminContextStore().datasourceId).toBe(5)
+    expect(useAdminContextStore().snapshotId).toBe(8)
+    expect(api.listQualityIssues).toHaveBeenLastCalledWith(8, expect.objectContaining({
+      tableName: undefined, dimension: undefined, severity: undefined, status: undefined, assigneeId: undefined, page: 1,
+    }))
+    expect(routeState.replace).toHaveBeenLastCalledWith({ query: { datasourceId: '5', snapshotId: '8' } })
+  })
+
+  it('切换公共快照后使用新范围并清理旧选择', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    const wrapper = mountIssuePage()
+    await settle()
+    const table = wrapper.findComponent({ name: 'ElTable' })
+    await table.vm.$emit('selection-change', [issue])
+    await nextTick()
+    expect(wrapper.text()).toContain('已选 1 项')
+
+    reactiveRouteState.query = { datasourceId: '5', snapshotId: '9' }
+    const context = useAdminContextStore()
+    context.$patch({ snapshots: [{ id: 9, datasourceId: 5, snapshotVersion: 2, status: 'PUBLISHED' }], snapshotId: 9 })
+    await settle()
+
+    expect(api.listQualityIssues).toHaveBeenLastCalledWith(9, expect.objectContaining({ page: 1 }))
+    expect(wrapper.text()).not.toContain('已选 1 项')
+  })
+
+  it('未选择有效数据源和快照时不请求问题列表', async () => {
+    respond(capability({ onDatasource: [] }))
+    const noScope = mountIssuePage({ datasourceId: null, snapshotId: null })
+    await settle()
+    expect(noScope.text()).toContain('请在顶部范围栏选择有效的数据源和快照')
+    expect(api.listQualityIssues).not.toHaveBeenCalled()
+  })
+
+  it('没有当前数据源查看权时不请求列表或伪造零结果', async () => {
+    respond(capability({ onDatasource: [] }))
+    const noAccess = mountIssuePage()
+    await settle()
+    expect(noAccess.text()).toContain('没有查看所选数据源质量问题的权限')
+    expect(noAccess.text()).not.toContain('筛选结果共')
+    expect(api.listQualityIssues).not.toHaveBeenCalled()
+  })
+
+  it('读取失败保留错误与重试，不显示零结果', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    api.listQualityIssues.mockRejectedValueOnce(new Error('network unavailable'))
+    const failed = mountIssuePage()
+    await settle()
+    expect(failed.text()).toContain('读取失败，未取得筛选结果总数')
+    expect(failed.text()).not.toContain('筛选结果共 0 条')
+    const retry = failed.find('button.error-retry')
+    expect(retry.exists()).toBe(true)
+    await retry.trigger('click')
+    await settle()
+    expect(api.listQualityIssues).toHaveBeenCalledTimes(2)
+  })
+
+  it('成功读取到零记录时显示准确空状态且隐藏分页', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    api.listQualityIssues.mockResolvedValue({ data: { records: [], total: 0 } })
+    const noRecords = mountIssuePage()
+    await settle()
+    expect(noRecords.text()).toContain('当前快照暂无问题记录')
+    expect(noRecords.text()).not.toContain('当前快照已通过质量校验')
+    expect(noRecords.find('.issue-workbench__pagination').exists()).toBe(false)
+  })
+
+  it('业务筛选无匹配时提供清除筛选入口', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    api.listQualityIssues.mockResolvedValue({ data: { records: [], total: 0 } })
+    reactiveRouteState.query = { dimension: 'ACCURACY' }
+    const noMatches = mountIssuePage()
+    await settle()
+    expect(noMatches.text()).toContain('没有符合筛选条件的问题')
+    expect(noMatches.find('button.empty-action').text()).toBe('清除筛选')
+  })
+
+  it('加载中不闪现空态；完整读取后真实零值仍显示', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    const pending = deferred<{ data: { records: QualityIssueItem[]; total: number } }>()
+    api.listQualityIssues.mockReturnValue(pending.promise)
+    const wrapper = mountIssuePage()
+    await vi.waitFor(() => expect(api.listQualityIssues).toHaveBeenCalled())
+    expect(wrapper.text()).toContain('正在读取问题记录')
+    expect(wrapper.text()).not.toContain('当前快照暂无问题记录')
+    expect(wrapper.text()).not.toContain('筛选结果共')
+
+    pending.resolve({ data: { records: [], total: 0 } })
+    await settle()
+    expect(wrapper.text().replace(/\s/g, '')).toContain('筛选结果共0条')
+    expect(wrapper.text()).toContain('当前快照暂无问题记录')
+  })
+
+  it('只允许选择当前范围快照；刷新不会把已恢复的历史快照替换成最新快照', async () => {
+    const context = useAdminContextStore()
+    context.$patch({
+      datasources: [{ id: 5, name: '销售库', databaseName: 'sales' }],
+      snapshots: [{ id: 100, datasourceId: 5, snapshotVersion: 9, status: 'PUBLISHED' }],
+      datasourceId: 5, snapshotId: 100, initialized: true, loading: false,
+    })
+    reactiveRouteState.query = { datasourceId: '5', snapshotId: '8' }
+    api.listSnapshots.mockResolvedValue({ data: { records: [{ id: 100, datasourceId: 5, snapshotVersion: 9, status: 'PUBLISHED' }], total: 1 } })
+    api.getSnapshotDetail.mockResolvedValue({ data: { datasourceName: '销售库', snapshot: { id: 8, datasourceId: 5, snapshotVersion: 1, status: 'PUBLISHED' } } })
+    const scope = mountScopeBar()
+    await settle()
+    expect(context.snapshotId).toBe(8)
+    expect(api.getSnapshotDetail).toHaveBeenCalledWith(8)
+    expect(scope.find('button[aria-label="刷新范围"]').exists()).toBe(true)
+
+    await scope.find('button[aria-label="刷新范围"]').trigger('click')
+    await settle()
+    expect(context.snapshotId).toBe(8)
+    expect(context.routeSyncError).toBe('')
+    expect(api.getSnapshotDetail).toHaveBeenCalledTimes(2)
+  })
+
+  it('URL 指定的不可用快照显示错误且不回落到另一个快照', async () => {
+    const context = useAdminContextStore()
+    context.$patch({
+      datasources: [{ id: 5, name: '销售库', databaseName: 'sales' }],
+      snapshots: [{ id: 100, datasourceId: 5, snapshotVersion: 9, status: 'PUBLISHED' }],
+      datasourceId: 5, snapshotId: 100, initialized: true, loading: false,
+    })
+    reactiveRouteState.query = { datasourceId: '5', snapshotId: '8' }
+    api.listSnapshots.mockResolvedValue({ data: { records: [{ id: 100, datasourceId: 5, snapshotVersion: 9, status: 'PUBLISHED' }], total: 1 } })
+    api.getSnapshotDetail.mockRejectedValue(new Error('快照不存在'))
+    const scope = mountScopeBar()
+    await settle()
+
+    expect(context.snapshotId).toBeUndefined()
+    expect(context.routeSyncError).toContain('未切换到其他快照')
+    expect(scope.text()).toContain('指定的快照无法加载')
+  })
+
+  it('批量部分成功保留跳过原因，且无选中项时不显示批量动作', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    const secondIssue = { ...issue, id: 2, status: 'CONFIRMED' }
+    api.listQualityIssues.mockResolvedValue({ data: { records: [issue, secondIssue], total: 2 } })
+    api.batchHandleIssues.mockResolvedValue({ data: {
+      updated: 1, skipped: 1, skippedIssues: [{ id: 2, reason: '当前状态不允许流转' }],
+    } })
+    const warning = vi.spyOn(ElMessage, 'warning')
+    const wrapper = mountIssuePage()
+    await settle()
+    expect(wrapper.text()).not.toContain('批量确认')
+
+    await wrapper.findComponent({ name: 'ElTable' }).vm.$emit('selection-change', [issue, secondIssue])
+    await nextTick()
+    const confirm = wrapper.findAll('button').find((button) => button.text() === '批量确认')
+    expect(confirm).toBeTruthy()
+    expect(confirm!.attributes('disabled')).toBeUndefined()
+    await confirm!.trigger('click')
+    await settle()
+
+    expect(api.batchHandleIssues).toHaveBeenCalledWith({ issueIds: [1, 2], status: 'CONFIRMED' })
+    expect(warning).toHaveBeenCalledWith(expect.stringContaining('当前状态不允许流转'))
+    expect(wrapper.text()).not.toContain('已选 2 项')
+    warning.mockRestore()
   })
 })
 
@@ -828,7 +1248,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
 describe('GovernanceFieldsView 的能力控制', () => {
   beforeEach(() => {
     // 这三个 Tab 的后端端点属于尚未迁移的批次，这里只验证本页自有的脱敏候选 Tab。
-    routeState.query = { tab: 'mask' }
+    reactiveRouteState.query = { tab: 'mask' }
     api.listMaskCandidates.mockResolvedValue({
       data: [{
         entityId: 11,

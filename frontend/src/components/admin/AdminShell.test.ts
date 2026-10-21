@@ -33,7 +33,7 @@ const AccountDropdown = defineComponent({
 })
 const ScopeBarStub = defineComponent({
   name: 'ScopeBar',
-  props: ['mode', 'showControlLabels'],
+  props: ['mode', 'showControlLabels', 'trackRouteSync', 'preserveRouteContextOnRefresh'],
   template: '<div data-testid="scope-bar"></div>',
 })
 const wrappers: VueWrapper[] = []
@@ -111,5 +111,13 @@ describe('admin account menu capability', () => {
     const otherPage = createShell()
     expect(otherPage.findComponent(ScopeBarStub).props('showControlLabels')).toBe(false)
     expect(otherPage.find('.admin-shell__content').classes()).not.toContain('admin-shell__content--compact')
+
+    state.route = { path: '/admin/governance/issues', name: 'admin-governance-issues-new', meta: { title: '问题中心', workspaceKey: 'governance-issues', domainKey: 'governance', contextMode: 'datasource-snapshot' } }
+    const issuePage = createShell()
+    const issueScopeBar = issuePage.findComponent(ScopeBarStub)
+    expect(issueScopeBar.props('showControlLabels')).toBe(true)
+    expect(issueScopeBar.props('trackRouteSync')).toBe(true)
+    expect(issueScopeBar.props('preserveRouteContextOnRefresh')).toBe(true)
+    expect(issuePage.find('.admin-shell__content').classes()).toContain('admin-shell__content--compact')
   })
 })

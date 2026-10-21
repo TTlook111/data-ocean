@@ -63,6 +63,11 @@ public interface ConfidenceCalculator {
     ConfidenceVO adjustScore(Long columnMetaId, String eventType, Long operatorId, Long sourceQueryId);
 
     /**
+     * 独立调整可信度事务，用于主业务事务提交后的辅助联动。
+     */
+    ConfidenceVO adjustScoreAfterCommit(Long columnMetaId, String eventType, Long operatorId, Long sourceQueryId);
+
+    /**
      * 管理员手动设置可信度分数
      *
      * @param columnMetaId 字段元数据ID

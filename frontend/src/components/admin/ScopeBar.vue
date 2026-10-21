@@ -13,16 +13,24 @@ const props = withDefaults(defineProps<{
   refreshLabel?: string
   compact?: boolean
   showControlLabels?: boolean
+  /** 仅供需要把列表加载与路由范围校验串联的页面观察同步状态。 */
+  trackRouteSync?: boolean
+  /** 刷新后重新校验 URL 中显式指定的快照，避免回落到最新快照。 */
+  preserveRouteContextOnRefresh?: boolean
 }>(), {
   refreshLabel: '',
   compact: false,
   showControlLabels: false,
+  trackRouteSync: false,
+  preserveRouteContextOnRefresh: false,
 })
 const route = useRoute()
 const router = useRouter()
 const context = useAdminContextStore()
 const invalidContext = ref('')
 let syncing = false
+let syncPending = false
+const scopeRefreshLoading = ref(false)
 
 const showSnapshot = computed(() => props.mode === 'datasource-snapshot')
 const queryDatasourceId = computed(() => Number(route.query.datasourceId) || undefined)
@@ -33,8 +41,17 @@ const selectedDatasourceLabel = computed(() => {
 })
 
 async function syncFromUrl() {
-  if (syncing) return
+  if (syncing) {
+    syncPending = true
+    return
+  }
   syncing = true
+  context.routeSyncError = ''
+  if (props.trackRouteSync) {
+    context.routeSyncing = true
+  } else {
+    context.routeSyncing = false
+  }
   invalidContext.value = ''
   try {
     await context.initialize()
@@ -59,6 +76,7 @@ async function syncFromUrl() {
             cause,
             '快照不存在、无权访问或加载失败',
           )}。未切换到其他快照。`
+          if (props.trackRouteSync) context.routeSyncError = invalidContext.value
         }
       }
       if (found) {
@@ -73,8 +91,33 @@ async function syncFromUrl() {
     invalidContext.value = cause instanceof Error
       ? cause.message
       : '数据源范围加载失败，请检查后台服务后重试。'
+    if (props.trackRouteSync) context.routeSyncError = invalidContext.value
   } finally {
     syncing = false
+    if (syncPending) {
+      syncPending = false
+      void syncFromUrl()
+    } else {
+      context.routeSyncing = false
+    }
+  }
+}
+
+async function refreshScope() {
+  context.routeSyncError = ''
+  if (!props.preserveRouteContextOnRefresh) {
+    await context.refresh()
+    return
+  }
+  scopeRefreshLoading.value = true
+  try {
+    await context.refresh()
+    await syncFromUrl()
+  } catch (cause) {
+    invalidContext.value = cause instanceof Error ? cause.message : '范围刷新失败，请重试。'
+    context.routeSyncError = invalidContext.value
+  } finally {
+    scopeRefreshLoading.value = false
   }
 }
 
@@ -88,11 +131,13 @@ function updateQuery(next: Record<string, number | undefined>) {
 }
 
 async function handleDatasourceChange(id?: number) {
+  context.routeSyncError = ''
   await context.selectDatasource(id)
   updateQuery({ datasourceId: id, snapshotId: undefined })
 }
 
 function handleSnapshotChange(id?: number) {
+  context.routeSyncError = ''
   context.selectSnapshot(id)
   updateQuery({ snapshotId: id })
 }
@@ -167,12 +212,12 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
         <el-button
           class="scope-bar__refresh-icon"
           :icon="RefreshCw"
-          :loading="context.loading"
+          :loading="context.loading || scopeRefreshLoading"
           :aria-label="refreshLabel || '刷新范围'"
-          @click="context.refresh"
+          @click="refreshScope"
         />
       </el-tooltip>
-      <el-button v-else :icon="RefreshCw" :loading="context.loading" :aria-label="refreshLabel || '刷新范围'" @click="context.refresh">
+      <el-button v-else :icon="RefreshCw" :loading="context.loading" :aria-label="refreshLabel || '刷新范围'" @click="refreshScope">
         <span v-if="refreshLabel">{{ refreshLabel }}</span>
       </el-button>
     </div>
