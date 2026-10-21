@@ -118,3 +118,5 @@ output/
 backend/DataOcean/src/main/resources/application-dev.yml
 backend/DataOcean/src/main/resources/application.yml
 frontend/vite.config.ts
+backend/DataOcean/src/main/resources/application.yml
+frontend/vite.config.ts
