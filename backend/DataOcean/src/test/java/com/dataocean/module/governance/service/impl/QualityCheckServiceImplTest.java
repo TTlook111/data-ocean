@@ -143,6 +143,121 @@ class QualityCheckServiceImplTest {
         verify(fixture.snapshotMapper, never()).updateById(any(MetadataSnapshot.class));
     }
 
+    @Test
+    void fkCheckerReceivesOnlySafePlannedRelationsAndKeepsIncompleteCoverageCounts() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot.setId(14L);
+        fixture.snapshot.setDatasourceId(1L);
+        DbTableMeta orders = table(1L, "orders");
+        DbTableMeta customers = table(2L, "customers");
+        DbTableMeta blocked = table(3L, "audit_archive");
+        blocked.setGovernanceStatus("BLOCKED");
+        fixture.tables(List.of(orders, customers, blocked));
+        DbColumnMeta childKey = column("orders", "customer_id", "NORMAL");
+        DbColumnMeta parentKey = column("customers", "id", "NORMAL");
+        DbColumnMeta blockedField = column("orders", "restricted_ref", "DEPRECATED");
+        DbColumnMeta blockedTableField = column("audit_archive", "id", "NORMAL");
+        fixture.columns(List.of(childKey, parentKey, blockedField, blockedTableField));
+        TableRelation allowed = relation("orders", "customer_id", "customers", "id");
+        TableRelation restrictedField = relation("orders", "restricted_ref", "customers", "id");
+        TableRelation restrictedTable = relation("orders", "audit_id", "audit_archive", "id");
+        fixture.relations(List.of(allowed, restrictedField, restrictedTable));
+        MetadataQualityRule fkRule = rule(104L, "DATA_FK_ORPHAN", "GLOBAL", null, null);
+        fkRule.setDimension(MetadataQualityRule.DIM_CONSISTENCY);
+        fkRule.setCheckTarget(MetadataQualityRule.TARGET_RELATION);
+        fkRule.setCheckType(MetadataQualityRule.CHECK_TYPE_DATA);
+        fixture.rules(List.of(fkRule));
+        QualityChecker checker = mock(QualityChecker.class);
+        when(checker.getDimension()).thenReturn("DATA");
+        when(checker.getSupportedDimensions()).thenReturn(java.util.Set.of(MetadataQualityRule.DIM_CONSISTENCY));
+        when(checker.check(any())).thenReturn(List.of());
+        fixture.checkers = List.of(checker);
+
+        QualityCheckResultVO result = fixture.service().executeQualityCheck(
+                14L, List.of(MetadataQualityRule.DIM_CONSISTENCY), null);
+
+        org.mockito.ArgumentCaptor<QualityChecker.CheckContext> contextCaptor =
+                org.mockito.ArgumentCaptor.forClass(QualityChecker.CheckContext.class);
+        verify(checker).check(contextCaptor.capture());
+        QualityChecker.CheckContext context = contextCaptor.getValue();
+        assertThat(context.relations()).containsExactly(allowed);
+        assertThat(context.tables()).extracting(DbTableMeta::getTableName).containsExactlyInAnyOrder("orders", "customers");
+        assertThat(context.columns()).extracting(DbColumnMeta::getColumnName).containsExactlyInAnyOrder("customer_id", "id");
+        assertThat(result.getComplete()).isFalse();
+        assertThat(result.getErrorSummary()).contains("跳过");
+        org.mockito.ArgumentCaptor<Map<Long, QualityCheckBatchService.RuleCoverage>> coverageCaptor =
+                org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(fixture.batchService).finish(eq(10L), eq("PARTIAL"), eq(false), isNull(), any(), coverageCaptor.capture());
+        QualityCheckBatchService.RuleCoverage coverage = coverageCaptor.getValue().get(fkRule.getId());
+        assertThat(coverage.status()).isEqualTo("SUCCESS");
+        assertThat(coverage.targetCount()).isEqualTo(3);
+        assertThat(coverage.checkedTargetCount()).isEqualTo(1);
+        assertThat(coverage.reason()).contains("跳过");
+    }
+
+    @Test
+    void metadataCheckersStillReceiveRelationshipContext() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot.setId(15L);
+        fixture.snapshot.setDatasourceId(1L);
+        DbTableMeta orders = table(1L, "orders");
+        fixture.tables(List.of(orders));
+        DbColumnMeta userId = column("orders", "user_id", "NORMAL");
+        fixture.columns(List.of(userId));
+        TableRelation relation = relation("orders", "user_id", "users", "id");
+        fixture.relations(List.of(relation));
+        MetadataQualityRule traceRule = rule(105L, "TRACE_FK_MISSING", "GLOBAL", null, null);
+        traceRule.setDimension(MetadataQualityRule.DIM_TRACEABILITY);
+        traceRule.setCheckTarget(MetadataQualityRule.TARGET_COLUMN);
+        fixture.rules(List.of(traceRule));
+        QualityChecker checker = mock(QualityChecker.class);
+        when(checker.getDimension()).thenReturn(MetadataQualityRule.DIM_TRACEABILITY);
+        when(checker.check(any())).thenReturn(List.of());
+        fixture.checkers = List.of(checker);
+
+        fixture.service().executeQualityCheck(15L, List.of(MetadataQualityRule.DIM_TRACEABILITY), null);
+
+        org.mockito.ArgumentCaptor<QualityChecker.CheckContext> contextCaptor =
+                org.mockito.ArgumentCaptor.forClass(QualityChecker.CheckContext.class);
+        verify(checker).check(contextCaptor.capture());
+        assertThat(contextCaptor.getValue().relations()).containsExactly(relation);
+    }
+
+    @Test
+    void staleRuleWithOnlyRestrictedTimeFieldsIsRecordedNotApplicableWithoutCallingChecker() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot.setId(16L);
+        fixture.snapshot.setDatasourceId(1L);
+        DbTableMeta orders = table(1L, "orders");
+        fixture.tables(List.of(orders));
+        fixture.columns(List.of(column("orders", "updated_at", "BLOCKED"),
+                column("orders", "modify_time", "DEPRECATED")));
+        MetadataQualityRule staleRule = rule(106L, "DATA_STALE_TABLE", "GLOBAL", null, null);
+        staleRule.setDimension(MetadataQualityRule.DIM_TIMELINESS);
+        staleRule.setCheckType(MetadataQualityRule.CHECK_TYPE_DATA);
+        fixture.rules(List.of(staleRule));
+        QualityChecker checker = mock(QualityChecker.class);
+        when(checker.getDimension()).thenReturn("DATA");
+        when(checker.getSupportedDimensions()).thenReturn(java.util.Set.of(MetadataQualityRule.DIM_TIMELINESS));
+        fixture.checkers = List.of(checker);
+
+        QualityCheckResultVO result = fixture.service().executeQualityCheck(
+                16L, List.of(MetadataQualityRule.DIM_TIMELINESS), null);
+
+        assertThat(result.getComplete()).isFalse();
+        assertThat(result.getNotApplicableRuleCount()).isEqualTo(1);
+        assertThat(result.getErrorSummary()).contains("时间字段");
+        verify(checker, never()).check(any());
+        org.mockito.ArgumentCaptor<Map<Long, QualityCheckBatchService.RuleCoverage>> coverageCaptor =
+                org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(fixture.batchService).finish(eq(10L), eq("FAILED"), eq(false), isNull(), any(), coverageCaptor.capture());
+        QualityCheckBatchService.RuleCoverage coverage = coverageCaptor.getValue().get(staleRule.getId());
+        assertThat(coverage.status()).isEqualTo("NOT_APPLICABLE");
+        assertThat(coverage.targetCount()).isEqualTo(1);
+        assertThat(coverage.checkedTargetCount()).isZero();
+        assertThat(coverage.reason()).contains("时间字段");
+    }
+
     private static MetadataQualityRule rule(Long id, String template, String scope, String table, String column) {
         MetadataQualityRule rule = new MetadataQualityRule();
         rule.setId(id);
@@ -174,6 +289,24 @@ class QualityCheckServiceImplTest {
         return table;
     }
 
+    private static DbColumnMeta column(String tableName, String columnName, String governanceStatus) {
+        DbColumnMeta column = new DbColumnMeta();
+        column.setTableName(tableName);
+        column.setColumnName(columnName);
+        column.setGovernanceStatus(governanceStatus);
+        return column;
+    }
+
+    private static TableRelation relation(String sourceTable, String sourceColumn,
+                                          String targetTable, String targetColumn) {
+        TableRelation relation = new TableRelation();
+        relation.setSourceTable(sourceTable);
+        relation.setSourceColumn(sourceColumn);
+        relation.setTargetTable(targetTable);
+        relation.setTargetColumn(targetColumn);
+        return relation;
+    }
+
     private static final class Fixture {
         private final MetadataSnapshot snapshot = new MetadataSnapshot();
         private final MetadataSnapshotMapper snapshotMapper = mock(MetadataSnapshotMapper.class);
@@ -198,6 +331,8 @@ class QualityCheckServiceImplTest {
         }
 
         void tables(List<DbTableMeta> tables) { when(tableMapper.selectList(any())).thenReturn(tables); }
+        void columns(List<DbColumnMeta> columns) { when(columnMapper.selectList(any())).thenReturn(columns); }
+        void relations(List<TableRelation> relations) { when(relationMapper.selectList(any())).thenReturn(relations); }
         void rules(List<MetadataQualityRule> rules) { when(ruleService.listEnabledRules(1L)).thenReturn(rules); }
 
         QualityCheckServiceImpl service() {

@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -74,6 +75,20 @@ public class ConfidenceCalculatorImpl implements ConfidenceCalculator {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ConfidenceVO adjustScore(Long columnMetaId, String eventType, Long operatorId, Long sourceQueryId) {
+        return adjustScoreInCurrentTransaction(columnMetaId, eventType, operatorId, sourceQueryId);
+    }
+
+    /**
+     * 主业务提交后执行的辅助变更，必须使用独立事务，不能污染已经完成的主事务。
+     */
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
+    public ConfidenceVO adjustScoreAfterCommit(Long columnMetaId, String eventType, Long operatorId, Long sourceQueryId) {
+        return adjustScoreInCurrentTransaction(columnMetaId, eventType, operatorId, sourceQueryId);
+    }
+
+    private ConfidenceVO adjustScoreInCurrentTransaction(Long columnMetaId, String eventType,
+                                                           Long operatorId, Long sourceQueryId) {
         // 获取当前可信度记录，不存在则先初始化
         FieldConfidence confidence = getByColumnMetaId(columnMetaId);
         if (confidence == null) {

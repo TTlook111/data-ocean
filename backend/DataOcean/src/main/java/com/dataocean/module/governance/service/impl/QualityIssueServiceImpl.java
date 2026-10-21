@@ -1,6 +1,7 @@
 package com.dataocean.module.governance.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.datasource.entity.po.Datasource;
@@ -22,6 +23,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
@@ -205,17 +208,31 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         validateTransition(issue.getStatus(), targetStatus);
 
         String oldStatus = issue.getStatus();
-        issue.setStatus(targetStatus);
+        LocalDateTime handledAt = LocalDateTime.now();
+        LambdaUpdateWrapper<MetadataQualityIssue> update = new LambdaUpdateWrapper<MetadataQualityIssue>()
+                .eq(MetadataQualityIssue::getId, issueId)
+                // 预期状态作为 SQL 条件，防止并发流转覆盖已提交状态。
+                .eq(MetadataQualityIssue::getStatus, oldStatus)
+                .set(MetadataQualityIssue::getStatus, targetStatus)
+                .set(MetadataQualityIssue::getUpdatedAt, handledAt);
         if (MetadataQualityIssue.STATUS_RESOLVED.equals(targetStatus)
                 || MetadataQualityIssue.STATUS_REJECTED.equals(targetStatus)) {
-            issue.setResolvedBy(operatorId);
-            issue.setResolvedAt(LocalDateTime.now());
-            issue.setResolutionNote(resolutionNote);
+            update.set(MetadataQualityIssue::getResolvedBy, operatorId)
+                    .set(MetadataQualityIssue::getResolvedAt, handledAt)
+                    .set(MetadataQualityIssue::getResolutionNote, resolutionNote);
+        } else {
+            // These columns describe the current resolution/rejection only; do not carry them
+            // through REOPENED or CONFIRMED and mistake them for an audit history.
+            update.set(MetadataQualityIssue::getResolvedBy, null)
+                    .set(MetadataQualityIssue::getResolvedAt, null)
+                    .set(MetadataQualityIssue::getResolutionNote, null);
         }
-        issueMapper.updateById(issue);
+        if (issueMapper.update(null, update) != 1) {
+            throw new BusinessException(409, "问题状态已被其他操作修改，请刷新后重试");
+        }
         log.info("问题状态变更 issueId={} {} → {}", issueId, oldStatus, targetStatus);
 
-        // Phase 1 #6: 治理 Issue 状态变更时联动字段置信度
+        // 问题状态是主业务结果；辅助置信度只在主事务提交后联动。
         adjustConfidenceForStatusChange(issue, targetStatus, operatorId);
     }
 
@@ -285,10 +302,15 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         if (assignee.getStatus() == null || assignee.getStatus() != SysUser.STATUS_NORMAL) {
             throw new BusinessException(400, "责任人账号未启用，不能作为负责人");
         }
-        // 分派只写 assignee_id：它是工作归属，不是数据授权事实。
+        // 分派只写责任人与更新时间，避免把读取后的旧状态写回覆盖并发处理结果。
         // 被分派人不会因此获得该数据源上的任何查询、治理或授权能力。
-        issue.setAssigneeId(assigneeId);
-        issueMapper.updateById(issue);
+        int updated = issueMapper.update(null, new LambdaUpdateWrapper<MetadataQualityIssue>()
+                .eq(MetadataQualityIssue::getId, issueId)
+                .set(MetadataQualityIssue::getAssigneeId, assigneeId)
+                .set(MetadataQualityIssue::getUpdatedAt, LocalDateTime.now()));
+        if (updated != 1) {
+            throw new BusinessException(409, "问题已被其他操作修改，请刷新后重试");
+        }
         log.info("问题分派 issueId={} assigneeId={}", issueId, assigneeId);
     }
 
@@ -312,12 +334,26 @@ public class QualityIssueServiceImpl implements QualityIssueService {
             eventType = FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_RESOLVED;
         }
         if (eventType != null) {
-            try {
-                confidenceCalculator.adjustScore(columnMetaId, eventType, operatorId, null);
-                log.info("置信度联动 issueId={} columnMetaId={} eventType={}", issue.getId(), columnMetaId, eventType);
-            } catch (Exception e) {
-                log.warn("置信度联动失败 issueId={} columnMetaId={} eventType={}", issue.getId(), columnMetaId, eventType, e);
+            if (!TransactionSynchronizationManager.isSynchronizationActive()
+                    || !TransactionSynchronizationManager.isActualTransactionActive()) {
+                log.warn("问题状态变更未处于事务中，跳过提交后置信度联动 issueId={} columnMetaId={} eventType={}",
+                        issue.getId(), columnMetaId, eventType);
+                return;
             }
+            Long issueId = issue.getId();
+            String scheduledEventType = eventType;
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        // 调用独立 Spring Bean 的 REQUIRES_NEW 方法。主问题已提交，置信度异常不会标记主事务回滚。
+                        confidenceCalculator.adjustScoreAfterCommit(columnMetaId, scheduledEventType, operatorId, null);
+                        log.info("置信度联动 issueId={} columnMetaId={} eventType={}", issueId, columnMetaId, scheduledEventType);
+                    } catch (Exception e) {
+                        log.warn("置信度联动失败 issueId={} columnMetaId={} eventType={}", issueId, columnMetaId, scheduledEventType, e);
+                    }
+                }
+            });
         }
     }
 

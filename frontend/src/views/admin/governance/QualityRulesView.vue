@@ -87,6 +87,8 @@ let rulesRequestId = 0
 let templateRequestId = 0
 let targetRequestId = 0
 let detailRequestId = 0
+let editorSessionId = 0
+let saveRequestId = 0
 let disposed = false
 
 const canViewRules = computed(() => scopeMode.value === 'GLOBAL'
@@ -196,14 +198,39 @@ async function refresh() {
   await Promise.all([loadTemplates(), loadRules()])
 }
 
+function invalidateEditorSession() {
+  editorSessionId++
+  targetRequestId++
+  saveRequestId++
+  targetLoading.value = false
+  saveLoading.value = false
+}
+
+function beginEditorSession() {
+  invalidateEditorSession()
+  return editorSessionId
+}
+
+function isCurrentEditorFlow(sessionId: number, ruleId: number | undefined,
+                             scope: RuleScope, datasourceId: number | undefined) {
+  return !disposed && sessionId === editorSessionId && editingRuleId.value === ruleId
+    && form.scopeType === scope && form.datasourceId === datasourceId
+    && (datasourceId === undefined || context.datasourceId === datasourceId)
+}
+
 function selectScopeMode(mode: 'GLOBAL' | 'DATASOURCE') {
   if (mode === 'GLOBAL' && !iamS1.hasGlobal(RULE_VIEW)) return
+  invalidateEditorSession()
+  if (editorOpen.value) editorOpen.value = false
+  resetForm(mode === 'GLOBAL' ? 'GLOBAL' : 'DATASOURCE')
   scopeMode.value = mode
   selectedRuleScope.value = mode === 'GLOBAL' ? 'GLOBAL' : 'ALL'
   void Promise.all([loadTemplates(), loadRules()])
 }
 
-async function loadRuleTargets(datasourceId: number) {
+async function loadRuleTargets(datasourceId: number, sessionId = editorSessionId,
+                               ruleId = editingRuleId.value, scope = form.scopeType) {
+  if (!isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
   const request = ++targetRequestId
   targetLoading.value = true
   targetError.value = ''
@@ -212,13 +239,15 @@ async function loadRuleTargets(datasourceId: number) {
   targetSnapshotId.value = undefined
   targetSnapshotVersion.value = undefined
   if (!iamS1.canOnDatasource(METADATA_VIEW, datasourceId)) {
-    targetError.value = '没有该数据源的资产结构查看权限，无法选择表或字段。'
-    targetLoading.value = false
+    if (isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) {
+      targetError.value = '没有该数据源的资产结构查看权限，无法选择表或字段。'
+      targetLoading.value = false
+    }
     return
   }
   try {
     const snapshotsResult = await listSnapshots({ datasourceId, page: 1, size: 50 })
-    if (disposed || request !== targetRequestId || datasourceId !== context.datasourceId) return
+    if (disposed || request !== targetRequestId || !isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
     const latest = [...(snapshotsResult.data?.records ?? [])]
       .sort((a, b) => b.snapshotVersion - a.snapshotVersion)[0]
     if (!latest) {
@@ -228,35 +257,44 @@ async function loadRuleTargets(datasourceId: number) {
     targetSnapshotId.value = latest.id
     targetSnapshotVersion.value = latest.snapshotVersion
     const tableResult = await listSnapshotTables(latest.id)
-    if (disposed || request !== targetRequestId || datasourceId !== context.datasourceId) return
+    if (disposed || request !== targetRequestId || !isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
     targetTables.value = tableResult.data ?? []
   } catch {
-    if (!disposed && request === targetRequestId) targetError.value = '表和字段目标读取失败，请重试。'
+    if (!disposed && request === targetRequestId
+      && isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) targetError.value = '表和字段目标读取失败，请重试。'
   } finally {
     if (!disposed && request === targetRequestId) targetLoading.value = false
   }
 }
 
-async function loadColumns(tableName: string) {
+async function loadColumns(tableName: string, sessionId = editorSessionId,
+                           ruleId = editingRuleId.value, scope = form.scopeType,
+                           datasourceId = form.datasourceId) {
+  if (!isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
   form.targetTableName = tableName
   form.targetColumnName = ''
   targetColumns.value = []
-  if (!tableName || !targetSnapshotId.value) return
+  const snapshotId = targetSnapshotId.value
+  if (!tableName || !snapshotId || !isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
   const request = ++targetRequestId
   targetLoading.value = true
   targetError.value = ''
   try {
-    const result = await listSnapshotTableColumns(targetSnapshotId.value, tableName)
-    if (disposed || request !== targetRequestId || tableName !== form.targetTableName) return
+    const result = await listSnapshotTableColumns(snapshotId, tableName)
+    if (disposed || request !== targetRequestId || !isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)
+      || tableName !== form.targetTableName || snapshotId !== targetSnapshotId.value) return
     targetColumns.value = result.data ?? []
   } catch {
-    if (!disposed && request === targetRequestId) targetError.value = '字段目标读取失败，请重试。'
+    if (!disposed && request === targetRequestId
+      && isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) targetError.value = '字段目标读取失败，请重试。'
   } finally {
     if (!disposed && request === targetRequestId) targetLoading.value = false
   }
 }
 
 function resetParameters(templateCode: string) {
+  targetRequestId++
+  targetLoading.value = false
   const template = templates.value.find((item) => item.code === templateCode)
   form.parameters = Object.fromEntries((template?.parameters ?? []).map((parameter) => [
     parameter.key,
@@ -269,6 +307,9 @@ function resetParameters(templateCode: string) {
 }
 
 async function changeFormScope(scope: RuleScope) {
+  targetRequestId++
+  targetLoading.value = false
+  targetError.value = ''
   form.scopeType = scope
   form.targetTableName = ''
   form.targetColumnName = ''
@@ -280,12 +321,16 @@ async function changeFormScope(scope: RuleScope) {
     return
   }
   form.datasourceId = context.datasourceId
+  const sessionId = editorSessionId
+  const ruleId = editingRuleId.value
+  const datasourceId = form.datasourceId
   if (scope === 'TABLE' || scope === 'COLUMN') {
     if (!context.datasourceId) {
       targetError.value = '请先选择数据源。'
       return
     }
-    await loadRuleTargets(context.datasourceId)
+    await loadRuleTargets(context.datasourceId, sessionId, ruleId, scope)
+    if (!isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
   }
 }
 
@@ -313,6 +358,7 @@ function createRule() {
     return
   }
   const initialScope: RuleScope = scopeMode.value === 'GLOBAL' ? 'GLOBAL' : 'DATASOURCE'
+  beginEditorSession()
   resetForm(initialScope)
   editorOpen.value = true
 }
@@ -324,6 +370,7 @@ async function editRule(rule: QualityRule) {
     ElMessage.error('当前规则没有可用的编辑模板。')
     return
   }
+  const sessionId = beginEditorSession()
   resetForm(rule.scopeType)
   editingRuleId.value = rule.id
   form.ruleName = rule.ruleName
@@ -342,12 +389,20 @@ async function editRule(rule: QualityRule) {
   form.severity = rule.severity
   form.deductionPoints = Number(rule.deductionPoints)
   form.enabled = rule.enabled === 1
+  const scope = rule.scopeType
+  const datasourceId = rule.datasourceId
   if (rule.scopeType === 'TABLE' || rule.scopeType === 'COLUMN') {
-    if (rule.datasourceId) await loadRuleTargets(rule.datasourceId)
-    if (rule.scopeType === 'COLUMN' && rule.targetTableName) await loadColumns(rule.targetTableName)
+    if (rule.datasourceId) await loadRuleTargets(rule.datasourceId, sessionId, rule.id, scope)
+    if (!isCurrentEditorFlow(sessionId, rule.id, scope, datasourceId)) return
+    if (rule.scopeType === 'COLUMN' && rule.targetTableName) {
+      await loadColumns(rule.targetTableName, sessionId, rule.id, scope, datasourceId)
+      if (!isCurrentEditorFlow(sessionId, rule.id, scope, datasourceId)
+        || form.targetTableName !== rule.targetTableName) return
+    }
     form.targetTableName = rule.targetTableName || ''
     form.targetColumnName = rule.targetColumnName || ''
   }
+  if (!isCurrentEditorFlow(sessionId, rule.id, scope, datasourceId)) return
   editorOpen.value = true
 }
 
@@ -385,18 +440,28 @@ async function saveRule() {
     ElMessage.warning(targetError.value)
     return
   }
+  const sessionId = editorSessionId
+  const ruleId = editingRuleId.value
+  const scope = form.scopeType
+  const datasourceId = form.datasourceId
+  if (!isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
+  const requestPayload = payload()
+  const requestId = ++saveRequestId
+  const wasEditing = ruleId !== undefined
   saveLoading.value = true
   try {
-    if (editingRuleId.value) await editQualityRule(editingRuleId.value, payload())
-    else await createQualityRule(payload())
+    if (ruleId !== undefined) await editQualityRule(ruleId, requestPayload)
+    else await createQualityRule(requestPayload)
+    if (!isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
     editorOpen.value = false
-    ElMessage.success(editingRuleId.value ? '规则配置已保存并生成新版本。' : '规则已创建并进入校验执行链。')
+    ElMessage.success(wasEditing ? '规则配置已保存并生成新版本。' : '规则已创建并进入校验执行链。')
     await loadRules()
   } catch (error) {
+    if (!isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
     const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
     ElMessage.error(message || '规则保存失败。')
   } finally {
-    saveLoading.value = false
+    if (requestId === saveRequestId) saveLoading.value = false
   }
 }
 
@@ -498,12 +563,18 @@ function openStatusMaintenance() {
 
 watch([scopeMode, selectedRuleScope, templateFilter, dimensionFilter, ruleNameFilter, enabledFilter, showDeleted], () => { void loadRules() })
 watch(() => context.datasourceId, async () => {
+  invalidateEditorSession()
+  if (editorOpen.value) editorOpen.value = false
+  resetForm(scopeMode.value === 'GLOBAL' ? 'GLOBAL' : 'DATASOURCE')
   if (scopeMode.value === 'DATASOURCE') await loadRules()
-  if (editorOpen.value && isTargetScoped.value && context.datasourceId) await loadRuleTargets(context.datasourceId)
 })
+watch(editorOpen, (open) => {
+  if (!open) invalidateEditorSession()
+}, { flush: 'sync' })
 onMounted(loadPage)
 onBeforeUnmount(() => {
   disposed = true
+  invalidateEditorSession()
   rulesRequestId++
   templateRequestId++
   targetRequestId++

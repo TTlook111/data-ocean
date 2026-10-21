@@ -177,7 +177,7 @@ class QualityIssueServiceImplTest {
         assertThatThrownBy(() -> fixture.service.handleIssue(1L, MetadataQualityIssue.STATUS_RESOLVED, "done", 99L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不允许从 REOPENED 转换到 RESOLVED");
-        verify(fixture.issueMapper, never()).updateById(any(MetadataQualityIssue.class));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
@@ -187,11 +187,14 @@ class QualityIssueServiceImplTest {
         issue.setId(1L);
         issue.setStatus(MetadataQualityIssue.STATUS_REOPENED);
         when(fixture.issueMapper.selectById(1L)).thenReturn(issue);
+        when(fixture.issueMapper.update(Mockito.isNull(), any(Wrapper.class))).thenReturn(1);
 
         fixture.service.handleIssue(1L, MetadataQualityIssue.STATUS_CONFIRMED, null, 99L);
 
-        assertThat(issue.getStatus()).isEqualTo(MetadataQualityIssue.STATUS_CONFIRMED);
-        verify(fixture.issueMapper).updateById(issue);
+        ArgumentCaptor<Wrapper<MetadataQualityIssue>> update = ArgumentCaptor.forClass(Wrapper.class);
+        verify(fixture.issueMapper).update(Mockito.isNull(), update.capture());
+        assertThat(update.getValue().getSqlSet()).contains("status", "resolved_by", "resolved_at", "resolution_note");
+        assertThat(update.getValue().getCustomSqlSegment()).contains("status");
     }
 
     // ---------- 批量：权限与归属预校验整批原子 ----------
@@ -220,7 +223,7 @@ class QualityIssueServiceImplTest {
                 .isInstanceOf(BusinessException.class);
 
         // 整批零修改
-        verify(fixture.issueMapper, never()).updateById(any(MetadataQualityIssue.class));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
@@ -232,7 +235,7 @@ class QualityIssueServiceImplTest {
 
         assertThatThrownBy(() -> fixture.service.batchHandle(ids, MetadataQualityIssue.STATUS_CONFIRMED, 99L))
                 .isInstanceOf(BusinessException.class);
-        verify(fixture.issueMapper, never()).updateById(any(MetadataQualityIssue.class));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
@@ -266,7 +269,7 @@ class QualityIssueServiceImplTest {
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getCode()).isEqualTo(404));
 
-        verify(fixture.issueMapper, never()).updateById(any(MetadataQualityIssue.class));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
@@ -280,19 +283,21 @@ class QualityIssueServiceImplTest {
                         assertThat(exception.getCode()).isEqualTo(400));
 
         // 禁用账号不能被设为负责人，否则列表里会出现无人可处理的“幽灵责任人”
-        verify(fixture.issueMapper, never()).updateById(any(MetadataQualityIssue.class));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
     void assignIssueWritesOnlyTheAssigneeAndCreatesNoAuthorization() {
         Fixture fixture = new Fixture();
-        MetadataQualityIssue issue = fixture.issue(1L, MetadataQualityIssue.STATUS_OPEN);
+        fixture.issue(1L, MetadataQualityIssue.STATUS_OPEN);
         fixture.user(77L, SysUser.STATUS_NORMAL);
+        when(fixture.issueMapper.update(Mockito.isNull(), any(Wrapper.class))).thenReturn(1);
 
         fixture.service.assignIssue(1L, 77L);
 
-        assertThat(issue.getAssigneeId()).isEqualTo(77L);
-        verify(fixture.issueMapper).updateById(issue);
+        ArgumentCaptor<Wrapper<MetadataQualityIssue>> update = ArgumentCaptor.forClass(Wrapper.class);
+        verify(fixture.issueMapper).update(Mockito.isNull(), update.capture());
+        assertThat(update.getValue().getSqlSet()).contains("assignee_id", "updated_at").doesNotContain("status");
         // 分派是工作归属而不是数据授权：不触碰任何 S1 授权判定入口
         verify(fixture.adminGuard, never()).requireDatasourceFunction(any(), any(), anyLong());
     }

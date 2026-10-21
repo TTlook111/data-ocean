@@ -229,14 +229,39 @@ public class QualityCheckServiceImpl implements QualityCheckService {
                 }
                 try {
                     MetadataQualityRule handlerRule = handlerRule(rule, execution.template().getCode());
-                    List<DbTableMeta> checkTables = execution.tables();
-                    Set<String> checkTableNames = checkTables.stream().map(DbTableMeta::getTableName).collect(Collectors.toSet());
-                    List<DbColumnMeta> checkColumns = MetadataQualityRule.TARGET_COLUMN.equals(execution.template().getTargetType())
-                            ? execution.columns()
-                            : columns.stream().filter(column -> checkTableNames.contains(column.getTableName())).toList();
-                    List<TableRelation> checkRelations = checkTableNames.isEmpty() ? relations
-                            : relations.stream().filter(relation -> checkTableNames.contains(relation.getSourceTable())
-                            || checkTableNames.contains(relation.getTargetTable())).toList();
+                    List<DbTableMeta> checkTables;
+                    List<DbColumnMeta> checkColumns;
+                    List<TableRelation> checkRelations;
+                    if ("DATA_FK_ORPHAN".equals(execution.template().getCode())) {
+                        checkRelations = execution.relations();
+                        Set<String> relationTableNames = checkRelations.stream()
+                                .flatMap(relation -> java.util.stream.Stream.of(relation.getSourceTable(), relation.getTargetTable()))
+                                .collect(Collectors.toSet());
+                        Set<String> relationColumnKeys = checkRelations.stream()
+                                .flatMap(relation -> java.util.stream.Stream.of(
+                                        relation.getSourceTable() + "\u0000" + relation.getSourceColumn(),
+                                        relation.getTargetTable() + "\u0000" + relation.getTargetColumn()))
+                                .collect(Collectors.toSet());
+                        checkTables = execution.tables().stream()
+                                .filter(table -> relationTableNames.contains(table.getTableName()))
+                                .filter(table -> !restrictedGovernanceStatus(table.getGovernanceStatus())).toList();
+                        Set<String> safeTableNames = checkTables.stream()
+                                .map(DbTableMeta::getTableName).collect(Collectors.toSet());
+                        checkColumns = execution.columns().stream()
+                                .filter(column -> relationColumnKeys.contains(column.getTableName() + "\u0000" + column.getColumnName()))
+                                .filter(column -> safeTableNames.contains(column.getTableName()))
+                                .filter(column -> !restrictedGovernanceStatus(column.getGovernanceStatus())).toList();
+                    } else {
+                        checkTables = execution.tables();
+                        Set<String> checkTableNames = checkTables.stream()
+                                .map(DbTableMeta::getTableName).collect(Collectors.toSet());
+                        checkColumns = MetadataQualityRule.TARGET_COLUMN.equals(execution.template().getTargetType())
+                                ? execution.columns()
+                                : columns.stream().filter(column -> checkTableNames.contains(column.getTableName())).toList();
+                        checkRelations = checkTableNames.isEmpty() ? relations
+                                : relations.stream().filter(relation -> checkTableNames.contains(relation.getSourceTable())
+                                || checkTableNames.contains(relation.getTargetTable())).toList();
+                    }
                     QualityChecker.CheckContext context = new QualityChecker.CheckContext(snapshotId,
                             snapshot.getDatasourceId(), checkTables, checkColumns, checkRelations, List.of(handlerRule));
                     List<MetadataQualityIssue> issues = checker.check(context);
@@ -373,6 +398,10 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         if (exception instanceof BusinessException businessException) return businessException.getMessage();
         if (org.springframework.util.StringUtils.hasText(exception.getMessage())) return exception.getMessage();
         return "检查执行失败，请查看服务日志";
+    }
+
+    private boolean restrictedGovernanceStatus(String status) {
+        return "BLOCKED".equals(status) || "DEPRECATED".equals(status);
     }
 
     private String coverageReason(QualityRuleExecutionPlanner.Execution execution) {

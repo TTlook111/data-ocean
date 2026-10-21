@@ -124,6 +124,28 @@ class QualityRuleExecutionPlannerTest {
         assertThat(plan.get(0).reason()).contains("废弃或阻断");
     }
 
+    @Test
+    void staleTableRequiresAnAvailableTimeColumnAndIgnoresRestrictedCandidates() {
+        MetadataQualityRule stale = staleRule();
+        DbTableMeta orders = table(10L, "orders");
+        List<DbColumnMeta> blockedOnly = List.of(column("orders", "updated_at", "BLOCKED"));
+
+        List<QualityRuleExecutionPlanner.Execution> blockedPlan = planner.plan(5L, List.of(stale),
+                List.of(orders), blockedOnly, List.of(), List.of(orders), blockedOnly, List.of(), null);
+
+        assertThat(blockedPlan.get(0).status()).isEqualTo("NOT_APPLICABLE");
+        assertThat(blockedPlan.get(0).blocking()).isTrue();
+        assertThat(blockedPlan.get(0).reason()).contains("时间字段");
+
+        List<DbColumnMeta> mixed = List.of(column("orders", "updated_at", "DEPRECATED"),
+                column("orders", "modify_time", "NORMAL"), column("orders", "update_time", "BLOCKED"));
+        List<QualityRuleExecutionPlanner.Execution> mixedPlan = planner.plan(5L, List.of(stale),
+                List.of(orders), mixed, List.of(), List.of(orders), mixed, List.of(), null);
+
+        assertThat(mixedPlan.get(0).status()).isEqualTo("READY");
+        assertThat(mixedPlan.get(0).checkedTargetCount()).isEqualTo(1);
+    }
+
     private static MetadataQualityRule rule(Long id, String scope, String table, String column) {
         MetadataQualityRule rule = new MetadataQualityRule();
         rule.setId(id);
@@ -151,10 +173,25 @@ class QualityRuleExecutionPlannerTest {
     }
 
     private static DbColumnMeta column(String tableName, String columnName) {
+        return column(tableName, columnName, "NORMAL");
+    }
+
+    private static DbColumnMeta column(String tableName, String columnName, String governanceStatus) {
         DbColumnMeta column = new DbColumnMeta();
         column.setTableName(tableName);
         column.setColumnName(columnName);
         column.setDataType("VARCHAR(32)");
+        column.setGovernanceStatus(governanceStatus);
         return column;
+    }
+
+    private static MetadataQualityRule staleRule() {
+        MetadataQualityRule rule = rule(90L, "TABLE", "orders", null);
+        rule.setDatasourceId(5L);
+        rule.setTemplateCode("DATA_STALE_TABLE");
+        rule.setDimension(MetadataQualityRule.DIM_TIMELINESS);
+        rule.setCheckTarget(MetadataQualityRule.TARGET_TABLE);
+        rule.setCheckType(MetadataQualityRule.CHECK_TYPE_DATA);
+        return rule;
     }
 }

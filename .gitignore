@@ -41,7 +41,7 @@ Desktop.ini
 # Environment and secrets
 .env
 .env.*
-backend/**/config/application-local.yml
+backend/**/src/main/resources/application-local.yml
 .dataocean/local-environment.md
 !.env.example
 !.env.*.example

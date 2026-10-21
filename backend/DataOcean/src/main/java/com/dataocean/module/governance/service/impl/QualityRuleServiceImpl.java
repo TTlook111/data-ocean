@@ -1,6 +1,7 @@
 package com.dataocean.module.governance.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.governance.entity.dto.QualityRuleDTO;
 import com.dataocean.module.governance.entity.po.MetadataQualityRule;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -146,10 +148,23 @@ public class QualityRuleServiceImpl implements QualityRuleService {
     public List<QualityRuleRevisionVO> history(Long ruleId, Long operatorUserId) {
         MetadataQualityRule rule = requireRule(ruleId, true);
         requireViewScope(rule, operatorUserId);
-        return revisionMapper.selectList(new LambdaQueryWrapper<MetadataQualityRuleRevision>()
-                .eq(MetadataQualityRuleRevision::getRuleId, ruleId)
-                .orderByDesc(MetadataQualityRuleRevision::getId))
-                .stream().map(this::revisionVO).toList();
+        boolean systemAdmin = authorizationResolver.isSystemAdmin(operatorUserId);
+        List<Long> visibleSources = systemAdmin ? List.of() : capabilityService
+                .responsibleDatasourcesWithFunction(operatorUserId, RULE_VIEW).stream()
+                .map(IamS1DatasourceRefVO::id).toList();
+        LambdaQueryWrapper<MetadataQualityRuleRevision> query = new LambdaQueryWrapper<MetadataQualityRuleRevision>()
+                .eq(MetadataQualityRuleRevision::getRuleId, ruleId);
+        if (!systemAdmin) {
+            if (visibleSources.isEmpty()) query.isNull(MetadataQualityRuleRevision::getDatasourceId);
+            else query.and(w -> w.isNull(MetadataQualityRuleRevision::getDatasourceId)
+                    .or().in(MetadataQualityRuleRevision::getDatasourceId, visibleSources));
+        }
+        List<MetadataQualityRuleRevision> revisions = revisionMapper.selectList(query
+                .orderByDesc(MetadataQualityRuleRevision::getId));
+        return revisions.stream()
+                .filter(revision -> systemAdmin || revision.getDatasourceId() == null
+                        || visibleSources.contains(revision.getDatasourceId()))
+                .map(this::revisionVO).toList();
     }
 
     @Transactional
@@ -186,7 +201,8 @@ public class QualityRuleServiceImpl implements QualityRuleService {
         rule.setConfigVersion((rule.getConfigVersion() == null ? 1 : rule.getConfigVersion()) + 1);
         rule.setUpdatedBy(operatorUserId);
         if (Integer.valueOf(1).equals(rule.getEnabled())) validateNoConflict(rule, ruleId);
-        ruleMapper.updateById(rule);
+        rule.setUpdatedAt(LocalDateTime.now());
+        if (persistConfiguration(rule) != 1) throw new BusinessException(409, "质量规则配置已变化，请重新读取后再修改");
         appendRevision(rule, "UPDATE", operatorUserId);
         return toVO(rule);
     }
@@ -250,8 +266,43 @@ public class QualityRuleServiceImpl implements QualityRuleService {
         rule.setDeletedBy(null);
         rule.setEnabled(0);
         rule.setUpdatedBy(operatorUserId);
-        ruleMapper.updateById(rule);
+        rule.setUpdatedAt(LocalDateTime.now());
+        int updated = ruleMapper.update(null, new LambdaUpdateWrapper<MetadataQualityRule>()
+                .eq(MetadataQualityRule::getId, ruleId)
+                .isNotNull(MetadataQualityRule::getDeletedAt)
+                .set(MetadataQualityRule::getDeletedAt, null)
+                .set(MetadataQualityRule::getDeletedBy, null)
+                .set(MetadataQualityRule::getEnabled, 0)
+                .set(MetadataQualityRule::getUpdatedBy, operatorUserId)
+                .set(MetadataQualityRule::getUpdatedAt, rule.getUpdatedAt()));
+        if (updated != 1) throw new BusinessException(409, "质量规则状态已变化，请重新读取后再恢复");
         appendRevision(rule, "RESTORE", operatorUserId);
+    }
+
+    /** 规则编辑是完整配置替换；空值字段仅在本次配置 UPDATE 中显式清空。 */
+    private int persistConfiguration(MetadataQualityRule rule) {
+        return ruleMapper.update(null, new LambdaUpdateWrapper<MetadataQualityRule>()
+                .eq(MetadataQualityRule::getId, rule.getId())
+                .isNull(MetadataQualityRule::getDeletedAt)
+                .set(MetadataQualityRule::getRuleName, rule.getRuleName())
+                .set(MetadataQualityRule::getTemplateCode, rule.getTemplateCode())
+                .set(MetadataQualityRule::getDimension, rule.getDimension())
+                .set(MetadataQualityRule::getSeverity, rule.getSeverity())
+                .set(MetadataQualityRule::getDescription, rule.getDescription())
+                .set(MetadataQualityRule::getCheckTarget, rule.getCheckTarget())
+                .set(MetadataQualityRule::getCheckType, rule.getCheckType())
+                .set(MetadataQualityRule::getCheckExpression, rule.getCheckExpression())
+                .set(MetadataQualityRule::getThreshold, rule.getThreshold())
+                .set(MetadataQualityRule::getEnabled, rule.getEnabled())
+                .set(MetadataQualityRule::getDeductionPoints, rule.getDeductionPoints())
+                .set(MetadataQualityRule::getScopeType, rule.getScopeType())
+                .set(MetadataQualityRule::getDatasourceId, rule.getDatasourceId())
+                .set(MetadataQualityRule::getTargetTableName, rule.getTargetTableName())
+                .set(MetadataQualityRule::getTargetColumnName, rule.getTargetColumnName())
+                .set(MetadataQualityRule::getParametersJson, rule.getParametersJson())
+                .set(MetadataQualityRule::getConfigVersion, rule.getConfigVersion())
+                .set(MetadataQualityRule::getUpdatedBy, rule.getUpdatedBy())
+                .set(MetadataQualityRule::getUpdatedAt, rule.getUpdatedAt()));
     }
 
     private void apply(MetadataQualityRule rule, QualityRuleDTO dto, Long operatorUserId, boolean creating) {
@@ -453,6 +504,7 @@ public class QualityRuleServiceImpl implements QualityRuleService {
 
     private void requireViewScope(MetadataQualityRule rule, Long userId) {
         if (rule.getDatasourceId() == null) return;
+        if (authorizationResolver.isSystemAdmin(userId)) return;
         boolean visible = capabilityService.responsibleDatasourcesWithFunction(userId, RULE_VIEW).stream()
                 .anyMatch(source -> source.id().equals(rule.getDatasourceId()));
         if (!visible) throw new BusinessException(403, "没有查看该数据源质量规则的权限");

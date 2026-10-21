@@ -207,7 +207,18 @@ class IamS1B5PreparationStaticTest {
         String followUp = read(Path.of("..", "..", "docs/development/后续开发.md"));
         assertThat(followUp).contains("V53 永久不用");
         assertThat(followUp).contains("B6 删除在其他环境仍需单独授权并保留业务数据");
-        assertThat(followUp).contains("目前工作树最高 V64", "V65");
+        // 现行文档跟随真实迁移目录，不再要求保留 B5 当时的版本上限。
+        try (Stream<Path> migrations = Files.list(Path.of("src/main/resources/db/migration"))) {
+            int highestVersion = migrations
+                    .map(path -> path.getFileName().toString())
+                    .filter(name -> name.matches("V\\d+__.*\\.sql"))
+                    .mapToInt(name -> Integer.parseInt(name.substring(1, name.indexOf("__"))))
+                    .max()
+                    .orElseThrow();
+            String latestMigration = "V" + highestVersion;
+            assertThat(followUp).contains(latestMigration);
+            assertThat(read(Path.of("..", "..", "docs/项目现状.md"))).contains(latestMigration);
+        }
         assertThat(followUp).doesNotContain("B5_EXPECTED_SHA");
         assertThat(followUp).contains("独立 MySQL 恢复演练");
         assertThat(followUp).doesNotContain("必须在本轮迁移执行前补上");
