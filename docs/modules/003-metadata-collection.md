@@ -8,6 +8,8 @@ Java 从选定数据源采集表、字段、索引、关系与统计，形成独
 
 数据源与授权检查 → schema_sync_task → Collector/JDBC 采集 → metadata_snapshot 及表字段 → 差异与目录 → [治理](004-metadata-governance.md) → [版本审核](005-metadata-versioning.md)。
 
+目录与详情的主体完善方案已实施并[归档](../development/completed/数据对象目录与详情完善方案.md)。当前来源、关联和状态边界继续按本模块及[前端规范](../development/前端开发规范.md)维护；未完成的人工验收和边界复核见[后续开发第 7 项](../development/后续开发.md#7-数据对象目录的剩余验收与边界复核)，不以归档替代验收。
+
 ## 实现边界
 
 - 采集编排和任务状态归 Java；采样值、统计与关系以实际快照为准，不将字段命名推断当成已审核业务事实。
