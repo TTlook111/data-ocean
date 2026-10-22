@@ -88,4 +88,4 @@ output/playwright/     本机原始验证输出，许多文件不纳入 Git
 
 ## License
 
-本项目声明采用 MIT License；仓库暂未附带独立的 `LICENSE` 文件，许可证文本待补充。
+本项目采用 [MIT License](LICENSE)。
