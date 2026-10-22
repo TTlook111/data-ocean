@@ -92,10 +92,13 @@ export interface QualityIssueItem {
   snapshotId: number
   datasourceId?: number
   datasourceName?: string
+  issueDomain?: 'SOURCE' | 'SEMANTIC' | string
+  semanticRuleCode?: string
   dimension: string
   severity: string
   tableName: string
   columnName?: string
+  columnMetaId?: number
   issueDescription: string
   suggestion?: string
   status: string
@@ -144,6 +147,7 @@ export interface QualityRuleSummary {
 export interface QualityIssueSummary {
   totalUnresolved: number
   statusCounts: Record<'OPEN' | 'CONFIRMED' | 'REOPENED', number>
+  domainCounts?: Record<'SOURCE' | 'SEMANTIC', number>
   recentIssues: QualityIssueItem[]
 }
 
@@ -218,7 +222,7 @@ export async function getSnapshotQualityIssueSummary(snapshotId: number, recentL
 }
 
 export async function listQualityIssues(snapshotId: number | undefined, params: {
-  dimension?: string; severity?: string; status?: string; tableName?: string
+  issueDomain?: 'ALL' | 'SOURCE' | 'SEMANTIC'; dimension?: string; severity?: string; status?: string; tableName?: string
   /** 按责任人过滤（2026-09-12 后端新增该参数） */
   assigneeId?: number
   page?: number; size?: number

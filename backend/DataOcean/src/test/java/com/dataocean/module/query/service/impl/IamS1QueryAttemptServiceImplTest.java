@@ -23,6 +23,7 @@ import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
 import com.dataocean.common.security.DataMaskingService;
 import com.dataocean.module.query.service.IamS1QueryAttemptService;
+import com.dataocean.module.fieldsemantic.service.FieldSemanticService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -58,6 +59,7 @@ class IamS1QueryAttemptServiceImplTest {
             mock(com.dataocean.module.metadata.service.SchemaSnapshotService.class);
     private final DataMaskingService masking = mock(DataMaskingService.class);
     private final IamS1QueryServiceImpl queryService = mock(IamS1QueryServiceImpl.class);
+    private final FieldSemanticService fieldSemanticService = mock(FieldSemanticService.class);
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final IamS1QueryAttemptServiceImpl service = new IamS1QueryAttemptServiceImpl(
             tasks, attempts, dataResolver, authorization, bindings, conversations, resources, snapshots,
@@ -77,7 +79,9 @@ class IamS1QueryAttemptServiceImplTest {
         task = QueryTask.builder().id(1L).taskId("task-1").userId(7L).datasourceId(5L)
                 .conversationId(42L).iamProtocolVersion("IAM-SIMPLE-1").status("PROCESSING")
                 .permissionRevision(9L).activeMetadataSnapshotId(88L)
+                .ragSourceSnapshotId(88L)
                 .createdAt(LocalDateTime.now()).question("统计订单").build();
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "fieldSemanticService", fieldSemanticService);
         when(tasks.selectByTaskIdForUpdate("task-1")).thenReturn(task);
         when(dataResolver.currentPermissionRevision()).thenReturn(9L);
         when(authorization.hasGlobalFunction(7L, "query:use")).thenReturn(true);
@@ -112,6 +116,21 @@ class IamS1QueryAttemptServiceImplTest {
         assertThat(decision.get("allowed")).isEqualTo(false);
         verify(dataResolver, never()).resolve(any());
         verify(bindings, never()).build(any());
+    }
+
+    @Test
+    void expiredFieldSemanticReferenceStopsCandidateAuthorizationBeforeExecutionBinding() {
+        String sql = "SELECT id FROM orders";
+        task.setFieldSemanticRefsJson("[{\"sourceSnapshotId\":\"88\",\"factSourceIds\":[\"1\",\"2\",\"3\",\"4\"]}]");
+        when(fieldSemanticService.membershipValid(5L, 88L, List.of("1", "2", "3", "4"))).thenReturn(false);
+
+        Map<String, Object> decision = service.authorize("task-1", authorizeRequest(sql, sha256(sql)));
+
+        assertThat(decision.get("allowed")).isEqualTo(false);
+        assertThat(decision.get("error").toString()).contains("字段解释已变化");
+        verify(dataResolver, never()).resolve(any());
+        verify(bindings, never()).build(any());
+        verify(attempts, never()).insert(any(QueryAttempt.class));
     }
 
     @Test

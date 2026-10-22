@@ -104,15 +104,15 @@ class MetadataGovernanceControllerAuthorizationTest {
         when(fixture.capabilityService.responsibleDatasourcesWithFunction(7L, "governance:issue:view"))
                 .thenReturn(List.of());
         when(fixture.qualityIssueService.listIssuesInDatasources(
-                any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
+                any(), any(), any(), any(), any(), any(), any(), any(), anyInt(), anyInt()))
                 .thenReturn(new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>());
 
-        fixture.controller.listAllIssues(null, null, null, null, null, null, 1, 20);
+        fixture.controller.listAllIssues(null, "ALL", null, null, null, null, null, 1, 20);
 
         verify(fixture.adminGuard).requireGlobalFunction(7L, "governance:issue:view");
         // 范围由 Service 下推 SQL，注解层不解析资源
         verify(fixture.qualityIssueService).listIssuesInDatasources(
-                eq(List.of()), any(), any(), any(), any(), any(), any(), anyInt(), anyInt());
+                eq(List.of()), any(), eq("ALL"), any(), any(), any(), any(), any(), anyInt(), anyInt());
     }
 
     @Test

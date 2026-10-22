@@ -8,7 +8,7 @@ from dataocean.rag.schema import RetrievedSchema
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fact_type", ["COLUMN_STRUCTURE", "GLOSSARY_TERM", "SEMANTIC_NOTE"])
+@pytest.mark.parametrize("fact_type", ["COLUMN_STRUCTURE", "GLOSSARY_TERM", "SEMANTIC_NOTE", "FIELD_SEMANTIC"])
 async def test_reviewed_fact_survives_ann_rerank_and_s1_filter_without_full_fallback(monkeypatch, fact_type):
     build_id = "abcdef12-3456-7890-abcd-ef1234567890"
     deps = ["table:products", "column:products.category"]
@@ -17,7 +17,7 @@ async def test_reviewed_fact_survives_ann_rerank_and_s1_filter_without_full_fall
         source_id=91, doc_id=4, source_version=2, snapshot_id=88,
         chunk_type="FIELD_NOTE", chunk_text="商品类别对应 products.category，用于按类别汇总。",
         score=0.95, governance_status="NORMAL", review_status="APPROVED",
-        resource_dependencies=deps, fact_source_ids=["3"], fact_type=fact_type,
+        resource_dependencies=deps, fact_source_ids=["1", "2", "3", "4"] if fact_type == "FIELD_SEMANTIC" else ["3"], fact_type=fact_type,
         fact_review_status="APPROVED", build_id=build_id)
     snapshot = S1PermissionSnapshot(protocolVersion="IAM-SIMPLE-1", taskId="provenance-test",
         userId=7, datasourceId=1, activeMetadataSnapshotId=88, permissionRevision=9,
@@ -29,7 +29,7 @@ async def test_reviewed_fact_survives_ann_rerank_and_s1_filter_without_full_fall
         capabilities={"query": True, "viewSql": True, "export": False})
     fallback = {"sourceId": 91, "datasourceId": 1, "sourceSnapshotId": 88, "ragBuildId": build_id,
         "tables": ["products"], "columns": ["products.category"], "resourceDependencies": deps,
-        "factSourceIds": ["3"], "factType": fact_type, "factReviewStatus": "APPROVED",
+        "factSourceIds": ["1", "2", "3", "4"] if fact_type == "FIELD_SEMANTIC" else ["3"], "factType": fact_type, "factReviewStatus": "APPROVED",
         "reviewStatus": "APPROVED", "governanceStatus": "NORMAL", "chunkText": "备用来源"}
     monkeypatch.setattr(rag_service, "retrieve_from_milvus", AsyncMock(return_value=[fact]))
     monkeypatch.setattr(rag_service, "embed_single", AsyncMock(return_value=[0.1]))
@@ -44,6 +44,6 @@ async def test_reviewed_fact_survives_ann_rerank_and_s1_filter_without_full_fall
     assert result[0]["chunkText"] == fact.chunk_text
     assert result[0]["sourceId"] == 91
     assert result[0]["factType"] == fact_type
-    assert result[0]["factSourceIds"] == ["3"]
+    assert result[0]["factSourceIds"] == (["1", "2", "3", "4"] if fact_type == "FIELD_SEMANTIC" else ["3"])
     assert result[0]["resourceDependencies"] == deps
     assert result[0]["factReviewStatus"] == "APPROVED"

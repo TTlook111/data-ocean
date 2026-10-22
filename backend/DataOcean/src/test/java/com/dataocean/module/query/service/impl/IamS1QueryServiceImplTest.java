@@ -12,6 +12,8 @@ import com.dataocean.module.datasource.entity.po.Datasource;
 import com.dataocean.module.datasource.entity.po.DatasourceSecret;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
+import com.dataocean.module.knowledge.entity.po.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuildChunk;
 import com.dataocean.module.knowledge.entity.po.RagIndexBuild;
 import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DataAuthorizationSnapshot;
@@ -29,6 +31,7 @@ import com.dataocean.module.query.mapper.QueryTaskMapper;
 import com.dataocean.module.query.service.IamS1RowBindingService;
 import com.dataocean.module.query.service.ConversationService;
 import com.dataocean.module.query.service.ConversationContextSummaryService;
+import com.dataocean.module.fieldsemantic.service.FieldSemanticService;
 import com.dataocean.module.query.entity.dto.ConversationContextDTO;
 import com.dataocean.module.query.entity.dto.IamS1QueryAskRequestDTO;
 import com.dataocean.module.query.entity.vo.QueryTaskVO;
@@ -101,6 +104,7 @@ class IamS1QueryServiceImplTest {
     @Mock private com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     @Mock private com.dataocean.common.security.DataMaskingService maskingService;
     @Mock private PlatformTransactionManager transactionManager;
+    @Mock private FieldSemanticService fieldSemanticService;
     @InjectMocks private IamS1QueryServiceImpl service;
 
     @org.junit.jupiter.api.BeforeAll
@@ -112,6 +116,7 @@ class IamS1QueryServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "fieldSemanticService", fieldSemanticService);
         task = QueryTask.builder().id(17L).taskId("task-1").userId(7L).datasourceId(1L)
                 .iamProtocolVersion("IAM-SIMPLE-1").permissionRevision(100L).activeMetadataSnapshotId(88L)
                 .status("PROCESSING").iamResourceRequest("[{\"tableName\":\"orders\",\"referencedColumns\":[\"id\"],\"columnUsages\":{\"id\":[\"PROJECTION\"]}}]")
@@ -164,6 +169,67 @@ class IamS1QueryServiceImplTest {
 
         verify(queryTaskMapper).update(any(), any());
         verify(auditLogService).recordAudit(17L);
+    }
+
+    @Test
+    void completeFailsClosedWhenAFieldSemanticReferenceExpiresInFlight() throws Exception {
+        String sourceRefs = "[{\"sourceSnapshotId\":\"88\",\"factSourceIds\":[\"1\",\"2\",\"3\",\"4\"]}]";
+        task.setFieldSemanticRefsJson(sourceRefs);
+        task.setRagSourceSnapshotId(88L);
+        when(fieldSemanticService.membershipValid(1L, 88L, List.of("1", "2", "3", "4"))).thenReturn(false);
+        QueryAttempt attempt = protectedAttempt("task-1", "attempt-expired-field", "PROTECTED",
+                "[{\"id\":1}]", "[{\"name\":\"id\"}]",
+                "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate("task-1", attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
+                "sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))),
+                "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1))));
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
+
+        ArgumentCaptor<LambdaUpdateWrapper<QueryTask>> update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(any(), update.capture());
+        assertRejectedCompletionUpdateContainsNoPayload(update.getValue());
+        assertThat(update.getValue().getParamNameValuePairs().values().toString())
+                .contains("FAILED", "REJECTED_ON_RECHECK", "字段解释已变化");
+        verify(auditLogService, never()).recordAudit(17L);
+    }
+
+    @Test
+    void oldBuildFieldFactIsFilteredImmediatelyWhenItsCurrentMembershipExpires() throws Exception {
+        RagIndexBuild build = RagIndexBuild.builder().buildId("build-1").datasourceId(1L)
+                .sourceSnapshotId(88L).status("ACTIVE").collectionName("collection-1").build();
+        RagIndexBuildChunk membership = new RagIndexBuildChunk();
+        membership.setBuildId("build-1"); membership.setChunkId(51L); membership.setDatasourceId(1L);
+        membership.setSourceSnapshotId(88L); membership.setFactType("FIELD_SEMANTIC");
+        membership.setFactReviewStatus("APPROVED");
+        membership.setResourceDependencies("[\"table:orders\",\"column:orders.pay_amt\"]");
+        membership.setFactSourceIds("[\"1\",\"2\",\"3\",\"4\"]");
+        KnowledgeChunk chunk = KnowledgeChunk.builder().id(51L).docId(7L).versionNo(2)
+                .metadataSnapshotId(88L).relatedTable("orders").relatedColumn("pay_amt")
+                .relatedTables("[\"orders\"]").relatedColumns("[\"orders.pay_amt\"]")
+                .factType("FIELD_SEMANTIC").factReviewStatus("APPROVED").reviewStatus("APPROVED")
+                .governanceStatus("NORMAL").chunkType("FIELD_NOTE").chunkText("订单支付金额")
+                .build();
+        when(ragIndexBuildChunkMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(membership));
+        when(knowledgeChunkMapper.selectBatchIds(any())).thenReturn(List.of(chunk));
+        when(fieldSemanticService.membershipValid(1L, 88L, List.of("1", "2", "3", "4"))).thenReturn(false);
+        java.lang.reflect.Method method = IamS1QueryServiceImpl.class.getDeclaredMethod(
+                "loadKnowledgeChunks", RagIndexBuild.class, Long.class, Set.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> filtered = (List<Map<String, Object>>) method.invoke(
+                service, build, 1L, Set.of("table:orders", "column:orders.pay_amt"));
+        assertThat(filtered).isEmpty();
+
+        when(fieldSemanticService.membershipValid(1L, 88L, List.of("1", "2", "3", "4"))).thenReturn(true);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> valid = (List<Map<String, Object>>) method.invoke(
+                service, build, 1L, Set.of("table:orders", "column:orders.pay_amt"));
+        assertThat(valid).hasSize(1);
+        assertThat(valid.get(0)).containsEntry("factType", "FIELD_SEMANTIC");
     }
 
     @Test

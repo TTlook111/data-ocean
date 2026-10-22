@@ -26,6 +26,9 @@ public interface QualityIssueService {
     Page<QualityIssueVO> listIssues(Long snapshotId, String dimension, String severity,
                                      String status, String tableName, Long assigneeId, int page, int size);
 
+    Page<QualityIssueVO> listIssues(Long snapshotId, String issueDomain, String dimension, String severity,
+                                     String status, String tableName, Long assigneeId, int page, int size);
+
     /**
      * 按**负责源范围**分页查询质量问题。
      *
@@ -40,6 +43,10 @@ public interface QualityIssueService {
      */
     Page<QualityIssueVO> listIssuesInDatasources(java.util.Collection<Long> datasourceIds, Long snapshotId,
                                                  String dimension, String severity, String status,
+                                                 String tableName, Long assigneeId, int page, int size);
+
+    Page<QualityIssueVO> listIssuesInDatasources(java.util.Collection<Long> datasourceIds, Long snapshotId,
+                                                 String issueDomain, String dimension, String severity, String status,
                                                  String tableName, Long assigneeId, int page, int size);
 
     QualityIssueSummaryVO snapshotIssueSummary(java.util.Collection<Long> datasourceIds, Long snapshotId, int recentLimit);

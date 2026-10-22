@@ -111,6 +111,19 @@ def _request() -> GenerateDraftRequest:
     )
 
 
+def _field_fact():
+    return {
+        "sourceIds": [71, 72, 73, 74],
+        "dependencies": ["table:sales_orders", "column:sales_orders.order_id"],
+        "reviewStatus": "APPROVED",
+        "governanceStatus": "NORMAL",
+        "contentHash": "a" * 64,
+        "dependencyHash": "b" * 64,
+        "businessName": "订单编号",
+        "body": "- 业务名称: 订单编号\n- 字段含义: 订单的稳定标识\n- 业务依据: 订单主数据定义",
+    }
+
+
 @pytest.mark.asyncio
 async def test_snapshot_document_covers_every_table_and_field_with_provenance():
     result = await generate_draft(_request())
@@ -169,3 +182,51 @@ async def test_out_of_snapshot_lineage_is_not_generation_evidence():
     assert result.coverage["confirmedLineageCount"] == 0
     assert "monthly_sales" not in result.content
     assert any("血缘" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_field_semantic_facts_are_rendered_with_exact_source_markers():
+    request = _request()
+    request.field_semantic_facts = [_field_fact()]
+    result = await generate_draft(request)
+    assert '"factType":"FIELD_SEMANTIC"' in result.content
+    assert '"sourceIds":[71,72,73,74]' in result.content
+    assert "- 业务名称: 订单编号" in result.content
+
+
+@pytest.mark.asyncio
+async def test_field_semantic_facts_outside_eligible_snapshot_are_rejected():
+    request = _request()
+    fact = _field_fact()
+    fact["dependencies"] = ["table:sales_orders", "column:sales_orders.secret_note"]
+    request.field_semantic_facts = [fact]
+    with pytest.raises(ValueError, match="字段语义事实"):
+        await generate_draft(request)
+
+
+def test_field_semantic_marker_is_preserved_as_a_retrievable_field_fact():
+    import json
+    from dataocean.rag.chunker import chunk_skills_md
+
+    marker = {
+        "snapshotId": 88,
+        "factType": "FIELD_SEMANTIC",
+        "sourceIds": [71, 72, 73, 74],
+        "dependencies": ["table:orders", "column:orders.pay_amt"],
+        "reviewStatus": "APPROVED",
+        "governanceStatus": "NORMAL",
+        "contentHash": "a" * 64,
+        "dependencyHash": "b" * 64,
+    }
+    content = (
+        "# Knowledge\n\n## 11. Field semantics\n\n### Order payment amount\n"
+        "<!-- dataocean-fact: " + json.dumps(marker, separators=(",", ":")) + " -->\n"
+        "- Business name: Order payment amount\n"
+        "- Meaning: The actual amount paid for this order, based on the reviewed business definition.\n"
+        "- Evidence: Reviewed order accounting policy, revision 4."
+    )
+    chunks = chunk_skills_md(content, expected_snapshot_id=88)
+    assert len(chunks) == 1
+    assert chunks[0].fact_type == "FIELD_SEMANTIC"
+    assert chunks[0].fact_source_ids == ["71", "72", "73", "74"]
+    assert chunks[0].resource_dependencies == marker["dependencies"]

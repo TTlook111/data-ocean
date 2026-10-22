@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Copy, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { ChevronDown, Copy, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -27,6 +27,7 @@ import {
 import { listSnapshots } from '../../../api/admin/metadata'
 import { listSnapshotTables, listSnapshotTableColumns } from '../../../api/admin/governance'
 import { qualityDimensionLabel, severityLabel } from '../../../utils/enumLabels'
+import { describeRuleCondition, describeRuleImpact, describeRuleScope } from '../../../utils/qualityRulePresentation'
 import { useRouter } from 'vue-router'
 import { buildContextQuery } from '../../../utils/adminNavigation'
 
@@ -60,10 +61,12 @@ const dimensionFilter = ref('')
 const ruleNameFilter = ref('')
 const enabledFilter = ref<'ALL' | 'ENABLED' | 'DISABLED'>('ALL')
 const showDeleted = ref(false)
+const advancedFiltersOpen = ref(false)
 const editorOpen = ref(false)
 const detailOpen = ref(false)
 const editingRuleId = ref<number>()
 const detailRule = ref<QualityRule | null>(null)
+const detailTab = ref<'description' | 'executions' | 'revisions'>('description')
 const detailHistory = ref<QualityCheckBatchRule[]>([])
 const detailRevisions = ref<QualityRuleRevision[]>([])
 const detailLoading = ref(false)
@@ -101,9 +104,36 @@ const currentTemplate = computed(() => templates.value.find((template) => templa
 const isTargetScoped = computed(() => ['TABLE', 'COLUMN'].includes(form.scopeType))
 const editorTitle = computed(() => editingRuleId.value ? '编辑质量规则' : '新增质量规则')
 const filteredRules = computed(() => rules.value)
+const advancedFilterCount = computed(() => [
+  scopeMode.value === 'DATASOURCE' && selectedRuleScope.value !== 'ALL', dimensionFilter.value !== '', showDeleted.value,
+].filter(Boolean).length)
+const advancedFilterSummary = computed(() => [
+  scopeMode.value === 'DATASOURCE' && selectedRuleScope.value !== 'ALL' ? `范围：${selectedRuleScope.value === 'GLOBAL' ? '全局默认' : scopeLabel(selectedRuleScope.value)}` : '',
+  dimensionFilter.value ? `维度：${qualityDimensionLabel(dimensionFilter.value)}` : '',
+  showDeleted.value ? '包含已删除' : '',
+].filter(Boolean).join(' · '))
+const hasRuleFilters = computed(() => Boolean(ruleNameFilter.value.trim() || templateFilter.value || dimensionFilter.value
+  || (scopeMode.value === 'DATASOURCE' && selectedRuleScope.value !== 'ALL') || enabledFilter.value !== 'ALL' || showDeleted.value))
 
 function scopeLabel(scope?: string) {
   return ({ GLOBAL: '全局', DATASOURCE: '数据源', TABLE: '表', COLUMN: '字段' } as Record<string, string>)[scope || ''] || '未知范围'
+}
+
+function ruleCondition(rule: QualityRule) {
+  const template = templates.value.find((item) => item.code === rule.templateCode)
+  return describeRuleCondition(rule.templateCode, rule.parameters, template?.parameters, template?.description)
+}
+
+function ruleScope(rule: QualityRule) {
+  const datasourceName = rule.datasourceId
+    ? context.datasources.find((item) => item.id === rule.datasourceId)?.name || `数据源 #${rule.datasourceId}`
+    : undefined
+  return describeRuleScope(rule.scopeType, datasourceName, rule.targetTableName, rule.targetColumnName,
+    scopeMode.value === 'DATASOURCE')
+}
+
+function ruleObject(rule: QualityRule) {
+  return `${rule.checkType === 'DATA' ? '业务数据' : '元数据'} · ${qualityDimensionLabel(rule.dimension)}`
 }
 
 function statusType(severity: string) {
@@ -120,6 +150,17 @@ function formatRuleTime(value?: string) {
 
 function revisionActionLabel(action: string) {
   return ({ BASELINE: '迁移基线', CREATE: '创建', COPY: '复制', UPDATE: '编辑', ENABLE: '启用', DISABLE: '停用', DELETE: '删除', RESTORE: '恢复' } as Record<string, string>)[action] || action
+}
+
+function handleRuleCommand(command: string, rule: QualityRule) {
+  if (command === 'copy') void copyRule(rule)
+  if (command === 'delete') void removeRule(rule)
+}
+
+function clearAdvancedFilters() {
+  selectedRuleScope.value = scopeMode.value === 'GLOBAL' ? 'GLOBAL' : 'ALL'
+  dimensionFilter.value = ''
+  showDeleted.value = false
 }
 
 function canManageRule(rule: QualityRule) {
@@ -532,6 +573,7 @@ async function openDetail(rule: QualityRule) {
   detailHistory.value = []
   detailRevisions.value = []
   detailError.value = ''
+  detailTab.value = 'description'
   detailOpen.value = true
   detailLoading.value = true
   try {
@@ -549,6 +591,10 @@ async function openDetail(rule: QualityRule) {
   } finally {
     if (!disposed && request === detailRequestId) detailLoading.value = false
   }
+}
+
+function detailRetry() {
+  if (detailRule.value) void openDetail(detailRule.value)
 }
 
 function openStatusMaintenance() {
@@ -584,13 +630,13 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="quality-rules-page post-login-page">
-    <TaskPageHeader title="质量规则" description="使用已注册的检查模板创建可执行规则。全局规则适用于所有数据源；来源范围规则按稳定的表名和字段名解析到后续快照。" />
+      <TaskPageHeader title="质量规则" description="按检查对象、适用范围和处理影响维护已注册规则。" />
 
     <ErrorState v-if="pageError" :message="pageError" @retry="loadPage" />
     <section v-else class="quality-rules-page__workspace">
       <div class="quality-rules-page__toolbar">
         <div class="quality-rules-page__scope-switch" role="group" aria-label="规则管理范围">
-          <button type="button" :class="{ active: scopeMode === 'DATASOURCE' }" @click="selectScopeMode('DATASOURCE')">数据源规则</button>
+          <button type="button" :class="{ active: scopeMode === 'DATASOURCE' }" @click="selectScopeMode('DATASOURCE')">当前数据源适用规则</button>
           <button type="button" :class="{ active: scopeMode === 'GLOBAL' }" :disabled="!iamS1.hasGlobal(RULE_VIEW)" :title="!iamS1.hasGlobal(RULE_VIEW) ? '没有查看全局规则的权限' : '全局规则只允许受保护系统管理员维护'" @click="selectScopeMode('GLOBAL')">全局规则</button>
         </div>
         <div class="quality-rules-page__toolbar-actions">
@@ -607,58 +653,57 @@ onBeforeUnmount(() => {
       <p v-else-if="!canManageSelectedScope" class="quality-rules-page__scope-note">当前账号没有此数据源的规则管理权限；仍可按查看权限浏览规则。</p>
 
       <div class="quality-rules-page__filters">
-        <el-input v-model="ruleNameFilter" clearable placeholder="搜索规则名称" aria-label="搜索规则名称" style="width: 190px" />
-        <el-select v-model="selectedRuleScope" aria-label="规则范围筛选" :disabled="scopeMode === 'GLOBAL'" style="width: 150px">
-          <el-option label="全部可见范围" value="ALL" />
-          <el-option label="全局" value="GLOBAL" />
-          <el-option label="数据源" value="DATASOURCE" />
-          <el-option label="表" value="TABLE" />
-          <el-option label="字段" value="COLUMN" />
-        </el-select>
+        <el-input v-model="ruleNameFilter" clearable placeholder="搜索规则名称" aria-label="搜索规则名称" style="width: 220px" />
         <el-select v-model="templateFilter" clearable filterable placeholder="检查类型" style="width: 240px">
           <el-option v-for="template in templates" :key="template.code" :label="template.name" :value="template.code" />
-        </el-select>
-        <el-select v-model="dimensionFilter" clearable placeholder="治理维度" style="width: 160px">
-          <el-option v-for="dimension in ['COMPLETENESS', 'ACCURACY', 'CONSISTENCY', 'TIMELINESS', 'TRACEABILITY']" :key="dimension" :label="qualityDimensionLabel(dimension)" :value="dimension" />
         </el-select>
         <el-select v-model="enabledFilter" aria-label="启用状态" style="width: 140px">
           <el-option label="全部状态" value="ALL" />
           <el-option label="已启用" value="ENABLED" />
           <el-option label="已停用" value="DISABLED" />
         </el-select>
-        <el-checkbox v-model="showDeleted">查看已删除</el-checkbox>
+        <el-button :aria-expanded="advancedFiltersOpen" aria-controls="quality-rule-advanced-filters" @click="advancedFiltersOpen = !advancedFiltersOpen">
+          更多筛选<el-tag v-if="advancedFilterCount" size="small" round>{{ advancedFilterCount }}</el-tag><ChevronDown :size="15" aria-hidden="true" />
+        </el-button>
+        <span v-if="advancedFilterCount" class="quality-rules-page__active-filters">{{ advancedFilterSummary }}</span>
+        <el-button v-if="advancedFilterCount" text @click="clearAdvancedFilters">清除更多筛选</el-button>
+      </div>
+      <div v-if="advancedFiltersOpen" id="quality-rule-advanced-filters" class="quality-rules-page__advanced-filters">
+        <el-select v-model="selectedRuleScope" aria-label="规则范围筛选" :disabled="scopeMode === 'GLOBAL'" style="width: 190px">
+          <el-option label="全部适用范围" value="ALL" />
+          <el-option label="全局默认" value="GLOBAL" />
+          <el-option label="数据源级" value="DATASOURCE" />
+          <el-option label="表级" value="TABLE" />
+          <el-option label="字段级" value="COLUMN" />
+        </el-select>
+        <el-select v-model="dimensionFilter" clearable placeholder="治理维度" aria-label="治理维度筛选" style="width: 180px">
+          <el-option v-for="dimension in ['COMPLETENESS', 'ACCURACY', 'CONSISTENCY', 'TIMELINESS', 'TRACEABILITY']" :key="dimension" :label="qualityDimensionLabel(dimension)" :value="dimension" />
+        </el-select>
+        <el-checkbox v-model="showDeleted">查看已删除规则</el-checkbox>
       </div>
 
       <ErrorState v-if="templatesError" :message="templatesError" @retry="loadTemplates" />
       <ErrorState v-if="rulesError" :message="rulesError" @retry="loadRules" />
       <p v-else-if="!canViewRules" class="quality-rules-page__permission">没有当前范围的“查看治理规则”权限。</p>
       <div v-else v-loading="rulesLoading || templatesLoading" class="quality-rules-page__table-wrap">
-        <el-table :data="filteredRules" row-key="id" empty-text="当前筛选范围没有质量规则">
-          <el-table-column prop="ruleName" label="规则名称" min-width="200">
+        <el-table :data="filteredRules" row-key="id" :empty-text="hasRuleFilters ? '没有符合筛选条件的质量规则。' : '当前管理范围暂无质量规则。'">
+          <el-table-column prop="ruleName" label="规则" min-width="250">
             <template #default="{ row }">
               <button class="quality-rules-page__name-link" type="button" @click="openDetail(row)">{{ row.ruleName }}</button>
+              <small class="quality-rules-page__condition">{{ ruleCondition(row) }}</small>
               <el-tag v-if="!row.supported" size="small" type="danger">无执行模板</el-tag>
               <el-tag v-else-if="row.overridden" size="small" type="warning" :title="`受规则「${row.overriddenBy}」覆盖`">有覆盖</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="检查类型" min-width="190">
-            <template #default="{ row }">{{ templates.find((template) => template.code === row.templateCode)?.name || row.templateCode || '未映射模板' }}</template>
+          <el-table-column label="检查对象" min-width="160">
+            <template #default="{ row }"><strong>{{ ruleObject(row) }}</strong><small class="quality-rules-page__subline">{{ templates.find((template) => template.code === row.templateCode)?.name || row.templateCode || '未映射模板' }}</small></template>
           </el-table-column>
-          <el-table-column label="治理维度" width="112">
-            <template #default="{ row }">{{ qualityDimensionLabel(row.dimension) }}</template>
+          <el-table-column label="适用范围" min-width="210">
+            <template #default="{ row }"><span class="quality-rules-page__scope-text" :title="ruleScope(row)">{{ ruleScope(row) }}</span></template>
           </el-table-column>
-          <el-table-column label="生效范围" min-width="190">
-            <template #default="{ row }">
-              <span>{{ scopeLabel(row.scopeType) }}</span>
-              <small v-if="row.datasourceId"> · {{ context.datasources.find((item) => item.id === row.datasourceId)?.name || `数据源 #${row.datasourceId}` }}</small>
-              <small v-if="row.targetTableName"> · {{ row.targetTableName }}</small>
-              <small v-if="row.targetColumnName">.{{ row.targetColumnName }}</small>
-            </template>
+          <el-table-column label="级别与影响" min-width="160">
+            <template #default="{ row }"><el-tag size="small" :type="statusType(row.severity)">{{ severityLabel(row.severity) }}</el-tag><small class="quality-rules-page__subline">{{ describeRuleImpact(row.severity, row.deductionPoints) }}</small></template>
           </el-table-column>
-          <el-table-column label="级别 / 扣分" width="148">
-            <template #default="{ row }"><el-tag size="small" :type="statusType(row.severity)">{{ severityLabel(row.severity) }}</el-tag><span class="quality-rules-page__deduction">−{{ row.deductionPoints }}</span></template>
-          </el-table-column>
-          <el-table-column label="版本" width="76" align="center"><template #default="{ row }">v{{ row.configVersion }}</template></el-table-column>
           <el-table-column label="启用" width="88">
             <template #default="{ row }">
               <el-switch v-if="!showDeleted && row.supported" :model-value="row.enabled === 1" :loading="rowLoading[row.id]" :disabled="!canManageRule(row)" :aria-label="`${row.ruleName}启用状态`" @change="toggleRule(row)" />
@@ -666,15 +711,21 @@ onBeforeUnmount(() => {
               <span v-else>不可执行</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="250" fixed="right">
+          <el-table-column label="操作" width="170" fixed="right">
             <template #default="{ row }">
               <div class="quality-rules-page__row-actions">
                 <el-button v-if="showDeleted" link type="primary" :disabled="!canManageRule(row)" :loading="rowLoading[row.id]" @click="restoreRule(row)">恢复</el-button>
                 <template v-else>
-                  <el-button link @click="openDetail(row)">详情</el-button>
                   <el-button v-if="row.supported" link type="primary" :disabled="!canManageRule(row)" @click="editRule(row)">编辑</el-button>
-                  <el-button v-if="row.supported" link :disabled="!canManageRule(row)" @click="copyRule(row)"><Copy :size="14" aria-hidden="true" />复制</el-button>
-                  <el-button link type="danger" :disabled="!canManageRule(row)" :loading="rowLoading[row.id]" @click="removeRule(row)"><Trash2 :size="14" aria-hidden="true" />删除</el-button>
+                  <el-dropdown trigger="click" :disabled="!canManageRule(row)" @command="(command: string) => handleRuleCommand(command, row)">
+                    <el-button link :aria-label="`${row.ruleName}更多操作`" :disabled="!canManageRule(row)" :loading="rowLoading[row.id]">更多<ChevronDown :size="14" aria-hidden="true" /></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item command="copy" :disabled="!row.supported"><Copy :size="14" aria-hidden="true" />复制规则</el-dropdown-item>
+                        <el-dropdown-item command="delete" class="quality-rules-page__danger-action"><Trash2 :size="14" aria-hidden="true" />删除规则</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
                 </template>
               </div>
             </template>
@@ -721,12 +772,15 @@ onBeforeUnmount(() => {
             </div>
             <p v-if="isTargetScoped && targetSnapshotVersion" class="quality-rule-form__target-source">目标来自数据源当前快照 v{{ targetSnapshotVersion }}；规则保存稳定名称，执行时按数据源和对象名称重新解析。</p>
             <p v-if="targetError" class="quality-rule-form__error" role="alert">{{ targetError }}</p>
-            <div v-if="currentTemplate.parameters.length" class="quality-rule-form__grid">
-              <el-form-item v-for="parameter in currentTemplate.parameters" :key="parameter.key" :label="parameter.label" required>
-                <el-switch v-if="parameter.type === 'BOOLEAN'" v-model="form.parameters[parameter.key]" />
-                <el-input-number v-else v-model="form.parameters[parameter.key]" :min="parameter.minimum" :max="parameter.maximum" :step="parameter.type === 'INTEGER' ? 1 : 0.01" :precision="parameter.type === 'INTEGER' ? 0 : 4" />
-              </el-form-item>
-            </div>
+            <template v-if="currentTemplate.parameters.length">
+              <div class="quality-rule-form__grid">
+                <el-form-item v-for="parameter in currentTemplate.parameters" :key="parameter.key" :label="parameter.label" required>
+                  <el-switch v-if="parameter.type === 'BOOLEAN'" v-model="form.parameters[parameter.key]" />
+                  <el-input-number v-else v-model="form.parameters[parameter.key]" :min="parameter.minimum" :max="parameter.maximum" :step="parameter.type === 'INTEGER' ? 1 : 0.01" :precision="parameter.type === 'INTEGER' ? 0 : 4" />
+                </el-form-item>
+              </div>
+              <p class="quality-rule-form__preview"><strong>条件预览</strong>{{ describeRuleCondition(currentTemplate.code, form.parameters, currentTemplate.parameters, currentTemplate.description) }}</p>
+            </template>
             <p v-else class="quality-rule-form__target-source">此模板使用固定的检查处理逻辑，不开放 SQL、脚本或自由表达式参数。</p>
           </section>
 
@@ -748,22 +802,33 @@ onBeforeUnmount(() => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="detailOpen" title="质量规则详情" width="min(760px, calc(100vw - 32px))" append-to-body @closed="detailRequestId++">
+    <el-drawer v-model="detailOpen" title="质量规则详情" :size="'min(760px, 100vw)'" append-to-body destroy-on-close class="quality-rule-detail-drawer" @closed="detailRequestId++">
       <div v-if="detailRule" class="quality-rule-detail">
-        <div><span>规则名称</span><strong>{{ detailRule.ruleName }}</strong></div>
-        <div><span>检查模板</span><strong>{{ templates.find((item) => item.code === detailRule?.templateCode)?.name || detailRule.templateCode || '未映射模板' }}</strong></div>
-        <div><span>生效范围</span><strong>{{ scopeLabel(detailRule.scopeType) }}<template v-if="detailRule.datasourceId"> · {{ context.datasources.find((item) => item.id === detailRule?.datasourceId)?.name || `数据源 #${detailRule.datasourceId}` }}</template><template v-if="detailRule.targetTableName"> · {{ detailRule.targetTableName }}</template><template v-if="detailRule.targetColumnName">.{{ detailRule.targetColumnName }}</template></strong></div>
-        <div><span>治理维度</span><strong>{{ qualityDimensionLabel(detailRule.dimension) }} · {{ severityLabel(detailRule.severity) }} · 扣 {{ detailRule.deductionPoints }} 分</strong></div>
-        <div><span>配置版本</span><strong>v{{ detailRule.configVersion }}</strong></div>
-        <div><span>参数</span><code>{{ JSON.stringify(detailRule.parameters || {}) }}</code></div>
-        <p v-if="detailRule.description">{{ detailRule.description }}</p>
-        <p v-if="detailRule.overridden" class="quality-rule-detail__warning">存在更具体的启用规则「{{ detailRule.overriddenBy }}」覆盖部分目标。优先级为字段 → 表 → 数据源 → 全局。</p>
-        <p v-else class="quality-rule-detail__note">执行时按字段 → 表 → 数据源 → 全局确定唯一生效实例，不对同一检查重复扣分。</p>
-        <p v-if="!detailRule.supported" class="quality-rule-form__error">{{ detailRule.unsupportedReason || '此规则无法映射到当前可执行模板。' }}</p>
-        <ErrorState v-if="detailError" :message="detailError" />
-        <div v-else-if="detailLoading" class="quality-rule-detail__note" role="status">正在读取执行历史…</div>
-        <section v-else class="quality-rule-detail__history">
-          <h3>实际执行版本</h3>
+        <header class="quality-rule-detail__header">
+          <div><strong>{{ detailRule.ruleName }}</strong><el-tag size="small" :type="detailRule.enabled === 1 ? 'success' : 'info'">{{ detailRule.enabled === 1 ? '已启用' : '已停用' }}</el-tag></div>
+          <p>{{ ruleObject(detailRule) }} · {{ templates.find((item) => item.code === detailRule?.templateCode)?.name || detailRule.templateCode || '未映射模板' }}</p>
+        </header>
+        <el-tabs v-model="detailTab" aria-label="规则详情内容">
+          <el-tab-pane label="检查说明" name="description">
+            <section class="quality-rule-detail__section">
+              <h3>检查什么</h3><p>{{ templates.find((item) => item.code === detailRule?.templateCode)?.description || detailRule.description || '按现有检查定义执行。' }}</p>
+              <p class="quality-rule-detail__condition">{{ ruleCondition(detailRule) }}</p>
+            </section>
+            <section class="quality-rule-detail__section">
+              <h3>范围与处理影响</h3>
+              <dl><div><dt>适用范围</dt><dd>{{ ruleScope(detailRule) }}</dd></div><div><dt>严重程度</dt><dd>{{ severityLabel(detailRule.severity) }} · 扣 {{ detailRule.deductionPoints }} 分</dd></div><div><dt>当前配置</dt><dd>v{{ detailRule.configVersion }} · {{ detailRule.enabled === 1 ? '已启用' : '已停用' }}</dd></div></dl>
+              <p v-if="detailRule.overridden" class="quality-rule-detail__warning">部分目标由更具体的「{{ detailRule.overriddenBy }}」规则覆盖。执行优先级：字段、表、数据源、全局。</p>
+              <p v-else class="quality-rule-detail__note">同一检查按字段、表、数据源、全局的优先级只应用一个规则实例。</p>
+            </section>
+            <section class="quality-rule-detail__section"><h3>处理建议</h3><p>{{ detailRule.description || '处理问题请前往治理问题中心，按对应来源和快照核实检查结果。' }}</p></section>
+            <details class="quality-rule-detail__technical"><summary>技术详情</summary><p>模板编码：<code>{{ detailRule.templateCode || detailRule.ruleCode }}</code></p><pre>{{ JSON.stringify(detailRule.parameters || {}, null, 2) }}</pre></details>
+            <p v-if="!detailRule.supported" class="quality-rule-form__error">{{ detailRule.unsupportedReason || '此规则无法映射到当前可执行模板。' }}</p>
+          </el-tab-pane>
+          <el-tab-pane label="执行记录" name="executions">
+            <ErrorState v-if="detailError" :message="detailError" @retry="detailRetry" />
+            <div v-else-if="detailLoading" class="quality-rule-detail__note" role="status">正在读取执行历史…</div>
+            <section v-else class="quality-rule-detail__history">
+              <h3>实际执行版本</h3>
           <template v-if="detailHistory.length">
             <article v-for="entry in detailHistory" :key="`${entry.batchId}-${entry.ruleVersion}`">
               <div><strong>v{{ entry.ruleVersion }} · {{ entry.batchStatus }}</strong><span>{{ formatRuleTime(entry.batchStartedAt) }}</span></div>
@@ -771,10 +836,14 @@ onBeforeUnmount(() => {
               <p v-if="entry.reason">{{ entry.reason }}</p>
             </article>
           </template>
-          <p v-else>尚无带配置快照的执行记录。早期未关联批次的结果无法还原当时规则依据。</p>
-        </section>
-        <section v-if="!detailLoading && !detailError" class="quality-rule-detail__history">
-          <h3>配置变更历史</h3>
+              <p v-else>暂无可追溯执行记录。早期未关联批次的结果无法还原当时规则依据。</p>
+            </section>
+          </el-tab-pane>
+          <el-tab-pane label="配置记录" name="revisions">
+            <ErrorState v-if="detailError" :message="detailError" @retry="detailRetry" />
+            <div v-else-if="detailLoading" class="quality-rule-detail__note" role="status">正在读取配置记录…</div>
+            <section v-else class="quality-rule-detail__history">
+              <h3>配置变更历史</h3>
           <template v-if="detailRevisions.length">
             <article v-for="revision in detailRevisions" :key="revision.id">
               <div><strong>v{{ revision.configVersion }} · {{ revisionActionLabel(revision.action) }}</strong><span>{{ formatRuleTime(revision.changedAt) }}</span></div>
@@ -783,11 +852,12 @@ onBeforeUnmount(() => {
             </article>
             <p v-if="detailRevisions.some((revision) => revision.action === 'BASELINE')">迁移基线只记录迁移时可核对的配置，不代表更早的变更流水。</p>
           </template>
-          <p v-else>规则配置历史从新版本模型启用后开始记录；更早变更需查现有审计记录。</p>
-        </section>
+              <p v-else>暂无可追溯配置记录；迁移前的变更需查现有审计记录。</p>
+            </section>
+          </el-tab-pane>
+        </el-tabs>
       </div>
-      <template #footer><el-button @click="detailOpen = false">关闭</el-button></template>
-    </el-dialog>
+    </el-drawer>
   </main>
 </template>
 
@@ -802,9 +872,12 @@ onBeforeUnmount(() => {
 .quality-rules-page__toolbar-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .quality-rules-page__scope-note { margin: 12px 0 0; color: var(--do-muted); font-size: 12px; line-height: 1.5; }
 .quality-rules-page__filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 16px 0 12px; }
+.quality-rules-page__advanced-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -2px 0 14px; padding: 12px; border: 1px solid var(--do-line); border-radius: var(--do-radius-md); background: var(--do-bg); }
 .quality-rules-page__permission { padding: 20px 0; color: var(--do-muted); }
 .quality-rules-page__table-wrap { min-width: 0; overflow-x: auto; }
 .quality-rules-page__name-link { margin-right: 8px; border: 0; padding: 0; color: var(--do-primary-strong); background: transparent; cursor: pointer; font: inherit; font-weight: 600; }
+.quality-rules-page__condition,.quality-rules-page__subline { display: block; margin-top: 4px; color: var(--do-muted); font-size: 12px; line-height: 1.45; white-space: normal; }
+.quality-rules-page__scope-text { display: block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quality-rules-page__deduction { margin-left: 8px; color: var(--do-muted); font-size: 12px; }
 .quality-rules-page__row-actions { display: flex; align-items: center; gap: 4px 10px; white-space: nowrap; }
 .quality-rule-form { max-height: min(68vh, 720px); overflow-y: auto; padding: 0 4px; }
@@ -813,8 +886,23 @@ onBeforeUnmount(() => {
 .quality-rule-form__section h3 { margin: 0 0 4px; color: var(--do-ink); font-size: 15px; }
 .quality-rule-form__section > p { margin: 0 0 12px; color: var(--do-muted); font-size: 12px; line-height: 1.5; }
 .quality-rule-form__target-source { margin: -4px 0 12px !important; }
+.quality-rule-form__preview { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid var(--do-primary); border-radius: var(--do-radius-sm); color: var(--do-ink); background: var(--do-bg); font-size: 13px; line-height: 1.5; }
+.quality-rule-form__preview strong { display: block; margin-bottom: 4px; }
 .quality-rule-form__error { margin: 8px 0; color: var(--do-danger); font-size: 13px; }
 .quality-rule-detail { display: grid; gap: 12px; }
+.quality-rule-detail__header { padding: 4px 0 12px; border-bottom: 1px solid var(--do-line); }
+.quality-rule-detail__header > div { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--do-ink); font-size: 18px; }
+.quality-rule-detail__header p { margin-top: 8px; }
+.quality-rule-detail__section { display: grid; gap: 8px; padding: 14px 0; border-bottom: 1px solid var(--do-line); }
+.quality-rule-detail__section h3 { margin: 0; color: var(--do-ink); font-size: 14px; }
+.quality-rule-detail__condition { padding: 10px 12px; border-radius: var(--do-radius-sm); background: var(--do-bg); }
+.quality-rule-detail__section dl { display: grid; gap: 8px; margin: 0; }
+.quality-rule-detail__section dl > div { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
+.quality-rule-detail__section dt { color: var(--do-muted); }
+.quality-rule-detail__section dd { margin: 0; color: var(--do-ink); overflow-wrap: anywhere; }
+.quality-rule-detail__technical { padding-top: 12px; color: var(--do-muted); font-size: 13px; }
+.quality-rule-detail__technical summary { cursor: pointer; }
+.quality-rule-detail__technical pre { max-height: 220px; overflow: auto; padding: 12px; border-radius: var(--do-radius-sm); color: var(--do-ink); background: var(--do-bg); }
 .quality-rule-detail > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; }
 .quality-rule-detail > div > span { color: var(--do-muted); font-size: 13px; }
 .quality-rule-detail > div > strong,.quality-rule-detail code { color: var(--do-ink); font-size: 13px; overflow-wrap: anywhere; }
@@ -832,5 +920,6 @@ onBeforeUnmount(() => {
   .quality-rules-page__toolbar-actions { width: 100%; }
   .quality-rule-form__grid { grid-template-columns: minmax(0, 1fr); }
   .quality-rule-detail > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .quality-rule-detail__section dl > div { grid-template-columns: minmax(0, 1fr); gap: 3px; }
 }
 </style>

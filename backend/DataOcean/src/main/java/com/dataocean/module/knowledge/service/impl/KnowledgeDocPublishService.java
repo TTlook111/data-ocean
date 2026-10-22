@@ -15,6 +15,7 @@ import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
 import com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator;
+import com.dataocean.module.knowledge.support.KnowledgeSnapshotFactValidator;
 import com.dataocean.module.metadata.entity.po.DbColumnMeta;
 import com.dataocean.module.metadata.entity.po.DbTableMeta;
 import com.dataocean.module.metadata.entity.po.MetadataEntity;
@@ -29,6 +30,7 @@ import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import com.dataocean.module.fieldtag.entity.po.FieldTag;
 import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
+import com.dataocean.module.fieldsemantic.service.FieldSemanticService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +46,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 知识文档目录生成与预览服务。
@@ -61,8 +65,11 @@ public class KnowledgeDocPublishService {
 
     /** JSON 解析用的 ObjectMapper（线程安全，复用实例） */
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+    private static final Pattern FIELD_FACT_MARKER = Pattern.compile(
+            "<!--\\s*dataocean-fact:\\s*(\\{.*?})\\s*-->", Pattern.DOTALL);
 
     private final GlossaryKnowledgeSourceServiceImpl glossarySources;
+    private final FieldSemanticService fieldSemanticService;
     private final KnowledgeDocMapper knowledgeDocMapper;
     private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
     private final PythonKnowledgeClient pythonKnowledgeClient;
@@ -137,6 +144,10 @@ public class KnowledgeDocPublishService {
             result = pythonKnowledgeClient.generateSnapshotDraft(generationInput);
             draftContent = (String) result.get("content");
             validateDraftCoverage(result, tablesMetadata);
+            validateFieldSemanticCoverage(doc.getDatasourceId(), snapshotId, draftContent,
+                    generationInput.get("field_semantic_facts"));
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("快照目录生成失败 docId={} snapshotId={}", docId, snapshotId, e);
             throw new BusinessException("快照目录生成失败，请稍后重试");
@@ -157,7 +168,8 @@ public class KnowledgeDocPublishService {
                             latestDoc.getDatasourceId(),
                             snapshotId,
                             GenerationSource.SNAPSHOT_GENERATED.name(),
-                            Map.of("warnings", resultWarnings(result), "glossaryInputs", generationInput.get("glossary_facts"))))
+                            Map.of("warnings", resultWarnings(result), "glossaryInputs", generationInput.get("glossary_facts"),
+                                    "fieldSemanticInputs", generationInput.get("field_semantic_facts"))))
                     .versionNo((latestDoc.getCurrentVersion() == null ? 0 : latestDoc.getCurrentVersion()) + 1)
                     .content(draftContent)
                     .generationSource(GenerationSource.SNAPSHOT_GENERATED.name())
@@ -202,6 +214,10 @@ public class KnowledgeDocPublishService {
         try {
             result = pythonKnowledgeClient.generateSnapshotDraft(generationInput);
             validateDraftCoverage(result, tablesMetadata);
+            validateFieldSemanticCoverage(datasourceId, snapshotId,
+                    String.valueOf(result.getOrDefault("content", "")), generationInput.get("field_semantic_facts"));
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             log.error("按快照生成完整知识目录失败 datasourceId={} snapshotId={}", datasourceId, snapshotId, e);
             throw new BusinessException("快照知识目录生成或字段覆盖校验失败");
@@ -231,7 +247,8 @@ public class KnowledgeDocPublishService {
                     .dependencySnapshot(dependencySnapshotBuilder.build(
                             datasourceId, snapshotId, GenerationSource.SNAPSHOT_GENERATED.name(),
                             Map.of("coverage", result.getOrDefault("coverage", Map.of()),
-                                    "warnings", resultWarnings(result), "glossaryInputs", generationInput.get("glossary_facts"))))
+                                    "warnings", resultWarnings(result), "glossaryInputs", generationInput.get("glossary_facts"),
+                                    "fieldSemanticInputs", generationInput.get("field_semantic_facts"))))
                     .versionNo(1)
                     .content(content)
                     .generationSource(GenerationSource.SNAPSHOT_GENERATED.name())
@@ -263,8 +280,56 @@ public class KnowledgeDocPublishService {
         request.put("lineage_facts", lineage); request.put("indexes", List.of());
         request.put("glossary_facts", input.get("glossaryFacts"));
         request.put("excluded_terms", input.get("excludedTerms"));
+        request.put("field_semantic_facts", fieldSemanticService.knowledgeFacts(datasourceId, snapshotId));
         return request;
     }
+
+    private void validateFieldSemanticCoverage(Long datasourceId, Long snapshotId, String content, Object rawExpected) {
+        List<Map<String, Object>> expected = rawExpected instanceof List<?> list
+                ? list.stream().filter(Map.class::isInstance).map(item -> (Map<String, Object>) item).toList()
+                : List.of();
+        Map<String, Map<String, Object>> expectedBySource = new HashMap<>();
+        for (Map<String, Object> fact : expected) {
+            String key = sourceKey(fact.get("sourceIds"));
+            if (key.isBlank() || expectedBySource.putIfAbsent(key, fact) != null) {
+                throw new BusinessException(409, "快照生成输入包含重复或无效的字段语义来源");
+            }
+        }
+        Map<String, Map<String, Object>> actualBySource = new HashMap<>();
+        Matcher matcher = FIELD_FACT_MARKER.matcher(content == null ? "" : content);
+        while (matcher.find()) {
+            Map<String, Object> marker;
+            try { marker = JSON_MAPPER.readValue(matcher.group(1), new com.fasterxml.jackson.core.type.TypeReference<>() {}); }
+            catch (Exception exception) { throw new BusinessException("字段语义事实 marker JSON 无效"); }
+            if (!"FIELD_SEMANTIC".equals(marker.get("factType"))) continue;
+            String key = sourceKey(marker.get("sourceIds"));
+            if (key.isBlank() || actualBySource.putIfAbsent(key, marker) != null) {
+                throw new BusinessException(409, "快照草稿中的字段语义事实重复或来源 ID 无效");
+            }
+            Map<String, Object> expectedFact = expectedBySource.get(key);
+            if (expectedFact == null
+                    || !new java.util.HashSet<>(stringValues(marker.get("dependencies")))
+                    .equals(new java.util.HashSet<>(stringValues(expectedFact.get("dependencies"))))) {
+                throw new BusinessException(409, "快照草稿中的 FIELD_SEMANTIC 来源或完整依赖与 Java 核验清单不一致");
+            }
+            fieldSemanticService.validateKnowledgeFact(datasourceId, snapshotId, marker,
+                    KnowledgeSnapshotFactValidator.factUnit(content, matcher.end()));
+        }
+        if (!actualBySource.keySet().equals(expectedBySource.keySet())) {
+            throw new BusinessException(409, "快照草稿遗漏或额外包含已审核字段语义事实，请重新生成");
+        }
+    }
+
+    private String sourceKey(Object raw) {
+        List<String> values = stringValues(raw);
+        return values.size() == 4 ? String.join(":", values) : "";
+    }
+
+    private List<String> stringValues(Object raw) {
+        if (raw instanceof List<?> list) return list.stream().map(String::valueOf).toList();
+        return List.of();
+    }
+
 
     /**
      * 预览文档切片结果。

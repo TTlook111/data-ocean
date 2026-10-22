@@ -706,7 +706,7 @@ function openFieldGovernance() {
     datasourceId: String(current.datasource!.id),
     snapshotId: String(current.sourceSnapshot!.id),
     tableName,
-    tab: 'tags',
+    tab: isColumn.value ? 'semantics' : 'tags',
   }
   if (isColumn.value && current.column?.columnMetaId) {
     query.columnMetaId = String(current.column.columnMetaId)

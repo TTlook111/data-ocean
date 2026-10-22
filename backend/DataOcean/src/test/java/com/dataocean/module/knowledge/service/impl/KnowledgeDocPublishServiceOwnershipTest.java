@@ -122,11 +122,15 @@ class KnowledgeDocPublishServiceOwnershipTest {
                 new com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator(
                         mock(KnowledgeDocVersionMapper.class), snapshotMapper);
         private final GlossaryKnowledgeSourceServiceImpl sources = mock(GlossaryKnowledgeSourceServiceImpl.class);
+        private final com.dataocean.module.fieldsemantic.service.FieldSemanticService fieldSemanticService =
+                mock(com.dataocean.module.fieldsemantic.service.FieldSemanticService.class);
         private final KnowledgeDocPublishService service;
 
         Fixture() {
             service = new KnowledgeDocPublishService(
-                    sources, docMapper,
+                    sources,
+                    fieldSemanticService,
+                    docMapper,
                     mock(KnowledgeDocVersionMapper.class),
                     pythonKnowledgeClient,
                     mock(PythonRagClient.class),
@@ -141,6 +145,7 @@ class KnowledgeDocPublishServiceOwnershipTest {
                     helper,
                     snapshotMapper,
                     ownershipValidator);
+            when(fieldSemanticService.knowledgeFacts(anyLong(), anyLong())).thenReturn(java.util.List.of());
         }
 
         void snapshot(Long id, Long datasourceId) {

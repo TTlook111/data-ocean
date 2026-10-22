@@ -6,7 +6,7 @@
 
 Java 管理术语定义与字段映射、修订审核、知识版本、发布、事实校验和构建确认；Python 根据固定输入整理目录、生成 AI 释义候选并负责切分/向量操作。**生成结构目录与 AI 补写是两个动作；发布知识文档和明确确认 RAG build 也是两个独立动作。**
 
-2026-10-21 明确了平台内字段解释方向，拟从字段和治理问题进入现有候选、审核与知识使用流程；该字段级集中流程尚未实现。设计建议见[方案整理稿](../development/质量规则与平台内字段语义治理方案.md)，不改变本文现行审核、发布与独立 RAG 构建合同。
+2026-10-21 字段解释[最终实施方案](../development/质量规则与平台内字段语义治理方案.md)已定稿。2026-10-22 工作区已实现独立字段解释修订；快照目录生成从 Java 当前有效的已审核修订生成 `FIELD_SEMANTIC` 标记，精确引用 definition/revision/review/binding 与完整依赖 hash。Java 发布验证、Python chunker 和 query-time membership 过滤接入该类型；文档审核发布与显式 RAG build 仍保持独立。现有 `SEMANTIC_NOTE` 文档候选流程不变。当前尚未执行 V69、真实文档发布/API 或 RAG build，完整问数链路未标记验收完成。
 
 ```text
 DRAFT → PENDING_REVIEW → APPROVED → PUBLISHED
@@ -52,6 +52,8 @@ V65 新增不可变审核快照、意见和 AI 候选持久化。历史术语不
 候选生成不修改正文；采纳使用文档版本锁，拒绝重复、跨文档、过期候选和已变化术语，保留原目录/人工内容。AI 欠费、超时或无效输出提示失败与重试，未确认结果不会成为已发布事实。确认采纳后仍需文档审核、发布和单独构建。
 
 `GLOSSARY_TERM` 与 `SEMANTIC_NOTE` 由 Java 校验真实来源、精确审核记录、正文和完整依赖；`TABLE_EXCLUDED/COLUMN_EXCLUDED` 只承担禁用/废弃对象的管理覆盖核对，不进入语义检索。`GET /{id}/source-status` 只读核对当前保存版本，来源变化时显示需重新确认，不重写已发布正文。重新审核同一文字也会使引用旧审核记录的知识失效。
+
+`FIELD_SEMANTIC` 是独立于文档候选的受控事实类型。生成目录时 Java 只输出当前精确来源绑定、审核证据和依赖仍有效的修订；发布前校验 marker 与正文，活动 build membership 在每次问数候选读取时再复核当前授权。字段修订批准、撤销、来源变更会使引用旧版本的事实从新查询候选即时排除，旧向量集合仍按 build 引用生命周期管理。字段工作面通过当前 build membership 显示“已收录/待更新/待构建/不可用”，不会自动确认构建。
 
 实现见 [术语工作流](../../backend/DataOcean/src/main/java/com/dataocean/module/glossary/service/impl/GlossaryTermWorkflowServiceImpl.java)、[术语来源](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/GlossaryKnowledgeSourceServiceImpl.java)、[AI 释义](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeSemanticServiceImpl.java)。本轮范围见[验收记录](../acceptance/业务术语与语义知识验收记录.md)。
 

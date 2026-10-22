@@ -43,6 +43,7 @@ public class QualityScoreAggregationService {
         long unresolvedIssues = issueMapper.selectCount(
             new LambdaQueryWrapper<MetadataQualityIssue>()
                 .eq(MetadataQualityIssue::getDatasourceId, datasourceId)
+                .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                 .in(MetadataQualityIssue::getStatus,
                     MetadataQualityIssue.STATUS_OPEN,
                     MetadataQualityIssue.STATUS_CONFIRMED,

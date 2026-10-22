@@ -1,6 +1,6 @@
 # 004 元数据治理与可信度
 
-> 文档类型：现行模块说明；文档整理日期：2026-10-21；治理规则、批次和问题处理修复均已提交。隔离库迁移已有独立核验，其他环境与页面验收仍按[项目现状](../项目现状.md)分别判断；本次整理未新增业务验收。
+> 文档类型：现行模块说明；文档整理日期：2026-10-22；治理规则、批次和问题处理基线已提交，本轮字段解释代码保存在未提交工作区。V69 未执行，其他环境和页面验收按[项目现状](../项目现状.md)分别判断。
 
 ## 概览与主流程
 
@@ -8,11 +8,11 @@
 
 选定源与快照 → 质量检查 → 问题分派与处理 → 复查/必要时 REOPENED → 审核发布 → 查询血缘、使用与反馈回流。
 
-## 平台内字段解释方向与当前差距
+## 平台内字段解释
 
-用户明确要求在平台内帮助理解字段，并保存可审核、可复用的业务解释。当前 `CompletenessChecker` 仍检查采集的表/字段注释；字段治理页管理标签、可信度、反馈和脱敏候选，AI 释义通过现有知识文档流程承接。字段级解释、人工确认、语义问题复查和后续问数使用尚未形成集中操作流程。
+用户明确要求在平台内帮助理解字段，并保存可审核、可复用的业务解释。`CompletenessChecker` 继续检查原始采集注释；字段治理页在原标签、可信度、反馈和脱敏能力之外新增独立业务解释工作面。平台解释不回写源注释，也不将原注释来源问题伪造成已解决。
 
-拟议调整见[质量规则与平台内字段语义治理方案](../development/质量规则与平台内字段语义治理方案.md)，待实施边界见[后续开发](../development/后续开发.md#11-质量规则页面与平台内字段解释)。这是方向与差距记录，未新增语义检查执行器、未改变原质量分、治理状态或发布门槛。
+实施合同见[最终方案](../development/质量规则与平台内字段语义治理方案.md)。2026-10-22 工作区新增独立字段语义主记录、来源绑定、修订/AI 候选/审核、独立 SEMANTIC 复查批次与问题域隔离；来源规则、评分、快照状态、可信度及 HIGH 门禁均显式限定 `SOURCE`。实现入口见下表与字段语义代码；剩余验收边界见[后续开发](../development/后续开发.md#11-质量规则页面与平台内字段解释)。V69 脚本未对现有数据库执行，真实 IAM/API 与页面仍待单独核验。
 
 ## 关键边界
 
@@ -32,6 +32,14 @@
 | [fieldtag](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldtag/) | 标签、可信度、反馈 |
 | [QualityDashboard](../../frontend/src/views/admin/governance/QualityDashboard.vue)、[IssueList](../../frontend/src/views/admin/governance/IssueList.vue) | 正式质量与问题页面 |
 | [governance API](../../frontend/src/api/admin/governance.ts) | 请求 DTO、筛选与批量返回 |
+| [FieldSemanticController](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/controller/FieldSemanticController.java)、[FieldSemanticServiceImpl](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticServiceImpl.java) | 字段权威解释、版本并发、同源权限、复采绑定、审核与撤销 |
+| [FieldSemanticBindingBatchController](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/controller/FieldSemanticBindingBatchController.java)、[FieldSemanticBindingBatchServiceImpl](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticBindingBatchServiceImpl.java) | 待确认来源清单、整批权限预检、逐项事务与部分失败结果 |
+| [SemanticCheckExecutionService](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/service/impl/SemanticCheckExecutionService.java)、[SemanticCheckController](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/controller/SemanticCheckController.java) | 独立 SEMANTIC 批次与字段问题处理证据 |
+| [FieldSemanticWorkspace](../../frontend/src/views/admin/governance/FieldSemanticWorkspace.vue) | 沿用公共 ScopeBar 的字段解释、人工/AI 候选、审核与操作历史工作面 |
+
+质量问题统一使用 `issueDomain=SOURCE/SEMANTIC`。全量 SOURCE 检查只清理 SOURCE 问题；语义检查单独写入批次/结果，不调用来源质量评分、快照状态或置信度联动。SEMANTIC 问题关闭需最新成功复查结果及当前字段/修订/审核/绑定 hash 一致；域筛选及分域统计由后端按当前权限范围计算。
+
+复采后的来源绑定可逐字段确认，也可在字段治理工作面按当前公共快照批量确认。批量请求先预校验所选字段真实来源及同一源上的 `governance:field:manage`、`knowledge:manage`，任一授权失败则整批不写；通过预检后每项独立事务和并发版本提交，并返回成功数及逐字段失败原因。结构或完整依据变化时绑定持久化为 `NEEDS_REVIEW`，不会被批量确认吞掉。
 
 ## 修改与验证
 

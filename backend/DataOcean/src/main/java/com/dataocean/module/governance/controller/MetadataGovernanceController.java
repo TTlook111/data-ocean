@@ -254,6 +254,7 @@ public class MetadataGovernanceController {
     @IamS1Resource(function = ISSUE_VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
     public Result<Page<QualityIssueVO>> listIssues(
             @PathVariable Long snapshotId,
+            @RequestParam(defaultValue = "ALL") String issueDomain,
             @RequestParam(required = false) String dimension,
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String status,
@@ -261,7 +262,7 @@ public class MetadataGovernanceController {
             @RequestParam(required = false) Long assigneeId,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.success(qualityIssueService.listIssues(snapshotId, dimension, severity, status, tableName,
+        return Result.success(qualityIssueService.listIssues(snapshotId, issueDomain, dimension, severity, status, tableName,
                 assigneeId, (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }
 
@@ -282,6 +283,7 @@ public class MetadataGovernanceController {
     @IamS1ScopedList(ISSUE_VIEW_FUNCTION)
     public Result<Page<QualityIssueVO>> listAllIssues(
             @RequestParam(required = false) Long snapshotId,
+            @RequestParam(defaultValue = "ALL") String issueDomain,
             @RequestParam(required = false) String dimension,
             @RequestParam(required = false) String severity,
             @RequestParam(required = false) String status,
@@ -292,7 +294,7 @@ public class MetadataGovernanceController {
         // 未指定快照时按调用者的负责源范围**下推 SQL**；指定快照时同时按快照收窄，
         // 不可见的快照自然查不到，不会变成探测入口。空负责源返回空页而不是全局结果。
         List<Long> visible = visibleDatasourceIds(UserContext.currentUserId(), ISSUE_VIEW_FUNCTION);
-        return Result.success(qualityIssueService.listIssuesInDatasources(visible, snapshotId,
+        return Result.success(qualityIssueService.listIssuesInDatasources(visible, snapshotId, issueDomain,
                 dimension, severity, status, tableName, assigneeId,
                 (int) PageQuery.normalizePage(page), (int) PageQuery.normalizePageSize(size)));
     }

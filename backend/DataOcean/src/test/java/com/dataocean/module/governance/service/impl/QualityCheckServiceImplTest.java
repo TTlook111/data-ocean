@@ -102,7 +102,18 @@ class QualityCheckServiceImplTest {
         assertThat(result.getTotalIssues()).isEqualTo(2);
         assertThat(result.getDimensionScores().get(MetadataQualityRule.DIM_COMPLETENESS))
                 .isEqualByComparingTo("87.0");
-        verify(fixture.issueMapper, org.mockito.Mockito.times(2)).insert(any(MetadataQualityIssue.class));
+        org.mockito.ArgumentCaptor<MetadataQualityIssue> insertedIssues =
+                org.mockito.ArgumentCaptor.forClass(MetadataQualityIssue.class);
+        verify(fixture.issueMapper, org.mockito.Mockito.times(2)).insert(insertedIssues.capture());
+        assertThat(insertedIssues.getAllValues()).allSatisfy(issue ->
+                assertThat(issue.getIssueDomain()).isEqualTo(MetadataQualityIssue.DOMAIN_SOURCE));
+        @SuppressWarnings({"rawtypes", "unchecked"})
+        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<MetadataQualityIssue>> cleared =
+                org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
+        verify(fixture.issueMapper).delete(cleared.capture());
+        assertThat(cleared.getValue().getCustomSqlSegment()).contains("issue_domain");
+        assertThat(((com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) cleared.getValue())
+                .getParamNameValuePairs().values().toString()).contains("SOURCE");
         verify(fixture.batchService).finish(eq(10L), eq("SUCCESS"), eq(true), any(BigDecimal.class), eq(null), any());
     }
 

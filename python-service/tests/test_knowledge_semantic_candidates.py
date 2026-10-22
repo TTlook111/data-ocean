@@ -1,6 +1,6 @@
 import json
 import pytest
-from dataocean.knowledge.semantic import SemanticRequest, supplement
+from dataocean.knowledge.semantic import FieldSemanticRequest, SemanticRequest, generate_field_candidate, supplement
 
 
 def request():
@@ -78,3 +78,46 @@ async def test_term_crossing_batch_boundary_is_sent_with_all_its_dependencies(mo
     await supplement(SemanticRequest(datasourceId=1, snapshotId=88,
         authorizedDependencies=["table:orders"] + [f"column:orders.c{i}" for i in range(41)], glossaryFacts=[fact]))
     assert observed == [fact]
+
+
+@pytest.mark.asyncio
+async def test_field_candidate_is_pending_and_never_receives_sample_rows(monkeypatch):
+    captured = {}
+    async def model(**kwargs):
+        captured["prompt"] = kwargs["user_prompt"]
+        return json.dumps({
+            "businessName": "订单金额",
+            "meaning": "订单记录的金额字段，精确口径需核实",
+            "unit": "",
+            "currency": "",
+            "enumSemantics": "",
+            "metricDefinition": "",
+            "applicability": "",
+            "evidence": "依据列名和原始注释提出候选",
+            "unresolvedItems": ["确认金额单位和退款口径"],
+            "reviewStatus": "APPROVED",
+        })
+    monkeypatch.setattr("dataocean.knowledge.semantic.call_llm", model)
+    request = FieldSemanticRequest(
+        datasourceId=5, snapshotId=88,
+        field={"tableName": "orders", "columnName": "pay_amt", "dataType": "DECIMAL(12,2)", "rawCommentPendingConfirmation": ""},
+        sameTableColumns=[{"tableName": "orders", "columnName": "order_id", "dataType": "BIGINT"}],
+    )
+    result = await generate_field_candidate(request)
+    assert result["candidateStatus"] == "PENDING_REVIEW"
+    assert "reviewStatus" not in result
+    assert result["businessName"] == "订单金额"
+    assert result["unresolvedItems"] == ["确认金额单位和退款口径"]
+    assert "sampleValues" not in captured["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_field_candidate_rejects_sample_values_before_calling_model(monkeypatch):
+    async def model(**_):
+        pytest.fail("sample values must be rejected before model invocation")
+    monkeypatch.setattr("dataocean.knowledge.semantic.call_llm", model)
+    with pytest.raises(ValueError, match="采样值"):
+        await generate_field_candidate(FieldSemanticRequest(
+            datasourceId=5, snapshotId=88,
+            field={"tableName": "orders", "columnName": "pay_amt", "dataType": "DECIMAL", "sampleValues": ["10"]},
+        ))

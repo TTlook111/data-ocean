@@ -6,6 +6,7 @@ import { RefreshCw } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import {
   listQualityIssues,
+  getSnapshotQualityIssueSummary,
   handleIssue,
   batchHandleIssues,
   assignIssue,
@@ -30,6 +31,9 @@ import LoadingState from '../../../components/common/LoadingState.vue'
 
 const loading = ref(false)
 const issues = ref<QualityIssueItem[]>([])
+const domainSummary = ref<{ totalUnresolved: number; domainCounts?: Record<string, number> }>()
+const domainSummaryLoading = ref(false)
+const domainSummaryError = ref('')
 const total = ref<number | null>(null)
 const resultLoaded = ref(false)
 const selectedIds = ref<number[]>([])
@@ -58,6 +62,7 @@ const assigneeSelection = ref<number | undefined>()
 const assignLoading = ref(false)
 let userOptionsLoaded = false
 let issueRequestId = 0
+let summaryRequestId = 0
 let tableOptionsRequestId = 0
 let detailRequestId = 0
 let detailSessionId = 0
@@ -132,6 +137,7 @@ const canBatchManage = computed(
 )
 
 const query = reactive({
+  issueDomain: String(route.query.issueDomain || 'ALL'),
   dimension: String(route.query.dimension || ''),
   severity: String(route.query.severity || ''),
   status: String(route.query.status || ''),
@@ -145,7 +151,7 @@ const query = reactive({
 const isMyIssuesFilter = computed(() =>
   Boolean(currentUserId.value) && query.assigneeId === currentUserId.value)
 const hasBusinessFilters = computed(() => Boolean(
-  query.tableName || query.dimension || query.severity || query.status || query.assigneeId,
+  query.issueDomain !== 'ALL' || query.tableName || query.dimension || query.severity || query.status || query.assigneeId,
 ))
 const canClearFilters = computed(() => hasBusinessFilters.value || query.page > 1)
 
@@ -182,6 +188,11 @@ const statusOptions = [
   { label: '已驳回', value: 'REJECTED' },
   { label: '已重新打开', value: 'REOPENED' },
   { label: '自动关闭', value: 'AUTO_CLOSED' }
+]
+const issueDomainOptions = [
+  { label: '全部问题域', value: 'ALL' },
+  { label: '来源质量', value: 'SOURCE' },
+  { label: '字段解释', value: 'SEMANTIC' },
 ]
 
 const sevType = (s: string) => s === 'HIGH' ? 'danger' : s === 'MEDIUM' ? 'warning' : 'info'
@@ -220,6 +231,7 @@ async function fetchIssues() {
   errorMessage.value = ''
   try {
     const res = await listQualityIssues(requestedSnapshot, {
+      issueDomain: query.issueDomain as 'ALL' | 'SOURCE' | 'SEMANTIC',
       dimension: query.dimension || undefined,
       severity: query.severity || undefined,
       status: query.status || undefined,
@@ -243,6 +255,25 @@ async function fetchIssues() {
     errorMessage.value = error instanceof Error ? error.message : '问题列表加载失败'
   } finally {
     if (!disposed && currentRequest === issueRequestId) loading.value = false
+  }
+}
+
+async function loadDomainSummary(forSnapshotId: number) {
+  const request = ++summaryRequestId
+  domainSummary.value = undefined
+  domainSummaryError.value = ''
+  if (!canReadIssues.value) return
+  domainSummaryLoading.value = true
+  try {
+    const result = await getSnapshotQualityIssueSummary(forSnapshotId)
+    if (disposed || request !== summaryRequestId || forSnapshotId !== snapshotId.value) return
+    domainSummary.value = result.data
+  } catch (error) {
+    if (!disposed && request === summaryRequestId) {
+      domainSummaryError.value = error instanceof Error ? error.message : '问题域统计读取失败'
+    }
+  } finally {
+    if (!disposed && request === summaryRequestId) domainSummaryLoading.value = false
   }
 }
 
@@ -286,6 +317,7 @@ function applyFilters() {
 }
 
 function clearFilters() {
+  query.issueDomain = 'ALL'
   query.tableName = ''
   query.dimension = ''
   query.severity = ''
@@ -307,6 +339,7 @@ function handlePageChange(page: number) {
 function persistQuery() {
   const nextQuery = { ...route.query }
   const values: Record<string, string | undefined> = {
+    issueDomain: query.issueDomain === 'ALL' ? undefined : query.issueDomain,
     dimension: query.dimension || undefined,
     severity: query.severity || undefined,
     status: query.status || undefined,
@@ -331,6 +364,7 @@ async function doHandle(issue: QualityIssueItem, status: string) {
     await handleIssue(issueId, { status })
     ElMessage.success('操作成功')
     if (selectedIssue.value?.id === issueId) selectedIssue.value = { ...selectedIssue.value, status }
+    if (snapshotId.value) void loadDomainSummary(snapshotId.value)
     await fetchIssues()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '操作失败')
@@ -447,6 +481,7 @@ async function doBatchHandle(status: string) {
       ElMessage.success('批量操作已完成')
     }
     selectedIds.value = []
+    if (snapshotId.value) void loadDomainSummary(snapshotId.value)
     await fetchIssues()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || '批量操作失败')
@@ -471,6 +506,7 @@ async function reopenIssue(issue: QualityIssueItem) {
     await handleIssue(issue.id, { status: 'REOPENED' })
     ElMessage.success('问题已重新打开')
     if (selectedIssue.value?.id === issue.id) selectedIssue.value = { ...selectedIssue.value, status: 'REOPENED' }
+    if (snapshotId.value) void loadDomainSummary(snapshotId.value)
     await fetchIssues()
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') {
@@ -539,8 +575,9 @@ async function openIssueDetail(issue: QualityIssueItem) {
 }
 
 function syncFiltersFromRoute(values: unknown[]) {
-  const [tableName, dimension, severity, status, assigneeIdValue, pageValue] = values
+  const [issueDomain, tableName, dimension, severity, status, assigneeIdValue, pageValue] = values
   const next = {
+    issueDomain: String(issueDomain || 'ALL'),
     tableName: String(tableName || ''),
     dimension: String(dimension || ''),
     severity: String(severity || ''),
@@ -548,7 +585,8 @@ function syncFiltersFromRoute(values: unknown[]) {
     assigneeId: Number(assigneeIdValue) || undefined,
     page: Number(pageValue) || 1,
   }
-  if (next.tableName === query.tableName
+  if (next.issueDomain === query.issueDomain
+    && next.tableName === query.tableName
     && next.dimension === query.dimension
     && next.severity === query.severity
     && next.status === query.status
@@ -561,6 +599,7 @@ function syncFiltersFromRoute(values: unknown[]) {
 
 watch(
   () => [
+    route.query.issueDomain,
     route.query.tableName,
     route.query.dimension,
     route.query.severity,
@@ -588,11 +627,15 @@ watch(
     if (disposed) return
     if (!rangeReady.value || !iamS1.loaded || !canViewCurrentScope.value) {
       issueRequestId++
+      summaryRequestId++
       loading.value = false
       issues.value = []
       total.value = null
       resultLoaded.value = false
       errorMessage.value = ''
+      domainSummary.value = undefined
+      domainSummaryError.value = ''
+      domainSummaryLoading.value = false
       selectedIds.value = []
       if (!rangeReady.value || !canViewCurrentScope.value) {
         invalidateDetailSession()
@@ -618,6 +661,7 @@ watch(
       }
       await loadTableOptions(snapshotId.value!)
       if (disposed || activeScopeKey !== scopeKey || !canReadIssues.value) return
+      void loadDomainSummary(snapshotId.value!)
     }
     fetchIssues()
   },
@@ -633,6 +677,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   disposed = true
   issueRequestId++
+  summaryRequestId++
   tableOptionsRequestId++
   invalidateDetailSession()
 })
@@ -648,6 +693,9 @@ onBeforeUnmount(() => {
 
     <section class="issue-workbench" aria-label="问题工作区">
       <div class="issue-workbench__filters" aria-label="问题筛选">
+        <el-select v-model="query.issueDomain" class="issue-filter" placeholder="全部问题域" aria-label="按问题域筛选" :disabled="!canReadIssues" @change="applyFilters">
+          <el-option v-for="option in issueDomainOptions" :key="option.value" :label="option.label" :value="option.value" />
+        </el-select>
         <el-select
           v-model="query.tableName"
           class="issue-filter issue-filter--table"
@@ -693,6 +741,14 @@ onBeforeUnmount(() => {
         >分配给我的</el-button>
         <el-button class="issue-filter__clear" :disabled="!canClearFilters" @click="clearFilters">清除筛选</el-button>
       </div>
+
+      <div v-if="domainSummaryLoading" class="issue-domain-summary" role="status">正在读取当前快照的问题域统计…</div>
+      <div v-else-if="domainSummary" class="issue-domain-summary" aria-label="当前快照未解决问题统计">
+        未解决问题：全部 <strong>{{ domainSummary.totalUnresolved }}</strong>
+        <span>来源质量 {{ domainSummary.domainCounts?.SOURCE ?? 0 }}</span>
+        <span>字段解释 {{ domainSummary.domainCounts?.SEMANTIC ?? 0 }}</span>
+      </div>
+      <p v-else-if="domainSummaryError" class="issue-workbench__notice issue-workbench__notice--error" role="alert">问题域统计读取失败：{{ domainSummaryError }}</p>
 
       <div v-if="tableOptionsError || assigneeError || userOptionsTotal > USER_PAGE_SIZE" class="issue-workbench__notices">
         <p v-if="tableOptionsError" class="issue-workbench__notice issue-workbench__notice--error" role="alert">
@@ -749,6 +805,13 @@ onBeforeUnmount(() => {
         <el-table-column prop="columnName" label="字段" width="120">
           <template #default="{ row }">
             <span class="column-code">{{ row.columnName || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="问题域" width="112">
+          <template #default="{ row }">
+            <el-tag v-if="row.issueDomain === 'SOURCE'" size="small" type="info">来源质量</el-tag>
+            <el-tag v-else-if="row.issueDomain === 'SEMANTIC'" size="small" type="warning">字段解释</el-tag>
+            <el-tag v-else size="small" type="danger">未知问题域</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="dimension" label="维度" width="90">
@@ -846,12 +909,18 @@ onBeforeUnmount(() => {
             <el-tag :type="issueStatusType(selectedIssue.status)" size="small">{{ issueStatusLabel(selectedIssue.status) }}</el-tag>
           </div>
           <dl>
+            <dt>问题域</dt><dd>{{ selectedIssue.issueDomain === 'SOURCE' ? '来源质量' : selectedIssue.issueDomain === 'SEMANTIC' ? '字段解释' : '未知问题域' }}</dd>
             <dt>问题描述</dt><dd>{{ selectedIssue.issueDescription }}</dd>
             <dt>建议</dt><dd>{{ selectedIssue.suggestion || '后端未提供处理建议' }}</dd>
             <dt>维度</dt><dd>{{ qualityDimensionLabel(selectedIssue.dimension) }}</dd>
             <dt>责任人</dt><dd>{{ selectedIssue.assigneeName || '未分派' }}</dd>
             <dt>创建时间</dt><dd>{{ selectedIssue.createdAt }}</dd>
           </dl>
+          <RouterLink
+            v-if="selectedIssue.issueDomain === 'SEMANTIC' && selectedIssue.columnMetaId"
+            class="return-link"
+            :to="{ path: '/admin/governance/fields', query: { datasourceId: String(selectedIssue.datasourceId), snapshotId: String(selectedIssue.snapshotId), tab: 'semantics', tableName: selectedIssue.tableName, columnMetaId: String(selectedIssue.columnMetaId) } }"
+          >打开字段业务解释</RouterLink>
           <section class="issue-detail__assign">
             <h3>分派责任人</h3>
             <p v-if="!canManageIssue(selectedIssue)" class="muted-text">
@@ -929,6 +998,8 @@ onBeforeUnmount(() => {
   min-width: 0;
   padding: 18px 20px;
 }
+.issue-domain-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; padding: 0 20px 12px; color: var(--do-muted); font-size: 12px; }
+.issue-domain-summary strong { color: var(--do-ink); font-variant-numeric: tabular-nums; }
 .issue-filter { flex: 1 1 145px; min-width: min(145px, 100%); }
 .issue-filter--table { flex: 2 1 240px; }
 .issue-filter--assignee { flex-basis: 180px; }

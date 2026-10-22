@@ -272,7 +272,10 @@ public class QualityCheckServiceImpl implements QualityCheckService {
                         if (issue.getDimension() == null) issue.setDimension(rule.getDimension());
                         if (issue.getSeverity() == null) issue.setSeverity(rule.getSeverity());
                     }
-                    allIssues.addAll(issues);
+                    for (MetadataQualityIssue issue : issues) {
+                        issue.setIssueDomain(MetadataQualityIssue.DOMAIN_SOURCE);
+                        allIssues.add(issue);
+                    }
                     successfulRules++;
                     successfulDimensions.add(rule.getDimension());
                     coverage.put(rule.getId(), new QualityCheckBatchService.RuleCoverage("SUCCESS",
@@ -475,6 +478,7 @@ public class QualityCheckServiceImpl implements QualityCheckService {
     private void closeOldIssues(Long datasourceId, Long currentSnapshotId) {
         issueMapper.update(null, new LambdaUpdateWrapper<MetadataQualityIssue>()
                 .eq(MetadataQualityIssue::getDatasourceId, datasourceId)        // 同一数据源
+                .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                 .ne(MetadataQualityIssue::getSnapshotId, currentSnapshotId)     // 排除当前快照
                 .in(MetadataQualityIssue::getStatus,
                         MetadataQualityIssue.STATUS_OPEN,                      // 状态为"待处理"
@@ -496,6 +500,7 @@ public class QualityCheckServiceImpl implements QualityCheckService {
     private void clearCurrentUnfinishedIssues(Long snapshotId, Set<String> dimensions, List<String> tableNames) {
         LambdaQueryWrapper<MetadataQualityIssue> qw = new LambdaQueryWrapper<MetadataQualityIssue>()
                 .eq(MetadataQualityIssue::getSnapshotId, snapshotId)            // 当前快照
+                .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                 .in(MetadataQualityIssue::getDimension, dimensions)             // 指定维度
                 .in(MetadataQualityIssue::getStatus,
                         MetadataQualityIssue.STATUS_OPEN,                      // 状态为"待处理"
@@ -676,6 +681,7 @@ public class QualityCheckServiceImpl implements QualityCheckService {
     private void linkQualityToGovernance(Long snapshotId, List<MetadataQualityIssue> allIssues) {
         // 收集有 HIGH 级问题的表名
         Set<String> tablesWithHighIssues = allIssues.stream()
+                .filter(issue -> MetadataQualityIssue.DOMAIN_SOURCE.equals(issue.getIssueDomain()))
                 .filter(issue -> "HIGH".equals(issue.getSeverity()))
                 .map(MetadataQualityIssue::getTableName)
                 .collect(Collectors.toSet());

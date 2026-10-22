@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick, reactive } from 'vue'
-import ElementPlus, { ElDialog, ElMessage, ElSelect } from 'element-plus'
+import ElementPlus, { ElDialog, ElDropdown, ElMessage, ElSelect } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
 import type { QualityIssueItem } from '../../../api/admin/governance'
@@ -554,9 +554,9 @@ describe('问题中心的范围、筛选和结果表达', () => {
     await settle()
 
     const filters = wrapper.find('.issue-workbench__filters')
-    expect(filters.findAllComponents(ElSelect)).toHaveLength(5)
+    expect(filters.findAllComponents(ElSelect)).toHaveLength(6)
     expect(filters.findAll('input').map((input) => input.attributes('aria-label'))).toEqual([
-      '按表筛选', '按维度筛选', '按级别筛选', '按状态筛选', '按责任人筛选',
+      '按问题域筛选', '按表筛选', '按维度筛选', '按级别筛选', '按状态筛选', '按责任人筛选',
     ])
     expect(filters.text()).not.toContain('数据源')
     expect(filters.text()).not.toContain('快照')
@@ -569,13 +569,34 @@ describe('问题中心的范围、筛选和结果表达', () => {
     expect(api.listQualityIssues).toHaveBeenCalledWith(8, expect.objectContaining({ page: 1, size: 20, assigneeId: undefined }))
   })
 
+  it('按 SOURCE / SEMANTIC 问题域把筛选下推到后端，并展示后端分域总数', async () => {
+    reactiveRouteState.query = { issueDomain: 'SEMANTIC' }
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    api.getSnapshotQualityIssueSummary.mockResolvedValue({ data: {
+      totalUnresolved: 9, statusCounts: { OPEN: 7, CONFIRMED: 1, REOPENED: 1 },
+      domainCounts: { SOURCE: 6, SEMANTIC: 3 }, recentIssues: [],
+    } })
+    api.listQualityIssues.mockResolvedValue({ data: { records: [{ ...issue, issueDomain: 'SEMANTIC' }], total: 3 } })
+    const wrapper = mountIssuePage()
+    await settle()
+    expect(api.listQualityIssues).toHaveBeenCalledWith(8, expect.objectContaining({ issueDomain: 'SEMANTIC' }))
+    expect(wrapper.text()).toContain('来源质量 6')
+    expect(wrapper.text()).toContain('字段解释 3')
+  })
+
   it('显示接口 total 而非当前页记录数，也不显示当前页分类汇总', async () => {
     respond(capability({ onDatasource: ['governance:issue:view'] }))
+    api.getSnapshotQualityIssueSummary.mockResolvedValue({ data: {
+      totalUnresolved: 23, statusCounts: { OPEN: 20, CONFIRMED: 2, REOPENED: 1 },
+      domainCounts: { SOURCE: 20, SEMANTIC: 3 }, recentIssues: [],
+    } })
     api.listQualityIssues.mockResolvedValue({ data: { records: [issue], total: 37 } })
     const wrapper = mountIssuePage()
     await settle()
 
     expect(wrapper.text().replace(/\s/g, '')).toContain('筛选结果共37条')
+    expect(wrapper.text()).toContain('全部 23')
+    expect(wrapper.text()).toContain('字段解释 3')
     expect(wrapper.text()).not.toContain('高危 1')
     expect(wrapper.text()).not.toContain('待处理 1')
     expect(wrapper.text()).not.toContain('Total 0')
@@ -857,7 +878,7 @@ describe('质量规则管理的能力控制', () => {
     await settle()
 
     const row = await waitForRow(wrapper, '字段说明')
-    await row.findAll('button').find((button) => button.text().includes('复制'))!.trigger('click')
+    row.findComponent(ElDropdown).vm.$emit('command', 'copy')
     await settle()
 
     expect(api.copyQualityRule).toHaveBeenCalledWith(30)
