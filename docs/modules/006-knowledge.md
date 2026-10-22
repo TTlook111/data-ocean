@@ -1,12 +1,12 @@
 # 006 业务术语与知识文档
 
-> 文档类型：现行模块说明；核对日期：2026-10-20；术语与知识改造已提交于 `ffb06ce`。核心流程验收沿用 10 月 17～18 日记录，本轮仅复核文档与提交状态；范围见[验收结论](../acceptance/业务术语与语义知识验收记录.md#验收结论)，项目整体状态见[项目现状](../项目现状.md)。
+> 文档类型：现行模块说明；核对日期：2026-10-22；术语与知识改造已提交于 `ffb06ce`，字段语义知识事实与问数资格复核已提交于 `a0f1076`。核心流程验收沿用 10 月 17～18 日记录；范围见[验收结论](../acceptance/业务术语与语义知识验收记录.md#验收结论)，项目整体状态见[项目现状](../项目现状.md)。
 
 ## 概览与关键决定
 
 Java 管理术语定义与字段映射、修订审核、知识版本、发布、事实校验和构建确认；Python 根据固定输入整理目录、生成 AI 释义候选并负责切分/向量操作。**生成结构目录与 AI 补写是两个动作；发布知识文档和明确确认 RAG build 也是两个独立动作。**
 
-2026-10-21 字段解释[最终实施方案](../development/质量规则与平台内字段语义治理方案.md)已定稿。2026-10-22 工作区已实现独立字段解释修订；快照目录生成从 Java 当前有效的已审核修订生成 `FIELD_SEMANTIC` 标记，精确引用 definition/revision/review/binding 与完整依赖 hash。Java 发布验证、Python chunker 和 query-time membership 过滤接入该类型；文档审核发布与显式 RAG build 仍保持独立。现有 `SEMANTIC_NOTE` 文档候选流程不变。字段解释工作面入口在「语义中心 → 字段解释」（`/admin/semantics/field-explanations`），与知识文档分开。V69 已在本机隔离库执行；真实文档发布/API、RAG build 和完整问数链路仍未验收。
+2026-10-21 字段解释[实施方案](../development/completed/质量规则与平台内字段语义治理方案.md)已定稿。2026-10-22 已实现并提交独立字段解释修订；快照目录生成从 Java 当前有效的已审核修订生成 `FIELD_SEMANTIC` 标记，精确引用 definition/revision/review/binding 与完整依赖 hash。Java 发布验证、Python chunker 和 query-time membership 过滤接入该类型；文档审核发布与显式 RAG build 仍保持独立。现有 `SEMANTIC_NOTE` 文档候选流程不变。字段解释工作面入口在「语义中心 → 字段解释」（`/admin/semantics/field-explanations`），与知识文档分开。V69 已在本机隔离库执行；真实文档发布/API、RAG build 和完整问数链路仍未验收。
 
 ```text
 DRAFT → PENDING_REVIEW → APPROVED → PUBLISHED
