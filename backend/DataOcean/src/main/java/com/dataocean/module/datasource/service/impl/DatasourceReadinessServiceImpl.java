@@ -44,11 +44,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class DatasourceReadinessServiceImpl implements DatasourceReadinessService {
 
-    private static final List<String> BLOCKING_ISSUE_STATUSES = List.of(
-            MetadataQualityIssue.STATUS_OPEN,
-            MetadataQualityIssue.STATUS_CONFIRMED,
-            MetadataQualityIssue.STATUS_REOPENED
-    );
+    private static final List<String> BLOCKING_ISSUE_STATUSES =
+            MetadataQualityIssue.UNRESOLVED_STATUSES;
 
     /**
      * 上线阶段进度常量。

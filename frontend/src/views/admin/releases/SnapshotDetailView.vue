@@ -4,9 +4,11 @@ import { ArrowLeft } from 'lucide-vue-next'
 import { useRouter, useRoute, type RouteLocationRaw } from 'vue-router'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import SnapshotDetailPanel from '../../../components/admin/SnapshotDetailPanel.vue'
+import ReleaseGatePanel from '../../../components/admin/ReleaseGatePanel.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import { useIamS1Store } from '../../../stores/iamS1'
 import { useSnapshotDetail } from '../../../composables/useSnapshotDetail'
+import { useReleaseGate } from '../../../composables/useReleaseGate'
 import { buildContextQuery } from '../../../utils/adminNavigation'
 import { snapshotStatusLabel } from '../../../utils/enumLabels'
 
@@ -16,10 +18,35 @@ const iamS1 = useIamS1Store()
 const snapshotId = computed(() => Number(route.params.snapshotId))
 const routeDatasourceId = computed(() => Number(route.query.datasourceId) || undefined)
 const { detail, loading, error, load, clear } = useSnapshotDetail()
+const {
+  gate,
+  loading: gateLoading,
+  error: gateError,
+  load: loadGate,
+  clear: clearGate,
+} = useReleaseGate()
 const canViewGovernance = computed(() => {
   const sourceId = detail.value?.snapshot.datasourceId
   return sourceId !== undefined && iamS1.canOnDatasource('governance:view', sourceId)
 })
+const canViewReleaseGate = computed(() => {
+  const sourceId = detail.value?.snapshot.datasourceId
+  return iamS1.loaded && sourceId !== undefined
+    && iamS1.canOnDatasource('metadata:release:view', sourceId)
+})
+const gateIssueTarget = computed<RouteLocationRaw | undefined>(() => {
+  const snapshot = detail.value?.snapshot
+  if (!snapshot) return undefined
+  return {
+    path: '/admin/governance/issues',
+    query: { datasourceId: String(snapshot.datasourceId), snapshotId: String(snapshot.id) },
+  }
+})
+
+function retryGate() {
+  const snapshot = detail.value?.snapshot
+  if (snapshot && canViewReleaseGate.value) void loadGate(snapshot.id)
+}
 
 const returnToRelease = computed<RouteLocationRaw>(() => {
   const sourceId = detail.value?.snapshot.datasourceId ?? routeDatasourceId.value
@@ -47,7 +74,21 @@ function openGovernance() {
 }
 
 watch([snapshotId, routeDatasourceId], loadRouteSnapshot, { immediate: true })
-onBeforeUnmount(clear)
+watch(
+  () => [detail.value?.snapshot.id, detail.value?.snapshot.datasourceId, iamS1.loaded] as const,
+  ([loadedSnapshotId]) => {
+    if (!loadedSnapshotId || !canViewReleaseGate.value) {
+      clearGate()
+      return
+    }
+    void loadGate(loadedSnapshotId)
+  },
+  { immediate: true },
+)
+onBeforeUnmount(() => {
+  clear()
+  clearGate()
+})
 </script>
 
 <template>
@@ -65,6 +106,15 @@ onBeforeUnmount(clear)
       <template #status><BusinessStatusBadge v-if="detail" :status="detail.snapshot.status" :label="snapshotStatusLabel(detail.snapshot.status)" /></template>
       <template #actions><el-button v-if="canViewGovernance" @click="openGovernance">查看治理情况</el-button></template>
     </TaskPageHeader>
+
+    <ReleaseGatePanel
+      v-if="canViewReleaseGate"
+      :gate="gate"
+      :loading="gateLoading"
+      :error="gateError"
+      :issue-target="gateIssueTarget"
+      @retry="retryGate"
+    />
 
     <SnapshotDetailPanel :detail="detail" :loading="loading" :error="error" @retry="loadRouteSnapshot" />
   </div>

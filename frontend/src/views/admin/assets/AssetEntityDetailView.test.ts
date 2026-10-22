@@ -754,6 +754,36 @@ describe('field governance location', () => {
     }))
   })
 
+  it('opens the lineage workspace with only datasourceId and entityId', async () => {
+    iam.canOnDatasource.mockImplementation((code: string) => code === 'lineage:view')
+    api.getEntityOverview.mockResolvedValue({ data: overview(1, 'orders') })
+
+    const wrapper = mountView()
+    await flushPromises()
+    const button = wrapper.findAll('button').find((item) => item.text().includes('在血缘工作台中查看'))
+    expect(button!.attributes('disabled')).toBeUndefined()
+    await button!.trigger('click')
+
+    expect(holders.router.push).toHaveBeenCalledWith({
+      path: '/admin/assets/lineage',
+      query: { datasourceId: '1', entityId: '1' },
+    })
+  })
+
+  it('disables the lineage workspace entry without lineage:view', async () => {
+    iam.canOnDatasource.mockReturnValue(false)
+    api.getEntityOverview.mockResolvedValue({ data: overview(1, 'orders') })
+
+    const wrapper = mountView()
+    await flushPromises()
+    const button = wrapper.findAll('button').find((item) => item.text().includes('在血缘工作台中查看'))
+    expect(button!.attributes('disabled')).toBe('')
+    expect(button!.attributes('title')).toContain('lineage:view')
+    expect(holders.router.push).not.toHaveBeenCalledWith(expect.objectContaining({
+      path: '/admin/assets/lineage',
+    }))
+  })
+
   it('opens a column detail with the catalog context but without the table detail tab', async () => {
     holders.route.query = { q: '订单', type: 'TABLE', tab: 'fields' }
     const column: OverviewColumn = {

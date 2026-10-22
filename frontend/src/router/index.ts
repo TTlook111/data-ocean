@@ -120,6 +120,12 @@ const router = createRouter({
           meta: { title: '数据对象目录', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'datasource' },
         },
         {
+          path: 'assets/lineage',
+          name: 'admin-assets-lineage',
+          component: DataLineage,
+          meta: { title: '数据血缘', domainKey: 'data-assets', workspaceKey: 'lineage', contextMode: 'datasource' },
+        },
+        {
           path: 'assets/entities/:entityId',
           name: 'admin-asset-detail',
           component: AssetEntityDetailView,
@@ -165,7 +171,7 @@ const router = createRouter({
           path: 'governance/status',
           name: 'admin-governance-status',
           component: StatusEditor,
-          meta: { title: '资产状态', domainKey: 'governance', workspaceKey: 'governance-status', contextMode: 'datasource-snapshot' },
+          meta: { title: '治理状态维护', domainKey: 'governance', workspaceKey: 'governance-status', contextMode: 'datasource-snapshot' },
         },
         {
           path: 'governance/fields',
@@ -226,12 +232,6 @@ const router = createRouter({
           name: 'admin-operations-queries',
           component: QueryAnalysisView,
           meta: { title: '查询分析', domainKey: 'operations', workspaceKey: 'queries', contextMode: 'none' },
-        },
-        {
-          path: 'operations/lineage',
-          name: 'admin-operations-lineage',
-          component: DataLineage,
-          meta: { title: '数据血缘', domainKey: 'operations', workspaceKey: 'lineage', contextMode: 'datasource' },
         },
         {
           path: 'platform/runtime',

@@ -28,6 +28,10 @@ const adminContext = useAdminContextStore()
 const iamS1 = useIamS1Store()
 const route = useRoute()
 const router = useRouter()
+/** 从对象详情进入时用于定位表；只在首次加载生效，不覆盖用户后续选择。 */
+const pendingTableName = ref(
+  typeof route.query?.tableName === 'string' ? route.query.tableName : '',
+)
 const tableActionLoading = reactive<Record<string, boolean>>({})
 const columnActionLoading = reactive<Record<number, boolean>>({})
 const batchActionLoading = ref(false)
@@ -117,6 +121,12 @@ async function fetchTables() {
     tables.value = res.data ?? []
     columns.value = []
     selectedTable.value = ''
+    // 对象详情入口传入 tableName 时定位到该表；只消费一次，避免刷新覆盖用户选择。
+    const targetTable = pendingTableName.value
+    pendingTableName.value = ''
+    if (targetTable && tables.value.some((item) => item.tableName === targetTable)) {
+      await fetchColumns(targetTable)
+    }
   } finally {
     if (!disposed && currentRequest === snapshotRequestId) loading.value = false
   }
@@ -242,7 +252,7 @@ watch(
 
 <template>
   <main class="status-page post-login-page">
-    <TaskPageHeader title="资产状态" description="维护当前快照中表和字段的治理状态。" />
+    <TaskPageHeader title="治理状态维护" description="维护当前快照中表和字段的治理状态；治理状态决定对象能否被检索、生成 SQL 和发布。" />
     <section class="page-actions">
       <el-button :icon="RefreshCw" @click="fetchTables">刷新</el-button>
     </section>

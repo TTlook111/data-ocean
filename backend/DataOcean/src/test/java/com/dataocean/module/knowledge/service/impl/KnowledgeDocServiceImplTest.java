@@ -88,6 +88,8 @@ class KnowledgeDocServiceImplTest {
      */
     @Mock
     private KnowledgeOwnershipValidator ownershipValidator;
+    @Mock
+    private com.dataocean.module.fieldsemantic.service.FieldSemanticService fieldSemanticService;
 
     @InjectMocks
     private KnowledgeDocPublishService publishService;

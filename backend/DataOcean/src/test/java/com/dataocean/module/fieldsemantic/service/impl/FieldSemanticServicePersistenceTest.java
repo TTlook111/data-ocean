@@ -499,6 +499,20 @@ class FieldSemanticServicePersistenceTest {
         assertThatThrownBy(() -> snapshotLifecycleService.changeStatus(SNAPSHOT_ID, "APPROVED", OPERATOR_ID, "复核"))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("高风险问题");
         assertThat(snapshotMapper.selectById(SNAPSHOT_ID).getStatus()).isEqualTo("ISSUE_FOUND");
+
+        // REOPENED 同属未解决：来源高风险被重新打开后仍必须阻断审批。
+        jdbc.update("UPDATE metadata_quality_issue SET status='RESOLVED' WHERE id=?", sourceHigh.getId());
+        MetadataQualityIssue reopenedSource = new MetadataQualityIssue();
+        reopenedSource.setSnapshotId(SNAPSHOT_ID); reopenedSource.setDatasourceId(DATASOURCE_ID);
+        reopenedSource.setRuleId(1L); reopenedSource.setIssueDomain(MetadataQualityIssue.DOMAIN_SOURCE);
+        reopenedSource.setDimension("COMPLETENESS"); reopenedSource.setSeverity("HIGH");
+        reopenedSource.setTableName("orders"); reopenedSource.setColumnName("pay_amt");
+        reopenedSource.setIssueDescription("来源质量高风险（重新打开）");
+        reopenedSource.setStatus(MetadataQualityIssue.STATUS_REOPENED);
+        issueMapper.insert(reopenedSource);
+        assertThatThrownBy(() -> snapshotLifecycleService.changeStatus(SNAPSHOT_ID, "APPROVED", OPERATOR_ID, "复核"))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("高风险问题");
+        assertThat(snapshotMapper.selectById(SNAPSHOT_ID).getStatus()).isEqualTo("ISSUE_FOUND");
     }
 
     private FieldSemanticDraftDTO draft(int expectedVersion, String businessName, String meaning) {

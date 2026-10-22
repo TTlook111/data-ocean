@@ -25,6 +25,7 @@ import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
+import com.dataocean.module.versioning.service.SnapshotReleaseGateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -90,6 +91,7 @@ public class QualityCheckServiceImpl implements QualityCheckService {
     private final QualityRuleTemplateRegistry templateRegistry;
     /** 批次在独立事务中创建/收尾，防止失败状态随业务回滚丢失 */
     private final QualityCheckBatchService batchRecorder;
+    private final SnapshotReleaseGateService releaseGateService;
 
     /**
      * 维度权重配置。
@@ -314,7 +316,11 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             if (complete && isFullCheck) {
                 snapshot.setQualityScore(computedScore);
                 if (!MetadataSnapshot.STATUS_PUBLISHED.equals(snapshot.getStatus())) {
-                    snapshot.setStatus(allIssues.isEmpty() ? MetadataSnapshot.STATUS_APPROVED : MetadataSnapshot.STATUS_ISSUE_FOUND);
+                    // 自动审批同样遵守发布门禁：仍有来源高风险时不能写出 APPROVED。
+                    boolean approvable = releaseGateService.evaluate(snapshot).isApprovable();
+                    snapshot.setStatus(allIssues.isEmpty() && approvable
+                            ? MetadataSnapshot.STATUS_APPROVED
+                            : MetadataSnapshot.STATUS_ISSUE_FOUND);
                 }
                 snapshotMapper.updateById(snapshot);
             }
@@ -480,9 +486,7 @@ public class QualityCheckServiceImpl implements QualityCheckService {
                 .eq(MetadataQualityIssue::getDatasourceId, datasourceId)        // 同一数据源
                 .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                 .ne(MetadataQualityIssue::getSnapshotId, currentSnapshotId)     // 排除当前快照
-                .in(MetadataQualityIssue::getStatus,
-                        MetadataQualityIssue.STATUS_OPEN,                      // 状态为"待处理"
-                        MetadataQualityIssue.STATUS_CONFIRMED)                 // 或"已确认"
+                .in(MetadataQualityIssue::getStatus, MetadataQualityIssue.UNRESOLVED_STATUSES)
                 .set(MetadataQualityIssue::getStatus, MetadataQualityIssue.STATUS_AUTO_CLOSED));  // 更新为"自动关闭"
     }
 
@@ -502,9 +506,7 @@ public class QualityCheckServiceImpl implements QualityCheckService {
                 .eq(MetadataQualityIssue::getSnapshotId, snapshotId)            // 当前快照
                 .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                 .in(MetadataQualityIssue::getDimension, dimensions)             // 指定维度
-                .in(MetadataQualityIssue::getStatus,
-                        MetadataQualityIssue.STATUS_OPEN,                      // 状态为"待处理"
-                        MetadataQualityIssue.STATUS_CONFIRMED);                // 或"已确认"
+                .in(MetadataQualityIssue::getStatus, MetadataQualityIssue.UNRESOLVED_STATUSES);
         // 如果指定了表名，只清除这些表的问题
         if (!CollectionUtils.isEmpty(tableNames)) {
             qw.in(MetadataQualityIssue::getTableName, tableNames);

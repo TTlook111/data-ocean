@@ -640,7 +640,7 @@ onBeforeUnmount(() => {
           <button type="button" :class="{ active: scopeMode === 'GLOBAL' }" :disabled="!iamS1.hasGlobal(RULE_VIEW)" :title="!iamS1.hasGlobal(RULE_VIEW) ? '没有查看全局规则的权限' : '全局规则只允许受保护系统管理员维护'" @click="selectScopeMode('GLOBAL')">全局规则</button>
         </div>
         <div class="quality-rules-page__toolbar-actions">
-          <el-button @click="openStatusMaintenance">资产状态维护</el-button>
+          <el-button @click="openStatusMaintenance">治理状态维护</el-button>
           <el-button :icon="RefreshCw" :loading="rulesLoading || templatesLoading" @click="refresh">刷新</el-button>
           <el-button type="primary" :icon="Plus" :disabled="!canManageSelectedScope || templatesLoading" @click="createRule">新增规则</el-button>
         </div>

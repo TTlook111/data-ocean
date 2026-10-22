@@ -4,15 +4,15 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
-import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
 import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
 import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
-import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.service.SchemaDiffService;
 import com.dataocean.module.user.service.UserService;
 import com.dataocean.module.versioning.service.SnapshotAuditLogService;
+import com.dataocean.module.versioning.service.SnapshotReleaseGateService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -21,8 +21,11 @@ import org.mockito.ArgumentCaptor;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -43,16 +46,14 @@ class SnapshotLifecycleServiceImplTest {
     @Test
     void listVersionHistoryDoesNotApplyDatasourceFilterWhenDatasourceIdIsMissing() {
         MetadataSnapshotMapper snapshotMapper = mock(MetadataSnapshotMapper.class);
-        MetadataQualityIssueMapper qualityIssueMapper = mock(MetadataQualityIssueMapper.class);
-        DbTableMetaMapper tableMetaMapper = mock(DbTableMetaMapper.class);
+        SnapshotReleaseGateService releaseGateService = mock(SnapshotReleaseGateService.class);
         SchemaDiffService schemaDiffService = mock(SchemaDiffService.class);
         SnapshotAuditLogService auditLogService = mock(SnapshotAuditLogService.class);
         UserService userService = mock(UserService.class);
         DatasourceMapper datasourceMapper = mock(DatasourceMapper.class);
         SnapshotLifecycleServiceImpl service = new SnapshotLifecycleServiceImpl(
                 snapshotMapper,
-                qualityIssueMapper,
-                tableMetaMapper,
+                releaseGateService,
                 schemaDiffService,
                 auditLogService,
                 userService,
@@ -73,31 +74,40 @@ class SnapshotLifecycleServiceImplTest {
     }
 
     @Test
-    void sourceHighIssuesStillGateApprovalAndTheQueryIsExplicitlyScopedToSourceDomain() {
+    void approvalUsesTheSharedReleaseGateAndDoesNotUpdateTheSnapshotOnBlock() {
         MetadataSnapshotMapper snapshotMapper = mock(MetadataSnapshotMapper.class);
-        MetadataQualityIssueMapper qualityIssueMapper = mock(MetadataQualityIssueMapper.class);
+        SnapshotReleaseGateService releaseGateService = mock(SnapshotReleaseGateService.class);
         SnapshotLifecycleServiceImpl service = new SnapshotLifecycleServiceImpl(
-                snapshotMapper, qualityIssueMapper, mock(DbTableMetaMapper.class),
+                snapshotMapper, releaseGateService,
                 mock(SchemaDiffService.class), mock(SnapshotAuditLogService.class),
                 mock(UserService.class), mock(DatasourceMapper.class));
         MetadataSnapshot snapshot = new MetadataSnapshot();
         snapshot.setId(80L); snapshot.setDatasourceId(5L); snapshot.setStatus("ISSUE_FOUND");
         when(snapshotMapper.selectById(80L)).thenReturn(snapshot);
-        when(qualityIssueMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
+        doThrow(new BusinessException(409, "无法审核通过：仍有 1 个未解决的高风险问题"))
+                .when(releaseGateService).assertApprovable(snapshot);
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
-                service.changeStatus(80L, "APPROVED", 9L, "复核"))
-                .isInstanceOf(com.dataocean.common.exception.BusinessException.class)
+        assertThatThrownBy(() -> service.changeStatus(80L, "APPROVED", 9L, "复核"))
+                .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("高风险问题");
 
-        @SuppressWarnings({"rawtypes", "unchecked"})
-        ArgumentCaptor<Wrapper<MetadataQualityIssue>> wrapper = ArgumentCaptor.forClass(Wrapper.class);
-        verify(qualityIssueMapper).selectCount(wrapper.capture());
-        String where = wrapper.getValue().getCustomSqlSegment();
-        assertThat(where.toLowerCase()).contains("issue_domain", "severity", "status");
-        assertThat(((com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) wrapper.getValue())
-                .getParamNameValuePairs().values().toString())
-                .contains("SOURCE", "HIGH", "OPEN", "CONFIRMED");
-        verify(snapshotMapper, org.mockito.Mockito.never()).updateById(any(MetadataSnapshot.class));
+        verify(releaseGateService).assertApprovable(snapshot);
+        verify(snapshotMapper, never()).updateById(any(MetadataSnapshot.class));
+    }
+
+    @Test
+    void invalidTargetStatusIsRejectedAsBusinessError() {
+        MetadataSnapshotMapper snapshotMapper = mock(MetadataSnapshotMapper.class);
+        SnapshotLifecycleServiceImpl service = new SnapshotLifecycleServiceImpl(
+                snapshotMapper, mock(SnapshotReleaseGateService.class),
+                mock(SchemaDiffService.class), mock(SnapshotAuditLogService.class),
+                mock(UserService.class), mock(DatasourceMapper.class));
+        MetadataSnapshot snapshot = new MetadataSnapshot();
+        snapshot.setId(80L); snapshot.setDatasourceId(5L); snapshot.setStatus("CHECKING");
+        when(snapshotMapper.selectById(80L)).thenReturn(snapshot);
+
+        assertThatThrownBy(() -> service.changeStatus(80L, "NOT_A_STATUS", 9L, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("非法快照状态");
     }
 }

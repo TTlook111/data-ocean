@@ -16,7 +16,7 @@
  * 也让 URL 不可分享（不读 `route.query.datasourceId`）。
  */
 import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useD3LineageGraph, type GraphNode, type GraphEdge } from '../../../composables/useD3LineageGraph'
 import {
@@ -44,6 +44,8 @@ import { entityTypeLabel, lineageTypeLabel } from '../../../utils/enumLabels'
 import AddLineageDialog from './AddLineageDialog.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
+import { getHttpErrorMessage } from '../../../utils/httpError'
+import { buildContextQuery } from '../../../utils/adminNavigation'
 
 const route = useRoute()
 const adminContext = useAdminContextStore()
@@ -59,6 +61,7 @@ const datasourceId = computed<number | null>(() => {
 })
 const canViewLineage = computed(() => iamS1.canOnDatasource(LINEAGE_VIEW, datasourceId.value || undefined))
 const canManageLineage = computed(() => iamS1.canOnDatasource(LINEAGE_MANAGE, datasourceId.value || undefined))
+const canViewReleases = computed(() => iamS1.canOnDatasource('metadata:release:view', datasourceId.value || undefined))
 
 // ========== 图谱数据 ==========
 const entities = ref<MetadataEntityItem[]>([])
@@ -70,6 +73,27 @@ let loadingDatasourceId: number | null = null
 // ========== 筛选条件 ==========
 const searchQuery = ref('')
 const lineageTypeFilter = ref<string[]>(['QUERY', 'ETL', 'MANUAL'])
+
+/**
+ * 已加载图谱中的血缘类型分布。
+ *
+ * 血缘来自采集关系、手工维护和查询追踪，治理检查不会产生血缘；
+ * 计数只覆盖当前焦点和深度内已加载的边，不是数据源全量统计。
+ */
+const lineageSourceCounts = computed(() => {
+  const counts: Record<string, number> = { QUERY: 0, ETL: 0, MANUAL: 0 }
+  for (const rel of relationships.value) {
+    if (rel.relationType !== 'LINEAGE') continue
+    let lineageType = 'MANUAL'
+    if (rel.relationMetadata) {
+      try {
+        lineageType = JSON.parse(rel.relationMetadata).lineage_type || 'MANUAL'
+      } catch { /* 元数据损坏时按手工关系计 */ }
+    }
+    if (lineageType in counts) counts[lineageType] += 1
+  }
+  return counts
+})
 const depth = ref(3)
 
 /**
@@ -110,8 +134,31 @@ function edgesByDirection(rels: MetadataRelationshipItem[]): MetadataRelationshi
   return rels.filter((rel) => keep.has(rel))
 }
 
-/** 图谱的焦点实体：加载根表，或用户当前选中的实体 */
-const focusEntityId = ref<string>('')
+/** URL 深链指定的焦点实体；非法值忽略。 */
+const routeEntityId = computed(() => {
+  const raw = route.query.entityId
+  const value = Array.isArray(raw) ? raw[0] : raw
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+})
+
+/** 图谱的焦点实体：加载根表、URL 深链或用户当前选中的实体 */
+const focusEntityId = ref<string>(routeEntityId.value ? String(routeEntityId.value) : '')
+/** 深链对象不存在时的非阻断提示。 */
+const routeEntityHint = ref('')
+const graphError = ref('')
+/** 当前数据源自己的实体 ID；图中跨源节点不写回 URL。 */
+const currentDatasourceEntityIds = new Set<number>()
+const router = useRouter()
+
+/** 以当前数据源实体为准把焦点写回 URL，保留数据源范围。 */
+function syncFocusToUrl(entityId: number | string) {
+  const id = Number(entityId)
+  if (!Number.isInteger(id) || id <= 0) return
+  if (!currentDatasourceEntityIds.has(id)) return
+  if (Number(route.query.entityId) === id) return
+  void router.replace({ query: { ...route.query, entityId: String(id) } })
+}
 
 /**
  * 血缘图谱的分类色板。
@@ -231,23 +278,45 @@ async function loadGraph() {
     const entRes = await getEntitiesByDatasource(datasourceId.value)
     if (currentRequest !== graphRequestId) return
     entities.value = entRes.data ?? []
+    graphError.value = ''
+    currentDatasourceEntityIds.clear()
+    entities.value.forEach((entity) => currentDatasourceEntityIds.add(entity.id))
 
     // 加载血缘关系（优先使用增强 API，回退到逐个查询）
     const tableEntities = entities.value.filter((e) => e.entityType === 'TABLE')
-    // 图谱以第一个表为加载根，也是方向过滤的默认焦点
+    // 焦点优先级：URL 深链 -> 当前选中 -> 首个表；深链对象不存在时回退并提示。
+    const requestedEntity = routeEntityId.value
+      ? entities.value.find((entity) => entity.id === routeEntityId.value)
+      : undefined
+    const requestedSelectable = requestedEntity
+      && (requestedEntity.entityType === 'TABLE' || requestedEntity.entityType === 'COLUMN')
     const currentFocusExists = entities.value.some((entity) => String(entity.id) === focusEntityId.value)
-    if (!currentFocusExists) focusEntityId.value = tableEntities.length ? String(tableEntities[0].id) : ''
-    if (tableEntities.length === 0) {
+    const focusEntity = requestedSelectable
+      ? requestedEntity
+      : currentFocusExists
+        ? entities.value.find((entity) => String(entity.id) === focusEntityId.value)
+        : tableEntities[0]
+    routeEntityHint.value = routeEntityId.value && !requestedSelectable
+      ? '指定对象不在当前数据源目录中，已显示数据源首个表的血缘'
+      : ''
+    if (!focusEntity) {
+      focusEntityId.value = ''
       relationships.value = []
       await nextTick()
       renderGraph()
       return
     }
+    focusEntityId.value = String(focusEntity.id)
+    if (focusEntity.entityType === 'COLUMN') {
+      drawerEntity.value = focusEntity
+      drawerVisible.value = true
+      void loadColumnLineage(focusEntity.id)
+    }
 
-    // 使用第一个表的增强血缘 API 获取图谱
+    // 以焦点实体为加载根；深链到非首表时不再固定从首个表展开。
     try {
       const enrichedRes = await getEnrichedLineage(
-        tableEntities[0].id,
+        focusEntity.id,
         depth.value,
         lineageTypeFilter.value,
       )
@@ -269,8 +338,11 @@ async function loadGraph() {
       // 增强 API 失败，回退到逐个查询
     }
 
-    // 回退：逐个查询每个实体的血缘
-    const lineagePromises = tableEntities.map((e) => getEntityLineage(e.id))
+    // 回退：逐个查询每个表（焦点为列时先查该列）的血缘
+    const fallbackRoots = focusEntity.entityType === 'COLUMN'
+      ? [focusEntity, ...tableEntities]
+      : tableEntities
+    const lineagePromises = fallbackRoots.map((e) => getEntityLineage(e.id))
     const lineageResults = await Promise.allSettled(lineagePromises)
     const allRels: MetadataRelationshipItem[] = []
     for (const r of lineageResults) {
@@ -289,14 +361,19 @@ async function loadGraph() {
 
     await nextTick()
     renderGraph()
-  } catch {
-    ElMessage.error('血缘图谱加载失败')
+  } catch (cause) {
+    graphError.value = getHttpErrorMessage(cause, '血缘图谱加载失败')
   } finally {
     if (currentRequest === graphRequestId) {
       loading.value = false
       loadingDatasourceId = null
     }
   }
+}
+
+function retryGraph() {
+  graphError.value = ''
+  void loadGraph()
 }
 
 /** 构建 D3 图谱数据并渲染 */
@@ -393,6 +470,7 @@ function handleNodeClick(node: GraphNode) {
   selectedEntity.value = node.entity
   // 方向过滤以当前选中实体为焦点；重新渲染使方向筛选立即生效
   focusEntityId.value = String(node.entity.id)
+  syncFocusToUrl(node.entity.id)
   if (direction.value !== 'both') renderGraph()
   if (node.entity.entityType === 'COLUMN') {
     drawerEntity.value = node.entity
@@ -635,6 +713,7 @@ async function handleSearch() {
       // 高亮该节点
       selectedEntity.value = found
       focusEntityId.value = String(found.id)
+      syncFocusToUrl(found.id)
       renderGraph()
       ElMessage.success(`已定位: ${found.displayName || found.name}`)
     } else {
@@ -675,6 +754,19 @@ async function onFileSelected(event: Event) {
 
 // ========== 监听 ==========
 // 数据源来自全局上下文或 URL，切换时重新加载图谱（不再写入 localStorage）
+watch(routeEntityId, (id) => {
+  if (!id || String(id) === focusEntityId.value) return
+  const entity = entities.value.find((item) => item.id === id)
+  if (!entity) return
+  focusEntityId.value = String(id)
+  if (entity.entityType === 'COLUMN') {
+    drawerEntity.value = entity
+    drawerVisible.value = true
+    void loadColumnLineage(entity.id)
+  }
+  void loadGraph()
+})
+
 watch(datasourceId, (val) => {
   if (val) loadGraph()
 })
@@ -810,6 +902,16 @@ onBeforeUnmount(() => {
         <div class="legend-item"><span class="legend-dot" :style="{ background: LINEAGE_COLORS.MANUAL }" /> {{ lineageTypeLabel('MANUAL') }}</div>
         <div class="legend-item"><span class="legend-dot" :style="{ background: DERIVED_EDGE_COLOR, border: '1px dashed ' + DERIVED_EDGE_COLOR }" /> 列派生</div>
       </div>
+
+      <div class="panel-section lineage-source-note">
+        <p>
+          血缘来自元数据采集关系、手工维护和查询追踪，治理检查不会生成血缘。
+        </p>
+        <p v-if="relationships.length">
+          当前图谱已加载 {{ relationships.length }} 条关系，其中血缘关系：查询 {{ lineageSourceCounts.QUERY }}、ETL {{ lineageSourceCounts.ETL }}、手工 {{ lineageSourceCounts.MANUAL }}。
+          未显示的关系可能尚未采集或尚未被查询追踪。
+        </p>
+      </div>
     </aside>
 
     <!-- ===== 主区域：图谱 ===== -->
@@ -821,10 +923,24 @@ onBeforeUnmount(() => {
       <div v-else-if="!canViewLineage" class="empty-hint">
         <p>没有“查看数据血缘”能力（lineage:view）：需要角色拥有该功能并负责当前数据源。</p>
       </div>
-      <div v-else-if="!loading && entities.length === 0" class="empty-hint">
-        <p>该数据源暂无实体数据，请先发布快照</p>
+      <div v-else-if="graphError" class="empty-hint">
+        <ErrorState :message="graphError" @retry="retryGraph" />
       </div>
-      <div v-else ref="chartRef" class="chart-area" />
+      <div v-else-if="!loading && entities.length === 0" class="empty-hint">
+        <Network :size="48" style="color: var(--do-muted); margin-bottom: 12px;" />
+        <p>该数据源暂无实体数据。对象目录来自已发布快照的目录同步；没有实体通常表示尚未发布快照或目录同步未完成。</p>
+        <RouterLink
+          v-if="canViewReleases"
+          :to="{ path: '/admin/releases', query: buildContextQuery('datasource', { datasourceId: datasourceId || undefined }) }"
+        >去元数据版本</RouterLink>
+      </div>
+      <template v-else>
+        <div ref="chartRef" class="chart-area" />
+        <p v-if="routeEntityHint" class="lineage-main-note" role="status">{{ routeEntityHint }}</p>
+        <p v-else-if="!loading && relationships.length === 0" class="lineage-main-note" role="status">
+          当前范围没有已记录的血缘关系；未记录不代表没有影响。血缘来自采集关系、手工维护和查询追踪。
+        </p>
+      </template>
 
       <!-- 右键菜单 -->
       <Teleport to="body">
@@ -990,6 +1106,8 @@ onBeforeUnmount(() => {
 }
 .scope-hint strong { color: var(--do-ink); }
 .scope-hint span { color: var(--do-muted); }
+.lineage-source-note { display: grid; gap: 6px; }
+.lineage-source-note p { margin: 0; color: var(--do-muted); font-size: 11px; line-height: 1.5; }
 .direction-hint {
   margin: 8px 0 0;
   color: var(--do-muted);
@@ -1111,6 +1229,24 @@ onBeforeUnmount(() => {
 .chart-area {
   width: 100%;
   height: 100%;
+}
+
+.lineage-main-note {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  max-width: min(560px, calc(100% - 32px));
+  margin: 0;
+  padding: 8px 12px;
+  transform: translateX(-50%);
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--do-surface) 92%, transparent);
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+  pointer-events: none;
 }
 
 .empty-hint {

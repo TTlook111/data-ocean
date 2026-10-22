@@ -102,7 +102,7 @@ public class DashboardServiceImpl implements DashboardService {
         stats.setTotalColumns(totalColumns);
         stats.setAvgQualityScore(qualityCount > 0 ? Math.round(qualitySum / qualityCount * 10.0) / 10.0 : null);
 
-        stats.setOpenIssues(countIssues(governanceScope, List.of("OPEN", "CONFIRMED")));
+        stats.setOpenIssues(countIssues(governanceScope, MetadataQualityIssue.UNRESOLVED_STATUSES));
         stats.setResolvedIssues(countIssues(governanceScope, List.of("RESOLVED")));
 
         List<SnapshotAuditLog> recentLogs = releaseScope.isEmpty()

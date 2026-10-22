@@ -30,6 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class FieldSemanticController {
     private static final String VIEW = "governance:field:view";
     private static final String MANAGE = "governance:field:manage";
+    /** 审核通过/驳回：与知识文档审核共用独立功能码，不自动带来维护权。 */
+    private static final String APPROVE = "knowledge:approve";
     private final FieldSemanticService semanticService;
     private final FieldSemanticUsageService usageService;
 
@@ -83,7 +85,7 @@ public class FieldSemanticController {
     }
 
     @PostMapping("/review")
-    @IamS1Resource(function = VIEW, resourceType = IamS1ResourceType.COLUMN_META, resourceIds = "#columnMetaId")
+    @IamS1Resource(function = APPROVE, resourceType = IamS1ResourceType.COLUMN_META, resourceIds = "#columnMetaId")
     public Result<FieldSemanticWorkspaceVO> review(@PathVariable Long columnMetaId,
                                                     @Valid @RequestBody FieldSemanticActionDTO request) {
         return Result.success(semanticService.review(columnMetaId, request, UserContext.currentUserId()));

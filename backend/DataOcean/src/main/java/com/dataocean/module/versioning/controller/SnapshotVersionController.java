@@ -17,10 +17,12 @@ import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import com.dataocean.module.versioning.entity.po.SnapshotAuditLog;
 import com.dataocean.module.versioning.entity.dto.SnapshotStatusChangeDTO;
 import com.dataocean.module.versioning.entity.vo.SnapshotAuditLogVO;
+import com.dataocean.module.versioning.entity.vo.SnapshotReleaseGateVO;
 import com.dataocean.module.versioning.entity.vo.SnapshotVersionHistoryVO;
 import com.dataocean.module.versioning.service.SnapshotAuditLogService;
 import com.dataocean.module.versioning.service.SnapshotLifecycleService;
 import com.dataocean.module.versioning.service.SnapshotPublishService;
+import com.dataocean.module.versioning.service.SnapshotReleaseGateService;
 import com.dataocean.module.user.service.UserService;
 import com.dataocean.module.user.entity.vo.UserVO;
 import jakarta.validation.Valid;
@@ -51,6 +53,7 @@ public class SnapshotVersionController {
 
     private final SnapshotLifecycleService lifecycleService;
     private final SnapshotPublishService publishService;
+    private final SnapshotReleaseGateService releaseGateService;
     private final SnapshotAuditLogService auditLogService;
     private final UserService userService;
     private final MetadataSnapshotMapper snapshotMapper;
@@ -113,6 +116,18 @@ public class SnapshotVersionController {
         Long operatorId = UserContext.currentUserId();
         publishService.revokeSnapshot(snapshotId, operatorId, request.getReason());
         return Result.success();
+    }
+
+    /**
+     * 查询快照发布门禁。
+     *
+     * @param snapshotId 快照 ID
+     * @return 门禁清单；来源高风险和可用表阻断发布，语义高风险只提示
+     */
+    @GetMapping("/snapshots/{snapshotId}/release-gate")
+    @IamS1Resource(function = RELEASE_VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
+    public Result<SnapshotReleaseGateVO> releaseGate(@PathVariable Long snapshotId) {
+        return Result.success(releaseGateService.evaluate(snapshotId));
     }
 
     /**

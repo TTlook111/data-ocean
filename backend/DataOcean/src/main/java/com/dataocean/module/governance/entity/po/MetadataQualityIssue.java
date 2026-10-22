@@ -29,6 +29,10 @@ public class MetadataQualityIssue {
     public static final String STATUS_REOPENED = "REOPENED";
     public static final String STATUS_AUTO_CLOSED = "AUTO_CLOSED";
 
+    /** 统一口径：仍需要处理的问题状态。门禁、就绪度、工作台统计和重检清理共用。 */
+    public static final java.util.List<String> UNRESOLVED_STATUSES =
+            java.util.List.of(STATUS_OPEN, STATUS_CONFIRMED, STATUS_REOPENED);
+
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long snapshotId;

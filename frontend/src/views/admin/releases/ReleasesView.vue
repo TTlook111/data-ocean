@@ -9,6 +9,7 @@ import { listQualityIssues, triggerQualityCheck } from '../../../api/admin/gover
 import {
   changeSnapshotStatus,
   getPublishedSnapshot,
+  getReleaseGate,
   listSnapshotAuditLogs,
   listVersionHistory,
   publishSnapshot,
@@ -20,10 +21,12 @@ import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import ScopeBar from '../../../components/admin/ScopeBar.vue'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import SnapshotDetailPanel from '../../../components/admin/SnapshotDetailPanel.vue'
+import ReleaseGatePanel from '../../../components/admin/ReleaseGatePanel.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
 import { useSnapshotDetail, type SnapshotDetailContext } from '../../../composables/useSnapshotDetail'
+import { useReleaseGate } from '../../../composables/useReleaseGate'
 import { getHttpErrorMessage } from '../../../utils/httpError'
 import { buildContextQuery } from '../../../utils/adminNavigation'
 import { snapshotStatusLabel } from '../../../utils/enumLabels'
@@ -72,6 +75,24 @@ const {
   load: loadSnapshotDialogDetail,
   clear: clearSnapshotDialogDetail,
 } = useSnapshotDetail()
+const {
+  gate: dialogGate,
+  loading: dialogGateLoading,
+  error: dialogGateError,
+  load: loadDialogGate,
+  clear: clearDialogGate,
+} = useReleaseGate()
+
+const publishConfirmVisible = ref(false)
+const publishTarget = ref<VersionHistoryItem | null>(null)
+const publishSubmitting = ref(false)
+const {
+  gate: publishGate,
+  loading: publishGateLoading,
+  error: publishGateError,
+  load: loadPublishGate,
+  clear: clearPublishGate,
+} = useReleaseGate()
 
 const auditRecords = ref<AuditLogItem[]>([])
 const auditTotal = ref(0)
@@ -119,6 +140,7 @@ const dialogIsCurrentOfficial = computed(() => {
   return snapshotId !== undefined && snapshotId === published.value?.snapshotId
 })
 const canViewDialogOperations = computed(() => hasDatasourceFunction(RELEASE_VIEW_FUNCTION, dialogDatasourceId.value))
+const canViewDialogGate = computed(() => hasDatasourceFunction(RELEASE_VIEW_FUNCTION, dialogDatasourceId.value))
 const canViewDialogGovernance = computed(() => hasDatasourceFunction(GOVERNANCE_VIEW_FUNCTION, dialogDatasourceId.value))
 const canViewDialogIssues = computed(() => hasDatasourceFunction(GOVERNANCE_ISSUE_VIEW_FUNCTION, dialogDatasourceId.value))
 const canManageDialogIssues = computed(() => hasDatasourceFunction(GOVERNANCE_ISSUE_MANAGE_FUNCTION, dialogDatasourceId.value))
@@ -344,12 +366,24 @@ function openSnapshotDialog(item: VersionHistoryItem, tab: DetailTab = 'content'
   resetAuditRecords()
   resetIssuePresence()
   clearSnapshotDialogDetail()
+  clearDialogGate()
   snapshotDialogVisible.value = true
   void loadDialogDetailFromContext()
+  if (hasDatasourceFunction(RELEASE_VIEW_FUNCTION, sourceId)) {
+    void loadDialogGate(item.snapshotId)
+  }
 }
 
 function closeSnapshotDialog() {
   snapshotDialogVisible.value = false
+  clearDialogGate()
+}
+
+function retryDialogGate() {
+  const openedFor = snapshotDialogContext.value
+  if (openedFor && hasDatasourceFunction(RELEASE_VIEW_FUNCTION, openedFor.datasourceId)) {
+    void loadDialogGate(openedFor.snapshotId)
+  }
 }
 
 function retrySnapshotDialogDetail() {
@@ -478,6 +512,25 @@ function openGovernance() {
   })
 }
 
+const dialogGateIssueTarget = computed(() => {
+  const source = snapshotDialogContext.value
+  if (!source) return undefined
+  return {
+    path: '/admin/governance/issues',
+    query: { datasourceId: String(source.datasourceId), snapshotId: String(source.snapshotId) },
+  }
+})
+
+const publishGateIssueTarget = computed(() => {
+  const item = publishTarget.value
+  const sourceId = item ? rowDatasourceId(item) : undefined
+  if (!item || !sourceId) return undefined
+  return {
+    path: '/admin/governance/issues',
+    query: { datasourceId: String(sourceId), snapshotId: String(item.snapshotId) },
+  }
+})
+
 function openIssueCenter() {
   const snapshot = snapshotDialogDetail.value?.snapshot
   if (!snapshot || !canShowIssueAction.value) return
@@ -538,17 +591,46 @@ function issueCenterTarget(row: VersionHistoryItem) {
   }
 }
 
+/**
+ * 批准前读取门禁。来源高风险未解决时不进入确认框；读取失败不阻断前端，
+ * 由后端在审核接口再次校验并返回 409。
+ */
+async function ensureApprovable(item: VersionHistoryItem): Promise<boolean> {
+  try {
+    const result = await getReleaseGate(item.snapshotId)
+    const gate = result.data
+    if (!gate || gate.approvable) {
+      if (gate && gate.warningCount > 0) {
+        ElMessage.warning(`门禁有 ${gate.warningCount} 项提示；语义问题不阻断发布`)
+      }
+      return true
+    }
+    const blockers = gate.items
+      .filter((gateItem) => gateItem.blocksApproval && gateItem.status === 'FAIL')
+      .map((gateItem) => gateItem.message)
+    await ElMessageBox.alert(
+      blockers.join('；') || '存在未解决的治理问题，暂不能批准。',
+      '暂不能批准',
+      { type: 'warning' },
+    )
+    return false
+  } catch (cause) {
+    ElMessage.warning(getHttpErrorMessage(cause, '发布门禁读取失败，审核时将由后端再次校验'))
+    return true
+  }
+}
+
 async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
   const labels: Record<string, string> = { CHECKING: '开始质量检查', APPROVED: '批准快照' }
   if (actionLoading.value) return
   if (targetStatus === 'CHECKING' && !canRunQualityCheck(item)) return
   if (targetStatus === 'APPROVED' && !canReviewSnapshot(item)) return
-  const irreversibleApproval = item.status === 'ISSUE_FOUND' && targetStatus === 'APPROVED'
-  const confirmMessage = irreversibleApproval
-    ? '快照 v' + item.snapshotVersion + ' 仍有高危未解决的治理问题。批准后仍无法发布，且该状态不可退回，请先到问题中心处理。确认继续批准？'
+  if (targetStatus === 'APPROVED' && !(await ensureApprovable(item))) return
+  const confirmMessage = targetStatus === 'APPROVED'
+    ? '确认批准快照 v' + item.snapshotVersion + '？批准后仍需通过发布门禁才能发布。'
     : '确认对快照 v' + item.snapshotVersion + '执行“' + labels[targetStatus] + '”？'
   try {
-    await ElMessageBox.confirm(confirmMessage, irreversibleApproval ? '批准存在治理问题的快照' : '确认操作', { type: 'warning' })
+    await ElMessageBox.confirm(confirmMessage, '确认操作', { type: 'warning' })
     actionLoading.value = true
     if (targetStatus === 'CHECKING') {
       const result = await triggerQualityCheck(item.snapshotId)
@@ -565,18 +647,43 @@ async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
   }
 }
 
-async function publish(item: VersionHistoryItem) {
+function publish(item: VersionHistoryItem) {
   if (!canPublishSnapshot(item)) return
+  publishTarget.value = item
+  publishConfirmVisible.value = true
+  void loadPublishGate(item.snapshotId)
+}
+
+function closePublishConfirm() {
+  publishConfirmVisible.value = false
+  publishTarget.value = null
+  publishSubmitting.value = false
+  clearPublishGate()
+}
+
+function retryPublishGate() {
+  if (publishTarget.value) void loadPublishGate(publishTarget.value.snapshotId)
+}
+
+async function confirmPublish() {
+  const item = publishTarget.value
+  if (!item || publishSubmitting.value) return
+  // 已知阻断时不提交；门禁读取失败仍允许提交，由后端 409 兜底。
+  if (publishGate.value && publishGate.value.blockingCount > 0) return
+  publishSubmitting.value = true
   try {
-    await ElMessageBox.confirm('发布 v' + item.snapshotVersion + ' 后，旧已发布版本会自动过期。确认继续？', '发布快照', { type: 'warning' })
-    actionLoading.value = true
     await publishSnapshot(item.snapshotId)
     ElMessage.success('快照已发布')
+    closePublishConfirm()
     await load()
+    const openedFor = snapshotDialogContext.value
+    if (snapshotDialogVisible.value && openedFor) {
+      void loadDialogGate(openedFor.snapshotId)
+    }
   } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(getHttpErrorMessage(cause, '快照发布失败'))
+    ElMessage.error(getHttpErrorMessage(cause, '快照发布失败'))
   } finally {
-    actionLoading.value = false
+    publishSubmitting.value = false
   }
 }
 
@@ -881,6 +988,17 @@ onBeforeUnmount(() => {
         </el-tab-pane>
       </el-tabs>
 
+      <ReleaseGatePanel
+        v-if="canViewDialogGate"
+        class="metadata-version-dialog__gate"
+        :gate="dialogGate"
+        :loading="dialogGateLoading"
+        :error="dialogGateError"
+        compact
+        :issue-target="dialogGateIssueTarget"
+        @retry="retryDialogGate"
+      />
+
       <div v-if="snapshotDialogDetail" class="metadata-version-dialog__governance-status">
         <span v-if="issuePresenceState === 'loading'" role="status">正在核对待处理问题…</span>
         <span v-else-if="issuePresenceState === 'error'" class="metadata-version-dialog__issue-error" role="alert">
@@ -901,6 +1019,40 @@ onBeforeUnmount(() => {
           </div>
           <el-button :type="shouldEmphasizeIssueAction ? 'default' : 'primary'" @click="closeSnapshotDialog">关闭</el-button>
         </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="publishConfirmVisible"
+      class="publish-gate-dialog"
+      width="min(640px, calc(100vw - 32px))"
+      append-to-body
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
+      <template #header>
+        <h2 class="publish-gate-dialog__title">
+          发布快照 v{{ publishTarget?.snapshotVersion }}
+        </h2>
+      </template>
+      <ReleaseGatePanel
+        :gate="publishGate"
+        :loading="publishGateLoading"
+        :error="publishGateError"
+        :issue-target="publishGateIssueTarget"
+        @retry="retryPublishGate"
+      />
+      <p class="publish-gate-dialog__hint">
+        发布后同一数据源的旧已发布版本会自动过期。门禁会在后端再次校验，未通过时发布会被拒绝。
+      </p>
+      <template #footer>
+        <el-button @click="closePublishConfirm">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="publishSubmitting"
+          :disabled="publishGateLoading || (publishGate?.blockingCount ?? 0) > 0"
+          @click="confirmPublish"
+        >确认发布</el-button>
       </template>
     </el-dialog>
   </main>
@@ -1032,8 +1184,12 @@ onBeforeUnmount(() => {
 .metadata-version-dialog__audit-pagination { justify-content: flex-end; margin-top: 12px; }
 .metadata-version-dialog__governance-status { min-height: 18px; margin-top: 12px; color: var(--do-muted); font-size: 12px; }
 .metadata-version-dialog__issue-error { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; color: var(--do-danger); }
+.metadata-version-dialog__gate { margin-top: 12px; }
 .metadata-version-dialog__footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 .metadata-version-dialog__footer-links { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+.publish-gate-dialog__title { margin: 0; font-size: 16px; color: var(--do-ink); }
+.publish-gate-dialog__hint { margin: 12px 0 0; color: var(--do-muted); font-size: 12px; line-height: 1.6; }
 
 @media (max-width: 900px) {
   .releases-page :deep(.task-page-header__actions) { flex: 1 1 100%; width: 100%; justify-content: flex-start; }

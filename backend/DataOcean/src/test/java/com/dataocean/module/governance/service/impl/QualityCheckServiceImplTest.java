@@ -23,6 +23,8 @@ import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
+import com.dataocean.module.versioning.entity.vo.SnapshotReleaseGateVO;
+import com.dataocean.module.versioning.service.SnapshotReleaseGateService;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -133,6 +135,29 @@ class QualityCheckServiceImplTest {
         assertThat(result.getErrorSummary()).contains("没有启用且适用");
         verify(fixture.snapshotMapper, never()).updateById(any(MetadataSnapshot.class));
         verify(fixture.checkResultMapper, never()).insert(any(QualityCheckResult.class));
+    }
+
+    @Test
+    void completeCheckDoesNotApproveSnapshotWhenReleaseGateIsBlocked() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot.setId(13L);
+        fixture.snapshot.setDatasourceId(1L);
+        fixture.snapshot.setStatus(MetadataSnapshot.STATUS_CHECKING);
+        fixture.tables(List.of(table(1L, "orders")));
+        fixture.rules(List.of(rule(1L, "COMP_TABLE_COMMENT_MISSING", "GLOBAL", null, null)));
+        QualityChecker checker = mock(QualityChecker.class);
+        when(checker.getDimension()).thenReturn(MetadataQualityRule.DIM_COMPLETENESS);
+        when(checker.check(any())).thenReturn(List.of());
+        fixture.checkers = List.of(checker);
+        fixture.approvable = false;
+
+        QualityCheckResultVO result = fixture.service().executeQualityCheck(13L, null, null);
+
+        assertThat(result.getStatus()).isEqualTo("SUCCESS");
+        org.mockito.ArgumentCaptor<MetadataSnapshot> updated =
+                org.mockito.ArgumentCaptor.forClass(MetadataSnapshot.class);
+        verify(fixture.snapshotMapper).updateById(updated.capture());
+        assertThat(updated.getValue().getStatus()).isEqualTo(MetadataSnapshot.STATUS_ISSUE_FOUND);
     }
 
     @Test
@@ -328,7 +353,9 @@ class QualityCheckServiceImplTest {
         private final QualityCheckResultMapper checkResultMapper = mock(QualityCheckResultMapper.class);
         private final QualityRuleService ruleService = mock(QualityRuleService.class);
         private final QualityCheckBatchService batchService = mock(QualityCheckBatchService.class);
+        private final SnapshotReleaseGateService releaseGateService = mock(SnapshotReleaseGateService.class);
         private List<QualityChecker> checkers = List.of();
+        private boolean approvable = true;
 
         Fixture() {
             when(snapshotMapper.selectById(anyLong())).thenAnswer(invocation -> {
@@ -339,6 +366,11 @@ class QualityCheckServiceImplTest {
             when(tableMapper.selectList(any())).thenReturn(List.of());
             when(columnMapper.selectList(any())).thenReturn(List.of());
             when(relationMapper.selectList(any())).thenReturn(List.of());
+            when(releaseGateService.evaluate(any(MetadataSnapshot.class))).thenAnswer(invocation -> {
+                SnapshotReleaseGateVO gate = new SnapshotReleaseGateVO();
+                gate.setApprovable(approvable);
+                return gate;
+            });
         }
 
         void tables(List<DbTableMeta> tables) { when(tableMapper.selectList(any())).thenReturn(tables); }
@@ -349,7 +381,7 @@ class QualityCheckServiceImplTest {
         QualityCheckServiceImpl service() {
             return new QualityCheckServiceImpl(checkers, ruleService, snapshotMapper, tableMapper,
                     columnMapper, relationMapper, issueMapper, checkResultMapper,
-                    new QualityRuleTemplateRegistry(), batchService);
+                    new QualityRuleTemplateRegistry(), batchService, releaseGateService);
         }
     }
 }

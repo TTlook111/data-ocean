@@ -1,46 +1,30 @@
 <script setup lang="ts">
-import {
-  BarChart3,
-  BookOpen,
-  Database,
-  FolderKanban,
-  LayoutDashboard,
-  ShieldCheck,
-  SlidersHorizontal,
-} from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useRoute, type RouteLocationRaw } from 'vue-router'
 import { ADMIN_DOMAIN_KEYS, ADMIN_WORKSPACES, type AdminWorkspace } from '../../router/adminNavigation'
+import { ADMIN_DOMAINS } from '../../router/adminDomains'
 import { useAdminContextStore } from '../../stores/adminContext'
-import { buildContextQuery, findDomainHome, findWorkspaceContextMode, type AdminContextSource } from '../../utils/adminNavigation'
+import { useIamS1Store } from '../../stores/iamS1'
+import {
+  buildContextQuery,
+  findDomainHome,
+  findWorkspaceContextMode,
+  groupAdminWorkspaces,
+  visibleAdminWorkspaces,
+  type AdminContextSource,
+} from '../../utils/adminNavigation'
 
 const props = defineProps<{ collapsed: boolean }>()
 const route = useRoute()
 const context = useAdminContextStore()
+const iamS1 = useIamS1Store()
 const emit = defineEmits<{ navigate: []; 'expand-sidebar': [] }>()
-
-// 刻意不在这里写死跳转路径：一级域的目标由 ADMIN_WORKSPACES 推导（见 targetFor）。
-// 曾经这里每个域各带一个 path，其中 '权限与组织' 写成裸域路径 /admin/access，
-// 而路由表里只有 /admin/access/iam 等子路径 → 点击落到 404。
-const domains = [
-  { key: ADMIN_DOMAIN_KEYS.workbench, label: '工作台', icon: LayoutDashboard },
-  { key: ADMIN_DOMAIN_KEYS.dataEntry, label: '数据接入', icon: Database },
-  { key: ADMIN_DOMAIN_KEYS.dataAssets, label: '数据资产', icon: FolderKanban },
-  { key: ADMIN_DOMAIN_KEYS.governance, label: '数据治理', icon: SlidersHorizontal },
-  { key: ADMIN_DOMAIN_KEYS.semantics, label: '语义中心', icon: BookOpen },
-  { key: ADMIN_DOMAIN_KEYS.access, label: '权限与组织', icon: ShieldCheck },
-  { key: ADMIN_DOMAIN_KEYS.operations, label: '运营与平台', icon: BarChart3 },
-]
 
 const activeKey = computed(() => String(route.meta.domainKey || (route.path === '/admin/workbench' ? ADMIN_DOMAIN_KEYS.workbench : '')))
 const activeWorkspaceKey = computed(() => String(route.meta.workspaceKey || ''))
 
 function isActive(key: string) {
   return activeKey.value === key
-}
-
-function domainWorkspaces(domainKey: string) {
-  return ADMIN_WORKSPACES.filter((item) => item.domainKey === domainKey)
 }
 
 function isWorkspaceActive(workspace: AdminWorkspace) {
@@ -57,17 +41,37 @@ const contextSource = computed<AdminContextSource>(() => ({
   snapshotId: Number(route.query.snapshotId) || context.snapshotId,
 }))
 
-// 一级导航进入该域第一个工作区，并按目标工作区的 contextMode 继承上下文。
+const visibleWorkspaces = computed(() => visibleAdminWorkspaces(
+  ADMIN_WORKSPACES,
+  iamS1,
+  contextSource.value.datasourceId,
+))
+
+function domainWorkspaces(domainKey: string) {
+  return visibleWorkspaces.value.filter((item) => item.domainKey === domainKey)
+}
+
+function workspaceGroups(domainKey: string) {
+  return groupAdminWorkspaces(domainWorkspaces(domainKey))
+}
+
+// 没有声明二级项的域（工作台）保持可见；有声明但全部被能力隐藏时隐藏整个域。
+const visibleDomains = computed(() => ADMIN_DOMAINS.filter((domain) => {
+  const declared = ADMIN_WORKSPACES.some((item) => item.domainKey === domain.key)
+  return !declared || visibleWorkspaces.value.some((item) => item.domainKey === domain.key)
+}))
+
+// 一级导航进入该域第一个可见工作区，并按目标工作区的 contextMode 继承上下文。
 // 目标路径由 ADMIN_WORKSPACES 推导而不是各自硬编码，保证一级入口永远指向真实路由。
 function targetFor(domain: { key: string }): RouteLocationRaw {
-  const { path } = findDomainHome(domain.key)
+  const { path } = findDomainHome(domain.key, visibleWorkspaces.value)
   return { path, query: buildContextQuery(findWorkspaceContextMode(path), contextSource.value) }
 }
 </script>
 
 <template>
   <nav class="admin-domain-nav" aria-label="后台业务导航">
-    <section v-for="domain in domains" :key="domain.key" class="admin-domain-nav__group">
+    <section v-for="domain in visibleDomains" :key="domain.key" class="admin-domain-nav__group">
       <RouterLink
         :to="targetFor(domain)"
         class="admin-domain-nav__item"
@@ -88,17 +92,26 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
         class="admin-domain-nav__workspace-list"
         :aria-label="`${domain.label}工作区`"
       >
-        <RouterLink
-          v-for="workspace in domainWorkspaces(domain.key)"
-          :key="workspace.key"
-          :to="{ path: workspace.path, query: buildContextQuery(workspace.contextMode, contextSource) }"
-          class="admin-domain-nav__workspace-item"
-          :class="{ active: isWorkspaceActive(workspace) }"
-          :aria-current="isWorkspaceActive(workspace) ? 'page' : undefined"
+        <div
+          v-for="group in workspaceGroups(domain.key)"
+          :key="group.key"
+          class="admin-domain-nav__workspace-group"
+          :role="group.label ? 'group' : undefined"
+          :aria-label="group.label"
         >
-          <span class="admin-domain-nav__workspace-dot" aria-hidden="true"></span>
-          <span>{{ workspace.label }}</span>
-        </RouterLink>
+          <span v-if="group.label" class="admin-domain-nav__workspace-group-label">{{ group.label }}</span>
+          <RouterLink
+            v-for="workspace in group.items"
+            :key="workspace.key"
+            :to="{ path: workspace.path, query: buildContextQuery(workspace.contextMode, contextSource) }"
+            class="admin-domain-nav__workspace-item"
+            :class="{ active: isWorkspaceActive(workspace) }"
+            :aria-current="isWorkspaceActive(workspace) ? 'page' : undefined"
+          >
+            <span class="admin-domain-nav__workspace-dot" aria-hidden="true"></span>
+            <span>{{ workspace.label }}</span>
+          </RouterLink>
+        </div>
       </div>
     </section>
   </nav>
@@ -157,6 +170,24 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
   margin: 0 0 4px 14px;
   padding: 3px 0 3px 13px;
   border-left: 1px solid rgba(77, 143, 220, .26);
+}
+
+.admin-domain-nav__workspace-group {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-domain-nav__workspace-group + .admin-domain-nav__workspace-group {
+  margin-top: 6px;
+}
+
+.admin-domain-nav__workspace-group-label {
+  padding: 2px 10px 1px;
+  color: var(--do-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  opacity: .78;
 }
 
 .admin-domain-nav__workspace-item {

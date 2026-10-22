@@ -170,8 +170,7 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         return issueMapper.selectCount(new LambdaQueryWrapper<MetadataQualityIssue>()
                 .eq(MetadataQualityIssue::getSnapshotId, snapshotId)
                 .eq(MetadataQualityIssue::getIssueDomain, domain)
-                .in(MetadataQualityIssue::getStatus, MetadataQualityIssue.STATUS_OPEN,
-                        MetadataQualityIssue.STATUS_CONFIRMED, MetadataQualityIssue.STATUS_REOPENED));
+                .in(MetadataQualityIssue::getStatus, MetadataQualityIssue.UNRESOLVED_STATUSES));
     }
 
     private void validateIssueDomain(String issueDomain) {

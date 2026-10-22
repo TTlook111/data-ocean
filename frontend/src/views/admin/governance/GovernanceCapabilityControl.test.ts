@@ -785,14 +785,14 @@ describe('问题中心的范围、筛选和结果表达', () => {
   })
 })
 
-describe('资产状态维护的能力控制', () => {
-  it('资产状态页面不再读取质量规则列表', async () => {
+describe('治理状态维护的能力控制', () => {
+  it('治理状态页面不再读取质量规则列表', async () => {
     respond(capability({ global: [] }))
     const wrapper = mountPage(StatusEditor)
     await settle()
 
     expect(api.listQualityRules).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('资产状态')
+    expect(wrapper.text()).toContain('治理状态维护')
   })
 
   it('没有 metadata:view 时不自行请求快照列表', async () => {

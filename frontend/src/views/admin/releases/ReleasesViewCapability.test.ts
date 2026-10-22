@@ -21,6 +21,7 @@ const api = vi.hoisted(() => ({
   changeSnapshotStatus: vi.fn(),
   publishSnapshot: vi.fn(),
   revokeSnapshot: vi.fn(),
+  getReleaseGate: vi.fn(),
   listSimpleDatasources: vi.fn(),
   listSnapshots: vi.fn(),
   listKnowledgeDocs: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock('../../../api/admin/versioning', () => ({
   compareSnapshots: vi.fn(),
   publishSnapshot: api.publishSnapshot,
   revokeSnapshot: api.revokeSnapshot,
+  getReleaseGate: api.getReleaseGate,
 }))
 vi.mock('../../../api/admin/governance', () => ({
   triggerQualityCheck: api.triggerQualityCheck,
@@ -125,6 +127,42 @@ function snapshotDetail(snapshotId: number, snapshotVersion: number, datasourceI
   }
 }
 
+function releaseGate(snapshotId: number, overrides: Record<string, unknown> = {}) {
+  return {
+    snapshotId,
+    datasourceId: DATASOURCE_ID,
+    snapshotStatus: 'APPROVED',
+    approvable: true,
+    publishable: true,
+    blockingCount: 0,
+    warningCount: 0,
+    unresolvedSourceHigh: 0,
+    unresolvedSemanticHigh: 0,
+    validTableCount: 2,
+    evaluatedAt: '2026-10-22T12:00:00',
+    items: [
+      { code: 'SOURCE_HIGH_UNRESOLVED', category: 'SOURCE', severity: 'HIGH', status: 'PASS', blocksApproval: false, blocksPublish: false, count: 0, message: '没有未解决的来源高风险问题' },
+      { code: 'NO_NORMAL_RECOMMENDED_TABLE', category: 'STRUCTURE', severity: 'HIGH', status: 'PASS', blocksApproval: false, blocksPublish: false, count: 2, message: '存在 2 张 NORMAL/RECOMMENDED 状态的表' },
+      { code: 'SEMANTIC_HIGH_UNRESOLVED', category: 'SEMANTIC', severity: 'HIGH', status: 'PASS', blocksApproval: false, blocksPublish: false, count: 0, message: '没有未解决的语义高风险问题' },
+    ],
+    ...overrides,
+  }
+}
+
+function blockedReleaseGate(snapshotId: number) {
+  return releaseGate(snapshotId, {
+    approvable: false,
+    publishable: false,
+    blockingCount: 1,
+    unresolvedSourceHigh: 2,
+    items: [
+      { code: 'SOURCE_HIGH_UNRESOLVED', category: 'SOURCE', severity: 'HIGH', status: 'FAIL', blocksApproval: true, blocksPublish: true, count: 2, message: '无法发布：存在 2 个未解决的高风险问题' },
+      { code: 'NO_NORMAL_RECOMMENDED_TABLE', category: 'STRUCTURE', severity: 'HIGH', status: 'PASS', blocksApproval: false, blocksPublish: false, count: 2, message: '存在 2 张 NORMAL/RECOMMENDED 状态的表' },
+      { code: 'SEMANTIC_HIGH_UNRESOLVED', category: 'SEMANTIC', severity: 'HIGH', status: 'PASS', blocksApproval: false, blocksPublish: false, count: 0, message: '没有未解决的语义高风险问题' },
+    ],
+  })
+}
+
 function mountPage() {
   return mount(ReleasesView as never, {
     global: {
@@ -192,6 +230,7 @@ beforeEach(() => {
   api.changeSnapshotStatus.mockResolvedValue({ data: null })
   api.publishSnapshot.mockResolvedValue({ data: null })
   api.revokeSnapshot.mockResolvedValue({ data: null })
+  api.getReleaseGate.mockImplementation((snapshotId: number) => ({ data: releaseGate(snapshotId) }))
 })
 
 describe('元数据版本工作区', () => {
@@ -486,5 +525,87 @@ describe('元数据版本工作区', () => {
     expect(rowForVersion(authorizedWrapper, 1)!.find('.release-row-actions').text()).toContain('批准')
     expect(rowForVersion(authorizedWrapper, 2)!.find('.release-row-actions').text()).toContain('发布')
     authorizedWrapper.unmount()
+  })
+
+  it('列表加载不为每一行请求发布门禁', async () => {
+    api.listVersionHistory.mockResolvedValue({
+      data: { records: [version(8, 1, 'APPROVED'), version(9, 2, 'APPROVED')], total: 2 },
+    })
+    respond(capability(['metadata:release:view', 'metadata:release:publish']))
+    const wrapper = mountPage()
+    await settle()
+
+    expect(api.getReleaseGate).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('发布确认在存在阻断时禁用提交并显示原因', async () => {
+    api.listVersionHistory.mockResolvedValue({ data: { records: [version(9, 2, 'APPROVED')], total: 1 } })
+    api.getReleaseGate.mockResolvedValue({ data: blockedReleaseGate(9) })
+    respond(capability(['metadata:release:view', 'metadata:release:publish']))
+    const wrapper = mountPage()
+    await settle()
+
+    await rowButton(wrapper, 2, '发布')!.trigger('click')
+    await settle()
+
+    expect(api.getReleaseGate).toHaveBeenCalledWith(9)
+    const confirm = wrapper.findAll('button').find((button) => button.text() === '确认发布')
+    expect(confirm).toBeTruthy()
+    expect(confirm!.attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('无法发布：存在 2 个未解决的高风险问题')
+    expect(api.publishSnapshot).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('仅有语义提示时允许发布并明确不阻断', async () => {
+    api.listVersionHistory.mockResolvedValue({ data: { records: [version(9, 2, 'APPROVED')], total: 1 } })
+    api.getReleaseGate.mockResolvedValue({
+      data: releaseGate(9, {
+        warningCount: 1,
+        unresolvedSemanticHigh: 1,
+        items: [
+          { code: 'SOURCE_HIGH_UNRESOLVED', category: 'SOURCE', severity: 'HIGH', status: 'PASS', blocksApproval: false, blocksPublish: false, count: 0, message: '没有未解决的来源高风险问题' },
+          { code: 'NO_NORMAL_RECOMMENDED_TABLE', category: 'STRUCTURE', severity: 'HIGH', status: 'PASS', blocksApproval: false, blocksPublish: false, count: 2, message: '存在 2 张 NORMAL/RECOMMENDED 状态的表' },
+          { code: 'SEMANTIC_HIGH_UNRESOLVED', category: 'SEMANTIC', severity: 'HIGH', status: 'WARN', blocksApproval: false, blocksPublish: false, count: 1, message: '存在 1 个未解决的语义高风险问题，语义问题不阻断发布，请在发布前确认' },
+        ],
+      }),
+    })
+    respond(capability(['metadata:release:view', 'metadata:release:publish']))
+    const wrapper = mountPage()
+    await settle()
+
+    await rowButton(wrapper, 2, '发布')!.trigger('click')
+    await settle()
+    expect(wrapper.text()).toContain('语义问题不阻断发布')
+
+    const confirm = wrapper.findAll('button').find((button) => button.text() === '确认发布')
+    expect(confirm!.attributes('disabled')).toBeUndefined()
+    await confirm!.trigger('click')
+    await settle()
+    expect(api.publishSnapshot).toHaveBeenCalledWith(9)
+    wrapper.unmount()
+  })
+
+  it('批准前读取门禁，来源高风险未解决时停止提交', async () => {
+    api.listVersionHistory.mockResolvedValue({ data: { records: [version(8, 1, 'ISSUE_FOUND')], total: 1 } })
+    api.getReleaseGate.mockResolvedValue({ data: blockedReleaseGate(8) })
+    respond(capability(['metadata:release:view', 'metadata:release:review']))
+    const alert = vi.spyOn(ElMessageBox, 'alert').mockResolvedValue('confirm' as never)
+    const wrapper = mountPage()
+    await settle()
+
+    await rowButton(wrapper, 1, '批准')!.trigger('click')
+    await settle()
+
+    expect(api.getReleaseGate).toHaveBeenCalledWith(8)
+    expect(alert).toHaveBeenCalledWith(
+      expect.stringContaining('无法发布：存在 2 个未解决的高风险问题'),
+      '暂不能批准',
+      expect.objectContaining({ type: 'warning' }),
+    )
+    expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
+    alert.mockRestore()
+    wrapper.unmount()
   })
 })

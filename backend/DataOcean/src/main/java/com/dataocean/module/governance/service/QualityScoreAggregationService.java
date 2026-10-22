@@ -44,10 +44,7 @@ public class QualityScoreAggregationService {
             new LambdaQueryWrapper<MetadataQualityIssue>()
                 .eq(MetadataQualityIssue::getDatasourceId, datasourceId)
                 .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
-                .in(MetadataQualityIssue::getStatus,
-                    MetadataQualityIssue.STATUS_OPEN,
-                    MetadataQualityIssue.STATUS_CONFIRMED,
-                    MetadataQualityIssue.STATUS_REOPENED));
+                .in(MetadataQualityIssue::getStatus, MetadataQualityIssue.UNRESOLVED_STATUSES));
 
         // 简单计分：每个未解决 issue 扣 5 分，下限 0
         int score = Math.max(0, 100 - (int) unresolvedIssues * 5);

@@ -14,8 +14,10 @@ import {
   ArrowRight,
   Copy,
   Info,
+  Network,
   RefreshCw,
   ShieldCheck,
+  SlidersHorizontal,
 } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -90,6 +92,30 @@ const canViewFieldGovernance = computed(() => iamS1.canOnDatasource(
   'governance:field:view',
   overview.value?.datasource?.id,
 ))
+/** 进入治理状态维护只需要查看元数据能力，页面内编辑另由 governance:rule:manage 控制。 */
+const canViewGovernanceStatus = computed(() => iamS1.canOnDatasource(
+  'metadata:view',
+  overview.value?.datasource?.id,
+))
+const canViewLineage = computed(() => iamS1.canOnDatasource(
+  'lineage:view',
+  overview.value?.datasource?.id,
+))
+const lineageWorkspaceUnavailableReason = computed(() => {
+  const current = overview.value
+  if (!current) return '正在读取对象信息…'
+  if (!iamS1.loaded) {
+    return iamS1.errorMessage
+      ? '血缘权限读取失败，暂时无法确认入口。'
+      : '正在读取血缘权限…'
+  }
+  if (!current.datasource) return '来源数据源无法核验，暂时无法打开血缘工作台。'
+  if (!canViewLineage.value) {
+    return '没有“查看数据血缘”能力（lineage:view），或当前数据源不在负责范围内。'
+  }
+  return ''
+})
+const canOpenLineageWorkspace = computed(() => !lineageWorkspaceUnavailableReason.value)
 const primaryName = computed(() => overview.value
   ? (overview.value.entity.displayName?.trim() || overview.value.entity.name)
   : '对象详情')
@@ -238,6 +264,28 @@ const fieldGovernanceUnavailableReason = computed(() => {
   return ''
 })
 const canOpenFieldGovernance = computed(() => !fieldGovernanceUnavailableReason.value)
+
+/** 治理状态维护按表定位；字段对象也进入其所属表，页面内再选择字段。 */
+const statusMaintenanceUnavailableReason = computed(() => {
+  const current = overview.value
+  if (!current) return '正在读取对象信息…'
+  if (!iamS1.loaded) {
+    return iamS1.errorMessage
+      ? '治理状态维护权限读取失败，暂时无法确认入口。'
+      : '正在读取治理状态维护权限…'
+  }
+  if (!current.datasource || !current.sourceSnapshot) {
+    return '来源快照无法核验，暂时无法定位治理状态维护。'
+  }
+  if (!(current.table?.tableName || current.column?.tableName)) {
+    return '来源快照缺少表名，暂时无法定位治理状态维护。'
+  }
+  if (!canViewGovernanceStatus.value) {
+    return '没有“查看元数据”能力（metadata:view），或当前数据源不在负责范围内。'
+  }
+  return ''
+})
+const canOpenStatusMaintenance = computed(() => !statusMaintenanceUnavailableReason.value)
 
 interface DetailTab {
   key: string
@@ -714,6 +762,42 @@ function openFieldGovernance() {
   router.push({ path: '/admin/governance/fields', query })
 }
 
+function openStatusMaintenance() {
+  const current = overview.value
+  if (!current || statusMaintenanceUnavailableReason.value) {
+    ElMessage.warning(statusMaintenanceUnavailableReason.value || '暂时无法定位治理状态维护。')
+    return
+  }
+  const tableName = current.table?.tableName || current.column?.tableName
+  if (!tableName) {
+    ElMessage.warning('当前对象缺少来源快照中的表名，无法定位治理状态维护。')
+    return
+  }
+  // 白名单上下文：状态维护按表操作，字段对象先定位到所属表。
+  const query: Record<string, string> = {
+    datasourceId: String(current.datasource!.id),
+    snapshotId: String(current.sourceSnapshot!.id),
+    tableName,
+  }
+  router.push({ path: '/admin/governance/status', query })
+}
+
+function openLineageWorkspace() {
+  const current = overview.value
+  if (!current || lineageWorkspaceUnavailableReason.value) {
+    ElMessage.warning(lineageWorkspaceUnavailableReason.value || '暂时无法打开血缘工作台。')
+    return
+  }
+  // 白名单上下文：完整血缘按数据源 + 实体定位，不带快照或页内筛选。
+  router.push({
+    path: '/admin/assets/lineage',
+    query: {
+      datasourceId: String(current.datasource!.id),
+      entityId: String(current.entity.id),
+    },
+  })
+}
+
 function goBack() {
   router.push(backTarget.value)
 }
@@ -836,6 +920,8 @@ watch(
     overview,
     snapshotWarning,
     fieldGovernanceUnavailableReason,
+    statusMaintenanceUnavailableReason,
+    lineageWorkspaceUnavailableReason,
     commentExpanded,
     technicalOpen,
   ],
@@ -908,6 +994,12 @@ onBeforeUnmount(() => {
           :title="fieldGovernanceUnavailableReason || '在字段治理中定位当前对象'"
           @click="openFieldGovernance"
         >进入字段治理</el-button>
+        <el-button
+          :icon="SlidersHorizontal"
+          :disabled="!canOpenStatusMaintenance"
+          :title="statusMaintenanceUnavailableReason || '在治理状态维护中定位当前表'"
+          @click="openStatusMaintenance"
+        >维护治理状态</el-button>
         <el-button v-if="overview" :icon="Copy" @click="copyText(overview.entity.fqn, '完整路径')">复制路径</el-button>
         <el-button :icon="RefreshCw" :loading="loading" @click="load">刷新</el-button>
       </template>
@@ -1314,6 +1406,15 @@ onBeforeUnmount(() => {
             </div>
 
             <div v-else-if="tab.key === 'lineage'" class="entity-detail__pane entity-detail__pane--table">
+              <div class="entity-detail__pane-toolbar">
+                <p class="entity-detail__hint">这里展示目录中已记录的关系；完整图谱、搜索与影响分析在数据血缘工作台。</p>
+                <el-button
+                  :icon="Network"
+                  :disabled="!canOpenLineageWorkspace"
+                  :title="lineageWorkspaceUnavailableReason || '在数据血缘工作台中查看当前对象'"
+                  @click="openLineageWorkspace"
+                >在血缘工作台中查看</el-button>
+              </div>
               <el-alert
                 v-if="sectionUnavailable(overview.lineage)"
                 :type="sectionAlertType(overview.lineage.status)"
@@ -1722,6 +1823,14 @@ onBeforeUnmount(() => {
 .entity-detail__inline-empty { margin: 0; color: var(--do-muted); font-size: 12.5px; line-height: 1.55; }
 .entity-detail__limits { margin: 0; padding-left: 18px; color: var(--do-ink); font-size: 13px; line-height: 1.6; }
 .entity-detail__hint { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.55; }
+.entity-detail__pane-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 10px;
+}
 
 .entity-detail__reason-summary {
   display: flex;

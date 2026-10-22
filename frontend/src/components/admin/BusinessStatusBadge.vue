@@ -26,6 +26,8 @@ const labels: Record<string, string> = {
   RESOLVED: '已解决', REJECTED: '已拒绝', REOPENED: '已重新打开', AUTO_CLOSED: '自动关闭',
   PENDING_REVIEW: '待审核', INDEXING: '索引中', ENABLED: '已启用', DISABLED: '已停用',
   ACTIVE: '启用', INACTIVE: '停用', HEALTHY: '连接正常', UNHEALTHY: '连接异常',
+  // 发布门禁清单项状态。
+  PASS: '通过', WARN: '提示', FAIL: '阻断',
 }
 
 const tones: Record<string, string> = {
@@ -35,6 +37,7 @@ const tones: Record<string, string> = {
   ISSUE_FOUND: 'danger', FAILED: 'danger', OPEN: 'danger', REOPENED: 'danger',
   REJECTED: 'danger', UNHEALTHY: 'danger', EXPIRED: 'muted', DRAFT: 'muted',
   DISABLED: 'muted', INACTIVE: 'muted',
+  PASS: 'success', WARN: 'warning', FAIL: 'danger',
   // 治理状态（`utils/enumLabels.ts` 的 governanceStatusLabels）。
   // 缺了这六项时全部落到 muted 灰，「禁止使用/已废弃」与「正常可用」外观完全一致，
   // 只能靠读文字区分——治理页最需要一眼看出的正是这组差异。
