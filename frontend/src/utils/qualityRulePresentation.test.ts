@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { describeRuleCondition, describeRuleImpact, describeRuleScope } from './qualityRulePresentation'
+import {
+  RULE_LABELS,
+  describeRuleCondition,
+  describeRuleImpact,
+  describeRuleScope,
+  ruleScopeLabel,
+  ruleTargetTypeLabel,
+  sortRuleScopes,
+} from './qualityRulePresentation'
 
 describe('quality rule presentation', () => {
   it('explains empty estimated tables without claiming freshness was measured', () => {
@@ -18,5 +26,30 @@ describe('quality rule presentation', () => {
 
   it('states severity and score impact as text', () => {
     expect(describeRuleImpact('HIGH', 5)).toBe('高 · 扣 5 分')
+    expect(describeRuleImpact('MEDIUM', 3)).toBe('中 · 扣 3 分')
+  })
+
+  it('uses one label set across list, detail and form', () => {
+    expect(RULE_LABELS).toMatchObject({
+      templateCode: '检查类型',
+      scopeType: '适用范围',
+      severity: '严重程度',
+      deductionPoints: '扣分',
+      description: '处理建议',
+    })
+    expect(ruleScopeLabel('COLUMN')).toBe('字段')
+    expect(describeRuleScope('COLUMN', '销售库', 'orders', 'amount')).toBe('字段 · 销售库 · orders · amount')
+  })
+
+  it('sorts allowed scopes in the canonical order regardless of backend Set order', () => {
+    expect(sortRuleScopes(['COLUMN', 'GLOBAL', 'TABLE', 'DATASOURCE']))
+      .toEqual(['GLOBAL', 'DATASOURCE', 'TABLE', 'COLUMN'])
+  })
+
+  it('labels template target types consistently', () => {
+    expect(ruleTargetTypeLabel('TABLE')).toBe('表')
+    expect(ruleTargetTypeLabel('COLUMN')).toBe('字段')
+    expect(ruleTargetTypeLabel('RELATION')).toBe('关系')
+    expect(ruleTargetTypeLabel(undefined)).toBe('未指定')
   })
 })

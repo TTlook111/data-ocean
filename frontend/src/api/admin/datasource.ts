@@ -58,6 +58,8 @@ export interface DatasourceReadinessReason {
   message: string
   ownerRole: string
   actionText: string
+  /** 后端 readiness 返回的建议入口；仅作为链接提示，前端仍需按自身能力判断。 */
+  actionPath?: string
 }
 
 export interface DatasourceQuery {

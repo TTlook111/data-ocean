@@ -13,6 +13,7 @@ import {
   type NotificationItem,
 } from '../../api/notification'
 import { findWorkspace, type AdminContextMode } from '../../router/adminNavigation'
+import { buildAdminBreadcrumbs } from '../../utils/adminNavigation'
 import AdminDomainNav from './AdminDomainNav.vue'
 import ScopeBar from './ScopeBar.vue'
 
@@ -35,6 +36,12 @@ const initial = computed(() => displayName.value.slice(0, 1).toUpperCase())
 const roleText = computed(() => iamS1.systemAdmin ? '系统管理员' : '当前账号')
 const routeTitle = computed(() => String(route.meta.title || 'DataOcean 后台'))
 const workspace = computed(() => findWorkspace(String(route.meta.workspaceKey || '')))
+const breadcrumbs = computed(() => buildAdminBreadcrumbs({
+  title: routeTitle.value,
+  workspaceKey: String(route.meta.workspaceKey || ''),
+  breadcrumbParent: route.meta.breadcrumbParent ? String(route.meta.breadcrumbParent) : undefined,
+  query: route.query,
+}))
 const contextMode = computed<AdminContextMode>(() => (route.meta.contextMode as AdminContextMode) || workspace.value?.contextMode || 'none')
 const hasUnread = computed(() => notifications.value.some((item) => !item.isRead))
 
@@ -158,10 +165,16 @@ onBeforeUnmount(() => {
     <main class="admin-shell__main">
       <header class="admin-shell__topbar do-glass-panel">
         <nav class="admin-shell__title" aria-label="当前位置">
-          <RouterLink to="/admin/workbench" class="notranslate" translate="no">DataOcean</RouterLink>
-          <span aria-hidden="true">/</span>
-          <span v-if="workspace && workspace.label !== routeTitle">{{ workspace.label }}<span aria-hidden="true"> / </span></span>
-          <span aria-current="page">{{ routeTitle }}</span>
+          <template v-for="(item, index) in breadcrumbs" :key="item.key">
+            <span v-if="index" aria-hidden="true">/</span>
+            <RouterLink
+              v-if="item.to && !item.current"
+              :to="item.to"
+              :class="{ notranslate: item.key === 'home' }"
+              :translate="item.key === 'home' ? 'no' : undefined"
+            >{{ item.label }}</RouterLink>
+            <span v-else :aria-current="item.current ? 'page' : undefined">{{ item.label }}</span>
+          </template>
         </nav>
 
         <div class="admin-shell__topbar-actions">
@@ -461,6 +474,7 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   overflow-x: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--do-primary) 22%, transparent) transparent;
 }

@@ -8,6 +8,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import EmptyState from '../../../../components/common/EmptyState.vue'
+import MaskCandidatePanel from './MaskCandidatePanel.vue'
 import { useIamS1Store } from '../../../../stores/iamS1'
 import {
   listIamS1Columns,
@@ -149,6 +150,8 @@ onMounted(async () => {
 
 <template>
   <div class="iam-s1-protections">
+    <MaskCandidatePanel :datasource-id="datasourceId" />
+
     <section class="panel">
       <h3 class="panel-title">选择要维护的字段</h3>
       <div class="inline">

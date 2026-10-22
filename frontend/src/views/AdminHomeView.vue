@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { useIamS1Store } from '../stores/iamS1'
 import { getDashboardStats, type DashboardStats } from '../api/admin/dashboard'
 import { getBatchDatasourceReadiness, listSimpleDatasources, type DatasourceReadiness, type DatasourceSimpleItem } from '../api/admin/datasource'
+import { listIamS1AccessRequestQueue } from '../api/iamS1'
 import TaskPageHeader from '../components/admin/TaskPageHeader.vue'
 import TitleHelp from '../components/admin/TitleHelp.vue'
 import ReadinessPanel from '../components/admin/ReadinessPanel.vue'
@@ -24,6 +25,16 @@ const statsError = ref('')
 const readinessError = ref('')
 const readinessPartialError = ref('')
 const sources = ref<DatasourceSimpleItem[]>([])
+const pendingApprovalCount = ref<number | null>(null)
+const approvalLoading = ref(false)
+const approvalError = ref('')
+interface PendingItem {
+  key: string
+  title: string
+  description: string
+  to: { path: string; query?: Record<string, string> }
+  count?: number
+}
 
 /** 工作台入口功能：与后端 DashboardController 的 admin:workbench:view 一致。 */
 const canViewWorkbench = computed(() => iamS1.hasGlobal('admin:workbench:view'))
@@ -90,6 +101,53 @@ const activityItems = computed(() => (stats.value?.recentActivities || []).map((
   action: item.type,
   description: item.description,
 })))
+const canViewApprovals = computed(() => iamS1.hasGlobal('security:approval:view'))
+const canViewKnowledge = computed(() => iamS1.hasGlobal('knowledge:view')
+  || iamS1.datasourcesWithFunction('knowledge:view').length > 0)
+const canViewReleases = computed(() => iamS1.hasGlobal('metadata:release:view')
+  || iamS1.datasourcesWithFunction('metadata:release:view').length > 0)
+const pendingLoading = computed(() => readinessLoading.value || statsLoading.value || approvalLoading.value)
+const pendingError = computed(() => {
+  const errors = [
+    readinessError.value,
+    statsError.value,
+    approvalError.value,
+  ].filter(Boolean)
+  return errors.length ? errors.join('；') : ''
+})
+const pendingItems = computed<PendingItem[]>(() => {
+  const items: PendingItem[] = []
+  for (const source of blockedItems.value.slice(0, 5)) {
+    const reason = source.blockReasons[0]
+    items.push({
+      key: `datasource-${source.datasourceId}`,
+      title: `${source.datasourceName} 需要处理`,
+      description: reason?.message || '打开数据源详情查看待处理条件。',
+      to: reason?.actionPath
+        ? { path: reason.actionPath }
+        : { path: `/admin/data-sources/${source.datasourceId}` },
+    })
+  }
+  if (stats.value && stats.value.openIssues > 0) {
+    items.push({
+      key: 'governance-issues',
+      title: `${stats.value.openIssues} 个治理问题待处理`,
+      description: '进入问题中心分派、确认或处理。',
+      to: { path: '/admin/governance/issues' },
+      count: stats.value.openIssues,
+    })
+  }
+  if (canViewApprovals.value && pendingApprovalCount.value !== null && pendingApprovalCount.value > 0) {
+    items.push({
+      key: 'access-approvals',
+      title: `${pendingApprovalCount.value} 条访问申请待审批`,
+      description: '审批负责数据源上的访问申请。',
+      to: { path: '/admin/access/iam-approvals' },
+      count: pendingApprovalCount.value,
+    })
+  }
+  return items
+})
 
 async function loadStats() {
   stats.value = null
@@ -133,9 +191,31 @@ async function loadReadiness() {
   }
 }
 
+async function loadApprovals() {
+  pendingApprovalCount.value = null
+  approvalError.value = ''
+  if (!canViewApprovals.value) {
+    approvalLoading.value = false
+    return
+  }
+  approvalLoading.value = true
+  try {
+    const result = await listIamS1AccessRequestQueue('PENDING', 1, 1)
+    pendingApprovalCount.value = result.data?.total ?? 0
+  } catch (cause) {
+    approvalError.value = cause instanceof Error ? cause.message : '访问审批数量读取失败'
+  } finally {
+    approvalLoading.value = false
+  }
+}
+
+async function reloadPending() {
+  await Promise.all([loadStats(), loadReadiness(), loadApprovals()])
+}
+
 async function load() {
   loading.value = true
-  await Promise.all([loadStats(), loadReadiness()])
+  await Promise.all([loadStats(), loadReadiness(), loadApprovals()])
   loading.value = false
 }
 
@@ -156,9 +236,37 @@ onMounted(load)
 
 <template>
   <div class="admin-page workbench-page">
-    <TaskPageHeader title="工作台" description="先处理影响问数的问题，再查看数据源的准备情况。" />
+    <TaskPageHeader title="工作台" description="这里汇总需要你处理的事项；先处理阻塞，再查看数据源准备情况。" />
     <LoadingState v-if="loading" variant="skeleton" :rows="5" />
-    <template v-else>
+    <section v-else class="workbench-pending do-glass-panel" aria-labelledby="workbench-pending-title">
+      <div class="section-heading">
+        <div class="section-title">
+          <TitleHelp label="待处理事项" text="只汇总真实读取到的阻断、治理问题和待审批申请；读取失败时显示原因，不显示为零。" />
+          <h2 id="workbench-pending-title">待处理事项</h2>
+        </div>
+        <el-button text :loading="pendingLoading" @click="reloadPending">刷新</el-button>
+      </div>
+      <p v-if="pendingError" class="workbench-pending__error" role="alert">{{ pendingError }}</p>
+      <LoadingState v-if="pendingLoading && !pendingItems.length" text="正在汇总待处理事项…" />
+      <ul v-else-if="pendingItems.length" class="workbench-pending__list">
+        <li v-for="item in pendingItems" :key="item.key" class="workbench-pending__item">
+          <div class="workbench-pending__copy">
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.description }}</span>
+          </div>
+          <RouterLink class="workbench-pending__action" :to="item.to">
+            {{ item.count ? '去处理' : '查看' }}<ArrowRight :size="14" aria-hidden="true" />
+          </RouterLink>
+        </li>
+      </ul>
+      <p v-else class="workbench-empty">当前没有需要你立即处理的阻断事项。</p>
+      <div class="workbench-pending__shortcuts">
+        <RouterLink v-if="canViewReleases" :to="{ path: '/admin/releases' }">检查待发布版本</RouterLink>
+        <RouterLink v-if="canViewKnowledge" :to="{ path: '/admin/semantics/knowledge', query: { tab: 'review' } }">审核知识文档</RouterLink>
+        <RouterLink v-if="canViewApprovals" :to="{ path: '/admin/access/iam-approvals' }">处理访问申请</RouterLink>
+      </div>
+    </section>
+    <template v-if="!loading">
       <dl class="workbench-stats" aria-label="工作台概览">
         <div class="workbench-stat do-glass-panel" :title="readinessStateTitle || undefined">
           <div class="workbench-stat__head"><dt>数据源</dt></div>
@@ -275,6 +383,19 @@ onMounted(load)
 .workbench-stat dd.is-pending { color: var(--do-muted); }
 .workbench-stat__link { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; color: var(--do-primary-strong); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .workbench-stat__link:hover { text-decoration: underline; }
+
+.workbench-pending { display: grid; gap: 12px; margin-bottom: var(--workbench-gap); padding: 16px 18px; border-radius: 16px; background: var(--do-glass-panel-bg); box-shadow: var(--do-shadow); }
+.workbench-pending__error { margin: 0; color: var(--do-danger); font-size: 12px; line-height: 1.5; }
+.workbench-pending__list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.workbench-pending__item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--do-line); border-radius: 10px; background: var(--do-surface); }
+.workbench-pending__copy { display: grid; gap: 2px; min-width: 0; }
+.workbench-pending__copy strong { color: var(--do-ink); font-size: 13px; }
+.workbench-pending__copy span { color: var(--do-muted); font-size: 12px; line-height: 1.5; }
+.workbench-pending__action { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; color: var(--do-primary-strong); font-size: 12px; font-weight: 700; }
+.workbench-pending__action:hover { text-decoration: underline; }
+.workbench-pending__shortcuts { display: flex; flex-wrap: wrap; gap: 8px 16px; padding-top: 4px; border-top: 1px dashed var(--do-line); }
+.workbench-pending__shortcuts a { color: var(--do-primary-strong); font-size: 12px; font-weight: 600; }
+.workbench-pending__shortcuts a:hover { text-decoration: underline; }
 
 .workbench-summary { min-height: 84px; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 14px 16px; margin-bottom: var(--workbench-gap); padding: 14px 18px; border-radius: 16px; background: var(--do-glass-panel-bg); box-shadow: var(--do-shadow); }
 .workbench-summary__icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; color: var(--do-primary-strong); background: var(--do-primary-soft); }

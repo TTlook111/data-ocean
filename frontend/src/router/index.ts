@@ -18,6 +18,7 @@ const ProfileView = () => import('../views/profile/ProfileView.vue')
 const QueryDatasourceView = () => import('../views/query/QueryDatasourceView.vue')
 const QualityDashboard = () => import('../views/admin/governance/QualityDashboard.vue')
 const QualityRulesView = () => import('../views/admin/governance/QualityRulesView.vue')
+const RuleTemplateCatalogView = () => import('../views/admin/governance/RuleTemplateCatalogView.vue')
 const IssueList = () => import('../views/admin/governance/IssueList.vue')
 const StatusEditor = () => import('../views/admin/governance/StatusEditor.vue')
 const KnowledgeView = () => import('../views/admin/semantics/KnowledgeView.vue')
@@ -25,6 +26,7 @@ const KnowledgeDocView = () => import('../views/admin/semantics/KnowledgeDocView
 const KnowledgeDocCreateView = () => import('../views/admin/semantics/KnowledgeDocCreateView.vue')
 const PromptsView = () => import('../views/admin/semantics/PromptsView.vue')
 const GlossariesView = () => import('../views/admin/semantics/GlossariesView.vue')
+const FieldExplanationView = () => import('../views/admin/semantics/FieldExplanationView.vue')
 const NotFound = () => import('../views/NotFound.vue')
 const GovernanceFieldsView = () => import('../views/admin/governance/GovernanceFieldsView.vue')
 const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
@@ -168,6 +170,12 @@ const router = createRouter({
           meta: { title: '质量规则', domainKey: 'governance', workspaceKey: 'governance-rules', contextMode: 'datasource-snapshot' },
         },
         {
+          path: 'governance/rule-templates',
+          name: 'admin-governance-rule-templates',
+          component: RuleTemplateCatalogView,
+          meta: { title: '检查类型', domainKey: 'governance', workspaceKey: 'rule-templates', contextMode: 'none' },
+        },
+        {
           path: 'governance/status',
           name: 'admin-governance-status',
           component: StatusEditor,
@@ -184,6 +192,12 @@ const router = createRouter({
           name: 'admin-semantic-glossaries',
           component: GlossariesView,
           meta: { title: '业务术语', domainKey: 'semantics', workspaceKey: 'glossaries', contextMode: 'none' },
+        },
+        {
+          path: 'semantics/field-explanations',
+          name: 'admin-semantic-field-explanations',
+          component: FieldExplanationView,
+          meta: { title: '字段解释', domainKey: 'semantics', workspaceKey: 'field-explanations', contextMode: 'datasource-snapshot' },
         },
         {
           path: 'semantics/knowledge',

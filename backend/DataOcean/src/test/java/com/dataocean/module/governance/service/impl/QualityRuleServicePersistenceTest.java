@@ -3,6 +3,7 @@ package com.dataocean.module.governance.service.impl;
 import com.dataocean.module.governance.entity.dto.QualityRuleDTO;
 import com.dataocean.module.governance.entity.po.MetadataQualityRule;
 import com.dataocean.module.governance.entity.po.MetadataQualityRuleRevision;
+import com.dataocean.module.governance.entity.query.QualityRuleQuery;
 import com.dataocean.module.governance.mapper.MetadataQualityRuleMapper;
 import com.dataocean.module.governance.mapper.MetadataQualityRuleRevisionMapper;
 import com.dataocean.module.governance.service.QualityRuleTemplateRegistry;
@@ -21,6 +22,7 @@ import org.springframework.test.context.jdbc.Sql;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -126,6 +128,32 @@ class QualityRuleServicePersistenceTest {
         assertThat(revisionCaptor.getValue().getDatasourceId()).isNull();
         assertThat(revisionCaptor.getValue().getTargetTableName()).isNull();
         assertThat(revisionCaptor.getValue().getTargetColumnName()).isNull();
+    }
+
+    @Test
+    void listRulesReturnsOnlyTheRequestedPageWithTotalCount() {
+        for (int index = 0; index < 25; index++) {
+            MetadataQualityRule rule = rule("GLOBAL", null, null, null);
+            rule.setRuleCode("QR-PAGE-" + index);
+            rule.setRuleName("分页规则 " + index);
+            ruleMapper.insert(rule);
+        }
+        IamS1CapabilityService capabilityService = mock(IamS1CapabilityService.class);
+        when(capabilityService.responsibleDatasourcesWithFunction(1L, "governance:rule:view"))
+                .thenReturn(List.of());
+        QualityRuleServiceImpl service = new QualityRuleServiceImpl(ruleMapper, revisionMapper, authorizationResolver,
+                capabilityService, new QualityRuleTemplateRegistry(),
+                mock(MetadataSnapshotMapper.class), mock(DbTableMetaMapper.class),
+                mock(DbColumnMetaMapper.class), new ObjectMapper());
+        QualityRuleQuery query = new QualityRuleQuery();
+        query.setPage(2L);
+        query.setPageSize(10L);
+
+        var page = service.listRules(query, 1L);
+
+        assertThat(page.getTotal()).isEqualTo(25);
+        assertThat(page.getRecords()).hasSize(10);
+        assertThat(page.getCurrent()).isEqualTo(2);
     }
 
     private QualityRuleServiceImpl service() {

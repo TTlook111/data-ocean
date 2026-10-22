@@ -6,7 +6,7 @@
 
 Java 管理术语定义与字段映射、修订审核、知识版本、发布、事实校验和构建确认；Python 根据固定输入整理目录、生成 AI 释义候选并负责切分/向量操作。**生成结构目录与 AI 补写是两个动作；发布知识文档和明确确认 RAG build 也是两个独立动作。**
 
-2026-10-21 字段解释[最终实施方案](../development/质量规则与平台内字段语义治理方案.md)已定稿。2026-10-22 工作区已实现独立字段解释修订；快照目录生成从 Java 当前有效的已审核修订生成 `FIELD_SEMANTIC` 标记，精确引用 definition/revision/review/binding 与完整依赖 hash。Java 发布验证、Python chunker 和 query-time membership 过滤接入该类型；文档审核发布与显式 RAG build 仍保持独立。现有 `SEMANTIC_NOTE` 文档候选流程不变。当前尚未执行 V69、真实文档发布/API 或 RAG build，完整问数链路未标记验收完成。
+2026-10-21 字段解释[最终实施方案](../development/质量规则与平台内字段语义治理方案.md)已定稿。2026-10-22 工作区已实现独立字段解释修订；快照目录生成从 Java 当前有效的已审核修订生成 `FIELD_SEMANTIC` 标记，精确引用 definition/revision/review/binding 与完整依赖 hash。Java 发布验证、Python chunker 和 query-time membership 过滤接入该类型；文档审核发布与显式 RAG build 仍保持独立。现有 `SEMANTIC_NOTE` 文档候选流程不变。字段解释工作面入口在「语义中心 → 字段解释」（`/admin/semantics/field-explanations`），与知识文档分开。V69 已在本机隔离库执行；真实文档发布/API、RAG build 和完整问数链路仍未验收。
 
 ```text
 DRAFT → PENDING_REVIEW → APPROVED → PUBLISHED

@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
 import router from '../router'
-import { ADMIN_DOMAIN_KEYS, ADMIN_WORKSPACES } from '../router/adminNavigation'
-import { buildContextQuery, findDomainHome, resolveReadinessAction } from './adminNavigation'
+import { ADMIN_DOMAIN_KEYS, ADMIN_WORKSPACES, findWorkspaceByPath } from '../router/adminNavigation'
+import { buildAdminBreadcrumbs, buildContextQuery, findDomainHome, resolveReadinessAction } from './adminNavigation'
 
 /** 解析结果落在 catch-all 上即视为不可达（router/index.ts 的 name: 'not-found'） */
 function isResolvable(path: string): boolean {
@@ -45,6 +45,81 @@ describe('admin navigation metadata', () => {
     })
     expect(resolveReadinessAction('CURRENT_USER_NOT_GRANTED', { datasourceId: 7 })).toBeUndefined()
     expect(findDomainHome(ADMIN_DOMAIN_KEYS.workbench)).toEqual({ path: '/admin/workbench', label: '工作台' })
+  })
+})
+
+describe('后台面包屑', () => {
+  it('工作台显示首页和当前页', () => {
+    expect(buildAdminBreadcrumbs({ title: '工作台', workspaceKey: 'workbench' })).toEqual([
+      { key: 'home', label: 'DataOcean', to: { path: '/admin/workbench' } },
+      { key: 'current', label: '工作台', current: true },
+    ])
+  })
+
+  it('工作区首页不重复渲染同名工作区', () => {
+    const items = buildAdminBreadcrumbs({ title: '问题中心', workspaceKey: 'governance-issues' })
+    expect(items).toHaveLength(2)
+    expect(items[1]).toMatchObject({ label: '问题中心', current: true })
+  })
+
+  it('详情页的父级是工作区链接，并按父级 contextMode 过滤上下文', () => {
+    const items = buildAdminBreadcrumbs({
+      title: '对象详情',
+      workspaceKey: 'assets',
+      breadcrumbParent: '/admin/assets',
+      query: { datasourceId: '7', snapshotId: '11', tab: 'lineage' },
+    })
+
+    expect(items).toHaveLength(3)
+    expect(items[1]).toEqual({
+      key: 'workspace-assets',
+      label: '数据对象目录',
+      to: { path: '/admin/assets', query: { datasourceId: '7' } },
+    })
+    expect(items[2]).toMatchObject({ label: '对象详情', current: true })
+  })
+
+  it('父级 contextMode 为 none 时不携带任何查询参数', () => {
+    const items = buildAdminBreadcrumbs({
+      title: '数据源详情',
+      workspaceKey: 'data-sources',
+      breadcrumbParent: '/admin/data-sources',
+      query: { datasourceId: '7', snapshotId: '11' },
+    })
+    expect(items[1].to).toEqual({ path: '/admin/data-sources', query: {} })
+  })
+
+  it('数组形式的数据源和快照 query 会归一化', () => {
+    const items = buildAdminBreadcrumbs({
+      title: '快照详情',
+      workspaceKey: 'releases',
+      breadcrumbParent: '/admin/releases',
+      query: { datasourceId: ['7', '8'], snapshotId: ['11'] },
+    })
+    expect(items[1].to).toEqual({ path: '/admin/releases', query: { datasourceId: '7' } })
+  })
+
+  it('未知父级不生成坏链接', () => {
+    const items = buildAdminBreadcrumbs({
+      title: '未知页面',
+      workspaceKey: 'missing',
+      breadcrumbParent: '/admin/not-a-workspace',
+    })
+    expect(items).toHaveLength(2)
+    expect(items[1]).toMatchObject({ label: '未知页面', current: true })
+  })
+
+  it('所有 locked-resource 路由声明了可解析且属于工作区的父级', () => {
+    const lockedRoutes = router.getRoutes()
+      .filter((item) => item.meta?.contextMode === 'locked-resource')
+    expect(lockedRoutes.length).toBeGreaterThan(0)
+    for (const item of lockedRoutes) {
+      const parent = String(item.meta?.breadcrumbParent || '')
+      expect(parent, `${String(item.name)} 缺少 breadcrumbParent`).not.toBe('')
+      expect(isResolvable(parent), `${String(item.name)} 的父级 ${parent} 不可解析`).toBe(true)
+      expect(findWorkspaceByPath(parent), `${String(item.name)} 的父级 ${parent} 不是工作区`).toBeTruthy()
+      expect(parent).not.toBe(item.path)
+    }
   })
 })
 

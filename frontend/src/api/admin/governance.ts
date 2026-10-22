@@ -260,9 +260,17 @@ export async function assignIssue(issueId: number, assigneeId: number) {
 }
 
 export async function listQualityRules(params?: {
-  datasourceId?: number; scopeType?: string; dimension?: string; templateCode?: string; ruleName?: string; enabled?: boolean; deleted?: boolean
+  datasourceId?: number
+  scopeType?: string
+  dimension?: string
+  templateCode?: string
+  ruleName?: string
+  enabled?: boolean
+  deleted?: boolean
+  page?: number
+  pageSize?: number
 }) {
-  const { data } = await http.get<ApiResult<QualityRule[]>>('/api/admin/quality-rules', { params })
+  const { data } = await http.get<ApiResult<PageResult<QualityRule>>>('/api/admin/quality-rules', { params })
   return data
 }
 

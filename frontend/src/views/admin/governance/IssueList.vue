@@ -919,7 +919,7 @@ onBeforeUnmount(() => {
           <RouterLink
             v-if="selectedIssue.issueDomain === 'SEMANTIC' && selectedIssue.columnMetaId"
             class="return-link"
-            :to="{ path: '/admin/governance/fields', query: { datasourceId: String(selectedIssue.datasourceId), snapshotId: String(selectedIssue.snapshotId), tab: 'semantics', tableName: selectedIssue.tableName, columnMetaId: String(selectedIssue.columnMetaId) } }"
+            :to="{ path: '/admin/semantics/field-explanations', query: { datasourceId: String(selectedIssue.datasourceId), snapshotId: String(selectedIssue.snapshotId), tableName: selectedIssue.tableName, columnMetaId: String(selectedIssue.columnMetaId) } }"
           >打开字段业务解释</RouterLink>
           <section class="issue-detail__assign">
             <h3>分派责任人</h3>

@@ -1,172 +1,49 @@
 <script setup lang="ts">
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { ShieldCheck } from 'lucide-vue-next'
+import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import FieldTagManager from '../field/FieldTagManager.vue'
 import ConfidenceDashboard from '../field/ConfidenceDashboard.vue'
 import FeedbackReview from '../field/FeedbackReview.vue'
-import { confirmMaskCandidate, listMaskCandidates, rejectMaskCandidate, type MaskCandidate } from '../../../api/admin/catalog'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
-import ErrorState from '../../../components/common/ErrorState.vue'
-import LoadingState from '../../../components/common/LoadingState.vue'
-import EmptyState from '../../../components/common/EmptyState.vue'
-import FieldSemanticWorkspace from './FieldSemanticWorkspace.vue'
+
+type FieldTab = 'tags' | 'confidence' | 'feedback'
 
 const route = useRoute()
 const router = useRouter()
 const adminContext = useAdminContextStore()
 const iamS1 = useIamS1Store()
-const activeTab = ref(String(route.query.tab || 'tags'))
-const candidates = ref<MaskCandidate[]>([])
-const maskLoading = ref(false)
-const maskError = ref('')
-const candidateBusy = reactive<Record<number, boolean>>({})
-let maskRequestId = 0
-let disposed = false
-const allowedMaskStrategies = new Set(['PHONE', 'ID_CARD', 'EMAIL', 'BANK_CARD', 'NAME'])
+const ALLOWED_TABS: FieldTab[] = ['tags', 'confidence', 'feedback']
 
-const maskStrategy = (candidate: MaskCandidate) => {
-  const pending = candidate.pendingMask || {}
-  const strategy = String(pending.mask_strategy || pending.maskStrategy || '')
-  return allowedMaskStrategies.has(strategy) ? strategy : ''
+function sanitizeTab(value: unknown): FieldTab {
+  const raw = String(value || '')
+  return (ALLOWED_TABS as string[]).includes(raw) ? raw as FieldTab : 'tags'
 }
 
-const maskTag = (candidate: MaskCandidate) => {
-  const pending = candidate.pendingMask || {}
-  return String(pending.tag_fqn || pending.tagFqn || 'PII 标签')
-}
+const activeTab = ref<FieldTab>(sanitizeTab(route.query.tab))
 
-const hasDatasource = computed(() => Boolean(adminContext.datasourceId))
-
-const MASK_VIEW_FUNCTION = 'security:mask:view'
-const MASK_MANAGE_FUNCTION = 'security:mask:manage'
-
-/** 查看脱敏候选：`security:mask:view` 与当前数据源必须在同一条启用绑定上。 */
-const canViewMaskCandidates = computed(
-  () => iamS1.canOnDatasource(MASK_VIEW_FUNCTION, adminContext.datasourceId || undefined),
-)
-
-/** 确认/拒绝脱敏候选：`security:mask:manage`，与查看分属两个功能码。 */
-const canManageMaskCandidates = computed(
-  () => iamS1.canOnDatasource(MASK_MANAGE_FUNCTION, adminContext.datasourceId || undefined),
-)
-
-function selectTab(tab: string) {
-  activeTab.value = tab
-  router.replace({ query: { ...route.query, tab } })
-}
-
-async function fetchCandidates() {
-  const currentRequest = ++maskRequestId
-  if (!adminContext.datasourceId) {
-    candidates.value = []
-    maskError.value = ''
-    return
-  }
-  // 无 `security:mask:view` 时不要发这个必然 403 的请求：清空后由模板说明原因。
-  if (!canViewMaskCandidates.value) {
-    candidates.value = []
-    maskError.value = ''
-    maskLoading.value = false
-    return
-  }
-  const datasourceId = adminContext.datasourceId
-  maskLoading.value = true
-  maskError.value = ''
-  try {
-    const result = await listMaskCandidates(adminContext.datasourceId)
-    if (disposed || currentRequest !== maskRequestId || datasourceId !== adminContext.datasourceId) return
-    candidates.value = result.data || []
-  } catch (error) {
-    if (disposed || currentRequest !== maskRequestId || datasourceId !== adminContext.datasourceId) return
-    candidates.value = []
-    maskError.value = error instanceof Error ? error.message : '脱敏候选加载失败'
-  } finally {
-    maskLoading.value = false
-  }
-}
-
-async function confirmCandidate(candidate: MaskCandidate) {
-  if (!canManageMaskCandidates.value) {
-    ElMessage.warning('没有“维护字段保护”能力：需要角色拥有该功能并负责当前数据源。')
-    return
-  }
-  const strategy = maskStrategy(candidate)
-  if (!strategy) {
-    ElMessage.warning('当前候选的脱敏策略无法识别，已阻止确认，请先修复后端候选数据')
-    return
-  }
-  if (candidateBusy[candidate.entityId]) return
-  candidateBusy[candidate.entityId] = true
-  try {
-    await ElMessageBox.confirm(
-      `确认将「${candidate.displayName || candidate.name}」设置为 ${strategy} 脱敏？确认后会生成面向所有用户的 MASK 策略。`,
-      '确认脱敏策略',
-      { type: 'warning', confirmButtonText: '确认生效', cancelButtonText: '取消' },
-    )
-    await confirmMaskCandidate(candidate.entityId, strategy)
-    ElMessage.success('脱敏策略已确认')
-    await fetchCandidates()
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error instanceof Error ? error.message : '确认脱敏策略失败')
-    }
-  } finally {
-    candidateBusy[candidate.entityId] = false
-  }
-}
-
-async function rejectCandidate(candidate: MaskCandidate) {
-  if (!canManageMaskCandidates.value) {
-    ElMessage.warning('没有“维护字段保护”能力：需要角色拥有该功能并负责当前数据源。')
-    return
-  }
-  if (candidateBusy[candidate.entityId]) return
-  candidateBusy[candidate.entityId] = true
-  try {
-    await ElMessageBox.confirm(`确认拒绝「${candidate.displayName || candidate.name}」的脱敏候选？`, '拒绝脱敏候选', {
-      type: 'warning',
-      confirmButtonText: '确认拒绝',
-      cancelButtonText: '取消',
-    })
-    await rejectMaskCandidate(candidate.entityId)
-    ElMessage.success('已拒绝脱敏候选')
-    await fetchCandidates()
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error instanceof Error ? error.message : '拒绝脱敏候选失败')
-    }
-  } finally {
-    candidateBusy[candidate.entityId] = false
-  }
+function selectTab(tab: string | number) {
+  const next = sanitizeTab(tab)
+  activeTab.value = next
+  router.replace({ query: { ...route.query, tab: next } })
 }
 
 onMounted(async () => {
   await Promise.all([adminContext.initialize(), iamS1.load()])
-  if (activeTab.value === 'mask') await fetchCandidates()
 })
 
-watch(() => route.query.tab, async (tab) => {
-  activeTab.value = String(tab || 'tags')
-  if (activeTab.value === 'mask') await fetchCandidates()
-})
-
-watch(() => adminContext.datasourceId, async () => {
-  if (activeTab.value === 'mask') await fetchCandidates()
-})
-
-onBeforeUnmount(() => {
-  disposed = true
-  maskRequestId++
+watch(() => route.query.tab, (tab) => {
+  activeTab.value = sanitizeTab(tab)
 })
 </script>
 
 <template>
   <main class="governance-fields-page post-login-page">
-    <TaskPageHeader title="字段治理" description="管理业务解释、标签、可信度、反馈和脱敏候选。" />
+    <TaskPageHeader
+      title="字段治理"
+      description="管理字段标签、可信度和质量反馈。字段业务解释在「语义中心 → 字段解释」，脱敏候选在「授权配置 → 字段保护」。"
+    />
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="标签" name="tags">
         <FieldTagManager v-if="activeTab === 'tags'" :key="`tags-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
@@ -177,60 +54,6 @@ onBeforeUnmount(() => {
       <el-tab-pane label="反馈审核" name="feedback">
         <FeedbackReview v-if="activeTab === 'feedback'" :key="`feedback-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
       </el-tab-pane>
-      <el-tab-pane label="业务解释" name="semantics">
-        <FieldSemanticWorkspace v-if="activeTab === 'semantics'" :key="`semantics-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
-      </el-tab-pane>
-      <el-tab-pane label="脱敏候选" name="mask">
-        <section class="mask-panel">
-          <div class="mask-panel__heading">
-            <div>
-              <span>PII 标签联动</span>
-              <h2>待确认脱敏策略</h2>
-              <p>确认后将调用现有权限策略接口生成 MASK 策略；拒绝只清除当前候选。</p>
-            </div>
-            <ShieldCheck :size="22" />
-          </div>
-          <ErrorState v-if="maskError" :message="maskError" @retry="fetchCandidates" />
-          <LoadingState v-else-if="maskLoading" text="正在读取脱敏候选…" />
-          <EmptyState v-else-if="!hasDatasource" message="请先选择数据源，再查看该数据源的脱敏候选。" />
-          <EmptyState
-            v-else-if="!canViewMaskCandidates"
-            message="没有“查看字段保护”能力（security:mask:view）：需要角色拥有该功能并负责当前数据源。"
-          />
-          <EmptyState v-else-if="!candidates.length" message="当前数据源暂无待确认的脱敏候选。" />
-        <el-table v-else :data="candidates" stripe>
-            <el-table-column label="字段" min-width="180">
-              <template #default="{ row }"><strong>{{ row.displayName || row.name }}</strong></template>
-            </el-table-column>
-            <el-table-column prop="fqn" label="资产路径" min-width="280" show-overflow-tooltip />
-            <el-table-column label="来源标签" width="150"><template #default="{ row }">{{ maskTag(row) }}</template></el-table-column>
-            <el-table-column label="建议策略" width="150"><template #default="{ row }"><el-tag :type="maskStrategy(row) ? 'warning' : 'danger'">{{ maskStrategy(row) || '策略无法识别' }}</el-tag></template></el-table-column>
-            <el-table-column label="操作" width="170" fixed="right">
-              <template #default="{ row }">
-                <el-button
-                  link
-                  type="primary"
-                  :loading="candidateBusy[row.entityId]"
-                  :disabled="!maskStrategy(row) || !canManageMaskCandidates"
-                  :title="canManageMaskCandidates ? '' : '需要 security:mask:manage 与当前数据源同一绑定'"
-                  @click="confirmCandidate(row)"
-                >确认生效</el-button>
-                <el-button
-                  link
-                  type="danger"
-                  :loading="candidateBusy[row.entityId]"
-                  :disabled="!canManageMaskCandidates"
-                  :title="canManageMaskCandidates ? '' : '需要 security:mask:manage 与当前数据源同一绑定'"
-                  @click="rejectCandidate(row)"
-                >拒绝</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <p v-if="canViewMaskCandidates && !canManageMaskCandidates" class="mask-panel__hint">
-            你可以查看脱敏候选，但没有“维护字段保护”能力（security:mask:manage），因此不能确认或拒绝。
-          </p>
-        </section>
-      </el-tab-pane>
     </el-tabs>
   </main>
 </template>
@@ -240,10 +63,4 @@ onBeforeUnmount(() => {
 .governance-fields-page :deep(.el-tabs),
 .governance-fields-page :deep(.el-tabs__content),
 .governance-fields-page :deep(.el-tab-pane) { min-width: 0; max-width: 100%; }
-.mask-panel { padding: 18px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); box-shadow: var(--do-shadow); }
-.mask-panel__heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; color: var(--do-primary-strong); }
-.mask-panel__heading span, .mask-panel__heading p { color: var(--do-muted); font-size: 12px; }
-.mask-panel__heading h2 { margin: 5px 0; color: var(--do-ink); font-size: 18px; }
-.mask-panel__heading p { margin: 0; }
-.mask-panel__hint { margin: 12px 0 0; color: var(--do-muted); font-size: 12px; line-height: 1.6; }
 </style>

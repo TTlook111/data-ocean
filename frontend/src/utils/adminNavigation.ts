@@ -1,6 +1,8 @@
 import type { RouteLocationRaw } from 'vue-router'
 import {
   ADMIN_WORKSPACES,
+  findWorkspace,
+  findWorkspaceByPath,
   type AdminContextMode,
   type AdminViewCapability,
   type AdminWorkspace,
@@ -158,6 +160,63 @@ export function visibleAdminWorkspaces(
   selectedDatasourceId?: number,
 ): AdminWorkspace[] {
   return workspaces.filter((workspace) => isWorkspaceVisible(workspace, capabilities, selectedDatasourceId))
+}
+
+export interface AdminBreadcrumbItem {
+  key: string
+  label: string
+  to?: RouteLocationRaw
+  current?: boolean
+}
+
+export interface AdminBreadcrumbInput {
+  title?: string
+  workspaceKey?: string
+  breadcrumbParent?: string
+  query?: Record<string, unknown>
+  workspaces?: AdminWorkspace[]
+}
+
+function queryNumber(value: unknown): number | undefined {
+  const raw = Array.isArray(value) ? value[0] : value
+  const parsed = Number(raw)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined
+}
+
+/**
+ * 由路由 meta、工作区元数据和白名单上下文生成后台面包屑。
+ *
+ * 父级只来自 `breadcrumbParent` 或当前工作区，不按路径前缀猜测；上下文只保留
+ * datasourceId/snapshotId，并交给 buildContextQuery 按目标 contextMode 过滤。
+ */
+export function buildAdminBreadcrumbs(input: AdminBreadcrumbInput): AdminBreadcrumbItem[] {
+  const workspaces = input.workspaces ?? ADMIN_WORKSPACES
+  const title = String(input.title || 'DataOcean 后台')
+  const query: AdminContextSource = {
+    datasourceId: queryNumber(input.query?.datasourceId),
+    snapshotId: queryNumber(input.query?.snapshotId),
+  }
+  const items: AdminBreadcrumbItem[] = [
+    { key: 'home', label: 'DataOcean', to: { path: '/admin/workbench' } },
+  ]
+
+  const appendParent = (workspace: AdminWorkspace | undefined) => {
+    if (!workspace || workspace.label === title) return
+    items.push({
+      key: `workspace-${workspace.key}`,
+      label: workspace.label,
+      to: { path: workspace.path, query: buildContextQuery(workspace.contextMode, query) },
+    })
+  }
+
+  if (input.breadcrumbParent) {
+    appendParent(findWorkspaceByPath(input.breadcrumbParent, workspaces))
+  } else {
+    appendParent(findWorkspace(input.workspaceKey, workspaces))
+  }
+
+  items.push({ key: 'current', label: title, current: true })
+  return items
 }
 
 export interface AdminWorkspaceGroup {

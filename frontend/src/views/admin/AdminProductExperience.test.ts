@@ -12,6 +12,7 @@ const api = vi.hoisted(() => ({
   listKnowledgeDocs: vi.fn(), listQualityIssues: vi.fn(), push: vi.fn(),
   listQualityRules: vi.fn(), updateRuleEnabled: vi.fn(),
   getLatestQualityCheckBatch: vi.fn(), getQualityRuleSummary: vi.fn(), getSnapshotQualityIssueSummary: vi.fn(),
+  listIamS1AccessRequestQueue: vi.fn(),
 }))
 vi.mock('vue-router', async importOriginal => ({
   ...await importOriginal<typeof import('vue-router')>(),
@@ -28,6 +29,7 @@ vi.mock('../../api/admin/datasource', () => ({
 }))
 vi.mock('../../api/admin/metadata', () => ({ listSnapshots: api.listSnapshots, listSyncTasks: api.listSyncTasks, triggerSync: vi.fn() }))
 vi.mock('../../api/admin/knowledge', () => ({ listKnowledgeDocs: api.listKnowledgeDocs }))
+vi.mock('../../api/iamS1', () => ({ listIamS1AccessRequestQueue: api.listIamS1AccessRequestQueue }))
 vi.mock('../../api/admin/governance', () => ({
   listQualityIssues: api.listQualityIssues,
   listQualityRules: api.listQualityRules,
@@ -61,6 +63,7 @@ beforeEach(() => {
   api.getLatestQualityCheckBatch.mockResolvedValue({ data: null })
   api.getQualityRuleSummary.mockResolvedValue({ data: { enabledCount: 1, applicableCount: 1, unsupportedCount: 0, overriddenCount: 0, executedCount: 0 } })
   api.getSnapshotQualityIssueSummary.mockResolvedValue({ data: { totalUnresolved: 0, statusCounts: { OPEN: 0, CONFIRMED: 0, REOPENED: 0 }, recentIssues: [] } })
+  api.listIamS1AccessRequestQueue.mockResolvedValue({ data: { records: [], total: 0 } })
 })
 afterEach(() => wrappers.splice(0).forEach(wrapper => wrapper.unmount()))
 

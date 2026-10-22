@@ -124,7 +124,8 @@ public class MetadataGovernanceController {
     /** 查询当前账号可见的数据源规则与全局规则。 */
     @GetMapping("/quality-rules")
     @IamS1ScopedList(RULE_VIEW_FUNCTION)
-    public Result<List<QualityRuleVO>> listRules(@ModelAttribute QualityRuleQuery query) {
+    public Result<com.baomidou.mybatisplus.extension.plugins.pagination.Page<QualityRuleVO>> listRules(
+            @ModelAttribute QualityRuleQuery query) {
         return Result.success(qualityRuleService.listRules(query, UserContext.currentUserId()));
     }
 

@@ -87,7 +87,7 @@ const canManageTags = computed(() => iamS1.canOnDatasource(
   'governance:field:manage',
   overview.value?.datasource?.id,
 ))
-/** 进入字段治理只需要查看能力，不能要求标签维护能力。 */
+/** 查看字段解释只需要字段查看能力，不能要求标签维护能力。 */
 const canViewFieldGovernance = computed(() => iamS1.canOnDatasource(
   'governance:field:view',
   overview.value?.datasource?.id,
@@ -246,20 +246,20 @@ const fieldGovernanceUnavailableReason = computed(() => {
   if (!current) return '正在读取对象信息…'
   if (!iamS1.loaded) {
     return iamS1.errorMessage
-      ? '字段治理权限读取失败，暂时无法确认入口。'
-      : '正在读取字段治理权限…'
+      ? '字段解释权限读取失败，暂时无法确认入口。'
+      : '正在读取字段解释权限…'
   }
   if (!current.datasource || !current.sourceSnapshot) {
-    return '来源快照无法核验，暂时无法定位字段治理。'
+    return '来源快照无法核验，暂时无法定位字段解释。'
   }
   if (!(current.table?.tableName || current.column?.tableName)) {
-    return '来源快照缺少表名，暂时无法定位字段治理。'
+    return '来源快照缺少表名，暂时无法定位字段解释。'
   }
   if (isColumn.value && !current.column?.columnMetaId) {
-    return '当前字段缺少来源快照中的字段标识，暂时无法精确定位字段治理。'
+    return '当前字段缺少来源快照中的字段标识，暂时无法精确定位字段解释。'
   }
   if (!canViewFieldGovernance.value) {
-    return '没有“查看字段治理”能力（governance:field:view），或当前数据源不在负责范围内。'
+    return '没有“查看字段解释”能力（governance:field:view），或当前数据源不在负责范围内。'
   }
   return ''
 })
@@ -741,25 +741,24 @@ async function removeCatalogTag(tag: OverviewTagItem) {
 function openFieldGovernance() {
   const current = overview.value
   if (!current || fieldGovernanceUnavailableReason.value) {
-    ElMessage.warning(fieldGovernanceUnavailableReason.value || '暂时无法定位字段治理。')
+    ElMessage.warning(fieldGovernanceUnavailableReason.value || '暂时无法定位字段解释。')
     return
   }
   const tableName = current.table?.tableName || current.column?.tableName
   if (!tableName) {
-    ElMessage.warning('当前对象缺少来源快照中的表名，无法定位字段治理。')
+    ElMessage.warning('当前对象缺少来源快照中的表名，无法定位字段解释。')
     return
   }
-  // 白名单上下文：实体 ID 不进入字段治理，字段使用 columnMetaId 定位。
+  // 白名单上下文：字段解释按数据源、来源快照、表和 columnMetaId 定位。
   const query: Record<string, string> = {
     datasourceId: String(current.datasource!.id),
     snapshotId: String(current.sourceSnapshot!.id),
     tableName,
-    tab: isColumn.value ? 'semantics' : 'tags',
   }
   if (isColumn.value && current.column?.columnMetaId) {
     query.columnMetaId = String(current.column.columnMetaId)
   }
-  router.push({ path: '/admin/governance/fields', query })
+  router.push({ path: '/admin/semantics/field-explanations', query })
 }
 
 function openStatusMaintenance() {
@@ -991,9 +990,9 @@ onBeforeUnmount(() => {
           type="primary"
           :icon="ShieldCheck"
           :disabled="!canOpenFieldGovernance"
-          :title="fieldGovernanceUnavailableReason || '在字段治理中定位当前对象'"
+          :title="fieldGovernanceUnavailableReason || '在字段解释中定位当前对象'"
           @click="openFieldGovernance"
-        >进入字段治理</el-button>
+        >查看字段解释</el-button>
         <el-button
           :icon="SlidersHorizontal"
           :disabled="!canOpenStatusMaintenance"
@@ -1038,7 +1037,7 @@ onBeforeUnmount(() => {
     </TaskPageHeader>
 
     <p v-if="overview && fieldGovernanceUnavailableReason" class="entity-detail__entry-hint">
-      字段治理入口不可用：{{ fieldGovernanceUnavailableReason }}
+      字段解释入口不可用：{{ fieldGovernanceUnavailableReason }}
     </p>
 
     <LoadingState v-if="loading" variant="skeleton" :rows="6" />

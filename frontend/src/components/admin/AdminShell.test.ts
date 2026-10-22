@@ -4,10 +4,17 @@ import { defineComponent, h } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import AdminShell from './AdminShell.vue'
 
+interface ShellRoute {
+  path: string
+  name: string
+  query?: Record<string, unknown>
+  meta: Record<string, unknown>
+}
+
 const state = vi.hoisted(() => ({
   iam: { systemAdmin: true, queryUse: false },
   push: vi.fn(), logout: vi.fn(), close: vi.fn(),
-  route: { path: '/admin/workbench', name: 'admin-workbench', meta: { title: '工作台', workspaceKey: 'workbench', domainKey: 'workbench', contextMode: 'none' } },
+  route: { path: '/admin/workbench', name: 'admin-workbench', query: {}, meta: { title: '工作台', workspaceKey: 'workbench', domainKey: 'workbench', contextMode: 'none' } } as ShellRoute,
 }))
 
 vi.mock('vue-router', () => ({
@@ -39,7 +46,13 @@ const ScopeBarStub = defineComponent({
 const wrappers: VueWrapper[] = []
 function createShell() {
   const wrapper = mount(AdminShell, { global: { stubs: {
-    AdminDomainNav: true, ScopeBar: ScopeBarStub, RouterLink: { template: '<a><slot /></a>' }, RouterView: true,
+    AdminDomainNav: true,
+    ScopeBar: ScopeBarStub,
+    RouterLink: {
+      props: ['to'],
+      template: '<a class="router-link-stub" :data-path="to && to.path ? to.path : to" :data-query="to && to.query ? JSON.stringify(to.query) : \'\'"><slot /></a>',
+    },
+    RouterView: true,
     'el-dropdown': AccountDropdown, 'el-dropdown-menu': { template: '<div><slot /></div>' },
     'el-dropdown-item': { template: '<button><slot /></button>' },
     'el-popover': { template: '<div><slot name="reference" /></div>' }, 'el-badge': { template: '<span><slot /></span>' }, 'el-empty': true,
@@ -54,7 +67,7 @@ describe('admin account menu capability', () => {
     state.logout.mockReset().mockResolvedValue(undefined)
     state.iam.systemAdmin = true
     state.iam.queryUse = false
-    state.route = { path: '/admin/workbench', name: 'admin-workbench', meta: { title: '工作台', workspaceKey: 'workbench', domainKey: 'workbench', contextMode: 'none' } }
+    state.route = { path: '/admin/workbench', name: 'admin-workbench', query: {}, meta: { title: '工作台', workspaceKey: 'workbench', domainKey: 'workbench', contextMode: 'none' } }
   })
   afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()) })
 
@@ -119,5 +132,68 @@ describe('admin account menu capability', () => {
     expect(issueScopeBar.props('trackRouteSync')).toBe(true)
     expect(issueScopeBar.props('preserveRouteContextOnRefresh')).toBe(true)
     expect(issuePage.find('.admin-shell__content').classes()).toContain('admin-shell__content--compact')
+  })
+})
+
+describe('admin breadcrumb', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    state.iam.systemAdmin = true
+    state.iam.queryUse = false
+    state.route = { path: '/admin/workbench', name: 'admin-workbench', query: {}, meta: { title: '工作台', workspaceKey: 'workbench', domainKey: 'workbench', contextMode: 'none' } }
+  })
+  afterEach(() => { wrappers.splice(0).forEach((wrapper) => wrapper.unmount()) })
+
+  it('renders the home link and a non-clickable current page', () => {
+    const wrapper = createShell()
+    const nav = wrapper.find('.admin-shell__title')
+    const links = nav.findAll('a')
+
+    expect(links).toHaveLength(1)
+    expect(links[0].attributes('data-path')).toBe('/admin/workbench')
+    expect(nav.find('[aria-current="page"]').text()).toBe('工作台')
+  })
+
+  it('makes the detail parent clickable with only whitelisted context', () => {
+    state.route = {
+      path: '/admin/assets/entities/1',
+      name: 'admin-asset-detail',
+      query: { datasourceId: '5', snapshotId: '9', tab: 'lineage' },
+      meta: {
+        title: '对象详情',
+        workspaceKey: 'assets',
+        domainKey: 'data-assets',
+        contextMode: 'locked-resource',
+        breadcrumbParent: '/admin/assets',
+      },
+    }
+    const wrapper = createShell()
+    const nav = wrapper.find('.admin-shell__title')
+    const parent = nav.findAll('a').find((link) => link.text() === '数据对象目录')
+
+    expect(parent).toBeTruthy()
+    expect(parent!.attributes('data-path')).toBe('/admin/assets')
+    expect(parent!.attributes('data-query')).toBe(JSON.stringify({ datasourceId: '5' }))
+    expect(nav.find('[aria-current="page"]').text()).toBe('对象详情')
+  })
+
+  it('does not render a broken parent link when the parent workspace is unknown', () => {
+    state.route = {
+      path: '/admin/unknown/detail',
+      name: 'admin-unknown-detail',
+      query: {},
+      meta: {
+        title: '未知详情',
+        workspaceKey: 'unknown',
+        domainKey: 'unknown',
+        contextMode: 'locked-resource',
+        breadcrumbParent: '/admin/not-a-workspace',
+      },
+    }
+    const wrapper = createShell()
+    const nav = wrapper.find('.admin-shell__title')
+
+    expect(nav.findAll('a')).toHaveLength(1)
+    expect(nav.find('[aria-current="page"]').text()).toBe('未知详情')
   })
 })

@@ -2,6 +2,7 @@ package com.dataocean.module.governance.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.governance.entity.dto.QualityRuleDTO;
 import com.dataocean.module.governance.entity.po.MetadataQualityRule;
@@ -84,7 +85,7 @@ public class QualityRuleServiceImpl implements QualityRuleService {
     }
 
     @Override
-    public List<QualityRuleVO> listRules(QualityRuleQuery query, Long operatorUserId) {
+    public Page<QualityRuleVO> listRules(QualityRuleQuery query, Long operatorUserId) {
         QualityRuleQuery filter = query == null ? new QualityRuleQuery() : query;
         List<Long> visibleSources = capabilityService.responsibleDatasourcesWithFunction(operatorUserId, RULE_VIEW)
                 .stream().map(IamS1DatasourceRefVO::id).toList();
@@ -101,12 +102,15 @@ public class QualityRuleServiceImpl implements QualityRuleService {
         if (StringUtils.hasText(filter.getTemplateCode())) wrapper.eq(MetadataQualityRule::getTemplateCode, filter.getTemplateCode());
         if (StringUtils.hasText(filter.getRuleName())) wrapper.like(MetadataQualityRule::getRuleName, filter.getRuleName().trim());
         if (filter.getEnabled() != null) wrapper.eq(MetadataQualityRule::getEnabled, filter.getEnabled() ? 1 : 0);
-        List<MetadataQualityRule> visibleRules = ruleMapper.selectList(wrapper);
+
+        Page<MetadataQualityRule> rulePage = ruleMapper.selectPage(
+                new Page<>(filter.getPageNo(), filter.getPageSize()), wrapper);
+        // 覆盖判定需要当前可见范围内全部启用规则，不能只看当前页。
         List<MetadataQualityRule> overrideRules = ruleMapper.selectList(visibleScope(filter.getDatasourceId(), visibleSources)
                 .isNull(MetadataQualityRule::getDeletedAt)
                 .eq(MetadataQualityRule::getEnabled, 1));
-        List<QualityRuleVO> result = new ArrayList<>();
-        for (MetadataQualityRule rule : visibleRules) {
+        List<QualityRuleVO> records = new ArrayList<>();
+        for (MetadataQualityRule rule : rulePage.getRecords()) {
             QualityRuleVO vo = toVO(rule);
             if (Integer.valueOf(1).equals(rule.getEnabled()) && rule.getDeletedAt() == null) {
                 MetadataQualityRule override = overrideRules.stream()
@@ -121,8 +125,10 @@ public class QualityRuleServiceImpl implements QualityRuleService {
                     vo.setOverriddenBy(override.getRuleName());
                 }
             }
-            result.add(vo);
+            records.add(vo);
         }
+        Page<QualityRuleVO> result = new Page<>(rulePage.getCurrent(), rulePage.getSize(), rulePage.getTotal());
+        result.setRecords(records);
         return result;
     }
 

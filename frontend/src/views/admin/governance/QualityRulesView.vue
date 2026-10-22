@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChevronDown, Copy, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ChevronDown, Copy, ListChecks, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -27,9 +27,18 @@ import {
 import { listSnapshots } from '../../../api/admin/metadata'
 import { listSnapshotTables, listSnapshotTableColumns } from '../../../api/admin/governance'
 import { qualityDimensionLabel, severityLabel } from '../../../utils/enumLabels'
-import { describeRuleCondition, describeRuleImpact, describeRuleScope } from '../../../utils/qualityRulePresentation'
+import {
+  RULE_LABELS,
+  describeRuleCondition,
+  describeRuleImpact,
+  describeRuleScope,
+  ruleScopeLabel,
+  ruleTargetTypeLabel,
+  sortRuleScopes,
+} from '../../../utils/qualityRulePresentation'
 import { useRouter } from 'vue-router'
 import { buildContextQuery } from '../../../utils/adminNavigation'
+import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
 
 type RuleScope = 'GLOBAL' | 'DATASOURCE' | 'TABLE' | 'COLUMN'
 type RuleScopeFilter = 'ALL' | RuleScope
@@ -43,6 +52,9 @@ const METADATA_VIEW = 'metadata:view'
 
 const scopeMode = ref<'GLOBAL' | 'DATASOURCE'>('DATASOURCE')
 const rules = ref<QualityRule[]>([])
+const rulesPage = ref(1)
+const rulesPageSize = 10
+const rulesTotal = ref(0)
 const templates = ref<QualityRuleTemplate[]>([])
 const rulesLoading = ref(false)
 const templatesLoading = ref(false)
@@ -65,6 +77,7 @@ const advancedFiltersOpen = ref(false)
 const editorOpen = ref(false)
 const detailOpen = ref(false)
 const editingRuleId = ref<number>()
+const editingRule = ref<QualityRule | null>(null)
 const detailRule = ref<QualityRule | null>(null)
 const detailTab = ref<'description' | 'executions' | 'revisions'>('description')
 const detailHistory = ref<QualityCheckBatchRule[]>([])
@@ -86,6 +99,31 @@ const form = reactive({
   deductionPoints: 3,
   enabled: true,
 })
+const formRef = ref<FormInstance>()
+const parameterErrors = reactive<Record<string, string>>({})
+const sortedAllowedScopes = computed(() => sortRuleScopes(currentTemplate.value?.allowedScopes || []))
+const formRules = computed<FormRules>(() => ({
+  ruleName: [
+    { required: true, message: '请填写规则名称', trigger: 'blur' },
+    { max: 200, message: '规则名称不能超过 200 个字符', trigger: 'blur' },
+  ],
+  templateCode: [{ required: true, message: '请选择检查类型', trigger: 'change' }],
+  scopeType: [{ required: true, message: '请选择适用范围', trigger: 'change' }],
+  datasourceId: form.scopeType === 'GLOBAL'
+    ? []
+    : [{ required: true, message: '请先在顶部范围栏选择数据源', trigger: 'change' }],
+  targetTableName: isTargetScoped.value
+    ? [{ required: true, message: '请选择目标表', trigger: 'change' }]
+    : [],
+  targetColumnName: form.scopeType === 'COLUMN'
+    ? [{ required: true, message: '请选择目标字段', trigger: 'change' }]
+    : [],
+  severity: [{ required: true, message: '请选择严重程度', trigger: 'change' }],
+  deductionPoints: [
+    { required: true, message: '请填写扣分', trigger: 'change' },
+    { type: 'number', min: 0, max: 100, message: '扣分必须在 0 到 100 之间', trigger: 'change' },
+  ],
+}))
 let rulesRequestId = 0
 let templateRequestId = 0
 let targetRequestId = 0
@@ -103,6 +141,27 @@ const canManageSelectedScope = computed(() => scopeMode.value === 'GLOBAL'
 const currentTemplate = computed(() => templates.value.find((template) => template.code === form.templateCode))
 const isTargetScoped = computed(() => ['TABLE', 'COLUMN'].includes(form.scopeType))
 const editorTitle = computed(() => editingRuleId.value ? '编辑质量规则' : '新增质量规则')
+const editorSummary = computed(() => {
+  const template = currentTemplate.value
+  return [
+    { label: '规则编号', value: editingRule.value?.ruleCode || '新建规则' },
+    { label: '配置版本', value: editingRule.value ? `v${editingRule.value.configVersion}` : '—' },
+    { label: '检查类型', value: template?.name || '未选择' },
+    { label: '检查方式', value: template ? (template.checkType === 'DATA' ? '业务数据（只读抽样）' : '元数据检查') : '—' },
+    { label: '治理维度', value: template ? qualityDimensionLabel(template.dimension) : '—' },
+    { label: '检查目标', value: template ? ruleTargetTypeLabel(template.targetType) : '—' },
+    {
+      label: '适用范围',
+      value: describeRuleScope(
+        form.scopeType,
+        context.currentDatasource?.name,
+        form.targetTableName,
+        form.targetColumnName,
+        scopeMode.value === 'DATASOURCE',
+      ),
+    },
+  ]
+})
 const filteredRules = computed(() => rules.value)
 const advancedFilterCount = computed(() => [
   scopeMode.value === 'DATASOURCE' && selectedRuleScope.value !== 'ALL', dimensionFilter.value !== '', showDeleted.value,
@@ -116,7 +175,16 @@ const hasRuleFilters = computed(() => Boolean(ruleNameFilter.value.trim() || tem
   || (scopeMode.value === 'DATASOURCE' && selectedRuleScope.value !== 'ALL') || enabledFilter.value !== 'ALL' || showDeleted.value))
 
 function scopeLabel(scope?: string) {
-  return ({ GLOBAL: '全局', DATASOURCE: '数据源', TABLE: '表', COLUMN: '字段' } as Record<string, string>)[scope || ''] || '未知范围'
+  return ruleScopeLabel(scope)
+}
+
+function ruleTargetType(rule: QualityRule) {
+  const template = templates.value.find((item) => item.code === rule.templateCode)
+  return ruleTargetTypeLabel(template?.targetType)
+}
+
+function ruleCheckWay(rule: QualityRule) {
+  return rule.checkType === 'DATA' ? '业务数据（只读抽样）' : '元数据检查'
 }
 
 function ruleCondition(rule: QualityRule) {
@@ -130,10 +198,6 @@ function ruleScope(rule: QualityRule) {
     : undefined
   return describeRuleScope(rule.scopeType, datasourceName, rule.targetTableName, rule.targetColumnName,
     scopeMode.value === 'DATASOURCE')
-}
-
-function ruleObject(rule: QualityRule) {
-  return `${rule.checkType === 'DATA' ? '业务数据' : '元数据'} · ${qualityDimensionLabel(rule.dimension)}`
 }
 
 function statusType(severity: string) {
@@ -178,7 +242,15 @@ function queryParams() {
     dimension: dimensionFilter.value || undefined,
     enabled: enabledFilter.value === 'ALL' ? undefined : enabledFilter.value === 'ENABLED',
     deleted: showDeleted.value,
+    page: rulesPage.value,
+    pageSize: rulesPageSize,
   }
+}
+
+function changeRulesPage(page: number) {
+  if (page === rulesPage.value) return
+  rulesPage.value = page
+  void loadRules()
 }
 
 async function loadRules() {
@@ -196,7 +268,19 @@ async function loadRules() {
   try {
     const response = await listQualityRules(queryParams())
     if (disposed || request !== rulesRequestId) return
-    rules.value = response.data ?? []
+    // 兼容旧 mock/旧后端返回数组；正式接口返回分页对象。
+    const payload = response.data as unknown
+    rules.value = Array.isArray(payload)
+      ? payload as QualityRule[]
+      : (payload as { records?: QualityRule[] } | null)?.records ?? []
+    rulesTotal.value = Array.isArray(payload)
+      ? payload.length
+      : (payload as { total?: number } | null)?.total ?? 0
+    // 删除/筛选后当前页可能已越界，退回最后一页而不是显示空页。
+    if (!rules.value.length && rulesTotal.value > 0 && rulesPage.value > 1) {
+      rulesPage.value = Math.max(1, Math.ceil(rulesTotal.value / rulesPageSize))
+      await loadRules()
+    }
   } catch {
     if (!disposed && request === rulesRequestId) rulesError.value = '质量规则读取失败，请重试。'
   } finally {
@@ -333,15 +417,55 @@ async function loadColumns(tableName: string, sessionId = editorSessionId,
   }
 }
 
+function clearParameterErrors() {
+  Object.keys(parameterErrors).forEach((key) => delete parameterErrors[key])
+}
+
+function validateParameters(): boolean {
+  clearParameterErrors()
+  const template = currentTemplate.value
+  if (!template) return false
+  for (const parameter of template.parameters) {
+    const value = form.parameters[parameter.key]
+    if (value === null || value === undefined || (typeof value === 'number' && !Number.isFinite(value))) {
+      parameterErrors[parameter.key] = `请填写${parameter.label}`
+      continue
+    }
+    if (parameter.type === 'BOOLEAN') continue
+    const numeric = Number(value)
+    if (parameter.type === 'INTEGER' && !Number.isInteger(numeric)) {
+      parameterErrors[parameter.key] = `${parameter.label}必须是整数`
+    } else if (parameter.minimum !== undefined && numeric < parameter.minimum) {
+      parameterErrors[parameter.key] = `${parameter.label}不能小于 ${parameter.minimum}`
+    } else if (parameter.maximum !== undefined && numeric > parameter.maximum) {
+      parameterErrors[parameter.key] = `${parameter.label}不能大于 ${parameter.maximum}`
+    }
+  }
+  return Object.keys(parameterErrors).length === 0
+}
+
+useAdminScrollLock(() => editorOpen.value || detailOpen.value)
+
+watch(() => form.parameters, (parameters) => {
+  for (const key of Object.keys(parameterErrors)) {
+    const value = parameters[key]
+    if (value !== null && value !== undefined) delete parameterErrors[key]
+  }
+}, { deep: true })
+
 function resetParameters(templateCode: string) {
   targetRequestId++
   targetLoading.value = false
+  clearParameterErrors()
   const template = templates.value.find((item) => item.code === templateCode)
   form.parameters = Object.fromEntries((template?.parameters ?? []).map((parameter) => [
     parameter.key,
     parameter.type === 'BOOLEAN' ? Boolean(parameter.defaultValue) : Number(parameter.defaultValue),
   ]))
-  if (template && !template.allowedScopes.includes(form.scopeType)) form.scopeType = template.allowedScopes[0] as RuleScope
+  const allowedScopes = sortRuleScopes(template?.allowedScopes ?? [])
+  if (template && !allowedScopes.includes(form.scopeType) && allowedScopes.length) {
+    form.scopeType = allowedScopes[0] as RuleScope
+  }
   form.targetTableName = ''
   form.targetColumnName = ''
   targetColumns.value = []
@@ -377,6 +501,7 @@ async function changeFormScope(scope: RuleScope) {
 
 function resetForm(scope: RuleScope) {
   editingRuleId.value = undefined
+  editingRule.value = null
   form.ruleName = ''
   form.templateCode = ''
   form.description = ''
@@ -391,6 +516,8 @@ function resetForm(scope: RuleScope) {
   targetError.value = ''
   targetTables.value = []
   targetColumns.value = []
+  clearParameterErrors()
+  void nextTick(() => formRef.value?.clearValidate())
 }
 
 function createRule() {
@@ -414,11 +541,12 @@ async function editRule(rule: QualityRule) {
   const sessionId = beginEditorSession()
   resetForm(rule.scopeType)
   editingRuleId.value = rule.id
+  editingRule.value = rule
   form.ruleName = rule.ruleName
   form.templateCode = rule.templateCode || ''
   form.description = rule.description || ''
   form.scopeType = rule.scopeType
-  form.datasourceId = rule.datasourceId
+  form.datasourceId = rule.datasourceId ?? undefined
   form.targetTableName = rule.targetTableName || ''
   form.targetColumnName = rule.targetColumnName || ''
   form.parameters = Object.fromEntries(template.parameters.map((parameter) => [
@@ -431,7 +559,8 @@ async function editRule(rule: QualityRule) {
   form.deductionPoints = Number(rule.deductionPoints)
   form.enabled = rule.enabled === 1
   const scope = rule.scopeType
-  const datasourceId = rule.datasourceId
+  // 后端全局规则的 datasourceId 是 null；会话校验使用 undefined，必须先归一化。
+  const datasourceId = rule.datasourceId ?? undefined
   if (rule.scopeType === 'TABLE' || rule.scopeType === 'COLUMN') {
     if (rule.datasourceId) await loadRuleTargets(rule.datasourceId, sessionId, rule.id, scope)
     if (!isCurrentEditorFlow(sessionId, rule.id, scope, datasourceId)) return
@@ -465,18 +594,24 @@ function payload(): QualityRulePayload {
 
 async function saveRule() {
   const template = currentTemplate.value
-  if (!template || !form.ruleName.trim()) {
-    ElMessage.warning('请填写规则名称并选择检查类型。')
+  if (!template) {
+    ElMessage.warning('请选择检查类型。')
     return
   }
-  if ((form.scopeType === 'TABLE' || form.scopeType === 'COLUMN') && !form.targetTableName) {
-    ElMessage.warning('请选择实际元数据表。')
+  if (!form.ruleName.trim()) {
+    ElMessage.warning('请填写规则名称。')
     return
   }
-  if (form.scopeType === 'COLUMN' && !form.targetColumnName) {
-    ElMessage.warning('请选择实际元数据字段。')
+  if (form.scopeType !== 'GLOBAL' && !form.datasourceId) {
+    ElMessage.warning('请先在顶部范围栏选择数据源。')
     return
   }
+  if (!validateParameters()) {
+    ElMessage.warning(Object.values(parameterErrors)[0] || '请检查规则参数后再保存。')
+    return
+  }
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
   if (targetError.value && isTargetScoped.value) {
     ElMessage.warning(targetError.value)
     return
@@ -496,6 +631,7 @@ async function saveRule() {
     if (!isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
     editorOpen.value = false
     ElMessage.success(wasEditing ? '规则配置已保存并生成新版本。' : '规则已创建并进入校验执行链。')
+    rulesPage.value = 1
     await loadRules()
   } catch (error) {
     if (!isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
@@ -607,7 +743,10 @@ function openStatusMaintenance() {
   })
 }
 
-watch([scopeMode, selectedRuleScope, templateFilter, dimensionFilter, ruleNameFilter, enabledFilter, showDeleted], () => { void loadRules() })
+watch([scopeMode, selectedRuleScope, templateFilter, dimensionFilter, ruleNameFilter, enabledFilter, showDeleted], () => {
+  rulesPage.value = 1
+  void loadRules()
+})
 watch(() => context.datasourceId, async () => {
   invalidateEditorSession()
   if (editorOpen.value) editorOpen.value = false
@@ -640,6 +779,7 @@ onBeforeUnmount(() => {
           <button type="button" :class="{ active: scopeMode === 'GLOBAL' }" :disabled="!iamS1.hasGlobal(RULE_VIEW)" :title="!iamS1.hasGlobal(RULE_VIEW) ? '没有查看全局规则的权限' : '全局规则只允许受保护系统管理员维护'" @click="selectScopeMode('GLOBAL')">全局规则</button>
         </div>
         <div class="quality-rules-page__toolbar-actions">
+          <el-button :icon="ListChecks" @click="router.push('/admin/governance/rule-templates')">检查类型</el-button>
           <el-button @click="openStatusMaintenance">治理状态维护</el-button>
           <el-button :icon="RefreshCw" :loading="rulesLoading || templatesLoading" @click="refresh">刷新</el-button>
           <el-button type="primary" :icon="Plus" :disabled="!canManageSelectedScope || templatesLoading" @click="createRule">新增规则</el-button>
@@ -695,16 +835,19 @@ onBeforeUnmount(() => {
               <el-tag v-else-if="row.overridden" size="small" type="warning" :title="`受规则「${row.overriddenBy}」覆盖`">有覆盖</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="检查对象" min-width="160">
-            <template #default="{ row }"><strong>{{ ruleObject(row) }}</strong><small class="quality-rules-page__subline">{{ templates.find((template) => template.code === row.templateCode)?.name || row.templateCode || '未映射模板' }}</small></template>
+          <el-table-column label="检查类型" min-width="180">
+            <template #default="{ row }">
+              <strong>{{ templates.find((template) => template.code === row.templateCode)?.name || row.templateCode || '未映射模板' }}</strong>
+              <small class="quality-rules-page__subline">{{ ruleCheckWay(row) }} · {{ qualityDimensionLabel(row.dimension) }} · 检查{{ ruleTargetType(row) }}</small>
+            </template>
           </el-table-column>
           <el-table-column label="适用范围" min-width="210">
             <template #default="{ row }"><span class="quality-rules-page__scope-text" :title="ruleScope(row)">{{ ruleScope(row) }}</span></template>
           </el-table-column>
-          <el-table-column label="级别与影响" min-width="160">
+          <el-table-column label="严重程度" min-width="160">
             <template #default="{ row }"><el-tag size="small" :type="statusType(row.severity)">{{ severityLabel(row.severity) }}</el-tag><small class="quality-rules-page__subline">{{ describeRuleImpact(row.severity, row.deductionPoints) }}</small></template>
           </el-table-column>
-          <el-table-column label="启用" width="88">
+          <el-table-column label="启用状态" width="96">
             <template #default="{ row }">
               <el-switch v-if="!showDeleted && row.supported" :model-value="row.enabled === 1" :loading="rowLoading[row.id]" :disabled="!canManageRule(row)" :aria-label="`${row.ruleName}启用状态`" @change="toggleRule(row)" />
               <span v-else-if="showDeleted">已删除</span>
@@ -731,40 +874,64 @@ onBeforeUnmount(() => {
             </template>
           </el-table-column>
         </el-table>
+        <el-pagination
+          v-if="!rulesLoading && !rulesError && rulesTotal > 0"
+          class="quality-rules-page__pagination"
+          background
+          layout="total, prev, pager, next"
+          :total="rulesTotal"
+          :page-size="rulesPageSize"
+          :current-page="rulesPage"
+          @current-change="changeRulesPage"
+        />
       </div>
     </section>
 
-    <el-dialog v-model="editorOpen" :title="editorTitle" width="min(880px, calc(100vw - 32px))" append-to-body destroy-on-close>
+    <el-dialog
+      v-model="editorOpen"
+      :title="editorTitle"
+      class="quality-rule-editor-dialog"
+      width="min(880px, calc(100vw - 32px))"
+      top="6vh"
+      append-to-body
+      destroy-on-close
+    >
       <div class="quality-rule-form">
-        <el-form label-position="top">
+        <div class="quality-rule-form__derived quality-rule-form__context" aria-label="当前规则摘要">
+          <div v-for="item in editorSummary" :key="item.label">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
+        <el-form ref="formRef" :model="form" :rules="formRules" label-position="top">
           <div class="quality-rule-form__grid">
-            <el-form-item label="规则名称" required><el-input v-model="form.ruleName" maxlength="200" show-word-limit /></el-form-item>
-            <el-form-item label="检查类型" required>
+            <el-form-item :label="RULE_LABELS.ruleName" prop="ruleName"><el-input v-model="form.ruleName" maxlength="200" show-word-limit /></el-form-item>
+            <el-form-item :label="RULE_LABELS.templateCode" prop="templateCode">
               <el-select v-model="form.templateCode" filterable :loading="templatesLoading" @change="resetParameters">
                 <el-option v-for="template in templates" :key="template.code" :label="template.name" :value="template.code" />
               </el-select>
             </el-form-item>
           </div>
-          <el-form-item label="说明"><el-input v-model="form.description" type="textarea" :rows="2" maxlength="500" /></el-form-item>
+          <el-form-item :label="RULE_LABELS.description"><el-input v-model="form.description" type="textarea" :rows="2" maxlength="500" placeholder="写清发现问题后应如何处理；模板说明单独展示" /></el-form-item>
 
           <section v-if="currentTemplate" class="quality-rule-form__section">
+            <p class="quality-rule-form__target-source"><strong>模板说明</strong>{{ currentTemplate.description }}</p>
             <h3>配置目标和条件</h3>
-            <p>{{ currentTemplate.description }} · {{ qualityDimensionLabel(currentTemplate.dimension) }} · {{ currentTemplate.checkType === 'DATA' ? '只读数据级检查' : '元数据检查' }}</p>
             <div class="quality-rule-form__grid">
-              <el-form-item label="作用范围" required>
+              <el-form-item :label="RULE_LABELS.scopeType" prop="scopeType">
                 <el-select :model-value="form.scopeType" @change="(value: RuleScope) => changeFormScope(value)">
-                  <el-option v-for="scope in currentTemplate.allowedScopes" :key="scope" :label="scopeLabel(scope)" :value="scope" />
+                  <el-option v-for="scope in sortedAllowedScopes" :key="scope" :label="scopeLabel(scope)" :value="scope" />
                 </el-select>
               </el-form-item>
-              <el-form-item v-if="form.scopeType !== 'GLOBAL'" label="数据源" required>
+              <el-form-item v-if="form.scopeType !== 'GLOBAL'" :label="RULE_LABELS.datasource" prop="datasourceId">
                 <el-input :model-value="context.currentDatasource?.name || ''" readonly placeholder="请先在范围栏选择数据源" />
               </el-form-item>
-              <el-form-item v-if="form.scopeType === 'TABLE' || form.scopeType === 'COLUMN'" label="目标表" required>
+              <el-form-item v-if="form.scopeType === 'TABLE' || form.scopeType === 'COLUMN'" :label="RULE_LABELS.targetTable" prop="targetTableName">
                 <el-select v-model="form.targetTableName" filterable :loading="targetLoading" :disabled="!targetTables.length" @change="loadColumns">
                   <el-option v-for="table in targetTables" :key="table.tableName" :label="table.tableComment ? `${table.tableName} · ${table.tableComment}` : table.tableName" :value="table.tableName" />
                 </el-select>
               </el-form-item>
-              <el-form-item v-if="form.scopeType === 'COLUMN'" label="目标字段" required>
+              <el-form-item v-if="form.scopeType === 'COLUMN'" :label="RULE_LABELS.targetColumn" prop="targetColumnName">
                 <el-select v-model="form.targetColumnName" filterable :loading="targetLoading" :disabled="!targetColumns.length">
                   <el-option v-for="column in targetColumns" :key="column.columnName" :label="column.columnComment ? `${column.columnName} · ${column.columnComment}` : `${column.columnName} · ${column.dataType}`" :value="column.columnName" />
                 </el-select>
@@ -774,7 +941,13 @@ onBeforeUnmount(() => {
             <p v-if="targetError" class="quality-rule-form__error" role="alert">{{ targetError }}</p>
             <template v-if="currentTemplate.parameters.length">
               <div class="quality-rule-form__grid">
-                <el-form-item v-for="parameter in currentTemplate.parameters" :key="parameter.key" :label="parameter.label" required>
+                <el-form-item
+                  v-for="parameter in currentTemplate.parameters"
+                  :key="parameter.key"
+                  :label="parameter.label"
+                  :error="parameterErrors[parameter.key]"
+                  required
+                >
                   <el-switch v-if="parameter.type === 'BOOLEAN'" v-model="form.parameters[parameter.key]" />
                   <el-input-number v-else v-model="form.parameters[parameter.key]" :min="parameter.minimum" :max="parameter.maximum" :step="parameter.type === 'INTEGER' ? 1 : 0.01" :precision="parameter.type === 'INTEGER' ? 0 : 4" />
                 </el-form-item>
@@ -787,10 +960,10 @@ onBeforeUnmount(() => {
           <section v-if="currentTemplate" class="quality-rule-form__section">
             <h3>设置严重程度与扣分</h3>
             <div class="quality-rule-form__grid">
-              <el-form-item label="严重程度" required>
+              <el-form-item :label="RULE_LABELS.severity" prop="severity">
                 <el-select v-model="form.severity"><el-option label="高" value="HIGH" /><el-option label="中" value="MEDIUM" /><el-option label="低" value="LOW" /></el-select>
               </el-form-item>
-              <el-form-item label="扣分" required><el-input-number v-model="form.deductionPoints" :min="0" :max="100" :step="0.5" :precision="1" /></el-form-item>
+              <el-form-item :label="RULE_LABELS.deductionPoints" prop="deductionPoints"><el-input-number v-model="form.deductionPoints" :min="0" :max="100" :step="0.5" :precision="1" /></el-form-item>
             </div>
             <el-checkbox v-model="form.enabled">保存后启用</el-checkbox>
           </section>
@@ -805,22 +978,48 @@ onBeforeUnmount(() => {
     <el-drawer v-model="detailOpen" title="质量规则详情" :size="'min(760px, 100vw)'" append-to-body destroy-on-close class="quality-rule-detail-drawer" @closed="detailRequestId++">
       <div v-if="detailRule" class="quality-rule-detail">
         <header class="quality-rule-detail__header">
-          <div><strong>{{ detailRule.ruleName }}</strong><el-tag size="small" :type="detailRule.enabled === 1 ? 'success' : 'info'">{{ detailRule.enabled === 1 ? '已启用' : '已停用' }}</el-tag></div>
-          <p>{{ ruleObject(detailRule) }} · {{ templates.find((item) => item.code === detailRule?.templateCode)?.name || detailRule.templateCode || '未映射模板' }}</p>
+          <div class="quality-rule-detail__heading">
+            <div class="quality-rule-detail__title-block">
+              <span class="quality-rule-detail__eyebrow">质量规则</span>
+              <h2>{{ detailRule.ruleName }}</h2>
+              <p>{{ templates.find((item) => item.code === detailRule?.templateCode)?.name || detailRule.templateCode || '未映射模板' }} · {{ ruleCheckWay(detailRule) }} · {{ qualityDimensionLabel(detailRule.dimension) }} · 检查{{ ruleTargetType(detailRule) }}</p>
+            </div>
+            <div class="quality-rule-detail__badges">
+              <el-tag size="small" :type="detailRule.enabled === 1 ? 'success' : 'info'">{{ detailRule.enabled === 1 ? '已启用' : '已停用' }}</el-tag>
+              <el-tag v-if="detailRule.deletedAt" size="small" type="info">已删除</el-tag>
+              <el-tag v-if="detailRule.overridden" size="small" type="warning">有覆盖</el-tag>
+            </div>
+          </div>
+          <dl class="quality-rule-detail__summary">
+            <div><dt>{{ RULE_LABELS.templateCode }}</dt><dd>{{ templates.find((item) => item.code === detailRule?.templateCode)?.name || detailRule.templateCode || '未映射模板' }}</dd></div>
+            <div><dt>{{ RULE_LABELS.scopeType }}</dt><dd>{{ ruleScope(detailRule) }}</dd></div>
+            <div><dt>{{ RULE_LABELS.severity }}</dt><dd>{{ severityLabel(detailRule.severity) }} · 扣 {{ detailRule.deductionPoints }} 分</dd></div>
+            <div><dt>配置版本</dt><dd>v{{ detailRule.configVersion }} · {{ detailRule.enabled === 1 ? '已启用' : '已停用' }}</dd></div>
+          </dl>
         </header>
         <el-tabs v-model="detailTab" aria-label="规则详情内容">
           <el-tab-pane label="检查说明" name="description">
             <section class="quality-rule-detail__section">
-              <h3>检查什么</h3><p>{{ templates.find((item) => item.code === detailRule?.templateCode)?.description || detailRule.description || '按现有检查定义执行。' }}</p>
+              <h3>检查类型与目标</h3>
+              <dl>
+                <div><dt>{{ RULE_LABELS.templateCode }}</dt><dd>{{ templates.find((item) => item.code === detailRule?.templateCode)?.name || detailRule.templateCode || '未映射模板' }}</dd></div>
+                <div><dt>{{ RULE_LABELS.checkType }}</dt><dd>{{ ruleCheckWay(detailRule) }}</dd></div>
+                <div><dt>{{ RULE_LABELS.dimension }}</dt><dd>{{ qualityDimensionLabel(detailRule.dimension) }}</dd></div>
+                <div><dt>{{ RULE_LABELS.targetType }}</dt><dd>{{ ruleTargetType(detailRule) }}</dd></div>
+              </dl>
+            </section>
+            <section class="quality-rule-detail__section">
+              <h3>检查说明（模板）</h3>
+              <p>{{ templates.find((item) => item.code === detailRule?.templateCode)?.description || '模板未提供说明。' }}</p>
               <p class="quality-rule-detail__condition">{{ ruleCondition(detailRule) }}</p>
             </section>
             <section class="quality-rule-detail__section">
               <h3>范围与处理影响</h3>
-              <dl><div><dt>适用范围</dt><dd>{{ ruleScope(detailRule) }}</dd></div><div><dt>严重程度</dt><dd>{{ severityLabel(detailRule.severity) }} · 扣 {{ detailRule.deductionPoints }} 分</dd></div><div><dt>当前配置</dt><dd>v{{ detailRule.configVersion }} · {{ detailRule.enabled === 1 ? '已启用' : '已停用' }}</dd></div></dl>
+              <dl><div><dt>{{ RULE_LABELS.scopeType }}</dt><dd>{{ ruleScope(detailRule) }}</dd></div><div><dt>{{ RULE_LABELS.severity }}</dt><dd>{{ severityLabel(detailRule.severity) }} · 扣 {{ detailRule.deductionPoints }} 分</dd></div><div><dt>当前配置</dt><dd>v{{ detailRule.configVersion }} · {{ detailRule.enabled === 1 ? '已启用' : '已停用' }}<template v-if="detailRule.deletedAt"> · 已删除</template></dd></div></dl>
               <p v-if="detailRule.overridden" class="quality-rule-detail__warning">部分目标由更具体的「{{ detailRule.overriddenBy }}」规则覆盖。执行优先级：字段、表、数据源、全局。</p>
               <p v-else class="quality-rule-detail__note">同一检查按字段、表、数据源、全局的优先级只应用一个规则实例。</p>
             </section>
-            <section class="quality-rule-detail__section"><h3>处理建议</h3><p>{{ detailRule.description || '处理问题请前往治理问题中心，按对应来源和快照核实检查结果。' }}</p></section>
+            <section class="quality-rule-detail__section"><h3>处理建议（本规则）</h3><p>{{ detailRule.description || '未填写处理建议。' }}</p></section>
             <details class="quality-rule-detail__technical"><summary>技术详情</summary><p>模板编码：<code>{{ detailRule.templateCode || detailRule.ruleCode }}</code></p><pre>{{ JSON.stringify(detailRule.parameters || {}, null, 2) }}</pre></details>
             <p v-if="!detailRule.supported" class="quality-rule-form__error">{{ detailRule.unsupportedReason || '此规则无法映射到当前可执行模板。' }}</p>
           </el-tab-pane>
@@ -875,6 +1074,7 @@ onBeforeUnmount(() => {
 .quality-rules-page__advanced-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -2px 0 14px; padding: 12px; border: 1px solid var(--do-line); border-radius: var(--do-radius-md); background: var(--do-bg); }
 .quality-rules-page__permission { padding: 20px 0; color: var(--do-muted); }
 .quality-rules-page__table-wrap { min-width: 0; overflow-x: auto; }
+.quality-rules-page__pagination { justify-content: flex-end; margin-top: 12px; }
 .quality-rules-page__name-link { margin-right: 8px; border: 0; padding: 0; color: var(--do-primary-strong); background: transparent; cursor: pointer; font: inherit; font-weight: 600; }
 .quality-rules-page__condition,.quality-rules-page__subline { display: block; margin-top: 4px; color: var(--do-muted); font-size: 12px; line-height: 1.45; white-space: normal; }
 .quality-rules-page__scope-text { display: block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -886,26 +1086,82 @@ onBeforeUnmount(() => {
 .quality-rule-form__section h3 { margin: 0 0 4px; color: var(--do-ink); font-size: 15px; }
 .quality-rule-form__section > p { margin: 0 0 12px; color: var(--do-muted); font-size: 12px; line-height: 1.5; }
 .quality-rule-form__target-source { margin: -4px 0 12px !important; }
+.quality-rule-form__derived {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px 16px;
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-md);
+  background: var(--do-bg);
+}
+.quality-rule-form__derived div { display: grid; gap: 2px; }
+.quality-rule-form__derived span { color: var(--do-muted); font-size: 11px; }
+.quality-rule-form__derived strong { color: var(--do-ink); font-size: 13px; font-weight: 600; }
+.quality-rule-form__context { margin: 0 0 14px; background: var(--do-surface); }
+.quality-rule-form__target-source strong { margin-right: 6px; }
+:global(.quality-rule-editor-dialog .el-dialog__body) {
+  max-height: calc(90vh - 140px);
+  overflow-y: auto;
+  padding-right: 8px;
+}
 .quality-rule-form__preview { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid var(--do-primary); border-radius: var(--do-radius-sm); color: var(--do-ink); background: var(--do-bg); font-size: 13px; line-height: 1.5; }
 .quality-rule-form__preview strong { display: block; margin-bottom: 4px; }
 .quality-rule-form__error { margin: 8px 0; color: var(--do-danger); font-size: 13px; }
-.quality-rule-detail { display: grid; gap: 12px; }
-.quality-rule-detail__header { padding: 4px 0 12px; border-bottom: 1px solid var(--do-line); }
-.quality-rule-detail__header > div { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; color: var(--do-ink); font-size: 18px; }
-.quality-rule-detail__header p { margin-top: 8px; }
-.quality-rule-detail__section { display: grid; gap: 8px; padding: 14px 0; border-bottom: 1px solid var(--do-line); }
+:global(.quality-rule-detail-drawer .el-drawer__body) { background: var(--do-bg); }
+:global(.quality-rule-detail-drawer .el-drawer__header) { margin-bottom: 0; padding-bottom: 12px; }
+.quality-rule-detail { display: grid; gap: 16px; }
+.quality-rule-detail__header {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-lg);
+  background: linear-gradient(160deg, var(--do-primary-soft), var(--do-surface) 72%);
+}
+.quality-rule-detail__heading { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; }
+.quality-rule-detail__title-block { display: grid; gap: 5px; min-width: 0; }
+.quality-rule-detail__eyebrow { color: var(--do-primary-strong); font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+.quality-rule-detail__title-block h2 { margin: 0; color: var(--do-ink); font-size: 20px; line-height: 1.3; overflow-wrap: anywhere; }
+.quality-rule-detail__title-block p { margin: 0; color: var(--do-muted); font-size: 12.5px; line-height: 1.5; }
+.quality-rule-detail__badges { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.quality-rule-detail__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px 18px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--do-radius-md);
+  background: color-mix(in srgb, var(--do-surface) 76%, transparent);
+}
+.quality-rule-detail__summary > div { display: grid; gap: 2px; min-width: 0; }
+.quality-rule-detail__summary dt { color: var(--do-muted); font-size: 11px; }
+.quality-rule-detail__summary dd { margin: 0; color: var(--do-ink); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.quality-rule-detail__section {
+  display: grid;
+  gap: 9px;
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-md);
+  background: var(--do-surface);
+}
 .quality-rule-detail__section h3 { margin: 0; color: var(--do-ink); font-size: 14px; }
-.quality-rule-detail__condition { padding: 10px 12px; border-radius: var(--do-radius-sm); background: var(--do-bg); }
+.quality-rule-detail__condition { margin: 0; padding: 10px 12px; border-radius: var(--do-radius-sm); background: var(--do-bg); }
 .quality-rule-detail__section dl { display: grid; gap: 8px; margin: 0; }
 .quality-rule-detail__section dl > div { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 12px; }
-.quality-rule-detail__section dt { color: var(--do-muted); }
-.quality-rule-detail__section dd { margin: 0; color: var(--do-ink); overflow-wrap: anywhere; }
-.quality-rule-detail__technical { padding-top: 12px; color: var(--do-muted); font-size: 13px; }
+.quality-rule-detail__section dt { color: var(--do-muted); font-size: 12.5px; }
+.quality-rule-detail__section dd { margin: 0; color: var(--do-ink); font-size: 13px; overflow-wrap: anywhere; }
+.quality-rule-detail__technical {
+  padding: 14px 16px;
+  border: 1px dashed var(--do-line-strong);
+  border-radius: var(--do-radius-md);
+  color: var(--do-muted);
+  font-size: 13px;
+}
 .quality-rule-detail__technical summary { cursor: pointer; }
 .quality-rule-detail__technical pre { max-height: 220px; overflow: auto; padding: 12px; border-radius: var(--do-radius-sm); color: var(--do-ink); background: var(--do-bg); }
-.quality-rule-detail > div { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 12px; }
-.quality-rule-detail > div > span { color: var(--do-muted); font-size: 13px; }
-.quality-rule-detail > div > strong,.quality-rule-detail code { color: var(--do-ink); font-size: 13px; overflow-wrap: anywhere; }
+.quality-rule-detail code { color: var(--do-ink); font-size: 13px; overflow-wrap: anywhere; }
 .quality-rule-detail p { margin: 0; color: var(--do-muted); font-size: 13px; line-height: 1.5; }
 .quality-rule-detail .quality-rule-detail__warning { color: var(--do-warning); }
 .quality-rule-detail .quality-rule-detail__note { color: var(--do-muted); }

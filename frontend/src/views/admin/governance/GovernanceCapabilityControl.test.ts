@@ -11,10 +11,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick, reactive } from 'vue'
-import ElementPlus, { ElDialog, ElDropdown, ElMessage, ElSelect } from 'element-plus'
+import ElementPlus, { ElDialog, ElDropdown, ElInputNumber, ElMessage, ElSelect } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
 import type { QualityIssueItem } from '../../../api/admin/governance'
+
+vi.mock('../field/FieldTagManager.vue', () => ({ default: { template: '<div>字段标签管理</div>' } }))
+vi.mock('../field/ConfidenceDashboard.vue', () => ({ default: { template: '<div>字段可信度</div>' } }))
+vi.mock('../field/FeedbackReview.vue', () => ({ default: { template: '<div>反馈审核队列</div>' } }))
 
 /** 可变的“当前路由”，让用例能把页面直接挂载在指定 Tab 上。 */
 const routeState = vi.hoisted(() => ({ query: {} as Record<string, unknown>, push: vi.fn(), replace: vi.fn() }))
@@ -928,6 +932,170 @@ describe('质量规则管理的能力控制', () => {
     }))
   })
 
+  it('新增表单展示模板派生的检查方式、治理维度和检查目标', async () => {
+    respond(capability({ onDatasource: ['metadata:view', 'governance:rule:view', 'governance:rule:manage'] }))
+    api.listQualityRuleTemplates.mockResolvedValue({ data: [{
+      code: 'DATA_NULL_RATE_HIGH', name: '列空值率过高', dimension: 'COMPLETENESS',
+      targetType: 'COLUMN', checkType: 'DATA', description: '样本检查说明',
+      allowedScopes: ['COLUMN', 'GLOBAL', 'TABLE', 'DATASOURCE'],
+      parameters: [{ key: 'threshold', label: '空值率阈值', type: 'NUMBER', minimum: 0, maximum: 1, defaultValue: 0.3 }],
+    }] })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    await wrapper.findAll('button').find((button) => button.text().includes('新增规则'))!.trigger('click')
+    await settle()
+    const templateSelect = wrapper.findAllComponents(ElSelect)
+      .find((select) => select.props('modelValue') === '' && !select.props('placeholder'))
+    await templateSelect!.vm.$emit('update:modelValue', 'DATA_NULL_RATE_HIGH')
+    await templateSelect!.vm.$emit('change', 'DATA_NULL_RATE_HIGH')
+    await settle()
+
+    const text = document.body.textContent || ''
+    expect(text).toContain('检查方式')
+    expect(text).toContain('业务数据（只读抽样）')
+    expect(text).toContain('治理维度')
+    expect(text).toContain('检查目标')
+    expect(text).toContain('样本检查说明')
+  })
+
+  it('缺少规则名称时表单校验阻止提交', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    await wrapper.findAll('button').find((button) => button.text().includes('新增规则'))!.trigger('click')
+    await settle()
+    const templateSelect = wrapper.findAllComponents(ElSelect)
+      .find((select) => select.props('modelValue') === '' && !select.props('placeholder'))
+    await templateSelect!.vm.$emit('update:modelValue', 'COMP_COLUMN_COMMENT_MISSING')
+    await templateSelect!.vm.$emit('change', 'COMP_COLUMN_COMMENT_MISSING')
+    await settle()
+    document.body.querySelector<HTMLButtonElement>('.el-dialog__footer .el-button--primary')!.click()
+    await settle()
+
+    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain('请填写规则名称')
+  })
+
+  it('清空数值参数时阻止提交并提示具体参数', async () => {
+    respond(capability({ onDatasource: ['metadata:view', 'governance:rule:view', 'governance:rule:manage'] }))
+    api.listQualityRuleTemplates.mockResolvedValue({ data: [{
+      code: 'DATA_NULL_RATE_HIGH', name: '列空值率过高', dimension: 'COMPLETENESS',
+      targetType: 'COLUMN', checkType: 'DATA', description: '样本检查说明',
+      allowedScopes: ['GLOBAL', 'DATASOURCE', 'TABLE', 'COLUMN'],
+      parameters: [{ key: 'threshold', label: '空值率阈值', type: 'NUMBER', minimum: 0, maximum: 1, defaultValue: 0.3 }],
+    }] })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    await wrapper.findAll('button').find((button) => button.text().includes('新增规则'))!.trigger('click')
+    await settle()
+    const templateSelect = wrapper.findAllComponents(ElSelect)
+      .find((select) => select.props('modelValue') === '' && !select.props('placeholder'))
+    await templateSelect!.vm.$emit('update:modelValue', 'DATA_NULL_RATE_HIGH')
+    await templateSelect!.vm.$emit('change', 'DATA_NULL_RATE_HIGH')
+    await settle()
+    const nameInput = document.body.querySelector<HTMLInputElement>('.el-dialog input[maxlength="200"]')
+    nameInput!.value = '空值率规则'
+    nameInput!.dispatchEvent(new Event('input', { bubbles: true }))
+    const warning = vi.spyOn(ElMessage, 'warning')
+    const thresholdInput = wrapper.findAllComponents(ElInputNumber)
+      .find((input) => input.props('modelValue') === 0.3)
+    expect(thresholdInput).toBeTruthy()
+    thresholdInput!.vm.$emit('update:modelValue', null)
+    await settle()
+    document.body.querySelector<HTMLButtonElement>('.el-dialog__footer .el-button--primary')!.click()
+    await settle()
+
+    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(warning).toHaveBeenCalledWith('请填写空值率阈值')
+    warning.mockRestore()
+  })
+
+  it('详情把模板检查说明与本规则处理建议分开显示', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    const detailRule = {
+      ...globalRule,
+      scopeType: 'DATASOURCE',
+      datasourceId: DATASOURCE_ID,
+      description: '先核对负责人再修改字段',
+    }
+    api.listQualityRules.mockResolvedValue({ data: [detailRule] })
+    api.getQualityRule.mockResolvedValue({ data: detailRule })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    await wrapper.findAll('button').find((button) => button.text() === '字段说明规则')!.trigger('click')
+    await settle()
+
+    const text = document.body.textContent || ''
+    expect(text).toContain('检查说明（模板）')
+    expect(text).toContain('检查字段说明')
+    expect(text).toContain('处理建议（本规则）')
+    expect(text).toContain('先核对负责人再修改字段')
+  })
+
+  it('质量规则表格使用后端分页，翻页请求新页', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    api.listQualityRules.mockImplementation(async (params?: { page?: number }) => ({
+      data: {
+        records: [{ ...globalRule, ruleName: `第 ${params?.page || 1} 页规则` }],
+        total: 45,
+      },
+    }))
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+
+    expect(wrapper.find('.el-pagination').exists()).toBe(true)
+    expect(api.listQualityRules).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1, pageSize: 10 }))
+    const secondPage = wrapper.findAll('.el-pager li').find((item) => item.text() === '2')
+    expect(secondPage).toBeTruthy()
+    await secondPage!.trigger('click')
+    await settle()
+
+    expect(api.listQualityRules).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2, pageSize: 10 }))
+  })
+
+  it('编辑弹窗显示与行一致的规则编号、配置版本和检查信息', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
+    const editable = {
+      ...globalRule,
+      ruleCode: 'QR-EDIT',
+      ruleName: '可编辑规则',
+      scopeType: 'DATASOURCE',
+      datasourceId: DATASOURCE_ID,
+      configVersion: 4,
+    }
+    api.listQualityRules.mockResolvedValue({ data: { records: [editable], total: 1 } })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    await wrapper.findAll('button').find((button) => button.text() === '编辑')!.trigger('click')
+    await settle()
+
+    const text = document.body.textContent || ''
+    expect(text).toContain('规则编号')
+    expect(text).toContain('QR-EDIT')
+    expect(text).toContain('配置版本')
+    expect(text).toContain('v4')
+    const nameInput = document.body.querySelector<HTMLInputElement>('.el-dialog input[maxlength="200"]')
+    expect(nameInput?.value).toBe('可编辑规则')
+  })
+
+  it('编辑全局规则时归一化 null datasourceId 并打开弹窗', async () => {
+    respond(capability({ global: ['governance:rule:view', 'governance:rule:manage'], systemAdmin: true }))
+    const globalWithNullDatasource = {
+      ...globalRule,
+      datasourceId: null,
+    } as unknown as typeof globalRule
+    api.listQualityRules.mockResolvedValue({ data: { records: [globalWithNullDatasource], total: 1 } })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+
+    await wrapper.findAll('button').find((button) => button.text() === '编辑')!.trigger('click')
+    await settle()
+
+    expect(document.body.textContent).toContain('编辑质量规则')
+    const nameInput = document.body.querySelector<HTMLInputElement>('.el-dialog input[maxlength="200"]')
+    expect(nameInput?.value).toBe('字段说明规则')
+  })
+
   it('规则保存失败保留表单并显示后端冲突原因', async () => {
     respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
     api.createQualityRule.mockRejectedValueOnce({ response: { data: { message: '同一检查模板、同一目标和同一级范围已有启用规则' } } })
@@ -1266,49 +1434,29 @@ describe('治理总览的批次恢复与范围隔离', () => {
   })
 })
 
-describe('GovernanceFieldsView 的能力控制', () => {
-  beforeEach(() => {
-    // 这三个 Tab 的后端端点属于尚未迁移的批次，这里只验证本页自有的脱敏候选 Tab。
-    reactiveRouteState.query = { tab: 'mask' }
-    api.listMaskCandidates.mockResolvedValue({
-      data: [{
-        entityId: 11,
-        name: 'phone',
-        displayName: '手机号',
-        fqn: 'db.t.phone',
-        pendingMask: { mask_strategy: 'PHONE', tag_fqn: 'PII.PHONE' },
-      }],
-    })
-  })
-
-  it('没有 security:mask:view 时不请求脱敏候选', async () => {
-    respond(capability({ global: [], onDatasource: ['metadata:view'] }))
+describe('GovernanceFieldsView 的职责收敛', () => {
+  it('字段治理只保留标签、可信度和反馈审核', async () => {
+    reactiveRouteState.query = { tab: 'tags' }
+    respond(capability({ onDatasource: ['governance:field:view', 'metadata:view'] }))
     const wrapper = mountPage(GovernanceFieldsView)
     await settle()
 
+    expect(wrapper.text()).toContain('标签')
+    expect(wrapper.text()).toContain('可信度')
+    expect(wrapper.text()).toContain('反馈审核')
+    expect(wrapper.text()).not.toContain('业务解释')
+    expect(wrapper.text()).not.toContain('脱敏候选')
     expect(api.listMaskCandidates).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('security:mask:view')
   })
 
-  it('有查看权无维护权时确认与拒绝都不可用', async () => {
-    respond(capability({ onDatasource: ['security:mask:view'] }))
+  it('旧 tab=mask 或 tab=semantics 回退到标签页而不是空白', async () => {
+    reactiveRouteState.query = { tab: 'mask' }
+    respond(capability({ onDatasource: ['governance:field:view', 'metadata:view'] }))
     const wrapper = mountPage(GovernanceFieldsView)
     await settle()
 
-    expect(api.listMaskCandidates).toHaveBeenCalledWith(DATASOURCE_ID)
-    const confirm = wrapper.findAll('button').find((button) => button.text().includes('确认生效'))
-    expect(confirm).toBeTruthy()
-    expect(confirm!.attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('security:mask:manage')
-  })
-
-  it('拥有 security:mask:manage 时确认按钮可用', async () => {
-    respond(capability({ onDatasource: ['security:mask:view', 'security:mask:manage'] }))
-    const wrapper = mountPage(GovernanceFieldsView)
-    await settle()
-
-    const confirm = wrapper.findAll('button').find((button) => button.text().includes('确认生效'))
-    expect(confirm!.attributes('disabled')).toBeUndefined()
+    expect(wrapper.text()).toContain('字段标签管理')
+    expect(wrapper.text()).not.toContain('确认生效')
   })
 })
 

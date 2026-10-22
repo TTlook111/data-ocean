@@ -98,15 +98,20 @@ describe('导航能力过滤', () => {
 
     expect(groups.map((group) => group.label)).toEqual(['结果与问题', '规则与状态', '字段治理'])
     expect(groups[0].items.map((item) => item.key)).toEqual(['governance', 'governance-issues'])
-    expect(groups[1].items.map((item) => item.key)).toEqual(['governance-rules', 'governance-status'])
+    expect(groups[1].items.map((item) => item.key)).toEqual(['governance-rules', 'rule-templates', 'governance-status'])
     expect(groups[2].items.map((item) => item.key)).toEqual(['governance-fields'])
   })
 
-  it('无分组工作区合并为一个无标题组', () => {
+  it('数据资产按对象、关系、版本分组', () => {
     const groups = groupAdminWorkspaces(ADMIN_WORKSPACES.filter((item) => item.domainKey === ADMIN_DOMAIN_KEYS.dataAssets))
-    expect(groups).toHaveLength(1)
-    expect(groups[0].label).toBeUndefined()
-    expect(groups[0].items).toHaveLength(3)
+    expect(groups.map((group) => group.label)).toEqual(['对象与结构', '关系与影响', '版本与发布'])
+    expect(groups.map((group) => group.items[0].key)).toEqual(['assets', 'lineage', 'releases'])
+  })
+
+  it('语义中心的术语与知识组包含字段解释', () => {
+    const groups = groupAdminWorkspaces(ADMIN_WORKSPACES.filter((item) => item.domainKey === ADMIN_DOMAIN_KEYS.semantics))
+    expect(groups.map((group) => group.label)).toEqual(['术语与知识', 'AI 策略'])
+    expect(groups[0].items.map((item) => item.key)).toEqual(['glossaries', 'field-explanations', 'knowledge'])
   })
 
   it('一级入口使用可见列表中的首个工作区', () => {

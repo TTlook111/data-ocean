@@ -1,7 +1,59 @@
+import { severityLabel } from './enumLabels'
+
 export interface QualityRuleParameterDescription {
   key: string
   label: string
   type: 'INTEGER' | 'NUMBER' | 'BOOLEAN' | string
+}
+
+/** 列表、详情和表单共用的字段标签。 */
+export const RULE_LABELS = {
+  ruleName: '规则名称',
+  templateCode: '检查类型',
+  scopeType: '适用范围',
+  datasource: '数据源',
+  targetTable: '目标表',
+  targetColumn: '目标字段',
+  severity: '严重程度',
+  deductionPoints: '扣分',
+  enabled: '启用状态',
+  description: '处理建议',
+  checkType: '检查方式',
+  dimension: '治理维度',
+  targetType: '检查目标',
+} as const
+
+/** 作用范围的规范顺序，不依赖后端 Set 的迭代顺序。 */
+export const RULE_SCOPE_ORDER = ['GLOBAL', 'DATASOURCE', 'TABLE', 'COLUMN'] as const
+
+const SCOPE_LABELS: Record<string, string> = {
+  GLOBAL: '全局',
+  DATASOURCE: '数据源',
+  TABLE: '表',
+  COLUMN: '字段',
+}
+
+const TARGET_TYPE_LABELS: Record<string, string> = {
+  TABLE: '表',
+  COLUMN: '字段',
+  RELATION: '关系',
+}
+
+export function ruleScopeLabel(scope?: string): string {
+  return SCOPE_LABELS[scope || ''] || '未知范围'
+}
+
+export function ruleTargetTypeLabel(targetType?: string): string {
+  return TARGET_TYPE_LABELS[targetType || ''] || '未指定'
+}
+
+export function sortRuleScopes(scopes: readonly string[]): string[] {
+  return [...scopes].sort((left, right) => {
+    const leftIndex = RULE_SCOPE_ORDER.indexOf(left as typeof RULE_SCOPE_ORDER[number])
+    const rightIndex = RULE_SCOPE_ORDER.indexOf(right as typeof RULE_SCOPE_ORDER[number])
+    return (leftIndex < 0 ? Number.MAX_SAFE_INTEGER : leftIndex)
+      - (rightIndex < 0 ? Number.MAX_SAFE_INTEGER : rightIndex)
+  })
 }
 
 function numericParameter(parameters: Record<string, unknown>, key: string, fallback?: number) {
@@ -55,12 +107,11 @@ export function describeRuleScope(
   datasourceMode = false,
 ) {
   if (scopeType === 'GLOBAL') return datasourceMode ? '全局默认 · 适用于当前数据源' : '全局 · 适用于所有数据源'
-  const scopeLabel = ({ DATASOURCE: '数据源', TABLE: '表', COLUMN: '字段' } as Record<string, string>)[scopeType || ''] || '未知范围'
+  const label = ruleScopeLabel(scopeType)
   const path = [datasourceName, targetTableName, targetColumnName].filter(Boolean).join(' · ')
-  return path ? `${scopeLabel} · ${path}` : scopeLabel
+  return path ? `${label} · ${path}` : label
 }
 
 export function describeRuleImpact(severity: string, deductionPoints: number) {
-  const label = ({ HIGH: '高', MEDIUM: '中', LOW: '低' } as Record<string, string>)[severity] || severity
-  return `${label} · 扣 ${deductionPoints} 分`
+  return `${severityLabel(severity)} · 扣 ${deductionPoints} 分`
 }

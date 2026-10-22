@@ -702,40 +702,39 @@ describe('source state', () => {
   })
 })
 
-describe('field governance location', () => {
+describe('field explanation location', () => {
   it('passes the displayed source snapshot, table and columnMetaId without entity id', async () => {
     api.getEntityOverview.mockResolvedValue({ data: columnOverview() })
 
     const wrapper = mountView()
     await flushPromises()
-    const button = wrapper.findAll('button').find((item) => item.text().includes('进入字段治理'))
+    const button = wrapper.findAll('button').find((item) => item.text().includes('查看字段解释'))
     expect(button).toBeTruthy()
     expect(button!.attributes('disabled')).toBeUndefined()
     await button!.trigger('click')
 
     expect(holders.router.push).toHaveBeenCalledWith({
-      path: '/admin/governance/fields',
+      path: '/admin/semantics/field-explanations',
       query: {
         datasourceId: '1',
         snapshotId: '10',
         tableName: 'orders',
         columnMetaId: '21',
-        tab: 'semantics',
       },
     })
   })
 
-  it('does not require tag management permission to open field governance', async () => {
+  it('does not require tag management permission to open field explanations', async () => {
     iam.canOnDatasource.mockImplementation((code: string) => code === 'governance:field:view')
     api.getEntityOverview.mockResolvedValue({ data: columnOverview() })
 
     const wrapper = mountView()
     await flushPromises()
-    const button = wrapper.findAll('button').find((item) => item.text().includes('进入字段治理'))
+    const button = wrapper.findAll('button').find((item) => item.text().includes('查看字段解释'))
     expect(button!.attributes('disabled')).toBeUndefined()
     await button!.trigger('click')
     expect(holders.router.push).toHaveBeenCalledWith(expect.objectContaining({
-      path: '/admin/governance/fields',
+      path: '/admin/semantics/field-explanations',
     }))
   })
 
@@ -745,12 +744,12 @@ describe('field governance location', () => {
 
     const wrapper = mountView()
     await flushPromises()
-    const button = wrapper.findAll('button').find((item) => item.text().includes('进入字段治理'))
+    const button = wrapper.findAll('button').find((item) => item.text().includes('查看字段解释'))
     expect(button!.attributes('disabled')).toBe('')
     expect(wrapper.text()).toContain('governance:field:view')
     await button!.trigger('click')
     expect(holders.router.push).not.toHaveBeenCalledWith(expect.objectContaining({
-      path: '/admin/governance/fields',
+      path: '/admin/semantics/field-explanations',
     }))
   })
 
@@ -801,7 +800,7 @@ describe('field governance location', () => {
 
     const wrapper = mountView()
     await flushPromises()
-    const open = wrapper.findAll('button').find((button) => button.text().includes('查看字段'))
+    const open = wrapper.findAll('button').find((button) => button.text() === '查看字段')
     expect(open).toBeTruthy()
     await open!.trigger('click')
 

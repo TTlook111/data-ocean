@@ -29,7 +29,8 @@ public interface QualityRuleService {
 
     List<MetadataQualityRule> listEnabledRules(Long datasourceId);
 
-    List<QualityRuleVO> listRules(QualityRuleQuery query, Long operatorUserId);
+    com.baomidou.mybatisplus.extension.plugins.pagination.Page<QualityRuleVO> listRules(
+            QualityRuleQuery query, Long operatorUserId);
 
     QualityRuleVO getRule(Long ruleId, Long operatorUserId, boolean includeDeleted);
 

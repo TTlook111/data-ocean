@@ -20,7 +20,9 @@ const iamS1 = useIamS1Store()
 const activeTab = ref<'grants' | 'protections' | 'effective'>('grants')
 
 const canViewGrants = computed(() => iamS1.hasGlobal('security:permission:view'))
-const canViewProtections = computed(() => iamS1.hasGlobal('security:mask:view'))
+/** 字段保护是资源级能力：全局码或任一负责源具备 `security:mask:view` 都允许进入。 */
+const canViewProtections = computed(() => iamS1.hasGlobal('security:mask:view')
+  || iamS1.datasourcesWithFunction('security:mask:view').length > 0)
 const canViewEffective = computed(() => iamS1.hasGlobal('security:effective:view') || iamS1.queryUse)
 
 const datasourceIdFromContext = computed(() => {
