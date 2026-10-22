@@ -13,6 +13,7 @@ import { useIamS1Store } from '../../../stores/iamS1'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import FieldSemanticWorkspace from './FieldSemanticWorkspace.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -165,7 +166,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="governance-fields-page post-login-page">
-    <TaskPageHeader title="字段治理" description="管理标签、可信度、反馈和脱敏候选。" />
+    <TaskPageHeader title="字段治理" description="管理业务解释、标签、可信度、反馈和脱敏候选。" />
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="标签" name="tags">
         <FieldTagManager v-if="activeTab === 'tags'" :key="`tags-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
@@ -175,6 +176,9 @@ onBeforeUnmount(() => {
       </el-tab-pane>
       <el-tab-pane label="反馈审核" name="feedback">
         <FeedbackReview v-if="activeTab === 'feedback'" :key="`feedback-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
+      </el-tab-pane>
+      <el-tab-pane label="业务解释" name="semantics">
+        <FieldSemanticWorkspace v-if="activeTab === 'semantics'" :key="`semantics-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
       </el-tab-pane>
       <el-tab-pane label="脱敏候选" name="mask">
         <section class="mask-panel">

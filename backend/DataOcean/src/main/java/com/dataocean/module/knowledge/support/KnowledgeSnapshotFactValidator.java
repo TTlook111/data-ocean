@@ -39,6 +39,7 @@ public class KnowledgeSnapshotFactValidator {
     private final ObjectMapper objectMapper;
     private final com.dataocean.module.knowledge.service.impl.GlossaryKnowledgeSourceServiceImpl glossarySources;
     private final com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl semanticSources;
+    private final com.dataocean.module.fieldsemantic.service.FieldSemanticService fieldSemanticService;
 
     public void validate(Long datasourceId, Long snapshotId, String content) {
         if (datasourceId == null || snapshotId == null || content == null || content.isBlank()) {
@@ -113,6 +114,8 @@ public class KnowledgeSnapshotFactValidator {
             }
             switch (type) {
                 case "SEMANTIC_NOTE" -> semanticSources.validate(datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
+                case "FIELD_SEMANTIC" -> fieldSemanticService.validateKnowledgeFact(
+                        datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
                 case "GLOSSARY_TERM" -> glossarySources.validate(datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
                 case "TABLE_STRUCTURE", "TABLE_EXCLUDED" -> validateTableStructure(sourceIds, dependencies, fact, factBody, tableById, seenTables);
                 case "COLUMN_STRUCTURE", "COLUMN_EXCLUDED" -> validateColumnStructure(sourceIds, dependencies, fact, factBody,

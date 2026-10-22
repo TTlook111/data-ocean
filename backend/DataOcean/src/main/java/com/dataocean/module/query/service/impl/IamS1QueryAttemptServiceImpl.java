@@ -24,6 +24,7 @@ import com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO
 import com.dataocean.module.query.enums.QueryTaskStatus;
 import com.dataocean.module.query.mapper.QueryAttemptMapper;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
+import com.dataocean.module.fieldsemantic.service.FieldSemanticService;
 import com.dataocean.module.query.service.ConversationService;
 import com.dataocean.module.query.service.IamS1QueryAttemptService;
 import com.dataocean.module.query.service.IamS1RowBindingService;
@@ -32,6 +33,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
@@ -67,12 +69,15 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
     private final DataMaskingService maskingService;
     private final ObjectMapper objectMapper;
     private final IamS1QueryServiceImpl queryService;
+    @Autowired(required = false)
+    private FieldSemanticService fieldSemanticService;
 
     @Override
     @Transactional
     public Map<String, Object> authorize(String taskId, IamS1AttemptAuthorizeRequestDTO request) {
         QueryTask task = queryTaskMapper.selectByTaskIdForUpdate(taskId);
         requireLiveTask(task);
+        if (!fieldSemanticReferencesValid(task)) return denied("查询所引用的字段解释已变化，请重新提问");
         verifySqlHash(request.getSql(), request.getSqlHash());
         List<IamS1TableRequestDTO> exactResources = exactResources(task, request);
         QueryAttempt previous = queryAttemptMapper.selectForUpdate(taskId, request.getAttemptId());
@@ -181,6 +186,7 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
     public Map<String, Object> markExecuting(String taskId, String attemptId, String sqlHash) {
         QueryTask task = queryTaskMapper.selectByTaskIdForUpdate(taskId);
         requireLiveTask(task);
+        if (!fieldSemanticReferencesValid(task)) return denied("查询所引用的字段解释已变化，请重新提问");
         requireCurrentRevision(task);
         QueryAttempt attempt = queryAttemptMapper.selectForUpdate(taskId, attemptId);
         if (attempt == null || !Objects.equals(attempt.getSqlHash(), sqlHash)) return denied("执行尝试身份不一致");
@@ -200,6 +206,7 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
     public Map<String, Object> protectResult(String taskId, IamS1AttemptResultRequestDTO request) {
         QueryTask task = queryTaskMapper.selectByTaskIdForUpdate(taskId);
         requireLiveTask(task);
+        if (!fieldSemanticReferencesValid(task)) return denied("查询所引用的字段解释已变化，请重新提问");
         requireCurrentRevision(task);
         QueryAttempt attempt = queryAttemptMapper.selectForUpdate(taskId, request.getAttemptId());
         if (attempt == null || !Objects.equals(attempt.getSqlHash(), request.getSqlHash())) return denied("结果尝试身份不一致");
@@ -372,6 +379,26 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
                     && (!conversationService.isVisible(task.getConversationId(), task.getUserId())
                         || !conversationService.isActiveTurn(task.getConversationId(), task.getTaskId())))) {
             throw new BusinessException("当前会话或问数权限已撤销");
+        }
+    }
+
+    private boolean fieldSemanticReferencesValid(QueryTask task) {
+        if (task == null || task.getFieldSemanticRefsJson() == null || task.getFieldSemanticRefsJson().isBlank()
+                || "[]".equals(task.getFieldSemanticRefsJson())) return true;
+        if (fieldSemanticService == null) return false;
+        try {
+            List<Map<String, Object>> references = objectMapper.readValue(
+                    task.getFieldSemanticRefsJson(), new TypeReference<>() {});
+            for (Map<String, Object> reference : references) {
+                Long snapshotId = Long.valueOf(String.valueOf(reference.get("sourceSnapshotId")));
+                if (task.getRagSourceSnapshotId() == null || !task.getRagSourceSnapshotId().equals(snapshotId)
+                        || !(reference.get("factSourceIds") instanceof List<?> ids)
+                        || !fieldSemanticService.membershipValid(task.getDatasourceId(), snapshotId,
+                        ids.stream().map(String::valueOf).toList())) return false;
+            }
+            return true;
+        } catch (Exception exception) {
+            return false;
         }
     }
 

@@ -359,6 +359,7 @@ def _fact_chunk_type(fact_type: str) -> str | None:
         "DERIVED_FROM": "LINEAGE",
         "GLOSSARY_TERM": "FIELD_NOTE",
         "SEMANTIC_NOTE": "FIELD_NOTE",
+        "FIELD_SEMANTIC": "FIELD_NOTE",
     }.get(fact_type)
 
 

@@ -40,6 +40,8 @@ public class QueryTask {
     /** 该任务固定使用的 RAG 构建与来源快照；允许比当前 S1 快照旧。 */
     private String ragBuildId;
     private Long ragSourceSnapshotId;
+    /** Precise FIELD_SEMANTIC fact ids pinned when the task was dispatched; never switches builds. */
+    private String fieldSemanticRefsJson;
 
     /** 不含记录参数原值的 S1 执行快照。 */
     private String iamExecutionSnapshot;

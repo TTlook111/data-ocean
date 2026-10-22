@@ -17,6 +17,7 @@ import com.dataocean.module.knowledge.entity.po.RagIndexBuildChunk;
 import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
 import com.dataocean.module.knowledge.mapper.RagIndexBuildChunkMapper;
 import com.dataocean.module.knowledge.service.RagIndexBuildService;
+import com.dataocean.module.fieldsemantic.service.FieldSemanticService;
 import com.dataocean.module.audit.service.AuditLogService;
 import com.dataocean.module.glossary.entity.po.GlossaryTerm;
 import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
@@ -54,6 +55,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -119,6 +121,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final com.dataocean.common.security.DataMaskingService maskingService;
     private final PlatformTransactionManager transactionManager;
     private final Set<String> activePythonTasks = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    @Autowired(required = false)
+    private FieldSemanticService fieldSemanticService;
 
     @Override
     @Transactional
@@ -324,6 +328,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             throw new BusinessException("只有处理中且属于当前账号的 S1 任务可以恢复");
         }
         if (activePythonTasks.contains(taskId)) return;
+        if (!fieldSemanticReferencesValid(task)) {
+            fail(taskId, "查询所引用的字段解释已变化，请重新发起查询", "REJECTED_ON_RECHECK");
+            throw new BusinessException("查询所引用的字段解释已变化，请重新发起查询");
+        }
         if (task.getCreatedAt() != null && task.getCreatedAt().plusSeconds(90).isBefore(LocalDateTime.now())) {
             pythonClient.cancelTask(taskId);
             finishWithoutData(task, QueryTaskStatus.TIMEOUT.name(), "查询超过总时限，未返回结果，请重试。");
@@ -430,6 +438,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     || attempt.getProtectedData() == null || attempt.getProtectedColumns() == null
                     || attempt.getSourceTrace() == null) {
                 fail(taskId, "Java 未完成该 SQL 尝试的结果保护", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
+            if (!fieldSemanticReferencesValid(task)) {
+                fail(taskId, "查询所引用的字段解释已变化，请重新发起查询", "REJECTED_ON_RECHECK");
                 return;
             }
             result.put("data", readAttemptJson(attempt.getProtectedData()));
@@ -861,6 +873,14 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         body.put("conversationThreadId", "iam-s1:" + userId + ":" + request.getDatasourceId() + ":" + conversationId);
         body.put("candidateCatalog", candidateCatalog);
         List<Map<String, Object>> chunks = loadKnowledgeChunks(ragBuild, request.getDatasourceId(), candidateCatalog);
+        if (ragBuild != null && !Objects.equals(ragBuild.getSourceSnapshotId(), candidateCatalog.activeMetadataSnapshotId())) {
+            // FIELD_SEMANTIC is bound to the exact active source snapshot. Other build facts
+            // retain their existing snapshot/build contract; an older field explanation cannot
+            // be silently extended to a newly published snapshot.
+            chunks = chunks.stream().filter(chunk -> !"FIELD_SEMANTIC".equals(chunk.get("factType"))).toList();
+        }
+        List<Map<String, Object>> fieldSemanticRefs = fieldSemanticReferences(chunks, ragBuild);
+        freezeFieldSemanticReferences(taskId, fieldSemanticRefs);
         IamS1DataAuthorizationSnapshot planningSnapshot = candidatePlanningSnapshot(
                 userId, request.getDatasourceId(), candidateCatalog);
         IamS1QueryAskRequestDTO planningRequest = candidatePlanningRequest(request, candidateCatalog);
@@ -879,6 +899,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         body.put("conversationSummary", conversation.getSummary());
         body.put("ragChunks", chunks);
         body.put("fallbackChunks", chunks);
+        body.put("fieldSemanticReferences", fieldSemanticRefs);
         body.put("ragBuildId", ragBuild == null ? null : ragBuild.getBuildId());
         body.put("ragSourceSnapshotId", ragBuild == null ? null : ragBuild.getSourceSnapshotId());
         body.put("ragCollectionName", ragBuild == null ? null : ragBuild.getCollectionName());
@@ -1143,6 +1164,9 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 if (tables.isEmpty() || columns.isEmpty() || dependencies.isEmpty() || factSourceIds.isEmpty()) continue;
                 if ("GLOSSARY_TERM".equals(chunk.getFactType()) && !glossarySources.membershipValid(factSourceIds)) continue;
                 if ("SEMANTIC_NOTE".equals(chunk.getFactType()) && !semanticSources.membershipValid(factSourceIds)) continue;
+                if ("FIELD_SEMANTIC".equals(chunk.getFactType())
+                        && (fieldSemanticService == null || !fieldSemanticService.membershipValid(
+                        datasourceId, build.getSourceSnapshotId(), factSourceIds))) continue;
                 if (!dependencies.stream().map(value -> value.toLowerCase(Locale.ROOT)).allMatch(visibleDependencies::contains)) {
                     continue;
                 }
@@ -1164,6 +1188,80 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             }
         }
         return result;
+    }
+
+    private List<Map<String, Object>> fieldSemanticReferences(List<Map<String, Object>> chunks, RagIndexBuild build) {
+        if (build == null || chunks == null || chunks.isEmpty()) return List.of();
+        Map<String, Map<String, Object>> byIdentity = new LinkedHashMap<>();
+        for (Map<String, Object> chunk : chunks) {
+            if (!"FIELD_SEMANTIC".equals(chunk.get("factType"))) continue;
+            Object rawIds = chunk.get("factSourceIds");
+            if (!(rawIds instanceof List<?> ids) || ids.size() != 4) continue;
+            List<String> sourceIds = ids.stream().map(String::valueOf).toList();
+            String identity = String.join(":", sourceIds);
+            byIdentity.putIfAbsent(identity, Map.of(
+                    "sourceSnapshotId", String.valueOf(build.getSourceSnapshotId()),
+                    "factSourceIds", sourceIds));
+        }
+        return byIdentity.values().stream().sorted(java.util.Comparator.comparing(item ->
+                String.join(":", (List<String>) item.get("factSourceIds")))).toList();
+    }
+
+    private void freezeFieldSemanticReferences(String taskId, List<Map<String, Object>> references) {
+        QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+        if (task == null) throw new BusinessException("查询任务不存在，不能固定字段解释版本");
+        String currentKey = fieldSemanticReferenceKey(references);
+        if (references.isEmpty() && (task.getFieldSemanticRefsJson() == null || task.getFieldSemanticRefsJson().isBlank())) return;
+        if (task.getFieldSemanticRefsJson() != null && !task.getFieldSemanticRefsJson().isBlank()) {
+            if (!currentKey.equals(fieldSemanticReferenceKey(parseFieldSemanticReferences(task.getFieldSemanticRefsJson())))) {
+                throw new BusinessException("原 RAG 构建中的字段解释引用已变化，查询不能切换事实版本");
+            }
+            return;
+        }
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                .eq(QueryTask::getTaskId, taskId)
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                .isNull(QueryTask::getFieldSemanticRefsJson)
+                .set(QueryTask::getFieldSemanticRefsJson, writeJson(references)));
+        if (updated != 1) {
+            QueryTask latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+            if (latest == null || !currentKey.equals(fieldSemanticReferenceKey(parseFieldSemanticReferences(latest.getFieldSemanticRefsJson())))) {
+                throw new BusinessException("查询字段解释引用已并发变化，请重新提问");
+            }
+        }
+    }
+
+    private boolean fieldSemanticReferencesValid(QueryTask task) {
+        if (task == null || task.getFieldSemanticRefsJson() == null || task.getFieldSemanticRefsJson().isBlank()
+                || "[]".equals(task.getFieldSemanticRefsJson())) return true;
+        if (fieldSemanticService == null) return false;
+        try {
+            for (Map<String, Object> reference : parseFieldSemanticReferences(task.getFieldSemanticRefsJson())) {
+                Long sourceSnapshot = Long.valueOf(String.valueOf(reference.get("sourceSnapshotId")));
+                if (task.getRagSourceSnapshotId() == null || !task.getRagSourceSnapshotId().equals(sourceSnapshot)) return false;
+                Object rawIds = reference.get("factSourceIds");
+                if (!(rawIds instanceof List<?> ids)
+                        || !fieldSemanticService.membershipValid(task.getDatasourceId(), sourceSnapshot,
+                        ids.stream().map(String::valueOf).toList())) return false;
+            }
+            return true;
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    private List<Map<String, Object>> parseFieldSemanticReferences(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        try { return objectMapper.readValue(raw, new TypeReference<>() {}); }
+        catch (Exception exception) { throw new BusinessException("查询字段解释引用记录损坏"); }
+    }
+
+    private String fieldSemanticReferenceKey(List<Map<String, Object>> references) {
+        if (references == null || references.isEmpty()) return "[]";
+        return references.stream().map(reference -> String.valueOf(reference.get("sourceSnapshotId")) + ":"
+                        + String.join(":", reference.get("factSourceIds") instanceof List<?> ids
+                        ? ids.stream().map(String::valueOf).toList() : List.<String>of()))
+                .sorted().collect(java.util.stream.Collectors.joining("|"));
     }
 
     Map<String, Object> connectionConfig(Long datasourceId) {

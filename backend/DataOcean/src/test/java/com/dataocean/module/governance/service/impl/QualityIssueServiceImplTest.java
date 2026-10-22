@@ -334,6 +334,7 @@ class QualityIssueServiceImplTest {
             issue.setId(id);
             issue.setSnapshotId(8L);
             issue.setDatasourceId(5L);
+            issue.setIssueDomain(MetadataQualityIssue.DOMAIN_SOURCE);
             issue.setStatus(status);
             when(issueMapper.selectById(id)).thenReturn(issue);
             return issue;

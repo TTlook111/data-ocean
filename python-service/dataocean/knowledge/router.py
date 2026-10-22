@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-from .semantic import SemanticRequest, supplement
+from .semantic import FieldSemanticRequest, SemanticRequest, generate_field_candidate, supplement
 
 
 @router.post("/supplement-semantics", response_model=None)
@@ -44,6 +44,21 @@ async def supplement_semantics(request: SemanticRequest):
         else:
             code, message = "AI_GENERATION_UNAVAILABLE", "AI 业务释义服务暂不可用，请稍后重试"
         logger.warning("业务释义补写失败 code=%s", code)
+        return JSONResponse(status_code=502, content={"code": code, "message": message})
+
+
+@router.post("/field-semantic-candidate", response_model=None)
+async def field_semantic_candidate(request: FieldSemanticRequest):
+    try:
+        return await generate_field_candidate(request)
+    except Exception as exc:
+        if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+            code, message = "AI_GENERATION_TIMEOUT", "字段释义生成超时，请稍后重试"
+        elif isinstance(exc, ValueError):
+            code, message = "AI_INVALID_OUTPUT", "字段释义候选或输入依据无效"
+        else:
+            code, message = "AI_GENERATION_UNAVAILABLE", "字段释义生成服务暂不可用，请稍后重试"
+        logger.warning("字段语义候选生成失败 code=%s", code)
         return JSONResponse(status_code=502, content={"code": code, "message": message})
 
 

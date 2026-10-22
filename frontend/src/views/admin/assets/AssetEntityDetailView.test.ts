@@ -720,7 +720,7 @@ describe('field governance location', () => {
         snapshotId: '10',
         tableName: 'orders',
         columnMetaId: '21',
-        tab: 'tags',
+        tab: 'semantics',
       },
     })
   })

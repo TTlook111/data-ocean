@@ -19,6 +19,9 @@ import java.time.LocalDateTime;
 @TableName("metadata_quality_issue")
 public class MetadataQualityIssue {
 
+    public static final String DOMAIN_SOURCE = "SOURCE";
+    public static final String DOMAIN_SEMANTIC = "SEMANTIC";
+
     public static final String STATUS_OPEN = "OPEN";
     public static final String STATUS_CONFIRMED = "CONFIRMED";
     public static final String STATUS_RESOLVED = "RESOLVED";
@@ -31,7 +34,13 @@ public class MetadataQualityIssue {
     private Long snapshotId;
     private Long datasourceId;
     private Long ruleId;
+    /** Server-assigned issue domain. Existing and source-check records are SOURCE. */
+    private String issueDomain;
     private Long checkBatchId;
+    private Long semanticCheckBatchId;
+    private Long semanticCheckResultId;
+    private String semanticRuleCode;
+    private String semanticKey;
     private String dimension;
     private String severity;
     private String tableName;

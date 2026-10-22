@@ -25,11 +25,13 @@ import com.dataocean.module.metadata.service.SchemaCollectionService;
 import com.dataocean.module.metadata.service.SchemaSnapshotService;
 import com.dataocean.module.metadata.service.SchemaStatisticsService;
 import com.dataocean.module.metadata.service.SchemaSyncTaskService;
+import com.dataocean.module.metadata.event.MetadataSnapshotCollectedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -69,6 +71,7 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
     private final SchemaStatisticsService statisticsService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 自身代理引用，用于调用 @Async 方法使代理生效 */
     @Lazy
@@ -252,6 +255,9 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
                     if (includeStatistics) {
                         statisticsService.collectStatistics(datasourceId, snapshot.getId());
                     }
+
+                    eventPublisher.publishEvent(new MetadataSnapshotCollectedEvent(
+                            datasourceId, snapshot.getId(), task.getTriggeredBy()));
 
                     log.info("元数据同步完成 datasourceId={} 表数={} 字段数={}", datasourceId, tables.size(), totalColumns);
                 } catch (Exception e) {

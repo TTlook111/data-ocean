@@ -143,6 +143,7 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
             long unresolvedHigh = qualityIssueMapper.selectCount(
                     new LambdaQueryWrapper<MetadataQualityIssue>()
                             .eq(MetadataQualityIssue::getSnapshotId, snapshot.getId())
+                            .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                             .eq(MetadataQualityIssue::getSeverity, "HIGH")
                             .in(MetadataQualityIssue::getStatus, "OPEN", "CONFIRMED")
             );
@@ -164,6 +165,7 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
             long unresolvedHigh = qualityIssueMapper.selectCount(
                     new LambdaQueryWrapper<MetadataQualityIssue>()
                             .eq(MetadataQualityIssue::getSnapshotId, snapshot.getId())
+                            .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                             .eq(MetadataQualityIssue::getSeverity, "HIGH")
                             .in(MetadataQualityIssue::getStatus, "OPEN", "CONFIRMED")
             );
