@@ -1,0 +1,18 @@
+.governance-workspace { display: grid; align-content: start; gap: 20px; min-width: 0; }
+.governance-surface { padding: 24px 26px; border: 1px solid var(--do-line); border-radius: 14px; background: var(--do-surface); }
+.governance-surface .task-page-header { margin: 0 0 4px; align-items: center; }
+.governance-surface .task-page-header h1 { font-size: clamp(24px,2.2vw,28px); line-height: 1.25; letter-spacing: -.02em; }
+.governance-workspace .el-table { --el-table-header-bg-color: var(--do-soft); --el-table-border-color: var(--do-line); --el-table-row-hover-bg-color: var(--do-primary-soft); }
+.governance-workspace .el-table th.el-table__cell { height: 42px; color: var(--do-ink); font-size: 12px; font-weight: 600; }
+.governance-workspace .el-table td.el-table__cell { padding: 14px 0; }
+.governance-workspace .el-table .cell { line-height: 1.55; }
+.governance-workspace .empty-state { padding: 32px 16px; min-height: 170px; }
+.governance-workspace .empty-state svg { width: 36px; height: 36px; }
+.governance-dialog { border-radius: 12px; }
+.governance-dialog .el-dialog__header { padding-bottom: 16px; margin-right: 0; border-bottom: 1px solid var(--do-line); }
+.governance-dialog .el-dialog__footer { padding-top: 16px; border-top: 1px solid var(--do-line); }
+.governance-dialog .el-dialog__title { color: var(--do-ink); font-size: 19px; font-weight: 650; }
+.governance-dialog .el-dialog__body { padding-top: 18px; background: var(--do-surface); }
+.governance-drawer .el-drawer__header { margin-bottom: 0; padding-bottom: 18px; border-bottom: 1px solid var(--do-line); color: var(--do-ink); }
+.governance-drawer .el-drawer__body { background: var(--do-surface); }
+@media(max-width:760px) { .governance-surface { padding: 18px 14px; gap: 16px; }.governance-surface .task-page-header { flex-wrap: wrap; gap: 12px; } }

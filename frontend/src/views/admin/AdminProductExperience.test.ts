@@ -117,9 +117,9 @@ describe('后台任务与未知状态', () => {
   it('治理总览不显示常驻规则开关，规则管理通过摘要入口进入', async () => {
     const wrapper = await render(QualityDashboard)
     expect(wrapper.find('.el-switch').exists()).toBe(false)
-    expect(wrapper.text()).toContain('规则摘要')
+    expect(wrapper.text()).toContain('规则准备')
     expect(wrapper.text()).toContain('管理规则')
-    expect(wrapper.text()).toContain('当前适用')
+    expect(wrapper.text()).toContain('当前快照可参与')
     expect(wrapper.text()).toContain('已启用')
     expect(api.updateRuleEnabled).not.toHaveBeenCalled()
   })

@@ -91,7 +91,7 @@ public class QualityRuleTemplateRegistry {
         add(values, schema("TIME_SNAPSHOT_EXPIRED", "快照过期", MetadataQualityRule.DIM_TIMELINESS,
                 MetadataQualityRule.TARGET_TABLE, "检查元数据距离采集的天数。", GLOBAL_SOURCE,
                 integer("maxAgeDays", "最大快照天数", "1", "3650", 7)));
-        add(values, schema("TIME_TABLE_NO_UPDATE", "表长期无数据更新", MetadataQualityRule.DIM_TIMELINESS,
+        add(values, schema("TIME_TABLE_NO_UPDATE", "表估算行数为零", MetadataQualityRule.DIM_TIMELINESS,
                 MetadataQualityRule.TARGET_TABLE, "对采集估算行数为零的普通表提示；该证据不能证明长期没有数据更新。", TABLE_SCOPES));
         add(values, schema("TRACE_FK_MISSING", "外键关系缺失", MetadataQualityRule.DIM_TRACEABILITY,
                 MetadataQualityRule.TARGET_COLUMN, "检查 *_id 字段是否有元数据关系。", COLUMN_SCOPES));

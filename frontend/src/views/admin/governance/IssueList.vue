@@ -30,6 +30,7 @@ import EmptyState from '../../../components/common/EmptyState.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 
 const loading = ref(false)
+const advancedFiltersOpen = ref(false)
 const issues = ref<QualityIssueItem[]>([])
 const domainSummary = ref<{ totalUnresolved: number; domainCounts?: Record<string, number> }>()
 const domainSummaryLoading = ref(false)
@@ -684,12 +685,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="issue-page post-login-page">
-    <TaskPageHeader title="问题中心" description="查找、分配并处理当前范围的治理问题。">
+  <main class="issue-page post-login-page governance-workspace governance-surface">
+    <TaskPageHeader title="问题中心" description="查找、分派并处理当前范围的问题。暂无问题记录不代表已经完成质量检查；来源与字段语义问题分别处理。">
       <template #actions>
         <el-button :icon="RefreshCw" :loading="loading" :disabled="!canReadIssues || loading" @click="fetchIssues">刷新问题</el-button>
       </template>
     </TaskPageHeader>
+
 
     <section class="issue-workbench" aria-label="问题工作区">
       <div class="issue-workbench__filters" aria-label="问题筛选">
@@ -710,14 +712,29 @@ onBeforeUnmount(() => {
           <el-option label="全部表" value="" />
           <el-option v-for="item in tableOptions" :key="item.tableName" :label="item.tableComment ? `${item.tableName} / ${item.tableComment}` : item.tableName" :value="item.tableName" />
         </el-select>
+
+
+        <el-select v-model="query.status" class="issue-filter" placeholder="全部状态" aria-label="按状态筛选" :disabled="!canReadIssues" @change="applyFilters">
+          <el-option v-for="option in statusOptions" :key="option.value" :label="option.label" :value="option.value" />
+        </el-select>
+
+        <el-button :aria-expanded="advancedFiltersOpen" aria-controls="issue-advanced-filters" @click="advancedFiltersOpen = !advancedFiltersOpen">更多筛选</el-button>
+        <el-button
+          class="issue-filter__my-issues"
+          :type="isMyIssuesFilter ? 'primary' : 'default'"
+          :disabled="!canReadIssues || !currentUserId"
+          :aria-pressed="isMyIssuesFilter"
+          @click="toggleMyIssues"
+        >分配给我的</el-button>
+        <el-button class="issue-filter__clear" :disabled="!canClearFilters" @click="clearFilters">清除筛选</el-button>
+      </div>
+
+      <div v-show="advancedFiltersOpen" id="issue-advanced-filters" class="issue-workbench__filters issue-workbench__filters--advanced">
         <el-select v-model="query.dimension" class="issue-filter" placeholder="全部维度" aria-label="按维度筛选" :disabled="!canReadIssues" @change="applyFilters">
           <el-option v-for="option in dimensionOptions" :key="option.value" :label="option.label" :value="option.value" />
         </el-select>
         <el-select v-model="query.severity" class="issue-filter" placeholder="全部级别" aria-label="按级别筛选" :disabled="!canReadIssues" @change="applyFilters">
           <el-option v-for="option in severityOptions" :key="option.value" :label="option.label" :value="option.value" />
-        </el-select>
-        <el-select v-model="query.status" class="issue-filter" placeholder="全部状态" aria-label="按状态筛选" :disabled="!canReadIssues" @change="applyFilters">
-          <el-option v-for="option in statusOptions" :key="option.value" :label="option.label" :value="option.value" />
         </el-select>
         <el-select
           v-model="query.assigneeId"
@@ -732,18 +749,10 @@ onBeforeUnmount(() => {
         >
           <el-option v-for="option in userOptions" :key="option.id" :label="option.label" :value="option.id" />
         </el-select>
-        <el-button
-          class="issue-filter__my-issues"
-          :type="isMyIssuesFilter ? 'primary' : 'default'"
-          :disabled="!canReadIssues || !currentUserId"
-          :aria-pressed="isMyIssuesFilter"
-          @click="toggleMyIssues"
-        >分配给我的</el-button>
-        <el-button class="issue-filter__clear" :disabled="!canClearFilters" @click="clearFilters">清除筛选</el-button>
       </div>
 
       <div v-if="domainSummaryLoading" class="issue-domain-summary" role="status">正在读取当前快照的问题域统计…</div>
-      <div v-else-if="domainSummary" class="issue-domain-summary" aria-label="当前快照未解决问题统计">
+      <div v-else-if="domainSummary && domainSummary.totalUnresolved > 0" class="issue-domain-summary" aria-label="当前快照未解决问题统计">
         未解决问题：全部 <strong>{{ domainSummary.totalUnresolved }}</strong>
         <span>来源质量 {{ domainSummary.domainCounts?.SOURCE ?? 0 }}</span>
         <span>字段解释 {{ domainSummary.domainCounts?.SEMANTIC ?? 0 }}</span>
@@ -899,7 +908,7 @@ onBeforeUnmount(() => {
       </footer>
     </section>
 
-    <el-drawer :model-value="detailVisible" title="治理问题详情" size="520px" @update:model-value="handleDetailVisibilityChange">
+    <el-drawer :model-value="detailVisible" title="治理问题详情" size="min(680px, 96vw)" class="governance-drawer" @update:model-value="handleDetailVisibilityChange">
       <el-skeleton v-if="detailLoading" :rows="7" animated />
       <template v-else-if="selectedIssue">
         <div class="issue-detail">
@@ -977,19 +986,16 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.issue-page .issue-workbench__filters { padding: 0 0 16px; }
+.issue-page .issue-workbench__filters--advanced { padding-top: 0; }
+.issue-page .issue-domain-summary { padding: 4px 0 12px; background: transparent; }
+.issue-page .issue-workbench__content { padding: 18px 0; }
+.issue-page .issue-workbench__results { background: transparent; padding: 12px 0; }
+
 .issue-page { display: grid; gap: 16px; min-width: 0; }
 .issue-page :deep(.task-page-header) { align-items: center; margin-bottom: 0; }
 .issue-page :deep(.task-page-header h1) { font-size: clamp(24px, 2vw, 28px); }
-.issue-workbench {
-  display: grid;
-  gap: 0;
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-lg);
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
-}
+.issue-workbench { min-width: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
 .issue-workbench__filters {
   display: flex;
   align-items: center;

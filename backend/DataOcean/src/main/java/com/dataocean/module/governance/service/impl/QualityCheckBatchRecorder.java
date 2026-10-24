@@ -152,6 +152,8 @@ public class QualityCheckBatchRecorder implements QualityCheckBatchService {
             QualityCheckBatchRuleVO vo = toRuleVO(row);
             QualityCheckBatch batch = batches.get(row.getBatchId());
             if (batch != null) {
+                vo.setBatchDatasourceId(batch.getDatasourceId());
+                vo.setSnapshotId(batch.getSnapshotId());
                 vo.setBatchStartedAt(batch.getStartedAt());
                 vo.setBatchStatus(batch.getStatus());
             }

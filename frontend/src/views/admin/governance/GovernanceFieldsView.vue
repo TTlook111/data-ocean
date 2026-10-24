@@ -21,6 +21,7 @@ function sanitizeTab(value: unknown): FieldTab {
   return (ALLOWED_TABS as string[]).includes(raw) ? raw as FieldTab : 'tags'
 }
 
+
 const activeTab = ref<FieldTab>(sanitizeTab(route.query.tab))
 
 function selectTab(tab: string | number) {
@@ -39,14 +40,15 @@ watch(() => route.query.tab, (tab) => {
 </script>
 
 <template>
-  <main class="governance-fields-page post-login-page">
+  <main class="governance-fields-page post-login-page governance-workspace governance-surface">
     <TaskPageHeader
       title="字段治理"
-      description="管理字段标签、可信度和质量反馈。字段业务解释在「语义中心 → 字段解释」，脱敏候选在「授权配置 → 字段保护」。"
+      description="管理字段分类标签、可靠性参考和反馈处理。" help="字段业务解释在语义中心的字段解释工作区，脱敏候选在授权配置的字段保护中。"
     />
+
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="标签" name="tags">
-        <FieldTagManager v-if="activeTab === 'tags'" :key="`tags-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
+        <FieldTagManager embedded v-if="activeTab === 'tags'" :key="`tags-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
       </el-tab-pane>
       <el-tab-pane label="可信度" name="confidence">
         <ConfidenceDashboard v-if="activeTab === 'confidence'" :key="`confidence-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
@@ -59,6 +61,9 @@ watch(() => route.query.tab, (tab) => {
 </template>
 
 <style scoped>
+.governance-fields-page > :deep(.el-tabs) { padding: 0; border: 0; box-shadow: none; background: transparent; }
+.governance-fields-page :deep(.content-panel) { padding: 0; border: 0; box-shadow: none; background: transparent; }
+.governance-fields-page :deep(.toolbar) { padding: 0; border: 0; box-shadow: none; background: transparent; }
 .governance-fields-page { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .governance-fields-page :deep(.el-tabs),
 .governance-fields-page :deep(.el-tabs__content),

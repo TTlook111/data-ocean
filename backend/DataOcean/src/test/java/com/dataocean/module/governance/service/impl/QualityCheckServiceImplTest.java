@@ -294,6 +294,62 @@ class QualityCheckServiceImplTest {
         assertThat(coverage.reason()).contains("时间字段");
     }
 
+    @Test
+    void summaryExplainsInheritedAndDedicatedRulesWithoutExecutingOrWriting() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot.setId(50L);
+        fixture.snapshot.setDatasourceId(1L);
+        fixture.tables(List.of(table(1L, "orders")));
+        MetadataQualityRule global = rule(1L, "COMP_TABLE_COMMENT_MISSING", "GLOBAL", null, null);
+        MetadataQualityRule specific = rule(2L, "COMP_TABLE_COMMENT_MISSING", "TABLE", "orders", null);
+        fixture.rules(List.of(global, specific));
+        QualityChecker checker = mock(QualityChecker.class);
+        fixture.checkers = List.of(checker);
+
+        var summary = fixture.service().ruleSummary(50L);
+
+        assertThat(summary.getSnapshotId()).isEqualTo(50L);
+        assertThat(summary.getGlobalCount()).isEqualTo(1);
+        assertThat(summary.getDatasourceCount()).isEqualTo(1);
+        assertThat(summary.getEnabledCount()).isEqualTo(2);
+        assertThat(summary.getApplicableCount()).isEqualTo(1);
+        assertThat(summary.getNotApplicableCount()).isEqualTo(1);
+        var inherited = summary.getRules().stream().filter(item -> item.getRuleId().equals(1L)).findFirst().orElseThrow();
+        assertThat(inherited.getReason()).contains("覆盖");
+        assertThat(inherited.getPlannedTargetCount()).isZero();
+        var dedicated = summary.getRules().stream().filter(item -> item.getRuleId().equals(2L)).findFirst().orElseThrow();
+        assertThat(dedicated.getStatus()).isEqualTo("READY");
+        assertThat(dedicated.getPlannedTargetCount()).isEqualTo(1);
+        verify(checker, never()).check(any());
+        verify(fixture.batchService, never()).begin(any(), any(), any(), any(), any(), any());
+        verify(fixture.issueMapper, never()).insert(any(MetadataQualityIssue.class));
+        verify(fixture.snapshotMapper, never()).updateById(any(MetadataSnapshot.class));
+    }
+
+    @Test
+    void summaryReportsMissingTimeFieldAndUnknownExecutorSeparately() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot.setId(51L);
+        fixture.snapshot.setDatasourceId(1L);
+        fixture.tables(List.of(table(1L, "orders")));
+        MetadataQualityRule stale = rule(1L, "DATA_STALE_TABLE", "GLOBAL", null, null);
+        stale.setDimension(MetadataQualityRule.DIM_TIMELINESS);
+        stale.setCheckType(MetadataQualityRule.CHECK_TYPE_DATA);
+        stale.setParametersJson("{\"staleDays\":30}");
+        fixture.rules(List.of(stale, rule(2L, "UNKNOWN_CHECK", "GLOBAL", null, null)));
+
+        var summary = fixture.service().ruleSummary(51L);
+
+        assertThat(summary.getApplicableCount()).isZero();
+        assertThat(summary.getNotApplicableCount()).isEqualTo(1);
+        assertThat(summary.getInvalidCount()).isEqualTo(1);
+        assertThat(summary.getUnsupportedCount()).isEqualTo(1);
+        assertThat(summary.getRules()).anySatisfy(item -> {
+            assertThat(item.getRuleId()).isEqualTo(1L);
+            assertThat(item.getReason()).contains("时间字段");
+        });
+    }
+
     private static MetadataQualityRule rule(Long id, String template, String scope, String table, String column) {
         MetadataQualityRule rule = new MetadataQualityRule();
         rule.setId(id);

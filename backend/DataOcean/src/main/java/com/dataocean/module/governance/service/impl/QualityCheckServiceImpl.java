@@ -10,6 +10,7 @@ import com.dataocean.module.governance.entity.po.QualityCheckResult;
 import com.dataocean.module.governance.entity.vo.QualityCheckResultVO;
 import com.dataocean.module.governance.entity.vo.QualityCheckBatchVO;
 import com.dataocean.module.governance.entity.vo.QualityRuleSummaryVO;
+import com.dataocean.module.governance.entity.vo.QualityRuleApplicabilityVO;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
 import com.dataocean.module.governance.mapper.QualityCheckResultMapper;
 import com.dataocean.module.governance.service.QualityCheckService;
@@ -457,8 +458,30 @@ public class QualityCheckServiceImpl implements QualityCheckService {
         QualityCheckBatchVO latest = batchRecorder.latest(snapshotId);
 
         QualityRuleSummaryVO result = new QualityRuleSummaryVO();
+        result.setDatasourceId(snapshot.getDatasourceId());
+        result.setSnapshotId(snapshotId);
         result.setEnabledCount(rules.size());
+        result.setGlobalCount((int) rules.stream().filter(rule -> rule.getScopeType() == null
+                || "GLOBAL".equals(rule.getScopeType())).count());
+        result.setDatasourceCount(rules.size() - result.getGlobalCount());
         result.setApplicableCount((int) executions.stream().filter(e -> "READY".equals(e.status())).count());
+        result.setNotApplicableCount((int) executions.stream().filter(e -> "NOT_APPLICABLE".equals(e.status())
+                || "NOT_EXECUTED".equals(e.status())).count());
+        result.setInvalidCount((int) executions.stream().filter(e -> "FAILURE".equals(e.status())).count());
+        result.setRules(executions.stream().map(execution -> {
+            var item = new QualityRuleApplicabilityVO();
+            MetadataQualityRule rule = execution.rule();
+            item.setRuleId(rule.getId());
+            item.setRuleName(rule.getRuleName());
+            item.setConfigVersion(rule.getConfigVersion() == null ? 1 : rule.getConfigVersion());
+            item.setScopeType(rule.getScopeType() == null ? "GLOBAL" : rule.getScopeType());
+            item.setTemplateCode(execution.template() == null ? rule.getTemplateCode() : execution.template().getCode());
+            item.setStatus(execution.status());
+            item.setReason(execution.reason());
+            item.setTargetCount(execution.targetCount());
+            item.setPlannedTargetCount(execution.checkedTargetCount());
+            return item;
+        }).toList());
         result.setUnsupportedCount((int) rules.stream().filter(rule -> {
             String code = org.springframework.util.StringUtils.hasText(rule.getTemplateCode())
                     ? rule.getTemplateCode() : rule.getRuleCode();

@@ -22,6 +22,8 @@ export interface QualityCheckResult {
 
 export interface QualityCheckBatchRule {
   batchId?: number
+  batchDatasourceId?: number
+  snapshotId?: number
   batchStartedAt?: string
   batchStatus?: string
   ruleId?: number
@@ -135,7 +137,26 @@ export interface QualityRule {
   updatedAt?: string
 }
 
+export interface QualityRuleApplicability {
+  ruleId: number
+  ruleName: string
+  configVersion: number
+  scopeType: 'GLOBAL' | 'DATASOURCE' | 'TABLE' | 'COLUMN'
+  templateCode?: string
+  status: 'READY' | 'FAILURE' | 'NOT_APPLICABLE' | 'NOT_EXECUTED'
+  reason?: string
+  targetCount: number
+  plannedTargetCount: number
+}
+
 export interface QualityRuleSummary {
+  datasourceId?: number
+  snapshotId?: number
+  globalCount?: number
+  datasourceCount?: number
+  notApplicableCount?: number
+  invalidCount?: number
+  rules?: QualityRuleApplicability[]
   enabledCount: number
   applicableCount: number
   unsupportedCount: number

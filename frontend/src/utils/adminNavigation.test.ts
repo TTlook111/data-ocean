@@ -32,6 +32,16 @@ describe('admin navigation metadata', () => {
     expect(ADMIN_WORKSPACES.map((item) => item.path)).not.toContain('/admin/access/organization')
   })
 
+  it('治理规则只保留一个管理入口，旧检查类型链接回到规则页内说明', () => {
+    expect(ADMIN_WORKSPACES.some(item => item.key === 'rule-templates')).toBe(false)
+    expect(findWorkspaceByPath('/admin/governance/rules')?.label).toBe('质量规则')
+    const legacy = router.resolve({ path: '/admin/governance/rule-templates', query: { datasourceId: '5', snapshotId: '8' } })
+    const redirect = legacy.matched[legacy.matched.length - 1]?.redirect
+    expect(typeof redirect).toBe('function')
+    if (typeof redirect !== 'function') throw new Error('旧链接没有兼容跳转')
+    expect(redirect(legacy, router.currentRoute.value)).toEqual({ path: '/admin/governance/rules', query: { datasourceId: '5', snapshotId: '8', showChecks: '1' } })
+  })
+
   it('按目标工作区的 contextMode 白名单继承上下文', () => {
     expect(buildContextQuery('datasource-snapshot', { datasourceId: 7, snapshotId: 11 })).toEqual({ datasourceId: '7', snapshotId: '11' })
     expect(buildContextQuery('datasource', { datasourceId: 7, snapshotId: 11 })).toEqual({ datasourceId: '7' })

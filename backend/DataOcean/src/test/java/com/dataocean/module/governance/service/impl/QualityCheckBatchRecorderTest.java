@@ -95,6 +95,10 @@ class QualityCheckBatchRecorderTest {
         List<QualityCheckBatchRuleVO> bOnly = fixture.recorder.history(12L, 7L);
 
         assertThat(bOnly).extracting(QualityCheckBatchRuleVO::getBatchId).containsExactly(202L);
+        assertThat(bOnly.get(0).getBatchDatasourceId()).isEqualTo(6L);
+        assertThat(bOnly.get(0).getSnapshotId()).isEqualTo(1202L);
+        // 全局规则的归属仍为空，不能拿它推导历史执行来源。
+        assertThat(bOnly.get(0).getDatasourceId()).isNull();
         when(fixture.capabilityService.responsibleDatasourcesWithFunction(8L, "governance:rule:view"))
                 .thenReturn(List.of(new IamS1DatasourceRefVO(5L, "数据源 A", true),
                         new IamS1DatasourceRefVO(6L, "数据源 B", true)));
@@ -134,6 +138,7 @@ class QualityCheckBatchRecorderTest {
             QualityCheckBatch batch = new QualityCheckBatch();
             batch.setId(id);
             batch.setDatasourceId(datasourceId);
+            batch.setSnapshotId(id + 1000L);
             batch.setStatus("PARTIAL");
             batch.setStartedAt(java.time.LocalDateTime.now());
             return batch;

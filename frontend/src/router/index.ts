@@ -18,7 +18,6 @@ const ProfileView = () => import('../views/profile/ProfileView.vue')
 const QueryDatasourceView = () => import('../views/query/QueryDatasourceView.vue')
 const QualityDashboard = () => import('../views/admin/governance/QualityDashboard.vue')
 const QualityRulesView = () => import('../views/admin/governance/QualityRulesView.vue')
-const RuleTemplateCatalogView = () => import('../views/admin/governance/RuleTemplateCatalogView.vue')
 const IssueList = () => import('../views/admin/governance/IssueList.vue')
 const StatusEditor = () => import('../views/admin/governance/StatusEditor.vue')
 const KnowledgeView = () => import('../views/admin/semantics/KnowledgeView.vue')
@@ -172,8 +171,8 @@ const router = createRouter({
         {
           path: 'governance/rule-templates',
           name: 'admin-governance-rule-templates',
-          component: RuleTemplateCatalogView,
-          meta: { title: '检查类型', domainKey: 'governance', workspaceKey: 'rule-templates', contextMode: 'none' },
+          // 兼容原检查类型目录链接，回到规则工作区内查看支持的检查项。
+          redirect: to => ({ path: '/admin/governance/rules', query: { ...to.query, showChecks: '1' } }),
         },
         {
           path: 'governance/status',

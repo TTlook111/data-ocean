@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick, reactive } from 'vue'
-import ElementPlus, { ElDialog, ElDropdown, ElInputNumber, ElMessage, ElSelect } from 'element-plus'
+import ElementPlus, { ElDialog, ElDropdown, ElInputNumber, ElMessage, ElMessageBox, ElSelect } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
 import type { QualityIssueItem } from '../../../api/admin/governance'
@@ -116,6 +116,7 @@ import QualityRulesView from './QualityRulesView.vue'
 import QualityDashboard from './QualityDashboard.vue'
 import GovernanceFieldsView from './GovernanceFieldsView.vue'
 import ScopeBar from '../../../components/admin/ScopeBar.vue'
+import QualityCheckItemCatalog from '../../../components/admin/QualityCheckItemCatalog.vue'
 import { useIamS1Store } from '../../../stores/iamS1'
 import { useAdminContextStore } from '../../../stores/adminContext'
 
@@ -558,9 +559,12 @@ describe('问题中心的范围、筛选和结果表达', () => {
     await settle()
 
     const filters = wrapper.find('.issue-workbench__filters')
-    expect(filters.findAllComponents(ElSelect)).toHaveLength(6)
+    expect(filters.findAllComponents(ElSelect)).toHaveLength(3)
+    await filters.findAll('button').find(button => button.text() === '更多筛选')!.trigger('click')
+    expect(wrapper.find('#issue-advanced-filters').isVisible()).toBe(true)
+    expect(wrapper.find('#issue-advanced-filters').findAllComponents(ElSelect)).toHaveLength(3)
     expect(filters.findAll('input').map((input) => input.attributes('aria-label'))).toEqual([
-      '按问题域筛选', '按表筛选', '按维度筛选', '按级别筛选', '按状态筛选', '按责任人筛选',
+      '按问题域筛选', '按表筛选', '按状态筛选',
     ])
     expect(filters.text()).not.toContain('数据源')
     expect(filters.text()).not.toContain('快照')
@@ -790,6 +794,37 @@ describe('问题中心的范围、筛选和结果表达', () => {
 })
 
 describe('治理状态维护的能力控制', () => {
+  it('只读取公共范围的历史快照，不重复选择或回退最新快照', async () => {
+    respond(capability({ onDatasource: ['metadata:view'] }))
+    const context = useAdminContextStore()
+    context.$patch({ datasources: [{ id: 5, name: '销售库' }], datasourceId: 5, snapshotId: 88, snapshots: [{ id: 99, datasourceId: 5, snapshotVersion: 9 }], initialized: true })
+    const wrapper = mountPage(StatusEditor)
+    await settle()
+    expect(api.listSnapshotTables).toHaveBeenCalledWith(88)
+    expect(api.listSnapshots).not.toHaveBeenCalled()
+    expect(context.snapshotId).toBe(88)
+    expect(wrapper.findAllComponents(ElSelect).some(select => typeof select.props('modelValue') === 'number')).toBe(false)
+  })
+
+  it('高影响状态确认期间切换快照，不能写入新范围', async () => {
+    respond(capability({ onDatasource: ['metadata:view', 'governance:rule:manage'] }))
+    const context = useAdminContextStore()
+    context.$patch({ datasources: [{ id: 5, name: '销售库' }], datasourceId: 5, snapshotId: 8, initialized: true })
+    api.listSnapshotTables.mockResolvedValue({ data: [{ id: 1, tableName: 'orders', governanceStatus: 'NORMAL' }] })
+    const pending = deferred<unknown>()
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockReturnValue(pending.promise as never)
+    const wrapper = mountPage(StatusEditor)
+    await settle()
+    wrapper.findAllComponents(ElSelect).find(select => select.props('modelValue') === 'NORMAL')!.vm.$emit('change', 'BLOCKED')
+    await settle()
+    context.snapshotId = 9
+    await settle()
+    pending.resolve('confirm')
+    await settle()
+    expect(api.updateTableGovernanceStatus).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
   it('治理状态页面不再读取质量规则列表', async () => {
     respond(capability({ global: [] }))
     const wrapper = mountPage(StatusEditor)
@@ -805,7 +840,7 @@ describe('治理状态维护的能力控制', () => {
     await settle()
 
     expect(api.listSnapshots).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('metadata:view')
+    expect(wrapper.text()).toContain('查看资产结构')
   })
 })
 
@@ -825,6 +860,46 @@ describe('质量规则管理的能力控制', () => {
     expect(api.listQualityRules).not.toHaveBeenCalled()
     expect(api.listQualityRuleTemplates).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('没有当前范围的“查看治理规则”权限')
+  })
+
+  it('规则表逐条解释当前快照规划，停用和继承来源不混淆', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    api.listQualityRules.mockResolvedValue({ data: [{ ...globalRule, enabled: 1 }, { ...globalRule, id: 4, ruleName: '已停用本源规则', scopeType: 'DATASOURCE', datasourceId: 5, enabled: 0 }] })
+    api.getQualityRuleSummary.mockResolvedValue({ data: { enabledCount: 1, applicableCount: 0, globalCount: 1, datasourceCount: 0, unsupportedCount: 0, overriddenCount: 0, notApplicableCount: 1, invalidCount: 0,
+      rules: [{ ruleId: 3, ruleName: globalRule.ruleName, configVersion: 1, scopeType: 'GLOBAL', status: 'NOT_APPLICABLE', reason: '当前快照没有可用目标', plannedTargetCount: 0, targetCount: 0 }] } })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    expect(api.getQualityRuleSummary).toHaveBeenCalledWith(8)
+    const inherited = await waitForRow(wrapper, globalRule.ruleName)
+    expect(inherited.text()).toContain('全局默认')
+    expect(inherited.text()).toContain('需核对')
+    expect(inherited.text()).not.toContain('当前快照没有可用目标')
+    await wrapper.findAll('button').find(button => button.text().startsWith('检查覆盖'))!.trigger('click')
+    await settle()
+    expect(document.body.textContent).toContain('当前快照没有可用目标')
+    const disabled = await waitForRow(wrapper, '已停用本源规则')
+    expect(disabled.text()).toContain('本源专用')
+    expect(disabled.text()).toContain('已停用')
+  })
+
+  it('切换快照后，较晚返回的旧适用性规划不能覆盖新范围', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    api.listQualityRules.mockResolvedValue({ data: [globalRule] })
+    const pending = deferred<{ data: unknown }>()
+    api.getQualityRuleSummary.mockImplementation((id: number) => id === 8 ? pending.promise : Promise.resolve({ data: {
+      snapshotId: 9, datasourceId: 5, enabledCount: 1, applicableCount: 0, unsupportedCount: 0, overriddenCount: 0,
+      rules: [{ ruleId: 3, ruleName: globalRule.ruleName, configVersion: 1, scopeType: 'GLOBAL', status: 'NOT_APPLICABLE', reason: '新快照目标不适用', targetCount: 0, plannedTargetCount: 0 }],
+    } }))
+    const wrapper = mountPage(QualityRulesView)
+    await vi.waitFor(() => expect(api.getQualityRuleSummary).toHaveBeenCalledWith(8))
+    await wrapper.findAll('button').find(button => button.text().startsWith('检查覆盖'))!.trigger('click')
+    useAdminContextStore().snapshotId = 9
+    await settle()
+    expect(document.body.textContent).toContain('新快照目标不适用')
+    pending.resolve({ data: { snapshotId: 8, datasourceId: 5, enabledCount: 1, applicableCount: 1, unsupportedCount: 0, overriddenCount: 0, rules: [{ ruleId: 3, configVersion: 1, status: 'READY', reason: '旧快照可用' }] } })
+    await settle()
+    expect(document.body.textContent).toContain('新快照目标不适用')
+    expect(document.body.textContent).not.toContain('旧快照可用')
   })
 
   it('规则列表读取失败显示错误而不是空列表', async () => {
@@ -850,9 +925,10 @@ describe('质量规则管理的能力控制', () => {
 
     expect(api.listQualityRules).toHaveBeenCalled()
     expect(wrapper.text()).toContain('字段说明规则')
-    const toggle = wrapper.find('.el-switch')
-    expect(toggle.classes()).toContain('is-disabled')
-    await toggle.trigger('click')
+    const dropdown = (await waitForRow(wrapper, '字段说明规则')).findComponent(ElDropdown)
+    expect(dropdown.findAllComponents({ name: 'ElDropdownItem' }).find(item => item.props('command') === 'toggle')?.props('disabled')).toBe(true)
+    dropdown.vm.$emit('command', 'toggle')
+    await settle()
     expect(api.updateRuleEnabled).not.toHaveBeenCalled()
   })
 
@@ -864,9 +940,13 @@ describe('质量规则管理的能力控制', () => {
     const wrapper = mountPage(QualityRulesView)
     await settle()
 
-    await wrapper.findAll('button').find((button) => button.text() === '全局规则')!.trigger('click')
+    await wrapper.findAll('button').find((button) => button.text() === '全局规则库')!.trigger('click')
     await settle()
-    expect(wrapper.find('.el-switch').classes()).not.toContain('is-disabled')
+    const dropdown = (await waitForRow(wrapper, '字段说明规则')).findComponent(ElDropdown)
+    expect(dropdown.findAllComponents({ name: 'ElDropdownItem' }).find(item => item.props('command') === 'toggle')?.props('disabled')).toBe(false)
+    dropdown.vm.$emit('command', 'toggle')
+    await settle()
+    expect(api.updateRuleEnabled).toHaveBeenCalledWith(3, false)
   })
 
   it('有数据源规则管理权时复制现有规则，新副本由后端建立为停用状态', async () => {
@@ -1026,10 +1106,158 @@ describe('质量规则管理的能力控制', () => {
     await settle()
 
     const text = document.body.textContent || ''
-    expect(text).toContain('检查说明（模板）')
+    expect(text).toContain('检查项说明')
     expect(text).toContain('检查字段说明')
     expect(text).toContain('处理建议（本规则）')
     expect(text).toContain('先核对负责人再修改字段')
+  })
+
+  it('支持的检查项在规则页内浏览，确认后进入四部分规则表单，不自动保存', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    await wrapper.findAll('button').find(button => button.text() === '检查项说明')!.trigger('click')
+    await settle()
+    const catalog = wrapper.findComponent(QualityCheckItemCatalog)
+    expect(catalog.exists()).toBe(true)
+    expect(catalog.props('selectable')).toBe(true)
+    await catalog.find('.quality-check-catalog__item').trigger('click')
+    await settle()
+    expect(api.createQualityRule).not.toHaveBeenCalled()
+    await catalog.findAll('button').find(button => button.text() === '用此检查项创建规则')!.trigger('click')
+    await settle()
+    expect(document.body.textContent).toContain('1. 选择检查项')
+    expect(document.body.textContent).toContain('2. 指定检查对象')
+    expect(document.body.textContent).toContain('3. 设置异常条件')
+    expect(document.body.textContent).toContain('4. 配置风险与处理建议')
+    expect(document.body.querySelector<HTMLInputElement>('.quality-rule-editor-dialog input[maxlength="200"]')?.value).toBe('字段注释缺失')
+    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(routeState.push).not.toHaveBeenCalled()
+  })
+
+  it('有查看权无维护权时可以看检查项说明，不能借说明入口新建规则', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    await wrapper.findAll('button').find(button => button.text() === '检查项说明')!.trigger('click')
+    await settle()
+    const catalog = wrapper.findComponent(QualityCheckItemCatalog)
+    expect(catalog.props('selectable')).toBe(false)
+    catalog.vm.$emit('select', 'COMP_COLUMN_COMMENT_MISSING')
+    await settle()
+    expect(document.body.querySelector('.quality-rule-editor-dialog')).toBeNull()
+    expect(api.createQualityRule).not.toHaveBeenCalled()
+  })
+
+  it('全局检查项查看权不代表当前源规则查看权，只读目录仍可在页内打开', async () => {
+    respond(capability({ global: ['governance:rule:view'], onDatasource: ['metadata:view'] }))
+    reactiveRouteState.query = { showChecks: '1' }
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    expect(api.listQualityRules).not.toHaveBeenCalled()
+    expect(api.listQualityRuleTemplates).toHaveBeenCalled()
+    const catalog = wrapper.findComponent(QualityCheckItemCatalog)
+    expect(catalog.exists()).toBe(true)
+    expect(catalog.props('selectable')).toBe(false)
+    expect(api.createQualityRule).not.toHaveBeenCalled()
+  })
+
+  it('旧链接只打开规则页内检查项说明，消费标记并保留原范围', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    reactiveRouteState.query = { datasourceId: '5', snapshotId: '8', showChecks: '1' }
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    expect(wrapper.findComponent(QualityCheckItemCatalog).exists()).toBe(true)
+    expect(routeState.replace).toHaveBeenCalledWith({ query: { datasourceId: '5', snapshotId: '8' } })
+    expect(api.createQualityRule).not.toHaveBeenCalled()
+  })
+
+  it('从检查项带入创建意图，只打开预填表单且保留其他路由上下文', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
+    reactiveRouteState.query = { createTemplate: 'COMP_COLUMN_COMMENT_MISSING', datasourceId: '5', snapshotId: '8', keep: 'yes' }
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    expect(document.body.textContent).toContain('新增质量规则')
+    expect(document.body.querySelector<HTMLInputElement>('.el-dialog input[maxlength="200"]')?.value).toBe('字段注释缺失')
+    expect(document.body.textContent).toContain('配置预览（不执行检查）')
+    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(routeState.replace).toHaveBeenCalledWith({ query: { datasourceId: '5', snapshotId: '8', keep: 'yes' } })
+    expect(wrapper.find('.quality-rules-page__workflow').exists()).toBe(false)
+  })
+
+  it('路由指定另一数据源时等待公共范围同步，不能在旧数据源打开创建表单', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
+    reactiveRouteState.query = { createTemplate: 'COMP_COLUMN_COMMENT_MISSING', datasourceId: '6', snapshotId: '99' }
+    mountPage(QualityRulesView)
+    await settle()
+    expect(document.body.querySelector('.el-dialog')).toBeNull()
+    expect(routeState.replace).not.toHaveBeenCalled()
+    expect(api.createQualityRule).not.toHaveBeenCalled()
+  })
+
+  it('创建链接不能让普通数据源管理员进入全局规则编辑', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
+    reactiveRouteState.query = { createTemplate: 'COMP_COLUMN_COMMENT_MISSING', createScope: 'GLOBAL' }
+    mountPage(QualityRulesView)
+    await settle()
+    expect(document.body.querySelector('.el-dialog')).toBeNull()
+    expect(api.createQualityRule).not.toHaveBeenCalled()
+  })
+
+  it('全局规则执行记录按批次实际范围定位问题，不使用当前页面数据源', async () => {
+    const permissions = capability({ onDatasource: ['governance:rule:view'] })
+    permissions.datasourceCapabilities.push({ datasourceId: 6, datasourceName: '历史源', functionCodes: ['governance:issue:view'], functionNames: [] })
+    respond(permissions)
+    api.listQualityRules.mockResolvedValue({ data: [globalRule] })
+    api.getQualityRule.mockResolvedValue({ data: globalRule })
+    api.getQualityRuleHistory.mockResolvedValue({ data: [{
+      batchId: 202, batchDatasourceId: 6, snapshotId: 99, ruleVersion: 1, ruleName: globalRule.ruleName,
+      templateCode: globalRule.templateCode, scopeType: 'GLOBAL', datasourceId: null,
+      dimension: 'COMPLETENESS', status: 'NOT_APPLICABLE', batchStatus: 'PARTIAL', targetCount: 2,
+      checkedTargetCount: 0, issueCount: 0, parameters: {}, reason: '没有适用目标',
+    }] })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    ;(await waitForRow(wrapper, globalRule.ruleName)).findComponent(ElDropdown).vm.$emit('command', 'executions')
+    await settle()
+    expect(document.body.textContent).toContain('不适用')
+    expect(document.body.textContent).toContain('批次部分失败')
+    expect(document.body.textContent).toContain('快照 #99')
+    const link = Array.from(document.body.querySelectorAll<HTMLButtonElement>('.el-drawer button')).find(button => button.textContent?.includes('查看同范围当前问题'))!
+    expect(link).toBeTruthy()
+    link.click()
+    await settle()
+    expect(routeState.push).toHaveBeenCalledWith({ path: '/admin/governance/issues', query: { datasourceId: '6', snapshotId: '99', issueDomain: 'SOURCE', dimension: 'COMPLETENESS' } })
+  })
+
+  it('历史缺少实际快照或没有问题查看权时，不伪造问题跳转', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    api.listQualityRules.mockResolvedValue({ data: [globalRule] })
+    api.getQualityRule.mockResolvedValue({ data: globalRule })
+    api.getQualityRuleHistory.mockResolvedValue({ data: [{ batchId: 9, ruleVersion: 1, ruleName: globalRule.ruleName, scopeType: 'GLOBAL', dimension: 'COMPLETENESS', status: 'NOT_EXECUTED', checkedTargetCount: 0, targetCount: 0, issueCount: 0 }] })
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    ;(await waitForRow(wrapper, globalRule.ruleName)).findComponent(ElDropdown).vm.$emit('command', 'executions')
+    await settle()
+    expect(document.body.textContent).toContain('未执行')
+    expect(document.body.textContent).toContain('执行来源未记录')
+    expect(document.body.textContent).not.toContain('查看同范围当前问题')
+  })
+
+  it('切换数据源关闭详情并丢弃旧历史响应', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    api.listQualityRules.mockResolvedValue({ data: [globalRule] })
+    const pending = deferred<{ data: [] }>()
+    api.getQualityRuleHistory.mockReturnValue(pending.promise)
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    ;(await waitForRow(wrapper, globalRule.ruleName)).findComponent(ElDropdown).vm.$emit('command', 'executions')
+    await settle()
+    useAdminContextStore().datasourceId = 6
+    await settle()
+    pending.resolve({ data: [] })
+    await settle()
+    expect(wrapper.findComponent({ name: 'ElDrawer' }).props('modelValue')).toBe(false)
   })
 
   it('质量规则表格使用后端分页，翻页请求新页', async () => {
@@ -1246,18 +1474,18 @@ describe('治理总览的批次恢复与范围隔离', () => {
     await settle()
 
     const text = wrapper.text().replace(/\s/g, '')
-    expect(text).toContain('尚无可核验的校验批次')
+    expect(text).toContain('暂无可追溯的检查结果')
     expect(text).toContain('已有历史评分记录，尚无法确认对应的规则覆盖。')
     const scopeContext = wrapper.find('.quality-page__scope-context').text().replace(/\s/g, '')
     expect(scopeContext).toContain('快照v1')
     expect(scopeContext).toContain('已发布')
     expect(scopeContext).toContain(`历史评分${qualityScore}分`)
     expect(wrapper.find('[aria-label="评分与批次信息"]').exists()).toBe(false)
-    expect(wrapper.find('[aria-label="最近批次执行情况"]').exists()).toBe(false)
+    expect(wrapper.find('[aria-label="最近批次执行情况"]').text()).toContain('暂无可核验批次')
     expect(text).not.toContain('校验明细')
     expect(text).not.toContain('总数来自服务端统计')
     expect(text).not.toContain('0项实际执行')
-    expect(text).toContain('当前无待处理问题记录')
+    expect(text).toContain('暂无待处理问题')
   })
 
   it('没有选择快照时给出范围提示并且不请求快照统计', async () => {
@@ -1281,10 +1509,10 @@ describe('治理总览的批次恢复与范围隔离', () => {
     await vi.waitFor(() => expect(api.getLatestQualityCheckBatch).toHaveBeenCalledWith(8))
 
     expect(wrapper.text()).toContain('正在读取校验状态')
-    expect(wrapper.text()).not.toContain('尚无可核验的校验批次')
+    expect(wrapper.text()).not.toContain('暂无可追溯的检查结果')
     pendingBatch.resolve({ data: null })
     await settle()
-    expect(wrapper.text()).toContain('尚无可核验的校验批次')
+    expect(wrapper.text()).toContain('暂无可追溯的检查结果')
     expect(wrapper.text()).not.toContain('历史评分')
     expect(wrapper.find('[aria-label="评分与批次信息"]').exists()).toBe(false)
   })
@@ -1295,7 +1523,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
     await settle()
 
     expect(wrapper.text()).toContain('无权查看校验状态')
-    expect(wrapper.text()).not.toContain('尚无可核验的校验批次')
+    expect(wrapper.text()).not.toContain('暂无可追溯的检查结果')
     expect(api.getLatestQualityCheckBatch).not.toHaveBeenCalled()
   })
 
@@ -1309,9 +1537,9 @@ describe('治理总览的批次恢复与范围隔离', () => {
     expect(wrapper.text()).toContain('校验状态读取失败')
     expect(wrapper.text()).toContain('最近一次校验结果读取失败。')
     expect(wrapper.text()).toContain('历史评分')
-    expect(wrapper.text()).toContain('100分')
-    expect(wrapper.text()).not.toContain('尚无可核验的校验批次')
-    expect(wrapper.text()).toContain('读取失败，无法核对实际执行数。')
+    expect(wrapper.text().replace(/\s/g, '')).toContain('100分')
+    expect(wrapper.text()).not.toContain('暂无可追溯的检查结果')
+    expect(wrapper.find('.quality-page__details').text()).toContain('最近一次校验结果读取失败。')
   })
 
   it('批次中真实执行数为零时保留零，并直接展示部分失败与覆盖原因', async () => {

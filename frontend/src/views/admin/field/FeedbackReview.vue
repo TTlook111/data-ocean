@@ -103,7 +103,7 @@ onMounted(() => {
   <main ref="pageRef" class="feedback-review-page post-login-page">
 
     <section class="content-panel">
-      <el-table :data="reviews" v-loading="loading" stripe>
+      <el-table empty-text="暂无待审核反馈" :data="reviews" v-loading="loading" stripe>
         <el-table-column prop="id" label="反馈ID" width="80" />
         <el-table-column prop="columnMetaId" label="字段ID" width="80" />
         <el-table-column prop="columnName" label="字段名" width="150" />
@@ -124,7 +124,6 @@ onMounted(() => {
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!reviews.length && !loading" description="暂无待审核反馈" />
     </section>
 
     <el-pagination

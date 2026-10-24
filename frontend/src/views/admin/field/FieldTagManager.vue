@@ -16,17 +16,21 @@ import { listSnapshotTables, listSnapshotTableColumns, type ColumnMetaItem } fro
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
+import { governanceStatusLabel } from '../../../utils/enumLabels'
 import { getHttpErrorMessage } from '../../../utils/httpError'
+import LoadingState from '../../../components/common/LoadingState.vue'
 
+const props = defineProps<{ embedded?: boolean }>()
 const route = useRoute()
 const loading = ref(false)
+const scopePending = computed(() => Boolean(props.embedded && (adminContext.routeSyncing || (Number(route.query.snapshotId) && Number(route.query.snapshotId) !== adminContext.snapshotId && !adminContext.routeSyncError))))
 const pageRef = ref<HTMLElement | null>(null)
 const { reveal, withContext } = useGsapMotion(pageRef)
 const adminContext = useAdminContextStore()
 const iamS1 = useIamS1Store()
 const FIELD_VIEW = 'governance:field:view'
 const FIELD_MANAGE = 'governance:field:manage'
-const MANAGE_HINT = '需要 governance:field:manage 与当前数据源同一绑定'
+const MANAGE_HINT = '没有当前数据源的字段维护权限'
 const canViewFields = computed(() => iamS1.canOnDatasource(FIELD_VIEW, adminContext.datasourceId || undefined))
 const canManageFields = computed(() => iamS1.canOnDatasource(FIELD_MANAGE, adminContext.datasourceId || undefined))
 const predefinedTags = ref<PredefinedTag[]>([])
@@ -62,6 +66,15 @@ async function fetchSnapshots() {
   const requestId = ++snapshotRequestId
   const datasourceId = adminContext.datasourceId
   snapshotError.value = ''
+  if (props.embedded) {
+    snapshots.value = adminContext.snapshots || []
+    query.snapshotId = adminContext.snapshotId
+    if (adminContext.routeSyncing || adminContext.routeSyncError || (requestedSnapshotId && requestedSnapshotId !== query.snapshotId)) {
+      query.snapshotId = undefined
+      snapshotError.value = adminContext.routeSyncError || ''
+    }
+    return
+  }
   try {
     const res = await listSnapshots({ datasourceId, page: 1, size: 50 })
     if (disposed || requestId !== snapshotRequestId || datasourceId !== adminContext.datasourceId) return
@@ -352,6 +365,7 @@ watch(
       selectedColumnIds.value = []
       return
     }
+    if (props.embedded) { requestedSnapshotId = snapshotId; snapshotError.value = adminContext.routeSyncError || '' }
     if (query.snapshotId === snapshotId) return
     tableRequestId++
     columnRequestId++
@@ -397,6 +411,19 @@ watch(
   },
 )
 
+watch(() => [route.query.snapshotId, adminContext.routeSyncing, adminContext.routeSyncError], async () => {
+  if (!props.embedded) return
+  requestedSnapshotId = Number(route.query.snapshotId) || undefined
+  tableRequestId++
+  columnRequestId++
+  query.tableName = ''
+  columns.value = []
+  tables.value = []
+  selectedColumnIds.value = []
+  await fetchSnapshots()
+  if (query.snapshotId) await fetchTables()
+})
+
 onBeforeUnmount(() => {
   disposed = true
   snapshotRequestId++
@@ -407,16 +434,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main ref="pageRef" class="field-tag-page post-login-page">
-    <section class="page-actions">
-      <div class="header-actions">
-        <el-button :disabled="!canManageFields" :title="canManageFields ? '' : MANAGE_HINT" @click="handleAutoTag">
-          <RefreshCw :size="16" style="margin-right: 4px" />自动打标
-        </el-button>
-        <el-button type="primary" :disabled="!canManageFields" :title="canManageFields ? '' : MANAGE_HINT" @click="openBatchTagDialog">
-          <Tag :size="16" style="margin-right: 4px" />批量打标
-        </el-button>
-      </div>
-    </section>
+
 
     <el-alert
       v-if="snapshotError"
@@ -434,41 +452,48 @@ onBeforeUnmount(() => {
     />
 
     <section class="toolbar">
-      <el-select v-model="query.snapshotId" placeholder="选择快照" @change="handleSnapshotChange" style="width: 200px">
+      <el-select v-if="!props.embedded" v-model="query.snapshotId" placeholder="选择快照" @change="handleSnapshotChange" style="width: 200px">
         <el-option v-for="s in snapshots" :key="s.id" :label="`快照 v${s.snapshotVersion}`" :value="s.id" />
       </el-select>
       <el-select
         v-model="query.tableName"
+        aria-label="选择字段表"
         placeholder="选择表"
         :disabled="!query.snapshotId || !!snapshotError"
         @change="fetchColumns"
         style="width: 240px"
         filterable
       >
-        <el-option v-for="t in tables" :key="t.tableName" :label="t.tableName" :value="t.tableName" />
+        <el-option v-for="t in tables" :key="t.tableName" :label="t.tableComment ? `${t.tableName} · ${t.tableComment}` : t.tableName" :value="t.tableName" />
       </el-select>
+      <div class="header-actions">
+        <el-button :disabled="!canManageFields || !query.snapshotId" :title="canManageFields ? '按当前数据源自动识别标签' : MANAGE_HINT" @click="handleAutoTag">
+          <RefreshCw :size="16" style="margin-right: 4px" />自动打标
+        </el-button>
+        <el-button type="primary" :disabled="!canManageFields || !selectedColumnIds.length" :title="canManageFields ? '选择字段后批量打标' : MANAGE_HINT" @click="openBatchTagDialog">
+          <Tag :size="16" style="margin-right: 4px" />批量打标
+        </el-button>
+      </div>
     </section>
 
     <section class="content-panel">
-      <el-table :data="columns" v-loading="loading" @selection-change="handleSelectionChange" stripe>
+      <el-table v-if="query.tableName && !snapshotError && !locationError" :empty-text="loading ? '正在读取字段…' : '当前表没有字段'" :data="columns" v-loading="loading" @selection-change="handleSelectionChange" stripe>
         <el-table-column type="selection" width="50" />
         <el-table-column prop="columnName" label="字段名" width="200" />
         <el-table-column prop="dataType" label="数据类型" width="150" />
         <el-table-column prop="columnComment" label="注释" />
-        <el-table-column prop="governanceStatus" label="治理状态" width="120" />
+        <el-table-column label="治理状态" width="120"><template #default="{ row }">{{ governanceStatusLabel(row.governanceStatus) }}</template></el-table-column>
         <el-table-column label="操作" width="100">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="viewColumnTags(row)">查看标签</el-button>
           </template>
         </el-table-column>
       </el-table>
-      <el-empty
-        v-if="!columns.length && !loading"
-        :description="snapshotError || locationError ? '当前指定来源无法定位字段' : '请选择快照和表'"
-      />
+      <LoadingState v-else-if="scopePending" text="正在确认字段查看范围…" />
+      <el-empty v-else-if="!snapshotError && !locationError" :description="query.snapshotId ? '选择一张表，查看字段标签' : '请在顶部选择快照'" :image-size="40" />
     </section>
 
-    <el-dialog v-model="showTagDialog" title="批量打标" width="400px">
+    <el-dialog class="governance-dialog" v-model="showTagDialog" title="批量打标" width="min(440px, 94vw)">
       <p style="margin-bottom: 12px">已选择 {{ selectedColumnIds.length }} 个字段</p>
       <el-select v-model="selectedTagCode" placeholder="选择标签" style="width: 100%">
         <el-option v-for="tag in predefinedTags" :key="tag.tagCode" :label="`${tag.tagName}（${tag.tagCode}）`" :value="tag.tagCode" />
@@ -479,7 +504,7 @@ onBeforeUnmount(() => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showColumnTagsDialog" :title="`${currentColumnName} 标签`" width="520px">
+    <el-dialog class="governance-dialog" v-model="showColumnTagsDialog" :title="`${currentColumnName} 标签`" width="min(560px, 94vw)">
       <el-table v-if="currentColumnTags.length" :data="currentColumnTags" size="small">
         <el-table-column prop="tagName" label="标签" min-width="140" />
         <el-table-column prop="tagCode" label="编码" min-width="120" />
@@ -498,7 +523,8 @@ onBeforeUnmount(() => {
 .field-tag-page { min-width: 0; width: 100%; padding: 0; }
 .header-actions { display: flex; gap: 8px; }
 .field-tag-alert { margin-bottom: 12px; }
-.toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 14px 0 18px; }
+.toolbar .header-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .toolbar :deep(.el-select) { min-width: 0; max-width: 100%; }
 .content-panel { background: var(--do-glass-data-bg); border: 1px solid var(--do-glass-line); border-radius: var(--do-radius-lg); box-shadow: var(--do-shadow); padding: 16px; }
 </style>

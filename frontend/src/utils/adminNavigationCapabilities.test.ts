@@ -98,7 +98,7 @@ describe('导航能力过滤', () => {
 
     expect(groups.map((group) => group.label)).toEqual(['结果与问题', '规则与状态', '字段治理'])
     expect(groups[0].items.map((item) => item.key)).toEqual(['governance', 'governance-issues'])
-    expect(groups[1].items.map((item) => item.key)).toEqual(['governance-rules', 'rule-templates', 'governance-status'])
+    expect(groups[1].items.map((item) => item.key)).toEqual(['governance-rules', 'governance-status'])
     expect(groups[2].items.map((item) => item.key)).toEqual(['governance-fields'])
   })
 

@@ -76,8 +76,9 @@ function column(id = 21, columnName = 'amount') {
   }
 }
 
-function mountView() {
+function mountView(props: { embedded?: boolean } = {}) {
   return mount(FieldTagManager, {
+    props,
     global: {
       stubs: {
         'el-select': { template: '<div><slot /></div>' },
@@ -153,5 +154,30 @@ describe('field governance location from asset detail', () => {
 
     expect(api.getFieldTags).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('未找到指定字段')
+  })
+})
+
+describe('字段治理内嵌模式', () => {
+  it('只读取公共快照，不再显示或请求第二套快照选择', async () => {
+    context.snapshotId = 99
+    const wrapper = mountView({ embedded: true })
+    await flushPromises()
+    await flushPromises()
+    expect(api.listSnapshots).not.toHaveBeenCalled()
+    expect(context.selectSnapshot).not.toHaveBeenCalled()
+    expect(api.listSnapshotTables).toHaveBeenCalledWith(99)
+    expect(wrapper.html()).not.toContain('选择快照')
+    wrapper.unmount()
+  })
+  it('未选择表时只显示一个引导状态，不同时绘制空表', async () => {
+    context.snapshotId = 99
+    route.query = { datasourceId: '1', snapshotId: '99' }
+    const wrapper = mountView({ embedded: true })
+    await flushPromises()
+    await flushPromises()
+    expect(wrapper.findAll('el-empty-stub')).toHaveLength(1)
+    expect(wrapper.find('el-table-stub').exists()).toBe(false)
+    expect(wrapper.find('el-empty-stub').attributes('description')).toContain('选择一张表')
+    wrapper.unmount()
   })
 })

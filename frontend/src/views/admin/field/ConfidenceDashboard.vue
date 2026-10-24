@@ -269,7 +269,7 @@ watch(
           <el-option label="低可信" value="LOW" />
         </el-select>
       </div>
-      <el-table :data="confidenceList" v-loading="loading" stripe>
+      <el-table empty-text="暂无可信度数据" :data="confidenceList" v-loading="loading" stripe>
         <el-table-column prop="columnMetaId" label="字段ID" width="90" />
         <el-table-column prop="tableName" label="表名" min-width="140" show-overflow-tooltip>
           <template #default="{ row }">{{ row.tableName || '-' }}</template>
@@ -300,7 +300,6 @@ watch(
           </template>
         </el-table-column>
       </el-table>
-      <el-empty v-if="!confidenceList.length && !loading" description="暂无可信度数据" />
       <div class="pagination-bar" v-if="total > 0">
         <el-pagination
           layout="total, prev, pager, next"
@@ -312,12 +311,12 @@ watch(
       </div>
     </section>
 
-    <el-dialog v-model="showTrendDialog" title="可信度趋势（近30天）" width="680px" @closed="disposeChart">
+    <el-dialog class="governance-dialog" v-model="showTrendDialog" title="可信度趋势（近30天）" width="680px" @closed="disposeChart">
       <div v-if="trendData.length" ref="chartRef" class="trend-chart"></div>
       <el-empty v-else description="暂无趋势数据" />
     </el-dialog>
 
-    <el-dialog v-model="showSetDialog" title="设置可信度" width="400px">
+    <el-dialog class="governance-dialog" v-model="showSetDialog" title="设置可信度" width="min(440px, 94vw)">
       <el-form label-width="80px">
         <el-form-item label="分数">
           <el-slider v-model="setForm.score" :min="0" :max="100" show-input />

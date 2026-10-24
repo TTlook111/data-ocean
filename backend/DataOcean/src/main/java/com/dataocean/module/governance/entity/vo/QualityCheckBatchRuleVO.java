@@ -8,6 +8,9 @@ import java.util.Map;
 @Data
 public class QualityCheckBatchRuleVO {
     private Long batchId;
+    /** 批次实际执行范围，与全局规则本身的归属范围分开。 */
+    private Long batchDatasourceId;
+    private Long snapshotId;
     private java.time.LocalDateTime batchStartedAt;
     private String batchStatus;
     private Long ruleId;

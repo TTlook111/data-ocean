@@ -3,7 +3,7 @@ import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import { computed, reactive, ref, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { RefreshCw } from 'lucide-vue-next'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import {
   updateTableGovernanceStatus,
   updateColumnGovernanceStatus,
@@ -13,13 +13,18 @@ import {
   type TableMetaItem,
   type ColumnMetaItem,
 } from '../../../api/admin/governance'
-import { listSnapshots } from '../../../api/admin/metadata'
+import ErrorState from '../../../components/common/ErrorState.vue'
 import { governanceStatusLabel } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 
 const loading = ref(false)
-const snapshots = ref<Array<{ id: number; snapshotVersion: number }>>([])
+const tableError = ref('')
+const columnError = ref('')
+const columnLoading = ref(false)
+const tableSearch = ref('')
+const visibleTables = computed(() => tables.value.filter(table => !tableSearch.value.trim() || `${table.tableName} ${table.tableComment || ''}`.toLowerCase().includes(tableSearch.value.trim().toLowerCase())))
+let writeScopeVersion = 0
 const selectedSnapshotId = ref<number | undefined>()
 const tables = ref<TableMetaItem[]>([])
 const selectedTable = ref<string>('')
@@ -27,7 +32,6 @@ const columns = ref<ColumnMetaItem[]>([])
 const adminContext = useAdminContextStore()
 const iamS1 = useIamS1Store()
 const route = useRoute()
-const router = useRouter()
 /** 从对象详情进入时用于定位表；只在首次加载生效，不覆盖用户后续选择。 */
 const pendingTableName = ref(
   typeof route.query?.tableName === 'string' ? route.query.tableName : '',
@@ -59,56 +63,31 @@ const NO_STATUS_CAPABILITY_HINT =
   '没有“维护治理规则”能力：需要角色拥有该功能并负责当前数据源。'
 
 async function fetchSnapshots() {
-  const currentRequest = ++datasourceRequestId
+  datasourceRequestId++
   snapshotRequestId++
   columnRequestId++
-  // 无 `metadata:view` 时不要发这个必然 403 的请求：直接清空并由模板说明原因。
-  if (adminContext.datasourceId && !canViewMetadata.value) {
-    snapshots.value = []
-    selectedSnapshotId.value = undefined
-    tables.value = []
-    columns.value = []
-    selectedTable.value = ''
-    return
-  }
-  if (!adminContext.datasourceId) {
-    snapshots.value = []
-    selectedSnapshotId.value = undefined
-    tables.value = []
-    columns.value = []
-    selectedTable.value = ''
-    return
-  }
-  const datasourceId = adminContext.datasourceId
-  try {
-    const res = await listSnapshots({ datasourceId, page: 1, size: 50 })
-    if (disposed || currentRequest !== datasourceRequestId || datasourceId !== adminContext.datasourceId) return
-    snapshots.value = res.data?.records ?? []
-    if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
-      selectedSnapshotId.value = adminContext.snapshotId
-    } else {
-      selectedSnapshotId.value = snapshots.value[0]?.id
-    }
-    if (selectedSnapshotId.value) {
-      adminContext.selectSnapshot(selectedSnapshotId.value)
-      await fetchTables()
-    }
-  } catch {
-    if (disposed || currentRequest !== datasourceRequestId) return
-    snapshots.value = []
-    selectedSnapshotId.value = undefined
-    tables.value = []
-    columns.value = []
-    selectedTable.value = ''
-    ElMessage.error('获取快照列表失败')
-  }
+  writeScopeVersion++
+  Object.keys(tableActionLoading).forEach(key => delete tableActionLoading[key])
+  Object.keys(columnActionLoading).forEach(key => delete columnActionLoading[Number(key)])
+  batchActionLoading.value = false
+  selectedSnapshotId.value = adminContext.snapshotId
+  tables.value = []
+  columns.value = []
+  selectedTable.value = ''
+  tableError.value = ''
+  loading.value = false
+  columnError.value = ''
+  columnLoading.value = false
+  if (!canViewMetadata.value || !adminContext.datasourceId || !adminContext.snapshotId || adminContext.routeSyncing || adminContext.routeSyncError) return
+  await fetchTables()
 }
 
 async function fetchTables() {
   const currentRequest = ++snapshotRequestId
   columnRequestId++
   const snapshotId = selectedSnapshotId.value
-  if (!snapshotId) {
+  tableError.value = ''
+  if (!snapshotId || !canViewMetadata.value) {
     tables.value = []
     columns.value = []
     selectedTable.value = ''
@@ -127,29 +106,43 @@ async function fetchTables() {
     if (targetTable && tables.value.some((item) => item.tableName === targetTable)) {
       await fetchColumns(targetTable)
     }
+  } catch {
+    if (!disposed && currentRequest === snapshotRequestId) { tableError.value = '表列表读取失败，请重试。'; tables.value = []; columns.value = [] }
   } finally {
     if (!disposed && currentRequest === snapshotRequestId) loading.value = false
   }
 }
 
-function handleSnapshotChange(id?: number) {
-  adminContext.selectSnapshot(id)
-  router.replace({ query: { ...route.query, snapshotId: id ? String(id) : undefined } })
-  fetchTables()
-}
-
 async function fetchColumns(tableName: string) {
   const currentRequest = ++columnRequestId
   const snapshotId = selectedSnapshotId.value
-  if (!snapshotId) return
+  if (!snapshotId || !canViewMetadata.value) return
+  if (selectedTable.value !== tableName) {
+    writeScopeVersion++
+    Object.keys(tableActionLoading).forEach(key => delete tableActionLoading[key])
+    Object.keys(columnActionLoading).forEach(key => delete columnActionLoading[Number(key)])
+    batchActionLoading.value = false
+  }
   selectedTable.value = tableName
-  const res = await listSnapshotTableColumns(snapshotId, tableName)
-  if (disposed || currentRequest !== columnRequestId || snapshotId !== selectedSnapshotId.value || tableName !== selectedTable.value) return
-  columns.value = res.data ?? []
+  columns.value = []
+  columnError.value = ''
+  columnLoading.value = true
+  try {
+    const res = await listSnapshotTableColumns(snapshotId, tableName)
+    if (disposed || currentRequest !== columnRequestId || snapshotId !== selectedSnapshotId.value || tableName !== selectedTable.value) return
+    columns.value = res.data ?? []
+  } catch { if (!disposed && currentRequest === columnRequestId) columnError.value = '字段读取失败，请重试。' }
+  finally { if (!disposed && currentRequest === columnRequestId) columnLoading.value = false }
+}
+
+function sameWriteScope(version: number, snapshotId: number) {
+  return !disposed && version === writeScopeVersion && snapshotId === selectedSnapshotId.value && snapshotId === adminContext.snapshotId && canManageStatus.value
 }
 
 async function changeTableStatus(tableName: string, newStatus: string) {
-  if (!selectedSnapshotId.value) return
+  const snapshotId = selectedSnapshotId.value
+  const version = writeScopeVersion
+  if (!snapshotId) return
   if (!canManageStatus.value) {
     ElMessage.warning(NO_STATUS_CAPABILITY_HINT)
     fetchTables()
@@ -160,21 +153,26 @@ async function changeTableStatus(tableName: string, newStatus: string) {
       await ElMessageBox.confirm(`确认将表「${tableName}」设置为${governanceStatusLabel(newStatus)}？这可能阻断后续问数和治理发布。`, '确认高影响状态', { type: 'warning' })
     } catch { return }
   }
+  if (!sameWriteScope(version, snapshotId)) return
   tableActionLoading[tableName] = true
   try {
-    await updateTableGovernanceStatus(selectedSnapshotId.value, tableName, { governanceStatus: newStatus })
+    await updateTableGovernanceStatus(snapshotId, tableName, { governanceStatus: newStatus })
+    if (!sameWriteScope(version, snapshotId)) return
     ElMessage.success(`表 ${tableName} 状态已更新为${governanceStatusLabel(newStatus)}`)
     const table = tables.value.find((item) => item.tableName === tableName)
     if (table) table.governanceStatus = newStatus
   } catch (e: any) {
+    if (!sameWriteScope(version, snapshotId)) return
     ElMessage.error(e?.response?.data?.message || '更新失败')
   } finally {
-    tableActionLoading[tableName] = false
+    if (sameWriteScope(version, snapshotId)) tableActionLoading[tableName] = false
   }
 }
 
 async function changeColumnStatus(columnId: number, newStatus: string) {
-  if (!selectedSnapshotId.value) return
+  const snapshotId = selectedSnapshotId.value
+  const version = writeScopeVersion
+  if (!snapshotId) return
   if (!canManageStatus.value) {
     ElMessage.warning(NO_STATUS_CAPABILITY_HINT)
     fetchColumns(selectedTable.value)
@@ -185,39 +183,48 @@ async function changeColumnStatus(columnId: number, newStatus: string) {
       await ElMessageBox.confirm(`确认将字段设置为${governanceStatusLabel(newStatus)}？这可能阻断后续问数和治理发布。`, '确认高影响状态', { type: 'warning' })
     } catch { return }
   }
+  if (!sameWriteScope(version, snapshotId)) return
   columnActionLoading[columnId] = true
   try {
-    await updateColumnGovernanceStatus(selectedSnapshotId.value, columnId, { governanceStatus: newStatus })
+    await updateColumnGovernanceStatus(snapshotId, columnId, { governanceStatus: newStatus })
+    if (!sameWriteScope(version, snapshotId)) return
     ElMessage.success('字段状态已更新')
     const column = columns.value.find((item) => item.id === columnId)
     if (column) column.governanceStatus = newStatus
   } catch (e: any) {
+    if (!sameWriteScope(version, snapshotId)) return
     ElMessage.error(e?.response?.data?.message || '更新失败')
   } finally {
-    columnActionLoading[columnId] = false
+    if (sameWriteScope(version, snapshotId)) columnActionLoading[columnId] = false
   }
 }
 
 async function batchSetColumns(newStatus: string) {
-  if (!selectedSnapshotId.value || !selectedTable.value) return
+  const snapshotId = selectedSnapshotId.value
+  const version = writeScopeVersion
+  const tableName = selectedTable.value
+  if (!snapshotId || !tableName) return
   if (!canManageStatus.value) {
     ElMessage.warning(NO_STATUS_CAPABILITY_HINT)
     return
   }
   if (['DEPRECATED', 'BLOCKED'].includes(newStatus)) {
     try {
-      await ElMessageBox.confirm(`确认将表「${selectedTable.value}」下的全部字段设置为${governanceStatusLabel(newStatus)}？`, '确认批量高影响状态', { type: 'warning' })
+      await ElMessageBox.confirm(`确认将表「${tableName}」下的全部字段设置为${governanceStatusLabel(newStatus)}？`, '确认批量高影响状态', { type: 'warning' })
     } catch { return }
   }
+  if (!sameWriteScope(version, snapshotId)) return
   batchActionLoading.value = true
   try {
-    const res = await batchUpdateGovernanceStatus(selectedSnapshotId.value, selectedTable.value, { governanceStatus: newStatus })
+    const res = await batchUpdateGovernanceStatus(snapshotId, tableName, { governanceStatus: newStatus })
+    if (!sameWriteScope(version, snapshotId)) return
     ElMessage.success(`已更新 ${res.data?.updated ?? 0} 个字段`)
-    fetchColumns(selectedTable.value)
+    fetchColumns(tableName)
   } catch (e: any) {
+    if (!sameWriteScope(version, snapshotId)) return
     ElMessage.error(e?.response?.data?.message || '批量更新失败')
   } finally {
-    batchActionLoading.value = false
+    if (sameWriteScope(version, snapshotId)) batchActionLoading.value = false
   }
 }
 
@@ -226,65 +233,31 @@ onMounted(async () => {
   await fetchSnapshots()
 })
 
-watch(
-  () => adminContext.snapshotId,
-  (snapshotId) => {
-    if (!snapshotId || selectedSnapshotId.value === snapshotId) return
-    selectedSnapshotId.value = snapshotId
-    fetchTables()
-  },
-)
-
-onBeforeUnmount(() => {
-  disposed = true
-  datasourceRequestId++
-  snapshotRequestId++
-  columnRequestId++
-})
-
-watch(
-  () => adminContext.datasourceId,
-  async () => {
-    await fetchSnapshots()
-  },
-)
+watch(() => [adminContext.snapshotId, adminContext.datasourceId, adminContext.routeSyncing, adminContext.routeSyncError], () => { void fetchSnapshots() })
+onBeforeUnmount(() => { disposed = true; datasourceRequestId++; snapshotRequestId++; columnRequestId++; writeScopeVersion++ })
 </script>
 
 <template>
-  <main class="status-page post-login-page">
-    <TaskPageHeader title="治理状态维护" description="维护当前快照中表和字段的治理状态；治理状态决定对象能否被检索、生成 SQL 和发布。" />
-    <section class="page-actions">
-      <el-button :icon="RefreshCw" @click="fetchTables">刷新</el-button>
-    </section>
-
-        <section class="toolbar">
-          <el-select v-model="selectedSnapshotId" :disabled="!adminContext.datasourceId || !canViewMetadata" placeholder="选择快照" style="width: 220px" @change="handleSnapshotChange">
-            <el-option v-for="s in snapshots" :key="s.id" :value="s.id" :label="`快照 #${s.id} 版本 ${s.snapshotVersion}`" />
-          </el-select>
-          <span v-if="!canViewMetadata" class="capability-hint">
-            没有“查看资产结构”能力（<code>metadata:view</code>）：需要角色拥有该功能并负责当前数据源。
-          </span>
-          <span v-else-if="!canManageStatus" class="capability-hint">
-            可以查看表与字段，但没有“维护治理规则”能力，状态修改不可用。
-          </span>
-        </section>
-
+  <main class="status-page post-login-page governance-workspace governance-surface">
+    <TaskPageHeader title="治理状态维护" description="维护当前快照的对象可用状态。废弃或阻断会影响后续检索和查询；修改状态不等于修复质量问题。"><template #actions><el-button :icon="RefreshCw" @click="fetchTables">刷新</el-button></template></TaskPageHeader>
+    <p v-if="!canViewMetadata" class="capability-hint">没有“查看资产结构”能力，无法读取表与字段。</p><p v-else-if="!canManageStatus" class="capability-hint">可以查看表与字段，但没有“维护治理规则”能力，状态修改不可用。</p>
+        <ErrorState v-if="tableError" :message="tableError" @retry="fetchTables" />
+        <p v-if="!adminContext.snapshotId" class="governance-purpose">请在顶部公共范围栏选择快照，不自动切换到其他版本。</p>
         <div class="split-layout">
       <!-- 左侧：表列表 -->
       <section class="table-list-panel">
-        <h3>表列表</h3>
+        <h3>表与治理状态 <small>已加载 {{ tables.length }} 张表</small></h3><el-input v-model="tableSearch" clearable placeholder="搜索表名或说明" aria-label="搜索治理状态表" />
         <div v-loading="loading" class="table-items">
-          <div v-for="t in tables" :key="t.id" class="table-item"
-               :class="{ active: selectedTable === t.tableName }"
-               @click="fetchColumns(t.tableName)">
-            <span class="table-name">{{ t.tableName }}</span>
+          <div v-for="t in visibleTables" :key="t.id" class="table-item"
+               :class="{ active: selectedTable === t.tableName }">
+            <button type="button" class="table-name" :aria-pressed="selectedTable === t.tableName" @click="fetchColumns(t.tableName)">{{ t.tableName }}<small class="table-comment">{{ t.tableComment || '未提供表说明' }}</small></button>
             <el-select :model-value="t.governanceStatus" :loading="tableActionLoading[t.tableName]" size="small" style="width: 110px"
-                       :disabled="!canManageStatus"
+                       :disabled="!canManageStatus" @click.stop
                        @change="(v: string) => changeTableStatus(t.tableName, v)">
               <el-option v-for="s in statusOptions" :key="s" :value="s" :label="governanceStatusLabel(s)" />
             </el-select>
           </div>
-          <el-empty v-if="!tables.length" description="暂无数据" :image-size="60" />
+          <el-empty v-if="!loading && !tableError && canViewMetadata && adminContext.snapshotId && !visibleTables.length" :description="tables.length ? '没有匹配的表' : '当前快照没有表'" :image-size="60" />
         </div>
       </section>
 
@@ -297,9 +270,11 @@ watch(
             <el-button size="small" type="warning" :loading="batchActionLoading" :disabled="!canManageStatus" @click="batchSetColumns('DEPRECATED')">全部废弃</el-button>
           </div>
         </div>
-        <el-table :data="columns" stripe size="small">
+        <ErrorState v-if="columnError" :message="columnError" @retry="fetchColumns(selectedTable)" />
+        <el-table v-else v-loading="columnLoading" :data="columns" stripe size="small">
           <el-table-column prop="columnName" label="字段名" width="160" />
           <el-table-column prop="dataType" label="类型" width="120" />
+          <el-table-column prop="columnComment" label="字段说明" min-width="180" show-overflow-tooltip />
           <el-table-column label="治理状态" width="140">
             <template #default="{ row }">
                 <el-select :model-value="row.governanceStatus" :loading="columnActionLoading[row.id]" size="small"
@@ -311,35 +286,18 @@ watch(
           </el-table-column>
         </el-table>
       </section>
+      <section v-if="!selectedTable" class="column-panel"><h3>选择一张表</h3><p>查看字段及治理状态</p></section>
     </div>
   </main>
 </template>
 
 <style scoped>
-.status-page { display: grid; gap: 16px; }
-.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.capability-hint { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.6; }
-.capability-hint code { font-size: 12px; }
-
-.split-layout { display: flex; gap: 16px; }
-.table-list-panel {
-  width: 360px; flex-shrink: 0;
-  background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px;
-}
-.table-list-panel h3 { margin: 0 0 12px; font-size: 14px; }
-.table-items { max-height: calc(100vh - 280px); overflow-y: auto; }
-.table-item {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 8px 10px; border-radius: 4px; cursor: pointer; margin-bottom: 4px;
-}
-.table-item:hover { background: var(--do-bg); }
-.table-item.active { background: var(--do-primary-soft); }
-.table-name { font-size: 13px; font-weight: 500; }
-
-.column-panel {
-  flex: 1; background: var(--do-surface); border: 1px solid var(--do-line); border-radius: 8px; padding: 16px;
-}
-.column-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.column-header h3 { margin: 0; font-size: 14px; }
-.batch-actions { display: flex; gap: 8px; }
+.status-page .split-layout { display: grid; grid-template-columns: 260px minmax(0,1fr); gap: 24px; align-items: stretch; min-width: 0; }
+.status-page .table-list-panel { min-width: 0; padding-right: 22px; border-right: 1px solid var(--do-line); }
+.status-page h3 { margin: 0 0 14px; color: var(--do-ink); font-size: 15px; }.status-page h3 small { margin-left: 6px; font-size: 11px; font-weight: 400; color: var(--do-muted); }
+.status-page .table-items { margin-top: 12px; }.status-page .table-item { display: flex; align-items: center; gap: 10px; min-height: 72px; padding: 12px 8px; border-bottom: 1px solid var(--do-line); }.status-page .table-item.active { background: var(--do-primary-soft); }
+.status-page .table-name { flex: 1; min-width: 0; padding: 0; border: 0; text-align: left; background: none; font: inherit; font-size: 13px; color: var(--do-ink); cursor: pointer; overflow-wrap: anywhere; }.status-page .table-name:focus-visible { outline: 2px solid var(--do-primary); }
+.status-page .table-comment { display: block; margin-top: 4px; color: var(--do-muted); font-size: 12px; }.status-page .column-panel { min-width: 0; }.status-page .column-panel:has(> h3) { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 300px; color: var(--do-muted); }
+.status-page .column-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }.status-page .column-header h3 { margin: 0; }.status-page .batch-actions { display: flex; gap: 8px; flex-wrap: wrap; }.status-page .capability-hint { font-size: 13px; color: var(--do-muted); margin: 0; }
+@media(max-width:900px) { .status-page .split-layout { grid-template-columns: minmax(0,1fr); }.status-page .table-list-panel { border: 0; padding: 0; }.status-page .table-items { max-height: 210px; overflow-y: auto; } }
 </style>

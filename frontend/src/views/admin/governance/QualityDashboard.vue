@@ -2,8 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertTriangle, ArrowRight, ClipboardCheck, RefreshCw } from 'lucide-vue-next'
+import { AlertTriangle, ArrowRight, ClipboardCheck, RefreshCw, Inbox } from 'lucide-vue-next'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
+import RuleApplicabilitySummary from '../../../components/admin/RuleApplicabilitySummary.vue'
+import TitleHelp from '../../../components/admin/TitleHelp.vue'
+import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
 import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import {
@@ -26,6 +29,8 @@ const route = useRoute()
 const router = useRouter()
 
 const latestBatch = ref<QualityCheckBatch | null>(null)
+const coverageOpen = ref(false)
+useAdminScrollLock(() => coverageOpen.value)
 const issueSummary = ref<QualityIssueSummary | null>(null)
 const ruleSummary = ref<QualityRuleSummary | null>(null)
 const scopeReady = ref(false)
@@ -44,6 +49,7 @@ let disposed = false
 const datasourceId = computed(() => context.datasourceId)
 const snapshotId = computed(() => context.snapshotId)
 const snapshot = computed(() => context.currentSnapshot)
+const rulePreview = computed(() => [...(ruleSummary.value?.rules || [])].sort((a,b) => Number(a.status === 'READY') - Number(b.status === 'READY')).slice(0,3))
 const recentIssues = computed(() => issueSummary.value?.recentIssues ?? [])
 const snapshotScoreLabel = computed(() => latestBatch.value?.complete && latestBatch.value.requestedScope === 'FULL'
   ? '本次完整校验评分' : '历史评分')
@@ -259,10 +265,6 @@ function scopeTypeLabel(scope?: string) {
   return ({ GLOBAL: '全局', DATASOURCE: '数据源', TABLE: '表', COLUMN: '字段' } as Record<string, string>)[scope || ''] || '范围未知'
 }
 
-function severityType(severity: string) {
-  return severity === 'HIGH' ? 'danger' : severity === 'MEDIUM' ? 'warning' : 'info'
-}
-
 function requestedScopeLabel(batch: QualityCheckBatch) {
   if (batch.legacyLimited || !batch.requestedScope) return '历史批次范围未知'
   if (batch.requestedScope === 'FULL') return '全量快照'
@@ -294,158 +296,51 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="quality-page post-login-page">
-    <TaskPageHeader
-      title="治理总览"
-      description="查看当前快照的校验状态、待处理问题和规则配置。历史评分与批次覆盖分开展示。"
-    >
-      <template #actions>
-        <el-button :icon="RefreshCw" :loading="loading || batchLoading || issueLoading || rulesLoading" @click="refresh">刷新总览</el-button>
-        <el-button v-if="canReturnToRelease" @click="openReleasePage">返回元数据版本</el-button>
-      </template>
+  <main class="quality-page post-login-page governance-workspace governance-surface">
+    <TaskPageHeader title="治理总览" description="检查状态、规则准备和待处理问题。零问题记录不代表已通过检查；规则覆盖与使用前提可在详情中核对。">
+      <template #actions><el-button :icon="RefreshCw" :loading="loading || batchLoading || issueLoading || rulesLoading" @click="refresh">刷新</el-button><el-button v-if="canReturnToRelease" @click="openReleasePage">返回元数据版本</el-button></template>
     </TaskPageHeader>
-
     <ErrorState v-if="pageError" :message="pageError" @retry="refresh" />
     <template v-else>
       <section class="quality-page__status" :class="`quality-page__status--${overviewState.kind}`" aria-labelledby="quality-current-state">
         <div class="quality-page__status-main">
-          <div class="quality-page__status-copy">
-            <span class="quality-page__eyebrow">当前校验状态</span>
-            <h2 id="quality-current-state">{{ overviewState.title }}</h2>
-            <p class="quality-page__status-description" role="status" aria-live="polite">{{ overviewState.description }}</p>
-            <div v-if="snapshot || snapshotId" class="quality-page__scope-context">
-              <span>{{ snapshot ? `快照 v${snapshot.snapshotVersion}` : `快照 #${snapshotId}` }}</span>
-              <BusinessStatusBadge v-if="snapshot" :status="snapshot.status" :label="snapshotStatusLabel(snapshot.status)" />
-              <span v-if="overviewState.kind === 'no-batch' && snapshot?.qualityScore != null" class="quality-page__history-score">历史评分 {{ snapshot.qualityScore }} 分</span>
-            </div>
-          </div>
-          <div class="quality-page__primary-action">
-            <el-button
-              type="primary"
-              :icon="ClipboardCheck"
-              :loading="checkLoading"
-              :disabled="!snapshotId || !canRunCheck || checkLoading || latestBatch?.status === 'RUNNING'"
-              @click="runCheck"
-            >执行质量校验</el-button>
-            <span v-if="datasourceId && !canRunCheck" class="quality-page__action-note">没有此数据源的执行权限</span>
-            <span v-else-if="latestBatch?.status === 'RUNNING'" class="quality-page__action-note">当前批次运行中</span>
-          </div>
+          <ClipboardCheck class="quality-page__state-icon" :size="26" aria-hidden="true" />
+          <div class="quality-page__status-copy"><h2 id="quality-current-state">{{ overviewState.kind === 'no-batch' ? '暂无可追溯的检查结果' : overviewState.title }}</h2><p class="quality-page__status-description" role="status" aria-live="polite">{{ overviewState.kind === 'no-batch' ? '执行一次检查，查看当前范围的质量结果。' : overviewState.description }}</p></div>
+          <div class="quality-page__primary-action"><el-button type="primary" :icon="ClipboardCheck" :loading="checkLoading" :disabled="!snapshotId || !canRunCheck || checkLoading || latestBatch?.status === 'RUNNING'" @click="runCheck">执行质量校验</el-button><span v-if="datasourceId && !canRunCheck" class="quality-page__action-note">没有此数据源的执行权限</span></div>
         </div>
-
-        <div v-if="latestBatch || (snapshot?.qualityScore != null && overviewState.kind !== 'no-batch')" class="quality-page__secondary-metrics" aria-label="评分与批次信息">
-          <div v-if="snapshot?.qualityScore != null" class="quality-page__metric quality-page__metric--score">
-            <span>{{ snapshotScoreLabel }}</span><strong>{{ snapshot.qualityScore }}<small>分</small></strong>
-          </div>
-          <div v-if="latestBatch" class="quality-page__metric">
-            <span>最近校验</span><strong>{{ formatTime(latestBatch.startedAt) }}</strong>
-          </div>
-          <div v-if="latestBatch" class="quality-page__metric">
-            <span>校验范围</span><strong>{{ requestedScopeLabel(latestBatch) }}</strong>
-          </div>
-          <div v-if="latestBatch" class="quality-page__metric">
-            <span>本次检查评分</span>
-            <strong v-if="latestBatch.complete && latestBatch.totalScore != null">{{ latestBatch.totalScore }}<small>分</small></strong>
-            <strong v-else-if="latestBatch.status === 'PARTIAL'">不完整</strong>
-            <strong v-else-if="latestBatch.status === 'FAILED'">未生成</strong>
-            <strong v-else>—</strong>
-          </div>
-        </div>
-
-        <ErrorState v-if="batchError" class="quality-page__batch-error" :message="batchError" @retry="loadSnapshotState()" />
-        <div v-if="latestBatch?.errorSummary" class="quality-page__failure" role="alert">
-          <AlertTriangle :size="17" aria-hidden="true" />
-          <span>{{ latestBatch.errorSummary }}</span>
-        </div>
+        <ErrorState v-if="batchError" :message="batchError" @retry="loadSnapshotState()" />
+        <p v-if="latestBatch?.errorSummary" class="quality-page__failure" role="alert"><AlertTriangle :size="16" aria-hidden="true" />{{ latestBatch.errorSummary }}</p>
       </section>
-
       <div class="quality-page__content-grid">
-        <section class="quality-page__panel quality-page__issues" aria-labelledby="quality-issues-title">
-          <header class="quality-page__panel-heading">
-            <div><h2 id="quality-issues-title">待处理问题</h2></div>
-            <el-button v-if="canViewIssues && snapshotId" link type="primary" @click="openIssueCenter">问题中心<ArrowRight :size="14" aria-hidden="true" /></el-button>
-          </header>
-          <ErrorState v-if="issueError" :message="issueError" @retry="loadSnapshotState()" />
-          <p v-else-if="!datasourceId || !snapshotId" class="quality-page__inline-state">选择数据源和快照后查看问题。</p>
-          <p v-else-if="!canViewIssues" class="quality-page__inline-state">没有此数据源的「查看质量问题」权限，问题统计不可见。</p>
-          <p v-else-if="issueLoading" class="quality-page__inline-state" role="status">正在读取问题统计…</p>
-          <template v-else-if="issueSummary">
-            <div class="quality-page__issue-summary">
-              <div class="quality-page__issue-total"><span>待处理总数</span><strong>{{ issueSummary.totalUnresolved }}</strong></div>
-              <div class="quality-page__issue-counts" aria-label="待处理问题分类">
-                <div><span>待确认</span><strong>{{ issueStatusCount('OPEN') }}</strong></div>
-                <div><span>已确认</span><strong>{{ issueStatusCount('CONFIRMED') }}</strong></div>
-                <div><span>重新打开</span><strong>{{ issueStatusCount('REOPENED') }}</strong></div>
-              </div>
-            </div>
-            <div v-if="recentIssues.length" class="quality-page__issue-list">
-              <p class="quality-page__preview-heading">最近问题</p>
-              <article v-for="issue in recentIssues" :key="issue.id" class="quality-page__issue-row">
-                <div class="quality-page__issue-copy">
-                  <div class="quality-page__issue-meta">
-                    <el-tag size="small" :type="severityType(issue.severity)">{{ severityLabel(issue.severity) }}</el-tag>
-                    <span class="quality-page__issue-target">{{ issue.tableName }}<template v-if="issue.columnName">.{{ issue.columnName }}</template></span>
-                    <span class="quality-page__issue-time">{{ formatTime(issue.createdAt) }}</span>
-                  </div>
-                  <strong>{{ issue.issueDescription }}</strong>
-                  <p v-if="issue.suggestion">{{ issue.suggestion }}</p>
-                </div>
-              </article>
-              <el-button v-if="issueSummary.totalUnresolved > 0" class="quality-page__all-issues" link type="primary" @click="openIssueCenter">查看问题中心<ArrowRight :size="14" aria-hidden="true" /></el-button>
-            </div>
-            <p v-else-if="issueSummary.totalUnresolved === 0" class="quality-page__empty-issues">当前无待处理问题记录。</p>
-            <p v-else class="quality-page__empty-issues">当前没有返回近期预览；待处理总数仍以服务端统计为准。</p>
-          </template>
-          <p v-else class="quality-page__inline-state">暂无问题统计结果。</p>
-        </section>
-
         <section class="quality-page__panel quality-page__rules" aria-labelledby="quality-rules-title">
-          <header class="quality-page__panel-heading">
-            <div><h2 id="quality-rules-title">规则摘要</h2><p>当前规则配置</p></div>
-            <el-button v-if="canViewRules && snapshotId" link type="primary" @click="openRules">管理规则<ArrowRight :size="14" aria-hidden="true" /></el-button>
-          </header>
+          <header class="quality-page__panel-heading"><div class="quality-page__section-title"><h2 id="quality-rules-title">规则准备</h2><TitleHelp label="规则准备" text="按已保存配置和当前快照进行只读规划，尚未读取业务数据。业务是否适用、连接和执行权限还需核对。" /></div><el-button v-if="canViewRules && snapshotId" link type="primary" @click="openRules">管理规则<ArrowRight :size="14" aria-hidden="true" /></el-button></header>
           <ErrorState v-if="rulesError" :message="rulesError" @retry="loadSnapshotState()" />
-          <p v-else-if="!datasourceId || !snapshotId" class="quality-page__inline-state">选择数据源和快照后查看规则配置。</p>
-          <p v-else-if="!canViewRules" class="quality-page__inline-state">没有此数据源的「查看治理规则」权限，规则摘要不可见。</p>
-          <p v-else-if="rulesLoading" class="quality-page__inline-state" role="status">正在读取规则摘要…</p>
+          <p v-else-if="!datasourceId || !snapshotId" class="quality-page__inline-state">选择数据源和快照后查看规则。</p>
+          <p v-else-if="!canViewRules" class="quality-page__inline-state">没有此数据源的「查看治理规则」权限。</p>
+          <p v-else-if="rulesLoading" class="quality-page__inline-state" role="status">正在读取规则…</p>
           <template v-else-if="ruleSummary">
-            <div class="quality-page__rule-stats">
-              <div><span>当前适用</span><strong>{{ ruleSummary.applicableCount }}</strong><small>项</small></div>
-              <div><span>已启用</span><strong>{{ ruleSummary.enabledCount }}</strong><small>项</small></div>
-            </div>
-            <p v-if="ruleSummary.unsupportedCount" class="quality-page__rule-warning" role="alert">
-              有 {{ ruleSummary.unsupportedCount }} 条已启用规则尚未映射到受支持模板；执行时会记录失败覆盖。
-            </p>
-            <p v-if="ruleSummary.overriddenCount" class="quality-page__rule-note">有 {{ ruleSummary.overriddenCount }} 条规则的部分目标由更具体范围覆盖。</p>
-          </template>
-          <p v-else class="quality-page__inline-state">暂无规则摘要。</p>
-
-          <section v-if="latestBatch || batchError || batchLoading || !canViewOverview || !datasourceId || !snapshotId" class="quality-page__execution" aria-label="最近批次执行情况">
-            <h3>最近批次执行</h3>
-            <p v-if="batchError" class="quality-page__execution-state quality-page__execution-state--error" role="alert">读取失败，无法核对实际执行数。</p>
-            <p v-else-if="!canViewOverview && datasourceId" class="quality-page__execution-state">没有查看校验批次的权限。</p>
-            <p v-else-if="!datasourceId || !snapshotId" class="quality-page__execution-state">选择数据源和快照后查看执行情况。</p>
-            <p v-else-if="batchLoading" class="quality-page__execution-state" role="status">正在读取批次…</p>
-            <p v-else-if="!latestBatch" class="quality-page__execution-state">暂无可核验批次。</p>
-            <p v-else-if="latestBatch.legacyLimited || latestBatch.status === 'LEGACY'" class="quality-page__execution-state">历史覆盖有限，实际执行数不可核验。</p>
-            <div v-else class="quality-page__batch-counts">
-              <div><strong>{{ latestBatch.executedRuleCount ?? '—' }}</strong><span>项实际执行</span></div>
-              <div><strong>{{ latestBatch.failedRuleCount ?? '—' }}</strong><span>项失败</span></div>
-              <div><strong>{{ latestBatch.notApplicableRuleCount ?? '—' }}</strong><span>项不适用</span></div>
-              <p>{{ batchStateLabel(latestBatch) }}<template v-if="latestBatch.startedAt"> · {{ formatTime(latestBatch.startedAt) }}</template></p>
-            </div>
-          </section>
+            <p class="quality-page__rule-line">已启用 <strong>{{ ruleSummary.enabledCount }}</strong> 项 · 当前快照可参与 <strong>{{ ruleSummary.applicableCount }}</strong> 项</p>
+            <div v-if="rulePreview.length" class="quality-page__rule-preview"><article v-for="item in rulePreview" :key="item.ruleId"><div><strong>{{ item.ruleName }}</strong><small v-if="item.status !== 'READY' || item.reason">{{ item.reason || '当前没有可参与检查的对象' }}</small></div><span>{{ item.scopeType === 'GLOBAL' ? '全局默认' : '本源专用' }}</span><span :class="{ 'quality-page__rule-warning': item.status !== 'READY' }">{{ item.status === 'READY' ? `预计 ${item.plannedTargetCount} 个目标` : '需核对' }}</span></article></div>
+            <p v-else-if="!ruleSummary.enabledCount" class="quality-page__inline-state">暂无启用规则，请先配置检查规则。</p>
+            <el-button link type="primary" class="quality-page__coverage-link" @click="coverageOpen = true">查看检查覆盖<ArrowRight :size="14" aria-hidden="true" /></el-button>
+          </template><p v-else class="quality-page__inline-state">暂无规则信息。</p>
+        </section>
+        <section class="quality-page__panel quality-page__issues" aria-labelledby="quality-issues-title">
+          <header class="quality-page__panel-heading"><div class="quality-page__section-title"><h2 id="quality-issues-title">待处理问题</h2><TitleHelp label="问题数量" text="这里统计待处理问题记录。尚未完成可核验检查时，零记录不代表数据质量通过。" /></div><el-button v-if="canViewIssues && snapshotId" link type="primary" @click="openIssueCenter">问题中心<ArrowRight :size="14" aria-hidden="true" /></el-button></header>
+          <ErrorState v-if="issueError" :message="issueError" @retry="loadSnapshotState()" />
+          <p v-else-if="!datasourceId || !snapshotId" class="quality-page__inline-state">选择数据源和快照后查看问题。</p><p v-else-if="!canViewIssues" class="quality-page__inline-state">没有此数据源的「查看质量问题」权限。</p><p v-else-if="issueLoading" class="quality-page__inline-state" role="status">正在读取问题…</p>
+          <template v-else-if="issueSummary"><div class="quality-page__issue-total"><strong>{{ issueSummary.totalUnresolved }}</strong><span>项待处理</span></div>
+            <div v-if="issueSummary.totalUnresolved === 0" class="quality-page__empty-issues"><Inbox :size="34" aria-hidden="true" /><p>暂无待处理问题</p></div>
+            <template v-else><div class="quality-page__issue-counts"><span>待确认 {{ issueStatusCount('OPEN') }}</span><span>已确认 {{ issueStatusCount('CONFIRMED') }}</span><span>重新打开 {{ issueStatusCount('REOPENED') }}</span></div><article v-for="issue in recentIssues.slice(0,3)" :key="issue.id" class="quality-page__issue-row"><strong>{{ issue.issueDescription }}</strong><small>{{ issue.tableName }}<template v-if="issue.columnName">.{{ issue.columnName }}</template> · {{ severityLabel(issue.severity) }}</small></article></template>
+          </template><p v-else class="quality-page__inline-state">暂无问题统计结果。</p>
         </section>
       </div>
-
-      <details v-if="latestBatch" class="quality-page__details">
-        <summary>
-          <div class="quality-page__details-title"><h2>校验明细</h2><span>{{ batchStateLabel(latestBatch) }} · {{ formatTime(latestBatch.startedAt) }} · {{ requestedScopeLabel(latestBatch) }}</span></div>
-          <div v-if="!latestBatch.legacyLimited && latestBatch.status !== 'LEGACY'" class="quality-page__details-counts">
-            <span>{{ latestBatch.executedRuleCount ?? '—' }} 项已执行</span>
-            <span>{{ latestBatch.failedRuleCount ?? '—' }} 项失败</span>
-            <span>{{ latestBatch.notApplicableRuleCount ?? '—' }} 项不适用</span>
-          </div>
-        </summary>
+      <details class="quality-page__details"><summary><h2>检查记录</h2><span v-if="latestBatch">{{ batchStateLabel(latestBatch) }} · {{ formatTime(latestBatch.startedAt) }}</span><span v-else-if="batchLoading">正在读取</span><span v-else-if="batchError">读取失败</span><span v-else-if="!canViewOverview">无查看权限</span><span v-else>暂无可追溯批次</span></summary>
+        <div v-if="canViewOverview && snapshot" class="quality-page__scope-context"><span>快照 v{{ snapshot.snapshotVersion }}</span><BusinessStatusBadge :status="snapshot.status" :label="snapshotStatusLabel(snapshot.status)" /><span v-if="snapshot.qualityScore != null">{{ snapshotScoreLabel }} {{ snapshot.qualityScore }} 分</span></div>
+        <p v-if="!latestBatch && canViewOverview && snapshot?.qualityScore != null" class="quality-page__inline-state">已有历史评分记录，尚无法确认对应的规则覆盖。</p>
+        <ErrorState v-if="batchError" :message="batchError" @retry="loadSnapshotState()" />
+        <p v-else-if="!canViewOverview" class="quality-page__inline-state">没有查看校验批次的权限。</p><p v-else-if="batchLoading" class="quality-page__inline-state">正在读取批次…</p><p v-else-if="!latestBatch" class="quality-page__inline-state" aria-label="最近批次执行情况">暂无可核验批次。</p>
+        <div v-else class="quality-page__record"><h3>校验明细 · {{ requestedScopeLabel(latestBatch) }}</h3><p v-if="latestBatch.legacyLimited || latestBatch.status === 'LEGACY'">历史覆盖有限，实际执行数不可核验。</p><p v-else>{{ latestBatch.executedRuleCount ?? '—' }} 项实际执行 · {{ latestBatch.failedRuleCount ?? '—' }} 项失败 · {{ latestBatch.notApplicableRuleCount ?? '—' }} 项不适用</p>
         <p v-if="latestBatch.legacyLimited || latestBatch.status === 'LEGACY'" class="quality-page__history-note" role="status">
           此历史结果没有可证明的规则配置版本和执行覆盖；当前配置不会被用来补造历史依据。
         </p>
@@ -469,139 +364,37 @@ onBeforeUnmount(() => {
         </div>
         <p v-else-if="latestBatch.legacyLimited || latestBatch.status === 'LEGACY'" class="quality-page__inline-state">该历史结果没有规则覆盖记录。</p>
         <p v-else class="quality-page__inline-state">本批次没有规则覆盖记录。</p>
+        </div>
       </details>
-      <div v-else-if="batchLoading || batchError || !canViewOverview || !datasourceId || !snapshotId" class="quality-page__details-empty" role="status">
-        <strong>校验明细</strong>
-        <span v-if="!datasourceId || !snapshotId">选择数据源和快照后查看批次明细。</span>
-        <span v-else-if="!canViewOverview">没有查看校验批次的权限。</span>
-        <span v-else-if="batchLoading">正在读取批次明细…</span>
-        <span v-else-if="batchError">校验状态读取失败，暂时无法确认是否有明细。</span>
-      </div>
     </template>
+    <el-drawer v-model="coverageOpen" title="当前快照检查覆盖" size="min(680px, 96vw)" append-to-body destroy-on-close class="governance-drawer"><RuleApplicabilitySummary :summary="ruleSummary" :loading="rulesLoading" :error="rulesError" @retry="loadSnapshotState()" /></el-drawer>
   </main>
 </template>
 
 <style scoped>
-.quality-page { display: grid; gap: 16px; min-width: 0; }
-.quality-page :deep(.task-page-header) { align-items: center; margin-bottom: 0; }
-.quality-page :deep(.task-page-header h1) { font-size: clamp(24px, 2vw, 28px); }
-.quality-page__status,
-.quality-page__panel,
-.quality-page__details {
-  min-width: 0;
-  padding: 20px;
-  border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-lg);
-  background: var(--do-surface);
-}
-.quality-page__status { display: grid; gap: 16px; }
-.quality-page__status--read-error,
-.quality-page__status--failed { border-color: color-mix(in srgb, var(--do-danger) 40%, var(--do-line)); }
-.quality-page__status--partial,
-.quality-page__status--legacy { border-color: color-mix(in srgb, var(--do-warning) 42%, var(--do-line)); }
-.quality-page__status-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 20px; }
-.quality-page__status-copy { min-width: 0; }
-.quality-page__eyebrow { display: block; margin-bottom: 5px; color: var(--do-muted); font-size: 13px; font-weight: 600; }
-.quality-page__status-copy h2 { margin: 0; color: var(--do-ink); font-size: clamp(18px, 1.8vw, 22px); line-height: 1.3; }
-.quality-page__status-description { max-width: 780px; margin: 6px 0 0; color: var(--do-muted); font-size: 14px; line-height: 1.5; }
-.quality-page__scope-context { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; color: var(--do-muted); font-size: 13px; }
-.quality-page__history-score { font-weight: 600; font-variant-numeric: tabular-nums; }
-.quality-page__scope-context :deep(.business-status-badge) { min-height: 22px; padding: 2px 7px; font-size: 12px; }
-.quality-page__primary-action { display: grid; justify-items: end; gap: 7px; }
-.quality-page__primary-action :deep(.el-button) { min-height: 40px; }
-.quality-page__action-note { max-width: 250px; color: var(--do-muted); font-size: 13px; line-height: 1.4; text-align: right; }
-.quality-page__secondary-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 12px 20px; padding-top: 14px; border-top: 1px solid var(--do-line); }
-.quality-page__metric { display: grid; align-content: start; gap: 4px; min-width: 0; }
-.quality-page__metric > span { color: var(--do-muted); font-size: 13px; }
-.quality-page__metric > strong { overflow-wrap: anywhere; color: var(--do-ink); font-size: 14px; font-weight: 600; line-height: 1.4; }
-.quality-page__metric > strong small { margin-left: 3px; color: var(--do-muted); font-size: 12px; font-weight: 500; }
-.quality-page__metric--score > strong { font-size: 18px; font-variant-numeric: tabular-nums; }
-.quality-page__batch-error { margin-top: 0; }
-.quality-page__failure { display: flex; align-items: flex-start; gap: 9px; margin: 0; padding: 10px 12px; border-radius: var(--do-radius-md); color: var(--do-danger); background: var(--do-danger-soft); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
-.quality-page__failure svg { flex: 0 0 auto; margin-top: 1px; }
-.quality-page__content-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); align-items: start; gap: 16px; min-width: 0; }
-.quality-page__panel { display: grid; align-content: start; gap: 14px; }
-.quality-page__panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; }
-.quality-page__panel-heading > div { min-width: 0; }
-.quality-page__panel-heading h2 { margin: 0; color: var(--do-ink); font-size: 17px; line-height: 1.35; }
-.quality-page__panel-heading p { margin: 4px 0 0; color: var(--do-muted); font-size: 13px; line-height: 1.45; }
-.quality-page__panel-heading :deep(.el-button) { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; }
-.quality-page__inline-state { margin: 0; color: var(--do-muted); font-size: 14px; line-height: 1.5; }
-.quality-page__issue-summary { display: grid; grid-template-columns: minmax(105px, .55fr) minmax(0, 1.45fr); align-items: center; gap: 14px; }
-.quality-page__issue-total { display: grid; align-content: center; gap: 3px; min-height: 64px; padding-right: 14px; border-right: 1px solid var(--do-line); }
-.quality-page__issue-total span,.quality-page__issue-counts span { color: var(--do-muted); font-size: 13px; }
-.quality-page__issue-total strong { color: var(--do-ink); font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.quality-page__issue-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; }
-.quality-page__issue-counts > div { display: grid; gap: 3px; min-width: 0; }
-.quality-page__issue-counts strong { color: var(--do-ink); font-size: 16px; font-variant-numeric: tabular-nums; }
-.quality-page__preview-heading { margin: 0; padding-top: 12px; border-top: 1px solid var(--do-line); color: var(--do-muted); font-size: 13px; font-weight: 600; }
-.quality-page__issue-list { display: grid; gap: 0; min-width: 0; }
-.quality-page__issue-row { display: grid; min-width: 0; padding: 12px 0; border-top: 1px solid var(--do-line); }
-.quality-page__issue-copy { min-width: 0; }
-.quality-page__issue-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-bottom: 6px; color: var(--do-muted); font-size: 13px; }
-.quality-page__issue-target { min-width: 0; overflow-wrap: anywhere; }
-.quality-page__issue-time { font-variant-numeric: tabular-nums; }
-.quality-page__issue-copy > strong { display: block; overflow-wrap: anywhere; color: var(--do-ink); font-size: 14px; font-weight: 600; line-height: 1.45; }
-.quality-page__issue-copy > p { margin: 5px 0 0; color: var(--do-muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
-.quality-page__all-issues { justify-self: start; display: inline-flex; align-items: center; gap: 5px; margin-top: 2px; }
-.quality-page__empty-issues { margin: 0; color: var(--do-muted); font-size: 14px; line-height: 1.5; }
-.quality-page__rule-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.quality-page__rule-stats > div { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 3px 7px; min-width: 0; padding: 10px 0; border-top: 1px solid var(--do-line); }
-.quality-page__rule-stats span { grid-column: 1 / -1; color: var(--do-muted); font-size: 13px; }
-.quality-page__rule-stats strong { color: var(--do-ink); font-size: 22px; font-variant-numeric: tabular-nums; }
-.quality-page__rule-stats small { color: var(--do-muted); font-size: 13px; }
-.quality-page__rule-warning { margin: 0; padding: 9px 10px; border-radius: var(--do-radius-md); color: var(--do-danger); background: var(--do-danger-soft); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.quality-page__rule-note { margin: 0; color: var(--do-muted); font-size: 13px; line-height: 1.5; }
-.quality-page__execution { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--do-line); }
-.quality-page__execution h3 { margin: 0; color: var(--do-ink); font-size: 14px; font-weight: 600; }
-.quality-page__execution-state { margin: 0; color: var(--do-muted); font-size: 13px; line-height: 1.5; }
-.quality-page__execution-state--error { color: var(--do-danger); }
-.quality-page__batch-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px 10px; }
-.quality-page__batch-counts > div { display: grid; gap: 2px; min-width: 0; }
-.quality-page__batch-counts strong { color: var(--do-ink); font-size: 16px; font-variant-numeric: tabular-nums; }
-.quality-page__batch-counts span { color: var(--do-muted); font-size: 12px; line-height: 1.35; }
-.quality-page__batch-counts p { grid-column: 1 / -1; margin: 5px 0 0; color: var(--do-muted); font-size: 13px; }
-.quality-page__details { padding: 0 20px; }
-.quality-page__details summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; padding: 15px 0; color: var(--do-ink); cursor: pointer; }
-.quality-page__details-title { display: grid; gap: 3px; min-width: 0; }
-.quality-page__details-title h2 { margin: 0; font-size: 17px; }
-.quality-page__details-title span { color: var(--do-muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
-.quality-page__details-counts { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--do-muted); font-size: 13px; }
-.quality-page__history-note { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--do-radius-md); color: var(--do-warning); background: var(--do-warning-soft); font-size: 14px; line-height: 1.5; }
-.quality-page__dimension-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px 16px; padding: 4px 0 14px; }
-.quality-page__dimension-list > div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--do-line); font-size: 14px; }
-.quality-page__dimension-list span { color: var(--do-muted); }
-.quality-page__coverage-list { display: grid; }
-.quality-page__coverage-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, .8fr); align-items: start; gap: 12px 20px; padding: 14px 0; border-top: 1px solid var(--do-line); }
-.quality-page__coverage-rule { display: grid; gap: 5px; min-width: 0; }
-.quality-page__coverage-rule strong { color: var(--do-ink); font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
-.quality-page__coverage-rule span { color: var(--do-muted); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
-.quality-page__coverage-status { display: grid; justify-items: start; gap: 6px; min-width: 0; }
-.quality-page__coverage-status small { color: var(--do-muted); font-size: 13px; line-height: 1.4; }
-.quality-page__coverage-status p { margin: 0; color: var(--do-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.quality-page__coverage-status .quality-page__coverage-reason--error { color: var(--do-danger); }
-.quality-page__coverage-status .quality-page__coverage-reason--skipped { color: var(--do-warning); }
-.quality-page__inline-state { margin: 0; color: var(--do-muted); font-size: 14px; line-height: 1.5; }
-.quality-page__details-empty { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; min-width: 0; padding: 2px 2px 0; color: var(--do-muted); font-size: 14px; line-height: 1.5; }
-.quality-page__details-empty strong { color: var(--do-ink); font-size: 15px; }
-@media (max-width: 1100px) {
-  .quality-page__content-grid { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 760px) {
-  .quality-page__status,.quality-page__panel { padding: 16px; }
-  .quality-page__status-main { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  .quality-page__primary-action { justify-items: start; }
-  .quality-page__action-note { text-align: left; }
-  .quality-page__secondary-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .quality-page__issue-summary { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .quality-page__issue-total { min-height: auto; padding: 0 0 10px; border-right: 0; border-bottom: 1px solid var(--do-line); }
-  .quality-page__coverage-row { grid-template-columns: minmax(0, 1fr); gap: 9px; }
-  .quality-page__details { padding: 0 16px; }
-}
-@media (max-width: 480px) {
-  .quality-page__secondary-metrics { grid-template-columns: minmax(0, 1fr); }
-  .quality-page__panel-heading { align-items: flex-start; }
-  .quality-page__issue-counts { gap: 8px; }
-  .quality-page__details-counts { font-size: 12px; }
-}
+.quality-page__status { padding: 16px 0 26px; border-bottom: 1px solid var(--do-line); }
+.quality-page__status-main { display: flex; align-items: center; gap: 18px; }
+.quality-page__state-icon { box-sizing: content-box; flex: 0 0 auto; padding: 14px; border-radius: 10px; color: var(--do-primary); background: var(--do-primary-soft); }
+.quality-page__status-copy { min-width: 0; flex: 1; }.quality-page__status-copy h2 { margin: 0; color: var(--do-ink); font-size: 23px; line-height: 1.4; }
+.quality-page__status-description { margin: 6px 0 0; color: var(--do-muted); font-size: 13px; line-height: 1.6; }
+.quality-page__primary-action { display: grid; justify-items: end; gap: 7px; }.quality-page__action-note { font-size: 12px; color: var(--do-muted); }
+.quality-page__content-grid { display: grid; grid-template-columns: minmax(0,1.25fr) minmax(0,1fr); gap: 32px; padding: 10px 0; }
+.quality-page__panel { min-width: 0; }.quality-page__issues { padding-left: 30px; border-left: 1px solid var(--do-line); }
+.quality-page__panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+.quality-page__section-title { display: flex; align-items: center; gap: 6px; }.quality-page__panel-heading h2 { margin: 0; font-size: 17px; color: var(--do-ink); }
+.quality-page__rule-line { margin: 0 0 14px; font-size: 13px; color: var(--do-muted); }.quality-page__rule-line strong { color: var(--do-ink); }
+.quality-page__rule-preview article { display: grid; grid-template-columns: minmax(0,1fr) 76px 95px; gap: 10px; align-items: center; min-height: 56px; border-bottom: 1px solid var(--do-line); font-size: 12px; color: var(--do-muted); }
+.quality-page__rule-preview strong { color: var(--do-ink); font-size: 13px; font-weight: 600; }.quality-page__rule-preview small { display: block; margin-top: 4px; color: var(--do-warning); line-height: 1.5; }
+.quality-page__rule-warning { color: var(--do-warning); }.quality-page__coverage-link { margin-top: 16px; }
+.quality-page__issue-total { display: flex; align-items: baseline; gap: 9px; }.quality-page__issue-total strong { font-size: 30px; line-height: 1.3; font-variant-numeric: tabular-nums; color: var(--do-ink); }.quality-page__issue-total span { color: var(--do-muted); font-size: 12px; }
+.quality-page__empty-issues { display: grid; justify-items: center; gap: 10px; padding: 22px 12px; color: var(--do-muted); }.quality-page__empty-issues p { margin: 0; font-size: 13px; }
+.quality-page__issue-counts { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--do-muted); margin: 10px 0; }
+.quality-page__issue-row { padding: 12px 0; border-bottom: 1px solid var(--do-line); }.quality-page__issue-row strong { display: block; font-size: 13px; color: var(--do-ink); }.quality-page__issue-row small { display: block; color: var(--do-muted); margin-top: 5px; }
+.quality-page__details { border-top: 1px solid var(--do-line); padding-top: 18px; }.quality-page__details > summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; cursor: pointer; color: var(--do-muted); font-size: 12px; }.quality-page__details h2 { margin: 0; font-size: 15px; color: var(--do-ink); }
+.quality-page__inline-state,.quality-page__history-note { font-size: 13px; color: var(--do-muted); line-height: 1.7; }.quality-page__scope-context { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px 0 8px; font-size: 12px; color: var(--do-muted); }
+.quality-page__record { padding-top: 15px; }.quality-page__record h3 { font-size: 14px; color: var(--do-ink); }.quality-page__record > p { font-size: 12px; color: var(--do-muted); }
+.quality-page__failure { display: flex; align-items: center; gap: 8px; color: var(--do-danger); font-size: 13px; }
+.quality-page__dimension-list { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; margin: 16px 0; }.quality-page__dimension-list strong { margin-left: 10px; }
+.quality-page__coverage-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 18px; padding: 14px 0; border-top: 1px solid var(--do-line); }.quality-page__coverage-rule strong { display: block; font-size: 13px; }.quality-page__coverage-rule span,.quality-page__coverage-status small,.quality-page__coverage-status p { display: block; color: var(--do-muted); font-size: 12px; line-height: 1.6; margin-top: 5px; }.quality-page__coverage-reason--error { color: var(--do-danger) !important; }
+@media(max-width:760px) { .quality-page__status-main { flex-wrap: wrap; }.quality-page__primary-action { width: 100%; justify-items: start; }.quality-page__content-grid { grid-template-columns: minmax(0,1fr); gap: 25px; }.quality-page__issues { padding: 22px 0 0; border-left: 0; border-top: 1px solid var(--do-line); }.quality-page__coverage-row { grid-template-columns: minmax(0,1fr); gap: 6px; } }
 </style>
