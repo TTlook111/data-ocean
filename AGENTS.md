@@ -52,6 +52,7 @@ Steps:
 | Frontend | [前端规范](docs/development/前端开发规范.md), [frontend/CLAUDE.md](frontend/CLAUDE.md) |
 | Startup, tests or runtime diagnosis | [本地开发与验证](docs/development/本地开发与验证.md) |
 | Status, remaining work and evidence | [现状](docs/项目现状.md), [待办](docs/development/后续开发.md), [验收](docs/acceptance/README.md) |
+| Papers and formal writing | [论文写作](paper/README.md); use the available `academic-writing` skill for tool selection and keep project facts grounded in current docs and evidence |
 
 ## Machine-local environment
 
