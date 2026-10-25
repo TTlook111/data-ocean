@@ -15,6 +15,7 @@ import java.util.List;
  * </p>
  */
 public interface PromptTemplateService {
+    com.dataocean.module.prompt.entity.vo.PromptPolicyValidationVO validatePolicy(String code, String content);
 
     /**
      * 分页查询模板列表
@@ -53,25 +54,25 @@ public interface PromptTemplateService {
      * @param code 模板编码
      * @return 更新后的模板视图对象
      */
-    PromptTemplateVO submitForReview(String code);
+    PromptTemplateVO submitForReview(String code, PromptVersionActionDTO request);
 
     /**
      * 审核通过（PENDING_REVIEW → APPROVED）
      *
      * @param code         模板编码
-     * @param changeSummary 审核备注
+     * @param request 所见版本号和审核备注
      * @return 更新后的模板视图对象
      */
-    PromptTemplateVO approve(String code, String changeSummary);
+    PromptTemplateVO approve(String code, PromptVersionActionDTO request);
 
     /**
      * 审核拒绝（PENDING_REVIEW → REJECTED）
      *
      * @param code         模板编码
-     * @param rejectReason 拒绝原因
+     * @param request 所见版本号和拒绝原因
      * @return 更新后的模板视图对象
      */
-    PromptTemplateVO reject(String code, String rejectReason);
+    PromptTemplateVO reject(String code, PromptVersionActionDTO request);
 
     /**
      * 获取模板的版本历史

@@ -10,18 +10,15 @@ ConversationSummaryClient 调用（POST /internal/query/context-summary），因
 
 from __future__ import annotations
 
-import logging
 from datetime import date
 from pathlib import Path
 
 from dataocean.infra.llm import call_llm
 from dataocean.infra.parsers import JsonBlockOutputParser
 from dataocean.prompt.renderer import render_template_file
-from dataocean.prompt.service import render_prompt_with_metadata
+from dataocean.prompt.scenes import invoke_scene
 
 from .schema import ConversationSummaryRequest
-
-logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 _LOCAL_TEMPLATE = _PROMPTS_DIR / "conversation_summary.j2"
@@ -42,17 +39,10 @@ async def generate_context_summary(request: ConversationSummaryRequest) -> dict:
         "current_date": request.current_date or date.today().isoformat(),
     }
 
-    try:
-        prompt, _ = await render_prompt_with_metadata(_MANAGED_TEMPLATE_CODE, variables)
-        if not prompt:
-            raise RuntimeError("managed 摘要模板为空")
-    except Exception as exc:
-        logger.info("managed 摘要模板不可用，使用本地模板: %s", exc)
-        prompt = render_template_file(_LOCAL_TEMPLATE, **variables)
-
-    response = await call_llm(
-        system_prompt=_SYSTEM_PROMPT,
-        user_prompt=prompt,
+    response = await invoke_scene(
+        _MANAGED_TEMPLATE_CODE, variables, invoke=call_llm,
+        fixed_system=_SYSTEM_PROMPT,
+        fallback_user=render_template_file(_LOCAL_TEMPLATE, **variables),
         temperature=0.1,
     )
     summary = _JSON_PARSER.parse(response)

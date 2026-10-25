@@ -16,6 +16,7 @@ from dataocean.core.error_messages import sanitize_error
 from dataocean.infra.llm import call_llm
 from dataocean.prompt.renderer import render_template_file
 from dataocean.prompt.service import render_prompt_with_metadata
+from dataocean.prompt.scenes import invoke_scene
 from dataocean.sandbox.executor import execute as execute_sql
 
 from .firewall import build_model_context, resource_index
@@ -45,7 +46,15 @@ _SYSTEM_PROMPT = (
 )
 
 
-async def render_sql_prompt(question: str, context: dict[str, Any]) -> str:
+def sql_prompt_variables(question: str, context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "question": question, "schema": context.get("schema", []), "rag": context.get("rag", []),
+        "glossary": context.get("glossary", []), "few_shot": context.get("fewShot", []),
+        "history": context.get("conversationHistory", []), "summary": context.get("conversationSummary"),
+    }
+
+
+async def render_sql_prompt(question: str, context: dict[str, Any], *, managed: bool = True) -> str:
     """渲染 SQL 生成提示词：优先 Java 受管模板，失败时退回本地模板。
 
     变量契约见 `V59__s1_sql_generation_prompt.sql`：
@@ -63,6 +72,8 @@ async def render_sql_prompt(question: str, context: dict[str, Any]) -> str:
         "history": json.dumps(context["conversationHistory"], ensure_ascii=False),
         "summary": json.dumps(context["conversationSummary"], ensure_ascii=False),
     }
+    if not managed:
+        return render_template_file(_LOCAL_SQL_GENERATION_TEMPLATE, **variables)
     try:
         user_prompt, _ = await render_prompt_with_metadata(_SQL_GENERATION_TEMPLATE_CODE, variables)
         if not user_prompt:
@@ -360,11 +371,11 @@ async def _run_query_legacy(request: S1QueryExecuteRequest) -> dict[str, Any]:
         rag_source_snapshot_id=request.ragSourceSnapshotId,
         rag_build_id=request.ragBuildId,
     )
-    user_prompt = await render_sql_prompt(request.question, context)
+    user_prompt = await render_sql_prompt(request.question, context, managed=False)
     try:
-        generated = await call_llm(
-            system_prompt=_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
+        generated = await invoke_scene(
+            "sql_generation", sql_prompt_variables(request.question, context), invoke=call_llm,
+            fixed_system=_SYSTEM_PROMPT, fallback_user=user_prompt, task_id=request.taskId,
             temperature=0.1,
         )
         sql = generated.strip().replace("```sql", "").replace("```", "").strip()

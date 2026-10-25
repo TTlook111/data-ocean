@@ -10,6 +10,23 @@ function isResolvable(path: string): boolean {
 }
 
 describe('admin navigation metadata', () => {
+  it('Prompt 策略归入运营与平台，并保留旧链接的模板与页签', () => {
+    expect(findWorkspaceByPath('/admin/platform/prompts')).toMatchObject({
+      key: 'prompts', domainKey: ADMIN_DOMAIN_KEYS.operations, contextMode: 'none',
+      groupKey: 'operations-platform', viewCapability: { anyOf: ['prompt:view'], scope: 'global' },
+    })
+    expect(findWorkspaceByPath('/admin/semantics/prompts')).toBeUndefined()
+    expect(router.resolve('/admin/platform/prompts').meta).toMatchObject({
+      domainKey: 'operations', workspaceKey: 'prompts', contextMode: 'none',
+    })
+    const legacy = router.resolve({ path: '/admin/semantics/prompts', query: { code: 'sql_generation', tab: 'versions' }, hash: '#history' })
+    const redirect = legacy.matched[legacy.matched.length - 1]?.redirect
+    if (typeof redirect !== 'function') throw new Error('旧 Prompt 链接没有兼容跳转')
+    expect(redirect(legacy, router.currentRoute.value)).toEqual({
+      path: '/admin/platform/prompts', query: { code: 'sql_generation', tab: 'versions' }, hash: '#history',
+    })
+  })
+
   it('覆盖七个一级业务域下的正式工作区', () => {
     expect(new Set(ADMIN_WORKSPACES.map((item) => item.domainKey))).toEqual(new Set([
       ADMIN_DOMAIN_KEYS.dataEntry,

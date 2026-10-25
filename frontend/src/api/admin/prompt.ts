@@ -14,6 +14,44 @@ export interface PromptTemplateVO {
   status: PromptStatus
   enabled: boolean
   updatedAt: string
+  activeVersion?: number
+  activeContent?: string
+  integrationStatus?: 'MANAGED' | 'RETIRED'
+}
+
+export interface PromptSceneVO {
+  code: string
+  name: string
+  group: string
+  consumer: string
+  contractVersion: string
+  variables: string[]
+  variableDescriptions?: Record<string, string>
+  outputContract: string
+  fixedConstraints: string
+  metric: string
+}
+export interface PromptInvocationVO {
+  invocationId: string
+  taskId?: string
+  sceneCode: string
+  versionNo: number
+  source: 'MANAGED' | 'BUILTIN'
+  contractVersion: string
+  contentHash: string
+  fallbackReason: string
+  outcome: 'MODEL_RETURNED' | 'MODEL_FAILED'
+  durationMs: number
+  createdAt: string
+}
+export async function listPromptScenes() {
+  return (await http.get<ApiResult<PromptSceneVO[]>>('/api/admin/prompt-templates/scenes')).data
+}
+export async function listPromptInvocations(sceneCode: string, page = 1) {
+  return (await http.get<ApiResult<PageResult<PromptInvocationVO>>>('/api/admin/prompt-templates/invocations', { params: { sceneCode, page, pageSize: 10 } })).data
+}
+export async function validatePromptPolicy(code: string, content: string) {
+  return (await http.post<ApiResult<{ systemPreview: string; userPreview: string; contractVersion: string }>>(`/api/admin/prompt-templates/${code}/validate`, { content })).data
 }
 
 export interface PromptVersionVO {
@@ -57,20 +95,20 @@ export async function updatePromptTemplate(code: string, payload: { content: str
 }
 
 /** 提交审核 */
-export async function submitPromptForReview(code: string) {
-  const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/submit`)
+export async function submitPromptForReview(code: string, expectedVersionNo: number) {
+  const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/submit`, { expectedVersionNo })
   return data
 }
 
 /** 审核通过 */
-export async function approvePrompt(code: string, changeSummary?: string) {
-  const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/approve`, { changeSummary })
+export async function approvePrompt(code: string, expectedVersionNo: number, changeSummary?: string) {
+  const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/approve`, { expectedVersionNo, changeSummary })
   return data
 }
 
 /** 审核拒绝 */
-export async function rejectPrompt(code: string, rejectReason: string) {
-  const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/reject`, { rejectReason })
+export async function rejectPrompt(code: string, expectedVersionNo: number, rejectReason: string) {
+  const { data } = await http.post<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}/reject`, { expectedVersionNo, rejectReason })
   return data
 }
 
@@ -85,7 +123,7 @@ export async function rollbackPromptVersion(code: string, targetVersionNo: numbe
 }
 
 /**
- * 启用或停用模板（后端仅允许 APPROVED 状态的模板启停）。
+ * 切换是否使用已批准的后台策略；不受另一个草稿状态影响。
  *
  * `enabled` 决定 `getActiveContent` 能否取到该模板，是 Prompt 策略的生效开关。
  * 此前该字段只能在审核通过时被置为 true，前端只能展示、无法停用。

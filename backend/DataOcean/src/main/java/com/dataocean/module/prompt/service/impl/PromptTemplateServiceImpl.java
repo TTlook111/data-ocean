@@ -13,12 +13,14 @@ import com.dataocean.module.prompt.entity.po.PromptTemplate;
 import com.dataocean.module.prompt.entity.po.PromptTemplateVersion;
 import com.dataocean.module.prompt.entity.dto.PromptRollbackDTO;
 import com.dataocean.module.prompt.entity.dto.PromptTemplateUpdateDTO;
+import com.dataocean.module.prompt.entity.dto.PromptVersionActionDTO;
 import com.dataocean.module.prompt.entity.vo.PromptEffectivenessVO;
 import com.dataocean.module.prompt.entity.vo.PromptTemplateVO;
 import com.dataocean.module.prompt.entity.vo.PromptVersionVO;
 import com.dataocean.module.prompt.mapper.PromptTemplateMapper;
 import com.dataocean.module.prompt.mapper.PromptTemplateVersionMapper;
 import com.dataocean.module.prompt.service.PromptTemplateService;
+import com.dataocean.module.prompt.service.PromptSceneRegistry;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +56,24 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
     private final ObjectMapper objectMapper;
 
     @Override
+    public com.dataocean.module.prompt.entity.vo.PromptPolicyValidationVO validatePolicy(String code, String content) {
+        PromptSceneRegistry.validate(code, content, objectMapper);
+        String system = "", user = content;
+        if (content.stripLeading().startsWith("{") && !content.stripLeading().startsWith("{{")) {
+            try {
+                var root = objectMapper.readTree(content);
+                system = root.get("system").asText(); user = root.get("user").asText();
+            } catch (Exception ex) { throw new BusinessException(400, "策略包解析失败"); }
+        }
+        for (String variable : PromptSceneRegistry.require(code).variables()) {
+            String expression = "\\{\\{\\s*" + variable + "\\s*}}";
+            system = system.replaceAll(expression, "[合成测试变量：" + variable + "]");
+            user = user.replaceAll(expression, "[合成测试变量：" + variable + "]");
+        }
+        return new com.dataocean.module.prompt.entity.vo.PromptPolicyValidationVO(system, user, "1");
+    }
+
+    @Override
     public Page<PromptTemplateVO> listTemplates(int page, int pageSize) {
         Page<PromptTemplate> result = templateMapper.selectPage(
                 new Page<>(page, pageSize),
@@ -70,19 +90,17 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     @Override
     public PromptTemplateVO getActiveTemplate(String code) {
-        PromptTemplate template = templateMapper.selectOne(
-                new LambdaQueryWrapper<PromptTemplate>()
-                        .eq(PromptTemplate::getTemplateCode, code)
-                        .eq(PromptTemplate::getEnabled, true));
-        if (template == null) {
-            throw new BusinessException(404, "Prompt 模板不存在或已禁用：" + code);
-        }
+        PromptSceneRegistry.require(code);
+        PromptTemplate template = getByCode(code);
+        if (!Boolean.TRUE.equals(template.getEnabled())) throw new BusinessException(409, "后台策略已停用：" + code);
+        requireApprovedActiveVersion(template);
         return toVO(template, false);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO updateTemplate(String code, PromptTemplateUpdateDTO request) {
+        PromptSceneRegistry.validate(code, request.getContent(), objectMapper);
         PromptTemplate template = getByCode(code);
 
         String currentStatus = template.getStatus();
@@ -115,7 +133,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public PromptTemplateVO submitForReview(String code) {
+    public PromptTemplateVO submitForReview(String code, PromptVersionActionDTO request) {
         PromptTemplate template = getByCode(code);
 
         if (!PromptStatus.DRAFT.name().equals(template.getStatus())) {
@@ -126,8 +144,9 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         if (draftVersion == null) {
             throw new BusinessException(400, "没有可提交审核的草稿版本");
         }
-        draftVersion.setStatus(PromptStatus.PENDING_REVIEW.name());
-        versionMapper.updateById(draftVersion);
+        requireExpectedVersion(draftVersion, request);
+        PromptSceneRegistry.validate(code, draftVersion.getContent(), objectMapper);
+        transitionWorkflowVersion(draftVersion, PromptStatus.DRAFT, PromptStatus.PENDING_REVIEW, false, null);
 
         template.setStatus(PromptStatus.PENDING_REVIEW.name());
         template.setUpdatedAt(LocalDateTime.now());
@@ -141,7 +160,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public PromptTemplateVO approve(String code, String changeSummary) {
+    public PromptTemplateVO approve(String code, PromptVersionActionDTO request) {
         PromptTemplate template = getByCode(code);
 
         if (!PromptStatus.PENDING_REVIEW.name().equals(template.getStatus())) {
@@ -152,18 +171,15 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         if (pendingVersion == null) {
             throw new BusinessException(400, "没有可审核的待审核版本");
         }
+        requireExpectedVersion(pendingVersion, request);
+        PromptSceneRegistry.validate(code, pendingVersion.getContent(), objectMapper);
 
         versionMapper.update(null, new LambdaUpdateWrapper<PromptTemplateVersion>()
                 .eq(PromptTemplateVersion::getTemplateId, template.getId())
                 .eq(PromptTemplateVersion::getIsActive, true)
                 .set(PromptTemplateVersion::getIsActive, false));
 
-        pendingVersion.setStatus(PromptStatus.APPROVED.name());
-        pendingVersion.setIsActive(true);
-        if (changeSummary != null && !changeSummary.isBlank()) {
-            pendingVersion.setChangeSummary(changeSummary);
-        }
-        versionMapper.updateById(pendingVersion);
+        transitionWorkflowVersion(pendingVersion, PromptStatus.PENDING_REVIEW, PromptStatus.APPROVED, true, request.getChangeSummary());
 
         template.setContent(pendingVersion.getContent());
         template.setCurrentVersion(pendingVersion.getVersionNo());
@@ -180,7 +196,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public PromptTemplateVO reject(String code, String rejectReason) {
+    public PromptTemplateVO reject(String code, PromptVersionActionDTO request) {
         PromptTemplate template = getByCode(code);
 
         if (!PromptStatus.PENDING_REVIEW.name().equals(template.getStatus())) {
@@ -191,11 +207,10 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         if (pendingVersion == null) {
             throw new BusinessException(400, "没有可拒绝的待审核版本");
         }
-        pendingVersion.setStatus(PromptStatus.REJECTED.name());
-        if (rejectReason != null && !rejectReason.isBlank()) {
-            pendingVersion.setChangeSummary("拒绝原因：" + rejectReason);
-        }
-        versionMapper.updateById(pendingVersion);
+        requireExpectedVersion(pendingVersion, request);
+        String rejectReason = request.getRejectReason();
+        if (rejectReason == null || rejectReason.isBlank()) throw new BusinessException(400, "拒绝原因不能为空");
+        transitionWorkflowVersion(pendingVersion, PromptStatus.PENDING_REVIEW, PromptStatus.REJECTED, false, "拒绝原因：" + rejectReason);
 
         template.setStatus(PromptStatus.REJECTED.name());
         template.setUpdatedAt(LocalDateTime.now());
@@ -262,6 +277,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO rollback(String code, PromptRollbackDTO request) {
+        PromptSceneRegistry.require(code);
         PromptTemplate template = getByCode(code);
 
         if (PromptStatus.PENDING_REVIEW.name().equals(template.getStatus())) {
@@ -275,6 +291,7 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
         if (targetVersion == null) {
             throw new BusinessException("目标版本不存在：v" + request.getTargetVersionNo());
         }
+        PromptSceneRegistry.validate(code, targetVersion.getContent(), objectMapper);
 
         int newVersionNo = getNextVersionNo(template.getId());
         PromptTemplateVersion rollbackDraft = new PromptTemplateVersion();
@@ -300,24 +317,15 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
 
     @Override
     public String getActiveContent(String code) {
-        PromptTemplate template = templateMapper.selectOne(
-                new LambdaQueryWrapper<PromptTemplate>()
-                        .eq(PromptTemplate::getTemplateCode, code)
-                        .eq(PromptTemplate::getEnabled, true));
-        if (template == null) {
-            throw new BusinessException(404, "Prompt 模板不存在或已禁用：" + code);
-        }
-        return template.getContent();
+        return getActiveTemplate(code).getContent();
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public PromptTemplateVO setEnabled(String code, boolean enabled) {
+        PromptSceneRegistry.require(code);
         PromptTemplate template = getByCode(code);
-        if (!PromptStatus.APPROVED.name().equals(template.getStatus())) {
-            throw new BusinessException(
-                    "只有审核通过的模板才能启用或停用，当前状态：" + template.getStatus());
-        }
+        requireApprovedActiveVersion(template);
         template.setEnabled(enabled);
         template.setUpdatedAt(LocalDateTime.now());
         OptimisticLockSupport.requireUpdated(
@@ -335,6 +343,38 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
             throw new BusinessException(404, "Prompt 模板不存在：" + code);
         }
         return template;
+    }
+
+    private void requireExpectedVersion(PromptTemplateVersion current, PromptVersionActionDTO request) {
+        if (request == null || request.getExpectedVersionNo() == null
+                || !java.util.Objects.equals(current.getVersionNo(), request.getExpectedVersionNo())) {
+            throw new BusinessException(409, "策略版本已变化，请刷新并查看完整内容后重新操作");
+        }
+    }
+
+    private void transitionWorkflowVersion(PromptTemplateVersion version, PromptStatus from, PromptStatus to,
+                                           boolean active, String summary) {
+        var update = new LambdaUpdateWrapper<PromptTemplateVersion>()
+                .eq(PromptTemplateVersion::getId, version.getId())
+                .eq(PromptTemplateVersion::getVersionNo, version.getVersionNo())
+                .eq(PromptTemplateVersion::getStatus, from.name())
+                .eq(PromptTemplateVersion::getIsActive, false)
+                .set(PromptTemplateVersion::getStatus, to.name())
+                .set(PromptTemplateVersion::getIsActive, active)
+                .set(summary != null && !summary.isBlank(), PromptTemplateVersion::getChangeSummary, summary);
+        OptimisticLockSupport.requireUpdated(versionMapper.update(null, update), "策略版本状态已变化，请刷新后重新操作");
+    }
+
+    private void requireApprovedActiveVersion(PromptTemplate template) {
+        PromptTemplateVersion active = versionMapper.selectOne(new LambdaQueryWrapper<PromptTemplateVersion>()
+                .eq(PromptTemplateVersion::getTemplateId, template.getId())
+                .eq(PromptTemplateVersion::getVersionNo, template.getCurrentVersion())
+                .eq(PromptTemplateVersion::getIsActive, true)
+                .eq(PromptTemplateVersion::getStatus, PromptStatus.APPROVED.name()));
+        if (template.getCurrentVersion() == null || template.getCurrentVersion() < 1 || active == null
+                || !java.util.Objects.equals(active.getContent(), template.getContent())) {
+            throw new BusinessException(409, "没有可核验的已批准生效版本：" + template.getTemplateCode());
+        }
     }
 
     private Set<PromptVersionKey> extractPromptVersions(String promptVersionsJson) {
@@ -394,6 +434,9 @@ public class PromptTemplateServiceImpl implements PromptTemplateService {
     private PromptTemplateVO toVO(PromptTemplate entity, boolean includeWorkflowVersion) {
         PromptTemplateVO vo = new PromptTemplateVO();
         BeanUtils.copyProperties(entity, vo);
+        vo.setActiveVersion(entity.getCurrentVersion());
+        vo.setActiveContent(entity.getContent());
+        vo.setIntegrationStatus(PromptSceneRegistry.find(entity.getTemplateCode()) == null ? "RETIRED" : "MANAGED");
         if (includeWorkflowVersion && !PromptStatus.APPROVED.name().equals(entity.getStatus())) {
             PromptTemplateVersion workflowVersion = versionMapper.selectOne(
                     new LambdaQueryWrapper<PromptTemplateVersion>()

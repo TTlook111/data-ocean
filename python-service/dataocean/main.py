@@ -67,20 +67,25 @@ async def lifespan(application: FastAPI):
         logger.warning("LANGGRAPH_CHECKPOINT_REDIS_URL 未配置；IAM-SIMPLE-1 LangGraph 问数保持 fail-closed")
     # 启动连接池定时清理后台任务
     cleanup_task = asyncio.create_task(_periodic_pool_cleanup())
+    from dataocean.prompt.receipts import start_receipt_dispatcher, close_receipt_dispatcher
+    start_receipt_dispatcher()
     logger.info("DataOcean AI Service 启动完成")
-    yield
-    # 关闭定时清理任务
-    cleanup_task.cancel()
     try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
-    # 销毁所有连接池
-    # 关闭连接池同样使用同步 SQLAlchemy API，放到线程中执行。
-    await asyncio.to_thread(_destroy_all_pools)
-    from dataocean.iam_s1.graph import close_checkpointer
-    await close_checkpointer()
-    logger.info("DataOcean AI Service 已关闭")
+        yield
+    finally:
+        await close_receipt_dispatcher()
+        # 关闭定时清理任务
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+        # 销毁所有连接池
+        # 关闭连接池同样使用同步 SQLAlchemy API，放到线程中执行。
+        await asyncio.to_thread(_destroy_all_pools)
+        from dataocean.iam_s1.graph import close_checkpointer
+        await close_checkpointer()
+        logger.info("DataOcean AI Service 已关闭")
 
 
 def _validate_config() -> None:

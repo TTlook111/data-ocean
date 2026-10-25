@@ -110,8 +110,14 @@ describe('导航能力过滤', () => {
 
   it('语义中心的术语与知识组包含字段解释', () => {
     const groups = groupAdminWorkspaces(ADMIN_WORKSPACES.filter((item) => item.domainKey === ADMIN_DOMAIN_KEYS.semantics))
-    expect(groups.map((group) => group.label)).toEqual(['术语与知识', 'AI 策略'])
+    expect(groups.map((group) => group.label)).toEqual(['术语与知识'])
     expect(groups[0].items.map((item) => item.key)).toEqual(['glossaries', 'field-explanations', 'knowledge'])
+  })
+
+  it('运营与平台在同一组提供 AI 服务配置与 Prompt 策略', () => {
+    const groups = groupAdminWorkspaces(ADMIN_WORKSPACES.filter((item) => item.domainKey === 'operations'))
+    expect(groups.find((group) => group.label === '平台运行与 AI')?.items.map((item) => item.key))
+      .toEqual(['runtime', 'ai', 'prompts'])
   })
 
   it('一级入口使用可见列表中的首个工作区', () => {

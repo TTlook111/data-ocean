@@ -8,8 +8,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
-import ElementPlus from 'element-plus'
+import { nextTick, reactive } from 'vue'
+import ElementPlus, { ElMessageBox } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
 
@@ -47,6 +47,9 @@ const api = vi.hoisted(() => ({
   listSnapshots: vi.fn(),
   getPublishedSnapshot: vi.fn(),
   listPromptTemplates: vi.fn(),
+  listPromptScenes: vi.fn(),
+  listPromptInvocations: vi.fn(),
+  validatePromptPolicy: vi.fn(),
   getPromptEffectiveness: vi.fn(),
   getPromptVersions: vi.fn(),
   approvePrompt: vi.fn(),
@@ -94,6 +97,9 @@ vi.mock('../../../api/admin/knowledge', () => ({
   getGenerationInputs: api.getGenerationInputs,
 }))
 vi.mock('../../../api/admin/prompt', () => ({
+  listPromptScenes: api.listPromptScenes,
+  listPromptInvocations: api.listPromptInvocations,
+  validatePromptPolicy: api.validatePromptPolicy,
   listPromptTemplates: api.listPromptTemplates,
   getPromptEffectiveness: api.getPromptEffectiveness,
   getPromptVersions: api.getPromptVersions,
@@ -106,9 +112,10 @@ vi.mock('../../../api/admin/prompt', () => ({
 }))
 vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>()
+  const { reactive } = await import('vue')
   return {
     ...actual,
-    useRoute: () => routeState,
+    useRoute: () => reactive(routeState),
     useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
   }
 })
@@ -226,6 +233,9 @@ beforeEach(() => {
   api.listSnapshots.mockResolvedValue({ data: { records: [], total: 0 } })
   api.getPublishedSnapshot.mockResolvedValue({ data: null })
   api.listPromptTemplates.mockResolvedValue({ data: { records: [prompt], total: 1 } })
+  api.listPromptScenes.mockResolvedValue({ data: [{ code: prompt.templateCode, name: 'SQL 生成', group: '问数', consumer: 'iam_s1/graph.py', contractVersion: '1', variables: ['question'], outputContract: 'SELECT', fixedConstraints: 'AST', metric: '任务结果不等于业务正确率' }] })
+  api.listPromptInvocations.mockResolvedValue({ data: { records: [], total: 0 } })
+  api.validatePromptPolicy.mockResolvedValue({ data: { systemPreview: '预览角色', userPreview: '合成变量', contractVersion: '1' } })
   api.getPromptVersions.mockResolvedValue({ data: [] })
   api.getPromptEffectiveness.mockResolvedValue({ data: [] })
 })
@@ -339,6 +349,159 @@ describe('KnowledgeView 的能力控制', () => {
 })
 
 describe('PromptsView 的能力控制', () => {
+  it('保存请求期间的新编辑和摘要不会被保存完成回调清空', async () => {
+    api.listPromptTemplates.mockResolvedValue({ data: { records: [{ ...prompt, status: 'DRAFT', content: '{{question}}' }], total: 1 } })
+    respond(capability({ global: ['prompt:view', 'prompt:manage'] }))
+    const wrapper = mountPage(PromptsView)
+    await settle()
+    let finish!: (value: { data: typeof prompt }) => void
+    api.updatePromptTemplate.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    await buttonWithText(wrapper, '保存并创建新版本')!.trigger('click')
+    await wrapper.find('#prompt-user').setValue('保存期间的新任务 {{question}}')
+    await wrapper.find('.content-summary input').setValue('尚未保存的新摘要')
+    finish({ data: prompt })
+    await settle()
+    expect(wrapper.find('#prompt-user').element).toHaveProperty('value', '保存期间的新任务 {{question}}')
+    expect(wrapper.find('.content-summary input').element).toHaveProperty('value', '尚未保存的新摘要')
+    expect(api.listPromptTemplates).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('尚未保存')
+  })
+  it.each(['success', 'failure'])('同一场景刷新 %s 不覆盖请求之后的新编辑', async (outcome) => {
+    const row = { ...prompt, status: 'DRAFT', content: '{{question}}' }
+    api.listPromptTemplates.mockResolvedValue({ data: { records: [row], total: 1 } })
+    respond(capability({ global: ['prompt:view', 'prompt:manage'] }))
+    const wrapper = mountPage(PromptsView)
+    await settle()
+    let finish!: (value: { data: { records: typeof row[]; total: number } }) => void
+    let fail!: (cause: Error) => void
+    api.listPromptTemplates.mockReturnValueOnce(new Promise((resolve, reject) => { finish = resolve; fail = reject }))
+    await buttonWithText(wrapper, '刷新')!.trigger('click')
+    await wrapper.find('#prompt-system').setValue('本地新角色')
+    await wrapper.find('#prompt-user').setValue('本地新任务 {{question}}')
+    await wrapper.find('.content-summary input').setValue('本地变更摘要')
+    if (outcome === 'success') finish({ data: { records: [{ ...row, content: '服务端旧任务 {{question}}' }], total: 1 } })
+    else fail(new Error('旧刷新失败'))
+    await settle()
+    expect(wrapper.find('#prompt-system').element).toHaveProperty('value', '本地新角色')
+    expect(wrapper.find('#prompt-user').element).toHaveProperty('value', '本地新任务 {{question}}')
+    expect(wrapper.find('.content-summary input').element).toHaveProperty('value', '本地变更摘要')
+    expect(wrapper.text()).toContain('编辑已保留')
+  })
+  it('批准请求携带审核者看到的版本号', async () => {
+    api.listPromptTemplates.mockResolvedValue({ data: { records: [{ ...prompt, currentVersion: 4 }], total: 1 } })
+    respond(capability({ global: ['prompt:view', 'prompt:approve'] }))
+    const dialog = vi.spyOn(ElMessageBox, 'prompt').mockResolvedValue({ value: '已核对 v4', action: 'confirm' } as Awaited<ReturnType<typeof ElMessageBox.prompt>>)
+    try {
+      const wrapper = mountPage(PromptsView)
+      await settle()
+      await buttonWithText(wrapper, '审核通过并激活')!.trigger('click')
+      await settle()
+      expect(api.approvePrompt).toHaveBeenCalledWith(prompt.templateCode, 4, '已核对 v4')
+    } finally { dialog.mockRestore() }
+  })
+  it('保存后的旧列表刷新不能覆盖浏览器切换的新场景和草稿', async () => {
+    const rows = [{ ...prompt, status: 'DRAFT' }, { ...prompt, id: 99, templateCode: 'field_semantic', templateName: '字段解释候选', status: 'DRAFT', content: '另一场景草稿 {{input}}' }]
+    api.listPromptTemplates.mockResolvedValue({ data: { records: rows, total: 2 } })
+    const catalog = (await api.listPromptScenes()).data
+    api.listPromptScenes.mockResolvedValue({ data: [...catalog, { ...catalog[0], code: 'field_semantic', name: '字段解释候选' }] })
+    respond(capability({ global: ['prompt:view', 'prompt:manage'] }))
+    const wrapper = mountPage(PromptsView)
+    await settle()
+    let finish!: (value: { data: { records: typeof rows; total: number } }) => void
+    api.listPromptTemplates.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    await buttonWithText(wrapper, '保存并创建新版本')!.trigger('click')
+    await settle()
+    reactive(routeState).query = { code: 'field_semantic' }
+    await settle()
+    expect(wrapper.find('.detail__heading h2').text()).toBe('字段解释候选')
+    finish({ data: { records: rows, total: 2 } })
+    await settle()
+    expect(wrapper.find('.detail__heading h2').text()).toBe('字段解释候选')
+    expect(wrapper.find('#prompt-user').element).toHaveProperty('value', '另一场景草稿 {{input}}')
+  })
+  it('审核提交确认期间切换场景会取消原操作', async () => {
+    let release!: () => void
+    // Element Plus 的声明把确认结果与输入结果交叉；此处只模拟确认动作。
+    const confirmed = new Promise<Awaited<ReturnType<typeof ElMessageBox.confirm>>>((resolve) => {
+      release = () => resolve('confirm' as Awaited<ReturnType<typeof ElMessageBox.confirm>>)
+    })
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockReturnValue(confirmed)
+    api.listPromptTemplates.mockResolvedValue({ data: { records: [{ ...prompt, status: 'DRAFT' }, { ...prompt, id: 99, templateCode: 'field_semantic', templateName: '字段解释候选', status: 'DRAFT' }], total: 2 } })
+    const catalog = (await api.listPromptScenes()).data
+    api.listPromptScenes.mockResolvedValue({ data: [...catalog, { ...catalog[0], code: 'field_semantic', name: '字段解释候选' }] })
+    respond(capability({ global: ['prompt:view', 'prompt:manage'] }))
+    const wrapper = mountPage(PromptsView)
+    await settle()
+    await buttonWithText(wrapper, '提交审核')!.trigger('click')
+    await wrapper.findAll('.template-list__select').find(button => button.text().includes('字段解释候选'))!.trigger('click')
+    release()
+    await settle()
+    expect(api.submitPromptForReview).not.toHaveBeenCalled()
+    confirm.mockRestore()
+  })
+
+  it('草稿和生效版本独立显示，保存角色与任务为同一个版本包', async () => {
+    api.listPromptTemplates.mockResolvedValue({ data: { records: [{ ...prompt, status: 'DRAFT', currentVersion: 4,
+      activeVersion: 2, activeContent: '旧的生效内容', content: JSON.stringify({ formatVersion: 1, system: '新角色', user: '{{question}}' }) }], total: 1 } })
+    respond(capability({ global: ['prompt:view', 'prompt:manage'] }))
+    const wrapper = mountPage(PromptsView)
+    await settle()
+    expect(wrapper.text()).toContain('编辑版本 v4 · 生效版本 v2')
+    expect(wrapper.text()).toContain('旧的生效内容')
+    await buttonWithText(wrapper, '保存并创建新版本')!.trigger('click')
+    await settle()
+    const payload = api.updatePromptTemplate.mock.calls[0]![1]
+    expect(JSON.parse(payload.content)).toEqual({ formatVersion: 1, system: '新角色', user: '{{question}}' })
+  })
+
+  it('场景存在而配置未初始化时明确提示内置策略，不提供保存入口', async () => {
+    routeState.query = { code: 'field_semantic' }
+    api.listPromptTemplates.mockResolvedValue({ data: { records: [], total: 0 } })
+    api.listPromptScenes.mockResolvedValue({ data: [{ code: 'field_semantic', name: '字段解释候选', group: '知识治理', consumer: 'knowledge/semantic.py', contractVersion: '1', variables: ['input'], outputContract: 'JSON', fixedConstraints: '人工审核', metric: '人工采纳率' }] })
+    respond(capability({ global: ['prompt:view', 'prompt:manage'] }))
+    const wrapper = mountPage(PromptsView)
+    await settle()
+    expect(wrapper.text()).toContain('后台配置尚未初始化')
+    expect(wrapper.text()).toContain('人工审核')
+    expect(buttonWithText(wrapper, '保存并创建新版本')).toBeFalsy()
+  })
+
+  it('校验预览失败展示错误，不保存或调用审核接口', async () => {
+    api.validatePromptPolicy.mockRejectedValue(new Error('未知策略变量'))
+    respond(capability({ global: ['prompt:view', 'prompt:manage'] }))
+    api.listPromptTemplates.mockResolvedValue({ data: { records: [{ ...prompt, status: 'DRAFT' }], total: 1 } })
+    const wrapper = mountPage(PromptsView)
+    await settle()
+    await buttonWithText(wrapper, '校验并预览')!.trigger('click')
+    await settle()
+    expect(wrapper.text()).toContain('未知策略变量')
+    expect(api.updatePromptTemplate).not.toHaveBeenCalled()
+    expect(api.approvePrompt).not.toHaveBeenCalled()
+  })
+
+  it('调用记录接口失败显示错误，不显示为暂无调用', async () => {
+    routeState.query = { tab: 'invocations' }
+    api.listPromptInvocations.mockRejectedValue(new Error('回执查询失败'))
+    respond(capability({ global: ['prompt:view'] }))
+    const wrapper = mountPage(PromptsView)
+    await settle()
+    expect(wrapper.text()).toContain('回执查询失败')
+    expect(wrapper.text()).not.toContain('暂无调用回执')
+  })
+
+  it('历史意图模板不宣称已接入节点，展示实际接入范围', async () => {
+    api.listPromptTemplates.mockResolvedValue({
+      data: { records: [{ ...prompt, templateCode: 'intent_recognition', status: 'APPROVED', enabled: true }], total: 1 },
+    })
+    respond(capability({ global: ['prompt:view'] }))
+    const wrapper = mountPage(PromptsView)
+    await settle()
+    expect(wrapper.text()).toContain('已退役')
+    expect(wrapper.text()).not.toContain('生效节点')
+    expect(wrapper.text()).toContain('历史版本保留')
+    expect(buttonWithText(wrapper, '保存并创建新版本')).toBeFalsy()
+  })
+
   it('没有 prompt:view 时不请求模板列表', async () => {
     respond(capability({ global: [] }))
     const wrapper = mountPage(PromptsView)
@@ -354,7 +517,7 @@ describe('PromptsView 的能力控制', () => {
     await settle()
 
     expect(api.listPromptTemplates).toHaveBeenCalled()
-    const approve = buttonWithText(wrapper, '审核通过')
+    const approve = buttonWithText(wrapper, '审核通过并激活')
     expect(approve).toBeTruthy()
     expect(approve!.attributes('disabled')).toBeDefined()
 
@@ -368,7 +531,7 @@ describe('PromptsView 的能力控制', () => {
     const wrapper = mountPage(PromptsView)
     await settle()
 
-    expect(buttonWithText(wrapper, '审核通过')!.attributes('disabled')).toBeUndefined()
+    expect(buttonWithText(wrapper, '审核通过并激活')!.attributes('disabled')).toBeUndefined()
   })
 
   it('草稿模板：没有 prompt:manage 时保存按钮不可用', async () => {

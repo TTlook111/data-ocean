@@ -113,6 +113,31 @@ class PromptTemplateControllerAuthorizationTest {
 
     // ---------- 夹具 ----------
 
+    @Test
+    void syntheticValidationRequiresManageAndNeverCallsModelOrWritesWhenDenied() {
+        Fixture fixture = new Fixture(); fixture.login(7L); fixture.denyGlobal(7L, "prompt:manage");
+        assertThatThrownBy(() -> fixture.controller.validatePolicy("field_semantic", updateRequest()))
+                .isInstanceOf(BusinessException.class);
+        verify(fixture.service, never()).validatePolicy(anyString(), anyString());
+    }
+
+    @Test
+    void sceneCatalogAndReceiptsUseGlobalViewThroughRealAspect() {
+        var guard = mock(IamS1AdminGuard.class);
+        doThrow(new BusinessException(403, "没有查看能力")).when(guard).requireGlobalFunction(7L, "prompt:view");
+        var service = mock(com.dataocean.module.prompt.service.PromptInvocationService.class);
+        var target = new com.dataocean.module.prompt.controller.PromptInvocationController(service);
+        var factory = new AspectJProxyFactory(target);
+        factory.addAspect(new IamS1AuthorizationAspect(guard,
+                new com.dataocean.module.permission.s1.resource.IamS1ResourceResolverRegistry(List.of())));
+        com.dataocean.module.prompt.controller.PromptInvocationController controller = factory.getProxy();
+        LoginUser user = new LoginUser(7L, "tester", "password", "测试", List.of());
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(user, null, List.of()));
+        assertThatThrownBy(controller::scenes).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> controller.list(new com.dataocean.module.prompt.entity.query.PromptInvocationQuery())).isInstanceOf(BusinessException.class);
+        verify(service, never()).list(any());
+    }
+
     private static PromptTemplateUpdateDTO updateRequest() {
         PromptTemplateUpdateDTO request = new PromptTemplateUpdateDTO();
         request.setContent("new content");

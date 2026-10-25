@@ -224,8 +224,13 @@ const router = createRouter({
         {
           path: 'semantics/prompts',
           name: 'admin-semantic-prompts',
+          redirect: (to) => ({ path: '/admin/platform/prompts', query: to.query, hash: to.hash }),
+        },
+        {
+          path: 'platform/prompts',
+          name: 'admin-platform-prompts',
           component: PromptsView,
-          meta: { title: 'Prompt 策略', domainKey: 'semantics', workspaceKey: 'prompts', contextMode: 'none' },
+          meta: { title: 'Prompt 策略', domainKey: 'operations', workspaceKey: 'prompts', contextMode: 'none' },
         },
         {
           path: 'access/iam',

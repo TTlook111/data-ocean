@@ -15,7 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Prompt 模板管理控制器
@@ -43,6 +42,14 @@ import java.util.Map;
 public class PromptTemplateController {
 
     private final PromptTemplateService promptTemplateService;
+
+    /** 仅检查合同并使用合成变量预览，不访问业务源、不调用模型或写库。 */
+    @PostMapping("/{code}/validate")
+    @IamS1Global("prompt:manage")
+    public Result<com.dataocean.module.prompt.entity.vo.PromptPolicyValidationVO> validatePolicy(
+            @PathVariable String code, @Valid @RequestBody PromptTemplateUpdateDTO request) {
+        return Result.success(promptTemplateService.validatePolicy(code, request.getContent()));
+    }
 
     /**
      * 分页查询模板列表
@@ -102,23 +109,22 @@ public class PromptTemplateController {
      */
     @PostMapping("/{code}/submit")
     @IamS1Global("prompt:manage")
-    public Result<PromptTemplateVO> submitForReview(@PathVariable String code) {
-        return Result.success("已提交审核", promptTemplateService.submitForReview(code));
+    public Result<PromptTemplateVO> submitForReview(@PathVariable String code, @Valid @RequestBody PromptVersionActionDTO request) {
+        return Result.success("已提交审核", promptTemplateService.submitForReview(code, request));
     }
 
     /**
      * 审核通过（PENDING_REVIEW → APPROVED）
      *
      * @param code    模板编码
-     * @param request 审核备注（可选）
+     * @param request 所见版本号（必填）和审核备注
      * @return 更新后的模板
      */
     @PostMapping("/{code}/approve")
     @IamS1Global("prompt:approve")
     public Result<PromptTemplateVO> approve(@PathVariable String code,
-                                            @RequestBody(required = false) Map<String, String> request) {
-        String changeSummary = request != null ? request.get("changeSummary") : null;
-        return Result.success("审核通过", promptTemplateService.approve(code, changeSummary));
+                                            @Valid @RequestBody PromptVersionActionDTO request) {
+        return Result.success("审核通过", promptTemplateService.approve(code, request));
     }
 
     /**
@@ -131,13 +137,12 @@ public class PromptTemplateController {
     @PostMapping("/{code}/reject")
     @IamS1Global("prompt:approve")
     public Result<PromptTemplateVO> reject(@PathVariable String code,
-                                           @RequestBody Map<String, String> request) {
-        String rejectReason = request.get("rejectReason");
-        return Result.success("已拒绝", promptTemplateService.reject(code, rejectReason));
+                                           @Valid @RequestBody PromptVersionActionDTO request) {
+        return Result.success("已拒绝", promptTemplateService.reject(code, request));
     }
 
     /**
-     * 启用或停用模板（仅限 APPROVED 状态的模板）。
+     * 独立切换已批准的生效版本；不把草稿状态当成线上版本状态。
      * <p>
      * `enabled` 决定 `getActiveContent` 能否取到该模板，是 Prompt 策略的生效开关。
      * 此前该字段只能在审核通过时被置为 true，前端只能展示、无法停用。
