@@ -1,7 +1,7 @@
 """异步边界回归测试。
 
 验证同步 SQLAlchemy 调用不会直接穿透 FastAPI 事件循环，
-以及独立业务域的 LLM 文档生成使用受控并发。
+以及文档生成、切片等同步计算的线程卸载。
 """
 
 from __future__ import annotations
@@ -13,8 +13,6 @@ import pytest
 
 from dataocean.knowledge import service as knowledge_service
 from dataocean.knowledge.schema import (
-    DomainDoc,
-    DomainGroup,
     GenerateDraftRequest,
 )
 from dataocean.rag import router as rag_router
@@ -101,42 +99,18 @@ async def test_sql_executor_offloads_timeout_kill(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_domain_documents_generate_with_bounded_concurrency(monkeypatch):
-    """独立业务域文档应并发生成，并保持域顺序。"""
-    request = GenerateDraftRequest(
-        snapshot_id=1,
-        datasource_id=1,
-        tables_metadata=[],
-    )
-    domains = [
-        DomainGroup(domain_name=f"域{i}", table_names=[], reason="test")
-        for i in range(4)
-    ]
-    started = 0
-    all_started = asyncio.Event()
-
-    async def fake_analyze(_request):
-        return domains
-
-    async def fake_generate(_request, domain):
-        nonlocal started
-        started += 1
-        if started == len(domains):
-            all_started.set()
-        await asyncio.wait_for(all_started.wait(), timeout=1)
-        return DomainDoc(
-            title=f"{domain.domain_name} skills.md",
-            content="content",
-            table_names=[],
-        )
-
-    monkeypatch.setattr(knowledge_service, "_analyze_domains", fake_analyze)
-    monkeypatch.setattr(knowledge_service, "_generate_domain_doc", fake_generate)
-
-    result = await knowledge_service.analyze_and_generate(request)
-
-    assert [doc.title for doc in result.docs] == [f"域{i} skills.md" for i in range(4)]
-    assert started == 4
+async def test_snapshot_rendering_does_not_run_on_event_loop_thread(monkeypatch):
+    import threading
+    caller = threading.get_ident()
+    request = GenerateDraftRequest(snapshot_id=1, datasource_id=1, tables_metadata=[{
+        "table_id":10,"source_snapshot_id":1,"table_name":"orders","columns":[],
+    }])
+    def render(_request):
+        assert threading.get_ident() != caller
+        return "snapshot document", {"tableCount":1,"columnCount":0}, []
+    monkeypatch.setattr(knowledge_service,"_render_snapshot_document",render)
+    result = await knowledge_service.generate_draft(request)
+    assert result.content == "snapshot document"
 
 
 @pytest.mark.asyncio

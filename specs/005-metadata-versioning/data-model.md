@@ -1,7 +1,8 @@
 # Data Model: 元数据版本与审核模块
 
-> 适用性（2026-10-17 核对，代码基线 `619bca6`）：部分适用；状态机以当前枚举为准。
-> 本文保留原规格/阶段记录；Draft、任务勾选、测试数量和临时执行限制只属于原记录时点。实施前先读[当前说明](../../docs/modules/005-metadata-versioning.md)与[规格索引](../README.md)；用户后续明确指正优先。
+> 历史规格／不作当前实现与 API 合同；现行依据见文档导航。
+
+
 
 **Date**: 2026-05-16
 
@@ -98,13 +99,13 @@ BEGIN;
 SELECT id FROM metadata_snapshot WHERE datasource_id = ? FOR UPDATE;
 
 -- 2. 旧快照过期
-UPDATE metadata_snapshot 
-SET status = 'EXPIRED', expired_at = NOW() 
+UPDATE metadata_snapshot
+SET status = 'EXPIRED', expired_at = NOW()
 WHERE datasource_id = ? AND status = 'PUBLISHED';
 
 -- 3. 新快照发布
-UPDATE metadata_snapshot 
-SET status = 'PUBLISHED', published_at = NOW(), reviewed_by = ? 
+UPDATE metadata_snapshot
+SET status = 'PUBLISHED', published_at = NOW(), reviewed_by = ?
 WHERE id = ? AND status = 'APPROVED';
 
 -- 4. 记录审计日志

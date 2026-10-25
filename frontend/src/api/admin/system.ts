@@ -168,11 +168,6 @@ export async function updateAiConfig(payload: AiConfigPayload) {
   return data
 }
 
-export async function listAiProviders() {
-  const { data } = await http.get<ApiResult<AiProvider[]>>('/api/admin/system/ai-config/providers')
-  return data
-}
-
 export async function createAiProvider(payload: AiProviderPayload) {
   const { data } = await http.post<ApiResult<AiProvider>>('/api/admin/system/ai-config/providers', payload)
   return data

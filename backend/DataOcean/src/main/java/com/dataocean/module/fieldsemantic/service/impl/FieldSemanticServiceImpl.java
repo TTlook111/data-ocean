@@ -89,6 +89,8 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
     private final GlossaryTermWorkflowService glossaryWorkflow;
     private final PythonKnowledgeClient pythonClient;
     private final ObjectMapper objectMapper;
+    private final GovernanceExecutionFence executionFence;
+    private final com.dataocean.module.fieldtag.mapper.FieldTagMapper fieldTags;
 
     @Override
     @Transactional
@@ -234,15 +236,18 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
             throw new BusinessException(400, "审核通过时请记录审核依据");
         }
         if ("APPROVE".equals(request.getAction())) {
+            if(!request.isEvidenceConfirmed()||!StringUtils.hasText(request.getEvidenceReference()))throw new BusinessException("审核通过前请明确确认已核对原始资料，并填写资料名称、版本和位置；AI 自述不能作为依据");
+            requireText(request.getEvidenceReference(),1000,"原始资料引用");requireText(request.getReason(),800,"人工审核依据");
+            String confirmedEvidence="原始资料："+request.getEvidenceReference().trim()+"\n人工核对："+request.getReason().trim();
             requireUsableSource(source);
             pending.setStatus("APPROVED");
             binding.setStatus(VALID);
             binding.setStatusReason(null);
-            binding.setConfirmationEvidence(trim(request.getReason(), 1000));
+            binding.setConfirmationEvidence(trim(confirmedEvidence, 1000));
             binding.setConfirmedBy(userId);
             binding.setConfirmedAt(LocalDateTime.now());
             bindingMapper.updateById(binding);
-            insertReview(definition, pending, binding, "APPROVE", request.getReason(), userId,
+            insertReview(definition, pending, binding, "APPROVE", confirmedEvidence, userId,
                     definition.getRowVersion());
             revisionMapper.updateById(pending);
             updateDefinition(definition, binding.getId(), pending.getId(), null, ACTIVE, userId,
@@ -377,6 +382,10 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
 
     @Override
     public FieldSemanticWorkspaceVO generateCandidate(Long columnMetaId, Long snapshotId, Integer expectedVersion, Long userId) {
+        return generateCandidate(columnMetaId,snapshotId,expectedVersion,userId,null,null);
+    }
+    @Override
+    public FieldSemanticWorkspaceVO generateCandidate(Long columnMetaId, Long snapshotId, Integer expectedVersion, Long userId,Long governanceTaskId,String executionToken) {
         Source source = source(columnMetaId, snapshotId);
         requireWritable(userId, source.datasourceId());
         requireUsableSource(source);
@@ -411,6 +420,11 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
             candidateMapper.updateById(candidate);
             throw exception;
         }
+        var baseDefinition=definition;var baseBinding=binding;
+        try{return executionFence.persist(governanceTaskId,executionToken,userId,()->completeCandidate(columnMetaId,snapshotId,userId,source,baseDefinition,baseBinding,candidate,suggestion));}
+        catch(BusinessException exception){if(!"STALE".equals(candidate.getStatus())){candidate.setStatus("STALE");candidate.setFailureReason("执行已过期或来源发生变化，本候选不能采纳");candidate.setCompletedAt(LocalDateTime.now());candidateMapper.updateById(candidate);}throw exception;}
+    }
+    private FieldSemanticWorkspaceVO completeCandidate(Long columnMetaId,Long snapshotId,Long userId,Source source,FieldSemanticDefinition definition,FieldSemanticBinding binding,FieldSemanticCandidate candidate,Map<String,Object> suggestion){
         // AI response is bound to the exact permission, field, source and working version captured above.
         requireWritable(userId, source.datasourceId());
         Source latestSource = source(columnMetaId, snapshotId);
@@ -446,7 +460,8 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
         candidate.setStatus("READY");
         candidate.setCompletedAt(LocalDateTime.now());
         candidateMapper.updateById(candidate);
-        return workspaceAfterMutation(columnMetaId, snapshotId);
+        var workspace=workspaceAfterMutation(columnMetaId, snapshotId);
+        workspace.setGeneratedCandidateId(candidate.getId());return workspace;
     }
 
     @Override
@@ -499,6 +514,14 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
     @Override
     @Transactional(readOnly = true)
     public FieldSemanticEvaluation evaluate(Long columnMetaId, Long snapshotId) {
+        return evaluateInternal(columnMetaId,snapshotId,false);
+    }
+    @Override
+    @Transactional(readOnly = true)
+    public FieldSemanticEvaluation evaluateForGovernance(Long columnMetaId,Long snapshotId){
+        return evaluateInternal(columnMetaId,snapshotId,true);
+    }
+    private FieldSemanticEvaluation evaluateInternal(Long columnMetaId, Long snapshotId, boolean governance) {
         Source source;
         try { source = source(columnMetaId, snapshotId); }
         catch (BusinessException exception) {
@@ -506,8 +529,8 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
                     null, null, null, null, null, null, null);
         }
         if (forbidden(source.column().getGovernanceStatus()) || forbidden(source.table().getGovernanceStatus())
-                || !List.of("NORMAL", "RECOMMENDED", "SENSITIVE").contains(source.column().getGovernanceStatus())
-                || !List.of("NORMAL", "RECOMMENDED", "SENSITIVE").contains(source.table().getGovernanceStatus())) {
+                || !governance && (!List.of("NORMAL", "RECOMMENDED", "SENSITIVE").contains(source.column().getGovernanceStatus())
+                || !List.of("NORMAL", "RECOMMENDED", "SENSITIVE").contains(source.table().getGovernanceStatus()))) {
             return evaluation("NOT_APPLICABLE", "NOT_APPLICABLE", "字段或所属表不在当前合规使用范围。",
                     null, null, null, null, null, null, sha256(canonical(List.of(source.snapshotId(), source.column().getId(), fingerprint(source)))));
         }
@@ -550,6 +573,9 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
                     definition.getId(), binding.getId(), revision.getId(), null,
                     revision.getContentHash(), revision.getDependencyHash(), evidenceHash(source, definition, binding, revision, null));
         }
+        var missing=FieldSemanticCompletenessPolicy.missing(revision,new java.util.HashSet<>(tagCodes(columnMetaId)));
+        if(!missing.isEmpty())return evaluation("ISSUE","INCOMPLETE_FIELD_SEMANTIC","当前字段业务角色还缺少："+String.join("、",missing),
+                definition.getId(),binding.getId(),revision.getId(),review.getId(),revision.getContentHash(),revision.getDependencyHash(),evidenceHash(source,definition,binding,revision,review));
         try {
             validateBindingSource(binding, source);
             List<Map<String, Object>> refs = parseMapList(revision.getGlossaryRefsJson());
@@ -732,6 +758,18 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
             facts.add(fact);
         }
         return facts;
+    }
+
+    @Override @Transactional(readOnly=true)
+    public Map<String,Object> reviewedContext(Long columnId,Long snapshotId){
+        var evaluation=evaluate(columnId,snapshotId);
+        if(!evaluation.usable())return Map.of("qualified",false);
+        var source=source(columnId,snapshotId);var revision=revisionMapper.selectById(evaluation.revisionId());
+        Map<String,Object> context=new TreeMap<>();context.put("qualified",true);
+        context.put("sourceIds",List.of(evaluation.definitionId(),evaluation.revisionId(),evaluation.reviewId(),evaluation.bindingId()));
+        context.put("contentHash",evaluation.contentHash());context.put("dependencyHash",evaluation.dependencyHash());
+        context.put("dependencies",knowledgeDependencies(source.table(),source.column(),revision).stream().sorted().toList());
+        context.put("body",knowledgeFactBody(revision));return context;
     }
 
     @Override
@@ -1293,7 +1331,7 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
     }
 
     private String canonical(Object value) {
-        try { return objectMapper.writeValueAsString(value); }
+        try { return objectMapper.writer().with(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS).writeValueAsString(value); }
         catch (Exception exception) { throw new BusinessException("字段解释依据序列化失败"); }
     }
 
@@ -1349,12 +1387,16 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
 
     private String evidenceHash(Source source, FieldSemanticDefinition definition, FieldSemanticBinding binding,
                                 FieldSemanticRevision revision, FieldSemanticReview review) {
-        return sha256(canonical(List.of(source.snapshotId(), source.column().getId(),
+        return sha256(canonical(List.of(tagCodes(source.column().getId()),source.snapshotId(), source.column().getId(),
                 definition == null ? "" : definition.getId(), binding == null ? "" : binding.getId(),
                 binding == null ? "" : binding.getSchemaFingerprint(), revision == null ? "" : revision.getId(),
                 review == null ? "" : review.getId(), revision == null ? "" : revision.getContentHash(),
                 review == null ? (revision == null ? "" : revision.getDependencyHash()) : review.getDependencyHash())));
     }
+
+    private List<String> tagCodes(Long columnId){return fieldTags.selectList(new LambdaQueryWrapper<com.dataocean.module.fieldtag.entity.po.FieldTag>()
+            .eq(com.dataocean.module.fieldtag.entity.po.FieldTag::getColumnMetaId,columnId)).stream().map(com.dataocean.module.fieldtag.entity.po.FieldTag::getTagCode)
+            .filter(Objects::nonNull).distinct().sorted().toList();}
 
     private FieldSemanticWorkspaceVO workspaceAfterMutation(Long columnMetaId, Long snapshotId) {
         Source source = source(columnMetaId, snapshotId);

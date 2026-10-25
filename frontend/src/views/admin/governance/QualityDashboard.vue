@@ -236,6 +236,11 @@ function openRules() {
   })
 }
 
+function openKnowledgeGovernance() {
+  if (!scopeReady.value || !datasourceId.value || !snapshotId.value || !iamS1.canOnDatasource('governance:field:view', datasourceId.value)) return
+  router.push({path:'/admin/governance/fields',query:{tab:'tasks',datasourceId:datasourceId.value,snapshotId:snapshotId.value}})
+}
+
 function openReleasePage() {
   if (!snapshotId.value || !datasourceId.value) return
   router.push({
@@ -297,8 +302,8 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="quality-page post-login-page governance-workspace governance-surface">
-    <TaskPageHeader title="治理总览" description="检查状态、规则准备和待处理问题。零问题记录不代表已通过检查；规则覆盖与使用前提可在详情中核对。">
-      <template #actions><el-button :icon="RefreshCw" :loading="loading || batchLoading || issueLoading || rulesLoading" @click="refresh">刷新</el-button><el-button v-if="canReturnToRelease" @click="openReleasePage">返回元数据版本</el-button></template>
+    <TaskPageHeader title="治理总览" description="完善业务知识与字段解释，审核复查后用于文档和问数；下方保留来源质量诊断。">
+      <template #actions><el-button type="primary" :disabled="!scopeReady || !snapshotId || !iamS1.canOnDatasource('governance:field:view', datasourceId)" @click="openKnowledgeGovernance">开始知识治理</el-button><el-button :icon="RefreshCw" :loading="loading || batchLoading || issueLoading || rulesLoading" @click="refresh">刷新</el-button><el-button v-if="canReturnToRelease" @click="openReleasePage">返回元数据版本</el-button></template>
     </TaskPageHeader>
     <ErrorState v-if="pageError" :message="pageError" @retry="refresh" />
     <template v-else>
@@ -306,7 +311,7 @@ onBeforeUnmount(() => {
         <div class="quality-page__status-main">
           <ClipboardCheck class="quality-page__state-icon" :size="26" aria-hidden="true" />
           <div class="quality-page__status-copy"><h2 id="quality-current-state">{{ overviewState.kind === 'no-batch' ? '暂无可追溯的检查结果' : overviewState.title }}</h2><p class="quality-page__status-description" role="status" aria-live="polite">{{ overviewState.kind === 'no-batch' ? '执行一次检查，查看当前范围的质量结果。' : overviewState.description }}</p></div>
-          <div class="quality-page__primary-action"><el-button type="primary" :icon="ClipboardCheck" :loading="checkLoading" :disabled="!snapshotId || !canRunCheck || checkLoading || latestBatch?.status === 'RUNNING'" @click="runCheck">执行质量校验</el-button><span v-if="datasourceId && !canRunCheck" class="quality-page__action-note">没有此数据源的执行权限</span></div>
+          <div class="quality-page__primary-action"><el-button :icon="ClipboardCheck" :loading="checkLoading" :disabled="!snapshotId || !canRunCheck || checkLoading || latestBatch?.status === 'RUNNING'" @click="runCheck">执行质量校验</el-button><span v-if="datasourceId && !canRunCheck" class="quality-page__action-note">没有此数据源的执行权限</span></div>
         </div>
         <ErrorState v-if="batchError" :message="batchError" @retry="loadSnapshotState()" />
         <p v-if="latestBatch?.errorSummary" class="quality-page__failure" role="alert"><AlertTriangle :size="16" aria-hidden="true" />{{ latestBatch.errorSummary }}</p>

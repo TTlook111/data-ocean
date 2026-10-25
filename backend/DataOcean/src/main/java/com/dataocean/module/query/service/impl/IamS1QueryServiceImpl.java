@@ -123,6 +123,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final Set<String> activePythonTasks = java.util.concurrent.ConcurrentHashMap.newKeySet();
     @Autowired(required = false)
     private FieldSemanticService fieldSemanticService;
+    @Autowired(required = false)
+    private com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService businessKnowledgeService;
 
     @Override
     @Transactional
@@ -162,6 +164,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         QueryTask task = QueryTask.builder()
                 .taskId(taskId).userId(userId).datasourceId(request.getDatasourceId())
                 .iamProtocolVersion(IamS1Constants.PROTOCOL_VERSION)
+                .governanceProfilesEnabled(true)
                 .activeMetadataSnapshotId(candidateCatalog.activeMetadataSnapshotId())
                 .permissionRevision(candidateCatalog.permissionRevision())
                 .ragBuildId(ragBuild == null ? null : ragBuild.getBuildId())
@@ -877,10 +880,27 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             // FIELD_SEMANTIC is bound to the exact active source snapshot. Other build facts
             // retain their existing snapshot/build contract; an older field explanation cannot
             // be silently extended to a newly published snapshot.
-            chunks = chunks.stream().filter(chunk -> !"FIELD_SEMANTIC".equals(chunk.get("factType"))).toList();
+            chunks = chunks.stream().filter(chunk -> !"FIELD_SEMANTIC".equals(chunk.get("factType"))
+                    && !String.valueOf(chunk.get("factType")).startsWith("BUSINESS_")).toList();
         }
         List<Map<String, Object>> fieldSemanticRefs = fieldSemanticReferences(chunks, ragBuild);
         freezeFieldSemanticReferences(taskId, fieldSemanticRefs);
+        List<Map<String, Object>> businessRefs = chunks.stream().filter(chunk -> String.valueOf(chunk.get("factType")).startsWith("BUSINESS_"))
+                .map(chunk -> Map.of("sourceSnapshotId", (Object) String.valueOf(ragBuild.getSourceSnapshotId()), "factSourceIds", chunk.get("factSourceIds"))).toList();
+        QueryTask businessTask = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+        String businessJson = writeJson(businessRefs);
+        if (businessTask.getBusinessKnowledgeRefsJson() != null && !businessTask.getBusinessKnowledgeRefsJson().equals(businessJson))
+            throw new BusinessException(409, "本任务业务知识引用已经变化，请重新发起");
+        if (businessTask.getBusinessKnowledgeRefsJson() == null) {
+            int frozen = queryTaskMapper.update(null,new LambdaUpdateWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)
+                    .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name()).isNull(QueryTask::getBusinessKnowledgeRefsJson)
+                    .set(QueryTask::getBusinessKnowledgeRefsJson, businessJson));
+            if (frozen != 1) {
+                var latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+                if (latest == null || !businessJson.equals(latest.getBusinessKnowledgeRefsJson()))
+                    throw new BusinessException(409, "本任务业务知识引用并发变化，请重新发起");
+            }
+        }
         IamS1DataAuthorizationSnapshot planningSnapshot = candidatePlanningSnapshot(
                 userId, request.getDatasourceId(), candidateCatalog);
         IamS1QueryAskRequestDTO planningRequest = candidatePlanningRequest(request, candidateCatalog);
@@ -900,6 +920,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         body.put("ragChunks", chunks);
         body.put("fallbackChunks", chunks);
         body.put("fieldSemanticReferences", fieldSemanticRefs);
+        body.put("governanceProfilesEnabled", Boolean.TRUE.equals(queryTaskMapper.selectOne(
+                new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)).getGovernanceProfilesEnabled()));
         body.put("ragBuildId", ragBuild == null ? null : ragBuild.getBuildId());
         body.put("ragSourceSnapshotId", ragBuild == null ? null : ragBuild.getSourceSnapshotId());
         body.put("ragCollectionName", ragBuild == null ? null : ragBuild.getCollectionName());
@@ -1164,6 +1186,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 if (tables.isEmpty() || columns.isEmpty() || dependencies.isEmpty() || factSourceIds.isEmpty()) continue;
                 if ("GLOSSARY_TERM".equals(chunk.getFactType()) && !glossarySources.membershipValid(factSourceIds)) continue;
                 if ("SEMANTIC_NOTE".equals(chunk.getFactType()) && !semanticSources.membershipValid(factSourceIds)) continue;
+                // 旧结构关系不再作为新问数的业务关联依据，新的 BUSINESS_RELATION 有独立审核、复查和完整依赖。
+                if ("JOIN_PATH".equals(chunk.getFactType())) continue;
+                if (String.valueOf(chunk.getFactType()).startsWith("BUSINESS_") && (businessKnowledgeService == null
+                        || !businessKnowledgeService.membershipValid(datasourceId, build.getSourceSnapshotId(), factSourceIds))) continue;
                 if ("FIELD_SEMANTIC".equals(chunk.getFactType())
                         && (fieldSemanticService == null || !fieldSemanticService.membershipValid(
                         datasourceId, build.getSourceSnapshotId(), factSourceIds))) continue;
@@ -1232,6 +1258,16 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     }
 
     private boolean fieldSemanticReferencesValid(QueryTask task) {
+        if (task != null && task.getBusinessKnowledgeRefsJson() != null) {
+            try {
+                for (var ref : parseFieldSemanticReferences(task.getBusinessKnowledgeRefsJson())) {
+                    var ids = objectMapper.convertValue(ref.get("factSourceIds"), new TypeReference<List<String>>() {});
+                    Long source = Long.valueOf(String.valueOf(ref.get("sourceSnapshotId")));
+                    if (!Objects.equals(source, task.getRagSourceSnapshotId()) || businessKnowledgeService == null
+                            || !businessKnowledgeService.membershipValid(task.getDatasourceId(), source, ids)) return false;
+                }
+            } catch (RuntimeException exception) { return false; }
+        }
         if (task == null || task.getFieldSemanticRefsJson() == null || task.getFieldSemanticRefsJson().isBlank()
                 || "[]".equals(task.getFieldSemanticRefsJson())) return true;
         if (fieldSemanticService == null) return false;

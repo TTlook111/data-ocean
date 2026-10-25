@@ -34,6 +34,14 @@ public class FieldSemanticController {
     private static final String APPROVE = "knowledge:approve";
     private final FieldSemanticService semanticService;
     private final FieldSemanticUsageService usageService;
+    private final com.dataocean.module.fieldsemantic.service.FieldGovernanceProgressService progressService;
+
+    @GetMapping("/governance-progress")
+    @IamS1Resource(function = VIEW, resourceType = IamS1ResourceType.COLUMN_META, resourceIds = "#columnMetaId")
+    public Result<com.dataocean.module.fieldsemantic.entity.vo.FieldGovernanceProgressVO> progress(
+            @PathVariable Long columnMetaId, @RequestParam Long snapshotId) {
+        return Result.success(progressService.progress(columnMetaId, snapshotId, UserContext.currentUserId()));
+    }
 
     @GetMapping
     @IamS1Resource(function = VIEW, resourceType = IamS1ResourceType.COLUMN_META, resourceIds = "#columnMetaId")

@@ -40,8 +40,53 @@ public class KnowledgeSnapshotFactValidator {
     private final com.dataocean.module.knowledge.service.impl.GlossaryKnowledgeSourceServiceImpl glossarySources;
     private final com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl semanticSources;
     private final com.dataocean.module.fieldsemantic.service.FieldSemanticService fieldSemanticService;
+    private final com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService businessKnowledgeService;
 
     public void validate(Long datasourceId, Long snapshotId, String content) {
+        validateContent(datasourceId, snapshotId, content, true);
+    }
+
+    public void validatePart(Long datasourceId, Long snapshotId, String content) {
+        validateContent(datasourceId, snapshotId, content, false);
+    }
+
+    /** 每篇校验事实，文档组共同承担完整覆盖；不能通过拆篇绕过覆盖约束。 */
+    public void validateCoverage(Long datasourceId, Long snapshotId, List<String> contents) {
+        if (contents == null || contents.isEmpty()) throw new BusinessException("知识文档组为空");
+        for (String content : contents) validatePart(datasourceId, snapshotId, content);
+        var tableIds = new HashSet<Long>();
+        var columnIds = new HashSet<Long>();
+        var businessIds = new HashSet<String>();
+        for (String content : contents) {
+            var matcher = FACT_MARKER.matcher(content);
+            while (matcher.find()) {
+                var fact = parse(matcher.group(1));
+                var ids = numberList(fact.get("sourceIds"));
+                String type = String.valueOf(fact.get("factType"));
+                if(type.startsWith("BUSINESS_")&&(ids.size()!=1||!businessIds.add(type+":"+ids.get(0))))
+                    throw new BusinessException("知识文档组包含重复或无效业务知识，请核对发布版本");
+                if (Set.of("TABLE_STRUCTURE", "TABLE_EXCLUDED").contains(type)) tableIds.add(ids.get(0));
+                if (Set.of("COLUMN_STRUCTURE", "COLUMN_EXCLUDED").contains(type)) columnIds.add(ids.get(1));
+            }
+        }
+        var expectedBusiness=new HashSet<String>();
+        var currentBusiness=businessKnowledgeService.facts(datasourceId,snapshotId);
+        if(currentBusiness!=null)for(var fact:currentBusiness){
+            var ids=stringList(fact.get("sourceIds"));
+            if(ids.size()!=1||!expectedBusiness.add(fact.get("factType")+":"+ids.get(0)))throw new BusinessException("当前业务知识清单无效");
+        }
+        if(!businessIds.equals(expectedBusiness))throw new BusinessException("知识文档组业务知识覆盖不完整或版本已变化，请重新核对发布清单");
+        var tables = tableMapper.selectList(new LambdaQueryWrapper<DbTableMeta>()
+                .eq(DbTableMeta::getDatasourceId, datasourceId).eq(DbTableMeta::getSnapshotId, snapshotId));
+        var columns = columnMapper.selectList(new LambdaQueryWrapper<DbColumnMeta>()
+                .eq(DbColumnMeta::getDatasourceId, datasourceId).eq(DbColumnMeta::getSnapshotId, snapshotId));
+        if (!tableIds.equals(tables.stream().map(DbTableMeta::getId).collect(java.util.stream.Collectors.toSet()))
+                || !columnIds.equals(columns.stream().map(DbColumnMeta::getId).collect(java.util.stream.Collectors.toSet()))) {
+            throw new BusinessException("知识文档组未完整覆盖所选快照全部表和字段");
+        }
+    }
+
+    private void validateContent(Long datasourceId, Long snapshotId, String content, boolean requireFullCoverage) {
         if (datasourceId == null || snapshotId == null || content == null || content.isBlank()) {
             throw new BusinessException("知识文档缺少数据源、来源快照或内容");
         }
@@ -113,6 +158,8 @@ public class KnowledgeSnapshotFactValidator {
                 }
             }
             switch (type) {
+                case "BUSINESS_DATASOURCE", "BUSINESS_TABLE", "BUSINESS_RELATION", "BUSINESS_METRIC" ->
+                    businessKnowledgeService.validateFact(datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
                 case "SEMANTIC_NOTE" -> semanticSources.validate(datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
                 case "FIELD_SEMANTIC" -> fieldSemanticService.validateKnowledgeFact(
                         datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
@@ -129,7 +176,7 @@ public class KnowledgeSnapshotFactValidator {
                 default -> throw new BusinessException("知识文档包含无来源的事实类型：" + type);
             }
         }
-        if (markerCount == 0 || !seenTables.equals(tableById.keySet()) || !seenColumns.equals(columnById.keySet())) {
+        if (markerCount == 0 || requireFullCoverage && (!seenTables.equals(tableById.keySet()) || !seenColumns.equals(columnById.keySet()))) {
             throw new BusinessException("知识文档未完整覆盖所选快照全部表和字段");
         }
     }
@@ -224,13 +271,10 @@ public class KnowledgeSnapshotFactValidator {
                 || !snapshotId.equals(relation.getSnapshotId())) {
             throw new BusinessException("Join 事实不属于本次元数据快照");
         }
-        boolean confirmed = TableRelation.TYPE_FK.equals(relation.getRelationType())
-                || (TableRelation.TYPE_MANUAL.equals(relation.getRelationType())
-                && "CONFIRMED".equalsIgnoreCase(relation.getReviewStatus()));
-        if ("JOIN_PATH".equals(factType) && (!confirmed || !"APPROVED".equalsIgnoreCase(String.valueOf(fact.get("reviewStatus"))))) {
-            throw new BusinessException("未确认关系不能发布为 Join Path");
+        if ("JOIN_PATH".equals(factType)) {
+            throw new BusinessException("未确认完整业务用法的结构关系不能发布为 Join Path，请在业务知识中审核关联条件、基数和聚合方式");
         }
-        if ("JOIN_CANDIDATE".equals(factType) && (confirmed || !"PENDING".equalsIgnoreCase(String.valueOf(fact.get("reviewStatus"))))) {
+        if ("JOIN_CANDIDATE".equals(factType) && !"PENDING".equalsIgnoreCase(String.valueOf(fact.get("reviewStatus")))) {
             throw new BusinessException("待审核候选关系标记与快照状态不一致");
         }
         Set<String> expected = new HashSet<>(List.of(

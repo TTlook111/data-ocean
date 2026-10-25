@@ -6,6 +6,25 @@ from dataocean.knowledge.schema import GenerateDraftRequest
 from dataocean.knowledge.service import generate_draft
 
 
+@pytest.mark.asyncio
+async def test_usage_confidence_does_not_change_document_or_coverage():
+    request = _request()
+    before = await generate_draft(request)
+    for table in request.tables_metadata:
+        for column in table.columns:
+            column.confidence_score = 17
+    after = await generate_draft(request)
+    assert after.content == before.content
+    assert after.coverage == before.coverage
+    assert after.warnings == before.warnings
+
+
+def test_retired_domain_analysis_route_is_not_exposed():
+    from dataocean.knowledge.router import router
+
+    assert not any(route.path == '/analyze-and-generate' for route in router.routes)
+
+
 def _request() -> GenerateDraftRequest:
     return GenerateDraftRequest(
         snapshot_id=8801,
@@ -111,6 +130,48 @@ def _request() -> GenerateDraftRequest:
     )
 
 
+@pytest.mark.asyncio
+async def test_reviewed_business_model_is_preserved_with_complete_dependencies():
+    request = _request()
+    request = request.model_copy(update={'business_knowledge_facts': [{
+        'sourceIds': [991], 'factType': 'BUSINESS_RELATION', 'title': '订单商品关系',
+        'body': '- description: 订单关联商品\n- cardinality: N:1\n- aggregationNotes: 按订单粒度统计',
+        'contentHash': 'c'*64, 'dependencyHash': 'd'*64,
+        'dependencies': ['table:sales_orders', 'column:sales_orders.product_id', 'table:products', 'column:products.product_id'],
+        'reviewStatus': 'APPROVED', 'governanceStatus': 'NORMAL',
+    }]})
+    result = await generate_draft(request)
+    assert '订单商品关系' in result.content
+    assert 'BUSINESS_RELATION' in result.content
+    from dataocean.rag.chunker import chunk_skills_md
+    chunks = chunk_skills_md(result.content, expected_snapshot_id=request.snapshot_id)
+    business = [c for c in chunks if c.fact_type == 'BUSINESS_RELATION']
+    assert len(business) == 1
+    assert business[0].fact_source_ids == ['991']
+    assert set(business[0].resource_dependencies) == set(request.business_knowledge_facts[0]['dependencies'])
+
+
+@pytest.mark.asyncio
+async def test_physical_foreign_key_is_not_automatic_business_join_approval():
+    request = _request()
+    result = await generate_draft(request)
+    import json,re
+    markers = [json.loads(raw) for raw in re.findall(r'<!-- dataocean-fact: (.*?) -->', result.content)]
+    relation = next(marker for marker in markers if marker['sourceIds']==[301])
+    assert relation['factType'] == 'JOIN_CANDIDATE'
+    assert relation['reviewStatus'] == 'PENDING'
+    assert set(relation['dependencies']) == {'table:sales_orders','table:products','column:sales_orders.product_id','column:products.product_id'}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_generation_never_sends_restricted_metadata_to_model(monkeypatch):
+    from dataocean.knowledge import service
+    async def forbidden_model(**kwargs):raise AssertionError('完整结构目录不能传给模型，受限字段只作管理覆盖')
+    monkeypatch.setattr(service,'call_llm',forbidden_model, raising=False)
+    result = await service.generate_draft(_request())
+    assert 'COLUMN_EXCLUDED' in result.content
+
+
 def _field_fact():
     return {
         "sourceIds": [71, 72, 73, 74],
@@ -148,7 +209,7 @@ async def test_snapshot_document_covers_every_table_and_field_with_provenance():
     assert "## 5. Data lineage and field derivations" in result.content
     assert "Lineage describes data flow" in result.content
     assert result.coverage["confirmedLineageCount"] == 1
-    assert result.coverage["pendingRelationshipCount"] == 1
+    assert result.coverage["pendingRelationshipCount"] == 2
     assert any("secret_note" in warning for warning in result.warnings)
 
 

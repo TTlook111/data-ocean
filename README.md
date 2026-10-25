@@ -37,7 +37,7 @@ Vue 3 查询端与治理后台
   <img src="docs/images/dataocean-governance-loop.svg" alt="DataOcean governance-driven trusted query loop" width="96%" />
 </p>
 
-元数据经过质量检查、审核和快照发布，再生成并审核发布 `skills.md`；有权用户显式确认 RAG 构建后，知识才进入活动索引。查询产生的字段使用、SQL 血缘、审计和反馈继续回流到治理侧。
+平台内通过规则发现知识缺口，由 AI 整理候选、人工补充审核，再对精确修订复查；来源质量检查保持独立。数据源用途、表关系、指标和字段知识按主题生成多篇文档，审核发布后，由有权用户显式确认 RAG 构建。标签与动态使用证据独立维护，问数反馈经归因进入再治理，原问题按验收标准核对后结束。
 
 ## 快速开始
 
@@ -72,7 +72,7 @@ cd DataOcean
 | 修改前端 | [前端开发规范](docs/development/前端开发规范.md) |
 | 下一步任务 | [后续开发](docs/development/后续开发.md) |
 | 验收范围与证据 | [验收索引](docs/acceptance/README.md) |
-| 历史方案与规格适用性 | [历史材料](docs/archive/README.md)、[specs 索引](specs/README.md) |
+| 仅在需要回溯时读取的旧材料 | [历史材料](docs/archive/README.md)、[历史 specs 索引](specs/README.md)；不作当前开发或运行合同 |
 | Agent 开发约束 | [AGENTS.md](AGENTS.md) |
 
 ## 项目结构

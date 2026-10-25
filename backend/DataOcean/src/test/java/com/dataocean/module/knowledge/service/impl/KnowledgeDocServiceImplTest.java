@@ -90,6 +90,8 @@ class KnowledgeDocServiceImplTest {
     private KnowledgeOwnershipValidator ownershipValidator;
     @Mock
     private com.dataocean.module.fieldsemantic.service.FieldSemanticService fieldSemanticService;
+    @Mock
+    private com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService businessKnowledgeService;
 
     @InjectMocks
     private KnowledgeDocPublishService publishService;
@@ -105,7 +107,7 @@ class KnowledgeDocServiceImplTest {
     }
 
     @Test
-    void generateDraftPassesColumnConfidenceScoreToPython() {
+    void generateDraftExcludesDynamicConfidenceFromKnowledgeInput() {
         setLoginUser();
         long docId = 1L;
         long datasourceId = 10L;
@@ -168,7 +170,7 @@ class KnowledgeDocServiceImplTest {
         List<Map<String, Object>> columns = (List<Map<String, Object>>) tablesMetadata.get(0).get("columns");
         assertThat(columns.get(0))
                 .containsEntry("column_name", "pay_amount")
-                .containsEntry("confidence_score", 92);
+                .doesNotContainKey("confidence_score");
         verify(knowledgeDocVersionMapper).insert(any(KnowledgeDocVersion.class));
     }
 

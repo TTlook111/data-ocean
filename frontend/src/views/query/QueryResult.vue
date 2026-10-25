@@ -27,6 +27,9 @@ const props = defineProps<{
   sqlErrorMessage: string
   originalQuestion: string
   contextLabel?: string
+  feedbackStatus?:string
+  feedbackBusy?:boolean
+  feedbackLoading?:boolean
 }>()
 
 const emit = defineEmits<{
@@ -34,6 +37,7 @@ const emit = defineEmits<{
   'switch-chart-type': [type: 'bar' | 'line' | 'pie']
   'export-csv': []
   'feedback': [type: 'LIKE' | 'DISLIKE']
+  'refresh-feedback': []
   'update:tablePage': [page: number]
   'retry': [question: string]
   'clarify': [question: string]
@@ -216,12 +220,13 @@ defineExpose({ openDetails })
       </section>
     </div>
 
-    <footer v-if="hasRows && latestResult" class="result-actions">
-      <span v-if="!canExport" class="permission-hint">当前账号不可导出此结果</span>
-      <button v-else type="button" class="export-button" @click="emit('export-csv')"><Download :size="14" aria-hidden="true" />导出 CSV</button>
+    <footer v-if="latestResult?.status==='COMPLETED'&&['success-data','success-empty'].includes(viewState.kind)" class="result-actions">
+      <span v-if="hasRows&&!canExport" class="permission-hint">当前账号不可导出此结果</span>
+      <button v-else-if="hasRows&&canExport" type="button" class="export-button" @click="emit('export-csv')"><Download :size="14" aria-hidden="true" />导出 CSV</button>
+      <span v-if="feedbackStatus" class="feedback-status" role="status">{{feedbackStatus}}<button type="button" :disabled="feedbackLoading||feedbackBusy" @click="emit('refresh-feedback')">刷新反馈</button></span>
       <div class="feedback-buttons" aria-label="评价结果">
-        <button type="button" class="feedback-button" aria-label="评价：结果准确" title="结果准确" @click="emit('feedback', 'LIKE')"><ThumbsUp :size="15" aria-hidden="true" /></button>
-        <button type="button" class="feedback-button" aria-label="评价：结果有误" title="结果有误" @click="emit('feedback', 'DISLIKE')"><ThumbsDown :size="15" aria-hidden="true" /></button>
+        <button type="button" class="feedback-button" :disabled="feedbackBusy" aria-label="评价：结果准确" title="结果准确" @click="emit('feedback', 'LIKE')"><ThumbsUp :size="15" aria-hidden="true" /></button>
+        <button type="button" class="feedback-button" :disabled="feedbackBusy" aria-label="评价：结果有误" title="结果有误" @click="emit('feedback', 'DISLIKE')"><ThumbsDown :size="15" aria-hidden="true" /></button>
       </div>
     </footer>
   </aside>
@@ -299,6 +304,7 @@ defineExpose({ openDetails })
 .result-actions { min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 14px; border-top: 1px solid var(--do-line); background: var(--do-surface); }
 .permission-hint { color: var(--do-muted); font-size: 11px; }
 .feedback-buttons { display: flex; gap: 6px; }
+.feedback-status{font-size:12px;color:var(--do-muted);overflow-wrap:anywhere}.feedback-status button{border:0;background:transparent;color:var(--do-primary);padding:6px;cursor:pointer}
 .feedback-button { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-muted); background: var(--do-surface); cursor: pointer; }
 .feedback-button:hover { border-color: var(--do-primary); color: var(--do-primary-strong); background: var(--do-primary-soft); }
 .result-tabs button:focus-visible, .details-button:focus-visible, .close-button:focus-visible, .back-button:focus-visible, .details-tabs button:focus-visible, .chart-type-switcher button:focus-visible, .export-button:focus-visible, .feedback-button:focus-visible, .status-actions button:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 32%, transparent); outline-offset: 2px; }

@@ -1,7 +1,8 @@
 # Feature Specification: SQL 安全与执行沙箱模块
 
-> 适用性（2026-10-17 核对，代码基线 `619bca6`）：部分适用；当前严格执行以 S1 AST 合同为准。
-> 本文保留原规格/阶段记录；Draft、任务勾选、测试数量和临时执行限制只属于原记录时点。实施前先读[当前说明](../../docs/modules/008-query-memory.md)与[规格索引](../README.md)；用户后续明确指正优先。
+> 历史规格／不作当前实现与 API 合同；现行依据见文档导航。
+
+
 
 **Feature Branch**: `001-full-module-specs`
 

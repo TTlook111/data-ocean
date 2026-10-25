@@ -62,7 +62,7 @@ class IamS1QueryAttemptServiceImplTest {
     private final FieldSemanticService fieldSemanticService = mock(FieldSemanticService.class);
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
     private final IamS1QueryAttemptServiceImpl service = new IamS1QueryAttemptServiceImpl(
-            tasks, attempts, dataResolver, authorization, bindings, conversations, resources, snapshots,
+            tasks, mock(com.dataocean.module.fieldsemantic.service.GovernanceFieldProfileService.class), attempts, dataResolver, authorization, bindings, conversations, resources, snapshots,
             masking, mapper, queryService);
 
     private QueryTask task;

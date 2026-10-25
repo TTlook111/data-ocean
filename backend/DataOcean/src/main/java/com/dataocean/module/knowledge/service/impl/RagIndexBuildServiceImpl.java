@@ -369,9 +369,10 @@ public class RagIndexBuildServiceImpl implements RagIndexBuildService {
             if (!snapshotId.equals(version.getMetadataSnapshotId())) {
                 throw new BusinessException("已发布文档版本来源快照不一致，请先按所选快照重新生成、审核并发布");
             }
-            snapshotFactValidator.validate(datasourceId, snapshotId, version.getContent());
+            snapshotFactValidator.validatePart(datasourceId, snapshotId, version.getContent());
             result.add(version);
         }
+        snapshotFactValidator.validateCoverage(datasourceId, snapshotId, result.stream().map(KnowledgeDocVersion::getContent).toList());
         return result;
     }
 
@@ -383,6 +384,7 @@ public class RagIndexBuildServiceImpl implements RagIndexBuildService {
             throw new IllegalStateException("RAG build manifest 缺少已发布文档版本");
         }
         Map<String, List<KnowledgeChunk>> eligibleByDocumentVersion = new LinkedHashMap<>();
+        List<String> frozenContents = new ArrayList<>();
         for (Object rawEntry : entries) {
             if (!(rawEntry instanceof Map<?, ?> entry)) throw new IllegalStateException("RAG build manifest 文档版本格式无效");
             Long docId = longValue(entry.get("docId"));
@@ -399,7 +401,8 @@ public class RagIndexBuildServiceImpl implements RagIndexBuildService {
                     || !Objects.equals(expectedContentHash, sha256(Objects.toString(version.getContent(), "")))) {
                 throw new IllegalStateException("build 确认后的文档版本发生变化或来源快照不一致");
             }
-            snapshotFactValidator.validate(build.getDatasourceId(), build.getSourceSnapshotId(), version.getContent());
+            snapshotFactValidator.validatePart(build.getDatasourceId(), build.getSourceSnapshotId(), version.getContent());
+            frozenContents.add(version.getContent());
             List<Map<String, Object>> payloads = pythonRagClient.chunkBuildDocument(
                     build, docId, versionNo, version.getContent());
             if (payloads == null || payloads.isEmpty()) {
@@ -431,6 +434,7 @@ public class RagIndexBuildServiceImpl implements RagIndexBuildService {
                 eligibleByDocumentVersion.put(docId + ":" + versionNo, eligibleForDocument);
             }
         }
+        snapshotFactValidator.validateCoverage(build.getDatasourceId(), build.getSourceSnapshotId(), frozenContents);
         return eligibleByDocumentVersion;
     }
 

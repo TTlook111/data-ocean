@@ -42,6 +42,8 @@ public class QueryTask {
     private Long ragSourceSnapshotId;
     /** Precise FIELD_SEMANTIC fact ids pinned when the task was dispatched; never switches builds. */
     private String fieldSemanticRefsJson;
+    private Boolean governanceProfilesEnabled;
+    private String businessKnowledgeRefsJson;
 
     /** 不含记录参数原值的 S1 执行快照。 */
     private String iamExecutionSnapshot;

@@ -1,6 +1,6 @@
 # 003 元数据采集与资产目录
 
-> 文档类型：现行模块说明；核对日期：2026-10-22；代码基线：`4fd41c2`。本轮静态核对，运行验收见[项目现状](../项目现状.md)。
+> 状态：现行模块说明；整理日期：2026-10-24。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
 ## 概览与主流程
 
@@ -8,7 +8,7 @@ Java 从选定数据源采集表、字段、索引、关系与统计，形成独
 
 数据源与授权检查 → schema_sync_task → Collector/JDBC 采集 → metadata_snapshot 及表字段 → 差异与目录 → [治理](004-metadata-governance.md) → [版本审核](005-metadata-versioning.md)。
 
-目录与详情的主体完善方案已实施并[归档](../development/completed/数据对象目录与详情完善方案.md)。当前来源、关联和状态边界继续按本模块及[前端规范](../development/前端开发规范.md)维护；未完成的人工验收和边界复核见[后续开发第 7 项](../development/后续开发.md#7-数据对象目录的剩余验收与边界复核)，不以归档替代验收。
+目录与详情的主体完善方案已实施并[归档](../archive/plans/completed/数据对象目录与详情完善方案.md)。当前来源、关联和状态边界继续按本模块及[前端规范](../development/前端开发规范.md)维护；未完成的人工验收和边界复核见[后续开发第 7 项](../development/后续开发.md#7-数据对象目录的剩余验收与边界复核)，不以归档替代验收。
 
 ## 实现边界
 
@@ -25,12 +25,12 @@ Java 从选定数据源采集表、字段、索引、关系与统计，形成独
 | --- | --- |
 | [MetadataCollectionController](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/controller/MetadataCollectionController.java) | `/api/admin/metadata`下 sync、sync-tasks、snapshots、tables、columns、diff |
 | [MetadataCatalogController](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/controller/MetadataCatalogController.java) | 目录搜索与实体查询 |
-| [metadata/collector](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/collector/) | 表、列、索引、关系、统计采集 |
-| [metadata/service](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/service/) | 编排、快照、差异、实体关系和事件 |
+| [metadata/collector](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/collector) | 表、列、索引、关系、统计采集 |
+| [metadata/service](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/service) | 编排、快照、差异、实体关系和事件 |
 | [CollectionsView](../../frontend/src/views/admin/metadata/CollectionsView.vue)、[AssetsView](../../frontend/src/views/admin/assets/AssetsView.vue) | 正式采集与资产工作区 |
 | [metadata API](../../frontend/src/api/admin/metadata.ts)、[catalog API](../../frontend/src/api/admin/catalog.ts) | 前端接线 |
 
-旧独立 SnapshotList/TableExplorer 等页面路径不作为当前入口。字段采样由 V45、实体关系由 V37 等历史迁移引入；完整数据结构以[迁移目录](../../backend/DataOcean/src/main/resources/db/migration/)为准。
+旧独立 SnapshotList/TableExplorer 等页面路径不作为当前入口。字段采样由 V45、实体关系由 V37 等历史迁移引入；完整数据结构以[迁移目录](../../backend/DataOcean/src/main/resources/db/migration)为准。
 
 ## 修改与验证
 

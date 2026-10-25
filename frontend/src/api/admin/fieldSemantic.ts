@@ -41,6 +41,7 @@ export interface FieldSemanticCandidate {
 }
 
 export interface FieldSemanticWorkspace {
+  generatedCandidateId?:number
   datasourceId: number
   snapshotId: number
   tableMetaId: number
@@ -89,6 +90,8 @@ export interface FieldSemanticActionPayload {
   revisionId?: number
   action?: 'APPROVE' | 'REJECT'
   reason?: string
+  evidenceReference?: string
+  evidenceConfirmed?: boolean
 }
 
 export interface SemanticCheckBatch {
@@ -150,6 +153,19 @@ async function unwrap<T>(promise: Promise<{ data: ApiResult<T> }>) {
 }
 
 const root = (columnMetaId: number) => `/api/admin/field-semantics/columns/${columnMetaId}`
+
+export interface FieldGovernanceProgress {
+  columnMetaId: number
+  snapshotId: number
+  stage: string
+  nextAction: string
+  reason: string
+  revisionId?: number
+  checkBatchId?: number
+}
+
+export const getFieldGovernanceProgress = (columnMetaId: number, snapshotId: number) =>
+  unwrap(http.get<ApiResult<FieldGovernanceProgress>>(`${root(columnMetaId)}/governance-progress`, { params: { snapshotId } }))
 
 export const getFieldSemanticWorkspace = (columnMetaId: number, snapshotId: number) =>
   unwrap(http.get<ApiResult<FieldSemanticWorkspace>>(root(columnMetaId), { params: { snapshotId } }))

@@ -59,6 +59,7 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
     private static final String PROTECTED = "PROTECTED";
 
     private final QueryTaskMapper queryTaskMapper;
+    private final com.dataocean.module.fieldsemantic.service.GovernanceFieldProfileService governanceProfiles;
     private final QueryAttemptMapper queryAttemptMapper;
     private final IamS1DataAuthorizationResolver dataResolver;
     private final IamS1AuthorizationResolver authorizationResolver;
@@ -71,6 +72,8 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
     private final IamS1QueryServiceImpl queryService;
     @Autowired(required = false)
     private FieldSemanticService fieldSemanticService;
+    @Autowired(required = false)
+    private com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService businessKnowledgeService;
 
     @Override
     @Transactional
@@ -165,6 +168,11 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
         else queryAttemptMapper.updateById(attempt);
 
         task.setIamResourceRequest(resourceJson);
+        if (Boolean.TRUE.equals(task.getGovernanceProfilesEnabled())) {
+            List<String> fields = request.getResources().stream().flatMap(table -> table.getColumns().stream()
+                    .map(column -> table.getTableName()+"."+column.getColumnName())).distinct().toList();
+            if (!fields.isEmpty()) governanceProfiles.read(taskId, fields);
+        }
         task.setIamExecutionSnapshot(safeSnapshot);
         queryTaskMapper.updateById(task);
         Map<String, Object> decision = new LinkedHashMap<>();
@@ -383,6 +391,15 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
     }
 
     private boolean fieldSemanticReferencesValid(QueryTask task) {
+        if (task != null && task.getBusinessKnowledgeRefsJson() != null) {
+            try {
+                List<Map<String,Object>> refs=objectMapper.readValue(task.getBusinessKnowledgeRefsJson(),new TypeReference<>(){});
+                for(var ref:refs){Long source=Long.valueOf(String.valueOf(ref.get("sourceSnapshotId")));
+                    List<String> ids=objectMapper.convertValue(ref.get("factSourceIds"),new TypeReference<>(){});
+                    if(!Objects.equals(source,task.getRagSourceSnapshotId())||businessKnowledgeService==null
+                            ||!businessKnowledgeService.membershipValid(task.getDatasourceId(),source,ids))return false;}
+            } catch(Exception exception){return false;}
+        }
         if (task == null || task.getFieldSemanticRefsJson() == null || task.getFieldSemanticRefsJson().isBlank()
                 || "[]".equals(task.getFieldSemanticRefsJson())) return true;
         if (fieldSemanticService == null) return false;

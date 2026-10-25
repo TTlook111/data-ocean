@@ -22,6 +22,8 @@ public class FieldSemanticWorkspaceVO {
     private String governanceStatus;
     private Long definitionId;
     private Integer rowVersion;
+    /** 本次生成的候选记录标识，不附带未获授权的候选正文。 */
+    private Long generatedCandidateId;
     private Long currentBindingId;
     private Long currentApprovedRevisionId;
     private Long workingRevisionId;

@@ -1,6 +1,6 @@
 # 001 用户与认证
 
-> 文档类型：现行模块说明；核对日期：2026-10-22；代码基线：`4fd41c2`。本轮静态核对，运行验收见[项目现状](../项目现状.md)。
+> 状态：现行模块说明；整理日期：2026-10-24。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
 ## 概览与边界
 
@@ -24,7 +24,7 @@
 | [AuthController](../../backend/DataOcean/src/main/java/com/dataocean/module/user/controller/AuthController.java) | `/api/auth`下 captcha、login、logout、me、password、profile |
 | [UserController](../../backend/DataOcean/src/main/java/com/dataocean/module/user/controller/UserController.java) | `/api/admin/users`管理 |
 | [DepartmentController](../../backend/DataOcean/src/main/java/com/dataocean/module/user/controller/DepartmentController.java) | `/api/admin/departments`管理 |
-| [common/security](../../backend/DataOcean/src/main/java/com/dataocean/common/security/) | JWT、认证过滤、当前用户和内部认证 |
+| [common/security](../../backend/DataOcean/src/main/java/com/dataocean/common/security) | JWT、认证过滤、当前用户和内部认证 |
 | [前端 auth API](../../frontend/src/api/auth.ts)、[用户 API](../../frontend/src/api/admin/user.ts) | 身份与账号请求 |
 | [IAM store](../../frontend/src/stores/iamS1.ts) | 当前能力摘要 |
 

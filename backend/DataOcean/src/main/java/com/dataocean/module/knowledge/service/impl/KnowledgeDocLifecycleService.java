@@ -145,7 +145,7 @@ public class KnowledgeDocLifecycleService {
         if (!ReviewStatus.APPROVED.name().equals(currentVersion.getReviewStatus())) {
             throw new BusinessException("当前文档版本尚未审核通过");
         }
-        snapshotFactValidator.validate(doc.getDatasourceId(), currentVersion.getMetadataSnapshotId(),
+        snapshotFactValidator.validatePart(doc.getDatasourceId(), currentVersion.getMetadataSnapshotId(),
                 currentVersion.getContent());
         if (!java.util.Objects.equals(doc.getContent(), currentVersion.getContent())) throw new BusinessException("文档与已审核版本内容不一致");
         validateBeforePublish(doc);

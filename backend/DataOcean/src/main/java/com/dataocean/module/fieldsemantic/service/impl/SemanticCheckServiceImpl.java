@@ -20,7 +20,7 @@ import java.time.LocalDateTime;
 @Service
 @RequiredArgsConstructor
 public class SemanticCheckServiceImpl implements SemanticCheckService {
-    public static final int RULE_VERSION = 1;
+    public static final int RULE_VERSION = 2;
     private final MetadataSnapshotMapper snapshotMapper;
     private final SemanticCheckBatchMapper batchMapper;
     private final SemanticCheckExecutionService executionService;

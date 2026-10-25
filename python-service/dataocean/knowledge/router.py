@@ -11,15 +11,32 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from .schema import (
-    BatchGenerateResponse,
     GenerateDraftRequest,
     GenerateDraftResponse,
 )
-from .service import analyze_and_generate, generate_draft
+from .service import generate_draft
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+def _candidate_error(exc:Exception) -> tuple[str,str]:
+    if 'arrearage' in str(exc).lower() or 'insufficient_balance' in str(exc).lower():
+        return 'AI_BILLING_REQUIRED','AI 供应商账户欠费，候选未生成；可人工补充或处理账户后重试'
+    if isinstance(exc,TimeoutError) or 'timeout' in type(exc).__name__.lower():
+        return 'AI_GENERATION_TIMEOUT','候选生成超时，原有内容保持不变，可人工补充或重试'
+    if isinstance(exc,ValueError):return 'AI_INVALID_OUTPUT','候选内容或来源无效，请核对范围后重试'
+    return 'AI_GENERATION_UNAVAILABLE','候选生成服务暂不可用，可人工补充或重试'
+
+@router.post("/business-candidate", response_model=None)
+async def business_candidate(payload: dict):
+    from .business import generate_candidate
+    try:
+        return await generate_candidate(payload)
+    except Exception as exc:
+        logger.warning("业务知识候选未完成 type=%s", type(exc).__name__)
+        code,message=_candidate_error(exc)
+        return JSONResponse(status_code=502, content={"code":code,"message":message})
 
 from .semantic import FieldSemanticRequest, SemanticRequest, generate_field_candidate, supplement
 
@@ -52,12 +69,7 @@ async def field_semantic_candidate(request: FieldSemanticRequest):
     try:
         return await generate_field_candidate(request)
     except Exception as exc:
-        if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
-            code, message = "AI_GENERATION_TIMEOUT", "字段释义生成超时，请稍后重试"
-        elif isinstance(exc, ValueError):
-            code, message = "AI_INVALID_OUTPUT", "字段释义候选或输入依据无效"
-        else:
-            code, message = "AI_GENERATION_UNAVAILABLE", "字段释义生成服务暂不可用，请稍后重试"
+        code,message=_candidate_error(exc)
         logger.warning("字段语义候选生成失败 code=%s", code)
         return JSONResponse(status_code=502, content={"code": code, "message": message})
 
@@ -70,14 +82,3 @@ async def generate_draft_endpoint(request: GenerateDraftRequest) -> GenerateDraf
     """
     logger.info("收到草稿生成请求 snapshot_id=%d", request.snapshot_id)
     return await generate_draft(request)
-
-
-@router.post("/analyze-and-generate", response_model=BatchGenerateResponse)
-async def analyze_and_generate_endpoint(request: GenerateDraftRequest) -> BatchGenerateResponse:
-    """按快照结构生成 skills.md 文档集合
-
-    完整覆盖固定快照中的表字段；AI 释义使用独立候选入口。
-    返回所有生成的文档列表。
-    """
-    logger.info("收到域分析+批量生成请求 snapshot_id=%d", request.snapshot_id)
-    return await analyze_and_generate(request)

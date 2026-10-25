@@ -81,13 +81,6 @@ export async function listSnapshotAuditLogs(snapshotId: number, params: { page?:
   return data
 }
 
-export async function listDatasourceAuditLogs(datasourceId: number, params: { action?: string; page?: number; size?: number }) {
-  const { data } = await http.get<ApiResult<PageResult<AuditLogItem>>>(
-    `/api/admin/datasources/${datasourceId}/audit-logs`, { params }
-  )
-  return data
-}
-
 export async function changeSnapshotStatus(snapshotId: number, payload: StatusChangePayload) {
   const { data } = await http.patch<ApiResult<null>>(
     `/api/admin/snapshots/${snapshotId}/status`, payload

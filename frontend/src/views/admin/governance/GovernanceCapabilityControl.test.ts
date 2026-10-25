@@ -115,6 +115,7 @@ import StatusEditor from './StatusEditor.vue'
 import QualityRulesView from './QualityRulesView.vue'
 import QualityDashboard from './QualityDashboard.vue'
 import GovernanceFieldsView from './GovernanceFieldsView.vue'
+import LegacyConfidenceDashboard from '../field/ConfidenceDashboard.vue'
 import ScopeBar from '../../../components/admin/ScopeBar.vue'
 import QualityCheckItemCatalog from '../../../components/admin/QualityCheckItemCatalog.vue'
 import { useIamS1Store } from '../../../stores/iamS1'
@@ -1462,6 +1463,14 @@ describe('质量规则管理的能力控制', () => {
 })
 
 describe('治理总览的批次恢复与范围隔离', () => {
+  it('知识治理入口进入当前范围的任务，不自动执行来源质量检查', async()=>{
+    respond(capability({onDatasource:['governance:view','governance:field:view']}))
+    const wrapper=mountPage(QualityDashboard);await settle()
+    const entry=wrapper.findAll('button').find(button=>button.text()==='开始知识治理')
+    expect(entry).toBeDefined();await entry!.trigger('click');await settle()
+    expect(routeState.push).toHaveBeenCalledWith(expect.objectContaining({path:'/admin/governance/fields',query:expect.objectContaining({tab:'tasks',datasourceId:5,snapshotId:8})}))
+    expect(api.triggerQualityCheck).not.toHaveBeenCalled()
+  })
   const overviewPermissions = ['governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view']
 
   it.each([100, 0])('没有批次时将历史评分 %i 分与快照状态放在次要上下文中', async (qualityScore) => {
@@ -1663,6 +1672,12 @@ describe('治理总览的批次恢复与范围隔离', () => {
 })
 
 describe('GovernanceFieldsView 的职责收敛', () => {
+  it('未展开旧来源记录时不挂载旧可信度工作面',async()=>{
+    reactiveRouteState.query={tab:'confidence'}
+    respond(capability({onDatasource:['governance:field:view','metadata:view']}))
+    const wrapper=mountPage(GovernanceFieldsView);await settle()
+    expect(wrapper.findComponent(LegacyConfidenceDashboard).exists()).toBe(false)
+  })
   it('字段治理只保留标签、可信度和反馈审核', async () => {
     reactiveRouteState.query = { tab: 'tags' }
     respond(capability({ onDatasource: ['governance:field:view', 'metadata:view'] }))

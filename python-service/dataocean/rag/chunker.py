@@ -360,6 +360,10 @@ def _fact_chunk_type(fact_type: str) -> str | None:
         "GLOSSARY_TERM": "FIELD_NOTE",
         "SEMANTIC_NOTE": "FIELD_NOTE",
         "FIELD_SEMANTIC": "FIELD_NOTE",
+        "BUSINESS_DATASOURCE": "TABLE_DESC",
+        "BUSINESS_TABLE": "TABLE_DESC",
+        "BUSINESS_RELATION": "JOIN_PATH",
+        "BUSINESS_METRIC": "METRIC",
     }.get(fact_type)
 
 

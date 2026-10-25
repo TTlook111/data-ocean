@@ -51,11 +51,6 @@ export async function getPromptEffectiveness(days = 30) {
   return data
 }
 
-export async function getPromptTemplate(code: string) {
-  const { data } = await http.get<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}`)
-  return data
-}
-
 export async function updatePromptTemplate(code: string, payload: { content: string; changeSummary?: string }) {
   const { data } = await http.put<ApiResult<PromptTemplateVO>>(`/api/admin/prompt-templates/${code}`, payload)
   return data

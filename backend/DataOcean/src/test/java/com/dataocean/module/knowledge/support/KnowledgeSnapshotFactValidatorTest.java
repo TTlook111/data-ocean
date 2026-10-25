@@ -21,10 +21,38 @@ class KnowledgeSnapshotFactValidatorTest {
     private static final long DATASOURCE_ID = 701L;
     private static final long SNAPSHOT_ID = 8801L;
 
+    @Test void structureCoverageCannotHideMissingReviewedBusinessFacts(){
+        Fixture fixture=new Fixture();
+        when(fixture.business.facts(DATASOURCE_ID,SNAPSHOT_ID)).thenReturn(List.of(java.util.Map.of("factType","BUSINESS_RELATION","sourceIds",List.of("77"))));
+        assertThatThrownBy(()->fixture.validator.validateCoverage(DATASOURCE_ID,SNAPSHOT_ID,List.of(document())))
+                .hasMessageContaining("业务知识");
+    }
+
     @Test
     void acceptsExactFullCoverageFromOneSnapshot() {
         Fixture fixture = new Fixture();
         fixture.validator.validate(DATASOURCE_ID, SNAPSHOT_ID, document());
+    }
+
+    @Test
+    void acceptsPartialDocumentsButRequiresCompleteSet() {
+        Fixture fixture = new Fixture();
+        int split = document().indexOf("#### `order_id`");
+        String first = document().substring(0, split);
+        String second = document().substring(split);
+        fixture.validator.validatePart(DATASOURCE_ID, SNAPSHOT_ID, first);
+        fixture.validator.validatePart(DATASOURCE_ID, SNAPSHOT_ID, second);
+        fixture.validator.validateCoverage(DATASOURCE_ID, SNAPSHOT_ID, List.of(first, second));
+        assertThatThrownBy(() -> fixture.validator.validateCoverage(DATASOURCE_ID, SNAPSHOT_ID, List.of(first)))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("全部表和字段");
+    }
+    @Test void rawForeignKeyNeedsHumanBusinessApprovalBeforeJoinPublication(){
+        Fixture fixture=new Fixture();var relation=new com.dataocean.module.metadata.entity.po.TableRelation();relation.setId(301L);relation.setDatasourceId(DATASOURCE_ID);relation.setSnapshotId(SNAPSHOT_ID);
+        relation.setSourceTable("sales_orders");relation.setSourceColumn("order_id");relation.setTargetTable("sales_orders");relation.setTargetColumn("order_id");relation.setRelationType("FK");relation.setReviewStatus("CONFIRMED");
+        when(fixture.relations.selectById(301L)).thenReturn(relation);
+        String marker="\n## 12. 关系\n### 自关联\n<!-- dataocean-fact: {\"snapshotId\":8801,\"factType\":\"JOIN_PATH\",\"sourceIds\":[301],\"dependencies\":[\"table:sales_orders\",\"column:sales_orders.order_id\"],\"reviewStatus\":\"APPROVED\",\"governanceStatus\":\"NORMAL\"} -->\n- Condition: `sales_orders.order_id = sales_orders.order_id`\n";
+        assertThatThrownBy(()->fixture.validator.validatePart(DATASOURCE_ID,SNAPSHOT_ID,document()+marker)).isInstanceOf(BusinessException.class).hasMessageContaining("未确认");
+        fixture.validator.validatePart(DATASOURCE_ID,SNAPSHOT_ID,document()+marker.replace("JOIN_PATH","JOIN_CANDIDATE").replace("\"reviewStatus\":\"APPROVED\"","\"reviewStatus\":\"PENDING\""));
     }
 
     @Test
@@ -85,6 +113,7 @@ class KnowledgeSnapshotFactValidatorTest {
     }
 
     private static final class Fixture {
+        private final com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService business=mock(com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService.class);
         private final DbTableMetaMapper tables = mock(DbTableMetaMapper.class);
         private final DbColumnMetaMapper columns = mock(DbColumnMetaMapper.class);
         private final TableRelationMapper relations = mock(TableRelationMapper.class);
@@ -92,7 +121,8 @@ class KnowledgeSnapshotFactValidatorTest {
         private final KnowledgeSnapshotFactValidator validator = new KnowledgeSnapshotFactValidator(
                 tables, columns, relations, lineage, new ObjectMapper(), mock(com.dataocean.module.knowledge.service.impl.GlossaryKnowledgeSourceServiceImpl.class),
                 mock(com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl.class),
-                mock(com.dataocean.module.fieldsemantic.service.FieldSemanticService.class));
+                mock(com.dataocean.module.fieldsemantic.service.FieldSemanticService.class),
+                business);
 
         private Fixture() {
             DbTableMeta table = new DbTableMeta();

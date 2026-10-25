@@ -41,6 +41,7 @@ class GenerateDraftRequest(BaseModel):
     indexes: list[dict] = Field(default_factory=list)
     glossary_facts: list[dict] = Field(default_factory=list)
     field_semantic_facts: list[dict] = Field(default_factory=list)
+    business_knowledge_facts: list[dict] = Field(default_factory=list)
     excluded_terms: list[dict] = Field(default_factory=list)
     lineage_facts: list[dict] = Field(default_factory=list)
 
@@ -52,30 +53,3 @@ class GenerateDraftResponse(BaseModel):
     generation_source: str = "SNAPSHOT_GENERATED"
     warnings: list[str] = Field(default_factory=list)
     coverage: dict = Field(default_factory=dict)
-
-
-# ---- 域分析 + 批量生成 ----
-
-
-class DomainGroup(BaseModel):
-    """AI 识别出的业务域"""
-
-    domain_name: str
-    table_names: list[str]
-    reason: str
-
-
-class DomainDoc(BaseModel):
-    """单个域生成的 skills.md 文档"""
-
-    title: str
-    content: str
-    table_names: list[str]
-    warnings: list[str] = Field(default_factory=list)
-
-
-class BatchGenerateResponse(BaseModel):
-    """批量生成响应"""
-
-    docs: list[DomainDoc]
-    total_domains: int

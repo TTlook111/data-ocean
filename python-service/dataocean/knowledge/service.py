@@ -1,66 +1,23 @@
 """知识库草稿生成服务
 
-基于元数据快照调用 LLM 生成结构化的 skills.md 业务知识文档。
-LLM 调用统一走 infra.llm，模板渲染统一走 prompt.renderer（LangChain PromptTemplate）。
+基于固定元数据快照与审核来源，确定性组织业务知识文档。
+AI 候选由独立业务/字段治理入口生成；完整结构清单不发送给模型。
 """
 
 import asyncio
 import html
 import logging
-from pathlib import Path
 import re
 
-from dataocean.infra.llm import call_llm
-from dataocean.infra.parsers import JsonBlockOutputParser
-from dataocean.prompt.renderer import render_template_file
 
 from .schema import (
-    BatchGenerateResponse,
-    DomainDoc,
-    DomainGroup,
     GenerateDraftRequest,
     GenerateDraftResponse,
 )
 
 logger = logging.getLogger(__name__)
 
-PROMPTS_DIR = Path(__file__).parent / "prompts"
-_SKILLS_MD_TEMPLATE = PROMPTS_DIR / "skills_md_template.j2"
-_DOMAIN_ANALYSIS_TEMPLATE = PROMPTS_DIR / "domain_analysis.j2"
-
-# skills.md 草稿生成的系统角色提示
-_SYSTEM_PROMPT = "你是一个数据库文档专家，负责根据数据库元数据生成结构化的 skills.md 业务知识文档。"
-_DOMAIN_ANALYSIS_PROMPT = "你是一个数据库架构分析专家。请严格按照要求输出 JSON 格式。"
-
 _MAX_WARNINGS = 50
-# 域文档彼此独立，但仍需限制并发，避免一次请求向 LLM 供应商发起过多调用。
-_MAX_DOMAIN_GENERATION_CONCURRENCY = 4
-_json_parser = JsonBlockOutputParser(allow_null=False)
-
-
-def _check_missing_comments(tables: list) -> list[str]:
-    """检查无注释的表和字段，生成警告列表（最多 _MAX_WARNINGS 条）"""
-    warnings = []
-    for table in tables:
-        if len(warnings) >= _MAX_WARNINGS:
-            remaining = sum(1 for t in tables for c in t.columns if not c.column_comment) - len(warnings)
-            if remaining > 0:
-                warnings.append(f"...及其他 {remaining} 个字段无注释")
-            break
-        if not table.table_comment:
-            warnings.append(
-                f"表 {table.table_name} 无注释，AI 已基于字段推测用途（待人工确认）"
-            )
-        for col in table.columns:
-            if len(warnings) >= _MAX_WARNINGS:
-                break
-            if not col.column_comment:
-                warnings.append(
-                    f"字段 {table.table_name}.{col.column_name} 无注释（待人工确认）"
-                )
-    return warnings
-
-
 async def generate_draft(request: GenerateDraftRequest) -> GenerateDraftResponse:
     """从单一元数据快照确定性生成完整字段目录与有来源的知识事实。
 
@@ -73,7 +30,7 @@ async def generate_draft(request: GenerateDraftRequest) -> GenerateDraftResponse
         request.snapshot_id,
         request.datasource_id,
     )
-    content, coverage, warnings = _render_snapshot_document(request)
+    content, coverage, warnings = await asyncio.to_thread(_render_snapshot_document, request)
 
     logger.info(
         "skills.md 快照草稿生成完成 content_length=%d tables=%d columns=%d warnings=%d",
@@ -145,6 +102,18 @@ def _validate_snapshot_manifest(request: GenerateDraftRequest) -> None:
                 or not re.fullmatch(r"[0-9a-f]{64}", str(fact.get("contentHash", "")))
                 or not re.fullmatch(r"[0-9a-f]{64}", str(fact.get("dependencyHash", "")))):
             raise ValueError("字段语义事实缺少精确审核来源、hash 或完整快照依赖")
+
+    for fact in request.business_knowledge_facts:
+        if (fact.get('factType') not in {'BUSINESS_DATASOURCE', 'BUSINESS_TABLE', 'BUSINESS_RELATION', 'BUSINESS_METRIC'}
+                or fact.get('reviewStatus') != 'APPROVED'
+                or not isinstance(fact.get('sourceIds'), list) or len(fact['sourceIds']) != 1
+                or not isinstance(fact['sourceIds'][0], int) or fact['sourceIds'][0] <= 0
+                or not isinstance(fact.get('dependencies'), list) or not fact['dependencies']
+                or not set(fact['dependencies']).issubset(eligible)
+                or not isinstance(fact.get('body'), str) or not fact['body'].strip()
+                or not re.fullmatch(r'[0-9a-f]{64}', str(fact.get('contentHash', '')))
+                or not re.fullmatch(r'[0-9a-f]{64}', str(fact.get('dependencyHash', '')))):
+            raise ValueError('业务模型知识缺少审核、完整来源或内容摘要')
 
     for relation in request.foreign_keys:
         relation_snapshot = relation.get("snapshot_id", relation.get("source_snapshot_id"))
@@ -234,7 +203,7 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
         lines.append("")
 
     lines.extend(["## 3. Confirmed Join Paths", ""])
-    confirmed_count = 0
+    confirmed_count = sum(fact["factType"] == "BUSINESS_RELATION" for fact in request.business_knowledge_facts)
     inferred: list[dict] = []
     known_columns = {
         f"{table.table_name}.{column.column_name}"
@@ -261,27 +230,8 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
         if not {f"table:{source_table}", f"table:{target_table}", f"column:{source_ref}", f"column:{target_ref}"}.issubset(eligible_resources):
             warnings.append("已排除涉及阻断或废弃资源的关系事实")
             continue
-        relation_type = str(relation.get("relation_type") or "FK").upper()
-        review_status = str(relation.get("review_status") or "PENDING").upper()
-        approved = relation_type == "FK" or (
-            relation_type == "MANUAL" and review_status in {"APPROVED", "CONFIRMED"}
-        )
-        if not approved:
-            inferred.append(relation)
-            continue
-        confirmed_count += 1
-        dependencies = [f"table:{source_table}", f"table:{target_table}", f"column:{source_ref}", f"column:{target_ref}"]
-        lines.extend([
-            f"### `{_markdown_identifier(source_table)}.{_markdown_identifier(source_column)}` → `{_markdown_identifier(target_table)}.{_markdown_identifier(target_column)}`",
-            _fact_marker(request.snapshot_id, "JOIN_PATH", [relation.get("relation_id")], dependencies, "APPROVED"),
-            f"- Condition: `{_markdown_identifier(source_table)}.{_markdown_identifier(source_column)} = {_markdown_identifier(target_table)}.{_markdown_identifier(target_column)}`",
-            f"- Relation type: `{relation_type}`; review status: `{review_status}`",
-            f"- Source relation ID: `{_plain(relation.get('relation_id', 'unknown'))}`; source snapshot: `{request.snapshot_id}`",
-            "",
-        ])
-    if confirmed_count == 0:
-        lines.append("暂无本快照已确认的可执行 Join 条件。")
-        lines.append("")
+        inferred.append(relation)
+    lines.extend(["原始结构关系仅作线索；业务关联以已审核复查的业务关系知识为准。", ""])
 
     lines.extend(["## 4. Unconfirmed relationship candidates", ""])
     for relation in inferred:
@@ -289,7 +239,8 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
         target = f"{relation.get('target_table')}.{relation.get('target_column')}"
         lines.extend([
             f"### `{_markdown_identifier(source)}` → `{_markdown_identifier(target)}`",
-            _fact_marker(request.snapshot_id, "JOIN_CANDIDATE", [relation.get("relation_id")], [f"column:{source}", f"column:{target}"], "PENDING"),
+            _fact_marker(request.snapshot_id, "JOIN_CANDIDATE", [relation.get("relation_id")], [f"table:{relation.get('source_table')}", f"table:{relation.get('target_table')}", f"column:{source}", f"column:{target}"], "PENDING"),
+            f"- Condition: `{_markdown_identifier(source)} = {_markdown_identifier(target)}`（结构线索，业务用法待确认）",
             "- Status: 待审核；不能当作可执行 Join Path。",
             f"- Source relation ID: `{_plain(relation.get('relation_id', 'unknown'))}`; type: `{_plain(relation.get('relation_type', 'INFERRED'))}`; confidence: `{_plain(relation.get('confidence', 'unknown'))}`",
             "",
@@ -376,6 +327,20 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
         lines.extend([f"### 字段解释：{_plain(str(fact.get('businessName') or '字段'))}",
                       "<!-- dataocean-fact: " + json.dumps(marker, ensure_ascii=False, separators=(",", ":")) + " -->",
                       fact["body"], ""])
+    current_business_kind = None
+    business_titles = {'BUSINESS_DATASOURCE': '数据源业务概览', 'BUSINESS_TABLE': '表职责与粒度',
+                       'BUSINESS_RELATION': '表关系与聚合条件', 'BUSINESS_METRIC': '指标口径与使用场景'}
+    business_order = {key: index for index, key in enumerate(business_titles)}
+    for fact in sorted(request.business_knowledge_facts, key=lambda f: (business_order[f['factType']], f['sourceIds'][0])):
+        if current_business_kind != fact['factType']:
+            current_business_kind = fact['factType']
+            lines.extend([f"## {12 + business_order[current_business_kind]}. {business_titles[current_business_kind]}", ''])
+        import json
+        marker = {key: fact[key] for key in ('factType', 'sourceIds', 'dependencies', 'reviewStatus', 'governanceStatus', 'contentHash', 'dependencyHash')}
+        marker['snapshotId'] = request.snapshot_id
+        lines.extend([f"### {_plain(fact['title'])}",
+                      '<!-- dataocean-fact: ' + json.dumps(marker, ensure_ascii=False, separators=(',', ':')) + ' -->',
+                      fact['body'], ''])
     for excluded in request.excluded_terms:
         warnings.append(f"术语 {excluded.get('name', '')} 未纳入：{excluded.get('reason', '来源不完整')}")
     content = "\n".join(lines).rstrip() + "\n"
@@ -474,118 +439,3 @@ def _plain(value: object) -> str:
     text = "" if value is None else str(value)
     text = re.sub(r"[\r\n\t]+", " ", text)
     return html.escape(text, quote=False).strip()
-
-
-async def analyze_and_generate(request: GenerateDraftRequest) -> BatchGenerateResponse:
-    """AI 自动分析业务域并批量生成 skills.md
-
-    流程：
-    1. 用 LLM 分析表结构，识别业务域分组
-    2. 对每个域，用 LLM 生成独立的 skills.md
-    3. 返回所有生成的文档
-
-    Args:
-        request: 包含快照元数据的请求对象
-
-    Returns:
-        批量生成的文档列表
-    """
-    logger.info(
-        "开始域分析+批量生成 snapshot_id=%d datasource_id=%d tables=%d",
-        request.snapshot_id,
-        request.datasource_id,
-        len(request.tables_metadata),
-    )
-
-    # Step 1: 域分析
-    domains = await _analyze_domains(request)
-    logger.info("域分析完成，识别出 %d 个业务域", len(domains))
-
-    # Step 2: 域文档之间没有依赖关系，受控并发生成并保持返回顺序。
-    semaphore = asyncio.Semaphore(min(_MAX_DOMAIN_GENERATION_CONCURRENCY, len(domains)))
-
-    async def generate_domain_doc(domain: DomainGroup) -> DomainDoc:
-        async with semaphore:
-            logger.info("生成域文档: %s (表: %s)", domain.domain_name, ", ".join(domain.table_names))
-            return await _generate_domain_doc(request, domain)
-
-    # TaskGroup 在任一域失败时会取消其余域任务，避免请求已经失败后仍继续消耗 LLM 配额。
-    async with asyncio.TaskGroup() as task_group:
-        tasks = [task_group.create_task(generate_domain_doc(domain)) for domain in domains]
-    docs = [task.result() for task in tasks]
-
-    logger.info("批量生成完成，共 %d 份文档", len(docs))
-
-    return BatchGenerateResponse(docs=docs, total_domains=len(docs))
-
-
-async def _analyze_domains(request: GenerateDraftRequest) -> list[DomainGroup]:
-    """用 LLM 分析表结构，识别业务域分组"""
-    prompt = render_template_file(
-        _DOMAIN_ANALYSIS_TEMPLATE,
-        tables=request.tables_metadata,
-        foreign_keys=request.foreign_keys,
-    )
-
-    response_text = await call_llm(
-        system_prompt=_DOMAIN_ANALYSIS_PROMPT,
-        user_prompt=prompt,
-    )
-
-    result = _json_parser.parse(response_text)
-    domains_data = result.get("domains", [])
-
-    if not domains_data:
-        # 降级：所有表归为一个域
-        logger.warning("域分析返回空结果，降级为单域模式")
-        return [DomainGroup(
-            domain_name="全部数据表",
-            table_names=[t.table_name for t in request.tables_metadata],
-            reason="AI 域分析失败，合并为单个域",
-        )]
-
-    domains = [DomainGroup(**d) for d in domains_data]
-
-    # 校验：确保所有表都被覆盖
-    all_tables = {t.table_name for t in request.tables_metadata}
-    covered_tables = {t for d in domains for t in d.table_names}
-    missing = all_tables - covered_tables
-    if missing:
-        # 把遗漏的表追加到最后一个域
-        logger.warning("域分析遗漏了 %d 张表，追加到最后一个域", len(missing))
-        domains[-1].table_names.extend(missing)
-
-    return domains
-
-
-async def _generate_domain_doc(
-    request: GenerateDraftRequest, domain: DomainGroup
-) -> DomainDoc:
-    """为单个业务域生成 skills.md"""
-    # 过滤出该域的表元数据
-    table_set = set(domain.table_names)
-    domain_tables = [t for t in request.tables_metadata if t.table_name in table_set]
-    domain_fks = [
-        fk for fk in request.foreign_keys
-        if fk.get("source_table") in table_set or fk.get("target_table") in table_set
-    ]
-
-    # 渲染 Prompt 并调用 LLM
-    prompt = render_template_file(
-        _SKILLS_MD_TEMPLATE,
-        tables=domain_tables,
-        foreign_keys=domain_fks,
-        indexes=request.indexes,
-    )
-
-    content = await call_llm(system_prompt=_SYSTEM_PROMPT, user_prompt=prompt)
-
-    # 检查无注释字段
-    warnings = _check_missing_comments(domain_tables)
-
-    return DomainDoc(
-        title=f"{domain.domain_name} skills.md",
-        content=content,
-        table_names=domain.table_names,
-        warnings=warnings,
-    )

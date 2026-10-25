@@ -20,8 +20,11 @@ public interface FieldSemanticService {
     void validateBindingConfirmation(Long columnMetaId, Long snapshotId, Long userId);
     java.util.List<FieldSemanticPendingBindingVO> pendingBindingConfirmations(Long snapshotId, Long userId);
     FieldSemanticWorkspaceVO generateCandidate(Long columnMetaId, Long snapshotId, Integer expectedVersion, Long userId);
+    FieldSemanticWorkspaceVO generateCandidate(Long columnMetaId,Long snapshotId,Integer expectedVersion,Long userId,Long governanceTaskId,String executionToken);
     FieldSemanticWorkspaceVO adoptCandidate(Long columnMetaId, Long candidateId, FieldSemanticActionDTO request, Long userId);
     FieldSemanticEvaluation evaluate(Long columnMetaId, Long snapshotId);
+    FieldSemanticEvaluation evaluateForGovernance(Long columnMetaId, Long snapshotId);
+    java.util.Map<String,Object> reviewedContext(Long columnMetaId,Long snapshotId);
     boolean membershipValid(Long datasourceId, Long snapshotId, java.util.List<String> factSourceIds);
     java.util.List<java.util.Map<String, Object>> knowledgeFacts(Long datasourceId, Long snapshotId);
     void validateKnowledgeFact(Long datasourceId, Long snapshotId, java.util.Map<String, Object> marker, String body);

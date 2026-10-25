@@ -23,6 +23,8 @@ import java.util.HashMap;
 @RequestMapping("/api/iam-s1/query")
 @RequiredArgsConstructor
 public class IamS1QueryController {
+    private final com.dataocean.module.fieldsemantic.service.GovernanceFeedbackService governanceFeedback;
+    private final com.dataocean.module.fieldsemantic.service.GovernanceFieldProfileService governanceProfiles;
     private final IamS1QueryService queryService;
 
     @PostMapping("/ask")
@@ -113,8 +115,15 @@ public class IamS1QueryController {
     }
 
     @PostMapping("/tasks/{taskId}/feedback")
-    public Result<Void> feedback(@PathVariable String taskId, @RequestBody Map<String, String> body) {
-        queryService.feedback(taskId, UserContext.currentUserId(), body == null ? null : body.get("feedbackType"));
-        return Result.success("反馈已提交", null);
+    public Result<Map<String,Object>> feedback(@PathVariable String taskId,
+            @jakarta.validation.Valid @RequestBody com.dataocean.module.fieldsemantic.entity.dto.GovernanceFeedbackDTO body) {
+        return Result.success(governanceFeedback.submit(taskId, UserContext.currentUserId(), body));
+    }
+    @GetMapping("/tasks/{taskId}/feedback")
+    public Result<Map<String,Object>> ownFeedback(@PathVariable String taskId){return Result.success(governanceFeedback.own(taskId,UserContext.currentUserId()));}
+
+    @GetMapping("/tasks/{taskId}/feedback-targets")
+    public Result<List<Map<String,Object>>> feedbackTargets(@PathVariable String taskId) {
+        return Result.success(governanceProfiles.feedbackTargets(taskId, UserContext.currentUserId()));
     }
 }

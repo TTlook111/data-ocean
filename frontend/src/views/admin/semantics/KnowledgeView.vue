@@ -477,6 +477,7 @@ watch(() => route.query.page, (value) => {
       description="准备并审核业务知识，让用户更准确地问数。文档发布后，需单独确认知识索引构建。"
     >
       <template #actions>
+        <el-button @click="router.push({path:'/admin/semantics/business-knowledge',query:{datasourceId:context.datasourceId,snapshotId:context.snapshotId}})">业务知识治理</el-button>
         <el-button :icon="RefreshCw" :loading="loading" @click="loadDocs(); loadStats(); loadReadiness()">刷新</el-button>
         <el-button :icon="Plus" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="goCreate">手动新建</el-button>
         <el-button type="primary" :icon="Sparkles" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="openGenerateDialog">生成快照目录</el-button>

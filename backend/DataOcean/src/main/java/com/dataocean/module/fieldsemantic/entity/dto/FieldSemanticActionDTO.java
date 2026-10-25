@@ -10,4 +10,7 @@ public class FieldSemanticActionDTO {
     private Long revisionId;
     private String action;
     private String reason;
+    @jakarta.validation.constraints.Size(max=1000)
+    private String evidenceReference;
+    private boolean evidenceConfirmed;
 }

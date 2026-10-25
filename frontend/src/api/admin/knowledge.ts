@@ -106,10 +106,7 @@ export async function listVersions(docId: number) {
   return data
 }
 
-export async function getVersion(docId: number, versionNo: number) {
-  const { data } = await http.get<ApiResult<KnowledgeVersionItem>>(`/api/admin/knowledge-docs/${docId}/versions/${versionNo}`)
-  return data
-}
+
 
 export async function rollbackVersion(docId: number, targetVersionNo: number) {
   const { data } = await http.post<ApiResult<{ newVersionNo: number }>>(`/api/admin/knowledge-docs/${docId}/rollback`, { targetVersionNo })

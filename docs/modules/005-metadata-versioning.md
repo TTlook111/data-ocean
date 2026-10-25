@@ -1,6 +1,6 @@
 # 005 元数据版本与审核
 
-> 文档类型：现行模块说明；核对日期：2026-10-22；元数据版本工作区实现已提交于 `0a908a3`，当前代码核对基线为 `4fd41c2`，发布门禁与前端展示已提交于 `c4a478b`、`4fd41c2`。页面视觉仍待用户确认，运行验收见[项目现状](../项目现状.md)。
+> 状态：现行模块说明；整理日期：2026-10-24。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
 ## 概览与当前状态机
 
@@ -46,8 +46,8 @@ PUBLISHED → APPROVED（撤回分支）
 | --- | --- |
 | [SnapshotVersionController](../../backend/DataOcean/src/main/java/com/dataocean/module/versioning/controller/SnapshotVersionController.java) | `/api/admin/snapshots/{snapshotId}`下 status、publish、revoke、release-gate、audit-logs、diff |
 | [SnapshotReleaseGateService](../../backend/DataOcean/src/main/java/com/dataocean/module/versioning/service/SnapshotReleaseGateService.java) | 审核/发布门禁的单一判定 |
-| [versioning/service](../../backend/DataOcean/src/main/java/com/dataocean/module/versioning/service/) | 生命周期、发布、审计 |
-| [versioning/event](../../backend/DataOcean/src/main/java/com/dataocean/module/versioning/event/) | 发布/过期事件 |
+| [versioning/service](../../backend/DataOcean/src/main/java/com/dataocean/module/versioning/service) | 生命周期、发布、审计 |
+| [versioning/event](../../backend/DataOcean/src/main/java/com/dataocean/module/versioning/event) | 发布/过期事件 |
 | [ReleasesView](../../frontend/src/views/admin/releases/ReleasesView.vue)、[ReleaseGatePanel](../../frontend/src/components/admin/ReleaseGatePanel.vue) | 正式版本发布工作区与门禁清单 |
 | [versioning API](../../frontend/src/api/admin/versioning.ts) | 版本、审核与门禁请求 |
 

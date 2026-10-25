@@ -36,6 +36,7 @@ import {
   submitReview,
   updateKnowledgeDoc,
   generateDraft,
+  generateFromSnapshot,
   getKnowledgeSourceStatus,
   type KnowledgeChunkPreview,
   type KnowledgeDiffLine,
@@ -408,12 +409,20 @@ function openGenerate() {
 }
 
 async function runGenerate() {
+  if (doc.value && content.value !== (doc.value.content || '')) { ElMessage.warning('请先保存当前编辑内容，再生成独立新草稿'); return }
   if (!generateSnapshotId.value) {
     ElMessage.warning('请选择用于生成草稿的快照')
     return
   }
   generateLoading.value = true
   try {
+    if (doc.value?.content?.trim()) {
+      const result = await generateFromSnapshot(doc.value.datasourceId, generateSnapshotId.value)
+      generateVisible.value = false
+      ElMessage.success(`已生成 ${result.data?.length || 0} 篇独立主题草稿，原文与人工编辑已保留`)
+      await router.push({path:'/admin/semantics/knowledge',query:{datasourceId:doc.value.datasourceId,snapshotId:generateSnapshotId.value}})
+      return
+    }
     const result = await generateDraft(docId.value, generateSnapshotId.value)
     generateVisible.value = false
     // 后端生成草稿时会写入新版本并递增乐观锁 version，必须重新拉取后再覆盖展示内容
@@ -653,7 +662,7 @@ watch(() => route.query.tab, (value) => {
       <TaskPageHeader
         eyebrow="知识文档"
         :title="doc.title"
-        description="编辑同一快照的完整字段目录、提交审核并发布文档。数据源级 RAG build 由有权人员在语义知识页另行确认。"
+        description="编辑当前知识主题，审核后发布；同一快照的多篇文档共同覆盖业务知识。RAG 构建仍需单独确认。"
       >
         <template #status>
           <BusinessStatusBadge :status="doc.status" :label="knowledgeStatusLabel(doc.status)" />

@@ -35,6 +35,9 @@ public class SemanticCheckExecutionService {
     private final DbTableMetaMapper tableMapper;
     private final DbColumnMetaMapper columnMapper;
     private final FieldSemanticService semanticService;
+    private final com.dataocean.module.fieldsemantic.mapper.GovernanceFeedbackMapper feedbackMapper;
+    private final com.dataocean.module.fieldtag.mapper.FieldTagMapper fieldTags;
+    private final com.dataocean.module.fieldsemantic.service.GovernanceAuditService audit;
 
     @Transactional
     public void execute(Long batchId) {
@@ -56,7 +59,7 @@ public class SemanticCheckExecutionService {
         for (DbColumnMeta column : columns) {
             DbTableMeta table = tableById.get(column.getTableMetaId());
             if (table == null) throw new BusinessException(409, "快照字段缺少所属表来源");
-            FieldSemanticEvaluation evaluation = semanticService.evaluate(column.getId(), batch.getSnapshotId());
+            FieldSemanticEvaluation evaluation = semanticService.evaluateForGovernance(column.getId(), batch.getSnapshotId());
             SemanticCheckResult result = new SemanticCheckResult();
             result.setBatchId(batch.getId()); result.setDefinitionId(evaluation.definitionId());
             result.setBindingId(evaluation.bindingId()); result.setColumnMetaId(column.getId());
@@ -74,6 +77,23 @@ public class SemanticCheckExecutionService {
             }
             resultMapper.insert(result);
             attachOrCreateSemanticIssue(batch, column, table, evaluation, result);
+            if(evaluation.usable()&&fieldTags.selectCount(new LambdaQueryWrapper<com.dataocean.module.fieldtag.entity.po.FieldTag>()
+                    .eq(com.dataocean.module.fieldtag.entity.po.FieldTag::getColumnMetaId,column.getId()))>0){
+                var followups=feedbackMapper.selectList(new LambdaQueryWrapper<com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback>()
+                        .eq(com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback::getDatasourceId,batch.getDatasourceId())
+                        .eq(com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback::getDefinitionId,evaluation.definitionId())
+                        .ne(com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback::getRevisionId,evaluation.revisionId())
+                        .eq(com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback::getStatus,"APPLIED")
+                        .eq(com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback::getFollowupStatus,"QUEUED"));
+                for(var feedback:followups){
+                    int updated=feedbackMapper.update(null,new LambdaUpdateWrapper<com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback>()
+                            .eq(com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback::getId,feedback.getId())
+                            .eq(com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback::getRowVersion,feedback.getRowVersion())
+                            .eq(com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback::getFollowupStatus,"QUEUED")
+                            .set(com.dataocean.module.fieldsemantic.entity.po.GovernanceFeedback::getFollowupStatus,"AWAITING_VERIFICATION"));
+                    if(updated==1)audit.record("FEEDBACK",feedback.getId(),"RECHECK_AWAITING_VERIFICATION",java.util.Map.of("revisionId",evaluation.revisionId(),"snapshotId",batch.getSnapshotId(),"checkBatchId",batch.getId()),batch.getCreatedBy());
+                }
+            }
         }
         batch.setApplicableCount(applicable); batch.setValidCount(valid); batch.setMissingCount(missing);
         batch.setStaleCount(stale); batch.setNotApplicableCount(notApplicable);

@@ -162,6 +162,8 @@ class S1ConnectionConfig(S1Model):
 
 
 class S1QueryExecuteRequest(S1Model):
+    governanceProfilesEnabled: bool = False
+    fieldSemanticReferences: list[dict[str, Any]] = Field(default_factory=list)
     protocolVersion: Literal["IAM-SIMPLE-1"]
     taskId: str
     userId: int

@@ -7,6 +7,7 @@ import { useIamS1Store } from '../../../stores/iamS1'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
+import FieldGovernanceProgress from '../../../components/admin/FieldGovernanceProgress.vue'
 import {
   adoptFieldSemanticCandidate,
   confirmFieldSemanticBindings,
@@ -64,6 +65,7 @@ const manualError = ref('')
 const candidateError = ref('')
 const semanticCheckError = ref('')
 const reviewReason = ref('')
+const reviewEvidenceReference=ref(''),reviewEvidenceConfirmed=ref(false)
 const revokeReason = ref('')
 const bindingEvidence = ref('')
 const batchDialogVisible = ref(false)
@@ -368,10 +370,11 @@ async function reviewDraft(action: 'APPROVE' | 'REJECT') {
     manualError.value = '审核通过或驳回都需要填写审核依据。'
     return
   }
+  if(action==='APPROVE'&&(!reviewEvidenceReference.value.trim()||!reviewEvidenceConfirmed.value)){manualError.value='请填写原始资料引用并确认人工核对。';return}
   await mutateWorkspace(() => reviewFieldSemantic(selectedColumn.value!.id,
-    currentAction(workspace.value?.draft?.id, action, reviewReason.value.trim())),
+    {...currentAction(workspace.value?.draft?.id, action, reviewReason.value.trim()),evidenceReference:reviewEvidenceReference.value.trim(),evidenceConfirmed:reviewEvidenceConfirmed.value}),
   action === 'APPROVE' ? '字段解释已审核通过并绑定当前来源。' : '字段解释已退回，已有有效解释保持不变。')
-  reviewReason.value = ''
+  reviewReason.value = '';reviewEvidenceReference.value='';reviewEvidenceConfirmed.value=false
 }
 
 async function revoke() {
@@ -494,6 +497,7 @@ async function adoptCandidate(candidate: FieldSemanticCandidate) {
     workspace.value!.rowVersion), 'AI 候选已采纳为草稿，仍需人工审核。')
 }
 
+watch([datasourceId,snapshotId,selectedColumnId,()=>workspace.value?.workingRevisionId],()=>{reviewEvidenceReference.value='';reviewEvidenceConfirmed.value=false;reviewReason.value=''})
 watch([datasourceId, snapshotId], () => { void loadTables() })
 watch(selectedColumnId, (value) => {
   workspaceRequest++
@@ -591,6 +595,7 @@ onBeforeUnmount(() => {
       <LoadingState v-else-if="workspaceLoading" text="正在核验字段来源、解释与审核状态…" />
       <EmptyState v-else-if="hasSearched && !workspace" message="当前筛选字段没有可读取的解释记录。" />
       <section v-else-if="workspace" class="field-semantic-workspace__content">
+        <FieldGovernanceProgress :column-id="workspace.columnMetaId" :snapshot-id="workspace.snapshotId" :version="workspace.rowVersion" :check-id="latestCheck?.id" />
         <section class="field-semantic-card field-semantic-card--source">
           <div class="field-semantic-card__heading"><div><h3>{{ workspace.tableName }}.{{ workspace.columnName }}</h3><p>{{ workspace.dataType || '类型未记录' }} · 治理状态 {{ workspace.governanceStatus || '未知' }}</p></div><el-tag :type="isEffective ? 'success' : workspace.bindingStatus === 'VALID' ? 'warning' : 'info'">{{ isEffective ? '当前解释有效' : workspace.effectiveStatus === 'NEEDS_REVIEW' ? '来源需复核' : '尚无有效解释' }}</el-tag></div>
           <div class="field-semantic-card__source-notes"><div><span>原始采集注释</span><p>{{ workspace.rawColumnComment || '原始注释为空' }}</p></div><div><span>当前快照绑定</span><p>{{ workspace.bindingStatus }}<template v-if="workspace.bindingReason"> · {{ workspace.bindingReason }}</template></p></div></div>
@@ -625,7 +630,7 @@ onBeforeUnmount(() => {
           <ErrorState v-if="candidateError" :message="candidateError" />
           <article v-if="readyCandidate" class="field-semantic-candidate">
             <div class="field-semantic-candidate__heading"><strong>AI 建议 · 待人工采纳</strong><el-button type="primary" link :disabled="!canManage || candidateLoading" :loading="actionLoading" @click="adoptCandidate(readyCandidate)">采纳为草稿</el-button></div>
-            <h4>{{ readyCandidate.businessName }}</h4><p>{{ readyCandidate.meaning }}</p><p v-if="readyCandidate.evidence"><strong>参考依据：</strong>{{ readyCandidate.evidence }}</p>
+            <h4>{{ readyCandidate.businessName }}</h4><p>{{ readyCandidate.meaning }}</p><p v-if="readyCandidate.evidence"><strong>AI 参考说明（未经确认）：</strong>{{ readyCandidate.evidence }}</p>
             <ul v-if="pendingQuestions.length"><li v-for="question in pendingQuestions" :key="question">待确认：{{ question }}</li></ul>
           </article>
           <p v-else-if="latestCandidate?.failureReason" class="field-semantic-workspace__hint">{{ latestCandidate.failureReason }}</p>
@@ -657,8 +662,10 @@ onBeforeUnmount(() => {
           </div>
           <div v-if="currentDraft?.status === 'PENDING_REVIEW'" class="field-semantic-review-box">
             <p>待审核修订 v{{ currentDraft.revisionNo }}。审核权限需要 governance:field:view 与 knowledge:approve 同时绑定当前数据源。</p>
-            <el-input v-model="reviewReason" aria-label="字段解释审核依据" placeholder="填写本次审核或驳回依据" />
-            <div><el-button type="success" :disabled="!canReview || !reviewReason.trim()" :loading="actionLoading" @click="reviewDraft('APPROVE')">审核通过</el-button><el-button type="danger" plain :disabled="!canReview || !reviewReason.trim()" :loading="actionLoading" @click="reviewDraft('REJECT')">驳回并退回</el-button></div>
+            <el-input v-model="reviewEvidenceReference" aria-label="字段解释原始资料引用" maxlength="1000" placeholder="原始资料名称、版本及章节，或平台确认记录位置" />
+            <el-input v-model="reviewReason" aria-label="字段解释审核依据" maxlength="800" placeholder="说明原始资料如何支持字段含义、单位和使用条件" />
+            <el-checkbox v-model="reviewEvidenceConfirmed">已人工核对原始资料；AI 自述不作为确认依据</el-checkbox>
+            <div><el-button type="success" :disabled="!canReview || !reviewReason.trim() || !reviewEvidenceReference.trim() || !reviewEvidenceConfirmed" :loading="actionLoading" @click="reviewDraft('APPROVE')">审核通过</el-button><el-button type="danger" plain :disabled="!canReview || !reviewReason.trim()" :loading="actionLoading" @click="reviewDraft('REJECT')">驳回并退回</el-button></div>
           </div>
           <p v-if="canViewField && !canViewDetails" class="field-semantic-workspace__hint">查看草稿、AI 候选和审核明细还需要 knowledge:view。当前角色仍可按已授予的维护权限创建草稿。</p>
           <p v-if="canViewDetails && workspace.reviews?.length" class="field-semantic-workspace__history-title">审核与来源操作</p>

@@ -1,6 +1,6 @@
 # 002 数据源与就绪检查
 
-> 文档类型：现行模块说明；核对日期：2026-10-22；代码基线：`4fd41c2`。本轮静态核对，运行验收见[项目现状](../项目现状.md)。
+> 状态：现行模块说明；整理日期：2026-10-24。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
 ## 概览与边界
 
@@ -23,7 +23,7 @@ readiness 汇总连接、快照、阻断问题、知识/活动构建及权限相
 | [DatasourceAdminController](../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/controller/DatasourceAdminController.java) | `/api/admin/datasources`下 CRUD、simple、连接测试、readiness 与批量 readiness |
 | [DatasourceReadinessServiceImpl](../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/service/impl/DatasourceReadinessServiceImpl.java) | 生命周期准备条件 |
 | [IamS1UserResourceController](../../backend/DataOcean/src/main/java/com/dataocean/module/permission/s1/controller/IamS1UserResourceController.java) | `/api/iam-s1/query-resources/datasources`及 `/{datasourceId}/readiness`等业务问数入口 |
-| [datasource/service](../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/service/) | 连接、秘密信息和管理服务 |
+| [datasource/service](../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/service) | 连接、秘密信息和管理服务 |
 | [DatasourceHealthCheckScheduler](../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/scheduler/DatasourceHealthCheckScheduler.java) | 定时健康检查 |
 | [数据源 API](../../frontend/src/api/admin/datasource.ts)、[S1 API](../../frontend/src/api/iamS1.ts) | 管理端与业务端分别接线 |
 

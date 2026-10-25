@@ -22,6 +22,14 @@ config.global.stubs = { 'el-table': true, 'el-table-column': true, 'el-paginatio
 
 describe('QueryResult protected result views', () => {
   afterEach(() => vi.restoreAllMocks())
+  it('allows feedback on completed empty results without exposing export',async()=>{
+    const result:IamS1QueryTaskResult={taskId:'empty-completed',status:'COMPLETED',data:[],rowCount:0}
+    const wrapper=mount(QueryResult,{props:{latestResult:result,viewState:resolveQueryDisplayState({result}),resultTab:'table',chartType:'bar',chartOption:null,
+      pagedTableData:[],tablePage:1,tablePageSize:50,agentProgress:[],trustSummary:[],datasourceFacts:[],canViewSql:false,canExport:false,sqlLoading:false,sqlErrorMessage:'',originalQuestion:'没有符合条件的数据吗？'}})
+    expect(wrapper.find('.feedback-buttons').exists()).toBe(true)
+    await wrapper.get('button[aria-label="评价：结果有误"]').trigger('click')
+    expect(wrapper.emitted('feedback')).toEqual([['DISLIKE']]);expect(wrapper.find('.export-button').exists()).toBe(false);wrapper.unmount()
+  })
 
   it('shows provider failure as failure and retries the same question without asking for clarification', async () => {
     const question = '已完成订单一共有多少笔？'
@@ -208,7 +216,7 @@ describe('QueryResult protected result views', () => {
     expect(wrapper.text()).not.toContain('导出 CSV')
   })
 
-  it('shows one successful empty state without table, export, or feedback controls', () => {
+  it('shows one successful empty state with feedback but without table or export', () => {
     const result: IamS1QueryTaskResult = { taskId: 'task-empty', status: 'COMPLETED', data: [] }
     const wrapper = mount(QueryResult, {
       props: {
@@ -233,7 +241,8 @@ describe('QueryResult protected result views', () => {
 
     expect(wrapper.text()).toContain('查询成功，没有匹配记录')
     expect(wrapper.findComponent(QueryResultTable).exists()).toBe(false)
-    expect(wrapper.find('.feedback-buttons').exists()).toBe(false)
+    expect(wrapper.find('.feedback-buttons').exists()).toBe(true)
+    expect(wrapper.find('.export-button').exists()).toBe(false)
   })
 
   it('does not expose SQL when the task capability denies it', async () => {

@@ -5,24 +5,30 @@ import { useRoute, useRouter } from 'vue-router'
 import FieldTagManager from '../field/FieldTagManager.vue'
 import ConfidenceDashboard from '../field/ConfidenceDashboard.vue'
 import FeedbackReview from '../field/FeedbackReview.vue'
+import GovernanceWorklist from '../../../components/admin/GovernanceWorklist.vue'
+import BusinessKnowledgeWorkbench from '../../../components/admin/BusinessKnowledgeWorkbench.vue'
+import GovernanceFeedbackQueue from '../../../components/admin/GovernanceFeedbackQueue.vue'
+import GovernanceUsageProfiles from '../../../components/admin/GovernanceUsageProfiles.vue'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 
-type FieldTab = 'tags' | 'confidence' | 'feedback'
+type FieldTab = 'tasks' | 'business' | 'tags' | 'confidence' | 'feedback'
 
 const route = useRoute()
 const router = useRouter()
 const adminContext = useAdminContextStore()
 const iamS1 = useIamS1Store()
-const ALLOWED_TABS: FieldTab[] = ['tags', 'confidence', 'feedback']
+const ALLOWED_TABS: FieldTab[] = ['tasks', 'business', 'tags', 'confidence', 'feedback']
 
 function sanitizeTab(value: unknown): FieldTab {
+  if (!value) return 'tasks'
   const raw = String(value || '')
   return (ALLOWED_TABS as string[]).includes(raw) ? raw as FieldTab : 'tags'
 }
 
 
 const activeTab = ref<FieldTab>(sanitizeTab(route.query.tab))
+const legacyConfidenceOpen=ref<string[]>([]),legacyFeedbackOpen=ref<string[]>([])
 
 function selectTab(tab: string | number) {
   const next = sanitizeTab(tab)
@@ -43,18 +49,22 @@ watch(() => route.query.tab, (tab) => {
   <main class="governance-fields-page post-login-page governance-workspace governance-surface">
     <TaskPageHeader
       title="字段治理"
-      description="管理字段分类标签、可靠性参考和反馈处理。" help="字段业务解释在语义中心的字段解释工作区，脱敏候选在授权配置的字段保护中。"
+      description="处理知识缺口，维护业务知识、字段标签与使用反馈。" help="字段业务解释在语义中心的字段解释工作区，脱敏候选在授权配置的字段保护中。"
     />
 
     <el-tabs :model-value="activeTab" @update:model-value="selectTab">
+      <el-tab-pane label="治理任务" name="tasks"><GovernanceWorklist v-if="activeTab==='tasks'" /></el-tab-pane>
+      <el-tab-pane label="业务知识" name="business"><BusinessKnowledgeWorkbench v-if="activeTab==='business'" /></el-tab-pane>
       <el-tab-pane label="标签" name="tags">
         <FieldTagManager embedded v-if="activeTab === 'tags'" :key="`tags-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
       </el-tab-pane>
       <el-tab-pane label="可信度" name="confidence">
-        <ConfidenceDashboard v-if="activeTab === 'confidence'" :key="`confidence-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
+        <GovernanceUsageProfiles v-if="activeTab === 'confidence'" :key="`confidence-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
+        <el-collapse v-if="activeTab==='confidence'" v-model="legacyConfidenceOpen"><el-collapse-item title="查看既有来源可信度记录" name="source"><ConfidenceDashboard v-if="legacyConfidenceOpen.includes('source')" :key="`legacy-confidence-${adminContext.datasourceId||0}-${adminContext.snapshotId||0}`" /></el-collapse-item></el-collapse>
       </el-tab-pane>
       <el-tab-pane label="反馈审核" name="feedback">
-        <FeedbackReview v-if="activeTab === 'feedback'" :key="`feedback-${adminContext.datasourceId || 0}-${adminContext.snapshotId || 0}`" />
+        <GovernanceFeedbackQueue v-if="activeTab==='feedback'" :key="`feedback-${adminContext.datasourceId || 0}`" />
+        <el-collapse v-if="activeTab==='feedback'" v-model="legacyFeedbackOpen"><el-collapse-item title="查看既有字段反馈记录" name="legacy"><FeedbackReview v-if="legacyFeedbackOpen.includes('legacy')" :key="`legacy-feedback-${adminContext.datasourceId||0}-${adminContext.snapshotId||0}`" /></el-collapse-item></el-collapse>
       </el-tab-pane>
     </el-tabs>
   </main>

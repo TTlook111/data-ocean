@@ -122,23 +122,6 @@ export async function deleteManualJoinPath(datasourceId: number, relationId: num
   return data
 }
 
-export interface SchemaDiffResult {
-  addedTables: string[]
-  removedTables: string[]
-  addedColumns: ColumnChange[]
-  removedColumns: ColumnChange[]
-  modifiedColumns: ColumnChange[]
-}
-
-export interface ColumnChange {
-  tableName: string
-  columnName: string
-  oldType?: string
-  newType?: string
-  oldComment?: string
-  newComment?: string
-}
-
 export interface SyncTriggerPayload {
   datasourceId: number
   includeStatistics?: boolean
@@ -161,12 +144,5 @@ export async function listSnapshots(params: { datasourceId?: number; page?: numb
 
 export async function getSnapshotDetail(id: number) {
   const { data } = await http.get<ApiResult<SnapshotDetail>>(`/api/admin/metadata/snapshots/${id}`)
-  return data
-}
-
-export async function diffSnapshots(oldId: number, newId: number) {
-  const { data } = await http.get<ApiResult<SchemaDiffResult>>('/api/admin/metadata/snapshots/diff', {
-    params: { oldId, newId }
-  })
   return data
 }

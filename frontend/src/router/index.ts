@@ -211,6 +211,11 @@ const router = createRouter({
           meta: { title: '新建知识文档', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource', breadcrumbParent: '/admin/semantics/knowledge' },
         },
         {
+          path: 'semantics/business-knowledge', name: 'admin-semantic-business-knowledge',
+          component: () => import('../views/admin/semantics/BusinessKnowledgeView.vue'),
+          meta: { title: '业务知识治理', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource-snapshot', breadcrumbParent: '/admin/semantics/knowledge' },
+        },
+        {
           path: 'semantics/knowledge/:id',
           name: 'admin-semantic-knowledge-detail',
           component: KnowledgeDocView,

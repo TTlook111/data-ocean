@@ -1,20 +1,34 @@
 # 004 元数据治理与可信度
 
-> 文档类型：现行模块说明；文档整理日期：2026-10-23；治理规则、批次和问题处理基线已提交，字段解释代码已提交于 `a0f1076`。V69 已于 10 月 22 日在本机隔离库执行，其他环境未执行；页面验收按[项目现状](../项目现状.md)分别判断。
+> 状态：现行模块说明；整理日期：2026-10-24。实现与契约在本文维护，迁移/运行/验收结论只从[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)读取。
 
 ## 概览与主流程
 
-后续改造以用户确认的[字段语义治理与问数反馈闭环目标](../development/字段语义治理与问数反馈闭环改造目标.md)为依据，围绕“规则发现 → AI 首轮 → 人工审核补充 → 系统复查”组织平台内任务，再连接文档/RAG 与反馈。完整闭环尚未实现；下文描述现有行为，不能据此缩减已确认目标。
+2026-10-24 已按[治理闭环目标](../development/字段语义治理与问数反馈闭环改造目标.md)接通平台内任务、业务知识修订、多篇文档、查询期档案及反馈回流。实现与验证范围见[治理闭环 TDD 记录](../acceptance/治理闭环TDD实施记录.md)；自动化通过不等于真实模型、RAG 和人工页面验收通过。
 
-负责质量规则、真实检查、问题发现/分派/处理/复查、表字段治理状态，以及与可信度、标签和治理反馈的连接。字段业务解释由语义中心承载，脱敏候选由授权配置的字段保护承载；治理域不再重复这两个入口。
+主线负责知识缺口发现、AI/人工治理、修订审核与复查、标签及反馈再治理，同时保留独立的来源质量检查、问题处理和对象可用状态维护。字段业务解释由语义中心承载，脱敏候选由授权配置的字段保护承载；治理域不再重复这两个入口。
 
-选定源与快照 → 质量检查 → 问题分派与处理 → 复查/必要时 REOPENED → 审核发布 → 查询血缘、使用与反馈回流。
+选定源与快照 → 发现知识缺口 → AI 候选/人工补充 → 审核及精确修订复查 → 文档审核发布 → 明确确认 RAG → 实际使用与反馈归因 → 再治理及原情景人工验收。来源质量问题保持独立生命周期。
 
 ## 平台内字段解释
 
-用户明确要求在平台内帮助理解字段，并保存可审核、可复用的业务解释。`CompletenessChecker` 继续检查原始采集注释。字段治理页只保留标签、可信度和反馈；字段业务解释工作面位于「语义中心 → 字段解释」（`/admin/semantics/field-explanations`），脱敏候选位于「授权配置 → 字段保护」。平台解释不回写源注释，也不将原注释来源问题伪造成已解决。
+字段治理阶段：字段工作面新增服务端阶段提示，`GET /api/admin/field-semantics/columns/{columnMetaId}/governance-progress?snapshotId=...` 按现有字段查看权限与真实来源返回待治理、人工补充、待审核、待复查、不适用或本轮完成。仅当前 definition/binding/revision/review/evidenceHash 与规则版本均匹配、且同源同快照批次成功时返回本轮完成；新草稿和待审核修订优先展示。此阶段接口复用已有语义证据；批量任务另有独立治理任务记录，阶段读取不等于文档或 RAG 生效。
 
-实施合同见[已实施方案](../development/completed/质量规则与平台内字段语义治理方案.md)。2026-10-22 新增独立字段语义主记录、来源绑定、修订/AI 候选/审核、独立 SEMANTIC 复查批次与问题域隔离；来源规则、评分、快照状态、可信度及 HIGH 门禁均显式限定 `SOURCE`。实现入口见下表与字段语义代码；剩余验收边界见[后续开发](../development/后续开发.md#11-质量规则页面与平台内字段解释)。V69 已于 10 月 22 日随本机启动应用到隔离库 `dataocean_e_acceptance_20260927`，失败迁移为 0；其他数据库仍须独立核对与授权。真实 IAM/API 与页面仍待单独核验。
+用户明确要求在平台内帮助理解字段，并保存可审核、可复用的业务解释。`CompletenessChecker` 继续检查原始采集注释。字段治理默认进入治理任务，另有业务知识、标签、使用可信度和反馈入口；字段业务解释编辑仍复用「语义中心 → 字段解释」（`/admin/semantics/field-explanations`），脱敏候选位于「授权配置 → 字段保护」。平台解释不回写源注释，也不将原注释来源问题伪造成已解决。
+
+### 知识治理任务与来源质量规则
+
+红队补强后，业务知识的依据引用/摘录由人工明确确认并绑定当前来源与内容，AI 不得覆盖原始资料或自证；新的字段审核通过同样必须记录原始资料位置和人工核对。负向反馈先固定复现情景和预期结果，知识复查仅进入待验证，原问题经独立人工验收后结束。治理执行领取令牌保护最终写入，暂停会使晚到结果失效；一键与重试预算明确限制。使用参考分改为政策版本 2 的规范化 SQL 样例，旧事件留档，不自动重算为新证据。具体限制见[红队补强](../acceptance/治理闭环TDD实施记录.md#2026-10-24-红队补强)。
+
+知识治理提供内置缺口规则目录，检查解释、角色分类、金额单位、枚举含义及审核/复查证据。发现操作产生当前源和快照的对象任务；AI 仅生成候选，人工保存、提交审核后按精确修订复查。已有人工草稿不会被批量 AI 覆盖；未完成来源绑定转人工，逐项失败可以重试，过期运行任务显示失败。`DISCOVERED` 可进入治理，但不会因此取得问数资格。
+
+来源质量规则仍配置具体检查项、对象范围和阈值。检查项是后端可执行能力，规则是使用该能力的配置；它们处理结构及只读数据诊断，不替代业务知识审核。语义规则版本为 2；标签角色变化会使旧复查证据失效，动态评分变化不会。
+
+数据源用途、表粒度、关系与指标由 `BusinessKnowledgeServiceImpl` 管理独立修订。提交需要完整依赖和业务证据；关系必须明确连接条件、基数与聚合风险。人工确认、复查后成为有效事实；不适用须保留原因，不进入检索。新草稿不自动撤销旧有效版，旧有效版可独立撤销。保存采用版本比较，来源变化需查看原始/当前来源并明确确认，晚到 AI 不能覆盖新人工版本。审核、复查、撤销及反馈流转保留同事务审计。
+
+工作台使用 `/api/admin/governance-tasks`、`/api/admin/business-knowledge`、`/api/admin/governance-feedback` 和 `/api/admin/field-profiles`，查询列表采用服务端分页，权限始终由当前源的 S1 能力判断。来源、修订或权限变化按对象提示，不把单项失效伪装为整批完成。
+
+字段语义使用独立主记录、来源绑定、修订/AI 候选/审核及 SEMANTIC 复查批次。来源规则、评分、快照状态与 HIGH 门禁限定 SOURCE；独立审核和版本证据不能由历史方案代替。剩余实测见[后续开发](../development/后续开发.md#11-质量规则页面与平台内字段解释)。
 
 ## 关键边界
 
@@ -22,7 +36,7 @@
 - 快照发布门禁由 [SnapshotReleaseGateService](005-metadata-versioning.md#发布门禁) 统一判定：来源高风险阻断审核和发布，语义高风险只提示、不阻断。治理检查仍不生成血缘。
 - DISCOVERED、NORMAL、RECOMMENDED、DEPRECATED、BLOCKED 等治理状态按现有服务规则流转，不等同于审核状态。
 - DEPRECATED/BLOCKED 表字段禁止进入检索、SQL 生成和临时访问批准；NORMAL/RECOMMENDED 本身也不能跳过来源快照、审核、build membership 或当前 IAM 检查。
-- 质量分与字段可信度是辅助决策，不代替权限。可信度读时衰减可配置，默认半衰期 30 天。
+- 来源质量分、既有来源可信度和新语义版本的使用参考分是不同口径，都不能代替权限。旧 `fieldtag` 来源可信度的可配置读时衰减（默认半衰期 30 天）仅属于折叠的既有记录；新使用参考分采用政策 2 的规范化 SQL 样例，不套用该衰减规则。
 - 批量处理返回 `updated/skipped/skippedIssues`；跳过是正常部分成功结果，前端必须显示原因，不整体抛错或报全成功。
 - 两个问题列表的 assigneeId 和目录的数据源范围均下推 SQL，禁止分页后再过滤。
 
@@ -31,9 +45,11 @@
 | 代码 | 用途 |
 | --- | --- |
 | [MetadataGovernanceController](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/controller/MetadataGovernanceController.java) | `/api/admin`下 quality-check、quality-rules、quality-issues、治理状态与 review-records |
-| [governance/checker](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/checker/) | 元数据维度与数据质量检查 |
-| [governance/service](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/) | 问题、状态、审核与质量聚合 |
-| [fieldtag](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldtag/) | 标签、可信度、反馈 |
+| [governance/checker](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/checker) | 元数据维度与数据质量检查 |
+| [governance/service](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service) | 问题、状态、审核与质量聚合 |
+| [fieldtag](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldtag) | 标签及既有来源可信度/字段反馈；不作为新版本使用分的权威实现 |
+| [GovernanceFieldProfileServiceImpl](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/service/impl/GovernanceFieldProfileServiceImpl.java) | 当前语义版本的独立使用档案、政策 2 样例与证据账本 |
+| [GovernanceFeedbackServiceImpl](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/service/impl/GovernanceFeedbackServiceImpl.java) | 实际使用归因、再治理和原情景人工验收 |
 | [QualityDashboard](../../frontend/src/views/admin/governance/QualityDashboard.vue)、[IssueList](../../frontend/src/views/admin/governance/IssueList.vue) | 正式质量与问题页面 |
 | [RuleApplicabilitySummary](../../frontend/src/components/admin/RuleApplicabilitySummary.vue)、[QualityRuleApplicabilityVO](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/entity/vo/QualityRuleApplicabilityVO.java) | 当前快照的只读规划、来源和预计覆盖，不能作为实际执行结果 |
 | [governance API](../../frontend/src/api/admin/governance.ts) | 请求 DTO、筛选与批量返回 |
@@ -88,7 +104,7 @@
 
 行内“执行记录”直接打开真实历史。历史 VO 增加 `batchDatasourceId` 与 `snapshotId`，从已授权的实际批次读取，不能以全局规则的空归属或当前页面范围代替。记录区分执行完成且发现问题、执行完成未发现问题、失败、不适用和未执行，并保留历史配置版本和原因。具备该批次源的问题查看能力时可进入对应快照、SOURCE 维度及目标表的**同范围当前问题**；该入口不声称只展示当次批次或某条规则的问题。缺少实际范围时不提供跳转。
 
-`TIME_TABLE_NO_UPDATE` 的检查项显示名修正为“表估算行数为零”，原编码、执行逻辑、已有规则实例名称与历史记录不变；它不能证明表为空或长期未更新。抽样型检查提示 100,000 行上限，数据新鲜度说明需要可读时间字段；未发现问题不等于全表无问题。上述变化不新增迁移或改变规则启用状态，历史范围字段的验证见[前轮记录](../项目现状.md#2026-10-23-质量规则与检查类型完善)，当前页面模型和人工验收边界见[后续收敛记录](../项目现状.md#2026-10-23-规则管理入口与检查项模型收敛)。
+`TIME_TABLE_NO_UPDATE` 的检查项显示名修正为“表估算行数为零”，原编码、执行逻辑、已有规则实例名称与历史记录不变；它不能证明表为空或长期未更新。抽样型检查提示 100,000 行上限，数据新鲜度说明需要可读时间字段；未发现问题不等于全表无问题。上述变化不新增迁移或改变规则启用状态，历史范围字段的验证见[前轮记录](../archive/status/2026-10-24-项目状态历史.md#2026-10-23-质量规则与检查类型完善)，当前页面模型和人工验收边界见[后续收敛记录](../archive/status/2026-10-24-项目状态历史.md#2026-10-23-规则管理入口与检查项模型收敛)。
 
 ## 适用性、执行结果与业务判断
 
@@ -112,9 +128,9 @@
 
 治理总览从 Java 恢复最近可核验批次，单独显示快照记录评分、最近检查结果和待处理问题全量统计；问题预览不用于推算总数。质量规则页提供模板、维度、范围和启用/删除筛选，以及详情、修订历史、编辑、复制、启停、软删除和停用恢复。治理状态维护仍在独立入口。
 
-前端根据 IAM-SIMPLE-1 能力控制呈现；服务端最终授权。数据源规则写入要求该源 `governance:rule:manage`，改范围时同时核验原范围和目标范围；全局规则写入要求受保护系统管理员身份。权限不从旧角色或 JWT authorities 推导。变更修订保留真实操作人；通用操作审计继续记录请求操作。实现、定向检查与待人工视觉确认状态见[项目现状](../项目现状.md#2026-10-19-治理总览与质量规则管理改造)。
+前端根据 IAM-SIMPLE-1 能力控制呈现；服务端最终授权。数据源规则写入要求该源 `governance:rule:manage`，改范围时同时核验原范围和目标范围；全局规则写入要求受保护系统管理员身份。权限不从旧角色或 JWT authorities 推导。变更修订保留真实操作人；通用操作审计继续记录请求操作。实现、定向检查与待人工视觉确认状态见[项目现状](../archive/status/2026-10-24-项目状态历史.md#2026-10-19-治理总览与质量规则管理改造)。
 
-2026-10-20 问题中心布局：数据源/快照只从 AdminShell ScopeBar 读取；问题筛选不另行初始化范围或自动选择快照。显式 query 快照由公共上下文按 ID 验证和恢复，失败时不回落。列表总数取服务端分页 `total`；当前页 records 只用于绘制列表，不能推导全量严重程度或状态汇总。零记录、筛选无匹配、加载、读取失败、无权和未选范围分开显示。详情、责任人分派、批量部分成功、同表审核记录与返回发布流程仍按原 IAM-SIMPLE-1 能力控制。实现、定向回归及待人工确认范围见[项目现状](../项目现状.md#2026-10-20-问题中心布局与筛选)。
+2026-10-20 问题中心布局：数据源/快照只从 AdminShell ScopeBar 读取；问题筛选不另行初始化范围或自动选择快照。显式 query 快照由公共上下文按 ID 验证和恢复，失败时不回落。列表总数取服务端分页 `total`；当前页 records 只用于绘制列表，不能推导全量严重程度或状态汇总。零记录、筛选无匹配、加载、读取失败、无权和未选范围分开显示。详情、责任人分派、批量部分成功、同表审核记录与返回发布流程仍按原 IAM-SIMPLE-1 能力控制。实现、定向回归及待人工确认范围见[项目现状](../archive/status/2026-10-24-项目状态历史.md#2026-10-20-问题中心布局与筛选)。
 
 2026-10-20 问题处理一致性：分派只更新 assignee 与更新时间；状态流转使用 ID 和预期状态作为条件更新，受影响行数为 0 时返回冲突。`resolvedBy/resolvedAt/resolutionNote` 表示当前一次解决/驳回；进入 REOPENED 或 CONFIRMED 显式清空，再次解决/驳回写入本轮处理人、时间和备注，null 备注会落库清空。批量仍先整批做 IAM/归属校验，再逐条流转；无效状态和并发状态冲突按真实原因跳过。
 

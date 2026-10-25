@@ -126,7 +126,7 @@ def filter_chunk(
         or not isinstance(fact_type, str) or not fact_type
     ):
         return None
-    if not columns and fact_type not in {"TABLE_STRUCTURE", "TABLE_COMMENT"}:
+    if not columns and fact_type not in {"TABLE_STRUCTURE", "TABLE_COMMENT", "BUSINESS_TABLE", "BUSINESS_DATASOURCE", "BUSINESS_METRIC"}:
         return None
     allowed = resource_index(snapshot)
     normalized_tables = {str(table).lower() for table in tables}

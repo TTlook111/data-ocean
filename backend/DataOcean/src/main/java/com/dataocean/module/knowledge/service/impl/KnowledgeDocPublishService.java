@@ -70,6 +70,7 @@ public class KnowledgeDocPublishService {
 
     private final GlossaryKnowledgeSourceServiceImpl glossarySources;
     private final FieldSemanticService fieldSemanticService;
+    private final com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService businessKnowledgeService;
     private final KnowledgeDocMapper knowledgeDocMapper;
     private final KnowledgeDocVersionMapper knowledgeDocVersionMapper;
     private final PythonKnowledgeClient pythonKnowledgeClient;
@@ -131,6 +132,7 @@ public class KnowledgeDocPublishService {
         ownershipValidator.requireSnapshotOwnership(doc.getDatasourceId(), snapshotId);
 
         if (!DocStatus.DRAFT.name().equals(doc.getStatus())) throw new BusinessException(409, "只能在草稿中生成目录，请先建立草稿版本");
+        if (StringUtils.hasText(doc.getContent())) throw new BusinessException(409, "已有正文不会被重新生成覆盖，请按快照生成独立新草稿后对照修订");
         // 加载元数据
         List<Map<String, Object>> tablesMetadata = loadTablesMetadata(doc.getDatasourceId(), snapshotId);
         List<Map<String, Object>> foreignKeys = loadForeignKeys(doc.getDatasourceId(), snapshotId);
@@ -146,6 +148,7 @@ public class KnowledgeDocPublishService {
             validateDraftCoverage(result, tablesMetadata);
             validateFieldSemanticCoverage(doc.getDatasourceId(), snapshotId, draftContent,
                     generationInput.get("field_semantic_facts"));
+            validateBusinessCoverage(doc.getDatasourceId(),snapshotId,draftContent,generationInput.get("business_knowledge_facts"));
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -216,6 +219,7 @@ public class KnowledgeDocPublishService {
             validateDraftCoverage(result, tablesMetadata);
             validateFieldSemanticCoverage(datasourceId, snapshotId,
                     String.valueOf(result.getOrDefault("content", "")), generationInput.get("field_semantic_facts"));
+            validateBusinessCoverage(datasourceId,snapshotId,String.valueOf(result.getOrDefault("content","")),generationInput.get("business_knowledge_facts"));
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
@@ -229,10 +233,14 @@ public class KnowledgeDocPublishService {
                 .distinct().sorted().toList();
         String title = "数据源知识目录 · 快照 " + snapshotId;
         List<Map<String, Object>> createdDocs = transactionTemplate.execute(status -> {
+            List<Map<String, Object>> createdParts = new ArrayList<>();
+            for (var part : com.dataocean.module.knowledge.support.KnowledgeDocumentPartitioner.split(content)) {
+            String partContent = part.content();
+            String partTitle = title + " · " + part.title();
             KnowledgeDoc doc = KnowledgeDoc.builder()
                     .datasourceId(datasourceId)
-                    .title(title)
-                    .content(content)
+                    .title(partTitle)
+                    .content(partContent)
                     .currentVersion(1)
                     .status(DocStatus.DRAFT.name())
                     .tableNames(toJsonArray(tableNames))
@@ -250,7 +258,7 @@ public class KnowledgeDocPublishService {
                                     "warnings", resultWarnings(result), "glossaryInputs", generationInput.get("glossary_facts"),
                                     "fieldSemanticInputs", generationInput.get("field_semantic_facts"))))
                     .versionNo(1)
-                    .content(content)
+                    .content(partContent)
                     .generationSource(GenerationSource.SNAPSHOT_GENERATED.name())
                     .changeSummary("从同一元数据快照生成完整字段目录")
                     .createdBy(UserContext.currentUserId())
@@ -258,10 +266,12 @@ public class KnowledgeDocPublishService {
             knowledgeDocVersionMapper.insert(version);
             Map<String, Object> created = new HashMap<>();
             created.put("id", doc.getId());
-            created.put("title", title);
+            created.put("title", partTitle);
             created.put("tableNames", tableNames);
             created.put("snapshotId", snapshotId);
-            return List.of(created);
+            createdParts.add(created);
+            }
+            return createdParts;
         });
         log.info("完整快照知识目录生成成功 datasourceId={} snapshotId={}", datasourceId, snapshotId);
         return createdDocs == null ? List.of() : createdDocs;
@@ -281,6 +291,7 @@ public class KnowledgeDocPublishService {
         request.put("glossary_facts", input.get("glossaryFacts"));
         request.put("excluded_terms", input.get("excludedTerms"));
         request.put("field_semantic_facts", fieldSemanticService.knowledgeFacts(datasourceId, snapshotId));
+        request.put("business_knowledge_facts", businessKnowledgeService.facts(datasourceId, snapshotId));
         return request;
     }
 
@@ -323,6 +334,26 @@ public class KnowledgeDocPublishService {
     private String sourceKey(Object raw) {
         List<String> values = stringValues(raw);
         return values.size() == 4 ? String.join(":", values) : "";
+    }
+
+    private void validateBusinessCoverage(Long ds,Long snapshotId,String content,Object rawExpected){
+        var expected=new java.util.HashSet<String>();
+        if(rawExpected instanceof List<?> entries)for(Object entry:entries){
+            if(!(entry instanceof Map<?,?> fact))throw new BusinessException("业务知识输入清单无效");
+            var ids=stringValues(fact.get("sourceIds"));
+            if(ids.size()!=1||!expected.add(ids.get(0)))throw new BusinessException("业务知识输入来源重复或无效");
+        }
+        var actual=new java.util.HashSet<String>();var matcher=FIELD_FACT_MARKER.matcher(Objects.toString(content,""));
+        while(matcher.find()){
+            Map<String,Object> marker;
+            try{marker=JSON_MAPPER.readValue(matcher.group(1),new com.fasterxml.jackson.core.type.TypeReference<>(){});}
+            catch(Exception exception){throw new BusinessException("业务知识来源标记无效");}
+            if(!Objects.toString(marker.get("factType"),"").startsWith("BUSINESS_"))continue;
+            var ids=stringValues(marker.get("sourceIds"));
+            if(ids.size()!=1||!actual.add(ids.get(0))||!expected.contains(ids.get(0)))throw new BusinessException("业务知识来源重复或额外引用");
+            businessKnowledgeService.validateFact(ds,snapshotId,marker,KnowledgeSnapshotFactValidator.factUnit(content,matcher.end()));
+        }
+        if(!actual.equals(expected))throw new BusinessException(409,"生成文档遗漏已确认的业务知识，请重新生成");
     }
 
     private List<String> stringValues(Object raw) {
@@ -416,7 +447,6 @@ public class KnowledgeDocPublishService {
                 colMap.put("column_comment", col.getColumnComment());
                 colMap.put("is_primary_key", col.getIsPrimaryKey() != null && col.getIsPrimaryKey() == 1);
                 colMap.put("ordinal_position", col.getOrdinalPosition());
-                colMap.put("confidence_score", col.getConfidenceScore());
                 colMap.put("governance_status", col.getGovernanceStatus());
                 colMap.put("tags", tagsByColumn.getOrDefault(col.getId(), List.of()));
                 colMap.put("is_indexed", indexedColumns.contains(col.getColumnName()));
@@ -507,7 +537,7 @@ public class KnowledgeDocPublishService {
             fk.put("confidence", rel.getConfidence());
             String reviewStatus = rel.getReviewStatus();
             if (reviewStatus == null || reviewStatus.isBlank()) {
-                reviewStatus = TableRelation.TYPE_FK.equals(rel.getRelationType()) ? "APPROVED" : "PENDING";
+                reviewStatus = "PENDING";
             }
             fk.put("review_status", reviewStatus);
             foreignKeys.add(fk);

@@ -1,15 +1,24 @@
 # 历史材料索引
 
-> 文档类型：历史资料入口；整理日期：2026-10-17。保留仍有参考价值的设计、审查依据和验收时间线，不表示重新认可旧方案。
+> 状态：历史回溯入口；整理日期：2026-10-24。本目录退出默认现行资料范围，所有正文已标注历史参考或废弃执行方案。不能据此恢复旧实现、进度或临时操作授权。
 
 先读[文档导航的冲突规则](../README.md#方案冲突怎么判断)。正文中的“唯一执行文档”“立即实施”、旧阶段状态及临时授权均只属于原记录时点。用户明确纠正的部分不得重新实施。
+
+## 本轮退出当前导航的材料
+
+| 材料 | 状态与现行替代 |
+| --- | --- |
+| [旧项目状态流水](status/2026-10-24-项目状态历史.md)、[旧开发队列](status/2026-10-24-开发队列历史.md) | 历史快照；当前只读[项目现状](../项目现状.md)和[后续开发](../development/后续开发.md) |
+| [字段语义旧实施方案](plans/completed/质量规则与平台内字段语义治理方案.md) | 已实施历史设计；当前以[治理模块](../modules/004-metadata-governance.md)为准 |
+| [目录旧实施方案](plans/completed/数据对象目录与详情完善方案.md) | 已实施历史设计；当前以[资产模块](../modules/003-metadata-collection.md)为准 |
+| [术语旧实施方案](plans/completed/业务术语与语义知识改造方案.md) | 已实施历史设计；当前以[知识模块](../modules/006-knowledge.md)为准 |
+| [原治理红队审查](reviews/2026-10-24-治理闭环红队审查与最终方案.md) | 历史审查及当时修正思路；有效要求已承接到[产品目标](../development/字段语义治理与问数反馈闭环改造目标.md#91-工程验收底线)，实际修复见[带日期证据](../acceptance/治理闭环TDD实施记录.md#2026-10-24-红队补强) |
 
 ## 按主题查找
 
 | 历史材料 | 如何使用 | 当前入口 |
 | --- | --- | --- |
-| [统一执行路线图](plans/DataOcean统一执行路线图.md)、[项目优化指导](plans/DataOcean项目优化指导文档.md) | 历史路线已完成；旧 RBAC/Policy 与旧 Agent 不再适用 | [IAM](../modules/007-iam-s1.md)、[问数](../modules/008-query-memory.md) |
-| [完整权限设计](plans/DataOcean-完整权限体系设计.md)、[鉴权接入设计](plans/DataOcean-IAM-SIMPLE-1鉴权接入设计.md) | 简明 S1 模型与若干约束仍有效；“B1 未开始”等进度不是现状 | [IAM](../modules/007-iam-s1.md) |
+| [完整权限设计](plans/DataOcean-完整权限体系设计.md)、[鉴权接入设计](plans/DataOcean-IAM-SIMPLE-1鉴权接入设计.md) | 废弃执行方案，仅查引入背景；当前权限合同不从旧阶段推断 | [IAM](../modules/007-iam-s1.md) |
 | [B0 冻结](plans/轨道B-B0权限清单与决策冻结.md)、[B6 记录](plans/轨道B-B6删除清单与执行顺序.md) | 查冻结对象、保留对象与历史删除；不当作其他环境删除授权 | [IAM](../modules/007-iam-s1.md)、[待办](../development/后续开发.md) |
 | [B5 切换与回退](plans/DataOcean-IAM-S1-B5切换与回退手册.md) | 原版本/机器/准备轮适用；跨环境重新核对和授权 | [开发指南](../development/本地开发与验证.md) |
 | [LangGraph 与会话方案](plans/DataOcean-LangGraph问数与会话记忆恢复方案.md) | 保留已确认设计依据与执行历史；不重开阶段 | [问数](../modules/008-query-memory.md)、[知识](../modules/006-knowledge.md)、[RAG](../modules/009-schema-rag.md) |
@@ -19,8 +28,7 @@
 
 ## 其他历史资料
 
-- [深度优化参考](plans/DataOcean深度优化参考方案.md)、[代码优化](plans/代码优化方案.md)、[优化审查](plans/代码优化方案审查报告.md)、[修复清单](plans/代码审查修复清单.md)。
-- [旧 SQL generator 改造](plans/sql-generator-agent化改造方案.md)、[血缘研究](plans/data-lineage-research.md)。
+- [血缘研究](plans/data-lineage-research.md)。
 - [早期项目构想](nl2sql-单库多表版-项目构想.md)、[面试材料](interview/DataOcean-飞致云面试讲稿.md)。
 - [2026-06-21 审查与复核](reviews/2026-06-21-代码审查报告.md)、[2026-08-21 审查](reviews/2026-08-21-Phase1-代码审查报告.md)。
 

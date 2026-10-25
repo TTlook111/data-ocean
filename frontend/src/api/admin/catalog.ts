@@ -227,16 +227,6 @@ export async function getEntityDetail(entityId: number) {
   return data
 }
 
-export async function getEntityTags(entityId: number) {
-  const { data } = await http.get<ApiResult<MetadataEntityItem[]>>(`/api/admin/catalog/entities/${entityId}/tags`)
-  return data
-}
-
-export async function confirmEntityTag(entityId: number, tagFqn: string) {
-  const { data } = await http.post<ApiResult<null>>(`/api/admin/catalog/entities/${entityId}/confirm-tag`, { tagFqn })
-  return data
-}
-
 export async function unconfirmEntityTag(entityId: number, tagFqn: string) {
   const { data } = await http.delete<ApiResult<null>>(`/api/admin/catalog/entities/${entityId}/unconfirm-tag/${encodeURIComponent(tagFqn)}`)
   return data
@@ -250,14 +240,6 @@ export async function unconfirmEntityTag(entityId: number, tagFqn: string) {
  * 此处保留一个转发，避免调用方再各自拼 URL。
  */
 export { listEntityLineage as getEntityLineage } from './lineageApi'
-
-/** 获取实体下游影响 */
-export async function getEntityDownstream(entityId: number, maxDepth = 10) {
-  const { data } = await http.get<ApiResult<MetadataRelationshipItem[]>>(`/api/admin/catalog/entities/${entityId}/downstream`, {
-    params: { maxDepth },
-  })
-  return data
-}
 
 /** 按数据源获取所有实体 */
 export async function getEntitiesByDatasource(datasourceId: number) {

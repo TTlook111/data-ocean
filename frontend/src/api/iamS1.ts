@@ -432,11 +432,6 @@ export async function listIamS1Roles(keyword?: string) {
   return data
 }
 
-export async function listIamS1RoleMembers(roleId: number) {
-  const { data } = await http.get<ApiResult<IamS1UserRoleBinding[]>>(`${BASE}/roles/${roleId}/members`)
-  return data
-}
-
 export async function createIamS1Role(payload: IamS1RoleSavePayload) {
   const { data } = await http.post<ApiResult<number>>(`${BASE}/roles`, payload)
   return data
@@ -489,14 +484,6 @@ export async function bindIamS1Datasources(userRoleId: number, datasourceIds: nu
   return data
 }
 
-export async function removeIamS1Datasource(userRoleId: number, datasourceId: number, reason?: string) {
-  const { data } = await http.delete<ApiResult<void>>(
-    `${BASE}/user-roles/${userRoleId}/datasources/${datasourceId}`,
-    { params: { reason } },
-  )
-  return data
-}
-
 // ---------------------------------------------------------------------------
 // 资源选项
 // ---------------------------------------------------------------------------
@@ -539,11 +526,6 @@ export async function listIamS1DataGrants(params: {
 
 export async function createIamS1DataGrant(payload: IamS1DataGrantPayload) {
   const { data } = await http.post<ApiResult<number>>(`${BASE}/data-grants`, payload)
-  return data
-}
-
-export async function updateIamS1DataGrant(grantId: number, payload: IamS1DataGrantPayload) {
-  const { data } = await http.put<ApiResult<void>>(`${BASE}/data-grants/${grantId}`, payload)
   return data
 }
 
@@ -658,9 +640,6 @@ export async function reviewIamS1AccessRequest(requestId: number, payload: IamS1
  * 缺失时直接以“字段 usage 缺失”拒绝提交。两侧口径必须同步修改。
  */
 export const IAM_S1_DEFAULT_QUERY_USAGES = ['PROJECTION', 'FILTER', 'JOIN'] as const
-/** 排序、分组、聚合与子查询位置；B3 暂缓在 AST 层强制，默认不声明，由调用方显式选择。 */
-export const IAM_S1_EXTENDED_QUERY_USAGES = ['ORDER', 'GROUP', 'HAVING', 'FUNCTION', 'SUBQUERY'] as const
-
 export type IamS1ColumnUsage =
   | 'PROJECTION'
   | 'FILTER'
@@ -801,21 +780,6 @@ export async function iamS1ResumeTask(taskId: string) {
   return data
 }
 
-export async function iamS1QueryHistory(params: Record<string, unknown> = {}) {
-  const { data } = await http.get<ApiResult<PageResult<IamS1QueryTaskResult>>>(
-    `${BASE}/query/history`,
-    { params },
-  )
-  return data
-}
-
-export async function iamS1ExportRows(taskId: string) {
-  const { data } = await http.get<ApiResult<Record<string, unknown>[]>>(
-    `${BASE}/query/tasks/${taskId}/export`,
-  )
-  return data
-}
-
 export async function iamS1ExportCsv(taskId: string) {
   const { data } = await http.get<Blob>(`${BASE}/query/tasks/${taskId}/export.csv`, {
     responseType: 'blob',
@@ -823,9 +787,12 @@ export async function iamS1ExportCsv(taskId: string) {
   return data
 }
 
-export async function iamS1SubmitFeedback(taskId: string, feedbackType: 'LIKE' | 'DISLIKE') {
-  const { data } = await http.post<ApiResult<void>>(`${BASE}/query/tasks/${taskId}/feedback`, {
+export interface IamS1QueryFeedback { status:string;feedbackType?:string;followupStatus?:string }
+export async function iamS1OwnFeedback(taskId:string){const {data}=await http.get<ApiResult<IamS1QueryFeedback>>(`${BASE}/query/tasks/${taskId}/feedback`);return data}
+export async function iamS1SubmitFeedback(taskId: string, feedbackType: 'LIKE' | 'DISLIKE', details?:{reasonCode?:string;comment?:string;columnMetaId?:number}) {
+  const { data } = await http.post<ApiResult<IamS1QueryFeedback>>(`${BASE}/query/tasks/${taskId}/feedback`, {
     feedbackType,
+    ...details,
   })
   return data
 }

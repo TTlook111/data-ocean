@@ -902,8 +902,8 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="quality-rules-page post-login-page governance-workspace governance-surface">
-    <TaskPageHeader title="质量规则" description="为当前数据源配置检查对象和异常条件。全局默认可由更具体的本源规则覆盖；检查覆盖与执行记录在详情中查看。">
-      <template #actions><el-button type="primary" :icon="Plus" :disabled="!canConfigureRule || templatesLoading" @click="createRule">新增规则</el-button></template>
+    <TaskPageHeader title="质量规则" eyebrow="来源质量" description="配置原始结构和只读数据的质量检查。业务用途、表关系、字段解释及标签缺口在知识治理任务中处理；两类问题分别保留证据。">
+      <template #actions><el-button :disabled="!context.snapshotId || !iamS1.canOnDatasource('governance:field:view',context.datasourceId)" @click="router.push({path:'/admin/governance/fields',query:{tab:'tasks',datasourceId:context.datasourceId,snapshotId:context.snapshotId}})">知识治理检查</el-button><el-button type="primary" :icon="Plus" :disabled="!canConfigureRule || templatesLoading" @click="createRule">新增规则</el-button></template>
     </TaskPageHeader>
     <ErrorState v-if="pageError" :message="pageError" @retry="loadPage" />
     <section v-else class="quality-rules-page__workspace">

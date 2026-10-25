@@ -34,6 +34,23 @@ import static org.mockito.Mockito.when;
  * 校验必须发生在**任何读取与外部调用之前**。</p>
  */
 class KnowledgeDocPublishServiceOwnershipTest {
+    @Test void generatedSetCannotSilentlyOmitReviewedBusinessKnowledge() {
+        Fixture fixture=new Fixture();fixture.snapshot(8L,5L);
+        when(fixture.sources.inputs(5L,8L)).thenReturn(java.util.Map.of("glossaryFacts",java.util.List.of(),"excludedTerms",java.util.List.of()));
+        when(fixture.business.facts(5L,8L)).thenReturn(java.util.List.of(java.util.Map.of("sourceIds",java.util.List.of(991L))));
+        when(fixture.pythonKnowledgeClient.generateSnapshotDraft(any())).thenReturn(java.util.Map.of("content","目录","coverage",java.util.Map.of(
+                "snapshotId",8L,"tableIds",java.util.List.of(),"columnIds",java.util.List.of(),"tableCoverage",1.0,"columnCoverage",1.0)));
+        assertThatThrownBy(()->fixture.service.batchGenerateFromSnapshot(5L,8L)).isInstanceOf(BusinessException.class).hasMessageContaining("业务知识");
+    }
+    @Test void regenerationNeverOverwritesExistingManualContent() {
+        Fixture fixture=new Fixture();fixture.snapshot(8L,5L);
+        var doc=com.dataocean.module.knowledge.entity.po.KnowledgeDoc.builder().id(11L).datasourceId(5L)
+                .content("人工补充的业务说明").status("DRAFT").currentVersion(1).build();
+        when(fixture.helper.requireDoc(11L)).thenReturn(doc);
+        assertThatThrownBy(()->fixture.service.generateDraft(11L,8L)).isInstanceOf(BusinessException.class).hasMessageContaining("独立新草稿");
+        verify(fixture.pythonKnowledgeClient,never()).generateSnapshotDraft(any());
+        verify(fixture.docMapper,never()).updateById(any(com.dataocean.module.knowledge.entity.po.KnowledgeDoc.class));
+    }
 
     @Test
     void rejectsWhenTheSnapshotBelongsToAnotherDatasourceWithoutCallingPython() {
@@ -47,8 +64,7 @@ class KnowledgeDocPublishServiceOwnershipTest {
 
         // 零元数据读取、零 Python 调用、零文档写入
         verify(fixture.tableMetaMapper, never()).selectList(any());
-        verify(fixture.pythonKnowledgeClient, never()).analyzeAndGenerate(
-                anyLong(), anyLong(), any(), any(), any(), any());
+        org.mockito.Mockito.verifyNoInteractions(fixture.pythonKnowledgeClient);
     }
 
     @Test
@@ -108,8 +124,7 @@ class KnowledgeDocPublishServiceOwnershipTest {
 
         // 零元数据读取、零 Python 调用、零版本写入
         verify(fixture.tableMetaMapper, never()).selectList(any());
-        verify(fixture.pythonKnowledgeClient, never()).generateDraft(
-                anyLong(), anyLong(), any(), any(), any(), any());
+        org.mockito.Mockito.verifyNoInteractions(fixture.pythonKnowledgeClient);
     }
 
     private static final class Fixture {
@@ -125,11 +140,13 @@ class KnowledgeDocPublishServiceOwnershipTest {
         private final com.dataocean.module.fieldsemantic.service.FieldSemanticService fieldSemanticService =
                 mock(com.dataocean.module.fieldsemantic.service.FieldSemanticService.class);
         private final KnowledgeDocPublishService service;
+        private final com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService business=mock(com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService.class);
 
         Fixture() {
             service = new KnowledgeDocPublishService(
                     sources,
                     fieldSemanticService,
+                    business,
                     docMapper,
                     mock(KnowledgeDocVersionMapper.class),
                     pythonKnowledgeClient,

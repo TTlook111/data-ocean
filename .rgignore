@@ -1,0 +1,6 @@
+# 默认代码/现行文档搜索不混入历史方案、阶段规格、验收流水或旧 SQL 夹具。
+# 需要追溯时显式读取已知路径，或使用 rg --no-ignore <pattern> <历史目录>。
+/docs/archive/
+/specs/
+/docs/acceptance/
+/docs/review/fixtures/

@@ -32,15 +32,7 @@ export interface ConfidenceVO {
   lastUpdated: string
 }
 
-export interface ConfidenceEventVO {
-  id: number
-  deltaScore: number
-  eventType: string
-  sourceQueryId?: number
-  operatorId?: number
-  operatorName?: string
-  createdAt: string
-}
+
 
 export interface ConfidenceTrendPoint {
   time: string
@@ -66,28 +58,13 @@ export interface FeedbackVO {
 
 // ==================== 字段标签 API ====================
 
-export async function addFieldTag(payload: { columnMetaId: number; tagCode: string }) {
-  const { data } = await http.post<ApiResult<FieldTagVO>>('/api/field-tags', payload)
-  return data
-}
-
 export async function batchAddFieldTags(payload: { columnMetaIds: number[]; tagCode: string }) {
   const { data } = await http.post<ApiResult<{ tagged: number }>>('/api/field-tags/batch', payload)
   return data
 }
 
-export async function removeFieldTag(id: number) {
-  const { data } = await http.delete<ApiResult<null>>(`/api/field-tags/${id}`)
-  return data
-}
-
 export async function getFieldTags(columnMetaId: number) {
   const { data } = await http.get<ApiResult<FieldTagVO[]>>(`/api/field-tags/column/${columnMetaId}`)
-  return data
-}
-
-export async function getColumnsByTag(tagCode: string) {
-  const { data } = await http.get<ApiResult<number[]>>(`/api/field-tags/by-tag/${tagCode}`)
   return data
 }
 
@@ -108,25 +85,8 @@ export async function pageConfidence(params: {
   return data
 }
 
-export async function getFieldConfidence(columnMetaId: number) {
-  const { data } = await http.get<ApiResult<ConfidenceVO>>(`/api/field-confidence/${columnMetaId}`)
-  return data
-}
-
-export async function batchGetConfidence(columnMetaIds: number[]) {
-  const { data } = await http.get<ApiResult<ConfidenceVO[]>>('/api/field-confidence/batch', {
-    params: { columnMetaIds: columnMetaIds.join(',') }
-  })
-  return data
-}
-
 export async function adminSetConfidence(columnMetaId: number, payload: { score: number; reason?: string }) {
   const { data } = await http.put<ApiResult<ConfidenceVO>>(`/api/field-confidence/${columnMetaId}`, payload)
-  return data
-}
-
-export async function getConfidenceEvents(columnMetaId: number) {
-  const { data } = await http.get<ApiResult<ConfidenceEventVO[]>>(`/api/field-confidence/${columnMetaId}/events`)
   return data
 }
 
@@ -134,19 +94,6 @@ export async function getConfidenceTrend(fieldId: number, days = 30) {
   const { data } = await http.get<ApiResult<ConfidenceTrendPoint[]>>(`/api/admin/fields/${fieldId}/confidence-trend`, {
     params: { days }
   })
-  return data
-}
-
-// ==================== 用户反馈 API ====================
-
-export async function submitFeedback(payload: {
-  queryTaskId: number
-  columnMetaId: number
-  feedbackType: string
-  reasonCode?: string
-  comment?: string
-}) {
-  const { data } = await http.post<ApiResult<FeedbackVO>>('/api/feedback', payload)
   return data
 }
 
@@ -168,15 +115,6 @@ export async function rejectFeedback(feedbackId: number, reviewComment?: string)
 }
 
 // ==================== 批量操作 API ====================
-
-export async function importFieldTags(file: File) {
-  const formData = new FormData()
-  formData.append('file', file)
-  const { data } = await http.post<ApiResult<{ success: number; failed: number }>>('/api/admin/fields/import-tags', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
-  return data
-}
 
 export async function autoTagByPattern(datasourceId: number) {
   const { data } = await http.post<ApiResult<{ tagged: number; skipped: number }>>('/api/admin/fields/auto-tag', null, {
