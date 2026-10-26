@@ -82,7 +82,7 @@ V65 新增不可变审核快照、意见和 AI 候选持久化。历史术语不
 | [KnowledgeSnapshotFactValidator](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/support/KnowledgeSnapshotFactValidator.java) | 快照事实校验 |
 | [KnowledgeView](../../frontend/src/views/admin/semantics/KnowledgeView.vue)、[KnowledgeDocView](../../frontend/src/views/admin/semantics/KnowledgeDocView.vue) | 语义知识工作区与详情 |
 
-审核理由、来源快照、版本、切分预览与历史向量任务有独立读取入口，具体以 Controller 为准。旧 `KnowledgeDocServiceImpl`已拆分；其原路径与行数不能继续用于定位。
+审核理由、来源快照、版本、切分预览与历史向量任务的读取入口以 KnowledgeDocController 为准，实现按上表职责分拆。
 
 ## 构建与验证入口
 

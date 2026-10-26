@@ -10,7 +10,7 @@
 | 部门树与部门维护 | [DepartmentServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/user/service/impl/DepartmentServiceImpl.java)：`tree`、`createDepartment`、`updateDepartment`、`deleteDepartment` | 组织变更与权限修订。 |
 | 验证码生成和验证 | [CaptchaServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/user/service/impl/CaptchaServiceImpl.java)：`generate`、`verify` | 验证码生命周期与登录校验。 |
 
-页面入口为 UserList.vue、DepartmentTree.vue；验证码界面在 LoginView.vue。角色分配继续进入[IAM 配置](iam/功能与数据授权.md)。验证码没有在本轮定位到专用测试，不把认证测试等同于验证码完整覆盖。
+正式入口为 `/admin/access/iam-organization`，由 IamS1OrganizationView.vue 组合 UserList.vue、DepartmentTree.vue；验证码在 LoginView.vue。角色分配见[IAM 配置](iam/功能与数据授权.md)。本轮未定位到验证码专用测试。
 
 验证入口：[UserServiceImplS1GuardTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/user/service/impl/UserServiceImplS1GuardTest.java)（用户管理边界）、[DepartmentServiceImplS1RevisionTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/user/service/impl/DepartmentServiceImplS1RevisionTest.java)（部门与 S1 修订）。本轮仅核对入口，未执行这些业务测试。
 

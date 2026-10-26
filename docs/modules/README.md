@@ -93,21 +93,6 @@ modules/
 
 ## 模块边界索引
 
-| 要修改的领域 | 当前说明 | 重点边界 |
-| --- | --- | --- |
-| Java 对象分层、公共分页与排序 | [Java 对象目录与分页查询](../技术栈与模块职责.md#java-对象目录与分页查询) | PO/DTO/Query/VO 分工，业务查询继承 PageQuery，排序使用白名单 |
-| 登录、用户、部门、令牌失效 | [001 用户与认证](001-user.md) | 认证身份不携带旧权限判决 |
-| 数据源与 readiness | [002 数据源](002-datasource.md) | 管理范围、可查数据和生命周期就绪分开 |
-| 采集、目录、实体关系 | [003 元数据采集](003-metadata-collection.md) | 新快照不自动成为查询事实 |
-| 质量规则、SOURCE/SEMANTIC 问题域、字段解释复查与可信度 | [004 元数据治理](004-metadata-governance.md) | 独立语义批次；SOURCE 分数/发布门禁不受 SEMANTIC 污染；版本与当前权限约束 |
-| 快照审核、发布、版本列表与比较 | [005 版本与审核](005-metadata-versioning.md) | 状态机与版本事实，详情/操作记录复用真实接口 |
-| 业务术语、独立字段语义、知识事实与审核发布 | [006 业务术语与知识文档](006-knowledge.md) | 精确 revision/review/binding；文档发布与显式 RAG build 分离 |
-| 功能、数据、负责源与审批 | [007 IAM-SIMPLE-1](007-iam-s1.md) | 新事实、同绑定、逐次授权 |
-| 任务、图编排、会话与失败分类 | [008 S1 问数与记忆](008-query-memory.md) | Java 持久化与保护，Python 有界执行 |
-| 切分、向量构建、检索与清理 | [009 Schema RAG](009-schema-rag.md) | 快照/版本/buildId/IAM 绑定；[治理变更适配问题](../development/RAG与问数治理适配问题.md) |
-| AI 配置、通知、操作日志、工作台与告警配置 | [010 平台与运营](010-platform-operations.md) | 配置保存、索引生效和运行验证分开 |
-| 查询审计、慢查询、实体关系与查询血缘 | [011 审计与血缘](011-audit-lineage.md) | 审计写入不等于血缘接通；按实际关系来源选择入口 |
+模块职责与约束见上方「模块与边界」列；功能专题只展开实现定位。公共对象、分页与排序见[架构说明](../技术栈与模块职责.md#java-对象目录与分页查询)，接口字段以当前 Controller、schema 和前端 API 为准。
 
-分类标签与来源可信度见[治理定位](004-metadata-governance.md#配套功能定位)；Prompt 的合同与方法入口继续集中在[架构说明](../技术栈与模块职责.md#prompt-管理范围)；系统、通知与工作台见[平台模块](010-platform-operations.md)，查询审计与血缘见[审计模块](011-audit-lineage.md)。
-
-模块先给职责和主流程，再读实现与代码。接口清单和 DTO 以当前 Controller、schema 与 API 模块为准；不从[历史 specs](../../specs/README.md)直接恢复旧接口。
+运行方法统一见[本地开发与验证](../development/本地开发与验证.md)，实际结果见[验收索引](../acceptance/README.md)。代码导航不是运行验收；旧规格仅从[适用性索引](../../specs/README.md)回溯。

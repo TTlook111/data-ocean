@@ -56,7 +56,7 @@ Java 从选定数据源采集表、字段、索引、关系与统计，形成独
 | [CollectionsView](../../frontend/src/views/admin/metadata/CollectionsView.vue)、[AssetsView](../../frontend/src/views/admin/assets/AssetsView.vue) | 正式采集与资产工作区 |
 | [metadata API](../../frontend/src/api/admin/metadata.ts)、[catalog API](../../frontend/src/api/admin/catalog.ts) | 前端接线 |
 
-旧独立 SnapshotList/TableExplorer 等页面路径不作为当前入口。字段采样由 V45、实体关系由 V37 等历史迁移引入；完整数据结构以[迁移目录](../../backend/DataOcean/src/main/resources/db/migration)为准。
+正式入口为 CollectionsView 与 AssetsView，TableExplorer.vue 由 AssetsView 内嵌使用，不是独立路由。数据结构以[迁移目录](../../backend/DataOcean/src/main/resources/db/migration)为准。
 
 ## 修改与验证
 

@@ -16,8 +16,6 @@
 | AI 候选与确认 | [KnowledgeSemanticServiceImpl.java](../../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeSemanticServiceImpl.java)：`generate`、`confirm`、`validate`、`membershipValid` | 生成不直接覆盖正文；人工确认后仍需审核发布。 |
 | 字段解释进入知识 | [FieldSemanticServiceImpl.java](../../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticServiceImpl.java)：`knowledgeFacts`、`validateKnowledgeFact`、`membershipValid` | 精确修订与当前来源资格。 |
 
-打开文件后搜索表中的方法或函数名；不维护易漂移的固定行号。
-
 ## 实现链路
 
 已审核术语作为生成输入；KnowledgeSemanticServiceImpl.generate 产生候选，confirm 采纳为文档修订。发布及新查询 membership 继续验证来源。
@@ -33,6 +31,3 @@
 - [FieldSemanticServicePersistenceTest.java](../../../backend/DataOcean/src/test/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticServicePersistenceTest.java)：字段语义持久化。
 
 核对重复采纳、过期候选、来源变更、完整依赖和人工内容保护；真实模型生成质量另行验收。
-
-运行方式见[本地开发与验证](../../development/本地开发与验证.md)，已有运行结论见[验收索引](../../acceptance/README.md)。
-

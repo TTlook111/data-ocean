@@ -64,7 +64,7 @@ PUBLISHED → APPROVED（撤回分支）
 | [ReleasesView](../../frontend/src/views/admin/releases/ReleasesView.vue)、[ReleaseGatePanel](../../frontend/src/components/admin/ReleaseGatePanel.vue) | 正式版本发布工作区与门禁清单 |
 | [versioning API](../../frontend/src/api/admin/versioning.ts) | 版本、审核与门禁请求 |
 
-数据源 version-history/published-snapshot/audit-logs 等具体接口以 Controller 为准；旧独立 SnapshotLifecycle/VersionHistory 页面不再是正式导航入口。
+数据源 version-history/published-snapshot/audit-logs 等接口以 Controller 为准；页面从 ReleasesView 进入。
 
 ## 页面数据语义
 

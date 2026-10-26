@@ -18,8 +18,6 @@
 | 受管策略的实际解析 | [graph.py](../../../python-service/dataocean/iam_s1/graph.py)：`_budgeted_llm`；[scenes.py](../../../python-service/dataocean/prompt/scenes.py)：`resolve_scene` | SQL 节点先用 managed=False 渲染基础输入，再由统一预算调用解析场景策略。 |
 | 授权、执行与结果保护 | [graph.py](../../../python-service/dataocean/iam_s1/graph.py)：`_authorize_execute_protect_node` | 保持逐次授权和受保护结果合同。 |
 
-打开文件后搜索表中的方法或函数名；不维护易漂移的固定行号。
-
 ## 实现链路
 
 _graph 装配 retrieve → plan → generate_sql → semantic_check → authorize_execute_protect → verify_result；条件边可返回检索或生成，不能将其当作无条件线性流水线。
@@ -36,6 +34,3 @@ _graph 装配 retrieve → plan → generate_sql → semantic_check → authoriz
 - [test_iam_s1_security.py](../../../python-service/tests/test_iam_s1_security.py)：SQL 安全边界。
 
 真实业务问题的准确率与生成延迟需另做模型验收，不能从单测推断。
-
-运行方式见[本地开发与验证](../../development/本地开发与验证.md)，已有运行结论见[验收索引](../../acceptance/README.md)。
-
