@@ -2,6 +2,30 @@
 
 > 状态：现行模块说明；整理日期：2026-10-24。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
+## 配套功能定位
+
+| 修改意图 | 文件与定位符号 | 关联影响 |
+| --- | --- | --- |
+| 数据源增删改、启停与保存后连接测试 | [DatasourceServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/service/impl/DatasourceServiceImpl.java)：`createDatasource`、`updateDatasource`、`deleteDatasource`、`updateStatus`、`testSavedConnection` | 管理范围、连接变更与生命周期。 |
+| 连接测试实现 | [DatasourceConnectionServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/service/impl/DatasourceConnectionServiceImpl.java)：`testConnection` | 真实业务源必须使用只读账号。 |
+| 密码加解密 | [DatasourceSecretServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/service/impl/DatasourceSecretServiceImpl.java)：`encrypt`、`decrypt` | AES-256 与秘密信息边界。 |
+
+DataSourcesView/DataSourceDetailView → datasource API → DatasourceAdminController → 服务。秘密信息测试不验证真实连通性；连接测试成功也不证明快照、知识、build 和权限已就绪。
+
+验证入口：[DatasourceSecretServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/datasource/service/impl/DatasourceSecretServiceImplTest.java)（加密实现）。本轮仅核对入口，未执行这些业务测试。
+
+## 修改定位
+
+先按修改意图定位符号，再阅读下方行为约束。源码定位核对日期：2026-10-26；不代表运行验收。
+
+| 修改意图 | 文件与定位符号 | 关联影响 |
+| --- | --- | --- |
+| 后台、业务与批量就绪判断 | [DatasourceReadinessServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/service/impl/DatasourceReadinessServiceImpl.java)：`getAdminReadiness`、`getCurrentUserReadiness`、`getBatchAdminReadiness` | 管理范围、可查范围和生命周期分别判断。 |
+
+后台 DatasourceAdminController 和业务 IamS1UserResourceController 是不同入口。修改阻断条件时同时检查快照发布门禁与活动 build。
+
+验证入口：[DatasourceReadinessServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/datasource/service/impl/DatasourceReadinessServiceImplTest.java)（就绪条件）。本次只核对测试入口，修改实现后按[开发指南](../development/本地开发与验证.md)运行相关测试，再按影响范围补充接口或页面验证。
+
 ## 概览与边界
 
 负责单个 MySQL 数据源的连接信息、启停、连接测试、健康检查和准备条件。密码以 AES-256 加密保存。每次问数选择一个源，同库多表；不做跨库 SQL。

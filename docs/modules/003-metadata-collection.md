@@ -2,6 +2,30 @@
 
 > 状态：现行模块说明；整理日期：2026-10-25。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
+## 配套功能定位
+
+关系图谱、影响分析和查询血缘的代码区别见[审计与血缘](011-audit-lineage.md)。
+
+| 修改意图 | 文件与定位符号 | 关联影响 |
+| --- | --- | --- |
+| 自动采集计划 | [SyncScheduleController.java](../../backend/DataOcean/src/main/java/com/dataocean/module/system/controller/SyncScheduleController.java)：`getSchedule`、`updateSchedule` | 全局计划，不是单数据源计划；更新后刷新调度器。 |
+
+SyncSchedule.vue → SyncScheduleController → sys_config → AutoSyncScheduler。修改计划影响全部启用数据源，更新同时要求受保护 S1 系统管理员；运行方法见开发指南。已有 [Batch6ControllerAuthorizationTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/permission/s1/aspect/Batch6ControllerAuthorizationTest.java) 的 `globalScheduleWriteIsRejectedForNonSystemAdmin` 覆盖非系统管理员拒绝写入；它不覆盖非法 cron、关闭及刷新调度，后者仍需补核。血缘图谱入口见[查询审计与血缘](011-audit-lineage.md#实体血缘与图谱)。
+
+## 修改定位
+
+先按修改意图定位符号，再阅读下方行为约束。源码定位核对日期：2026-10-26；不代表运行验收。
+
+| 修改意图 | 文件与定位符号 | 关联影响 |
+| --- | --- | --- |
+| 触发采集与读取快照详情 | [MetadataCollectionController.java](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/controller/MetadataCollectionController.java)：`triggerSync`、`getSnapshotDetail`、`diffSnapshots` | API 归属检查与返回结构。 |
+| 采集编排 | [SchemaCollectionServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/service/impl/SchemaCollectionServiceImpl.java)：`executeFullSync`、`executeScheduledFullSync`、`doSyncAsync` | 手动/定时入口、异步任务与快照。 |
+| 对象目录概览 | [CatalogOverviewServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/metadata/service/impl/CatalogOverviewServiceImpl.java)：`overview` | 实体范围和详情汇总。 |
+
+triggerSync → executeFullSync → 异步采集。目录测试不覆盖采集器：修改采集还需补核对应采集器的标识符、空值、只读访问和失败传播，不能据目录测试认定采集通过。
+
+验证入口：[CatalogOverviewServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/metadata/service/impl/CatalogOverviewServiceImplTest.java)（目录概览）。本次只核对测试入口，修改实现后按[开发指南](../development/本地开发与验证.md)运行相关测试，再按影响范围补充接口或页面验证。
+
 ## 概览与主流程
 
 Java 从选定数据源采集表、字段、索引、关系与统计，形成独立元数据快照，并提供差异、资产目录和实体关系。采集完成不等于已审核发布，也不自动激活 RAG。

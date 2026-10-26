@@ -2,6 +2,34 @@
 
 > 状态：现行模块说明；整理日期：2026-10-25。实现与契约在本文维护，迁移/运行/验收结论只从[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)读取。
 
+## 配套功能定位
+
+复杂流程继续读：[治理任务与业务知识](governance/治理任务与业务知识.md)、[反馈归因与使用档案](governance/反馈归因与使用档案.md)。
+
+| 修改意图 | 文件与定位符号 | 关联影响 |
+| --- | --- | --- |
+| 质量规则分页、修订、复制与恢复 | [QualityRuleServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityRuleServiceImpl.java)：`listRules`、`createRule`、`updateRule`、`copyRule`、`history`、`restoreRule` | 规则启用不代表已执行。 |
+| 字段分类标签 | [FieldTagServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldtag/service/impl/FieldTagServiceImpl.java)：`addTag`、`batchAddTags`、`removeTag`、`getTagsByColumnMetaId` | 标签来源和字段范围。 |
+| 旧来源可信度 | [FieldConfidenceServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldtag/service/impl/FieldConfidenceServiceImpl.java)：`pageConfidence`、`getConfidence`、`adminSetScore`、`getEventHistory` | 旧来源分不等于新版使用参考分。 |
+
+新业务知识与一键治理见[治理任务](governance/治理任务与业务知识.md)；新版本使用参考分与反馈结案见[反馈归因](governance/反馈归因与使用档案.md)。旧来源可信度变更不能覆盖这两条新链路。
+
+验证入口：[QualityRuleServicePersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityRuleServicePersistenceTest.java)（规则持久化）、[FieldGovernanceWriteAndListTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldtag/service/impl/FieldGovernanceWriteAndListTest.java)（标签与范围）、[ConfidenceCalculatorImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldtag/service/impl/ConfidenceCalculatorImplTest.java)（来源可信度计算）。本轮仅核对入口，未执行这些业务测试。
+
+## 修改定位
+
+先按修改意图定位符号，再阅读下方行为约束。源码定位核对日期：2026-10-26；不代表运行验收。
+
+| 修改意图 | 文件与定位符号 | 关联影响 |
+| --- | --- | --- |
+| 来源质量检查与规则摘要 | [QualityCheckServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityCheckServiceImpl.java)：`executeQualityCheck`、`ruleSummary` | SOURCE 评分与独立 SEMANTIC 证据。 |
+| 问题处理、批量与分派 | [QualityIssueServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityIssueServiceImpl.java)：`handleIssue`、`batchHandle`、`assignIssue` | 状态并发与部分成功。 |
+| 字段解释草稿、候选与审核 | [FieldSemanticServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticServiceImpl.java)：`saveDraft`、`generateCandidate`、`adoptCandidate`、`submit`、`review`、`evaluate` | 来源绑定、修订与复查。 |
+
+来源检查与字段语义是两条链，不能用来源分代表语义通过。字段事实进入文档后继续读[术语与 AI 释义](knowledge/业务术语与AI释义.md)，发布门禁转到版本模块。
+
+验证入口：[QualityCheckServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityCheckServiceImplTest.java)（来源检查）、[QualityIssueServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityIssueServiceImplTest.java)（问题处理）、[FieldSemanticServicePersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticServicePersistenceTest.java)（字段解释）。本次只核对测试入口，修改实现后按[开发指南](../development/本地开发与验证.md)运行相关测试，再按影响范围补充接口或页面验证。
+
 ## 概览与主流程
 
 2026-10-24 已按[治理闭环目标](../archive/plans/completed/字段语义治理与问数反馈闭环改造目标.md)接通平台内任务、业务知识修订、多篇文档、查询期档案及反馈回流。实现与验证范围见[治理闭环 TDD 记录](../acceptance/治理闭环TDD实施记录.md)；自动化通过不等于真实模型、RAG 和人工页面验收通过。

@@ -2,6 +2,19 @@
 
 > 状态：现行模块说明；整理日期：2026-10-24。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
+## 修改定位
+
+先按修改意图定位符号，再阅读下方行为约束。源码定位核对日期：2026-10-26；不代表运行验收。
+
+| 修改意图 | 文件与定位符号 | 关联影响 |
+| --- | --- | --- |
+| 发布与撤回 | [SnapshotPublishServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/versioning/service/impl/SnapshotPublishServiceImpl.java)：`publishSnapshot`、`revokeSnapshot` | 旧正式版、状态迁移与审计。 |
+| 门禁展示与强制校验 | [SnapshotReleaseGateServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/versioning/service/impl/SnapshotReleaseGateServiceImpl.java)：`evaluate`、`assertApprovable`、`assertPublishable` | 来源阻断与语义警告共用判定。 |
+
+SnapshotVersionController → 发布服务 → 门禁 → 状态写入与事件；门禁必须在发布写副作用之前执行。页面改动同时核对 ReleasesView 与 ReleaseGatePanel。
+
+验证入口：[SnapshotReleaseGateServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/versioning/service/impl/SnapshotReleaseGateServiceImplTest.java)（审核发布门禁）、[ReleaseGatePanel.test.ts](../../frontend/src/components/admin/ReleaseGatePanel.test.ts)（门禁展示）。本次只核对测试入口，修改实现后按[开发指南](../development/本地开发与验证.md)运行相关测试，再按影响范围补充接口或页面验证。
+
 ## 概览与当前状态机
 
 Java 管理快照的质量阶段、审核、发布、过期、撤回、版本历史与审计。只有合规版本才能作为知识事实来源；快照发布不是 RAG 活动 build 切换。

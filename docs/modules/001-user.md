@@ -2,6 +2,33 @@
 
 > 状态：现行模块说明；整理日期：2026-10-24。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
+## 配套功能定位
+
+| 修改意图 | 文件与定位符号 | 关联影响 |
+| --- | --- | --- |
+| 用户增删改、启停与重置密码 | [UserServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/user/service/impl/UserServiceImpl.java)：`createUser`、`updateUser`、`deleteUser`、`updateStatus`、`resetPassword` | 账号管理不取代 S1 角色与授权配置。 |
+| 部门树与部门维护 | [DepartmentServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/user/service/impl/DepartmentServiceImpl.java)：`tree`、`createDepartment`、`updateDepartment`、`deleteDepartment` | 组织变更与权限修订。 |
+| 验证码生成和验证 | [CaptchaServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/user/service/impl/CaptchaServiceImpl.java)：`generate`、`verify` | 验证码生命周期与登录校验。 |
+
+页面入口为 UserList.vue、DepartmentTree.vue；验证码界面在 LoginView.vue。角色分配继续进入[IAM 配置](iam/功能与数据授权.md)。验证码没有在本轮定位到专用测试，不把认证测试等同于验证码完整覆盖。
+
+验证入口：[UserServiceImplS1GuardTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/user/service/impl/UserServiceImplS1GuardTest.java)（用户管理边界）、[DepartmentServiceImplS1RevisionTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/user/service/impl/DepartmentServiceImplS1RevisionTest.java)（部门与 S1 修订）。本轮仅核对入口，未执行这些业务测试。
+
+## 修改定位
+
+先按修改意图定位符号，再阅读下方行为约束。源码定位核对日期：2026-10-26；不代表运行验收。
+
+| 修改意图 | 文件与定位符号 | 关联影响 |
+| --- | --- | --- |
+| 登录、登出与改密 | [AuthServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/user/service/impl/AuthServiceImpl.java)：`login`、`logout`、`changePassword` | 令牌失效、密码校验与当前身份。 |
+| 用户列表与 CSV 导出 | [UserController.java](../../backend/DataOcean/src/main/java/com/dataocean/module/user/controller/UserController.java)：`listUsers`、`exportUsers`、`escapeCsv` | 列表筛选、逐页读取、CSV 字段与转义；导出需要独立权限。 |
+
+导出验证入口：[UserControllerExportTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/user/controller/UserControllerExportTest.java) 的 `exportsAllPagesWithinSizeLimitAndOverridesIncomingPageAliases`。修改导出字段还应核对 CSV 表头与每行写入顺序；该测试入口不能代表所有格式和安全场景均已覆盖。
+
+沿 AuthController → AuthServiceImpl 阅读；权限能力变化转到 IAM，不在认证返回值增加旧权限来源。
+
+验证入口：[AuthServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/user/service/impl/AuthServiceImplTest.java)（认证服务）。本次只核对测试入口，修改实现后按[开发指南](../development/本地开发与验证.md)运行相关测试，再按影响范围补充接口或页面验证。
+
 ## 概览与边界
 
 负责登录、验证码、用户和部门管理、个人资料、密码及 JWT 失效。功能角色、负责源和业务数据授权归[IAM-SIMPLE-1](007-iam-s1.md)，不再使用旧角色权限表或 JWT authority 计算授权。
