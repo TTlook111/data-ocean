@@ -1,17 +1,31 @@
 # RAG 与问数的治理适配问题
 
-> 状态：现行问题分析；核对日期：2026-10-25。用于解释故障位置、影响与修复边界；当前状态见[项目现状](../项目现状.md)，执行队列只在[后续开发](后续开发.md)维护，复现方法和测试结果见[语义中心复核记录](../acceptance/2026-10-25-语义中心复核记录.md)。本文没有实施代码修复。
+> 状态：现行问题分析，含待审阅的分阶段适配草案；核对日期：2026-10-26。当前状态见[项目现状](../项目现状.md)，执行队列仍在[后续开发](后续开发.md)维护。本轮依据云端 HEAD 与远端 main 同一提交 `e6eeb3bca61e2c35609e9cc5fe76e68dfe0d89cb` 独立核对，工作区初始干净；未改业务代码。实际命令、通过/失败/未执行范围见[本轮治理验收诊断](../acceptance/2026-10-26-云端治理验收诊断.md)，此前隔离库观察只属于[2026-10-25 记录](../acceptance/2026-10-25-语义中心复核记录.md)。
+
+## 本轮结论与阶段边界
+
+**治理已有交付有效知识的主体能力，可以据此准备 RAG 适配；当前不能签署覆盖全部六类对象的治理验收通过。** 字段与四类业务知识已有候选、人审、精确修订复查及失效机制，安全离线验证有正向证据。表级血缘依赖解析仍错误，属于治理到知识投影的交接阻塞，应先修复并通过反例再将这类知识交给下一阶段。RAG 准入、关系补键、查询血缘写入及异步审计另归各自阶段，不把这些下游问题合并为“治理全部未完成”。
+
+原[治理闭环目标](../archive/plans/completed/字段语义治理与问数反馈闭环改造目标.md)的主体归档不代表运行验收完成；当前合同继续由 [004](../modules/004-metadata-governance.md)、[006](../modules/006-knowledge.md)、[008](../modules/008-query-memory.md)、[009](../modules/009-schema-rag.md)承接。本轮没有使用用户本地环境，没有读取线上或历史隔离库的数据，没有迁移、真实模型调用或实际激活新 build。
+
+| 所属阶段 | 本轮可依赖的前提 | 交付前仍须解决或补证 |
+| --- | --- | --- |
+| 治理：事实与依赖正确性 | 候选不自动批准；精确来源/修订审核、复查、撤回；多篇文档及整组覆盖校验已有实现与离线证据 | G1 表级血缘 FQN/依赖修复；六类对象的真实业务资料与人工审核验收不能由合成样例代替 |
+| RAG：准入、召回与索引 | 已发布版本、manifest、显式 build、指针切换及在途集合保护；字段派生与业务关系可进入通用证据链 | R1 Java/Python 表级准入；R2 血缘当前来源资格；修复后验证实际构建及召回，不能只看 chunk 数量 |
+| 问数：消费与追溯 | 动态档案、版本化反馈、同一 PROTECTED 尝试及精确 SQL hash 完成合同 | Q1 新关系补键；Q2 真实受保护来源到查询血缘；Q3 提交后审计和幂等；修复问数回归基线并核验业务题 |
+
+允许继续 RAG 的范围是适配设计、离线夹具及已核验知识子集的开发验证，不表示可以跳过治理阻塞发布全覆盖成果，也不表示真实环境已可交付。
 
 ## 从问数要解决的问题出发
 
-这次需要验证的是数据质量/治理变化对 RAG、问数和血缘的实际影响。扩展复核已读取现有隔离应用库及其活动 Milvus 集合，观察与覆盖限制见[复核记录](../acceptance/2026-10-25-语义中心复核记录.md)。
+这次需要验证的是数据质量/治理变化对 RAG、问数和血缘的实际影响。下表的隔离库与活动集合观察来自 **2026-10-25 历史轮次**，本轮未重读这些服务；观察与覆盖限制见[原复核记录](../acceptance/2026-10-25-语义中心复核记录.md)。
 
 | 领域 | 当前核对结论 | 是否需要随治理修改 |
 | --- | --- | --- |
 | 数据质量 | 来源检查和语义复查分域；隔离库只有历史评分，没有可核验检查批次，新治理成果仍待人工审核 | 先补真实检查与审核证据；不能因“无问题记录”宣称质量通过，也不能把语义问题混入来源评分 |
 | RAG | 活动旧集合实物和数量匹配，但没有新治理事实；空列过滤也影响当前活动的表结构片段 | 需要修复类型/依赖准入，并在有效治理事实发布后单独验证新构建；不是直接重建旧集合 |
 | 问数 | 已有精确引用和安全合同，新业务关系补键未识别新事实类型；旧完成任务不覆盖治理改造后的链路 | 需要补消费适配和新的业务题验证，不能只改提示词 |
-| 血缘 | 来源质量检查与血缘生成应保持独立；当前 S1 问数没有接入查询血缘写入 | 需要补问数到血缘的来源适配；不应把质量问题、评分或已审核业务 Join 自动当作数据流 |
+| 血缘 | 已确认 `LINEAGE/DERIVED_FROM` 有知识投影与通用消费路径；表级依赖/准入存在断点；当前 S1 完成未接查询血缘写入 | 分别修复治理投影、RAG 准入与问数追溯；质量问题、评分或已审核业务 Join 不自动成为数据流 |
 
 用户需要的是符合业务含义、可追溯且在当前权限内的答案。SQL 能执行，只能证明数据库接受了这条语句；还需要正确的表粒度、关联条件、指标公式、单位、枚举与适用条件。
 
@@ -26,9 +40,27 @@
 | 执行与完成 | 当前 IAM、AST、行列权限、来源、脱敏及同一 PROTECTED 尝试 | 已有安全合同；适配不能通过放宽这些检查完成 |
 | 使用与反馈 | 实际使用字段和精确语义版本、原问题及预期结果 | 已有字段实际使用归因；候选或召回不等于实际使用，参考分不能证明业务正确 |
 
-## 已确认：纯表级事实在查询准入处丢失
+## G0：治理有效知识与文档交接
 
-位置在 [IamS1QueryServiceImpl.loadKnowledgeChunks](../../backend/DataOcean/src/main/java/com/dataocean/module/query/service/impl/IamS1QueryServiceImpl.java)：当前统一要求 `tables`、`columns`、依赖与来源列表非空。
+- **已有能力**：字段解释绑定 definition/revision/review/binding 与内容/依赖 hash；业务知识按 `DATASOURCE/TABLE/RELATION/METRIC` 保存独立修订。AI 生成候选后仍需人工依据确认、提交、人审和精确复查；新草稿不自动撤销旧有效版，旧版可单独撤销。主题文档覆盖数据源用途、表粒度、关系基数/风险、指标口径和字段；发布与 RAG build 分离。
+- **具体断点**：本轮确认的治理交接缺陷是下述 G1，不能由主体测试通过掩盖。系统复查只证明形式、来源与完整依赖符合合同，不能证明人工所填业务口径为真；真实资料、多角色界面和业务预期尚未验收。
+- **证据**：`FieldSemanticServicePersistenceTest` 覆盖过期 AI、人工修改、同源权限、复采绑定、修订审核撤销及 SOURCE/SEMANTIC 分离；`GovernanceWorkflowPersistenceTest` 覆盖候选不自证、审核后待复查、语义变化使依赖指标失效、撤销旧版和反馈事务。新增 `GovernanceKindsProbeTest` 对四类业务知识逐类验证同一生命周期、完整依赖、来源变化和撤回；证据层级与结果见[本轮记录](../acceptance/2026-10-26-云端治理验收诊断.md)。文档校验与分篇测试已实际运行，非真实发布。
+- **修改边界**：优先补事实和依赖的正确性及反例；保留原始资料位置、人工确认、当前权限、同快照与精确修订检查，不新增 AI 自审或自动业务真值判定。
+- **验收用例**：候选未确认/只审核未复查均不产出有效事实；复查必须匹配当前修订；字段含义、完整依赖或来源变化使旧事实失效；撤销后不再输出；文档正文和 sourceIds/依赖集合一致，整组遗漏/重复/额外业务修订被拒绝；原问题仍需独立人工验收。
+- **所属阶段**：治理。真实业务审核是交付前提；文档已生成不代表 RAG 或问数已生效。
+
+## G1：表级血缘 FQN 的依赖解析错误
+
+- **已有能力**：[KnowledgeDocPublishService](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeDocPublishService.java) 的 `loadConfirmedLineage` 接收已确认、已绑定的 `LINEAGE/DERIVED_FROM`，保留关系 ID、两端 FQN 与快照；[KnowledgeSnapshotFactValidator](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/support/KnowledgeSnapshotFactValidator.java)核对来源、确认状态、绑定与依赖。Python 生成文档并切为 `chunkType=LINEAGE`，保留原 `factType`。字段级四段 FQN 可以形成表及字段依赖，离线链路已证明可进入通用 RAG 和 planner 的 `reviewedFacts`，不能称“字段派生完全没接”。
+- **具体断点**：两处 `addFqnDependencies` 均在 `parts.length >= 3` 时取倒数第二段。仓库 `MetadataEntity.fqnTable` 定义的表 FQN 为 `datasource.database.table`，因此 `ds.db.orders → ds.db.rollups` 被解析为 `[table:db]`，而不是两张真实表。生成端和校验端同错可能互相吻合，不能把二者一致当作事实正确。Python `_lineage_dependencies` 在缺少显式依赖时也将三段 FQN 当列解析；正常 Java 传入依赖时不会走此兜底。
+- **证据**：新增 Java 反例直接调用两处实际方法，均得到 `table:db`；四段字段 FQN 对照通过。Python 缺依赖兜底反例得到 `table:db/column:db.orders` 等错误项。Python 文档生成会排除不在合规资源集合中的错误依赖；若数据库名恰与真实表同名，不能再依赖这一偶然排除保护。未读取真实库量化受影响数量。
+- **修改边界**：按端点实体类型和明确 FQN 合同解析表/字段，生成、校验与兜底采用一致规则；显式完整依赖优先且必须核实，不能伪造列或靠截断猜测外源端点。保留两端实际来源、绑定、确认和权限门禁。此处只适配已有直接血缘，不扩成自动多跳推理或跨库 JOIN。
+- **验收用例**：三段表级、四段字段级、不同数据库同名表、大小写、缺失/异常 FQN、跨源端点不可完整证明、单端复采/撤回、禁止对象，以及数据库名恰与另一表名重合；逐条比较文档 marker、chunk 和真实依赖，不只比较两个 helper 输出。
+- **所属阶段**：治理 → 知识交接阻塞。先修正确性，再进入 R1/R2 的准入和来源失效验收。
+
+## R1：纯表级事实在查询准入处丢失
+
+**已有能力**：文档与 chunk 支持只有表依赖的结构/业务事实。**具体断点**在 [IamS1QueryServiceImpl.loadKnowledgeChunks](../../backend/DataOcean/src/main/java/com/dataocean/module/query/service/impl/IamS1QueryServiceImpl.java)：当前统一要求 `tables`、`columns`、依赖与来源列表非空。
 
 但 [Python 防火墙](../../python-service/dataocean/iam_s1/firewall.py)允许有完整表依赖、没有字段依赖的 `BUSINESS_DATASOURCE`、`BUSINESS_TABLE` 和 `BUSINESS_METRIC`。例如，合规的表粒度说明可以具有以下依赖形态：
 
@@ -39,25 +71,38 @@ columns: []
 resourceDependencies: [table:orders]
 ```
 
-合成样例已确认 Python 接受该形态，Java 的前置条件则会将其排除。Java 同一条件也排除无字段的 `TABLE_STRUCTURE/TABLE_COMMENT`；具体结构片段是否受影响需按实际 chunk 核对。
+**证据**：本轮新增实际函数反例确认 Java 会排除无字段的 `TABLE_STRUCTURE` 和 `LINEAGE`；Python 对 `TABLE_STRUCTURE/TABLE_COMMENT/BUSINESS_DATASOURCE/BUSINESS_TABLE/BUSINESS_METRIC` 的五项空列正向对照通过，但它自己的空列白名单同样遗漏 `LINEAGE/DERIVED_FROM`，两项反例失败。仅修 Java 仍不能让表级血缘通过整个准入链。字段级派生的 Java 准入及 Python 文档/切片/防火墙/规划输入对照通过。
 
-扩展只读核验已确认，隔离库当前活动构建中确实存在 8 个 `columns=[]` 的 `TABLE_STRUCTURE` 片段。它们也会被这一统一条件排除；这已超出“将来可能出现纯表业务事实”的假设范围，但没有执行新的真实问数来量化答案影响。
+2026-10-25 历史只读核验确认，当时隔离库活动构建中存在 8 个 `columns=[]` 的 `TABLE_STRUCTURE` 片段。它们会被这一统一条件排除；这已超出“将来可能出现纯表业务事实”的假设范围。本轮未重读该集合，也没有执行真实问数量化答案影响。
 
-这会使部分知识虽然已维护或收录，却无法进入问数候选及安全兜底。增加向量数量、调高 top-k 或只改提示词无法解决前置准入丢失。现有证据不证明真实库中已经存在该形态的活动片段，也没有证明某次答案因它而错误。
+这会使部分知识虽然已维护或收录，却无法进入问数候选及安全兜底。增加向量数量、调高 top-k 或只改提示词无法解决前置准入丢失。上述历史观察不证明纯表 `BUSINESS_*` 或 `LINEAGE` 已进入活动构建，也没有证明某次答案因它而错误。
 
-修复应按事实类型与真实依赖判断资格，继续验证来源、审核、同源快照、完整依赖及当前 IAM；只有语义确实依赖字段的事实才要求相应字段。不能伪造字段依赖，或让缺依据的知识进入模型。
+**修改边界**：按事实类型与真实依赖判断资格，继续验证来源、审核、同源快照、完整依赖及当前 IAM；只有语义确实依赖字段的事实才要求相应字段。不能伪造字段依赖，或让缺依据的知识进入模型。
 
-## 已确认：新业务关系没有进入关联字段补齐分支
+**验收用例**：上述七类合法表级事实正向保留；带字段依赖的事实缺一列、无完整来源、跨源、跨 build、撤权或禁止对象仍整条排除；错误 FQN 不通过扩大白名单被放行。**所属阶段**：RAG 准入，依赖 G1 正确投影。
 
-[chunker](../../python-service/dataocean/rag/chunker.py)会将 `BUSINESS_RELATION` 的 `chunkType` 设为 `JOIN_PATH`，同时保留 `factType=BUSINESS_RELATION`。Java 查询侧拒绝旧的 `factType=JOIN_PATH`，允许通过精确资格检查的新业务关系。
+## R2：血缘当前来源资格尚缺同等级查询复核证据
 
-但 [graph._add_confirmed_join_columns](../../python-service/dataocean/iam_s1/graph.py)仍按 `factType == JOIN_PATH` 进入关联字段补齐分支，没有识别新的 `BUSINESS_RELATION`。`chunkType` 相同不能弥补 `factType` 判断的差异。
+- **已有能力**：生成/发布时已有关系确认、绑定与 FQN 校验；查询使用固定 build membership、快照及 IAM 完整依赖。字段语义和 `BUSINESS_*` 另有当前精确资格复核及在途引用检查。
+- **具体断点**：本轮代码检查发现，`loadKnowledgeChunks` 对术语、人工释义、字段语义、业务知识分别调用当前资格检查，未见 `LINEAGE/DERIVED_FROM` 对当前关系确认/绑定状态的同等读取；任务固定引用及执行阶段复核也只覆盖字段语义与 `BUSINESS_*`。旧 manifest 中 `APPROVED` 不是当前关系仍有效的证据。
+- **证据**：静态检查 `loadKnowledgeChunks`、`fieldSemanticReferencesValid`、`IamS1QueryAttemptServiceImpl` 和 `RagIndexBuildServiceImpl.activeBuildForQuery`；本轮字段派生正向测试只证明可传递，不证明关系在 build 激活后撤销、解绑或改端点时会即时退出。**该撤销运行用例未执行**，不能把字段/业务知识的失效测试外推给血缘。
+- **修改边界**：沿现有关系来源、双端绑定和完整依赖补当前资格检查及必要的任务引用复核，明确已有关系的变更身份如何被固定；不删除活动集合，不把字段派生冒充 Join，不新增全图推理。不能为了让表级血缘通过而丢掉这道门禁。
+- **验收用例**：同一 build 激活后撤销确认、改端点、单端复采、解绑、删除和撤权，新查询及在途授权/执行/保护/完成阶段分别安全拒绝；相同来源未变的正向对照保留。
+- **所属阶段**：RAG 来源准入，问数承接在途追溯；是血缘消费签署验收的前置门禁。
 
-已执行实际函数的合成对照：规划器选择订单表的金额、客户表的名称，审核关系完整依赖订单客户键与客户主键，且这些键具备 JOIN usage。新事实类型被跳过；相同依赖使用旧事实类型时会补齐两个键。
+## Q1：新业务关系没有进入关联字段补齐分支
+
+**已有能力**：[chunker](../../python-service/dataocean/rag/chunker.py)会将 `BUSINESS_RELATION` 的 `chunkType` 设为 `JOIN_PATH`，同时保留 `factType=BUSINESS_RELATION`。Java 查询侧拒绝旧的 `factType=JOIN_PATH`，允许通过精确资格检查的新业务关系。本轮模拟 ANN/Embedding 的通用 retrieve→rerank→防火墙正向对照通过，证明新类型及来源元数据可传递；规划器会收到合规的 `reviewedFacts`。不能把专门补键缺口写成业务关系完全未被 RAG 消费。
+
+**具体断点**：[graph._add_confirmed_join_columns](../../python-service/dataocean/iam_s1/graph.py)仍按 `factType == JOIN_PATH` 进入关联字段补齐分支，没有识别新的 `BUSINESS_RELATION`。`chunkType` 相同不能弥补 `factType` 判断的差异。
+
+**证据**：本轮重跑实际函数的合成对照：规划器选择订单表的金额、客户表的名称，审核关系完整依赖订单客户键与客户主键，且这些键具备 JOIN usage。新事实类型被跳过；相同依赖使用旧事实类型时会补齐两个键，新增期望正确行为的断言失败。
 
 当规划器没有主动选中连接键时，这一缺口可能导致合法业务关系无法形成可执行 SQL，或进入澄清/失败。它不证明所有多表问数都失败，也不意味着当前已经绕过 IAM 执行了错误关联。
 
-修复应让新事实类型进入相应处理，并保留精确 membership、整组依赖与 JOIN usage 检查。不能恢复旧关系直通，也不能为了补键扩展到用户无权的字段。关系基数和聚合风险是否被正确用于避免重复计数，还须用具体业务题验证。
+**修改边界**：让新事实类型进入相应处理，并保留精确 membership、整组依赖与 JOIN usage 检查。不能恢复旧关系直通，也不能为了补键扩展到用户无权的字段。
+
+**验收用例**：新业务关系补齐已授权键、缺 JOIN usage 拒绝、只选单端不自动扩表、缺一项依赖整条剔除、待审核/撤销关系不补键；以 1:1、N:1、1:N 的业务题核对基数和聚合风险是否避免重复计数。**所属阶段**：问数消费；通用 RAG 证据可达与专门补键分别验收。
 
 ## 相关问题：构建页面的范围显示可能过期
 
@@ -65,15 +110,46 @@ resourceDependencies: [table:orders]
 
 这属于管理端范围一致性缺陷，不能据此推断后端发生了跨源授权绕过或活动索引损坏。修复和验收按[后续开发第 12 项](后续开发.md#12-治理工作区与资产入口收敛后的剩余验收)执行。
 
-## 已确认：当前问数到查询血缘的写入未接通
+## Q2：当前问数到查询血缘的写入未接通
 
-[S1 完成路径](../../backend/DataOcean/src/main/java/com/dataocean/module/query/service/impl/IamS1QueryServiceImpl.java)保存受保护的 `iam_source_trace` 并调用审计，[审计实现](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/AuditLogServiceImpl.java)只写审计记录。生产 Java 中旧的 [saveLineage](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/LineageServiceImpl.java)只有声明和实现，没有调用者。隔离库的查询表/列血缘均为空，现有完成任务没有对应记录。
+**已有能力**：[S1 完成路径](../../backend/DataOcean/src/main/java/com/dataocean/module/query/service/impl/IamS1QueryServiceImpl.java)保存受保护的 `iam_source_trace`，用于结果来源、权限复核与脱敏，并调用审计。**具体断点**：[审计实现](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/AuditLogServiceImpl.java)只写审计记录；生产 Java 中旧的 [saveLineage](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/LineageServiceImpl.java)只有声明和实现，没有调用者。
+
+**证据**：本轮搜索 `src/main/java` 并检查完成/审计实现，未发现新写入接线。2026-10-25 隔离库查询表/列血缘为空、完成任务没有对应记录属于历史证据，本轮未读取数据库。
 
 这说明结果来源追踪和血缘持久化尚未形成完整接线，不能把问数结果携带 `sourceTrace` 表述为血缘图已更新。也不能断言该缺口是本轮治理变化才引入。
 
-适配需要消费同一 PROTECTED 尝试的真实输出来源，明确查询使用关系与数据派生的区别，处理任务/来源绑定及重复完成的幂等。旧入口依赖 `columnDerivations`，还按 FROM/JOIN 的 SQL 书写角色建立表间方向；直接恢复旧调用并不能证明血缘语义正确。
+**修改边界**：消费同一 PROTECTED 尝试的真实输出来源，明确查询使用关系与数据派生的区别，处理任务/来源绑定及重复完成的幂等。旧入口依赖 `columnDerivations`，还按 FROM/JOIN 的 SQL 书写角色建立表间方向；直接恢复旧调用并不能证明血缘语义正确。没有真实输出到来源的派生证据时只记录“使用”，不能创造物理表之间的数据流。
 
 来源质量分变化不改变数据流拓扑；“缺少外键”的质量问题和已审核业务关系也不自动证明数据从一表流向另一表。已有采集、手工及 ETL 血缘来源保持独立，修复队列见[后续开发第 14 项](后续开发.md#14-问数结果到查询血缘的接线与验证)。
+
+**验收用例**：投影、表达式、多来源聚合、别名/CTE、COUNT(*) 的无列来源标记、失败/取消任务、不匹配 attemptId/hash、重复回调和撤权；输出来源保留真实依赖，仅交换 SQL 的 FROM/JOIN 书写顺序不得改变数据流方向。**所属阶段**：问数追溯，非治理主体完成的否决项。
+
+## Q3：完成审计的提交顺序与幂等
+
+- **已有能力**：完成结果以 `PROCESSING → COMPLETED` 条件更新，查询保护和会话保存有独立合同；治理审核/反馈的同事务审计已有 H2 回归。不能把治理审计与本节的查询异步审计混为一项。
+- **具体断点**：`complete` 在事务方法内更新后立即调用 `@Async recordAudit`，审计线程重新 `selectById`，存在提交前读取旧状态的竞态；调用位于 `updated > 0` 条件之外。`recordAudit` 直接 insert，当前审计表的 task 索引为普通索引，未见任务/尝试级去重。
+- **证据**：新增 Java 反例令完成 CAS 返回 0，仍观察到 `recordAudit(17)` 被调用；正确行为断言失败。提交顺序与 insert/索引由当前实现和 V20/V28 静态确认；本轮未在真实并发事务下复现旧状态读，也未执行真实重复回调，不把竞态可能性写成已观察到错误审计行。
+- **修改边界**：仅成功状态转换产生审计/追溯事件，提交后消费，按任务与同一受保护尝试幂等；回滚不发成功事件、失败重试不重复写入。具体事件实现沿现有事务和持久化边界选型，不另建全面任务框架。
+- **验收用例**：提交前屏障、提交成功/回滚、CAS=0、同回调并发两次、审计重试；恰一次记录最终状态、attempt/hash 与受保护来源，不保存原始敏感结果。
+- **所属阶段**：问数完成与追溯。修 Q2 时一起守住该边界。
+
+## R3：动态使用档案与既有置信度口径
+
+- **已有能力**：人工归因确认后产生版本化置信事件；按具体语义修订、来源和政策 2 的规范化 SQL 场景去重。同任务修改评价撤销旧贡献，无证据 `score=null`，不是零分；试行公式 `(正向+1)/(总数+2)×100` 只作参考。动态 profiles 在 schema linking 选定资源后读取，并附加到 SQL prompt；同任务固定、下一任务可读最新证据。
+- **具体断点**：当前未把这份动态 profiles 传给前置检索重排；旧 `field_confidence` 表及 `FieldConfidenceController` API 仍与新机制并存。通用 reranker 的 `confidence_scores` 参数存在，不证明它已接新语义版本分。
+- **证据**：`GovernanceConfidencePolicy`、`GovernanceFieldProfileServiceImpl`、`GovernanceFeedbackServiceImpl`，Python `graph.py` 的 `_plan_node/_generate_sql_node` 与 `rag/reranker.py`；治理事务/去重/任务冻结测试及 Python profiles 测试本轮实际通过。生成文档不随动态分变化的测试也通过。
+- **修改边界**：分数变化不改知识正文、不要求重切或 embedding；不合并新旧权威口径、不用分数替代权限或业务相关性。是否将同版本档案用于前置重排，属于 RAG 阶段单独评估，不能把这个优化当作治理交付必须先实现的功能。
+- **验收用例**：无证据为空、重复/改写 SQL 场景不多记、非字段原因不批量扣分、旧修订不能污染新修订、仅分数变化正文/build 不变；下一任务读取新分，同任务保持原档案，低分必需字段不被无关高分字段替换。
+- **所属阶段**：治理维护证据口径；RAG 评估排序；问数消费与归因。前置排序尚未接入是非阻塞优化项。
+
+## R4：显式构建与向量复用不能混称
+
+- **已有能力**：文档审核发布与显式 build 独立；构建冻结版本、内容 hash、来源、完整依赖和 manifest，验证新集合后切活动指针，在途旧引用保留。
+- **具体断点**：`RagIndexBuildServiceImpl` 遍历该次来源范围的全部已发布文档版本，重新切片并逐文档调用向量化；Python `vectorize_chunks` 对传入 chunk 全量调用 embedding。没有以内容 hash 直接复用前一 build 向量的这条实现，不能把 `contentHash` 冻结校验称为“增量 embedding 已实现”。
+- **证据**：Java `chunkAndStoreBuildFacts/processOne` 与 Python `rag/vectorizer.py` 静态确认；已有构建隔离和发布测试通过，实际 Milvus/Embedding 未执行。
+- **修改边界**：优先修准入、来源和完整依赖；向量复用是后续成本优化，若做须绑定内容、模型配置/维度及 metadata，不能绕过新 build membership、验证或旧引用生命周期。
+- **验收用例**：无内容变化的显式 build 也记录实际 embedding 次数；内容、来源或模型变化有独立对照；失败构建不切指针；在途查询仍绑定旧 build；单纯使用分变化不触发构建。
+- **所属阶段**：RAG 索引。尚未复用向量不阻塞有效治理知识交付，也不授权本轮调用付费模型。
 
 ## 问数需要怎样改
 
@@ -81,7 +157,7 @@ resourceDependencies: [table:orders]
 
 | 判断 | 处理方向 |
 | --- | --- |
-| 必须修复 | Java 对纯表级事实的准入条件；Python 对 `BUSINESS_RELATION` 的关联字段补齐；查询测试对业务引用冻结 CAS 的夹具与断言 |
+| 必须修复 | 先修治理投影的表级血缘依赖；RAG 补 Java/Python 的表级准入及当前来源门禁；问数补 `BUSINESS_RELATION` 连接键、查询来源追溯和提交后幂等审计；查询测试对业务引用冻结 CAS 的夹具与断言 |
 | 已有且应保留 | 任务绑定源/快照/build、业务与字段语义精确引用、各关键阶段的资格重验、动态档案、反馈归因与原情景人工验收 |
 | 必须验证 | 已治理指标的公式/条件/单位、表粒度、多表关联基数和重复计数是否影响规划及最终答案；缺口径时是否澄清；运行中来源撤回或权限收紧是否安全停止 |
 | 需先明确取舍 | 当前派发前冻结全部合规候选的业务引用，采用保守失效策略。若要缩小到实际采用事实，应先定义“候选、召回、采用、SQL 实际使用”的关系并补全过程证据，不能直接删引用检查 |
@@ -94,9 +170,10 @@ COMPLETED 仍需同一任务的非空 attemptId、精确 SQL hash 和 PROTECTED 
 
 问题修复以反例和公共行为回归为起点，具体队列见[后续开发第 6 项](后续开发.md#6-扩展术语与知识边界验证)。验收至少应区分：
 
-1. 合法的纯表知识保留；缺依赖、来源失效、跨源、撤权和禁止对象仍被排除。
+1. 六类治理事实的来源与完整依赖正确；三段表 FQN、四段字段 FQN 不串位。合法纯表知识保留；缺依赖、来源失效、跨源、撤权和禁止对象仍被排除。
 2. `BUSINESS_RELATION` 补齐已授权连接键；缺少 JOIN usage 时拒绝；不同基数与聚合口径有对照题。
 3. 一个源的小业务题集中，分别证明指定知识版本被采用、SQL 满足口径、结果符合已确认预期；成功和澄清样例都保留。
-4. 来源撤回、权限收紧、任务恢复和在途 build 替换继续满足原安全合同。
+4. 来源撤回、权限收紧、任务恢复和在途 build 替换继续满足原安全合同，血缘关系也有当前来源及在途失效对照。
+5. 完成 CAS 失败或事务回滚不产生成功审计/血缘，重复回调只记一次；查询使用不被误转为 FROM 表流向 JOIN 表。
 
-代码与合成测试通过后，真实文档发布、模型/Embedding、Milvus 构建、问数和人工业务验收仍分别记录。本轮没有执行这些真实链路操作。
+本轮定向主体测试和新增正向/失败反例见[本轮记录](../acceptance/2026-10-26-云端治理验收诊断.md)，失败项没有在此文档任务中修复。后续代码与合成测试通过后，真实文档发布、模型/Embedding、Milvus 构建、问数和人工业务验收仍分别记录；本轮没有执行这些真实链路操作。
