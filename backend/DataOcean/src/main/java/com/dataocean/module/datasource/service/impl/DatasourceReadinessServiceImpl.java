@@ -198,6 +198,7 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
         }
         return qualityIssueMapper.selectCount(new LambdaQueryWrapper<MetadataQualityIssue>()
                 .eq(MetadataQualityIssue::getSnapshotId, snapshot.getId())
+                .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                 .eq(MetadataQualityIssue::getSeverity, "HIGH")
                 .in(MetadataQualityIssue::getStatus, BLOCKING_ISSUE_STATUSES));
     }
@@ -214,6 +215,7 @@ public class DatasourceReadinessServiceImpl implements DatasourceReadinessServic
         for (Long snapshotId : snapshotIds) {
             long count = qualityIssueMapper.selectCount(new LambdaQueryWrapper<MetadataQualityIssue>()
                     .eq(MetadataQualityIssue::getSnapshotId, snapshotId)
+                    .eq(MetadataQualityIssue::getIssueDomain, MetadataQualityIssue.DOMAIN_SOURCE)
                     .eq(MetadataQualityIssue::getSeverity, "HIGH")
                     .in(MetadataQualityIssue::getStatus, BLOCKING_ISSUE_STATUSES));
             if (count > 0) {

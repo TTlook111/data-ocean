@@ -31,8 +31,12 @@ Desktop.ini
 
 # IDE files
 .idea/
-.vscode/
+**/.vscode/*
+!**/.vscode/extensions.json
 *.iml
+*.suo
+*.ntvs*
+*.sw?
 .classpath
 .project
 .settings/
@@ -42,29 +46,32 @@ Desktop.ini
 .env
 .env.*
 backend/**/src/main/resources/application-local.yml
+backend/**/src/main/resources/application-local.yaml
+# Legacy private profile; application.yml remains shared configuration.
+backend/DataOcean/src/main/resources/application-dev.yml
+backend/DataOcean/src/main/resources/application-dev.yaml
 .dataocean/local-environment.md
 !.env.example
 !.env.*.example
 !.env.template
 !.env.*.template
 
-# Frontend (Vue/Vite)
+# Shared Node dependencies and package-manager caches
 .npm-cache/
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/.cache/
-frontend/coverage/
-frontend/.env
-frontend/.env.*
-!frontend/.env.example
-!frontend/.env.*.example
-!frontend/.env.template
-!frontend/.env.*.template
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
+
+# Frontend build output
+/frontend/dist/
+/frontend/dist-ssr/
+/frontend/.vite/
+/frontend/.cache/
+/frontend/coverage/
+/frontend/**/*.tsbuildinfo
 
 # Java / Maven backend
 .m2/
@@ -75,15 +82,31 @@ backend/**/dependency-reduced-pom.xml
 backend/**/release.properties
 backend/**/*.versionsBackup
 
+# Machine-local Maven overrides, launch wrappers and process records
+/backend/DataOcean/.mvn/maven.config
+/backend/DataOcean/.mvn/settings.xml
+/.dataocean/runtime/
+start-backend.ps1
+start-semantics-backend.ps1
+start-backend-v*.ps1
+*.local.ps1
+*.local.cmd
+*.local.bat
+*.local.sh
+backend-process.json
+frontend-process.json
+python-process.json
+*.pid
+
+# Python caches (including repository scripts)
+__pycache__/
+*.py[cod]
+
 # Python service
 python-service/.venv/
 python-service/.venv*/
 python-service/venv/
 python-service/env/
-python-service/__pycache__/
-python-service/**/__pycache__/
-python-service/*.py[cod]
-python-service/**/*.py[cod]
 python-service/.pytest_cache/
 python-service/.mypy_cache/
 python-service/.ruff_cache/
@@ -115,8 +138,3 @@ output/
 .claude/
 
 .tmp/
-backend/DataOcean/src/main/resources/application-dev.yml
-backend/DataOcean/src/main/resources/application.yml
-frontend/vite.config.ts
-backend/DataOcean/src/main/resources/application.yml
-frontend/vite.config.ts

@@ -131,6 +131,21 @@ def _validate_snapshot_manifest(request: GenerateDraftRequest) -> None:
                 or not re.fullmatch(r"[0-9a-f]{64}", str(fact.get("content_hash", "")))):
             raise ValueError("术语来源或依赖不属于本次合规快照")
 
+    for fact in request.field_semantic_facts:
+        source_ids = fact.get("sourceIds")
+        dependencies = fact.get("dependencies")
+        if (not isinstance(source_ids, list) or len(source_ids) != 4
+                or any(not isinstance(value, int) or value <= 0 for value in source_ids)
+                or not isinstance(dependencies, list) or not dependencies
+                or any(not isinstance(dependency, str) for dependency in dependencies)
+                or not set(dependencies).issubset(eligible)
+                or not isinstance(fact.get("body"), str) or not fact["body"].strip()
+                or fact.get("reviewStatus") != "APPROVED"
+                or fact.get("governanceStatus") not in {"NORMAL", "RECOMMENDED", "SENSITIVE"}
+                or not re.fullmatch(r"[0-9a-f]{64}", str(fact.get("contentHash", "")))
+                or not re.fullmatch(r"[0-9a-f]{64}", str(fact.get("dependencyHash", "")))):
+            raise ValueError("字段语义事实缺少精确审核来源、hash 或完整快照依赖")
+
     for relation in request.foreign_keys:
         relation_snapshot = relation.get("snapshot_id", relation.get("source_snapshot_id"))
         if relation_snapshot is not None and int(relation_snapshot) != request.snapshot_id:
@@ -344,6 +359,23 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
         lines.extend([f"### 业务术语：{_plain(fact['name'])}",
                       "<!-- dataocean-fact: " + json.dumps(marker, ensure_ascii=False, separators=(",", ":")) + " -->",
                       str(fact["body"]), ""])
+    if request.field_semantic_facts:
+        lines.extend(["## 11. 已审核字段解释", ""])
+    for fact in request.field_semantic_facts:
+        marker = {
+            "snapshotId": request.snapshot_id,
+            "factType": "FIELD_SEMANTIC",
+            "sourceIds": fact["sourceIds"],
+            "dependencies": fact["dependencies"],
+            "reviewStatus": "APPROVED",
+            "governanceStatus": fact.get("governanceStatus", "NORMAL"),
+            "contentHash": fact["contentHash"],
+            "dependencyHash": fact["dependencyHash"],
+        }
+        import json
+        lines.extend([f"### 字段解释：{_plain(str(fact.get('businessName') or '字段'))}",
+                      "<!-- dataocean-fact: " + json.dumps(marker, ensure_ascii=False, separators=(",", ":")) + " -->",
+                      fact["body"], ""])
     for excluded in request.excluded_terms:
         warnings.append(f"术语 {excluded.get('name', '')} 未纳入：{excluded.get('reason', '来源不完整')}")
     content = "\n".join(lines).rstrip() + "\n"

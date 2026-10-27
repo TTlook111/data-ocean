@@ -47,6 +47,12 @@ public class PythonKnowledgeClientImpl implements PythonKnowledgeClient {
         return postDraft("/internal/knowledge/supplement-semantics", request);
     }
 
+    @Override
+    @com.dataocean.common.annotation.PythonServiceRetry
+    public Map<String, Object> generateFieldSemanticCandidate(Map<String, Object> request) {
+        return postDraft("/internal/knowledge/field-semantic-candidate", request);
+    }
+
     private Map<String, Object> postDraft(String path, Map<String, Object> request) {
         try {
             return restClient.post().uri(path).contentType(MediaType.APPLICATION_JSON).body(request)

@@ -23,6 +23,8 @@ Java 接收问题、绑定用户/源/会话与活动 build
 
 S1 的 COMPLETED 回调必须包含非空 attemptId 和精确 SQL hash，且匹配同一任务已 PROTECTED 的 QueryAttempt；不能接受无尝试证据的旧分支结果或更弱回退。最终脱敏、来源与权限证据不完整时拒绝交付结果。
 
+字段语义接入后，Java 在派发任务时固定 `FIELD_SEMANTIC` 的来源 ID 列表；候选授权、执行开始、Java 结果保护和最终回调落库前实时复核当前 revision/review/binding/dependency 资格。失效后拒绝该任务并提示重新发起；不从旧 build 切换到新 build，不改变 attemptId 或精确 SQL hash 完成合同。已完成历史结果仍按既有当前 IAM 读取合同展示，不作为重新执行授权。
+
 S1 SQL 处理作用域、别名/CTE/集合运算、投影/过滤/连接字段权限、危险函数和外层 LIMIT。投影星号只能按已授权可投影字段安全展开，无法展开即拒绝；COUNT(*) 不能与未展开 SELECT * 混为一谈。上限、参数与超时规则以严格 S1 路径为准。
 
 ## 故障与业务澄清

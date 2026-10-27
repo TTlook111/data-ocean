@@ -9,5 +9,6 @@ import java.util.Map;
 public class QualityIssueSummaryVO {
     private Long totalUnresolved;
     private Map<String, Long> statusCounts;
+    private Map<String, Long> domainCounts;
     private List<QualityIssueVO> recentIssues;
 }

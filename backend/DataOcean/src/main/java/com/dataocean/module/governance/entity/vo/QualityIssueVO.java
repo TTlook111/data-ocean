@@ -13,11 +13,14 @@ public class QualityIssueVO {
     private Long id;
     private Long snapshotId;
     private Long datasourceId;
+    private String issueDomain;
+    private String semanticRuleCode;
     private String datasourceName;
     private String dimension;
     private String severity;
     private String tableName;
     private String columnName;
+    private Long columnMetaId;
     private String issueDescription;
     private String suggestion;
     private String status;
