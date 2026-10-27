@@ -126,8 +126,18 @@ def filter_chunk(
         or not isinstance(fact_type, str) or not fact_type
     ):
         return None
-    if not columns and fact_type not in {"TABLE_STRUCTURE", "TABLE_COMMENT", "BUSINESS_TABLE", "BUSINESS_DATASOURCE", "BUSINESS_METRIC"}:
+    if any(not isinstance(value, str) or not value for value in [*tables, *columns, *dependencies]):
         return None
+    expected_dependencies = {"table:" + table.lower() for table in tables} | {"column:" + column.lower() for column in columns}
+    if {value.lower() for value in dependencies} != expected_dependencies:
+        return None
+    if fact_type == "LINEAGE" and columns:
+        return None
+    if not columns:
+        if fact_type not in {"TABLE_STRUCTURE", "TABLE_COMMENT", "BUSINESS_TABLE", "BUSINESS_DATASOURCE", "BUSINESS_METRIC", "LINEAGE"}:
+            return None
+        if set(dependencies) != {"table:" + str(table).lower() for table in tables}:
+            return None
     allowed = resource_index(snapshot)
     normalized_tables = {str(table).lower() for table in tables}
     if not normalized_tables.issubset(allowed):

@@ -51,6 +51,9 @@ export interface LineageColumnVO {
 
 export interface ImpactAnalysisVO {
   dependentQueryCount: number
+  coverageNote?: string
+  coverageStartAt?: string
+  pendingDatasourceQueryCount?: number
   recentQueryTaskIds: number[]
   tableName: string
   columnName: string

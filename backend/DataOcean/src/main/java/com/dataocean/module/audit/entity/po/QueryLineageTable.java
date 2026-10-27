@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 /**
  * 查询血缘-表级关系实体类
  * <p>
- * 记录 SQL 中引用的表及其关系类型（FROM/JOIN/SUBQUERY）。
+ * 记录查询使用的表；新 S1 记录 USAGE，不推断物理表之间的数据流。
  * </p>
  */
 @Data

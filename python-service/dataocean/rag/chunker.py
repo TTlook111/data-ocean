@@ -323,6 +323,7 @@ def chunk_skills_md(content: str, expected_snapshot_id: int | None = None) -> li
                     source_snapshot_id=snapshot_id,
                     resource_dependencies=resource_dependencies,
                     fact_source_ids=source_ids,
+                    source_fingerprint=marker.get("sourceFingerprint"),
                     fact_type=fact_type,
                     fact_review_status=fact_review_status,
                 )

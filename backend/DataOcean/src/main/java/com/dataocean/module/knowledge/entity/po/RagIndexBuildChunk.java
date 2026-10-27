@@ -21,6 +21,7 @@ public class RagIndexBuildChunk {
     private Integer versionNo;
     private String resourceDependencies;
     private String factSourceIds;
+    private String sourceFingerprint;
     private String factType;
     private String factReviewStatus;
     private String governanceStatus;

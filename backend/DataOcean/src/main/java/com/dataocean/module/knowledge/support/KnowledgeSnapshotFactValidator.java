@@ -29,6 +29,8 @@ import java.util.regex.Pattern;
 @Service
 @RequiredArgsConstructor
 public class KnowledgeSnapshotFactValidator {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.dataocean.module.knowledge.service.impl.LineageFactService lineageFacts;
     private static final Pattern FACT_MARKER = Pattern.compile(
             "<!--\\s*dataocean-fact:\\s*(\\{.*?})\\s*-->", Pattern.DOTALL);
 
@@ -172,7 +174,7 @@ public class KnowledgeSnapshotFactValidator {
                 case "JOIN_PATH", "JOIN_CANDIDATE" -> validateTableRelation(
                         sourceIds, dependencies, fact, factBody, datasourceId, snapshotId, type);
                 case "LINEAGE", "DERIVED_FROM" -> validateLineage(
-                        sourceIds, dependencies, fact, factBody, snapshotId, type);
+                        sourceIds, dependencies, fact, factBody, datasourceId, snapshotId, type);
                 default -> throw new BusinessException("知识文档包含无来源的事实类型：" + type);
             }
         }
@@ -290,7 +292,7 @@ public class KnowledgeSnapshotFactValidator {
 
     private void validateLineage(List<Long> sourceIds, List<String> dependencies,
                                  Map<String, Object> fact, String marker,
-                                 Long snapshotId, String factType) {
+                                 Long datasourceId, Long snapshotId, String factType) {
         if (sourceIds.size() != 1) throw new BusinessException("血缘事实来源 ID 无效");
         MetadataRelationship relationship = relationshipMapper.selectById(sourceIds.get(0));
         if (relationship == null || !factType.equals(relationship.getRelationType())) {
@@ -317,7 +319,15 @@ public class KnowledgeSnapshotFactValidator {
         }
         Set<String> expected = new HashSet<>(lineageDependencies(sourceFqn, targetFqn));
         if (!expected.equals(new HashSet<>(dependencies))) throw new BusinessException("血缘资源依赖与来源实体不一致");
+        // 不接受仅保留关系 ID 的旧 marker；同 ID 修改来源或转换内容也必须失效。
+        if (lineageFacts == null || !lineageFacts.valid(
+                datasourceId, snapshotId, factType,
+                sourceIds.stream().map(String::valueOf).toList(),
+                (String) fact.get("sourceFingerprint"), dependencies)) {
+            throw new BusinessException("血缘事实当前来源已变化或缺少身份摘要，请重新生成并审核");
+        }
     }
+
 
     /** 端点自己的绑定快照；历史记录没有端点字段时回退到旧的单侧 bound_snapshot_id。 */
     private String boundSnapshot(Map<String, Object> metadata, String key) {
@@ -329,17 +339,7 @@ public class KnowledgeSnapshotFactValidator {
     }
 
     private List<String> lineageDependencies(String sourceFqn, String targetFqn) {
-        List<String> result = new ArrayList<>();
-        addFqnDependencies(result, sourceFqn);
-        addFqnDependencies(result, targetFqn);
-        return result.stream().distinct().toList();
-    }
-
-    private void addFqnDependencies(List<String> result, String fqn) {
-        String[] parts = fqn.split("\\.");
-        if (parts.length >= 3) result.add("table:" + parts[parts.length - 2].toLowerCase());
-        if (parts.length >= 4) result.add("column:" + parts[parts.length - 2].toLowerCase()
-                + "." + parts[parts.length - 1].toLowerCase());
+        return com.dataocean.module.knowledge.support.LineageDependencies.parse(sourceFqn, targetFqn);
     }
 
     private void assertGovernance(Map<String, Object> fact, String sourceStatus) {

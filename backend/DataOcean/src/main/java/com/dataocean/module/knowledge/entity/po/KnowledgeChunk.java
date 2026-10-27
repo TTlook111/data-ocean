@@ -78,6 +78,7 @@ public class KnowledgeChunk {
 
     /** 来源事实 ID 列表 JSON。 */
     private String factSourceIds;
+    private String sourceFingerprint;
 
     /** 快照事实类型：FIELD/TABLE/JOIN_PATH/LINEAGE 等。 */
     private String factType;

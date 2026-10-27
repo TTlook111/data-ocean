@@ -90,10 +90,20 @@ class IamS1QueryAttemptServiceImplTest {
         MetadataSnapshot metadata = new MetadataSnapshot();
         metadata.setId(88L);
         when(snapshots.getPublishedSnapshot(5L)).thenReturn(metadata);
+        when(queryService.lineageReferencesValid(any())).thenReturn(true);
         when(queryService.writeJson(any())).thenAnswer(invocation -> mapper.writeValueAsString(invocation.getArgument(0)));
         when(queryService.buildSnapshot(eq("task-1"), any(), any())).thenReturn(Map.of("taskId", "task-1"));
         when(queryService.connectionConfig(5L)).thenReturn(Map.of("host", "fixture", "password", "db-secret"));
         when(queryService.safeSql(any())).thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    @Test
+    void expiredLineageStopsAuthorizationExecutionAndProtection() {
+        when(queryService.lineageReferencesValid(task)).thenReturn(false);
+        assertThat(service.authorize("task-1", new IamS1AttemptAuthorizeRequestDTO()).get("allowed")).isEqualTo(false);
+        assertThat(service.markExecuting("task-1", "a", "hash").get("allowed")).isEqualTo(false);
+        assertThat(service.protectResult("task-1", new IamS1AttemptResultRequestDTO()).get("allowed")).isEqualTo(false);
+        verify(attempts, never()).selectForUpdate(any(), any());
     }
 
     @Test
@@ -127,7 +137,7 @@ class IamS1QueryAttemptServiceImplTest {
         Map<String, Object> decision = service.authorize("task-1", authorizeRequest(sql, sha256(sql)));
 
         assertThat(decision.get("allowed")).isEqualTo(false);
-        assertThat(decision.get("error").toString()).contains("字段解释已变化");
+        assertThat(decision.get("error").toString()).contains("知识已变化");
         verify(dataResolver, never()).resolve(any());
         verify(bindings, never()).build(any());
         verify(attempts, never()).insert(any(QueryAttempt.class));

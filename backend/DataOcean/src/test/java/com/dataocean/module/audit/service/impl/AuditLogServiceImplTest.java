@@ -15,7 +15,7 @@ import static org.mockito.Mockito.when;
 class AuditLogServiceImplTest {
 
     @Test
-    void recordAuditCopiesPromptVersionsFromQueryTask() {
+    void committedAuditCopiesPromptVersionsFromQueryTask() {
         QueryAuditLogMapper auditLogMapper = mock(QueryAuditLogMapper.class);
         QueryTaskMapper queryTaskMapper = mock(QueryTaskMapper.class);
         AuditLogServiceImpl service = new AuditLogServiceImpl(auditLogMapper, queryTaskMapper);
@@ -27,9 +27,8 @@ class AuditLogServiceImplTest {
         task.setQuestion("last month revenue");
         task.setStatus("COMPLETED");
         task.setPromptVersions("[{\"templateCode\":\"sql_generation\",\"versionNo\":2}]");
-        when(queryTaskMapper.selectById(10L)).thenReturn(task);
 
-        service.recordAudit(10L);
+        service.recordCommittedAudit(task);
 
         ArgumentCaptor<QueryAuditLog> captor = ArgumentCaptor.forClass(QueryAuditLog.class);
         verify(auditLogMapper).insert(captor.capture());

@@ -53,6 +53,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class RagIndexBuildServiceImpl implements RagIndexBuildService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private LineageFactService lineageFacts;
     private static final String STATUS_QUEUED = "QUEUED";
     private static final String STATUS_BUILDING = "BUILDING";
     private static final String STATUS_VERIFIED = "VERIFIED";
@@ -423,6 +425,7 @@ public class RagIndexBuildServiceImpl implements RagIndexBuildService {
                     membership.setVersionNo(versionNo);
                     membership.setResourceDependencies(chunk.getResourceDependencies());
                     membership.setFactSourceIds(chunk.getFactSourceIds());
+                    membership.setSourceFingerprint(chunk.getSourceFingerprint());
                     membership.setFactType(chunk.getFactType());
                     membership.setFactReviewStatus(chunk.getFactReviewStatus());
                     membership.setGovernanceStatus(chunk.getGovernanceStatus());
@@ -447,6 +450,11 @@ public class RagIndexBuildServiceImpl implements RagIndexBuildService {
         String factReviewStatus = stringValue(payload.get("factReviewStatus"));
         String reviewStatus = stringValue(payload.get("reviewStatus"));
         String governanceStatus = stringValue(payload.get("governanceStatus"));
+        if (LineageFactService.isLineage(factType) && (lineageFacts == null || !lineageFacts.valid(
+                build.getDatasourceId(), build.getSourceSnapshotId(), factType, factSourceIds,
+                stringValue(payload.get("sourceFingerprint")), resourceDependencies))) {
+            throw new IllegalStateException("Python 血缘切片缺少正确冻结身份或来源已失效");
+        }
         if (!Objects.equals(sourceSnapshotId, build.getSourceSnapshotId())
                 || resourceDependencies.isEmpty() || factSourceIds.isEmpty()
                 || factType == null || factType.isBlank()
@@ -470,6 +478,7 @@ public class RagIndexBuildServiceImpl implements RagIndexBuildService {
                 .contentHash(stringValue(payload.get("contentHash")))
                 .resourceDependencies(writeJson(resourceDependencies))
                 .factSourceIds(writeJson(factSourceIds))
+                .sourceFingerprint(stringValue(payload.get("sourceFingerprint")))
                 .factType(factType)
                 .factReviewStatus(factReviewStatus)
                 .governanceStatus(governanceStatus)

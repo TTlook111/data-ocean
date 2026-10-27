@@ -44,12 +44,16 @@ public class QueryTask {
     private String fieldSemanticRefsJson;
     private Boolean governanceProfilesEnabled;
     private String businessKnowledgeRefsJson;
+    /** 固定血缘事实来源；旧任务不自动推定已核验。 */
+    private String lineageRefsJson;
+    /** 完成事务内置 PENDING，投影成功后置 COMPLETED，失败保留供恢复。 */
+    private String traceProjectionStatus;
 
     /** 不含记录参数原值的 S1 执行快照。 */
     private String iamExecutionSnapshot;
     /** 本次查询实际引用资源请求的安全 JSON。 */
     private String iamResourceRequest;
-    /** Python 返回的来源追踪安全摘要。 */
+    /** Java 受保护尝试的来源凭据，包含尝试身份和精确 SQL hash。 */
     private String iamSourceTrace;
     /** query/viewSql/export 能力摘要。 */
     private String iamCapabilities;

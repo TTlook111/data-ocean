@@ -80,7 +80,7 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
     public Map<String, Object> authorize(String taskId, IamS1AttemptAuthorizeRequestDTO request) {
         QueryTask task = queryTaskMapper.selectByTaskIdForUpdate(taskId);
         requireLiveTask(task);
-        if (!fieldSemanticReferencesValid(task)) return denied("查询所引用的字段解释已变化，请重新提问");
+        if (!fieldSemanticReferencesValid(task)) return denied("查询所引用的知识已变化，请重新提问");
         verifySqlHash(request.getSql(), request.getSqlHash());
         List<IamS1TableRequestDTO> exactResources = exactResources(task, request);
         QueryAttempt previous = queryAttemptMapper.selectForUpdate(taskId, request.getAttemptId());
@@ -194,7 +194,7 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
     public Map<String, Object> markExecuting(String taskId, String attemptId, String sqlHash) {
         QueryTask task = queryTaskMapper.selectByTaskIdForUpdate(taskId);
         requireLiveTask(task);
-        if (!fieldSemanticReferencesValid(task)) return denied("查询所引用的字段解释已变化，请重新提问");
+        if (!fieldSemanticReferencesValid(task)) return denied("查询所引用的知识已变化，请重新提问");
         requireCurrentRevision(task);
         QueryAttempt attempt = queryAttemptMapper.selectForUpdate(taskId, attemptId);
         if (attempt == null || !Objects.equals(attempt.getSqlHash(), sqlHash)) return denied("执行尝试身份不一致");
@@ -214,7 +214,7 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
     public Map<String, Object> protectResult(String taskId, IamS1AttemptResultRequestDTO request) {
         QueryTask task = queryTaskMapper.selectByTaskIdForUpdate(taskId);
         requireLiveTask(task);
-        if (!fieldSemanticReferencesValid(task)) return denied("查询所引用的字段解释已变化，请重新提问");
+        if (!fieldSemanticReferencesValid(task)) return denied("查询所引用的知识已变化，请重新提问");
         requireCurrentRevision(task);
         QueryAttempt attempt = queryAttemptMapper.selectForUpdate(taskId, request.getAttemptId());
         if (attempt == null || !Objects.equals(attempt.getSqlHash(), request.getSqlHash())) return denied("结果尝试身份不一致");
@@ -391,6 +391,7 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
     }
 
     private boolean fieldSemanticReferencesValid(QueryTask task) {
+        if (!queryService.lineageReferencesValid(task)) return false;
         if (task != null && task.getBusinessKnowledgeRefsJson() != null) {
             try {
                 List<Map<String,Object>> refs=objectMapper.readValue(task.getBusinessKnowledgeRefsJson(),new TypeReference<>(){});

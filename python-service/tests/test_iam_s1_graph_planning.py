@@ -216,7 +216,8 @@ def test_confirmed_join_dependencies_are_added_only_with_current_join_usage():
         {"tableName": "products", "columns": ["category"]},
     ]
     relation = [{
-        "factType": "JOIN_PATH",
+        "factType": "BUSINESS_RELATION",
+        "factSourceIds": ["401"],
         "factReviewStatus": "APPROVED",
         "reviewStatus": "APPROVED",
         "resourceDependencies": [
@@ -229,7 +230,7 @@ def test_confirmed_join_dependencies_are_added_only_with_current_join_usage():
         "products": {"columns": [{"columnName": "product_id", "allowedUsages": ["JOIN"]}]},
     }
 
-    assert graph_module._add_confirmed_join_columns(selected, candidates, relation) is None
+    assert graph_module._add_confirmed_join_columns(selected, candidates, relation, ["401"]) is None
     assert selected[0]["columns"] == ["quantity", "unit_price", "status", "product_id"]
     assert selected[1]["columns"] == ["category", "product_id"]
 
@@ -238,8 +239,8 @@ def test_confirmed_join_dependencies_are_added_only_with_current_join_usage():
         "products": {"columns": [{"columnName": "product_id", "allowedUsages": ["PROJECTION"]}]},
     }
     denied = graph_module._add_confirmed_join_columns(selected[:1] + [{"tableName": "products", "columns": ["category"]}],
-                                                      denied_candidates, relation)
-    assert denied == "已确认关系需要的 Join 字段当前不允许 JOIN，请补充该字段的使用权限。"
+                                                      denied_candidates, relation, ["401"])
+    assert denied == "所选已审核关系需要的 Join 字段当前不允许 JOIN，请核对该关系及字段使用权限。"
 
     unreviewed = [{**relation[0], "factReviewStatus": "PENDING"}]
     no_join = [{"tableName": "sales_orders", "columns": ["quantity"]},

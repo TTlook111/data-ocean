@@ -1,6 +1,6 @@
 # 009 Schema RAG 构建与检索
 
-> 状态：现行模块说明；整理日期：2026-10-25。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
+> 状态：现行模块说明；整理日期：2026-10-27。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
 ## 按修改意图继续阅读
 
@@ -39,7 +39,7 @@ Python `rag/chunker.py`按二级章节、三级语义单元处理 skills.md。�
 
 ## S1 检索边界
 
-2026-10-25 复核仍确认两处消费缺口：Java 对空 `columns` 的统一过滤会排除合规纯表级事实；Python 关联字段补齐只识别旧 `factType=JOIN_PATH`，没有识别保留新事实类型的 `BUSINESS_RELATION`。切片类型支持不等于事实已被问数完整消费。断点、合成复现与修改边界统一见[RAG 与问数治理适配问题](../development/RAG与问数治理适配问题.md)，执行队列见[后续开发第 6 项](../development/后续开发.md#6-扩展术语与知识边界验证)。
+2026-10-27 已统一 Java/Python 的事实类型与完整依赖准入：合法表级知识可无字段，字段派生不可缺字段；新业务关系补键仅处理规划器 `selectedRelationIds` 明确选择的 `BUSINESS_RELATION`，保留当前 JOIN usage，失败不部分修改规划；SQL 上下文也排除未选择的业务关系。血缘正文与 `source_fingerprint` 由 Java 使用同一份当前关系记录生成，文档/构建校验、membership 冻结及查询各阶段当前来源复核均已接入；同 ID 改端点、内容、确认或绑定使旧引用失效。旧血缘 chunk 缺少摘要时不作为可信来源，需重新生成审核并显式构建。详见[适配分析](../development/RAG与问数治理适配问题.md)及[代码验证](../acceptance/2026-10-27-治理下游适配修复.md)；实际模型/新 build 与召回仍待验收。
 
 检索绑定任务 buildId、数据源专属 collection、来源快照、批准事实 membership、完整依赖与当前 IAM 可见资源；排除 DEPRECATED/BLOCKED。活动 build 的来源快照可以早于最新已发布快照，应显示版本落后提示；Java 不将旧来源快照的 `FIELD_SEMANTIC/BUSINESS_*` 延伸到当前快照，其他候选仍需通过当前元数据和 S1 授权，不能借旧 build 使用已删除或撤权资源。默认 schema_knowledge 不是 S1 检索源，其历史向量来源问题不通过迁移到新 build 来掩盖。
 

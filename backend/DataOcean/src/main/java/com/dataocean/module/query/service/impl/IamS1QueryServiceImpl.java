@@ -117,6 +117,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final RagIndexBuildChunkMapper ragIndexBuildChunkMapper;
     private final RagIndexBuildService ragIndexBuildService;
     private final AuditLogService auditLogService;
+    @Autowired
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
     private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     private final com.dataocean.common.security.DataMaskingService maskingService;
     private final PlatformTransactionManager transactionManager;
@@ -125,6 +127,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private FieldSemanticService fieldSemanticService;
     @Autowired(required = false)
     private com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService businessKnowledgeService;
+    @Autowired
+    private com.dataocean.module.knowledge.service.impl.LineageFactService lineageFacts;
 
     @Override
     @Transactional
@@ -332,8 +336,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         }
         if (activePythonTasks.contains(taskId)) return;
         if (!fieldSemanticReferencesValid(task)) {
-            fail(taskId, "查询所引用的字段解释已变化，请重新发起查询", "REJECTED_ON_RECHECK");
-            throw new BusinessException("查询所引用的字段解释已变化，请重新发起查询");
+            fail(taskId, "查询所引用的知识已变化，请重新发起查询", "REJECTED_ON_RECHECK");
+            throw new BusinessException("查询所引用的知识已变化，请重新发起查询");
         }
         if (task.getCreatedAt() != null && task.getCreatedAt().plusSeconds(90).isBefore(LocalDateTime.now())) {
             pythonClient.cancelTask(taskId);
@@ -400,8 +404,9 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     @Transactional
     @SuppressWarnings("unchecked")
     public void complete(String taskId, String resultJson) {
-        QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
-        if (task == null || !isS1(task)) return;
+        QueryTask task = queryTaskMapper.selectByTaskIdForUpdate(taskId);
+        if (task == null || !isS1(task) || !"PROCESSING".equals(task.getStatus())) return;
+        boolean completedTransition = false;
         try {
             Map<String, Object> result = objectMapper.readValue(resultJson, new TypeReference<>() {});
             if (!taskId.equals(result.get("taskId")) || !IamS1Constants.PROTOCOL_VERSION.equals(result.get("protocolVersion"))) {
@@ -444,7 +449,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 return;
             }
             if (!fieldSemanticReferencesValid(task)) {
-                fail(taskId, "查询所引用的字段解释已变化，请重新发起查询", "REJECTED_ON_RECHECK");
+                fail(taskId, "查询所引用的知识已变化，请重新发起查询", "REJECTED_ON_RECHECK");
                 return;
             }
             result.put("data", readAttemptJson(attempt.getProtectedData()));
@@ -496,7 +501,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             List<String> suggestions = safeSuggestions(result.get("suggestedQuestions"));
             LambdaUpdateWrapper<QueryTask> update = new LambdaUpdateWrapper<QueryTask>()
                     .eq(QueryTask::getTaskId, taskId).eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
-                    .set(QueryTask::getStatus, "COMPLETED").set(QueryTask::getResultSql, safeSql)
+                    .set(QueryTask::getStatus, "COMPLETED").set(QueryTask::getTraceProjectionStatus, "PENDING").set(QueryTask::getResultSql, safeSql)
                     .set(QueryTask::getSqlExplanation, safeExplanation)
                     .set(QueryTask::getResultData, writeJson(data)).set(QueryTask::getResultColumns, writeJson(result.get("columns")))
                     .set(QueryTask::getChartConfig, safeChart)
@@ -507,6 +512,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     .set(QueryTask::getIamSourceTrace, writeJson(Map.of(
                             "permissionRevision", task.getPermissionRevision(),
                             "activeMetadataSnapshotId", task.getActiveMetadataSnapshotId(),
+                            "attemptId", attemptId, "sqlHash", sqlHash,
                             "entries", result.getOrDefault("sourceTrace", List.of()))))
                     .set(QueryTask::getMaskedFields, writeJson(outputMasks))
                     .set(QueryTask::getDegraded, Boolean.TRUE.equals(result.get("degraded")))
@@ -516,21 +522,21 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     .set(QueryTask::getIamFinalProtectionStatus, outputMasks.isEmpty() ? "FINAL_PROTECTED" : "FINAL_MASKED")
                     .set(QueryTask::getCompletedAt, LocalDateTime.now());
             int updated = queryTaskMapper.update(null, update);
-            auditLogService.recordAudit(task.getId());
             if (updated > 0) {
+                completedTransition = true;
                 saveCompletedConversationMessage(task, result, data, outputMasks, safeSql, safeExplanation,
                         safeChart, suggestions);
                 conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
                 refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), task.getTaskId());
+                eventPublisher.publishEvent(new com.dataocean.module.query.event.QueryTraceCommittedEvent(taskId));
             }
         } catch (BusinessException ex) {
-            // 这个 catch 覆盖整个完成阶段（最终保护、落库、会话消息与摘要刷新），
-            // 其中任何业务异常都会被报成"权限已变化"。对用户保留该文案（不泄漏内部原因），
-            // 但必须把真实原因记进日志——否则真正的失败（例如会话摘要调用失败）
-            // 会被这句话完全掩盖，排查时只能看到误导性的结论。
+            if (completedTransition) throw ex;
+            // 未完成转换时安全拒绝；转换后的持久化异常必须向外传播使整个事务回滚。
             log.warn("S1 完成阶段业务异常 taskId={} message={}", taskId, ex.getMessage());
             fail(taskId, "权限已变化，请重新查询", "REJECTED_ON_RECHECK");
         } catch (Exception ex) {
+            if (completedTransition) throw new BusinessException("查询完成结果保存失败，请重新查询");
             log.warn("S1 结果保护失败 taskId={} exceptionType={} reason={}", taskId,
                     ex.getClass().getSimpleName(), safeError(ex.getMessage()));
             fail(taskId, "查询结果无法完成最终保护", "REJECTED_FINAL_PROTECTION");
@@ -881,10 +887,12 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             // retain their existing snapshot/build contract; an older field explanation cannot
             // be silently extended to a newly published snapshot.
             chunks = chunks.stream().filter(chunk -> !"FIELD_SEMANTIC".equals(chunk.get("factType"))
+                    && !com.dataocean.module.knowledge.service.impl.LineageFactService.isLineage(String.valueOf(chunk.get("factType")))
                     && !String.valueOf(chunk.get("factType")).startsWith("BUSINESS_")).toList();
         }
         List<Map<String, Object>> fieldSemanticRefs = fieldSemanticReferences(chunks, ragBuild);
         freezeFieldSemanticReferences(taskId, fieldSemanticRefs);
+        if (ragBuild != null) freezeLineageReferences(taskId, chunks);
         List<Map<String, Object>> businessRefs = chunks.stream().filter(chunk -> String.valueOf(chunk.get("factType")).startsWith("BUSINESS_"))
                 .map(chunk -> Map.of("sourceSnapshotId", (Object) String.valueOf(ragBuild.getSourceSnapshotId()), "factSourceIds", chunk.get("factSourceIds"))).toList();
         QueryTask businessTask = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
@@ -1183,7 +1191,16 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                         membershipRow.getResourceDependencies(), new TypeReference<>() {});
                 List<String> factSourceIds = objectMapper.readValue(
                         membershipRow.getFactSourceIds(), new TypeReference<>() {});
-                if (tables.isEmpty() || columns.isEmpty() || dependencies.isEmpty() || factSourceIds.isEmpty()) continue;
+                if (tables.isEmpty() || dependencies.isEmpty() || factSourceIds.isEmpty()) continue;
+                if (columns.isEmpty() && !Set.of("TABLE_STRUCTURE", "TABLE_COMMENT", "BUSINESS_DATASOURCE",
+                        "BUSINESS_TABLE", "BUSINESS_METRIC", "LINEAGE").contains(chunk.getFactType())) continue;
+                Set<String> declaredDependencies = new HashSet<>();
+                tables.forEach(table -> declaredDependencies.add("table:" + table.toLowerCase(Locale.ROOT)));
+                columns.forEach(column -> declaredDependencies.add("column:" + column.toLowerCase(Locale.ROOT)));
+                if (!declaredDependencies.equals(new HashSet<>(dependencies))) continue;
+                if (com.dataocean.module.knowledge.service.impl.LineageFactService.isLineage(chunk.getFactType())
+                        && (lineageFacts == null || !lineageFacts.valid(datasourceId, build.getSourceSnapshotId(),
+                        chunk.getFactType(), factSourceIds, membershipRow.getSourceFingerprint(), dependencies))) continue;
                 if ("GLOSSARY_TERM".equals(chunk.getFactType()) && !glossarySources.membershipValid(factSourceIds)) continue;
                 if ("SEMANTIC_NOTE".equals(chunk.getFactType()) && !semanticSources.membershipValid(factSourceIds)) continue;
                 // 旧结构关系不再作为新问数的业务关联依据，新的 BUSINESS_RELATION 有独立审核、复查和完整依赖。
@@ -1203,6 +1220,9 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 item.put("sourceId", chunk.getId());
                 item.put("tables", tables); item.put("columns", columns);
                 item.put("resourceDependencies", dependencies); item.put("factSourceIds", factSourceIds);
+                if (com.dataocean.module.knowledge.service.impl.LineageFactService.isLineage(chunk.getFactType())) {
+                    item.put("sourceFingerprint", membershipRow.getSourceFingerprint());
+                }
                 item.put("factType", chunk.getFactType()); item.put("factReviewStatus", chunk.getFactReviewStatus());
                 item.put("governanceStatus", chunk.getGovernanceStatus());
                 item.put("reviewStatus", chunk.getReviewStatus());
@@ -1258,6 +1278,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     }
 
     private boolean fieldSemanticReferencesValid(QueryTask task) {
+        if (!lineageReferencesValid(task)) return false;
         if (task != null && task.getBusinessKnowledgeRefsJson() != null) {
             try {
                 for (var ref : parseFieldSemanticReferences(task.getBusinessKnowledgeRefsJson())) {
@@ -1283,6 +1304,38 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             return true;
         } catch (RuntimeException exception) {
             return false;
+        }
+    }
+
+    boolean lineageReferencesValid(QueryTask task) {
+        if (task == null) return false;
+        if (task.getLineageRefsJson() == null) return task.getRagBuildId() == null;
+        if ("[]".equals(task.getLineageRefsJson())) return true;
+        return lineageFacts != null && lineageFacts.referencesValid(task.getDatasourceId(), task.getRagSourceSnapshotId(), task.getLineageRefsJson());
+    }
+
+    private void freezeLineageReferences(String taskId, List<Map<String, Object>> chunks) {
+        List<Map<String, Object>> refs = new ArrayList<>();
+        for (Map<String, Object> chunk : chunks) {
+            if (!com.dataocean.module.knowledge.service.impl.LineageFactService.isLineage(String.valueOf(chunk.get("factType")))) continue;
+            Map<String, Object> ref = new LinkedHashMap<>();
+            ref.put("sourceSnapshotId", String.valueOf(chunk.get("sourceSnapshotId")));
+            for (String key : List.of("factType", "factSourceIds", "sourceFingerprint", "resourceDependencies")) ref.put(key, chunk.get(key));
+            if (!refs.contains(ref)) refs.add(ref);
+        }
+        refs.sort(java.util.Comparator.comparing(ref -> String.valueOf(ref.get("factSourceIds"))));
+        String json = writeJson(refs);
+        QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+        if (task == null) throw new BusinessException("查询任务不存在，不能固定血缘来源");
+        if (task.getLineageRefsJson() != null) {
+            if (!json.equals(task.getLineageRefsJson())) throw new BusinessException("查询血缘来源已变化，请重新提问");
+            return;
+        }
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)
+                .eq(QueryTask::getStatus, "PROCESSING").isNull(QueryTask::getLineageRefsJson).set(QueryTask::getLineageRefsJson, json));
+        if (updated != 1) {
+            QueryTask latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+            if (latest == null || !json.equals(latest.getLineageRefsJson())) throw new BusinessException("查询血缘引用并发变化，请重新提问");
         }
     }
 

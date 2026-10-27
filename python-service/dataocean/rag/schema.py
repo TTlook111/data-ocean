@@ -41,6 +41,11 @@ class ColumnInfo(RagBaseModel):
 class ChunkItem(RagBaseModel):
     """向量化写入的单个切片"""
 
+    source_fingerprint: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("source_fingerprint", "sourceFingerprint"),
+        serialization_alias="sourceFingerprint",
+    )
     source_id: int | None = Field(
         default=None,
         validation_alias=AliasChoices("source_id", "sourceId"),

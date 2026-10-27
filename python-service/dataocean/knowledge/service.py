@@ -258,7 +258,7 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
         target_fqn = str(fact.get("target_fqn") or "")
         relation_type = str(fact.get("relation_type") or "LINEAGE").upper()
         dependencies = _lineage_dependencies(fact)
-        if not set(dependencies).issubset(eligible_resources):
+        if not dependencies or not set(dependencies).issubset(eligible_resources):
             warnings.append("已排除涉及不可用资源的血缘事实")
             continue
         approved = review_status in {"APPROVED", "CONFIRMED"} and binding_status == "BOUND"
@@ -267,7 +267,8 @@ def _render_snapshot_document(request: GenerateDraftRequest) -> tuple[str, dict,
             confirmed_lineage_count += 1
         lines.extend([
             f"### `{_markdown_identifier(source_fqn)}` → `{_markdown_identifier(target_fqn)}`",
-            _fact_marker(request.snapshot_id, relation_type, [fact.get("relationship_id")], dependencies, status),
+            _fact_marker(request.snapshot_id, relation_type, [fact.get("relationship_id")], dependencies, status,
+                         source_fingerprint=fact.get("source_fingerprint")),
             f"- Relationship: `{relation_type}`; approval: `{review_status}`; binding: `{binding_status}`",
             f"- Provenance: relationship `{_plain(fact.get('relationship_id', 'unknown'))}`; original snapshot `{_plain(fact.get('source_snapshot_id', 'unknown'))}`; bound snapshot `{request.snapshot_id}`",
             f"- Meaning: {_plain(fact.get('description') or '待确认')}" + ("" if approved else "（待确认，不能作为 Join 条件）"),
@@ -372,6 +373,7 @@ def _fact_marker(
     dependencies: list[str],
     status: str,
     governance_status: str = "NORMAL",
+    source_fingerprint: str | None = None,
 ) -> str:
     marker = {
         "snapshotId": snapshot_id,
@@ -383,6 +385,8 @@ def _fact_marker(
     }
     import json
 
+    if source_fingerprint:
+        marker["sourceFingerprint"] = source_fingerprint
     return "<!-- dataocean-fact: " + json.dumps(marker, ensure_ascii=False, separators=(",", ":")) + " -->"
 
 
@@ -417,17 +421,23 @@ def _validate_generated_coverage(content: str, request: GenerateDraftRequest) ->
 
 
 def _lineage_dependencies(fact: dict) -> list[str]:
-    dependencies = fact.get("dependencies")
-    if isinstance(dependencies, list):
-        return [str(item) for item in dependencies]
+    """完整依赖必须与真实端点一致；字段派生不能退化为纯表事实。"""
+    kind = str(fact.get("relation_type") or "LINEAGE").upper()
+    expected_size = {"LINEAGE": 3, "DERIVED_FROM": 4}.get(kind)
+    endpoints = [str(fact.get(side) or "").lower().split(".") for side in ("source_fqn", "target_fqn")]
+    if expected_size is None or any(len(parts) != expected_size or any(not p or p != p.strip() for p in parts) for parts in endpoints):
+        return []
+    if endpoints[0][:2] != endpoints[1][:2]:
+        return []
     result = []
-    for side in ("source_fqn", "target_fqn"):
-        fqn = str(fact.get(side) or "")
-        if fqn.count(".") >= 2:
-            parts = fqn.split(".")
-            result.extend([f"table:{parts[-2]}", f"column:{parts[-2]}.{parts[-1]}"])
-        elif fqn:
-            result.append(f"table:{fqn.split('.')[-1]}")
+    for parts in endpoints:
+        result.append(f"table:{parts[2]}")
+        if expected_size == 4:
+            result.append(f"column:{parts[2]}.{parts[3]}")
+    result = list(dict.fromkeys(result))
+    declared = fact.get("dependencies")
+    if declared is not None and (not isinstance(declared, list) or any(not isinstance(item, str) for item in declared) or set(declared) != set(result)):
+        return []
     return result
 
 

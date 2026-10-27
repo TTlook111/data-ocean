@@ -15,7 +15,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -34,39 +33,26 @@ public class AuditLogServiceImpl implements AuditLogService {
     @Value("${dataocean.audit.slow-query-threshold-ms:5000}")
     private int slowQueryThresholdMs;
 
-    /**
-     * 异步记录审计日志。
-     * 注意：此方法依赖 Spring AOP 代理实现异步，必须从外部 Bean 调用，
-     * 不可在本类内部通过 this 调用，否则 @Async 不生效。
-     */
     @Override
-    @Async
-    public void recordAudit(Long queryTaskId) {
-        try {
-            QueryTask task = queryTaskMapper.selectById(queryTaskId);
-            if (task == null) {
-                log.warn("审计记录失败：查询任务不存在 queryTaskId={}", queryTaskId);
-                return;
-            }
-            QueryAuditLog auditLog = new QueryAuditLog();
-            auditLog.setQueryTaskId(queryTaskId);
-            auditLog.setUserId(task.getUserId());
-            auditLog.setDatasourceId(task.getDatasourceId());
-            auditLog.setQuestion(task.getQuestion());
-            auditLog.setSqlText(task.getResultSql());
-            auditLog.setUsedTables(task.getUsedTables());
-            auditLog.setUsedFields(task.getUsedColumns());
-            auditLog.setPromptVersions(task.getPromptVersions());
-            auditLog.setExecutionTimeMs(task.getTotalTimeMs());
-            auditLog.setIsSuccess("COMPLETED".equals(task.getStatus()));
-            auditLog.setErrorMessage(task.getErrorMessage());
-            auditLog.setIsSlow(task.getTotalTimeMs() != null && task.getTotalTimeMs() > slowQueryThresholdMs);
-            auditLog.setCreatedAt(LocalDateTime.now());
-            auditLogMapper.insert(auditLog);
-            log.debug("审计日志写入成功 queryTaskId={}", queryTaskId);
-        } catch (Exception e) {
-            log.error("审计日志写入失败 queryTaskId={}", queryTaskId, e);
-        }
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void recordCommittedAudit(QueryTask task) {
+        if (auditLogMapper.selectCount(new LambdaQueryWrapper<QueryAuditLog>()
+                .eq(QueryAuditLog::getQueryTaskId, task.getId())) > 0) return;
+        QueryAuditLog auditLog = new QueryAuditLog();
+        auditLog.setQueryTaskId(task.getId());
+        auditLog.setUserId(task.getUserId());
+        auditLog.setDatasourceId(task.getDatasourceId());
+        auditLog.setQuestion(task.getQuestion());
+        auditLog.setSqlText(task.getResultSql());
+        auditLog.setUsedTables(task.getUsedTables());
+        auditLog.setUsedFields(task.getUsedColumns());
+        auditLog.setPromptVersions(task.getPromptVersions());
+        auditLog.setExecutionTimeMs(task.getTotalTimeMs());
+        auditLog.setIsSuccess("COMPLETED".equals(task.getStatus()));
+        auditLog.setErrorMessage(task.getErrorMessage());
+        auditLog.setIsSlow(task.getTotalTimeMs() != null && task.getTotalTimeMs() > slowQueryThresholdMs);
+        auditLog.setCreatedAt(LocalDateTime.now());
+        auditLogMapper.insert(auditLog);
     }
 
     @Override

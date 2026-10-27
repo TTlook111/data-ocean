@@ -11,7 +11,7 @@
  * 后端事实：知识文档状态为 DRAFT -> PENDING_REVIEW -> APPROVED -> INDEXING -> PUBLISHED，
  * 审核、文档发布和数据源级 RAG build 是三个独立的人工确认阶段。
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Check, FileText, MessageSquareText, Plus, RefreshCw, Sparkles, X } from 'lucide-vue-next'
@@ -115,8 +115,18 @@ const readinessError = ref('')
 const readinessWarning = ref('')
 const datasourcesError = ref('')
 const publishedSnapshotError = ref('')
+const publishedSnapshotLoading = ref(false)
 const snapshotsError = ref('')
+const snapshotsLoading = ref(false)
 let requestId = 0
+let disposed = false
+let scopeEpoch = 0
+let statsRequestId = 0
+let publishedRequestId = 0
+let ragRequestId = 0
+let snapshotRequestId = 0
+let generationRequestId = 0
+onBeforeUnmount(() => { disposed = true; scopeEpoch++; requestId++; snapshotRequestId++; generationRequestId++ })
 
 const datasourceId = computed(() => context.datasourceId)
 const activeRagCount = computed(() => readinessList.value.filter((row) => Boolean(row.ragBuildId)).length)
@@ -174,20 +184,25 @@ async function loadDocs() {
       page: page.value,
       pageSize,
     })
-    if (current !== requestId) return
+    if (disposed || current !== requestId) return
     docs.value = result.data?.records || []
     total.value = result.data?.total || 0
   } catch (cause) {
-    if (current !== requestId) return
+    if (disposed || current !== requestId) return
     docs.value = []
     error.value = apiError(cause, '知识文档加载失败')
   } finally {
-    if (current === requestId) loading.value = false
+    if (!disposed && current === requestId) loading.value = false
   }
 }
 
 /** 各状态全量计数：分别按状态取 total，避免用当前分页数据推断全局 */
 async function loadStats() {
+  if (disposed) return
+  const sequence = ++statsRequestId
+  const epoch = scopeEpoch
+  const source = datasourceId.value
+  const current = () => !disposed && epoch === scopeEpoch && source === datasourceId.value && sequence === statsRequestId
   statsLoading.value = true
   statsError.value = ''
   try {
@@ -199,6 +214,7 @@ async function loadStats() {
       listKnowledgeDocs({ ...base, status: 'PENDING_REVIEW' }),
       listKnowledgeDocs({ ...base, status: 'DRAFT' }),
     ])
+    if (!current()) return
     Object.assign(stats, {
       total: all.data?.total || 0,
       published: published.data?.total || 0,
@@ -209,9 +225,9 @@ async function loadStats() {
   } catch (cause) {
     // 统计失败不阻断主列表，但必须说明统计不可用——不能让用户把「统计失败」
     // 读成「全都是 0」（§11.3、§18）。
-    statsError.value = apiError(cause, '状态统计加载失败')
+    if (current()) statsError.value = apiError(cause, '状态统计加载失败')
   } finally {
-    statsLoading.value = false
+    if (current()) statsLoading.value = false
   }
 }
 
@@ -251,33 +267,44 @@ async function loadReadiness() {
 
 /** 判断当前数据源是否已有正式发布快照，用作生成完整快照目录的输入。 */
 async function loadPublishedSnapshot() {
+  if (disposed) return
+  const sequence = ++publishedRequestId
+  const epoch = scopeEpoch
+  const source = datasourceId.value
+  const current = () => !disposed && epoch === scopeEpoch && source === datasourceId.value && sequence === publishedRequestId
   publishedSnapshotError.value = ''
-  if (!datasourceId.value) {
-    publishedSnapshot.value = null
-    return
-  }
+  if (!source) { publishedSnapshot.value = null; publishedSnapshotLoading.value = false; return }
+  publishedSnapshotLoading.value = true
   try {
-    publishedSnapshot.value = (await getPublishedSnapshot(datasourceId.value)).data || null
+    const result = await getPublishedSnapshot(source)
+    if (current()) publishedSnapshot.value = result.data || null
   } catch (cause) {
+    if (!current()) return
     publishedSnapshot.value = null
     publishedSnapshotError.value = apiError(cause, '已发布快照加载失败')
+  } finally {
+    if (current()) publishedSnapshotLoading.value = false
   }
 }
 
 async function loadRagBuilds() {
+  if (disposed) return
+  const sequence = ++ragRequestId
+  const epoch = scopeEpoch
+  const source = datasourceId.value
+  const current = () => !disposed && epoch === scopeEpoch && source === datasourceId.value && sequence === ragRequestId
   ragBuildError.value = ''
-  if (!datasourceId.value) {
-    ragBuilds.value = []
-    return
-  }
+  if (!source) { ragBuilds.value = []; ragBuildsLoading.value = false; return }
   ragBuildsLoading.value = true
   try {
-    ragBuilds.value = (await listRagBuilds(datasourceId.value)).data || []
+    const result = await listRagBuilds(source)
+    if (current()) ragBuilds.value = result.data || []
   } catch (cause) {
+    if (!current()) return
     ragBuilds.value = []
     ragBuildError.value = apiError(cause, 'RAG 构建状态加载失败')
   } finally {
-    ragBuildsLoading.value = false
+    if (current()) ragBuildsLoading.value = false
   }
 }
 
@@ -405,21 +432,43 @@ function openGenerateDialog() {
   if (generateForm.datasourceId) loadSnapshots(generateForm.datasourceId)
 }
 
-async function loadSnapshots(id: number) {
+watch(() => generateForm.datasourceId, () => {
+  snapshotRequestId++
+  generationRequestId++
+  generateLoading.value = false
+  snapshotsLoading.value = false
+  generatedDocs.value = []
+  snapshots.value = []
   snapshotsError.value = ''
+  generateForm.snapshotId = undefined
+}, { flush: 'sync' })
+watch(() => generateForm.snapshotId, () => { generationRequestId++; generateLoading.value = false; generatedDocs.value = [] }, { flush: 'sync' })
+watch(generateDialogVisible, (visible) => {
+  if (!visible) { snapshotRequestId++; generationRequestId++; snapshotsLoading.value = false; generateLoading.value = false; snapshots.value = []; snapshotsError.value = '' }
+}, { flush: 'sync' })
+
+async function loadSnapshots(id: number) {
+  if (disposed) return
+  const sequence = ++snapshotRequestId
+  const current = () => !disposed && generateDialogVisible.value && sequence === snapshotRequestId && generateForm.datasourceId === id
+  snapshotsError.value = ''
+  snapshotsLoading.value = true
   try {
     const result = await listSnapshots({ datasourceId: id, page: 1, size: 50 })
-    snapshots.value = result.data?.records || []
+    if (current()) snapshots.value = result.data?.records || []
   } catch (cause) {
+    if (!current()) return
     snapshots.value = []
     snapshotsError.value = apiError(cause, '快照列表加载失败')
+  } finally {
+    if (current()) snapshotsLoading.value = false
   }
 }
 
 function onGenerateDatasourceChange(id?: number) {
   generateForm.snapshotId = undefined
   if (id) loadSnapshots(id)
-  else snapshots.value = []
+  else { snapshotRequestId++; snapshots.value = [] }
 }
 
 async function runGenerate() {
@@ -428,29 +477,40 @@ async function runGenerate() {
     ElMessage.warning('请选择数据源和快照')
     return
   }
+  const source = generateForm.datasourceId
+  const snapshot = generateForm.snapshotId
+  const sequence = ++generationRequestId
+  const current = () => !disposed && generateDialogVisible.value && source === generateForm.datasourceId && snapshot === generateForm.snapshotId && sequence === generationRequestId
   generateLoading.value = true
   try {
-    const result = await generateFromSnapshot(generateForm.datasourceId, generateForm.snapshotId)
+    const result = await generateFromSnapshot(source, snapshot)
+    if (!current()) return
     generatedDocs.value = result.data || []
     ElMessage.success(`已生成 ${generatedDocs.value.length} 份完整快照知识目录草稿`)
     await Promise.all([loadDocs(), loadStats()])
   } catch (cause) {
-    ElMessage.error(apiError(cause, '快照知识目录生成失败'))
+    if (current()) ElMessage.error(apiError(cause, '快照知识目录生成失败'))
   } finally {
-    generateLoading.value = false
+    if (current()) generateLoading.value = false
   }
 }
 
 onMounted(async () => {
   await Promise.allSettled([context.initialize(), loadDatasources()])
   await Promise.allSettled([context.initialize(), iamS1.load(), loadDatasources()])
+  if (disposed) return
   await Promise.allSettled([loadDocs(), loadStats(), loadPublishedSnapshot(), loadRagBuilds()])
 })
 
 watch(datasourceId, async () => {
+  scopeEpoch++
+  requestId++
+  publishedSnapshot.value = null
+  ragBuilds.value = []
+  Object.assign(stats, { total: 0, published: 0, indexing: 0, pending: 0, draft: 0 })
   page.value = 1
   await Promise.all([loadDocs(), loadStats(), loadPublishedSnapshot(), loadRagBuilds()])
-})
+}, { flush: 'sync' })
 
 watch(() => route.query.tab, (value) => {
   const next = String(value || 'documents')
@@ -585,7 +645,8 @@ watch(() => route.query.page, (value) => {
       </el-table>
     </details>
 
-    <ErrorState v-if="publishedSnapshotError" :message="publishedSnapshotError" @retry="loadPublishedSnapshot" />
+    <LoadingState v-if="publishedSnapshotLoading" variant="skeleton" :rows="2" />
+    <ErrorState v-else-if="publishedSnapshotError" :message="publishedSnapshotError" @retry="loadPublishedSnapshot" />
     <p v-else-if="!datasourceId" class="knowledge-page__scope-note">
       当前未限定数据源，列表展示全部知识文档。使用顶部的数据源范围可以聚焦到单个数据源。
     </p>
@@ -704,7 +765,7 @@ watch(() => route.query.page, (value) => {
           </el-form-item>
           <el-form-item label="快照">
             <ErrorState v-if="snapshotsError" :message="snapshotsError" @retry="generateForm.datasourceId && loadSnapshots(generateForm.datasourceId)" />
-            <el-select v-model="generateForm.snapshotId" placeholder="选择元数据快照" style="width: 100%" :disabled="!generateForm.datasourceId">
+            <el-select v-model="generateForm.snapshotId" placeholder="选择元数据快照" style="width: 100%" :disabled="!generateForm.datasourceId || snapshotsLoading" :loading="snapshotsLoading" loading-text="正在加载快照">
               <el-option v-for="item in snapshots" :key="item.id" :label="`v${item.snapshotVersion} · ${item.status}`" :value="item.id" />
             </el-select>
           </el-form-item>

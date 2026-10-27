@@ -38,7 +38,7 @@ public final class PromptSceneRegistry {
         return new PromptSceneVO(code, name, group, consumer, "1", variables, descriptions, output, FIXED, metric);
     }
     public static final List<PromptSceneVO> SCENES = List.of(
-        scene("schema_linking", "问题理解与规划", "问数", "iam_s1/graph.py · schema_linking", List.of("input"), "JSON: rewrittenQuestion, intent, selectedResources, clarificationNeeded, clarification", "结构校验与业务澄清需结合任务结果评估"),
+        scene("schema_linking", "问题理解与规划", "问数", "iam_s1/graph.py · schema_linking", List.of("input"), "JSON: rewrittenQuestion, intent, selectedResources, selectedRelationIds, clarificationNeeded, clarification", "结构校验与业务澄清需结合任务结果评估"),
         scene("sql_generation", "SQL 生成", "问数", "iam_s1/graph.py · sql_generation", List.of("question", "schema", "rag", "glossary", "few_shot", "history", "summary"), "单条 SELECT；AST 和输出来源门禁独立执行", "任务执行结果不等于 SQL 业务正确率"),
         scene("sql_semantic_check", "SQL 语义核对", "问数", "iam_s1/graph.py · sql_semantic_check", List.of("input"), "JSON: decision(MATCH/RETRY/RETRIEVE/CLARIFY/UNSAFE), reason", "核对结论需结合任务及人工验收"),
         scene("result_verification", "结果核验", "问数", "iam_s1/graph.py · result_verification", List.of("input"), "JSON: decision(ANSWER/RETRY/CLARIFY), answer, reason", "生成回答不等于业务验收通过"),

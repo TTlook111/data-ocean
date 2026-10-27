@@ -268,15 +268,17 @@ const prefilledTargetId = ref<number | null>(null)
 
 /** 加载图谱数据 */
 async function loadGraph() {
-  if (!datasourceId.value || !canViewLineage.value) return
+  if (impactDisposed || !datasourceId.value || !canViewLineage.value) return
   if (loading.value && loadingDatasourceId === datasourceId.value) return
+  const source = datasourceId.value
   const currentRequest = ++graphRequestId
+  const current = () => !impactDisposed && source === datasourceId.value && currentRequest === graphRequestId
   loadingDatasourceId = datasourceId.value
   loading.value = true
   try {
     // 先加载该数据源所有实体
     const entRes = await getEntitiesByDatasource(datasourceId.value)
-    if (currentRequest !== graphRequestId) return
+    if (!current()) return
     entities.value = entRes.data ?? []
     graphError.value = ''
     currentDatasourceEntityIds.clear()
@@ -303,7 +305,7 @@ async function loadGraph() {
       focusEntityId.value = ''
       relationships.value = []
       await nextTick()
-      renderGraph()
+      if (current()) renderGraph()
       return
     }
     focusEntityId.value = String(focusEntity.id)
@@ -320,6 +322,7 @@ async function loadGraph() {
         depth.value,
         lineageTypeFilter.value,
       )
+      if (!current()) return
       if (enrichedRes.data && 'edges' in enrichedRes.data) {
         const graphVo = enrichedRes.data as LineageGraphVO
         relationships.value = graphVo.edges
@@ -331,10 +334,11 @@ async function loadGraph() {
           }
         }
         await nextTick()
-        renderGraph()
+        if (current()) renderGraph()
         return
       }
     } catch {
+      if (!current()) return
       // 增强 API 失败，回退到逐个查询
     }
 
@@ -344,6 +348,7 @@ async function loadGraph() {
       : tableEntities
     const lineagePromises = fallbackRoots.map((e) => getEntityLineage(e.id))
     const lineageResults = await Promise.allSettled(lineagePromises)
+    if (!current()) return
     const allRels: MetadataRelationshipItem[] = []
     for (const r of lineageResults) {
       if (r.status === 'fulfilled' && r.value.data) {
@@ -360,9 +365,9 @@ async function loadGraph() {
     })
 
     await nextTick()
-    renderGraph()
+    if (current()) renderGraph()
   } catch (cause) {
-    graphError.value = getHttpErrorMessage(cause, '血缘图谱加载失败')
+    if (current()) graphError.value = getHttpErrorMessage(cause, '血缘图谱加载失败')
   } finally {
     if (currentRequest === graphRequestId) {
       loading.value = false
@@ -618,22 +623,39 @@ async function handleDeleteEdge() {
 
 /** 为指定实体加载血缘 */
 async function loadEntityLineage(entityId: number) {
+  if (impactDisposed || !datasourceId.value || !canViewLineage.value) return
+  const sequence = ++graphRequestId
+  const source = datasourceId.value
+  loadingDatasourceId = source
+  loading.value = true
+  const current = () => !impactDisposed && sequence === graphRequestId && source === datasourceId.value
   try {
     const res = await getEnrichedLineage(entityId, depth.value, lineageTypeFilter.value)
+    if (!current()) return
     if (res.data && 'edges' in res.data) {
       const graphVo = res.data as LineageGraphVO
       entities.value = graphVo.nodes
       relationships.value = graphVo.edges
       await nextTick()
-      renderGraph()
+      if (current()) renderGraph()
     }
   } catch {
-    ElMessage.error('加载血缘失败')
+    if (current()) ElMessage.error('加载血缘失败')
+  } finally {
+    if (sequence === graphRequestId) {
+      loading.value = false
+      loadingDatasourceId = null
+    }
   }
 }
 
 // ========== 影响分析（§7.17） ==========
+let impactRequestId = 0
+let impactDisposed = false
+onBeforeUnmount(() => { impactDisposed = true; impactRequestId++; graphRequestId++ })
 const impactVisible = ref(false)
+watch(datasourceId, () => { impactRequestId++; impactVisible.value = false }, { flush: 'sync' })
+watch(impactVisible, (visible) => { if (!visible) impactRequestId++ }, { flush: 'sync' })
 const impactLoading = ref(false)
 const impactError = ref('')
 const impact = ref<ImpactAnalysisVO | null>(null)
@@ -652,6 +674,9 @@ async function handleAnalyzeImpact(entity: MetadataEntityItem | null = selectedE
     ElMessage.warning('请先选择数据源并在图谱中选中一个实体')
     return
   }
+  const source = datasourceId.value
+  const sequence = ++impactRequestId
+  const current = () => !impactDisposed && impactVisible.value && sequence === impactRequestId && source === datasourceId.value
   impactTarget.value = entity
   impactVisible.value = true
   impactLoading.value = true
@@ -667,13 +692,14 @@ async function handleAnalyzeImpact(entity: MetadataEntityItem | null = selectedE
       analyzeImpact(datasourceId.value, tableName, columnName),
       columnName ? queryColumnLineage(datasourceId.value, tableName, columnName) : queryTableLineage(datasourceId.value, tableName),
     ])
+    if (!current()) return
     impact.value = impactResult.data
     impactQueries.value = queryResult.data || []
   } catch (cause) {
     const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
-    impactError.value = message || (cause instanceof Error ? cause.message : '影响分析计算失败')
+    if (current()) impactError.value = message || (cause instanceof Error ? cause.message : '影响分析计算失败')
   } finally {
-    impactLoading.value = false
+    if (current()) impactLoading.value = false
   }
 }
 
@@ -784,7 +810,9 @@ const handleResize = () => d3Resize()
 
 onMounted(async () => {
   await adminContext.initialize()
+  if (impactDisposed) return
   if (datasourceId.value) await loadGraph()
+  if (impactDisposed) return
   window.addEventListener('resize', handleResize)
   document.addEventListener('click', closeContextMenu)
 })
@@ -1075,10 +1103,13 @@ onBeforeUnmount(() => {
           <div><dt>实体类型</dt><dd>{{ impactTarget ? entityTypeLabel(impactTarget.entityType) : '—' }}</dd></div>
           <div><dt>依赖查询数</dt><dd>{{ impact?.dependentQueryCount ?? 0 }}</dd></div>
         </dl>
+          <p role="status">{{ impact?.coverageNote || '仅显示已记录的查询使用；未记录不代表没有影响。' }}</p>
+          <p v-if="impact?.coverageStartAt">最早记录：{{ impact.coverageStartAt }}</p>
+          <p v-if="impact?.pendingDatasourceQueryCount">本数据源还有 {{ impact.pendingDatasourceQueryCount }} 个查询待补追溯记录。</p>
         <section class="impact-section">
           <h3>近期依赖该对象的查询任务</h3>
           <p v-if="!impact?.recentQueryTaskIds?.length" class="muted-text">
-            没有查到近期依赖该对象的查询任务。这不代表一定无人使用——后端只统计已记录审计日志的查询。
+            没有查到近期依赖该对象的查询任务。这不代表一定无人使用——这里只统计已完成追溯投影的成功受保护查询。
           </p>
           <div v-else class="impact-tasks">
             <el-tag v-for="taskId in impact.recentQueryTaskIds" :key="taskId" size="small">#{{ taskId }}</el-tag>

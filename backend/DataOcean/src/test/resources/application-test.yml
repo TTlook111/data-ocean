@@ -24,5 +24,7 @@ dataocean:
     health-check:
       enabled: false
   query:
+    trace-projection:
+      enabled: false
     cleanup:
       enabled: false

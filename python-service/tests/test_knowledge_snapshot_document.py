@@ -116,8 +116,8 @@ def _request() -> GenerateDraftRequest:
         lineage_facts=[
             {
                 "relationship_id": 401,
-                "source_fqn": "sales.sales_orders",
-                "target_fqn": "sales.products",
+                "source_fqn": "sales.db.sales_orders",
+                "target_fqn": "sales.db.products",
                 "source_snapshot_id": 8800,
                 "bound_snapshot_id": 8801,
                 "binding_status": "BOUND",
@@ -237,7 +237,7 @@ async def test_generation_rejects_lineage_not_rebound_to_the_requested_snapshot(
 @pytest.mark.asyncio
 async def test_out_of_snapshot_lineage_is_not_generation_evidence():
     request = _request()
-    request.lineage_facts[0]["target_fqn"] = "sales.monthly_sales"
+    request.lineage_facts[0]["target_fqn"] = "sales.db.monthly_sales"
     request.lineage_facts[0]["dependencies"] = ["table:sales_orders", "table:monthly_sales"]
     result = await generate_draft(request)
     assert result.coverage["confirmedLineageCount"] == 0

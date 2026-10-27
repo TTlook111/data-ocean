@@ -62,6 +62,8 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 @Slf4j
 public class KnowledgeDocPublishService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private LineageFactService lineageFacts;
 
     /** JSON 解析用的 ObjectMapper（线程安全，复用实例） */
     private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
@@ -550,90 +552,21 @@ public class KnowledgeDocPublishService {
         if (entities == null || entities.isEmpty()) return List.of();
         List<Long> entityIds = entities.stream().map(MetadataEntity::getId).filter(java.util.Objects::nonNull).toList();
         if (entityIds.isEmpty()) return List.of();
-        Map<Long, MetadataEntity> entityById = entities.stream()
-                .filter(entity -> entity.getId() != null)
-                .collect(java.util.stream.Collectors.toMap(MetadataEntity::getId, entity -> entity, (left, right) -> left));
         List<MetadataRelationship> relationships = metadataRelationshipMapper.selectByEntityIds(entityIds);
         List<Map<String, Object>> facts = new ArrayList<>();
         for (MetadataRelationship relationship : relationships) {
             if (!MetadataRelationship.TYPE_LINEAGE.equals(relationship.getRelationType())
                     && !MetadataRelationship.TYPE_DERIVED_FROM.equals(relationship.getRelationType())) continue;
-            Map<String, Object> metadata = readJsonMap(relationship.getRelationMetadata());
-            if (!"CONFIRMED".equalsIgnoreCase(String.valueOf(metadata.get("confirmation_status")))
-                    || !"BOUND".equalsIgnoreCase(String.valueOf(metadata.get("binding_status")))) continue;
-            // 两端快照分别核验：同一篇文档只要求属于本文档数据源的一端匹配 snapshotId，
-            // 跨源另一端必须是它自己数据源当前已核验的快照，不能用单侧 bound_snapshot_id 代替。
-            String sourceBound = boundSnapshot(metadata, "source_bound_snapshot_id");
-            String targetBound = boundSnapshot(metadata, "target_bound_snapshot_id");
-            if (sourceBound == null || targetBound == null) continue;
-            MetadataEntity source = entityById.get(relationship.getSourceId());
-            MetadataEntity target = entityById.get(relationship.getTargetId());
-            boolean sourceInScope = source != null;
-            boolean targetInScope = target != null;
-            if (!sourceInScope && !targetInScope) continue;
-            if (sourceInScope && !String.valueOf(snapshotId).equals(sourceBound)) continue;
-            if (targetInScope && !String.valueOf(snapshotId).equals(targetBound)) continue;
-            String sourceFqn = valueOr(metadata.get("source_fqn"), source == null ? null : source.getFqn());
-            String targetFqn = valueOr(metadata.get("target_fqn"), target == null ? null : target.getFqn());
-            if (sourceFqn == null || targetFqn == null) continue;
-            Map<String, Object> fact = new HashMap<>();
-            fact.put("relationship_id", relationship.getId());
-            fact.put("source_fqn", sourceFqn);
-            fact.put("target_fqn", targetFqn);
-            fact.put("relation_type", relationship.getRelationType());
-            fact.put("source_snapshot_id", metadata.get("source_snapshot_id"));
-            fact.put("target_snapshot_id", metadata.get("target_snapshot_id"));
-            fact.put("source_bound_snapshot_id", sourceBound);
-            fact.put("target_bound_snapshot_id", targetBound);
-            // 该字段只表示本文档所属数据源一侧的绑定快照，不再是“两端同一快照”的声明。
-            fact.put("bound_snapshot_id", snapshotId);
-            fact.put("binding_status", "BOUND");
-            fact.put("confirmation_status", "CONFIRMED");
-            fact.put("review_status", "APPROVED");
-            fact.put("description", metadata.get("description"));
-            fact.put("lineage_type", metadata.get("lineage_type"));
-            fact.put("column_mappings", metadata.get("column_mappings"));
-            fact.put("dependencies", lineageDependencies(sourceFqn, targetFqn));
-            facts.add(fact);
+            try {
+                if (lineageFacts != null) {
+                    // 列表只提供候选身份；正文、端点及摘要全部取自同一个已核验事实快照。
+                    facts.add(lineageFacts.currentSnapshot(datasourceId, snapshotId, relationship.getId()).fact());
+                }
+            } catch (BusinessException invalid) { /* 来源失效的候选不进入生成输入。 */ }
         }
         return facts;
     }
 
-    /** 端点自己的绑定快照；历史记录没有端点字段时回退到旧的单侧 bound_snapshot_id。 */
-    private String boundSnapshot(Map<String, Object> metadata, String key) {
-        Object value = metadata.get(key);
-        if (value == null || String.valueOf(value).isBlank()) {
-            value = metadata.get("bound_snapshot_id");
-        }
-        return value == null || String.valueOf(value).isBlank() ? null : String.valueOf(value);
-    }
-
-    private Map<String, Object> readJsonMap(String json) {
-        if (json == null || json.isBlank()) return Map.of();
-        try {
-            return JSON_MAPPER.readValue(json, new com.fasterxml.jackson.core.type.TypeReference<>() {});
-        } catch (Exception e) {
-            return Map.of();
-        }
-    }
-
-    private List<String> lineageDependencies(String sourceFqn, String targetFqn) {
-        List<String> result = new ArrayList<>();
-        addFqnDependencies(result, sourceFqn);
-        addFqnDependencies(result, targetFqn);
-        return result.stream().distinct().toList();
-    }
-
-    private void addFqnDependencies(List<String> result, String fqn) {
-        String[] parts = fqn.split("\\.");
-        if (parts.length >= 3) result.add("table:" + parts[parts.length - 2]);
-        if (parts.length >= 4) result.add("column:" + parts[parts.length - 2] + "." + parts[parts.length - 1]);
-    }
-
-    private String valueOr(Object preferred, String fallback) {
-        if (preferred != null && !String.valueOf(preferred).isBlank()) return String.valueOf(preferred);
-        return fallback;
-    }
 
     /**
      * 从目录生成结果中安全提取 warnings 列表。

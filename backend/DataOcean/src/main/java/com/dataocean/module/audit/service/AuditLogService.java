@@ -9,20 +9,13 @@ import com.dataocean.module.audit.entity.vo.AuditStatsVO;
 /**
  * 审计日志服务接口
  * <p>
- * 提供查询审计日志的异步写入、查询、统计和导出功能。
+ * 提供提交后事务投影的审计写入、查询、统计和导出功能。
  * </p>
  */
 public interface AuditLogService {
 
-    /**
-     * 异步记录审计日志
-     * <p>
-     * 在查询完成后调用，自动标记慢查询。使用 @Async 确保不阻塞主流程。
-     * </p>
-     *
-     * @param queryTaskId 查询任务ID
-     */
-    void recordAudit(Long queryTaskId);
+    /** 调用者持有任务行锁及事务；失败必须传播以保留待恢复状态。 */
+    void recordCommittedAudit(com.dataocean.module.query.entity.po.QueryTask task);
 
     /**
      * 更新用户反馈

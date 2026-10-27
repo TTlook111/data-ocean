@@ -104,7 +104,9 @@ class IamS1QueryServiceImplTest {
     @Mock private com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
     @Mock private com.dataocean.common.security.DataMaskingService maskingService;
     @Mock private PlatformTransactionManager transactionManager;
+    @Mock private org.springframework.context.ApplicationEventPublisher eventPublisher;
     @Mock private FieldSemanticService fieldSemanticService;
+    @Mock private com.dataocean.module.knowledge.service.impl.LineageFactService lineageFacts;
     @InjectMocks private IamS1QueryServiceImpl service;
 
     @org.junit.jupiter.api.BeforeAll
@@ -117,10 +119,14 @@ class IamS1QueryServiceImplTest {
     @BeforeEach
     void setUp() {
         org.springframework.test.util.ReflectionTestUtils.setField(service, "fieldSemanticService", fieldSemanticService);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "eventPublisher", eventPublisher);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "lineageFacts", lineageFacts);
         task = QueryTask.builder().id(17L).taskId("task-1").userId(7L).datasourceId(1L)
                 .iamProtocolVersion("IAM-SIMPLE-1").permissionRevision(100L).activeMetadataSnapshotId(88L)
-                .status("PROCESSING").iamResourceRequest("[{\"tableName\":\"orders\",\"referencedColumns\":[\"id\"],\"columnUsages\":{\"id\":[\"PROJECTION\"]}}]")
+                .status("PROCESSING").businessKnowledgeRefsJson("[]").lineageRefsJson("[]").iamResourceRequest("[{\"tableName\":\"orders\",\"referencedColumns\":[\"id\"],\"columnUsages\":{\"id\":[\"PROJECTION\"]}}]")
                 .iamExecutionSnapshot("{\"resources\":[]}").build();
+        lenient().when(queryTaskMapper.update(any(), any())).thenReturn(1);
+        lenient().when(queryTaskMapper.selectByTaskIdForUpdate(any())).thenReturn(task);
         lenient().when(queryTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
         lenient().when(conversationService.isVisible(any(), any())).thenReturn(true);
         lenient().when(userResourceService.candidateCatalog(any(), any(), any()))
@@ -147,7 +153,7 @@ class IamS1QueryServiceImplTest {
         service.complete("task-1", objectMapper.writeValueAsString(result));
 
         verify(queryTaskMapper).update(any(), any());
-        verify(auditLogService, never()).recordAudit(17L);
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 
     @Test
@@ -168,7 +174,62 @@ class IamS1QueryServiceImplTest {
         service.complete("task-1", objectMapper.writeValueAsString(result));
 
         verify(queryTaskMapper).update(any(), any());
-        verify(auditLogService).recordAudit(17L);
+        verify(eventPublisher).publishEvent(new com.dataocean.module.query.event.QueryTraceCommittedEvent("task-1"));
+    }
+
+    @Test
+    void zeroRowCompletionEmitsNoAuditOrTraceEvent() throws Exception {
+        MetadataSnapshot metadata = new MetadataSnapshot(); metadata.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        QueryAttempt attempt = protectedAttempt("task-1", "zero", "PROTECTED", "[{\"id\":1}]",
+                "[{\"name\":\"id\"}]", "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate("task-1", "zero")).thenReturn(attempt);
+        when(queryTaskMapper.update(any(), any())).thenReturn(0);
+        service.complete("task-1", objectMapper.writeValueAsString(completedResult(attempt)));
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+        verify(auditLogService, never()).recordCommittedAudit(any());
+    }
+
+    @Test
+    void businessReferenceFreezeStillRejectsARealZeroRowConflict() {
+        task.setBusinessKnowledgeRefsJson(null);
+        when(queryTaskMapper.update(any(), any())).thenReturn(0);
+        var catalog = new com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO(1L, 88L, 100L, List.of());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                service, "buildPythonRequest", "task-1", 7L, 42L, 1L, askRequest(), null, Map.of(), null, catalog, java.time.LocalDateTime.now()))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("并发变化");
+    }
+
+    @Test
+    void tableOnlyStructureIsRetainedAndEmptyFieldDerivationIsRejected() throws Exception {
+        RagIndexBuild build = RagIndexBuild.builder().buildId("b").datasourceId(1L).sourceSnapshotId(88L).build();
+        RagIndexBuildChunk member = new RagIndexBuildChunk(); member.setChunkId(9L);
+        member.setResourceDependencies("[\"table:orders\"]"); member.setFactSourceIds("[\"10\"]");
+        KnowledgeChunk chunk = KnowledgeChunk.builder().id(9L).metadataSnapshotId(88L).relatedTables("[\"orders\"]")
+                .relatedColumns("[]").reviewStatus("APPROVED").factReviewStatus("APPROVED").governanceStatus("NORMAL")
+                .factType("TABLE_STRUCTURE").build();
+        when(ragIndexBuildChunkMapper.selectList(any())).thenReturn(List.of(member));
+        when(knowledgeChunkMapper.selectBatchIds(any())).thenReturn(List.of(chunk));
+        java.lang.reflect.Method load = IamS1QueryServiceImpl.class.getDeclaredMethod("loadKnowledgeChunks", RagIndexBuild.class, Long.class, Set.class);
+        load.setAccessible(true);
+        assertThat((List<?>) load.invoke(service, build, 1L, Set.of("table:orders"))).hasSize(1);
+        chunk.setFactType("DERIVED_FROM");
+        assertThat((List<?>) load.invoke(service, build, 1L, Set.of("table:orders"))).isEmpty();
+    }
+
+    @Test
+    void expiredLineageCannotPassFinalCompletion() throws Exception {
+        task.setRagBuildId("b"); task.setRagSourceSnapshotId(88L); task.setLineageRefsJson("[{\"sourceFingerprint\":\"old\"}]");
+        when(lineageFacts.referencesValid(1L, 88L, task.getLineageRefsJson())).thenReturn(false);
+        QueryAttempt attempt = protectedAttempt("task-1", "expired", "PROTECTED", "[{\"id\":1}]",
+                "[{\"name\":\"id\"}]", "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate("task-1", "expired")).thenReturn(attempt);
+        service.complete("task-1", objectMapper.writeValueAsString(completedResult(attempt)));
+        var update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(any(), update.capture());
+        assertThat(update.getValue().getParamNameValuePairs().values().toString()).contains("REJECTED_ON_RECHECK");
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 
     @Test
@@ -192,8 +253,8 @@ class IamS1QueryServiceImplTest {
         verify(queryTaskMapper).update(any(), update.capture());
         assertRejectedCompletionUpdateContainsNoPayload(update.getValue());
         assertThat(update.getValue().getParamNameValuePairs().values().toString())
-                .contains("FAILED", "REJECTED_ON_RECHECK", "字段解释已变化");
-        verify(auditLogService, never()).recordAudit(17L);
+                .contains("FAILED", "REJECTED_ON_RECHECK", "知识已变化");
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 
     @Test
@@ -376,7 +437,7 @@ class IamS1QueryServiceImplTest {
         ArgumentCaptor<LambdaUpdateWrapper<QueryTask>> update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
         verify(queryTaskMapper).update(isNull(), update.capture());
         assertRejectedCompletionUpdateContainsNoPayload(update.getValue());
-        verify(auditLogService, never()).recordAudit(17L);
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
         verify(conversationService, never()).saveAssistantMessage(any(), any(), any(), any());
         if ("missing".equals(attemptCase) || "blank".equals(attemptCase)) {
             verify(queryAttemptMapper, never()).selectForUpdate(any(), any());
@@ -644,7 +705,6 @@ class IamS1QueryServiceImplTest {
                 "[{\"phone\":\"RAW_PHONE_VALUE_83d2\"}]", "[{\"name\":\"phone\"}]",
                 "[{\"outputColumn\":\"phone\",\"sources\":[\"users.phone\"]}]",
                 "[\"users\"]", "[\"users.phone\"]");
-        when(queryAttemptMapper.selectForUpdate(taskId, attempt.getAttemptId())).thenReturn(attempt);
         Map<String, Object> result = completedResult(attempt);
         result.putAll(Map.of("usedColumns", List.of("users.phone"), "usedTables", List.of("users"),
                 "sourceTrace", List.of(Map.of("outputColumn", "phone", "sources", List.of("users.phone"))),
@@ -945,7 +1005,6 @@ class IamS1QueryServiceImplTest {
         QueryAttempt attempt = protectedAttempt(taskId, "attempt-sse-sql-view", "PROTECTED",
                 "[{\"id\":1}]", "[{\"name\":\"id\"}]",
                 "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
-        when(queryAttemptMapper.selectForUpdate(taskId, attempt.getAttemptId())).thenReturn(attempt);
         Map<String, Object> result = completedResult(attempt);
         result.putAll(Map.of("usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
                 "sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))),
@@ -1047,7 +1106,7 @@ class IamS1QueryServiceImplTest {
 
         // 冲突结果只能按其中一个策略脱敏，必须在落库前 fail-closed。
         verify(queryTaskMapper).update(any(), any());
-        verify(auditLogService, never()).recordAudit(17L);
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 
     @Test

@@ -21,6 +21,9 @@ public interface QueryLineageColumnMapper extends BaseMapper<QueryLineageColumn>
             WHERE LOWER(l.source_table) = LOWER(#{tableName})
               AND LOWER(l.source_column) = LOWER(#{columnName})
               AND t.datasource_id = #{datasourceId}
+              AND t.status = 'COMPLETED' AND t.iam_protocol_version = 'IAM-SIMPLE-1'
+              AND t.trace_projection_status = 'COMPLETED'
+              AND t.iam_final_protection_status IN ('FINAL_PROTECTED','FINAL_MASKED')
             ORDER BY l.created_at DESC
             LIMIT #{limit}
             """)
@@ -30,14 +33,28 @@ public interface QueryLineageColumnMapper extends BaseMapper<QueryLineageColumn>
                                                          @Param("limit") int limit);
 
     @Select("""
-            SELECT COUNT(*)
+            SELECT COUNT(DISTINCT l.query_task_id)
             FROM query_lineage_column l
             JOIN query_task t ON t.id = l.query_task_id
             WHERE LOWER(l.source_table) = LOWER(#{tableName})
               AND LOWER(l.source_column) = LOWER(#{columnName})
               AND t.datasource_id = #{datasourceId}
+              AND t.status = 'COMPLETED' AND t.iam_protocol_version = 'IAM-SIMPLE-1'
+              AND t.trace_projection_status = 'COMPLETED'
+              AND t.iam_final_protection_status IN ('FINAL_PROTECTED','FINAL_MASKED')
             """)
     Long countByColumnAndDatasource(@Param("tableName") String tableName,
                                     @Param("columnName") String columnName,
                                     @Param("datasourceId") Long datasourceId);
+
+    @Select("""
+            SELECT l.query_task_id FROM query_lineage_column l JOIN query_task t ON t.id = l.query_task_id
+            WHERE LOWER(l.source_table) = LOWER(#{tableName}) AND LOWER(l.source_column) = LOWER(#{columnName})
+              AND t.datasource_id = #{datasourceId}
+              AND t.status = 'COMPLETED' AND t.iam_protocol_version = 'IAM-SIMPLE-1'
+              AND t.trace_projection_status = 'COMPLETED'
+              AND t.iam_final_protection_status IN ('FINAL_PROTECTED','FINAL_MASKED')
+            GROUP BY l.query_task_id ORDER BY MAX(l.created_at) DESC, l.query_task_id DESC LIMIT 10
+            """)
+    List<Long> recentTasks(@Param("tableName") String tableName, @Param("columnName") String columnName, @Param("datasourceId") Long datasourceId);
 }

@@ -10,6 +10,10 @@ import java.util.List;
 public class ImpactAnalysisVO {
     /** 依赖该字段的查询数量 */
     private Long dependentQueryCount;
+    /** 仅代表已有投影记录的覆盖起点，不证明此后没有遗漏。 */
+    private java.time.LocalDateTime coverageStartAt;
+    private Long pendingDatasourceQueryCount;
+    private String coverageNote;
     /** 最近引用的查询任务ID列表 */
     private List<Long> recentQueryTaskIds;
     /** 表名 */
