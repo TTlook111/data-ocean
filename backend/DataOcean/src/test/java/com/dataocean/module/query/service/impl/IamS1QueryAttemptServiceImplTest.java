@@ -91,6 +91,7 @@ class IamS1QueryAttemptServiceImplTest {
         metadata.setId(88L);
         when(snapshots.getPublishedSnapshot(5L)).thenReturn(metadata);
         when(queryService.lineageReferencesValid(any())).thenReturn(true);
+        when(queryService.reviewedKnowledgeReferencesValid(any())).thenReturn(true);
         when(queryService.writeJson(any())).thenAnswer(invocation -> mapper.writeValueAsString(invocation.getArgument(0)));
         when(queryService.buildSnapshot(eq("task-1"), any(), any())).thenReturn(Map.of("taskId", "task-1"));
         when(queryService.connectionConfig(5L)).thenReturn(Map.of("host", "fixture", "password", "db-secret"));
@@ -100,6 +101,15 @@ class IamS1QueryAttemptServiceImplTest {
     @Test
     void expiredLineageStopsAuthorizationExecutionAndProtection() {
         when(queryService.lineageReferencesValid(task)).thenReturn(false);
+        assertThat(service.authorize("task-1", new IamS1AttemptAuthorizeRequestDTO()).get("allowed")).isEqualTo(false);
+        assertThat(service.markExecuting("task-1", "a", "hash").get("allowed")).isEqualTo(false);
+        assertThat(service.protectResult("task-1", new IamS1AttemptResultRequestDTO()).get("allowed")).isEqualTo(false);
+        verify(attempts, never()).selectForUpdate(any(), any());
+    }
+
+    @Test
+    void withdrawnReviewedKnowledgeStopsAuthorizationExecutionAndProtection() {
+        when(queryService.reviewedKnowledgeReferencesValid(task)).thenReturn(false);
         assertThat(service.authorize("task-1", new IamS1AttemptAuthorizeRequestDTO()).get("allowed")).isEqualTo(false);
         assertThat(service.markExecuting("task-1", "a", "hash").get("allowed")).isEqualTo(false);
         assertThat(service.protectResult("task-1", new IamS1AttemptResultRequestDTO()).get("allowed")).isEqualTo(false);

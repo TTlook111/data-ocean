@@ -1,0 +1,16 @@
+{
+  "contract":"synthetic-sales-v1",
+  "products":[
+    {"product_id":101,"product_name":"Office chair","category":"Furniture"},
+    {"product_id":102,"product_name":"Desk","category":"Furniture"},
+    {"product_id":103,"product_name":"Cable","category":"Accessories"}
+  ],
+  "sales_orders":[
+    {"order_id":1,"order_date":"2026-01-02","region":"North","product_id":101,"quantity":2,"unit_price":"10.00","status":"COMPLETED"},
+    {"order_id":2,"order_date":"2026-01-18","region":"North","product_id":102,"quantity":1,"unit_price":"30.00","status":"COMPLETED"},
+    {"order_id":3,"order_date":"2026-02-05","region":"South","product_id":102,"quantity":3,"unit_price":"30.00","status":"COMPLETED"},
+    {"order_id":4,"order_date":"2026-02-20","region":"East","product_id":103,"quantity":1,"unit_price":"15.00","status":"RETURNED"},
+    {"order_id":5,"order_date":"2026-03-10","region":"East","product_id":101,"quantity":4,"unit_price":"10.00","status":"COMPLETED"},
+    {"order_id":6,"order_date":"2025-12-15","region":"South","product_id":103,"quantity":2,"unit_price":"15.00","status":"COMPLETED"}
+  ]
+}

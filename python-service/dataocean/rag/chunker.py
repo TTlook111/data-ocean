@@ -152,7 +152,8 @@ def chunk_tables(tables_metadata: list[dict]) -> list[ChunkItem]:
     return chunks
 
 
-def validate_skills_md_structure(content: str, expected_snapshot_id: int | None = None) -> list[str]:
+def validate_skills_md_structure(content: str, expected_snapshot_id: int | None = None,
+                                 *, require_complete_document: bool = True) -> list[str]:
     """校验待发布 skills.md 的结构，不判断业务事实真假。
 
     业务事实仍由 Java 的元数据、审核流程和发布前治理校验负责；这里仅
@@ -166,11 +167,11 @@ def validate_skills_md_structure(content: str, expected_snapshot_id: int | None 
     top_level_titles = [title.lower() for level, title in headings if level == "##"]
     h3_titles = [title.strip() for level, title in headings if level == "###"]
 
-    for keywords in _REQUIRED_SECTION_KEYWORDS:
+    for keywords in _REQUIRED_SECTION_KEYWORDS if require_complete_document else ():
         if not any(any(keyword in title for keyword in keywords) for title in top_level_titles):
             errors.append(f"缺少顶级章节：{'/'.join(keywords[:2])}")
 
-    if not h3_titles:
+    if not h3_titles and require_complete_document:
         errors.append("至少需要一个 ### 语义小节")
     elif any(not title.strip() for title in h3_titles):
         errors.append("存在空的 ### 标题")
@@ -184,7 +185,7 @@ def validate_skills_md_structure(content: str, expected_snapshot_id: int | None 
     column_ids: list[int] = []
     snapshot_ids: set[int] = set()
     markers = list(_FACT_MARKER_PATTERN.finditer(content))
-    if not markers:
+    if not markers and require_complete_document:
         errors.append("缺少带来源快照和完整资源依赖的 fact marker")
     for match in markers:
         try:
@@ -212,9 +213,9 @@ def validate_skills_md_structure(content: str, expected_snapshot_id: int | None 
             column_ids.append(int(source_ids[1]))
     if len(snapshot_ids) > 1:
         errors.append("文档 fact marker 混入多个 snapshotId")
-    if not table_ids or len(table_ids) != len(set(table_ids)):
+    if (require_complete_document and not table_ids) or len(table_ids) != len(set(table_ids)):
         errors.append("表结构事实缺失或重复")
-    if not column_ids or len(column_ids) != len(set(column_ids)):
+    if (require_complete_document and not column_ids) or len(column_ids) != len(set(column_ids)):
         errors.append("字段结构事实缺失或重复")
 
     return errors

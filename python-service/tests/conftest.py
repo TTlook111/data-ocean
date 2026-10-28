@@ -18,6 +18,9 @@ os.environ["LANGCHAIN_TRACING_V2"] = "false"
 TEST_INTERNAL_TOKEN = "test-internal-token-0123456789abcdef"
 assert len(TEST_INTERNAL_TOKEN) >= 32, "测试令牌必须满足最小长度要求"
 os.environ["INTERNAL_TOKEN"] = TEST_INTERNAL_TOKEN
+# 隔离测试不应向开发者正在运行的 Java 发送测试令牌或调用回执。
+# 需要 HTTP 合同的测试使用各自显式的 Mock/ASGI transport。
+os.environ["JAVA_GATEWAY_URL"] = "http://127.0.0.1:9"
 
 
 def parse_sse_stream(stream: BytesIO) -> list[dict]:

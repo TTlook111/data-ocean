@@ -124,7 +124,7 @@ class QueryTraceProjectionIntegrationTest {
             var session = new SqlSessionTemplate(new MybatisSqlSessionFactoryBuilder().build(config));
             tasks = session.getMapper(QueryTaskMapper.class); attempts = session.getMapper(QueryAttemptMapper.class);
             lineage = new LineageServiceImpl(session.getMapper(QueryLineageTableMapper.class), session.getMapper(QueryLineageColumnMapper.class), tasks, json);
-            var target = new QueryTraceProjectionService(tasks, attempts, new AuditLogServiceImpl(session.getMapper(QueryAuditLogMapper.class), tasks), lineage, json);
+            var target = new QueryTraceProjectionService(tasks, attempts, new AuditLogServiceImpl(session.getMapper(QueryAuditLogMapper.class), tasks, json), lineage, json);
             ProxyFactory proxy = new ProxyFactory(target); proxy.setProxyTargetClass(true);
             transactions = new DataSourceTransactionManager(source);
             proxy.addAdvice(new TransactionInterceptor(transactions, new AnnotationTransactionAttributeSource()));
@@ -150,6 +150,7 @@ class QueryTraceProjectionIntegrationTest {
                         .question("隔离题").status("COMPLETED").traceProjectionStatus("PENDING").iamProtocolVersion("IAM-SIMPLE-1")
                         .iamFinalProtectionStatus("FINAL_PROTECTED").activeMetadataSnapshotId(88L).permissionRevision(9L).completedAt(LocalDateTime.now())
                         .usedTables("[\"orders\"]").usedColumns("[\"orders.id\"]")
+                        .resultSql("SELECT id FROM orders").resultData("[{\"id\":1}]").resultColumns("[{\"name\":\"id\"}]")
                         .iamSourceTrace(json.writeValueAsString(Map.of("attemptId", "attempt", "sqlHash", "hash", "permissionRevision", 9L, "activeMetadataSnapshotId", 88L, "entries", json.readTree(entries)))).build();
                 tasks.insert(task);
                 attempts.insert(QueryAttempt.builder().taskId(task.getTaskId()).attemptId("attempt").sqlHash("hash").status("PROTECTED")

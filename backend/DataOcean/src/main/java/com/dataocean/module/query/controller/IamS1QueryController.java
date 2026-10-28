@@ -120,9 +120,11 @@ public class IamS1QueryController {
         return Result.success(governanceFeedback.submit(taskId, UserContext.currentUserId(), body));
     }
     @GetMapping("/tasks/{taskId}/feedback")
+    @com.dataocean.module.permission.s1.annotation.IamS1ScopedList("query:use")
     public Result<Map<String,Object>> ownFeedback(@PathVariable String taskId){return Result.success(governanceFeedback.own(taskId,UserContext.currentUserId()));}
 
     @GetMapping("/tasks/{taskId}/feedback-targets")
+    @com.dataocean.module.permission.s1.annotation.IamS1ScopedList("query:use")
     public Result<List<Map<String,Object>>> feedbackTargets(@PathVariable String taskId) {
         return Result.success(governanceProfiles.feedbackTargets(taskId, UserContext.currentUserId()));
     }

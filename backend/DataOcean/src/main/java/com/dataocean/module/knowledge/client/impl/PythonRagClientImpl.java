@@ -165,6 +165,7 @@ public class PythonRagClientImpl implements PythonRagClient {
     public List<Map<String, Object>> chunkBuildDocument(RagIndexBuild build, Long docId,
                                                          Integer versionNo, String content) {
         Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("buildId", build.getBuildId());
         requestBody.put("datasourceId", build.getDatasourceId());
         requestBody.put("docId", docId);
         requestBody.put("metadataSnapshotId", build.getSourceSnapshotId());
@@ -172,7 +173,7 @@ public class PythonRagClientImpl implements PythonRagClient {
         requestBody.put("validateStructure", true);
         requestBody.put("content", content == null ? "" : content);
         Map<String, Object> response = restClient.post()
-                .uri("/internal/rag/chunk")
+                .uri("/internal/rag/builds/chunk")
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(requestBody)
                 .retrieve()

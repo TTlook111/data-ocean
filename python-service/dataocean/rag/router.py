@@ -15,6 +15,7 @@ import httpx
 from .milvus_client import ensure_collection, get_client, health_status
 from .schema import (
     ChunkDocumentRequest,
+    BuildChunkDocumentRequest,
     ChunkDocumentResponse,
     DeleteVectorsRequest,
     DeleteVectorsResponse,
@@ -74,6 +75,27 @@ async def chunk_document(request: ChunkDocumentRequest) -> ChunkDocumentResponse
         request.version_no,
         len(chunks),
     )
+    return ChunkDocumentResponse(chunks=chunks, chunk_count=len(chunks))
+
+
+@router.post("/builds/chunk", response_model=ChunkDocumentResponse)
+async def chunk_build_document(request: BuildChunkDocumentRequest) -> ChunkDocumentResponse:
+    """Validate one frozen manifest member, without requiring a whole book in it.
+
+    Java owns cross-document coverage, review, version and manifest validation.
+    The generic /chunk route retains its complete-document validation contract.
+    Marker validity, snapshot consistency, duplicate identities and Markdown
+    integrity remain mandatory for every build member. Marker-free explanatory
+    topics produce no retrievable facts.
+    """
+    if any(value is None or value <= 0 for value in
+           (request.datasource_id, request.doc_id, request.snapshot_id, request.version_no)):
+        raise HTTPException(status_code=400, detail="构建成员缺少明确的数据源、文档、快照或版本")
+    errors = await asyncio.to_thread(validate_skills_md_structure, request.content,
+                                    request.snapshot_id, require_complete_document=False)
+    if errors:
+        raise HTTPException(status_code=422, detail={"message": "构建文档成员校验失败", "errors": errors})
+    chunks = await asyncio.to_thread(chunk_skills_md, request.content, request.snapshot_id)
     return ChunkDocumentResponse(chunks=chunks, chunk_count=len(chunks))
 
 

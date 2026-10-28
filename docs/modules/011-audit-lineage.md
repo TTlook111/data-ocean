@@ -1,6 +1,6 @@
 # 查询审计与数据血缘
 
-> 状态：现行模块与代码导航；核对日期：2026-10-27。行为边界与定位在此维护，运行结论见[项目现状](../项目现状.md)及[验收索引](../acceptance/README.md)。
+> 状态：现行模块与代码导航；核对日期：2026-10-28。行为边界与定位在此维护，运行结论见[项目现状](../项目现状.md)及[验收索引](../acceptance/README.md)。
 >
 > 返回[功能导航](README.md)。本页不授权执行配置写入、供应商测试或数据变更。
 
@@ -11,6 +11,8 @@
 | 审计写入、查询、慢查询与统计 | [AuditLogServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/AuditLogServiceImpl.java)：`recordCommittedAudit`、`listAuditLogsInDatasources`、`getAuditLogDetail`、`listSlowQueriesInDatasources`、`getStatsInDatasources` | 负责源裁剪、分页与真实统计口径。 |
 
 查询结果处理与审计接口分别接入 AuditLogServiceImpl；修改统计前核对 S1 与历史任务的实际口径。模型返回成功不代表 SQL、业务结果或人工验收成功。后台操作日志另见[平台模块](010-platform-operations.md#通知与操作日志)。
+
+提交审计的 row_count 由同任务已保护结果数组计算，空数组记录 0；缺失、格式错误或非数组不记作成功空集，投影事务失败后保留待恢复状态。旧行数缺失记录不自动回填为已验证证据。系统联调另核对 API 数量/实际数组、PROTECTED 数量/数组与审计数量一致。
 
 ## 实体血缘与图谱
 

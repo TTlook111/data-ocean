@@ -1,152 +1,214 @@
-"""G0 test fixture guardrails; these tests never contact external services."""
-
+"""Current acceptance contracts; no network, database, model or old B5 scripts."""
 from __future__ import annotations
-
 import importlib.util
 import json
-import shutil
-import subprocess
 from pathlib import Path
-
+import sqlite3
+from io import StringIO
+from types import SimpleNamespace
 import pytest
 
+HERE = Path(__file__).resolve().parents[2] / "scripts/system-acceptance"
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-FIXTURES = REPO_ROOT / "scripts" / "langgraph-acceptance" / "fixtures"
-BASELINE = REPO_ROOT / "scripts" / "langgraph-acceptance" / "baseline.py"
-CURRENT_RUNNER = REPO_ROOT / "scripts" / "langgraph-acceptance" / "run_iam_s1_g0_e_isolation.ps1"
-ISOLATED_GUARD = REPO_ROOT / "scripts" / "langgraph-acceptance" / "verify_isolated_e_target.py"
-
-
-def _load_baseline():
-    spec = importlib.util.spec_from_file_location("langgraph_g0_baseline", BASELINE)
+def runner():
+    spec = importlib.util.spec_from_file_location("system_acceptance", HERE / "acceptance.py")
     module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
     spec.loader.exec_module(module)
     return module
 
+def test_fixed_questions_have_independent_expected_results_and_refusals():
+    cases = json.loads((HERE / "questions.json").read_text(encoding="utf-8"))
+    assert len(cases["questions"]) == 12
+    assert len({q["id"] for q in cases["questions"]}) == 12
+    assert sum(q["kind"] == "rows" for q in cases["questions"]) == 9
+    assert sum(q["kind"] == "clarification" for q in cases["questions"]) == 1
+    assert sum(q["kind"] == "refusal" for q in cases["questions"]) == 2
+    assert set(cases["allowedTables"]).isdisjoint(cases["deniedTables"])
+    fixture = json.loads((HERE / "synthetic-data.json").read_text(encoding="utf-8"))
+    with sqlite3.connect(":memory:") as db:
+        db.execute("CREATE TABLE products(product_id INTEGER PRIMARY KEY,product_name TEXT,category TEXT)")
+        db.execute("CREATE TABLE sales_orders(order_id INTEGER PRIMARY KEY,order_date TEXT,region TEXT,product_id INTEGER,quantity INTEGER,unit_price NUMERIC,status TEXT)")
+        for table in cases["allowedTables"]:
+            for row in fixture[table]:
+                db.execute(f"INSERT INTO {table} VALUES ({','.join('?' for _ in row)})", tuple(row.values()))
+        for case in cases["questions"]:
+            if case["kind"] == "rows":
+                assert runner().rows_match(db.execute(case["sql"]).fetchall(), case["expected"]), case["id"]
 
-def test_g0_question_set_has_fixed_answerable_and_refusal_cases():
-    questions = json.loads((FIXTURES / "g0_questions.json").read_text(encoding="utf-8"))
-    assert len(questions) == 8
-    assert len({question["id"] for question in questions}) == 8
-    assert sum(question["answerable"] for question in questions) == 6
-    assert sum(not question["answerable"] for question in questions) == 2
-    assert all(question.get("expectedRows") for question in questions if question["answerable"])
+def test_non_fixture_database_is_rejected_before_any_connection(tmp_path):
+    config = tmp_path / "private.env"
+    config.write_text("LANGGRAPH_REVIEW_APP_SCHEMA=production\nLANGGRAPH_REVIEW_FIXTURE_SCHEMA=langgraph_fixture_e_20260927\n")
+    with pytest.raises(ValueError, match="non-isolated"):
+        runner().private_config(config)
+
+@pytest.mark.parametrize("url", ["https://example.test", "http://192.0.2.1", "http://user:password@127.0.0.1", "http://localhost?token=x"])
+def test_only_credential_free_loopback_http_endpoints_are_allowed(url):
+    with pytest.raises(ValueError):
+        runner().local_url(url)
+
+def grants():
+    return ["GRANT USAGE ON *.* TO `fixture`@`%`",
+            "GRANT SELECT ON `langgraph_fixture_e_20260927`.`products` TO `fixture`@`%`",
+            "GRANT SELECT ON `langgraph_fixture_e_20260927`.`sales_orders` TO `fixture`@`%`"]
+
+def test_fixture_account_requires_exact_read_only_table_grants():
+    module = runner()
+    module.assert_read_only_grants(grants())
+    for extra in ["GRANT INSERT ON `langgraph_fixture_e_20260927`.`sales_orders` TO `fixture`@`%`",
+                  "GRANT SELECT ON `langgraph_fixture_e_20260927`.* TO `fixture`@`%`",
+                  "GRANT SELECT ON *.* TO `fixture`@`%`"]:
+        with pytest.raises(ValueError):
+            module.assert_read_only_grants(grants() + [extra])
+
+def test_row_comparison_preserves_projection_order_duplicates_and_nulls():
+    match = runner().rows_match
+    assert match([["Furniture", "180.00"]], [["Furniture", 180]])
+    assert not match([[180, "Furniture"]], [["Furniture", 180]])
+    assert not match([[1]], [[1], [1]])
+    assert not match([[None]], [[0]])
+
+def test_assistant_metadata_leak_is_detected_even_with_no_result_rows():
+    evidence = {"protectedResult": {"data": []}, "assistantHistory": [
+        {"content": "本轮查询已完成", "metadata": {"note": "hidden phone value"}}]}
+    assert runner().leaked_identifiers(evidence, ["salary", "phone"]) == ["phone"]
+
+def test_partial_batch_cannot_leave_a_passing_report(tmp_path, monkeypatch):
+    module = runner()
+    monkeypatch.setattr(module, "compare_task", lambda *_: [])
+    monkeypatch.setattr(module, "protected_attempt_evidence", lambda *_: {"verified": True})
+    monkeypatch.setattr(module, "projection_evidence", lambda *_: {"verified": True})
+    calls = 0
+    def call(method, path, body=None):
+        nonlocal calls
+        if method == "POST":
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("second task failed before submission")
+            return {"taskId": "t1"}
+        return {"taskId": "t1", "status": "COMPLETED"}
+    fake = SimpleNamespace(output=tmp_path, cfg={}, call=call)
+    cases = {"contract": "test", "deniedTables": [], "questions": [
+        {"id": "Q01", "question": "q1"}, {"id": "Q02", "question": "q2"}]}
+    with pytest.raises(RuntimeError):
+        module.Api.questions(fake, cases)
+    report = json.loads((tmp_path / "questions.json").read_text(encoding="utf-8"))
+    assert report["status"] == "INCOMPLETE" and report["passed"] is False
+    assert report["expectedIds"] == ["Q01", "Q02"] and report["completedIds"] == ["Q01"]
+    assert report["full_project_acceptance"] is False
+
+@pytest.mark.parametrize("cases", [[], [{"id":"Q1"},{"id":"Q1"}]])
+def test_empty_or_duplicate_batches_are_rejected(cases, tmp_path):
+    with pytest.raises(ValueError, match="nonempty"):
+        runner().Api.questions(SimpleNamespace(output=tmp_path), {"questions": cases})
+
+@pytest.mark.parametrize("tamper", [None, "status", "hash", "sql", "data", "task", "missingData", "missingColumns", "missingTrace", "wrongColumns", "rowCount", "missingRowCount"])
+def test_execution_receipt_must_match_task_hash_sql_and_protected_data(tamper, monkeypatch):
+    module = runner()
+    task = {"taskId":"t1", "status":"COMPLETED", "sql":"SELECT COUNT(*) AS s1_c1 FROM products WHERE category=? LIMIT 10000",
+            "columns":[{"name":"s1_c1"}], "data":[{"s1_c1":2}], "rowCount":1,
+            "sourceTrace":{"attemptId":"a1","sqlHash":"a"*64,"entries":[{"outputColumn":"s1_c1","sources":[],"sourceKind":"NO_COLUMN_SOURCE"}]}}
+    receipt = ["t1","a1","a"*64,task["sql"],"PROTECTED",'[{"s1_c1":2}]','[{"name":"s1_c1"}]',json.dumps(task["sourceTrace"]["entries"]),1]
+    if tamper:
+        index,value={"status":(4,"EXECUTING"),"hash":(2,"b"*64),"sql":(3,"SELECT 1"),
+                     "data":(5,'[{"s1_c1":3}]'),"task":(0,"foreign-task"),"missingData":(5,None),
+                     "missingColumns":(6,None),"missingTrace":(7,None),"wrongColumns":(6,'[{"name":"other"}]'),
+                     "rowCount":(8,999),"missingRowCount":(8,None)}[tamper]
+        receipt[index]=value
+    class Cursor:
+        def __enter__(self): return self
+        def __exit__(self,*_): pass
+        def execute(self,*_): pass
+        def fetchone(self):
+            if getattr(self,"read",False): return ("COMPLETED","[]","[]","[]")
+            self.read=True
+            return receipt
+    class Connection:
+        def __enter__(self): return self
+        def __exit__(self,*_): pass
+        def cursor(self): return Cursor()
+    monkeypatch.setattr(module,"connect",lambda *_:Connection())
+    assert module.protected_attempt_evidence({},task)["verified"] is (tamper is None)
 
 
-def test_g0_grant_excludes_restricted_fixture_tables():
-    authorization = json.loads((FIXTURES / "g0_authorization.json").read_text(encoding="utf-8"))
-    granted = {grant["table"] for grant in authorization["grants"]}
-    assert granted == {"sales_orders", "products"}
-    assert set(authorization["deniedTables"]).isdisjoint(granted)
+@pytest.mark.parametrize("outcome,explicit_exit,expected", [(False,True,1),("error",True,1),(True,True,0),(True,False,1)])
+def test_session_exit_code_matches_result_and_completion(outcome, explicit_exit, expected, tmp_path, monkeypatch):
+    module = runner()
+    monkeypatch.setattr(module,"private_config",lambda *_:{})
+    monkeypatch.setattr(module,"preflight",lambda *_:{"passed":True})
+    monkeypatch.setattr(module,"oracle",lambda *_:{"passed":True})
+    class FakeApi:
+        def __init__(self,*_): pass
+        def captcha(self): return "synthetic.png"
+        def questions(self,*_):
+            if outcome=="error": raise RuntimeError("synthetic-command-failure")
+            return {"passed":outcome}
+        def close(self): pass
+    monkeypatch.setattr(module,"Api",FakeApi)
+    monkeypatch.setattr(module.sys,"argv",["acceptance.py","session","--private-env","private.env","--output",str(tmp_path)])
+    commands=[{"runQuestions":True}]+([{"exit":True}] if explicit_exit else [])
+    monkeypatch.setattr(module.sys,"stdin",StringIO("\n".join(json.dumps(c) for c in commands)))
+    with pytest.raises(SystemExit) as stopped:
+        module.main()
+    assert stopped.value.code==expected
+    report=json.loads(next(tmp_path.glob("session-*.json")).read_text(encoding="utf-8"))
+    assert report["passed"] is (expected==0)
+    assert report["status"]==("COMPLETED" if explicit_exit else "INCOMPLETE")
 
 
-def test_baseline_refuses_non_fixture_database(monkeypatch):
-    baseline = _load_baseline()
-    monkeypatch.setenv("LANGGRAPH_ACCEPTANCE_MYSQL_HOST", "192.0.2.10")
-    monkeypatch.setenv("LANGGRAPH_ACCEPTANCE_MYSQL_PORT", "13316")
-    monkeypatch.setenv("LANGGRAPH_ACCEPTANCE_MYSQL_DATABASE", "langgraph_fixture")
-    monkeypatch.setenv("LANGGRAPH_ACCEPTANCE_MYSQL_USERNAME", "langgraph_fixture_reader")
-    monkeypatch.setenv("LANGGRAPH_ACCEPTANCE_MYSQL_PASSWORD", "fixture-only")
-    with pytest.raises(SystemExit, match="Refusing to run"):
-        baseline._fixture_connection()
+def test_projection_requires_one_committed_audit_and_exact_usage_output_sources():
+    module=runner()
+    task={"sql":"SELECT SUM(quantity) AS s1_c1 FROM orders LIMIT 10000","rowCount":1,
+          "usedTables":["orders"],"usedColumns":["orders.quantity"],"data":[{"s1_c1":7}],
+          "sourceTrace":{"entries":[{"outputColumn":"s1_c1","sources":["orders.quantity"]}]}}
+    tables=[("orders","USAGE")]
+    columns=[("orders","quantity",None),("orders","quantity","s1_c1")]
+    audit=[(task["sql"],1,True)]
+    assert module.projection_rows_match(task,tables,columns,audit)
+    assert not module.projection_rows_match(task,tables,columns,audit*2)
+    assert not module.projection_rows_match(task,tables*2,columns,audit)
+    assert not module.projection_rows_match(task,tables,columns[:1],audit)
 
 
-def test_baseline_compares_values_without_requiring_llm_alias_choice():
-    baseline = _load_baseline()
-    assert baseline._rows_match(
-        [{"s1_c1": "180.0", "s1_c2": "Furniture"}],
-        [{"revenue": "180.00", "category": "Furniture"}],
-    )
-    assert not baseline._rows_match(
-        [{"s1_c1": "181.0", "s1_c2": "Furniture"}],
-        [{"revenue": "180.00", "category": "Furniture"}],
-    )
+def test_count_projection_has_table_usage_and_explicit_column_free_result():
+    task={"sql":"SELECT COUNT(*) AS s1_c1 FROM orders LIMIT 10000","rowCount":1,"data":[{"s1_c1":6}],"usedTables":["orders"],"usedColumns":[],
+          "sourceTrace":{"entries":[{"outputColumn":"s1_c1","sourceKind":"NO_COLUMN_SOURCE","sources":[]}]}}
+    assert runner().projection_rows_match(task,[("orders","USAGE")],[],[(task["sql"],1,True)])
 
 
-def test_current_e_runner_pins_the_existing_isolated_target_and_frozen_budgets():
-    runner = CURRENT_RUNNER.read_text(encoding="utf-8")
-    guard = ISOLATED_GUARD.read_text(encoding="utf-8")
-    for frozen_value in (
-        "dataocean_e_acceptance_20260927",
-        "langgraph_fixture_e_20260927",
-        "g0_reader_e27",
-        "1473e4ce-96fe-4483-82ef-2c64664bb0ab",
-        "expectedReaderId = 9002",
-        "sqlCalls -gt 3",
-        "llmCalls -gt 8",
-        "embeddingCalls -gt 2",
-        "duration -gt 90000",
-        "cost -gt [decimal]0.10",
-    ):
-        assert frozen_value in runner or frozen_value in guard
-    assert "LANGGRAPH_ACCEPTANCE_READER_PASSWORD" in runner
-    assert "Evaluate-G0QuestionSecurity" in runner
-    assert "$summary.securityViolations -ne 0" in runner
-    assert "SHOW GRANTS FOR CURRENT_USER()" in guard
-    assert "dataocean_e_acceptance_20260927" in guard
+@pytest.mark.parametrize("reported", [999,None,True,"1"])
+def test_projection_cannot_accept_matching_but_false_audit_and_api_counts(reported):
+    task={"sql":"SELECT id FROM orders","rowCount":reported,"data":[{"id":1}],"usedTables":["orders"],"usedColumns":[]}
+    assert not runner().projection_rows_match(task,[("orders","USAGE")],[],[(task["sql"],reported,True)])
 
 
-def test_current_e_fixture_account_guard_rejects_any_write_or_wildcard_grant():
-    spec = importlib.util.spec_from_file_location("isolated_e_guard", ISOLATED_GUARD)
-    guard = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(guard)
-
-    valid = [
-        "GRANT USAGE ON *.* TO `g0_reader_e27`@`%`",
-        "GRANT SELECT ON `langgraph_fixture_e_20260927`.`products` TO `g0_reader_e27`@`%`",
-        "GRANT SELECT ON `langgraph_fixture_e_20260927`.`sales_orders` TO `g0_reader_e27`@`%`",
-    ]
-    guard._assert_read_only_grants(valid, "langgraph_fixture_e_20260927")
-    with pytest.raises(ValueError, match="not restricted"):
-        guard._assert_read_only_grants(
-            valid + ["GRANT INSERT ON `langgraph_fixture_e_20260927`.`sales_orders` TO `g0_reader_e27`@`%`"],
-            "langgraph_fixture_e_20260927",
-        )
-    with pytest.raises(ValueError, match="not restricted"):
-        guard._assert_read_only_grants(
-            [
-                "GRANT USAGE ON *.* TO `g0_reader_e27`@`%`",
-                "GRANT SELECT ON `langgraph_fixture_e_20260927`.* TO `g0_reader_e27`@`%`",
-            ],
-            "langgraph_fixture_e_20260927",
-        )
+def test_empty_actor_matrix_is_not_role_coverage():
+    spec=importlib.util.spec_from_file_location("acceptance_actors",HERE/"actors.py")
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    with pytest.raises(ValueError,match="Both independent"):
+        module.check(SimpleNamespace(actor_clients={}))
 
 
-def test_runner_exits_nonzero_when_only_assistant_history_metadata_leaks(tmp_path):
-    powershell = shutil.which("pwsh") or shutil.which("powershell")
-    if not powershell:
-        pytest.skip("PowerShell is required to execute the G0 runner self-test")
-    report_path = tmp_path / "assistant-history-leak.json"
-    completed = subprocess.run(
-        [
-            powershell,
-            "-NoProfile",
-            "-File",
-            str(CURRENT_RUNNER),
-            "-SyntheticHistoryLeakTest",
-            "-ReportPath",
-            str(report_path),
-        ],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=20,
-        check=False,
-    )
+def test_unrelated_failure_does_not_prove_inflight_knowledge_rejection():
+    spec=importlib.util.spec_from_file_location("acceptance_feedback",HERE/"feedback.py")
+    module=importlib.util.module_from_spec(spec)
+    import sys
+    monkey_path=str(HERE)
+    sys.path.insert(0,monkey_path)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(monkey_path)
+    assert not module.knowledge_failure_evidence(("FAILED",None,"AI service unavailable"),0)
+    assert not module.knowledge_failure_evidence(("FAILED",None,"查询所引用的知识已变化，请重新提问"),1)
+    assert module.knowledge_failure_evidence(("FAILED",None,"查询所引用的知识已变化，请重新提问"),0)
 
-    assert completed.returncode == 1
-    report = json.loads(report_path.read_text(encoding="utf-8-sig"))
-    question = report["questions"][0]
-    assert question["protectedResult"]["data"] == []
-    assert question["assistantHistory"][0]["content"] == "本轮查询已完成"
-    assert question["assistantHistory"][0]["metadata"]["note"] == "hidden phone value"
-    assert question["passed"] is False
-    assert question["leakedIdentifiers"] == ["phone"]
-    assert report["securityViolations"] == 1
-    assert report["securityCounterRejected"] is True
-    assert any("assistant history" in failure for failure in report["failures"])
+
+def test_api_target_binding_rejects_wrong_datasource_or_build_identity():
+    match=runner().target_fingerprints_match
+    sources=[{"id":1,"host":"127.0.0.1","port":3306,"databaseName":"langgraph_fixture_e_20260927"}]
+    builds=[{"buildId":"isolated-build","datasourceId":1,"sourceSnapshotId":1,"status":"ACTIVE"}]
+    assert match(sources,sources,builds,builds)
+    assert not match(sources,[{**sources[0],"databaseName":"different_application"}],builds,builds)
+    assert not match(sources,sources,builds,[{**builds[0],"buildId":"unrelated-build"}])
+    for missing in ("host","port","databaseName","id"):
+        assert not match(sources,[{k:v for k,v in sources[0].items() if k!=missing}],builds,builds)

@@ -44,6 +44,8 @@ public class QueryTask {
     private String fieldSemanticRefsJson;
     private Boolean governanceProfilesEnabled;
     private String businessKnowledgeRefsJson;
+    /** 包含直接规划术语与 RAG 人工释义；在途任务逐阶段复核审核来源。 */
+    private String reviewedKnowledgeRefsJson;
     /** 固定血缘事实来源；旧任务不自动推定已核验。 */
     private String lineageRefsJson;
     /** 完成事务内置 PENDING，投影成功后置 COMPLETED，失败保留供恢复。 */

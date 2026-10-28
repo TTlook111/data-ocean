@@ -6,7 +6,8 @@ import java.util.Map;
  * S1 接口覆盖扫描的**逐端点**临时例外清单。
  *
  * <p>键是 `HTTP 方法 + 完整路径`，值是 `Controller#Handler方法|原因`。清单由覆盖扫描从真实
- * {@code HandlerMethod} 生成并冻结为安全基线：每迁移一个端点就删除一条，不新增条目。
+ * {@code HandlerMethod} 生成安全基线：固定功能可表达的端点迁移后删除条目；
+ * 无法用单个固定功能表达的动态动作必须精确登记，并有真实服务的逐动作权限拒绝回归。
  * 新增 Handler 若未声明 S1 注解且不在清单里，{@code IamS1EndpointCoverageTest} 会失败。</p>
  *
  * <p>禁止把它改成路径前缀匹配或 Controller 级豁免——那会让该 Controller 新增的未注解方法自动通过。</p>
@@ -14,6 +15,9 @@ import java.util.Map;
 final class IamS1EndpointExemptions {
 
     static final Map<String, String> EXEMPTIONS = Map.ofEntries(
+            // 同一个动作端点必须按 SUBMIT/APPROVE/REVOKE 分别校验维护/审核及双功能，
+            // 不能用固定注解要求两种角色都拥有维护权。真实服务守卫与角色隔离有事务回归。
+            Map.entry("POST /api/admin/business-knowledge/{id}/actions", "BusinessKnowledgeController#action|按动作执行同源 knowledge:manage/approve；GovernanceWorkflowPersistenceTest 验证维护与审核角色独立"),
             Map.entry("DELETE /api/iam-s1/data-grants/{grantId}", "IamS1DataGrantController#revoke|权限与组织域 B4 已完成，仍是显式 Guard"),
             Map.entry("DELETE /api/iam-s1/field-protections/{protectionId}", "IamS1FieldProtectionController#revoke|权限与组织域 B4 已完成，仍是显式 Guard"),
             Map.entry("DELETE /api/iam-s1/roles/{roleId}", "IamS1RoleController#delete|权限与组织域 B4 已完成，仍是显式 Guard"),

@@ -123,7 +123,7 @@ class IamS1QueryServiceImplTest {
         org.springframework.test.util.ReflectionTestUtils.setField(service, "lineageFacts", lineageFacts);
         task = QueryTask.builder().id(17L).taskId("task-1").userId(7L).datasourceId(1L)
                 .iamProtocolVersion("IAM-SIMPLE-1").permissionRevision(100L).activeMetadataSnapshotId(88L)
-                .status("PROCESSING").businessKnowledgeRefsJson("[]").lineageRefsJson("[]").iamResourceRequest("[{\"tableName\":\"orders\",\"referencedColumns\":[\"id\"],\"columnUsages\":{\"id\":[\"PROJECTION\"]}}]")
+                .status("PROCESSING").reviewedKnowledgeRefsJson("[]").businessKnowledgeRefsJson("[]").lineageRefsJson("[]").iamResourceRequest("[{\"tableName\":\"orders\",\"referencedColumns\":[\"id\"],\"columnUsages\":{\"id\":[\"PROJECTION\"]}}]")
                 .iamExecutionSnapshot("{\"resources\":[]}").build();
         lenient().when(queryTaskMapper.update(any(), any())).thenReturn(1);
         lenient().when(queryTaskMapper.selectByTaskIdForUpdate(any())).thenReturn(task);
@@ -154,6 +154,33 @@ class IamS1QueryServiceImplTest {
 
         verify(queryTaskMapper).update(any(), any());
         verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test void pollingRefreshesACommittedTerminalTaskWhenItsConversationTurnWasJustReleased(){
+        task.setConversationId(42L);task.setIamResourceRequest("[]");
+        var finished=QueryTask.builder().taskId("task-1").userId(7L).datasourceId(1L).conversationId(42L)
+                .iamProtocolVersion("IAM-SIMPLE-1").status("FAILED").errorMessage("查询已安全结束")
+                .activeMetadataSnapshotId(88L).permissionRevision(100L).iamResourceRequest("[]").build();
+        when(queryTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task,finished,finished);
+        when(authorizationResolver.hasGlobalFunction(7L,"query:use")).thenReturn(true);
+        when(dataResolver.currentPermissionRevision()).thenReturn(100L);
+        var published=new MetadataSnapshot();published.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(published);
+        when(conversationService.isActiveTurn(42L,"task-1")).thenReturn(false);
+        var result=service.get("task-1",7L);
+        assertThat(result.getStatus()).isEqualTo("FAILED");
+        assertThat(result.getData()).isNull();assertThat(result.getSourceTrace()).isNull();
+    }
+
+    @Test void pollingStillRejectsAProcessingTaskThatActuallyLostItsConversationTurn(){
+        task.setConversationId(42L);task.setIamResourceRequest("[]");
+        when(authorizationResolver.hasGlobalFunction(7L,"query:use")).thenReturn(true);
+        when(dataResolver.currentPermissionRevision()).thenReturn(100L);
+        var published=new MetadataSnapshot();published.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(published);
+        when(conversationService.isActiveTurn(42L,"task-1")).thenReturn(false);
+        assertThatThrownBy(()->service.get("task-1",7L)).isInstanceOf(BusinessException.class)
+                .hasMessageContaining("会话轮次已取消或结束");
     }
 
     @Test
@@ -316,7 +343,7 @@ class IamS1QueryServiceImplTest {
     }
 
     @Test
-    void submitPersistsConversationAndSendsScopedContextAndFewShot() {
+    void submitPreservesConversationButDoesNotPromoteUnverifiedCompletedSqlToExamples() {
         MetadataSnapshot metadata = new MetadataSnapshot();
         metadata.setId(88L);
         when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
@@ -352,7 +379,7 @@ class IamS1QueryServiceImplTest {
                 .iamProtocolVersion("IAM-SIMPLE-1").status("COMPLETED")
                 .question("客户信息").resultSql("SELECT secret FROM customers")
                 .usedTables("[\"customers\"]").usedColumns("[\"customers.secret\"]").build();
-        when(queryTaskMapper.selectList(any())).thenReturn(List.of(previous, foreign));
+        lenient().when(queryTaskMapper.selectList(any())).thenReturn(List.of(previous, foreign));
         ArgumentCaptor<Map<String, Object>> body = ArgumentCaptor.forClass(Map.class);
         TransactionSynchronizationManager.initSynchronization();
         try {
@@ -375,10 +402,7 @@ class IamS1QueryServiceImplTest {
                 .containsEntry("ragSourceSnapshotId", 88L)
                 .containsKey("candidateCatalog");
         assertThat((List<?>) body.getValue().get("glossaryTerms")).isEmpty();
-        assertThat(body.getValue().get("fewShotExamples").toString()).contains("上一轮订单");
-        assertThat(body.getValue().get("fewShotExamples").toString()).contains("datasourceId=1");
-        assertThat(body.getValue().get("fewShotExamples").toString()).contains("activeMetadataSnapshotId=88");
-        assertThat(body.getValue().get("fewShotExamples").toString()).doesNotContain("customers.secret");
+        assertThat((List<?>) body.getValue().get("fewShotExamples")).isEmpty();
     }
 
     @Test
@@ -831,6 +855,8 @@ class IamS1QueryServiceImplTest {
         var term = approvedTerm(9L, "订单");
         term.setReviewHash("reviewed-hash");
         when(termWorkflow.factValid(9L, "reviewed-hash")).thenReturn(true);
+        when(termWorkflow.approvedFact(9L)).thenReturn(Map.of("reviewId", 19L,
+                "contentHash", "reviewed-hash", "name", "订单", "description", "已审核的订单定义"));
         var relation = new com.dataocean.module.metadata.entity.po.MetadataRelationship();
         relation.setSourceId(9L);
         relation.setTargetId(20L);
@@ -845,6 +871,7 @@ class IamS1QueryServiceImplTest {
 
         assertThat(glossary).hasSize(1);
         assertThat(glossary.get(0).get("columns")).isEqualTo(List.of("orders.id"));
+        assertThat(glossary.get(0).get("factSourceIds")).isEqualTo(List.of("9", "19"));
     }
 
     @Test

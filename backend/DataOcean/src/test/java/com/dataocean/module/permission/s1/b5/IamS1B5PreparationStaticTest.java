@@ -192,21 +192,19 @@ class IamS1B5PreparationStaticTest {
         assertThat(handbook).doesNotContain("--routines --triggers --databases");
         assertThat(handbook).doesNotContain(
                 "mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --execute=\"CREATE DATABASE $env:DRILL_DB");
-        String preflight = read(Path.of("..", "..", "scripts/iam-s1-b5-preflight.ps1"));
-        assertThat(preflight).contains("^[1-9]\\d*$");
-        assertThat(preflight).contains("(?m)^\\s*@Aspect\\s*$");
-        assertThat(preflight).contains("(?m)^\\s*@Component\\s*$");
-        assertThat(preflight).contains("B5_EXPECTED_SHA");
-        assertThat(preflight).contains("DRILL_HOST");
-        assertThat(preflight).contains("SHA256 is computed after dump");
-        assertThat(preflight).doesNotContain("-match '@Aspect'");
-        assertThat(preflight).doesNotContain("-match '@Component'");
+        // B5 的一次性迁移入口已退休；保留历史手册的恢复约束，现行入口
+        // 检查当前版本、隔离范围、只读授权及不完整批次，不能恢复旧上限脚本。
+        String preflight = read(Path.of("..", "..", "scripts/system-acceptance/acceptance.py"));
+        assertThat(preflight).contains("assert_read_only_grants", "non-isolated", "Database/code migration mismatch");
+        assertThat(preflight).contains("INCOMPLETE", "expectedIds", "full_project_acceptance");
+        assertThat(preflight).doesNotContain("DROP DATABASE", "TRUNCATE TABLE", "docker run");
         String b0 = read(Path.of("..", "..", "docs/archive/plans/轨道B-B0权限清单与决策冻结.md"));
         assertThat(b0).contains("## 7. B6 删除清单");
         assertThat(b0).contains("DatasourcePermissionController", "sys_role_permission");
         String followUp = read(Path.of("..", "..", "docs/development/后续开发.md"));
-        assertThat(followUp).contains("V53 永久不用");
-        assertThat(followUp).contains("B6 删除在其他环境仍需单独授权并保留业务数据");
+        String instructions = read(Path.of("..", "..", "AGENTS.md"));
+        assertThat(instructions).contains("V53 is permanently unused");
+        assertThat(instructions).contains("Historical documents and specs do not authorize");
         // 现行文档跟随真实迁移目录，不再要求保留 B5 当时的版本上限。
         try (Stream<Path> migrations = Files.list(Path.of("src/main/resources/db/migration"))) {
             int highestVersion = migrations

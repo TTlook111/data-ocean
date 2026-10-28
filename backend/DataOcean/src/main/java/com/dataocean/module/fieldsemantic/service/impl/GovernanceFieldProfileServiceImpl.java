@@ -145,7 +145,13 @@ public class GovernanceFieldProfileServiceImpl implements GovernanceFieldProfile
                 for(var table:tables){String name=String.valueOf(table.get("tableName"));
                     Object referenced=table.get("referencedColumns");if(referenced instanceof List<?> cols)for(Object c:cols)result.add(name+"."+c);
                     Object usages=table.get("columnUsages");if(usages instanceof Map<?,?> cols)for(Object c:cols.keySet())result.add(name+"."+c);}}
-            return result;
+            // 权限请求可能包含 COUNT(*) 的表访问锚点，不等于 SQL 实际使用。
+            // 归因只消费已保护尝试写入的 AST 字段证据，并保留筛选/关联字段。
+            if (task.getUsedColumns() == null) return Set.of();
+            List<String> actual = json.readValue(task.getUsedColumns(), new TypeReference<>() {});
+            if (actual == null || actual.stream().anyMatch(field -> field == null || !result.contains(field)))
+                throw new BusinessException(409,"实际使用字段与授权证据不一致");
+            return new HashSet<>(actual);
         }catch(Exception exception){throw new BusinessException(409,"实际使用字段证据无效");}
     }
     private String write(Object value){try{return json.writeValueAsString(value);}catch(Exception exception){throw new BusinessException("字段档案序列化失败");}}

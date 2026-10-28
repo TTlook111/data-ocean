@@ -392,6 +392,7 @@ public class IamS1QueryAttemptServiceImpl implements IamS1QueryAttemptService {
 
     private boolean fieldSemanticReferencesValid(QueryTask task) {
         if (!queryService.lineageReferencesValid(task)) return false;
+        if (!queryService.reviewedKnowledgeReferencesValid(task)) return false;
         if (task != null && task.getBusinessKnowledgeRefsJson() != null) {
             try {
                 List<Map<String,Object>> refs=objectMapper.readValue(task.getBusinessKnowledgeRefsJson(),new TypeReference<>(){});

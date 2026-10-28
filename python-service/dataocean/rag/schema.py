@@ -194,6 +194,11 @@ class ChunkDocumentRequest(RagBaseModel):
     content: str = ""
 
 
+class BuildChunkDocumentRequest(ChunkDocumentRequest):
+    """Java has validated the complete manifest; this request is one member."""
+    build_id: str = Field(alias="buildId", pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
 class ChunkDocumentResponse(RagBaseModel):
     """Chunk list returned to Java for MySQL snapshot persistence."""
 

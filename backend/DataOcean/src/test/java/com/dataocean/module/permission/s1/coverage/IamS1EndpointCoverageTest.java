@@ -93,7 +93,7 @@ class IamS1EndpointCoverageTest {
     /**
      * 逐端点临时例外清单（键为 `HTTP 方法 + 完整路径`，值为 `Controller#Handler方法|原因`）。
      *
-     * <p>由覆盖扫描从真实 HandlerMethod 生成并冻结为安全基线：**每迁移一个端点就删除一条，不新增条目**。
+     * <p>固定功能可表达的端点迁移后删除例外；动态动作的精确登记必须附带服务权限回归。
      * 新增 Handler 若未声明 S1 注解、且不在本清单中，测试立即失败——这一点在 Controller 级豁免下做不到。</p>
      */
     private static final Map<String, String> EXEMPTIONS = IamS1EndpointExemptions.EXEMPTIONS;
@@ -225,7 +225,8 @@ class IamS1EndpointCoverageTest {
      * 也禁止路径前缀匹配——那会让任何新增的写接口只要挂上 `:view` 就自动通过检查。</p>
      */
     private static final Set<String> READ_ONLY_POST_ENDPOINTS = Set.of(
-            "POST /api/admin/knowledge-docs/{id}/preview-chunks");
+            "POST /api/admin/knowledge-docs/{id}/preview-chunks",
+            "POST /api/admin/business-knowledge/{id}/source-status");
 
     @Test
     void readOnlyPostAllowlistStaysExact() {

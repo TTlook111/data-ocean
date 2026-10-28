@@ -67,13 +67,15 @@ def _validate_aggregate_grouping(scopes: dict[int, Any]) -> None:
         select = scope.expression
         if not isinstance(select, exp.Select):
             continue
-        if not any(isinstance(node, exp.AggFunc) for node in select.find_all(exp.AggFunc)):
+        if not any(_scope_of(node, scopes) is scope for node in select.find_all(exp.AggFunc)):
             continue
         group = select.args.get("group")
         if group is not None and group.expressions:
             continue
         for output in select.expressions:
             for column in output.find_all(exp.Column):
+                if _scope_of(column, scopes) is not scope:
+                    continue
                 cursor = column.parent
                 inside_aggregate = False
                 while cursor is not None and cursor is not output:
@@ -175,7 +177,7 @@ def _declared_usages(meta: dict[str, Any]) -> set[str]:
     return {str(item).upper() for item in meta.get("usage") or []}
 
 
-def _assign_output_aliases(scopes: dict[int, Any]) -> None:
+def _assign_output_aliases(scopes: dict[int, Any], normalize_computed_aliases: bool = False) -> None:
     """给未加别名的**表达式**投影指定确定性别名。
 
     数据库会用表达式原文作为未加别名投影的列名（`COUNT(*)` 的列名就是 `COUNT(*)`），
@@ -190,6 +192,21 @@ def _assign_output_aliases(scopes: dict[int, Any]) -> None:
     别名按位置生成，因此对同一段 SQL 是幂等的——已加别名的投影不会二次改写，
     ``execute_validated`` 里"执行 SQL 与已校验并注入的 SQL 不一致"的比对因此仍然成立。
     """
+    set_outputs = {}
+    relational_scopes: set[int] = set()
+    for owner in scopes.values():
+        for _, source in _local_sources(owner).values():
+            if not isinstance(source, exp.Table):
+                relational_scopes.add(id(source))
+                if _is_set_operation(source.expression):
+                    relational_scopes.update(id(branch) for branch in _branch_scopes(source, scopes))
+    if normalize_computed_aliases:
+        for scope in scopes.values():
+            if _is_set_operation(scope.expression):
+                branches = _branch_scopes(scope, scopes)
+                first = branches[0].expression if branches else None
+                if isinstance(first, exp.Select):
+                    set_outputs[id(scope)] = (first, [output.alias_or_name for output in first.expressions])
     for scope in scopes.values():
         select = scope.expression
         if not isinstance(select, exp.Select):
@@ -198,8 +215,19 @@ def _assign_output_aliases(scopes: dict[int, Any]) -> None:
         index = 0
         rebuilt: list[exp.Expression] = []
         changed = False
+        renamed: dict[str, str] = {}
         for output in select.expressions:
-            if output.args.get("alias") or isinstance(output, exp.Column):
+            expression = output.this if isinstance(output, exp.Alias) else output
+            old_alias = output.alias_or_name if isinstance(output, exp.Alias) else ""
+            protected_alias_reference = any(
+                str(column.name).lower() == old_alias.lower() for clause in (select.args.get("group"), select.args.get("having"))
+                if clause is not None for column in clause.find_all(exp.Column))
+            normalizable = (normalize_computed_aliases and id(scope) not in relational_scopes
+                            and isinstance(output, exp.Alias)
+                            and not isinstance(expression, exp.Column)
+                            and not re.fullmatch(r"s1_c\d+", old_alias, flags=re.I)
+                            and not protected_alias_reference)
+            if (output.args.get("alias") and not normalizable) or isinstance(output, exp.Column):
                 rebuilt.append(output)
                 continue
             index += 1
@@ -208,10 +236,30 @@ def _assign_output_aliases(scopes: dict[int, Any]) -> None:
                 index += 1
                 name = f"s1_c{index}"
             taken.add(name)
-            rebuilt.append(exp.alias_(output, name))
+            rebuilt.append(exp.alias_(expression if normalizable else output, name))
+            if normalizable:
+                renamed[old_alias.lower()] = name
             changed = True
         if changed:
             select.set("expressions", rebuilt)
+            order = select.args.get("order")
+            if order is not None:
+                for column in order.find_all(exp.Column):
+                    if (_scope_of(column, scopes) is scope and not column.table
+                            and column.name.lower() in renamed):
+                        column.set("this", exp.to_identifier(renamed[column.name.lower()]))
+    for scope in scopes.values():
+        if id(scope) not in set_outputs:
+            continue
+        first, old_names = set_outputs[id(scope)]
+        renamed = {old.lower(): output.alias_or_name for old, output in zip(old_names, first.expressions)
+                   if old and old != output.alias_or_name}
+        order = scope.expression.args.get("order")
+        if order is not None:
+            for column in order.find_all(exp.Column):
+                if (_scope_of(column, scopes) is scope and not column.table
+                        and column.name.lower() in renamed):
+                    column.set("this", exp.to_identifier(renamed[column.name.lower()]))
 
 
 def _reject_unexpanded_projection_stars(scopes: dict[int, Any]) -> None:
@@ -475,8 +523,23 @@ def _resolve_column(
 def _is_direct_projection(column: exp.Column) -> bool:
     parent = column.parent
     if isinstance(parent, exp.Alias):
-        return isinstance(parent.parent, exp.Select) and parent.this is column
-    return isinstance(parent, exp.Select)
+        if parent.this is not column:
+            return False
+        parent = parent.parent
+    if not isinstance(parent, exp.Select):
+        return False
+    # A direct inner projection may still feed a scalar predicate or expression.
+    # Only relational derived tables / CTEs can pass a masked projection onward;
+    # their outer column references are independently checked and traced.
+    node = parent
+    while node.parent is not None:
+        owner = node.parent
+        if isinstance(owner, exp.Exists):
+            return False
+        if isinstance(owner, exp.Subquery) and not isinstance(owner.parent, (exp.From, exp.Join)):
+            return False
+        node = owner
+    return True
 
 
 def _protection(column: exp.Column, table: str, name: str, allowed: dict[str, dict[str, Any]]) -> None:
@@ -506,7 +569,16 @@ def _usage_role(column: exp.Column) -> str | None:
         if isinstance(parent, (exp.Group, exp.Having, exp.Order)):
             return None
         if isinstance(parent, exp.Select):
-            return "PROJECTION" if any(node is item for item in parent.expressions) else None
+            role = "PROJECTION" if any(node is item for item in parent.expressions) else None
+            owner = parent.parent
+            if isinstance(owner, exp.Exists) or (
+                isinstance(owner, exp.Subquery) and not isinstance(owner.parent, (exp.From, exp.Join))
+            ):
+                # Scalar output is consumed by the outer clause. Stopping at
+                # its inner SELECT would turn FILTER/JOIN into PROJECTION.
+                node = parent
+                continue
+            return role
         node = parent
 
 
@@ -676,41 +748,41 @@ def missing_reviewed_predicates(sql: str, question: str,
     except Exception:
         return [f"{table}.{column} = '{value}'" for table, column, value in sorted(required)]
 
-    physical_tables = {(node.name or "").lower() for node in tree.find_all(exp.Table) if node.name}
-    alias_to_table: dict[str, str] = {}
-    for node in tree.find_all(exp.Table):
-        if not node.name:
-            continue
-        table_name = node.name.lower()
-        alias_to_table[table_name] = table_name
-        if node.alias:
-            alias_to_table[node.alias.lower()] = table_name
+    # A condition is required, rather than merely mentioned. Resolve each scan
+    # in its own scope: an inner alias, UNION branch or self-join cannot attest
+    # to another scan's rows. Conservative proof avoids SQL three-valued and
+    # outer-join inference: only positive WHERE equalities are accepted.
+    proven: dict[str, list[set[tuple[str, str]]]] = {}
+    for scope in traverse_scope(tree):
+        sources = list(_physical_sources(scope))
+        aliases = {alias for alias, _ in sources}
 
-    present: set[tuple[str, str, str]] = set()
-    for comparison in tree.find_all(exp.EQ):
-        cursor: exp.Expression | None = comparison
-        in_where = False
-        while cursor is not None:
-            if isinstance(cursor, exp.Where):
-                in_where = True
-                break
-            if isinstance(cursor, (exp.Select, exp.Subquery)):
-                break
-            cursor = cursor.parent
-        if not in_where:
-            continue
-        pairs = ((comparison.this, comparison.expression), (comparison.expression, comparison.this))
-        for left, right in pairs:
-            if not isinstance(left, exp.Column) or not isinstance(right, exp.Literal) or not right.is_string:
-                continue
-            column_name = (left.name or "").lower()
-            qualifier = (left.table or "").lower()
-            table_name = alias_to_table.get(qualifier, qualifier)
-            if not table_name and len(physical_tables) == 1:
-                table_name = next(iter(physical_tables))
-            if table_name:
-                present.add((table_name, column_name, str(right.this)))
-    return [f"{table}.{column} = '{value}'" for table, column, value in sorted(required - present)]
+        def guaranteed(node: exp.Expression | None) -> set[tuple[str, str, str]]:
+            if isinstance(node, (exp.Paren, exp.Where)):
+                return guaranteed(node.this)
+            if isinstance(node, exp.And):
+                return guaranteed(node.this) | guaranteed(node.expression)
+            if isinstance(node, exp.Or):
+                return guaranteed(node.this) & guaranteed(node.expression)
+            if not isinstance(node, exp.EQ):
+                return set()
+            for left, right in ((node.this, node.expression), (node.expression, node.this)):
+                if not isinstance(left, exp.Column) or not isinstance(right, exp.Literal) or not right.is_string:
+                    continue
+                alias = (left.table or "").lower()
+                if not alias and len(scope.selected_sources) == 1 and len(aliases) == 1:
+                    alias = next(iter(aliases))
+                if alias in aliases:
+                    return {(alias, left.name.lower(), str(right.this))}
+            return set()
+
+        conditions = guaranteed(scope.expression.args.get("where"))
+        for alias, table in sources:
+            proven.setdefault(table.name.lower(), []).append(
+                {(column, value) for source, column, value in conditions if source == alias})
+    missing = {(table, column, value) for table, column, value in required
+               if not proven.get(table) or not all((column, value) in scan for scan in proven[table])}
+    return [f"{table}.{column} = '{value}'" for table, column, value in sorted(missing)]
 
 
 def _top_level_query(tree: exp.Expression) -> exp.Expression:
@@ -725,7 +797,8 @@ def _top_level_query(tree: exp.Expression) -> exp.Expression:
     return node
 
 
-def validate_sql(sql: str, snapshot: S1PermissionSnapshot, *, enforce_usage: bool = True) -> S1SqlValidation:
+def validate_sql(sql: str, snapshot: S1PermissionSnapshot, *, enforce_usage: bool = True,
+                 normalize_computed_aliases: bool = False) -> S1SqlValidation:
     """Validate one SELECT against the current S1 snapshot.
 
     ``enforce_usage`` is only turned off when re-validating SQL that already
@@ -748,7 +821,7 @@ def validate_sql(sql: str, snapshot: S1PermissionSnapshot, *, enforce_usage: boo
         _validate_set_operations(scopes)
         _expand_stars(scopes, snapshot)
         _reject_unexpanded_projection_stars(scopes)
-        _assign_output_aliases(scopes)
+        _assign_output_aliases(scopes, normalize_computed_aliases)
         _validate_aggregate_grouping(scopes)
         for rule in (function_rule.check(sql), depth_rule.check(sql), limit_rule.check(sql)):
             if not rule.passed:
@@ -771,7 +844,7 @@ def validate_sql(sql: str, snapshot: S1PermissionSnapshot, *, enforce_usage: boo
             masked_fields=masked,
             column_usages=column_usages,
         )
-    except sqlglot.errors.ParseError as exc:
+    except (sqlglot.errors.ParseError, sqlglot.errors.TokenError) as exc:
         return S1SqlValidation(False, violations=[f"SQL_SYNTAX: {exc}"])
     except S1SqlSecurityError as exc:
         return S1SqlValidation(False, violations=[str(exc)])
@@ -847,8 +920,19 @@ def inject_row_conditions(sql: str, snapshot: S1PermissionSnapshot, execution_bi
             resource = resources.get(table_name)
             if resource is None:
                 raise S1SqlSecurityError("记录条件表不在 S1 快照")
+            used = {column.split(".", 1)[1].lower() for column in validation.used_columns
+                    if column.split(".", 1)[0].lower() == table_name}
+            covering = [grant for grant in resource["grantSources"]
+                        if used <= {column.lower() for column in grant["explicitColumns"]}]
+            if not covering:
+                raise S1SqlSecurityError("没有覆盖本次字段的完整授权来源")
+            # Same-table covering grants are ORed: an unconditional grant is
+            # TRUE, so it dominates finite row conditions. A partial-column
+            # grant must never enlarge access to other requested columns.
+            if any(grant.get("rowCondition") is None for grant in covering):
+                continue
             predicates = [
-                condition for grant in resource["grantSources"]
+                condition for grant in covering
                 if (condition := _grant_condition(resource, grant, alias, bindings)) is not None
             ]
             if not predicates:

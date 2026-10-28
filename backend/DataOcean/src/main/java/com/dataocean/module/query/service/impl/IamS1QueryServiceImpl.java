@@ -222,6 +222,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
 
     @Override
     public QueryTaskVO get(String taskId, Long userId) {
+        return get(taskId,userId,true);
+    }
+
+    private QueryTaskVO get(String taskId,Long userId,boolean refreshTerminalOnce) {
         QueryTask task = find(taskId, userId);
         if (!isS1(task)) throw new BusinessException("任务不属于 IAM-SIMPLE-1");
         // 功能权限按当前状态复查：撤销 query:use 后，历史结果不得再通过
@@ -242,6 +246,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             }
             if (QueryTaskStatus.PROCESSING.name().equals(task.getStatus()) && task.getConversationId() != null
                     && !conversationService.isActiveTurn(task.getConversationId(), task.getTaskId())) {
+                // 读取任务与读取会话之间，完成事务可能已提交并释放轮次。
+                // 仅在重新读取确认终态后重走完整读取保护，不放行真正失去轮次的运行任务。
+                if(refreshTerminalOnce && !QueryTaskStatus.PROCESSING.name().equals(find(taskId,userId).getStatus())) {
+                    return get(taskId,userId,false);
+                }
                 throw new BusinessException("会话轮次已取消或结束");
             }
             QueryTaskVO progressOnly = toVO(task);
@@ -911,7 +920,6 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         }
         IamS1DataAuthorizationSnapshot planningSnapshot = candidatePlanningSnapshot(
                 userId, request.getDatasourceId(), candidateCatalog);
-        IamS1QueryAskRequestDTO planningRequest = candidatePlanningRequest(request, candidateCatalog);
         ConversationContextDTO conversation;
         try {
             conversation = conversationContextSummaryService
@@ -934,8 +942,12 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         body.put("ragSourceSnapshotId", ragBuild == null ? null : ragBuild.getSourceSnapshotId());
         body.put("ragCollectionName", ragBuild == null ? null : ragBuild.getCollectionName());
         body.put("ragEmbeddingConfig", ragBuild == null ? null : ragIndexBuildService.embeddingConfigForQuery(ragBuild));
-        body.put("glossaryTerms", loadApprovedGlossaryTerms(planningSnapshot));
-        body.put("fewShotExamples", loadFewShotExamples(userId, request.getDatasourceId(), planningSnapshot, planningRequest));
+        List<Map<String, Object>> approvedTerms = loadApprovedGlossaryTerms(planningSnapshot);
+        freezeReviewedKnowledgeReferences(taskId, chunks, approvedTerms, candidateCatalog.activeMetadataSnapshotId());
+        body.put("glossaryTerms", approvedTerms);
+        // 保护完成只证明安全执行，不证明业务结果正确。当前没有针对完整 SQL
+        // 的独立业务验真凭据，不能把历史 COMPLETED 任务提升为“正确样例”。
+        body.put("fewShotExamples", List.of());
         return body;
     }
 
@@ -972,30 +984,6 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 catalog.activeMetadataSnapshotId(), catalog.permissionRevision(), LocalDateTime.now(), null, tables);
     }
 
-    private IamS1QueryAskRequestDTO candidatePlanningRequest(
-            IamS1QueryAskRequestDTO original,
-            com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO catalog) {
-        IamS1QueryAskRequestDTO request = new IamS1QueryAskRequestDTO();
-        request.setProtocolVersion(IamS1Constants.PROTOCOL_VERSION);
-        request.setDatasourceId(original.getDatasourceId());
-        request.setQuestion(original.getQuestion());
-        List<IamS1TableRequestDTO> tables = new ArrayList<>();
-        for (var candidateTable : catalog.tables()) {
-            IamS1TableRequestDTO table = new IamS1TableRequestDTO(candidateTable.tableName(), Set.of());
-            Set<String> columns = new LinkedHashSet<>();
-            Map<String, Set<com.dataocean.module.permission.s1.enums.IamS1ColumnUsage>> usages = new LinkedHashMap<>();
-            for (var column : candidateTable.columns()) {
-                columns.add(column.columnName());
-                usages.put(column.columnName(), new LinkedHashSet<>(column.allowedUsages()));
-            }
-            table.setReferencedColumns(columns);
-            table.setColumnUsages(usages);
-            tables.add(table);
-        }
-        request.setTables(tables);
-        return request;
-    }
-
     private void refreshConversationContext(Long conversationId, Long userId, Long datasourceId, String taskId) {
         if (conversationId == null) return;
         try {
@@ -1005,52 +993,6 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         } catch (Exception ex) {
             log.warn("S1 会话摘要当前权限范围不可用，跳过本次刷新 conversationId={} taskId={}", conversationId, taskId);
         }
-    }
-
-    private List<Map<String, Object>> loadFewShotExamples(Long userId, Long datasourceId,
-                                                           IamS1DataAuthorizationSnapshot snapshot,
-                                                           IamS1QueryAskRequestDTO request) {
-        Set<String> requestedTables = request.getTables().stream()
-                .map(IamS1TableRequestDTO::getTableName)
-                .filter(java.util.Objects::nonNull)
-                .map(value -> value.toLowerCase(Locale.ROOT))
-                .collect(java.util.stream.Collectors.toSet());
-        Set<String> requestedColumns = request.getTables().stream()
-                .flatMap(table -> table.getReferencedColumns().stream()
-                        .map(column -> table.getTableName() + "." + column))
-                .map(value -> value.toLowerCase(Locale.ROOT))
-                .collect(java.util.stream.Collectors.toSet());
-        List<QueryTask> tasks = queryTaskMapper.selectList(new LambdaQueryWrapper<QueryTask>()
-                .eq(QueryTask::getUserId, userId)
-                .eq(QueryTask::getDatasourceId, datasourceId)
-                .eq(QueryTask::getIamProtocolVersion, IamS1Constants.PROTOCOL_VERSION)
-                .eq(QueryTask::getStatus, QueryTaskStatus.COMPLETED.name())
-                .isNotNull(QueryTask::getResultSql)
-                .orderByDesc(QueryTask::getCreatedAt)
-                .last("LIMIT 8"));
-        List<Map<String, Object>> examples = new ArrayList<>();
-        for (QueryTask task : tasks == null ? List.<QueryTask>of() : tasks) {
-            List<String> tables = readList(task.getUsedTables());
-            List<String> columns = readList(task.getUsedColumns());
-            if (tables.isEmpty() || columns.isEmpty()) continue;
-            boolean withinRequestedTables = tables.stream()
-                    .map(value -> value.toLowerCase(Locale.ROOT))
-                    .allMatch(requestedTables::contains);
-            boolean withinRequestedColumns = columns.stream()
-                    .map(value -> value.toLowerCase(Locale.ROOT))
-                    .allMatch(requestedColumns::contains);
-            if (!withinRequestedTables || !withinRequestedColumns) continue;
-            Map<String, Object> example = new LinkedHashMap<>();
-            example.put("question", task.getQuestion());
-            example.put("sql", safeSql(task.getResultSql()));
-            example.put("datasourceId", datasourceId);
-            example.put("activeMetadataSnapshotId", snapshot.getActiveMetadataSnapshotId());
-            example.put("tables", tables);
-            example.put("columns", columns);
-            examples.add(example);
-            if (examples.size() >= 3) break;
-        }
-        return examples;
     }
 
     private List<Map<String, Object>> loadApprovedGlossaryTerms(IamS1DataAuthorizationSnapshot snapshot) {
@@ -1101,11 +1043,17 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         for (GlossaryTerm term : terms) {
             if (invalidTerms.contains(term.getId()) || term.getReviewHash() == null
                     || !termWorkflow.factValid(term.getId(), term.getReviewHash())) continue;
+            Map<String, Object> approved;
+            try {
+                approved = termWorkflow.approvedFact(term.getId());
+                if (approved.get("reviewId") == null || !Objects.equals(term.getReviewHash(), approved.get("contentHash"))) continue;
+            } catch (BusinessException exception) { continue; }
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("name", term.getName());
-            item.put("displayName", term.getDisplayName());
-            item.put("description", term.getDescription());
-            item.put("synonyms", term.getSynonyms());
+            item.put("name", approved.get("name"));
+            item.put("displayName", approved.get("displayName"));
+            item.put("description", approved.get("description"));
+            item.put("synonyms", approved.get("synonyms"));
+            item.put("factSourceIds", List.of(term.getId().toString(), approved.get("reviewId").toString()));
             item.put("fqn", term.getFqn());
             if (relatedColumns.containsKey(term.getId())) {
                 item.put("columns", relatedColumns.get(term.getId()));
@@ -1279,6 +1227,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
 
     private boolean fieldSemanticReferencesValid(QueryTask task) {
         if (!lineageReferencesValid(task)) return false;
+        if (!reviewedKnowledgeReferencesValid(task)) return false;
         if (task != null && task.getBusinessKnowledgeRefsJson() != null) {
             try {
                 for (var ref : parseFieldSemanticReferences(task.getBusinessKnowledgeRefsJson())) {
@@ -1304,6 +1253,63 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             return true;
         } catch (RuntimeException exception) {
             return false;
+        }
+    }
+
+    /** 术语和人工释义共用同一门禁，不能只在派发时过滤撤回来源。 */
+    boolean reviewedKnowledgeReferencesValid(QueryTask task) {
+        if (task == null || task.getReviewedKnowledgeRefsJson() == null) return false;
+        try {
+            List<Map<String, Object>> refs = objectMapper.readValue(task.getReviewedKnowledgeRefsJson(), new TypeReference<>() {});
+            if (refs == null) return false;
+            for (var ref : refs) {
+                Long source = Long.valueOf(String.valueOf(ref.get("sourceSnapshotId")));
+                String origin = String.valueOf(ref.get("origin"));
+                if (!("RAG".equals(origin) && Objects.equals(source, task.getRagSourceSnapshotId()))
+                        && !("GLOSSARY".equals(origin) && Objects.equals(source, task.getActiveMetadataSnapshotId()))) return false;
+                if (!(ref.get("factSourceIds") instanceof List<?> ids) || ids.isEmpty()) return false;
+                List<String> sources = ids.stream().map(String::valueOf).toList();
+                boolean valid = switch (String.valueOf(ref.get("factType"))) {
+                    case "GLOSSARY_TERM" -> glossarySources != null && glossarySources.membershipValid(sources);
+                    case "SEMANTIC_NOTE" -> "RAG".equals(origin) && semanticSources != null && semanticSources.membershipValid(sources);
+                    default -> false;
+                };
+                if (!valid) return false;
+            }
+            return true;
+        } catch (Exception exception) { return false; }
+    }
+
+    private void freezeReviewedKnowledgeReferences(String taskId, List<Map<String, Object>> chunks,
+            List<Map<String, Object>> terms, Long activeSnapshotId) {
+        List<Map<String, Object>> refs = new ArrayList<>();
+        for (var chunk : chunks) {
+            String type = String.valueOf(chunk.get("factType"));
+            if (!List.of("GLOSSARY_TERM", "SEMANTIC_NOTE").contains(type)) continue;
+            Map<String, Object> ref = Map.of("origin", "RAG", "factType", type,
+                    "sourceSnapshotId", String.valueOf(chunk.get("sourceSnapshotId")), "factSourceIds", chunk.get("factSourceIds"));
+            if (!refs.contains(ref)) refs.add(ref);
+        }
+        for (var term : terms) {
+            Map<String, Object> ref = Map.of("origin", "GLOSSARY", "factType", "GLOSSARY_TERM",
+                    "sourceSnapshotId", String.valueOf(activeSnapshotId), "factSourceIds", term.get("factSourceIds"));
+            if (!refs.contains(ref)) refs.add(ref);
+        }
+        refs.sort(java.util.Comparator.comparing(ref -> String.valueOf(ref.get("origin")) + ref.get("factType") + ref.get("factSourceIds")));
+        String json = writeJson(refs);
+        QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+        if (task == null) throw new BusinessException("查询任务不存在，不能固定审核知识来源");
+        if (task.getReviewedKnowledgeRefsJson() != null) {
+            if (!json.equals(task.getReviewedKnowledgeRefsJson())) throw new BusinessException(409, "本任务审核知识引用已变化，请重新提问");
+            return;
+        }
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)
+                .eq(QueryTask::getStatus, "PROCESSING").isNull(QueryTask::getReviewedKnowledgeRefsJson)
+                .set(QueryTask::getReviewedKnowledgeRefsJson, json));
+        if (updated != 1) {
+            QueryTask latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+            if (latest == null || !json.equals(latest.getReviewedKnowledgeRefsJson()))
+                throw new BusinessException(409, "审核知识来源已并发变化，请重新提问");
         }
     }
 

@@ -81,8 +81,9 @@ async def test_planning_failure_is_not_clarification(monkeypatch, bad_response):
     current = state()
     monkeypatch.setattr(graph, '_link_candidates', lambda _state: current['linkedSchema'])
     monkeypatch.setattr(graph, '_unmapped_requested_object', lambda *_args: False)
-    budgeted = dict(current, llmCalls=1)
-    call = AsyncMock(return_value=('not valid JSON', budgeted)) if bad_response else AsyncMock(side_effect=outage())
+    async def invalid_output(input_state, *_args, **_kwargs):
+        return 'not valid JSON',dict(input_state,llmCalls=input_state.get('llmCalls',0)+1)
+    call = AsyncMock(side_effect=invalid_output) if bad_response else AsyncMock(side_effect=outage())
     monkeypatch.setattr(graph, '_budgeted_llm', call)
     updated = await graph._plan_node(current)
     assert updated['status'] == 'FAILED'
@@ -93,8 +94,12 @@ async def test_planning_failure_is_not_clarification(monkeypatch, bad_response):
     assert SECRET not in json.dumps(final)
     assert 'clarification' not in final
     if bad_response:
-        assert updated['llmCalls'] == 1
-    call.assert_awaited_once()
+        assert updated['llmCalls'] == 2
+        assert call.await_count == 2
+        assert [item.args[4] for item in call.await_args_list] == ['plan:0','plan:0:repair']
+        assert updated['errorType'] == 'MODEL_OUTPUT_INVALID'
+    else:
+        call.assert_awaited_once()
 
 
 @pytest.mark.asyncio

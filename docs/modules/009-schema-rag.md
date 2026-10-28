@@ -33,6 +33,8 @@ Java 冻结合规文档版本、来源快照、事实依赖、构建清单与 bu
 
 ## 文本与向量规则
 
+数据源级构建以多篇审核文档为清单成员：Java 对每篇来源及整组表字段/业务事实覆盖进行校验，Python `/internal/rag/builds/chunk` 对单个固定 build/文档/版本执行 Markdown、marker、快照和重复身份检查。单篇不要求包含整本目录；无事实的说明主题不产生检索片段。通用 `/internal/rag/chunk` 继续保留完整文档结构合同，不因分篇构建而关闭来源校验。
+
 Python `rag/chunker.py`按二级章节、三级语义单元处理 skills.md。目标约 900 tokens、最大 1000、长单元重叠约 150；短而有意义的单元保留，不按固定字符数截断 SQL、Join 或指标。
 
 保留 chunk 类型、顺序与分组、多表/多列、entity、trust、hash 等 metadata。knowledge_chunk 是持久化来源，Milvus 保留检索所需副本。向量字段必须为 embedding 且维度匹配；不兼容集合需要经核实重建，不能静默混写。

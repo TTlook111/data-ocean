@@ -67,7 +67,7 @@ class GovernanceWorkflowPersistenceTest {
         var column=new DbColumnMeta();column.setId(91L);column.setDatasourceId(5L);column.setSnapshotId(80L);column.setTableMetaId(90L);column.setTableName("orders");column.setColumnName("amount");column.setDataType("BIGINT");column.setGovernanceStatus("NORMAL");columns.insert(column);
         when(semantic.evaluate(91L,80L)).thenReturn(new FieldSemanticEvaluation("VALID","OK","有效",10L,11L,20L,21L,"body","deps","proof"));
         var task=new QueryTask();task.setTaskId("test-query");task.setUserId(9L);task.setDatasourceId(5L);task.setActiveMetadataSnapshotId(80L);task.setStatus("COMPLETED");
-        task.setResultSql("SELECT amount FROM orders");task.setIamResourceRequest("[{\"tableName\":\"orders\",\"referencedColumns\":[\"amount\"],\"columnUsages\":{\"amount\":[\"PROJECTION\"]}}]");tasks.insert(task);
+        task.setResultSql("SELECT amount FROM orders");task.setUsedColumns("[\"orders.amount\"]");task.setIamResourceRequest("[{\"tableName\":\"orders\",\"referencedColumns\":[\"amount\"],\"columnUsages\":{\"amount\":[\"PROJECTION\"]}}]");tasks.insert(task);
         var usage=new GovernanceFieldUsage();usage.setTaskId("test-query");usage.setDatasourceId(5L);usage.setSnapshotId(80L);usage.setColumnMetaId(91L);usage.setDefinitionId(10L);usage.setRevisionId(20L);usage.setFieldName("orders.amount");usage.setProfileJson("{}");usages.insert(usage);
     }
     private void create(Class<?> type){
@@ -105,6 +105,21 @@ class GovernanceWorkflowPersistenceTest {
         int count=jdbc.queryForObject("SELECT COUNT(*) FROM business_knowledge_revision",Integer.class);
         knowledge.starterDrafts(80L,9L);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM business_knowledge_revision",Integer.class)).isEqualTo(count);
+    }
+
+    @Test void businessActionsKeepManagerAndReviewerFunctionsIndependent(){
+        var draft=new BusinessKnowledgeDraftDTO();draft.setKind("TABLE");draft.setKnowledgeKey("role-check");draft.setTitle("合成角色检查");
+        draft.setBody(Map.of("description","合成订单","grain","一行一订单"));draft.setDependencies(List.of("table:orders"));
+        draft.setEvidence("明确合成口径");draft.setEvidenceReference("test:role-isolation");draft.setEvidenceConfirmed(true);
+        Long id=((Number)knowledge.save(80L,draft,9L).get("id")).longValue();
+        doThrow(new BusinessException(403,"维护角色没有审核权")).when(guard).requireDatasourceFunction(97L,"knowledge:approve",5L);
+        doThrow(new BusinessException(403,"审核角色没有维护权")).when(guard).requireDatasourceFunction(98L,"knowledge:manage",5L);
+        knowledge.action(id,1,"SUBMIT","合成提交",97L);
+        assertThatThrownBy(()->knowledge.action(id,2,"APPROVE","不能自带审核权",97L)).isInstanceOf(BusinessException.class);
+        knowledge.action(id,2,"APPROVE","合成独立审核",98L);
+        assertThat(revisions.selectById(id).getStatus()).isEqualTo("APPROVED");
+        assertThatThrownBy(()->knowledge.action(id,3,"RECHECK","不能继承维护权",98L)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(()->knowledge.action(id,3,"REVOKE","撤销需要双功能",97L)).isInstanceOf(BusinessException.class);
     }
     @Test void aiCannotSupplyItsOwnAuthorityOrSubmitWithoutHumanEvidence(){
         var request=new BusinessKnowledgeDraftDTO();request.setKind("TABLE");request.setKnowledgeKey("ai-orders");request.setTitle("订单用途");

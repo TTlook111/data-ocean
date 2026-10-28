@@ -16,6 +16,7 @@
 | 还要做什么 | [后续开发](development/后续开发.md) |
 | 数据质量/治理对 RAG、问数与血缘的影响 | [RAG 与问数治理适配问题](development/RAG与问数治理适配问题.md)；分清应独立的机制、已确认断点和修复边界，执行队列仍在后续开发 |
 | 某轮到底验证了什么 | [验收索引](acceptance/README.md)；证据只适用于标明日期和范围 |
+| 当前版本系统联调与复跑 | [联调合同及覆盖矩阵](development/系统联调验收.md) → [验收入口](../scripts/system-acceptance/README.md)；真实结果进入当轮验收记录 |
 | 编程 Agent 约束 | [AGENTS.md](../AGENTS.md)及对应目录入口 |
 | 项目论文要求、材料与写作进度 | [论文写作](../paper/README.md)；项目事实仍从现行模块与证据核对 |
 

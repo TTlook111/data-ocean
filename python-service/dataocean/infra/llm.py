@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # 缓存不同 (model, temperature) 组合的 ChatOpenAI 实例，避免重复构造
 # 使用 threading.Lock 保护，防止配置热重载时并发创建重复实例
-_chat_cache: dict[tuple[str, str, float, int | None], ChatOpenAI] = {}
+_chat_cache: dict[tuple[str, str, float, int | None, int], ChatOpenAI] = {}
 _chat_cache_lock = threading.Lock()
 
 
@@ -57,7 +57,7 @@ def get_chat_model(
     temperature = temperature if temperature is not None else settings.llm_temperature
     retries = max_retries if max_retries is not None else settings.llm_max_retries
 
-    cache_key = (settings.dashscope_base_url, model, temperature, max_tokens)
+    cache_key = (settings.dashscope_base_url, model, temperature, max_tokens, retries)
 
     # 快速路径：缓存命中（无锁）
     cached = _chat_cache.get(cache_key)

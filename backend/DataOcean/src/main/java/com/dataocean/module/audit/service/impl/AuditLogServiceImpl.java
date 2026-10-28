@@ -29,6 +29,7 @@ public class AuditLogServiceImpl implements AuditLogService {
 
     private final QueryAuditLogMapper auditLogMapper;
     private final QueryTaskMapper queryTaskMapper;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     @Value("${dataocean.audit.slow-query-threshold-ms:5000}")
     private int slowQueryThresholdMs;
@@ -44,6 +45,13 @@ public class AuditLogServiceImpl implements AuditLogService {
         auditLog.setDatasourceId(task.getDatasourceId());
         auditLog.setQuestion(task.getQuestion());
         auditLog.setSqlText(task.getResultSql());
+        try {
+            if(task.getResultData()==null)throw new BusinessException("受保护结果数据缺失，不能记录成功审计");
+            var data=objectMapper.readTree(task.getResultData());
+            if(data==null||!data.isArray())throw new BusinessException("受保护结果不是数组，不能记录成功审计");
+            auditLog.setRowCount(data.size());
+        } catch(BusinessException exception){throw exception;}
+        catch(Exception exception){throw new BusinessException("受保护结果数据无效，不能记录成功审计");}
         auditLog.setUsedTables(task.getUsedTables());
         auditLog.setUsedFields(task.getUsedColumns());
         auditLog.setPromptVersions(task.getPromptVersions());

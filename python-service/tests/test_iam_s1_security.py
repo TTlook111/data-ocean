@@ -166,6 +166,108 @@ def test_reviewed_glossary_exact_filter_is_required_for_matching_question():
     ) == []
 
 
+def test_unconditional_covering_grant_dominates_conditional_grant():
+    current = snapshot(condition=True)
+    current.resources[0].grantSources.append(S1GrantSource(
+        grantId=2, sourceSummary="全量覆盖授权", grantSource="MANUAL",
+        sourceReferenceId=None, explicitColumns=["id", "region"], rowCondition=None))
+    sql, _ = inject_row_conditions("SELECT id FROM orders", current,
+                                    [S1ExecutionBinding(reference="g1", valueType="STRING", value="east")])
+    assert "WHERE" not in sql.upper()
+
+
+def test_partial_unconditional_grant_cannot_expand_other_columns():
+    current = snapshot(condition=True)
+    current.resources[0].columns[1].usage = ["PROJECTION", "FILTER"]
+    current.resources[0].grantSources.append(S1GrantSource(
+        grantId=2, sourceSummary="仅 id 全量", grantSource="MANUAL",
+        sourceReferenceId=None, explicitColumns=["id"], rowCondition=None))
+    sql, _ = inject_row_conditions("SELECT id, region FROM orders", current,
+                                    [S1ExecutionBinding(reference="g1", valueType="STRING", value="east")])
+    assert "WHERE" in sql.upper() and "iam_s1_g1" in sql
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT COUNT(*) AS s1_c1 FROM orders WHERE (SELECT phone FROM orders LIMIT 1)='13800138000'",
+    "SELECT id FROM orders WHERE '13800138000' IN (SELECT phone FROM orders)",
+    "SELECT (SELECT phone FROM orders LIMIT 1) AS phone FROM orders",
+    "SELECT id FROM orders WHERE EXISTS (SELECT phone FROM orders)",
+])
+def test_masked_projection_cannot_feed_a_scalar_subquery(sql):
+    assert not validate_sql(sql, snapshot(masked=True)).passed
+
+
+def test_scalar_subquery_must_declare_outer_filter_usage():
+    assert not validate_sql(
+        "SELECT COUNT(*) FROM orders WHERE (SELECT id FROM orders LIMIT 1)=123", snapshot()).passed
+
+
+def test_masked_pure_derived_projection_remains_protectable():
+    result = validate_sql("SELECT q.phone FROM (SELECT phone FROM orders) q", snapshot(masked=True))
+    assert result.passed, result.violations
+    assert result.masked_fields == {"phone": "PHONE"}
+
+
+def test_unterminated_model_literal_is_a_bounded_syntax_repair_not_an_uncaught_error():
+    result = validate_sql("SELECT id FROM orders WHERE region='North", snapshot())
+    assert not result.passed
+    assert result.violations[0].startswith("SQL_SYNTAX:")
+
+
+def test_generated_aggregate_aliases_are_compiled_without_changing_values_or_predicates():
+    result = validate_sql("SELECT SUM(id) AS arbitrary_label FROM orders ORDER BY arbitrary_label", snapshot(), normalize_computed_aliases=True)
+    assert result.passed, result.violations
+    assert result.sql == "SELECT SUM(id) AS s1_c1 FROM orders ORDER BY s1_c1 LIMIT 10000"
+    assert result.used_columns == ["orders.id"]
+    assert result.source_trace[0]["outputColumn"] == "s1_c1"
+    unchanged = validate_sql("SELECT SUM(id) AS approved_label FROM orders", snapshot())
+    assert unchanged.passed and "approved_label" in unchanged.sql
+
+
+def test_generated_alias_compilation_does_not_relabel_bare_columns():
+    result = validate_sql("SELECT id AS unrelated_business_name FROM orders", snapshot(), normalize_computed_aliases=True)
+    assert result.passed
+    assert result.source_trace[0]["outputColumn"] == "unrelated_business_name"
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT SUM(id) AS total FROM orders UNION ALL SELECT SUM(id) AS total FROM orders ORDER BY total",
+    "SELECT id+1 AS region FROM orders ORDER BY (SELECT region FROM orders LIMIT 1)",
+])
+def test_generated_alias_compilation_preserves_set_and_nested_scope_references(sql):
+    current = snapshot()
+    current.resources[0].columns[1].usage = ["PROJECTION", "FILTER"]
+    original = validate_sql(sql, current)
+    compiled = validate_sql(sql, current, normalize_computed_aliases=True)
+    assert original.passed, original.violations
+    assert compiled.passed, compiled.violations
+    assert compiled.used_columns == original.used_columns
+    if "UNION" in sql:
+        assert "ORDER BY s1_c1" in compiled.sql
+    else:
+        assert "SELECT region FROM orders" in compiled.sql
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT q.total FROM (SELECT id+1 AS total FROM orders) q",
+    "WITH q AS (SELECT id+1 AS total FROM orders) SELECT total FROM q",
+    "SELECT q.total FROM (SELECT SUM(id) AS total FROM orders UNION ALL SELECT SUM(id) AS total FROM orders) q",
+])
+def test_generated_alias_compilation_preserves_internal_relational_names(sql):
+    original = validate_sql(sql, snapshot())
+    compiled = validate_sql(sql, snapshot(), normalize_computed_aliases=True)
+    assert original.passed, original.violations
+    assert compiled.passed, compiled.violations
+    assert compiled.sql == original.sql
+
+
+def test_nested_aggregate_does_not_require_grouping_in_an_unaggregated_outer_scope():
+    result = validate_sql("SELECT q.total FROM (SELECT SUM(id) AS total FROM orders) q", snapshot())
+    assert result.passed, result.violations
+    invalid = validate_sql("SELECT region, SUM(id) FROM orders", snapshot())
+    assert not invalid.passed and invalid.violations[0].startswith("SQL_SYNTAX:")
+
+
 def test_star_expansion_requires_at_least_one_projectable_field():
     current = snapshot()
     for column in current.resources[0].columns:
