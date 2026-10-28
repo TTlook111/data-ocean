@@ -177,7 +177,8 @@ def _declared_usages(meta: dict[str, Any]) -> set[str]:
     return {str(item).upper() for item in meta.get("usage") or []}
 
 
-def _assign_output_aliases(scopes: dict[int, Any], normalize_computed_aliases: bool = False) -> None:
+def _assign_output_aliases(scopes: dict[int, Any], normalize_computed_aliases: bool = False,
+                           normalize_unreviewed_aliases: set[str] | None = None) -> None:
     """给未加别名的**表达式**投影指定确定性别名。
 
     数据库会用表达式原文作为未加别名投影的列名（`COUNT(*)` 的列名就是 `COUNT(*)`），
@@ -200,7 +201,7 @@ def _assign_output_aliases(scopes: dict[int, Any], normalize_computed_aliases: b
                 relational_scopes.add(id(source))
                 if _is_set_operation(source.expression):
                     relational_scopes.update(id(branch) for branch in _branch_scopes(source, scopes))
-    if normalize_computed_aliases:
+    if normalize_computed_aliases or normalize_unreviewed_aliases:
         for scope in scopes.values():
             if _is_set_operation(scope.expression):
                 branches = _branch_scopes(scope, scopes)
@@ -222,9 +223,10 @@ def _assign_output_aliases(scopes: dict[int, Any], normalize_computed_aliases: b
             protected_alias_reference = any(
                 str(column.name).lower() == old_alias.lower() for clause in (select.args.get("group"), select.args.get("having"))
                 if clause is not None for column in clause.find_all(exp.Column))
-            normalizable = (normalize_computed_aliases and id(scope) not in relational_scopes
+            normalize_label=(normalize_computed_aliases and not isinstance(expression,exp.Column)) or (
+                isinstance(expression,exp.Column) and old_alias.casefold() in (normalize_unreviewed_aliases or set()))
+            normalizable = (normalize_label and id(scope) not in relational_scopes
                             and isinstance(output, exp.Alias)
-                            and not isinstance(expression, exp.Column)
                             and not re.fullmatch(r"s1_c\d+", old_alias, flags=re.I)
                             and not protected_alias_reference)
             if (output.args.get("alias") and not normalizable) or isinstance(output, exp.Column):
@@ -797,8 +799,48 @@ def _top_level_query(tree: exp.Expression) -> exp.Expression:
     return node
 
 
+def has_calendar_year_scope(sql:str,table_name:str,column_name:str,year:int) -> bool:
+    """Prove the requested calendar bounds per physical scan, including OR paths."""
+    try:
+        statements=sqlglot.parse(sql,read="mysql")
+        if len(statements)!=1:return False
+        tree=statements[0]
+    except Exception:return False
+    found=False;start=f"{year:04d}-01-01";end=f"{year+1:04d}-01-01"
+    for scope in traverse_scope(tree):
+        sources=list(_physical_sources(scope));aliases={alias for alias,_ in sources}
+        target={alias for alias,source in sources if source.name.lower()==table_name.lower()}
+        if not target:continue
+        found=True
+        def identity(node):
+            if not isinstance(node,exp.Column) or node.name.lower()!=column_name.lower():return None
+            alias=(node.table or "").lower()
+            if not alias and len(scope.selected_sources)==1 and len(aliases)==1:alias=next(iter(aliases))
+            return alias if alias in target else None
+        def guaranteed(node):
+            if isinstance(node,(exp.Where,exp.Paren)):return guaranteed(node.this)
+            if isinstance(node,exp.And):return guaranteed(node.this)|guaranteed(node.expression)
+            if isinstance(node,exp.Or):return guaranteed(node.this)&guaranteed(node.expression)
+            if not isinstance(node,(exp.GTE,exp.LTE,exp.LT,exp.GT,exp.EQ)):return set()
+            for left,right in ((node.this,node.expression),(node.expression,node.this)):
+                alias=identity(left)
+                if alias and isinstance(right,exp.Literal) and right.is_string:
+                    forward=left is node.this
+                    if right.this==start and ((forward and isinstance(node,exp.GTE)) or (not forward and isinstance(node,exp.LTE))):return {(alias,"lower")}
+                    if right.this==end and ((forward and isinstance(node,exp.LT)) or (not forward and isinstance(node,exp.GT))):return {(alias,"upper")}
+                if isinstance(node,exp.EQ) and isinstance(left,exp.Year) and isinstance(right,exp.Literal) and str(right.this)==str(year):
+                    date=left.this.this if isinstance(left.this,exp.TsOrDsToDate) else left.this
+                    alias=identity(date)
+                    if alias:return {(alias,"lower"),(alias,"upper")}
+            return set()
+        proof=guaranteed(scope.expression.args.get("where"))
+        if any((alias,"lower") not in proof or (alias,"upper") not in proof for alias in target):return False
+    return found
+
+
 def validate_sql(sql: str, snapshot: S1PermissionSnapshot, *, enforce_usage: bool = True,
-                 normalize_computed_aliases: bool = False) -> S1SqlValidation:
+                 normalize_computed_aliases: bool = False,
+                 normalize_unreviewed_aliases: set[str] | None = None) -> S1SqlValidation:
     """Validate one SELECT against the current S1 snapshot.
 
     ``enforce_usage`` is only turned off when re-validating SQL that already
@@ -816,12 +858,14 @@ def validate_sql(sql: str, snapshot: S1PermissionSnapshot, *, enforce_usage: boo
             raise S1SqlSecurityError("只允许 SELECT")
         if any(isinstance(node, (exp.Insert, exp.Update, exp.Delete, exp.Create, exp.Drop, exp.Alter)) for node in tree.walk()):
             raise S1SqlSecurityError("禁止非 SELECT 语句")
+        if any(isinstance(node,exp.Lock) for node in tree.walk()):
+            raise S1SqlSecurityError("S1 只读查询禁止行锁与共享锁子句")
         scopes = _scope_index(tree)
         _validate_tables(scopes, snapshot)
         _validate_set_operations(scopes)
         _expand_stars(scopes, snapshot)
         _reject_unexpanded_projection_stars(scopes)
-        _assign_output_aliases(scopes, normalize_computed_aliases)
+        _assign_output_aliases(scopes, normalize_computed_aliases, normalize_unreviewed_aliases)
         _validate_aggregate_grouping(scopes)
         for rule in (function_rule.check(sql), depth_rule.check(sql), limit_rule.check(sql)):
             if not rule.passed:
@@ -901,6 +945,35 @@ def _grant_condition(resource: Any, grant: Any, alias: str, bindings: dict[str, 
     return expression
 
 
+def policy_validation_snapshot(snapshot: S1PermissionSnapshot) -> S1PermissionSnapshot:
+    """Execution-only policy fields never become model/user projection resources."""
+    from .schema import S1Column
+    resources=[]
+    for resource in snapshot.resources:
+        columns={c.name:c for c in resource.columns}
+        if any(grant.rowCondition is None and set(columns)<=set(grant.explicitColumns) for grant in resource.grantSources):
+            resources.append(resource)
+            continue
+        descriptors={c.name:c for c in resource.policyColumns}
+        if len(descriptors)!=len(resource.policyColumns):raise S1SqlSecurityError("行权限依赖字段重复")
+        for grant in resource.grantSources:
+            if not grant.rowCondition:continue
+            for predicate in grant.rowCondition.predicates:
+                field=predicate.columnName
+                if field in columns:
+                    if columns[field].columnId!=predicate.columnId:raise S1SqlSecurityError("行权限字段身份与当前快照不一致")
+                    continue
+                descriptor=descriptors.get(field)
+                if (descriptor is None or descriptor.columnId!=predicate.columnId
+                        or descriptor.sourceSnapshotId!=resource.sourceSnapshotId
+                        or descriptor.sourceSnapshotId!=snapshot.activeMetadataSnapshotId):
+                    raise S1SqlSecurityError("行权限依赖字段缺少当前服务端身份")
+                columns[field]=S1Column(name=field,columnId=descriptor.columnId,usage=["FILTER"],protectionLevel="NORMAL",maskPolicy=None,
+                    dataType="UNKNOWN",governanceStatus="NORMAL",sourceSnapshotId=descriptor.sourceSnapshotId)
+        resources.append(resource.model_copy(update={"columns":list(columns.values())}))
+    return snapshot.model_copy(update={"resources":resources})
+
+
 def inject_row_conditions(sql: str, snapshot: S1PermissionSnapshot, execution_bindings: list[S1ExecutionBinding]) -> tuple[str, dict[str, Any]]:
     validation = validate_sql(sql, snapshot)
     if not validation.passed:
@@ -908,7 +981,7 @@ def inject_row_conditions(sql: str, snapshot: S1PermissionSnapshot, execution_bi
     tree = sqlglot.parse_one(validation.sql, dialect="mysql")
     scopes = _scope_index(tree)
     bindings = {item.reference: item.value for item in execution_bindings}
-    resources = {item.tableName.lower(): item.model_dump() for item in snapshot.resources}
+    resources = {item.tableName.lower(): item.model_dump() for item in policy_validation_snapshot(snapshot).resources}
     for scope in scopes.values():
         select = scope.expression
         if not isinstance(select, exp.Select):

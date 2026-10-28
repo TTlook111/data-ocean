@@ -290,7 +290,7 @@ def test_build_candidate_filter_drops_mixed_or_stale_facts_before_reranking() ->
         authorizedChunkIds=[7, 8, 9],
     )
     safe = RetrievedSchema(
-        tableName="orders", columns=[], score=0.99, snapshotId=4, buildId="build-a",
+        tableName="orders", columns=[], score=0.99, snapshotId=4, buildId="build-a",sourceId=7,
         chunkText="safe", resourceDependencies=["table:orders", "column:orders.id"],
         factSourceIds=["fact:7"], factType="COLUMN_STRUCTURE",
         factReviewStatus="APPROVED", reviewStatus="APPROVED", governanceStatus="NORMAL",

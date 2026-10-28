@@ -28,7 +28,7 @@ from .schema import (
     S1SqlExecuteRequest,
     S1SqlValidateRequest,
 )
-from .sql_security import S1SqlSecurityError, S1SqlValidation, inject_row_conditions, validate_sql
+from .sql_security import S1SqlSecurityError, S1SqlValidation, inject_row_conditions, validate_sql, policy_validation_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -164,10 +164,15 @@ def validate_request(request: S1SqlValidateRequest) -> S1SqlValidation:
         return S1SqlValidation(False, violations=[str(exc)])
     # 注入后的 SQL 含有服务端策略谓词，其位置由连接语义决定，不再按请求方
     # 声明的 usage 复测；模型产出的 SQL 原文已在上面按 usage 校验过。
-    final_validation = validate_sql(rewritten, request.permissionSnapshot, enforce_usage=False)
+    final_validation = validate_sql(rewritten, policy_validation_snapshot(request.permissionSnapshot), enforce_usage=False)
     if not final_validation.passed:
         return final_validation
     final_validation.sql = rewritten
+    final_validation.used_tables=validation.used_tables
+    final_validation.used_columns=validation.used_columns
+    final_validation.source_trace=validation.source_trace
+    final_validation.column_usages=validation.column_usages
+    final_validation.masked_fields=validation.masked_fields
     return final_validation
 
 
@@ -186,16 +191,26 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
             request.permissionSnapshot,
             rag_source_snapshot_id=request.ragSourceSnapshotId or request.activeMetadataSnapshotId,
         )
+    authoritative=filter_chunks(request.chunks,request.permissionSnapshot,
+        rag_source_snapshot_id=request.ragSourceSnapshotId or request.activeMetadataSnapshotId,
+        rag_build_id=request.ragBuildId)
+    by_id={};duplicates=set()
+    for chunk in authoritative:
+        raw_id=chunk.get("sourceId",chunk.get("source_id"))
+        if isinstance(raw_id,bool) or not isinstance(raw_id,(int,str)):
+            continue
+        try: source_id=int(raw_id)
+        except ValueError: continue
+        if source_id<=0:continue
+        if source_id in by_id and by_id[source_id]!=chunk:duplicates.add(source_id)
+        by_id.setdefault(source_id,chunk)
+    by_id={key:value for key,value in by_id.items() if key not in duplicates}
+    authoritative=list(by_id.values())
     from dataocean.rag.collection_names import is_build_collection_name
     if not is_build_collection_name(request.datasourceId, request.ragBuildId, request.ragCollectionName):
         # Never let a stale or malformed Java build pointer fall back to the
         # configured default collection (schema_knowledge).
-        return filter_chunks(
-            request.chunks,
-            request.permissionSnapshot,
-            rag_source_snapshot_id=request.ragSourceSnapshotId or request.activeMetadataSnapshotId,
-            rag_build_id=request.ragBuildId,
-        )
+        return authoritative
     if not request.ragSourceSnapshotId or not request.ragCollectionName or not request.ragEmbeddingConfig:
         return []
     try:
@@ -209,19 +224,13 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
                 f"column:{resource.tableName}.{column.name}" for column in resource.columns
                 if column.protectionLevel != "HIDDEN"
             )
-        allowed_chunk_ids = []
-        for chunk in request.chunks:
-            source_id = chunk.get("sourceId", chunk.get("source_id"))
-            try:
-                allowed_chunk_ids.append(int(source_id))
-            except (TypeError, ValueError):
-                continue
+        allowed_chunk_ids = list(by_id)
         response = await retrieve_schemas(RetrieveRequest(
             datasourceId=request.datasourceId,
             question=request.question,
             topK=10,
             activeSnapshotId=request.ragSourceSnapshotId,
-            fallbackChunks=request.chunks,
+            fallbackChunks=authoritative,
             buildId=request.ragBuildId,
             collectionName=request.ragCollectionName,
             embeddingConfig=request.ragEmbeddingConfig,
@@ -229,33 +238,18 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
             authorizedChunkIds=allowed_chunk_ids,
         ))
         candidates: list[dict[str, Any]] = []
+        seen=set()
         for item in response.results:
-            tables = list(getattr(item, "related_tables", []) or [])
-            if not tables and getattr(item, "table_name", ""):
-                tables = [item.table_name]
-            columns = list(getattr(item, "related_columns", []) or [])
-            if not columns and tables:
-                columns = [f"{tables[0]}.{column.name}" for column in item.columns]
-            candidates.append({
-                "sourceId": getattr(item, "source_id", None),
-                "datasourceId": request.datasourceId,
-                "activeMetadataSnapshotId": request.ragSourceSnapshotId,
-                "sourceSnapshotId": request.ragSourceSnapshotId,
-                "ragBuildId": request.ragBuildId,
-                "tables": tables,
-                "columns": columns,
-                "resourceDependencies": list(getattr(item, "resource_dependencies", []) or []),
-                "factSourceIds": list(getattr(item, "fact_source_ids", []) or []),
-                "factType": getattr(item, "fact_type", ""),
-                "factReviewStatus": getattr(item, "fact_review_status", ""),
-                "reviewStatus": getattr(item, "review_status", ""),
-                "governanceStatus": getattr(item, "governance_status", ""),
-                "chunkText": getattr(item, "chunk_text", ""),
-                "chunkType": getattr(item, "chunk_type", ""),
-                "score": getattr(item, "score", 0),
-                "docId": getattr(item, "doc_id", None),
-                "versionNo": getattr(item, "source_version", 0),
-            })
+            try: source_id=int(getattr(item,"source_id",None))
+            except (TypeError,ValueError): continue
+            if (source_id not in by_id or source_id in duplicates or source_id in seen
+                    or getattr(item,"snapshot_id",None)!=request.ragSourceSnapshotId
+                    or getattr(item,"build_id",None)!=request.ragBuildId):
+                continue
+            # ANN/rerank selects order only. Text, identity, reviewed provenance
+            # and dependencies come from Java's current authorized membership.
+            candidates.append({**by_id[source_id],"score":getattr(item,"score",0)})
+            seen.add(source_id)
         filtered = filter_chunks(
             candidates,
             request.permissionSnapshot,
@@ -268,7 +262,7 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
         # Retrieval failure is allowed to degrade only to the same filtered
         # fallback; it never sends an unfiltered vector result onward.
         fallback = filter_chunks(
-            request.chunks,
+            authoritative,
             request.permissionSnapshot,
             rag_source_snapshot_id=request.ragSourceSnapshotId,
             rag_build_id=request.ragBuildId,
@@ -277,7 +271,7 @@ async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
             raise
         return fallback
     return filter_chunks(
-        request.chunks,
+        authoritative,
         request.permissionSnapshot,
         rag_source_snapshot_id=request.ragSourceSnapshotId,
         rag_build_id=request.ragBuildId,
@@ -297,7 +291,7 @@ async def execute_validated(request: S1SqlExecuteRequest) -> dict[str, Any]:
     if rewritten != request.validatedSql:
         raise S1SqlSecurityError("执行 SQL 与已校验并注入的 SQL 不一致")
     # 同一份已注入策略谓词的 SQL 只复测结构/表/字段/保护，不按 usage 复测。
-    validation = validate_sql(request.validatedSql, request.permissionSnapshot, enforce_usage=False)
+    validation = validate_sql(request.validatedSql, policy_validation_snapshot(request.permissionSnapshot), enforce_usage=False)
     if not validation.passed:
         raise S1SqlSecurityError("执行 SQL 未通过同一份 S1 AST 校验")
     result = await execute_sql(

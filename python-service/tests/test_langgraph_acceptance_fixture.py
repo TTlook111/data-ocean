@@ -175,6 +175,32 @@ def test_count_projection_has_table_usage_and_explicit_column_free_result():
     assert runner().projection_rows_match(task,[("orders","USAGE")],[],[(task["sql"],1,True)])
 
 
+def test_no_sql_view_query_uses_observer_receipt_without_exposing_sql_to_actor():
+    module=runner()
+    task={"taskId":"t","status":"COMPLETED","sql":None,"canViewSql":False,"columns":[{"name":"s1_c1"}],
+          "rowCount":1,"data":[{"s1_c1":1}],"usedTables":["orders"],"usedColumns":[],"ragBuildId":"build",
+          "sourceTrace":{"attemptId":"a","sqlHash":"hash","entries":[{"outputColumn":"s1_c1","sources":[],"sourceKind":"NO_COLUMN_SOURCE"}]},
+          "finalProtectionStatus":"FINAL_PROTECTED"}
+    sql="SELECT COUNT(*) AS s1_c1 FROM orders LIMIT 10000"
+    assert module.projection_rows_match(task,[("orders","USAGE")],[],[(sql,1,True)],sql)
+    assert not module.projection_rows_match(task,[("orders","USAGE")],[],[("SELECT other",1,True)],sql)
+    case={"kind":"rows","tables":["orders"],"expected":[[1]],"expectedCanViewSql":False}
+    evidence={"verified":True,"projection":{"verified":True}}
+    assert module.compare_task(case,task,evidence)==[]
+    assert any("SQL was exposed" in p for p in module.compare_task(case,{**task,"sql":sql},evidence))
+
+
+def test_declared_row_order_is_checked_separately_from_unordered_value_comparison():
+    module=runner()
+    task={"status":"COMPLETED","sql":"SELECT id FROM orders ORDER BY id","ragBuildId":"build","finalProtectionStatus":"FINAL_PROTECTED",
+          "columns":[{"name":"id"}],"data":[{"id":2},{"id":1}],"rowCount":2,"usedTables":["orders"],
+          "sourceTrace":{"attemptId":"a","sqlHash":"hash"}}
+    case={"kind":"rows","tables":["orders"],"expected":[[1],[2]],"ordered":True}
+    evidence={"verified":True,"projection":{"verified":True}}
+    assert any("row order" in p for p in module.compare_task(case,task,evidence))
+    assert module.compare_task({**case,"ordered":False},task,evidence)==[]
+
+
 @pytest.mark.parametrize("reported", [999,None,True,"1"])
 def test_projection_cannot_accept_matching_but_false_audit_and_api_counts(reported):
     task={"sql":"SELECT id FROM orders","rowCount":reported,"data":[{"id":1}],"usedTables":["orders"],"usedColumns":[]}

@@ -41,6 +41,8 @@ Python `rag/chunker.py`按二级章节、三级语义单元处理 skills.md。�
 
 ## S1 检索边界
 
+2026-10-29 补强最终检索边界：ANN/rerank 仅给出选择顺序和 score；返回 ID、snapshot、build 必须在 Java 当前授权 membership 内，正文、依赖、审核和来源以 Java 权威条目为准，不能把向量返回项重标为当前版本。相同副本去重，冲突身份全部排除；图入口、预算拒绝和异常 fallback 使用同一规则，不复活冲突首份。真实攻击文本与第二源结果见[扩展联调](../acceptance/2026-10-29-扩展联调.md)，离线污染返回反例和真实模型暴露分别记录。
+
 2026-10-27 已统一 Java/Python 的事实类型与完整依赖准入：合法表级知识可无字段，字段派生不可缺字段；新业务关系补键仅处理规划器 `selectedRelationIds` 明确选择的 `BUSINESS_RELATION`，保留当前 JOIN usage，失败不部分修改规划；SQL 上下文也排除未选择的业务关系。血缘正文与 `source_fingerprint` 由 Java 使用同一份当前关系记录生成，文档/构建校验、membership 冻结及查询各阶段当前来源复核均已接入；同 ID 改端点、内容、确认或绑定使旧引用失效。旧血缘 chunk 缺少摘要时不作为可信来源，需重新生成审核并显式构建。详见[适配分析](../development/RAG与问数治理适配问题.md)及[代码验证](../acceptance/2026-10-27-治理下游适配修复.md)；实际模型/新 build 与召回仍待验收。
 
 检索绑定任务 buildId、数据源专属 collection、来源快照、批准事实 membership、完整依赖与当前 IAM 可见资源；排除 DEPRECATED/BLOCKED。活动 build 的来源快照可以早于最新已发布快照，应显示版本落后提示；Java 不将旧来源快照的 `FIELD_SEMANTIC/BUSINESS_*` 延伸到当前快照，其他候选仍需通过当前元数据和 S1 授权，不能借旧 build 使用已删除或撤权资源。默认 schema_knowledge 不是 S1 检索源，其历史向量来源问题不通过迁移到新 build 来掩盖。

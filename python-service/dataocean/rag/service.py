@@ -195,8 +195,11 @@ def embedding_cache_key(question: str, embedding_config=None) -> str:
 
 def _filter_build_candidates(results: list, request: RetrieveRequest) -> list:
     allowed = set(request.authorized_resources)
+    allowed_ids=set(request.authorized_chunk_ids)
     filtered = []
     for item in results:
+        if getattr(item,"source_id",None) not in allowed_ids:
+            continue
         dependencies = set(getattr(item, "resource_dependencies", []) or [])
         if not dependencies or not dependencies.issubset(allowed):
             continue

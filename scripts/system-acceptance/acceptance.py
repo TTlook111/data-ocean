@@ -35,7 +35,7 @@ def dump(path, value):
 def action_label(command):
     action=command.get("flow") or ("questions" if command.get("runQuestions") else
         "login" if "loginCaptcha" in command else "captcha" if command.get("newCaptcha") else command.get("path","command"))
-    return ":".join(action.split(":")[:2]) if isinstance(action,str) and action.startswith("actor-login:") else action
+    return ":".join(action.split(":")[:2]) if isinstance(action,str) and action.startswith(("actor-login:","roles-login:")) else action
 
 def local_url(value):
     parsed = urlsplit(value)
@@ -203,7 +203,8 @@ def protected_attempt_evidence(cfg, task):
                 or not all(isinstance(c, dict) and c.get("name") for c in protected_columns)
                 or not isinstance(source_entries, list) or not source_entries):
             return {"verified": False, "reason": "Persisted protection evidence has no usable schema or source trace"}
-        verified = task_id == task["taskId"] and attempt == trace.get("attemptId") and digest == trace.get("sqlHash") and sql == task.get("sql") and status == "PROTECTED"
+        sql_matches=task.get("sql") is None if task.get("canViewSql") is False else sql==task.get("sql")
+        verified = task_id == task["taskId"] and attempt == trace.get("attemptId") and digest == trace.get("sqlHash") and sql_matches and status == "PROTECTED"
         verified = verified and type(row_count) is int and row_count == len(protected_data) and result_count_matches(task) and row_count == task["rowCount"]
         verified = verified and source_entries == trace.get("entries") and protected_columns == task.get("columns")
         names = [c["name"] for c in task.get("columns") or []]
@@ -221,7 +222,7 @@ def result_count_matches(task):
             and task["rowCount"]==len(task["data"]))
 
 
-def projection_rows_match(task, tables, columns, audits):
+def projection_rows_match(task, tables, columns, audits, protected_sql=None):
     if not result_count_matches(task):
         return False
     expected_tables={(name,"USAGE") for name in task.get("usedTables") or []}
@@ -235,9 +236,10 @@ def projection_rows_match(task, tables, columns, audits):
     if len(columns)!=len(set(columns)) or set(columns)!=expected_columns or len(audits)!=1:
         return False
     sql,row_count,success=audits[0]
-    return sql==task.get("sql") and row_count==task.get("rowCount") and bool(success)
+    expected_sql=protected_sql if task.get("canViewSql") is False else task.get("sql")
+    return bool(expected_sql) and sql==expected_sql and row_count==task.get("rowCount") and bool(success)
 
-def projection_evidence(cfg, task):
+def projection_evidence(cfg, task, protected_sql=None):
     deadline=time.monotonic()+10
     while True:
         with connect(cfg) as db,db.cursor() as cur:
@@ -248,7 +250,7 @@ def projection_evidence(cfg, task):
                 cur.execute("SELECT source_table,relation_type FROM query_lineage_table WHERE query_task_id=%s",(state[0],));tables=cur.fetchall()
                 cur.execute("SELECT source_table,source_column,alias_name FROM query_lineage_column WHERE query_task_id=%s",(state[0],));columns=cur.fetchall()
                 cur.execute("SELECT sql_text,row_count,is_success FROM query_audit_log WHERE query_task_id=%s",(state[0],));audits=cur.fetchall()
-                return {"verified":projection_rows_match(task,tables,columns,audits),"queryTaskRowId":state[0],"status":state[1],
+                return {"verified":projection_rows_match(task,tables,columns,audits,protected_sql),"queryTaskRowId":state[0],"status":state[1],
                         "tableUsageRows":tables,"columnUsageAndOutputRows":columns,"auditCount":len(audits)}
         if time.monotonic()>=deadline:
             return {"verified":False,"reason":"Trace projection not completed within observation window"}
@@ -267,7 +269,10 @@ def compare_task(case, task, attempt_evidence=None):
         trace = task.get("sourceTrace") or {}
         if not trace.get("attemptId") or not trace.get("sqlHash"):
             problems.append("Missing protected attempt identity or SQL hash")
-        if not task.get("sql") or not attempt_evidence or not attempt_evidence.get("verified"):
+        hidden_sql=case.get("expectedCanViewSql") is False
+        if hidden_sql and (task.get("canViewSql") is not False or task.get("sql") is not None):
+            problems.append("SQL was exposed despite missing SQL-view capability")
+        if (not hidden_sql and not task.get("sql")) or not attempt_evidence or not attempt_evidence.get("verified"):
             problems.append("SQL, result or source evidence does not match the same task's protected attempt")
         if not result_count_matches(task):
             problems.append("Reported result count disagrees with the actual result array")
@@ -279,8 +284,13 @@ def compare_task(case, task, attempt_evidence=None):
         actual = [[row.get(name) for name in names] for row in task.get("data") or []]
         if not rows_match(actual, case["expected"]):
             problems.append("Result values or projection order disagree with independent expectation")
+        if case.get("ordered") and [[scalar(v) for v in row] for row in actual]!=[[scalar(v) for v in row] for row in case["expected"]]:
+            problems.append("Returned row order disagrees with the declared ordering")
         if set(task.get("usedTables") or []) != set(case["tables"]):
             problems.append("Actual table sources disagree with expected scope")
+        for expected,actual in (("expectedSnapshotId","activeMetadataSnapshotId"),("expectedBuildId","ragBuildId")):
+            if expected in case and task.get(actual)!=case[expected]:
+                problems.append("Result belongs to a different snapshot or RAG build")
     else:
         allowed = {"CLARIFICATION_REQUIRED"} if case["kind"] == "clarification" else {"CLARIFICATION_REQUIRED", "REJECTED"}
         if status not in allowed:
@@ -356,7 +366,9 @@ class Api:
         dump(self.output/"api-target-binding.json",{"verified":True,"userId":me["id"],"datasourceIds":[s["id"] for s in sources],
                                                   "activeBuildIds":[b["buildId"] for b in builds]})
 
-    def questions(self, question_set, datasource=1):
+    def questions(self, question_set, datasource=1, report_prefix="questions"):
+        if not re.fullmatch(r"[a-z][a-z0-9-]*",report_prefix):
+            raise ValueError("Report prefix must be a simple local artifact name")
         checks = []
         cases = question_set["questions"]
         expected_ids = [q["id"] for q in cases]
@@ -367,11 +379,12 @@ class Api:
         def save_report():
             complete = [c["id"] for c in checks] == expected_ids
             report = {"kind": "real-services-model-questions", "contract": question_set["contract"],
+                "datasourceId":datasource,
                 "expectedIds": expected_ids, "completedIds": [c["id"] for c in checks],
                 "status": "COMPLETED" if complete else "INCOMPLETE", "checks": checks,
                 "passed": complete and all(c["passed"] for c in checks), "full_project_acceptance": False}
-            dump(self.output / "questions.json", report)
-            dump(self.output / ("questions-" + run_id + ".json"), report)
+            dump(self.output / (report_prefix + ".json"), report)
+            dump(self.output / (report_prefix + "-" + run_id + ".json"), report)
 
         save_report()
         for case in cases:
@@ -387,7 +400,7 @@ class Api:
                 time.sleep(1)
             attempt_evidence = protected_attempt_evidence(self.cfg, task) if task.get("status") == "COMPLETED" else None
             if attempt_evidence is not None:
-                attempt_evidence["projection"]=projection_evidence(self.cfg,task)
+                attempt_evidence["projection"]=projection_evidence(self.cfg,task,attempt_evidence.get("safeSql"))
             problems = compare_task(case, task, attempt_evidence)
             messages = self.call("GET", f"/api/iam-s1/query/conversations/{created['conversationId']}/messages") if created.get("conversationId") else []
             if isinstance(messages, dict):

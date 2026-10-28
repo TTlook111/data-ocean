@@ -93,6 +93,7 @@ class IamS1QueryServiceImplTest {
     @Mock private com.dataocean.module.glossary.mapper.GlossaryTermMapper glossaryTermMapper;
     @Mock private com.dataocean.module.metadata.service.MetadataEntityService metadataEntityService;
     @Mock private com.dataocean.module.metadata.service.MetadataRelationshipService metadataRelationshipService;
+    @Mock private com.dataocean.module.metadata.mapper.DbColumnMetaMapper policyColumnMapper;
     @Mock private DatasourceMapper datasourceMapper;
     @Mock private DatasourceSecretMapper datasourceSecretMapper;
     @Mock private DatasourceSecretService datasourceSecretService;
@@ -700,6 +701,48 @@ class IamS1QueryServiceImplTest {
         assertThatThrownBy(() -> service.get("task-1", 7L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("权限已变化");
+    }
+
+    @Test
+    void executionRowPredicateUsesPythonColumnIdWithoutRawPolicyValues() {
+        Object wire = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "grantMap", rowGrant());
+        var predicate = objectMapper.valueToTree(wire).path("rowCondition").path("predicates").get(0);
+        assertThat(predicate.has("columnId")).isTrue();
+        assertThat(predicate.has("columnMetaId")).isFalse();
+        assertThat(predicate.has("structuredValueJson")).isFalse();
+        assertThat(predicate.has("bindingReference")).isTrue();
+    }
+
+    @Test
+    void frozenReferenceComparisonIgnoresJsonKeyAndReferenceOrderButPreservesIdentity() {
+        String a="[{\"sourceSnapshotId\":\"3\",\"factSourceIds\":[\"17\",\"18\"]},{\"sourceSnapshotId\":\"3\",\"factSourceIds\":[\"19\"]}]";
+        String b="[{\"factSourceIds\":[\"19\"],\"sourceSnapshotId\":\"3\"},{\"factSourceIds\":[\"17\",\"18\"],\"sourceSnapshotId\":\"3\"}]";
+        assertThat(service.sameFrozenReferences(a,b)).isTrue();
+        assertThat(service.sameFrozenReferences(a,b.replace("19","20"))).isFalse();
+        assertThat(service.sameFrozenReferences(a,b.replace("[\"17\",\"18\"]","[\"18\",\"17\"]"))).isFalse();
+        assertThat(service.sameFrozenReferences(a,"[]")).isFalse();
+        assertThat(service.sameFrozenReferences(a,"not-json")).isFalse();
+        assertThat(service.sameFrozenReferences(a,b+"[]")).isFalse();
+    }
+
+    @Test
+    void policyDependenciesStaySeparateFromProjectedColumnsAndRequireCurrentMetadata() {
+        var region = new com.dataocean.module.metadata.entity.po.DbColumnMeta();
+        region.setId(2L); region.setSnapshotId(88L); region.setDatasourceId(1L);
+        region.setTableName("users"); region.setColumnName("region"); region.setGovernanceStatus("NORMAL");
+        when(policyColumnMapper.selectById(2L)).thenReturn(region);
+        var field = new IamS1FieldProtectionVO(1L,"users","phone","NORMAL",null,"normal");
+        var table = new IamS1TablePermissionVO(true,"ALLOWED","users",List.of("phone"),List.of(rowGrant()),List.of(field),List.of());
+        var current = new IamS1DataAuthorizationSnapshot(true,"ALLOWED","IAM-SIMPLE-1",7L,1L,"db",88L,100L,
+                LocalDateTime.now(),null,List.of(table));
+        var request = new IamS1QueryAskRequestDTO();
+        request.setTables(List.of(new IamS1TableRequestDTO("users",Set.of("phone"))));
+        var resource = objectMapper.valueToTree(service.buildSnapshot("task-policy",request,current)).path("resources").get(0);
+        assertThat(resource.path("columns").size()).isEqualTo(1);
+        assertThat(resource.path("columns").get(0).path("name").asText()).isEqualTo("phone");
+        assertThat(resource.path("policyColumns").get(0).path("name").asText()).isEqualTo("region");
+        region.setSnapshotId(77L);
+        assertThatThrownBy(() -> service.buildSnapshot("task-policy",request,current)).isInstanceOf(BusinessException.class);
     }
 
     @Test

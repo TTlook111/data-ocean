@@ -110,6 +110,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final com.dataocean.module.glossary.service.GlossaryTermWorkflowService termWorkflow;
     private final MetadataEntityService metadataEntityService;
     private final MetadataRelationshipService metadataRelationshipService;
+    private final com.dataocean.module.metadata.mapper.DbColumnMetaMapper policyColumnMapper;
     private final DatasourceMapper datasourceMapper;
     private final DatasourceSecretMapper datasourceSecretMapper;
     private final DatasourceSecretService datasourceSecretService;
@@ -849,6 +850,26 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             }
             Map<String, Object> resource = new LinkedHashMap<>(); resource.put("tableName", table.getTableName()); resource.put("columns", columns);
             resource.put("grantSources", table.getGrantSources().stream().map(this::grantMap).toList()); resource.put("sourceSnapshotId", snapshot.getActiveMetadataSnapshotId());
+            Map<String, Map<String, Object>> policyColumns = new LinkedHashMap<>();
+            boolean unconditional = table.getGrantSources().stream().anyMatch(source -> source.getRowCondition() == null
+                    && source.getExplicitColumns().containsAll(table.getAllowedColumns()));
+            for (var source : table.getGrantSources()) {
+                if (unconditional || source.getRowCondition() == null) continue;
+                for (var predicate : source.getRowCondition().getPredicates()) {
+                    if (columns.stream().anyMatch(column -> predicate.getColumnName().equals(column.get("name")))) continue;
+                    var metadata = policyColumnMapper.selectById(predicate.getColumnMetaId());
+                    if (metadata == null || !Objects.equals(metadata.getSnapshotId(), snapshot.getActiveMetadataSnapshotId())
+                            || !Objects.equals(metadata.getDatasourceId(), snapshot.getDatasourceId())
+                            || !Objects.equals(metadata.getTableName(), table.getTableName())
+                            || !Objects.equals(metadata.getColumnName(), predicate.getColumnName())
+                            || !Set.of("NORMAL", "RECOMMENDED", "SENSITIVE").contains(metadata.getGovernanceStatus())) {
+                        throw new BusinessException("行权限依赖字段不属于当前可用元数据，拒绝执行");
+                    }
+                    policyColumns.put(predicate.getColumnName(), Map.of("name", predicate.getColumnName(),
+                            "columnId", predicate.getColumnMetaId(), "sourceSnapshotId", snapshot.getActiveMetadataSnapshotId()));
+                }
+            }
+            resource.put("policyColumns", List.copyOf(policyColumns.values()));
             resources.add(resource);
         }
         output.put("resources", resources); output.put("capabilities", capabilities(snapshot.getUserId(), snapshot.getDatasourceId()));
@@ -863,7 +884,25 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private Map<String, Object> grantMap(IamS1GrantSourceVO source) {
         Map<String, Object> map = new LinkedHashMap<>(); map.put("grantId", source.getGrantId()); map.put("sourceSummary", source.getSourceSummary());
         map.put("grantSource", source.getGrantSource()); map.put("sourceReferenceId", source.getSourceReferenceId()); map.put("explicitColumns", source.getExplicitColumns());
-        map.put("rowCondition", source.getRowCondition()); return map;
+        if (source.getRowCondition() == null) {
+            map.put("rowCondition", null);
+        } else {
+            Map<String, Object> condition = new LinkedHashMap<>();
+            condition.put("matchType", source.getRowCondition().getMatchType());
+            condition.put("predicates", source.getRowCondition().getPredicates().stream().map(item -> {
+                Map<String, Object> predicate = new LinkedHashMap<>();
+                // 管理端 DTO 使用 columnMetaId；Python 执行协议明确使用 columnId。
+                predicate.put("columnId", item.getColumnMetaId());
+                predicate.put("columnName", item.getColumnName());
+                predicate.put("operatorCode", item.getOperatorCode());
+                predicate.put("valueType", item.getValueType());
+                predicate.put("parameterReference", item.getParameterReference());
+                predicate.put("bindingReference", item.getBindingReference());
+                return predicate;
+            }).toList());
+            map.put("rowCondition", condition);
+        }
+        return map;
     }
 
     private Map<String, Object> buildPythonRequest(String taskId, Long userId, Long conversationId,
@@ -906,7 +945,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 .map(chunk -> Map.of("sourceSnapshotId", (Object) String.valueOf(ragBuild.getSourceSnapshotId()), "factSourceIds", chunk.get("factSourceIds"))).toList();
         QueryTask businessTask = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
         String businessJson = writeJson(businessRefs);
-        if (businessTask.getBusinessKnowledgeRefsJson() != null && !businessTask.getBusinessKnowledgeRefsJson().equals(businessJson))
+        if (businessTask.getBusinessKnowledgeRefsJson() != null && !sameFrozenReferences(businessTask.getBusinessKnowledgeRefsJson(), businessJson))
             throw new BusinessException(409, "本任务业务知识引用已经变化，请重新发起");
         if (businessTask.getBusinessKnowledgeRefsJson() == null) {
             int frozen = queryTaskMapper.update(null,new LambdaUpdateWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)
@@ -914,7 +953,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     .set(QueryTask::getBusinessKnowledgeRefsJson, businessJson));
             if (frozen != 1) {
                 var latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
-                if (latest == null || !businessJson.equals(latest.getBusinessKnowledgeRefsJson()))
+                if (latest == null || !sameFrozenReferences(businessJson, latest.getBusinessKnowledgeRefsJson()))
                     throw new BusinessException(409, "本任务业务知识引用并发变化，请重新发起");
             }
         }
@@ -1300,7 +1339,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
         if (task == null) throw new BusinessException("查询任务不存在，不能固定审核知识来源");
         if (task.getReviewedKnowledgeRefsJson() != null) {
-            if (!json.equals(task.getReviewedKnowledgeRefsJson())) throw new BusinessException(409, "本任务审核知识引用已变化，请重新提问");
+            if (!sameFrozenReferences(json,task.getReviewedKnowledgeRefsJson())) throw new BusinessException(409, "本任务审核知识引用已变化，请重新提问");
             return;
         }
         int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)
@@ -1308,7 +1347,7 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 .set(QueryTask::getReviewedKnowledgeRefsJson, json));
         if (updated != 1) {
             QueryTask latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
-            if (latest == null || !json.equals(latest.getReviewedKnowledgeRefsJson()))
+            if (latest == null || !sameFrozenReferences(json,latest.getReviewedKnowledgeRefsJson()))
                 throw new BusinessException(409, "审核知识来源已并发变化，请重新提问");
         }
     }
@@ -1334,15 +1373,42 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
         QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
         if (task == null) throw new BusinessException("查询任务不存在，不能固定血缘来源");
         if (task.getLineageRefsJson() != null) {
-            if (!json.equals(task.getLineageRefsJson())) throw new BusinessException("查询血缘来源已变化，请重新提问");
+            if (!sameFrozenReferences(json,task.getLineageRefsJson())) throw new BusinessException("查询血缘来源已变化，请重新提问");
             return;
         }
         int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)
                 .eq(QueryTask::getStatus, "PROCESSING").isNull(QueryTask::getLineageRefsJson).set(QueryTask::getLineageRefsJson, json));
         if (updated != 1) {
             QueryTask latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
-            if (latest == null || !json.equals(latest.getLineageRefsJson())) throw new BusinessException("查询血缘引用并发变化，请重新提问");
+            if (latest == null || !sameFrozenReferences(json,latest.getLineageRefsJson())) throw new BusinessException("查询血缘引用并发变化，请重新提问");
         }
+    }
+
+    boolean sameFrozenReferences(String left,String right) {
+        try {
+            var reader=objectMapper.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .with(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+            var a=reader.readTree(left);var b=reader.readTree(right);
+            if(a==null||b==null||!a.isArray()||!b.isArray())return false;
+            List<String> first=new ArrayList<>(),second=new ArrayList<>();
+            for(var node:a){if(!node.isObject())return false;first.add(canonicalReference(node).toString());}
+            for(var node:b){if(!node.isObject())return false;second.add(canonicalReference(node).toString());}
+            first.sort(String::compareTo);second.sort(String::compareTo);
+            return first.equals(second);
+        } catch(Exception invalid) { return false; }
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode canonicalReference(com.fasterxml.jackson.databind.JsonNode node) {
+        if(node.isObject()) {
+            var result=objectMapper.createObjectNode();List<String> fields=new ArrayList<>();
+            node.fieldNames().forEachRemaining(fields::add);fields.sort(String::compareTo);
+            for(String field:fields)result.set(field,canonicalReference(node.get(field)));
+            return result;
+        }
+        if(node.isArray()) {
+            var result=objectMapper.createArrayNode();for(var item:node)result.add(canonicalReference(item));return result;
+        }
+        return node;
     }
 
     private List<Map<String, Object>> parseFieldSemanticReferences(String raw) {

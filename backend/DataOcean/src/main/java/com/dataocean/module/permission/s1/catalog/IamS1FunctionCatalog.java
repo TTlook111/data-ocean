@@ -99,7 +99,8 @@ public final class IamS1FunctionCatalog {
             "system:ai-config:view", "system:ai-config:manage");
 
     /**
-     * B0 冻结为「源」的功能码：必须解析资源归属，并在同一条启用绑定上同时校验功能与负责源。
+     * B0 冻结为「源」的功能码：后台操作解析资源归属，并在同一启用绑定校验功能与负责源。
+     * 普通问数的 query:* 用户侧接口由功能和独立数据授权守卫，不借用后台负责源范围。
      */
     private static final Set<String> RESOURCE_CODES = Set.of(
             "query:use", "query:sql:view", "query:export",

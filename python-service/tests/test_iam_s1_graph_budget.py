@@ -159,7 +159,7 @@ async def test_sql_execution_node_returns_only_java_protected_rows_to_graph_stat
         "executionBindings": [], "connectionConfig": {
             "host": "test", "port": 3306, "database": "fixture", "username": "reader", "password": "secret",
         },
-    })), patch("dataocean.iam_s1.graph.mark_attempt_executing", new=AsyncMock(return_value={"allowed": True})), \
+    })), patch("dataocean.iam_s1.graph.mark_attempt_executing", new=AsyncMock(return_value={"allowed": True,"status":"EXECUTING"})), \
             patch("dataocean.iam_s1.graph.validate_request", return_value=SimpleNamespace(passed=True, sql="SELECT phone FROM users LIMIT 10000", violations=[])), \
             patch("dataocean.iam_s1.graph.execute_validated", new=AsyncMock(return_value=execution_raw)) as execute, \
             patch("dataocean.iam_s1.graph.protect_attempt_result", new=AsyncMock(return_value=protected)) as protect:

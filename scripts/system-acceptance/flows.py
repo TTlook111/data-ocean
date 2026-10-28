@@ -212,6 +212,30 @@ def build(api):
     raise ValueError("Build polling exceeded 180 seconds")
 
 def run(api, flow):
+    if flow=="injection-check":
+        import importlib.util
+        path=__import__("pathlib").Path(__file__).with_name("injection_cases.py")
+        spec=importlib.util.spec_from_file_location("acceptance_injection_cases",path)
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        return module.run(api)
+    if flow.startswith("crash-"):
+        import importlib.util
+        path=__import__("pathlib").Path(__file__).with_name("crash_cases.py")
+        spec=importlib.util.spec_from_file_location("acceptance_crash_cases",path)
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        return module.run(api,flow.removeprefix("crash-"))
+    if flow.startswith("roles-"):
+        import importlib.util
+        path=__import__("pathlib").Path(__file__).with_name("role_matrix.py")
+        spec=importlib.util.spec_from_file_location("acceptance_role_matrix",path)
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        return module.run(api,flow)
+    if flow in {"secondary-prepare","secondary-questions"}:
+        import importlib.util
+        path=__import__("pathlib").Path(__file__).with_name("second_source.py")
+        spec=importlib.util.spec_from_file_location("acceptance_second_source",path)
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        return module.prepare(api) if flow=="secondary-prepare" else module.questions(api)
     if flow.startswith("feedback-"):
         import importlib.util
         path=__import__("pathlib").Path(__file__).with_name("feedback.py")

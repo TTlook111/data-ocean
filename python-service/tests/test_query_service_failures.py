@@ -149,7 +149,8 @@ async def test_later_provider_failure_cannot_follow_stale_retry_or_success(monke
     current = dict(state(), repairFeedback='old retry', semanticDecision='MATCH',
                    currentAttemptId='attempt-1', currentSqlHash='a' * 64,
                    protectedResult={'status': 'PROTECTED', 'attemptId': 'attempt-1', 'sqlHash': 'a' * 64,
-                                    'data': [{'id': 1}], 'columns': [{'name': 'id'}]})
+                                    'data': [{'id': 1}], 'columns': [{'name': 'id'}], 'rowCount':1,
+                                    'sourceTrace':[{'outputColumn':'id','sources':['products.id']}]})
     monkeypatch.setattr(graph, '_budgeted_llm', AsyncMock(side_effect=outage()))
     if node == 'semantic':
         updated = await graph._semantic_check_node(current)
@@ -172,7 +173,8 @@ async def test_invalid_model_decision_is_failure_not_clarification_or_success(mo
     current = dict(state(), repairFeedback='old retry', semanticDecision='MATCH',
                    currentAttemptId='attempt-1', currentSqlHash='a' * 64,
                    protectedResult={'status': 'PROTECTED', 'attemptId': 'attempt-1', 'sqlHash': 'a' * 64,
-                                    'data': [{'id': 1}], 'columns': [{'name': 'id'}]})
+                                    'data': [{'id': 1}], 'columns': [{'name': 'id'}], 'rowCount':1,
+                                    'sourceTrace':[{'outputColumn':'id','sources':['products.id']}]})
     call = AsyncMock(return_value=(response, dict(current, llmCalls=1)))
     monkeypatch.setattr(graph, '_budgeted_llm', call)
     if node == 'semantic':

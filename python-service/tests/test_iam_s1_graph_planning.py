@@ -419,6 +419,109 @@ def test_sql_keywords_in_a_data_filter_are_not_an_execution_request():
     assert graph_module._readonly_question_rejection("查询备注包含 'DROP TABLE' 的记录") is None
 
 
+def test_exact_row_count_uses_only_a_visible_authorization_anchor_without_dropping_filters():
+    tables={"products":{"tableName":"products","columns":[{"columnName":"id","allowedUsages":["PROJECTION"]}]}}
+    assert graph_module._unfiltered_row_count_plan("products 中所有记录有多少条？只返回一行计数。",tables)==[{"tableName":"products","columns":["id"]}]
+    for question in ("products 中所有已完成的记录有多少条", "2026年 products 中所有记录有多少条", "products 中价格大于10的记录有多少条", "products 中所有商品有多少件？"):
+        assert graph_module._unfiltered_row_count_plan(question,tables)==[]
+    assert graph_module._unfiltered_row_count_plan("products 中所有记录有多少条？",{"products":{**tables["products"],"columns":[]}})==[]
+
+
+@pytest.mark.parametrize("suffix",["LIMIT 1","LIMIT 0","LIMIT 10000 FOR UPDATE","WINDOW w AS (ORDER BY id) LIMIT 10000"])
+def test_technical_all_records_contract_rejects_truncation_and_extra_select_clauses(suffix):
+    state={"question":"orders 中所有记录有多少条？只返回一行计数。","currentSql":"SELECT COUNT(*) AS s1_c1 FROM orders "+suffix,
+           "linkedSchema":[{"tableName":"orders","columns":[{"columnName":"id","allowedUsages":["PROJECTION"]}]}]}
+    assert graph_module._technical_query_kind(state) is None
+
+
+def test_technical_projection_requires_whole_table_without_partition_restriction():
+    state={"question":"列出 orders 中所有记录的 id，按 id 升序。","currentSql":"SELECT id FROM orders ORDER BY id LIMIT 10000",
+           "linkedSchema":[{"tableName":"orders","columns":[{"columnName":"id","allowedUsages":["PROJECTION"]}]}]}
+    assert graph_module._technical_query_kind(state)=="projection"
+    assert graph_module._technical_query_kind({**state,"currentSql":"SELECT id FROM orders PARTITION(id) ORDER BY id LIMIT 10000"}) is None
+
+
+def test_explicit_projection_fallback_keeps_only_exact_visible_fields_and_no_extra_conditions():
+    tables={"items":{"tableName":"items","columns":[{"columnName":"id","allowedUsages":["PROJECTION"]}]}}
+    assert graph_module._explicit_projection_plan("列出 items 中所有记录的 id，按 id 升序。",tables)==[{"tableName":"items","columns":["id"]}]
+    for question in ("列出 items 中所有记录的 secret，按 secret 升序。","列出 items 中所有记录的 id，按 id 降序。", "列出 items 中所有记录的 id，按 id 升序。只要2026年"):
+        assert graph_module._explicit_projection_plan(question,tables)==[]
+
+
+@pytest.mark.parametrize("suffix,expected",[("WHERE d>='2027-01-01' AND d<'2028-01-01'",True),
+    ("WHERE YEAR(d)=2027",True),("WHERE d>='2027-01-01' AND d<'2028-01-01' AND status='DONE'",False),
+    ("WHERE d>='2027-01-01' OR d<'2028-01-01'",False),("WHERE d>='2027-01-01' AND d<='2028-01-01'",False)])
+def test_explicit_calendar_projection_does_not_need_model_to_guess_whether_rows_exist(suffix,expected):
+    table={"tableName":"items","columns":[{"columnName":"id","allowedUsages":["PROJECTION"],"protectionLevel":"NORMAL"},
+        {"columnName":"d","dataType":"DATE","allowedUsages":["FILTER"]}]}
+    state={"question":"列出2027年所有记录的 id。日期从2027-01-01含到2028-01-01不含，不要补造记录。",
+        "candidateCatalog":{"tables":[table]},"linkedSchema":[table],"currentSql":"SELECT id FROM items "+suffix+" LIMIT 10000"}
+    assert (graph_module._technical_query_kind(state)=="projection") is expected
+
+
+def test_calendar_projection_domain_entity_requires_reviewed_grain_identity_binding():
+    product={"tableName":"products","columns":[{"columnName":"product_name","allowedUsages":["PROJECTION"],"protectionLevel":"NORMAL"},
+        {"columnName":"created_at","dataType":"DATE","allowedUsages":["FILTER"]}]}
+    state={"question":"列出2027年所有订单的 product_name。日期从2027-01-01含到2028-01-01不含，不要补造记录。",
+        "candidateCatalog":{"tables":[product]},"linkedSchema":[product],"ragChunks":[],
+        "currentSql":"SELECT product_name FROM products WHERE created_at>='2027-01-01' AND created_at<'2028-01-01' LIMIT 10000"}
+    assert graph_module._technical_query_kind(state) is None
+
+
+def test_implicit_calendar_date_cannot_be_selected_by_filter_permission():
+    table={"tableName":"orders","columns":[{"columnName":"id","allowedUsages":["PROJECTION"]},
+        {"columnName":"ordered_at","dataType":"DATE","protectionLevel":"MASKED","allowedUsages":["PROJECTION"]},
+        {"columnName":"modified_at","dataType":"DATE","allowedUsages":["FILTER"]}]}
+    state={"question":"列出2027年所有记录的 id。日期从2027-01-01含到2028-01-01不含，不要补造记录。",
+        "candidateCatalog":{"tables":[table]},"linkedSchema":[table],
+        "currentSql":"SELECT id FROM orders WHERE modified_at>='2027-01-01' AND modified_at<'2028-01-01' LIMIT 10000"}
+    assert graph_module._technical_query_kind(state) is None
+    assert graph_module._calendar_requirement(state) is None
+    # A planner's narrower field selection must not hide the other visible date.
+    narrow={**table,"columns":[table["columns"][0],table["columns"][2]]}
+    assert graph_module._calendar_requirement({**state,"linkedSchema":[narrow]}) is None
+    single={**table,"columns":narrow["columns"]}
+    resolved={**state,"candidateCatalog":{"tables":[single]},"linkedSchema":[single]}
+    assert graph_module._calendar_requirement(resolved)==("orders","modified_at",2027)
+    assert graph_module._technical_query_kind(resolved)=="projection"
+
+
+def test_unfiltered_numeric_sum_is_derived_only_from_the_explicit_visible_field():
+    state={"question":"统计所有状态记录的 amount 总和，只返回一个总数值，不要计算利润。",
+        "ragChunks":[{"factType":"FIELD_SEMANTIC","reviewStatus":"APPROVED","factReviewStatus":"APPROVED",
+            "columns":["items.status"],"chunkText":"- 业务名称: 订单状态"},
+            {"factType":"BUSINESS_METRIC","reviewStatus":"APPROVED","factReviewStatus":"APPROVED","chunkText":"### 利润"}],
+        "explicitUnfilteredColumns":["items.status"],"linkedSchema":[{"tableName":"items","columns":[{
+            "columnName":"amount","dataType":"DECIMAL(18,2)","protectionLevel":"NORMAL","allowedUsages":["PROJECTION"]}]}]}
+    assert graph_module._unfiltered_sum_plan(state)==("items","amount")
+    for question in ("统计所有状态且大于十的 amount 总和，只返回一个总数值。",state["question"]+"只看2026年",
+            "统计所有状态低于十的 amount 总和，只返回一个总数值。","统计所有状态不超过十的 amount 总和，只返回一个总数值。"):
+        assert graph_module._unfiltered_sum_plan({**state,"question":question}) is None
+    assert graph_module._unfiltered_sum_plan({**state,"explicitUnfilteredColumns":[]}) is None
+    assert graph_module._unfiltered_sum_plan({**state,"question":"统计所有已完成记录的 amount 总和，只返回一个总数值，不要计算所有状态的利润。"}) is None
+    assert graph_module._unfiltered_sum_plan({**state,"linkedSchema":[{"tableName":"items","columns":[{
+        **state["linkedSchema"][0]["columns"][0],"protectionLevel":"MASKED"}]}]}) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value,status",[("42.50","COMPLETED"),(13,"COMPLETED"),(None,"COMPLETED"),(True,"FAILED"),("not-number","FAILED")])
+async def test_unfiltered_sum_verifies_full_protected_result_without_another_model(value,status,monkeypatch):
+    state={"taskId":"sum-result","deadlineEpochSeconds":time.time()+30,"question":"统计所有状态记录的 amount 总和，只返回一个总数值，不要计算利润。",
+        "ragChunks":[{"factType":"FIELD_SEMANTIC","reviewStatus":"APPROVED","factReviewStatus":"APPROVED",
+            "columns":["items.status"],"chunkText":"- 业务名称: 订单状态"},
+            {"factType":"BUSINESS_METRIC","reviewStatus":"APPROVED","factReviewStatus":"APPROVED","chunkText":"### 利润"}],"structuralIntentVerified":True,
+        "explicitUnfilteredColumns":["items.status"],"linkedSchema":[{"tableName":"items","columns":[{
+            "columnName":"amount","dataType":"DECIMAL(18,2)","protectionLevel":"NORMAL","allowedUsages":["PROJECTION"]}]}],
+        "currentSql":"SELECT SUM(amount) AS s1_c1 FROM items LIMIT 10000","currentAttemptId":"a","currentSqlHash":"h"*64,
+        "protectedResult":{"status":"PROTECTED","attemptId":"a","sqlHash":"h"*64,"rowCount":1,"data":[{"s1_c1":value}],
+            "columns":[{"name":"s1_c1"}],"sourceTrace":[{"outputColumn":"s1_c1","sources":["items.amount"]}]}}
+    model=AsyncMock(side_effect=AssertionError("Structurally proven SUM must use the real protected value"))
+    monkeypatch.setattr(graph_module,"_budgeted_llm",model)
+    result=await graph_module._verify_result_node(state)
+    assert result["status"]==status
+    model.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("date_count", [1,2])
 async def test_temporal_question_keeps_unique_authorized_date_dependency_without_guessing(date_count,monkeypatch):

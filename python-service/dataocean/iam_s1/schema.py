@@ -59,11 +59,18 @@ class S1GrantSource(S1Model):
     rowCondition: S1RowCondition | None = None
 
 
+class S1PolicyColumn(S1Model):
+    name: str
+    columnId: int
+    sourceSnapshotId: int
+
+
 class S1Resource(S1Model):
     tableName: str
     columns: list[S1Column]
     grantSources: list[S1GrantSource]
     sourceSnapshotId: int
+    policyColumns: list[S1PolicyColumn] = Field(default_factory=list)
 
 
 class S1Capabilities(S1Model):

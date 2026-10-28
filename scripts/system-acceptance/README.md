@@ -62,3 +62,41 @@ cd python-service
 ```
 
 这些测试覆盖结果比较、只读授权守卫、不完整报告、保护凭据与分篇切片合同，不调用模型。真实调用的费用、服务异常和未完成题目必须保留在当轮报告；不自动把失败题剔除后报告全通过。
+
+## 第二源与故障扩展
+
+本轮实际结果见[扩展记录](../../docs/acceptance/2026-10-29-扩展联调.md)。`secondary-prepare` 仅处理已记录所有权的第二合成库，真实采集攻击表注释、审核三字段及业务事实、发布、显式构建；不改变第一源 build。`roles-setup` 建立独立查询、受限行列、跨后台绑定、维护/审核测试账号，禁止为管理员自己绕过授权规则。
+
+```json
+{"flow":"secondary-prepare"}
+{"flow":"roles-setup"}
+{"flow":"roles-captchas"}
+{"flow":"roles-login:reader:当前验证码"}
+{"flow":"roles-login:no_data:当前验证码"}
+{"flow":"roles-login:secondary:当前验证码"}
+{"flow":"roles-login:limited:当前验证码"}
+{"flow":"roles-login:split:当前验证码"}
+{"flow":"roles-login:manager:当前验证码"}
+{"flow":"roles-login:reviewer:当前验证码"}
+{"flow":"secondary-questions"}
+{"flow":"roles-check"}
+{"flow":"roles-split-secondary"}
+{"flow":"injection-check"}
+{"flow":"roles-logout"}
+```
+
+首次登录按正常改密、验证码重新登录；`roles-captcha:<账号>` 可单独刷新。私有账号文件留在运行目录旁，不写报告。角色客户端只有在正常登录、身份/同源与父目标绑定核对后才允许写业务 API；全局目标守卫保留。无 SQL 查看能力的题目明确检查 API 隐藏 SQL，由验收观察者对齐受保护回执和审计，不给账号增加查看权。
+
+真实崩溃需要本机私有 `crash-runtime-profile.json`，记录已验证 Python、Java、PowerShell、私有配置路径、冻结到运行目录的 JAR 与 SHA-256。JAR 排除 local 配置，`java_runtime.py` 再做隔离库与两组合成只读账号预检；测试用 C1 启动优化不代表生产吞吐。先通过 `fault_runtime.py --control <运行目录>/crash-control.json` 启动测试 Python，再按正常 API 登录执行：
+
+```json
+{"flow":"crash-before-executing"}
+{"flow":"crash-executing-before-sql"}
+{"flow":"crash-after-protected"}
+{"flow":"crash-after-result-settlement"}
+{"flow":"crash-projection"}
+```
+
+这些动作会真实终止并重启本机应用；只允许无其他处理中查询时运行，不停止基础设施。EXECUTING 不确定窗口必须拒绝恢复，不能为通过而重放 SQL。投影窗口使用非空 ID 列结果，仅锁隔离应用库审计表以观察未提交表/列血缘，最后释放；不是生产故障工具。每轮 `crash-<窗口>-<时间>.json` 保留失败、进程身份、同尝试/hash、账本与独立供应商/DBAPI 调用计数。控制文件使用原子替换，失败也恢复应用，不清数据或删除 checkpoint。
+
+故障批次结束后解除 control 的 armed 开关，恢复正常 uvicorn 启动方式并核对监听进程。普通 questions、secondary-questions 与 injection-check 不需要故障启动器。完整固定题必须一次批次完成；timestamp 原件保留失败，扩展报告前缀不会覆盖主源题集。预期顺序的 ID 投影还比较行序，不只比较集合。

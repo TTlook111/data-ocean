@@ -30,7 +30,7 @@ async def test_reviewed_fact_survives_ann_rerank_and_s1_filter_without_full_fall
     fallback = {"sourceId": 91, "datasourceId": 1, "sourceSnapshotId": 88, "ragBuildId": build_id,
         "tables": ["products"], "columns": ["products.category"], "resourceDependencies": deps,
         "factSourceIds": ["1", "2", "3", "4"] if fact_type == "FIELD_SEMANTIC" else ["3"], "factType": fact_type, "factReviewStatus": "APPROVED",
-        "reviewStatus": "APPROVED", "governanceStatus": "NORMAL", "chunkText": "备用来源"}
+        "reviewStatus": "APPROVED", "governanceStatus": "NORMAL", "chunkText": "Java current authoritative reviewed text"}
     monkeypatch.setattr(rag_service, "retrieve_from_milvus", AsyncMock(return_value=[fact]))
     monkeypatch.setattr(rag_service, "embed_single", AsyncMock(return_value=[0.1]))
     monkeypatch.setattr(rag_service, "_get_redis", AsyncMock(side_effect=RuntimeError("cache unavailable")))
@@ -41,7 +41,8 @@ async def test_reviewed_fact_survives_ann_rerank_and_s1_filter_without_full_fall
         ragCollectionName="dataocean_rag_ds1_babcdef1234567890abcdef1234567890",
         ragEmbeddingConfig={"model": "test-embedding", "dimension": 1}))
     assert len(result) == 1
-    assert result[0]["chunkText"] == fact.chunk_text
+    assert result[0]["chunkText"] == fallback["chunkText"]
+    assert result[0]["score"]==fact.score  # ANN path supplied ranking, not an outage fallback.
     assert result[0]["sourceId"] == 91
     assert result[0]["factType"] == fact_type
     assert result[0]["factSourceIds"] == (["1", "2", "3", "4"] if fact_type == "FIELD_SEMANTIC" else ["3"])
