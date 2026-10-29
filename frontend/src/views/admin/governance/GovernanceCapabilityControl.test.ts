@@ -971,11 +971,12 @@ describe('质量规则管理的能力控制', () => {
     await settle()
 
     const row = await waitForRow(wrapper, '字段说明')
+    const readsBeforeCopy = api.listQualityRules.mock.calls.length
     row.findComponent(ElDropdown).vm.$emit('command', 'copy')
     await settle()
 
     expect(api.copyQualityRule).toHaveBeenCalledWith(30)
-    expect(api.listQualityRules).toHaveBeenCalledTimes(3)
+    expect(api.listQualityRules).toHaveBeenCalledTimes(readsBeforeCopy + 1)
     expect(api.updateRuleEnabled).not.toHaveBeenCalled()
   })
 
@@ -1383,6 +1384,7 @@ describe('质量规则管理的能力控制', () => {
       return Promise.resolve({ data: [{ columnName: 'customer_id' }] })
     })
     api.editQualityRule.mockResolvedValue({ data: ruleB })
+    api.getQualityRule.mockResolvedValue({ data: ruleB })
     const wrapper = mountPage(QualityRulesView)
     await settle()
 
