@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Clock, RefreshCw } from 'lucide-vue-next'
 import { getSyncSchedule, updateSyncSchedule, type SyncScheduleInfo } from '../../../api/admin/system'
+import { useIamS1Store } from '../../../stores/iamS1'
+import { useAuthStore } from '../../../stores/auth'
 import ErrorState from '../../../components/common/ErrorState.vue'
 
+const iam = useIamS1Store()
+const auth = useAuthStore()
+const canRead = computed(() => iam.loaded && !iam.errorMessage && (iam.hasGlobal('metadata:collect:view') || iam.datasourceCapabilities.some(ds => ds.functionCodes.includes('metadata:collect:view'))))
+const canWrite = computed(() => canRead.value && iam.systemAdmin)
+let disposed = false
+let generation = 0
+let editRevision = 0
 const loading = ref(false)
 const saving = ref(false)
 const loaded = ref(false)
@@ -41,8 +50,9 @@ const weekDays = [
   { label: '周日', value: 0 }
 ]
 
+const invalidTime = computed(() => presetMode.value !== 'custom' && !buildCron())
 const isDirty = computed(() => loaded.value && (buildCron() !== savedCron.value || schedule.enabled !== savedEnabled.value))
-const runningText = computed(() => schedule.running ? '自动同步执行中' : '自动同步当前未执行')
+const runningText = computed(() => schedule.running ? '调度已注册' : '调度未注册')
 
 const cronDescription = computed(() => {
   if (presetMode.value === 'daily') {
@@ -68,28 +78,31 @@ const previewText = computed(() => {
 
 function buildCron(): string {
   if (presetMode.value === 'daily') {
-    const [h, m] = dailyTime.value.split(':').map(Number)
+    const [h, m] = (dailyTime.value || '').split(':').map(Number)
+    if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return ''
     return `0 ${m} ${h} * * ?`
   } else if (presetMode.value === 'weekly') {
-    const [h, m] = weeklyTime.value.split(':').map(Number)
+    const [h, m] = (weeklyTime.value || '').split(':').map(Number)
+    if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return ''
     return `0 ${m} ${h} ? * ${weeklyDay.value}`
   }
   return customCron.value
 }
 
 function parseCronToUI(cron: string) {
-  const parts = cron.split(/\s+/)
+  const parts = cron.trim().split(/\s+/)
   if (parts.length < 6) {
     presetMode.value = 'custom'
     customCron.value = cron
     return
   }
-  const [, min, hour, dom, , dow] = parts
+  const [sec, min, hour, dom, month, dow] = parts
+  const simpleTime = parts.length === 6 && sec === '0' && month === '*' && /^(?:[0-9]|[1-5][0-9])$/.test(min) && /^(?:[0-9]|1[0-9]|2[0-3])$/.test(hour)
 
-  if (dom === '*' && dow === '?') {
+  if (simpleTime && dom === '*' && dow === '?') {
     presetMode.value = 'daily'
     dailyTime.value = `${hour.padStart(2, '0')}:${min.padStart(2, '0')}`
-  } else if (dom === '?' && /^\d$/.test(dow)) {
+  } else if (simpleTime && dom === '?' && /^[0-6]$/.test(dow)) {
     presetMode.value = 'weekly'
     weeklyDay.value = parseInt(dow)
     weeklyTime.value = `${hour.padStart(2, '0')}:${min.padStart(2, '0')}`
@@ -99,54 +112,47 @@ function parseCronToUI(cron: string) {
   }
 }
 
+watch([presetMode, dailyTime, weeklyDay, weeklyTime, customCron, () => schedule.enabled], () => { editRevision++ }, { flush: 'sync' })
 async function fetchSchedule() {
-  loading.value = true
-  loadError.value = ''
+  if (saving.value || !canRead.value) return
+  const request = ++generation, token = auth.token, revision = editRevision
+  const current = () => !disposed && request === generation && token === auth.token && canRead.value
+  loading.value = true; loadError.value = ''
   try {
     const res = await getSyncSchedule()
-    if (res.data) {
-      schedule.cron = res.data.cron
-      schedule.enabled = res.data.enabled
-      schedule.running = res.data.running
-      savedCron.value = res.data.cron
-      savedEnabled.value = res.data.enabled
-      parseCronToUI(res.data.cron)
-      loaded.value = true
-    } else {
-      loadError.value = '未读取到同步计划配置，请刷新重试。'
-    }
-  } catch (e: any) {
-    loadError.value = e?.response?.data?.message || e?.message || '获取调度配置失败，请刷新重试。'
-  } finally {
-    loading.value = false
-  }
+    if (!current()) return
+    if (revision !== editRevision) { loadError.value = '刷新期间设置已修改，未覆盖当前输入。请核对后再刷新或保存。'; return }
+    if (!res.data) throw new Error('未读取到同步计划配置，请刷新重试。')
+    Object.assign(schedule, res.data)
+    savedCron.value = res.data.cron; savedEnabled.value = res.data.enabled
+    parseCronToUI(res.data.cron); loaded.value = true
+  } catch (error) { if (current()) loadError.value = (error as Error)?.message || '获取调度配置失败，请刷新重试。' }
+  finally { if (current()) loading.value = false }
 }
-
 async function handleSave() {
-  if (saving.value || !loaded.value || loadError.value) return
-  const cron = buildCron()
+  if (saving.value || loading.value || !canWrite.value || !loaded.value || loadError.value || invalidTime.value) return
+  const request = ++generation, token = auth.token
+  const payload = { cron: buildCron(), enabled: schedule.enabled }
+  const current = () => !disposed && request === generation && token === auth.token && canWrite.value
   saving.value = true
   try {
-    const res = await updateSyncSchedule({ cron, enabled: schedule.enabled })
-    if (res.code === 200 && res.data) {
-      schedule.cron = res.data.cron
-      schedule.enabled = res.data.enabled
-      schedule.running = res.data.running
-      savedCron.value = res.data.cron
-      savedEnabled.value = res.data.enabled
-      parseCronToUI(res.data.cron)
-      ElMessage.success('调度配置已更新')
-    } else {
-      ElMessage.error(res.message || '保存失败')
-    }
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '保存失败')
-  } finally {
-    saving.value = false
-  }
+    const res = await updateSyncSchedule(payload)
+    if (!current()) return
+    if (res.code !== 200 || !res.data) throw new Error(res.message || '保存失败')
+    Object.assign(schedule, res.data)
+    savedCron.value = res.data.cron; savedEnabled.value = res.data.enabled
+    parseCronToUI(res.data.cron); ElMessage.success('调度配置已更新')
+  } catch (error) { if (current()) ElMessage.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || (error as Error).message || '保存失败') }
+  finally { if (current()) saving.value = false }
 }
-
-onMounted(fetchSchedule)
+async function resetAndLoad() {
+  generation++; loaded.value = false; loading.value = false; saving.value = false; loadError.value = ''
+  await fetchSchedule()
+}
+watch(() => auth.token, resetAndLoad, { flush: 'sync' })
+watch(() => iam.snapshot, resetAndLoad, { flush: 'sync' })
+onMounted(async () => { await iam.load(); if (!disposed) await fetchSchedule() })
+onBeforeUnmount(() => { disposed = true; generation++ })
 </script>
 
 <template>
@@ -155,21 +161,23 @@ onMounted(fetchSchedule)
       <div class="config-header">
         <div class="config-scope">
           <el-tag type="info" effect="plain" round>全局配置</el-tag>
-          <span>作用于全部数据源</span>
+          <span>作用于全部启用的数据源</span>
         </div>
-        <el-button :icon="RefreshCw" @click="fetchSchedule">刷新配置</el-button>
+        <el-button :icon="RefreshCw" :disabled="saving || loading || !canRead" @click="fetchSchedule">刷新配置</el-button>
       </div>
 
-      <ErrorState v-if="!loaded && loadError" :message="loadError" @retry="fetchSchedule" />
+      <ErrorState v-if="!canRead" message="没有同步计划查看权限。" @retry="iam.load(true)" />
+      <ErrorState v-else-if="!loaded && loadError" :message="loadError" @retry="fetchSchedule" />
       <p v-else-if="!loaded" class="schedule-loading">正在读取同步计划…</p>
       <template v-else>
         <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon class="schedule-load-error" />
 
-        <div class="schedule-form">
+        <p class="schedule-access">{{ canWrite ? '修改一次会影响全部启用的数据源；由后台校验并更新全局调度。' : '只读计划。全局自动采集计划仅由受保护的系统管理员维护。' }}</p>
+        <fieldset class="schedule-form" :disabled="!canWrite || saving || loading">
           <div class="config-row">
             <label>启用自动同步</label>
             <div class="config-control">
-              <el-switch v-model="schedule.enabled" />
+              <el-switch aria-label="启用自动同步" :disabled="!canWrite || saving || loading" v-model="schedule.enabled" />
               <span class="run-state" :class="{ 'is-running': schedule.running }"><i aria-hidden="true"></i>{{ runningText }}</span>
             </div>
           </div>
@@ -177,7 +185,7 @@ onMounted(fetchSchedule)
           <div class="config-row">
             <label>同步频率</label>
             <div class="config-control">
-              <el-radio-group v-model="presetMode" class="schedule-frequency">
+              <el-radio-group v-model="presetMode" :disabled="!canWrite || saving || loading" aria-label="同步频率" class="schedule-frequency">
                 <el-radio-button v-for="opt in presetOptions" :key="opt.value" :value="opt.value">
                   {{ opt.label }}
                 </el-radio-button>
@@ -188,7 +196,7 @@ onMounted(fetchSchedule)
           <div class="config-row" v-if="presetMode === 'daily'">
             <label>执行时间</label>
             <div class="config-control">
-              <el-time-select v-model="dailyTime" start="00:00" step="00:15" end="23:45"
+              <el-time-select aria-label="每日执行时间" :disabled="!canWrite || saving || loading" v-model="dailyTime" start="00:00" step="00:15" end="23:45"
                               placeholder="选择时间" style="width: 140px" />
             </div>
           </div>
@@ -196,10 +204,10 @@ onMounted(fetchSchedule)
           <div class="config-row" v-if="presetMode === 'weekly'">
             <label>执行日期</label>
             <div class="config-control">
-              <el-select v-model="weeklyDay" style="width: 100px">
+              <el-select aria-label="每周执行日期" :disabled="!canWrite || saving || loading" v-model="weeklyDay" style="width: 100px">
                 <el-option v-for="d in weekDays" :key="d.value" :label="d.label" :value="d.value" />
               </el-select>
-              <el-time-select v-model="weeklyTime" start="00:00" step="00:15" end="23:45"
+              <el-time-select aria-label="每周执行时间" :disabled="!canWrite || saving || loading" v-model="weeklyTime" start="00:00" step="00:15" end="23:45"
                               placeholder="选择时间" style="width: 140px" />
             </div>
           </div>
@@ -207,7 +215,7 @@ onMounted(fetchSchedule)
           <div class="config-row" v-if="presetMode === 'custom'">
             <label>Cron 表达式</label>
             <div class="config-control">
-              <el-input v-model="customCron" placeholder="0 0 2 * * ?" style="width: 240px">
+              <el-input aria-label="Cron 表达式" :disabled="!canWrite || saving || loading" v-model="customCron" placeholder="0 0 2 * * ?" style="width: 240px">
                 <template #prefix><Clock :size="14" /></template>
               </el-input>
               <span class="cron-hint">秒 分 时 日 月 周（Spring Cron 6位格式）</span>
@@ -224,14 +232,15 @@ onMounted(fetchSchedule)
             </div>
           </div>
 
-          <div class="config-actions">
+          <p v-if="invalidTime" role="alert" class="schedule-time-error">请选择有效的执行时间后保存。</p>
+          <div v-if="canWrite" class="config-actions">
             <div class="save-panel">
-              <el-button type="primary" :loading="saving" :disabled="!loaded || !!loadError" @click="handleSave">保存配置</el-button>
+              <el-button type="primary" :loading="saving" :disabled="!loaded || !!loadError || loading || !isDirty || invalidTime" @click="handleSave">保存配置</el-button>
               <span class="save-note">修改保存后生效。</span>
               <span v-if="isDirty" class="save-dirty">当前设置尚未保存</span>
             </div>
           </div>
-        </div>
+        </fieldset>
       </template>
     </section>
   </main>
@@ -239,6 +248,8 @@ onMounted(fetchSchedule)
 
 <style scoped>
 .schedule-page { display: block; }
+.schedule-time-error { color:var(--do-danger); font-size:13px; }
+.schedule-access { font-size:13px; color:var(--do-muted); margin:18px 0; line-height:1.7; }
 
 .config-card {
   background: var(--do-glass-data-bg);
@@ -263,7 +274,7 @@ onMounted(fetchSchedule)
 .schedule-loading { margin: 14px 0 0; color: var(--do-muted); font-size: 13px; }
 .schedule-load-error { margin-top: 12px; }
 
-.schedule-form { width: 100%; max-width: 720px; min-width: 0; margin-top: 18px; }
+.schedule-form { border:0; padding:0; margin-inline:0; width: 100%; max-width: 720px; min-width: 0; margin-top: 18px; }
 .config-row {
   display: grid;
   grid-template-columns: 110px minmax(0, 1fr);

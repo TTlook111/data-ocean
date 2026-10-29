@@ -62,3 +62,7 @@ body:has(.admin-shell) {
 @media (prefers-reduced-motion: reduce) {
   .query-workspace *, .query-evidence-dialog *, .admin-shell * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+.collection-dialog { max-width:calc(100vw - 24px); display:flex; flex-direction:column; max-height:calc(100dvh - 40px); border-radius:14px; }
+.collection-dialog .el-dialog__body { overflow:auto; min-height:0; }
+.collection-dialog .el-dialog__footer { flex-shrink:0; border-top:1px solid var(--do-line); padding-top:16px; }
