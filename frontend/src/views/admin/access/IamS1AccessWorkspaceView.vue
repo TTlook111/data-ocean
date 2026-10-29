@@ -142,7 +142,11 @@ onMounted(async () => {
       </el-tab-pane>
 
       <el-tab-pane label="字段保护" name="protections">
-        <IamS1FieldProtectionPanel v-if="activeTab === 'protections' && canViewProtections" />
+        <IamS1FieldProtectionPanel
+          v-if="activeTab === 'protections' && canViewProtections"
+          :default-datasource-id="datasourceIdFromContext"
+          :invalid-default-datasource="invalidDefaultDatasource"
+        />
         <EmptyState v-else message="没有“查看字段保护”权限：需要角色拥有该功能，并且该角色负责目标数据源。" />
       </el-tab-pane>
 
