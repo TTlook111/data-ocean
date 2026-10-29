@@ -143,3 +143,38 @@ it('clears the live Pinia identity as well as storage before navigating on its o
   expect(auth.currentUser).toBeNull()
   expect(router.push).toHaveBeenCalledOnce()
 })
+
+it('freezes the caller identity before an immediately following account switch', async () => {
+  localStorage.setItem('dataocean_token', sessionA)
+  const request = pendingRequest('/api/iam-s1/roles/77')
+  loginB()
+  const config = await request.sent
+  expect(config.headers.get('Authorization')).toBe(`Bearer ${sessionA}`)
+  request.fail()
+  await request.result
+  expect(localStorage.getItem('dataocean_token')).toBe(sessionB)
+  expect(router.push).not.toHaveBeenCalled()
+})
+it('an anonymous request cannot acquire the next login identity while queued', async () => {
+  const request = pendingRequest('/api/auth/login')
+  loginB()
+  const config = await request.sent
+  expect(config.headers.get('Authorization')).toBeUndefined()
+  request.fail()
+  await request.result
+  expect(localStorage.getItem('dataocean_token')).toBe(sessionB)
+  expect(router.push).not.toHaveBeenCalled()
+})
+it('freezes the original identity for actual writes before the adapter dispatch', async () => {
+  localStorage.setItem('dataocean_token', sessionA)
+  let authorization: unknown
+  const pending = http.post('/api/iam-s1/roles/77', { description: 'synthetic-only' }, {
+    adapter: async config => {
+      authorization = config.headers.get('Authorization')
+      return { data: { code: 200, data: null }, status: 200, statusText: 'OK', headers: new AxiosHeaders(), config }
+    },
+  })
+  loginB()
+  await pending
+  expect(authorization).toBe(`Bearer ${sessionA}`)
+})

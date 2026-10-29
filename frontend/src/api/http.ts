@@ -9,13 +9,14 @@ export const http = axios.create({
   timeout: 10000,
 })
 
+// 在 API 调用边界冻结身份，避免异步拦截器把旧操作发送为后来账号。
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem('dataocean_token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
-})
+}, undefined, { synchronous: true })
 
 /** 防止多个并发 401 响应触发重复跳转 */
 let isRedirecting = false
