@@ -132,3 +132,34 @@ it('still saves user details returned for the current session', async () => {
   expect(auth.currentUser?.username).toBe('actor-a')
   expect(JSON.parse(localStorage.getItem('dataocean_current_user') || '{}').username).toBe('actor-a')
 })
+
+it('does not allow an earlier login to replace a later successful login', async () => {
+  let finish!: (value: unknown) => void
+  api.login.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+  const auth = useAuthStore()
+  const old = auth.login(loginPayload).catch(error => error)
+  await auth.login(loginPayload)
+  finish({ data: { token: 'late-a', username: 'late-a' } })
+  expect(await old).toBeInstanceOf(Error)
+  expect(auth.token).toBe('test-session-b')
+})
+it('does not accept a login response after its page no longer owns the request', async () => {
+  const auth = useAuthStore()
+  await expect(auth.login(loginPayload, () => false)).rejects.toThrow('已过期')
+  expect(auth.token).toBe('test-session-a')
+})
+it('current expiry clears memory, cached identity, IAM and source scope synchronously', async () => {
+  const auth = useAuthStore(), iam = useIamS1Store()
+  auth.currentUser = { id: 1, username: 'actor-a', realName: '', passwordChanged: true }
+  auth.invalidateSession('test-session-a')
+  expect(auth.token).toBe('')
+  expect(auth.currentUser).toBeNull()
+  expect(iam.loaded).toBe(false)
+  expect(localStorage.getItem('dataocean_current_user')).toBeNull()
+})
+it('an old expiry cannot invalidate the current account', async () => {
+  const auth = useAuthStore()
+  await auth.login(loginPayload)
+  auth.invalidateSession('test-session-a')
+  expect(auth.token).toBe('test-session-b')
+})

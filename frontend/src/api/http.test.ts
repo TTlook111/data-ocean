@@ -127,3 +127,19 @@ describe('HTTP authentication response ownership', () => {
     finishNavigation()
   })
 })
+
+it('clears the live Pinia identity as well as storage before navigating on its own 401', async () => {
+  const { createPinia, setActivePinia } = await import('pinia')
+  setActivePinia(createPinia())
+  loginB()
+  const { useAuthStore } = await import('../stores/auth')
+  const auth = useAuthStore()
+  const request = pendingRequest()
+  await request.sent
+  request.fail()
+  await request.result
+  expect(auth.token).toBe('')
+  expect(auth.user).toBeNull()
+  expect(auth.currentUser).toBeNull()
+  expect(router.push).toHaveBeenCalledOnce()
+})

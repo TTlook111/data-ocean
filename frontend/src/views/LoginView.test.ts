@@ -96,7 +96,10 @@ describe('登录页互动与原有登录行为', () => {
     await wrapper.find('#login-captcha').setValue('K7M2')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(api.login).toHaveBeenCalledWith({ username: 'reader', password: ' secret ', captchaKey: 'captcha-test-key', captchaCode: 'K7M2' })
+    expect(api.login).toHaveBeenCalledWith({ username: 'reader', password: ' secret ', captchaKey: 'captcha-test-key', captchaCode: 'K7M2' }, expect.any(Function))
+    expect(api.login.mock.calls[0][1]()).toBe(true)
+    wrapper.unmount()
+    expect(api.login.mock.calls[0][1]()).toBe(false)
     expect(api.replace).toHaveBeenCalledWith('/query')
   })
   it('验证码失败明确提示，可用键盘按钮重试', async () => {

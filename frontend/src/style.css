@@ -23,7 +23,7 @@ body,
 body {
   position: relative;
   isolation: isolate;
-  min-width: 1024px;
+  min-width: 320px;
   margin: 0;
   background: var(--do-ocean-canvas);
   background-color: var(--do-bg);

@@ -15,6 +15,8 @@ vi.mock('../stores/adminContext', () => ({ useAdminContextStore: () => state.con
 beforeEach(() => {
   vi.clearAllMocks()
   state.auth.token = 'test-session'
+  state.auth.user = {passwordChanged:true}
+  state.auth.fetchUserInfo.mockResolvedValue(undefined)
   state.iam.loaded = true
   state.iam.errorMessage = null
   state.iam.hasAnyAdminCapability = true
@@ -34,6 +36,8 @@ function testRouter() {
       { path: 'semantics/knowledge', component: empty },
     ] },
     { path: '/query', component: empty },
+    { path: '/login', component: empty },
+    { path: '/change-password', component: empty },
     { path: '/profile', component: empty },
   ] })
   setupRouterGuards(router)
@@ -75,4 +79,20 @@ it('明确工作台URL继续由页面权限提示处理，不伪装成有权访�
   const router = testRouter()
   await router.push('/admin/workbench')
   expect(router.currentRoute.value.path).toBe('/admin/workbench')
+})
+
+it('启动读取期间当前会话失效后，不继续进入原受保护页', async()=>{
+  state.auth.fetchUserInfo.mockImplementation(async()=>{state.auth.token=''})
+  const router=testRouter();await router.push('/profile')
+  expect(router.currentRoute.value.path).toBe('/login')
+})
+it('同SPA后续账号重新核验自己的资料',async()=>{
+  const router=testRouter();await router.push('/profile')
+  state.auth.token='second-session';await router.push('/query')
+  expect(state.auth.fetchUserInfo).toHaveBeenCalledTimes(2)
+})
+it('首次改密要求仍进入forced路由',async()=>{
+  state.auth.user.passwordChanged=false
+  const router=testRouter();await router.push('/query')
+  expect(router.currentRoute.value.fullPath).toBe('/change-password?forced=1')
 })

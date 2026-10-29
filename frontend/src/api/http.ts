@@ -1,5 +1,7 @@
 import axios from 'axios'
 import router from '../router'
+import { getActivePinia } from 'pinia'
+import { useAuthStore } from '../stores/auth'
 import { getHttpErrorMessage } from '../utils/httpError'
 
 export const http = axios.create({
@@ -31,6 +33,8 @@ http.interceptors.response.use(
         return Promise.reject(error)
       }
       isRedirecting = true
+      if (getActivePinia()) useAuthStore().invalidateSession(token || '')
+      localStorage.removeItem('dataocean_current_user')
       localStorage.removeItem('dataocean_token')
       localStorage.removeItem('dataocean_user')
       if (router.currentRoute.value.path !== '/login') {

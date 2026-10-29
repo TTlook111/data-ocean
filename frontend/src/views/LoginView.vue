@@ -6,6 +6,7 @@ import { Eye, EyeOff, LogIn } from 'lucide-vue-next'
 import { gsap } from 'gsap'
 import { useAuthStore } from '../stores/auth'
 import { getCaptcha } from '../api/auth'
+import brandMark from '../assets/brand/dataocean-mark.png'
 import { getLoginLookOffset } from '../utils/loginMotion'
 
 const router = useRouter()
@@ -16,6 +17,7 @@ const pointerActive = ref(false)
 const captchaImage = ref('')
 const captchaLoading = ref(false)
 const captchaError = ref(false)
+const loginError = ref('')
 const captchaKey = ref('')
 const loginPageRef = ref<HTMLElement | null>(null)
 const form = reactive({
@@ -153,13 +155,14 @@ async function submit() {
   }
 
   loading.value = true
+  loginError.value = ''
   try {
     await authStore.login({
       username: form.username.trim(),
       password: form.password,
       captchaKey: captchaKey.value,
       captchaCode: form.captchaCode.trim()
-    })
+    }, () => !disposed)
     if (disposed) return
     ElMessage.success('登录成功')
     await router.replace('/query')
@@ -172,7 +175,10 @@ async function submit() {
       typeof (error as { response?: { data?: { message?: string } } }).response?.data?.message === 'string'
         ? (error as { response: { data: { message: string } } }).response.data.message
         : '登录失败，请检查账号或服务状态'
+    loginError.value = message
     ElMessage.error(message)
+    form.password = ''
+    showPassword.value = false
     form.captchaCode = ''
     refreshCaptcha()
   } finally {
@@ -207,15 +213,15 @@ onUnmounted(() => {
     @pointerleave="resetCharacters"
     @pointercancel="resetCharacters"
   >
-    <section class="login-visual do-glass-shell" aria-label="DataOcean 平台说明">
+    <section class="login-visual" aria-label="DataOcean 平台说明">
       <div class="brand-pill">
-        <span class="login-brand-mark">DO</span>
+        <img class="login-brand-mark" :src="brandMark" alt="" />
         <strong>DataOcean</strong>
       </div>
 
       <div class="visual-copy">
         <h1>让数据<br />回答问题</h1>
-        <p>从自然语言开始探索。</p>
+        <p>先理解业务，再让数据回答。</p>
       </div>
 
       <div class="monster-scene" aria-hidden="true">
@@ -240,13 +246,14 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section class="login-panel do-glass-panel" aria-label="登录表单">
+    <section class="login-panel" aria-label="登录表单">
       <div class="form-shell">
         <header class="form-heading">
-          <h2>欢迎回来！</h2>
-          <span>请输入你的账号信息</span>
+          <h2>登录 DataOcean</h2>
+          <span>进入你有权使用的数据与工作区</span>
         </header>
 
+        <p v-if="loginError" class="login-error" role="alert">{{ loginError }}</p>
         <form class="login-form" @submit.prevent="submit">
           <label class="field">
             <span>账号</span>
@@ -478,4 +485,17 @@ button:focus-visible { outline: 3px solid rgb(45 104 204 / 45%); outline-offset:
   .login-panel { background: rgba(249, 253, 255, .98); }
   .login-panel::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
+.login-page { background:var(--do-bg); }
+.login-page::before { box-shadow:none; border:1px solid var(--do-line); }
+.login-visual { color:var(--do-ink); background:#eee9df; box-shadow:none; }
+.login-visual::before, .login-visual::after, .login-panel::before { display:none; }
+.login-brand-mark { object-fit:contain; padding:4px; background:transparent; box-shadow:none; border:0; }
+.brand-pill strong, .visual-copy h1 { color:var(--do-ink); text-shadow:none; }
+.visual-copy h1 { font-size:clamp(42px,5vw,68px); }
+.visual-copy p { color:var(--do-muted); }
+.login-panel { background:var(--do-surface); box-shadow:none; }
+.form-heading h2 { font-size:clamp(28px,3vw,36px); }
+.field input { border-color:var(--do-line); background:var(--do-surface); }
+.submit-button, .submit-button:hover { background:var(--do-primary); box-shadow:none; }
+.login-error { padding:12px; border-left:3px solid var(--do-danger); color:var(--do-danger); font-size:13px; line-height:1.6; }
 </style>

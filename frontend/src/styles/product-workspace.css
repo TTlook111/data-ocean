@@ -1,9 +1,13 @@
-/* Product workspaces: conversation V2 and the admin shell; login keeps its own theme. */
+/* Shared product palette; the login page keeps its interactive character scene. */
 .query-workspace,
 .query-evidence-dialog,
 .query-datasource-popper,
 .admin-shell,
-body:has(.admin-shell) {
+body:has(.admin-shell),
+body:has(.login-page),
+body:has(.account-page),
+body:has(.guide-page),
+body:has(.not-found-page) {
   --do-primary: #aa5939;
   --do-primary-strong: #87452c;
   --do-primary-soft: #f6ebe4;
@@ -34,7 +38,11 @@ body:has(.admin-shell) {
   --el-bg-color: var(--do-surface);
 }
 
-body:has(.query-workspace) { background: #fcfcfa; }
+body:has(.query-workspace),
+body:has(.login-page),
+body:has(.account-page),
+body:has(.guide-page),
+body:has(.not-found-page) { background: #fcfcfa; }
 body:has(.admin-shell) {
   background: var(--do-bg);
   --do-glass-shell-bg: var(--do-sidebar);

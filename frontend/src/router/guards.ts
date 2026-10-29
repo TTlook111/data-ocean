@@ -4,10 +4,8 @@ import { useIamS1Store } from '../stores/iamS1'
 import { useAdminContextStore } from '../stores/adminContext'
 import { resolveAdminEntry } from '../utils/adminNavigation'
 
-/** 标记是否已在本次会话中刷新过用户信息 */
-let userInfoRefreshed = false
-
 export function setupRouterGuards(router: Router) {
+  let refreshedToken = ''
   router.beforeEach(async (to) => {
     const auth = useAuthStore()
     const iamS1 = useIamS1Store()
@@ -23,8 +21,8 @@ export function setupRouterGuards(router: Router) {
     }
 
     // 启动时静默刷新用户信息（仅首次导航时执行，失败不阻塞）
-    if (token && !userInfoRefreshed) {
-      userInfoRefreshed = true
+    if (token && refreshedToken !== token) {
+      refreshedToken = token
       try {
         await auth.fetchUserInfo()
       } catch {
@@ -32,7 +30,9 @@ export function setupRouterGuards(router: Router) {
       }
     }
 
-    if (token && user && user.passwordChanged === false && to.path !== '/change-password') {
+    if (auth.token !== token) return auth.token ? '/query' : '/login'
+
+    if (token && (user?.passwordChanged === false || auth.currentUser?.passwordChanged === false) && to.path !== '/change-password') {
       return '/change-password?forced=1'
     }
 
@@ -48,6 +48,7 @@ export function setupRouterGuards(router: Router) {
       } catch {
         // 读取失败时按“无能力”处理，不静默回退旧权限
       }
+      if (auth.token !== token) return auth.token ? '/query' : '/login'
       if (iamS1.hasAnyAdminCapability) {
         if (to.path === '/admin' || (to.path === '/admin/workbench'
           && ['/admin', '/admin/'].includes(to.redirectedFrom?.path || ''))) {
