@@ -250,8 +250,8 @@ function renderChart() {
         markLine: {
           silent: true,
           data: [
-            { yAxis: 70, lineStyle: { color: success, type: 'dashed' }, label: { formatter: 'HIGH' } },
-            { yAxis: 40, lineStyle: { color: warning, type: 'dashed' }, label: { formatter: 'MEDIUM' } },
+            { yAxis: 70, lineStyle: { color: success, type: 'dashed' }, label: { formatter: '高等级 ≥70', position:'insideEndTop' } },
+            { yAxis: 40, lineStyle: { color: warning, type: 'dashed' }, label: { formatter: '中等级 ≥40', position:'insideEndTop' } },
           ],
         },
       },
