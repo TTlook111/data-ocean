@@ -534,6 +534,7 @@ async function loadPage() {
     consumeTemplateIntent()
     consumeCheckCatalogIntent()
   } catch {
+    if(disposed || init!==pageInitId || token!==auth.token)return
     pageError.value = '规则管理范围或权限读取失败，请重试。'
   }
 }
@@ -1171,7 +1172,7 @@ watch(
 )
 watch(
   readKey,
-  () => {
+  (next,previous) => {
     scopeEpoch++
     cancelOwnedConfirmation()
     rulesRequestId++
@@ -1200,7 +1201,8 @@ watch(
     detailError.value = ''
     Object.keys(rowLoading).forEach((id) => delete rowLoading[Number(id)])
     resetForm(scopeMode.value === 'GLOBAL' ? 'GLOBAL' : 'DATASOURCE')
-    if (pageReady.value) void Promise.all([loadTemplates(), loadRules(), loadApplicability()])
+    if(JSON.parse(next)[0]!==JSON.parse(previous)[0]){pageReady.value=false;void loadPage()}
+    else if (pageReady.value) void Promise.all([loadTemplates(), loadRules(), loadApplicability()])
   },
   { flush: 'sync' },
 )

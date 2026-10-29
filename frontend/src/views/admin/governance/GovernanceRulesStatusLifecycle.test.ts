@@ -364,3 +364,5 @@ it('同配置版本的他人停用不得被旧编辑稿重新启用', async () =
   expect((w.vm as any).editorError).toContain('配置已变化')
   w.unmount()
 })
+
+it.each(['resolve','reject'])('首次初始化挂起换账号旧%s不能堵塞或覆盖新账号',async(mode)=>{const d=deferred();state.context.initialize.mockReturnValueOnce(d.promise).mockResolvedValue(undefined);const w=page(Rules);await settle();expect(state.api.listQualityRules).not.toHaveBeenCalled();reactive(state.auth).token='B';await settle();expect(state.api.listQualityRules).toHaveBeenCalled();if(mode==='resolve')d.resolve(undefined);else d.reject(new Error('旧初始化失败'));await settle();expect((w.vm as any).pageReady).toBe(true);expect((w.vm as any).pageError).toBe('');expect((w.vm as any).rules[0].id).toBe(71);w.unmount()})
