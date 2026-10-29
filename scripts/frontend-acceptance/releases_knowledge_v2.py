@@ -48,7 +48,7 @@ class ReleaseFixture(StageFixture):
   return await super().route(route)
 async def main():
  import argparse
- p=argparse.ArgumentParser();p.add_argument('--baseline',action='store_true');p.add_argument('--phase',choices=['releases','knowledge','all'],default='releases');p.add_argument('--output',default=str(OUT));args=p.parse_args();out=Path(args.output);out.mkdir(parents=True,exist_ok=True)
+ p=argparse.ArgumentParser();p.add_argument('--baseline',action='store_true');p.add_argument('--phase',choices=['releases'],default='releases');p.add_argument('--output',default=str(OUT));args=p.parse_args();out=Path(args.output);out.mkdir(parents=True,exist_ok=True)
  checks=[];errors=[];evidence=[]
  def passed(name):checks.append(dict(name=name,status='passed'))
  async with async_playwright() as pw:

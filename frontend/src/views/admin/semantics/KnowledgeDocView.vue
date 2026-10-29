@@ -16,7 +16,7 @@
  *   V51 之前的历史行被回填为 UNKNOWN 或按审核任务还原，不再是「恒为待审核」的死列。
  * - rollback 仅创建待审核草稿，不会直接改动活动 RAG build。
  */
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { GitCompareArrows, MessageSquareText, RefreshCw, RotateCcw, Save, Scissors, Send, Sparkles, Upload } from 'lucide-vue-next'
@@ -47,7 +47,6 @@ import {
   type RagIndexBuildSummary,
   type VectorIndexTaskItem,
 } from '../../../api/admin/knowledge'
-import { listSimpleDatasources } from '../../../api/admin/datasource'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import {
   generationSourceLabel,
@@ -60,6 +59,9 @@ import {
   vectorTaskStatusType,
 } from '../../../utils/enumLabels'
 import { useAdminContextStore, type AdminDatasourceOption } from '../../../stores/adminContext'
+import { useAuthStore } from '../../../stores/auth'
+import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
+import { pendingKnowledgeWrites, trackKnowledgeWrite } from '../../../composables/knowledgeWriteTracker'
 import { useIamS1Store } from '../../../stores/iamS1'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import KnowledgeSourcePreview from '../../../components/admin/KnowledgeSourcePreview.vue'
@@ -75,7 +77,7 @@ const route = useRoute()
 const router = useRouter()
 const context = useAdminContextStore()
 
-const iamS1 = useIamS1Store()
+const iamS1 = useIamS1Store(), auth=useAuthStore()
 
 /**
  * 文档详情页的四个功能码都是「源」范围，后端按**文档真实 datasourceId** 复核归属
@@ -84,7 +86,7 @@ const iamS1 = useIamS1Store()
  * 这里只做按钮可用性；前端不是安全边界，后端仍会独立拒绝。
  */
 const mayView = computed(
-  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:view').length > 0,
+  () => iamS1.loaded && !iamS1.errorMessage && (iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:view').length > 0),
 )
 const mayManage = computed(
   () => iamS1.systemAdmin || (doc.value != null && iamS1.datasourcesWithFunction('knowledge:manage').includes(doc.value.datasourceId)),
@@ -101,7 +103,6 @@ const mayViewSnapshots = computed(
 const mayGenerate = computed(() => mayManage.value && mayViewSnapshots.value)
 const GENERATE_HINT = '按快照生成目录需要该数据源的知识维护与元数据查看能力；已授权文档仍可手动编辑。'
 const VIEW_HINT = '没有“查看知识文档”能力：需要角色拥有 knowledge:view 并负责该文档的数据源。'
-const MANAGE_HINT = '没有“维护知识文档”能力：需要角色拥有 knowledge:manage 并负责该文档的数据源。'
 const APPROVE_HINT = '没有“审核知识文档”能力：需要角色拥有 knowledge:approve 并负责该文档的数据源。'
 const PUBLISH_HINT = '没有“发布/回滚知识”能力：需要角色拥有 knowledge:publish 并负责该文档的数据源。审核权不自动带来发布权。'
 
@@ -139,14 +140,32 @@ const ragBuildsError = ref('')
 
 const title = ref('')
 const content = ref('')
+let epoch=0, disposed=false, initialized=false
+const sequences:Record<string,number>={}
+const expectedOwnSave=ref<{id:number;source:number;version:number;title:string;content:string}>()
+const savedStamp=ref(''), formBaseVersion=ref(0), actionError=ref(''), reviewComment=ref('')
+const formStamp=computed(()=>JSON.stringify([title.value,content.value]))
+const dirty=computed(()=>formStamp.value!==savedStamp.value)
+const versionConflict=computed(()=>!!doc.value && doc.value.version!==formBaseVersion.value)
+const unknownWrite=computed(()=>pendingKnowledgeWrites.value.find(x=>x.identity===auth.token && x.docId===docId.value))
+const confirmVisible=ref(false), confirmClass=`knowledge-doc-confirm-${Math.random().toString(36).slice(2)}`
+let confirmSequence=0
+function invalidateConfirm() {confirmSequence++;document.querySelector<HTMLButtonElement>(`.${confirmClass}`)?.click();confirmVisible.value=false}
+function ticket() {return {epoch,id:docId.value,identity:auth.token}}
+function current(t:ReturnType<typeof ticket>) {return !disposed && epoch===t.epoch && docId.value===t.id && auth.token===t.identity && mayView.value}
+function readTicket(key:string) {const t=ticket(),request=sequences[key]=(sequences[key]||0)+1,version=doc.value?.version;return ()=>current(t) && request===sequences[key] && (key==='doc' || doc.value?.version===version)}
+function canReadDocument() {return !!doc.value && mayView.value && (iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:view').includes(doc.value.datasourceId))}
+function documentError(cause:unknown,fallback:string) {actionError.value=apiError(cause,fallback);const status=(cause as {response?:{status?:number}})?.response?.status;if(!status || status>=500 || status===408) actionError.value+='；操作结果待确认，请只读核对原文档与版本，不会自动重发。';else if(status===409) actionError.value+='；草稿与审核意见已保留，不会自动重试。';ElMessage.error(actionError.value)}
+async function ownedConfirm(message:string,heading:string) {const seq=++confirmSequence;confirmVisible.value=true;try{await ElMessageBox.confirm(message,heading,{type:'warning',confirmButtonText:'确认',cancelButtonText:'取消',cancelButtonClass:confirmClass})}finally{if(seq===confirmSequence)confirmVisible.value=false}}
+async function reloadSavedDraft() {const t=ticket();if(dirty.value) {try{await ownedConfirm('重读已保存版本会替换当前未保存输入，确认继续？','重读已保存版本')}catch{return}}if(current(t)) await loadDoc(true)}
+
 const sourceStatus = ref<{ valid: boolean; reasons: string[] }>()
 const sourceStatusError = ref('')
-let sourceStatusRequestId = 0
 async function loadSourceStatus() {
-  const requestId = ++sourceStatusRequestId
-  sourceStatus.value = undefined; sourceStatusError.value = ''
-  try { const result = await getKnowledgeSourceStatus(docId.value); if (requestId === sourceStatusRequestId) sourceStatus.value = result.data }
-  catch (cause) { if (requestId === sourceStatusRequestId) sourceStatusError.value = apiError(cause, '来源状态读取失败') }
+  const accept=readTicket('sourceStatus');sourceStatus.value=undefined;sourceStatusError.value=''
+  if(!canReadDocument()) return
+  try {const result=await getKnowledgeSourceStatus(docId.value);if(accept())sourceStatus.value=result.data}
+  catch(cause){if(accept())sourceStatusError.value=apiError(cause,'来源状态读取失败')}
 }
 
 /** 文档流转只到 PUBLISHED；datasource RAG build 是单独确认的索引生命周期。 */
@@ -227,44 +246,47 @@ function goAsk() {
   router.push('/query')
 }
 
-async function loadDoc() {
-  // 无 knowledge:view 时不要发这个必然 403 的请求，改为展示中文原因
-  if (!mayView.value) {
-    loading.value = false
-    error.value = VIEW_HINT
-    return
-  }
-  loading.value = true
-  error.value = ''
+async function loadDoc(discardConfirmed=false) {
+  const accept=readTicket('doc'), stamp=formStamp.value
+  if(!mayView.value){loading.value=false;error.value=iamS1.errorMessage || VIEW_HINT;return}
+  const id=docId.value, raw=route.query.datasourceId
+  if(!Number.isSafeInteger(id) || id<=0 || (raw!=null && (typeof raw!=='string' || !Number.isSafeInteger(Number(raw)) || Number(raw)<=0))){loading.value=false;error.value='指定文档或数据源标识无效，未改用其他对象';return}
+  loading.value=true;error.value=''
   try {
-    const result = await getKnowledgeDoc(docId.value)
-    doc.value = result.data || null
-    title.value = doc.value?.title || ''
-    content.value = doc.value?.content || ''
+    const result=await getKnowledgeDoc(id)
+    if(!accept())return
+    const value=result.data
+    if(!value || value.id!==id || (raw!=null && value.datasourceId!==Number(raw)))throw new Error('返回文档与指定对象或数据源不一致')
+    if(!iamS1.systemAdmin && !iamS1.datasourcesWithFunction('knowledge:view').includes(value.datasourceId))throw new Error(VIEW_HINT)
+    doc.value=value
+    const own=expectedOwnSave.value
+    if(own && own.id===value.id && own.source===value.datasourceId){if(value.version===own.version+1 && value.title===own.title && (value.content || '')===own.content)formBaseVersion.value=value.version;expectedOwnSave.value=undefined}
+    if(!dirty.value || (discardConfirmed && formStamp.value===stamp)) {title.value=value.title || '';content.value=value.content || '';formBaseVersion.value=value.version;savedStamp.value=formStamp.value}
     await loadSourceStatus()
-    if (doc.value) {
-      context.selectDatasource(doc.value.datasourceId)
-      context.selectKnowledgeDoc(doc.value.id)
-    }
-  } catch (cause) {
-    doc.value = null
-    error.value = apiError(cause, '文档加载失败')
-  } finally {
-    loading.value = false
-  }
+    if(!accept())return
+    context.selectDatasource(value.datasourceId);context.selectKnowledgeDoc(value.id)
+  } catch(cause){if(accept()){error.value=apiError(cause,'文档加载失败')}}
+  finally {if(accept())loading.value=false}
 }
 
 async function loadVersions() {
+  if(!canReadDocument()) return
+  const accept=readTicket('loadVersions')
+
   versionsLoading.value = true
   versionsError.value = ''
   try {
-    versions.value = (await listVersions(docId.value)).data || []
+    const loaded = (await listVersions(docId.value)).data || []
+    if(!accept())return
+    versions.value = loaded
   } catch (cause) {
+    if(!accept())return
     versions.value = []
     // 接口失败必须渲染错误态。此前只弹一次 toast 再置空数组，页面最终显示
     // 「暂无版本记录」——把失败说成了空数据（§11.3、§18）。
     versionsError.value = apiError(cause, '版本列表加载失败')
   } finally {
+    if(!accept())return
     versionsLoading.value = false
   }
 }
@@ -284,125 +306,76 @@ async function refreshDocument() {
  * 那会让用户以为该数据源没有快照。改为记录错误，由对话框展示。
  */
 async function loadSnapshots() {
+  if(!canReadDocument()) return
+  const accept=readTicket('loadSnapshots')
+
   if (!doc.value?.datasourceId || !mayViewSnapshots.value) { snapshots.value = []; return }
   snapshotError.value = ''
   try {
-    snapshots.value = (await listSnapshots({ datasourceId: doc.value.datasourceId, page: 1, size: 50 })).data?.records || []
+    const loaded = (await listSnapshots({ datasourceId: doc.value.datasourceId, page: 1, size: 50 })).data?.records || []
+    if(!accept())return
+    snapshots.value = loaded
   } catch (cause) {
+    if(!accept())return
     snapshots.value = []
     snapshotError.value = apiError(cause, '来源快照加载失败')
   }
 }
 
 async function loadChunks() {
+  if(!canReadDocument()) return
+  const accept=readTicket('loadChunks')
+
   chunksLoading.value = true
   chunkError.value = ''
   try {
-    chunks.value = (await previewChunks(docId.value)).data || []
+    const loaded = (await previewChunks(docId.value)).data || []
+    if(!accept())return
+    chunks.value = loaded
   } catch (cause) {
+    if(!accept())return
     chunks.value = []
     chunkError.value = apiError(cause, '切分预览失败，请确认 Python 服务可用')
   } finally {
+    if(!accept())return
     chunksLoading.value = false
   }
 }
 
 async function save() {
-  if (!mayManage.value) { ElMessage.warning(MANAGE_HINT); return }
-  if (!doc.value) return
-  if (!title.value.trim()) {
-    ElMessage.warning('文档标题不能为空')
-    return
-  }
-  // 后端只在内容真正变化时才递增版本并把状态重置为草稿，提示语必须与之保持一致
-  const contentChanged = content.value !== (doc.value.content || '')
-  const titleChanged = title.value !== doc.value.title
-  saving.value = true
+  if(!doc.value || !mayManage.value || !canEdit.value || saving.value || actionLoading.value || unknownWrite.value || versionConflict.value)return
+  if(!title.value.trim()){ElMessage.warning('文档标题不能为空');return}
+  const t=ticket(),value={...doc.value},stamp=formStamp.value
+  const payload={title:title.value,content:content.value,version:formBaseVersion.value,changeSummary:'手动编辑保存'}
+  saving.value=true;actionError.value=''
   try {
-    await updateKnowledgeDoc(doc.value.id, {
-      title: title.value,
-      content: content.value,
-      version: doc.value.version,
-      changeSummary: '手动编辑保存',
-    })
-    ElMessage.success(contentChanged
-      ? '已保存。内容已变更，后端创建了新版本并把文档状态重置为草稿。'
-      : titleChanged ? '标题已保存；内容未变化，版本与状态保持不变。' : '已保存。内容没有变化，版本与状态保持不变。')
+    await trackKnowledgeWrite({identity:t.identity,source:value.datasourceId,docId:value.id,version:value.version,kind:'save',started:Date.now()},()=>updateKnowledgeDoc(value.id,payload))
+    if(!current(t))return
+    savedStamp.value=stamp;expectedOwnSave.value={id:value.id,source:value.datasourceId,version:payload.version,title:payload.title,content:payload.content}
     await refreshDocument()
-  } catch (cause) {
-    ElMessage.error(apiError(cause, '保存失败'))
-  } finally {
-    saving.value = false
-  }
+  }catch(cause){if(current(t))documentError(cause,'保存失败')}
+  finally{if(current(t))saving.value=false}
 }
-
-async function submit() {
-  if (!mayManage.value) { ElMessage.warning(MANAGE_HINT); return }
+async function mutateDocument(kind:string,allowed:()=>boolean,message:string,heading:string,write:(value:KnowledgeDocItem)=>Promise<unknown>,prompt=false) {
+  if(!doc.value || !canReadDocument() || !allowed() || saving.value || actionLoading.value || unknownWrite.value || dirty.value || versionConflict.value)return
+  const t=ticket(),value={...doc.value};actionLoading.value=true;actionError.value=''
   try {
-    await ElMessageBox.confirm('提交审核后文档将不可编辑，直到审核完成。确认提交？', '提交审核')
-    actionLoading.value = true
-    await submitReview(docId.value)
-    ElMessage.success('已提交审核')
+    if(prompt){const seq=++confirmSequence;confirmVisible.value=true;try{const result=await ElMessageBox.prompt(message,heading,{confirmButtonText:'确认驳回',cancelButtonText:'取消',inputValue:reviewComment.value,inputValidator:v=>!!v?.trim() || '驳回原因不能为空',cancelButtonClass:confirmClass});if(current(t))reviewComment.value=result.value}finally{if(seq===confirmSequence)confirmVisible.value=false}}
+    else await ownedConfirm(message,heading)
+    if(!current(t) || !allowed() || dirty.value)return
+    const latest=(await getKnowledgeDoc(value.id)).data
+    if(!current(t) || !allowed() || dirty.value)return
+    if(!latest || latest.id!==value.id || latest.datasourceId!==value.datasourceId || latest.version!==value.version || latest.currentVersion!==value.currentVersion || latest.status!==value.status){actionError.value='已保存修订发生变化，请重读后核对；本次未执行。';return}
+    await trackKnowledgeWrite({identity:t.identity,source:value.datasourceId,docId:value.id,version:value.version,kind,started:Date.now()},()=>write(value))
+    if(!current(t))return
     await refreshDocument()
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '提交审核失败'))
-  } finally {
-    actionLoading.value = false
-  }
+  }catch(cause){if(cause!=='cancel' && cause!=='close' && current(t))documentError(cause,heading+'未完成')}
+  finally{if(current(t))actionLoading.value=false}
 }
-
-async function approve() {
-  if (!mayApprove.value) { ElMessage.warning(APPROVE_HINT); return }
-  try {
-    await ElMessageBox.confirm('确认通过审核？随后还需发布该文档；数据源级 RAG build 由有权人员单独确认。', '审核通过')
-    actionLoading.value = true
-    await approveDoc(docId.value)
-    ElMessage.success('审核已通过，下一步是发布文档，再确认数据源级 RAG build')
-    await refreshDocument()
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '审核通过失败'))
-  } finally {
-    actionLoading.value = false
-  }
-}
-
-async function reject() {
-  if (!mayApprove.value) { ElMessage.warning(APPROVE_HINT); return }
-  try {
-    const result = await ElMessageBox.prompt('请说明驳回原因，作者会据此修改后重新提交。', '审核驳回', {
-      inputValidator: (value) => Boolean(value?.trim()) || '驳回原因不能为空',
-      confirmButtonText: '确认驳回',
-      cancelButtonText: '取消',
-    })
-    actionLoading.value = true
-    await rejectDoc(docId.value, result.value)
-    ElMessage.success('已驳回，文档回到草稿')
-    await refreshDocument()
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '驳回失败'))
-  } finally {
-    actionLoading.value = false
-  }
-}
-
-async function publish() {
-  if (!mayPublish.value) { ElMessage.warning(PUBLISH_HINT); return }
-  try {
-    await ElMessageBox.confirm(
-      '发布会保存该已审核文档版本，但不会自动构建或切换 RAG。你可以在语义知识页预览版本与来源快照后，单独确认数据源级 RAG build。确认发布文档？',
-      '发布文档',
-      { type: 'warning', confirmButtonText: '确认发布', cancelButtonText: '取消' },
-    )
-    actionLoading.value = true
-    await publishDoc(docId.value)
-    ElMessage.success('文档已发布。RAG build 仍需有权人员单独确认。')
-    await refreshDocument()
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '发布失败'))
-  } finally {
-    actionLoading.value = false
-  }
-}
+async function submit(){return mutateDocument('submit',()=>mayManage.value && status.value==='DRAFT','提交的是已保存版本。确认提交审核？','提交审核',d=>submitReview(d.id))}
+async function approve(){return mutateDocument('approve',()=>mayApprove.value && status.value==='PENDING_REVIEW','确认通过已保存修订的审核？文档发布与RAG构建仍独立。','审核通过',d=>approveDoc(d.id))}
+async function reject(){return mutateDocument('reject',()=>mayApprove.value && status.value==='PENDING_REVIEW','请说明驳回原因，意见会保留以便作者修订。','审核驳回',d=>rejectDoc(d.id,reviewComment.value),true)}
+async function publish(){return mutateDocument('publish',()=>mayPublish.value && status.value==='APPROVED','确认发布已审核文档？不会自动构建或切换RAG。','发布文档',d=>publishDoc(d.id))}
 
 /* ---------------- AI 生成草稿 ---------------- */
 
@@ -411,6 +384,7 @@ const generateLoading = ref(false)
 const generationReady = ref(false)
 const semanticAssistant = ref<InstanceType<typeof KnowledgeSemanticAssistant>>()
 const generateSnapshotId = ref<number>()
+const unknownGroup=computed(()=>pendingKnowledgeWrites.value.find(x=>x.identity===auth.token && x.source===doc.value?.datasourceId && x.snapshotId===generateSnapshotId.value && x.kind==='generate-group'))
 
 function openGenerate() {
   if (!mayGenerate.value) { ElMessage.warning(GENERATE_HINT); return }
@@ -418,33 +392,18 @@ function openGenerate() {
   generateVisible.value = true
 }
 
-async function runGenerate() {
-  if (!mayGenerate.value) { ElMessage.warning(GENERATE_HINT); return }
-  if (doc.value && content.value !== (doc.value.content || '')) { ElMessage.warning('请先保存当前编辑内容，再生成独立新草稿'); return }
-  if (!generateSnapshotId.value) {
-    ElMessage.warning('请选择用于生成草稿的快照')
-    return
-  }
-  generateLoading.value = true
-  try {
-    if (doc.value?.content?.trim()) {
-      const result = await generateFromSnapshot(doc.value.datasourceId, generateSnapshotId.value)
-      generateVisible.value = false
-      ElMessage.success(`已生成 ${result.data?.length || 0} 篇独立主题草稿，原文与人工编辑已保留`)
-      await router.push({path:'/admin/semantics/knowledge',query:{datasourceId:doc.value.datasourceId,snapshotId:generateSnapshotId.value}})
-      return
-    }
-    const result = await generateDraft(docId.value, generateSnapshotId.value)
-    generateVisible.value = false
-    // 后端生成草稿时会写入新版本并递增乐观锁 version，必须重新拉取后再覆盖展示内容
-    await refreshDocument()
-    content.value = result.data?.content || content.value
-    ElMessage.success('完整快照目录已生成；请核对“待确认”释义后保存')
-  } catch (cause) {
-    ElMessage.error(apiError(cause, 'AI 生成失败'))
-  } finally {
-    generateLoading.value = false
-  }
+async function runGenerate(){
+  if(!mayGenerate.value || !doc.value || !generateSnapshotId.value || generateLoading.value || saving.value || actionLoading.value || unknownWrite.value || unknownGroup.value)return
+  if(dirty.value){ElMessage.warning('请先保存当前编辑内容，再生成独立新草稿');return}
+  const t=ticket(),value={...doc.value},snapshot=generateSnapshotId.value,stamp=formStamp.value
+  generateLoading.value=true;actionError.value=''
+  try{
+    await trackKnowledgeWrite<unknown>({identity:t.identity,source:value.datasourceId,docId:value.content?.trim()?undefined:value.id,snapshotId:snapshot,kind:value.content?.trim()?'generate-group':'generate',started:Date.now()},()=>value.content?.trim() ? generateFromSnapshot(value.datasourceId,snapshot) : generateDraft(value.id,snapshot))
+    if(!current(t) || !generateVisible.value || generateSnapshotId.value!==snapshot)return
+    if(value.content?.trim()) {ElMessage.success('已生成独立主题草稿，原文保留');if(formStamp.value===stamp){generateVisible.value=false;await router.push({path:'/admin/semantics/knowledge',query:{datasourceId:value.datasourceId}})}}
+    else {generateVisible.value=false;await refreshDocument()}
+  }catch(cause){if(current(t))documentError(cause,'目录生成未完成')}
+  finally{if(current(t))generateLoading.value=false}
 }
 
 /* ---------------- 版本与差异 ---------------- */
@@ -457,24 +416,9 @@ function showVersion(item: KnowledgeVersionItem) {
   versionPreviewVisible.value = true
 }
 
-async function rollback(item: KnowledgeVersionItem) {
-  if (!mayPublish.value) { ElMessage.warning(PUBLISH_HINT); return }
-  try {
-    await ElMessageBox.confirm(
-      `回滚到版本 ${item.versionNo}？影响范围：后端会以该版本内容创建一个新的 ROLLBACK 版本，`
-      + '创建一个待审核的 ROLLBACK 草稿版本；回滚不会直接改动活动 RAG build。',
-      '版本回滚',
-      { type: 'warning', confirmButtonText: '创建回滚草稿', cancelButtonText: '取消' },
-    )
-    actionLoading.value = true
-    await rollbackVersion(docId.value, item.versionNo)
-    ElMessage.success('回滚草稿已创建；需重新审核、发布并确认 RAG build')
-    await Promise.all([loadDoc(), loadVersions()])
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '回滚失败'))
-  } finally {
-    actionLoading.value = false
-  }
+async function rollback(item:KnowledgeVersionItem){
+  if(item.reviewStatus!=='APPROVED' || !versions.value.some(x=>x.versionNo===item.versionNo))return
+  return mutateDocument('rollback',()=>mayPublish.value && status.value==='PUBLISHED',`以版本v${item.versionNo}创建新的ROLLBACK草稿，需重新审核发布；不切换活动RAG。`,'版本回滚',d=>rollbackVersion(d.id,item.versionNo))
 }
 
 const diffVisible = ref(false)
@@ -485,15 +429,21 @@ const diffV2 = ref<number>()
 const diffError = ref('')
 
 async function openDiff() {
+  const t=ticket()
   diffVisible.value = true
   diffError.value = ''
   diffLines.value = []
   if (!versions.value.length) await loadVersions()
+  if(!current(t) || !diffVisible.value)return
   diffV1.value = versions.value.length > 1 ? versions.value[1].versionNo : undefined
   diffV2.value = versions.value[0]?.versionNo
 }
 
 async function runDiff() {
+  if(!canReadDocument()) return
+  const accept=readTicket('runDiff')
+
+  if(diffLoading.value)return
   if (!diffV1.value || !diffV2.value) {
     ElMessage.warning('请选择两个版本')
     return
@@ -505,11 +455,15 @@ async function runDiff() {
   diffLoading.value = true
   diffError.value = ''
   try {
-    diffLines.value = (await diffVersions(docId.value, diffV1.value, diffV2.value)).data || []
+    const loaded = (await diffVersions(docId.value, diffV1.value, diffV2.value)).data || []
+    if(!accept())return
+    diffLines.value = loaded
   } catch (cause) {
+    if(!accept())return
     diffLines.value = []
     diffError.value = apiError(cause, '版本差异加载失败')
   } finally {
+    if(!accept())return
     diffLoading.value = false
   }
 }
@@ -538,14 +492,21 @@ const sourceSnapshotsLoading = ref(false)
 const sourceSnapshotsError = ref('')
 
 async function loadSourceSnapshots() {
+  if(!canReadDocument()) return
+  const accept=readTicket('loadSourceSnapshots')
+
   sourceSnapshotsLoading.value = true
   sourceSnapshotsError.value = ''
   try {
-    sourceSnapshots.value = (await listSourceSnapshots(docId.value)).data || []
+    const loaded = (await listSourceSnapshots(docId.value)).data || []
+    if(!accept())return
+    sourceSnapshots.value = loaded
   } catch (cause) {
+    if(!accept())return
     sourceSnapshots.value = []
     sourceSnapshotsError.value = cause instanceof Error ? cause.message : '来源快照加载失败'
   } finally {
+    if(!accept())return
     sourceSnapshotsLoading.value = false
   }
 }
@@ -565,33 +526,50 @@ function chunkExtras(chunk: KnowledgeChunkPreview) {
 
 /** 加载审核记录（后端 2026-09-12 补齐 `GET /{id}/review-tasks` 后才有数据来源） */
 async function loadReviewRecords() {
+  if(!canReadDocument()) return
+  const accept=readTicket('loadReviewRecords')
+
   reviewLoading.value = true
   reviewError.value = ''
   try {
-    reviewRecords.value = (await listReviewTasks(docId.value)).data || []
+    const loaded = (await listReviewTasks(docId.value)).data || []
+    if(!accept())return
+    reviewRecords.value = loaded
   } catch (cause) {
+    if(!accept())return
     reviewRecords.value = []
     reviewError.value = cause instanceof Error ? cause.message : '审核记录加载失败'
   } finally {
+    if(!accept())return
     reviewLoading.value = false
   }
 }
 
 /** 加载向量化任务（后端 2026-09-12 补齐 `GET /{id}/vector-tasks` 后才有数据来源） */
 async function loadVectorTasks() {
+  if(!canReadDocument()) return
+  const accept=readTicket('loadVectorTasks')
+
   tasksLoading.value = true
   taskError.value = ''
   try {
-    vectorTasks.value = (await listVectorTasks(docId.value)).data || []
+    const loaded = (await listVectorTasks(docId.value)).data || []
+    if(!accept())return
+    vectorTasks.value = loaded
   } catch (cause) {
+    if(!accept())return
     vectorTasks.value = []
     taskError.value = cause instanceof Error ? cause.message : '索引任务加载失败'
   } finally {
+    if(!accept())return
     tasksLoading.value = false
   }
 }
 
 async function loadRagBuilds() {
+  if(!canReadDocument()) return
+  const accept=readTicket('loadRagBuilds')
+
   const datasourceId = doc.value?.datasourceId
   ragBuildsError.value = ''
   if (!datasourceId) {
@@ -600,50 +578,38 @@ async function loadRagBuilds() {
   }
   ragBuildsLoading.value = true
   try {
-    ragBuilds.value = (await listRagBuilds(datasourceId)).data || []
+    const loaded = (await listRagBuilds(datasourceId)).data || []
+    if(!accept())return
+    ragBuilds.value = loaded
   } catch (cause) {
+    if(!accept())return
     ragBuilds.value = []
     ragBuildsError.value = apiError(cause, 'RAG 构建状态加载失败')
   } finally {
+    if(!accept())return
     ragBuildsLoading.value = false
   }
 }
 
-onMounted(async () => {
-  await iamS1.load()
-  try {
-    datasources.value = iamS1.systemAdmin ? (await listSimpleDatasources()).data || []
-      : iamS1.datasourceCapabilities.map(item => ({ id: item.datasourceId, name: item.datasourceName }))
-  } catch {
-    datasources.value = []
-  }
-  await loadDoc()
-  await loadRagBuilds()
-  await loadSnapshots()
-  // 版本记录支撑「来源与覆盖」「审核记录」「版本」三个 Tab，因此在加载时就取回
-  loadVersions()
-  if (activeTab.value === 'source') loadSourceSnapshots()
-  if (activeTab.value === 'review') loadReviewRecords()
-  if (activeTab.value === 'chunks') loadChunks()
-  if (activeTab.value === 'index') loadVectorTasks()
-})
-
-watch(docId, async () => {
-  versions.value = []
-  chunks.value = []
-  reviewRecords.value = []
-  vectorTasks.value = []
-  ragBuilds.value = []
-  sourceSnapshots.value = []
-  await loadDoc()
-  await loadRagBuilds()
-  await loadSnapshots()
-  loadVersions()
-  if (activeTab.value === 'source') loadSourceSnapshots()
-  if (activeTab.value === 'review') loadReviewRecords()
-  if (activeTab.value === 'chunks') loadChunks()
-  if (activeTab.value === 'index') loadVectorTasks()
-})
+watch(()=>doc.value?.version,(next,previous)=>{
+  if(previous==null || next===previous)return
+  for(const key of ['loadVersions','loadSourceSnapshots','loadReviewRecords','loadVectorTasks','loadChunks','runDiff','sourceStatus'])sequences[key]=(sequences[key] || 0)+1
+  versions.value=[];chunks.value=[];sourceSnapshots.value=[];reviewRecords.value=[];vectorTasks.value=[];diffLines.value=[]
+  versionsLoading.value=false;chunksLoading.value=false;sourceSnapshotsLoading.value=false;reviewLoading.value=false;tasksLoading.value=false;diffLoading.value=false;ragBuildsLoading.value=false
+},{flush:'sync'})
+watch(()=>[diffVisible.value,diffV1.value,diffV2.value],()=>{sequences.runDiff=(sequences.runDiff || 0)+1;diffLoading.value=false;diffLines.value=[]},{flush:'sync'})
+useAdminScrollLock(()=>generateVisible.value || versionPreviewVisible.value || diffVisible.value || confirmVisible.value)
+async function loadPage(){await loadDoc();if(disposed || !doc.value || !canReadDocument())return;await Promise.all([loadRagBuilds(),loadSnapshots(),loadVersions()]);if(activeTab.value==='source')void loadSourceSnapshots();if(activeTab.value==='review')void loadReviewRecords();if(activeTab.value==='chunks')void loadChunks();if(activeTab.value==='index')void loadVectorTasks()}
+function resetPage(){
+  epoch++;invalidateConfirm();expectedOwnSave.value=undefined;doc.value=null;title.value='';content.value='';savedStamp.value=formStamp.value;formBaseVersion.value=0;error.value='';actionError.value='';reviewComment.value=''
+  versions.value=[];chunks.value=[];reviewRecords.value=[];vectorTasks.value=[];ragBuilds.value=[];sourceSnapshots.value=[];snapshots.value=[];sourceStatus.value=undefined;sourceStatusError.value=''
+  generateVisible.value=false;diffVisible.value=false;versionPreviewVisible.value=false;saving.value=false;actionLoading.value=false;generateLoading.value=false
+  loading.value=true;versionsLoading.value=false;chunksLoading.value=false;reviewLoading.value=false;tasksLoading.value=false;ragBuildsLoading.value=false;sourceSnapshotsLoading.value=false;diffLoading.value=false;diffLines.value=[];versionsError.value='';snapshotError.value='';ragBuildsError.value='';sourceSnapshotsError.value='';chunkError.value='';reviewError.value='';taskError.value='';diffError.value=''
+  if(initialized)void loadPage()
+}
+onMounted(async()=>{await iamS1.load();if(disposed)return;datasources.value=(iamS1.datasourceCapabilities || []).map(x=>({id:x.datasourceId,name:x.datasourceName}));initialized=true;resetPage()})
+watch(()=>[docId.value,route.query.datasourceId,auth.token,iamS1.snapshot,iamS1.loaded,iamS1.errorMessage],resetPage,{flush:'sync'})
+onBeforeUnmount(()=>{disposed=true;epoch++;invalidateConfirm()})
 
 watch(() => route.query.tab, (value) => {
   const next = String(value || 'content')
@@ -660,6 +626,7 @@ watch(() => route.query.tab, (value) => {
 
 <template>
   <div class="admin-page knowledge-doc-page">
+    <p class="knowledge-doc-page__eyebrow">语义中心 / 可信业务知识</p>
     <ObjectContextSummary
       :title="doc?.title || '知识文档'"
       :description="`数据源：${datasourceName}`"
@@ -682,20 +649,20 @@ watch(() => route.query.tab, (value) => {
         </template>
         <template #actions>
           <el-button :icon="RefreshCw" :loading="loading" @click="refreshDocument">刷新</el-button>
-          <el-button v-if="canEdit && mayManage" :icon="Save" :loading="saving" @click="save">
+          <el-button v-if="canEdit && mayManage" :icon="Save" :loading="saving" :disabled="versionConflict || actionLoading || !!unknownWrite" @click="save">
             {{ status === 'DRAFT' ? '保存' : '保存并新建版本' }}
           </el-button>
-          <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" :disabled="!mayGenerate" :title="mayGenerate ? '' : GENERATE_HINT" @click="openGenerate">按快照生成目录</el-button>
-          <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" :disabled="content !== (doc.content || '')" title="请先保存当前编辑内容，再补写业务释义" @click="semanticAssistant?.open()">AI 辅助补写</el-button>
+          <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" :disabled="!mayGenerate || dirty || saving || actionLoading || !!unknownWrite" :title="mayGenerate ? '' : GENERATE_HINT" @click="openGenerate">按快照生成目录</el-button>
+          <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" :disabled="dirty || saving || actionLoading || !!unknownWrite" title="请先保存当前编辑内容，再补写业务释义" @click="semanticAssistant?.open()">AI 辅助补写</el-button>
 
-          <el-button v-if="canSubmitReview && mayManage" type="primary" :icon="Send" :loading="actionLoading" @click="submit">
+          <el-button v-if="canSubmitReview && mayManage" type="primary" :icon="Send" :loading="actionLoading" :disabled="dirty || versionConflict || !!unknownWrite || saving" @click="submit">
             提交审核
           </el-button>
           <template v-else-if="canReview">
-            <el-button type="primary" :loading="actionLoading" :disabled="!mayApprove" :title="mayApprove ? '' : APPROVE_HINT" @click="approve">审核通过</el-button>
-            <el-button type="danger" plain :loading="actionLoading" :disabled="!mayApprove" :title="mayApprove ? '' : APPROVE_HINT" @click="reject">驳回</el-button>
+            <el-button type="primary" :loading="actionLoading" :disabled="!mayApprove || dirty || saving || !!unknownWrite" :title="mayApprove ? '' : APPROVE_HINT" @click="approve">审核通过</el-button>
+            <el-button type="danger" plain :loading="actionLoading" :disabled="!mayApprove || dirty || saving || !!unknownWrite" :title="mayApprove ? '' : APPROVE_HINT" @click="reject">驳回</el-button>
           </template>
-          <el-button v-else-if="canPublish" type="primary" :icon="Upload" :loading="actionLoading" :disabled="!mayPublish" :title="mayPublish ? '' : PUBLISH_HINT" @click="publish">
+          <el-button v-else-if="canPublish" type="primary" :icon="Upload" :loading="actionLoading" :disabled="!mayPublish || dirty || saving || !!unknownWrite" :title="mayPublish ? '' : PUBLISH_HINT" @click="publish">
             发布文档
           </el-button>
           <el-button v-else-if="isPublished && mayPublish" :icon="RefreshCw" @click="router.push({ name: 'admin-semantic-knowledge', query: { datasourceId: String(doc.datasourceId) } })">
@@ -707,6 +674,8 @@ watch(() => route.query.tab, (value) => {
         </template>
       </TaskPageHeader>
 
+      <section v-if="actionError || unknownWrite" role="alert" class="knowledge-write-notice"><strong>{{ actionError || '此文档有执行中或结果待确认的操作' }}</strong><p v-if="unknownWrite">原文档 #{{ unknownWrite.docId }} · {{ unknownWrite.kind }} · 修订锁 {{ unknownWrite.version }}。请只读核对原文档/版本，未确认前不重发；已有旧build不能证明本次成功。</p><p v-if="reviewComment">保留的审核意见：{{ reviewComment }}</p><el-button @click="refreshDocument">重读当前文档与版本</el-button></section>
+      <div class="document-draft-state"><span>{{ dirty ? '有未保存输入，提交/发布前请先保存' : '当前输入与已读保存版本一致' }}</span><span v-if="versionConflict" role="alert">已保存版本已变化；保留当前输入，请核对后重读。</span><el-button link :disabled="saving || actionLoading" @click="reloadSavedDraft">重读已保存版本</el-button></div>
       <section class="knowledge-doc-page__lifecycle">
         <LifecycleStepper :steps="lifecycleSteps" />
         <p class="knowledge-doc-page__hint">{{ nextStepHint }}</p>
@@ -726,7 +695,7 @@ watch(() => route.query.tab, (value) => {
                 placeholder="文档标题"
                 :disabled="!canEdit"
                 :readonly="!mayManage"
-                class="pane__title-input"
+                aria-label="文档标题" class="pane__title-input"
               />
               <el-input
                 v-model="content"
@@ -736,13 +705,10 @@ watch(() => route.query.tab, (value) => {
                 :readonly="!mayManage"
                 placeholder="在此编写 skills.md 内容（Markdown 格式）"
                 resize="vertical"
-                class="pane__textarea"
+                aria-label="知识文档正文" class="pane__textarea"
               />
             </div>
-            <div class="pane">
-              <div class="pane__title">预览</div>
-              <pre class="pane__preview">{{ content || '（暂无内容）' }}</pre>
-            </div>
+            <details class="pane pane-preview"><summary>查看当前输入预览</summary><pre class="pane__preview">{{ content || '（暂无内容）' }}</pre></details>
           </section>
           <p v-if="!mayManage" class="knowledge-doc-page__locked">当前账号没有维护该文档的能力，内容仅供查看。</p>
           <p v-else-if="!canEdit" class="knowledge-doc-page__locked">
@@ -856,7 +822,7 @@ watch(() => route.query.tab, (value) => {
             <div class="card-heading">
               <div>
                 <h3>版本流转</h3>
-                <p>版本行的审核状态自 2026-09-12 起由后端真实写入，可按版本查看。</p>
+                <p>按文档版本查看生成来源、修订摘要和审核状态；审核意见在上表保留。</p>
               </div>
             </div>
             <ErrorState v-if="versionsError" :message="versionsError" @retry="loadVersions" />
@@ -1038,9 +1004,10 @@ watch(() => route.query.tab, (value) => {
       </el-tabs>
     </template>
 
-    <KnowledgeSemanticAssistant v-if="doc" ref="semanticAssistant" :doc="doc" @saved="refreshDocument" />
+    <KnowledgeSemanticAssistant v-if="doc" ref="semanticAssistant" :doc="doc" :disabled="dirty || saving || actionLoading" @saved="refreshDocument" />
     <!-- 快照生成 -->
-    <el-dialog v-model="generateVisible" title="生成快照字段目录" width="480px">
+    <el-dialog v-model="generateVisible" :show-close="!generateLoading" :close-on-press-escape="!generateLoading" :close-on-click-modal="!generateLoading" title="生成快照字段目录" width="480px">
+      <p v-if="unknownGroup" role="alert" class="knowledge-write-notice">同源同快照的整组目录生成执行中或结果未知；列表与详情共用记录，请核对文档列表，不重复生成。</p>
       <p class="muted">
         选择一个元数据快照，系统会按该快照的稳定表/字段 ID 生成完整目录。缺少可靠业务释义时标为“待确认”；结果会写入草稿新版本。
       </p>
@@ -1059,8 +1026,8 @@ watch(() => route.query.tab, (value) => {
       </el-select>
       <KnowledgeSourcePreview :datasource-id="doc?.datasourceId" :snapshot-id="generateSnapshotId" @ready="generationReady = $event" />
       <template #footer>
-        <el-button @click="generateVisible = false">取消</el-button>
-        <el-button type="primary" :loading="generateLoading" :disabled="!generationReady" @click="runGenerate">生成目录</el-button>
+        <el-button :disabled="generateLoading" @click="generateVisible = false">取消</el-button>
+        <el-button type="primary" :loading="generateLoading" :disabled="!generationReady || !!unknownWrite || !!unknownGroup" @click="runGenerate">生成目录</el-button>
       </template>
     </el-dialog>
 
@@ -1095,6 +1062,10 @@ watch(() => route.query.tab, (value) => {
 </template>
 
 <style scoped>
+.knowledge-doc-page__eyebrow {margin:0;color:var(--do-primary-strong);font-size:12px;font-weight:650;}
+.knowledge-write-notice {border:1px solid var(--do-line);border-left:3px solid var(--do-warning);padding:14px;line-height:1.6;font-size:13px;overflow-wrap:anywhere;}.knowledge-write-notice p {margin:6px 0;}
+.document-draft-state {display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;color:var(--do-muted);font-size:12px;border-bottom:1px solid var(--do-line);padding-bottom:12px;}
+
 .knowledge-doc-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .knowledge-doc-page > * { min-width: 0; }
 .knowledge-doc-page :deep(.object-context-summary) { flex-wrap: wrap; }
@@ -1127,7 +1098,7 @@ watch(() => route.query.tab, (value) => {
   box-shadow: var(--do-shadow);
 }
 
-.knowledge-doc-page__editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.knowledge-doc-page__editor { display:grid;grid-template-columns:minmax(0,1fr);gap:12px; }.knowledge-doc-page__editor:has(.pane-preview[open]){grid-template-columns:repeat(2,minmax(0,1fr));}.pane-preview:not([open]){padding:8px 0;border:0;background:transparent;box-shadow:none;}.pane-preview summary{cursor:pointer;color:var(--do-primary-strong);font-size:13px;}
 
 .pane {
   display: flex;
@@ -1191,6 +1162,7 @@ watch(() => route.query.tab, (value) => {
 .diff-list code { white-space: pre-wrap; word-break: break-word; }
 
 @media (max-width: 1180px) {
-  .knowledge-doc-page__editor { grid-template-columns: minmax(0, 1fr); }
+  .knowledge-doc-page :deep(.task-page-header__actions){width:100%;max-width:100%;min-width:0;flex-wrap:wrap;justify-content:flex-start;gap:8px;}.knowledge-doc-page :deep(.task-page-header__actions .el-button){margin-left:0;}
+  .knowledge-doc-page__editor,.knowledge-doc-page__editor:has(.pane-preview[open]) { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

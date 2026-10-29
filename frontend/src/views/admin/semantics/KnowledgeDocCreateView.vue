@@ -5,12 +5,14 @@
  * 手工创建的文档没有来源快照和覆盖表，需要作者自行维护内容；
  * 基于快照生成请回到语义知识列表使用「AI 一键生成」。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Save } from 'lucide-vue-next'
 import { createKnowledgeDoc } from '../../../api/admin/knowledge'
 import { useAdminContextStore, type AdminDatasourceOption } from '../../../stores/adminContext'
+import { useAuthStore } from '../../../stores/auth'
+import { pendingKnowledgeWrites,trackKnowledgeWrite } from '../../../composables/knowledgeWriteTracker'
 import { useIamS1Store } from '../../../stores/iamS1'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -21,7 +23,7 @@ import EmptyState from '../../../components/common/EmptyState.vue'
 
 const router = useRouter()
 const context = useAdminContextStore()
-const iamS1 = useIamS1Store()
+const iamS1 = useIamS1Store(),auth=useAuthStore()
 
 /**
  * 手工新建文档走 `knowledge:manage`，后端按请求里的 datasourceId 经 DATASOURCE 解析器复核真实归属。
@@ -43,63 +45,58 @@ const loadingDatasources = ref(true)
 const datasourcesError = ref('')
 const saving = ref(false)
 const form = reactive({ datasourceId: undefined as number | undefined, title: '', content: '' })
+let epoch=0,disposed=false,initialized=false,requestId=0
+const actionError=ref(''),createdId=ref<number>(),createdSource=ref<number>()
+const unknownWrite=computed(()=>pendingKnowledgeWrites.value.find(x=>x.identity===auth.token && x.source===form.datasourceId && x.kind==='create'))
+
 
 function apiError(cause: unknown, fallback: string) {
   const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
   return message || (cause instanceof Error ? cause.message : fallback)
 }
 
-async function save() {
-  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
-  if (!form.datasourceId) {
-    ElMessage.warning('请选择数据源')
-    return
-  }
-  if (!form.title.trim()) {
-    ElMessage.warning('请填写文档标题')
-    return
-  }
-  saving.value = true
-  try {
-    const result = await createKnowledgeDoc({
-      datasourceId: form.datasourceId,
-      title: form.title.trim(),
-      content: form.content,
-    })
-    const id = result.data?.id
-    ElMessage.success('文档已创建，接下来请编辑内容并提交审核')
-    context.selectDatasource(form.datasourceId)
-    if (id) {
-      context.selectKnowledgeDoc(id)
-      router.replace({ name: 'admin-semantic-knowledge-detail', params: { id }, query: { tab: 'content' } })
-    } else {
-      router.replace({ name: 'admin-semantic-knowledge' })
-    }
-  } catch (cause) {
-    ElMessage.error(apiError(cause, '创建文档失败'))
-  } finally {
-    saving.value = false
-  }
+async function save(){
+  const source=form.datasourceId
+  if(saving.value || unknownWrite.value || !source || !iamS1.loaded || (!iamS1.systemAdmin && !iamS1.datasourcesWithFunction('knowledge:manage').includes(source))){if(!source)ElMessage.warning('请选择数据源');return}
+  if(!form.title.trim()){ElMessage.warning('请填写文档标题');return}
+  const generation=epoch,identity=auth.token,scope=context.datasourceId,payload={datasourceId:source,title:form.title.trim(),content:form.content},stamp=JSON.stringify(form)
+  saving.value=true;actionError.value='';createdId.value=undefined
+  try{
+    const result=await trackKnowledgeWrite({identity,source,kind:'create',started:Date.now()},()=>createKnowledgeDoc(payload))
+    if(disposed || generation!==epoch || identity!==auth.token || scope!==context.datasourceId)return
+    const id=result.data?.id
+    if(!id)throw new Error('创建已响应但未返回文档ID，请核对文档列表，不要重复创建')
+    createdId.value=id;createdSource.value=source
+    if(stamp!==JSON.stringify(form)){actionError.value='原草稿已创建；等待期间新增的输入已保留，请先核对刚创建文档。';return}
+    if(!iamS1.systemAdmin && !iamS1.datasourcesWithFunction('knowledge:view').includes(source)){actionError.value='文档已创建，当前账号没有该源的查看权；请交接给有权人员继续审核。';return}
+    context.selectDatasource(source);context.selectKnowledgeDoc(id);await router.replace({name:'admin-semantic-knowledge-detail',params:{id},query:{datasourceId:source,tab:'content'}})
+  }catch(cause){if(!disposed && generation===epoch && identity===auth.token)actionError.value=apiError(cause,'创建未完成')+'；输入保留，结果未知先核对列表，不会自动重发。'}
+  finally{if(!disposed && generation===epoch)saving.value=false}
 }
 
 async function loadDatasources() {
-  await iamS1.load()
+  const seq=++requestId,identity=auth.token
   loadingDatasources.value = true
   datasourcesError.value = ''
   try {
     await context.initialize()
+    if(disposed || seq!==requestId || identity!==auth.token)return
     datasources.value = context.datasources
-    form.datasourceId = context.datasourceId
+    if(!form.datasourceId)form.datasourceId = selectableDatasources.value.some(x=>x.id===context.datasourceId) ? context.datasourceId : undefined
   } catch (cause) {
+    if(disposed || seq!==requestId || identity!==auth.token)return
     datasources.value = []
     // 必须显式呈现失败：静默置空会让用户以为「系统里没有数据源」（§11.3、§18）
     datasourcesError.value = apiError(cause, '数据源加载失败')
   } finally {
+    if(disposed || seq!==requestId || identity!==auth.token)return
     loadingDatasources.value = false
   }
 }
 
-onMounted(loadDatasources)
+onMounted(async()=>{await iamS1.load();if(disposed)return;initialized=true;await loadDatasources()})
+watch(()=>[auth.token,iamS1.snapshot],()=>{epoch++;requestId++;form.title='';form.content='';form.datasourceId=undefined;saving.value=false;createdId.value=undefined;actionError.value='';if(initialized)void loadDatasources()},{flush:'sync'})
+onBeforeUnmount(()=>{disposed=true;epoch++;requestId++})
 </script>
 
 <template>
@@ -117,10 +114,11 @@ onMounted(loadDatasources)
       description="手工创建的文档需要自己维护内容与覆盖范围。基于已发布快照生成草稿会更省事，且能带上来源信息。"
     >
       <template #actions>
-        <el-button type="primary" :icon="Save" :loading="saving" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="save">创建文档</el-button>
+        <el-button type="primary" :icon="Save" :loading="saving" :disabled="!canManage || !!unknownWrite" :title="canManage ? '' : MANAGE_HINT" @click="save">创建文档</el-button>
       </template>
     </TaskPageHeader>
 
+    <section v-if="actionError || unknownWrite" role="alert" class="knowledge-create-page__hint">{{ actionError || '此数据源创建请求执行中或结果待确认，请先核对文档列表。' }}<RouterLink v-if="createdId && createdSource && (iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:view').includes(createdSource))" :to="{name:'admin-semantic-knowledge-detail',params:{id:createdId},query:{datasourceId:createdSource}}">查看刚创建的文档 #{{ createdId }}</RouterLink></section>
     <ErrorState v-if="datasourcesError" :message="datasourcesError" @retry="loadDatasources" />
     <LoadingState v-else-if="loadingDatasources" variant="skeleton" :rows="4" />
     <EmptyState
@@ -135,12 +133,12 @@ onMounted(loadDatasources)
     <section v-else class="knowledge-create-page__card">
       <el-form label-width="96px">
         <el-form-item label="数据源">
-          <el-select v-model="form.datasourceId" placeholder="选择数据源" style="width: 320px">
+          <el-select v-model="form.datasourceId" placeholder="选择数据源" style="width: 100%; max-width:480px">
             <el-option v-for="item in selectableDatasources" :key="item.id" :label="item.name" :value="item.id" />
           </el-select>
         </el-form-item>
         <el-form-item label="文档标题">
-          <el-input v-model="form.title" placeholder="例如：订单域业务语义" style="width: 480px" />
+          <el-input v-model="form.title" placeholder="例如：订单域业务语义" style="width: 100%; max-width:720px" />
         </el-form-item>
         <el-form-item label="初始内容">
           <el-input

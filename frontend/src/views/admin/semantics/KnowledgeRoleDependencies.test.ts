@@ -11,7 +11,8 @@ const role = vi.hoisted(() => ({ manage: true, manageDatasourceId: 2, queryUse: 
 const api = vi.hoisted(() => ({ getKnowledgeDoc: vi.fn(), getKnowledgeSourceStatus: vi.fn(), listRagBuilds: vi.fn(),
   listVersions: vi.fn(), listSimpleDatasources: vi.fn(), listSnapshots: vi.fn(), updateKnowledgeDoc: vi.fn(),
   listKnowledgeDocs: vi.fn(), getBatchDatasourceReadiness: vi.fn(), getPublishedSnapshot: vi.fn() }))
-vi.mock('../../../stores/iamS1', () => ({ useIamS1Store: () => ({ systemAdmin: false, load: async () => {}, hasGlobal: () => false,
+vi.mock('../../../stores/auth',()=>({useAuthStore:()=>({token:'synthetic-knowledge-test'})}))
+vi.mock('../../../stores/iamS1', () => ({ useIamS1Store: () => ({ loaded:true,systemAdmin: false, load: async () => {}, hasGlobal: () => false,
   get queryUse() { return role.queryUse },
   datasourceCapabilities: [{ datasourceId: 2, datasourceName: '第二合成源', functionCodes: ['knowledge:view'] }],
   datasourcesWithFunction: (code: string) => code === 'knowledge:view' ? [2] : code === 'knowledge:manage' && role.manage ? [role.manageDatasourceId] : [],

@@ -85,3 +85,9 @@ Java 在模型输入前检查当前来源与可见依赖，Python 防火墙再�
 知识构建入口由[知识模块](006-knowledge.md)的 rag-builds 提供；Python 内部使用 `/internal/rag`和 `/internal/iam-s1/rag/retrieve`。不能将仍保留的通用向量 API 当作 S1 可跳过构建的路径。
 
 验证 token 边界、完整语义单元、metadata、构建失败/替代/清理、同快照 membership、权限过滤和并发查询引用。已有 [test_rag_build_isolation.py](../../python-service/tests/test_rag_build_isolation.py)及 Java [构建测试](../../backend/DataOcean/src/test/java/com/dataocean/module/knowledge/service/impl/RagIndexBuildServiceImplTest.java)。真实 Milvus 结论必须附当次目标和证据，不能由 mock 或历史数量推断。
+
+## 前端构建确认
+
+「构建与索引」作为知识工作区独立Tab，构建入口不依赖数据源准备表。knowledge:view读取记录，knowledge:publish确认目标源构建，不额外要求datasource:view、metadata:view或metadata:release:view。来源可从已发布文档的知识来源接口选择，或由人员核对精确快照ID后填写；RAG允许的PUBLISHED/EXPIRED曾发布来源与知识生成输入仅PUBLISHED的合同分开，最终仍由既有构建服务验证整组覆盖。
+
+新构建状态、当前活动索引、文档/事实来源资格分别显示；旧build版本落后不直接显示为失效，也不因为打开确认窗口而切换。每个确认先锁住原源/快照与身份，重复不重发；408/网络/5xx保留未知记录，旧ACTIVE或同快照旧build不能证明本次确认成功，普通重读不自动解锁。前端没有添加幂等键，内存记录不跨整页刷新。实际合成验证见[第五阶段验收](../acceptance/2026-10-29-版本与知识V2.md)，不代表真实向量核验、切换与清理已重新执行。
