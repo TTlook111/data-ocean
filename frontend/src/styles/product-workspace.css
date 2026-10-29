@@ -66,3 +66,7 @@ body:has(.admin-shell) {
 .collection-dialog { max-width:calc(100vw - 24px); display:flex; flex-direction:column; max-height:calc(100dvh - 40px); border-radius:14px; }
 .collection-dialog .el-dialog__body { overflow:auto; min-height:0; }
 .collection-dialog .el-dialog__footer { flex-shrink:0; border-top:1px solid var(--do-line); padding-top:16px; }
+
+.field-binding-dialog { display:flex; flex-direction:column; max-width:calc(100vw - 24px); max-height:90dvh; border-radius:12px; }
+.field-binding-dialog .el-dialog__body { overflow:auto; min-height:0; }
+.field-binding-dialog .el-dialog__footer { flex-shrink:0; border-top:1px solid var(--do-line); padding-top:16px; }

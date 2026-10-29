@@ -750,6 +750,9 @@ describe('问题中心的范围、筛选和结果表达', () => {
   })
 
   it('URL 指定的不可用快照显示错误且不回落到另一个快照', async () => {
+    // 精确快照读取需要 metadata:view；验证不存在的快照时须提供真实查看能力。
+    respond(capability({ onDatasource: ['metadata:view'] }))
+    await useIamS1Store().load()
     const context = useAdminContextStore()
     context.$patch({
       datasources: [{ id: 5, name: '销售库', databaseName: 'sales' }],
@@ -765,6 +768,8 @@ describe('问题中心的范围、筛选和结果表达', () => {
     expect(context.snapshotId).toBeUndefined()
     expect(context.routeSyncError).toContain('未切换到其他快照')
     expect(scope.text()).toContain('指定的快照无法加载')
+    expect(api.getSnapshotDetail).toHaveBeenCalledWith(8)
+    expect(reactiveRouteState.query.snapshotId).toBe('8')
   })
 
   it('批量部分成功保留跳过原因，且无选中项时不显示批量动作', async () => {

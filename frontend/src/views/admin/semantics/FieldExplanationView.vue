@@ -18,13 +18,14 @@ const canReturn=computed(()=>!!context.datasourceId&&!!context.snapshotId&&(!rou
 <template>
   <main class="field-explanation-page post-login-page">
     <TaskPageHeader
-      title="字段解释"
-      description="维护字段的业务名称、含义、单位和口径；保存、AI 候选、审核与问数收录状态分开呈现。"
+      title="字段解释" eyebrow="语义中心 / 业务解释"
+      description="把字段原始资料整理为有依据、可审核的业务解释。" description-mode="inline" help="候选、人工草稿、审核、同修订复查与问数收录分别核验；知识发布和索引构建在知识工作区确认。"
     ><template #actions><el-button :disabled="!canReturn" @click="router.push({path:'/admin/governance/fields',query:{tab:'tasks',datasourceId:context.datasourceId,snapshotId:context.snapshotId}})">治理任务</el-button></template></TaskPageHeader>
     <FieldSemanticWorkspace />
   </main>
 </template>
 
 <style scoped>
+.field-explanation-page :deep(.task-page-header) { margin-bottom:0; }
 .field-explanation-page { display: grid; gap: 16px; min-width: 0; }
 </style>
