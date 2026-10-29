@@ -1,17 +1,8 @@
 <script setup lang="ts">
-/**
- * AI 配置（开发指导 §7.19）
- *
- * 补齐两处：
- * 1. **Embedding 维度检测**：后端 `/detect-dimension` 早已存在且前端已封装，
- *    但页面零引用，只能让用户手工填写维度。现补「自动检测」入口。
- * 2. **模型同步**：后端 `/providers/{id}/sync-models` 存在，前端此前零封装，
- *    页面只能靠「测试连接成功后隐式重拉」间接刷新模型列表。
- * Tab 写入 URL（`?tab=chat|embedding`），状态标签改用中文（§11.3）。
- */
+/** AI配置工作面：active、pending与源级RAG分别核验；全部动作仍由Java鉴权。 */
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import {
   Database,
@@ -29,7 +20,6 @@ import {
 import {
   createAiProvider,
   deleteAiProvider,
-  detectEmbeddingDimension,
   getAiConfig,
   syncAiProviderModels,
   testAiProvider,
@@ -39,20 +29,37 @@ import {
   type AiProvider,
   type AiProviderPayload,
 } from '../../../api/admin/system'
-import { useIamS1Store } from '../../../stores/iamS1'
+import { useIamWorkspaceSession } from '../../../composables/useIamWorkspaceSession'
+import { trackGovernanceWrite } from '../../../composables/governanceWriteTracker'
+import GovernanceWriteNotice from '../../../components/admin/GovernanceWriteNotice.vue'
+import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
 
 const route = useRoute()
 const router = useRouter()
-const iamS1 = useIamS1Store()
+const session = useIamWorkspaceSession()
+const readError = ref(''),
+  writeError = ref('')
+let readEpoch = 0
+const dimensionDrafts = reactive<Record<string, number | undefined>>({})
+const dimensionKey = (id: string, name: string) => JSON.stringify([id, name])
+const dimensionFor = (id: string, model: { name: string; dimension?: number }) =>
+  dimensionKey(id, model.name) in dimensionDrafts
+    ? dimensionDrafts[dimensionKey(id, model.name)]
+    : model.dimension
+const setDimension = (id: string, name: string, value: unknown) => {
+  dimensionDrafts[dimensionKey(id, name)] =
+    typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
 const loading = ref(false)
 const saving = ref(false)
 const providerDialogVisible = ref(false)
+const providerDialogSession = ref(0)
+const providerBase = ref('')
 const editingProviderId = ref('')
 const config = ref<AiConfig | null>(null)
-const activeTab = ref<'chat' | 'embedding'>(
-  route.query.tab === 'embedding' ? 'embedding' : 'chat',
-)
+const activeTab = ref<'chat' | 'embedding'>(route.query.tab === 'embedding' ? 'embedding' : 'chat')
 
 function selectTab(tab: 'chat' | 'embedding') {
   activeTab.value = tab
@@ -60,10 +67,13 @@ function selectTab(tab: 'chat' | 'embedding') {
 }
 
 // 浏览器前进/后退或外部改 URL 时同步回组件状态（§15 要求前进后退可恢复）
-watch(() => route.query.tab, (value) => {
-  const next = value === 'embedding' ? 'embedding' : 'chat'
-  if (next !== activeTab.value) activeTab.value = next
-})
+watch(
+  () => route.query.tab,
+  (value) => {
+    const next = value === 'embedding' ? 'embedding' : 'chat'
+    if (next !== activeTab.value) activeTab.value = next
+  },
+)
 
 const detectingDimension = ref(false)
 const syncingProviderId = ref('')
@@ -72,18 +82,19 @@ const syncingProviderId = ref('')
 type TagTone = 'success' | 'warning' | 'danger' | 'info'
 const VECTORIZE_STATUS: Record<string, { label: string; tone: TagTone }> = {
   NORMAL: { label: '正常', tone: 'success' },
+  UNKNOWN: { label: '未确认', tone: 'info' },
   REINDEX_REQUIRED: { label: '需要重建索引', tone: 'warning' },
   REINDEXING: { label: '索引重建中', tone: 'warning' },
   REINDEX_FAILED: { label: '索引重建失败', tone: 'danger' },
 }
 
 const vectorizeStatusLabel = computed(() => {
-  const status = vectorizeStatus.value?.status || 'NORMAL'
+  const status = vectorizeStatus.value?.status || 'UNKNOWN'
   return VECTORIZE_STATUS[status]?.label || status
 })
 
 const vectorizeTone = computed<TagTone>(() => {
-  const status = vectorizeStatus.value?.status || 'NORMAL'
+  const status = vectorizeStatus.value?.status || 'UNKNOWN'
   return VECTORIZE_STATUS[status]?.tone || 'info'
 })
 
@@ -114,8 +125,8 @@ const providerForm = reactive<AiProviderPayload>({
 })
 
 const providers = computed(() => config.value?.providers ?? [])
-const canViewAiConfig = computed(() => iamS1.hasGlobal('system:ai-config:view'))
-const canManageAiConfig = computed(() => iamS1.hasGlobal('system:ai-config:manage'))
+const canViewAiConfig = computed(() => session.canGlobal('system:ai-config:view'))
+const canManageAiConfig = computed(() => session.canGlobal('system:ai-config:manage'))
 
 const activeChat = computed(() => config.value?.activeChat)
 const activeEmbedding = computed(() => config.value?.activeEmbedding)
@@ -123,7 +134,7 @@ const vectorizeStatus = computed(() => config.value?.vectorizeStatus)
 
 const vectorizeMessage = computed(() => {
   if (vectorizeStatus.value?.status === 'REINDEX_REQUIRED') {
-    return 'Embedding 配置已变更，需要重新向量化后才会切换为 active'
+    return '已有待切换配置；各源RAG构建与全局active分别核验，不保证自动切换。'
   }
   if (vectorizeStatus.value?.status === 'REINDEXING') {
     return '索引正在重建，查询仍使用上一版 active 索引'
@@ -134,63 +145,140 @@ const vectorizeMessage = computed(() => {
   return ''
 })
 
-// Chat 供应商列表（有 Chat 模型的）
-const chatProviders = computed(() =>
-  providers.value.filter((p) => p.chatModels && p.chatModels.length > 0),
-)
-
-// Embedding 供应商列表（有 Embedding 模型的）
-const embeddingProviders = computed(() =>
-  providers.value.filter((p) => p.embeddingModels && p.embeddingModels.length > 0),
-)
+// Providers remain maintainable before the first successful model sync.
+const chatProviders = computed(() => providers.value)
+const embeddingProviders = computed(() => providers.value)
 
 function isChatActive(providerId: string, model: string) {
   return activeChat.value?.providerId === providerId && activeChat.value?.model === model
 }
 
-function isEmbeddingActive(providerId: string, model: string) {
-  return activeEmbedding.value?.providerId === providerId && activeEmbedding.value?.model === model
+function isEmbeddingActive(providerId: string, model: string, dimension?: number) {
+  return (
+    activeEmbedding.value?.providerId === providerId &&
+    activeEmbedding.value?.model === model &&
+    activeEmbedding.value?.dimension === dimension
+  )
 }
 
 function expandChatProvider(provider: AiProvider) {
   expandedChatProvider.value = provider.id
   editingChatConfig.providerId = provider.id
   editingChatConfig.model = activeChat.value?.providerId === provider.id ? activeChat.value.model : ''
-  editingChatConfig.temperature = activeChat.value?.providerId === provider.id ? activeChat.value.temperature || '0.3' : '0.3'
-  editingChatConfig.timeout = activeChat.value?.providerId === provider.id ? activeChat.value.timeout || '120' : '120'
-  editingChatConfig.maxRetries = activeChat.value?.providerId === provider.id ? activeChat.value.maxRetries || '2' : '2'
+  editingChatConfig.temperature =
+    activeChat.value?.providerId === provider.id ? activeChat.value.temperature || '0.3' : '0.3'
+  editingChatConfig.timeout =
+    activeChat.value?.providerId === provider.id ? activeChat.value.timeout || '120' : '120'
+  editingChatConfig.maxRetries =
+    activeChat.value?.providerId === provider.id ? activeChat.value.maxRetries || '2' : '2'
 }
 
 function expandEmbeddingProvider(provider: AiProvider) {
   expandedEmbeddingProvider.value = provider.id
   editingEmbeddingConfig.providerId = provider.id
-  editingEmbeddingConfig.model = activeEmbedding.value?.providerId === provider.id ? activeEmbedding.value.model : ''
-  editingEmbeddingConfig.dimension = activeEmbedding.value?.providerId === provider.id
-    ? Number(activeEmbedding.value.dimension || 1024)
-    : 1024
+  editingEmbeddingConfig.model =
+    activeEmbedding.value?.providerId === provider.id ? activeEmbedding.value.model : ''
+  editingEmbeddingConfig.dimension =
+    activeEmbedding.value?.providerId === provider.id ? Number(activeEmbedding.value.dimension || 1024) : 1024
 }
 
+function validatedConfig(data: AiConfig) {
+  if (
+    !data ||
+    !Array.isArray(data.providers) ||
+    data.providers.some((p) => !p.id || typeof p.id !== 'string') ||
+    new Set(data.providers.map((p) => p.id)).size !== data.providers.length
+  )
+    throw new Error('配置回执不完整，不能确认为已配置')
+  return data
+}
+function message(cause: unknown, fallback: string) {
+  return (
+    (cause as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+    (cause instanceof Error ? cause.message : fallback)
+  )
+}
 async function fetchConfig() {
-  if (!canViewAiConfig.value) {
-    config.value = null
-    loading.value = false
-    return
-  }
+  if (!canViewAiConfig.value || loading.value) return
+  const k = session.capture(),
+    r = ++readEpoch
   loading.value = true
+  readError.value = ''
   try {
-    const res = await getAiConfig()
-    config.value = res.data ?? null
-    // 默认展开当前使用的供应商
-    if (activeChat.value?.providerId) {
+    const result = await getAiConfig()
+    if (!session.current(k) || r !== readEpoch) return
+    config.value = validatedConfig(result.data)
+    if (!expandedChatProvider.value && activeChat.value?.providerId)
       expandChatProvider({ id: activeChat.value.providerId } as AiProvider)
-    }
-    if (activeEmbedding.value?.providerId) {
+    if (!expandedEmbeddingProvider.value && activeEmbedding.value?.providerId)
       expandEmbeddingProvider({ id: activeEmbedding.value.providerId } as AiProvider)
+  } catch (cause) {
+    if (session.current(k) && r === readEpoch) {
+      config.value = null
+      readError.value = message(cause, '配置读取失败')
     }
-  } catch {
-    ElMessage.error('加载 AI 配置失败')
   } finally {
+    if (session.current(k) && r === readEpoch) loading.value = false
+  }
+}
+async function mutate(
+  label: string,
+  write: () => Promise<unknown>,
+  confirm: string,
+  preflight?: (fresh: AiConfig) => void,
+  accepted?: () => void,
+) {
+  if (!canViewAiConfig.value || !canManageAiConfig.value || saving.value) return
+  const k = session.capture(),
+    identity = session.auth.token
+  saving.value = true
+  writeError.value = ''
+  try {
+    await ElMessageBox.confirm(confirm, label, {
+      type: 'warning',
+      confirmButtonText: '确认执行',
+      cancelButtonText: '取消',
+      closeOnClickModal: false,
+      cancelButtonClass: session.cancelClass,
+    })
+    if (!session.current(k) || !canManageAiConfig.value) return
+    if (preflight) {
+      const fresh = validatedConfig((await getAiConfig()).data)
+      if (!session.current(k) || !canManageAiConfig.value) return
+      preflight(fresh)
+    }
+    await trackGovernanceWrite(identity, ['ai:configuration'], label, write)
+    if (!session.current(k)) return
+    accepted?.()
+    readEpoch++
     loading.value = false
+    await fetchConfig()
+  } catch (cause) {
+    if (session.current(k) && cause !== 'cancel' && cause !== 'close') {
+      writeError.value = message(cause, '操作失败；结果未知时先核对配置，不自动重发')
+      if (providerForm.apiKey) {
+        providerForm.apiKey = ''
+        writeError.value += '；密钥输入已清除，其余草稿保留。'
+      }
+    }
+  } finally {
+    if (session.current(k)) saving.value = false
+  }
+}
+const hasPending = (c: AiConfig) =>
+  !!(
+    c.pendingEmbedding ||
+    c.vectorizeStatus?.pending ||
+    ['REINDEX_REQUIRED', 'REINDEXING', 'REINDEX_FAILED'].includes(c.vectorizeStatus?.status || '')
+  )
+function chatPreflight(expected: string) {
+  return (fresh: AiConfig) => {
+    if (hasPending(fresh))
+      throw new Error(
+        '已有待切换Embedding；当前Chat保存接口可能取消该配置，本页未提交。需先单独确认后端合同。',
+      )
+    if (JSON.stringify(fresh.activeChat) !== expected)
+      throw new Error('当前Chat配置已变化，未提交；人工草稿保留，请核对后重开。')
   }
 }
 
@@ -198,9 +286,9 @@ function embeddingChanged(providerId: string, model: string, dimension: number) 
   const active = activeEmbedding.value
   if (!active) return false
   return (
-    active.providerId !== providerId
-    || active.model !== model
-    || Number(active.dimension) !== Number(dimension)
+    active.providerId !== providerId ||
+    active.model !== model ||
+    Number(active.dimension) !== Number(dimension)
   )
 }
 
@@ -210,110 +298,171 @@ function buildCollectionName(providerId: string, model: string, dimension: numbe
   return `schema_knowledge_${dimension}_${safeProvider}_${safeModel}`
 }
 
-async function handleUseChat(provider: AiProvider, model: string) {
-  if (!canManageAiConfig.value) {
-    ElMessage.warning('当前账号只有查看权限')
-    return
+function validChatDraft(chat: { temperature: string; timeout: string; maxRetries?: string }) {
+  const scalar = (v: unknown) =>
+    typeof v === 'string' && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(v.trim()) && Number.isFinite(Number(v))
+  const valid =
+    scalar(chat.temperature) &&
+    Number(chat.temperature) >= 0 &&
+    Number(chat.temperature) <= 2 &&
+    typeof chat.timeout === 'string' &&
+    /^\d+$/.test(chat.timeout.trim()) &&
+    Number.isSafeInteger(Number(chat.timeout)) &&
+    Number(chat.timeout) > 0 &&
+    typeof chat.maxRetries === 'string' &&
+    /^\d+$/.test(chat.maxRetries.trim()) &&
+    Number.isSafeInteger(Number(chat.maxRetries)) &&
+    Number(chat.maxRetries) >= 0
+  if (!valid) writeError.value = '温度须为0–2的有限数，超时为正整数秒，重试次数为非负整数；未提交配置。'
+  if (valid) {
+    chat.temperature = String(Number(chat.temperature))
+    chat.timeout = String(Number(chat.timeout))
+    chat.maxRetries = String(Number(chat.maxRetries))
   }
-
-  saving.value = true
-  try {
-    const payload = {
-      chat: {
-        providerId: provider.id,
-        model,
-        temperature: editingChatConfig.temperature,
-        timeout: editingChatConfig.timeout,
-        maxRetries: editingChatConfig.maxRetries,
-      },
-    }
-    const res = await updateAiConfig(payload)
-    config.value = res.data ?? null
-    ElMessage.success('Chat 配置已切换')
-  } catch {
-    ElMessage.error('切换失败')
-  } finally {
-    saving.value = false
-  }
+  return valid
 }
-
-async function handleUseEmbedding(provider: AiProvider, model: string, dimension?: number) {
-  if (!canManageAiConfig.value) {
-    ElMessage.warning('当前账号只有查看权限')
-    return
-  }
-  // 维度必须来自被点击的这一行：此前这里会回落到 editingEmbeddingConfig.dimension，
-  // 而该字段只在展开「当前 active 供应商」时才是真值，其余情况恒为硬编码 1024，
-  // 于是「模型没填维度就直接点使用」会静默按 1024 提交，且确认框里看不到这个数字。
-  if (!dimension || dimension <= 0) {
-    ElMessage.warning('请先填写该模型的 Embedding 维度，或用行内「自动检测」取得维度后再使用')
-    return
-  }
-
-  const willChange = embeddingChanged(provider.id, model, dimension)
-
-  if (willChange) {
-    await ElMessageBox.confirm(
-      `切换 Embedding 模型后需要重新向量化知识库。新索引构建完成前，查询仍使用旧索引。`,
-      '确认切换 Embedding',
-      { type: 'warning', confirmButtonText: '确认并切换', cancelButtonText: '取消' },
+function verifyTarget(
+  fresh: AiConfig,
+  id: string,
+  model: string,
+  kind: 'chatModels' | 'embeddingModels',
+  expected: string,
+) {
+  const provider = fresh.providers.find((p) => p.id === id)
+  if (!provider || !provider[kind]?.some((m) => m.name === model) || JSON.stringify(provider) !== expected)
+    throw new Error('目标供应商或模型已变化/未返回，未提交配置；原草稿保留。')
+}
+function verifyChatAck(
+  data: AiConfig,
+  wanted: { providerId: string; model: string; temperature: string; timeout: string; maxRetries?: string },
+) {
+  const active = data.activeChat
+  const numeric = (v: unknown) =>
+    ((typeof v === 'string' && v.trim() !== '') || typeof v === 'number') && Number.isFinite(Number(v))
+  if (
+    !active ||
+    active.providerId !== wanted.providerId ||
+    active.model !== wanted.model ||
+    ['temperature', 'timeout', 'maxRetries'].some((key) => {
+      const k = key as 'temperature' | 'timeout' | 'maxRetries'
+      return (
+        wanted[k] !== undefined &&
+        (!numeric(active[k]) || !numeric(wanted[k]) || Number(active[k]) !== Number(wanted[k]))
+      )
+    })
+  )
+    throw new Error('Chat配置回执与本次参数不符，结果未知；先核对配置')
+}
+function verifyEmbeddingAck(
+  data: AiConfig,
+  wanted: { providerId: string; model: string; dimension: number },
+) {
+  if (
+    ![data.activeEmbedding, data.pendingEmbedding, data.vectorizeStatus?.pending].some(
+      (x) =>
+        x?.providerId === wanted.providerId && x?.model === wanted.model && x?.dimension === wanted.dimension,
     )
-  }
-
-  saving.value = true
-  try {
-    const payload = {
-      embedding: {
+  )
+    throw new Error('Embedding回执未反映本次精确模型与维度，结果未知；先核对配置')
+}
+async function handleUseChat(provider: AiProvider, model: string) {
+  if (!model || !provider.chatModels?.some((x) => x.name === model)) return
+  const payload = {
+      chat: {
         providerId: provider.id,
         model,
-        dimension,
-        collection: willChange ? buildCollectionName(provider.id, model, dimension) : activeEmbedding.value?.collection,
-        indexVersion: activeEmbedding.value?.indexVersion || 'v1',
-      },
-    }
-    const res = await updateAiConfig(payload)
-    config.value = res.data ?? null
-    ElMessage.success(willChange ? 'Embedding 已切换，待重新向量化' : 'Embedding 配置已切换')
-  } catch (error) {
-    if (error !== 'cancel') ElMessage.error('切换失败')
-  } finally {
-    saving.value = false
-  }
-}
-
-async function handleSaveChatParams() {
-  if (!canManageAiConfig.value) return
-
-  saving.value = true
-  try {
-    const payload = {
-      chat: {
-        providerId: editingChatConfig.providerId,
-        model: editingChatConfig.model,
         temperature: editingChatConfig.temperature,
         timeout: editingChatConfig.timeout,
         maxRetries: editingChatConfig.maxRetries,
       },
-    }
-    const res = await updateAiConfig(payload)
-    config.value = res.data ?? null
-    ElMessage.success('Chat 参数已保存')
-  } catch {
-    ElMessage.error('保存失败')
-  } finally {
-    saving.value = false
+    },
+    expected = JSON.stringify(config.value?.activeChat)
+  if (!validChatDraft(payload.chat)) return
+  const providerFact = JSON.stringify(provider)
+  await mutate(
+    '切换Chat配置',
+    async () => {
+      const result = await updateAiConfig(payload)
+      const data = validatedConfig(result.data)
+      verifyChatAck(data, payload.chat)
+    },
+    `全局Chat改为供应商 ${provider.id} / ${model}；影响后续模型调用，不修改业务数据授权。`,
+    (fresh) => {
+      chatPreflight(expected)(fresh)
+      verifyTarget(fresh, provider.id, model, 'chatModels', providerFact)
+    },
+  )
+}
+async function handleUseEmbedding(provider: AiProvider, model: string, dimension?: number) {
+  if (!Number.isSafeInteger(dimension) || !dimension || dimension <= 0) {
+    writeError.value = '请人工核对并填写该行的正整数维度；自动检测尚不能核验所选供应商。'
+    return
   }
+  const willChange = embeddingChanged(provider.id, model, dimension),
+    original = JSON.stringify([
+      config.value?.activeEmbedding,
+      config.value?.pendingEmbedding,
+      config.value?.vectorizeStatus?.pending,
+    ])
+  const payload = {
+    embedding: {
+      providerId: provider.id,
+      model,
+      dimension,
+      collection: willChange
+        ? buildCollectionName(provider.id, model, dimension)
+        : activeEmbedding.value?.collection,
+      indexVersion: activeEmbedding.value?.indexVersion || 'v1',
+    },
+  }
+  const providerFact = JSON.stringify(provider)
+  await mutate(
+    '变更Embedding配置',
+    async () => {
+      verifyEmbeddingAck(validatedConfig((await updateAiConfig(payload)).data), payload.embedding)
+    },
+    `供应商 ${provider.id} / ${model} / ${dimension}维。变更可能创建或替换待生效配置；当前active与各源RAG构建分别核对，不保证自动切换。`,
+    (fresh) => {
+      verifyTarget(fresh, provider.id, model, 'embeddingModels', providerFact)
+      if (
+        JSON.stringify([fresh.activeEmbedding, fresh.pendingEmbedding, fresh.vectorizeStatus?.pending]) !==
+        original
+      )
+        throw new Error('Embedding配置已变化，未提交；草稿保留')
+    },
+  )
+}
+async function handleSaveChatParams(provider: AiProvider, model: string) {
+  const payload = { chat: { ...editingChatConfig, providerId: provider.id, model } },
+    expected = JSON.stringify(config.value?.activeChat)
+  if (!validChatDraft(payload.chat)) return
+  const providerFact = JSON.stringify(provider)
+  await mutate(
+    '保存Chat参数',
+    async () => {
+      verifyChatAck(validatedConfig((await updateAiConfig(payload)).data), payload.chat)
+    },
+    `保存全局Chat ${payload.chat.providerId} / ${payload.chat.model} 的参数；不运行模型测试。`,
+    (fresh) => {
+      chatPreflight(expected)(fresh)
+      verifyTarget(fresh, provider.id, model, 'chatModels', providerFact)
+    },
+  )
 }
 
 function openCreateProvider() {
-  if (!canManageAiConfig.value) return
+  if (!canManageAiConfig.value || saving.value) return
+  providerDialogSession.value++
+  providerBase.value = ''
   editingProviderId.value = ''
   Object.assign(providerForm, { id: '', name: '', baseUrl: '', apiKey: '' })
   providerDialogVisible.value = true
 }
 
 function openEditProvider(provider: AiProvider) {
-  if (!canManageAiConfig.value) return
+  if (!canManageAiConfig.value || saving.value) return
+  providerDialogSession.value++
+  providerBase.value = JSON.stringify(provider)
   editingProviderId.value = provider.id
   Object.assign(providerForm, {
     id: provider.id,
@@ -325,94 +474,91 @@ function openEditProvider(provider: AiProvider) {
 }
 
 async function saveProvider() {
-  if (!canManageAiConfig.value) {
-    ElMessage.warning('当前账号只有查看权限')
+  if (!providerForm.id?.trim() || !providerForm.baseUrl?.trim()) {
+    writeError.value = '请填写供应商ID与Base URL'
     return
   }
-  if (!providerForm.id || !providerForm.baseUrl) {
-    ElMessage.warning('请填写供应商 ID 和 Base URL')
+  const id = editingProviderId.value,
+    payload = { ...providerForm },
+    original = providerBase.value
+  if (!id && config.value?.providers.some((p) => p.id === payload.id)) {
+    writeError.value = '该供应商ID已存在，未创建或覆盖；请从原记录编辑。'
+    providerForm.apiKey = ''
     return
   }
-  try {
-    if (editingProviderId.value) {
-      await updateAiProvider(editingProviderId.value, providerForm)
-    } else {
-      await createAiProvider(providerForm)
-    }
-    providerDialogVisible.value = false
-    ElMessage.success('供应商已保存')
-    await fetchConfig()
-  } catch {
-    ElMessage.error('供应商保存失败')
-  }
+  await mutate(
+    id ? '更新供应商' : '创建供应商',
+    async () => {
+      const result = id ? await updateAiProvider(id, payload) : await createAiProvider(payload)
+      if (!result.data || result.data.id !== (id || payload.id))
+        throw new Error('供应商保存回执不符，结果未知；先核对原ID')
+    },
+    `${id ? '更新' : '创建'}供应商 ${id || payload.id}（${payload.name || '未命名'}）；密钥只提交本次新输入，留空保留已有值，界面不读取原密钥。`,
+    (fresh) => {
+      if (!id && fresh.providers.some((p) => p.id === payload.id))
+        throw new Error('该供应商ID已在其他会话出现，未创建或覆盖；请从原记录编辑。')
+      if (id && JSON.stringify(fresh.providers.find((p) => p.id === id)) !== original)
+        throw new Error('原供应商已变化或消失，未提交；人工草稿保留')
+    },
+    () => {
+      providerForm.apiKey = ''
+      providerDialogVisible.value = false
+    },
+  )
 }
-
 async function handleDeleteProvider(provider: AiProvider) {
-  if (!canManageAiConfig.value) return
-  await ElMessageBox.confirm(`确认删除供应商 ${provider.name || provider.id}？`, '删除供应商', {
-    type: 'warning',
-    confirmButtonText: '删除',
-    cancelButtonText: '取消',
-  })
-  try {
-    await deleteAiProvider(provider.id)
-    ElMessage.success('供应商已删除')
-    await fetchConfig()
-  } catch {
-    ElMessage.error('删除失败，可能正在被 active 或 pending 配置引用')
-  }
+  const id = provider.id,
+    original = JSON.stringify(provider)
+  await mutate(
+    '删除供应商',
+    () => deleteAiProvider(id),
+    `精确删除供应商 ${id}（${provider.name || '未命名'}）。当前active/pending引用由服务端重验，不自动迁移配置。`,
+    (fresh) => {
+      if (JSON.stringify(fresh.providers.find((p) => p.id === id)) !== original)
+        throw new Error('供应商已变化，未执行删除')
+    },
+  )
 }
-
 async function handleTestProvider(provider: AiProvider) {
-  if (!canManageAiConfig.value) return
-  try {
-    await testAiProvider(provider.id)
-    ElMessage.success('连接测试完成')
-    await fetchConfig()
-  } catch {
-    ElMessage.error('连接测试失败')
-  }
+  const id = provider.id
+  await mutate(
+    '测试供应商连接',
+    () => testAiProvider(id),
+    `供应商 ${id}：将请求供应商模型目录，并持久化连接状态和模型列表；不是业务问数验收。`,
+  )
 }
-
-/** 同步供应商模型列表（§7.19 要求的「模型同步」显式入口） */
 async function handleSyncModels(provider: AiProvider) {
-  if (!canManageAiConfig.value) return
-  syncingProviderId.value = provider.id
-  try {
-    await syncAiProviderModels(provider.id)
-    ElMessage.success('模型列表已同步')
-    await fetchConfig()
-  } catch (cause) {
-    const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
-    ElMessage.error(message || '模型同步失败')
-  } finally {
-    syncingProviderId.value = ''
-  }
+  const id = provider.id
+  await mutate(
+    '同步供应商模型',
+    () => syncAiProviderModels(id),
+    `供应商 ${id}：将访问模型目录并更新已保存列表和连接状态。`,
+  )
 }
-
-/** 自动检测 Embedding 维度（后端 /detect-dimension），避免手工填写出错 */
-async function handleDetectDimension(providerId: string, model: { name: string; dimension?: number }) {
-  if (!canManageAiConfig.value) return
-  detectingDimension.value = true
-  try {
-    const result = await detectEmbeddingDimension({
-      providerId,
-      model: model.name,
-    })
-    const dimension = result.data?.dimension
-    if (typeof dimension === 'number' && dimension > 0) {
-      model.dimension = dimension
-      ElMessage.success(`检测到维度 ${dimension}`)
-    } else {
-      ElMessage.warning('未检测到维度，请确认模型与密钥是否可用')
-    }
-  } catch (cause) {
-    const message = (cause as { response?: { data?: { message?: string } } })?.response?.data?.message
-    ElMessage.error(message || '维度检测失败')
-  } finally {
-    detectingDimension.value = false
-  }
+function handleDetectDimension(_providerId: string, _model: { name: string; dimension?: number }) {
+  writeError.value = '现有检测接口不能核验所选供应商，暂不发起检测；请人工确认该行维度。'
 }
+watch(providerDialogVisible, (visible) => {
+  if (!visible) providerForm.apiKey = ''
+})
+watch(
+  session.key,
+  () => {
+    readEpoch++
+    config.value = null
+    loading.value = false
+    saving.value = false
+    providerDialogVisible.value = false
+    providerForm.apiKey = ''
+    readError.value = ''
+    writeError.value = ''
+    expandedChatProvider.value = ''
+    expandedEmbeddingProvider.value = ''
+    Object.keys(dimensionDrafts).forEach((key) => delete dimensionDrafts[key])
+    if (canViewAiConfig.value) void fetchConfig()
+  },
+  { immediate: true },
+)
 
 /**
  * 触发重新向量化（§7.19）。
@@ -420,14 +566,30 @@ async function handleDetectDimension(providerId: string, model: { name: string; 
  * 必须展示影响范围与当前状态，不作为普通保存操作的一部分——因此这里先确认，
  * 再把后端返回的进度/失败信息展示出来。
  */
-fetchConfig()
 </script>
 
 <template>
   <div class="ai-config-page" v-loading="loading">
-    <TaskPageHeader title="AI 服务配置" description="管理供应商、模型和参数。点击卡片展开详情，选择使用的配置。">
+    <p class="ai-eyebrow">运营与平台 / 模型与配置</p>
+    <GovernanceWriteNotice />
+    <p v-if="writeError" class="config-error" role="alert">{{ writeError }}</p>
+    <ErrorState v-if="readError" :message="readError" @retry="fetchConfig" />
+    <p v-if="!canViewAiConfig" role="status">
+      {{ session.iam.errorMessage || '当前没有AI配置查看权限，未读取配置。' }}
+    </p>
+    <TaskPageHeader
+      title="AI 服务配置"
+      description="管理供应商、模型和参数。先核对当前生效与待切换配置，再按供应商维护模型。"
+    >
       <template #actions>
-        <el-button :icon="Plus" :disabled="!canManageAiConfig" :title="canManageAiConfig ? '' : '需要 system:ai-config:manage'" @click="openCreateProvider">添加供应商</el-button>
+        <el-button
+          :icon="Plus"
+          :disabled="!canManageAiConfig || saving"
+          :title="canManageAiConfig ? '' : '需要 system:ai-config:manage'"
+          @click="openCreateProvider"
+        >
+          添加供应商
+        </el-button>
         <el-button :icon="RefreshCw" :loading="loading" @click="fetchConfig">刷新</el-button>
       </template>
     </TaskPageHeader>
@@ -439,21 +601,23 @@ fetchConfig()
           <span class="tile-icon chat"><Sparkles :size="18" /></span>
           <div>
             <span>当前 Chat</span>
-            <strong>{{ activeChat?.providerId }} / {{ activeChat?.model }}</strong>
+            <strong>{{ activeChat?.providerId || '未配置' }} / {{ activeChat?.model || '—' }}</strong>
           </div>
         </div>
         <div class="status-tile active">
           <span class="tile-icon embedding"><Database :size="18" /></span>
           <div>
             <span>当前 Embedding</span>
-            <strong>{{ activeEmbedding?.providerId }} / {{ activeEmbedding?.model }}</strong>
+            <strong>
+              {{ activeEmbedding?.providerId || '未配置' }} / {{ activeEmbedding?.model || '—' }}
+            </strong>
           </div>
         </div>
         <div class="status-tile">
           <span class="tile-icon collection"><HardDrive :size="18" /></span>
           <div>
             <span>Collection</span>
-            <strong>{{ activeEmbedding?.collection || 'schema_knowledge' }}</strong>
+            <strong>{{ activeEmbedding?.collection || '未返回' }}</strong>
           </div>
         </div>
         <div class="status-tile">
@@ -463,11 +627,17 @@ fetchConfig()
             <el-tag :type="vectorizeTone" size="small">
               {{ vectorizeStatusLabel }}
             </el-tag>
-            <span class="tile-sub">{{ vectorizeStatus?.status || 'NORMAL' }}</span>
+            <span class="tile-sub">{{ vectorizeStatus?.status || 'UNKNOWN' }}</span>
           </div>
         </div>
       </div>
-      <el-alert v-if="vectorizeMessage" type="warning" show-icon :closable="false" :title="vectorizeMessage" />
+      <el-alert
+        v-if="vectorizeMessage"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="vectorizeMessage"
+      />
 
       <!--
         影响范围、当前进度与失败信息（§7.19）。
@@ -481,23 +651,33 @@ fetchConfig()
         <div class="vectorize-panel__info">
           <p v-if="vectorizeStatus?.pending">
             待生效配置：{{ vectorizeStatus.pending.model }}（维度 {{ vectorizeStatus.pending.dimension }}）；
-            当前生效：{{ vectorizeStatus.active?.model || '无' }}（维度 {{ vectorizeStatus.active?.dimension || '—' }}）
+            当前生效：{{ vectorizeStatus.active?.model || '无' }}（维度
+            {{ vectorizeStatus.active?.dimension || '—' }}）
           </p>
-          <p v-else>当前生效：{{ vectorizeStatus?.active?.model || '未配置' }}（维度 {{ vectorizeStatus?.active?.dimension || '—' }}）</p>
+          <p v-else>
+            当前生效：{{ vectorizeStatus?.active?.model || '未配置' }}（维度
+            {{ vectorizeStatus?.active?.dimension || '—' }}）
+          </p>
           <p v-if="(vectorizeStatus?.totalChunks ?? 0) > 0">
-            切片进度：已完成 {{ vectorizeStatus?.completedChunks ?? 0 }} / 共 {{ vectorizeStatus?.totalChunks }}
+            切片进度：已完成 {{ vectorizeStatus?.completedChunks ?? 0 }} / 共
+            {{ vectorizeStatus?.totalChunks }}
             <span v-if="vectorizeStatus?.failedChunks">，失败 {{ vectorizeStatus?.failedChunks }}</span>
           </p>
           <p v-if="vectorizeStatus?.errorMessage" class="is-error">
             失败原因：{{ vectorizeStatus?.errorMessage }}
           </p>
         </div>
-        <el-tag type="info">发布后请在知识文档页显式确认 RAG 构建；Embedding 配置切换与各源 RAG 就绪分别核验。</el-tag>
+        <el-tag type="info">
+          发布后请在知识文档页显式确认 RAG 构建；Embedding 配置切换与各源 RAG 就绪分别核验。
+        </el-tag>
       </div>
     </section>
 
     <!-- Tab 切换 -->
-    <section class="config-section">
+    <section v-if="canViewAiConfig && config" class="config-section">
+      <p class="config-note">
+        测试与同步会连接供应商并更新目录。现有自动维度检测尚不能核验所选供应商，暂不可用；请人工确认维度。存在待切换Embedding时，普通Chat保存暂不提交，避免旧接口取消待配置。
+      </p>
       <div class="tab-header">
         <button :class="{ active: activeTab === 'chat' }" @click="selectTab('chat')">
           <Sparkles :size="16" aria-hidden="true" />
@@ -526,22 +706,47 @@ fetchConfig()
         >
           <!-- 卡片头部 -->
           <div class="card-header" @click="expandChatProvider(provider)">
-            <div class="card-title">
+            <button
+              type="button"
+              class="card-title provider-opener"
+              @click.stop="expandChatProvider(provider)"
+              :aria-expanded="expandedChatProvider === provider.id"
+            >
               <Server :size="16" />
               <strong>{{ provider.name || provider.id }}</strong>
               <el-tag
                 size="small"
-                :type="provider.status === 'connected' ? 'success' : provider.status === 'failed' ? 'danger' : 'info'"
+                :type="
+                  provider.status === 'connected'
+                    ? 'success'
+                    : provider.status === 'failed'
+                      ? 'danger'
+                      : 'info'
+                "
               >
-                {{ provider.status || 'unknown' }}
+                {{
+                  provider.status === 'connected'
+                    ? '已连接'
+                    : provider.status === 'failed'
+                      ? '测试失败'
+                      : '尚未确认'
+                }}
               </el-tag>
-            </div>
+            </button>
             <div class="card-summary">
               <span>{{ provider.baseUrl }}</span>
-              <span>{{ provider.chatModels?.length || 0 }} 个模型</span>
+              <span>{{ provider.chatModels ? provider.chatModels.length : '未返回' }} 个模型</span>
             </div>
             <div class="card-actions" @click.stop>
-              <el-button :icon="Wifi" size="small" circle title="测试连接" aria-label="测试供应商连接" @click="handleTestProvider(provider)" />
+              <el-button
+                :icon="Wifi"
+                size="small"
+                :disabled="!canManageAiConfig || saving"
+                circle
+                title="测试连接"
+                aria-label="测试供应商连接"
+                @click="handleTestProvider(provider)"
+              />
               <el-button
                 :icon="RefreshCw"
                 size="small"
@@ -549,17 +754,37 @@ fetchConfig()
                 title="同步模型"
                 aria-label="同步供应商模型列表"
                 :loading="syncingProviderId === provider.id"
+                :disabled="!canManageAiConfig || saving"
                 @click="handleSyncModels(provider)"
               />
-              <el-button size="small" circle title="编辑" aria-label="编辑供应商" @click="openEditProvider(provider)">
+              <el-button
+                size="small"
+                :disabled="!canManageAiConfig || saving"
+                circle
+                title="编辑"
+                aria-label="编辑供应商"
+                @click="openEditProvider(provider)"
+              >
                 <Edit :size="12" />
               </el-button>
-              <el-button :icon="Trash2" size="small" type="danger" plain circle aria-label="删除供应商" @click="handleDeleteProvider(provider)" />
+              <el-button
+                :icon="Trash2"
+                size="small"
+                type="danger"
+                :disabled="!canManageAiConfig || saving"
+                plain
+                circle
+                aria-label="删除供应商"
+                @click="handleDeleteProvider(provider)"
+              />
             </div>
           </div>
 
           <!-- 卡片详情（展开后显示） -->
           <div v-if="expandedChatProvider === provider.id" class="card-body">
+            <p v-if="!provider.chatModels?.length" class="config-note">
+              尚无返回的Chat模型；仍可维护供应商，按需测试或同步模型目录。
+            </p>
             <div class="model-list">
               <div
                 v-for="model in provider.chatModels"
@@ -579,7 +804,7 @@ fetchConfig()
                     <el-input
                       v-model="editingChatConfig.temperature"
                       size="small"
-                      :disabled="!canManageAiConfig"
+                      :disabled="!canManageAiConfig || saving"
                       @click.stop
                     />
                   </label>
@@ -588,7 +813,7 @@ fetchConfig()
                     <el-input
                       v-model="editingChatConfig.timeout"
                       size="small"
-                      :disabled="!canManageAiConfig"
+                      :disabled="!canManageAiConfig || saving"
                       @click.stop
                     />
                   </label>
@@ -597,7 +822,7 @@ fetchConfig()
                     <el-input
                       v-model="editingChatConfig.maxRetries"
                       size="small"
-                      :disabled="!canManageAiConfig"
+                      :disabled="!canManageAiConfig || saving"
                       @click.stop
                     />
                   </label>
@@ -609,24 +834,18 @@ fetchConfig()
                     size="small"
                     :icon="Check"
                     :loading="saving"
+                    :disabled="!canManageAiConfig || saving"
                     @click.stop="handleUseChat(provider, model.name)"
                   >
                     使用
                   </el-button>
-                  <el-button
-                    v-else
-                    type="success"
-                    size="small"
-                    :icon="Check"
-                    disabled
-                  >
-                    使用中
-                  </el-button>
+                  <el-button v-else type="success" size="small" :icon="Check" disabled>使用中</el-button>
                   <el-button
                     v-if="isChatActive(provider.id, model.name)"
                     size="small"
                     :loading="saving"
-                    @click.stop="handleSaveChatParams"
+                    :disabled="!canManageAiConfig || saving"
+                    @click.stop="handleSaveChatParams(provider, model.name)"
                   >
                     保存参数
                   </el-button>
@@ -654,22 +873,47 @@ fetchConfig()
         >
           <!-- 卡片头部 -->
           <div class="card-header" @click="expandEmbeddingProvider(provider)">
-            <div class="card-title">
+            <button
+              type="button"
+              class="card-title provider-opener"
+              @click.stop="expandEmbeddingProvider(provider)"
+              :aria-expanded="expandedEmbeddingProvider === provider.id"
+            >
               <Server :size="16" />
               <strong>{{ provider.name || provider.id }}</strong>
               <el-tag
                 size="small"
-                :type="provider.status === 'connected' ? 'success' : provider.status === 'failed' ? 'danger' : 'info'"
+                :type="
+                  provider.status === 'connected'
+                    ? 'success'
+                    : provider.status === 'failed'
+                      ? 'danger'
+                      : 'info'
+                "
               >
-                {{ provider.status || 'unknown' }}
+                {{
+                  provider.status === 'connected'
+                    ? '已连接'
+                    : provider.status === 'failed'
+                      ? '测试失败'
+                      : '尚未确认'
+                }}
               </el-tag>
-            </div>
+            </button>
             <div class="card-summary">
               <span>{{ provider.baseUrl }}</span>
-              <span>{{ provider.embeddingModels?.length || 0 }} 个模型</span>
+              <span>{{ provider.embeddingModels ? provider.embeddingModels.length : '未返回' }} 个模型</span>
             </div>
             <div class="card-actions" @click.stop>
-              <el-button :icon="Wifi" size="small" circle title="测试连接" aria-label="测试供应商连接" @click="handleTestProvider(provider)" />
+              <el-button
+                :icon="Wifi"
+                size="small"
+                :disabled="!canManageAiConfig || saving"
+                circle
+                title="测试连接"
+                aria-label="测试供应商连接"
+                @click="handleTestProvider(provider)"
+              />
               <el-button
                 :icon="RefreshCw"
                 size="small"
@@ -677,28 +921,54 @@ fetchConfig()
                 title="同步模型"
                 aria-label="同步供应商模型列表"
                 :loading="syncingProviderId === provider.id"
+                :disabled="!canManageAiConfig || saving"
                 @click="handleSyncModels(provider)"
               />
-              <el-button size="small" circle title="编辑" aria-label="编辑供应商" @click="openEditProvider(provider)">
+              <el-button
+                size="small"
+                :disabled="!canManageAiConfig || saving"
+                circle
+                title="编辑"
+                aria-label="编辑供应商"
+                @click="openEditProvider(provider)"
+              >
                 <Edit :size="12" />
               </el-button>
-              <el-button :icon="Trash2" size="small" type="danger" plain circle aria-label="删除供应商" @click="handleDeleteProvider(provider)" />
+              <el-button
+                :icon="Trash2"
+                size="small"
+                type="danger"
+                :disabled="!canManageAiConfig || saving"
+                plain
+                circle
+                aria-label="删除供应商"
+                @click="handleDeleteProvider(provider)"
+              />
             </div>
           </div>
 
           <!-- 卡片详情（展开后显示） -->
           <div v-if="expandedEmbeddingProvider === provider.id" class="card-body">
+            <p v-if="!provider.embeddingModels?.length" class="config-note">
+              尚无返回的Embedding模型；仍可维护供应商，按需测试或同步模型目录。
+            </p>
             <div class="model-list">
               <div
                 v-for="model in provider.embeddingModels"
                 :key="model.name"
                 class="model-item"
-                :class="{ active: isEmbeddingActive(provider.id, model.name) }"
+                :class="{
+                  active: isEmbeddingActive(provider.id, model.name, dimensionFor(provider.id, model)),
+                }"
               >
                 <div class="model-info">
                   <strong>{{ model.displayName || model.name }}</strong>
                   <span v-if="model.dimension" class="dimension-tag">{{ model.dimension }} 维</span>
-                  <el-tag v-if="isEmbeddingActive(provider.id, model.name)" type="success" size="small">
+                  <el-tag
+                    v-if="isEmbeddingActive(provider.id, model.name, dimensionFor(provider.id, model))"
+                    type="success"
+                    size="small"
+                  >
                     使用中
                   </el-tag>
                 </div>
@@ -706,11 +976,14 @@ fetchConfig()
                   <label>
                     <span>向量维度</span>
                     <el-input-number
-                      v-model="model.dimension"
+                      :model-value="dimensionFor(provider.id, model)"
+                      @update:model-value="
+                        (value: number | undefined) => setDimension(provider.id, model.name, value)
+                      "
                       size="small"
                       :min="1"
                       :step="1"
-                      :disabled="!canManageAiConfig"
+                      :disabled="!canManageAiConfig || saving"
                       @click.stop
                     />
                   </label>
@@ -719,35 +992,34 @@ fetchConfig()
                     size="small"
                     :icon="Ruler"
                     :loading="detectingDimension"
-                    :disabled="!canManageAiConfig"
+                    :disabled="true"
+                    title="当前接口不能核验所选供应商，请人工确认维度"
                     aria-label="自动检测向量维度"
                     @click.stop="handleDetectDimension(provider.id, model)"
-                  >自动检测</el-button>
+                  >
+                    自动检测
+                  </el-button>
                 </div>
                 <div class="model-actions">
                   <el-button
-                    v-if="!isEmbeddingActive(provider.id, model.name)"
+                    v-if="!isEmbeddingActive(provider.id, model.name, dimensionFor(provider.id, model))"
                     type="primary"
                     size="small"
                     :icon="Check"
                     :loading="saving"
-                    @click.stop="handleUseEmbedding(provider, model.name, model.dimension)"
+                    :disabled="!canManageAiConfig || saving"
+                    @click.stop="handleUseEmbedding(provider, model.name, dimensionFor(provider.id, model))"
                   >
                     使用
                   </el-button>
-                  <el-button
-                    v-else
-                    type="success"
-                    size="small"
-                    :icon="Check"
-                    disabled
-                  >
-                    使用中
-                  </el-button>
+                  <el-button v-else type="success" size="small" :icon="Check" disabled>使用中</el-button>
                 </div>
               </div>
             </div>
-            <div v-if="activeEmbedding?.providerId !== provider.id && expandedEmbeddingProvider === provider.id" class="change-notice">
+            <div
+              v-if="activeEmbedding?.providerId !== provider.id && expandedEmbeddingProvider === provider.id"
+              class="change-notice"
+            >
               <el-alert type="warning" show-icon :closable="false">
                 切换 Embedding 后需要重新向量化知识库
               </el-alert>
@@ -758,22 +1030,34 @@ fetchConfig()
     </section>
 
     <!-- 供应商编辑对话框 -->
-    <el-dialog v-model="providerDialogVisible" title="供应商" width="520px">
-      <el-form label-width="100px" label-position="left">
+    <el-dialog
+      v-model="providerDialogVisible"
+      title="供应商"
+      width="520px"
+      :close-on-click-modal="!saving"
+      :close-on-press-escape="!saving"
+      :show-close="!saving"
+    >
+      <p v-if="writeError" role="alert">{{ writeError }}</p>
+      <el-form :key="providerDialogSession" label-position="top" :disabled="saving">
         <el-form-item label="ID">
           <el-input
             v-model="providerForm.id"
-            :disabled="Boolean(editingProviderId) || !canManageAiConfig"
+            :disabled="Boolean(editingProviderId) || !canManageAiConfig || saving"
             placeholder="dashscope"
           />
         </el-form-item>
         <el-form-item label="名称">
-          <el-input v-model="providerForm.name" :disabled="!canManageAiConfig" placeholder="通义千问" />
+          <el-input
+            v-model="providerForm.name"
+            :disabled="!canManageAiConfig || saving"
+            placeholder="通义千问"
+          />
         </el-form-item>
         <el-form-item label="Base URL">
           <el-input
             v-model="providerForm.baseUrl"
-            :disabled="!canManageAiConfig"
+            :disabled="!canManageAiConfig || saving"
             placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
           />
         </el-form-item>
@@ -782,20 +1066,66 @@ fetchConfig()
             v-model="providerForm.apiKey"
             type="password"
             show-password
-            :disabled="!canManageAiConfig"
+            :disabled="!canManageAiConfig || saving"
             placeholder="留空则不修改"
           />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="providerDialogVisible = false">取消</el-button>
-        <el-button v-if="canManageAiConfig" type="primary" @click="saveProvider">保存</el-button>
+        <el-button :disabled="saving" @click="providerDialogVisible = false">取消</el-button>
+        <el-button v-if="canManageAiConfig" type="primary" :loading="saving" @click="saveProvider">
+          保存
+        </el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <style scoped>
+.provider-opener {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.provider-opener:focus-visible {
+  outline: 2px solid var(--do-primary);
+  outline-offset: 5px;
+}
+.ai-eyebrow {
+  margin: 0;
+  color: var(--do-primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+.config-note {
+  padding: 14px 0;
+  margin: 0;
+  color: var(--do-muted);
+  font-size: 13px;
+  line-height: 1.7;
+  border-bottom: 1px solid var(--do-line);
+}
+.config-error {
+  color: var(--do-danger);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ai-config-page .provider-card,
+.ai-config-page .status-tile {
+  box-shadow: none;
+  background: var(--do-surface);
+  border-radius: 12px;
+}
+.ai-config-page .status-tile.active {
+  border-color: var(--do-line);
+  background: var(--do-bg);
+}
+.ai-config-page :deep(.el-dialog) {
+  max-width: calc(100vw - 24px);
+}
 .tile-sub {
   display: block;
   margin-top: 4px;
@@ -837,7 +1167,6 @@ fetchConfig()
 .ai-config-page {
   max-width: 1080px;
 }
-
 
 /* 状态区域 */
 .status-section {
@@ -1110,5 +1439,4 @@ fetchConfig()
 .change-notice {
   margin-top: 12px;
 }
-
 </style>
