@@ -122,7 +122,7 @@ public final class IamS1FunctionCatalog {
     /**
      * B0 标为「源/全」的混合码：同一功能在“术语关联了数据源”时按源校验、
      * 未关联时按全局校验。**语义已于批次 5 定稿**（见
-     * `docs/development/guides/DataOcean-IAM-SIMPLE-1鉴权接入设计.md` §11.7）：
+     * `docs/modules/007-iam-s1.md`「固定功能目录」）：
      *
      * <ul>
      *   <li>术语/术语表**未关联任何数据源**时只校验功能，不推导任何数据源权限；</li>

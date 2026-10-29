@@ -37,7 +37,7 @@ const queryDatasourceId = computed(() => Number(route.query.datasourceId) || und
 const querySnapshotId = computed(() => Number(route.query.snapshotId) || undefined)
 const selectedDatasourceLabel = computed(() => {
   const item = context.datasources.find((datasource) => datasource.id === context.datasourceId)
-  return item ? `${item.name} / ${item.databaseName}` : undefined
+  return item ? `${item.name}${item.databaseName ? ` / ${item.databaseName}` : ''}` : undefined
 })
 
 async function syncFromUrl() {
@@ -177,8 +177,8 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
             v-for="item in context.datasources"
             :key="item.id"
             :value="item.id"
-            :label="item.name + ' / ' + item.databaseName"
-            :title="item.name + ' / ' + item.databaseName"
+            :label="item.name + (item.databaseName ? ' / ' + item.databaseName : '')"
+            :title="item.name + (item.databaseName ? ' / ' + item.databaseName : '')"
           />
         </el-select>
       </div>

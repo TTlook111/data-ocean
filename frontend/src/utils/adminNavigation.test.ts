@@ -78,7 +78,7 @@ describe('admin navigation metadata', () => {
 describe('后台面包屑', () => {
   it('工作台显示首页和当前页', () => {
     expect(buildAdminBreadcrumbs({ title: '工作台', workspaceKey: 'workbench' })).toEqual([
-      { key: 'home', label: 'DataOcean', to: { path: '/admin/workbench' } },
+      { key: 'home', label: 'DataOcean', to: { path: '/admin' } },
       { key: 'current', label: '工作台', current: true },
     ])
   })

@@ -90,7 +90,7 @@ def prepare(api):
             path=f"/api/admin/field-semantics/columns/{cid}"
             current=api.call("GET",path+f"/details?snapshotId={sid}")
             name,meaning=meanings[column["columnName"]]
-            approved=next((r for r in current.get("revisions",[]) if r["id"]==current.get("currentApprovedRevisionId")),{})
+            approved=next((r for r in (current.get("revisions") or []) if r["id"]==current.get("currentApprovedRevisionId")),{})
             if approved.get("meaning")!=meaning:
                 if current.get("workingStatus")=="PENDING_REVIEW":
                     current=api.call("POST",path+"/withdraw",{"expectedVersion":current["rowVersion"],"reason":CONTRACT})

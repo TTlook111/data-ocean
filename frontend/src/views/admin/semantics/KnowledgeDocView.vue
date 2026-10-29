@@ -3,7 +3,7 @@
  * 知识文档详情容器
  *
  * 合并旧 SkillsEditor.vue（编辑、AI 生成草稿、提交、发布）与 VersionList.vue（版本、回滚），
- * 并补齐切分预览与索引状态，使「草稿 → 待审核 → 已批准 → 索引中 → 已发布」各阶段不再混淆。
+ * 文档主链为「草稿 → 待审核 → 已批准 → 已发布」；数据源级 RAG 构建在知识列表单独确认。
  *
  * 后端事实（KnowledgeDocLifecycleService / KnowledgeDocCrudService）：
  * - submitReview 只接受 DRAFT；approve / reject 只接受 PENDING_REVIEW；publish 只接受 APPROVED。
@@ -47,7 +47,7 @@ import {
   type RagIndexBuildSummary,
   type VectorIndexTaskItem,
 } from '../../../api/admin/knowledge'
-import { listSimpleDatasources, type DatasourceSimpleItem } from '../../../api/admin/datasource'
+import { listSimpleDatasources } from '../../../api/admin/datasource'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import {
   generationSourceLabel,
@@ -59,7 +59,7 @@ import {
   vectorTaskStatusLabel,
   vectorTaskStatusType,
 } from '../../../utils/enumLabels'
-import { useAdminContextStore } from '../../../stores/adminContext'
+import { useAdminContextStore, type AdminDatasourceOption } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import KnowledgeSourcePreview from '../../../components/admin/KnowledgeSourcePreview.vue'
@@ -87,14 +87,19 @@ const mayView = computed(
   () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:view').length > 0,
 )
 const mayManage = computed(
-  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:manage').length > 0,
+  () => iamS1.systemAdmin || (doc.value != null && iamS1.datasourcesWithFunction('knowledge:manage').includes(doc.value.datasourceId)),
 )
 const mayApprove = computed(
-  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:approve').length > 0,
+  () => iamS1.systemAdmin || (doc.value != null && iamS1.datasourcesWithFunction('knowledge:approve').includes(doc.value.datasourceId)),
 )
 const mayPublish = computed(
-  () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:publish').length > 0,
+  () => iamS1.systemAdmin || (doc.value != null && iamS1.datasourcesWithFunction('knowledge:publish').includes(doc.value.datasourceId)),
 )
+const mayViewSnapshots = computed(
+  () => iamS1.systemAdmin || (doc.value != null && iamS1.datasourcesWithFunction('metadata:view').includes(doc.value.datasourceId)),
+)
+const mayGenerate = computed(() => mayManage.value && mayViewSnapshots.value)
+const GENERATE_HINT = '按快照生成目录需要该数据源的知识维护与元数据查看能力；已授权文档仍可手动编辑。'
 const VIEW_HINT = '没有“查看知识文档”能力：需要角色拥有 knowledge:view 并负责该文档的数据源。'
 const MANAGE_HINT = '没有“维护知识文档”能力：需要角色拥有 knowledge:manage 并负责该文档的数据源。'
 const APPROVE_HINT = '没有“审核知识文档”能力：需要角色拥有 knowledge:approve 并负责该文档的数据源。'
@@ -105,7 +110,7 @@ const activeTab = ref(String(route.query.tab || 'content'))
 
 const doc = ref<KnowledgeDocItem | null>(null)
 const versions = ref<KnowledgeVersionItem[]>([])
-const datasources = ref<DatasourceSimpleItem[]>([])
+const datasources = ref<AdminDatasourceOption[]>([])
 const snapshots = ref<SnapshotItem[]>([])
 const chunks = ref<KnowledgeChunkPreview[]>([])
 
@@ -217,6 +222,11 @@ function selectTab(tab: string) {
   router.push({ query: { ...route.query, tab } })
 }
 
+function goAsk() {
+  if (!iamS1.queryUse) return
+  router.push('/query')
+}
+
 async function loadDoc() {
   // 无 knowledge:view 时不要发这个必然 403 的请求，改为展示中文原因
   if (!mayView.value) {
@@ -274,7 +284,7 @@ async function refreshDocument() {
  * 那会让用户以为该数据源没有快照。改为记录错误，由对话框展示。
  */
 async function loadSnapshots() {
-  if (!doc.value?.datasourceId) return
+  if (!doc.value?.datasourceId || !mayViewSnapshots.value) { snapshots.value = []; return }
   snapshotError.value = ''
   try {
     snapshots.value = (await listSnapshots({ datasourceId: doc.value.datasourceId, page: 1, size: 50 })).data?.records || []
@@ -403,12 +413,13 @@ const semanticAssistant = ref<InstanceType<typeof KnowledgeSemanticAssistant>>()
 const generateSnapshotId = ref<number>()
 
 function openGenerate() {
-  if (!mayManage.value) { ElMessage.warning(MANAGE_HINT); return }
+  if (!mayGenerate.value) { ElMessage.warning(GENERATE_HINT); return }
   generateSnapshotId.value = context.snapshotId || snapshots.value[0]?.id
   generateVisible.value = true
 }
 
 async function runGenerate() {
+  if (!mayGenerate.value) { ElMessage.warning(GENERATE_HINT); return }
   if (doc.value && content.value !== (doc.value.content || '')) { ElMessage.warning('请先保存当前编辑内容，再生成独立新草稿'); return }
   if (!generateSnapshotId.value) {
     ElMessage.warning('请选择用于生成草稿的快照')
@@ -601,7 +612,8 @@ async function loadRagBuilds() {
 onMounted(async () => {
   await iamS1.load()
   try {
-    datasources.value = (await listSimpleDatasources()).data || []
+    datasources.value = iamS1.systemAdmin ? (await listSimpleDatasources()).data || []
+      : iamS1.datasourceCapabilities.map(item => ({ id: item.datasourceId, name: item.datasourceName }))
   } catch {
     datasources.value = []
   }
@@ -662,7 +674,7 @@ watch(() => route.query.tab, (value) => {
       <TaskPageHeader
         eyebrow="知识文档"
         :title="doc.title"
-        description="编辑当前知识主题，审核后发布；同一快照的多篇文档共同覆盖业务知识。RAG 构建仍需单独确认。"
+        description="编辑当前知识主题，审核后发布；同一快照的多篇文档共同覆盖业务知识。满足来源与覆盖要求后，在知识列表显式确认 RAG 构建。"
       >
         <template #status>
           <BusinessStatusBadge :status="doc.status" :label="knowledgeStatusLabel(doc.status)" />
@@ -673,7 +685,7 @@ watch(() => route.query.tab, (value) => {
           <el-button v-if="canEdit && mayManage" :icon="Save" :loading="saving" @click="save">
             {{ status === 'DRAFT' ? '保存' : '保存并新建版本' }}
           </el-button>
-          <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" @click="openGenerate">按快照生成目录</el-button>
+          <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" :disabled="!mayGenerate" :title="mayGenerate ? '' : GENERATE_HINT" @click="openGenerate">按快照生成目录</el-button>
           <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" :disabled="content !== (doc.content || '')" title="请先保存当前编辑内容，再补写业务释义" @click="semanticAssistant?.open()">AI 辅助补写</el-button>
 
           <el-button v-if="canSubmitReview && mayManage" type="primary" :icon="Send" :loading="actionLoading" @click="submit">
@@ -689,7 +701,7 @@ watch(() => route.query.tab, (value) => {
           <el-button v-else-if="isPublished && mayPublish" :icon="RefreshCw" @click="router.push({ name: 'admin-semantic-knowledge', query: { datasourceId: String(doc.datasourceId) } })">
             RAG build 状态
           </el-button>
-          <el-button v-else-if="isPublished" type="primary" :icon="MessageSquareText" @click="router.push('/query')">
+          <el-button v-else-if="isPublished && iamS1.queryUse" type="primary" :icon="MessageSquareText" @click="goAsk">
             进入智能问数
           </el-button>
         </template>
@@ -708,11 +720,12 @@ watch(() => route.query.tab, (value) => {
         <el-tab-pane label="内容" name="content">
           <section class="knowledge-doc-page__editor">
             <div class="pane">
-              <div class="pane__title">编辑</div>
+              <div class="pane__title">{{ mayManage && canEdit ? '编辑' : '只读' }}</div>
               <el-input
                 v-model="title"
                 placeholder="文档标题"
                 :disabled="!canEdit"
+                :readonly="!mayManage"
                 class="pane__title-input"
               />
               <el-input
@@ -720,6 +733,7 @@ watch(() => route.query.tab, (value) => {
                 type="textarea"
                 :rows="22"
                 :disabled="!canEdit"
+                :readonly="!mayManage"
                 placeholder="在此编写 skills.md 内容（Markdown 格式）"
                 resize="vertical"
                 class="pane__textarea"
@@ -730,7 +744,8 @@ watch(() => route.query.tab, (value) => {
               <pre class="pane__preview">{{ content || '（暂无内容）' }}</pre>
             </div>
           </section>
-          <p v-if="!canEdit" class="knowledge-doc-page__locked">
+          <p v-if="!mayManage" class="knowledge-doc-page__locked">当前账号没有维护该文档的能力，内容仅供查看。</p>
+          <p v-else-if="!canEdit" class="knowledge-doc-page__locked">
             当前状态（{{ knowledgeStatusLabel(doc.status) }}）不允许直接编辑。
             <template v-if="isIndexing">索引完成后才可以继续修改。</template>
             <template v-else-if="doc.status === 'DEPRECATED'">已废弃文档保持只读。</template>
@@ -879,8 +894,8 @@ watch(() => route.query.tab, (value) => {
               <div>
                 <h3>版本历史</h3>
                 <p>
-                  回滚会基于目标版本创建新的 ROLLBACK 版本并直接把文档置为索引中，不经过审核，
-                  因此只对已发布文档开放该入口。历史版本不会被删除。
+                  回滚仅对已发布文档开放，目标版本须已审核通过；操作会以该版本内容创建新的 ROLLBACK 草稿，历史版本保留。
+                  该草稿仍需重新提交审核、发布，并在知识列表显式确认 RAG 构建；创建草稿时当前活动索引保持不变。
                 </p>
               </div>
               <div class="card-heading__actions">

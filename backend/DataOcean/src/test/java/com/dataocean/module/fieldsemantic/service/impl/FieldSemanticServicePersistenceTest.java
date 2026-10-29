@@ -16,6 +16,7 @@ import com.dataocean.module.fieldsemantic.mapper.FieldSemanticReviewMapper;
 import com.dataocean.module.fieldsemantic.mapper.FieldSemanticRevisionMapper;
 import com.dataocean.module.fieldsemantic.mapper.FieldSemanticBindingMapper;
 import com.dataocean.module.fieldsemantic.entity.vo.FieldSemanticPendingBindingVO;
+import com.dataocean.module.fieldsemantic.entity.vo.FieldSemanticWorkspaceVO;
 import com.dataocean.module.fieldsemantic.mapper.SemanticCheckBatchMapper;
 import com.dataocean.module.fieldsemantic.mapper.SemanticCheckResultMapper;
 import com.dataocean.module.fieldsemantic.service.FieldSemanticService;
@@ -40,6 +41,8 @@ import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -222,6 +225,293 @@ class FieldSemanticServicePersistenceTest {
         assertThat(revisionMapper.selectCount(null)).isZero();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"NORMAL", "DISCOVERED"})
+    void sameSnapshotSourceChangeRequiresANewExactReviewedRevision(String originalStatus) {
+        jdbc.update("UPDATE db_table_meta SET governance_status=? WHERE id=?", originalStatus, TABLE_ID);
+        jdbc.update("UPDATE db_column_meta SET governance_status=? WHERE id=?", originalStatus, COLUMN_ID);
+        var approved = approveInitialExplanation();
+        var oldRevision = revisionMapper.selectById(approved.getCurrentApprovedRevisionId());
+        var oldReview = reviewMapper.selectList(null).stream().filter(item -> "APPROVE".equals(item.getAction())).findFirst().orElseThrow();
+        var oldReferences = List.of(oldRevision.getDefinitionId().toString(), oldRevision.getId().toString(),
+                oldReview.getId().toString(), approved.getCurrentBindingId().toString());
+        assertThat(service.evaluateForGovernance(COLUMN_ID, SNAPSHOT_ID).usable()).isTrue();
+        assertThat(service.membershipValid(DATASOURCE_ID, SNAPSHOT_ID, oldReferences)).isEqualTo("NORMAL".equals(originalStatus));
+
+        String newStatus = "NORMAL".equals(originalStatus) ? "RECOMMENDED" : "NORMAL";
+        jdbc.update("UPDATE db_table_meta SET governance_status=? WHERE id=?", newStatus, TABLE_ID);
+        jdbc.update("UPDATE db_column_meta SET governance_status=? WHERE id=?", newStatus, COLUMN_ID);
+        var stale = service.workspaceDetails(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        assertThat(stale.getBindingStatus()).isEqualTo("NEEDS_REVIEW");
+        assertThat(service.evaluateForGovernance(COLUMN_ID, SNAPSHOT_ID).ruleCode()).isEqualTo("STALE_FIELD_SEMANTIC");
+        assertThat(service.membershipValid(DATASOURCE_ID, SNAPSHOT_ID, oldReferences)).isFalse();
+
+        var saved = service.saveDraft(COLUMN_ID, draft(stale.getRowVersion(), "重新核对的支付金额", "依据当前来源重新解释"), OPERATOR_ID);
+        assertThat(saved.getBindingStatus()).isEqualTo("NEEDS_REVIEW");
+        assertThat(saved.getCurrentApprovedRevisionId()).isEqualTo(oldRevision.getId());
+        assertThat(service.membershipValid(DATASOURCE_ID, SNAPSHOT_ID, oldReferences)).isFalse();
+        assertThat(service.knowledgeFacts(DATASOURCE_ID, SNAPSHOT_ID)).isEmpty();
+
+        var submitted = service.submit(COLUMN_ID, action(saved.getRowVersion(), saved.getWorkingRevisionId()), OPERATOR_ID);
+        assertThat(submitted.getBindingStatus()).isEqualTo("NEEDS_REVIEW");
+        assertThat(service.membershipValid(DATASOURCE_ID, SNAPSHOT_ID, oldReferences)).isFalse();
+        assertThat(service.knowledgeFacts(DATASOURCE_ID, SNAPSHOT_ID)).isEmpty();
+        var current = service.review(COLUMN_ID, approval(submitted), OPERATOR_ID);
+        var newRevision = revisionMapper.selectById(current.getCurrentApprovedRevisionId());
+        var newReview = reviewMapper.selectList(null).stream().filter(item -> "APPROVE".equals(item.getAction())
+                && newRevision.getId().equals(item.getRevisionId())).findFirst().orElseThrow();
+        var newReferences = List.of(newRevision.getDefinitionId().toString(), newRevision.getId().toString(),
+                newReview.getId().toString(), current.getCurrentBindingId().toString());
+        assertThat(bindingMapper.selectById(current.getCurrentBindingId()).getStatusReason()).isNull();
+        assertThat(current.getBindingReason()).isNull();
+        assertThat(current.getEffectiveStatus()).isEqualTo("APPROVED");
+        assertThat(newRevision.getDependencyHash()).isNotEqualTo(oldRevision.getDependencyHash());
+        assertThat(service.membershipValid(DATASOURCE_ID, SNAPSHOT_ID, oldReferences)).isFalse();
+        assertThat(service.membershipValid(DATASOURCE_ID, SNAPSHOT_ID, newReferences)).isTrue();
+        assertThat(service.knowledgeFacts(DATASOURCE_ID, SNAPSHOT_ID)).hasSize(1);
+        assertThat(revisionMapper.selectById(oldRevision.getId())).usingRecursiveComparison().isEqualTo(oldRevision);
+        assertThat(reviewMapper.selectById(oldReview.getId())).usingRecursiveComparison().isEqualTo(oldReview);
+
+        jdbc.update("UPDATE db_table_meta SET governance_status=? WHERE id=?", originalStatus, TABLE_ID);
+        jdbc.update("UPDATE db_column_meta SET governance_status=? WHERE id=?", originalStatus, COLUMN_ID);
+        assertThat(service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID).getBindingStatus()).isEqualTo("NEEDS_REVIEW");
+        assertThat(service.membershipValid(DATASOURCE_ID, SNAPSHOT_ID, oldReferences)).isFalse();
+        assertThat(service.membershipValid(DATASOURCE_ID, SNAPSHOT_ID, newReferences)).isFalse();
+        assertThat(service.knowledgeFacts(DATASOURCE_ID, SNAPSHOT_ID)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SUBMIT", "REVIEW"})
+    void anotherSourceChangeAfterTheReplacementDraftStillConflicts(String stage) {
+        var approved = approveInitialExplanation();
+        jdbc.update("UPDATE db_column_meta SET governance_status='RECOMMENDED' WHERE id=?", COLUMN_ID);
+        var stale = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        var saved = service.saveDraft(COLUMN_ID, draft(stale.getRowVersion(), "新来源解释", "重新核对当前来源"), OPERATOR_ID);
+        var state = "REVIEW".equals(stage)
+                ? service.submit(COLUMN_ID, action(saved.getRowVersion(), saved.getWorkingRevisionId()), OPERATOR_ID) : saved;
+        jdbc.update("UPDATE db_column_meta SET column_comment='保存草稿后又发生变化' WHERE id=?", COLUMN_ID);
+
+        assertThatThrownBy(() -> {
+            if ("SUBMIT".equals(stage)) service.submit(COLUMN_ID, action(state.getRowVersion(), state.getWorkingRevisionId()), OPERATOR_ID);
+            else service.review(COLUMN_ID, approval(state), OPERATOR_ID);
+        }).isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getCode()).isEqualTo(409));
+        assertThat(definitionMapper.selectById(approved.getDefinitionId()).getCurrentApprovedRevisionId()).isEqualTo(approved.getCurrentApprovedRevisionId());
+        assertThat(bindingMapper.selectById(approved.getCurrentBindingId()).getStatus()).isEqualTo("NEEDS_REVIEW");
+        assertThat(service.knowledgeFacts(DATASOURCE_ID, SNAPSHOT_ID)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"governance:field:manage", "knowledge:manage"})
+    void refreshingAChangedSourceDoesNotBypassEitherMaintenancePermission(String deniedFunction) {
+        var approved = approveInitialExplanation();
+        jdbc.update("UPDATE db_column_meta SET governance_status='RECOMMENDED' WHERE id=?", COLUMN_ID);
+        var stale = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        var previous = bindingMapper.selectById(approved.getCurrentBindingId()).getSchemaFingerprint();
+        doThrow(new BusinessException(403, "未授权维护"))
+                .when(adminGuard).requireDatasourceFunction(OPERATOR_ID, deniedFunction, DATASOURCE_ID);
+
+        assertThatThrownBy(() -> service.saveDraft(COLUMN_ID, draft(stale.getRowVersion(), "无权修改", "不得修改来源绑定"), OPERATOR_ID))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getCode()).isEqualTo(403));
+        assertThat(bindingMapper.selectById(approved.getCurrentBindingId()).getSchemaFingerprint()).isEqualTo(previous);
+        assertThat(revisionMapper.selectCount(null)).isEqualTo(1);
+    }
+
+    @Test
+    void theReplacementRevisionStillRequiresIndependentApprovalPermission() {
+        approveInitialExplanation();
+        jdbc.update("UPDATE db_column_meta SET governance_status='RECOMMENDED' WHERE id=?", COLUMN_ID);
+        var stale = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        var saved = service.saveDraft(COLUMN_ID, draft(stale.getRowVersion(), "新来源解释", "重新核对当前来源"), OPERATOR_ID);
+        var submitted = service.submit(COLUMN_ID, action(saved.getRowVersion(), saved.getWorkingRevisionId()), OPERATOR_ID);
+        doThrow(new BusinessException(403, "未授权审核"))
+                .when(adminGuard).requireDatasourceFunction(OPERATOR_ID, "knowledge:approve", DATASOURCE_ID);
+
+        assertThatThrownBy(() -> service.review(COLUMN_ID, approval(submitted), OPERATOR_ID))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getCode()).isEqualTo(403));
+        assertThat(bindingMapper.selectById(submitted.getCurrentBindingId()).getStatus()).isEqualTo("NEEDS_REVIEW");
+        assertThat(revisionMapper.selectById(submitted.getWorkingRevisionId()).getStatus()).isEqualTo("PENDING_REVIEW");
+        assertThat(service.knowledgeFacts(DATASOURCE_ID, SNAPSHOT_ID)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"BLOCKED", "DEPRECATED"})
+    void aForbiddenSourceCannotBeRefreshedBySavingAnotherDraft(String forbiddenStatus) {
+        var approved = approveInitialExplanation();
+        var previous = bindingMapper.selectById(approved.getCurrentBindingId()).getSchemaFingerprint();
+        jdbc.update("UPDATE db_column_meta SET governance_status=? WHERE id=?", forbiddenStatus, COLUMN_ID);
+        var stale = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+
+        assertThatThrownBy(() -> service.saveDraft(COLUMN_ID, draft(stale.getRowVersion(), "禁止来源", "不得变更绑定"), OPERATOR_ID))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("BLOCKED/DEPRECATED");
+        assertThat(bindingMapper.selectById(approved.getCurrentBindingId()).getSchemaFingerprint()).isEqualTo(previous);
+        assertThat(revisionMapper.selectCount(null)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"INVALID_DRAFT", "PENDING_REVIEW"})
+    void failedReplacementDraftRollsBackAnySourceRefresh(String failure) {
+        var approved = approveInitialExplanation();
+        if ("PENDING_REVIEW".equals(failure)) {
+            var saved = service.saveDraft(COLUMN_ID, draft(approved.getRowVersion(), "待审核解释", "保持固定待审内容"), OPERATOR_ID);
+            service.submit(COLUMN_ID, action(saved.getRowVersion(), saved.getWorkingRevisionId()), OPERATOR_ID);
+        }
+        jdbc.update("UPDATE db_column_meta SET governance_status='RECOMMENDED' WHERE id=?", COLUMN_ID);
+        var stale = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        var previous = bindingMapper.selectById(approved.getCurrentBindingId()).getSchemaFingerprint();
+        long revisions = revisionMapper.selectCount(null);
+        var request = draft(stale.getRowVersion(), "失败草稿", "INVALID_DRAFT".equals(failure) ? "" : "有效但与待审核冲突");
+
+        assertThatThrownBy(() -> service.saveDraft(COLUMN_ID, request, OPERATOR_ID)).isInstanceOf(BusinessException.class);
+        assertThat(bindingMapper.selectById(approved.getCurrentBindingId()).getSchemaFingerprint()).isEqualTo(previous);
+        assertThat(bindingMapper.selectById(approved.getCurrentBindingId()).getStatus()).isEqualTo("NEEDS_REVIEW");
+        assertThat(revisionMapper.selectCount(null)).isEqualTo(revisions);
+        assertThat(definitionMapper.selectById(approved.getDefinitionId()).getRowVersion()).isEqualTo(stale.getRowVersion());
+    }
+
+    @Test
+    void aFirstUnapprovedDraftCanBeReplacedAfterItsSourceChanges() {
+        jdbc.update("UPDATE db_table_meta SET governance_status='DISCOVERED' WHERE id=?", TABLE_ID);
+        jdbc.update("UPDATE db_column_meta SET governance_status='DISCOVERED' WHERE id=?", COLUMN_ID);
+        var first = service.saveDraft(COLUMN_ID, draft(0, "发现阶段草稿", "尚未审核的业务解释"), OPERATOR_ID);
+        var original = revisionMapper.selectById(first.getWorkingRevisionId());
+        jdbc.update("UPDATE db_table_meta SET governance_status='NORMAL' WHERE id=?", TABLE_ID);
+        jdbc.update("UPDATE db_column_meta SET governance_status='NORMAL' WHERE id=?", COLUMN_ID);
+        var stale = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        var saved = service.saveDraft(COLUMN_ID, draft(stale.getRowVersion(), "重新核对的首稿", "核对当前来源后重新填写"), OPERATOR_ID);
+        assertThat(saved.getCurrentApprovedRevisionId()).isNull();
+        assertThat(saved.getBindingStatus()).isEqualTo("NEEDS_REVIEW");
+        assertThat(service.knowledgeFacts(DATASOURCE_ID, SNAPSHOT_ID)).isEmpty();
+        var submitted = service.submit(COLUMN_ID, action(saved.getRowVersion(), saved.getWorkingRevisionId()), OPERATOR_ID);
+        assertThat(service.knowledgeFacts(DATASOURCE_ID, SNAPSHOT_ID)).isEmpty();
+        var approved = service.review(COLUMN_ID, approval(submitted), OPERATOR_ID);
+        assertThat(approved.getEffectiveStatus()).isEqualTo("APPROVED");
+        assertThat(service.knowledgeFacts(DATASOURCE_ID, SNAPSHOT_ID)).hasSize(1);
+        assertThat(revisionMapper.selectById(original.getId()).getStatus()).isEqualTo("WITHDRAWN");
+        assertThat(revisionMapper.selectById(original.getId()).getDependencyHash()).isEqualTo(original.getDependencyHash());
+    }
+
+    @Test
+    void legacyValidReasonIsHiddenWithoutChangingItsStoredHistory() {
+        var approved = approveInitialExplanation();
+        String reason = "旧版本遗留的来源需复核原因";
+        jdbc.update("UPDATE field_semantic_binding SET status_reason=? WHERE id=?", reason, approved.getCurrentBindingId());
+        var current = service.workspaceDetails(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        assertThat(current.getBindingStatus()).isEqualTo("VALID");
+        assertThat(current.getBindingReason()).isNull();
+        assertThat(current.getEffectiveStatus()).isEqualTo("APPROVED");
+        assertThat(bindingMapper.selectById(approved.getCurrentBindingId()).getStatusReason()).isEqualTo(reason);
+
+        for (String status : List.of("NEEDS_REVIEW", "PENDING_CONFIRMATION", "UNAVAILABLE")) {
+            jdbc.update("UPDATE field_semantic_binding SET status=? WHERE id=?", status, approved.getCurrentBindingId());
+            var invalid = service.workspaceDetails(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+            assertThat(invalid.getBindingStatus()).isEqualTo(status);
+            assertThat(invalid.getBindingReason()).isEqualTo(reason);
+            assertThat(bindingMapper.selectById(approved.getCurrentBindingId()).getStatusReason()).isEqualTo(reason);
+        }
+    }
+
+    @Test
+    void savingADraftNeverRefreshesAnUnavailableBinding() {
+        var approved = approveInitialExplanation();
+        var original = bindingMapper.selectById(approved.getCurrentBindingId()).getSchemaFingerprint();
+        jdbc.update("UPDATE field_semantic_binding SET status='UNAVAILABLE' WHERE id=?", approved.getCurrentBindingId());
+        jdbc.update("UPDATE db_column_meta SET governance_status='RECOMMENDED' WHERE id=?", COLUMN_ID);
+        var stale = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        var saved = service.saveDraft(COLUMN_ID, draft(stale.getRowVersion(), "不可用来源草稿", "不能自动恢复来源资格"), OPERATOR_ID);
+        assertThat(bindingMapper.selectById(approved.getCurrentBindingId()).getStatus()).isEqualTo("UNAVAILABLE");
+        assertThat(bindingMapper.selectById(approved.getCurrentBindingId()).getSchemaFingerprint()).isEqualTo(original);
+        assertThatThrownBy(() -> service.submit(COLUMN_ID, action(saved.getRowVersion(), saved.getWorkingRevisionId()), OPERATOR_ID))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getCode()).isEqualTo(409));
+    }
+
+    @Test
+    void sameSnapshotDraftCannotBeUsedToConfirmAnotherSnapshotWithoutNewApproval() {
+        var approved = approveInitialExplanation();
+        collectSnapshot(81L, 92L, 93L, 2, "RECOMMENDED");
+        jdbc.update("UPDATE db_table_meta SET governance_status='RECOMMENDED' WHERE id=?", TABLE_ID);
+        jdbc.update("UPDATE db_column_meta SET governance_status='RECOMMENDED' WHERE id=?", COLUMN_ID);
+        var stale = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        service.saveDraft(COLUMN_ID, draft(stale.getRowVersion(), "新来源未审草稿", "没有新增审核证明"), OPERATOR_ID);
+        var pending = service.workspace(93L, 81L, OPERATOR_ID);
+        int reviewCount = reviewMapper.selectCount(null).intValue();
+
+        assertThatThrownBy(() -> service.confirmBinding(93L, 81L,
+                bindingConfirm(pending.getRowVersion(), "不能把待审草稿当作旧审核有效"), OPERATOR_ID))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getCode()).isEqualTo(409));
+        assertThat(definitionMapper.selectById(approved.getDefinitionId()).getCurrentBindingId()).isEqualTo(approved.getCurrentBindingId());
+        assertThat(reviewMapper.selectCount(null)).isEqualTo(reviewCount);
+        jdbc.update("UPDATE db_table_meta SET governance_status='NORMAL' WHERE id=?", TABLE_ID);
+        jdbc.update("UPDATE db_column_meta SET governance_status='NORMAL' WHERE id=?", COLUMN_ID);
+        var reverted = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        service.saveDraft(COLUMN_ID, draft(reverted.getRowVersion(), "来源回滚后仍未审核", "不能复活旧证明"), OPERATOR_ID);
+        assertThat(service.evaluate(COLUMN_ID, SNAPSHOT_ID).usable()).isFalse();
+        assertThat(service.evaluate(93L, 81L).usable()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"NEEDS_REVIEW", "UNAVAILABLE", "REVIEW_HASH"})
+    void bindingConfirmationRequiresCompleteValidEvidenceFromTheActiveSource(String invalidity) {
+        var approved = approveInitialExplanation();
+        collectSnapshot(81L, 92L, 93L, 2, "NORMAL");
+        if ("REVIEW_HASH".equals(invalidity)) {
+            jdbc.update("UPDATE field_semantic_review SET dependency_hash=? WHERE action='APPROVE'", "b".repeat(64));
+        } else {
+            jdbc.update("UPDATE field_semantic_binding SET status=? WHERE id=?", invalidity, approved.getCurrentBindingId());
+        }
+        var pending = service.workspace(93L, 81L, OPERATOR_ID);
+        assertThat(bindingBatchService.pending(81L, OPERATOR_ID)).singleElement()
+                .satisfies(item -> assertThat(item.isEligible()).isFalse());
+        assertThatThrownBy(() -> service.confirmBinding(93L, 81L,
+                bindingConfirm(pending.getRowVersion(), "当前审核证据无效，不能继续绑定"), OPERATOR_ID))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getCode()).isEqualTo(409));
+        assertThat(reviewMapper.selectList(null)).noneMatch(item -> "BIND_CONFIRM".equals(item.getAction()));
+        assertThat(definitionMapper.selectById(approved.getDefinitionId()).getCurrentBindingId()).isEqualTo(approved.getCurrentBindingId());
+    }
+
+    @Test
+    void validConfirmationCanContinueAcrossMultipleUnchangedSnapshots() {
+        var approved = approveInitialExplanation();
+        collectSnapshot(81L, 92L, 93L, 2, "NORMAL");
+        var firstPending = service.workspace(93L, 81L, OPERATOR_ID);
+        var firstConfirmed = service.confirmBinding(93L, 81L,
+                bindingConfirm(firstPending.getRowVersion(), "第二快照来源与原审核一致"), OPERATOR_ID);
+        assertThat(firstConfirmed.getEffectiveStatus()).isEqualTo("APPROVED");
+        collectSnapshot(82L, 94L, 95L, 3, "NORMAL");
+        var secondPending = service.workspace(95L, 82L, OPERATOR_ID);
+        var secondConfirmed = service.confirmBinding(95L, 82L,
+                bindingConfirm(secondPending.getRowVersion(), "第三快照延续仍有效的精确来源"), OPERATOR_ID);
+        assertThat(secondConfirmed.getEffectiveStatus()).isEqualTo("APPROVED");
+        assertThat(secondConfirmed.getCurrentApprovedRevisionId()).isEqualTo(approved.getCurrentApprovedRevisionId());
+        assertThat(reviewMapper.selectList(null).stream().filter(item -> "BIND_CONFIRM".equals(item.getAction())).count()).isEqualTo(2);
+    }
+
+    @Test
+    void anExistingConfirmedSnapshotCannotReviveAnInvalidatedOriginalApproval() {
+        var approved = approveInitialExplanation();
+        collectSnapshot(81L, 92L, 93L, 2, "NORMAL");
+        var pending = service.workspace(93L, 81L, OPERATOR_ID);
+        var confirmed = service.confirmBinding(93L, 81L,
+                bindingConfirm(pending.getRowVersion(), "合法沿用未变的原审核来源"), OPERATOR_ID);
+        var confirmation = reviewMapper.selectList(null).stream().filter(item -> "BIND_CONFIRM".equals(item.getAction())).findFirst().orElseThrow();
+        var references = List.of(approved.getDefinitionId().toString(), approved.getCurrentApprovedRevisionId().toString(),
+                confirmation.getId().toString(), confirmed.getCurrentBindingId().toString());
+        assertThat(service.membershipValid(DATASOURCE_ID, 81L, references)).isTrue();
+
+        jdbc.update("UPDATE db_column_meta SET governance_status='RECOMMENDED' WHERE id=?", COLUMN_ID);
+        var changed = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        service.saveDraft(COLUMN_ID, draft(changed.getRowVersion(), "原来源变更后的未审草稿", "没有新增业务审核"), OPERATOR_ID);
+        assertThat(service.membershipValid(DATASOURCE_ID, 81L, references)).isFalse();
+        jdbc.update("UPDATE db_column_meta SET governance_status='NORMAL' WHERE id=?", COLUMN_ID);
+        var reverted = service.workspace(COLUMN_ID, SNAPSHOT_ID, OPERATOR_ID);
+        service.saveDraft(COLUMN_ID, draft(reverted.getRowVersion(), "原来源回滚后的未审草稿", "仍不能沿用已失效审核"), OPERATOR_ID);
+
+        assertThat(bindingMapper.selectById(approved.getCurrentBindingId()).getStatus()).isEqualTo("NEEDS_REVIEW");
+        assertThat(service.evaluate(93L, 81L).usable()).isFalse();
+        assertThat(service.membershipValid(DATASOURCE_ID, 81L, references)).isFalse();
+        assertThat(service.knowledgeFacts(DATASOURCE_ID, 81L)).isEmpty();
+        assertThat(reviewMapper.selectList(null).stream().filter(item -> "APPROVE".equals(item.getAction())).count()).isEqualTo(1);
+    }
+
     @Test
     void expiredAiResponseCannotReplaceManualDraftAndIsRetainedAsStaleCandidate() {
         var saved = service.saveDraft(COLUMN_ID, draft(0, "人工解释", "人工填写内容保留"), OPERATOR_ID);
@@ -336,6 +626,8 @@ class FieldSemanticServicePersistenceTest {
 
         var confirmed = service.confirmBinding(93L, 81L,
                 bindingConfirm(newSnapshot.getRowVersion(), "新快照字段结构与原来源逐项核对一致"), OPERATOR_ID);
+        assertThat(bindingMapper.selectById(confirmed.getCurrentBindingId()).getStatusReason()).isNull();
+        assertThat(confirmed.getBindingReason()).isNull();
         assertThat(confirmed.getEffectiveStatus()).isEqualTo("APPROVED");
         assertThat(confirmed.getCurrentApprovedRevisionId()).isEqualTo(oldRevision.getId());
         assertThat(reviewMapper.selectCount(null)).isEqualTo(4);
@@ -533,6 +825,28 @@ class FieldSemanticServicePersistenceTest {
         assertThatThrownBy(() -> snapshotLifecycleService.changeStatus(SNAPSHOT_ID, "APPROVED", OPERATOR_ID, "复核"))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("高风险问题");
         assertThat(snapshotMapper.selectById(SNAPSHOT_ID).getStatus()).isEqualTo("ISSUE_FOUND");
+    }
+
+    private FieldSemanticWorkspaceVO approveInitialExplanation() {
+        var saved = service.saveDraft(COLUMN_ID, draft(0, "原始支付金额", "依据原始来源解释"), OPERATOR_ID);
+        var submitted = service.submit(COLUMN_ID, action(saved.getRowVersion(), saved.getWorkingRevisionId()), OPERATOR_ID);
+        return service.review(COLUMN_ID, approval(submitted), OPERATOR_ID);
+    }
+
+    private void collectSnapshot(Long snapshotId, Long tableId, Long columnId, int version, String status) {
+        jdbc.update("INSERT INTO metadata_snapshot(id,datasource_id,snapshot_version,status) VALUES (?,?,?,?)",
+                snapshotId, DATASOURCE_ID, version, "DRAFT");
+        jdbc.update("INSERT INTO db_table_meta(id,snapshot_id,datasource_id,table_name,table_comment,table_type,governance_status) VALUES (?,?,?,?,?,?,?)",
+                tableId, snapshotId, DATASOURCE_ID, "orders", "订单表", "TABLE", status);
+        jdbc.update("INSERT INTO db_column_meta(id,snapshot_id,table_meta_id,datasource_id,table_name,column_name,column_comment,data_type,is_nullable,column_default,is_primary_key,ordinal_position,governance_status,confidence_score) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                columnId, snapshotId, tableId, DATASOURCE_ID, "orders", "pay_amt", null, "DECIMAL(12,2)", 1, null, 0, 1, status, 50);
+        service.bindCollectedSnapshot(DATASOURCE_ID, snapshotId, OPERATOR_ID);
+    }
+
+    private FieldSemanticActionDTO approval(FieldSemanticWorkspaceVO submitted) {
+        var request = action(submitted.getRowVersion(), submitted.getWorkingRevisionId());
+        request.setAction("APPROVE"); request.setReason("逐项核对当前来源与人工依据");
+        return request;
     }
 
     private FieldSemanticDraftDTO draft(int expectedVersion, String businessName, String meaning) {

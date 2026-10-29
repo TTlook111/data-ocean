@@ -201,4 +201,69 @@ describe('useIamS1Store', () => {
     expect(store.queryUse).toBe(false)
     expect(store.loaded).toBe(false)
   })
+
+  it.each(['old-first', 'current-first'])('换账号后独立读取能力，旧账号的在途响应不能回填：%s', async (order) => {
+    type Response = Awaited<ReturnType<typeof api.getIamS1Capabilities>>
+    let finishOld!: (value: Response) => void
+    let finishCurrent!: (value: Response) => void
+    mockedGetCapabilities.mockReturnValueOnce(new Promise((resolve) => { finishOld = resolve }))
+      .mockReturnValueOnce(new Promise((resolve) => { finishCurrent = resolve }))
+    const store = useIamS1Store()
+    const oldRequest = store.load()
+    store.reset()
+    const currentRequest = store.load()
+
+    expect(mockedGetCapabilities).toHaveBeenCalledTimes(2)
+    if (order === 'old-first') {
+      finishOld({ code: 200, message: 'success', data: snapshot({ systemAdmin: true }) })
+      await oldRequest
+      expect(store.snapshot).toBeNull()
+      expect(store.loading).toBe(true)
+    }
+    finishCurrent({ code: 200, message: 'success', data: snapshot({ userId: 3, globalFunctions: [],
+      datasourceCapabilities: [], queryUse: false }) })
+    await currentRequest
+    if (order === 'current-first') {
+      finishOld({ code: 200, message: 'success', data: snapshot({ systemAdmin: true }) })
+      await oldRequest
+    }
+
+    expect(store.snapshot?.userId).toBe(3)
+    expect(store.systemAdmin).toBe(false)
+    expect(store.hasAnyAdminCapability).toBe(false)
+    expect(store.loading).toBe(false)
+  })
+
+  it('旧账号能力请求失败晚到不清空新账号能力或错误状态', async () => {
+    let rejectOld!: (reason: Error) => void
+    mockedGetCapabilities.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOld = reject }))
+      .mockResolvedValueOnce({ code: 200, message: 'success', data: snapshot({ userId: 3 }) })
+    const store = useIamS1Store()
+    const oldRequest = store.load()
+    store.reset()
+    await store.load()
+    rejectOld(new Error('上一账号的读取失败'))
+    await oldRequest
+
+    expect(store.snapshot?.userId).toBe(3)
+    expect(store.errorMessage).toBeNull()
+    expect(store.loaded).toBe(true)
+  })
+
+  it('同一账号代次仍合并并发能力请求并复用成功缓存', async () => {
+    type Response = Awaited<ReturnType<typeof api.getIamS1Capabilities>>
+    let finish!: (value: Response) => void
+    mockedGetCapabilities.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+    const store = useIamS1Store()
+    const first = store.load()
+    const second = store.load()
+    expect(mockedGetCapabilities).toHaveBeenCalledTimes(1)
+    finish({ code: 200, message: 'success', data: snapshot() })
+    await Promise.all([first, second])
+    await store.load()
+
+    expect(mockedGetCapabilities).toHaveBeenCalledTimes(1)
+    expect(store.loaded).toBe(true)
+    expect(store.snapshot?.userId).toBe(2)
+  })
 })

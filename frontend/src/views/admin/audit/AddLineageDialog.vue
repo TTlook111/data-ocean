@@ -5,7 +5,7 @@
  * 参考 OpenMetadata AddLineageRequest + DataHub 手动编辑交互。
  * 支持：源/目标表搜索（仅 TABLE 类型）、列级映射（源列多选+目标列单选）、
  * 转换类型（IDENTITY/TRANSFORMATION/AGGREGATION）、表达式输入。
- * 与文档 data-lineage-research.md §4.1.3 功能一 完全一致。
+ * 关系录入与来源边界见 docs/modules/011-audit-lineage.md。
  */
 import { ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'

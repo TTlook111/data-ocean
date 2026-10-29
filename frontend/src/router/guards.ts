@@ -1,6 +1,8 @@
 import type { Router } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useIamS1Store } from '../stores/iamS1'
+import { useAdminContextStore } from '../stores/adminContext'
+import { resolveAdminEntry } from '../utils/adminNavigation'
 
 /** 标记是否已在本次会话中刷新过用户信息 */
 let userInfoRefreshed = false
@@ -46,7 +48,19 @@ export function setupRouterGuards(router: Router) {
       } catch {
         // 读取失败时按“无能力”处理，不静默回退旧权限
       }
-      if (iamS1.hasAnyAdminCapability) return true
+      if (iamS1.hasAnyAdminCapability) {
+        if (to.path === '/admin' || (to.path === '/admin/workbench'
+          && ['/admin', '/admin/'].includes(to.redirectedFrom?.path || ''))) {
+          const context = useAdminContextStore()
+          const entry = resolveAdminEntry(iamS1, {
+            datasourceId: context.datasourceId,
+            snapshotId: context.currentSnapshot?.id,
+          })
+          if (!entry) return '/profile'
+          if (entry.path !== to.path) return entry
+        }
+        return true
+      }
       return '/query'
     }
 

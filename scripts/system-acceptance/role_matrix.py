@@ -6,6 +6,7 @@ from datetime import datetime
 import acceptance as entry
 from flows import record
 import second_source
+from fixture_context import primary_context, secondary_context
 
 CONTRACT="synthetic-roles-v1"
 NAMES={"reader","no_data","secondary","limited","split","manager","reviewer"}
@@ -16,8 +17,18 @@ def load(api):return json.loads(private_path(api).read_text(encoding="utf-8"))
 def save(api,value):private_path(api).write_text(json.dumps(value,indent=2),encoding="utf-8")
 
 
+def contexts(api):
+    primary=primary_context(api,published=True)
+    secondary=secondary_context(api)
+    source=second_source.state(api)
+    if (source.get("datasourceId"),source.get("snapshotId")) != (secondary["datasourceId"],secondary["snapshotId"]):
+        raise ValueError("Secondary preparation does not match its current published fixture snapshot")
+    return primary,secondary
+
+
 def setup(api):
-    source=second_source.state(api);sid=source["snapshotId"]
+    first,second=contexts(api)
+    ds,secondary_ds,sid=first["datasourceId"],second["datasourceId"],second["snapshotId"]
     actors=load(api) if private_path(api).exists() else {}
     original=json.loads((api.output.parent/"system-acceptance-actors.private.json").read_text(encoding="utf-8"))
     for key in ("reader","no_data"):actors.setdefault(key,original[key])
@@ -40,8 +51,8 @@ def setup(api):
     view=role("view_only",["metadata:view"])
     manager=role("manager",["knowledge:view","knowledge:manage"])
     reviewer=role("reviewer",["knowledge:view","knowledge:approve"])
-    definitions={"secondary":[(query,[2])],"limited":[(query,[1])],"split":[(minimal,[1]),(view,[2])],
-                 "manager":[(manager,[2])],"reviewer":[(reviewer,[2])]}
+    definitions={"secondary":[(query,[secondary_ds])],"limited":[(query,[ds])],"split":[(minimal,[ds]),(view,[secondary_ds])],
+                 "manager":[(manager,[secondary_ds])],"reviewer":[(reviewer,[secondary_ds])]}
     for name,bindings in definitions.items():
         actor=actors.setdefault(name,{"username":"acceptance_exp_"+name+"_20261028","password":"Dd4"+secrets.token_urlsafe(15),"bindings":[]})
         save(api,actors)
@@ -54,11 +65,11 @@ def setup(api):
             bid=api.call("POST",f"/api/iam-s1/users/{actor['id']}/roles",{"roleId":rid,"reason":CONTRACT})
             api.call("PUT",f"/api/iam-s1/user-roles/{bid}/datasources",{"datasourceIds":sources,"reason":CONTRACT})
             actor["bindings"].append({"roleId":rid,"bindingId":bid,"datasourceIds":sources});save(api,actors)
-    primary=[{"columnMetaId":1008,"columnName":"product_id"},{"columnMetaId":1009,"columnName":"product_name"},{"columnMetaId":1010,"columnName":"category"}]
-    secondary=[{"columnMetaId":c["id"],"columnName":c["columnName"]} for c in source["columns"]]
-    grants=[("secondary",2,sid,secondary,[]),("limited",1,1,[c for c in primary if c["columnName"]!="product_name"],
-             [{"columnMetaId":1008,"columnName":"product_id","operatorCode":"EQ","valueType":"INTEGER","structuredValueJson":"101"}]),
-            ("split",1,1,primary,[]),("split",2,sid,secondary,[])]
+    primary=[{"columnMetaId":first["columns"]["products."+name]["id"],"columnName":name} for name in ("product_id","product_name","category")]
+    secondary=[{"columnMetaId":second["columns"]["products."+name]["id"],"columnName":name} for name in ("product_id","product_name","category")]
+    grants=[("secondary",secondary_ds,sid,secondary,[]),("limited",ds,first["snapshotId"],[c for c in primary if c["columnName"]!="product_name"],
+             [{"columnMetaId":first["columns"]["products.product_id"]["id"],"columnName":"product_id","operatorCode":"EQ","valueType":"INTEGER","structuredValueJson":"101"}]),
+            ("split",ds,first["snapshotId"],primary,[]),("split",secondary_ds,sid,secondary,[])]
     for name,ds,snapshot,columns,conditions in grants:
         actor=actors[name];key=str(ds)
         if key in actor.get("grantIds",{}):continue
@@ -112,31 +123,33 @@ def refuse(client,method,path,body=None,allowed=(400,403,404)):
 
 
 def check(api):
-    api.verify_target()
+    first,second=contexts(api)
+    ds,sid=first["datasourceId"],first["snapshotId"]
+    secondary_ds=second["datasourceId"]
     clients=getattr(api,"expanded_actor_clients",{});actors=load(api)
     assert set(clients)==NAMES and all(c.authenticated and c.target_verified for c in clients.values()),"All seven independently bound sessions are required"
     results=[]
-    visibility={"reader":{1},"no_data":set(),"secondary":{2},"limited":{1},"split":{1,2}}
+    visibility={"reader":{ds},"no_data":set(),"secondary":{secondary_ds},"limited":{ds},"split":{ds,secondary_ds}}
     for name,expected in visibility.items():
         me=clients[name].call("GET","/api/auth/me");assert me["id"]==actors[name]["id"]
         rows=clients[name].call("GET","/api/iam-s1/query-resources/datasources")
         assert {r.get("id",r.get("datasourceId")) for r in rows}==expected,f"{name} expected visible sources {expected}, received {rows}"
         results.append({"actor":name,"visibleDatasources":sorted(expected),"passed":True})
-    for name,ds in (("no_data",1),("secondary",1),("manager",2),("reviewer",2)):
-        result=refuse(clients[name],"POST","/api/iam-s1/query/ask",{"protocolVersion":"IAM-SIMPLE-1","datasourceId":ds,"question":"products 中商品有多少条？"},(400,403))
-        results.append({"actor":name,"datasourceId":ds,**result})
+    for name,denied_ds in (("no_data",ds),("secondary",ds),("manager",secondary_ds),("reviewer",secondary_ds)):
+        result=refuse(clients[name],"POST","/api/iam-s1/query/ask",{"protocolVersion":"IAM-SIMPLE-1","datasourceId":denied_ds,"question":"products 中商品有多少条？"},(400,403))
+        results.append({"actor":name,"datasourceId":denied_ds,**result})
     split=clients["split"]
-    assert split.call("GET","/api/admin/business-knowledge/snapshots/1")
-    assert split.call("GET",f"/api/admin/metadata/snapshots/{second_source.state(api)['snapshotId']}")
-    results.append({"actor":"split","managementBinding":"knowledge only on source1",**refuse(split,"GET",f"/api/admin/business-knowledge/snapshots/{second_source.state(api)['snapshotId']}",(None),(403,))})
-    results.append({"actor":"split","managementBinding":"metadata only on source2",**refuse(split,"GET","/api/admin/metadata/snapshots/1",(None),(403,))})
+    assert split.call("GET",f"/api/admin/business-knowledge/snapshots/{sid}")
+    assert split.call("GET",f"/api/admin/metadata/snapshots/{second['snapshotId']}")
+    results.append({"actor":"split","managementBinding":"knowledge only on primary source",**refuse(split,"GET",f"/api/admin/business-knowledge/snapshots/{second['snapshotId']}",(None),(403,))})
+    results.append({"actor":"split","managementBinding":"metadata only on secondary source",**refuse(split,"GET",f"/api/admin/metadata/snapshots/{sid}",(None),(403,))})
     for name,expected in (("reader",3),("limited",1),("split",3)):
         client=clients[name]
         cases={"contract":CONTRACT,"deniedTables":["employee_pay","sales_orders"],"questions":[{
             "id":"R-"+name,"kind":"rows","question":"products 中所有记录有多少条？只返回一行计数。",
-            "tables":["products"],"expected":[[expected]],"expectedSnapshotId":1}]}
+            "tables":["products"],"expected":[[expected]],"expectedSnapshotId":sid}]}
         if name=="split":cases["questions"][0]["expectedCanViewSql"]=False
-        result=entry.Api.questions(client,cases,datasource=1,report_prefix="role-"+name+"-questions")
+        result=entry.Api.questions(client,cases,datasource=ds,report_prefix="role-"+name+"-questions")
         results.append({"actor":name,"positiveQuery":result,"passed":result["passed"]})
         task=json.loads((api.output/("role-"+name+"-questions.json")).read_text(encoding="utf-8"))["checks"][0]
         assert task["passed"],"Positive role query did not pass its independent expectation"
@@ -157,12 +170,12 @@ def check(api):
         assert task["taskId"] in {r["taskId"] for r in history["records"]}
     limited=clients["limited"]
     policy_only={"contract":CONTRACT,"deniedTables":["employee_pay"],"questions":[{"id":"R-policy-only","kind":"rows",
-        "question":"列出 products 中所有记录的 category，按 category 升序。","expected":[["Furniture"]],"tables":["products"],"expectedSnapshotId":1}]}
-    policy_result=entry.Api.questions(limited,policy_only,datasource=1,report_prefix="role-policy-only-projection")
+        "question":"列出 products 中所有记录的 category，按 category 升序。","expected":[["Furniture"]],"tables":["products"],"expectedSnapshotId":sid}]}
+    policy_result=entry.Api.questions(limited,policy_only,datasource=ds,report_prefix="role-policy-only-projection")
     results.append({"actor":"limited","nonProjectedPolicyDependency":True,"passed":policy_result["passed"]})
     hidden={"contract":CONTRACT,"deniedTables":["employee_pay"],"questions":[{"id":"R-hidden","kind":"refusal",
         "question":"读取 products.product_name 的完整商品名称。","expected":[],"tables":[]}]}
-    result=entry.Api.questions(limited,hidden,datasource=1,report_prefix="role-hidden-column")
+    result=entry.Api.questions(limited,hidden,datasource=ds,report_prefix="role-hidden-column")
     results.append({"actor":"limited","hiddenColumnRefusal":True,"passed":result["passed"]})
     results.extend(review_separation(api))
     outcome={"passed":all(r.get("passed") for r in results),"checks":results,
@@ -171,7 +184,8 @@ def check(api):
 
 
 def review_separation(api):
-    sid=second_source.state(api)["snapshotId"]
+    _,second=contexts(api)
+    sid=second["snapshotId"]
     manager=api.expanded_actor_clients["manager"];reviewer=api.expanded_actor_clients["reviewer"]
     key="acceptance.roles.review."+datetime.now().strftime("%Y%m%d%H%M%S%f")
     request={"kind":"METRIC","knowledgeKey":key,"title":"合成角色分权计数定义","body":{"description":"仅第二源两件商品的计数",
@@ -210,11 +224,12 @@ def run(api,flow):
     if flow=="roles-captchas":return captchas(api)
     if flow=="roles-check":return check(api)
     if flow=="roles-split-secondary":
+        _,second=contexts(api)
         source=second_source.state(api)
         return entry.Api.questions(api.expanded_actor_clients["split"],{"contract":CONTRACT,"deniedTables":["sales_orders","employee_pay"],
             "questions":[{"id":"R-split-secondary","kind":"rows","expectedCanViewSql":False,"expectedSnapshotId":source["snapshotId"],
                 "expectedBuildId":source["build"]["buildId"],"question":"products 中所有记录有多少条？只返回一行计数。","tables":["products"],"expected":[[2]]}]},
-            datasource=2,report_prefix="role-split-secondary-questions")
+            datasource=second["datasourceId"],report_prefix="role-split-secondary-questions")
     if flow=="roles-inspect":
         result=[]
         for name in ("reader","no_data","secondary","limited","split"):

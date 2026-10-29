@@ -6,9 +6,8 @@ import { ADMIN_DOMAINS } from '../../router/adminDomains'
 import { useAdminContextStore } from '../../stores/adminContext'
 import { useIamS1Store } from '../../stores/iamS1'
 import {
-  buildContextQuery,
+  buildWorkspaceTarget,
   findDomainHome,
-  findWorkspaceContextMode,
   groupAdminWorkspaces,
   visibleAdminWorkspaces,
   type AdminContextSource,
@@ -35,16 +34,15 @@ function expandCollapsedNavigation() {
   if (props.collapsed) emit('expand-sidebar')
 }
 
-// 上下文来源：合法 URL 参数优先于本地持久化状态，缺失时回落到 adminContext。
+// 当前范围只作目标偏好；每个工作区使用自身实际有权源，跨源不携带旧快照。
 const contextSource = computed<AdminContextSource>(() => ({
   datasourceId: Number(route.query.datasourceId) || context.datasourceId,
-  snapshotId: Number(route.query.snapshotId) || context.snapshotId,
+  snapshotId: Number(route.query.snapshotId) || context.currentSnapshot?.id,
 }))
 
 const visibleWorkspaces = computed(() => visibleAdminWorkspaces(
   ADMIN_WORKSPACES,
   iamS1,
-  contextSource.value.datasourceId,
 ))
 
 function domainWorkspaces(domainKey: string) {
@@ -55,8 +53,11 @@ function workspaceGroups(domainKey: string) {
   return groupAdminWorkspaces(domainWorkspaces(domainKey))
 }
 
-// 没有声明二级项的域（工作台）保持可见；有声明但全部被能力隐藏时隐藏整个域。
+// 工作台使用独立全局查看权；其他域在全部二级项不可见时隐藏。
 const visibleDomains = computed(() => ADMIN_DOMAINS.filter((domain) => {
+  if (domain.key === ADMIN_DOMAIN_KEYS.workbench) {
+    return !iamS1.loaded || Boolean(iamS1.errorMessage) || iamS1.hasGlobal('admin:workbench:view')
+  }
   const declared = ADMIN_WORKSPACES.some((item) => item.domainKey === domain.key)
   return !declared || visibleWorkspaces.value.some((item) => item.domainKey === domain.key)
 }))
@@ -65,7 +66,7 @@ const visibleDomains = computed(() => ADMIN_DOMAINS.filter((domain) => {
 // 目标路径由 ADMIN_WORKSPACES 推导而不是各自硬编码，保证一级入口永远指向真实路由。
 function targetFor(domain: { key: string }): RouteLocationRaw {
   const { path } = findDomainHome(domain.key, visibleWorkspaces.value)
-  return { path, query: buildContextQuery(findWorkspaceContextMode(path), contextSource.value) }
+  return buildWorkspaceTarget(path, iamS1, contextSource.value)
 }
 </script>
 
@@ -103,7 +104,7 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
           <RouterLink
             v-for="workspace in group.items"
             :key="workspace.key"
-            :to="{ path: workspace.path, query: buildContextQuery(workspace.contextMode, contextSource) }"
+            :to="buildWorkspaceTarget(workspace.path, iamS1, contextSource)"
             class="admin-domain-nav__workspace-item"
             :class="{ active: isWorkspaceActive(workspace) }"
             :aria-current="isWorkspaceActive(workspace) ? 'page' : undefined"

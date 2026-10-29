@@ -1,6 +1,7 @@
 """Explicit test-only business actions through official APIs, never direct SQL writes."""
 import json
 import time
+from fixture_context import primary_context
 
 CONTRACT = "synthetic-sales-v1"
 REFERENCE = "scripts/system-acceptance/questions.json#synthetic-sales-v1"
@@ -9,22 +10,25 @@ def record(api, name, value):
     (api.output / name).write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
 def fields(api):
+    context = primary_context(api)
+    sid = context["snapshotId"]
     definitions = [
-        (1001, "订单编号", "sales_orders.order_id 唯一标识一笔订单，一行一笔。", "笔"),
-        (1002, "下单日期", "sales_orders.order_date 为业务下单日期；按半开时间区间筛选。", "日"),
-        (1003, "区域", "sales_orders.region 是销售区域，测试值 North/South/East。", ""),
-        (1004, "订单商品编号", "sales_orders.product_id 关联 products.product_id；每笔订单恰好一个商品。", ""),
-        (1005, "购买数量", "sales_orders.quantity 为该订单商品件数；总数量为 SUM(sales_orders.quantity)。", "件"),
-        (1006, "成交单价", "sales_orders.unit_price 为每件成交单价；订单销售额为 quantity*unit_price。", "测试币/件"),
-        (1007, "订单状态", "sales_orders.status 的 COMPLETED 表示已完成，RETURNED 表示退货；完成销售额只计 COMPLETED。", ""),
-        (1008, "商品编号", "products.product_id 是商品表唯一主键；一个商品可对应多笔订单。", ""),
-        (1009, "商品名称", "products.product_name 是商品名称。", ""),
-        (1010, "商品类别", "products.category 是商品分类；Furniture 为家具，Accessories 为配件。", ""),
+        ("sales_orders.order_id", "订单编号", "sales_orders.order_id 唯一标识一笔订单，一行一笔。", "笔"),
+        ("sales_orders.order_date", "下单日期", "sales_orders.order_date 为业务下单日期；按半开时间区间筛选。", "日"),
+        ("sales_orders.region", "区域", "sales_orders.region 是销售区域，测试值 North/South/East。", ""),
+        ("sales_orders.product_id", "订单商品编号", "sales_orders.product_id 关联 products.product_id；每笔订单恰好一个商品。", ""),
+        ("sales_orders.quantity", "购买数量", "sales_orders.quantity 为该订单商品件数；总数量为 SUM(sales_orders.quantity)。", "件"),
+        ("sales_orders.unit_price", "成交单价", "sales_orders.unit_price 为每件成交单价；订单销售额为 quantity*unit_price。", "测试币/件"),
+        ("sales_orders.status", "订单状态", "sales_orders.status 的 COMPLETED 表示已完成，RETURNED 表示退货；完成销售额只计 COMPLETED。", ""),
+        ("products.product_id", "商品编号", "products.product_id 是商品表唯一主键；一个商品可对应多笔订单。", ""),
+        ("products.product_name", "商品名称", "products.product_name 是商品名称。", ""),
+        ("products.category", "商品类别", "products.category 是商品分类；Furniture 为家具，Accessories 为配件。", ""),
     ]
     evidence = []
-    for column, name, meaning, unit in definitions:
+    for qualified, name, meaning, unit in definitions:
+        column = context["columns"][qualified]["id"]
         path = f"/api/admin/field-semantics/columns/{column}"
-        state = api.call("GET", path + "/details?snapshotId=1")
+        state = api.call("GET", path + f"/details?snapshotId={sid}")
         approved = state.get("currentApproved") or {}
         if CONTRACT in approved.get("evidence", "") and state.get("effectiveStatus") in {"APPROVED", "QUALIFIED", "VALID", "AI_READY"}:
             evidence.append({"column": column, "state": state, "reused": True})
@@ -32,9 +36,9 @@ def fields(api):
         if state.get("workingStatus") == "PENDING_REVIEW":
             state = api.call("POST", path + "/withdraw", {"expectedVersion": state["rowVersion"], "reason": "合成验收创建新修订，原修订保留追溯"})
         state = api.call("PUT", path + "/draft", {
-            "snapshotId": 1, "expectedVersion": state.get("rowVersion") or 0,
+            "snapshotId": sid, "expectedVersion": state.get("rowVersion") or 0,
             "businessName": name, "meaning": meaning, "unit": unit,
-            "enumSemantics": "COMPLETED=已完成; RETURNED=退货" if column == 1007 else "",
+            "enumSemantics": "COMPLETED=已完成; RETURNED=退货" if qualified == "sales_orders.status" else "",
             "evidence": CONTRACT + "；依据六笔合成订单与三件商品及独立预期；非真实业务口径",
             "applicability": "仅当前隔离合成数据集", "unresolvedItems": [], "glossaryReviewIds": []})
         state = api.call("POST", path + "/submit", {"expectedVersion": state["rowVersion"]})
@@ -45,30 +49,32 @@ def fields(api):
             raise ValueError("Field approval did not create an exact approved revision")
         evidence.append({"column": column, "state": state})
         record(api, "field-governance.json", evidence)
-    check = api.call("POST", "/api/admin/semantic-checks/snapshots/1")
+    check = api.call("POST", f"/api/admin/semantic-checks/snapshots/{sid}")
     record(api, "semantic-check.json", check)
     return {"fields": len(evidence), "semanticCheck": check}
 
 def smoke(api):
+    context = primary_context(api)
+    ds, sid = context["datasourceId"], context["snapshotId"]
     paths = [
         ("auth", "/api/auth/me"),
         ("workbench", "/api/admin/dashboard/stats"),
         ("datasource", "/api/admin/datasources?pageNo=1&pageSize=10"),
-        ("readiness", "/api/admin/datasources/1/readiness"),
+        ("readiness", f"/api/admin/datasources/{ds}/readiness"),
         ("metadata", "/api/admin/metadata/snapshots?pageNo=1&pageSize=10"),
         ("quality-rules", "/api/admin/quality-rules?pageNo=1&pageSize=10"),
-        ("quality-issues", "/api/admin/snapshots/1/quality-issues"),
-        ("semantic-check", "/api/admin/semantic-checks/snapshots/1/latest"),
+        ("quality-issues", f"/api/admin/snapshots/{sid}/quality-issues"),
+        ("semantic-check", f"/api/admin/semantic-checks/snapshots/{sid}/latest"),
         ("glossary", "/api/admin/glossary"),
-        ("knowledge", "/api/admin/knowledge-docs?datasourceId=1&pageSize=100"),
-        ("rag", "/api/admin/knowledge-docs/rag-builds?datasourceId=1"),
+        ("knowledge", f"/api/admin/knowledge-docs?datasourceId={ds}&pageSize=100"),
+        ("rag", f"/api/admin/knowledge-docs/rag-builds?datasourceId={ds}"),
         ("iam-roles", "/api/iam-s1/roles"),
-        ("iam-grants", "/api/iam-s1/data-grants?datasourceId=1"),
+        ("iam-grants", f"/api/iam-s1/data-grants?datasourceId={ds}"),
         ("query-resources", "/api/iam-s1/query-resources/datasources"),
         ("query-history", "/api/iam-s1/query/history?pageNo=1&pageSize=10"),
         ("query-audit", "/api/admin/audit-logs?pageNo=1&pageSize=10"),
-        ("lineage", "/api/lineage/table/sales_orders?datasourceId=1"),
-        ("impact", "/api/lineage/impact/sales_orders?datasourceId=1"),
+        ("lineage", f"/api/lineage/table/sales_orders?datasourceId={ds}"),
+        ("impact", f"/api/lineage/impact/sales_orders?datasourceId={ds}"),
         ("prompts", "/api/admin/prompt-templates/scenes"),
         ("operation-log", "/api/admin/operation-logs?pageNo=1&pageSize=10"),
     ]
@@ -86,7 +92,8 @@ def smoke(api):
     return {"passed": all(r["passed"] for r in results), "checks": results}
 
 def quality(api):
-    started = api.call("POST", "/api/admin/snapshots/1/quality-check", {"snapshotId":1,"tableNames":["sales_orders","products"]})
+    sid = primary_context(api)["snapshotId"]
+    started = api.call("POST", f"/api/admin/snapshots/{sid}/quality-check", {"snapshotId":sid,"tableNames":["sales_orders","products"]})
     record(api,"source-quality-check.json",started)
     return started
 
@@ -113,6 +120,7 @@ def resume_completed(api):
     record(api,"completed-resume.json",result);return result
 
 def business(api):
+    sid = primary_context(api, published=True)["snapshotId"]
     evidence = []
     facts = [
         ("DATASOURCE", "source", "合成销售数据用途", {"description": "三件商品六笔订单的隔离销售测试数据", "scope": "仅合成订单统计；无成本、税费、利润口径"}, ["table:sales_orders", "table:products"]),
@@ -121,7 +129,7 @@ def business(api):
         ("RELATION", "order-product", "合成订单到商品关系", {"description": "订单多对一连接商品", "joinCondition": "sales_orders.product_id = products.product_id", "cardinality": "MANY_TO_ONE", "aggregationNotes": "订单为事实粒度；products.product_id 唯一；SUM订单金额不能因商品维度关联放大。"}, ["table:sales_orders", "table:products", "column:sales_orders.product_id", "column:products.product_id"]),
         ("METRIC", "completed-sales", "合成已完成销售额", {"description": "已完成订单的成交金额，单位为测试币；缺少成本不可推算利润", "formula": "SUM(sales_orders.quantity * sales_orders.unit_price)", "conditions": "sales_orders.status = 'COMPLETED'", "grain": "订单"}, ["table:sales_orders", "column:sales_orders.quantity", "column:sales_orders.unit_price", "column:sales_orders.status"]),
     ]
-    rows = api.call("GET", "/api/admin/business-knowledge/snapshots/1")
+    rows = api.call("GET", f"/api/admin/business-knowledge/snapshots/{sid}")
     for kind, key, title, body, deps in facts:
         key = "acceptance.synthetic." + key
         previous = [r for r in rows if r["knowledgeKey"] == kind + ":" + key]
@@ -137,12 +145,12 @@ def business(api):
             source=api.call("GET",f"/api/admin/business-knowledge/{previous['id']}/source-status")
             if source.get("sourceChanged"):
                 request["confirmedSourceHash"]=source["currentHash"]
-        row = api.call("POST", "/api/admin/business-knowledge/snapshots/1/drafts", request)
+        row = api.call("POST", f"/api/admin/business-knowledge/snapshots/{sid}/drafts", request)
         for action in ["SUBMIT", "APPROVE", "RECHECK"]:
             api.call("POST", f"/api/admin/business-knowledge/{row['id']}/actions", {
                 "expectedVersion": row["rowVersion"], "action": action,
                 "note": "依据明确合成口径执行" + action + "，不代表真实业务口径确认"})
-            current = api.call("GET", "/api/admin/business-knowledge/snapshots/1")
+            current = api.call("GET", f"/api/admin/business-knowledge/snapshots/{sid}")
             row = next(r for r in current if r["id"] == row["id"])
         if row.get("effectiveStatus") != "VALID":
             raise ValueError("Business fact is not valid after exact-revision recheck")
@@ -151,8 +159,10 @@ def business(api):
     return {"facts": [{"id": r["id"], "kind": r["kind"], "rowVersion": r["rowVersion"], "status": r["status"]} for r in evidence]}
 
 def publish(api):
-    before = api.call("GET", "/api/admin/knowledge-docs/rag-builds?datasourceId=1")
-    docs = api.call("POST", "/api/admin/knowledge-docs/generate-from-snapshot?datasourceId=1", {"snapshotId": 1})
+    context = primary_context(api, published=True)
+    ds, sid = context["datasourceId"], context["snapshotId"]
+    before = api.call("GET", f"/api/admin/knowledge-docs/rag-builds?datasourceId={ds}")
+    docs = api.call("POST", f"/api/admin/knowledge-docs/generate-from-snapshot?datasourceId={ds}", {"snapshotId": sid})
     record(api, "generated-documents.json", docs)
     result = []
     for generated in docs:
@@ -168,24 +178,33 @@ def publish(api):
         api.call("POST", f"/api/admin/knowledge-docs/{doc_id}/publish")
         state = api.call("GET", f"/api/admin/knowledge-docs/{doc_id}")
         result.append({"id": doc_id, "version": state["currentVersion"], "status": state["status"]})
-    after = api.call("GET", "/api/admin/knowledge-docs/rag-builds?datasourceId=1")
+    after = api.call("GET", f"/api/admin/knowledge-docs/rag-builds?datasourceId={ds}")
     if before != after:
         raise ValueError("Publishing changed RAG build state before explicit confirmation")
     record(api, "publication.json", {"documents": result, "buildsUnchanged": True})
     return {"documents": result, "buildsUnchanged": True}
 
 def build(api):
+    context = primary_context(api, published=True)
+    ds, sid = context["datasourceId"], context["snapshotId"]
     # Replace obsolete published inputs through ordinary versioning. Old
     # versions and active/in-flight build collections remain intact.
     generated = json.loads((api.output / "generated-documents.json").read_text(encoding="utf-8"))
     current_ids = {d["id"] for d in generated}
-    docs = api.call("GET", "/api/admin/knowledge-docs?datasourceId=1&pageSize=100")["records"]
+    for doc_id in current_ids:
+        doc = api.call("GET", f"/api/admin/knowledge-docs/{doc_id}")
+        if doc.get("datasourceId") != ds:
+            raise ValueError("Generated document belongs to a different fixture datasource")
+        version = api.call("GET", f"/api/admin/knowledge-docs/{doc_id}/versions/{doc['currentVersion']}")
+        if version.get("metadataSnapshotId") != sid:
+            raise ValueError("Generated document belongs to a different fixture snapshot")
+    docs = api.call("GET", f"/api/admin/knowledge-docs?datasourceId={ds}&pageSize=100")["records"]
     retired = []
     for doc in docs:
         if doc["id"] in current_ids or doc["status"] != "PUBLISHED":
             continue
         version = api.call("GET", f"/api/admin/knowledge-docs/{doc['id']}/versions/{doc['currentVersion']}")
-        if version.get("metadataSnapshotId") != 1:
+        if version.get("metadataSnapshotId") != sid:
             continue
         api.call("PUT", f"/api/admin/knowledge-docs/{doc['id']}", {
             "title": doc["title"], "content": doc["content"] + "\n\n> 此旧文档已由 synthetic-sales-v1 当前主题文档组替代；本版仅作为待修订草稿，旧发布版本保留追溯。\n",
@@ -195,11 +214,11 @@ def build(api):
         retired.append({"docId": doc["id"], "preservedPublishedVersion": doc["currentVersion"], "newDraftVersion": after["currentVersion"]})
     if retired or not (api.output / "superseded-document-inputs.json").exists():
         record(api, "superseded-document-inputs.json", retired)
-    created = api.call("POST", "/api/admin/knowledge-docs/rag-builds", {"datasourceId": 1, "snapshotId": 1, "confirmed": True})
+    created = api.call("POST", "/api/admin/knowledge-docs/rag-builds", {"datasourceId": ds, "snapshotId": sid, "confirmed": True})
     record(api, "rag-build.json", created)
     deadline = time.monotonic() + 180
     while time.monotonic() < deadline:
-        rows = api.call("GET", "/api/admin/knowledge-docs/rag-builds?datasourceId=1")
+        rows = api.call("GET", f"/api/admin/knowledge-docs/rag-builds?datasourceId={ds}")
         current = next(r for r in rows if r["buildId"] == created["buildId"])
         record(api, "rag-build.json", current)
         if current["status"] == "ACTIVE":
@@ -265,7 +284,10 @@ def run(api, flow):
             cases["questions"] = [q for q in cases["questions"] if q["id"] == flow.split("-", 1)[1]]
             if not cases["questions"]:
                 raise ValueError("Unknown declared question")
-        return module.Api.questions(api, cases)
+        context = primary_context(api, published=True)
+        for case in cases["questions"]:
+            case["expectedSnapshotId"] = context["snapshotId"]
+        return module.Api.questions(api, cases, datasource=context["datasourceId"])
     functions = {"smoke": smoke, "quality": quality, "resume-completed":resume_completed,"fields": fields, "business": business, "publish": publish, "build": build}
     if flow not in functions:
         raise ValueError("Unknown declared acceptance flow")

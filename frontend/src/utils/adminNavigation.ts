@@ -162,6 +162,36 @@ export function visibleAdminWorkspaces(
   return workspaces.filter((workspace) => isWorkspaceVisible(workspace, capabilities, selectedDatasourceId))
 }
 
+/** 为工作区保留仍有权的源偏好，否则使用当前能力摘要给出的可用源。 */
+export function buildWorkspaceTarget(
+  path: string,
+  capabilities: AdminCapabilityLookup,
+  source: AdminContextSource = {},
+): { path: string; query: Record<string, string> } {
+  const workspace = findWorkspaceByPath(path)
+  if (!workspace?.viewCapability || !capabilities.loaded || capabilities.errorMessage) {
+    return { path, query: buildContextQuery(workspace?.contextMode, source) }
+  }
+  const available = workspace.viewCapability.anyOf.flatMap((code) => capabilities.datasourcesWithFunction(code))
+  const datasourceId = source.datasourceId !== undefined && available.includes(source.datasourceId)
+    ? source.datasourceId : available[0]
+  return { path, query: buildContextQuery(workspace.contextMode, {
+    datasourceId,
+    snapshotId: datasourceId === source.datasourceId ? source.snapshotId : undefined,
+  }) }
+}
+
+/** 默认后台入口必须落到当前账号实际可查看的工作区，不从“后台账号”推断工作台权。 */
+export function resolveAdminEntry(
+  capabilities: AdminCapabilityLookup,
+  source: AdminContextSource = {},
+): { path: string; query?: Record<string, string> } | undefined {
+  if (!capabilities.loaded || capabilities.errorMessage) return undefined
+  if (capabilities.hasGlobal('admin:workbench:view')) return { path: '/admin/workbench' }
+  const workspace = ADMIN_WORKSPACES.find((item) => item.viewCapability && isWorkspaceVisible(item, capabilities))
+  return workspace ? buildWorkspaceTarget(workspace.path, capabilities, source) : undefined
+}
+
 export interface AdminBreadcrumbItem {
   key: string
   label: string
@@ -197,7 +227,7 @@ export function buildAdminBreadcrumbs(input: AdminBreadcrumbInput): AdminBreadcr
     snapshotId: queryNumber(input.query?.snapshotId),
   }
   const items: AdminBreadcrumbItem[] = [
-    { key: 'home', label: 'DataOcean', to: { path: '/admin/workbench' } },
+    { key: 'home', label: 'DataOcean', to: { path: '/admin' } },
   ]
 
   const appendParent = (workspace: AdminWorkspace | undefined) => {

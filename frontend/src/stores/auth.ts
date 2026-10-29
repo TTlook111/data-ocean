@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { login, logout, me, type CurrentUser, type LoginPayload, type LoginResult } from '../api/auth'
 import { useIamS1Store } from './iamS1'
+import { useAdminContextStore } from './adminContext'
 
 function safeJsonParse<T>(key: string): T | null {
   try {
@@ -24,24 +25,32 @@ export const useAuthStore = defineStore('auth', {
       // 换账号必须丢弃上一位用户的 S1 能力快照：登录/登出都是 SPA 内跳转，
       // 不会重新加载页面，store 里的 loaded 短路会让新用户沿用旧能力。
       useIamS1Store().reset()
+      useAdminContextStore().resetSession()
       this.token = result.data.token
       this.user = result.data
+      this.currentUser = null
       localStorage.setItem('dataocean_token', result.data.token)
       localStorage.setItem('dataocean_user', JSON.stringify(result.data))
+      localStorage.removeItem('dataocean_current_user')
       return result
     },
     async fetchUserInfo() {
+      const requestToken = this.token
       const result = await me()
+      if (!requestToken || this.token !== requestToken) return result
       this.currentUser = result.data
       localStorage.setItem('dataocean_current_user', JSON.stringify(result.data))
       return result
     },
     async logout() {
-      if (this.token) {
+      const requestToken = this.token
+      if (requestToken) {
         await logout().catch(() => undefined)
       }
+      if (this.token !== requestToken) return
       // 与 login 同理：不清空会让下一位登录者直接复用上一位用户的 S1 能力摘要。
       useIamS1Store().reset()
+      useAdminContextStore().resetSession()
       this.token = ''
       this.user = null
       this.currentUser = null

@@ -219,8 +219,9 @@ function rowActionWidths(row: VersionHistoryItem): number[] {
 
   if (canViewAuditRecords(row)) widths.push(textWidth('操作记录'))
   if (row.status === 'DRAFT' && canRunQualityCheck(row)) widths.push(textWidth('开始检查'))
+  if (row.status === 'DRAFT' && canReviewSnapshot(row)) widths.push(textWidth('进入审核'))
   if (row.status === 'ISSUE_FOUND' && canViewIssuesForRow(row)) widths.push(textWidth('进入问题中心', 13))
-  if (row.status === 'ISSUE_FOUND' && canReviewSnapshot(row)) widths.push(textWidth('批准'))
+  if (['CHECKING', 'ISSUE_FOUND'].includes(row.status) && canReviewSnapshot(row)) widths.push(textWidth('批准'))
   if (row.status === 'APPROVED' && canPublishSnapshot(row)) widths.push(textWidth('发布', 14, 19))
   if (row.status === 'PUBLISHED' && canPublishSnapshot(row)) widths.push(textWidth('撤回', 14, 19))
   if (canCompareWithCurrent(row)) widths.push(textWidth('与当前正式版比较'))
@@ -620,6 +621,34 @@ async function ensureApprovable(item: VersionHistoryItem): Promise<boolean> {
   }
 }
 
+async function enterReview(item: VersionHistoryItem) {
+  if (actionLoading.value || item.status !== 'DRAFT' || !canReviewSnapshot(item)) return
+  const sourceId = rowDatasourceId(item)
+  const requestId = listRequestId
+  const isCurrent = () => !disposed && sourceId !== undefined
+    && sourceId === datasourceId.value && requestId === listRequestId
+  if (!isCurrent()) return
+  actionLoading.value = true
+  try {
+    await ElMessageBox.confirm(
+      `确认将快照 v${item.snapshotVersion} 进入人工审核？此操作不代表质量检查已完整完成，也不会自动批准或发布。`,
+      '确认进入审核',
+      { type: 'warning' },
+    )
+    if (!isCurrent() || !canReviewSnapshot(item)) return
+    await changeSnapshotStatus(item.snapshotId, { targetStatus: 'CHECKING', reason: '人工进入审核' })
+    if (!isCurrent()) return
+    ElMessage.success('快照已进入审核，批准与发布仍需分别操作。')
+    await load()
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close' && isCurrent()) {
+      ElMessage.error(getHttpErrorMessage(cause, '进入审核失败'))
+    }
+  } finally {
+    actionLoading.value = false
+  }
+}
+
 async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
   const labels: Record<string, string> = { CHECKING: '开始质量检查', APPROVED: '批准快照' }
   if (actionLoading.value) return
@@ -634,7 +663,18 @@ async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
     actionLoading.value = true
     if (targetStatus === 'CHECKING') {
       const result = await triggerQualityCheck(item.snapshotId)
-      ElMessage.success(`质量校验完成，综合得分 ${result.data?.qualityScore}`)
+      const check = result.data
+      if (check?.status === 'SUCCESS' && check.complete) {
+        const score = check.requestedScope === 'FULL' && check.qualityScore != null
+          ? `，综合得分 ${check.qualityScore}` : ''
+        ElMessage.success(`质量校验已完整完成${score}。`)
+      } else if (check?.status === 'PARTIAL' || check?.status === 'SUCCESS') {
+        ElMessage.warning('质量校验部分完成；本次评分不作为完整结果。')
+      } else if (check?.executedRuleCount === 0 && check.failedRuleCount === 0 && check.notApplicableRuleCount > 0) {
+        ElMessage.warning('本次检查没有可执行的适用项；未生成完整校验结果。')
+      } else {
+        ElMessage.error('质量校验未完成，请查看失败覆盖说明。')
+      }
     } else {
       await changeSnapshotStatus(item.snapshotId, { targetStatus })
       ElMessage.success('快照状态已更新')
@@ -897,8 +937,9 @@ onBeforeUnmount(() => {
               <div class="release-row-actions">
                 <el-button v-if="canViewAuditRecords(row)" link class="release-row-actions__audit" @click="openSnapshotDialog(row, 'operations')">操作记录</el-button>
                 <el-button v-if="row.status === 'DRAFT' && canRunQualityCheck(row)" link type="primary" @click="changeStatus(row, 'CHECKING')">开始检查</el-button>
+                <el-button v-if="row.status === 'DRAFT' && canReviewSnapshot(row)" link :disabled="actionLoading" @click="enterReview(row)">进入审核</el-button>
                 <RouterLink v-if="row.status === 'ISSUE_FOUND' && canViewIssuesForRow(row)" class="releases-page__issue-link" :to="issueCenterTarget(row)">进入问题中心</RouterLink>
-                <el-button v-if="row.status === 'ISSUE_FOUND' && canReviewSnapshot(row)" link @click="changeStatus(row, 'APPROVED')">批准</el-button>
+                <el-button v-if="['CHECKING', 'ISSUE_FOUND'].includes(row.status) && canReviewSnapshot(row)" link @click="changeStatus(row, 'APPROVED')">批准</el-button>
                 <el-button v-if="row.status === 'APPROVED' && canPublishSnapshot(row)" link type="primary" @click="publish(row)"><Send :size="14" aria-hidden="true" />发布</el-button>
                 <el-button v-if="row.status === 'PUBLISHED' && canPublishSnapshot(row)" link type="danger" @click="revoke(row)"><RotateCcw :size="14" aria-hidden="true" />撤回</el-button>
                 <el-button v-if="canCompareWithCurrent(row)" link type="primary" @click="compareWithCurrentOfficial(row)">与当前正式版比较</el-button>

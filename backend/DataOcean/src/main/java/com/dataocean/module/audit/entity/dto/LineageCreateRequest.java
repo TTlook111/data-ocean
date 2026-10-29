@@ -10,7 +10,7 @@ import java.util.List;
  * 血缘创建请求体
  * <p>
  * 用于手动创建 ETL/MANUAL 类型的 LINEAGE 关系。
- * 请求体结构与文档 data-lineage-research.md §4.1.1 定义完全一致。
+ * 来源与关系边界见 docs/modules/011-audit-lineage.md，请求字段以当前控制器为准。
  * </p>
  *
  * @author dataocean

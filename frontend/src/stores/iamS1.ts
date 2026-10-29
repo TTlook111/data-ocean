@@ -15,6 +15,7 @@ export const useIamS1Store = defineStore('iamS1', () => {
   const loaded = ref(false)
   const errorMessage = ref<string | null>(null)
   let inflight: Promise<void> | null = null
+  let requestGeneration = 0
 
   const systemAdmin = computed(() => snapshot.value?.systemAdmin === true)
   const globalFunctions = computed(() => snapshot.value?.globalFunctions ?? [])
@@ -84,20 +85,25 @@ export const useIamS1Store = defineStore('iamS1', () => {
   async function load(force = false): Promise<void> {
     if (loading.value) return inflight ?? Promise.resolve()
     if (loaded.value && !force) return
+    const generation = ++requestGeneration
     loading.value = true
     inflight = (async () => {
       try {
         const result = await getIamS1Capabilities()
+        if (generation !== requestGeneration) return
         snapshot.value = result.data
         errorMessage.value = null
         loaded.value = true
       } catch (error) {
+        if (generation !== requestGeneration) return
         snapshot.value = null
         errorMessage.value =
           error instanceof Error ? error.message : '无法读取 IAM-SIMPLE-1 能力摘要，请稍后重试'
       } finally {
-        loading.value = false
-        inflight = null
+        if (generation === requestGeneration) {
+          loading.value = false
+          inflight = null
+        }
       }
     })()
     return inflight
@@ -105,6 +111,9 @@ export const useIamS1Store = defineStore('iamS1', () => {
 
   /** 退出登录或切换账号时清空，避免沿用上一位用户的界面能力。 */
   function reset() {
+    requestGeneration++
+    loading.value = false
+    inflight = null
     snapshot.value = null
     loaded.value = false
     errorMessage.value = null

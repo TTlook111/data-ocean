@@ -21,9 +21,21 @@ import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.v
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import { useIamS1Store } from '../../../stores/iamS1'
 
 const router = useRouter()
 const route = useRoute()
+const iamS1 = useIamS1Store()
+const canView = computed(() => iamS1.hasGlobal('datasource:view'))
+const canCreate = computed(() => iamS1.hasGlobal('datasource:manage'))
+const VIEW_HINT = '没有查看数据源的权限。'
+const MANAGE_HINT = '没有管理当前数据源的权限。'
+const CREATE_HINT = '没有新建数据源的权限。'
+
+function canManageDatasource(id: number) {
+  return iamS1.canOnDatasource('datasource:manage', id)
+}
+
 const rows = ref<DatasourceItem[]>([])
 const readiness = reactive<Record<number, DatasourceReadiness | undefined>>({})
 const total = ref(0)
@@ -82,6 +94,7 @@ const rules = computed<FormRules>(() => ({
 }))
 
 const canSave = computed(() => testedOk.value && !connectionDirty.value)
+const canWriteForm = computed(() => editingId.value === undefined ? canCreate.value : canManageDatasource(editingId.value))
 const saveHint = computed(() => {
   if (!testedOk.value) return '保存前必须先测试连接成功'
   if (connectionDirty.value) return '连接配置已变化，请重新测试连接'
@@ -156,6 +169,14 @@ function loadReadiness(row: DatasourceItem) {
 async function load() {
   loading.value = true
   error.value = ''
+  await iamS1.load()
+  if (!canView.value) {
+    rows.value = []
+    total.value = 0
+    error.value = iamS1.errorMessage || VIEW_HINT
+    loading.value = false
+    return
+  }
   try {
     const filters = { ...route.query }
     for (const key of ['name', 'status', 'healthStatus', 'page'] as const) {
@@ -178,11 +199,13 @@ async function load() {
 }
 
 function openCreate() {
+  if (!canCreate.value) { ElMessage.warning(CREATE_HINT); return }
   resetForm()
   dialogVisible.value = true
 }
 
 function openEdit(row: DatasourceItem) {
+  if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
   editingId.value = row.id
   testedOk.value = true
   connectionDirty.value = false
@@ -209,8 +232,10 @@ function openEdit(row: DatasourceItem) {
 }
 
 async function testConnection() {
+  if (!canWriteForm.value) { ElMessage.warning(MANAGE_HINT); return }
   const valid = await formRef.value?.validateField(['host', 'port', 'databaseName', 'charset', 'username', 'password']).catch(() => false)
   if (valid === false) return
+  if (!canWriteForm.value) { ElMessage.warning(MANAGE_HINT); return }
   if (editingId.value && !form.password) {
     ElMessage.warning('测试连接需要填写密码；若不修改连接配置，编辑保存可以留空密码')
     return
@@ -252,11 +277,13 @@ async function testConnection() {
 }
 
 async function save() {
+  if (!canWriteForm.value) { ElMessage.warning(MANAGE_HINT); return }
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid || !canSave.value) {
     if (!canSave.value) ElMessage.warning(saveHint.value)
     return
   }
+  if (!canWriteForm.value) { ElMessage.warning(MANAGE_HINT); return }
 
   saving.value = true
   try {
@@ -291,6 +318,7 @@ async function save() {
 }
 
 async function toggleStatus(row: DatasourceItem) {
+  if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
   const nextStatus = row.status === 1 ? 0 : 1
   if (nextStatus === 0) {
     try {
@@ -304,6 +332,7 @@ async function toggleStatus(row: DatasourceItem) {
     }
   }
   try {
+    if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
     const result = await updateDatasourceStatus(row.id, nextStatus)
     Object.assign(row, result.data)
     await loadReadiness(row)
@@ -314,6 +343,7 @@ async function toggleStatus(row: DatasourceItem) {
 }
 
 async function remove(row: DatasourceItem) {
+  if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
   if (row.status === 1) {
     ElMessage.warning('启用状态的数据源不可删除，请先禁用')
     return
@@ -324,6 +354,7 @@ async function remove(row: DatasourceItem) {
       '删除数据源',
       { type: 'error', confirmButtonText: '确认删除', cancelButtonText: '取消' },
     )
+    if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
     await deleteDatasource(row.id)
     ElMessage.success('数据源已删除')
     await load()
@@ -365,7 +396,7 @@ onMounted(async () => {
       description="管理连接，查看准备情况，继续数据治理。"
     >
       <template #actions>
-        <el-button type="primary" :icon="Database" @click="openCreate">新增数据源</el-button>
+        <el-button v-if="canCreate" type="primary" :icon="Database" @click="openCreate">新增数据源</el-button>
       </template>
     </TaskPageHeader>
 
@@ -440,12 +471,12 @@ onMounted(async () => {
               <template #default="{ row }">
                 <div class="row-actions">
                   <el-button link type="primary" @click="router.push('/admin/data-sources/' + row.id)">查看详情</el-button>
-                  <el-dropdown trigger="click" popper-class="data-source-actions-popper">
+                  <el-dropdown v-if="canManageDatasource(row.id)" trigger="click" popper-class="data-source-actions-popper">
                     <el-button link class="row-actions__more" :aria-label="row.name + '的更多操作'">更多<ChevronDown :size="14" aria-hidden="true" /></el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item @click="openEdit(row)"><Pencil :size="17" aria-hidden="true" />编辑数据源</el-dropdown-item>
-                        <el-dropdown-item @click="router.push('/admin/data-sources/' + row.id + '?action=test')"><PlugZap :size="17" aria-hidden="true" />测试连接</el-dropdown-item>
+                        <el-dropdown-item @click="canManageDatasource(row.id) && router.push('/admin/data-sources/' + row.id + '?action=test')"><PlugZap :size="17" aria-hidden="true" />测试连接</el-dropdown-item>
                         <el-dropdown-item @click="toggleStatus(row)">
                           <Ban v-if="row.status === 1" :size="17" aria-hidden="true" />
                           <CircleCheck v-else :size="17" aria-hidden="true" />
@@ -474,8 +505,8 @@ onMounted(async () => {
       </template>
       <EmptyState
         v-else
-        :message="query.name || query.status !== undefined || query.healthStatus ? '当前筛选条件下没有匹配的数据源。' : '还没有数据源，请先完成连接测试并创建一个数据源。'"
-        :action-text="query.name || query.status !== undefined || query.healthStatus ? '' : '新增数据源'"
+        :message="query.name || query.status !== undefined || query.healthStatus ? '当前筛选条件下没有匹配的数据源。' : canCreate ? '还没有数据源，请先完成连接测试并创建一个数据源。' : '当前负责范围内没有可查看的数据源。'"
+        :action-text="query.name || query.status !== undefined || query.healthStatus || !canCreate ? '' : '新增数据源'"
         @action="openCreate"
       />
     </section>
@@ -521,12 +552,12 @@ onMounted(async () => {
       <template #footer>
         <div class="data-source-dialog__footer">
           <div class="data-source-dialog__test">
-            <el-button :loading="testing" :icon="PlugZap" @click="testConnection">测试连接</el-button>
+            <el-button :loading="testing" :disabled="!canWriteForm" :icon="PlugZap" @click="testConnection">测试连接</el-button>
             <span class="data-source-dialog__test-status" :class="`is-${testStatusTone}`" role="status" aria-live="polite">{{ testStatusText }}</span>
           </div>
           <div class="data-source-dialog__footer-actions">
             <el-button @click="dialogVisible = false">取消</el-button>
-            <el-button type="primary" :loading="saving" :disabled="!canSave" @click="save">{{ editingId ? '保存' : '保存并查看详情' }}</el-button>
+            <el-button type="primary" :loading="saving" :disabled="!canSave || !canWriteForm" @click="save">{{ editingId ? '保存' : '保存并查看详情' }}</el-button>
           </div>
         </div>
       </template>

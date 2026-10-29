@@ -2,7 +2,7 @@
  * 数据血缘管理 API
  *
  * 封装 Phase 0 的 ETL/MANUAL 血缘创建、删除、批量导入和增强查询 API。
- * 与文档 data-lineage-research.md §4.1.1 接口定义完全一致。
+ * 接口与来源边界见 docs/modules/011-audit-lineage.md，具体字段以当前控制器为准。
  */
 import { http } from '../http'
 import type { ApiResult } from './user'

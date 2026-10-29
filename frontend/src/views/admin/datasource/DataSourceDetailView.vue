@@ -23,10 +23,16 @@ import NextActionCard from '../../../components/admin/NextActionCard.vue'
 import ActivityTimeline from '../../../components/admin/ActivityTimeline.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
+import { useIamS1Store } from '../../../stores/iamS1'
 
 const route = useRoute()
 const router = useRouter()
 const datasourceId = computed(() => Number(route.params.id))
+const iamS1 = useIamS1Store()
+const canView = computed(() => iamS1.canOnDatasource('datasource:view', datasourceId.value))
+const canManage = computed(() => iamS1.canOnDatasource('datasource:manage', datasourceId.value))
+const canCollect = computed(() => iamS1.canOnDatasource('metadata:collect:run', datasourceId.value))
+const MANAGE_HINT = '没有管理当前数据源的权限。'
 const datasource = ref<DatasourceItem | null>(null)
 const readiness = ref<DatasourceReadiness | null>(null)
 const snapshots = ref<SnapshotItem[]>([])
@@ -113,6 +119,11 @@ const primaryAction = computed<PrimaryAction>(() => {
   if (!target) return { key: 'reload', label: '刷新状态', icon: RefreshCw }
   return { key: 'navigate', label: reason.actionText || '去处理', icon: ArrowRight, to: target }
 })
+const primaryActionAllowed = computed(() => {
+  if (primaryAction.value.key === 'test' || primaryAction.value.key === 'enable') return canManage.value
+  if (primaryAction.value.key === 'collect') return canCollect.value
+  return true
+})
 
 const activityItems = computed(() => [
   ...syncTasks.value.slice(0, 3).map((task) => ({
@@ -135,6 +146,14 @@ function apiError(cause: unknown, fallback: string) {
 async function load() {
   if (!Number.isFinite(datasourceId.value)) {
     error.value = '数据源编号无效'
+    loading.value = false
+    return
+  }
+  await iamS1.load()
+  if (!canView.value) {
+    datasource.value = null
+    readiness.value = null
+    error.value = iamS1.errorMessage || '没有查看数据源的权限。'
     loading.value = false
     return
   }
@@ -187,6 +206,7 @@ async function load() {
 }
 
 async function testConnection() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   actionLoading.value = true
   try {
     const result = await testSavedDatasourceConnection(datasourceId.value)
@@ -200,6 +220,7 @@ async function testConnection() {
 }
 
 async function enableDatasource() {
+  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
   actionLoading.value = true
   try {
     await updateDatasourceStatus(datasourceId.value, 1)
@@ -213,6 +234,7 @@ async function enableDatasource() {
 }
 
 async function startCollection() {
+  if (!canCollect.value) { ElMessage.warning('没有执行当前数据源采集的权限。'); return }
   actionLoading.value = true
   try {
     await triggerSync({ datasourceId: datasourceId.value, includeStatistics: false })
@@ -248,7 +270,7 @@ onMounted(async () => {
   <div class="admin-page datasource-cockpit">
     <RouterLink class="datasource-back" to="/admin/data-sources"><ArrowLeft :size="15" aria-hidden="true" />返回数据源</RouterLink>
     <TaskPageHeader :title="datasource?.name || '数据源详情'" description-mode="inline" :description="datasource ? datasource.dbType + ' · ' + datasource.databaseName : '查看准备条件和待处理事项。'">
-      <template #actions><el-button :icon="RefreshCw" :loading="loading" @click="load">刷新状态</el-button><el-button v-if="primaryAction.icon && primaryAction.key !== 'reload'" type="primary" :icon="primaryAction.icon" :loading="actionLoading" :disabled="loading || !!error" @click="runPrimaryAction">{{ primaryAction.label }}</el-button></template>
+      <template #actions><el-button :icon="RefreshCw" :loading="loading" @click="load">刷新状态</el-button><el-button v-if="primaryAction.icon && primaryAction.key !== 'reload' && primaryActionAllowed" type="primary" :icon="primaryAction.icon" :loading="actionLoading" :disabled="loading || !!error" @click="runPrimaryAction">{{ primaryAction.label }}</el-button></template>
     </TaskPageHeader>
     <LoadingState v-if="loading" variant="skeleton" :rows="7" />
     <ErrorState v-else-if="error" :message="error" @retry="load" />

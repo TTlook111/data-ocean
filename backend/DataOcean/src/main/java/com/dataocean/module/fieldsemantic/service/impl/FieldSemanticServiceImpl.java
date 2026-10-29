@@ -133,6 +133,13 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
         if (!creatingDefinition) checkVersion(definition, request.getExpectedVersion());
         FieldSemanticBinding binding = getOrCreateBinding(definition, source, userId);
         binding = currentBinding(definition, source, binding);
+        if ("NEEDS_REVIEW".equals(binding.getStatus())
+                && !Objects.equals(binding.getSchemaFingerprint(), fingerprint(source))) {
+            validateBindingSource(binding, source);
+            // 显式新草稿绑定当前来源；旧审核仍因 NEEDS_REVIEW 失效，不能自动恢复使用资格。
+            binding.setSchemaFingerprint(fingerprint(source));
+            bindingMapper.updateById(binding);
+        }
         List<Map<String, Object>> glossaryRefs = normalizeGlossaryRefs(request.getGlossaryReviewIds(), source, userId);
         requireText(request.getBusinessName(), 200, "业务名称");
         requireText(request.getMeaning(), 4000, "字段含义");
@@ -246,7 +253,9 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
             binding.setConfirmationEvidence(trim(confirmedEvidence, 1000));
             binding.setConfirmedBy(userId);
             binding.setConfirmedAt(LocalDateTime.now());
-            bindingMapper.updateById(binding);
+            bindingMapper.update(binding, new LambdaUpdateWrapper<FieldSemanticBinding>()
+                    .eq(FieldSemanticBinding::getId, binding.getId())
+                    .set(FieldSemanticBinding::getStatusReason, null));
             insertReview(definition, pending, binding, "APPROVE", confirmedEvidence, userId,
                     definition.getRowVersion());
             revisionMapper.updateById(pending);
@@ -323,6 +332,8 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
             } else if (!Objects.equals(binding.getSchemaFingerprint(), fingerprint(source))
                     || !Objects.equals(active.getSchemaFingerprint(), fingerprint(source))) {
                 reason = "字段结构或完整依据已变化，需创建新修订并重新审核";
+            } else if (!evaluateForGovernance(active.getColumnMetaId(), active.getSnapshotId()).usable()) {
+                reason = "原来源审核已失效，需创建新修订并重新审核";
             }
             FieldSemanticPendingBindingVO item = new FieldSemanticPendingBindingVO();
             item.setColumnMetaId(binding.getColumnMetaId());
@@ -366,13 +377,18 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
             bindingMapper.updateById(target);
             throw new BindingRequiresReviewException("来源字段已发生变化，不能沿用旧审核；请编辑并重新提交解释");
         }
+        if (!evaluateForGovernance(active.getColumnMetaId(), active.getSnapshotId()).usable()) {
+            throw new BusinessException(409, "原来源审核已失效，需创建新修订并重新审核");
+        }
         if (!StringUtils.hasText(request.getEvidence())) throw new BusinessException(400, "绑定确认必须填写核验依据");
         target.setStatus(VALID);
         target.setStatusReason(null);
         target.setConfirmationEvidence(trim(request.getEvidence(), 1000));
         target.setConfirmedBy(userId);
         target.setConfirmedAt(LocalDateTime.now());
-        bindingMapper.updateById(target);
+        bindingMapper.update(target, new LambdaUpdateWrapper<FieldSemanticBinding>()
+                .eq(FieldSemanticBinding::getId, target.getId())
+                .set(FieldSemanticBinding::getStatusReason, null));
         insertReview(definition, current, target, "BIND_CONFIRM", request.getEvidence(), userId,
                 definition.getRowVersion());
         updateDefinition(definition, target.getId(), current.getId(), definition.getWorkingRevisionId(), ACTIVE, userId,
@@ -592,6 +608,9 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
                 FieldSemanticBinding originalBinding = bindingMapper.selectById(revision.getBindingId());
                 if (originalBinding == null || !Objects.equals(originalBinding.getDatasourceId(), binding.getDatasourceId())) {
                     throw new BusinessException(409, "原审核来源绑定不存在或跨源");
+                }
+                if (!VALID.equals(originalBinding.getStatus())) {
+                    throw new BusinessException(409, "原审核来源绑定已失效，需要重新审核");
                 }
                 Source originalSource = source(originalBinding.getColumnMetaId(), originalBinding.getSnapshotId());
                 validateRevisionHashes(revision, originalBinding, originalSource);
@@ -818,7 +837,8 @@ public class FieldSemanticServiceImpl implements FieldSemanticService {
         vo.setCurrentApprovedRevisionId(definition.getCurrentApprovedRevisionId());
         vo.setDefinitionStatus(definition.getStatus());
         vo.setBindingStatus(binding == null ? "PENDING_CONFIRMATION" : binding.getStatus());
-        vo.setBindingReason(binding == null ? "该快照尚无来源绑定" : binding.getStatusReason());
+        vo.setBindingReason(binding == null ? "该快照尚无来源绑定"
+                : VALID.equals(binding.getStatus()) ? null : binding.getStatusReason());
         FieldSemanticRevision approved = definition.getCurrentApprovedRevisionId() == null ? null
                 : revisionMapper.selectById(definition.getCurrentApprovedRevisionId());
         FieldSemanticRevision draft = definition.getWorkingRevisionId() == null ? null

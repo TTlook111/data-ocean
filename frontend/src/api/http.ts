@@ -24,6 +24,12 @@ http.interceptors.response.use(
     // 统一替换 Axios 默认英文错误，页面现有的 `error.message` 读取也能得到中文业务提示。
     error.message = getHttpErrorMessage(error)
     if (error.response?.status === 401 && !isRedirecting) {
+      // 旧账号或匿名请求的迟到响应不能注销后续登录的会话。
+      const token = localStorage.getItem('dataocean_token')
+      const authorization = error.config?.headers?.get?.('Authorization') ?? null
+      if (!error.config || authorization !== (token ? `Bearer ${token}` : null)) {
+        return Promise.reject(error)
+      }
       isRedirecting = true
       localStorage.removeItem('dataocean_token')
       localStorage.removeItem('dataocean_user')

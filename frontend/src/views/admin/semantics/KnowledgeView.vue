@@ -8,7 +8,7 @@
  * - 数据源范围沿用全局 ScopeBar（路由上下文为 datasource），页面内不再另建选择器。
  *   未限定数据源时展示全部文档并给出说明。
  *
- * 后端事实：知识文档状态为 DRAFT -> PENDING_REVIEW -> APPROVED -> INDEXING -> PUBLISHED，
+ * 后端事实：文档发布主链为 DRAFT -> PENDING_REVIEW -> APPROVED -> PUBLISHED，
  * 审核、文档发布和数据源级 RAG build 是三个独立的人工确认阶段。
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -27,15 +27,13 @@ import {
 } from '../../../api/admin/knowledge'
 import {
   getBatchDatasourceReadiness,
-  listSimpleDatasources,
   type DatasourceReadiness,
-  type DatasourceSimpleItem,
 } from '../../../api/admin/datasource'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
 import { getPublishedSnapshot, type VersionHistoryItem } from '../../../api/admin/versioning'
 import { knowledgeStatusLabel } from '../../../utils/enumLabels'
 import { findDomainHome, resolveReadinessAction } from '../../../utils/adminNavigation'
-import { useAdminContextStore } from '../../../stores/adminContext'
+import { useAdminContextStore, type AdminDatasourceOption } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 import KnowledgeSourcePreview from '../../../components/admin/KnowledgeSourcePreview.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -70,6 +68,15 @@ const canApprove = computed(
 const MANAGE_HINT = '没有“维护知识文档”能力：需要角色拥有 knowledge:manage 并负责目标数据源。'
 const APPROVE_HINT = '没有“审核知识文档”能力：需要角色拥有 knowledge:approve 并负责目标数据源。审核权不自动带来维护或发布权。'
 const PUBLISH_HINT = '没有“发布知识文档”能力：需要角色拥有 knowledge:publish 并负责目标数据源。'
+const GENERATE_HINT = '生成快照目录需要当前数据源的知识维护与元数据查看能力；仍可手动新建或编辑已授权文档。'
+
+function canViewSnapshots(id?: number) {
+  return iamS1.systemAdmin || (id != null && iamS1.datasourcesWithFunction('metadata:view').includes(id))
+}
+function canGenerateForDatasource(id?: number) {
+  return id != null && canViewSnapshots(id)
+    && (iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:manage').includes(id))
+}
 
 function canPublishForDatasource(id: number) {
   return iamS1.systemAdmin
@@ -88,7 +95,9 @@ const total = ref(0)
 const loading = ref(false)
 const error = ref('')
 const actionLoading = ref(false)
-const datasources = ref<DatasourceSimpleItem[]>([])
+const datasources = ref<AdminDatasourceOption[]>([])
+const readinessDatasources = computed(() => datasources.value.filter(item => iamS1.systemAdmin || iamS1.datasourcesWithFunction('datasource:view').includes(item.id)))
+const generatableDatasources = computed(() => datasources.value.filter(item => canGenerateForDatasource(item.id)))
 const publishedSnapshot = ref<VersionHistoryItem | null>(null)
 const ragBuilds = ref<RagIndexBuildSummary[]>([])
 const ragBuildsLoading = ref(false)
@@ -129,6 +138,7 @@ let generationRequestId = 0
 onBeforeUnmount(() => { disposed = true; scopeEpoch++; requestId++; snapshotRequestId++; generationRequestId++ })
 
 const datasourceId = computed(() => context.datasourceId)
+const canGenerateSnapshot = computed(() => canGenerateForDatasource(datasourceId.value))
 const activeRagCount = computed(() => readinessList.value.filter((row) => Boolean(row.ragBuildId)).length)
 const datasourceName = (id: number) => datasources.value.find((item) => item.id === id)?.name || `数据源 #${id}`
 const readinessAction = (row: DatasourceReadiness) => {
@@ -234,7 +244,8 @@ async function loadStats() {
 async function loadDatasources() {
   datasourcesError.value = ''
   try {
-    datasources.value = (await listSimpleDatasources()).data || []
+    await context.initialize()
+    datasources.value = context.datasources
   } catch (cause) {
     datasources.value = []
     datasourcesError.value = apiError(cause, '数据源列表加载失败')
@@ -244,15 +255,16 @@ async function loadDatasources() {
 
 /** 批量取各数据源的知识就绪度；知识准备情况总览的数据来源 */
 async function loadReadiness() {
-  if (!datasources.value.length) {
+  if (!readinessDatasources.value.length) {
     readinessList.value = []
+    readinessError.value = ''; readinessWarning.value = ''; readinessLoading.value = false
     return
   }
   readinessLoading.value = true
   readinessError.value = ''
   readinessWarning.value = ''
   try {
-    const result = await getBatchDatasourceReadiness(datasources.value.map((item) => item.id))
+    const result = await getBatchDatasourceReadiness(readinessDatasources.value.map((item) => item.id))
     readinessList.value = result.data
     if (result.failedDatasourceIds.length) {
       readinessWarning.value = `部分数据源就绪度加载失败：${result.failedDatasourceIds.join('、')}`
@@ -273,7 +285,7 @@ async function loadPublishedSnapshot() {
   const source = datasourceId.value
   const current = () => !disposed && epoch === scopeEpoch && source === datasourceId.value && sequence === publishedRequestId
   publishedSnapshotError.value = ''
-  if (!source) { publishedSnapshot.value = null; publishedSnapshotLoading.value = false; return }
+  if (!source || (!iamS1.systemAdmin && !iamS1.datasourcesWithFunction('metadata:release:view').includes(source))) { publishedSnapshot.value = null; publishedSnapshotLoading.value = false; return }
   publishedSnapshotLoading.value = true
   try {
     const result = await getPublishedSnapshot(source)
@@ -346,6 +358,7 @@ const visibleDocs = computed(() => {
 const emptyMessage = computed(() => {
   if (activeTab.value === 'review') return '当前没有待审核的知识文档，审核队列是空的。'
   if (!datasourceId.value) return '还没有任何知识文档。选择数据源后可以从快照生成知识。'
+  if (!canGenerateSnapshot.value) return '当前筛选条件下没有知识文档。有维护能力时可手动新建；按快照生成还需要元数据查看能力。'
   if (publishedSnapshotError.value) return '已发布快照状态加载失败，暂时无法判断是否可以生成知识。'
   if (!publishedSnapshot.value) return '当前数据源还没有正式发布的快照。语义知识必须基于已发布快照生成。'
   return '当前筛选条件下没有知识文档。'
@@ -353,12 +366,14 @@ const emptyMessage = computed(() => {
 
 const emptyAction = computed(() => {
   if (activeTab.value === 'review') return ''
+  if (!canGenerateSnapshot.value) return canManage.value ? '手动新建文档' : ''
   if (publishedSnapshotError.value) return ''
   if (!publishedSnapshot.value && datasourceId.value) return '去元数据版本'
   return '生成快照目录'
 })
 
 function handleEmptyAction() {
+  if (!canGenerateSnapshot.value) { if (canManage.value) goCreate(); return }
   if (!publishedSnapshot.value && datasourceId.value) {
     router.push({ path: '/admin/releases', query: { datasourceId: String(datasourceId.value) } })
     return
@@ -376,6 +391,7 @@ function goCreate() {
 }
 
 function goAsk() {
+  if (!iamS1.queryUse) return
   router.push('/query')
 }
 
@@ -385,7 +401,7 @@ async function approve(doc: KnowledgeDocItem) {
     await ElMessageBox.confirm(`通过「${doc.title}」的审核？发布文档后还需要有权人员单独确认数据源级 RAG build。`, '审核通过')
     actionLoading.value = true
     await approveDoc(doc.id)
-    ElMessage.success('审核已通过，下一步是发布并构建索引')
+    ElMessage.success('审核已通过；请先发布文档，满足来源与覆盖要求后再显式确认 RAG 构建')
     await Promise.all([loadDocs(), loadStats()])
   } catch (cause) {
     if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '审核通过失败'))
@@ -423,7 +439,7 @@ const snapshots = ref<SnapshotItem[]>([])
 const generatedDocs = ref<Array<{ id: number; title: string; tableNames: string[] }>>([])
 
 function openGenerateDialog() {
-  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
+  if (!canGenerateSnapshot.value) { ElMessage.warning(GENERATE_HINT); return }
   generateForm.datasourceId = datasourceId.value
   generateForm.snapshotId = context.snapshotId
   snapshots.value = []
@@ -452,6 +468,7 @@ async function loadSnapshots(id: number) {
   const sequence = ++snapshotRequestId
   const current = () => !disposed && generateDialogVisible.value && sequence === snapshotRequestId && generateForm.datasourceId === id
   snapshotsError.value = ''
+  if (!canViewSnapshots(id)) { snapshots.value = []; snapshotsLoading.value = false; snapshotsError.value = GENERATE_HINT; return }
   snapshotsLoading.value = true
   try {
     const result = await listSnapshots({ datasourceId: id, page: 1, size: 50 })
@@ -472,7 +489,7 @@ function onGenerateDatasourceChange(id?: number) {
 }
 
 async function runGenerate() {
-  if (!canManage.value) { ElMessage.warning(MANAGE_HINT); return }
+  if (!canGenerateForDatasource(generateForm.datasourceId)) { ElMessage.warning(GENERATE_HINT); return }
   if (!generateForm.datasourceId || !generateForm.snapshotId) {
     ElMessage.warning('请选择数据源和快照')
     return
@@ -496,9 +513,10 @@ async function runGenerate() {
 }
 
 onMounted(async () => {
-  await Promise.allSettled([context.initialize(), loadDatasources()])
-  await Promise.allSettled([context.initialize(), iamS1.load(), loadDatasources()])
+  await iamS1.load()
+  await loadDatasources()
   if (disposed) return
+  if (datasourcesError.value) { error.value = datasourcesError.value; statsLoading.value = false; return }
   await Promise.allSettled([loadDocs(), loadStats(), loadPublishedSnapshot(), loadRagBuilds()])
 })
 
@@ -540,7 +558,7 @@ watch(() => route.query.page, (value) => {
         <el-button @click="router.push({path:'/admin/semantics/business-knowledge',query:{datasourceId:context.datasourceId,snapshotId:context.snapshotId}})">业务知识治理</el-button>
         <el-button :icon="RefreshCw" :loading="loading" @click="loadDocs(); loadStats(); loadReadiness()">刷新</el-button>
         <el-button :icon="Plus" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="goCreate">手动新建</el-button>
-        <el-button type="primary" :icon="Sparkles" :disabled="!canManage" :title="canManage ? '' : MANAGE_HINT" @click="openGenerateDialog">生成快照目录</el-button>
+        <el-button type="primary" :icon="Sparkles" :disabled="!canGenerateSnapshot" :title="canGenerateSnapshot ? '' : GENERATE_HINT" @click="openGenerateDialog">生成快照目录</el-button>
       </template>
     </TaskPageHeader>
 
@@ -549,13 +567,13 @@ watch(() => route.query.page, (value) => {
     <section v-else class="knowledge-page__stats">
       <div class="stat"><span>文档总数</span><strong>{{ stats.total }}</strong></div>
       <div class="stat stat--success"><span>已发布文档</span><strong>{{ stats.published }}</strong></div>
-      <div class="stat stat--success"><span>已生效知识索引</span><strong>{{ readinessLoading || readinessError || datasourcesError || readinessWarning ? '—' : activeRagCount }}</strong></div>
+      <div class="stat stat--success"><span>已生效知识索引</span><strong>{{ !readinessDatasources.length || readinessLoading || readinessError || datasourcesError || readinessWarning ? '—' : activeRagCount }}</strong></div>
       <div class="stat stat--warning"><span>待审核</span><strong>{{ stats.pending }}</strong></div>
       <div class="stat"><span>草稿</span><strong>{{ stats.draft }}</strong></div>
     </section>
 
     <!-- 每个数据源的知识准备情况（开发指导 §7.11） -->
-    <section class="knowledge-page__readiness">
+    <section v-if="readinessDatasources.length" class="knowledge-page__readiness">
       <div class="knowledge-page__readiness-heading">
         <div class="knowledge-page__section-title">
           <TitleHelp label="数据源知识准备情况" text="对照采集、发布和索引版本，确认知识是否已生效。发布文档与构建知识索引是两个独立步骤。" />
@@ -680,7 +698,7 @@ watch(() => route.query.page, (value) => {
       </el-tab-pane>
       <el-tab-pane label="审核队列" name="review">
         <p class="knowledge-page__tab-note">
-          审核队列只列出 PENDING_REVIEW 文档。通过后文档进入已批准状态，仍需发布并构建索引才会进入检索。
+          审核队列只列出 PENDING_REVIEW 文档。通过后仍需发布文档，再在知识列表显式确认 RAG 构建；符合来源与覆盖要求且构建生效后才可用于检索。
         </p>
       </el-tab-pane>
     </el-tabs>
@@ -731,7 +749,7 @@ watch(() => route.query.page, (value) => {
               <el-button link type="success" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="approve(row)"><Check :size="14" />通过</el-button>
               <el-button link type="danger" :disabled="!canApprove" :title="canApprove ? '' : APPROVE_HINT" @click="reject(row)"><X :size="14" />驳回</el-button>
             </template>
-            <el-button v-else-if="row.status === 'PUBLISHED'" link @click="goAsk()">
+            <el-button v-else-if="row.status === 'PUBLISHED' && iamS1.queryUse" link @click="goAsk()">
               <MessageSquareText :size="14" />去问数
             </el-button>
             <el-button v-else-if="row.status === 'DRAFT'" link @click="goDetail(row.id)">继续编辑</el-button>
@@ -760,7 +778,7 @@ watch(() => route.query.page, (value) => {
         <el-form label-width="88px">
           <el-form-item label="数据源">
             <el-select v-model="generateForm.datasourceId" placeholder="选择数据源" style="width: 100%" @change="onGenerateDatasourceChange">
-              <el-option v-for="ds in datasources" :key="ds.id" :label="ds.name" :value="ds.id" />
+              <el-option v-for="ds in generatableDatasources" :key="ds.id" :label="ds.name" :value="ds.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="快照">

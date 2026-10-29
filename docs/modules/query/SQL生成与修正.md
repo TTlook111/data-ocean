@@ -28,6 +28,10 @@ _graph 装配 retrieve → plan → generate_sql → semantic_check → authoriz
 
 改提示词不放宽 AST。SQL 修正仍受[执行预算](执行预算与失败处理.md)限制；权限规则见[查询授权与结果保护](../iam/查询授权与结果保护.md)。
 
+规划的 selectedRelationIds 只填写本题采用的已审核 BUSINESS_RELATION 身份；无关系则为空。全部所选关系的完整依赖、所选表和当前 JOIN usage 校验成功后才原子补键，失败不留下半个规划；未知、未审或越界 ID 拒绝。SQL 上下文排除未采用的候选，旧 JOIN_PATH 不直通。
+
+候选被冻结、被召回、进入提示词与 SQL 实际采用是不同证据。字段重合、模型自报或引用列表不能证明某条知识已被采用；还需核对受保护 SQL、实际使用/输出来源和独立业务预期。已有合规知识却未进入上下文应查适配缺陷，不能假装缺资料；供应商、网络及格式故障归系统失败。
+
 ## 测试与验证入口
 
 - [test_iam_s1_graph_planning.py](../../../python-service/tests/test_iam_s1_graph_planning.py)：规划与生成相关场景。

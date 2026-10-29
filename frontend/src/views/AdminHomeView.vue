@@ -22,6 +22,7 @@ const loading = ref(true)
 const statsLoading = ref(true)
 const readinessLoading = ref(true)
 const statsError = ref('')
+const workbenchForbidden = ref(false)
 const readinessError = ref('')
 const readinessPartialError = ref('')
 const sources = ref<DatasourceSimpleItem[]>([])
@@ -153,6 +154,7 @@ async function loadStats() {
   stats.value = null
   statsLoading.value = true
   statsError.value = ''
+  workbenchForbidden.value = false
   if (!canViewWorkbench.value) {
     statsError.value = '没有“查看工作台”功能：需要角色拥有该功能。'
     statsLoading.value = false
@@ -162,6 +164,7 @@ async function loadStats() {
     const result = await getDashboardStats()
     stats.value = result.data
   } catch (cause) {
+    workbenchForbidden.value = (cause as { response?: { status?: number } })?.response?.status === 403
     statsError.value = cause instanceof Error ? cause.message : '工作台统计加载失败'
   } finally {
     statsLoading.value = false
@@ -215,6 +218,13 @@ async function reloadPending() {
 
 async function load() {
   loading.value = true
+  if (!canViewWorkbench.value) {
+    await loadStats()
+    readinessLoading.value = false
+    approvalLoading.value = false
+    loading.value = false
+    return
+  }
   await Promise.all([loadStats(), loadReadiness(), loadApprovals()])
   loading.value = false
 }
@@ -238,6 +248,7 @@ onMounted(load)
   <div class="admin-page workbench-page">
     <TaskPageHeader title="工作台" description="这里汇总需要你处理的事项；先处理阻塞，再查看数据源准备情况。" />
     <LoadingState v-if="loading" variant="skeleton" :rows="5" />
+    <ErrorState v-else-if="!canViewWorkbench || workbenchForbidden" :message="statsError || '没有“查看工作台”功能：需要角色拥有该功能。'" @retry="load" />
     <section v-else class="workbench-pending do-glass-panel" aria-labelledby="workbench-pending-title">
       <div class="section-heading">
         <div class="section-title">
@@ -266,7 +277,7 @@ onMounted(load)
         <RouterLink v-if="canViewApprovals" :to="{ path: '/admin/access/iam-approvals' }">处理访问申请</RouterLink>
       </div>
     </section>
-    <template v-if="!loading">
+    <template v-if="!loading && canViewWorkbench && !workbenchForbidden">
       <dl class="workbench-stats" aria-label="工作台概览">
         <div class="workbench-stat do-glass-panel" :title="readinessStateTitle || undefined">
           <div class="workbench-stat__head"><dt>数据源</dt></div>

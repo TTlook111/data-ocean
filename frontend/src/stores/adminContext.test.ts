@@ -89,4 +89,18 @@ describe('adminContext.ensureSnapshot', () => {
     await expect(store.ensureSnapshot(99)).rejects.toThrow('无权访问该快照')
     expect(listSnapshots).not.toHaveBeenCalled()
   })
+
+  it('discards a historical snapshot response from the previous login session', async () => {
+    const store = useAdminContextStore()
+    store.datasourceId = 1
+    let finish!: (value: unknown) => void
+    api.getSnapshotDetail.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    const request = store.ensureSnapshot(99)
+
+    store.resetSession()
+    finish({ data: detail(99) })
+
+    await expect(request).rejects.toThrow('范围已变化')
+    expect(store.snapshots).toEqual([])
+  })
 })

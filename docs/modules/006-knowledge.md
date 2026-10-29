@@ -12,7 +12,7 @@
 
 ## 概览与关键决定
 
-2026-10-24 已按[治理闭环目标](../archive/plans/completed/字段语义治理与问数反馈闭环改造目标.md)接入已审核复查的数据源用途、表粒度、关系与指标事实，按主题生成多篇文档。`KnowledgeDocumentPartitioner` 组织文档组，单篇校验其事实，生成时比对预期业务事实。红队补强后，构建确认与执行的整组校验同时精确比对当前有效业务事实类型/修订集合，拒绝遗漏、额外引用与重复；现阶段不支持未经声明的部分业务覆盖。实时置信度通过独立字段档案读取，不进入生成输入或正文。实现与实际验收边界见[治理闭环 TDD 记录](../acceptance/治理闭环TDD实施记录.md)。文档审核发布与明确确认 RAG 构建仍是独立环节。
+按[治理合同](004-metadata-governance.md)接入已审核复查的数据源用途、表粒度、关系与指标事实，按主题生成多篇文档。`KnowledgeDocumentPartitioner` 组织文档组，单篇校验其事实，生成时比对预期业务事实。构建确认与执行的整组校验同时精确比对当前有效业务事实类型/修订集合，拒绝遗漏、额外引用与重复；现阶段不支持未经声明的部分业务覆盖。实时置信度通过独立字段档案读取，不进入生成输入或正文。文档审核发布与明确确认 RAG 构建仍是独立环节。
 
 Java 管理术语定义与字段映射、修订审核、知识版本、发布、事实校验和构建确认；Python 根据固定输入整理目录、生成 AI 释义候选并负责切分/向量操作。**生成结构目录与 AI 补写是两个动作；发布知识文档和明确确认 RAG build 也是两个独立动作。**
 
@@ -25,6 +25,10 @@ PUBLISHED 的合规版本 → 有权人员明确确认数据源级 RAG build
 ```
 
 旧文档中的“发布 → INDEXING → 自动索引成功后 PUBLISHED”不是当前发布主链。枚举仍有 INDEXING 不构成恢复旧流程的理由。
+
+新建、列表和详情使用同一操作说明：编辑 → 提交审核 → 审核通过 → 发布 → 在知识列表显式确认 RAG 构建。构建仍要求可靠来源、覆盖和当前审核资格；手工无来源快照文档的发布不代表它具备构建资格。回滚只对已发布文档及已审核目标版本开放，创建新的 `ROLLBACK` 草稿并重新审核、发布；不在回滚时直接索引或切换活动 build。
+
+普通文档保存成功时刷新列表的 `updatedAt`，保留原创建时间；正文变化才新建内容修订，仅修改标题不增加内容版本。乐观锁冲突仍回滚时间、正文和版本写入。该行为限定在 `KnowledgeDocCrudService.updateDoc`，不修改全局审计时间填充规则；持久化回归见 [KnowledgeDocCrudTimestampPersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/knowledge/service/impl/KnowledgeDocCrudTimestampPersistenceTest.java)。
 
 ## 内容与审核
 
@@ -69,7 +73,7 @@ V65 新增不可变审核快照、意见和 AI 候选持久化。历史术语不
 
 `FIELD_SEMANTIC` 是独立于文档候选的受控事实类型。生成目录时 Java 只输出当前精确来源绑定、审核证据和依赖仍有效的修订；发布前校验 marker 与正文，活动 build membership 在每次问数候选读取时再复核当前授权。字段修订批准、撤销、来源变更会使引用旧版本的事实从新查询候选即时排除，旧向量集合仍按 build 引用生命周期管理。字段工作面通过当前 build membership 显示“已收录/待更新/待构建/不可用”，不会自动确认构建。
 
-实现见 [术语工作流](../../backend/DataOcean/src/main/java/com/dataocean/module/glossary/service/impl/GlossaryTermWorkflowServiceImpl.java)、[术语来源](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/GlossaryKnowledgeSourceServiceImpl.java)、[AI 释义](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeSemanticServiceImpl.java)。本轮范围见[验收记录](../acceptance/业务术语与语义知识验收记录.md)。
+实现见 [术语工作流](../../backend/DataOcean/src/main/java/com/dataocean/module/glossary/service/impl/GlossaryTermWorkflowServiceImpl.java)、[术语来源](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/GlossaryKnowledgeSourceServiceImpl.java)、[AI 释义](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeSemanticServiceImpl.java)。
 
 ## 关键入口
 
@@ -84,10 +88,14 @@ V65 新增不可变审核快照、意见和 AI 候选持久化。历史术语不
 
 审核理由、来源快照、版本、切分预览与历史向量任务的读取入口以 KnowledgeDocController 为准，实现按上表职责分拆。
 
+知识角色的范围与源名称来自当前 S1 能力摘要，不要求附带 `datasource:view`；知识列表和文档读写使用该角色实际负责的源。数据源准备情况与已发布快照摘要分别按 `datasource:view`、`metadata:release:view` 读取，无依赖能力时不请求接口，也不把未知状态显示成零或“无发布快照”。按快照生成目录还需目标源的 `metadata:view`，缺少时说明原因并保留合法的手工新建/编辑。详情的维护、审核、发布按钮按文档真实归属判断，无维护能力的标题与正文保持只读；RAG 列表读取沿用 `knowledge:view`，不借发布权限控制查看。
+
+知识列表和详情的已发布文档问数入口另查 S1 `queryUse`，按钮和跳转处理器均复核；知识管理角色不因此获得业务问数能力。
+
 ## 构建与验证入口
 
 `POST /api/admin/knowledge-docs/rag-builds`确认数据源/来源快照下的构建，`GET`读取构建列表。Java 冻结合规版本清单，后续执行、校验和清理由[RAG 模块](009-schema-rag.md)说明。文档状态不等于索引状态。
 
-2026-10-27 已修复知识页统计、已发布快照、RAG 列表、生成弹窗快照及生成结果的范围/请求/卸载乱序，加载状态由当前请求持有。血缘的 `currentSnapshot` 从同一份当前关系记录返回正文与 Java 来源摘要，避免旧列表正文配新摘要；身份绑定真实端点、当前快照、内容及完整依赖；摘要随 marker 和 chunk 进入构建，同 ID 变更使旧知识失效。代码证据见[修复记录](../acceptance/2026-10-27-治理下游适配修复.md)。2026-10-27～29 两组合成源已有真实发布/模型/RAG 及未审草稿排除证据，见[首轮](../acceptance/2026-10-28-系统联调.md)和[扩展](../acceptance/2026-10-29-扩展联调.md)；页面视觉、真实业务及未覆盖生命周期仍独立验收。
+知识页统计、已发布快照、RAG 列表、生成弹窗快照及生成结果按范围/请求/卸载隔离响应，加载状态由当前请求持有。血缘的 `currentSnapshot` 从同一份当前关系记录返回正文与 Java 来源摘要，避免旧列表正文配新摘要；身份绑定真实端点、当前快照、内容及完整依赖；摘要随 marker 和 chunk 进入构建，同 ID 变更使旧知识失效。两机合成源与页面的实际范围见[验收索引](../acceptance/README.md)；真实业务及未覆盖生命周期仍独立验收。
 
 改审核与发布时验证无审核、错误快照、禁止字段、重复操作和并发冲突；改构建时同时核对 build 失败不替换活动指针、旧查询引用不被清理。原始历史方案仅供追溯。

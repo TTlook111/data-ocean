@@ -150,7 +150,7 @@ describe('admin breadcrumb', () => {
     const links = nav.findAll('a')
 
     expect(links).toHaveLength(1)
-    expect(links[0].attributes('data-path')).toBe('/admin/workbench')
+    expect(links[0].attributes('data-path')).toBe('/admin')
     expect(nav.find('[aria-current="page"]').text()).toBe('工作台')
   })
 

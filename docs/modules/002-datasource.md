@@ -53,6 +53,8 @@ readiness 汇总连接、快照、阻断问题、知识/活动构建及权限相
 
 后台页面为 [DataSourcesView](../../frontend/src/views/admin/datasource/DataSourcesView.vue)和 [DataSourceDetailView](../../frontend/src/views/admin/datasource/DataSourceDetailView.vue)。旧 `DatasourceUserController/DatasourceAccessService`与 `datasource_access`不再是当前实现；旧 `/api/datasources`说明由上述 S1 query-resources 接口替代。
 
+列表和详情以当前 S1 摘要控制操作：查看沿用 `datasource:view`，测试连接、编辑、启停和删除要求目标源上的 `datasource:manage`；其他源的维护能力不会开放当前源的按钮，事件处理器也复核同一能力。新建沿用服务端的全局功能判定，不从某个负责源推导。详情的采集入口独立要求 `metadata:collect:run`，数据源维护权不代替采集权。页面控制只避免无权操作，服务端仍执行最终授权。
+
 ## 异步与变更注意
 
 定时批量健康检查由 DatasourceHealthCheckScheduler 提交给专用执行器，不占用公共 ForkJoinPool；不能用这一点推断所有手动连接测试接口都会异步返回。执行器饱和时的调用方回退边界见[技术栈与模块职责](../技术栈与模块职责.md#54-执行约束)。数据源变更与 Python 连接池通知沿用现有客户端；不能把 SSE 或健康检查套成盲目重试。授权变更走 IAM 修订与当前权限复查，不新增旧授权 CRUD。

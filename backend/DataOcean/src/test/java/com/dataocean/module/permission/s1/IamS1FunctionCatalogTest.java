@@ -90,10 +90,10 @@ class IamS1FunctionCatalogTest {
     }
 
     private String readDesignSection() throws IOException {
-        Path design = Path.of("..", "..", "docs/archive/plans/DataOcean-完整权限体系设计.md");
+        Path design = Path.of("..", "..", "docs/modules/007-iam-s1.md");
         String content = Files.readString(design, StandardCharsets.UTF_8);
-        int start = content.indexOf("## 4. 角色功能目录");
-        int end = content.indexOf("## 5. 用户和角色管理", start);
+        int start = content.indexOf("## 固定功能目录");
+        int end = content.indexOf("## 旧权限退役与保留边界", start);
         return content.substring(start, end);
     }
 

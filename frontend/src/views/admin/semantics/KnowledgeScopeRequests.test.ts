@@ -22,6 +22,7 @@ function environment() {
     statsError: ref(''), statsLoading: ref(false), publishedRequestId: 0, publishedSnapshot: ref<any>(null),
     publishedSnapshotError: ref(''), publishedSnapshotLoading: ref(false), ragRequestId: 0, ragBuilds: ref<any[]>([]), ragBuildError: ref(''), ragBuildsLoading: ref(false),
     snapshotRequestId: 0, generateDialogVisible: ref(true), generateForm: { datasourceId: 1 }, snapshots: ref<any[]>([]), snapshotsError: ref(''), snapshotsLoading: ref(false),
+    iamS1: { systemAdmin: true }, canViewSnapshots: () => true,
     apiError: (error: Error) => error.message }
 }
 

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { listSimpleDatasources, type DatasourceSimpleItem } from '../api/admin/datasource'
 import { listKnowledgeDocs, type KnowledgeDocItem } from '../api/admin/knowledge'
 import { getSnapshotDetail, listSnapshots, type SnapshotItem } from '../api/admin/metadata'
+import { useIamS1Store } from './iamS1'
 
 const STORAGE_KEY = 'dataocean_admin_context'
 
@@ -11,6 +12,9 @@ interface PersistedContext {
   snapshotId?: number
   knowledgeDocId?: number
 }
+
+export type AdminDatasourceOption = Pick<DatasourceSimpleItem, 'id' | 'name'>
+  & Partial<Pick<DatasourceSimpleItem, 'databaseName' | 'description'>>
 
 function readContext(): PersistedContext {
   try {
@@ -32,8 +36,9 @@ function latestSnapshotFirst(a: SnapshotItem, b: SnapshotItem) {
 
 export const useAdminContextStore = defineStore('admin-context', () => {
   const persisted = readContext()
+  const iamS1 = useIamS1Store()
 
-  const datasources = ref<DatasourceSimpleItem[]>([])
+  const datasources = ref<AdminDatasourceOption[]>([])
   const snapshots = ref<SnapshotItem[]>([])
   const knowledgeDocs = ref<KnowledgeDocItem[]>([])
   const datasourceId = ref<number | undefined>(persisted.datasourceId)
@@ -74,21 +79,28 @@ export const useAdminContextStore = defineStore('admin-context', () => {
     knowledgeDocId.value = knowledgeDocs.value.find((item) => item.status === 'PUBLISHED')?.id ?? knowledgeDocs.value[0]?.id
   }
 
-  async function loadDatasources() {
-    const result = await listSimpleDatasources()
-    datasources.value = result.data
+  async function loadDatasources(requestId: number) {
+    if (!iamS1.loaded) await iamS1.load()
+    if (requestId !== selectionRequest) return false
+    if (!iamS1.loaded || iamS1.errorMessage) throw new Error(iamS1.errorMessage || '后台能力摘要尚未就绪')
+    const items: AdminDatasourceOption[] = iamS1.systemAdmin
+      ? (await listSimpleDatasources()).data
+      : iamS1.datasourceCapabilities.map(item => ({ id: item.datasourceId, name: item.datasourceName }))
+    if (requestId !== selectionRequest) return false
+    datasources.value = items
     reconcileDatasource()
+    return true
   }
 
   async function loadSnapshots(forDatasourceId = datasourceId.value) {
-    if (!forDatasourceId) {
+    if (!forDatasourceId || !iamS1.canOnDatasource('metadata:view', forDatasourceId)) {
       return
     }
     return listSnapshots({ datasourceId: forDatasourceId, page: 1, size: 50 })
   }
 
   async function loadKnowledgeDocs(forDatasourceId = datasourceId.value) {
-    if (!forDatasourceId) {
+    if (!forDatasourceId || !iamS1.canOnDatasource('knowledge:view', forDatasourceId)) {
       return
     }
     return listKnowledgeDocs({ datasourceId: forDatasourceId, page: 1, pageSize: 50 })
@@ -97,13 +109,15 @@ export const useAdminContextStore = defineStore('admin-context', () => {
   async function initialize(force = false) {
     if (!force && initialized.value) return
     if (initPromise) return initPromise
+    const requestId = ++selectionRequest
     loading.value = true
-    initPromise = (async () => {
-      await loadDatasources()
+    const pending = (async () => {
+      if (!await loadDatasources(requestId) || requestId !== selectionRequest) return
       const [snapshotResult, knowledgeResult] = await Promise.all([
         loadSnapshots(),
         loadKnowledgeDocs(),
       ])
+      if (requestId !== selectionRequest) return
       snapshots.value = snapshotResult?.data.records || []
       knowledgeDocs.value = knowledgeResult?.data.records || []
       reconcileSnapshot()
@@ -111,12 +125,26 @@ export const useAdminContextStore = defineStore('admin-context', () => {
       persist()
       initialized.value = true
     })()
+    initPromise = pending
     try {
-      await initPromise
+      await pending
     } finally {
-      loading.value = false
-      initPromise = null
+      if (requestId === selectionRequest) loading.value = false
+      if (initPromise === pending) initPromise = null
     }
+  }
+
+  /** 登录/退出后丢弃已验证列表；选择偏好在下次初始化时按当前账号重新核对。 */
+  function resetSession() {
+    selectionRequest++
+    initPromise = null
+    datasources.value = []
+    snapshots.value = []
+    knowledgeDocs.value = []
+    initialized.value = false
+    loading.value = false
+    routeSyncing.value = false
+    routeSyncError.value = ''
   }
 
   async function refresh() {
@@ -158,7 +186,9 @@ export const useAdminContextStore = defineStore('admin-context', () => {
     if (!id) return undefined
     const existing = snapshots.value.find((item) => item.id === id)
     if (existing) return existing
+    const requestId = selectionRequest
     const result = await getSnapshotDetail(id)
+    if (requestId !== selectionRequest) throw new Error('账号或数据源范围已变化，请重新选择快照')
     const detail = result.data
     if (!detail?.snapshot) {
       throw new Error('指定的快照不存在或无法读取')
@@ -200,6 +230,7 @@ export const useAdminContextStore = defineStore('admin-context', () => {
     currentSnapshot,
     currentKnowledgeDoc,
     initialize,
+    resetSession,
     selectDatasource,
     ensureSnapshot,
     selectSnapshot,

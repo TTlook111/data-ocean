@@ -68,7 +68,7 @@ watch(() => route.query.tab, (value) => {
 const detectingDimension = ref(false)
 const syncingProviderId = ref('')
 
-/** 索引状态的中文标签（§11.3：状态标签使用中文，同时保留技术状态说明） */
+/** Embedding 配置状态的中文标签（§11.3：状态标签使用中文，同时保留技术状态说明） */
 type TagTone = 'success' | 'warning' | 'danger' | 'info'
 const VECTORIZE_STATUS: Record<string, { label: string; tone: TagTone }> = {
   NORMAL: { label: '正常', tone: 'success' },
@@ -459,7 +459,7 @@ fetchConfig()
         <div class="status-tile">
           <span class="tile-icon status"><Server :size="18" aria-hidden="true" /></span>
           <div>
-            <span>索引状态</span>
+            <span>配置状态</span>
             <el-tag :type="vectorizeTone" size="small">
               {{ vectorizeStatusLabel }}
             </el-tag>
@@ -492,7 +492,7 @@ fetchConfig()
             失败原因：{{ vectorizeStatus?.errorMessage }}
           </p>
         </div>
-        <el-tag type="info">全量重建编排尚未开放；发布知识文档时会创建安全的版本级索引任务</el-tag>
+        <el-tag type="info">发布后请在知识文档页显式确认 RAG 构建；Embedding 配置切换与各源 RAG 就绪分别核验。</el-tag>
       </div>
     </section>
 

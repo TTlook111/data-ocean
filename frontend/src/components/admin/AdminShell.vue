@@ -124,7 +124,7 @@ onBeforeUnmount(() => {
   <div class="admin-shell" :class="{ 'is-collapsed': collapsed }">
     <aside class="admin-shell__sidebar do-glass-shell">
       <div class="admin-shell__brand">
-        <RouterLink to="/admin/workbench" class="admin-shell__brand-link" aria-label="DataOcean 工作台">
+        <RouterLink to="/admin" class="admin-shell__brand-link" aria-label="DataOcean 后台">
           <span class="admin-shell__brand-mark notranslate" aria-hidden="true" translate="no">DO</span>
           <span class="admin-shell__brand-copy">
             <strong class="notranslate" translate="no">DataOcean</strong>

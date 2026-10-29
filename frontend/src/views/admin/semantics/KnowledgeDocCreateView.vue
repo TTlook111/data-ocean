@@ -10,8 +10,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Save } from 'lucide-vue-next'
 import { createKnowledgeDoc } from '../../../api/admin/knowledge'
-import type { DatasourceSimpleItem } from '../../../api/admin/datasource'
-import { useAdminContextStore } from '../../../stores/adminContext'
+import { useAdminContextStore, type AdminDatasourceOption } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -38,7 +37,7 @@ const canManage = computed(
 )
 const MANAGE_HINT = '没有“维护知识文档”能力：需要角色拥有 knowledge:manage 并负责目标数据源。'
 
-const datasources = ref<DatasourceSimpleItem[]>([])
+const datasources = ref<AdminDatasourceOption[]>([])
 const loadingDatasources = ref(true)
 /** 数据源加载失败的原因；此前 catch 静默吞掉，页面表现为「空下拉且无任何提示」 */
 const datasourcesError = ref('')
@@ -155,8 +154,8 @@ onMounted(loadDatasources)
       <p class="knowledge-create-page__hint">
         创建后文档处于
         <BusinessStatusBadge status="DRAFT" />
-        状态。完整流程是：编辑内容 → 提交审核 → 审核通过 → 发布并构建索引。
-        审核通过与索引入库是两个独立阶段，发布成功并完成索引后才可被检索。
+        状态。文档流程是：编辑内容 → 提交审核 → 审核通过 → 发布；满足来源与覆盖校验要求后，在知识列表显式确认 RAG 构建。
+        发布不会自动构建索引；手工文档未绑定来源快照，发布不代表具备构建资格。
       </p>
     </section>
   </div>

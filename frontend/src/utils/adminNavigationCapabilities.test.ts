@@ -43,9 +43,19 @@ function workspace(key: string): AdminWorkspace {
 }
 
 describe('导航能力过滤', () => {
+  it.each([
+    ['data-sources', 'datasource:view'],
+    ['collections', 'metadata:collect:view'],
+    ['assets', 'metadata:view'],
+    ['queries', 'audit:view'],
+  ])('%s 入口与当前已有后端查看功能 %s 一致', (key, code) => {
+    expect(isWorkspaceVisible(workspace(key), lookup())).toBe(false)
+    expect(isWorkspaceVisible(workspace(key), lookup({ anyDatasource: { [code]: [2] } }))).toBe(true)
+  })
+
   it('未声明查看能力的工作区始终可见', () => {
-    expect(isWorkspaceVisible(workspace('assets'), lookup())).toBe(true)
-    expect(isWorkspaceVisible(workspace('queries'), lookup())).toBe(true)
+    expect(isWorkspaceVisible({ ...workspace('assets'), viewCapability: undefined }, lookup())).toBe(true)
+    expect(isWorkspaceVisible({ ...workspace('queries'), viewCapability: undefined }, lookup())).toBe(true)
   })
 
   it('global 作用域按 hasGlobal 判断，anyOf 是 OR', () => {
@@ -85,11 +95,12 @@ describe('导航能力过滤', () => {
       ADMIN_WORKSPACES,
       lookup({ global: ['prompt:view'], anyDatasource: { 'lineage:view': [5] } }),
     )
-    expect(result.map((item) => item.key)).toContain('assets')
+    expect(result.map((item) => item.key)).not.toContain('assets')
     expect(result.map((item) => item.key)).toContain('lineage')
     expect(result.map((item) => item.key)).toContain('prompts')
     expect(result.map((item) => item.key)).not.toContain('governance')
     expect(result.map((item) => item.key)).not.toContain('ai')
+    expect(result.map((item) => item.key)).not.toContain('queries')
   })
 
   it('治理域分组保持顺序并带标签', () => {

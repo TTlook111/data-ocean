@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Compon
 import { CircleHelp, Columns3, Copy, Database, ExternalLink, RefreshCw, Search, Table2 } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import { useAdminContextStore } from '../../../stores/adminContext'
-import { getDatasourceReadiness, type DatasourceReadiness } from '../../../api/admin/datasource'
 import { getPublishedCatalog, type MetadataEntityItem, type PublishedCatalog } from '../../../api/admin/catalog'
 import { entityTypeLabel } from '../../../utils/enumLabels'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -21,7 +20,6 @@ const activeView = computed(() => route.query.view === 'tables' ? 'tables' : 'ca
 const entityType = ref<'TABLE' | 'COLUMN'>(route.query.type === 'COLUMN' ? 'COLUMN' : 'TABLE')
 const keyword = ref(String(route.query.q || ''))
 const catalog = ref<PublishedCatalog | null>(null)
-const readiness = ref<DatasourceReadiness | null>(null)
 const loading = ref(false)
 const error = ref('')
 const requestId = ref(0)
@@ -99,9 +97,9 @@ const scopeNote = computed(() => {
   if (!context.datasourceId) return '请选择数据源'
   if (activeView.value === 'tables') return '按所选快照查看表和字段结构'
   if (error.value) return '范围状态读取失败'
-  if (loading.value && !readiness.value) return '正在读取已发布范围'
-  if (!readiness.value?.publishedSnapshotId) return '当前数据源暂无已发布快照'
-  return readiness.value.snapshotVersion ? `已发布快照 v${readiness.value.snapshotVersion}` : '已发布快照'
+  if (loading.value && !catalog.value) return '正在读取已发布范围'
+  if (!catalog.value?.publishedSnapshotId) return '当前数据源暂无已发布快照'
+  return catalog.value.snapshotVersion ? `已发布快照 v${catalog.value.snapshotVersion}` : '已发布快照'
 })
 
 function metadataOf(item: MetadataEntityItem): Record<string, unknown> {
@@ -252,7 +250,6 @@ async function load() {
   if (!id) {
     requestId.value++
     catalog.value = null
-    readiness.value = null
     error.value = ''
     loading.value = false
     return
@@ -261,15 +258,10 @@ async function load() {
   const keyAtLoad = scrollKey()
   loading.value = true
   error.value = ''
-  readiness.value = null
   catalog.value = null
   try {
-    const [readinessResult, catalogResult] = await Promise.all([
-      getDatasourceReadiness(id),
-      getPublishedCatalog(id),
-    ])
+    const catalogResult = await getPublishedCatalog(id)
     if (currentRequest !== requestId.value) return
-    readiness.value = readinessResult.data
     catalog.value = catalogResult.data
   } catch (cause) {
     if (currentRequest !== requestId.value) return
@@ -445,7 +437,7 @@ watch(() => context.datasourceId, load)
 
       <template v-if="activeView === 'catalog'">
         <el-alert
-          v-if="!loading && !error && catalog && context.datasourceId && readiness?.publishedSnapshotId && catalogWarning"
+          v-if="!loading && !error && catalog && context.datasourceId && catalog.publishedSnapshotId && catalogWarning"
           class="assets-panel__sync-warning"
           :type="catalogWarningType"
           :closable="false"
@@ -470,7 +462,7 @@ watch(() => context.datasourceId, load)
               {{ option.label }}
             </el-radio-button>
           </el-radio-group>
-          <span v-if="!loading && !error && context.datasourceId && readiness?.publishedSnapshotId" class="assets-panel__count">
+          <span v-if="!loading && !error && context.datasourceId && catalog?.publishedSnapshotId" class="assets-panel__count">
             <span>当前范围 {{ tableCount }} 张表 · {{ columnCount }} 个字段</span>
             <span>匹配 {{ filteredEntities.length }} {{ matchUnit }}</span>
           </span>
@@ -482,7 +474,7 @@ watch(() => context.datasourceId, load)
           <template v-else-if="!context.datasourceId">
             <EmptyState message="请选择数据源后，再查看已发布对象。" action-text="去数据源接入" @action="$router.push('/admin/data-sources')" />
           </template>
-          <template v-else-if="!readiness?.publishedSnapshotId">
+          <template v-else-if="!catalog?.publishedSnapshotId">
             <EmptyState message="当前数据源没有已发布快照，暂无可浏览的已发布对象。" action-text="去元数据版本" @action="$router.push({ path: '/admin/releases', query: { datasourceId: String(context.datasourceId) } })" />
           </template>
           <template v-else-if="catalog?.syncStatus === 'FAILED' && !filteredEntities.length">

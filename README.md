@@ -72,7 +72,6 @@ cd DataOcean
 | 修改前端 | [前端开发规范](docs/development/前端开发规范.md) |
 | 下一步任务 | [后续开发](docs/development/后续开发.md) |
 | 验收范围与证据 | [验收索引](docs/acceptance/README.md) |
-| 仅在需要回溯时读取的旧材料 | [历史材料](docs/archive/README.md)、[历史 specs 索引](specs/README.md)；不作当前开发或运行合同 |
 | Agent 开发约束 | [AGENTS.md](AGENTS.md) |
 
 ## 项目结构
@@ -81,8 +80,8 @@ cd DataOcean
 frontend/              Vue 查询端与治理后台
 backend/DataOcean/     Java 网关、权限、治理与持久化
 python-service/        AI/RAG、S1 编排和 SQL 沙箱
-docs/                  当前说明、开发指南、验收与历史归档
-specs/                 原始规格与阶段契约，先看适用性索引
+docs/                  现行说明、开发指南与环境验收
+specs/                 旧引用兼容入口，实际合同位于现行模块
 output/playwright/     本机原始验证输出，许多文件不纳入 Git
 ```
 

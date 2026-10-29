@@ -4,7 +4,7 @@
  *
  * 合并原 LineageViewer.vue（搜索+影响分析）和 LineageGraph.vue（可视化图谱）
  * 为单一页面。三栏布局：左侧筛选面板 → 主区域图谱 → 右侧列血缘抽屉。
- * 与文档 data-lineage-research.md §4.1.3 完全一致。
+ * 图谱、查询来源和权限边界见 docs/modules/011-audit-lineage.md。
  *
  * 设计原则：
  * - Vue 组件（面板/弹窗/抽屉）通过事件总线与图谱渲染层通信

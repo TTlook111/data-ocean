@@ -105,6 +105,33 @@ beforeEach(() => {
 })
 
 describe('工作台待处理事项', () => {
+  it('没有工作台权限时不请求业务概览或展示业务快捷入口', async () => {
+    iam.hasGlobal.mockReturnValue(false)
+    iam.datasourcesWithFunction.mockImplementation((code: string) => code === 'knowledge:view' ? [2] : [])
+    const wrapper = mountPage()
+    try {
+      await settle()
+      expect(api.getDashboardStats).not.toHaveBeenCalled()
+      expect(api.listSimpleDatasources).not.toHaveBeenCalled()
+      expect(api.getBatchDatasourceReadiness).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('没有“查看工作台”功能')
+      expect(wrapper.text()).not.toContain('管理数据源')
+      expect(wrapper.text()).not.toContain('审核知识文档')
+      expect(wrapper.find('.workbench-stats').exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
+  it('当前工作台请求403时不继续展示业务快捷入口', async () => {
+    api.getDashboardStats.mockRejectedValue(Object.assign(new Error('工作台访问被拒绝'), { response: { status: 403 } }))
+    const wrapper = mountPage()
+    try {
+      await settle()
+      expect(wrapper.text()).toContain('工作台访问被拒绝')
+      expect(wrapper.text()).not.toContain('管理数据源')
+      expect(wrapper.find('.workbench-stats').exists()).toBe(false)
+    } finally { wrapper.unmount() }
+  })
+
   it('汇总数据源阻断和治理问题', async () => {
     const wrapper = mountPage()
     await settle()

@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
-import ElementPlus, { ElCheckbox, ElMessageBox } from 'element-plus'
+import ElementPlus, { ElCheckbox, ElMessage, ElMessageBox } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
 import { useAdminContextStore } from '../../../stores/adminContext'
@@ -234,6 +234,51 @@ beforeEach(() => {
 })
 
 describe('元数据版本工作区', () => {
+  it.each([
+    { status: 'PARTIAL', complete: false, executedRuleCount: 2, failedRuleCount: 1, notApplicableRuleCount: 0, qualityScore: null, feedback: 'warning', message: '质量校验部分完成；本次评分不作为完整结果。' },
+    { status: 'FAILED', complete: false, executedRuleCount: 0, failedRuleCount: 1, notApplicableRuleCount: 0, qualityScore: null, feedback: 'error', message: '质量校验未完成，请查看失败覆盖说明。' },
+    { status: 'FAILED', complete: false, executedRuleCount: 0, failedRuleCount: 0, notApplicableRuleCount: 3, qualityScore: null, feedback: 'warning', message: '本次检查没有可执行的适用项；未生成完整校验结果。' },
+    { status: 'SUCCESS', complete: false, executedRuleCount: 2, failedRuleCount: 0, notApplicableRuleCount: 0, qualityScore: null, feedback: 'warning', message: '质量校验部分完成；本次评分不作为完整结果。' },
+    { status: 'SUCCESS', complete: true, executedRuleCount: 3, failedRuleCount: 0, notApplicableRuleCount: 0, qualityScore: 88, feedback: 'success', message: '质量校验已完整完成，综合得分 88。' },
+    { status: 'SUCCESS', complete: true, executedRuleCount: 3, failedRuleCount: 0, notApplicableRuleCount: 0, qualityScore: 0, feedback: 'success', message: '质量校验已完整完成，综合得分 0。' },
+  ] as const)('$status / complete=$complete 按实际检查覆盖反馈，不伪造评分或状态', async (result) => {
+    respond(capability(['metadata:release:view', 'governance:check']))
+    const { feedback, message, ...batch } = result
+    const snapshotStatus = batch.complete ? 'ISSUE_FOUND' : 'DRAFT'
+    let currentStatus = 'DRAFT'
+    api.triggerQualityCheck.mockImplementation(async () => {
+      currentStatus = snapshotStatus
+      return { data: { snapshotId: 8, snapshotStatus, requestedScope: 'FULL', ...batch } }
+    })
+    api.listVersionHistory.mockImplementation(() => ({ data: { records: [version(8, 1, currentStatus)], total: 1 } }))
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
+    const success = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: vi.fn() }) as never)
+    const warning = vi.spyOn(ElMessage, 'warning').mockImplementation(() => ({ close: vi.fn() }) as never)
+    const error = vi.spyOn(ElMessage, 'error').mockImplementation(() => ({ close: vi.fn() }) as never)
+    const wrapper = mountPage()
+    try {
+      await settle()
+      const initialReads = api.listVersionHistory.mock.calls.length
+      await rowButton(wrapper, 1, '开始检查')!.trigger('click')
+      await settle()
+
+      expect(api.triggerQualityCheck).toHaveBeenCalledWith(8)
+      expect({ success, warning, error }[feedback]).toHaveBeenCalledWith(message)
+      if (feedback !== 'success') expect(success).not.toHaveBeenCalled()
+      if (feedback !== 'warning') expect(warning).not.toHaveBeenCalled()
+      if (feedback !== 'error') expect(error).not.toHaveBeenCalled()
+      expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
+      expect(api.listVersionHistory).toHaveBeenCalledTimes(initialReads + 1)
+      if (!batch.complete) expect(rowButton(wrapper, 1, '开始检查')).toBeDefined()
+    } finally {
+      wrapper.unmount()
+      confirm.mockRestore()
+      success.mockRestore()
+      warning.mockRestore()
+      error.mockRestore()
+    }
+  })
+
   it('主列表以快照 ID 标记当前正式版，并展示真实发布时间而不显示审校人为发布人', async () => {
     api.listVersionHistory.mockResolvedValue({ data: { records: [version(8, 1, 'PUBLISHED'), version(9, 2, 'PUBLISHED')], total: 2 } })
     api.getPublishedSnapshot.mockResolvedValue({
@@ -607,5 +652,191 @@ describe('元数据版本工作区', () => {
     expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
     alert.mockRestore()
     wrapper.unmount()
+  })
+})
+
+describe('显式人工审核', () => {
+  it('审核者可明确进入审核再批准，但不会执行质量检查或自动发布', async () => {
+    respond(capability(['metadata:release:view', 'metadata:release:review']))
+    let status = 'DRAFT'
+    api.listVersionHistory.mockImplementation(() => ({ data: { records: [version(8, 1, status)], total: 1 } }))
+    api.changeSnapshotStatus.mockImplementation(async (_id: number, payload: { targetStatus: string }) => {
+      status = payload.targetStatus
+      return { data: null }
+    })
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
+    const wrapper = mountPage()
+    try {
+      await settle()
+      const enter = rowButton(wrapper, 1, '进入审核')
+      expect(enter).toBeDefined()
+      expect(rowButton(wrapper, 1, '开始检查')).toBeUndefined()
+      expect(rowButton(wrapper, 1, '批准')).toBeUndefined()
+      await enter!.trigger('click')
+      await settle()
+      expect(confirm).toHaveBeenCalledWith(expect.stringContaining('不代表质量检查已完整完成'),
+        '确认进入审核', expect.objectContaining({ type: 'warning' }))
+      expect(api.changeSnapshotStatus).toHaveBeenCalledWith(8, expect.objectContaining({ targetStatus: 'CHECKING' }))
+      expect(api.triggerQualityCheck).not.toHaveBeenCalled()
+      expect(api.publishSnapshot).not.toHaveBeenCalled()
+      expect(rowButton(wrapper, 1, '批准')).toBeDefined()
+      await rowButton(wrapper, 1, '批准')!.trigger('click')
+      await settle()
+      expect(api.getReleaseGate).toHaveBeenCalledWith(8)
+      expect(api.changeSnapshotStatus).toHaveBeenLastCalledWith(8, { targetStatus: 'APPROVED' })
+      expect(api.publishSnapshot).not.toHaveBeenCalled()
+      expect(rowButton(wrapper, 1, '发布')).toBeUndefined()
+    } finally {
+      wrapper.unmount()
+      confirm.mockRestore()
+    }
+  })
+
+  it.each(['check-only', 'other-source-review'])('%s 不获得当前快照的人工审核动作', async (role) => {
+    const snapshot = capability(['metadata:release:view', ...(role === 'check-only' ? ['governance:check'] : [])])
+    if (role === 'other-source-review') snapshot.datasourceCapabilities.push({
+      datasourceId: 6, datasourceName: '其他源', functionCodes: ['metadata:release:review'], functionNames: [],
+    })
+    respond(snapshot)
+    api.listVersionHistory.mockResolvedValue({ data: { records: [version(8, 1, 'DRAFT'), version(9, 2, 'CHECKING')], total: 2 } })
+    const wrapper = mountPage()
+    try {
+      await settle()
+      expect(rowButton(wrapper, 1, '进入审核')).toBeUndefined()
+      expect(rowButton(wrapper, 2, '批准')).toBeUndefined()
+      if (role === 'check-only') expect(rowButton(wrapper, 1, '开始检查')).toBeDefined()
+      expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
+    } finally { wrapper.unmount() }
+  })
+
+  it('同时有检查和审核能力时 PARTIAL 检查也不会自动进入审核', async () => {
+    respond(capability(['metadata:release:view', 'metadata:release:review', 'governance:check']))
+    api.triggerQualityCheck.mockResolvedValue({ data: { status: 'PARTIAL', complete: false, qualityScore: null } })
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
+    const wrapper = mountPage()
+    try {
+      await settle()
+      await rowButton(wrapper, 1, '开始检查')!.trigger('click')
+      await settle()
+      expect(api.triggerQualityCheck).toHaveBeenCalledWith(8)
+      expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
+      expect(rowButton(wrapper, 1, '进入审核')).toBeDefined()
+      expect(rowButton(wrapper, 1, '批准')).toBeUndefined()
+    } finally {
+      wrapper.unmount()
+      confirm.mockRestore()
+    }
+  })
+
+  it.each(['CHECKING', 'ISSUE_FOUND'])('%s 人工批准仍受来源高风险门禁阻断', async (status) => {
+    respond(capability(['metadata:release:view', 'metadata:release:review']))
+    api.listVersionHistory.mockResolvedValue({ data: { records: [version(8, 1, status)], total: 1 } })
+    api.getReleaseGate.mockResolvedValue({ data: blockedReleaseGate(8) })
+    const alert = vi.spyOn(ElMessageBox, 'alert').mockResolvedValue('confirm' as never)
+    const wrapper = mountPage()
+    try {
+      await settle()
+      const approve = rowButton(wrapper, 1, '批准')
+      expect(approve).toBeDefined()
+      await approve!.trigger('click')
+      await settle()
+      expect(alert).toHaveBeenCalled()
+      expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
+      expect(api.publishSnapshot).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+      alert.mockRestore()
+    }
+  })
+
+  it.each([false, true])('人工批准保留后端409拒绝，门禁读取失败=%s', async (gateReadFails) => {
+    respond(capability(['metadata:release:view', 'metadata:release:review']))
+    api.listVersionHistory.mockResolvedValue({ data: { records: [version(8, 1, 'CHECKING')], total: 1 } })
+    if (gateReadFails) api.getReleaseGate.mockRejectedValue(new Error('门禁暂不可读'))
+    api.changeSnapshotStatus.mockRejectedValue(Object.assign(new Error('审核来源已变化'), {
+      response: { status: 409, data: { message: '审核来源已变化，不能批准' } },
+    }))
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
+    const success = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: vi.fn() }) as never)
+    const error = vi.spyOn(ElMessage, 'error').mockImplementation(() => ({ close: vi.fn() }) as never)
+    const wrapper = mountPage()
+    try {
+      await settle()
+      const approve = rowButton(wrapper, 1, '批准')
+      expect(approve).toBeDefined()
+      await approve!.trigger('click')
+      await settle()
+      expect(api.changeSnapshotStatus).toHaveBeenCalledWith(8, { targetStatus: 'APPROVED' })
+      expect(error).toHaveBeenCalledWith(expect.stringContaining('审核来源已变化'))
+      expect(success).not.toHaveBeenCalled()
+      expect(api.publishSnapshot).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+      confirm.mockRestore()
+      success.mockRestore()
+      error.mockRestore()
+    }
+  })
+
+  it('取消进入审核确认后不写状态', async () => {
+    respond(capability(['metadata:release:view', 'metadata:release:review']))
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel')
+    const wrapper = mountPage()
+    try {
+      await settle()
+      const enter = rowButton(wrapper, 1, '进入审核')
+      expect(enter).toBeDefined()
+      await enter!.trigger('click')
+      await settle()
+      expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+      confirm.mockRestore()
+    }
+  })
+
+  it('进入审核确认期间 A→B→A 后取消原写操作', async () => {
+    respond(capability(['metadata:release:view', 'metadata:release:review']))
+    let finish!: () => void
+    const pending = new Promise((resolve) => { finish = () => resolve('confirm') })
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockReturnValue(pending as never)
+    const wrapper = mountPage()
+    try {
+      await settle()
+      const enter = rowButton(wrapper, 1, '进入审核')
+      expect(enter).toBeDefined()
+      await enter!.trigger('click')
+      const context = useAdminContextStore()
+      context.datasourceId = 6
+      await settle()
+      context.datasourceId = DATASOURCE_ID
+      await settle()
+      finish()
+      await settle()
+      expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+      confirm.mockRestore()
+    }
+  })
+
+  it('CHECKING 仅语义警告仍可人工批准，但不自动发布', async () => {
+    respond(capability(['metadata:release:view', 'metadata:release:review']))
+    api.listVersionHistory.mockResolvedValue({ data: { records: [version(8, 1, 'CHECKING')], total: 1 } })
+    api.getReleaseGate.mockResolvedValue({ data: releaseGate(8, { approvable: true, warningCount: 1 }) })
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
+    const wrapper = mountPage()
+    try {
+      await settle()
+      const approve = rowButton(wrapper, 1, '批准')
+      expect(approve).toBeDefined()
+      await approve!.trigger('click')
+      await settle()
+      expect(api.changeSnapshotStatus).toHaveBeenCalledWith(8, { targetStatus: 'APPROVED' })
+      expect(api.publishSnapshot).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+      confirm.mockRestore()
+    }
   })
 })

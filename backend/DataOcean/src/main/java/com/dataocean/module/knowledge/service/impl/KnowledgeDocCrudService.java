@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
 import java.util.Collection;
 
 /**
@@ -187,6 +188,7 @@ public class KnowledgeDocCrudService {
             doc.setReviewStatus(null);
         }
         doc.setUpdatedBy(UserContext.currentUserId());
+        doc.setUpdatedAt(LocalDateTime.now());
         // updateById 返回影响行数，为 0 表示乐观锁冲突
         OptimisticLockSupport.requireUpdated(
                 knowledgeDocMapper.updateById(doc),

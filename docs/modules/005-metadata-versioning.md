@@ -29,6 +29,8 @@ PUBLISHED → APPROVED（撤回分支）
 
 具体条件由 Service 决定。旧说明中的 REVIEWING 不是当前该枚举状态，不能据此增加前端分支或数据库值。
 
+版本页将来源质量检查和人工审核分开：`DRAFT` 的“进入审核”以 `metadata:release:review` 调用既有状态接口进入 `CHECKING`，`CHECKING/ISSUE_FOUND` 的批准仍读取审核门禁；质量检查权限不能替代审核权限。检查响应按实际 `complete/status/requestedScope` 与执行计数展示，`PARTIAL`、失败和不适用不报“校验完成”或把空分数当成零分。部分检查不自动迁移快照，人工审核和最终发布仍走原状态机与服务端门禁。
+
 ## 发布边界
 
 - 同一数据源发布新快照时处理旧发布版本，记录操作人与审计。

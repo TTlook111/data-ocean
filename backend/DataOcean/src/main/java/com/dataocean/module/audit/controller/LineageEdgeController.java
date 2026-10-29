@@ -28,7 +28,7 @@ import java.util.*;
  * <p>
  * 提供 ETL/MANUAL 血缘的手动创建、删除、批量导入和增强查询 API。
  * 所有管理类 API 需要 metadata:manage 权限。
- * 路径前缀 /api/admin/catalog/lineage，与文档 data-lineage-research.md §4.1.1 一致。
+ * 路径前缀 /api/admin/catalog/lineage，当前合同见 docs/modules/011-audit-lineage.md。
  * </p>
  *
  * @author dataocean

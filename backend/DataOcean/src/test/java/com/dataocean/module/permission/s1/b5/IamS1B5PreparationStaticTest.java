@@ -21,7 +21,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * B5 切换前的静态仓库检查。只读文件系统，不连接真实数据库，不执行 Flyway 或 bootstrap。
+ * IAM 迁移与恢复边界的静态仓库检查。只读文件系统，不连接真实数据库，不执行 Flyway 或 bootstrap。
  */
 class IamS1B5PreparationStaticTest {
 
@@ -158,49 +158,32 @@ class IamS1B5PreparationStaticTest {
     }
 
     @Test
-    void b5HandbookAndB6InventoryExistWithFrozenV53Decision() throws IOException {
-        String handbook = read(Path.of("..", "..", "docs/archive/plans/DataOcean-IAM-S1-B5切换与回退手册.md"));
-        assertThat(handbook).contains("V53 编号永久不再使用", "真实数据库 Flyway 版本", "V50");
-        assertThat(handbook).contains("禁止新旧权限双读兜底");
-        assertThat(handbook).contains("真实库只读 SQL 门禁");
-        assertThat(handbook).contains("Flyway 最大成功版本必须为 V50");
-        assertThat(handbook).contains("`query_task.suggested_questions` 必须不存在");
-        assertThat(handbook).contains("iam_protocol_version");
-        assertThat(handbook).contains("idx_query_task_iam_protocol");
-        assertThat(handbook).contains("iam_s1_%");
-        assertThat(handbook).contains("--result-file=");
-        assertThat(handbook).contains("--events");
-        assertThat(handbook).contains("--default-character-set=utf8mb4");
-        assertThat(handbook).contains("禁止覆盖式导入");
-        assertThat(handbook).contains("隔离恢复演练");
-        assertThat(handbook).contains("DRILL_HOST");
-        assertThat(handbook).contains("DRILL_PORT");
-        assertThat(handbook).contains("event_scheduler");
-        assertThat(handbook).contains("@@server_uuid");
-        assertThat(handbook).contains("--set-gtid-purged=OFF");
-        assertThat(handbook).contains("--hex-blob");
-        assertThat(handbook).contains("--quick");
-        assertThat(handbook).contains("--no-tablespaces");
-        assertThat(handbook).contains("--binary-mode=1");
-        assertThat(handbook).contains("backup is incomplete: Dump completed marker missing");
-        assertThat(handbook).contains("backup unexpectedly contains iam_s1 tables");
-        assertThat(handbook).contains("Length -lt 4");
-        assertThat(handbook).contains("restoring events/routines onto the same instance is forbidden");
-        assertThat(handbook).contains("B5_EXPECTED_SHA");
-        assertThat(handbook).contains("^[1-9]\\d*$");
-        assertThat(handbook).doesNotContain(" > \"$env:BACKUP_DIR");
-        assertThat(handbook).doesNotContain("--routines --triggers --databases");
-        assertThat(handbook).doesNotContain(
-                "mysql --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USERNAME --password --execute=\"CREATE DATABASE $env:DRILL_DB");
-        // B5 的一次性迁移入口已退休；保留历史手册的恢复约束，现行入口
-        // 检查当前版本、隔离范围、只读授权及不完整批次，不能恢复旧上限脚本。
+    void currentDocumentationPreservesMigrationAndRecoveryBoundaries() throws IOException {
+        String guide = read(Path.of("..", "..", "docs/development/本地开发与验证.md"));
+        assertThat(guide).contains("## 跨环境变更与恢复边界", "V53 编号永久不再使用", "真实数据库 Flyway 版本");
+        assertThat(guide).contains("批准的构建标识", "维护窗口", "真实的正整数 userId", "^[1-9]\\d*$");
+        assertThat(guide).contains("停止应用写入", "不擅自停止或重建共享基础设施");
+        assertThat(guide).contains("--result-file=", "禁止 PowerShell 重定向或管道改写编码");
+        assertThat(guide).contains("--routines", "--triggers", "--events", "DEFINER", "--single-transaction");
+        assertThat(guide).contains("--quick", "--hex-blob", "--set-gtid-purged=OFF", "--no-tablespaces");
+        assertThat(guide).contains("退出码", "文件存在与合理大小", "Dump completed", "SHA256", "对象清单");
+        assertThat(guide).contains("任一失败即停止", "禁止覆盖式导入非空目标库", "删除并重建目标库必须另获明确授权");
+        assertThat(guide).contains("隔离恢复演练必须使用独立 MySQL 实例", "仅改 schema 不算隔离", "@@server_uuid");
+        assertThat(guide).contains("localhost", "127.0.0.1", "::1", "event_scheduler=OFF", "凭据隔离");
+        assertThat(guide).contains("清理也仅限独立确认的演练实例和库", "SOURCE", "--default-character-set=utf8mb4", "--binary-mode=1");
+        assertThat(guide).contains("已产生新 S1", "不能简单删除", "禁止新旧权限双读兜底");
+        assertThat(guide).doesNotContain("Flyway 最大成功版本必须为 V50", "`query_task.suggested_questions` 必须不存在");
+        // 一次性迁移入口已退休；现行入口继续检查版本、隔离范围、只读授权和不完整批次。
         String preflight = read(Path.of("..", "..", "scripts/system-acceptance/acceptance.py"));
         assertThat(preflight).contains("assert_read_only_grants", "non-isolated", "Database/code migration mismatch");
         assertThat(preflight).contains("INCOMPLETE", "expectedIds", "full_project_acceptance");
         assertThat(preflight).doesNotContain("DROP DATABASE", "TRUNCATE TABLE", "docker run");
-        String b0 = read(Path.of("..", "..", "docs/archive/plans/轨道B-B0权限清单与决策冻结.md"));
-        assertThat(b0).contains("## 7. B6 删除清单");
-        assertThat(b0).contains("DatasourcePermissionController", "sys_role_permission");
+        String iam = read(Path.of("..", "..", "docs/modules/007-iam-s1.md"));
+        assertThat(iam).contains("## 旧权限退役与保留边界", "sys_role_permission", "专用 Controller、Mapper、Resolver 已退役");
+        assertThat(iam).contains("不从旧授权映射或回填新授权", "禁止新旧权限双读兜底");
+        assertThat(iam).contains("保留账号及密码安全", "真实部门", "元数据与知识版本/chunk/Milvus", "会话/查询结果");
+        assertThat(iam).contains("全部已执行的 Flyway migration 和 schema history", "permission_change_log", "access_approval_request");
+        assertThat(iam).contains("只读历史", "JWT 黑名单", "tokenVersion", "替代机制未实现并验收前不得删除");
         String followUp = read(Path.of("..", "..", "docs/development/后续开发.md"));
         String instructions = read(Path.of("..", "..", "AGENTS.md"));
         assertThat(instructions).contains("V53 is permanently unused");
@@ -218,7 +201,7 @@ class IamS1B5PreparationStaticTest {
             assertThat(read(Path.of("..", "..", "docs/项目现状.md"))).contains(latestMigration);
         }
         assertThat(followUp).doesNotContain("B5_EXPECTED_SHA");
-        assertThat(followUp).contains("独立 MySQL 恢复演练");
+        assertThat(guide).contains("独立 MySQL 实例");
         assertThat(followUp).doesNotContain("必须在本轮迁移执行前补上");
     }
 
