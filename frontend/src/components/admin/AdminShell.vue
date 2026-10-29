@@ -16,6 +16,7 @@ import { findWorkspace, type AdminContextMode } from '../../router/adminNavigati
 import { buildAdminBreadcrumbs } from '../../utils/adminNavigation'
 import AdminDomainNav from './AdminDomainNav.vue'
 import ScopeBar from './ScopeBar.vue'
+import brandMark from '../../assets/brand/dataocean-mark.png'
 
 const route = useRoute()
 const router = useRouter()
@@ -122,10 +123,10 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="admin-shell" :class="{ 'is-collapsed': collapsed }">
-    <aside class="admin-shell__sidebar do-glass-shell">
+    <aside class="admin-shell__sidebar">
       <div class="admin-shell__brand">
         <RouterLink to="/admin" class="admin-shell__brand-link" aria-label="DataOcean 后台">
-          <span class="admin-shell__brand-mark notranslate" aria-hidden="true" translate="no">DO</span>
+          <img class="admin-shell__brand-mark" :src="brandMark" alt="" width="28" height="44" />
           <span class="admin-shell__brand-copy">
             <strong class="notranslate" translate="no">DataOcean</strong>
             <small>数据查询治理平台</small>
@@ -163,7 +164,7 @@ onBeforeUnmount(() => {
     </aside>
 
     <main class="admin-shell__main">
-      <header class="admin-shell__topbar do-glass-panel">
+      <header class="admin-shell__topbar">
         <nav class="admin-shell__title" aria-label="当前位置">
           <template v-for="(item, index) in breadcrumbs" :key="item.key">
             <span v-if="index" aria-hidden="true">/</span>
@@ -220,16 +221,17 @@ onBeforeUnmount(() => {
 <style scoped>
 .admin-shell {
   display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-columns: 248px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
   height: 100vh;
   height: 100dvh;
   min-height: 0;
-  gap: 10px;
-  padding: 10px;
+  gap: 0;
+  padding: 0;
   overflow: hidden;
-  background: transparent;
+  color: var(--do-ink);
+  background: var(--do-bg);
 }
 
 .admin-shell.is-collapsed {
@@ -242,8 +244,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-radius: 16px;
-  background: transparent;
+  border-right: 1px solid var(--do-line);
+  border-radius: 0;
+  background: var(--do-sidebar);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   isolation: isolate;
@@ -252,6 +255,7 @@ onBeforeUnmount(() => {
 /* Bound the glass layer while leaving menus, shadows and content unclipped. */
 .admin-shell__sidebar::before,
 .admin-shell__topbar::before {
+  display: none;
   position: absolute;
   inset: 0;
   z-index: -1;
@@ -302,7 +306,6 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.admin-shell__brand-mark,
 .admin-shell__avatar {
   display: grid;
   place-items: center;
@@ -314,8 +317,9 @@ onBeforeUnmount(() => {
 
 .admin-shell__brand-mark {
   flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
+  width: 28px;
+  height: 44px;
+  object-fit: contain;
   overflow: hidden;
   font-size: 13px;
   line-height: 1;
@@ -354,7 +358,7 @@ onBeforeUnmount(() => {
   place-items: center;
   border: 1px solid var(--do-line);
   border-radius: var(--do-radius-md);
-  color: var(--do-primary-strong);
+  color: var(--do-muted);
   background: var(--do-surface);
   cursor: pointer;
 }
@@ -389,11 +393,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  min-height: 62px;
+  min-height: 64px;
   padding: 0 24px;
-  border-radius: 15px;
-  border-color: var(--do-glass-border);
-  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--do-line);
+  border-radius: 0;
+  background: var(--do-bg);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   isolation: isolate;
@@ -452,7 +457,8 @@ onBeforeUnmount(() => {
 .admin-shell__avatar {
   width: 36px;
   height: 36px;
-  background: var(--do-primary);
+  color: var(--do-ink);
+  background: #e1e5dc;
   font-size: 12px;
 }
 
@@ -466,11 +472,11 @@ onBeforeUnmount(() => {
 
 .admin-shell__content {
   width: 100%;
-  max-width: 1600px;
+  max-width: 1480px;
   min-height: 0;
   flex: 1 1 0;
   margin: 0 auto;
-  padding: 44px 22px 28px;
+  padding: 32px 32px 28px;
   overflow-y: auto;
   overflow-x: auto;
   overscroll-behavior: contain;
@@ -481,7 +487,7 @@ onBeforeUnmount(() => {
 .admin-shell__content::-webkit-scrollbar { width: 6px; }
 .admin-shell__content::-webkit-scrollbar-track { background: transparent; }
 .admin-shell__content::-webkit-scrollbar-thumb { border-radius: var(--do-radius-full); background: color-mix(in srgb, var(--do-primary) 20%, transparent); }
-.admin-shell__content--compact { padding-top: 20px; }
+.admin-shell__content--compact { padding-top: 28px; }
 
 .admin-shell__notification-panel {
   min-height: 80px;
@@ -547,8 +553,8 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell.is-collapsed .admin-shell__brand-mark {
-  width: 32px;
-  height: 32px;
+  width: 25px;
+  height: 38px;
 }
 
 .admin-shell.is-collapsed .admin-domain-nav__item {
