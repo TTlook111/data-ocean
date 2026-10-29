@@ -15,8 +15,9 @@ const context = vi.hoisted(() => ({
   ensureSnapshot: vi.fn(),
 }))
 vi.mock('../../../stores/adminContext', () => ({ useAdminContextStore: () => context }))
+vi.mock('../../../stores/auth', () => ({ useAuthStore: () => ({ token: 'synthetic' }) }))
 vi.mock('../../../stores/iamS1', () => ({
-  useIamS1Store: () => ({ canOnDatasource: () => true }),
+  useIamS1Store: () => ({ loaded: true, errorMessage: '', snapshot: {}, canOnDatasource: () => true }),
 }))
 vi.mock('../../../composables/useGsapMotion', () => ({
   useGsapMotion: () => ({ reveal: vi.fn(), withContext: (callback: () => void) => callback() }),
@@ -45,7 +46,9 @@ vi.mock('../../../api/admin/metadata', () => ({ listSnapshots: api.listSnapshots
 
 const AlertStub = defineComponent({
   props: ['title', 'type'],
-  setup(props) { return () => h('div', { 'data-test': 'alert' }, props.title) },
+  setup(props) {
+    return () => h('div', { 'data-test': 'alert' }, props.title)
+  },
 })
 
 function snapshotItem(id = 99) {

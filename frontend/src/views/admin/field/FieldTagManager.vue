@@ -1,441 +1,446 @@
 <script setup lang="ts">
 import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { Tag, RefreshCw } from 'lucide-vue-next'
-import { useRoute } from 'vue-router'
-import { useGsapMotion } from '../../../composables/useGsapMotion'
+import { useGovernanceScope } from '../../../composables/useGovernanceScope'
+import { trackGovernanceWrite } from '../../../composables/governanceWriteTracker'
+import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
+import GovernanceWriteNotice from '../../../components/admin/GovernanceWriteNotice.vue'
+import { positiveId } from '../../../utils/lineageContext'
 import {
   listPredefinedTags,
   getFieldTags,
   batchAddFieldTags,
   autoTagByPattern,
   type PredefinedTag,
-  type FieldTagVO
+  type FieldTagVO,
 } from '../../../api/admin/field'
-import { listSnapshotTables, listSnapshotTableColumns, type ColumnMetaItem } from '../../../api/admin/governance'
+import {
+  listSnapshotTables,
+  listSnapshotTableColumns,
+  type ColumnMetaItem,
+} from '../../../api/admin/governance'
 import { listSnapshots, type SnapshotItem } from '../../../api/admin/metadata'
-import { useAdminContextStore } from '../../../stores/adminContext'
-import { useIamS1Store } from '../../../stores/iamS1'
 import { governanceStatusLabel } from '../../../utils/enumLabels'
 import { getHttpErrorMessage } from '../../../utils/httpError'
 import LoadingState from '../../../components/common/LoadingState.vue'
-
-const props = defineProps<{ embedded?: boolean }>()
-const route = useRoute()
-const loading = ref(false)
-const scopePending = computed(() => Boolean(props.embedded && (adminContext.routeSyncing || (Number(route.query.snapshotId) && Number(route.query.snapshotId) !== adminContext.snapshotId && !adminContext.routeSyncError))))
-const pageRef = ref<HTMLElement | null>(null)
-const { reveal, withContext } = useGsapMotion(pageRef)
-const adminContext = useAdminContextStore()
-const iamS1 = useIamS1Store()
-const FIELD_VIEW = 'governance:field:view'
-const FIELD_MANAGE = 'governance:field:manage'
+const props = defineProps<{ embedded?: boolean }>(),
+  scope = useGovernanceScope(),
+  adminContext = scope.context,
+  route = scope.route
+const tableLoading = ref(false),
+  rangeLoading = ref(false)
+const loading = ref(false),
+  writeBusy = ref(false),
+  tagLoading = ref(false),
+  tagError = ref(''),
+  writeReceipt = ref('')
+const canViewFields = computed(() => scope.canSource('governance:field:view')),
+  canManageFields = computed(() => scope.canSource('governance:field:manage')),
+  canReadCatalog = computed(() => scope.canSource('metadata:view'))
 const MANAGE_HINT = '没有当前数据源的字段维护权限'
-const canViewFields = computed(() => iamS1.canOnDatasource(FIELD_VIEW, adminContext.datasourceId || undefined))
-const canManageFields = computed(() => iamS1.canOnDatasource(FIELD_MANAGE, adminContext.datasourceId || undefined))
-const predefinedTags = ref<PredefinedTag[]>([])
-const columns = ref<ColumnMetaItem[]>([])
-const selectedColumnIds = ref<number[]>([])
-const currentColumnTags = ref<FieldTagVO[]>([])
-const showTagDialog = ref(false)
-const showColumnTagsDialog = ref(false)
-const currentColumnName = ref('')
-const selectedTagCode = ref('')
-
-const snapshots = ref<SnapshotItem[]>([])
-const tables = ref<Array<{ id: number; tableName: string; tableComment?: string }>>([])
-const snapshotError = ref('')
-const locationError = ref('')
-
-// 只消费目录详情传入的白名单定位参数，不复制其他页面的 query。
-let requestedSnapshotId = Number(route.query.snapshotId) || undefined
-let pendingTableName = typeof route.query.tableName === 'string' ? route.query.tableName : ''
-let pendingColumnMetaId = Number(route.query.columnMetaId) || undefined
-let snapshotRequestId = 0
-let tableRequestId = 0
-let columnRequestId = 0
-let disposed = false
-let lastDatasourceId = adminContext.datasourceId
-
-const query = reactive({
-  snapshotId: undefined as number | undefined,
-  tableName: ''
-})
-
-async function fetchSnapshots() {
-  const requestId = ++snapshotRequestId
-  const datasourceId = adminContext.datasourceId
+const identityKey = computed(() =>
+  JSON.stringify([
+    scope.auth.token,
+    scope.iam.snapshot,
+    scope.iam.loaded,
+    scope.iam.errorMessage,
+    adminContext.datasourceId,
+    route.query.datasourceId,
+    adminContext.loading,
+    adminContext.routeSyncing,
+  ]),
+)
+const scopePending = computed(() => scope.scopeLoading.value)
+const predefinedTags = ref<PredefinedTag[]>([]),
+  columns = ref<ColumnMetaItem[]>([]),
+  selectedColumnIds = ref<number[]>([]),
+  currentColumnTags = ref<FieldTagVO[]>([])
+const showTagDialog = ref(false),
+  showColumnTagsDialog = ref(false),
+  currentColumnName = ref(''),
+  selectedTagCode = ref('')
+const snapshots = ref<SnapshotItem[]>([]),
+  tables = ref<Array<{ id: number; tableName: string; tableComment?: string }>>([]),
+  snapshotError = ref(''),
+  locationError = ref('')
+const query = reactive({ snapshotId: undefined as number | undefined, tableName: '' })
+let disposed = false,
+  boot = 0,
+  tableRequest = 0,
+  columnRequest = 0,
+  tagRequest = 0,
+  dialogSession = 0
+let pendingTableName = '',
+  pendingColumnMetaId: number | undefined
+const ownCancelClass = `tag-confirm-${Math.random().toString(36).slice(2)}`
+function cancelOwn() {
+  document.querySelector<HTMLButtonElement>(`.${ownCancelClass}`)?.click()
+}
+function current(key: string) {
+  return !disposed && key === identityKey.value && canViewFields.value
+}
+function selectionKey() {
+  return `${identityKey.value}|${query.snapshotId}|${query.tableName}`
+}
+function reset() {
+  tableRequest++
+  columnRequest++
+  tagRequest++
+  dialogSession++
+  cancelOwn()
+  writeBusy.value = false
+  showTagDialog.value = false
+  showColumnTagsDialog.value = false
+  tagLoading.value = false
+  tagError.value = ''
+  tables.value = []
+  columns.value = []
+  snapshots.value = []
+  selectedColumnIds.value = []
+  currentColumnTags.value = []
+  query.snapshotId = undefined
+  query.tableName = ''
   snapshotError.value = ''
-  if (props.embedded) {
-    snapshots.value = adminContext.snapshots || []
-    query.snapshotId = adminContext.snapshotId
-    if (adminContext.routeSyncing || adminContext.routeSyncError || (requestedSnapshotId && requestedSnapshotId !== query.snapshotId)) {
-      query.snapshotId = undefined
-      snapshotError.value = adminContext.routeSyncError || ''
-    }
+  locationError.value = ''
+  loading.value = false
+  writeReceipt.value = ''
+  tableLoading.value = false
+  rangeLoading.value = false
+}
+useAdminScrollLock(() => showTagDialog.value || showColumnTagsDialog.value)
+async function initialize() {
+  const ticket = ++boot,
+    key = identityKey.value
+  reset()
+  predefinedTags.value = []
+  if (!canViewFields.value) return
+  void fetchPredefinedTags(key, ticket)
+  if (!canReadCatalog.value) {
+    snapshotError.value = '没有metadata:view，不能读取标签所需的表字段目录；不自动补权。'
     return
   }
+  pendingTableName = typeof route.query.tableName === 'string' ? route.query.tableName : ''
+  pendingColumnMetaId = positiveId(route.query.columnMetaId)
+  if (route.query.columnMetaId !== undefined && !pendingColumnMetaId) {
+    locationError.value = '指定字段标识无效，未改用其他字段。'
+    return
+  }
+  rangeLoading.value = true
   try {
-    const res = await listSnapshots({ datasourceId, page: 1, size: 50 })
-    if (disposed || requestId !== snapshotRequestId || datasourceId !== adminContext.datasourceId) return
-    snapshots.value = res.data?.records ?? []
-
-    if (requestedSnapshotId) {
-      let found = snapshots.value.find((item) => item.id === requestedSnapshotId)
-      if (!found) {
-        // 历史快照可能不在首批 50 条内：按 ID 使用有权限校验的详情接口精确读取。
-        try {
-          const ensured = await adminContext.ensureSnapshot(requestedSnapshotId)
-          if (disposed || requestId !== snapshotRequestId || datasourceId !== adminContext.datasourceId) return
-          if (ensured) {
-            found = ensured
-            if (!snapshots.value.some((item) => item.id === ensured.id)) {
-              snapshots.value = [...snapshots.value, ensured]
-                .sort((a, b) => b.snapshotVersion - a.snapshotVersion)
-            }
-          }
-        } catch (cause) {
-          if (disposed || requestId !== snapshotRequestId || datasourceId !== adminContext.datasourceId) return
-          snapshotError.value = `指定的快照无法加载：${getHttpErrorMessage(
-            cause,
-            '快照不存在、无权访问或加载失败',
-          )}。未切换到其他快照。`
-          query.snapshotId = undefined
-          query.tableName = ''
-          pendingTableName = ''
-          pendingColumnMetaId = undefined
-          tables.value = []
-          columns.value = []
-          selectedColumnIds.value = []
-          return
-        }
-      }
-      if (!found) {
-        snapshotError.value = '指定的快照不存在或不属于当前数据源，未切换到其他快照。'
-        query.snapshotId = undefined
-        query.tableName = ''
-        pendingTableName = ''
-        pendingColumnMetaId = undefined
-        tables.value = []
-        columns.value = []
-        selectedColumnIds.value = []
-        return
-      }
-      if (disposed) return
-      query.snapshotId = requestedSnapshotId
-      adminContext.selectSnapshot(requestedSnapshotId)
-      return
-    }
-
-    // 普通入口没有指定快照时，保留既有默认选择规则。
-    if (adminContext.snapshotId && snapshots.value.some((item) => item.id === adminContext.snapshotId)) {
+    const raw = route.query.snapshotId,
+      requested = positiveId(raw)
+    if (raw !== undefined && !requested) throw new Error('指定的快照标识无效，未切换到其他快照。')
+    if (props.embedded) {
+      snapshots.value = adminContext.snapshots || []
+      if (adminContext.routeSyncError || (requested && requested !== adminContext.snapshotId))
+        throw new Error(adminContext.routeSyncError || '公共快照尚未核验，未切换到其他快照。')
       query.snapshotId = adminContext.snapshotId
     } else {
-      query.snapshotId = snapshots.value[0]?.id
+      const result = await listSnapshots({ datasourceId: adminContext.datasourceId, page: 1, size: 50 })
+      if (!current(key) || ticket !== boot) return
+      snapshots.value = result.data?.records ?? []
+      if (requested) {
+        let found = snapshots.value.find(
+          (x) => x.id === requested && x.datasourceId === adminContext.datasourceId,
+        )
+        if (!found) {
+          const ensured = await adminContext.ensureSnapshot(requested)
+          if (!current(key) || ticket !== boot) return
+          if (ensured?.id === requested && ensured.datasourceId === adminContext.datasourceId) {
+            found = ensured
+            snapshots.value = [...snapshots.value, ensured]
+          }
+        }
+        if (!found) throw new Error('指定的快照不存在或不属于当前数据源，未切换到其他快照。')
+        query.snapshotId = requested
+      } else
+        query.snapshotId =
+          snapshots.value.find((x) => x.id === adminContext.snapshotId)?.id ?? snapshots.value[0]?.id
+      if (query.snapshotId) adminContext.selectSnapshot(query.snapshotId)
     }
-    if (query.snapshotId) {
-      adminContext.selectSnapshot(query.snapshotId)
-    }
+    if (query.snapshotId) await fetchTables()
   } catch (cause) {
-    if (disposed || requestId !== snapshotRequestId) return
-    snapshotError.value = getHttpErrorMessage(cause, '快照列表加载失败')
-    snapshots.value = []
-    query.snapshotId = undefined
-    query.tableName = ''
-    tables.value = []
-    columns.value = []
-    selectedColumnIds.value = []
+    if (current(key) && ticket === boot) {
+      snapshotError.value = `指定的快照无法加载：${getHttpErrorMessage(cause, '范围读取失败')}。未切换到其他快照。`
+      query.snapshotId = undefined
+      tables.value = []
+      columns.value = []
+    }
+  } finally {
+    if (current(key) && ticket === boot) rangeLoading.value = false
   }
 }
-
-async function fetchTables() {
-  const requestId = ++tableRequestId
-  const snapshotId = query.snapshotId
-  const datasourceId = adminContext.datasourceId
-  locationError.value = ''
-  selectedColumnIds.value = []
-  columns.value = []
-  if (!snapshotId) {
-    tables.value = []
-    query.tableName = ''
-    return
-  }
+async function fetchPredefinedTags(key = identityKey.value, ticket = boot) {
+  if (!canViewFields.value) return
   try {
-    const res = await listSnapshotTables(snapshotId)
-    if (disposed || requestId !== tableRequestId
-        || query.snapshotId !== snapshotId
-        || adminContext.datasourceId !== datasourceId) return
+    const res = await listPredefinedTags()
+    if (current(key) && ticket === boot) predefinedTags.value = res.data ?? []
+  } catch {
+    if (current(key) && ticket === boot) writeReceipt.value = '预置标签读取失败，不能选择新标签，请刷新。'
+  }
+}
+async function fetchTables() {
+  const request = ++tableRequest,
+    key = identityKey.value,
+    snapshot = query.snapshotId
+  columnRequest++
+  tagRequest++
+  tables.value = []
+  columns.value = []
+  selectedColumnIds.value = []
+  query.tableName = ''
+  locationError.value = ''
+  if (!snapshot || !canReadCatalog.value || !canViewFields.value) return
+  tableLoading.value = true
+  try {
+    const res = await listSnapshotTables(snapshot)
+    if (!current(key) || request !== tableRequest || snapshot !== query.snapshotId) return
     tables.value = res.data ?? []
-
     if (pendingTableName) {
-      const requested = pendingTableName
+      const target = pendingTableName
       pendingTableName = ''
-      const found = tables.value.find(
-        (table) => table.tableName.toLowerCase() === requested.toLowerCase(),
-      )
-      if (!found) {
-        locationError.value = `来源快照中未找到表“${requested}”，未自动选择其他表。`
-        pendingColumnMetaId = undefined
-        query.tableName = ''
+      const table = tables.value.find((t) => t.tableName.toLowerCase() === target.toLowerCase())
+      if (!table) {
+        locationError.value = `来源快照中未找到表“${target}”，未自动选择其他表。`
         return
       }
-      query.tableName = found.tableName
+      query.tableName = table.tableName
       await fetchColumns()
-      return
     }
-    pendingColumnMetaId = undefined
-    query.tableName = ''
   } catch (cause) {
-    if (disposed || requestId !== tableRequestId || query.snapshotId !== snapshotId) return
-    tables.value = []
-    query.tableName = ''
-    locationError.value = getHttpErrorMessage(cause, '快照表列表加载失败')
+    if (current(key) && request === tableRequest)
+      locationError.value = getHttpErrorMessage(cause, '表列表读取失败')
+  } finally {
+    if (current(key) && request === tableRequest) tableLoading.value = false
   }
 }
-
 async function fetchColumns() {
-  const requestId = ++columnRequestId
-  const snapshotId = query.snapshotId
-  const tableName = query.tableName
-  const datasourceId = adminContext.datasourceId
-  if (!snapshotId || !tableName) {
-    columns.value = []
-    loading.value = false
+  const request = ++columnRequest,
+    key = selectionKey(),
+    snapshot = query.snapshotId,
+    table = query.tableName
+  tagRequest++
+  dialogSession++
+  showTagDialog.value = false
+  showColumnTagsDialog.value = false
+  columns.value = []
+  selectedColumnIds.value = []
+  loading.value = false
+  locationError.value = ''
+  if (
+    !snapshot ||
+    !canViewFields.value ||
+    !canReadCatalog.value ||
+    !tables.value.some((t) => t.tableName === table)
+  )
     return
-  }
   loading.value = true
   try {
-    const res = await listSnapshotTableColumns(snapshotId, tableName)
-    if (disposed || requestId !== columnRequestId
-        || query.snapshotId !== snapshotId
-        || query.tableName !== tableName
-        || adminContext.datasourceId !== datasourceId) return
+    const res = await listSnapshotTableColumns(snapshot, table)
+    if (disposed || request !== columnRequest || key !== selectionKey()) return
     columns.value = res.data ?? []
-    selectedColumnIds.value = []
-
     if (pendingColumnMetaId) {
-      const requested = pendingColumnMetaId
+      const id = pendingColumnMetaId
       pendingColumnMetaId = undefined
-      const column = columns.value.find((item) => item.id === requested)
+      const column = columns.value.find((c) => c.id === id)
       if (!column) {
         locationError.value = '当前来源快照的表中未找到指定字段，未自动选择其他字段。'
         return
       }
-      selectedColumnIds.value = [column.id]
+      selectedColumnIds.value = [id]
       await viewColumnTags(column)
     }
   } catch (cause) {
-    if (disposed || requestId !== columnRequestId
-        || query.snapshotId !== snapshotId
-        || query.tableName !== tableName) return
-    columns.value = []
-    selectedColumnIds.value = []
-    locationError.value = getHttpErrorMessage(cause, '字段列表加载失败')
+    if (!disposed && request === columnRequest && key === selectionKey())
+      locationError.value = getHttpErrorMessage(cause, '字段读取失败')
   } finally {
-    if (!disposed && requestId === columnRequestId) loading.value = false
+    if (!disposed && request === columnRequest && key === selectionKey()) loading.value = false
   }
 }
-
 async function handleSnapshotChange(id?: number) {
-  // 来源切换后旧表、旧字段和旧选择全部失效。
-  tableRequestId++
-  columnRequestId++
   pendingTableName = ''
   pendingColumnMetaId = undefined
-  locationError.value = ''
-  snapshotError.value = ''
   query.snapshotId = id
-  query.tableName = ''
-  tables.value = []
-  columns.value = []
-  selectedColumnIds.value = []
   adminContext.selectSnapshot(id)
   await fetchTables()
 }
-
-async function fetchPredefinedTags() {
-  if (!canViewFields.value) {
-    predefinedTags.value = []
-    return
-  }
-  const res = await listPredefinedTags()
-  predefinedTags.value = res.data ?? []
-}
-
 function handleSelectionChange(rows: ColumnMetaItem[]) {
-  selectedColumnIds.value = rows.map(r => r.id)
+  selectedColumnIds.value = rows.filter((r) => columns.value.some((c) => c.id === r.id)).map((r) => r.id)
 }
-
+const batchTarget = ref<{ snapshot: number; table: string; ids: number[]; key: string; session: number }>()
 function openBatchTagDialog() {
-  if (!canManageFields.value) {
-    ElMessage.warning(MANAGE_HINT)
+  if (!canManageFields.value || !query.snapshotId || !selectedColumnIds.value.length || writeBusy.value)
     return
-  }
-  if (selectedColumnIds.value.length === 0) {
-    ElMessage.warning('请先选择字段')
-    return
+  const ids = selectedColumnIds.value.filter((id) => columns.value.some((c) => c.id === id))
+  if (!ids.length) return
+  dialogSession++
+  batchTarget.value = {
+    snapshot: query.snapshotId,
+    table: query.tableName,
+    ids,
+    key: selectionKey(),
+    session: dialogSession,
   }
   selectedTagCode.value = ''
+  writeReceipt.value = ''
   showTagDialog.value = true
 }
-
 async function confirmBatchTag() {
-  if (!selectedTagCode.value) {
-    ElMessage.warning('请选择标签')
+  const target = batchTarget.value,
+    tag = selectedTagCode.value
+  if (
+    writeBusy.value ||
+    !showTagDialog.value ||
+    !target ||
+    target.session !== dialogSession ||
+    target.key !== selectionKey() ||
+    !canManageFields.value ||
+    !predefinedTags.value.some((t) => t.tagCode === tag)
+  )
     return
-  }
-  const snapshotId = query.snapshotId
-  const tableName = query.tableName
-  const columnMetaIds = [...selectedColumnIds.value]
-  if (!columnMetaIds.length) {
-    ElMessage.warning('请先选择字段')
-    return
-  }
+  writeBusy.value = true
+  writeReceipt.value = ''
+  const owned = () =>
+    !disposed && target.session === dialogSession && target.key === selectionKey() && canManageFields.value
   try {
-    const res = await batchAddFieldTags({ columnMetaIds, tagCode: selectedTagCode.value })
-    if (disposed || query.snapshotId !== snapshotId || query.tableName !== tableName) return
-    ElMessage.success(`批量打标成功，已标记 ${res.data?.tagged ?? 0} 个字段`)
+    const res = await trackGovernanceWrite(
+      scope.auth.token,
+      [`field-tags-source:${adminContext.datasourceId}`],
+      `标签 ${tag} · 快照 #${target.snapshot} / ${target.table} / 字段 ${target.ids.join(',')}`,
+      async () => {
+        const result = await batchAddFieldTags({ columnMetaIds: [...target.ids], tagCode: tag })
+        if (!Number.isFinite(result.data?.tagged))
+          throw new Error('标签回执数量未知，请核对原字段，勿重复提交')
+        return result
+      },
+    )
+    if (!owned()) return
+    writeReceipt.value = `请求 ${target.ids.length} 个字段，服务端新增 ${res.data.tagged} 个标签；其余是否已存在以原字段记录为准。`
     showTagDialog.value = false
   } catch (cause) {
-    if (disposed || query.snapshotId !== snapshotId || query.tableName !== tableName) return
-    ElMessage.error(getHttpErrorMessage(cause, '打标失败'))
+    if (owned())
+      writeReceipt.value = getHttpErrorMessage(
+        cause,
+        cause instanceof Error ? cause.message : '打标未确认完成，原选择保留',
+      )
+  } finally {
+    if (owned()) writeBusy.value = false
   }
 }
-
 async function viewColumnTags(row: ColumnMetaItem) {
-  const snapshotId = query.snapshotId
-  const tableName = query.tableName
+  if (!canViewFields.value || !columns.value.some((c) => c.id === row.id)) return
+  const request = ++tagRequest,
+    key = selectionKey(),
+    id = row.id
   currentColumnName.value = row.columnName
+  currentColumnTags.value = []
+  tagError.value = ''
+  tagLoading.value = true
+  showColumnTagsDialog.value = true
+  const owned = () =>
+    !disposed && request === tagRequest && key === selectionKey() && showColumnTagsDialog.value
   try {
-    const res = await getFieldTags(row.id)
-    if (disposed || query.snapshotId !== snapshotId || query.tableName !== tableName) return
-    currentColumnTags.value = res.data ?? []
-    showColumnTagsDialog.value = true
+    const res = await getFieldTags(id)
+    if (owned()) currentColumnTags.value = res.data ?? []
   } catch (cause) {
-    if (!disposed && query.snapshotId === snapshotId && query.tableName === tableName) {
-      ElMessage.error(getHttpErrorMessage(cause, '字段标签加载失败'))
-    }
+    if (owned()) tagError.value = getHttpErrorMessage(cause, '字段标签读取失败')
+  } finally {
+    if (owned()) tagLoading.value = false
   }
 }
-
 async function handleAutoTag() {
-  if (!canManageFields.value) {
-    ElMessage.warning(MANAGE_HINT)
-    return
-  }
-  if (!query.snapshotId) return
-  const datasourceId = adminContext.datasourceId
-  const snapshot = snapshots.value.find(s => s.id === query.snapshotId)
-  if (!snapshot?.datasourceId) {
-    ElMessage.warning('当前快照缺少数据源信息，无法自动打标')
-    return
-  }
+  if (writeBusy.value || !canManageFields.value || !adminContext.datasourceId) return
+  const key = identityKey.value,
+    ds = adminContext.datasourceId
+  writeBusy.value = true
+  writeReceipt.value = ''
   try {
-    const res = await autoTagByPattern(snapshot.datasourceId)
-    if (disposed || adminContext.datasourceId !== datasourceId) return
-    ElMessage.success(`自动打标完成：标记 ${res.data?.tagged ?? 0} 个，跳过 ${res.data?.skipped ?? 0} 个`)
+    await ElMessageBox.confirm(
+      '此操作按字段名模式处理当前数据源的全部采集版本，不仅是顶部选中的快照。它只添加标签，不确认语义或奖励使用分。',
+      '确认源级模式打标',
+      {
+        type: 'warning',
+        confirmButtonText: '确认处理整个数据源',
+        cancelButtonText: '取消',
+        cancelButtonClass: ownCancelClass,
+      },
+    )
+    if (!current(key) || !canManageFields.value) return
+    const result = await trackGovernanceWrite(
+      scope.auth.token,
+      [`field-tags-source:${ds}`],
+      `源级模式打标 · 数据源 #${ds}`,
+      async () => {
+        const res = await autoTagByPattern(ds)
+        if (!Number.isFinite(res.data?.tagged) || !Number.isFinite(res.data?.skipped))
+          throw new Error('源级打标回执不完整，结果未知，请核对原源记录')
+        return res
+      },
+    )
+    if (current(key))
+      writeReceipt.value = `源级模式打标：新增 ${result.data.tagged} 个，跳过 ${result.data.skipped} 个；请核对实际字段标签。`
   } catch (cause) {
-    if (disposed || adminContext.datasourceId !== datasourceId) return
-    ElMessage.error(getHttpErrorMessage(cause, '自动打标失败'))
+    if (current(key) && cause !== 'cancel' && cause !== 'close')
+      writeReceipt.value = getHttpErrorMessage(
+        cause,
+        cause instanceof Error ? cause.message : '源级打标未确认完成',
+      )
+  } finally {
+    if (current(key)) writeBusy.value = false
   }
 }
-
-onMounted(async () => {
-  withContext(() => {
-    reveal('.toolbar, .content-panel', { y: 14, stagger: 0.06 })
-  })
-  await fetchPredefinedTags()
-  await adminContext.initialize()
-  await fetchSnapshots()
-  if (query.snapshotId) await fetchTables()
-})
-
 watch(
-  () => adminContext.snapshotId,
-  async (snapshotId) => {
-    if (!snapshotId) {
-      // 显式指定的快照加载失败时保留错误，不用最新快照覆盖。
-      if (requestedSnapshotId) return
-      tableRequestId++
-      columnRequestId++
-      query.snapshotId = undefined
-      query.tableName = ''
-      tables.value = []
-      columns.value = []
-      selectedColumnIds.value = []
-      return
-    }
-    if (props.embedded) { requestedSnapshotId = snapshotId; snapshotError.value = adminContext.routeSyncError || '' }
-    if (query.snapshotId === snapshotId) return
-    tableRequestId++
-    columnRequestId++
-    pendingTableName = ''
-    pendingColumnMetaId = undefined
-    locationError.value = ''
-    query.snapshotId = snapshotId
-    query.tableName = ''
-    tables.value = []
-    columns.value = []
-    selectedColumnIds.value = []
-    await fetchTables()
+  identityKey,
+  () => {
+    void initialize()
   },
+  { flush: 'sync' },
 )
-
 watch(
-  () => adminContext.datasourceId,
-  async (datasourceId) => {
-    const hadDatasource = lastDatasourceId !== undefined
-    lastDatasourceId = datasourceId
-    tableRequestId++
-    columnRequestId++
-    if (hadDatasource) {
-      // 真正的数据源切换后旧定位参数和旧字段选择不再适用；
-      // 初始化时从空上下文解析出数据源则保留 URL 中的精确定位。
-      requestedSnapshotId = undefined
-      pendingTableName = ''
-      pendingColumnMetaId = undefined
-    }
-    locationError.value = ''
-    snapshotError.value = ''
-    query.snapshotId = undefined
-    query.tableName = ''
-    tables.value = []
-    columns.value = []
-    selectedColumnIds.value = []
-    if (!datasourceId) {
-      snapshots.value = []
-      return
-    }
-    await fetchSnapshots()
-    if (query.snapshotId) await fetchTables()
+  () => [adminContext.snapshotId, route.query.snapshotId, adminContext.routeSyncError],
+  () => {
+    if (props.embedded) void initialize()
   },
+  { flush: 'sync' },
 )
-
-watch(() => [route.query.snapshotId, adminContext.routeSyncing, adminContext.routeSyncError], async () => {
-  if (!props.embedded) return
-  requestedSnapshotId = Number(route.query.snapshotId) || undefined
-  tableRequestId++
-  columnRequestId++
-  query.tableName = ''
-  columns.value = []
-  tables.value = []
-  selectedColumnIds.value = []
-  await fetchSnapshots()
-  if (query.snapshotId) await fetchTables()
+watch(
+  showColumnTagsDialog,
+  (open) => {
+    if (!open) {
+      tagRequest++
+      tagLoading.value = false
+    }
+  },
+  { flush: 'sync' },
+)
+onMounted(() => {
+  void initialize()
 })
-
 onBeforeUnmount(() => {
   disposed = true
-  snapshotRequestId++
-  tableRequestId++
-  columnRequestId++
+  boot++
+  tableRequest++
+  columnRequest++
+  tagRequest++
+  dialogSession++
+  cancelOwn()
 })
 </script>
 
 <template>
-  <main ref="pageRef" class="field-tag-page post-login-page">
-
-
+  <main class="field-tag-page post-login-page">
+    <GovernanceWriteNotice />
+    <p v-if="!canViewFields" role="status">
+      {{ scope.datasourceIssue.value || '没有当前源的字段查看能力，未读取字段目录。' }}
+    </p>
+    <div class="tag-contract">
+      <h3>字段业务标签</h3>
+      <p>
+        先核对精确快照的字段，再选择预置分类。标签不等于语义已审核，也不会自动计入使用分。源级模式打标覆盖本源全部采集版本，执行前需单独确认。
+      </p>
+    </div>
+    <p v-if="writeReceipt" class="tag-receipt" role="status">{{ writeReceipt }}</p>
     <el-alert
       v-if="snapshotError"
       class="field-tag-alert"
@@ -452,60 +457,124 @@ onBeforeUnmount(() => {
     />
 
     <section class="toolbar">
-      <el-select v-if="!props.embedded" v-model="query.snapshotId" placeholder="选择快照" @change="handleSnapshotChange" style="width: 200px">
+      <el-select
+        v-if="!props.embedded"
+        v-model="query.snapshotId"
+        placeholder="选择快照"
+        @change="handleSnapshotChange"
+        style="width: 200px"
+      >
         <el-option v-for="s in snapshots" :key="s.id" :label="`快照 v${s.snapshotVersion}`" :value="s.id" />
       </el-select>
       <el-select
         v-model="query.tableName"
         aria-label="选择字段表"
         placeholder="选择表"
-        :disabled="!query.snapshotId || !!snapshotError"
+        :disabled="!canReadCatalog || !query.snapshotId || !!snapshotError"
         @change="fetchColumns"
         style="width: 240px"
         filterable
       >
-        <el-option v-for="t in tables" :key="t.tableName" :label="t.tableComment ? `${t.tableName} · ${t.tableComment}` : t.tableName" :value="t.tableName" />
+        <el-option
+          v-for="t in tables"
+          :key="t.tableName"
+          :label="t.tableComment ? `${t.tableName} · ${t.tableComment}` : t.tableName"
+          :value="t.tableName"
+        />
       </el-select>
       <div class="header-actions">
-        <el-button :disabled="!canManageFields || !query.snapshotId" :title="canManageFields ? '按当前数据源自动识别标签' : MANAGE_HINT" @click="handleAutoTag">
-          <RefreshCw :size="16" style="margin-right: 4px" />自动打标
+        <el-button
+          :loading="writeBusy"
+          :disabled="!canManageFields || writeBusy"
+          :title="canManageFields ? '按当前数据源自动识别标签' : MANAGE_HINT"
+          @click="handleAutoTag"
+        >
+          <RefreshCw :size="16" style="margin-right: 4px" />
+          自动打标
         </el-button>
-        <el-button type="primary" :disabled="!canManageFields || !selectedColumnIds.length" :title="canManageFields ? '选择字段后批量打标' : MANAGE_HINT" @click="openBatchTagDialog">
-          <Tag :size="16" style="margin-right: 4px" />批量打标
+        <el-button
+          type="primary"
+          :disabled="!canManageFields || writeBusy || !selectedColumnIds.length"
+          :title="canManageFields ? '选择字段后批量打标' : MANAGE_HINT"
+          @click="openBatchTagDialog"
+        >
+          <Tag :size="16" style="margin-right: 4px" />
+          批量打标
         </el-button>
       </div>
     </section>
 
     <section class="content-panel">
-      <el-table v-if="query.tableName && !snapshotError && !locationError" :empty-text="loading ? '正在读取字段…' : '当前表没有字段'" :data="columns" v-loading="loading" @selection-change="handleSelectionChange" stripe>
+      <el-table
+        v-if="query.tableName && !snapshotError && !locationError"
+        :empty-text="loading ? '正在读取字段…' : '当前表没有字段'"
+        :data="columns"
+        v-loading="loading"
+        @selection-change="handleSelectionChange"
+        stripe
+      >
         <el-table-column type="selection" width="50" />
         <el-table-column prop="columnName" label="字段名" width="200" />
         <el-table-column prop="dataType" label="数据类型" width="150" />
         <el-table-column prop="columnComment" label="注释" />
-        <el-table-column label="治理状态" width="120"><template #default="{ row }">{{ governanceStatusLabel(row.governanceStatus) }}</template></el-table-column>
+        <el-table-column label="治理状态" width="120">
+          <template #default="{ row }">{{ governanceStatusLabel(row.governanceStatus) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="100">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="viewColumnTags(row)">查看标签</el-button>
           </template>
         </el-table-column>
       </el-table>
-      <LoadingState v-else-if="scopePending" text="正在确认字段查看范围…" />
-      <el-empty v-else-if="!snapshotError && !locationError" :description="query.snapshotId ? '选择一张表，查看字段标签' : '请在顶部选择快照'" :image-size="40" />
+      <LoadingState v-else-if="scopePending || rangeLoading || tableLoading" text="正在确认字段查看范围…" />
+      <el-empty
+        v-else-if="!snapshotError && !locationError"
+        :description="query.snapshotId ? '选择一张表，查看字段标签' : '请在顶部选择快照'"
+        :image-size="40"
+      />
     </section>
 
-    <el-dialog class="governance-dialog" v-model="showTagDialog" title="批量打标" width="min(440px, 94vw)">
-      <p style="margin-bottom: 12px">已选择 {{ selectedColumnIds.length }} 个字段</p>
-      <el-select v-model="selectedTagCode" placeholder="选择标签" style="width: 100%">
-        <el-option v-for="tag in predefinedTags" :key="tag.tagCode" :label="`${tag.tagName}（${tag.tagCode}）`" :value="tag.tagCode" />
+    <el-dialog
+      class="governance-dialog"
+      v-model="showTagDialog"
+      title="批量打标"
+      :show-close="!writeBusy"
+      :close-on-click-modal="false"
+      :close-on-press-escape="!writeBusy"
+      width="min(440px, 94vw)"
+    >
+      <p style="margin-bottom: 12px">已冻结 {{ batchTarget?.ids.length }} 个字段</p>
+      <p v-if="writeReceipt" role="alert">{{ writeReceipt }}</p>
+      <el-select :disabled="writeBusy" v-model="selectedTagCode" placeholder="选择标签" style="width: 100%">
+        <el-option
+          v-for="tag in predefinedTags"
+          :key="tag.tagCode"
+          :label="`${tag.tagName}（${tag.tagCode}）`"
+          :value="tag.tagCode"
+        />
       </el-select>
       <template #footer>
-        <el-button @click="showTagDialog = false">取消</el-button>
-        <el-button type="primary" @click="confirmBatchTag">确认打标</el-button>
+        <el-button :disabled="writeBusy" @click="showTagDialog = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="writeBusy"
+          :disabled="!canManageFields || !selectedTagCode"
+          @click="confirmBatchTag"
+        >
+          确认打标
+        </el-button>
       </template>
     </el-dialog>
 
-    <el-dialog class="governance-dialog" v-model="showColumnTagsDialog" :title="`${currentColumnName} 标签`" width="min(560px, 94vw)">
-      <el-table v-if="currentColumnTags.length" :data="currentColumnTags" size="small">
+    <el-dialog
+      class="governance-dialog"
+      v-model="showColumnTagsDialog"
+      :title="`${currentColumnName} 标签`"
+      width="min(560px, 94vw)"
+    >
+      <p v-if="tagError" role="alert">{{ tagError }}</p>
+      <LoadingState v-else-if="tagLoading" text="正在读取精确字段标签…" />
+      <el-table v-else-if="currentColumnTags.length" :data="currentColumnTags" size="small">
         <el-table-column prop="tagName" label="标签" min-width="140" />
         <el-table-column prop="tagCode" label="编码" min-width="120" />
         <el-table-column prop="source" label="来源" width="110" />
@@ -520,11 +589,54 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.field-tag-page { min-width: 0; width: 100%; padding: 0; }
-.header-actions { display: flex; gap: 8px; }
-.field-tag-alert { margin-bottom: 12px; }
-.toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 14px 0 18px; }
-.toolbar .header-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.toolbar :deep(.el-select) { min-width: 0; max-width: 100%; }
-.content-panel { background: var(--do-glass-data-bg); border: 1px solid var(--do-glass-line); border-radius: var(--do-radius-lg); box-shadow: var(--do-shadow); padding: 16px; }
+.tag-contract {
+  padding: 16px 20px;
+  background: var(--do-primary-soft);
+  border-radius: 8px;
+}
+.tag-contract h3 {
+  margin: 0;
+  font-size: 16px;
+}
+.tag-contract p,
+.tag-receipt {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--do-muted);
+}
+.field-tag-page {
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+}
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+.field-tag-alert {
+  margin-bottom: 12px;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+.toolbar .header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.toolbar :deep(.el-select) {
+  min-width: 0;
+  max-width: 100%;
+}
+.content-panel {
+  background: var(--do-surface);
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-lg);
+  padding: 16px;
+}
 </style>
