@@ -19,7 +19,7 @@ vi.mock('vue-router', async importOriginal => ({
   useRoute: () => ({ params: { id: '1' }, query: {}, meta: { domainKey: 'data-entry' } }),
   useRouter: () => ({ push: api.push }),
 }))
-vi.mock('../../stores/iamS1', () => ({ useIamS1Store: () => ({ hasGlobal: () => true, canOnDatasource: () => true, systemAdmin: false, loaded: true, errorMessage: null, snapshot: {}, load: async () => {} }) }))
+vi.mock('../../stores/iamS1', () => ({ useIamS1Store: () => ({ hasGlobal: () => true, canOnDatasource: () => true, datasourcesWithFunction: () => [1, 2], systemAdmin: false, loaded: true, errorMessage: null, snapshot: {}, load: async () => {} }) }))
 vi.mock('../../stores/auth', () => ({ useAuthStore: () => ({ token: 'synthetic-admin-test' }) }))
 vi.mock('../../stores/adminContext', () => ({ useAdminContextStore: () => ({ initialize: async () => {}, datasourceId: 1, snapshotId: 10, currentDatasource: { name: '销售库' }, selectSnapshot: vi.fn() }) }))
 vi.mock('../../api/admin/dashboard', () => ({ getDashboardStats: api.getDashboardStats }))

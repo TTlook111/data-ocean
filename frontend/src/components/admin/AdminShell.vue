@@ -5,13 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import type { DropdownInstance } from 'element-plus'
 import { useAuthStore } from '../../stores/auth'
 import { useIamS1Store } from '../../stores/iamS1'
-import {
-  getUnreadNotificationCount,
-  listNotifications,
-  markNotificationAsRead,
-  markNotificationsBatchAsRead,
-  type NotificationItem,
-} from '../../api/notification'
+import {useAdminNotifications} from '../../composables/useAdminNotifications'
 import { findWorkspace, type AdminContextMode } from '../../router/adminNavigation'
 import { buildAdminBreadcrumbs } from '../../utils/adminNavigation'
 import AdminDomainNav from './AdminDomainNav.vue'
@@ -23,12 +17,10 @@ const router = useRouter()
 const auth = useAuthStore()
 const iamS1 = useIamS1Store()
 const collapsed = ref(false)
-const notifications = ref<NotificationItem[]>([])
-const notificationLoading = ref(false)
-const unreadCount = ref(0)
+const {notifications,notificationLoading,notificationWriting,unreadCount,notificationError,notificationCountError,notificationVisible,fetchNotifications,readNotification,readAllVisible}=useAdminNotifications()
+const logoutLoading=ref(false)
 const userMenuVisible = ref(false)
 const userDropdown = ref<DropdownInstance>()
-let notificationTimer: number | undefined
 let narrowScreen: MediaQueryList | undefined
 function adaptSidebar(event: MediaQueryListEvent) { if (event.matches) collapsed.value = true }
 
@@ -61,45 +53,12 @@ async function handleUserCommand(command: string) {
   if (command === 'query' && iamS1.queryUse) router.push('/query')
   if (command === 'profile') router.push('/profile')
   if (command === 'password') router.push('/change-password')
-  if (command === 'logout') {
-    await auth.logout()
-    await router.push('/login')
+  if (command === 'logout' && !logoutLoading.value) {
+    const token=auth.token
+    logoutLoading.value=true
+    try {await auth.logout();if(!auth.token || auth.token===token)await router.push('/login')}
+    finally {logoutLoading.value=false}
   }
-}
-
-async function fetchUnreadCount() {
-  try {
-    const result = await getUnreadNotificationCount()
-    unreadCount.value = result.data?.count ?? 0
-  } catch {
-    unreadCount.value = 0
-  }
-}
-
-async function fetchNotifications() {
-  notificationLoading.value = true
-  try {
-    const result = await listNotifications({ page: 1, pageSize: 8 })
-    notifications.value = result.data?.records ?? []
-    await fetchUnreadCount()
-  } finally {
-    notificationLoading.value = false
-  }
-}
-
-async function readNotification(item: NotificationItem) {
-  if (item.isRead) return
-  await markNotificationAsRead(item.id)
-  item.isRead = true
-  unreadCount.value = Math.max(0, unreadCount.value - 1)
-}
-
-async function readAllVisible() {
-  const unread = notifications.value.filter((item) => !item.isRead)
-  if (!unread.length) return
-  await markNotificationsBatchAsRead(unread.map((item) => item.id))
-  unread.forEach((item) => { item.isRead = true })
-  unreadCount.value = 0
 }
 
 function notificationTime(value: string) {
@@ -111,13 +70,10 @@ onMounted(() => {
   narrowScreen = window.matchMedia('(max-width: 640px)')
   if (narrowScreen.matches) collapsed.value = true
   narrowScreen.addEventListener('change', adaptSidebar)
-  fetchUnreadCount()
-  notificationTimer = window.setInterval(fetchUnreadCount, 60_000)
 })
 
 onBeforeUnmount(() => {
   narrowScreen?.removeEventListener('change', adaptSidebar)
-  if (notificationTimer) window.clearInterval(notificationTimer)
 })
 </script>
 
@@ -179,10 +135,10 @@ onBeforeUnmount(() => {
         </nav>
 
         <div class="admin-shell__topbar-actions">
-          <el-popover placement="bottom-end" width="360" trigger="click" @show="fetchNotifications">
+          <el-popover v-model:visible="notificationVisible" popper-class="admin-notifications-popper" placement="bottom-end" width="360" trigger="click" @show="fetchNotifications">
             <template #reference>
-              <button class="admin-shell__icon-button" type="button" aria-label="通知">
-                <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99">
+              <button class="admin-shell__icon-button" type="button" aria-label="通知" :title="notificationCountError ? '未读数量尚未确认' : undefined">
+                <el-badge :value="unreadCount" :hidden="unreadCount === 0 || unreadCount === undefined" :max="99">
                   <Bell :size="18" />
                 </el-badge>
               </button>
@@ -190,10 +146,14 @@ onBeforeUnmount(() => {
             <div v-loading="notificationLoading" class="admin-shell__notification-panel">
               <div class="admin-shell__notification-header">
                 <strong>通知中心</strong>
-                <button type="button" :disabled="!hasUnread" @click="readAllVisible">全部已读</button>
+                <button type="button" :disabled="!hasUnread || notificationWriting || notificationLoading" @click="readAllVisible">当前列表已读</button>
               </div>
-              <el-empty v-if="!notifications.length" description="暂无通知" :image-size="56" />
-              <button v-for="item in notifications" :key="item.id" type="button" class="admin-shell__notification" :class="{ unread: !item.isRead }" @click="readNotification(item)">
+              <p v-if="notificationCountError" class="notification-count-error" role="status">未读数量尚未确认。{{notificationCountError}}</p>
+              <p v-if="notificationError" class="notification-error" role="alert">{{notificationError}}</p>
+              <button v-if="notificationError || notificationCountError" type="button" :disabled="notificationLoading || notificationWriting" @click="fetchNotifications">重读通知</button>
+              <p v-if="notificationLoading" role="status">正在读取通知…</p>
+              <el-empty v-else-if="!notificationError && !notifications.length" description="暂无通知" :image-size="56" />
+              <button v-for="item in notifications" :key="item.id" type="button" class="admin-shell__notification" :disabled="notificationWriting || notificationLoading || item.isRead" :class="{ unread: !item.isRead }" @click="readNotification(item)">
                 <span>{{ item.title }}</span>
                 <small>{{ notificationTime(item.createdAt) }}</small>
                 <p>{{ item.content }}</p>
@@ -648,3 +608,5 @@ onBeforeUnmount(() => {
 }
 .admin-account-actions-popper .el-dropdown-menu__item--divided { margin: 6px 0 0; border-top-color: var(--do-line); }
 </style>
+
+<style>.admin-notifications-popper.el-popper {max-width:calc(100vw - 24px);}.notification-error {color:var(--do-danger);font-size:12px;line-height:1.6}.notification-count-error {color:var(--do-muted);font-size:12px;line-height:1.6}</style>
