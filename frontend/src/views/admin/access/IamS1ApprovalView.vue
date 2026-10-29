@@ -1,15 +1,13 @@
 <script setup lang="ts">
-/**
- * IAM-SIMPLE-1 访问申请与审批工作区
- *
- * 我的申请与管理员审批保持独立入口：业务用户不进入后台权限工作区，
- * 管理员只看到本人负责数据源的队列；通过后生成独立的新体系授权事实。
- */
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { computed, reactive, ref, watch } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import ErrorState from '../../../components/common/ErrorState.vue'
+import LoadingState from '../../../components/common/LoadingState.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
-import { useIamS1Store } from '../../../stores/iamS1'
+import GovernanceWriteNotice from '../../../components/admin/GovernanceWriteNotice.vue'
+import { useIamWorkspaceSession } from '../../../composables/useIamWorkspaceSession'
+import { trackGovernanceWrite, pendingGovernanceWrites } from '../../../composables/governanceWriteTracker'
 import {
   listIamS1AccessRequestQueue,
   listIamS1MyAccessRequests,
@@ -23,475 +21,922 @@ import {
   type IamS1AccessRequestView,
   type IamS1ColumnOption,
   type IamS1DatasourceRef,
+  type IamS1SnapshotOption,
   type IamS1TableOption,
 } from '../../../api/iamS1'
-
-const iamS1 = useIamS1Store()
-const activeTab = ref<'mine' | 'pending' | 'handled'>('mine')
-const loading = ref(false)
-const datasources = ref<IamS1DatasourceRef[]>([])
-const snapshots = ref<Array<{ id: number; snapshotVersion?: number }>>([])
-const tables = ref<IamS1TableOption[]>([])
-const columns = ref<IamS1ColumnOption[]>([])
-const mine = ref<IamS1AccessRequestView[]>([])
-// 两个 Tab 各自分页：待审批不再被同源的已处理记录挤出（后端按状态下推到数据库分页）。
-const pendingRequests = ref<IamS1AccessRequestView[]>([])
-const handledRequests = ref<IamS1AccessRequestView[]>([])
-const pendingTotal = ref(0)
-const handledTotal = ref(0)
-const pendingPage = ref(1)
-const handledPage = ref(1)
-const QUEUE_PAGE_SIZE = 20
-const submitting = ref(false)
-const reviewing = ref<number>()
-
+const session = useIamWorkspaceSession(),
+  iam = session.iam
+const selfId = computed(() => session.auth.currentUser?.id ?? session.auth.user?.userId),
+  actorKey = computed(() => JSON.stringify([session.key.value, selfId.value]))
+const activeTab = ref<'mine' | 'pending' | 'handled'>('mine'),
+  editorOpen = ref(false),
+  loadingResources = ref(false),
+  resourceError = ref(''),
+  mineError = ref(''),
+  loadingMine = ref(false),
+  writeError = ref(''),
+  submitting = ref(false),
+  reviewing = ref(false)
+const datasources = ref<IamS1DatasourceRef[]>([]),
+  snapshots = ref<IamS1SnapshotOption[]>([]),
+  tables = ref<IamS1TableOption[]>([]),
+  columns = ref<IamS1ColumnOption[]>([]),
+  mine = ref<IamS1AccessRequestView[]>([])
+const queue = reactive({
+  pending: { rows: [] as IamS1AccessRequestView[], page: 1, total: 0, loading: false, error: '' },
+  handled: { rows: [] as IamS1AccessRequestView[], page: 1, total: 0, loading: false, error: '' },
+})
 const form = reactive({
   datasourceId: undefined as number | undefined,
   snapshotId: undefined as number | undefined,
   tableName: undefined as string | undefined,
   columns: [] as string[],
   purpose: '',
-  validUntil: '' as string,
+  validUntil: '',
 })
-
-const canSubmit = computed(() => iamS1.queryUse)
-/** 读取审批队列需要“查看访问申请”，与后端 GET /access-requests/queue 的校验一致。 */
-const canViewQueue = computed(() => iamS1.hasGlobal('security:approval:view'))
-/**
- * Tab 级粗判用“审批”功能码本身，不用 security:approval:view：
- * 只有 view 的角色会看到可点的同意/拒绝按钮，点了必然 403。
- */
-const canReview = computed(() => iamS1.hasGlobal('security:approval:review'))
-
-/**
- * 逐条判定审批权：后端 `requireDatasourceFunction` 要求
- * “审批功能与负责源在同一个角色绑定上同时成立”，所以必须按申请的数据源判定，
- * 不能用全局功能码一刀切。
- */
-function canReviewOn(row: IamS1AccessRequestView): boolean {
-  return iamS1.canOnDatasource('security:approval:review', row.datasourceId)
+const reviewTarget = ref<IamS1AccessRequestView>(),
+  reviewDraft = reactive({
+    decision: 'APPROVE' as 'APPROVE' | 'REJECT',
+    columns: [] as string[],
+    validUntil: '',
+    reason: '',
+  })
+const canSubmit = computed(() => session.ready.value && iam.queryUse),
+  canViewQueue = computed(() => session.canGlobal('security:approval:view'))
+const identity = () => session.auth.token || '',
+  owned = (k: string) => session.alive() && session.ready.value && actorKey.value === k
+const resourceKey = computed(() =>
+  JSON.stringify([actorKey.value, form.datasourceId, form.snapshotId, form.tableName]),
+)
+const resourceOwned = (k: string) => session.alive() && session.ready.value && resourceKey.value === k
+const requestLock = (id: number) => `iam-request:${id}`
+const submitLock = computed(() => `iam-request-new:${selfId.value}:${form.datasourceId}`)
+const locked = (key: string) =>
+  pendingGovernanceWrites.value.some((x) => x.identity === identity() && x.keys.includes(key))
+const currentRows = computed(() => (activeTab.value === 'mine' ? mine.value : queue[activeTab.value].rows))
+const currentError = computed(() =>
+  activeTab.value === 'mine' ? mineError.value : queue[activeTab.value].error,
+)
+const currentLoading = computed(() =>
+  activeTab.value === 'mine' ? loadingMine.value : queue[activeTab.value].loading,
+)
+let sourceRequest = 0,
+  resourceBusyOwner = 0,
+  snapshotRequest = 0,
+  tableRequest = 0,
+  columnRequest = 0,
+  mineRequest = 0,
+  pendingRequest = 0,
+  handledRequest = 0,
+  submitOperation = 0,
+  withdrawOperation = 0,
+  reviewEpoch = 0
+function canReviewOn(row: IamS1AccessRequestView) {
+  return (
+    canViewQueue.value &&
+    !!selfId.value &&
+    row.requesterId !== selfId.value &&
+    row.status === 'PENDING' &&
+    session.can('security:approval:review', row.datasourceId)
+  )
 }
-
-async function loadDatasources() {
-  // 申请入口使用用户侧资源接口（scope=APPLY）：只要求“使用问数”，
-  // 不要求后台负责源，否则没有负责源的普通问数用户看不到任何可申请数据源。
-  const result = await listIamS1QueryResourceDatasources('APPLY')
-  datasources.value = result.data ?? []
-  form.datasourceId = datasources.value[0]?.id
+function scopeText(row: IamS1AccessRequestView) {
+  return `申请 #${row.id} / 申请人 #${row.requesterId} / 源 #${row.datasourceId} / 快照 #${row.metadataSnapshotId} / ${row.tableName} / 字段 ${row.requestedColumns.join('、')}`
 }
-
-async function loadSnapshots() {
-  form.snapshotId = undefined
-  form.tableName = undefined
-  form.columns = []
-  tables.value = []
-  columns.value = []
-  if (!form.datasourceId) return
-  const result = await listIamS1QueryResourceSnapshots(form.datasourceId, 'APPLY')
-  snapshots.value = result.data ?? []
-  form.snapshotId = snapshots.value[0]?.id
-  await loadTables()
+function closeReview() {
+  reviewEpoch++
+  reviewTarget.value = undefined
+  session.cancelOwn()
+  reviewing.value = false
 }
-
-async function loadTables() {
-  form.tableName = undefined
-  form.columns = []
-  columns.value = []
-  if (!form.datasourceId || !form.snapshotId) return
-  const result = await listIamS1QueryResourceTables(form.datasourceId, form.snapshotId, 'APPLY')
-  tables.value = result.data ?? []
+watch(
+  () => form.datasourceId,
+  () => {
+    snapshotRequest++
+    tableRequest++
+    columnRequest++
+    form.snapshotId = undefined
+    form.tableName = undefined
+    form.columns = []
+    snapshots.value = []
+    tables.value = []
+    columns.value = []
+    resourceBusyOwner++
+    loadingResources.value = false
+    resourceError.value = ''
+    submitOperation++
+    submitting.value = false
+    session.cancelOwn()
+  },
+  { flush: 'sync' },
+)
+watch(
+  () => form.snapshotId,
+  () => {
+    submitOperation++
+    submitting.value = false
+    tableRequest++
+    columnRequest++
+    form.tableName = undefined
+    form.columns = []
+    tables.value = []
+    columns.value = []
+    resourceBusyOwner++
+    loadingResources.value = false
+  },
+  { flush: 'sync' },
+)
+watch(
+  () => form.tableName,
+  () => {
+    submitOperation++
+    submitting.value = false
+    columnRequest++
+    form.columns = []
+    columns.value = []
+    resourceBusyOwner++
+    loadingResources.value = false
+  },
+  { flush: 'sync' },
+)
+async function initialize() {
+  sourceRequest++
+  snapshotRequest++
+  tableRequest++
+  columnRequest++
+  mineRequest++
+  pendingRequest++
+  handledRequest++
+  submitOperation++
+  withdrawOperation++
+  closeReview()
+  datasources.value = []
+  form.datasourceId = undefined
+  form.purpose = ''
+  form.validUntil = ''
+  editorOpen.value = false
+  mine.value = []
+  mineError.value = ''
+  resourceError.value = ''
+  writeError.value = ''
+  loadingMine.value = false
+  submitting.value = false
+  for (const q of Object.values(queue)) {
+    q.rows = []
+    q.page = 1
+    q.total = 0
+    q.loading = false
+    q.error = ''
+  }
+  if (!session.ready.value) return
+  activeTab.value = canSubmit.value ? 'mine' : 'pending'
+  await loadCurrent()
 }
-
-async function loadColumns() {
-  form.columns = []
-  columns.value = []
-  if (!form.datasourceId || !form.snapshotId || !form.tableName) return
-  const result = await listIamS1QueryResourceColumns(form.datasourceId, form.snapshotId, form.tableName, 'APPLY')
-  columns.value = result.data ?? []
+async function loadCurrent() {
+  if (activeTab.value === 'mine') await loadMine()
+  else await loadQueue(activeTab.value)
 }
-
 async function loadMine() {
+  const r = ++mineRequest,
+    k = actorKey.value
+  mine.value = []
+  mineError.value = ''
   if (!canSubmit.value) return
+  loadingMine.value = true
   try {
     const result = await listIamS1MyAccessRequests()
-    mine.value = result.data ?? []
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '读取我的申请失败')
-  }
-}
-
-async function loadQueue() {
-  if (!canViewQueue.value) return
-  loading.value = true
-  try {
-    // 两个 Tab 各查各的页：待审批只查 PENDING，不会再被同源的已处理记录挤出。
-    const [pending, handled] = await Promise.all([
-      listIamS1AccessRequestQueue('PENDING', pendingPage.value, QUEUE_PAGE_SIZE),
-      listIamS1AccessRequestQueue('HANDLED', handledPage.value, QUEUE_PAGE_SIZE),
-    ])
-    pendingRequests.value = pending.data?.records ?? []
-    handledRequests.value = handled.data?.records ?? []
-    pendingTotal.value = pending.data?.total ?? 0
-    handledTotal.value = handled.data?.total ?? 0
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '读取审批队列失败')
+    if (!owned(k) || r !== mineRequest) return
+    const rows = result.data || []
+    if (rows.some((x) => x.requesterId !== selfId.value)) throw new Error('本人申请回执混入其他账号，未展示')
+    mine.value = rows
+  } catch (e) {
+    if (owned(k) && r === mineRequest) mineError.value = e instanceof Error ? e.message : '读取本人申请失败'
   } finally {
-    loading.value = false
+    if (owned(k) && r === mineRequest) loadingMine.value = false
   }
 }
-
-function changePendingPage(page: number) {
-  pendingPage.value = page
-  void loadQueue()
+async function loadQueue(kind: 'pending' | 'handled') {
+  const q = queue[kind],
+    page = q.page,
+    k = actorKey.value,
+    r = kind === 'pending' ? ++pendingRequest : ++handledRequest
+  q.rows = []
+  q.error = ''
+  if (!canViewQueue.value) return
+  q.loading = true
+  try {
+    const result = await listIamS1AccessRequestQueue(kind === 'pending' ? 'PENDING' : 'HANDLED', page, 20)
+    if (!owned(k) || page !== q.page || r !== (kind === 'pending' ? pendingRequest : handledRequest)) return
+    const data = result.data
+    if (!data || !Array.isArray(data.records) || !Number.isSafeInteger(data.total) || data.total < 0)
+      throw new Error('审批分页回执不完整')
+    q.rows = data.records
+    q.total = data.total
+  } catch (e) {
+    if (owned(k) && page === q.page && r === (kind === 'pending' ? pendingRequest : handledRequest))
+      q.error = e instanceof Error ? e.message : '读取审批队列失败'
+  } finally {
+    if (owned(k) && page === q.page && r === (kind === 'pending' ? pendingRequest : handledRequest))
+      q.loading = false
+  }
 }
-
-function changeHandledPage(page: number) {
-  handledPage.value = page
-  void loadQueue()
+function selectTab() {
+  closeReview()
+  void loadCurrent()
 }
-
+function changePage(page: number) {
+  if (activeTab.value === 'mine') return
+  closeReview()
+  queue[activeTab.value].page = page
+  void loadQueue(activeTab.value)
+}
+async function openEditor() {
+  if (!canSubmit.value || editorOpen.value) return
+  editorOpen.value = true
+  if (!datasources.value.length) await loadDatasources()
+}
+async function loadDatasources() {
+  const r = ++sourceRequest,
+    k = actorKey.value
+  resourceError.value = ''
+  if (!canSubmit.value) return
+  const busyOwner = ++resourceBusyOwner
+  loadingResources.value = true
+  try {
+    const result = await listIamS1QueryResourceDatasources('APPLY')
+    if (!owned(k) || r !== sourceRequest) return
+    datasources.value = result.data || []
+    form.datasourceId = datasources.value[0]?.id
+    await loadSnapshots()
+  } catch (e) {
+    if (owned(k) && r === sourceRequest)
+      resourceError.value = e instanceof Error ? e.message : '读取申请资源失败'
+  } finally {
+    if (owned(k) && r === sourceRequest && busyOwner === resourceBusyOwner) loadingResources.value = false
+  }
+}
+async function loadSnapshots() {
+  const ds = form.datasourceId,
+    k = resourceKey.value,
+    r = ++snapshotRequest
+  resourceError.value = ''
+  if (!canSubmit.value || !ds || !datasources.value.some((x) => x.id === ds)) return
+  const busyOwner = ++resourceBusyOwner
+  loadingResources.value = true
+  try {
+    const result = await listIamS1QueryResourceSnapshots(ds, 'APPLY')
+    if (!resourceOwned(k) || r !== snapshotRequest) return
+    snapshots.value = (result.data || []).filter((x) => x.datasourceId === ds && x.status === 'PUBLISHED')
+    form.snapshotId = snapshots.value[0]?.id
+    await loadTables()
+  } catch (e) {
+    if (resourceOwned(k) && r === snapshotRequest)
+      resourceError.value = e instanceof Error ? e.message : '读取申请快照失败'
+  } finally {
+    if (
+      session.alive() &&
+      actorKey.value === JSON.parse(k)[0] &&
+      ds === form.datasourceId &&
+      r === snapshotRequest &&
+      busyOwner === resourceBusyOwner
+    ) {
+      loadingResources.value = false
+    }
+  }
+}
+async function loadTables() {
+  const ds = form.datasourceId,
+    snap = form.snapshotId,
+    k = resourceKey.value,
+    r = ++tableRequest
+  if (!canSubmit.value || !ds || !snap) return
+  resourceError.value = ''
+  const busyOwner = ++resourceBusyOwner
+  loadingResources.value = true
+  try {
+    const result = await listIamS1QueryResourceTables(ds, snap, 'APPLY')
+    if (!resourceOwned(k) || r !== tableRequest) return
+    tables.value = (result.data || []).filter((x) => x.datasourceId === ds && x.metadataSnapshotId === snap)
+  } catch (e) {
+    if (resourceOwned(k) && r === tableRequest)
+      resourceError.value = e instanceof Error ? e.message : '读取申请表失败'
+  } finally {
+    if (resourceOwned(k) && r === tableRequest && busyOwner === resourceBusyOwner)
+      loadingResources.value = false
+  }
+}
+async function loadColumns() {
+  const ds = form.datasourceId,
+    snap = form.snapshotId,
+    table = form.tableName,
+    k = resourceKey.value,
+    r = ++columnRequest
+  if (
+    !canSubmit.value ||
+    !ds ||
+    !snap ||
+    !table ||
+    !tables.value.some((x) => x.tableName === table && x.selectable)
+  )
+    return
+  resourceError.value = ''
+  const busyOwner = ++resourceBusyOwner
+  loadingResources.value = true
+  try {
+    const result = await listIamS1QueryResourceColumns(ds, snap, table, 'APPLY')
+    if (!resourceOwned(k) || r !== columnRequest) return
+    columns.value = result.data || []
+  } catch (e) {
+    if (resourceOwned(k) && r === columnRequest)
+      resourceError.value = e instanceof Error ? e.message : '读取申请字段失败'
+  } finally {
+    if (resourceOwned(k) && r === columnRequest && busyOwner === resourceBusyOwner)
+      loadingResources.value = false
+  }
+}
 async function submitRequest() {
-  if (!form.datasourceId || !form.snapshotId || !form.tableName || !form.columns.length || !form.purpose.trim()) {
-    ElMessage.warning('请选择数据源、表、字段并填写申请用途')
+  if (
+    submitting.value ||
+    !canSubmit.value ||
+    loadingResources.value ||
+    resourceError.value ||
+    locked(submitLock.value)
+  )
+    return
+  const ds = form.datasourceId,
+    snap = form.snapshotId,
+    table = form.tableName
+  writeError.value = ''
+  if (
+    !selfId.value ||
+    !ds ||
+    !snap ||
+    !table ||
+    !form.columns.length ||
+    !form.purpose.trim() ||
+    !snapshots.value.some((x) => x.id === snap) ||
+    !tables.value.some((x) => x.tableName === table && x.selectable) ||
+    form.columns.some((c) => !columns.value.some((x) => x.columnName === c && x.selectable))
+  ) {
+    writeError.value = '请明确发布范围、可申请字段和用途；字段未选不表示全部。'
     return
   }
-  submitting.value = true
-  try {
-    await submitIamS1AccessRequest({
-      datasourceId: form.datasourceId,
-      metadataSnapshotId: form.snapshotId,
-      tableName: form.tableName,
-      columns: form.columns,
+  if (
+    form.validUntil &&
+    (!Number.isFinite(new Date(form.validUntil).getTime()) ||
+      new Date(form.validUntil).getTime() <= Date.now())
+  ) {
+    writeError.value = '希望到期时间必须是未来的有效本地时间。'
+    return
+  }
+  const payload = {
+      datasourceId: ds,
+      metadataSnapshotId: snap,
+      tableName: table,
+      columns: [...form.columns],
       rowScope: 'ALL',
-      // 后端字段是 LocalDateTime：发送不带时区后缀的本地时间，避免 toISOString 的 Z 后缀被拒。
       requestedValidUntil: form.validUntil ? form.validUntil.replace(' ', 'T') : null,
       purpose: form.purpose.trim(),
-    })
-    ElMessage.success('申请已提交，等待审批')
-    form.purpose = ''
-    form.columns = []
+    },
+    k = resourceKey.value,
+    signature = JSON.stringify(form),
+    o = ++submitOperation,
+    lock = submitLock.value,
+    actor = identity()
+  submitting.value = true
+  try {
+    await trackGovernanceWrite(
+      actor,
+      [lock],
+      `本人 #${selfId.value} / 源 #${ds} / 快照 #${snap} / ${table} 新访问申请`,
+      async () => {
+        const result = await submitIamS1AccessRequest(payload)
+        if (!Number.isSafeInteger(result.data) || Number(result.data) <= 0)
+          throw new Error('提交回执缺少申请ID，结果未知，先核对本人申请')
+      },
+    )
+    if (!resourceOwned(k) || o !== submitOperation) return
+    if (JSON.stringify(form) === signature) {
+      form.purpose = ''
+      form.columns = []
+      editorOpen.value = false
+    }
+    writeError.value = '已提交，待审批不授予查询权。'
     await loadMine()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '提交申请失败')
+  } catch (e) {
+    if (resourceOwned(k) && o === submitOperation)
+      writeError.value = e instanceof Error ? e.message : '提交失败，输入保留；结果未知先核对'
   } finally {
-    submitting.value = false
+    if (resourceOwned(k) && o === submitOperation) submitting.value = false
   }
 }
-
-async function withdraw(item: IamS1AccessRequestView) {
+async function withdraw(row: IamS1AccessRequestView) {
+  if (
+    !canSubmit.value ||
+    row.requesterId !== selfId.value ||
+    row.status !== 'PENDING' ||
+    !mine.value.includes(row) ||
+    reviewing.value ||
+    locked(requestLock(row.id))
+  )
+    return
+  const k = actorKey.value,
+    o = ++withdrawOperation,
+    actor = identity(),
+    frozen = { ...row, requestedColumns: [...row.requestedColumns] }
+  reviewing.value = true
+  writeError.value = ''
   try {
-    await ElMessageBox.confirm('撤回后需要重新申请，确认撤回吗？', '撤回申请', { type: 'warning' })
-  } catch {
+    await ElMessageBox.confirm(`${scopeText(frozen)}。撤回后如需访问须重新申请。`, '撤回本人申请', {
+      type: 'warning',
+      confirmButtonText: '确认撤回',
+      cancelButtonText: '取消',
+      cancelButtonClass: session.cancelClass,
+      closeOnClickModal: false,
+    })
+    if (
+      !owned(k) ||
+      o !== withdrawOperation ||
+      !canSubmit.value ||
+      !mine.value.includes(row) ||
+      row.status !== 'PENDING' ||
+      row.requesterId !== selfId.value
+    )
+      return
+    await trackGovernanceWrite(actor, [requestLock(frozen.id)], scopeText(frozen) + ' 撤回', () =>
+      withdrawIamS1AccessRequest(frozen.id, '申请人撤回'),
+    )
+    if (owned(k) && o === withdrawOperation) await loadMine()
+  } catch (e) {
+    if (owned(k) && o === withdrawOperation && e !== 'cancel' && e !== 'close')
+      writeError.value = e instanceof Error ? e.message : '撤回失败，先核对原申请'
+  } finally {
+    if (owned(k) && o === withdrawOperation) reviewing.value = false
+  }
+}
+function formatLocal(date: Date) {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())} ${p(date.getHours())}:${p(date.getMinutes())}:00`
+}
+function review(row: IamS1AccessRequestView, decision: 'APPROVE' | 'REJECT') {
+  if (
+    reviewing.value ||
+    !canReviewOn(row) ||
+    !queue.pending.rows.includes(row) ||
+    locked(requestLock(row.id))
+  )
+    return
+  closeReview()
+  reviewTarget.value = { ...row, requestedColumns: [...row.requestedColumns] }
+  reviewDraft.decision = decision
+  reviewDraft.columns = [...row.requestedColumns]
+  reviewDraft.reason = ''
+  const end = Math.min(
+    Date.now() + 7 * 86400000,
+    row.requestedValidUntil ? new Date(row.requestedValidUntil).getTime() : Infinity,
+  )
+  reviewDraft.validUntil = formatLocal(new Date(end))
+}
+async function confirmReview() {
+  const row = reviewTarget.value
+  if (
+    !row ||
+    reviewing.value ||
+    !canReviewOn(row) ||
+    !queue.pending.rows.some((x) => JSON.stringify(x) === JSON.stringify(row)) ||
+    locked(requestLock(row.id))
+  )
+    return
+  writeError.value = ''
+  if (!reviewDraft.reason.trim()) {
+    writeError.value = '请填写本次审批依据。'
     return
   }
-  try {
-    await withdrawIamS1AccessRequest(item.id, '申请人撤回')
-    ElMessage.success('申请已撤回')
-    await loadMine()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '撤回申请失败')
+  const until = new Date(reviewDraft.validUntil).getTime(),
+    max = Math.min(
+      Date.now() + 30 * 86400000,
+      row.requestedValidUntil ? new Date(row.requestedValidUntil).getTime() : Infinity,
+    )
+  if (
+    reviewDraft.decision === 'APPROVE' &&
+    (!reviewDraft.columns.length ||
+      reviewDraft.columns.some((c) => !row.requestedColumns.includes(c)) ||
+      !Number.isFinite(until) ||
+      until <= Date.now() ||
+      until > max)
+  ) {
+    writeError.value = '批准字段须为申请的非空子集；到期须晚于现在，且不超过申请期限或30天。'
+    return
   }
-}
-
-const MAX_APPROVAL_DAYS = 30
-
-/**
- * 审批弹窗输入框的显示格式，**必须与下方 inputPattern 完全一致**（空格分隔、不含秒）。
- * 它只用于预填；提交时再转成后端 LocalDateTime 需要的 `YYYY-MM-DDTHH:mm:00`。
- * 两处格式不一致会让“不改日期直接点同意”被自己的校验规则拒绝。
- */
-function formatLocal(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-/** 默认批准到期时间：申请时长与 7 天中的较小值；审批不允许生成永久权限。 */
-function defaultApprovedValidUntil(item: IamS1AccessRequestView): string {
-  const fallback = new Date()
-  fallback.setDate(fallback.getDate() + 7)
-  if (!item.requestedValidUntil) return formatLocal(fallback)
-  const requested = new Date(item.requestedValidUntil)
-  if (Number.isNaN(requested.getTime())) return formatLocal(fallback)
-  return formatLocal(requested.getTime() < fallback.getTime() ? requested : fallback)
-}
-
-async function review(item: IamS1AccessRequestView, decision: 'APPROVE' | 'REJECT') {
-  const approvedColumns = decision === 'APPROVE' ? item.requestedColumns : []
-  let approvedValidUntil: string | null = null
-  if (decision === 'APPROVE') {
-    let input: string
-    try {
-      const result = await ElMessageBox.prompt(
-        `审批只会生成有期限的临时授权（最长 ${MAX_APPROVAL_DAYS} 天），请确认批准到期时间：`,
-        '同意数据访问申请',
-        {
-          inputValue: defaultApprovedValidUntil(item),
-          inputPattern: /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/,
-          inputErrorMessage: '格式：YYYY-MM-DD HH:mm',
-          confirmButtonText: '同意并生成临时授权',
-          cancelButtonText: '取消',
-        },
-      )
-      input = String(result.value).trim()
-    } catch {
+  const payload = {
+      decision: reviewDraft.decision,
+      approvedColumns: reviewDraft.decision === 'APPROVE' ? [...reviewDraft.columns] : [],
+      approvedValidUntil:
+        reviewDraft.decision === 'APPROVE' ? reviewDraft.validUntil.replace(' ', 'T') : null,
+      reason: reviewDraft.reason.trim(),
+    },
+    k = actorKey.value,
+    e = reviewEpoch,
+    actor = identity()
+  reviewing.value = true
+  try {
+    await ElMessageBox.confirm(
+      `${scopeText(row)}。${payload.decision === 'APPROVE' ? `批准字段 ${payload.approvedColumns.join('、')}，至 ${reviewDraft.validUntil}；通过后生成临时授权，服务端仍重验DENY、隐藏和来源状态。` : '拒绝本申请，不创建授权。'}依据：${payload.reason}`,
+      '确认审批精确范围',
+      {
+        type: 'warning',
+        confirmButtonText: payload.decision === 'APPROVE' ? '确认批准并生成临时授权' : '确认拒绝申请',
+        cancelButtonText: '取消',
+        cancelButtonClass: session.cancelClass,
+        closeOnClickModal: false,
+      },
+    )
+    if (
+      !owned(k) ||
+      e !== reviewEpoch ||
+      reviewTarget.value !== row ||
+      !canReviewOn(row) ||
+      !queue.pending.rows.some((x) => JSON.stringify(x) === JSON.stringify(row))
+    )
       return
-    }
-    // 后端字段是 LocalDateTime：必须发送不带时区后缀的本地时间。
-    approvedValidUntil = `${input.replace(' ', 'T')}:00`
-  }
-  reviewing.value = item.id
-  try {
-    await reviewIamS1AccessRequest(item.id, {
-      decision,
-      approvedColumns,
-      approvedValidUntil,
-      reason: decision === 'APPROVE' ? '按申请范围同意' : '不符合当前治理要求',
+    await trackGovernanceWrite(actor, [requestLock(row.id)], scopeText(row) + ' 审批', async () => {
+      const result = await reviewIamS1AccessRequest(row.id, payload),
+        data = result.data
+      if (
+        !data ||
+        data.requestId !== row.id ||
+        (payload.decision === 'APPROVE'
+          ? !Number.isSafeInteger(data.generatedGrantId) || Number(data.generatedGrantId) <= 0
+          : data.generatedGrantId !== '')
+      )
+        throw new Error('审批回执缺少精确申请或授权ID，结果未知，原依据保留；先核对真实申请记录')
+      return result
     })
-    ElMessage.success(decision === 'APPROVE' ? '已同意并生成有期限的临时授权' : '已拒绝')
-    await loadQueue()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '审批失败')
+    if (!owned(k) || e !== reviewEpoch) return
+    closeReview()
+    await loadQueue('pending')
+  } catch (cause) {
+    if (owned(k) && e === reviewEpoch && cause !== 'cancel' && cause !== 'close')
+      writeError.value = cause instanceof Error ? cause.message : '审批失败；依据保留，结果未知先核对原申请'
   } finally {
-    reviewing.value = undefined
+    if (owned(k) && e === reviewEpoch) reviewing.value = false
   }
 }
-
-onMounted(async () => {
-  await iamS1.load()
-  try {
-    await Promise.all([loadDatasources(), loadMine(), loadQueue()])
-    await loadSnapshots()
-  } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '初始化审批工作区失败')
-  }
-})
+watch(actorKey, initialize, { immediate: true, flush: 'sync' })
 </script>
-
 <template>
   <div class="iam-s1-approvals">
     <TaskPageHeader
       title="访问申请与审批"
-      description="普通用户只看本人申请；管理员只处理负责数据源的队列。通过后生成有期限的个人授权，待审批申请不授予查询权。"
+      eyebrow="权限与组织 / 临时业务访问"
+      description-mode="inline"
+      description="明确为什么需要哪些字段，再由负责该源的审批人核对。待审批不授予查询权，通过后生成有期限的个人授权。"
     />
-
-    <el-tabs v-model="activeTab">
-      <el-tab-pane label="我的申请" name="mine">
-        <div v-if="!canSubmit" class="panel">
-          <EmptyState message="没有“使用问数”权限，无法发起申请。请先让管理员分配包含“使用问数”的角色。" />
+    <GovernanceWriteNotice />
+    <ErrorState v-if="iam.errorMessage" :message="iam.errorMessage" @retry="iam.load(true)" />
+    <LoadingState v-else-if="!iam.loaded" text="正在核对身份与权限摘要…" />
+    <template v-else>
+      <div class="approval-contract">
+        <strong>申请范围 → 同源人工审批 → 临时授权 → 到期失效</strong>
+        <p>
+          只能申请全部记录的指定字段；不填写SQL或记录条件。审批不绕过DENY、隐藏、废弃或阻断对象，不允许自审。
+        </p>
+      </div>
+      <el-tabs v-model="activeTab" @tab-change="selectTab">
+        <el-tab-pane label="我的申请" name="mine" />
+        <el-tab-pane label="待审批" name="pending" />
+        <el-tab-pane label="已处理" name="handled" />
+      </el-tabs>
+      <p v-if="writeError" class="notice" role="status">{{ writeError }}</p>
+      <EmptyState
+        v-if="activeTab === 'mine' && !canSubmit"
+        message="缺少使用问数能力，不能发起或读取本人申请；审批队列使用独立查看能力。"
+      />
+      <EmptyState
+        v-else-if="activeTab !== 'mine' && !canViewQueue"
+        message="没有security:approval:view，不能读取审批队列。"
+      />
+      <template v-else>
+        <div class="toolbar">
+          <div>
+            <h3>
+              {{
+                activeTab === 'mine'
+                  ? '本人已提交的申请'
+                  : activeTab === 'pending'
+                    ? '逐条核对待审批申请'
+                    : '已处理申请及实际结论'
+              }}
+            </h3>
+            <p>
+              {{
+                activeTab === 'mine'
+                  ? '列表来自本人申请接口。'
+                  : '队列按待审批/已处理分别服务端分页；查看与审批独立判定。'
+              }}
+            </p>
+          </div>
+          <div>
+            <el-button @click="loadCurrent">重读当前列表</el-button>
+            <el-button v-if="activeTab === 'mine'" type="primary" @click="openEditor">发起访问申请</el-button>
+          </div>
         </div>
-        <template v-else>
-          <section class="panel">
-            <h3 class="panel-title">发起申请</h3>
-            <div class="inline">
-              <el-select v-model="form.datasourceId" placeholder="数据源" class="w200" @change="loadSnapshots">
-                <el-option v-for="item in datasources" :key="item.id" :label="item.name" :value="item.id" />
+        <section v-if="activeTab === 'mine' && editorOpen" class="panel request-editor">
+          <div class="toolbar">
+            <h3>说明本次访问需要</h3>
+            <el-button @click="editorOpen = false">关闭配置</el-button>
+          </div>
+          <ErrorState v-if="resourceError" :message="resourceError" @retry="loadDatasources" />
+          <LoadingState v-if="loadingResources" text="正在读取APPLY申请资源…" />
+          <div class="form-grid">
+            <label>
+              可申请数据源
+              <el-select v-model="form.datasourceId" placeholder="选择数据源" @change="loadSnapshots">
+                <el-option v-for="d in datasources" :key="d.id" :value="d.id" :label="d.name" />
               </el-select>
-              <el-select v-model="form.snapshotId" placeholder="已发布快照" class="w200" @change="loadTables">
+            </label>
+            <label>
+              发布快照
+              <el-select v-model="form.snapshotId" placeholder="选择快照" @change="loadTables">
                 <el-option
-                  v-for="item in snapshots"
-                  :key="item.id"
-                  :label="`版本 ${item.snapshotVersion ?? item.id}`"
-                  :value="item.id"
+                  v-for="s in snapshots"
+                  :key="s.id"
+                  :value="s.id"
+                  :label="`版本 ${s.snapshotVersion ?? s.id} · #${s.id}`"
                 />
               </el-select>
-              <el-select v-model="form.tableName" placeholder="表" class="w200" @change="loadColumns">
-                <el-option v-for="item in tables" :key="item.tableName" :label="item.tableName" :value="item.tableName" />
-              </el-select>
-              <el-select v-model="form.columns" multiple filterable placeholder="申请字段" class="w260">
+            </label>
+            <label>
+              申请表
+              <el-select v-model="form.tableName" placeholder="选择表" @change="loadColumns">
                 <el-option
-                  v-for="item in columns"
-                  :key="item.columnMetaId"
-                  :label="item.columnComment || item.columnName"
-                  :value="item.columnName"
-                  :disabled="!item.selectable"
+                  v-for="t in tables"
+                  :key="t.tableName"
+                  :value="t.tableName"
+                  :label="t.tableName"
+                  :disabled="!t.selectable"
                 />
               </el-select>
+            </label>
+            <label>
+              申请字段
+              <el-select v-model="form.columns" multiple placeholder="明确字段，空不表示全部">
+                <el-option
+                  v-for="c in columns"
+                  :key="c.columnMetaId"
+                  :value="c.columnName"
+                  :label="c.columnComment || c.columnName"
+                  :disabled="!c.selectable"
+                />
+              </el-select>
+            </label>
+            <label>
+              希望到期时间
               <el-date-picker
                 v-model="form.validUntil"
                 type="datetime"
                 value-format="YYYY-MM-DD HH:mm:ss"
-                placeholder="希望到期时间（可留空）"
+                placeholder="留空由审批人指定期限"
               />
-              <el-input v-model="form.purpose" placeholder="申请用途，例如：月度销售分析" class="w280" />
-              <el-button type="primary" :loading="submitting" @click="submitRequest">提交申请</el-button>
-            </div>
-            <p class="hint">第一期只支持“全部记录”的字段级申请，不接受记录条件或手写 SQL。</p>
-            <p class="hint">
-              审批只会生成有期限的临时授权（最长 30 天），到期自动失效；审批人不能审批本人的申请。
-            </p>
-            <el-alert
-              v-if="!datasources.length"
-              type="warning"
-              show-icon
-              :closable="false"
-              title="当前没有可申请的数据源"
-              description="可申请数据源只要求“使用问数”和已发布元数据快照。若列表为空，请联系管理员先完成数据源接入与元数据发布。"
-            />
-          </section>
-
-          <section class="panel">
-            <h3 class="panel-title">我的申请（{{ mine.length }}）</h3>
-            <EmptyState v-if="!mine.length" message="还没有提交过申请。选择数据源和字段后提交，管理员审批通过即可获得有期限的查询权。" />
-            <el-table v-else :data="mine" size="small">
-              <el-table-column prop="datasourceName" label="数据源" width="140" />
-              <el-table-column prop="tableName" label="表" width="140" />
-              <el-table-column label="字段" min-width="200">
-                <template #default="{ row }">{{ row.requestedColumns.join('、') }}</template>
-              </el-table-column>
-              <el-table-column prop="purpose" label="用途" min-width="180" />
-              <el-table-column label="状态" width="100">
-                <template #default="{ row }">{{ row.statusName }}</template>
-              </el-table-column>
-              <el-table-column label="审批" min-width="200">
-                <template #default="{ row }">
-                  <span v-if="row.approval">
-                    {{ row.approval.decisionName }}（{{ row.approval.reviewerName || row.approval.reviewerId }}）
-                    <small v-if="row.approval.generatedGrantId" class="muted">
-                      已生成授权 {{ row.approval.generatedGrantId }}
-                    </small>
-                  </span>
-                  <span v-else class="muted">等待审批</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="100">
-                <template #default="{ row }">
-                  <el-button v-if="row.status === 'PENDING'" link type="warning" @click="withdraw(row)">撤回</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
-          </section>
-        </template>
-      </el-tab-pane>
-
-      <el-tab-pane label="待我审批" name="pending">
-        <section class="panel">
-          <EmptyState
-            v-if="!canReview"
-            message="没有“审批访问申请”权限：需要角色拥有该功能，并且该角色负责目标数据源。"
-          />
-          <EmptyState v-else-if="!pendingRequests.length" message="没有待审批的申请。" />
-          <el-table v-else v-loading="loading" :data="pendingRequests" size="small">
-            <el-table-column prop="requesterName" label="申请人" width="120" />
-            <el-table-column prop="datasourceName" label="数据源" width="140" />
-            <el-table-column prop="tableName" label="表" width="140" />
-            <el-table-column label="申请字段" min-width="200">
-              <template #default="{ row }">{{ row.requestedColumns.join('、') }}</template>
-            </el-table-column>
-            <el-table-column prop="purpose" label="用途" min-width="180" />
-            <el-table-column prop="rowScopeName" label="记录范围" width="110" />
-            <el-table-column label="希望到期" width="170">
-              <template #default="{ row }">{{ row.requestedValidUntil || '不限' }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="170">
-              <template #default="{ row }">
-                <el-button
-                  link
-                  type="primary"
-                  :disabled="!canReviewOn(row)"
-                  :loading="reviewing === row.id"
-                  @click="review(row, 'APPROVE')"
-                >同意</el-button>
-                <el-button
-                  link
-                  type="danger"
-                  :disabled="!canReviewOn(row)"
-                  :loading="reviewing === row.id"
-                  @click="review(row, 'REJECT')"
-                >拒绝</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-pagination
-            v-if="pendingTotal > QUEUE_PAGE_SIZE"
-            class="pager"
-            layout="total, prev, pager, next"
-            :total="pendingTotal"
-            :page-size="QUEUE_PAGE_SIZE"
-            :current-page="pendingPage"
-            @current-change="changePendingPage"
-          />
-          <p class="hint">
-            通过范围必须是申请范围的子集，时间不超过申请时长；禁止规则、隐藏字段和未发布资源不能审批开通。
+            </label>
+            <label>
+              申请用途
+              <el-input v-model="form.purpose" placeholder="本次需要这些字段的具体用途" />
+            </label>
+          </div>
+          <p v-if="!loadingResources && !resourceError && !datasources.length">
+            本次未返回可申请源；APPLY需要使用问数及已发布快照，不要求后台负责源。
           </p>
+          <el-button
+            type="primary"
+            :loading="submitting"
+            :disabled="loadingResources || locked(submitLock)"
+            @click="submitRequest"
+          >
+            提交申请
+          </el-button>
         </section>
-      </el-tab-pane>
-
-      <el-tab-pane label="已处理" name="handled">
+        <section v-if="reviewTarget && activeTab === 'pending'" class="panel review-editor">
+          <div class="toolbar">
+            <h3>{{ reviewDraft.decision === 'APPROVE' ? '核对批准范围' : '填写拒绝依据' }}</h3>
+            <el-button :disabled="reviewing" @click="closeReview">关闭审核</el-button>
+          </div>
+          <p>{{ scopeText(reviewTarget) }}</p>
+          <p>
+            原用途：{{ reviewTarget.purpose }}；原申请到期：{{
+              reviewTarget.requestedValidUntil || '未指定（批准仍须有期限）'
+            }}
+          </p>
+          <div class="form-grid">
+            <label v-if="reviewDraft.decision === 'APPROVE'">
+              批准字段（原申请子集）
+              <el-select v-model="reviewDraft.columns" multiple :disabled="reviewing">
+                <el-option v-for="c in reviewTarget.requestedColumns" :key="c" :label="c" :value="c" />
+              </el-select>
+            </label>
+            <label v-if="reviewDraft.decision === 'APPROVE'">
+              批准到期时间
+              <el-date-picker
+                v-model="reviewDraft.validUntil"
+                :disabled="reviewing"
+                type="datetime"
+                value-format="YYYY-MM-DD HH:mm:ss"
+              />
+            </label>
+            <label>
+              审批依据
+              <el-input
+                v-model="reviewDraft.reason"
+                :disabled="reviewing"
+                placeholder="本次审批的具体判断依据"
+              />
+            </label>
+          </div>
+          <el-button
+            type="primary"
+            :loading="reviewing"
+            :disabled="locked(requestLock(reviewTarget.id))"
+            @click="confirmReview"
+          >
+            {{ reviewDraft.decision === 'APPROVE' ? '核对并批准' : '核对并拒绝' }}
+          </el-button>
+        </section>
         <section class="panel">
-          <EmptyState v-if="!handledRequests.length" message="还没有已处理的申请。" />
-          <el-table v-else :data="handledRequests" size="small">
-            <el-table-column prop="requesterName" label="申请人" width="120" />
-            <el-table-column prop="tableName" label="表" width="140" />
-            <el-table-column label="状态" width="100">
-              <template #default="{ row }">{{ row.statusName }}</template>
-            </el-table-column>
-            <el-table-column label="审批结论" min-width="260">
+          <ErrorState v-if="currentError" :message="currentError" @retry="loadCurrent" />
+          <LoadingState v-else-if="currentLoading" text="正在读取当前申请列表…" />
+          <EmptyState
+            v-else-if="!currentRows.length"
+            :message="activeTab === 'mine' ? '本次未返回本人申请。' : '当前队列本页没有申请。'"
+          />
+          <el-table v-else :data="currentRows">
+            <el-table-column label="申请与范围" min-width="240">
               <template #default="{ row }">
-                <span v-if="row.approval">
-                  {{ row.approval.decisionName }}；
-                  {{ row.approval.generatedGrantId ? `生成授权 ${row.approval.generatedGrantId}` : '未生成授权' }}；
-                  {{ row.approval.reason || '未填写理由' }}
-                </span>
-                <span v-else class="muted">无审批记录</span>
+                <strong>#{{ row.id }} · {{ row.datasourceName || '源 #' + row.datasourceId }}</strong>
+                <small>
+                  {{ row.tableName }} · 快照 #{{ row.metadataSnapshotId }} · 申请人
+                  {{ row.requesterName || row.requesterId }}
+                </small>
+              </template>
+            </el-table-column>
+            <el-table-column label="申请字段与用途" min-width="250">
+              <template #default="{ row }">
+                {{ row.requestedColumns.join('、') }}
+                <small>{{ row.purpose }}</small>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态与期限" min-width="210">
+              <template #default="{ row }">
+                {{ row.statusName || row.status }}
+                <small>
+                  申请到期：{{ row.requestedValidUntil || '未指定' }}；{{ row.rowScopeName || row.rowScope }}
+                </small>
+              </template>
+            </el-table-column>
+            <el-table-column label="实际审批记录" min-width="230">
+              <template #default="{ row }">
+                <template v-if="row.approval">
+                  {{ row.approval.decisionName || row.approval.decision }} ·
+                  {{ row.approval.reviewerName || row.approval.reviewerId }}
+                  <small>
+                    {{ row.approval.reason || '未填写理由' }}；
+                    <span v-if="row.approval.decision === 'APPROVED'">
+                      批准字段：{{
+                        row.approval.approvedColumns?.length
+                          ? row.approval.approvedColumns.join('、')
+                          : '未返回，不能从申请范围推断'
+                      }}；
+                    </span>
+                    {{
+                      row.approval.generatedGrantId ? '授权 #' + row.approval.generatedGrantId : '未生成授权'
+                    }}；批准到期 {{ row.approval.approvedValidUntil || '未记录' }}
+                  </small>
+                </template>
+                <span v-else>{{ row.status === 'PENDING' ? '尚未审批' : '未返回审批记录' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" min-width="165">
+              <template #default="{ row }">
+                <el-button
+                  v-if="activeTab === 'mine' && row.status === 'PENDING'"
+                  link
+                  type="warning"
+                  :disabled="reviewing || locked(requestLock(row.id))"
+                  @click="withdraw(row)"
+                >
+                  撤回
+                </el-button>
+                <template v-if="activeTab === 'pending'">
+                  <el-button
+                    link
+                    type="primary"
+                    :disabled="!canReviewOn(row) || reviewing || locked(requestLock(row.id))"
+                    @click="review(row, 'APPROVE')"
+                  >
+                    同意
+                  </el-button>
+                  <el-button
+                    link
+                    type="danger"
+                    :disabled="!canReviewOn(row) || reviewing || locked(requestLock(row.id))"
+                    @click="review(row, 'REJECT')"
+                  >
+                    拒绝
+                  </el-button>
+                  <small v-if="row.requesterId === selfId">不能审批本人的申请</small>
+                  <small v-else-if="!canReviewOn(row)">缺少本源审批能力</small>
+                </template>
               </template>
             </el-table-column>
           </el-table>
           <el-pagination
-            v-if="handledTotal > QUEUE_PAGE_SIZE"
-            class="pager"
-            layout="total, prev, pager, next"
-            :total="handledTotal"
-            :page-size="QUEUE_PAGE_SIZE"
-            :current-page="handledPage"
-            @current-change="changeHandledPage"
+            v-if="activeTab !== 'mine' && !currentError"
+            :current-page="queue[activeTab].page"
+            :page-size="20"
+            :total="queue[activeTab].total"
+            layout="total,prev,pager,next"
+            @current-change="changePage"
           />
         </section>
-      </el-tab-pane>
-    </el-tabs>
+      </template>
+    </template>
   </div>
 </template>
-
 <style scoped>
 .iam-s1-approvals {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  display: grid;
+  gap: 20px;
 }
-.pager { margin-top: 16px; justify-content: flex-end; }
-.panel {
+.panel,
+.approval-contract {
+  padding: 20px;
   border: 1px solid var(--do-line);
-  border-radius: 10px;
-  padding: 18px;
+  border-radius: var(--do-radius-lg);
   background: var(--do-surface);
-  margin-top: 8px;
+  min-width: 0;
 }
-.panel-title {
-  margin: 0 0 12px;
-  font-size: 15px;
+.approval-contract {
+  border-left: 3px solid var(--do-primary);
 }
-.inline {
+.toolbar {
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
 }
-.hint {
-  margin: 10px 0 0;
-  color: var(--do-muted);
+.toolbar h3 {
+  margin: 0;
+  font-size: 17px;
+}
+.toolbar p,
+.panel p,
+.approval-contract p {
   font-size: 12px;
-  line-height: 1.6;
-}
-.muted {
   color: var(--do-muted);
+  line-height: 1.8;
+  margin: 8px 0;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+}
+.form-grid label {
+  display: grid;
+  gap: 6px;
   font-size: 12px;
+  color: var(--do-muted);
 }
-.w200 {
-  width: 200px;
+.form-grid :deep(.el-date-editor) {
+  width: 100%;
 }
-.w260 {
-  width: 260px;
+.panel small {
+  display: block;
+  font-size: 12px;
+  color: var(--do-muted);
+  line-height: 1.7;
 }
-.w280 {
-  width: 280px;
+.notice {
+  padding: 12px;
+  background: var(--do-bg);
+  border-left: 3px solid var(--do-primary);
+}
+.el-pagination {
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+@media (max-width: 950px) {
+  .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 600px) {
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .panel {
+    padding: 14px;
+  }
 }
 </style>
