@@ -29,6 +29,7 @@ const scopeProblem = computed(() => {
   return ''
 })
 const canRead = computed(() => !scopeProblem.value && iam.loaded && !iam.errorMessage && iam.canOnDatasource('metadata:view', context.datasourceId))
+const canEnterDatasource = computed(() => iam.loaded && !iam.errorMessage && (iam.hasGlobal('datasource:view') || iam.datasourcesWithFunction('datasource:view').length > 0))
 const canRelease = computed(() => iam.loaded && !iam.errorMessage && iam.canOnDatasource('metadata:release:view', context.datasourceId))
 const route = useRoute()
 const router = useRouter()
@@ -507,7 +508,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
           <ErrorState v-else-if="error" :message="error" @retry="load" />
           <LoadingState v-else-if="loading" variant="skeleton" :rows="6" />
           <template v-else-if="!context.datasourceId">
-            <EmptyState message="请选择数据源后，再查看已发布对象。" action-text="去数据源接入" @action="$router.push('/admin/data-sources')" />
+            <EmptyState message="请选择数据源后，再查看已发布对象。" :action-text="canEnterDatasource ? '去数据源接入' : undefined" @action="$router.push('/admin/data-sources')" />
           </template>
           <template v-else-if="!catalog?.publishedSnapshotId">
             <EmptyState message="当前数据源没有已发布快照，暂无可浏览的已发布对象。" :action-text="canRelease ? '去元数据版本' : undefined" @action="$router.push({ path: '/admin/releases', query: { datasourceId: String(context.datasourceId) } })" />
@@ -572,7 +573,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
         </div>
       </template>
 
-      <EmptyState v-else-if="!context.datasourceId" message="请选择数据源后查看快照表结构。" action-text="去数据源接入" @action="$router.push('/admin/data-sources')" />
+      <EmptyState v-else-if="!context.datasourceId" message="请选择数据源后查看快照表结构。" :action-text="canEnterDatasource ? '去数据源接入' : undefined" @action="$router.push('/admin/data-sources')" />
       <ErrorState v-else-if="!canRead" :message="scopeProblem || '没有当前数据源的元数据查看权限。'" @retry="iam.load(true)" />
       <TableExplorer v-else :fixed-height="fixedTablesHeight" />
     </section>

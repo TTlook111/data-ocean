@@ -572,7 +572,7 @@ function openGovernance() {
 
 const dialogGateIssueTarget = computed(() => {
   const source = snapshotDialogContext.value
-  if (!source) return undefined
+  if (!source || !iamS1.canOnDatasource('governance:issue:view',source.datasourceId)) return undefined
   return {
     path: '/admin/governance/issues',
     query: { datasourceId: String(source.datasourceId), snapshotId: String(source.snapshotId) },
@@ -582,7 +582,7 @@ const dialogGateIssueTarget = computed(() => {
 const publishGateIssueTarget = computed(() => {
   const item = publishTarget.value
   const sourceId = item ? rowDatasourceId(item) : undefined
-  if (!item || !sourceId) return undefined
+  if (!item || !sourceId || !iamS1.canOnDatasource('governance:issue:view',sourceId)) return undefined
   return {
     path: '/admin/governance/issues',
     query: { datasourceId: String(sourceId), snapshotId: String(item.snapshotId) },
@@ -965,7 +965,7 @@ onBeforeUnmount(() => {
         </el-table>
       </div>
       <div v-else class="releases-page__list-state">
-        <EmptyState message="当前数据源还没有元数据版本。" action-text="去采集任务" @action="router.push({ path: '/admin/collections', query: buildContextQuery('datasource', { datasourceId }) })" />
+        <EmptyState message="当前数据源还没有元数据版本。" :action-text="iamS1.canOnDatasource('metadata:collect:view', datasourceId) ? '去采集任务' : undefined" @action="router.push({ path: '/admin/collections', query: buildContextQuery('datasource', { datasourceId }) })" />
       </div>
 
       <el-pagination

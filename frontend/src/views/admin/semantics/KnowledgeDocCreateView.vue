@@ -37,6 +37,7 @@ const selectableDatasources = computed(() => {
 const canManage = computed(
   () => iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:manage').length > 0,
 )
+const canEnterDatasource = computed(() => iamS1.loaded && !iamS1.errorMessage && (iamS1.hasGlobal('datasource:view') || iamS1.datasourcesWithFunction('datasource:view').length > 0))
 const MANAGE_HINT = '没有“维护知识文档”能力：需要角色拥有 knowledge:manage 并负责目标数据源。'
 
 const datasources = ref<AdminDatasourceOption[]>([])
@@ -126,7 +127,7 @@ onBeforeUnmount(()=>{disposed=true;epoch++;requestId++})
       :message="canManage
         ? '当前没有可用的数据源，无法创建知识文档。请先在数据接入中创建数据源并完成采集与快照发布。'
         : MANAGE_HINT"
-      action-text="去数据源接入"
+      :action-text="canEnterDatasource ? '去数据源接入' : undefined"
       @action="router.push('/admin/data-sources')"
     />
 

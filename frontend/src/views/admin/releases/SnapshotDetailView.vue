@@ -38,7 +38,7 @@ const canViewReleaseGate = computed(() => {
 })
 const gateIssueTarget = computed<RouteLocationRaw | undefined>(() => {
   const snapshot = detail.value?.snapshot
-  if (!snapshot) return undefined
+  if (!snapshot || !iamS1.canOnDatasource('governance:issue:view',snapshot.datasourceId)) return undefined
   return {
     path: '/admin/governance/issues',
     query: { datasourceId: String(snapshot.datasourceId), snapshotId: String(snapshot.id) },
@@ -50,12 +50,11 @@ function retryGate() {
   if (snapshot && canViewReleaseGate.value) void loadGate(snapshot.id)
 }
 
-const returnToRelease = computed<RouteLocationRaw>(() => {
+const returnToRelease = computed(() => {
   const sourceId = detail.value?.snapshot.datasourceId ?? routeDatasourceId.value
-  return {
-    path: '/admin/releases',
-    query: buildContextQuery('datasource', { datasourceId: sourceId }),
-  }
+  if(sourceId && iamS1.canOnDatasource('metadata:release:view',sourceId)) return {path:'/admin/releases',query:buildContextQuery('datasource',{datasourceId:sourceId})}
+  if(sourceId && iamS1.canOnDatasource('metadata:view',sourceId)) return {path:'/admin/assets',query:{datasourceId:String(sourceId),...(detail.value ? {snapshotId:String(detail.value.snapshot.id)} : {}),view:'tables'}}
+  return {path:'/admin'}
 })
 
 function loadRouteSnapshot() {
@@ -101,9 +100,9 @@ onBeforeUnmount(() => {
     <p class="snapshot-detail__eyebrow">数据资产 / 精确版本</p>
     <TaskPageHeader title="快照详情" description="检查采集结果和治理状态；审核通过与正式发布是两个独立动作。">
       <template #title-prefix>
-        <RouterLink class="snapshot-detail__back" :to="returnToRelease" aria-label="返回元数据版本">
+        <RouterLink class="snapshot-detail__back" :to="returnToRelease" :aria-label="returnToRelease.path === '/admin/releases' ? '返回元数据版本' : '返回有权数据工作区'">
           <ArrowLeft :size="15" aria-hidden="true" />
-          <span>返回元数据版本</span>
+          <span>{{ returnToRelease.path === '/admin/releases' ? '返回元数据版本' : '返回有权数据工作区' }}</span>
         </RouterLink>
       </template>
       <template #title-suffix>

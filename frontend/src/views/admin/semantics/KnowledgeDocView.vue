@@ -102,6 +102,7 @@ const mayViewSnapshots = computed(
 )
 const mayGenerate = computed(() => mayManage.value && mayViewSnapshots.value)
 const GENERATE_HINT = '按快照生成目录需要该数据源的知识维护与元数据查看能力；已授权文档仍可手动编辑。'
+const canReadSourceSnapshot = computed(() => !!doc.value && iamS1.loaded && !iamS1.errorMessage && (iamS1.systemAdmin || iamS1.datasourcesWithFunction('metadata:view').includes(doc.value.datasourceId)))
 const VIEW_HINT = '没有“查看知识文档”能力：需要角色拥有 knowledge:view 并负责该文档的数据源。'
 const APPROVE_HINT = '没有“审核知识文档”能力：需要角色拥有 knowledge:approve 并负责该文档的数据源。'
 const PUBLISH_HINT = '没有“发布/回滚知识”能力：需要角色拥有 knowledge:publish 并负责该文档的数据源。审核权不自动带来发布权。'
@@ -748,9 +749,10 @@ watch(() => route.query.tab, (value) => {
               </el-table-column>
               <el-table-column label="来源快照" width="110">
                 <template #default="{ row }">
-                  <RouterLink class="snapshot-link" :to="'/admin/releases/snapshots/' + row.snapshotId">
+                  <RouterLink v-if="canReadSourceSnapshot" class="snapshot-link" :to="{path:'/admin/releases/snapshots/' + row.snapshotId,query:{datasourceId:String(doc?.datasourceId)}}">
                     {{ row.snapshotVersion ? 'v' + row.snapshotVersion : '#' + row.snapshotId }}
                   </RouterLink>
+                  <span v-else>#{{ row.snapshotId }} · 无结构查看权</span>
                 </template>
               </el-table-column>
               <el-table-column label="快照状态" width="120">
@@ -883,9 +885,10 @@ watch(() => route.query.tab, (value) => {
               </el-table-column>
               <el-table-column label="来源快照" width="110">
                 <template #default="{ row }">
-                  <RouterLink v-if="row.metadataSnapshotId" class="snapshot-link" :to="'/admin/releases/snapshots/' + row.metadataSnapshotId">
+                  <RouterLink v-if="row.metadataSnapshotId && canReadSourceSnapshot" class="snapshot-link" :to="{path:'/admin/releases/snapshots/' + row.metadataSnapshotId,query:{datasourceId:String(doc?.datasourceId)}}">
                     #{{ row.metadataSnapshotId }}
                   </RouterLink>
+                  <span v-else-if="row.metadataSnapshotId" class="muted">#{{ row.metadataSnapshotId }} · 无结构查看权</span>
                   <span v-else class="muted">—</span>
                 </template>
               </el-table-column>

@@ -564,7 +564,7 @@ a:focus-visible,
 .post-login-page .el-input__wrapper.is-focus,
 .post-login-page .el-select__wrapper.is-focused,
 .post-login-page .el-tree-select__wrapper.is-focused {
-  box-shadow: 0 0 0 1px var(--do-primary) inset, 0 0 0 4px rgba(77, 143, 220, 0.16);
+  box-shadow: 0 0 0 1px var(--do-primary) inset, 0 0 0 4px color-mix(in srgb, var(--do-primary) 16%, transparent);
 }
 
 .post-login-page .el-button--primary {
@@ -572,8 +572,8 @@ a:focus-visible,
   --el-button-border-color: var(--do-primary);
   --el-button-hover-bg-color: var(--do-primary-strong);
   --el-button-hover-border-color: var(--do-primary-strong);
-  --el-button-active-bg-color: #1c56c8;
-  --el-button-active-border-color: #1c56c8;
+  --el-button-active-bg-color: var(--do-primary-strong);
+  --el-button-active-border-color: var(--do-primary-strong);
 }
 
 .post-login-page .el-tag--success {

@@ -52,6 +52,7 @@ import { useAuthStore } from '../../../stores/auth'
 import { positiveId } from '../../../utils/lineageContext'
 import { trackGovernanceWrite } from '../../../composables/governanceWriteTracker'
 import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
+import { buildWorkspaceTarget } from '../../../utils/adminNavigation'
 import GovernanceWriteNotice from '../../../components/admin/GovernanceWriteNotice.vue'
 import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -91,6 +92,7 @@ function current(key: string) {
  * 与负责源无关），因此这里用它做粗粒度入口判定；前端**不知道**某个术语具体关联了哪些源，
  * 动态范围一律由后端拒绝，按钮可见性不是安全边界。
  */
+const knowledgeTarget = computed(() => iamS1.loaded && !iamS1.errorMessage && (iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:view').length > 0) ? buildWorkspaceTarget('/admin/semantics/knowledge', iamS1) : undefined)
 const canView = computed(() => iamS1.loaded && !iamS1.errorMessage && iamS1.hasGlobal('glossary:view'))
 const canManage = computed(() => iamS1.loaded && !iamS1.errorMessage && iamS1.hasGlobal('glossary:manage'))
 const canApprove = computed(() => iamS1.loaded && !iamS1.errorMessage && iamS1.hasGlobal('glossary:approve'))
@@ -1127,7 +1129,7 @@ onBeforeUnmount(() => {
             <!-- 下一步：已通过的术语会参与查询改写，指向语义知识 -->
             <div v-if="selectedTerm.status === 'APPROVED'" class="term-detail__next">
               <span>术语已审核；字段定位和知识使用仍受来源有效性与当前权限约束。</span>
-              <RouterLink class="term-detail__next-link" to="/admin/semantics/knowledge">
+              <RouterLink v-if="knowledgeTarget" class="term-detail__next-link" :to="knowledgeTarget">
                 查看语义知识
                 <ArrowRight :size="15" />
               </RouterLink>
