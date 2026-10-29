@@ -27,9 +27,12 @@ const summary = computed(() => {
   const gate = props.gate
   if (!gate) return ''
   if (gate.blockingCount > 0) return `存在 ${gate.blockingCount} 项阻断，暂不可发布`
-  if (gate.snapshotStatus !== 'APPROVED' && gate.snapshotStatus !== 'PUBLISHED') {
+  if (gate.snapshotStatus === 'PUBLISHED') return '此快照已发布；本次门禁核对不代表知识文档或索引已生效'
+  if (gate.snapshotStatus === 'EXPIRED') return '此快照已过期，仅供历史核对；不能从此状态直接重新发布'
+  if (gate.snapshotStatus !== 'APPROVED') {
     return `门禁已通过，当前状态为「${snapshotStatusLabel(gate.snapshotStatus)}」，批准后才能发布`
   }
+  if (!gate.publishable) return '当前条件不允许发布，请核对门禁与快照状态'
   if (gate.warningCount > 0) return `可以发布，但有 ${gate.warningCount} 项提示需确认`
   return '门禁已通过，可以发布'
 })

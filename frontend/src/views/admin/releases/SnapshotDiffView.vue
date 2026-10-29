@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { GitCompareArrows } from 'lucide-vue-next'
 import { useRoute } from 'vue-router'
+import { useIamS1Store } from '../../../stores/iamS1'
+import { useAuthStore } from '../../../stores/auth'
 import { compareSnapshots, getPublishedSnapshot } from '../../../api/admin/versioning'
 import { getSnapshotDetail, type SnapshotDetail } from '../../../api/admin/metadata'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -11,7 +13,7 @@ import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
 import { buildContextQuery } from '../../../utils/adminNavigation'
 
-const route = useRoute()
+const route = useRoute(), iam=useIamS1Store(), auth=useAuthStore()
 // 差异 URL 协议：snapshotId 是旧快照，compareId 是新快照。
 const oldSnapshotId = computed(() => Number(route.params.snapshotId))
 const newSnapshotId = computed(() => Number(route.params.compareId))
@@ -41,11 +43,21 @@ async function load() {
   currentOfficialSnapshotId.value = undefined
   currentOfficialError.value = ''
   try {
+    const expectedSource=route.query.datasourceId == null ? undefined : typeof route.query.datasourceId==='string' ? Number(route.query.datasourceId) : NaN
+    if (![oldSnapshotId.value,newSnapshotId.value].every(id=>Number.isSafeInteger(id) && id>0) || oldSnapshotId.value===newSnapshotId.value) throw new Error('需要两个不同的有效快照标识')
+    if (expectedSource!=null && (!Number.isSafeInteger(expectedSource) || expectedSource<=0)) throw new Error('指定数据源标识无效，未改用其他范围')
+    if (!iam.loaded || iam.errorMessage) throw new Error(iam.errorMessage || '正在读取权限摘要')
+    const sources=expectedSource!=null ? [expectedSource] : iam.datasourcesWithFunction('metadata:view')
+    if (!iam.systemAdmin && !sources.some(id=>iam.canOnDatasource('metadata:view',id) && iam.canOnDatasource('metadata:release:view',id))) throw new Error('比较结构需要目标源的 metadata:view 与 metadata:release:view')
     const [oldResult, newResult] = await Promise.all([
       getSnapshotDetail(oldSnapshotId.value),
       getSnapshotDetail(newSnapshotId.value),
     ])
     if (disposedOrStale(currentRequest)) return
+    if (oldResult.data.snapshot.id!==oldSnapshotId.value || newResult.data.snapshot.id!==newSnapshotId.value) throw new Error('返回快照与指定版本不一致')
+    const source=oldResult.data.snapshot.datasourceId
+    if (expectedSource!=null && source!==expectedSource) throw new Error('快照不属于指定数据源')
+    if (!iam.canOnDatasource('metadata:view',source) || !iam.canOnDatasource('metadata:release:view',source)) throw new Error('没有目标源的结构/版本查看权限')
     if (oldResult.data.snapshot.datasourceId !== newResult.data.snapshot.datasourceId) {
       throw new Error('两个快照必须属于同一个数据源')
     }
@@ -78,8 +90,7 @@ function disposedOrStale(currentRequest: number) {
   return currentRequest !== requestId
 }
 
-onMounted(load)
-watch(() => [route.params.snapshotId, route.params.compareId], load)
+watch(() => [route.params.snapshotId, route.params.compareId, route.query.datasourceId,auth.token,iam.snapshot,iam.loaded,iam.errorMessage], load, {immediate:true,flush:'sync'})
 onBeforeUnmount(() => { requestId++ })
 </script>
 
@@ -104,6 +115,7 @@ onBeforeUnmount(() => { requestId++ })
         <div><span>删除字段</span><strong>{{ diff.removedColumns?.length || 0 }}</strong></div>
         <div><span>变更字段</span><strong>{{ diff.modifiedColumns?.length || 0 }}</strong></div>
       </section>
+      <section v-if="diff.addedTables?.length || diff.removedTables?.length" class="diff-card"><h2>表变化</h2><p v-for="name in diff.addedTables" :key="'add'+name">新增表 · {{ name }}</p><p v-for="name in diff.removedTables" :key="'remove'+name">删除表 · {{ name }}</p></section>
       <section class="diff-card">
         <h2>字段变化</h2>
         <el-table v-if="(diff.modifiedColumns?.length || diff.addedColumns?.length || diff.removedColumns?.length)" :data="[...(diff.addedColumns || []).map((item: any) => ({ ...item, change: '新增' })), ...(diff.removedColumns || []).map((item: any) => ({ ...item, change: '删除' })), ...(diff.modifiedColumns || []).map((item: any) => ({ ...item, change: '变更' }))]" size="small">
@@ -112,6 +124,8 @@ onBeforeUnmount(() => { requestId++ })
           <el-table-column prop="columnName" label="字段" />
           <el-table-column prop="oldType" label="旧类型" />
           <el-table-column prop="newType" label="新类型" />
+          <el-table-column prop="oldComment" label="旧注释" min-width="180" />
+          <el-table-column prop="newComment" label="新注释" min-width="180" />
         </el-table>
         <EmptyState v-else message="两个版本没有字段差异" />
       </section>
@@ -128,4 +142,5 @@ onBeforeUnmount(() => { requestId++ })
 .diff-grid span { display: block; color: var(--do-muted); font-size: 12px; }
 .diff-grid strong { display: block; margin-top: 6px; color: var(--do-ink); font-size: 24px; }
 .diff-card h2 { margin: 0 0 14px; color: var(--do-ink); font-size: 16px; }
+@media(max-width:760px) { .diff-grid {grid-template-columns:repeat(2,minmax(0,1fr));}.diff-card {min-width:0;overflow:auto;} }
 </style>

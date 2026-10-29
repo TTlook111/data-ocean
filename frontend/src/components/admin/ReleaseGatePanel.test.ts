@@ -111,4 +111,10 @@ describe('ReleaseGatePanel', () => {
     const wrapper = mountPanel({ gate: null, loading: true })
     expect(wrapper.text()).toContain('正在读取发布门禁')
   })
+  it.each(['PUBLISHED','EXPIRED'])('历史/发布态%s不会提示再次发布', status => {
+    const w=mountPanel({gate:gate({snapshotStatus:status,publishable:false})})
+    expect(w.text()).not.toContain('可以发布'); expect(w.text()).not.toContain('批准后才能发布')
+    expect(w.text()).toContain(status==='PUBLISHED' ? '已发布' : '已过期')
+  })
+
 })

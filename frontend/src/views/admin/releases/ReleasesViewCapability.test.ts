@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, reactive } from 'vue'
 import ElementPlus, { ElCheckbox, ElMessage, ElMessageBox } from 'element-plus'
 import { createPinia, setActivePinia } from 'pinia'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
@@ -52,12 +52,16 @@ vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>()
   return {
     ...actual,
-    useRoute: () => routeState,
+    useRoute: () => reactiveRouteState,
     useRouter: () => routerState,
   }
 })
 
 import ReleasesView from './ReleasesView.vue'
+import { useAuthStore } from '../../../stores/auth'
+import { useIamS1Store } from '../../../stores/iamS1'
+import { pendingReleaseWrites } from '../../../composables/releaseWriteTracker'
+const reactiveRouteState=reactive(routeState)
 
 const DATASOURCE_ID = 5
 
@@ -212,6 +216,7 @@ function versionButton(wrapper: ReturnType<typeof mountPage>, versionNumber: num
 }
 
 beforeEach(() => {
+  pendingReleaseWrites.value=[]
   setActivePinia(createPinia())
   routeState.query = {}
   localStorage.clear()
@@ -348,7 +353,8 @@ describe('元数据版本工作区', () => {
 
   it('版本号直接打开统一详情弹窗，字段结构在同一弹窗内展开', async () => {
     api.listVersionHistory.mockResolvedValue({ data: { records: [version(8, 1), version(9, 2)], total: 2 } })
-    respond(capability(['metadata:release:view', 'governance:view']))
+    // 结构接口独立要求metadata:view；保留此场景的原字段/错误/隔离断言。
+    respond(capability(['metadata:release:view', 'metadata:view', 'governance:view']))
     const wrapper = mountPage()
     await settle()
     const rowBody = wrapper.find('.el-table__body-wrapper').element as HTMLElement
@@ -431,7 +437,8 @@ describe('元数据版本工作区', () => {
   })
 
   it('仅在接口确认存在待处理问题且具备问题处理能力时突出治理入口', async () => {
-    respond(capability(['metadata:release:view', 'governance:view', 'governance:issue:view', 'governance:issue:manage']))
+    // 结构接口独立要求metadata:view；保留此场景的原字段/错误/隔离断言。
+    respond(capability(['metadata:release:view', 'metadata:view', 'governance:view', 'governance:issue:view', 'governance:issue:manage']))
     api.listQualityIssues.mockImplementation((_snapshotId: number, params: { status: string }) => ({
       data: { records: [], total: params.status === 'OPEN' ? 2 : 0 },
     }))
@@ -457,7 +464,8 @@ describe('元数据版本工作区', () => {
 
   it('详情切换快照时，较晚返回的旧请求不能覆盖新版本', async () => {
     api.listVersionHistory.mockResolvedValue({ data: { records: [version(8, 1), version(9, 2)], total: 2 } })
-    respond(capability(['metadata:release:view']))
+    // 结构接口独立要求metadata:view；保留此场景的原字段/错误/隔离断言。
+    respond(capability(['metadata:release:view', 'metadata:view']))
     let resolveFirst!: (value: { data: ReturnType<typeof snapshotDetail> }) => void
     let resolveSecond!: (value: { data: ReturnType<typeof snapshotDetail> }) => void
     const firstRequest = new Promise<{ data: ReturnType<typeof snapshotDetail> }>((resolve) => { resolveFirst = resolve })
@@ -480,7 +488,8 @@ describe('元数据版本工作区', () => {
   })
 
   it('详情失败显示错误并对已打开快照重试；空字段与失败保持区分', async () => {
-    respond(capability(['metadata:release:view']))
+    // 结构接口独立要求metadata:view；保留此场景的原字段/错误/隔离断言。
+    respond(capability(['metadata:release:view', 'metadata:view']))
     api.getSnapshotDetail
       .mockRejectedValueOnce(new Error('快照详情服务暂不可用'))
       .mockResolvedValueOnce({ data: { ...snapshotDetail(8, 1), tables: [] } })
@@ -501,7 +510,8 @@ describe('元数据版本工作区', () => {
   })
 
   it('切换数据源后关闭详情弹窗，旧对象结果不会覆盖新数据源', async () => {
-    respond(capability(['metadata:release:view']))
+    // 结构接口独立要求metadata:view；保留此场景的原字段/错误/隔离断言。
+    respond(capability(['metadata:release:view', 'metadata:view']))
     let resolvePending!: (value: { data: ReturnType<typeof snapshotDetail> }) => void
     const pendingRequest = new Promise<{ data: ReturnType<typeof snapshotDetail> }>((resolve) => { resolvePending = resolve })
     api.getSnapshotDetail.mockReturnValue(pendingRequest)
@@ -839,4 +849,44 @@ describe('显式人工审核', () => {
       confirm.mockRestore()
     }
   })
+})
+
+
+describe('版本生命周期反例', () => {
+  function deferred() { let resolve!:(x:any)=>void, reject!:(x:any)=>void;const promise=new Promise<any>((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject} }
+  it('仅发布查看者不读取元数据结构，但保留门禁和审计',async()=>{
+    respond(capability(['metadata:release:view']));const w=mountPage();await settle();await versionButton(w,1)!.trigger('click');await settle()
+    expect(api.getSnapshotDetail).not.toHaveBeenCalled();expect(api.getReleaseGate).toHaveBeenCalledWith(8);expect(w.text()).toContain('没有此源的 metadata:view')
+    await w.findAll('.el-tabs__item').find(x=>x.text()==='操作记录')!.trigger('click');await settle();expect(api.listSnapshotAuditLogs).toHaveBeenCalledWith(8,{page:1,size:20});w.unmount()
+  })
+  it('无发布查看权不读取版本和当前正式版',async()=>{
+    respond(capability(['audit:view']));const w=mountPage();await settle();expect(api.listVersionHistory).not.toHaveBeenCalled();expect(api.getPublishedSnapshot).not.toHaveBeenCalled();expect(w.text()).toContain('没有当前数据源');w.unmount()
+  })
+  it('批准门禁读取期间重复点击与换账号不发旧写',async()=>{
+    respond(capability(['metadata:release:view','metadata:release:review']));api.listVersionHistory.mockResolvedValue({data:{records:[version(8,1,'CHECKING')],total:1}});const d=deferred();api.getReleaseGate.mockReturnValue(d.promise);const confirm=vi.spyOn(ElMessageBox,'confirm').mockResolvedValue('confirm' as never);const w=mountPage();await settle()
+    await rowButton(w,1,'批准')!.trigger('click');await rowButton(w,1,'批准')!.trigger('click');expect(api.getReleaseGate).toHaveBeenCalledTimes(1);useAuthStore().token='synthetic-new-account';await settle();d.resolve({data:releaseGate(8)});await settle();expect(confirm).not.toHaveBeenCalled();expect(api.changeSnapshotStatus).not.toHaveBeenCalled();w.unmount();confirm.mockRestore()
+  })
+  it('发布确认切源立即关闭，旧确认不写原快照',async()=>{
+    respond(capability(['metadata:release:view','metadata:release:publish']));api.listVersionHistory.mockResolvedValue({data:{records:[version(8,1,'APPROVED')],total:1}});const w=mountPage();await settle();await rowButton(w,1,'发布')!.trigger('click');await settle();expect(w.text()).toContain('确认发布');useAdminContextStore().datasourceId=6;await settle();expect(w.text()).not.toContain('确认发布');expect(api.publishSnapshot).not.toHaveBeenCalled();w.unmount()
+  })
+  it('撤回409保留原因而不自动重发',async()=>{
+    respond(capability(['metadata:release:view','metadata:release:publish']));api.listVersionHistory.mockResolvedValue({data:{records:[version(8,1,'PUBLISHED')],total:1}});api.revokeSnapshot.mockRejectedValue({response:{status:409,data:{message:'合成冲突'}}});const prompt=vi.spyOn(ElMessageBox,'prompt').mockResolvedValue({value:'必须保留的撤回原因'} as never);const w=mountPage();await settle();await rowButton(w,1,'撤回')!.trigger('click');await settle();expect(w.text()).toContain('必须保留的撤回原因');expect(w.text()).toContain('不会自动重试');expect(api.revokeSnapshot).toHaveBeenCalledTimes(1);w.unmount();prompt.mockRestore()
+  })
+  it('超时未知不会因普通刷新、A到B到A或无新审计解锁',async()=>{
+    respond(capability(['metadata:release:view','metadata:release:publish']));api.listVersionHistory.mockResolvedValue({data:{records:[version(8,1,'APPROVED')],total:1}});api.publishSnapshot.mockRejectedValue({response:{status:408,data:{message:'超时'}}});const w=mountPage();await settle();await rowButton(w,1,'发布')!.trigger('click');await settle();await w.findAll('button').find(x=>x.text()==='确认发布')!.trigger('click');await settle();expect(pendingReleaseWrites.value).toHaveLength(1)
+    useAdminContextStore().datasourceId=6;await settle();useAdminContextStore().datasourceId=5;await settle();await w.findAll('button').find(x=>x.text()==='刷新版本')!.trigger('click');await settle();await w.findAll('button').find(x=>x.text()==='核对该快照操作记录')!.trigger('click');await settle();expect(w.text()).toContain('尚不能确认原请求结果');expect(api.listSnapshotAuditLogs).toHaveBeenCalledWith(8,{page:1,size:20});await rowButton(w,1,'发布')!.trigger('click');expect(api.publishSnapshot).toHaveBeenCalledTimes(1);expect(pendingReleaseWrites.value).toHaveLength(1);w.unmount()
+  })
+  it('在途发布换账号后超时仍归原会话，旧回包不关闭新范围',async()=>{
+    respond(capability(['metadata:release:view','metadata:release:publish']));api.listVersionHistory.mockResolvedValue({data:{records:[version(8,1,'APPROVED')],total:1}});const d=deferred();api.publishSnapshot.mockReturnValue(d.promise);const w=mountPage();await settle();await rowButton(w,1,'发布')!.trigger('click');await settle();await w.findAll('button').find(x=>x.text()==='确认发布')!.trigger('click');await settle();useAuthStore().token='other';await settle();await rowButton(w,1,'发布')!.trigger('click');await settle();d.reject(new Error('旧请求超时'));await settle();expect(w.text()).toContain('确认发布');expect(pendingReleaseWrites.value).toHaveLength(1);expect(pendingReleaseWrites.value[0]?.identity).not.toBe('other');w.unmount()
+  })
+  it('同源撤权清旧版本，旧列表回包不能重新显示',async()=>{
+    respond(capability(['metadata:release:view']));const d=deferred();api.listVersionHistory.mockReturnValue(d.promise);const w=mountPage();await settle();useIamS1Store().snapshot=capability(['audit:view']);await settle();d.resolve({data:{records:[version(8,1)],total:1}});await settle();expect(w.findAll('.el-table__row')).toHaveLength(0);expect(w.text()).toContain('没有当前数据源');w.unmount()
+  })
+})
+
+it.each([false,true])('未知发布不把旧事件当新证据；同秒新ID=%s',async(newId)=>{
+  respond(capability(['metadata:release:view','metadata:release:publish']));api.listVersionHistory.mockResolvedValue({data:{records:[version(8,1,'APPROVED')],total:1}})
+  const old={id:99,action:'PUBLISH',operatorName:'旧事件',createdAt:'2099-01-01T00:00:00'};api.listSnapshotAuditLogs.mockResolvedValue({data:{records:[old],total:1}});api.publishSnapshot.mockRejectedValue(new Error('超时'))
+  const w=mountPage();await settle();await rowButton(w,1,'发布')!.trigger('click');await settle();await w.findAll('button').find(x=>x.text()==='确认发布')!.trigger('click');await settle();expect(pendingReleaseWrites.value[0]?.baselineAuditId).toBe(99)
+  api.listSnapshotAuditLogs.mockResolvedValue({data:{records:[{...old,id:newId?100:99}],total:1}});await w.findAll('button').find(x=>x.text()==='核对该快照操作记录')!.trigger('click');await settle();expect(pendingReleaseWrites.value).toHaveLength(newId?0:1);expect(api.publishSnapshot).toHaveBeenCalledTimes(1);w.unmount()
 })

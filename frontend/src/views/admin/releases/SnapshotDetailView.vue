@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, watch } from 'vue'
+import { useAuthStore } from '../../../stores/auth'
 import { ArrowLeft } from 'lucide-vue-next'
 import { useRouter, useRoute, type RouteLocationRaw } from 'vue-router'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -14,9 +15,10 @@ import { snapshotStatusLabel } from '../../../utils/enumLabels'
 
 const route = useRoute()
 const router = useRouter()
-const iamS1 = useIamS1Store()
+const iamS1 = useIamS1Store(), auth = useAuthStore()
 const snapshotId = computed(() => Number(route.params.snapshotId))
-const routeDatasourceId = computed(() => Number(route.query.datasourceId) || undefined)
+const routeDatasourceId = computed(() => route.query.datasourceId == null ? undefined : typeof route.query.datasourceId === 'string' ? Number(route.query.datasourceId) : NaN)
+const canReadDetail = computed(() => iamS1.loaded && !iamS1.errorMessage && (routeDatasourceId.value != null ? iamS1.canOnDatasource('metadata:view', routeDatasourceId.value) : iamS1.systemAdmin || iamS1.datasourcesWithFunction('metadata:view').length > 0))
 const { detail, loading, error, load, clear } = useSnapshotDetail()
 const {
   gate,
@@ -57,6 +59,9 @@ const returnToRelease = computed<RouteLocationRaw>(() => {
 })
 
 function loadRouteSnapshot() {
+  clear(); clearGate()
+  if (routeDatasourceId.value != null && (!Number.isSafeInteger(routeDatasourceId.value) || routeDatasourceId.value <= 0)) { error.value='指定数据源标识无效，未改用其他范围。'; return }
+  if (!canReadDetail.value) { error.value=iamS1.errorMessage || '需要当前数据源的 metadata:view 才能读取快照结构。'; return }
   void load({ snapshotId: snapshotId.value, datasourceId: routeDatasourceId.value })
 }
 
@@ -73,9 +78,9 @@ function openGovernance() {
   })
 }
 
-watch([snapshotId, routeDatasourceId], loadRouteSnapshot, { immediate: true })
+watch(() => [snapshotId.value, routeDatasourceId.value, auth.token, iamS1.snapshot, iamS1.loaded, iamS1.errorMessage], loadRouteSnapshot, { immediate: true, flush: 'sync' })
 watch(
-  () => [detail.value?.snapshot.id, detail.value?.snapshot.datasourceId, iamS1.loaded] as const,
+  () => [detail.value?.snapshot.id, detail.value?.snapshot.datasourceId, canViewReleaseGate.value] as const,
   ([loadedSnapshotId]) => {
     if (!loadedSnapshotId || !canViewReleaseGate.value) {
       clearGate()
@@ -93,6 +98,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="admin-page snapshot-detail-page">
+    <p class="snapshot-detail__eyebrow">数据资产 / 精确版本</p>
     <TaskPageHeader title="快照详情" description="检查采集结果和治理状态；审核通过与正式发布是两个独立动作。">
       <template #title-prefix>
         <RouterLink class="snapshot-detail__back" :to="returnToRelease" aria-label="返回元数据版本">
@@ -121,6 +127,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.snapshot-detail__eyebrow {margin:0;color:var(--do-primary-strong);font-size:12px;font-weight:650;}
 .snapshot-detail-page { display: grid; gap: 14px; min-width: 0; }
 .snapshot-detail-page :deep(.task-page-header) { align-items: center; margin-bottom: 0; }
 .snapshot-detail-page :deep(.task-page-header h1) { font-size: clamp(24px, 2.1vw, 28px); line-height: 1.2; letter-spacing: -.02em; }

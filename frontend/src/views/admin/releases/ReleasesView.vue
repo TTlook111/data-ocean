@@ -2,7 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { GitCompareArrows, RefreshCw, RotateCcw, Send } from 'lucide-vue-next'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
+import { pendingReleaseWrites, trackReleaseWrite } from '../../../composables/releaseWriteTracker'
+import { useAuthStore } from '../../../stores/auth'
+import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 import { listQualityIssues, triggerQualityCheck } from '../../../api/admin/governance'
@@ -48,6 +51,7 @@ interface SnapshotDialogContext extends SnapshotDetailContext {
 }
 
 const router = useRouter()
+const route = useRoute(), auth = useAuthStore()
 const context = useAdminContextStore()
 const iamS1 = useIamS1Store()
 
@@ -64,6 +68,63 @@ const actionLoading = ref(false)
 const selectedVersions = ref<CompareVersionOption[]>([])
 const hasReviewerNames = computed(() => history.value.some((item) => Boolean(item.reviewedBy)))
 const datasourceId = computed(() => context.datasourceId)
+const compactTable=ref(window.innerWidth<900)
+function measureTable() { compactTable.value=window.innerWidth<900 }
+window.addEventListener('resize',measureTable)
+const scopeError = computed(() => {
+  if (iamS1.errorMessage) return `权限摘要读取失败：${iamS1.errorMessage}`
+  const raw = route.query.datasourceId
+  if (raw != null && (typeof raw !== 'string' || !Number.isSafeInteger(Number(raw)) || Number(raw) <= 0 || Number(raw) !== datasourceId.value)) return '指定数据源尚未核验，未改用其他范围。'
+  if (iamS1.loaded && datasourceId.value && !iamS1.canOnDatasource('metadata:release:view', datasourceId.value)) return '没有当前数据源的元数据版本查看权限。'
+  return ''
+})
+const scopePending=computed(()=>!iamS1.loaded && !iamS1.errorMessage || context.loading || context.routeSyncing)
+const scopeReady = computed(() => iamS1.loaded && !context.loading && !context.routeSyncing && !scopeError.value && !!datasourceId.value)
+const actionError = ref(''), actionNotice = ref(''), revokeReason = ref('')
+const uncertainWrites = pendingReleaseWrites
+const uncertainWrite = computed(() => uncertainWrites.value.find(x => x.identity===auth.token && x.source===datasourceId.value))
+const unknownAction = computed(() => !!uncertainWrite.value)
+const verifyingWrite = ref(false)
+async function verifyUncertainWrite() {
+  const item=uncertainWrite.value, scope=ticket()
+  if (!item || verifyingWrite.value || !hasDatasourceFunction(RELEASE_VIEW_FUNCTION,item.source)) return
+  verifyingWrite.value=true
+  try {
+    const result=await listSnapshotAuditLogs(item.snapshot,{page:1,size:20})
+    if (!current(scope) || uncertainWrite.value!==item) return
+    const found=result.data.records?.some(row=>item.baselineAuditId!=null && row.id>item.baselineAuditId && (item.action==='publish' ? row.action==='PUBLISH' : item.action==='revoke' ? row.action==='REVOKE' : item.action==='APPROVED' || item.action==='CHECKING' ? row.action==='STATUS_TRANSITION' && row.newStatus===item.action : false))
+    if (found) { uncertainWrites.value=uncertainWrites.value.filter(x=>x!==item); actionNotice.value='精确快照审计中已观察到目标操作；不再重复写入。该事件不证明原请求的唯一归属。'; await load() }
+    else actionNotice.value='已重读精确快照审计，尚不能确认原请求结果；没有新记录不证明未执行，继续停止重发。'
+  } catch(cause) {if(current(scope)) actionNotice.value=getHttpErrorMessage(cause,'精确审计核对失败，继续停止重发')}
+  finally {if(current(scope)) verifyingWrite.value=false}
+}
+const confirmVisible = ref(false), confirmClass = `release-confirm-${Math.random().toString(36).slice(2)}`
+let scopeRevision = 0, actionOperation = 0, publishOperation = 0, confirmOperation = 0
+function closeOwnedConfirm() { confirmOperation++; document.querySelector<HTMLButtonElement>(`.${confirmClass}`)?.click(); confirmVisible.value = false }
+function ticket() { return { revision: scopeRevision, source: datasourceId.value, identity:auth.token } }
+function current(t: ReturnType<typeof ticket>) { return !disposed && t.revision === scopeRevision && t.source === datasourceId.value && scopeReady.value }
+async function writeTracked(item: VersionHistoryItem, action: string, scope: ReturnType<typeof ticket>, allowed: () => boolean, write: () => Promise<unknown>) {
+  let baselineAuditId: number | undefined
+  if (hasDatasourceFunction(RELEASE_VIEW_FUNCTION,rowDatasourceId(item))) {
+    try { const audit=await listSnapshotAuditLogs(item.snapshotId,{page:1,size:20}); baselineAuditId=Math.max(0,...audit.data.records.map(x=>x.id)) } catch { /* Missing baseline cannot later prove an uncertain result. */ }
+  }
+  if (!current(scope) || !currentRow(item) || !allowed()) throw 'cancel'
+  return trackReleaseWrite({identity:scope.identity,source:scope.source!,snapshot:item.snapshotId,action,started:Date.now(),baselineAuditId},write)
+}
+function currentRow(item: VersionHistoryItem) { return scopeReady.value && rowDatasourceId(item) === datasourceId.value && history.value.some(row => row.snapshotId === item.snapshotId && row.status === item.status) }
+async function ownedConfirm(message: string, title: string) {
+  const operation=++confirmOperation; confirmVisible.value = true
+  try { await ElMessageBox.confirm(message, title, { type:'warning', cancelButtonClass:confirmClass }) }
+  finally { if(operation===confirmOperation) confirmVisible.value = false }
+}
+function mutationError(cause: unknown, fallback: string) {
+  const status = (cause as {response?:{status?:number}})?.response?.status
+  const uncertain=!status || status>=500 || status===408
+  actionError.value = getHttpErrorMessage(cause, fallback)
+  ElMessage.error(actionError.value)
+  actionNotice.value = uncertain ? '操作结果待确认；请刷新版本并查看该快照操作记录核实，未核实前不会重发。' : status === 409 ? '发生并发冲突，请重读当前版本；已填写原因保留，不会自动重试。' : '服务端拒绝了本次操作，请核对原因。'
+}
+
 
 const snapshotDialogVisible = ref(false)
 const snapshotDialogContext = ref<SnapshotDialogContext | null>(null)
@@ -86,6 +147,7 @@ const {
 const publishConfirmVisible = ref(false)
 const publishTarget = ref<VersionHistoryItem | null>(null)
 const publishSubmitting = ref(false)
+useAdminScrollLock(() => snapshotDialogVisible.value || publishConfirmVisible.value || confirmVisible.value)
 const {
   gate: publishGate,
   loading: publishGateLoading,
@@ -230,14 +292,7 @@ function rowActionWidths(row: VersionHistoryItem): number[] {
 }
 
 const hasVisibleRowActions = computed(() => history.value.some((row) => rowActionWidths(row).length > 0))
-const actionsColumnWidth = computed(() => Math.max(
-  72,
-  ...history.value.map((row) => {
-    const widths = rowActionWidths(row)
-    if (!widths.length) return 0
-    return widths.reduce((sum, width) => sum + width, 24 + (widths.length - 1) * 16)
-  }),
-))
+const actionsColumnWidth = computed(() => 300)
 
 function formatVersionTime(value?: string | null) {
   if (!value) return ''
@@ -295,7 +350,8 @@ function clearCompareSelection() {
 async function load() {
   const sourceId = datasourceId.value
   const currentRequest = ++listRequestId
-  if (!sourceId) {
+  const scope = ticket()
+  if (!scopeReady.value || !sourceId) {
     history.value = []
     published.value = null
     total.value = 0
@@ -316,7 +372,7 @@ async function load() {
       listVersionHistory(sourceId, { page: page.value, size: pageSize }),
       getPublishedSnapshot(sourceId),
     ])
-    if (disposed || currentRequest !== listRequestId || sourceId !== datasourceId.value) return
+    if (!current(scope) || currentRequest !== listRequestId) return
 
     if (historyResult.status === 'fulfilled') {
       history.value = historyResult.value.data.records || []
@@ -353,7 +409,7 @@ function changePage(nextPage: number) {
 
 function openSnapshotDialog(item: VersionHistoryItem, tab: DetailTab = 'content') {
   const sourceId = rowDatasourceId(item)
-  if (!sourceId || (tab === 'operations' && !canViewAuditRecords(item))) return
+  if (!currentRow(item) || !sourceId || !canViewAuditRecords(item)) return
 
   snapshotDialogContext.value = {
     snapshotId: item.snapshotId,
@@ -393,7 +449,8 @@ function retrySnapshotDialogDetail() {
 
 function loadDialogDetailFromContext() {
   const openedFor = snapshotDialogContext.value
-  if (!snapshotDialogVisible.value || !openedFor) return
+  if (!scopeReady.value || !snapshotDialogVisible.value || !openedFor) return
+  if (!hasDatasourceFunction('metadata:view', openedFor.datasourceId)) { clearSnapshotDialogDetail(); return }
   return loadSnapshotDialogDetail({ snapshotId: openedFor.snapshotId, datasourceId: openedFor.datasourceId })
 }
 
@@ -596,154 +653,101 @@ function issueCenterTarget(row: VersionHistoryItem) {
  * 批准前读取门禁。来源高风险未解决时不进入确认框；读取失败不阻断前端，
  * 由后端在审核接口再次校验并返回 409。
  */
-async function ensureApprovable(item: VersionHistoryItem): Promise<boolean> {
+async function ensureApprovable(item: VersionHistoryItem, scope: ReturnType<typeof ticket>): Promise<boolean> {
+  // Gate is an auxiliary release:view read; a reviewer without it does not borrow that permission.
+  if (!hasDatasourceFunction(RELEASE_VIEW_FUNCTION, rowDatasourceId(item))) return true
   try {
     const result = await getReleaseGate(item.snapshotId)
+    if (!current(scope)) return false
     const gate = result.data
-    if (!gate || gate.approvable) {
-      if (gate && gate.warningCount > 0) {
-        ElMessage.warning(`门禁有 ${gate.warningCount} 项提示；语义问题不阻断发布`)
-      }
-      return true
-    }
-    const blockers = gate.items
-      .filter((gateItem) => gateItem.blocksApproval && gateItem.status === 'FAIL')
-      .map((gateItem) => gateItem.message)
-    await ElMessageBox.alert(
-      blockers.join('；') || '存在未解决的治理问题，暂不能批准。',
-      '暂不能批准',
-      { type: 'warning' },
-    )
+    if (!gate || gate.snapshotId !== item.snapshotId || (gate.datasourceId != null && gate.datasourceId !== scope.source)) throw new Error('门禁范围与当前快照不一致')
+    if (gate.approvable) return true
+    actionError.value = gate.items.filter(x => x.blocksApproval && x.status === 'FAIL').map(x => x.message).join('；') || '存在未解决的治理问题，暂不能批准。'
+    const operation=++confirmOperation; confirmVisible.value=true
+    try { await ElMessageBox.alert(actionError.value,'暂不能批准',{type:'warning',confirmButtonClass:confirmClass}) } finally {if(operation===confirmOperation) confirmVisible.value=false}
     return false
   } catch (cause) {
-    ElMessage.warning(getHttpErrorMessage(cause, '发布门禁读取失败，审核时将由后端再次校验'))
+    if (!current(scope)) return false
+    ElMessage.warning(getHttpErrorMessage(cause, '门禁读取失败，审核时由后端再次校验'))
     return true
   }
 }
 
+async function runConfirmed(item: VersionHistoryItem, allowed: () => boolean, message: string, title: string, action: () => Promise<unknown>) {
+  if (actionLoading.value || publishSubmitting.value || unknownAction.value || !currentRow(item) || !allowed()) return
+  const scope = ticket(), operation = ++actionOperation
+  actionLoading.value = true; actionError.value = ''; actionNotice.value = ''
+  try {
+    if (title === '批准快照' && !(await ensureApprovable(item, scope))) return
+    if (!current(scope) || operation !== actionOperation) return
+    await ownedConfirm(message, title)
+    if (!current(scope) || operation !== actionOperation || !allowed() || !currentRow(item)) return
+    await writeTracked(item,title==='批准快照' ? 'APPROVED' : title==='确认进入审核' ? 'CHECKING' : 'quality-check',scope,allowed,action)
+    if (!current(scope) || operation !== actionOperation) return
+    await load()
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close' && current(scope) && operation === actionOperation) mutationError(cause, `${title}未完成`)
+  } finally { if (current(scope) && operation === actionOperation) actionLoading.value = false }
+}
 async function enterReview(item: VersionHistoryItem) {
-  if (actionLoading.value || item.status !== 'DRAFT' || !canReviewSnapshot(item)) return
-  const sourceId = rowDatasourceId(item)
-  const requestId = listRequestId
-  const isCurrent = () => !disposed && sourceId !== undefined
-    && sourceId === datasourceId.value && requestId === listRequestId
-  if (!isCurrent()) return
-  actionLoading.value = true
-  try {
-    await ElMessageBox.confirm(
-      `确认将快照 v${item.snapshotVersion} 进入人工审核？此操作不代表质量检查已完整完成，也不会自动批准或发布。`,
-      '确认进入审核',
-      { type: 'warning' },
-    )
-    if (!isCurrent() || !canReviewSnapshot(item)) return
-    await changeSnapshotStatus(item.snapshotId, { targetStatus: 'CHECKING', reason: '人工进入审核' })
-    if (!isCurrent()) return
-    ElMessage.success('快照已进入审核，批准与发布仍需分别操作。')
-    await load()
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close' && isCurrent()) {
-      ElMessage.error(getHttpErrorMessage(cause, '进入审核失败'))
-    }
-  } finally {
-    actionLoading.value = false
-  }
+  if (item.status !== 'DRAFT') return
+  return runConfirmed(item, () => canReviewSnapshot(item), `确认将快照 v${item.snapshotVersion} 进入人工审核？此操作不代表质量检查已完整完成，也不会自动批准或发布。`, '确认进入审核', async () => {
+    await changeSnapshotStatus(item.snapshotId, {targetStatus:'CHECKING',reason:'人工进入审核'})
+  })
 }
-
 async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
-  const labels: Record<string, string> = { CHECKING: '开始质量检查', APPROVED: '批准快照' }
-  if (actionLoading.value) return
-  if (targetStatus === 'CHECKING' && !canRunQualityCheck(item)) return
-  if (targetStatus === 'APPROVED' && !canReviewSnapshot(item)) return
-  if (targetStatus === 'APPROVED' && !(await ensureApprovable(item))) return
-  const confirmMessage = targetStatus === 'APPROVED'
-    ? '确认批准快照 v' + item.snapshotVersion + '？批准后仍需通过发布门禁才能发布。'
-    : '确认对快照 v' + item.snapshotVersion + '执行“' + labels[targetStatus] + '”？'
-  try {
-    await ElMessageBox.confirm(confirmMessage, '确认操作', { type: 'warning' })
-    actionLoading.value = true
-    if (targetStatus === 'CHECKING') {
-      const result = await triggerQualityCheck(item.snapshotId)
-      const check = result.data
-      if (check?.status === 'SUCCESS' && check.complete) {
-        const score = check.requestedScope === 'FULL' && check.qualityScore != null
-          ? `，综合得分 ${check.qualityScore}` : ''
-        ElMessage.success(`质量校验已完整完成${score}。`)
-      } else if (check?.status === 'PARTIAL' || check?.status === 'SUCCESS') {
-        ElMessage.warning('质量校验部分完成；本次评分不作为完整结果。')
-      } else if (check?.executedRuleCount === 0 && check.failedRuleCount === 0 && check.notApplicableRuleCount > 0) {
-        ElMessage.warning('本次检查没有可执行的适用项；未生成完整校验结果。')
-      } else {
-        ElMessage.error('质量校验未完成，请查看失败覆盖说明。')
-      }
-    } else {
-      await changeSnapshotStatus(item.snapshotId, { targetStatus })
-      ElMessage.success('快照状态已更新')
-    }
-    await load()
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(getHttpErrorMessage(cause, '快照状态更新失败'))
-  } finally {
-    actionLoading.value = false
+  if (targetStatus === 'APPROVED') {
+    if (!['CHECKING','ISSUE_FOUND'].includes(item.status)) return
+    return runConfirmed(item, () => canReviewSnapshot(item), `确认批准快照 v${item.snapshotVersion}？批准后仍需独立发布。`, '批准快照', () => changeSnapshotStatus(item.snapshotId,{targetStatus}))
   }
+  if (targetStatus !== 'CHECKING' || item.status !== 'DRAFT') return
+  const scope=ticket()
+  return runConfirmed(item, () => canRunQualityCheck(item), `确认对快照 v${item.snapshotVersion} 执行来源质量检查？这不等于人工审核或发布。`, '开始质量检查', async () => {
+    const result=await triggerQualityCheck(item.snapshotId)
+    if (!current(scope)) return
+    const check=result.data
+    if (check?.status==='SUCCESS' && check.complete) ElMessage.success(`质量校验已完整完成${check.requestedScope==='FULL' && check.qualityScore!=null ? `，综合得分 ${check.qualityScore}` : ''}。`)
+    else if (check?.status==='PARTIAL' || check?.status==='SUCCESS') ElMessage.warning('质量校验部分完成；本次评分不作为完整结果。')
+    else if (check?.executedRuleCount===0 && check.failedRuleCount===0 && check.notApplicableRuleCount>0) ElMessage.warning('本次检查没有可执行的适用项；未生成完整校验结果。')
+    else ElMessage.error('质量校验未完成，请查看失败覆盖说明。')
+  })
 }
-
 function publish(item: VersionHistoryItem) {
-  if (!canPublishSnapshot(item)) return
-  publishTarget.value = item
-  publishConfirmVisible.value = true
-  void loadPublishGate(item.snapshotId)
+  if (actionLoading.value || publishSubmitting.value || unknownAction.value || item.status!=='APPROVED' || !currentRow(item) || !canPublishSnapshot(item)) return
+  publishOperation++; publishTarget.value={...item}; publishConfirmVisible.value=true; actionError.value=''; actionNotice.value=''
+  if (canViewAuditRecords(item)) void loadPublishGate(item.snapshotId)
 }
-
 function closePublishConfirm() {
-  publishConfirmVisible.value = false
-  publishTarget.value = null
-  publishSubmitting.value = false
-  clearPublishGate()
+  publishOperation++; publishConfirmVisible.value=false; publishTarget.value=null; publishSubmitting.value=false; clearPublishGate()
 }
-
-function retryPublishGate() {
-  if (publishTarget.value) void loadPublishGate(publishTarget.value.snapshotId)
-}
-
+function retryPublishGate() { const item=publishTarget.value; if (item && currentRow(item) && canViewAuditRecords(item)) void loadPublishGate(item.snapshotId) }
 async function confirmPublish() {
-  const item = publishTarget.value
-  if (!item || publishSubmitting.value) return
-  // 已知阻断时不提交；门禁读取失败仍允许提交，由后端 409 兜底。
-  if (publishGate.value && publishGate.value.blockingCount > 0) return
-  publishSubmitting.value = true
+  const item=publishTarget.value
+  if (!item || publishSubmitting.value || unknownAction.value || publishGateLoading.value || !currentRow(item) || item.status!=='APPROVED' || !canPublishSnapshot(item)) return
+  if (publishGate.value && !publishGate.value.publishable) return
+  const scope=ticket(), operation=++publishOperation
+  publishSubmitting.value=true
   try {
-    await publishSnapshot(item.snapshotId)
-    ElMessage.success('快照已发布')
-    closePublishConfirm()
-    await load()
-    const openedFor = snapshotDialogContext.value
-    if (snapshotDialogVisible.value && openedFor) {
-      void loadDialogGate(openedFor.snapshotId)
-    }
-  } catch (cause) {
-    ElMessage.error(getHttpErrorMessage(cause, '快照发布失败'))
-  } finally {
-    publishSubmitting.value = false
-  }
+    await writeTracked(item,'publish',scope,()=>canPublishSnapshot(item),()=>publishSnapshot(item.snapshotId))
+    if (!current(scope) || operation!==publishOperation) return
+    closePublishConfirm(); await load()
+  } catch(cause) { if (current(scope) && operation===publishOperation) mutationError(cause,'快照发布未完成') }
+  finally { if (current(scope) && operation===publishOperation) publishSubmitting.value=false }
 }
-
 async function revoke(item: VersionHistoryItem) {
-  if (item.status !== 'PUBLISHED' || !canPublishSnapshot(item)) return
+  if (actionLoading.value || publishSubmitting.value || unknownAction.value || item.status!=='PUBLISHED' || !currentRow(item) || !canPublishSnapshot(item)) return
+  const scope=ticket(),operation=++actionOperation
+  actionLoading.value=true; actionError.value='';actionNotice.value='';confirmVisible.value=true
   try {
-    const result = await ElMessageBox.prompt('请输入撤回原因', '撤回已发布快照', {
-      inputValidator: (value) => Boolean(value?.trim()) || '撤回原因不能为空',
-      confirmButtonText: '确认撤回',
-      cancelButtonText: '取消',
-    })
-    actionLoading.value = true
-    await revokeSnapshot(item.snapshotId, result.value)
-    ElMessage.success('快照已撤回')
-    await load()
-  } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(getHttpErrorMessage(cause, '快照撤回失败'))
-  } finally {
-    actionLoading.value = false
-  }
+    const result=await ElMessageBox.prompt('请输入撤回原因','撤回已发布快照',{inputValue:revokeReason.value,inputValidator:value=>Boolean(value?.trim()) || '撤回原因不能为空',confirmButtonText:'确认撤回',cancelButtonText:'取消',cancelButtonClass:confirmClass})
+    confirmVisible.value=false
+    if (!current(scope) || operation!==actionOperation || !canPublishSnapshot(item) || !currentRow(item)) return
+    revokeReason.value=result.value
+    await writeTracked(item,'revoke',scope,()=>canPublishSnapshot(item),()=>revokeSnapshot(item.snapshotId,result.value))
+    if (!current(scope) || operation!==actionOperation) return
+    revokeReason.value=''; await load()
+  } catch(cause) { if (cause!=='cancel' && cause!=='close' && current(scope) && operation===actionOperation) mutationError(cause,'快照撤回未完成') }
+  finally { if (current(scope) && operation===actionOperation) {actionLoading.value=false;confirmVisible.value=false} }
 }
 
 function auditActionLabel(action: string) {
@@ -764,13 +768,13 @@ function releaseToKnowledge() {
   }
 }
 
-watch(datasourceId, (next, previous) => {
-  if (next === previous) return
-  page.value = 1
-  selectedVersions.value = []
-  if (snapshotDialogVisible.value) closeSnapshotDialog()
+watch(() => [auth.token, iamS1.snapshot, iamS1.loaded, iamS1.errorMessage, context.datasourceId, context.routeSyncing, context.loading, route.query.datasourceId], () => {
+  scopeRevision++; listRequestId++; actionOperation++; publishOperation++
+  closeOwnedConfirm(); closeSnapshotDialog(); closePublishConfirm(); clearSnapshotDialogDetail(); resetAuditRecords(); resetIssuePresence()
+  page.value=1; selectedVersions.value=[]; history.value=[]; published.value=null; total.value=0; actionLoading.value=false
+  actionError.value='';actionNotice.value='';revokeReason.value='';verifyingWrite.value=false
   void load()
-})
+}, {flush:'sync'})
 
 watch(activeDetailTab, (tab) => {
   if (tab === 'operations') loadAuditRecords()
@@ -813,6 +817,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   disposed = true
+  window.removeEventListener('resize',measureTable)
+  scopeRevision++; actionOperation++; publishOperation++; closeOwnedConfirm(); clearDialogGate(); clearPublishGate()
   listRequestId += 1
   auditRequestId += 1
   issuePresenceRequestId += 1
@@ -822,6 +828,7 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="admin-page releases-page">
+    <div class="releases-page__eyebrow">数据资产 / 版本与发布</div>
     <TaskPageHeader
       title="元数据版本"
       description="查看元数据快照、当前正式版和版本间的结构变化。发布、撤回、问题处理与知识发布各自独立。"
@@ -833,13 +840,20 @@ onBeforeUnmount(() => {
       </template>
     </TaskPageHeader>
 
+    <p class="releases-page__purpose">选择一个采集版本，核对结构与治理证据，再审核、发布为正式来源。</p>
+    <ol class="release-journey" aria-label="元数据到问数的准备路径"><li><strong>01 核对采集</strong><span>比较结构、查看来源质量</span></li><li><strong>02 审核版本</strong><span>人工批准后才能发布</span></li><li><strong>03 发布快照</strong><span>成为当前正式元数据来源</span></li><li><strong>04 准备知识</strong><span>文档发布与索引构建另行确认</span></li></ol>
+    <div v-if="scopeError" role="alert" class="release-action-notice">{{ scopeError }}</div>
+    <section v-if="unknownAction" role="status" class="release-action-notice">快照 #{{ uncertainWrite?.snapshot }} 的 {{ uncertainWrite?.action }} 结果待确认。切换范围不会清除此记录；离开重进仍保留本次会话记录；整页刷新后仍需人工核对原目标，不可推定请求已取消。<el-button :loading="verifyingWrite" @click="verifyUncertainWrite">核对该快照操作记录</el-button><p>{{ actionNotice }}</p></section>
+    <section v-if="actionError" class="release-action-notice" role="alert"><strong>{{ actionError }}</strong><p>{{ actionNotice }}</p><p v-if="revokeReason">已保留撤回原因：{{ revokeReason }}</p><el-button :loading="listLoading" @click="load">重读版本与当前正式版</el-button></section>
     <section class="releases-page__current" aria-label="当前正式版">
       <div class="releases-page__current-label">
         <span>当前正式版</span>
         <strong v-if="published && !publishedLoading && !publishedError">v{{ published.snapshotVersion }}</strong>
       </div>
       <div class="releases-page__current-main">
-        <span v-if="!datasourceId" class="releases-page__current-state">请先选择数据源</span>
+        <span v-if="scopePending" class="releases-page__current-state" role="status">正在核验账号与数据源范围…</span>
+        <span v-else-if="scopeError" class="releases-page__current-state">当前正式版尚不可读取</span>
+        <span v-else-if="!datasourceId" class="releases-page__current-state">请先选择数据源</span>
         <span v-else-if="publishedLoading" class="releases-page__current-state" role="status">正在读取当前正式版…</span>
         <div v-else-if="publishedError" class="releases-page__current-error" role="alert">
           <span>{{ publishedError }}</span>
@@ -854,8 +868,8 @@ onBeforeUnmount(() => {
           <span v-if="!published.publishedAt" class="releases-page__current-state">接口未提供发布时间</span>
         </template>
       </div>
-      <RouterLink v-if="published && !publishedLoading && !publishedError" class="releases-page__knowledge-link" :to="releaseToKnowledge()">
-        生成语义知识
+      <RouterLink v-if="published && !publishedLoading && !publishedError && iamS1.canOnDatasource('knowledge:view', datasourceId)" class="releases-page__knowledge-link" :to="releaseToKnowledge()">
+        进入知识文档
       </RouterLink>
     </section>
 
@@ -879,7 +893,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-if="!datasourceId" class="releases-page__list-state">
+      <div v-if="scopePending" class="releases-page__list-state"><LoadingState text="正在核验账号与数据源范围…" /></div>
+      <div v-else-if="scopeError" class="releases-page__list-state"><p>版本列表尚不可读取，请核对上方范围或权限提示。</p></div>
+      <div v-else-if="!datasourceId" class="releases-page__list-state">
         <EmptyState message="请先选择数据源，再查看元数据版本。" />
       </div>
       <div v-else-if="listLoading" class="releases-page__list-state">
@@ -932,7 +948,7 @@ onBeforeUnmount(() => {
             </template>
           </el-table-column>
           <el-table-column v-if="hasReviewerNames" prop="reviewedBy" label="审校人" width="150" show-overflow-tooltip />
-          <el-table-column v-if="hasVisibleRowActions" label="操作" :width="actionsColumnWidth" fixed="right">
+          <el-table-column v-if="hasVisibleRowActions" label="操作" :width="actionsColumnWidth" :fixed="compactTable ? undefined : 'right'">
             <template #default="{ row }">
               <div class="release-row-actions">
                 <el-button v-if="canViewAuditRecords(row)" link class="release-row-actions__audit" @click="openSnapshotDialog(row, 'operations')">操作记录</el-button>
@@ -991,12 +1007,14 @@ onBeforeUnmount(() => {
       <el-tabs v-model="activeDetailTab" class="metadata-version-dialog__tabs">
         <el-tab-pane label="版本内容" name="content">
           <SnapshotDetailPanel
+            v-if="dialogDatasourceId && hasDatasourceFunction('metadata:view', dialogDatasourceId)"
             :detail="snapshotDialogDetail"
             :loading="snapshotDialogLoading"
             :error="snapshotDialogError"
             :show-datasource="false"
             @retry="retrySnapshotDialogDetail"
           />
+          <p v-else role="status">没有此源的 metadata:view，无法读取表字段结构；仍可查看操作记录与发布门禁。</p>
         </el-tab-pane>
         <el-tab-pane v-if="canViewDialogOperations" label="操作记录" name="operations">
           <div class="metadata-version-dialog__audit">
@@ -1070,6 +1088,8 @@ onBeforeUnmount(() => {
       append-to-body
       destroy-on-close
       :close-on-click-modal="false"
+      :close-on-press-escape="!publishSubmitting"
+      :show-close="!publishSubmitting"
     >
       <template #header>
         <h2 class="publish-gate-dialog__title">
@@ -1083,15 +1103,16 @@ onBeforeUnmount(() => {
         :issue-target="publishGateIssueTarget"
         @retry="retryPublishGate"
       />
+      <p v-if="actionError" role="alert" class="release-action-notice">{{ actionError }} · {{ actionNotice }}</p>
       <p class="publish-gate-dialog__hint">
         发布后同一数据源的旧已发布版本会自动过期。门禁会在后端再次校验，未通过时发布会被拒绝。
       </p>
       <template #footer>
-        <el-button @click="closePublishConfirm">取消</el-button>
+        <el-button :disabled="publishSubmitting" @click="closePublishConfirm">取消</el-button>
         <el-button
           type="primary"
           :loading="publishSubmitting"
-          :disabled="publishGateLoading || (publishGate?.blockingCount ?? 0) > 0"
+          :disabled="unknownAction || publishGateLoading || (publishGate ? !publishGate.publishable : false)"
           @click="confirmPublish"
         >确认发布</el-button>
       </template>
@@ -1100,6 +1121,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.releases-page__eyebrow { color:var(--do-primary-strong); font-size:12px; font-weight:650; margin-bottom:-6px; }
+.releases-page__purpose { margin:-6px 0 2px; color:var(--do-muted); font-size:14px; }
+.release-journey { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; padding:16px 0; margin:0; border-block:1px solid var(--do-line); gap:20px; }
+.release-journey li { display:grid; gap:6px; padding-left:16px; border-left:2px solid var(--do-line); }
+.release-journey li:first-child { border-color:var(--do-primary); }
+.release-journey strong { font-size:13px; }.release-journey span { color:var(--do-muted);font-size:12px;line-height:1.5; }
+.release-action-notice { border:1px solid var(--do-line); border-left:3px solid var(--do-warning); padding:14px; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }.release-action-notice p { margin:6px 0; }
+@media(max-width:760px) { .release-journey { grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 8px; } }
+
 .releases-page {
   display: flex;
   flex-direction: column;
@@ -1157,9 +1187,9 @@ onBeforeUnmount(() => {
 .releases-page__table :deep(.el-table.is-scrolling-none .el-table-fixed-column--right::before) { box-shadow: none; }
 .releases-page__table :deep(.el-table::before),
 .releases-page__table :deep(.el-table__inner-wrapper::before) { display: none; }
-.releases-page__table :deep(.el-table th.el-table__cell) { height: 44px; padding: 0; color: var(--do-muted); background: #f4f6f9; font-size: 12px; font-weight: 600; }
+.releases-page__table :deep(.el-table th.el-table__cell) { height: 44px; padding: 0; color: var(--do-muted); background: var(--do-soft); font-size: 12px; font-weight: 600; }
 .releases-page__table :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 44px; }
-.releases-page__table :deep(.el-table td.el-table__cell) { padding: 12px 0; border-bottom-color: #edf0f4; font-size: 14px; vertical-align: middle; }
+.releases-page__table :deep(.el-table td.el-table__cell) { padding: 12px 0; border-bottom-color: var(--do-line); font-size: 14px; vertical-align: middle; }
 .releases-page__table :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.4; }
 .releases-page__table :deep(.el-table tr:last-child td.el-table__cell) { border-bottom: 0; }
 .release-count { font-size: 12px; white-space: nowrap; }
@@ -1170,7 +1200,7 @@ onBeforeUnmount(() => {
 .release-time-cell { display: grid; gap: 3px; color: var(--do-muted); font-size: 12px; line-height: 1.4; }
 .release-time-cell time:last-child:not(:first-child) { color: var(--do-ink); }
 .release-quality-score { color: var(--do-muted); font-size: 13px; }
-.release-row-actions { display: flex; align-items: center; justify-content: flex-start; flex-wrap: nowrap; gap: 4px 16px; white-space: nowrap; }
+.release-row-actions { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 4px 12px; white-space: normal; }
 .release-row-actions :deep(.el-button) { min-height: 30px; }
 .release-row-actions :deep(.release-row-actions__audit) {
   --el-button-text-color: var(--do-muted);
@@ -1218,8 +1248,8 @@ onBeforeUnmount(() => {
 .metadata-version-dialog__audit-table :deep(.el-table) { min-width: 720px; border: 0; background: var(--do-surface); }
 .metadata-version-dialog__audit-table :deep(.el-table::before),
 .metadata-version-dialog__audit-table :deep(.el-table__inner-wrapper::before) { display: none; }
-.metadata-version-dialog__audit-table :deep(.el-table th.el-table__cell) { height: 40px; padding: 0; color: var(--do-muted); background: #f4f6f9; font-size: 12px; }
-.metadata-version-dialog__audit-table :deep(.el-table td.el-table__cell) { padding: 11px 0; border-bottom-color: #edf0f4; font-size: 14px; }
+.metadata-version-dialog__audit-table :deep(.el-table th.el-table__cell) { height: 40px; padding: 0; color: var(--do-muted); background: var(--do-soft); font-size: 12px; }
+.metadata-version-dialog__audit-table :deep(.el-table td.el-table__cell) { padding: 11px 0; border-bottom-color: var(--do-line); font-size: 14px; }
 .metadata-version-dialog__audit-table :deep(.el-table td.el-table__cell .cell),
 .metadata-version-dialog__audit-table :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 1.4; }
 .metadata-version-dialog__audit-pagination { justify-content: flex-end; margin-top: 12px; }
