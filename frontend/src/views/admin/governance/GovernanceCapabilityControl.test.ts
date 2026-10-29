@@ -453,7 +453,7 @@ describe('问题中心分派详情会话隔离', () => {
   }
 
   it('A 的慢分派在关闭 A 并打开 B 后不能覆盖 B 详情', async () => {
-    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    respond(capability({ global:['organization:user:view'], onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
     api.listQualityIssues.mockResolvedValue({ data: { records: [issueA, issueB], total: 2 } })
     api.listUsers.mockResolvedValue({ data: { records: [{ id: 77, realName: '责任人A', status: 1 }], total: 1 } })
     const pendingA = deferred<{ data: null }>()
@@ -478,7 +478,7 @@ describe('问题中心分派详情会话隔离', () => {
   })
 
   it('关闭详情后分派响应返回不重新打开抽屉', async () => {
-    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    respond(capability({ global:['organization:user:view'], onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
     api.listQualityIssues.mockResolvedValue({ data: { records: [issueA], total: 1 } })
     api.listUsers.mockResolvedValue({ data: { records: [{ id: 77, realName: '责任人A', status: 1 }], total: 1 } })
     const pending = deferred<{ data: null }>()
@@ -498,7 +498,7 @@ describe('问题中心分派详情会话隔离', () => {
   })
 
   it('切换数据源或快照期间的分派响应不刷新新范围', async () => {
-    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    respond(capability({ global:['organization:user:view'], onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
     api.listQualityIssues.mockResolvedValue({ data: { records: [issueA], total: 1 } })
     api.listUsers.mockResolvedValue({ data: { records: [{ id: 77, realName: '责任人A', status: 1 }], total: 1 } })
     const pending = deferred<{ data: null }>()
@@ -523,7 +523,7 @@ describe('问题中心分派详情会话隔离', () => {
   })
 
   it('旧分派 finally 不会清除 B 的新分派加载状态', async () => {
-    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    respond(capability({ global:['organization:user:view'], onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
     api.listQualityIssues.mockResolvedValue({ data: { records: [issueA, issueB], total: 2 } })
     api.listUsers.mockResolvedValue({ data: { records: [
       { id: 77, realName: '责任人A', status: 1 }, { id: 88, realName: '责任人B', status: 1 },
@@ -727,6 +727,8 @@ describe('问题中心的范围、筛选和结果表达', () => {
   })
 
   it('只允许选择当前范围快照；刷新不会把已恢复的历史快照替换成最新快照', async () => {
+    // 公共范围必须具备独立metadata:view；此例验证精确历史恢复而不是最小治理角色。
+    respond(capability({onDatasource:['metadata:view']}));await useIamS1Store().load()
     const context = useAdminContextStore()
     context.$patch({
       datasources: [{ id: 5, name: '销售库', databaseName: 'sales' }],
@@ -777,7 +779,7 @@ describe('问题中心的范围、筛选和结果表达', () => {
     const secondIssue = { ...issue, id: 2, status: 'CONFIRMED' }
     api.listQualityIssues.mockResolvedValue({ data: { records: [issue, secondIssue], total: 2 } })
     api.batchHandleIssues.mockResolvedValue({ data: {
-      updated: 1, skipped: 1, skippedIssues: [{ id: 2, reason: '当前状态不允许流转' }],
+      updated: 1, skipped: 1, skippedIssues: [{ issueId: 2, reason: '当前状态不允许流转' }],
     } })
     const warning = vi.spyOn(ElMessage, 'warning')
     const wrapper = mountIssuePage()
@@ -794,6 +796,7 @@ describe('问题中心的范围、筛选和结果表达', () => {
 
     expect(api.batchHandleIssues).toHaveBeenCalledWith({ issueIds: [1, 2], status: 'CONFIRMED' })
     expect(warning).toHaveBeenCalledWith(expect.stringContaining('当前状态不允许流转'))
+    expect(wrapper.find('.issue-batch-receipt').text().replace(/\s/g,'')).toContain('问题#2')
     expect(wrapper.text()).not.toContain('已选 2 项')
     warning.mockRestore()
   })
@@ -845,7 +848,7 @@ describe('治理状态维护的能力控制', () => {
     const wrapper = mountPage(StatusEditor)
     await settle()
 
-    expect(api.listSnapshots).toHaveBeenCalledTimes(1)
+    expect(api.listSnapshots).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('查看资产结构')
   })
 })
@@ -869,7 +872,7 @@ describe('质量规则管理的能力控制', () => {
   })
 
   it('规则表逐条解释当前快照规划，停用和继承来源不混淆', async () => {
-    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    respond(capability({ onDatasource: ['governance:rule:view','metadata:view'] }))
     api.listQualityRules.mockResolvedValue({ data: [{ ...globalRule, enabled: 1 }, { ...globalRule, id: 4, ruleName: '已停用本源规则', scopeType: 'DATASOURCE', datasourceId: 5, enabled: 0 }] })
     api.getQualityRuleSummary.mockResolvedValue({ data: { enabledCount: 1, applicableCount: 0, globalCount: 1, datasourceCount: 0, unsupportedCount: 0, overriddenCount: 0, notApplicableCount: 1, invalidCount: 0,
       rules: [{ ruleId: 3, ruleName: globalRule.ruleName, configVersion: 1, scopeType: 'GLOBAL', status: 'NOT_APPLICABLE', reason: '当前快照没有可用目标', plannedTargetCount: 0, targetCount: 0 }] } })
@@ -889,7 +892,7 @@ describe('质量规则管理的能力控制', () => {
   })
 
   it('切换快照后，较晚返回的旧适用性规划不能覆盖新范围', async () => {
-    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    respond(capability({ onDatasource: ['governance:rule:view','metadata:view'] }))
     api.listQualityRules.mockResolvedValue({ data: [globalRule] })
     const pending = deferred<{ data: unknown }>()
     api.getQualityRuleSummary.mockImplementation((id: number) => id === 8 ? pending.promise : Promise.resolve({ data: {
@@ -1469,14 +1472,14 @@ describe('质量规则管理的能力控制', () => {
 
 describe('治理总览的批次恢复与范围隔离', () => {
   it('知识治理入口进入当前范围的任务，不自动执行来源质量检查', async()=>{
-    respond(capability({onDatasource:['governance:view','governance:field:view']}))
+    respond(capability({onDatasource:['metadata:view','governance:view','governance:field:view']}))
     const wrapper=mountPage(QualityDashboard);await settle()
     const entry=wrapper.findAll('button').find(button=>button.text()==='开始知识治理')
     expect(entry).toBeDefined();await entry!.trigger('click');await settle()
     expect(routeState.push).toHaveBeenCalledWith(expect.objectContaining({path:'/admin/governance/fields',query:expect.objectContaining({tab:'tasks',datasourceId:5,snapshotId:8})}))
     expect(api.triggerQualityCheck).not.toHaveBeenCalled()
   })
-  const overviewPermissions = ['governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view']
+  const overviewPermissions = ['metadata:view', 'governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view']
 
   it.each([100, 0])('没有批次时将历史评分 %i 分与快照状态放在次要上下文中', async (qualityScore) => {
     respond(capability({ onDatasource: overviewPermissions }))
@@ -1532,7 +1535,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
   })
 
   it('没有治理总览查看权限时显示无权状态而不是无批次', async () => {
-    respond(capability({ onDatasource: ['governance:issue:view', 'governance:rule:view'] }))
+    respond(capability({ onDatasource: ['metadata:view','governance:issue:view', 'governance:rule:view'] }))
     const wrapper = mountPage(QualityDashboard)
     await settle()
 
@@ -1632,7 +1635,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
 
   it('问题统计读取失败时不显示零问题', async () => {
     respond(capability({ onDatasource: [
-      'governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view',
+      'metadata:view','governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view',
     ] }))
     api.getSnapshotQualityIssueSummary.mockRejectedValue(new Error('network unavailable'))
     const wrapper = mountPage(QualityDashboard)
@@ -1644,7 +1647,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
 
   it('快照切换后较晚返回的旧批次不能覆盖当前结果', async () => {
     respond(capability({ onDatasource: [
-      'governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view',
+      'metadata:view','governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view',
     ] }))
     let resolveOld!: (value: { data: Record<string, unknown> }) => void
     api.getLatestQualityCheckBatch.mockImplementation((snapshotId: number) => {

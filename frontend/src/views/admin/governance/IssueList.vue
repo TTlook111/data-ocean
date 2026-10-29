@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { positiveId } from '../../../utils/lineageContext'
+import { trackGovernanceWrite } from '../../../composables/governanceWriteTracker'
+import GovernanceWriteNotice from '../../../components/admin/GovernanceWriteNotice.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -13,7 +16,7 @@ import {
   listReviewRecords,
   listSnapshotTables,
   type ReviewRecord,
-  type QualityIssueItem
+  type QualityIssueItem,
 } from '../../../api/admin/governance'
 import { listUsers } from '../../../api/admin/user'
 import {
@@ -46,6 +49,20 @@ const selectedIssue = ref<QualityIssueItem | null>(null)
 const reviewRecords = ref<ReviewRecord[]>([])
 const detailVisible = ref(false)
 const detailLoading = ref(false)
+const reviewError = ref(''),
+  actionError = ref(''),
+  busyIds = ref<number[]>([]),
+  batchBusy = ref(false)
+const batchResult = ref<{
+  updated: number
+  skipped: number
+  skippedIssues: Array<{ issueId: number; reason: string }>
+} | null>(null)
+const resolutionTarget = ref<{ issue: QualityIssueItem; status: string; epoch: number } | null>(null),
+  resolutionNote = ref(''),
+  resolutionError = ref('')
+let scopeEpoch = 0,
+  userRequestId = 0
 
 /**
  * 责任人分派。
@@ -70,6 +87,10 @@ let detailSessionId = 0
 let assignmentRequestId = 0
 let disposed = false
 let activeScopeKey = ''
+const ownCancelClass = `issue-reopen-cancel-${Math.random().toString(36).slice(2)}`
+function cancelOwnedConfirmation() {
+  document.querySelector<HTMLButtonElement>(`.${ownCancelClass}`)?.click()
+}
 const adminContext = useAdminContextStore()
 const auth = useAuthStore()
 const iamS1 = useIamS1Store()
@@ -84,32 +105,52 @@ const VIEW_FUNCTION = 'governance:issue:view'
 const RELEASE_VIEW_FUNCTION = 'metadata:release:view'
 const datasourceId = computed(() => adminContext.datasourceId)
 const snapshotId = computed(() => adminContext.snapshotId)
-const requestedDatasourceId = computed(() => Number(route.query.datasourceId) || undefined)
-const requestedSnapshotId = computed(() => Number(route.query.snapshotId) || undefined)
-const routeScopeMatches = computed(() =>
-  (!requestedDatasourceId.value || requestedDatasourceId.value === datasourceId.value)
-  && (!requestedSnapshotId.value || requestedSnapshotId.value === snapshotId.value))
+const requestedDatasourceId = computed(() => positiveId(route.query.datasourceId))
+const requestedSnapshotId = computed(() => positiveId(route.query.snapshotId))
+const routeScopeMatches = computed(
+  () =>
+    (!requestedDatasourceId.value || requestedDatasourceId.value === datasourceId.value) &&
+    (!requestedSnapshotId.value || requestedSnapshotId.value === snapshotId.value),
+)
+const invalidRouteScope = computed(
+  () =>
+    (route.query.datasourceId !== undefined && !requestedDatasourceId.value) ||
+    (route.query.snapshotId !== undefined && !requestedSnapshotId.value),
+)
 const routeScopeUnavailable = computed(() => {
+  if (invalidRouteScope.value) return true
   if (adminContext.routeSyncError) return true
   if (!adminContext.initialized || adminContext.routeSyncing) return false
-  if (requestedDatasourceId.value
-    && !adminContext.datasources.some((item) => item.id === requestedDatasourceId.value)) return true
+  if (
+    requestedDatasourceId.value &&
+    !adminContext.datasources.some((item) => item.id === requestedDatasourceId.value)
+  )
+    return true
   return Boolean(requestedSnapshotId.value && !adminContext.loading && !snapshotId.value)
 })
-const rangeSynchronizing = computed(() => !routeScopeUnavailable.value && (
-  !adminContext.initialized
-  || adminContext.loading
-  || adminContext.routeSyncing
-  || !routeScopeMatches.value))
-const rangeReady = computed(() => adminContext.initialized
-  && !adminContext.loading
-  && routeScopeMatches.value
-  && !routeScopeUnavailable.value
-  && Boolean(datasourceId.value)
-  && Boolean(snapshotId.value))
-const canViewCurrentScope = computed(() => Boolean(datasourceId.value)
-  && iamS1.canOnDatasource(VIEW_FUNCTION, datasourceId.value))
-const canReadIssues = computed(() => rangeReady.value && iamS1.loaded && canViewCurrentScope.value)
+const rangeSynchronizing = computed(
+  () =>
+    !routeScopeUnavailable.value &&
+    (!adminContext.initialized ||
+      adminContext.loading ||
+      adminContext.routeSyncing ||
+      !routeScopeMatches.value),
+)
+const rangeReady = computed(
+  () =>
+    adminContext.initialized &&
+    !adminContext.loading &&
+    routeScopeMatches.value &&
+    !routeScopeUnavailable.value &&
+    Boolean(datasourceId.value) &&
+    Boolean(snapshotId.value),
+)
+const canViewCurrentScope = computed(
+  () => Boolean(datasourceId.value) && iamS1.canOnDatasource(VIEW_FUNCTION, datasourceId.value),
+)
+const canReadIssues = computed(
+  () => rangeReady.value && iamS1.loaded && !iamS1.errorMessage && canViewCurrentScope.value,
+)
 
 /**
  * 能否处理某条问题。
@@ -133,8 +174,7 @@ const manageableIssueIds = computed(
   () => new Set(issues.value.filter((issue) => canManageIssue(issue)).map((issue) => issue.id)),
 )
 const canBatchManage = computed(
-  () => selectedIds.value.length > 0
-    && selectedIds.value.every((id) => manageableIssueIds.value.has(id)),
+  () => selectedIds.value.length > 0 && selectedIds.value.every((id) => manageableIssueIds.value.has(id)),
 )
 
 const query = reactive({
@@ -145,15 +185,23 @@ const query = reactive({
   tableName: String(route.query.tableName || ''),
   assigneeId: Number(route.query.assigneeId) || undefined,
   page: Number(route.query.page) || 1,
-  size: 20
+  size: 20,
 })
 
 /** 责任人筛选是否正落在「我自己」上，用于高亮快捷按钮 */
-const isMyIssuesFilter = computed(() =>
-  Boolean(currentUserId.value) && query.assigneeId === currentUserId.value)
-const hasBusinessFilters = computed(() => Boolean(
-  query.issueDomain !== 'ALL' || query.tableName || query.dimension || query.severity || query.status || query.assigneeId,
-))
+const isMyIssuesFilter = computed(
+  () => Boolean(currentUserId.value) && query.assigneeId === currentUserId.value,
+)
+const hasBusinessFilters = computed(() =>
+  Boolean(
+    query.issueDomain !== 'ALL' ||
+      query.tableName ||
+      query.dimension ||
+      query.severity ||
+      query.status ||
+      query.assigneeId,
+  ),
+)
 const canClearFilters = computed(() => hasBusinessFilters.value || query.page > 1)
 
 /**
@@ -173,13 +221,13 @@ const dimensionOptions = [
   { label: '准确性', value: 'ACCURACY' },
   { label: '一致性', value: 'CONSISTENCY' },
   { label: '时效性', value: 'TIMELINESS' },
-  { label: '可追溯性', value: 'TRACEABILITY' }
+  { label: '可追溯性', value: 'TRACEABILITY' },
 ]
 const severityOptions = [
   { label: '全部级别', value: '' },
   { label: '高', value: 'HIGH' },
   { label: '中', value: 'MEDIUM' },
-  { label: '低', value: 'LOW' }
+  { label: '低', value: 'LOW' },
 ]
 const statusOptions = [
   { label: '全部状态', value: '' },
@@ -188,7 +236,7 @@ const statusOptions = [
   { label: '已解决', value: 'RESOLVED' },
   { label: '已驳回', value: 'REJECTED' },
   { label: '已重新打开', value: 'REOPENED' },
-  { label: '自动关闭', value: 'AUTO_CLOSED' }
+  { label: '自动关闭', value: 'AUTO_CLOSED' },
 ]
 const issueDomainOptions = [
   { label: '全部问题域', value: 'ALL' },
@@ -196,7 +244,7 @@ const issueDomainOptions = [
   { label: '字段解释', value: 'SEMANTIC' },
 ]
 
-const sevType = (s: string) => s === 'HIGH' ? 'danger' : s === 'MEDIUM' ? 'warning' : 'info'
+const sevType = (s: string) => (s === 'HIGH' ? 'danger' : s === 'MEDIUM' ? 'warning' : 'info')
 const assigneeOptions = computed(() => {
   const options = [...userOptions.value]
   const currentId = selectedIssue.value?.assigneeId
@@ -209,7 +257,15 @@ const assigneeOptions = computed(() => {
 
 const canAssign = computed(() => {
   const target = assigneeSelection.value
-  return Boolean(target) && target !== selectedIssue.value?.assigneeId && !assignLoading.value
+  return (
+    Boolean(target) &&
+    target !== selectedIssue.value?.assigneeId &&
+    !assignLoading.value &&
+    !assigneeError.value &&
+    userOptions.value.some((item) => item.id === target) &&
+    canReadIssues.value &&
+    canManageIssue(selectedIssue.value)
+  )
 })
 
 async function fetchIssues() {
@@ -239,10 +295,21 @@ async function fetchIssues() {
       tableName: query.tableName || undefined,
       assigneeId: query.assigneeId,
       page: query.page,
-      size: query.size
+      size: query.size,
     })
-    if (disposed || currentRequest !== issueRequestId || !rangeReady.value || requestedSnapshot !== snapshotId.value) return
-    if (!res.data || !Number.isFinite(res.data.total) || res.data.total < 0 || !Array.isArray(res.data.records)) {
+    if (
+      disposed ||
+      currentRequest !== issueRequestId ||
+      !rangeReady.value ||
+      requestedSnapshot !== snapshotId.value
+    )
+      return
+    if (
+      !res.data ||
+      !Number.isFinite(res.data.total) ||
+      res.data.total < 0 ||
+      !Array.isArray(res.data.records)
+    ) {
       throw new Error('问题列表响应缺少有效的总数或记录')
     }
     issues.value = res.data.records
@@ -279,23 +346,31 @@ async function loadDomainSummary(forSnapshotId: number) {
 }
 
 async function loadTableOptions(forSnapshotId: number): Promise<boolean> {
+  if (!iamS1.canOnDatasource('metadata:view', datasourceId.value)) {
+    tableOptions.value = []
+    tableOptionsLoading.value = false
+    tableOptionsError.value =
+      '没有 metadata:view，不能读取辅助表目录；当前精确表名筛选保持不变，问题列表仍按自身权限读取'
+    return false
+  }
   const currentRequest = ++tableOptionsRequestId
   tableOptions.value = []
   tableOptionsError.value = ''
   tableOptionsLoading.value = true
   try {
     const result = await listSnapshotTables(forSnapshotId)
-    if (disposed || currentRequest !== tableOptionsRequestId || !rangeReady.value || forSnapshotId !== snapshotId.value) return false
+    if (
+      disposed ||
+      currentRequest !== tableOptionsRequestId ||
+      !rangeReady.value ||
+      forSnapshotId !== snapshotId.value
+    )
+      return false
     tableOptions.value = result.data ?? []
-    if (query.tableName && !tableOptions.value.some((item) => item.tableName === query.tableName)) {
-      query.tableName = ''
-      query.page = 1
-      persistQuery()
-      return true
-    }
     return false
   } catch (error) {
-    if (disposed || currentRequest !== tableOptionsRequestId || forSnapshotId !== snapshotId.value) return false
+    if (disposed || currentRequest !== tableOptionsRequestId || forSnapshotId !== snapshotId.value)
+      return false
     tableOptionsError.value = error instanceof Error ? error.message : '数据表选项加载失败'
     return false
   } finally {
@@ -355,29 +430,82 @@ function persistQuery() {
   router.replace({ query: nextQuery })
 }
 
+function issueCurrent(issue: QualityIssueItem, epoch: number) {
+  return (
+    !disposed &&
+    epoch === scopeEpoch &&
+    canReadIssues.value &&
+    issue.snapshotId === snapshotId.value &&
+    issue.datasourceId === datasourceId.value &&
+    canManageIssue(issue)
+  )
+}
+async function performHandle(issue: QualityIssueItem, status: string, note?: string) {
+  const epoch = scopeEpoch
+  if (!issueCurrent(issue, epoch) || busyIds.value.includes(issue.id)) return
+  busyIds.value = [...busyIds.value, issue.id]
+  actionError.value = ''
+  try {
+    await trackGovernanceWrite(
+      auth.token,
+      [`issue:${issue.id}`],
+      `问题 #${issue.id} · ${issue.tableName} / 快照 #${issue.snapshotId}`,
+      () => handleIssue(issue.id, { status, resolutionNote: note }),
+    )
+    if (!issueCurrent(issue, epoch)) return false
+    if (selectedIssue.value?.id === issue.id) selectedIssue.value = { ...selectedIssue.value, status }
+    void loadDomainSummary(issue.snapshotId)
+    await fetchIssues()
+    return issueCurrent(issue, epoch)
+  } catch (cause) {
+    if (issueCurrent(issue, epoch)) {
+      const message =
+        (cause as any)?.response?.data?.message ||
+        (cause instanceof Error ? cause.message : '处理未确认完成，请核对当前问题与复查证据')
+      actionError.value = message
+      if (resolutionTarget.value?.issue.id === issue.id) resolutionError.value = message
+    }
+    return false
+  } finally {
+    if (epoch === scopeEpoch) busyIds.value = busyIds.value.filter((id) => id !== issue.id)
+  }
+}
 async function doHandle(issue: QualityIssueItem, status: string) {
-  if (!canManageIssue(issue)) {
-    ElMessage.warning('没有“处理质量问题”能力：需要角色拥有该功能并负责该问题所属数据源。')
+  if (!issueCurrent(issue, scopeEpoch)) return
+  if (issue.issueDomain === 'SEMANTIC' && ['RESOLVED', 'REJECTED'].includes(status)) {
+    resolutionTarget.value = { issue: { ...issue }, status, epoch: scopeEpoch }
+    resolutionNote.value = ''
+    resolutionError.value = ''
     return
   }
-  const issueId = issue.id
-  try {
-    await handleIssue(issueId, { status })
-    ElMessage.success('操作成功')
-    if (selectedIssue.value?.id === issueId) selectedIssue.value = { ...selectedIssue.value, status }
-    if (snapshotId.value) void loadDomainSummary(snapshotId.value)
-    await fetchIssues()
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '操作失败')
+  if (await performHandle({ ...issue }, status))
+    ElMessage.success('问题状态已更新；不代表原问数情景已经核验。')
+}
+async function confirmResolution() {
+  const target = resolutionTarget.value
+  if (!target || !resolutionNote.value.trim() || !issueCurrent(target.issue, target.epoch)) return
+  const saved = await performHandle(target.issue, target.status, resolutionNote.value.trim())
+  if (saved && target === resolutionTarget.value) {
+    resolutionTarget.value = null
+    resolutionNote.value = ''
+    ElMessage.success('已记录处理依据，最新语义证据由服务端核验')
   }
 }
 
 async function loadUserOptions() {
+  if (!iamS1.loaded || !iamS1.hasGlobal('organization:user:view')) {
+    assigneeError.value = '没有 organization:user:view，无法读取辅助用户目录；分派权限不自动包含用户查看权'
+    userOptions.value = []
+    return
+  }
   if (userOptionsLoaded || userOptionsLoading.value) return
+  const epoch = scopeEpoch,
+    ticket = ++userRequestId
   userOptionsLoading.value = true
   assigneeError.value = ''
   try {
     const res = await listUsers({ page: 1, pageSize: USER_PAGE_SIZE })
+    if (disposed || epoch !== scopeEpoch || ticket !== userRequestId) return
     const records = res.data?.records ?? []
     userOptionsTotal.value = res.data?.total ?? records.length
     // 只允许分派给启用账号，与项目既有的用户下拉保持一致。
@@ -386,17 +514,19 @@ async function loadUserOptions() {
       .map((user) => ({ id: user.id, label: user.realName || user.username }))
     userOptionsLoaded = true
   } catch (e: any) {
+    if (disposed || epoch !== scopeEpoch || ticket !== userRequestId) return
     // 非 user:manage 账号可能 403。必须显式呈现，不能渲染成空下拉（开发指导 §16.5）。
     assigneeError.value = e?.response?.data?.message || '用户列表加载失败，暂时无法分派'
   } finally {
-    userOptionsLoading.value = false
+    if (epoch === scopeEpoch && ticket === userRequestId) userOptionsLoading.value = false
   }
 }
 
 async function submitAssignment() {
   const issue = selectedIssue.value
   const assigneeId = assigneeSelection.value
-  if (!issue || !assigneeId || assigneeId === issue.assigneeId) return
+  if (!issue || !assigneeId || assigneeId === issue.assigneeId || assignLoading.value || !canAssign.value)
+    return
   if (!canManageIssue(issue)) {
     ElMessage.warning('没有“处理质量问题”能力：不能分派负责人。')
     return
@@ -411,16 +541,22 @@ async function submitAssignment() {
   const currentAssignmentRequest = ++assignmentRequestId
   assignLoading.value = true
   try {
-    await assignIssue(issueId, requestedAssigneeId)
-    const sameScope = !disposed
-      && canReadIssues.value
-      && datasourceId.value === requestedDatasourceId
-      && snapshotId.value === requestedSnapshotId
-      && activeScopeKey === requestedScopeKey
-    const sameDetail = sameScope
-      && detailVisible.value
-      && detailSessionId === requestedDetailSession
-      && selectedIssue.value?.id === issueId
+    const epoch = scopeEpoch
+    await trackGovernanceWrite(auth.token, [`issue:${issueId}`], `分派问题 #${issueId}`, () =>
+      assignIssue(issueId, requestedAssigneeId),
+    )
+    if (epoch !== scopeEpoch) return
+    const sameScope =
+      !disposed &&
+      canReadIssues.value &&
+      datasourceId.value === requestedDatasourceId &&
+      snapshotId.value === requestedSnapshotId &&
+      activeScopeKey === requestedScopeKey
+    const sameDetail =
+      sameScope &&
+      detailVisible.value &&
+      detailSessionId === requestedDetailSession &&
+      selectedIssue.value?.id === issueId
     if (sameDetail) {
       // 分派接口返回 Void；仅仍打开同一问题详情时才补充本次责任人结果。
       selectedIssue.value = { ...selectedIssue.value!, assigneeId: requestedAssigneeId, assigneeName }
@@ -429,90 +565,106 @@ async function submitAssignment() {
     // 请求成功后只刷新仍然有效的范围。详情已切换时不改当前对象，也不报告失败。
     if (sameScope) await fetchIssues()
   } catch (e: any) {
-    const sameScope = !disposed
-      && datasourceId.value === requestedDatasourceId
-      && snapshotId.value === requestedSnapshotId
-      && activeScopeKey === requestedScopeKey
-    const sameDetail = sameScope
-      && detailVisible.value
-      && detailSessionId === requestedDetailSession
-      && selectedIssue.value?.id === issueId
+    const sameScope =
+      !disposed &&
+      datasourceId.value === requestedDatasourceId &&
+      snapshotId.value === requestedSnapshotId &&
+      activeScopeKey === requestedScopeKey
+    const sameDetail =
+      sameScope &&
+      detailVisible.value &&
+      detailSessionId === requestedDetailSession &&
+      selectedIssue.value?.id === issueId
     if (currentAssignmentRequest === assignmentRequestId && sameDetail) {
       ElMessage.error(e?.response?.data?.message || '分派失败')
     }
   } finally {
-    if (currentAssignmentRequest === assignmentRequestId
-      && detailVisible.value
-      && detailSessionId === requestedDetailSession
-      && selectedIssue.value?.id === issueId
-      && activeScopeKey === requestedScopeKey) {
+    if (
+      currentAssignmentRequest === assignmentRequestId &&
+      detailVisible.value &&
+      detailSessionId === requestedDetailSession &&
+      selectedIssue.value?.id === issueId &&
+      activeScopeKey === requestedScopeKey
+    ) {
       assignLoading.value = false
     }
   }
 }
 
 async function doBatchHandle(status: string) {
-  if (!selectedIds.value.length) { ElMessage.warning('请选择问题'); return }
-  if (!canBatchManage.value) {
-    // 后端对批量是“权限与归属预校验整批原子”：只要有一条无权就整批拒绝、零修改。
-    // 与其发一个必然失败的请求，不如先说明哪些选中项不在可处理范围内。
-    ElMessage.warning('所选问题中包含没有处理权限的条目，后端会整批拒绝。请只选择你负责的数据源下的问题。')
-    return
-  }
-  const requested = selectedIds.value.length
+  if (!canBatchManage.value || batchBusy.value || !canReadIssues.value) return
+  const ids = [...selectedIds.value],
+    epoch = scopeEpoch,
+    snapshot = snapshotId.value!
+  if (ids.some((id) => busyIds.value.includes(id))) return
+  batchBusy.value = true
+  actionError.value = ''
+  batchResult.value = null
   try {
-    const res = await batchHandleIssues({ issueIds: selectedIds.value, status })
-    const result = res.data
-    if (result && typeof result.updated === 'number') {
-      // 后端对状态不允许流转的条目会跳过，2026-09-12 起返回跳过明细与原因。
-      // 被跳过的原因不是临时故障，重试不会成功，因此文案引导用户单独处理而不是重试。
-      const skipped = typeof result.skipped === 'number' ? result.skipped : requested - result.updated
-      if (skipped <= 0) {
-        ElMessage.success(`已处理 ${result.updated} 条`)
-      } else {
-        const exampleReason = result.skippedIssues?.[0]?.reason
-        ElMessage.warning(
-          `已处理 ${result.updated} 条，${skipped} 条因当前状态不允许流转被跳过`
-          + (exampleReason ? `（例如：${exampleReason}）` : '')
-          + '。列表已刷新，请对剩余问题单独处理。',
+    const response = await trackGovernanceWrite(
+      auth.token,
+      ids.map((id) => `issue:${id}`),
+      `批量问题 ${ids.map((id) => '#' + id).join(' / ')}`,
+      async () => {
+        const result = await batchHandleIssues({ issueIds: ids, status })
+        if (
+          !result.data ||
+          !Number.isInteger(result.data.updated) ||
+          !Number.isInteger(result.data.skipped) ||
+          !Array.isArray(result.data.skippedIssues)
         )
-      }
-    } else {
-      // 响应结构异常时不能把字段缺失当成「全部被跳过」，那是假失败。
-      ElMessage.success('批量操作已完成')
-    }
-    selectedIds.value = []
-    if (snapshotId.value) void loadDomainSummary(snapshotId.value)
+          throw new Error('批量回执不完整，结果未知，请逐项核对，勿重复提交')
+        return result
+      },
+    )
+    if (disposed || epoch !== scopeEpoch || !canReadIssues.value) return
+    batchResult.value = response.data
+    void loadDomainSummary(snapshot)
     await fetchIssues()
-  } catch (e: any) {
-    ElMessage.error(e?.response?.data?.message || '批量操作失败')
+    if (disposed || epoch !== scopeEpoch || !canReadIssues.value) return
+    if (response.data.skipped > 0)
+      ElMessage.warning(
+        `已处理 ${response.data.updated} 条，${response.data.skipped} 条跳过；${response.data.skippedIssues[0]?.reason || '原因见回执'}。完整原因保留在回执中，请逐项处理。`,
+      )
+    else ElMessage.success(`已处理 ${response.data.updated} 条`)
+  } catch (cause) {
+    if (epoch === scopeEpoch && !disposed)
+      actionError.value =
+        (cause as any)?.response?.data?.message ||
+        (cause instanceof Error ? cause.message : '批量处理未确认完成')
+  } finally {
+    if (epoch === scopeEpoch) batchBusy.value = false
   }
 }
 
 function onSelectionChange(rows: QualityIssueItem[]) {
-  selectedIds.value = rows.map(r => r.id)
+  selectedIds.value = rows.map((r) => r.id)
 }
 
 async function reopenIssue(issue: QualityIssueItem) {
-  if (!canManageIssue(issue)) {
-    ElMessage.warning('没有“处理质量问题”能力：需要角色拥有该功能并负责该问题所属数据源。')
-    return
-  }
+  const epoch = scopeEpoch,
+    target = { ...issue }
+  if (!issueCurrent(target, epoch) || busyIds.value.includes(target.id)) return
+  busyIds.value = [...busyIds.value, target.id]
   try {
-    await ElMessageBox.confirm('重新打开后，该问题会重新进入治理流程，需再次确认后才能解决。确认继续吗？', '重新打开问题', {
-      type: 'warning',
-      confirmButtonText: '确认重新打开',
-      cancelButtonText: '取消',
-    })
-    await handleIssue(issue.id, { status: 'REOPENED' })
-    ElMessage.success('问题已重新打开')
-    if (selectedIssue.value?.id === issue.id) selectedIssue.value = { ...selectedIssue.value, status: 'REOPENED' }
-    if (snapshotId.value) void loadDomainSummary(snapshotId.value)
-    await fetchIssues()
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error instanceof Error ? error.message : '重新打开失败')
-    }
+    await ElMessageBox.confirm(
+      '重新打开后需重新确认和处理。此操作不代表原问数情景已经核验。',
+      '重新打开问题',
+      {
+        type: 'warning',
+        confirmButtonText: '确认重新打开',
+        cancelButtonText: '取消',
+        cancelButtonClass: ownCancelClass,
+      },
+    )
+    if (!issueCurrent(target, epoch)) return
+    busyIds.value = busyIds.value.filter((id) => id !== target.id)
+    await performHandle(target, 'REOPENED')
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close' && epoch === scopeEpoch)
+      actionError.value = '重新打开未确认完成，请核对问题状态'
+  } finally {
+    if (epoch === scopeEpoch) busyIds.value = busyIds.value.filter((id) => id !== target.id)
   }
 }
 
@@ -524,6 +676,7 @@ function invalidateDetailSession() {
   assignLoading.value = false
   selectedIssue.value = null
   reviewRecords.value = []
+  reviewError.value = ''
   assigneeSelection.value = undefined
 }
 
@@ -537,6 +690,12 @@ function handleDetailVisibilityChange(visible: boolean) {
 }
 
 async function openIssueDetail(issue: QualityIssueItem) {
+  if (
+    !canReadIssues.value ||
+    issue.snapshotId !== snapshotId.value ||
+    issue.datasourceId !== datasourceId.value
+  )
+    return
   invalidateDetailSession()
   const currentSession = detailSessionId
   const currentRequest = ++detailRequestId
@@ -547,7 +706,7 @@ async function openIssueDetail(issue: QualityIssueItem) {
   reviewRecords.value = []
   detailVisible.value = true
   assigneeSelection.value = issue.assigneeId
-  loadUserOptions()
+  void loadUserOptions()
   // 同表治理记录来自发布域的 `metadata:release:view`，治理查看权不自动包含它。
   // 无能力时不要发这个必然 403 的请求，改为在抽屉里说明原因。
   if (!canViewReleaseRecords(issue)) {
@@ -556,22 +715,30 @@ async function openIssueDetail(issue: QualityIssueItem) {
   }
   detailLoading.value = true
   try {
-    const result = await listReviewRecords(issue.snapshotId, { tableName: issue.tableName, page: 1, size: 20 })
-    if (disposed
-      || currentRequest !== detailRequestId
-      || currentSession !== detailSessionId
-      || selectedIssue.value?.id !== issue.id
-      || !detailVisible.value
-      || currentScopeKey !== activeScopeKey
-      || datasourceId.value !== currentDatasourceId
-      || snapshotId.value !== currentSnapshotId
-      || issue.snapshotId !== currentSnapshotId) return
+    const result = await listReviewRecords(issue.snapshotId, {
+      tableName: issue.tableName,
+      page: 1,
+      size: 20,
+    })
+    if (
+      disposed ||
+      currentRequest !== detailRequestId ||
+      currentSession !== detailSessionId ||
+      selectedIssue.value?.id !== issue.id ||
+      !detailVisible.value ||
+      currentScopeKey !== activeScopeKey ||
+      datasourceId.value !== currentDatasourceId ||
+      snapshotId.value !== currentSnapshotId ||
+      issue.snapshotId !== currentSnapshotId
+    )
+      return
     reviewRecords.value = result.data?.records ?? []
   } catch (error) {
     if (disposed || currentRequest !== detailRequestId || currentSession !== detailSessionId) return
-    ElMessage.error(error instanceof Error ? error.message : '治理记录加载失败')
+    reviewError.value = error instanceof Error ? error.message : '治理记录加载失败'
   } finally {
-    if (!disposed && currentRequest === detailRequestId && currentSession === detailSessionId) detailLoading.value = false
+    if (!disposed && currentRequest === detailRequestId && currentSession === detailSessionId)
+      detailLoading.value = false
   }
 }
 
@@ -586,13 +753,16 @@ function syncFiltersFromRoute(values: unknown[]) {
     assigneeId: Number(assigneeIdValue) || undefined,
     page: Number(pageValue) || 1,
   }
-  if (next.issueDomain === query.issueDomain
-    && next.tableName === query.tableName
-    && next.dimension === query.dimension
-    && next.severity === query.severity
-    && next.status === query.status
-    && next.assigneeId === query.assigneeId
-    && next.page === query.page) return
+  if (
+    next.issueDomain === query.issueDomain &&
+    next.tableName === query.tableName &&
+    next.dimension === query.dimension &&
+    next.severity === query.severity &&
+    next.status === query.status &&
+    next.assigneeId === query.assigneeId &&
+    next.page === query.page
+  )
+    return
   Object.assign(query, next)
   selectedIds.value = []
   fetchIssues()
@@ -621,61 +791,67 @@ watch(
     snapshotId.value,
     requestedDatasourceId.value,
     requestedSnapshotId.value,
+    auth.token,
+    iamS1.snapshot,
+    iamS1.errorMessage,
     iamS1.loaded,
     canViewCurrentScope.value,
   ],
   async () => {
     if (disposed) return
-    if (!rangeReady.value || !iamS1.loaded || !canViewCurrentScope.value) {
-      issueRequestId++
-      summaryRequestId++
-      loading.value = false
-      issues.value = []
-      total.value = null
-      resultLoaded.value = false
-      errorMessage.value = ''
-      domainSummary.value = undefined
-      domainSummaryError.value = ''
-      domainSummaryLoading.value = false
-      selectedIds.value = []
-      if (!rangeReady.value || !canViewCurrentScope.value) {
-        invalidateDetailSession()
-        detailVisible.value = false
-      }
-      return
+    cancelOwnedConfirmation()
+    const epoch = ++scopeEpoch
+    issueRequestId++
+    summaryRequestId++
+    tableOptionsRequestId++
+    userRequestId++
+    issues.value = []
+    total.value = null
+    resultLoaded.value = false
+    loading.value = false
+    errorMessage.value = ''
+    selectedIds.value = []
+    domainSummary.value = undefined
+    domainSummaryError.value = ''
+    domainSummaryLoading.value = false
+    tableOptions.value = []
+    tableOptionsError.value = ''
+    tableOptionsLoading.value = false
+    userOptionsLoaded = false
+    userOptions.value = []
+    userOptionsLoading.value = false
+    assigneeError.value = ''
+    busyIds.value = []
+    batchBusy.value = false
+    batchResult.value = null
+    actionError.value = ''
+    resolutionTarget.value = null
+    resolutionNote.value = ''
+    detailVisible.value = false
+    invalidateDetailSession()
+    if (!canReadIssues.value) return
+    const key = `${datasourceId.value}:${snapshotId.value}`
+    if (activeScopeKey && activeScopeKey !== key) {
+      query.page = 1
+      persistQuery()
     }
-
-    const scopeKey = `${datasourceId.value}:${snapshotId.value}`
-    const scopeChanged = scopeKey !== activeScopeKey
-    if (scopeChanged) {
-      const hadPreviousScope = Boolean(activeScopeKey)
-      activeScopeKey = scopeKey
-      selectedIds.value = []
-      invalidateDetailSession()
-      detailVisible.value = false
-      tableOptionsRequestId++
-      tableOptions.value = []
-      tableOptionsError.value = ''
-      if (hadPreviousScope) {
-        query.page = 1
-        persistQuery()
-      }
-      await loadTableOptions(snapshotId.value!)
-      if (disposed || activeScopeKey !== scopeKey || !canReadIssues.value) return
-      void loadDomainSummary(snapshotId.value!)
-    }
-    fetchIssues()
+    activeScopeKey = key
+    void loadTableOptions(snapshotId.value!)
+    if (disposed || epoch !== scopeEpoch || !canReadIssues.value) return
+    void loadDomainSummary(snapshotId.value!)
+    void loadUserOptions()
+    void fetchIssues()
   },
-  { immediate: true, flush: 'post' },
+  { immediate: true, flush: 'sync' },
 )
 
 onMounted(() => {
   // IAM 与负责人选项属于页面能力/分派数据；范围只由 AdminShell 中的公共 ScopeBar 初始化。
   void iamS1.load()
-  loadUserOptions()
 })
 
 onBeforeUnmount(() => {
+  cancelOwnedConfirmation()
   disposed = true
   issueRequestId++
   summaryRequestId++
@@ -686,17 +862,52 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="issue-page post-login-page governance-workspace governance-surface">
-    <TaskPageHeader title="问题中心" description="查找、分派并处理当前范围的问题。暂无问题记录不代表已经完成质量检查；来源与字段语义问题分别处理。">
+    <TaskPageHeader
+      title="问题中心"
+      eyebrow="数据治理 / 问题处理"
+      description-mode="inline"
+      description="查找、分派并处理当前范围的问题。暂无问题记录不代表已经完成质量检查；来源与字段语义问题分别处理。"
+    >
       <template #actions>
-        <el-button :icon="RefreshCw" :loading="loading" :disabled="!canReadIssues || loading" @click="fetchIssues">刷新问题</el-button>
+        <el-button
+          :icon="RefreshCw"
+          :loading="loading"
+          :disabled="!canReadIssues || loading"
+          @click="fetchIssues"
+        >
+          刷新问题
+        </el-button>
       </template>
     </TaskPageHeader>
 
-
+    <GovernanceWriteNotice />
+    <p class="issue-domain-guide">
+      来源质量问题核对原始资料与数据诊断；字段语义问题需同修订复查证据和处理依据。关闭问题不等于原问数情景已通过人工核验。
+    </p>
+    <ErrorState v-if="actionError" :message="actionError" :show-retry="false" />
+    <section v-if="batchResult" class="issue-batch-receipt" role="status">
+      <strong>批量回执：已处理 {{ batchResult.updated }}，跳过 {{ batchResult.skipped }}</strong>
+      <p v-for="item in batchResult.skippedIssues" :key="item.issueId">
+        问题 #{{ item.issueId }}：{{ item.reason }}
+      </p>
+      <small>跳过项保留在此，不会自动重试；语义问题请逐项填写最新复查与处理依据。</small>
+    </section>
     <section class="issue-workbench" aria-label="问题工作区">
       <div class="issue-workbench__filters" aria-label="问题筛选">
-        <el-select v-model="query.issueDomain" class="issue-filter" placeholder="全部问题域" aria-label="按问题域筛选" :disabled="!canReadIssues" @change="applyFilters">
-          <el-option v-for="option in issueDomainOptions" :key="option.value" :label="option.label" :value="option.value" />
+        <el-select
+          v-model="query.issueDomain"
+          class="issue-filter"
+          placeholder="全部问题域"
+          aria-label="按问题域筛选"
+          :disabled="!canReadIssues"
+          @change="applyFilters"
+        >
+          <el-option
+            v-for="option in issueDomainOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
         </el-select>
         <el-select
           v-model="query.tableName"
@@ -710,31 +921,85 @@ onBeforeUnmount(() => {
           @change="applyFilters"
         >
           <el-option label="全部表" value="" />
-          <el-option v-for="item in tableOptions" :key="item.tableName" :label="item.tableComment ? `${item.tableName} / ${item.tableComment}` : item.tableName" :value="item.tableName" />
+          <el-option
+            v-for="item in tableOptions"
+            :key="item.tableName"
+            :label="item.tableComment ? `${item.tableName} / ${item.tableComment}` : item.tableName"
+            :value="item.tableName"
+          />
         </el-select>
 
-
-        <el-select v-model="query.status" class="issue-filter" placeholder="全部状态" aria-label="按状态筛选" :disabled="!canReadIssues" @change="applyFilters">
-          <el-option v-for="option in statusOptions" :key="option.value" :label="option.label" :value="option.value" />
+        <el-select
+          v-model="query.status"
+          class="issue-filter"
+          placeholder="全部状态"
+          aria-label="按状态筛选"
+          :disabled="!canReadIssues"
+          @change="applyFilters"
+        >
+          <el-option
+            v-for="option in statusOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
         </el-select>
 
-        <el-button :aria-expanded="advancedFiltersOpen" aria-controls="issue-advanced-filters" @click="advancedFiltersOpen = !advancedFiltersOpen">更多筛选</el-button>
+        <el-button
+          :aria-expanded="advancedFiltersOpen"
+          aria-controls="issue-advanced-filters"
+          @click="advancedFiltersOpen = !advancedFiltersOpen"
+        >
+          更多筛选
+        </el-button>
         <el-button
           class="issue-filter__my-issues"
           :type="isMyIssuesFilter ? 'primary' : 'default'"
           :disabled="!canReadIssues || !currentUserId"
           :aria-pressed="isMyIssuesFilter"
           @click="toggleMyIssues"
-        >分配给我的</el-button>
-        <el-button class="issue-filter__clear" :disabled="!canClearFilters" @click="clearFilters">清除筛选</el-button>
+        >
+          分配给我的
+        </el-button>
+        <el-button class="issue-filter__clear" :disabled="!canClearFilters" @click="clearFilters">
+          清除筛选
+        </el-button>
       </div>
 
-      <div v-show="advancedFiltersOpen" id="issue-advanced-filters" class="issue-workbench__filters issue-workbench__filters--advanced">
-        <el-select v-model="query.dimension" class="issue-filter" placeholder="全部维度" aria-label="按维度筛选" :disabled="!canReadIssues" @change="applyFilters">
-          <el-option v-for="option in dimensionOptions" :key="option.value" :label="option.label" :value="option.value" />
+      <div
+        v-show="advancedFiltersOpen"
+        id="issue-advanced-filters"
+        class="issue-workbench__filters issue-workbench__filters--advanced"
+      >
+        <el-select
+          v-model="query.dimension"
+          class="issue-filter"
+          placeholder="全部维度"
+          aria-label="按维度筛选"
+          :disabled="!canReadIssues"
+          @change="applyFilters"
+        >
+          <el-option
+            v-for="option in dimensionOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
         </el-select>
-        <el-select v-model="query.severity" class="issue-filter" placeholder="全部级别" aria-label="按级别筛选" :disabled="!canReadIssues" @change="applyFilters">
-          <el-option v-for="option in severityOptions" :key="option.value" :label="option.label" :value="option.value" />
+        <el-select
+          v-model="query.severity"
+          class="issue-filter"
+          placeholder="全部级别"
+          aria-label="按级别筛选"
+          :disabled="!canReadIssues"
+          @change="applyFilters"
+        >
+          <el-option
+            v-for="option in severityOptions"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
         </el-select>
         <el-select
           v-model="query.assigneeId"
@@ -747,24 +1012,51 @@ onBeforeUnmount(() => {
           aria-label="按责任人筛选"
           @change="applyFilters"
         >
-          <el-option v-for="option in userOptions" :key="option.id" :label="option.label" :value="option.id" />
+          <el-option
+            v-for="option in userOptions"
+            :key="option.id"
+            :label="option.label"
+            :value="option.id"
+          />
         </el-select>
       </div>
 
-      <div v-if="domainSummaryLoading" class="issue-domain-summary" role="status">正在读取当前快照的问题域统计…</div>
-      <div v-else-if="domainSummary && domainSummary.totalUnresolved > 0" class="issue-domain-summary" aria-label="当前快照未解决问题统计">
-        未解决问题：全部 <strong>{{ domainSummary.totalUnresolved }}</strong>
-        <span>来源质量 {{ domainSummary.domainCounts?.SOURCE ?? 0 }}</span>
-        <span>字段解释 {{ domainSummary.domainCounts?.SEMANTIC ?? 0 }}</span>
+      <div v-if="domainSummaryLoading" class="issue-domain-summary" role="status">
+        正在读取当前快照的问题域统计…
       </div>
-      <p v-else-if="domainSummaryError" class="issue-workbench__notice issue-workbench__notice--error" role="alert">问题域统计读取失败：{{ domainSummaryError }}</p>
+      <div
+        v-else-if="domainSummary && domainSummary.totalUnresolved > 0"
+        class="issue-domain-summary"
+        aria-label="当前快照未解决问题统计"
+      >
+        未解决问题：全部
+        <strong>{{ domainSummary.totalUnresolved }}</strong>
+        <span>来源质量 {{ domainSummary.domainCounts?.SOURCE ?? '未提供' }}</span>
+        <span>字段解释 {{ domainSummary.domainCounts?.SEMANTIC ?? '未提供' }}</span>
+      </div>
+      <p
+        v-else-if="domainSummaryError"
+        class="issue-workbench__notice issue-workbench__notice--error"
+        role="alert"
+      >
+        问题域统计读取失败：{{ domainSummaryError }}
+      </p>
 
-      <div v-if="tableOptionsError || assigneeError || userOptionsTotal > USER_PAGE_SIZE" class="issue-workbench__notices">
-        <p v-if="tableOptionsError" class="issue-workbench__notice issue-workbench__notice--error" role="alert">
+      <div
+        v-if="tableOptionsError || assigneeError || userOptionsTotal > USER_PAGE_SIZE"
+        class="issue-workbench__notices"
+      >
+        <p
+          v-if="tableOptionsError"
+          class="issue-workbench__notice issue-workbench__notice--error"
+          role="alert"
+        >
           数据表选项读取失败：{{ tableOptionsError }}
           <el-button link type="primary" @click="retryTableOptions">重试</el-button>
         </p>
-        <p v-if="assigneeError" class="issue-workbench__notice issue-workbench__notice--error" role="alert">{{ assigneeError }}；暂时无法使用责任人筛选或分派。</p>
+        <p v-if="assigneeError" class="issue-workbench__notice issue-workbench__notice--error" role="alert">
+          {{ assigneeError }}；暂时无法使用责任人筛选或分派。
+        </p>
         <p v-else-if="userOptionsTotal > USER_PAGE_SIZE" class="issue-workbench__notice" role="note">
           共 {{ userOptionsTotal }} 名用户，责任人下拉仅显示前 {{ USER_PAGE_SIZE }} 名。
         </p>
@@ -772,18 +1064,57 @@ onBeforeUnmount(() => {
 
       <div class="issue-workbench__results" aria-live="polite">
         <p v-if="rangeSynchronizing" class="issue-workbench__result-state">正在同步数据源和快照范围…</p>
-        <p v-else-if="routeScopeUnavailable" class="issue-workbench__result-state issue-workbench__result-state--error">指定的数据源或快照无法恢复，请查看顶部范围提示并重新选择。</p>
-        <p v-else-if="!rangeReady" class="issue-workbench__result-state">请先在顶部范围栏选择有效的数据源和快照。</p>
-        <p v-else-if="iamS1.errorMessage" class="issue-workbench__result-state issue-workbench__result-state--error">查看权限读取失败。</p>
+        <p
+          v-else-if="routeScopeUnavailable"
+          class="issue-workbench__result-state issue-workbench__result-state--error"
+        >
+          指定的数据源或快照无法恢复，请查看顶部范围提示并重新选择。
+        </p>
+        <p v-else-if="!rangeReady" class="issue-workbench__result-state">
+          请先在顶部范围栏选择有效的数据源和快照。
+        </p>
+        <p
+          v-else-if="iamS1.errorMessage"
+          class="issue-workbench__result-state issue-workbench__result-state--error"
+        >
+          查看权限读取失败。
+        </p>
         <p v-else-if="!iamS1.loaded" class="issue-workbench__result-state">正在确认当前数据源的查看权限…</p>
-        <p v-else-if="!canViewCurrentScope" class="issue-workbench__result-state issue-workbench__result-state--error">没有查看当前数据源质量问题的权限。</p>
+        <p
+          v-else-if="!canViewCurrentScope"
+          class="issue-workbench__result-state issue-workbench__result-state--error"
+        >
+          没有查看当前数据源质量问题的权限。
+        </p>
         <p v-else-if="loading" class="issue-workbench__result-state">正在读取问题记录…</p>
-        <p v-else-if="errorMessage" class="issue-workbench__result-state issue-workbench__result-state--error">读取失败，未取得筛选结果总数。</p>
-        <p v-else-if="resultLoaded && total !== null" class="issue-workbench__result-count">筛选结果共 <strong>{{ total }}</strong> 条</p>
+        <p
+          v-else-if="errorMessage"
+          class="issue-workbench__result-state issue-workbench__result-state--error"
+        >
+          读取失败，未取得筛选结果总数。
+        </p>
+        <p v-else-if="resultLoaded && total !== null" class="issue-workbench__result-count">
+          筛选结果共
+          <strong>{{ total }}</strong>
+          条
+        </p>
         <div v-if="selectedIds.length" class="issue-workbench__batch-actions" aria-label="批量操作">
           <span>已选 {{ selectedIds.length }} 项</span>
-          <el-button size="small" :disabled="!canBatchManage" @click="doBatchHandle('CONFIRMED')">批量确认</el-button>
-          <el-button size="small" type="danger" :disabled="!canBatchManage" @click="doBatchHandle('REJECTED')">批量驳回</el-button>
+          <el-button
+            size="small"
+            :disabled="!canBatchManage || batchBusy"
+            @click="doBatchHandle('CONFIRMED')"
+          >
+            批量确认
+          </el-button>
+          <el-button
+            size="small"
+            type="danger"
+            :disabled="!canBatchManage || batchBusy"
+            @click="doBatchHandle('REJECTED')"
+          >
+            批量驳回
+          </el-button>
           <span v-if="!canBatchManage" class="issue-workbench__batch-note">
             所选条目中包含没有处理权限的问题：后端会整批拒绝。请只选择你负责的数据源下的问题。
           </span>
@@ -794,90 +1125,153 @@ onBeforeUnmount(() => {
         <div v-if="rangeSynchronizing" role="status" aria-live="polite">
           <LoadingState text="正在确认当前查看范围…" />
         </div>
-        <ErrorState v-else-if="routeScopeUnavailable" message="指定的数据源或快照不可用。请在顶部范围栏重新选择；不会自动切换到其他快照。" :show-retry="false" />
+        <ErrorState
+          v-else-if="routeScopeUnavailable"
+          message="指定的数据源或快照不可用。请在顶部范围栏重新选择；不会自动切换到其他快照。"
+          :show-retry="false"
+        />
         <EmptyState v-else-if="!rangeReady" message="请在顶部范围栏选择有效的数据源和快照。" />
-        <ErrorState v-else-if="iamS1.errorMessage" :message="iamS1.errorMessage" @retry="iamS1.load()" />
+        <ErrorState v-else-if="iamS1.errorMessage" :message="iamS1.errorMessage" @retry="iamS1.load(true)" />
         <LoadingState v-else-if="!iamS1.loaded" text="正在确认当前数据源的查看权限…" />
         <EmptyState v-else-if="!canViewCurrentScope" message="当前账号没有查看所选数据源质量问题的权限。" />
         <div v-else-if="loading" role="status" aria-live="polite">
           <LoadingState text="正在读取问题记录…" />
         </div>
         <ErrorState v-else-if="errorMessage" :message="errorMessage" @retry="fetchIssues" />
-        <div v-else-if="issues.length" class="issue-table-scroll" role="region" aria-label="质量问题列表" tabindex="0">
+        <div
+          v-else-if="issues.length"
+          class="issue-table-scroll"
+          role="region"
+          aria-label="质量问题列表"
+          tabindex="0"
+        >
           <el-table :data="issues" stripe @selection-change="onSelectionChange">
-        <el-table-column type="selection" width="40" />
-        <el-table-column prop="tableName" label="表" width="160" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span class="table-code">{{ row.tableName }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="columnName" label="字段" width="120">
-          <template #default="{ row }">
-            <span class="column-code">{{ row.columnName || '-' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="问题域" width="112">
-          <template #default="{ row }">
-            <el-tag v-if="row.issueDomain === 'SOURCE'" size="small" type="info">来源质量</el-tag>
-            <el-tag v-else-if="row.issueDomain === 'SEMANTIC'" size="small" type="warning">字段解释</el-tag>
-            <el-tag v-else size="small" type="danger">未知问题域</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="dimension" label="维度" width="90">
-          <template #default="{ row }">{{ qualityDimensionLabel(row.dimension) }}</template>
-        </el-table-column>
-        <el-table-column prop="severity" label="级别" width="70">
-          <template #default="{ row }">
-            <el-tag :type="sevType(row.severity)" size="small">{{ severityLabel(row.severity) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="issueDescription" label="问题描述" min-width="260" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span class="issue-description">{{ row.issueDescription }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="status" label="状态" width="90">
-          <template #default="{ row }">
-            <el-tag :type="issueStatusType(row.status)" size="small">{{ issueStatusLabel(row.status) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="assigneeName" label="责任人" width="110" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span :class="{ 'muted-text': !row.assigneeName }">{{ row.assigneeName || '未分派' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="260" fixed="right">
-          <template #default="{ row }">
-            <!-- 可处理：显示状态机允许的动作。无处理权限时只留「详情」，并说明原因，
+            <el-table-column type="selection" width="40" />
+            <el-table-column prop="tableName" label="表" width="160" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="table-code">{{ row.tableName }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="columnName" label="字段" width="120">
+              <template #default="{ row }">
+                <span class="column-code">{{ row.columnName || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="问题域" width="112">
+              <template #default="{ row }">
+                <el-tag v-if="row.issueDomain === 'SOURCE'" size="small" type="info">来源质量</el-tag>
+                <el-tag v-else-if="row.issueDomain === 'SEMANTIC'" size="small" type="warning">
+                  字段解释
+                </el-tag>
+                <el-tag v-else size="small" type="danger">未知问题域</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="dimension" label="维度" width="90">
+              <template #default="{ row }">{{ qualityDimensionLabel(row.dimension) }}</template>
+            </el-table-column>
+            <el-table-column prop="severity" label="级别" width="70">
+              <template #default="{ row }">
+                <el-tag :type="sevType(row.severity)" size="small">{{ severityLabel(row.severity) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="issueDescription" label="问题描述" min-width="260" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="issue-description">{{ row.issueDescription }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag :type="issueStatusType(row.status)" size="small">
+                  {{ issueStatusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="assigneeName" label="责任人" width="110" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span :class="{ 'muted-text': !row.assigneeName }">{{ row.assigneeName || '未分派' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="260" fixed="right">
+              <template #default="{ row }">
+                <!-- 可处理：显示状态机允许的动作。无处理权限时只留「详情」，并说明原因，
                  而不是渲染一组点了必然被后端拒绝的按钮。 -->
-            <template v-if="canManageIssue(row)">
-              <template v-if="row.status === 'OPEN' || row.status === 'REOPENED'">
-                <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
-                <el-button link size="small" @click="doHandle(row, 'CONFIRMED')">确认</el-button>
-                <el-button link size="small" type="danger" @click="doHandle(row, 'REJECTED')">驳回</el-button>
+                <template v-if="canManageIssue(row)">
+                  <span v-if="busyIds.includes(row.id)" role="status">处理中…</span>
+                  <template v-if="row.status === 'OPEN' || row.status === 'REOPENED'">
+                    <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
+                    <el-button
+                      link
+                      size="small"
+                      :disabled="busyIds.includes(row.id)"
+                      @click="doHandle(row, 'CONFIRMED')"
+                    >
+                      确认
+                    </el-button>
+                    <el-button
+                      link
+                      size="small"
+                      type="danger"
+                      :disabled="busyIds.includes(row.id)"
+                      @click="doHandle(row, 'REJECTED')"
+                    >
+                      驳回
+                    </el-button>
+                  </template>
+                  <template v-else-if="row.status === 'CONFIRMED'">
+                    <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
+                    <el-button
+                      link
+                      size="small"
+                      type="success"
+                      :disabled="busyIds.includes(row.id)"
+                      @click="doHandle(row, 'RESOLVED')"
+                    >
+                      解决
+                    </el-button>
+                    <el-button
+                      link
+                      size="small"
+                      type="danger"
+                      :disabled="busyIds.includes(row.id)"
+                      @click="doHandle(row, 'REJECTED')"
+                    >
+                      驳回
+                    </el-button>
+                  </template>
+                  <template v-else-if="row.status === 'RESOLVED' || row.status === 'REJECTED'">
+                    <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
+                    <el-button
+                      link
+                      size="small"
+                      type="warning"
+                      :disabled="busyIds.includes(row.id)"
+                      @click="reopenIssue(row)"
+                    >
+                      重新打开
+                    </el-button>
+                  </template>
+                  <el-button v-else link size="small" @click="openIssueDetail(row)">详情</el-button>
+                </template>
+                <template v-else>
+                  <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
+                  <span class="muted-text" title="需要角色拥有“处理质量问题”并负责该数据源">无处理权限</span>
+                </template>
+                <RouterLink
+                  v-if="row.snapshotId && canViewReleaseRecords(row)"
+                  class="return-link"
+                  :to="{
+                    path: '/admin/releases',
+                    query: {
+                      datasourceId: row.datasourceId ? String(row.datasourceId) : undefined,
+                      snapshotId: String(row.snapshotId),
+                      tab: 'candidates',
+                    },
+                  }"
+                >
+                  返回发布流程
+                </RouterLink>
               </template>
-              <template v-else-if="row.status === 'CONFIRMED'">
-                <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
-                <el-button link size="small" type="success" @click="doHandle(row, 'RESOLVED')">解决</el-button>
-                <el-button link size="small" type="danger" @click="doHandle(row, 'REJECTED')">驳回</el-button>
-              </template>
-              <template v-else-if="row.status === 'RESOLVED' || row.status === 'REJECTED'">
-                <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
-                <el-button link size="small" type="warning" @click="reopenIssue(row)">重新打开</el-button>
-              </template>
-              <el-button v-else link size="small" @click="openIssueDetail(row)">详情</el-button>
-            </template>
-            <template v-else>
-              <el-button link size="small" @click="openIssueDetail(row)">详情</el-button>
-              <span class="muted-text" title="需要角色拥有“处理质量问题”并负责该数据源">无处理权限</span>
-            </template>
-            <RouterLink
-              v-if="row.snapshotId && canViewReleaseRecords(row)"
-              class="return-link"
-              :to="{ path: '/admin/releases', query: { datasourceId: row.datasourceId ? String(row.datasourceId) : undefined, snapshotId: String(row.snapshotId), tab: 'candidates' } }"
-            >返回发布流程</RouterLink>
-          </template>
-        </el-table-column>
+            </el-table-column>
           </el-table>
         </div>
         <EmptyState
@@ -890,7 +1284,11 @@ onBeforeUnmount(() => {
           v-else-if="resultLoaded && total === 0"
           message="当前快照暂无问题记录；无记录不代表数据质量已验证通过。"
         />
-        <div v-else-if="resultLoaded && total !== null && total > 0" class="issue-workbench__empty-page" role="status">
+        <div
+          v-else-if="resultLoaded && total !== null && total > 0"
+          class="issue-workbench__empty-page"
+          role="status"
+        >
           当前页没有返回问题记录，请刷新问题列表或调整页码。
           <el-button link type="primary" @click="fetchIssues">刷新问题</el-button>
         </div>
@@ -908,28 +1306,65 @@ onBeforeUnmount(() => {
       </footer>
     </section>
 
-    <el-drawer :model-value="detailVisible" title="治理问题详情" size="min(680px, 96vw)" class="governance-drawer" @update:model-value="handleDetailVisibilityChange">
+    <el-drawer
+      :model-value="detailVisible"
+      title="治理问题详情"
+      size="min(680px, 96vw)"
+      class="governance-drawer"
+      @update:model-value="handleDetailVisibilityChange"
+    >
       <el-skeleton v-if="detailLoading" :rows="7" animated />
       <template v-else-if="selectedIssue">
         <div class="issue-detail">
           <div class="issue-detail__headline">
-            <strong>{{ selectedIssue.tableName }}{{ selectedIssue.columnName ? `.${selectedIssue.columnName}` : '' }}</strong>
-            <el-tag :type="sevType(selectedIssue.severity)" size="small">{{ severityLabel(selectedIssue.severity) }}</el-tag>
-            <el-tag :type="issueStatusType(selectedIssue.status)" size="small">{{ issueStatusLabel(selectedIssue.status) }}</el-tag>
+            <strong>
+              {{ selectedIssue.tableName
+              }}{{ selectedIssue.columnName ? `.${selectedIssue.columnName}` : '' }}
+            </strong>
+            <el-tag :type="sevType(selectedIssue.severity)" size="small">
+              {{ severityLabel(selectedIssue.severity) }}
+            </el-tag>
+            <el-tag :type="issueStatusType(selectedIssue.status)" size="small">
+              {{ issueStatusLabel(selectedIssue.status) }}
+            </el-tag>
           </div>
           <dl>
-            <dt>问题域</dt><dd>{{ selectedIssue.issueDomain === 'SOURCE' ? '来源质量' : selectedIssue.issueDomain === 'SEMANTIC' ? '字段解释' : '未知问题域' }}</dd>
-            <dt>问题描述</dt><dd>{{ selectedIssue.issueDescription }}</dd>
-            <dt>建议</dt><dd>{{ selectedIssue.suggestion || '后端未提供处理建议' }}</dd>
-            <dt>维度</dt><dd>{{ qualityDimensionLabel(selectedIssue.dimension) }}</dd>
-            <dt>责任人</dt><dd>{{ selectedIssue.assigneeName || '未分派' }}</dd>
-            <dt>创建时间</dt><dd>{{ selectedIssue.createdAt }}</dd>
+            <dt>问题域</dt>
+            <dd>
+              {{
+                selectedIssue.issueDomain === 'SOURCE'
+                  ? '来源质量'
+                  : selectedIssue.issueDomain === 'SEMANTIC'
+                    ? '字段解释'
+                    : '未知问题域'
+              }}
+            </dd>
+            <dt>问题描述</dt>
+            <dd>{{ selectedIssue.issueDescription }}</dd>
+            <dt>建议</dt>
+            <dd>{{ selectedIssue.suggestion || '后端未提供处理建议' }}</dd>
+            <dt>维度</dt>
+            <dd>{{ qualityDimensionLabel(selectedIssue.dimension) }}</dd>
+            <dt>责任人</dt>
+            <dd>{{ selectedIssue.assigneeName || '未分派' }}</dd>
+            <dt>创建时间</dt>
+            <dd>{{ selectedIssue.createdAt }}</dd>
           </dl>
           <RouterLink
             v-if="selectedIssue.issueDomain === 'SEMANTIC' && selectedIssue.columnMetaId"
             class="return-link"
-            :to="{ path: '/admin/semantics/field-explanations', query: { datasourceId: String(selectedIssue.datasourceId), snapshotId: String(selectedIssue.snapshotId), tableName: selectedIssue.tableName, columnMetaId: String(selectedIssue.columnMetaId) } }"
-          >打开字段业务解释</RouterLink>
+            :to="{
+              path: '/admin/semantics/field-explanations',
+              query: {
+                datasourceId: String(selectedIssue.datasourceId),
+                snapshotId: String(selectedIssue.snapshotId),
+                tableName: selectedIssue.tableName,
+                columnMetaId: String(selectedIssue.columnMetaId),
+              },
+            }"
+          >
+            打开字段业务解释
+          </RouterLink>
           <section class="issue-detail__assign">
             <h3>分派责任人</h3>
             <p v-if="!canManageIssue(selectedIssue)" class="muted-text">
@@ -947,55 +1382,212 @@ onBeforeUnmount(() => {
                   :disabled="Boolean(assigneeError)"
                   placeholder="选择用户"
                 >
-                  <el-option v-for="option in assigneeOptions" :key="option.id" :label="option.label" :value="option.id" />
+                  <el-option
+                    v-for="option in assigneeOptions"
+                    :key="option.id"
+                    :label="option.label"
+                    :value="option.id"
+                  />
                 </el-select>
-                <el-button size="small" type="primary" :loading="assignLoading" :disabled="!canAssign" @click="submitAssignment">分派</el-button>
+                <el-button
+                  size="small"
+                  type="primary"
+                  :loading="assignLoading"
+                  :disabled="!canAssign"
+                  @click="submitAssignment"
+                >
+                  分派
+                </el-button>
               </div>
               <p v-if="assigneeError" class="muted-text">{{ assigneeError }}</p>
               <p v-else-if="userOptionsTotal > USER_PAGE_SIZE" class="muted-text">
-                共 {{ userOptionsTotal }} 名用户，下拉仅显示前 {{ USER_PAGE_SIZE }} 名，目标用户可能不在列表中。
+                共 {{ userOptionsTotal }} 名用户，下拉仅显示前
+                {{ USER_PAGE_SIZE }} 名，目标用户可能不在列表中。
               </p>
             </template>
           </section>
           <div class="issue-detail__actions">
-            <RouterLink class="return-link" :to="{ path: '/admin/governance', query: { datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined, snapshotId: String(selectedIssue.snapshotId) } }">回治理复查</RouterLink>
+            <RouterLink
+              class="return-link"
+              :to="{
+                path: '/admin/governance',
+                query: {
+                  datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined,
+                  snapshotId: String(selectedIssue.snapshotId),
+                },
+              }"
+            >
+              回治理复查
+            </RouterLink>
             <RouterLink
               v-if="canViewReleaseRecords(selectedIssue)"
               class="return-link"
-              :to="{ path: '/admin/releases', query: { datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined, snapshotId: String(selectedIssue.snapshotId), tab: 'candidates' } }"
-            >回发布流程</RouterLink>
+              :to="{
+                path: '/admin/releases',
+                query: {
+                  datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined,
+                  snapshotId: String(selectedIssue.snapshotId),
+                  tab: 'candidates',
+                },
+              }"
+            >
+              回发布流程
+            </RouterLink>
           </div>
           <h3>同表治理记录</h3>
           <template v-if="canViewReleaseRecords(selectedIssue)">
+            <ErrorState v-if="reviewError" :message="reviewError" @retry="openIssueDetail(selectedIssue!)" />
             <p class="muted-text">以下记录来自当前快照同一数据表，后端暂未提供单个问题的独立历史接口。</p>
             <el-table :data="reviewRecords" size="small" stripe>
               <el-table-column prop="action" label="动作" width="110" />
-              <el-table-column label="状态" width="150"><template #default="{ row }">{{ row.oldStatus || '-' }} → {{ row.newStatus || '-' }}</template></el-table-column>
+              <el-table-column label="状态" width="150">
+                <template #default="{ row }">
+                  {{ row.oldStatus || '-' }} → {{ row.newStatus || '-' }}
+                </template>
+              </el-table-column>
               <el-table-column prop="operatorName" label="操作人" width="100" />
               <el-table-column prop="createdAt" label="时间" width="160" />
             </el-table>
             <el-empty v-if="!reviewRecords.length" description="暂无同表治理记录" />
           </template>
           <p v-else class="muted-text">
-            没有“查看元数据版本”能力：审核记录属于发布域（<code>metadata:release:view</code>），拥有治理查看权不会自动获得它。
+            没有“查看元数据版本”能力：审核记录属于发布域（
+            <code>metadata:release:view</code>
+            ），拥有治理查看权不会自动获得它。
           </p>
         </div>
       </template>
     </el-drawer>
+    <el-dialog
+      :model-value="!!resolutionTarget"
+      title="记录字段语义问题的处理依据"
+      width="min(620px, 96vw)"
+      :close-on-click-modal="false"
+      :show-close="!resolutionTarget || !busyIds.includes(resolutionTarget.issue.id)"
+      :close-on-press-escape="!resolutionTarget || !busyIds.includes(resolutionTarget.issue.id)"
+      @update:model-value="
+        (value: boolean) => {
+          if (!value && !busyIds.length) resolutionTarget = null
+        }
+      "
+    >
+      <p>
+        问题 #{{ resolutionTarget?.issue.id }} · 快照 #{{ resolutionTarget?.issue.snapshotId }} ·
+        {{ resolutionTarget?.issue.tableName }}.{{ resolutionTarget?.issue.columnName }}
+      </p>
+      <p class="issue-domain-guide">
+        服务端会核验最新成功的语义复查、当前解释及完整来源。来源质量检查不能代替语义复查；409
+        时保留本条依据，先核对当前状态。
+      </p>
+      <label for="issue-resolution-note">处理依据</label>
+      <el-input
+        id="issue-resolution-note"
+        v-model="resolutionNote"
+        type="textarea"
+        :rows="5"
+        :disabled="!!resolutionTarget && busyIds.includes(resolutionTarget.issue.id)"
+        placeholder="填写当前修订、复查及处理依据"
+      />
+      <ErrorState v-if="resolutionError" :message="resolutionError" :show-retry="false" />
+      <template #footer>
+        <el-button
+          :disabled="!!resolutionTarget && busyIds.includes(resolutionTarget.issue.id)"
+          @click="resolutionTarget = null"
+        >
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="!!resolutionTarget && busyIds.includes(resolutionTarget.issue.id)"
+          :disabled="!resolutionNote.trim()"
+          @click="confirmResolution"
+        >
+          确认处理
+        </el-button>
+      </template>
+    </el-dialog>
   </main>
 </template>
 
 <style scoped>
-.issue-page .issue-workbench__filters { padding: 0 0 16px; }
-.issue-page .issue-workbench__filters--advanced { padding-top: 0; }
-.issue-page .issue-domain-summary { padding: 4px 0 12px; background: transparent; }
-.issue-page .issue-workbench__content { padding: 18px 0; }
-.issue-page .issue-workbench__results { background: transparent; padding: 12px 0; }
+.issue-page {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.issue-domain-guide {
+  padding: 14px 18px;
+  border-left: 3px solid var(--do-primary);
+  background: var(--do-surface);
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--do-muted);
+  margin: 0;
+  border-radius: 0 8px 8px 0;
+}
+.issue-workbench {
+  padding: 22px;
+  border: 1px solid var(--do-line);
+  border-radius: 12px;
+  background: var(--do-surface);
+}
+.issue-batch-receipt {
+  padding: 16px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  font-size: 13px;
+  background: var(--do-surface);
+}
+.issue-batch-receipt p {
+  margin: 8px 0;
+  font-size: 12px;
+}
+.issue-batch-receipt small {
+  color: var(--do-muted);
+}
+@media (max-width: 720px) {
+  .issue-workbench {
+    padding: 14px;
+  }
+}
 
-.issue-page { display: grid; gap: 16px; min-width: 0; }
-.issue-page :deep(.task-page-header) { align-items: center; margin-bottom: 0; }
-.issue-page :deep(.task-page-header h1) { font-size: clamp(24px, 2vw, 28px); }
-.issue-workbench { min-width: 0; border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+.issue-page .issue-workbench__filters {
+  padding: 0 0 16px;
+}
+.issue-page .issue-workbench__filters--advanced {
+  padding-top: 0;
+}
+.issue-page .issue-domain-summary {
+  padding: 4px 0 12px;
+  background: transparent;
+}
+.issue-page .issue-workbench__content {
+  padding: 18px 0;
+}
+.issue-page .issue-workbench__results {
+  background: transparent;
+  padding: 12px 0;
+}
+
+.issue-page {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.issue-page :deep(.task-page-header) {
+  align-items: center;
+  margin-bottom: 0;
+}
+.issue-page :deep(.task-page-header h1) {
+  font-size: clamp(24px, 2vw, 28px);
+}
+.issue-workbench {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
 .issue-workbench__filters {
   display: flex;
   align-items: center;
@@ -1004,16 +1596,51 @@ onBeforeUnmount(() => {
   min-width: 0;
   padding: 18px 20px;
 }
-.issue-domain-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; padding: 0 20px 12px; color: var(--do-muted); font-size: 12px; }
-.issue-domain-summary strong { color: var(--do-ink); font-variant-numeric: tabular-nums; }
-.issue-filter { flex: 1 1 145px; min-width: min(145px, 100%); }
-.issue-filter--table { flex: 2 1 240px; }
-.issue-filter--assignee { flex-basis: 180px; }
+.issue-domain-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 0 20px 12px;
+  color: var(--do-muted);
+  font-size: 12px;
+}
+.issue-domain-summary strong {
+  color: var(--do-ink);
+  font-variant-numeric: tabular-nums;
+}
+.issue-filter {
+  flex: 1 1 145px;
+  min-width: min(145px, 100%);
+}
+.issue-filter--table {
+  flex: 2 1 240px;
+}
+.issue-filter--assignee {
+  flex-basis: 180px;
+}
 .issue-filter__my-issues,
-.issue-filter__clear { flex: 0 0 auto; }
-.issue-workbench__notices { display: grid; gap: 5px; padding: 0 20px 12px; }
-.issue-workbench__notice { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin: 0; color: var(--do-muted); font-size: 13px; line-height: 1.5; }
-.issue-workbench__notice--error { color: var(--do-danger); }
+.issue-filter__clear {
+  flex: 0 0 auto;
+}
+.issue-workbench__notices {
+  display: grid;
+  gap: 5px;
+  padding: 0 20px 12px;
+}
+.issue-workbench__notice {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  color: var(--do-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.issue-workbench__notice--error {
+  color: var(--do-danger);
+}
 .issue-workbench__results {
   display: flex;
   align-items: center;
@@ -1027,42 +1654,160 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--do-bg) 40%, var(--do-surface));
 }
 .issue-workbench__result-state,
-.issue-workbench__result-count { margin: 0; color: var(--do-muted); font-size: 14px; line-height: 1.45; }
-.issue-workbench__result-state--error { color: var(--do-danger); }
-.issue-workbench__result-count { color: var(--do-ink); font-weight: 600; }
-.issue-workbench__result-count strong { color: var(--do-primary-strong); font-size: 17px; font-variant-numeric: tabular-nums; }
-.issue-workbench__batch-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
-.issue-workbench__batch-actions > span:first-child { color: var(--do-ink); font-size: 13px; font-weight: 600; }
-.issue-workbench__batch-note { flex: 1 1 260px; color: var(--do-muted); font-size: 12px; line-height: 1.45; }
-.issue-workbench__content { min-width: 0; }
-.issue-table-scroll { width: 100%; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; }
-.issue-table-scroll :deep(.el-table) { min-width: 1080px; }
-.issue-workbench__empty-page { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 64px; padding: 16px 20px; color: var(--do-muted); font-size: 14px; }
-.issue-workbench__pagination { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; min-width: 0; padding: 12px 20px; border-top: 1px solid var(--do-line); }
-.issue-workbench__pagination :deep(.el-pagination) { justify-content: flex-end; }
+.issue-workbench__result-count {
+  margin: 0;
+  color: var(--do-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.issue-workbench__result-state--error {
+  color: var(--do-danger);
+}
+.issue-workbench__result-count {
+  color: var(--do-ink);
+  font-weight: 600;
+}
+.issue-workbench__result-count strong {
+  color: var(--do-primary-strong);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.issue-workbench__batch-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.issue-workbench__batch-actions > span:first-child {
+  color: var(--do-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.issue-workbench__batch-note {
+  flex: 1 1 260px;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.issue-workbench__content {
+  min-width: 0;
+}
+.issue-table-scroll {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.issue-table-scroll :deep(.el-table) {
+  min-width: 1080px;
+}
+.issue-workbench__empty-page {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 64px;
+  padding: 16px 20px;
+  color: var(--do-muted);
+  font-size: 14px;
+}
+.issue-workbench__pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--do-line);
+}
+.issue-workbench__pagination :deep(.el-pagination) {
+  justify-content: flex-end;
+}
 .issue-description {
   color: var(--do-ink);
   font-size: 13px;
 }
-.return-link { margin-left: 8px; color: var(--do-primary-strong); font-size: 12px; }
-.muted-text { color: var(--do-muted); font-size: 12px; }
-.issue-detail { display: grid; gap: 14px; }
-.issue-detail__headline, .issue-detail__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.issue-detail dl { display: grid; grid-template-columns: 76px 1fr; gap: 10px; margin: 0; }
-.issue-detail dt { color: var(--do-muted); font-size: 12px; }
-.issue-detail dd { margin: 0; color: var(--do-ink); font-size: 13px; line-height: 1.6; }
-.issue-detail h3 { margin: 4px 0 0; color: var(--do-ink); font-size: 15px; }
-.issue-detail__assign { display: grid; gap: 8px; }
-.issue-detail__assign-controls { display: flex; align-items: center; gap: 8px; }
-.issue-detail__assign-select { flex: 1; min-width: 0; }
+.return-link {
+  margin-left: 8px;
+  color: var(--do-primary-strong);
+  font-size: 12px;
+}
+.muted-text {
+  color: var(--do-muted);
+  font-size: 12px;
+}
+.issue-detail {
+  display: grid;
+  gap: 14px;
+}
+.issue-detail__headline,
+.issue-detail__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.issue-detail dl {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 10px;
+  margin: 0;
+}
+.issue-detail dt {
+  color: var(--do-muted);
+  font-size: 12px;
+}
+.issue-detail dd {
+  margin: 0;
+  color: var(--do-ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.issue-detail h3 {
+  margin: 4px 0 0;
+  color: var(--do-ink);
+  font-size: 15px;
+}
+.issue-detail__assign {
+  display: grid;
+  gap: 8px;
+}
+.issue-detail__assign-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.issue-detail__assign-select {
+  flex: 1;
+  min-width: 0;
+}
 @media (max-width: 760px) {
-  .issue-workbench__filters { padding: 14px; }
-  .issue-filter { flex-basis: 100%; }
+  .issue-workbench__filters {
+    padding: 14px;
+  }
+  .issue-filter {
+    flex-basis: 100%;
+  }
   .issue-filter__my-issues,
-  .issue-filter__clear { flex: 1 1 auto; }
-  .issue-workbench__notices { padding-right: 14px; padding-left: 14px; }
-  .issue-workbench__results { align-items: flex-start; padding: 12px 14px; }
-  .issue-workbench__pagination { padding: 12px 14px; }
-  .issue-workbench__empty-page { padding-right: 14px; padding-left: 14px; }
+  .issue-filter__clear {
+    flex: 1 1 auto;
+  }
+  .issue-workbench__notices {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+  .issue-workbench__results {
+    align-items: flex-start;
+    padding: 12px 14px;
+  }
+  .issue-workbench__pagination {
+    padding: 12px 14px;
+  }
+  .issue-workbench__empty-page {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
 }
 </style>
