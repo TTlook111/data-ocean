@@ -151,7 +151,11 @@ onMounted(async () => {
       </el-tab-pane>
 
       <el-tab-pane label="实际权限" name="effective">
-        <IamS1EffectivePermissionPanel v-if="activeTab === 'effective' && canViewEffective" />
+        <IamS1EffectivePermissionPanel
+          v-if="activeTab === 'effective' && canViewEffective"
+          :default-datasource-id="datasourceIdFromContext"
+          :invalid-default-datasource="invalidDefaultDatasource"
+        />
         <EmptyState
           v-else
           message="没有“查看用户实际权限”权限：查看他人需要该功能并负责目标数据源；本人可查看自己的业务权限。"
