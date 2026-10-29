@@ -849,7 +849,7 @@ onBeforeUnmount(() => {
       :close-on-press-escape="!saving"
       :show-close="!saving"
     >
-      <p>这里只保存账号资料，不写入旧roleIds，不分配后台负责源或业务数据权。</p>
+      <p>这里只保存账号资料；角色与负责源请到「组织、角色与负责源 → 用户角色与负责源」单独核对，业务数据权独立授权。</p>
       <p v-if="writeError" class="notice" role="status">{{ writeError }}</p>
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top" :disabled="saving">
         <div class="form-grid">
