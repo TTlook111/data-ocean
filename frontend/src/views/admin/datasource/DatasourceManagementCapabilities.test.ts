@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import ElementPlus, { ElButton, ElMessageBox } from 'element-plus'
 import { useIamS1Store } from '../../../stores/iamS1'
@@ -55,7 +55,7 @@ async function render(component: typeof DataSourcesView | typeof DataSourceDetai
 const button = (wrapper: VueWrapper, text: string) => wrapper.findAll('button').find(item => item.text() === text)
 
 beforeEach(() => {
-  setActivePinia(createPinia()); route.query = {}; route.params.id = '1'; localStorage.clear()
+  setActivePinia(createPinia()); route.query = reactive({}); route.params = reactive({ id: '1' }); localStorage.clear()
   Object.values(api).forEach(fn => fn.mockReset())
   api.replace.mockResolvedValue(undefined)
   api.listDatasources.mockResolvedValue({ data: { records: [{ ...source }], total: 1 } })
@@ -72,6 +72,119 @@ beforeEach(() => {
 afterEach(() => { wrappers.splice(0).forEach(wrapper => wrapper.unmount()); vi.restoreAllMocks() })
 
 describe('数据源既有 S1 功能与负责源能力', () => {
+  it.each(['new-draft', 'new-filter'])('创建后的能力刷新迟到，不覆盖后来的用户意图：%s', async (nextIntent) => {
+    api.testDatasourceConnection.mockResolvedValue({ data: { success: true } })
+    api.createDatasource.mockResolvedValue({ data: { ...source, id: 21 } })
+    const wrapper = await render(DataSourcesView, currentManager())
+    let finishCapabilities!: () => void
+    const iam = useIamS1Store()
+    vi.spyOn(iam, 'load').mockImplementation(force => force ? new Promise<void>(resolve => { finishCapabilities = () => {
+      iam.snapshot = capability(['datasource:view','datasource:manage'], { 1: ['datasource:view','datasource:manage'], 21: ['datasource:view','datasource:manage'] }); resolve()
+    } }) : Promise.resolve())
+    await button(wrapper, '新增数据源')!.trigger('click'); await settle()
+    const setField = async (label: string, value: string) => {
+      const item = wrapper.findAll('.test-dialog .el-form-item').find(item => item.find('label').text() === label)!
+      await item.find('input').setValue(value)
+    }
+    for (const [label,value] of [['名称','第一份连接'],['主机','fixture.internal'],['数据库','synthetic'],['只读账号','fixture_reader'],['密码','synthetic-secret']]) await setField(label!,value!)
+    await wrapper.find('.test-dialog').findAll('button').find(item => item.text()==='测试连接')!.trigger('click'); await settle()
+    await wrapper.findAllComponents(ElButton).find(item => item.text()==='创建数据源')!.trigger('click'); await settle()
+    expect(api.createDatasource).toHaveBeenCalledOnce()
+    if (nextIntent==='new-draft') {
+      await button(wrapper, '新增数据源')!.trigger('click'); await settle(); await setField('名称','第二份未发送的草稿')
+    } else {
+      await wrapper.get('input[aria-label="搜索数据源名称"]').setValue('新的筛选')
+      await wrapper.get('input[aria-label="搜索数据源名称"]').trigger('keyup.enter'); await settle()
+    }
+    finishCapabilities(); await settle()
+    expect(api.push).not.toHaveBeenCalledWith('/admin/data-sources/21')
+    if (nextIntent==='new-draft') expect((wrapper.find('.test-dialog input').element as HTMLInputElement).value).toBe('第二份未发送的草稿')
+  })
+  it('编辑深链目标不在首屏时精确读取该源，不编辑当前页其他源', async () => {
+    route.query.edit = '21'
+    api.getDatasource.mockResolvedValue({ data: { ...source, id: 21, name: '非首屏目标' } })
+    const wrapper = await render(DataSourcesView, capability(['datasource:view', 'datasource:manage'], { 1: ['datasource:view'], 21: ['datasource:view', 'datasource:manage'] }))
+    expect(api.getDatasource).toHaveBeenCalledWith(21)
+    expect((wrapper.find('.test-dialog input').element as HTMLInputElement).value).toBe('非首屏目标')
+  })
+  it('精确编辑深链不借管理权读取没有查看权的源', async () => {
+    route.query.edit = '1'
+    const wrapper = await render(DataSourcesView, capability(['datasource:view', 'datasource:manage'], { 1: ['datasource:manage'] }))
+    expect(api.getDatasource).not.toHaveBeenCalled()
+    expect(wrapper.find('.test-dialog').exists()).toBe(false)
+  })
+  it('列表卸载时只取消自己持有的确认框，确认迟到不写入', async () => {
+    let rejectConfirmation!: (value: unknown) => void
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockImplementation(() => new Promise((_resolve, reject) => { rejectConfirmation = reject }))
+    const wrapper = await render(DataSourcesView, currentManager())
+    await button(wrapper, '禁用数据源')!.trigger('click'); await settle()
+    const cancel = document.createElement('button')
+    cancel.className = confirm.mock.calls[0]![2]!.cancelButtonClass || ''
+    const click = vi.fn(() => rejectConfirmation('cancel')); cancel.onclick = click; document.body.append(cancel)
+    wrapper.unmount(); wrappers.splice(wrappers.indexOf(wrapper), 1); await settle()
+    expect(click).toHaveBeenCalledOnce()
+    expect(api.updateDatasourceStatus).not.toHaveBeenCalled()
+    cancel.remove()
+  })
+  it('仅有数据源查看权时不读取其他业务域，也不把无权显示成请求失败', async () => {
+    const wrapper = await render(DataSourceDetailView, viewOnly())
+    expect(api.listSnapshots).not.toHaveBeenCalled()
+    expect(api.listSyncTasks).not.toHaveBeenCalled()
+    expect(api.listKnowledgeDocs).not.toHaveBeenCalled()
+    expect(api.listQualityIssues).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('没有快照详情查看权限')
+    expect(wrapper.text()).not.toContain('快照读取失败')
+  })
+
+  it('没有 RAG 也按后端 askable 展示，不新增索引准入门禁', async () => {
+    api.getDatasourceReadiness.mockResolvedValue({ data: { ...ready, askable: true, connectionReady: true, metadataReady: true, governanceReady: true, permissionReady: true, knowledgeReady: false, blockReasons: [] } })
+    const wrapper = await render(DataSourceDetailView, viewOnly())
+    expect(wrapper.text()).toContain('后台判定可问数')
+    expect(wrapper.text()).toContain('尚无活动索引')
+    expect(wrapper.text()).toContain('不代表当前查看账号拥有查询权')
+  })
+
+  it('同组件切到源2后，迟到的源1详情不回填', async () => {
+    let resolveOld!: (value: unknown) => void
+    api.getDatasource.mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve })).mockResolvedValueOnce({ data: { ...source, id: 2, name: '当前源二' } })
+    api.getDatasourceReadiness.mockImplementation(async (id: number) => ({ data: { ...ready, datasourceId: id } }))
+    const wrapper = await render(DataSourceDetailView, capability(['datasource:view'], { 1: ['datasource:view'], 2: ['datasource:view'] }))
+    route.params.id = '2'; await settle()
+    expect(wrapper.text()).toContain('当前源二')
+    resolveOld({ data: source }); await settle()
+    expect(wrapper.text()).toContain('当前源二')
+    expect(wrapper.find('h1').text()).not.toBe(source.name)
+  })
+
+  it('连接配置改变后，旧测试成功不能使新配置变成可保存', async () => {
+    let finishTest!: (value: unknown) => void
+    api.testDatasourceConnection.mockReturnValue(new Promise(resolve => { finishTest = resolve }))
+    const wrapper = await render(DataSourcesView, currentManager())
+    await button(wrapper, '编辑数据源')!.trigger('click'); await settle()
+    const host = wrapper.findAll('.el-form-item').find(item => item.text().startsWith('主机'))!.find('input')
+    await host.setValue('first.synthetic')
+    await wrapper.find('.test-dialog input[type="password"]').setValue('synthetic-test-secret')
+    const testButton = wrapper.find('.test-dialog').findAll('button').find(item => item.text() === '测试连接')!
+    await testButton.trigger('click'); await settle()
+    expect(api.testDatasourceConnection).toHaveBeenCalledTimes(1)
+    await host.setValue('second.synthetic')
+    finishTest({ data: { success: true } }); await settle()
+    const saveButton = wrapper.findAllComponents(ElButton).find(item => item.text() === '保存')!
+    expect(saveButton.props('disabled')).toBe(true)
+    expect(api.updateDatasource).not.toHaveBeenCalled()
+  })
+
+  it('重复保存不会在异步表单校验后发送两次更新', async () => {
+    let finishSave!: (value: unknown) => void
+    api.updateDatasource.mockReturnValue(new Promise(resolve => { finishSave = resolve }))
+    const wrapper = await render(DataSourcesView, currentManager())
+    await button(wrapper, '编辑数据源')!.trigger('click'); await settle()
+    const save = wrapper.findAllComponents(ElButton).find(item => item.text() === '保存')!
+    save.vm.$emit('click', new MouseEvent('click')); save.vm.$emit('click', new MouseEvent('click')); await settle()
+    expect(api.updateDatasource).toHaveBeenCalledTimes(1)
+    expect(api.updateDatasource.mock.calls[0][1]).not.toHaveProperty('password')
+    finishSave({ data: source }); await settle()
+  })
   it.each([{ name: '只读', profile: viewOnly, create: false }, { name: '管理别源但只读当前源', profile: otherManager, create: true }])('$name 不展示当前行管理入口，新建仍按全局功能准入', async ({ profile, create }) => {
     const wrapper = await render(DataSourcesView, profile())
     expect(api.listDatasources).toHaveBeenCalledOnce()

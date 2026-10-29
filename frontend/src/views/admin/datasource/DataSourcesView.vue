@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onScopeDispose, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Ban, ChevronDown, CircleCheck, Database, Pencil, PlugZap, RefreshCw, Search, Trash2 } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
@@ -7,6 +7,7 @@ import {
   createDatasource,
   deleteDatasource,
   getDatasourceReadiness,
+  getDatasource,
   listDatasources,
   testDatasourceConnection,
   updateDatasource,
@@ -22,10 +23,14 @@ import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
 import { useIamS1Store } from '../../../stores/iamS1'
+import { useAuthStore } from '../../../stores/auth'
+import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
+import { getHttpErrorMessage } from '../../../utils/httpError'
 
 const router = useRouter()
 const route = useRoute()
 const iamS1 = useIamS1Store()
+const auth = useAuthStore()
 const canView = computed(() => iamS1.hasGlobal('datasource:view'))
 const canCreate = computed(() => iamS1.hasGlobal('datasource:manage'))
 const VIEW_HINT = '没有查看数据源的权限。'
@@ -44,6 +49,7 @@ const error = ref('')
 const dialogVisible = ref(false)
 const saving = ref(false)
 const testing = ref(false)
+const rowActionBusy = ref(false)
 const editingId = ref<number>()
 const testedOk = ref(false)
 const connectionDirty = ref(false)
@@ -52,6 +58,33 @@ const testError = ref('')
 // 不写入列表、路由、Store 或持久化存储。
 const lastTestedPassword = ref<string | null>(null)
 const formRef = ref<FormInstance>()
+let listRequest = 0, dialogGeneration = 0, testRequest = 0, connectionRevision = 0, formRevision = 0, alive = true
+let navigationIntent = 0
+let confirmationGeneration = 0, ownsConfirmation = false
+const confirmationBusy = ref(false)
+const confirmationCancelClass = `datasource-cancel-${Math.random().toString(36).slice(2)}`
+function closeOwnedConfirmation() {
+  confirmationGeneration++
+  if (ownsConfirmation) document.querySelector<HTMLButtonElement>(`.${confirmationCancelClass}`)?.click()
+  ownsConfirmation = false; confirmationBusy.value = false
+}
+async function confirmAction(message: string, title: string, type: 'warning' | 'error', confirmButtonText: string) {
+  if (confirmationBusy.value) return false
+  const ticket = ++confirmationGeneration
+  ownsConfirmation = true; confirmationBusy.value = true
+  try {
+    await ElMessageBox.confirm(message, title, { type, confirmButtonText, cancelButtonText: '取消', cancelButtonClass: confirmationCancelClass })
+    return alive && ticket === confirmationGeneration
+  } catch { return false }
+  finally { if (ticket === confirmationGeneration) { ownsConfirmation = false; confirmationBusy.value = false } }
+}
+useAdminScrollLock(() => dialogVisible.value)
+onScopeDispose(() => { alive = false; navigationIntent++; closeOwnedConfirmation(); listRequest++; dialogGeneration++; testRequest++; lastTestedPassword.value = null; form.password = '' })
+const preparationStages = [
+  { title: '连接', text: '配置并测试只读连接' }, { title: '采集', text: '取得表与字段结构' },
+  { title: '治理', text: '核对问题与业务含义' }, { title: '发布', text: '审核并发布版本' },
+  { title: '索引', text: '显式构建知识索引' }, { title: '问数', text: '按当前授权执行' },
+]
 
 const query = reactive<DatasourceQuery>({
   name: typeof route.query.name === 'string' ? route.query.name : undefined,
@@ -116,8 +149,7 @@ const testStatusTone = computed(() => {
 })
 
 function apiError(error: unknown, fallback: string) {
-  const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
-  return message || (error instanceof Error ? error.message : fallback)
+  return getHttpErrorMessage(error, fallback)
 }
 
 function sourceLabel(row: DatasourceItem) {
@@ -135,6 +167,7 @@ function healthLabel(status?: string) {
 }
 
 function resetForm() {
+  dialogGeneration++; testRequest++; testing.value = false; saving.value = false
   editingId.value = undefined
   testedOk.value = false
   connectionDirty.value = false
@@ -160,16 +193,22 @@ function resetForm() {
   formRef.value?.clearValidate()
 }
 
-function loadReadiness(row: DatasourceItem) {
+function loadReadiness(row: DatasourceItem, ticket = listRequest, token = auth.token) {
   return getDatasourceReadiness(row.id)
-    .then((result) => { readiness[row.id] = result.data })
-    .catch(() => { readiness[row.id] = undefined })
+    .then((result) => {
+      if (result.data.datasourceId !== row.id) throw new Error('准备状态的数据源范围不一致')
+      if (alive && ticket === listRequest && token === auth.token) readiness[row.id] = result.data
+    })
+    .catch(() => { if (alive && ticket === listRequest && token === auth.token) readiness[row.id] = undefined })
 }
 
 async function load() {
+  const ticket = ++listRequest, token = auth.token, params = { ...query }
+  const current = () => alive && ticket === listRequest && token === auth.token
   loading.value = true
   error.value = ''
   await iamS1.load()
+  if (!current()) return
   if (!canView.value) {
     rows.value = []
     total.value = 0
@@ -180,32 +219,39 @@ async function load() {
   try {
     const filters = { ...route.query }
     for (const key of ['name', 'status', 'healthStatus', 'page'] as const) {
-      const value = query[key]
+      const value = params[key]
       if (value === undefined || value === '' || (key === 'page' && value === 1)) delete filters[key]
       else filters[key] = String(value)
     }
     await router.replace({ query: filters })
-    const result = await listDatasources(query)
+    if (!current()) return
+    const result = await listDatasources(params)
+    if (!current()) return
     rows.value = result.data.records
     total.value = result.data.total
-    await Promise.all(rows.value.map(loadReadiness))
+    for (const id of Object.keys(readiness)) delete readiness[Number(id)]
+    await Promise.all(rows.value.map(row => loadReadiness(row, ticket, token)))
   } catch (cause) {
+    if (!current()) return
     rows.value = []
     total.value = 0
     error.value = apiError(cause, '数据源加载失败，请稍后重试')
   } finally {
-    loading.value = false
+    if (current()) loading.value = false
   }
 }
 
 function openCreate() {
   if (!canCreate.value) { ElMessage.warning(CREATE_HINT); return }
+  navigationIntent++
   resetForm()
   dialogVisible.value = true
 }
 
 function openEdit(row: DatasourceItem) {
   if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
+  navigationIntent++
+  resetForm()
   editingId.value = row.id
   testedOk.value = true
   connectionDirty.value = false
@@ -228,13 +274,18 @@ function openEdit(row: DatasourceItem) {
     charset: row.charset || 'utf8mb4',
     username: row.username || '',
   })
+  testedOk.value = true
+  connectionDirty.value = false
   dialogVisible.value = true
 }
 
 async function testConnection() {
+  if (testing.value || saving.value) return
+  const generation = dialogGeneration, revision = connectionRevision, ticket = ++testRequest, identity = auth.token
+  const current = () => alive && dialogVisible.value && generation === dialogGeneration && ticket === testRequest && identity === auth.token
   if (!canWriteForm.value) { ElMessage.warning(MANAGE_HINT); return }
   const valid = await formRef.value?.validateField(['host', 'port', 'databaseName', 'charset', 'username', 'password']).catch(() => false)
-  if (valid === false) return
+  if (valid === false || !current() || revision !== connectionRevision) return
   if (!canWriteForm.value) { ElMessage.warning(MANAGE_HINT); return }
   if (editingId.value && !form.password) {
     ElMessage.warning('测试连接需要填写密码；若不修改连接配置，编辑保存可以留空密码')
@@ -244,14 +295,16 @@ async function testConnection() {
   testing.value = true
   testError.value = ''
   try {
-    const result = await testDatasourceConnection({
+    const payload = {
       host: form.host,
       port: form.port,
       databaseName: form.databaseName,
       charset: form.charset,
       username: form.username,
       password: form.password || '',
-    })
+    }
+    const result = await testDatasourceConnection(payload)
+    if (!current() || revision !== connectionRevision || !canWriteForm.value) return
     if (!result.data.success) {
       testedOk.value = false
       testError.value = '连接失败：' + result.data.message
@@ -259,26 +312,25 @@ async function testConnection() {
     }
     testedOk.value = true
     connectionDirty.value = false
-    Object.assign(originalConnection, {
-      host: form.host,
-      port: form.port,
-      databaseName: form.databaseName,
-      charset: form.charset,
-      username: form.username,
-    })
-    lastTestedPassword.value = form.password ?? ''
+    Object.assign(originalConnection, { host: payload.host, port: payload.port, databaseName: payload.databaseName, charset: payload.charset, username: payload.username })
+    lastTestedPassword.value = payload.password
     ElMessage.success('连接测试成功')
   } catch (cause) {
+    if (!current() || revision !== connectionRevision) return
     testedOk.value = false
     testError.value = apiError(cause, '连接测试失败，请检查配置')
   } finally {
-    testing.value = false
+    if (current()) testing.value = false
   }
 }
 
 async function save() {
+  if (saving.value || testing.value) return
+  const generation = dialogGeneration, revision = formRevision, identity = auth.token, id = editingId.value, intent = navigationIntent
+  const current = () => alive && dialogVisible.value && generation === dialogGeneration && identity === auth.token
   if (!canWriteForm.value) { ElMessage.warning(MANAGE_HINT); return }
   const valid = await formRef.value?.validate().catch(() => false)
+  if (!current() || revision !== formRevision || saving.value || testing.value) return
   if (!valid || !canSave.value) {
     if (!canSave.value) ElMessage.warning(saveHint.value)
     return
@@ -290,11 +342,12 @@ async function save() {
     const payload = { ...form }
     if (lastTestedPassword.value !== null) {
       payload.password = lastTestedPassword.value
-    } else if (editingId.value) {
+    } else if (id !== undefined) {
       delete payload.password
     }
-    if (editingId.value) {
-      await updateDatasource(editingId.value, payload)
+    if (id !== undefined) {
+      await updateDatasource(id, payload)
+      if (!current()) return
       ElMessage.success('数据源已更新')
       dialogVisible.value = false
       await load()
@@ -302,70 +355,80 @@ async function save() {
     }
 
     const result = await createDatasource(payload)
+    if (!current()) return
     const createdId = result.data?.id
     ElMessage.success('数据源已创建')
     dialogVisible.value = false
-    if (createdId) {
+    await iamS1.load(true)
+    if (!alive || identity !== auth.token || intent !== navigationIntent) return
+    if (createdId && iamS1.canOnDatasource('datasource:view', createdId)) {
       await router.push('/admin/data-sources/' + createdId)
     } else {
+      ElMessage.info('连接已保存；当前账号尚无新数据源查看权限，请联系管理员配置负责源。')
       await load()
     }
   } catch (cause) {
+    if (!current()) return
     ElMessage.error(apiError(cause, editingId.value ? '数据源更新失败' : '数据源创建失败'))
   } finally {
-    saving.value = false
+    if (alive && generation === dialogGeneration && identity === auth.token) saving.value = false
   }
 }
 
 async function toggleStatus(row: DatasourceItem) {
+  if (confirmationBusy.value || rowActionBusy.value) return
+  const identity = auth.token
   if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
   const nextStatus = row.status === 1 ? 0 : 1
   if (nextStatus === 0) {
-    try {
-      await ElMessageBox.confirm(
-        '禁用后该数据源无法继续采集和问数，请确认数据源名称：' + row.name,
-        '禁用数据源',
-        { type: 'warning', confirmButtonText: '确认禁用', cancelButtonText: '取消' },
-      )
-    } catch {
-      return
-    }
+    if (!await confirmAction('禁用后该数据源无法继续采集和问数，请确认数据源名称：' + row.name, '禁用数据源', 'warning', '确认禁用')) return
   }
+  rowActionBusy.value = true
   try {
+    if (!alive || identity !== auth.token) return
     if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
     const result = await updateDatasourceStatus(row.id, nextStatus)
+    if (!alive || identity !== auth.token) return
     Object.assign(row, result.data)
     await loadReadiness(row)
+    if (!alive || identity !== auth.token) return
     ElMessage.success(nextStatus === 1 ? '数据源已启用' : '数据源已禁用')
   } catch (cause) {
-    ElMessage.error(apiError(cause, '数据源状态更新失败'))
+    if (alive && identity === auth.token) ElMessage.error(apiError(cause, '数据源状态更新失败'))
+  } finally {
+    if (alive && identity === auth.token) rowActionBusy.value = false
   }
 }
 
 async function remove(row: DatasourceItem) {
+  if (confirmationBusy.value || rowActionBusy.value) return
+  const identity = auth.token
   if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
   if (row.status === 1) {
     ElMessage.warning('启用状态的数据源不可删除，请先禁用')
     return
   }
   try {
-    await ElMessageBox.confirm(
-      '删除后该数据源及其授权关系将被移除，请确认数据源名称：' + row.name,
-      '删除数据源',
-      { type: 'error', confirmButtonText: '确认删除', cancelButtonText: '取消' },
-    )
+    if (!await confirmAction('删除后该数据源及其授权关系将被移除，请确认数据源名称：' + row.name, '删除数据源', 'error', '确认删除')) return
+    if (!alive || identity !== auth.token) return
     if (!canManageDatasource(row.id)) { ElMessage.warning(MANAGE_HINT); return }
+    rowActionBusy.value = true
     await deleteDatasource(row.id)
+    if (!alive || identity !== auth.token) return
     ElMessage.success('数据源已删除')
+    if (rows.value.length === 1 && (query.page || 1) > 1) query.page = (query.page || 1) - 1
     await load()
   } catch (cause) {
-    if (cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '数据源删除失败'))
+    if (alive && identity === auth.token && cause !== 'cancel' && cause !== 'close') ElMessage.error(apiError(cause, '数据源删除失败'))
+  } finally {
+    if (alive && identity === auth.token) rowActionBusy.value = false
   }
 }
 
 watch(
   () => [form.host, form.port, form.databaseName, form.charset, form.username, form.password],
   () => {
+    connectionRevision++
     if (!dialogVisible.value) return
     const changed = form.host !== originalConnection.host
       || form.port !== originalConnection.port
@@ -378,15 +441,36 @@ watch(
       testedOk.value = false
       testError.value = ''
     }
-  },
+  }, { flush: 'sync' },
 )
-
-onMounted(async () => {
-  await load()
-  const editId = Number(route.query.edit)
-  const editRow = rows.value.find((row) => row.id === editId)
-  if (editRow) openEdit(editRow)
+watch(() => [form.name, form.description, form.host, form.port, form.databaseName, form.charset, form.username, form.password], () => { formRevision++ }, { flush: 'sync' })
+watch(() => auth.token, () => { navigationIntent++; closeOwnedConfirmation(); rowActionBusy.value = false; dialogVisible.value = false; resetForm(); void load() })
+watch(() => iamS1.snapshot, () => { void load() })
+watch(() => [query.name, query.status, query.healthStatus, query.page, query.pageSize], () => { navigationIntent++; closeOwnedConfirmation() }, { flush: 'sync' })
+watch(() => [route.query.name, route.query.status, route.query.healthStatus, route.query.page], () => {
+  navigationIntent++
+  closeOwnedConfirmation()
+  const next = { name: typeof route.query.name === 'string' ? route.query.name : undefined,
+    status: ['0','1'].includes(String(route.query.status)) ? Number(route.query.status) : undefined,
+    healthStatus: ['HEALTHY','UNHEALTHY','UNKNOWN'].includes(String(route.query.healthStatus)) ? String(route.query.healthStatus) : undefined,
+    page: Math.max(1, Number(route.query.page) || 1) }
+  if (Object.entries(next).every(([key, value]) => query[key as keyof DatasourceQuery] === value)) return
+  Object.assign(query, next); void load()
 })
+
+async function openEditFromRoute() {
+  const editId = Number(route.query.edit)
+  if (!Number.isSafeInteger(editId) || editId <= 0 || !canManageDatasource(editId) || !iamS1.canOnDatasource('datasource:view', editId)) return
+  navigationIntent++
+  const identity = auth.token, generation = dialogGeneration
+  const current = () => alive && identity === auth.token && generation === dialogGeneration && editId === Number(route.query.edit)
+  try {
+    const editRow = rows.value.find(row => row.id === editId) || (await getDatasource(editId)).data
+    if (current() && editRow.id === editId && canManageDatasource(editId) && iamS1.canOnDatasource('datasource:view', editId)) openEdit(editRow)
+  } catch (cause) { if (current()) ElMessage.error(apiError(cause, '编辑目标读取失败')) }
+}
+watch(() => route.query.edit, () => { void openEditFromRoute() })
+onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
 </script>
 
 <template>
@@ -399,6 +483,11 @@ onMounted(async () => {
         <el-button v-if="canCreate" type="primary" :icon="Database" @click="openCreate">新增数据源</el-button>
       </template>
     </TaskPageHeader>
+
+    <section class="source-journey" aria-label="从连接到问数的操作分工">
+      <ol><li v-for="(stage, index) in preparationStages" :key="stage.title"><span aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span><div><strong>{{ stage.title }}</strong><small>{{ stage.text }}</small></div></li></ol>
+      <p>发布与索引构建是两个动作。准备状态以各数据源当前核验结果为准。</p>
+    </section>
 
     <section class="data-sources-panel do-glass-panel">
       <div class="data-sources-panel__toolbar">
@@ -435,6 +524,7 @@ onMounted(async () => {
                   <div class="source-cell" tabindex="0" :aria-label="sourceLabel(row)">
                     <strong class="notranslate" translate="no">{{ row.name }}</strong>
                     <span class="source-cell__meta notranslate" translate="no">{{ row.dbType }} · {{ row.databaseName }}</span>
+                    <small v-if="row.description" class="source-cell__description" :title="row.description">{{ row.description }}</small>
                   </div>
                 </el-tooltip>
               </template>
@@ -452,7 +542,7 @@ onMounted(async () => {
             <el-table-column label="启用状态" width="96">
               <template #default="{ row }"><BusinessStatusBadge :status="row.status === 1 ? 'ENABLED' : 'DISABLED'" /></template>
             </el-table-column>
-            <el-table-column label="准备状态" width="140">
+            <el-table-column label="当前阶段与下一步" min-width="180">
               <template #default="{ row }">
                 <div v-if="readiness[row.id]" class="readiness-cell">
                   <BusinessStatusBadge :status="readiness[row.id]?.askable ? 'PUBLISHED' : readiness[row.id]?.stage" :label="readiness[row.id]?.askable ? '可问数' : readiness[row.id]?.stageLabel" />
@@ -461,10 +551,10 @@ onMounted(async () => {
                 <span v-else class="cell-muted">准备情况读取失败，请刷新重试</span>
               </template>
             </el-table-column>
-            <el-table-column label="当前快照" width="100">
+            <el-table-column label="版本与索引" min-width="190">
               <template #default="{ row }">
-                <span v-if="readiness[row.id]?.snapshotVersion" class="snapshot-cell">v{{ readiness[row.id]?.snapshotVersion }} · 已发布</span>
-                <span v-else class="cell-muted">{{ readiness[row.id] ? '尚未发布' : '暂不可用' }}</span>
+                <div v-if="readiness[row.id]" class="version-cell"><span>采集 {{ readiness[row.id]?.latestCollectedSnapshotId ? 'v' + readiness[row.id]?.latestCollectedSnapshotVersion : '暂无' }} · 发布 {{ readiness[row.id]?.publishedSnapshotId ? 'v' + readiness[row.id]?.snapshotVersion : '暂无' }}</span><small :class="{ 'version-warning': readiness[row.id]?.ragStale }">索引：{{ readiness[row.id]?.knowledgeReady ? readiness[row.id]?.ragStale ? '活动版本来源落后' : '已有活动版本' : '尚无活动版本' }}</small></div>
+                <span v-else class="cell-muted">版本暂未确认</span>
               </template>
             </el-table-column>
             <el-table-column label="操作" width="184" fixed="right">
@@ -472,7 +562,7 @@ onMounted(async () => {
                 <div class="row-actions">
                   <el-button link type="primary" @click="router.push('/admin/data-sources/' + row.id)">查看详情</el-button>
                   <el-dropdown v-if="canManageDatasource(row.id)" trigger="click" popper-class="data-source-actions-popper">
-                    <el-button link class="row-actions__more" :aria-label="row.name + '的更多操作'">更多<ChevronDown :size="14" aria-hidden="true" /></el-button>
+                    <el-button link class="row-actions__more" :disabled="rowActionBusy" :aria-label="row.name + '的更多操作'">更多<ChevronDown :size="14" aria-hidden="true" /></el-button>
                     <template #dropdown>
                       <el-dropdown-menu>
                         <el-dropdown-item @click="openEdit(row)"><Pencil :size="17" aria-hidden="true" />编辑数据源</el-dropdown-item>
@@ -519,7 +609,8 @@ onMounted(async () => {
       top="6vh"
       @closed="resetForm"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" class="data-source-form">
+      <p class="connection-contract">测试连接只验证当前配置。保存后在详情继续采集、治理与审核发布；知识索引需要单独构建。</p>
+      <el-form ref="formRef" :model="form" :rules="rules" :disabled="saving || !canWriteForm" label-position="top" class="data-source-form">
         <section class="data-source-dialog__section">
           <h3 class="data-source-dialog__section-title">基本信息</h3>
           <div class="data-source-dialog__stack">
@@ -552,12 +643,12 @@ onMounted(async () => {
       <template #footer>
         <div class="data-source-dialog__footer">
           <div class="data-source-dialog__test">
-            <el-button :loading="testing" :disabled="!canWriteForm" :icon="PlugZap" @click="testConnection">测试连接</el-button>
+            <el-button :loading="testing" :disabled="!canWriteForm || saving" :icon="PlugZap" @click="testConnection">测试连接</el-button>
             <span class="data-source-dialog__test-status" :class="`is-${testStatusTone}`" role="status" aria-live="polite">{{ testStatusText }}</span>
           </div>
           <div class="data-source-dialog__footer-actions">
             <el-button @click="dialogVisible = false">取消</el-button>
-            <el-button type="primary" :loading="saving" :disabled="!canSave || !canWriteForm" @click="save">{{ editingId ? '保存' : '保存并查看详情' }}</el-button>
+            <el-button type="primary" :loading="saving" :disabled="!canSave || !canWriteForm || testing" @click="save">{{ editingId ? '保存' : '创建数据源' }}</el-button>
           </div>
         </div>
       </template>
@@ -566,6 +657,20 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.source-journey { margin: 6px 0 24px; padding: 20px 0 16px; border-top: 1px solid var(--do-line); border-bottom: 1px solid var(--do-line); }
+.source-journey ol { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 16px; padding: 0; margin: 0; list-style: none; }
+.source-journey li { display: flex; gap: 9px; min-width: 0; }
+.source-journey li > span { margin-top: 2px; color: var(--do-primary-strong); font-size: 10px; font-variant-numeric: tabular-nums; }
+.source-journey strong { display: block; color: var(--do-ink); font-size: 13px; font-weight: 600; }
+.source-journey small { display: block; margin-top: 6px; color: var(--do-muted); font-size: 11px; line-height: 1.6; }
+.source-journey p { margin: 16px 0 0; color: var(--do-muted); font-size: 11px; line-height: 1.5; }
+.source-cell__description { max-width: 100%; overflow: hidden; color: var(--do-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.version-cell { display: grid; gap: 5px; color: var(--do-ink); font-size: 12px; }
+.version-cell small { color: var(--do-muted); font-size: 11px; }
+.version-cell .version-warning { color: var(--do-warning); }
+.connection-contract { margin: 0 0 22px; padding: 12px 14px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-muted); background: var(--do-soft); font-size: 12px; line-height: 1.7; }
+@media (max-width: 1100px) { .source-journey ol { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; } }
+@media (max-width: 600px) { .source-journey ol { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; } }
 .data-sources-page :deep(.task-page-header) { align-items: center; margin-bottom: 14px; }
 .data-sources-page :deep(.task-page-header h1) { font-size: clamp(28px, 2.4vw, 32px); line-height: 1.2; letter-spacing: -.025em; }
 
