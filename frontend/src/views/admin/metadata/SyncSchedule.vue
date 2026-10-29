@@ -150,7 +150,7 @@ async function resetAndLoad() {
   await fetchSchedule()
 }
 watch(() => auth.token, resetAndLoad, { flush: 'sync' })
-watch(() => iam.snapshot, resetAndLoad, { flush: 'sync' })
+watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], resetAndLoad, { flush: 'sync' })
 onMounted(async () => { await iam.load(); if (!disposed) await fetchSchedule() })
 onBeforeUnmount(() => { disposed = true; generation++ })
 </script>
@@ -166,7 +166,8 @@ onBeforeUnmount(() => { disposed = true; generation++ })
         <el-button :icon="RefreshCw" :disabled="saving || loading || !canRead" @click="fetchSchedule">刷新配置</el-button>
       </div>
 
-      <ErrorState v-if="!canRead" message="没有同步计划查看权限。" @retry="iam.load(true)" />
+      <p v-if="!iam.loaded && !iam.errorMessage" class="schedule-loading">正在核验同步计划权限…</p>
+      <ErrorState v-else-if="!canRead" message="没有同步计划查看权限。" @retry="iam.load(true)" />
       <ErrorState v-else-if="!loaded && loadError" :message="loadError" @retry="fetchSchedule" />
       <p v-else-if="!loaded" class="schedule-loading">正在读取同步计划…</p>
       <template v-else>

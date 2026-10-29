@@ -2,6 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
 import { CircleHelp, Columns3, Copy, Database, ExternalLink, RefreshCw, Search, Table2 } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
+import { useAuthStore } from '../../../stores/auth'
+import { useIamS1Store } from '../../../stores/iamS1'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { getPublishedCatalog, type MetadataEntityItem, type PublishedCatalog } from '../../../api/admin/catalog'
 import { entityTypeLabel } from '../../../utils/enumLabels'
@@ -14,6 +16,20 @@ import TableExplorer from '../metadata/TableExplorer.vue'
 import { useRoute, useRouter } from 'vue-router'
 
 const context = useAdminContextStore()
+const auth = useAuthStore()
+const iam = useIamS1Store()
+const scopeProblem = computed(() => {
+  const raw = route.query.datasourceId
+  if (raw == null) return ''
+  const id = typeof raw === 'string' ? Number(raw) : NaN
+  if (!Number.isSafeInteger(id) || id <= 0) return '指定的数据源标识无效，未改用其他数据源。'
+  if (!iam.loaded) return iam.errorMessage || ''
+  if (!iam.canOnDatasource('metadata:view', id)) return '没有指定数据源的元数据查看权限，未改用其他数据源。'
+  if (id !== context.datasourceId) return '指定数据源不存在或范围尚未就绪，未改用其他数据源。'
+  return ''
+})
+const canRead = computed(() => !scopeProblem.value && iam.loaded && !iam.errorMessage && iam.canOnDatasource('metadata:view', context.datasourceId))
+const canRelease = computed(() => iam.loaded && !iam.errorMessage && iam.canOnDatasource('metadata:release:view', context.datasourceId))
 const route = useRoute()
 const router = useRouter()
 const activeView = computed(() => route.query.view === 'tables' ? 'tables' : 'catalog')
@@ -94,7 +110,10 @@ const catalogWarningType = computed<'error' | 'warning'>(
 )
 
 const scopeNote = computed(() => {
+  if (scopeProblem.value) return '指定数据源范围不可用'
   if (!context.datasourceId) return '请选择数据源'
+  if (!iam.loaded && !iam.errorMessage) return '正在核验元数据查看权限'
+  if (!canRead.value) return iam.errorMessage ? '元数据权限读取失败' : '没有当前源的元数据查看权限'
   if (activeView.value === 'tables') return '按所选快照查看表和字段结构'
   if (error.value) return '范围状态读取失败'
   if (loading.value && !catalog.value) return '正在读取已发布范围'
@@ -247,28 +266,31 @@ function restoreScroll(expectedKey: string) {
 
 async function load() {
   const id = context.datasourceId
-  if (!id) {
+  if (!id || !canRead.value) {
     requestId.value++
     catalog.value = null
-    error.value = ''
+    error.value = scopeProblem.value
     loading.value = false
     return
   }
   const currentRequest = ++requestId.value
+  const token = auth.token
+  const current = () => !disposed && currentRequest === requestId.value && token === auth.token && id === context.datasourceId && canRead.value
   const keyAtLoad = scrollKey()
   loading.value = true
   error.value = ''
   catalog.value = null
   try {
     const catalogResult = await getPublishedCatalog(id)
-    if (currentRequest !== requestId.value) return
+    if (!current()) return
+    if (!catalogResult.data || catalogResult.data.datasourceId !== id) throw new Error('目录来源与当前数据源不一致，请刷新重试。')
     catalog.value = catalogResult.data
   } catch (cause) {
-    if (currentRequest !== requestId.value) return
+    if (!current()) return
     catalog.value = null
     error.value = cause instanceof Error ? cause.message : '数据对象目录加载失败'
   } finally {
-    if (currentRequest === requestId.value) {
+    if (current()) {
       loading.value = false
       // loading 结束且对应 DOM 渲染后再恢复；一次 nextTick + 一帧渲染同步，不用固定延时。
       await nextTick()
@@ -291,6 +313,7 @@ function observeAssetsLayout() {
     page.closest('.admin-shell__content'),
     page.querySelector('.task-page-header'),
     page.querySelector('.assets-page__tabs'),
+    page.querySelector('.assets-panel__scope'),
     page.querySelector('.snapshot-toolbar'),
   ].filter((element): element is Element => element != null))
   for (const element of observedLayoutElements) {
@@ -317,6 +340,7 @@ function scheduleTableLayoutCheck() {
       const content = page?.closest('.admin-shell__content') as HTMLElement | null
       const header = page?.querySelector('.task-page-header') as HTMLElement | null
       const tabs = page?.querySelector('.assets-page__tabs') as HTMLElement | null
+      const scope = page?.querySelector('.assets-panel__scope') as HTMLElement | null
       const toolbar = page?.querySelector('.snapshot-toolbar') as HTMLElement | null
       if (!page || activeView.value !== 'tables' || !tableMedia?.matches || !content || !header || !tabs || !toolbar) {
         fixedTablesHeight.value = false
@@ -332,6 +356,7 @@ function scheduleTableLayoutCheck() {
       const remaining = availableHeight
         - header.getBoundingClientRect().height
         - tabs.getBoundingClientRect().height
+        - (scope?.getBoundingClientRect().height || 0)
         - toolbar.getBoundingClientRect().height
         - pageGap * 2
 
@@ -371,10 +396,13 @@ onMounted(async () => {
   catalogMedia.addEventListener('change', syncAssetsMedia)
   observeAssetsLayout()
   scheduleTableLayoutCheck()
+  const token = auth.token
   try {
     await context.initialize()
+    if (disposed || token !== auth.token) return
     await load()
   } catch (cause) {
+    if (disposed || token !== auth.token) return
     error.value = cause instanceof Error ? cause.message : '数据源范围加载失败'
     loading.value = false
   }
@@ -383,6 +411,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   captureScroll()
   disposed = true
+  requestId.value++
   if (queryTimer) clearTimeout(queryTimer)
   if (layoutFrame != null) cancelAnimationFrame(layoutFrame)
   layoutResizeObserver?.disconnect()
@@ -401,7 +430,9 @@ watch(activeView, async () => {
 
 // 数据源切换会触发重新加载；先用同步 watcher 记录旧数据源目录的真实滚动位置。
 watch(() => context.datasourceId, (_newId, oldId) => captureScroll(oldId), { flush: 'sync' })
-watch(() => context.datasourceId, load)
+watch([() => context.datasourceId, () => route.query.datasourceId], load, { flush: 'sync' })
+watch(() => auth.token, () => { requestId.value++; catalog.value = null; loading.value = false; error.value = ''; expandedPaths.value = new Set(); load() }, { flush: 'sync' })
+watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { flush: 'sync' })
 </script>
 
 <template>
@@ -415,6 +446,8 @@ watch(() => context.datasourceId, load)
   >
     <TaskPageHeader
       title="数据对象目录"
+      eyebrow="数据资产 / 对象与结构"
+      description="从已发布对象理解数据，或回到指定快照核对结构。" description-mode="inline"
       :help="helpText"
     >
       <template #actions>
@@ -428,11 +461,11 @@ watch(() => context.datasourceId, load)
     </el-tabs>
 
     <section class="assets-panel do-glass-panel">
-      <div v-if="activeView === 'catalog'" class="assets-panel__scope">
+      <div class="assets-panel__scope">
         <div class="assets-panel__scope-picker">
           <ScopeBar mode="datasource" refresh-label="刷新数据源列表" compact />
         </div>
-        <span class="assets-panel__scope-note">{{ scopeNote }}</span>
+        <div class="assets-panel__scope-note"><span class="catalog-origin">{{ activeView === 'catalog' ? '正式对象目录' : '快照结构' }}</span><strong>{{ scopeNote }}</strong><span v-if="activeView === 'catalog' && catalog?.syncStatus === 'SYNCED' && !loading && !error">目录同步完成</span></div>
       </div>
 
       <template v-if="activeView === 'catalog'">
@@ -446,14 +479,14 @@ watch(() => context.datasourceId, load)
 
         <div class="assets-panel__filters">
           <el-input
-            v-model="keyword"
+            aria-label="搜索已发布对象" v-model="keyword"
             class="assets-panel__search"
             clearable
             :prefix-icon="Search"
             :placeholder="entityType === 'COLUMN' ? '搜索字段、所属表或说明' : '搜索表名、中文名或说明'"
           />
           <el-radio-group
-            :model-value="entityType"
+            aria-label="对象类型" :model-value="entityType"
             class="assets-panel__type"
             @update:model-value="(value: string | number | boolean | undefined) => switchType(value as 'TABLE' | 'COLUMN')"
           >
@@ -469,13 +502,15 @@ watch(() => context.datasourceId, load)
         </div>
 
         <div class="assets-panel__body">
-          <ErrorState v-if="error" :message="error" @retry="load" />
+          <LoadingState v-if="!iam.loaded && !iam.errorMessage" variant="skeleton" :rows="5" />
+          <ErrorState v-else-if="scopeProblem || (context.datasourceId && !canRead)" :message="scopeProblem || '没有当前数据源的元数据查看权限。'" @retry="iam.load(true)" />
+          <ErrorState v-else-if="error" :message="error" @retry="load" />
           <LoadingState v-else-if="loading" variant="skeleton" :rows="6" />
           <template v-else-if="!context.datasourceId">
             <EmptyState message="请选择数据源后，再查看已发布对象。" action-text="去数据源接入" @action="$router.push('/admin/data-sources')" />
           </template>
           <template v-else-if="!catalog?.publishedSnapshotId">
-            <EmptyState message="当前数据源没有已发布快照，暂无可浏览的已发布对象。" action-text="去元数据版本" @action="$router.push({ path: '/admin/releases', query: { datasourceId: String(context.datasourceId) } })" />
+            <EmptyState message="当前数据源没有已发布快照，暂无可浏览的已发布对象。" :action-text="canRelease ? '去元数据版本' : undefined" @action="$router.push({ path: '/admin/releases', query: { datasourceId: String(context.datasourceId) } })" />
           </template>
           <template v-else-if="catalog?.syncStatus === 'FAILED' && !filteredEntities.length">
             <ErrorState :message="catalogWarning" @retry="load" />
@@ -488,7 +523,7 @@ watch(() => context.datasourceId, load)
                     <component :is="entityIcon(row.entityType)" :size="16" class="asset-name__icon" aria-hidden="true" />
                     <div class="asset-name__copy">
                       <div class="asset-name__head">
-                        <strong :title="primaryName(row)">{{ primaryName(row) }}</strong>
+                        <button type="button" class="asset-open" :title="primaryName(row)" @click="openDetail(row)">{{ primaryName(row) }}</button>
                         <span v-if="hasDistinctTechnicalName(row)" class="asset-tech-name" translate="no" :title="row.name">{{ row.name }}</span>
                       </div>
                       <div class="asset-path" :class="{ 'asset-path--expanded': isPathExpanded(row.id) }">
@@ -504,13 +539,6 @@ watch(() => context.datasourceId, load)
               </el-table-column>
               <el-table-column v-if="entityType === 'COLUMN'" label="所属表" min-width="170">
                 <template #default="{ row }"><span class="asset-table-name" translate="no">{{ owningTable(row) || '未能解析' }}</span></template>
-              </el-table-column>
-              <el-table-column label="类型" width="96">
-                <template #default="{ row }">
-                  <span class="entity-type">
-                    <component :is="entityIcon(row.entityType)" :size="14" aria-hidden="true" />{{ entityTypeLabel(row.entityType) }}
-                  </span>
-                </template>
               </el-table-column>
               <el-table-column v-if="entityType === 'TABLE'" label="字段数" width="88">
                 <template #default="{ row }">{{ filteredTableColumnCounts.get(row.name) || 0 }}</template>
@@ -545,16 +573,18 @@ watch(() => context.datasourceId, load)
       </template>
 
       <EmptyState v-else-if="!context.datasourceId" message="请选择数据源后查看快照表结构。" action-text="去数据源接入" @action="$router.push('/admin/data-sources')" />
-      <TableExplorer v-else :fixed-height="fixedTablesHeight">
-        <template #datasource-scope>
-          <ScopeBar mode="datasource" refresh-label="刷新数据源列表" compact />
-        </template>
-      </TableExplorer>
+      <ErrorState v-else-if="!canRead" :message="scopeProblem || '没有当前数据源的元数据查看权限。'" @retry="iam.load(true)" />
+      <TableExplorer v-else :fixed-height="fixedTablesHeight" />
     </section>
   </div>
 </template>
 
 <style scoped>
+.asset-open { border:0; background:transparent; font:inherit; font-weight:600; text-align:left; color:var(--do-ink); padding:0; cursor:pointer; }
+.asset-open:hover { color:var(--do-primary-strong); text-decoration:underline; text-underline-offset:4px; }
+.assets-panel__scope-note { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
+.assets-panel__scope-note strong { font-weight:500; color:var(--do-ink); }
+.catalog-origin { border-left:2px solid var(--do-primary); padding-left:8px; }
 .assets-page { min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 .assets-page--fixed-catalog { height: 100%; }
 .assets-page--fixed-tables { height: 100%; flex: 1 1 auto; min-height: 0; }
@@ -579,7 +609,7 @@ watch(() => context.datasourceId, load)
   clip-path: inset(0 round var(--do-radius-lg));
 }
 
-.assets-panel__scope { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px 20px; border-bottom: 1px solid var(--do-line); }
+.assets-panel__scope { flex:0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px 20px; border-bottom: 1px solid var(--do-line); }
 .assets-panel__scope-picker { min-width: 0; flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 8px; }
 .assets-panel__scope-picker :deep(.scope-bar) { display: block; width: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .assets-panel__scope-picker :deep(.scope-bar__intro) { display: none; }

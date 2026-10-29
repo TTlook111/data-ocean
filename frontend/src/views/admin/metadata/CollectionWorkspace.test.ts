@@ -5,9 +5,9 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ElementPlus from 'element-plus'
 import SyncTask from './SyncTask.vue'
 import SyncSchedule from './SyncSchedule.vue'
-const h=vi.hoisted(()=>({context:null as any,auth:null as any,iam:null as any,router:null as any}))
+const h=vi.hoisted(()=>({context:null as any,auth:null as any,iam:null as any,router:null as any,route:null as any}))
 const api=vi.hoisted(()=>({listSyncTasks:vi.fn(),triggerSync:vi.fn(),getSyncSchedule:vi.fn(),updateSyncSchedule:vi.fn(),listSimpleDatasources:vi.fn()}))
-vi.mock('vue-router',()=>({useRoute:()=>({query:{}}),useRouter:()=>h.router}))
+vi.mock('vue-router',()=>({useRoute:()=>h.route,useRouter:()=>h.router}))
 vi.mock('../../../api/admin/metadata',()=>api)
 vi.mock('../../../api/admin/system',()=>api)
 vi.mock('../../../api/admin/datasource',()=>api)
@@ -20,7 +20,7 @@ function deferred(){let resolve!:(value:any)=>void;const promise=new Promise(r=>
 async function render(component:any){const w=mount(component,{global:{plugins:[ElementPlus],stubs:{ScopeBar:true,RouterLink:{props:['to'],template:'<a><slot /></a>'},LoadingState:true,ErrorState:Message,EmptyState:Message}}});wrappers.push(w);await flushPromises();return w}
 function button(w:VueWrapper,name:string){return w.findAll('button').find(b=>b.text()===name)!}
 beforeEach(()=>{
- vi.clearAllMocks();h.router={replace:vi.fn(async()=>{})};h.auth=reactive({token:'identity-A'});h.context=reactive({datasourceId:1,datasources:[{id:1,name:'source-one'},{id:2,name:'source-two'}],initialize:vi.fn(async()=>{})})
+ vi.clearAllMocks();h.route=reactive({query:{}});h.router={replace:vi.fn(async()=>{})};h.auth=reactive({token:'identity-A'});h.context=reactive({datasourceId:1,datasources:[{id:1,name:'source-one'},{id:2,name:'source-two'}],initialize:vi.fn(async()=>{})})
  h.iam=reactive({loaded:true,errorMessage:null,systemAdmin:false,snapshot:{revision:1},datasourceCapabilities:[{datasourceId:1,functionCodes:['metadata:collect:view','metadata:collect:run']}],hasGlobal:vi.fn(()=>false),canOnDatasource:(code:string,id:number)=>h.iam.systemAdmin||h.iam.datasourceCapabilities.some((s:any)=>s.datasourceId===id&&s.functionCodes.includes(code)),load:vi.fn(async()=>{})})
  api.listSyncTasks.mockResolvedValue({data:{records:[],total:0}});api.triggerSync.mockResolvedValue({data:{taskId:7}})
  api.getSyncSchedule.mockResolvedValue({code:200,data:{cron:'0 0 2 * * ?',enabled:false,running:true}})
@@ -43,3 +43,5 @@ describe('全局计划合同',()=>{
  for(const weekly of [false,true])it(`预设时间清空时安全提示 ${weekly}`,async()=>{h.iam.systemAdmin=true;const w=await render(SyncSchedule);if(weekly){w.findComponent({name:'ElRadioGroup'}).vm.$emit('update:modelValue','weekly');await flushPromises()}w.findComponent({name:'ElTimeSelect'}).vm.$emit('update:modelValue',undefined);await flushPromises();expect(w.text()).toContain('请选择有效的执行时间');expect(button(w,'保存配置').attributes('disabled')).toBeDefined();await button(w,'保存配置').trigger('click');expect(api.updateSyncSchedule).not.toHaveBeenCalled()})
  it('读取失败不展示默认值为已保存事实',async()=>{api.getSyncSchedule.mockRejectedValue(new Error('PLAN READ FAILED'));const w=await render(SyncSchedule);expect(w.text()).toContain('PLAN READ FAILED');expect(w.text()).not.toContain('已保存配置')})
 })
+
+it('任务显式源与偏好源不一致时不读取偏好源',async()=>{h.route.query.datasourceId='2';const w=await render(SyncTask);expect(api.listSyncTasks).not.toHaveBeenCalled();expect(w.text()).toContain('没有当前范围的采集任务查看权限')})

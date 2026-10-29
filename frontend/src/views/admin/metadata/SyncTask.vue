@@ -29,9 +29,14 @@ const query = reactive({ datasourceId: undefined as number | undefined, page: 1,
 const syncForm = reactive<SyncTriggerPayload>({ datasourceId: 0, includeStatistics: false })
 const syncDialogVisible = ref(false)
 const runSources = computed(() => adminContext.datasources.filter(ds => can('metadata:collect:run', ds.id)))
-const canRead = computed(() => iam.loaded && !iam.errorMessage && (query.datasourceId
+const canRead = computed(() => {
+  const raw = route.query.datasourceId
+  const id = raw == null ? undefined : typeof raw === 'string' ? Number(raw) : NaN
+  const scopeMatches = id === undefined || (Number.isSafeInteger(id) && id! > 0 && id === query.datasourceId)
+  return scopeMatches && iam.loaded && !iam.errorMessage && (query.datasourceId
   ? iam.canOnDatasource('metadata:collect:view', query.datasourceId)
-  : iam.hasGlobal('metadata:collect:view') || iam.datasourceCapabilities.some(ds => ds.functionCodes.includes('metadata:collect:view'))))
+  : iam.hasGlobal('metadata:collect:view') || iam.datasourceCapabilities.some(ds => ds.functionCodes.includes('metadata:collect:view')))
+})
 const runningTasks = computed(() => tasks.value.filter(task => task.status === 'PENDING' || task.status === 'RUNNING'))
 const selectedRunningTask = computed(() => runningTasks.value.find(task => task.datasourceId === syncForm.datasourceId))
 const emptyMessage = computed(() => query.datasourceId ? '当前数据源范围内暂无采集任务。' : '当前范围内暂无采集任务。')
@@ -123,8 +128,9 @@ watch(() => adminContext.datasourceId, id => {
   if (query.datasourceId === id) return
   invalidate(); query.datasourceId = id; query.page = 1; fetchTasks()
 }, { flush: 'sync' })
+watch(() => route.query.datasourceId, () => { invalidate(); fetchTasks() }, { flush: 'sync' })
 watch(() => auth.token, () => { invalidate(); query.page = 1; fetchTasks() }, { flush: 'sync' })
-watch(() => iam.snapshot, () => { invalidate(); fetchTasks() }, { flush: 'sync' })
+watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], () => { invalidate(); fetchTasks() }, { flush: 'sync' })
 onBeforeUnmount(() => { disposed = true; invalidate() })
 defineExpose({ openSyncDialog })
 </script>
@@ -146,7 +152,8 @@ defineExpose({ openSyncDialog })
 
       <p class="collections-task__note"><Info :size="14" aria-hidden="true" />采集成功仅表示任务完成，快照仍需治理检查与审核发布。</p>
 
-      <ErrorState v-if="!canRead" message="没有当前范围的采集任务查看权限。执行采集是独立能力。" @retry="iam.load(true)" />
+      <LoadingState v-if="!iam.loaded && !iam.errorMessage" variant="skeleton" :rows="5" />
+      <ErrorState v-else-if="!canRead" message="没有当前范围的采集任务查看权限。执行采集是独立能力。" @retry="iam.load(true)" />
       <ErrorState v-else-if="errorMessage" :message="errorMessage" @retry="fetchTasks" />
       <LoadingState v-else-if="loading && !tasks.length" variant="skeleton" :rows="5" />
       <template v-else-if="tasks.length">
