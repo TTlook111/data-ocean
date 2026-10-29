@@ -31,3 +31,5 @@
 - [FieldSemanticServicePersistenceTest.java](../../../backend/DataOcean/src/test/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticServicePersistenceTest.java)：字段语义持久化。
 
 核对重复采纳、过期候选、来源变更、完整依赖和人工内容保护；真实模型生成质量另行验收。
+
+第七阶段术语前端：URL恢复只消费精确group/term，用户选择才写入；定义和映射取同fresh revision，workspace读取失败禁写，写错保留草稿可显式修正重试。术语目录独立glossary能力，不补metadata；原BROKEN/inactive源权限及未绑定新草稿合同不变。审核冲突保留依据；分组删除清楚说明全部术语/关联。验收见第七阶段F。
