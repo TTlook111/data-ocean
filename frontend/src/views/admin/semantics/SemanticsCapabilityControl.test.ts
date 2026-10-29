@@ -123,6 +123,7 @@ vi.mock('vue-router', async (importOriginal) => {
 import GlossariesView from './GlossariesView.vue'
 import KnowledgeView from './KnowledgeView.vue'
 import PromptsView from './PromptsView.vue'
+import { pendingGovernanceWrites } from '../../../composables/governanceWriteTracker'
 
 const DATASOURCE_ID = 5
 
@@ -207,16 +208,20 @@ const knowledgeDoc = {
   currentVersion: 1,
 }
 const prompt = {
+  id: 7,
+  scenario: 'query',
+  updatedAt: '',
   templateCode: 'sql_generation',
   templateName: 'SQL 生成',
   status: 'PENDING_REVIEW',
   enabled: true,
   content: 'x',
-  version: 1,
+  currentVersion: 1,
 }
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  pendingGovernanceWrites.value = []
   routeState.query = {}
   localStorage.clear()
   Object.values(api).forEach((fn) => fn.mockReset())
@@ -233,6 +238,11 @@ beforeEach(() => {
   api.listSnapshots.mockResolvedValue({ data: { records: [], total: 0 } })
   api.getPublishedSnapshot.mockResolvedValue({ data: null })
   api.listPromptTemplates.mockResolvedValue({ data: { records: [prompt], total: 1 } })
+  api.updatePromptTemplate.mockImplementation(async (code, payload) => {
+    const last = await api.listPromptTemplates.mock.results.at(-1)?.value
+    const row = last?.data?.records?.find((item: typeof prompt) => item.templateCode === code) || prompt
+    return { data: { ...row, content: payload.content, currentVersion: row.currentVersion + 1, status: 'DRAFT' } }
+  })
   api.listPromptScenes.mockResolvedValue({ data: [{ code: prompt.templateCode, name: 'SQL 生成', group: '问数', consumer: 'iam_s1/graph.py', contractVersion: '1', variables: ['question'], outputContract: 'SELECT', fixedConstraints: 'AST', metric: '任务结果不等于业务正确率' }] })
   api.listPromptInvocations.mockResolvedValue({ data: { records: [], total: 0 } })
   api.validatePromptPolicy.mockResolvedValue({ data: { systemPreview: '预览角色', userPreview: '合成变量', contractVersion: '1' } })
@@ -359,7 +369,7 @@ describe('PromptsView 的能力控制', () => {
     await buttonWithText(wrapper, '保存并创建新版本')!.trigger('click')
     await wrapper.find('#prompt-user').setValue('保存期间的新任务 {{question}}')
     await wrapper.find('.content-summary input').setValue('尚未保存的新摘要')
-    finish({ data: prompt })
+    finish({ data: { ...prompt, status: 'DRAFT', currentVersion: 2, content: api.updatePromptTemplate.mock.calls[0]![1].content } })
     await settle()
     expect(wrapper.find('#prompt-user').element).toHaveProperty('value', '保存期间的新任务 {{question}}')
     expect(wrapper.find('.content-summary input').element).toHaveProperty('value', '尚未保存的新摘要')
