@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   listIamS1AccessRequestQueue: vi.fn(),
 }))
 const iam = vi.hoisted(() => ({
+  loaded: true, errorMessage: null, snapshot: null, systemAdmin: false, canOnDatasource: () => true,
   hasGlobal: vi.fn(),
   datasourcesWithFunction: vi.fn(),
 }))
@@ -20,6 +21,7 @@ vi.mock('vue-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('vue-router')>()
   return { ...actual, useRouter: () => routerState }
 })
+vi.mock('../stores/auth', () => ({ useAuthStore: () => ({ token: 'fixture' }) }))
 vi.mock('../stores/iamS1', () => ({ useIamS1Store: () => iam }))
 vi.mock('../api/admin/dashboard', () => ({ getDashboardStats: api.getDashboardStats }))
 vi.mock('../api/admin/datasource', () => ({
@@ -96,7 +98,7 @@ async function settle() {
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset())
   iam.hasGlobal.mockReset().mockImplementation((code: string) => code === 'admin:workbench:view')
-  iam.datasourcesWithFunction.mockReset().mockReturnValue([])
+  iam.datasourcesWithFunction.mockReset().mockImplementation((code: string) => ['datasource:view', 'governance:issue:view'].includes(code) ? [5] : [])
   routerState.push.mockReset()
   api.getDashboardStats.mockResolvedValue({ data: stats(2) })
   api.listSimpleDatasources.mockResolvedValue({ data: [{ id: 5, name: '销售库', databaseName: 'sales' }] })
