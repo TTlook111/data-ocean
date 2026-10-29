@@ -1,0 +1,44 @@
+/* Approved conversation V2. Scope the first migration to query and its portals. */
+.query-workspace,
+.query-evidence-dialog,
+.query-datasource-popper {
+  --do-primary: #aa5939;
+  --do-primary-strong: #87452c;
+  --do-primary-soft: #f6ebe4;
+  --do-ink: #242724;
+  --do-muted: #676d67;
+  --do-bg: #fcfcfa;
+  --do-surface: #ffffff;
+  --do-soft: #f4f5f1;
+  --do-sidebar: #f4f5f1;
+  --do-line: #e2e5de;
+  --do-line-strong: #c9cec5;
+  --do-success: #347454;
+  --do-warning: #92571d;
+  --do-danger: #b23838;
+  --do-glass-line: var(--do-line);
+  --do-glass-data-bg: var(--do-surface);
+  --el-color-primary: var(--do-primary);
+  --el-color-primary-dark-2: var(--do-primary-strong);
+  --el-color-primary-light-9: var(--do-primary-soft);
+  --el-border-color-light: var(--do-line);
+  --el-text-color-primary: var(--do-ink);
+  --el-text-color-regular: var(--do-muted);
+  --el-fill-color-light: var(--do-soft);
+  --el-bg-color: var(--do-surface);
+}
+
+body:has(.query-workspace) { background: #fcfcfa; }
+.query-workspace button:focus-visible,
+.query-workspace a:focus-visible,
+.query-evidence-dialog button:focus-visible {
+  outline: 3px solid var(--do-primary);
+  outline-offset: 3px;
+}
+.query-evidence-dialog { max-width: calc(100vw - 24px); padding: 16px; border-radius: 16px; }
+.query-evidence-dialog .el-dialog__body { height: min(74dvh, 820px); }
+.query-evidence-dialog .result-preview { box-shadow: none; }
+.query-datasource-popper.el-popper { color: var(--do-ink); border-color: var(--do-line); background: var(--do-surface); }
+@media (prefers-reduced-motion: reduce) {
+  .query-workspace *, .query-evidence-dialog * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

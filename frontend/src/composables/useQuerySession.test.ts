@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useQuerySession } from './useQuerySession'
-import { iamS1ListConversationMessages } from '../api/iamS1'
+import { iamS1ListConversationMessages, iamS1ListConversations, listIamS1QueryResourceDatasources } from '../api/iamS1'
 
 vi.mock('../api/iamS1', () => ({
   iamS1DeleteConversation: vi.fn(),
@@ -17,6 +17,67 @@ vi.mock('element-plus', () => ({
 
 describe('useQuerySession history pagination', () => {
   beforeEach(() => vi.clearAllMocks())
+
+  it('切源后旧会话列表不得接管活动会话', async () => {
+    let resolveOld!: (value: unknown) => void
+    vi.mocked(iamS1ListConversations).mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve }) as never)
+      .mockResolvedValueOnce({ data: [] } as never)
+    const api = useQuerySession()
+    const old = api.selectDatasource(1)
+    await api.selectDatasource(2)
+    resolveOld({ data: [{ id: 10, datasourceId: 1, title: '旧源', createdAt: '', updatedAt: '' }] })
+    await old
+    expect(api.selectedId.value).toBe(2)
+    expect(api.activeSession.value?.datasourceId).toBe(2)
+    expect(api.sessions.some(session => session.conversationId === 10)).toBe(false)
+  })
+  it('历史首屏读取期间同时阻止 UI 就绪与实际发送条件', async () => {
+    let resolveHistory!: (value: unknown) => void
+    vi.mocked(iamS1ListConversations).mockReturnValueOnce(new Promise(resolve => { resolveHistory = resolve }) as never)
+    const api = useQuerySession()
+    api.readinessMap.value = { 1: { askable: true } } as never
+    const selecting = api.selectDatasource(1)
+    expect(api.historyLoading.value).toBe(true)
+    expect(api.canAskSelectedDatasource.value).toBe(false)
+    api.startNewSession()
+    expect(api.sessions).toHaveLength(0)
+    resolveHistory({ data: [] }); await selecting
+    expect(api.canAskSelectedDatasource.value).toBe(true)
+  })
+  it('账号 reset 后旧数据源请求不能恢复上一账号范围', async () => {
+    let resolveOld!: (value: unknown) => void
+    vi.mocked(listIamS1QueryResourceDatasources).mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve }) as never)
+    const api = useQuerySession()
+    const old = api.fetchDatasources()
+    api.reset()
+    resolveOld({ data: [{ id: 1, name: '旧账号数据源' }] }); await old
+    expect(api.datasources.value).toEqual([])
+    expect(api.selectedId.value).toBeUndefined()
+  })
+
+  it('历史列表失败后同源重试会重新请求并恢复列表', async () => {
+    vi.mocked(iamS1ListConversations).mockRejectedValueOnce(new Error('断网')).mockResolvedValueOnce({ data: [{ id: 10, datasourceId: 1, title: '历史', createdAt: '', updatedAt: '' }] } as never)
+    vi.mocked(iamS1ListConversationMessages).mockResolvedValue({ data: { items: [], hasMore: false } } as never)
+    const api = useQuerySession()
+    await api.selectDatasource(1)
+    expect(api.historyError.value).not.toBe('')
+    await api.retryHistory()
+    expect(iamS1ListConversations).toHaveBeenCalledTimes(2)
+    expect(api.historyError.value).toBe('')
+    expect(api.datasourceSessions.value.some(item => item.conversationId === 10)).toBe(true)
+  })
+
+  it('首屏消息失败后同源重试不会被已加载源缓存挡住', async () => {
+    vi.mocked(iamS1ListConversations).mockResolvedValue({ data: [{ id: 10, datasourceId: 1, title: '历史', createdAt: '', updatedAt: '' }] } as never)
+    vi.mocked(iamS1ListConversationMessages).mockRejectedValueOnce(new Error('断网')).mockResolvedValueOnce({ data: { items: [{ id: 1, role: 'user', content: '恢复的问题', createdAt: '' }], hasMore: false } } as never)
+    const api = useQuerySession()
+    await api.selectDatasource(1)
+    expect(api.historyError.value).not.toBe('')
+    await api.retryHistory()
+    expect(iamS1ListConversationMessages).toHaveBeenCalledTimes(2)
+    expect(api.historyError.value).toBe('')
+    expect(api.activeMessages.value[0]?.content).toBe('恢复的问题')
+  })
 
   it('relinks old clarification and failure messages to their questions after loading another page', async () => {
     vi.mocked(iamS1ListConversationMessages)

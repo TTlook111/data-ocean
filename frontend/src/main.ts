@@ -5,6 +5,7 @@ import 'element-plus/dist/index.css'
 import './styles/variables.css'
 import './style.css'
 import './styles/governance.css'
+import './styles/product-workspace.css'
 import App from './App.vue'
 import router from './router'
 

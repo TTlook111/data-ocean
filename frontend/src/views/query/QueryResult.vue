@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ArrowLeft, BarChart3, CircleAlert, CircleHelp, CircleX, Code2, Download, ListChecks, LoaderCircle, ShieldAlert, ShieldCheck, ThumbsDown, ThumbsUp, X } from 'lucide-vue-next'
+import { ArrowLeft, BarChart3, CircleAlert, CircleHelp, CircleX, Code2, Download, Expand, ListChecks, LoaderCircle, ShieldAlert, ShieldCheck, ThumbsDown, ThumbsUp, X } from 'lucide-vue-next'
 import type { IamS1QueryTaskResult as QueryTaskResult } from '../../api/iamS1'
 import { finalProtectionLabel, type QueryDisplayState } from '../../utils/queryDisplayState'
 import { getPieChartNote, getQueryChartTitle, getQueryChartTypes, type QueryChartType } from '../../utils/queryChart'
@@ -30,6 +30,8 @@ const props = defineProps<{
   feedbackStatus?:string
   feedbackBusy?:boolean
   feedbackLoading?:boolean
+  embedded?: boolean
+  exportBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -45,6 +47,7 @@ const emit = defineEmits<{
   'reload-result': [taskId: string]
   'retry-sql': []
   'close': []
+  'expand': [tab: 'chart' | 'table' | 'sql' | 'trust']
 }>()
 
 const chartFailed = ref(false)
@@ -75,7 +78,7 @@ watch(() => props.resultTab, (tab) => {
     detailsOpen.value = true
     detailsTab.value = tab
   }
-})
+}, { immediate: true })
 
 function openDetails() {
   if (props.resultTab === 'chart' || props.resultTab === 'table') lastResultTab.value = props.resultTab
@@ -106,14 +109,19 @@ defineExpose({ openDetails })
 </script>
 
 <template>
-  <aside class="result-preview result-rail do-glass-data" aria-label="查询结果">
+  <section class="result-preview result-rail do-glass-data" :class="{ 'embedded-result': embedded }" aria-label="查询结果">
     <header class="result-header">
       <div class="result-title">
         <strong>{{ panelTitle }}</strong>
       </div>
       <small v-if="contextLabel" class="result-context">{{ contextLabel }}</small>
       <div class="result-header-actions">
-        <button type="button" class="close-button" aria-label="收起查询结果" @click="emit('close')"><X :size="18" aria-hidden="true" /></button>
+        <template v-if="embedded">
+          <button type="button" class="details-button" @click="emit('expand', 'trust')"><ShieldCheck :size="14" aria-hidden="true" />来源与依据</button>
+          <button v-if="canViewSql" type="button" class="details-button" @click="emit('expand', 'sql')"><Code2 :size="14" aria-hidden="true" />SQL</button>
+          <button type="button" class="close-button" aria-label="展开这条回答的结果" @click="emit('expand', resultTab)"><Expand :size="16" aria-hidden="true" /></button>
+        </template>
+        <button v-else type="button" class="close-button" aria-label="收起查询结果" @click="emit('close')"><X :size="18" aria-hidden="true" /></button>
       </div>
     </header>
 
@@ -164,10 +172,10 @@ defineExpose({ openDetails })
           <div v-else class="chart-fallback" role="status">
             <strong>{{ chartFailed ? '图表未能显示，已回退到同一查询的受保护数据' : '当前结果没有图表配置，以下显示同一查询的受保护数据' }}</strong>
           </div>
-          <div class="data-detail-heading">
+          <div v-if="!embedded || !latestResult.chartConfig || chartFailed" class="data-detail-heading">
             <h3>数据明细</h3>
           </div>
-          <QueryResultTable :result="latestResult" :rows="pagedTableData" :page="tablePage" :page-size="tablePageSize" @update:page="emit('update:tablePage', $event)" />
+          <QueryResultTable v-if="!embedded || !latestResult.chartConfig || chartFailed" :result="latestResult" :rows="pagedTableData" :page="tablePage" :page-size="tablePageSize" @update:page="emit('update:tablePage', $event)" />
         </section>
 
         <section v-else class="result-scroll table-result-view">
@@ -222,14 +230,14 @@ defineExpose({ openDetails })
 
     <footer v-if="latestResult?.status==='COMPLETED'&&['success-data','success-empty'].includes(viewState.kind)" class="result-actions">
       <span v-if="hasRows&&!canExport" class="permission-hint">当前账号不可导出此结果</span>
-      <button v-else-if="hasRows&&canExport" type="button" class="export-button" @click="emit('export-csv')"><Download :size="14" aria-hidden="true" />导出 CSV</button>
+      <button v-else-if="hasRows&&canExport" type="button" class="export-button" :disabled="exportBusy" @click="emit('export-csv')"><Download :size="14" aria-hidden="true" />{{ exportBusy ? '正在导出…' : '导出 CSV' }}</button>
       <span v-if="feedbackStatus" class="feedback-status" role="status">{{feedbackStatus}}<button type="button" :disabled="feedbackLoading||feedbackBusy" @click="emit('refresh-feedback')">刷新反馈</button></span>
       <div class="feedback-buttons" aria-label="评价结果">
         <button type="button" class="feedback-button" :disabled="feedbackBusy" aria-label="评价：结果准确" title="结果准确" @click="emit('feedback', 'LIKE')"><ThumbsUp :size="15" aria-hidden="true" /></button>
         <button type="button" class="feedback-button" :disabled="feedbackBusy" aria-label="评价：结果有误" title="结果有误" @click="emit('feedback', 'DISLIKE')"><ThumbsDown :size="15" aria-hidden="true" /></button>
       </div>
     </footer>
-  </aside>
+  </section>
 </template>
 
 <style scoped>
@@ -309,6 +317,19 @@ defineExpose({ openDetails })
 .feedback-button:hover { border-color: var(--do-primary); color: var(--do-primary-strong); background: var(--do-primary-soft); }
 .result-tabs button:focus-visible, .details-button:focus-visible, .close-button:focus-visible, .back-button:focus-visible, .details-tabs button:focus-visible, .chart-type-switcher button:focus-visible, .export-button:focus-visible, .feedback-button:focus-visible, .status-actions button:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 32%, transparent); outline-offset: 2px; }
 .symbol-processing svg, .symbol-selection-loading svg { animation: status-spin 900ms linear infinite; }
+.embedded-result { height: auto; border-radius: 12px; box-shadow: none; }
+.embedded-result .result-header { min-height: 46px; flex-wrap: wrap; padding: 4px 10px 4px 16px; }
+.embedded-result .result-title strong { font-size: 13px; }
+.embedded-result .result-body { display: block; overflow: visible; }
+.embedded-result .result-scroll { overflow: visible; }
+.embedded-result .chart-result-view :deep(.chart-container) { height: 230px; min-height: 210px; }
+.embedded-result .result-meta h3 { font-size: 15px; }
+.embedded-result .result-actions { flex-wrap: wrap; min-height: 48px; }
+.embedded-result .result-status { min-height: 140px; padding: 20px; }
+.embedded-result .result-tabs { min-height: 42px; padding-block: 4px; }
+.embedded-result .result-tabs button { min-width: 70px; font-size: 12px; }
+.embedded-result .chart-type-switcher { background: var(--do-soft); }
+.embedded-result .feedback-status { flex: 1 1 200px; }
 @media (max-width: 768px) {
   .result-preview { border-left: 0; }
   .result-header { min-height: 50px; padding-inline: 12px 8px; }

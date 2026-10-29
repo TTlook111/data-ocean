@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { History, LogOut, MessageSquarePlus, Search, ShieldCheck, Trash2, UserCog, UserRound } from 'lucide-vue-next'
+import brandMark from '../../assets/brand/dataocean-mark.png'
 import type { LocalSession } from '../../composables/useQuerySession'
 import { useIamS1Store } from '../../stores/iamS1'
 
@@ -15,6 +16,8 @@ const props = defineProps<{
   roleText: string
   canEnterAdmin: boolean
   mobileHistoryOpen: boolean
+  loading?: boolean
+  errorMessage?: string
 }>()
 
 const emit = defineEmits<{
@@ -24,6 +27,7 @@ const emit = defineEmits<{
   'toggle-mobile-history': []
   'user-command': [command: 'profile' | 'password' | 'admin' | 'logout']
   'update:keyword': [value: string]
+  'retry-history': []
 }>()
 
 const searchOpen = ref(false)
@@ -74,13 +78,13 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 </script>
 
 <template>
-  <aside class="query-sidebar do-glass-shell" :class="{ 'mobile-history-open': mobileHistoryOpen }" aria-label="会话导航">
+  <aside class="query-sidebar" :class="{ 'mobile-history-open': mobileHistoryOpen }" aria-label="会话导航">
     <RouterLink class="query-brand" to="/query" aria-label="DataOcean 智能问数">
-      <span aria-hidden="true">DO</span>
+      <img class="query-brand-mark" :src="brandMark" alt="" width="28" height="42" />
       <div><strong>DataOcean</strong><small>智能问数</small></div>
     </RouterLink>
 
-    <button class="new-session-button" type="button" @click="emit('new-session')">
+    <button class="new-session-button" type="button" :disabled="loading" @click="emit('new-session')">
       <MessageSquarePlus :size="16" aria-hidden="true" /><span>新建对话</span>
     </button>
 
@@ -103,7 +107,9 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
         <Search :size="14" aria-hidden="true" />
         <input :value="keyword" type="search" placeholder="搜索会话" aria-label="搜索历史会话" @input="emit('update:keyword', ($event.target as HTMLInputElement).value)" />
       </label>
-      <div v-if="!datasourceSessions.length" class="history-empty">{{ keyword.trim() ? '没有匹配的会话' : '还没有对话' }}</div>
+      <div v-if="loading" class="history-empty" role="status">正在读取会话…</div>
+      <div v-else-if="errorMessage" class="history-empty history-error" role="alert">{{ errorMessage }}<button class="retry-history" type="button" @click="emit('retry-history')">重试历史会话</button></div>
+      <div v-else-if="!datasourceSessions.length" class="history-empty">{{ keyword.trim() ? '没有匹配的会话' : '还没有对话' }}</div>
       <div v-else class="history-list">
         <section v-for="group in groupedSessions" :key="group.key" class="history-group" :aria-label="group.label">
           <h3 class="history-group-label">{{ group.label }}</h3>
@@ -158,6 +164,9 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 </template>
 
 <style scoped>
+/* V2: a quiet navigation surface; the existing brand asset keeps its blue. */
+.query-brand-mark { width: 28px; height: 42px; object-fit: contain; }
+
 /* Keep the compact history control exclusive to narrow viewports. */
 .query-sidebar { height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 14px; padding: 16px 12px 10px; border-radius: 16px; }
 .query-sidebar.do-glass-shell { background: rgba(247, 252, 255, .66); }
@@ -237,6 +246,27 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
   .sidebar-user-menu { top: calc(100% + 8px); right: 0; bottom: auto; width: min(300px, calc(100vw - 24px)); }
 }
 @media (prefers-reduced-motion: reduce) { .user-menu-enter-active, .user-menu-leave-active { transition-duration: 1ms; } }
+
+.query-sidebar { gap: 22px; padding: 22px 16px 12px; border-radius: 0; border-right: 1px solid var(--do-line); background: var(--do-sidebar); }
+.query-brand { grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding-inline: 6px; }
+.query-brand strong { font-size: 19px; letter-spacing: -.5px; }
+.new-session-button { min-height: 44px; justify-content: flex-start; padding-inline: 14px; border: 1px solid var(--do-line-strong); color: var(--do-ink); background: var(--do-surface); box-shadow: none; font-size: 13px; }
+.new-session-button:hover { color: var(--do-primary-strong); background: var(--do-primary-soft); }
+.history-heading { font-weight: 500; }
+.history-row { border-radius: 8px; }
+.history-row.active { border-color: var(--do-line); background: #e9ece5; }
+.history-row strong { font-size: 13px; line-height: 1.5; }
+.sidebar-avatar { color: var(--do-ink); background: #e1e5dc; }
+.history-error { color: var(--do-danger); }
+.retry-history { display: block; min-height: 40px; margin-top: 8px; border: 1px solid var(--do-line); border-radius: 8px; padding-inline: 10px; color: var(--do-ink); background: var(--do-surface); cursor: pointer; }
+@media (max-width: 768px) {
+  .query-sidebar { gap: 6px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--do-line); }
+  .query-brand { padding: 0; grid-template-columns: 22px minmax(0,1fr); gap: 8px; }
+  .query-brand-mark { width: 22px; height: 34px; }
+  .query-brand strong { font-size: 16px; }
+  .new-session-button { padding-inline: 10px; }
+  .mobile-history-toggle { background: var(--do-surface); }
+}
 </style>
 
 <style>
