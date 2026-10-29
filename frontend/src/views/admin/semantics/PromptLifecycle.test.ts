@@ -21,12 +21,13 @@ const api = vi.hoisted(() =>
     ].map((k) => [k, vi.fn()]),
   ),
 )
-const route = vi.hoisted(() => ({ query: {} as Record<string, unknown> }))
+const route = vi.hoisted(() => ({ query: {} as Record<string, unknown>, hash: '' }))
+const navigation=vi.hoisted(()=>({push:vi.fn(),replace:vi.fn()}))
 vi.mock('../../../api/http', () => ({ http: {} }))
 vi.mock('../../../api/admin/prompt', () => api)
 vi.mock('vue-router', () => ({
   useRoute: () => route,
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => navigation,
 }))
 import Page from './PromptsView.vue'
 import { useAuthStore } from '../../../stores/auth'
@@ -107,6 +108,8 @@ beforeEach(() => {
   setActivePinia(createPinia())
   useAuthStore().token = 'A'
   rights()
+  route.hash=''
+  navigation.push.mockReset();navigation.replace.mockReset()
   pendingGovernanceWrites.value = []
   Object.values(api).forEach((f) => f.mockReset())
   rows = [template(), template('answer')]
@@ -333,6 +336,15 @@ describe('Prompt 精确场景与版本生命周期', () => {
    expect(w.text()).toContain('编辑版本 v4')
    expect(w.find<HTMLTextAreaElement>('#prompt-user').element.value).toBe('其他会话较新版本')
    expect(w.text()).toContain('已读到更高版本')
+ })
+
+ it('旧入口锚点在初始化、切Tab和统计天数规范化后仍保留',async()=>{
+  route.hash='#policy';const w=await open()
+  expect(navigation.replace).toHaveBeenCalledWith(expect.objectContaining({hash:'#policy'}))
+  await w.find('[id$=tab-versions]').trigger('click');await flushPromises()
+  expect(navigation.push).toHaveBeenCalledWith(expect.objectContaining({hash:'#policy'}))
+  ;(w.vm as any).$.setupState.analysisDays=7;await flushPromises()
+  expect(navigation.replace).toHaveBeenLastCalledWith(expect.objectContaining({hash:'#policy',query:expect.objectContaining({days:'7'})}))
  })
 
 })

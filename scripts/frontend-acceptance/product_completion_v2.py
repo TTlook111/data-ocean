@@ -5,7 +5,7 @@ from urllib.parse import urlparse,parse_qs
 from iam_product_v2 import Fixture as Base
 from playwright.async_api import async_playwright
 OUT=Path('output/playwright/product-completion-v2-20261029')
-PATHS={'workbench':'/admin/workbench','runtime':'/admin/platform/runtime','ai':'/admin/platform/ai','prompts':'/admin/platform/prompts','login':'/login','password':'/change-password','profile':'/profile','query-guide':'/guide/query','admin-guide':'/guide/admin','not-found':'/missing-fixture'}
+PATHS={'redirects':'/','notifications':'/admin/workbench','workbench':'/admin/workbench','runtime':'/admin/platform/runtime','ai':'/admin/platform/ai','prompts':'/admin/platform/prompts','login':'/login','password':'/change-password','profile':'/profile','query-guide':'/guide/query','admin-guide':'/guide/admin','not-found':'/missing-fixture'}
 CODES=['admin:workbench:view','datasource:view','metadata:release:view','governance:issue:view','knowledge:view','security:approval:view','system:runtime:view','system:runtime:manage','system:ai-config:view','system:ai-config:manage','prompt:view','prompt:manage','prompt:approve']
 class Fixture(Base):
  async def route(self,r):
@@ -14,7 +14,8 @@ class Fixture(Base):
    self.calls.append(dict(path=p,method=method,query=parse_qs(urlparse(r.request.url).query)));await r.fulfill(status=status,content_type='application/json',body=json.dumps(dict(code=status,message=message,data=data),ensure_ascii=False))
   if p=='/api/iam-s1/capabilities':
    codes=[] if self.mode=='no-rights' else ['admin:workbench:view'] if self.mode=='workbench-only' else [x for x in CODES if not(self.mode=='readonly' and x.endswith(':manage'))]
-   return await send(dict(protocolVersion='IAM-SIMPLE-1',userId=1,systemAdmin=self.mode=='system-admin',globalFunctions=codes,datasourceCapabilities=[dict(datasourceId=1,datasourceName='合成经营库',functionCodes=codes,functionNames=[])],queryUse=self.mode!='admin-only',viewSql=False,export=False,permissionRevision=1))
+   return await send(dict(protocolVersion='IAM-SIMPLE-1',userId=1,systemAdmin=self.mode=='system-admin',globalFunctions=codes,datasourceCapabilities=[dict(datasourceId=1,datasourceName='合成经营库',functionCodes=codes,functionNames=[])],queryUse=self.mode not in ['admin-only','no-rights'],viewSql=False,export=False,permissionRevision=1))
+  if p=='/api/iam-s1/query-resources/datasources':return await send([] if self.mode in ['admin-only','no-rights'] else [dict(id=1,name='合成经营库',enabled=True)])
   if p=='/api/admin/dashboard/stats':return await send(None,503,'合成：工作台统计读取失败') if self.mode=='stats-error' else await send(dict(totalDatasources=1,openIssues=2,resolvedIssues=0,recentActivities=[dict(type='PUBLISH',description='合成：经营快照已发布',time='10-29 12:00')]))
   if p=='/api/admin/datasources/simple':return await send([] if self.mode=='empty' else [dict(id=1,name='合成经营库',databaseName='demo')])
   if p=='/api/admin/datasources/readiness/batch':return await send(None,503,'合成：准备情况失败') if self.mode=='readiness-error' else await send([dict(datasourceId=1,datasourceName='合成经营库',askable=False,stage='GOVERNANCE_BLOCKED',stageLabel='待审核',progress=40,connectionReady=True,metadataReady=True,governanceReady=False,knowledgeReady=False,permissionReady=False,blockReasons=[dict(code='GOVERNANCE',message='合成：字段解释待人工审核',actionText='查看详情',ownerRole='治理人员')])])
@@ -65,13 +66,33 @@ class Fixture(Base):
    elif p.endswith('/rollback'):row['currentVersion']+=1;row['status']='DRAFT';row['content']=row['activeContent']
    elif method=='PUT':row['currentVersion']+=1;row['status']='DRAFT';row['content']=body['content']
    return await send(row)
+  if p.startswith('/api/notifications'):
+   actorB=r.request.headers.get('authorization')=='Bearer synthetic-B';key='b' if actorB else 'a'
+   if not hasattr(self,'readIds'):self.readIds={'a':set(),'b':set()}
+   if p.endswith('/unread-count'):return await send(None,503,'合成：未读数读取失败') if self.mode=='count-error' else await send(dict(count=(2 if actorB else 12)-len(self.readIds[key])))
+   if p=='/api/notifications':return await send(None,503,'合成：通知读取失败') if self.mode=='notify-error' else await send(dict(records=[dict(id=i,title=('合成B通知' if actorB else '合成A通知')+str(i),content='合成：请核对当前角色负责范围的任务',type='SYSTEM',isRead=i in self.readIds[key],createdAt='2026-10-29 12:00') for i in ([9,10] if actorB else range(1,9))],total=2 if actorB else 12))
+   ids=r.request.post_data_json if p.endswith('/batch-read') else [int(p.split('/')[-2])]
+   self.actions.append(dict(path=p,ids=ids));await asyncio.sleep(1.2 if self.mode in ['account-switch','notify-overlap'] else .2);self.readIds[key].update(ids);return await send(None)
   if p=='/api/auth/captcha':return await send(None,503,'合成：验证码不可用') if self.mode=='captcha-error' else await send(dict(captchaKey='synthetic-captcha',captchaImage='data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="120" height="48"%3E%3Ctext x="12" y="32" font-size="24"%3EA1B2%3C/text%3E%3C/svg%3E'))
   if p=='/api/auth/login':
    body=r.request.post_data_json;self.actions.append(dict(path=p,fields=list(body),passwordPreserved=body['password']==' Synthetic123 ',captchaCode=body['captchaCode']));await asyncio.sleep(.2)
    if self.mode=='login-error':return await send(None,401,'合成：账号或验证码不匹配')
    return await send(dict(token='synthetic-new-session',tokenType='Bearer',expiresIn=3600,userId=1,username=body['username'],realName='合成用户',passwordChanged=self.mode!='forced'))
   if p=='/api/auth/me' and self.mode=='expired':return await send(None,401,'合成：登录已过期')
-  if p=='/api/auth/me':return await send(dict(id=1,username='synthetic-user',realName='合成用户',email='demo@example.test',phone='',passwordChanged=True))
+  if p=='/api/auth/me':
+   if self.mode=='profile-error':return await send(None,503,'合成：本人资料读取失败')
+   self.meCalls=getattr(self,'meCalls',0)+1
+   actorB=r.request.headers.get('authorization')=='Bearer synthetic-B'
+   if self.mode=='account-read-switch' and not actorB and self.meCalls>1:await asyncio.sleep(.8)
+   return await send(dict(id=2 if actorB else 1,username='synthetic-b' if actorB else 'synthetic-user',realName='后来B资料' if actorB else getattr(self,'realName','合成用户'),email='demo@example.test',phone='',passwordChanged=True))
+  if p=='/api/auth/logout':self.actions.append(dict(path=p));return await send(None)
+  if p in ['/api/auth/password','/api/auth/profile']:
+   body=r.request.post_data_json;self.actions.append(dict(path=p,fields=list(body),passwordPreserved=body.get('oldPassword')==' SyntheticOld123 ' if p.endswith('/password') else None,realName=body.get('realName')))
+   await asyncio.sleep(.8 if self.mode=='account-switch' else .2)
+   if self.mode=='conflict':return await send(None,409,'合成：账号修改冲突，核对后重试')
+   if p.endswith('/profile'):self.realName=body['realName']
+   return await send(None)
+
   return await super().route(r)
 async def main():
  ap=argparse.ArgumentParser();ap.add_argument('--page',choices=PATHS,default='workbench');ap.add_argument('--baseline',action='store_true');a=ap.parse_args();OUT.mkdir(parents=True,exist_ok=True);checks=[];errors=[]
@@ -128,6 +149,53 @@ async def main():
    for mode,target in [('forced','**/change-password?forced=1'),('admin-only','**/query')]:
     c,p,f=await page(mode);await p.get_by_placeholder('请输入账号',exact=True).fill('synthetic-user');await p.get_by_placeholder('请输入密码',exact=True).fill(' Synthetic123 ');await p.get_by_placeholder('请输入验证码',exact=True).fill('A1B2');await p.get_by_role('button',name='登录',exact=True).click();await p.wait_for_url(target);passed(mode+'既有角色/改密路由');await c.close()
    c,p,f=await page(width=390);assert await p.evaluate('document.documentElement.scrollWidth<=innerWidth');await p.screenshot(path=str(OUT/'14-login-narrow.png'),full_page=True);passed('390窄屏保留表单');await c.close()
+  elif a.page=='password':
+   async def fillPassword(p):
+    inputs=p.locator('.el-input__inner');await inputs.nth(0).fill(' SyntheticOld123 ');await inputs.nth(1).fill('SyntheticNew123');await inputs.nth(2).fill('SyntheticNew123')
+   c,p,f=await page();await p.get_by_role('heading',name='修改密码',exact=True).wait_for();await p.screenshot(path=str(OUT/'15-password.png'),full_page=True);await p.get_by_role('button',name='确认修改并重新登录',exact=True).click();await p.wait_for_timeout(100);assert not f.actions;passed('密码原规则真实验证，空表单零PUT');await fillPassword(p);await p.get_by_role('button',name='确认修改并重新登录',exact=True).click(click_count=2);await p.wait_for_url('**/login');assert len([x for x in f.actions if x['path'].endswith('/password')])==1 and f.actions[0]['passwordPreserved'];passed('改密双击一次/原密码不trim/安全退出登录');await c.close()
+   c,p,f=await page('conflict');await fillPassword(p);await p.get_by_role('button',name='确认修改并重新登录',exact=True).click();await p.get_by_text('合成：账号修改冲突，核对后重试',exact=True).wait_for();assert await p.locator('.el-input__inner').evaluate_all('els=>els.every(e=>e.value==="")');passed('改密失败清秘密，持久错误，不自动重发');await p.get_by_role('button',name='退出并重新登录',exact=True).click();await p.wait_for_url(re.compile(r'/login(?:\?|$)'));passed('改密失败仍可显式安全退出重登');await c.close()
+   c,p,f=await page('account-switch');await fillPassword(p);await p.get_by_role('button',name='确认修改并重新登录',exact=True).click();await p.wait_for_timeout(80);await p.evaluate("async()=>{const {useAuthStore}=await import('/src/stores/auth.ts');localStorage.setItem('dataocean_token','synthetic-B');useAuthStore().token='synthetic-B'}");await p.wait_for_timeout(1000);assert not any(x['path'].endswith('/logout') for x in f.actions) and '/change-password' in p.url;passed('旧改密成功不退出新账号');await c.close()
+   c,p,f=await page(path=PATHS['password']+'?forced=1',width=390);assert await p.get_by_role('link',name='暂不修改',exact=True).count()==0;assert await p.evaluate('document.documentElement.scrollWidth<=innerWidth');await p.screenshot(path=str(OUT/'16-password-forced-narrow.png'),full_page=True);passed('forced窄屏仅改密或安全退出/不溢出');await c.close()
+   c,p,f=await page();await p.locator('.el-input__inner').first.fill('SyntheticOld123');await p.locator('.el-input__password').first.click();assert await p.locator('.el-input__inner').first.get_attribute('type')=='text';await p.evaluate("async()=>{const {useAuthStore}=await import('/src/stores/auth.ts');localStorage.setItem('dataocean_token','synthetic-B');useAuthStore().token='synthetic-B'}");await p.wait_for_timeout(100);assert await p.locator('.el-input__inner').first.get_attribute('type')=='password' and await p.locator('.el-input__inner').first.input_value()=='';passed('账号切换重建密码控件，不沿用明文显示');await c.close()
+   c,p,f=await page('expired');await p.wait_for_url(re.compile(r'/login(?:\?|$)'));await p.wait_for_timeout(150);assert '/login' in p.url;passed('当前401清内存会话，无query/login循环');await c.close()
+  elif a.page=='profile':
+   c,p,f=await page();await p.locator('.profile-loaded:not([hidden])').wait_for();await p.screenshot(path=str(OUT/'17-profile.png'),full_page=True);inputs=p.locator('.el-input__inner');await inputs.nth(1).fill('人工本人姓名');await p.get_by_role('button',name='重读资料',exact=True).click();await p.get_by_text('当前人工编辑已保留',exact=False).wait_for();assert await inputs.nth(1).input_value()=='人工本人姓名';await p.get_by_role('button',name='保存修改',exact=True).click(click_count=2);await p.get_by_text('个人资料已更新。',exact=True).wait_for();assert len(f.actions)==1 and f.actions[0]['realName']=='人工本人姓名';passed('资料键盘可编辑/刷新保稿/双击一次本人保存');await c.close()
+   c,p,f=await page('conflict');await p.locator('.el-input__inner').nth(1).fill('人工409姓名');await p.get_by_role('button',name='保存修改',exact=True).click();await p.get_by_text('合成：账号修改冲突，核对后重试',exact=True).wait_for();assert await p.locator('.el-input__inner').nth(1).input_value()=='人工409姓名';passed('资料409保留人工稿');await p.get_by_role('button',name='放弃草稿并重读',exact=True).click();await p.get_by_role('dialog').locator('.el-message-box__btns button').last.click();await p.wait_for_timeout(200);assert await p.locator('.el-input__inner').nth(1).input_value()=='合成用户';passed('明确放弃后展示实际服务端资料供核对');await c.close()
+   c,p,f=await page('profile-error');await p.get_by_text('合成：本人资料读取失败',exact=True).wait_for();assert not await p.get_by_role('button',name='保存修改',exact=True).is_visible();passed('本人读取失败与空白分开，保存不可见');await c.close()
+   for mode in ['account-switch','account-read-switch']:
+    c,p,f=await page(mode)
+    if mode=='account-switch':await p.get_by_role('button',name='保存修改',exact=True).click();await p.wait_for_timeout(80)
+    await p.evaluate("async()=>{const {useAuthStore}=await import('/src/stores/auth.ts');const a=useAuthStore();a.user={token:'synthetic-B',userId:2,username:'synthetic-b',passwordChanged:true};localStorage.setItem('dataocean_token','synthetic-B');a.token='synthetic-B'}");await p.wait_for_timeout(1100);assert await p.locator('.el-input__inner').nth(1).input_value()=='后来B资料';passed(mode+'旧回包不覆盖后来本人资料');await c.close()
+   c,p,f=await page(width=390);assert await p.evaluate('document.documentElement.scrollWidth<=innerWidth');await p.locator('.el-input__inner').nth(1).focus();await p.screenshot(path=str(OUT/'18-profile-narrow.png'),full_page=True);passed('本人资料390窄屏/键盘聚焦');await c.close()
+  elif a.page in ['query-guide','admin-guide']:
+   c,p,f=await page();count=await p.locator('.guide-step').count();assert count==(4 if a.page=='query-guide' else 10);assert not any(x['path'].startswith('/api/admin/') for x in f.calls);await p.screenshot(path=str(OUT/('19-query-guide.png' if a.page=='query-guide' else '21-admin-guide.png')),full_page=True);passed('现有流程说明，指南不预读后台数据');
+   if a.page=='query-guide':await p.get_by_text('操作边界与恢复方式',exact=True).first.focus();await p.keyboard.press('Enter');assert await p.locator('details').first.get_attribute('open') is not None;passed('原生折叠键盘可用');await p.get_by_role('link',name='进入问数',exact=True).click();await p.wait_for_url('**/query');passed('有权问数入口真实路由')
+   else:assert '发布和构建分开' in await p.locator('.guide-steps').inner_text();await p.get_by_role('link',name='查看数据源 →',exact=True).click();await p.wait_for_url('**/admin/data-sources');passed('有权数据源入口真实路由，发布构建分开')
+   await c.close()
+   c,p,f=await page('no-rights');assert not await p.get_by_role('link',name='进入问数',exact=True).count();assert not any(x['path'].startswith('/api/admin/') for x in f.calls);assert not await p.locator('.guide-link').count();passed('最小无权角色不读辅助接口/不显示操作入口');await c.close()
+   c,p,f=await page(width=390);assert await p.evaluate('document.documentElement.scrollWidth<=innerWidth');await p.screenshot(path=str(OUT/('20-query-guide-narrow.png' if a.page=='query-guide' else '22-admin-guide-narrow.png')),full_page=True);passed('指南390窄屏');await c.close()
+  elif a.page=='not-found':
+   c,p,f=await page();await p.get_by_role('heading',name='这个地址没有对应页面',exact=True).wait_for();await p.screenshot(path=str(OUT/'23-not-found.png'),full_page=True);await p.get_by_role('link',name='返回问数',exact=True).click();await p.wait_for_url('**/query');passed('404返回当前问数工作区');await c.close()
+   c,p,f=await page('admin-only');await p.get_by_role('link',name='返回有权工作区',exact=True).click();await p.wait_for_url('**/admin/workbench');passed('仅后台角色返回有权后台');await c.close()
+   c,p,f=await page('no-rights');await p.get_by_role('button',name='返回上一页',exact=True).click();await p.wait_for_url('**/profile');passed('无有效上一页与无业务功能时回本人资料');await c.close()
+   c,p,f=await page(width=390);assert await p.evaluate('document.documentElement.scrollWidth<=innerWidth');await p.get_by_role('button',name='返回上一页',exact=True).focus();assert await p.evaluate("document.activeElement.tagName==='BUTTON'");await p.screenshot(path=str(OUT/'24-not-found-narrow.png'),full_page=True);passed('404窄屏/键盘');await c.close()
+  elif a.page=='notifications':
+   c,p,f=await page();await p.get_by_role('button',name='通知',exact=True).click();await p.get_by_text('合成A通知1',exact=True).wait_for();await p.get_by_role('button',name='当前列表已读',exact=True).click(click_count=2);await p.wait_for_timeout(500);assert len(f.actions)==1 and f.actions[0]['ids']==list(range(1,9));assert await p.locator('.el-badge__content').inner_text()=='4';await p.screenshot(path=str(OUT/'25-notifications-visible-read.png'),full_page=True);passed('真实popover/只读当前8条/双击一次/全局未读余数4');await c.close()
+   c,p,f=await page('notify-overlap');await p.get_by_role('button',name='通知',exact=True).click();await p.get_by_role('button').filter(has_text='合成A通知1').click();await p.wait_for_timeout(60);await p.get_by_role('button',name='通知',exact=True).click();await p.locator('.admin-notifications-popper').wait_for(state='hidden');await p.get_by_role('button',name='通知',exact=True).click();await p.locator('.admin-notifications-popper').wait_for(state='visible');await p.wait_for_timeout(100);assert len([x for x in f.calls if x['path']=='/api/notifications'])==1;await p.wait_for_timeout(1400);assert len([x for x in f.calls if x['path']=='/api/notifications'])==2;assert await p.get_by_role('button').filter(has_text='合成A通知1').is_disabled();passed('写期间重开浮层不插入旧GET，ACK后必须重读');await c.close()
+   c,p,f=await page('notify-error');await p.get_by_role('button',name='通知',exact=True).click();await p.get_by_text('合成：通知读取失败',exact=True).wait_for();assert not await p.get_by_text('暂无通知',exact=True).is_visible();passed('通知读取失败不当空，显示明确重读');await c.close()
+   c,p,f=await page('count-error');await p.get_by_role('button',name='通知',exact=True).click();await p.get_by_text('未读数量尚未确认',exact=False).wait_for();passed('数量失败未知而非0');await c.close()
+   c,p,f=await page('account-switch');await p.get_by_role('button',name='通知',exact=True).click();await p.get_by_role('button').filter(has_text='合成A通知1').click();await p.wait_for_timeout(80);await p.evaluate("async()=>{const {useAuthStore}=await import('/src/stores/auth.ts');localStorage.setItem('dataocean_token','synthetic-B');useAuthStore().token='synthetic-B'}");await p.get_by_role('button',name='通知',exact=True).click();await p.get_by_text('合成B通知9',exact=True).wait_for();await p.wait_for_timeout(1400);assert not await p.get_by_text('合成A通知1',exact=True).count();assert await p.get_by_text('合成B通知9',exact=True).count()==1;passed('旧单读回包不回填或重读新账号列表');await c.close()
+   c,p,f=await page(width=390);await p.get_by_role('button',name='通知',exact=True).focus();await p.keyboard.press('Enter');await p.get_by_text('合成A通知1',exact=True).wait_for();assert await p.locator('.admin-notifications-popper').evaluate('e=>e.getBoundingClientRect().right<=innerWidth && e.getBoundingClientRect().left>=0');await p.screenshot(path=str(OUT/'26-notifications-narrow.png'),full_page=True);passed('390键盘打开与浮层完整位于视口');await c.close()
+  elif a.page=='redirects':
+   targets=[('/', '/query'),('/query/iam-s1?datasourceId=1&marker=legacy#answer','/query'),('/admin','/admin/workbench'),('/admin/governance/rule-templates?datasourceId=1&snapshotId=11','/admin/governance/rules'),('/admin/semantics/prompts?code=plan&tab=versions#policy','/admin/platform/prompts')]
+   for source,target in targets:
+    c,p,f=await page('system-admin',path='/profile')
+    observed=await p.evaluate("""async source=>{const {default:router}=await import('/src/router/index.ts');const seen=[];const stop=router.beforeResolve(to=>{if(to.redirectedFrom)seen.push({path:to.path,query:to.query,hash:to.hash,from:to.redirectedFrom.path})});await router.push(source);stop();return seen}""",source)
+    await p.wait_for_timeout(350);u=urlparse(p.url);assert u.path==target;assert observed and observed[0]['path']==target;q={k:[str(v)] for k,v in observed[0]['query'].items()};redirectHash=observed[0]['hash'].removeprefix('#')
+    if '/query/iam-s1' in source:assert q.get('datasourceId')==['1'] and q.get('marker')==['legacy'] and redirectHash=='answer'
+    if '/rule-templates' in source:assert q.get('datasourceId')==['1'] and q.get('snapshotId')==['11'] and q.get('showChecks')==['1']
+    if '/semantics/prompts' in source:assert q.get('code')==['plan'] and q.get('tab')==['versions'] and redirectHash=='policy' and u.fragment=='policy'
+    passed(source+' => '+target);checks[-1]['observedRedirect']=observed[0];checks[-1]['finalUrl']=p.url;await c.close()
   await b.close()
  if not a.baseline:
   result=dict(synthetic=True,realBackendTested=False,checks=checks,browserErrors=errors);(OUT/(a.page+'-checks.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2));print(json.dumps(result,ensure_ascii=False));assert not errors

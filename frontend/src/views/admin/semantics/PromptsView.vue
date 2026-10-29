@@ -307,7 +307,7 @@ function formatTime(value?: number) {
  */
 function selectTab(tab: string) {
   activeTab.value = tab
-  router.push({ query: { ...route.query, tab } })
+  router.push({ hash: route.hash, query: { ...route.query, tab } })
   if (tab === 'versions' && !versions.value.length) loadVersions()
   if (tab === 'effectiveness' && !effectiveness.value.length) loadEffectiveness()
   if (tab === 'invocations') loadInvocations()
@@ -420,7 +420,7 @@ async function selectTemplate(code: string, preserveWrite = false) {
       ? '本地草稿基于其他版本，未自动提交；请核对或明确放弃后重读。'
       : '已恢复此场景尚未保存的本地草稿。'
   }
-  router.replace({ query: { ...route.query, code } })
+  router.replace({ hash: route.hash, query: { ...route.query, code } })
   if (activeTab.value === 'versions') await loadVersions()
   if (activeTab.value === 'effectiveness') await loadEffectiveness()
   if (activeTab.value === 'invocations') await loadInvocations()
@@ -870,7 +870,7 @@ onBeforeUnmount(() => {
 })
 
 watch(analysisDays, () => {
-  router.replace({ query: { ...route.query, days: String(analysisDays.value) } })
+  router.replace({ hash: route.hash, query: { ...route.query, days: String(analysisDays.value) } })
   if (activeTab.value === 'effectiveness') loadEffectiveness()
 })
 
