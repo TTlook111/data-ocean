@@ -484,6 +484,19 @@ export async function bindIamS1Datasources(userRoleId: number, datasourceIds: nu
   return data
 }
 
+/** 移除精确userRoleId的一条既有负责源；追加接口不执行集合替换。 */
+export async function removeIamS1BindingDatasource(
+  userRoleId: number,
+  datasourceId: number,
+  reason?: string,
+) {
+  const { data } = await http.delete<ApiResult<void>>(
+    `${BASE}/user-roles/${userRoleId}/datasources/${datasourceId}`,
+    { params: { reason } },
+  )
+  return data
+}
+
 // ---------------------------------------------------------------------------
 // 资源选项
 // ---------------------------------------------------------------------------
