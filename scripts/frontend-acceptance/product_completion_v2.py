@@ -11,17 +11,23 @@ class Fixture(Base):
  async def route(self,r):
   p=urlparse(r.request.url).path;method=r.request.method
   async def send(data,status=200,message='ok'):
-   self.calls.append(dict(path=p,method=method));await r.fulfill(status=status,content_type='application/json',body=json.dumps(dict(code=status,message=message,data=data),ensure_ascii=False))
+   self.calls.append(dict(path=p,method=method,query=parse_qs(urlparse(r.request.url).query)));await r.fulfill(status=status,content_type='application/json',body=json.dumps(dict(code=status,message=message,data=data),ensure_ascii=False))
   if p=='/api/iam-s1/capabilities':
    codes=[] if self.mode=='no-rights' else ['admin:workbench:view'] if self.mode=='workbench-only' else [x for x in CODES if not(self.mode=='readonly' and x.endswith(':manage'))]
-   return await send(dict(protocolVersion='IAM-SIMPLE-1',userId=1,systemAdmin=False,globalFunctions=codes,datasourceCapabilities=[dict(datasourceId=1,datasourceName='合成经营库',functionCodes=codes,functionNames=[])],queryUse=True,viewSql=False,export=False,permissionRevision=1))
+   return await send(dict(protocolVersion='IAM-SIMPLE-1',userId=1,systemAdmin=self.mode=='system-admin',globalFunctions=codes,datasourceCapabilities=[dict(datasourceId=1,datasourceName='合成经营库',functionCodes=codes,functionNames=[])],queryUse=True,viewSql=False,export=False,permissionRevision=1))
   if p=='/api/admin/dashboard/stats':return await send(None,503,'合成：工作台统计读取失败') if self.mode=='stats-error' else await send(dict(totalDatasources=1,openIssues=2,resolvedIssues=0,recentActivities=[dict(type='PUBLISH',description='合成：经营快照已发布',time='10-29 12:00')]))
   if p=='/api/admin/datasources/simple':return await send([] if self.mode=='empty' else [dict(id=1,name='合成经营库',databaseName='demo')])
   if p=='/api/admin/datasources/readiness/batch':return await send(None,503,'合成：准备情况失败') if self.mode=='readiness-error' else await send([dict(datasourceId=1,datasourceName='合成经营库',askable=False,stage='GOVERNANCE_BLOCKED',stageLabel='待审核',progress=40,connectionReady=True,metadataReady=True,governanceReady=False,knowledgeReady=False,permissionReady=False,blockReasons=[dict(code='GOVERNANCE',message='合成：字段解释待人工审核',actionText='查看详情',ownerRole='治理人员')])])
   if p=='/api/iam-s1/access-requests/queue':return await send(dict(records=[],total=1))
   if p=='/api/admin/system/health':return await send(None,503,'合成：健康读取失败') if self.mode=='health-error' else await send(dict(overall='DEGRADED',checkTime='2026-10-29 12:00',pythonService=dict(status='UNAVAILABLE',description='合成：AI服务未连接',lastCheckTime=None,consecutiveFailures=2),mysql=dict(status='HEALTHY',description='合成数据库可用',lastCheckTime=None),redis=dict(status='UNKNOWN',description='合成：尚未确认',lastCheckTime=None)))
-  if p=='/api/admin/system/sql-pools':return await send(dict(activePools=0,pools=[]))
-  if p=='/api/admin/alert-rules' and method=='GET':return await send(dict(records=[],total=0))
+  if p=='/api/admin/system/sql-pools':return await send(dict(activePools=1,pools=[dict(datasourceId=1,poolSize=2,lastUsedAt=1793275200,createdAt=1793270000)])) if self.mode=='system-admin' else await send(dict(activePools=0,pools=[]))
+  if p=='/api/admin/system/sql-pools/1/reset':self.actions.append(dict(path=p,payload=r.request.post_data_json));await asyncio.sleep(.2);return await send(None)
+  if p=='/api/admin/alert-rules' and method=='GET':
+   if not hasattr(self,'ruleEnabled'):self.ruleEnabled=True
+   q=parse_qs(urlparse(r.request.url).query);return await send(dict(records=[dict(id=41 if q.get('page',['1'])==['1'] else 42,metric='ERROR_RATE',threshold=5,operator='>',notificationType='SYSTEM',enabled=self.ruleEnabled,createdAt='2026-10-29 12:00')],total=21))
+  if p=='/api/admin/alert-rules' and method=='POST':
+   self.actions.append(dict(path=p,payload=r.request.post_data_json));await asyncio.sleep(.2);return await send(None,409,'合成：规则冲突，人工阈值保留') if self.mode=='conflict' else await send(dict(id=43))
+  if p=='/api/admin/alert-rules/41/toggle':self.actions.append(dict(path=p));self.ruleEnabled=not self.ruleEnabled;return await send(None)
   if p=='/api/admin/system/ai-config':return await send(dict(providers=[],activeChat=None,activeEmbedding=None))
   if p=='/api/auth/me':return await send(dict(id=1,username='synthetic-user',realName='合成用户',email='demo@example.test',phone='',passwordChanged=True))
   return await super().route(r)
@@ -42,6 +48,15 @@ async def main():
    for mode in ['stats-error','readiness-error','empty']:
     c,p,f=await page(mode);text=await p.locator('main').last.inner_text();assert ('读取失败' in text if mode=='stats-error' else '准备情况' in text if mode=='readiness-error' else '还没有数据源' in text);passed(mode+'独立状态');await c.close()
    c,p,f=await page(width=620);assert await p.evaluate('document.documentElement.scrollWidth<=innerWidth');await p.screenshot(path=str(OUT/'02-workbench-narrow.png'),full_page=True);passed('620窄屏单列与不溢出');await c.close()
+  elif a.page=='runtime':
+   c,p,f=await page();await p.get_by_text('降级',exact=True).wait_for();await p.get_by_text('不可用',exact=True).wait_for();await p.screenshot(path=str(OUT/'03-runtime-health.png'),full_page=True);assert not any(x['path']=='/api/admin/datasources/simple' for x in f.calls);passed('服务真实降级/不可用/未确认分层，无源辅助依赖');await c.close()
+   c,p,f=await page('health-error');await p.get_by_text('合成：健康读取失败',exact=True).wait_for();passed('健康读取失败独立于健康/空');await c.close()
+   c,p,f=await page(path=PATHS['runtime']+'?tab=pools');await p.get_by_text('当前活跃连接池 0 个。',exact=False).wait_for();passed('SQL池真实0，按Tab懒读');await c.close()
+   c,p,f=await page('conflict',path=PATHS['runtime']+'?tab=alerts');await p.get_by_role('button',name='新增规则',exact=True).click();d=p.get_by_role('dialog');await d.get_by_role('spinbutton').fill('');await d.get_by_role('spinbutton').press('Tab');await d.get_by_role('button',name='保存',exact=True).click();await p.wait_for_timeout(100);assert not f.actions;passed('清空阈值不静默保存为0');await d.get_by_role('spinbutton').fill('7');await d.get_by_role('spinbutton').press('Tab');await d.get_by_role('button',name='保存',exact=True).click(click_count=2);await d.get_by_text('合成：规则冲突，人工阈值保留',exact=True).wait_for();assert len(f.actions)==1 and f.actions[0]['payload']['threshold']==7;await p.screenshot(path=str(OUT/'04-runtime-rule-conflict.png'),full_page=True);passed('真实规则表单、双击一次/409保人工阈值');await c.close()
+   c,p,f=await page(path=PATHS['runtime']+'?tab=alerts');await p.locator('.el-switch').click();await p.get_by_role('dialog').get_by_text('规则 #41',exact=False).wait_for();await p.get_by_role('button',name='取消',exact=True).click();assert not f.actions;passed('启停确认精确规则/取消零写');await p.locator('.btn-next').click();await p.wait_for_timeout(200);assert any(x['path']=='/api/admin/alert-rules' and x.get('query',{}).get('page')==['2'] and x.get('query',{}).get('pageSize')==['20'] for x in f.calls);passed('规则服务端分页可到第二页');await c.close()
+   c,p,f=await page('system-admin',path=PATHS['runtime']+'?tab=pools');await p.get_by_role('button',name='重置连接池',exact=True).click(click_count=2);d=p.get_by_role('dialog');assert '数据源 #1' in await d.inner_text();await d.get_by_role('textbox').fill('合成：精确源连接恢复核验');await p.screenshot(path=str(OUT/'06-runtime-pool-confirmation.png'),full_page=True);await d.get_by_role('button',name='确认重置',exact=True).click();await p.wait_for_timeout(350);assert len(f.actions)==1 and f.actions[0]['path'].endswith('/1/reset') and f.actions[0]['payload']==dict(confirmed=True,reason='合成：精确源连接恢复核验');passed('sys真实池精确ID/原因确认，双击一次POST');await c.close()
+   c,p,f=await page('readonly',path=PATHS['runtime']+'?tab=alerts');assert await p.get_by_role('button',name='新增规则',exact=True).is_disabled();passed('运行查看与维护分开');await c.close()
+   c,p,f=await page(width=620);assert await p.evaluate('document.documentElement.scrollWidth<=innerWidth');await p.screenshot(path=str(OUT/'05-runtime-narrow.png'),full_page=True);passed('运行620窄屏');await c.close()
   await b.close()
  if not a.baseline:
   result=dict(synthetic=True,realBackendTested=False,checks=checks,browserErrors=errors);(OUT/(a.page+'-checks.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2));print(json.dumps(result,ensure_ascii=False));assert not errors

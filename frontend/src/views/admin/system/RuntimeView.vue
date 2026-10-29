@@ -13,7 +13,7 @@
  *
  * 连接池重置属高风险操作：必须展示目标数据源并二次确认（§7.18、§9 门禁）。
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Activity, Cpu, Database, Plus, RefreshCw, RotateCcw, Server } from 'lucide-vue-next'
@@ -32,7 +32,9 @@ import {
   type AlertRule,
 } from '../../../api/admin/audit'
 import { listSimpleDatasources } from '../../../api/admin/datasource'
-import { useIamS1Store } from '../../../stores/iamS1'
+import { useIamWorkspaceSession } from '../../../composables/useIamWorkspaceSession'
+import { trackGovernanceWrite } from '../../../composables/governanceWriteTracker'
+import GovernanceWriteNotice from '../../../components/admin/GovernanceWriteNotice.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import TitleHelp from '../../../components/admin/TitleHelp.vue'
 import LoadingState from '../../../components/common/LoadingState.vue'
@@ -56,9 +58,17 @@ const NOTIFICATION_TYPES = [
   { value: 'EMAIL', label: '邮件' },
 ]
 
-const iamS1 = useIamS1Store()
-const canViewRuntime = computed(() => iamS1.hasGlobal('system:runtime:view'))
-const canManageRuntime = computed(() => iamS1.hasGlobal('system:runtime:manage'))
+const session = useIamWorkspaceSession()
+const iamS1 = session.iam
+const writeError = ref(''),
+  busy = ref(false),
+  rulePage = ref(1),
+  ruleTotal = ref<number | null>(null)
+const readEpoch = { health: 0, pools: 0, rules: 0, names: 0 }
+const owned = (k: number, name: keyof typeof readEpoch, r: number) =>
+  session.current(k) && readEpoch[name] === r
+const canViewRuntime = computed(() => session.canGlobal('system:runtime:view'))
+const canManageRuntime = computed(() => session.canGlobal('system:runtime:manage'))
 const canResetPool = computed(() => iamS1.systemAdmin && canManageRuntime.value)
 const RESET_HINT = '重置连接池只能由受保护的系统管理员执行'
 const MANAGE_HINT = '需要 system:runtime:manage'
@@ -86,7 +96,12 @@ const savingRule = ref(false)
 
 const datasourceNames = ref<Record<number, string>>({})
 
-const ruleForm = reactive({
+const ruleForm = reactive<{
+  metric: string
+  threshold: number | undefined
+  operator: string
+  notificationType: string
+}>({
   metric: 'ERROR_RATE',
   threshold: 5,
   operator: '>',
@@ -95,8 +110,7 @@ const ruleForm = reactive({
 
 const metricLabel = (metric: string) => METRICS.find((m) => m.value === metric)?.label || metric
 const metricUnit = (metric: string) => METRICS.find((m) => m.value === metric)?.unit || ''
-const notificationLabel = (type: string) =>
-  NOTIFICATION_TYPES.find((t) => t.value === type)?.label || type
+const notificationLabel = (type: string) => NOTIFICATION_TYPES.find((t) => t.value === type)?.label || type
 const datasourceNameOf = (id: number) => datasourceNames.value[id] || `数据源 #${id}`
 
 function apiError(cause: unknown, fallback: string) {
@@ -120,6 +134,7 @@ function ensureTabLoaded() {
 function statusMeta(status: string) {
   const map: Record<string, { label: string; tone: string }> = {
     HEALTHY: { label: '健康', tone: 'success' },
+    UNKNOWN: { label: '未确认', tone: 'info' },
     AVAILABLE: { label: '正常', tone: 'success' },
     DEGRADED: { label: '降级', tone: 'warning' },
     UNAVAILABLE: { label: '不可用', tone: 'danger' },
@@ -128,104 +143,162 @@ function statusMeta(status: string) {
 }
 
 async function fetchHealth() {
-  if (!canViewRuntime.value) {
-    health.value = null
-    healthLoading.value = false
-    healthError.value = ''
-    return
-  }
+  if (!canViewRuntime.value || healthLoading.value) return
+  const k = session.capture(),
+    r = ++readEpoch.health
   healthLoading.value = true
   healthError.value = ''
+  health.value = null
   try {
-    health.value = (await getSystemHealth()).data
+    const data = (await getSystemHealth()).data
+    if (!owned(k, 'health', r)) return
+    if (
+      !data ||
+      !data.overall ||
+      [data.pythonService, data.mysql, data.redis].some(
+        (x) => !x || typeof x.status !== 'string' || !x.status,
+      )
+    )
+      throw new Error('健康状态回执不完整，不能确认为健康')
+    health.value = data
   } catch (cause) {
-    health.value = null
-    // 失败必须渲染错误态。原实现把 healthData 置 null，页面最终显示
-    // 「暂无健康状态数据」——把失败说成了没有数据（§11.3、§18）。
-    healthError.value = apiError(cause, '服务健康状态加载失败')
+    if (owned(k, 'health', r)) healthError.value = apiError(cause, '服务健康状态加载失败')
   } finally {
-    healthLoading.value = false
+    if (owned(k, 'health', r)) healthLoading.value = false
   }
 }
-
 async function fetchPools() {
-  if (!canViewRuntime.value) {
-    pool.value = null
-    poolLoading.value = false
-    poolError.value = ''
-    return
-  }
+  if (!canViewRuntime.value || poolLoading.value) return
+  const k = session.capture(),
+    r = ++readEpoch.pools
   poolLoading.value = true
   poolError.value = ''
+  pool.value = null
   try {
-    pool.value = (await getPoolDashboard()).data
-    if (pool.value?.error) {
-      poolError.value = `Python 服务连接失败：${pool.value.error}`
-      pool.value = null
-    }
+    const data = (await getPoolDashboard()).data
+    if (!owned(k, 'pools', r)) return
+    if (data?.error) throw new Error(`Python服务连接失败：${data.error}`)
+    if (
+      !data ||
+      !Number.isSafeInteger(data.activePools) ||
+      data.activePools < 0 ||
+      !Array.isArray(data.pools) ||
+      data.pools.some((x) => !Number.isSafeInteger(x.datasourceId) || x.datasourceId <= 0) ||
+      new Set(data.pools.map((x) => x.datasourceId)).size !== data.pools.length
+    )
+      throw new Error('连接池回执不完整，数量未确认')
+    pool.value = data
   } catch (cause) {
-    pool.value = null
-    poolError.value = apiError(cause, '连接池状态加载失败')
+    if (owned(k, 'pools', r)) poolError.value = apiError(cause, '连接池状态加载失败')
   } finally {
-    poolLoading.value = false
+    if (owned(k, 'pools', r)) poolLoading.value = false
   }
+  if (session.current(k)) void fetchDatasourceNames()
 }
-
 async function fetchRules() {
-  if (!canViewRuntime.value) {
-    rules.value = []
-    rulesLoading.value = false
-    rulesError.value = ''
-    return
-  }
+  if (!canViewRuntime.value || rulesLoading.value) return
+  const k = session.capture(),
+    r = ++readEpoch.rules,
+    page = rulePage.value
   rulesLoading.value = true
   rulesError.value = ''
+  rules.value = []
+  ruleTotal.value = null
   try {
-    const result = await listAlertRules({ page: 1, pageSize: 50 })
-    rules.value = result.data?.records || []
+    const data = (await listAlertRules({ page, pageSize: 20 })).data
+    if (!owned(k, 'rules', r) || page !== rulePage.value) return
+    if (
+      !data ||
+      !Array.isArray(data.records) ||
+      !Number.isSafeInteger(data.total) ||
+      data.total < 0 ||
+      data.records.some((x) => !Number.isSafeInteger(x.id) || x.id <= 0 || typeof x.enabled !== 'boolean')
+    )
+      throw new Error('告警规则回执不完整')
+    rules.value = data.records
+    ruleTotal.value = data.total
   } catch (cause) {
-    rules.value = []
-    rulesError.value = apiError(cause, '告警规则加载失败')
+    if (owned(k, 'rules', r) && page === rulePage.value)
+      rulesError.value = apiError(cause, '告警规则加载失败')
   } finally {
-    rulesLoading.value = false
+    if (owned(k, 'rules', r)) rulesLoading.value = false
   }
 }
-
+function changeRulePage(page: number) {
+  rulePage.value = page
+  readEpoch.rules++
+  rulesLoading.value = false
+  void fetchRules()
+}
 async function fetchDatasourceNames() {
+  const k = session.capture(),
+    r = ++readEpoch.names
+  if (!session.ready.value || !(iamS1.systemAdmin || iamS1.datasourcesWithFunction('datasource:view').length))
+    return
   try {
-    datasourceNames.value = Object.fromEntries((((await listSimpleDatasources()).data) || []).map((d) => [d.id, d.name]))
+    const rows = (await listSimpleDatasources()).data
+    if (owned(k, 'names', r) && Array.isArray(rows))
+      datasourceNames.value = Object.fromEntries(
+        rows.filter((x) => iamS1.canOnDatasource('datasource:view', x.id)).map((x) => [x.id, x.name]),
+      )
   } catch {
-    datasourceNames.value = {}
+    if (owned(k, 'names', r)) datasourceNames.value = {}
   }
 }
-
 async function handleResetPool(datasourceId: number) {
-  if (!canResetPool.value) {
-    ElMessage.warning(RESET_HINT)
+  if (!canResetPool.value || busy.value || !pool.value?.pools.some((x) => x.datasourceId === datasourceId))
     return
-  }
-  // 高风险操作：展示目标对象、影响范围并要求二次确认（§7.18、§9 门禁）
+  const k = session.capture(),
+    identity = session.auth.token
+  busy.value = true
+  writeError.value = ''
   try {
     const { value: reason } = await ElMessageBox.prompt(
-      `重置数据源「${datasourceNameOf(datasourceId)}」的 SQL 连接池？`
-      + '该数据源上正在执行的查询会失去连接。请填写重置原因。',
+      `重置数据源 #${datasourceId}「${datasourceNameOf(datasourceId)}」的SQL连接池？会影响该源正在执行的查询。`,
       '确认重置连接池',
-      { type: 'warning', confirmButtonText: '确认重置', cancelButtonText: '取消', inputPlaceholder: '重置原因', inputPattern: /\S+/, inputErrorMessage: '必须说明重置原因' },
+      {
+        type: 'warning',
+        confirmButtonText: '确认重置',
+        cancelButtonText: '取消',
+        inputPlaceholder: '重置原因',
+        inputPattern: /\S+/,
+        inputErrorMessage: '必须说明重置原因',
+        closeOnClickModal: false,
+        cancelButtonClass: session.cancelClass,
+      },
     )
+    if (
+      !session.current(k) ||
+      !canResetPool.value ||
+      !pool.value?.pools.some((x) => x.datasourceId === datasourceId)
+    )
+      return
     resettingDatasourceId.value = datasourceId
-    await resetDatasourcePool(datasourceId, { confirmed: true, reason: String(reason) })
-    ElMessage.success('连接池已重置')
-    await fetchPools()
+    await trackGovernanceWrite(
+      identity,
+      [`runtime:pool:${datasourceId}`],
+      `重置连接池 #${datasourceId}`,
+      () => resetDatasourcePool(datasourceId, { confirmed: true, reason: String(reason) }),
+    )
+    if (session.current(k)) {
+      ElMessage.success('连接池重置已受理')
+      readEpoch.pools++
+      poolLoading.value = false
+      await fetchPools()
+    }
   } catch (cause) {
-    if (cause === 'cancel' || cause === 'close') return
-    ElMessage.error(apiError(cause, '连接池重置失败'))
+    if (session.current(k) && cause !== 'cancel' && cause !== 'close')
+      writeError.value = apiError(cause, '重置结果未知时先核对连接池，不自动重发')
   } finally {
-    resettingDatasourceId.value = undefined
+    if (session.current(k)) {
+      busy.value = false
+      resettingDatasourceId.value = undefined
+    }
   }
 }
 
 function openCreateRule() {
-  if (!canManageRuntime.value) {
+  if (!canManageRuntime.value || busy.value) {
     ElMessage.warning(MANAGE_HINT)
     return
   }
@@ -238,62 +311,112 @@ function openCreateRule() {
 }
 
 function openEditRule(row: AlertRule) {
-  if (!canManageRuntime.value) {
+  if (!canManageRuntime.value || busy.value) {
     ElMessage.warning(MANAGE_HINT)
     return
   }
   editingRuleId.value = row.id
   ruleForm.metric = row.metric
-  ruleForm.threshold = Number(row.threshold)
+  ruleForm.threshold =
+    typeof row.threshold === 'number' && Number.isFinite(row.threshold) ? row.threshold : undefined
   ruleForm.operator = row.operator
   ruleForm.notificationType = row.notificationType
   ruleDialogVisible.value = true
 }
 
 async function saveRule() {
-  if (!canManageRuntime.value) {
-    ElMessage.warning(MANAGE_HINT)
+  if (!canManageRuntime.value || busy.value || savingRule.value) return
+  const k = session.capture(),
+    id = editingRuleId.value,
+    identity = session.auth.token
+  const payload = { ...ruleForm }
+  if (
+    !METRICS.some((x) => x.value === payload.metric) ||
+    !OPERATORS.includes(payload.operator) ||
+    !NOTIFICATION_TYPES.some((x) => x.value === payload.notificationType) ||
+    typeof payload.threshold !== 'number' ||
+    !Number.isFinite(payload.threshold) ||
+    payload.threshold < 0
+  ) {
+    writeError.value = '请选择合法指标、条件、通知方式和非负阈值'
     return
   }
-  if (!ruleForm.metric || Number.isNaN(Number(ruleForm.threshold))) {
-    ElMessage.warning('请选择监控指标并填写有效阈值')
-    return
-  }
+  busy.value = true
   savingRule.value = true
+  writeError.value = ''
   try {
-    const payload = {
-      metric: ruleForm.metric,
-      threshold: Number(ruleForm.threshold),
-      operator: ruleForm.operator,
-      notificationType: ruleForm.notificationType,
+    await trackGovernanceWrite(
+      identity,
+      [`runtime:rule:${id || 'new'}`],
+      `保存告警规则 ${id || '新建'}`,
+      async () => {
+        const result = id ? await updateAlertRule(id, payload) : await createAlertRule(payload)
+        if (
+          !result.data ||
+          !Number.isSafeInteger(result.data.id) ||
+          result.data.id <= 0 ||
+          (id && result.data.id !== id)
+        )
+          throw new Error('规则保存回执不完整，结果未知；先核对原记录')
+        return result
+      },
+    )
+    if (session.current(k)) {
+      ruleDialogVisible.value = false
+      readEpoch.rules++
+      rulesLoading.value = false
+      await fetchRules()
     }
-    if (editingRuleId.value) {
-      await updateAlertRule(editingRuleId.value, payload)
-      ElMessage.success('告警规则已更新')
-    } else {
-      await createAlertRule(payload)
-      ElMessage.success('告警规则已创建')
-    }
-    ruleDialogVisible.value = false
-    await fetchRules()
   } catch (cause) {
-    ElMessage.error(apiError(cause, editingRuleId.value ? '更新告警规则失败' : '创建告警规则失败'))
+    if (session.current(k)) writeError.value = apiError(cause, '规则保存失败，草稿保留；未知结果先核对')
   } finally {
-    savingRule.value = false
+    if (session.current(k)) {
+      savingRule.value = false
+      busy.value = false
+    }
   }
 }
-
+const ruleSignature = (row: AlertRule) =>
+  JSON.stringify([row.id, row.metric, row.threshold, row.operator, row.notificationType, row.enabled])
 async function handleToggleRule(row: AlertRule) {
-  if (!canManageRuntime.value) {
-    ElMessage.warning(MANAGE_HINT)
-    return
-  }
+  if (!canManageRuntime.value || busy.value || typeof row.enabled !== 'boolean') return
+  const k = session.capture(),
+    id = row.id,
+    signature = ruleSignature(row),
+    enabled = row.enabled,
+    identity = session.auth.token
+  busy.value = true
+  writeError.value = ''
   try {
-    await toggleAlertRule(row.id)
-    row.enabled = !row.enabled
-    ElMessage.success(row.enabled ? '规则已启用' : '规则已停用')
+    await ElMessageBox.confirm(
+      `规则 #${id}：${metricLabel(row.metric)} ${row.operator} ${row.threshold} ${metricUnit(row.metric)}。确认${enabled ? '停用' : '启用'}配置？启用不代表已执行监控。`,
+      '确认告警规则状态',
+      {
+        confirmButtonText: '确认变更',
+        cancelButtonText: '取消',
+        closeOnClickModal: false,
+        cancelButtonClass: session.cancelClass,
+      },
+    )
+    if (
+      !session.current(k) ||
+      !canManageRuntime.value ||
+      !rules.value.some((x) => x.id === id && ruleSignature(x) === signature)
+    )
+      return
+    await trackGovernanceWrite(identity, [`runtime:rule:${id}`], `切换告警规则 #${id}`, () =>
+      toggleAlertRule(id),
+    )
+    if (session.current(k)) {
+      readEpoch.rules++
+      rulesLoading.value = false
+      await fetchRules()
+    }
   } catch (cause) {
-    ElMessage.error(apiError(cause, '切换规则状态失败'))
+    if (session.current(k) && cause !== 'cancel' && cause !== 'close')
+      writeError.value = apiError(cause, '状态变更结果未知时核对原规则，不自动重复切换')
+  } finally {
+    if (session.current(k)) busy.value = false
   }
 }
 
@@ -317,22 +440,48 @@ async function refreshCurrent() {
 
 const refreshing = computed(() => healthLoading.value || poolLoading.value || rulesLoading.value)
 
-onMounted(async () => {
-  await fetchDatasourceNames()
-  await refreshCurrent()
-})
+watch(
+  session.key,
+  () => {
+    Object.keys(readEpoch).forEach((key) => readEpoch[key as keyof typeof readEpoch]++)
+    health.value = null
+    pool.value = null
+    rules.value = []
+    datasourceNames.value = {}
+    ruleTotal.value = null
+    healthLoading.value = false
+    poolLoading.value = false
+    rulesLoading.value = false
+    healthError.value = ''
+    poolError.value = ''
+    rulesError.value = ''
+    writeError.value = ''
+    ruleDialogVisible.value = false
+    busy.value = false
+    savingRule.value = false
+    resettingDatasourceId.value = undefined
+    if (canViewRuntime.value) void refreshCurrent()
+  },
+  { immediate: true },
+)
 
-watch(() => route.query.tab, (value) => {
-  const next = String(value || 'health')
-  if (TABS.some((t) => t.name === next) && next !== activeTab.value) {
-    activeTab.value = next
-    ensureTabLoaded()
-  }
-})
+watch(
+  () => route.query.tab,
+  (value) => {
+    const next = String(value || 'health')
+    if (TABS.some((t) => t.name === next) && next !== activeTab.value) {
+      activeTab.value = next
+      ensureTabLoaded()
+    }
+  },
+)
 </script>
 
 <template>
   <main class="admin-page runtime-page">
+    <p class="runtime-eyebrow">运营与平台 / 运行事实</p>
+    <GovernanceWriteNotice />
+    <p v-if="writeError" class="runtime-page__alert" role="alert">{{ writeError }}</p>
     <TaskPageHeader
       title="运行监控"
       description="观察依赖服务、SQL 连接池与告警规则配置。告警当前只支持规则配置，没有执行历史与恢复闭环。"
@@ -342,7 +491,8 @@ watch(() => route.query.tab, (value) => {
       </template>
     </TaskPageHeader>
 
-    <el-tabs :model-value="activeTab" @update:model-value="selectTab">
+    <ErrorState v-if="!canViewRuntime" message="当前没有运行状态查看权限，未请求服务。" />
+    <el-tabs v-else :model-value="activeTab" @update:model-value="selectTab">
       <el-tab-pane label="服务状态" name="health">
         <section class="runtime-page__panel">
           <ErrorState v-if="healthError" :message="healthError" @retry="fetchHealth" />
@@ -403,7 +553,12 @@ watch(() => route.query.tab, (value) => {
               </article>
             </div>
           </template>
-          <EmptyState v-else message="没有取到健康状态。点击刷新重新请求。" action-text="刷新" @action="fetchHealth" />
+          <EmptyState
+            v-else
+            message="没有取到健康状态。点击刷新重新请求。"
+            action-text="刷新"
+            @action="fetchHealth"
+          />
         </section>
       </el-tab-pane>
 
@@ -412,7 +567,7 @@ watch(() => route.query.tab, (value) => {
           <p class="runtime-page__note">
             <!-- poolError 时不能报「0 个」：那是把「取不到」说成「没有」，与下方错误态自相矛盾 -->
             <template v-if="poolError">连接池状态当前不可用。</template>
-            <template v-else>当前活跃连接池 {{ pool?.activePools ?? 0 }} 个。</template>
+            <template v-else>当前活跃连接池 {{ pool?.activePools ?? '未确认' }} 个。</template>
             重置连接池是高风险操作，会影响该数据源上正在执行的查询。
           </p>
           <ErrorState v-if="poolError" :message="poolError" @retry="fetchPools" />
@@ -440,10 +595,12 @@ watch(() => route.query.tab, (value) => {
                   size="small"
                   :icon="RotateCcw"
                   :loading="resettingDatasourceId === row.datasourceId"
-                  :disabled="!canResetPool"
+                  :disabled="!canResetPool || busy"
                   :title="canResetPool ? '' : RESET_HINT"
                   @click="handleResetPool(row.datasourceId)"
-                >重置连接池</el-button>
+                >
+                  重置连接池
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -454,11 +611,22 @@ watch(() => route.query.tab, (value) => {
         <section class="runtime-page__panel">
           <div class="runtime-page__section-heading">
             <div class="runtime-page__section-title">
-              <TitleHelp label="告警规则配置" text="当前只支持规则配置：可以定义监控指标与阈值并启停。后端没有告警执行记录、历史、恢复与去重闭环，因此本页不展示告警次数、恢复率或历史趋势。" />
+              <TitleHelp
+                label="告警规则配置"
+                text="当前只支持规则配置：可以定义监控指标与阈值并启停。后端没有告警执行记录、历史、恢复与去重闭环，因此本页不展示告警次数、恢复率或历史趋势。"
+              />
               <h3>告警规则配置</h3>
               <span class="runtime-page__configuration-only">仅支持配置</span>
             </div>
-            <el-button type="primary" :icon="Plus" :disabled="!canManageRuntime" :title="canManageRuntime ? '' : MANAGE_HINT" @click="openCreateRule">新增规则</el-button>
+            <el-button
+              type="primary"
+              :icon="Plus"
+              :disabled="!canManageRuntime || busy"
+              :title="canManageRuntime ? '' : MANAGE_HINT"
+              @click="openCreateRule"
+            >
+              新增规则
+            </el-button>
           </div>
           <ErrorState v-if="rulesError" :message="rulesError" @retry="fetchRules" />
           <LoadingState v-else-if="rulesLoading" variant="skeleton" :rows="4" />
@@ -482,17 +650,39 @@ watch(() => route.query.tab, (value) => {
             </el-table-column>
             <el-table-column label="启用" width="90" align="center">
               <template #default="{ row }">
-                <el-switch :model-value="row.enabled" size="small" :disabled="!canManageRuntime" @change="handleToggleRule(row)" />
+                <el-switch
+                  :model-value="row.enabled"
+                  size="small"
+                  :disabled="!canManageRuntime || busy"
+                  @change="handleToggleRule(row)"
+                />
               </template>
             </el-table-column>
             <el-table-column prop="createdAt" label="创建时间" width="175" />
             <el-table-column label="操作" width="100" align="center">
               <template #default="{ row }">
-                <el-button link type="primary" :disabled="!canManageRuntime" @click="openEditRule(row)">编辑</el-button>
+                <el-button
+                  link
+                  type="primary"
+                  :disabled="!canManageRuntime || busy"
+                  @click="openEditRule(row)"
+                >
+                  编辑
+                </el-button>
               </template>
             </el-table-column>
           </el-table>
-          <p class="runtime-page__note">当前仅保存规则配置，后端尚未实现定时评估；启用状态不代表规则正在执行。</p>
+          <el-pagination
+            v-if="ruleTotal !== null && ruleTotal > 20"
+            :current-page="rulePage"
+            :page-size="20"
+            :total="ruleTotal"
+            layout="prev, pager, next, total"
+            @current-change="changeRulePage"
+          />
+          <p class="runtime-page__note">
+            当前仅保存规则配置，后端尚未实现定时评估；启用状态不代表规则正在执行。
+          </p>
           <p class="runtime-page__gap">
             后端缺口：告警规则没有删除端点（AlertController 只有列表、创建、更新、启停四个），
             因此本页不提供删除操作——不做一个点了会失败的按钮。需要停用规则时请使用启停开关。
@@ -501,11 +691,24 @@ watch(() => route.query.tab, (value) => {
       </el-tab-pane>
     </el-tabs>
 
-    <el-dialog v-model="ruleDialogVisible" :title="editingRuleId ? '编辑告警规则' : '新增告警规则'" width="520px">
-      <el-form label-width="92px">
+    <el-dialog
+      v-model="ruleDialogVisible"
+      :title="editingRuleId ? '编辑告警规则' : '新增告警规则'"
+      width="520px"
+      :close-on-click-modal="!savingRule"
+      :close-on-press-escape="!savingRule"
+      :show-close="!savingRule"
+    >
+      <p v-if="writeError" role="alert">{{ writeError }}</p>
+      <el-form label-position="top" :disabled="savingRule">
         <el-form-item label="监控指标">
           <el-select v-model="ruleForm.metric" style="width: 100%">
-            <el-option v-for="m in METRICS" :key="m.value" :label="`${m.label}（${m.value}）`" :value="m.value" />
+            <el-option
+              v-for="m in METRICS"
+              :key="m.value"
+              :label="`${m.label}（${m.value}）`"
+              :value="m.value"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="比较运算符">
@@ -524,7 +727,7 @@ watch(() => route.query.tab, (value) => {
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="ruleDialogVisible = false">取消</el-button>
+        <el-button :disabled="savingRule" @click="ruleDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="savingRule" @click="saveRule">保存</el-button>
       </template>
     </el-dialog>
@@ -532,6 +735,26 @@ watch(() => route.query.tab, (value) => {
 </template>
 
 <style scoped>
+.runtime-eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--do-primary);
+}
+.runtime-page {
+  display: grid;
+  gap: 20px;
+}
+.runtime-page__card {
+  box-shadow: none !important;
+  border-radius: 12px !important;
+}
+.runtime-page__card--wide {
+  background: var(--do-bg) !important;
+}
+.runtime-page :deep(.el-dialog) {
+  max-width: calc(100vw - 24px);
+}
 .runtime-page__panel {
   display: grid;
   gap: 14px;
@@ -622,8 +845,21 @@ watch(() => route.query.tab, (value) => {
   gap: 12px;
   flex-wrap: wrap;
 }
-.runtime-page__section-title { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding-right: 14px; }
-.runtime-page__configuration-only { padding: 3px 8px; border-radius: var(--do-radius-full); color: var(--do-muted); background: var(--do-soft); font-size: 12px; }
+.runtime-page__section-title {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-right: 14px;
+}
+.runtime-page__configuration-only {
+  padding: 3px 8px;
+  border-radius: var(--do-radius-full);
+  color: var(--do-muted);
+  background: var(--do-soft);
+  font-size: 12px;
+}
 
 .runtime-page__section-heading h3 {
   margin: 0;
