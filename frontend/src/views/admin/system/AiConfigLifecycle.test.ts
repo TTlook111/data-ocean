@@ -403,4 +403,8 @@ describe('AI配置呈现与写入保护', () => {
     await flushPromises()
     expect(api.updateAiConfig.mock.calls[0]![0].chat.model).toBe('next-chat')
   })
+  it('嵌套状态缺active不否认顶层生效配置，并显示顶层pending',async()=>{
+    api.getAiConfig.mockResolvedValue({data:{...config(),pendingEmbedding:{providerId:'p',model:'pending-model',dimension:16}}});const w=page();await flushPromises();expect(w.find('.vectorize-panel').text()).toContain('pending-model');expect(w.find('.vectorize-panel').text()).toContain('embed');expect(w.find('.vectorize-panel').text()).not.toContain('未配置')
+  })
+
 })

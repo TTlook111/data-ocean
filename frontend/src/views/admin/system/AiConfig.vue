@@ -131,6 +131,7 @@ const canManageAiConfig = computed(() => session.canGlobal('system:ai-config:man
 const activeChat = computed(() => config.value?.activeChat)
 const activeEmbedding = computed(() => config.value?.activeEmbedding)
 const vectorizeStatus = computed(() => config.value?.vectorizeStatus)
+const pendingEmbedding = computed(() => config.value?.pendingEmbedding || vectorizeStatus.value?.pending)
 
 const vectorizeMessage = computed(() => {
   if (vectorizeStatus.value?.status === 'REINDEX_REQUIRED') {
@@ -649,14 +650,14 @@ watch(
       -->
       <div class="vectorize-panel">
         <div class="vectorize-panel__info">
-          <p v-if="vectorizeStatus?.pending">
-            待生效配置：{{ vectorizeStatus.pending.model }}（维度 {{ vectorizeStatus.pending.dimension }}）；
-            当前生效：{{ vectorizeStatus.active?.model || '无' }}（维度
-            {{ vectorizeStatus.active?.dimension || '—' }}）
+          <p v-if="pendingEmbedding">
+            待生效配置：{{ pendingEmbedding.model }}（维度 {{ pendingEmbedding.dimension }}）；
+            当前生效：{{ activeEmbedding?.model || vectorizeStatus?.active?.model || '未返回' }}（维度
+            {{ activeEmbedding?.dimension || vectorizeStatus?.active?.dimension || '—' }}）
           </p>
           <p v-else>
-            当前生效：{{ vectorizeStatus?.active?.model || '未配置' }}（维度
-            {{ vectorizeStatus?.active?.dimension || '—' }}）
+            当前生效：{{ activeEmbedding?.model || vectorizeStatus?.active?.model || '未返回' }}（维度
+            {{ activeEmbedding?.dimension || vectorizeStatus?.active?.dimension || '—' }}）
           </p>
           <p v-if="(vectorizeStatus?.totalChunks ?? 0) > 0">
             切片进度：已完成 {{ vectorizeStatus?.completedChunks ?? 0 }} / 共
@@ -676,7 +677,7 @@ watch(
     <!-- Tab 切换 -->
     <section v-if="canViewAiConfig && config" class="config-section">
       <p class="config-note">
-        测试与同步会连接供应商并更新目录。现有自动维度检测尚不能核验所选供应商，暂不可用；请人工确认维度。存在待切换Embedding时，普通Chat保存暂不提交，避免旧接口取消待配置。
+        测试与同步会连接供应商并更新目录。现有自动维度检测尚不能核验所选供应商，暂不可用；请人工确认维度。存在待切换Embedding时，普通Chat保存暂不提交，以保留现有待切换方案。
       </p>
       <div class="tab-header">
         <button :class="{ active: activeTab === 'chat' }" @click="selectTab('chat')">
@@ -1439,4 +1440,25 @@ watch(
 .change-notice {
   margin-top: 12px;
 }
+</style>
+
+<style scoped>
+.ai-config-page .model-item.active { background:var(--do-bg);border-color:var(--do-line); }
+.ai-config-page .vectorize-panel .el-tag { white-space:normal;height:auto;line-height:1.6;max-width:100%;overflow-wrap:anywhere; }
+.ai-config-page .status-tile strong { white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere; }
+.ai-config-page .config-note { padding:14px 16px; }
+@media(max-width:1000px) {
+ .ai-config-page .status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .ai-config-page .card-header { display:grid;grid-template-columns:minmax(0,1fr);gap:12px; }
+ .ai-config-page .card-title { max-width:100%;flex-wrap:wrap; }
+ .ai-config-page .card-summary { max-width:100%;min-width:0;flex-wrap:wrap;white-space:normal;overflow-wrap:anywhere; }
+ .ai-config-page .card-actions { flex-wrap:wrap;justify-content:flex-start; }
+ .ai-config-page .model-item { display:grid;grid-template-columns:minmax(0,1fr);gap:12px; }
+ .ai-config-page .model-info { flex-wrap:wrap; }
+ .ai-config-page .model-params { flex-wrap:wrap;max-width:100%; }
+ .ai-config-page .model-params label { flex:1 1 100px;min-width:0; }
+ .ai-config-page .model-params label .el-input { width:100%; }
+ .ai-config-page .model-actions { justify-content:flex-start;flex-wrap:wrap; }
+}
+@media(max-width:560px) { .ai-config-page .status-grid { grid-template-columns:minmax(0,1fr); } }
 </style>
