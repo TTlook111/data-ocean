@@ -27,68 +27,7 @@ function environment() {
 }
 
 describe('知识页异步范围', () => {
-  it('主图加载期间展开实体后两请求结束会解除 loading 并允许刷新', async () => {
-    const page = readFileSync(new URL('../audit/DataLineage.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1]!.split('</script>')[0]!
-    const pending = deferred()
-    const env = { datasourceId: ref(1), canViewLineage: ref(true), graphRequestId: 0,
-      loading: ref(false), loadingDatasourceId: null, impactDisposed: false,
-      depth: ref(3), lineageTypeFilter: ref([]), entities: ref<any[]>([]), relationships: ref<any[]>([]),
-      getEntitiesByDatasource: vi.fn().mockReturnValue(pending.promise),
-      getEnrichedLineage: vi.fn().mockResolvedValue({ data: { nodes: [], edges: [] } }),
-      nextTick: async () => {}, renderGraph: vi.fn(), ElMessage: { error: vi.fn() },
-      currentDatasourceEntityIds: new Set(), routeEntityId: ref(null), focusEntityId: ref(''),
-      routeEntityHint: ref(''), graphError: ref(''), getHttpErrorMessage: (error: Error) => error.message }
-    const load = loader('loadGraph', env, page)
-    const expand = loader('loadEntityLineage', env, page)
-    const request = load()
-    await expand(2)
-    pending.resolve({ data: [] }); await request
-    expect(env.loading.value).toBe(false)
-    env.getEntitiesByDatasource.mockResolvedValue({ data: [] })
-    await load()
-    expect(env.getEntitiesByDatasource).toHaveBeenCalledTimes(2)
-  })
-  it.each(['success', 'failure'] as const)('旧主图增强读取 %s 晚到不会覆盖新展开或解除其加载状态', async (outcome) => {
-    const page = readFileSync(new URL('../audit/DataLineage.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1]!.split('</script>')[0]!
-    const old = deferred(), latest = deferred()
-    const root = { id: 1, entityType: 'TABLE', fqn: 'ds.db.orders' }
-    const env = { datasourceId: ref(1), canViewLineage: ref(true), graphRequestId: 0,
-      loading: ref(false), loadingDatasourceId: null, impactDisposed: false,
-      depth: ref(3), lineageTypeFilter: ref([]), entities: ref<any[]>([]), relationships: ref<any[]>([]),
-      getEntitiesByDatasource: vi.fn().mockResolvedValue({ data: [root] }),
-      getEnrichedLineage: vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(latest.promise),
-      getEntityLineage: vi.fn(), nextTick: async () => {}, renderGraph: vi.fn(), ElMessage: { error: vi.fn() },
-      currentDatasourceEntityIds: new Set(), routeEntityId: ref(null), focusEntityId: ref(''),
-      routeEntityHint: ref(''), graphError: ref(''), getHttpErrorMessage: (error: Error) => error.message }
-    const load = loader('loadGraph', env, page), expand = loader('loadEntityLineage', env, page)
-    const request = load(); await Promise.resolve()
-    const expanded = expand(2)
-    if (outcome === 'success') old.resolve({ data: { nodes: [], edges: [{ id: 'old' }] } })
-    else old.reject(new Error('旧请求失败'))
-    await request
-    expect(env.loading.value).toBe(true)
-    expect(env.getEntityLineage).not.toHaveBeenCalled()
-    latest.resolve({ data: { nodes: [root], edges: [{ id: 'new' }] } }); await expanded
-    expect(env.relationships.value).toEqual([{ id: 'new' }])
-    expect(env.loading.value).toBe(false)
-    expect(env.graphError.value).toBe('')
-  })
-  it('血缘影响面板换源后旧失败不能覆盖新结果或停止新请求加载', async () => {
-    const page = readFileSync(new URL('../audit/DataLineage.vue', import.meta.url), 'utf8').split('<script setup lang="ts">')[1]!.split('</script>')[0]!
-    const first = deferred(), second = deferred()
-    const env = { datasourceId: ref(1), impactRequestId: 0, impactDisposed: false, impactVisible: ref(false),
-      selectedEntity: ref(null), impactTarget: ref(null), impactLoading: ref(false), impactError: ref(''), impact: ref(null), impactQueries: ref([]),
-      closeContextMenu: vi.fn(), ElMessage: { warning: vi.fn() },
-      analyzeImpact: vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise),
-      queryTableLineage: vi.fn().mockResolvedValue({ data: [] }), queryColumnLineage: vi.fn() }
-    const analyze = loader('handleAnalyzeImpact', env, page)
-    const entity = { id: 1, entityType: 'TABLE', name: 'orders', fqn: 'ds.db.orders' }
-    const a = analyze(entity); env.datasourceId.value = 2; const b = analyze(entity)
-    first.reject(new Error('旧源错误')); await a
-    expect(env.impactError.value).toBe(''); expect(env.impactLoading.value).toBe(true)
-    second.resolve({ data: { dependentQueryCount: 105 } }); await b
-    expect(env.impact.value).toEqual({ dependentQueryCount: 105 })
-  })
+  // 血缘读取的组件级异步边界测试迁入 DataLineage.test.ts 与 QueryLineageEvidence.test.ts。
   it('A→B→A 后最早的 A 统计不能覆盖最新 A', async () => {
     const first = deferred(), middle = deferred(), latest = deferred()
     const env = { ...environment(), listKnowledgeDocs: vi.fn() }

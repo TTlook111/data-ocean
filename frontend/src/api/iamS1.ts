@@ -699,6 +699,9 @@ export interface IamS1QueryTaskResult {
   completedAt?: string
   maskedFields?: Record<string, string>
   protocolVersion?: string
+  ragBuildId?: string
+  ragSourceSnapshotId?: number
+  sourceTrace?: Record<string, unknown>
   activeMetadataSnapshotId?: number
   permissionRevision?: number
   finalProtectionStatus?: string

@@ -46,6 +46,11 @@ const chartOption = computed(() => {
 const trustSummary = computed(() => [
   { label: '本次使用的表', value: result.value?.usedTables?.join(', ') || '服务端未提供表级证据', muted: !result.value?.usedTables?.length },
   { label: '本次使用的字段', value: result.value?.usedColumns?.join(', ') || '服务端未提供字段级证据', muted: !result.value?.usedColumns?.length },
+  { label: '元数据快照', value: String(result.value?.activeMetadataSnapshotId ?? '未提供'), muted: !result.value?.activeMetadataSnapshotId },
+  { label: '检索构建', value: result.value?.ragBuildId ? `${result.value.ragBuildId} / 来源快照 ${result.value.ragSourceSnapshotId ?? '未提供'}` : '服务端未提供构建标识', muted: !result.value?.ragBuildId },
+  { label: '受保护执行标识', value: typeof result.value?.sourceTrace?.attemptId === 'string' ? result.value.sourceTrace.attemptId : '未提供', muted: !result.value?.sourceTrace?.attemptId },
+  { label: '同次 SQL 哈希', value: typeof result.value?.sourceTrace?.sqlHash === 'string' ? result.value.sourceTrace.sqlHash : '未提供', muted: !result.value?.sourceTrace?.sqlHash },
+  { label: '追溯投影', value: '当前结果接口未提供投影完成状态。执行成功不等于投影完成；后台查询来源只显示已投影记录。', muted: true },
   { label: '来源说明', value: '这里展示本次查询的使用来源。业务关系与加工血缘由后台独立维护；执行成功仍需核对业务口径。', muted: true },
 ])
 const resultProps = computed(() => ({

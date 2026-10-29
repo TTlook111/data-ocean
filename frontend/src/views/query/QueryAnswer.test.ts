@@ -15,7 +15,7 @@ const wrappers: ReturnType<typeof mount>[] = []
 function card(taskId = 'a') {
   const wrapper = mount(QueryAnswer, { props: { taskId, datasourceId: 1, originalQuestion: '问题' }, global: { stubs: {
     'el-dialog': { props: ['modelValue'], template: '<div v-if="modelValue" class="dialog"><slot /></div>' },
-    QueryResult: { name: 'QueryResult', props: ['latestResult', 'resultTab', 'canViewSql', 'canExport', 'sqlLoading', 'sqlErrorMessage'], emits: ['expand', 'feedback', 'close'],
+    QueryResult: { name: 'QueryResult', props: ['latestResult', 'resultTab', 'canViewSql', 'canExport', 'sqlLoading', 'sqlErrorMessage', 'trustSummary'], emits: ['expand', 'feedback', 'close'],
       template: '<div class="result-stub"><span>{{ latestResult?.taskId }} {{ latestResult?.sql }}</span><button v-if="canViewSql" class="sql" @click="$emit(\'expand\',\'sql\')">SQL</button><button class="feedback" @click="$emit(\'feedback\',\'LIKE\')">评价</button><button class="close" @click="$emit(\'close\')">关闭</button></div>' },
   } } })
   wrappers.push(wrapper)
@@ -95,4 +95,9 @@ describe('每条回答的当前保护与任务归属', () => {
     expect(wrapper.findComponent({ name: 'QueryResult' }).props('canExport')).toBe(false)
     expect(iamS1ViewSql).not.toHaveBeenCalled()
   })
+})
+
+it('本次来源只展示实际DTO白名单，不将成功当投影完成或泄露原始trace',async()=>{
+ vi.mocked(iamS1GetTask).mockResolvedValue({data:{...result('a'),activeMetadataSnapshotId:11,ragBuildId:'build-old',ragSourceSnapshotId:10,sourceTrace:{attemptId:'attempt-1',sqlHash:'hash-1',entries:[{sql:'RAW_SECRET'}],unknown:'UNTRUSTED'}}} as never)
+ const wrapper=card();await flushPromises();const summary=wrapper.findComponent({name:'QueryResult'}).props('trustSummary');expect(summary).toEqual(expect.arrayContaining([expect.objectContaining({label:'受保护执行标识',value:'attempt-1'}),expect.objectContaining({label:'同次 SQL 哈希',value:'hash-1'})]));expect(JSON.stringify(summary)).not.toContain('RAW_SECRET');expect(JSON.stringify(summary)).toContain('执行成功不等于投影完成');expect(iamS1ViewSql).not.toHaveBeenCalled()
 })

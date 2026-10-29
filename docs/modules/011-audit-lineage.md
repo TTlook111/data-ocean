@@ -19,14 +19,14 @@
 | 修改意图 | 文件与定位符号 | 关联影响 |
 | --- | --- | --- |
 | 新增、删除、批量与增强图谱 | [LineageEdgeServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/LineageEdgeServiceImpl.java)：`createLineage`、`deleteLineage`、`batchCreateLineage`、`getEnrichedLineage` | 实体归属、关系类型、级联与范围。 |
-| 图谱加载、节点与深链 | [DataLineage.vue](../../frontend/src/views/admin/audit/DataLineage.vue)：`loadGraph`、`loadEntityLineage`、`syncFocusToUrl`、`handleDeleteEdge`、`handleAnalyzeImpact` | datasourceId + entityId、范围切换与请求结果。 |
+| 图谱加载、节点与深链 | [DataLineage.vue](../../frontend/src/views/admin/audit/DataLineage.vue)：`loadGraph`、`loadEntityLineage`、`syncFocusToUrl`、`requestDelete`、`confirmDelete`、`handleAnalyzeImpact` | datasourceId + entityId、范围切换与请求结果。 |
 | 表/列查询血缘与影响分析 | [LineageServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/LineageServiceImpl.java)：`saveProtectedLineage`、`queryTableLineage`、`queryColumnLineage`、`analyzeImpact` | 按受保护尝试写查询使用与输出来源索引，不桥接物理数据流。 |
 
 DataLineage.vue 组合实体增强血缘与相关查询接口；LineageEdgeController 管理关系写入，LineageController 提供查询血缘读取/影响分析。先按关系来源选链路，不能把两套存储入口当作同一流程。
 
 S1 的[QueryTraceProjectionService](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/QueryTraceProjectionService.java)持任务行锁，在提交后独立事务中写审计、使用/输出来源索引及完成标记。[QueryTraceProjectionWorker](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/service/impl/QueryTraceProjectionWorker.java)监听提交后通知并有限批次恢复未完成任务；旧 columnDerivations/FROM→JOIN 桥接入口已移除。来源、任务/尝试/hash、幂等及事务边界见[查询来源与投影合同](011-audit-lineage.md#提交后投影与恢复)。
 
-影响分析按可见数据源和表/列名统计已完成追溯的成功受保护 S1 任务，独立 COUNT(DISTINCT task) 不受 100 行明细上限影响，近期任务去重。响应包含最早记录、当前数据源待处理数量和覆盖提示；没有快照/时间过滤，未补证旧记录不计入，零记录不表示没有影响。主图和实体展开统一接管请求及 loading，旧增强/回退结果与失败不覆盖当前范围；影响读取也隔离旧响应。实际页面及业务覆盖见[验收索引](../acceptance/README.md)。
+影响分析按可见数据源和表/列名统计已完成追溯的成功受保护 S1 任务，独立 COUNT(DISTINCT task) 不受 100 行明细上限影响，近期任务去重。响应包含最早记录、当前数据源待处理数量和覆盖提示；没有快照/时间过滤，未补证旧记录不计入，零记录不表示没有影响。主图和实体展开统一接管请求及 loading，旧增强结果与失败不覆盖当前范围；兼容的一跳响应不冒充所请求的增强深度；影响读取也隔离旧响应。实际页面及业务覆盖见[验收索引](../acceptance/README.md)。
 
 ## 提交后投影与恢复
 
@@ -51,3 +51,9 @@ S1 的[QueryTraceProjectionService](../../backend/DataOcean/src/main/java/com/da
 
 运行方法统一见[本地开发与验证](../development/本地开发与验证.md)。
 
+
+## 前端工作面与边界（2026-10-29）
+
+血缘页分关系图谱与查询使用/输出来源。图谱明确结构FOREIGN_KEY、加工LINEAGE来源标记及字段DERIVED_FROM；字段查询明细没有aliasName时是使用记录，有aliasName时才是输出来源，表级类型为USAGE。源级覆盖时间/待投影数不是对象级统计。不存在的精确实体或无效URL不回退首表/偏好源；有精确实体时可只凭lineage:view直接读取并核验根源，metadata:view仅用于目录/搜索/录入辅助。
+
+删除先显示级联选择确认，确认后只发一次DELETE，不把有副作用的删除接口当预检查。平行边按唯一关系ID操作；创建检查当前两表列归属、不丢不完整映射。切身份/IAM/源及A→B→A按代次隔离；未知写只以内存目标锁防重复，不能代替后端幂等与列归属校验。问数依据只展示真实DTO的attempt/hash/快照/build白名单，不把缺少的投影状态编造成已完成。页面验证见[血缘与审计V2](../acceptance/2026-10-29-血缘与审计V2.md)。

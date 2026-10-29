@@ -49,7 +49,7 @@ function layoutGraph(nodes: GraphNode[], edges: GraphEdge[]) {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
   g.setGraph({
-    rankdir: 'LR',        // 从左到右
+    rankdir: 'LR', // 从左到右
     nodesep: 60,
     ranksep: 140,
     marginx: 40,
@@ -75,10 +75,7 @@ function layoutGraph(nodes: GraphNode[], edges: GraphEdge[]) {
 
 // ========== 主入口 ==========
 
-export function useD3LineageGraph(
-  containerRef: () => HTMLElement | null,
-  callbacks: GraphCallbacks = {},
-) {
+export function useD3LineageGraph(containerRef: () => HTMLElement | null, callbacks: GraphCallbacks = {}) {
   let svg: d3.Selection<SVGSVGElement, unknown, null, undefined> | null = null
   let mainGroup: d3.Selection<SVGGElement, unknown, null, undefined> | null = null
   let zoomBehavior: d3.ZoomBehavior<SVGSVGElement, unknown> | null = null
@@ -98,14 +95,16 @@ export function useD3LineageGraph(
     const { width, height } = container.getBoundingClientRect()
     if (width === 0 || height === 0) return
 
-    svg = d3.select(container)
+    svg = d3
+      .select(container)
       .append('svg')
       .attr('width', width)
       .attr('height', height)
       .style('cursor', 'grab')
 
     // 缩放/平移行为
-    zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
+    zoomBehavior = d3
+      .zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.15, 3])
       .on('zoom', (event) => {
         mainGroup?.attr('transform', event.transform.toString())
@@ -120,7 +119,8 @@ export function useD3LineageGraph(
     mainGroup = svg.append('g')
 
     // 拖拽连线预览线（隐藏）
-    dragLine = mainGroup.append('line')
+    dragLine = mainGroup
+      .append('line')
       .attr('stroke', '#faad14')
       .attr('stroke-width', 2)
       .attr('stroke-dasharray', '6,4')
@@ -129,7 +129,8 @@ export function useD3LineageGraph(
 
     // 箭头标记定义
     const defs = svg.append('defs')
-    defs.append('marker')
+    defs
+      .append('marker')
       .attr('id', 'arrowhead')
       .attr('viewBox', '0 0 10 10')
       .attr('refX', 10)
@@ -150,17 +151,20 @@ export function useD3LineageGraph(
     layoutGraph(nodes, edges)
 
     // --- 绘制边 ---
-    const edgeSelection = mainGroup.selectAll<SVGGElement, GraphEdge>('g.edge')
+    const edgeSelection = mainGroup
+      .selectAll<SVGGElement, GraphEdge>('g.edge')
       .data(edges, (d: any) => d.id)
       .join('g')
       .attr('class', 'edge')
 
     // 路径（曲线）
     edgeSelection.selectAll('path').remove()
-    edgeSelection.append('path')
+    edgeSelection
+      .append('path')
+      .attr('id', (_e, i) => `edge-label-path-${i}`)
       .attr('d', (e) => {
-        const src = nodes.find(n => n.id === e.sourceId)
-        const tgt = nodes.find(n => n.id === e.targetId)
+        const src = nodes.find((n) => n.id === e.sourceId)
+        const tgt = nodes.find((n) => n.id === e.targetId)
         if (!src || !tgt) return ''
         const sx = src.x ?? 0
         const sy = src.y ?? 0
@@ -173,27 +177,29 @@ export function useD3LineageGraph(
       .attr('fill', 'none')
       .attr('stroke', (e) => e.style.color)
       .attr('stroke-width', (e) => e.style.width)
-      .attr('stroke-dasharray', (e) => e.style.dashed ? '6,4' : 'none')
+      .attr('stroke-dasharray', (e) => (e.style.dashed ? '6,4' : 'none'))
       .attr('opacity', 0.7)
       .attr('marker-end', 'url(#arrowhead)')
 
     // 边标签（lineageType）
     edgeSelection.selectAll('text').remove()
-    edgeSelection.append('text')
+    edgeSelection
+      .append('text')
       .attr('text-anchor', 'middle')
       .attr('dy', -6)
       .attr('font-size', 10)
       .attr('fill', '#888')
       .append('textPath')
       .attr('href', (_e, i) => `#edge-label-path-${i}`)
-      .text((e) => e.lineageType)
+      .attr('startOffset', '50%')
+      .text((e) => e.label)
 
     // 边 hover title（tooltip）
-    edgeSelection.append('title')
-      .text((e) => {
-        const meta = parseRelMeta(e.relationship.relationMetadata)
-        return `${e.relationType} · ${e.lineageType}\n${meta.description || ''}\n${meta.created_by ? '操作人: ' + meta.created_by : ''}`
-      })
+    edgeSelection.selectAll('title').remove()
+    edgeSelection.append('title').text((e) => {
+      const meta = parseRelMeta(e.relationship.relationMetadata)
+      return `${e.relationType} · ${e.lineageType}\n${meta.description || ''}\n${meta.created_by ? '操作人: ' + meta.created_by : ''}`
+    })
 
     // 边右键
     edgeSelection.on('contextmenu', (event, e) => {
@@ -202,46 +208,64 @@ export function useD3LineageGraph(
     })
 
     // --- 绘制节点 ---
-    const nodeSelection = mainGroup.selectAll<SVGGElement, GraphNode>('g.node')
+    const nodeSelection = mainGroup
+      .selectAll<SVGGElement, GraphNode>('g.node')
       .data(nodes, (d: any) => d.id)
       .join('g')
       .attr('class', 'node')
       .attr('transform', (n) => `translate(${(n.x ?? 0) - 80}, ${(n.y ?? 0) - 28})`)
       .style('cursor', 'pointer')
+      .attr('tabindex', 0)
+      .attr('role', 'button')
+      .attr('aria-label', (n) => `${n.label}，实体 ${n.id}`)
+      .on('keydown', (event, n) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          callbacks.onNodeClick?.(n)
+        }
+      })
 
     // 节点矩形
     nodeSelection.selectAll('rect').remove()
     const isTable = (n: GraphNode) => n.entity.entityType === 'TABLE'
-    nodeSelection.append('rect')
-      .attr('width', (n) => isTable(n) ? 160 : 100)
-      .attr('height', (n) => isTable(n) ? 56 : 32)
+    nodeSelection
+      .append('rect')
+      .attr('width', (n) => (isTable(n) ? 160 : 100))
+      .attr('height', (n) => (isTable(n) ? 56 : 32))
       .attr('rx', 8)
-      .attr('fill', (n) => isTable(n) ? '#4d8fdc' : '#e6f7ff')
-      .attr('stroke', (n) => isTable(n) ? '#2f73bd' : '#91d5ff')
+      .attr('fill', (n) => (isTable(n) ? '#fffefa' : '#f2f0e9'))
+      .attr('stroke', (n) => (isTable(n) ? '#b7bcb2' : '#d1ccc1'))
       .attr('stroke-width', 1.5)
       .attr('filter', 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))')
 
     // 节点文字
     nodeSelection.selectAll('text').remove()
-    nodeSelection.append('text')
+    nodeSelection
+      .append('text')
       .attr('x', 12)
-      .attr('y', (n) => isTable(n) ? 30 : 21)
-      .attr('fill', (n) => isTable(n) ? '#fff' : '#333')
-      .attr('font-size', (n) => isTable(n) ? 13 : 11)
-      .attr('font-weight', (n) => isTable(n) ? 600 : 400)
+      .attr('y', (n) => (isTable(n) ? 30 : 21))
+      .attr('fill', '#303932')
+      .attr('font-size', (n) => (isTable(n) ? 13 : 11))
+      .attr('font-weight', (n) => (isTable(n) ? 600 : 400))
       .text((n) => n.label)
 
     // 节点类型标签
-    nodeSelection.append('text')
+    nodeSelection
+      .append('text')
       .attr('x', 12)
-      .attr('y', (n) => isTable(n) ? 46 : 20)
-      .attr('fill', (n) => isTable(n) ? 'rgba(255,255,255,0.7)' : '#999')
+      .attr('y', (n) => (isTable(n) ? 46 : 20))
+      .attr('fill', '#777e74')
       .attr('font-size', 10)
-      .text((n) => n.entity.entityType)
+      .text((n) => (isTable(n) ? 'TABLE' : ''))
 
     // 节点 hover title
-    nodeSelection.append('title')
-      .text((n) => `${n.entity.entityType}: ${n.entity.displayName || n.entity.name}\n${n.entity.fqn}\n${n.entity.description || ''}`)
+    nodeSelection.selectAll('title').remove()
+    nodeSelection
+      .append('title')
+      .text(
+        (n) =>
+          `${n.entity.entityType}: ${n.entity.displayName || n.entity.name}\n${n.entity.fqn}\n${n.entity.description || ''}`,
+      )
 
     // 节点点击
     nodeSelection.on('click', (_event, n) => {
@@ -254,99 +278,121 @@ export function useD3LineageGraph(
       callbacks.onNodeContextMenu?.(n, event)
     })
 
-    // 节点拖拽（移动位置）
-    const nodeDrag = d3.drag<SVGGElement, GraphNode>()
-      .on('start', function () {
+    // One drag behavior: ordinary drag moves; Shift-drag explicitly requests a relationship.
+    // D3 pointer against the transformed group applies the inverse SVG CTM after zoom/pan.
+    let connecting = false
+    const nodeDrag = d3
+      .drag<SVGGElement, GraphNode>()
+      .container(() => mainGroup!.node()!)
+      .on('start', function (event, n) {
+        connecting = event.sourceEvent.shiftKey === true
         d3.select(this).raise()
-        svg?.style('cursor', 'grabbing')
+        if (connecting) {
+          dragSourceNodeId = n.id
+          dragLine
+            ?.attr('visibility', 'visible')
+            .attr('x1', n.x ?? 0)
+            .attr('y1', n.y ?? 0)
+            .attr('x2', event.x)
+            .attr('y2', event.y)
+        } else svg?.style('cursor', 'grabbing')
       })
-      .on('drag', function (this: SVGGElement, event: any, n: GraphNode) {
+      .on('drag', function (event, n) {
+        if (connecting) {
+          dragLine?.attr('x2', event.x).attr('y2', event.y)
+          return
+        }
         n.x = (n.x ?? 0) + event.dx
         n.y = (n.y ?? 0) + event.dy
         d3.select(this).attr('transform', `translate(${(n.x ?? 0) - 80}, ${(n.y ?? 0) - 28})`)
-        // 更新关联边
         updateEdgePositions(nodes)
       })
-      .on('end', () => {
-        svg?.style('cursor', 'grab')
-      })
-
-    nodeSelection.call(nodeDrag as any)
-
-    // 拖拽连线：从节点拖出创建边
-    const connectDrag = d3.drag<SVGGElement, GraphNode>()
-      .on('start', (event, n) => {
-        dragSourceNodeId = n.id
-        dragLine?.attr('visibility', 'visible')
-          .attr('x1', n.x ?? 0)
-          .attr('y1', n.y ?? 0)
-          .attr('x2', event.x)
-          .attr('y2', event.y)
-      })
-      .on('drag', (event) => {
-        dragLine?.attr('x2', event.x).attr('y2', event.y)
-      })
       .on('end', (event) => {
+        svg?.style('cursor', 'grab')
         dragLine?.attr('visibility', 'hidden')
-        // 检测释放位置是否在另一个节点上
-        const container = containerRef()
-        if (!container || !dragSourceNodeId) return
-        const rect = container.getBoundingClientRect()
-        const mx = event.sourceEvent.clientX - rect.left
-        const my = event.sourceEvent.clientY - rect.top
-        const target = nodes.find(n => {
-          const nx = n.x ?? 0
-          const ny = n.y ?? 0
-          return mx >= nx - 80 && mx <= nx + 80 && my >= ny - 28 && my <= ny + 28
-        })
-        if (target && target.id !== dragSourceNodeId) {
-          callbacks.onEdgeDragCreate?.(dragSourceNodeId, target.id)
+        if (connecting && dragSourceNodeId && mainGroup) {
+          const [x, y] = d3.pointer(event.sourceEvent, mainGroup.node())
+          const target = nodes.find((n) => {
+            const width = n.entity.entityType === 'TABLE' ? 160 : 100,
+              height = n.entity.entityType === 'TABLE' ? 56 : 32
+            return (
+              x >= (n.x ?? 0) - 80 &&
+              x <= (n.x ?? 0) - 80 + width &&
+              y >= (n.y ?? 0) - 28 &&
+              y <= (n.y ?? 0) - 28 + height
+            )
+          })
+          if (target && target.id !== dragSourceNodeId)
+            callbacks.onEdgeDragCreate?.(dragSourceNodeId, target.id)
         }
         dragSourceNodeId = null
+        connecting = false
       })
-
-    nodeSelection.call(connectDrag as any)
+    nodeSelection.call(nodeDrag)
   }
 
   /** 更新边路径位置 */
   function updateEdgePositions(nodes: GraphNode[]) {
-    mainGroup?.selectAll<SVGGElement, GraphEdge>('g.edge path')
-      .attr('d', (e) => {
-        const src = nodes.find(n => n.id === e.sourceId)
-        const tgt = nodes.find(n => n.id === e.targetId)
-        if (!src || !tgt) return ''
-        const sx = src.x ?? 0
-        const sy = src.y ?? 0
-        const tx = tgt.x ?? 0
-        const ty = tgt.y ?? 0
-        const dx = tx - sx
-        const mx = sx + dx * 0.5
-        return `M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ty}, ${tx} ${ty}`
-      })
+    mainGroup?.selectAll<SVGGElement, GraphEdge>('g.edge path').attr('d', (e) => {
+      const src = nodes.find((n) => n.id === e.sourceId)
+      const tgt = nodes.find((n) => n.id === e.targetId)
+      if (!src || !tgt) return ''
+      const sx = src.x ?? 0
+      const sy = src.y ?? 0
+      const tx = tgt.x ?? 0
+      const ty = tgt.y ?? 0
+      const dx = tx - sx
+      const mx = sx + dx * 0.5
+      return `M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ty}, ${tx} ${ty}`
+    })
   }
 
   /** 异步导出 PNG */
   async function exportPngAsync(): Promise<string> {
-    return new Promise((resolve) => {
-      if (!svg) return resolve('')
-      const svgNode = svg.node()
-      if (!svgNode) return resolve('')
-      const clone = svgNode.cloneNode(true) as SVGSVGElement
-      const data = new XMLSerializer().serializeToString(clone)
-      const blob = new Blob([data], { type: 'image/svg+xml;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
+    const node = svg?.node()
+    if (!node) throw new Error('图谱尚未就绪')
+    const { width, height } = node.getBoundingClientRect()
+    if (!width || !height || width * height > 16000000) throw new Error('导出尺寸无效')
+    const clone = node.cloneNode(true) as SVGSVGElement
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    clone.setAttribute('width', String(width))
+    clone.setAttribute('height', String(height))
+    const url = URL.createObjectURL(
+      new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml;charset=utf-8' }),
+    )
+    return new Promise((resolve, reject) => {
       const img = new Image()
-      img.onload = () => {
-        const canvas = document.createElement('canvas')
-        canvas.width = clone.clientWidth * 2
-        canvas.height = clone.clientHeight * 2
-        const ctx = canvas.getContext('2d')!
-        ctx.scale(2, 2)
-        ctx.fillStyle = '#ffffff'
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-        ctx.drawImage(img, 0, 0)
+      const cleanup = () => {
+        clearTimeout(timer)
         URL.revokeObjectURL(url)
-        resolve(canvas.toDataURL('image/png'))
+        img.onload = null
+        img.onerror = null
+      }
+      const timer = setTimeout(() => {
+        cleanup()
+        reject(new Error('图谱导出超时'))
+      }, 10000)
+      img.onerror = () => {
+        cleanup()
+        reject(new Error('图谱图像无法读取'))
+      }
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas')
+          canvas.width = Math.ceil(width * 2)
+          canvas.height = Math.ceil(height * 2)
+          const ctx = canvas.getContext('2d')
+          if (!ctx) throw new Error('画布不可用')
+          ctx.scale(2, 2)
+          ctx.fillStyle = '#fffefa'
+          ctx.fillRect(0, 0, width, height)
+          ctx.drawImage(img, 0, 0, width, height)
+          resolve(canvas.toDataURL('image/png'))
+        } catch (cause) {
+          reject(cause)
+        } finally {
+          cleanup()
+        }
       }
       img.src = url
     })
@@ -375,5 +421,9 @@ export function useD3LineageGraph(
 /** 解析 relation_metadata JSON */
 function parseRelMeta(metaStr?: string): Record<string, any> {
   if (!metaStr) return {}
-  try { return JSON.parse(metaStr) } catch { return {} }
+  try {
+    return JSON.parse(metaStr)
+  } catch {
+    return {}
+  }
 }
