@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useQuerySession } from './useQuerySession'
-import { iamS1GetDatasourceReadiness, iamS1ListConversationMessages, iamS1ListConversations, listIamS1QueryResourceDatasources } from '../api/iamS1'
+import { ElMessageBox } from 'element-plus'
+import { iamS1DeleteConversation, iamS1GetDatasourceReadiness, iamS1ListConversationMessages, iamS1ListConversations, listIamS1QueryResourceDatasources } from '../api/iamS1'
 
 vi.mock('../api/iamS1', () => ({
   iamS1DeleteConversation: vi.fn(),
@@ -149,4 +150,74 @@ describe('readiness failure and recovery', () => {
     expect(api.canAskSelectedDatasource.value).toBe(true)
     expect(api.selectedBlockReason.value).toBeUndefined()
   })
+})
+
+describe('confirmed deletion retains task and identity ownership', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(ElMessageBox.confirm).mockResolvedValue('confirm' as never)
+    vi.mocked(iamS1DeleteConversation).mockResolvedValue({data:null} as never)
+  })
+  it('an unconfirmed stop keeps the pending local session without archiving anything', async () => {
+    const api=useQuerySession(),target=api.createSession(1)
+    const beforeDelete=vi.fn().mockResolvedValue(false)
+    await api.removeSession(target,{beforeDelete})
+    expect(beforeDelete).toHaveBeenCalledOnce()
+    expect(api.activeSessionId.value).toBe(target.id)
+    expect(api.sessions).toHaveLength(1)
+    expect(iamS1DeleteConversation).not.toHaveBeenCalled()
+  })
+  it('rejecting the deletion dialog never stops a query', async () => {
+    vi.mocked(ElMessageBox.confirm).mockRejectedValueOnce('cancel')
+    const api=useQuerySession(),target=api.createSession(1),beforeDelete=vi.fn()
+    await api.removeSession(target,{beforeDelete})
+    expect(beforeDelete).not.toHaveBeenCalled();expect(api.sessions).toHaveLength(1)
+  })
+  it('reset while a stop is pending prevents a late delete or restoration', async () => {
+    const api=useQuerySession(),target=api.createSession(1);target.conversationId=42
+    let confirmStop!:(ok:boolean)=>void
+    const beforeDelete=vi.fn(()=>new Promise<boolean>(resolve=>{confirmStop=resolve}))
+    const deleting=api.removeSession(target,{beforeDelete})
+    await Promise.resolve();expect(beforeDelete).toHaveBeenCalledOnce()
+    api.reset();confirmStop(true);await deleting
+    expect(iamS1DeleteConversation).not.toHaveBeenCalled();expect(api.sessions).toHaveLength(0)
+  })
+  it('an identity change during confirmation rejects before the stop hook or delete', async () => {
+    let confirmed!:(value:never)=>void
+    vi.mocked(ElMessageBox.confirm).mockReturnValueOnce(new Promise(resolve=>{confirmed=resolve}))
+    const api=useQuerySession(),target=api.createSession(1),beforeDelete=vi.fn()
+    let sameIdentity=true
+    const deleting=api.removeSession(target,{beforeDelete,accepts:()=>sameIdentity})
+    sameIdentity=false;confirmed('confirm' as never);await deleting
+    expect(beforeDelete).not.toHaveBeenCalled();expect(api.sessions).toHaveLength(1)
+  })
+  it('confirmed stop precedes the exact remote delete and duplicate clicks do not duplicate it', async () => {
+    let confirmed!:(value:never)=>void
+    vi.mocked(ElMessageBox.confirm).mockReturnValueOnce(new Promise(resolve=>{confirmed=resolve}))
+    const api=useQuerySession(),target=api.createSession(1);target.conversationId=42
+    const order:string[]=[]
+    vi.mocked(iamS1DeleteConversation).mockImplementationOnce(async id=>{order.push('delete:'+id);return {data:null} as never})
+    const beforeDelete=vi.fn(async()=>{order.push('stop');return true})
+    const first=api.removeSession(target,{beforeDelete}),second=api.removeSession(target,{beforeDelete})
+    expect(ElMessageBox.confirm).toHaveBeenCalledOnce()
+    confirmed('confirm' as never);await Promise.all([first,second])
+    expect(order).toEqual(['stop','delete:42']);expect(api.sessions).toHaveLength(0)
+  })
+  it('a stale or foreign session object cannot reach confirmation or delete', async()=>{
+    const api=useQuerySession(),owned=api.createSession(1)
+    await api.removeSession({...owned,conversationId:99})
+    expect(ElMessageBox.confirm).not.toHaveBeenCalled();expect(iamS1DeleteConversation).not.toHaveBeenCalled()
+  })
+})
+
+it('a confirmed dialog cannot delete a different server conversation after its target drifts',async()=>{
+ vi.resetAllMocks()
+ let confirmed!:(value:never)=>void
+ vi.mocked(ElMessageBox.confirm).mockReturnValueOnce(new Promise(resolve=>{confirmed=resolve}))
+ const api=useQuerySession(),target=api.createSession(1);target.conversationId=42
+ const beforeDelete=vi.fn().mockResolvedValue(true)
+ const deleting=api.removeSession(target,{beforeDelete})
+ target.conversationId=99;confirmed('confirm' as never);await deleting
+ expect(beforeDelete).not.toHaveBeenCalled();expect(iamS1DeleteConversation).not.toHaveBeenCalled()
+ expect(api.sessions).toHaveLength(1)
 })

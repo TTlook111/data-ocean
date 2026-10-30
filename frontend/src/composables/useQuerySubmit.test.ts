@@ -210,7 +210,7 @@ describe('useQuerySubmit recovery state', () => {
 
     const sending = submit.sendQuestion()
     expect(submit.isQuerying.value).toBe(true)
-    await submit.cancelCurrentQuery()
+    expect(await submit.cancelCurrentQuery()).toBe(false)
     resolveAsk({ data: { taskId: 'task-stop', conversationId: 42 } })
     await sending
 

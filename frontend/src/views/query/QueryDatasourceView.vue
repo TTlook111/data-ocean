@@ -6,7 +6,7 @@ import { CircleHelp, LoaderCircle, RefreshCw, Sparkles } from 'lucide-vue-next'
 import brandMark from '../../assets/brand/dataocean-mark.png'
 import { useAuthStore } from '../../stores/auth'
 import { useIamS1Store } from '../../stores/iamS1'
-import { useQuerySession, type LocalMessage } from '../../composables/useQuerySession'
+import { useQuerySession, type LocalMessage, type LocalSession } from '../../composables/useQuerySession'
 import { useQuerySubmit } from '../../composables/useQuerySubmit'
 import { parseDatasourceId } from '../../utils/queryDatasource'
 import { buildAgentProgress, queryFailureMessage } from '../../utils/queryDisplayState'
@@ -136,6 +136,21 @@ async function handleSelectSession(id: string) {
   if (!alive || ticket !== sourceChangeRequest) return
   await scrollToLatest()
 }
+async function handleRemoveSession(target: LocalSession) {
+  const identity = auth.token
+  const accepts = () => alive && auth.token === identity
+  await session.removeSession(target, {
+    accepts,
+    async beforeDelete() {
+      if (!accepts()) return false
+      if (session.activeSessionId.value !== target.id || !submit.isQuerying.value) return true
+      const stopped = await submit.cancelCurrentQuery()
+      if (!accepts()) return false
+      if (!stopped) ElMessage.warning('停止尚未确认，已保留当前对话；请等待结果或重试删除。')
+      return stopped
+    },
+  })
+}
 watch(() => route.query.datasourceId, () => { if (datasourceInitialized.value) void syncDatasourceFromUrl() })
 watch(() => session.activeMessages.value.map(message => `${message.status}:${message.content}`).join('|'), followLayout, { flush: 'post' })
 watch(() => auth.token, () => {
@@ -163,7 +178,7 @@ onBeforeUnmount(() => { alive = false; sourceChangeRequest++; datasourceSyncRequ
       :keyword="session.keyword.value" :display-name="displayName" :role-text="iamS1.systemAdmin ? '系统管理员' : '当前账号'"
       :can-enter-admin="iamS1.hasAnyAdminCapability" :mobile-history-open="mobileHistoryOpen"
       :loading="session.loading.value || session.historyLoading.value" :error-message="session.historyError.value"
-      @select-session="handleSelectSession" @remove-session="session.removeSession" @new-session="handleStartNewSession"
+      @select-session="handleSelectSession" @remove-session="handleRemoveSession" @new-session="handleStartNewSession"
       @retry-history="handleRetryHistory"
       @toggle-mobile-history="mobileHistoryOpen = !mobileHistoryOpen" @user-command="handleUserCommand" @update:keyword="session.keyword.value = $event" />
     <section class="query-main">

@@ -64,10 +64,12 @@ export function useQuerySession() {
   let datasourceSelectionRequest = 0
   let datasourceFetchRequest = 0
   let lifecycle = 0
+  const pendingRemovals = new Set<string>()
   if (getCurrentScope()) onScopeDispose(reset)
 
   function reset() {
     lifecycle++
+    pendingRemovals.clear()
     datasourceSelectionRequest++
     datasourceFetchRequest++
     readinessRequest++
@@ -286,32 +288,54 @@ export function useQuerySession() {
     callbacks?.focusQuestionInput?.()
   }
 
-  async function removeSession(session: LocalSession) {
+  async function removeSession(session: LocalSession, callbacks?: {
+    beforeDelete?: () => boolean | Promise<boolean>
+    accepts?: () => boolean
+  }): Promise<boolean> {
+    const generation = lifecycle
+    const targetId = session.id, sourceId = session.datasourceId
+    const initialConversationId = session.conversationId
+    const removalKey = `${generation}:${targetId}`
+    const current = () => generation === lifecycle && callbacks?.accepts?.() !== false
+      && session.id === targetId && session.datasourceId === sourceId && sessions.includes(session)
+      && (initialConversationId == null || session.conversationId === initialConversationId)
+    if (!current() || pendingRemovals.has(removalKey)) return false
+    pendingRemovals.add(removalKey)
     try {
       await ElMessageBox.confirm(`确定删除会话「${session.title}」吗？`, '删除会话', {
         type: 'warning',
         confirmButtonText: '确定删除',
         cancelButtonText: '取消',
       })
+      if (!current()) return false
+      // Stop only after the user confirms deletion, and before removing either
+      // the local session or its server conversation. An unconfirmed stop keeps it visible.
+      if (callbacks?.beforeDelete && !await callbacks.beforeDelete()) return false
+      if (!current()) return false
       if (session.conversationId) {
         await iamS1DeleteConversation(session.conversationId)
       }
-      const index = sessions.findIndex((item) => item.id === session.id)
+      if (!current()) return false
+      const index = sessions.indexOf(session)
       if (index >= 0) sessions.splice(index, 1)
-      if (activeSessionId.value === session.id) {
+      if (activeSessionId.value === targetId) {
         const nextSession = datasourceSessions.value[0]
         activeSessionId.value = nextSession?.id
         if (nextSession && !nextSession.messages.length) {
           await hydrateSessionMessages(nextSession)
         }
       }
-      ElMessage.success('会话已删除')
+      if (generation === lifecycle && callbacks?.accepts?.() !== false) ElMessage.success('会话已删除')
+      return true
     } catch (error) {
-      if (error === 'cancel' || error === 'close') return
+      if (error === 'cancel' || error === 'close' || generation !== lifecycle || callbacks?.accepts?.() === false) return false
       const msg = typeof error === 'object' && error !== null && 'response' in error
         ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
         : undefined
       ElMessage.error(msg || '会话删除失败')
+      return false
+    } finally {
+      pendingRemovals.delete(removalKey)
     }
   }
 

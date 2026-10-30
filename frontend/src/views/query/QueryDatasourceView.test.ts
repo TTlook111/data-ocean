@@ -4,7 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { computed, reactive, ref } from 'vue'
 import QueryDatasourceView from './QueryDatasourceView.vue'
 
-const auth = reactive({ token: 'reader', user: { username: 'reader' }, currentUser: null })
+const auth = reactive({ token: 'reader', user: { username: 'reader' }, currentUser: null, logout: vi.fn().mockResolvedValue(undefined) })
 const route = reactive({ query: {} })
 const router = { push: vi.fn(), replace: vi.fn() }
 const iam = { load: vi.fn(), systemAdmin: false, hasAnyAdminCapability: false, errorMessage: '' }
@@ -36,7 +36,7 @@ vi.mock('./QueryAnswer.vue', () => ({ default: { name: 'QueryAnswer', template: 
 const wrappers: ReturnType<typeof mount>[] = []
 async function page() {
   const wrapper = mount(QueryDatasourceView, { global: { stubs: {
-    QuerySidebar: { name: 'QuerySidebar', emits: ['select-session', 'new-session', 'select-datasource'], template: '<nav />' },
+    QuerySidebar: { name: 'QuerySidebar', emits: ['select-session', 'new-session', 'select-datasource', 'remove-session', 'user-command'], template: '<nav />' },
     QueryInput: { name: 'QueryInput', template: '<div />' }, QueryAnswer: { name: 'QueryAnswer', template: '<div>fresh-answer-slot</div>' },
     RouterLink: { template: '<a><slot /></a>' },
   } } })
@@ -44,7 +44,7 @@ async function page() {
   await flushPromises()
   return wrapper
 }
-beforeEach(() => { session = makeSession(); submit = makeSubmit(); vi.clearAllMocks() })
+beforeEach(() => { auth.token='reader';route.query={};session = makeSession(); submit = makeSubmit(); vi.clearAllMocks() })
 afterEach(() => { wrappers.forEach(wrapper => wrapper.unmount()); wrappers.length = 0 })
 describe('对话导航意图与正文保护', () => {
   it('先选 A 慢取消、再选 B 快取消，旧 A 不得反向接管会话', async () => {
@@ -98,4 +98,38 @@ it('failed planning and live progress explain the stage without exposing impleme
  expect(w.text()).toContain('查询方案不符合已审核的数据关系')
  expect(w.text()).toContain('核对问题语义')
  expect(w.text()).not.toContain('sql_semantic_check')
+})
+
+type DeleteHooks={beforeDelete:()=>Promise<boolean>,accepts:()=>boolean}
+async function deleteHooks() {
+ const w=await page();submit.isQuerying.value=true
+ w.findComponent({name:'QuerySidebar'}).vm.$emit('remove-session',session.activeSession.value)
+ await flushPromises()
+ const hooks=session.removeSession.mock.calls.at(-1)?.[1] as DeleteHooks|undefined
+ expect(hooks).toBeDefined()
+ return {w,hooks:hooks!}
+}
+it('deleting an active pending local session requires stop confirmation',async()=>{
+ const {hooks}=await deleteHooks();submit.cancelCurrentQuery.mockResolvedValue(false)
+ expect(await hooks.beforeDelete()).toBe(false);expect(submit.cancelCurrentQuery).toHaveBeenCalledOnce()
+ expect(session.activeSessionId.value).toBe('current')
+})
+it('a confirmed stop permits the selected active-session deletion',async()=>{
+ const {hooks}=await deleteHooks()
+ expect(await hooks.beforeDelete()).toBe(true);expect(submit.cancelCurrentQuery).toHaveBeenCalledOnce()
+})
+it('confirming deletion of an inactive session leaves the current query alone',async()=>{
+ const {hooks}=await deleteHooks();session.activeSessionId.value='different'
+ expect(await hooks.beforeDelete()).toBe(true);expect(submit.cancelCurrentQuery).not.toHaveBeenCalled()
+})
+it('old-account deletion confirmation cannot cancel a new account query',async()=>{
+ const {hooks}=await deleteHooks();auth.token='other';await flushPromises()
+ submit.cancelCurrentQuery.mockClear()
+ expect(hooks.accepts()).toBe(false);expect(await hooks.beforeDelete()).toBe(false)
+ expect(submit.cancelCurrentQuery).not.toHaveBeenCalled()
+})
+it('logout still completes after an unconfirmed stop',async()=>{
+ const w=await page();submit.isQuerying.value=true;submit.cancelCurrentQuery.mockResolvedValue(false)
+ w.findComponent({name:'QuerySidebar'}).vm.$emit('user-command','logout');await flushPromises()
+ expect(auth.logout).toHaveBeenCalledOnce();expect(router.push).toHaveBeenCalledWith('/login')
 })
