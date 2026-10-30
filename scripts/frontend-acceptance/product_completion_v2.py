@@ -190,8 +190,8 @@ async def main():
    targets=[('/', '/query'),('/query/iam-s1?datasourceId=1&marker=legacy#answer','/query'),('/admin','/admin/workbench'),('/admin/governance/rule-templates?datasourceId=1&snapshotId=11','/admin/governance/rules'),('/admin/semantics/prompts?code=plan&tab=versions#policy','/admin/platform/prompts')]
    for source,target in targets:
     c,p,f=await page('system-admin',path='/profile')
-    observed=await p.evaluate("""async source=>{const {default:router}=await import('/src/router/index.ts');const seen=[];const stop=router.beforeResolve(to=>{if(to.redirectedFrom)seen.push({path:to.path,query:to.query,hash:to.hash,from:to.redirectedFrom.path})});await router.push(source);stop();return seen}""",source)
-    await p.wait_for_timeout(350);u=urlparse(p.url);assert u.path==target;assert observed and observed[0]['path']==target;q={k:[str(v)] for k,v in observed[0]['query'].items()};redirectHash=observed[0]['hash'].removeprefix('#')
+    observed=await p.evaluate("""async source=>{const router=document.getElementById('app').__vue_app__.config.globalProperties.$router;const seen=[];const stop=router.beforeResolve(to=>{if(to.redirectedFrom)seen.push({path:to.path,query:to.query,hash:to.hash,from:to.redirectedFrom.path})});await router.push(source);stop();return seen}""",source)
+    await p.wait_for_function("target=>{const r=document.getElementById('app').__vue_app__.config.globalProperties.$router.currentRoute.value;return r.path===target&&r.matched.at(-1)?.instances.default?.$?.isMounted}",arg=target);u=urlparse(p.url);assert u.path==target;assert observed and observed[0]['path']==target;q={k:[str(v)] for k,v in observed[0]['query'].items()};redirectHash=observed[0]['hash'].removeprefix('#')
     if '/query/iam-s1' in source:assert q.get('datasourceId')==['1'] and q.get('marker')==['legacy'] and redirectHash=='answer'
     if '/rule-templates' in source:assert q.get('datasourceId')==['1'] and q.get('snapshotId')==['11'] and q.get('showChecks')==['1']
     if '/semantics/prompts' in source:assert q.get('code')==['plan'] and q.get('tab')==['versions'] and redirectHash=='policy' and u.fragment=='policy'
