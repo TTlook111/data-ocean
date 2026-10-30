@@ -30,3 +30,11 @@ describe('字段治理阶段', () => {
     wrapper.unmount()
   })
 })
+
+
+it('classification has an explicit contextual action only when the parent permits it',async()=>{
+ vi.mocked(getFieldGovernanceProgress).mockResolvedValue({data:{columnMetaId:1,snapshotId:2,stage:'NEEDS_CLASSIFICATION',reason:'补充标签后复查'}} as never)
+ const w=mount(FieldGovernanceProgress,{props:{columnId:1,snapshotId:2,canOpenTags:true}});await flushPromises()
+ await w.get('button').trigger('click');expect(w.emitted('open-tags')).toHaveLength(1)
+ await w.setProps({canOpenTags:false});expect(w.find('button').exists()).toBe(false);w.unmount()
+})

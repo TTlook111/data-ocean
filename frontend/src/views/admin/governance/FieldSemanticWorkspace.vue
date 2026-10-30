@@ -172,6 +172,18 @@ async function loadWorkspace(columnId = selectedColumnId.value, keepForm = false
   } catch (error) { if (current()) { workspace.value = undefined; workspaceError.value = errorMessage(error, '字段解释读取失败。') } }
   finally { if (current()) { workspaceLoading.value = false; usageLoading.value = false; glossaryOptionsLoading.value = false } }
 }
+function openTags() {
+  const field = workspace.value
+  if (!field || !canViewField.value || !canReadDirectory.value || field.columnMetaId !== selectedColumnId.value || field.snapshotId !== snapshotId.value || field.datasourceId !== datasourceId.value) return
+  router.push({ path: '/admin/governance/fields', query: { datasourceId: String(field.datasourceId), snapshotId: String(field.snapshotId), tableName: field.tableName, columnMetaId: String(field.columnMetaId), tab: 'tags' } })
+}
+const inclusionNextStep = computed(() => {
+  if (usageLoading.value) return '正在核对当前修订的收录状态，请等待核对后再决定下一步。'
+  if (usageError.value || !usageStatus.value) return '收录状态尚未确认，请先重读收录状态或查看知识文档与构建记录；暂不能判断是否需要发布或构建。'
+  if (usageStatus.value.status === 'INCLUDED' && usageStatus.value.buildId && usageStatus.value.docId && usageStatus.value.versionNo && usageStatus.value.sourceSnapshotId === snapshotId.value) return '当前已收录，无需重复发布或构建。若仍有业务标签待办，可补充标签后复查；后续产生新修订时再核对审核、发布与构建。'
+  if (['PENDING_UPDATE','PENDING_REBUILD','NOT_BUILT'].includes(usageStatus.value.status)) return '下一步：按左侧收录状态核对知识文档与精确修订；需要更新时，分别完成审核、发布和显式构建。'
+  return '当前收录不可用或证据不完整，请先核对来源及构建记录；不要重复提交构建。'
+})
 function openDocuments() { if (can('knowledge:view')) router.push({path:'/admin/semantics/knowledge',query:{datasourceId:context.datasourceId,snapshotId:context.snapshotId}}) }
 function draftPayload() { return { snapshotId: snapshotId.value!, expectedVersion: formBaseVersion.value, businessName: form.businessName.trim(), meaning: form.meaning.trim(), unit: form.unit.trim() || undefined, currency: form.currency.trim() || undefined, enumSemantics: form.enumSemantics.trim() || undefined, metricDefinition: form.metricDefinition.trim() || undefined, applicability: form.applicability.trim() || undefined, evidence: form.evidence.trim(), unresolvedItems: form.unresolvedText.split('\n').map(item => item.trim()).filter(Boolean), glossaryReviewIds: selectedGlossaryReviewIds.value.length ? [...selectedGlossaryReviewIds.value] : undefined } }
 function currentAction(revisionId?: number, action?: FieldSemanticActionPayload['action'], reason?: string) { return { expectedVersion: workspace.value?.rowVersion || 0, revisionId, action, reason } }
@@ -405,7 +417,7 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
       <LoadingState v-else-if="workspaceLoading && !workspace" text="正在核验字段来源、解释与审核状态…" />
       <EmptyState v-else-if="hasSearched && !workspace" message="当前筛选字段没有可读取的解释记录。" />
       <section v-else-if="workspace" class="field-semantic-workspace__content">
-        <FieldGovernanceProgress :column-id="workspace.columnMetaId" :snapshot-id="workspace.snapshotId" :version="workspace.rowVersion" :check-id="latestCheck?.id" />
+        <FieldGovernanceProgress :column-id="workspace.columnMetaId" :snapshot-id="workspace.snapshotId" :version="workspace.rowVersion" :check-id="latestCheck?.id" :can-open-tags="canReadDirectory && canViewField" @open-tags="openTags" />
         <aside class="field-semantic-reference">
         <section class="field-semantic-card field-semantic-card--source">
           <div class="field-semantic-card__heading"><div><h3>{{ workspace.tableName }}.{{ workspace.columnName }}</h3><p>{{ workspace.dataType || '类型未记录' }} · 治理状态 {{ governanceStatusLabel(workspace.governanceStatus) }}</p></div><el-tag :type="isEffective ? 'success' : workspace.bindingStatus === 'VALID' ? 'warning' : 'info'">{{ isEffective ? '当前解释有效' : workspace.effectiveStatus === 'NEEDS_REVIEW' ? '来源需复核' : '尚无有效解释' }}</el-tag></div>
@@ -484,8 +496,8 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
           <section v-if="currentDraft" class="field-review-preview"><span>已保存修订 v{{ currentDraft.revisionNo }} · {{ revisionLabel(currentDraft.status) }}</span><h3>{{ currentDraft.businessName }}</h3><p>{{ currentDraft.meaning }}</p><dl class="field-semantic-facts"><div v-for="item in [{label:'单位',value:currentDraft.unit},{label:'币种',value:currentDraft.currency},{label:'枚举含义',value:currentDraft.enumSemantics},{label:'指标口径',value:currentDraft.metricDefinition},{label:'适用限制',value:currentDraft.applicability},{label:'业务依据',value:currentDraft.evidence}]" :key="item.label"><template v-if="item.value"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></template></div></dl><ul v-if="parseList(currentDraft.unresolvedItemsJson).length"><li v-for="item in parseList(currentDraft.unresolvedItemsJson)" :key="item">待确认：{{ item }}</li></ul></section>
           <section v-else-if="canViewDetails && isEffective && currentApproved" class="field-semantic-review-box" role="status">
             <h3>当前解释已审核通过</h3>
-            <p>修订 v{{ currentApproved.revisionNo }} 已适用于当前来源，无需重复提交审核。文档发布与 RAG 构建仍需分别确认。</p>
-            <p>下一步：复查当前快照，核对并发布知识文档，再显式确认 RAG 构建；问数收录以活动构建状态为准。</p>
+            <p>修订 v{{ currentApproved.revisionNo }} 已适用于当前来源，无需重复提交审核。审核与问数收录是独立状态。</p>
+            <p>{{ inclusionNextStep }}</p>
             <div><el-button v-if="canRunSemanticCheck" :disabled="fieldBusy || semanticCheckLoading" @click="executeSemanticCheck">复查当前快照</el-button><el-button type="primary" @click="openDocuments">前往知识文档与构建</el-button></div>
           </section>
           <EmptyState v-else :message="canViewDetails ? '当前没有可读取的待审草稿，请先保存并提交修订。' : '查看草稿与审核明细需要 knowledge:view；此页不会代读。'" />

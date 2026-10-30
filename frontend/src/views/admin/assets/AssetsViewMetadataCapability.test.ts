@@ -118,3 +118,12 @@ it('真实ScopeBar独立挂载，有权跨源结构深链可完成同步', async
   expect(wrapper.findComponent({ name: 'TableExplorer' }).exists()).toBe(true)
   expect(api.getPublishedCatalog).toHaveBeenCalledWith(2)
 })
+
+
+it('raw long comment cannot replace the stable object title and remains expandable',async()=>{
+ const comment='UNTRUSTED_COMMENT '.repeat(35)
+ api.getPublishedCatalog.mockResolvedValue({data:{datasourceId:2,publishedSnapshotId:3,snapshotVersion:2,syncStatus:'SYNCED',entities:[{id:20,entityType:'TABLE',name:'products',displayName:comment,description:comment,fqn:'fixture.products'}]}})
+ const w=await render();expect(w.get('.asset-open').text()).toBe('products')
+ expect(w.get('.asset-name').text()).not.toContain('UNTRUSTED_COMMENT')
+ expect(w.get('details.asset-comment').text()).toContain(comment.trim())
+})

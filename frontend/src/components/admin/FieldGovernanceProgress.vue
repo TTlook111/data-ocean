@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { getFieldGovernanceProgress, type FieldGovernanceProgress } from '../../api/admin/fieldSemantic'
 
-const props = defineProps<{ columnId: number; snapshotId: number; version?: number; checkId?: number }>()
+const props = defineProps<{ columnId: number; snapshotId: number; version?: number; checkId?: number; canOpenTags?: boolean }>()
+const emit = defineEmits<{ 'open-tags': [] }>()
 const progress = ref<FieldGovernanceProgress>()
 const loading = ref(false)
 const error = ref('')
@@ -39,7 +40,7 @@ watch(() => [props.columnId, props.snapshotId, props.version, props.checkId], as
     <span v-else-if="error">{{ error }}</span>
     <template v-else-if="progress">
       <strong>{{ label }}</strong>
-      <span>{{ progress.reason }}</span>
+      <span>{{ progress.reason }}</span><button v-if="progress.stage === 'NEEDS_CLASSIFICATION' && canOpenTags" type="button" @click="emit('open-tags')">前往当前字段标签</button>
     </template>
   </div>
 </template>
@@ -47,4 +48,6 @@ watch(() => [props.columnId, props.snapshotId, props.version, props.checkId], as
 <style scoped>
 .field-governance-progress { display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; border-left: 3px solid var(--do-primary, #1677ff); background: var(--do-surface); color: var(--do-ink); font-size: 13px; }
 .field-governance-progress strong { flex-shrink: 0; }
+button { min-height:32px; border:1px solid var(--do-line); border-radius:6px; background:var(--do-surface); color:var(--do-primary-strong); font:inherit; padding:4px 10px; cursor:pointer; }
+button:focus-visible { outline:2px solid var(--do-primary); outline-offset:2px; }
 </style>

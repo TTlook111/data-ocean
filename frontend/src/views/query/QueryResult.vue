@@ -50,6 +50,9 @@ const emit = defineEmits<{
   'expand': [tab: 'chart' | 'table' | 'sql' | 'trust']
 }>()
 
+const technicalLabels = new Set(['元数据快照', '检索构建', '受保护执行标识', '同次 SQL 哈希', '追溯投影'])
+const businessTrust = computed(() => props.trustSummary.filter(item => !technicalLabels.has(item.label)))
+const technicalTrust = computed(() => props.trustSummary.filter(item => technicalLabels.has(item.label)))
 const chartFailed = ref(false)
 const detailsOpen = ref(false)
 const panelTitle = computed(() => ['success-data', 'success-empty'].includes(props.viewState.kind) ? '查询结果' : '查询状态')
@@ -209,19 +212,19 @@ defineExpose({ openDetails })
           <template v-else>
             <div v-if="latestResult?.question" class="detail-facts"><div><span>原始问题</span><strong>{{ latestResult.question }}</strong></div></div>
             <QueryProgress :agent-progress="agentProgress" :latest-result="latestResult" />
-            <div v-if="latestResult" class="detail-facts">
-              <div v-if="latestResult.activeMetadataSnapshotId"><span>元数据快照</span><strong>{{ latestResult.activeMetadataSnapshotId }}</strong></div>
-              <div v-if="latestResult.permissionRevision"><span>权限版本</span><strong>{{ latestResult.permissionRevision }}</strong></div>
-              <div v-if="latestResult.finalProtectionStatus"><span>最终保护</span><strong>{{ latestResult.finalProtectionStatus }}</strong></div>
-            </div>
+
             <div v-if="datasourceFacts.length" class="detail-facts datasource-facts">
               <div v-for="fact in datasourceFacts" :key="fact.label"><span>{{ fact.label }}</span><strong>{{ fact.value }}</strong></div>
             </div>
-            <div v-if="trustSummary.length && latestResult?.status === 'COMPLETED'" class="trust-grid">
-              <div v-for="item in trustSummary" :key="item.label" class="trust-card" :class="{ muted: item.muted }">
+            <div v-if="trustSummary.length && latestResult?.status === 'COMPLETED'" class="trust-grid trust-business-summary">
+              <div v-for="item in businessTrust" :key="item.label" class="trust-card" :class="{ muted: item.muted }">
                 <span>{{ item.label }}</span><strong>{{ item.value }}</strong>
               </div>
             </div>
+            <details v-if="latestResult?.status === 'COMPLETED'" class="trust-technical"><summary>技术追溯详情</summary>
+              <div class="detail-facts"><div v-if="latestResult.permissionRevision"><span>权限版本</span><strong>{{ latestResult.permissionRevision }}</strong></div><div v-if="latestResult.finalProtectionStatus"><span>最终保护</span><strong>{{ latestResult.finalProtectionStatus }}</strong></div><div v-if="latestResult.activeMetadataSnapshotId && !technicalTrust.some(item => item.label === '元数据快照')"><span>元数据快照</span><strong>{{ latestResult.activeMetadataSnapshotId }}</strong></div></div>
+              <div class="trust-grid"><div v-for="item in technicalTrust" :key="item.label" class="trust-card" :class="{muted:item.muted}"><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div></div>
+            </details>
             <p v-if="latestResult?.status === 'PROCESSING' && !agentProgress.length" class="detail-state">服务端尚未报告可确认的阶段节点。</p>
           </template>
         </div>
@@ -241,6 +244,9 @@ defineExpose({ openDetails })
 </template>
 
 <style scoped>
+.trust-technical { margin-top:16px; border-top:1px solid var(--do-line); padding-top:10px; }
+.trust-technical summary { min-height:40px; cursor:pointer; color:var(--do-primary-strong); font-size:13px; }
+.trust-technical summary:focus-visible { outline:2px solid var(--do-primary); outline-offset:2px; }
 .result-preview { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border-color: var(--do-glass-line); border-radius: 16px; background: var(--do-glass-data-bg); }
 .result-header { min-width: 0; min-height: 54px; display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 16px; border-bottom: 1px solid var(--do-line); }
 .result-title { flex: 0 0 auto; min-width: 0; }

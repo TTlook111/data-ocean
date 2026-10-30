@@ -201,7 +201,22 @@ async function confirmBuild(){
 function closeBuild(){buildSequence++;buildVisible.value=false;buildOptionsLoading.value=false;buildOptions.value=[]}
 
 const canGenerateSnapshot = computed(() => canGenerateForDatasource(datasourceId.value))
-const activeRagCount = computed(() => readinessList.value.filter((row) => (!datasourceId.value || row.datasourceId===datasourceId.value) && Boolean(row.ragBuildId)).length)
+// A single-source count uses the same authorized records shown below, not datasource:view readiness.
+const activeIndexSummary = computed(() => {
+  if (!datasourceId.value) return { value: '未汇总', hint: '选择单个数据源，查看该来源的活动索引。' }
+  if (!scopeReady.value) return { value: '核验中', hint: '正在核验知识查看范围。' }
+  if (ragBuildsLoading.value) return { value: '读取中', hint: '正在读取当前来源的构建记录。' }
+  if (ragBuildError.value) return { value: '读取失败', hint: '活动索引状态未知，请刷新构建记录。' }
+  return { value: String(ragBuilds.value.filter(row => row.status === 'ACTIVE').length), hint: '按当前来源可见的构建记录统计；活动状态不代表所有业务口径已验证。' }
+})
+const buildBlockedReason = computed(() => {
+  if (!scopeReady.value) return '正在核验知识范围，暂不能准备构建。'
+  if (!datasourceId.value) return '请先选择一个数据源。'
+  if (!canPublishForDatasource(datasourceId.value)) return '需要当前数据源的 knowledge:publish（发布知识文档）能力；可继续查看已授权的构建记录。'
+  if (unknownBuild.value) return '已有构建请求执行中或结果未知，请刷新构建记录核对，不能重复提交。'
+  if (ragBuildActionDatasourceId.value != null) return '正在提交构建请求。'
+  return ''
+})
 const datasourceName = (id: number) => datasources.value.find((item) => item.id === id)?.name || `数据源 #${id}`
 const readinessAction = (row: DatasourceReadiness) => {
   const reason = row.blockReasons?.[0]
@@ -608,7 +623,7 @@ watch(() => route.query.page, (value) => {
     <section v-else-if="scopeReady" class="knowledge-page__stats">
       <div class="stat"><span>文档总数</span><strong>{{ stats.total }}</strong></div>
       <div class="stat stat--success"><span>已发布文档</span><strong>{{ stats.published }}</strong></div>
-      <div class="stat stat--success"><span>已生效知识索引</span><strong>{{ !readinessDatasources.length || readinessLoading || readinessError || datasourcesError || readinessWarning ? '—' : activeRagCount }}</strong></div>
+      <div class="stat stat--success"><span>已生效知识索引</span><strong>{{ activeIndexSummary.value }}</strong><small>{{ activeIndexSummary.hint }}</small></div>
       <div class="stat stat--warning"><span>待审核</span><strong>{{ stats.pending }}</strong></div>
       <div class="stat"><span>草稿</span><strong>{{ stats.draft }}</strong></div>
     </section>
@@ -725,7 +740,7 @@ watch(() => route.query.page, (value) => {
     </el-tabs>
 
     <section v-if="datasourceId && activeTab==='index'" class="knowledge-page__readiness knowledge-page__details">
-      <div class="knowledge-index-heading"><div><p class="knowledge-page__eyebrow">来源、发布、活动索引</p><h2>知识索引</h2><p>{{ currentBuild ? '当前活动build：'+currentBuild.buildId+' · 来源快照 #'+currentBuild.sourceSnapshotId : ragBuildsLoading ? '正在读取活动索引' : ragBuildError ? '活动索引状态未知' : '尚无活动build记录' }}</p><p>旧build可在来源与授权仍有效时继续使用。来源失效需核对，不把版本落后直接判为不可用。</p></div><el-button type="primary" :disabled="!canPublishForDatasource(datasourceId) || !!unknownBuild" @click="openBuild()">明确确认 RAG 构建</el-button></div>
+      <div class="knowledge-index-heading"><div><p class="knowledge-page__eyebrow">来源、发布、活动索引</p><h2>知识索引</h2><p>{{ currentBuild ? '当前活动build：'+currentBuild.buildId+' · 来源快照 #'+currentBuild.sourceSnapshotId : ragBuildsLoading ? '正在读取活动索引' : ragBuildError ? '活动索引状态未知' : '尚无活动build记录' }}</p><p>旧build可在来源与授权仍有效时继续使用。来源失效需核对，不把版本落后直接判为不可用。</p></div><div class="knowledge-build-action"><el-button type="primary" :disabled="!!buildBlockedReason" aria-describedby="rag-build-reason" @click="openBuild()">准备构建</el-button><p v-if="buildBlockedReason" id="rag-build-reason" role="status">{{ buildBlockedReason }}</p><small v-else>先核对来源与选项，再单独确认提交。</small></div></div>
       <p v-if="unknownBuild" role="alert" class="knowledge-write-notice">快照 #{{ unknownBuild.snapshotId }} 的构建请求执行中或结果未知。请刷新记录核对；已有旧build不证明本次成功，不会自动重发。</p>
       <div class="knowledge-page__readiness-heading">
         <div>
@@ -734,7 +749,17 @@ watch(() => route.query.page, (value) => {
         <el-button :icon="RefreshCw" :loading="ragBuildsLoading" @click="loadRagBuilds">刷新构建记录</el-button>
       </div>
       <ErrorState v-if="ragBuildError" :message="ragBuildError" @retry="loadRagBuilds" />
-      <el-table v-else :data="ragBuilds" stripe size="small">
+      <LoadingState v-else-if="ragBuildsLoading" text="正在读取构建记录…" />
+      <p v-else-if="!ragBuilds.length" class="knowledge-page__tab-note">当前来源没有可见的构建记录。</p>
+      <div v-else class="rag-build-records">
+      <div class="rag-build-cards" aria-label="构建记录摘要">
+        <article v-for="row in ragBuilds" :key="row.buildId" class="rag-build-card">
+          <strong :class="{'is-active':row.status==='ACTIVE'}">{{ ragStatusLabel(row.status) }}</strong><span>来源快照 #{{ row.sourceSnapshotId }}</span>
+          <p>向量核验：{{ row.actualVectorCount ?? '未提供' }} / {{ row.expectedChunkCount ?? '未提供' }}</p>
+          <details><summary>技术详情与确认时间</summary><dl><div><dt>Embedding</dt><dd>{{ row.embeddingModel || '未提供' }}</dd></div><div><dt>精确 build</dt><dd>{{ row.buildId }}</dd></div><div><dt>确认时间</dt><dd>{{ row.confirmedAt || '未提供' }}</dd></div><div v-if="row.errorMessage"><dt>错误信息</dt><dd>{{ row.errorMessage }}</dd></div></dl></details>
+        </article>
+      </div>
+      <el-table class="rag-build-table" :data="ragBuilds" stripe size="small">
         <el-table-column label="来源快照" width="110">
           <template #default="{ row }">{{ row.sourceSnapshotId }}</template>
         </el-table-column>
@@ -747,6 +772,7 @@ watch(() => route.query.page, (value) => {
         <el-table-column prop="confirmedAt" label="确认时间" min-width="180" />
         <el-table-column prop="errorMessage" label="错误信息" min-width="220" show-overflow-tooltip />
       </el-table>
+      </div>
     </section>
 
     <LoadingState v-if="!scopeReady && !scopeError" text="正在核验文档查看范围…" />
@@ -873,6 +899,28 @@ watch(() => route.query.page, (value) => {
 </template>
 
 <style scoped>
+.stat small { display:block; margin-top:6px; color:var(--do-muted); font-size:11px; line-height:1.5; max-width:24em; }
+.rag-build-records { min-width:0; width:100%; max-width:100%; }
+.knowledge-index-heading { min-width:0; max-width:100%; }
+.knowledge-index-heading > div:first-child { min-width:0; flex:1 1 420px; overflow-wrap:anywhere; }
+.knowledge-build-action { max-width:320px; min-width:0; flex:0 1 280px; }
+.knowledge-build-action p,.knowledge-build-action small { display:block; margin:8px 0 0; color:var(--do-muted); font-size:12px; line-height:1.6; }
+.rag-build-cards { display:none; }
+@media(max-width:720px) {
+  .rag-build-table { display:none; }
+  .rag-build-cards { display:grid; gap:12px; }
+  .rag-build-card { min-width:0; padding:14px; border:1px solid var(--do-line); border-radius:10px; background:var(--do-surface); }
+  .rag-build-card > strong { display:block; color:var(--do-ink); margin-bottom:6px; }
+  .rag-build-card > strong.is-active { color:var(--do-success); }
+  .rag-build-card p,.rag-build-card span,.rag-build-card dl { font-size:13px; }
+  .rag-build-card summary { min-height:36px; display:list-item; cursor:pointer; font-size:12px; color:var(--do-primary-strong); }
+  .rag-build-card summary:focus-visible { outline:2px solid var(--do-primary); outline-offset:2px; }
+  .rag-build-card dl { margin:0; overflow-wrap:anywhere; }
+  .rag-build-card dt { margin-top:8px; color:var(--do-muted); }
+  .rag-build-card dd { margin:3px 0; }
+  .knowledge-build-action { max-width:100%; flex-basis:100%; }
+}
+
 .knowledge-page__eyebrow{margin:0;color:var(--do-primary-strong);font-size:12px;font-weight:650;}.knowledge-page__purpose{margin:-8px 0 0;color:var(--do-muted);font-size:14px;line-height:1.6;}
 .knowledge-journey{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;padding:16px 0;list-style:none;margin:0;border-block:1px solid var(--do-line);}.knowledge-journey li{display:grid;gap:6px;border-left:2px solid var(--do-line);padding-left:14px;}.knowledge-journey li:first-child{border-color:var(--do-primary);}.knowledge-journey strong{font-size:13px;}.knowledge-journey span{font-size:12px;color:var(--do-muted);line-height:1.5;}
 .knowledge-index-heading{display:flex;justify-content:space-between;gap:20px;align-items:start;flex-wrap:wrap;}.knowledge-index-heading h2{margin:6px 0;}.knowledge-index-heading p{max-width:80ch;color:var(--do-muted);font-size:13px;line-height:1.6;}.knowledge-build-snapshot{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:18px 0;}.knowledge-write-notice{border-left:3px solid var(--do-warning);padding:12px;background:var(--do-soft);font-size:13px;line-height:1.6;overflow-wrap:anywhere;}

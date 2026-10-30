@@ -312,3 +312,11 @@ describe('QueryResult protected result views', () => {
     expect(wrapper.emitted('retry-sql')).toHaveLength(1)
   })
 })
+
+it('business evidence comes first and raw trace identifiers are in an explicit disclosure',async()=>{
+ const result={taskId:'a',status:'COMPLETED',data:[{s1_c1:2}],activeMetadataSnapshotId:1,permissionRevision:31,finalProtectionStatus:'FINAL_PROTECTED'}
+ const w=mount(QueryResult,{props:{latestResult:result,viewState:resolveQueryDisplayState({result}),resultTab:'trust',chartType:'bar',chartOption:null,pagedTableData:result.data,tablePage:1,tablePageSize:50,agentProgress:[],trustSummary:[{label:'本次使用的表',value:'products',muted:false},{label:'受保护执行标识',value:'EXACT_ATTEMPT',muted:false},{label:'查询来源记录',value:'尚未确认登记完成',muted:true},{label:'追溯投影',value:'尚未确认投影完成',muted:true}],datasourceFacts:[],canViewSql:false,canExport:false,sqlLoading:false,sqlErrorMessage:'',originalQuestion:'计数'} })
+ expect(w.get('.trust-business-summary').text()).toContain('products');expect(w.get('.trust-business-summary').text()).toContain('尚未确认登记完成')
+ const technical=w.get('details.trust-technical');expect(technical.attributes('open')).toBeUndefined();expect(technical.text()).toContain('EXACT_ATTEMPT');expect(technical.text()).toContain('FINAL_PROTECTED')
+ expect(w.get('.trust-business-summary').text()).not.toContain('EXACT_ATTEMPT');w.unmount()
+})

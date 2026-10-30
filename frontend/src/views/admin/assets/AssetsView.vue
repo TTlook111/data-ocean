@@ -141,12 +141,12 @@ function owningTable(item: MetadataEntityItem) {
 }
 
 function primaryName(item: MetadataEntityItem) {
-  return item.displayName?.trim() || item.name
+  return item.name
 }
 
 function hasDistinctTechnicalName(item: MetadataEntityItem) {
   const displayName = item.displayName?.trim()
-  return Boolean(displayName && displayName !== item.name)
+  return Boolean(displayName && displayName !== item.name && displayName !== item.description?.trim())
 }
 
 function hasDescription(item: MetadataEntityItem) {
@@ -525,7 +525,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
                     <div class="asset-name__copy">
                       <div class="asset-name__head">
                         <button type="button" class="asset-open" :title="primaryName(row)" @click="openDetail(row)">{{ primaryName(row) }}</button>
-                        <span v-if="hasDistinctTechnicalName(row)" class="asset-tech-name" translate="no" :title="row.name">{{ row.name }}</span>
+                        <span v-if="hasDistinctTechnicalName(row)" class="asset-tech-name" :title="row.displayName">{{ row.displayName }}</span>
                       </div>
                       <div class="asset-path" :class="{ 'asset-path--expanded': isPathExpanded(row.id) }">
                         <span class="asset-path__label">路径：</span>
@@ -546,9 +546,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
               </el-table-column>
               <el-table-column label="原始注释" min-width="230">
                 <template #default="{ row }">
-                  <span class="asset-description" :title="hasDescription(row) ? row.description : '暂无原始注释'">
-                    {{ hasDescription(row) ? row.description : '暂无原始注释' }}
-                  </span>
+                  <details v-if="hasDescription(row)" class="asset-comment"><summary><span class="asset-description">{{ row.description }}</span><small>展开原始注释</small></summary><p>{{ row.description }}</p></details><span v-else class="asset-description">暂无原始注释</span>
                 </template>
               </el-table-column>
               <el-table-column label="对象版本" width="100">
@@ -581,7 +579,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 </template>
 
 <style scoped>
-.asset-open { border:0; background:transparent; font:inherit; font-weight:600; text-align:left; color:var(--do-ink); padding:0; cursor:pointer; }
+.asset-open { flex:0 0 auto; max-width:100%; overflow-wrap:anywhere; border:0; background:transparent; font:inherit; font-weight:600; text-align:left; color:var(--do-ink); padding:0; cursor:pointer; }
 .asset-open:hover { color:var(--do-primary-strong); text-decoration:underline; text-underline-offset:4px; }
 .assets-panel__scope-note { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
 .assets-panel__scope-note strong { font-weight:500; color:var(--do-ink); }
@@ -682,6 +680,11 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 
 .entity-type { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .asset-table-name { color: var(--do-ink); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12.5px; }
+.asset-comment summary { cursor:pointer; }
+.asset-comment summary:focus-visible { outline:2px solid var(--do-primary); }
+.asset-comment small { color:var(--do-primary-strong); font-size:11px; }
+.asset-comment p { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; color:var(--do-muted); }
+.asset-name__head { flex-wrap:wrap; }
 .asset-description { display: block; max-width: 100%; overflow: hidden; color: var(--do-muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .asset-version-head { display: inline-flex; align-items: center; gap: 4px; border-radius: 4px; outline: none; }
 .asset-version-head:focus-visible { outline: 2px solid color-mix(in srgb, var(--do-primary) 32%, transparent); outline-offset: 2px; }

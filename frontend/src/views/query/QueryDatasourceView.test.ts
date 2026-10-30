@@ -32,6 +32,7 @@ vi.mock('../../stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('../../stores/iamS1', () => ({ useIamS1Store: () => iam }))
 vi.mock('../../composables/useQuerySession', () => ({ useQuerySession: () => session }))
 vi.mock('../../composables/useQuerySubmit', () => ({ useQuerySubmit: () => submit }))
+vi.mock('./QueryScope.vue', () => ({ default: { name: 'QueryScope', template: '<button>可问范围</button>' } }))
 vi.mock('./QueryAnswer.vue', () => ({ default: { name: 'QueryAnswer', template: '<div>fresh-answer-slot</div>' } }))
 const wrappers: ReturnType<typeof mount>[] = []
 async function page() {
@@ -132,4 +133,12 @@ it('logout still completes after an unconfirmed stop',async()=>{
  const w=await page();submit.isQuerying.value=true;submit.cancelCurrentQuery.mockResolvedValue(false)
  w.findComponent({name:'QuerySidebar'}).vm.$emit('user-command','logout');await flushPromises()
  expect(auth.logout).toHaveBeenCalledOnce();expect(router.push).toHaveBeenCalledWith('/login')
+})
+
+it('no-source recovery gives a concrete contact checklist without revealing hidden sources',async()=>{
+ session.selectedId.value=undefined as never;session.datasources.value=[]
+ const w=await page();const next=w.get('.no-source-next-step')
+ expect(next.find('summary').text()).toBe('向管理员提供哪些信息')
+ expect(next.text()).toContain('当前账号');expect(next.text()).toContain('期望业务主题');expect(next.text()).toContain('所需数据范围')
+ expect(next.text()).not.toContain('sales_orders');expect(w.text()).not.toContain('申请已提交')
 })

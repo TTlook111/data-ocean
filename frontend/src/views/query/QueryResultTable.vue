@@ -18,10 +18,10 @@ const emit = defineEmits<{ 'update:page': [page: number] }>()
         v-for="column in (result.columns || [])"
         :key="column.name"
         :prop="column.name"
-        :label="column.comment || column.name"
+        :label="column.comment?.trim() || (/^s\d+_c\d+$/.test(column.name) ? `结果列 ${(result.columns || []).indexOf(column) + 1}（未提供业务名称）` : column.name)"
         min-width="120"
         show-overflow-tooltip
-      />
+      ><template #header><span>{{ column.comment?.trim() || (/^s\d+_c\d+$/.test(column.name) ? `结果列 ${(result.columns || []).indexOf(column) + 1}（未提供业务名称）` : column.name) }}</span><small v-if="column.comment?.trim() || /^s\d+_c\d+$/.test(column.name)" class="result-original-key" translate="no">原始列名：{{ column.name }}</small></template></el-table-column>
     </el-table>
     <el-pagination
       v-if="(result.data?.length || 0) > pageSize"
@@ -36,6 +36,7 @@ const emit = defineEmits<{ 'update:page': [page: number] }>()
 </template>
 
 <style scoped>
+.result-original-key { display:block; color:var(--do-muted); font-size:11px; font-weight:400; overflow-wrap:anywhere; }
 .query-result-table { min-width: 0; display: grid; gap: 8px; }
 .query-result-table :deep(.el-table) { width: 100%; }
 .query-result-table :deep(.el-table .cell) { padding-block: 5px; font-size: 14px; line-height: 1.6; }

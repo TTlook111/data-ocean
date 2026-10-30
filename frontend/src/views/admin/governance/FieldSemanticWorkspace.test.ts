@@ -25,7 +25,7 @@ function input(w:VueWrapper,label:string){return w.find(`input[aria-label="${lab
 async function chooseColumn(w:VueWrapper,id:number){const select=w.findAllComponents({name:'ElSelect'}).find(s=>s.attributes('aria-label')==='选择解释字段') || w.findAllComponents({name:'ElSelect'})[1]!;select.vm.$emit('update:modelValue',id);select.vm.$emit('change',id);await flushPromises()}
 async function showReview(w:VueWrapper){w.findComponent({name:'ElTabs'}).vm.$emit('update:modelValue','review');await flushPromises()}
 beforeEach(()=>{
- vi.clearAllMocks();h.server=record();h.context=reactive({datasourceId:1,snapshotId:11,loading:false,initialize:vi.fn(async()=>{})});h.auth=reactive({token:'synthetic-A'});h.route=reactive({query:{datasourceId:'1',snapshotId:'11',tableName:'orders',columnMetaId:'204'}});h.router={replace:vi.fn((target:any)=>{h.route.query={...target.query};return Promise.resolve()})}
+ vi.clearAllMocks();h.server=record();h.context=reactive({datasourceId:1,snapshotId:11,loading:false,initialize:vi.fn(async()=>{})});h.auth=reactive({token:'synthetic-A'});h.route=reactive({query:{datasourceId:'1',snapshotId:'11',tableName:'orders',columnMetaId:'204'}});h.router={push:vi.fn(),replace:vi.fn((target:any)=>{h.route.query={...target.query};return Promise.resolve()})}
  h.iam=reactive({loaded:true,errorMessage:null,snapshot:{permissionRevision:1},codes:['metadata:view','governance:field:view','governance:field:manage','knowledge:manage','knowledge:view','knowledge:approve','glossary:view','governance:check'],canOnDatasource:(code:string)=>h.iam.codes.includes(code),load:vi.fn(async()=>{})})
  api.listSnapshotTables.mockResolvedValue({data:[{id:1,tableName:'orders',tableType:'TABLE',governanceStatus:'NORMAL'}]})
  api.listSnapshotTableColumns.mockResolvedValue({data:[{id:204,tableMetaId:1,tableName:'orders',columnName:'amount',dataType:'DECIMAL'},{id:205,tableMetaId:1,tableName:'orders',columnName:'status',dataType:'INT'}]})
@@ -102,5 +102,27 @@ it('an approved field without a draft points to publication rather than asking t
  const w=await render(); await showReview(w)
  expect(w.text()).not.toContain('请先保存并提交修订')
  expect(w.text()).toContain('当前解释已审核通过')
- expect(w.text()).toContain('文档发布与 RAG 构建仍需分别确认')
+ expect(w.text()).toContain('审核与问数收录是独立状态')
+})
+
+
+it('already included revision does not direct the reviewer to republish or rebuild',async()=>{
+ h.server={...record(),draft:undefined,workingRevisionId:undefined,workingStatus:undefined}
+ api.getFieldSemanticUsageStatus.mockResolvedValue({data:{status:'INCLUDED',message:'当前已审核字段解释包含在活动 RAG 构建中',buildId:'ACTIVE',sourceSnapshotId:11,docId:4,versionNo:1}})
+ const w=await render();await showReview(w)
+ const box=w.get('.field-semantic-review-box');expect(box.text()).toContain('当前已收录，无需重复发布或构建')
+ expect(box.text()).not.toContain('下一步：复查当前快照，核对并发布')
+})
+it('unknown inclusion never instructs a build or claims included',async()=>{
+ h.server={...record(),draft:undefined,workingRevisionId:undefined,workingStatus:undefined}
+ api.getFieldSemanticUsageStatus.mockRejectedValue(new Error('读取失败'))
+ const w=await render();await showReview(w);const box=w.get('.field-semantic-review-box')
+ expect(box.text()).toContain('收录状态尚未确认');expect(box.text()).not.toContain('无需重复发布或构建')
+ expect(box.text()).not.toContain('再显式确认 RAG 构建')
+})
+
+it('tag next step preserves exact source snapshot table and field without a write',async()=>{
+ const w=await render();w.findComponent({name:'FieldGovernanceProgress'}).vm.$emit('open-tags');await flushPromises()
+ expect(h.router.push).toHaveBeenCalledWith({path:'/admin/governance/fields',query:{datasourceId:'1',snapshotId:'11',tableName:'orders',columnMetaId:'204',tab:'tags'}})
+ expect(api.runSemanticCheck).not.toHaveBeenCalled();expect(api.saveFieldSemanticDraft).not.toHaveBeenCalled()
 })

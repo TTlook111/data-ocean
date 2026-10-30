@@ -14,6 +14,7 @@ import QuerySidebar from './QuerySidebar.vue'
 import QueryDatasourceSelector from './QueryDatasourceSelector.vue'
 import QueryInput from './QueryInput.vue'
 import QueryAnswer from './QueryAnswer.vue'
+import QueryScope from './QueryScope.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -190,7 +191,7 @@ onBeforeUnmount(() => { alive = false; sourceChangeRequest++; datasourceSyncRequ
       <div ref="chatSurface" class="chat-surface" aria-label="当前对话" @scroll="trackScroll">
         <div v-if="session.loading.value || session.historyLoading.value" class="welcome-state" role="status"><LoaderCircle :size="24" aria-hidden="true" /><h2>正在读取数据与会话</h2></div>
         <div v-else-if="session.errorMessage.value" class="welcome-state" role="alert"><h2>数据源读取失败</h2><p>{{ session.errorMessage.value }}</p><button class="state-button" type="button" @click="refreshDatasources">重新读取</button></div>
-        <div v-else-if="!session.selectedId.value" class="welcome-state"><img class="welcome-logo" :src="brandMark" alt="" /><h2>从一份业务数据开始</h2><p>当前账号没有可查询的数据源。请联系管理员确认数据授权与知识就绪情况。</p><button class="state-button" type="button" @click="refreshDatasources"><RefreshCw :size="15" aria-hidden="true" />刷新数据源</button></div>
+        <div v-else-if="!session.selectedId.value" class="welcome-state"><img class="welcome-logo" :src="brandMark" alt="" /><h2>从一份业务数据开始</h2><p>当前账号没有可查询的数据源。请联系组织指定管理员核对授权及知识准备情况。此处不展示无权来源。</p><details class="no-source-next-step"><summary>向管理员提供哪些信息</summary><ul><li>当前账号，以及希望完成的业务问题</li><li>期望业务主题与所需数据范围</li><li>当前页面提示“没有可查询的数据源”</li></ul><p>本页没有配置授权申请或联系入口，请通过组织既有渠道联系；管理员核对后再刷新。</p></details><button class="state-button" type="button" @click="refreshDatasources"><RefreshCw :size="15" aria-hidden="true" />刷新数据源</button></div>
         <div v-else-if="!session.activeMessages.value.length" class="welcome-state">
           <span class="welcome-eyebrow"><Sparkles :size="15" aria-hidden="true" />让业务问题，找到数据答案</span>
           <h2>你想从数据中了解什么？</h2><p>用自然语言描述问题，补充指标、时间范围和分组方式。<br />我会依据当前授权知识查询，口径不明确时先向你确认。</p>
@@ -222,6 +223,7 @@ onBeforeUnmount(() => { alive = false; sourceChangeRequest++; datasourceSyncRequ
           @update:question="submit.question.value = $event" @send="submit.sendQuestion" @cancel="submit.cancelCurrentQuery" @retry-readiness="session.fetchDatasourceReadiness(session.datasources.value)">
           <template #context><QueryDatasourceSelector :datasources="session.datasources.value" :readiness-map="session.readinessMap.value" :readiness-errors="session.readinessErrors.value" :selected-id="session.selectedId.value"
             :loading="session.loading.value" :readiness-loading="session.readinessLoading.value" :error-message="session.errorMessage.value" @select="handleSelectDatasource" @refresh="refreshDatasources" />
+            <QueryScope v-if="session.selectedId.value" :datasource-id="session.selectedId.value" :datasource-name="session.selectedDatasource.value?.name" />
             <small v-if="selectedReadiness?.ragStale" class="readiness-note" role="status">知识版本落后，按当前快照与权限校验</small></template>
         </QueryInput>
       </div>
@@ -230,6 +232,10 @@ onBeforeUnmount(() => { alive = false; sourceChangeRequest++; datasourceSyncRequ
 </template>
 
 <style scoped>
+.no-source-next-step { max-width:520px; text-align:left; padding:10px 14px; border:1px solid var(--do-line); border-radius:8px; font-size:13px; line-height:1.6; }
+.no-source-next-step summary { min-height:32px; cursor:pointer; color:var(--do-primary-strong); }
+.no-source-next-step summary:focus-visible { outline:2px solid var(--do-primary); }
+.no-source-next-step p { font-size:12px; }
 .query-workspace { height: 100dvh; min-height: 0; width: 100%; display: grid; grid-template-columns: 248px minmax(0, 1fr); overflow: hidden; color: var(--do-ink); background: var(--do-bg); font-size: 14px; }
 .query-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .query-topbar { flex: none; min-width: 0; min-height: 72px; display: flex; align-items: center; gap: 16px; padding: 12px 36px; border-bottom: 1px solid var(--do-line); }

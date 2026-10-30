@@ -88,7 +88,7 @@ onMounted(() => { void nextTick(resizeTextarea) })
 <style scoped>
 .query-input { width: 100%; }
 .chat-composer { width: min(820px, 100%); margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; padding: 10px 12px 12px 16px; border: 1px solid var(--do-line-strong); border-radius: 16px; background: var(--do-surface); box-shadow: 0 4px 18px rgb(36 39 36 / 4%); transition: border-color 150ms ease, box-shadow 150ms ease; }
-.composer-context { grid-column: 1 / -1; min-width: 0; }
+.composer-context { grid-column: 1 / -1; min-width: 0; display:flex; align-items:center; flex-wrap:wrap; gap:4px; }
 .chat-composer:focus-within { border-color: var(--do-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--do-primary) 14%, transparent), 0 6px 18px rgba(33, 78, 140, .07); }
 .composer-readiness { grid-column: 1 / -1; padding: 2px 0 0; color: color-mix(in srgb, var(--do-warning) 65%, var(--do-ink)); font-size: 11px; line-height: 1.45; }
 .composer-readiness button { margin-left: 8px; padding: 2px 6px; border: 1px solid var(--do-line); border-radius: 5px; background: var(--do-surface); color: var(--do-primary-strong); font: inherit; cursor: pointer; }

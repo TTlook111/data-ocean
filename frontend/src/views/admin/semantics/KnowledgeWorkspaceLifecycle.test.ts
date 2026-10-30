@@ -39,8 +39,8 @@ it('409保留标题正文与锁，不自动重发',async()=>{h.api.updateKnowled
 it('普通刷新保留人工稿但第三方版本不能静默换锁',async()=>{const w=await render();await body(w).setValue('保留');h.server={...h.server,version:9,content:'第三方改稿'};await button(w,'刷新').trigger('click');await settle();expect(body(w).element).toHaveProperty('value','保留');expect(button(w,'保存').attributes('disabled')).toBeDefined()})
 it('批准确认切文档不发旧写，重复点击一确认',async()=>{h.server=record(4,1,'PENDING_REVIEW');const d=deferred();const confirm=vi.spyOn(ElMessageBox,'confirm').mockReturnValue(d.promise);const w=await render();await button(w,'审核通过').trigger('click');await button(w,'审核通过').trigger('click');expect(confirm).toHaveBeenCalledTimes(1);route.params.id='5';await settle();d.resolve('confirm');await settle();expect(h.api.approveDoc).not.toHaveBeenCalled()})
 it('确认后版本变化不批准',async()=>{h.server=record(4,1,'PENDING_REVIEW');const d=deferred();vi.spyOn(ElMessageBox,'confirm').mockReturnValue(d.promise);const w=await render();await button(w,'审核通过').trigger('click');h.server={...h.server,version:4};d.resolve('confirm');await settle();expect(h.api.approveDoc).not.toHaveBeenCalled();expect(w.text()).toContain('已保存修订发生变化')})
-it('知识发布角色可独立构建历史来源，重复只写一次',async()=>{route.query.tab='index';const w=await render(List);expect(h.api.getBatchDatasourceReadiness).not.toHaveBeenCalled();expect(h.api.getPublishedSnapshot).not.toHaveBeenCalled();await button(w,'明确确认 RAG 构建').trigger('click');await settle();expect(w.findAllComponents({name:'ElOption'}).some(x=>String(x.props('label')).includes('曾发布历史来源'))).toBe(true);w.findComponent({name:'ElInputNumber'}).vm.$emit('update:modelValue',11);await settle();const d=deferred();h.api.confirmRagBuild.mockReturnValue(d.promise);await button(w,'确认构建').trigger('click');await button(w,'确认构建').trigger('click');expect(h.api.confirmRagBuild).toHaveBeenCalledTimes(1);expect(h.api.confirmRagBuild).toHaveBeenCalledWith(1,11);d.resolve({data:{buildId:'NEW'}});await settle()})
-it('构建408不借旧ACTIVE解锁，未知锁不串源',async()=>{route.query.tab='index';iam.codes['knowledge:publish']=[1,2];const w=await render(List);await button(w,'明确确认 RAG 构建').trigger('click');await settle();w.findComponent({name:'ElInputNumber'}).vm.$emit('update:modelValue',11);await settle();h.api.confirmRagBuild.mockRejectedValue({response:{status:408}});await button(w,'确认构建').trigger('click');await settle();await button(w,'取消').trigger('click');await settle();expect(button(w,'明确确认 RAG 构建').attributes('disabled')).toBeDefined();context.datasourceId=2;await settle();expect(button(w,'明确确认 RAG 构建').attributes('disabled')).toBeUndefined();context.datasourceId=1;await settle();expect(button(w,'明确确认 RAG 构建').attributes('disabled')).toBeDefined();expect(h.api.confirmRagBuild).toHaveBeenCalledTimes(1)})
+it('知识发布角色可独立构建历史来源，重复只写一次',async()=>{route.query.tab='index';const w=await render(List);expect(h.api.getBatchDatasourceReadiness).not.toHaveBeenCalled();expect(h.api.getPublishedSnapshot).not.toHaveBeenCalled();await button(w,'准备构建').trigger('click');await settle();expect(w.findAllComponents({name:'ElOption'}).some(x=>String(x.props('label')).includes('曾发布历史来源'))).toBe(true);w.findComponent({name:'ElInputNumber'}).vm.$emit('update:modelValue',11);await settle();const d=deferred();h.api.confirmRagBuild.mockReturnValue(d.promise);await button(w,'确认构建').trigger('click');await button(w,'确认构建').trigger('click');expect(h.api.confirmRagBuild).toHaveBeenCalledTimes(1);expect(h.api.confirmRagBuild).toHaveBeenCalledWith(1,11);d.resolve({data:{buildId:'NEW'}});await settle()})
+it('构建408不借旧ACTIVE解锁，未知锁不串源',async()=>{route.query.tab='index';iam.codes['knowledge:publish']=[1,2];const w=await render(List);await button(w,'准备构建').trigger('click');await settle();w.findComponent({name:'ElInputNumber'}).vm.$emit('update:modelValue',11);await settle();h.api.confirmRagBuild.mockRejectedValue({response:{status:408}});await button(w,'确认构建').trigger('click');await settle();await button(w,'取消').trigger('click');await settle();expect(button(w,'准备构建').attributes('disabled')).toBeDefined();context.datasourceId=2;await settle();expect(button(w,'准备构建').attributes('disabled')).toBeUndefined();context.datasourceId=1;await settle();expect(button(w,'准备构建').attributes('disabled')).toBeDefined();expect(h.api.confirmRagBuild).toHaveBeenCalledTimes(1)})
 it('撤权不显示旧统计',async()=>{const w=await render(List);expect(w.find('.knowledge-page__stats').exists()).toBe(true);iam.loaded=false;iam.snapshot={revision:2};await settle();expect(w.find('.knowledge-page__stats').exists()).toBe(false)})
 it('列表不借其他源审核权',async()=>{route.query.tab='review';const w=await render(List);const other=w.findAll('.el-table__row').find(x=>x.text().includes('供应链'))!;expect(other.findAll('button').find(x=>x.text()==='通过')!.attributes('disabled')).toBeDefined()})
 it('创建重复只写一次，等待新增输入保留',async()=>{const w=await render(Create);const d=deferred();h.api.createKnowledgeDoc.mockReturnValue(d.promise);const input=w.find('input[placeholder="例如：订单域业务语义"]');await input.setValue('第一标题');await button(w,'创建文档').trigger('click');await button(w,'创建文档').trigger('click');await input.setValue('等待新增');d.resolve({data:{id:9}});await settle();expect(h.api.createKnowledgeDoc).toHaveBeenCalledTimes(1);expect(h.router.replace).not.toHaveBeenCalled();expect(w.text()).toContain('等待期间新增的输入已保留')})
@@ -67,7 +67,7 @@ it('build choices read all published pages independently from the visible draft 
    ? {data:{records:q.page===1 ? Array.from({length:20},(_,i)=>record(100+i,1,'PUBLISHED')) : [record(999,1,'PUBLISHED')],total:21}}
    : {data:{records:[record(4,1,'DRAFT')],total:1}})
  h.api.listSourceSnapshots.mockImplementation(async(id:number)=>({data:[{snapshotId:id===999?99:11,snapshotVersion:1,status:'EXPIRED'}]}))
- const w=await render(List);await button(w,'明确确认 RAG 构建').trigger('click');await settle()
+ const w=await render(List);await button(w,'准备构建').trigger('click');await settle()
  expect(h.api.listKnowledgeDocs).toHaveBeenCalledWith(expect.objectContaining({datasourceId:1,status:'PUBLISHED',page:2}))
  expect(h.api.listSourceSnapshots).toHaveBeenCalledWith(999)
  expect(w.findAllComponents({name:'ElOption'}).some(option=>option.props('value')===99 && String(option.props('label')).includes('快照 #99'))).toBe(true)
@@ -79,8 +79,30 @@ it('late build-source error cannot enter a newly selected datasource dialog',asy
  route.query.tab='index';iam.codes['knowledge:publish']=[1,2]
  const d=deferred()
  h.api.listKnowledgeDocs.mockImplementation((q:any)=>q.status==='PUBLISHED' && q.datasourceId===1 ? d.promise : Promise.resolve({data:{records:[],total:0}}))
- const w=await render(List);await button(w,'明确确认 RAG 构建').trigger('click');await settle()
- context.datasourceId=2;await settle();await button(w,'明确确认 RAG 构建').trigger('click');await settle()
+ const w=await render(List);await button(w,'准备构建').trigger('click');await settle()
+ context.datasourceId=2;await settle();await button(w,'准备构建').trigger('click');await settle()
  d.reject(new Error('OLD_SOURCE_ERROR'));await settle()
  expect(w.text()).not.toContain('OLD_SOURCE_ERROR');expect(h.api.confirmRagBuild).not.toHaveBeenCalled()
+})
+
+
+it('restricted knowledge reader gets the active index count from the same visible build records',async()=>{
+ iam.codes={'knowledge:view':[1]};route.query.tab='index';const w=await render(List)
+ const stat=w.findAll('.stat').find(x=>x.text().includes('已生效知识索引'))!
+ expect(stat.find('strong').text()).toBe('1')
+ expect(w.text()).toContain('需要当前数据源的 knowledge:publish')
+ expect(button(w,'准备构建').attributes('disabled')).toBeDefined()
+ expect(h.api.getBatchDatasourceReadiness).not.toHaveBeenCalled()
+ expect(h.api.confirmRagBuild).not.toHaveBeenCalled()
+})
+it('index read failure remains unknown rather than zero or a stale ACTIVE',async()=>{
+ route.query.tab='index';h.api.listRagBuilds.mockRejectedValue(new Error('读取失败'))
+ const w=await render(List),stat=w.findAll('.stat').find(x=>x.text().includes('已生效知识索引'))!
+ expect(stat.find('strong').text()).toBe('读取失败');expect(w.text()).toContain('活动索引状态未知')
+})
+it('narrow build record has status source and verification before technical details',async()=>{
+ route.query.tab='index';h.api.listRagBuilds.mockResolvedValue({data:[{buildId:'EXACT_BUILD',sourceSnapshotId:11,status:'ACTIVE',actualVectorCount:9,expectedChunkCount:9,embeddingModel:'embedding'}]})
+ const w=await render(List),card=w.get('.rag-build-card')
+ expect(card.text()).toContain('活动中');expect(card.text()).toContain('来源快照 #11');expect(card.text()).toContain('9 / 9')
+ expect(card.find('details summary').text()).toContain('技术详情')
 })
