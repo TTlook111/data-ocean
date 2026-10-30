@@ -157,15 +157,15 @@ async function submit() {
   loading.value = true
   loginError.value = ''
   try {
-    await authStore.login({
+    const result = await authStore.login({
       username: form.username.trim(),
       password: form.password,
       captchaKey: captchaKey.value,
       captchaCode: form.captchaCode.trim()
     }, () => !disposed)
-    if (disposed) return
+    if (disposed || authStore.token !== result.data.token) return
     ElMessage.success('登录成功')
-    await router.replace('/query')
+    await router.replace('/')
   } catch (error: unknown) {
     if (disposed) return
     const message =

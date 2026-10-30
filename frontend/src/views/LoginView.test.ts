@@ -4,9 +4,10 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import LoginView from './LoginView.vue'
 
 const api = vi.hoisted(() => ({ captcha: vi.fn(), login: vi.fn(), replace: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() }))
+const auth = vi.hoisted(() => ({ token: '', login: api.login }))
 const motion = vi.hoisted(() => ({ reduced: false, trackers: [] as { element: HTMLElement; property: string; to: ReturnType<typeof vi.fn> }[], cleanups: [] as (() => void)[] }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ replace: api.replace }) }))
-vi.mock('../stores/auth', () => ({ useAuthStore: () => ({ login: api.login }) }))
+vi.mock('../stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('../api/auth', () => ({ getCaptcha: api.captcha }))
 vi.mock('element-plus', () => ({ ElMessage: { warning: api.warning, error: api.error, success: api.success } }))
 vi.mock('gsap', () => ({ gsap: {
@@ -47,7 +48,8 @@ beforeEach(() => {
   vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.set(++frameId, callback); return frameId })
   vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { frames.delete(id) })
   api.captcha.mockResolvedValue({ data: { captchaKey: 'captcha-test-key', captchaImage: 'data:image/png;base64,TEST' } })
-  api.login.mockResolvedValue(undefined)
+  auth.token=''
+  api.login.mockImplementation(async()=>{auth.token='fresh-session';return {data:{token:'fresh-session'}}})
 })
 afterEach(() => {
   wrappers.splice(0).forEach(wrapper => wrapper.unmount())
@@ -89,7 +91,7 @@ describe('登录页互动与原有登录行为', () => {
     await wrapper.trigger('pointermove', { clientX: 900, clientY: 310, pointerType: 'mouse' })
     expect(frames.size).toBe(0)
   })
-  it('仍使用真实验证码 key 和完整密码提交，成功后进入问数页', async () => {
+  it('仍使用真实验证码 key 和完整密码提交，成功后交给统一默认入口选择', async () => {
     const wrapper = await render()
     await wrapper.find('input[autocomplete="username"]').setValue(' reader ')
     await wrapper.find('input[autocomplete="current-password"]').setValue(' secret ')
@@ -100,7 +102,18 @@ describe('登录页互动与原有登录行为', () => {
     expect(api.login.mock.calls[0][1]()).toBe(true)
     wrapper.unmount()
     expect(api.login.mock.calls[0][1]()).toBe(false)
-    expect(api.replace).toHaveBeenCalledWith('/query')
+    expect(api.replace).toHaveBeenCalledWith('/')
+  })
+  it('登录成功回调属于旧会话时不跳转或提示新账号登录成功',async()=>{
+    api.login.mockResolvedValue({data:{token:'older-session'}})
+    auth.token='newer-session'
+    const wrapper=await render()
+    await wrapper.find('input[autocomplete="username"]').setValue('reader')
+    await wrapper.find('input[autocomplete="current-password"]').setValue('Secret123')
+    await wrapper.find('#login-captcha').setValue('K7M2')
+    await wrapper.find('form').trigger('submit');await flushPromises()
+    expect(api.replace).not.toHaveBeenCalled()
+    expect(api.success).not.toHaveBeenCalled()
   })
   it('验证码失败明确提示，可用键盘按钮重试', async () => {
     api.captcha.mockRejectedValueOnce(new Error('服务不可用'))
