@@ -9,6 +9,7 @@ import { useIamS1Store } from '../../stores/iamS1'
 import { useQuerySession, type LocalMessage } from '../../composables/useQuerySession'
 import { useQuerySubmit } from '../../composables/useQuerySubmit'
 import { parseDatasourceId } from '../../utils/queryDatasource'
+import { buildAgentProgress, queryFailureMessage } from '../../utils/queryDisplayState'
 import QuerySidebar from './QuerySidebar.vue'
 import QueryDatasourceSelector from './QueryDatasourceSelector.vue'
 import QueryInput from './QueryInput.vue'
@@ -63,6 +64,8 @@ function messageState(message: LocalMessage) {
     FAILED: '未完成', error: '未完成', CANCELLED: '已停止', TIMEOUT: '已超时', CLARIFICATION_REQUIRED: '需要补充信息',
   } as Record<string, string>)[message.status || '']
 }
+function progressLabel(message: LocalMessage) { return buildAgentProgress(message.queryResult || null).find(node => node.status === 'active')?.label || '正在核对查询' }
+function messageText(message: LocalMessage) { return message.role === 'assistant' && ['FAILED', 'error'].includes(message.status || '') ? queryFailureMessage(message.content) : message.content }
 function isProcessing(message: LocalMessage) { return ['loading', 'PROCESSING'].includes(message.status || '') && !message.localWaitTimedOut }
 function applySuggestion(text: string) {
   if (!session.canAskSelectedDatasource.value) return
@@ -72,7 +75,7 @@ function applySuggestion(text: string) {
 async function applyDatasource(id: number) {
   const ticket = ++sourceChangeRequest
   if (session.selectedId.value === id) return
-  await submit.cancelCurrentQuery()
+  if (!await submit.cancelCurrentQuery()) { ElMessage.warning('停止尚未确认，已保留当前对话；请等待结果或重试停止。'); return }
   if (!alive || ticket !== sourceChangeRequest) return
   submit.followLatestResult()
   submit.question.value = ''
@@ -105,7 +108,7 @@ async function refreshDatasources() {
 }
 async function handleRetryHistory() {
   const ticket = ++sourceChangeRequest
-  await submit.cancelCurrentQuery()
+  if (!await submit.cancelCurrentQuery()) { ElMessage.warning('停止尚未确认，已保留当前对话；请等待结果或重试停止。'); return }
   if (alive && ticket === sourceChangeRequest) await session.retryHistory()
 }
 async function handleSelectDatasource(id: number) {
@@ -115,7 +118,7 @@ async function handleSelectDatasource(id: number) {
 }
 async function handleStartNewSession() {
   const ticket = ++sourceChangeRequest
-  await submit.cancelCurrentQuery()
+  if (!await submit.cancelCurrentQuery()) { ElMessage.warning('停止尚未确认，已保留当前对话；请等待结果或重试停止。'); return }
   if (!alive || ticket !== sourceChangeRequest) return
   session.startNewSession({ focusQuestionInput: () => { void queryInputRef.value?.focusQuestionInput() } })
   submit.followLatestResult()
@@ -124,7 +127,7 @@ async function handleStartNewSession() {
 }
 async function handleSelectSession(id: string) {
   const ticket = ++sourceChangeRequest
-  await submit.cancelCurrentQuery()
+  if (!await submit.cancelCurrentQuery()) { ElMessage.warning('停止尚未确认，已保留当前对话；请等待结果或重试停止。'); return }
   if (!alive || ticket !== sourceChangeRequest) return
   submit.followLatestResult()
   submit.question.value = ''
@@ -183,8 +186,8 @@ onBeforeUnmount(() => { alive = false; sourceChangeRequest++; datasourceSyncRequ
           <article v-for="message in session.activeMessages.value" :key="message.id" class="message-item" :class="message.role" :data-message-id="message.id">
             <div class="message-author"><img v-if="message.role === 'assistant'" :src="brandMark" alt="" width="16" height="24" /><strong>{{ message.role === 'assistant' ? 'DataOcean' : '你' }}</strong><time :datetime="message.createdAt">{{ formatMessageTime(message.createdAt) }}</time></div>
             <div class="message-bubble">
-              <div v-if="message.role === 'assistant' && messageState(message)" class="message-state" :class="{ processing: isProcessing(message), failed: ['FAILED', 'error', 'TIMEOUT'].includes(message.status || '') }" role="status"><LoaderCircle v-if="isProcessing(message)" :size="14" aria-hidden="true" /><span>{{ messageState(message) }}</span><code v-if="isProcessing(message) && message.queryResult?.progressNode">{{ message.queryResult.progressNode }}</code></div>
-              <p v-if="message.role !== 'assistant' || message.status !== 'COMPLETED'">{{ message.content }}</p>
+              <div v-if="message.role === 'assistant' && messageState(message)" class="message-state" :class="{ processing: isProcessing(message), failed: ['FAILED', 'error', 'TIMEOUT'].includes(message.status || '') }" role="status"><LoaderCircle v-if="isProcessing(message)" :size="14" aria-hidden="true" /><span>{{ messageState(message) }}</span><code v-if="isProcessing(message) && message.queryResult?.progressNode">{{ progressLabel(message) }}</code></div>
+              <p v-if="message.role !== 'assistant' || message.status !== 'COMPLETED'">{{ messageText(message) }}</p>
               <QueryAnswer v-if="message.role === 'assistant' && message.status === 'COMPLETED' && message.taskId && session.activeSession.value" :key="`${auth.token}:${message.taskId}`" :task-id="message.taskId" :datasource-id="session.activeSession.value.datasourceId" :original-question="message.originalQuestion || message.queryResult?.question || ''" @suggestion="applySuggestion" @layout-ready="followLayout" />
               <div v-if="message.role === 'assistant'" class="message-actions">
                 <button v-if="message.status === 'CLARIFICATION_REQUIRED'" type="button" :disabled="submit.isQuerying.value" @click="submit.prepareClarification(message.originalQuestion || message.queryResult?.question || '')">补充问题</button>
@@ -201,8 +204,8 @@ onBeforeUnmount(() => { alive = false; sourceChangeRequest++; datasourceSyncRequ
         <QueryInput ref="queryInputRef" :question="submit.question.value" :is-querying="submit.isQuerying.value" :selected-id="session.selectedId.value"
           :selected-datasource-name="session.selectedDatasource.value?.name" :can-ask="session.canAskSelectedDatasource.value"
           :readiness-loading="session.readinessLoading.value" :selected-block-reason="session.selectedBlockReason.value"
-          @update:question="submit.question.value = $event" @send="submit.sendQuestion" @cancel="submit.cancelCurrentQuery">
-          <template #context><QueryDatasourceSelector :datasources="session.datasources.value" :readiness-map="session.readinessMap.value" :selected-id="session.selectedId.value"
+          @update:question="submit.question.value = $event" @send="submit.sendQuestion" @cancel="submit.cancelCurrentQuery" @retry-readiness="session.fetchDatasourceReadiness(session.datasources.value)">
+          <template #context><QueryDatasourceSelector :datasources="session.datasources.value" :readiness-map="session.readinessMap.value" :readiness-errors="session.readinessErrors.value" :selected-id="session.selectedId.value"
             :loading="session.loading.value" :readiness-loading="session.readinessLoading.value" :error-message="session.errorMessage.value" @select="handleSelectDatasource" @refresh="refreshDatasources" />
             <small v-if="selectedReadiness?.ragStale" class="readiness-note" role="status">知识版本落后，按当前快照与权限校验</small></template>
         </QueryInput>

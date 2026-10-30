@@ -482,6 +482,12 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
           <el-tab-pane label="人工审核" name="review">
           <p v-if="reviewConflict" class="field-semantic-conflict" role="alert">待审核修订或记录版本已变化，原审核意见已保留；请核对并重读后审核。</p>
           <section v-if="currentDraft" class="field-review-preview"><span>已保存修订 v{{ currentDraft.revisionNo }} · {{ revisionLabel(currentDraft.status) }}</span><h3>{{ currentDraft.businessName }}</h3><p>{{ currentDraft.meaning }}</p><dl class="field-semantic-facts"><div v-for="item in [{label:'单位',value:currentDraft.unit},{label:'币种',value:currentDraft.currency},{label:'枚举含义',value:currentDraft.enumSemantics},{label:'指标口径',value:currentDraft.metricDefinition},{label:'适用限制',value:currentDraft.applicability},{label:'业务依据',value:currentDraft.evidence}]" :key="item.label"><template v-if="item.value"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></template></div></dl><ul v-if="parseList(currentDraft.unresolvedItemsJson).length"><li v-for="item in parseList(currentDraft.unresolvedItemsJson)" :key="item">待确认：{{ item }}</li></ul></section>
+          <section v-else-if="canViewDetails && isEffective && currentApproved" class="field-semantic-review-box" role="status">
+            <h3>当前解释已审核通过</h3>
+            <p>修订 v{{ currentApproved.revisionNo }} 已适用于当前来源，无需重复提交审核。文档发布与 RAG 构建仍需分别确认。</p>
+            <p>下一步：复查当前快照，核对并发布知识文档，再显式确认 RAG 构建；问数收录以活动构建状态为准。</p>
+            <div><el-button v-if="canRunSemanticCheck" :disabled="fieldBusy || semanticCheckLoading" @click="executeSemanticCheck">复查当前快照</el-button><el-button type="primary" @click="openDocuments">前往知识文档与构建</el-button></div>
+          </section>
           <EmptyState v-else :message="canViewDetails ? '当前没有可读取的待审草稿，请先保存并提交修订。' : '查看草稿与审核明细需要 knowledge:view；此页不会代读。'" />
           <div v-if="currentDraft?.status === 'PENDING_REVIEW'" class="field-semantic-review-box">
             <p>待审核修订 v{{ currentDraft.revisionNo }}。审核权限需要 governance:field:view 与 knowledge:approve 同时绑定当前数据源。</p>

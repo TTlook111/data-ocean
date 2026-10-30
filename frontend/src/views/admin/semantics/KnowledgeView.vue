@@ -166,8 +166,20 @@ async function openBuild(row?:DatasourceReadiness){
   if(!source || !canOn('knowledge:publish',source) || ragBuildActionDatasourceId.value!=null)return
   const t=scopeTicket(),seq=++buildSequence;buildSource.value=source;buildSnapshotId.value=row?.publishedSnapshotId || (publishedSnapshot.value?.datasourceId===source ? publishedSnapshot.value.snapshotId : undefined);buildVisible.value=true;buildOptions.value=[];buildOptionsError.value='';buildOptionsLoading.value=true
   try{
-    const candidates=docs.value.filter(d=>d.datasourceId===source && d.status==='PUBLISHED')
-    const results=await Promise.all(candidates.map(d=>listSourceSnapshots(d.id)))
+    // The visible document page/filter is not the complete set of build sources.
+    const candidates=new Map<number,KnowledgeDocItem>()
+    let sourcePage=1
+    while(true){
+      const result=await listKnowledgeDocs({datasourceId:source,status:'PUBLISHED',page:sourcePage,pageSize})
+      if(!current(t) || seq!==buildSequence || !buildVisible.value)return
+      const records=result.data?.records || [],total=result.data?.total || 0
+      const previousSize=candidates.size
+      for(const doc of records)if(doc.datasourceId===source && doc.status==='PUBLISHED')candidates.set(doc.id,doc)
+      if(sourcePage*pageSize>=total)break
+      if(candidates.size===previousSize)throw new Error('已发布文档来源分页未完整返回，请重试或核对精确来源ID。')
+      sourcePage++
+    }
+    const results=await Promise.all([...candidates.values()].map(d=>listSourceSnapshots(d.id)))
     if(!current(t) || seq!==buildSequence || !buildVisible.value)return
     const options=new Map<number,string>()
     for(const r of results)for(const value of r.data || [])if(['PUBLISHED','EXPIRED'].includes(value.status || ''))options.set(value.snapshotId,`快照 #${value.snapshotId} · v${value.snapshotVersion} · ${value.status==='EXPIRED'?'曾发布历史来源':'已发布'}`)

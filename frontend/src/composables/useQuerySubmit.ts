@@ -14,7 +14,7 @@ import {
   type IamS1QueryTaskResult,
 } from '../api/iamS1'
 import type { LocalMessage, LocalSession } from './useQuerySession'
-import { resolveQueryDisplayState } from '../utils/queryDisplayState'
+import { buildAgentProgress, resolveQueryDisplayState } from '../utils/queryDisplayState'
 
 /** 轮询配置常量 */
 const POLL_MAX_CONSECUTIVE_ERRORS = 3
@@ -25,27 +25,7 @@ export function isLocallyResumable(message: Pick<LocalMessage, 'status' | 'local
   return message.status === 'PROCESSING' && message.localWaitTimedOut === true
 }
 
-/** Agent 节点定义 */
-const agentNodes = [
-  { key: 'rag_retrieval', label: '检索已授权知识' },
-  { key: 'schema_linking', label: '理解问题并关联字段' },
-  { key: 'sql_generation', label: '生成 SQL' },
-  { key: 'sql_semantic_check', label: '核对问题语义' },
-  { key: 'execution_authorization', label: '复核当前权限' },
-  { key: 'sql_execution', label: '只读执行' },
-  { key: 'result_verification', label: '核对结果' },
-  { key: 'clarification', label: '需要补充说明' },
-]
-
-export function buildAgentProgress(result: IamS1QueryTaskResult | null) {
-  if (!result || result.status !== 'PROCESSING') return []
-  const currentIndex = agentNodes.findIndex((node) => node.key === result.progressNode)
-  if (currentIndex < 0) return []
-  return agentNodes.map((node, index) => ({
-    ...node,
-    status: index < currentIndex ? 'done' as const : index === currentIndex ? 'active' as const : 'pending' as const,
-  }))
-}
+export { buildAgentProgress } from '../utils/queryDisplayState'
 
 export function useQuerySubmit(options: {
   selectedId: Ref<number | undefined>
@@ -437,21 +417,23 @@ export function useQuerySubmit(options: {
   /**
    * 取消当前查询
    */
-  async function cancelCurrentQuery() {
-    if (!isQuerying.value) return
+  async function cancelCurrentQuery(): Promise<boolean> {
+    if (!isQuerying.value) return true
     cancelRequested = true
     const taskId = currentTaskId.value
     const controller = pollAbortController.value
     const generation = queryGeneration
-    if (!taskId) return
+    if (!taskId) return false
     try {
       await iamS1CancelTask(taskId)
       controller?.abort()
+      return true
     } catch {
       if (alive && generation === queryGeneration) {
         cancelRequested = false
         ElMessage.error('停止请求未能确认，仍在获取服务端状态')
       }
+      return false
     }
   }
 

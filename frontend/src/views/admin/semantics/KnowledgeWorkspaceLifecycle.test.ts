@@ -60,3 +60,27 @@ it('差异在途切对象后新对象可再次比较，旧结果不回填',async
 
 it('公共范围初始化完成后同步真实源名称与辅助入口',async()=>{context.loading=true;iam.codes['datasource:view']=[1];const w=await render(List);expect(w.find('.knowledge-page__stats').exists()).toBe(false);context.loading=false;await settle();expect(w.find('.knowledge-page__stats').exists()).toBe(true);expect(w.find('.knowledge-page__card').text()).toContain('销售经营');expect(h.api.getBatchDatasourceReadiness).toHaveBeenCalled()})
 it('当前源没有维护权时手工新建不默认借用该源',async()=>{iam.codes['knowledge:manage']=[2];const w=await render(Create);expect(w.findComponent({name:'ElSelect'}).props('modelValue')).toBeUndefined();expect(h.api.createKnowledgeDoc).not.toHaveBeenCalled()})
+
+it('build choices read all published pages independently from the visible draft filter and without metadata permissions',async()=>{
+ route.query.tab='index'
+ h.api.listKnowledgeDocs.mockImplementation(async (q:any)=>q.status==='PUBLISHED'
+   ? {data:{records:q.page===1 ? Array.from({length:20},(_,i)=>record(100+i,1,'PUBLISHED')) : [record(999,1,'PUBLISHED')],total:21}}
+   : {data:{records:[record(4,1,'DRAFT')],total:1}})
+ h.api.listSourceSnapshots.mockImplementation(async(id:number)=>({data:[{snapshotId:id===999?99:11,snapshotVersion:1,status:'EXPIRED'}]}))
+ const w=await render(List);await button(w,'明确确认 RAG 构建').trigger('click');await settle()
+ expect(h.api.listKnowledgeDocs).toHaveBeenCalledWith(expect.objectContaining({datasourceId:1,status:'PUBLISHED',page:2}))
+ expect(h.api.listSourceSnapshots).toHaveBeenCalledWith(999)
+ expect(w.findAllComponents({name:'ElOption'}).some(option=>option.props('value')===99 && String(option.props('label')).includes('快照 #99'))).toBe(true)
+ expect(h.api.listSnapshots).not.toHaveBeenCalled()
+ expect(h.api.getPublishedSnapshot).not.toHaveBeenCalled()
+ expect(h.api.confirmRagBuild).not.toHaveBeenCalled()
+})
+it('late build-source error cannot enter a newly selected datasource dialog',async()=>{
+ route.query.tab='index';iam.codes['knowledge:publish']=[1,2]
+ const d=deferred()
+ h.api.listKnowledgeDocs.mockImplementation((q:any)=>q.status==='PUBLISHED' && q.datasourceId===1 ? d.promise : Promise.resolve({data:{records:[],total:0}}))
+ const w=await render(List);await button(w,'明确确认 RAG 构建').trigger('click');await settle()
+ context.datasourceId=2;await settle();await button(w,'明确确认 RAG 构建').trigger('click');await settle()
+ d.reject(new Error('OLD_SOURCE_ERROR'));await settle()
+ expect(w.text()).not.toContain('OLD_SOURCE_ERROR');expect(h.api.confirmRagBuild).not.toHaveBeenCalled()
+})

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useQuerySession } from './useQuerySession'
-import { iamS1ListConversationMessages, iamS1ListConversations, listIamS1QueryResourceDatasources } from '../api/iamS1'
+import { iamS1GetDatasourceReadiness, iamS1ListConversationMessages, iamS1ListConversations, listIamS1QueryResourceDatasources } from '../api/iamS1'
 
 vi.mock('../api/iamS1', () => ({
   iamS1DeleteConversation: vi.fn(),
@@ -118,5 +118,35 @@ describe('useQuerySession history pagination', () => {
       .toMatchObject({ originalQuestion: '统计最近 30 天订单', status: 'CLARIFICATION_REQUIRED' })
     expect(session.messages.find((message) => message.id === 'remote-5'))
       .toMatchObject({ originalQuestion: '按已完成状态统计订单', status: 'FAILED' })
+  })
+})
+
+describe('readiness failure and recovery', () => {
+  beforeEach(() => vi.resetAllMocks())
+  it('500 is unknown and blocked, retry recovers independently from another ready source', async () => {
+    vi.mocked(iamS1GetDatasourceReadiness).mockImplementation(async id => {
+      if(id===1) throw {response:{status:500}}
+      return {data:{askable:true}} as never
+    })
+    const api=useQuerySession(); api.selectedId.value=1
+    await api.fetchDatasourceReadiness([{id:1},{id:2}] as never)
+    expect(api.selectedBlockReason.value?.message).toContain('读取失败')
+    expect(api.canAskSelectedDatasource.value).toBe(false)
+    api.selectedId.value=2; expect(api.canAskSelectedDatasource.value).toBe(true)
+    vi.mocked(iamS1GetDatasourceReadiness).mockResolvedValue({data:{askable:true}} as never)
+    api.selectedId.value=1; await api.fetchDatasourceReadiness([{id:1}] as never)
+    expect(api.selectedBlockReason.value).toBeUndefined(); expect(api.canAskSelectedDatasource.value).toBe(true)
+  })
+  it('403 describes access, while a late failed request cannot replace the latest ready result', async () => {
+    const api=useQuerySession(); api.selectedId.value=1
+    vi.mocked(iamS1GetDatasourceReadiness).mockRejectedValueOnce({response:{status:403}})
+    await api.fetchDatasourceReadiness([{id:1}] as never)
+    expect(api.selectedBlockReason.value?.message).toContain('无权')
+    let reject!:(error:unknown)=>void
+    vi.mocked(iamS1GetDatasourceReadiness).mockReturnValueOnce(new Promise((_r,j)=>{reject=j}) as never).mockResolvedValueOnce({data:{askable:true}} as never)
+    const old=api.fetchDatasourceReadiness([{id:1}] as never)
+    await api.fetchDatasourceReadiness([{id:1}] as never); reject(new Error('old')); await old
+    expect(api.canAskSelectedDatasource.value).toBe(true)
+    expect(api.selectedBlockReason.value).toBeUndefined()
   })
 })

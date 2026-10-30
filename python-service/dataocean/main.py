@@ -60,6 +60,11 @@ async def lifespan(application: FastAPI):
     """应用生命周期管理"""
     setup_logging(settings.log_level)
     _validate_config()
+    # 重启后重新读取 Java 已保存的活动模型，不能长期停留在环境默认值。
+    # Java 暂不可达或未配置 AI 时仍按原环境配置启动，不把 AI 变为启动门槛。
+    from dataocean.infra.config_api import reload_ai_config
+    if not await reload_ai_config():
+        logger.warning("启动时未同步 Java AI 配置，暂沿用本机配置；可通过正式配置热重载重试")
     if settings.langgraph_checkpoint_redis_url:
         from dataocean.iam_s1.graph import initialize_checkpointer
         await initialize_checkpointer()

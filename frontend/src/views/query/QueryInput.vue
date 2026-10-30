@@ -19,6 +19,7 @@ const emit = defineEmits<{
   'update:question': [value: string]
   'send': []
   'cancel': []
+  'retry-readiness': []
 }>()
 
 const MAX_TEXTAREA_HEIGHT = 160
@@ -60,7 +61,8 @@ onMounted(() => { void nextTick(resizeTextarea) })
     <footer class="chat-composer" aria-label="查询输入区" :aria-busy="isQuerying">
       <div class="composer-context"><slot name="context" /></div>
       <div v-if="selectedId && !canAsk" class="composer-readiness" role="status">
-        {{ selectedBlockReason?.message || (readinessLoading ? '正在确认数据源状态' : '当前数据源暂未完成上线流程') }}
+        {{ readinessLoading ? '正在确认数据源状态…' : (selectedBlockReason?.message || '数据源状态尚未确认，请重试状态检查') }}
+        <button type="button" :disabled="readinessLoading" @click="emit('retry-readiness')">重试状态检查</button>
       </div>
       <textarea
         ref="questionInputRef"
@@ -89,6 +91,9 @@ onMounted(() => { void nextTick(resizeTextarea) })
 .composer-context { grid-column: 1 / -1; min-width: 0; }
 .chat-composer:focus-within { border-color: var(--do-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--do-primary) 14%, transparent), 0 6px 18px rgba(33, 78, 140, .07); }
 .composer-readiness { grid-column: 1 / -1; padding: 2px 0 0; color: color-mix(in srgb, var(--do-warning) 65%, var(--do-ink)); font-size: 11px; line-height: 1.45; }
+.composer-readiness button { margin-left: 8px; padding: 2px 6px; border: 1px solid var(--do-line); border-radius: 5px; background: var(--do-surface); color: var(--do-primary-strong); font: inherit; cursor: pointer; }
+.composer-readiness button:disabled { opacity: .6; cursor: wait; }
+.composer-readiness button:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 2px; }
 .chat-composer textarea { width: 100%; min-height: 38px; max-height: 160px; resize: none; overflow-y: hidden; padding: 8px 0; border: 0; outline: 0; color: var(--do-ink); background: transparent; font: inherit; font-size: 15px; line-height: 1.6; }
 .chat-composer textarea::placeholder { color: var(--do-muted); opacity: .75; }
 .chat-composer textarea:disabled { cursor: not-allowed; }

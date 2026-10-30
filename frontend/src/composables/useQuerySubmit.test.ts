@@ -307,3 +307,16 @@ function createSubmit(message?: LocalMessage) {
     createSession: () => session,
   })
 }
+
+it('a 503 cancellation preserves polling and can still receive the real completed result',async()=>{
+ vi.mocked(iamS1CancelTask).mockRejectedValueOnce({response:{status:503}})
+ const submit=createSubmit();submit.isQuerying.value=true;submit.currentTaskId.value='still-running'
+ const controller=new AbortController();submit.pollAbortController.value=controller
+ expect(await submit.cancelCurrentQuery()).toBe(false)
+ expect(controller.signal.aborted).toBe(false);expect(submit.isQuerying.value).toBe(true)
+ vi.mocked(iamS1StreamTask).mockResolvedValue(undefined as never)
+ vi.mocked(iamS1GetTask).mockResolvedValue({data:{taskId:'still-running',status:'COMPLETED',data:[{count:3}]}} as never)
+ expect(await submit.pollTaskResult('still-running',controller.signal,1,1)).toMatchObject({status:'COMPLETED',data:[{count:3}]})
+ vi.mocked(iamS1CancelTask).mockResolvedValueOnce(undefined as never)
+ expect(await submit.cancelCurrentQuery()).toBe(true);expect(controller.signal.aborted).toBe(true)
+})

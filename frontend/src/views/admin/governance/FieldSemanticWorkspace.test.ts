@@ -96,3 +96,11 @@ it('AI保存后读取失败，错误重试不能覆盖未保存人工输入',asy
  await button(w,'重试').trigger('click');await flushPromises()
  expect(input(w,'字段含义').element).toHaveProperty('value','必须保留的人工输入');expect(w.text()).toContain('有未保存输入')
 })
+
+it('an approved field without a draft points to publication rather than asking to resubmit', async()=>{
+ h.server={...record(),draft:null,workingStatus:null,workingRevisionId:null}
+ const w=await render(); await showReview(w)
+ expect(w.text()).not.toContain('请先保存并提交修订')
+ expect(w.text()).toContain('当前解释已审核通过')
+ expect(w.text()).toContain('文档发布与 RAG 构建仍需分别确认')
+})

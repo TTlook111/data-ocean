@@ -7,6 +7,7 @@ import type { IamS1DatasourceRef } from '../../api/iamS1'
 const props = defineProps<{
   datasources: IamS1DatasourceRef[]
   readinessMap: Record<number, DatasourceReadiness>
+  readinessErrors?: Record<number, string>
   selectedId: number | undefined
   loading: boolean
   readinessLoading: boolean
@@ -24,6 +25,7 @@ const menuRef = ref<HTMLElement>()
 const menuWidth = ref(320)
 const selectedDatasource = computed(() => props.datasources.find((item) => item.id === props.selectedId))
 const selectedReadiness = computed(() => props.selectedId ? props.readinessMap[props.selectedId] : undefined)
+const stateLabel = (id: number) => props.readinessLoading ? '状态确认中' : props.readinessMap[id]?.askable ? '已就绪' : props.readinessErrors?.[id] ? (props.readinessErrors[id].includes('无权') ? '无权读取状态' : '状态读取失败') : (props.readinessMap[id]?.stageLabel || (props.readinessLoading ? '状态确认中' : '状态未确认'))
 
 /** 菜单以选择器左边缘为锚点；按剩余视口宽度收敛，避免窄屏向右溢出。 */
 function syncMenuWidth() {
@@ -133,14 +135,14 @@ onBeforeUnmount(() => window.removeEventListener('resize', handleResize))
             :aria-expanded="open"
             aria-haspopup="listbox"
             aria-controls="query-datasource-options"
-            :aria-label="selectedDatasource ? `选择数据源，当前为 ${selectedDatasource.name}，${selectedReadiness?.askable ? '已就绪' : (selectedReadiness?.stageLabel || '状态确认中')}` : '选择数据源'"
+            :aria-label="selectedDatasource ? `选择数据源，当前为 ${selectedDatasource.name}，${stateLabel(selectedDatasource.id)}` : '选择数据源'"
             @click="syncMenuWidth"
             @keydown="handleTriggerKeydown"
           >
             <Database :size="16" aria-hidden="true" />
             <strong class="source-name" :title="selectedDatasource?.name">{{ selectedDatasource?.name || '选择数据源' }}</strong>
             <span v-if="selectedDatasource" class="source-readiness" :class="{ ready: selectedReadiness?.askable }">
-              <i aria-hidden="true"></i>{{ selectedReadiness?.askable ? '已就绪' : (selectedReadiness?.stageLabel || '状态确认中') }}
+              <i aria-hidden="true"></i>{{ stateLabel(selectedDatasource.id) }}
             </span>
             <ChevronDown :size="15" class="source-chevron" aria-hidden="true" />
           </button>
@@ -169,7 +171,7 @@ onBeforeUnmount(() => window.removeEventListener('resize', handleResize))
             <Database :size="15" aria-hidden="true" />
             <span class="option-name" :title="datasource.name">{{ datasource.name }}</span>
             <span class="option-status" :class="{ ready: readinessMap[datasource.id]?.askable }">
-              {{ readinessMap[datasource.id]?.askable ? '可询问' : (readinessMap[datasource.id]?.stageLabel || '状态确认中') }}
+              {{ stateLabel(datasource.id) }}
             </span>
             <Check v-if="datasource.id === selectedId" :size="15" class="option-check" aria-hidden="true" />
             <span v-else class="option-check-spacer" aria-hidden="true"></span>

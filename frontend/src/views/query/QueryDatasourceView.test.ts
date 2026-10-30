@@ -12,7 +12,7 @@ function makeSession() {
   const active = ref({ id: 'current', datasourceId: 1, title: '当前会话', messages: [] as Array<Record<string, unknown>> })
   return {
     loading: ref(false), historyLoading: ref(false), historyError: ref(''), errorMessage: ref(''),
-    readinessLoading: ref(false), readinessMap: ref({ 1: { askable: true } }), selectedId: ref(1),
+    readinessErrors: ref({}), readinessLoading: ref(false), readinessMap: ref({ 1: { askable: true } }), selectedId: ref(1),
     activeSession: active, activeSessionId: ref('current'), activeMessages: computed(() => active.value.messages),
     selectedDatasource: ref({ id: 1, name: 'source' }), selectedBlockReason: ref(undefined), canAskSelectedDatasource: ref(true),
     datasourceSessions: ref([]), datasources: ref([{ id: 1, name: 'source' }]), keyword: ref(''),
@@ -21,7 +21,7 @@ function makeSession() {
   }
 }
 function makeSubmit() {
-  return { question: ref(''), isQuerying: ref(false), cancelCurrentQuery: vi.fn().mockResolvedValue(undefined),
+  return { question: ref(''), isQuerying: ref(false), cancelCurrentQuery: vi.fn().mockResolvedValue(true),
     followLatestResult: vi.fn(), invalidateContext: vi.fn(), sendQuestion: vi.fn(), isLocallyResumable: () => false,
     prepareClarification: vi.fn(), retryQuery: vi.fn(), continueWaiting: vi.fn(),
   }
@@ -50,7 +50,7 @@ describe('对话导航意图与正文保护', () => {
   it('先选 A 慢取消、再选 B 快取消，旧 A 不得反向接管会话', async () => {
     const wrapper = await page()
     let resolveOld!: () => void
-    submit.cancelCurrentQuery.mockReturnValueOnce(new Promise<void>(resolve => { resolveOld = resolve })).mockResolvedValueOnce(undefined)
+    submit.cancelCurrentQuery.mockReturnValueOnce(new Promise<boolean>(resolve => { resolveOld = () => resolve(true) })).mockResolvedValueOnce(true)
     const sidebar = wrapper.findComponent({ name: 'QuerySidebar' })
     sidebar.vm.$emit('select-session', 'a')
     sidebar.vm.$emit('select-session', 'b')
@@ -62,7 +62,7 @@ describe('对话导航意图与正文保护', () => {
   it('历史导航挂起后新建对话，迟到导航不能覆盖新建意图', async () => {
     const wrapper = await page()
     let resolveOld!: () => void
-    submit.cancelCurrentQuery.mockReturnValueOnce(new Promise<void>(resolve => { resolveOld = resolve })).mockResolvedValueOnce(undefined)
+    submit.cancelCurrentQuery.mockReturnValueOnce(new Promise<boolean>(resolve => { resolveOld = () => resolve(true) })).mockResolvedValueOnce(true)
     const sidebar = wrapper.findComponent({ name: 'QuerySidebar' })
     sidebar.vm.$emit('select-session', 'a'); sidebar.vm.$emit('new-session')
     await flushPromises(); expect(session.startNewSession).toHaveBeenCalledTimes(1)
@@ -76,4 +76,26 @@ describe('对话导航意图与正文保护', () => {
     expect(wrapper.text()).not.toContain('不可先显示的旧摘要')
     expect(wrapper.text()).not.toContain('旧敏感追问')
   })
+})
+
+it('unconfirmed cancellation keeps the active conversation and source visible', async () => {
+  const wrapper=await page()
+  submit.isQuerying.value=true; submit.cancelCurrentQuery.mockResolvedValue(false)
+  const sidebar=wrapper.findComponent({name:'QuerySidebar'})
+  sidebar.vm.$emit('new-session'); await flushPromises()
+  expect(session.startNewSession).not.toHaveBeenCalled()
+  sidebar.vm.$emit('select-session','other'); await flushPromises()
+  expect(session.selectSession).not.toHaveBeenCalled()
+  expect(session.activeSessionId.value).toBe('current')
+})
+
+it('failed planning and live progress explain the stage without exposing implementation labels',async()=>{
+ session.activeSession.value.messages=[
+  {id:'f',role:'assistant',status:'FAILED',content:'模型输出不符合规划关系合同，查询未完成，请重试或联系管理员。',createdAt:''},
+  {id:'p',role:'assistant',status:'PROCESSING',content:'正在查询中...',createdAt:'',queryResult:{status:'PROCESSING',progressNode:'sql_semantic_check'}}]
+ const w=await page()
+ expect(w.text()).not.toContain('规划关系合同')
+ expect(w.text()).toContain('查询方案不符合已审核的数据关系')
+ expect(w.text()).toContain('核对问题语义')
+ expect(w.text()).not.toContain('sql_semantic_check')
 })

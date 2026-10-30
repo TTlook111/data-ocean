@@ -53,6 +53,8 @@ export function useQuerySession() {
   const historyError = ref('')
   const datasources = ref<IamS1DatasourceRef[]>([])
   const readinessMap = ref<Record<number, DatasourceReadiness>>({})
+  const readinessErrors = ref<Record<number, string>>({})
+  let readinessRequest = 0
   const selectedId = ref<number>()
   const activeSessionId = ref<string>()
   const keyword = ref('')
@@ -68,6 +70,8 @@ export function useQuerySession() {
     lifecycle++
     datasourceSelectionRequest++
     datasourceFetchRequest++
+    readinessRequest++
+    readinessErrors.value = {}
     sessions.splice(0)
     datasources.value = []
     readinessMap.value = {}
@@ -84,7 +88,7 @@ export function useQuerySession() {
   const selectedDatasource = computed(() => datasources.value.find((item) => item.id === selectedId.value))
   const selectedReadiness = computed(() => selectedId.value ? readinessMap.value[selectedId.value] : undefined)
   const canAskSelectedDatasource = computed(() => selectedReadiness.value?.askable === true && !loading.value && !historyLoading.value && !readinessLoading.value)
-  const selectedBlockReason = computed(() => historyLoading.value ? { message: '正在读取会话，请稍候再提问' } : selectedReadiness.value?.blockReasons?.[0])
+  const selectedBlockReason = computed(() => historyLoading.value ? { message: '正在读取会话，请稍候再提问' } : (selectedId.value && readinessErrors.value[selectedId.value] ? { message: readinessErrors.value[selectedId.value] } : selectedReadiness.value?.blockReasons?.[0]))
   const askableDatasourceCount = computed(() =>
     datasources.value.filter((item) => readinessMap.value[item.id]?.askable === true).length,
   )
@@ -360,22 +364,23 @@ export function useQuerySession() {
   }
 
   async function fetchDatasourceReadiness(items: IamS1DatasourceRef[], requestId = datasourceFetchRequest) {
+    const sequence = ++readinessRequest
     readinessLoading.value = true
-    try {
-      const entries = await Promise.all(
-        items.map(async (item) => {
-          try {
-            const result = await iamS1GetDatasourceReadiness(item.id)
-            return [item.id, result.data] as const
-          } catch {
-            return null
-          }
-        }),
-      )
-      if (requestId === datasourceFetchRequest) readinessMap.value = Object.fromEntries(entries.filter(Boolean) as Array<readonly [number, DatasourceReadiness]>)
-    } finally {
-      if (requestId === datasourceFetchRequest) readinessLoading.value = false
-    }
+    const entries = await Promise.all(items.map(async item => {
+      try {
+        const result = await iamS1GetDatasourceReadiness(item.id)
+        return { id: item.id, data: result.data, error: '' }
+      } catch (cause) {
+        const status = (cause as { response?: { status?: number } })?.response?.status
+        return { id: item.id, data: undefined, error: status === 403
+          ? '当前账号无权读取此数据源的就绪状态，请联系管理员核对权限。'
+          : '数据源就绪状态读取失败，尚不能确认能否提问，请重试状态检查。' }
+      }
+    }))
+    if (requestId !== datasourceFetchRequest || sequence !== readinessRequest) return
+    readinessMap.value = Object.fromEntries(entries.filter(row => row.data).map(row => [row.id, row.data!]))
+    readinessErrors.value = Object.fromEntries(entries.filter(row => row.error).map(row => [row.id, row.error]))
+    readinessLoading.value = false
   }
 
   return {
@@ -389,6 +394,7 @@ export function useQuerySession() {
     retryHistory,
     datasources,
     readinessMap,
+    readinessErrors,
     selectedId,
     activeSessionId,
     keyword,

@@ -18,6 +18,35 @@ export type QueryDisplayState = {
   canResume?: boolean
 }
 
+/** Agent 节点定义 */
+const agentNodes = [
+  { key: 'rag_retrieval', label: '检索已授权知识' },
+  { key: 'schema_linking', label: '理解问题并关联字段' },
+  { key: 'sql_generation', label: '生成 SQL' },
+  { key: 'sql_semantic_check', label: '核对问题语义' },
+  { key: 'execution_authorization', label: '复核当前权限' },
+  { key: 'sql_execution', label: '只读执行' },
+  { key: 'result_verification', label: '核对结果' },
+  { key: 'clarification', label: '需要补充说明' },
+]
+
+export function buildAgentProgress(result: IamS1QueryTaskResult | null) {
+  if (!result || result.status !== 'PROCESSING') return []
+  const currentIndex = agentNodes.findIndex((node) => node.key === result.progressNode)
+  if (currentIndex < 0) return []
+  return agentNodes.map((node, index) => ({
+    ...node,
+    status: index < currentIndex ? 'done' as const : index === currentIndex ? 'active' as const : 'pending' as const,
+  }))
+}
+
+export function queryFailureMessage(message?: string): string | undefined {
+  if (message === '模型输出不符合规划关系合同，查询未完成，请重试或联系管理员。') {
+    return '本次生成的查询方案不符合已审核的数据关系，已停止执行。可保留原问题重试；如仍失败，请联系管理员核对。'
+  }
+  return message
+}
+
 export function finalProtectionLabel(status?: string): string | undefined {
   if (status === 'FINAL_PROTECTED') return '已按当前权限校验'
   if (status === 'FINAL_MASKED') return '已按当前权限校验并脱敏'
@@ -74,7 +103,7 @@ export function resolveQueryDisplayState(options: {
       return {
         kind: 'failed',
         title: '查询未能完成',
-        description: result?.errorMessage || '请求未能完成，可以保留原问题后重试。',
+        description: queryFailureMessage(result?.errorMessage) || '请求未能完成，可以保留原问题后重试。',
       }
     case 'CANCELLED':
       return { kind: 'cancelled', title: '本次查询已停止', description: '原问题已保留，可以再次提问。' }
