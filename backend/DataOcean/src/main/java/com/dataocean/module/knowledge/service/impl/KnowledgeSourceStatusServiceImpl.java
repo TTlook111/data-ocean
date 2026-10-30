@@ -22,7 +22,8 @@ public class KnowledgeSourceStatusServiceImpl {
             snapshotId = version.getMetadataSnapshotId();
             if (!Objects.equals(doc.getContent(), version.getContent()))
                 throw new BusinessException("文档与保存版本不一致");
-            validator.validate(doc.getDatasourceId(), snapshotId, version.getContent());
+            // 单篇文档可只承载快照的一部分；核对其声明的事实，整组覆盖仍由发布/构建链路校验。
+            validator.validatePart(doc.getDatasourceId(), snapshotId, version.getContent());
             return new KnowledgeSourceStatusVO(true, snapshotId, List.of());
         } catch (BusinessException ex) {
             String reason = ex.getMessage().contains("术语")
