@@ -31,6 +31,9 @@ public class QueryTaskVO {
     private List<String> usedTables;
     private List<String> usedColumns;
     private List<Map<String, Object>> promptVersions;
+    /** Python 标记且已由 Java 执行脱敏的输出字段 */
+    private Map<String, String> maskedFields;
+    private List<String> suggestedQuestions;
     /** 是否使用了降级方案 */
     private Boolean degraded;
     /** 降级提示信息 */
@@ -38,6 +41,14 @@ public class QueryTaskVO {
     private String errorMessage;
     private Integer retryCount;
     private Integer totalTimeMs;
+    private String protocolVersion;
+    private Long activeMetadataSnapshotId;
+    private Long permissionRevision;
+    private String ragBuildId;
+    private Long ragSourceSnapshotId;
+    private Map<String, Object> sourceTrace;
+    private String finalProtectionStatus;
+    private Boolean canViewSql;
     private LocalDateTime createdAt;
     private LocalDateTime completedAt;
     /** 是否允许导出（前端据此控制导出按钮显示） */

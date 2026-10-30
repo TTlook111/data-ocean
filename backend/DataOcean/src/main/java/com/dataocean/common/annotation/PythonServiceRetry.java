@@ -1,6 +1,7 @@
 package com.dataocean.common.annotation;
 
 import com.dataocean.common.exception.PythonRetryableException;
+import com.dataocean.common.exception.BusinessException;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 
@@ -31,6 +32,7 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 @Retryable(
         retryFor = PythonRetryableException.class,
+        notRecoverable = BusinessException.class,
         maxAttempts = 2,
         backoff = @Backoff(delay = 1000)
 )

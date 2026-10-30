@@ -4,7 +4,7 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.JwtTokenProvider;
 import com.dataocean.common.security.LoginUser;
 import com.dataocean.common.security.UserDetailsServiceImpl;
-import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.entity.po.SysUser;
 import com.dataocean.module.user.entity.dto.LoginDTO;
 import com.dataocean.module.user.entity.vo.LoginVO;
 import com.dataocean.module.user.mapper.UserMapper;
@@ -191,8 +191,6 @@ class AuthServiceImplTest {
                 "admin",
                 "encoded-password",
                 "管理员",
-                List.of("ADMIN"),
-                List.of("user:manage"),
                 List.of(
                         new SimpleGrantedAuthority("user:manage"),
                         new SimpleGrantedAuthority("ROLE_ADMIN")

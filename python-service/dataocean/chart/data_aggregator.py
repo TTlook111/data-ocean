@@ -114,17 +114,27 @@ def _extract_month(value) -> str | None:
 def _aggregate_categories(
     data: list[dict], category_col: str, value_col: str, total_rows: int
 ) -> tuple[list[dict], str]:
-    """分类聚合：保留 Top 10 + 其他"""
+    """分类聚合：保留 Top N + 其他
+
+    算法：
+    1. 按分类列分组，累加数值列
+    2. 按累加值降序排序
+    3. 保留前 N-1 个分类，其余合并为"其他"
+    """
+    # 按分类列分组，累加数值列
     totals: dict[str, float] = defaultdict(float)
     for row in data:
         cat = row.get(category_col, "未知")
         val = row.get(value_col, 0)
         totals[str(cat)] += float(val) if val else 0
 
+    # 按累加值降序排序
     sorted_items = sorted(totals.items(), key=lambda x: x[1], reverse=True)
     if len(sorted_items) <= _MAX_CATEGORIES:
+        # 分类数未超限，直接返回
         aggregated = [{category_col: k, value_col: v} for k, v in sorted_items]
     else:
+        # 分类数超限，保留 Top N-1，其余合并为"其他"
         top = sorted_items[:_MAX_CATEGORIES - 1]
         others_sum = sum(v for _, v in sorted_items[_MAX_CATEGORIES - 1:])
         aggregated = [{category_col: k, value_col: v} for k, v in top]
@@ -137,13 +147,20 @@ def _aggregate_categories(
 def _aggregate_buckets(
     data: list[dict], value_col: str, total_rows: int
 ) -> tuple[list[dict], str]:
-    """数值分桶：等距 10 个桶"""
+    """数值分桶：等距 N 个桶
+
+    算法：
+    1. 计算数值列的最小值和最大值
+    2. 等距划分为 N 个桶
+    3. 统计每个桶的数量
+    """
     values = [float(row.get(value_col, 0)) for row in data if row.get(value_col) is not None]
     if not values:
         return data[:_MAX_ROWS_BEFORE_AGGREGATE], None
 
     min_val, max_val = min(values), max(values)
     if min_val == max_val:
+        # 所有值相同，无需分桶
         return [{value_col: min_val, "count": len(values)}], f"所有值相同（{min_val}）"
 
     bucket_count = 10

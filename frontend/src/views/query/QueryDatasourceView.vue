@@ -1,1893 +1,274 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  BarChart3,
-  BookOpen,
-  Database,
-  Download,
-  History,
-  LogOut,
-  ListChecks,
-  MessageSquarePlus,
-  MessageSquareText,
-  RefreshCw,
-  Search,
-  SendHorizontal,
-  ShieldCheck,
-  ThumbsUp,
-  ThumbsDown,
-  Trash2,
-  UserCog,
-  UserRound,
-  X,
-} from 'lucide-vue-next'
-import { listMyDatasources, type UserDatasourceItem } from '../../api/datasource'
-import {
-  submitQuery,
-  getTaskResult,
-  cancelTask,
-  submitQueryFeedback,
-  listConversations,
-  listConversationMessages,
-  deleteConversation,
-  type ConversationMessageItem,
-} from '../../api/query'
-import { useGsapMotion } from '../../composables/useGsapMotion'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { CircleHelp, LoaderCircle, RefreshCw, Sparkles } from 'lucide-vue-next'
+import brandMark from '../../assets/brand/dataocean-mark.png'
 import { useAuthStore } from '../../stores/auth'
-import { roleCodesLabel } from '../../utils/enumLabels'
-import ChartContainer from '../../components/chart/ChartContainer.vue'
-
-interface LocalMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  createdAt: string
-  taskId?: string
-  status?: string
-  queryResult?: import('../../api/query').QueryTaskResult
-  originalQuestion?: string  // 用于重试查询
-}
-
-interface LocalSession {
-  id: string
-  datasourceId: number
-  title: string
-  updatedAt: string
-  messages: LocalMessage[]
-  conversationId?: number
-}
-
-const adminPermissionCodes = [
-  'admin:view',
-  'datasource:manage',
-  'metadata:manage',
-  'skills:manage',
-  'prompt:manage',
-  'field:manage',
-  'field-tag:manage',
-  'feedback:review',
-  'audit:view',
-  'user:manage',
-  'role:manage',
-  'role:view',
-  'department:manage',
-  'knowledge:manage',
-]
+import { useIamS1Store } from '../../stores/iamS1'
+import { useQuerySession, type LocalMessage } from '../../composables/useQuerySession'
+import { useQuerySubmit } from '../../composables/useQuerySubmit'
+import { parseDatasourceId } from '../../utils/queryDatasource'
+import QuerySidebar from './QuerySidebar.vue'
+import QueryDatasourceSelector from './QueryDatasourceSelector.vue'
+import QueryInput from './QueryInput.vue'
+import QueryAnswer from './QueryAnswer.vue'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
-const loading = ref(false)
-const showGuideBanner = ref(!localStorage.getItem('do-query-guide-dismissed'))
-
-function dismissGuideBanner() {
-  showGuideBanner.value = false
-  localStorage.setItem('do-query-guide-dismissed', '1')
-}
-
-const errorMessage = ref('')
-const datasources = ref<UserDatasourceItem[]>([])
-const selectedId = ref<number>()
-const activeSessionId = ref<string>()
-const question = ref('')
-const keyword = ref('')
-const isQuerying = ref(false)
-const currentTaskId = ref<string>()
-const pollAbortController = ref<AbortController>()
-const drawerVisible = ref(false)
-const sessions = reactive<LocalSession[]>([])
-const loadedDatasourceIds = ref<Set<number>>(new Set())
-const questionInputRef = ref<HTMLTextAreaElement>()
-const workspaceRef = ref<HTMLElement | null>(null)
-const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(workspaceRef)
-
-const permissions = computed(() => auth.currentUser?.permissions || auth.user?.permissions || [])
-const canEnterAdmin = computed(() => permissions.value.includes('*') || adminPermissionCodes.some((code) => permissions.value.includes(code)))
+const iamS1 = useIamS1Store()
+const queryInputRef = ref<InstanceType<typeof QueryInput>>()
+const chatSurface = ref<HTMLElement>()
+const mobileHistoryOpen = ref(false)
+const datasourceInitialized = ref(false)
+const followConversation = ref(true)
+let datasourceSyncRequest = 0
+let sourceChangeRequest = 0
+let alive = true
+const session = useQuerySession()
+const selectedReadiness = computed(() => session.selectedId.value ? session.readinessMap.value[session.selectedId.value] : undefined)
 const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
-const roleText = computed(() => roleCodesLabel(auth.currentUser?.roles || auth.user?.roles, '普通用户'))
-const selectedDatasource = computed(() => datasources.value.find((item) => item.id === selectedId.value))
-const exampleQuestions = [
-  '统计最近30天订单金额趋势',
-  '找出销售额最高的10个客户',
-  '查看库存低于安全线的商品',
-  '按部门汇总本月费用',
-]
-const datasourceSessions = computed(() =>
-  sessions
-    .filter((session) => session.datasourceId === selectedId.value)
-    .filter((session) => {
-      const text = keyword.value.trim()
-      if (!text) return true
-      return session.title.includes(text) || session.messages.some((message) => message.content.includes(text))
-    })
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
-)
-const activeSession = computed(() => sessions.find((session) => session.id === activeSessionId.value))
-const activeMessages = computed(() => activeSession.value?.messages || [])
-const latestResult = computed(() => {
-  const msgs = activeMessages.value
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role === 'assistant' && msgs[i].queryResult) {
-      return msgs[i].queryResult
-    }
-  }
-  return null
-})
-const resultTab = ref<'table' | 'sql' | 'chart'>('table')
-const chartType = ref<'bar' | 'line' | 'pie'>('bar')
+const conversationTitle = computed(() => session.activeSession.value?.title === '新的对话' ? '新对话' : session.activeSession.value?.title || '新对话')
 
-/** 结果表格分页（前端分页） */
-const tablePage = ref(1)
-const tablePageSize = 50
-const pagedTableData = computed(() => {
-  const data = latestResult.value?.data
-  if (!data || !data.length) return []
-  const start = (tablePage.value - 1) * tablePageSize
-  return data.slice(start, start + tablePageSize)
-})
-// 结果变化时重置分页到第一页
-watch(latestResult, () => { tablePage.value = 1 })
-
-/** 根据当前图表类型计算 ECharts option */
-const chartOption = computed(() => {
-  if (!latestResult.value?.chartConfig) return null
-  try {
-    const option = JSON.parse(JSON.stringify(latestResult.value.chartConfig))
-    if (option.series && option.series.length > 0) {
-      option.series[0].type = chartType.value
-    }
-    return option
-  } catch {
-    return null
-  }
-})
-
-function switchChartType(type: 'bar' | 'line' | 'pie') {
-  chartType.value = type
-}
-
-function exportCsv() {
-  const result = latestResult.value
-  if (!result?.data?.length || !result?.columns?.length) return
-  const escapeCsvField = (val: string) => {
-    if (val.includes(',') || val.includes('"') || val.includes('\n')) {
-      return `"${val.replace(/"/g, '""')}"`
-    }
-    return val
-  }
-  const headers = result.columns.map(c => escapeCsvField(c.comment || c.name))
-  const keys = result.columns.map(c => c.name)
-  const rows = result.data.map(row => keys.map(k => escapeCsvField(String(row[k] ?? ''))).join(','))
-  const csv = [headers.join(','), ...rows].join('\n')
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `query_result_${Date.now()}.csv`
-  a.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('CSV 导出成功')
-}
-
-function exportPng() {
-  // PNG 导出暂不可用（图表由 ChartContainer 组件管理）
-  ElMessage.info('PNG 导出功能开发中')
-}
-
-async function handleFeedback(type: 'LIKE' | 'DISLIKE') {
-  const result = latestResult.value
-  if (!result?.taskId) return
-  try {
-    await submitQueryFeedback(result.taskId, type)
-    ElMessage.success(type === 'LIKE' ? '感谢您的肯定' : '已收到反馈，我们会持续改进')
-  } catch {
-    ElMessage.error('反馈提交失败')
-  }
-}
-
-async function focusQuestionInput() {
+async function scrollToLatest() {
   await nextTick()
-  questionInputRef.value?.focus()
+  const surface = chatSurface.value
+  if (surface) surface.scrollTop = surface.scrollHeight
 }
-
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value))
+function trackScroll() {
+  const surface = chatSurface.value
+  if (surface) followConversation.value = surface.scrollHeight - surface.scrollTop - surface.clientHeight < 96
 }
-
-function createSession(datasourceId: number, title = '新的对话') {
-  const now = new Date().toISOString()
-  const session: LocalSession = {
-    id: `local-${datasourceId}-${Date.now()}`,
-    datasourceId,
-    title,
-    updatedAt: now,
-    messages: [
-      {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: '已进入当前数据源的对话空间。你可以直接用中文描述想查的数据，例如"上月销售额最高的10个产品"。',
-        createdAt: now,
-      },
-    ],
-  }
-  sessions.unshift(session)
-  activeSessionId.value = session.id
-  return session
-}
-
-function parseStoredResult(message: ConversationMessageItem) {
-  if (!message.metadata) return undefined
-  try {
-    const result = JSON.parse(message.metadata)
-    if (message.taskId && !result.taskId) {
-      result.taskId = message.taskId
-    }
-    return result
-  } catch {
-    return undefined
-  }
-}
-
-function toLocalMessage(message: ConversationMessageItem): LocalMessage {
-  const result = message.role === 'assistant' ? parseStoredResult(message) : undefined
-  return {
-    id: `remote-${message.id}`,
-    role: message.role,
-    content: message.content,
-    createdAt: message.createdAt,
-    taskId: message.taskId,
-    status: result?.status,
-    queryResult: result,
-  }
-}
-
-async function hydrateSessionMessages(session: LocalSession) {
-  if (!session.conversationId) return
-  const res = await listConversationMessages(session.conversationId, { page: 1, pageSize: 80 })
-  session.messages = res.data.map(toLocalMessage)
-}
-
-async function loadRemoteSessions(datasourceId: number, activateFirst = true) {
-  if (loadedDatasourceIds.value.has(datasourceId)) return
-  const res = await listConversations(datasourceId)
-  const remoteSessions: LocalSession[] = res.data.map((item) => ({
-    id: `remote-${item.id}`,
-    datasourceId: item.datasourceId,
-    title: item.title || '历史会话',
-    updatedAt: item.updatedAt || item.createdAt,
-    messages: [],
-    conversationId: item.id,
-  }))
-  sessions.push(...remoteSessions.filter((remote) => !sessions.some((local) => local.conversationId === remote.conversationId)))
-  loadedDatasourceIds.value = new Set([...loadedDatasourceIds.value, datasourceId])
-
-  const first = datasourceSessions.value[0]
-  if (activateFirst && first) {
-    activeSessionId.value = first.id
-    if (!first.messages.length) {
-      await hydrateSessionMessages(first)
-    }
-  }
-}
-
-function ensureSession(datasourceId: number) {
-  const existing = sessions.find((session) => session.datasourceId === datasourceId)
-  if (existing) {
-    activeSessionId.value = existing.id
-    return existing
-  }
-  return createSession(datasourceId)
-}
-
-async function selectDatasource(id: number) {
-  if (selectedId.value !== id) {
-    question.value = ''
-    keyword.value = ''
-  }
-  selectedId.value = id
-  try {
-    await loadRemoteSessions(id)
-  } catch {
-    ensureSession(id)
-    ElMessage.warning('历史会话加载失败，已创建本地临时会话')
-  }
-  if (!activeSession.value || activeSession.value.datasourceId !== id) {
-    ensureSession(id)
-  }
-  revealAfterTick('.workspace-brief, .example-strip, .message-item, .result-preview', {
-    y: 14,
-    stagger: 0.04,
-  })
-  focusQuestionInput()
-}
-
-function startNewSession() {
-  if (!selectedId.value) {
-    ElMessage.warning('请先选择数据源')
-    return
-  }
-  question.value = ''
-  createSession(selectedId.value)
-  focusQuestionInput()
-}
-
-function applyExample(text: string) {
-  if (!selectedId.value) return
-  question.value = text
-  focusQuestionInput()
-}
-
-async function selectSession(sessionId: string) {
-  const session = sessions.find((item) => item.id === sessionId)
-  if (!session) return
-  selectedId.value = session.datasourceId
-  activeSessionId.value = session.id
-  question.value = ''
-  if (!session.messages.length) {
-    try {
-      await hydrateSessionMessages(session)
-    } catch {
-      ElMessage.error('会话消息加载失败')
-    }
-  }
-  focusQuestionInput()
-}
-
-async function removeSession(session: LocalSession) {
-  try {
-    await ElMessageBox.confirm(`确定删除会话「${session.title}」吗？`, '删除会话', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消',
-    })
-    if (session.conversationId) {
-      await deleteConversation(session.conversationId)
-    }
-    const index = sessions.findIndex((item) => item.id === session.id)
-    if (index >= 0) sessions.splice(index, 1)
-    if (activeSessionId.value === session.id) {
-      const nextSession = datasourceSessions.value[0]
-      activeSessionId.value = nextSession?.id
-      if (nextSession && !nextSession.messages.length) {
-        await hydrateSessionMessages(nextSession)
-      }
-    }
-    ElMessage.success('会话已删除')
-  } catch (error) {
-    if (error === 'cancel' || error === 'close') return
-    const msg = typeof error === 'object' && error !== null && 'response' in error
-      ? (error as { response?: { data?: { message?: string } } }).response?.data?.message
-      : undefined
-    ElMessage.error(msg || '会话删除失败')
-  }
-}
-
-async function sendQuestion() {
-  const text = question.value.trim()
-  if (!selectedId.value || !text || isQuerying.value) return
-  isQuerying.value = true
-
-  const session = activeSession.value || createSession(selectedId.value)
-  const now = new Date().toISOString()
-
-  // 添加用户消息
-  session.messages.push({
-    id: `user-${Date.now()}`,
-    role: 'user',
-    content: text,
-    createdAt: now,
-  })
-  await animateNewMessages()
-
-  // 添加加载中的助手消息
-  const assistantMsgId = `assistant-${Date.now() + 1}`
-  session.messages.push({
-    id: assistantMsgId,
-    role: 'assistant',
-    content: '正在查询中...',
-    createdAt: now,
-    status: 'loading',
-    originalQuestion: text,  // 保存原始问题，用于重试查询
-  })
-  await animateNewMessages()
-
-  if (session.title === '新的对话') {
-    session.title = text.length > 20 ? `${text.slice(0, 20)}...` : text
-  }
-  session.updatedAt = now
-  question.value = ''
-  focusQuestionInput()
-
-  try {
-    // 提交查询到后端，传入 conversationId 串联多轮对话
-    const askResult = await submitQuery({
-      datasourceId: selectedId.value,
-      question: text,
-      conversationId: session.conversationId,
-    })
-    const taskId = askResult.data.taskId
-    // 保存后端返回的 conversationId
-    session.conversationId = askResult.data.conversationId
-
-    // 设置取消控制器和当前 taskId
-    currentTaskId.value = taskId
-    const abortCtrl = new AbortController()
-    pollAbortController.value = abortCtrl
-
-    // 轮询任务结果（最多 60 次 × 2 秒 = 120 秒，与后端超时对齐）
-    // onProgress 回调把后端实时回写的阶段进度展示到加载中的助手消息上
-    const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (progressMessage) => {
-      const loadingMsg = session.messages.find((m) => m.id === assistantMsgId)
-      if (loadingMsg && loadingMsg.status === 'loading' && progressMessage) {
-        loadingMsg.content = `${progressMessage}...`
-      }
-    })
-    const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
-    if (assistantMsg) {
-      assistantMsg.taskId = taskId
-      assistantMsg.status = result.status
-      assistantMsg.queryResult = result
-      if (result.status === 'COMPLETED') {
-        assistantMsg.content = buildCompletionMessage(result)
-      } else if (result.status === 'TIMEOUT') {
-        assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
-      } else {
-        assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
-      }
-      await animateMessageUpdate(assistantMsgId)
-    }
-  } catch (error: unknown) {
-    const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
-    if (assistantMsg) {
-      assistantMsg.status = 'error'
-      assistantMsg.content = extractError(error, '查询提交失败，请检查网络连接')
-      await animateMessageUpdate(assistantMsgId)
-    }
-  } finally {
-    isQuerying.value = false
-    currentTaskId.value = undefined
-    pollAbortController.value = undefined
-  }
-}
-
-async function animateNewMessages() {
-  await nextTick()
-  const lastMessage = workspaceRef.value?.querySelector('.message-item:last-of-type')
-  if (lastMessage) {
-    lift(lastMessage, { y: 14, duration: 0.26 })
-  }
-}
-
-async function animateMessageUpdate(messageId: string) {
-  await nextTick()
-  const assistantBubble = workspaceRef.value?.querySelector(`[data-message-id="${messageId}"] .message-bubble`)
-  if (assistantBubble) {
-    lift(assistantBubble, { y: 6, scale: 1, duration: 0.22 })
-  }
-}
-
-// 轮询配置常量
-const POLL_MAX_CONSECUTIVE_ERRORS = 3  // 连续失败阈值，单次网络抖动不应终止整个轮询
-
-async function pollTaskResult(
-  taskId: string,
-  signal?: AbortSignal,
-  maxAttempts = 60,
-  intervalMs = 2000,
-  onProgress?: (progressMessage: string) => void,
-) {
-  let consecutiveErrors = 0
-
-  for (let i = 0; i < maxAttempts; i++) {
-    if (signal?.aborted) {
-      return { status: 'CANCELLED', errorMessage: '查询已取消' } as any
-    }
-
-    try {
-      const res = await getTaskResult(taskId)
-      const task = res.data
-      // 请求成功，重置连续失败计数
-      consecutiveErrors = 0
-
-      if (task.status !== 'PROCESSING') {
-        return task
-      }
-      // 仍在处理中：把后端实时回写的阶段进度回调出去展示
-      if (onProgress && task.progressMessage) {
-        onProgress(task.progressMessage)
-      }
-    } catch (error) {
-      // 安全修复：单次异常不终止轮询，连续失败达到阈值后再失败
-      consecutiveErrors++
-      console.warn(`轮询任务结果失败 (连续第 ${consecutiveErrors} 次) taskId=${taskId}`, error)
-      if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
-        return { status: 'FAILED', errorMessage: `网络连接异常，连续 ${POLL_MAX_CONSECUTIVE_ERRORS} 次请求失败` } as any
-      }
-      // 未达到阈值，继续下一轮轮询
-    }
-
-    await new Promise((resolve, reject) => {
-      const timer = setTimeout(resolve, intervalMs)
-      signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')) }, { once: true })
-    }).catch(() => null)
-    if (signal?.aborted) {
-      return { status: 'CANCELLED', errorMessage: '查询已取消' } as any
-    }
-  }
-  return { status: 'TIMEOUT', errorMessage: '查询仍在执行中，可稍后从历史任务查看结果' } as any
-}
-
-async function cancelCurrentQuery() {
-  if (!currentTaskId.value || !isQuerying.value) return
-  pollAbortController.value?.abort()
-  try {
-    await cancelTask(currentTaskId.value)
-  } catch {
-    // 取消请求失败不影响 UI 状态恢复
-  }
-}
-
-/**
- * 构建查询完成消息
- * 处理降级状态提示
- */
-function buildCompletionMessage(result: any): string {
-  const degradeNotice = result.degraded
-    ? '\n⚠️ 知识库暂时不可用，召回精度可能降低'
-    : ''
-  return (result.sqlExplanation || '查询完成') + degradeNotice
-}
-
-/**
- * 重试查询：使用原始问题重新提交
- */
-function retryQuery(originalQuestion: string) {
-  if (!originalQuestion || isQuerying.value) return
-  question.value = originalQuestion
-  sendQuestion()
-}
-
-/**
- * 继续等待：重新轮询当前任务
- */
-async function continueWaiting(taskId: string) {
-  if (isQuerying.value) return
-  isQuerying.value = true
-  currentTaskId.value = taskId  // 设置当前任务 ID，支持取消功能
-
-  const session = activeSession.value
-  if (!session) {
-    isQuerying.value = false
-    currentTaskId.value = undefined
-    return
-  }
-
-  // 找到对应的助手消息
-  const assistantMsg = session.messages.find((m) => m.taskId === taskId)
-  if (!assistantMsg) {
-    isQuerying.value = false
-    return
-  }
-
-  // 更新状态为 loading
-  assistantMsg.status = 'loading'
-  assistantMsg.content = '继续等待查询结果...'
-
-  const abortCtrl = new AbortController()
-  pollAbortController.value = abortCtrl
-
-  try {
-    const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (progressMessage) => {
-      if (assistantMsg.status === 'loading' && progressMessage) {
-        assistantMsg.content = `${progressMessage}...`
-      }
-    })
-
-    assistantMsg.status = result.status
-    assistantMsg.queryResult = result
-    if (result.status === 'COMPLETED') {
-      assistantMsg.content = buildCompletionMessage(result)
-    } else if (result.status === 'TIMEOUT') {
-      assistantMsg.content = '查询仍在执行中，可稍后刷新查看结果'
-    } else {
-      assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
-    }
-    await animateMessageUpdate(assistantMsg.id)
-  } catch (error) {
-    assistantMsg.status = 'error'
-    assistantMsg.content = extractError(error, '查询失败，请稍后重试')
-    await animateMessageUpdate(assistantMsg.id)
-  } finally {
-    isQuerying.value = false
-    pollAbortController.value = undefined
-  }
-}
-
-function extractError(error: unknown, fallback: string): string {
-  if (typeof error === 'object' && error !== null && 'response' in error) {
-    const msg = (error as any).response?.data?.message
-    if (typeof msg === 'string') return msg
-  }
-  return fallback
-}
-
-function handleEnter(event: KeyboardEvent) {
-  if (event.shiftKey || isQuerying.value) return
-  event.preventDefault()
-  sendQuestion()
-}
-
-async function fetchDatasources() {
-  loading.value = true
-  errorMessage.value = ''
-  try {
-    const result = await listMyDatasources()
-    datasources.value = result.data
-    if (result.data.length && (!selectedId.value || !result.data.some((item) => item.id === selectedId.value))) {
-      await selectDatasource(result.data[0].id)
-    }
-    if (!result.data.length) {
-      selectedId.value = undefined
-      activeSessionId.value = undefined
-      question.value = ''
-    }
-  } catch (error: unknown) {
-    datasources.value = []
-    selectedId.value = undefined
-    activeSessionId.value = undefined
-    question.value = ''
-    errorMessage.value =
-      typeof error === 'object' &&
-      error !== null &&
-      'response' in error &&
-      typeof (error as { response?: { data?: { message?: string } } }).response?.data?.message === 'string'
-        ? (error as { response: { data: { message: string } } }).response.data.message
-        : '数据源加载失败，请稍后重试'
-  } finally {
-    loading.value = false
-  }
-}
-
-function handleUserCommand(command: string) {
-  drawerVisible.value = false
-  if (command === 'admin') {
-    router.push('/admin')
-    return
-  }
-  if (command === 'profile') {
-    router.push('/profile')
-    return
-  }
-  if (command === 'password') {
-    router.push('/change-password')
-    return
-  }
-  if (command === 'logout') {
-    auth.logout()
-    router.push('/login')
-  }
-}
-
-onMounted(() => {
-  withContext(() => {
-    reveal('.query-brand, .sidebar-block, .query-topbar, .chat-surface, .chat-composer', {
-      y: 16,
-      stagger: 0.045,
-    })
-  })
-  fetchDatasources()
+function followLayout() { if (followConversation.value) void scrollToLatest() }
+const submit = useQuerySubmit({
+  selectedId: session.selectedId, activeSession: session.activeSession, activeMessages: session.activeMessages,
+  canAskSelectedDatasource: session.canAskSelectedDatasource, selectedBlockReason: session.selectedBlockReason,
+  createSession: session.createSession, animateNewMessages: scrollToLatest,
+  async focusQuestionInput() { await queryInputRef.value?.focusQuestionInput() },
 })
 
-watch(
-  () => datasources.value.length,
-  () => {
-    revealAfterTick('.datasource-row', {
-      y: 8,
-      duration: 0.28,
-      stagger: 0.025,
-    })
-  },
-)
-
-watch(
-  () => datasourceSessions.value.length,
-  () => {
-    revealAfterTick('.history-row', {
-      y: 8,
-      duration: 0.24,
-      stagger: 0.022,
-    })
-  },
-)
-
-watch(resultTab, () => {
-  nextTick(() => {
-    const resultBody = workspaceRef.value?.querySelector('.result-preview > div:not(.result-tabs)')
-    if (resultBody) {
-      lift(resultBody, { y: 6, duration: 0.22, scale: 1 })
-    }
-    // 图表由 ChartContainer 组件自身的 onMounted/watch(option) 负责渲染，此处无需手动触发
-  })
+async function handleUserCommand(command: string) {
+  if (command === 'admin') await router.push('/admin')
+  if (command === 'profile') await router.push('/profile')
+  if (command === 'password') await router.push('/change-password')
+  if (command === 'logout') { await submit.cancelCurrentQuery(); await auth.logout(); await router.push('/login') }
+}
+function formatMessageTime(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+function messageState(message: LocalMessage) {
+  return ({ loading: '正在查询', PROCESSING: message.localWaitTimedOut ? '仍在处理' : '正在查询', COMPLETED: '已完成',
+    FAILED: '未完成', error: '未完成', CANCELLED: '已停止', TIMEOUT: '已超时', CLARIFICATION_REQUIRED: '需要补充信息',
+  } as Record<string, string>)[message.status || '']
+}
+function isProcessing(message: LocalMessage) { return ['loading', 'PROCESSING'].includes(message.status || '') && !message.localWaitTimedOut }
+function applySuggestion(text: string) {
+  if (!session.canAskSelectedDatasource.value) return
+  submit.question.value = text
+  void queryInputRef.value?.focusQuestionInput()
+}
+async function applyDatasource(id: number) {
+  const ticket = ++sourceChangeRequest
+  if (session.selectedId.value === id) return
+  await submit.cancelCurrentQuery()
+  if (!alive || ticket !== sourceChangeRequest) return
+  submit.followLatestResult()
+  submit.question.value = ''
+  await session.selectDatasource(id)
+  if (alive && ticket === sourceChangeRequest) await scrollToLatest()
+}
+function queryWithDatasource(id?: number) {
+  const query = { ...route.query }
+  if (id) query.datasourceId = String(id)
+  else delete query.datasourceId
+  return query
+}
+async function syncDatasourceFromUrl() {
+  const ticket = ++datasourceSyncRequest
+  const rawId = route.query.datasourceId
+  const requestedId = parseDatasourceId(rawId)
+  const requested = session.datasources.value.find(item => item.id === requestedId)
+  const current = session.datasources.value.find(item => item.id === session.selectedId.value)
+  const target = requested || current || session.datasources.value.find(item => session.readinessMap.value[item.id]?.askable) || session.datasources.value[0]
+  if (rawId !== undefined && !requested) ElMessage.warning('URL 指定的数据源不存在或当前账号无权访问，已回到可访问范围。')
+  if (target) await applyDatasource(target.id)
+  if (!alive || ticket !== datasourceSyncRequest || (target && session.selectedId.value !== target.id)) return
+  if (parseDatasourceId(route.query.datasourceId) !== target?.id || (rawId !== undefined && requestedId === undefined)) await router.replace({ query: queryWithDatasource(target?.id) })
+}
+async function refreshDatasources() {
+  await session.fetchDatasources({ autoSelect: false })
+  if (!alive) return
+  if (session.historyError.value && session.selectedId.value) await session.retryHistory()
+  if (alive) await syncDatasourceFromUrl()
+}
+async function handleRetryHistory() {
+  const ticket = ++sourceChangeRequest
+  await submit.cancelCurrentQuery()
+  if (alive && ticket === sourceChangeRequest) await session.retryHistory()
+}
+async function handleSelectDatasource(id: number) {
+  await applyDatasource(id)
+  // A later selection owns the URL as well as the visible conversation.
+  if (alive && session.selectedId.value === id) await router.push({ query: queryWithDatasource(id) })
+}
+async function handleStartNewSession() {
+  const ticket = ++sourceChangeRequest
+  await submit.cancelCurrentQuery()
+  if (!alive || ticket !== sourceChangeRequest) return
+  session.startNewSession({ focusQuestionInput: () => { void queryInputRef.value?.focusQuestionInput() } })
+  submit.followLatestResult()
+  submit.question.value = ''
+  mobileHistoryOpen.value = false
+}
+async function handleSelectSession(id: string) {
+  const ticket = ++sourceChangeRequest
+  await submit.cancelCurrentQuery()
+  if (!alive || ticket !== sourceChangeRequest) return
+  submit.followLatestResult()
+  submit.question.value = ''
+  mobileHistoryOpen.value = false
+  await session.selectSession(id)
+  if (!alive || ticket !== sourceChangeRequest) return
+  await scrollToLatest()
+}
+watch(() => route.query.datasourceId, () => { if (datasourceInitialized.value) void syncDatasourceFromUrl() })
+watch(() => session.activeMessages.value.map(message => `${message.status}:${message.content}`).join('|'), followLayout, { flush: 'post' })
+watch(() => auth.token, () => {
+  sourceChangeRequest++
+  datasourceSyncRequest++
+  void submit.cancelCurrentQuery()
+  submit.invalidateContext()
+  submit.question.value = ''
+  session.reset()
+  if (auth.token) void refreshDatasources()
 })
+onMounted(async () => {
+  void iamS1.load()
+  await session.fetchDatasources({ autoSelect: false })
+  if (!alive) return
+  datasourceInitialized.value = true
+  await syncDatasourceFromUrl()
+})
+onBeforeUnmount(() => { alive = false; sourceChangeRequest++; datasourceSyncRequest++; void submit.cancelCurrentQuery() })
 </script>
 
 <template>
-  <main ref="workspaceRef" class="query-workspace post-login-page">
-    <!-- 首次使用引导横幅 -->
-    <div v-if="showGuideBanner" class="guide-banner">
-      <BookOpen :size="16" />
-      <span>第一次使用？查看<RouterLink to="/guide/query">快速入门指南</RouterLink>，4 步学会用自然语言查数据</span>
-      <button class="banner-close" @click="dismissGuideBanner">
-        <X :size="14" />
-      </button>
-    </div>
-    <aside class="query-sidebar">
-      <RouterLink class="query-brand" to="/query" aria-label="DataOcean 智能问答">
-        <span>DO</span>
-        <div>
-          <strong>DataOcean</strong>
-          <small>智能问答</small>
-        </div>
-      </RouterLink>
-
-      <section class="sidebar-block">
-        <div class="block-title">
-          <span>数据源</span>
-          <button type="button" :disabled="loading" aria-label="刷新数据源" @click="fetchDatasources">
-            <RefreshCw :size="15" />
-          </button>
-        </div>
-
-        <div v-if="loading && !datasources.length" class="sidebar-loading">正在加载数据源...</div>
-        <div v-else-if="errorMessage" class="sidebar-error">
-          <span>{{ errorMessage }}</span>
-          <button type="button" @click="fetchDatasources">重试</button>
-        </div>
-        <div v-else-if="!datasources.length" class="sidebar-empty">暂无可用数据源，请联系管理员开通权限。</div>
-        <div v-else class="datasource-list">
-          <button
-            v-for="datasource in datasources"
-            :key="datasource.id"
-            type="button"
-            class="datasource-row"
-            :class="{ active: datasource.id === selectedId }"
-            @click="selectDatasource(datasource.id)"
-          >
-            <Database :size="16" />
-            <span>
-              <strong>{{ datasource.name }}</strong>
-              <small>{{ datasource.databaseName }}</small>
-            </span>
-          </button>
-        </div>
-      </section>
-
-      <section class="sidebar-block history-block">
-        <div class="block-title">
-          <span>当前数据源历史</span>
-          <button type="button" :disabled="!selectedId" aria-label="新建对话" @click="startNewSession">
-            <MessageSquarePlus :size="15" />
-          </button>
-        </div>
-
-        <label class="history-search">
-          <Search :size="15" />
-          <input v-model="keyword" type="search" placeholder="搜索当前数据源会话" :disabled="!selectedId" />
-        </label>
-
-        <div v-if="!selectedId" class="sidebar-empty">选择数据源后显示对应历史。</div>
-        <div v-else-if="!datasourceSessions.length" class="sidebar-empty">当前数据源暂无历史会话。</div>
-        <div v-else class="history-list">
-          <div
-            v-for="session in datasourceSessions"
-            :key="session.id"
-            role="button"
-            tabindex="0"
-            class="history-row"
-            :class="{ active: session.id === activeSessionId }"
-            @click="selectSession(session.id)"
-            @keydown.enter="selectSession(session.id)"
-          >
-            <History :size="15" />
-            <span>
-              <strong>{{ session.title }}</strong>
-              <small>{{ session.messages.length }} 条消息 · {{ formatTime(session.updatedAt) }}</small>
-            </span>
-            <button type="button" class="history-delete" aria-label="删除会话" @click.stop="removeSession(session)">
-              <Trash2 :size="14" />
-            </button>
-          </div>
-        </div>
-      </section>
-    </aside>
-
+  <main class="query-workspace post-login-page">
+    <QuerySidebar :datasource-sessions="session.datasourceSessions.value" :active-session-id="session.activeSessionId.value"
+      :keyword="session.keyword.value" :display-name="displayName" :role-text="iamS1.systemAdmin ? '系统管理员' : '当前账号'"
+      :can-enter-admin="iamS1.hasAnyAdminCapability" :mobile-history-open="mobileHistoryOpen"
+      :loading="session.loading.value || session.historyLoading.value" :error-message="session.historyError.value"
+      @select-session="handleSelectSession" @remove-session="session.removeSession" @new-session="handleStartNewSession"
+      @retry-history="handleRetryHistory"
+      @toggle-mobile-history="mobileHistoryOpen = !mobileHistoryOpen" @user-command="handleUserCommand" @update:keyword="session.keyword.value = $event" />
     <section class="query-main">
       <header class="query-topbar">
-        <div class="workspace-title">
-          <span>智能问答</span>
-          <h1>{{ selectedDatasource ? selectedDatasource.name : '请选择数据源' }}</h1>
-        </div>
-
-        <button class="query-user" type="button" @click="drawerVisible = true">
-          <span>{{ displayName.slice(0, 1) }}</span>
-          <div>
-            <strong>{{ displayName }}</strong>
-            <small>{{ roleText }}</small>
-          </div>
-        </button>
+        <h1>智能问数</h1><span class="topbar-divider" aria-hidden="true">/</span><span class="conversation-title" :title="conversationTitle">{{ conversationTitle }}</span>
+        <RouterLink to="/guide/query" class="query-help"><CircleHelp :size="16" aria-hidden="true" /><span>使用帮助</span></RouterLink>
       </header>
-
-      <section class="chat-surface">
-        <div v-if="!selectedId" class="empty-chat">
-          <Database :size="38" />
-          <h2>先选择一个数据源</h2>
-          <p>每个数据源都有独立的会话历史，选择后再开始提问，避免跨库上下文污染。</p>
+      <div v-if="iamS1.errorMessage" class="workspace-error" role="alert">{{ iamS1.errorMessage }} <button type="button" @click="iamS1.load(true)">重试能力检查</button></div>
+      <div ref="chatSurface" class="chat-surface" aria-label="当前对话" @scroll="trackScroll">
+        <div v-if="session.loading.value || session.historyLoading.value" class="welcome-state" role="status"><LoaderCircle :size="24" aria-hidden="true" /><h2>正在读取数据与会话</h2></div>
+        <div v-else-if="session.errorMessage.value" class="welcome-state" role="alert"><h2>数据源读取失败</h2><p>{{ session.errorMessage.value }}</p><button class="state-button" type="button" @click="refreshDatasources">重新读取</button></div>
+        <div v-else-if="!session.selectedId.value" class="welcome-state"><img class="welcome-logo" :src="brandMark" alt="" /><h2>从一份业务数据开始</h2><p>当前账号没有可查询的数据源。请联系管理员确认数据授权与知识就绪情况。</p><button class="state-button" type="button" @click="refreshDatasources"><RefreshCw :size="15" aria-hidden="true" />刷新数据源</button></div>
+        <div v-else-if="!session.activeMessages.value.length" class="welcome-state">
+          <span class="welcome-eyebrow"><Sparkles :size="15" aria-hidden="true" />让业务问题，找到数据答案</span>
+          <h2>你想从数据中了解什么？</h2><p>用自然语言描述问题，补充指标、时间范围和分组方式。<br />我会依据当前授权知识查询，口径不明确时先向你确认。</p>
+          <div class="question-tips"><span>一个清楚的问题，可以包含</span><strong>要看什么指标</strong><strong>哪个时间范围</strong><strong>按什么维度比较</strong></div>
         </div>
-
-        <div v-else class="message-list">
-          <section class="workspace-brief">
-            <div class="brief-main">
-              <span class="brief-kicker">当前上下文</span>
-              <h2>{{ selectedDatasource?.databaseName || selectedDatasource?.name }}</h2>
-              <p>{{ selectedDatasource?.description || '当前会话限定在此数据源。' }}</p>
-            </div>
-            <div class="brief-metrics">
-              <span class="metric-chip"><Database :size="14" />{{ datasources.length }} 个可用数据源</span>
-              <span class="metric-chip"><History :size="14" />{{ datasourceSessions.length }} 个当前库会话</span>
-            </div>
-          </section>
-
-          <section class="example-strip" aria-label="示例问题">
-            <button
-              v-for="item in exampleQuestions"
-              :key="item"
-              type="button"
-              @click="applyExample(item)"
-            >
-              {{ item }}
-            </button>
-          </section>
-
-          <article
-            v-for="message in activeMessages"
-            :key="message.id"
-            class="message-item"
-            :class="message.role"
-            :data-message-id="message.id"
-          >
-            <span class="message-avatar">
-              <UserRound v-if="message.role === 'user'" :size="16" />
-              <MessageSquareText v-else :size="16" />
-            </span>
+        <section v-else class="conversation-stream" aria-label="对话消息">
+          <button v-if="session.activeSession.value?.hasMoreHistory" class="state-button load-older-messages" type="button" :disabled="session.activeSession.value.historyLoading" @click="session.loadOlderMessages(session.activeSession.value)">{{ session.activeSession.value.historyLoading ? '正在加载…' : '加载更早消息' }}</button>
+          <article v-for="message in session.activeMessages.value" :key="message.id" class="message-item" :class="message.role" :data-message-id="message.id">
+            <div class="message-author"><img v-if="message.role === 'assistant'" :src="brandMark" alt="" width="16" height="24" /><strong>{{ message.role === 'assistant' ? 'DataOcean' : '你' }}</strong><time :datetime="message.createdAt">{{ formatMessageTime(message.createdAt) }}</time></div>
             <div class="message-bubble">
-              <p>{{ message.content }}</p>
-              <small>{{ formatTime(message.createdAt) }}</small>
-              <!-- TIMEOUT 状态操作按钮 -->
-              <div v-if="message.role === 'assistant' && message.status === 'TIMEOUT'" class="message-actions">
-                <button class="action-btn retry" @click="retryQuery(message.originalQuestion || '')" :disabled="isQuerying">
-                  <RefreshCw :size="14" />重试查询
-                </button>
-                <button class="action-btn wait" @click="continueWaiting(message.taskId || '')" :disabled="isQuerying">
-                  <History :size="14" />继续等待
-                </button>
+              <div v-if="message.role === 'assistant' && messageState(message)" class="message-state" :class="{ processing: isProcessing(message), failed: ['FAILED', 'error', 'TIMEOUT'].includes(message.status || '') }" role="status"><LoaderCircle v-if="isProcessing(message)" :size="14" aria-hidden="true" /><span>{{ messageState(message) }}</span><code v-if="isProcessing(message) && message.queryResult?.progressNode">{{ message.queryResult.progressNode }}</code></div>
+              <p v-if="message.role !== 'assistant' || message.status !== 'COMPLETED'">{{ message.content }}</p>
+              <QueryAnswer v-if="message.role === 'assistant' && message.status === 'COMPLETED' && message.taskId && session.activeSession.value" :key="`${auth.token}:${message.taskId}`" :task-id="message.taskId" :datasource-id="session.activeSession.value.datasourceId" :original-question="message.originalQuestion || message.queryResult?.question || ''" @suggestion="applySuggestion" @layout-ready="followLayout" />
+              <div v-if="message.role === 'assistant'" class="message-actions">
+                <button v-if="message.status === 'CLARIFICATION_REQUIRED'" type="button" :disabled="submit.isQuerying.value" @click="submit.prepareClarification(message.originalQuestion || message.queryResult?.question || '')">补充问题</button>
+                <button v-if="['FAILED', 'CANCELLED', 'TIMEOUT', 'error'].includes(message.status || '')" type="button" :disabled="submit.isQuerying.value" @click="submit.retryQuery(message.originalQuestion || message.queryResult?.question || '')">保留原问题重试</button>
+                <button v-if="submit.isLocallyResumable(message) && message.taskId" type="button" :disabled="submit.isQuerying.value" @click="submit.continueWaiting(message.taskId)">恢复等待</button>
+                <button v-if="submit.isLocallyResumable(message)" type="button" :disabled="submit.isQuerying.value" @click="submit.retryQuery(message.originalQuestion || '')">重新提问</button>
               </div>
-              <!-- 失败状态操作按钮 -->
-              <div v-if="message.role === 'assistant' && (message.status === 'FAILED' || message.status === 'error')" class="message-actions">
-                <button class="action-btn retry" @click="retryQuery(message.originalQuestion || '')" :disabled="isQuerying || !message.originalQuestion">
-                  <RefreshCw :size="14" />重新提问
-                </button>
-              </div>
+              <div v-if="message.role === 'assistant' && message.status !== 'COMPLETED' && message.queryResult?.suggestedQuestions?.length" class="message-suggestions" aria-label="推荐追问"><small>继续了解</small><button v-for="suggestion in message.queryResult.suggestedQuestions" :key="suggestion" type="button" @click="applySuggestion(suggestion)">{{ suggestion }}</button></div>
             </div>
           </article>
-
-          <section class="result-preview">
-            <div class="result-tabs">
-              <span :class="{ active: resultTab === 'table' }" @click="resultTab = 'table'"><ListChecks :size="14" />表格结果</span>
-              <span :class="{ active: resultTab === 'sql' }" @click="resultTab = 'sql'"><MessageSquareText :size="14" />SQL</span>
-              <span :class="{ active: resultTab === 'chart' }" @click="resultTab = 'chart'"><BarChart3 :size="14" />图表</span>
-            </div>
-
-            <div v-if="!latestResult" class="result-empty">
-              <strong>暂无查询结果</strong>
-            </div>
-
-            <div v-else-if="resultTab === 'table'" class="result-table-wrap">
-              <div v-if="latestResult.data && latestResult.data.length" class="result-meta">
-                <small>共 {{ latestResult.rowCount || latestResult.data.length }} 行 · 耗时 {{ latestResult.totalTimeMs }}ms</small>
-                <small v-if="latestResult.usedTables?.length">使用表：{{ latestResult.usedTables.join(', ') }}</small>
-              </div>
-              <el-table v-if="latestResult.data && latestResult.data.length" :data="pagedTableData" border stripe max-height="320" size="small">
-                <el-table-column v-for="col in (latestResult.columns || [])" :key="col.name" :prop="col.name" :label="col.comment || col.name" min-width="120" show-overflow-tooltip />
-              </el-table>
-              <el-pagination
-                v-if="latestResult.data && latestResult.data.length > tablePageSize"
-                v-model:current-page="tablePage"
-                :page-size="tablePageSize"
-                :total="latestResult.data.length"
-                layout="total, prev, pager, next"
-                size="small"
-                style="margin-top: 8px; justify-content: flex-end;"
-              />
-              <div v-else class="result-empty"><strong>查询完成但无数据返回</strong></div>
-            </div>
-
-            <div v-else-if="resultTab === 'sql'" class="result-sql-wrap">
-              <pre v-if="latestResult.sql" class="sql-block">{{ latestResult.sql }}</pre>
-              <p v-if="latestResult.sqlExplanation" class="sql-explanation">{{ latestResult.sqlExplanation }}</p>
-              <div v-if="!latestResult.sql" class="result-empty"><strong>无 SQL</strong></div>
-            </div>
-
-            <div v-else-if="resultTab === 'chart'" class="result-chart-wrap">
-              <div v-if="latestResult.chartConfig" class="chart-toolbar">
-                <div class="chart-type-switcher">
-                  <button :class="{ active: chartType === 'bar' }" @click="switchChartType('bar')">柱状图</button>
-                  <button :class="{ active: chartType === 'line' }" @click="switchChartType('line')">折线图</button>
-                  <button :class="{ active: chartType === 'pie' }" @click="switchChartType('pie')">饼图</button>
-                </div>
-                <button class="export-btn" @click="exportPng" :disabled="latestResult.canExport === false"><Download :size="14" />导出 PNG</button>
-              </div>
-              <ChartContainer v-if="latestResult.chartConfig" :option="chartOption" />
-              <div v-else class="result-empty"><strong>无图表数据</strong></div>
-            </div>
-
-            <div v-if="latestResult" class="result-actions">
-              <button class="export-btn" @click="exportCsv" :disabled="!latestResult.data?.length || latestResult.canExport === false">
-                <Download :size="14" />导出 CSV
-              </button>
-              <div class="feedback-btns">
-                <button class="feedback-btn like" @click="handleFeedback('LIKE')" title="结果准确">
-                  <ThumbsUp :size="15" />
-                </button>
-                <button class="feedback-btn dislike" @click="handleFeedback('DISLIKE')" title="结果有误">
-                  <ThumbsDown :size="15" />
-                </button>
-              </div>
-            </div>
-
-            <div v-if="latestResult?.suggestedQuestions?.length" class="suggested-questions">
-              <small>推荐追问：</small>
-              <button v-for="q in latestResult.suggestedQuestions" :key="q" type="button" @click="applyExample(q)">{{ q }}</button>
-            </div>
-          </section>
-        </div>
-      </section>
-
-      <footer class="chat-composer">
-        <textarea
-          ref="questionInputRef"
-          v-model="question"
-          :disabled="!selectedId"
-          rows="1"
-          :placeholder="selectedId ? '向当前数据源提问，例如：上个月销售额最高的10个产品' : '请先选择左侧数据源'"
-          @keydown.enter="handleEnter"
-        ></textarea>
-        <button type="button" :disabled="!selectedId || !question.trim() || isQuerying" @click="sendQuestion">
-          <SendHorizontal :size="18" />
-          <span>{{ isQuerying ? '查询中...' : '发送' }}</span>
-        </button>
-        <button v-if="isQuerying" type="button" class="cancel-btn" @click="cancelCurrentQuery">
-          取消
-        </button>
-      </footer>
+        </section>
+      </div>
+      <div class="composer-dock">
+        <QueryInput ref="queryInputRef" :question="submit.question.value" :is-querying="submit.isQuerying.value" :selected-id="session.selectedId.value"
+          :selected-datasource-name="session.selectedDatasource.value?.name" :can-ask="session.canAskSelectedDatasource.value"
+          :readiness-loading="session.readinessLoading.value" :selected-block-reason="session.selectedBlockReason.value"
+          @update:question="submit.question.value = $event" @send="submit.sendQuestion" @cancel="submit.cancelCurrentQuery">
+          <template #context><QueryDatasourceSelector :datasources="session.datasources.value" :readiness-map="session.readinessMap.value" :selected-id="session.selectedId.value"
+            :loading="session.loading.value" :readiness-loading="session.readinessLoading.value" :error-message="session.errorMessage.value" @select="handleSelectDatasource" @refresh="refreshDatasources" />
+            <small v-if="selectedReadiness?.ragStale" class="readiness-note" role="status">知识版本落后，按当前快照与权限校验</small></template>
+        </QueryInput>
+      </div>
     </section>
-
-    <el-drawer v-model="drawerVisible" direction="rtl" size="280px" :show-close="false">
-      <template #header>
-        <div class="drawer-profile">
-          <div class="drawer-avatar">{{ displayName.slice(0, 1) }}</div>
-          <div class="drawer-info">
-            <strong>{{ displayName }}</strong>
-            <small>{{ roleText }}</small>
-          </div>
-        </div>
-      </template>
-      <nav class="drawer-nav">
-        <button class="drawer-item" @click="handleUserCommand('profile')">
-          <UserRound :size="18" />
-          <span>个人资料</span>
-        </button>
-        <button class="drawer-item" @click="handleUserCommand('password')">
-          <ShieldCheck :size="18" />
-          <span>修改密码</span>
-        </button>
-        <button v-if="canEnterAdmin" class="drawer-item" @click="handleUserCommand('admin')">
-          <UserCog :size="18" />
-          <span>后台管理</span>
-        </button>
-        <div class="drawer-divider"></div>
-        <button class="drawer-item drawer-item--danger" @click="handleUserCommand('logout')">
-          <LogOut :size="18" />
-          <span>退出登录</span>
-        </button>
-      </nav>
-    </el-drawer>
   </main>
 </template>
 
 <style scoped>
-.guide-banner {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  background: var(--do-primary-soft);
-  border-bottom: 1px solid var(--do-line);
-  font-size: 13px;
-  color: var(--do-ink);
-}
-
-.guide-banner a {
-  color: var(--do-primary);
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.guide-banner a:hover { text-decoration: underline; }
-
-.banner-close {
-  margin-left: auto;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--do-muted);
-  padding: 4px;
-  border-radius: 4px;
-}
-
-.banner-close:hover { background: rgba(0,0,0,0.05); }
-
-.query-workspace {
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: 292px minmax(0, 1fr);
-  color: var(--do-ink);
-  background:
-    linear-gradient(180deg, rgba(238, 248, 255, 0.92) 0, rgba(248, 250, 252, 0.86) 320px, var(--do-bg) 100%),
-    var(--do-bg);
-}
-
-.query-sidebar {
-  height: 100vh;
-  position: sticky;
-  top: 0;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 16px;
-  padding: 16px;
-  border-right: 1px solid var(--do-line);
-  background: rgba(248, 251, 255, 0.92);
-  backdrop-filter: blur(18px);
-}
-
-.query-brand {
-  height: 48px;
-  display: grid;
-  grid-template-columns: 40px 1fr;
-  align-items: center;
-  gap: 11px;
-}
-
-.query-brand > span {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  color: #fff;
-  background: linear-gradient(135deg, var(--do-primary), var(--do-accent));
-  font-size: 13px;
-  font-weight: 900;
-}
-
-.query-brand strong,
-.query-brand small {
-  display: block;
-}
-
-.query-brand strong {
-  font-size: 17px;
-}
-
-.query-brand small {
-  color: var(--do-muted);
-  font-size: 12px;
-}
-
-.sidebar-block {
-  display: grid;
-  gap: 10px;
-}
-
-.history-block {
-  min-height: 0;
-  grid-template-rows: auto auto minmax(0, 1fr);
-}
-
-.block-title {
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--do-muted);
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.block-title button {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  color: var(--do-primary-strong);
-  background: var(--do-surface);
-  cursor: pointer;
-}
-
-.block-title button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.datasource-list,
-.history-list {
-  min-height: 0;
-  display: grid;
-  align-content: start;
-  gap: 6px;
-  overflow-y: auto;
-}
-
-.datasource-row,
-.history-row {
-  width: 100%;
-  min-height: 52px;
-  display: grid;
-  grid-template-columns: 28px 1fr;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  color: var(--do-ink);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.history-row {
-  grid-template-columns: 28px minmax(0, 1fr) 30px;
-}
-
-.history-delete {
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 6px;
-  color: var(--do-muted);
-  background: transparent;
-  cursor: pointer;
-  opacity: 0;
-}
-
-.history-row:hover .history-delete,
-.history-row:focus-within .history-delete {
-  opacity: 1;
-}
-
-.history-delete:hover {
-  color: #b42318;
-  background: rgba(180, 35, 24, 0.1);
-}
-
-.datasource-row:hover,
-.history-row:hover,
-.datasource-row.active,
-.history-row.active {
-  border-color: var(--do-line);
-  background: rgba(77, 143, 220, 0.11);
-}
-
-.datasource-row svg,
-.history-row svg {
-  color: var(--do-primary-strong);
-}
-
-.datasource-row span,
-.history-row span {
-  min-width: 0;
-}
-
-.datasource-row strong,
-.datasource-row small,
-.history-row strong,
-.history-row small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.datasource-row strong,
-.history-row strong {
-  margin-bottom: 3px;
-  font-size: 13px;
-}
-
-.datasource-row small,
-.history-row small {
-  color: var(--do-muted);
-  font-size: 12px;
-}
-
-.history-search {
-  height: 38px;
-  display: grid;
-  grid-template-columns: 22px 1fr;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: var(--do-surface);
-}
-
-.history-search svg {
-  color: var(--do-muted);
-}
-
-.history-search input {
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  color: var(--do-ink);
-  background: transparent;
-  font-size: 13px;
-}
-
-.sidebar-loading,
-.sidebar-empty,
-.sidebar-error {
-  padding: 12px;
-  border: 1px dashed var(--do-line-strong);
-  border-radius: 8px;
-  color: var(--do-muted);
-  background: rgba(255, 255, 255, 0.54);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.sidebar-error {
-  display: grid;
-  gap: 8px;
-  color: var(--do-danger);
-}
-
-.sidebar-error button {
-  justify-self: start;
-  border: 0;
-  color: var(--do-primary);
-  background: transparent;
-  font-weight: 900;
-  cursor: pointer;
-}
-
-.query-main {
-  min-width: 0;
-  min-height: 100vh;
-  display: grid;
-  grid-template-rows: 72px minmax(0, 1fr) auto;
-}
-
-.query-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--do-line);
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(14px);
-}
-
-.workspace-title {
-  min-width: 0;
-}
-
-.workspace-title span {
-  color: var(--do-muted);
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.workspace-title h1 {
-  margin: 4px 0 0;
-  overflow: hidden;
-  color: var(--do-ink);
-  font-size: 20px;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.query-user,
-.chat-composer button {
-  border: 0;
-  cursor: pointer;
-}
-
-.query-user {
-  height: 44px;
-  display: grid;
-  grid-template-columns: 32px auto;
-  align-items: center;
-  gap: 10px;
-  padding: 5px 14px 5px 6px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  color: var(--do-ink);
-  background: var(--do-surface);
-}
-
-.query-user > span {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  color: #fff;
-  background: linear-gradient(135deg, var(--do-primary), var(--do-accent));
-  font-weight: 900;
-}
-
-.query-user strong,
-.query-user small,
-.drawer-info strong,
-.drawer-info small {
-  display: block;
-}
-
-.query-user strong,
-.query-user small {
-  max-width: 150px;
-  overflow: hidden;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.query-user strong {
-  font-size: 13px;
-  line-height: 1.2;
-}
-
-.query-user small {
-  color: var(--do-muted);
-  font-size: 11px;
-}
-
-.drawer-profile {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.drawer-avatar {
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  color: #fff;
-  background: linear-gradient(135deg, var(--do-primary), var(--do-accent));
-  font-weight: 900;
-  font-size: 18px;
-}
-
-.drawer-info strong {
-  color: var(--do-ink);
-  font-size: 15px;
-}
-
-.drawer-info small {
-  color: var(--do-muted);
-  font-size: 12px;
-}
-
-.drawer-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 0;
-}
-
-.drawer-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--do-ink);
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 150ms;
-}
-
-.drawer-item:hover {
-  background: var(--do-bg);
-}
-
-.drawer-item--danger {
-  color: #ef4444;
-}
-
-.drawer-item--danger:hover {
-  background: #fef2f2;
-}
-
-.drawer-divider {
-  height: 1px;
-  margin: 8px 16px;
-  background: var(--do-line);
-}
-
-.chat-surface {
-  min-height: 0;
-  overflow-y: auto;
-  padding: 30px 24px 18px;
-}
-
-.message-list {
-  width: min(920px, 100%);
-  display: grid;
-  gap: 14px;
-  margin: 0 auto;
-}
-
-.workspace-brief {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
-  align-items: start;
-  padding: 18px;
-  border: 1px solid var(--do-line);
-  border-radius: 10px;
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
-}
-
-.brief-main {
-  min-width: 0;
-}
-
-.brief-kicker {
-  color: var(--do-primary-strong);
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.brief-main h2 {
-  margin: 5px 0 6px;
-  overflow: hidden;
-  color: var(--do-ink);
-  font-size: 18px;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.brief-main p {
-  max-width: 620px;
-  margin: 0;
-  color: var(--do-muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.brief-metrics {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.example-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.example-strip button {
-  min-height: 32px;
-  padding: 0 11px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  color: #334155;
-  background: #fff;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.example-strip button:hover {
-  border-color: var(--do-primary);
-  color: var(--do-primary-strong);
-  box-shadow: 0 0 0 3px rgba(77, 143, 220, 0.1);
-}
-
-.message-item {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 12px;
-}
-
-.message-item.user {
-  grid-template-columns: minmax(0, 1fr) 34px;
-}
-
-.message-item.user .message-avatar {
-  grid-column: 2;
-}
-
-.message-item.user .message-bubble {
-  grid-column: 1;
-  grid-row: 1;
-  justify-self: end;
-  color: #fff;
-  background: var(--do-primary);
-}
-
-.message-avatar {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--do-primary-strong);
-  background: var(--do-primary-soft);
-}
-
-.message-bubble {
-  max-width: 760px;
-  padding: 13px 15px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: var(--do-surface);
-  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
-}
-
-.result-preview {
-  margin-top: 2px;
-  border: 1px solid var(--do-line);
-  border-radius: 10px;
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
-  overflow: hidden;
-}
-
-.result-tabs {
-  height: 42px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--do-line);
-  background: #f8fafc;
-}
-
-.result-tabs span {
-  height: 30px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 10px;
-  border-radius: 8px;
-  color: var(--do-muted);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.result-tabs span.active {
-  color: var(--do-primary-strong);
-  background: #eaf4ff;
-}
-
-.result-empty {
-  min-height: 112px;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 6px;
-  color: var(--do-muted);
-  font-size: 13px;
-}
-
-.result-empty strong {
-  color: var(--do-ink);
-  font-size: 14px;
-}
-
-.message-bubble p {
-  margin: 0;
-  color: inherit;
-  font-size: 14px;
-  line-height: 1.75;
-  white-space: pre-wrap;
-}
-
-.message-bubble small {
-  display: block;
-  margin-top: 8px;
-  color: inherit;
-  font-size: 11px;
-  opacity: 0.62;
-}
-
-.message-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--do-line);
-}
-
-.action-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  border: 1px solid var(--do-line);
-  border-radius: 6px;
-  background: var(--do-surface);
-  color: var(--do-ink);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 150ms;
-}
-
-.action-btn:hover:not(:disabled) {
-  border-color: var(--do-primary);
-  color: var(--do-primary);
-}
-
-.action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.action-btn.retry {
-  background: var(--do-primary-soft);
-  border-color: var(--do-primary);
-  color: var(--do-primary-strong);
-}
-
-.action-btn.wait {
-  background: var(--do-surface);
-}
-
-.empty-chat {
-  height: 100%;
-  min-height: 440px;
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 12px;
-  color: var(--do-muted);
-  text-align: center;
-}
-
-.empty-chat svg {
-  color: var(--do-primary);
-}
-
-.empty-chat h2 {
-  margin: 0;
-  color: var(--do-ink);
-  font-size: 22px;
-}
-
-.empty-chat p {
-  max-width: 520px;
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.7;
-}
-
-.chat-composer {
-  width: min(920px, calc(100% - 48px));
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
-  margin: 0 auto 22px;
-  padding: 12px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: var(--do-shadow);
-}
-
-.chat-composer textarea {
-  min-height: 42px;
-  max-height: 132px;
-  resize: vertical;
-  border: 0;
-  outline: 0;
-  padding: 10px 4px 8px 6px;
-  color: var(--do-ink);
-  background: transparent;
-  font-size: 14px;
-  line-height: 1.55;
-}
-
-.chat-composer textarea::placeholder { color: #94a3b8; }
-
-.chat-composer button {
-  min-width: 92px;
-  height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border-radius: 8px;
-  color: #fff;
-  background: var(--do-primary);
-  font-weight: 900;
-}
-
-.chat-composer button:disabled {
-  cursor: not-allowed;
-  opacity: 0.48;
-}
-
-.chat-composer .cancel-btn {
-  background: var(--do-tone-red-bg, #fef2f2);
-  color: var(--do-tone-red, #dc2626);
-  border: 1px solid var(--do-tone-red, #dc2626);
-  border-radius: 6px;
-  padding: 6px 14px;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-@media (max-width: 1180px) {
-  .query-workspace {
-    min-width: 1120px;
-  }
-}
-
-.chart-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.chart-type-switcher {
-  display: flex;
-  gap: 4px;
-}
-
-.chart-type-switcher button {
-  padding: 4px 12px;
-  border: 1px solid var(--do-line);
-  border-radius: 4px;
-  background: var(--do-surface);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.chart-type-switcher button.active {
-  background: var(--do-primary);
-  color: #fff;
-  border-color: var(--do-primary);
-}
-
-.chart-container {
-  width: 100%;
-  height: 280px;
-}
-
-.result-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 0 0;
-  border-top: 1px solid var(--do-line);
-  margin-top: 12px;
-}
-
-.export-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 12px;
-  border: 1px solid var(--do-line);
-  border-radius: 4px;
-  background: var(--do-surface);
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.export-btn:hover {
-  border-color: var(--do-primary);
-  color: var(--do-primary);
-}
-
-.export-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.feedback-btns {
-  display: flex;
-  gap: 8px;
-}
-
-.feedback-btn {
-  width: 32px;
-  height: 32px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--do-line);
-  border-radius: 6px;
-  background: var(--do-surface);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.feedback-btn.like:hover {
-  border-color: #67c23a;
-  color: #67c23a;
-  background: #f0f9eb;
-}
-
-.feedback-btn.dislike:hover {
-  border-color: #f56c6c;
-  color: #f56c6c;
-  background: #fef0f0;
+.query-workspace { height: 100dvh; min-height: 0; width: 100%; display: grid; grid-template-columns: 248px minmax(0, 1fr); overflow: hidden; color: var(--do-ink); background: var(--do-bg); font-size: 14px; }
+.query-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.query-topbar { flex: none; min-width: 0; min-height: 72px; display: flex; align-items: center; gap: 16px; padding: 12px 36px; border-bottom: 1px solid var(--do-line); }
+.query-topbar h1 { flex: none; margin: 0; font-size: 16px; font-weight: 650; }
+.topbar-divider { color: var(--do-line-strong); }
+.conversation-title { min-width: 0; overflow: hidden; color: var(--do-muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.query-help { flex: none; display: flex; align-items: center; gap: 6px; margin-left: auto; min-height: 40px; color: var(--do-muted); font-size: 12px; }
+.workspace-error { padding: 10px 24px; color: var(--do-danger); background: var(--do-danger-soft); }
+.workspace-error button { min-height: 36px; border: 1px solid var(--do-line); border-radius: 6px; color: var(--do-ink); background: var(--do-surface); cursor: pointer; }
+.chat-surface { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 34px 36px 40px; }
+.conversation-stream { max-width: 820px; margin-inline: auto; display: flex; flex-direction: column; gap: 32px; }
+.message-item { min-width: 0; }
+.message-author { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; font-size: 13px; }
+.message-author img { object-fit: contain; }
+.message-author strong { font-weight: 650; }
+.message-author time { margin-left: auto; color: var(--do-muted); font-size: 11px; }
+.message-bubble { min-width: 0; }
+.message-bubble > p { margin: 0; color: var(--do-ink); font-size: 15px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-item.user { align-self: flex-end; max-width: 88%; padding: 14px 18px; border: 1px solid var(--do-line); border-radius: 14px 14px 4px 14px; background: #f0f2ec; }
+.message-item.user .message-author { gap: 20px; }
+.message-state { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-bottom: 7px; color: var(--do-muted); font-size: 12px; }
+.message-state.processing { color: var(--do-primary-strong); }
+.message-state.failed { color: var(--do-danger); }
+.message-state code { font-size: 10px; color: var(--do-muted); }
+.message-state.processing svg { animation: stage-spin 1.1s linear infinite; }
+@keyframes stage-spin { to { transform: rotate(360deg); } }
+.message-actions, .message-suggestions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.message-actions:empty { display: none; }
+.message-actions button, .message-suggestions button, .state-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 0 12px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 12px; cursor: pointer; }
+.message-actions, .message-suggestions { margin-top: 14px; }
+.message-suggestions small { color: var(--do-muted); }
+button:disabled { cursor: not-allowed; opacity: .55; }
+.load-older-messages { align-self: center; }
+.welcome-state { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 0 54px; text-align: center; }
+.welcome-eyebrow { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 22px; color: var(--do-primary-strong); font-size: 12px; }
+.welcome-state h2 { margin: 0 0 16px; font-size: clamp(24px, 2.5vw, 32px); font-weight: 580; letter-spacing: -1px; }
+.welcome-state p { max-width: 520px; margin: 0 0 24px; color: var(--do-muted); font-size: 14px; line-height: 1.9; }
+.welcome-logo { width: 34px; height: 54px; object-fit: contain; margin-bottom: 20px; }
+.question-tips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; max-width: 570px; margin-top: 12px; }
+.question-tips > span { flex-basis: 100%; margin-bottom: 5px; color: var(--do-muted); font-size: 11px; }
+.question-tips strong { padding: 10px 14px; border: 1px solid var(--do-line); border-radius: 9px; color: var(--do-ink); font-size: 12px; font-weight: 500; background: var(--do-surface); }
+.composer-dock { flex: none; min-width: 0; max-height: 48dvh; overflow-y: auto; padding: 12px 36px 22px; background: var(--do-bg); }
+.readiness-note { display: block; margin-top: 5px; color: var(--do-warning); font-size: 11px; }
+:deep(.datasource-trigger) { min-height: 34px; max-width: 100%; border-color: transparent; background: var(--do-soft); }
+:deep(.source-name) { font-size: 12px; }
+@media (max-width: 1024px) { .query-workspace { grid-template-columns: 220px minmax(0,1fr); } .chat-surface { padding-inline: 24px; } .query-topbar { padding-inline: 24px; } .composer-dock { padding-inline: 24px; } }
+@media (max-width: 768px) {
+  .query-workspace { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); }
+  .query-topbar { gap: 10px; min-height: 50px; padding: 4px 16px; }
+  .query-help span { display: none; }
+  .chat-surface { padding: 24px 16px; }
+  .composer-dock { padding: 8px 12px max(12px, env(safe-area-inset-bottom)); }
+  .welcome-state { padding-bottom: 24px; }
+  .welcome-state h2 { font-size: 24px; }
+  .welcome-state p { font-size: 13px; }
+  .message-item.user { max-width: 95%; }
+  .message-bubble > p { font-size: 16px; }
+  .conversation-stream { gap: 24px; }
 }
 </style>

@@ -2,14 +2,14 @@ package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.util.JdbcUrlBuilder;
-import com.dataocean.module.datasource.entity.Datasource;
-import com.dataocean.module.datasource.entity.DatasourceSecret;
+import com.dataocean.module.datasource.entity.po.Datasource;
+import com.dataocean.module.datasource.entity.po.DatasourceSecret;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
 import com.dataocean.module.metadata.collector.StatisticsCollector;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.service.SchemaStatisticsService;

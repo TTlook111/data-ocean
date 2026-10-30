@@ -1,10 +1,12 @@
 """数据库连接池管理
 
 按 datasource_id 维护只读连接池，支持密码解密、全局连接数限制和空闲回收。
+包含后台定时清理任务，每 5 分钟自动回收空闲连接池。
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 import threading
@@ -15,6 +17,9 @@ from urllib.parse import quote_plus
 from .config import sandbox_config
 
 logger = logging.getLogger(__name__)
+
+# 后台清理任务句柄（防止重复启动）
+_cleanup_task: asyncio.Task | None = None
 
 
 @dataclass
@@ -133,40 +138,72 @@ def cleanup_idle_pools() -> int:
 
 
 def get_pool_status() -> list[dict]:
-    """获取所有连接池状态"""
-    return [
-        {
-            "datasourceId": info.datasource_id,
-            "poolSize": info.pool_size,
-            "lastUsedAt": info.last_used_at,
-            "createdAt": info.created_at,
-        }
-        for info in _pool_info.values()
-    ]
+    """获取所有连接池状态（加锁保护，防止遍历时并发修改）"""
+    with _lock:
+        return [
+            {
+                "datasourceId": info.datasource_id,
+                "poolSize": info.pool_size,
+                "lastUsedAt": info.last_used_at,
+                "createdAt": info.created_at,
+            }
+            for info in list(_pool_info.values())
+        ]
 
 
 def _decrypt_password(encrypted: str) -> str:
-    """AES-256 解密数据源密码"""
+    """AES-256-GCM 解密数据源密码
+
+    使用 AES-GCM 认证加密，确保密文完整性和机密性。
+
+    Raises:
+        ValueError: AES 密钥未配置或解密失败时抛出明确异常
+    """
     if not encrypted:
         return ""
     key = sandbox_config.aes_secret_key
     if not key:
-        logger.warning("AES 密钥未配置，尝试直接使用密码值")
-        return encrypted
+        # AES 密钥未配置是运维配置错误，必须抛出异常而非静默回退
+        raise ValueError("AES 密钥未配置，无法解密数据源密码，请检查 DATASOURCE_AES_KEY 环境变量")
     try:
-        from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-        from cryptography.hazmat.primitives import padding as sym_padding
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
         raw = base64.b64decode(encrypted)
-        iv = raw[:16]
-        ciphertext = raw[16:]
+        # AES-GCM: 前 12 字节是 nonce，剩余是密文+tag
+        nonce = raw[:12]
+        ciphertext = raw[12:]
         key_bytes = key.encode("utf-8")[:32].ljust(32, b"\0")
-        cipher = Cipher(algorithms.AES(key_bytes), modes.CBC(iv))
-        decryptor = cipher.decryptor()
-        padded = decryptor.update(ciphertext) + decryptor.finalize()
-        unpadder = sym_padding.PKCS7(128).unpadder()
-        plaintext = unpadder.update(padded) + unpadder.finalize()
+        aesgcm = AESGCM(key_bytes)
+        plaintext = aesgcm.decrypt(nonce, ciphertext, None)
         return plaintext.decode("utf-8")
     except Exception as e:
-        logger.warning("密码解密失败，尝试直接使用原始值 error=%s", e)
-        return encrypted
+        raise ValueError(f"数据源密码解密失败，请检查加密配置: {e}") from e
+
+
+def start_periodic_cleanup(interval_seconds: int = 300) -> None:
+    """启动后台定时清理任务，每 N 秒自动回收空闲连接池
+
+    Args:
+        interval_seconds: 清理间隔，默认 300 秒（5 分钟）
+    """
+    global _cleanup_task
+    if _cleanup_task is not None and not _cleanup_task.done():
+        return  # 已有任务在运行
+
+    async def _cleanup_loop():
+        while True:
+            try:
+                await asyncio.sleep(interval_seconds)
+                # SQLAlchemy Engine.dispose() 是同步调用，不能阻塞事件循环。
+                await asyncio.to_thread(cleanup_idle_pools)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning("定时清理异常: %s", e)
+
+    try:
+        _cleanup_task = asyncio.create_task(_cleanup_loop())
+        logger.info("连接池定时清理任务已启动 interval=%ds", interval_seconds)
+    except RuntimeError:
+        # 无事件循环时忽略（如测试环境）
+        pass

@@ -2,11 +2,12 @@ package com.dataocean.module.system.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.result.Result;
-import com.dataocean.module.system.entity.SysOperationLog;
-import com.dataocean.module.system.aspect.AdminAuditLog;
+import com.dataocean.module.permission.s1.annotation.IamS1Global;
+import com.dataocean.module.system.entity.po.SysOperationLog;
+import com.dataocean.module.system.entity.query.OperationLogQuery;
 import com.dataocean.module.system.service.OperationLogService;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.access.prepost.PreAuthorize;
+
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -15,24 +16,19 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/admin/operation-logs")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('audit:view')")
-@AdminAuditLog
 public class OperationLogController {
+
+    /** 操作日志是独立的只读功能：拥有 audit:view 不会自动获得操作日志权限。 */
+    private static final String VIEW_FUNCTION = "operation-log:view";
 
     private final OperationLogService operationLogService;
 
     /**
-     * 分页查询操作日志
-     *
-     * @param page           页码
-     * @param pageSize       每页大小
-     * @param targetResource 目标资源过滤（可选）
+     * 分页查询操作日志，支持操作人/类型/状态/时间范围/IP/路径/目标资源/目标ID/关键词多条件筛选
      */
     @GetMapping
-    public Result<Page<SysOperationLog>> list(
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int pageSize,
-            @RequestParam(required = false) String targetResource) {
-        return Result.success(operationLogService.listLogs(page, pageSize, targetResource));
+    @IamS1Global(VIEW_FUNCTION)
+    public Result<Page<SysOperationLog>> list(@ModelAttribute OperationLogQuery query) {
+        return Result.success(operationLogService.listLogs(query));
     }
 }

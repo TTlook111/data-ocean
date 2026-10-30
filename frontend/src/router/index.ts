@@ -1,45 +1,37 @@
-import { createRouter, createWebHistory } from 'vue-router'
+﻿import { createRouter, createWebHistory } from 'vue-router'
 import { setupRouterGuards } from './guards'
 
 const LoginPage = () => import('../views/login/LoginPage.vue')
-const AppShell = () => import('../components/AppShell.vue')
+const AdminShell = () => import('../components/admin/AdminShell.vue')
 const AdminHomeView = () => import('../views/AdminHomeView.vue')
+const DataSourcesView = () => import('../views/admin/datasource/DataSourcesView.vue')
+const DataSourceDetailView = () => import('../views/admin/datasource/DataSourceDetailView.vue')
+const CollectionsView = () => import('../views/admin/metadata/CollectionsView.vue')
+const AssetsView = () => import('../views/admin/assets/AssetsView.vue')
+const ReleasesView = () => import('../views/admin/releases/ReleasesView.vue')
+const SnapshotDiffView = () => import('../views/admin/releases/SnapshotDiffView.vue')
+const AssetEntityDetailView = () => import('../views/admin/assets/AssetEntityDetailView.vue')
+const SnapshotDetailView = () => import('../views/admin/releases/SnapshotDetailView.vue')
+const QueryAnalysisView = () => import('../views/admin/audit/QueryAnalysisView.vue')
 const ChangePassword = () => import('../views/profile/ChangePassword.vue')
 const ProfileView = () => import('../views/profile/ProfileView.vue')
 const QueryDatasourceView = () => import('../views/query/QueryDatasourceView.vue')
-const DepartmentTree = () => import('../views/admin/user/DepartmentTree.vue')
-const DatasourceList = () => import('../views/admin/datasource/DatasourceList.vue')
-const RoleList = () => import('../views/admin/user/RoleList.vue')
-const UserList = () => import('../views/admin/user/UserList.vue')
-const SyncTask = () => import('../views/admin/metadata/SyncTask.vue')
-const SnapshotList = () => import('../views/admin/metadata/SnapshotList.vue')
-const TableExplorer = () => import('../views/admin/metadata/TableExplorer.vue')
-const SnapshotDiff = () => import('../views/admin/metadata/SnapshotDiff.vue')
-const SyncSchedule = () => import('../views/admin/metadata/SyncSchedule.vue')
 const QualityDashboard = () => import('../views/admin/governance/QualityDashboard.vue')
+const QualityRulesView = () => import('../views/admin/governance/QualityRulesView.vue')
 const IssueList = () => import('../views/admin/governance/IssueList.vue')
 const StatusEditor = () => import('../views/admin/governance/StatusEditor.vue')
-const SnapshotLifecycle = () => import('../views/admin/metadata/SnapshotLifecycle.vue')
-const VersionHistory = () => import('../views/admin/metadata/VersionHistory.vue')
-const SkillsEditor = () => import('../views/admin/knowledge/SkillsEditor.vue')
-const VersionList = () => import('../views/admin/knowledge/VersionList.vue')
-const ReviewPage = () => import('../views/admin/knowledge/ReviewPage.vue')
-const KnowledgeDashboard = () => import('../views/admin/knowledge/KnowledgeDashboard.vue')
-const PromptManager = () => import('../views/admin/prompt/PromptManager.vue')
+const KnowledgeView = () => import('../views/admin/semantics/KnowledgeView.vue')
+const KnowledgeDocView = () => import('../views/admin/semantics/KnowledgeDocView.vue')
+const KnowledgeDocCreateView = () => import('../views/admin/semantics/KnowledgeDocCreateView.vue')
+const PromptsView = () => import('../views/admin/semantics/PromptsView.vue')
+const GlossariesView = () => import('../views/admin/semantics/GlossariesView.vue')
+const FieldExplanationView = () => import('../views/admin/semantics/FieldExplanationView.vue')
 const NotFound = () => import('../views/NotFound.vue')
-const FieldTagManager = () => import('../views/admin/field/FieldTagManager.vue')
-const ConfidenceDashboard = () => import('../views/admin/field/ConfidenceDashboard.vue')
-const FeedbackReview = () => import('../views/admin/field/FeedbackReview.vue')
-const AuditLogList = () => import('../views/admin/audit/AuditLogList.vue')
-const SlowQueryList = () => import('../views/admin/audit/SlowQueryList.vue')
-const LineageViewer = () => import('../views/admin/audit/LineageViewer.vue')
-const LineageGraph = () => import('../views/admin/audit/LineageGraph.vue')
-const GlossaryList = () => import('../views/admin/glossary/GlossaryList.vue')
-const CatalogSearch = () => import('../views/admin/metadata/CatalogSearch.vue')
-const AccessControl = () => import('../views/admin/permission/AccessControl.vue')
-const PolicyEditor = () => import('../views/admin/permission/PolicyEditor.vue')
-const ServiceHealth = () => import('../views/admin/system/ServiceHealth.vue')
+const GovernanceFieldsView = () => import('../views/admin/governance/GovernanceFieldsView.vue')
+const DataLineage = () => import('../views/admin/audit/DataLineage.vue')
+const RuntimeView = () => import('../views/admin/system/RuntimeView.vue')
 const AiConfig = () => import('../views/admin/system/AiConfig.vue')
+const OperationLogList = () => import('../views/admin/system/OperationLogList.vue')
 const QueryGuide = () => import('../views/guide/QueryGuide.vue')
 const AdminGuide = () => import('../views/guide/AdminGuide.vue')
 
@@ -82,209 +74,205 @@ const router = createRouter({
       path: '/query',
       name: 'query',
       component: QueryDatasourceView,
-      meta: { title: '智能问答', section: '智能查询' },
+      meta: { title: '智能问数', section: '智能查询' },
+    },
+    {
+      path: '/query/iam-s1',
+      name: 'query-iam-s1',
+      redirect: (to) => ({ path: '/query', query: to.query }),
+      meta: { title: '智能问数', section: '智能查询' },
     },
     {
       path: '/admin',
-      component: AppShell,
+      component: AdminShell,
       children: [
         {
           path: '',
-          name: 'admin',
+          redirect: '/admin/workbench',
+        },
+        {
+          path: 'workbench',
+          name: 'admin-workbench',
           component: AdminHomeView,
-          meta: { title: '工作台概览', section: '工作台' },
+          meta: { title: '工作台', domainKey: 'workbench', workspaceKey: 'workbench', contextMode: 'none' },
         },
         {
-          path: 'users',
-          name: 'admin-users',
-          component: UserList,
-          meta: { title: '用户管理', section: '治理管理', permission: 'user:manage' },
+          path: 'data-sources',
+          name: 'admin-data-sources',
+          component: DataSourcesView,
+          meta: { title: '数据源', domainKey: 'data-entry', workspaceKey: 'data-sources', contextMode: 'none' },
         },
         {
-          path: 'roles',
-          name: 'admin-roles',
-          component: RoleList,
-          meta: { title: '角色管理', section: '治理管理', permission: 'role:view' },
+          path: 'data-sources/:id',
+          name: 'admin-data-source-detail',
+          component: DataSourceDetailView,
+          meta: { title: '数据源详情', domainKey: 'data-entry', workspaceKey: 'data-sources', contextMode: 'locked-resource', breadcrumbParent: '/admin/data-sources' },
         },
         {
-          path: 'departments',
-          name: 'admin-departments',
-          component: DepartmentTree,
-          meta: { title: '部门管理', section: '治理管理', permission: 'department:manage' },
+          path: 'collections',
+          name: 'admin-collections',
+          component: CollectionsView,
+          meta: { title: '采集任务', domainKey: 'data-entry', workspaceKey: 'collections', contextMode: 'datasource' },
         },
         {
-          path: 'datasources',
-          name: 'admin-datasources',
-          component: DatasourceList,
-          meta: { title: '数据源管理', section: '治理管理', permission: 'datasource:manage' },
+          path: 'assets',
+          name: 'admin-assets',
+          component: AssetsView,
+          meta: { title: '数据对象目录', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'datasource' },
         },
         {
-          path: 'metadata/sync',
-          name: 'admin-metadata-sync',
-          component: SyncTask,
-          meta: { title: '同步任务', section: '元数据管理', permission: 'metadata:manage' },
+          path: 'assets/lineage',
+          name: 'admin-assets-lineage',
+          component: DataLineage,
+          meta: { title: '数据血缘', domainKey: 'data-assets', workspaceKey: 'lineage', contextMode: 'datasource' },
         },
         {
-          path: 'metadata/snapshots',
-          name: 'admin-metadata-snapshots',
-          component: SnapshotList,
-          meta: { title: '快照列表', section: '元数据管理', permission: 'metadata:manage' },
+          path: 'assets/entities/:entityId',
+          name: 'admin-asset-detail',
+          component: AssetEntityDetailView,
+          meta: { title: '对象详情', domainKey: 'data-assets', workspaceKey: 'assets', contextMode: 'locked-resource', breadcrumbParent: '/admin/assets' },
         },
         {
-          path: 'metadata/tables',
-          name: 'admin-metadata-tables',
-          component: TableExplorer,
-          meta: { title: '表浏览器', section: '元数据管理', permission: 'metadata:manage' },
+          path: 'releases',
+          name: 'admin-releases',
+          component: ReleasesView,
+          meta: { title: '元数据版本', domainKey: 'data-assets', workspaceKey: 'releases', contextMode: 'datasource' },
         },
         {
-          path: 'metadata/diff',
-          name: 'admin-metadata-diff',
-          component: SnapshotDiff,
-          meta: { title: '快照差异', section: '元数据管理', permission: 'metadata:manage' },
+          path: 'releases/snapshots/:snapshotId',
+          name: 'admin-snapshot-detail',
+          component: SnapshotDetailView,
+          meta: { title: '快照详情', domainKey: 'data-assets', workspaceKey: 'releases', contextMode: 'locked-resource', breadcrumbParent: '/admin/releases' },
         },
         {
-          path: 'metadata/schedule',
-          name: 'admin-metadata-schedule',
-          component: SyncSchedule,
-          meta: { title: '同步调度', section: '元数据管理', permission: 'metadata:manage' },
+          path: 'releases/snapshots/:snapshotId/diff/:compareId',
+          name: 'admin-snapshot-diff',
+          component: SnapshotDiffView,
+          meta: { title: '快照差异', domainKey: 'data-assets', workspaceKey: 'releases', contextMode: 'locked-resource', breadcrumbParent: '/admin/releases' },
         },
         {
-          path: 'metadata/catalog',
-          name: 'admin-metadata-catalog',
-          component: CatalogSearch,
-          meta: { title: '目录搜索', section: '元数据管理', permission: 'metadata:manage' },
-        },
-        {
-          path: 'governance/quality',
-          name: 'admin-governance-quality',
+          path: 'governance',
+          name: 'admin-governance',
           component: QualityDashboard,
-          meta: { title: '质量看板', section: '元数据治理', permission: 'metadata:manage' },
+          meta: { title: '治理总览', domainKey: 'governance', workspaceKey: 'governance', contextMode: 'datasource-snapshot' },
         },
         {
           path: 'governance/issues',
-          name: 'admin-governance-issues',
+          name: 'admin-governance-issues-new',
           component: IssueList,
-          meta: { title: '问题清单', section: '元数据治理', permission: 'metadata:manage' },
+          meta: { title: '问题中心', domainKey: 'governance', workspaceKey: 'governance-issues', contextMode: 'datasource-snapshot' },
+        },
+        {
+          path: 'governance/rules',
+          name: 'admin-governance-rules',
+          component: QualityRulesView,
+          meta: { title: '质量规则', domainKey: 'governance', workspaceKey: 'governance-rules', contextMode: 'datasource-snapshot' },
+        },
+        {
+          path: 'governance/rule-templates',
+          name: 'admin-governance-rule-templates',
+          // 兼容原检查类型目录链接，回到规则工作区内查看支持的检查项。
+          redirect: to => ({ path: '/admin/governance/rules', query: { ...to.query, showChecks: '1' } }),
         },
         {
           path: 'governance/status',
           name: 'admin-governance-status',
           component: StatusEditor,
-          meta: { title: '治理状态', section: '元数据治理', permission: 'metadata:manage' },
+          meta: { title: '治理状态维护', domainKey: 'governance', workspaceKey: 'governance-status', contextMode: 'datasource-snapshot' },
         },
         {
-          path: 'metadata/lifecycle',
-          name: 'admin-metadata-lifecycle',
-          component: SnapshotLifecycle,
-          meta: { title: '快照生命周期', section: '版本管理', permission: 'metadata:manage' },
+          path: 'governance/fields',
+          name: 'admin-governance-fields',
+          component: GovernanceFieldsView,
+          meta: { title: '字段治理', domainKey: 'governance', workspaceKey: 'governance-fields', contextMode: 'datasource-snapshot' },
         },
         {
-          path: 'metadata/version-history',
-          name: 'admin-metadata-version-history',
-          component: VersionHistory,
-          meta: { title: '版本历史', section: '版本管理', permission: 'metadata:manage' },
+          path: 'semantics/glossaries',
+          name: 'admin-semantic-glossaries',
+          component: GlossariesView,
+          meta: { title: '业务术语', domainKey: 'semantics', workspaceKey: 'glossaries', contextMode: 'none' },
         },
         {
-          path: 'knowledge',
-          name: 'admin-knowledge',
-          component: KnowledgeDashboard,
-          meta: { title: '知识库总览', section: '知识库管理', permission: 'knowledge:manage' },
+          path: 'semantics/field-explanations',
+          name: 'admin-semantic-field-explanations',
+          component: FieldExplanationView,
+          meta: { title: '字段解释', domainKey: 'semantics', workspaceKey: 'field-explanations', contextMode: 'datasource-snapshot' },
         },
         {
-          path: 'knowledge/editor/:id?',
-          name: 'admin-knowledge-editor',
-          component: SkillsEditor,
-          meta: { title: 'Skills 编辑器', section: '知识库管理', permission: 'knowledge:manage' },
+          path: 'semantics/knowledge',
+          name: 'admin-semantic-knowledge',
+          component: KnowledgeView,
+          meta: { title: '语义知识', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource' },
         },
         {
-          path: 'knowledge/versions/:id',
-          name: 'admin-knowledge-versions',
-          component: VersionList,
-          meta: { title: '版本历史', section: '知识库管理', permission: 'knowledge:manage' },
+          path: 'semantics/knowledge/new',
+          name: 'admin-semantic-knowledge-new',
+          component: KnowledgeDocCreateView,
+          meta: { title: '新建知识文档', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource', breadcrumbParent: '/admin/semantics/knowledge' },
         },
         {
-          path: 'knowledge/review',
-          name: 'admin-knowledge-review',
-          component: ReviewPage,
-          meta: { title: '知识审核', section: '知识库管理', permission: 'knowledge:manage' },
+          path: 'semantics/business-knowledge', name: 'admin-semantic-business-knowledge',
+          component: () => import('../views/admin/semantics/BusinessKnowledgeView.vue'),
+          meta: { title: '业务知识治理', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'datasource-snapshot', breadcrumbParent: '/admin/semantics/knowledge' },
         },
         {
-          path: 'prompts',
-          name: 'admin-prompts',
-          component: PromptManager,
-          meta: { title: 'Prompt 管理', section: 'AI 调优', permission: 'prompt:manage' },
+          path: 'semantics/knowledge/:id',
+          name: 'admin-semantic-knowledge-detail',
+          component: KnowledgeDocView,
+          meta: { title: '知识文档详情', domainKey: 'semantics', workspaceKey: 'knowledge', contextMode: 'locked-resource', breadcrumbParent: '/admin/semantics/knowledge' },
         },
         {
-          path: 'field/tags',
-          name: 'admin-field-tags',
-          component: FieldTagManager,
-          meta: { title: '字段标签', section: '字段治理', permission: 'field-tag:manage' },
+          path: 'semantics/prompts',
+          name: 'admin-semantic-prompts',
+          redirect: (to) => ({ path: '/admin/platform/prompts', query: to.query, hash: to.hash }),
         },
         {
-          path: 'field/confidence',
-          name: 'admin-field-confidence',
-          component: ConfidenceDashboard,
-          meta: { title: '可信度看板', section: '字段治理', permission: 'field-tag:manage' },
+          path: 'platform/prompts',
+          name: 'admin-platform-prompts',
+          component: PromptsView,
+          meta: { title: 'Prompt 策略', domainKey: 'operations', workspaceKey: 'prompts', contextMode: 'none' },
         },
         {
-          path: 'field/feedback-review',
-          name: 'admin-field-feedback-review',
-          component: FeedbackReview,
-          meta: { title: '反馈审核', section: '字段治理', permission: 'field-tag:manage' },
+          path: 'access/iam',
+          name: 'admin-access-iam',
+          component: () => import('../views/admin/access/IamS1AccessWorkspaceView.vue'),
+          meta: { title: '授权配置', domainKey: 'access', workspaceKey: 'iam-access', contextMode: 'none', iamS1: true },
         },
         {
-          path: 'audit/logs',
-          name: 'admin-audit-logs',
-          component: AuditLogList,
-          meta: { title: '审计日志', section: '审计管理', permission: 'audit:view' },
+          path: 'access/iam-approvals',
+          name: 'admin-access-iam-approvals',
+          component: () => import('../views/admin/access/IamS1ApprovalView.vue'),
+          meta: { title: '访问申请与审批', domainKey: 'access', workspaceKey: 'iam-approvals', contextMode: 'none', iamS1: true },
         },
         {
-          path: 'audit/slow-queries',
-          name: 'admin-audit-slow',
-          component: SlowQueryList,
-          meta: { title: '慢查询', section: '审计管理', permission: 'audit:view' },
+          path: 'access/iam-organization',
+          name: 'admin-access-iam-organization',
+          component: () => import('../views/admin/access/IamS1OrganizationView.vue'),
+          meta: { title: '组织、角色与负责源', domainKey: 'access', workspaceKey: 'iam-organization', contextMode: 'none', iamS1: true },
         },
         {
-          path: 'audit/lineage',
-          name: 'admin-audit-lineage',
-          component: LineageViewer,
-          meta: { title: '血缘查看', section: '审计管理', permission: 'audit:view' },
+          path: 'operations/queries',
+          name: 'admin-operations-queries',
+          component: QueryAnalysisView,
+          meta: { title: '查询分析', domainKey: 'operations', workspaceKey: 'queries', contextMode: 'none' },
         },
         {
-          path: 'audit/lineage-graph',
-          name: 'admin-audit-lineage-graph',
-          component: LineageGraph,
-          meta: { title: '血缘图谱', section: '审计管理', permission: 'audit:view' },
+          path: 'platform/runtime',
+          name: 'admin-platform-runtime',
+          component: RuntimeView,
+          meta: { title: '运行监控', domainKey: 'operations', workspaceKey: 'runtime', contextMode: 'none' },
         },
         {
-          path: 'glossary/list',
-          name: 'admin-glossary-list',
-          component: GlossaryList,
-          meta: { title: '术语管理', section: '知识与语义', permission: 'metadata:manage' },
+          path: 'platform/operation-logs',
+          name: 'admin-platform-operation-logs',
+          component: OperationLogList,
+          meta: { title: '操作日志', domainKey: 'operations', workspaceKey: 'operation-logs', contextMode: 'none' },
         },
         {
-          path: 'permission/access',
-          name: 'admin-permission-access',
-          component: AccessControl,
-          meta: { title: '访问控制', section: '安全管理', permission: 'security:manage' },
-        },
-        {
-          path: 'permission/policies',
-          name: 'admin-permission-policies',
-          component: PolicyEditor,
-          meta: { title: '策略编辑器', section: '安全管理', permission: 'security:manage' },
-        },
-        {
-          path: 'system/health',
-          name: 'admin-system-health',
-          component: ServiceHealth,
-          meta: { title: '服务健康', section: '系统管理', permission: '*' },
-        },
-        {
-          path: 'system/ai-config',
-          name: 'admin-system-ai-config',
+          path: 'platform/ai',
+          name: 'admin-platform-ai',
           component: AiConfig,
-          meta: { title: 'AI 配置', section: '系统管理', permission: 'system:ai-config:view' },
+          meta: { title: 'AI 配置', domainKey: 'operations', workspaceKey: 'ai', contextMode: 'none' },
         },
       ],
     },

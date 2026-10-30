@@ -3,9 +3,9 @@ package com.dataocean.module.fieldtag.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
-import com.dataocean.module.fieldtag.entity.FeedbackReview;
-import com.dataocean.module.fieldtag.entity.FieldConfidenceEvent;
-import com.dataocean.module.fieldtag.entity.UserFeedback;
+import com.dataocean.module.fieldtag.entity.po.FeedbackReview;
+import com.dataocean.module.fieldtag.entity.po.FieldConfidenceEvent;
+import com.dataocean.module.fieldtag.entity.po.UserFeedback;
 import com.dataocean.module.fieldtag.entity.dto.FeedbackRequestDTO;
 import com.dataocean.module.fieldtag.entity.vo.FeedbackVO;
 import com.dataocean.module.fieldtag.mapper.FeedbackReviewMapper;
@@ -13,9 +13,10 @@ import com.dataocean.module.fieldtag.mapper.FieldConfidenceEventMapper;
 import com.dataocean.module.fieldtag.mapper.UserFeedbackMapper;
 import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import com.dataocean.module.fieldtag.service.UserFeedbackService;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
-import com.dataocean.module.query.entity.QueryTask;
+import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
+import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.mapper.QueryTaskMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +35,8 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * 处理用户反馈提交逻辑：
  * - LIKE：直接触发可信度 +10
- * - DISLIKE：Redis 限频检查 → 创建反馈 → 进入审核队列 → 群体阈值检测
+ * - DISLIKE（具备 S1 字段治理维护能力）：Redis 限频检查 → 创建反馈 → 直接触发可信度 -45
+ * - DISLIKE（普通用户）：Redis 限频检查 → 创建反馈 → 进入审核队列 → 群体阈值检测
  * </p>
  */
 @Service
@@ -57,6 +59,7 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
     private final ConfidenceCalculator confidenceCalculator;
     private final StringRedisTemplate stringRedisTemplate;
     private final ApplicationEventPublisher eventPublisher;
+    private final IamS1AuthorizationResolver authorizationResolver;
 
     /**
      * {@inheritDoc}
@@ -116,16 +119,34 @@ public class UserFeedbackServiceImpl implements UserFeedbackService {
             stringRedisTemplate.opsForValue().set(rateLimitKey, "1", RATE_LIMIT_TTL_HOURS, TimeUnit.HOURS);
             // 保存反馈
             insertFeedback(feedback);
-            // 创建审核记录
-            FeedbackReview review = new FeedbackReview();
-            review.setFeedbackId(feedback.getId());
-            review.setReviewStatus(FeedbackReview.STATUS_PENDING);
-            reviewMapper.insert(review);
-            // 群体阈值检测
-            checkGroupThreshold(request.getColumnMetaId());
-            log.info("用户点踩 userId={} columnMetaId={} 已进入审核队列", userId, request.getColumnMetaId());
+            // 只有冻结目录中的字段治理维护能力可以跳过审核；旧 ADMIN/ANALYST 不再生效。
+            if (canBypassReview(userId, column.getDatasourceId())) {
+                confidenceCalculator.adjustScore(
+                        request.getColumnMetaId(),
+                        FieldConfidenceEvent.TYPE_ADMIN_DISLIKE_CONFIRMED,
+                        userId,
+                        request.getQueryTaskId()
+                );
+                log.info("S1 字段治理维护者踩直接生效 userId={} columnMetaId={}", userId, request.getColumnMetaId());
+            } else {
+                // 普通用户：创建审核记录 → 群体阈值检测
+                FeedbackReview review = new FeedbackReview();
+                review.setFeedbackId(feedback.getId());
+                review.setReviewStatus(FeedbackReview.STATUS_PENDING);
+                reviewMapper.insert(review);
+                // 群体阈值检测
+                checkGroupThreshold(request.getColumnMetaId());
+                log.info("用户点踩 userId={} columnMetaId={} 已进入审核队列", userId, request.getColumnMetaId());
+            }
         }
         return toVO(feedback);
+    }
+
+    /** B6-1：反馈特权只由冻结的 S1 字段治理功能决定。 */
+    boolean canBypassReview(Long userId, Long datasourceId) {
+        return authorizationResolver
+                .resolveAdminAction(userId, "governance:field:manage", datasourceId)
+                .isAllowed();
     }
 
     private void insertFeedback(UserFeedback feedback) {

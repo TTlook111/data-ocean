@@ -1,5 +1,6 @@
 """RAG 模块请求/响应数据模型"""
 
+import json
 from typing import Any
 
 from pydantic import (
@@ -40,6 +41,11 @@ class ColumnInfo(RagBaseModel):
 class ChunkItem(RagBaseModel):
     """向量化写入的单个切片"""
 
+    source_fingerprint: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("source_fingerprint", "sourceFingerprint"),
+        serialization_alias="sourceFingerprint",
+    )
     source_id: int | None = Field(
         default=None,
         validation_alias=AliasChoices("source_id", "sourceId"),
@@ -63,6 +69,36 @@ class ChunkItem(RagBaseModel):
         validation_alias=AliasChoices("related_column", "relatedColumn", "column_name", "columnName"),
         serialization_alias="relatedColumn",
     )
+    related_tables: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("related_tables", "relatedTables"),
+        serialization_alias="relatedTables",
+    )
+    related_columns: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("related_columns", "relatedColumns"),
+        serialization_alias="relatedColumns",
+    )
+    chunk_index: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("chunk_index", "chunkIndex"),
+        serialization_alias="chunkIndex",
+    )
+    chunk_group_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("chunk_group_id", "chunkGroupId"),
+        serialization_alias="chunkGroupId",
+    )
+    entity_ids: list[int] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("entity_ids", "entityIds"),
+        serialization_alias="entityIds",
+    )
+    content_hash: str = Field(
+        default="",
+        validation_alias=AliasChoices("content_hash", "contentHash"),
+        serialization_alias="contentHash",
+    )
     governance_status: str = Field(
         default="NORMAL",
         validation_alias=AliasChoices("governance_status", "governanceStatus"),
@@ -78,6 +114,53 @@ class ChunkItem(RagBaseModel):
         validation_alias=AliasChoices("trust_score", "trustScore"),
         serialization_alias="trustScore",
     )
+    source_snapshot_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("source_snapshot_id", "sourceSnapshotId"),
+        serialization_alias="sourceSnapshotId",
+    )
+    resource_dependencies: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("resource_dependencies", "resourceDependencies"),
+        serialization_alias="resourceDependencies",
+    )
+    fact_source_ids: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("fact_source_ids", "factSourceIds"),
+        serialization_alias="factSourceIds",
+    )
+    fact_type: str = Field(
+        default="",
+        validation_alias=AliasChoices("fact_type", "factType"),
+        serialization_alias="factType",
+    )
+    fact_review_status: str = Field(
+        default="PENDING",
+        validation_alias=AliasChoices("fact_review_status", "factReviewStatus"),
+        serialization_alias="factReviewStatus",
+    )
+
+    @field_validator(
+        "related_tables", "related_columns", "entity_ids", "resource_dependencies", "fact_source_ids",
+        mode="before",
+    )
+    @classmethod
+    def normalize_metadata_lists(cls, value: Any) -> Any:
+        """兼容 Java MySQL 中以 JSON 文本保存的多值 metadata。"""
+        if value is None or isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return []
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    return parsed
+            except json.JSONDecodeError:
+                return [item.strip() for item in text.split(",") if item.strip()]
+            return [text]
+        return [value]
 
 
 class ChunkDocumentRequest(RagBaseModel):
@@ -103,7 +186,17 @@ class ChunkDocumentRequest(RagBaseModel):
         validation_alias=AliasChoices("version_no", "versionNo", "knowledge_version_no", "knowledgeVersionNo"),
         serialization_alias="knowledgeVersionNo",
     )
+    validate_structure: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("validate_structure", "validateStructure"),
+        serialization_alias="validateStructure",
+    )
     content: str = ""
+
+
+class BuildChunkDocumentRequest(ChunkDocumentRequest):
+    """Java has validated the complete manifest; this request is one member."""
+    build_id: str = Field(alias="buildId", pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 
 class ChunkDocumentResponse(RagBaseModel):
@@ -203,6 +296,11 @@ class VectorizeRequest(RagBaseModel):
         validation_alias=AliasChoices("embedding_config", "embeddingConfig"),
         serialization_alias="embeddingConfig",
     )
+    build_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("build_id", "buildId"),
+        serialization_alias="buildId",
+    )
 
 
 class VectorizeResponse(RagBaseModel):
@@ -286,6 +384,31 @@ class RetrieveRequest(RagBaseModel):
         validation_alias=AliasChoices("fallback_chunks", "fallbackChunks"),
         serialization_alias="fallbackChunks",
     )
+    build_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("build_id", "buildId"),
+        serialization_alias="buildId",
+    )
+    collection_name: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("collection_name", "collectionName"),
+        serialization_alias="collectionName",
+    )
+    embedding_config: EmbeddingConfig | None = Field(
+        default=None,
+        validation_alias=AliasChoices("embedding_config", "embeddingConfig"),
+        serialization_alias="embeddingConfig",
+    )
+    authorized_resources: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("authorized_resources", "authorizedResources"),
+        serialization_alias="authorizedResources",
+    )
+    authorized_chunk_ids: list[int] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("authorized_chunk_ids", "authorizedChunkIds"),
+        serialization_alias="authorizedChunkIds",
+    )
 
 
 class RetrievedSchema(RagBaseModel):
@@ -331,6 +454,51 @@ class RetrievedSchema(RagBaseModel):
         validation_alias=AliasChoices("snapshot_id", "snapshotId", "metadata_snapshot_id", "metadataSnapshotId"),
         serialization_alias="snapshotId",
     )
+    doc_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("doc_id", "docId"),
+        serialization_alias="docId",
+    )
+    source_id: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("source_id", "sourceId"),
+        serialization_alias="sourceId",
+    )
+    chunk_index: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("chunk_index", "chunkIndex"),
+        serialization_alias="chunkIndex",
+    )
+    chunk_group_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("chunk_group_id", "chunkGroupId"),
+        serialization_alias="chunkGroupId",
+    )
+    related_tables: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("related_tables", "relatedTables"),
+        serialization_alias="relatedTables",
+    )
+    related_columns: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("related_columns", "relatedColumns"),
+        serialization_alias="relatedColumns",
+    )
+    entity_ids: list[int] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("entity_ids", "entityIds"),
+        serialization_alias="entityIds",
+    )
+    trust_score: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("trust_score", "trustScore", "confidence_score", "confidenceScore"),
+        serialization_alias="trustScore",
+    )
+    context_expansion: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("context_expansion", "contextExpansion"),
+        serialization_alias="contextExpansion",
+    )
     chunk_text: str = Field(
         default="",
         validation_alias=AliasChoices("chunk_text", "chunkText"),
@@ -345,6 +513,31 @@ class RetrievedSchema(RagBaseModel):
         default="",
         validation_alias=AliasChoices("review_status", "reviewStatus"),
         serialization_alias="reviewStatus",
+    )
+    resource_dependencies: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("resource_dependencies", "resourceDependencies"),
+        serialization_alias="resourceDependencies",
+    )
+    fact_source_ids: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("fact_source_ids", "factSourceIds"),
+        serialization_alias="factSourceIds",
+    )
+    fact_type: str = Field(
+        default="",
+        validation_alias=AliasChoices("fact_type", "factType"),
+        serialization_alias="factType",
+    )
+    fact_review_status: str = Field(
+        default="PENDING",
+        validation_alias=AliasChoices("fact_review_status", "factReviewStatus"),
+        serialization_alias="factReviewStatus",
+    )
+    build_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("build_id", "buildId"),
+        serialization_alias="buildId",
     )
 
     @field_validator("columns", mode="before")

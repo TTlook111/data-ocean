@@ -2,7 +2,7 @@ package com.dataocean.module.versioning.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.versioning.entity.SnapshotAuditLog;
+import com.dataocean.module.versioning.entity.po.SnapshotAuditLog;
 import com.dataocean.module.versioning.mapper.SnapshotAuditLogMapper;
 import com.dataocean.module.versioning.service.SnapshotAuditLogService;
 import lombok.RequiredArgsConstructor;

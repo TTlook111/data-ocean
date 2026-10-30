@@ -1,6 +1,6 @@
 -- ============================================================
 -- 血缘与审计模块 - 审计日志和血缘表
--- 包含：query_audit_log、query_lineage_table、query_lineage_column、llm_usage_log
+-- 包含：query_audit_log、query_lineage_table、query_lineage_column
 -- ============================================================
 
 -- 查询审计日志表：记录每次查询的完整生命周期
@@ -51,18 +51,3 @@ CREATE TABLE IF NOT EXISTS query_lineage_column (
     INDEX idx_lineage_col_task (query_task_id),
     INDEX idx_lineage_col_source (source_table, source_column)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='查询血缘-字段级关系表';
-
--- LLM 调用日志表
-CREATE TABLE IF NOT EXISTS llm_usage_log (
-    id                BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID',
-    query_task_id     BIGINT       NULL COMMENT '关联的查询任务ID',
-    provider          VARCHAR(30)  NOT NULL DEFAULT 'QWEN' COMMENT 'LLM 提供商',
-    model             VARCHAR(50)  NOT NULL COMMENT '模型名称',
-    prompt_tokens     INT          NOT NULL DEFAULT 0 COMMENT 'Prompt Token 数',
-    completion_tokens INT          NOT NULL DEFAULT 0 COMMENT 'Completion Token 数',
-    total_tokens      INT          NOT NULL DEFAULT 0 COMMENT '总 Token 数',
-    cost_amount       DECIMAL(10,6) NOT NULL DEFAULT 0 COMMENT '费用（单位：元）',
-    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    INDEX idx_llm_task (query_task_id),
-    INDEX idx_llm_created (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='LLM 调用日志表';

@@ -16,5 +16,5 @@ public class AlertRuleDTO {
     private BigDecimal threshold;
     private String operator = ">";
     private String notificationType = "SYSTEM";
-    private Boolean enabled = true;
+    private Boolean enabled;
 }

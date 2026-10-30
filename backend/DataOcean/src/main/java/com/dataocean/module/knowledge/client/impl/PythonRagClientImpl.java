@@ -5,8 +5,9 @@ import com.dataocean.common.client.PythonClientSupport;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.exception.PythonRetryableException;
 import com.dataocean.module.knowledge.client.PythonRagClient;
-import com.dataocean.module.knowledge.entity.KnowledgeChunk;
-import com.dataocean.module.knowledge.entity.VectorIndexTask;
+import com.dataocean.module.knowledge.entity.po.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.po.VectorIndexTask;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuild;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
@@ -111,6 +112,8 @@ public class PythonRagClientImpl implements PythonRagClient {
         requestBody.put("docId", task.getTargetId());
         requestBody.put("metadataSnapshotId", task.getMetadataSnapshotId());
         requestBody.put("knowledgeVersionNo", task.getKnowledgeVersionNo());
+        // 预览任务没有 taskId，正式索引任务才执行发布前结构校验。
+        requestBody.put("validateStructure", task.getId() != null);
         requestBody.put("content", content == null ? "" : content);
 
         try {
@@ -156,6 +159,47 @@ public class PythonRagClientImpl implements PythonRagClient {
         }
     }
 
+    @Override
+    @SuppressWarnings("unchecked")
+    @PythonServiceRetry
+    public List<Map<String, Object>> chunkBuildDocument(RagIndexBuild build, Long docId,
+                                                         Integer versionNo, String content) {
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("buildId", build.getBuildId());
+        requestBody.put("datasourceId", build.getDatasourceId());
+        requestBody.put("docId", docId);
+        requestBody.put("metadataSnapshotId", build.getSourceSnapshotId());
+        requestBody.put("knowledgeVersionNo", versionNo);
+        requestBody.put("validateStructure", true);
+        requestBody.put("content", content == null ? "" : content);
+        Map<String, Object> response = restClient.post()
+                .uri("/internal/rag/builds/chunk")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(requestBody)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, (request, responseEntity) -> {
+                    throw PythonClientSupport.statusException(responseEntity.getStatusCode(), "RAG build chunk 校验失败");
+                })
+                .body(new ParameterizedTypeReference<>() {});
+        Object rawChunks = response == null ? null : response.get("chunks");
+        if (rawChunks instanceof List<?> chunks) {
+            return chunks.stream().filter(Map.class::isInstance)
+                    .map(item -> (Map<String, Object>) item).toList();
+        }
+        return List.of();
+    }
+
+    @Recover
+    public List<Map<String, Object>> recoverChunkBuildDocument(PythonRetryableException exception,
+                                                               RagIndexBuild build,
+                                                               Long docId,
+                                                               Integer versionNo,
+                                                               String content) {
+        log.error("Python RAG build chunk retries exhausted buildId={} docId={} versionNo={}",
+                build.getBuildId(), docId, versionNo, exception);
+        throw new BusinessException("RAG build 切片失败，请保留当前活动索引并重试");
+    }
+
     @Recover
     public List<Map<String, Object>> recoverChunkDocument(PythonRetryableException exception,
                                                            VectorIndexTask task,
@@ -166,9 +210,9 @@ public class PythonRagClientImpl implements PythonRagClient {
     }
 
     @Override
-    public void deleteDocVersionVectors(VectorIndexTask task, Integer versionNo) {
+    public boolean deleteDocVersionVectors(VectorIndexTask task, Integer versionNo) {
         if (versionNo == null) {
-            return;
+            return true;
         }
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("datasourceId", task.getDatasourceId());
@@ -176,7 +220,7 @@ public class PythonRagClientImpl implements PythonRagClient {
         requestBody.put("knowledgeVersionNo", versionNo);
 
         try {
-            restClient.post()
+            Map<String, Object> response = restClient.post()
                     .uri("/internal/rag/vectors/delete")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
@@ -186,24 +230,91 @@ public class PythonRagClientImpl implements PythonRagClient {
                                 task.getId(), versionNo, responseEntity.getStatusCode());
                         throw new BusinessException("RAG 旧向量清理失败");
                     })
-                    .toBodilessEntity();
-            log.info("Python RAG 旧向量清理完成 taskId={} docId={} versionNo={}",
-                    task.getId(), task.getTargetId(), versionNo);
+                    .body(new ParameterizedTypeReference<>() {});
+            if (response == null || response.get("deletedCount") == null) {
+                log.warn("Python RAG 旧向量清理未返回删除数量 taskId={} versionNo={}", task.getId(), versionNo);
+                return false;
+            }
+            log.info("Python RAG 旧向量清理完成 taskId={} docId={} versionNo={} deletedCount={}",
+                    task.getId(), task.getTargetId(), versionNo, response.get("deletedCount"));
+            return true;
         } catch (Exception e) {
             log.warn("Python RAG 旧向量清理异常 taskId={} versionNo={} reason={}",
                     task.getId(), versionNo, e.getMessage());
+            return false;
         }
     }
 
-    private Map<String, Object> toChunkPayload(KnowledgeChunk chunk) {
+    @Override
+    public Map<String, Object> vectorizeBuild(RagIndexBuild build, Long docId, Integer versionNo,
+                                               List<KnowledgeChunk> chunks,
+                                               Map<String, Object> embeddingConfig) {
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("buildId", build.getBuildId());
+        requestBody.put("datasourceId", build.getDatasourceId());
+        requestBody.put("metadataSnapshotId", build.getSourceSnapshotId());
+        requestBody.put("docId", docId);
+        requestBody.put("knowledgeVersionNo", versionNo);
+        requestBody.put("targetCollection", build.getCollectionName());
+        requestBody.put("targetDimension", build.getEmbeddingDimension());
+        requestBody.put("embeddingConfig", embeddingConfig);
+        requestBody.put("chunks", chunks.stream().map(this::toChunkPayload).toList());
+        return restClient.post()
+                .uri("/internal/rag/vectorize")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(requestBody)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, (request, response) -> {
+                    throw new BusinessException("RAG build 向量写入失败，Python 返回 " + response.getStatusCode().value());
+                })
+                .body(new ParameterizedTypeReference<>() {});
+    }
+
+    @Override
+    public Map<String, Object> countBuildCollection(String buildId, String collectionName) {
+        return buildCollectionOperation("/internal/rag/builds/count", buildId, collectionName);
+    }
+
+    @Override
+    public Map<String, Object> deleteBuildCollection(String buildId, String collectionName) {
+        return buildCollectionOperation("/internal/rag/builds/delete", buildId, collectionName);
+    }
+
+    private Map<String, Object> buildCollectionOperation(String path, String buildId, String collectionName) {
+        Map<String, Object> body = Map.of("buildId", buildId, "collectionName", collectionName);
+        return restClient.post()
+                .uri(path)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, (request, response) -> {
+                    throw new BusinessException("Milvus build collection 操作失败，Python 返回 " + response.getStatusCode().value());
+                })
+                .body(new ParameterizedTypeReference<>() {});
+    }
+
+    Map<String, Object> toChunkPayload(KnowledgeChunk chunk) {
         Map<String, Object> payload = new HashMap<>();
         payload.put("sourceId", chunk.getId());
+        // Python rejects a build chunk without the exact source snapshot identity.
+        payload.put("sourceSnapshotId", chunk.getMetadataSnapshotId());
         payload.put("chunkType", chunk.getChunkType());
         payload.put("chunkText", chunk.getChunkText());
         payload.put("tableName", chunk.getRelatedTable());
         payload.put("relatedColumn", chunk.getRelatedColumn());
+        payload.put("relatedTables", chunk.getRelatedTables());
+        payload.put("relatedColumns", chunk.getRelatedColumns());
+        payload.put("entityIds", chunk.getEntityIds());
+        payload.put("chunkIndex", chunk.getChunkIndex());
+        payload.put("chunkGroupId", chunk.getChunkGroupId());
+        payload.put("trustScore", chunk.getTrustScore());
+        payload.put("contentHash", chunk.getContentHash());
+        payload.put("resourceDependencies", chunk.getResourceDependencies());
+        payload.put("factSourceIds", chunk.getFactSourceIds());
+        payload.put("factType", chunk.getFactType());
+        payload.put("factReviewStatus", chunk.getFactReviewStatus());
         payload.put("reviewStatus", chunk.getReviewStatus());
-        payload.put("governanceStatus", "NORMAL");
+        payload.put("governanceStatus", chunk.getGovernanceStatus());
         return payload;
     }
 }

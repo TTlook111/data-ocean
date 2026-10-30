@@ -15,11 +15,12 @@ public interface FeedbackReviewService {
     /**
      * 分页查询待审核反馈列表
      *
-     * @param page     页码（从 1 开始）
-     * @param pageSize 每页大小
+     * @param page                  页码（从 1 开始）
+     * @param pageSize              每页大小
+     * @param visibleDatasourceIds  调用者在 governance:field:view 上负责的数据源
      * @return 分页反馈列表
      */
-    Page<FeedbackVO> listPendingReviews(int page, int pageSize);
+    Page<FeedbackVO> listPendingReviews(int page, int pageSize, java.util.Collection<Long> visibleDatasourceIds);
 
     /**
      * 审核通过

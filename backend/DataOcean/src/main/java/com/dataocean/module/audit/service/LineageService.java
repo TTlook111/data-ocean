@@ -15,18 +15,9 @@ import java.util.List;
  */
 public interface LineageService {
 
-    /**
-     * 保存血缘数据
-     * <p>
-     * 接收 Python 返回的 used_tables 和 used_columns 解析结果，
-     * 批量写入 query_lineage_table 和 query_lineage_column。
-     * </p>
-     *
-     * @param queryTaskId 查询任务ID
-     * @param usedTables  使用的表 JSON 字符串
-     * @param usedColumns 使用的字段 JSON 字符串
-     */
-    void saveLineage(Long queryTaskId, String usedTables, String usedColumns);
+    /** 从受保护尝试保存查询使用/结果来源索引，不产生物理表之间的边。 */
+    void saveProtectedLineage(com.dataocean.module.query.entity.po.QueryTask task,
+                              java.util.List<java.util.Map<String, Object>> sourceTrace);
 
     /**
      * 按表名查询血缘关系

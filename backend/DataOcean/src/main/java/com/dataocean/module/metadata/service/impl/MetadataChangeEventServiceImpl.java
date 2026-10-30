@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.dataocean.module.metadata.entity.MetadataChangeEvent;
+import com.dataocean.module.metadata.entity.po.MetadataChangeEvent;
 import com.dataocean.module.metadata.mapper.MetadataChangeEventMapper;
 import com.dataocean.module.metadata.service.MetadataChangeEventService;
 import lombok.extern.slf4j.Slf4j;

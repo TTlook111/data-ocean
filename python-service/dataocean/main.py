@@ -16,10 +16,11 @@ from dataocean.core.logging import setup_logging
 from dataocean.infra.auth import verify_internal_token
 from dataocean.knowledge.router import router as knowledge_router
 from dataocean.rag.router import router as rag_router
-from dataocean.agent.router import router as agent_router
+from dataocean.conversation.router import router as conversation_router
 from dataocean.sandbox.router import router as sandbox_router
 from dataocean.chart.router import router as chart_router
 from dataocean.prompt.router import router as prompt_router
+from dataocean.iam_s1.router import router as iam_s1_router
 from dataocean.infra.health import router as health_router
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ async def _periodic_pool_cleanup() -> None:
     while True:
         await asyncio.sleep(300)
         try:
-            cleaned = cleanup_idle_pools()
+            # 连接池清理包含同步 Engine.dispose()，不能阻塞事件循环。
+            cleaned = await asyncio.to_thread(cleanup_idle_pools)
             if cleaned > 0:
                 logger.info("定时清理空闲连接池完成 count=%d", cleaned)
         except Exception as e:
@@ -58,19 +60,32 @@ async def lifespan(application: FastAPI):
     """应用生命周期管理"""
     setup_logging(settings.log_level)
     _validate_config()
+    if settings.langgraph_checkpoint_redis_url:
+        from dataocean.iam_s1.graph import initialize_checkpointer
+        await initialize_checkpointer()
+    else:
+        logger.warning("LANGGRAPH_CHECKPOINT_REDIS_URL 未配置；IAM-SIMPLE-1 LangGraph 问数保持 fail-closed")
     # 启动连接池定时清理后台任务
     cleanup_task = asyncio.create_task(_periodic_pool_cleanup())
+    from dataocean.prompt.receipts import start_receipt_dispatcher, close_receipt_dispatcher
+    start_receipt_dispatcher()
     logger.info("DataOcean AI Service 启动完成")
-    yield
-    # 关闭定时清理任务
-    cleanup_task.cancel()
     try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
-    # 销毁所有连接池
-    _destroy_all_pools()
-    logger.info("DataOcean AI Service 已关闭")
+        yield
+    finally:
+        await close_receipt_dispatcher()
+        # 关闭定时清理任务
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+        # 销毁所有连接池
+        # 关闭连接池同样使用同步 SQLAlchemy API，放到线程中执行。
+        await asyncio.to_thread(_destroy_all_pools)
+        from dataocean.iam_s1.graph import close_checkpointer
+        await close_checkpointer()
+        logger.info("DataOcean AI Service 已关闭")
 
 
 def _validate_config() -> None:
@@ -80,6 +95,10 @@ def _validate_config() -> None:
         missing.append("DASHSCOPE_API_KEY")
     if not settings.milvus_host:
         missing.append("MILVUS_HOST")
+    if not settings.redis_host:
+        missing.append("REDIS_HOST")
+    if not settings.qwen_embedding_model:
+        missing.append("QWEN_EMBEDDING_MODEL")
     if missing:
         logger.warning("以下关键配置缺失，相关功能将不可用: %s", ", ".join(missing))
 
@@ -130,9 +149,11 @@ app.include_router(
     dependencies=[Depends(verify_internal_token)],
 )
 app.include_router(
-    agent_router,
+    conversation_router,
+    # 路径沿用旧的 /internal/query/context-summary：会话摘要仍由 Java 调用，
+    # 保留原路径可避免为纯搬迁而改动 Java 侧客户端。
     prefix="/internal/query",
-    tags=["agent"],
+    tags=["conversation"],
     dependencies=[Depends(verify_internal_token)],
 )
 app.include_router(
@@ -151,6 +172,12 @@ app.include_router(
     prompt_router,
     prefix="/internal/prompts",
     tags=["prompt"],
+    dependencies=[Depends(verify_internal_token)],
+)
+app.include_router(
+    iam_s1_router,
+    prefix="/internal/iam-s1",
+    tags=["iam-s1"],
     dependencies=[Depends(verify_internal_token)],
 )
 

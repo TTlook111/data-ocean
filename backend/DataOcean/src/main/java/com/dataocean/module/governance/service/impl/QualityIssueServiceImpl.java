@@ -1,23 +1,41 @@
 package com.dataocean.module.governance.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.datasource.entity.Datasource;
+import com.dataocean.module.datasource.entity.po.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
+import com.dataocean.module.fieldtag.entity.po.FieldConfidenceEvent;
+import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
+import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.vo.IssueBatchHandleResultVO;
 import com.dataocean.module.governance.entity.vo.QualityIssueVO;
+import com.dataocean.module.governance.entity.vo.QualityIssueSummaryVO;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
+import com.dataocean.module.fieldsemantic.entity.po.SemanticCheckBatch;
+import com.dataocean.module.fieldsemantic.entity.po.SemanticCheckResult;
+import com.dataocean.module.fieldsemantic.mapper.SemanticCheckBatchMapper;
+import com.dataocean.module.fieldsemantic.mapper.SemanticCheckResultMapper;
+import com.dataocean.module.fieldsemantic.service.FieldSemanticEvaluation;
+import com.dataocean.module.fieldsemantic.service.FieldSemanticService;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
+import com.dataocean.module.permission.s1.resource.IamS1ResolvedResource;
 import com.dataocean.module.governance.service.QualityIssueService;
 import com.dataocean.module.user.mapper.UserMapper;
-import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.entity.po.SysUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,9 +54,24 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class QualityIssueServiceImpl implements QualityIssueService {
 
+    /** 批量处理逐项校验用的功能码，与单条处理保持同一个码。 */
+    private static final String BATCH_MANAGE_FUNCTION = "governance:issue:manage";
+
     private final MetadataQualityIssueMapper issueMapper;
     private final UserMapper userMapper;
     private final DatasourceMapper datasourceMapper;
+    /** 校验“指定快照”的真实归属：快照归属不能由调用方自己声称。 */
+    private final MetadataSnapshotMapper snapshotMapper;
+    // Phase 1 #6: 治理-置信度联动
+    private final ConfidenceCalculator confidenceCalculator;
+    private final com.dataocean.module.permission.s1.support.IamS1AdminGuard adminGuard;
+    private final com.dataocean.module.permission.s1.resource.impl.GovernanceIssueResourceResolver issueResourceResolver;
+    @Autowired(required = false)
+    private SemanticCheckBatchMapper semanticBatchMapper;
+    @Autowired(required = false)
+    private SemanticCheckResultMapper semanticResultMapper;
+    @Autowired(required = false)
+    private FieldSemanticService fieldSemanticService;
 
     // 合法的状态流转（安全优先：REOPENED 必须经过 CONFIRMED 才能 RESOLVED）
     private static final Set<String> VALID_FROM_OPEN = Set.of(
@@ -58,13 +91,131 @@ public class QualityIssueServiceImpl implements QualityIssueService {
     @Transactional(readOnly = true)
     @Override
     public Page<QualityIssueVO> listIssues(Long snapshotId, String dimension, String severity,
-                                           String status, String tableName, int page, int size) {
+                                           String status, String tableName, Long assigneeId,
+                                           int page, int size) {
+        return listIssues(snapshotId, "ALL", dimension, severity, status, tableName, assigneeId, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public Page<QualityIssueVO> listIssues(Long snapshotId, String issueDomain, String dimension, String severity,
+                                           String status, String tableName, Long assigneeId, int page, int size) {
+        validateIssueDomain(issueDomain);
+        return queryIssues(null, snapshotId, issueDomain, dimension, severity, status, tableName, assigneeId, page, size);
+    }
+
+    @Override
+    public Page<QualityIssueVO> listIssuesInDatasources(java.util.Collection<Long> datasourceIds, Long snapshotId,
+                                                        String dimension, String severity, String status,
+                                                        String tableName, Long assigneeId, int page, int size) {
+        return listIssuesInDatasources(datasourceIds, snapshotId, "ALL", dimension, severity, status,
+                tableName, assigneeId, page, size);
+    }
+
+    @Override
+    public Page<QualityIssueVO> listIssuesInDatasources(java.util.Collection<Long> datasourceIds, Long snapshotId,
+                                                        String issueDomain, String dimension, String severity, String status,
+                                                        String tableName, Long assigneeId, int page, int size) {
+        validateIssueDomain(issueDomain);
+        if (snapshotId != null) {
+            // 显式指定快照时必须**直接判定归属**。只把 snapshotId 塞进 WHERE 是不行的：
+            // 无权快照会返回一个空页，把“无权”伪装成“该快照没有问题”，既误导用户，
+            // 也把无权资源变成了可探测的目标。先解析快照的真实归属，再决定放行还是拒绝。
+            MetadataSnapshot snapshot = snapshotMapper.selectById(snapshotId);
+            if (snapshot == null) {
+                throw new BusinessException(404, "快照不存在");
+            }
+            if (snapshot.getDatasourceId() == null) {
+                throw new BusinessException(409, "快照缺少数据源归属，无法判定负责范围");
+            }
+            if (datasourceIds == null || !datasourceIds.contains(snapshot.getDatasourceId())) {
+                throw new BusinessException(403, "没有负责该快照所属的数据源，无法查看其质量问题");
+            }
+        }
+        // 未指定快照时，空负责源直接返回空页：不能退化成“返回全部数据源”。
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return new Page<>(page, size, 0);
+        }
+        return queryIssues(datasourceIds, snapshotId, issueDomain, dimension, severity, status, tableName,
+                assigneeId, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public QualityIssueSummaryVO snapshotIssueSummary(java.util.Collection<Long> datasourceIds, Long snapshotId,
+                                                       int recentLimit) {
+        // 先复用既有快照负责源校验；不能把无权快照伪装成零问题。
+        listIssuesInDatasources(datasourceIds, snapshotId, null, null, null, null, null, 1, 1);
+        long open = countSnapshotStatus(snapshotId, MetadataQualityIssue.STATUS_OPEN);
+        long confirmed = countSnapshotStatus(snapshotId, MetadataQualityIssue.STATUS_CONFIRMED);
+        long reopened = countSnapshotStatus(snapshotId, MetadataQualityIssue.STATUS_REOPENED);
+        Page<QualityIssueVO> recent = queryIssues(datasourceIds, snapshotId, "ALL",
+                null, null, null, null, null, 1, Math.max(1, Math.min(recentLimit, 20)),
+                java.util.Set.of(MetadataQualityIssue.STATUS_OPEN, MetadataQualityIssue.STATUS_CONFIRMED,
+                        MetadataQualityIssue.STATUS_REOPENED));
+        QualityIssueSummaryVO result = new QualityIssueSummaryVO();
+        result.setStatusCounts(Map.of(
+                MetadataQualityIssue.STATUS_OPEN, open,
+                MetadataQualityIssue.STATUS_CONFIRMED, confirmed,
+                MetadataQualityIssue.STATUS_REOPENED, reopened));
+        result.setTotalUnresolved(open + confirmed + reopened);
+        result.setRecentIssues(recent.getRecords());
+        result.setDomainCounts(Map.of(
+                MetadataQualityIssue.DOMAIN_SOURCE, countDomainStatus(snapshotId, MetadataQualityIssue.DOMAIN_SOURCE),
+                MetadataQualityIssue.DOMAIN_SEMANTIC, countDomainStatus(snapshotId, MetadataQualityIssue.DOMAIN_SEMANTIC)));
+        return result;
+    }
+
+    private long countDomainStatus(Long snapshotId, String domain) {
+        return issueMapper.selectCount(new LambdaQueryWrapper<MetadataQualityIssue>()
+                .eq(MetadataQualityIssue::getSnapshotId, snapshotId)
+                .eq(MetadataQualityIssue::getIssueDomain, domain)
+                .in(MetadataQualityIssue::getStatus, MetadataQualityIssue.UNRESOLVED_STATUSES));
+    }
+
+    private void validateIssueDomain(String issueDomain) {
+        if (issueDomain != null && !"ALL".equals(issueDomain)
+                && !MetadataQualityIssue.DOMAIN_SOURCE.equals(issueDomain)
+                && !MetadataQualityIssue.DOMAIN_SEMANTIC.equals(issueDomain)) {
+            throw new BusinessException(400, "问题域只能是 ALL、SOURCE 或 SEMANTIC");
+        }
+    }
+
+    private long countSnapshotStatus(Long snapshotId, String status) {
+        return issueMapper.selectCount(new LambdaQueryWrapper<MetadataQualityIssue>()
+                .eq(MetadataQualityIssue::getSnapshotId, snapshotId)
+                .eq(MetadataQualityIssue::getStatus, status));
+    }
+
+    /** `scopeDatasourceIds == null` 表示不按数据源限制（仅供既有内部调用），空集合由调用方先行处理。 */
+    private Page<QualityIssueVO> queryIssues(java.util.Collection<Long> scopeDatasourceIds, Long snapshotId,
+                                             String dimension, String severity, String status,
+                                             String tableName, Long assigneeId, int page, int size) {
+        return queryIssues(scopeDatasourceIds, snapshotId, "ALL", dimension, severity, status,
+                tableName, assigneeId, page, size, null);
+    }
+
+    private Page<QualityIssueVO> queryIssues(java.util.Collection<Long> scopeDatasourceIds, Long snapshotId,
+                                             String issueDomain, String dimension, String severity, String status,
+                                             String tableName, Long assigneeId, int page, int size) {
+        return queryIssues(scopeDatasourceIds, snapshotId, issueDomain, dimension, severity, status,
+                tableName, assigneeId, page, size, null);
+    }
+
+    private Page<QualityIssueVO> queryIssues(java.util.Collection<Long> scopeDatasourceIds, Long snapshotId,
+                                             String issueDomain, String dimension, String severity, String status,
+                                             String tableName, Long assigneeId, int page, int size,
+                                             java.util.Collection<String> statuses) {
         LambdaQueryWrapper<MetadataQualityIssue> qw = new LambdaQueryWrapper<MetadataQualityIssue>()
+                .in(scopeDatasourceIds != null, MetadataQualityIssue::getDatasourceId, scopeDatasourceIds)
                 .eq(snapshotId != null, MetadataQualityIssue::getSnapshotId, snapshotId)
+                .eq(issueDomain != null && !"ALL".equals(issueDomain), MetadataQualityIssue::getIssueDomain, issueDomain)
                 .eq(StringUtils.hasText(dimension), MetadataQualityIssue::getDimension, dimension)
                 .eq(StringUtils.hasText(severity), MetadataQualityIssue::getSeverity, severity)
                 .eq(StringUtils.hasText(status), MetadataQualityIssue::getStatus, status)
+                .in(statuses != null && !statuses.isEmpty(), MetadataQualityIssue::getStatus, statuses)
                 .eq(StringUtils.hasText(tableName), MetadataQualityIssue::getTableName, tableName)
+                .eq(assigneeId != null, MetadataQualityIssue::getAssigneeId, assigneeId)
                 .orderByDesc(MetadataQualityIssue::getCreatedAt);
 
         Page<MetadataQualityIssue> issuePage = issueMapper.selectPage(new Page<>(page, size), qw);
@@ -111,17 +262,35 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         }
 
         validateTransition(issue.getStatus(), targetStatus);
+        requireCurrentSemanticEvidence(issue, targetStatus, resolutionNote);
 
         String oldStatus = issue.getStatus();
-        issue.setStatus(targetStatus);
+        LocalDateTime handledAt = LocalDateTime.now();
+        LambdaUpdateWrapper<MetadataQualityIssue> update = new LambdaUpdateWrapper<MetadataQualityIssue>()
+                .eq(MetadataQualityIssue::getId, issueId)
+                // 预期状态作为 SQL 条件，防止并发流转覆盖已提交状态。
+                .eq(MetadataQualityIssue::getStatus, oldStatus)
+                .set(MetadataQualityIssue::getStatus, targetStatus)
+                .set(MetadataQualityIssue::getUpdatedAt, handledAt);
         if (MetadataQualityIssue.STATUS_RESOLVED.equals(targetStatus)
                 || MetadataQualityIssue.STATUS_REJECTED.equals(targetStatus)) {
-            issue.setResolvedBy(operatorId);
-            issue.setResolvedAt(LocalDateTime.now());
-            issue.setResolutionNote(resolutionNote);
+            update.set(MetadataQualityIssue::getResolvedBy, operatorId)
+                    .set(MetadataQualityIssue::getResolvedAt, handledAt)
+                    .set(MetadataQualityIssue::getResolutionNote, resolutionNote);
+        } else {
+            // These columns describe the current resolution/rejection only; do not carry them
+            // through REOPENED or CONFIRMED and mistake them for an audit history.
+            update.set(MetadataQualityIssue::getResolvedBy, null)
+                    .set(MetadataQualityIssue::getResolvedAt, null)
+                    .set(MetadataQualityIssue::getResolutionNote, null);
         }
-        issueMapper.updateById(issue);
+        if (issueMapper.update(null, update) != 1) {
+            throw new BusinessException(409, "问题状态已被其他操作修改，请刷新后重试");
+        }
         log.info("问题状态变更 issueId={} {} → {}", issueId, oldStatus, targetStatus);
+
+        // 问题状态是主业务结果；辅助置信度只在主事务提交后联动。
+        adjustConfidenceForStatusChange(issue, targetStatus, operatorId);
     }
 
     /**
@@ -129,17 +298,43 @@ public class QualityIssueServiceImpl implements QualityIssueService {
      */
     @Transactional
     @Override
-    public int batchHandle(List<Long> issueIds, String targetStatus, Long operatorId) {
+    public IssueBatchHandleResultVO batchHandle(List<Long> issueIds, String targetStatus, Long operatorId) {
+        // 原子性的准确边界：**权限与归属预校验整批原子**——任一问题无权、不存在或归属断链就整批拒绝，
+        // 不能“先改几条再发现越权”。所以校验统一前置，全部通过后才进入修改。
+        // 但**状态流转本身不是全有或全无**：单条状态机不允许的流转会被跳过并在响应里如实返回，
+        // 这是既有的产品语义（见 IssueBatchHandleResultVO），不是“整批业务原子”。
+        List<Long> distinctIds = issueIds == null ? List.of()
+                : issueIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinctIds.isEmpty()) {
+            throw new BusinessException(400, "批量处理的问题列表不能为空");
+        }
+        List<MetadataQualityIssue> issues = issueMapper.selectBatchIds(distinctIds);
+        if (issues == null || issues.size() != distinctIds.size()) {
+            throw new BusinessException(404, "批量处理包含不存在的问题，已整批拒绝");
+        }
+        for (MetadataQualityIssue issue : issues) {
+            IamS1ResolvedResource resolved = issueResourceResolver.resolve(issue.getId());
+            adminGuard.requireDatasourceFunction(operatorId, BATCH_MANAGE_FUNCTION, resolved.datasourceId());
+        }
+
         int updated = 0;
-        for (Long issueId : issueIds) {
+        List<IssueBatchHandleResultVO.SkippedIssue> skippedIssues = new ArrayList<>();
+        for (Long issueId : distinctIds) {
             try {
                 handleIssue(issueId, targetStatus, null, operatorId);
                 updated++;
             } catch (BusinessException e) {
+                // 状态不允许流转是正常结果而非异常：记录下来返回给调用方，
+                // 由它如实呈现「N 条成功、M 条被跳过及原因」。
                 log.warn("批量处理跳过 issueId={}: {}", issueId, e.getMessage());
+                skippedIssues.add(new IssueBatchHandleResultVO.SkippedIssue(issueId, e.getMessage()));
             }
         }
-        return updated;
+        return IssueBatchHandleResultVO.builder()
+                .updated(updated)
+                .skipped(skippedIssues.size())
+                .skippedIssues(skippedIssues)
+                .build();
     }
 
     /**
@@ -152,9 +347,74 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         if (issue == null) {
             throw new BusinessException(404, "问题不存在");
         }
-        issue.setAssigneeId(assigneeId);
-        issueMapper.updateById(issue);
+        if (assigneeId == null) {
+            throw new BusinessException(400, "必须指定责任人");
+        }
+        // 责任人必须是**存在且启用**的账号：此前直接写入 assigneeId，
+        // 不存在或已禁用的用户也能被设为负责人，列表随即显示出无人可处理的“幽灵责任人”。
+        SysUser assignee = userMapper.selectById(assigneeId);
+        if (assignee == null) {
+            throw new BusinessException(404, "责任人不存在");
+        }
+        if (assignee.getStatus() == null || assignee.getStatus() != SysUser.STATUS_NORMAL) {
+            throw new BusinessException(400, "责任人账号未启用，不能作为负责人");
+        }
+        // 分派只写责任人与更新时间，避免把读取后的旧状态写回覆盖并发处理结果。
+        // 被分派人不会因此获得该数据源上的任何查询、治理或授权能力。
+        int updated = issueMapper.update(null, new LambdaUpdateWrapper<MetadataQualityIssue>()
+                .eq(MetadataQualityIssue::getId, issueId)
+                .set(MetadataQualityIssue::getAssigneeId, assigneeId)
+                .set(MetadataQualityIssue::getUpdatedAt, LocalDateTime.now()));
+        if (updated != 1) {
+            throw new BusinessException(409, "问题已被其他操作修改，请刷新后重试");
+        }
         log.info("问题分派 issueId={} assigneeId={}", issueId, assigneeId);
+    }
+
+    /**
+     * Phase 1 #6: 治理 Issue 状态变更 → 字段置信度联动。
+     * <p>
+     * columnMetaId 在 issue 创建时（质量检查批处理）预存，此处 O(1) 直接读取。
+     * CONFIRMED → -5 分扣减，RESOLVED → +3 分恢复。
+     * </p>
+     */
+    private void adjustConfidenceForStatusChange(MetadataQualityIssue issue,
+                                                  String targetStatus, Long operatorId) {
+        if (!MetadataQualityIssue.DOMAIN_SOURCE.equals(issue.getIssueDomain())) {
+            return;
+        }
+        Long columnMetaId = issue.getColumnMetaId();
+        if (columnMetaId == null) {
+            return; // 无关联列的 issue（如数据库级 issue）跳过
+        }
+        String eventType = null;
+        if (MetadataQualityIssue.STATUS_CONFIRMED.equals(targetStatus)) {
+            eventType = FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_CONFIRMED;
+        } else if (MetadataQualityIssue.STATUS_RESOLVED.equals(targetStatus)) {
+            eventType = FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_RESOLVED;
+        }
+        if (eventType != null) {
+            if (!TransactionSynchronizationManager.isSynchronizationActive()
+                    || !TransactionSynchronizationManager.isActualTransactionActive()) {
+                log.warn("问题状态变更未处于事务中，跳过提交后置信度联动 issueId={} columnMetaId={} eventType={}",
+                        issue.getId(), columnMetaId, eventType);
+                return;
+            }
+            Long issueId = issue.getId();
+            String scheduledEventType = eventType;
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    try {
+                        // 调用独立 Spring Bean 的 REQUIRES_NEW 方法。主问题已提交，置信度异常不会标记主事务回滚。
+                        confidenceCalculator.adjustScoreAfterCommit(columnMetaId, scheduledEventType, operatorId, null);
+                        log.info("置信度联动 issueId={} columnMetaId={} eventType={}", issueId, columnMetaId, scheduledEventType);
+                    } catch (Exception e) {
+                        log.warn("置信度联动失败 issueId={} columnMetaId={} eventType={}", issueId, columnMetaId, scheduledEventType, e);
+                    }
+                }
+            });
+        }
     }
 
     /**
@@ -183,11 +443,46 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         }
     }
 
+    private void requireCurrentSemanticEvidence(MetadataQualityIssue issue, String targetStatus, String note) {
+        if (!MetadataQualityIssue.DOMAIN_SEMANTIC.equals(issue.getIssueDomain())
+                || !(MetadataQualityIssue.STATUS_RESOLVED.equals(targetStatus)
+                || MetadataQualityIssue.STATUS_REJECTED.equals(targetStatus))) return;
+        if (!StringUtils.hasText(note)) throw new BusinessException(400, "处理字段语义问题时必须记录复查依据");
+        if (semanticBatchMapper == null || semanticResultMapper == null || fieldSemanticService == null
+                || issue.getSemanticCheckResultId() == null || issue.getColumnMetaId() == null) {
+            throw new BusinessException(409, "缺少独立语义复查证据，不能关闭字段解释问题");
+        }
+        SemanticCheckBatch latest = semanticBatchMapper.selectOne(new LambdaQueryWrapper<SemanticCheckBatch>()
+                .eq(SemanticCheckBatch::getSnapshotId, issue.getSnapshotId())
+                .orderByDesc(SemanticCheckBatch::getId).last("LIMIT 1"));
+        SemanticCheckResult result = semanticResultMapper.selectById(issue.getSemanticCheckResultId());
+        if (latest == null || !"SUCCESS".equals(latest.getStatus()) || result == null
+                || !latest.getId().equals(result.getBatchId()) || !issue.getId().equals(result.getIssueId())
+                || !issue.getSnapshotId().equals(latest.getSnapshotId())
+                || !issue.getDatasourceId().equals(latest.getDatasourceId())
+                || !("VALID".equals(result.getOutcome()) || "NOT_APPLICABLE".equals(result.getOutcome()))) {
+            throw new BusinessException(409, "字段语义问题没有最新且通过的复查证据，请重新执行语义复查");
+        }
+        FieldSemanticEvaluation current = fieldSemanticService.evaluate(issue.getColumnMetaId(), issue.getSnapshotId());
+        boolean qualificationMatches = "VALID".equals(result.getOutcome()) ? current.usable()
+                : "NOT_APPLICABLE".equals(current.outcome());
+        if (!qualificationMatches || !Objects.equals(result.getEvidenceHash(), current.evidenceHash())
+                || !Objects.equals(result.getDefinitionId(), current.definitionId())
+                || !Objects.equals(result.getBindingId(), current.bindingId())
+                || !Objects.equals(result.getRevisionId(), current.revisionId())
+                || !Objects.equals(result.getReviewId(), current.reviewId())
+                || !Objects.equals(result.getRuleVersion(), latest.getRuleVersion())) {
+            throw new BusinessException(409, "字段解释、来源绑定或审核依据在复查后已变化，不能关闭该问题");
+        }
+    }
+
     private QualityIssueVO toVO(MetadataQualityIssue issue, Map<Long, String> nameMap, Map<Long, String> datasourceNameMap) {
         QualityIssueVO vo = new QualityIssueVO();
         vo.setId(issue.getId());
         vo.setSnapshotId(issue.getSnapshotId());
         vo.setDatasourceId(issue.getDatasourceId());
+        vo.setIssueDomain(issue.getIssueDomain());
+        vo.setSemanticRuleCode(issue.getSemanticRuleCode());
         if (issue.getDatasourceId() != null) {
             vo.setDatasourceName(datasourceNameMap.getOrDefault(issue.getDatasourceId(), null));
         }
@@ -195,6 +490,7 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         vo.setSeverity(issue.getSeverity());
         vo.setTableName(issue.getTableName());
         vo.setColumnName(issue.getColumnName());
+        vo.setColumnMetaId(issue.getColumnMetaId());
         vo.setIssueDescription(issue.getIssueDescription());
         vo.setSuggestion(issue.getSuggestion());
         vo.setStatus(issue.getStatus());

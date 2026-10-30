@@ -15,6 +15,7 @@ import java.util.List;
  * </p>
  */
 public interface PromptTemplateService {
+    com.dataocean.module.prompt.entity.vo.PromptPolicyValidationVO validatePolicy(String code, String content);
 
     /**
      * 分页查询模板列表
@@ -53,25 +54,25 @@ public interface PromptTemplateService {
      * @param code 模板编码
      * @return 更新后的模板视图对象
      */
-    PromptTemplateVO submitForReview(String code);
+    PromptTemplateVO submitForReview(String code, PromptVersionActionDTO request);
 
     /**
      * 审核通过（PENDING_REVIEW → APPROVED）
      *
      * @param code         模板编码
-     * @param changeSummary 审核备注
+     * @param request 所见版本号和审核备注
      * @return 更新后的模板视图对象
      */
-    PromptTemplateVO approve(String code, String changeSummary);
+    PromptTemplateVO approve(String code, PromptVersionActionDTO request);
 
     /**
      * 审核拒绝（PENDING_REVIEW → REJECTED）
      *
      * @param code         模板编码
-     * @param rejectReason 拒绝原因
+     * @param request 所见版本号和拒绝原因
      * @return 更新后的模板视图对象
      */
-    PromptTemplateVO reject(String code, String rejectReason);
+    PromptTemplateVO reject(String code, PromptVersionActionDTO request);
 
     /**
      * 获取模板的版本历史
@@ -94,6 +95,23 @@ public interface PromptTemplateService {
      * @return 回滚后的模板视图对象
      */
     PromptTemplateVO rollback(String code, PromptRollbackDTO request);
+
+    /**
+     * 启用或停用模板。
+     * <p>
+     * `enabled` 决定 `getActiveContent` 能否取到该模板。此前该字段只能由 `approve`
+     * 置为 true，没有任何修改接口，导致「模板只能展示启用状态、无法在前端停用」。
+     * </p>
+     * <p>
+     * 只允许对 APPROVED 状态的模板启停：未通过审核的模板本来就取不到内容，
+     * 允许改 `enabled` 只会造成「看起来启用了但取不到」的错觉。
+     * </p>
+     *
+     * @param code    模板编码
+     * @param enabled 是否启用
+     * @return 更新后的模板视图对象
+     */
+    PromptTemplateVO setEnabled(String code, boolean enabled);
 
     /**
      * 获取活跃版本的模板内容（供 Python 服务调用，只返回 APPROVED 状态的模板）

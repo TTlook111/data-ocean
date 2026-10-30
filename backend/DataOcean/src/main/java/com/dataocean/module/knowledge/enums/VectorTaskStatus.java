@@ -9,6 +9,7 @@ import lombok.Getter;
 public enum VectorTaskStatus {
     PENDING("待处理"),
     PROCESSING("处理中"),
+    CLEANUP_PENDING("等待清理旧版本向量"),
     COMPLETED("已完成"),
     FAILED("失败");
 

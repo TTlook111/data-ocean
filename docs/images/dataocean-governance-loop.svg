@@ -1,0 +1,107 @@
+<svg width="1600" height="820" viewBox="0 0 1600 820" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="100" y1="20" x2="1510" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#071A2F"/>
+      <stop offset="1" stop-color="#0B2138"/>
+    </linearGradient>
+    <linearGradient id="bar" x1="160" y1="0" x2="1440" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2F80ED"/>
+      <stop offset="0.55" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#20C997"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2 2L10 6L2 10" stroke="#5DD8E8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrowTeal" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2 2L10 6L2 10" stroke="#46D7B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="820" rx="32" fill="url(#bg)"/>
+  <circle cx="105" cy="70" r="230" fill="#0B63CE" fill-opacity="0.08"/>
+  <circle cx="1480" cy="760" r="280" fill="#20C997" fill-opacity="0.06"/>
+
+  <text x="800" y="70" text-anchor="middle" fill="#F4FAFF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="36" font-weight="700">Governance-Driven Trust Loop</text>
+  <text x="800" y="109" text-anchor="middle" fill="#8EAAC4" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="19">Govern semantics first, enforce policy at runtime, then feed query evidence back into governance</text>
+
+  <rect x="150" y="164" width="1300" height="8" rx="4" fill="url(#bar)" fill-opacity="0.85"/>
+
+  <g>
+    <rect x="90" y="224" width="260" height="190" rx="24" fill="#0E2942" stroke="#3C76A8" stroke-width="2"/>
+    <circle cx="220" cy="270" r="24" fill="#2F80ED" fill-opacity="0.18" stroke="#4C9AFF"/>
+    <text x="220" y="278" text-anchor="middle" fill="#9DCBFF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="21" font-weight="700">1</text>
+    <text x="220" y="319" text-anchor="middle" fill="#EAF8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="19" font-weight="700">Metadata Collection</text>
+    <text x="220" y="350" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Tables · Columns · Keys</text>
+    <text x="220" y="374" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Samples · Relationships</text>
+    <rect x="122" y="380" width="196" height="2" rx="1" fill="#20445F"/>
+  </g>
+
+  <g>
+    <rect x="430" y="224" width="260" height="190" rx="24" fill="#0E2942" stroke="#3F9CAE" stroke-width="2"/>
+    <circle cx="560" cy="270" r="24" fill="#22D3EE" fill-opacity="0.16" stroke="#49D5E8"/>
+    <text x="560" y="278" text-anchor="middle" fill="#88E8F3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="21" font-weight="700">2</text>
+    <text x="560" y="319" text-anchor="middle" fill="#EAF8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18" font-weight="700">Quality &amp; Governance</text>
+    <text x="560" y="350" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Checks · Remediation · Review</text>
+    <text x="560" y="374" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Glossary · Tags · Confidence</text>
+    <rect x="462" y="380" width="196" height="2" rx="1" fill="#20445F"/>
+  </g>
+
+  <g>
+    <rect x="770" y="224" width="260" height="190" rx="24" fill="#0E2942" stroke="#43C8AD" stroke-width="2"/>
+    <circle cx="900" cy="270" r="24" fill="#20C997" fill-opacity="0.16" stroke="#43D5B8"/>
+    <text x="900" y="278" text-anchor="middle" fill="#8CE6D3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="21" font-weight="700">3</text>
+    <text x="900" y="319" text-anchor="middle" fill="#EAF8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="19" font-weight="700">Review &amp; Publish</text>
+    <text x="900" y="350" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Versioned snapshots</text>
+    <text x="900" y="374" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Only trusted states can publish</text>
+    <rect x="802" y="380" width="196" height="2" rx="1" fill="#20445F"/>
+  </g>
+
+  <g>
+    <rect x="1110" y="224" width="400" height="190" rx="24" fill="#0E2942" stroke="#58D3B9" stroke-width="2"/>
+    <circle cx="1310" cy="270" r="24" fill="#20C997" fill-opacity="0.16" stroke="#43D5B8"/>
+    <text x="1310" y="278" text-anchor="middle" fill="#8CE6D3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="21" font-weight="700">4</text>
+    <text x="1310" y="319" text-anchor="middle" fill="#EAF8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="20" font-weight="700">Publish skills.md</text>
+    <text x="1310" y="350" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Table semantics · Join Paths · Metrics</text>
+    <text x="1310" y="374" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Field notes · Query scenarios</text>
+    <rect x="1142" y="380" width="336" height="2" rx="1" fill="#20445F"/>
+  </g>
+
+  <path d="M350 319H416" stroke="#5DD8E8" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M690 319H756" stroke="#5DD8E8" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M1030 319H1096" stroke="#5DD8E8" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="180" y="512" width="350" height="160" rx="24" fill="#0E2942" stroke="#7B6DE0" stroke-width="2"/>
+    <circle cx="355" cy="550" r="23" fill="#7C5CFC" fill-opacity="0.16" stroke="#9B87FF"/>
+    <text x="355" y="558" text-anchor="middle" fill="#C3B8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="20" font-weight="700">5</text>
+    <text x="355" y="594" text-anchor="middle" fill="#EAF8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="19" font-weight="700">Chunk, Embed &amp; Verify</text>
+    <text x="355" y="624" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Semantic chunks · Embedding · Milvus</text>
+    <text x="355" y="648" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Switch only after verification</text>
+  </g>
+
+  <g>
+    <rect x="625" y="512" width="350" height="160" rx="24" fill="#0E2942" stroke="#4E9AF1" stroke-width="2"/>
+    <circle cx="800" cy="550" r="23" fill="#2F80ED" fill-opacity="0.16" stroke="#4C9AFF"/>
+    <text x="800" y="558" text-anchor="middle" fill="#9DCBFF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="20" font-weight="700">6</text>
+    <text x="800" y="594" text-anchor="middle" fill="#EAF8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="19" font-weight="700">RAG &amp; Trusted Query</text>
+    <text x="800" y="624" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Retrieve · Rerank · Schema Link</text>
+    <text x="800" y="648" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Generate · Rewrite · Read-only execute</text>
+  </g>
+
+  <g>
+    <rect x="1070" y="512" width="350" height="160" rx="24" fill="#0E2942" stroke="#43D5B8" stroke-width="2"/>
+    <circle cx="1245" cy="550" r="23" fill="#20C997" fill-opacity="0.16" stroke="#43D5B8"/>
+    <text x="1245" y="558" text-anchor="middle" fill="#8CE6D3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="20" font-weight="700">7</text>
+    <text x="1245" y="594" text-anchor="middle" fill="#EAF8FF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="19" font-weight="700">Audit &amp; Feedback</text>
+    <text x="1245" y="624" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">SQL lineage · Audit · User feedback</text>
+    <text x="1245" y="648" text-anchor="middle" fill="#9CB7CD" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="14">Update confidence and governance tasks</text>
+  </g>
+
+  <path d="M1310 414C1310 465 355 457 355 498" stroke="#5DD8E8" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M530 592H611" stroke="#5DD8E8" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M975 592H1056" stroke="#5DD8E8" stroke-width="3" marker-end="url(#arrow)"/>
+  <path d="M1245 672C1245 762 220 760 220 428" stroke="#46D7B8" stroke-width="3" stroke-dasharray="10 8" marker-end="url(#arrowTeal)"/>
+  <text x="800" y="749" text-anchor="middle" fill="#7FE0CC" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="16" font-weight="600">Query evidence feeds governance: knowledge, confidence and risk controls keep improving</text>
+
+  <rect x="130" y="778" width="1340" height="2" rx="1" fill="#1D405B"/>
+</svg>

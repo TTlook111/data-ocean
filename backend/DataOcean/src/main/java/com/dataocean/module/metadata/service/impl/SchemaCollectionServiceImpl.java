@@ -4,8 +4,8 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.common.util.HashUtils;
 import com.dataocean.common.util.JdbcUrlBuilder;
-import com.dataocean.module.datasource.entity.Datasource;
-import com.dataocean.module.datasource.entity.DatasourceSecret;
+import com.dataocean.module.datasource.entity.po.Datasource;
+import com.dataocean.module.datasource.entity.po.DatasourceSecret;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
 import com.dataocean.module.datasource.service.DatasourceSecretService;
@@ -13,11 +13,11 @@ import com.dataocean.module.metadata.collector.ColumnCollector;
 import com.dataocean.module.metadata.collector.IndexCollector;
 import com.dataocean.module.metadata.collector.RelationCollector;
 import com.dataocean.module.metadata.collector.TableCollector;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
-import com.dataocean.module.metadata.entity.SchemaSyncTask;
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.SchemaSyncTask;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
@@ -25,11 +25,13 @@ import com.dataocean.module.metadata.service.SchemaCollectionService;
 import com.dataocean.module.metadata.service.SchemaSnapshotService;
 import com.dataocean.module.metadata.service.SchemaStatisticsService;
 import com.dataocean.module.metadata.service.SchemaSyncTaskService;
+import com.dataocean.module.metadata.event.MetadataSnapshotCollectedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -69,6 +71,7 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
     private final SchemaStatisticsService statisticsService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
+    private final ApplicationEventPublisher eventPublisher;
 
     /** 自身代理引用，用于调用 @Async 方法使代理生效 */
     @Lazy
@@ -226,6 +229,8 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
                         allRelations.addAll(relations);
 
                         // 构建 Schema 哈希内容（表名:字段名,类型;...）
+                        // 哈希格式：tableName1:col1,type1;col2,type2;...tableName2:col1,type1;...
+                        // 用途：通过对比哈希值快速检测 Schema 是否发生变化，避免逐表逐列比较
                         hashBuilder.append(table.getTableName()).append(":");
                         for (DbColumnMeta col : columns) {
                             hashBuilder.append(col.getColumnName()).append(",").append(col.getDataType()).append(";");
@@ -241,6 +246,8 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
                     }
 
                     // 计算 Schema 哈希并更新快照统计信息
+                    // 使用 MD5 算法对整个 Schema 结构进行哈希，生成唯一标识
+                    // 哈希内容包含所有表名和字段名/类型，任何结构变化都会导致哈希值不同
                     String schemaHash = md5(hashBuilder.toString());
                     snapshotService.updateStats(snapshot.getId(), tables.size(), totalColumns, schemaHash);
 
@@ -248,6 +255,9 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
                     if (includeStatistics) {
                         statisticsService.collectStatistics(datasourceId, snapshot.getId());
                     }
+
+                    eventPublisher.publishEvent(new MetadataSnapshotCollectedEvent(
+                            datasourceId, snapshot.getId(), task.getTriggeredBy()));
 
                     log.info("元数据同步完成 datasourceId={} 表数={} 字段数={}", datasourceId, tables.size(), totalColumns);
                 } catch (Exception e) {

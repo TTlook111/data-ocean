@@ -8,6 +8,7 @@ import lombok.Getter;
 @Getter
 public enum GenerationSource {
     MANUAL("人工编辑"),
+    SNAPSHOT_GENERATED("快照结构生成"),
     AI_GENERATED("AI 生成"),
     ROLLBACK("版本回滚");
 

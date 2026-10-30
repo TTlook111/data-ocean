@@ -3,7 +3,7 @@ package com.dataocean.module.audit.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.audit.entity.AlertRule;
+import com.dataocean.module.audit.entity.po.AlertRule;
 import com.dataocean.module.audit.mapper.AlertRuleMapper;
 import com.dataocean.module.audit.service.AlertRuleService;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +31,9 @@ public class AlertRuleServiceImpl implements AlertRuleService {
 
     @Override
     public AlertRule createRule(AlertRule rule) {
+        if (rule.getEnabled() == null) {
+            rule.setEnabled(true);
+        }
         rule.setCreatedAt(LocalDateTime.now());
         rule.setUpdatedAt(LocalDateTime.now());
         alertRuleMapper.insert(rule);
@@ -48,7 +51,9 @@ public class AlertRuleServiceImpl implements AlertRuleService {
         existing.setThreshold(rule.getThreshold());
         existing.setOperator(rule.getOperator());
         existing.setNotificationType(rule.getNotificationType());
-        existing.setEnabled(rule.getEnabled());
+        if (rule.getEnabled() != null) {
+            existing.setEnabled(rule.getEnabled());
+        }
         existing.setUpdatedAt(LocalDateTime.now());
         alertRuleMapper.updateById(existing);
         return existing;

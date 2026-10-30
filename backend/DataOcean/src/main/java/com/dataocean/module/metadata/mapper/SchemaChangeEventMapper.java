@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.metadata.entity.SchemaChangeEvent;
+import com.dataocean.module.metadata.entity.po.SchemaChangeEvent;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

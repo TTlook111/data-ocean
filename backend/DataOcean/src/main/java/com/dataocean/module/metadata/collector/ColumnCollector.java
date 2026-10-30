@@ -1,6 +1,6 @@
 package com.dataocean.module.metadata.collector;
 
-import com.dataocean.module.metadata.entity.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -8,6 +8,7 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -23,6 +24,11 @@ import java.util.Set;
 @Slf4j
 @Component
 public class ColumnCollector {
+
+    // FIX #12: 采样魔数提取为类常量
+    private static final int SAMPLE_LIMIT = 5;
+    private static final int SAMPLE_VALUE_MAX_LENGTH = 50;
+    private static final int SAMPLE_QUERY_TIMEOUT_SECONDS = 2;
 
     /**
      * 采集指定表的所有字段元数据。
@@ -58,6 +64,36 @@ public class ColumnCollector {
                 column.setOrdinalPosition(rs.getInt("ORDINAL_POSITION"));
                 column.setGovernanceStatus(DbColumnMeta.GOVERNANCE_DISCOVERED);
                 columns.add(column);
+            }
+        }
+
+        // Phase 2 #12: 列元数据采样值采集（PET-SQL, arXiv:2403.09732）
+        // 对每列执行 SELECT DISTINCT ... LIMIT 5，结果存入 sampleValues 字段
+        for (DbColumnMeta column : columns) {
+            try (Statement stmt = ctx.connection().createStatement()) {
+                stmt.setQueryTimeout(SAMPLE_QUERY_TIMEOUT_SECONDS);
+                // 列名用反引号转义防 SQL 注入
+                String sql = "SELECT DISTINCT `" + column.getColumnName().replace("`", "``")
+                    + "` FROM `" + tableName.replace("`", "``") + "` LIMIT " + SAMPLE_LIMIT;
+                try (ResultSet rs = stmt.executeQuery(sql)) {
+                    StringBuilder samples = new StringBuilder();
+                    int count = 0;
+                    while (rs.next() && count < SAMPLE_LIMIT) {
+                        String val = rs.getString(1);
+                        if (val != null) {
+                            if (count > 0) samples.append(",");
+                            // 截断过长值
+                            samples.append(val.length() > SAMPLE_VALUE_MAX_LENGTH
+                                ? val.substring(0, SAMPLE_VALUE_MAX_LENGTH) : val);
+                            count++;
+                        }
+                    }
+                    if (samples.length() > 0) {
+                        column.setSampleValues(samples.toString());
+                    }
+                }
+            } catch (SQLException e) {
+                log.warn("采样失败 {}.{}: {}", tableName, column.getColumnName(), e.getMessage());
             }
         }
         return columns;

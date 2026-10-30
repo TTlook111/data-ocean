@@ -26,6 +26,15 @@ import org.springframework.web.client.ResourceAccessException;
 @Slf4j
 public class GlobalExceptionHandler {
 
+    /** 参数绑定失败属于客户端输入错误，不把缺少参数或类型错误误报为系统故障。 */
+    @ExceptionHandler({org.springframework.web.bind.MissingServletRequestParameterException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<Void> handleRequestBinding(Exception exception) {
+        log.warn("请求参数缺失或类型不正确 type={}", exception.getClass().getSimpleName());
+        return Result.error(400, "请求参数缺失或类型不正确，请核对后重试");
+    }
+
     /**
      * 处理服务不可用异常（Python 服务不可用等）
      * <p>返回 HTTP 503，携带用户友好提示</p>
@@ -85,6 +94,23 @@ public class GlobalExceptionHandler {
         log.error("Python 服务访问异常 message={}", exception.getMessage());
         return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
                 .body(Result.error(504, "AI 服务暂时不可用，请稍后再试"));
+    }
+
+    /**
+     * 处理 IAM-SIMPLE-1 结果脱敏策略冲突异常
+     * <p>
+     * Java 是最终保护边界：同一输出列存在多种非空脱敏策略时无法安全取其一，必须 fail-closed。
+     * 统一返回 409 与可公开的中文原因，不把冲突明细中的业务列值暴露给调用方。
+     * </p>
+     *
+     * @param exception 脱敏策略冲突异常
+     * @return 409 响应
+     */
+    @ExceptionHandler(IamS1MaskPolicyConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Result<Void> handleIamS1MaskPolicyConflict(IamS1MaskPolicyConflictException exception) {
+        log.warn("S1 结果脱敏策略冲突已拒绝 conflictCount={}", exception.getConflicts().size());
+        return Result.error(409, "结果脱敏策略冲突，已拒绝返回，请联系管理员修正字段保护配置");
     }
 
     /**

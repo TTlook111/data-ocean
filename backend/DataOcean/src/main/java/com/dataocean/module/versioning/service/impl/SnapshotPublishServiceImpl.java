@@ -2,12 +2,13 @@ package com.dataocean.module.versioning.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.versioning.event.SnapshotExpiredEvent;
 import com.dataocean.module.versioning.event.SnapshotPublishedEvent;
 import com.dataocean.module.versioning.service.SnapshotAuditLogService;
 import com.dataocean.module.versioning.service.SnapshotPublishService;
+import com.dataocean.module.versioning.service.SnapshotReleaseGateService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -28,6 +29,7 @@ public class SnapshotPublishServiceImpl implements SnapshotPublishService {
 
     private final MetadataSnapshotMapper snapshotMapper;
     private final SnapshotAuditLogService auditLogService;
+    private final SnapshotReleaseGateService releaseGateService;
     private final ApplicationEventPublisher eventPublisher;
 
     /**
@@ -43,6 +45,8 @@ public class SnapshotPublishServiceImpl implements SnapshotPublishService {
         if (!MetadataSnapshot.STATUS_APPROVED.equals(snapshot.getStatus())) {
             throw new BusinessException("只有 APPROVED 状态的快照才能发布");
         }
+        // 门禁必须在任何写操作之前执行：失败时旧版本不失效、新版本不发布、不发事件。
+        releaseGateService.assertPublishable(snapshot);
 
         Long datasourceId = snapshot.getDatasourceId();
         Long previousSnapshotId = null;

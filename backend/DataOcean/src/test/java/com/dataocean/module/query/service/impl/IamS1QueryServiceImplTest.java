@@ -1,0 +1,1216 @@
+package com.dataocean.module.query.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.audit.service.AuditLogService;
+import com.dataocean.module.datasource.mapper.DatasourceMapper;
+import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
+import com.dataocean.module.datasource.entity.po.Datasource;
+import com.dataocean.module.datasource.entity.po.DatasourceSecret;
+import com.dataocean.module.datasource.service.DatasourceSecretService;
+import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
+import com.dataocean.module.knowledge.entity.po.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuildChunk;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuild;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.permission.s1.entity.vo.IamS1DataAuthorizationSnapshot;
+import com.dataocean.module.permission.s1.entity.vo.IamS1FieldProtectionVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO;
+import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
+import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
+import com.dataocean.module.permission.s1.enums.IamS1ColumnUsage;
+import com.dataocean.module.query.client.IamS1PythonClient;
+import com.dataocean.module.query.controller.IamS1QuerySseController;
+import com.dataocean.module.query.entity.po.QueryAttempt;
+import com.dataocean.module.query.entity.po.QueryTask;
+import com.dataocean.module.query.entity.query.QueryHistoryQuery;
+import com.dataocean.module.query.mapper.QueryTaskMapper;
+import com.dataocean.module.query.service.IamS1RowBindingService;
+import com.dataocean.module.query.service.ConversationService;
+import com.dataocean.module.query.service.ConversationContextSummaryService;
+import com.dataocean.module.fieldsemantic.service.FieldSemanticService;
+import com.dataocean.module.query.entity.dto.ConversationContextDTO;
+import com.dataocean.module.query.entity.dto.IamS1QueryAskRequestDTO;
+import com.dataocean.module.query.entity.vo.QueryTaskVO;
+import com.dataocean.module.query.entity.vo.ConversationMessageVO;
+import com.dataocean.module.permission.s1.entity.dto.IamS1TableRequestDTO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1GrantSourceVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1RowConditionVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1RowPredicateVO;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Spy;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.PlatformTransactionManager;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+
+@ExtendWith(MockitoExtension.class)
+class IamS1QueryServiceImplTest {
+    @Mock private QueryTaskMapper queryTaskMapper;
+    @Mock private com.dataocean.module.query.mapper.QueryAttemptMapper queryAttemptMapper;
+    @Spy private ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
+    @Mock private IamS1DataAuthorizationResolver dataResolver;
+    @Mock private com.dataocean.module.permission.s1.service.IamS1UserResourceService userResourceService;
+    @Mock private IamS1AuthorizationResolver authorizationResolver;
+    @Mock private IamS1RowBindingService rowBindingService;
+    @Mock private IamS1PythonClient pythonClient;
+    @Mock private IamS1QuerySseController sseController;
+    @Mock private ConversationService conversationService;
+    @Mock private ConversationContextSummaryService conversationContextSummaryService;
+    @Mock private com.dataocean.module.glossary.mapper.GlossaryTermMapper glossaryTermMapper;
+    @Mock private com.dataocean.module.metadata.service.MetadataEntityService metadataEntityService;
+    @Mock private com.dataocean.module.metadata.service.MetadataRelationshipService metadataRelationshipService;
+    @Mock private com.dataocean.module.metadata.mapper.DbColumnMetaMapper policyColumnMapper;
+    @Mock private DatasourceMapper datasourceMapper;
+    @Mock private DatasourceSecretMapper datasourceSecretMapper;
+    @Mock private DatasourceSecretService datasourceSecretService;
+    @Mock private KnowledgeChunkMapper knowledgeChunkMapper;
+    @Mock private com.dataocean.module.knowledge.mapper.RagIndexBuildChunkMapper ragIndexBuildChunkMapper;
+    @Mock private com.dataocean.module.knowledge.service.RagIndexBuildService ragIndexBuildService;
+    @Mock private com.dataocean.module.glossary.service.GlossaryTermWorkflowService termWorkflow;
+    @Mock private AuditLogService auditLogService;
+    @Mock private com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
+    @Mock private com.dataocean.common.security.DataMaskingService maskingService;
+    @Mock private PlatformTransactionManager transactionManager;
+    @Mock private org.springframework.context.ApplicationEventPublisher eventPublisher;
+    @Mock private FieldSemanticService fieldSemanticService;
+    @Mock private com.dataocean.module.knowledge.service.impl.LineageFactService lineageFacts;
+    @InjectMocks private IamS1QueryServiceImpl service;
+
+    @org.junit.jupiter.api.BeforeAll
+    static void initMyBatisTableInfo() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), QueryTask.class);
+    }
+
+    private QueryTask task;
+
+    @BeforeEach
+    void setUp() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "fieldSemanticService", fieldSemanticService);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "eventPublisher", eventPublisher);
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "lineageFacts", lineageFacts);
+        task = QueryTask.builder().id(17L).taskId("task-1").userId(7L).datasourceId(1L)
+                .iamProtocolVersion("IAM-SIMPLE-1").permissionRevision(100L).activeMetadataSnapshotId(88L)
+                .status("PROCESSING").reviewedKnowledgeRefsJson("[]").businessKnowledgeRefsJson("[]").lineageRefsJson("[]").iamResourceRequest("[{\"tableName\":\"orders\",\"referencedColumns\":[\"id\"],\"columnUsages\":{\"id\":[\"PROJECTION\"]}}]")
+                .iamExecutionSnapshot("{\"resources\":[]}").build();
+        lenient().when(queryTaskMapper.update(any(), any())).thenReturn(1);
+        lenient().when(queryTaskMapper.selectByTaskIdForUpdate(any())).thenReturn(task);
+        lenient().when(queryTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task);
+        lenient().when(conversationService.isVisible(any(), any())).thenReturn(true);
+        lenient().when(userResourceService.candidateCatalog(any(), any(), any()))
+                .thenReturn(new com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO(
+                        1L, 88L, 100L, List.of(new com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateTableVO(
+                                "orders", "订单", "NORMAL", List.of(
+                                new com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateColumnVO(
+                                        101L, "id", "订单 ID", "BIGINT", "NORMAL", "NORMAL", null,
+                                        List.of(com.dataocean.module.permission.s1.enums.IamS1ColumnUsage.PROJECTION,
+                                                com.dataocean.module.permission.s1.enums.IamS1ColumnUsage.FILTER,
+                                                com.dataocean.module.permission.s1.enums.IamS1ColumnUsage.JOIN),
+                                        List.of()))))));
+    }
+
+    @Test
+    void completeRejectsEmptyUsedColumnsAndSourceTraceBeforePersistingData() throws Exception {
+        QueryAttempt attempt = protectedAttempt("task-1", "attempt-empty-trace", "PROTECTED",
+                "[]", "[{\"name\":\"id\"}]", "[]");
+        when(queryAttemptMapper.selectForUpdate("task-1", attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of(), "sourceTrace", List.of(),
+                "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1))));
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
+
+        verify(queryTaskMapper).update(any(), any());
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test void pollingRefreshesACommittedTerminalTaskWhenItsConversationTurnWasJustReleased(){
+        task.setConversationId(42L);task.setIamResourceRequest("[]");
+        var finished=QueryTask.builder().taskId("task-1").userId(7L).datasourceId(1L).conversationId(42L)
+                .iamProtocolVersion("IAM-SIMPLE-1").status("FAILED").errorMessage("查询已安全结束")
+                .activeMetadataSnapshotId(88L).permissionRevision(100L).iamResourceRequest("[]").build();
+        when(queryTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(task,finished,finished);
+        when(authorizationResolver.hasGlobalFunction(7L,"query:use")).thenReturn(true);
+        when(dataResolver.currentPermissionRevision()).thenReturn(100L);
+        var published=new MetadataSnapshot();published.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(published);
+        when(conversationService.isActiveTurn(42L,"task-1")).thenReturn(false);
+        var result=service.get("task-1",7L);
+        assertThat(result.getStatus()).isEqualTo("FAILED");
+        assertThat(result.getData()).isNull();assertThat(result.getSourceTrace()).isNull();
+    }
+
+    @Test void pollingStillRejectsAProcessingTaskThatActuallyLostItsConversationTurn(){
+        task.setConversationId(42L);task.setIamResourceRequest("[]");
+        when(authorizationResolver.hasGlobalFunction(7L,"query:use")).thenReturn(true);
+        when(dataResolver.currentPermissionRevision()).thenReturn(100L);
+        var published=new MetadataSnapshot();published.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(published);
+        when(conversationService.isActiveTurn(42L,"task-1")).thenReturn(false);
+        assertThatThrownBy(()->service.get("task-1",7L)).isInstanceOf(BusinessException.class)
+                .hasMessageContaining("会话轮次已取消或结束");
+    }
+
+    @Test
+    void completePersistsOnlyWhenSourceTraceAndCurrentSnapshotAreComplete() throws Exception {
+        MetadataSnapshot metadata = new MetadataSnapshot();
+        metadata.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        QueryAttempt attempt = protectedAttempt("task-1", "attempt-valid", "PROTECTED",
+                "[{\"id\":1}]", "[{\"name\":\"id\"}]",
+                "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate("task-1", attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
+                "sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))),
+                "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1))));
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
+
+        verify(queryTaskMapper).update(any(), any());
+        verify(eventPublisher).publishEvent(new com.dataocean.module.query.event.QueryTraceCommittedEvent("task-1"));
+    }
+
+    @Test
+    void zeroRowCompletionEmitsNoAuditOrTraceEvent() throws Exception {
+        MetadataSnapshot metadata = new MetadataSnapshot(); metadata.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        QueryAttempt attempt = protectedAttempt("task-1", "zero", "PROTECTED", "[{\"id\":1}]",
+                "[{\"name\":\"id\"}]", "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate("task-1", "zero")).thenReturn(attempt);
+        when(queryTaskMapper.update(any(), any())).thenReturn(0);
+        service.complete("task-1", objectMapper.writeValueAsString(completedResult(attempt)));
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+        verify(auditLogService, never()).recordCommittedAudit(any());
+    }
+
+    @Test
+    void businessReferenceFreezeStillRejectsARealZeroRowConflict() {
+        task.setBusinessKnowledgeRefsJson(null);
+        when(queryTaskMapper.update(any(), any())).thenReturn(0);
+        var catalog = new com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO(1L, 88L, 100L, List.of());
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> org.springframework.test.util.ReflectionTestUtils.invokeMethod(
+                service, "buildPythonRequest", "task-1", 7L, 42L, 1L, askRequest(), null, Map.of(), null, catalog, java.time.LocalDateTime.now()))
+                .isInstanceOf(BusinessException.class).hasMessageContaining("并发变化");
+    }
+
+    @Test
+    void tableOnlyStructureIsRetainedAndEmptyFieldDerivationIsRejected() throws Exception {
+        RagIndexBuild build = RagIndexBuild.builder().buildId("b").datasourceId(1L).sourceSnapshotId(88L).build();
+        RagIndexBuildChunk member = new RagIndexBuildChunk(); member.setChunkId(9L);
+        member.setResourceDependencies("[\"table:orders\"]"); member.setFactSourceIds("[\"10\"]");
+        KnowledgeChunk chunk = KnowledgeChunk.builder().id(9L).metadataSnapshotId(88L).relatedTables("[\"orders\"]")
+                .relatedColumns("[]").reviewStatus("APPROVED").factReviewStatus("APPROVED").governanceStatus("NORMAL")
+                .factType("TABLE_STRUCTURE").build();
+        when(ragIndexBuildChunkMapper.selectList(any())).thenReturn(List.of(member));
+        when(knowledgeChunkMapper.selectBatchIds(any())).thenReturn(List.of(chunk));
+        java.lang.reflect.Method load = IamS1QueryServiceImpl.class.getDeclaredMethod("loadKnowledgeChunks", RagIndexBuild.class, Long.class, Set.class);
+        load.setAccessible(true);
+        assertThat((List<?>) load.invoke(service, build, 1L, Set.of("table:orders"))).hasSize(1);
+        chunk.setFactType("DERIVED_FROM");
+        assertThat((List<?>) load.invoke(service, build, 1L, Set.of("table:orders"))).isEmpty();
+    }
+
+    @Test
+    void expiredLineageCannotPassFinalCompletion() throws Exception {
+        task.setRagBuildId("b"); task.setRagSourceSnapshotId(88L); task.setLineageRefsJson("[{\"sourceFingerprint\":\"old\"}]");
+        when(lineageFacts.referencesValid(1L, 88L, task.getLineageRefsJson())).thenReturn(false);
+        QueryAttempt attempt = protectedAttempt("task-1", "expired", "PROTECTED", "[{\"id\":1}]",
+                "[{\"name\":\"id\"}]", "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate("task-1", "expired")).thenReturn(attempt);
+        service.complete("task-1", objectMapper.writeValueAsString(completedResult(attempt)));
+        var update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(any(), update.capture());
+        assertThat(update.getValue().getParamNameValuePairs().values().toString()).contains("REJECTED_ON_RECHECK");
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void completeFailsClosedWhenAFieldSemanticReferenceExpiresInFlight() throws Exception {
+        String sourceRefs = "[{\"sourceSnapshotId\":\"88\",\"factSourceIds\":[\"1\",\"2\",\"3\",\"4\"]}]";
+        task.setFieldSemanticRefsJson(sourceRefs);
+        task.setRagSourceSnapshotId(88L);
+        when(fieldSemanticService.membershipValid(1L, 88L, List.of("1", "2", "3", "4"))).thenReturn(false);
+        QueryAttempt attempt = protectedAttempt("task-1", "attempt-expired-field", "PROTECTED",
+                "[{\"id\":1}]", "[{\"name\":\"id\"}]",
+                "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate("task-1", attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
+                "sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))),
+                "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1))));
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
+
+        ArgumentCaptor<LambdaUpdateWrapper<QueryTask>> update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(any(), update.capture());
+        assertRejectedCompletionUpdateContainsNoPayload(update.getValue());
+        assertThat(update.getValue().getParamNameValuePairs().values().toString())
+                .contains("FAILED", "REJECTED_ON_RECHECK", "知识已变化");
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void oldBuildFieldFactIsFilteredImmediatelyWhenItsCurrentMembershipExpires() throws Exception {
+        RagIndexBuild build = RagIndexBuild.builder().buildId("build-1").datasourceId(1L)
+                .sourceSnapshotId(88L).status("ACTIVE").collectionName("collection-1").build();
+        RagIndexBuildChunk membership = new RagIndexBuildChunk();
+        membership.setBuildId("build-1"); membership.setChunkId(51L); membership.setDatasourceId(1L);
+        membership.setSourceSnapshotId(88L); membership.setFactType("FIELD_SEMANTIC");
+        membership.setFactReviewStatus("APPROVED");
+        membership.setResourceDependencies("[\"table:orders\",\"column:orders.pay_amt\"]");
+        membership.setFactSourceIds("[\"1\",\"2\",\"3\",\"4\"]");
+        KnowledgeChunk chunk = KnowledgeChunk.builder().id(51L).docId(7L).versionNo(2)
+                .metadataSnapshotId(88L).relatedTable("orders").relatedColumn("pay_amt")
+                .relatedTables("[\"orders\"]").relatedColumns("[\"orders.pay_amt\"]")
+                .factType("FIELD_SEMANTIC").factReviewStatus("APPROVED").reviewStatus("APPROVED")
+                .governanceStatus("NORMAL").chunkType("FIELD_NOTE").chunkText("订单支付金额")
+                .build();
+        when(ragIndexBuildChunkMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of(membership));
+        when(knowledgeChunkMapper.selectBatchIds(any())).thenReturn(List.of(chunk));
+        when(fieldSemanticService.membershipValid(1L, 88L, List.of("1", "2", "3", "4"))).thenReturn(false);
+        java.lang.reflect.Method method = IamS1QueryServiceImpl.class.getDeclaredMethod(
+                "loadKnowledgeChunks", RagIndexBuild.class, Long.class, Set.class);
+        method.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> filtered = (List<Map<String, Object>>) method.invoke(
+                service, build, 1L, Set.of("table:orders", "column:orders.pay_amt"));
+        assertThat(filtered).isEmpty();
+
+        when(fieldSemanticService.membershipValid(1L, 88L, List.of("1", "2", "3", "4"))).thenReturn(true);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> valid = (List<Map<String, Object>>) method.invoke(
+                service, build, 1L, Set.of("table:orders", "column:orders.pay_amt"));
+        assertThat(valid).hasSize(1);
+        assertThat(valid.get(0)).containsEntry("factType", "FIELD_SEMANTIC");
+    }
+
+    @Test
+    void submitDispatchesPythonOnlyAfterTransactionCommit() {
+        MetadataSnapshot metadata = new MetadataSnapshot();
+        metadata.setId(88L);
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        IamS1QueryAskRequestDTO request = askRequest();
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            String taskId = service.submit(7L, request);
+            verify(pythonClient, never()).executeAsync(any(), any(), any(), any());
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+            verify(pythonClient).executeAsync(eq(taskId), any(), any(), any());
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void submitPreservesConversationButDoesNotPromoteUnverifiedCompletedSqlToExamples() {
+        MetadataSnapshot metadata = new MetadataSnapshot();
+        metadata.setId(88L);
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        String buildId = "abcdef12-3456-7890-abcd-ef1234567890";
+        String collectionName = "dataocean_rag_ds1_babcdef1234567890abcdef1234567890";
+        RagIndexBuild activeBuild = RagIndexBuild.builder().buildId(buildId).datasourceId(1L)
+                .sourceSnapshotId(88L).collectionName(collectionName).status("ACTIVE").build();
+        when(ragIndexBuildService.activeBuildForQuery(1L)).thenReturn(activeBuild);
+        when(ragIndexBuildService.embeddingConfigForQuery(activeBuild)).thenReturn(Map.of("providerId", "test", "model", "test"));
+        when(conversationService.getOrCreateConversation(7L, 1L, null, "查询订单")).thenReturn(42L);
+        when(conversationService.saveUserMessage(eq(42L), eq("查询订单"), any(String.class))).thenReturn(23L);
+        when(conversationContextSummaryService.buildQueryContext(
+                eq(42L), eq(7L), eq(23L), any(com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO.class)))
+                .thenReturn(ConversationContextDTO.builder()
+                        .history(List.of(Map.of("role", "user", "content", "上一轮订单")))
+                        .summary(Map.of("intent", "订单统计"))
+                        .build());
+        com.dataocean.module.glossary.entity.po.GlossaryTerm glossaryTerm =
+                new com.dataocean.module.glossary.entity.po.GlossaryTerm();
+        glossaryTerm.setId(9L);
+        glossaryTerm.setName("订单");
+        glossaryTerm.setDisplayName("订单");
+        glossaryTerm.setStatus(com.dataocean.module.glossary.entity.po.GlossaryTerm.STATUS_APPROVED);
+        when(glossaryTermMapper.selectList(any())).thenReturn(List.of(glossaryTerm));
+        when(metadataRelationshipService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of());
+        QueryTask previous = QueryTask.builder().userId(7L).datasourceId(1L)
+                .iamProtocolVersion("IAM-SIMPLE-1").status("COMPLETED")
+                .question("上一轮订单").resultSql("SELECT id FROM orders WHERE id = :iam_s1_previous")
+                .usedTables("[\"orders\"]").usedColumns("[\"orders.id\"]").build();
+        QueryTask foreign = QueryTask.builder().userId(7L).datasourceId(1L)
+                .iamProtocolVersion("IAM-SIMPLE-1").status("COMPLETED")
+                .question("客户信息").resultSql("SELECT secret FROM customers")
+                .usedTables("[\"customers\"]").usedColumns("[\"customers.secret\"]").build();
+        lenient().when(queryTaskMapper.selectList(any())).thenReturn(List.of(previous, foreign));
+        ArgumentCaptor<Map<String, Object>> body = ArgumentCaptor.forClass(Map.class);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.submit(7L, askRequest());
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        verify(conversationService).acquireTurn(eq(42L), eq(7L), eq(1L), any(String.class));
+        verify(conversationService).saveUserMessage(eq(42L), eq("查询订单"), any(String.class));
+        verify(pythonClient).executeAsync(any(), body.capture(), any(), any());
+        assertThat(body.getValue().get("conversationHistory")).isEqualTo(
+                List.of(Map.of("role", "user", "content", "上一轮订单")));
+        assertThat(body.getValue().get("conversationSummary")).isEqualTo(Map.of("intent", "订单统计"));
+        assertThat(body.getValue()).containsEntry("ragBuildId", buildId)
+                .containsEntry("ragCollectionName", collectionName)
+                .containsEntry("ragSourceSnapshotId", 88L)
+                .containsKey("candidateCatalog");
+        assertThat((List<?>) body.getValue().get("glossaryTerms")).isEmpty();
+        assertThat((List<?>) body.getValue().get("fewShotExamples")).isEmpty();
+    }
+
+    @Test
+    void completePersistsAssistantMessageAndRefreshesSummary() throws Exception {
+        task.setConversationId(42L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        when(queryTaskMapper.update(any(), any())).thenReturn(1);
+        QueryAttempt attempt = protectedAttempt("task-1", "attempt-assistant", "PROTECTED",
+                "[{\"id\":1}]", "[{\"name\":\"id\"}]",
+                "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        when(queryAttemptMapper.selectForUpdate("task-1", attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
+                "sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))),
+                "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1)),
+                "chartConfig", Map.of("series", List.of(Map.of("name", "id", "data", List.of(1))))));
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
+
+        verify(conversationService).saveAssistantMessage(eq(42L), any(), eq("task-1"), any());
+        verify(conversationContextSummaryService).refreshAsync(42L, 7L, 1L);
+    }
+
+    static Stream<Arguments> invalidCompletedAttemptCases() {
+        return Stream.of(
+                Arguments.of("missing attemptId", "missing", null, null, true),
+                Arguments.of("blank attemptId", "blank", "   ", null, true),
+                Arguments.of("mismatched SQL hash", "attempt-1", "attempt-1", "PROTECTED", false),
+                Arguments.of("AUTHORIZED attempt", "attempt-1", "attempt-1", "AUTHORIZED", true),
+                Arguments.of("EXECUTING attempt", "attempt-1", "attempt-1", "EXECUTING", true));
+    }
+
+    @ParameterizedTest(name = "COMPLETED callback rejects {0}")
+    @MethodSource("invalidCompletedAttemptCases")
+    void completeRejectsCompletedResultsWithoutTheExactProtectedAttempt(
+            String scenario, String attemptCase, String suppliedAttemptId,
+            String attemptStatus, boolean matchingSqlHash) throws Exception {
+        String expectedHash = "a".repeat(64);
+        String storedHash = matchingSqlHash ? expectedHash : "b".repeat(64);
+        if (!"missing".equals(attemptCase) && !"blank".equals(attemptCase)) {
+            QueryAttempt attempt = protectedAttempt("task-1", suppliedAttemptId, storedHash,
+                    attemptStatus, "[{\"id\":\"PROTECTED_ATTEMPT_VALUE\"}]",
+                    "[{\"name\":\"id\"}]",
+                    "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]",
+                    "[\"orders\"]", "[\"orders.id\"]");
+            when(queryAttemptMapper.selectForUpdate("task-1", suppliedAttemptId)).thenReturn(attempt);
+        }
+        Map<String, Object> result = completedResult("task-1", expectedHash);
+        if (!"missing".equals(attemptCase)) result.put("attemptId", suppliedAttemptId);
+        result.putAll(untrustedCompletionFields());
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
+
+        ArgumentCaptor<LambdaUpdateWrapper<QueryTask>> update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(isNull(), update.capture());
+        assertRejectedCompletionUpdateContainsNoPayload(update.getValue());
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+        verify(conversationService, never()).saveAssistantMessage(any(), any(), any(), any());
+        if ("missing".equals(attemptCase) || "blank".equals(attemptCase)) {
+            verify(queryAttemptMapper, never()).selectForUpdate(any(), any());
+        }
+    }
+
+    @Test
+    void missingAttemptCompletionCannotPersistOrExposePythonPayloadThroughReadPathsOrSse() throws Exception {
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        when(queryTaskMapper.update(any(), any())).thenAnswer(invocation -> {
+            task.setStatus("FAILED");
+            task.setErrorMessage("Java 未完成该 SQL 尝试的结果保护");
+            task.setIamFinalProtectionStatus("REJECTED_FINAL_PROTECTION");
+            task.setResultData(null);
+            task.setResultColumns(null);
+            task.setChartConfig(null);
+            task.setSqlExplanation(null);
+            task.setSuggestedQuestions(null);
+            return 1;
+        });
+
+        ArgumentCaptor<Consumer<String>> callback = ArgumentCaptor.forClass(Consumer.class);
+        String taskId;
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            taskId = service.submit(7L, askRequest());
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        task.setTaskId(taskId);
+        task.setConversationId(42L);
+        verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture(), any());
+        Map<String, Object> pythonResult = completedResult(taskId, "a".repeat(64));
+        pythonResult.remove("attemptId");
+        pythonResult.putAll(untrustedCompletionFields());
+        callback.getValue().accept(objectMapper.writeValueAsString(pythonResult));
+
+        ArgumentCaptor<LambdaUpdateWrapper<QueryTask>> update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(queryTaskMapper).update(isNull(), update.capture());
+        assertRejectedCompletionUpdateContainsNoPayload(update.getValue());
+        ArgumentCaptor<String> failureContent = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> failureMetadata = ArgumentCaptor.forClass(String.class);
+        verify(conversationService).saveAssistantMessage(eq(42L), failureContent.capture(), eq(taskId), failureMetadata.capture());
+        assertThat(failureContent.getValue()).doesNotContain("RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+        assertThat(failureMetadata.getValue()).doesNotContain("RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+        assertThat(task.getResultData()).isNull();
+        assertThat(task.getChartConfig()).isNull();
+        assertThat(task.getSqlExplanation()).isNull();
+
+        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
+        verify(sseController).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO ssePayload = (QueryTaskVO) pushed.getValue();
+        assertThat(ssePayload.getStatus()).isEqualTo("FAILED");
+        assertJsonDoesNotContain(ssePayload, "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+        verify(sseController, never()).sendError(eq(taskId), any());
+
+        QueryTaskVO getPayload = service.get(taskId, 7L);
+        assertThat(getPayload.getStatus()).isEqualTo("FAILED");
+        assertJsonDoesNotContain(getPayload, "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+
+        Page<QueryTask> taskPage = new Page<>(1, 20, 1);
+        taskPage.setRecords(List.of(task));
+        when(queryTaskMapper.selectPage(any(), any())).thenReturn(taskPage);
+        var history = service.history(7L, new QueryHistoryQuery());
+        assertThat(history.getRecords()).hasSize(1);
+        assertJsonDoesNotContain(history.getRecords().get(0),
+                "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+
+        var message = com.dataocean.module.query.entity.vo.ConversationMessageVO.builder()
+                .role("assistant").taskId(taskId).content(failureContent.getValue())
+                .metadata(failureMetadata.getValue()).build();
+        var messagePage = com.dataocean.module.query.entity.vo.ConversationMessagePageVO.builder()
+                .items(new java.util.ArrayList<>(List.of(message))).hasMore(false).build();
+        when(conversationService.listMessagePage(42L, 7L, null, 50)).thenReturn(messagePage);
+        var historyMessages = service.conversationMessages(42L, 7L, null, 50);
+        assertJsonDoesNotContain(historyMessages,
+                "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+    }
+
+    @Test
+    void failedCompletionPersistsFailureMessageAndRefreshesSummary() throws Exception {
+        task.setConversationId(42L);
+        when(queryTaskMapper.update(any(), any())).thenReturn(1);
+
+        service.complete("task-1", objectMapper.writeValueAsString(Map.of(
+                "taskId", "task-1", "protocolVersion", "IAM-SIMPLE-1", "status", "FAILED",
+                "error", "SQL 未通过校验")));
+
+        verify(conversationService).saveAssistantMessage(eq(42L), eq("SQL 未通过校验"), eq("task-1"), any());
+        verify(conversationContextSummaryService).refreshAsync(42L, 7L, 1L);
+    }
+
+    @Test
+    void chartIsDroppedWhenAnyOutputColumnRequiresMasking() throws Exception {
+        var method = IamS1QueryServiceImpl.class.getDeclaredMethod(
+                "safeChartConfig", Object.class, Map.class);
+        method.setAccessible(true);
+        Map<String, Object> chart = Map.of(
+                "xAxis", Map.of("data", List.of("13800000000")),
+                "dataset", Map.of("source", List.of(Map.of("phone", "13800000000"))),
+                "series", List.of(Map.of("name", "phone", "data", List.of(Map.of(
+                        "name", "13800000000", "value", 1)))));
+
+        Object sanitized = method.invoke(service, chart, Map.of("phone", "PHONE"));
+
+        assertThat(sanitized).isNull();
+    }
+
+    @Test
+    void normalHistoricalResultIsReprotectedAcrossTaskHistoryConversationAndExportJson() throws Exception {
+        prepareHistoricalPhoneResult(100L, "{}", null);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(101L, "MASKED", "PHONE", List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        when(maskingService.maskResultByFields(any(), any())).thenReturn(List.of(Map.of("phone", "138****0000")));
+
+        QueryTaskVO taskJson = service.get("task-1", 7L);
+        assertThat(taskJson.getData()).containsExactly(Map.of("phone", "138****0000"));
+        assertThat(taskJson.getChartConfig()).isNull();
+        assertThat(taskJson.getSqlExplanation()).isNull();
+        assertThat(taskJson.getSuggestedQuestions()).isEmpty();
+        assertThat(taskJson.getMaskedFields()).containsEntry("phone", "PHONE");
+        assertThat(taskJson.getFinalProtectionStatus()).isEqualTo("FINAL_MASKED");
+        assertJsonDoesNotContain(taskJson, "RAW_PHONE_VALUE_83d2");
+
+        var conversationPage = com.dataocean.module.query.entity.vo.ConversationMessagePageVO.builder()
+                .items(new java.util.ArrayList<>(List.of(ConversationMessageVO.builder().id(2L)
+                        .role("assistant").content("RAW_PHONE_VALUE_83d2")
+                        .metadata("{\"chartConfig\":\"RAW_PHONE_VALUE_83d2\"}")
+                        .taskId("task-1").build())))
+                .nextBeforeMessageId(null).hasMore(false).build();
+        when(conversationService.listMessagePage(42L, 7L, null, 50)).thenReturn(conversationPage);
+        var protectedMessages = service.conversationMessages(42L, 7L, null, 50);
+        assertJsonDoesNotContain(protectedMessages, "RAW_PHONE_VALUE_83d2");
+
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<QueryTask> taskPage =
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 20, 1);
+        taskPage.setRecords(List.of(task));
+        when(queryTaskMapper.selectPage(any(), any())).thenReturn(taskPage);
+        var history = service.history(7L, new com.dataocean.module.query.entity.query.QueryHistoryQuery());
+        assertJsonDoesNotContain(history, "RAW_PHONE_VALUE_83d2");
+
+        var exportedRows = service.export("task-1", 7L);
+        assertThat(exportedRows).containsExactly(Map.of("phone", "138****0000"));
+        assertJsonDoesNotContain(exportedRows, "RAW_PHONE_VALUE_83d2");
+    }
+
+    @Test
+    void historicalResultWithAnAlreadyMaskedFieldIsDeniedIfItsMaskPolicyChanges() {
+        prepareHistoricalPhoneResult(100L, "{\"phone\":\"PHONE\"}", null);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(101L, "MASKED", "EMAIL", List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("脱敏策略已变化");
+    }
+
+    @Test
+    void historicalResultNeverRestoresRowsMaskedUnderThePreviousPolicy() throws Exception {
+        prepareHistoricalPhoneResult(100L, "{\"phone\":\"PHONE\"}", null);
+        task.setResultData("[{\"phone\":\"138****0000\"}]");
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(101L, "NORMAL", null, List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        QueryTaskVO result = service.get("task-1", 7L);
+
+        assertThat(result.getData()).containsExactly(Map.of("phone", "138****0000"));
+        assertThat(result.getMaskedFields()).containsEntry("phone", "PHONE");
+        assertThat(result.getFinalProtectionStatus()).isEqualTo("FINAL_MASKED");
+        assertThat(result.getChartConfig()).isNull();
+        assertThat(result.getSqlExplanation()).isNull();
+        assertThat(result.getSuggestedQuestions()).isEmpty();
+        assertJsonDoesNotContain(result, "RAW_PHONE_VALUE_83d2");
+    }
+
+    @Test
+    void historicalResultIsDeniedWhenAReferencedFieldBecomesHidden() {
+        prepareHistoricalPhoneResult(100L, "{}", null);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(101L, "HIDDEN", null, List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("权限已变化");
+    }
+
+    @Test
+    void historicalResultIsDeniedWhenTraceNamesHiddenSourceOmittedFromUsedColumns() {
+        prepareHistoricalPhoneResult(100L, "{}", null);
+        task.setUsedColumns("[\"users.name\"]");
+        var hiddenPhone = new IamS1FieldProtectionVO(2L, "users", "phone", "HIDDEN", null, "hidden");
+        var visibleName = new IamS1FieldProtectionVO(3L, "users", "name", "NORMAL", null, "normal");
+        var table = new IamS1TablePermissionVO(true, "ALLOWED", "users", List.of("phone", "name"),
+                List.of(), List.of(hiddenPhone, visibleName), List.of());
+        var current = new IamS1DataAuthorizationSnapshot(true, "ALLOWED", "IAM-SIMPLE-1", 7L, 1L,
+                "db", 88L, 101L, LocalDateTime.now(), null, List.of(table));
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(current);
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("权限已变化");
+    }
+
+    @Test
+    void historicalResultIsDeniedWhenDataContainsAKeyOutsideColumnMetadata() throws Exception {
+        prepareHistoricalPhoneResult(100L, "{}", null);
+        task.setResultData("[{\"phone\":\"RAW_PHONE_VALUE_83d2\",\"untracked\":\"UNTRACKED_RAW_VALUE\"}]");
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(100L, "NORMAL", null, List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("结果来源不完整");
+    }
+
+    @Test
+    void historicalResultIsDeniedWhenRowPermissionIsTightened() {
+        prepareHistoricalPhoneResult(100L, "{}",
+                "{\"resources\":[{\"grantSources\":[{\"rowCondition\":{}}]}]}");
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(userSnapshot(101L, "NORMAL", null, List.of(rowGrant())));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("权限已变化");
+    }
+
+    @Test
+    void executionRowPredicateUsesPythonColumnIdWithoutRawPolicyValues() {
+        Object wire = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "grantMap", rowGrant());
+        var predicate = objectMapper.valueToTree(wire).path("rowCondition").path("predicates").get(0);
+        assertThat(predicate.has("columnId")).isTrue();
+        assertThat(predicate.has("columnMetaId")).isFalse();
+        assertThat(predicate.has("structuredValueJson")).isFalse();
+        assertThat(predicate.has("bindingReference")).isTrue();
+    }
+
+    @Test
+    void frozenReferenceComparisonIgnoresJsonKeyAndReferenceOrderButPreservesIdentity() {
+        String a="[{\"sourceSnapshotId\":\"3\",\"factSourceIds\":[\"17\",\"18\"]},{\"sourceSnapshotId\":\"3\",\"factSourceIds\":[\"19\"]}]";
+        String b="[{\"factSourceIds\":[\"19\"],\"sourceSnapshotId\":\"3\"},{\"factSourceIds\":[\"17\",\"18\"],\"sourceSnapshotId\":\"3\"}]";
+        assertThat(service.sameFrozenReferences(a,b)).isTrue();
+        assertThat(service.sameFrozenReferences(a,b.replace("19","20"))).isFalse();
+        assertThat(service.sameFrozenReferences(a,b.replace("[\"17\",\"18\"]","[\"18\",\"17\"]"))).isFalse();
+        assertThat(service.sameFrozenReferences(a,"[]")).isFalse();
+        assertThat(service.sameFrozenReferences(a,"not-json")).isFalse();
+        assertThat(service.sameFrozenReferences(a,b+"[]")).isFalse();
+    }
+
+    @Test
+    void policyDependenciesStaySeparateFromProjectedColumnsAndRequireCurrentMetadata() {
+        var region = new com.dataocean.module.metadata.entity.po.DbColumnMeta();
+        region.setId(2L); region.setSnapshotId(88L); region.setDatasourceId(1L);
+        region.setTableName("users"); region.setColumnName("region"); region.setGovernanceStatus("NORMAL");
+        when(policyColumnMapper.selectById(2L)).thenReturn(region);
+        var field = new IamS1FieldProtectionVO(1L,"users","phone","NORMAL",null,"normal");
+        var table = new IamS1TablePermissionVO(true,"ALLOWED","users",List.of("phone"),List.of(rowGrant()),List.of(field),List.of());
+        var current = new IamS1DataAuthorizationSnapshot(true,"ALLOWED","IAM-SIMPLE-1",7L,1L,"db",88L,100L,
+                LocalDateTime.now(),null,List.of(table));
+        var request = new IamS1QueryAskRequestDTO();
+        request.setTables(List.of(new IamS1TableRequestDTO("users",Set.of("phone"))));
+        var resource = objectMapper.valueToTree(service.buildSnapshot("task-policy",request,current)).path("resources").get(0);
+        assertThat(resource.path("columns").size()).isEqualTo(1);
+        assertThat(resource.path("columns").get(0).path("name").asText()).isEqualTo("phone");
+        assertThat(resource.path("policyColumns").get(0).path("name").asText()).isEqualTo("region");
+        region.setSnapshotId(77L);
+        assertThatThrownBy(() -> service.buildSnapshot("task-policy",request,current)).isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void completedSsePayloadUsesCurrentProtectionForPreviouslyNormalHistory() throws Exception {
+        prepareHistoricalPhoneResult(100L, "{}", null);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(snapshot(),
+                userSnapshot(101L, "MASKED", "PHONE", List.of()),
+                userSnapshot(101L, "MASKED", "PHONE", List.of()));
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        when(maskingService.maskResultByFields(any(), any())).thenReturn(List.of(Map.of("phone", "138****0000")));
+
+        ArgumentCaptor<Consumer<String>> callback = ArgumentCaptor.forClass(Consumer.class);
+        String taskId;
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            taskId = service.submit(7L, askRequest());
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        task.setTaskId(taskId);
+        verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture(), any());
+        QueryAttempt attempt = protectedAttempt(taskId, "attempt-history-sse", "a".repeat(64), "PROTECTED",
+                "[{\"phone\":\"RAW_PHONE_VALUE_83d2\"}]", "[{\"name\":\"phone\"}]",
+                "[{\"outputColumn\":\"phone\",\"sources\":[\"users.phone\"]}]",
+                "[\"users\"]", "[\"users.phone\"]");
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("users.phone"), "usedTables", List.of("users"),
+                "sourceTrace", List.of(Map.of("outputColumn", "phone", "sources", List.of("users.phone"))),
+                "columns", List.of(Map.of("name", "phone")), "data", List.of(Map.of("phone", "RAW_PHONE_VALUE_83d2"))));
+        callback.getValue().accept(objectMapper.writeValueAsString(result));
+
+        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
+        verify(sseController).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO ssePayload = (QueryTaskVO) pushed.getValue();
+        assertThat(ssePayload.getData()).containsExactly(Map.of("phone", "138****0000"));
+        assertThat(ssePayload.getChartConfig()).isNull();
+        assertThat(ssePayload.getSqlExplanation()).isNull();
+        assertThat(ssePayload.getSuggestedQuestions()).isEmpty();
+        assertThat(ssePayload.getFinalProtectionStatus()).isEqualTo("FINAL_MASKED");
+        assertJsonDoesNotContain(ssePayload, "RAW_PHONE_VALUE_83d2");
+    }
+
+    private void prepareHistoricalPhoneResult(Long resultRevision, String persistedMasks,
+                                              String executionSnapshot) {
+        task.setStatus("COMPLETED");
+        task.setQuestion("查询手机号");
+        task.setConversationId(42L);
+        task.setPermissionRevision(resultRevision);
+        task.setIamResourceRequest("[{\"tableName\":\"users\",\"referencedColumns\":[\"phone\"],"
+                + "\"columnUsages\":{\"phone\":[\"PROJECTION\"]}}]");
+        task.setIamExecutionSnapshot(executionSnapshot == null ? "{\"resources\":[]}" : executionSnapshot);
+        task.setUsedColumns("[\"users.phone\"]");
+        task.setUsedTables("[\"users\"]");
+        task.setResultColumns("[{\"name\":\"phone\"}]");
+        task.setResultData("[{\"phone\":\"RAW_PHONE_VALUE_83d2\"}]");
+        task.setIamSourceTrace("{\"permissionRevision\":100,\"activeMetadataSnapshotId\":88,"
+                + "\"entries\":[{\"outputColumn\":\"phone\",\"sources\":[\"users.phone\"]}]}");
+        task.setMaskedFields(persistedMasks);
+        task.setChartConfig("{\"xAxis\":{\"data\":[\"RAW_PHONE_VALUE_83d2\"]},"
+                + "\"series\":[{\"name\":\"phone\",\"data\":[\"RAW_PHONE_VALUE_83d2\"]}]}");
+        task.setSqlExplanation("手机号 RAW_PHONE_VALUE_83d2 的查询说明");
+        task.setSuggestedQuestions("[\"查询 RAW_PHONE_VALUE_83d2 的订单\"]");
+        task.setIamCapabilities("{\"viewSql\":true,\"export\":true}");
+        task.setIamFinalProtectionStatus("FINAL_PROTECTED");
+    }
+
+    private IamS1GrantSourceVO rowGrant() {
+        var predicate = new IamS1RowPredicateVO(2L, "region", "EQ", "STRING", null, "current_department");
+        var condition = new IamS1RowConditionVO("ALL", List.of(predicate));
+        return new IamS1GrantSourceVO(9L, "USER", 7L, "用户个人授权", null, "MANUAL", null,
+                LocalDateTime.now().minusDays(1), null, List.of("phone"), condition);
+    }
+
+    private IamS1DataAuthorizationSnapshot userSnapshot(Long revision, String protection, String policy,
+                                                        List<IamS1GrantSourceVO> grantSources) {
+        IamS1FieldProtectionVO phone = new IamS1FieldProtectionVO(2L, "users", "phone", protection, policy,
+                "HIDDEN".equals(protection) ? "hidden" : "normal");
+        IamS1TablePermissionVO table = new IamS1TablePermissionVO(true, "ALLOWED", "users", List.of("phone"),
+                grantSources, List.of(phone), List.of());
+        return new IamS1DataAuthorizationSnapshot(true, "ALLOWED", "IAM-SIMPLE-1", 7L, 1L, "db", 88L,
+                revision, LocalDateTime.now(), null, List.of(table));
+    }
+
+    private void assertJsonDoesNotContain(Object value, String secret) throws Exception {
+        assertThat(objectMapper.writeValueAsString(value)).doesNotContain(secret);
+    }
+
+    private void assertJsonDoesNotContain(Object value, String... secrets) throws Exception {
+        String json = objectMapper.writeValueAsString(value);
+        for (String secret : secrets) assertThat(json).doesNotContain(secret);
+    }
+
+    private Map<String, Object> completedResult(QueryAttempt attempt) {
+        Map<String, Object> result = completedResult(attempt.getTaskId(), attempt.getSqlHash());
+        result.put("attemptId", attempt.getAttemptId());
+        return result;
+    }
+
+    private Map<String, Object> completedResult(String taskId, String sqlHash) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("taskId", taskId);
+        result.put("protocolVersion", "IAM-SIMPLE-1");
+        result.put("status", "COMPLETED");
+        result.put("sqlHash", sqlHash);
+        return result;
+    }
+
+    private Map<String, Object> untrustedCompletionFields() {
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("data", List.of(Map.of("id", "RAW_COMPLETION_ROW_8c1e")));
+        fields.put("columns", List.of(Map.of("name", "id")));
+        fields.put("sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))));
+        fields.put("usedTables", List.of("orders"));
+        fields.put("usedColumns", List.of("orders.id"));
+        fields.put("sql", "SELECT id FROM orders");
+        fields.put("sqlExplanation", "RAW_COMPLETION_EXPLANATION_1d0c");
+        fields.put("chartConfig", Map.of("title", "RAW_COMPLETION_CHART_45af",
+                "series", List.of(Map.of("name", "id", "data", List.of("RAW_COMPLETION_CHART_45af")))));
+        fields.put("suggestedQuestions", List.of("RAW_COMPLETION_EXPLANATION_1d0c"));
+        return fields;
+    }
+
+    private QueryAttempt protectedAttempt(String taskId, String attemptId, String status,
+                                          String protectedData, String protectedColumns, String sourceTrace) {
+        return protectedAttempt(taskId, attemptId, "a".repeat(64), status, protectedData,
+                protectedColumns, sourceTrace, "[\"orders\"]", "[\"orders.id\"]");
+    }
+
+    private QueryAttempt protectedAttempt(String taskId, String attemptId, String sqlHash, String status,
+                                          String protectedData, String protectedColumns, String sourceTrace,
+                                          String usedTables, String usedColumns) {
+        return QueryAttempt.builder().taskId(taskId).attemptId(attemptId).sqlHash(sqlHash)
+                .status(status).safeSql("SELECT id FROM orders")
+                .protectedData(protectedData).protectedColumns(protectedColumns).sourceTrace(sourceTrace)
+                .maskedFields("{}").usedTables(usedTables).usedColumns(usedColumns)
+                .rowCount(1).executionTimeMs(3).build();
+    }
+
+    private void assertRejectedCompletionUpdateContainsNoPayload(LambdaUpdateWrapper<QueryTask> update) {
+        String assignments = update.getSqlSet().toLowerCase(java.util.Locale.ROOT);
+        assertThat(assignments).doesNotContain("result_data", "result_columns", "chart_config",
+                "sql_explanation", "result_sql", "iam_source_trace", "suggested_questions");
+        assertThat(update.getParamNameValuePairs().values().toString()).doesNotContain(
+                "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
+    }
+
+    @Test
+    void glossaryConvertsRealMetadataFqnToFirewallTableColumnContract() throws Exception {
+        var term = approvedTerm(9L, "订单");
+        term.setReviewHash("reviewed-hash");
+        when(termWorkflow.factValid(9L, "reviewed-hash")).thenReturn(true);
+        when(termWorkflow.approvedFact(9L)).thenReturn(Map.of("reviewId", 19L,
+                "contentHash", "reviewed-hash", "name", "订单", "description", "已审核的订单定义"));
+        var relation = new com.dataocean.module.metadata.entity.po.MetadataRelationship();
+        relation.setSourceId(9L);
+        relation.setTargetId(20L);
+        var entity = new com.dataocean.module.metadata.entity.po.MetadataEntity();
+        entity.setId(20L);
+        entity.setFqn("db.sales.orders.id");
+        when(glossaryTermMapper.selectList(any())).thenReturn(List.of(term));
+        when(metadataRelationshipService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of(relation));
+        when(metadataEntityService.listByIds(any())).thenReturn(List.of(entity));
+
+        List<Map<String, Object>> glossary = invokeGlossary(snapshot());
+
+        assertThat(glossary).hasSize(1);
+        assertThat(glossary.get(0).get("columns")).isEqualTo(List.of("orders.id"));
+        assertThat(glossary.get(0).get("factSourceIds")).isEqualTo(List.of("9", "19"));
+    }
+
+    @Test
+    void glossaryDropsTermWhenRelatedEntityIsMissingOrCrossDatasource() throws Exception {
+        var term = approvedTerm(9L, "订单");
+        var relation = new com.dataocean.module.metadata.entity.po.MetadataRelationship();
+        relation.setSourceId(9L);
+        relation.setTargetId(20L);
+        when(glossaryTermMapper.selectList(any())).thenReturn(List.of(term));
+        when(metadataRelationshipService.list(any(LambdaQueryWrapper.class))).thenReturn(List.of(relation));
+        when(metadataEntityService.listByIds(any())).thenReturn(List.of());
+        assertThat(invokeGlossary(snapshot())).isEmpty();
+
+        var crossDatasource = new com.dataocean.module.metadata.entity.po.MetadataEntity();
+        crossDatasource.setId(20L);
+        crossDatasource.setFqn("other.sales.orders.id");
+        when(metadataEntityService.listByIds(any())).thenReturn(List.of(crossDatasource));
+        assertThat(invokeGlossary(snapshot())).isEmpty();
+    }
+
+    @Test
+    void glossaryRelationReadFailureReturnsEmptyGlossary() throws Exception {
+        when(glossaryTermMapper.selectList(any())).thenReturn(List.of(approvedTerm(9L, "订单")));
+        when(metadataRelationshipService.list(any(LambdaQueryWrapper.class)))
+                .thenThrow(new IllegalStateException("relationship store down"));
+
+        assertThat(invokeGlossary(snapshot())).isEmpty();
+    }
+
+    private com.dataocean.module.glossary.entity.po.GlossaryTerm approvedTerm(Long id, String name) {
+        var term = new com.dataocean.module.glossary.entity.po.GlossaryTerm();
+        term.setId(id);
+        term.setName(name);
+        term.setDisplayName(name);
+        term.setStatus(com.dataocean.module.glossary.entity.po.GlossaryTerm.STATUS_APPROVED);
+        return term;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> invokeGlossary(IamS1DataAuthorizationSnapshot snapshot) throws Exception {
+        var method = IamS1QueryServiceImpl.class.getDeclaredMethod(
+                "loadApprovedGlossaryTerms", IamS1DataAuthorizationSnapshot.class);
+        method.setAccessible(true);
+        return (List<Map<String, Object>>) method.invoke(service, snapshot);
+    }
+
+    @Test
+    void conversationHistoryIsDeniedAfterQueryUseRevocation() {
+        when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.conversationMessages(42L, 7L, null, 50))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("问数功能");
+        verifyNoConversationRead();
+    }
+
+    @Test
+    void processingCandidateTaskCanReadProgressWithoutAUserSelectedTableList() {
+        task.setConversationId(42L);
+        task.setIamResourceRequest("[]");
+        when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(true);
+        when(dataResolver.currentPermissionRevision()).thenReturn(100L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(conversationService.isActiveTurn(42L, "task-1")).thenReturn(true);
+
+        QueryTaskVO result = service.get("task-1", 7L);
+
+        assertThat(result.getStatus()).isEqualTo("PROCESSING");
+        assertThat(result.getSql()).isNull();
+        assertThat(result.getData()).isNull();
+        verify(dataResolver, never()).resolve(any());
+    }
+
+    @Test
+    void resumeRebuildsCandidateContextFromMysqlAndUsesStableConversationThread() {
+        task.setConversationId(42L);
+        task.setQuestion("统计订单");
+        task.setCreatedAt(LocalDateTime.now());
+        task.setIamResourceRequest("[]");
+        when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(true);
+        when(dataResolver.currentPermissionRevision()).thenReturn(100L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(conversationService.isActiveTurn(42L, "task-1")).thenReturn(true);
+        when(conversationService.userMessageIdForTask(42L, 7L, "task-1")).thenReturn(23L);
+        when(conversationContextSummaryService.buildQueryContext(
+                eq(42L), eq(7L), eq(23L), any(com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO.class)))
+                .thenReturn(ConversationContextDTO.builder().history(List.of()).summary(null).build());
+        ArgumentCaptor<Map<String, Object>> request = ArgumentCaptor.forClass(Map.class);
+
+        service.resume("task-1", 7L);
+
+        verify(pythonClient).executeAsync(eq("task-1"), request.capture(), any(), any());
+        assertThat(request.getValue()).containsEntry("resume", true)
+                .containsEntry("conversationThreadId", "iam-s1:7:1:42");
+        assertThat(request.getValue()).doesNotContainKey("connectionConfig");
+    }
+
+    @Test
+    void oneUnverifiableHistoricalResultDoesNotFailTheRestOfTheMessagePage() {
+        when(authorizationResolver.hasGlobalFunction(7L, "query:use")).thenReturn(true);
+        when(queryTaskMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(null);
+        var page = com.dataocean.module.query.entity.vo.ConversationMessagePageVO.builder()
+                .items(new java.util.ArrayList<>(List.of(
+                        ConversationMessageVO.builder().id(1L).role("user").content("question").build(),
+                        ConversationMessageVO.builder().id(2L).role("assistant").content("old answer")
+                                .taskId("missing-task").build())))
+                .nextBeforeMessageId(1L).hasMore(false).build();
+        when(conversationService.listMessagePage(42L, 7L, null, 50)).thenReturn(page);
+
+        var result = service.conversationMessages(42L, 7L, null, 50);
+
+        assertThat(result.getItems()).hasSize(2);
+        assertThat(result.getItems().get(0).getContent()).isEqualTo("question");
+        assertThat(result.getItems().get(1).getContent()).contains("当前权限隐藏");
+        assertThat(result.getItems().get(1).getMetadata()).isNull();
+    }
+
+    private void verifyNoConversationRead() {
+        org.mockito.Mockito.verifyNoInteractions(conversationService);
+    }
+
+    private MetadataSnapshot metadataSnapshot(Long id) {
+        MetadataSnapshot metadata = new MetadataSnapshot();
+        metadata.setId(id);
+        return metadata;
+    }
+
+    @Test
+    void submitPushesSseThroughTheSameGatedReadPathAsRest() throws Exception {
+        MetadataSnapshot metadata = new MetadataSnapshot();
+        metadata.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:use"))).thenReturn(true);
+        when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:sql:view"))).thenReturn(false);
+        when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:export"))).thenReturn(false);
+        // 任务已按当前权限落库了注入后的 SQL，但该用户没有 query:sql:view。
+        task.setStatus("COMPLETED");
+        task.setResultSql("SELECT id FROM orders LIMIT 10000");
+        task.setResultData("[{\"id\":1}]");
+        task.setResultColumns("[{\"name\":\"id\"}]");
+        task.setUsedColumns("[\"orders.id\"]");
+        task.setIamSourceTrace("{\"entries\":[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]}");
+        task.setIamCapabilities("{\"query\":true,\"viewSql\":false,\"export\":false}");
+
+        ArgumentCaptor<Consumer<String>> callback = ArgumentCaptor.forClass(Consumer.class);
+        String taskId;
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            taskId = service.submit(7L, askRequest());
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture(), any());
+        QueryAttempt attempt = protectedAttempt(taskId, "attempt-sse-sql-view", "PROTECTED",
+                "[{\"id\":1}]", "[{\"name\":\"id\"}]",
+                "[{\"outputColumn\":\"id\",\"sources\":[\"orders.id\"]}]");
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("orders.id"), "usedTables", List.of("orders"),
+                "sourceTrace", List.of(Map.of("outputColumn", "id", "sources", List.of("orders.id"))),
+                "columns", List.of(Map.of("name", "id")), "data", List.of(Map.of("id", 1)),
+                "sql", "SELECT id FROM orders LIMIT 10000"));
+        callback.getValue().accept(objectMapper.writeValueAsString(result));
+
+        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
+        verify(sseController).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO vo = (QueryTaskVO) pushed.getValue();
+        assertThat(task.getResultSql()).isNotNull();
+        assertThat(vo.getSql()).isNull();
+        assertThat(vo.getCanViewSql()).isFalse();
+    }
+
+    @Test
+    void ssePushesOnlyAnErrorWhenTheReadPathRefusesTheResult() throws Exception {
+        MetadataSnapshot metadata = new MetadataSnapshot();
+        metadata.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata).thenReturn(null);
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        ArgumentCaptor<Consumer<String>> callback = ArgumentCaptor.forClass(Consumer.class);
+        String taskId;
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            taskId = service.submit(7L, askRequest());
+            for (TransactionSynchronization synchronization : TransactionSynchronizationManager.getSynchronizations()) {
+                synchronization.afterCommit();
+            }
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+        verify(pythonClient).executeAsync(eq(taskId), any(), callback.capture(), any());
+        callback.getValue().accept("{\"taskId\":\"" + taskId
+                + "\",\"protocolVersion\":\"IAM-SIMPLE-1\",\"status\":\"FAILED\"}");
+
+        verify(sseController).sendError(eq(taskId), any());
+        verify(sseController, never()).sendResult(any(), any());
+    }
+
+    @Test
+    void failedTaskIsReadableWithItsRealErrorInsteadOfPermissionChanged() {
+        MetadataSnapshot metadata = new MetadataSnapshot();
+        metadata.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:use"))).thenReturn(true);
+        task.setStatus("FAILED");
+        task.setErrorMessage("SQL 未通过 S1 AST 校验");
+        task.setIamFinalProtectionStatus("FAILED");
+
+        QueryTaskVO vo = service.get("task-1", 7L);
+
+        assertThat(vo.getStatus()).isEqualTo("FAILED");
+        assertThat(vo.getErrorMessage()).isEqualTo("SQL 未通过 S1 AST 校验");
+        assertThat(vo.getSql()).isNull();
+    }
+
+    @Test
+    void getIsRefusedOnceQueryUseIsRevoked() {
+        when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:use"))).thenReturn(false);
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("问数功能");
+    }
+
+    private IamS1QueryAskRequestDTO askRequest() {
+        IamS1QueryAskRequestDTO request = new IamS1QueryAskRequestDTO();
+        request.setProtocolVersion("IAM-SIMPLE-1"); request.setDatasourceId(1L); request.setQuestion("查询订单");
+        IamS1TableRequestDTO table = new IamS1TableRequestDTO(); table.setTableName("orders");
+        table.setReferencedColumns(new java.util.LinkedHashSet<>(List.of("id")));
+        table.setColumnUsages(Map.of("id", Set.of(IamS1ColumnUsage.PROJECTION)));
+        request.setTables(List.of(table));
+        return request;
+    }
+
+    @Test
+    void completeRefusesToPersistWhenTheTraceCarriesConflictingMaskPolicies() throws Exception {
+        MetadataSnapshot metadata = new MetadataSnapshot();
+        metadata.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
+        when(dataResolver.resolve(any())).thenReturn(maskedSnapshot());
+        QueryAttempt attempt = protectedAttempt("task-1", "attempt-conflicting-mask", "a".repeat(64), "PROTECTED",
+                "[{\"x\":\"13800000000\"}]", "[{\"name\":\"x\"}]",
+                "[{\"outputColumn\":\"x\",\"sources\":[\"users.phone\"]},"
+                        + "{\"outputColumn\":\"X\",\"sources\":[\"users.email\"]}]",
+                "[\"users\"]", "[\"users.phone\",\"users.email\"]");
+        when(queryAttemptMapper.selectForUpdate("task-1", attempt.getAttemptId())).thenReturn(attempt);
+        Map<String, Object> result = completedResult(attempt);
+        result.putAll(Map.of("usedColumns", List.of("users.phone", "users.email"), "usedTables", List.of("users"),
+                "sourceTrace", List.of(
+                        Map.of("outputColumn", "x", "sources", List.of("users.phone")),
+                        Map.of("outputColumn", "X", "sources", List.of("users.email"))),
+                "columns", List.of(Map.of("name", "x")), "data", List.of(Map.of("x", "13800000000"))));
+
+        service.complete("task-1", objectMapper.writeValueAsString(result));
+
+        // 冲突结果只能按其中一个策略脱敏，必须在落库前 fail-closed。
+        verify(queryTaskMapper).update(any(), any());
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    void getRefusesToReturnWhenThePersistedTraceCarriesConflictingMaskPolicies() {
+        MetadataSnapshot metadata = new MetadataSnapshot();
+        metadata.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
+        when(dataResolver.resolve(any())).thenReturn(maskedSnapshot());
+        when(authorizationResolver.hasGlobalFunction(eq(7L), eq("query:use"))).thenReturn(true);
+        task.setStatus("COMPLETED");
+        task.setUsedColumns("[\"users.phone\",\"users.email\"]");
+        task.setResultColumns("[{\"name\":\"x\"}]");
+        task.setResultData("[{\"x\":\"13800000000\"}]");
+        task.setIamSourceTrace("{\"entries\":[{\"outputColumn\":\"x\",\"sources\":[\"users.phone\"]},"
+                + "{\"outputColumn\":\"X\",\"sources\":[\"users.email\"]}]}");
+
+        assertThatThrownBy(() -> service.get("task-1", 7L))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("脱敏策略冲突");
+    }
+
+    private IamS1DataAuthorizationSnapshot maskedSnapshot() {
+        IamS1FieldProtectionVO phone = new IamS1FieldProtectionVO(2L, "users", "phone", "MASKED", "PHONE", "masked");
+        IamS1FieldProtectionVO email = new IamS1FieldProtectionVO(4L, "users", "email", "MASKED", "EMAIL", "masked");
+        IamS1TablePermissionVO table = new IamS1TablePermissionVO(true, "ALLOWED", "users", List.of("phone", "email"),
+                List.of(), List.of(phone, email), List.of());
+        return new IamS1DataAuthorizationSnapshot(true, "ALLOWED", "IAM-SIMPLE-1", 7L, 1L, "db", 88L,
+                100L, LocalDateTime.now(), null, List.of(table));
+    }
+
+    private IamS1DataAuthorizationSnapshot snapshot() {
+        IamS1FieldProtectionVO field = new IamS1FieldProtectionVO(1L, "orders", "id", "NORMAL", null, "normal");
+        IamS1TablePermissionVO table = new IamS1TablePermissionVO(true, "ALLOWED", "orders", List.of("id"), List.of(), List.of(field), List.of());
+        return new IamS1DataAuthorizationSnapshot(true, "ALLOWED", "IAM-SIMPLE-1", 7L, 1L, "db", 88L,
+                100L, LocalDateTime.now(), null, List.of(table));
+    }
+}

@@ -2,7 +2,6 @@ package com.dataocean.module.user.entity.dto;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -46,7 +45,6 @@ public class UserCreateDTO {
     /** 所属部门ID */
     private Long departmentId;
 
-    /** 分配的角色ID列表，至少选择一个 */
-    @NotEmpty(message = "至少选择一个角色")
+    /** 分配的角色ID列表。S1 角色绑定只走 /api/iam-s1/users/{id}/roles，这里拒绝非空值。 */
     private List<Long> roleIds;
 }

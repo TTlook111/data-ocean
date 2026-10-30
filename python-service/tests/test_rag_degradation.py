@@ -118,14 +118,15 @@ class TestVectorStoreCache:
     """VectorStore 缓存测试"""
 
     def test_milvus_client_singleton(self):
-        """MilvusClient 单例测试"""
-        from dataocean.rag.milvus_client import get_client
+        """MilvusClient 单例测试不依赖本机 Milvus 服务"""
+        with patch("dataocean.rag.milvus_client._client", None), \
+             patch("dataocean.rag.milvus_client.MilvusClient") as client_factory:
+            client_factory.return_value = MagicMock()
+            client1 = get_client()
+            client2 = get_client()
 
-        client1 = get_client()
-        client2 = get_client()
-
-        # 同一个实例
-        assert client1 is client2
+            assert client1 is client2
+            client_factory.assert_called_once()
 
 
 class TestRerankerIntegration:

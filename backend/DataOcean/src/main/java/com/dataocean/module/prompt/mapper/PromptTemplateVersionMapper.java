@@ -1,7 +1,7 @@
 package com.dataocean.module.prompt.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.prompt.entity.PromptTemplateVersion;
+import com.dataocean.module.prompt.entity.po.PromptTemplateVersion;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

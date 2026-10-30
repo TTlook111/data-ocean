@@ -2,14 +2,16 @@ package com.dataocean.module.metadata.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.common.pagination.PageRequest;
+import com.dataocean.common.entity.query.PageQuery;
 import com.dataocean.common.result.Result;
-import com.dataocean.module.datasource.entity.Datasource;
+import com.dataocean.common.security.UserContext;
+import com.dataocean.module.system.aspect.AdminAuditLog;
+import com.dataocean.module.datasource.entity.po.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
-import com.dataocean.module.metadata.entity.SchemaSyncTask;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.SchemaSyncTask;
 import com.dataocean.module.metadata.entity.dto.SyncTriggerDTO;
 import com.dataocean.module.metadata.entity.vo.SchemaDiffVO;
 import com.dataocean.module.metadata.entity.vo.SnapshotVO;
@@ -20,10 +22,15 @@ import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.metadata.mapper.SchemaSyncTaskMapper;
 import com.dataocean.module.metadata.service.SchemaCollectionService;
 import com.dataocean.module.metadata.service.SchemaDiffService;
+import com.dataocean.module.permission.s1.annotation.IamS1Resource;
+import com.dataocean.module.permission.s1.annotation.IamS1ScopedList;
+import com.dataocean.module.permission.s1.resource.IamS1ResourceType;
+import com.dataocean.module.permission.s1.entity.vo.IamS1DatasourceRefVO;
+import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
+import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,8 +53,8 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/admin/metadata")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('metadata:manage')")
 @Slf4j
+@AdminAuditLog(logReads = false)
 public class MetadataCollectionController {
 
     private final SchemaCollectionService collectionService;
@@ -57,6 +64,23 @@ public class MetadataCollectionController {
     private final DbTableMetaMapper tableMetaMapper;
     private final DbColumnMetaMapper columnMetaMapper;
     private final DatasourceMapper datasourceMapper;
+    private final IamS1AdminGuard adminGuard;
+    private final IamS1CapabilityService capabilityService;
+
+    /** 查看采集任务：与“执行采集”拆开，同源负责范围校验。 */
+    private static final String COLLECT_VIEW_FUNCTION = "metadata:collect:view";
+    /** 执行采集：独立动作码。 */
+    private static final String COLLECT_RUN_FUNCTION = "metadata:collect:run";
+    /** 读取资产结构与快照。 */
+    private static final String VIEW_FUNCTION = "metadata:view";
+
+    /** 调用者在指定功能上负责的数据源 ID。 */
+    private List<Long> visibleDatasourceIds(Long userId, String functionCode) {
+        return capabilityService.responsibleDatasourcesWithFunction(userId, functionCode)
+                .stream()
+                .map(IamS1DatasourceRefVO::id)
+                .toList();
+    }
 
     /**
      * 手动触发元数据同步任务。
@@ -65,6 +89,7 @@ public class MetadataCollectionController {
      * @return 新建同步任务 ID
      */
     @PostMapping("/sync")
+    @IamS1Resource(function = COLLECT_RUN_FUNCTION, resourceType = IamS1ResourceType.DATASOURCE, resourceIds = "#request.datasourceId")
     public Result<Map<String, Long>> triggerSync(@Valid @RequestBody SyncTriggerDTO request) {
         Long taskId = collectionService.executeFullSync(request.getDatasourceId(), request.getIncludeStatistics());
         return Result.success("同步任务已触发", Map.of("taskId", taskId));
@@ -79,12 +104,23 @@ public class MetadataCollectionController {
      * @return 同步任务分页列表
      */
     @GetMapping("/sync-tasks")
+    @IamS1ScopedList(COLLECT_VIEW_FUNCTION)
     public Result<Page<SyncTaskVO>> listSyncTasks(@RequestParam(required = false) Long datasourceId,
                                                    @RequestParam(defaultValue = "1") Integer page,
                                                   @RequestParam(defaultValue = "20") Integer size) {
-        Page<SchemaSyncTask> pageParam = new Page<>(PageRequest.page(page), PageRequest.size(size));
+        Long userId = UserContext.currentUserId();
+        // 负责源下推到 SQL：取回后过滤会让 LIMIT/OFFSET 在过滤前生效，分页总数会错。
+        List<Long> visible = visibleDatasourceIds(userId, COLLECT_VIEW_FUNCTION);
+        if (datasourceId != null) {
+            adminGuard.requireDatasourceFunction(userId, COLLECT_VIEW_FUNCTION, datasourceId);
+        }
+        List<Long> scope = datasourceId != null ? List.of(datasourceId) : visible;
+        if (scope.isEmpty()) {
+            return Result.success(new Page<>(PageQuery.normalizePage(page), PageQuery.normalizePageSize(size), 0));
+        }
+        Page<SchemaSyncTask> pageParam = new Page<>(PageQuery.normalizePage(page), PageQuery.normalizePageSize(size));
         LambdaQueryWrapper<SchemaSyncTask> wrapper = new LambdaQueryWrapper<SchemaSyncTask>()
-                .eq(datasourceId != null, SchemaSyncTask::getDatasourceId, datasourceId)
+                .in(SchemaSyncTask::getDatasourceId, scope)
                 .orderByDesc(SchemaSyncTask::getCreatedAt);
         Page<SchemaSyncTask> result = syncTaskMapper.selectPage(pageParam, wrapper);
 
@@ -103,12 +139,22 @@ public class MetadataCollectionController {
      * @return 快照分页列表
      */
     @GetMapping("/snapshots")
+    @IamS1ScopedList(VIEW_FUNCTION)
     public Result<Page<SnapshotVO>> listSnapshots(@RequestParam(required = false) Long datasourceId,
                                                    @RequestParam(defaultValue = "1") Integer page,
                                                   @RequestParam(defaultValue = "20") Integer size) {
-        Page<MetadataSnapshot> pageParam = new Page<>(PageRequest.page(page), PageRequest.size(size));
+        Long userId = UserContext.currentUserId();
+        List<Long> visible = visibleDatasourceIds(userId, VIEW_FUNCTION);
+        if (datasourceId != null) {
+            adminGuard.requireDatasourceFunction(userId, VIEW_FUNCTION, datasourceId);
+        }
+        List<Long> scope = datasourceId != null ? List.of(datasourceId) : visible;
+        if (scope.isEmpty()) {
+            return Result.success(new Page<>(PageQuery.normalizePage(page), PageQuery.normalizePageSize(size), 0));
+        }
+        Page<MetadataSnapshot> pageParam = new Page<>(PageQuery.normalizePage(page), PageQuery.normalizePageSize(size));
         LambdaQueryWrapper<MetadataSnapshot> wrapper = new LambdaQueryWrapper<MetadataSnapshot>()
-                .eq(datasourceId != null, MetadataSnapshot::getDatasourceId, datasourceId)
+                .in(MetadataSnapshot::getDatasourceId, scope)
                 .orderByDesc(MetadataSnapshot::getCreatedAt);
         Page<MetadataSnapshot> result = snapshotMapper.selectPage(pageParam, wrapper);
 
@@ -125,6 +171,7 @@ public class MetadataCollectionController {
      * @return 快照、表和字段元数据详情
      */
     @GetMapping("/snapshots/{id}")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#id")
     public Result<Map<String, Object>> getSnapshotDetail(@PathVariable Long id) {
         MetadataSnapshot snapshot = snapshotMapper.selectById(id);
         if (snapshot == null) {
@@ -138,6 +185,8 @@ public class MetadataCollectionController {
 
         Map<String, Object> detail = new HashMap<>();
         detail.put("snapshot", snapshot);
+        Datasource datasource = datasourceMapper.selectById(snapshot.getDatasourceId());
+        detail.put("datasourceName", datasource == null ? null : datasource.getName());
         detail.put("tables", tables);
         detail.put("columns", columns);
         return Result.success(detail);
@@ -150,6 +199,7 @@ public class MetadataCollectionController {
      * @return 表元数据列表
      */
     @GetMapping("/snapshots/{id}/tables")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#id")
     public Result<List<DbTableMeta>> listSnapshotTables(@PathVariable Long id) {
         List<DbTableMeta> tables = tableMetaMapper.selectList(
                 new LambdaQueryWrapper<DbTableMeta>()
@@ -166,6 +216,7 @@ public class MetadataCollectionController {
      * @return 字段元数据列表
      */
     @GetMapping("/snapshots/{id}/tables/{tableName}/columns")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#id")
     public Result<List<DbColumnMeta>> listSnapshotTableColumns(@PathVariable Long id,
                                                                 @PathVariable String tableName) {
         List<DbColumnMeta> columns = columnMetaMapper.selectList(
@@ -184,7 +235,10 @@ public class MetadataCollectionController {
      * @return 快照差异结果
      */
     @GetMapping("/snapshots/diff")
+    @IamS1Resource(function = VIEW_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = {"#oldId", "#newId"})
     public Result<SchemaDiffVO> diffSnapshots(@RequestParam Long oldId, @RequestParam Long newId) {
+        Long userId = UserContext.currentUserId();
+        // 两个快照都要校验：只校验其中一个就能借无权快照读到无权数据源的差异。
         return Result.success(diffService.compareSnapshots(oldId, newId));
     }
 
@@ -199,40 +253,70 @@ public class MetadataCollectionController {
      * @return 快照差异结果
      */
     @PostMapping("/snapshots/diff/record")
+    @IamS1Resource(function = COLLECT_RUN_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = {"#oldId", "#newId"})
     public Result<SchemaDiffVO> recordSnapshotDiff(@RequestParam Long oldId, @RequestParam Long newId) {
+        Long userId = UserContext.currentUserId();
         return Result.success("变更事件已记录", diffService.compareAndRecordChanges(oldId, newId));
     }
 
+    /**
+     * 将同步任务实体转换为视图对象。
+     *
+     * @param task    同步任务实体
+     * @param dsNames 数据源ID到名称的映射，用于填充数据源名称
+     * @return 同步任务视图对象
+     */
     private SyncTaskVO toSyncTaskVO(SchemaSyncTask task, Map<Long, String> dsNames) {
         SyncTaskVO vo = new SyncTaskVO();
         vo.setId(task.getId());
-        vo.setDatasourceName(dsNames.getOrDefault(task.getDatasourceId(), "未知"));
-        vo.setTriggerType(task.getTriggerType());
-        vo.setStatus(task.getStatus());
-        vo.setProgressTotal(task.getProgressTotal());
-        vo.setProgressCurrent(task.getProgressCurrent());
-        vo.setStartedAt(task.getStartedAt());
-        vo.setFinishedAt(task.getFinishedAt());
-        vo.setErrorMessage(task.getErrorMessage());
+        vo.setDatasourceId(task.getDatasourceId());
+        vo.setDatasourceName(dsNames.getOrDefault(task.getDatasourceId(), "未知"));  // 从映射中获取数据源名称
+        vo.setTriggerType(task.getTriggerType());  // 触发类型（MANUAL/SCHEDULED）
+        vo.setStatus(task.getStatus());            // 任务状态（RUNNING/SUCCESS/FAILED）
+        vo.setProgressTotal(task.getProgressTotal());    // 总进度（表数量）
+        vo.setProgressCurrent(task.getProgressCurrent()); // 当前进度（已处理表数量）
+        vo.setStartedAt(task.getStartedAt());      // 开始时间
+        vo.setFinishedAt(task.getFinishedAt());    // 结束时间
+        vo.setErrorMessage(task.getErrorMessage()); // 错误信息（失败时）
+        vo.setSnapshotId(task.getSnapshotId());
         return vo;
     }
 
+    /**
+     * 将元数据快照实体转换为视图对象。
+     *
+     * @param snapshot 元数据快照实体
+     * @param dsNames  数据源ID到名称的映射，用于填充数据源名称
+     * @return 快照视图对象
+     */
     private SnapshotVO toSnapshotVO(MetadataSnapshot snapshot, Map<Long, String> dsNames) {
         SnapshotVO vo = new SnapshotVO();
         vo.setId(snapshot.getId());
-        vo.setSnapshotVersion(snapshot.getSnapshotVersion());
+        vo.setSnapshotVersion(snapshot.getSnapshotVersion());  // 快照版本号
         vo.setDatasourceId(snapshot.getDatasourceId());
-        vo.setDatasourceName(dsNames.getOrDefault(snapshot.getDatasourceId(), "未知"));
-        vo.setTableCount(snapshot.getTableCount());
-        vo.setColumnCount(snapshot.getColumnCount());
-        vo.setQualityScore(snapshot.getQualityScore());
-        vo.setStatus(snapshot.getStatus());
-        vo.setCreatedAt(snapshot.getCreatedAt());
+        vo.setDatasourceName(dsNames.getOrDefault(snapshot.getDatasourceId(), "未知"));  // 从映射中获取数据源名称
+        vo.setTableCount(snapshot.getTableCount());      // 表数量
+        vo.setColumnCount(snapshot.getColumnCount());    // 列数量
+        vo.setQualityScore(snapshot.getQualityScore());  // 质量评分
+        vo.setStatus(snapshot.getStatus());              // 快照状态
+        vo.setCreatedAt(snapshot.getCreatedAt());        // 创建时间
         return vo;
     }
 
+    /**
+     * 获取所有未删除数据源的ID到名称映射。
+     * <p>
+     * 使用 Stream 的 Collectors.toMap 将数据源列表转换为 Map 结构，
+     * 用于快速查找数据源名称。
+     * </p>
+     *
+     * @return 数据源ID到名称的映射
+     */
     private Map<Long, String> getDatasourceNames() {
         return datasourceMapper.selectList(new LambdaQueryWrapper<Datasource>().eq(Datasource::getDeleted, 0L))
-                .stream().collect(Collectors.toMap(Datasource::getId, Datasource::getName));
+                .stream()
+                .collect(Collectors.toMap(
+                        Datasource::getId,      // key: 数据源ID
+                        Datasource::getName));  // value: 数据源名称
     }
 }

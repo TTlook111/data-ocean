@@ -1,914 +1,1103 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, onMounted, watch } from 'vue'
-import {
-  Activity,
-  AlertTriangle,
-  ArrowRight,
-  ArrowRightLeft,
-  BookOpen,
-  Bot,
-  CheckCircle2,
-  Clock,
-  Cpu,
-  Database,
-  FileText,
-  GitBranch,
-  Layers,
-  MessageSquareText,
-  RefreshCw,
-  Shield,
-  ShieldAlert,
-  Table2,
-  Users,
-  Wand2,
-  XCircle,
-  Zap,
-} from 'lucide-vue-next'
-import { useAuthStore } from '../stores/auth'
+import { computed, ref, watch } from 'vue'
+import { ArrowRight, CircleAlert, Clock3, Database } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { useIamWorkspaceSession } from '../composables/useIamWorkspaceSession'
 import { getDashboardStats, type DashboardStats } from '../api/admin/dashboard'
-import { gsap } from 'gsap'
-import { useGsapMotion } from '../composables/useGsapMotion'
-import { useChart } from '../composables/useChart'
+import {
+  getBatchDatasourceReadiness,
+  listSimpleDatasources,
+  type DatasourceReadiness,
+  type DatasourceSimpleItem,
+} from '../api/admin/datasource'
+import { listIamS1AccessRequestQueue } from '../api/iamS1'
+import TaskPageHeader from '../components/admin/TaskPageHeader.vue'
+import TitleHelp from '../components/admin/TitleHelp.vue'
+import ReadinessPanel from '../components/admin/ReadinessPanel.vue'
+import BusinessStatusBadge from '../components/admin/BusinessStatusBadge.vue'
+import ActivityTimeline from '../components/admin/ActivityTimeline.vue'
+import LoadingState from '../components/common/LoadingState.vue'
+import ErrorState from '../components/common/ErrorState.vue'
 
-const auth = useAuthStore()
-const loading = ref(false)
+const router = useRouter()
+const session = useIamWorkspaceSession()
+const iamS1 = session.iam
+let statsRequest = 0,
+  readinessRequest = 0,
+  approvalRequest = 0
+const scoped = (code: string) =>
+  session.ready.value && (iamS1.systemAdmin || iamS1.datasourcesWithFunction(code).length > 0)
+const canViewSources = computed(() => scoped('datasource:view'))
+const canViewIssues = computed(() => scoped('governance:issue:view'))
 const stats = ref<DashboardStats | null>(null)
-const homeRef = ref<HTMLElement | null>(null)
-const { lift, reveal, revealAfterTick, withContext } = useGsapMotion(homeRef)
-
-// 环形进度图 ref
-const snapshotRingRef = ref<HTMLDivElement | null>(null)
-const issueRingRef = ref<HTMLDivElement | null>(null)
-const snapshotRingChart = useChart(snapshotRingRef)
-const issueRingChart = useChart(issueRingRef)
-
-// gsap CountUp 动画用的响应式数值
-const animatedUsers = ref(0)
-const animatedTables = ref(0)
-const animatedColumns = ref(0)
-const animatedOpenIssues = ref(0)
-const animatedResolvedIssues = ref(0)
-
-const permissions = computed(() => auth.user?.permissions || auth.currentUser?.permissions || [])
-const displayName = computed(() => auth.currentUser?.realName || auth.user?.realName || auth.user?.username || '用户')
-const isAdmin = computed(() => permissions.value.includes('*'))
-const issueTotal = computed(() => stats.value ? stats.value.openIssues + stats.value.resolvedIssues : 0)
-const issueResolutionRate = computed(() => issueTotal.value ? Math.round((stats.value!.resolvedIssues / issueTotal.value) * 100) : 0)
-const snapshotPublishRate = computed(() => stats.value?.totalSnapshots ? Math.round((stats.value.publishedSnapshots / stats.value.totalSnapshots) * 100) : 0)
-const qualityLabel = computed(() => {
-  const score = stats.value?.avgQualityScore
-  if (score == null) return '暂无评分'
-  if (score >= 80) return '质量稳定'
-  if (score >= 60) return '需要关注'
-  return '优先治理'
-})
-const qualityTone = computed(() => {
-  const score = stats.value?.avgQualityScore ?? 0
-  if (score >= 80) return 'good'
-  if (score >= 60) return 'warn'
-  return 'bad'
-})
-
-const actionLabels: Record<string, string> = {
-  PUBLISH: '发布', EXPIRE: '过期', REVOKE: '撤回', STATUS_TRANSITION: '状态变更'
+const readiness = ref<DatasourceReadiness[]>([])
+const loading = ref(true)
+const statsLoading = ref(true)
+const readinessLoading = ref(true)
+const statsError = ref('')
+const workbenchForbidden = ref(false)
+const readinessError = ref('')
+const readinessPartialError = ref('')
+const sources = ref<DatasourceSimpleItem[]>([])
+const pendingApprovalCount = ref<number | null>(null)
+const approvalLoading = ref(false)
+const approvalError = ref('')
+interface PendingItem {
+  key: string
+  title: string
+  description: string
+  to: { path: string; query?: Record<string, string> }
+  count?: number
 }
 
-/** 快捷操作配置 */
-const quickActions = [
-  { icon: MessageSquareText, label: '智能查询', desc: '用自然语言查询数据', path: '/query', color: 'blue' },
-  { icon: Database, label: '数据源管理', desc: '管理数据源连接', path: '/admin/datasources', color: 'green' },
-  { icon: Wand2, label: 'Prompt 管理', desc: '优化 AI 提示词', path: '/admin/prompts', color: 'purple' },
-  { icon: Bot, label: 'AI 配置', desc: '配置 AI 供应商', path: '/admin/system/ai-config', color: 'sky' },
-  { icon: Shield, label: '权限管理', desc: '管理访问策略', path: '/admin/permission/access', color: 'orange' },
-  { icon: FileText, label: '知识库', desc: '管理 skills.md', path: '/admin/knowledge', color: 'teal' },
-]
+/** 工作台入口功能：与后端 DashboardController 的 admin:workbench:view 一致。 */
+const canViewWorkbench = computed(() => session.canGlobal('admin:workbench:view'))
+const readyCount = computed(() => readiness.value.filter((item) => item.askable).length)
+const blockedItems = computed(() =>
+  readiness.value.filter((item) => !item.askable && item.blockReasons.length),
+)
+const progressingCount = computed(
+  () => readiness.value.filter((item) => !item.askable && !item.blockReasons.length).length,
+)
+const unknownCount = computed(() => Math.max(0, sources.value.length - readiness.value.length))
+const orderedReadiness = computed(() =>
+  [...readiness.value].sort((a, b) => Number(a.askable) - Number(b.askable)),
+)
+const readinessCountsKnown = computed(
+  () =>
+    !readinessLoading.value && !readinessError.value && !readinessPartialError.value && !unknownCount.value,
+)
+const allReady = computed(
+  () =>
+    Boolean(sources.value.length) &&
+    !readinessLoading.value &&
+    !readinessError.value &&
+    !readinessPartialError.value &&
+    !unknownCount.value &&
+    readyCount.value === sources.value.length,
+)
+const attentionTitle = computed(() => {
+  if (readinessLoading.value) return '正在读取准备情况'
+  if (readinessError.value) return '准备情况暂不可用'
+  if (readinessPartialError.value || unknownCount.value) return '部分数据源的准备情况尚未确认'
+  if (!sources.value.length) return '先接入第一个数据源'
+  if (blockedItems.value.length) return `${blockedItems.value.length} 个数据源需要处理`
+  if (progressingCount.value) return `${progressingCount.value} 个数据源仍在准备中`
+  return allReady.value ? '全部数据源已准备就绪' : '当前没有阻断项'
+})
+const datasourceTotalText = computed(() =>
+  !canViewSources.value || readinessLoading.value || readinessError.value
+    ? '—'
+    : String(sources.value.length),
+)
+const readyCountText = computed(() => (readinessCountsKnown.value ? String(readyCount.value) : '—'))
+const blockedCountText = computed(() =>
+  readinessCountsKnown.value ? String(blockedItems.value.length) : '—',
+)
+const issueCountText = computed(() =>
+  canViewIssues.value &&
+  stats.value &&
+  Number.isSafeInteger(stats.value.openIssues) &&
+  stats.value.openIssues >= 0
+    ? String(stats.value.openIssues)
+    : '—',
+)
+const readinessStateTitle = computed(() => {
+  if (readinessLoading.value) return '数据源准备情况正在读取'
+  if (readinessError.value) return '数据源准备情况读取失败'
+  if (readinessPartialError.value || unknownCount.value) return '部分数据源的准备情况尚未确认'
+  return ''
+})
+const statsStateTitle = computed(() => {
+  if (statsLoading.value) return '治理统计正在读取'
+  if (statsError.value) return '治理统计读取失败'
+  return ''
+})
+const readinessDimensionLabels = ['连接', '采集', '治理', '知识', '授权'] as const
+const activityItems = computed(() =>
+  (stats.value?.recentActivities || []).map((item) => ({
+    time: item.time,
+    action: item.type,
+    description: item.description,
+  })),
+)
+const canViewApprovals = computed(() => iamS1.hasGlobal('security:approval:view'))
+const canViewKnowledge = computed(
+  () => iamS1.hasGlobal('knowledge:view') || iamS1.datasourcesWithFunction('knowledge:view').length > 0,
+)
+const canViewReleases = computed(
+  () =>
+    iamS1.hasGlobal('metadata:release:view') ||
+    iamS1.datasourcesWithFunction('metadata:release:view').length > 0,
+)
+const pendingLoading = computed(() => readinessLoading.value || statsLoading.value || approvalLoading.value)
+const pendingError = computed(() => {
+  const errors = [readinessError.value, statsError.value, approvalError.value].filter(Boolean)
+  return errors.length ? errors.join('；') : ''
+})
+const pendingItems = computed<PendingItem[]>(() => {
+  const items: PendingItem[] = []
+  for (const source of blockedItems.value.slice(0, 5)) {
+    const reason = source.blockReasons[0]
+    items.push({
+      key: `datasource-${source.datasourceId}`,
+      title: `${source.datasourceName} 需要处理`,
+      description: reason?.message || '打开数据源详情查看待处理条件。',
+      to: { path: `/admin/data-sources/${source.datasourceId}` },
+    })
+  }
+  if (canViewIssues.value && stats.value && stats.value.openIssues > 0) {
+    items.push({
+      key: 'governance-issues',
+      title: `${stats.value.openIssues} 个治理问题待处理`,
+      description: '进入问题中心分派、确认或处理。',
+      to: { path: '/admin/governance/issues' },
+      count: stats.value.openIssues,
+    })
+  }
+  if (canViewApprovals.value && pendingApprovalCount.value !== null && pendingApprovalCount.value > 0) {
+    items.push({
+      key: 'access-approvals',
+      title: `${pendingApprovalCount.value} 条访问申请待审批`,
+      description: '审批负责数据源上的访问申请。',
+      to: { path: '/admin/access/iam-approvals' },
+      count: pendingApprovalCount.value,
+    })
+  }
+  return items
+})
 
-async function fetchStats() {
-  if (!isAdmin.value) return
-  loading.value = true
+async function loadStats() {
+  const k = session.capture(),
+    r = ++statsRequest
+  if (statsLoading.value && stats.value) return
+  stats.value = null
+  statsLoading.value = true
+  statsError.value = ''
+  workbenchForbidden.value = false
+  if (!canViewWorkbench.value) {
+    statsError.value = '没有“查看工作台”功能：需要角色拥有该功能。'
+    statsLoading.value = false
+    return
+  }
   try {
-    const res = await getDashboardStats()
-    stats.value = res.data ?? null
-  } catch { /* 静默处理 */ }
-  finally { loading.value = false }
-}
-
-/** 快捷操作卡片悬停动画 */
-function animateQuickActions() {
-  nextTick(() => {
-    const cards = document.querySelectorAll('.quick-action-card')
-    cards.forEach((card) => {
-      card.addEventListener('mouseenter', () => {
-        gsap.to(card, {
-          y: -6,
-          scale: 1.02,
-          duration: 0.3,
-          ease: 'power2.out',
-          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
-        })
-      })
-      card.addEventListener('mouseleave', () => {
-        gsap.to(card, {
-          y: 0,
-          scale: 1,
-          duration: 0.3,
-          ease: 'power2.out',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-        })
-      })
-    })
-  })
-}
-
-onMounted(() => {
-  withContext(() => {
-    // 欢迎区域动画
-    reveal('.home-header', { y: -20, duration: 0.6, ease: 'back.out(1.7)' })
-
-    // 快捷操作卡片交错动画
-    reveal('.quick-action-card', {
-      y: 30,
-      opacity: 0,
-      stagger: 0.08,
-      duration: 0.5,
-      ease: 'power3.out',
-      delay: 0.2,
-    })
-
-    // 运维指标卡片动画
-    reveal('.ops-card', {
-      scale: 0.9,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.5,
-      ease: 'back.out(1.7)',
-      delay: 0.4,
-    })
-
-    // 统计卡片动画
-    reveal('.stat-card', {
-      y: 20,
-      opacity: 0,
-      stagger: 0.06,
-      duration: 0.4,
-      ease: 'power2.out',
-      delay: 0.6,
-    })
-
-    // 优先事项卡片动画
-    reveal('.priority-card', {
-      x: -30,
-      opacity: 0,
-      stagger: 0.1,
-      duration: 0.5,
-      ease: 'power3.out',
-      delay: 0.8,
-    })
-
-    // 活动列表动画
-    reveal('.activity-item', {
-      x: 20,
-      opacity: 0,
-      stagger: 0.05,
-      duration: 0.3,
-      ease: 'power2.out',
-      delay: 1,
-    })
-
-    // 用户指南动画
-    reveal('.user-guide', {
-      y: 20,
-      opacity: 0,
-      duration: 0.5,
-      ease: 'power2.out',
-      delay: 0.3,
-    })
-  })
-
-  fetchStats()
-  animateQuickActions()
-})
-
-watch(stats, async (value) => {
-  if (!value) return
-  await nextTick()
-  revealAfterTick('.ops-card, .stat-card, .priority-card, .activity-item', {
-    y: 14,
-    stagger: 0.035,
-  })
-
-  // 初始化环形进度图
-  initRingCharts()
-
-  // gsap CountUp 动画
-  gsap.to(animatedUsers, { value: value.totalUsers, duration: 1, ease: 'power2.out', snap: { value: 1 } })
-  gsap.to(animatedTables, { value: value.totalTables, duration: 1, ease: 'power2.out', snap: { value: 1 } })
-  gsap.to(animatedColumns, { value: value.totalColumns, duration: 1, ease: 'power2.out', snap: { value: 1 } })
-  gsap.to(animatedOpenIssues, { value: value.openIssues, duration: 1, ease: 'power2.out', snap: { value: 1 } })
-  gsap.to(animatedResolvedIssues, { value: value.resolvedIssues, duration: 1, ease: 'power2.out', snap: { value: 1 } })
-})
-
-function initRingCharts() {
-  const ringBase = {
-    type: 'gauge' as const,
-    startAngle: 90,
-    endAngle: -270,
-    pointer: { show: false },
-    progress: { show: true, overlap: false, roundCap: true, clip: false, itemStyle: { color: '#4d8fdc' } },
-    axisLine: { lineStyle: { width: 8, color: [[1, '#e5e7eb']] } },
-    axisTick: { show: false },
-    splitLine: { show: false },
-    axisLabel: { show: false },
-    detail: { fontSize: 16, fontWeight: 700, color: '#172033', offsetCenter: [0, 0], formatter: '{value}%' },
-    data: [{ value: 0 }],
+    const result = await getDashboardStats()
+    if (!session.current(k) || r !== statsRequest) return
+    if (!result.data || !Array.isArray(result.data.recentActivities)) throw new Error('工作台统计回执不完整')
+    stats.value = result.data
+  } catch (cause) {
+    if (!session.current(k) || r !== statsRequest) return
+    workbenchForbidden.value = (cause as { response?: { status?: number } })?.response?.status === 403
+    statsError.value = cause instanceof Error ? cause.message : '工作台统计加载失败'
+  } finally {
+    if (session.current(k) && r === statsRequest) statsLoading.value = false
   }
-
-  snapshotRingChart.init()
-  snapshotRingChart.setOption({
-    series: [{ ...ringBase, data: [{ value: snapshotPublishRate.value }] }],
-  })
-
-  issueRingChart.init()
-  issueRingChart.setOption({
-    series: [{ ...ringBase, data: [{ value: issueResolutionRate.value }] }],
-  })
 }
 
-watch(loading, (value, oldValue) => {
-  if (!oldValue || value) return
-  const grid = homeRef.value?.querySelector('.stats-grid')
-  if (grid) {
-    lift(grid, { y: 8, duration: 0.22, scale: 1 })
+async function loadReadiness() {
+  const k = session.capture(),
+    r = ++readinessRequest
+  sources.value = []
+  readiness.value = []
+  readinessError.value = ''
+  readinessPartialError.value = ''
+  readinessLoading.value = false
+  if (!canViewWorkbench.value || !canViewSources.value) {
+    readinessError.value = '当前没有数据源查看范围；未读取数据源准备情况，不作为0个数据源。'
+    return
   }
-})
+  readinessLoading.value = true
+  try {
+    const resultSources = await listSimpleDatasources()
+    if (!session.current(k) || r !== readinessRequest) return
+    const rows = resultSources.data
+    if (
+      !Array.isArray(rows) ||
+      rows.some((x) => !Number.isSafeInteger(x.id) || x.id <= 0) ||
+      new Set(rows.map((x) => x.id)).size !== rows.length
+    )
+      throw new Error('数据源目录回执不完整')
+    sources.value = rows.filter((x) => iamS1.canOnDatasource('datasource:view', x.id))
+    if (!sources.value.length) return
+    const ids = sources.value.map((x) => x.id)
+    const result = await getBatchDatasourceReadiness(ids)
+    if (!session.current(k) || r !== readinessRequest) return
+    if (
+      !Array.isArray(result.data) ||
+      result.data.some(
+        (x) =>
+          !ids.includes(x.datasourceId) || typeof x.askable !== 'boolean' || !Array.isArray(x.blockReasons),
+      ) ||
+      new Set(result.data.map((x) => x.datasourceId)).size !== result.data.length
+    )
+      throw new Error('准备情况回执错属或不完整')
+    readiness.value = result.data
+    if (result.failedDatasourceIds.length)
+      readinessPartialError.value = `${result.failedDatasourceIds.length} 个数据源的就绪度读取失败，已保留其余数据源结果。`
+  } catch (cause) {
+    if (session.current(k) && r === readinessRequest)
+      readinessError.value = cause instanceof Error ? cause.message : '数据源就绪度加载失败'
+  } finally {
+    if (session.current(k) && r === readinessRequest) readinessLoading.value = false
+  }
+}
+
+async function loadApprovals() {
+  const k = session.capture(),
+    r = ++approvalRequest
+  pendingApprovalCount.value = null
+  approvalError.value = ''
+  if (!canViewApprovals.value) {
+    approvalLoading.value = false
+    return
+  }
+  approvalLoading.value = true
+  try {
+    const result = await listIamS1AccessRequestQueue('PENDING', 1, 1)
+    if (!session.current(k) || r !== approvalRequest) return
+    if (!Number.isSafeInteger(result.data?.total) || result.data.total < 0) throw new Error('审批总数未确认')
+    pendingApprovalCount.value = result.data.total
+  } catch (cause) {
+    if (!session.current(k) || r !== approvalRequest) return
+    approvalError.value = cause instanceof Error ? cause.message : '访问审批数量读取失败'
+  } finally {
+    if (session.current(k) && r === approvalRequest) approvalLoading.value = false
+  }
+}
+
+async function reloadPending() {
+  if (pendingLoading.value || !canViewWorkbench.value) return
+  await Promise.all([loadStats(), loadReadiness(), loadApprovals()])
+}
+
+async function load() {
+  const k = session.capture()
+  loading.value = true
+  if (!canViewWorkbench.value) {
+    await loadStats()
+    readinessLoading.value = false
+    approvalLoading.value = false
+    loading.value = false
+    return
+  }
+  await Promise.all([loadStats(), loadReadiness(), loadApprovals()])
+  if (session.current(k)) loading.value = false
+}
+
+function openDatasource(item: DatasourceReadiness) {
+  router.push({ path: '/admin/data-sources/' + item.datasourceId })
+}
+
+function sourceDatabaseName(id: number) {
+  return sources.value.find((source) => source.id === id)?.databaseName
+}
+
+function fullSourceLabel(name: string, databaseName?: string) {
+  return databaseName ? `${name} · ${databaseName}` : name
+}
+
+watch(
+  session.key,
+  () => {
+    statsRequest++
+    readinessRequest++
+    approvalRequest++
+    stats.value = null
+    readiness.value = []
+    sources.value = []
+    pendingApprovalCount.value = null
+    void load()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
-  <main ref="homeRef" class="admin-home post-login-page">
-    <header class="home-header">
-      <div class="home-title">
-        <span>工作台</span>
-        <h1>{{ displayName }}，欢迎回来</h1>
+  <div class="admin-page workbench-page">
+    <p class="workbench-eyebrow">你的工作 / 当前有权范围</p>
+    <TaskPageHeader
+      title="从待办继续"
+      description="先确认事实，再选择下一步。准备条件、审核发布和业务查询授权分别维护。"
+    />
+    <LoadingState v-if="loading || (!iamS1.loaded && !iamS1.errorMessage)" variant="skeleton" :rows="5" />
+    <ErrorState
+      v-else-if="!canViewWorkbench || workbenchForbidden"
+      :message="iamS1.errorMessage || statsError || '没有“查看工作台”功能：需要角色拥有该功能。'"
+      @retry="load"
+    />
+    <section v-else class="workbench-pending do-glass-panel" aria-labelledby="workbench-pending-title">
+      <div class="section-heading">
+        <div class="section-title">
+          <TitleHelp
+            label="待处理事项"
+            text="只汇总真实读取到的阻断、治理问题和待审批申请；读取失败时显示原因，不显示为零。"
+          />
+          <h2 id="workbench-pending-title">待处理事项</h2>
+        </div>
+        <el-button text :loading="pendingLoading" @click="reloadPending">刷新</el-button>
       </div>
-      <div class="header-actions">
-        <RouterLink class="guide-action" to="/guide/admin">
-          <BookOpen :size="16" />
-          新手引导
-        </RouterLink>
-        <el-button v-if="isAdmin" :icon="RefreshCw" :loading="loading" @click="fetchStats">刷新</el-button>
-        <RouterLink class="hero-action" to="/query">
-          <MessageSquareText :size="16" />
-          开始查询
-        </RouterLink>
-      </div>
-    </header>
-
-    <!-- 快捷操作区域 -->
-    <section class="quick-actions-section">
-      <h3 class="section-title">
-        <Zap :size="18" />
-        快捷操作
-      </h3>
-      <div class="quick-actions-grid">
+      <p v-if="pendingError" class="workbench-pending__error" role="alert">{{ pendingError }}</p>
+      <LoadingState v-if="pendingLoading && !pendingItems.length" text="正在汇总待处理事项…" />
+      <ul v-else-if="pendingItems.length" class="workbench-pending__list">
+        <li v-for="item in pendingItems" :key="item.key" class="workbench-pending__item">
+          <div class="workbench-pending__copy">
+            <strong>{{ item.title }}</strong>
+            <span>{{ item.description }}</span>
+          </div>
+          <RouterLink class="workbench-pending__action" :to="item.to">
+            {{ item.count ? '去处理' : '查看' }}
+            <ArrowRight :size="14" aria-hidden="true" />
+          </RouterLink>
+        </li>
+      </ul>
+      <p v-else class="workbench-empty">
+        {{
+          pendingError ? '部分待办未确认，请先处理读取问题。' : '当前已读取范围没有需要你立即处理的阻断事项。'
+        }}
+      </p>
+      <div class="workbench-pending__shortcuts">
+        <RouterLink v-if="canViewReleases" :to="{ path: '/admin/releases' }">检查待发布版本</RouterLink>
         <RouterLink
-          v-for="action in quickActions"
-          :key="action.path"
-          :to="action.path"
-          class="quick-action-card"
-          :class="`action-${action.color}`"
+          v-if="canViewKnowledge"
+          :to="{ path: '/admin/semantics/knowledge', query: { tab: 'review' } }"
         >
-          <div class="action-icon">
-            <component :is="action.icon" :size="24" />
-          </div>
-          <div class="action-content">
-            <strong>{{ action.label }}</strong>
-            <small>{{ action.desc }}</small>
-          </div>
-          <ArrowRight :size="16" class="action-arrow" />
+          审核知识文档
+        </RouterLink>
+        <RouterLink v-if="canViewApprovals" :to="{ path: '/admin/access/iam-approvals' }">
+          处理访问申请
         </RouterLink>
       </div>
     </section>
+    <template v-if="!loading && canViewWorkbench && !workbenchForbidden">
+      <dl class="workbench-stats" aria-label="工作台概览">
+        <div class="workbench-stat do-glass-panel" :title="readinessStateTitle || undefined">
+          <div class="workbench-stat__head"><dt>数据源</dt></div>
+          <dd :class="{ 'is-pending': datasourceTotalText === '—' }">{{ datasourceTotalText }}</dd>
+        </div>
+        <div class="workbench-stat do-glass-panel" :title="readinessStateTitle || undefined">
+          <div class="workbench-stat__head"><dt>可问数</dt></div>
+          <dd :class="{ 'is-pending': readyCountText === '—' }">{{ readyCountText }}</dd>
+        </div>
+        <div class="workbench-stat do-glass-panel" :title="readinessStateTitle || undefined">
+          <div class="workbench-stat__head"><dt>待处理数据源</dt></div>
+          <dd :class="{ 'is-pending': blockedCountText === '—' }">{{ blockedCountText }}</dd>
+        </div>
+        <div class="workbench-stat do-glass-panel" :title="statsStateTitle || undefined">
+          <div class="workbench-stat__head">
+            <dt>治理问题</dt>
+            <RouterLink v-if="canViewIssues" class="workbench-stat__link" to="/admin/governance/issues">
+              查看治理问题
+              <ArrowRight :size="12" aria-hidden="true" />
+            </RouterLink>
+          </div>
+          <dd :class="{ 'is-pending': issueCountText === '—' }">{{ issueCountText }}</dd>
+        </div>
+      </dl>
 
-    <section v-if="isAdmin && stats" class="ops-strip">
-      <article class="ops-card" :class="`tone-${qualityTone}`">
-        <span>治理健康</span>
-        <strong>{{ stats.avgQualityScore ?? '-' }}</strong>
-        <small>{{ qualityLabel }}</small>
-        <div class="quality-bar"><div class="quality-fill" :style="{ width: (stats.avgQualityScore || 0) + '%' }"></div></div>
-      </article>
-      <article class="ops-card">
-        <span>快照发布率</span>
-        <div ref="snapshotRingRef" class="ring-chart"></div>
-        <small>{{ stats.publishedSnapshots }} / {{ stats.totalSnapshots }} 个快照</small>
-      </article>
-      <article class="ops-card">
-        <span>问题解决率</span>
-        <div ref="issueRingRef" class="ring-chart"></div>
-        <small>{{ stats.resolvedIssues }} / {{ issueTotal }} 条问题</small>
-      </article>
-    </section>
-
-    <section v-if="isAdmin && stats" class="stats-grid" v-loading="loading">
-      <article class="stat-card">
-        <div class="stat-icon blue"><Users :size="20" /></div>
-        <div class="stat-body">
-          <span class="stat-value">{{ animatedUsers }}</span>
-          <span class="stat-label">用户总数</span>
-        </div>
-      </article>
-      <article class="stat-card">
-        <div class="stat-icon green"><Database :size="20" /></div>
-        <div class="stat-body">
-          <span class="stat-value">{{ stats.activeDatasources }}<small>/{{ stats.totalDatasources }}</small></span>
-          <span class="stat-label">活跃/总数据源</span>
-        </div>
-      </article>
-      <article class="stat-card">
-        <div class="stat-icon purple"><Table2 :size="20" /></div>
-        <div class="stat-body">
-          <span class="stat-value">{{ animatedTables }}</span>
-          <span class="stat-label">已发布表</span>
-        </div>
-      </article>
-      <article class="stat-card">
-        <div class="stat-icon sky"><Layers :size="20" /></div>
-        <div class="stat-body">
-          <span class="stat-value">{{ animatedColumns }}</span>
-          <span class="stat-label">已发布字段</span>
-        </div>
-      </article>
-      <article class="stat-card">
-        <div class="stat-icon orange"><AlertTriangle :size="20" /></div>
-        <div class="stat-body">
-          <span class="stat-value">{{ animatedOpenIssues }}</span>
-          <span class="stat-label">待处理问题</span>
-        </div>
-      </article>
-      <article class="stat-card">
-        <div class="stat-icon teal"><CheckCircle2 :size="20" /></div>
-        <div class="stat-body">
-          <span class="stat-value">{{ animatedResolvedIssues }}</span>
-          <span class="stat-label">已解决问题</span>
-        </div>
-      </article>
-      <article class="stat-card">
-        <div class="stat-icon blue"><GitBranch :size="20" /></div>
-        <div class="stat-body">
-          <span class="stat-value">{{ stats.publishedSnapshots }}<small>/{{ stats.totalSnapshots }}</small></span>
-          <span class="stat-label">已发布/总快照</span>
-        </div>
-      </article>
-      <article class="stat-card">
-        <div class="stat-icon green"><Activity :size="20" /></div>
-        <div class="stat-body">
-          <span class="stat-value" :class="{ 'score-good': (stats.avgQualityScore ?? 0) >= 80, 'score-warn': (stats.avgQualityScore ?? 0) < 80 && (stats.avgQualityScore ?? 0) >= 60, 'score-bad': (stats.avgQualityScore ?? 0) < 60 }">
-            {{ stats.avgQualityScore ?? '-' }}
-          </span>
-          <span class="stat-label">平均质量分</span>
-        </div>
-      </article>
-    </section>
-
-    <!-- 系统状态概览 -->
-    <section v-if="isAdmin && stats" class="system-status-section">
-      <h3 class="section-title">
-        <Cpu :size="18" />
-        系统运维
-      </h3>
-      <div class="status-grid">
-        <RouterLink class="status-item" to="/admin/system/health">
-          <div class="status-icon">
-            <Cpu :size="16" />
+      <div class="workbench-columns">
+        <section
+          class="workbench-section workbench-sources do-glass-panel"
+          aria-labelledby="workbench-sources"
+        >
+          <div class="section-heading">
+            <div class="section-title">
+              <TitleHelp label="数据源准备情况" text="需要处理的数据源排在前面。打开详情查看完整条件。" />
+              <h2 id="workbench-sources">数据源准备情况</h2>
+            </div>
+            <el-button v-if="canViewSources" text @click="router.push('/admin/data-sources')">
+              管理数据源
+            </el-button>
+            <el-button text :loading="readinessLoading" @click="loadReadiness">刷新</el-button>
           </div>
-          <div class="status-info">
-            <span class="status-label">服务健康监控</span>
-            <span class="status-value">查看 Web、数据库、Redis、Python 服务实时状态</span>
+          <div class="workbench-section__body">
+            <p class="workbench-empty">{{ attentionTitle }}</p>
+            <el-alert
+              v-if="readinessPartialError"
+              :title="readinessPartialError"
+              type="warning"
+              :closable="false"
+              show-icon
+            />
+            <ErrorState v-if="readinessError" :message="readinessError" @retry="loadReadiness" />
+            <LoadingState v-else-if="readinessLoading" text="正在读取准备情况..." />
+            <p v-else-if="!sources.length" class="workbench-empty">
+              还没有数据源。通过上方“管理数据源”开始接入。
+            </p>
+            <div v-else class="workbench-source-list">
+              <article v-for="item in orderedReadiness" :key="item.datasourceId" class="workbench-source">
+                <div class="workbench-source__top">
+                  <el-tooltip
+                    :content="fullSourceLabel(item.datasourceName, sourceDatabaseName(item.datasourceId))"
+                    placement="top-start"
+                    effect="light"
+                    :show-after="300"
+                    :trigger="['hover', 'focus']"
+                    popper-class="workbench-source-tooltip"
+                  >
+                    <div
+                      class="workbench-source__name"
+                      tabindex="0"
+                      :aria-label="
+                        fullSourceLabel(item.datasourceName, sourceDatabaseName(item.datasourceId))
+                      "
+                    >
+                      <Database :size="18" aria-hidden="true" />
+                      <div class="workbench-source__identity">
+                        <strong class="notranslate" translate="no">{{ item.datasourceName }}</strong>
+                        <span class="notranslate" translate="no">
+                          {{ sourceDatabaseName(item.datasourceId) }}
+                        </span>
+                      </div>
+                    </div>
+                  </el-tooltip>
+                  <div class="workbench-source__aside">
+                    <div class="workbench-source__status">
+                      <BusinessStatusBadge
+                        :status="item.askable ? 'PUBLISHED' : item.stage"
+                        :label="item.askable ? '可问数' : item.stageLabel"
+                      />
+                      <span v-if="item.blockReasons.length" class="workbench-source__reason">
+                        {{ item.blockReasons[0]?.message }}
+                      </span>
+                    </div>
+                    <el-button
+                      class="workbench-source__action"
+                      link
+                      type="primary"
+                      @click="openDatasource(item)"
+                    >
+                      查看详情
+                      <ArrowRight :size="14" aria-hidden="true" />
+                    </el-button>
+                  </div>
+                </div>
+                <details class="workbench-conditions">
+                  <summary>检查连接、采集、治理、知识与授权</summary>
+                  <ReadinessPanel :readiness="item" compact />
+                </details>
+              </article>
+              <article
+                v-for="source in sources.filter(
+                  (source) => !readiness.some((item) => item.datasourceId === source.id),
+                )"
+                :key="'unknown-' + source.id"
+                class="workbench-source"
+              >
+                <div class="workbench-source__top">
+                  <el-tooltip
+                    :content="fullSourceLabel(source.name, source.databaseName)"
+                    placement="top-start"
+                    effect="light"
+                    :show-after="300"
+                    :trigger="['hover', 'focus']"
+                    popper-class="workbench-source-tooltip"
+                  >
+                    <div
+                      class="workbench-source__name"
+                      tabindex="0"
+                      :aria-label="fullSourceLabel(source.name, source.databaseName)"
+                    >
+                      <Database :size="18" aria-hidden="true" />
+                      <div class="workbench-source__identity">
+                        <strong class="notranslate" translate="no">{{ source.name }}</strong>
+                        <span class="notranslate" translate="no">{{ source.databaseName }}</span>
+                      </div>
+                    </div>
+                  </el-tooltip>
+                  <div class="workbench-source__aside">
+                    <div class="workbench-source__status">
+                      <span class="workbench-source__reason" role="status">准备情况暂不可用</span>
+                    </div>
+                    <el-button
+                      class="workbench-source__action"
+                      link
+                      type="primary"
+                      @click="router.push('/admin/data-sources/' + source.id)"
+                    >
+                      查看详情
+                      <ArrowRight :size="14" aria-hidden="true" />
+                    </el-button>
+                  </div>
+                </div>
+                <div
+                  class="workbench-source__unknown-conditions"
+                  role="status"
+                  aria-label="五项准备条件尚未确认"
+                >
+                  <span v-for="label in readinessDimensionLabels" :key="label" class="workbench-unknown-chip">
+                    <CircleAlert :size="12" aria-hidden="true" />
+                    {{ label }}
+                    <small>未确认</small>
+                  </span>
+                </div>
+              </article>
+            </div>
           </div>
-          <span class="status-badge">查看</span>
-        </RouterLink>
-        <RouterLink class="status-item" to="/admin/system/ai-config">
-          <div class="status-icon">
-            <Bot :size="16" />
+        </section>
+        <section class="workbench-section workbench-activity do-glass-panel">
+          <div class="section-heading"><h2>最近活动</h2></div>
+          <div class="workbench-section__body">
+            <ErrorState v-if="statsError" :message="statsError" @retry="loadStats" />
+            <LoadingState v-else-if="statsLoading" />
+            <ActivityTimeline v-else-if="activityItems.length" :items="activityItems" />
+            <div v-else class="workbench-activity__empty">
+              <Clock3 :size="22" aria-hidden="true" />
+              <p>当前可见范围暂无活动记录</p>
+            </div>
           </div>
-          <div class="status-info">
-            <span class="status-label">AI 配置</span>
-            <span class="status-value">管理供应商、模型、Embedding 与连接测试</span>
-          </div>
-          <span class="status-badge">配置</span>
-        </RouterLink>
+        </section>
       </div>
-    </section>
-
-    <section v-if="isAdmin && stats" class="priority-grid">
-      <RouterLink class="priority-card urgent" to="/admin/governance/issues">
-        <span class="priority-icon"><ShieldAlert :size="18" /></span>
-        <div>
-          <strong>{{ stats.openIssues }} 条待处理问题</strong>
-          <small>按严重级别推进治理闭环</small>
-        </div>
-        <ArrowRight :size="16" />
-      </RouterLink>
-      <RouterLink class="priority-card" to="/admin/metadata/lifecycle">
-        <span class="priority-icon"><GitBranch :size="18" /></span>
-        <div>
-          <strong>{{ stats.publishedSnapshots }} 个已发布快照</strong>
-          <small>管理快照发布、过期和撤回</small>
-        </div>
-        <ArrowRight :size="16" />
-      </RouterLink>
-      <RouterLink class="priority-card" to="/admin/metadata/tables">
-        <span class="priority-icon"><Table2 :size="18" /></span>
-        <div>
-          <strong>{{ stats.totalTables }} 张可查询表</strong>
-          <small>查看字段、空值率和主键状态</small>
-        </div>
-        <ArrowRight :size="16" />
-      </RouterLink>
-    </section>
-
-    <section v-if="isAdmin && stats?.recentActivities?.length" class="activity-section">
-      <h3>最近操作</h3>
-      <div class="activity-list">
-        <div v-for="(a, i) in stats.recentActivities" :key="i" class="activity-item">
-          <span class="activity-icon" :class="'icon-' + a.type.toLowerCase()">
-            <CheckCircle2 v-if="a.type === 'PUBLISH'" :size="14" />
-            <Clock v-else-if="a.type === 'EXPIRE'" :size="14" />
-            <XCircle v-else-if="a.type === 'REVOKE'" :size="14" />
-            <ArrowRightLeft v-else :size="14" />
-          </span>
-          <span class="activity-desc">
-            <strong>{{ actionLabels[a.type] || a.type }}</strong>
-            {{ a.description }}
-          </span>
-          <span class="activity-time">{{ a.time }}</span>
-        </div>
-      </div>
-    </section>
-
-    <section v-if="!isAdmin" class="user-guide">
-      <div class="guide-card">
-        <h3>如何开始查询</h3>
-        <ol>
-          <li>进入「智能查询」，选择一个已授权的数据源</li>
-          <li>用自然语言描述你想查询的内容</li>
-          <li>系统自动生成 SQL 并返回表格或图表结果</li>
-        </ol>
-      </div>
-    </section>
-  </main>
+    </template>
+  </div>
 </template>
-
 <style scoped>
-.admin-home {
-  display: grid;
-  gap: 20px;
+.workbench-page {
+  --workbench-gap: 20px;
 }
-
-/* 章节标题 */
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 16px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--do-ink);
+.workbench-conditions summary {
+  padding: 10px 0;
+  cursor: pointer;
+  color: var(--do-muted);
+  font-size: 12px;
 }
-
-.section-title svg {
+.workbench-eyebrow {
+  margin: 0;
   color: var(--do-primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+.workbench-page .do-glass-panel {
+  background: var(--do-surface);
+  box-shadow: none;
+  border-radius: 12px;
+}
+.workbench-page .workbench-stat {
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent;
+  padding: 12px 0;
+}
+.workbench-page :deep(.task-page-header) {
+  margin-bottom: 14px;
+}
+.workbench-page :deep(.task-page-header h1) {
+  font-size: clamp(28px, 2.4vw, 32px);
+  line-height: 1.2;
+  letter-spacing: -0.025em;
 }
 
-.home-header {
+.workbench-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--workbench-gap);
+  margin: 0 0 var(--workbench-gap);
+  padding: 0;
+}
+.workbench-stat {
+  min-width: 0;
+  min-height: 94px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 18px 16px;
+  border-radius: 16px;
+  background: var(--do-glass-panel-bg);
+  box-shadow: var(--do-shadow);
+}
+.workbench-stat__head {
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 8px;
 }
-
-.home-title {
+.workbench-stat dt {
   min-width: 0;
-}
-
-.home-title span {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--do-primary-strong);
+  overflow: hidden;
+  color: var(--do-muted);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
-.home-title h1 {
+.workbench-stat dd {
   margin: 0;
   color: var(--do-ink);
-  font-size: 24px;
-  line-height: 1.25;
+  font-size: clamp(28px, 2.4vw, 32px);
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.workbench-stat dd.is-pending {
+  color: var(--do-muted);
+}
+.workbench-stat__link {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--do-primary-strong);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.workbench-stat__link:hover {
+  text-decoration: underline;
 }
 
-.header-actions {
+.workbench-pending {
+  display: grid;
+  gap: 12px;
+  margin-bottom: var(--workbench-gap);
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: var(--do-glass-panel-bg);
+  box-shadow: var(--do-shadow);
+}
+.workbench-pending__error {
+  margin: 0;
+  color: var(--do-danger);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.workbench-pending__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.workbench-pending__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: var(--do-surface);
+}
+.workbench-pending__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.workbench-pending__copy strong {
+  color: var(--do-ink);
+  font-size: 13px;
+}
+.workbench-pending__copy span {
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.workbench-pending__action {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--do-primary-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+.workbench-pending__action:hover {
+  text-decoration: underline;
+}
+.workbench-pending__shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--do-line);
+}
+.workbench-pending__shortcuts a {
+  color: var(--do-primary-strong);
+  font-size: 12px;
+  font-weight: 600;
+}
+.workbench-pending__shortcuts a:hover {
+  text-decoration: underline;
+}
+
+.workbench-summary {
+  min-height: 84px;
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px 16px;
+  margin-bottom: var(--workbench-gap);
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: var(--do-glass-panel-bg);
+  box-shadow: var(--do-shadow);
+}
+.workbench-summary__icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--do-primary-strong);
+  background: var(--do-primary-soft);
+}
+.workbench-summary__copy {
+  min-width: 0;
+}
+.workbench-summary strong {
+  display: block;
+  color: var(--do-ink);
+  font-size: 15px;
+  line-height: 1.4;
+}
+.workbench-summary p {
+  margin: 3px 0 0;
+  color: var(--do-muted);
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.workbench-summary > .el-button {
+  justify-self: end;
+}
+.workbench-summary--ready {
+  background: color-mix(in srgb, var(--do-success-soft) 74%, white);
+  border-color: color-mix(in srgb, var(--do-success) 22%, var(--do-line));
+  box-shadow: none;
+}
+.workbench-summary--ready .workbench-summary__icon {
+  color: var(--do-success);
+  background: color-mix(in srgb, var(--do-success) 12%, white);
+}
+.workbench-summary--ready strong {
+  color: color-mix(in srgb, var(--do-success) 72%, var(--do-ink));
+}
+.workbench-summary--partial {
+  background: color-mix(in srgb, var(--do-warning-soft) 38%, white);
+  border-color: color-mix(in srgb, var(--do-warning) 18%, var(--do-line));
+}
+.workbench-summary--partial .workbench-summary__icon {
+  color: var(--do-warning);
+  background: var(--do-warning-soft);
+}
+.workbench-summary--blocked {
+  background: color-mix(in srgb, var(--do-warning-soft) 62%, white);
+  border-color: color-mix(in srgb, var(--do-warning) 26%, var(--do-line));
+}
+.workbench-summary--blocked .workbench-summary__icon {
+  color: var(--do-warning);
+  background: var(--do-warning-soft);
+}
+.workbench-summary--blocked strong {
+  color: color-mix(in srgb, var(--do-warning) 70%, var(--do-ink));
+}
+.workbench-summary--error {
+  background: var(--do-danger-soft);
+  border-color: color-mix(in srgb, var(--do-danger) 24%, var(--do-line));
+}
+.workbench-summary--error .workbench-summary__icon {
+  color: var(--do-danger);
+  background: color-mix(in srgb, var(--do-danger) 8%, white);
+}
+.workbench-summary--error strong {
+  color: var(--do-danger);
+}
+.workbench-summary__spin {
+  animation: workbench-spin 900ms linear infinite;
+}
+@keyframes workbench-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.workbench-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2.3fr) minmax(300px, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+  gap: var(--workbench-gap);
+  height: clamp(220px, 31vh, 320px);
+  height: clamp(220px, 31dvh, 320px);
+}
+.workbench-section {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  margin: 0;
+  padding: 18px 20px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--do-glass-panel-bg);
+}
+.section-heading {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.section-title {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  padding-right: 14px;
+}
+.section-heading h2 {
+  margin: 0;
+  color: var(--do-ink);
+  font-size: 16px;
+}
+.workbench-section__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--do-primary) 22%, transparent) transparent;
+}
+.workbench-section__body::-webkit-scrollbar {
+  width: 5px;
+}
+.workbench-section__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.workbench-section__body::-webkit-scrollbar-thumb {
+  border-radius: var(--do-radius-full);
+  background: color-mix(in srgb, var(--do-primary) 20%, transparent);
+}
+.workbench-empty {
+  margin: 10px 0;
+  color: var(--do-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.workbench-section :deep(.el-alert) {
+  margin-bottom: 12px;
+}
+
+.workbench-source-list {
+  border-block: 1px solid var(--do-glass-line);
+}
+.workbench-source {
+  display: grid;
+  gap: 9px;
+  padding: 13px 2px;
+  border-bottom: 1px solid var(--do-glass-line);
+}
+.workbench-source:last-child {
+  border-bottom: 0;
+}
+.workbench-source__top {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.workbench-source__name {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;
+  border-radius: var(--do-radius-sm);
+  outline: none;
 }
-
-.ops-strip {
-  display: grid;
-  grid-template-columns: 1.1fr 1fr 1fr;
-  gap: 14px;
+.workbench-source__name:focus-visible {
+  outline: 2px solid var(--do-primary);
+  outline-offset: 2px;
 }
-
-.ops-card {
-  min-height: 92px;
-  display: grid;
-  align-content: center;
-  gap: 4px;
-  padding: 16px 18px;
-  border: 1px solid var(--do-line);
-  border-radius: 10px;
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
-}
-
-.ops-card span {
+.workbench-source__name > svg {
+  flex: 0 0 auto;
   color: var(--do-muted);
-  font-size: 12px;
-  font-weight: 800;
 }
-
-.ops-card strong {
-  color: var(--do-ink);
-  font-size: 26px;
-  line-height: 1.15;
-}
-
-.ops-card small {
-  color: var(--do-muted);
-  font-size: 12px;
-}
-
-.ops-card.tone-good {
-  border-color: #bbf7d0;
-  background: linear-gradient(135deg, #f0fdf4 0%, #ffffff 90%);
-}
-
-.ops-card.tone-warn {
-  border-color: #fde68a;
-  background: linear-gradient(135deg, #fffbeb 0%, #ffffff 90%);
-}
-
-.ops-card.tone-bad {
-  border-color: #fecaca;
-  background: linear-gradient(135deg, #fef2f2 0%, #ffffff 90%);
-}
-
-.hero-action {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 10px 18px; border-radius: 8px;
-  background: var(--do-primary); color: #fff; font-weight: 600; font-size: 14px;
-  white-space: nowrap; transition: background 150ms;
-}
-.hero-action:hover { background: var(--do-primary-strong); }
-
-/* 快捷操作区域 */
-.quick-actions-section {
-  padding: 20px;
-  border: 1px solid var(--do-line);
-  border-radius: 12px;
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
-}
-
-.quick-actions-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 14px;
-}
-
-.quick-action-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid var(--do-line);
-  border-radius: 10px;
-  background: #fff;
-  text-decoration: none;
-  color: var(--do-ink);
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.quick-action-card:hover {
-  border-color: var(--do-primary);
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-}
-
-.action-icon {
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  flex-shrink: 0;
-  transition: transform 0.3s ease;
-}
-
-.quick-action-card:hover .action-icon {
-  transform: scale(1.1) rotate(5deg);
-}
-
-.action-content {
-  flex: 1;
+.workbench-source__identity {
   min-width: 0;
-}
-
-.action-content strong {
-  display: block;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--do-ink);
-}
-
-.action-content small {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--do-muted);
-}
-
-.action-arrow {
-  color: var(--do-muted);
-  transition: transform 0.3s ease, color 0.3s ease;
-}
-
-.quick-action-card:hover .action-arrow {
-  transform: translateX(4px);
-  color: var(--do-primary);
-}
-
-/* 快捷操作颜色变体 */
-.action-blue .action-icon { color: #4d8fdc; background: #eef5ff; }
-.action-green .action-icon { color: #6aa84f; background: #edf7e8; }
-.action-purple .action-icon { color: #8b5cf6; background: #f3eeff; }
-.action-sky .action-icon { color: #0ea5e9; background: #e8f7fd; }
-.action-orange .action-icon { color: #f59e0b; background: #fef3cd; }
-.action-teal .action-icon { color: #14b8a6; background: #e6faf8; }
-
-.guide-action {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 10px 18px; border-radius: 8px;
-  background: var(--do-tone-orange-bg); color: var(--do-tone-orange); font-weight: 600; font-size: 14px;
-  white-space: nowrap; transition: background 150ms; text-decoration: none;
-}
-.guide-action:hover { background: #ffe8b8; }
-
-.stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  gap: 2px;
 }
-
-.stat-card {
-  display: flex; align-items: center; gap: 14px;
-  padding: 18px 16px;
-  border: 1px solid var(--do-line); border-radius: 10px;
-  background: var(--do-surface); box-shadow: var(--do-shadow);
-  transition: border-color 150ms, box-shadow 150ms;
-}
-.stat-card:hover { border-color: var(--do-line-strong); box-shadow: var(--do-shadow-hover); }
-
-.stat-icon {
-  width: 42px; height: 42px; display: grid; place-items: center;
-  border-radius: 10px; flex-shrink: 0;
-}
-.stat-icon.blue { color: #4d8fdc; background: #eef5ff; }
-.stat-icon.green { color: #6aa84f; background: #edf7e8; }
-.stat-icon.purple { color: #8b5cf6; background: #f3eeff; }
-.stat-icon.sky { color: #0ea5e9; background: #e8f7fd; }
-.stat-icon.orange { color: #f59e0b; background: #fef3cd; }
-.stat-icon.teal { color: #14b8a6; background: #e6faf8; }
-
-.stat-body { display: flex; flex-direction: column; }
-.stat-value { font-size: 22px; font-weight: 700; color: var(--do-ink); line-height: 1.2; }
-.stat-value small { font-size: 14px; font-weight: 400; color: var(--do-muted); }
-.stat-label { font-size: 12px; color: var(--do-muted); margin-top: 2px; }
-
-.score-good { color: #67c23a; }
-.score-warn { color: #e6a23c; }
-.score-bad { color: #f56c6c; }
-
-.priority-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.priority-card {
-  min-height: 86px;
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 18px;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--do-line);
-  border-radius: 10px;
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
-  transition: border-color 150ms, box-shadow 150ms;
-}
-
-.priority-card:hover {
-  border-color: var(--do-primary);
-  box-shadow: var(--do-shadow-hover);
-}
-
-.priority-icon {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border-radius: 10px;
-  color: var(--do-primary-strong);
-  background: #eaf4ff;
-}
-
-.priority-card.urgent .priority-icon {
-  color: #b45309;
-  background: #fff7ed;
-}
-
-.priority-card strong,
-.priority-card small {
-  display: block;
+.workbench-source__identity strong,
+.workbench-source__identity span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.priority-card strong {
+.workbench-source__identity strong {
   color: var(--do-ink);
   font-size: 14px;
 }
-
-.priority-card small {
-  margin-top: 4px;
+.workbench-source__identity span {
   color: var(--do-muted);
-  font-size: 12px;
+  font-size: 11.5px;
 }
-
-.activity-section {
-  padding: 20px; border: 1px solid var(--do-line); border-radius: 10px;
-  background: var(--do-surface); box-shadow: var(--do-shadow);
-}
-.activity-section h3 { margin: 0 0 14px; font-size: 15px; color: var(--do-ink); }
-.activity-list { display: flex; flex-direction: column; gap: 10px; }
-.activity-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 12px; border-radius: 6px; background: var(--do-bg);
-}
-.activity-icon {
-  width: 24px; height: 24px; display: grid; place-items: center;
-  border-radius: 50%; flex-shrink: 0;
-}
-.icon-publish { color: #67c23a; background: #edf7e8; }
-.icon-expire { color: #909399; background: #f4f4f5; }
-.icon-revoke { color: #f56c6c; background: #fef0f0; }
-.icon-status_transition { color: #409eff; background: #ecf5ff; }
-.activity-desc { flex: 1; font-size: 13px; color: var(--do-ink); }
-.activity-desc strong { margin-right: 6px; }
-.activity-time { font-size: 12px; color: var(--do-muted); white-space: nowrap; }
-
-.ring-chart {
-  width: 80px;
-  height: 80px;
-  margin: 2px auto;
-}
-
-.quality-bar {
-  height: 4px;
-  border-radius: 2px;
-  background: #e5e7eb;
-  margin-top: 8px;
-}
-
-.quality-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.6s ease;
-}
-
-.tone-good .quality-fill { background: #67c23a; }
-.tone-warn .quality-fill { background: #e6a23c; }
-.tone-bad .quality-fill { background: #f56c6c; }
-
-/* 系统状态区域 */
-.system-status-section {
-  padding: 20px;
-  border: 1px solid var(--do-line);
-  border-radius: 12px;
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
-}
-
-.status-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-}
-
-.status-item {
+.workbench-source__aside {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 62%;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
-  padding: 14px 16px;
-  border: 1px solid var(--do-line);
-  border-radius: 10px;
-  background: #fff;
-  transition: all 0.3s ease;
+}
+.workbench-source__status {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 380px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.workbench-source__reason {
+  font-size: 11.5px;
+  color: var(--do-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.workbench-source__action {
+  flex: 0 0 auto;
+  justify-self: end;
+  white-space: nowrap;
+}
+.workbench-source__unknown-conditions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.workbench-unknown-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px dashed color-mix(in srgb, var(--do-muted) 28%, var(--do-line));
+  border-radius: var(--do-radius-full);
+  color: var(--do-muted);
+  background: var(--do-surface);
+  font-size: 11.5px;
+}
+.workbench-unknown-chip small {
+  font-size: 10.5px;
+  opacity: 0.8;
 }
 
-.status-item:hover {
-  border-color: var(--do-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-}
-
-.status-icon {
-  width: 36px;
-  height: 36px;
+.workbench-activity {
   display: grid;
-  place-items: center;
-  border-radius: 8px;
-  flex-shrink: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
 }
-
-.status-icon.online {
-  color: #67c23a;
-  background: #edf7e8;
+.workbench-activity :deep(.activity-timeline) {
+  align-self: start;
 }
-
-.status-icon.offline {
-  color: #f56c6c;
-  background: #fef0f0;
-}
-
-.status-info {
-  flex: 1;
+.workbench-activity :deep(.activity-timeline li) {
   min-width: 0;
 }
-
-.status-label {
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--do-ink);
+.workbench-activity :deep(.activity-timeline strong),
+.workbench-activity :deep(.activity-timeline p),
+.workbench-activity :deep(.activity-timeline small) {
+  overflow-wrap: anywhere;
 }
-
-.status-value {
-  display: block;
-  margin-top: 2px;
-  font-size: 12px;
+.workbench-activity__empty {
+  height: 100%;
+  min-height: 120px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
   color: var(--do-muted);
+  text-align: center;
+}
+.workbench-activity__empty svg {
+  color: color-mix(in srgb, var(--do-primary) 45%, var(--do-muted));
+}
+.workbench-activity__empty p {
+  margin: 0;
+  font-size: 13px;
 }
 
-.status-badge {
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-  flex-shrink: 0;
+.workbench-columns {
+  height: auto;
+  min-height: 0;
 }
-
-.status-badge.online {
-  color: #67c23a;
-  background: #edf7e8;
+.workbench-section {
+  height: auto;
+  min-height: 0;
 }
-
-.status-badge.offline {
-  color: #f56c6c;
-  background: #fef0f0;
-}
-
-.user-guide { max-width: 600px; }
-.guide-card {
-  padding: 24px; border: 1px solid var(--do-line); border-radius: 10px;
-  background: var(--do-surface); box-shadow: var(--do-shadow);
-}
-.guide-card h3 { margin: 0 0 14px; font-size: 16px; color: var(--do-ink); }
-.guide-card ol { margin: 0; padding-left: 20px; color: var(--do-muted); font-size: 14px; line-height: 2; }
-
 @media (max-width: 1100px) {
-  .stats-grid { grid-template-columns: repeat(2, 1fr); }
-  .ops-strip,
-  .priority-grid { grid-template-columns: 1fr; }
-  .quick-actions-grid { grid-template-columns: repeat(2, 1fr); }
-  .status-grid { grid-template-columns: 1fr; }
+  .workbench-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .workbench-columns {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    height: auto;
+  }
+  .workbench-section {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+  .workbench-section__body {
+    overflow: visible;
+    padding-right: 0;
+  }
+  .workbench-activity__empty {
+    min-height: 160px;
+  }
 }
-@media (max-width: 600px) {
-  .stats-grid { grid-template-columns: 1fr; }
-  .home-header { align-items: flex-start; flex-direction: column; }
-  .quick-actions-grid { grid-template-columns: 1fr; }
+@media (max-width: 760px) {
+  .workbench-stat {
+    padding: 13px 15px 14px;
+  }
+  .workbench-summary {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+  .workbench-summary > .el-button {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-self: stretch;
+  }
+  .workbench-section {
+    padding: 16px 14px;
+  }
+  .section-heading {
+    flex-wrap: wrap;
+  }
+  .workbench-source__top {
+    flex-wrap: wrap;
+  }
+  .workbench-source__aside {
+    flex: 1 1 100%;
+    max-width: none;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .workbench-source__status {
+    max-width: none;
+    justify-content: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workbench-summary__spin {
+    animation-duration: 2s;
+  }
+}
+</style>
+
+<style>
+/* 名称与数据库名单行省略后，用浮层补齐悬停与键盘聚焦时的完整内容。 */
+.workbench-source-tooltip.el-popper.el-tooltip__popper {
+  max-width: min(320px, calc(100vw - 24px));
+  border-color: var(--do-line);
+  color: var(--do-ink);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 </style>

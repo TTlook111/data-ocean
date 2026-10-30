@@ -1,16 +1,17 @@
 """健康检查端点
 
-提供公共和内部健康检查接口，内部接口包含各依赖服务的详细状态。
+只提供公共健康检查接口。
+
+内部健康详情端点 `/internal/health` 已移除（2026-09-25）：
+- 它没有任何调用方（Java 网关的 PythonHealthChecker 调用的是公开的 `/health`）；
+- 它在 `main.py` 注册时未挂 `Depends(verify_internal_token)`，是唯一未受保护的
+  `/internal/*` 路径，与公开端点共用同一 router，无法单独挂依赖；
+- 它把底层异常原文通过 `{"error": str(e)}` 返回。
+无调用方的未认证接口属于纯攻击面，故直接删除而非加固。若将来需要内部健康详情，
+请新建独立 router 并挂上 `verify_internal_token`。
 """
 
-import logging
-import time
-
 from fastapi import APIRouter
-
-from dataocean.core.config import settings
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -19,63 +20,3 @@ router = APIRouter()
 async def public_health() -> dict:
     """公共健康检查端点（快速响应）"""
     return {"status": "ok"}
-
-
-@router.get("/internal/health")
-async def internal_health() -> dict:
-    """内部健康检查端点（Java 网关调用）
-
-    返回详细状态：Milvus 连接、LLM 可达性。
-    """
-    details = {}
-    overall = "ok"
-
-    # 检查 Milvus 连接
-    milvus_status = await _check_milvus()
-    details["milvus"] = milvus_status
-    if milvus_status["status"] != "ok":
-        overall = "degraded"
-
-    # 检查 LLM API 可达性
-    llm_status = await _check_llm()
-    details["llm"] = llm_status
-    if llm_status["status"] != "ok":
-        overall = "degraded"
-
-    return {"status": overall, "details": details}
-
-
-async def _check_milvus() -> dict:
-    """检查 Milvus 向量库连接"""
-    import asyncio
-    try:
-        from pymilvus import connections
-        start = time.monotonic()
-
-        def _connect():
-            connections.connect(
-                alias="_health_check",
-                host=settings.milvus_host,
-                port=settings.milvus_port,
-                timeout=3,
-            )
-            connections.disconnect(alias="_health_check")
-
-        await asyncio.to_thread(_connect)
-        latency_ms = int((time.monotonic() - start) * 1000)
-        return {"status": "ok", "latency_ms": latency_ms}
-    except Exception as e:
-        logger.debug("Milvus 健康检查失败: %s", e)
-        return {"status": "unavailable", "error": str(e)}
-
-
-async def _check_llm() -> dict:
-    """检查 LLM API 可达性（统一走 infra.llm，不再单独维护 httpx）"""
-    from dataocean.infra.llm import ping_llm
-
-    start = time.monotonic()
-    available = await ping_llm()
-    latency_ms = int((time.monotonic() - start) * 1000)
-    if available:
-        return {"status": "ok", "latency_ms": latency_ms}
-    return {"status": "unavailable", "latency_ms": latency_ms}

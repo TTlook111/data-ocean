@@ -2,18 +2,22 @@ package com.dataocean.module.fieldtag.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.fieldtag.entity.FieldConfidence;
-import com.dataocean.module.fieldtag.entity.FieldConfidenceEvent;
+import com.dataocean.module.fieldtag.entity.po.FieldConfidence;
+import com.dataocean.module.fieldtag.entity.po.FieldConfidenceEvent;
 import com.dataocean.module.fieldtag.entity.vo.ConfidenceVO;
 import com.dataocean.module.fieldtag.mapper.FieldConfidenceEventMapper;
 import com.dataocean.module.fieldtag.mapper.FieldConfidenceMapper;
 import com.dataocean.module.fieldtag.service.ConfidenceCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 可信度计算引擎实现类
@@ -32,6 +36,10 @@ public class ConfidenceCalculatorImpl implements ConfidenceCalculator {
 
     private final FieldConfidenceMapper confidenceMapper;
     private final FieldConfidenceEventMapper eventMapper;
+
+    // Phase 2 #8: 读时衰减——半衰期天数，默认 30 天
+    @Value("${dataocean.confidence.half-life-days:30}")
+    private double halfLifeDays;
 
     /**
      * {@inheritDoc}
@@ -67,6 +75,20 @@ public class ConfidenceCalculatorImpl implements ConfidenceCalculator {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ConfidenceVO adjustScore(Long columnMetaId, String eventType, Long operatorId, Long sourceQueryId) {
+        return adjustScoreInCurrentTransaction(columnMetaId, eventType, operatorId, sourceQueryId);
+    }
+
+    /**
+     * 主业务提交后执行的辅助变更，必须使用独立事务，不能污染已经完成的主事务。
+     */
+    @Override
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
+    public ConfidenceVO adjustScoreAfterCommit(Long columnMetaId, String eventType, Long operatorId, Long sourceQueryId) {
+        return adjustScoreInCurrentTransaction(columnMetaId, eventType, operatorId, sourceQueryId);
+    }
+
+    private ConfidenceVO adjustScoreInCurrentTransaction(Long columnMetaId, String eventType,
+                                                           Long operatorId, Long sourceQueryId) {
         // 获取当前可信度记录，不存在则先初始化
         FieldConfidence confidence = getByColumnMetaId(columnMetaId);
         if (confidence == null) {
@@ -128,6 +150,55 @@ public class ConfidenceCalculatorImpl implements ConfidenceCalculator {
     }
 
     /**
+     * Phase 2 #8: 读时衰减计算——不改写入路径，只在读取时对历史事件应用时间衰减。
+     * <p>
+     * 使用指数衰减公式：weight *= exp(-ln2 * daysAgo / halfLifeDays)。
+     * 初始分 50，正权重加分，负权重扣分。
+     * </p>
+     *
+     * @param columnMetaId 列元数据ID
+     * @return 0-100 的衰减后分数
+     */
+    public int calculateWithDecay(Long columnMetaId) {
+        List<FieldConfidenceEvent> events = eventMapper.selectList(
+            new LambdaQueryWrapper<FieldConfidenceEvent>()
+                .eq(FieldConfidenceEvent::getColumnMetaId, columnMetaId));
+
+        double score = 50.0;
+        LocalDateTime now = LocalDateTime.now();
+
+        for (FieldConfidenceEvent event : events) {
+            double daysAgo = Duration.between(event.getCreatedAt(), now).toMillis()
+                             / (1000.0 * 86400);
+            double decayFactor = Math.exp(-Math.log(2) * daysAgo / halfLifeDays);
+            double weight = getBaseWeight(event.getEventType()) * decayFactor;
+            score += weight;
+        }
+
+        return (int) Math.max(0, Math.min(100, score));
+    }
+
+    /**
+     * Phase 2 #8: 事件类型基础权重映射。
+     */
+    private double getBaseWeight(String eventType) {
+        return switch (eventType) {
+            case FieldConfidenceEvent.TYPE_QUERY_SUCCESS -> 1.0;
+            case FieldConfidenceEvent.TYPE_USER_LIKE -> 5.0;
+            case FieldConfidenceEvent.TYPE_USER_DISLIKE_CONFIRMED -> -8.0;
+            case FieldConfidenceEvent.TYPE_ADMIN_DISLIKE_CONFIRMED -> -24.0;
+            case FieldConfidenceEvent.TYPE_GROUP_THRESHOLD -> -3.0;
+            case FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_CONFIRMED -> -5.0;
+            case FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_RESOLVED -> 3.0;
+            case FieldConfidenceEvent.TYPE_SCHEMA_INIT -> 0.0;   // 初始值不计入
+            case FieldConfidenceEvent.TYPE_SKILLS_MD_DEFINED -> 0.0;
+            case FieldConfidenceEvent.TYPE_MANUAL_CONFIRM -> 0.0;
+            case FieldConfidenceEvent.TYPE_ADMIN_SET -> 0.0;
+            default -> 0.0;
+        };
+    }
+
+    /**
      * 根据事件类型获取初始分
      */
     private int getInitScore(String eventType) {
@@ -148,7 +219,11 @@ public class ConfidenceCalculatorImpl implements ConfidenceCalculator {
             case FieldConfidenceEvent.TYPE_QUERY_SUCCESS -> DELTA_QUERY_SUCCESS;
             case FieldConfidenceEvent.TYPE_USER_LIKE -> DELTA_USER_LIKE;
             case FieldConfidenceEvent.TYPE_USER_DISLIKE_CONFIRMED -> DELTA_USER_DISLIKE_CONFIRMED;
+            case FieldConfidenceEvent.TYPE_ADMIN_DISLIKE_CONFIRMED -> DELTA_ADMIN_DISLIKE_CONFIRMED;
             case FieldConfidenceEvent.TYPE_GROUP_THRESHOLD -> DELTA_GROUP_THRESHOLD;
+            // FIX #5: 治理事件 delta 与 getBaseWeight() 保持一致
+            case FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_CONFIRMED -> -5;
+            case FieldConfidenceEvent.TYPE_GOVERNANCE_ISSUE_RESOLVED -> 3;
             default -> 0;
         };
     }

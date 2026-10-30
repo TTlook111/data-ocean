@@ -1,0 +1,141 @@
+// @vitest-environment happy-dom
+import { describe, expect, it } from 'vitest'
+import { ADMIN_DOMAIN_KEYS, ADMIN_WORKSPACES, type AdminWorkspace } from '../router/adminNavigation'
+import {
+  findDomainHome,
+  groupAdminWorkspaces,
+  isWorkspaceVisible,
+  visibleAdminWorkspaces,
+  type AdminCapabilityLookup,
+} from './adminNavigation'
+
+interface LookupOptions {
+  loaded?: boolean
+  error?: string
+  global?: string[]
+  onDatasource?: Record<number, string[]>
+  anyDatasource?: Record<string, number[]>
+}
+
+function lookup(options: LookupOptions = {}): AdminCapabilityLookup {
+  const {
+    loaded = true,
+    error = '',
+    global = [],
+    onDatasource = {},
+    anyDatasource = {},
+  } = options
+  return {
+    loaded,
+    errorMessage: error,
+    hasGlobal: (code) => global.includes(code),
+    canOnDatasource: (code, datasourceId) => (
+      datasourceId !== undefined && (onDatasource[datasourceId] || []).includes(code)
+    ),
+    datasourcesWithFunction: (code) => anyDatasource[code] || [],
+  }
+}
+
+function workspace(key: string): AdminWorkspace {
+  const found = ADMIN_WORKSPACES.find((item) => item.key === key)
+  if (!found) throw new Error(`missing workspace ${key}`)
+  return found
+}
+
+describe('导航能力过滤', () => {
+  it.each([
+    ['data-sources', 'datasource:view'],
+    ['collections', 'metadata:collect:view'],
+    ['assets', 'metadata:view'],
+    ['queries', 'audit:view'],
+  ])('%s 入口与当前已有后端查看功能 %s 一致', (key, code) => {
+    expect(isWorkspaceVisible(workspace(key), lookup())).toBe(false)
+    expect(isWorkspaceVisible(workspace(key), lookup({ anyDatasource: { [code]: [2] } }))).toBe(true)
+  })
+
+  it('未声明查看能力的工作区始终可见', () => {
+    expect(isWorkspaceVisible({ ...workspace('assets'), viewCapability: undefined }, lookup())).toBe(true)
+    expect(isWorkspaceVisible({ ...workspace('queries'), viewCapability: undefined }, lookup())).toBe(true)
+  })
+
+  it('global 作用域按 hasGlobal 判断，anyOf 是 OR', () => {
+    const access = workspace('iam-access')
+    expect(isWorkspaceVisible(access, lookup({ global: ['security:mask:view'] }))).toBe(true)
+    expect(isWorkspaceVisible(access, lookup({ global: ['security:permission:view'] }))).toBe(true)
+    expect(isWorkspaceVisible(access, lookup({ global: ['lineage:view'] }))).toBe(false)
+  })
+
+  it('datasource 作用域已选数据源时使用 canOnDatasource', () => {
+    const lineage = workspace('lineage')
+    expect(isWorkspaceVisible(lineage, lookup({ onDatasource: { 5: ['lineage:view'] } }), 5)).toBe(true)
+    expect(isWorkspaceVisible(lineage, lookup({ onDatasource: { 5: ['lineage:view'] } }), 6)).toBe(false)
+  })
+
+  it('datasource 作用域未选数据源时任一负责源具备能力即可见', () => {
+    const lineage = workspace('lineage')
+    expect(isWorkspaceVisible(lineage, lookup({ anyDatasource: { 'lineage:view': [5] } }))).toBe(true)
+    expect(isWorkspaceVisible(lineage, lookup({ anyDatasource: { 'lineage:view': [] } }))).toBe(false)
+  })
+
+  it('global-or-datasource 任一来源命中即可见', () => {
+    const rules = workspace('governance-rules')
+    expect(isWorkspaceVisible(rules, lookup({ global: ['governance:rule:view'] }))).toBe(true)
+    expect(isWorkspaceVisible(rules, lookup({ anyDatasource: { 'governance:rule:view': [5] } }))).toBe(true)
+    expect(isWorkspaceVisible(rules, lookup())).toBe(false)
+  })
+
+  it('能力摘要未加载或读取失败时 fail-open', () => {
+    const lineage = workspace('lineage')
+    expect(isWorkspaceVisible(lineage, lookup({ loaded: false }))).toBe(true)
+    expect(isWorkspaceVisible(lineage, lookup({ error: '读取失败' }))).toBe(true)
+  })
+
+  it('过滤后只保留可见工作区', () => {
+    const result = visibleAdminWorkspaces(
+      ADMIN_WORKSPACES,
+      lookup({ global: ['prompt:view'], anyDatasource: { 'lineage:view': [5] } }),
+    )
+    expect(result.map((item) => item.key)).not.toContain('assets')
+    expect(result.map((item) => item.key)).toContain('lineage')
+    expect(result.map((item) => item.key)).toContain('prompts')
+    expect(result.map((item) => item.key)).not.toContain('governance')
+    expect(result.map((item) => item.key)).not.toContain('ai')
+    expect(result.map((item) => item.key)).not.toContain('queries')
+  })
+
+  it('治理域分组保持顺序并带标签', () => {
+    const governance = ADMIN_WORKSPACES.filter((item) => item.domainKey === ADMIN_DOMAIN_KEYS.governance)
+    const groups = groupAdminWorkspaces(governance)
+
+    expect(groups.map((group) => group.label)).toEqual(['结果与问题', '规则与状态', '字段治理'])
+    expect(groups[0].items.map((item) => item.key)).toEqual(['governance', 'governance-issues'])
+    expect(groups[1].items.map((item) => item.key)).toEqual(['governance-rules', 'governance-status'])
+    expect(groups[2].items.map((item) => item.key)).toEqual(['governance-fields'])
+  })
+
+  it('数据资产按对象、关系、版本分组', () => {
+    const groups = groupAdminWorkspaces(ADMIN_WORKSPACES.filter((item) => item.domainKey === ADMIN_DOMAIN_KEYS.dataAssets))
+    expect(groups.map((group) => group.label)).toEqual(['对象与结构', '关系与影响', '版本与发布'])
+    expect(groups.map((group) => group.items[0].key)).toEqual(['assets', 'lineage', 'releases'])
+  })
+
+  it('语义中心的术语与知识组包含字段解释', () => {
+    const groups = groupAdminWorkspaces(ADMIN_WORKSPACES.filter((item) => item.domainKey === ADMIN_DOMAIN_KEYS.semantics))
+    expect(groups.map((group) => group.label)).toEqual(['术语与知识'])
+    expect(groups[0].items.map((item) => item.key)).toEqual(['glossaries', 'field-explanations', 'knowledge'])
+  })
+
+  it('运营与平台在同一组提供 AI 服务配置与 Prompt 策略', () => {
+    const groups = groupAdminWorkspaces(ADMIN_WORKSPACES.filter((item) => item.domainKey === 'operations'))
+    expect(groups.find((group) => group.label === '平台运行与 AI')?.items.map((item) => item.key))
+      .toEqual(['runtime', 'ai', 'prompts'])
+  })
+
+  it('一级入口使用可见列表中的首个工作区', () => {
+    const visible = ADMIN_WORKSPACES.filter((item) => ['governance-issues'].includes(item.key))
+    expect(findDomainHome(ADMIN_DOMAIN_KEYS.governance, visible)).toEqual({
+      path: '/admin/governance/issues',
+      label: '问题中心',
+    })
+  })
+})

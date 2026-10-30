@@ -51,6 +51,9 @@ export interface LineageColumnVO {
 
 export interface ImpactAnalysisVO {
   dependentQueryCount: number
+  coverageNote?: string
+  coverageStartAt?: string
+  pendingDatasourceQueryCount?: number
   recentQueryTaskIds: number[]
   tableName: string
   columnName: string
@@ -64,14 +67,6 @@ export interface AlertRule {
   notificationType: string
   enabled: boolean
   createdAt: string
-}
-
-export interface LlmUsageStatsVO {
-  totalCalls: number
-  totalTokens: number
-  totalCost: number
-  avgDailyCalls: number
-  avgDailyCost: number
 }
 
 // 审计日志
@@ -95,11 +90,6 @@ export async function getAuditStats(params: { datasourceId?: number; days?: numb
   return data
 }
 
-export async function promoteTemplate(id: number) {
-  const { data } = await http.post<ApiResult<null>>(`/api/admin/audit-logs/${id}/promote-template`)
-  return data
-}
-
 // 血缘
 export async function queryTableLineage(datasourceId: number, tableName: string) {
   const { data } = await http.get<ApiResult<LineageTableVO[]>>(`/api/lineage/table/${encodeURIComponent(tableName)}`, {
@@ -116,9 +106,11 @@ export async function queryColumnLineage(datasourceId: number, tableName: string
   return data
 }
 
-export async function analyzeImpact(datasourceId: number, tableName: string, columnName: string) {
+export async function analyzeImpact(datasourceId: number, tableName: string, columnName?: string) {
   const { data } = await http.get<ApiResult<ImpactAnalysisVO>>(
-    `/api/lineage/impact/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`,
+    columnName
+      ? `/api/lineage/impact/${encodeURIComponent(tableName)}/${encodeURIComponent(columnName)}`
+      : `/api/lineage/impact/${encodeURIComponent(tableName)}`,
     { params: { datasourceId } },
   )
   return data
@@ -142,11 +134,5 @@ export async function updateAlertRule(id: number, payload: Partial<AlertRule>) {
 
 export async function toggleAlertRule(id: number) {
   const { data } = await http.patch<ApiResult<null>>(`/api/admin/alert-rules/${id}/toggle`)
-  return data
-}
-
-// LLM 使用统计
-export async function getLlmUsageStats(days = 30) {
-  const { data } = await http.get<ApiResult<LlmUsageStatsVO>>('/api/admin/quotas/llm-usage', { params: { days } })
   return data
 }

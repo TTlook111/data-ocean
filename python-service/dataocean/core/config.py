@@ -6,10 +6,14 @@
 安全修复：使用版本号+原子切换避免配置热重载竞态。
 """
 
+import logging
 import threading
 from functools import lru_cache
 
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -40,6 +44,11 @@ class Settings(BaseSettings):
     # Redis
     redis_host: str = "localhost"
     redis_port: int = 6379
+    redis_password: str = ""
+    redis_db: int = 0
+    # LangGraph checkpoint must use a Redis 8 instance with JSON/RediSearch modules.
+    # It is deliberately separate from the app's generic Redis cache configuration.
+    langgraph_checkpoint_redis_url: str = ""
 
     # LangSmith 可观测性
     langchain_api_key: str = ""
@@ -50,6 +59,10 @@ class Settings(BaseSettings):
     agent_total_timeout: int = 100
     agent_max_retries: int = 3
     agent_node_timeout: int = 30
+
+    # SQL Generator Agent 配置
+    sql_generator_agent_enabled: bool = False
+    sql_generator_agent_max_tool_calls: int = 5
 
     # SQL 沙箱配置
     sandbox_max_execution_time: int = 30
@@ -64,7 +77,87 @@ class Settings(BaseSettings):
     # 服务配置
     log_level: str = "INFO"
 
+    # 内部服务间调用认证（Java <-> Python）
+    # 这是 /internal/* 的唯一防线（Java 侧 SecurityConfig 对 /internal/** 是 permitAll），
+    # 因此不提供任何默认值：缺失或过短时在 Settings 构造阶段直接失败，禁止静默降级。
+    internal_token: str = Field(
+        default="",
+        validate_default=True,
+        description="内部服务间共享令牌；必须显式配置且至少 32 字符",
+    )
+    java_gateway_url: str = "http://127.0.0.1:8080"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+    @field_validator('milvus_port')
+    @classmethod
+    def validate_milvus_port(cls, v: int) -> int:
+        """校验 Milvus 端口范围"""
+        if not 1024 <= v <= 65535:
+            raise ValueError('Milvus 端口必须在 1024-65535 之间')
+        return v
+
+    @field_validator('redis_port')
+    @classmethod
+    def validate_redis_port(cls, v: int) -> int:
+        """校验 Redis 端口范围"""
+        if not 1024 <= v <= 65535:
+            raise ValueError('Redis 端口必须在 1024-65535 之间')
+        return v
+
+    @field_validator('embedding_dimension')
+    @classmethod
+    def validate_embedding_dimension(cls, v: int) -> int:
+        """校验 Embedding 维度"""
+        if v not in [512, 768, 1024, 1536]:
+            raise ValueError('Embedding 维度必须是 512/768/1024/1536')
+        return v
+
+    @field_validator('llm_temperature')
+    @classmethod
+    def validate_llm_temperature(cls, v: float) -> float:
+        """校验 LLM 温度参数"""
+        if not 0.0 <= v <= 2.0:
+            raise ValueError('LLM 温度必须在 0.0-2.0 之间')
+        return v
+
+    @field_validator('similarity_threshold')
+    @classmethod
+    def validate_similarity_threshold(cls, v: float) -> float:
+        """校验相似度阈值"""
+        if not 0.0 <= v <= 1.0:
+            raise ValueError('相似度阈值必须在 0.0-1.0 之间')
+        return v
+
+    @field_validator('internal_token')
+    @classmethod
+    def validate_internal_token(cls, v: str) -> str:
+        """校验内部服务间令牌
+
+        /internal/* 由该令牌独占保护，因此不接受空值，也不接受过短的值。
+        校验失败会让进程在启动阶段直接退出，不会带着可预测的凭据继续对外服务。
+
+        注意：报错文案里不能带上令牌的值——ValidationError 会打到控制台和日志采集。
+        """
+        if not v or not v.strip():
+            raise ValueError(
+                '必须配置 INTERNAL_TOKEN：它是 /internal/* 的唯一防线，不存在默认值。'
+                '请写入 python-service/.env，并把同一个值写入 '
+                'backend/DataOcean/src/main/resources/application-local.yml 的 dataocean.internal.token'
+                '（两侧必须是同一个值，单边修改会导致静默降级）'
+            )
+        # 拒绝任何空白：.env / YAML 里的行尾空格或误写多行都会让两侧取值悄悄发散，
+        # 那种情况下校验会通过、比较却永远失败，排查成本极高。直接报错要求修配置。
+        if any(ch.isspace() for ch in v):
+            raise ValueError(
+                'INTERNAL_TOKEN 不能包含空格、制表符或换行（检查 .env 是否误写成多行或行尾有多余空白）'
+            )
+        if len(v) < 32:
+            raise ValueError(
+                f'INTERNAL_TOKEN 至少需要 32 个字符（当前 {len(v)} 个）。'
+                '可用 python -c "import secrets;print(secrets.token_urlsafe(48))" 生成'
+            )
+        return v
 
 
 @lru_cache
@@ -101,6 +194,9 @@ def reload_config(overrides: dict[str, str] | None = None) -> Settings:
     global settings, _config_version
 
     with _config_lock:
+        # 记录旧配置快照（用于变更日志）
+        old_snapshot = settings.model_dump() if overrides else {}
+
         if overrides:
             for key, value in overrides.items():
                 env_key = key.upper().replace(".", "_")
@@ -108,6 +204,18 @@ def reload_config(overrides: dict[str, str] | None = None) -> Settings:
 
         get_settings.cache_clear()
         new_settings = get_settings()
+
+        # 记录配置变更
+        if overrides:
+            new_snapshot = new_settings.model_dump()
+            changes = {
+                k: (old_snapshot.get(k), new_snapshot[k])
+                for k in overrides
+                if old_snapshot.get(k) != new_snapshot.get(k)
+            }
+            if changes:
+                logger.info("配置变更: %s", changes)
+
         # 原子切换：先更新版本号，再更新 settings 引用
         _config_version += 1
         settings = new_settings

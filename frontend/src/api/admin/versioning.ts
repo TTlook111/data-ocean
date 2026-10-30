@@ -32,6 +32,35 @@ export interface StatusChangePayload {
   reason?: string
 }
 
+export type ReleaseGateItemStatus = 'PASS' | 'FAIL' | 'WARN'
+export type ReleaseGateCategory = 'SOURCE' | 'STRUCTURE' | 'SEMANTIC'
+
+export interface ReleaseGateItem {
+  code: string
+  category: ReleaseGateCategory
+  severity: string
+  status: ReleaseGateItemStatus
+  blocksApproval: boolean
+  blocksPublish: boolean
+  count: number
+  message: string
+}
+
+export interface ReleaseGate {
+  snapshotId: number
+  datasourceId?: number
+  snapshotStatus: string
+  approvable: boolean
+  publishable: boolean
+  blockingCount: number
+  warningCount: number
+  unresolvedSourceHigh: number
+  unresolvedSemanticHigh: number
+  validTableCount: number
+  evaluatedAt?: string
+  items: ReleaseGateItem[]
+}
+
 export async function listVersionHistory(datasourceId: number | undefined, params: { page?: number; size?: number }) {
   const url = datasourceId ? `/api/admin/datasources/${datasourceId}/version-history` : '/api/admin/version-history'
   const { data } = await http.get<ApiResult<PageResult<VersionHistoryItem>>>(url, { params })
@@ -52,16 +81,16 @@ export async function listSnapshotAuditLogs(snapshotId: number, params: { page?:
   return data
 }
 
-export async function listDatasourceAuditLogs(datasourceId: number, params: { action?: string; page?: number; size?: number }) {
-  const { data } = await http.get<ApiResult<PageResult<AuditLogItem>>>(
-    `/api/admin/datasources/${datasourceId}/audit-logs`, { params }
+export async function changeSnapshotStatus(snapshotId: number, payload: StatusChangePayload) {
+  const { data } = await http.patch<ApiResult<null>>(
+    `/api/admin/snapshots/${snapshotId}/status`, payload
   )
   return data
 }
 
-export async function changeSnapshotStatus(snapshotId: number, payload: StatusChangePayload) {
-  const { data } = await http.patch<ApiResult<null>>(
-    `/api/admin/snapshots/${snapshotId}/status`, payload
+export async function getReleaseGate(snapshotId: number) {
+  const { data } = await http.get<ApiResult<ReleaseGate>>(
+    `/api/admin/snapshots/${snapshotId}/release-gate`
   )
   return data
 }
@@ -80,9 +109,10 @@ export async function revokeSnapshot(snapshotId: number, reason: string) {
   return data
 }
 
-export async function compareSnapshots(snapshotId: number, compareSnapshotId: number) {
+/** 路径参数固定为旧快照 -> 新快照，返回新增/删除方向也按此协议解释。 */
+export async function compareSnapshots(oldSnapshotId: number, newSnapshotId: number) {
   const { data } = await http.get<ApiResult<any>>(
-    `/api/admin/snapshots/${snapshotId}/diff/${compareSnapshotId}`
+    `/api/admin/snapshots/${oldSnapshotId}/diff/${newSnapshotId}`
   )
   return data
 }

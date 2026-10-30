@@ -1,84 +1,109 @@
-# 006 skills.md 业务知识库
+# 006 业务术语与知识文档
 
-## 概览
+> 状态：现行模块说明；整理日期：2026-10-27。本文维护当前行为与契约，迁移/运行/验收结论统一见[项目现状](../项目现状.md)及[证据索引](../acceptance/README.md)。
 
-知识库模块是元数据治理的发布形态。Java 负责 skills.md 文档 CRUD、审核、版本、发布和向量化任务状态；Python RAG 服务负责 skills.md 切割、embedding、Milvus 写入、检索和重排。
+## 按修改意图继续阅读
 
-发布不是直接生效动作。发布后文档进入 `INDEXING`，调度器调用 Python 完成切割和新版本向量写入，校验成功后才将文档标记为 `PUBLISHED`，再清理旧版本向量。失败时继续保留旧版本可检索。
+- [文档生成、审核与发布](knowledge/文档生成审核与发布.md)：草稿、版本、审核与发布定位。
+- [业务术语与 AI 释义](knowledge/业务术语与AI释义.md)：术语修订、候选生成、人工采纳与事实资格。
+- [RAG 构建与集合生命周期](rag/构建与集合生命周期.md)：发布后的独立构建动作。
 
-## 生命周期
+专题展开文件、方法与测试入口；本页保留行为合同，代码核对不替代运行验收。
 
-```text
-DRAFT -> PENDING_REVIEW -> APPROVED -> INDEXING -> PUBLISHED
-                                           |
-                                           v
-                                      APPROVED
-                                    (索引失败回退)
-```
+## 概览与关键决定
 
-## 职责边界
+按[治理合同](004-metadata-governance.md)接入已审核复查的数据源用途、表粒度、关系与指标事实，按主题生成多篇文档。`KnowledgeDocumentPartitioner` 组织文档组，单篇校验其事实，生成时比对预期业务事实。构建确认与执行的整组校验同时精确比对当前有效业务事实类型/修订集合，拒绝遗漏、额外引用与重复；现阶段不支持未经声明的部分业务覆盖。实时置信度通过独立字段档案读取，不进入生成输入或正文。文档审核发布与明确确认 RAG 构建仍是独立环节。
 
-- Java:
-  - 管理 `knowledge_doc`、`knowledge_doc_version`、`knowledge_chunk`、`vector_index_task`
-  - 审核和发布前治理校验
-  - 创建向量化任务
-  - 保存 Python 返回的 chunk snapshot，便于预览、审计、重建和排障
-  - 在新版本向量验证成功后切换文档状态，并触发旧向量清理
-- Python:
-  - `/internal/rag/chunk` 按 RAG 策略切割完整 skills.md
-  - `/internal/rag/vectorize` 批量 embedding 并写入 Milvus
-  - 校验新版本 Milvus 记录数与 chunk 数一致
-  - `/internal/rag/retrieve` 检索和重排
+Java 管理术语定义与字段映射、修订审核、知识版本、发布、事实校验和构建确认；Python 根据固定输入整理目录、生成 AI 释义候选并负责切分/向量操作。**生成结构目录与 AI 补写是两个动作；发布知识文档和明确确认 RAG build 也是两个独立动作。**
 
-## 切割策略
-
-Python `dataocean.rag.chunker` 执行切割：
-
-1. 先按 `##` 二级标题划分章节。
-2. 跳过“文档来源”等无检索价值章节。
-3. 每个章节再按 `###` 三级标题细切。
-4. 每张表、每个指标、每对 Join Path、每个字段防坑、每个典型查询场景尽量成为独立 chunk。
-5. chunk 携带 `chunkType`、`chunkText`、`tableName`、`relatedColumn`、`governanceStatus`、`reviewStatus`。
-
-Java 不再实现切割规则，避免与 Python RAG 策略漂移。
-
-## 发布与向量切换
+独立字段解释修订通过 `FIELD_SEMANTIC` 标记引用精确 definition/revision/review/binding 与完整依赖 hash，发布验证、chunker 和 query-time membership 共用该合同。现有 SEMANTIC_NOTE 候选流程保留；字段解释工作面位于语义中心，文档和 build 生命周期分别处理。真实验证边界见[项目现状](../项目现状.md)。
 
 ```text
-管理员点击发布
-  -> Java 校验文档状态和治理约束
-  -> Java 将文档置为 INDEXING 并创建 vector_index_task
-  -> 调度器调用 Python /internal/rag/chunk
-  -> Java 保存 knowledge_chunk 快照，状态 PENDING
-  -> 调度器调用 Python /internal/rag/vectorize
-  -> Python 写入新版本向量并校验数量
-  -> Java 将新 chunk 置为 INDEXED，旧 chunk 置为 SUPERSEDED
-  -> Java 将文档置为 PUBLISHED，任务置为 COMPLETED
-  -> Java 调用 Python 清理 previousVersionNo 的旧 Milvus 向量
+DRAFT → PENDING_REVIEW → APPROVED → PUBLISHED
+审核拒绝 → 返回草稿修订
+PUBLISHED 的合规版本 → 有权人员明确确认数据源级 RAG build
 ```
 
-## 代码位置
+旧文档中的“发布 → INDEXING → 自动索引成功后 PUBLISHED”不是当前发布主链。枚举仍有 INDEXING 不构成恢复旧流程的理由。
 
-- Java 文档服务: `backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeDocServiceImpl.java`
-- Java 任务调度: `backend/DataOcean/src/main/java/com/dataocean/module/knowledge/scheduler/VectorIndexTaskScheduler.java`
-- Java RAG 客户端: `backend/DataOcean/src/main/java/com/dataocean/module/knowledge/client/impl/PythonRagClientImpl.java`
-- Python chunker: `python-service/dataocean/rag/chunker.py`
-- Python RAG 路由: `python-service/dataocean/rag/router.py`
-- Python vectorizer: `python-service/dataocean/rag/vectorizer.py`
-- 数据库迁移: `backend/DataOcean/src/main/resources/db/migration/V35__rag_python_chunking_lifecycle.sql`
+新建、列表和详情使用同一操作说明：编辑 → 提交审核 → 审核通过 → 发布 → 在知识列表显式确认 RAG 构建。构建仍要求可靠来源、覆盖和当前审核资格；手工无来源快照文档的发布不代表它具备构建资格。回滚只对已发布文档及已审核目标版本开放，创建新的 `ROLLBACK` 草稿并重新审核、发布；不在回滚时直接索引或切换活动 build。
 
-## 关键表
+普通文档保存成功时刷新列表的 `updatedAt`，保留原创建时间；正文变化才新建内容修订，仅修改标题不增加内容版本。乐观锁冲突仍回滚时间、正文和版本写入。该行为限定在 `KnowledgeDocCrudService.updateDoc`，不修改全局审计时间填充规则；持久化回归见 [KnowledgeDocCrudTimestampPersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/knowledge/service/impl/KnowledgeDocCrudTimestampPersistenceTest.java)。
 
-- `knowledge_doc`: 文档主表，`status` 包含 `INDEXING`
-- `knowledge_doc_version`: 文档版本和依赖快照
-- `knowledge_chunk`: Python 切割结果的 MySQL 快照
-- `vector_index_task`: Java 管理的异步向量化任务
+## 内容与审核
 
-## 内部接口
+文档生成统一使用 Java 筛选后的固定快照，不接收动态分数，也不将完整结构发送模型。AI 只走独立候选入口；非空文档重新生成独立文档组，保留人工正文。
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| POST | `/internal/rag/chunk` | Python 切割完整 skills.md，返回 chunk 清单 |
-| POST | `/internal/rag/vectorize` | 写入新版本向量并校验数量 |
-| POST | `/internal/rag/vectors/delete` | 新版本生效后清理旧版本向量 |
-| POST | `/internal/rag/retrieve` | RAG 检索和重排 |
+业务事实使用 `BUSINESS_DATASOURCE/TABLE/RELATION/METRIC`，携带精确修订、内容/来源 hash 和完整表字段依赖。字段语义变更也会使依赖它的关系/指标失效。原始外键和推断关系只生成 `JOIN_CANDIDATE` 线索，不能当作已审核业务连接。来源 JSON 按键排序规范化后校验，数据库 JSON 格式变化不改变资格；历史非规范化证据不静默重写，失配需重新确认。
+
+六类内容为文档来源、核心表说明、具体 Join 条件、带 SQL 表达式的指标、字段说明和常见查询场景。已确认的完整性要求是：文档体系覆盖所绑定快照中的表和字段，可按业务域或表拆成多篇，也可用完整字段清单承接；不要求单篇巨型文档。该要求不能被“只描述常见字段”的旧模板覆盖，具体覆盖程度需按版本清单核对。模型根据字段名猜测的口径、未审核 Join 或指标必须标记待确认，不进入已发布事实。
+
+发布校验当前版本的 APPROVED 审核状态、来源快照与事实依赖，以及表字段治理状态。Java 保存版本、审核任务与 chunk/build membership，不在 Java 重新实现 Python token 切分。
+
+## 业务术语维护与生成输入
+
+“术语分组”组织业务概念，不要求对应一张数据库表，也不绑定单一数据源。术语统一填写业务名称、定义/口径、同义词，并逐级选择数据源、已发布快照中的表与字段。草稿可以暂不关联；提交审核必须有定义和有效映射。定义、映射与状态共用修订号和事务，待审核/已通过均禁止直接编辑；退回草稿后重新审核。旧更新和关联接口经过相同门禁。
+
+术语按业务概念建立，一张数据库表可以对应多个术语；同一个概念也可以映射多个同义字段。定义中的业务口径帮助解释数据，不自动成为数据库约束、权限规则或可执行指标公式。
+
+V65 新增不可变审核快照、意见和 AI 候选持久化。历史术语不补造审核证据：没有覆盖完整映射的当前审核记录时，页面提示重新确认，知识生成明确列为排除项。字段候选服务端过滤、分页、搜索，真实归属、治理状态和 S1 同绑定管理范围由 Java 校验。
+
+生成分为两个动作：
+
+| 动作 | 依赖及结果 |
+| --- | --- |
+| 生成快照目录 | 程序整理所选已发布快照的完整表字段结构、关系/血缘与适用的已审核术语；没有术语、模型不可用仍可生成；不读取业务行 |
+| AI 辅助补写业务释义 | 在已保存的快照草稿上，按合规表范围发送元数据与完整审核术语依赖，Python 受控分批生成独立候选；人工选择、修改并明确确认后追加到新的待审核草稿版本 |
+
+实际输入的用途如下：
+
+| 输入 | 用途和边界 |
+| --- | --- |
+| 数据源与已发布快照中的表、字段、类型、主键、治理状态 | 生成完整结构目录，固定真实对象归属；禁用/废弃对象只进入管理覆盖核对 |
+| 原始表字段注释 | 保留来源并标为待业务确认，不直接充当审核通过的业务口径 |
+| 表关系与同快照血缘 | 按来源及审核状态整理；候选关系不作为已确认 Join，血缘不自动转成 Join |
+| 适用当前源和快照的已审核术语 | 纳入定义、同义词和完整字段映射，冻结修订、审核记录及摘要；来源不完整时明确排除 |
+| AI 补写范围及上述合规元数据/术语 | 生成独立待确认候选，不自动读取业务行，不凭空补成已审核公式或枚举含义 |
+
+生成前展示快照版本、覆盖范围、拟纳入的术语及排除原因。术语冻结 term/review/revision/hash 和完整字段依赖；跨源或不完整依赖不能裁剪成有效本源事实。原始注释仍是待确认输入。补写提示词限制为释义，不要求 SQL、Join 或无依据的公式；字段依赖由服务端校验，不接受模型自报审核通过。
+
+候选生成不修改正文；采纳使用文档版本锁，拒绝重复、跨文档、过期候选和已变化术语，保留原目录/人工内容。AI 欠费、超时或无效输出提示失败与重试，未确认结果不会成为已发布事实。确认采纳后仍需文档审核、发布和单独构建。
+
+`GLOSSARY_TERM` 与 `SEMANTIC_NOTE` 由 Java 校验真实来源、精确审核记录、正文和完整依赖；`TABLE_EXCLUDED/COLUMN_EXCLUDED` 只承担禁用/废弃对象的管理覆盖核对，不进入语义检索。`GET /{id}/source-status` 只读核对当前保存版本，使用 `validatePart` 校验该篇声明的事实，不能要求每篇拆分文档独自覆盖整个快照。整组覆盖继续由生成与 RAG 构建合同核对，不因单篇来源有效而通过；当前版本缺失、正文不一致、错误快照、缺失对象或审核/hash 变化仍应拒绝。合法曾发布快照不因为存在新快照就自动失效。来源变化时显示需重新确认，不重写已发布正文。重新审核同一文字也会使引用旧审核记录的知识失效。
+
+`FIELD_SEMANTIC` 是独立于文档候选的受控事实类型。生成目录时 Java 只输出当前精确来源绑定、审核证据和依赖仍有效的修订；发布前校验 marker 与正文，活动 build membership 在每次问数候选读取时再复核当前授权。字段修订批准、撤销、来源变更会使引用旧版本的事实从新查询候选即时排除，旧向量集合仍按 build 引用生命周期管理。字段工作面通过当前 build membership 显示“已收录/待更新/待构建/不可用”，不会自动确认构建。
+
+实现见 [术语工作流](../../backend/DataOcean/src/main/java/com/dataocean/module/glossary/service/impl/GlossaryTermWorkflowServiceImpl.java)、[术语来源](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/GlossaryKnowledgeSourceServiceImpl.java)、[AI 释义](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeSemanticServiceImpl.java)。
+
+## 关键入口
+
+| 代码 | 用途 |
+| --- | --- |
+| [KnowledgeDocController](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/controller/KnowledgeDocController.java) | `/api/admin/knowledge-docs`下 CRUD、review、publish、版本、预览与 rag-builds |
+| [KnowledgeDocCrudService](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeDocCrudService.java) | 列表、创建与编辑 |
+| [KnowledgeDocLifecycleService](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeDocLifecycleService.java) | 审核与文档发布 |
+| [KnowledgeDocPublishService](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/service/impl/KnowledgeDocPublishService.java) | 快照目录生成与预览；类名不表示负责活动 build 切换 |
+| [KnowledgeSnapshotFactValidator](../../backend/DataOcean/src/main/java/com/dataocean/module/knowledge/support/KnowledgeSnapshotFactValidator.java) | 快照事实校验 |
+| [KnowledgeView](../../frontend/src/views/admin/semantics/KnowledgeView.vue)、[KnowledgeDocView](../../frontend/src/views/admin/semantics/KnowledgeDocView.vue) | 语义知识工作区与详情 |
+
+审核理由、来源快照、版本、切分预览与历史向量任务的读取入口以 KnowledgeDocController 为准，实现按上表职责分拆。
+
+知识角色的范围与源名称来自当前 S1 能力摘要，不要求附带 `datasource:view`；知识列表和文档读写使用该角色实际负责的源。数据源准备情况与已发布快照摘要分别按 `datasource:view`、`metadata:release:view` 读取，无依赖能力时不请求接口，也不把未知状态显示成零或“无发布快照”。按快照生成目录还需目标源的 `metadata:view`，缺少时说明原因并保留合法的手工新建/编辑。详情的维护、审核、发布按钮按文档真实归属判断，无维护能力的标题与正文保持只读；RAG 列表读取沿用 `knowledge:view`，不借发布权限控制查看。
+
+知识列表和详情的已发布文档问数入口另查 S1 `queryUse`，按钮和跳转处理器均复核；知识管理角色不因此获得业务问数能力。
+
+## 构建与验证入口
+
+`POST /api/admin/knowledge-docs/rag-builds`确认数据源/来源快照下的构建，`GET`读取构建列表。Java 冻结合规版本清单，后续执行、校验和清理由[RAG 模块](009-schema-rag.md)说明。文档状态不等于索引状态。
+
+知识页统计、已发布快照、RAG 列表、生成弹窗快照及生成结果按范围/请求/卸载隔离响应，加载状态由当前请求持有。血缘的 `currentSnapshot` 从同一份当前关系记录返回正文与 Java 来源摘要，避免旧列表正文配新摘要；身份绑定真实端点、当前快照、内容及完整依赖；摘要随 marker 和 chunk 进入构建，同 ID 变更使旧知识失效。两机合成源与页面的实际范围见[验收索引](../acceptance/README.md)；真实业务及未覆盖生命周期仍独立验收。
+
+改审核与发布时验证无审核、错误快照、禁止字段、重复操作和并发冲突；改构建时同时核对 build 失败不替换活动指针、旧查询引用不被清理。原始历史方案仅供追溯。
+
+## 当前前端工作面
+
+知识列表分为全部文档、构建与索引、审核队列，保留全状态分页与真实计数、来源准备、关联配置、完整目录生成和手工新建。详情保留内容/来源与覆盖/审核记录/版本/切分预览/索引状态六Tab，正文预览按需展开。数据源名称来自当前S1负责范围，辅助就绪度/正式快照摘要缺权时不请求，不解释为不存在。
+
+标题与正文共同参与脏检查。保存固定doc.version，确认是本次保存后的精确锁与内容时保留新增输入并推进基准；第三方版本不静默换锁。当前修订变化使辅助证据缓存及迟到请求失效，旧切分不作当前预览。提交/审核/发布/回滚确认冻结真实对象并重读核对，但这些接口没有客户端expectedVersion，不能据前端保护宣称多客户端原子并发已解决。
+
+生成组在列表与非空详情共用源/快照/身份防重；AI候选按文档/版本/表范围/身份隔离，生成或采纳失败不回填其他稿。手工创建冻结原源与回执，维护权不附送查看权，manage-only创建成功留在回执页交接。未知操作不自动重发，内存记录不跨整页刷新。实际验证见[第五阶段验收](../acceptance/2026-10-29-版本与知识V2.md)。

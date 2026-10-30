@@ -1,6 +1,7 @@
 package com.dataocean.module.governance.service;
 
 import com.dataocean.module.governance.entity.vo.QualityCheckResultVO;
+import com.dataocean.module.governance.entity.vo.QualityRuleSummaryVO;
 
 import java.util.List;
 
@@ -18,4 +19,9 @@ public interface QualityCheckService {
      * @return 质量校验结果
      */
     QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions, List<String> tableNames);
+
+    QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions,
+                                             List<String> tableNames, Long operatorUserId);
+
+    QualityRuleSummaryVO ruleSummary(Long snapshotId);
 }

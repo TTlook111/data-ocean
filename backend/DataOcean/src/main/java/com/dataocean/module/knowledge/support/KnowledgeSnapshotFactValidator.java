@@ -1,0 +1,389 @@
+package com.dataocean.module.knowledge.support;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
+import com.dataocean.module.metadata.entity.po.TableRelation;
+import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
+import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
+import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
+import com.dataocean.module.metadata.mapper.TableRelationMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/** Validates reviewed Markdown fact markers against the authoritative snapshot and lineage rows. */
+@Service
+@RequiredArgsConstructor
+public class KnowledgeSnapshotFactValidator {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.dataocean.module.knowledge.service.impl.LineageFactService lineageFacts;
+    private static final Pattern FACT_MARKER = Pattern.compile(
+            "<!--\\s*dataocean-fact:\\s*(\\{.*?})\\s*-->", Pattern.DOTALL);
+
+    private final DbTableMetaMapper tableMapper;
+    private final DbColumnMetaMapper columnMapper;
+    private final TableRelationMapper tableRelationMapper;
+    private final MetadataRelationshipMapper relationshipMapper;
+    private final ObjectMapper objectMapper;
+    private final com.dataocean.module.knowledge.service.impl.GlossaryKnowledgeSourceServiceImpl glossarySources;
+    private final com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl semanticSources;
+    private final com.dataocean.module.fieldsemantic.service.FieldSemanticService fieldSemanticService;
+    private final com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService businessKnowledgeService;
+
+    public void validate(Long datasourceId, Long snapshotId, String content) {
+        validateContent(datasourceId, snapshotId, content, true);
+    }
+
+    public void validatePart(Long datasourceId, Long snapshotId, String content) {
+        validateContent(datasourceId, snapshotId, content, false);
+    }
+
+    /** 每篇校验事实，文档组共同承担完整覆盖；不能通过拆篇绕过覆盖约束。 */
+    public void validateCoverage(Long datasourceId, Long snapshotId, List<String> contents) {
+        if (contents == null || contents.isEmpty()) throw new BusinessException("知识文档组为空");
+        for (String content : contents) validatePart(datasourceId, snapshotId, content);
+        var tableIds = new HashSet<Long>();
+        var columnIds = new HashSet<Long>();
+        var businessIds = new HashSet<String>();
+        for (String content : contents) {
+            var matcher = FACT_MARKER.matcher(content);
+            while (matcher.find()) {
+                var fact = parse(matcher.group(1));
+                var ids = numberList(fact.get("sourceIds"));
+                String type = String.valueOf(fact.get("factType"));
+                if(type.startsWith("BUSINESS_")&&(ids.size()!=1||!businessIds.add(type+":"+ids.get(0))))
+                    throw new BusinessException("知识文档组包含重复或无效业务知识，请核对发布版本");
+                if (Set.of("TABLE_STRUCTURE", "TABLE_EXCLUDED").contains(type)) tableIds.add(ids.get(0));
+                if (Set.of("COLUMN_STRUCTURE", "COLUMN_EXCLUDED").contains(type)) columnIds.add(ids.get(1));
+            }
+        }
+        var expectedBusiness=new HashSet<String>();
+        var currentBusiness=businessKnowledgeService.facts(datasourceId,snapshotId);
+        if(currentBusiness!=null)for(var fact:currentBusiness){
+            var ids=stringList(fact.get("sourceIds"));
+            if(ids.size()!=1||!expectedBusiness.add(fact.get("factType")+":"+ids.get(0)))throw new BusinessException("当前业务知识清单无效");
+        }
+        if(!businessIds.equals(expectedBusiness))throw new BusinessException("知识文档组业务知识覆盖不完整或版本已变化，请重新核对发布清单");
+        var tables = tableMapper.selectList(new LambdaQueryWrapper<DbTableMeta>()
+                .eq(DbTableMeta::getDatasourceId, datasourceId).eq(DbTableMeta::getSnapshotId, snapshotId));
+        var columns = columnMapper.selectList(new LambdaQueryWrapper<DbColumnMeta>()
+                .eq(DbColumnMeta::getDatasourceId, datasourceId).eq(DbColumnMeta::getSnapshotId, snapshotId));
+        if (!tableIds.equals(tables.stream().map(DbTableMeta::getId).collect(java.util.stream.Collectors.toSet()))
+                || !columnIds.equals(columns.stream().map(DbColumnMeta::getId).collect(java.util.stream.Collectors.toSet()))) {
+            throw new BusinessException("知识文档组未完整覆盖所选快照全部表和字段");
+        }
+    }
+
+    private void validateContent(Long datasourceId, Long snapshotId, String content, boolean requireFullCoverage) {
+        if (datasourceId == null || snapshotId == null || content == null || content.isBlank()) {
+            throw new BusinessException("知识文档缺少数据源、来源快照或内容");
+        }
+        List<DbTableMeta> tables = tableMapper.selectList(new LambdaQueryWrapper<DbTableMeta>()
+                .eq(DbTableMeta::getDatasourceId, datasourceId)
+                .eq(DbTableMeta::getSnapshotId, snapshotId));
+        if (tables == null || tables.isEmpty()) {
+            throw new BusinessException("所选元数据快照没有表结构");
+        }
+        Map<Long, DbTableMeta> tableById = new HashMap<>();
+        Map<Long, DbColumnMeta> columnById = new HashMap<>();
+        Map<String, Long> tableIdByName = new HashMap<>();
+        List<Long> tableIds = new ArrayList<>();
+        for (DbTableMeta table : tables) {
+            tableById.put(table.getId(), table);
+            tableIdByName.put(table.getTableName().toLowerCase(), table.getId());
+            tableIds.add(table.getId());
+        }
+        List<DbColumnMeta> columns = columnMapper.selectList(new LambdaQueryWrapper<DbColumnMeta>()
+                .in(DbColumnMeta::getTableMetaId, tableIds)
+                .eq(DbColumnMeta::getDatasourceId, datasourceId)
+                .eq(DbColumnMeta::getSnapshotId, snapshotId));
+        for (DbColumnMeta column : columns) columnById.put(column.getId(), column);
+
+        Set<Long> seenTables = new HashSet<>();
+        Set<Long> seenColumns = new HashSet<>();
+        Matcher matcher = FACT_MARKER.matcher(content);
+        int markerCount = 0;
+        int previousMarkerEnd = 0;
+        while (matcher.find()) {
+            markerCount++;
+            Map<String, Object> fact = parse(matcher.group(1));
+            if (!snapshotId.equals(asLong(fact.get("snapshotId")))) {
+                throw new BusinessException("知识事实 marker 混入其他 snapshotId");
+            }
+            List<Long> sourceIds = numberList(fact.get("sourceIds"));
+            List<String> dependencies = stringList(fact.get("dependencies"));
+            if (sourceIds.isEmpty() || dependencies.isEmpty()) {
+                throw new BusinessException("知识事实 marker 缺少来源 ID 或资源依赖");
+            }
+            String type = String.valueOf(fact.getOrDefault("factType", ""));
+            String review = String.valueOf(fact.getOrDefault("reviewStatus", "")).toUpperCase();
+            int nextMarker = content.indexOf("<!-- dataocean-fact:", matcher.end());
+            String factBody = content.substring(previousMarkerEnd,
+                    nextMarker < 0 ? content.length() : nextMarker);
+            previousMarkerEnd = matcher.end();
+            if (!Set.of("APPROVED", "PENDING", "REJECTED").contains(review)) {
+                throw new BusinessException("知识事实 marker 审核状态无效");
+            }
+            if (type.equals("TABLE_EXCLUDED") || type.equals("COLUMN_EXCLUDED")) {
+                boolean excluded;
+                if (type.equals("TABLE_EXCLUDED")) {
+                    var table = sourceIds.size() == 1 ? tableById.get(sourceIds.get(0)) : null;
+                    excluded = table != null && forbidden(table.getGovernanceStatus());
+                } else {
+                    var column = sourceIds.size() == 2 ? columnById.get(sourceIds.get(1)) : null;
+                    var table = column == null ? null : tableById.get(column.getTableMetaId());
+                    excluded = column != null && table != null && (forbidden(column.getGovernanceStatus()) || forbidden(table.getGovernanceStatus()));
+                }
+                if (!excluded || !"PENDING".equals(review)) throw new BusinessException("不可用资源清单与治理状态不一致");
+            } else {
+                for (var dependency : dependencies) {
+                    if (dependency.startsWith("table:")) {
+                        var id = tableIdByName.get(dependency.substring(6).toLowerCase());
+                        if (id != null && forbidden(tableById.get(id).getGovernanceStatus())) throw new BusinessException("知识事实引用已阻断或废弃的表");
+                    }
+                    for (var column : columns) if (dependency.equalsIgnoreCase("column:" + column.getTableName() + "." + column.getColumnName())
+                            && forbidden(column.getGovernanceStatus())) throw new BusinessException("知识事实引用已阻断或废弃的字段");
+                }
+            }
+            switch (type) {
+                case "BUSINESS_DATASOURCE", "BUSINESS_TABLE", "BUSINESS_RELATION", "BUSINESS_METRIC" ->
+                    businessKnowledgeService.validateFact(datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
+                case "SEMANTIC_NOTE" -> semanticSources.validate(datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
+                case "FIELD_SEMANTIC" -> fieldSemanticService.validateKnowledgeFact(
+                        datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
+                case "GLOSSARY_TERM" -> glossarySources.validate(datasourceId, snapshotId, fact, factUnit(content, matcher.end()));
+                case "TABLE_STRUCTURE", "TABLE_EXCLUDED" -> validateTableStructure(sourceIds, dependencies, fact, factBody, tableById, seenTables);
+                case "COLUMN_STRUCTURE", "COLUMN_EXCLUDED" -> validateColumnStructure(sourceIds, dependencies, fact, factBody,
+                        tableById, columnById, seenColumns);
+                case "TABLE_COMMENT" -> validateTableComment(sourceIds, dependencies, fact, tableById);
+                case "COLUMN_COMMENT" -> validateColumnComment(sourceIds, dependencies, fact, tableById, columnById);
+                case "JOIN_PATH", "JOIN_CANDIDATE" -> validateTableRelation(
+                        sourceIds, dependencies, fact, factBody, datasourceId, snapshotId, type);
+                case "LINEAGE", "DERIVED_FROM" -> validateLineage(
+                        sourceIds, dependencies, fact, factBody, datasourceId, snapshotId, type);
+                default -> throw new BusinessException("知识文档包含无来源的事实类型：" + type);
+            }
+        }
+        if (markerCount == 0 || requireFullCoverage && (!seenTables.equals(tableById.keySet()) || !seenColumns.equals(columnById.keySet()))) {
+            throw new BusinessException("知识文档未完整覆盖所选快照全部表和字段");
+        }
+    }
+
+    private boolean forbidden(String status) { return "BLOCKED".equals(status) || "DEPRECATED".equals(status); }
+
+    public static String factUnit(String content, int afterMarker) {
+        var heading = Pattern.compile("(?m)^#{1,3} ").matcher(content);
+        int end = heading.find(afterMarker) ? heading.start() : content.length();
+        return content.substring(afterMarker, end).strip();
+    }
+
+    private void validateTableStructure(List<Long> sourceIds, List<String> dependencies,
+                                       Map<String, Object> fact, String factBody,
+                                       Map<Long, DbTableMeta> tableById,
+                                       Set<Long> seen) {
+        if (sourceIds.size() != 1) throw new BusinessException("表结构 marker 的来源 ID 数量无效");
+        DbTableMeta table = tableById.get(sourceIds.get(0));
+        if (table == null || !seen.add(table.getId())) throw new BusinessException("表结构 marker 遗漏、重复或错属表");
+        if (!Set.of("table:" + table.getTableName().toLowerCase()).equals(new HashSet<>(dependencies))) {
+            throw new BusinessException("表结构 marker 的资源依赖与快照不一致");
+        }
+        assertGovernance(fact, table.getGovernanceStatus());
+        String tableType = table.getTableType() == null ? "UNKNOWN" : table.getTableType();
+        if (!factBody.contains(table.getTableName())
+                || !factBody.contains("Snapshot table ID: `" + table.getId() + "`")) {
+            throw new BusinessException("表名或表 ID 与本次快照不一致");
+        }
+        if (!factBody.contains("Table type: `" + html(tableType) + "`")) {
+            throw new BusinessException("表类型与本次快照不一致");
+        }
+    }
+
+    private void validateColumnStructure(List<Long> sourceIds, List<String> dependencies,
+                                        Map<String, Object> fact, String factBody,
+                                        Map<Long, DbTableMeta> tableById,
+                                        Map<Long, DbColumnMeta> columnById, Set<Long> seen) {
+        if (sourceIds.size() != 2) throw new BusinessException("字段结构 marker 必须有表和字段 ID");
+        DbTableMeta table = tableById.get(sourceIds.get(0));
+        DbColumnMeta column = columnById.get(sourceIds.get(1));
+        if (table == null || column == null || !table.getId().equals(column.getTableMetaId())
+                || !seen.add(column.getId())) {
+            throw new BusinessException("字段结构 marker 遗漏、重复或错属表");
+        }
+        Set<String> expected = Set.of(
+                "table:" + table.getTableName().toLowerCase(),
+                "column:" + table.getTableName().toLowerCase() + "." + column.getColumnName().toLowerCase());
+        if (!expected.equals(new HashSet<>(dependencies))) {
+            throw new BusinessException("字段结构 marker 的资源依赖与快照不一致");
+        }
+        assertGovernance(fact, column.getGovernanceStatus());
+        String type = column.getDataType() == null ? "UNKNOWN" : column.getDataType();
+        if (!factBody.contains(column.getColumnName())
+                || !factBody.contains("Column ID: `" + column.getId() + "`")
+                || !factBody.contains("Type: `" + html(type) + "`")) {
+            throw new BusinessException("字段名称、ID 或类型与本次快照不一致");
+        }
+    }
+
+    private void validateTableComment(List<Long> sourceIds, List<String> dependencies,
+                                     Map<String, Object> fact, Map<Long, DbTableMeta> tableById) {
+        if (sourceIds.size() != 1) throw new BusinessException("表注释 marker 来源无效");
+        DbTableMeta table = tableById.get(sourceIds.get(0));
+        if (table == null || !Set.of("table:" + table.getTableName().toLowerCase()).equals(new HashSet<>(dependencies))) {
+            throw new BusinessException("表注释 marker 来源与快照不一致");
+        }
+        assertGovernance(fact, table.getGovernanceStatus());
+    }
+
+    private void validateColumnComment(List<Long> sourceIds, List<String> dependencies,
+                                      Map<String, Object> fact, Map<Long, DbTableMeta> tableById,
+                                      Map<Long, DbColumnMeta> columnById) {
+        if (sourceIds.size() != 2) throw new BusinessException("字段注释 marker 来源无效");
+        DbTableMeta table = tableById.get(sourceIds.get(0));
+        DbColumnMeta column = columnById.get(sourceIds.get(1));
+        if (table == null || column == null || !table.getId().equals(column.getTableMetaId())) {
+            throw new BusinessException("字段注释 marker 来源与快照不一致");
+        }
+        Set<String> expected = Set.of(
+                "table:" + table.getTableName().toLowerCase(),
+                "column:" + table.getTableName().toLowerCase() + "." + column.getColumnName().toLowerCase());
+        if (!expected.equals(new HashSet<>(dependencies))) throw new BusinessException("字段注释依赖与快照不一致");
+        assertGovernance(fact, column.getGovernanceStatus());
+    }
+
+    private void validateTableRelation(List<Long> sourceIds, List<String> dependencies,
+                                      Map<String, Object> fact, String marker,
+                                      Long datasourceId, Long snapshotId, String factType) {
+        if (sourceIds.size() != 1) throw new BusinessException("Join 事实来源 ID 无效");
+        TableRelation relation = tableRelationMapper.selectById(sourceIds.get(0));
+        if (relation == null || !datasourceId.equals(relation.getDatasourceId())
+                || !snapshotId.equals(relation.getSnapshotId())) {
+            throw new BusinessException("Join 事实不属于本次元数据快照");
+        }
+        if ("JOIN_PATH".equals(factType)) {
+            throw new BusinessException("未确认完整业务用法的结构关系不能发布为 Join Path，请在业务知识中审核关联条件、基数和聚合方式");
+        }
+        if ("JOIN_CANDIDATE".equals(factType) && !"PENDING".equalsIgnoreCase(String.valueOf(fact.get("reviewStatus")))) {
+            throw new BusinessException("待审核候选关系标记与快照状态不一致");
+        }
+        Set<String> expected = new HashSet<>(List.of(
+                "table:" + relation.getSourceTable().toLowerCase(),
+                "table:" + relation.getTargetTable().toLowerCase(),
+                "column:" + relation.getSourceTable().toLowerCase() + "." + relation.getSourceColumn().toLowerCase(),
+                "column:" + relation.getTargetTable().toLowerCase() + "." + relation.getTargetColumn().toLowerCase()));
+        if (!expected.equals(new HashSet<>(dependencies))) throw new BusinessException("Join 依赖与关系事实不一致");
+        String condition = relation.getSourceTable() + "." + relation.getSourceColumn()
+                + " = " + relation.getTargetTable() + "." + relation.getTargetColumn();
+        if (!marker.contains(condition)) throw new BusinessException("Join 条件与来源关系不一致");
+    }
+
+    private void validateLineage(List<Long> sourceIds, List<String> dependencies,
+                                 Map<String, Object> fact, String marker,
+                                 Long datasourceId, Long snapshotId, String factType) {
+        if (sourceIds.size() != 1) throw new BusinessException("血缘事实来源 ID 无效");
+        MetadataRelationship relationship = relationshipMapper.selectById(sourceIds.get(0));
+        if (relationship == null || !factType.equals(relationship.getRelationType())) {
+            throw new BusinessException("血缘事实来源记录不存在或类型不一致");
+        }
+        Map<String, Object> metadata = parse(relationship.getRelationMetadata());
+        if (!"CONFIRMED".equalsIgnoreCase(String.valueOf(metadata.get("confirmation_status")))
+                || !"BOUND".equalsIgnoreCase(String.valueOf(metadata.get("binding_status")))) {
+            throw new BusinessException("血缘事实尚未确认或未绑定");
+        }
+        // 两端都必须有各自已核验的快照；本文档的 snapshotId 至少匹配其中一端。
+        // 跨源关系不能用单个 bound_snapshot_id 代表两端。
+        String sourceBound = boundSnapshot(metadata, "source_bound_snapshot_id");
+        String targetBound = boundSnapshot(metadata, "target_bound_snapshot_id");
+        if (sourceBound == null || targetBound == null
+                || (!String.valueOf(snapshotId).equals(sourceBound)
+                && !String.valueOf(snapshotId).equals(targetBound))) {
+            throw new BusinessException("血缘事实端点未绑定到各自快照或与本次快照不匹配");
+        }
+        String sourceFqn = String.valueOf(metadata.get("source_fqn"));
+        String targetFqn = String.valueOf(metadata.get("target_fqn"));
+        if (!marker.contains(sourceFqn) || !marker.contains(targetFqn)) {
+            throw new BusinessException("血缘文档端点与来源实体不一致");
+        }
+        Set<String> expected = new HashSet<>(lineageDependencies(sourceFqn, targetFqn));
+        if (!expected.equals(new HashSet<>(dependencies))) throw new BusinessException("血缘资源依赖与来源实体不一致");
+        // 不接受仅保留关系 ID 的旧 marker；同 ID 修改来源或转换内容也必须失效。
+        if (lineageFacts == null || !lineageFacts.valid(
+                datasourceId, snapshotId, factType,
+                sourceIds.stream().map(String::valueOf).toList(),
+                (String) fact.get("sourceFingerprint"), dependencies)) {
+            throw new BusinessException("血缘事实当前来源已变化或缺少身份摘要，请重新生成并审核");
+        }
+    }
+
+
+    /** 端点自己的绑定快照；历史记录没有端点字段时回退到旧的单侧 bound_snapshot_id。 */
+    private String boundSnapshot(Map<String, Object> metadata, String key) {
+        Object value = metadata.get(key);
+        if (value == null || String.valueOf(value).isBlank()) {
+            value = metadata.get("bound_snapshot_id");
+        }
+        return value == null || String.valueOf(value).isBlank() ? null : String.valueOf(value);
+    }
+
+    private List<String> lineageDependencies(String sourceFqn, String targetFqn) {
+        return com.dataocean.module.knowledge.support.LineageDependencies.parse(sourceFqn, targetFqn);
+    }
+
+    private void assertGovernance(Map<String, Object> fact, String sourceStatus) {
+        String expected = sourceStatus == null ? "DISCOVERED" : sourceStatus;
+        if (!expected.equalsIgnoreCase(String.valueOf(fact.get("governanceStatus")))) {
+            throw new BusinessException("事实 marker 治理状态与本次元数据快照不一致");
+        }
+    }
+
+    private Map<String, Object> parse(String json) {
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {});
+        } catch (Exception e) {
+            throw new BusinessException("知识事实 marker JSON 无效");
+        }
+    }
+
+    private List<Long> numberList(Object raw) {
+        if (!(raw instanceof List<?> values)) return List.of();
+        List<Long> result = new ArrayList<>();
+        for (Object value : values) {
+            try {
+                result.add(value instanceof Number number ? number.longValue() : Long.parseLong(String.valueOf(value)));
+            } catch (Exception e) {
+                throw new BusinessException("知识事实来源 ID 无效");
+            }
+        }
+        return result;
+    }
+
+    private List<String> stringList(Object raw) {
+        if (!(raw instanceof List<?> values)) return List.of();
+        return values.stream().map(String::valueOf).toList();
+    }
+
+    private Long asLong(Object value) {
+        try {
+            return value instanceof Number number ? number.longValue() : Long.parseLong(String.valueOf(value));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String html(String value) {
+        return org.springframework.web.util.HtmlUtils.htmlEscape(value);
+    }
+}

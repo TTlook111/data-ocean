@@ -5,15 +5,17 @@
 
 import asyncio
 import logging
+import re
 from time import perf_counter
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 import httpx
 
-from .milvus_client import ensure_collection, health_status
+from .milvus_client import ensure_collection, get_client, health_status
 from .schema import (
     ChunkDocumentRequest,
+    BuildChunkDocumentRequest,
     ChunkDocumentResponse,
     DeleteVectorsRequest,
     DeleteVectorsResponse,
@@ -22,7 +24,7 @@ from .schema import (
     VectorizeRequest,
     VectorizeResponse,
 )
-from .chunker import chunk_skills_md
+from .chunker import chunk_skills_md, validate_skills_md_structure
 from .service import retrieve_schemas
 from .vector_store import delete_by_expr
 from .vectorizer import vectorize_chunks
@@ -43,11 +45,9 @@ class DimensionDetectRequest(BaseModel):
     model: str
 
 
-class ReVectorizeRequest(BaseModel):
-    is_pending: bool = Field(default=False, alias="isPending")
-    index_version: str | None = Field(default=None, alias="indexVersion")
-    target_collection: str | None = Field(default=None, alias="targetCollection")
-    target_dimension: int | None = Field(default=None, alias="targetDimension")
+class BuildCollectionRequest(BaseModel):
+    build_id: str = Field(alias="buildId")
+    collection_name: str = Field(alias="collectionName")
 
 
 @router.post("/chunk", response_model=ChunkDocumentResponse)
@@ -57,7 +57,17 @@ async def chunk_document(request: ChunkDocumentRequest) -> ChunkDocumentResponse
     Java keeps the document lifecycle and stores this returned chunk snapshot for
     observability/rebuilds; Python owns the chunking strategy.
     """
-    chunks = chunk_skills_md(request.content)
+    if request.validate_structure or request.snapshot_id is not None:
+        errors = await asyncio.to_thread(
+            validate_skills_md_structure,
+            request.content,
+            request.snapshot_id,
+        )
+        if errors:
+            raise HTTPException(status_code=422, detail={"message": "skills.md 结构校验失败", "errors": errors})
+
+    # skills.md 切分包含 token 计算和较多字符串处理，放入线程池避免阻塞事件循环。
+    chunks = await asyncio.to_thread(chunk_skills_md, request.content, request.snapshot_id)
     logger.info(
         "skills.md chunked datasource_id=%s doc_id=%s version_no=%s chunks=%d",
         request.datasource_id,
@@ -65,6 +75,27 @@ async def chunk_document(request: ChunkDocumentRequest) -> ChunkDocumentResponse
         request.version_no,
         len(chunks),
     )
+    return ChunkDocumentResponse(chunks=chunks, chunk_count=len(chunks))
+
+
+@router.post("/builds/chunk", response_model=ChunkDocumentResponse)
+async def chunk_build_document(request: BuildChunkDocumentRequest) -> ChunkDocumentResponse:
+    """Validate one frozen manifest member, without requiring a whole book in it.
+
+    Java owns cross-document coverage, review, version and manifest validation.
+    The generic /chunk route retains its complete-document validation contract.
+    Marker validity, snapshot consistency, duplicate identities and Markdown
+    integrity remain mandatory for every build member. Marker-free explanatory
+    topics produce no retrievable facts.
+    """
+    if any(value is None or value <= 0 for value in
+           (request.datasource_id, request.doc_id, request.snapshot_id, request.version_no)):
+        raise HTTPException(status_code=400, detail="构建成员缺少明确的数据源、文档、快照或版本")
+    errors = await asyncio.to_thread(validate_skills_md_structure, request.content,
+                                    request.snapshot_id, require_complete_document=False)
+    if errors:
+        raise HTTPException(status_code=422, detail={"message": "构建文档成员校验失败", "errors": errors})
+    chunks = await asyncio.to_thread(chunk_skills_md, request.content, request.snapshot_id)
     return ChunkDocumentResponse(chunks=chunks, chunk_count=len(chunks))
 
 
@@ -77,6 +108,20 @@ async def vectorize(request: VectorizeRequest) -> VectorizeResponse:
         len(request.chunks),
         request.force,
     )
+    if not request.build_id or not request.target_collection:
+        raise HTTPException(status_code=400, detail="向量写入必须绑定到已确认的 ragBuildId 专属 collection")
+    if request.build_id:
+        expected_suffix = request.build_id.replace("-", "").lower()
+        if not request.target_collection or not request.target_collection.endswith("_b" + expected_suffix):
+            raise HTTPException(status_code=400, detail="buildId 与隔离 collection 不一致")
+        if any(
+            chunk.fact_review_status != "APPROVED"
+            or chunk.source_snapshot_id != request.snapshot_id
+            or not chunk.resource_dependencies
+            or not chunk.fact_source_ids
+            for chunk in request.chunks
+        ):
+            raise HTTPException(status_code=422, detail="build 只接受本快照中已审核且依赖完整的事实 chunk")
     response = await vectorize_chunks(
         datasource_id=request.datasource_id,
         snapshot_id=request.snapshot_id,
@@ -88,6 +133,7 @@ async def vectorize(request: VectorizeRequest) -> VectorizeResponse:
         target_collection=request.target_collection,
         target_dimension=request.target_dimension,
         embedding_config=request.embedding_config,
+        build_id=request.build_id,
     )
     response.task_id = request.task_id
     return response
@@ -102,6 +148,71 @@ async def retrieve(request: RetrieveRequest) -> RetrieveResponse:
         request.question[:50],
     )
     return await retrieve_schemas(request)
+
+
+@router.post("/builds/count")
+async def count_build_collection(request: BuildCollectionRequest) -> dict:
+    """Read an exact count for a build-isolated collection."""
+    _validate_build_collection(request)
+    return await asyncio.to_thread(_inspect_build_collection, request, False)
+
+
+@router.post("/builds/delete")
+async def delete_build_collection(request: BuildCollectionRequest) -> dict:
+    """Drop one build-owned collection and verify the remaining vector count is zero."""
+    _validate_build_collection(request)
+    return await asyncio.to_thread(_inspect_build_collection, request, True)
+
+
+def _validate_build_collection(request: BuildCollectionRequest) -> None:
+    suffix = request.build_id.replace("-", "").lower()
+    expected = rf"^dataocean_rag_ds[1-9][0-9]*_b{re.escape(suffix)}$"
+    if len(suffix) < 16 or re.fullmatch(expected, request.collection_name) is None:
+        raise HTTPException(status_code=400, detail="拒绝操作非 build 专属 Milvus collection")
+
+
+def _inspect_build_collection(request: BuildCollectionRequest, drop: bool) -> dict:
+    client = get_client()
+    if not client.has_collection(request.collection_name):
+        return {
+            "buildId": request.build_id,
+            "collectionName": request.collection_name,
+            "beforeCount": 0,
+            "vectorCount": 0,
+            "collectionExists": False,
+            "verified": True,
+        }
+    before = _count_collection(client, request.collection_name)
+    if not drop:
+        return {
+            "buildId": request.build_id,
+            "collectionName": request.collection_name,
+            "beforeCount": before,
+            "vectorCount": before,
+            "collectionExists": True,
+            "verified": True,
+        }
+    client.drop_collection(request.collection_name)
+    exists_after = client.has_collection(request.collection_name)
+    after = _count_collection(client, request.collection_name) if exists_after else 0
+    verified = not exists_after and after == 0
+    if not verified:
+        raise RuntimeError(f"build collection cleanup not verified collection={request.collection_name} count={after}")
+    return {
+        "buildId": request.build_id,
+        "collectionName": request.collection_name,
+        "beforeCount": before,
+        "vectorCount": after,
+        "collectionExists": exists_after,
+        "verified": verified,
+    }
+
+
+def _count_collection(client, collection_name: str) -> int:
+    rows = client.query(collection_name=collection_name, filter="", output_fields=["count(*)"])
+    if not rows:
+        return 0
+    return int(rows[0].get("count(*)", 0))
 
 
 @router.delete("/vectors/{datasource_id}")
@@ -140,7 +251,9 @@ async def _delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsRespons
 
         collection = await asyncio.to_thread(ensure_collection)
         before = await asyncio.to_thread(_count_entities, collection, expr)
-        await delete_by_expr(expr)
+        deleted = await delete_by_expr(expr)
+        if not deleted:
+            raise RuntimeError(f"Milvus 删除向量失败 expr={expr}")
         logger.info("已删除向量 expr=%s count=%d", expr, before)
         return DeleteVectorsResponse(deleted_count=before, duration_ms=_elapsed_ms(start))
     except ValueError as e:
@@ -154,22 +267,6 @@ async def _delete_vectors(request: DeleteVectorsRequest) -> DeleteVectorsRespons
 async def health() -> dict:
     """RAG 健康检查（含 Milvus 连接状态）"""
     return await asyncio.to_thread(health_status)
-
-
-@router.post("/re-vectorize")
-async def re_vectorize(request: ReVectorizeRequest) -> dict:
-    """全量重新向量化入口占位。
-
-    当前按文档先完成 pending 向量化协议；实际全量任务编排由 Java 侧读取 chunks 后
-    调用 /vectorize 分批完成。这里提供统一入口，便于前端触发和后续扩展进度管理。
-    """
-    return {
-        "status": "ACCEPTED",
-        "isPending": request.is_pending,
-        "indexVersion": request.index_version,
-        "targetCollection": request.target_collection,
-        "targetDimension": request.target_dimension,
-    }
 
 
 async def test_provider(request: ProviderTestRequest) -> dict:
@@ -218,7 +315,14 @@ async def detect_dimension(request: DimensionDetectRequest) -> dict:
 
 
 def _count_entities(collection, expr: str) -> int:
-    rows = collection.query(expr=expr, output_fields=["count(*)"])
+    collection_name = getattr(collection, "name", None)
+    if not collection_name:
+        collection_name = collection
+    rows = get_client().query(
+        collection_name=collection_name,
+        filter=expr,
+        output_fields=["count(*)"],
+    )
     if not rows:
         return 0
     row = rows[0]

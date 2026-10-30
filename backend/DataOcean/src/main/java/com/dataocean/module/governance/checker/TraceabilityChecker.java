@@ -1,10 +1,10 @@
 package com.dataocean.module.governance.checker;
 
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -17,7 +17,34 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * 可追溯性校验：外键关系缺失、孤立表
+ * 可追溯性校验器。
+ * <p>
+ * 从两个维度检测元数据可追溯性：
+ * <ul>
+ *   <li>外键关系缺失（TRACE_FK_MISSING）：
+ *     <ul>
+ *       <li>ID 类字段（*_id）没有定义外键关系</li>
+ *       <li>可能导致数据完整性问题和 JOIN 查询错误</li>
+ *     </ul>
+ *   </li>
+ *   <li>孤立表（TRACE_ORPHAN_TABLE）：
+ *     <ul>
+ *       <li>表没有任何外键关系（既不引用其他表，也不被其他表引用）</li>
+ *       <li>可能表示该表是临时表或已废弃</li>
+ *     </ul>
+ *   </li>
+ * </ul>
+ * </p>
+ * <p>
+ * 校验策略：
+ * <ul>
+ *   <li>收集所有有外键关系的表名和字段名</li>
+ *   <li>检查 ID 类字段是否在外键关系中</li>
+ *   <li>检查表是否在任何外键关系中</li>
+ * </ul>
+ * </p>
+ *
+ * @author DataOcean
  */
 @Slf4j
 @Component
@@ -102,6 +129,7 @@ public class TraceabilityChecker implements QualityChecker {
         issue.setIssueDescription(description);
         issue.setSuggestion(suggestion);
         issue.setStatus(MetadataQualityIssue.STATUS_OPEN);
+        resolveAndSetColumnMetaId(issue, ctx.columns());  // Phase 1 #6
         return issue;
     }
 }

@@ -1,12 +1,13 @@
 package com.dataocean.module.governance.checker;
 
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 质量校验器接口，每个维度实现一个 Checker
@@ -21,6 +22,19 @@ public interface QualityChecker {
     String getDimension();
 
     /**
+     * 获取该检查器覆盖的质量维度。
+     * <p>
+     * 普通检查器只负责一个维度；数据级检查器可以在同一轮中覆盖多个维度，
+     * 但仍按规则自身的维度参与筛选和计分。
+     * </p>
+     *
+     * @return 支持的质量维度集合
+     */
+    default Set<String> getSupportedDimensions() {
+        return Set.of(getDimension());
+    }
+
+    /**
      * 执行质量校验并返回发现的问题。
      *
      * @param context 本次校验所需的快照元数据和规则上下文
@@ -31,6 +45,23 @@ public interface QualityChecker {
     /**
      * 校验上下文，封装一次校验所需的全部数据
      */
+    /**
+     * Phase 1 #6: 从 columns 列表中反查列级 issue 的 columnMetaId 并设置。
+     * <p>
+     * 仅当 issue 有 columnName 时才设置；表级 issue（columnName 为 null）跳过。
+     * </p>
+     */
+    default void resolveAndSetColumnMetaId(MetadataQualityIssue issue, List<DbColumnMeta> columns) {
+        if (issue.getColumnName() == null || issue.getTableName() == null) return;
+        for (DbColumnMeta col : columns) {
+            if (issue.getTableName().equals(col.getTableName())
+                && issue.getColumnName().equals(col.getColumnName())) {
+                issue.setColumnMetaId(col.getId());
+                return;
+            }
+        }
+    }
+
     record CheckContext(
             Long snapshotId,
             Long datasourceId,

@@ -4,13 +4,13 @@ server:
 spring:
   application:
     name: DataOcean
-  profiles:
-    active: dev
+  config:
+    import: optional:classpath:application-local.yml
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3307}/${DB_NAME:dataocean}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:dataocean}?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:}
+    password: ${DB_PASSWORD:123456}
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -33,7 +33,10 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 jwt:
-  secret: ${JWT_SECRET:dataocean-local-dev-secret-key-change-me-at-least-256-bits}
+  # 登录令牌签名密钥：刻意不提供默认值。未配置或不足 32 字节时应用拒绝启动
+  # （见 JwtTokenProvider#buildSecretKey）。本地开发请写入被 Git 忽略的
+  # src/main/resources/application-local.yml，生成方式：openssl rand -base64 32
+  secret: ${JWT_SECRET:}
   expiration: ${JWT_EXPIRATION:86400}
 
 security:
@@ -43,7 +46,11 @@ security:
 
 dataocean:
   internal:
-    token: ${INTERNAL_TOKEN:dataocean-internal-default}
+    # 内部服务间令牌：/internal/** 的唯一防线，刻意不提供默认值。
+    # 未配置时应用拒绝启动（见 InternalTokenValidator）。
+    # 本地开发请写入被 Git 忽略的 src/main/resources/application-local.yml，
+    # 且必须与 python-service/.env 的 INTERNAL_TOKEN 一致。
+    token: ${INTERNAL_TOKEN:}
   python-service:
     base-url: ${PYTHON_SERVICE_BASE_URL:http://localhost:8000}
     connect-timeout: ${PYTHON_SERVICE_CONNECT_TIMEOUT:5000}
@@ -52,6 +59,27 @@ dataocean:
     short-read-timeout: ${PYTHON_SERVICE_SHORT_READ_TIMEOUT:15000}
     health-connect-timeout: ${PYTHON_SERVICE_HEALTH_CONNECT_TIMEOUT:3000}
     health-read-timeout: ${PYTHON_SERVICE_HEALTH_READ_TIMEOUT:3000}
+  async:
+    task:
+      core-size: ${ASYNC_TASK_CORE_SIZE:4}
+      max-size: ${ASYNC_TASK_MAX_SIZE:8}
+      queue-capacity: ${ASYNC_TASK_QUEUE_CAPACITY:100}
+      await-termination-seconds: ${ASYNC_TASK_AWAIT_TERMINATION_SECONDS:30}
+    query:
+      core-size: ${ASYNC_QUERY_CORE_SIZE:10}
+      max-size: ${ASYNC_QUERY_MAX_SIZE:30}
+      queue-capacity: ${ASYNC_QUERY_QUEUE_CAPACITY:50}
+      await-termination-seconds: ${ASYNC_QUERY_AWAIT_TERMINATION_SECONDS:60}
+    conversation-summary:
+      core-size: ${ASYNC_SUMMARY_CORE_SIZE:2}
+      max-size: ${ASYNC_SUMMARY_MAX_SIZE:8}
+      queue-capacity: ${ASYNC_SUMMARY_QUEUE_CAPACITY:50}
+      await-termination-seconds: ${ASYNC_SUMMARY_AWAIT_TERMINATION_SECONDS:60}
+    datasource-health:
+      core-size: ${DATASOURCE_HEALTH_ASYNC_CORE_SIZE:2}
+      max-size: ${DATASOURCE_HEALTH_ASYNC_MAX_SIZE:8}
+      queue-capacity: ${DATASOURCE_HEALTH_ASYNC_QUEUE_CAPACITY:100}
+      await-termination-seconds: ${DATASOURCE_HEALTH_ASYNC_AWAIT_TERMINATION_SECONDS:30}
   metadata:
     auto-sync:
       enabled: ${METADATA_AUTO_SYNC_ENABLED:false}

@@ -8,14 +8,15 @@ Java 改配置后回调 /internal/config/reload，触发此模块执行：
 """
 
 import logging
-import os
 
 import httpx
 
+from dataocean.core.config import settings
+
 logger = logging.getLogger(__name__)
 
-JAVA_BASE_URL = os.getenv("JAVA_GATEWAY_URL", "http://localhost:8080")
-INTERNAL_TOKEN = os.getenv("INTERNAL_TOKEN", "dataocean-internal-default")
+JAVA_BASE_URL = settings.java_gateway_url
+INTERNAL_TOKEN = settings.internal_token
 
 # Java config_key -> Python Settings 字段名映射
 # 值与 config.py 中 Settings 的字段名一致（pydantic-settings 大小写不敏感，但统一用小写避免混淆）
@@ -44,7 +45,7 @@ async def reload_ai_config() -> bool:
         # 1. 从 Java 拉取配置
         url = f"{JAVA_BASE_URL}/internal/ai-config"
         headers = {"X-Internal-Token": INTERNAL_TOKEN}
-        async with httpx.AsyncClient(timeout=5.0) as client:
+        async with httpx.AsyncClient(timeout=5.0, trust_env=False) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             data = response.json().get("data", {})

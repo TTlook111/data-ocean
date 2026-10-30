@@ -1,7 +1,7 @@
 package com.dataocean.module.glossary.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.glossary.entity.Glossary;
+import com.dataocean.module.glossary.entity.po.Glossary;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
@@ -11,4 +11,6 @@ import org.apache.ibatis.annotations.Mapper;
  */
 @Mapper
 public interface GlossaryMapper extends BaseMapper<Glossary> {
+    @org.apache.ibatis.annotations.Select("SELECT * FROM glossary WHERE id=#{id} FOR UPDATE")
+    Glossary selectForUpdate(@org.apache.ibatis.annotations.Param("id") Long id);
 }

@@ -26,6 +26,7 @@ class ErrorType(str, Enum):
     SYNTAX = "SYNTAX"
     CONNECTION = "CONNECTION"
     POOL_EXHAUSTED = "POOL_EXHAUSTED"
+    CANCELLED = "CANCELLED"
     UNKNOWN = "UNKNOWN"
 
 
@@ -50,6 +51,7 @@ async def execute(
     connection_config: dict,
     mask_columns: dict[str, str] | None = None,
     task_id: str | None = None,
+    parameters: dict[str, object] | None = None,
 ) -> ExecutionResult:
     """在沙箱中执行 SQL
 
@@ -66,7 +68,13 @@ async def execute(
     start = time.time()
 
     try:
-        engine = pool_manager.get_engine(datasource_id, connection_config)
+        # 连接池使用同步 SQLAlchemy Engine。即使这里只是获取/创建 Engine，
+        # 也不能让同步实现直接跑在 FastAPI 事件循环中。
+        engine = await asyncio.to_thread(
+            pool_manager.get_engine,
+            datasource_id,
+            connection_config,
+        )
     except RuntimeError as e:
         return ExecutionResult(
             success=False, error=str(e), error_type=ErrorType.POOL_EXHAUSTED)
@@ -80,7 +88,7 @@ async def execute(
 
     try:
         result = await asyncio.wait_for(
-            asyncio.to_thread(_execute_readonly, engine, sql, connection_id_holder),
+            asyncio.to_thread(_execute_readonly, engine, sql, connection_id_holder, parameters or {}),
             timeout=sandbox_config.max_execution_time,
         )
         result.execution_time_ms = int((time.time() - start) * 1000)
@@ -100,7 +108,8 @@ async def execute(
         elapsed = int((time.time() - start) * 1000)
         logger.warning("SQL 执行超时 datasource_id=%d elapsed=%dms sql=%s",
                        datasource_id, elapsed, sql[:80])
-        _kill_query(engine, connection_id_holder)
+        # KILL QUERY 同样通过同步 SQLAlchemy 连接执行，必须离开事件循环。
+        await asyncio.to_thread(_kill_query, engine, connection_id_holder)
         return ExecutionResult(
             success=False,
             error=f"查询超时（{sandbox_config.max_execution_time}s），已自动终止",
@@ -111,7 +120,8 @@ async def execute(
         # asyncio 任务被取消（SSE 断开或用户取消触发）
         elapsed = int((time.time() - start) * 1000)
         logger.info("SQL 执行被取消 datasource_id=%d task_id=%s", datasource_id, task_id)
-        _kill_query(engine, connection_id_holder)
+        # 取消路径也要保持事件循环可调度；底层线程中的查询由 KILL QUERY 终止。
+        await asyncio.to_thread(_kill_query, engine, connection_id_holder)
         return ExecutionResult(
             success=False, error="查询已取消",
             error_type="CANCELLED", execution_time_ms=elapsed)
@@ -124,7 +134,12 @@ async def execute(
             success=False, error=str(e), error_type=error_type, execution_time_ms=elapsed)
 
 
-def _execute_readonly(engine, sql: str, connection_id_holder: list[int]) -> ExecutionResult:
+def _execute_readonly(
+    engine,
+    sql: str,
+    connection_id_holder: list[int],
+    parameters: dict[str, object] | None = None,
+) -> ExecutionResult:
     """在只读事务中同步执行 SQL"""
     from decimal import Decimal
     from sqlalchemy import text
@@ -132,18 +147,21 @@ def _execute_readonly(engine, sql: str, connection_id_holder: list[int]) -> Exec
     max_rows = sandbox_config.max_result_rows
 
     with engine.connect() as conn:
+        # 先设置只读事务，再获取连接 ID（防御性编程：确保后续操作在只读模式下执行）
+        conn.execute(text("SET TRANSACTION READ ONLY"))
+
         # 记录连接 ID，供超时后 KILL QUERY 使用
         cid_result = conn.execute(text("SELECT CONNECTION_ID()"))
         cid_row = cid_result.fetchone()
         if cid_row:
             connection_id_holder.append(cid_row[0])
-
-        # 设置只读事务和 MySQL 级超时
-        conn.execute(text("SET TRANSACTION READ ONLY"))
         conn.execute(text(f"SET max_execution_time = {sandbox_config.max_execution_time * 1000}"))
 
         # SQL 已经过 validator AST 校验 + 注入模式检测，此处直接执行是安全的
-        result = conn.execute(text(sql))
+        # IAM-SIMPLE-1 passes only server-created named bindings.  The legacy
+        # route keeps the empty mapping and therefore retains its existing
+        # behavior; S1 never interpolates values into SQL text.
+        result = conn.execute(text(sql), parameters or {})
         columns = [
             {"name": col, "type": str(result.cursor.description[i][1]) if result.cursor.description else ""}
             for i, col in enumerate(result.keys())
@@ -155,11 +173,11 @@ def _execute_readonly(engine, sql: str, connection_id_holder: list[int]) -> Exec
             if i >= max_rows:
                 truncated = True
                 break
-            # 将 Decimal 转换为 float，确保 JSON 序列化兼容
+            # 将 Decimal 转换为字符串，保留精度（金额等场景不能丢失精度）
             row_dict = {}
             for key, value in dict(row).items():
                 if isinstance(value, Decimal):
-                    row_dict[key] = float(value)
+                    row_dict[key] = str(value)
                 else:
                     row_dict[key] = value
             rows.append(row_dict)
@@ -183,7 +201,8 @@ def _kill_query(engine, connection_id_holder: list[int]) -> None:
     try:
         from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute(text(f"KILL QUERY {cid}"))
+            # 使用参数化查询避免 SQL 注入（虽然 cid 来自 CONNECTION_ID()，保持风格一致）
+            conn.execute(text("KILL QUERY :cid"), {"cid": cid})
             logger.info("已执行 KILL QUERY connection_id=%d", cid)
     except Exception as e:
         logger.warning("KILL QUERY 失败 connection_id=%d error=%s", cid, e)

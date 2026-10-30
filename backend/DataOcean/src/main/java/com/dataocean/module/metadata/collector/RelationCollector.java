@@ -1,6 +1,6 @@
 package com.dataocean.module.metadata.collector;
 
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -48,6 +48,7 @@ public class RelationCollector {
                 relation.setTargetColumn(rs.getString("PKCOLUMN_NAME"));
                 relation.setRelationType(TableRelation.TYPE_FK);
                 relation.setConfidence(BigDecimal.ONE);
+                relation.setReviewStatus("CONFIRMED");
                 relations.add(relation);
             }
         }

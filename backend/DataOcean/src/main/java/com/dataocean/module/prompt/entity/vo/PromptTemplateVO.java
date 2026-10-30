@@ -25,11 +25,16 @@ public class PromptTemplateVO {
     /** 使用场景 */
     private String scenario;
 
-    /** 当前活跃版本内容 */
+    /** 当前编辑/工作流版本内容，线上内容独立见 activeContent。 */
     private String content;
 
     /** 当前版本号 */
     private Integer currentVersion;
+
+    /** 生效版本与当前编辑版本独立；enabled=false 时运行端使用内置策略。 */
+    private Integer activeVersion;
+    private String activeContent;
+    private String integrationStatus;
 
     /** 模板状态（DRAFT/PENDING_REVIEW/APPROVED/REJECTED） */
     private String status;

@@ -2,11 +2,11 @@ package com.dataocean.module.governance.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.dataocean.module.governance.entity.MetadataReviewRecord;
+import com.dataocean.module.governance.entity.po.MetadataReviewRecord;
 import com.dataocean.module.governance.entity.vo.ReviewRecordVO;
 import com.dataocean.module.governance.mapper.MetadataReviewRecordMapper;
 import com.dataocean.module.governance.service.MetadataReviewService;
-import com.dataocean.module.user.entity.SysUser;
+import com.dataocean.module.user.entity.po.SysUser;
 import com.dataocean.module.user.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

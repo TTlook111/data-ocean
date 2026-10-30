@@ -1,7 +1,7 @@
 package com.dataocean.module.knowledge.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.knowledge.entity.KnowledgeDoc;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDoc;
 import org.apache.ibatis.annotations.Mapper;
 
 /**
@@ -12,4 +12,6 @@ import org.apache.ibatis.annotations.Mapper;
  */
 @Mapper
 public interface KnowledgeDocMapper extends BaseMapper<KnowledgeDoc> {
+    @org.apache.ibatis.annotations.Select("SELECT * FROM knowledge_doc WHERE id=#{id} AND deleted=0 FOR UPDATE")
+    KnowledgeDoc selectForUpdate(@org.apache.ibatis.annotations.Param("id") Long id);
 }

@@ -1,0 +1,628 @@
+/**
+ * useQuerySubmit — 查询提交和轮询 composable
+ * 管理提问提交、任务轮询、取消、重试等流程
+ */
+import { computed, getCurrentScope, onScopeDispose, ref, type Ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import {
+  iamS1Ask,
+  iamS1CancelTask,
+  iamS1GetTask,
+  iamS1ResumeTask,
+  iamS1StreamTask,
+  iamS1ViewSql,
+  type IamS1QueryTaskResult,
+} from '../api/iamS1'
+import type { LocalMessage, LocalSession } from './useQuerySession'
+import { resolveQueryDisplayState } from '../utils/queryDisplayState'
+
+/** 轮询配置常量 */
+const POLL_MAX_CONSECUTIVE_ERRORS = 3
+
+export type QueryPollResult = IamS1QueryTaskResult & { localWaitTimedOut?: boolean }
+
+export function isLocallyResumable(message: Pick<LocalMessage, 'status' | 'localWaitTimedOut'>): boolean {
+  return message.status === 'PROCESSING' && message.localWaitTimedOut === true
+}
+
+/** Agent 节点定义 */
+const agentNodes = [
+  { key: 'rag_retrieval', label: '检索已授权知识' },
+  { key: 'schema_linking', label: '理解问题并关联字段' },
+  { key: 'sql_generation', label: '生成 SQL' },
+  { key: 'sql_semantic_check', label: '核对问题语义' },
+  { key: 'execution_authorization', label: '复核当前权限' },
+  { key: 'sql_execution', label: '只读执行' },
+  { key: 'result_verification', label: '核对结果' },
+  { key: 'clarification', label: '需要补充说明' },
+]
+
+export function buildAgentProgress(result: IamS1QueryTaskResult | null) {
+  if (!result || result.status !== 'PROCESSING') return []
+  const currentIndex = agentNodes.findIndex((node) => node.key === result.progressNode)
+  if (currentIndex < 0) return []
+  return agentNodes.map((node, index) => ({
+    ...node,
+    status: index < currentIndex ? 'done' as const : index === currentIndex ? 'active' as const : 'pending' as const,
+  }))
+}
+
+export function useQuerySubmit(options: {
+  selectedId: Ref<number | undefined>
+  activeSession: Ref<LocalSession | undefined>
+  activeMessages: Ref<LocalMessage[]>
+  canAskSelectedDatasource: Ref<boolean>
+  selectedBlockReason: Ref<{ message?: string } | undefined>
+  createSession: (datasourceId: number) => LocalSession
+  animateNewMessages?: () => Promise<void>
+  animateMessageUpdate?: (messageId: string) => Promise<void>
+  focusQuestionInput?: () => Promise<void>
+}) {
+  const {
+    selectedId,
+    activeSession,
+    activeMessages,
+    canAskSelectedDatasource,
+    selectedBlockReason,
+    createSession,
+    animateNewMessages,
+    animateMessageUpdate,
+    focusQuestionInput,
+  } = options
+
+  // ---- 状态 ----
+  const question = ref('')
+  const isQuerying = ref(false)
+  const currentTaskId = ref<string>()
+  const pollAbortController = ref<AbortController>()
+  const resultTab = ref<'table' | 'sql' | 'chart' | 'trust'>('chart')
+  const chartType = ref<'bar' | 'line' | 'pie'>('bar')
+  const selectedResultTaskId = ref<string>()
+  const selectedTaskResult = ref<IamS1QueryTaskResult | null>(null)
+  const resultSelectionLoading = ref(false)
+  const resultSelectionError = ref('')
+  const sqlLoading = ref(false)
+  const sqlErrorTaskId = ref<string>()
+  const sqlErrorMessage = ref('')
+  let resultSelectionRequest = 0
+  let sqlReadRequest = 0
+  let cancelRequested = false
+  let alive = true
+  let queryGeneration = 0
+  function invalidateContext() {
+    queryGeneration++
+    cancelRequested = true
+    pollAbortController.value?.abort()
+    pollAbortController.value = undefined
+    currentTaskId.value = undefined
+    isQuerying.value = false
+    followLatestResult()
+  }
+  if (getCurrentScope()) onScopeDispose(() => {
+    alive = false
+    invalidateContext()
+  })
+
+  // ---- Computed ----
+  const latestAssistantMessage = computed(() => {
+    for (let i = activeMessages.value.length - 1; i >= 0; i--) {
+      if (activeMessages.value[i].role === 'assistant') return activeMessages.value[i]
+    }
+    return undefined
+  })
+  const latestResult = computed(() => latestAssistantMessage.value?.queryResult ?? null)
+  const displayResult = computed(() => selectedResultTaskId.value ? selectedTaskResult.value : latestResult.value)
+  const displayTaskId = computed(() => selectedResultTaskId.value || displayResult.value?.taskId)
+  const displayState = computed(() => resolveQueryDisplayState({
+    result: displayResult.value,
+    messageStatus: selectedResultTaskId.value ? selectedTaskResult.value?.status : latestAssistantMessage.value?.status,
+    isSubmitting: isQuerying.value && !selectedResultTaskId.value,
+    localWaitTimedOut: !selectedResultTaskId.value && latestAssistantMessage.value?.localWaitTimedOut === true,
+    selectionLoading: resultSelectionLoading.value,
+    selectionError: resultSelectionError.value,
+  }))
+
+  const agentProgress = computed(() => {
+    return buildAgentProgress(displayResult.value)
+  })
+
+  const isLatestProcessing = computed(() => displayState.value.kind === 'processing')
+
+  const trustSummary = computed(() => {
+    const result = displayResult.value
+    if (!result) return []
+    const maskedCount = result.maskedFields ? Object.keys(result.maskedFields).length : 0
+    return [
+      {
+        label: '改写问题',
+        value: result.rewrittenQuery || result.question || '未返回改写结果',
+        muted: !result.rewrittenQuery,
+      },
+      {
+        label: '召回表',
+        value: result.usedTables?.length ? result.usedTables.join(', ') : '未返回表级依据',
+        muted: !result.usedTables?.length,
+      },
+      {
+        label: '使用字段',
+        value: result.usedColumns?.length ? result.usedColumns.join(', ') : '未返回字段级依据',
+        muted: !result.usedColumns?.length,
+      },
+      {
+        label: '权限与脱敏',
+        value: maskedCount ? `已标记 ${maskedCount} 个脱敏字段` : '当前结果未标记脱敏字段',
+        muted: !maskedCount,
+      },
+      {
+        label: 'Prompt 版本',
+        value: result.promptVersions?.length ? `${result.promptVersions.length} 个模板参与生成` : '未返回版本追踪',
+        muted: !result.promptVersions?.length,
+      },
+      {
+        label: '重试次数',
+        value: `${result.retryCount ?? 0} 次`,
+        muted: false,
+      },
+    ]
+  })
+
+  // ---- 辅助函数 ----
+  function extractError(error: unknown, fallback: string): string {
+    if (typeof error === 'object' && error !== null && 'response' in error) {
+      const response = (error as { response?: { data?: { message?: string } } }).response
+      const msg = response?.data?.message
+      if (typeof msg === 'string') return msg
+    }
+    return fallback
+  }
+
+  async function selectResultForTask(taskId: string) {
+    if (!taskId) return null
+    const requestId = ++resultSelectionRequest
+    sqlReadRequest++
+    selectedResultTaskId.value = taskId
+    selectedTaskResult.value = null
+    resultSelectionError.value = ''
+    resultSelectionLoading.value = true
+    sqlLoading.value = false
+    sqlErrorTaskId.value = undefined
+    sqlErrorMessage.value = ''
+    resultTab.value = 'chart'
+    try {
+      const response = await iamS1GetTask(taskId)
+      if (requestId !== resultSelectionRequest) return null
+      if (response.data.taskId !== taskId) throw new Error('返回的任务与所选消息不一致')
+      selectedTaskResult.value = response.data
+      return response.data
+    } catch (error) {
+      if (requestId !== resultSelectionRequest) return null
+      resultSelectionError.value = extractError(error, '所选查询结果读取失败，请重试。')
+      return null
+    } finally {
+      if (requestId === resultSelectionRequest) resultSelectionLoading.value = false
+    }
+  }
+
+  function followLatestResult() {
+    resultSelectionRequest++
+    sqlReadRequest++
+    selectedResultTaskId.value = undefined
+    selectedTaskResult.value = null
+    resultSelectionLoading.value = false
+    resultSelectionError.value = ''
+    sqlLoading.value = false
+    sqlErrorTaskId.value = undefined
+    sqlErrorMessage.value = ''
+    resultTab.value = 'chart'
+  }
+
+  /**
+   * 构建查询完成消息，处理降级状态提示
+   */
+  function buildCompletionMessage(result: IamS1QueryTaskResult): string {
+    if (result.status === 'CLARIFICATION_REQUIRED') {
+      return result.sqlExplanation || result.errorMessage || '请补充指标、时间范围或筛选口径。'
+    }
+    const degradeNotice = result.degraded
+      ? '\n⚠️ 知识库暂时不可用，召回精度可能降低'
+      : ''
+    return (result.sqlExplanation || '查询完成') + degradeNotice
+  }
+
+  /**
+   * 轮询任务结果
+   * 最多 60 次 × 2 秒 = 120 秒，与后端超时对齐
+   */
+  async function pollTaskResult(
+    taskId: string,
+    signal?: AbortSignal,
+    maxAttempts = 60,
+    intervalMs = 2000,
+    onProgress?: (task: IamS1QueryTaskResult) => void,
+  ): Promise<QueryPollResult> {
+    let consecutiveErrors = 0
+    let lastTask: IamS1QueryTaskResult | undefined
+    void iamS1StreamTask(taskId, {
+      signal,
+      onEvent: (event) => {
+        if (signal?.aborted || !alive || event.type !== 'progress') return
+        try {
+          onProgress?.(JSON.parse(event.data) as IamS1QueryTaskResult)
+        } catch {
+          // 最终任务读取仍是唯一结果来源。
+        }
+      },
+    }).catch(() => undefined)
+
+    for (let i = 0; i < maxAttempts; i++) {
+      if (signal?.aborted) {
+        return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
+      }
+
+      try {
+        const res = await iamS1GetTask(taskId)
+        if (signal?.aborted || !alive) return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
+        const task = res.data
+        if (task.taskId !== taskId) throw new Error('返回的任务与当前查询不一致')
+        lastTask = task
+        consecutiveErrors = 0
+
+        if (task.status !== 'PROCESSING') {
+          return task
+        }
+        if (onProgress) {
+          onProgress(task)
+        }
+      } catch (error) {
+        if (signal?.aborted || !alive) return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
+        consecutiveErrors++
+        console.warn(`轮询任务结果失败 (连续第 ${consecutiveErrors} 次) taskId=${taskId}`, error)
+        if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
+          return { taskId, status: 'FAILED', errorMessage: `网络连接异常，连续 ${POLL_MAX_CONSECUTIVE_ERRORS} 次请求失败` }
+        }
+      }
+
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, intervalMs)
+        signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Aborted', 'AbortError')) }, { once: true })
+      }).catch(() => null)
+      if (signal?.aborted) {
+        return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
+      }
+    }
+    return {
+      ...(lastTask || { taskId, status: 'PROCESSING' as const }),
+      localWaitTimedOut: true,
+      errorMessage: '本地等待达到上限，服务端任务仍在处理中',
+    }
+  }
+
+  function applyPollResult(assistantMsg: LocalMessage, result: QueryPollResult) {
+    assistantMsg.status = result.status
+    assistantMsg.queryResult = result
+    assistantMsg.localWaitTimedOut = result.localWaitTimedOut === true
+    if (result.localWaitTimedOut) {
+      assistantMsg.content = '本地等待已到上限，任务仍在处理中。可重新连接继续等待，或重新提问。'
+    } else if (result.status === 'COMPLETED') {
+      assistantMsg.content = buildCompletionMessage(result)
+    } else if (result.status === 'CLARIFICATION_REQUIRED') {
+      assistantMsg.content = buildCompletionMessage(result)
+    } else if (result.status === 'TIMEOUT') {
+      assistantMsg.content = '服务端已终止本次查询（TIMEOUT），没有可恢复中的任务，请重新提问。'
+    } else {
+      assistantMsg.content = result.errorMessage || '查询失败，请稍后重试'
+    }
+  }
+
+  /**
+   * 提交问题并轮询结果
+   */
+  async function sendQuestion() {
+    const text = question.value.trim()
+    if (!selectedId.value || !text || isQuerying.value) return
+    const datasourceId = selectedId.value
+    if (!canAskSelectedDatasource.value) {
+      ElMessage.warning(selectedBlockReason.value?.message || '当前数据源暂未达到可询问状态')
+      return
+    }
+    followLatestResult()
+    const generation = ++queryGeneration
+    cancelRequested = false
+    isQuerying.value = true
+    currentTaskId.value = undefined
+
+    const session = activeSession.value || createSession(datasourceId)
+    const now = new Date().toISOString()
+
+    // 添加用户消息
+    session.messages.push({
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: text,
+      createdAt: now,
+    })
+    await animateNewMessages?.()
+    if (!alive || generation !== queryGeneration) return
+
+    // 添加加载中的助手消息
+    const assistantMsgId = `assistant-${Date.now() + 1}`
+    session.messages.push({
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '正在查询中...',
+      createdAt: now,
+      status: 'loading',
+      originalQuestion: text,
+    })
+    await animateNewMessages?.()
+    if (!alive || generation !== queryGeneration) return
+
+    if (session.title === '新的对话') {
+      session.title = text.length > 20 ? `${text.slice(0, 20)}...` : text
+    }
+    session.updatedAt = now
+    question.value = ''
+    await focusQuestionInput?.()
+
+    try {
+      if (!alive || generation !== queryGeneration) return
+      const askResult = await iamS1Ask({
+        datasourceId,
+        question: text,
+        conversationId: session.conversationId,
+      })
+      const taskId = askResult.data.taskId
+      if (!alive || generation !== queryGeneration) {
+        // An obsolete submission must never take ownership of the new account's task.
+        await iamS1CancelTask(taskId).catch(() => undefined)
+        return
+      }
+      session.conversationId = askResult.data.conversationId
+
+      currentTaskId.value = taskId
+      const abortCtrl = new AbortController()
+      pollAbortController.value = abortCtrl
+
+      if (cancelRequested || !alive) {
+        try {
+          await iamS1CancelTask(taskId)
+        } catch {
+          cancelRequested = false
+          if (alive) ElMessage.error('停止请求未能确认，仍在获取服务端状态')
+        }
+        if (cancelRequested) {
+          abortCtrl.abort()
+          const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
+          if (assistantMsg) {
+            assistantMsg.taskId = taskId
+            applyPollResult(assistantMsg, { taskId, status: 'CANCELLED', errorMessage: '查询已取消' })
+            await animateMessageUpdate?.(assistantMsgId)
+          }
+          return
+        }
+      }
+
+      if (!alive) return
+      const result = await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
+        const loadingMsg = session.messages.find((m) => m.id === assistantMsgId)
+        if (loadingMsg && loadingMsg.status === 'loading') {
+          loadingMsg.queryResult = task
+          loadingMsg.taskId = taskId
+          if (task.progressMessage) {
+            loadingMsg.content = `${task.progressMessage}...`
+          }
+        }
+      })
+      const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
+      if (assistantMsg && alive && generation === queryGeneration) {
+        assistantMsg.taskId = taskId
+        applyPollResult(assistantMsg, result)
+        await animateMessageUpdate?.(assistantMsgId)
+      }
+    } catch (error: unknown) {
+      const assistantMsg = session.messages.find((m) => m.id === assistantMsgId)
+      if (assistantMsg && alive && generation === queryGeneration) {
+        assistantMsg.status = 'error'
+        assistantMsg.content = extractError(error, '查询提交失败，请检查网络连接')
+        await animateMessageUpdate?.(assistantMsgId)
+      }
+    } finally {
+      if (generation === queryGeneration) {
+        isQuerying.value = false
+        pollAbortController.value = undefined
+      }
+    }
+  }
+
+  /**
+   * 取消当前查询
+   */
+  async function cancelCurrentQuery() {
+    if (!isQuerying.value) return
+    cancelRequested = true
+    const taskId = currentTaskId.value
+    const controller = pollAbortController.value
+    const generation = queryGeneration
+    if (!taskId) return
+    try {
+      await iamS1CancelTask(taskId)
+      controller?.abort()
+    } catch {
+      if (alive && generation === queryGeneration) {
+        cancelRequested = false
+        ElMessage.error('停止请求未能确认，仍在获取服务端状态')
+      }
+    }
+  }
+
+  async function refreshSql(targetResult: IamS1QueryTaskResult | null = displayResult.value) {
+    const taskId = targetResult?.taskId
+    if (!taskId) return
+    if (targetResult?.canViewSql === false) return
+    const requestId = ++sqlReadRequest
+    sqlLoading.value = true
+    sqlErrorTaskId.value = undefined
+    sqlErrorMessage.value = ''
+    try {
+      const response = await iamS1ViewSql(taskId)
+      if (requestId !== sqlReadRequest || displayResult.value?.taskId !== taskId) return
+      if (selectedResultTaskId.value === taskId && selectedTaskResult.value) {
+        selectedTaskResult.value = { ...selectedTaskResult.value, sql: response.data.sql }
+      } else if (latestAssistantMessage.value?.queryResult?.taskId === taskId) {
+        latestAssistantMessage.value.queryResult.sql = response.data.sql
+      }
+    } catch {
+      if (requestId !== sqlReadRequest || displayResult.value?.taskId !== taskId) return
+      if (selectedResultTaskId.value === taskId && selectedTaskResult.value) {
+        selectedTaskResult.value = { ...selectedTaskResult.value, sql: undefined }
+      } else if (latestAssistantMessage.value?.queryResult?.taskId === taskId) {
+        latestAssistantMessage.value.queryResult.sql = undefined
+      }
+      sqlErrorTaskId.value = taskId
+      sqlErrorMessage.value = '当前权限不允许查看 SQL，或结果已失效。'
+      ElMessage.error('当前权限不允许查看 SQL，或结果已失效')
+    } finally {
+      if (requestId === sqlReadRequest) sqlLoading.value = false
+    }
+  }
+
+  /**
+   * 重试查询：使用原始问题重新提交
+   */
+  function retryQuery(originalQuestion: string) {
+    if (!originalQuestion || isQuerying.value) return
+    question.value = originalQuestion
+    sendQuestion()
+  }
+
+  function prepareClarification(originalQuestion: string) {
+    if (isQuerying.value) return
+    question.value = originalQuestion ? `${originalQuestion}\n补充条件：` : ''
+    void focusQuestionInput?.()
+  }
+
+  /**
+   * 继续等待：重新轮询当前任务
+   */
+  async function continueWaiting(taskId: string) {
+    if (isQuerying.value) return
+    const generation = ++queryGeneration
+    cancelRequested = false
+    isQuerying.value = true
+    currentTaskId.value = taskId
+
+    const session = activeSession.value
+    if (!session) {
+      isQuerying.value = false
+      currentTaskId.value = undefined
+      return
+    }
+
+    const assistantMsg = session.messages.find((m) => m.taskId === taskId)
+    if (!assistantMsg) {
+      isQuerying.value = false
+      return
+    }
+
+    assistantMsg.status = 'loading'
+    assistantMsg.localWaitTimedOut = false
+    assistantMsg.content = '继续等待查询结果...'
+
+    const abortCtrl = new AbortController()
+    pollAbortController.value = abortCtrl
+
+    try {
+      // A reconnect may find either a live worker or a suspended graph. The Java
+      // resume endpoint is idempotent for live tasks and restores from Redis/MySQL
+      // when the original Python worker is gone.
+      let terminalResult: QueryPollResult | undefined
+      try {
+        await iamS1ResumeTask(taskId)
+      } catch (error) {
+        if (!alive || generation !== queryGeneration) return
+        // A timeout may become terminal between the local wait and resume call.
+        // Read the server state once before reporting a true restore failure.
+        try {
+          const latest = await iamS1GetTask(taskId)
+          if (latest.data.status !== 'PROCESSING') terminalResult = latest.data
+        } catch {
+          // Preserve the resume error below when the task state is also unavailable.
+        }
+        if (!terminalResult) {
+          if (!alive || generation !== queryGeneration) return
+          const reason = extractError(error, '服务端未能恢复当前任务')
+          assistantMsg.status = 'error'
+          assistantMsg.localWaitTimedOut = false
+          assistantMsg.content = `恢复查询失败：${reason}`
+          ElMessage.error('当前任务未能恢复，可以重新提问')
+          await animateMessageUpdate?.(assistantMsg.id)
+          return
+        }
+      }
+
+      if (!alive || generation !== queryGeneration) return
+
+      const result = terminalResult ?? await pollTaskResult(taskId, abortCtrl.signal, 60, 2000, (task) => {
+        if (generation === queryGeneration && assistantMsg.status === 'loading') {
+          assistantMsg.queryResult = task
+          if (task.progressMessage) {
+            assistantMsg.content = `${task.progressMessage}...`
+          }
+        }
+      })
+
+      if (!alive || generation !== queryGeneration) return
+      applyPollResult(assistantMsg, result)
+      await animateMessageUpdate?.(assistantMsg.id)
+    } catch (error) {
+      if (!alive || generation !== queryGeneration) return
+      assistantMsg.status = 'error'
+      assistantMsg.content = extractError(error, '查询失败，请稍后重试')
+      await animateMessageUpdate?.(assistantMsg.id)
+    } finally {
+      if (generation === queryGeneration) {
+        isQuerying.value = false
+        pollAbortController.value = undefined
+      }
+    }
+  }
+
+  return {
+    // 状态
+    question,
+    isQuerying,
+    currentTaskId,
+    pollAbortController,
+    resultTab,
+    chartType,
+    // Computed
+    latestResult,
+    latestAssistantMessage,
+    displayResult,
+    displayTaskId,
+    displayState,
+    selectedResultTaskId,
+    resultSelectionLoading,
+    resultSelectionError,
+    sqlLoading,
+    sqlErrorTaskId,
+    sqlErrorMessage,
+    agentProgress,
+    isLatestProcessing,
+    trustSummary,
+    // 方法
+    sendQuestion,
+    invalidateContext,
+    cancelCurrentQuery,
+    refreshSql,
+    selectResultForTask,
+    followLatestResult,
+    retryQuery,
+    prepareClarification,
+    continueWaiting,
+    buildCompletionMessage,
+    pollTaskResult,
+    isLocallyResumable,
+    extractError,
+  }
+}

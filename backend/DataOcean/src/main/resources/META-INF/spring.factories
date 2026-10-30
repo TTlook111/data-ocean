@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.dataocean.module.permission.s1.bootstrap.IamS1BootstrapEnvironmentPostProcessor

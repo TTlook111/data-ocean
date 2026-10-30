@@ -39,19 +39,6 @@ public interface PythonAiConfigClient {
     Map<String, Object> detectDimension(Map<String, Object> payload);
 
     /**
-     * 重新向量化。
-     * <p>
-     * 调用 Python /internal/rag/re-vectorize 接口，
-     * 触发重新向量化任务。
-     * </p>
-     *
-     * @param payload 向量化参数（可选）
-     * @return 向量化任务信息
-     * @throws com.dataocean.common.exception.BusinessException 向量化失败时抛出
-     */
-    Map<String, Object> reVectorize(Map<String, Object> payload);
-
-    /**
      * 通知 Python 重载配置（best-effort）。
      * <p>
      * 调用 Python /internal/config/reload 接口，

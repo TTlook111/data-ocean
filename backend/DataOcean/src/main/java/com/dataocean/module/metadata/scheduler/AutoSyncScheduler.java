@@ -1,7 +1,7 @@
 package com.dataocean.module.metadata.scheduler;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.datasource.entity.Datasource;
+import com.dataocean.module.datasource.entity.po.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
 import com.dataocean.module.metadata.service.SchemaCollectionService;
 import com.dataocean.module.system.service.SysConfigService;

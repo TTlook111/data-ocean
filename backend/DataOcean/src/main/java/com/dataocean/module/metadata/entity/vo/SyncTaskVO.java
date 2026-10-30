@@ -16,6 +16,9 @@ public class SyncTaskVO {
     /** 任务ID */
     private Long id;
 
+    /** 数据源ID，用于回到同一数据源范围 */
+    private Long datasourceId;
+
     /** 数据源名称 */
     private String datasourceName;
 
@@ -39,4 +42,7 @@ public class SyncTaskVO {
 
     /** 错误信息 */
     private String errorMessage;
+
+    /** 任务实际产生的快照ID，成功前可能为空 */
+    private Long snapshotId;
 }

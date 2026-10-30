@@ -23,6 +23,8 @@ import java.util.concurrent.ThreadPoolExecutor;
  * <ul>
  *   <li>taskExecutor：默认执行器，用于审计、操作日志、事件监听等轻量后台任务</li>
  *   <li>queryExecutor：查询专用执行器，用于 NL2SQL Agent 异步执行任务</li>
+ *   <li>conversationSummaryExecutor：会话摘要专用执行器，隔离摘要 LLM 调用和查询执行</li>
+ *   <li>datasourceHealthExecutor：数据源健康检查专用执行器，隔离外部数据库连接测试</li>
  * </ul>
  * </p>
  * <p>
@@ -38,6 +40,14 @@ import java.util.concurrent.ThreadPoolExecutor;
  *       core-size: 10
  *       max-size: 30
  *       queue-capacity: 50
+ *     conversation-summary:
+ *       core-size: 2
+ *       max-size: 8
+ *       queue-capacity: 50
+ *     datasource-health:
+ *       core-size: 2
+ *       max-size: 8
+ *       queue-capacity: 100
  * </pre>
  * </p>
  */
@@ -73,6 +83,34 @@ public class AsyncConfig implements AsyncConfigurer {
     @Value("${dataocean.async.query.await-termination-seconds:60}")
     private int queryAwaitTerminationSeconds;
 
+    // ========== 会话摘要执行器参数 ==========
+
+    @Value("${dataocean.async.conversation-summary.core-size:2}")
+    private int summaryCoreSize;
+
+    @Value("${dataocean.async.conversation-summary.max-size:8}")
+    private int summaryMaxSize;
+
+    @Value("${dataocean.async.conversation-summary.queue-capacity:50}")
+    private int summaryQueueCapacity;
+
+    @Value("${dataocean.async.conversation-summary.await-termination-seconds:60}")
+    private int summaryAwaitTerminationSeconds;
+
+    // ========== 数据源健康检查执行器参数 ==========
+
+    @Value("${dataocean.async.datasource-health.core-size:2}")
+    private int datasourceHealthCoreSize;
+
+    @Value("${dataocean.async.datasource-health.max-size:8}")
+    private int datasourceHealthMaxSize;
+
+    @Value("${dataocean.async.datasource-health.queue-capacity:100}")
+    private int datasourceHealthQueueCapacity;
+
+    @Value("${dataocean.async.datasource-health.await-termination-seconds:30}")
+    private int datasourceHealthAwaitTerminationSeconds;
+
     /**
      * 默认异步执行器。
      * <p>
@@ -94,7 +132,7 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setQueueCapacity(taskQueueCapacity);
         // 线程名前缀：便于日志排查和线程 dump 分析
         executor.setThreadNamePrefix("async-task-");
-        // 拒绝策略：调用者线程执行兜底，防止任务丢失
+        // 拒绝策略：调用者线程执行兜底，防止轻量后台任务丢失
         executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         // 优雅关闭：等待任务完成
         executor.setWaitForTasksToCompleteOnShutdown(true);
@@ -123,11 +161,48 @@ public class AsyncConfig implements AsyncConfigurer {
         executor.setQueueCapacity(queryQueueCapacity);
         // 线程名前缀：便于日志排查和线程 dump 分析
         executor.setThreadNamePrefix("query-agent-");
-        // 拒绝策略：调用者线程执行兜底，防止任务丢失
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        // 拒绝策略：拒绝新查询，避免 HTTP 请求线程执行完整 Agent 工作流
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         // 优雅关闭：等待任务完成
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(queryAwaitTerminationSeconds);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
+     * 会话摘要专用线程池。
+     * 摘要调用属于非关键后台任务。线程池满载时拒绝本次摘要，
+     * 由调用方记录并忽略，不允许回退到查询线程执行外部 LLM 调用。
+     */
+    @Bean("conversationSummaryExecutor")
+    public Executor conversationSummaryExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(summaryCoreSize);
+        executor.setMaxPoolSize(summaryMaxSize);
+        executor.setQueueCapacity(summaryQueueCapacity);
+        executor.setThreadNamePrefix("conversation-summary-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(summaryAwaitTerminationSeconds);
+        executor.initialize();
+        return executor;
+    }
+
+    /**
+     * 数据源健康检查专用线程池。
+     * 单个数据源的连接测试可能被外部数据库或网络拖慢，不能占用公共线程池。
+     */
+    @Bean("datasourceHealthExecutor")
+    public Executor datasourceHealthExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(datasourceHealthCoreSize);
+        executor.setMaxPoolSize(datasourceHealthMaxSize);
+        executor.setQueueCapacity(datasourceHealthQueueCapacity);
+        executor.setThreadNamePrefix("datasource-health-");
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(datasourceHealthAwaitTerminationSeconds);
         executor.initialize();
         return executor;
     }

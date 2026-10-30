@@ -1,5 +1,6 @@
 import { http } from '../http'
 import type { ApiResult } from './user'
+import type { MetadataEntityItem } from './catalog'
 
 /** 术语表 */
 export interface GlossaryItem {
@@ -26,6 +27,9 @@ export interface GlossaryTermItem {
   fqn: string
   status: string
   reviewerId?: number
+  revision: number
+  linkedColumnCount?: number
+  datasourceNames?: string[]
   reviewedAt?: string
   createdAt?: string
   updatedAt?: string
@@ -70,21 +74,96 @@ export async function updateTerm(termId: number, payload: Partial<GlossaryTermIt
   return data
 }
 
-export async function deleteTerm(termId: number) {
-  const { data } = await http.delete<ApiResult<null>>(`/api/admin/glossary/terms/${termId}`)
+export async function deleteTerm(termId: number, revision: number) {
+  const { data } = await http.delete<ApiResult<null>>(`/api/admin/glossary/terms/${termId}`, { params: { revision } })
   return data
 }
 
 /** 审核流程 */
-export async function submitTermForReview(termId: number) {
-  const { data } = await http.post<ApiResult<null>>(`/api/admin/glossary/terms/${termId}/submit`)
+export async function submitTermForReview(termId: number, revision: number) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/glossary/terms/${termId}/submit`, { revision })
   return data
 }
 
-export async function reviewTerm(termId: number, approved: boolean, reason?: string) {
+export async function reviewTerm(termId: number, approved: boolean, reason: string | undefined, revision: number) {
   const { data } = await http.post<ApiResult<null>>(`/api/admin/glossary/terms/${termId}/review`, {
     approved,
+    revision,
     reason,
   })
   return data
+}
+
+/** 术语关联的物理列（后端返回元数据实体列表） */
+export type LinkedColumnItem = MetadataEntityItem
+
+/** 查询术语当前关联的物理列 */
+export async function getLinkedColumns(termId: number) {
+  const { data } = await http.get<ApiResult<LinkedColumnItem[]>>(`/api/admin/glossary/terms/${termId}/linked-columns`)
+  return data
+}
+
+/** 关联术语与物理列（后端创建 GLOSSARY_OF 关系） */
+export async function linkTermToColumn(termId: number, entityId: number, revision: number) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/glossary/terms/${termId}/link-column`, { entityId, revision })
+  return data
+}
+
+/** 取消术语与物理列的关联 */
+export async function unlinkTermFromColumn(termId: number, entityId: number, revision: number) {
+  const { data } = await http.delete<ApiResult<null>>(`/api/admin/glossary/terms/${termId}/unlink-column/${entityId}`, { params: { revision } })
+  return data
+}
+
+/**
+ * 把已通过的术语退回草稿（APPROVED → DRAFT）。
+ *
+ * 状态机此前从 `APPROVED` 没有出边，已通过的术语没有合法修改路径，
+ * 而 `updateTerm` 又完全不校验状态，形成「合规流程被限制、绕过路径不受限」的倒挂。
+ * 2026-09-12 后端补上本接口并给 `updateTerm` 加了状态校验，前端据此改为：
+ * 已通过术语不可直接编辑，需先退回草稿，修改后重新提交审核。
+ * 退回会清空审核人/审核时间，因为原审核结论不再代表修改后的内容。
+ */
+export async function revertTermToDraft(termId: number, revision: number) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/glossary/terms/${termId}/revert`, { revision })
+  return data
+}
+
+export interface TermColumn {
+  entityId: number; datasourceId: number; datasourceName: string; snapshotId: number
+  tableId: number; columnId: number; tableName: string; columnName: string
+  columnType: string; description?: string; fqn: string
+}
+export async function getTermFieldSources() {
+  return (await http.get<ApiResult<Array<{ id: number; name: string }>>>('/api/admin/glossary/field-sources')).data
+}
+export interface TermReview {
+  id: number; revision: number; action: string; reason?: string; actorId: number
+  createdAt: string; snapshotJson: string; contentHash: string
+}
+export interface TermInvalidMapping {
+  entityId: number; previousFqn?: string; reason?: string; invalidatedSnapshotId?: number
+}
+export interface TermWorkspace {
+  term: GlossaryTermItem; columns: TermColumn[]; mappingError?: string
+  needsReview: boolean; reviews: TermReview[]; invalidMappings?: TermInvalidMapping[]
+}
+export interface TermDraft {
+  revision?: number; name: string; displayName?: string; description: string
+  synonyms: string; relatedTerms?: string; entityIds: number[]; submit: boolean
+}
+export async function getTermWorkspace(id: number) {
+  return (await http.get<ApiResult<TermWorkspace>>(`/api/admin/glossary/terms/${id}/workspace`)).data
+}
+export async function saveTermDraft(groupId: number, id: number | undefined, request: TermDraft) {
+  const url = id ? `/api/admin/glossary/terms/${id}/draft` : `/api/admin/glossary/${groupId}/drafts`
+  return (await http.request<ApiResult<GlossaryTermItem>>({ url, method: id ? 'PUT' : 'POST', data: request })).data
+}
+export async function getTermFieldTables(datasourceId: number) {
+  return (await http.get<ApiResult<Array<{ id: number; tableName: string; tableComment?: string }>>>(
+    '/api/admin/glossary/field-tables', { params: { datasourceId } })).data
+}
+export async function getTermFieldColumns(params: { datasourceId: number; tableName: string; keyword: string; pageNo: number; pageSize: number }) {
+  return (await http.get<ApiResult<{ records: TermColumn[]; total: number }>>(
+    '/api/admin/glossary/field-columns', { params })).data
 }

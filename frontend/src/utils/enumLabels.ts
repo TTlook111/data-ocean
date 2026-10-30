@@ -28,29 +28,94 @@ export const governanceStatusLabels: Record<string, string> = {
 export const knowledgeStatusLabels: Record<string, string> = {
   DRAFT: '草稿',
   PENDING_REVIEW: '待审核',
-  APPROVED: '已通过',
+  APPROVED: '已批准',
+  INDEXING: '索引中',
   PUBLISHED: '已发布',
   DEPRECATED: '已废弃',
-  REJECTED: '已驳回',
 }
 
 export const knowledgeStatusTypes: Record<string, string> = {
   DRAFT: 'info',
   PENDING_REVIEW: 'warning',
   APPROVED: 'success',
+  INDEXING: 'warning',
   PUBLISHED: 'success',
   DEPRECATED: 'danger',
+}
+
+/** 知识文档版本自身的审核状态（后端 ReviewStatus 枚举） */
+export const knowledgeReviewStatusLabels: Record<string, string> = {
+  PENDING: '待审核',
+  APPROVED: '审核通过',
+  REJECTED: '审核拒绝',
+  // 2026-09-12（V51）之前 knowledge_doc_version.review_status 从未被写入，
+  // 迁移把无法从审核任务还原的历史行标为 UNKNOWN，避免被误读为「待审核」
+  UNKNOWN: '历史未记录',
+}
+
+export const knowledgeReviewStatusTypes: Record<string, string> = {
+  PENDING: 'warning',
+  APPROVED: 'success',
   REJECTED: 'danger',
+  UNKNOWN: 'info',
+}
+
+/** 向量化任务状态（后端 VectorTaskStatus 枚举） */
+export const vectorTaskStatusLabels: Record<string, string> = {
+  PENDING: '待处理',
+  PROCESSING: '处理中',
+  CLEANUP_PENDING: '等待清理旧版本向量',
+  COMPLETED: '已完成',
+  FAILED: '失败',
+}
+
+export const vectorTaskStatusTypes: Record<string, string> = {
+  PENDING: 'info',
+  PROCESSING: 'warning',
+  CLEANUP_PENDING: 'warning',
+  COMPLETED: 'success',
+  FAILED: 'danger',
+}
+
+/** 术语条目状态（后端 GlossaryTerm 常量） */
+export const glossaryTermStatusLabels: Record<string, string> = {
+  DRAFT: '草稿',
+  PENDING_REVIEW: '待审核',
+  APPROVED: '已通过',
+  REJECTED: '已拒绝',
+  // 仅用于对象详情发现“关系存在但术语主记录丢失”的完整性提示，不是后端术语状态。
+  MISSING: '记录缺失',
+}
+
+export const glossaryTermStatusTypes: Record<string, string> = {
+  DRAFT: 'info',
+  PENDING_REVIEW: 'warning',
+  APPROVED: 'success',
+  REJECTED: 'danger',
+  MISSING: 'danger',
+}
+
+/** 术语表状态（后端 Glossary 常量，当前只有草稿与已发布） */
+export const glossaryStatusLabels: Record<string, string> = {
+  DRAFT: '草稿',
+  PUBLISHED: '已发布',
+}
+
+export const glossaryStatusTypes: Record<string, string> = {
+  DRAFT: 'info',
+  PUBLISHED: 'success',
 }
 
 export const generationSourceLabels: Record<string, string> = {
   MANUAL: '人工编辑',
+  SNAPSHOT_GENERATED: '快照结构生成',
   AI_GENERATED: 'AI 生成',
   ROLLBACK: '版本回滚',
 }
 
 export const generationSourceTypes: Record<string, string> = {
   MANUAL: 'info',
+  SNAPSHOT_GENERATED: 'primary',
   AI_GENERATED: 'success',
   ROLLBACK: 'warning',
 }
@@ -102,6 +167,7 @@ export const issueStatusLabels: Record<string, string> = {
   CONFIRMED: '已确认',
   RESOLVED: '已解决',
   REJECTED: '已驳回',
+  REOPENED: '已重新打开',
   AUTO_CLOSED: '自动关闭',
 }
 
@@ -110,6 +176,7 @@ export const issueStatusTypes: Record<string, string> = {
   CONFIRMED: 'primary',
   RESOLVED: 'success',
   REJECTED: 'info',
+  REOPENED: 'danger',
   AUTO_CLOSED: 'info',
 }
 
@@ -147,6 +214,49 @@ export const knowledgeStatusLabel = (status?: string | null) => enumLabel(knowle
 export const knowledgeStatusType = (status?: string | null) => enumType(knowledgeStatusTypes, status)
 export const generationSourceLabel = (source?: string | null) => enumLabel(generationSourceLabels, source)
 export const generationSourceType = (source?: string | null) => enumType(generationSourceTypes, source)
+/** 元数据实体类型（开发指导 §7.17 要求状态标签使用中文，不能原样输出枚举） */
+export const entityTypeLabels: Record<string, string> = {
+  TABLE: '表',
+  COLUMN: '字段',
+  DATASOURCE: '数据源',
+  GLOSSARY_TERM: '业务术语',
+  TAG: '标签',
+}
+
+/**
+ * 真实数据表类型（`table_type`，来自数据库采集或目录元数据）。
+ * 只映射已确认类型；未知值返回空串，由调用方决定如何保留原值，不能一律归为普通表。
+ */
+export const tableTypeLabels: Record<string, string> = {
+  TABLE: '普通表',
+  'BASE TABLE': '普通表',
+  VIEW: '视图',
+  'SYSTEM VIEW': '系统视图',
+}
+
+/** 血缘类型 */
+export const lineageTypeLabels: Record<string, string> = {
+  QUERY: '查询血缘',
+  ETL: 'ETL 流转',
+  MANUAL: '手动标注',
+}
+
+export const knowledgeReviewStatusLabel = (status?: string | null) => enumLabel(knowledgeReviewStatusLabels, status)
+export const knowledgeReviewStatusType = (status?: string | null) => enumType(knowledgeReviewStatusTypes, status)
+export const vectorTaskStatusLabel = (status?: string | null) => enumLabel(vectorTaskStatusLabels, status)
+export const vectorTaskStatusType = (status?: string | null) => enumType(vectorTaskStatusTypes, status)
+export const glossaryStatusLabel = (status?: string | null) => enumLabel(glossaryStatusLabels, status)
+export const glossaryStatusType = (status?: string | null) => enumType(glossaryStatusTypes, status)
+export const glossaryTermStatusLabel = (status?: string | null) => enumLabel(glossaryTermStatusLabels, status)
+export const glossaryTermStatusType = (status?: string | null) => enumType(glossaryTermStatusTypes, status)
+export const entityTypeLabel = (type?: string | null) => enumLabel(entityTypeLabels, type)
+/** 只返回已确认的中文表类型；未知或缺失返回空串，避免误标为普通表。 */
+export const tableTypeLabel = (type?: string | null) => {
+  const raw = type?.trim()
+  if (!raw) return ''
+  return tableTypeLabels[raw.toUpperCase()] || ''
+}
+export const lineageTypeLabel = (type?: string | null) => enumLabel(lineageTypeLabels, type)
 export const syncStatusLabel = (status?: string | null) => enumLabel(syncStatusLabels, status)
 export const syncStatusType = (status?: string | null) => enumType(syncStatusTypes, status)
 export const syncTriggerLabel = (trigger?: string | null) => enumLabel(syncTriggerLabels, trigger)

@@ -35,7 +35,7 @@ async def get_prompt_template(template_code: str) -> dict[str, str]:
 
 @router.post("/{template_code}/render")
 async def render_template_endpoint(template_code: str, request: RenderRequest) -> dict[str, str]:
-    """渲染 Prompt 模板（含 Token 预算裁剪）"""
+    """渲染 Prompt 模板"""
     try:
         rendered = await render_prompt(template_code, request.variables)
         return {"code": template_code, "rendered": rendered}

@@ -5,22 +5,23 @@ import com.dataocean.common.security.LoginUser;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.knowledge.client.PythonKnowledgeClient;
 import com.dataocean.module.knowledge.client.PythonRagClient;
-import com.dataocean.module.knowledge.entity.KnowledgeDoc;
-import com.dataocean.module.knowledge.entity.KnowledgeDocVersion;
-import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDoc;
+import com.dataocean.module.knowledge.entity.po.KnowledgeDocVersion;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocMapper;
 import com.dataocean.module.knowledge.mapper.KnowledgeDocVersionMapper;
-import com.dataocean.module.knowledge.mapper.KnowledgeReviewTaskMapper;
-import com.dataocean.module.knowledge.service.VectorIndexTaskService;
 import com.dataocean.module.knowledge.support.KnowledgeDependencySnapshotBuilder;
+import com.dataocean.module.knowledge.support.KnowledgeOwnershipValidator;
 import com.dataocean.module.fieldtag.mapper.FieldTagMapper;
-import com.dataocean.module.metadata.entity.DbColumnMeta;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.TableRelation;
+import com.dataocean.module.metadata.entity.po.DbColumnMeta;
+import com.dataocean.module.metadata.entity.po.DbTableMeta;
+import com.dataocean.module.metadata.entity.po.TableRelation;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.TableRelationMapper;
+import com.dataocean.module.metadata.mapper.MetadataRelationshipMapper;
+import com.dataocean.module.metadata.service.MetadataEntityService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -43,19 +44,22 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 知识文档发布服务测试。
+ * <p>
+ * 原 KnowledgeDocServiceImpl 测试，拆分后测试 KnowledgeDocPublishService。
+ * 重点验证 AI 草稿生成时字段置信度等元数据正确传递给 Python 服务。
+ * </p>
+ */
 @ExtendWith(MockitoExtension.class)
 class KnowledgeDocServiceImplTest {
 
     @Mock
+    private GlossaryKnowledgeSourceServiceImpl glossarySources;
+    @Mock
     private KnowledgeDocMapper knowledgeDocMapper;
     @Mock
     private KnowledgeDocVersionMapper knowledgeDocVersionMapper;
-    @Mock
-    private KnowledgeChunkMapper knowledgeChunkMapper;
-    @Mock
-    private KnowledgeReviewTaskMapper knowledgeReviewTaskMapper;
-    @Mock
-    private VectorIndexTaskService vectorIndexTaskService;
     @Mock
     private PythonKnowledgeClient pythonKnowledgeClient;
     @Mock
@@ -69,12 +73,33 @@ class KnowledgeDocServiceImplTest {
     @Mock
     private TableRelationMapper tableRelationMapper;
     @Mock
+    private MetadataRelationshipMapper metadataRelationshipMapper;
+    @Mock
+    private MetadataEntityService metadataEntityService;
+    @Mock
     private FieldTagMapper fieldTagMapper;
     @Mock
     private TransactionTemplate transactionTemplate;
+    @Mock
+    private KnowledgeDocHelper helper;
+    /**
+     * 来源快照归属校验：规则本身由 KnowledgeVersionOwnershipTest / KnowledgeDocPublishServiceOwnershipTest
+     * 用真实校验器覆盖，这里只按 mock 处理，避免与用例关注点混在一起。
+     */
+    @Mock
+    private KnowledgeOwnershipValidator ownershipValidator;
+    @Mock
+    private com.dataocean.module.fieldsemantic.service.FieldSemanticService fieldSemanticService;
+    @Mock
+    private com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService businessKnowledgeService;
 
     @InjectMocks
-    private KnowledgeDocServiceImpl knowledgeDocService;
+    private KnowledgeDocPublishService publishService;
+
+    @BeforeEach
+    void stubSuccessfulDocumentUpdate() {
+        when(knowledgeDocMapper.updateById(any(KnowledgeDoc.class))).thenReturn(1);
+    }
 
     @AfterEach
     void tearDown() {
@@ -82,7 +107,7 @@ class KnowledgeDocServiceImplTest {
     }
 
     @Test
-    void generateDraftPassesColumnConfidenceScoreToPython() {
+    void generateDraftExcludesDynamicConfidenceFromKnowledgeInput() {
         setLoginUser();
         long docId = 1L;
         long datasourceId = 10L;
@@ -91,14 +116,15 @@ class KnowledgeDocServiceImplTest {
         KnowledgeDoc doc = KnowledgeDoc.builder()
                 .id(docId)
                 .datasourceId(datasourceId)
-                .title("skills.md")
+                .title("skills.md").status("DRAFT").version(0)
                 .currentVersion(0)
                 .build();
-        when(knowledgeDocMapper.selectById(docId)).thenReturn(doc);
+        when(helper.requireDoc(docId)).thenReturn(doc);
 
         DbTableMeta table = new DbTableMeta();
         table.setId(100L);
         table.setDatasourceId(datasourceId);
+        table.setSnapshotId(snapshotId);
         table.setTableName("orders");
         table.setTableComment("订单表");
         when(dbTableMetaMapper.selectList(any(Wrapper.class))).thenReturn(List.of(table));
@@ -107,6 +133,7 @@ class KnowledgeDocServiceImplTest {
         column.setId(200L);
         column.setTableMetaId(table.getId());
         column.setDatasourceId(datasourceId);
+        column.setSnapshotId(snapshotId);
         column.setTableName("orders");
         column.setColumnName("pay_amount");
         column.setDataType("DECIMAL(10,2)");
@@ -115,9 +142,12 @@ class KnowledgeDocServiceImplTest {
         column.setConfidenceScore(92);
         when(dbColumnMetaMapper.selectList(any(Wrapper.class))).thenReturn(List.of(column));
         when(tableRelationMapper.selectList(any(Wrapper.class))).thenReturn(List.<TableRelation>of());
-        when(pythonKnowledgeClient.generateDraft(eq(snapshotId), eq(datasourceId), anyList(), anyList(), anyList()))
-                .thenReturn(Map.of("content", "generated skills"));
-        when(dependencySnapshotBuilder.build(eq(datasourceId), eq(snapshotId), eq("AI_GENERATED"), any()))
+        when(glossarySources.inputs(datasourceId, snapshotId)).thenReturn(Map.of("glossaryFacts", List.of(), "excludedTerms", List.of()));
+        when(pythonKnowledgeClient.generateSnapshotDraft(any()))
+                .thenReturn(Map.of("content", "generated skills", "coverage", Map.of(
+                        "snapshotId", snapshotId, "tableIds", List.of(100L), "columnIds", List.of(200L),
+                        "tableCoverage", 1.0, "columnCoverage", 1.0)));
+        when(dependencySnapshotBuilder.build(eq(datasourceId), eq(snapshotId), eq("SNAPSHOT_GENERATED"), any()))
                 .thenReturn("{}");
         org.mockito.Mockito.doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -126,26 +156,21 @@ class KnowledgeDocServiceImplTest {
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
 
-        String content = knowledgeDocService.generateDraft(docId, snapshotId);
+        String content = publishService.generateDraft(docId, snapshotId);
 
         assertThat(content).isEqualTo("generated skills");
 
         @SuppressWarnings({"rawtypes", "unchecked"})
-        ArgumentCaptor<List<Map<String, Object>>> tablesCaptor = ArgumentCaptor.forClass(List.class);
-        verify(pythonKnowledgeClient).generateDraft(
-                eq(snapshotId),
-                eq(datasourceId),
-                tablesCaptor.capture(),
-                anyList(),
-                anyList()
-        );
-
-        List<Map<String, Object>> tablesMetadata = tablesCaptor.getValue();
+        ArgumentCaptor<Map<String, Object>> requestCaptor = ArgumentCaptor.forClass(Map.class);
+        verify(pythonKnowledgeClient).generateSnapshotDraft(requestCaptor.capture());
+        assertThat(requestCaptor.getValue()).containsEntry("snapshot_id", snapshotId).containsEntry("datasource_id", datasourceId);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> tablesMetadata = (List<Map<String, Object>>) requestCaptor.getValue().get("tables_metadata");
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> columns = (List<Map<String, Object>>) tablesMetadata.get(0).get("columns");
         assertThat(columns.get(0))
                 .containsEntry("column_name", "pay_amount")
-                .containsEntry("confidence_score", 92);
+                .doesNotContainKey("confidence_score");
         verify(knowledgeDocVersionMapper).insert(any(KnowledgeDocVersion.class));
     }
 
@@ -155,8 +180,6 @@ class KnowledgeDocServiceImplTest {
                 "admin",
                 "password",
                 "管理员",
-                List.of("ADMIN"),
-                List.of("knowledge:manage"),
                 List.of(new SimpleGrantedAuthority("knowledge:manage"))
         );
         UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(

@@ -1,13 +1,14 @@
 package com.dataocean.module.metadata.service.impl;
 
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.dataocean.module.metadata.entity.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
 import com.dataocean.module.metadata.mapper.MetadataEntityMapper;
 import com.dataocean.module.metadata.service.MetadataEntityService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -43,9 +44,60 @@ public class MetadataEntityServiceImpl extends ServiceImpl<MetadataEntityMapper,
     }
 
     @Override
-    public List<MetadataEntity> search(String query, String entityType, int page, int size) {
+    public List<MetadataEntity> search(String query, String entityType, Long datasourceId, int page, int size) {
         int offset = (page - 1) * size;
-        return baseMapper.fullTextSearch(query, entityType, size, offset);
+        return baseMapper.fullTextSearch(query, entityType, datasourceId, size, offset);
+    }
+
+    @Override
+    public List<MetadataEntity> searchScoped(String query, String entityType, Collection<Long> datasourceIds,
+                                             int page, int size) {
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return List.of();
+        }
+        int offset = (page - 1) * size;
+        return baseMapper.fullTextSearchScoped(query, entityType, datasourceIds, size, offset);
+    }
+
+    @Override
+    public Long getDatasourceIdByEntityId(Long entityId) {
+        return entityId == null ? null : baseMapper.selectDatasourceIdByEntityId(entityId);
+    }
+
+    @Override
+    public MetadataEntity getEntityByIdForUpdate(Long entityId) {
+        return entityId == null ? null : baseMapper.selectByIdForUpdate(entityId);
+    }
+
+    @Override
+    public List<MetadataEntity> getByDatasourceIdsAndType(Collection<Long> datasourceIds, String entityType) {
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return List.of();
+        }
+        return baseMapper.selectByDatasourceIdsAndType(datasourceIds, entityType);
+    }
+
+    @Override
+    public java.util.Set<Long> getEntityIdsByDatasourceIds(java.util.Collection<Long> datasourceIds) {
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return java.util.Set.of();
+        }
+        return new java.util.HashSet<>(baseMapper.selectEntityIdsByDatasourceIds(datasourceIds));
+    }
+
+    @Override
+    public java.util.Set<String> getEntityKeysByDatasourceIds(java.util.Collection<Long> datasourceIds) {
+        if (datasourceIds == null || datasourceIds.isEmpty()) {
+            return java.util.Set.of();
+        }
+        java.util.Set<String> keys = new java.util.HashSet<>();
+        for (MetadataEntity entity : baseMapper.selectEntityTypeIdPairsByDatasourceIds(datasourceIds)) {
+            String key = MetadataEntity.endpointKey(entity.getEntityType(), entity.getId());
+            if (key != null) {
+                keys.add(key);
+            }
+        }
+        return keys;
     }
 
     @Override
@@ -57,7 +109,10 @@ public class MetadataEntityServiceImpl extends ServiceImpl<MetadataEntityMapper,
             existing.setDisplayName(entity.getDisplayName());
             existing.setDescription(entity.getDescription());
             existing.setEntityMetadata(entity.getEntityMetadata());
-            existing.setOwnerId(entity.getOwnerId());
+            // 负责人是人工维护字段，采集同步没有负责人信息时不能把它清空。
+            if (entity.getOwnerId() != null) {
+                existing.setOwnerId(entity.getOwnerId());
+            }
             existing.setVersion(existing.getVersion() + 1);
             baseMapper.updateById(existing);
             log.debug("实体已更新 fqn={} version={}", entity.getFqn(), existing.getVersion());

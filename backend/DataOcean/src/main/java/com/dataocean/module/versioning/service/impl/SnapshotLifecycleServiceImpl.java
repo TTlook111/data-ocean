@@ -3,26 +3,24 @@ package com.dataocean.module.versioning.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
-import com.dataocean.module.datasource.entity.Datasource;
+import com.dataocean.module.datasource.entity.po.Datasource;
 import com.dataocean.module.datasource.mapper.DatasourceMapper;
-import com.dataocean.module.governance.entity.MetadataQualityIssue;
-import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
-import com.dataocean.module.metadata.entity.DbTableMeta;
-import com.dataocean.module.metadata.entity.MetadataSnapshot;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.entity.vo.SchemaDiffVO;
-import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
 import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.metadata.service.SchemaDiffService;
-import com.dataocean.module.versioning.entity.SnapshotStatus;
+import com.dataocean.module.versioning.enums.SnapshotStatus;
 import com.dataocean.module.versioning.entity.vo.SnapshotVersionHistoryVO;
 import com.dataocean.module.versioning.service.SnapshotAuditLogService;
 import com.dataocean.module.versioning.service.SnapshotLifecycleService;
+import com.dataocean.module.versioning.service.SnapshotReleaseGateService;
 import com.dataocean.module.user.service.UserService;
 import com.dataocean.module.user.entity.vo.UserVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -38,8 +36,7 @@ import java.util.stream.Collectors;
 public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
 
     private final MetadataSnapshotMapper snapshotMapper;
-    private final MetadataQualityIssueMapper qualityIssueMapper;
-    private final DbTableMetaMapper tableMetaMapper;
+    private final SnapshotReleaseGateService releaseGateService;
     private final SchemaDiffService schemaDiffService;
     private final SnapshotAuditLogService auditLogService;
     private final UserService userService;
@@ -57,7 +54,12 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
         }
 
         SnapshotStatus current = SnapshotStatus.valueOf(snapshot.getStatus());
-        SnapshotStatus target = SnapshotStatus.valueOf(targetStatus);
+        SnapshotStatus target;
+        try {
+            target = SnapshotStatus.valueOf(targetStatus);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new BusinessException(400, "非法快照状态：" + targetStatus);
+        }
 
         if (target == SnapshotStatus.PUBLISHED) {
             throw new BusinessException("发布操作请使用专用发布接口");
@@ -71,7 +73,9 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
             throw new BusinessException("非法状态流转：" + current + " → " + target);
         }
 
-        checkPreconditions(snapshot, current, target);
+        if (target == SnapshotStatus.APPROVED) {
+            releaseGateService.assertApprovable(snapshot);
+        }
 
         String oldStatus = snapshot.getStatus();
         snapshot.setStatus(targetStatus);
@@ -86,10 +90,21 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
      */
     @Override
     public Page<SnapshotVersionHistoryVO> listVersionHistory(Long datasourceId, int page, int size) {
+        return listVersionHistoryInDatasources(
+                datasourceId == null ? null : List.of(datasourceId), page, size);
+    }
+
+    @Override
+    public Page<SnapshotVersionHistoryVO> listVersionHistoryInDatasources(Collection<Long> datasourceIds,
+                                                                          int page, int size) {
+        // 空集合表示没有任何负责源：直接返回空页，不能退化成“全部数据源”。
+        if (datasourceIds != null && datasourceIds.isEmpty()) {
+            return new Page<>(page, size, 0);
+        }
         Page<MetadataSnapshot> snapshotPage = snapshotMapper.selectPage(
                 new Page<>(page, size),
                 new LambdaQueryWrapper<MetadataSnapshot>()
-                        .eq(datasourceId != null, MetadataSnapshot::getDatasourceId, datasourceId)
+                        .in(datasourceIds != null, MetadataSnapshot::getDatasourceId, datasourceIds)
                         .orderByDesc(MetadataSnapshot::getCreatedAt)
         );
 
@@ -124,41 +139,6 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
                         .eq(MetadataSnapshot::getStatus, MetadataSnapshot.STATUS_PUBLISHED)
                         .last("LIMIT 1")
         );
-    }
-
-    private void checkPreconditions(MetadataSnapshot snapshot, SnapshotStatus current, SnapshotStatus target) {
-        if (current == SnapshotStatus.APPROVED && target == SnapshotStatus.PUBLISHED) {
-            long unresolvedHigh = qualityIssueMapper.selectCount(
-                    new LambdaQueryWrapper<MetadataQualityIssue>()
-                            .eq(MetadataQualityIssue::getSnapshotId, snapshot.getId())
-                            .eq(MetadataQualityIssue::getSeverity, "HIGH")
-                            .in(MetadataQualityIssue::getStatus, "OPEN", "CONFIRMED")
-            );
-            if (unresolvedHigh > 0) {
-                throw new BusinessException(409, "无法发布：存在 " + unresolvedHigh + " 个未解决的高风险问题");
-            }
-
-            long validTables = tableMetaMapper.selectCount(
-                    new LambdaQueryWrapper<DbTableMeta>()
-                            .eq(DbTableMeta::getSnapshotId, snapshot.getId())
-                            .in(DbTableMeta::getGovernanceStatus, "NORMAL", "RECOMMENDED")
-            );
-            if (validTables == 0) {
-                throw new BusinessException(409, "无法发布：快照中无 NORMAL/RECOMMENDED 状态的表");
-            }
-        }
-
-        if (current == SnapshotStatus.ISSUE_FOUND && target == SnapshotStatus.APPROVED) {
-            long unresolvedHigh = qualityIssueMapper.selectCount(
-                    new LambdaQueryWrapper<MetadataQualityIssue>()
-                            .eq(MetadataQualityIssue::getSnapshotId, snapshot.getId())
-                            .eq(MetadataQualityIssue::getSeverity, "HIGH")
-                            .in(MetadataQualityIssue::getStatus, "OPEN", "CONFIRMED")
-            );
-            if (unresolvedHigh > 0) {
-                throw new BusinessException("无法审核通过：仍有 " + unresolvedHigh + " 个未解决的高风险问题");
-            }
-        }
     }
 
     private SnapshotVersionHistoryVO toHistoryVO(MetadataSnapshot snapshot, Map<Long, String> datasourceNames) {

@@ -1,360 +1,112 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
-import {
-  Database, FolderSync, ShieldCheck, History, FileText, MessageSquare,
-  ArrowRight, CheckCircle2, ChevronDown
-} from 'lucide-vue-next'
-
-const router = useRouter()
-
-// 跟踪哪些步骤的详情面板被展开
-const expandedSteps = ref<Set<number>>(new Set())
-
-function toggleDetail(index: number) {
-  if (expandedSteps.value.has(index)) {
-    expandedSteps.value.delete(index)
-  } else {
-    expandedSteps.value.add(index)
-  }
+import { computed, onMounted } from 'vue'
+import GuidePage from '../../components/common/GuidePage.vue'
+import { useIamS1Store } from '../../stores/iamS1'
+import { findWorkspaceByPath } from '../../router/adminNavigation'
+import { isWorkspaceVisible, buildWorkspaceTarget, resolveAdminEntry } from '../../utils/adminNavigation'
+const iam = useIamS1Store()
+onMounted(() => {
+  void iam.load()
+})
+const home = computed(() => (iam.loaded && !iam.errorMessage ? resolveAdminEntry(iam) : undefined))
+function target(path: string) {
+  const workspace = findWorkspaceByPath(path)
+  return iam.loaded && !iam.errorMessage && workspace && isWorkspaceVisible(workspace, iam)
+    ? buildWorkspaceTarget(path, iam)
+    : undefined
 }
-
-interface DetailItem {
-  label: string
-  desc: string
-  tag?: 'success' | 'warning' | 'danger' | 'info'
-}
-
-interface StepDef {
-  icon: any
-  color: string
-  title: string
-  desc: string
-  action: { label: string; to: string }
-  detailTitle?: string
-  details?: DetailItem[]
-  detailNote?: string
-}
-
-const steps: StepDef[] = [
+const steps = [
   {
-    icon: Database,
-    color: 'blue',
-    title: '接入数据源',
-    desc: '在「数据源管理」中添加 MySQL 连接信息，点击测试确认连通后启用。支持多个数据源独立管理。',
-    action: { label: '去添加数据源', to: '/admin/datasources' },
-    detailTitle: '数据源状态说明',
-    details: [
-      { label: '启用', desc: '用户可在问答端选择该数据源进行查询', tag: 'success' },
-      { label: '禁用', desc: '数据源暂停服务，用户不可见，已有配置保留', tag: 'warning' },
-      { label: '连接测试', desc: '验证主机/端口/账号是否可达，测试失败不影响保存但无法启用', tag: 'info' },
-    ],
-    detailNote: '建议：生产库使用只读账号接入，避免误操作风险。',
+    title: '接入数据源，确认连接事实',
+    text: '录入数据源并测试只读连接。连接成功仅证明当次连接可用；启用、采集、治理、发布和可问数各有自己的状态。',
+    path: '/admin/data-sources',
+    action: '查看数据源',
   },
   {
-    icon: FolderSync,
-    color: 'green',
-    title: '采集元数据',
-    desc: '在「同步任务」中触发元数据采集，系统自动扫描目标库的所有表结构、字段类型、索引和注释。',
-    action: { label: '去同步', to: '/admin/metadata/sync' },
-    detailTitle: '采集方式说明',
-    details: [
-      { label: '手动触发', desc: '立即执行一次全量采集，适合首次接入或结构变更后', tag: 'info' },
-      { label: '定时调度', desc: '在「同步调度」中配置 cron 表达式，系统按计划自动采集', tag: 'info' },
-    ],
-    detailNote: '采集只读取表结构信息（DDL），不会读取业务数据内容。',
+    title: '采集元数据，锁定精确对象',
+    text: '通过采集任务读取表、字段、类型、索引和源注释，查看任务结果与快照。后续操作始终核对负责数据源、快照和具体对象。',
+    path: '/admin/collections',
+    action: '查看采集任务',
   },
   {
-    icon: ShieldCheck,
-    color: 'orange',
-    title: '治理元数据',
-    desc: '在「质量看板」查看自动校验结果，修复缺失注释、不一致命名等问题。质量分越高，AI 查询越准确。',
-    action: { label: '去治理', to: '/admin/governance/quality' },
-    detailTitle: '治理状态与 RAG 准入规则',
-    details: [
-      { label: 'NORMAL — 正常', desc: '可被 RAG 召回，AI 可基于该字段生成 SQL', tag: 'success' },
-      { label: 'RECOMMENDED — 推荐', desc: '召回优先级更高，AI 优先使用该字段', tag: 'success' },
-      { label: 'SENSITIVE — 敏感', desc: '可召回但查询结果会自动脱敏（如手机号显示为 138****1234）', tag: 'warning' },
-      { label: 'DEPRECATED — 已废弃', desc: '禁止召回，AI 不会使用该字段生成 SQL', tag: 'danger' },
-      { label: 'BLOCKED — 已屏蔽', desc: '完全不可见，不进入向量库，不出现在任何查询中', tag: 'danger' },
-    ],
-    detailNote: '影响：治理状态直接决定字段能否被 AI 召回和出现在查询结果中。只有 NORMAL/RECOMMENDED/SENSITIVE 且审核通过的字段才会进入 RAG 知识库。',
+    title: '先理解业务，再解释表与字段',
+    text: '在数据对象目录核对结构和业务上下文。表间关联关系、加工血缘和一次查询的实际来源分别查看，不能从表同时出现就推断血缘。',
+    path: '/admin/assets',
+    action: '查看数据对象',
   },
   {
-    icon: History,
-    color: 'purple',
-    title: '发布快照',
-    desc: '治理完成后在「快照生命周期」中发布一个冻结版本。发布后的快照作为 AI 查询的可信数据依据。',
-    action: { label: '去发布', to: '/admin/metadata/lifecycle' },
-    detailTitle: '快照生命周期说明',
-    details: [
-      { label: 'DRAFT — 草稿', desc: '刚采集的快照，可继续治理修改，尚未生效', tag: 'info' },
-      { label: 'PUBLISHED — 已发布', desc: '冻结生效，AI 查询基于此版本的表结构。同一数据源只有一个生效快照', tag: 'success' },
-      { label: 'ARCHIVED — 已归档', desc: '历史版本，被新快照取代后自动归档，可用于版本对比', tag: 'warning' },
-    ],
-    detailNote: '影响：发布快照后，AI 的 Schema RAG 会切换到新版本。旧快照的向量数据会被清理，确保查询始终基于最新治理结果。',
+    title: '让 AI 提建议，由人审核事实',
+    text: 'AI 字段解释是候选。审核人员核对依据、对象和草稿后再确认或驳回；人工修改不能被迟到建议覆盖。',
+    path: '/admin/governance/fields',
+    action: '进入字段治理',
   },
   {
-    icon: FileText,
-    color: 'sky',
-    title: '生成知识库',
-    desc: '在「知识库总览」中选择快照，AI 自动生成 skills.md 业务文档。人工审核确认后发布，内容将向量化进入 RAG。',
-    action: { label: '去生成', to: '/admin/knowledge' },
-    detailTitle: '知识库文档状态流转',
-    details: [
-      { label: 'DRAFT — 草稿', desc: 'AI 生成或手动编辑中，可反复修改', tag: 'info' },
-      { label: 'PENDING_REVIEW — 待审核', desc: '已提交审核，等待管理员确认内容准确性', tag: 'warning' },
-      { label: 'APPROVED — 已通过', desc: '审核通过，可以发布', tag: 'success' },
-      { label: 'PUBLISHED — 已发布', desc: '内容已向量化进入 RAG，AI 查询时会召回这些知识', tag: 'success' },
-    ],
-    detailNote: '影响：只有 PUBLISHED 状态的文档才会被向量化。文档质量直接影响 AI 理解业务语义的能力——注释越完整、描述越准确，查询结果越好。',
+    title: '处理质量与语义问题',
+    text: '区分源数据质量问题与语义解释问题，维护规则和治理状态。问题关闭后仍需在原情景核验；质量分和使用分不等于业务正确性。',
+    path: '/admin/governance/issues',
+    action: '查看问题中心',
   },
   {
-    icon: MessageSquare,
-    color: 'blue',
-    title: '开始查询',
-    desc: '一切就绪！业务人员现在可以在问答端用自然语言查询该数据源的数据了。',
-    action: { label: '去问答端', to: '/query' },
+    title: '审核并发布元数据版本',
+    text: '以精确快照版本完成审核与发布，保留复查、失效和恢复语义。发布不会替你完成所有业务数据授权，也不会等于 RAG 已构建。',
+    path: '/admin/releases',
+    action: '查看元数据版本',
+  },
+  {
+    title: '维护并发布业务主题知识',
+    text: '基于对象事实组织业务文档，复用可信字段含义与业务口径。文档的修订、审核和发布是独立动作，候选内容不能冒充正式知识。',
+    path: '/admin/semantics/knowledge',
+    action: '进入语义知识',
+  },
+  {
+    title: '显式构建 RAG，核对当前索引',
+    text: '确认构建所用快照、文档修订、摘要指纹与成员，再显式发起构建。发布和构建分开；切换前核验替代版本，并保护仍有引用的索引。合法旧构建可继续使用，来源失效与有更新待构建须分别处理。',
+    path: '/admin/semantics/knowledge',
+    action: '查看构建与当前索引',
+  },
+  {
+    title: '受控问数，查看真实执行证据',
+    text: '业务用户另需数据查询授权。现有 LangGraph 负责检索、计划与 SQL 生成，SQLGlot 校验后受控只读执行；可修正错误有限重试，无权或危险操作直接拒绝。结果完成还需核对同一任务的 attempt 与 SQL 摘要证据，投影状态另行显示。',
+    path: '/admin/operations/queries',
+    action: '查看查询分析',
+  },
+  {
+    title: '把反馈送回人工修订闭环',
+    text: '记录字段用途标签、问题归因和修订依据，在治理反馈工作面核对。使用记录、执行成功或正向反馈不会自动批准语义；修订后仍经过审核、发布及必要的显式构建。',
+    path: '/admin/governance',
+    action: '返回治理工作面',
   },
 ]
 </script>
-
 <template>
-  <main class="guide-page">
-    <header class="guide-hero">
-      <div class="hero-badge">管理员引导</div>
-      <h1>数据治理全流程 — 6 步完成</h1>
-      <p>从数据源接入到业务人员可查询，完整的治理闭环</p>
-    </header>
-
-    <section class="guide-timeline">
-      <article v-for="(step, i) in steps" :key="i" class="timeline-card">
-        <div class="timeline-left">
-          <div class="step-number">{{ i + 1 }}</div>
-          <div v-if="i < steps.length - 1" class="timeline-line"></div>
+  <GuidePage
+    label="治理流程指南 · 10 个业务环节"
+    title="把数据整理成可核验的业务知识"
+    description="按角色协作完成接入、理解、审核、发布与问数反馈。每个状态回答一个具体问题，页面入口只显示当前能力允许的范围。"
+  >
+    <template #navigation>
+      <RouterLink to="/profile">个人资料</RouterLink>
+      <RouterLink to="/guide/query">问数使用指南</RouterLink>
+    </template>
+    <div class="guide-note">
+      功能权决定能做什么，后台负责源决定能维护哪些源，业务数据权决定能查哪些数据。三者独立；不同角色绑定不能拼成更大的权限组合。
+    </div>
+    <ol class="guide-steps">
+      <li v-for="step in steps" :key="step.title" class="guide-step">
+        <div>
+          <h2>{{ step.title }}</h2>
+          <p>{{ step.text }}</p>
+          <RouterLink v-if="target(step.path)" :to="target(step.path)!" class="guide-link">
+            {{ step.action }} →
+          </RouterLink>
+          <span v-else class="guide-unavailable">此入口当前未获授权或能力尚未确认</span>
         </div>
-        <div class="timeline-right">
-          <div class="step-icon" :class="`tone-${step.color}`">
-            <component :is="step.icon" :size="28" />
-          </div>
-          <div class="step-body">
-            <h3>{{ step.title }}</h3>
-            <p>{{ step.desc }}</p>
-
-            <!-- 折叠面板：了解更多 -->
-            <button v-if="step.details" class="detail-toggle" @click="toggleDetail(i)">
-              <ChevronDown :size="14" :class="{ rotated: expandedSteps.has(i) }" />
-              {{ expandedSteps.has(i) ? '收起' : '了解更多' }}：{{ step.detailTitle }}
-            </button>
-            <div v-if="step.details && expandedSteps.has(i)" class="detail-panel">
-              <div v-for="(item, j) in step.details" :key="j" class="detail-item">
-                <span class="detail-tag" :class="`tag-${item.tag}`">{{ item.label }}</span>
-                <span class="detail-desc">{{ item.desc }}</span>
-              </div>
-              <p v-if="step.detailNote" class="detail-note">💡 {{ step.detailNote }}</p>
-            </div>
-
-            <RouterLink v-if="step.action" :to="step.action.to" class="step-action">
-              {{ step.action.label }} <ArrowRight :size="14" />
-            </RouterLink>
-          </div>
-        </div>
-      </article>
-    </section>
-
-    <footer class="guide-footer">
-      <div class="done-badge"><CheckCircle2 :size="20" /> 完成以上步骤后，系统即可投入使用</div>
-      <button class="guide-cta" @click="router.push('/admin')">
-        返回工作台 <ArrowRight :size="18" />
-      </button>
-      <RouterLink to="/guide/query" class="guide-link">← 查看问答端引导</RouterLink>
-    </footer>
-  </main>
+      </li>
+    </ol>
+    <div class="guide-actions">
+      <RouterLink v-if="home" :to="home" class="guide-primary">进入有权工作区</RouterLink>
+      <RouterLink v-if="iam.loaded && !iam.errorMessage && iam.queryUse" to="/query">进入问数</RouterLink>
+      <RouterLink to="/guide/query">查看问数指南</RouterLink>
+    </div>
+  </GuidePage>
 </template>
-
-<style scoped>
-.guide-page {
-  min-height: 100vh;
-  padding: 48px 24px 64px;
-  background: var(--do-bg);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.guide-hero {
-  width: min(960px, 100%);
-  text-align: center;
-  margin-bottom: 40px;
-}
-
-.hero-badge {
-  display: inline-block; padding: 4px 14px; border-radius: 20px;
-  background: var(--do-tone-orange-bg); color: var(--do-tone-orange);
-  font-size: 13px; font-weight: 600; margin-bottom: 16px;
-}
-
-.guide-hero h1 { font-size: 28px; color: var(--do-ink); margin: 0 0 8px; }
-.guide-hero p { font-size: 15px; color: var(--do-muted); margin: 0; }
-
-.guide-timeline { width: min(920px, 100%); }
-
-.timeline-card {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 18px;
-}
-
-.timeline-left { display: flex; flex-direction: column; align-items: center; }
-
-.step-number {
-  width: 32px; height: 32px; display: grid; place-items: center;
-  border-radius: 50%; background: var(--do-primary); color: #fff;
-  font-size: 13px; font-weight: 700; flex-shrink: 0;
-}
-
-.timeline-line { width: 2px; flex: 1; background: var(--do-line); margin: 8px 0; }
-
-.timeline-right {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 18px;
-  padding: 0 0 32px;
-  align-items: flex-start;
-}
-
-.step-icon {
-  width: 56px; height: 56px; display: grid; place-items: center;
-  border-radius: 14px; flex-shrink: 0;
-}
-
-.step-icon.tone-blue { background: var(--do-tone-blue-bg); color: var(--do-tone-blue); }
-.step-icon.tone-green { background: var(--do-tone-green-bg); color: var(--do-tone-green); }
-.step-icon.tone-orange { background: var(--do-tone-orange-bg); color: var(--do-tone-orange); }
-.step-icon.tone-purple { background: var(--do-tone-purple-bg); color: var(--do-tone-purple); }
-.step-icon.tone-sky { background: var(--do-tone-sky-bg); color: var(--do-tone-sky); }
-
-.step-body {
-  min-width: 0;
-}
-
-.step-body h3 { margin: 0 0 8px; font-size: 17px; color: var(--do-ink); }
-.step-body p { margin: 0 0 12px; font-size: 14px; color: var(--do-muted); line-height: 1.7; }
-
-/* 折叠面板 */
-.detail-toggle {
-  display: flex; align-items: center; gap: 6px;
-  background: none; border: none; cursor: pointer;
-  font-size: 13px; color: var(--do-primary); font-weight: 500;
-  padding: 4px 0; margin-bottom: 8px;
-  line-height: 1.5;
-  width: fit-content;
-  max-width: 100%;
-  text-align: left;
-}
-
-.detail-toggle:hover { text-decoration: underline; }
-
-.detail-toggle svg { transition: transform 0.2s; }
-.detail-toggle svg.rotated { transform: rotate(180deg); }
-
-.detail-panel {
-  margin: 8px 0 16px;
-  padding: 14px 18px;
-  background: var(--do-soft);
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
-}
-
-.detail-item {
-  display: grid;
-  grid-template-columns: minmax(112px, max-content) minmax(0, 1fr);
-  align-items: start;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--do-line);
-}
-
-.detail-item:last-of-type { border-bottom: none; }
-
-.detail-tag {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.detail-tag.tag-success { background: var(--do-tone-green-bg); color: var(--do-tone-green); }
-.detail-tag.tag-warning { background: var(--do-tone-orange-bg); color: var(--do-tone-orange); }
-.detail-tag.tag-danger { background: #fde8e8; color: var(--do-danger); }
-.detail-tag.tag-info { background: var(--do-tone-blue-bg); color: var(--do-tone-blue); }
-
-.detail-desc { font-size: 13px; color: var(--do-ink); line-height: 1.5; }
-
-.detail-note {
-  margin: 12px 0 0;
-  padding-top: 10px;
-  border-top: 1px dashed var(--do-line);
-  font-size: 13px;
-  color: var(--do-muted);
-  line-height: 1.5;
-}
-
-.step-action {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 13px; color: var(--do-primary); text-decoration: none; font-weight: 500;
-}
-
-.step-action:hover { text-decoration: underline; }
-
-.guide-footer { margin-top: 32px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
-
-.done-badge {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 8px 18px; border-radius: 8px;
-  background: var(--do-tone-green-bg); color: var(--do-tone-green);
-  font-size: 14px; font-weight: 500;
-}
-
-.guide-cta {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 12px 32px; border: none; border-radius: 8px;
-  background: var(--do-primary); color: #fff;
-  font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.2s;
-}
-
-.guide-cta:hover { background: var(--do-primary-strong); }
-
-.guide-link { font-size: 13px; color: var(--do-muted); text-decoration: none; }
-.guide-link:hover { color: var(--do-primary); }
-
-@media (max-width: 720px) {
-  .guide-page { padding: 32px 16px 48px; }
-  .guide-hero { text-align: left; margin-bottom: 28px; }
-  .guide-hero h1 { font-size: 24px; }
-  .timeline-card {
-    grid-template-columns: 34px minmax(0, 1fr);
-    gap: 12px;
-  }
-  .timeline-right {
-    grid-template-columns: 1fr;
-    gap: 12px;
-    padding-bottom: 28px;
-  }
-  .step-icon {
-    width: 44px;
-    height: 44px;
-    border-radius: 10px;
-  }
-  .detail-item {
-    grid-template-columns: 1fr;
-    gap: 6px;
-  }
-  .done-badge {
-    align-items: flex-start;
-    line-height: 1.5;
-  }
-}
-</style>

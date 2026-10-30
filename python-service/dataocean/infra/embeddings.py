@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 
 from langchain_openai import OpenAIEmbeddings
@@ -20,9 +21,13 @@ from dataocean.rag.schema import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
 
+# DashScope text-embedding-v4 的单次请求最多接收 10 条 input.contents。
+# 业务配置可以更大，但不能把供应商硬限制暴露为运行时 400。
+MAX_PROVIDER_BATCH_SIZE = 10
+
 _embeddings: OpenAIEmbeddings | None = None
 _embeddings_lock = asyncio.Lock()
-_embedding_cache: dict[tuple[str, str, str], OpenAIEmbeddings] = {}
+_embedding_cache: dict[tuple[str, str, str, str, str], OpenAIEmbeddings] = {}
 _embedding_cache_lock = asyncio.Lock()
 
 
@@ -60,7 +65,7 @@ async def _get_embeddings() -> OpenAIEmbeddings:
             api_key=settings.embedding_api_key or settings.dashscope_api_key or "dummy",
             base_url=settings.embedding_base_url or settings.dashscope_base_url,
             check_embedding_ctx_length=False,
-            chunk_size=settings.embedding_batch_size,
+            chunk_size=min(settings.embedding_batch_size, MAX_PROVIDER_BATCH_SIZE),
         )
         logger.info("Embeddings 实例已创建 model=%s", settings.qwen_embedding_model)
     return _embeddings
@@ -76,7 +81,8 @@ async def _get_embeddings_for_config(config: EmbeddingConfig) -> OpenAIEmbedding
     base_url = config.base_url or settings.dashscope_base_url
     api_key = config.api_key or settings.dashscope_api_key or "dummy"
     provider_id = config.provider_id or base_url
-    cache_key = (provider_id, base_url, config.model)
+    key_fingerprint = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+    cache_key = (provider_id, base_url, config.model, str(config.dimension or ""), key_fingerprint)
 
     # 快速路径：缓存命中
     cached = _embedding_cache.get(cache_key)
@@ -93,7 +99,7 @@ async def _get_embeddings_for_config(config: EmbeddingConfig) -> OpenAIEmbedding
             api_key=api_key,
             base_url=base_url,
             check_embedding_ctx_length=False,
-            chunk_size=settings.embedding_batch_size,
+            chunk_size=min(settings.embedding_batch_size, MAX_PROVIDER_BATCH_SIZE),
         )
         _embedding_cache[cache_key] = embeddings
         logger.info("Embeddings 实例已创建(model config) model=%s", config.model)
@@ -119,7 +125,7 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
         return await embeddings.aembed_documents(texts)
     except Exception as e:
         logger.error("Embedding 批量生成失败 count=%d error=%s", len(texts), e)
-        raise LLMException(f"Embedding 生成失败：{e}")
+        raise LLMException(f"Embedding 生成失败：{e}") from e
 
 
 async def embed_texts_with_config(
@@ -139,14 +145,18 @@ async def embed_texts_with_config(
             len(texts),
             e,
         )
-        raise LLMException(f"Embedding 生成失败：{e}")
+        raise LLMException(f"Embedding 生成失败：{e}") from e
 
 
-async def embed_single(text: str) -> list[float]:
+async def embed_single(text: str, embedding_config: EmbeddingConfig | None = None) -> list[float]:
     """生成单条文本向量"""
     try:
-        embeddings = await _get_embeddings()
+        embeddings = (
+            await _get_embeddings_for_config(embedding_config)
+            if embedding_config is not None
+            else await _get_embeddings()
+        )
         return await embeddings.aembed_query(text)
     except Exception as e:
         logger.error("Embedding 单条生成失败 error=%s", e)
-        raise LLMException(f"Embedding 生成失败：{e}")
+        raise LLMException(f"Embedding 生成失败：{e}") from e

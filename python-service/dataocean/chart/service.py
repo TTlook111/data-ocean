@@ -9,7 +9,7 @@ import logging
 
 from dataocean.infra.llm import call_llm
 from dataocean.infra.parsers import JsonBlockOutputParser
-from dataocean.prompt.service import render_prompt_with_metadata
+from dataocean.prompt.scenes import resolve_scene, invoke_resolved
 
 from .chart_validator import validate_chart_option
 from .data_aggregator import aggregate_for_chart
@@ -128,26 +128,14 @@ async def generate_chart(
         total_rows=total_rows,
         data_preview=data_str,
     )
-    prompt_version_no = 0
-    try:
-        managed_prompt, prompt_version_no = await render_prompt_with_metadata(
-            "chart_generation",
-            {
-                "question": question,
-                "columns": columns_info,
-                "data": data_str,
-            },
-        )
-        if managed_prompt:
-            user_prompt = managed_prompt
-    except Exception as e:
-        logger.debug("图表 Prompt 管理模板不可用，使用本地模板降级: %s", e)
+    resolved = await resolve_scene("chart_generation", {"question": question, "columns": columns_info, "data": data_str},
+        fixed_system=_SYSTEM_PROMPT, fallback_user=user_prompt)
+    prompt_version_no = resolved.version
 
     # 调用 LLM
     try:
-        response_text = await call_llm(
-            system_prompt=_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
+        response_text = await invoke_resolved(
+            resolved, invoke=call_llm,
             temperature=0.2,
         )
         option = _chart_json_parser.parse(response_text)

@@ -1,9 +1,9 @@
 package com.dataocean.module.audit.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.dataocean.module.audit.entity.QueryAuditLog;
-import com.dataocean.module.audit.entity.QueryLineageColumn;
-import com.dataocean.module.audit.entity.QueryLineageTable;
+import com.dataocean.module.audit.entity.po.QueryAuditLog;
+import com.dataocean.module.audit.entity.po.QueryLineageColumn;
+import com.dataocean.module.audit.entity.po.QueryLineageTable;
 import com.dataocean.module.audit.mapper.QueryAuditLogMapper;
 import com.dataocean.module.audit.mapper.QueryLineageColumnMapper;
 import com.dataocean.module.audit.mapper.QueryLineageTableMapper;

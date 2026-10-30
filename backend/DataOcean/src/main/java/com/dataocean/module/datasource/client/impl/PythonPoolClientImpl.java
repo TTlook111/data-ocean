@@ -40,7 +40,11 @@ public class PythonPoolClientImpl implements PythonPoolClient {
                     .retrieve()
                     .body(Map.class);
             if (body == null) {
-                return emptyDashboard();
+                // 空响应也要带上 error：否则前端只会看到 activePools=0 与空列表，
+                // 把「Python 没回内容」显示成「当前没有活跃连接池」这一假空态。
+                Map<String, Object> dashboard = emptyDashboard();
+                dashboard.put("error", "Python 服务返回空响应");
+                return dashboard;
             }
             return body;
         } catch (Exception exception) {

@@ -1,0 +1,1716 @@
+package com.dataocean.module.query.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.dataocean.common.exception.BusinessException;
+import com.dataocean.common.exception.IamS1MaskPolicyConflictException;
+import com.dataocean.common.security.UserContext;
+import com.dataocean.module.datasource.entity.po.Datasource;
+import com.dataocean.module.datasource.entity.po.DatasourceSecret;
+import com.dataocean.module.datasource.mapper.DatasourceMapper;
+import com.dataocean.module.datasource.mapper.DatasourceSecretMapper;
+import com.dataocean.module.datasource.service.DatasourceSecretService;
+import com.dataocean.module.knowledge.entity.po.KnowledgeChunk;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuild;
+import com.dataocean.module.knowledge.entity.po.RagIndexBuildChunk;
+import com.dataocean.module.knowledge.mapper.KnowledgeChunkMapper;
+import com.dataocean.module.knowledge.mapper.RagIndexBuildChunkMapper;
+import com.dataocean.module.knowledge.service.RagIndexBuildService;
+import com.dataocean.module.fieldsemantic.service.FieldSemanticService;
+import com.dataocean.module.audit.service.AuditLogService;
+import com.dataocean.module.glossary.entity.po.GlossaryTerm;
+import com.dataocean.module.glossary.mapper.GlossaryTermMapper;
+import com.dataocean.module.metadata.entity.po.MetadataEntity;
+import com.dataocean.module.metadata.entity.po.MetadataRelationship;
+import com.dataocean.module.metadata.service.MetadataEntityService;
+import com.dataocean.module.metadata.service.MetadataRelationshipService;
+import com.dataocean.module.permission.s1.IamS1Constants;
+import com.dataocean.module.permission.s1.entity.dto.IamS1DataAuthorizationRequestDTO;
+import com.dataocean.module.permission.s1.entity.dto.IamS1TableRequestDTO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1DataAuthorizationSnapshot;
+import com.dataocean.module.permission.s1.entity.vo.IamS1FieldProtectionVO;
+import com.dataocean.module.permission.s1.entity.vo.IamS1GrantSourceVO;
+import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
+import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
+import com.dataocean.module.permission.s1.service.IamS1UserResourceService;
+import com.dataocean.module.query.client.IamS1PythonClient;
+import com.dataocean.module.query.controller.IamS1QuerySseController;
+import com.dataocean.module.query.entity.po.QueryTask;
+import com.dataocean.module.query.entity.po.QueryAttempt;
+import com.dataocean.module.query.entity.dto.IamS1ExecutionBinding;
+import com.dataocean.module.query.entity.dto.IamS1QueryAskRequestDTO;
+import com.dataocean.module.query.entity.dto.ConversationContextDTO;
+import com.dataocean.module.query.entity.query.QueryHistoryQuery;
+import com.dataocean.module.query.entity.vo.QueryTaskVO;
+import com.dataocean.module.query.enums.QueryTaskStatus;
+import com.dataocean.module.query.mapper.QueryTaskMapper;
+import com.dataocean.module.query.mapper.QueryAttemptMapper;
+import com.dataocean.module.query.service.IamS1QueryService;
+import com.dataocean.module.query.service.IamS1RowBindingService;
+import com.dataocean.module.query.service.ConversationService;
+import com.dataocean.module.query.service.ConversationContextSummaryService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * S1 查询服务。所有查询结果在落库前都要通过原执行范围与当前 Resolver
+ * 结果的交集检查；绑定参数只在 submit -> Python 的内存对象中存在。
+ */
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class IamS1QueryServiceImpl implements IamS1QueryService {
+
+    /**
+     * 来源追踪中"该输出不携带任何列数据"的显式标记（Python 侧写入）。
+     * <p>
+     * 用于区分"合法地没有列来源"（{@code COUNT(*)}、常量）与"来源漏报"。
+     * 只有带此标记的条目才允许 {@code sources} 为空。
+     * </p>
+     */
+    static final String NO_COLUMN_SOURCE = "NO_COLUMN_SOURCE";
+
+    private final QueryTaskMapper queryTaskMapper;
+    private final QueryAttemptMapper queryAttemptMapper;
+    private final ObjectMapper objectMapper;
+    private final IamS1DataAuthorizationResolver dataResolver;
+    private final IamS1UserResourceService userResourceService;
+    private final IamS1AuthorizationResolver authorizationResolver;
+    private final IamS1RowBindingService rowBindingService;
+    private final IamS1PythonClient pythonClient;
+    private final IamS1QuerySseController sseController;
+    private final ConversationService conversationService;
+    private final ConversationContextSummaryService conversationContextSummaryService;
+    private final GlossaryTermMapper glossaryTermMapper;
+    private final com.dataocean.module.knowledge.service.impl.GlossaryKnowledgeSourceServiceImpl glossarySources;
+    private final com.dataocean.module.knowledge.service.impl.KnowledgeSemanticServiceImpl semanticSources;
+    private final com.dataocean.module.glossary.service.GlossaryTermWorkflowService termWorkflow;
+    private final MetadataEntityService metadataEntityService;
+    private final MetadataRelationshipService metadataRelationshipService;
+    private final com.dataocean.module.metadata.mapper.DbColumnMetaMapper policyColumnMapper;
+    private final DatasourceMapper datasourceMapper;
+    private final DatasourceSecretMapper datasourceSecretMapper;
+    private final DatasourceSecretService datasourceSecretService;
+    private final KnowledgeChunkMapper knowledgeChunkMapper;
+    private final RagIndexBuildChunkMapper ragIndexBuildChunkMapper;
+    private final RagIndexBuildService ragIndexBuildService;
+    private final AuditLogService auditLogService;
+    @Autowired
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
+    private final com.dataocean.module.metadata.service.SchemaSnapshotService schemaSnapshotService;
+    private final com.dataocean.common.security.DataMaskingService maskingService;
+    private final PlatformTransactionManager transactionManager;
+    private final Set<String> activePythonTasks = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    @Autowired(required = false)
+    private FieldSemanticService fieldSemanticService;
+    @Autowired(required = false)
+    private com.dataocean.module.fieldsemantic.service.BusinessKnowledgeService businessKnowledgeService;
+    @Autowired
+    private com.dataocean.module.knowledge.service.impl.LineageFactService lineageFacts;
+
+    @Override
+    @Transactional
+    public String submit(Long userId, IamS1QueryAskRequestDTO request) {
+        LocalDateTime submittedAt = LocalDateTime.now();
+        requireProtocol(request.getProtocolVersion());
+        if (userId == null || request.getDatasourceId() == null) {
+            throw new BusinessException("S1 查询缺少数据源");
+        }
+        if (request.getTables() != null && !request.getTables().isEmpty()) requireExplicitUsages(request.getTables());
+        if (!authorizationResolver.hasGlobalFunction(userId, "query:use")) {
+            throw new BusinessException("没有 IAM-SIMPLE-1 问数功能");
+        }
+        var metadata = schemaSnapshotService.getPublishedSnapshot(request.getDatasourceId());
+        if (metadata == null) {
+            throw new BusinessException("当前数据源没有已发布元数据快照");
+        }
+        String taskId = UUID.randomUUID().toString();
+        IamS1DataAuthorizationSnapshot initialSelection = request.getTables() == null || request.getTables().isEmpty()
+                ? null : resolve(userId, request, metadata.getId());
+        if (initialSelection != null && !initialSelection.isAllowed()) {
+            throw new BusinessException("当前 S1 数据范围不允许查询：" + initialSelection.getReasonCode());
+        }
+        var candidateCatalog = userResourceService.candidateCatalog(userId, request.getDatasourceId(), metadata.getId());
+        if (candidateCatalog == null || candidateCatalog.tables().isEmpty()) {
+            throw new BusinessException("当前快照没有可见且可查询的表字段");
+        }
+        if (initialSelection != null && !Objects.equals(initialSelection.getPermissionRevision(), candidateCatalog.permissionRevision())) {
+            throw new BusinessException("权限在资源规划期间发生变化，请重新提问");
+        }
+        RagIndexBuild ragBuild = ragIndexBuildService.activeBuildForQuery(request.getDatasourceId());
+        Long conversationId = conversationService.getOrCreateConversation(
+                userId, request.getDatasourceId(), request.getConversationId(), request.getQuestion());
+        conversationService.acquireTurn(conversationId, userId, request.getDatasourceId(), taskId);
+        Long currentUserMessageId = conversationService.saveUserMessage(conversationId, request.getQuestion(), taskId);
+        Map<String, Object> capabilities = capabilities(userId, request.getDatasourceId());
+        QueryTask task = QueryTask.builder()
+                .taskId(taskId).userId(userId).datasourceId(request.getDatasourceId())
+                .iamProtocolVersion(IamS1Constants.PROTOCOL_VERSION)
+                .governanceProfilesEnabled(true)
+                .activeMetadataSnapshotId(candidateCatalog.activeMetadataSnapshotId())
+                .permissionRevision(candidateCatalog.permissionRevision())
+                .ragBuildId(ragBuild == null ? null : ragBuild.getBuildId())
+                .ragSourceSnapshotId(ragBuild == null ? null : ragBuild.getSourceSnapshotId())
+                .iamExecutionSnapshot(writeJson(candidateCatalog))
+                .iamResourceRequest(writeJson(List.of()))
+                .iamCapabilities(writeJson(capabilities))
+                .question(request.getQuestion()).conversationId(conversationId)
+                .status(QueryTaskStatus.PROCESSING.name()).retryCount(0).createdAt(submittedAt)
+                .build();
+        queryTaskMapper.insert(task);
+
+        Map<String, Object> pythonRequest = buildPythonRequest(taskId, userId, conversationId,
+                currentUserMessageId, request, initialSelection, capabilities, ragBuild, candidateCatalog, submittedAt);
+        dispatchAfterCommit(taskId, userId, pythonRequest);
+        return taskId;
+    }
+
+    private void dispatchAfterCommit(String taskId, Long userId, Map<String, Object> pythonRequest) {
+        Runnable dispatch = () -> {
+            if (!activePythonTasks.add(taskId)) return;
+            try {
+                pythonClient.executeAsync(taskId, pythonRequest, result -> {
+                    try {
+                        completeInTransaction(taskId, result);
+                        try {
+                            sseController.sendResult(taskId, get(taskId, userId));
+                        } catch (BusinessException ex) {
+                            sseController.sendError(taskId, ex.getMessage());
+                        } catch (Exception ex) {
+                            log.warn("S1 结果 SSE 推送失败 taskId={}", taskId);
+                        }
+                    } finally {
+                        activePythonTasks.remove(taskId);
+                    }
+                }, progress -> recordProgress(taskId, userId, progress));
+            } catch (Exception ex) {
+                activePythonTasks.remove(taskId);
+                log.warn("S1 查询提交 Python 失败 taskId={} reason={}", taskId, ex.getClass().getSimpleName());
+                completeInTransaction(taskId, writeJson(Map.of("taskId", taskId,
+                        "protocolVersion", IamS1Constants.PROTOCOL_VERSION,
+                        "status", "FAILED", "error", "查询服务暂不可用，请重试")));
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { dispatch.run(); }
+            });
+        } else dispatch.run();
+    }
+
+    @Override
+    public QueryTaskVO get(String taskId, Long userId) {
+        return get(taskId,userId,true);
+    }
+
+    private QueryTaskVO get(String taskId,Long userId,boolean refreshTerminalOnce) {
+        QueryTask task = find(taskId, userId);
+        if (!isS1(task)) throw new BusinessException("任务不属于 IAM-SIMPLE-1");
+        // 功能权限按当前状态复查：撤销 query:use 后，历史结果不得再通过
+        // 任务读取、历史、导出、反馈或 SSE 取回。
+        if (!authorizationResolver.hasGlobalFunction(userId, "query:use")) {
+            throw new BusinessException("没有 IAM-SIMPLE-1 问数功能");
+        }
+        if (task.getConversationId() != null && !conversationService.isVisible(task.getConversationId(), userId)) {
+            throw new BusinessException("会话已删除或超出在线保留期");
+        }
+        if (task.getIamResourceRequest() == null || task.getIamResourceRequest().isBlank()
+                || "[]".equals(task.getIamResourceRequest())) {
+            Long revision = dataResolver.currentPermissionRevision();
+            var currentMetadata = schemaSnapshotService.getPublishedSnapshot(task.getDatasourceId());
+            if (!Objects.equals(revision, task.getPermissionRevision()) || currentMetadata == null
+                    || !Objects.equals(currentMetadata.getId(), task.getActiveMetadataSnapshotId())) {
+                throw new BusinessException("权限或元数据快照已变化");
+            }
+            if (QueryTaskStatus.PROCESSING.name().equals(task.getStatus()) && task.getConversationId() != null
+                    && !conversationService.isActiveTurn(task.getConversationId(), task.getTaskId())) {
+                // 读取任务与读取会话之间，完成事务可能已提交并释放轮次。
+                // 仅在重新读取确认终态后重走完整读取保护，不放行真正失去轮次的运行任务。
+                if(refreshTerminalOnce && !QueryTaskStatus.PROCESSING.name().equals(find(taskId,userId).getStatus())) {
+                    return get(taskId,userId,false);
+                }
+                throw new BusinessException("会话轮次已取消或结束");
+            }
+            QueryTaskVO progressOnly = toVO(task);
+            progressOnly.setCanViewSql(Boolean.TRUE.equals(authorizationResolver.hasGlobalFunction(userId, "query:sql:view")));
+            progressOnly.setCanExport(Boolean.TRUE.equals(authorizationResolver.hasGlobalFunction(userId, "query:export")));
+            progressOnly.setSql(null);
+            progressOnly.setData(null);
+            progressOnly.setChartConfig(null);
+            progressOnly.setSourceTrace(null);
+            return progressOnly;
+        }
+        IamS1DataAuthorizationSnapshot current = recheck(task, userId);
+        if (!java.util.Objects.equals(current.getPermissionRevision(), task.getPermissionRevision())
+                && (containsRowCondition(task.getIamExecutionSnapshot()) || hasRowCondition(current))) {
+            throw new BusinessException("权限已变化，请重新查询");
+        }
+        QueryTaskVO result = toVO(task);
+        if ("COMPLETED".equals(task.getStatus()) && !hasCompletePersistedEvidence(task)) {
+            throw new BusinessException("结果来源不完整，请重新查询");
+        }
+        applyCurrentProtection(result, task, current);
+        Map<String, Object> caps = capabilities(userId, task.getDatasourceId());
+        boolean viewSql = Boolean.TRUE.equals(caps.get("viewSql"));
+        result.setCanViewSql(viewSql);
+        result.setCanExport(Boolean.TRUE.equals(caps.get("export")));
+        if (!viewSql) {
+            result.setSql(null);
+            result.setSqlExplanation(null);
+        }
+        return result;
+    }
+
+    @Override
+    public Long conversationId(String taskId, Long userId) {
+        QueryTask task = find(taskId, userId);
+        if (!isS1(task)) throw new BusinessException("任务不属于 IAM-SIMPLE-1");
+        requireQueryUse(userId);
+        return task.getConversationId();
+    }
+
+    @Override
+    public Page<QueryTaskVO> history(Long userId, QueryHistoryQuery query) {
+        Page<QueryTask> page = queryTaskMapper.selectPage(
+                query.toMpPageDefaultSortByCreatedAtDesc(),
+                new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getUserId, userId)
+                        .eq(QueryTask::getIamProtocolVersion, IamS1Constants.PROTOCOL_VERSION)
+                        .eq(query.getDatasourceId() != null, QueryTask::getDatasourceId, query.getDatasourceId())
+                        .eq(query.getStatus() != null && !query.getStatus().isBlank(), QueryTask::getStatus, query.getStatus()));
+        Page<QueryTaskVO> result = new Page<>(page.getCurrent(), page.getSize(), page.getTotal());
+        List<QueryTaskVO> records = new ArrayList<>();
+        for (QueryTask task : page.getRecords()) {
+            try {
+                records.add(get(task.getTaskId(), userId));
+            } catch (BusinessException ignored) {
+                // 当前权限无法证明历史结果安全时不返回该行。
+            }
+        }
+        result.setRecords(records);
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public void cancel(String taskId, Long userId) {
+        QueryTask task = find(taskId, userId);
+        if (!isS1(task)) throw new BusinessException("任务不属于 IAM-SIMPLE-1");
+        if (!QueryTaskStatus.PROCESSING.name().equals(task.getStatus())) {
+            throw new BusinessException("任务已结束");
+        }
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                .eq(QueryTask::getTaskId, taskId).eq(QueryTask::getUserId, userId)
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                .set(QueryTask::getStatus, QueryTaskStatus.CANCELLED.name())
+                .set(QueryTask::getIamFinalProtectionStatus, "CANCELLED")
+                .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+        if (updated == 0) throw new BusinessException("任务已结束");
+        pythonClient.cancelTask(taskId);
+        if (task.getConversationId() != null) {
+            conversationService.saveAssistantMessage(task.getConversationId(), "查询已取消", taskId,
+                    writeJson(Map.of("taskId", taskId, "status", QueryTaskStatus.CANCELLED.name(),
+                            "question", task.getQuestion())));
+            conversationService.releaseTurn(task.getConversationId(), taskId);
+            refreshConversationContext(task.getConversationId(), userId, task.getDatasourceId(), taskId);
+        }
+    }
+
+    @Override
+    public void resume(String taskId, Long userId) {
+        QueryTask task = find(taskId, userId);
+        if (!isS1(task) || !QueryTaskStatus.PROCESSING.name().equals(task.getStatus())) {
+            throw new BusinessException("只有处理中且属于当前账号的 S1 任务可以恢复");
+        }
+        if (activePythonTasks.contains(taskId)) return;
+        if (!fieldSemanticReferencesValid(task)) {
+            fail(taskId, "查询所引用的知识已变化，请重新发起查询", "REJECTED_ON_RECHECK");
+            throw new BusinessException("查询所引用的知识已变化，请重新发起查询");
+        }
+        if (task.getCreatedAt() != null && task.getCreatedAt().plusSeconds(90).isBefore(LocalDateTime.now())) {
+            pythonClient.cancelTask(taskId);
+            finishWithoutData(task, QueryTaskStatus.TIMEOUT.name(), "查询超过总时限，未返回结果，请重试。");
+            return;
+        }
+        requireQueryUse(userId);
+        if (task.getConversationId() == null || !conversationService.isVisible(task.getConversationId(), userId)
+                || !conversationService.isActiveTurn(task.getConversationId(), taskId)) {
+            throw new BusinessException("会话已删除或当前轮次已结束，不能恢复");
+        }
+        var metadata = schemaSnapshotService.getPublishedSnapshot(task.getDatasourceId());
+        if (metadata == null || !Objects.equals(metadata.getId(), task.getActiveMetadataSnapshotId())
+                || !Objects.equals(dataResolver.currentPermissionRevision(), task.getPermissionRevision())) {
+            fail(taskId, "权限或元数据快照已变化，请重新提问", "REJECTED_ON_RECHECK");
+            throw new BusinessException("权限或元数据快照已变化，请重新提问");
+        }
+        QueryAttempt latestAttempt = queryAttemptMapper.selectOne(new LambdaQueryWrapper<QueryAttempt>()
+                .eq(QueryAttempt::getTaskId, taskId)
+                .orderByDesc(QueryAttempt::getAttemptNo)
+                .last("LIMIT 1"));
+        if (latestAttempt != null && Set.of("EXECUTING", "UNCERTAIN").contains(latestAttempt.getStatus())) {
+            fail(taskId, "执行状态无法安全确认，请重新提问", "REJECTED_FINAL_PROTECTION");
+            throw new BusinessException("执行状态无法安全确认；该任务已停止，请重新提问");
+        }
+        var candidateCatalog = userResourceService.candidateCatalog(userId, task.getDatasourceId(), metadata.getId());
+        if (candidateCatalog == null || !Objects.equals(candidateCatalog.permissionRevision(), task.getPermissionRevision())) {
+            fail(taskId, "权限在恢复时发生变化，请重新提问", "REJECTED_ON_RECHECK");
+            throw new BusinessException("权限在恢复时发生变化，请重新提问");
+        }
+        RagIndexBuild ragBuild = task.getRagBuildId() == null ? null
+                : ragIndexBuildService.buildForQuery(task.getRagBuildId(), task.getDatasourceId());
+        if (task.getRagBuildId() != null && ragBuild == null) {
+            fail(taskId, "原 RAG 构建已不可恢复，请重新提问", "REJECTED_ON_RECHECK");
+            throw new BusinessException("原 RAG 构建已不可恢复，请重新提问");
+        }
+        Long currentMessageId = conversationService.userMessageIdForTask(
+                task.getConversationId(), userId, taskId);
+        if (currentMessageId == null) throw new BusinessException("会话当前问题原文不存在，不能恢复");
+        IamS1QueryAskRequestDTO request = new IamS1QueryAskRequestDTO();
+        request.setProtocolVersion(IamS1Constants.PROTOCOL_VERSION);
+        request.setDatasourceId(task.getDatasourceId());
+        request.setQuestion(task.getQuestion());
+        request.setConversationId(task.getConversationId());
+        Map<String, Object> body = buildPythonRequest(taskId, userId, task.getConversationId(), currentMessageId,
+                request, null, capabilities(userId, task.getDatasourceId()), ragBuild, candidateCatalog,
+                task.getCreatedAt());
+        body.put("resume", true);
+        if (task.getCreatedAt() != null) {
+            body.put("deadlineEpochSeconds", task.getCreatedAt().atZone(java.time.ZoneId.systemDefault())
+                    .plusSeconds(90).toEpochSecond());
+        }
+        Long attemptCount = queryAttemptMapper.selectCount(new LambdaQueryWrapper<QueryAttempt>()
+                .eq(QueryAttempt::getTaskId, taskId));
+        body.put("sqlAttemptsUsed", attemptCount == null ? 0 : attemptCount.intValue());
+        body.put("llmCallsUsed", task.getLlmCallCount() == null ? 0 : task.getLlmCallCount());
+        if (latestAttempt != null && "PROTECTED".equals(latestAttempt.getStatus())) {
+            body.put("resumeProtectedResult", attemptServiceResult(latestAttempt));
+        }
+        dispatchAfterCommit(taskId, userId, body);
+    }
+
+    @Override
+    @Transactional
+    @SuppressWarnings("unchecked")
+    public void complete(String taskId, String resultJson) {
+        QueryTask task = queryTaskMapper.selectByTaskIdForUpdate(taskId);
+        if (task == null || !isS1(task) || !"PROCESSING".equals(task.getStatus())) return;
+        boolean completedTransition = false;
+        try {
+            Map<String, Object> result = objectMapper.readValue(resultJson, new TypeReference<>() {});
+            if (!taskId.equals(result.get("taskId")) || !IamS1Constants.PROTOCOL_VERSION.equals(result.get("protocolVersion"))) {
+                fail(taskId, "S1 结果合同不一致", "REJECTED_CONTRACT");
+                return;
+            }
+            String status = String.valueOf(result.getOrDefault("status", "FAILED"));
+            if ("CLARIFICATION_REQUIRED".equals(status)) {
+                finishWithoutData(task, status, safeError(String.valueOf(result.getOrDefault(
+                        "clarification", "目前缺少足够的已审核证据，请补充查询条件。"))));
+                return;
+            }
+            if (QueryTaskStatus.TIMEOUT.name().equals(status)) {
+                finishWithoutData(task, QueryTaskStatus.TIMEOUT.name(), "查询超过总时限，未返回结果，请重试。");
+                return;
+            }
+            if (!"COMPLETED".equals(status)) {
+                fail(taskId, safeError(String.valueOf(result.getOrDefault("error", "S1 查询失败"))), "FAILED");
+                return;
+            }
+            // Every COMPLETED IAM-SIMPLE-1 callback, including callbacks from any
+            // retained Python compatibility path, must be backed by this exact
+            // Java-protected execution attempt. A missing id never selects a
+            // weaker legacy completion contract.
+            Object rawAttemptId = result.get("attemptId");
+            Object rawSqlHash = result.get("sqlHash");
+            if (!(rawAttemptId instanceof String attemptId) || attemptId.isBlank()
+                    || !(rawSqlHash instanceof String sqlHash) || sqlHash.isBlank()) {
+                fail(taskId, "Java 未完成该 SQL 尝试的结果保护", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
+            QueryAttempt attempt = queryAttemptMapper.selectForUpdate(taskId, attemptId);
+            if (attempt == null || !Objects.equals(attempt.getTaskId(), taskId)
+                    || !Objects.equals(attempt.getAttemptId(), attemptId)
+                    || !"PROTECTED".equals(attempt.getStatus())
+                    || !Objects.equals(attempt.getSqlHash(), sqlHash)
+                    || attempt.getProtectedData() == null || attempt.getProtectedColumns() == null
+                    || attempt.getSourceTrace() == null) {
+                fail(taskId, "Java 未完成该 SQL 尝试的结果保护", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
+            if (!fieldSemanticReferencesValid(task)) {
+                fail(taskId, "查询所引用的知识已变化，请重新发起查询", "REJECTED_ON_RECHECK");
+                return;
+            }
+            result.put("data", readAttemptJson(attempt.getProtectedData()));
+            result.put("columns", readAttemptJson(attempt.getProtectedColumns()));
+            result.put("sourceTrace", readAttemptJson(attempt.getSourceTrace()));
+            result.put("maskedFields", readAttemptJson(attempt.getMaskedFields()));
+            result.put("usedTables", readAttemptJson(attempt.getUsedTables()));
+            result.put("usedColumns", readAttemptJson(attempt.getUsedColumns()));
+            result.put("sql", attempt.getSafeSql());
+            result.put("rowCount", attempt.getRowCount());
+            result.put("totalTimeMs", number(result.get("totalTimeMs"))
+                    + (attempt.getExecutionTimeMs() == null ? 0 : attempt.getExecutionTimeMs()));
+            if (!hasCompleteSourceTrace(result.get("sourceTrace"), result.get("columns"))) {
+                fail(taskId, "结果来源不完整，请重新查询", "REJECTED_SOURCE_TRACE");
+                return;
+            }
+            if (!IamS1ResultIntegrity.dataKeysAreCoveredByColumns(result.get("data"), result.get("columns"))) {
+                fail(taskId, "Java 保护结果列证据不完整，请重新查询", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
+            if (task.getConversationId() != null && !conversationService.isVisible(task.getConversationId(), task.getUserId())) {
+                fail(taskId, "会话已删除或超出在线保留期", "REJECTED_ON_RECHECK");
+                return;
+            }
+            IamS1DataAuthorizationSnapshot current = recheck(task, task.getUserId());
+            if (!current.isAllowed()
+                    || !java.util.Objects.equals(current.getPermissionRevision(), task.getPermissionRevision())
+                    || !java.util.Objects.equals(current.getActiveMetadataSnapshotId(), task.getActiveMetadataSnapshotId())) {
+                fail(taskId, "权限已变化，请重新查询", "REJECTED_ON_RECHECK");
+                return;
+            }
+            List<String> usedColumns = objectMapper.convertValue(result.getOrDefault("usedColumns", List.of()), new TypeReference<>() {});
+            if (!isSubsetOfCurrent(usedColumns, result.getOrDefault("sourceTrace", List.of()), current)) {
+                fail(taskId, "权限已变化，请重新查询", "REJECTED_ON_RECHECK");
+                return;
+            }
+            List<Map<String, Object>> data = objectMapper.convertValue(result.getOrDefault("data", List.of()), new TypeReference<>() {});
+            Map<String, String> outputMasks;
+            try {
+                outputMasks = deriveOutputMasks(result.get("sourceTrace"), current);
+            } catch (IamS1MaskPolicyConflictException ex) {
+                // 冲突结果无法按单一策略正确脱敏，直接拒绝落库。
+                fail(taskId, "结果脱敏策略冲突，拒绝落库", "REJECTED_FINAL_PROTECTION");
+                return;
+            }
+            String safeSql = safeSql((String) result.get("sql"));
+            String safeExplanation = safeExplanation((String) result.get("sqlExplanation"));
+            String safeChart = safeChartConfig(result.get("chartConfig"), outputMasks);
+            List<String> suggestions = safeSuggestions(result.get("suggestedQuestions"));
+            LambdaUpdateWrapper<QueryTask> update = new LambdaUpdateWrapper<QueryTask>()
+                    .eq(QueryTask::getTaskId, taskId).eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                    .set(QueryTask::getStatus, "COMPLETED").set(QueryTask::getTraceProjectionStatus, "PENDING").set(QueryTask::getResultSql, safeSql)
+                    .set(QueryTask::getSqlExplanation, safeExplanation)
+                    .set(QueryTask::getResultData, writeJson(data)).set(QueryTask::getResultColumns, writeJson(result.get("columns")))
+                    .set(QueryTask::getChartConfig, safeChart)
+                    .set(QueryTask::getSuggestedQuestions, writeJson(suggestions))
+                    .set(QueryTask::getRewrittenQuery, (String) result.get("rewrittenQuery"))
+                    .set(QueryTask::getUsedTables, writeJson(result.get("usedTables")))
+                    .set(QueryTask::getUsedColumns, writeJson(usedColumns))
+                    .set(QueryTask::getIamSourceTrace, writeJson(Map.of(
+                            "permissionRevision", task.getPermissionRevision(),
+                            "activeMetadataSnapshotId", task.getActiveMetadataSnapshotId(),
+                            "attemptId", attemptId, "sqlHash", sqlHash,
+                            "entries", result.getOrDefault("sourceTrace", List.of()))))
+                    .set(QueryTask::getMaskedFields, writeJson(outputMasks))
+                    .set(QueryTask::getDegraded, Boolean.TRUE.equals(result.get("degraded")))
+                    .set(QueryTask::getRetryCount, number(result.get("retryCount")))
+                    .set(QueryTask::getDegradeNotice, (String) result.get("degradeNotice"))
+                    .set(QueryTask::getTotalTimeMs, number(result.get("totalTimeMs")))
+                    .set(QueryTask::getIamFinalProtectionStatus, outputMasks.isEmpty() ? "FINAL_PROTECTED" : "FINAL_MASKED")
+                    .set(QueryTask::getCompletedAt, LocalDateTime.now());
+            int updated = queryTaskMapper.update(null, update);
+            if (updated > 0) {
+                completedTransition = true;
+                saveCompletedConversationMessage(task, result, data, outputMasks, safeSql, safeExplanation,
+                        safeChart, suggestions);
+                conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
+                refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), task.getTaskId());
+                eventPublisher.publishEvent(new com.dataocean.module.query.event.QueryTraceCommittedEvent(taskId));
+            }
+        } catch (BusinessException ex) {
+            if (completedTransition) throw ex;
+            // 未完成转换时安全拒绝；转换后的持久化异常必须向外传播使整个事务回滚。
+            log.warn("S1 完成阶段业务异常 taskId={} message={}", taskId, ex.getMessage());
+            fail(taskId, "权限已变化，请重新查询", "REJECTED_ON_RECHECK");
+        } catch (Exception ex) {
+            if (completedTransition) throw new BusinessException("查询完成结果保存失败，请重新查询");
+            log.warn("S1 结果保护失败 taskId={} exceptionType={} reason={}", taskId,
+                    ex.getClass().getSimpleName(), safeError(ex.getMessage()));
+            fail(taskId, "查询结果无法完成最终保护", "REJECTED_FINAL_PROTECTION");
+        }
+    }
+
+    @Override
+    public void feedback(String taskId, Long userId, String feedbackType) {
+        if (!"LIKE".equals(feedbackType) && !"DISLIKE".equals(feedbackType)) {
+            throw new BusinessException("无效的反馈类型");
+        }
+        QueryTask task = find(taskId, userId);
+        if (!isS1(task)) throw new BusinessException("任务不属于 IAM-SIMPLE-1");
+        get(taskId, userId); // 当前权限与任务范围复查后才关联反馈。
+        auditLogService.updateFeedback(task.getId(), feedbackType);
+    }
+
+    @Override
+    public List<Map<String, Object>> export(String taskId, Long userId) {
+        QueryTaskVO vo = get(taskId, userId);
+        if (!Boolean.TRUE.equals(vo.getCanExport())) throw new BusinessException("没有当前 S1 导出能力");
+        return vo.getData() == null ? List.of() : vo.getData();
+    }
+
+    @Override
+    public List<?> conversations(Long userId, Long datasourceId) {
+        requireQueryUse(userId);
+        return conversationService.listConversations(userId, datasourceId).stream()
+                .filter(item -> item instanceof com.dataocean.module.query.entity.po.Conversation conversation
+                        && queryTaskMapper.selectCount(new LambdaQueryWrapper<QueryTask>()
+                        .eq(QueryTask::getConversationId, conversation.getId())
+                        .eq(QueryTask::getIamProtocolVersion, IamS1Constants.PROTOCOL_VERSION)) > 0)
+                .toList();
+    }
+
+    @Override
+    public com.dataocean.module.query.entity.vo.ConversationMessagePageVO conversationMessages(
+            Long conversationId, Long userId, Long beforeMessageId, Integer pageSize) {
+        requireQueryUse(userId);
+        var messagePage = conversationService.listMessagePage(conversationId, userId, beforeMessageId, pageSize);
+        List<com.dataocean.module.query.entity.vo.ConversationMessageVO> messages = messagePage.getItems();
+        for (var message : messages) {
+            if (!"assistant".equals(message.getRole())) {
+                continue;
+            }
+            if (message.getTaskId() == null || message.getTaskId().isBlank()) {
+                message.setContent("该历史结果不属于 IAM-SIMPLE-1，已隐藏");
+                message.setMetadata(null);
+                continue;
+            }
+            try {
+                QueryTaskVO safe = get(message.getTaskId(), userId);
+                message.setMetadata(writeJson(safe));
+                if (safe.getMaskedFields() != null && !safe.getMaskedFields().isEmpty()) {
+                    message.setContent("本轮查询完成，部分字段已按当前规则脱敏");
+                } else if (safe.getSqlExplanation() != null && !safe.getSqlExplanation().isBlank()) {
+                    message.setContent(safe.getSqlExplanation());
+                } else if (safe.getErrorMessage() != null && !safe.getErrorMessage().isBlank()) {
+                    message.setContent(safe.getErrorMessage());
+                } else message.setContent("本轮查询已完成");
+            } catch (BusinessException ex) {
+                message.setContent("历史结果已按当前权限隐藏；原始对话仍可查看");
+                message.setMetadata(null);
+            }
+        }
+        return messagePage;
+    }
+
+    @Override
+    @Transactional
+    public void archiveConversation(Long conversationId, Long userId) {
+        requireQueryUse(userId);
+        String activeTaskId = conversationService.deleteConversation(conversationId, userId);
+        if (activeTaskId != null && !activeTaskId.isBlank()) {
+            queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                    .eq(QueryTask::getTaskId, activeTaskId)
+                    .eq(QueryTask::getUserId, userId)
+                    .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                    .set(QueryTask::getStatus, QueryTaskStatus.CANCELLED.name())
+                    .set(QueryTask::getIamFinalProtectionStatus, "CANCELLED")
+                    .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+            pythonClient.cancelTask(activeTaskId);
+        }
+    }
+
+    private void requireQueryUse(Long userId) {
+        if (!authorizationResolver.hasGlobalFunction(userId, "query:use")) {
+            throw new BusinessException("没有 IAM-SIMPLE-1 问数功能");
+        }
+    }
+
+    /** Python SSE 回调运行在 servlet 外的异步线程，显式开启事务处理终态与轮次释放。 */
+    private void completeInTransaction(String taskId, String resultJson) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> complete(taskId, resultJson));
+    }
+
+    private void recordProgress(String taskId, Long userId, Map<String, Object> event) {
+        if (event == null || !taskId.equals(event.get("taskId"))
+                || !IamS1Constants.PROTOCOL_VERSION.equals(event.get("protocolVersion"))) return;
+        String node = String.valueOf(event.getOrDefault("node", ""));
+        String message = progressMessage(node, event.get("attemptNo"));
+        if (message == null) return;
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                .eq(QueryTask::getTaskId, taskId)
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                .set(QueryTask::getProgressNode, node)
+                .set(QueryTask::getProgressMessage, message));
+        if (updated == 0) return;
+        try {
+            sseController.sendProgress(taskId, get(taskId, userId));
+        } catch (BusinessException ex) {
+            sseController.sendError(taskId, ex.getMessage());
+        }
+    }
+
+    private String progressMessage(String node, Object attemptNo) {
+        int attempt = attemptNo instanceof Number number ? number.intValue() : 0;
+        return switch (node) {
+            case "question_rewrite" -> "正在理解问题和会话上下文";
+            case "rag_retrieval" -> "正在检索当前授权知识";
+            case "schema_linking" -> "正在关联当前快照中的表和字段";
+            case "sql_generation" -> attempt > 0 ? "正在生成第 " + attempt + " 次候选 SQL" : "正在生成候选 SQL";
+            case "sql_semantic_check" -> "正在核对 SQL 与问题是否一致";
+            case "execution_authorization" -> "正在按当前权限重新授权";
+            case "sql_execution" -> "正在执行只读查询";
+            case "result_verification" -> "正在核对受保护的查询结果";
+            case "clarification" -> "正在整理需要确认的问题";
+            default -> null;
+        };
+    }
+
+    private IamS1DataAuthorizationSnapshot resolve(Long userId, IamS1QueryAskRequestDTO request, Long snapshotId) {
+        IamS1DataAuthorizationRequestDTO auth = new IamS1DataAuthorizationRequestDTO();
+        auth.setProtocolVersion(IamS1Constants.PROTOCOL_VERSION); auth.setUserId(userId);
+        auth.setDatasourceId(request.getDatasourceId()); auth.setActiveMetadataSnapshotId(snapshotId);
+        auth.setCalculatedAt(LocalDateTime.now()); auth.setTables(request.getTables());
+        return dataResolver.resolve(auth);
+    }
+
+    IamS1DataAuthorizationSnapshot recheck(QueryTask task, Long userId) {
+        try {
+            List<IamS1TableRequestDTO> tables = objectMapper.readValue(task.getIamResourceRequest(), new TypeReference<>() {});
+            IamS1QueryAskRequestDTO request = new IamS1QueryAskRequestDTO();
+            request.setProtocolVersion(IamS1Constants.PROTOCOL_VERSION); request.setDatasourceId(task.getDatasourceId());
+            request.setTables(tables);
+            var snapshot = schemaSnapshotService.getPublishedSnapshot(task.getDatasourceId());
+            if (snapshot == null) throw new BusinessException("当前没有已发布快照");
+            return resolve(userId, request, snapshot.getId());
+        } catch (BusinessException ex) { throw ex; }
+        catch (Exception ex) { throw new BusinessException("无法确认当前 S1 权限"); }
+    }
+
+    private boolean isSubsetOfCurrent(List<String> usedColumns, Object rawTrace, IamS1DataAuthorizationSnapshot current) {
+        if (current == null) return false;
+        if (usedColumns == null || usedColumns.isEmpty()) {
+            // 不引用任何列的查询（COUNT(*) 或常量输出）没有列级子集证据可查。
+            // 此时安全性依据是"每个输出都不携带列数据"，由 sourceTrace 的
+            // NO_COLUMN_SOURCE 标记证明。不能简单放行空列表：若某个输出确实取列
+            // 却漏报了来源，这里仍须拒绝（fail-closed）。
+            return traceIsEntirelyColumnFree(rawTrace);
+        }
+        Map<String, IamS1FieldProtectionVO> fields = new HashMap<>();
+        current.getTables().forEach(table -> table.getFieldProtections().forEach(field ->
+                fields.put((table.getTableName() + "." + field.getColumnName()).toLowerCase(Locale.ROOT), field)));
+        Set<String> authorizedColumns = new HashSet<>();
+        for (String value : usedColumns) {
+            if (value == null || value.isBlank()) return false;
+            String normalized = value.toLowerCase(Locale.ROOT);
+            IamS1FieldProtectionVO protection = fields.get(normalized);
+            if (protection == null || "HIDDEN".equals(protection.getProtectionLevel())) return false;
+            authorizedColumns.add(normalized);
+        }
+
+        Object traceValue = rawTrace;
+        if (traceValue instanceof Map<?, ?> wrapper) traceValue = wrapper.get("entries");
+        if (!(traceValue instanceof List<?> entries) || entries.isEmpty()) return false;
+        for (Object rawEntry : entries) {
+            if (!(rawEntry instanceof Map<?, ?> entry)
+                    || !(entry.get("sources") instanceof List<?> sources)) return false;
+            if (sources.isEmpty()) {
+                if (!NO_COLUMN_SOURCE.equals(String.valueOf(entry.get("sourceKind")))) return false;
+                continue;
+            }
+            if (NO_COLUMN_SOURCE.equals(String.valueOf(entry.get("sourceKind")))) return false;
+            for (Object source : sources) {
+                if (source == null || String.valueOf(source).isBlank()) return false;
+                String normalized = String.valueOf(source).toLowerCase(Locale.ROOT);
+                IamS1FieldProtectionVO protection = fields.get(normalized);
+                // sourceTrace is independent provenance evidence. Do not let an omitted or
+                // stale usedColumns list hide a currently hidden source field.
+                if (!authorizedColumns.contains(normalized) || protection == null
+                        || "HIDDEN".equals(protection.getProtectionLevel())) return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 判断整份 sourceTrace 是否都由「不携带列数据」的输出组成。
+     * <p>
+     * `COUNT(*)`、常量这类输出不引用任何列，因此列级子集证据（usedColumns）本就为空。
+     * 只有整份 trace 的每一条都带 {@link #NO_COLUMN_SOURCE} 标记且来源为空时，
+     * 空 usedColumns 才算合法证据；只要有一条输出声称取过列，就说明证据不完整。
+     * </p>
+     */
+    private boolean traceIsEntirelyColumnFree(Object rawTrace) {
+        Object value = rawTrace;
+        // 持久化形态下 trace 被包在 {"permissionRevision":..,"entries":[..]} 里，
+        // 读取路径拿到的是包装 Map，查询结果里则是裸列表——两种都要能处理。
+        if (value instanceof Map<?, ?> wrapper) value = wrapper.get("entries");
+        if (!(value instanceof List<?> entries) || entries.isEmpty()) return false;
+        for (Object rawEntry : entries) {
+            if (!(rawEntry instanceof Map<?, ?> entry)) return false;
+            if (!(entry.get("sources") instanceof List<?> sources) || !sources.isEmpty()) return false;
+            if (!NO_COLUMN_SOURCE.equals(String.valueOf(entry.get("sourceKind")))) return false;
+        }
+        return true;
+    }
+
+    /**
+     * 按输出列名（小写规范化，与 {@code maskResultByFields} 的口径一致）汇总脱敏策略。
+     * <p>
+     * Python 侧同样会拒绝多策略冲突，但 Java 是最终保护边界，不能依赖上游校验结果：
+     * 历史持久化任务、异常来源或协议回归都可能带来含有冲突的 sourceTrace，而按列名
+     * 生效的脱敏只能取其一，必然用错误策略处理另一部分数据。此处独立判定并 fail-closed。
+     * </p>
+     */
+    Map<String, String> deriveOutputMasks(Object rawTrace, IamS1DataAuthorizationSnapshot snapshot) {
+        Map<String, IamS1FieldProtectionVO> fieldMap = new HashMap<>();
+        snapshot.getTables().forEach(table -> table.getFieldProtections().forEach(field ->
+                fieldMap.put((table.getTableName() + "." + field.getColumnName()).toLowerCase(Locale.ROOT), field)));
+        Map<String, Set<String>> policies = new LinkedHashMap<>();
+        Map<String, String> outputNames = new LinkedHashMap<>();
+        if (rawTrace instanceof Map<?, ?> wrapper) {
+            rawTrace = wrapper.get("entries");
+        }
+        if (rawTrace instanceof List<?> traces) {
+            for (Object raw : traces) {
+                if (!(raw instanceof Map<?, ?> trace)) continue;
+                String output = String.valueOf(trace.get("outputColumn"));
+                Object source = trace.get("sources");
+                if (!(source instanceof List<?> sources)) continue;
+                String key = output.toLowerCase(Locale.ROOT);
+                for (Object item : sources) {
+                    IamS1FieldProtectionVO protection = fieldMap.get(String.valueOf(item).toLowerCase(Locale.ROOT));
+                    if (protection == null || !"MASKED".equals(protection.getProtectionLevel())) continue;
+                    outputNames.putIfAbsent(key, output);
+                    Set<String> found = policies.computeIfAbsent(key, ignored -> new LinkedHashSet<>());
+                    String policy = protection.getMaskPolicy();
+                    if (policy == null || policy.isBlank()) {
+                        throw new IamS1MaskPolicyConflictException("字段脱敏策略缺失",
+                                List.of(output + " -> missing mask policy"));
+                    }
+                    found.add(policy);
+                }
+            }
+        }
+        List<String> conflicts = policies.entrySet().stream()
+                .filter(entry -> entry.getValue().size() > 1)
+                .map(entry -> entry.getKey() + " -> " + String.join(", ", entry.getValue()))
+                .toList();
+        if (!conflicts.isEmpty()) {
+            log.warn("S1 结果存在脱敏策略冲突 conflicts={}", conflicts);
+            throw new IamS1MaskPolicyConflictException("同一输出列存在多种脱敏策略", conflicts);
+        }
+        Map<String, String> result = new LinkedHashMap<>();
+        policies.forEach((key, found) -> {
+            if (!found.isEmpty()) {
+                result.put(outputNames.getOrDefault(key, key), found.iterator().next());
+            }
+        });
+        return result;
+    }
+
+    Map<String, Object> buildSnapshot(String taskId, IamS1QueryAskRequestDTO request,
+                                               IamS1DataAuthorizationSnapshot snapshot) {
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("protocolVersion", IamS1Constants.PROTOCOL_VERSION); output.put("taskId", taskId);
+        output.put("userId", snapshot.getUserId()); output.put("datasourceId", snapshot.getDatasourceId());
+        output.put("activeMetadataSnapshotId", snapshot.getActiveMetadataSnapshotId());
+        output.put("permissionRevision", snapshot.getPermissionRevision());
+        // S1 契约把这两个字段声明为字符串。PythonRestClientConfig 用的是静态 RestClient.builder()，
+        // 其 Jackson converter 不套用本应用的日期配置，会把 LocalDateTime 序列化成时间戳数组，
+        // 导致 Python 侧 422（"Input should be a valid string"）。因此在此显式格式化为 ISO-8601，
+        // 不依赖客户端的序列化设置——凡是要跨到 Python 的日期字段都必须这样处理。
+        output.put("calculatedAt", isoOrNull(snapshot.getCalculatedAt()));
+        output.put("nextEffectiveAt", isoOrNull(snapshot.getNextEffectiveAt()));
+        List<Map<String, Object>> resources = new ArrayList<>();
+        for (var table : snapshot.getTables()) {
+            IamS1TableRequestDTO tableRequest = request.getTables().stream()
+                    .filter(item -> table.getTableName().equals(item.getTableName())).findFirst().orElse(null);
+            List<Map<String, Object>> columns = new ArrayList<>();
+            for (String name : table.getAllowedColumns()) {
+                var protection = table.getFieldProtections().stream().filter(item -> name.equals(item.getColumnName())).findFirst().orElse(null);
+                if (protection == null || "HIDDEN".equals(protection.getProtectionLevel())) continue;
+                Map<String, Object> column = new LinkedHashMap<>(); column.put("name", name); column.put("columnId", protection.getColumnMetaId());
+                column.put("usage", tableRequest == null ? List.of("PROJECTION") : tableRequest.getColumnUsages().getOrDefault(name, java.util.Set.of(com.dataocean.module.permission.s1.enums.IamS1ColumnUsage.PROJECTION)).stream().map(Enum::name).toList());
+                column.put("protectionLevel", protection.getProtectionLevel()); column.put("maskPolicy", protection.getMaskPolicy());
+                column.put("dataType", "UNKNOWN"); column.put("governanceStatus", "PUBLISHED"); column.put("sourceSnapshotId", snapshot.getActiveMetadataSnapshotId());
+                columns.add(column);
+            }
+            Map<String, Object> resource = new LinkedHashMap<>(); resource.put("tableName", table.getTableName()); resource.put("columns", columns);
+            resource.put("grantSources", table.getGrantSources().stream().map(this::grantMap).toList()); resource.put("sourceSnapshotId", snapshot.getActiveMetadataSnapshotId());
+            Map<String, Map<String, Object>> policyColumns = new LinkedHashMap<>();
+            boolean unconditional = table.getGrantSources().stream().anyMatch(source -> source.getRowCondition() == null
+                    && source.getExplicitColumns().containsAll(table.getAllowedColumns()));
+            for (var source : table.getGrantSources()) {
+                if (unconditional || source.getRowCondition() == null) continue;
+                for (var predicate : source.getRowCondition().getPredicates()) {
+                    if (columns.stream().anyMatch(column -> predicate.getColumnName().equals(column.get("name")))) continue;
+                    var metadata = policyColumnMapper.selectById(predicate.getColumnMetaId());
+                    if (metadata == null || !Objects.equals(metadata.getSnapshotId(), snapshot.getActiveMetadataSnapshotId())
+                            || !Objects.equals(metadata.getDatasourceId(), snapshot.getDatasourceId())
+                            || !Objects.equals(metadata.getTableName(), table.getTableName())
+                            || !Objects.equals(metadata.getColumnName(), predicate.getColumnName())
+                            || !Set.of("NORMAL", "RECOMMENDED", "SENSITIVE").contains(metadata.getGovernanceStatus())) {
+                        throw new BusinessException("行权限依赖字段不属于当前可用元数据，拒绝执行");
+                    }
+                    policyColumns.put(predicate.getColumnName(), Map.of("name", predicate.getColumnName(),
+                            "columnId", predicate.getColumnMetaId(), "sourceSnapshotId", snapshot.getActiveMetadataSnapshotId()));
+                }
+            }
+            resource.put("policyColumns", List.copyOf(policyColumns.values()));
+            resources.add(resource);
+        }
+        output.put("resources", resources); output.put("capabilities", capabilities(snapshot.getUserId(), snapshot.getDatasourceId()));
+        return output;
+    }
+
+    /** 跨服务传输的日期统一用 ISO-8601 字符串；null 保持 null。 */
+    private static String isoOrNull(LocalDateTime value) {
+        return value == null ? null : value.toString();
+    }
+
+    private Map<String, Object> grantMap(IamS1GrantSourceVO source) {
+        Map<String, Object> map = new LinkedHashMap<>(); map.put("grantId", source.getGrantId()); map.put("sourceSummary", source.getSourceSummary());
+        map.put("grantSource", source.getGrantSource()); map.put("sourceReferenceId", source.getSourceReferenceId()); map.put("explicitColumns", source.getExplicitColumns());
+        if (source.getRowCondition() == null) {
+            map.put("rowCondition", null);
+        } else {
+            Map<String, Object> condition = new LinkedHashMap<>();
+            condition.put("matchType", source.getRowCondition().getMatchType());
+            condition.put("predicates", source.getRowCondition().getPredicates().stream().map(item -> {
+                Map<String, Object> predicate = new LinkedHashMap<>();
+                // 管理端 DTO 使用 columnMetaId；Python 执行协议明确使用 columnId。
+                predicate.put("columnId", item.getColumnMetaId());
+                predicate.put("columnName", item.getColumnName());
+                predicate.put("operatorCode", item.getOperatorCode());
+                predicate.put("valueType", item.getValueType());
+                predicate.put("parameterReference", item.getParameterReference());
+                predicate.put("bindingReference", item.getBindingReference());
+                return predicate;
+            }).toList());
+            map.put("rowCondition", condition);
+        }
+        return map;
+    }
+
+    private Map<String, Object> buildPythonRequest(String taskId, Long userId, Long conversationId,
+                                                   Long currentUserMessageId,
+                                                   IamS1QueryAskRequestDTO request,
+                                                   IamS1DataAuthorizationSnapshot initialSelection,
+                                                   Map<String, Object> capabilities,
+                                                   RagIndexBuild ragBuild,
+                                                   com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO candidateCatalog,
+                                                   LocalDateTime queryCreatedAt) {
+        Map<String, Object> body = new LinkedHashMap<>(); body.put("protocolVersion", IamS1Constants.PROTOCOL_VERSION); body.put("taskId", taskId);
+        body.put("userId", userId); body.put("datasourceId", request.getDatasourceId());
+        body.put("activeMetadataSnapshotId", candidateCatalog.activeMetadataSnapshotId());
+        body.put("permissionRevision", candidateCatalog.permissionRevision());
+        body.put("permissionSnapshot", initialSelection == null ? null : buildSnapshot(taskId, request, initialSelection));
+        body.put("executionBindings", List.of());
+        body.put("question", request.getQuestion());
+        body.put("capabilities", capabilities);
+        body.put("deadlineEpochSeconds", (queryCreatedAt == null ? LocalDateTime.now() : queryCreatedAt)
+                .atZone(java.time.ZoneId.systemDefault()).plusSeconds(90).toEpochSecond());
+        body.put("resume", false);
+        body.put("sqlAttemptsUsed", 0);
+        body.put("llmCallsUsed", 0);
+        body.put("conversationId", conversationId);
+        body.put("conversationThreadId", "iam-s1:" + userId + ":" + request.getDatasourceId() + ":" + conversationId);
+        body.put("candidateCatalog", candidateCatalog);
+        List<Map<String, Object>> chunks = loadKnowledgeChunks(ragBuild, request.getDatasourceId(), candidateCatalog);
+        if (ragBuild != null && !Objects.equals(ragBuild.getSourceSnapshotId(), candidateCatalog.activeMetadataSnapshotId())) {
+            // FIELD_SEMANTIC is bound to the exact active source snapshot. Other build facts
+            // retain their existing snapshot/build contract; an older field explanation cannot
+            // be silently extended to a newly published snapshot.
+            chunks = chunks.stream().filter(chunk -> !"FIELD_SEMANTIC".equals(chunk.get("factType"))
+                    && !com.dataocean.module.knowledge.service.impl.LineageFactService.isLineage(String.valueOf(chunk.get("factType")))
+                    && !String.valueOf(chunk.get("factType")).startsWith("BUSINESS_")).toList();
+        }
+        List<Map<String, Object>> fieldSemanticRefs = fieldSemanticReferences(chunks, ragBuild);
+        freezeFieldSemanticReferences(taskId, fieldSemanticRefs);
+        if (ragBuild != null) freezeLineageReferences(taskId, chunks);
+        List<Map<String, Object>> businessRefs = chunks.stream().filter(chunk -> String.valueOf(chunk.get("factType")).startsWith("BUSINESS_"))
+                .map(chunk -> Map.of("sourceSnapshotId", (Object) String.valueOf(ragBuild.getSourceSnapshotId()), "factSourceIds", chunk.get("factSourceIds"))).toList();
+        QueryTask businessTask = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+        String businessJson = writeJson(businessRefs);
+        if (businessTask.getBusinessKnowledgeRefsJson() != null && !sameFrozenReferences(businessTask.getBusinessKnowledgeRefsJson(), businessJson))
+            throw new BusinessException(409, "本任务业务知识引用已经变化，请重新发起");
+        if (businessTask.getBusinessKnowledgeRefsJson() == null) {
+            int frozen = queryTaskMapper.update(null,new LambdaUpdateWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)
+                    .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name()).isNull(QueryTask::getBusinessKnowledgeRefsJson)
+                    .set(QueryTask::getBusinessKnowledgeRefsJson, businessJson));
+            if (frozen != 1) {
+                var latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+                if (latest == null || !sameFrozenReferences(businessJson, latest.getBusinessKnowledgeRefsJson()))
+                    throw new BusinessException(409, "本任务业务知识引用并发变化，请重新发起");
+            }
+        }
+        IamS1DataAuthorizationSnapshot planningSnapshot = candidatePlanningSnapshot(
+                userId, request.getDatasourceId(), candidateCatalog);
+        ConversationContextDTO conversation;
+        try {
+            conversation = conversationContextSummaryService
+                    .buildQueryContext(conversationId, userId, currentUserMessageId, candidateCatalog);
+        } catch (BusinessException ex) {
+            refreshConversationContext(conversationId, userId, request.getDatasourceId(), taskId);
+            throw ex;
+        }
+        if (conversation == null) {
+            conversation = ConversationContextDTO.builder().history(List.of()).summary(null).build();
+        }
+        body.put("conversationHistory", conversation.getHistory() == null ? List.of() : conversation.getHistory());
+        body.put("conversationSummary", conversation.getSummary());
+        body.put("ragChunks", chunks);
+        body.put("fallbackChunks", chunks);
+        body.put("fieldSemanticReferences", fieldSemanticRefs);
+        body.put("governanceProfilesEnabled", Boolean.TRUE.equals(queryTaskMapper.selectOne(
+                new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)).getGovernanceProfilesEnabled()));
+        body.put("ragBuildId", ragBuild == null ? null : ragBuild.getBuildId());
+        body.put("ragSourceSnapshotId", ragBuild == null ? null : ragBuild.getSourceSnapshotId());
+        body.put("ragCollectionName", ragBuild == null ? null : ragBuild.getCollectionName());
+        body.put("ragEmbeddingConfig", ragBuild == null ? null : ragIndexBuildService.embeddingConfigForQuery(ragBuild));
+        List<Map<String, Object>> approvedTerms = loadApprovedGlossaryTerms(planningSnapshot);
+        freezeReviewedKnowledgeReferences(taskId, chunks, approvedTerms, candidateCatalog.activeMetadataSnapshotId());
+        body.put("glossaryTerms", approvedTerms);
+        // 保护完成只证明安全执行，不证明业务结果正确。当前没有针对完整 SQL
+        // 的独立业务验真凭据，不能把历史 COMPLETED 任务提升为“正确样例”。
+        body.put("fewShotExamples", List.of());
+        return body;
+    }
+
+    private IamS1DataAuthorizationSnapshot candidatePlanningSnapshot(
+            Long userId, Long datasourceId,
+            com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO catalog) {
+        Datasource datasource = datasourceMapper.selectById(datasourceId);
+        List<com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO> tables = new ArrayList<>();
+        for (var candidateTable : catalog.tables()) {
+            List<String> allowedColumns = candidateTable.columns().stream()
+                    .map(com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateColumnVO::columnName).toList();
+            List<IamS1FieldProtectionVO> protections = candidateTable.columns().stream().map(column ->
+                    new IamS1FieldProtectionVO(column.columnMetaId(), candidateTable.tableName(), column.columnName(),
+                            column.protectionLevel(), column.maskPolicy(), "当前 S1 候选字段")).toList();
+            Map<Long, IamS1GrantSourceVO> grantSources = new LinkedHashMap<>();
+            for (var column : candidateTable.columns()) {
+                for (var candidateSource : column.grantSources()) {
+                    IamS1GrantSourceVO source = new IamS1GrantSourceVO(
+                            candidateSource.grantId(), candidateSource.subjectType(), candidateSource.subjectId(),
+                            candidateSource.sourceSummary(), candidateSource.departmentScope(),
+                            candidateSource.grantSource(), candidateSource.sourceReferenceId(),
+                            candidateSource.validFrom() == null ? null : LocalDateTime.parse(candidateSource.validFrom()),
+                            candidateSource.validUntil() == null ? null : LocalDateTime.parse(candidateSource.validUntil()),
+                            candidateSource.explicitColumns(), candidateSource.rowCondition());
+                    grantSources.putIfAbsent(source.getGrantId(), source);
+                }
+            }
+            tables.add(new com.dataocean.module.permission.s1.entity.vo.IamS1TablePermissionVO(
+                    true, "ALLOWED", candidateTable.tableName(), allowedColumns,
+                    List.copyOf(grantSources.values()), protections, List.of()));
+        }
+        return new IamS1DataAuthorizationSnapshot(true, "ALLOWED", IamS1Constants.PROTOCOL_VERSION,
+                userId, datasourceId, datasource == null ? null : datasource.getName(),
+                catalog.activeMetadataSnapshotId(), catalog.permissionRevision(), LocalDateTime.now(), null, tables);
+    }
+
+    private void refreshConversationContext(Long conversationId, Long userId, Long datasourceId, String taskId) {
+        if (conversationId == null) return;
+        try {
+            conversationContextSummaryService.refreshAsync(conversationId, userId, datasourceId);
+        } catch (java.util.concurrent.RejectedExecutionException ex) {
+            log.warn("S1 会话摘要线程池繁忙，跳过本次摘要刷新 conversationId={} taskId={}", conversationId, taskId);
+        } catch (Exception ex) {
+            log.warn("S1 会话摘要当前权限范围不可用，跳过本次刷新 conversationId={} taskId={}", conversationId, taskId);
+        }
+    }
+
+    private List<Map<String, Object>> loadApprovedGlossaryTerms(IamS1DataAuthorizationSnapshot snapshot) {
+        List<GlossaryTerm> terms = glossaryTermMapper.selectList(new LambdaQueryWrapper<GlossaryTerm>()
+                .eq(GlossaryTerm::getStatus, GlossaryTerm.STATUS_APPROVED));
+        if (terms == null || terms.isEmpty()) return List.of();
+        Map<Long, List<String>> relatedColumns = new HashMap<>();
+        Set<Long> invalidTerms = new java.util.HashSet<>();
+        try {
+            List<Long> termIds = terms.stream().map(GlossaryTerm::getId).filter(java.util.Objects::nonNull).toList();
+            if (termIds.size() != terms.size()) {
+                for (GlossaryTerm term : terms) {
+                    if (term.getId() == null) invalidTerms.add(null);
+                }
+            }
+            if (termIds.isEmpty()) return List.of();
+            List<MetadataRelationship> relations = metadataRelationshipService.list(
+                    new LambdaQueryWrapper<MetadataRelationship>()
+                            .eq(MetadataRelationship::getRelationType, MetadataRelationship.TYPE_GLOSSARY_OF)
+                            .in(MetadataRelationship::getSourceId, termIds));
+            if (relations == null) return List.of();
+            Map<Long, MetadataEntity> entityById = new HashMap<>();
+            List<Long> entityIds = relations.stream().map(MetadataRelationship::getTargetId)
+                    .filter(java.util.Objects::nonNull).distinct().toList();
+            List<MetadataEntity> entities = entityIds.isEmpty()
+                    ? List.of() : metadataEntityService.listByIds(entityIds);
+            if (entities == null) return List.of();
+            for (MetadataEntity entity : entities) {
+                if (entity != null && entity.getId() != null) entityById.put(entity.getId(), entity);
+            }
+            Set<Long> knownTermIds = new java.util.HashSet<>(termIds);
+            for (MetadataRelationship relation : relations) {
+                Long termId = relation.getSourceId();
+                if (!knownTermIds.contains(termId)) continue;
+                MetadataEntity entity = entityById.get(relation.getTargetId());
+                String column = entity == null ? null : normalizeGlossaryColumn(entity.getFqn(), snapshot);
+                if (column == null) {
+                    invalidTerms.add(termId);
+                } else {
+                    relatedColumns.computeIfAbsent(termId, ignored -> new ArrayList<>()).add(column);
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("S1 术语关联读取失败，按 fail-closed 返回空 glossary", ex);
+            return List.of();
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (GlossaryTerm term : terms) {
+            if (invalidTerms.contains(term.getId()) || term.getReviewHash() == null
+                    || !termWorkflow.factValid(term.getId(), term.getReviewHash())) continue;
+            Map<String, Object> approved;
+            try {
+                approved = termWorkflow.approvedFact(term.getId());
+                if (approved.get("reviewId") == null || !Objects.equals(term.getReviewHash(), approved.get("contentHash"))) continue;
+            } catch (BusinessException exception) { continue; }
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("name", approved.get("name"));
+            item.put("displayName", approved.get("displayName"));
+            item.put("description", approved.get("description"));
+            item.put("synonyms", approved.get("synonyms"));
+            item.put("factSourceIds", List.of(term.getId().toString(), approved.get("reviewId").toString()));
+            item.put("fqn", term.getFqn());
+            if (relatedColumns.containsKey(term.getId())) {
+                item.put("columns", relatedColumns.get(term.getId()));
+            }
+            result.add(item);
+        }
+        return result;
+    }
+
+    private String normalizeGlossaryColumn(String fqn, IamS1DataAuthorizationSnapshot snapshot) {
+        if (fqn == null || fqn.isBlank() || snapshot == null || snapshot.getDatasourceName() == null) return null;
+        String[] parts = fqn.trim().split("\\.");
+        if (parts.length < 4 || !parts[0].equalsIgnoreCase(snapshot.getDatasourceName())) return null;
+        String tableName = parts[parts.length - 2];
+        String columnName = parts[parts.length - 1];
+        if (tableName.isBlank() || columnName.isBlank()) return null;
+        for (var table : snapshot.getTables()) {
+            if (tableName.equalsIgnoreCase(table.getTableName()) && table.getAllowedColumns().stream()
+                    .anyMatch(column -> columnName.equalsIgnoreCase(column))) {
+                return tableName.toLowerCase(Locale.ROOT) + "." + columnName.toLowerCase(Locale.ROOT);
+            }
+        }
+        return null;
+    }
+
+    private List<Map<String, Object>> loadKnowledgeChunks(
+            RagIndexBuild build, Long datasourceId, IamS1DataAuthorizationSnapshot snapshot) {
+        Set<String> visibleDependencies = new java.util.HashSet<>();
+        for (var table : snapshot.getTables()) {
+            String tableName = table.getTableName().toLowerCase(Locale.ROOT);
+            visibleDependencies.add("table:" + tableName);
+            for (String column : table.getAllowedColumns()) {
+                visibleDependencies.add("column:" + tableName + "." + column.toLowerCase(Locale.ROOT));
+            }
+        }
+        return loadKnowledgeChunks(build, datasourceId, visibleDependencies);
+    }
+
+    private List<Map<String, Object>> loadKnowledgeChunks(
+            RagIndexBuild build, Long datasourceId,
+            com.dataocean.module.permission.s1.entity.vo.IamS1QueryCandidateCatalogVO catalog) {
+        Set<String> visibleDependencies = new java.util.HashSet<>();
+        for (var table : catalog.tables()) {
+            String tableName = table.tableName().toLowerCase(Locale.ROOT);
+            visibleDependencies.add("table:" + tableName);
+            for (var column : table.columns()) {
+                visibleDependencies.add("column:" + tableName + "." + column.columnName().toLowerCase(Locale.ROOT));
+            }
+        }
+        return loadKnowledgeChunks(build, datasourceId, visibleDependencies);
+    }
+
+    private List<Map<String, Object>> loadKnowledgeChunks(
+            RagIndexBuild build, Long datasourceId, Set<String> visibleDependencies) {
+        if (build == null) return List.of();
+        List<RagIndexBuildChunk> membership = ragIndexBuildChunkMapper.selectList(
+                new LambdaQueryWrapper<RagIndexBuildChunk>()
+                        .eq(RagIndexBuildChunk::getBuildId, build.getBuildId())
+                        .eq(RagIndexBuildChunk::getDatasourceId, datasourceId)
+                        .eq(RagIndexBuildChunk::getSourceSnapshotId, build.getSourceSnapshotId())
+                        .eq(RagIndexBuildChunk::getFactReviewStatus, "APPROVED")
+                        .orderByAsc(RagIndexBuildChunk::getChunkId));
+        List<Long> chunkIds = membership.stream().map(RagIndexBuildChunk::getChunkId).toList();
+        if (chunkIds.isEmpty()) return List.of();
+        Map<Long, RagIndexBuildChunk> membershipByChunk = membership.stream()
+                .collect(java.util.stream.Collectors.toMap(RagIndexBuildChunk::getChunkId, item -> item));
+        List<KnowledgeChunk> chunks = knowledgeChunkMapper.selectBatchIds(chunkIds);
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (KnowledgeChunk chunk : chunks == null ? List.<KnowledgeChunk>of() : chunks) {
+            try {
+                RagIndexBuildChunk membershipRow = membershipByChunk.get(chunk.getId());
+                if (membershipRow == null || !Objects.equals(chunk.getMetadataSnapshotId(), build.getSourceSnapshotId())
+                        || !"APPROVED".equals(chunk.getReviewStatus())
+                        || !"APPROVED".equals(chunk.getFactReviewStatus())
+                        || !List.of("NORMAL", "RECOMMENDED", "SENSITIVE").contains(chunk.getGovernanceStatus())) continue;
+                List<String> tables = chunk.getRelatedTables() == null
+                        ? (chunk.getRelatedTable() == null ? List.of() : List.of(chunk.getRelatedTable()))
+                        : objectMapper.readValue(chunk.getRelatedTables(), new TypeReference<>() {});
+                List<String> columns = chunk.getRelatedColumns() == null
+                        ? (chunk.getRelatedColumn() == null || tables.isEmpty() ? List.of() : List.of(tables.get(0) + "." + chunk.getRelatedColumn()))
+                        : objectMapper.readValue(chunk.getRelatedColumns(), new TypeReference<>() {});
+                List<String> dependencies = objectMapper.readValue(
+                        membershipRow.getResourceDependencies(), new TypeReference<>() {});
+                List<String> factSourceIds = objectMapper.readValue(
+                        membershipRow.getFactSourceIds(), new TypeReference<>() {});
+                if (tables.isEmpty() || dependencies.isEmpty() || factSourceIds.isEmpty()) continue;
+                if (columns.isEmpty() && !Set.of("TABLE_STRUCTURE", "TABLE_COMMENT", "BUSINESS_DATASOURCE",
+                        "BUSINESS_TABLE", "BUSINESS_METRIC", "LINEAGE").contains(chunk.getFactType())) continue;
+                Set<String> declaredDependencies = new HashSet<>();
+                tables.forEach(table -> declaredDependencies.add("table:" + table.toLowerCase(Locale.ROOT)));
+                columns.forEach(column -> declaredDependencies.add("column:" + column.toLowerCase(Locale.ROOT)));
+                if (!declaredDependencies.equals(new HashSet<>(dependencies))) continue;
+                if (com.dataocean.module.knowledge.service.impl.LineageFactService.isLineage(chunk.getFactType())
+                        && (lineageFacts == null || !lineageFacts.valid(datasourceId, build.getSourceSnapshotId(),
+                        chunk.getFactType(), factSourceIds, membershipRow.getSourceFingerprint(), dependencies))) continue;
+                if ("GLOSSARY_TERM".equals(chunk.getFactType()) && !glossarySources.membershipValid(factSourceIds)) continue;
+                if ("SEMANTIC_NOTE".equals(chunk.getFactType()) && !semanticSources.membershipValid(factSourceIds)) continue;
+                // 旧结构关系不再作为新问数的业务关联依据，新的 BUSINESS_RELATION 有独立审核、复查和完整依赖。
+                if ("JOIN_PATH".equals(chunk.getFactType())) continue;
+                if (String.valueOf(chunk.getFactType()).startsWith("BUSINESS_") && (businessKnowledgeService == null
+                        || !businessKnowledgeService.membershipValid(datasourceId, build.getSourceSnapshotId(), factSourceIds))) continue;
+                if ("FIELD_SEMANTIC".equals(chunk.getFactType())
+                        && (fieldSemanticService == null || !fieldSemanticService.membershipValid(
+                        datasourceId, build.getSourceSnapshotId(), factSourceIds))) continue;
+                if (!dependencies.stream().map(value -> value.toLowerCase(Locale.ROOT)).allMatch(visibleDependencies::contains)) {
+                    continue;
+                }
+                Map<String, Object> item = new LinkedHashMap<>(); item.put("datasourceId", datasourceId);
+                item.put("activeMetadataSnapshotId", build.getSourceSnapshotId());
+                item.put("sourceSnapshotId", build.getSourceSnapshotId());
+                item.put("ragBuildId", build.getBuildId());
+                item.put("sourceId", chunk.getId());
+                item.put("tables", tables); item.put("columns", columns);
+                item.put("resourceDependencies", dependencies); item.put("factSourceIds", factSourceIds);
+                if (com.dataocean.module.knowledge.service.impl.LineageFactService.isLineage(chunk.getFactType())) {
+                    item.put("sourceFingerprint", membershipRow.getSourceFingerprint());
+                }
+                item.put("factType", chunk.getFactType()); item.put("factReviewStatus", chunk.getFactReviewStatus());
+                item.put("governanceStatus", chunk.getGovernanceStatus());
+                item.put("reviewStatus", chunk.getReviewStatus());
+                item.put("chunkText", chunk.getChunkText()); item.put("chunkType", chunk.getChunkType());
+                item.put("docId", chunk.getDocId()); item.put("versionNo", chunk.getVersionNo());
+                result.add(item);
+            } catch (Exception ignored) {
+                // 来源字段不完整时安全降级为无 RAG 上下文。
+            }
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> fieldSemanticReferences(List<Map<String, Object>> chunks, RagIndexBuild build) {
+        if (build == null || chunks == null || chunks.isEmpty()) return List.of();
+        Map<String, Map<String, Object>> byIdentity = new LinkedHashMap<>();
+        for (Map<String, Object> chunk : chunks) {
+            if (!"FIELD_SEMANTIC".equals(chunk.get("factType"))) continue;
+            Object rawIds = chunk.get("factSourceIds");
+            if (!(rawIds instanceof List<?> ids) || ids.size() != 4) continue;
+            List<String> sourceIds = ids.stream().map(String::valueOf).toList();
+            String identity = String.join(":", sourceIds);
+            byIdentity.putIfAbsent(identity, Map.of(
+                    "sourceSnapshotId", String.valueOf(build.getSourceSnapshotId()),
+                    "factSourceIds", sourceIds));
+        }
+        return byIdentity.values().stream().sorted(java.util.Comparator.comparing(item ->
+                String.join(":", (List<String>) item.get("factSourceIds")))).toList();
+    }
+
+    private void freezeFieldSemanticReferences(String taskId, List<Map<String, Object>> references) {
+        QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+        if (task == null) throw new BusinessException("查询任务不存在，不能固定字段解释版本");
+        String currentKey = fieldSemanticReferenceKey(references);
+        if (references.isEmpty() && (task.getFieldSemanticRefsJson() == null || task.getFieldSemanticRefsJson().isBlank())) return;
+        if (task.getFieldSemanticRefsJson() != null && !task.getFieldSemanticRefsJson().isBlank()) {
+            if (!currentKey.equals(fieldSemanticReferenceKey(parseFieldSemanticReferences(task.getFieldSemanticRefsJson())))) {
+                throw new BusinessException("原 RAG 构建中的字段解释引用已变化，查询不能切换事实版本");
+            }
+            return;
+        }
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                .eq(QueryTask::getTaskId, taskId)
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                .isNull(QueryTask::getFieldSemanticRefsJson)
+                .set(QueryTask::getFieldSemanticRefsJson, writeJson(references)));
+        if (updated != 1) {
+            QueryTask latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+            if (latest == null || !currentKey.equals(fieldSemanticReferenceKey(parseFieldSemanticReferences(latest.getFieldSemanticRefsJson())))) {
+                throw new BusinessException("查询字段解释引用已并发变化，请重新提问");
+            }
+        }
+    }
+
+    private boolean fieldSemanticReferencesValid(QueryTask task) {
+        if (!lineageReferencesValid(task)) return false;
+        if (!reviewedKnowledgeReferencesValid(task)) return false;
+        if (task != null && task.getBusinessKnowledgeRefsJson() != null) {
+            try {
+                for (var ref : parseFieldSemanticReferences(task.getBusinessKnowledgeRefsJson())) {
+                    var ids = objectMapper.convertValue(ref.get("factSourceIds"), new TypeReference<List<String>>() {});
+                    Long source = Long.valueOf(String.valueOf(ref.get("sourceSnapshotId")));
+                    if (!Objects.equals(source, task.getRagSourceSnapshotId()) || businessKnowledgeService == null
+                            || !businessKnowledgeService.membershipValid(task.getDatasourceId(), source, ids)) return false;
+                }
+            } catch (RuntimeException exception) { return false; }
+        }
+        if (task == null || task.getFieldSemanticRefsJson() == null || task.getFieldSemanticRefsJson().isBlank()
+                || "[]".equals(task.getFieldSemanticRefsJson())) return true;
+        if (fieldSemanticService == null) return false;
+        try {
+            for (Map<String, Object> reference : parseFieldSemanticReferences(task.getFieldSemanticRefsJson())) {
+                Long sourceSnapshot = Long.valueOf(String.valueOf(reference.get("sourceSnapshotId")));
+                if (task.getRagSourceSnapshotId() == null || !task.getRagSourceSnapshotId().equals(sourceSnapshot)) return false;
+                Object rawIds = reference.get("factSourceIds");
+                if (!(rawIds instanceof List<?> ids)
+                        || !fieldSemanticService.membershipValid(task.getDatasourceId(), sourceSnapshot,
+                        ids.stream().map(String::valueOf).toList())) return false;
+            }
+            return true;
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    /** 术语和人工释义共用同一门禁，不能只在派发时过滤撤回来源。 */
+    boolean reviewedKnowledgeReferencesValid(QueryTask task) {
+        if (task == null || task.getReviewedKnowledgeRefsJson() == null) return false;
+        try {
+            List<Map<String, Object>> refs = objectMapper.readValue(task.getReviewedKnowledgeRefsJson(), new TypeReference<>() {});
+            if (refs == null) return false;
+            for (var ref : refs) {
+                Long source = Long.valueOf(String.valueOf(ref.get("sourceSnapshotId")));
+                String origin = String.valueOf(ref.get("origin"));
+                if (!("RAG".equals(origin) && Objects.equals(source, task.getRagSourceSnapshotId()))
+                        && !("GLOSSARY".equals(origin) && Objects.equals(source, task.getActiveMetadataSnapshotId()))) return false;
+                if (!(ref.get("factSourceIds") instanceof List<?> ids) || ids.isEmpty()) return false;
+                List<String> sources = ids.stream().map(String::valueOf).toList();
+                boolean valid = switch (String.valueOf(ref.get("factType"))) {
+                    case "GLOSSARY_TERM" -> glossarySources != null && glossarySources.membershipValid(sources);
+                    case "SEMANTIC_NOTE" -> "RAG".equals(origin) && semanticSources != null && semanticSources.membershipValid(sources);
+                    default -> false;
+                };
+                if (!valid) return false;
+            }
+            return true;
+        } catch (Exception exception) { return false; }
+    }
+
+    private void freezeReviewedKnowledgeReferences(String taskId, List<Map<String, Object>> chunks,
+            List<Map<String, Object>> terms, Long activeSnapshotId) {
+        List<Map<String, Object>> refs = new ArrayList<>();
+        for (var chunk : chunks) {
+            String type = String.valueOf(chunk.get("factType"));
+            if (!List.of("GLOSSARY_TERM", "SEMANTIC_NOTE").contains(type)) continue;
+            Map<String, Object> ref = Map.of("origin", "RAG", "factType", type,
+                    "sourceSnapshotId", String.valueOf(chunk.get("sourceSnapshotId")), "factSourceIds", chunk.get("factSourceIds"));
+            if (!refs.contains(ref)) refs.add(ref);
+        }
+        for (var term : terms) {
+            Map<String, Object> ref = Map.of("origin", "GLOSSARY", "factType", "GLOSSARY_TERM",
+                    "sourceSnapshotId", String.valueOf(activeSnapshotId), "factSourceIds", term.get("factSourceIds"));
+            if (!refs.contains(ref)) refs.add(ref);
+        }
+        refs.sort(java.util.Comparator.comparing(ref -> String.valueOf(ref.get("origin")) + ref.get("factType") + ref.get("factSourceIds")));
+        String json = writeJson(refs);
+        QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+        if (task == null) throw new BusinessException("查询任务不存在，不能固定审核知识来源");
+        if (task.getReviewedKnowledgeRefsJson() != null) {
+            if (!sameFrozenReferences(json,task.getReviewedKnowledgeRefsJson())) throw new BusinessException(409, "本任务审核知识引用已变化，请重新提问");
+            return;
+        }
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)
+                .eq(QueryTask::getStatus, "PROCESSING").isNull(QueryTask::getReviewedKnowledgeRefsJson)
+                .set(QueryTask::getReviewedKnowledgeRefsJson, json));
+        if (updated != 1) {
+            QueryTask latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+            if (latest == null || !sameFrozenReferences(json,latest.getReviewedKnowledgeRefsJson()))
+                throw new BusinessException(409, "审核知识来源已并发变化，请重新提问");
+        }
+    }
+
+    boolean lineageReferencesValid(QueryTask task) {
+        if (task == null) return false;
+        if (task.getLineageRefsJson() == null) return task.getRagBuildId() == null;
+        if ("[]".equals(task.getLineageRefsJson())) return true;
+        return lineageFacts != null && lineageFacts.referencesValid(task.getDatasourceId(), task.getRagSourceSnapshotId(), task.getLineageRefsJson());
+    }
+
+    private void freezeLineageReferences(String taskId, List<Map<String, Object>> chunks) {
+        List<Map<String, Object>> refs = new ArrayList<>();
+        for (Map<String, Object> chunk : chunks) {
+            if (!com.dataocean.module.knowledge.service.impl.LineageFactService.isLineage(String.valueOf(chunk.get("factType")))) continue;
+            Map<String, Object> ref = new LinkedHashMap<>();
+            ref.put("sourceSnapshotId", String.valueOf(chunk.get("sourceSnapshotId")));
+            for (String key : List.of("factType", "factSourceIds", "sourceFingerprint", "resourceDependencies")) ref.put(key, chunk.get(key));
+            if (!refs.contains(ref)) refs.add(ref);
+        }
+        refs.sort(java.util.Comparator.comparing(ref -> String.valueOf(ref.get("factSourceIds"))));
+        String json = writeJson(refs);
+        QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+        if (task == null) throw new BusinessException("查询任务不存在，不能固定血缘来源");
+        if (task.getLineageRefsJson() != null) {
+            if (!sameFrozenReferences(json,task.getLineageRefsJson())) throw new BusinessException("查询血缘来源已变化，请重新提问");
+            return;
+        }
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId)
+                .eq(QueryTask::getStatus, "PROCESSING").isNull(QueryTask::getLineageRefsJson).set(QueryTask::getLineageRefsJson, json));
+        if (updated != 1) {
+            QueryTask latest = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+            if (latest == null || !sameFrozenReferences(json,latest.getLineageRefsJson())) throw new BusinessException("查询血缘引用并发变化，请重新提问");
+        }
+    }
+
+    boolean sameFrozenReferences(String left,String right) {
+        try {
+            var reader=objectMapper.reader().with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .with(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+            var a=reader.readTree(left);var b=reader.readTree(right);
+            if(a==null||b==null||!a.isArray()||!b.isArray())return false;
+            List<String> first=new ArrayList<>(),second=new ArrayList<>();
+            for(var node:a){if(!node.isObject())return false;first.add(canonicalReference(node).toString());}
+            for(var node:b){if(!node.isObject())return false;second.add(canonicalReference(node).toString());}
+            first.sort(String::compareTo);second.sort(String::compareTo);
+            return first.equals(second);
+        } catch(Exception invalid) { return false; }
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode canonicalReference(com.fasterxml.jackson.databind.JsonNode node) {
+        if(node.isObject()) {
+            var result=objectMapper.createObjectNode();List<String> fields=new ArrayList<>();
+            node.fieldNames().forEachRemaining(fields::add);fields.sort(String::compareTo);
+            for(String field:fields)result.set(field,canonicalReference(node.get(field)));
+            return result;
+        }
+        if(node.isArray()) {
+            var result=objectMapper.createArrayNode();for(var item:node)result.add(canonicalReference(item));return result;
+        }
+        return node;
+    }
+
+    private List<Map<String, Object>> parseFieldSemanticReferences(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        try { return objectMapper.readValue(raw, new TypeReference<>() {}); }
+        catch (Exception exception) { throw new BusinessException("查询字段解释引用记录损坏"); }
+    }
+
+    private String fieldSemanticReferenceKey(List<Map<String, Object>> references) {
+        if (references == null || references.isEmpty()) return "[]";
+        return references.stream().map(reference -> String.valueOf(reference.get("sourceSnapshotId")) + ":"
+                        + String.join(":", reference.get("factSourceIds") instanceof List<?> ids
+                        ? ids.stream().map(String::valueOf).toList() : List.<String>of()))
+                .sorted().collect(java.util.stream.Collectors.joining("|"));
+    }
+
+    Map<String, Object> connectionConfig(Long datasourceId) {
+        Datasource datasource = datasourceMapper.selectById(datasourceId); DatasourceSecret secret = datasourceSecretMapper.selectOne(new LambdaQueryWrapper<DatasourceSecret>().eq(DatasourceSecret::getDatasourceId, datasourceId));
+        if (datasource == null || secret == null) throw new BusinessException("数据源连接配置不完整");
+        Map<String, Object> config = new LinkedHashMap<>(); config.put("host", datasource.getHost()); config.put("port", datasource.getPort()); config.put("database", datasource.getDatabaseName()); config.put("username", secret.getUsername()); config.put("password", datasourceSecretService.decrypt(secret.getEncryptedPassword())); return config;
+    }
+
+    Map<String, Object> capabilities(Long userId, Long datasourceId) { Map<String, Object> result = new LinkedHashMap<>(); result.put("query", authorizationResolver.hasGlobalFunction(userId, "query:use")); result.put("viewSql", authorizationResolver.hasGlobalFunction(userId, "query:sql:view")); result.put("export", authorizationResolver.hasGlobalFunction(userId, "query:export")); return result; }
+
+    private QueryTask find(String taskId, Long userId) { QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId).eq(QueryTask::getUserId, userId)); if (task == null) throw new BusinessException("S1 任务不存在或无权访问"); return task; }
+    private boolean isS1(QueryTask task) { return IamS1Constants.PROTOCOL_VERSION.equals(task.getIamProtocolVersion()); }
+    private void requireProtocol(String protocol) { if (!IamS1Constants.PROTOCOL_VERSION.equals(protocol)) throw new BusinessException("未知 IAM-SIMPLE-1 协议"); }
+    private void requireExplicitUsages(List<IamS1TableRequestDTO> tables) {
+        for (IamS1TableRequestDTO table : tables) {
+            if (table == null || table.getTableName() == null || table.getTableName().isBlank()
+                    || table.getReferencedColumns() == null || table.getReferencedColumns().isEmpty()
+                    || table.getColumnUsages() == null) {
+                throw new BusinessException("S1 表字段范围或字段 usage 缺失：请求必须声明表、字段和每个字段的 usage");
+            }
+            for (String column : table.getReferencedColumns()) {
+                if (column == null || column.isBlank() || !table.getColumnUsages().containsKey(column)
+                        || table.getColumnUsages().get(column) == null || table.getColumnUsages().get(column).isEmpty()) {
+                    // 明确给出缺失位置，避免前端只能看到“usage 缺失”而定位不到字段。
+                    throw new BusinessException("S1 字段 usage 缺失：表 " + table.getTableName()
+                            + " 的字段 " + column + " 没有声明使用位置（默认应为 PROJECTION/FILTER/JOIN）");
+                }
+            }
+        }
+    }
+    String writeJson(Object value) { try { return objectMapper.writeValueAsString(value); } catch (Exception ex) { throw new BusinessException("S1 安全摘要序列化失败"); } }
+    String safeSql(String sql) { return sql == null ? null : sql.replaceAll("(?i)('(?:''|[^'])*')", "?"); }
+    private String safeExplanation(String value) { return value == null ? null : value.replaceAll("(?i)(select|from|where)\\s+[^\\n]{0,200}", "SQL 说明已隐藏"); }
+    private String safeChartConfig(Object value, Map<String, String> outputMasks) {
+        if (value == null || (outputMasks != null && !outputMasks.isEmpty())) return null;
+        Object chart = objectMapper.convertValue(value, Object.class);
+        return writeJson(sanitizeChartNode(chart, outputMasks));
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object sanitizeChartNode(Object value, Map<String, String> outputMasks) {
+        if (value instanceof Map<?, ?> raw) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : raw.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                Object item = entry.getValue();
+                if ("data".equals(key) && raw.get("name") != null) {
+                    String strategy = outputMasks.get(String.valueOf(raw.get("name")));
+                    if (strategy != null && item instanceof List<?> values) {
+                        item = values.stream().map(element -> element == null ? null
+                                : maskingService.maskValue(String.valueOf(element), strategy)).toList();
+                    }
+                }
+                result.put(key, sanitizeChartNode(item, outputMasks));
+            }
+            return result;
+        }
+        if (value instanceof List<?> list) {
+            return list.stream().map(item -> sanitizeChartNode(item, outputMasks)).toList();
+        }
+        return value;
+    }
+    private List<String> safeSuggestions(Object value) { return value instanceof List<?> list ? list.stream().filter(item -> item instanceof String).map(String.class::cast).limit(5).toList() : List.of(); }
+    String safeError(String error) { return error == null || error.isBlank() ? "S1 查询失败" : error.replaceAll("(?i)(iam_s1_[a-z0-9_-]+)", "?"); }
+    Integer number(Object value) { return value instanceof Number n ? n.intValue() : 0; }
+
+    private Object readAttemptJson(String value) {
+        if (value == null || value.isBlank()) return List.of();
+        try { return objectMapper.readValue(value, Object.class); }
+        catch (Exception ex) { throw new BusinessException("受保护的执行结果无法读取"); }
+    }
+
+    private Map<String, Object> attemptServiceResult(QueryAttempt attempt) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("status", "PROTECTED");
+        result.put("attemptId", attempt.getAttemptId());
+        result.put("sqlHash", attempt.getSqlHash());
+        result.put("sql", attempt.getSafeSql());
+        result.put("data", readAttemptJson(attempt.getProtectedData()));
+        result.put("columns", readAttemptJson(attempt.getProtectedColumns()));
+        result.put("sourceTrace", readAttemptJson(attempt.getSourceTrace()));
+        result.put("maskedFields", readAttemptJson(attempt.getMaskedFields()));
+        result.put("usedTables", readAttemptJson(attempt.getUsedTables()));
+        result.put("usedColumns", readAttemptJson(attempt.getUsedColumns()));
+        result.put("rowCount", attempt.getRowCount() == null ? 0 : attempt.getRowCount());
+        return result;
+    }
+
+    private void fail(String taskId, String message, String protection) {
+        QueryTask task = queryTaskMapper.selectOne(new LambdaQueryWrapper<QueryTask>().eq(QueryTask::getTaskId, taskId));
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                .eq(QueryTask::getTaskId, taskId)
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                .set(QueryTask::getStatus, QueryTaskStatus.FAILED.name())
+                .set(QueryTask::getErrorMessage, message)
+                .set(QueryTask::getIamFinalProtectionStatus, protection)
+                .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+        if (updated > 0 && task != null && task.getConversationId() != null) {
+            Map<String, Object> failureMetadata = new LinkedHashMap<>();
+            failureMetadata.put("taskId", taskId);
+            failureMetadata.put("status", QueryTaskStatus.FAILED.name());
+            failureMetadata.put("question", task.getQuestion());
+            failureMetadata.put("errorMessage", message);
+            conversationService.saveAssistantMessage(task.getConversationId(), message, taskId,
+                    writeJson(failureMetadata));
+            conversationService.releaseTurn(task.getConversationId(), taskId);
+            refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), taskId);
+        }
+    }
+
+    private void finishWithoutData(QueryTask task, String terminalStatus, String message) {
+        if (task == null || task.getTaskId() == null) return;
+        int updated = queryTaskMapper.update(null, new LambdaUpdateWrapper<QueryTask>()
+                .eq(QueryTask::getTaskId, task.getTaskId())
+                .eq(QueryTask::getStatus, QueryTaskStatus.PROCESSING.name())
+                .set(QueryTask::getStatus, terminalStatus)
+                .set(QueryTask::getErrorMessage, message)
+                .set(QueryTask::getResultData, writeJson(List.of()))
+                .set(QueryTask::getResultColumns, writeJson(List.of()))
+                .set(QueryTask::getChartConfig, null)
+                .set(QueryTask::getIamFinalProtectionStatus, "NO_RESULT")
+                .set(QueryTask::getCompletedAt, LocalDateTime.now()));
+        if (updated <= 0 || task.getConversationId() == null) return;
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("taskId", task.getTaskId());
+        metadata.put("status", terminalStatus);
+        metadata.put("question", task.getQuestion());
+        metadata.put("clarification", message);
+        conversationService.saveAssistantMessage(task.getConversationId(), message, task.getTaskId(), writeJson(metadata));
+        conversationService.releaseTurn(task.getConversationId(), task.getTaskId());
+        refreshConversationContext(task.getConversationId(), task.getUserId(), task.getDatasourceId(), task.getTaskId());
+    }
+
+    private void saveCompletedConversationMessage(QueryTask task, Map<String, Object> rawResult,
+                                                   List<Map<String, Object>> data,
+                                                   Map<String, String> outputMasks,
+                                                   String safeSql, String safeExplanation,
+                                                   String safeChart, List<String> suggestions) {
+        if (task.getConversationId() == null) return;
+        boolean canViewSql = authorizationResolver.hasGlobalFunction(task.getUserId(), "query:sql:view");
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("taskId", task.getTaskId());
+        metadata.put("status", QueryTaskStatus.COMPLETED.name());
+        metadata.put("question", task.getQuestion());
+        metadata.put("sql", canViewSql ? safeSql : null);
+        metadata.put("sqlExplanation", canViewSql ? safeExplanation : null);
+        metadata.put("data", data);
+        metadata.put("columns", rawResult.get("columns"));
+        metadata.put("rowCount", data.size());
+        metadata.put("chartConfig", safeChart);
+        metadata.put("suggestedQuestions", suggestions);
+        metadata.put("usedTables", rawResult.getOrDefault("usedTables", List.of()));
+        metadata.put("usedColumns", rawResult.getOrDefault("usedColumns", List.of()));
+        metadata.put("maskedFields", outputMasks);
+        metadata.put("canExport", authorizationResolver.hasGlobalFunction(task.getUserId(), "query:export"));
+        metadata.put("degraded", Boolean.TRUE.equals(rawResult.get("degraded")));
+        metadata.put("degradeNotice", rawResult.get("degradeNotice"));
+        metadata.put("totalTimeMs", number(rawResult.get("totalTimeMs")));
+        String content = safeExplanation == null || safeExplanation.isBlank() ? "查询完成" : safeExplanation;
+        conversationService.saveAssistantMessage(task.getConversationId(), content, task.getTaskId(), writeJson(metadata));
+    }
+
+    @SuppressWarnings("unchecked")
+    private QueryTaskVO toVO(QueryTask task) {
+        try {
+            List<Map<String, Object>> data = task.getResultData() == null ? null : objectMapper.readValue(task.getResultData(), new TypeReference<>() {});
+            List<Map<String, String>> columns = task.getResultColumns() == null ? null : objectMapper.readValue(task.getResultColumns(), new TypeReference<>() {});
+            Map<String, Object> trace = task.getIamSourceTrace() == null ? null : objectMapper.readValue(task.getIamSourceTrace(), new TypeReference<>() {});
+            Map<String, Object> caps = task.getIamCapabilities() == null ? Map.of() : objectMapper.readValue(task.getIamCapabilities(), new TypeReference<>() {});
+            Map<String, Object> chart = task.getChartConfig() == null ? null : objectMapper.readValue(task.getChartConfig(), new TypeReference<>() {});
+            List<String> suggestions = task.getSuggestedQuestions() == null ? List.of() : objectMapper.readValue(task.getSuggestedQuestions(), new TypeReference<>() {});
+            return QueryTaskVO.builder().taskId(task.getTaskId()).status(task.getStatus()).question(task.getQuestion()).sql(task.getResultSql()).sqlExplanation(task.getSqlExplanation()).data(data).columns(columns).rowCount(data == null ? 0 : data.size()).chartConfig(chart).suggestedQuestions(suggestions).usedTables(readList(task.getUsedTables())).usedColumns(readList(task.getUsedColumns())).errorMessage(task.getErrorMessage()).degraded(task.getDegraded()).degradeNotice(task.getDegradeNotice()).retryCount(task.getRetryCount()).totalTimeMs(task.getTotalTimeMs()).protocolVersion(task.getIamProtocolVersion()).activeMetadataSnapshotId(task.getActiveMetadataSnapshotId()).permissionRevision(task.getPermissionRevision()).ragBuildId(task.getRagBuildId()).ragSourceSnapshotId(task.getRagSourceSnapshotId()).sourceTrace(trace).finalProtectionStatus(task.getIamFinalProtectionStatus()).canViewSql(Boolean.TRUE.equals(caps.get("viewSql"))).canExport(Boolean.TRUE.equals(caps.get("export"))).createdAt(task.getCreatedAt()).completedAt(task.getCompletedAt()).build();
+        } catch (Exception ex) { throw new BusinessException("S1 结果读取失败"); }
+    }
+    private List<String> readList(String json) { try { return json == null ? List.of() : objectMapper.readValue(json, new TypeReference<>() {}); } catch (Exception ex) { return List.of(); } }
+    private void applyCurrentProtection(QueryTaskVO vo, QueryTask task, IamS1DataAuthorizationSnapshot current) {
+        // 失败任务没有结果载荷，可被再保护的字段集为空。此时必须放行读取，
+        // 否则真实失败原因会被"权限已变化"覆盖，失败任务也无法再次读取。
+        if (vo.getData() == null && vo.getColumns() == null) return;
+        if (!isSubsetOfCurrent(vo.getUsedColumns(), vo.getSourceTrace(), current)) throw new BusinessException("权限已变化，请重新查询");
+        Map<String, String> masks;
+        try {
+            masks = deriveOutputMasks(vo.getSourceTrace(), current);
+        } catch (IamS1MaskPolicyConflictException ex) {
+            // 读取阶段同样 fail-closed：历史任务或异常来源带来的冲突 trace 不得返回结果。
+            throw new BusinessException("结果脱敏策略冲突，已拒绝返回");
+        }
+        Map<String, String> previousMasks = persistedMaskPolicies(task);
+        Map<String, String> previousPoliciesByOutput = new HashMap<>();
+        previousMasks.forEach((output, policy) -> previousPoliciesByOutput.put(
+                output.toLowerCase(Locale.ROOT), policy));
+        Map<String, String> masksToApply = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : masks.entrySet()) {
+            String previousPolicy = previousPoliciesByOutput.get(entry.getKey().toLowerCase(Locale.ROOT));
+            if (previousPolicy != null && !previousPolicy.equals(entry.getValue())) {
+                // 持久化行已按旧策略脱敏，原值无法恢复，也不能证明把新策略套在旧掩码上安全。
+                throw new BusinessException("历史结果的脱敏策略已变化，已拒绝返回");
+            }
+            if (previousPolicy == null) masksToApply.put(entry.getKey(), entry.getValue());
+        }
+        if (!masksToApply.isEmpty()) {
+            vo.setData(maskingService.maskResultByFields(vo.getData(), masksToApply));
+        }
+        Map<String, String> effectiveMasks = new LinkedHashMap<>(previousMasks);
+        masks.forEach(effectiveMasks::putIfAbsent);
+        vo.setMaskedFields(effectiveMasks);
+        if (!effectiveMasks.isEmpty()) vo.setFinalProtectionStatus("FINAL_MASKED");
+
+        boolean authorizationChanged = !Objects.equals(current.getPermissionRevision(), task.getPermissionRevision())
+                || !Objects.equals(current.getActiveMetadataSnapshotId(), task.getActiveMetadataSnapshotId());
+        if (authorizationChanged || !effectiveMasks.isEmpty()) {
+            // 图表、说明和推荐问题可能包含行/列值。它们没有足够的血缘证据按新规则重建。
+            vo.setChartConfig(null);
+            vo.setSqlExplanation(null);
+            vo.setSuggestedQuestions(List.of());
+        }
+    }
+
+    private Map<String, String> persistedMaskPolicies(QueryTask task) {
+        String value = task.getMaskedFields();
+        if (value == null || value.isBlank()) return Map.of();
+        try {
+            Map<String, String> masks = objectMapper.readValue(value, new TypeReference<>() {});
+            if (masks == null) throw new IllegalArgumentException("empty mask policy map");
+            if (masks.values().stream().anyMatch(policy -> policy == null || policy.isBlank())) {
+                throw new IllegalArgumentException("empty mask policy");
+            }
+            return masks;
+        } catch (Exception ex) {
+            throw new BusinessException("历史结果脱敏记录无法验证，已拒绝返回");
+        }
+    }
+
+    private boolean containsRowCondition(String snapshotJson) {
+        return snapshotJson != null && snapshotJson.contains("\"rowCondition\":{");
+    }
+
+    private boolean hasRowCondition(IamS1DataAuthorizationSnapshot snapshot) {
+        return snapshot.getTables().stream().flatMap(table -> table.getGrantSources().stream())
+                .anyMatch(source -> source.getRowCondition() != null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private boolean hasCompletePersistedEvidence(QueryTask task) {
+        try {
+            List<String> usedColumns = objectMapper.readValue(task.getUsedColumns(), new TypeReference<>() {});
+            Object trace = objectMapper.readValue(task.getIamSourceTrace(), Object.class);
+            Object columns = objectMapper.readValue(task.getResultColumns(), Object.class);
+            Object data = objectMapper.readValue(task.getResultData(), Object.class);
+            if (trace instanceof Map<?, ?> wrapper) trace = wrapper.get("entries");
+            return (isSubsetEvidencePresent(usedColumns) || traceIsEntirelyColumnFree(trace))
+                    && hasCompleteSourceTrace(trace, columns)
+                    && IamS1ResultIntegrity.dataKeysAreCoveredByColumns(data, columns);
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private boolean isSubsetEvidencePresent(List<String> usedColumns) {
+        return usedColumns != null && !usedColumns.isEmpty()
+                && usedColumns.stream().allMatch(item -> item != null && !item.isBlank());
+    }
+
+    @SuppressWarnings("unchecked")
+    boolean hasCompleteSourceTrace(Object rawTrace, Object rawColumns) {
+        if (!(rawTrace instanceof List<?> entries) || entries.isEmpty()) return false;
+        java.util.Set<String> outputs = new java.util.HashSet<>();
+        if (!(rawColumns instanceof List<?> columns) || columns.isEmpty()) return false;
+        for (Object rawColumn : columns) {
+            if (rawColumn instanceof Map<?, ?> column && column.get("name") != null) {
+                outputs.add(String.valueOf(column.get("name")));
+            }
+        }
+        if (outputs.isEmpty()) return false;
+        java.util.Set<String> traced = new java.util.HashSet<>();
+        for (Object rawEntry : entries) {
+            if (!(rawEntry instanceof Map<?, ?> entry) || entry.get("outputColumn") == null
+                    || !(entry.get("sources") instanceof List<?> sources)) return false;
+            // 空来源是合法的，但 Python 必须显式声明该输出不携带任何列数据
+            // （COUNT(*) 或常量）。未声明却为空仍判为来源不完整——保持 fail-closed：
+            // 万一 Python 对某个真正取数的列漏报了来源，这里不会放行。
+            if (sources.isEmpty() && !NO_COLUMN_SOURCE.equals(String.valueOf(entry.get("sourceKind")))) {
+                return false;
+            }
+            String output = String.valueOf(entry.get("outputColumn"));
+            if (sources.stream().anyMatch(source -> source == null || String.valueOf(source).isBlank())) return false;
+            traced.add(output);
+        }
+        return traced.containsAll(outputs);
+    }
+}

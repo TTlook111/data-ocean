@@ -1,7 +1,7 @@
 package com.dataocean.module.governance.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.dataocean.module.governance.entity.MetadataQualityRule;
+import com.dataocean.module.governance.entity.po.MetadataQualityRule;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

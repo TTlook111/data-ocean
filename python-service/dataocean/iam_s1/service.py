@@ -1,0 +1,456 @@
+"""IAM-SIMPLE-1 query orchestration.
+
+This is intentionally a small independent execution path.  It does not call
+the legacy Agent graph, legacy sandbox routes, or legacy permission fields.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from pathlib import Path
+from typing import Any
+
+from dataocean.core.error_messages import sanitize_error
+from dataocean.infra.llm import call_llm
+from dataocean.prompt.renderer import render_template_file
+from dataocean.prompt.service import render_prompt_with_metadata
+from dataocean.prompt.scenes import invoke_scene
+from dataocean.sandbox.executor import execute as execute_sql
+
+from .firewall import build_model_context, resource_index
+from .schema import (
+    S1ExecutionBinding,
+    S1PermissionSnapshot,
+    S1QueryExecuteRequest,
+    S1RagRetrieveRequest,
+    S1SqlExecuteRequest,
+    S1SqlValidateRequest,
+)
+from .sql_security import S1SqlSecurityError, S1SqlValidation, inject_row_conditions, validate_sql, policy_validation_snapshot
+
+logger = logging.getLogger(__name__)
+
+# SQL 生成的提示词走 Java 受管模板（Prompt 策略页可调、有版本与审批）。
+# 变量契约见 V59 迁移：question / schema / rag / glossary / few_shot / history / summary。
+_SQL_GENERATION_TEMPLATE_CODE = "sql_generation"
+_LOCAL_SQL_GENERATION_TEMPLATE = Path(__file__).parent / "prompts" / "sql_generation.j2"
+
+# 安全框架保留在代码里，不随受管模板下发：权限的执行边界在 Context Firewall 与
+# SQL AST 校验器，但"只生成 SELECT、只用给定表字段"属于职责与身份约束，
+# 不应该成为可以被配置关掉的可选项。
+_SYSTEM_PROMPT = (
+    "你是 IAM-SIMPLE-1 安全问数 SQL 生成器。只生成 SELECT，"
+    "只使用用户消息中给出的表与字段，不输出解释之外的权限信息。"
+)
+
+
+def sql_prompt_variables(question: str, context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "question": question, "schema": context.get("schema", []), "rag": context.get("rag", []),
+        "glossary": context.get("glossary", []), "few_shot": context.get("fewShot", []),
+        "history": context.get("conversationHistory", []), "summary": context.get("conversationSummary"),
+    }
+
+
+async def render_sql_prompt(question: str, context: dict[str, Any], *, managed: bool = True) -> str:
+    """渲染 SQL 生成提示词：优先 Java 受管模板，失败时退回本地模板。
+
+    变量契约见 `V59__s1_sql_generation_prompt.sql`：
+    question / schema / rag / glossary / few_shot / history / summary。
+
+    调用方只传防火墙过滤后的上下文；**执行绑定值不在此列**——绑定值只存在于
+    Java 与 Python 的内存对象中，绝不进入模型上下文。
+    """
+    variables = {
+        "question": question,
+        "schema": json.dumps(context["schema"], ensure_ascii=False),
+        "rag": json.dumps(context["rag"], ensure_ascii=False),
+        "glossary": json.dumps(context["glossary"], ensure_ascii=False),
+        "few_shot": json.dumps(context["fewShot"], ensure_ascii=False),
+        "history": json.dumps(context["conversationHistory"], ensure_ascii=False),
+        "summary": json.dumps(context["conversationSummary"], ensure_ascii=False),
+    }
+    if not managed:
+        return render_template_file(_LOCAL_SQL_GENERATION_TEMPLATE, **variables)
+    try:
+        user_prompt, _ = await render_prompt_with_metadata(_SQL_GENERATION_TEMPLATE_CODE, variables)
+        if not user_prompt:
+            raise RuntimeError("managed SQL 生成模板为空")
+        return user_prompt
+    except Exception as exc:
+        # Java 不可用或模板缺失时退回本地模板，与该项目其它受管提示词的降级方式一致。
+        logger.info("managed SQL 生成模板不可用，使用本地模板: %s", exc)
+        return render_template_file(_LOCAL_SQL_GENERATION_TEMPLATE, **variables)
+
+
+def _safe_error(message: str | None, bindings: list[S1ExecutionBinding]) -> str:
+    """Remove execution binding values before an error can leave Python."""
+    safe = str(message or "SQL 执行失败")
+    for binding in bindings:
+        value = binding.value
+        values = value if isinstance(value, list) else [value]
+        for item in values:
+            if item is not None and str(item):
+                safe = safe.replace(str(item), "?")
+    return safe[:500]
+
+
+def _schema_from_snapshot(snapshot: S1PermissionSnapshot) -> list[dict[str, Any]]:
+    return [
+        {
+            "tableName": resource.tableName,
+            "columns": [
+                {
+                    "name": column.name,
+                    "type": column.dataType or "UNKNOWN",
+                    "protectionLevel": column.protectionLevel,
+                    "maskPolicy": column.maskPolicy,
+                }
+                for column in resource.columns
+                if column.protectionLevel != "HIDDEN"
+            ],
+        }
+        for resource in snapshot.resources
+    ]
+
+
+def _dedupe_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        source_id = chunk.get("sourceId", chunk.get("source_id"))
+        build_id = chunk.get("ragBuildId", chunk.get("buildId", ""))
+        key = (str(build_id), str(source_id if source_id is not None else chunk.get("chunkText", "")))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(chunk)
+    return result
+
+
+def _contract_matches(request: Any, snapshot: S1PermissionSnapshot) -> None:
+    if request.protocolVersion != "IAM-SIMPLE-1":
+        raise S1SqlSecurityError("未知 IAM-SIMPLE-1 协议")
+    if (
+        request.taskId != snapshot.taskId
+        or request.userId != snapshot.userId
+        or request.datasourceId != snapshot.datasourceId
+        or request.activeMetadataSnapshotId != snapshot.activeMetadataSnapshotId
+        or request.permissionRevision != snapshot.permissionRevision
+    ):
+        raise S1SqlSecurityError("S1 执行上下文身份不一致")
+    if not snapshot.resources:
+        raise S1SqlSecurityError("S1 快照资源为空")
+    if any(not resource.columns for resource in snapshot.resources):
+        raise S1SqlSecurityError("S1 快照字段为空")
+
+
+def validate_request(request: S1SqlValidateRequest) -> S1SqlValidation:
+    _contract_matches(request, request.permissionSnapshot)
+    validation = validate_sql(request.sql, request.permissionSnapshot)
+    if not validation.passed:
+        return validation
+    try:
+        rewritten, _ = inject_row_conditions(
+            validation.sql,
+            request.permissionSnapshot,
+            request.executionBindings,
+        )
+    except S1SqlSecurityError as exc:
+        return S1SqlValidation(False, violations=[str(exc)])
+    # 注入后的 SQL 含有服务端策略谓词，其位置由连接语义决定，不再按请求方
+    # 声明的 usage 复测；模型产出的 SQL 原文已在上面按 usage 校验过。
+    final_validation = validate_sql(rewritten, policy_validation_snapshot(request.permissionSnapshot), enforce_usage=False)
+    if not final_validation.passed:
+        return final_validation
+    final_validation.sql = rewritten
+    final_validation.used_tables=validation.used_tables
+    final_validation.used_columns=validation.used_columns
+    final_validation.source_trace=validation.source_trace
+    final_validation.column_usages=validation.column_usages
+    final_validation.masked_fields=validation.masked_fields
+    return final_validation
+
+
+async def retrieve(request: S1RagRetrieveRequest) -> list[dict[str, Any]]:
+    _contract_matches(request, request.permissionSnapshot)
+    from .firewall import filter_chunks
+    # S1 uses the existing Milvus embedding/search/adjacent expansion/rerank
+    # pipeline, then applies the S1 table/column intersection once more before
+    # anything reaches a model.  The supplied chunks are the fail-closed
+    # fallback input for Milvus outages.
+    if request.ragBuildId is None:
+        # No active pointer means no query-visible collection. Keep only explicitly
+        # bound request fallback facts; production Java sends an empty list here.
+        return filter_chunks(
+            request.chunks,
+            request.permissionSnapshot,
+            rag_source_snapshot_id=request.ragSourceSnapshotId or request.activeMetadataSnapshotId,
+        )
+    authoritative=filter_chunks(request.chunks,request.permissionSnapshot,
+        rag_source_snapshot_id=request.ragSourceSnapshotId or request.activeMetadataSnapshotId,
+        rag_build_id=request.ragBuildId)
+    by_id={};duplicates=set()
+    for chunk in authoritative:
+        raw_id=chunk.get("sourceId",chunk.get("source_id"))
+        if isinstance(raw_id,bool) or not isinstance(raw_id,(int,str)):
+            continue
+        try: source_id=int(raw_id)
+        except ValueError: continue
+        if source_id<=0:continue
+        if source_id in by_id and by_id[source_id]!=chunk:duplicates.add(source_id)
+        by_id.setdefault(source_id,chunk)
+    by_id={key:value for key,value in by_id.items() if key not in duplicates}
+    authoritative=list(by_id.values())
+    from dataocean.rag.collection_names import is_build_collection_name
+    if not is_build_collection_name(request.datasourceId, request.ragBuildId, request.ragCollectionName):
+        # Never let a stale or malformed Java build pointer fall back to the
+        # configured default collection (schema_knowledge).
+        return authoritative
+    if not request.ragSourceSnapshotId or not request.ragCollectionName or not request.ragEmbeddingConfig:
+        return []
+    try:
+        from dataocean.rag.schema import RetrieveRequest
+        from dataocean.rag.service import retrieve_schemas
+
+        allowed_resources = []
+        for resource in request.permissionSnapshot.resources:
+            allowed_resources.append(f"table:{resource.tableName}")
+            allowed_resources.extend(
+                f"column:{resource.tableName}.{column.name}" for column in resource.columns
+                if column.protectionLevel != "HIDDEN"
+            )
+        allowed_chunk_ids = list(by_id)
+        response = await retrieve_schemas(RetrieveRequest(
+            datasourceId=request.datasourceId,
+            question=request.question,
+            topK=10,
+            activeSnapshotId=request.ragSourceSnapshotId,
+            fallbackChunks=authoritative,
+            buildId=request.ragBuildId,
+            collectionName=request.ragCollectionName,
+            embeddingConfig=request.ragEmbeddingConfig,
+            authorizedResources=allowed_resources,
+            authorizedChunkIds=allowed_chunk_ids,
+        ))
+        candidates: list[dict[str, Any]] = []
+        seen=set()
+        for item in response.results:
+            try: source_id=int(getattr(item,"source_id",None))
+            except (TypeError,ValueError): continue
+            if (source_id not in by_id or source_id in duplicates or source_id in seen
+                    or getattr(item,"snapshot_id",None)!=request.ragSourceSnapshotId
+                    or getattr(item,"build_id",None)!=request.ragBuildId):
+                continue
+            # ANN/rerank selects order only. Text, identity, reviewed provenance
+            # and dependencies come from Java's current authorized membership.
+            candidates.append({**by_id[source_id],"score":getattr(item,"score",0)})
+            seen.add(source_id)
+        filtered = filter_chunks(
+            candidates,
+            request.permissionSnapshot,
+            rag_source_snapshot_id=request.ragSourceSnapshotId,
+            rag_build_id=request.ragBuildId,
+        )
+        if filtered:
+            return filtered
+    except Exception:
+        # Retrieval failure is allowed to degrade only to the same filtered
+        # fallback; it never sends an unfiltered vector result onward.
+        fallback = filter_chunks(
+            authoritative,
+            request.permissionSnapshot,
+            rag_source_snapshot_id=request.ragSourceSnapshotId,
+            rag_build_id=request.ragBuildId,
+        )
+        if not fallback:
+            raise
+        return fallback
+    return filter_chunks(
+        authoritative,
+        request.permissionSnapshot,
+        rag_source_snapshot_id=request.ragSourceSnapshotId,
+        rag_build_id=request.ragBuildId,
+    )
+
+
+async def execute_validated(request: S1SqlExecuteRequest) -> dict[str, Any]:
+    _contract_matches(request, request.permissionSnapshot)
+    original_validation = validate_sql(request.originalSql, request.permissionSnapshot)
+    if not original_validation.passed:
+        raise S1SqlSecurityError("执行 SQL 原文未通过 S1 AST 校验")
+    rewritten, params = inject_row_conditions(
+        original_validation.sql,
+        request.permissionSnapshot,
+        request.executionBindings,
+    )
+    if rewritten != request.validatedSql:
+        raise S1SqlSecurityError("执行 SQL 与已校验并注入的 SQL 不一致")
+    # 同一份已注入策略谓词的 SQL 只复测结构/表/字段/保护，不按 usage 复测。
+    validation = validate_sql(request.validatedSql, policy_validation_snapshot(request.permissionSnapshot), enforce_usage=False)
+    if not validation.passed:
+        raise S1SqlSecurityError("执行 SQL 未通过同一份 S1 AST 校验")
+    result = await execute_sql(
+        sql=request.validatedSql,
+        datasource_id=request.datasourceId,
+        connection_config=request.connectionConfig.model_dump(),
+        mask_columns={},
+        task_id=request.taskId,
+        parameters=params,
+    )
+    return {
+        "success": result.success,
+        "data": result.rows if result.success else [],
+        "columns": result.columns if result.success else [],
+        "rowCount": result.row_count,
+        "executionTimeMs": result.execution_time_ms,
+        "error": _safe_error(result.error, request.executionBindings) if result.error else None,
+        "errorType": result.error_type or None,
+        "trace": {
+            "permissionRevision": request.permissionRevision,
+            "activeMetadataSnapshotId": request.activeMetadataSnapshotId,
+            # The final AST pass includes Java-injected row predicates. Persist
+            # only the original model-authored usage evidence; policy columns do
+            # not become user-visible result fields.
+            "usedTables": original_validation.used_tables,
+            "usedColumns": original_validation.used_columns,
+            "sourceTrace": original_validation.source_trace,
+            "maskedFields": original_validation.masked_fields,
+        },
+    }
+
+
+async def run_query(request: S1QueryExecuteRequest, *, progress_callback=None, resume: bool = False) -> dict[str, Any]:
+    if request.candidateCatalog is not None:
+        from .graph import run_query_graph
+
+        return await run_query_graph(request, progress_callback=progress_callback, resume=resume)
+    return await _run_query_legacy(request)
+
+
+async def _run_query_legacy(request: S1QueryExecuteRequest) -> dict[str, Any]:
+    if request.permissionSnapshot is None or request.connectionConfig is None:
+        return {"taskId": request.taskId, "protocolVersion": request.protocolVersion,
+                "status": "FAILED", "error": "S1 legacy context incomplete"}
+    _contract_matches(request, request.permissionSnapshot)
+    start = time.time()
+    safe_rag = await retrieve(S1RagRetrieveRequest(
+        protocolVersion=request.protocolVersion,
+        taskId=request.taskId,
+        userId=request.userId,
+        datasourceId=request.datasourceId,
+        activeMetadataSnapshotId=request.activeMetadataSnapshotId,
+        permissionRevision=request.permissionRevision,
+        permissionSnapshot=request.permissionSnapshot,
+        question=request.question,
+        chunks=_dedupe_chunks(request.ragChunks + request.fallbackChunks),
+        ragBuildId=request.ragBuildId,
+        ragSourceSnapshotId=request.ragSourceSnapshotId,
+        ragCollectionName=request.ragCollectionName,
+        ragEmbeddingConfig=request.ragEmbeddingConfig,
+    ))
+    context = build_model_context(
+        request.permissionSnapshot,
+        _schema_from_snapshot(request.permissionSnapshot),
+        safe_rag,
+        request.glossaryTerms,
+        request.fewShotExamples,
+        [turn.model_dump() for turn in request.conversationHistory],
+        request.conversationSummary,
+        [binding.value for binding in request.executionBindings],
+        rag_source_snapshot_id=request.ragSourceSnapshotId,
+        rag_build_id=request.ragBuildId,
+    )
+    user_prompt = await render_sql_prompt(request.question, context, managed=False)
+    try:
+        generated = await invoke_scene(
+            "sql_generation", sql_prompt_variables(request.question, context), invoke=call_llm,
+            fixed_system=_SYSTEM_PROMPT, fallback_user=user_prompt, task_id=request.taskId,
+            temperature=0.1,
+        )
+        sql = generated.strip().replace("```sql", "").replace("```", "").strip()
+        validation = validate_request(
+            S1SqlValidateRequest(
+                protocolVersion=request.protocolVersion,
+                taskId=request.taskId,
+                userId=request.userId,
+                datasourceId=request.datasourceId,
+                activeMetadataSnapshotId=request.activeMetadataSnapshotId,
+                permissionRevision=request.permissionRevision,
+                permissionSnapshot=request.permissionSnapshot,
+                executionBindings=request.executionBindings,
+                sql=sql,
+            )
+        )
+        if not validation.passed:
+            return {"taskId": request.taskId, "protocolVersion": request.protocolVersion, "status": "FAILED", "error": validation.violations[0]}
+        execution = await execute_validated(
+            S1SqlExecuteRequest(
+                protocolVersion=request.protocolVersion,
+                taskId=request.taskId,
+                userId=request.userId,
+                datasourceId=request.datasourceId,
+                activeMetadataSnapshotId=request.activeMetadataSnapshotId,
+                permissionRevision=request.permissionRevision,
+                permissionSnapshot=request.permissionSnapshot,
+                executionBindings=request.executionBindings,
+                originalSql=sql,
+                validatedSql=validation.sql,
+                connectionConfig=request.connectionConfig,
+            )
+        )
+        if not execution["success"]:
+            return {"taskId": request.taskId, "protocolVersion": request.protocolVersion, "status": "FAILED", "error": execution["error"], "trace": execution["trace"]}
+        chart_config = None
+        try:
+            from dataocean.chart.service import generate_chart
+
+            column_types = {
+                str(column.get("name")): str(column.get("type") or "UNKNOWN")
+                for column in execution.get("columns", [])
+                if column.get("name")
+            }
+            chart = await generate_chart(
+                question=request.question,
+                data_preview=execution.get("data", []),
+                column_types=column_types,
+                total_rows=int(execution.get("rowCount") or 0),
+            )
+            chart_config = chart.echarts_option
+        except Exception as exc:
+            # 图表是查询结果的可选增强，生成失败不能让已通过权限和 AST 的表格查询失败。
+            logger.warning("S1 图表生成失败 task_id=%s reason=%s", request.taskId, exc)
+        return {
+            "taskId": request.taskId,
+            "protocolVersion": request.protocolVersion,
+            "status": "COMPLETED",
+            "sql": validation.sql,
+            "sqlExplanation": "SQL 已通过 IAM-SIMPLE-1 当前快照校验与参数化执行保护",
+            "data": execution["data"],
+            "columns": execution["columns"],
+            "rowCount": execution["rowCount"],
+            "usedTables": validation.used_tables,
+            "usedColumns": validation.used_columns,
+            "sourceTrace": execution["trace"]["sourceTrace"],
+            "maskedFields": validation.masked_fields,
+            "chartConfig": chart_config,
+            "suggestedQuestions": [],
+            "permissionRevision": request.permissionRevision,
+            "activeMetadataSnapshotId": request.activeMetadataSnapshotId,
+            "ragUsed": bool(context["rag"]),
+            "degraded": not bool(context["rag"]),
+            "degradeNotice": None if context["rag"] else "无可验证的 S1 知识上下文，已安全降级",
+        "totalTimeMs": int((time.time() - start) * 1000),
+        }
+    except Exception as exc:  # sanitized, no binding/SQL value is returned
+        return {
+            "taskId": request.taskId,
+            "protocolVersion": request.protocolVersion,
+            "status": "FAILED",
+            "error": sanitize_error(exc),
+            "totalTimeMs": int((time.time() - start) * 1000),
+        }

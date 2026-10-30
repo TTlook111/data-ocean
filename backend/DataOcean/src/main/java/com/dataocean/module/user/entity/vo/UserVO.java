@@ -40,13 +40,13 @@ public class UserVO {
     /** 所属部门名称（冗余展示用） */
     private String departmentName;
 
-    /** 用户拥有的角色ID列表 */
+    /** 用户拥有的角色ID列表。S1 用户接口不再回填旧 sys_role，避免把旧角色显示成新权限角色。 */
     private List<Long> roleIds;
 
-    /** 用户拥有的角色名称列表 */
+    /** 用户拥有的角色名称列表。S1 用户接口固定为空，角色请走 /api/iam-s1/users/{id}/roles。 */
     private List<String> roleNames;
 
-    /** 用户拥有的角色编码列表 */
+    /** 用户拥有的角色编码列表。S1 用户接口固定为空。 */
     private List<String> roleCodes;
 
     /** 账号状态：1-正常，2-禁用，3-锁定 */

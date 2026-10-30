@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from time import perf_counter
 
 from pymilvus import Collection
 
+from dataocean.core.config import get_settings
 from dataocean.infra.embeddings import embed_texts, embed_texts_with_config
 
 from .milvus_client import ensure_collection
@@ -28,6 +31,7 @@ async def vectorize_chunks(
     target_collection: str | None = None,
     target_dimension: int | None = None,
     embedding_config: EmbeddingConfig | None = None,
+    build_id: str | None = None,
 ) -> VectorizeResponse:
     """Embed chunks and write them through LangChain's Milvus VectorStore."""
     start = perf_counter()
@@ -37,8 +41,13 @@ async def vectorize_chunks(
     if doc_id is None:
         logger.warning("vectorize_chunks called without doc_id; using 0 as placeholder")
 
+    effective_dimension = (
+        target_dimension
+        or (embedding_config.dimension if embedding_config is not None else None)
+        or get_settings().embedding_dimension
+    )
     try:
-        collection = await asyncio.to_thread(ensure_collection, target_collection, target_dimension)
+        collection = await asyncio.to_thread(ensure_collection, target_collection, effective_dimension)
     except Exception as exc:
         logger.error("Milvus connection failed: %s", exc)
         return VectorizeResponse(
@@ -95,6 +104,24 @@ async def vectorize_chunks(
             duration_ms=_elapsed_ms(start),
         )
 
+    invalid_dimensions = {
+        len(embedding)
+        for embedding in embeddings
+        if len(embedding) != effective_dimension
+    }
+    if invalid_dimensions:
+        msg = (
+            f"Embedding dimension mismatch expected={effective_dimension} "
+            f"actual={sorted(invalid_dimensions)}"
+        )
+        logger.error(msg)
+        return VectorizeResponse(
+            status="FAILED",
+            failed_count=len(chunks),
+            errors=[msg],
+            duration_ms=_elapsed_ms(start),
+        )
+
     metadatas = [
         {
             "datasource_id": datasource_id,
@@ -102,35 +129,71 @@ async def vectorize_chunks(
             "knowledge_version_no": version_no,
             "doc_id": doc_id or 0,
             "source_id": chunk.source_id or 0,
+            "chunk_index": chunk.chunk_index if chunk.chunk_index is not None else index,
+            "chunk_group_id": chunk.chunk_group_id or f"source-{chunk.source_id or index}",
             "chunk_type": chunk.chunk_type,
             "governance_status": chunk.governance_status,
             "review_status": chunk.review_status,
             "related_table": chunk.related_table,
             "related_column": chunk.related_column,
+            # Milvus 动态字段按 JSON 字符串保存，完整结构化元数据仍由 Java/MySQL 维护。
+            "related_tables": json.dumps(
+                chunk.related_tables or ([chunk.related_table] if chunk.related_table else []),
+                ensure_ascii=False,
+            ),
+            "related_columns": json.dumps(
+                chunk.related_columns or ([chunk.related_column] if chunk.related_column else []),
+                ensure_ascii=False,
+            ),
+            "entity_ids": json.dumps(chunk.entity_ids, ensure_ascii=False),
+            "trust_score": chunk.trust_score,
+            "content_hash": chunk.content_hash or hashlib.sha256(
+                chunk.chunk_text.encode("utf-8")
+            ).hexdigest(),
+            "source_snapshot_id": chunk.source_snapshot_id or snapshot_id,
+            "resource_dependencies": json.dumps(chunk.resource_dependencies, ensure_ascii=False),
+            "fact_source_ids": json.dumps(chunk.fact_source_ids, ensure_ascii=False),
+            "fact_type": chunk.fact_type,
+            "fact_review_status": chunk.fact_review_status,
+            "build_id": build_id or "",
         }
-        for chunk in chunks
+        for index, chunk in enumerate(chunks)
     ]
 
+    inserted_ids: list[str] = []
     try:
         # Staging 步骤 1：写入新向量（此时旧向量仍存在，查询不中断）
+        # 这是三步 staging 模式的第一步：write
         inserted_ids = await add_chunk_embeddings(
-            texts=[chunk.chunk_text[:8192] for chunk in chunks],
+            texts=[chunk.chunk_text for chunk in chunks],
             embeddings=embeddings,
             metadatas=metadatas,
             collection_name=target_collection,
-            dimension=target_dimension,
+            dimension=effective_dimension,
         )
         cleanup_completed = False
         if staging_mode:
             # Staging 步骤 2：验证新向量写入成功后，删除旧版本向量
+            # 这是三步 staging 模式的第二步：verify + replace
+            # 只删除同一 doc_id 的旧版本向量，不影响其他文档
             try:
                 cleanup_expr = _old_doc_version_vectors_expr(datasource_id, doc_id, version_no, inserted_ids)
-                await delete_by_expr(cleanup_expr, target_collection)
+                cleanup_ok = await delete_by_expr(cleanup_expr, target_collection)
+                if not cleanup_ok:
+                    raise RuntimeError("旧版本向量清理失败")
                 cleanup_completed = True
             except Exception as exc:
-                logger.warning("Old force-rebuild vectors cleanup skipped after successful write: %s", exc)
+                # 清理失败时删除本次刚写入的向量，避免重复向量和不可验证状态。
+                logger.warning("Old force-rebuild vectors cleanup failed: %s", exc)
+                if inserted_ids:
+                    await delete_by_expr(
+                        _inserted_vectors_expr(datasource_id, doc_id, version_no, inserted_ids),
+                        target_collection,
+                    )
+                raise
         if doc_id is not None:
             # Staging 步骤 3：验证向量数量一致
+            # 确保写入的向量数量与预期一致，防止部分写入导致数据不完整
             try:
                 await asyncio.to_thread(
                     _verify_doc_version_at_least if staging_mode and not cleanup_completed
@@ -142,6 +205,7 @@ async def vectorize_chunks(
                     len(chunks),
                 )
             except Exception:
+                # 验证失败时，非 staging 模式需要清理已写入的向量
                 if not staging_mode:
                     await delete_by_expr(_doc_version_expr(datasource_id, doc_id, version_no), target_collection)
                 raise
@@ -153,6 +217,13 @@ async def vectorize_chunks(
             duration_ms=_elapsed_ms(start),
         )
     except Exception as exc:
+        if inserted_ids and staging_mode:
+            # 对所有 staging 失败路径做一次幂等清理；清理失败只记录日志，
+            # 主错误仍然返回给 Java 任务调度器。
+            await delete_by_expr(
+                _inserted_vectors_expr(datasource_id, doc_id, version_no, inserted_ids),
+                target_collection,
+            )
         logger.error("Milvus write failed: %s", exc)
         return VectorizeResponse(
             status="FAILED",
@@ -370,6 +441,26 @@ def _old_doc_version_vectors_expr(
     if not new_ids:
         raise ValueError("Milvus did not return inserted vector ids for force rebuild cleanup")
     return f"{_doc_version_expr(datasource_id, doc_id, version_no)} and id not in [{', '.join(new_ids)}]"
+
+
+def _inserted_vectors_expr(
+    datasource_id: int,
+    doc_id: int | None,
+    version_no: int,
+    inserted_ids: list[str],
+) -> str:
+    """构建只删除本次写入向量的表达式，避免失败清理误伤旧版本。"""
+    if doc_id is None:
+        raise ValueError("清理本次写入向量时缺少 doc_id")
+    ids: list[str] = []
+    for vector_id in inserted_ids:
+        try:
+            ids.append(str(int(vector_id)))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        raise ValueError("Milvus 未返回可清理的向量 ID")
+    return f"{_doc_version_expr(datasource_id, doc_id, version_no)} and id in [{', '.join(ids)}]"
 
 
 def _elapsed_ms(start: float) -> int:
