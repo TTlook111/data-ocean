@@ -60,3 +60,31 @@ def test_service_startup_attempts_saved_ai_sync_and_remains_available_on_failure
     with TestClient(main.app) as client:
         assert client.get("/health").status_code == 200
         sync.assert_awaited_once()
+
+
+def test_startup_receipt_reports_current_saved_models_without_secret_values(monkeypatch, caplog):
+    from unittest.mock import AsyncMock
+    from fastapi.testclient import TestClient
+    from dataocean import main
+    from dataocean.infra import config_api
+    from dataocean.prompt import receipts
+
+    async def saved_config():
+        config.reload_config({"QWEN_MODEL":"qwen-flash", "QWEN_EMBEDDING_MODEL":"text-embedding-v4",
+                              "EMBEDDING_DIMENSION":"1024", "DASHSCOPE_API_KEY":"offline-startup-key-sentinel"})
+        return True
+
+    monkeypatch.setattr(config_api, "reload_ai_config", saved_config)
+    monkeypatch.setattr(main, "setup_logging", lambda _: None)
+    monkeypatch.setattr(main.settings, "qwen_model", "offline-stale-imported-model")
+    monkeypatch.setattr(main.settings, "langgraph_checkpoint_redis_url", "")
+    monkeypatch.setattr(main, "_validate_config", lambda: None)
+    monkeypatch.setattr(main, "_destroy_all_pools", lambda: None)
+    monkeypatch.setattr(receipts, "start_receipt_dispatcher", lambda: None)
+    monkeypatch.setattr(receipts, "close_receipt_dispatcher", AsyncMock())
+    with caplog.at_level(logging.INFO), TestClient(main.app) as client:
+        assert client.get("/health").status_code == 200
+    assert "AI startup receipt synced=True chat_model=qwen-flash embedding_model=text-embedding-v4 dimension=1024" in caplog.text
+    assert "offline-startup-key-sentinel" not in caplog.text
+    assert "offline-old-key-sentinel" not in caplog.text
+    assert "chat_model=offline-stale-imported-model" not in caplog.text
