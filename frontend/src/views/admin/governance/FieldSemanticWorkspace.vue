@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useGovernanceScope } from '../../../composables/useGovernanceScope'
@@ -40,6 +40,8 @@ const batchError = ref(''), batchEvidence = ref(''), batchCandidates = ref<Field
 const batchSelectedIds = ref<number[]>([]), batchResult = ref<FieldSemanticBindingBatchResult>()
 const candidateExpanded = ref(false)
 const hasSearched = ref(false), activeEditorTab = ref('draft'), historyOpen = ref<string[]>([])
+const editorOpen = ref(false), inclusionOpen = ref(false)
+const workspaceRoot = ref<HTMLElement>(), editorRoot = ref<HTMLElement>()
 const form = reactive({ businessName: '', meaning: '', unit: '', currency: '', enumSemantics: '', metricDefinition: '', applicability: '', evidence: '', unresolvedText: '' })
 const formBaseVersion = ref(0), savedFormStamp = ref(''), reviewBaseId = ref<number>(), reviewBaseVersion = ref(0)
 const formStamp = computed(() => JSON.stringify([form, selectedGlossaryReviewIds.value]))
@@ -49,7 +51,7 @@ watch(formStamp, () => { if (!applyingForm) editRevision++ }, { flush: 'sync' })
 const confirmOpen = ref(false)
 const confirmClass = `field-semantic-cancel-${Math.random().toString(36).slice(2)}`
 let confirmGeneration = 0
-useAdminScrollLock(() => batchDialogVisible.value || confirmOpen.value)
+useAdminScrollLock(() => batchDialogVisible.value || confirmOpen.value || inclusionOpen.value)
 let listRequest = 0, columnRequest = 0, workspaceRequest = 0, actionRequest = 0, candidateRequest = 0, checkRequest = 0, batchRequest = 0, batchOperation = 0, locationRequest = 0, disposed = false
 const datasourceId = computed(() => context.datasourceId), snapshotId = computed(() => context.snapshotId)
 const canViewField = computed(() => can('governance:field:view'))
@@ -86,6 +88,7 @@ function revisionLabel(status: string) { const labels:Record<string,string>={DRA
 function reviewActionLabel(action: string) { const labels: Record<string,string> = { DRAFT_SAVED:'保存草稿',SUBMIT:'提交审核',WITHDRAW:'撤回待审核修订',DRAFT_REPLACED:'替换草稿',AI_ADOPTED:'采纳 AI 候选为草稿',APPROVE:'审核通过',REJECT:'驳回并退回',REVOKE:'撤销当前解释',BIND_CONFIRM:'确认新来源绑定' }; return labels[action] || action }
 function closeOwnedConfirm() { confirmGeneration++; document.querySelector<HTMLButtonElement>(`.${confirmClass}`)?.click(); confirmOpen.value = false }
 function resetTarget() {
+  editorOpen.value = false; inclusionOpen.value = false
   workspaceRequest++; actionRequest++; candidateRequest++; closeOwnedConfirm()
   workspace.value = undefined; usageStatus.value = undefined; glossaryOptions.value = []
   workspaceLoading.value = false; usageLoading.value = false; glossaryOptionsLoading.value = false; actionLoading.value = false; candidateLoading.value = false
@@ -181,10 +184,26 @@ const inclusionNextStep = computed(() => {
   if (usageLoading.value) return '正在核对当前修订的收录状态，请等待核对后再决定下一步。'
   if (usageError.value || !usageStatus.value) return '收录状态尚未确认，请先重读收录状态或查看知识文档与构建记录；暂不能判断是否需要发布或构建。'
   if (usageStatus.value.status === 'INCLUDED' && usageStatus.value.buildId && usageStatus.value.docId && usageStatus.value.versionNo && usageStatus.value.sourceSnapshotId === snapshotId.value) return '当前已收录，无需重复发布或构建。若仍有业务标签待办，可补充标签后复查；后续产生新修订时再核对审核、发布与构建。'
-  if (['PENDING_UPDATE','PENDING_REBUILD','NOT_BUILT'].includes(usageStatus.value.status)) return '下一步：按左侧收录状态核对知识文档与精确修订；需要更新时，分别完成审核、发布和显式构建。'
+  if (['PENDING_UPDATE','PENDING_REBUILD','NOT_BUILT'].includes(usageStatus.value.status)) return '下一步：按当前收录状态核对知识文档与精确修订；需要更新时，分别完成审核、发布和显式构建。'
   return '当前收录不可用或证据不完整，请先核对来源及构建记录；不要重复提交构建。'
 })
 function openDocuments() { if (can('knowledge:view')) router.push({path:'/admin/semantics/knowledge',query:{datasourceId:context.datasourceId,snapshotId:context.snapshotId}}) }
+async function openEditor() {
+  if (!workspace.value || fieldBusy.value || (!canViewDetails.value && !canManage.value)) return
+  editorOpen.value = true
+  await nextTick(); editorRoot.value?.focus()
+}
+async function closeEditor() {
+  if (fieldBusy.value) return
+  editorOpen.value = false
+  await nextTick(); workspaceRoot.value?.querySelector<HTMLButtonElement>('[data-testid="open-field-editor"]')?.focus()
+}
+function openInclusion() { if (workspace.value && canViewDetails.value) inclusionOpen.value = true }
+function openIncludedDocument() {
+  const id = usageStatus.value?.docId
+  if (!canViewDetails.value || !Number.isSafeInteger(id) || !id || id <= 0) return
+  router.push({ name: 'admin-semantic-knowledge-detail', params: { id }, query: { datasourceId: String(datasourceId.value), snapshotId: String(snapshotId.value), tab: 'source' } })
+}
 function draftPayload() { return { snapshotId: snapshotId.value!, expectedVersion: formBaseVersion.value, businessName: form.businessName.trim(), meaning: form.meaning.trim(), unit: form.unit.trim() || undefined, currency: form.currency.trim() || undefined, enumSemantics: form.enumSemantics.trim() || undefined, metricDefinition: form.metricDefinition.trim() || undefined, applicability: form.applicability.trim() || undefined, evidence: form.evidence.trim(), unresolvedItems: form.unresolvedText.split('\n').map(item => item.trim()).filter(Boolean), glossaryReviewIds: selectedGlossaryReviewIds.value.length ? [...selectedGlossaryReviewIds.value] : undefined } }
 function currentAction(revisionId?: number, action?: FieldSemanticActionPayload['action'], reason?: string) { return { expectedVersion: workspace.value?.rowVersion || 0, revisionId, action, reason } }
 async function mutateWorkspace(allowed: () => boolean, action: () => Promise<{ data: FieldSemanticWorkspace }>, success: string, replaceForm = false) {
@@ -337,15 +356,14 @@ onMounted(async () => { const token = auth.token; try { await Promise.all([conte
 onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; columnRequest++; workspaceRequest++; actionRequest++; candidateRequest++; checkRequest++; batchRequest++; batchOperation++ })
 </script>
 <template>
-  <section class="field-semantic-workspace">
-    <header class="field-semantic-workspace__intro">
-      <p class="field-semantic-intro-copy">先理解来源，再核对候选与人工依据；审核后仍需同修订复查。</p>
+  <section ref="workspaceRoot" class="field-semantic-workspace">
+    <details class="field-semantic-workspace__intro field-snapshot-tools"><summary>快照复查与批量来源确认</summary>
       <div class="field-semantic-workspace__intro-actions">
 
         <el-button v-if="ready && canManage" :disabled="fieldBusy || batchSaving" @click="openBatchBindingDialog">批量确认来源</el-button>
         <el-button v-if="ready && canViewField" :disabled="!canRunSemanticCheck || fieldBusy" :loading="semanticCheckLoading" @click="executeSemanticCheck">复查当前快照</el-button>
       </div>
-    </header>
+    </details>
 
     <el-dialog v-model="batchDialogVisible" title="批量确认字段来源" width="min(760px, 94vw)" top="5vh" class="field-binding-dialog" :close-on-click-modal="!batchSaving" :close-on-press-escape="!batchSaving" :show-close="!batchSaving">
       <p class="field-semantic-workspace__hint">仅勾选结构和依据与原审核来源一致的字段。每个字段仍会重新核验当前权限、版本及来源；下方依据会记录到每一条绑定审核证据中。</p>
@@ -377,6 +395,16 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
         <el-button :disabled="batchSaving" @click="batchDialogVisible = false">关闭</el-button>
         <el-button type="primary" :disabled="batchLoading || batchSaving || !batchSelectedIds.length || !batchEvidence.trim()" :loading="batchSaving" @click="confirmBatchBindings">确认所选来源</el-button>
       </template>
+    </el-dialog>
+
+    <el-dialog v-model="inclusionOpen" title="当前字段收录依据" width="min(760px,94vw)">
+      <section v-if="workspace && canViewDetails" data-testid="field-inclusion-evidence">
+        <h3>{{ workspace.tableName }}.{{ workspace.columnName }}</h3><p>数据源 #{{ datasourceId }} · 快照 #{{ snapshotId }} · 字段 #{{ workspace.columnMetaId }} · 已审核修订 {{ currentApproved ? 'v'+currentApproved.revisionNo : '未提供' }}</p>
+        <p v-if="usageError" role="alert">{{ usageError }} · 当前收录状态未知</p><p v-else>{{ usageStatus?.message || '当前尚无可读取的收录证据。' }}</p>
+        <dl v-if="usageStatus" class="field-semantic-facts"><div><dt>精确 build</dt><dd>{{ usageStatus.buildId || '未提供' }}</dd></div><div><dt>来源快照</dt><dd>{{ usageStatus.sourceSnapshotId ?? '未提供' }}</dd></div><div><dt>文档 / 版本</dt><dd>{{ usageStatus.docId ? '#'+usageStatus.docId : '未提供' }} · {{ usageStatus.versionNo ? 'v'+usageStatus.versionNo : '版本未提供' }}</dd></div><div><dt>片段</dt><dd>{{ usageStatus.chunkId ?? '未提供' }}</dd></div></dl>
+        <p>收录依据固定上述版本。打开文档将显示其当前详情，请对照版本记录；未返回文档映射时不会按名称推断。</p>
+        <el-button v-if="usageStatus?.docId" @click="openIncludedDocument">打开关联文档来源</el-button><el-button @click="openDocuments">管理全部知识文档</el-button>
+      </section>
     </el-dialog>
 
     <ErrorState v-if="semanticCheckError" :message="semanticCheckError" :show-retry="false" />
@@ -417,21 +445,21 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
       <LoadingState v-else-if="workspaceLoading && !workspace" text="正在核验字段来源、解释与审核状态…" />
       <EmptyState v-else-if="hasSearched && !workspace" message="当前筛选字段没有可读取的解释记录。" />
       <section v-else-if="workspace" class="field-semantic-workspace__content">
-        <FieldGovernanceProgress :column-id="workspace.columnMetaId" :snapshot-id="workspace.snapshotId" :version="workspace.rowVersion" :check-id="latestCheck?.id" :can-open-tags="canReadDirectory && canViewField" @open-tags="openTags" />
-        <aside class="field-semantic-reference">
+        <div class="field-semantic-reference">
         <section class="field-semantic-card field-semantic-card--source">
           <div class="field-semantic-card__heading"><div><h3>{{ workspace.tableName }}.{{ workspace.columnName }}</h3><p>{{ workspace.dataType || '类型未记录' }} · 治理状态 {{ governanceStatusLabel(workspace.governanceStatus) }}</p></div><el-tag :type="isEffective ? 'success' : workspace.bindingStatus === 'VALID' ? 'warning' : 'info'">{{ isEffective ? '当前解释有效' : workspace.effectiveStatus === 'NEEDS_REVIEW' ? '来源需复核' : '尚无有效解释' }}</el-tag></div>
-          <div class="field-semantic-card__source-notes"><div><span>原始采集注释</span><p>{{ workspace.rawColumnComment || '原始注释为空' }}</p></div><div><span>当前快照绑定</span><p>{{ bindingLabel(workspace.bindingStatus) }}<template v-if="workspace.bindingReason"> · {{ workspace.bindingReason }}</template></p></div></div>
+          <details class="field-source-disclosure"><summary>原始注释与来源绑定</summary><div class="field-semantic-card__source-notes"><div><span>原始采集注释</span><p>{{ workspace.rawColumnComment || '原始注释为空' }}</p></div><div><span>当前快照绑定</span><p>{{ bindingLabel(workspace.bindingStatus) }}<template v-if="workspace.bindingReason"> · {{ workspace.bindingReason }}</template></p></div></div></details>
         </section>
+        <FieldGovernanceProgress :column-id="workspace.columnMetaId" :snapshot-id="workspace.snapshotId" :version="workspace.rowVersion" :check-id="latestCheck?.id" :can-open-tags="canReadDirectory && canViewField" @open-tags="openTags" />
 
-        <section class="field-semantic-card">
+        <section class="field-semantic-card field-current-reading" data-testid="current-field-explanation">
           <div class="field-semantic-card__heading"><div><h3>当前已审核解释</h3><p v-if="currentApproved">修订 v{{ currentApproved.revisionNo }} · {{ revisionLabel(currentApproved.status) }}</p></div><el-tag v-if="currentApproved" :type="isEffective ? 'success' : 'warning'">{{ isEffective ? '适用于当前来源' : '不能用于当前来源' }}</el-tag></div>
-          <div v-if="currentApproved" class="field-semantic-usage-status" aria-label="问数收录状态">
-            <strong>问数收录</strong>
-            <span v-if="usageLoading">正在核对当前活动构建…</span>
-            <ErrorState v-else-if="usageError" :message="usageError" />
-            <span v-else-if="usageStatus">{{ usageStatus.message }}<template v-if="usageStatus.buildId"> · Build {{ usageStatus.buildId }}</template><template v-if="usageStatus.docId"> · 文档版本 v{{ usageStatus.versionNo }}</template></span>
-            <span v-else>需要 knowledge:view 才能查看当前活动构建的收录状态。</span><el-button v-if="canViewDetails" link type="primary" @click="openDocuments">知识文档与构建</el-button>
+          <div class="field-semantic-usage-status" aria-label="独立收录状态">
+            <strong>问数收录</strong><span v-if="usageLoading">正在核对当前活动构建…</span>
+            <span v-else-if="usageError" role="alert">{{ usageError }} · 收录状态未知</span>
+            <span v-else-if="usageStatus">{{ usageStatus.message }}</span>
+            <span v-else>需要 knowledge:view 才能查看当前活动构建的收录状态。</span>
+            <el-button v-if="canViewDetails" link @click="openInclusion">查看当前字段收录依据</el-button>
           </div>
           <template v-if="currentApproved">
             <h4>{{ currentApproved.businessName }}</h4><p>{{ currentApproved.meaning }}</p>
@@ -443,13 +471,24 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
             <el-input v-model="bindingEvidence" aria-label="来源绑定核验依据" placeholder="记录该字段结构未变化的核验依据" />
             <el-button :disabled="!bindingEvidence.trim() || fieldBusy" :loading="actionLoading" @click="confirmBinding">确认当前来源</el-button>
           </div>
-          <el-input v-if="currentApproved && isEffective && canRevoke" v-model="revokeReason" aria-label="撤销原因" placeholder="填写撤销原因" class="field-semantic-workspace__reason" />
-          <el-button v-if="currentApproved && isEffective && canRevoke" type="danger" plain :disabled="!revokeReason.trim() || fieldBusy" :loading="actionLoading" @click="revoke">撤销当前解释</el-button>
+          <details v-if="currentApproved && isEffective && canRevoke" class="field-source-disclosure field-maintenance">
+            <summary>维护操作 · 撤销当前解释</summary><p>撤销后当前解释失去使用资格，需填写原因并再次确认。</p>
+            <el-input v-model="revokeReason" aria-label="撤销原因" placeholder="填写撤销原因" class="field-semantic-workspace__reason" />
+            <el-button type="danger" plain :disabled="!revokeReason.trim() || fieldBusy" :loading="actionLoading" @click="revoke">撤销当前解释</el-button>
+          </details>
         </section>
 
-        </aside>
-        <section class="field-semantic-card">
-          <div class="field-semantic-card__heading"><div><h3>修订工作面</h3><p>{{ editorDirty ? '有未保存输入' : '当前输入与已读草稿一致' }}</p></div><el-button :disabled="fieldBusy" @click="reloadDraft">重读已保存草稿</el-button></div>
+        </div>
+        <section class="field-revision-entry" aria-label="修订状态与入口">
+          <div><h3>修订草稿</h3><p v-if="detailsError" role="alert">{{ detailsError }} · 明细未读完整，不按空草稿处理。</p>
+          <p v-else-if="!canViewDetails">草稿明细未读取：需要 knowledge:view；已有维护权仍可编写自己的输入。</p>
+          <p v-else-if="currentDraft">已保存修订 v{{ currentDraft.revisionNo }} · {{ revisionLabel(currentDraft.status) }}；与当前有效解释分开。</p>
+          <p v-else>当前没有已返回的待审草稿；需要调整含义时再开始新修订。</p>
+          <p v-if="editorDirty">有未保存输入，返回阅读后仍保留，未提交到服务端。</p></div>
+          <el-button data-testid="open-field-editor" :disabled="fieldBusy || (!canViewDetails && !canManage)" @click="openEditor">{{ currentDraft?.status === 'PENDING_REVIEW' ? '查看待审修订' : currentDraft ? '继续已保存草稿' : '开始新修订' }}</el-button>
+        </section>
+        <section v-show="editorOpen" ref="editorRoot" tabindex="-1" class="field-semantic-card field-explicit-editor">
+          <div class="field-semantic-card__heading"><div><h3>修订工作面</h3><p>{{ editorDirty ? '有未保存输入' : '当前输入与已读草稿一致' }}</p></div><div class="field-semantic-actions"><el-button :disabled="fieldBusy" @click="reloadDraft">重读已保存草稿</el-button><el-button data-testid="close-field-editor" :disabled="fieldBusy" @click="closeEditor">返回当前解释</el-button></div></div>
           <p v-if="detailsError" class="field-semantic-workspace__hint" role="alert">{{ detailsError }} 当前明细未读完整，请重读后再编辑或审核。</p>
           <p v-if="conflictMessage || versionConflict" class="field-semantic-conflict" role="alert">{{ conflictMessage || '已读记录版本发生变化；人工输入保持不变，请核对后重读已保存草稿。' }}</p>
           <ErrorState v-if="manualError" :message="manualError" :show-retry="false" />
@@ -534,7 +573,7 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
 .field-semantic-workspace__selector :deep(.el-form-item__content) { min-width:0; }
 
 .field-semantic-reference { min-width:0; display:grid; align-content:start; gap:16px; }
-.field-semantic-workspace__content { display:grid; grid-template-columns:minmax(270px,.8fr) minmax(0,1.7fr); align-items:start; gap:20px; }
+.field-semantic-workspace__content { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; border:1px solid var(--do-line); border-radius:8px; padding:22px 26px; background:var(--do-surface); }
 .field-semantic-workspace__content > .field-governance-progress { grid-column:1 / -1; }
 .field-semantic-workspace__content > .field-semantic-card { min-width:0; }
 .field-semantic-reference .field-semantic-card { padding:18px; border-radius:10px; }
@@ -549,7 +588,7 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
 .field-review-preview > span { color:var(--do-muted); font-size:12px; }
 .field-review-preview p { white-space:pre-wrap; line-height:1.7; overflow-wrap:anywhere; }
 .field-semantic-conflict { margin:10px 0; padding:10px 12px; border-left:2px solid var(--do-warning); background:var(--do-warning-soft); color:var(--do-warning); font-size:13px; line-height:1.7; }
-@media(max-width:1100px) { .field-semantic-workspace__content { grid-template-columns:1fr; } .field-semantic-reference { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:1100px) { .field-semantic-workspace__content { grid-template-columns:1fr; } .field-semantic-reference { grid-template-columns:1fr; } }
 @media(max-width:760px) { .field-semantic-reference { grid-template-columns:1fr; } }
 
 .field-semantic-workspace { display: grid; gap: 14px; min-width: 0; }
@@ -610,4 +649,19 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
   .field-semantic-facts > div { grid-template-columns: minmax(0, 1fr); gap: 3px; }
   .field-semantic-workspace__binding-confirm { flex-direction: column; }
 }
-</style>
+
+.field-semantic-reference{gap:16px;display:flex;flex-direction:column;}
+.field-semantic-reference .field-semantic-card{border:0;border-radius:0;padding:0;}
+.field-semantic-card--source{order:0;}
+.field-semantic-reference :deep(.field-governance-progress){order:1;background:var(--do-primary-soft);border-left:0;border:1px solid var(--do-line);border-radius:6px;}
+.field-current-reading{order:2;padding-top:4px!important;}
+.field-source-disclosure{border-top:1px solid var(--do-line);padding-top:12px;margin-top:15px;font-size:12px;}
+.field-source-disclosure summary{cursor:pointer;color:var(--do-muted);min-height:28px;}
+.field-maintenance{margin-top:20px;}
+.field-current-reading>p{max-width:90ch;}
+.field-revision-entry{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:18px;border-top:1px solid var(--do-line);}
+.field-revision-entry h3{margin:0;font-size:14px;}.field-revision-entry p{font-size:12px;color:var(--do-muted);margin:7px 0 0;line-height:1.7;}
+.field-explicit-editor{border:0;border-top:1px solid var(--do-line);border-radius:0;padding:20px 0 0;}
+.field-explicit-editor:focus{outline:none;}.field-explicit-editor:focus-visible{outline:2px solid var(--do-primary);outline-offset:5px;}
+@media(max-width:760px){.field-semantic-workspace__content{padding:17px;}.field-revision-entry{display:grid;grid-template-columns:1fr;}.field-revision-entry>.el-button{width:100%;min-height:44px;}.field-semantic-actions{width:100%;}.field-semantic-actions>.el-button{margin:0;flex:1;min-height:44px;}.field-semantic-card__heading{flex-wrap:wrap;}.field-semantic-usage-status>.el-button{margin:0;white-space:normal;}}
+.field-snapshot-tools{display:block;font-size:12px;color:var(--do-muted);}.field-snapshot-tools summary{cursor:pointer;min-height:28px;}.field-snapshot-tools .field-semantic-workspace__intro-actions{margin-top:10px;}</style>

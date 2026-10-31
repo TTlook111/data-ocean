@@ -19,7 +19,7 @@ function record(column=204,snapshot=11,source=1){return {datasourceId:source,sna
 function basic(value:any){const {draft,revisions,reviews,candidates,bindings,...rest}=value;return rest}
 function serverFor(column:number,snapshot:number){return {...clone(h.server),columnMetaId:column,snapshotId:snapshot,datasourceId:h.context.datasourceId,columnName:column===204?'amount':'status'}}
 function deferred(){let resolve!:(value:any)=>void;let reject!:(value:any)=>void;const promise=new Promise((r,j)=>{resolve=r;reject=j});return {promise,resolve,reject}}
-async function render(){const w=mount(FieldSemanticWorkspace,{global:{plugins:[ElementPlus],stubs:{FieldGovernanceProgress:true}}});wrappers.push(w);await flushPromises();return w}
+async function render(edit=true){const w=mount(FieldSemanticWorkspace,{attachTo:document.body,global:{plugins:[ElementPlus],stubs:{FieldGovernanceProgress:true}}});wrappers.push(w);await flushPromises();const entry=w.find('[data-testid="open-field-editor"]');if(edit && entry.exists()) { await entry.trigger('click'); await flushPromises() }return w}
 function button(w:VueWrapper,name:string){return w.findAll('button').find(b=>b.text()===name)!}
 function input(w:VueWrapper,label:string){return w.find(`input[aria-label="${label}"],textarea[aria-label="${label}"]`)}
 async function chooseColumn(w:VueWrapper,id:number){const select=w.findAllComponents({name:'ElSelect'}).find(s=>s.attributes('aria-label')==='选择解释字段') || w.findAllComponents({name:'ElSelect'})[1]!;select.vm.$emit('update:modelValue',id);select.vm.$emit('change',id);await flushPromises()}
@@ -44,6 +44,11 @@ beforeEach(()=>{
  vi.spyOn(ElMessageBox,'confirm').mockResolvedValue('confirm' as never)
 })
 afterEach(()=>{wrappers.splice(0).forEach(w=>w.unmount());vi.restoreAllMocks()})
+describe('字段解释阅读优先',()=>{
+ it('有效解释默认主阅读，不以空编辑表单引导重复审核',async()=>{h.server={...record(),draft:undefined,workingStatus:undefined,workingRevisionId:undefined,candidates:[]};const w=await render(false);expect(w.find('.field-semantic-form').isVisible()).toBe(false);expect(w.find('[data-testid="current-field-explanation"]').isVisible()).toBe(true);expect(w.find('[data-testid="open-field-editor"]').text()).toContain('开始新修订');expect(api.saveFieldSemanticDraft).not.toHaveBeenCalled()})
+ it('有意进入读取已存草稿，返回阅读再进入仍保留输入和对象',async()=>{const w=await render(false);await w.get('[data-testid="open-field-editor"]').trigger('click');expect(input(w,'字段含义').element).toHaveProperty('value','人工草稿含义');await input(w,'字段含义').setValue('尚未保存的新输入');await w.get('[data-testid="close-field-editor"]').trigger('click');expect(w.find('.field-semantic-form').isVisible()).toBe(false);await w.get('[data-testid="open-field-editor"]').trigger('click');expect(input(w,'字段含义').element).toHaveProperty('value','尚未保存的新输入');expect(h.route.query.columnMetaId).toBe('204');expect(api.saveFieldSemanticDraft).not.toHaveBeenCalled()})
+ it('收录依据定位精确字段文档版本build，不直接落入通用列表',async()=>{api.getFieldSemanticUsageStatus.mockResolvedValue({data:{status:'INCLUDED',message:'已收录',sourceSnapshotId:11,docId:17,versionNo:2,buildId:'exact-build'}});const w=await render(false);await button(w,'查看当前字段收录依据').trigger('click');await flushPromises();expect(w.find('[data-testid="field-inclusion-evidence"]').text()).toContain('exact-build');expect(w.find('[data-testid="field-inclusion-evidence"]').text()).toContain('17');expect(w.find('[data-testid="field-inclusion-evidence"]').text()).toContain('orders.amount');expect(h.router.push).not.toHaveBeenCalled()})
+})
 describe('字段解释读取与最小能力',()=>{
  it('精确字段读取并区分原始注释、草稿、有效解释与索引',async()=>{const w=await render();expect(api.getFieldSemanticWorkspace).toHaveBeenCalledWith(204,11);expect(w.text()).toContain('数据库采集注释');expect(input(w,'字段含义').element).toHaveProperty('value','人工草稿含义');expect(w.text()).toContain('活动索引尚未收录')})
  it('没有metadata:view不尝试表字段目录，不补权',async()=>{h.iam.codes=['governance:field:view'];const w=await render();expect(api.listSnapshotTables).not.toHaveBeenCalled();expect(api.getFieldSemanticWorkspace).not.toHaveBeenCalled();expect(w.text()).toContain('当前账号没有 metadata:view')})
