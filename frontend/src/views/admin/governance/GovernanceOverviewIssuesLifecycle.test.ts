@@ -141,11 +141,11 @@ it('总览同范围换账号旧批次/失败不覆盖新批次', async () => {
   await settle()
   reactive(state.auth).token = 'B'
   await settle()
-  old.resolve({ data: { id: 1, status: 'SUCCESS', complete: true } })
+  old.resolve({ data: { id: 1, snapshotId:8, datasourceId:5, status: 'SUCCESS', complete: true } })
   await settle()
   expect((w.vm as any).latestBatch).toBeNull()
   expect((w.vm as any).batchLoading).toBe(true)
-  latest.resolve({ data: { id: 2, status: 'PARTIAL', complete: false } })
+  latest.resolve({ data: { id: 2, snapshotId:8, datasourceId:5, status: 'PARTIAL', complete: false } })
   await settle()
   expect((w.vm as any).latestBatch.id).toBe(2)
   w.unmount()
@@ -291,3 +291,12 @@ it('权限loaded=true但error时总览刷新强制重读，不被store短路', a
   w.unmount()
   ;(state.iam as any).errorMessage = null
 })
+
+const v3summary={totalUnresolved:3,statusCounts:{OPEN:2,CONFIRMED:0,REOPENED:1},domainCounts:{SOURCE:2,SEMANTIC:1},recentIssues:[]}
+const v3rows=[{...issue,id:71,status:'OPEN',issueDomain:'SOURCE'},{...issue,id:72,status:'OPEN',issueDomain:'SOURCE'},{...issue,id:73,status:'REOPENED',issueDomain:'SEMANTIC'}]
+function completeV3(){state.api.getSnapshotQualityIssueSummary.mockResolvedValue({data:v3summary});state.api.listQualityIssues.mockImplementation(async(_snapshot,p)=>({data:{records:v3rows.filter(r=>r.status===p.status),total:v3rows.filter(r=>r.status===p.status).length}}))}
+it('V3完整聚合不渲染问题处理列表，域汇总只选真实单状态',async()=>{completeV3();const w=page(Overview);try{await settle();expect((w.vm as any).aggregateComplete).toBe(true);expect((w.vm as any).tableCount).toBe(1);expect(w.find('.quality-page__issue-row').exists()).toBe(false);(w.vm as any).openPlot({issueDomain:'SEMANTIC'});expect((w.vm as any).choiceCount('REOPENED')).toBe(1);(w.vm as any).chooseStatus('REOPENED');expect(state.router.push).toHaveBeenLastCalledWith({path:'/admin/governance/issues',query:{datasourceId:'5',snapshotId:'8',status:'REOPENED',issueDomain:'SEMANTIC'}});expect(JSON.stringify(state.router.push.mock.calls)).not.toContain('UNRESOLVED');expect(state.api.handleIssue).not.toHaveBeenCalled()}finally{w.unmount()}})
+it('V3选择状态期间切范围立即关闭，不能带旧表名导航',async()=>{completeV3();state.router.push.mockReset();const w=page(Overview);try{await settle();(w.vm as any).openPlot({tableName:'orders'});expect((w.vm as any).plotChoice).not.toBeNull();reactive(state.context).snapshotId=9;await settle();expect((w.vm as any).plotChoice).toBeNull();(w.vm as any).chooseStatus('OPEN');expect(state.router.push).not.toHaveBeenCalled()}finally{w.unmount()}})
+it('V3停止表聚合后可重新读取，旧页响应不覆盖新聚合',async()=>{completeV3();const old=deferred();state.api.listQualityIssues.mockReturnValueOnce(old.promise);const w=page(Overview);try{await settle();expect((w.vm as any).aggregateLoading).toBe(true);(w.vm as any).cancelAggregate();expect((w.vm as any).aggregateLoading).toBe(false);await (w.vm as any).refresh();await settle();expect((w.vm as any).aggregateComplete).toBe(true);old.resolve({data:{records:[{...v3rows[0],id:999}],total:2}});await settle();expect((w.vm as any).aggregateRows.map((r:any)=>r.id)).toEqual([71,72,73])}finally{w.unmount()}})
+it('V3明细读取403清除已取得摘要，不留下无权问题计数',async()=>{completeV3();state.api.listQualityIssues.mockRejectedValue(Object.assign(new Error('拒绝'),{response:{status:403}}));const w=page(Overview);try{await settle();expect((w.vm as any).issueSummary).toBeNull();expect((w.vm as any).aggregateRows).toEqual([]);expect((w.vm as any).issueError).toContain('拒绝')}finally{w.unmount()}})
+it('V3选择弹层打开后明细403应关闭弹层，不能沿旧授权继续导航',async()=>{completeV3();state.router.push.mockReset();const pending=deferred();state.api.listQualityIssues.mockReturnValueOnce(pending.promise);const w=page(Overview);try{await settle();(w.vm as any).openPlot({issueDomain:'SOURCE'});expect((w.vm as any).plotChoice).not.toBeNull();pending.reject(Object.assign(new Error('拒绝'),{response:{status:403}}));await settle();expect((w.vm as any).plotChoice).toBeNull();(w.vm as any).chooseStatus('OPEN');expect(state.router.push).not.toHaveBeenCalled()}finally{w.unmount()}})

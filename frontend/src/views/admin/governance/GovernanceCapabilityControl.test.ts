@@ -1476,7 +1476,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
   it('知识治理入口进入当前范围的任务，不自动执行来源质量检查', async()=>{
     respond(capability({onDatasource:['metadata:view','governance:view','governance:field:view']}))
     const wrapper=mountPage(QualityDashboard);await settle()
-    const entry=wrapper.findAll('button').find(button=>button.text()==='开始知识治理')
+    const entry=wrapper.findAll('button').find(button=>button.text()==='字段治理')
     expect(entry).toBeDefined();await entry!.trigger('click');await settle()
     expect(routeState.push).toHaveBeenCalledWith(expect.objectContaining({path:'/admin/governance/fields',query:expect.objectContaining({tab:'tasks',datasourceId:5,snapshotId:8})}))
     expect(api.triggerQualityCheck).not.toHaveBeenCalled()

@@ -167,7 +167,7 @@ export const issueStatusLabels: Record<string, string> = {
   CONFIRMED: '已确认',
   RESOLVED: '已解决',
   REJECTED: '已驳回',
-  REOPENED: '已重新打开',
+  REOPENED: '需重新处理',
   AUTO_CLOSED: '自动关闭',
 }
 

@@ -235,7 +235,7 @@ const statusOptions = [
   { label: '已确认', value: 'CONFIRMED' },
   { label: '已解决', value: 'RESOLVED' },
   { label: '已驳回', value: 'REJECTED' },
-  { label: '已重新打开', value: 'REOPENED' },
+  { label: issueStatusLabel('REOPENED'), value: 'REOPENED' },
   { label: '自动关闭', value: 'AUTO_CLOSED' },
 ]
 const issueDomainOptions = [
