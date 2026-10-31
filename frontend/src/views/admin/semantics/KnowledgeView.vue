@@ -140,11 +140,12 @@ let generationRequestId = 0
 onBeforeUnmount(() => { closeOwnedConfirm(); closeBuild(); disposed = true; scopeEpoch++; requestId++; snapshotRequestId++; generationRequestId++ })
 
 const datasourceId = computed(() => context.datasourceId)
+const KNOWLEDGE_VIEW_DENIED = '没有当前数据源的knowledge:view。'
 const scopeError=computed(()=>{
   if(iamS1.errorMessage)return iamS1.errorMessage
   const raw=route.query.datasourceId
   if(raw!=null && (typeof raw!=='string' || !Number.isSafeInteger(Number(raw)) || Number(raw)<=0 || Number(raw)!==datasourceId.value))return '指定数据源尚未核验，未改用其他范围。'
-  if(iamS1.loaded && datasourceId.value && !iamS1.systemAdmin && !iamS1.datasourcesWithFunction('knowledge:view').includes(datasourceId.value))return '没有当前数据源的knowledge:view。'
+  if(iamS1.loaded && datasourceId.value && !iamS1.systemAdmin && !iamS1.datasourcesWithFunction('knowledge:view').includes(datasourceId.value))return KNOWLEDGE_VIEW_DENIED
   return ''
 })
 const scopeReady=computed(()=>iamS1.loaded && !scopeError.value && !context.routeSyncing && !context.loading)
@@ -212,6 +213,7 @@ function closeBuild(){buildSequence++;buildVisible.value=false;buildOptionsLoadi
 const canGenerateSnapshot = computed(() => canGenerateForDatasource(datasourceId.value))
 // A single-source count uses the same authorized records shown below, not datasource:view readiness.
 const activeIndexSummary = computed(() => {
+  if (scopeError.value) return { value: iamS1.errorMessage ? '读取失败' : scopeError.value===KNOWLEDGE_VIEW_DENIED ? '无权查看' : '范围不可用', hint: scopeError.value }
   if (!datasourceId.value) return { value: '未汇总', hint: '选择单个数据源，查看该来源的活动索引。' }
   if (!scopeReady.value) return { value: '核验中', hint: '正在核验知识查看范围。' }
   if (ragBuildsLoading.value) return { value: '读取中', hint: '正在读取当前来源的构建记录。' }
@@ -219,6 +221,7 @@ const activeIndexSummary = computed(() => {
   return { value: String(ragBuilds.value.filter(row => row.status === 'ACTIVE').length), hint: '按当前来源可见的构建记录统计；活动状态不代表所有业务口径已验证。' }
 })
 const buildBlockedReason = computed(() => {
+  if (scopeError.value) return scopeError.value
   if (!scopeReady.value) return '正在核验知识范围，暂不能准备构建。'
   if (!datasourceId.value) return '请先选择一个数据源。'
   if (!canPublishForDatasource(datasourceId.value)) return '需要当前数据源的 knowledge:publish（发布知识文档）能力；可继续查看已授权的构建记录。'

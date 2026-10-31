@@ -98,6 +98,47 @@ it('without ACTIVE the index has an honest empty state until a historical record
  const w=await render(List);expect(w.find('[data-testid="selected-rag-build"]').exists()).toBe(false);expect(w.text()).toContain('当前没有活动索引')
  await w.get('[data-build-id="FAILED_ONLY"]').trigger('click');expect(w.get('[data-testid="selected-rag-build"]').text()).toContain('FAILED_ONLY');expect(w.get('[data-testid="selected-rag-build"]').text()).toContain('非活动')
 })
+it('known source denial takes priority over checking without granting publish-only access',async()=>{
+ route.query.tab='index';context.datasourceId=2;route.query.datasourceId='2';iam.codes={'knowledge:view':[1],'knowledge:publish':[2]}
+ const w=await render(List)
+ expect(w.get('#rag-build-reason').text()).toBe('没有当前数据源的knowledge:view。')
+ expect(button(w,'准备构建').attributes('disabled')).toBeDefined()
+ expect(w.find('.knowledge-page__stats').exists()).toBe(false)
+ expect((w.vm as any).activeIndexSummary).toEqual({value:'无权查看',hint:'没有当前数据源的knowledge:view。'})
+ expect(h.api.listRagBuilds).not.toHaveBeenCalled();expect(h.api.confirmRagBuild).not.toHaveBeenCalled()
+})
+it.each(['resolve','reject'])('late previous-source build %s cannot replace the new source denial',async(outcome)=>{
+ route.query.tab='index';iam.codes={'knowledge:view':[1],'knowledge:publish':[1,2]}
+ const d=deferred();h.api.listRagBuilds.mockReturnValueOnce(d.promise)
+ const w=await render(List);context.datasourceId=2;route.query.datasourceId='2';await settle()
+ if(outcome==='resolve')d.resolve({data:[{buildId:'OLD_SOURCE_ACTIVE',datasourceId:1,sourceSnapshotId:11,status:'ACTIVE'}]})
+ else d.reject(new Error('OLD_SOURCE_NETWORK_FAILURE'))
+ await settle()
+ expect(w.get('#rag-build-reason').text()).toBe('没有当前数据源的knowledge:view。')
+ expect(w.text()).not.toContain('OLD_SOURCE_ACTIVE');expect(w.text()).not.toContain('OLD_SOURCE_NETWORK_FAILURE')
+ expect(w.find('[data-testid="selected-rag-build"]').exists()).toBe(false)
+ expect(h.api.listRagBuilds).not.toHaveBeenCalledWith(2);expect(h.api.confirmRagBuild).not.toHaveBeenCalled()
+})
+it('capability network failure is unknown/read failure rather than forbidden or perpetual checking',async()=>{
+ route.query.tab='index';iam.loaded=false;iam.errorMessage='能力服务网络异常，当前范围未知'
+ const w=await render(List)
+ expect(w.get('#rag-build-reason').text()).toBe(iam.errorMessage)
+ expect(button(w,'准备构建').attributes('disabled')).toBeDefined()
+ expect(w.find('.knowledge-page__stats').exists()).toBe(false)
+ expect((w.vm as any).activeIndexSummary).toEqual({value:'读取失败',hint:iam.errorMessage});expect(w.text()).not.toContain('没有当前数据源的knowledge:view')
+ expect(h.api.listRagBuilds).not.toHaveBeenCalled()
+})
+it('an unresolved initial capability read keeps the genuine checking state',async()=>{
+ route.query.tab='index';iam.loaded=false
+ const w=await render(List);expect(w.get('#rag-build-reason').text()).toContain('正在核验知识范围')
+ expect(button(w,'准备构建').attributes('disabled')).toBeDefined();expect(h.api.confirmRagBuild).not.toHaveBeenCalled()
+})
+it('an explicit scope mismatch is an unavailable scope rather than a pending check',async()=>{
+ route.query.tab='index';route.query.datasourceId='99'
+ const w=await render(List);expect(w.get('#rag-build-reason').text()).toBe('指定数据源尚未核验，未改用其他范围。')
+ expect(w.find('.knowledge-page__stats').exists()).toBe(false)
+ expect((w.vm as any).activeIndexSummary).toEqual({value:'范围不可用',hint:'指定数据源尚未核验，未改用其他范围。'});expect(h.api.listRagBuilds).not.toHaveBeenCalled()
+})
 it('restricted knowledge reader gets the active index count from the same visible build records',async()=>{
  iam.codes={'knowledge:view':[1]};route.query.tab='index';const w=await render(List)
  const stat=w.findAll('.stat').find(x=>x.text().includes('已生效知识索引'))!
