@@ -56,8 +56,8 @@ watch(() => route.query.tab, (tab) => {
 <template>
   <main class="governance-fields-page post-login-page governance-workspace governance-fields-v2">
     <TaskPageHeader
-      title="字段治理"
-      eyebrow="数据治理 / 知识与反馈" description="把知识缺口变成可处理的任务，逐项核对、审核并复查。" description-mode="inline" help="字段业务解释在语义中心的字段解释工作区，脱敏候选在授权配置的字段保护中。"
+      :title="activeTab==='business' ? '业务知识' : '字段治理'"
+      eyebrow="数据治理 / 知识与反馈" :description="activeTab==='business' ? '核对数据源用途、表粒度、关系与指标事实，再审核和复查。' : '把知识缺口变成可处理的任务，逐项核对、审核并复查。'" description-mode="inline" help="字段业务解释在语义中心的字段解释工作区，脱敏候选在授权配置的字段保护中。"
     />
 
     <LoadingState v-if="scopeLoading" text="正在核验数据源、快照与能力…" />

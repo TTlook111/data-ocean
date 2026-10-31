@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAdminContextStore } from '../../stores/adminContext'
@@ -16,6 +16,7 @@ import {
 } from '../../api/admin/governanceWorkflow'
 import { listSnapshotTables, listSnapshotTableColumns } from '../../api/admin/governance'
 import GovernanceHistoryDialog from './GovernanceHistoryDialog.vue'
+import ExpandableText from '../common/ExpandableText.vue'
 import { useGovernanceScope } from '../../composables/useGovernanceScope'
 import { trackGovernanceWrite } from '../../composables/governanceWriteTracker'
 import { trackKnowledgeWrite, pendingKnowledgeWrites } from '../../composables/knowledgeWriteTracker'
@@ -61,6 +62,23 @@ const visibleRows = computed(() =>
     : rows.value.filter((row) => !['SUPERSEDED_DRAFT', 'SUPERSEDED'].includes(row.status)),
 )
 const historyId = ref<number>()
+const selectedFactId = ref<number>(), readerOpen = ref(false), readerRoot = ref<HTMLElement>(), workbenchRoot = ref<HTMLElement>()
+const selectedFact = computed(() => rows.value.find(row => row.id === selectedFactId.value))
+async function selectFact(row: BusinessKnowledge) {
+  if (!canView.value || busy.value || !rows.value.some(item => item.id === row.id)) return
+  selectedFactId.value = row.id; readerOpen.value = true; historyId.value = undefined
+  await nextTick(); readerRoot.value?.focus()
+}
+async function returnToFacts() {
+  readerOpen.value = false; historyId.value = undefined
+  await nextTick(); workbenchRoot.value?.querySelector<HTMLButtonElement>(`[data-fact-id="${selectedFactId.value}"]`)?.focus()
+}
+function toggleFactHistory(event: Event) {
+  const element = event.currentTarget as HTMLDetailsElement
+  const id = Number(element.dataset.revisionId)
+  if (!canView.value || !readerOpen.value || selectedFact.value?.id !== id) return
+  historyId.value = element.open ? id : undefined
+}
 const savedEvidence = ref<BusinessKnowledge['evidenceConfirmation']>()
 const sourceInfo = ref<BusinessSourceStatus>(),
   sourceLoading = ref(false),
@@ -120,7 +138,7 @@ let epoch = 0,
   operation = 0,
   sourceRequest = 0,
   disposed = false
-useAdminScrollLock(() => dialog.value || !!historyId.value || !!actionTarget.value)
+useAdminScrollLock(() => dialog.value || !!actionTarget.value)
 async function load(reset = true) {
   const ticket = ++epoch,
     snapshot = context.snapshotId,
@@ -494,6 +512,7 @@ watch(
 watch(
   scope.generation,
   () => {
+    selectedFactId.value = undefined; readerOpen.value = false; historyId.value = undefined
     operation++
     busy.value = false
     actionTarget.value = undefined
@@ -511,113 +530,64 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <section class="business-workbench">
+  <section ref="workbenchRoot" class="business-workbench">
     <GovernanceWriteNotice />
-    <div class="business-contract">
-      <strong>对象事实 → 人工审核 → 同修订复查 → 主题文档</strong>
-      <p>AI只整理候选；有效业务知识用于生成文档，文档审核发布与RAG构建仍是独立操作。</p>
-    </div>
     <p v-if="scope.scopeIssue.value" role="status">{{ scope.scopeIssue.value }}</p>
-    <p v-if="generationWrite" role="status">
-      当前源/快照有执行中或结果未知的整组生成，请先到文档工作区核对；不能重复生成。
-    </p>
-    <div class="business-heading">
-      <div>
-        <h3>业务知识</h3>
-        <p>先确认数据源用途、表粒度、关系和指标，再生成可追溯的知识文档。</p>
-      </div>
-      <div>
+    <p v-if="generationWrite" role="status">当前源/快照有执行中或结果未知的整组生成，请先到文档工作区核对；不能重复生成。</p>
+    <header class="business-heading">
+      <div><h3>{{ readerOpen ? '业务事实详情' : '当前业务事实' }}</h3><p>先核对事实、阶段与依据，再决定是否修订。</p></div>
+      <div class="business-workspace-actions">
         <el-button :disabled="!canView || busy" @click="load">刷新</el-button>
-        <el-button :disabled="!canView || busy" @click="openDocuments">文档与构建</el-button>
-        <el-button :disabled="!canManage || busy || generationWrite" @click="generateDocuments">
-          生成主题文档
-        </el-button>
-        <el-button type="primary" :disabled="!canManage || busy" @click="open()">补充业务知识</el-button>
+        <el-button v-if="!readerOpen" type="primary" :disabled="!canManage || busy" @click="open()">补充业务知识</el-button>
+        <details class="business-more"><summary>文档与工作区操作</summary><div><el-button :disabled="!canView || busy" @click="openDocuments">文档与构建</el-button><el-button :disabled="!canManage || busy || generationWrite" @click="generateDocuments">生成主题文档</el-button></div></details>
       </div>
-    </div>
-    <el-checkbox v-if="canView && !error && historicalCount" v-model="showHistory">
-      显示历史修订（{{ historicalCount }}）
-    </el-checkbox>
+    </header>
+    <p v-if="!canManage && canView" class="business-permission-note">当前可查看；维护、生成与提交需要当前数据源的 knowledge:manage。审核与维护能力分别核验。</p>
     <p v-if="!ready">请先选择数据源与快照。</p>
     <p v-else-if="!canView">没有当前范围的知识查看权限。</p>
     <p v-else-if="error" role="alert">{{ error }}</p>
-    <el-table
-      v-else
-      :data="visibleRows"
-      v-loading="loading"
-      empty-text="尚无业务知识，请补充已有资料，或让 AI 整理首轮候选。"
-    >
-      <el-table-column prop="title" label="知识主题" min-width="180" />
-      <el-table-column label="类型" width="140">
-        <template #default="{ row }">{{ kinds[row.kind] }}</template>
-      </el-table-column>
-      <el-table-column label="起草来源" width="125">
-        <template #default="{ row }">
-          {{
-            row.origin === 'AI'
-              ? 'AI 起草'
-              : row.origin === 'SYSTEM'
-                ? '系统发现'
-                : row.origin === 'MANUAL'
-                  ? '人工修订'
-                  : row.origin || '未提供'
-          }}
-        </template>
-      </el-table-column>
-      <el-table-column label="阶段" width="130">
-        <template #default="{ row }">
-          {{ row.effectiveStatus === 'NEEDS_REVIEW' ? '来源需复核' : statusLabels[row.status] || row.status }}
-        </template>
-      </el-table-column>
-      <el-table-column label="待确认" width="100">
-        <template #default="{ row }">{{ row.unresolvedItems.length }} 项</template>
-      </el-table-column>
-      <el-table-column label="操作" min-width="270">
-        <template #default="{ row }">
-          <el-button link type="primary" :disabled="busy" @click="open(row)">
-            {{ canManage ? '查看与修订' : '查看' }}
-          </el-button>
-          <el-button link :disabled="busy" @click="historyId = row.id">操作记录</el-button>
-          <el-button
-            v-if="row.status === 'DRAFT'"
-            link
-            :disabled="!canManage || busy"
-            @click="action(row, 'SUBMIT')"
-          >
-            提交审核
-          </el-button>
-          <el-button
-            v-if="['DRAFT', 'REJECTED'].includes(row.status)"
-            link
-            :disabled="!canManage || busy"
-            @click="action(row, 'NOT_APPLICABLE')"
-          >
-            标记不适用
-          </el-button>
-          <template v-if="row.status === 'PENDING_REVIEW'">
-            <el-button link :disabled="!canApprove || busy" @click="action(row, 'APPROVE')">通过</el-button>
-            <el-button link :disabled="!canApprove || busy" @click="action(row, 'REJECT')">退回</el-button>
-          </template>
-          <el-button
-            v-if="row.status === 'APPROVED'"
-            link
-            :disabled="!canManage || busy"
-            @click="action(row, 'RECHECK')"
-          >
-            系统复查
-          </el-button>
-          <el-button
-            v-if="row.status === 'VALID'"
-            link
-            type="danger"
-            :disabled="!canManage || !canApprove || busy"
-            @click="action(row, 'REVOKE')"
-          >
-            撤回
-          </el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    <p v-else-if="loading" role="status">正在读取当前来源的业务事实…</p>
+    <section v-else-if="readerOpen && selectedFact" ref="readerRoot" tabindex="-1" class="business-fact-reader" data-testid="business-fact-reader">
+      <button class="business-back" type="button" @click="returnToFacts">← 返回事实列表</button>
+      <header class="business-reader-heading"><div><p>{{ kinds[selectedFact.kind] || selectedFact.kind }} · 修订 #{{ selectedFact.id }}</p><h2>{{ selectedFact.title }}</h2></div><el-tag :type="selectedFact.status==='REVOKED' ? 'danger' : selectedFact.status==='VALID' && selectedFact.effectiveStatus!=='NEEDS_REVIEW' ? 'success' : 'info'">{{ selectedFact.effectiveStatus==='NEEDS_REVIEW' ? '来源需复核' : statusLabels[selectedFact.status] || selectedFact.status }}</el-tag></header>
+      <p class="business-pending-count">{{ Array.isArray(selectedFact.unresolvedItems) ? selectedFact.unresolvedItems.length+' 项待确认' : '待确认数未提供' }} · 待确认数不代表发布或索引完成。</p>
+      <p v-if="selectedFact.status==='REVOKED'" role="status" class="business-withdrawn-note">此事实已撤回，不能作为当前有效业务知识。待确认0也不代表有效。</p>
+      <p v-if="selectedFact.effectiveStatus==='NEEDS_REVIEW'" role="alert">当前来源需要复核，不能把旧修订自动视为适用于当前来源。</p>
+      <dl class="business-reading-facts">
+        <div v-for="(value,key) in selectedFact.body || {}" :key="key"><dt>{{ labels[key] || key }}</dt><dd><ExpandableText :text="value" /></dd></div>
+        <div><dt>作用对象与依赖</dt><dd><span v-if="selectedFact.dependencies?.length">{{ selectedFact.dependencies.map(value=>value.replace(/^(table:|column:)/,'')).join(' · ') }}</span><span v-else>本修订未返回依赖对象。</span></dd></div>
+        <div><dt>原始依据</dt><dd><ExpandableText :text="selectedFact.evidence" /></dd></div>
+        <div v-if="selectedFact.evidenceConfirmation?.reference"><dt>资料引用</dt><dd><ExpandableText :text="selectedFact.evidenceConfirmation.reference" /></dd></div>
+      </dl>
+      <ul v-if="selectedFact.unresolvedItems?.length" class="business-unresolved"><li v-for="(item,index) in selectedFact.unresolvedItems" :key="index">{{ item }}</li></ul>
+      <details :key="selectedFact.id" :data-revision-id="selectedFact.id" class="business-inline-history" :open="historyId===selectedFact.id" @toggle="toggleFactHistory">
+        <summary>审核、复查与修订记录</summary><GovernanceHistoryDialog v-if="historyId===selectedFact.id" :id="selectedFact.id" kind="BUSINESS" embedded @close="historyId=undefined" />
+      </details>
+      <footer class="business-reader-actions">
+        <div><p v-if="selectedFact.status==='VALID' && selectedFact.effectiveStatus!=='NEEDS_REVIEW'">当前事实复查通过，无需重复审核。需要调整内容时开始新修订。</p><p v-else-if="selectedFact.status==='APPROVED'">人工审核通过，下一步复查同一修订。</p><p v-else-if="selectedFact.status==='PENDING_REVIEW'">核对原始依据后审核；审核权不等于维护或发布权。</p><p v-else>核对当前阶段与来源依据，再决定是否修订或提交。</p></div>
+        <div class="business-object-actions">
+          <el-button :disabled="!canManage || busy" @click="open(selectedFact)">开始新修订</el-button>
+          <el-button v-if="selectedFact.status==='DRAFT'" :disabled="!canManage || busy" @click="action(selectedFact,'SUBMIT')">提交审核</el-button>
+          <el-button v-if="['DRAFT','REJECTED'].includes(selectedFact.status)" :disabled="!canManage || busy" @click="action(selectedFact,'NOT_APPLICABLE')">标记不适用</el-button>
+          <template v-if="selectedFact.status==='PENDING_REVIEW'"><el-button :disabled="!canApprove || busy" @click="action(selectedFact,'APPROVE')">审核通过</el-button><el-button :disabled="!canApprove || busy" @click="action(selectedFact,'REJECT')">退回修订</el-button></template>
+          <el-button v-if="selectedFact.status==='APPROVED'" type="primary" :disabled="!canManage || busy" @click="action(selectedFact,'RECHECK')">系统复查</el-button>
+          <details v-if="selectedFact.status==='VALID'" class="business-more"><summary>维护操作</summary><div><el-button type="danger" :disabled="!canManage || !canApprove || busy" @click="action(selectedFact,'REVOKE')">撤回</el-button></div></details>
+        </div>
+      </footer>
+      <p v-if="selectedFact.status==='PENDING_REVIEW' && !canApprove" class="business-permission-note">当前数据源没有 knowledge:approve；可阅读依据，不能审核此修订。</p>
+      <p v-if="selectedFact.status==='VALID' && (!canManage || !canApprove)" class="business-permission-note">撤回有效事实需要当前源的 knowledge:manage 与 knowledge:approve 同时成立。</p>
+    </section>
+    <template v-else>
+      <el-checkbox v-if="historicalCount" v-model="showHistory">显示历史修订（{{ historicalCount }}）</el-checkbox>
+      <p v-if="!visibleRows.length">尚无业务知识，请补充已有资料，或让 AI 整理首轮候选。</p>
+      <div v-else class="business-fact-list" aria-label="业务事实列表">
+        <button v-for="row in visibleRows" :key="row.id" type="button" :data-fact-id="row.id" :class="{'last-selected':selectedFactId===row.id}" @click="selectFact(row)">
+          <div class="business-list-title"><strong :title="row.title">{{ row.title }}</strong><span>{{ kinds[row.kind] || row.kind || '类型未提供' }}</span></div>
+          <div class="business-list-state"><span :class="{'is-revoked':row.status==='REVOKED'}">{{ row.effectiveStatus==='NEEDS_REVIEW' ? '来源需复核' : statusLabels[row.status] || row.status }}</span><small>{{ Array.isArray(row.unresolvedItems) ? row.unresolvedItems.length+' 项待确认' : '待确认数未提供' }}</small></div><span class="business-list-open">查看详情 →</span>
+        </button>
+      </div>
+    </template>
+    <details class="business-contract"><summary>业务事实如何进入知识文档</summary><p>对象事实 → 人工审核 → 同修订复查 → 主题文档。文档审核、发布与RAG构建仍是独立操作。</p></details>
     <el-dialog
       v-model="dialog"
       :show-close="!busy"
@@ -747,7 +717,7 @@ onBeforeUnmount(() => {
         </template>
       </section>
       <template #footer>
-        <el-button :disabled="busy" @click="dialog = false">关闭</el-button>
+        <el-button :disabled="busy" @click="dialog = false">取消修订</el-button>
         <template v-if="canManage">
           <el-button
             :loading="busy"
@@ -797,12 +767,6 @@ onBeforeUnmount(() => {
         </el-button>
       </template>
     </el-dialog>
-    <GovernanceHistoryDialog
-      v-if="historyId"
-      :id="historyId"
-      kind="BUSINESS"
-      @close="historyId = undefined"
-    />
   </section>
 </template>
 <style scoped>
@@ -863,4 +827,25 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
   font-size: 13px;
 }
+
+.business-workbench{padding:0;border:0;border-radius:0;background:transparent;}
+.business-heading{align-items:start;}.business-heading p{margin:7px 0 0;color:var(--do-muted);font-size:12px;}
+.business-workspace-actions{display:flex;gap:8px;align-items:start;flex-wrap:wrap;}
+.business-more{font-size:12px;position:relative;}.business-more summary{cursor:pointer;color:var(--do-muted);padding:8px 5px;min-height:32px;}
+.business-more>div{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;}
+.business-permission-note{font-size:12px;color:var(--do-muted);margin:0;line-height:1.7;}
+.business-fact-list{border:1px solid var(--do-line);border-radius:7px;overflow:hidden;background:var(--do-surface);}
+.business-fact-list>button{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(170px,1fr) auto;gap:20px;align-items:center;width:100%;text-align:left;border:0;border-bottom:1px solid var(--do-line);background:transparent;padding:18px 22px;cursor:pointer;color:var(--do-ink);font:inherit;}
+.business-fact-list>button:last-child{border-bottom:0;}.business-fact-list>button:hover,.business-fact-list>button.last-selected{background:var(--do-soft);}
+.business-fact-list>button:focus-visible,.business-back:focus-visible{outline:2px solid var(--do-primary);outline-offset:-3px;}
+.business-list-title,.business-list-state{display:grid;gap:6px;min-width:0;}.business-list-title strong{font-size:14px;overflow-wrap:anywhere;}.business-list-title span,.business-list-state small{font-size:12px;color:var(--do-muted);}.business-list-state>span{font-size:13px;}.is-revoked{color:var(--do-danger);font-weight:600;}.business-list-open{font-size:12px;color:var(--do-primary-strong);}
+.business-fact-reader{padding:24px 26px;border:1px solid var(--do-line);border-radius:8px;background:var(--do-surface);min-width:0;}.business-fact-reader:focus{outline:none;}.business-fact-reader:focus-visible{outline:2px solid var(--do-primary);}
+.business-back{border:1px solid var(--do-line);border-radius:5px;padding:7px 10px;background:var(--do-surface);font:inherit;font-size:12px;color:var(--do-muted);cursor:pointer;margin-bottom:18px;}
+.business-reader-heading{display:flex;justify-content:space-between;align-items:start;gap:16px;}.business-reader-heading h2{font-size:23px;margin:4px 0 0;overflow-wrap:anywhere;}.business-reader-heading p,.business-pending-count{color:var(--do-muted);font-size:12px;margin:0;line-height:1.7;}
+.business-pending-count{margin:12px 0 22px;}.business-withdrawn-note{font-size:13px;color:var(--do-danger);border-left:3px solid var(--do-danger);padding:10px 14px;background:var(--do-soft);}
+.business-reading-facts{display:grid;gap:19px;margin:0 0 23px;}.business-reading-facts>div{display:grid;grid-template-columns:130px minmax(0,1fr);gap:14px;}.business-reading-facts dt{color:var(--do-muted);font-size:12px;}.business-reading-facts dd{margin:0;min-width:0;font-size:14px;line-height:1.85;overflow-wrap:anywhere;}
+.business-inline-history{padding:17px 0;border-top:1px solid var(--do-line);}.business-inline-history summary{cursor:pointer;min-height:28px;font-size:13px;color:var(--do-muted);}
+.business-reader-actions{border-top:1px solid var(--do-line);padding-top:18px;display:flex;align-items:start;justify-content:space-between;gap:18px;}.business-reader-actions p{font-size:12px;color:var(--do-muted);line-height:1.7;margin:0;}.business-object-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;}.business-object-actions>.el-button{margin:0;}
+.business-contract{border-top:1px solid var(--do-line);padding-top:13px;font-size:12px;color:var(--do-muted);}.business-contract summary{cursor:pointer;min-height:28px;}
+@media(max-width:760px){.business-heading{display:grid;grid-template-columns:1fr;}.business-workspace-actions{display:grid;grid-template-columns:1fr 1fr;width:100%;}.business-workspace-actions>.el-button{width:100%;min-height:44px;margin:0;}.business-workspace-actions>.business-more{grid-column:1/-1;}.business-fact-list>button{grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:16px;}.business-list-title{grid-column:1/-1;}.business-list-state{gap:5px;}.business-list-open{align-self:end;}.business-fact-reader{padding:17px;}.business-reader-heading{flex-wrap:wrap;}.business-reader-heading h2{font-size:20px;}.business-reading-facts>div{grid-template-columns:minmax(0,1fr);gap:4px;}.business-reader-actions{display:grid;grid-template-columns:1fr;}.business-object-actions{justify-content:start;width:100%;}.business-object-actions>.el-button{min-height:44px;flex:1;}.business-back{min-height:44px;}}
 </style>

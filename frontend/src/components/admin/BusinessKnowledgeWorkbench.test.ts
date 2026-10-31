@@ -37,6 +37,7 @@ function page() {
     global: {
       stubs: {
         ElButton: true,
+        ElTag: true,
         ElTable: { props: ['data'], template: '<div>{{data.map(row => row.title).join("|")}}</div>' },
         ElTableColumn: true,
         ElDialog: true,

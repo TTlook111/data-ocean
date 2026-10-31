@@ -70,7 +70,7 @@ async function settle() {
   await flushPromises()
 }
 function page(c: any = Business, props = {}) {
-  return shallowMount(c, { props, global: { plugins: [ElementPlus] } })
+  return shallowMount(c, { props, global: { plugins: [ElementPlus], stubs: { ExpandableText: false } } })
 }
 beforeEach(() => {
   vi.restoreAllMocks()
@@ -119,6 +119,12 @@ it('同范围换账号旧列表不得覆盖新列表', async () => {
   await settle()
   expect((w.vm as any).rows[0].id).toBe(72)
   w.unmount()
+})
+it('选择事实默认只读，不加载编辑目录；新修订取消保留原对象',async()=>{
+ const w=page();await settle();(w.vm as any).selectFact(row);await settle();expect(w.get('[data-testid="business-fact-reader"]').text()).toContain('一张订单一行');expect((w.vm as any).dialog).toBe(false);expect(s.api.listSnapshotTables).not.toHaveBeenCalled();await (w.vm as any).open(row);(w.vm as any).dialog=false;await settle();expect((w.vm as any).selectedFact.id).toBe(71);expect(s.api.saveBusinessKnowledge).not.toHaveBeenCalled();w.unmount()
+})
+it('事实阅读随账号与范围立即失效，不保留旧对象内容',async()=>{
+ const w=page();await settle();(w.vm as any).selectFact(row);await settle();reactive(s.context).datasourceId=9;await settle();expect((w.vm as any).selectedFact).toBeUndefined();expect(w.find('[data-testid="business-fact-reader"]').exists()).toBe(false);w.unmount()
 })
 it('关闭重开同修订，旧目录和来源回包不能填入新会话', async () => {
   const a = deferred(),

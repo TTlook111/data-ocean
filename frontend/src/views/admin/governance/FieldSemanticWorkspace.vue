@@ -448,6 +448,7 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
         <div class="field-semantic-reference">
         <section class="field-semantic-card field-semantic-card--source">
           <div class="field-semantic-card__heading"><div><h3>{{ workspace.tableName }}.{{ workspace.columnName }}</h3><p>{{ workspace.dataType || '类型未记录' }} · 治理状态 {{ governanceStatusLabel(workspace.governanceStatus) }}</p></div><el-tag :type="isEffective ? 'success' : workspace.bindingStatus === 'VALID' ? 'warning' : 'info'">{{ isEffective ? '当前解释有效' : workspace.effectiveStatus === 'NEEDS_REVIEW' ? '来源需复核' : '尚无有效解释' }}</el-tag></div>
+          <p v-if="workspace.bindingStatus!=='VALID' && workspace.bindingReason" role="alert">{{ bindingLabel(workspace.bindingStatus) }} · {{ workspace.bindingReason }}</p>
           <details class="field-source-disclosure"><summary>原始注释与来源绑定</summary><div class="field-semantic-card__source-notes"><div><span>原始采集注释</span><p>{{ workspace.rawColumnComment || '原始注释为空' }}</p></div><div><span>当前快照绑定</span><p>{{ bindingLabel(workspace.bindingStatus) }}<template v-if="workspace.bindingReason"> · {{ workspace.bindingReason }}</template></p></div></div></details>
         </section>
         <FieldGovernanceProgress :column-id="workspace.columnMetaId" :snapshot-id="workspace.snapshotId" :version="workspace.rowVersion" :check-id="latestCheck?.id" :can-open-tags="canReadDirectory && canViewField" @open-tags="openTags" />

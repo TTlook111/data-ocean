@@ -3,7 +3,7 @@ import { ref, watch } from 'vue'
 import { readGovernanceHistory, type GovernanceHistoryRow } from '../../api/admin/governanceWorkflow'
 import { useGovernanceScope } from '../../composables/useGovernanceScope'
 const scope = useGovernanceScope()
-const props = defineProps<{ id: number; kind: 'BUSINESS' | 'FEEDBACK' }>()
+const props = defineProps<{ id: number; kind: 'BUSINESS' | 'FEEDBACK'; embedded?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 const rows = ref<GovernanceHistoryRow[]>([]),
   loading = ref(false),
@@ -55,6 +55,7 @@ watch(
 </script>
 <template>
   <el-dialog
+    v-if="!embedded"
     :model-value="true"
     title="操作与审核记录"
     width="min(720px,94vw)"
@@ -87,6 +88,16 @@ watch(
     <p v-if="rows.length >= 100">当前展示最近 100 条操作记录。</p>
     <template #footer><el-button @click="emit('close')">关闭</el-button></template>
   </el-dialog>
+  <section v-else class="governance-history-panel" aria-label="操作与审核记录">
+    <p v-if="loading" role="status">正在读取真实操作记录…</p>
+    <p v-else-if="error" role="alert">{{ error }}</p>
+    <p v-else-if="!rows.length">暂无操作记录。</p>
+    <ol v-else class="governance-history">
+      <li v-for="row in rows" :key="row.id"><div><strong>{{ actions[row.action] || row.action }}</strong><time>{{ row.createdAt.replace('T',' ') }}</time></div><p>{{ row.payload.note || row.payload.comment || (row.payload.origin==='AI' ? 'AI 整理的待确认候选' : row.payload.origin==='SYSTEM' ? '规则发现的业务知识缺口' : '本次操作已留存来源和版本证据') }}</p><small>操作者编号 {{ row.operatorId }}</small></li>
+    </ol>
+    <p v-if="rows.length>=100">当前展示最近 100 条操作记录。</p>
+    <el-button @click="emit('close')">收起记录</el-button>
+  </section>
 </template>
 <style scoped>
 .governance-history {
