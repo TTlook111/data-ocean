@@ -74,7 +74,8 @@ describe('后台任务与未知状态', () => {
     const wrapper = await render(AdminHomeView)
     expect(wrapper.text()).toContain('准备情况暂不可用')
     expect(wrapper.text()).not.toContain('当前没有阻断项')
-    expect(wrapper.findAll('dd').slice(0, 3).every(item => item.text() === '—')).toBe(true)
+    expect(wrapper.findAll('[data-source-choice] .condition.unknown')).toHaveLength(5)
+    expect(wrapper.find('[data-source-detail]').text()).toContain('待确认')
   })
   it('部分数据源读取失败时保留未知对象，不把已知结果当作全部成功', async () => {
     api.listSimpleDatasources.mockResolvedValue({ data: [{ id: 1, name: '销售库' }, { id: 2, name: '未确认库' }] })

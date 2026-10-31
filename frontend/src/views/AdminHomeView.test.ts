@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import ElementPlus from 'element-plus'
+import { createPinia } from 'pinia'
 
 const api = vi.hoisted(() => ({
   getDashboardStats: vi.fn(),
@@ -72,7 +73,7 @@ function readiness() {
 function mountPage() {
   return mount(AdminHomeView, {
     global: {
-      plugins: [ElementPlus],
+      plugins: [createPinia(), ElementPlus],
       stubs: {
         TaskPageHeader: { props: ['title'], template: '<header>{{ title }}</header>' },
         TitleHelp: true,
@@ -118,13 +119,13 @@ describe('工作台待处理事项', () => {
       expect(api.getBatchDatasourceReadiness).not.toHaveBeenCalled()
       expect(wrapper.text()).toContain('没有“查看工作台”功能')
       expect(wrapper.text()).not.toContain('管理数据源')
-      expect(wrapper.text()).not.toContain('审核知识文档')
+      expect(wrapper.text()).not.toContain('查阅知识文档')
       expect(wrapper.find('.workbench-stats').exists()).toBe(false)
     } finally { wrapper.unmount() }
   })
 
   it('当前工作台请求403时不继续展示业务快捷入口', async () => {
-    api.getDashboardStats.mockRejectedValue(Object.assign(new Error('工作台访问被拒绝'), { response: { status: 403 } }))
+    api.getDashboardStats.mockRejectedValue(Object.assign(new Error('工作台访问被拒绝'), { response: { status: 403, data: { message: '工作台访问被拒绝' } } }))
     const wrapper = mountPage()
     try {
       await settle()
@@ -138,11 +139,12 @@ describe('工作台待处理事项', () => {
     const wrapper = mountPage()
     await settle()
 
-    expect(wrapper.text()).toContain('待处理事项')
-    expect(wrapper.text()).toContain('销售库 需要处理')
+    expect(wrapper.findAll('[data-source-choice]')).toHaveLength(1)
+    expect(wrapper.find('[data-source-detail]').text()).toContain('销售库')
     expect(wrapper.text()).toContain('存在 2 条高危未解决治理问题')
-    expect(wrapper.text()).toContain('2 个治理问题待处理')
-    expect(wrapper.findAll('.workbench-pending__item')).toHaveLength(2)
+    expect(wrapper.find('.board-bottom b').text()).toBe('2')
+    expect(wrapper.findAll('.workbench-pending__item')).toHaveLength(0)
+    expect(wrapper.text()).toContain('负责范围')
   })
 
   it('有审批查看权时显示真实待审批数量', async () => {
@@ -152,8 +154,8 @@ describe('工作台待处理事项', () => {
     const wrapper = mountPage()
     await settle()
 
-    expect(api.listIamS1AccessRequestQueue).toHaveBeenCalledWith('PENDING', 1, 1)
-    expect(wrapper.text()).toContain('3 条访问申请待审批')
+    expect(api.listIamS1AccessRequestQueue).toHaveBeenCalledWith('PENDING', 1, 2)
+    expect(wrapper.text()).toContain('3 条负责范围申请待审批')
   })
 
   it('审批数量读取失败时显示原因而不是零', async () => {
@@ -183,7 +185,7 @@ describe('工作台待处理事项', () => {
     const wrapper = mountPage()
     await settle()
 
-    expect(wrapper.text()).toContain('审核知识文档')
-    expect(wrapper.text()).toContain('检查待发布版本')
+    expect(wrapper.text()).toContain('查阅知识文档')
+    expect(wrapper.text()).toContain('核对元数据版本')
   })
 })
