@@ -33,6 +33,8 @@ const glossaryOptionsLoading = ref(false), glossaryOptionsError = ref('')
 const listLoading = ref(false), columnsLoading = ref(false), workspaceLoading = ref(false)
 const actionLoading = ref(false), candidateLoading = ref(false), semanticCheckLoading = ref(false)
 const listError = ref(''), workspaceError = ref(''), manualError = ref(''), candidateError = ref(''), semanticCheckError = ref('')
+const invalidLocation = ref(false), reselecting = ref(false)
+const tableSelect = ref<{ focus: () => void }>()
 const reviewReason = ref(''), reviewEvidenceReference = ref(''), reviewEvidenceConfirmed = ref(false)
 const revokeReason = ref(''), bindingEvidence = ref(''), conflictMessage = ref('')
 const batchDialogVisible = ref(false), batchLoading = ref(false), batchSaving = ref(false)
@@ -106,21 +108,25 @@ function validateWorkspace(value: FieldSemanticWorkspace | undefined, t: Target)
 function baseWorkspace(value: FieldSemanticWorkspace) { const { draft, candidates, revisions, reviews, bindings, ...basic } = value; return basic }
 async function restoreLocation(listTicket = listRequest) {
   const location = ++locationRequest
+  if (invalidLocation.value) listError.value = ''
+  invalidLocation.value = false
   const scope = capture(), tableName = typeof route.query.tableName === 'string' ? route.query.tableName : ''
   const raw = route.query.columnMetaId, columnId = raw == null ? undefined : typeof raw === 'string' ? Number(raw) : NaN
-  if (columnId !== undefined && (!Number.isSafeInteger(columnId) || columnId <= 0 || !tableName)) { selectedColumnId.value = undefined; resetTarget(); listError.value = '指定字段标识或表上下文无效，未改用其他字段。'; return }
+  if (columnId !== undefined && (!Number.isSafeInteger(columnId) || columnId <= 0 || !tableName)) { selectedColumnId.value = undefined; resetTarget(); invalidLocation.value = true; listError.value = '指定字段标识或表上下文无效，未改用其他字段。'; return }
   if (!tableName) return
-  if (!tables.value.some(table => table.tableName === tableName)) { selectedTable.value = ''; columns.value = []; selectedColumnId.value = undefined; resetTarget(); listError.value = '指定表不属于当前可读快照，未改用其他表。'; return }
+  if (!tables.value.some(table => table.tableName === tableName)) { selectedTable.value = ''; columns.value = []; selectedColumnId.value = undefined; resetTarget(); invalidLocation.value = true; listError.value = '指定表不属于当前可读快照，未改用其他表。'; return }
   if (selectedTable.value !== tableName || !columns.value.length) await loadColumns(tableName)
   if (disposed || location !== locationRequest || listTicket !== listRequest || !isCurrent(scope) || selectedTable.value !== tableName || route.query.tableName !== tableName || (route.query.columnMetaId == null ? undefined : Number(route.query.columnMetaId)) !== columnId) return
+  // A failed directory read cannot establish that the requested field is absent.
+  if (listError.value) return
   if (columnId) {
-    if (!columns.value.some(column => column.id === columnId)) { selectedColumnId.value = undefined; resetTarget(); listError.value = '指定字段不属于当前表或无法读取，未改用其他字段。'; return }
+    if (!columns.value.some(column => column.id === columnId)) { selectedColumnId.value = undefined; resetTarget(); invalidLocation.value = true; listError.value = '指定字段不属于当前表或无法读取，未改用其他字段。'; return }
     selectedColumnId.value = columnId
   }
 }
 async function loadTables() {
   const request = ++listRequest, scope = capture(), snapshot = snapshotId.value
-  columnRequest++; tables.value = []; columns.value = []; selectedTable.value = ''; selectedColumnId.value = undefined; resetTarget(); listError.value = ''; listLoading.value = false; columnsLoading.value = false
+  columnRequest++; tables.value = []; columns.value = []; selectedTable.value = ''; selectedColumnId.value = undefined; resetTarget(); listError.value = ''; invalidLocation.value = false; reselecting.value = false; listLoading.value = false; columnsLoading.value = false
   if (!canViewField.value || !canReadDirectory.value || !snapshot) return
   listLoading.value = true
   const current = () => !disposed && request === listRequest && isCurrent(scope) && canViewField.value && canReadDirectory.value
@@ -144,6 +150,32 @@ async function loadColumns(tableName: string) {
 }
 function changeTable(name: string) { loadColumns(name); router.replace({ query: { ...route.query, tableName: name, columnMetaId: undefined } }) }
 function changeColumn(value: number) { router.replace({ query: { ...route.query, tableName: selectedTable.value, columnMetaId: String(value) } }) }
+async function reselectCurrentField() {
+  if (!invalidLocation.value || reselecting.value || !ready.value || !canReadDirectory.value || !canViewField.value) return
+  // Replacing object query keys also advances the shared generation. Keep the
+  // source/account/capability identity, then reload its directory after navigation.
+  const source = datasourceId.value, snapshot = snapshotId.value, token = auth.token, permissions = iamS1.snapshot
+  const current = () => !disposed && ready.value && source === datasourceId.value && snapshot === snapshotId.value && token === auth.token && permissions === iamS1.snapshot && canReadDirectory.value && canViewField.value
+  const previousQuery = route.query
+  reselecting.value = true
+  locationRequest++; columnRequest++; columnsLoading.value = false
+  selectedTable.value = ''; columns.value = []; selectedColumnId.value = undefined; resetTarget()
+  const { tableName: _table, columnMetaId: _column, ...query } = route.query
+  try {
+    await router.replace({ query })
+    if (!current()) return
+    if (route.query.tableName != null || route.query.columnMetaId != null) {
+      if (route.query === previousQuery) throw new Error('字段定位未能清除，请再次重新选择。')
+      return
+    }
+    invalidLocation.value = false; listError.value = ''
+    await loadTables()
+    await nextTick()
+    if (current() && !route.query.tableName && !route.query.columnMetaId) tableSelect.value?.focus()
+  } catch (error) {
+    if (current() && route.query === previousQuery) { invalidLocation.value = true; listError.value = errorMessage(error, '字段定位未能清除，请再次重新选择。') }
+  } finally { if (current()) reselecting.value = false }
+}
 async function loadWorkspace(columnId = selectedColumnId.value, keepForm = false, discardConfirmed = false) {
   if (!columnId || !snapshotId.value || !canViewField.value) return
   const preserveLocal = keepForm || (!discardConfirmed && (editorDirty.value || !!reviewReason.value || !!reviewEvidenceReference.value || reviewEvidenceConfirmed.value))
@@ -426,12 +458,18 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
     <EmptyState v-else-if="!snapshotId" message="请在公共范围栏明确选择快照后再整理字段解释。" />
     <EmptyState v-else-if="!canViewField" message="需要 governance:field:view 及当前数据源范围才能查看字段解释工作面。" />
     <template v-else>
-      <ErrorState v-if="listError" :message="listError" @retry="loadTables" />
+      <div v-if="listError" class="field-location-error" role="alert">
+        <ErrorState :message="listError" @retry="loadTables" />
+        <template v-if="invalidLocation">
+          <p>保留当前数据源与快照，清除旧表和字段定位后，由你重新选择；不会自动改用其他字段。</p>
+          <el-button type="primary" :loading="reselecting" :disabled="reselecting" @click="reselectCurrentField">重新选择当前来源字段</el-button>
+        </template>
+      </div>
       <LoadingState v-else-if="listLoading" text="正在读取所选快照的字段目录…" />
       <EmptyState v-else-if="!tables.length" message="所选快照没有可查看的表结构。" />
       <div v-else class="field-semantic-workspace__selector">
         <el-form label-position="top" class="field-semantic-workspace__selector-grid">
-          <el-form-item label="表" required><el-select :model-value="selectedTable" aria-label="选择解释表" placeholder="选择表" filterable @change="changeTable"><el-option v-for="table in tables" :key="table.tableName" :label="table.tableComment ? `${table.tableName} · ${table.tableComment}` : table.tableName" :value="table.tableName" /></el-select></el-form-item>
+          <el-form-item label="表" required><el-select ref="tableSelect" :model-value="selectedTable" aria-label="选择解释表" placeholder="选择表" filterable @change="changeTable"><el-option v-for="table in tables" :key="table.tableName" :label="table.tableComment ? `${table.tableName} · ${table.tableComment}` : table.tableName" :value="table.tableName" /></el-select></el-form-item>
           <el-form-item label="字段" required>
             <el-select v-model="selectedColumnId" aria-label="选择解释字段" @change="changeColumn" placeholder="选择字段" filterable :loading="columnsLoading" :disabled="!selectedTable || !columns.length">
               <el-option v-for="column in columns" :key="column.id" :label="`${column.columnName} · ${column.dataType}`" :value="column.id" />
@@ -568,6 +606,8 @@ onBeforeUnmount(() => { disposed = true; closeOwnedConfirm(); listRequest++; col
 <style scoped>
 .field-semantic-workspace__intro { align-items:center; }
 .field-semantic-intro-copy { margin:0; color:var(--do-muted); font-size:12px; line-height:1.7; }
+.field-location-error { display:grid; justify-items:center; gap:12px; padding-bottom:16px; }
+.field-location-error > p { margin:0; max-width:48em; color:var(--do-muted); font-size:13px; line-height:1.7; text-align:center; overflow-wrap:anywhere; }
 .field-semantic-workspace__selector { border-radius:0; border-width:1px 0; padding:12px 0; background:transparent; }
 .field-semantic-workspace__selector :deep(.el-form-item) { display:grid; grid-template-columns:44px minmax(0,1fr); margin:0; align-items:center; }
 .field-semantic-workspace__selector :deep(.el-form-item__label) { padding:0; margin:0; height:auto; }
