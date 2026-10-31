@@ -86,6 +86,18 @@ it('late build-source error cannot enter a newly selected datasource dialog',asy
 })
 
 
+it('index mode prioritizes ACTIVE selection and removes document creation actions',async()=>{
+ route.query.tab='index';h.api.listRagBuilds.mockResolvedValue({data:[{buildId:'NEW_FAILED',sourceSnapshotId:12,status:'FAILED'},{buildId:'REAL_ACTIVE',sourceSnapshotId:11,status:'ACTIVE',actualVectorCount:9,expectedChunkCount:9}]})
+ const w=await render(List)
+ expect(w.get('[data-testid="selected-rag-build"]').text()).toContain('REAL_ACTIVE')
+ expect(w.findAll('button').some(x=>['生成快照目录','手动新建'].includes(x.text()))).toBe(false)
+ expect(h.api.confirmRagBuild).not.toHaveBeenCalled()
+})
+it('without ACTIVE the index has an honest empty state until a historical record is explicitly selected',async()=>{
+ route.query.tab='index';h.api.listRagBuilds.mockResolvedValue({data:[{buildId:'FAILED_ONLY',sourceSnapshotId:11,status:'FAILED'}]})
+ const w=await render(List);expect(w.find('[data-testid="selected-rag-build"]').exists()).toBe(false);expect(w.text()).toContain('当前没有活动索引')
+ await w.get('[data-build-id="FAILED_ONLY"]').trigger('click');expect(w.get('[data-testid="selected-rag-build"]').text()).toContain('FAILED_ONLY');expect(w.get('[data-testid="selected-rag-build"]').text()).toContain('非活动')
+})
 it('restricted knowledge reader gets the active index count from the same visible build records',async()=>{
  iam.codes={'knowledge:view':[1]};route.query.tab='index';const w=await render(List)
  const stat=w.findAll('.stat').find(x=>x.text().includes('已生效知识索引'))!
