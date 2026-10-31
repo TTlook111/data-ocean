@@ -34,6 +34,7 @@ class Fixture:
   if p=='/api/admin/datasources/simple':return await send([] if self.mode=='empty' else SOURCES)
   if p=='/api/admin/datasources/readiness/batch':
    if self.mode=='readiness-error':return await send(None,503,'合成：准备回执读取失败')
+   if self.mode=='late-readiness':await asyncio.sleep(.8)
    return await send(READINESS[:1] if self.mode=='partial' else READINESS)
   if p=='/api/iam-s1/access-requests/queue':return await send(dict(records=[] if self.mode=='empty' else QUEUE,total=0 if self.mode=='empty' else len(QUEUE)))
   if p=='/api/admin/metadata/snapshots':
@@ -67,6 +68,17 @@ class Fixture:
   if p.startswith('/api/admin/metadata/snapshots/') and p.endswith(('/review-records','/version-history','/diff')):return await send([])
   if p.startswith('/api/admin/snapshots/') and p.endswith(('/quality-check-batches/latest','/quality-rules/summary')):return await send(None)
   self.unhandled.append(p);return await send(None,503,'合成：未提供此辅助读取，未连接真实服务')
+async def assert_source_focus(p,source_id=None):
+ selected=p.locator('[data-source-choice][aria-pressed="true"]')
+ if source_id is None:
+  assert await selected.count()==0 and await p.locator('[data-source-detail]').count()==0
+ else:
+  await p.locator(f'[data-source-choice="{source_id}"][aria-pressed="true"]').wait_for()
+  assert await selected.count()==1
+  assert await selected.get_attribute('data-source-choice')==str(source_id)
+  assert await p.locator('[data-source-detail] .detail-kicker span').last.inner_text()=='#'+str(source_id)
+  focus=parse_qs(urlparse(p.url).query).get('focusSourceId')
+  assert focus is None or focus==[str(source_id)]
 async def run():
  OUT.mkdir(parents=True,exist_ok=True);checks=[];errors=[]
  def passed(name):checks.append(dict(name=name,status='PASS'))
@@ -83,11 +95,18 @@ async def run():
     c,p,f=await open_page(mode,width)
     assert await p.evaluate('document.documentElement.scrollWidth<=innerWidth')
     if mode=='normal':
+     await assert_source_focus(p,2)
      await p.screenshot(path=str(OUT/f'workbench-normal-{width}.png'),full_page=True)
      assert await p.locator('[data-source-choice]').count()==3
      await p.locator('[data-source-choice="5"]').click();await p.wait_for_url('**/admin/workbench?focusSourceId=5');assert '无活动索引' in await p.locator('[data-source-choice="5"]').inner_text();assert '基础条件满足' in await p.locator('[data-source-detail]').inner_text()
-     await p.reload();await p.locator('[data-source-detail]').wait_for();assert '演示商品库' in await p.locator('[data-source-detail]').inner_text()
+     await p.reload();await p.locator('[data-source-detail]').wait_for();await assert_source_focus(p,5);assert '演示商品库' in await p.locator('[data-source-detail]').inner_text()
+     await p.evaluate("()=>{const x=document.createElement('span');x.textContent='合成API · 非真实联调';x.style.cssText='position:fixed;bottom:3px;right:12px;font:10px sans-serif;color:#87452c;background:#f6ebe4;z-index:99999;padding:3px 7px;pointer-events:none';document.body.append(x)}")
+     await p.screenshot(path=str(OUT/f'workbench-focus-verified-{width}.png'),full_page=True)
      passed(f'{width}来源选择/刷新保留、基础条件与索引独立')
+     await p.evaluate("async()=>{const router=(await import('/src/router/index.ts')).default;await router.push('/admin/governance?datasourceId=2&snapshotId=31')}")
+     await p.locator('.stack-row').first.wait_for();await p.go_back();await p.locator('[data-source-detail]').wait_for();await assert_source_focus(p,5)
+     await p.go_forward();await p.locator('.stack-row').first.wait_for();await p.go_back();await p.locator('[data-source-detail]').wait_for();await assert_source_focus(p,5)
+     passed(f'{width}实际Router跨页后退前进，列表高亮/详情/URL一致')
      await p.locator('[data-source-choice="2"]').click();await p.wait_for_url('**focusSourceId=2');await p.get_by_role('button',name='准备条件说明',exact=True).focus();await p.keyboard.press('Enter');await p.get_by_role('dialog').wait_for();assert '不代表你本人有权问数' in await p.get_by_role('dialog').inner_text();await p.keyboard.press('Escape');await p.wait_for_timeout(200)
      assert await p.get_by_role('button',name='准备条件说明',exact=True).evaluate('(e)=>document.activeElement===e')
      passed(f'{width}说明键盘打开/取消/焦点返回')
@@ -104,8 +123,11 @@ async def run():
     await c.close()
   c,p,f=await open_page(path='/admin/workbench?focusSourceId=777')
   assert '指定来源不在当前有权列表中' in await p.locator('.detail-pane').inner_text() and await p.locator('[data-source-primary]').count()==0
-  await p.locator('[data-source-choice="2"]').click();await p.wait_for_url('**focusSourceId=2');assert await p.locator('[data-source-primary]').is_enabled();passed('无权旧定位拒绝后显式重选恢复')
+  await assert_source_focus(p)
+  await p.locator('[data-source-choice="2"]').click();await p.wait_for_url('**focusSourceId=2');await assert_source_focus(p,2);assert await p.locator('[data-source-primary]').is_enabled();passed('无权旧定位拒绝后显式重选恢复')
   await c.close()
+  c,p,f=await open_page(path='/admin/workbench?focusSourceId=0');await assert_source_focus(p);assert '指定来源标识无效' in await p.locator('.detail-pane').inner_text();passed('非法来源定位不高亮默认来源');await c.close()
+  c,p,f=await open_page('late-readiness');await p.evaluate("async()=>{const router=(await import('/src/router/index.ts')).default;await router.replace('/admin/workbench?focusSourceId=9')}");await p.locator('[data-source-detail]').wait_for();await assert_source_focus(p,9);passed('准备回执晚回仍按当前URL保持高亮与详情一致');await c.close()
   c,p,f=await open_page('403');f.mode='normal';await p.locator('.noaccess').get_by_role('button',name='重新核验',exact=True).click();await p.locator('[data-source-detail]').wait_for();assert await p.locator('[data-source-choice]').count()==3;passed('403明确拒绝后恢复可重读，不永远加载');await c.close()
   c,p,f=await open_page('late-stat');await p.evaluate("async()=>{const {useAuthStore}=await import('/src/stores/auth.ts');useAuthStore().token='synthetic-v3-B'}");await p.wait_for_timeout(1100);assert '901' not in await p.locator('.workbench-page').inner_text() and await p.locator('.board-bottom b').inner_text()=='7';passed('同范围换合成会话后旧统计不得回填');await c.close()
   await b.close()
@@ -151,6 +173,6 @@ async def run_governance():
   c,p,f=await open_gov('slow-pages');await p.get_by_role('button',name='停止表聚合',exact=True).click();assert '表聚合已停止' in await p.locator('.main-figure').inner_text();f.mode='normal';await p.get_by_role('button',name='刷新',exact=True).click();await p.locator('.stack-row').first.wait_for();await p.wait_for_timeout(900);assert await p.locator('.stack-row').count()==4;checks.append(dict(name='停止聚合后重读，旧页不能覆盖新聚合',status='PASS'));await c.close();await b.close()
  result=dict(synthetic=True,realBackendTested=False,checks=checks,browserErrors=errors);(OUT/'governance-browser-checks.json').write_text(json.dumps(result,ensure_ascii=False,indent=2));print(json.dumps(result,ensure_ascii=False));assert not errors
 if __name__=='__main__':
- args=argparse.ArgumentParser();args.add_argument('--page',choices=['workbench','governance','all'],default='all');option=args.parse_args()
+ args=argparse.ArgumentParser();args.add_argument('--page',choices=['workbench','governance','all'],default='all');args.add_argument('--out',default=str(OUT));option=args.parse_args();OUT=Path(option.out)
  if option.page in ['workbench','all']:asyncio.run(run())
  if option.page in ['governance','all']:asyncio.run(run_governance())

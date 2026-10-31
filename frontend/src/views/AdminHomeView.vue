@@ -38,6 +38,7 @@ const countsKnown=computed(()=>directoryKnown.value&&!readinessLoading.value&&!r
 const attentionCount=computed(()=>readiness.value.filter(r=>!r.askable).length)
 const filtered=computed(()=>rows.value.filter(row=>filter.value==='all'||(row.readiness&&(filter.value==='attention'?!row.readiness.askable:row.readiness.askable))))
 const preview=computed(()=>{const list=filtered.value;const focused=list.find(r=>r.source.id===requestedFocus.value);return focused&&!list.slice(0,3).includes(focused)?[...list.slice(0,2),focused]:list.slice(0,3)})
+// URL 定位优先于本地默认项；详情、动作和列表高亮均以核验后的 selected 为准。
 const selected=computed(()=>focusProblem.value?undefined:preview.value.find(row=>row.source.id===(requestedFocus.value??selectedId.value)))
 const action=computed(()=>selected.value?workbenchSourceAction(selected.value.source.id,selected.value.readiness):undefined)
 const actionDisabledReason=computed(()=>{
@@ -126,7 +127,7 @@ watch(session.key,()=>{statsRequest++;readinessRequest++;approvalRequest++;stats
      <section class="source-area" aria-label="负责范围内的数据源准备预览">
       <div class="source-tools"><div class="source-tabs" role="group" aria-label="筛选准备情况"><button v-for="item in (['all','attention','ready'] as const)" :key="item" :data-source-filter="item" :aria-pressed="filter===item" @click="changeFilter(item)">{{ {all:'全部',attention:'需关注',ready:'基础条件满足'}[item] }} <b>{{ item==='all' ? (directoryKnown?sources.length:'—') : countsKnown ? item==='attention' ? attentionCount : readiness.filter(r=>r.askable).length : '—' }}</b></button></div><button class="plain" @click="openWorkspace('/admin/data-sources','datasource:view')">查看全部 <ArrowUpRight :size="13" /></button></div>
       <div class="source-columns" aria-hidden="true"><span>数据源</span><span v-for="[,label] in dimensions" :key="label">{{ label }}</span></div>
-      <button v-for="row in preview" :key="row.source.id" class="source-choice" :data-source-choice="row.source.id" :aria-label="sourceLabel(row)" :aria-pressed="selectedId===row.source.id" @click="selectSource(row.source.id)"><span class="source-name"><strong :title="row.source.name">{{ row.source.name }}</strong><small>{{ sourceSubtitle(row.readiness) }}</small></span><span v-for="[key] in dimensions" :key="key" class="condition" :class="workbenchCondition(row.readiness,key).tone">{{ workbenchCondition(row.readiness,key).text }}</span></button>
+      <button v-for="row in preview" :key="row.source.id" class="source-choice" :data-source-choice="row.source.id" :aria-label="sourceLabel(row)" :aria-pressed="selected?.source.id===row.source.id" @click="selectSource(row.source.id)"><span class="source-name"><strong :title="row.source.name">{{ row.source.name }}</strong><small>{{ sourceSubtitle(row.readiness) }}</small></span><span v-for="[key] in dimensions" :key="key" class="condition" :class="workbenchCondition(row.readiness,key).tone">{{ workbenchCondition(row.readiness,key).text }}</span></button>
       <div v-if="!preview.length" class="emptyplot">{{ directoryKnown?'这个筛选下没有已确认匹配的来源；未知不会归为已满足。':'数据源目录未确认，不能显示为空。' }}</div>
       <div class="row-foot"><CircleHelp :size="13" /><span>基础条件、知识索引分别核对。授权“已配置”不代表你已获查询权。<br>负责范围预览最多3个来源，完整信息在数据源专页查看。</span></div>
      </section>

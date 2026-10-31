@@ -32,7 +32,7 @@ AI 配置缺失不应阻止服务启动；内部令牌与 JWT 密钥则属于独
 | 工作台入口与统计 | [DashboardServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/dashboard/service/impl/DashboardServiceImpl.java)：`getStats` | 各卡片按所属功能与负责源裁剪。 |
 | 告警规则维护 | [AlertController.java](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/controller/AlertController.java)：`listRules`、`createRule`、`updateRule`、`toggleRule` | 这里只定位规则 CRUD；不证明告警执行、历史与通知链已完整接通。 |
 
-DashboardController.getStats → DashboardServiceImpl.getStats；工作台采用获准 V3 的来源准备预览（最多三个）与选中来源下一步；无来源查看权时按字段/知识/审批能力提供入口，审批 total 与最多两条预览分开。只读现有 API，不在首页执行发布、审核或授权；后台准备判定不等于个人查询授权。展示规则见[前端规范](../development/前端开发规范.md#任务与渐进式呈现)。不能由工作台入口权限推导所有卡片数据权限，读取失败也不能显示成 0。
+DashboardController.getStats → DashboardServiceImpl.getStats；工作台采用获准 V3 的来源准备预览（最多三个）与选中来源下一步；无来源查看权时按字段/知识/审批能力提供入口，审批 total 与最多两条预览分开。只读现有 API，不在首页执行发布、审核或授权；后台准备判定不等于个人查询授权。展示规则见[前端规范](../development/前端开发规范.md#任务与渐进式呈现)。列表选中态、详情与下一步共用经过URL及有权目录核验的当前对象，不能将本地默认项单独作为高亮依据；无效/无权定位不高亮其他来源。不能由工作台入口权限推导所有卡片数据权限，读取失败也不能显示成 0。
 
 告警执行与历史的完成程度沿[后续开发](../development/后续开发.md)核对，不因规则接口存在宣布告警已完成。
 
