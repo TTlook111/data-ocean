@@ -45,6 +45,12 @@ export interface GraphCallbacks {
 }
 
 // ========== dagre 图布局 ==========
+/** 节点卡片宽度固定；过长标签截断，完整文本仍保留在 title 里。 */
+function truncateNodeLabel(label: string, max: number) {
+  const text = label.trim()
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
 function layoutGraph(nodes: GraphNode[], edges: GraphEdge[]) {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
@@ -247,7 +253,7 @@ export function useD3LineageGraph(containerRef: () => HTMLElement | null, callba
       .attr('fill', '#303932')
       .attr('font-size', (n) => (isTable(n) ? 13 : 11))
       .attr('font-weight', (n) => (isTable(n) ? 600 : 400))
-      .text((n) => n.label)
+      .text((n) => truncateNodeLabel(n.label, isTable(n) ? 14 : 11))
 
     // 节点类型标签
     nodeSelection

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
-import { CircleHelp, Columns3, Copy, Database, ExternalLink, RefreshCw, Search, Table2 } from 'lucide-vue-next'
+import { Check, ChevronDown, CircleHelp, Columns3, Copy, Database, ExternalLink, RefreshCw, Search, Table2 } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../../../stores/auth'
 import { useIamS1Store } from '../../../stores/iamS1'
@@ -94,6 +94,12 @@ const filteredTableColumnCounts = computed(() => {
   }
   return counts
 })
+
+/**
+ * 数据量少时目录面板按内容收口，避免单行列表下方留下整屏空白；
+ * 数据较多或加载中才固定高度，保留表头固定和表格内滚动。
+ */
+const catalogFixed = computed(() => fixedCatalogHeight.value && (loading.value || typeEntities.value.length >= 8))
 
 const catalogWarning = computed(() => {
   const status = catalog.value?.syncStatus
@@ -441,7 +447,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
     ref="assetsPageRef"
     class="admin-page assets-page"
     :class="{
-      'assets-page--fixed-catalog': activeView === 'catalog' && fixedCatalogHeight,
+      'assets-page--fixed-catalog': activeView === 'catalog' && catalogFixed,
       'assets-page--fixed-tables': activeView === 'tables' && fixedTablesHeight,
     }"
   >
@@ -466,7 +472,13 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
         <div class="assets-panel__scope-picker">
           <ScopeBar mode="datasource" refresh-label="刷新数据源列表" compact />
         </div>
-        <div class="assets-panel__scope-note"><span class="catalog-origin">{{ activeView === 'catalog' ? '正式对象目录' : '快照结构' }}</span><strong>{{ scopeNote }}</strong><span v-if="activeView === 'catalog' && catalog?.syncStatus === 'SYNCED' && !loading && !error">目录同步完成</span></div>
+        <div class="assets-panel__scope-note">
+          <span class="catalog-chip catalog-chip--origin">{{ activeView === 'catalog' ? '正式对象目录' : '快照结构' }}</span>
+          <strong class="catalog-chip catalog-chip--snapshot" :class="{ 'catalog-chip--plain': !catalog?.publishedSnapshotId }">{{ scopeNote }}</strong>
+          <span v-if="activeView === 'catalog' && catalog?.syncStatus === 'SYNCED' && !loading && !error" class="catalog-chip catalog-chip--synced">
+            <Check :size="12" aria-hidden="true" />目录同步完成
+          </span>
+        </div>
       </div>
 
       <template v-if="activeView === 'catalog'">
@@ -496,9 +508,8 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
               {{ option.label }}
             </el-radio-button>
           </el-radio-group>
-          <span v-if="!loading && !error && context.datasourceId && catalog?.publishedSnapshotId" class="assets-panel__count">
-            <span>当前范围 {{ tableCount }} 张表 · {{ columnCount }} 个字段</span>
-            <span>匹配 {{ filteredEntities.length }} {{ matchUnit }}</span>
+          <span v-if="!loading && !error && context.datasourceId && catalog?.publishedSnapshotId && keyword.trim()" class="assets-panel__count">
+            匹配 {{ filteredEntities.length }} {{ matchUnit }}
           </span>
         </div>
 
@@ -517,7 +528,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
             <ErrorState :message="catalogWarning" @retry="load" />
           </template>
           <div v-else-if="filteredEntities.length" class="assets-panel__table">
-            <el-table :data="filteredEntities" :height="fixedCatalogHeight ? '100%' : undefined">
+            <el-table :data="filteredEntities" :height="catalogFixed ? '100%' : undefined">
               <el-table-column :label="nameColumnLabel" min-width="320">
                 <template #default="{ row }">
                   <div class="asset-name">
@@ -544,9 +555,20 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
               <el-table-column v-if="entityType === 'TABLE'" label="字段数" width="88">
                 <template #default="{ row }">{{ filteredTableColumnCounts.get(row.name) || 0 }}</template>
               </el-table-column>
-              <el-table-column label="原始注释" min-width="230">
+              <el-table-column label="原始注释" min-width="240">
                 <template #default="{ row }">
-                  <details v-if="hasDescription(row)" class="asset-comment"><summary><span class="asset-description">{{ row.description }}</span><small>展开原始注释</small></summary><p>{{ row.description }}</p></details><span v-else class="asset-description">暂无原始注释</span>
+                  <details v-if="hasDescription(row)" class="asset-comment">
+                    <summary>
+                      <span class="asset-description">{{ row.description }}</span>
+                      <span class="asset-comment__hint">展开原始注释</span>
+                      <span class="asset-comment__toggle"><ChevronDown :size="13" aria-hidden="true" /></span>
+                    </summary>
+                    <div class="asset-comment__full">
+                      <span class="asset-comment__label">原始注释 · 未清洗</span>
+                      <p>{{ row.description }}</p>
+                    </div>
+                  </details>
+                  <span v-else class="asset-description asset-description--empty">暂无原始注释</span>
                 </template>
               </el-table-column>
               <el-table-column label="对象版本" width="100">
@@ -569,6 +591,13 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
             :message="keyword.trim() ? '当前已发布范围内没有匹配的对象。' : `当前已发布范围内没有${entityType === 'COLUMN' ? '字段' : '表'}对象。`"
           />
         </div>
+        <footer
+          v-if="!loading && !error && context.datasourceId && catalog?.publishedSnapshotId"
+          class="assets-panel__footer"
+        >
+          <span class="assets-panel__footer-total">当前范围 {{ tableCount }} 张表 · {{ columnCount }} 个字段</span>
+          <span class="assets-panel__footer-note">对象版本是对象自身版本，独立于元数据快照版本</span>
+        </footer>
       </template>
 
       <EmptyState v-else-if="!context.datasourceId" message="请选择数据源后查看快照表结构。" :action-text="canEnterDatasource ? '去数据源接入' : undefined" @action="$router.push('/admin/data-sources')" />
@@ -579,11 +608,15 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 </template>
 
 <style scoped>
-.asset-open { flex:0 0 auto; max-width:100%; overflow-wrap:anywhere; border:0; background:transparent; font:inherit; font-weight:600; text-align:left; color:var(--do-ink); padding:0; cursor:pointer; }
+.asset-open { flex:0 0 auto; max-width:100%; overflow-wrap:anywhere; border:0; background:transparent; font:inherit; font-size:14px; font-weight:650; letter-spacing:-.005em; text-align:left; color:var(--do-ink); padding:0; cursor:pointer; }
 .asset-open:hover { color:var(--do-primary-strong); text-decoration:underline; text-underline-offset:4px; }
-.assets-panel__scope-note { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; }
-.assets-panel__scope-note strong { font-weight:500; color:var(--do-ink); }
-.catalog-origin { border-left:2px solid var(--do-primary); padding-left:8px; }
+.assets-panel__scope-note { display:flex; align-items:center; flex-wrap:wrap; gap:6px 8px; margin-left:auto; }
+.assets-panel__scope-note strong { font-weight:600; }
+.catalog-chip { display:inline-flex; align-items:center; gap:4px; min-height:22px; padding:0 9px; border-radius:var(--do-radius-full); font-size:11.5px; font-weight:600; line-height:1.5; white-space:nowrap; }
+.catalog-chip--origin { color:var(--do-muted); background:var(--do-soft); box-shadow:inset 0 0 0 1px var(--do-line); }
+.catalog-chip--snapshot { color:var(--do-primary-strong); background:var(--do-primary-soft); }
+.catalog-chip--plain { color:var(--do-muted); background:transparent; box-shadow:none; padding:0; font-weight:500; }
+.catalog-chip--synced { color:var(--do-success); background:color-mix(in srgb, var(--do-success) 9%, var(--do-surface)); }
 .assets-page { min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 .assets-page--fixed-catalog { height: 100%; }
 .assets-page--fixed-tables { height: 100%; flex: 1 1 auto; min-height: 0; }
@@ -594,8 +627,13 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 .assets-page :deep(.task-page-header) { align-items: center; margin-bottom: 0; }
 .assets-page :deep(.task-page-header__copy) { flex: 1 1 auto; min-width: 0; }
 .assets-page :deep(.task-page-header h1) { font-size: clamp(24px, 2.2vw, 28px); line-height: 1.2; letter-spacing: -.025em; }
-.assets-page__tabs :deep(.el-tabs__header) { margin-bottom: 10px; }
+.assets-page__tabs :deep(.el-tabs__header) { margin-bottom: 12px; }
 .assets-page__tabs :deep(.el-tab-pane) { padding-top: 0; }
+.assets-page__tabs :deep(.el-tabs__nav-wrap::after) { height:1px; background:var(--do-line); }
+.assets-page__tabs :deep(.el-tabs__item) { height:44px; padding:0 2px; margin-right:28px; color:var(--do-muted); font-size:14px; font-weight:600; }
+.assets-page__tabs :deep(.el-tabs__item.is-active) { color:var(--do-primary-strong); }
+.assets-page__tabs :deep(.el-tabs__item:hover) { color:var(--do-primary); }
+.assets-page__tabs :deep(.el-tabs__active-bar) { height:2px; border-radius:2px; background:var(--do-primary); }
 
 .assets-panel {
   min-width: 0;
@@ -604,11 +642,10 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
   border-color: var(--do-line);
   border-radius: var(--do-radius-lg);
   background: var(--do-glass-data-bg);
-  box-shadow: none;
-  clip-path: inset(0 round var(--do-radius-lg));
+  box-shadow: 0 1px 2px rgb(36 39 36 / 4%), 0 16px 32px -28px rgb(36 39 36 / 28%);
 }
 
-.assets-panel__scope { flex:0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px 20px; border-bottom: 1px solid var(--do-line); }
+.assets-panel__scope { flex:0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px 20px; border-bottom: 1px solid var(--do-line); background: color-mix(in srgb, var(--do-soft) 58%, var(--do-surface)); }
 .assets-panel__scope-picker { min-width: 0; flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 8px; }
 .assets-panel__scope-picker :deep(.scope-bar) { display: block; width: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .assets-panel__scope-picker :deep(.scope-bar__intro) { display: none; }
@@ -621,15 +658,22 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 .assets-page :deep(.scope-bar--compact .scope-bar__refresh-icon) { min-height: 36px; padding: 0; border-color: transparent; color: var(--do-muted); background: transparent; box-shadow: none; }
 .assets-page :deep(.scope-bar--compact .scope-bar__refresh-icon:hover) { color: var(--do-primary-strong); background: var(--do-primary-soft); }
 .assets-panel__scope-picker :deep(.scope-bar__warning) { margin-top: 6px; }
-.assets-panel__scope-note { margin-left: auto; color: var(--do-muted); font-size: 12px; line-height: 1.5; text-align: right; }
+.assets-panel__scope-note { color: var(--do-muted); font-size: 12px; line-height: 1.5; }
+.assets-panel__footer { flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 16px; padding:9px 20px; border-top:1px solid var(--do-line); background:var(--do-soft); color:var(--do-muted); font-size:12px; }
+.assets-panel__footer-total { color:var(--do-ink); font-weight:600; }
+.assets-panel__footer-note { color:var(--do-muted); }
 
-.assets-panel__sync-warning { border-radius: 0; border-width: 0 0 1px; border-color: var(--do-line); }
-.assets-panel__filters { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--do-line); }
+.assets-panel__sync-warning { margin:12px 16px 0; border-radius: var(--do-radius-sm); border-width: 1px; border-color: var(--do-line); }
+.assets-panel__filters { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 11px 16px; border-bottom: 1px solid var(--do-line); }
 .assets-panel__search { flex: 1 1 320px; min-width: 220px; max-width: 400px; }
-.assets-panel__type :deep(.el-radio-button__inner) { display: inline-flex; align-items: center; gap: 5px; height: 36px; padding: 0 14px; font-size: 13px; }
+.assets-panel__type { --el-border-radius-base: var(--do-radius-sm); }
+.assets-panel__type :deep(.el-radio-button__inner) { display: inline-flex; align-items: center; gap: 5px; height: 36px; padding: 0 16px; border-color: var(--do-line); color: var(--do-muted); background: var(--do-surface); font-size: 13px; font-weight: 600; transition: color var(--do-transition-fast), background var(--do-transition-fast), border-color var(--do-transition-fast); }
+.assets-panel__type :deep(.el-radio-button__inner:hover) { color: var(--do-primary-strong); border-color: var(--do-line-strong); }
+.assets-panel__type :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner),
+.assets-panel__type :deep(.el-radio-button.is-active .el-radio-button__inner) { color: var(--do-primary-strong); background: var(--do-primary-soft); border-color: color-mix(in srgb, var(--do-primary) 34%, transparent); box-shadow: none; }
 .assets-panel__filters :deep(.el-input__wrapper) { min-height: 36px; }
 .assets-panel__filters :deep(.el-input__inner) { font-size: 13px; }
-.assets-panel__count { margin-left: auto; display: flex; gap: 12px; color: var(--do-muted); font-size: 12px; white-space: nowrap; }
+.assets-panel__count { margin-left: auto; display: inline-flex; align-items: center; min-height: 24px; padding: 2px 10px; border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 12px; font-weight: 600; white-space: nowrap; }
 
 .assets-panel__body { min-height: 0; }
 .assets-page--fixed-catalog .assets-panel { flex: 1 1 auto; min-height: 320px; display: flex; flex-direction: column; }
@@ -638,6 +682,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 .assets-page--fixed-catalog .assets-panel__sync-warning { flex: 0 0 auto; }
 .assets-page--fixed-catalog .assets-panel__body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .assets-page--fixed-catalog .assets-panel__table { flex: 1 1 auto; min-height: 0; }
+.assets-page--fixed-catalog .assets-panel__footer { flex: 0 0 auto; }
 
 .assets-page--fixed-tables .assets-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .assets-page--fixed-tables :deep(.table-explorer-page) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
@@ -653,9 +698,13 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 }
 .assets-panel :deep(.el-table::before),
 .assets-panel :deep(.el-table__inner-wrapper::before) { display: none; }
-.assets-panel :deep(.el-table th.el-table__cell) { height: 42px; padding: 0; background: var(--do-soft); color: var(--do-muted); font-size: 12px; font-weight: 600; }
-.assets-panel :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 42px; }
-.assets-panel :deep(.el-table td.el-table__cell) { padding: 13px 0; vertical-align: middle; border-bottom-color: var(--do-line); }
+.assets-panel :deep(.el-table th.el-table__cell) { height: 40px; padding: 0; background: var(--do-soft); color: var(--do-muted); font-size: 12px; font-weight: 600; letter-spacing: .02em; }
+.assets-panel :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 40px; }
+.assets-panel :deep(.el-table td.el-table__cell) { padding: 11px 0; vertical-align: middle; border-bottom-color: var(--do-line); }
+.assets-panel :deep(.el-table__body tr > td.el-table__cell:first-child) { transition: box-shadow var(--do-transition-fast); }
+.assets-panel :deep(.el-table__body tr:hover > td.el-table__cell:first-child) { box-shadow: inset 2px 0 0 var(--do-primary); }
+.assets-panel :deep(.el-button.is-link) { padding:4px 8px; margin:-4px -8px; font-weight:600; }
+.assets-panel :deep(.el-button.is-link:not(.is-disabled):hover) { border-radius:var(--do-radius-sm); background:var(--do-primary-soft); }
 .assets-panel :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.45; }
 .assets-panel :deep(.el-table th.el-table__cell:first-child .cell),
 .assets-panel :deep(.el-table td.el-table__cell:first-child .cell) { padding-left: 16px; }
@@ -663,8 +712,8 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 .assets-panel :deep(.el-table td.el-table__cell:last-child .cell) { padding-right: 16px; }
 .assets-panel :deep(.el-table__body tr:last-child td.el-table__cell) { border-bottom: 0; }
 
-.asset-name { min-width: 0; min-height: 46px; display: flex; align-items: flex-start; gap: 8px; }
-.asset-name__icon { flex: 0 0 auto; margin-top: 2px; color: var(--do-primary-strong); }
+.asset-name { min-width: 0; min-height: 44px; display: flex; align-items: flex-start; gap: 9px; }
+.asset-name__icon { flex:0 0 auto; box-sizing:content-box; width:18px; height:18px; padding:4px; margin-top:1px; border-radius:8px; color:var(--do-primary-strong); background:var(--do-primary-soft); }
 .asset-name__copy { min-width: 0; display: grid; gap: 3px; }
 .asset-name__head { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
 .asset-name__head strong { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--do-ink); font-size: 13.5px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
@@ -680,15 +729,26 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 
 .entity-type { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .asset-table-name { color: var(--do-ink); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12.5px; }
-.asset-comment summary { cursor:pointer; }
-.asset-comment summary:focus-visible { outline:2px solid var(--do-primary); }
-.asset-comment small { color:var(--do-primary-strong); font-size:11px; }
-.asset-comment p { white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; color:var(--do-muted); }
+.asset-comment { min-width:0; }
+.asset-comment > summary { display:flex; align-items:center; gap:6px; min-width:0; list-style:none; cursor:pointer; }
+.asset-comment > summary::-webkit-details-marker { display:none; }
+.asset-comment > summary::marker { content:''; }
+.asset-comment > summary:focus-visible { outline:2px solid var(--do-primary); outline-offset:2px; border-radius:4px; }
+.asset-comment .asset-description { flex:1 1 auto; min-width:0; }
+.asset-comment__toggle { flex:0 0 auto; display:grid; place-items:center; width:18px; height:18px; border-radius:50%; color:var(--do-muted); background:var(--do-soft); transition:transform var(--do-transition-fast), color var(--do-transition-fast), background var(--do-transition-fast); }
+.asset-comment > summary:hover .asset-comment__toggle { color:var(--do-primary-strong); background:var(--do-primary-soft); }
+.asset-comment[open] .asset-comment__toggle { transform:rotate(180deg); color:var(--do-primary-strong); background:var(--do-primary-soft); }
+.asset-comment__hint { flex:0 0 auto; color:var(--do-primary-strong); font-size:11px; font-weight:600; }
+.asset-comment[open] .asset-comment__hint { display:none; }
+.asset-comment__full { margin-top:8px; padding:10px 12px; border-radius:var(--do-radius-sm); background:var(--do-soft); box-shadow:inset 0 0 0 1px var(--do-line); }
+.asset-comment__full p { margin:6px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:12px; line-height:1.6; color:var(--do-muted); }
+.asset-comment__label { display:inline-flex; align-items:center; gap:4px; color:var(--do-muted); font-size:11px; font-weight:600; letter-spacing:.02em; }
 .asset-name__head { flex-wrap:wrap; }
-.asset-description { display: block; max-width: 100%; overflow: hidden; color: var(--do-muted); font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
-.asset-version-head { display: inline-flex; align-items: center; gap: 4px; border-radius: 4px; outline: none; }
+.asset-description { display:block; max-width:100%; overflow:hidden; color:var(--do-muted); font-size:12.5px; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
+.asset-description--empty { color:color-mix(in srgb, var(--do-muted) 72%, transparent); }
+.asset-version-head { display:inline-flex; align-items:center; gap:4px; border-radius:4px; outline:none; vertical-align:middle; }
 .asset-version-head:focus-visible { outline: 2px solid color-mix(in srgb, var(--do-primary) 32%, transparent); outline-offset: 2px; }
-.asset-version { color: var(--do-ink); font-size: 12.5px; white-space: nowrap; }
+.asset-version { display:inline-flex; align-items:center; min-height:22px; padding:0 8px; border-radius:var(--do-radius-full); color:var(--do-ink); background:var(--do-soft); font-size:11.5px; font-weight:600; white-space:nowrap; }
 
 @media (max-width: 900px) {
   .assets-panel__scope-picker { flex: 1 1 100%; }

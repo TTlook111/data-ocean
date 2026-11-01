@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { RefreshCw, Table2, Key } from 'lucide-vue-next'
+import { ChevronDown, Info, Key, RefreshCw, Table2 } from 'lucide-vue-next'
 import {
   getSnapshotDetail,
   listSnapshots,
@@ -196,19 +196,25 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
         刷新结构
       </el-button>
 
-      <p class="snapshot-contract">这里展示所选版本的采集结构；历史或未发布快照不代表当前正式对象目录。</p>
+      <p class="snapshot-contract">
+        <Info :size="13" aria-hidden="true" />
+        <span>这里展示所选版本的采集结构；历史或未发布快照不代表当前正式对象目录。</span>
+      </p>
       <div v-if="selectedSnapshot" class="snapshot-summary" aria-label="快照概况">
-        <el-tag :type="snapshotStatusType(selectedSnapshot.status)" size="small">
+        <el-tag class="snapshot-status" :type="snapshotStatusType(selectedSnapshot.status)" size="small">
           {{ snapshotStatusLabel(selectedSnapshot.status) }}
         </el-tag>
         <el-tooltip content="当前快照采集到的数据表数量">
-          <span>表数：{{ selectedSnapshot.tableCount }}</span>
+          <span class="snapshot-stat"><span>表数</span><strong>{{ selectedSnapshot.tableCount }}</strong></span>
         </el-tooltip>
         <el-tooltip content="当前快照采集到的字段总数">
-          <span>字段数：{{ selectedSnapshot.columnCount }}</span>
+          <span class="snapshot-stat"><span>字段数</span><strong>{{ selectedSnapshot.columnCount }}</strong></span>
         </el-tooltip>
         <el-tooltip content="质量分由元数据质量规则计算，满分 100 分">
-          <span>质量分：{{ selectedSnapshot.qualityScore == null ? '未校验' : `${selectedSnapshot.qualityScore} 分` }}</span>
+          <span class="snapshot-stat">
+            <span>质量分</span>
+            <strong>{{ selectedSnapshot.qualityScore == null ? '未校验' : `${selectedSnapshot.qualityScore} 分` }}</strong>
+          </span>
         </el-tooltip>
       </div>
     </section>
@@ -255,14 +261,24 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
 
       <section class="column-detail" aria-label="所选表的字段结构">
         <div class="detail-header" v-if="selectedTable">
-          <div>
+          <div class="detail-title">
+            <Table2 class="detail-title__icon" :size="16" aria-hidden="true" />
             <h3>{{ selectedTable }}</h3>
-            <span class="table-description" tabindex="0" :title="selectedTableMeta?.tableComment || '暂无表说明'">
-              {{ selectedTableMeta?.tableComment || '暂无表说明' }}
-            </span>
           </div>
           <span class="col-count">{{ filteredColumns.length }} 个字段</span>
         </div>
+        <details v-if="selectedTable && selectedTableMeta?.tableComment" class="table-note">
+          <summary class="table-note__summary">
+            <span class="table-note__label">原始注释</span>
+            <span class="table-note__text">{{ selectedTableMeta?.tableComment }}</span>
+            <span class="table-note__action">展开原始注释</span>
+            <ChevronDown class="table-note__chevron" :size="14" aria-hidden="true" />
+          </summary>
+          <div class="table-note__full">
+            <p>{{ selectedTableMeta?.tableComment }}</p>
+          </div>
+        </details>
+        <p v-else-if="selectedTable" class="table-note--empty">暂无表说明</p>
         <div class="table-facts" v-if="selectedTableMeta">
           <div class="fact-item">
             <span>表类型</span>
@@ -287,10 +303,10 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
         </div>
         <div class="field-table-scroll">
           <el-table :data="filteredColumns" :height="props.fixedHeight ? '100%' : undefined" size="small" v-if="filteredColumns.length">
-            <el-table-column label="序号" width="52" align="center">
+            <el-table-column label="序号" width="60" align="center">
               <template #default="{ $index }"><span class="column-index">{{ $index + 1 }}</span></template>
             </el-table-column>
-            <el-table-column prop="columnName" label="字段名" min-width="168">
+            <el-table-column prop="columnName" label="字段名" min-width="150">
               <template #default="{ row }">
                 <span class="column-name-cell">
                   <Key v-if="row.isPrimaryKey" :size="12" aria-label="主键" role="img" />
@@ -298,27 +314,27 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="dataType" label="类型" width="156">
+            <el-table-column prop="dataType" label="类型" width="150">
               <template #default="{ row }"><span class="column-code column-code--type" :title="row.dataType">{{ row.dataType }}</span></template>
             </el-table-column>
-            <el-table-column prop="isNullable" label="可空性" width="92">
+            <el-table-column prop="isNullable" label="可空性" width="88">
               <template #default="{ row }">{{ nullableLabel(row.isNullable) }}</template>
             </el-table-column>
-            <el-table-column prop="columnComment" label="字段说明" min-width="230">
+            <el-table-column prop="columnComment" label="字段说明" min-width="210">
               <template #default="{ row }">
                 <span class="column-comment" tabindex="0" :title="row.columnComment || '暂无字段说明'">
                   {{ row.columnComment || '暂无字段说明' }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="governanceStatus" label="治理状态" width="98">
+            <el-table-column prop="governanceStatus" label="治理状态" width="96">
               <template #default="{ row }">
                 <span :class="`governance-status governance-status--${governanceTone(row.governanceStatus)}`">
                   {{ governanceStatusLabel(row.governanceStatus) }}
                 </span>
               </template>
             </el-table-column>
-            <el-table-column prop="nullRate" width="104">
+            <el-table-column prop="nullRate" width="100">
               <template #header>
                 <el-tooltip content="空值率：采集统计时基于样本数据计算，未采集时显示“未采集统计”">
                   <span>空值率</span>
@@ -338,7 +354,6 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
 </template>
 
 <style scoped>
-.snapshot-contract { grid-area:contract; margin:0; color:var(--do-muted); font-size:12px; line-height:1.6; }
 .table-explorer-page { min-width: 0; color: var(--do-ink); }
 .snapshot-toolbar {
   display: grid;
@@ -346,8 +361,9 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   grid-template-areas: "selectors refresh" "contract contract" "summary summary";
   align-items: center;
   gap: 8px 12px;
-  padding: 14px 20px 10px;
+  padding: 14px 18px 12px;
   border-bottom: 1px solid var(--do-line);
+  background: var(--do-surface);
 }
 .snapshot-toolbar__selectors {
   grid-area: selectors;
@@ -358,11 +374,23 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   min-width: 0;
 }
 .snapshot-selector-control { display: flex; align-items: center; gap: 8px; flex: 0 1 244px; min-width: 204px; }
-.snapshot-control-label { flex: 0 0 auto; color: var(--do-muted); font-size: 12px; white-space: nowrap; }
+.snapshot-control-label { flex: 0 0 auto; color: var(--do-muted); font-size: 12px; font-weight: 600; white-space: nowrap; }
 .snapshot-selector { flex: 1 1 180px; width: 180px; min-width: 160px; max-width: 200px; }
 .snapshot-toolbar__selectors :deep(.el-select__wrapper),
 .snapshot-refresh { min-height: 36px; }
-.snapshot-refresh { grid-area: refresh; }
+.snapshot-refresh {
+  grid-area: refresh;
+  border-color: var(--do-line);
+  border-radius: var(--do-radius-sm);
+  color: var(--do-ink);
+  font-weight: 600;
+  background: var(--do-surface);
+}
+.snapshot-refresh:not(.is-disabled):hover {
+  border-color: color-mix(in srgb, var(--do-primary) 34%, var(--do-line));
+  color: var(--do-primary-strong);
+  background: var(--do-primary-soft);
+}
 .snapshot-option-main {
   display: inline-block;
   min-width: 90px;
@@ -370,26 +398,52 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   font-size: 13px;
   font-weight: 600;
 }
+.snapshot-contract {
+  grid-area: contract;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0 0;
+  color: var(--do-muted);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.snapshot-contract :deep(svg) { flex: 0 0 auto; margin-top: 2px; color: color-mix(in srgb, var(--do-muted) 72%, transparent); }
 .snapshot-summary {
   grid-area: summary;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 18px;
-  min-height: 28px;
+  gap: 6px;
+  min-height: 24px;
+  margin-top: 2px;
+}
+.snapshot-status { border-radius: var(--do-radius-full); font-weight: 600; }
+.snapshot-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 9px;
+  border-radius: var(--do-radius-full);
   color: var(--do-muted);
-  font-size: 12.5px;
-  line-height: 1.5;
+  background: var(--do-soft);
+  box-shadow: inset 0 0 0 1px var(--do-line);
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
-.table-explorer-state {
-  margin: 18px 20px;
-}
+.snapshot-stat strong { color: var(--do-ink); font-weight: 600; }
+.table-explorer-state { margin: 18px; }
 
 .explorer-layout {
   display: flex;
   min-width: 0;
-  margin: 0 20px 16px;
-  background: var(--do-glass-data-bg);
+  margin: 12px 18px 16px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-surface);
+  box-shadow: 0 1px 2px rgb(36 39 36 / 3%);
   overflow: hidden;
 }
 .table-list {
@@ -398,30 +452,35 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   min-width: 0;
   border-right: 1px solid var(--do-line);
   padding: 12px 10px;
+  background: color-mix(in srgb, var(--do-soft) 55%, var(--do-surface));
   overflow: visible;
 }
 .table-list-header {
   display: grid;
-  gap: 9px;
+  gap: 8px;
   margin: 0 0 10px;
   padding: 0 2px 12px;
   border-bottom: 1px solid var(--do-line);
 }
-.table-list-header :deep(.el-input__wrapper) { min-height: 36px; }
-.table-list-header :deep(.el-input__inner) { font-size: 13px; }
 .table-list-header strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: var(--do-ink);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 650;
+  letter-spacing: .01em;
 }
+.table-list-header :deep(.el-input__wrapper) { min-height: 34px; border-radius: var(--do-radius-sm); }
+.table-list-header :deep(.el-input__inner) { font-size: 12.5px; }
 .table-item {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
   min-height: 54px;
-  margin: 1px 0;
-  padding: 7px 8px;
+  margin: 2px 0;
+  padding: 8px;
   border: 0;
   border-radius: var(--do-radius-sm);
   color: var(--do-ink);
@@ -429,23 +488,31 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   cursor: pointer;
   font-family: inherit;
   text-align: left;
+  transition: background var(--do-transition-fast), box-shadow var(--do-transition-fast);
 }
-.table-item:hover { background: var(--do-primary-soft); }
+.table-item:hover { background: color-mix(in srgb, var(--do-surface) 70%, transparent); }
 .table-item:focus-visible { outline: 2px solid color-mix(in srgb, var(--do-primary) 52%, transparent); outline-offset: 1px; }
-.table-item.active { background: var(--do-primary-soft); }
-.table-item > :deep(svg) { flex: 0 0 auto; color: var(--do-muted); }
-.table-item.active > :deep(svg) { color: var(--do-primary-strong); }
-.table-main {
-  display: grid;
-  min-width: 0;
-  flex: 1 1 auto;
-  gap: 3px;
+.table-item.active {
+  background: var(--do-surface);
+  box-shadow: inset 3px 0 0 var(--do-primary), inset 0 0 0 1px color-mix(in srgb, var(--do-primary) 20%, var(--do-line));
 }
+.table-item > :deep(svg) {
+  flex: 0 0 auto;
+  box-sizing: content-box;
+  width: 14px;
+  height: 14px;
+  padding: 3px;
+  border-radius: 6px;
+  color: var(--do-muted);
+  background: var(--do-soft);
+}
+.table-item.active > :deep(svg) { color: var(--do-primary-strong); background: var(--do-primary-soft); }
+.table-main { display: grid; min-width: 0; flex: 1 1 auto; gap: 2px; }
 .table-name {
-  color: var(--do-ink);
   overflow: hidden;
+  color: var(--do-ink);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   line-height: 1.4;
   text-overflow: ellipsis;
@@ -455,7 +522,7 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
 .table-comment {
   overflow: hidden;
   color: var(--do-muted);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 400;
   line-height: 1.35;
   text-overflow: ellipsis;
@@ -463,133 +530,242 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
 }
 .row-count {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: var(--do-radius-full);
   color: var(--do-muted);
-  font-size: 11.5px;
+  background: color-mix(in srgb, var(--do-soft) 80%, transparent);
+  font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
 }
-.column-detail { flex: 1 1 auto; min-width: 0; padding: 16px 18px; overflow: hidden; }
-.detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.detail-header h3 {
+.table-item.active .row-count { color: var(--do-primary-strong); background: var(--do-primary-soft); }
+
+.column-detail { flex: 1 1 auto; min-width: 0; padding: 14px 18px 16px; overflow: hidden; }
+.detail-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.detail-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.detail-title__icon {
+  flex: 0 0 auto;
+  box-sizing: content-box;
+  width: 16px;
+  height: 16px;
+  padding: 6px;
+  border-radius: 9px;
+  color: var(--do-primary-strong);
+  background: var(--do-primary-soft);
+}
+.detail-title h3 {
   margin: 0;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 16px;
   font-weight: 650;
-  line-height: 1.4;
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
-.detail-header > div { min-width: 0; }
-.table-description {
+.col-count {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: var(--do-radius-full);
+  color: var(--do-muted);
+  background: var(--do-soft);
+  box-shadow: inset 0 0 0 1px var(--do-line);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.table-note { margin: 0 0 12px; }
+.table-note__summary {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 0;
+  list-style: none;
+  cursor: pointer;
+}
+.table-note__summary::-webkit-details-marker { display: none; }
+.table-note__summary::marker { content: ''; }
+.table-note__summary:focus-visible { border-radius: 4px; outline: 2px solid var(--do-primary); outline-offset: 2px; }
+.table-note__label {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  color: var(--do-primary-strong);
+  background: var(--do-primary-soft);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+.table-note__text {
+  flex: 1 1 auto;
+  min-width: 0;
   display: -webkit-box;
   overflow: hidden;
-  margin-top: 3px;
   color: var(--do-muted);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 12.5px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.table-description:focus-visible { border-radius: 3px; outline: 2px solid color-mix(in srgb, var(--do-primary) 42%, transparent); outline-offset: 2px; }
-.col-count { flex: 0 0 auto; color: var(--do-muted); font-size: 12px; white-space: nowrap; }
+.table-note__action { flex: 0 0 auto; color: var(--do-primary-strong); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.table-note__chevron { flex: 0 0 auto; align-self: center; color: var(--do-muted); transition: transform var(--do-transition-fast), color var(--do-transition-fast); }
+.table-note__summary:hover .table-note__chevron { color: var(--do-primary-strong); }
+.table-note[open] .table-note__chevron { transform: rotate(180deg); color: var(--do-primary-strong); }
+.table-note[open] .table-note__action,
+.table-note[open] .table-note__text { display: none; }
+.table-note__full {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--do-radius-sm);
+  background: var(--do-soft);
+  box-shadow: inset 0 0 0 1px var(--do-line);
+}
+.table-note__full::before {
+  content: '原始注释 · 未清洗，仅作快照记录展示';
+  display: block;
+  margin-bottom: 6px;
+  color: color-mix(in srgb, var(--do-muted) 78%, transparent);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.table-note__full p {
+  margin: 0;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.table-note--empty { margin: 0 0 12px; color: color-mix(in srgb, var(--do-muted) 70%, transparent); font-size: 12.5px; }
+
 .table-facts {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 18px;
+  gap: 7px 18px;
   margin: 0 0 12px;
-  padding: 0 0 11px;
-  border-bottom: 1px solid var(--do-line);
+  padding: 8px 12px;
+  border-radius: var(--do-radius-sm);
+  background: color-mix(in srgb, var(--do-soft) 55%, var(--do-surface));
 }
-.fact-item {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-.fact-item span {
-  color: var(--do-muted);
-  font-size: 12px;
-}
+.fact-item { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
+.fact-item span { color: var(--do-muted); font-size: 11.5px; }
 .fact-item strong {
   overflow: hidden;
   color: var(--do-ink);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.governance-status { font-size: 13px; font-weight: 600; }
-.governance-status--normal { color: var(--do-muted); font-weight: 500; }
-.governance-status--warning { color: var(--do-warning); }
-.governance-status--danger { color: var(--do-danger); }
-.fact-item strong.governance-status--normal { color: var(--do-muted); font-weight: 500; }
-.fact-item strong.governance-status--warning { color: var(--do-warning); }
-.fact-item strong.governance-status--danger { color: var(--do-danger); }
-.field-table-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; }
-.column-detail :deep(.el-table) {
-  border: 0;
-  border-radius: 0;
-  color: var(--do-ink);
-  background: var(--do-glass-data-bg);
+.governance-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: var(--do-radius-full);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
 }
-.column-detail :deep(.el-table::before),
-.column-detail :deep(.el-table__inner-wrapper::before) { display: none; }
-.column-detail :deep(.el-table th.el-table__cell) {
-  height: 42px;
+.governance-status--normal { color: var(--do-muted); background: var(--do-surface); box-shadow: inset 0 0 0 1px var(--do-line); }
+.governance-status--warning { color: var(--do-warning); background: color-mix(in srgb, var(--do-warning) 12%, var(--do-surface)); }
+.governance-status--danger { color: var(--do-danger); background: color-mix(in srgb, var(--do-danger) 12%, var(--do-surface)); }
+
+.field-table-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; }
+.table-explorer-page :deep(.el-table) {
+  --el-table-bg-color: var(--do-surface);
+  --el-table-tr-bg-color: var(--do-surface);
+  --el-table-header-bg-color: var(--do-soft);
+  --el-table-border-color: var(--do-line);
+  --el-table-row-hover-bg-color: color-mix(in srgb, var(--do-primary) 5%, var(--do-surface));
+  border: 0;
+  border-radius: var(--do-radius-sm);
+  color: var(--do-ink);
+  background: transparent;
+}
+.table-explorer-page :deep(.el-table::before),
+.table-explorer-page :deep(.el-table__inner-wrapper::before) { display: none; }
+.table-explorer-page :deep(.el-table th.el-table__cell) {
+  height: 38px;
   padding: 0;
   color: var(--do-muted);
   background: var(--do-soft);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
+  letter-spacing: .02em;
 }
-.column-detail :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 42px; }
-.column-detail :deep(.el-table td.el-table__cell) {
-  padding: 11px 0;
+.table-explorer-page :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 38px; white-space: nowrap; }
+.table-explorer-page :deep(.el-table td.el-table__cell) {
+  padding: 9px 0;
   border-bottom-color: var(--do-line);
-  font-size: 14px;
+  font-size: 12.5px;
   vertical-align: middle;
 }
-.column-detail :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.45; }
-.column-detail :deep(.el-table tr:last-child td.el-table__cell) { border-bottom: 0; }
-.column-detail :deep(.el-table th:first-child .cell),
-.column-detail :deep(.el-table td:first-child .cell) { padding-left: 16px; }
-.column-name-cell :deep(svg) { flex: 0 0 auto; color: var(--do-accent); }
-.column-code { color: var(--do-ink); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 13.5px; font-weight: 500; }
-.column-code--type { font-size: 13px; }
-.column-index { color: var(--do-muted); font-size: 12.5px; font-weight: 400; }
+.table-explorer-page :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.45; }
+.table-explorer-page :deep(.el-table tr:last-child td.el-table__cell) { border-bottom: 0; }
+.table-explorer-page :deep(.el-table th:first-child .cell),
+.table-explorer-page :deep(.el-table td:first-child .cell) { padding-left: 16px; }
+.table-explorer-page :deep(.el-table th:last-child .cell),
+.table-explorer-page :deep(.el-table td:last-child .cell) { padding-right: 16px; }
+.table-explorer-page :deep(.el-table__body tr:hover > td.el-table__cell:first-child) { box-shadow: inset 2px 0 0 var(--do-primary); }
+.column-name-cell { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; }
+.column-name-cell :deep(svg) { flex: 0 0 auto; color: var(--do-primary-strong); }
+.column-code {
+  color: var(--do-ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.column-code--type { padding: 1px 6px; border-radius: 4px; color: var(--do-muted); background: var(--do-soft); font-size: 11.5px; }
+.column-index { color: var(--do-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .column-comment {
   display: block;
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
-  color: var(--do-ink);
-  font-size: 14px;
+  color: var(--do-muted);
+  font-size: 12.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .column-comment:focus-visible { border-radius: 3px; outline: 2px solid color-mix(in srgb, var(--do-primary) 42%, transparent); outline-offset: 2px; }
-.stat-uncollected { color: var(--do-muted); font-size: 12px; }
+.stat-uncollected { color: color-mix(in srgb, var(--do-muted) 78%, transparent); font-size: 11.5px; }
+
 .explorer-layout--fixed { flex: 1 1 auto; min-height: 0; }
 .explorer-layout--fixed .table-list { overflow-y: auto; }
-.explorer-layout--fixed .table-list-header { position: sticky; top: -12px; z-index: 1; padding-top: 12px; background: var(--do-glass-data-bg); }
+.explorer-layout--fixed .table-list-header {
+  position: sticky;
+  top: -12px;
+  z-index: 1;
+  padding-top: 12px;
+  background: color-mix(in srgb, var(--do-soft) 55%, var(--do-surface));
+}
 .explorer-layout--fixed .column-detail { display: flex; flex-direction: column; min-height: 0; }
 .explorer-layout--fixed .field-table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
-.column-name-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-}
+
 @media (max-width: 960px) {
-  .snapshot-toolbar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "selectors refresh" "contract contract" "summary summary"; padding-inline: 14px; }
+  .snapshot-toolbar { padding-inline: 14px; }
   .snapshot-toolbar__selectors { gap: 8px; }
   .snapshot-selector-control { flex: 1 1 244px; min-width: 204px; }
   .snapshot-selector { flex: 1 1 180px; min-width: 160px; max-width: 200px; }
-  .explorer-layout { flex-direction: column; }
+  .explorer-layout { flex-direction: column; margin: 12px 14px 14px; }
   .table-list { width: auto; flex: 0 0 auto; border-right: 0; border-bottom: 1px solid var(--do-line); }
   .table-list-header { position: static; }
   .column-detail { padding: 14px; }
+  .table-explorer-state { margin-inline: 14px; }
 }
 @media (max-width: 640px) {
   .snapshot-toolbar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "selectors" "refresh" "contract" "summary"; }
@@ -597,10 +773,10 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   .snapshot-selector-control { flex: 1 1 100%; min-width: 0; }
   .snapshot-selector { flex: 1 1 180px; min-width: 160px; max-width: 200px; }
   .snapshot-refresh { justify-self: end; }
-  .snapshot-summary { gap: 6px 12px; }
+  .snapshot-summary { gap: 6px; }
   .table-explorer-state { margin-inline: 12px; }
   .explorer-layout { margin-inline: 12px; }
-  .detail-header { align-items: flex-start; }
   .table-facts { gap: 7px 12px; }
+  .table-note__action { display: none; }
 }
 </style>

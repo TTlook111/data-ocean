@@ -2,7 +2,16 @@
 import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus, Download, Upload, RefreshCw, Network } from 'lucide-vue-next'
+import {
+  Plus,
+  Download,
+  Upload,
+  RefreshCw,
+  Network,
+  ChevronDown,
+  Table2,
+  Columns3,
+} from 'lucide-vue-next'
 import { useD3LineageGraph, type GraphNode, type GraphEdge } from '../../../composables/useD3LineageGraph'
 import {
   getEntitiesByDatasource,
@@ -200,6 +209,22 @@ function relationLabel(edge: MetadataRelationshipItem) {
     return `已记录关系 · ${parseLineageMeta(edge.relationMetadata).lineage_type || '来源未标注'}`
   return `结构层级 · ${edge.relationType}`
 }
+/**
+ * 图谱、对象条和画布标题使用的短标签。
+ * 展示名可能被同步成很长的原始注释（验收数据里就有这种回填），不再直接铺满标题；
+ * 超过 20 个字符时回退到技术名，完整原文仍可从 title 和选中详情里查看。
+ */
+function entityShortLabel(entity: MetadataEntityItem | null | undefined) {
+  if (!entity) return ''
+  const display = (entity.displayName || '').trim()
+  return display && display.length <= 20 ? display : entity.name
+}
+/** 与技术名不同的展示名，作为选中详情里的次级说明。 */
+function entityAlias(entity: MetadataEntityItem | null | undefined) {
+  if (!entity) return ''
+  const display = (entity.displayName || '').trim()
+  return display && display !== entity.name ? display : ''
+}
 function syncFocusToUrl(id: number) {
   if (currentDatasourceEntityIds.has(id) && routeEntityId.value !== id)
     void router.replace({ query: { ...route.query, entityId: String(id) } })
@@ -362,6 +387,20 @@ function edgesByDirection(rels: MetadataRelationshipItem[]) {
   return rels.filter((x) => keep.has(x.id))
 }
 const visibleRelations = computed(() => edgesByDirection(relationships.value))
+/** 没有可展示关系时不铺一整片空白画布，改为说明性空态。 */
+const graphEmpty = computed(
+  () =>
+    !loading.value &&
+    !graphError.value &&
+    !routeEntityHint.value &&
+    entities.value.length > 0 &&
+    visibleRelations.value.length === 0,
+)
+const graphEmptyHint = computed(() =>
+  relationships.value.length && !visibleRelations.value.length
+    ? '当前方向过滤后没有可展示的关系；切回「双向」可查看全部已加载关系。'
+    : '这个对象还没有已记录的上下游关系。可以先核对对象目录中的结构与注释，或记录第一条关系。',
+)
 function renderGraph() {
   if (!chartRef.value || activeTab.value !== 'graph') return
   const edges = visibleRelations.value,
@@ -369,7 +408,7 @@ function renderGraph() {
   if (focusEntityId.value) ids.add(Number(focusEntityId.value))
   const nodes: GraphNode[] = entities.value
     .filter((x) => ['TABLE', 'COLUMN'].includes(x.entityType) && ids.has(x.id))
-    .map((x) => ({ id: String(x.id), label: x.displayName || x.name, entity: x }))
+    .map((x) => ({ id: String(x.id), label: entityShortLabel(x), entity: x }))
   const palette: Record<string, string> = { QUERY: '#628179', ETL: '#aa603c', MANUAL: '#8c7957' }
   const d3Edges: GraphEdge[] = edges.map((x) => {
     const type = parseLineageMeta(x.relationMetadata).lineage_type || 'UNKNOWN'
@@ -769,11 +808,17 @@ onBeforeUnmount(() => {
       </aside>
       <div class="graph-main">
         <header class="canvas-heading">
-          <div>
-            <strong>{{ selectedEntity?.displayName || selectedEntity?.name || '选择起点' }}</strong>
-            <span>
-              实体 #{{ focusEntityId || '—' }} · {{ entities.length }} 个节点 ·
-              {{ visibleRelations.length }} 条已加载关系
+          <div class="canvas-heading__main">
+            <span class="eyebrow">当前焦点 · {{ selectedEntity?.entityType || '—' }}</span>
+            <strong
+              :title="selectedEntity ? selectedEntity.displayName || selectedEntity.name : ''"
+            >
+              {{ selectedEntity ? entityShortLabel(selectedEntity) : '选择起点' }}
+            </strong>
+            <span class="canvas-heading__meta">
+              <span class="meta-chip">实体 #{{ focusEntityId || '—' }}</span>
+              <span class="meta-chip">{{ entities.length }} 个节点</span>
+              <span class="meta-chip">{{ visibleRelations.length }} 条已加载关系</span>
             </span>
           </div>
           <span class="canvas-tip">拖动移动 · 滚轮缩放 · Shift 拖动记录关系</span>
@@ -793,30 +838,97 @@ onBeforeUnmount(() => {
             查看元数据版本
           </RouterLink>
         </div>
-        <div v-else ref="chartRef" class="chart-area" aria-label="关系图谱；下方对象列表提供键盘入口" />
+        <template v-else>
+          <div
+            v-if="!graphEmpty"
+            ref="chartRef"
+            class="chart-area"
+            aria-label="关系图谱；下方对象列表提供键盘入口"
+          />
+          <div v-else class="lineage-empty">
+            <div class="lineage-empty__card" role="status">
+              <span class="lineage-empty__icon"><Network :size="20" /></span>
+              <strong>还没有已记录的关系</strong>
+              <p>{{ graphEmptyHint }}</p>
+              <div class="lineage-empty__actions">
+                <el-button
+                  v-if="canManageLineage"
+                  type="primary"
+                  :icon="Plus"
+                  @click="openCreate()"
+                >
+                  记录关系
+                </el-button>
+                <el-button :icon="RefreshCw" :loading="loading" @click="loadGraph">
+                  重新读取
+                </el-button>
+              </div>
+            </div>
+            <p class="lineage-empty__note">图谱只展示已记录的关系；未记录不代表没有影响。</p>
+          </div>
+        </template>
         <p class="graph-legend">
-          <span>灰色：结构关联</span>
-          <span>铜色：ETL 加工记录</span>
-          <span>虚线：字段派生</span>
-          <span>绿色：QUERY 来源标记</span>
+          <span><i class="legend-dot legend-dot--struct" />灰色：结构关联</span>
+          <span><i class="legend-dot legend-dot--etl" />铜色：ETL 加工记录</span>
+          <span><i class="legend-dot legend-dot--derived" />虚线：字段派生</span>
+          <span><i class="legend-dot legend-dot--query" />绿色：QUERY 来源标记</span>
         </p>
-        <div class="object-strip" aria-label="选择图谱对象">
+        <div v-if="entities.length" class="object-strip" aria-label="选择图谱对象">
           <button
             v-for="entity in entities"
             :key="entity.id"
+            :title="entity.displayName || entity.name"
             :aria-pressed="selectedEntity?.id === entity.id"
-            @click="handleNodeClick({ id: String(entity.id), label: entity.name, entity })"
+            @click="handleNodeClick({ id: String(entity.id), label: entityShortLabel(entity), entity })"
           >
-            {{ entity.displayName || entity.name }}
+            {{ entityShortLabel(entity) }}
             <small>#{{ entity.id }}</small>
           </button>
         </div>
         <section v-if="selectedEntity" class="selection-card">
-          <div>
-            <span class="eyebrow">当前选中 · {{ selectedEntity.entityType }}</span>
-            <h2>{{ selectedEntity.displayName || selectedEntity.name }}</h2>
-            <code>{{ selectedEntity.fqn }}</code>
-            <p>{{ selectedEntity.description || '服务端未提供对象说明' }}</p>
+          <div class="selection-main">
+            <div class="selection-heading">
+              <span class="selection-icon">
+                <Table2 v-if="selectedEntity.entityType === 'TABLE'" :size="18" />
+                <Columns3 v-else :size="18" />
+              </span>
+              <div class="selection-title">
+                <span class="eyebrow">当前选中 · {{ selectedEntity.entityType }}</span>
+                <h2>{{ selectedEntity.name }}</h2>
+                <p
+                  v-if="entityAlias(selectedEntity)"
+                  class="selection-alias"
+                  :title="selectedEntity.displayName"
+                >
+                  展示名：{{ selectedEntity.displayName }}
+                </p>
+              </div>
+            </div>
+            <code class="selection-fqn">{{ selectedEntity.fqn }}</code>
+            <div class="selection-facts">
+              <span><span class="fact-label">实体</span><strong>#{{ selectedEntity.id }}</strong></span>
+              <span>
+                <span class="fact-label">数据源</span>
+                <strong>#{{ sourceOf(selectedEntity) ?? '未确认' }}</strong>
+              </span>
+              <span>
+                <span class="fact-label">对象版本</span>
+                <strong>v{{ selectedEntity.version }}</strong>
+              </span>
+            </div>
+            <details v-if="selectedEntity.description" class="raw-comment">
+              <summary>
+                <span class="raw-comment__label">原始注释</span>
+                <span class="raw-comment__preview">{{ selectedEntity.description }}</span>
+                <span class="raw-comment__hint">展开原始注释</span>
+                <ChevronDown :size="14" class="raw-comment__chevron" />
+              </summary>
+              <div class="raw-comment__full">
+                <p class="raw-comment__tag">原始注释 · 未清洗，仅作血缘记录参考</p>
+                <p class="raw-comment__text">{{ selectedEntity.description }}</p>
+              </div>
+            </details>
+            <p v-else class="selection-empty-note">服务端未提供对象说明。</p>
           </div>
           <div class="selection-actions">
             <el-button @click="handleAnalyzeImpact()">查看查询使用</el-button>
@@ -827,7 +939,10 @@ onBeforeUnmount(() => {
           </div>
         </section>
         <details v-if="visibleRelations.length" class="relation-records">
-          <summary>检查已记录关系（{{ visibleRelations.length }}）</summary>
+          <summary>
+            <span>检查已记录关系（{{ visibleRelations.length }}）</span>
+            <ChevronDown :size="14" class="relation-records__chevron" />
+          </summary>
           <p>结构关联不等于实际 JOIN，人工或 ETL 记录不证明本次查询使用。只允许删除 LINEAGE 表级记录。</p>
           <div v-for="edge in visibleRelations" :key="edge.id" class="relation-row">
             <code>#{{ edge.id }} · {{ edge.sourceId }} → {{ edge.targetId }}</code>
@@ -878,7 +993,10 @@ onBeforeUnmount(() => {
     </Teleport>
     <el-drawer v-model="drawerVisible" title="字段派生详情" size="min(520px, 100vw)">
       <template v-if="drawerEntity">
-        <h2>{{ drawerEntity.displayName || drawerEntity.name }}</h2>
+        <h2>{{ drawerEntity.name }}</h2>
+        <p v-if="entityAlias(drawerEntity)" class="helper-note">
+          展示名：{{ drawerEntity.displayName }}
+        </p>
         <code>{{ drawerEntity.fqn }}</code>
         <p class="helper-note">
           精确实体 #{{ drawerEntity.id }} · 数据源 #{{ sourceOf(drawerEntity) || '未确认' }} · 深度
@@ -901,7 +1019,9 @@ onBeforeUnmount(() => {
             class="chain-item"
             :style="{ marginLeft: Math.min(level, 8) * 12 + 'px' }"
           >
-            <strong>{{ node.entity.displayName || node.entity.name }}</strong>
+            <strong :title="node.entity.displayName || node.entity.name">{{
+              entityShortLabel(node.entity)
+            }}</strong>
             <code>{{ node.entity.fqn }}</code>
             <span>
               {{ parseLineageMeta(node.relationship?.relationMetadata).expression_type || '类型未提供' }}
@@ -972,150 +1092,336 @@ onBeforeUnmount(() => {
 }
 .workspace-tabs {
   display: flex;
-  gap: 24px;
+  gap: 28px;
   border-bottom: 1px solid var(--do-line);
-  margin: 0 0 20px;
+  margin: 0 0 16px;
 }
 .workspace-tabs button {
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 2px;
   border: 0;
+  border-bottom: 2px solid transparent;
   background: none;
-  padding: 14px 2px;
   color: var(--do-muted);
   font: inherit;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
+  transition:
+    color 150ms ease,
+    border-color 150ms ease;
+}
+.workspace-tabs button:hover {
+  color: var(--do-ink);
 }
 .workspace-tabs button[aria-current] {
   color: var(--do-primary-strong);
   border-bottom-color: var(--do-primary);
 }
+.workspace-tabs button:focus-visible {
+  outline: 2px solid var(--do-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 .graph-workspace {
   display: grid;
-  grid-template-columns: 250px minmax(0, 1fr);
+  grid-template-columns: 252px minmax(0, 1fr);
   border: 1px solid var(--do-line);
   border-radius: 14px;
   background: var(--do-surface);
+  box-shadow: 0 12px 32px rgb(36 39 36 / 5%);
   overflow: hidden;
 }
 .graph-controls {
-  padding: 20px;
-  border-right: 1px solid var(--do-line);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  padding: 18px;
+  border-right: 1px solid var(--do-line);
+  background: color-mix(in srgb, var(--do-soft) 46%, var(--do-surface));
 }
 .control-heading {
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+  color: var(--do-ink);
   font-size: 14px;
-  margin-bottom: 6px;
+  font-weight: 650;
+}
+.control-heading svg {
+  color: var(--do-primary);
 }
 .graph-controls label {
   display: block;
-  font-size: 12px;
-  font-weight: 700;
+  margin-top: 2px;
+  color: var(--do-muted);
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
 }
 .graph-controls form {
   display: grid;
   gap: 8px;
 }
+.graph-controls :deep(.el-input__wrapper) {
+  min-height: 34px;
+  border-radius: 8px;
+}
+.graph-controls :deep(.el-button) {
+  min-height: 34px;
+  border-radius: 8px;
+}
 .graph-controls :deep(.el-checkbox-group) {
   display: grid;
+  gap: 2px;
+  margin: 2px 0;
 }
 .graph-controls :deep(.el-checkbox) {
-  height: 28px;
+  height: 26px;
   margin: 0;
   font-size: 12px;
 }
-.helper-note {
+.graph-controls :deep(.el-checkbox__label) {
+  color: var(--do-ink);
   font-size: 12px;
-  color: var(--do-muted);
-  line-height: 1.8;
+}
+.graph-controls :deep(.el-radio-group) {
+  margin: 2px 0 4px;
+}
+.graph-controls :deep(.el-radio-button__inner) {
+  padding: 7px 14px;
+  font-size: 12px;
+}
+.graph-controls :deep(.el-slider) {
+  margin: 2px 6px 4px;
+}
+.helper-note {
   margin: 0;
+  color: var(--do-muted);
+  font-size: 11.5px;
+  line-height: 1.75;
   overflow-wrap: anywhere;
 }
 .secondary-actions {
   display: grid;
-  gap: 10px;
-  margin-top: 10px;
+  gap: 8px;
+  margin-top: 2px;
 }
 .secondary-actions .el-button {
   margin: 0;
 }
 .graph-main {
   min-width: 0;
+  background: var(--do-surface);
 }
 .canvas-heading {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 20px 22px;
+  gap: 16px;
+  padding: 16px 20px 14px;
   border-bottom: 1px solid var(--do-line);
+}
+.canvas-heading__main {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
 }
 .canvas-heading strong {
   display: block;
-  font-size: 16px;
+  overflow: hidden;
+  color: var(--do-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.canvas-heading span {
-  font-size: 11px;
+.canvas-heading__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--do-line);
+  border-radius: 999px;
+  background: var(--do-surface);
   color: var(--do-muted);
-  display: block;
-  margin-top: 5px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 .canvas-tip {
-  max-width: 180px;
-  text-align: right;
+  flex-shrink: 0;
+  color: var(--do-muted);
+  font-size: 11px;
   line-height: 1.7;
+  text-align: right;
+  white-space: nowrap;
 }
 .chart-area {
-  height: 440px;
   width: 100%;
+  height: clamp(360px, calc(100vh - 430px), 520px);
   background-image: radial-gradient(var(--do-line) 0.7px, transparent 0.7px);
   background-size: 18px 18px;
 }
 .graph-status {
-  min-height: 330px;
-  padding: 32px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  text-align: center;
+  gap: 10px;
+  min-height: 320px;
+  padding: 32px;
   color: var(--do-muted);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.8;
+  text-align: center;
+}
+.lineage-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: clamp(360px, calc(100vh - 430px), 520px);
+  padding: 40px 20px;
+  background-image: radial-gradient(var(--do-line) 0.7px, transparent 0.7px);
+  background-size: 18px 18px;
+}
+.lineage-empty__card {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  max-width: 480px;
+  padding: 26px 30px;
+  border: 1px solid var(--do-line);
+  border-radius: 14px;
+  background: var(--do-surface);
+  box-shadow: 0 10px 26px rgb(36 39 36 / 6%);
+  text-align: center;
+}
+.lineage-empty__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--do-primary-soft);
+  color: var(--do-primary);
+}
+.lineage-empty__card strong {
+  color: var(--do-ink);
+  font-size: 15px;
+}
+.lineage-empty__card p {
+  margin: 0;
+  color: var(--do-muted);
+  font-size: 12.5px;
+  line-height: 1.8;
+}
+.lineage-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+.lineage-empty__actions .el-button {
+  margin: 0;
+}
+.lineage-empty__note {
+  margin: 0;
+  color: var(--do-muted);
+  font-size: 11.5px;
 }
 .graph-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
-  padding: 0 22px;
+  gap: 8px 16px;
+  padding: 12px 20px 0;
   color: var(--do-muted);
   font-size: 11px;
+}
+.graph-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+.legend-dot--struct {
+  background: #939b96;
+}
+.legend-dot--etl {
+  background: #aa603c;
+}
+.legend-dot--derived {
+  width: 10px;
+  height: 0;
+  border-top: 2px dashed #80728f;
+  border-radius: 0;
+}
+.legend-dot--query {
+  background: #628179;
 }
 .object-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 10px 22px 18px;
+  padding: 10px 20px 16px;
 }
 .object-strip button,
 .object-results button {
   border: 1px solid var(--do-line);
+  border-radius: 8px;
   background: var(--do-surface);
-  border-radius: 6px;
-  padding: 8px 10px;
-  cursor: pointer;
+  padding: 7px 10px;
+  color: var(--do-ink);
   font: inherit;
   font-size: 12px;
-  color: var(--do-ink);
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease;
+}
+.object-strip button {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.object-strip button small {
+  margin-left: 6px;
+  color: var(--do-muted);
+  font-size: 10.5px;
+}
+.object-strip button:hover,
+.object-results button:hover {
+  border-color: var(--do-primary);
 }
 .object-strip button[aria-pressed='true'] {
-  border-color: var(--do-primary);
+  border-color: color-mix(in srgb, var(--do-primary) 45%, var(--do-line));
   background: var(--do-primary-soft);
+  color: var(--do-primary-strong);
+}
+.object-strip button:focus-visible,
+.object-results button:focus-visible {
+  outline: 2px solid var(--do-primary);
+  outline-offset: 1px;
 }
 small {
   color: var(--do-muted);
@@ -1127,60 +1433,226 @@ small {
   overflow: auto;
 }
 .selection-card {
-  border-top: 1px solid var(--do-line);
-  padding: 20px 22px;
   display: flex;
   justify-content: space-between;
   gap: 20px;
+  margin: 16px 20px 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--do-line);
+  border-radius: 12px;
+  background: var(--do-surface);
+}
+.selection-main {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 10px;
+}
+.selection-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+.selection-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--do-primary-soft);
+  color: var(--do-primary);
+}
+.selection-title {
+  min-width: 0;
 }
 .eyebrow {
-  font-size: 10px;
-  font-weight: 800;
+  display: block;
   color: var(--do-primary-strong);
+  font-size: 10.5px;
+  font-weight: 800;
   letter-spacing: 0.04em;
 }
-.selection-card h2 {
-  font-size: 18px;
-  margin: 8px 0;
-}
-.selection-card code {
-  font-size: 11px;
+.selection-title h2 {
+  margin: 4px 0 0;
+  color: var(--do-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 17px;
+  font-weight: 700;
   overflow-wrap: anywhere;
 }
-.selection-card p {
-  font-size: 12px;
+.selection-alias {
+  margin: 3px 0 0;
+  overflow: hidden;
   color: var(--do-muted);
-  line-height: 1.7;
+  font-size: 12px;
+  line-height: 1.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.selection-fqn {
+  display: block;
+  color: var(--do-muted);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+.selection-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+.selection-facts span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--do-ink);
+  font-size: 12px;
+}
+.fact-label {
+  color: var(--do-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.selection-empty-note {
+  margin: 0;
+  color: var(--do-muted);
+  font-size: 12px;
 }
 .selection-actions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   flex-shrink: 0;
+  gap: 8px;
 }
 .selection-actions .el-button {
   margin: 0;
 }
+.raw-comment {
+  padding: 0 12px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--do-soft) 40%, var(--do-surface));
+}
+.raw-comment summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 6px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.raw-comment summary::-webkit-details-marker {
+  display: none;
+}
+.raw-comment summary::marker {
+  content: '';
+}
+.raw-comment__label {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--do-primary-soft);
+  color: var(--do-primary-strong);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.raw-comment__preview {
+  display: -webkit-box;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.raw-comment__hint {
+  flex-shrink: 0;
+  color: var(--do-primary-strong);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.raw-comment__chevron {
+  flex-shrink: 0;
+  color: var(--do-primary-strong);
+  transition: transform 150ms ease;
+}
+.raw-comment[open] .raw-comment__hint {
+  display: none;
+}
+.raw-comment[open] .raw-comment__chevron {
+  transform: rotate(180deg);
+}
+.raw-comment__full {
+  padding: 10px 0 12px;
+  border-top: 1px dashed var(--do-line);
+}
+.raw-comment__tag {
+  margin: 0 0 6px;
+  color: var(--do-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+.raw-comment__text {
+  margin: 0;
+  color: var(--do-ink);
+  font-size: 12.5px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
 .relation-records {
-  padding: 18px 22px;
-  border-top: 1px solid var(--do-line);
+  margin: 0 20px 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--do-line);
+  border-radius: 10px;
   font-size: 12px;
 }
 .relation-records summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--do-ink);
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 650;
+  list-style: none;
+}
+.relation-records summary::-webkit-details-marker {
+  display: none;
+}
+.relation-records summary::marker {
+  content: '';
+}
+.relation-records__chevron {
+  flex-shrink: 0;
+  color: var(--do-muted);
+  transition: transform 150ms ease;
+}
+.relation-records[open] .relation-records__chevron {
+  transform: rotate(180deg);
 }
 .relation-records p {
+  margin: 8px 0 0;
   color: var(--do-muted);
   line-height: 1.8;
 }
 .relation-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
   align-items: center;
+  gap: 12px;
   padding: 10px 0;
   border-top: 1px solid var(--do-line);
+}
+.relation-row code {
+  font-size: 11.5px;
 }
 .context-menu {
   position: fixed;
@@ -1220,15 +1692,26 @@ small {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-@media (max-width: 1000px) {
+@media (max-width: 1100px) {
   .graph-workspace {
-    grid-template-columns: 210px minmax(0, 1fr);
-  }
-  .graph-controls {
-    padding: 16px;
+    grid-template-columns: 220px minmax(0, 1fr);
   }
   .canvas-tip {
     display: none;
+  }
+}
+@media (max-width: 960px) {
+  .graph-workspace {
+    grid-template-columns: 1fr;
+  }
+  .graph-controls {
+    border-right: 0;
+    border-bottom: 1px solid var(--do-line);
+  }
+  .chart-area,
+  .lineage-empty {
+    height: auto;
+    min-height: 340px;
   }
   .selection-card {
     flex-direction: column;
@@ -1238,28 +1721,25 @@ small {
     flex-wrap: wrap;
   }
 }
-@media (max-width: 720px) {
-  .graph-workspace {
-    grid-template-columns: 1fr;
-  }
-  .graph-controls {
-    border-right: 0;
-    border-bottom: 1px solid var(--do-line);
-  }
-  .chart-area {
-    height: 340px;
-  }
-  .canvas-heading {
-    padding: 16px;
-  }
+@media (max-width: 640px) {
   .workspace-tabs {
     gap: 16px;
   }
   .workspace-tabs button {
-    font-size: 12px;
+    font-size: 13px;
+  }
+  .canvas-heading {
+    flex-direction: column;
+    padding: 14px 16px;
+  }
+  .graph-legend,
+  .object-strip {
+    padding-right: 16px;
+    padding-left: 16px;
   }
   .selection-card {
-    padding: 16px;
+    margin: 12px 16px 14px;
+    padding: 14px 16px;
   }
 }
 </style>
