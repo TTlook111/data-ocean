@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick, reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
-import ElementPlus, { ElButton, ElMessageBox } from 'element-plus'
+import ElementPlus, { ElButton, ElMessageBox, ElTable } from 'element-plus'
 import { useIamS1Store } from '../../../stores/iamS1'
 import type { IamS1CapabilitySnapshot } from '../../../api/iamS1'
 
@@ -269,5 +269,53 @@ describe('数据源既有 S1 功能与负责源能力', () => {
     save.vm.$emit('click', new MouseEvent('click')); await settle()
     expect(api.updateDatasource).not.toHaveBeenCalled()
     expect(api.createDatasource).not.toHaveBeenCalled()
+  })
+})
+
+describe('列表工作区填充基线', () => {
+  function stubMatchMedia(matches: boolean) {
+    const original = window.matchMedia
+    const mql = { matches, media: '', onchange: null, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() } as unknown as MediaQueryList
+    Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: vi.fn(() => mql) })
+    return () => {
+      if (original) Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: original })
+      else delete (window as unknown as Record<string, unknown>).matchMedia
+    }
+  }
+  const manyRows = () => Array.from({ length: 9 }, (_, index) => ({ ...source, id: index + 1, name: `测试数据源 ${index + 1}` }))
+
+  it('宽屏时启用填充布局，表格交给容器内滚动，页脚常驻', async () => {
+    const restore = stubMatchMedia(true)
+    try {
+      api.listDatasources.mockResolvedValue({ data: { records: manyRows(), total: 9 } })
+      const wrapper = await render(DataSourcesView, currentManager())
+      expect(wrapper.get('.data-sources-page').classes()).toContain('admin-list-fill')
+      expect(wrapper.get('.data-sources-panel').classes()).toContain('admin-list-fill__panel')
+      expect(wrapper.get('.data-sources-panel__table').classes()).toContain('admin-list-fill__body')
+      expect(wrapper.findAllComponents(ElTable)[0]!.props('height')).toBe('100%')
+      expect(wrapper.find('.data-sources-panel__footer').exists()).toBe(true)
+      expect(wrapper.get('.data-sources-panel__count').text()).toContain('共 9 个匹配数据源')
+    } finally { restore() }
+  })
+
+  it('宽屏下少量数据也铺满工作表，空白留在表格容器内', async () => {
+    const restore = stubMatchMedia(true)
+    try {
+      api.listDatasources.mockResolvedValue({ data: { records: [{ ...source }], total: 1 } })
+      const wrapper = await render(DataSourcesView, currentManager())
+      expect(wrapper.get('.data-sources-page').classes()).toContain('admin-list-fill')
+      expect(wrapper.get('.data-sources-panel__table').classes()).toContain('admin-list-fill__body')
+      expect(wrapper.findAllComponents(ElTable)[0]!.props('height')).toBe('100%')
+    } finally { restore() }
+  })
+
+  it('窄屏或矮窗口退化为页面滚动，不启用填充布局', async () => {
+    const restore = stubMatchMedia(false)
+    try {
+      api.listDatasources.mockResolvedValue({ data: { records: manyRows(), total: 9 } })
+      const wrapper = await render(DataSourcesView, currentManager())
+      expect(wrapper.get('.data-sources-page').classes()).not.toContain('admin-list-fill')
+      expect(wrapper.findAllComponents(ElTable)[0]!.props('height')).toBeUndefined()
+    } finally { restore() }
   })
 })

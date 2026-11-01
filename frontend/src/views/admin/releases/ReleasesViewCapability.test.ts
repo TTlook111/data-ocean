@@ -174,6 +174,9 @@ function mountPage() {
       stubs: {
         RouterLink: { template: '<a><slot /></a>' },
         ScopeBar: true,
+        ElDropdown: { template: '<section><slot /><slot name="dropdown" /></section>' },
+        ElDropdownMenu: { template: '<div><slot /></div>' },
+        ElDropdownItem: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
         TaskPageHeader: {
           props: ['title'],
           template: '<header><h1>{{ title }}</h1></header>',
@@ -539,7 +542,7 @@ describe('元数据版本工作区', () => {
     const actions = row.find('.release-row-actions')!
     expect(actions.text()).toContain('操作记录')
     expect(actions.text()).toContain('撤回')
-    expect(actions.text()).not.toContain('更多')
+    expect(actions.find('.release-row-actions__more').exists()).toBe(true)
     expect(row.find('.release-version__link').exists()).toBe(true)
 
     const prompt = vi.spyOn(ElMessageBox, 'prompt').mockResolvedValue({ value: '回滚原因' } as never)

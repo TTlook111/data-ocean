@@ -82,3 +82,38 @@ body:has(.admin-shell) {
 .knowledge-build-dialog {display:flex;flex-direction:column;max-height:90dvh;border-radius:12px;}
 .knowledge-build-dialog .el-dialog__body {overflow:auto;min-height:0;font-size:13px;line-height:1.7;}
 .knowledge-build-dialog .el-dialog__footer {flex-shrink:0;border-top:1px solid var(--do-line);padding-top:14px;}
+
+/*
+ * 列表工作区填充基线（2026-11-01）。
+ * 适用对象：以表格/列表为主体的后台页面，避免整页随行数变长、筛选与分页被滚出视口。
+ * 用法：页面根节点加 admin-list-fill；列表面板加 admin-list-fill__panel（纵向 flex）；
+ * 需要内滚动的区域加 admin-list-fill__body，表格 height="100%"；常驻页脚加 admin-list-fill__footer。
+ * 只在宽屏且窗口高度足够时启用；窄屏或矮窗口退化为普通页面滚动，行为与未接入前一致。
+ */
+@media (min-width: 1200px) and (min-height: 700px) {
+  .admin-shell .admin-shell__content:has(> .admin-list-fill) {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding-bottom: 20px;
+  }
+  .admin-shell .admin-shell__content:has(> .admin-list-fill) > .admin-list-fill {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .admin-list-fill__panel {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .admin-list-fill__body {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .admin-list-fill__footer {
+    flex: 0 0 auto;
+  }
+}

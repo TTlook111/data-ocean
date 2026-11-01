@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
+import { computed, inject, ref, reactive, onBeforeUnmount, onMounted, watch, type ComputedRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Database, Info, RefreshCw } from 'lucide-vue-next'
 import { triggerSync, listSyncTasks, type SyncTaskItem, type SyncTriggerPayload } from '../../../api/admin/metadata'
-import { syncStatusLabel, syncStatusType, syncTriggerLabel } from '../../../utils/enumLabels'
+import { syncStatusLabel, syncTriggerLabel } from '../../../utils/enumLabels'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
 import { useAuthStore } from '../../../stores/auth'
@@ -40,6 +40,17 @@ const canRead = computed(() => {
 const runningTasks = computed(() => tasks.value.filter(task => task.status === 'PENDING' || task.status === 'RUNNING'))
 const selectedRunningTask = computed(() => runningTasks.value.find(task => task.datasourceId === syncForm.datasourceId))
 const emptyMessage = computed(() => query.datasourceId ? '当前数据源范围内暂无采集任务。' : '当前范围内暂无采集任务。')
+const pageSizes = [10, 20, 50]
+// 列表填充布局由 CollectionsView 统一决策（宽屏「采集任务」tab 启用），本组件只消费布尔值。
+const fillActive = inject<ComputedRef<boolean> | undefined>('collectionListFill', undefined)
+const fillLayout = computed(() => fillActive?.value === true)
+function statusTone(status: string) {
+  if (status === 'SUCCESS') return 'success'
+  if (status === 'PENDING' || status === 'RUNNING') return 'running'
+  if (status === 'FAILED' || status === 'TIMEOUT') return 'danger'
+  return 'neutral'
+}
+function handleSizeChange() { query.page = 1; fetchTasks() }
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 let taskRequestId = 0
@@ -136,13 +147,22 @@ defineExpose({ openSyncDialog })
 </script>
 
 <template>
-  <main class="sync-task-page post-login-page">
+  <main class="sync-task-page post-login-page" :class="{ 'is-fill': fillLayout }">
     <section class="collection-purpose" aria-label="采集工作说明">
-      <div><span class="collection-purpose__number">01</span><strong>读取数据库结构</strong><p>表、字段与关系；统计信息按需采集。</p></div>
-      <div><span class="collection-purpose__number">02</span><strong>形成独立快照</strong><p>任务成功后查看本次生成的精确版本。</p></div>
-      <div><span class="collection-purpose__number">03</span><strong>进入治理与审核</strong><p>发布、知识准备和索引构建各自确认。</p></div>
+      <div class="collection-purpose__item">
+        <span class="collection-purpose__number">01</span>
+        <div class="collection-purpose__copy"><strong>读取数据库结构</strong><p>表、字段与关系；统计信息按需采集。</p></div>
+      </div>
+      <div class="collection-purpose__item">
+        <span class="collection-purpose__number">02</span>
+        <div class="collection-purpose__copy"><strong>形成独立快照</strong><p>任务成功后查看本次生成的精确版本。</p></div>
+      </div>
+      <div class="collection-purpose__item">
+        <span class="collection-purpose__number">03</span>
+        <div class="collection-purpose__copy"><strong>进入治理与审核</strong><p>发布、知识准备和索引构建各自确认。</p></div>
+      </div>
     </section>
-    <section class="collections-task">
+    <section class="collections-task" :class="{ 'admin-list-fill__panel': fillLayout }">
       <div class="collections-task__toolbar">
         <div class="collections-task__scope">
           <ScopeBar mode="datasource" refresh-label="刷新数据源列表" />
@@ -157,48 +177,63 @@ defineExpose({ openSyncDialog })
       <ErrorState v-else-if="errorMessage" :message="errorMessage" @retry="fetchTasks" />
       <LoadingState v-else-if="loading && !tasks.length" variant="skeleton" :rows="5" />
       <template v-else-if="tasks.length">
-        <el-table :data="tasks" v-loading="loading">
-          <el-table-column prop="datasourceName" label="数据源" width="160" show-overflow-tooltip />
-          <el-table-column prop="triggerType" label="触发方式" width="100">
-            <template #default="{ row }">
-              {{ syncTriggerLabel(row.triggerType) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="status" label="状态" width="100">
-            <template #default="{ row }">
-              <el-tag :type="syncStatusType(row.status)" size="small">{{ syncStatusLabel(row.status) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="执行结果与下一步" min-width="250">
-            <template #default="{ row }"><span class="task-outcome" :class="{ 'task-outcome--error': row.status === 'FAILED' || row.status === 'TIMEOUT' }">{{ progressLabel(row) }}</span><span v-if="row.snapshotId" class="task-id">快照 #{{ row.snapshotId }}</span></template>
-          </el-table-column>
-          <el-table-column label="执行时间" width="175"><template #default="{ row }"><span>{{ row.startedAt || '尚未开始' }}</span><span class="task-id">{{ row.finishedAt ? `完成 ${row.finishedAt}` : '尚未结束' }}</span></template></el-table-column>
-          <el-table-column label="后续操作" width="250" fixed="right">
-            <template #default="{ row }">
-              <div class="task-actions">
-                <el-button
-                  v-if="(row.status === 'FAILED' || row.status === 'TIMEOUT') && can('metadata:collect:run', row.datasourceId)"
-                  link
-                  type="warning"
-                  :loading="retryingTaskId === row.id" :disabled="Boolean(retryingTaskId || syncLoading)"
-                  @click="retryTask(row)"
-                >重试</el-button>
-                <RouterLink
-                  v-if="(row.status === 'FAILED' || row.status === 'TIMEOUT') && can('datasource:view', row.datasourceId) && can('datasource:manage', row.datasourceId)"
-                  class="table-link"
-                  :to="`/admin/data-sources/${row.datasourceId}?action=test`"
-                >检查连接</RouterLink>
-                <RouterLink v-if="row.status === 'SUCCESS' && row.snapshotId && can('metadata:view', row.datasourceId)" class="table-link" :to="{ path: `/admin/releases/snapshots/${row.snapshotId}`, query: { datasourceId: String(row.datasourceId) } }">查看生成快照</RouterLink>
-                <RouterLink v-else-if="row.status === 'SUCCESS' && can('metadata:release:view', row.datasourceId)" class="table-link" :to="{ path: '/admin/releases', query: { datasourceId: String(row.datasourceId) } }">查看该数据源版本</RouterLink>
-                <span v-if="row.status === 'PENDING' || row.status === 'RUNNING'" class="muted">任务执行中</span>
-              </div>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div v-if="total > 0" class="collections-task__pagination">
-          <el-pagination background layout="total, prev, pager, next"
-                         :total="total" :page-size="query.size"
-                         v-model:current-page="query.page" @current-change="fetchTasks" />
+        <div class="collections-task__body" :class="{ 'admin-list-fill__body': fillLayout }">
+          <el-table :data="tasks" v-loading="loading" :height="fillLayout ? '100%' : undefined">
+            <el-table-column prop="datasourceName" label="数据源" min-width="280" show-overflow-tooltip />
+            <el-table-column prop="triggerType" label="触发方式" width="100">
+              <template #default="{ row }">
+                {{ syncTriggerLabel(row.triggerType) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="status" label="状态" width="100">
+              <template #default="{ row }">
+                <span class="task-status" :class="`task-status--${statusTone(row.status)}`"><i aria-hidden="true"></i>{{ syncStatusLabel(row.status) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="执行结果与下一步" min-width="200">
+              <template #default="{ row }"><span class="task-outcome" :class="{ 'task-outcome--error': row.status === 'FAILED' || row.status === 'TIMEOUT' }">{{ progressLabel(row) }}</span><span v-if="row.snapshotId" class="task-id">快照 #{{ row.snapshotId }}</span></template>
+            </el-table-column>
+            <el-table-column label="执行时间" width="180">
+              <template #default="{ row }">
+                <div class="task-time">
+                  <span class="task-time__start">{{ row.startedAt || '尚未开始' }}</span>
+                  <span class="task-time__end">{{ row.finishedAt ? `完成 ${row.finishedAt}` : '尚未结束' }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="后续操作" width="240" fixed="right">
+              <template #default="{ row }">
+                <div class="task-actions">
+                  <el-button
+                    v-if="(row.status === 'FAILED' || row.status === 'TIMEOUT') && can('metadata:collect:run', row.datasourceId)"
+                    link
+                    type="warning"
+                    :loading="retryingTaskId === row.id" :disabled="Boolean(retryingTaskId || syncLoading)"
+                    @click="retryTask(row)"
+                  >重试</el-button>
+                  <RouterLink
+                    v-if="(row.status === 'FAILED' || row.status === 'TIMEOUT') && can('datasource:view', row.datasourceId) && can('datasource:manage', row.datasourceId)"
+                    class="table-link"
+                    :to="`/admin/data-sources/${row.datasourceId}?action=test`"
+                  >检查连接</RouterLink>
+                  <RouterLink v-if="row.status === 'SUCCESS' && row.snapshotId && can('metadata:view', row.datasourceId)" class="table-link" :to="{ path: `/admin/releases/snapshots/${row.snapshotId}`, query: { datasourceId: String(row.datasourceId) } }">查看生成快照</RouterLink>
+                  <RouterLink v-else-if="row.status === 'SUCCESS' && can('metadata:release:view', row.datasourceId)" class="table-link" :to="{ path: '/admin/releases', query: { datasourceId: String(row.datasourceId) } }">查看该数据源版本</RouterLink>
+                  <span v-if="row.status === 'PENDING' || row.status === 'RUNNING'" class="muted">任务执行中</span>
+                </div>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+        <div v-if="total > 0" class="collections-task__pagination admin-list-fill__footer">
+          <span class="collections-task__total">共 {{ total }} 条采集任务</span>
+          <div class="collections-task__pager">
+            <el-select v-model="query.size" class="collections-task__page-size" size="small" aria-label="每页条数" @change="handleSizeChange">
+              <el-option v-for="size in pageSizes" :key="size" :label="`${size} 条/页`" :value="size" />
+            </el-select>
+            <el-pagination layout="prev, pager, next" :pager-count="5"
+                           :total="total" :page-size="query.size"
+                           v-model:current-page="query.page" @current-change="fetchTasks" />
+          </div>
         </div>
       </template>
       <EmptyState v-else :message="emptyMessage" />
@@ -229,20 +264,49 @@ defineExpose({ openSyncDialog })
 </template>
 
 <style scoped>
-.sync-task-page { display: grid; gap: 20px; }
-.collection-purpose { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); border-block: 1px solid var(--do-line); padding: 18px 0; }
-.collection-purpose > div { padding: 0 20px; border-right: 1px solid var(--do-line); }
-.collection-purpose > div:first-child { padding-left: 0; }
-.collection-purpose > div:last-child { border-right: 0; }
-.collection-purpose__number { font: 12px monospace; color: var(--do-primary-strong); margin-right: 12px; }
-.collection-purpose strong { font-size: 14px; font-weight: 600; }
-.collection-purpose p { margin: 6px 0 0 28px; font-size: 12px; color: var(--do-muted); line-height: 1.6; }
-.task-id { display: block; margin-top: 5px; color: var(--do-muted); font-size: 11px; }
-.task-outcome { line-height: 1.65; }
-.task-outcome--error { color: var(--do-danger); }
-.collection-dialog__intro { color: var(--do-muted); font-size: 13px; line-height: 1.7; margin: 0 0 20px; }
-@media(max-width:640px) { .collection-purpose { grid-template-columns:1fr; gap:16px; } .collection-purpose > div { padding:0; border:0; } }
-.collections-task { min-width: 0; padding: 0; overflow: hidden; border-color: var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-glass-panel-bg); box-shadow: var(--do-shadow); }
+.sync-task-page { display: grid; gap: 14px; min-width: 0; }
+
+/* 采集工作说明：编号方块 + 文案，作为轻量流程条，不再用满宽分割线。 */
+.collection-purpose {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--do-glass-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-glass-data-bg);
+  box-shadow: var(--do-shadow);
+  overflow: hidden;
+}
+.collection-purpose__item { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 14px 18px; }
+.collection-purpose__item + .collection-purpose__item { border-left: 1px solid var(--do-line); }
+.collection-purpose__number {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--do-primary-soft);
+  color: var(--do-primary-strong);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.collection-purpose__copy { min-width: 0; }
+.collection-purpose strong { display: block; color: var(--do-ink); font-size: 12.5px; font-weight: 600; line-height: 1.5; }
+.collection-purpose p { margin: 2px 0 0; color: var(--do-muted); font-size: 11.5px; line-height: 1.55; }
+
+.collections-task {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--do-glass-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-glass-data-bg);
+  box-shadow: var(--do-shadow);
+}
 
 .collections-task__toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; padding: 12px 16px; border-bottom: 1px solid var(--do-line); }
 .collections-task__scope { min-width: 0; flex: 1 1 auto; display: flex; }
@@ -258,6 +322,8 @@ defineExpose({ openSyncDialog })
 .collections-task__note { display: flex; align-items: center; gap: 6px; margin: 0; padding: 9px 16px; border-bottom: 1px solid var(--do-line); color: var(--do-muted); background: color-mix(in srgb, var(--do-primary) 4%, white); font-size: 12px; line-height: 1.5; }
 .collections-task__note svg { flex: 0 0 auto; color: var(--do-primary-strong); }
 
+.collections-task__body { min-width: 0; }
+
 .collections-task :deep(.el-table) {
   --el-table-border-color: var(--do-line);
   --el-table-header-bg-color: var(--do-soft);
@@ -266,25 +332,68 @@ defineExpose({ openSyncDialog })
 }
 .collections-task :deep(.el-table::before),
 .collections-task :deep(.el-table__inner-wrapper::before) { display: none; }
-.collections-task :deep(.el-table th.el-table__cell) { height: 42px; padding: 0; background: var(--do-soft); color: var(--do-muted); font-size: 12px; font-weight: 600; }
-.collections-task :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 42px; }
-.collections-task :deep(.el-table td.el-table__cell) { padding: 14px 0; vertical-align: middle; border-bottom-color: var(--do-line); }
+.collections-task :deep(.el-table th.el-table__cell) { height: 40px; padding: 0; background: var(--do-soft); color: var(--do-muted); font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+.collections-task :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 40px; }
+.collections-task :deep(.el-table td.el-table__cell) { padding: 11px 0; vertical-align: middle; border-bottom-color: var(--do-line); }
 .collections-task :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.45; }
 .collections-task :deep(.el-table th.el-table__cell:first-child .cell),
 .collections-task :deep(.el-table td.el-table__cell:first-child .cell) { padding-left: 16px; }
 .collections-task :deep(.el-table th.el-table__cell:last-child .cell),
 .collections-task :deep(.el-table td.el-table__cell:last-child .cell) { padding-right: 16px; }
+.collections-task :deep(.el-table__body tr:hover > td.el-table__cell:first-child) { box-shadow: inset 2px 0 0 var(--do-primary); }
 .collections-task :deep(.el-table__body tr:last-child td.el-table__cell) { border-bottom: 0; }
 
-.collections-task__pagination { display: flex; justify-content: flex-end; flex-wrap: wrap; padding: 10px 16px 12px; border-top: 1px solid var(--do-line); }
-.task-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.table-link { color: var(--do-primary-strong); font-size: 12px; white-space: nowrap; }
+.task-status { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.task-status i { width: 5px; height: 5px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
+.task-status--success { color: var(--do-success); background: var(--do-success-soft); }
+.task-status--running { color: var(--do-warning); background: var(--do-warning-soft); }
+.task-status--danger { color: var(--do-danger); background: var(--do-danger-soft); }
+.task-status--neutral { color: var(--do-muted); background: var(--do-soft); }
+
+.task-outcome { display: block; color: var(--do-ink); font-size: 12.5px; line-height: 1.55; }
+.task-outcome--error { color: var(--do-danger); }
+.task-id { display: block; margin-top: 3px; color: var(--do-muted); font-size: 11px; }
+
+.task-time { display: grid; gap: 2px; }
+.task-time__start { color: var(--do-ink); font-size: 12.5px; }
+.task-time__end { color: var(--do-muted); font-size: 11px; }
+
+.task-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.task-actions :deep(.el-button) { height: 24px; margin: 0; padding: 0 6px; border-radius: 6px; font-size: 12px; }
+.task-actions :deep(.el-button:hover) { background: var(--do-primary-soft); }
+.table-link { display: inline-flex; align-items: center; height: 24px; padding: 0 6px; border-radius: 6px; color: var(--do-primary-strong); font-size: 12px; white-space: nowrap; }
+.table-link:hover { background: var(--do-primary-soft); }
 .muted { color: var(--do-muted); font-size: 12px; }
+
+.collections-task__pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--do-line); }
+.collections-task__total { color: var(--do-muted); font-size: 12px; }
+.collections-task__pager { display: flex; align-items: center; gap: 8px; }
+.collections-task__page-size { width: 104px; }
+.collections-task__pagination :deep(.el-pagination) { --el-pagination-button-width: 28px; --el-pagination-font-size: 12px; }
+.collections-task__pagination :deep(.el-pager li.is-active) { color: var(--do-primary-strong); font-weight: 700; }
+.collections-task__pagination :deep(.el-pager li:hover) { color: var(--do-primary); }
+
+.collection-dialog__intro { color: var(--do-muted); font-size: 13px; line-height: 1.7; margin: 0 0 20px; }
 
 @media (max-width: 900px) {
   .collections-task__toolbar { padding: 10px 12px; gap: 8px; }
   .collections-task__scope { flex: 1 1 100%; }
   .collections-task__scope :deep(.scope-bar__controls .el-select) { flex: 1 1 100%; min-width: 0; max-width: none; }
   .collections-task__refresh { margin-left: 0; }
+  .collection-purpose { grid-template-columns: 1fr; }
+  .collection-purpose__item + .collection-purpose__item { border-left: 0; border-top: 1px solid var(--do-line); }
+}
+
+@media (max-width: 640px) {
+  .collections-task__pagination { justify-content: flex-start; }
+  .collections-task__pager { width: 100%; justify-content: space-between; }
+}
+
+@media (min-width: 1200px) and (min-height: 700px) {
+  .sync-task-page.is-fill { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; height: 100%; }
+  .sync-task-page.is-fill .collection-purpose { flex: 0 0 auto; }
+  .sync-task-page.is-fill .collections-task { flex: 1 1 auto; min-height: 0; }
+  .sync-task-page.is-fill .collections-task__body { flex: 1 1 auto; min-height: 0; }
+  .sync-task-page.is-fill .collections-task__pagination { flex: 0 0 auto; }
 }
 </style>

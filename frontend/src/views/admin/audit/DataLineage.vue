@@ -11,6 +11,7 @@ import {
   ChevronDown,
   Table2,
   Columns3,
+  Search,
 } from 'lucide-vue-next'
 import { useD3LineageGraph, type GraphNode, type GraphEdge } from '../../../composables/useD3LineageGraph'
 import {
@@ -100,6 +101,19 @@ const lineageTypeFilter = ref<string[]>(['QUERY', 'ETL', 'MANUAL']),
   direction = ref<'both' | 'upstream' | 'downstream'>('both')
 const activeTab = ref<'graph' | 'queries'>('graph'),
   evidenceTarget = ref<ReturnType<typeof queryEvidenceTarget>>()
+const fillMediaMatches = ref(false)
+const graphFill = computed(
+  () =>
+    activeTab.value === 'graph' &&
+    !!datasourceId.value &&
+    canViewLineage.value &&
+    !invalidContext.value &&
+    fillMediaMatches.value,
+)
+let fillMediaQuery: MediaQueryList | null = null
+function syncFillMedia(event?: MediaQueryListEvent) {
+  fillMediaMatches.value = event ? event.matches : Boolean(fillMediaQuery?.matches)
+}
 const chartRef = ref<HTMLElement | null>(null),
   fileInputRef = ref<HTMLInputElement | null>(null)
 const drawerVisible = ref(false),
@@ -203,11 +217,21 @@ function parseLineageMeta(meta?: string): Record<string, any> {
   }
 }
 function relationLabel(edge: MetadataRelationshipItem) {
-  if (edge.relationType === 'FOREIGN_KEY') return '结构关联 · FOREIGN_KEY'
-  if (edge.relationType === 'DERIVED_FROM') return '字段派生 · DERIVED_FROM'
-  if (edge.relationType === 'LINEAGE')
-    return `已记录关系 · ${parseLineageMeta(edge.relationMetadata).lineage_type || '来源未标注'}`
-  return `结构层级 · ${edge.relationType}`
+  if (edge.relationType === 'FOREIGN_KEY') return '结构关联'
+  if (edge.relationType === 'DERIVED_FROM') return '字段派生'
+  if (edge.relationType === 'LINEAGE') {
+    const type = parseLineageMeta(edge.relationMetadata).lineage_type
+    const label =
+      type === 'QUERY' ? '查询记录标记' : type === 'ETL' ? '加工记录' : type === 'MANUAL' ? '人工记录' : '来源未标注'
+    return `已记录关系 · ${label}`
+  }
+  return '结构层级'
+}
+/** 实体类型统一用中文，接口枚举只用于判断。 */
+function entityTypeLabel(entityType?: string) {
+  if (entityType === 'TABLE') return '表'
+  if (entityType === 'COLUMN') return '字段'
+  return entityType || '对象'
 }
 /**
  * 图谱、对象条和画布标题使用的短标签。
@@ -672,7 +696,14 @@ watch(activeTab, async () => {
   await nextTick()
   renderGraph()
 })
+watch(graphFill, async () => {
+  await nextTick()
+  renderGraph()
+})
 onMounted(async () => {
+  fillMediaQuery = window.matchMedia('(min-width: 1200px) and (min-height: 700px)')
+  syncFillMedia()
+  fillMediaQuery.addEventListener('change', syncFillMedia)
   await adminContext.initialize()
   if (!impactDisposed) await loadGraph()
   window.addEventListener('resize', d3Resize)
@@ -681,18 +712,18 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   impactDisposed = true
   clearScope()
+  fillMediaQuery?.removeEventListener('change', syncFillMedia)
+  fillMediaQuery = null
   window.removeEventListener('resize', d3Resize)
   document.removeEventListener('click', closeContextMenu)
 })
 </script>
 <template>
-  <main class="data-lineage-page post-login-page">
+  <main class="data-lineage-page post-login-page" :class="{ 'admin-list-fill': graphFill }">
     <TaskPageHeader
       title="关系与查询来源"
       eyebrow="数据资产 / 可追溯性"
-      description="先看已记录的对象关系，再核对实际查询使用。结构关联、加工关系和结果来源分别解释。"
-      description-mode="inline"
-      help="图谱以实体 ID 为根，不支持快照或时间筛选。QUERY 标记仅说明已存储关系的来源类型；实际受保护执行证据在查询来源中查看。"
+      help="图谱以实体 ID 为根，不支持快照或时间筛选。这里的关系标记只说明记录来源；实际受保护执行证据在「查询使用与输出来源」中查看。"
     >
       <template #actions>
         <el-button :icon="RefreshCw" :disabled="loading || !canViewLineage" @click="loadGraph">
@@ -714,7 +745,7 @@ onBeforeUnmount(() => {
     </p>
     <p v-else-if="!datasourceId" class="boundary-note">请先在顶部选择数据源。</p>
     <p v-else-if="!canViewLineage" class="boundary-note">
-      没有当前数据源的 lineage:view 能力，或能力摘要尚未就绪。
+      没有当前数据源的血缘查看权限，或权限摘要尚未就绪。
     </p>
     <p v-if="uncertain.length" class="boundary-error" role="alert">
       有
@@ -744,72 +775,87 @@ onBeforeUnmount(() => {
           <Network :size="18" />
           <strong>图谱范围</strong>
         </div>
-        <form @submit.prevent="handleSearch">
-          <label for="lineage-search">搜索对象目录</label>
-          <el-input
-            id="lineage-search"
-            v-model="searchQuery"
-            :disabled="!canReadDirectory"
-            placeholder="表名或字段名"
-          />
-          <el-button
-            native-type="submit"
-            :loading="searchLoading"
-            :disabled="!canReadDirectory || !searchQuery.trim()"
-          >
-            查找对象
-          </el-button>
-        </form>
-        <div v-if="searchResults.length" class="object-results">
-          <button v-for="entity in searchResults" :key="entity.id" @click="selectSearch(entity)">
-            {{ entity.displayName || entity.name }}
-            <small>#{{ entity.id }} · {{ entity.entityType }}</small>
-          </button>
-        </div>
-        <p v-if="directoryError" class="helper-note" role="status">{{ directoryError }}</p>
-        <label>已记录关系的来源类型</label>
-        <el-checkbox-group v-model="lineageTypeFilter">
-          <el-checkbox value="QUERY" label="查询记录标记 QUERY" />
-          <el-checkbox value="ETL" label="加工记录 ETL" />
-          <el-checkbox value="MANUAL" label="人工记录 MANUAL" />
-        </el-checkbox-group>
-        <label>相对焦点的方向</label>
-        <el-radio-group v-model="direction" size="small">
-          <el-radio-button value="upstream">上游</el-radio-button>
-          <el-radio-button value="downstream">下游</el-radio-button>
-          <el-radio-button value="both">双向</el-radio-button>
-        </el-radio-group>
-        <label>请求深度 · {{ depth }}</label>
-        <el-slider v-model="depth" :min="1" :max="10" :step="1" />
-        <p class="helper-note">方向在已加载图谱内过滤；字段派生抽屉按方向重新读取。未记录不代表没有影响。</p>
-        <div class="secondary-actions">
-          <el-button
-            :icon="Upload"
-            :loading="importing"
-            :disabled="!canManageLineage"
-            @click="fileInputRef?.click()"
-          >
-            导入 CSV / JSON
-          </el-button>
-          <el-button
-            :icon="Download"
-            :loading="exportBusy"
-            :disabled="loading || !entities.length"
-            @click="handleExportPng"
-          >
-            导出当前图谱
-          </el-button>
-          <input ref="fileInputRef" type="file" accept=".csv,.json" hidden @change="onFileSelected" />
-        </div>
-        <p class="helper-note">
-          批量文件中的每个源与目标仍由服务端按实际负责源校验；导入不会创建新的业务权限。
-        </p>
-        <ErrorState v-if="importError" :message="importError" />
+        <section class="control-section control-section--first">
+          <label class="control-section__title" for="lineage-search">搜索对象目录</label>
+          <form @submit.prevent="handleSearch">
+            <el-input
+              id="lineage-search"
+              v-model="searchQuery"
+              :disabled="!canReadDirectory"
+              placeholder="表名或字段名"
+            >
+              <template #prefix>
+                <Search :size="14" />
+              </template>
+            </el-input>
+            <el-button
+              native-type="submit"
+              :loading="searchLoading"
+              :disabled="!canReadDirectory || !searchQuery.trim()"
+            >
+              查找
+            </el-button>
+          </form>
+          <div v-if="searchResults.length" class="object-results">
+            <button v-for="entity in searchResults" :key="entity.id" @click="selectSearch(entity)">
+              {{ entity.displayName || entity.name }}
+              <small>#{{ entity.id }} · {{ entityTypeLabel(entity.entityType) }}</small>
+            </button>
+          </div>
+          <p v-if="directoryError" class="helper-note" role="status">{{ directoryError }}</p>
+        </section>
+        <section class="control-section">
+          <span class="control-section__title">已记录关系的来源类型</span>
+          <el-checkbox-group v-model="lineageTypeFilter">
+            <el-checkbox value="QUERY">查询记录标记</el-checkbox>
+            <el-checkbox value="ETL">加工记录</el-checkbox>
+            <el-checkbox value="MANUAL">人工记录</el-checkbox>
+          </el-checkbox-group>
+        </section>
+        <section class="control-section">
+          <span class="control-section__title">相对焦点的方向</span>
+          <el-radio-group v-model="direction" size="small">
+            <el-radio-button value="upstream">上游</el-radio-button>
+            <el-radio-button value="downstream">下游</el-radio-button>
+            <el-radio-button value="both">双向</el-radio-button>
+          </el-radio-group>
+          <div class="control-depth">
+            <span class="control-depth__label">请求深度</span>
+            <span class="control-depth__value">{{ depth }}</span>
+            <el-slider v-model="depth" :min="1" :max="10" :step="1" />
+          </div>
+          <p class="helper-note">方向只过滤当前已加载的图谱；字段派生详情会按当前方向重新读取。没有记录不代表这个对象没有受影响。</p>
+        </section>
+        <section class="control-section control-section--actions">
+          <div class="secondary-actions">
+            <el-button
+              :icon="Upload"
+              :loading="importing"
+              :disabled="!canManageLineage"
+              @click="fileInputRef?.click()"
+            >
+              导入 CSV / JSON
+            </el-button>
+            <el-button
+              :icon="Download"
+              :loading="exportBusy"
+              :disabled="loading || !entities.length"
+              @click="handleExportPng"
+            >
+              导出当前图谱
+            </el-button>
+            <input ref="fileInputRef" type="file" accept=".csv,.json" hidden @change="onFileSelected" />
+          </div>
+          <p class="helper-note">
+            导入的每个源和目标仍由服务端按你实际负责的数据源校验；导入不会给你新增查询权限。
+          </p>
+          <ErrorState v-if="importError" :message="importError" />
+        </section>
       </aside>
       <div class="graph-main">
         <header class="canvas-heading">
           <div class="canvas-heading__main">
-            <span class="eyebrow">当前焦点 · {{ selectedEntity?.entityType || '—' }}</span>
+            <span class="eyebrow">当前焦点 · {{ selectedEntity ? entityTypeLabel(selectedEntity.entityType) : '—' }}</span>
             <strong
               :title="selectedEntity ? selectedEntity.displayName || selectedEntity.name : ''"
             >
@@ -867,13 +913,15 @@ onBeforeUnmount(() => {
             <p class="lineage-empty__note">图谱只展示已记录的关系；未记录不代表没有影响。</p>
           </div>
         </template>
-        <p class="graph-legend">
+        <p class="graph-legend" aria-label="图例">
+          <span class="graph-legend__label">图例</span>
           <span><i class="legend-dot legend-dot--struct" />灰色：结构关联</span>
-          <span><i class="legend-dot legend-dot--etl" />铜色：ETL 加工记录</span>
+          <span><i class="legend-dot legend-dot--etl" />铜色：加工记录</span>
           <span><i class="legend-dot legend-dot--derived" />虚线：字段派生</span>
-          <span><i class="legend-dot legend-dot--query" />绿色：QUERY 来源标记</span>
+          <span><i class="legend-dot legend-dot--query" />绿色：查询记录标记</span>
         </p>
         <div v-if="entities.length" class="object-strip" aria-label="选择图谱对象">
+          <span class="object-strip__label">图谱对象</span>
           <button
             v-for="entity in entities"
             :key="entity.id"
@@ -893,15 +941,8 @@ onBeforeUnmount(() => {
                 <Columns3 v-else :size="18" />
               </span>
               <div class="selection-title">
-                <span class="eyebrow">当前选中 · {{ selectedEntity.entityType }}</span>
+                <span class="eyebrow">当前选中 · {{ entityTypeLabel(selectedEntity.entityType) }}</span>
                 <h2>{{ selectedEntity.name }}</h2>
-                <p
-                  v-if="entityAlias(selectedEntity)"
-                  class="selection-alias"
-                  :title="selectedEntity.displayName"
-                >
-                  展示名：{{ selectedEntity.displayName }}
-                </p>
               </div>
             </div>
             <code class="selection-fqn">{{ selectedEntity.fqn }}</code>
@@ -916,11 +957,21 @@ onBeforeUnmount(() => {
                 <strong>v{{ selectedEntity.version }}</strong>
               </span>
             </div>
+            <details v-if="entityAlias(selectedEntity)" class="raw-comment">
+              <summary>
+                <span class="raw-comment__label">展示名</span>
+                <span class="raw-comment__hint">与对象名不同</span>
+                <ChevronDown :size="14" class="raw-comment__chevron" />
+              </summary>
+              <div class="raw-comment__full">
+                <p class="raw-comment__tag">展示名 · 来自源系统元数据，未清洗</p>
+                <p class="raw-comment__text">{{ selectedEntity.displayName }}</p>
+              </div>
+            </details>
             <details v-if="selectedEntity.description" class="raw-comment">
               <summary>
                 <span class="raw-comment__label">原始注释</span>
-                <span class="raw-comment__preview">{{ selectedEntity.description }}</span>
-                <span class="raw-comment__hint">展开原始注释</span>
+                <span class="raw-comment__hint">未清洗</span>
                 <ChevronDown :size="14" class="raw-comment__chevron" />
               </summary>
               <div class="raw-comment__full">
@@ -931,7 +982,7 @@ onBeforeUnmount(() => {
             <p v-else class="selection-empty-note">服务端未提供对象说明。</p>
           </div>
           <div class="selection-actions">
-            <el-button @click="handleAnalyzeImpact()">查看查询使用</el-button>
+            <el-button type="primary" @click="handleAnalyzeImpact()">查看查询使用</el-button>
             <el-button @click="loadEntityLineage(selectedEntity.id)">以此为起点展开</el-button>
             <el-button v-if="canManageEntity(selectedEntity)" @click="openCreate(selectedEntity.id)">
               添加下游
@@ -943,7 +994,7 @@ onBeforeUnmount(() => {
             <span>检查已记录关系（{{ visibleRelations.length }}）</span>
             <ChevronDown :size="14" class="relation-records__chevron" />
           </summary>
-          <p>结构关联不等于实际 JOIN，人工或 ETL 记录不证明本次查询使用。只允许删除 LINEAGE 表级记录。</p>
+          <p>结构关联不等于实际 JOIN；人工记录或加工记录也不能证明这次查询使用过。这里只允许删除表级的血缘记录。</p>
           <div v-for="edge in visibleRelations" :key="edge.id" class="relation-row">
             <code>#{{ edge.id }} · {{ edge.sourceId }} → {{ edge.targetId }}</code>
             <span>{{ relationLabel(edge) }}</span>
@@ -1005,7 +1056,7 @@ onBeforeUnmount(() => {
         <ErrorState v-if="drawerError" :message="drawerError" @retry="loadColumnLineage(drawerEntity!.id)" />
         <p v-else-if="drawerLoading" role="status">正在读取字段派生…</p>
         <template v-else v-for="side in ['upstream', 'downstream'] as const" :key="side">
-          <h3>{{ side === 'upstream' ? '上游来源' : '下游派生' }} · DERIVED_FROM</h3>
+          <h3>{{ side === 'upstream' ? '上游来源' : '下游派生' }}</h3>
           <p v-if="!columnLineageData?.[side]?.length" class="helper-note">
             {{
               direction !== 'both' && direction !== side
@@ -1128,6 +1179,7 @@ onBeforeUnmount(() => {
 .graph-workspace {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
+  align-items: stretch;
   border: 1px solid var(--do-line);
   border-radius: 14px;
   background: var(--do-surface);
@@ -1137,38 +1189,123 @@ onBeforeUnmount(() => {
 .graph-controls {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
   padding: 18px;
   border-right: 1px solid var(--do-line);
   background: color-mix(in srgb, var(--do-soft) 46%, var(--do-surface));
+}
+.graph-controls,
+.graph-main {
+  scrollbar-width: thin;
+  scrollbar-color: var(--do-line-strong) transparent;
+}
+.graph-controls::-webkit-scrollbar,
+.graph-main::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.graph-controls::-webkit-scrollbar-thumb,
+.graph-main::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--do-line-strong);
+}
+.graph-controls::-webkit-scrollbar-track,
+.graph-main::-webkit-scrollbar-track {
+  background: transparent;
 }
 .control-heading {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 2px;
+  margin-bottom: 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--do-line);
   color: var(--do-ink);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 650;
+  letter-spacing: 0.01em;
 }
 .control-heading svg {
   color: var(--do-primary);
 }
-.graph-controls label {
-  display: block;
+.control-section {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--do-line);
+}
+.control-section--first {
+  margin-top: 12px;
+  padding-top: 0;
+  border-top: 0;
+}
+.control-section__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--do-ink);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.control-section__title::before {
+  width: 3px;
+  height: 11px;
+  border-radius: 2px;
+  background: var(--do-primary);
+  content: '';
+}
+.control-section__title[for] {
+  cursor: pointer;
+}
+.control-section--actions {
+  gap: 10px;
+}
+.control-depth {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin-top: 2px;
+}
+.control-depth__label {
   color: var(--do-muted);
   font-size: 11.5px;
   font-weight: 650;
   letter-spacing: 0.02em;
 }
+.control-depth__value {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--do-primary-soft);
+  color: var(--do-primary-strong);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+.control-depth :deep(.el-slider) {
+  flex: 1 1 100%;
+}
 .graph-controls form {
-  display: grid;
+  display: flex;
   gap: 8px;
+}
+.graph-controls form :deep(.el-input) {
+  flex: 1;
+  min-width: 0;
+}
+.graph-controls form :deep(.el-button) {
+  flex-shrink: 0;
+  padding: 0 14px;
 }
 .graph-controls :deep(.el-input__wrapper) {
   min-height: 34px;
   border-radius: 8px;
+}
+.graph-controls :deep(.el-input__prefix) {
+  color: var(--do-muted);
 }
 .graph-controls :deep(.el-button) {
   min-height: 34px;
@@ -1185,6 +1322,9 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 .graph-controls :deep(.el-checkbox__label) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--do-ink);
   font-size: 12px;
 }
@@ -1196,7 +1336,7 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 .graph-controls :deep(.el-slider) {
-  margin: 2px 6px 4px;
+  margin: 2px 0 4px;
 }
 .helper-note {
   margin: 0;
@@ -1347,10 +1487,19 @@ onBeforeUnmount(() => {
 .graph-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  padding: 12px 20px 0;
+  align-items: center;
+  gap: 6px 16px;
+  padding: 9px 20px;
+  border-top: 1px solid var(--do-line);
+  background: color-mix(in srgb, var(--do-soft) 45%, var(--do-surface));
   color: var(--do-muted);
   font-size: 11px;
+}
+.graph-legend__label {
+  color: var(--do-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 .graph-legend span {
   display: inline-flex;
@@ -1381,8 +1530,15 @@ onBeforeUnmount(() => {
 .object-strip {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
-  padding: 10px 20px 16px;
+  padding: 10px 20px 14px;
+}
+.object-strip__label {
+  color: var(--do-muted);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 .object-strip button,
 .object-results button {
@@ -1441,6 +1597,7 @@ small {
   border: 1px solid var(--do-line);
   border-radius: 12px;
   background: var(--do-surface);
+  box-shadow: var(--do-shadow);
 }
 .selection-main {
   display: grid;
@@ -1483,15 +1640,6 @@ small {
   font-weight: 700;
   overflow-wrap: anywhere;
 }
-.selection-alias {
-  margin: 3px 0 0;
-  overflow: hidden;
-  color: var(--do-muted);
-  font-size: 12px;
-  line-height: 1.6;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .selection-fqn {
   display: block;
   color: var(--do-muted);
@@ -1501,14 +1649,23 @@ small {
 .selection-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 18px;
+  align-items: center;
+  gap: 8px 0;
 }
 .selection-facts span {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
+  padding-right: 18px;
   color: var(--do-ink);
   font-size: 12px;
+}
+.selection-facts span + span {
+  padding-left: 18px;
+  border-left: 1px solid var(--do-line);
+}
+.selection-facts span:last-child {
+  padding-right: 0;
 }
 .fact-label {
   color: var(--do-muted);
@@ -1531,17 +1688,23 @@ small {
   margin: 0;
 }
 .raw-comment {
-  padding: 0 12px;
-  border: 1px solid var(--do-line);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--do-soft) 40%, var(--do-surface));
+  border-radius: 8px;
+  background: var(--do-surface);
+  box-shadow: inset 0 0 0 1px var(--do-line);
+  transition: box-shadow 150ms ease;
+}
+.raw-comment:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--do-primary) 38%, var(--do-line));
+}
+.raw-comment[open] {
+  background: color-mix(in srgb, var(--do-soft) 45%, var(--do-surface));
 }
 .raw-comment summary {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 38px;
-  padding: 6px 0;
+  min-height: 32px;
+  padding: 0 10px;
   cursor: pointer;
   list-style: none;
 }
@@ -1551,47 +1714,55 @@ small {
 .raw-comment summary::marker {
   content: '';
 }
+.raw-comment summary:focus-visible {
+  border-radius: 5px;
+  outline: 2px solid var(--do-primary);
+  outline-offset: 2px;
+}
 .raw-comment__label {
   flex-shrink: 0;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--do-primary-soft);
-  color: var(--do-primary-strong);
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 4px;
+  color: var(--do-ink);
+  background: var(--do-surface);
+  box-shadow: inset 0 0 0 1px var(--do-line);
   font-size: 10.5px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.02em;
-}
-.raw-comment__preview {
-  display: -webkit-box;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--do-muted);
-  font-size: 12px;
-  line-height: 1.6;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
 }
 .raw-comment__hint {
-  flex-shrink: 0;
-  color: var(--do-primary-strong);
-  font-size: 11.5px;
-  font-weight: 650;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--do-muted) 78%, transparent);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .raw-comment__chevron {
   flex-shrink: 0;
-  color: var(--do-primary-strong);
-  transition: transform 150ms ease;
+  color: var(--do-muted);
+  transition: transform 150ms ease, color 150ms ease;
 }
-.raw-comment[open] .raw-comment__hint {
-  display: none;
+.raw-comment summary:hover .raw-comment__chevron,
+.raw-comment[open] .raw-comment__chevron {
+  color: var(--do-primary-strong);
 }
 .raw-comment[open] .raw-comment__chevron {
   transform: rotate(180deg);
 }
 .raw-comment__full {
-  padding: 10px 0 12px;
-  border-top: 1px dashed var(--do-line);
+  max-height: min(200px, 30vh);
+  overflow: auto;
+  margin: 0 10px 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--do-surface);
+  box-shadow: inset 0 0 0 1px var(--do-line);
 }
 .raw-comment__tag {
   margin: 0 0 6px;
@@ -1691,6 +1862,35 @@ small {
 .chain-item pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+@media (min-width: 1200px) and (min-height: 700px) {
+  .data-lineage-page.admin-list-fill .graph-workspace {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .data-lineage-page.admin-list-fill .graph-controls {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .data-lineage-page.admin-list-fill .graph-main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .data-lineage-page.admin-list-fill .canvas-heading {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--do-surface);
+  }
+  .data-lineage-page.admin-list-fill .chart-area,
+  .data-lineage-page.admin-list-fill .lineage-empty {
+    flex: 0 0 auto;
+    height: clamp(260px, calc(100dvh - 560px), 420px);
+    min-height: 260px;
+  }
 }
 @media (max-width: 1100px) {
   .graph-workspace {

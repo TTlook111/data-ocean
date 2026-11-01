@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ChevronDown, Info, Key, RefreshCw, Table2 } from 'lucide-vue-next'
 import {
@@ -42,16 +42,20 @@ const tables = ref<TableMetaItem[]>([])
 const columns = ref<ColumnMetaItem[]>([])
 const selectedTable = ref<string>('')
 const tableKeyword = ref('')
+const page = ref(1)
+const pageSize = ref(20)
+const PAGE_SIZES = [10, 20, 50, 100]
+const fieldTableScroll = ref<HTMLElement>()
 
 const selectedSnapshot = computed(() => snapshots.value.find((item) => item.id === selectedSnapshotId.value))
 const selectedTableMeta = computed(() => tables.value.find((item) => item.tableName === selectedTable.value))
 const filteredTables = computed(() => {
-  const keyword = tableKeyword.value.trim().toLowerCase()
-  if (!keyword) return tables.value
-  return tables.value.filter((item) =>
-    item.tableName.toLowerCase().includes(keyword) ||
-    (item.tableComment || '').toLowerCase().includes(keyword),
-  )
+  const keywords = tableKeyword.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (!keywords.length) return tables.value
+  return tables.value.filter((item) => {
+    const haystack = [item.tableName, item.tableComment || ''].join(' ').toLowerCase()
+    return keywords.every((keyword) => haystack.includes(keyword))
+  })
 })
 
 const filteredColumns = computed(() =>
@@ -59,6 +63,25 @@ const filteredColumns = computed(() =>
     .filter((column) => column.tableName === selectedTable.value)
     .sort((a, b) => a.ordinalPosition - b.ordinalPosition)
 )
+const columnPageCount = computed(() => Math.max(1, Math.ceil(filteredColumns.value.length / pageSize.value)))
+const pagedColumns = computed(() =>
+  filteredColumns.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value),
+)
+
+function resetFieldPageScroll() {
+  void nextTick(() => fieldTableScroll.value?.scrollTo({ top: 0 }))
+}
+function handleColumnPageChange(next: number) {
+  page.value = next
+  resetFieldPageScroll()
+}
+function handlePageSizeChange() {
+  page.value = 1
+  resetFieldPageScroll()
+}
+watch(selectedTable, () => { page.value = 1 })
+watch(pageSize, () => { page.value = 1 })
+watch(columnPageCount, (count) => { if (page.value > count) page.value = count })
 
 let snapshotRequestId = 0
 let detailRequestId = 0
@@ -196,26 +219,30 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
         刷新结构
       </el-button>
 
-      <p class="snapshot-contract">
-        <Info :size="13" aria-hidden="true" />
-        <span>这里展示所选版本的采集结构；历史或未发布快照不代表当前正式对象目录。</span>
-      </p>
-      <div v-if="selectedSnapshot" class="snapshot-summary" aria-label="快照概况">
-        <el-tag class="snapshot-status" :type="snapshotStatusType(selectedSnapshot.status)" size="small">
-          {{ snapshotStatusLabel(selectedSnapshot.status) }}
-        </el-tag>
-        <el-tooltip content="当前快照采集到的数据表数量">
-          <span class="snapshot-stat"><span>表数</span><strong>{{ selectedSnapshot.tableCount }}</strong></span>
-        </el-tooltip>
-        <el-tooltip content="当前快照采集到的字段总数">
-          <span class="snapshot-stat"><span>字段数</span><strong>{{ selectedSnapshot.columnCount }}</strong></span>
-        </el-tooltip>
-        <el-tooltip content="质量分由元数据质量规则计算，满分 100 分">
-          <span class="snapshot-stat">
-            <span>质量分</span>
-            <strong>{{ selectedSnapshot.qualityScore == null ? '未校验' : `${selectedSnapshot.qualityScore} 分` }}</strong>
+      <div class="snapshot-meta">
+        <p class="snapshot-contract">
+          <Info :size="13" aria-hidden="true" />
+          <span>这里展示所选版本的采集结构；历史或未发布快照不代表当前正式对象目录。</span>
+        </p>
+        <div v-if="selectedSnapshot" class="snapshot-summary" aria-label="快照概况">
+          <span class="snapshot-status" :class="`snapshot-status--${snapshotStatusType(selectedSnapshot.status)}`">
+            <span class="snapshot-status__dot" aria-hidden="true"></span>
+            {{ snapshotStatusLabel(selectedSnapshot.status) }}
           </span>
-        </el-tooltip>
+          <el-tooltip content="当前快照采集到的数据表数量">
+            <span class="snapshot-stat"><span>表</span><strong>{{ selectedSnapshot.tableCount }}</strong></span>
+          </el-tooltip>
+          <el-tooltip content="当前快照采集到的字段总数">
+            <span class="snapshot-stat"><span>字段</span><strong>{{ selectedSnapshot.columnCount }}</strong></span>
+          </el-tooltip>
+          <el-tooltip content="质量分由元数据质量规则计算，满分 100 分">
+            <span class="snapshot-stat">
+              <span>质量分</span>
+              <strong v-if="selectedSnapshot.qualityScore != null">{{ selectedSnapshot.qualityScore }} 分</strong>
+              <strong v-else class="is-unchecked">未校验</strong>
+            </span>
+          </el-tooltip>
+        </div>
       </div>
     </section>
 
@@ -267,18 +294,6 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
           </div>
           <span class="col-count">{{ filteredColumns.length }} 个字段</span>
         </div>
-        <details v-if="selectedTable && selectedTableMeta?.tableComment" class="table-note">
-          <summary class="table-note__summary">
-            <span class="table-note__label">原始注释</span>
-            <span class="table-note__text">{{ selectedTableMeta?.tableComment }}</span>
-            <span class="table-note__action">展开原始注释</span>
-            <ChevronDown class="table-note__chevron" :size="14" aria-hidden="true" />
-          </summary>
-          <div class="table-note__full">
-            <p>{{ selectedTableMeta?.tableComment }}</p>
-          </div>
-        </details>
-        <p v-else-if="selectedTable" class="table-note--empty">暂无表说明</p>
         <div class="table-facts" v-if="selectedTableMeta">
           <div class="fact-item">
             <span>表类型</span>
@@ -301,8 +316,20 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
             <strong>{{ selectedTableMeta.engine || '未采集' }}</strong>
           </div>
         </div>
-        <div class="field-table-scroll">
-          <el-table :data="filteredColumns" :height="props.fixedHeight ? '100%' : undefined" size="small" v-if="filteredColumns.length">
+        <details v-if="selectedTable && selectedTableMeta?.tableComment" class="table-note">
+          <summary class="table-note__summary">
+            <span class="table-note__label">原始注释</span>
+            <span class="table-note__hint">未清洗</span>
+            <ChevronDown class="table-note__chevron" :size="14" aria-hidden="true" />
+          </summary>
+          <div class="table-note__full">
+            <p>{{ selectedTableMeta?.tableComment }}</p>
+          </div>
+        </details>
+        <p v-else-if="selectedTable" class="table-note--empty">暂无表说明</p>
+        <div v-if="selectedTable" class="field-table" :class="{ 'field-table--fixed': props.fixedHeight }">
+          <div ref="fieldTableScroll" class="field-table-scroll">
+          <el-table :data="pagedColumns" :height="props.fixedHeight ? '100%' : undefined" size="small" v-if="filteredColumns.length">
             <el-table-column label="序号" width="60" align="center">
               <template #default="{ $index }"><span class="column-index">{{ $index + 1 }}</span></template>
             </el-table-column>
@@ -345,9 +372,34 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-else-if="selectedTable" description="当前数据表暂无字段信息" :image-size="60" />
-          <el-empty v-else description="选择左侧表查看字段" :image-size="60" />
+          <el-empty v-if="!filteredColumns.length" description="当前数据表暂无字段信息" :image-size="60" />
+          </div>
+          <div v-if="filteredColumns.length" class="field-table-footer">
+            <span class="field-table-total">
+              共 {{ filteredColumns.length }} 个字段<span v-if="columnPageCount > 1" class="field-table-page"> · 第 {{ page }} / {{ columnPageCount }} 页</span>
+            </span>
+            <div class="field-table-pager">
+              <el-select
+                v-model="pageSize"
+                class="field-table-page-size"
+                size="small"
+                aria-label="每页字段条数"
+                @change="handlePageSizeChange"
+              >
+                <el-option v-for="size in PAGE_SIZES" :key="size" :label="size + ' 条/页'" :value="size" />
+              </el-select>
+              <el-pagination
+                v-model:current-page="page"
+                layout="prev, pager, next"
+                :pager-count="5"
+                :page-size="pageSize"
+                :total="filteredColumns.length"
+                @current-change="handleColumnPageChange"
+              />
+            </div>
+          </div>
         </div>
+        <el-empty v-else description="选择左侧表查看字段" :image-size="60" />
       </section>
     </div>
   </main>
@@ -358,10 +410,10 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
 .snapshot-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "selectors refresh" "contract contract" "summary summary";
+  grid-template-areas: "selectors refresh" "meta meta";
   align-items: center;
-  gap: 8px 12px;
-  padding: 14px 18px 12px;
+  gap: 10px 12px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--do-line);
   background: var(--do-surface);
 }
@@ -398,31 +450,39 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   font-size: 13px;
   font-weight: 600;
 }
+.snapshot-meta {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  min-width: 0;
+}
 .snapshot-contract {
-  grid-area: contract;
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  margin: 2px 0 0;
+  flex: 1 1 320px;
+  min-width: 0;
+  max-width: 68ch;
+  margin: 0;
   color: var(--do-muted);
   font-size: 11.5px;
   line-height: 1.6;
 }
 .snapshot-contract :deep(svg) { flex: 0 0 auto; margin-top: 2px; color: color-mix(in srgb, var(--do-muted) 72%, transparent); }
 .snapshot-summary {
-  grid-area: summary;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  min-height: 24px;
-  margin-top: 2px;
+  gap: 8px 16px;
 }
-.snapshot-status { border-radius: var(--do-radius-full); font-weight: 600; }
-.snapshot-stat {
+.snapshot-status {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-height: 22px;
   padding: 0 9px;
   border-radius: var(--do-radius-full);
@@ -430,10 +490,25 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   background: var(--do-soft);
   box-shadow: inset 0 0 0 1px var(--do-line);
   font-size: 11.5px;
+  font-weight: 600;
   line-height: 1.4;
   white-space: nowrap;
 }
-.snapshot-stat strong { color: var(--do-ink); font-weight: 600; }
+.snapshot-status__dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.snapshot-status--success { color: var(--do-success); background: var(--do-success-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--do-success) 22%, transparent); }
+.snapshot-status--warning { color: var(--do-warning); background: var(--do-warning-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--do-warning) 24%, transparent); }
+.snapshot-status--danger { color: var(--do-danger); background: var(--do-danger-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--do-danger) 22%, transparent); }
+.snapshot-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--do-muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.snapshot-stat strong { color: var(--do-ink); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.snapshot-stat strong.is-unchecked { color: var(--do-muted); font-weight: 500; }
 .table-explorer-state { margin: 18px; }
 
 .explorer-layout {
@@ -579,19 +654,30 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   white-space: nowrap;
 }
 
-.table-note { margin: 0 0 12px; }
+.table-note {
+  margin: 0 0 12px;
+  border-radius: 6px;
+  background: var(--do-surface);
+  box-shadow: inset 0 0 0 1px var(--do-line);
+  transition: box-shadow var(--do-transition-fast);
+}
+.table-note:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--do-primary) 38%, var(--do-line));
+}
+.table-note[open] { background: color-mix(in srgb, var(--do-soft) 45%, var(--do-surface)); }
 .table-note__summary {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   min-width: 0;
-  padding: 2px 0;
+  min-height: 32px;
+  padding: 0 10px;
   list-style: none;
   cursor: pointer;
 }
 .table-note__summary::-webkit-details-marker { display: none; }
 .table-note__summary::marker { content: ''; }
-.table-note__summary:focus-visible { border-radius: 4px; outline: 2px solid var(--do-primary); outline-offset: 2px; }
+.table-note__summary:focus-visible { border-radius: 5px; outline: 2px solid var(--do-primary); outline-offset: 2px; }
 .table-note__label {
   flex: 0 0 auto;
   display: inline-flex;
@@ -599,36 +685,34 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   min-height: 20px;
   padding: 0 7px;
   border-radius: 4px;
-  color: var(--do-primary-strong);
-  background: var(--do-primary-soft);
-  font-size: 11px;
+  color: var(--do-ink);
+  background: var(--do-surface);
+  box-shadow: inset 0 0 0 1px var(--do-line);
+  font-size: 10.5px;
   font-weight: 600;
   letter-spacing: .02em;
   white-space: nowrap;
 }
-.table-note__text {
+.table-note__hint {
   flex: 1 1 auto;
   min-width: 0;
-  display: -webkit-box;
   overflow: hidden;
-  color: var(--do-muted);
-  font-size: 12.5px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  color: color-mix(in srgb, var(--do-muted) 78%, transparent);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-.table-note__action { flex: 0 0 auto; color: var(--do-primary-strong); font-size: 11px; font-weight: 600; white-space: nowrap; }
-.table-note__chevron { flex: 0 0 auto; align-self: center; color: var(--do-muted); transition: transform var(--do-transition-fast), color var(--do-transition-fast); }
-.table-note__summary:hover .table-note__chevron { color: var(--do-primary-strong); }
-.table-note[open] .table-note__chevron { transform: rotate(180deg); color: var(--do-primary-strong); }
-.table-note[open] .table-note__action,
-.table-note[open] .table-note__text { display: none; }
+.table-note__chevron { flex: 0 0 auto; color: var(--do-muted); transition: transform var(--do-transition-fast), color var(--do-transition-fast); }
+.table-note__summary:hover .table-note__chevron,
+.table-note[open] .table-note__chevron { color: var(--do-primary-strong); }
+.table-note[open] .table-note__chevron { transform: rotate(180deg); }
 .table-note__full {
-  margin-top: 8px;
+  max-height: min(220px, 32vh);
+  overflow: auto;
+  margin: 0 10px 10px;
   padding: 10px 12px;
   border-radius: var(--do-radius-sm);
-  background: var(--do-soft);
+  background: var(--do-surface);
   box-shadow: inset 0 0 0 1px var(--do-line);
 }
 .table-note__full::before {
@@ -641,6 +725,7 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   letter-spacing: .02em;
 }
 .table-note__full p {
+  max-width: 88ch;
   margin: 0;
   color: var(--do-muted);
   font-size: 12px;
@@ -684,7 +769,37 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
 .governance-status--warning { color: var(--do-warning); background: color-mix(in srgb, var(--do-warning) 12%, var(--do-surface)); }
 .governance-status--danger { color: var(--do-danger); background: color-mix(in srgb, var(--do-danger) 12%, var(--do-surface)); }
 
+.field-table { display: flex; flex-direction: column; min-width: 0; }
 .field-table-scroll { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; }
+.field-table-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 10px;
+  padding: 9px 2px 0;
+  border-top: 1px solid var(--do-line);
+  color: var(--do-muted);
+  font-size: 11.5px;
+}
+.field-table-total { color: var(--do-ink); font-weight: 600; }
+.field-table-page { color: var(--do-muted); font-weight: 500; }
+.field-table-pager { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 2px 10px; margin-left: auto; }
+.field-table-page-size { width: 104px; }
+.field-table-page-size :deep(.el-select__wrapper) { min-height: 28px; font-size: 12px; }
+.field-table-pager :deep(.el-pagination) { gap: 2px; }
+.field-table-pager :deep(.el-pagination button),
+.field-table-pager :deep(.el-pagination .el-pager li) {
+  min-width: 28px;
+  height: 28px;
+  line-height: 28px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.field-table-pager :deep(.el-pagination .el-pager li.is-active) { background: var(--do-primary); color: #fff; }
+.field-table-pager :deep(.el-pagination .el-pager li:hover) { color: var(--do-primary-strong); }
 .table-explorer-page :deep(.el-table) {
   --el-table-bg-color: var(--do-surface);
   --el-table-tr-bg-color: var(--do-surface);
@@ -754,6 +869,9 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   background: color-mix(in srgb, var(--do-soft) 55%, var(--do-surface));
 }
 .explorer-layout--fixed .column-detail { display: flex; flex-direction: column; min-height: 0; }
+.explorer-layout--fixed .column-detail:has(.table-note[open]) { overflow-y: auto; }
+.explorer-layout--fixed .column-detail:has(.table-note[open]) .field-table { flex: 0 0 auto; min-height: 260px; }
+.explorer-layout--fixed .field-table { flex: 1 1 auto; min-height: 0; }
 .explorer-layout--fixed .field-table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 
 @media (max-width: 960px) {
@@ -768,15 +886,16 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   .table-explorer-state { margin-inline: 14px; }
 }
 @media (max-width: 640px) {
-  .snapshot-toolbar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "selectors" "refresh" "contract" "summary"; }
+  .snapshot-toolbar { grid-template-columns: minmax(0, 1fr); grid-template-areas: "selectors" "refresh" "meta"; }
   .snapshot-toolbar__selectors { align-items: stretch; }
   .snapshot-selector-control { flex: 1 1 100%; min-width: 0; }
   .snapshot-selector { flex: 1 1 180px; min-width: 160px; max-width: 200px; }
   .snapshot-refresh { justify-self: end; }
-  .snapshot-summary { gap: 6px; }
+  .snapshot-meta { flex-direction: column; align-items: stretch; gap: 8px; }
+  .snapshot-contract { max-width: none; }
+  .snapshot-summary { gap: 8px 14px; }
   .table-explorer-state { margin-inline: 12px; }
   .explorer-layout { margin-inline: 12px; }
   .table-facts { gap: 7px 12px; }
-  .table-note__action { display: none; }
 }
 </style>

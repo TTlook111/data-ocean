@@ -36,6 +36,9 @@ const router = useRouter()
 const activeView = computed(() => route.query.view === 'tables' ? 'tables' : 'catalog')
 const entityType = ref<'TABLE' | 'COLUMN'>(route.query.type === 'COLUMN' ? 'COLUMN' : 'TABLE')
 const keyword = ref(String(route.query.q || ''))
+const page = ref(1)
+const pageSize = ref(20)
+const PAGE_SIZES = [10, 20, 50, 100]
 const catalog = ref<PublishedCatalog | null>(null)
 const loading = ref(false)
 const error = ref('')
@@ -52,7 +55,7 @@ let layoutFrame: number | undefined
 let queryTimer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 
-const helpText = '查找已发布的表和字段，查看所在位置、技术信息、业务含义与关联影响。这里只展示已发布快照同步后的正式目录。表对象代表一张数据库表，字段对象代表表中的一列；业务术语、标签和字段治理状态作为对象关联信息展示，并进入各自的维护工作区处理。'
+const helpText = '查找已发布的表和字段，查看所在位置、技术信息、业务含义与关联影响。这里只展示已发布快照同步后的正式目录。表对象代表一张数据库表，字段对象代表表中的一列；业务术语、标签和字段治理状态作为对象关联信息展示，并进入各自的维护工作区处理。搜索支持表名、中文名、技术路径、说明或所属表的部分匹配（大小写不敏感），多个关键词用空格分隔时需同时命中。'
 
 const typeOptions = [
   { value: 'TABLE' as const, label: entityTypeLabel('TABLE'), icon: Table2 },
@@ -69,15 +72,24 @@ const sourceEntities = computed(() =>
 )
 const typeEntities = computed(() => sourceEntities.value.filter((item) => item.entityType === entityType.value))
 const filteredEntities = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  if (!q) return typeEntities.value
-  return typeEntities.value.filter((item) => [
-    item.name,
-    item.displayName,
-    item.fqn,
-    item.description,
-    owningTable(item),
-  ].filter(Boolean).some((value) => String(value).toLowerCase().includes(q)))
+  // 模糊匹配：大小写不敏感的子串匹配；空格分隔的多个关键词需同时命中（AND）。
+  const terms = keyword.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (!terms.length) return typeEntities.value
+  return typeEntities.value.filter((item) => {
+    const haystack = [
+      item.name,
+      item.displayName,
+      item.fqn,
+      item.description,
+      owningTable(item),
+    ].filter(Boolean).join(' ').toLowerCase()
+    return terms.every((term) => haystack.includes(term))
+  })
+})
+const pageCount = computed(() => Math.max(1, Math.ceil(filteredEntities.value.length / pageSize.value)))
+const pagedEntities = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredEntities.value.slice(start, start + pageSize.value)
 })
 const tableCount = computed(() => catalog.value?.tableCount
   ?? sourceEntities.value.filter((item) => item.entityType === 'TABLE').length)
@@ -96,10 +108,13 @@ const filteredTableColumnCounts = computed(() => {
 })
 
 /**
- * 数据量少时目录面板按内容收口，避免单行列表下方留下整屏空白；
- * 数据较多或加载中才固定高度，保留表头固定和表格内滚动。
+ * 宽屏下目录面板铺满内容区：状态、筛选、表头与页脚常驻，表体在卡片内滚动；
+ * 少量数据时空白留在表体内部，不再把空白留在页面下方。窄屏或矮窗口退回页面滚动。
  */
-const catalogFixed = computed(() => fixedCatalogHeight.value && (loading.value || typeEntities.value.length >= 8))
+const catalogFill = computed(() => fixedCatalogHeight.value && activeView.value === 'catalog')
+/** 快照表结构在宽屏下同样铺满内容区：表列表与字段表在各自区域内滚动，字段分页页脚常驻。 */
+const tablesFill = computed(() => fixedTablesHeight.value && activeView.value === 'tables')
+const pageFill = computed(() => catalogFill.value || tablesFill.value)
 
 const catalogWarning = computed(() => {
   const status = catalog.value?.syncStatus
@@ -230,6 +245,19 @@ function tableScrollContainer(): HTMLElement | null {
     || document.querySelector('.assets-panel__body .el-scrollbar__wrap')) as HTMLElement | null
 }
 
+/** 翻页后回到表体顶部，避免停留在上一页的滚动位置。 */
+function scrollCatalogTop() {
+  void nextTick(() => {
+    const table = tableScrollContainer()
+    if (table) table.scrollTop = 0
+  })
+}
+
+function handlePageChange(next: number) {
+  page.value = next
+  scrollCatalogTop()
+}
+
 /** 自然滚动模式：后台主内容区滚动容器，不是 window。 */
 function contentScrollContainer(): HTMLElement | null {
   return document.querySelector('.admin-shell__content') as HTMLElement | null
@@ -284,6 +312,7 @@ async function load() {
   const token = auth.token
   const current = () => !disposed && currentRequest === requestId.value && token === auth.token && id === context.datasourceId && canRead.value
   const keyAtLoad = scrollKey()
+  page.value = 1
   loading.value = true
   error.value = ''
   catalog.value = null
@@ -368,17 +397,27 @@ function scheduleTableLayoutCheck() {
         - pageGap * 2
 
       // 保留标题/属性区与至少约 240px 的字段正文；阈值只决定滚动模式，不设置表格固定高度。
-      fixedTablesHeight.value = remaining >= 480
+      fixedTablesHeight.value = remaining >= 320
       observeAssetsLayout()
     })
   })
 }
 
 watch([keyword, entityType], () => {
+  page.value = 1
   if (queryTimer) clearTimeout(queryTimer)
   queryTimer = setTimeout(() => {
     updateQuery({ q: keyword.value.trim() || undefined, type: entityType.value })
   }, 250)
+})
+
+watch(pageSize, () => {
+  page.value = 1
+  scrollCatalogTop()
+})
+
+watch(filteredEntities, () => {
+  if (page.value > pageCount.value) page.value = pageCount.value
 })
 
 watch(() => route.query.q, (value) => {
@@ -392,8 +431,8 @@ watch(() => route.query.type, (value) => {
 })
 
 onMounted(async () => {
-  catalogMedia = window.matchMedia('(min-width: 960px) and (min-height: 700px)')
-  tableMedia = window.matchMedia('(min-width: 960px)')
+  catalogMedia = window.matchMedia('(min-width: 1200px) and (min-height: 700px)')
+  tableMedia = window.matchMedia('(min-width: 1200px) and (min-height: 700px)')
   if (typeof ResizeObserver !== 'undefined') {
     layoutResizeObserver = new ResizeObserver(scheduleTableLayoutCheck)
   }
@@ -447,8 +486,9 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
     ref="assetsPageRef"
     class="admin-page assets-page"
     :class="{
-      'assets-page--fixed-catalog': activeView === 'catalog' && catalogFixed,
-      'assets-page--fixed-tables': activeView === 'tables' && fixedTablesHeight,
+      'admin-list-fill': pageFill,
+      'assets-page--fixed-catalog': catalogFill,
+      'assets-page--fixed-tables': tablesFill,
     }"
   >
     <TaskPageHeader
@@ -467,7 +507,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
       <el-tab-pane label="快照表结构" name="tables" />
     </el-tabs>
 
-    <section class="assets-panel do-glass-panel">
+    <section class="assets-panel do-glass-panel" :class="{ 'admin-list-fill__panel': catalogFill }">
       <div class="assets-panel__scope">
         <div class="assets-panel__scope-picker">
           <ScopeBar mode="datasource" refresh-label="刷新数据源列表" compact />
@@ -513,7 +553,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
           </span>
         </div>
 
-        <div class="assets-panel__body">
+        <div class="assets-panel__body" :class="{ 'admin-list-fill__body': catalogFill }">
           <LoadingState v-if="!iam.loaded && !iam.errorMessage" variant="skeleton" :rows="5" />
           <ErrorState v-else-if="scopeProblem || (context.datasourceId && !canRead)" :message="scopeProblem || '没有当前数据源的元数据查看权限。'" @retry="iam.load(true)" />
           <ErrorState v-else-if="error" :message="error" @retry="load" />
@@ -528,7 +568,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
             <ErrorState :message="catalogWarning" @retry="load" />
           </template>
           <div v-else-if="filteredEntities.length" class="assets-panel__table">
-            <el-table :data="filteredEntities" :height="catalogFixed ? '100%' : undefined">
+            <el-table :data="pagedEntities" :height="catalogFill ? '100%' : undefined">
               <el-table-column :label="nameColumnLabel" min-width="320">
                 <template #default="{ row }">
                   <div class="asset-name">
@@ -594,9 +634,23 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
         <footer
           v-if="!loading && !error && context.datasourceId && catalog?.publishedSnapshotId"
           class="assets-panel__footer"
+          :class="{ 'admin-list-fill__footer': catalogFill }"
         >
           <span class="assets-panel__footer-total">当前范围 {{ tableCount }} 张表 · {{ columnCount }} 个字段</span>
-          <span class="assets-panel__footer-note">对象版本是对象自身版本，独立于元数据快照版本</span>
+          <div class="assets-panel__footer-pager">
+            <span class="assets-panel__footer-note">对象版本是对象自身版本，独立于元数据快照版本</span>
+            <el-select v-model="pageSize" class="assets-panel__page-size" aria-label="每页条数">
+              <el-option v-for="size in PAGE_SIZES" :key="size" :label="size + ' 条/页'" :value="size" />
+            </el-select>
+            <el-pagination
+              v-model:current-page="page"
+              layout="prev, pager, next"
+              :pager-count="5"
+              :page-size="pageSize"
+              :total="filteredEntities.length"
+              @current-change="handlePageChange"
+            />
+          </div>
         </footer>
       </template>
 
@@ -618,8 +672,8 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 .catalog-chip--plain { color:var(--do-muted); background:transparent; box-shadow:none; padding:0; font-weight:500; }
 .catalog-chip--synced { color:var(--do-success); background:color-mix(in srgb, var(--do-success) 9%, var(--do-surface)); }
 .assets-page { min-height: 0; display: flex; flex-direction: column; gap: 14px; }
-.assets-page--fixed-catalog { height: 100%; }
-.assets-page--fixed-tables { height: 100%; flex: 1 1 auto; min-height: 0; }
+.assets-page--fixed-catalog { flex: 1 1 auto; min-height: 0; }
+.assets-page--fixed-tables { flex: 1 1 auto; min-height: 0; }
 .assets-page--fixed-catalog :deep(.task-page-header),
 .assets-page--fixed-catalog .assets-page__tabs,
 .assets-page--fixed-tables :deep(.task-page-header),
@@ -662,6 +716,15 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 .assets-panel__footer { flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:6px 16px; padding:9px 20px; border-top:1px solid var(--do-line); background:var(--do-soft); color:var(--do-muted); font-size:12px; }
 .assets-panel__footer-total { color:var(--do-ink); font-weight:600; }
 .assets-panel__footer-note { color:var(--do-muted); }
+.assets-panel__footer-pager { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:4px 10px; margin-left:auto; }
+.assets-panel__page-size { width:104px; }
+.assets-panel__page-size :deep(.el-select__wrapper) { min-height:32px; }
+.assets-panel__page-size :deep(.el-select__selected-item) { font-size:12px; }
+.assets-panel__footer-pager :deep(.el-pagination) { --el-pagination-font-size:12px; --el-pagination-button-height:28px; --el-pagination-button-width:28px; }
+.assets-panel__footer-pager :deep(.el-pager li),
+.assets-panel__footer-pager :deep(.btn-prev),
+.assets-panel__footer-pager :deep(.btn-next) { min-width:28px; height:28px; border-radius:6px; font-size:12px; }
+.assets-panel__footer-pager :deep(.el-pager li.is-active) { background:var(--do-primary); color:#fff; }
 
 .assets-panel__sync-warning { margin:12px 16px 0; border-radius: var(--do-radius-sm); border-width: 1px; border-color: var(--do-line); }
 .assets-panel__filters { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 11px 16px; border-bottom: 1px solid var(--do-line); }
@@ -758,5 +821,7 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
   .assets-panel__filters { padding: 10px 12px; }
   .assets-panel__search { flex: 1 1 100%; max-width: none; }
   .assets-panel__count { margin-left: 0; flex-wrap: wrap; }
+  .assets-panel__footer { align-items: flex-start; }
+  .assets-panel__footer-pager { margin-left: 0; }
 }
 </style>

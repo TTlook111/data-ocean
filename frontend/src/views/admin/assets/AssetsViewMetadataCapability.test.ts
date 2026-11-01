@@ -120,6 +120,43 @@ it('真实ScopeBar独立挂载，有权跨源结构深链可完成同步', async
 })
 
 
+
+describe('已发布对象分页与模糊匹配', () => {
+  it('对象列表默认每页 20 条，翻页后切换数据', async () => {
+    const entities = Array.from({ length: 26 }, (_, i) => ({
+      id: i + 1,
+      entityType: 'TABLE',
+      name: `table_${String(i + 1).padStart(2, '0')}`,
+      fqn: `fixture.table_${i + 1}`,
+    }))
+    api.getPublishedCatalog.mockResolvedValue({ data: {
+      datasourceId: 2, publishedSnapshotId: 3, snapshotVersion: 2, syncStatus: 'SYNCED', tableCount: 26, columnCount: 0, entities,
+    } })
+    const wrapper = await render()
+    expect(wrapper.text()).toContain('table_20')
+    expect(wrapper.text()).not.toContain('table_21')
+    await wrapper.findComponent({ name: 'ElPagination' }).vm.$emit('update:current-page', 2)
+    await flushPromises()
+    expect(wrapper.text()).toContain('table_21')
+    expect(wrapper.text()).not.toContain('table_20')
+  })
+
+  it('多个关键词空格分隔时需同时命中，并按过滤结果计数', async () => {
+    api.getPublishedCatalog.mockResolvedValue({ data: {
+      datasourceId: 2, publishedSnapshotId: 3, snapshotVersion: 2, syncStatus: 'SYNCED', entities: [
+        { id: 1, entityType: 'TABLE', name: 'order_main', fqn: 'fixture.order_main' },
+        { id: 2, entityType: 'TABLE', name: 'order_item', fqn: 'fixture.order_item' },
+        { id: 3, entityType: 'TABLE', name: 'product', fqn: 'fixture.product' },
+      ],
+    } })
+    const wrapper = await render()
+    await wrapper.findComponent({ name: 'ElInput' }).vm.$emit('update:modelValue', 'order item')
+    await flushPromises()
+    expect(wrapper.text()).toContain('order_item')
+    expect(wrapper.text()).not.toContain('order_main')
+    expect(wrapper.text()).toContain('匹配 1 张表')
+  })
+})
 it('raw long comment cannot replace the stable object title and remains expandable',async()=>{
  const comment='UNTRUSTED_COMMENT '.repeat(35)
  api.getPublishedCatalog.mockResolvedValue({data:{datasourceId:2,publishedSnapshotId:3,snapshotVersion:2,syncStatus:'SYNCED',entities:[{id:20,entityType:'TABLE',name:'products',displayName:comment,description:comment,fqn:'fixture.products'}]}})
@@ -127,3 +164,4 @@ it('raw long comment cannot replace the stable object title and remains expandab
  expect(w.get('.asset-name').text()).not.toContain('UNTRUSTED_COMMENT')
  expect(w.get('details.asset-comment').text()).toContain(comment.trim())
 })
+

@@ -158,13 +158,17 @@ onBeforeUnmount(() => { disposed = true; generation++ })
 <template>
   <main class="schedule-page post-login-page" v-loading="loading">
     <section class="config-card">
-      <div class="config-header">
-        <div class="config-scope">
-          <el-tag type="info" effect="plain" round>全局配置</el-tag>
-          <span>作用于全部启用的数据源</span>
+      <header class="config-header">
+        <div class="config-heading">
+          <span class="config-kicker">全局调度</span>
+          <h2>自动采集同步计划</h2>
+          <p>由后台调度向全部启用的数据源发起采集；保存后由服务端校验并更新调度。</p>
         </div>
-        <el-button :icon="RefreshCw" :disabled="saving || loading || !canRead" @click="fetchSchedule">刷新配置</el-button>
-      </div>
+        <div class="config-header__side">
+          <el-tag type="info" effect="plain" round>全局配置</el-tag>
+          <el-button :icon="RefreshCw" :disabled="saving || loading || !canRead" @click="fetchSchedule">刷新配置</el-button>
+        </div>
+      </header>
 
       <p v-if="!iam.loaded && !iam.errorMessage" class="schedule-loading">正在核验同步计划权限…</p>
       <ErrorState v-else-if="!canRead" message="没有同步计划查看权限。" @retry="iam.load(true)" />
@@ -174,74 +178,79 @@ onBeforeUnmount(() => { disposed = true; generation++ })
         <el-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon class="schedule-load-error" />
 
         <p class="schedule-access">{{ canWrite ? '修改一次会影响全部启用的数据源；由后台校验并更新全局调度。' : '只读计划。全局自动采集计划仅由受保护的系统管理员维护。' }}</p>
-        <fieldset class="schedule-form" :disabled="!canWrite || saving || loading">
-          <div class="config-row">
-            <label>启用自动同步</label>
-            <div class="config-control">
-              <el-switch aria-label="启用自动同步" :disabled="!canWrite || saving || loading" v-model="schedule.enabled" />
-              <span class="run-state" :class="{ 'is-running': schedule.running }"><i aria-hidden="true"></i>{{ runningText }}</span>
-            </div>
-          </div>
-
-          <div class="config-row">
-            <label>同步频率</label>
-            <div class="config-control">
-              <el-radio-group v-model="presetMode" :disabled="!canWrite || saving || loading" aria-label="同步频率" class="schedule-frequency">
-                <el-radio-button v-for="opt in presetOptions" :key="opt.value" :value="opt.value">
-                  {{ opt.label }}
-                </el-radio-button>
-              </el-radio-group>
-            </div>
-          </div>
-
-          <div class="config-row" v-if="presetMode === 'daily'">
-            <label>执行时间</label>
-            <div class="config-control">
-              <el-time-select aria-label="每日执行时间" :disabled="!canWrite || saving || loading" v-model="dailyTime" start="00:00" step="00:15" end="23:45"
-                              placeholder="选择时间" style="width: 140px" />
-            </div>
-          </div>
-
-          <div class="config-row" v-if="presetMode === 'weekly'">
-            <label>执行日期</label>
-            <div class="config-control">
-              <el-select aria-label="每周执行日期" :disabled="!canWrite || saving || loading" v-model="weeklyDay" style="width: 100px">
-                <el-option v-for="d in weekDays" :key="d.value" :label="d.label" :value="d.value" />
-              </el-select>
-              <el-time-select aria-label="每周执行时间" :disabled="!canWrite || saving || loading" v-model="weeklyTime" start="00:00" step="00:15" end="23:45"
-                              placeholder="选择时间" style="width: 140px" />
-            </div>
-          </div>
-
-          <div class="config-row" v-if="presetMode === 'custom'">
-            <label>Cron 表达式</label>
-            <div class="config-control">
-              <el-input aria-label="Cron 表达式" :disabled="!canWrite || saving || loading" v-model="customCron" placeholder="0 0 2 * * ?" style="width: 240px">
-                <template #prefix><Clock :size="14" /></template>
-              </el-input>
-              <span class="cron-hint">秒 分 时 日 月 周（Spring Cron 6位格式）</span>
-            </div>
-          </div>
-
-          <div class="config-row config-row--preview">
-            <label>计划预览</label>
-            <div class="config-control">
-              <div class="schedule-preview" :class="{ 'is-off': !schedule.enabled, 'is-dirty': isDirty }">
-                <span class="schedule-preview__state">{{ previewState }}</span>
-                <p>{{ previewText }}</p>
+        <div class="schedule-layout">
+          <fieldset class="schedule-form" :disabled="!canWrite || saving || loading">
+            <div class="config-row">
+              <label>启用自动同步</label>
+              <div class="config-control">
+                <el-switch aria-label="启用自动同步" :disabled="!canWrite || saving || loading" v-model="schedule.enabled" />
+                <span class="run-state" :class="{ 'is-running': schedule.running }"><i aria-hidden="true"></i>{{ runningText }}</span>
               </div>
             </div>
-          </div>
 
-          <p v-if="invalidTime" role="alert" class="schedule-time-error">请选择有效的执行时间后保存。</p>
-          <div v-if="canWrite" class="config-actions">
-            <div class="save-panel">
-              <el-button type="primary" :loading="saving" :disabled="!loaded || !!loadError || loading || !isDirty || invalidTime" @click="handleSave">保存配置</el-button>
-              <span class="save-note">修改保存后生效。</span>
-              <span v-if="isDirty" class="save-dirty">当前设置尚未保存</span>
+            <div class="config-row">
+              <label>同步频率</label>
+              <div class="config-control">
+                <el-radio-group v-model="presetMode" :disabled="!canWrite || saving || loading" aria-label="同步频率" class="schedule-frequency">
+                  <el-radio-button v-for="opt in presetOptions" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </el-radio-button>
+                </el-radio-group>
+              </div>
             </div>
-          </div>
-        </fieldset>
+
+            <div class="config-row" v-if="presetMode === 'daily'">
+              <label>执行时间</label>
+              <div class="config-control">
+                <el-time-select aria-label="每日执行时间" :disabled="!canWrite || saving || loading" v-model="dailyTime" start="00:00" step="00:15" end="23:45"
+                                placeholder="选择时间" style="width: 140px" />
+              </div>
+            </div>
+
+            <div class="config-row" v-if="presetMode === 'weekly'">
+              <label>执行日期</label>
+              <div class="config-control">
+                <el-select aria-label="每周执行日期" :disabled="!canWrite || saving || loading" v-model="weeklyDay" style="width: 100px">
+                  <el-option v-for="d in weekDays" :key="d.value" :label="d.label" :value="d.value" />
+                </el-select>
+                <el-time-select aria-label="每周执行时间" :disabled="!canWrite || saving || loading" v-model="weeklyTime" start="00:00" step="00:15" end="23:45"
+                                placeholder="选择时间" style="width: 140px" />
+              </div>
+            </div>
+
+            <div class="config-row" v-if="presetMode === 'custom'">
+              <label>Cron 表达式</label>
+              <div class="config-control">
+                <el-input aria-label="Cron 表达式" :disabled="!canWrite || saving || loading" v-model="customCron" placeholder="0 0 2 * * ?" style="width: 240px">
+                  <template #prefix><Clock :size="14" /></template>
+                </el-input>
+                <span class="cron-hint">秒 分 时 日 月 周（Spring Cron 6位格式）</span>
+              </div>
+            </div>
+
+            <p v-if="invalidTime" role="alert" class="schedule-time-error">请选择有效的执行时间后保存。</p>
+          </fieldset>
+
+          <aside class="schedule-summary" aria-label="计划摘要">
+            <div class="schedule-summary__head"><Clock :size="14" aria-hidden="true" /><strong>计划摘要</strong></div>
+            <div class="schedule-summary__status">
+              <span class="summary-status" :class="schedule.running ? 'is-on' : 'is-off'"><i aria-hidden="true"></i>{{ runningText }}</span>
+              <span class="summary-status" :class="schedule.enabled ? 'is-on' : 'is-off'"><i aria-hidden="true"></i>{{ schedule.enabled ? '自动同步已启用' : '自动同步未启用' }}</span>
+            </div>
+            <div class="schedule-preview" :class="{ 'is-off': !schedule.enabled, 'is-dirty': isDirty }">
+              <span class="schedule-preview__state">{{ previewState }}</span>
+              <p>{{ previewText }}</p>
+            </div>
+            <div v-if="canWrite" class="config-actions">
+              <div class="save-panel">
+                <el-button type="primary" :loading="saving" :disabled="!loaded || !!loadError || loading || !isDirty || invalidTime" @click="handleSave">保存配置</el-button>
+                <span class="save-note">修改保存后生效。</span>
+                <span v-if="isDirty" class="save-dirty">当前设置尚未保存</span>
+              </div>
+            </div>
+            <p v-else class="schedule-readonly">只读计划，仅系统管理员可修改。</p>
+          </aside>
+        </div>
       </template>
     </section>
   </main>
@@ -249,56 +258,55 @@ onBeforeUnmount(() => { disposed = true; generation++ })
 
 <style scoped>
 .schedule-page { display: block; }
-.schedule-time-error { color:var(--do-danger); font-size:13px; }
-.schedule-access { font-size:13px; color:var(--do-muted); margin:18px 0; line-height:1.7; }
+.schedule-time-error { color: var(--do-danger); font-size: 12.5px; margin: 12px 0 0; }
+.schedule-access { margin: 14px 0 0; color: var(--do-muted); font-size: 12.5px; line-height: 1.6; }
 
 .config-card {
   background: var(--do-glass-data-bg);
   border: 1px solid var(--do-glass-line);
   border-radius: var(--do-radius-lg);
   box-shadow: var(--do-shadow);
-  padding: 18px 20px;
+  padding: 18px 20px 20px;
 }
 
 .config-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px 16px;
-  padding-bottom: 12px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--do-line);
 }
-.config-scope { display: flex; align-items: center; gap: 8px; color: var(--do-muted); font-size: 12.5px; }
-.config-header :deep(.el-button) { min-height: 36px; }
+.config-kicker { display: block; color: var(--do-primary-strong); font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+.config-heading h2 { margin: 4px 0 0; color: var(--do-ink); font-size: 17px; font-weight: 650; letter-spacing: -.01em; line-height: 1.3; }
+.config-heading p { margin: 4px 0 0; max-width: 56ch; color: var(--do-muted); font-size: 12px; line-height: 1.55; }
+.config-header__side { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.config-header__side :deep(.el-button) { min-height: 36px; }
 
 .schedule-loading { margin: 14px 0 0; color: var(--do-muted); font-size: 13px; }
 .schedule-load-error { margin-top: 12px; }
 
-.schedule-form { border:0; padding:0; margin-inline:0; width: 100%; max-width: 720px; min-width: 0; margin-top: 18px; }
-.config-row {
+.schedule-layout {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px 16px;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+  gap: 24px;
+  margin-top: 16px;
 }
-.config-row + .config-row { margin-top: 22px; }
-.config-row--preview { align-items: start; }
-.config-row label {
-  width: auto;
-  color: var(--do-ink);
-  font-size: 13.5px;
-  font-weight: 500;
-  line-height: 1.5;
-}
+.schedule-form { border: 0; padding: 0; margin: 0; min-width: 0; width: 100%; max-width: none; }
+.config-row { display: grid; grid-template-columns: 118px minmax(0, 1fr); align-items: center; gap: 10px 16px; }
+.config-row + .config-row { margin-top: 20px; }
+.config-row label { width: auto; color: var(--do-ink); font-size: 12.5px; font-weight: 600; line-height: 1.5; }
 .config-control { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; }
 
 .schedule-frequency {
   display: inline-flex;
   padding: 3px;
   border: 1px solid var(--do-line);
-  border-radius: 9px;
+  border-radius: 10px;
   background: var(--do-bg);
+  gap: 2px;
 }
 .schedule-frequency :deep(.el-radio-button) { margin: 0; }
 .schedule-frequency :deep(.el-radio-button__inner) {
@@ -308,7 +316,7 @@ onBeforeUnmount(() => { disposed = true; generation++ })
   justify-content: center;
   padding: 0 14px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 8px;
   outline: 0;
   box-shadow: none;
   color: var(--do-muted);
@@ -322,50 +330,59 @@ onBeforeUnmount(() => { disposed = true; generation++ })
 .schedule-frequency :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
   color: var(--do-primary-strong);
   background: var(--do-surface);
-  box-shadow: 0 1px 4px rgba(34, 72, 126, .1);
+  box-shadow: 0 1px 4px rgba(36, 39, 36, .1);
 }
 .schedule-frequency :deep(.el-radio-button:first-child .el-radio-button__inner),
-.schedule-frequency :deep(.el-radio-button:last-child .el-radio-button__inner) { border-radius: 7px; }
+.schedule-frequency :deep(.el-radio-button:last-child .el-radio-button__inner) { border-radius: 8px; }
 .schedule-frequency :deep(.el-radio-button__original-radio:focus-visible + .el-radio-button__inner) {
   border: 0;
   outline: 2px solid color-mix(in srgb, var(--do-primary) 32%, transparent);
   outline-offset: 1px;
 }
 
-.run-state { display: inline-flex; align-items: center; gap: 6px; color: var(--do-muted); font-size: 12px; line-height: 1.5; }
+.run-state { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 999px; background: var(--do-soft); color: var(--do-muted); font-size: 11.5px; font-weight: 600; line-height: 1; }
 .run-state i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
-.run-state.is-running { color: color-mix(in srgb, var(--do-success) 72%, var(--do-ink)); }
+.run-state.is-running { background: var(--do-success-soft); color: var(--do-success); }
 
 .cron-hint { margin: 0; color: var(--do-muted); font-size: 11.5px; line-height: 1.5; overflow-wrap: anywhere; }
 
-.schedule-preview {
-  width: 100%;
-  min-width: 0;
-  padding: 10px 12px;
+.schedule-summary {
+  position: sticky;
+  top: 16px;
+  padding: 14px 16px;
   border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-sm);
-  background: var(--do-bg);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-soft);
 }
-.schedule-preview__state { display: inline-block; margin-bottom: 4px; color: var(--do-primary-strong); font-size: 11.5px; font-weight: 700; }
-.schedule-preview.is-dirty .schedule-preview__state { color: color-mix(in srgb, var(--do-warning) 68%, var(--do-ink)); }
-.schedule-preview.is-off .schedule-preview__state { color: var(--do-muted); }
-.schedule-preview p { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+.schedule-summary__head { display: flex; align-items: center; gap: 8px; color: var(--do-ink); }
+.schedule-summary__head :deep(svg) { color: var(--do-primary-strong); }
+.schedule-summary__head strong { font-size: 12.5px; font-weight: 650; }
+.schedule-summary__status { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.summary-status { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border: 1px solid transparent; border-radius: 999px; background: var(--do-surface); color: var(--do-muted); font-size: 11.5px; font-weight: 600; line-height: 1; }
+.summary-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.summary-status.is-on { border-color: color-mix(in srgb, var(--do-success) 24%, transparent); background: var(--do-success-soft); color: var(--do-success); }
 
-.config-actions {
-  margin-top: 24px;
-  padding-top: 16px;
-  padding-left: 126px;
-  border-top: 1px solid var(--do-line);
+.schedule-preview { margin-top: 12px; padding: 12px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); background: var(--do-surface); }
+.schedule-preview__state { display: inline-block; margin-bottom: 4px; color: var(--do-primary-strong); font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+.schedule-preview.is-dirty .schedule-preview__state { color: color-mix(in srgb, var(--do-warning) 70%, var(--do-ink)); }
+.schedule-preview.is-off .schedule-preview__state { color: var(--do-muted); }
+.schedule-preview p { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+
+.config-actions { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--do-line); }
+.save-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.save-panel :deep(.el-button) { min-height: 38px; }
+.save-note { color: var(--do-muted); font-size: 11.5px; line-height: 1.5; }
+.save-dirty { color: color-mix(in srgb, var(--do-warning) 70%, var(--do-ink)); font-size: 11px; }
+.schedule-readonly { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--do-line); color: var(--do-muted); font-size: 12px; line-height: 1.6; }
+
+@media (max-width: 1100px) {
+  .schedule-layout { grid-template-columns: minmax(0, 1fr); }
+  .schedule-summary { position: static; }
 }
-.save-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; }
-.save-note { color: var(--do-muted); font-size: 12px; line-height: 1.5; }
-.save-dirty { color: color-mix(in srgb, var(--do-warning) 68%, var(--do-ink)); font-size: 11.5px; }
 
 @media (max-width: 760px) {
-  .schedule-form { margin-top: 14px; }
   .config-row { grid-template-columns: minmax(0, 1fr); gap: 8px; }
-  .config-row + .config-row { margin-top: 20px; }
-  .config-actions { padding-left: 0; }
+  .config-row + .config-row { margin-top: 18px; }
   .schedule-frequency { width: 100%; }
   .schedule-frequency :deep(.el-radio-button) { flex: 1 1 0; }
   .schedule-frequency :deep(.el-radio-button__inner) { width: 100%; padding-inline: 8px; }

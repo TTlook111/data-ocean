@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { GitCompareArrows, RefreshCw, RotateCcw, Send } from 'lucide-vue-next'
+import { ChevronDown, GitCompareArrows, History, RefreshCw, RotateCcw, Send } from 'lucide-vue-next'
 import { useRouter, useRoute } from 'vue-router'
 import { pendingReleaseWrites, trackReleaseWrite } from '../../../composables/releaseWriteTracker'
 import { useAuthStore } from '../../../stores/auth'
@@ -69,7 +69,8 @@ const selectedVersions = ref<CompareVersionOption[]>([])
 const hasReviewerNames = computed(() => history.value.some((item) => Boolean(item.reviewedBy)))
 const datasourceId = computed(() => context.datasourceId)
 const compactTable=ref(window.innerWidth<900)
-function measureTable() { compactTable.value=window.innerWidth<900 }
+const narrowTable=ref(window.innerWidth<1420)
+function measureTable() { compactTable.value=window.innerWidth<900; narrowTable.value=window.innerWidth<1420 }
 window.addEventListener('resize',measureTable)
 const scopeError = computed(() => {
   if (iamS1.errorMessage) return `权限摘要读取失败：${iamS1.errorMessage}`
@@ -80,6 +81,25 @@ const scopeError = computed(() => {
 })
 const scopePending=computed(()=>!iamS1.loaded && !iamS1.errorMessage || context.loading || context.routeSyncing)
 const scopeReady = computed(() => iamS1.loaded && !context.loading && !context.routeSyncing && !scopeError.value && !!datasourceId.value)
+const fillMediaMatches = ref(false)
+const fillEnabled = computed(() => fillMediaMatches.value && !!datasourceId.value && !scopePending.value && !scopeError.value)
+let fillMedia: MediaQueryList | null = null
+function syncFillMedia(event?: MediaQueryListEvent) { fillMediaMatches.value = event ? event.matches : Boolean(fillMedia?.matches) }
+onMounted(() => {
+  const query = '(min-width: 1200px) and (min-height: 700px)'
+  const media = window.matchMedia?.(query)
+  if (media && typeof media.addEventListener === 'function') {
+    fillMedia = media
+    syncFillMedia()
+    media.addEventListener('change', syncFillMedia)
+  } else {
+    syncFillMedia()
+  }
+})
+onBeforeUnmount(() => {
+  fillMedia?.removeEventListener('change', syncFillMedia)
+  fillMedia = null
+})
 const actionError = ref(''), actionNotice = ref(''), revokeReason = ref('')
 const uncertainWrites = pendingReleaseWrites
 const uncertainWrite = computed(() => uncertainWrites.value.find(x => x.identity===auth.token && x.source===datasourceId.value))
@@ -291,8 +311,12 @@ function rowActionWidths(row: VersionHistoryItem): number[] {
   return widths
 }
 
+function hasRowUtilityActions(row: VersionHistoryItem) {
+  return canViewAuditRecords(row) || canCompareWithCurrent(row)
+}
+
 const hasVisibleRowActions = computed(() => history.value.some((row) => rowActionWidths(row).length > 0))
-const actionsColumnWidth = computed(() => 300)
+const actionsColumnWidth = computed(() => 240)
 
 function formatVersionTime(value?: string | null) {
   if (!value) return ''
@@ -827,10 +851,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="admin-page releases-page">
-    <div class="releases-page__eyebrow">数据资产 / 版本与发布</div>
+  <main class="admin-page releases-page" :class="{ 'admin-list-fill': fillEnabled }">
     <TaskPageHeader
       title="元数据版本"
+      eyebrow="数据资产 / 版本与发布"
       description="查看元数据快照、当前正式版和版本间的结构变化。发布、撤回、问题处理与知识发布各自独立。"
     >
       <template #actions>
@@ -840,12 +864,22 @@ onBeforeUnmount(() => {
       </template>
     </TaskPageHeader>
 
-    <p class="releases-page__purpose">选择一个采集版本，核对结构与治理证据，再审核、发布为正式来源。</p>
-    <ol class="release-journey" aria-label="元数据到问数的准备路径"><li><strong>01 核对采集</strong><span>比较结构、查看来源质量</span></li><li><strong>02 审核版本</strong><span>人工批准后才能发布</span></li><li><strong>03 发布快照</strong><span>成为当前正式元数据来源</span></li><li><strong>04 准备知识</strong><span>文档发布与索引构建另行确认</span></li></ol>
+    <section class="release-path" aria-label="元数据到问数的准备路径">
+      <div class="release-path__head">
+        <h2>从采集到问数</h2>
+        <span>每一步分别核对，不会自动串联</span>
+      </div>
+      <ol class="release-path__list">
+        <li class="release-path__item"><span class="release-path__no">01</span><div class="release-path__copy"><strong>核对采集</strong><span>比较结构、查看来源质量</span></div></li>
+        <li class="release-path__item"><span class="release-path__no">02</span><div class="release-path__copy"><strong>审核版本</strong><span>人工批准后才能发布</span></div></li>
+        <li class="release-path__item"><span class="release-path__no">03</span><div class="release-path__copy"><strong>发布快照</strong><span>成为当前正式元数据来源</span></div></li>
+        <li class="release-path__item"><span class="release-path__no">04</span><div class="release-path__copy"><strong>准备知识</strong><span>文档发布与索引构建另行确认</span></div></li>
+      </ol>
+    </section>
     <div v-if="scopeError" role="alert" class="release-action-notice">{{ scopeError }}</div>
     <section v-if="unknownAction" role="status" class="release-action-notice">快照 #{{ uncertainWrite?.snapshot }} 的 {{ uncertainWrite?.action }} 结果待确认。切换范围不会清除此记录；离开重进仍保留本次会话记录；整页刷新后仍需人工核对原目标，不可推定请求已取消。<el-button :loading="verifyingWrite" @click="verifyUncertainWrite">核对该快照操作记录</el-button><p>{{ actionNotice }}</p></section>
     <section v-if="actionError" class="release-action-notice" role="alert"><strong>{{ actionError }}</strong><p>{{ actionNotice }}</p><p v-if="revokeReason">已保留撤回原因：{{ revokeReason }}</p><el-button :loading="listLoading" @click="load">重读版本与当前正式版</el-button></section>
-    <section class="releases-page__current" aria-label="当前正式版">
+    <section class="releases-page__current" :class="{ 'releases-page__current--published': published && !publishedLoading && !publishedError }" aria-label="当前正式版">
       <div class="releases-page__current-label">
         <span>当前正式版</span>
         <strong v-if="published && !publishedLoading && !publishedError">v{{ published.snapshotVersion }}</strong>
@@ -873,7 +907,7 @@ onBeforeUnmount(() => {
       </RouterLink>
     </section>
 
-    <section class="releases-page__workspace" aria-label="元数据版本列表">
+    <section class="releases-page__workspace admin-list-fill__panel" :class="{ 'releases-page__workspace--fill': fillEnabled }" aria-label="元数据版本列表">
       <div class="releases-page__toolbar">
         <div class="releases-page__toolbar-heading">
           <h2>版本列表</h2>
@@ -904,9 +938,9 @@ onBeforeUnmount(() => {
       <div v-else-if="listError" class="releases-page__list-state">
         <ErrorState :message="listError" @retry="load" />
       </div>
-      <div v-else-if="history.length" class="releases-page__table-region">
-        <el-table v-loading="actionLoading" :data="history" class="releases-page__table" row-key="snapshotId">
-          <el-table-column label="比较" width="54" align="center">
+      <div v-else-if="history.length" class="releases-page__table-region admin-list-fill__body">
+        <el-table v-loading="actionLoading" :data="history" class="releases-page__table" row-key="snapshotId" :height="fillEnabled ? '100%' : undefined">
+          <el-table-column label="比较" width="60" align="center">
             <template #default="{ row }">
               <el-checkbox
                 :model-value="isSelectedForCompare(row.snapshotId)"
@@ -916,7 +950,7 @@ onBeforeUnmount(() => {
               />
             </template>
           </el-table-column>
-          <el-table-column label="版本" min-width="160">
+          <el-table-column label="版本" min-width="140">
             <template #default="{ row }">
               <div class="release-version">
                 <el-button link type="primary" class="release-version__link" :aria-label="`查看版本 v${row.snapshotVersion} 详情`" @click="openSnapshotDialog(row)">
@@ -926,19 +960,19 @@ onBeforeUnmount(() => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="发布状态" width="126">
+          <el-table-column label="发布状态" width="110">
             <template #default="{ row }"><BusinessStatusBadge :status="row.status" :label="snapshotStatusLabel(row.status)" /></template>
           </el-table-column>
-          <el-table-column label="表数" width="92" align="right">
+          <el-table-column v-if="!narrowTable" label="表数" width="84" align="right">
             <template #default="{ row }"><span class="release-count">{{ formatCount(row.tableCount) }}</span></template>
           </el-table-column>
-          <el-table-column label="字段数" width="92" align="right">
+          <el-table-column v-if="!narrowTable" label="字段数" width="84" align="right">
             <template #default="{ row }"><span class="release-count">{{ formatCount(row.columnCount) }}</span></template>
           </el-table-column>
-          <el-table-column label="质量分" width="82" align="right">
+          <el-table-column v-if="!narrowTable" label="质量分" width="84" align="right">
             <template #default="{ row }"><span class="release-quality-score">{{ row.qualityScore == null ? '未校验' : row.qualityScore }}</span></template>
           </el-table-column>
-          <el-table-column label="采集 / 发布时间" width="210">
+          <el-table-column label="采集 / 发布时间" width="180">
             <template #default="{ row }">
               <div class="release-time-cell">
                 <time v-if="row.createdAt" :datetime="row.createdAt" :title="row.createdAt">采集 {{ formatVersionTime(row.createdAt) }}</time>
@@ -947,18 +981,29 @@ onBeforeUnmount(() => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column v-if="hasReviewerNames" prop="reviewedBy" label="审校人" width="150" show-overflow-tooltip />
+          <el-table-column v-if="hasReviewerNames" prop="reviewedBy" label="审校人" width="156" show-overflow-tooltip />
           <el-table-column v-if="hasVisibleRowActions" label="操作" :width="actionsColumnWidth" :fixed="compactTable ? undefined : 'right'">
             <template #default="{ row }">
               <div class="release-row-actions">
-                <el-button v-if="canViewAuditRecords(row)" link class="release-row-actions__audit" @click="openSnapshotDialog(row, 'operations')">操作记录</el-button>
-                <el-button v-if="row.status === 'DRAFT' && canRunQualityCheck(row)" link type="primary" @click="changeStatus(row, 'CHECKING')">开始检查</el-button>
-                <el-button v-if="row.status === 'DRAFT' && canReviewSnapshot(row)" link :disabled="actionLoading" @click="enterReview(row)">进入审核</el-button>
-                <RouterLink v-if="row.status === 'ISSUE_FOUND' && canViewIssuesForRow(row)" class="releases-page__issue-link" :to="issueCenterTarget(row)">进入问题中心</RouterLink>
-                <el-button v-if="['CHECKING', 'ISSUE_FOUND'].includes(row.status) && canReviewSnapshot(row)" link @click="changeStatus(row, 'APPROVED')">批准</el-button>
-                <el-button v-if="row.status === 'APPROVED' && canPublishSnapshot(row)" link type="primary" @click="publish(row)"><Send :size="14" aria-hidden="true" />发布</el-button>
-                <el-button v-if="row.status === 'PUBLISHED' && canPublishSnapshot(row)" link type="danger" @click="revoke(row)"><RotateCcw :size="14" aria-hidden="true" />撤回</el-button>
-                <el-button v-if="canCompareWithCurrent(row)" link type="primary" @click="compareWithCurrentOfficial(row)">与当前正式版比较</el-button>
+                <div class="release-row-actions__main">
+                  <el-button v-if="row.status === 'DRAFT' && canRunQualityCheck(row)" link type="primary" @click="changeStatus(row, 'CHECKING')">开始检查</el-button>
+                  <el-button v-if="row.status === 'DRAFT' && canReviewSnapshot(row)" link :disabled="actionLoading" @click="enterReview(row)">进入审核</el-button>
+                  <RouterLink v-if="row.status === 'ISSUE_FOUND' && canViewIssuesForRow(row)" class="releases-page__issue-link" :to="issueCenterTarget(row)">进入问题中心</RouterLink>
+                  <el-button v-if="['CHECKING', 'ISSUE_FOUND'].includes(row.status) && canReviewSnapshot(row)" link @click="changeStatus(row, 'APPROVED')">批准</el-button>
+                  <el-button v-if="row.status === 'APPROVED' && canPublishSnapshot(row)" link type="primary" @click="publish(row)"><Send :size="14" aria-hidden="true" />发布</el-button>
+                  <el-button v-if="row.status === 'PUBLISHED' && canPublishSnapshot(row)" link type="danger" @click="revoke(row)"><RotateCcw :size="14" aria-hidden="true" />撤回</el-button>
+                </div>
+                <div v-if="hasRowUtilityActions(row)" class="release-row-actions__more">
+                  <el-dropdown trigger="click" placement="bottom-end" popper-class="release-actions-popper">
+                    <el-button link class="release-row-actions__more-trigger" :aria-label="`v${row.snapshotVersion} 的更多操作`">更多<ChevronDown :size="13" aria-hidden="true" /></el-button>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-if="canViewAuditRecords(row)" @click="openSnapshotDialog(row, 'operations')"><History :size="16" aria-hidden="true" />操作记录</el-dropdown-item>
+                        <el-dropdown-item v-if="canCompareWithCurrent(row)" @click="compareWithCurrentOfficial(row)"><GitCompareArrows :size="16" aria-hidden="true" />与当前正式版比较</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </div>
               </div>
             </template>
           </el-table-column>
@@ -968,16 +1013,20 @@ onBeforeUnmount(() => {
         <EmptyState message="当前数据源还没有元数据版本。" :action-text="iamS1.canOnDatasource('metadata:collect:view', datasourceId) ? '去采集任务' : undefined" @action="router.push({ path: '/admin/collections', query: buildContextQuery('datasource', { datasourceId }) })" />
       </div>
 
-      <el-pagination
-        v-if="!listLoading && !listError && total > pageSize"
-        class="releases-page__pagination"
-        background
-        layout="total, prev, pager, next"
-        :total="total"
-        :page-size="pageSize"
-        :current-page="page"
-        @current-change="changePage"
-      />
+      <div v-if="!listLoading && !listError && history.length" class="releases-page__footer admin-list-fill__footer">
+        <span class="releases-page__footer-total">共 {{ total.toLocaleString('zh-CN') }} 个版本 · 每页 {{ pageSize }} 个</span>
+        <el-pagination
+          v-if="total > pageSize"
+          class="releases-page__pagination"
+          background
+          layout="prev, pager, next"
+          :total="total"
+          :page-size="pageSize"
+          :current-page="page"
+          @current-change="changePage"
+        />
+        <span v-else class="releases-page__footer-hint">第 1 页</span>
+      </div>
     </section>
 
     <el-dialog
@@ -1121,14 +1170,20 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.releases-page__eyebrow { color:var(--do-primary-strong); font-size:12px; font-weight:650; margin-bottom:-6px; }
-.releases-page__purpose { margin:-6px 0 2px; color:var(--do-muted); font-size:14px; }
-.release-journey { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); list-style:none; padding:16px 0; margin:0; border-block:1px solid var(--do-line); gap:20px; }
-.release-journey li { display:grid; gap:6px; padding-left:16px; border-left:2px solid var(--do-line); }
-.release-journey li:first-child { border-color:var(--do-primary); }
-.release-journey strong { font-size:13px; }.release-journey span { color:var(--do-muted);font-size:12px;line-height:1.5; }
+.release-path { min-width: 0; overflow: hidden; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); box-shadow: var(--do-shadow); }
+.release-path__head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; padding: 14px 18px 10px; }
+.release-path__head h2 { margin: 0; color: var(--do-ink); font-size: 14px; font-weight: 650; }
+.release-path__head span { color: var(--do-muted); font-size: 11.5px; }
+.release-path__list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0 18px 16px; list-style: none; }
+.release-path__item { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 8px 18px 4px 0; }
+.release-path__item + .release-path__item { padding-left: 18px; border-left: 1px solid var(--do-line); }
+.release-path__no { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 8px; color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.release-path__copy { display: grid; gap: 3px; min-width: 0; }
+.release-path__copy strong { color: var(--do-ink); font-size: 12.5px; font-weight: 650; }
+.release-path__copy span { color: var(--do-muted); font-size: 11.5px; line-height: 1.5; }
 .release-action-notice { border:1px solid var(--do-line); border-left:3px solid var(--do-warning); padding:14px; font-size:13px; line-height:1.6; overflow-wrap:anywhere; }.release-action-notice p { margin:6px 0; }
-@media(max-width:760px) { .release-journey { grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 8px; } }
+@media(max-width: 900px) { .release-path__list { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 4px; } .release-path__item:nth-child(3) { padding-left: 0; border-left: 0; } }
+@media(max-width: 560px) { .release-path__list { grid-template-columns: minmax(0, 1fr); } .release-path__item + .release-path__item { padding-left: 0; border-left: 0; } }
 
 .releases-page {
   display: flex;
@@ -1152,70 +1207,98 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 20px;
+  gap: 10px 18px;
   min-width: 0;
-  padding: 16px 18px;
+  padding: 13px 18px;
   border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-md);
+  border-radius: var(--do-radius-lg);
   background: var(--do-surface);
 }
-.releases-page__current-label { display: flex; align-items: center; gap: 12px; }
-.releases-page__current-label > span { color: var(--do-muted); font-size: 13px; }
-.releases-page__current-label > strong { color: var(--do-ink); font-size: 18px; font-weight: 700; }
-.releases-page__current-main { display: flex; flex: 1 1 auto; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-width: 0; color: var(--do-muted); font-size: 13px; }
-.releases-page__current-main time { color: var(--do-ink); }
-.releases-page__current-state { color: var(--do-muted); }
+.releases-page__current--published { border-color: color-mix(in srgb, var(--do-success) 26%, var(--do-line)); background: color-mix(in srgb, var(--do-success-soft) 65%, var(--do-surface)); }
+.releases-page__current-label { display: flex; align-items: center; gap: 10px; }
+.releases-page__current-label > span { color: var(--do-muted); font-size: 12px; }
+.releases-page__current-label > strong { color: var(--do-ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 20px; font-weight: 700; line-height: 1; letter-spacing: -.02em; }
+.releases-page__current-main { display: flex; flex: 1 1 auto; align-items: center; flex-wrap: wrap; gap: 6px 14px; min-width: 0; color: var(--do-muted); font-size: 12px; }
+.releases-page__current-main time { color: var(--do-ink); font-size: 12px; }
+.releases-page__current-state { color: var(--do-muted); font-size: 12px; }
 .releases-page__current-error { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; color: var(--do-danger); }
-.releases-page__knowledge-link { flex: 0 0 auto; margin-left: auto; color: var(--do-primary-strong); font-size: 13px; font-weight: 600; text-decoration: none; }
-.releases-page__knowledge-link:hover { text-decoration: underline; }
-.releases-page__knowledge-link:focus-visible { border-radius: 3px; outline: 2px solid color-mix(in srgb, var(--do-primary) 45%, transparent); outline-offset: 3px; }
+.releases-page__knowledge-link { flex: 0 0 auto; margin-left: auto; padding: 5px 10px; border-radius: 8px; color: var(--do-primary-strong); font-size: 12.5px; font-weight: 600; text-decoration: none; transition: background 180ms ease; }
+.releases-page__knowledge-link:hover { background: var(--do-primary-soft); text-decoration: none; }
+.releases-page__knowledge-link:focus-visible { border-radius: 8px; outline: 2px solid color-mix(in srgb, var(--do-primary) 45%, transparent); outline-offset: 2px; }
 
-.releases-page__workspace { min-width: 0; overflow: hidden; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
-.releases-page__toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 18px; padding: 16px 18px; border-bottom: 1px solid var(--do-line); }
-.releases-page__toolbar-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 12px; }
-.releases-page__toolbar-heading h2 { margin: 0; color: var(--do-ink); font-size: 16px; font-weight: 700; }
-.releases-page__toolbar-heading > span { color: var(--do-muted); font-size: 12px; }
+.releases-page__workspace { min-width: 0; overflow: hidden; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); box-shadow: var(--do-shadow); }
+.releases-page__toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 18px; padding: 14px 18px; border-bottom: 1px solid var(--do-line); }
+.releases-page__toolbar-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
+.releases-page__toolbar-heading h2 { margin: 0; color: var(--do-ink); font-size: 15px; font-weight: 650; }
+.releases-page__toolbar-heading > span { display: inline-flex; align-items: center; min-height: 22px; padding: 0 9px; border-radius: var(--do-radius-full); color: var(--do-muted); background: var(--do-soft); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .releases-page__toolbar-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
 .releases-page__toolbar-actions :deep(.el-button) { min-height: 36px; }
 .releases-page__compare-controls { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; min-width: 0; }
-.releases-page__compare-status { flex: 0 1 auto; max-width: min(34vw, 320px); color: var(--do-muted); font-size: 12px; line-height: 1.4; }
+.releases-page__compare-status { flex: 0 1 auto; max-width: min(34vw, 320px); color: var(--do-muted); font-size: 11.5px; line-height: 1.4; }
 .releases-page__compare-direction { color: var(--do-ink); font-weight: 600; }
 .releases-page__compare-invalid { color: var(--do-danger); }
 .releases-page__list-state { padding: 28px 18px; }
-.releases-page__table-region { min-width: 0; max-width: 100%; overflow-x: auto; padding: 0 18px; }
+.releases-page__table-region { display: flex; flex-direction: column; min-width: 0; max-width: 100%; overflow-x: auto; padding: 0 18px; }
 .releases-page__table :deep(.el-table) { width: 100%; min-width: 0; border: 0; color: var(--do-ink); background: var(--do-surface); }
 .releases-page__table :deep(.el-table.is-scrolling-none .el-table-fixed-column--right::before) { box-shadow: none; }
 .releases-page__table :deep(.el-table::before),
 .releases-page__table :deep(.el-table__inner-wrapper::before) { display: none; }
-.releases-page__table :deep(.el-table th.el-table__cell) { height: 44px; padding: 0; color: var(--do-muted); background: var(--do-soft); font-size: 12px; font-weight: 600; }
-.releases-page__table :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 44px; }
-.releases-page__table :deep(.el-table td.el-table__cell) { padding: 12px 0; border-bottom-color: var(--do-line); font-size: 14px; vertical-align: middle; }
+.releases-page__table :deep(.el-table th.el-table__cell) { height: 40px; padding: 0; color: var(--do-muted); background: var(--do-soft); font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+.releases-page__table :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 40px; white-space: nowrap; }
+.releases-page__table :deep(.el-table td.el-table__cell) { padding: 10px 0; border-bottom-color: var(--do-line); font-size: 13px; vertical-align: middle; }
 .releases-page__table :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.4; }
 .releases-page__table :deep(.el-table tr:last-child td.el-table__cell) { border-bottom: 0; }
-.release-count { font-size: 12px; white-space: nowrap; }
-.release-version { display: grid; justify-items: start; gap: 3px; }
-.release-version__link { height: auto; padding: 0; color: var(--do-primary-strong); font-size: 15px; font-weight: 700; }
+.releases-page__table :deep(.el-table__body tr:hover > td.el-table__cell:first-child) { box-shadow: inset 2px 0 0 var(--do-primary); }
+.release-count { color: var(--do-ink); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.release-version { display: flex; align-items: center; flex-wrap: wrap; justify-items: start; gap: 4px 8px; }
+.release-version__link { height: auto; padding: 0; color: var(--do-primary-strong); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; font-weight: 700; }
 .release-version__link:hover { text-decoration: underline; }
-.release-current-tag { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 7px; border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 11px; font-weight: 600; white-space: nowrap; }
-.release-time-cell { display: grid; gap: 3px; color: var(--do-muted); font-size: 12px; line-height: 1.4; }
+.release-current-tag { display: inline-flex; align-items: center; min-height: 20px; padding: 1px 7px; border-radius: var(--do-radius-full); color: var(--do-primary-strong); background: var(--do-primary-soft); font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.release-time-cell { display: grid; gap: 2px; color: var(--do-muted); font-size: 11.5px; line-height: 1.45; font-variant-numeric: tabular-nums; }
 .release-time-cell time:last-child:not(:first-child) { color: var(--do-ink); }
-.release-quality-score { color: var(--do-muted); font-size: 13px; }
-.release-row-actions { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 4px 12px; white-space: normal; }
-.release-row-actions :deep(.el-button) { min-height: 30px; }
-.release-row-actions :deep(.release-row-actions__audit) {
-  --el-button-text-color: var(--do-muted);
-  --el-button-hover-link-text-color: var(--do-primary-strong);
-  --el-button-active-color: var(--do-primary-strong);
+.release-quality-score { color: var(--do-muted); font-size: 12.5px; }
+.release-row-actions { display: flex; align-items: center; flex-wrap: nowrap; gap: 0 6px; white-space: normal; }
+.release-row-actions__main { display: flex; align-items: center; flex-wrap: wrap; gap: 0 10px; min-width: 0; }
+.release-row-actions :deep(.el-button) { min-height: 26px; padding: 0 2px; font-size: 12.5px; }
+.release-row-actions__more { display: flex; align-items: center; flex: 0 0 auto; }
+.release-row-actions :deep(.release-row-actions__more-trigger) {
+  min-height: 24px;
+  gap: 1px;
+  padding: 0 2px;
+  color: var(--do-muted);
+  font-size: 11.5px;
+  font-weight: 500;
 }
-.release-row-actions :deep(.release-row-actions__audit:not(.is-disabled):is(:hover, :focus-visible)) {
-  color: var(--do-primary-strong);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
+.release-row-actions :deep(.release-row-actions__more-trigger:not(.is-disabled):is(:hover, :focus-visible)),
+.release-row-actions :deep(.release-row-actions__more-trigger.is-focus) { color: var(--do-primary-strong); }
 .release-row-actions :deep(.el-button--danger.is-link) { font-weight: 500; }
-.releases-page__issue-link { color: var(--do-primary-strong); font-size: 13px; font-weight: 600; white-space: nowrap; }
+:global(.release-actions-popper) { padding: 6px; border-color: var(--do-line); border-radius: var(--do-radius-md); background: rgba(255, 255, 255, .99); box-shadow: var(--do-shadow-lg); }
+:global(.release-actions-popper .el-popper__arrow::before) { border-color: var(--do-line); background: #fff; }
+:global(.release-actions-popper .el-dropdown-menu) { padding: 0; }
+:global(.release-actions-popper .el-dropdown-menu__item) { min-height: 34px; padding: 0 10px; gap: 8px; border-radius: 7px; color: var(--do-ink); font-size: 12.5px; font-weight: 500; }
+:global(.release-actions-popper .el-dropdown-menu__item > svg) { flex: 0 0 auto; width: 16px; height: 16px; color: var(--do-muted); }
+:global(.release-actions-popper .el-dropdown-menu__item:not(.is-disabled):hover),
+:global(.release-actions-popper .el-dropdown-menu__item:not(.is-disabled):focus) { color: var(--do-primary-strong); background: var(--do-primary-soft); }
+:global(.release-actions-popper .el-dropdown-menu__item:not(.is-disabled):hover > svg),
+:global(.release-actions-popper .el-dropdown-menu__item:not(.is-disabled):focus > svg) { color: var(--do-primary-strong); }
+.releases-page__issue-link { color: var(--do-primary-strong); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
 .releases-page__issue-link:hover { text-decoration: underline; }
-.releases-page__pagination { justify-content: flex-end; margin: 14px 18px 16px; }
+.releases-page__footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 18px; border-top: 1px solid var(--do-line); }
+.releases-page__footer-total { color: var(--do-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.releases-page__footer-hint { color: var(--do-muted); font-size: 11.5px; }
+.releases-page__pagination { justify-content: flex-end; margin: 0; }
+.releases-page__workspace--fill .releases-page__table-region { overflow: hidden; }
+.releases-page__workspace--fill .releases-page__list-state { display: flex; flex: 1 1 auto; flex-direction: column; justify-content: center; min-height: 0; }
+
+@media (min-width: 1200px) and (min-height: 700px) {
+  .releases-page.admin-list-fill > .task-page-header,
+  .releases-page.admin-list-fill > .release-path,
+  .releases-page.admin-list-fill > .releases-page__current,
+  .releases-page.admin-list-fill > .release-action-notice { flex: 0 0 auto; }
+  .releases-page.admin-list-fill > .releases-page__workspace { flex: 1 1 auto; min-height: 0; }
+  .releases-page.admin-list-fill .releases-page__table { flex: 1 1 auto; min-height: 0; }
+}
+
 
 :global(.metadata-version-dialog.el-dialog) {
   display: flex;

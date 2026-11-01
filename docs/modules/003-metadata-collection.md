@@ -79,6 +79,6 @@ Java 从选定数据源采集表、字段、索引、关系与统计，形成独
 | --- | --- |
 | `/admin/collections`／`SyncTask.vue` | 服务端任务分页、状态/错误、轮询、重试、结果快照；查看与执行分别核对同源collect:view/run。重试创建新任务，没有取消/恢复任务接口。统计采集默认关闭，不因前端发现无运行行而推定服务端无并发。 |
 | 同页`tab=schedule`／`SyncSchedule.vue` | 全局每日/每周/Cron、已保存与未保存预览；切Tab保稿，自定义Cron无损保留。`running`只表示注册，保存额外要求系统管理员。 |
-| `/admin/assets`／`AssetsView.vue` | 已发布对象与快照结构分开，目录搜索仅过滤已返回集合；完整路径复制/展开、正式版本和目录同步状态保留，不虚构服务端分页。 |
-| `view=tables&snapshotId=…`／`TableExplorer.vue` | 精确历史结构、表搜索、字段顺序、主键/可空及统计缺失；首批50条外可精确读取，失败不回退最新版，重试继续结构读取。 |
+| `/admin/assets`／`AssetsView.vue` | 已发布对象与快照结构分开，目录搜索仅过滤已返回集合（大小写不敏感的部分匹配，覆盖表名/中文名/技术路径/说明/所属表；空格分隔的多关键词需同时命中）；列表在前端对已返回集合分页（每页 10/20/50/100，默认 20），不虚构服务端分页；完整路径复制/展开、正式版本和目录同步状态保留。 |
+| `view=tables&snapshotId=…`／`TableExplorer.vue` | 精确历史结构、表搜索、字段顺序、主键/可空及统计缺失；首批50条外可精确读取，失败不回退最新版，重试继续结构读取。数据表搜索支持多关键词同时命中；字段列表在前端对已取回集合分页（每页10/20/50/100，默认20），宽屏下由外层填充布局让表列表与字段表在各自区域内滚动，不虚构服务端分页。 |
 | `/admin/assets/entities/:entityId`／`AssetEntityDetailView.vue` | 字段、术语、标签、引用、血缘、下游及原始技术信息；FORBIDDEN/ERROR/UNAVAILABLE不转零。字段入口传精确来源快照、表及columnMetaId，血缘传datasourceId＋entityId，两类ID不互换。 |

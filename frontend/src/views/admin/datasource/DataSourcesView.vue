@@ -46,6 +46,12 @@ const readiness = reactive<Record<number, DatasourceReadiness | undefined>>({})
 const total = ref(0)
 const loading = ref(true)
 const error = ref('')
+// 列表工作区填充基线：宽屏且窗口高度足够时表格铺满内容区并在自身区域内滚动，
+// 少量数据时空白留在表体内部；窄屏或矮窗口退回页面滚动。
+let fillMedia: MediaQueryList | undefined
+const fillMediaMatches = ref(false)
+const fillLayout = computed(() => fillMediaMatches.value)
+function syncFillLayout() { fillMediaMatches.value = fillMedia?.matches ?? false }
 const dialogVisible = ref(false)
 const saving = ref(false)
 const testing = ref(false)
@@ -79,7 +85,7 @@ async function confirmAction(message: string, title: string, type: 'warning' | '
   finally { if (ticket === confirmationGeneration) { ownsConfirmation = false; confirmationBusy.value = false } }
 }
 useAdminScrollLock(() => dialogVisible.value)
-onScopeDispose(() => { alive = false; navigationIntent++; closeOwnedConfirmation(); listRequest++; dialogGeneration++; testRequest++; lastTestedPassword.value = null; form.password = '' })
+onScopeDispose(() => { alive = false; navigationIntent++; closeOwnedConfirmation(); listRequest++; dialogGeneration++; testRequest++; lastTestedPassword.value = null; form.password = ''; fillMedia?.removeEventListener('change', syncFillLayout); fillMedia = undefined })
 const preparationStages = [
   { title: '连接', text: '配置并测试只读连接' }, { title: '采集', text: '取得表与字段结构' },
   { title: '治理', text: '核对问题与业务含义' }, { title: '发布', text: '审核并发布版本' },
@@ -470,14 +476,23 @@ async function openEditFromRoute() {
   } catch (cause) { if (current()) ElMessage.error(apiError(cause, '编辑目标读取失败')) }
 }
 watch(() => route.query.edit, () => { void openEditFromRoute() })
-onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
+onMounted(async () => {
+  if (typeof window.matchMedia === 'function') {
+    fillMedia = window.matchMedia('(min-width: 1200px) and (min-height: 700px)')
+    fillMedia.addEventListener('change', syncFillLayout)
+    syncFillLayout()
+  }
+  await load()
+  if (alive) await openEditFromRoute()
+})
 </script>
 
 <template>
-  <div class="admin-page data-sources-page">
+  <div class="admin-page data-sources-page" :class="{ 'admin-list-fill': fillLayout }">
     <TaskPageHeader
       title="数据源"
       description="管理连接，查看准备情况，继续数据治理。"
+      help="发布与索引构建是两个动作。准备状态以各数据源当前核验结果为准。"
     >
       <template #actions>
         <el-button v-if="canCreate" type="primary" :icon="Database" @click="openCreate">新增数据源</el-button>
@@ -485,11 +500,10 @@ onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
     </TaskPageHeader>
 
     <section class="source-journey" aria-label="从连接到问数的操作分工">
-      <ol><li v-for="(stage, index) in preparationStages" :key="stage.title"><span aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span><div><strong>{{ stage.title }}</strong><small>{{ stage.text }}</small></div></li></ol>
-      <p>发布与索引构建是两个动作。准备状态以各数据源当前核验结果为准。</p>
+      <ol><li v-for="(stage, index) in preparationStages" :key="stage.title"><span class="source-journey__no" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span><strong>{{ stage.title }}</strong><small>{{ stage.text }}</small></li></ol>
     </section>
 
-    <section class="data-sources-panel do-glass-panel">
+    <section class="data-sources-panel do-glass-panel" :class="{ 'admin-list-fill__panel': fillLayout }">
       <div class="data-sources-panel__toolbar">
         <el-input
           v-model="query.name"
@@ -509,15 +523,15 @@ onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
           <el-option label="连接异常" value="UNHEALTHY" />
           <el-option label="未检测" value="UNKNOWN" />
         </el-select>
-        <span v-if="!loading && !error" class="data-sources-panel__count">共 {{ total }} 个匹配数据源<span v-if="total > rows.length"> · 本页 {{ rows.length }} 个</span></span>
+        <span v-if="!loading && !error" class="data-sources-panel__toolbar-spacer" aria-hidden="true"></span>
         <el-button class="data-sources-panel__refresh" :icon="RefreshCw" @click="load">刷新</el-button>
       </div>
 
       <ErrorState v-if="error" :message="error" @retry="load" />
       <LoadingState v-else-if="loading" variant="skeleton" :rows="5" />
       <template v-else-if="rows.length">
-        <div class="data-sources-panel__table">
-          <el-table :data="rows">
+        <div class="data-sources-panel__table" :class="{ 'admin-list-fill__body': fillLayout }">
+          <el-table :data="rows" :height="fillLayout ? '100%' : undefined">
             <el-table-column label="数据源" min-width="250">
               <template #default="{ row }">
                 <el-tooltip :content="sourceLabel(row)" placement="top-start" effect="light" :show-after="300" :trigger="['hover', 'focus']" popper-class="data-source-cell-tooltip">
@@ -529,7 +543,7 @@ onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column label="连接" min-width="180">
+            <el-table-column label="连接" min-width="150">
               <template #default="{ row }">
                 <div class="connection-cell">
                   <el-tooltip :content="connectionLabel(row)" placement="top-start" effect="light" :show-after="300" :trigger="['hover', 'focus']" popper-class="data-source-cell-tooltip">
@@ -542,7 +556,7 @@ onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
             <el-table-column label="启用状态" width="96">
               <template #default="{ row }"><BusinessStatusBadge :status="row.status === 1 ? 'ENABLED' : 'DISABLED'" /></template>
             </el-table-column>
-            <el-table-column label="当前阶段与下一步" min-width="180">
+            <el-table-column label="当前阶段与下一步" min-width="160">
               <template #default="{ row }">
                 <div v-if="readiness[row.id]" class="readiness-cell">
                   <BusinessStatusBadge :status="readiness[row.id]?.askable ? 'PUBLISHED' : readiness[row.id]?.stage" :label="readiness[row.id]?.askable ? '可问数' : readiness[row.id]?.stageLabel" />
@@ -553,11 +567,17 @@ onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
             </el-table-column>
             <el-table-column label="版本与索引" min-width="190">
               <template #default="{ row }">
-                <div v-if="readiness[row.id]" class="version-cell"><span>采集 {{ readiness[row.id]?.latestCollectedSnapshotId ? 'v' + readiness[row.id]?.latestCollectedSnapshotVersion : '暂无' }} · 发布 {{ readiness[row.id]?.publishedSnapshotId ? 'v' + readiness[row.id]?.snapshotVersion : '暂无' }}</span><small :class="{ 'version-warning': readiness[row.id]?.ragStale }">索引：{{ readiness[row.id]?.knowledgeReady ? readiness[row.id]?.ragStale ? '活动版本来源落后' : '已有活动版本' : '尚无活动版本' }}</small></div>
+                <div v-if="readiness[row.id]" class="version-cell">
+                  <span class="version-cell__line">
+                    <span class="version-cell__pill">采集 {{ readiness[row.id]?.latestCollectedSnapshotId ? 'v' + readiness[row.id]?.latestCollectedSnapshotVersion : '暂无' }}</span>
+                    <span class="version-cell__pill">发布 {{ readiness[row.id]?.publishedSnapshotId ? 'v' + readiness[row.id]?.snapshotVersion : '暂无' }}</span>
+                  </span>
+                  <small :class="{ 'version-warning': readiness[row.id]?.ragStale }">索引：{{ readiness[row.id]?.knowledgeReady ? readiness[row.id]?.ragStale ? '活动版本来源落后' : '已有活动版本' : '尚无活动版本' }}</small>
+                </div>
                 <span v-else class="cell-muted">版本暂未确认</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="184" fixed="right">
+            <el-table-column label="操作" width="168" fixed="right">
               <template #default="{ row }">
                 <div class="row-actions">
                   <el-button link type="primary" @click="router.push('/admin/data-sources/' + row.id)">查看详情</el-button>
@@ -581,16 +601,21 @@ onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
             </el-table-column>
           </el-table>
         </div>
-        <div v-if="total > (query.pageSize || 20)" class="data-sources-panel__pagination">
-          <el-pagination
-            v-model:current-page="query.page"
-            v-model:page-size="query.pageSize"
-            layout="total, sizes, prev, pager, next"
-            :page-sizes="[10, 20, 50, 100]"
-            :total="total"
-            @current-change="load"
-            @size-change="() => { query.page = 1; load() }"
-          />
+        <div class="data-sources-panel__footer">
+          <span class="data-sources-panel__count">共 {{ total }} 个匹配数据源<span v-if="total > rows.length"> · 本页 {{ rows.length }} 个</span></span>
+          <div class="data-sources-panel__pager">
+            <el-select v-model="query.pageSize" class="data-sources-panel__page-size" aria-label="每页条数" @change="() => { query.page = 1; load() }">
+              <el-option v-for="size in [10, 20, 50, 100]" :key="size" :label="size + ' 条/页'" :value="size" />
+            </el-select>
+            <el-pagination
+              v-model:current-page="query.page"
+              layout="prev, pager, next"
+              :pager-count="5"
+              :page-size="query.pageSize || 20"
+              :total="total"
+              @current-change="load"
+            />
+          </div>
         </div>
       </template>
       <EmptyState
@@ -657,35 +682,35 @@ onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
 </template>
 
 <style scoped>
-.source-journey { margin: 6px 0 24px; padding: 20px 0 16px; border-top: 1px solid var(--do-line); border-bottom: 1px solid var(--do-line); }
-.source-journey ol { display: grid; grid-template-columns: repeat(6, minmax(0,1fr)); gap: 16px; padding: 0; margin: 0; list-style: none; }
-.source-journey li { display: flex; gap: 9px; min-width: 0; }
-.source-journey li > span { margin-top: 2px; color: var(--do-primary-strong); font-size: 10px; font-variant-numeric: tabular-nums; }
-.source-journey strong { display: block; color: var(--do-ink); font-size: 13px; font-weight: 600; }
-.source-journey small { display: block; margin-top: 6px; color: var(--do-muted); font-size: 11px; line-height: 1.6; }
-.source-journey p { margin: 16px 0 0; color: var(--do-muted); font-size: 11px; line-height: 1.5; }
+.source-journey { margin: 0 0 14px; padding: 9px 14px; border: 1px solid var(--do-line); border-radius: 10px; background: var(--do-soft); }
+.source-journey ol { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; padding: 0; margin: 0; list-style: none; }
+.source-journey li { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; }
+.source-journey__no { color: var(--do-primary-strong); font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.source-journey strong { color: var(--do-ink); font-size: 12.5px; font-weight: 600; }
+.source-journey small { color: var(--do-muted); font-size: 11.5px; }
 .source-cell__description { max-width: 100%; overflow: hidden; color: var(--do-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .version-cell { display: grid; gap: 5px; color: var(--do-ink); font-size: 12px; }
+.version-cell__line { display: flex; flex-wrap: wrap; gap: 6px; }
+.version-cell__pill { display: inline-flex; align-items: center; min-height: 20px; padding: 0 7px; border: 1px solid var(--do-line); border-radius: 999px; color: var(--do-ink); background: var(--do-soft); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .version-cell small { color: var(--do-muted); font-size: 11px; }
 .version-cell .version-warning { color: var(--do-warning); }
 .connection-contract { margin: 0 0 22px; padding: 12px 14px; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-muted); background: var(--do-soft); font-size: 12px; line-height: 1.7; }
-@media (max-width: 1100px) { .source-journey ol { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; } }
-@media (max-width: 600px) { .source-journey ol { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; } }
+@media (max-width: 900px) { .source-journey small { display: none; } }
 .data-sources-page :deep(.task-page-header) { align-items: center; margin-bottom: 14px; }
 .data-sources-page :deep(.task-page-header h1) { font-size: clamp(28px, 2.4vw, 32px); line-height: 1.2; letter-spacing: -.025em; }
 
 .data-sources-panel { min-width: 0; padding: 0; overflow: hidden; border-color: var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-glass-panel-bg); box-shadow: var(--do-shadow); }
 .data-sources-panel__toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--do-line); }
-.data-sources-panel__search { flex: 1 1 280px; min-width: 200px; max-width: 360px; }
+.data-sources-panel__search { flex: 1 1 280px; min-width: 200px; max-width: 380px; }
 .data-sources-panel__filter { flex: 0 1 160px; min-width: 140px; }
 .data-sources-panel__toolbar :deep(.el-input__wrapper),
 .data-sources-panel__toolbar :deep(.el-select__wrapper) { min-height: 36px; }
 .data-sources-panel__toolbar :deep(.el-input__inner),
 .data-sources-panel__toolbar :deep(.el-select__selected-item) { font-size: 13px; }
-.data-sources-panel__count { margin-left: auto; color: var(--do-muted); font-size: 12px; white-space: nowrap; }
-.data-sources-panel__refresh.el-button { flex: 0 0 auto; height: 36px; }
+.data-sources-panel__toolbar-spacer { flex: 1 1 auto; }
+.data-sources-panel__refresh.el-button { flex: 0 0 auto; height: 36px; margin-left: auto; }
 
-.data-sources-panel__table { min-width: 0; }
+.data-sources-panel__table { min-width: 0; min-height: 0; }
 .data-sources-panel :deep(.el-table) {
   --el-table-bg-color: var(--do-surface);
   --el-table-tr-bg-color: var(--do-surface);
@@ -696,23 +721,24 @@ onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
 }
 .data-sources-panel :deep(.el-table::before),
 .data-sources-panel :deep(.el-table__inner-wrapper::before) { display: none; }
-.data-sources-panel :deep(.el-table th.el-table__cell) { height: 42px; padding: 0; background: var(--do-soft); color: var(--do-muted); font-size: 12px; font-weight: 600; }
-.data-sources-panel :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 42px; }
-.data-sources-panel :deep(.el-table td.el-table__cell) { padding: 13px 0; vertical-align: middle; border-bottom-color: var(--do-line); }
-.data-sources-panel :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.45; }
+.data-sources-panel :deep(.el-table th.el-table__cell) { height: 40px; padding: 0; background: var(--do-soft); color: var(--do-muted); font-size: 12px; font-weight: 600; }
+.data-sources-panel :deep(.el-table th.el-table__cell .cell) { padding: 0 12px; line-height: 40px; white-space: nowrap; }
+.data-sources-panel :deep(.el-table td.el-table__cell) { padding: 10px 0; vertical-align: middle; border-bottom-color: var(--do-line); }
+.data-sources-panel :deep(.el-table td.el-table__cell .cell) { padding: 0 12px; line-height: 1.4; }
+.data-sources-panel :deep(.el-table__body tr:hover > td.el-table__cell:first-child) { box-shadow: inset 2px 0 0 var(--do-primary); }
 .data-sources-panel :deep(.el-table th.el-table__cell:first-child .cell),
 .data-sources-panel :deep(.el-table td.el-table__cell:first-child .cell) { padding-left: 16px; }
 .data-sources-panel :deep(.el-table th.el-table__cell:last-child .cell),
 .data-sources-panel :deep(.el-table td.el-table__cell:last-child .cell) { padding-right: 16px; }
 .data-sources-panel :deep(.el-table__body tr:last-child td.el-table__cell) { border-bottom: 0; }
 
-.source-cell { min-width: 0; min-height: 46px; display: grid; align-content: center; justify-items: start; gap: 4px; border-radius: 6px; outline: none; }
+.source-cell { min-width: 0; min-height: 40px; display: grid; align-content: center; justify-items: start; gap: 3px; border-radius: 6px; outline: none; }
 .source-cell:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 2px; }
 .source-cell strong, .source-cell__meta { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.source-cell strong { color: var(--do-ink); font-size: 14px; font-weight: 650; }
-.source-cell__meta { color: var(--do-muted); font-size: 12px; }
+.source-cell strong { color: var(--do-ink); font-size: 13.5px; font-weight: 650; }
+.source-cell__meta { color: var(--do-muted); font-size: 11.5px; }
 
-.connection-cell { min-width: 0; min-height: 46px; display: grid; align-content: center; justify-items: start; gap: 4px; }
+.connection-cell { min-width: 0; min-height: 40px; display: grid; align-content: center; justify-items: start; gap: 3px; }
 .connection-cell__address { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 6px; outline: none; color: var(--do-ink); font-size: 12.5px; }
 .connection-cell__address:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 2px; }
 .connection-cell :deep(.business-status-badge) { min-height: auto; padding: 0; gap: 5px; background: transparent; font-size: 12px; font-weight: 500; }
@@ -730,16 +756,29 @@ onMounted(async () => { await load(); if (alive) await openEditFromRoute() })
 .row-actions__more.el-button.is-disabled,
 .row-actions__more.el-button:disabled { color: var(--do-muted); background: transparent; opacity: .6; cursor: not-allowed; }
 
-.data-sources-panel__pagination { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid var(--do-line); background: var(--do-surface); }
-.data-sources-panel__pagination :deep(.el-pagination) { flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
+.data-sources-panel__footer {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px;
+  flex: 0 0 auto; padding: 8px 16px; border-top: 1px solid var(--do-line); background: var(--do-surface);
+}
+.data-sources-panel__count { color: var(--do-muted); font-size: 12px; white-space: nowrap; }
+.data-sources-panel__pager { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 4px 10px; margin-left: auto; }
+.data-sources-panel__page-size { width: 104px; }
+.data-sources-panel__page-size :deep(.el-select__wrapper) { min-height: 32px; }
+.data-sources-panel__page-size :deep(.el-select__selected-item) { font-size: 12px; }
+.data-sources-panel__pager :deep(.el-pager li),
+.data-sources-panel__pager :deep(.btn-prev),
+.data-sources-panel__pager :deep(.btn-next) { min-width: 28px; height: 28px; border-radius: 6px; font-size: 12px; }
+.data-sources-panel__pager :deep(.el-pager li.is-active) { background: var(--do-primary); color: #fff; }
 
 
 @media (max-width: 900px) {
   .data-sources-panel__toolbar { padding: 10px 12px; gap: 8px; }
   .data-sources-panel__search { flex: 1 1 100%; max-width: none; }
   .data-sources-panel__filter { flex: 1 1 140px; }
-  .data-sources-panel__count { margin-left: 0; }
+  .data-sources-panel__toolbar-spacer { display: none; }
   .data-sources-panel__refresh { margin-left: auto; }
+  .data-sources-panel__footer { align-items: center; padding: 8px 12px; }
+  .data-sources-panel__pager { margin-left: auto; }
 }
 </style>
 

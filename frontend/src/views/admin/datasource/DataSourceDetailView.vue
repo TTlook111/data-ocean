@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, ref, watch, type Component } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, ArrowRight, CheckCircle2, CircleAlert, Database, PlugZap, RefreshCw, Workflow } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, BookOpen, CheckCircle2, ChevronDown, CircleAlert, Database, History, Layers, PlugZap, RefreshCw, Workflow } from 'lucide-vue-next'
 import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { getDatasource, getDatasourceReadiness, testSavedDatasourceConnection, updateDatasourceStatus, type DatasourceItem, type DatasourceReadiness } from '../../../api/admin/datasource'
 import { buildContextQuery, resolveReadinessAction } from '../../../utils/adminNavigation'
@@ -53,6 +53,11 @@ function formatCompactTime(value?: string) {
   if (!value) return ''
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(date)
+}
+function severityTone(severity?: string | null) {
+  if (severity === 'HIGH' || severity === 'CRITICAL') return 'is-high'
+  if (severity === 'MEDIUM') return 'is-medium'
+  return 'is-low'
 }
 interface PrimaryAction { key: string; label: string; icon?: Component; to?: RouteLocationRaw }
 const primaryAction = computed<PrimaryAction>(() => {
@@ -189,8 +194,11 @@ watch([datasourceId, () => auth.token, () => iamS1.snapshot, () => route.query.a
             <p v-else-if="!readiness.publishedSnapshotId" class="muted">发布快照后，可在这里查看对应的治理问题。</p>
             <ul v-else-if="qualityIssuePreview.length" class="issue-preview">
               <li v-for="issue in qualityIssuePreview" :key="issue.id">
-                <strong>{{ issue.issueDescription }}</strong>
-                <small>{{ issue.tableName }}{{ issue.columnName ? '.' + issue.columnName : '' }} · {{ severityLabel(issue.severity) }}</small>
+                <div class="issue-preview__copy">
+                  <strong>{{ issue.issueDescription }}</strong>
+                  <small>{{ issue.tableName }}{{ issue.columnName ? '.' + issue.columnName : '' }}</small>
+                </div>
+                <span class="issue-preview__severity" :class="severityTone(issue.severity)">{{ severityLabel(issue.severity) }}</span>
               </li>
             </ul>
             <p v-else class="muted">当前预览没有 OPEN 问题；不代表没有其他状态的阻断项。</p>
@@ -199,18 +207,18 @@ watch([datasourceId, () => auth.token, () => iamS1.snapshot, () => route.query.a
 
         <aside class="datasource-cockpit__side">
           <section class="datasource-cockpit__card">
-            <h2>数据源信息</h2>
+            <h2><Database :size="14" aria-hidden="true" />数据源信息</h2>
             <dl class="source-facts">
               <div><dt>数据源类型</dt><dd>{{ datasource?.dbType }}</dd></div>
-              <div><dt>数据库</dt><dd class="source-facts__long" :title="datasource?.databaseName">{{ datasource?.databaseName }}</dd></div>
-              <div><dt>连接地址</dt><dd class="source-facts__long" :title="datasourceAddress">{{ datasourceAddress }}</dd></div>
+              <div class="source-facts__stack"><dt>数据库</dt><dd class="source-facts__code" :title="datasource?.databaseName">{{ datasource?.databaseName }}</dd></div>
+              <div class="source-facts__stack"><dt>连接地址</dt><dd class="source-facts__code" :title="datasourceAddress">{{ datasourceAddress }}</dd></div>
               <div><dt>使用状态</dt><dd><BusinessStatusBadge :status="datasource?.status === 1 ? 'ENABLED' : 'DISABLED'" /></dd></div>
             </dl>
             <div v-if="canManage" class="source-tools"><el-button size="small" :disabled="actionLoading" @click="router.push({ path: '/admin/data-sources', query: { edit: String(datasourceId) } })">编辑连接</el-button><el-button size="small" :loading="actionLoading" @click="performAction('test')">测试已保存连接</el-button></div>
           </section>
 
           <section class="datasource-cockpit__card">
-            <h2>当前发布快照</h2>
+            <h2><Layers :size="14" aria-hidden="true" />当前发布快照</h2>
             <p v-if="!canReadSnapshots" class="muted">当前账号没有快照详情查看权限。准备路径中的版本信息来自本页准备状态。</p>
             <ErrorState v-else-if="!snapshotRequestOk" message="快照读取失败，无法展示快照详情。" @retry="load" />
             <template v-else-if="readiness.publishedSnapshotId">
@@ -225,7 +233,7 @@ watch([datasourceId, () => auth.token, () => iamS1.snapshot, () => route.query.a
             </template>
             <p v-else class="muted">还没有已发布快照。采集后需审核并发布。</p>
             <details v-if="snapshots.length" class="source-details">
-              <summary>查看最近快照</summary>
+              <summary><span>查看最近快照</span><ChevronDown class="source-details__chevron" :size="14" aria-hidden="true" /></summary>
               <div class="compact-list">
                 <button v-for="snapshot in snapshots" :key="snapshot.id" class="compact-list__item" type="button" @click="openSnapshot(snapshot.id)">
                   <span class="compact-list__copy">
@@ -239,7 +247,7 @@ watch([datasourceId, () => auth.token, () => iamS1.snapshot, () => route.query.a
           </section>
 
           <section class="datasource-cockpit__card">
-            <h2>语义知识</h2>
+            <h2><BookOpen :size="14" aria-hidden="true" />语义知识</h2>
             <p v-if="!canReadKnowledge" class="muted">当前账号没有本数据源的知识文档查看权限。</p>
             <ErrorState v-else-if="!knowledgeRequestOk" message="知识文档读取失败，请重试。" @retry="load" />
             <template v-else-if="knowledgePreview.length">
@@ -259,7 +267,7 @@ watch([datasourceId, () => auth.token, () => iamS1.snapshot, () => route.query.a
           </section>
 
           <details class="datasource-cockpit__card source-details activity-details">
-            <summary>最近采集与快照活动</summary>
+            <summary><span><History :size="14" aria-hidden="true" />最近采集与快照活动</span><ChevronDown class="source-details__chevron" :size="14" aria-hidden="true" /></summary>
             <p v-if="!canReadCollections" class="muted">当前账号没有采集记录查看权限。</p>
             <ErrorState v-else-if="!syncRequestOk" message="采集记录读取失败，请重试。" @retry="load" />
             <ActivityTimeline v-if="activityItems.length" :items="activityItems" />
@@ -271,71 +279,91 @@ watch([datasourceId, () => auth.token, () => iamS1.snapshot, () => route.query.a
   </div>
 </template>
 <style scoped>
-.datasource-cockpit :deep(.task-page-header) { align-items: center; margin-bottom: 14px; }
+.datasource-cockpit :deep(.task-page-header) { align-items: center; margin-bottom: 12px; }
 .datasource-cockpit :deep(.task-page-header__copy) { flex: 1 1 auto; min-width: 0; }
-.datasource-cockpit :deep(.task-page-header h1) { font-size: clamp(28px, 2.4vw, 32px); line-height: 1.2; letter-spacing: -.025em; }
-.datasource-cockpit :deep(.task-page-header p) { margin-top: 4px; font-size: 13px; line-height: 1.5; }
+.datasource-cockpit :deep(.task-page-header h1) { font-size: 28px; line-height: 1.22; letter-spacing: -.02em; }
+.datasource-cockpit :deep(.task-page-header p) { margin-top: 4px; color: var(--do-muted); font-size: 12.5px; line-height: 1.5; }
 .datasource-cockpit :deep(.task-page-header__actions) { flex: 0 1 auto; max-width: 48%; justify-content: flex-end; }
-.datasource-cockpit :deep(.task-page-header__actions .el-button) { height: auto; min-height: 36px; padding-block: 6px; line-height: 1.35; white-space: normal; text-align: center; }
+.datasource-cockpit :deep(.task-page-header__actions .el-button) { height: 36px; padding-block: 0; white-space: nowrap; }
 
-.datasource-back { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px; color: var(--do-primary-strong); font-size: 12.5px; }
-.source-outcome { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 24px; padding: 20px 22px; border: 1px solid var(--do-line); border-left: 3px solid var(--do-warning); border-radius: 10px; color: var(--do-warning); background: var(--do-surface); }
-.source-outcome.ready { border-left-color: var(--do-success); color: var(--do-success); background: var(--do-surface); }
-.source-outcome small { display: block; margin-top: 6px; color: var(--do-muted); font-size: 11px; line-height: 1.6; }
-.source-outcome .outcome-kicker { margin: 0 0 6px; font-size: 11px; }
-.source-outcome > svg { flex: 0 0 auto; }
-.source-outcome strong { color: var(--do-ink); font-size: 15px; line-height: 1.4; }
+.datasource-back { display: inline-flex; align-items: center; gap: 5px; margin-bottom: 8px; color: var(--do-muted); font-size: 12px; transition: color .15s ease; }
+.datasource-back:hover { color: var(--do-primary-strong); }
+
+.source-outcome { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; padding: 16px 18px; border: 1px solid color-mix(in srgb, var(--do-warning) 22%, var(--do-line)); border-radius: 12px; color: var(--do-warning); background: var(--do-warning-soft); }
+.source-outcome.ready { border-color: color-mix(in srgb, var(--do-success) 20%, var(--do-line)); color: var(--do-success); background: var(--do-success-soft); }
+.source-outcome > svg { flex: 0 0 auto; margin-top: 2px; }
+.source-outcome .outcome-kicker { display: block; margin: 0 0 3px; color: inherit; font-size: 11px; font-weight: 650; letter-spacing: .04em; }
+.source-outcome strong { display: block; color: var(--do-ink); font-size: 15.5px; line-height: 1.4; }
 .source-outcome p { margin: 3px 0 0; color: var(--do-muted); font-size: 12.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.source-outcome small { display: block; margin-top: 5px; color: var(--do-muted); font-size: 11.5px; line-height: 1.55; }
 
-.datasource-cockpit__grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; align-items: start; gap: 24px; }
-.datasource-cockpit__main { display: grid; align-content: start; gap: 16px; min-width: 0; }
-.datasource-cockpit__side { display: grid; align-content: start; gap: 14px; min-width: 0; }
-.datasource-cockpit__card { min-width: 0; padding: 20px; border: 1px solid var(--do-line); border-radius: 12px; background: var(--do-surface); box-shadow: none; }
-.source-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
-.source-tools .el-button + .el-button { margin-left: 0; }
-.remaining-actions article { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-block: 12px; border-top: 1px solid var(--do-line); }
-.remaining-actions article > div { min-width: 0; display: grid; gap: 5px; }
-.remaining-actions strong { color: var(--do-ink); font-size: 13px; font-weight: 500; }
-.remaining-actions small { color: var(--do-muted); font-size: 11px; }
-.remaining-actions a { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; color: var(--do-primary-strong); font-size: 12px; }
-.datasource-cockpit__card h2 { margin: 0 0 12px; color: var(--do-ink); font-size: 15px; }
-.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.datasource-cockpit__grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; align-items: start; gap: 20px; }
+.datasource-cockpit__main { display: grid; align-content: start; gap: 14px; min-width: 0; }
+.datasource-cockpit__side { position: sticky; top: 16px; align-self: start; display: grid; align-content: start; gap: 12px; min-width: 0; }
+.datasource-cockpit__card { min-width: 0; padding: 16px 18px; border: 1px solid var(--do-line); border-radius: 12px; background: var(--do-surface); box-shadow: var(--do-shadow); }
+.datasource-cockpit__card h2 { display: flex; align-items: center; gap: 7px; margin: 0 0 10px; color: var(--do-ink); font-size: 13px; font-weight: 650; }
+.datasource-cockpit__card h2 > svg { flex: 0 0 auto; color: var(--do-primary-strong); }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
 .section-heading h2 { margin: 0; }
+.remaining-actions h2 { margin-bottom: 4px; }
+.remaining-actions article { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-block: 10px; border-top: 1px solid var(--do-line); }
+.remaining-actions article > div { min-width: 0; display: grid; gap: 4px; }
+.remaining-actions strong { color: var(--do-ink); font-size: 12.5px; font-weight: 500; }
+.remaining-actions small { color: var(--do-muted); font-size: 11px; }
+.remaining-actions a { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; color: var(--do-primary-strong); font-size: 12px; }
 
-.source-facts { display: grid; gap: 10px; margin: 0; }
-.source-facts div { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: start; gap: 10px; font-size: 12.5px; }
-dt { color: var(--do-muted); line-height: 1.5; }
-dd { margin: 0; color: var(--do-ink); line-height: 1.5; overflow-wrap: anywhere; }
-.source-facts__long { word-break: break-word; }
-.muted { margin: 6px 0 0; color: var(--do-muted); font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.source-facts { display: grid; gap: 9px; margin: 0; }
+.source-facts div { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: start; gap: 10px; }
+dt { color: var(--do-muted); font-size: 11.5px; line-height: 1.6; }
+dd { margin: 0; color: var(--do-ink); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.source-facts__stack { grid-template-columns: 1fr; gap: 2px; }
+.source-facts__code { color: var(--do-ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; letter-spacing: -.01em; }
+.source-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.source-tools .el-button { margin-left: 0; height: 30px; padding-inline: 12px; font-size: 12px; }
+.muted { margin: 6px 0 0; color: var(--do-muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .section-heading + .muted { margin-top: 0; }
 
 .compact-list { display: grid; }
-.compact-list__item { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 10px 0; border: 0; border-bottom: 1px solid var(--do-line); color: var(--do-ink); background: transparent; font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
+.compact-list__item { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 8px 0; border: 0; border-bottom: 1px solid var(--do-line); color: var(--do-ink); background: transparent; font: inherit; text-align: left; text-decoration: none; cursor: pointer; }
 .compact-list__item:last-child { border-bottom: 0; }
 .compact-list__item:hover { color: var(--do-primary-strong); }
-.compact-list__copy { min-width: 0; display: grid; gap: 3px; }
-.compact-list__copy strong { color: inherit; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
-.compact-list__copy small { color: var(--do-muted); font-size: 11.5px; line-height: 1.45; }
-.compact-list__item--current .compact-list__copy strong { font-size: 16px; }
-.compact-list__item--knowledge { display: grid; grid-template-columns: minmax(0, 1fr) auto 14px; }
+.compact-list__copy { min-width: 0; display: grid; gap: 2px; }
+.compact-list__copy strong { color: inherit; font-size: 12.5px; font-weight: 600; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact-list__copy small { color: var(--do-muted); font-size: 11px; line-height: 1.45; }
+.compact-list__item--current { padding: 8px 10px; margin: 0 0 2px; border: 1px solid var(--do-line); border-radius: 8px; background: var(--do-soft); }
+.compact-list__item--current .compact-list__copy strong { font-size: 15px; }
+.compact-list__item--knowledge { display: grid; grid-template-columns: minmax(0, 1fr) auto 14px; align-items: center; gap: 8px; }
 .compact-list__item--knowledge > svg { flex: 0 0 auto; color: var(--do-muted); }
-.compact-list__more { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; color: var(--do-primary-strong); font-size: 12.5px; }
+.compact-list__item :deep(.business-status-badge) { padding: 1px 7px; font-size: 10.5px; white-space: nowrap; }
+.compact-list__more { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; color: var(--do-primary-strong); font-size: 12px; }
 
-.issue-preview { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-.issue-preview li { min-width: 0; display: grid; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--do-line); }
+.issue-preview { display: grid; margin: 0; padding: 0; list-style: none; }
+.issue-preview li { min-width: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--do-line); }
 .issue-preview li:last-child { border-bottom: 0; }
-.issue-preview strong { color: var(--do-ink); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
-.issue-preview small { color: var(--do-muted); font-size: 11.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.issue-preview__copy { min-width: 0; display: grid; gap: 2px; }
+.issue-preview strong { color: var(--do-ink); font-size: 12.5px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
+.issue-preview small { color: var(--do-muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+.issue-preview__severity { flex: 0 0 auto; padding: 1px 8px; border-radius: 9999px; background: var(--do-soft); color: var(--do-muted); font-size: 11px; line-height: 1.6; white-space: nowrap; }
+.issue-preview__severity.is-high { background: var(--do-danger-soft); color: var(--do-danger); }
+.issue-preview__severity.is-medium { background: var(--do-warning-soft); color: color-mix(in srgb, var(--do-warning) 70%, var(--do-ink)); }
+.issue-preview__severity.is-low { background: var(--do-success-soft); color: var(--do-success); }
 
-.source-details summary { padding: 0; color: var(--do-muted); font-size: 12.5px; cursor: pointer; }
+.source-details summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0; color: var(--do-muted); font-size: 12px; cursor: pointer; list-style: none; }
+.source-details summary::-webkit-details-marker { display: none; }
+.source-details summary::marker { content: none; }
+.source-details summary > span { display: inline-flex; align-items: center; gap: 6px; }
+.source-details summary:hover { color: var(--do-primary-strong); }
+.source-details__chevron { flex: 0 0 auto; transition: transform .15s ease; }
 .source-details[open] summary { margin-bottom: 10px; color: var(--do-ink); }
-.activity-details summary { color: var(--do-muted); font-size: 13px; font-weight: 600; }
-.activity-details[open] summary { margin-bottom: 12px; }
-.inline-link { display: inline-flex; align-items: center; gap: 5px; color: var(--do-primary-strong); font-size: 12.5px; white-space: nowrap; }
+.source-details[open] .source-details__chevron { transform: rotate(180deg); }
+.activity-details summary { min-height: 22px; font-size: 13px; font-weight: 600; }
+.activity-details summary > span { color: var(--do-ink); }
+.activity-details summary > span > svg { color: var(--do-primary-strong); }
+.inline-link { display: inline-flex; align-items: center; gap: 4px; color: var(--do-primary-strong); font-size: 12px; white-space: nowrap; }
 
 @media (max-width: 1150px) {
   .datasource-cockpit__grid { grid-template-columns: minmax(0, 1fr); }
+  .datasource-cockpit__side { position: static; }
 }
 @media (max-width: 900px) {
   .datasource-cockpit :deep(.task-page-header__actions) { max-width: none; justify-content: flex-start; }

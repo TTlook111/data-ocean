@@ -45,3 +45,26 @@ it('账号重新加载IAM与偏好时仍保留显式历史快照',async()=>{
  state.iam.snapshot={revision:2};state.iam.loaded=true;await flushPromises()
  expect(w.text()).toContain('HISTORY');expect(state.route.query.snapshotId).toBe('99');expect(api.replace).not.toHaveBeenCalled()
 })
+
+function paginationDetail(){
+ const columns=Array.from({length:26},(_,i)=>({id:i+1,tableMetaId:1,tableName:'CURRENT',columnName:`col_${i+1}`,dataType:'BIGINT',isNullable:i%2,isPrimaryKey:i===0?1:0,ordinalPosition:i+1,nullRate:0,governanceStatus:'NORMAL'}))
+ return {data:{snapshot:{...snapshot,columnCount:26},tables:[{id:1,tableName:'CURRENT',tableComment:'商品 明细',tableType:'TABLE',governanceStatus:'NORMAL'}],columns}}
+}
+describe('字段分页与数据表多关键词匹配',()=>{
+ it('字段默认每页20条并可翻页',async()=>{
+  api.getSnapshotDetail.mockResolvedValue(paginationDetail());const w=await render()
+  expect(api.getSnapshotDetail).toHaveBeenCalledWith(11)
+  expect(w.text()).toContain('共 26 个字段');expect(w.text()).toContain('20 条/页');expect(w.text()).toContain('第 1 / 2 页')
+  expect(w.findAll('tbody tr').length).toBe(20)
+  w.findComponent({name:'ElPagination'}).vm.$emit('current-change',2);await flushPromises()
+  expect(w.text()).toContain('第 2 / 2 页');expect(w.findAll('tbody tr').length).toBe(6)
+ })
+ it('数据表搜索多关键词需同时命中',async()=>{
+  api.getSnapshotDetail.mockResolvedValue(paginationDetail());const w=await render()
+  const input=w.find('input[aria-label="搜索快照数据表"]')
+  await input.setValue('cur 明细');await flushPromises()
+  expect(w.findAll('.table-item').length).toBe(1)
+  await input.setValue('cur 不存在');await flushPromises()
+  expect(w.text()).toContain('没有匹配的数据表')
+ })
+})
