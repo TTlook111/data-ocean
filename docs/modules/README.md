@@ -1,6 +1,6 @@
 # 模块导航
 
-> 状态：现行模块索引；整理日期：2026-11-01。只从各模块读取当前行为；测试、运行和未验收范围见[项目现状](../项目现状.md)。阶段映射与样稿见[归档](../archive/README.md)，已删除的旧设计从 Git 历史回溯。
+> 状态：现行模块索引；整理日期：2026-11-01。只从各模块读取当前行为；测试、运行和未验收范围见[项目现状](../项目现状.md)，旧设计从历史索引回溯。
 
 ## 从修改需求开始
 
@@ -19,15 +19,15 @@
 | 隐藏字段、脱敏策略、确认脱敏候选 | [IAM](007-iam-s1.md) | [字段保护与脱敏候选](iam/字段保护与脱敏候选.md) |
 | AI 模型、供应商、连接测试与 Embedding 配置 | [平台配置](010-platform-operations.md) | [AI 配置](010-platform-operations.md#ai-配置) |
 | 通知已读、未读数、操作日志 | [平台配置](010-platform-operations.md) | [通知与操作日志](010-platform-operations.md#通知与操作日志) |
-| 工作台来源预览、下一步、统计与告警规则 | [平台配置](010-platform-operations.md) | [工作台与告警配置](010-platform-operations.md#工作台与告警配置) |
+| 工作台来源准备、审批预览、统计与告警规则 | [平台配置](010-platform-operations.md) | [工作台合同](010-platform-operations.md#工作台与告警配置)、[V3页面规则](../development/前端开发规范.md#工作台与治理总览-v3已批准) |
 | 查询审计、慢查询、查询统计 | [审计与血缘](011-audit-lineage.md) | [查询审计](011-audit-lineage.md#查询审计) |
 | 血缘图、影响分析、关系新增删除 | [审计与血缘](011-audit-lineage.md) | [实体血缘与图谱](011-audit-lineage.md#实体血缘与图谱) |
+| 治理分析图、问题分域/表排行与覆盖 | [治理模块](004-metadata-governance.md#指标与精确跳转合同) | [总览实现](004-metadata-governance.md#v3-治理分析总览) |
 | 菜单、面包屑、跨页面数据源/快照范围 | [前端规范](../development/前端开发规范.md) | [导航代码定位](../development/前端开发规范.md#导航代码定位) |
 | 用户列表筛选、CSV 导出字段与分页 | [用户与认证](001-user.md) | [修改定位](001-user.md#修改定位) |
 | Prompt 提示词编辑、审核、版本生效与回退 | [Prompt 管理范围](../技术栈与模块职责.md#prompt-管理范围) | [修改定位](../技术栈与模块职责.md#prompt-修改定位) |
 | 数据源是否可问数、阻断原因 | [数据源](002-datasource.md) | [修改定位](002-datasource.md#修改定位) |
 | 采集任务、快照详情、对象目录 | [采集与资产](003-metadata-collection.md) | [修改定位](003-metadata-collection.md#修改定位) |
-| 治理总览图表、问题统计与校验覆盖 | [治理](004-metadata-governance.md) | [治理分析总览](004-metadata-governance.md#v3-治理分析总览) |
 | 质量检查、问题处理、字段解释 | [治理](004-metadata-governance.md) | [修改定位](004-metadata-governance.md#修改定位) |
 | 快照发布、撤回、发布门禁 | [版本与审核](005-metadata-versioning.md) | [修改定位](005-metadata-versioning.md#修改定位) |
 | 问数页面交互与结果展示 | [问数](008-query-memory.md) | [实现与测试](query/页面交互与结果展示.md) |

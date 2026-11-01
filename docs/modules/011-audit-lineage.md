@@ -1,6 +1,6 @@
 # 查询审计与数据血缘
 
-> 状态：现行模块与代码导航；核对日期：2026-10-28。行为边界与定位在此维护，运行结论见[项目现状](../项目现状.md)及[验收索引](../acceptance/README.md)。
+> 状态：现行模块与代码导航；核对日期：2026-11-01。行为边界与定位在此维护，运行结论见[项目现状](../项目现状.md)及[验收索引](../acceptance/README.md)。
 >
 > 返回[功能导航](README.md)。本页不授权执行配置写入、供应商测试或数据变更。
 
@@ -54,8 +54,18 @@ S1 的[QueryTraceProjectionService](../../backend/DataOcean/src/main/java/com/da
 
 ## 前端工作面与边界（2026-10-29）
 
+| 正式入口／组件 | 工作面 |
+| --- | --- |
+| `/admin/assets/lineage`／`DataLineage.vue`、`useD3LineageGraph.ts`、`lineageContext.ts` | 精确对象图、字段关系和查询使用；根实体真实源须核验，错误不回落首表。 |
+| `AddLineageDialog.vue`、`lineageWriteTracker.ts` | 两端manage、完整列映射、写前精确确认和未知目标锁；QUERY标记不等于某次SQL JOIN。 |
+| `QueryLineageEvidence.vue` | 精确源/表/可选字段、影响总数、独立明细和覆盖；没有快照/时间过滤，执行成功不等于投影完成或业务正确。 |
+| `/query`／`QueryAnswer.vue` | 每条回答按需展示真实attempt/hash/快照/build白名单；不展示原始trace或编造投影状态，SQL/CSV/历史继续受保护重读。 |
+| `/admin/operations/queries`／`QueryAnalysisView.vue`及审计抽屉 | 当前活跃Tab的统计、筛选/分页和精确记录；慢查询只支持有权源合并分页，原SQL按需再次读审计详情。 |
+
+操作日志是独立全局operation-log:view，不与查询audit:view合并；当前页行内详情、服务端总数、按需历史参数与未知耗时等合同见[平台模块](010-platform-operations.md#操作审计前端-v22026-10-29)。没有新增默认SQL暴露、独立日志详情/导出或全量聚合接口。
+
 血缘页分关系图谱与查询使用/输出来源。图谱明确结构FOREIGN_KEY、加工LINEAGE来源标记及字段DERIVED_FROM；字段查询明细没有aliasName时是使用记录，有aliasName时才是输出来源，表级类型为USAGE。源级覆盖时间/待投影数不是对象级统计。不存在的精确实体或无效URL不回退首表/偏好源；有精确实体时可只凭lineage:view直接读取并核验根源，metadata:view仅用于目录/搜索/录入辅助。
 
-删除先显示级联选择确认，确认后只发一次DELETE，不把有副作用的删除接口当预检查。平行边按唯一关系ID操作；创建检查当前两表列归属、不丢不完整映射。切身份/IAM/源及A→B→A按代次隔离；未知写只以内存目标锁防重复，不能代替后端幂等与列归属校验。问数依据只展示真实DTO的attempt/hash/快照/build白名单，不把缺少的投影状态编造成已完成。页面验证见[血缘与审计V2](../acceptance/2026-10-29-血缘与审计V2.md)。
+删除先显示级联选择确认，确认后只发一次DELETE，不把有副作用的删除接口当预检查。平行边按唯一关系ID操作；创建检查当前两表列归属、不丢不完整映射。切身份/IAM/源及A→B→A按代次隔离；未知写只以内存目标锁防重复，不能代替后端幂等与列归属校验。问数依据只展示真实DTO的attempt/hash/快照/build白名单，不把缺少的投影状态编造成已完成。页面验证见[血缘与审计V2](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d6)。
 
 查询分析只挂载当前Tab。审计源选项来自S1的audit负责源摘要；显式非法/无权源不退全部，普通关键词筛选不解除错误源。统计只按源+近30天，与列表筛选分开；旧审计行也在其口径内。慢查询接口只支持当前有权源合并分页，不能假装传单源过滤。SQL默认收起，在审计/慢查询对应的精确记录详情中按需再次读取，维持audit:view的实际源服务端校验，不误加普通问数SQL功能码。普通问数SQL/CSV/历史的任务归属与当前权限校验不变；数字queryTaskId不拼公开taskId。详情失败按冻结审计id重试，关闭/筛选/身份变化及旧回包隔离。
