@@ -1,5 +1,7 @@
 # V2 指标、权限与导航合同
 
+> 历史设计样稿，2026-11-01 归档。下文保留样稿交付时的说明、合成数据和验证边界，其中等待选择或批准属于当时状态；用户其后已批准 V3 正式改造，现行合同见[前端规范](../../../development/前端开发规范.md)，实际实施与复验范围见[V3 验收记录](../../../acceptance/2026-10-31-工作台与治理总览V3.md)。
+
 核对基线 develop `097a505acdb84c25d48268d25bad19a9b306d332`。以下区分现有权威数据、前端可派生数据和目前不支持的内容；HTML 使用合成夹具，不执行这些读取。
 
 ## 工作台
@@ -62,13 +64,13 @@
 
 ## 源码核对入口
 
-- [导航、入口能力与上下文模式](../../../frontend/src/router/adminNavigation.ts)
-- [实际路由](../../../frontend/src/router/index.ts)
-- [现工作台](../../../frontend/src/views/AdminHomeView.vue)、[摘要类型](../../../frontend/src/api/admin/dashboard.ts)、[摘要服务范围裁剪](../../../backend/DataOcean/src/main/java/com/dataocean/module/dashboard/service/impl/DashboardServiceImpl.java)
-- [审批队列 API](../../../frontend/src/api/iamS1.ts)、[来源准备 API](../../../frontend/src/api/admin/datasource.ts)、[范围上下文](../../../frontend/src/stores/adminContext.ts)
-- [问题页 query 读取与持久化](../../../frontend/src/views/admin/governance/IssueList.vue)
-- [问题摘要、列表与批次类型](../../../frontend/src/api/admin/governance.ts)
-- [读取权限注解](../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/controller/MetadataGovernanceController.java)
-- [问题摘要与单状态查询实现](../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityIssueServiceImpl.java)
+- [导航、入口能力与上下文模式](../../../../frontend/src/router/adminNavigation.ts)
+- [实际路由](../../../../frontend/src/router/index.ts)
+- [现工作台](../../../../frontend/src/views/AdminHomeView.vue)、[摘要类型](../../../../frontend/src/api/admin/dashboard.ts)、[摘要服务范围裁剪](../../../../backend/DataOcean/src/main/java/com/dataocean/module/dashboard/service/impl/DashboardServiceImpl.java)
+- [审批队列 API](../../../../frontend/src/api/iamS1.ts)、[来源准备 API](../../../../frontend/src/api/admin/datasource.ts)、[范围上下文](../../../../frontend/src/stores/adminContext.ts)
+- [问题页 query 读取与持久化](../../../../frontend/src/views/admin/governance/IssueList.vue)
+- [问题摘要、列表与批次类型](../../../../frontend/src/api/admin/governance.ts)
+- [读取权限注解](../../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/controller/MetadataGovernanceController.java)
+- [问题摘要与单状态查询实现](../../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityIssueServiceImpl.java)
 
 导航继续遵循：数据治理→治理总览／问题中心；数据血缘位于数据资产→关系与影响组→数据血缘二级，路由 `/admin/assets/lineage`，本版未移动正式菜单。

@@ -1,5 +1,7 @@
 # 工作台 V3 与治理状态文案合同
 
+> 历史设计样稿，2026-11-01 归档。下文保留样稿交付时的说明、合成数据和验证边界，其中等待选择或批准属于当时状态；用户其后已批准 V3 正式改造，现行合同见[前端规范](../../../development/前端开发规范.md)，实际实施与复验范围见[V3 验收记录](../../../acceptance/2026-10-31-工作台与治理总览V3.md)。
+
 基线 develop `da667aed4e007e6612d87e9ac9507b15601d936a`。本文件记录源码事实及样稿取舍，不是后端变更方案。
 
 ## REOPENED：不是统一的复查失败
@@ -20,10 +22,10 @@
 
 源码依据：
 
-- [状态常量与未解决集合](../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/entity/po/MetadataQualityIssue.java)
-- [人工状态机及并发保护](../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityIssueServiceImpl.java)
-- [语义复查重新开启逻辑](../../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/service/impl/SemanticCheckExecutionService.java)
-- [当前正式“重新打开”确认说明](../../../frontend/src/views/admin/governance/IssueList.vue)
+- [状态常量与未解决集合](../../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/entity/po/MetadataQualityIssue.java)
+- [人工状态机及并发保护](../../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityIssueServiceImpl.java)
+- [语义复查重新开启逻辑](../../../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/service/impl/SemanticCheckExecutionService.java)
+- [当前正式“重新打开”确认说明](../../../../frontend/src/views/admin/governance/IssueList.vue)
 
 ## 工作台的数据来源与权限
 
@@ -45,7 +47,7 @@
 
 ## 管理员 readiness 的两个关键事实
 
-源码 [DatasourceReadinessServiceImpl](../../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/service/impl/DatasourceReadinessServiceImpl.java) 的 `buildReadiness(datasourceId,false)`：
+源码 [DatasourceReadinessServiceImpl](../../../../backend/DataOcean/src/main/java/com/dataocean/module/datasource/service/impl/DatasourceReadinessServiceImpl.java) 的 `buildReadiness(datasourceId,false)`：
 
 - permissionReady 使用 `hasAnyQueryGrant(datasourceId)`，不是当前用户 `currentUserCanQuery`；后台“授权已配置”不能解释为“你已获查询权”。
 - askable 当前由 connectionReady、metadataReady、governanceReady、permissionReady 共同决定，未把 knowledgeReady 加入硬门禁；知识索引单独展示，样稿不改变规则。
@@ -69,4 +71,4 @@
 
 来源/筛选切换、身份切换清理旧选择与弹层；重读演示回调使用世代标记，迟到结果不切回旧身份。真实并发、撤权、空库、后端错误和大数据量需正式集成后实测，本轮不作真实验收结论。
 
-导航仍遵循 [adminNavigation.ts](../../../frontend/src/router/adminNavigation.ts)：数据血缘在数据资产→关系与影响组→数据血缘二级，本轮未移动正式菜单。其他参考：[准备 API 类型](../../../frontend/src/api/admin/datasource.ts)、[现工作台](../../../frontend/src/views/AdminHomeView.vue)、[审批队列类型](../../../frontend/src/api/iamS1.ts)。
+导航仍遵循 [adminNavigation.ts](../../../../frontend/src/router/adminNavigation.ts)：数据血缘在数据资产→关系与影响组→数据血缘二级，本轮未移动正式菜单。其他参考：[准备 API 类型](../../../../frontend/src/api/admin/datasource.ts)、[现工作台](../../../../frontend/src/views/AdminHomeView.vue)、[审批队列类型](../../../../frontend/src/api/iamS1.ts)。

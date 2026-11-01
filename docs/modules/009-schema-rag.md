@@ -88,6 +88,8 @@ Java 在模型输入前检查当前来源与可见依赖，Python 防火墙再�
 
 ## 前端构建确认
 
-「构建与索引」作为知识工作区独立Tab，构建入口不依赖数据源准备表。knowledge:view读取记录，knowledge:publish确认目标源构建，不额外要求datasource:view、metadata:view或metadata:release:view。来源可从已发布文档的知识来源接口选择，或由人员核对精确快照ID后填写；RAG允许的PUBLISHED/EXPIRED曾发布来源与知识生成输入仅PUBLISHED的合同分开，最终仍由既有构建服务验证整组覆盖。
+「构建与索引」作为知识工作区独立Tab，默认选中当前 ACTIVE 记录；构建列表与选中记录详情分开，允许显式阅读历史/非活动记录，无活动记录时显示相应空态。快照、向量核验数量、错误与精确 build 各按实际回执展示，技术详情按需展开。列表显式选择不会切换活动索引。来源/身份变化使旧选择与迟到读取失效。
 
-新构建状态、当前活动索引、文档/事实来源资格分别显示；旧build版本落后不直接显示为失效，也不因为打开确认窗口而切换。每个确认先锁住原源/快照与身份，重复不重发；408/网络/5xx保留未知记录，旧ACTIVE或同快照旧build不能证明本次确认成功，普通重读不自动解锁。前端没有添加幂等键，内存记录不跨整页刷新。实际合成验证见[第五阶段验收](../acceptance/2026-10-29-版本与知识V2.md)，不代表真实向量核验、切换与清理已重新执行。
+构建入口不依赖数据源准备表。knowledge:view读取记录，knowledge:publish确认目标源构建，不额外要求datasource:view、metadata:view或metadata:release:view。来源从已发布文档列表完整分页读取并去重，或由人员核对精确快照ID后填写；RAG允许的PUBLISHED/EXPIRED曾发布来源与知识生成输入仅PUBLISHED的合同分开，最终仍由既有构建服务验证整组覆盖。缺选定来源、未发布文档或缺确认能力时分别解释，不能通过忽略已知范围错误开放动作。
+
+新构建状态、当前活动索引、文档/事实来源资格分别显示；旧build版本落后不直接显示为失效，也不因为打开确认窗口而切换。每个确认先锁住原源/快照与身份，重复不重发；408/网络/5xx保留未知记录，旧ACTIVE或同快照旧build不能证明本次确认成功，普通重读不自动解锁。前端没有添加幂等键，内存记录不跨整页刷新。实现入口为 [KnowledgeView.vue](../../frontend/src/views/admin/semantics/KnowledgeView.vue) 的 `currentBuild/selectedBuild/openBuild/confirmBuild`，回归入口为 [KnowledgeWorkspaceLifecycle.test.ts](../../frontend/src/views/admin/semantics/KnowledgeWorkspaceLifecycle.test.ts)。原构建合同证据见[版本与知识验收](../acceptance/2026-10-29-版本与知识V2.md)，当前活动索引布局及最小角色只读证据见[治理与语义布局验收](../acceptance/2026-10-31-治理与语义布局重构.md)；不代表真实向量核验、切换与清理已重新执行。

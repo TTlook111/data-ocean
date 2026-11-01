@@ -1,5 +1,7 @@
 # 治理总览样稿指标合同
 
+> 历史设计样稿，2026-11-01 归档。下文保留样稿交付时的说明、合成数据和验证边界，其中等待选择或批准属于当时状态；用户其后已批准 V3 正式改造，现行合同见[前端规范](../../../development/前端开发规范.md)，实际实施与复验范围见[V3 验收记录](../../../acceptance/2026-10-31-工作台与治理总览V3.md)。
+
 基线：develop `64b2664f2d09939511eacfa1d69553f7a6e6625b`。页面定位 `/admin/governance`，现为QualityDashboard，范围是单数据源＋明确快照，不是首页工作台。
 
 | 指标 | 含义、分母与范围 | 现有来源与权限 | 空/未知及支持程度 |
@@ -19,9 +21,9 @@
 
 ## 可核对的源码
 
-- [治理总览组件](../../../frontend/src/views/admin/governance/QualityDashboard.vue)
-- [问题摘要、明细与批次类型](../../../frontend/src/api/admin/governance.ts)
-- [问题摘要实现](../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityIssueServiceImpl.java)
-- [各读取接口权限](../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/controller/MetadataGovernanceController.java)
+- [治理总览组件](../../../../frontend/src/views/admin/governance/QualityDashboard.vue)
+- [问题摘要、明细与批次类型](../../../../frontend/src/api/admin/governance.ts)
+- [问题摘要实现](../../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityIssueServiceImpl.java)
+- [各读取接口权限](../../../../backend/DataOcean/src/main/java/com/dataocean/module/governance/controller/MetadataGovernanceController.java)
 
 若问题没有可定位的表名，应独立标明未定位记录，不删除也不伪造为一张表；当前12条演示记录均有明确表名。聚合不能从最近几条记录推断完整排名，也不能把某页或变化中的分页集当事务快照。

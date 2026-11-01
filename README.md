@@ -81,6 +81,7 @@ frontend/              Vue 查询端与治理后台
 backend/DataOcean/     Java 网关、权限、治理与持久化
 python-service/        AI/RAG、S1 编排和 SQL 沙箱
 docs/                  现行说明、开发指南与环境验收
+docs/archive/          历史阶段映射与设计样稿，按需追溯
 specs/                 旧引用兼容入口，实际合同位于现行模块
 output/playwright/     本机原始验证输出，许多文件不纳入 Git
 ```
