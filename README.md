@@ -1,29 +1,29 @@
-<p align="center">
-  <img src="frontend/src/assets/brand/dataocean-mark.png" alt="DataOcean Logo" width="44" />
-</p>
+<h1 align="center"><img src="frontend/src/assets/brand/dataocean-mark.png" alt="DataOcean Logo" width="30" /> DataOcean</h1>
 
-<h1 align="center">DataOcean</h1>
-
-<p align="center"><strong>让数据先被理解，再被可靠地查询。</strong></p>
-<p align="center">面向企业数据场景的智能问数与数据治理平台</p>
-
+<p align="center"><strong>面向企业数据场景的智能问数与数据治理平台</strong></p>
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
+<p align="center"><a href="#product">产品预览</a> · <a href="#features">核心能力</a> · <a href="#architecture">系统架构</a> · <a href="#workflow">问数链路</a> · <a href="#quickstart">快速开始</a> · <a href="#docs">文档</a></p>
 
-<p align="center">
-  <a href="#features">核心能力</a> ·
-  <a href="#product">界面预览</a> ·
-  <a href="#workflow">问数链路</a> ·
-  <a href="#quickstart">快速开始</a> ·
-  <a href="#docs">文档</a>
-</p>
+![从治理元数据与审核知识，到受保护问数的概念主视觉](docs/images/readme/cover.webp)
 
-<p align="center">
-  <img src="docs/images/readme/overview.svg" alt="从治理元数据，经 Schema RAG，到受保护、可追溯的查询结果" width="100%" />
-</p>
+DataOcean 将自然语言问数（NL2SQL）与元数据治理连接起来。业务用户选择一个 MySQL 数据源，用自然语言查询同库多表；治理人员维护结构、业务含义和审核依据，系统据此交付受保护的表格、图表和查询依据。
 
-DataOcean 将自然语言问数（NL2SQL）与元数据治理连接起来：业务用户选择一个 MySQL 数据源，用自然语言查询同库多表；治理人员维护结构、业务含义和审核依据；系统在当前权限与可信知识范围内生成 SQL，交付受保护的表格、图表和查询依据。
+> PC 桌面 · 当前面向本地开发与演示。实际验证范围与限制见[项目现状](docs/项目现状.md)。
 
-项目面向 **PC 桌面**，当前以本地开发与演示为完成标准。企业数据场景是设计方向；实际验证范围与限制见[项目现状](docs/项目现状.md)。
+<a id="product"></a>
+
+## 看见数据，也看见依据
+
+**问数工作区** · 在连续对话中阅读回答、表格与图表，按需查看 SQL 和来源依据。
+
+[![真实 Vue 问数工作区，合成 API 与演示数据](docs/images/readme/query.webp)](docs/images/readme/query.webp)
+
+| 工作台 · 来源准备 | 治理总览 · 问题分布 |
+| :---: | :---: |
+| [![真实 Vue 工作台，合成数据预览](docs/images/readme/workbench.webp)](docs/images/readme/workbench.webp) | [![真实 Vue 治理总览，合成数据预览](docs/images/readme/governance.webp)](docs/images/readme/governance.webp) |
+| 聚焦具体来源的准备条件、阻断与有权下一步。 | 分开阅读问题分布、处理状态与来源校验覆盖。 |
+
+点击图片查看全尺寸。以上均为**当前正式 Vue 组件＋合成 API 的浏览器截图**，保留演示标记；界面目前为中文，不代表真实业务联调成绩。说明性图由内置 image 模型生成，未用于虚构产品界面。来源与版本见[资产说明](docs/images/readme/README.md)。
 
 <a id="features"></a>
 
@@ -39,53 +39,27 @@ DataOcean 将自然语言问数（NL2SQL）与元数据治理连接起来：业�
 
 后台功能与负责数据源、业务问数的数据授权分别管理。后台能看到一个数据源，不代表当前账号就能查询它。详见 [IAM 与数据授权](docs/modules/007-iam-s1.md)。
 
-<a id="product"></a>
+<a id="architecture"></a>
 
-## 界面预览
+## 系统架构
 
-**问数工作区** · 在连续对话中阅读回答、表格与图表，按需查看 SQL 和来源依据。
+![Vue 3 仅调用 Java；Java 调用 Python，分别连接应用状态和 AI、检索、只读查询依赖](docs/images/readme/architecture.webp)
 
-![当前 Vue 问数页面，使用合成 API 和演示数据渲染](docs/images/readme/query.webp)
+| 服务 | 职责 |
+| --- | --- |
+| **Vue 前端** | 问数、治理与管理界面；只调用 Java 公共 API。 |
+| **Java 网关** | 身份、IAM、数据源、治理、审核发布、任务、会话持久化、审计和最终脱敏。 |
+| **Python AI 服务** | LangGraph 编排、知识切分、Embedding、检索与重排、AST 校验、只读执行和图表生成。 |
 
-<details>
-<summary><strong>查看治理工作区：来源准备与问题分布</strong></summary>
-
-**工作台** · 围绕具体数据源比较准备条件，理解阻断，再进入有权处理的下一步。
-
-![当前 Vue 工作台，使用合成 API 和演示数据渲染](docs/images/readme/workbench.webp)
-
-**治理总览** · 查看问题在表、处理状态和分域中的分布，独立阅读来源校验覆盖。
-
-![当前 Vue 治理总览，使用合成 API 和演示数据渲染](docs/images/readme/governance.webp)
-
-</details>
-
-以上图片来自**当前正式 Vue 组件的浏览器渲染，使用仓内合成 API 与演示数据**，不是公司业务截图或真实后端联调成绩。界面目前为中文；截图来源、版本和限制见[资产说明](docs/images/readme/README.md)。
+Java/MySQL 保存完整会话与治理事实；Python 的 checkpoint 保存可恢复的安全图状态。图中省略授权、结果保护等内部回调。查询结果不缓存。完整依赖版本、存储归属和异步边界见[技术栈与模块职责](docs/技术栈与模块职责.md)。
 
 <a id="workflow"></a>
 
 ## LangGraph 问数链路
 
-一次提问先由 Java 绑定用户、数据源、会话与活动构建，再进入 Python 的六个核心处理节点：
+Java 先绑定用户、数据源、会话与活动构建，Python 再依次完成 **检索 → 规划 → 生成 SQL → 语义核对 → 授权执行保护 → 结果核对**。
 
-```mermaid
-flowchart TB
-    subgraph PREP["知识与 SQL"]
-        direction LR
-        R["1 · 检索知识"] --> P["2 · 资源规划"] --> G["3 · 生成 SQL"]
-    end
-    subgraph RUN["校验与结果"]
-        direction LR
-        S["4 · 语义核对"] --> E["5 · 授权 / 执行 / 保护"] --> V["6 · 结果核对"]
-    end
-    PREP --> RUN
-    style PREP fill:#f8fafc,stroke:#cbd5e1,color:#334155
-    style RUN fill:#f8fafc,stroke:#cbd5e1,color:#334155
-    classDef context fill:#eff6ff,stroke:#2563eb,color:#173b69
-    classDef protected fill:#ecfeff,stroke:#0891b2,color:#164e63
-    class R,P,G,S context
-    class E,V protected
-```
+![LangGraph 六核心节点：检索、资源规划、生成 SQL、语义核对、授权执行保护、结果核对](docs/images/readme/agent-workflow.webp)
 
 - **知识有来源**：检索绑定已审核知识及精确版本；候选与依赖还需满足当前 IAM 可见范围。
 - **执行有保护**：每次候选 SQL 都重新授权，经 AST 校验、只读执行和 Java 结果保护后，才能进入结果核对。
@@ -97,59 +71,11 @@ flowchart TB
 
 ## 治理如何进入可信查询
 
-```mermaid
-flowchart LR
-    M["采集元数据"] --> G["治理 / 人工补充 / 审核"]
-    G --> P["发布快照与知识文档"]
-    P --> B["显式确认 RAG 构建"]
-    B --> Q["受保护问数"]
-    Q -. "反馈归因与再治理" .-> G
-    classDef govern fill:#eff6ff,stroke:#2563eb,color:#173b69
-    classDef query fill:#ecfeff,stroke:#0891b2,color:#164e63
-    class M,G,P govern
-    class B,Q query
-```
+![采集、治理审核、发布、显式 RAG 构建、受保护问数与反馈再治理](docs/images/readme/governance-loop.webp)
 
 **发布文档和构建索引是两个动作。** 构建固定来源、版本和知识集合，通过验证后才切换活动索引。查询固定本次 build，并在关键阶段复核来源和权限；反馈修订后，仍需按原问题核验才能结案。
 
 血缘也区分用途：实体图表达已记录的结构或加工关系，查询追溯解释实际使用与输出来源。参与同一次 JOIN 不会自动变成物理数据流。详见 [Schema RAG](docs/modules/009-schema-rag.md)、[查询审计与血缘](docs/modules/011-audit-lineage.md)。
-
-<a id="architecture"></a>
-
-## 系统架构
-
-```mermaid
-flowchart TB
-    UI["Vue 3 · 问数与治理界面"]
-    J["Spring Boot · Java"]
-    P["FastAPI · Python"]
-    DB[("应用 MySQL")]
-    CACHE[("Redis · 缓存")]
-    CP[("Redis 8 · checkpoint")]
-    V[("Milvus")]
-    B[("业务 MySQL · 只读")]
-    L["LLM / Embedding"]
-    UI -->|"公共 API"| J
-    J -->|"内部 HTTP / SSE"| P
-    J --> DB
-    J --> CACHE
-    P --> CP
-    P --> V
-    P --> B
-    P --> L
-    classDef service fill:#eff6ff,stroke:#2563eb,color:#173b69
-    classDef store fill:#ecfeff,stroke:#0891b2,color:#164e63
-    class UI,J,P service
-    class DB,CACHE,CP,V,B,L store
-```
-
-| 服务 | 职责 |
-| --- | --- |
-| **Vue 前端** | 问数、治理与管理界面；只调用 Java 公共 API。 |
-| **Java 网关** | 身份、IAM、数据源、治理、审核发布、任务、会话持久化、审计和最终脱敏。 |
-| **Python AI 服务** | LangGraph 编排、知识切分、Embedding、检索与重排、AST 校验、只读执行和图表生成。 |
-
-Java/MySQL 是完整会话与治理事实的持久化来源；Python 的 checkpoint 保存可恢复的安全图状态。查询结果不缓存。完整依赖版本、存储归属和异步边界见[技术栈与模块职责](docs/技术栈与模块职责.md)。
 
 <a id="quickstart"></a>
 
@@ -175,6 +101,9 @@ cd DataOcean
 
 ### 2. 配置与首次初始化
 
+<details>
+<summary>配置文件与首次初始化</summary>
+
 首次克隆后，从仓库根目录创建本地配置；已有配置直接编辑：
 
 ```bash
@@ -186,6 +115,8 @@ cp python-service/.env.example python-service/.env
 按[配置指南](docs/development/本地开发与验证.md#配置本机应用)填写实际连接、Java/Python 共用内部令牌、Java JWT 签名密钥与数据源加密密钥。真实密钥放在被忽略的本地配置或环境变量中。
 
 Java 启动会应用 Flyway 迁移，请核对目标应用库。**新建空应用库**还需按[首次使用指南](docs/development/本地开发与验证.md#首次使用新建应用库)完成管理员密码与 IAM 初始化；已有环境使用原账号和授权。仓库不提供通用初始明文密码。
+
+</details>
 
 ### 3. 启动三个应用
 

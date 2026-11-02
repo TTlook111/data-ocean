@@ -1,29 +1,29 @@
-<p align="center">
-  <img src="frontend/src/assets/brand/dataocean-mark.png" alt="DataOcean logo" width="44" />
-</p>
+<h1 align="center"><img src="frontend/src/assets/brand/dataocean-mark.png" alt="DataOcean logo" width="30" /> DataOcean</h1>
 
-<h1 align="center">DataOcean</h1>
-
-<p align="center"><strong>Understand your data. Then ask it with confidence.</strong></p>
-<p align="center">Natural-language analytics and data governance for enterprise data scenarios</p>
-
+<p align="center"><strong>Natural-language analytics and governance for enterprise data scenarios</strong></p>
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
+<p align="center"><a href="#product">Product</a> · <a href="#features">Features</a> · <a href="#architecture">Architecture</a> · <a href="#workflow">Query workflow</a> · <a href="#quickstart">Getting started</a> · <a href="#docs">Docs</a></p>
 
-<p align="center">
-  <a href="#features">Features</a> ·
-  <a href="#product">Product preview</a> ·
-  <a href="#workflow">Query workflow</a> ·
-  <a href="#quickstart">Getting started</a> ·
-  <a href="#docs">Documentation</a>
-</p>
+![A conceptual journey from governed metadata and reviewed knowledge to protected queries](docs/images/readme/cover.webp)
 
-<p align="center">
-  <img src="docs/images/readme/overview.svg" alt="From governed metadata through Schema RAG to protected, traceable query results" width="100%" />
-</p>
+DataOcean connects natural-language querying (NL2SQL) with metadata governance. Business users select one MySQL datasource and ask questions across tables within that database. Data stewards maintain structure, business meaning, and reviewed evidence; the system uses that context to deliver protected tables, charts, and query evidence.
 
-DataOcean connects natural-language querying (NL2SQL) with metadata governance. Business users select one MySQL datasource and ask questions across tables within that database. Data stewards maintain structure, business meaning, and reviewed evidence. The system generates SQL within current permissions and trusted knowledge, returning protected tables, charts, and query evidence.
+> PC desktops · Currently targets local development and demonstrations. See [project status](docs/项目现状.md) for verified coverage and limitations.
 
-Built for **PC desktops**, the project currently targets local development and demonstrations. Enterprise data scenarios guide the design; see [project status](docs/项目现状.md) for verified coverage and limitations.
+<a id="product"></a>
+
+## See the answer and its evidence
+
+**Query workspace** · Read answers, tables, and charts in a conversation. Open SQL and source evidence on demand.
+
+[![Actual Vue query workspace with synthetic API responses and demo data](docs/images/readme/query.webp)](docs/images/readme/query.webp)
+
+| Workbench · source readiness | Governance · issue distribution |
+| :---: | :---: |
+| [![Actual Vue workbench, synthetic data preview](docs/images/readme/workbench.webp)](docs/images/readme/workbench.webp) | [![Actual Vue governance overview, synthetic data preview](docs/images/readme/governance.webp)](docs/images/readme/governance.webp) |
+| Focus on a source's readiness, blockers, and authorized next step. | Read issue distribution, handling status, and source-check coverage separately. |
+
+Click an image for the full-size view. These are **actual Vue component captures with synthetic API responses**, retaining their demo labels. The UI is currently in Chinese; the captures do not establish live business integration. Explanatory illustrations were generated with the built-in image model, never used to fabricate the product UI. See [asset provenance](docs/images/readme/README.md) for sources and versions.
 
 <a id="features"></a>
 
@@ -39,53 +39,27 @@ Built for **PC desktops**, the project currently targets local development and d
 
 Administrative functions and datasource responsibilities are managed separately from business query grants. Seeing a datasource in the admin UI does not grant permission to query it. See [IAM and data authorization](docs/modules/007-iam-s1.md).
 
-<a id="product"></a>
+<a id="architecture"></a>
 
-## Product preview
+## System architecture
 
-**Query workspace** · Read answers, tables, and charts in an ongoing conversation. Open SQL and source evidence on demand.
+![Vue 3 calls only Java; Java calls Python, with application state and AI, retrieval, read-only query dependencies separated](docs/images/readme/architecture.webp)
 
-![Current Vue query UI rendered with synthetic API responses and demo data](docs/images/readme/query.webp)
+| Service | Responsibility |
+| --- | --- |
+| **Vue frontend** | Query, governance, and administration UI. Calls only the Java public API. |
+| **Java gateway** | Identity, IAM, datasources, governance, review and publication, tasks, durable conversations, audit, and final masking. |
+| **Python AI service** | LangGraph orchestration, chunking, embeddings, retrieval and reranking, AST validation, read-only execution, and chart generation. |
 
-<details>
-<summary><strong>Explore governance: source readiness and issue distribution</strong></summary>
-
-**Workbench** · Compare readiness for specific datasources, understand blockers, and continue to an authorized next step.
-
-![Current Vue workbench rendered with synthetic API responses and demo data](docs/images/readme/workbench.webp)
-
-**Governance overview** · Explore issues by table, handling status, and domain. Read source-check coverage separately.
-
-![Current Vue governance overview rendered with synthetic API responses and demo data](docs/images/readme/governance.webp)
-
-</details>
-
-These images show **current Vue application components rendered in a browser with repository-based synthetic API responses and demo data**. They are not company business screenshots or evidence of live backend integration. The UI is currently in Chinese. See [asset provenance](docs/images/readme/README.md) for the source version and limits.
+Java/MySQL owns complete conversations and governance records. Python checkpoints hold recoverable, safe graph state. Authorization and result-protection callbacks are omitted from the illustration. Query results are not cached. See [technology and service responsibilities](docs/技术栈与模块职责.md) for dependency versions, storage ownership, and asynchronous boundaries.
 
 <a id="workflow"></a>
 
 ## The LangGraph query workflow
 
-Java first binds the user, datasource, conversation, and active build. Python then runs six core processing nodes:
+Java binds the user, datasource, conversation, and active build. Python then runs **retrieve → plan → generate SQL → check semantics → authorize, execute, protect → verify results**.
 
-```mermaid
-flowchart TB
-    subgraph PREP["Knowledge and SQL"]
-        direction LR
-        R["1 · Retrieve knowledge"] --> P["2 · Plan resources"] --> G["3 · Generate SQL"]
-    end
-    subgraph RUN["Validation and results"]
-        direction LR
-        S["4 · Check semantics"] --> E["5 · Authorize / execute / protect"] --> V["6 · Verify results"]
-    end
-    PREP --> RUN
-    style PREP fill:#f8fafc,stroke:#cbd5e1,color:#334155
-    style RUN fill:#f8fafc,stroke:#cbd5e1,color:#334155
-    classDef context fill:#eff6ff,stroke:#2563eb,color:#173b69
-    classDef protected fill:#ecfeff,stroke:#0891b2,color:#164e63
-    class R,P,G,S context
-    class E,V protected
-```
+![Six LangGraph core nodes: retrieve, plan, generate SQL, check semantics, authorize execute protect, verify results](docs/images/readme/agent-workflow.webp)
 
 - **Grounded context**: retrieval uses reviewed knowledge and exact versions. Candidates and dependencies must also satisfy current IAM visibility.
 - **Protected execution**: every SQL candidate is reauthorized, AST-validated, executed read-only, and protected by Java before result verification.
@@ -97,59 +71,11 @@ This diagram summarizes the core path. It omits dispatch, clarification, failure
 
 ## How governance reaches the query
 
-```mermaid
-flowchart LR
-    M["Collect metadata"] --> G["Govern / enrich / review"]
-    G --> P["Publish snapshot and knowledge"]
-    P --> B["Explicitly confirm RAG build"]
-    B --> Q["Protected queries"]
-    Q -. "Attribute feedback and govern again" .-> G
-    classDef govern fill:#eff6ff,stroke:#2563eb,color:#173b69
-    classDef query fill:#ecfeff,stroke:#0891b2,color:#164e63
-    class M,G,P govern
-    class B,Q query
-```
+![Collection, governance review, publication, explicit RAG build, protected query, and attributed feedback](docs/images/readme/governance-loop.webp)
 
 **Publishing documents and building an index are separate actions.** A build pins its sources, versions, and knowledge membership; the active index switches only after verification. Queries retain their bound build and recheck sources and permissions at key stages. After feedback leads to a revision, the original question still needs validation before closure.
 
 Lineage has distinct meanings: the entity graph represents recorded structural or transformation relationships, while query traces explain actual usage and output provenance. A JOIN does not automatically create a physical data-flow edge. See [Schema RAG](docs/modules/009-schema-rag.md) and [query audit and lineage](docs/modules/011-audit-lineage.md).
-
-<a id="architecture"></a>
-
-## System architecture
-
-```mermaid
-flowchart TB
-    UI["Vue 3 · Query and governance UI"]
-    J["Spring Boot · Java"]
-    P["FastAPI · Python"]
-    DB[("Application MySQL")]
-    CACHE[("Redis · caches")]
-    CP[("Redis 8 · checkpoint")]
-    V[("Milvus")]
-    B[("Business MySQL · read-only")]
-    L["LLM / Embedding"]
-    UI -->|"Public API"| J
-    J -->|"Internal HTTP / SSE"| P
-    J --> DB
-    J --> CACHE
-    P --> CP
-    P --> V
-    P --> B
-    P --> L
-    classDef service fill:#eff6ff,stroke:#2563eb,color:#173b69
-    classDef store fill:#ecfeff,stroke:#0891b2,color:#164e63
-    class UI,J,P service
-    class DB,CACHE,CP,V,B,L store
-```
-
-| Service | Responsibility |
-| --- | --- |
-| **Vue frontend** | Query, governance, and administration UI. Calls only the Java public API. |
-| **Java gateway** | Identity, IAM, datasources, governance, review and publication, tasks, durable conversations, audit, and final masking. |
-| **Python AI service** | LangGraph orchestration, chunking, embeddings, retrieval and reranking, AST validation, read-only execution, and chart generation. |
-
-Java/MySQL owns complete conversations and governance records. Python checkpoints hold recoverable, safe graph state. Query results are not cached. See [technology and service responsibilities](docs/技术栈与模块职责.md) for dependency versions, storage ownership, and asynchronous boundaries.
 
 <a id="quickstart"></a>
 
@@ -175,6 +101,9 @@ Use your verified connection details for existing dependencies. For a new enviro
 
 ### 2. Configure and initialize
 
+<details>
+<summary>Local configuration and first-use initialization</summary>
+
 For a fresh clone, create local configuration from the repository root. Edit existing local files directly instead of replacing them:
 
 ```bash
@@ -186,6 +115,8 @@ cp python-service/.env.example python-service/.env
 Follow the [configuration guide](docs/development/本地开发与验证.md#配置本机应用) to set actual connections, the shared Java/Python internal token, the Java JWT signing secret, and the datasource encryption key. Keep real secrets in ignored local files or environment variables.
 
 Java applies Flyway migrations on startup; verify the target application database. A **new, empty application database** also needs administrator password and IAM initialization from the [first-use guide](docs/development/本地开发与验证.md#首次使用新建应用库). Existing environments retain their accounts and grants. The repository provides no universal initial plaintext password.
+
+</details>
 
 ### 3. Start the three applications
 
