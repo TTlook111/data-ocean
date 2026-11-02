@@ -1,91 +1,256 @@
 <p align="center">
-  <img src="docs/images/dataocean-readme-hero-v2.webp" alt="DataOcean — from governed metadata to trusted insight" width="100%" />
+  <img src="frontend/src/assets/brand/dataocean-mark.png" alt="DataOcean Logo" width="44" />
 </p>
 
 <h1 align="center">DataOcean</h1>
 
-<p align="center"><strong>元数据治理驱动的企业级 NL2SQL 智能查询平台</strong></p>
+<p align="center"><strong>让数据先被理解，再被可靠地查询。</strong></p>
+<p align="center">面向企业数据场景的智能问数与数据治理平台</p>
 
-业务用户选择一个 MySQL 数据源，用自然语言查询同库多表；系统在可信元数据、当前权限和可审计执行链内生成 SQL，返回受保护的表格与图表。
+<p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
 
-## 核心能力
+<p align="center">
+  <a href="#features">核心能力</a> ·
+  <a href="#product">界面预览</a> ·
+  <a href="#workflow">问数链路</a> ·
+  <a href="#quickstart">快速开始</a> ·
+  <a href="#docs">文档</a>
+</p>
 
-- 元数据采集、质量问题闭环、快照审核、术语、标签、字段可信度与语义知识。
-- 文档审核发布与显式 RAG build 分离；绑定来源和版本，验证后切换活动索引。
-- IAM-SIMPLE-1 功能与数据授权，候选 SQL 逐次授权、AST 校验、参数化记录条件和只读执行。
-- S1 LangGraph 有界规划与修正，任务取消/恢复、会话历史、长期摘要及 Redis 安全 checkpoint。
-- 查询审计、来源与血缘、最终脱敏、图表回退和反馈。
+<p align="center">
+  <img src="docs/images/readme/overview.svg" alt="从治理元数据，经 Schema RAG，到受保护、可追溯的查询结果" width="100%" />
+</p>
+
+DataOcean 将自然语言问数（NL2SQL）与元数据治理连接起来：业务用户选择一个 MySQL 数据源，用自然语言查询同库多表；治理人员维护结构、业务含义和审核依据；系统在当前权限与可信知识范围内生成 SQL，交付受保护的表格、图表和查询依据。
+
+项目面向 **PC 桌面**，当前以本地开发与演示为完成标准。企业数据场景是设计方向；实际验证范围与限制见[项目现状](docs/项目现状.md)。
+
+<a id="features"></a>
+
+## 从提问到依据
+
+| 能力 | 如何工作 |
+| --- | --- |
+| **自然语言问数** | LangGraph 编排检索、规划、生成和核对；支持连续对话、任务取消与恢复。图表不可用时可保留受保护表格。 |
+| **Schema RAG** | 将经过审核的结构、字段解释、术语和业务知识用于检索；绑定数据源、快照与构建版本，并按当前权限筛选。 |
+| **SQL AST 安全** | 使用 sqlglot 解析与校验，限制为安全的 SELECT；结合行列授权、参数化行条件、只读账号、结果上限与超时，再由 Java 最终脱敏。 |
+| **治理与知识发布** | 从元数据采集、质量问题与语义补充，走到快照审核、知识文档发布和显式 RAG 构建；AI 候选与人工审核依据分开。 |
+| **审计与血缘解释** | 保存查询尝试和来源证据，区分实体关系、查询使用与输出来源；反馈经归因进入再治理。 |
+
+后台功能与负责数据源、业务问数的数据授权分别管理。后台能看到一个数据源，不代表当前账号就能查询它。详见 [IAM 与数据授权](docs/modules/007-iam-s1.md)。
+
+<a id="product"></a>
+
+## 界面预览
+
+**问数工作区** · 在连续对话中阅读回答、表格与图表，按需查看 SQL 和来源依据。
+
+![当前 Vue 问数页面，使用合成 API 和演示数据渲染](docs/images/readme/query.webp)
+
+<details>
+<summary><strong>查看治理工作区：来源准备与问题分布</strong></summary>
+
+**工作台** · 围绕具体数据源比较准备条件，理解阻断，再进入有权处理的下一步。
+
+![当前 Vue 工作台，使用合成 API 和演示数据渲染](docs/images/readme/workbench.webp)
+
+**治理总览** · 查看问题在表、处理状态和分域中的分布，独立阅读来源校验覆盖。
+
+![当前 Vue 治理总览，使用合成 API 和演示数据渲染](docs/images/readme/governance.webp)
+
+</details>
+
+以上图片来自**当前正式 Vue 组件的浏览器渲染，使用仓内合成 API 与演示数据**，不是公司业务截图或真实后端联调成绩。界面目前为中文；截图来源、版本和限制见[资产说明](docs/images/readme/README.md)。
+
+<a id="workflow"></a>
+
+## LangGraph 问数链路
+
+一次提问先由 Java 绑定用户、数据源、会话与活动构建，再进入 Python 的六个核心处理节点：
+
+```mermaid
+flowchart TB
+    subgraph PREP["知识与 SQL"]
+        direction LR
+        R["1 · 检索知识"] --> P["2 · 资源规划"] --> G["3 · 生成 SQL"]
+    end
+    subgraph RUN["校验与结果"]
+        direction LR
+        S["4 · 语义核对"] --> E["5 · 授权 / 执行 / 保护"] --> V["6 · 结果核对"]
+    end
+    PREP --> RUN
+    style PREP fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style RUN fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    classDef context fill:#eff6ff,stroke:#2563eb,color:#173b69
+    classDef protected fill:#ecfeff,stroke:#0891b2,color:#164e63
+    class R,P,G,S context
+    class E,V protected
+```
+
+- **知识有来源**：检索绑定已审核知识及精确版本；候选与依赖还需满足当前 IAM 可见范围。
+- **执行有保护**：每次候选 SQL 都重新授权，经 AST 校验、只读执行和 Java 结果保护后，才能进入结果核对。
+- **修正有边界**：共享调用预算与时限；依据不足时澄清，服务故障明确失败。Redis 安全 checkpoint 不可用时停止问数。
+
+这是核心链路示意，省略调度、澄清、失败与完成节点及部分分支。实现见 [graph.py](python-service/dataocean/iam_s1/graph.py)，完整合同见[问数与会话记忆](docs/modules/008-query-memory.md)。
+
+<a id="governance"></a>
+
+## 治理如何进入可信查询
+
+```mermaid
+flowchart LR
+    M["采集元数据"] --> G["治理 / 人工补充 / 审核"]
+    G --> P["发布快照与知识文档"]
+    P --> B["显式确认 RAG 构建"]
+    B --> Q["受保护问数"]
+    Q -. "反馈归因与再治理" .-> G
+    classDef govern fill:#eff6ff,stroke:#2563eb,color:#173b69
+    classDef query fill:#ecfeff,stroke:#0891b2,color:#164e63
+    class M,G,P govern
+    class B,Q query
+```
+
+**发布文档和构建索引是两个动作。** 构建固定来源、版本和知识集合，通过验证后才切换活动索引。查询固定本次 build，并在关键阶段复核来源和权限；反馈修订后，仍需按原问题核验才能结案。
+
+血缘也区分用途：实体图表达已记录的结构或加工关系，查询追溯解释实际使用与输出来源。参与同一次 JOIN 不会自动变成物理数据流。详见 [Schema RAG](docs/modules/009-schema-rag.md)、[查询审计与血缘](docs/modules/011-audit-lineage.md)。
+
+<a id="architecture"></a>
 
 ## 系统架构
 
-<p align="center">
-  <img src="docs/images/dataocean-architecture-v2.svg" alt="DataOcean system architecture" width="96%" />
-</p>
-
-```text
-Vue 3 查询端与治理后台
-  → Spring Boot Java：身份、权限、治理、发布、任务、持久化与最终保护
-  → FastAPI Python：S1 LangGraph、RAG、SQL 安全执行与图表
-  → MySQL / Milvus / Redis / 模型供应商
+```mermaid
+flowchart TB
+    UI["Vue 3 · 问数与治理界面"]
+    J["Spring Boot · Java"]
+    P["FastAPI · Python"]
+    DB[("应用 MySQL")]
+    CACHE[("Redis · 缓存")]
+    CP[("Redis 8 · checkpoint")]
+    V[("Milvus")]
+    B[("业务 MySQL · 只读")]
+    L["LLM / Embedding"]
+    UI -->|"公共 API"| J
+    J -->|"内部 HTTP / SSE"| P
+    J --> DB
+    J --> CACHE
+    P --> CP
+    P --> V
+    P --> B
+    P --> L
+    classDef service fill:#eff6ff,stroke:#2563eb,color:#173b69
+    classDef store fill:#ecfeff,stroke:#0891b2,color:#164e63
+    class UI,J,P service
+    class DB,CACHE,CP,V,B,L store
 ```
 
-前端只调用 Java；Java/MySQL 是会话和治理事实源；Python 不维护第二套完整聊天历史。详细版本、服务职责与异步边界见[技术栈与模块职责](docs/技术栈与模块职责.md)。
+| 服务 | 职责 |
+| --- | --- |
+| **Vue 前端** | 问数、治理与管理界面；只调用 Java 公共 API。 |
+| **Java 网关** | 身份、IAM、数据源、治理、审核发布、任务、会话持久化、审计和最终脱敏。 |
+| **Python AI 服务** | LangGraph 编排、知识切分、Embedding、检索与重排、AST 校验、只读执行和图表生成。 |
 
-## 可信查询闭环
+Java/MySQL 是完整会话与治理事实的持久化来源；Python 的 checkpoint 保存可恢复的安全图状态。查询结果不缓存。完整依赖版本、存储归属和异步边界见[技术栈与模块职责](docs/技术栈与模块职责.md)。
 
-<p align="center">
-  <img src="docs/images/dataocean-governance-loop.svg" alt="DataOcean governance-driven trusted query loop" width="96%" />
-</p>
-
-平台内通过规则发现知识缺口，由 AI 整理候选、人工补充审核，再对精确修订复查；来源质量检查保持独立。数据源用途、表关系、指标和字段知识按主题生成多篇文档，审核发布后，由有权用户显式确认 RAG 构建。标签与动态使用证据独立维护，问数反馈经归因进入再治理，原问题按验收标准核对后结束。
+<a id="quickstart"></a>
 
 ## 快速开始
 
-Java、Python 和 Vue 在本机运行。配置、首次初始化、启动命令与排障统一见[本地开发与验证](docs/development/本地开发与验证.md)，已有环境按该文档填写实际连接信息。
+### 1. 准备环境
+
+| 工具 / 服务 | 要求 |
+| --- | --- |
+| Java | JDK 17、Maven 3.6.3+ |
+| Node.js | 22.x ≥22.18 或 24.x ≥24.11；npm |
+| Python | Python ≥3.13、uv；下方命令使用 3.13 |
+| 数据服务 | MySQL 8、Milvus、Redis；安全 checkpoint 需要具备 JSON/Search 能力的 Redis 8、DB 0 |
+
+依赖要求与命令来源：[本地开发与验证](docs/development/本地开发与验证.md#工具与配置)、[前端锁文件](frontend/package-lock.json)、[Python 清单](python-service/pyproject.toml)、[Java POM](backend/DataOcean/pom.xml)。
 
 ```bash
-git clone https://github.com/TTlook111/data-ocean.git DataOcean
+git clone --branch develop --single-branch https://github.com/TTlook111/data-ocean.git DataOcean
 cd DataOcean
 ```
 
-| 环境 | 内容 |
-| --- | --- |
-| 本机应用工具 | JDK 17 / Maven、Node.js / npm、Python 3.13 / uv；具体版本要求见启动指南 |
-| 基础依赖 | MySQL、Milvus，以及具备 JSON/Search 能力的 Redis 8 checkpoint 环境 |
-| 模型配置 | 启动后在后台设置供应商、LLM 和 Embedding；实际问数还需只读业务数据源、知识构建和数据授权 |
+已有基础依赖时填写实际连接信息；新环境可参考[可选 Compose 配置](docs/development/本地开发与验证.md#可选-compose-配置)。[docker-compose.yml](docker-compose.yml) 只提供依赖，三个应用在本机分别运行。
 
-### 可选的依赖环境配置
+### 2. 配置与首次初始化
 
-如果尚未准备基础依赖，可以参考 [docker-compose.yml](docker-compose.yml) 和 [.env.example](.env.example) 一键准备 MySQL、Redis、Milvus 及其配套服务。具体配置方法见启动指南的[可选 Compose 配置](docs/development/本地开发与验证.md#可选-compose-配置)。
+首次克隆后，从仓库根目录创建本地配置；已有配置直接编辑：
 
-已有依赖环境的用户可以跳过 Compose。该文件只负责依赖环境，三个应用仍按启动指南在本机分别运行。
-
-## 项目现状与文档
-
-当前主链及 IAM-SIMPLE-1 已实现，已有本机真实/隔离验收记录；完整范围、未覆盖场景与剩余限制统一见[项目现状](docs/项目现状.md)。历史验收不代表当前机器或生产环境已验证。
-
-| 需要的信息 | 入口 |
-| --- | --- |
-| 按目的查文档 | [文档导航](docs/README.md) |
-| 当前架构与服务分工 | [技术栈与模块职责](docs/技术栈与模块职责.md) |
-| 修改模块 | [模块导航](docs/modules/README.md) |
-| 修改前端 | [前端开发规范](docs/development/前端开发规范.md) |
-| 下一步任务 | [后续开发](docs/development/后续开发.md) |
-| 验收范围与证据 | [验收索引](docs/acceptance/README.md) |
-| Agent 开发约束 | [AGENTS.md](AGENTS.md) |
-
-## 项目结构
-
-```text
-frontend/              Vue 查询端与治理后台
-backend/DataOcean/     Java 网关、权限、治理与持久化
-python-service/        AI/RAG、S1 编排和 SQL 沙箱
-docs/                  现行说明、开发指南与环境验收
-docs/archive/          历史阶段映射与设计样稿，按需追溯
-specs/                 旧引用兼容入口，实际合同位于现行模块
-output/playwright/     本机原始验证输出，许多文件不纳入 Git
+```bash
+cp backend/DataOcean/src/main/resources/application-local.example.yml \
+   backend/DataOcean/src/main/resources/application-local.yml
+cp python-service/.env.example python-service/.env
 ```
 
-## License
+按[配置指南](docs/development/本地开发与验证.md#配置本机应用)填写实际连接、Java/Python 共用内部令牌、Java JWT 签名密钥与数据源加密密钥。真实密钥放在被忽略的本地配置或环境变量中。
 
-本项目采用 [MIT License](LICENSE)。
+Java 启动会应用 Flyway 迁移，请核对目标应用库。**新建空应用库**还需按[首次使用指南](docs/development/本地开发与验证.md#首次使用新建应用库)完成管理员密码与 IAM 初始化；已有环境使用原账号和授权。仓库不提供通用初始明文密码。
+
+### 3. 启动三个应用
+
+在三个独立终端中，分别从仓库根目录执行（Bash）：
+
+```bash
+# Java 网关 · 默认 8080
+cd backend/DataOcean
+mvn spring-boot:run
+```
+
+```bash
+# Python AI 服务 · 默认 8000
+cd python-service
+uv sync --locked --python 3.13
+uv run --locked uvicorn dataocean.main:app --reload --port 8000
+```
+
+```bash
+# Vue 前端 · 默认 5173
+cd frontend
+npm ci
+npm run dev
+```
+
+打开 <http://localhost:5173>。PowerShell 命令、端口调整和排障见[启动应用](docs/development/本地开发与验证.md#启动应用)。
+
+### 4. 完成第一轮问数准备
+
+1. 在后台 AI 配置中设置供应商、LLM 与 Embedding。
+2. 接入使用**只读业务账号**的 MySQL 数据源，采集元数据并补充、审核业务含义。
+3. 完成相应快照与知识文档发布，再由有权用户显式确认 RAG 构建。
+4. 配置业务用户的问数功能与数据授权，选择有权数据源后提问。
+
+应用能启动与当前账号可问数是两件事。准备状态、活动索引和个人数据权限需分别核验。
+
+<a id="docs"></a>
+
+## 文档与项目状态
+
+| 想了解什么 | 入口 |
+| --- | --- |
+| 按目的查找文档 | [文档导航](docs/README.md) |
+| 当前能力、验证范围与限制 | [项目现状](docs/项目现状.md)、[验收索引](docs/acceptance/README.md) |
+| 环境、初始化、启动与测试 | [本地开发与验证](docs/development/本地开发与验证.md) |
+| 架构与具体模块 | [技术栈与模块职责](docs/技术栈与模块职责.md)、[模块导航](docs/modules/README.md) |
+| 页面交互与后续工作 | [前端开发规范](docs/development/前端开发规范.md)、[后续开发](docs/development/后续开发.md) |
+| 参与代码修改 | [AGENTS.md](AGENTS.md) |
+
+验收记录按环境、版本和覆盖范围阅读；定向页面检查与合成 API 预览不代表全项目生产验收。工作台与治理总览的当前证据及未测场景见 [V3 验收记录](docs/acceptance/2026-10-31-工作台与治理总览V3.md)。
+
+<details>
+<summary>项目目录</summary>
+
+```text
+frontend/              Vue 问数端与治理后台
+backend/DataOcean/     Java 网关、权限、治理与持久化
+python-service/        LangGraph、Schema RAG 与 SQL 沙箱
+docs/                  现行文档、开发指南与验收记录
+docs/archive/          历史设计与预览，仅供追溯
+specs/                 旧路径兼容入口，指向现行模块
+```
+
+</details>
+
+## 许可证
+
+[MIT License](LICENSE) · Copyright (c) 2026 Muyou (TTlook111)

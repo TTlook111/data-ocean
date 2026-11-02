@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="220" viewBox="0 0 1200 220" role="img" aria-labelledby="title desc">
+  <title id="title">DataOcean: governed context, trusted answers</title>
+  <desc id="desc">An explanatory diagram connecting governed metadata, Schema RAG, and protected queries. This is not a product screenshot.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#0d2747"/>
+      <stop offset="1" stop-color="#103e5b"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#60a5fa"/>
+      <stop offset="1" stop-color="#67e8f9"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+      <path d="m1 1 4 3-4 3" fill="none" stroke="#67e8f9" stroke-width="1.4"/>
+    </marker>
+  </defs>
+  <rect width="1200" height="220" rx="20" fill="url(#bg)"/>
+  <path d="M0 187C180 127 262 251 470 189S760 118 978 182s205-15 222-20" fill="none" stroke="#3382a7" stroke-opacity=".25"/>
+  <path d="M0 206C180 146 262 270 470 208S760 137 978 201s205-15 222-20" fill="none" stroke="#3382a7" stroke-opacity=".2"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif">
+    <text x="42" y="43" font-size="13" font-weight="600" letter-spacing="2.4" fill="#a5dbf7">GOVERNED CONTEXT. TRUSTED ANSWERS.</text>
+    <g fill="#163d5d" stroke="#427294" stroke-width="1">
+      <rect x="42" y="70" width="336" height="104" rx="12"/>
+      <rect x="432" y="70" width="336" height="104" rx="12"/>
+      <rect x="822" y="70" width="336" height="104" rx="12"/>
+    </g>
+    <g font-size="12" font-weight="600" letter-spacing="1.6" fill="#7dd3fc">
+      <text x="62" y="98">01 / GOVERN</text>
+      <text x="452" y="98">02 / RETRIEVE</text>
+      <text x="842" y="98">03 / ASK</text>
+    </g>
+    <g font-size="24" font-weight="600" fill="#f0f9ff">
+      <text x="62" y="132">Governed metadata</text>
+      <text x="452" y="132">Schema RAG</text>
+      <text x="842" y="132">Protected queries</text>
+    </g>
+    <g font-size="14" fill="#bcdae9">
+      <text x="62" y="156">Structure · meaning · reviewed evidence</text>
+      <text x="452" y="156">Versioned knowledge · current permissions</text>
+      <text x="842" y="156">Read-only SQL · traceable results</text>
+    </g>
+    <g fill="none" stroke="url(#line)" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M389 122h30"/>
+      <path d="M779 122h30"/>
+    </g>
+  </g>
+</svg>
