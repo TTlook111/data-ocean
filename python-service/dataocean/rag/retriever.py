@@ -256,8 +256,11 @@ async def _fetch_adjacent_chunks(
                 )
                 hits.append(SearchHit(document=document, score=0.3))
             return hits
-        except Exception as e:
-            logger.warning("上下文扩展查询失败: %s", e, exc_info=True)
+        except Exception as exc:
+            # 相邻扩展是补充上下文；失败时保留原召回，不把向量库异常中的
+            # 查询表达式、知识正文或连接信息写入日志。
+            logger.warning("相邻上下文扩展失败，保留原召回 datasource_id=%d snapshot_id=%d error_type=%s",
+                           datasource_id, snapshot_id, type(exc).__name__)
             return []
 
     import asyncio

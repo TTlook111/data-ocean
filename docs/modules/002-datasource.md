@@ -75,4 +75,14 @@ readiness 汇总连接、快照、阻断问题、知识/活动构建及权限相
 
 定时批量健康检查由 DatasourceHealthCheckScheduler 提交给专用执行器，不占用公共 ForkJoinPool；不能用这一点推断所有手动连接测试接口都会异步返回。执行器饱和时的调用方回退边界见[技术栈与模块职责](../技术栈与模块职责.md#54-执行约束)。数据源变更与 Python 连接池通知沿用现有客户端；不能把 SSE 或健康检查套成盲目重试。授权变更走 IAM 修订与当前权限复查，不新增旧授权 CRUD。
 
+### 运行诊断与代码注释
+
+数据源列表的准备流程默认折叠，真实行状态、阻断和版本信息保留。启用/连接筛选有独立可访问名称，刷新显示读取状态；当前请求读取失败仅记录阶段、请求代次和 HTTP 状态，不输出筛选词或连接配置。
+
+`DatasourceConnectionServiceImpl` 的连接探测以 `datasourceId`、`checkType` 关联，开始与通过阶段使用 DEBUG，失败使用 WARN 并记录实际耗时和异常类型。新建表单探测尚无数据源 ID，不以连接地址代替关联键。运行日志不得输出连接地址、库名、账号、凭据或 JDBC 异常原文与堆栈；接口错误和健康检查记录仍沿用各自原有合同。
+
+`DatasourceServiceImpl` 的创建、更新、软删除与启停写入日志使用 INFO，方法内仍处在事务中，明确标注“等待事务提交”，不能作为已提交证明。代码注释解释连接、准备条件、授权和事务边界：连接探测通过只代表本次连接可用，不代表已可问数，不逐行复述赋值操作。
+
+日志边界回归入口：[DatasourceConnectionServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/datasource/service/impl/DatasourceConnectionServiceImplTest.java)。该测试不替代真实数据源连通性验收。
+
 修改就绪判断时验证缺失条件、无权、部分失败和正常分支。真实环境使用[本机开发规则](../development/本地开发与验证.md)，不自动重建或重置基础设施。

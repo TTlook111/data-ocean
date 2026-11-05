@@ -46,8 +46,7 @@ function openSyncDialog() {
     <TaskPageHeader
       title="采集任务"
       eyebrow="数据接入 / 采集与同步"
-      description="把数据库结构收集为可追溯的快照，再进入治理与审核。" description-mode="inline"
-      help="采集成功不等于审核发布，也不会自动构建 RAG。同步计划是全局设置，由系统管理员维护。"
+      help="把数据库结构收集为可追溯的快照，再进入治理与审核。采集成功不等于审核发布，也不会自动构建 RAG。同步计划是全局设置，由系统管理员维护。"
     >
       <template #actions>
         <el-button v-if="activeTab === 'tasks' && canStart" type="primary" :icon="Play" @click="openSyncDialog">发起全量采集</el-button>

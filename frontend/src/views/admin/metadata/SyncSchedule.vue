@@ -6,6 +6,7 @@ import { getSyncSchedule, updateSyncSchedule, type SyncScheduleInfo } from '../.
 import { useIamS1Store } from '../../../stores/iamS1'
 import { useAuthStore } from '../../../stores/auth'
 import ErrorState from '../../../components/common/ErrorState.vue'
+import { getHttpErrorMessage } from '../../../utils/httpError'
 
 const iam = useIamS1Store()
 const auth = useAuthStore()
@@ -18,6 +19,7 @@ const loading = ref(false)
 const saving = ref(false)
 const loaded = ref(false)
 const loadError = ref('')
+const saveError = ref('')
 const savedCron = ref('')
 const savedEnabled = ref(false)
 
@@ -112,7 +114,7 @@ function parseCronToUI(cron: string) {
   }
 }
 
-watch([presetMode, dailyTime, weeklyDay, weeklyTime, customCron, () => schedule.enabled], () => { editRevision++ }, { flush: 'sync' })
+watch([presetMode, dailyTime, weeklyDay, weeklyTime, customCron, () => schedule.enabled], () => { editRevision++; saveError.value = '' }, { flush: 'sync' })
 async function fetchSchedule() {
   if (saving.value || !canRead.value) return
   const request = ++generation, token = auth.token, revision = editRevision
@@ -121,12 +123,18 @@ async function fetchSchedule() {
   try {
     const res = await getSyncSchedule()
     if (!current()) return
-    if (revision !== editRevision) { loadError.value = '刷新期间设置已修改，未覆盖当前输入。请核对后再刷新或保存。'; return }
+    // 刷新回包只能替换发起读取时那一版草稿；新输入仍归用户，不从旧回包覆盖。
+    if (revision !== editRevision) { loadError.value = '刷新期间设置已修改，未覆盖当前输入。请核对后重新刷新。'; return }
     if (!res.data) throw new Error('未读取到同步计划配置，请刷新重试。')
     Object.assign(schedule, res.data)
     savedCron.value = res.data.cron; savedEnabled.value = res.data.enabled
     parseCronToUI(res.data.cron); loaded.value = true
-  } catch (error) { if (current()) loadError.value = (error as Error)?.message || '获取调度配置失败，请刷新重试。' }
+  } catch (error) {
+    if (!current()) return
+    const status = (error as { response?: { status?: unknown } } | null)?.response?.status
+    console.warn('[同步计划读取失败]', { phase: 'read', requestId: request, httpStatus: typeof status === 'number' ? status : undefined })
+    loadError.value = getHttpErrorMessage(error, '获取调度配置失败，请刷新重试。')
+  }
   finally { if (current()) loading.value = false }
 }
 async function handleSave() {
@@ -134,6 +142,7 @@ async function handleSave() {
   const request = ++generation, token = auth.token
   const payload = { cron: buildCron(), enabled: schedule.enabled }
   const current = () => !disposed && request === generation && token === auth.token && canWrite.value
+  saveError.value = ''
   saving.value = true
   try {
     const res = await updateSyncSchedule(payload)
@@ -142,11 +151,17 @@ async function handleSave() {
     Object.assign(schedule, res.data)
     savedCron.value = res.data.cron; savedEnabled.value = res.data.enabled
     parseCronToUI(res.data.cron); ElMessage.success('调度配置已更新')
-  } catch (error) { if (current()) ElMessage.error((error as { response?: { data?: { message?: string } } })?.response?.data?.message || (error as Error).message || '保存失败') }
+  } catch (error) {
+    if (!current()) return
+    // 全局计划写入失败保留草稿并给持续可见的重试依据；不输出 Cron、令牌或响应正文。
+    const status = (error as { response?: { status?: unknown } } | null)?.response?.status
+    console.warn('[同步计划保存失败]', { phase: 'save', requestId: request, httpStatus: typeof status === 'number' ? status : undefined })
+    saveError.value = getHttpErrorMessage(error, '保存失败，请核对当前设置后重试。')
+  }
   finally { if (current()) saving.value = false }
 }
 async function resetAndLoad() {
-  generation++; loaded.value = false; loading.value = false; saving.value = false; loadError.value = ''
+  generation++; loaded.value = false; loading.value = false; saving.value = false; loadError.value = ''; saveError.value = ''
   await fetchSchedule()
 }
 watch(() => auth.token, resetAndLoad, { flush: 'sync' })
@@ -162,7 +177,6 @@ onBeforeUnmount(() => { disposed = true; generation++ })
         <div class="config-heading">
           <span class="config-kicker">全局调度</span>
           <h2>自动采集同步计划</h2>
-          <p>由后台调度向全部启用的数据源发起采集；保存后由服务端校验并更新调度。</p>
         </div>
         <div class="config-header__side">
           <el-tag type="info" effect="plain" round>全局配置</el-tag>
@@ -244,9 +258,9 @@ onBeforeUnmount(() => { disposed = true; generation++ })
             <div v-if="canWrite" class="config-actions">
               <div class="save-panel">
                 <el-button type="primary" :loading="saving" :disabled="!loaded || !!loadError || loading || !isDirty || invalidTime" @click="handleSave">保存配置</el-button>
-                <span class="save-note">修改保存后生效。</span>
                 <span v-if="isDirty" class="save-dirty">当前设置尚未保存</span>
               </div>
+              <p v-if="saveError" role="alert" class="schedule-time-error">{{ saveError }}</p>
             </div>
             <p v-else class="schedule-readonly">只读计划，仅系统管理员可修改。</p>
           </aside>
@@ -280,7 +294,6 @@ onBeforeUnmount(() => { disposed = true; generation++ })
 }
 .config-kicker { display: block; color: var(--do-primary-strong); font-size: 11px; font-weight: 700; letter-spacing: .04em; }
 .config-heading h2 { margin: 4px 0 0; color: var(--do-ink); font-size: 17px; font-weight: 650; letter-spacing: -.01em; line-height: 1.3; }
-.config-heading p { margin: 4px 0 0; max-width: 56ch; color: var(--do-muted); font-size: 12px; line-height: 1.55; }
 .config-header__side { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 .config-header__side :deep(.el-button) { min-height: 36px; }
 
@@ -371,7 +384,6 @@ onBeforeUnmount(() => { disposed = true; generation++ })
 .config-actions { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--do-line); }
 .save-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; }
 .save-panel :deep(.el-button) { min-height: 38px; }
-.save-note { color: var(--do-muted); font-size: 11.5px; line-height: 1.5; }
 .save-dirty { color: color-mix(in srgb, var(--do-warning) 70%, var(--do-ink)); font-size: 11px; }
 .schedule-readonly { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--do-line); color: var(--do-muted); font-size: 12px; line-height: 1.6; }
 

@@ -151,8 +151,12 @@ async function read<T>(
     if (!owned(k) || r !== requests[name] || (name === 'bindings' && user !== selectedUserId.value)) return
     apply(result.data)
   } catch (e) {
-    if (owned(k) && r === requests[name] && (name !== 'bindings' || user === selectedUserId.value))
+    if (owned(k) && r === requests[name] && (name !== 'bindings' || user === selectedUserId.value)) {
       errors[name] = e instanceof Error ? e.message : '读取失败'
+      // name 由本工作区的读取入口固定传入，避免把搜索词、身份资料或请求错误对象写入日志。
+      const status = (e as { response?: { status?: unknown } } | null)?.response?.status
+      console.warn('[组织配置读取失败]', { phase: name, requestId: r, httpStatus: typeof status === 'number' ? status : undefined })
+    }
   } finally {
     if (owned(k) && r === requests[name] && (name !== 'bindings' || user === selectedUserId.value))
       loading[name] = false
@@ -609,30 +613,33 @@ watch(actorKey, initialize, { immediate: true, flush: 'sync' })
     <TaskPageHeader
       title="组织、角色与负责源"
       eyebrow="权限与组织 / 组织配置"
-      description-mode="inline"
       description="先明确角色能做什么，再逐个用户角色绑定负责源。部门与业务数据授权、后台管理范围分别维护。"
     />
     <GovernanceWriteNotice />
     <ErrorState v-if="iamS1.errorMessage" :message="iamS1.errorMessage" @retry="iamS1.load(true)" />
     <LoadingState v-else-if="!iamS1.loaded" text="正在核对身份与能力摘要…" />
     <template v-else>
-      <div class="org-contract">
-        <div>
-          <small>用户与部门</small>
-          <strong>谁在组织里</strong>
-          <span>账号身份、部门归属分别维护</span>
+      <!-- 通用模型说明按需阅读；具体绑定页面与写入确认继续直接说明负责源不授予业务查询权。 -->
+      <details class="org-explanation">
+        <summary>权限分工</summary>
+        <div class="org-contract">
+          <div>
+            <small>用户与部门</small>
+            <strong>谁在组织里</strong>
+            <span>账号身份、部门归属分别维护</span>
+          </div>
+          <div>
+            <small>角色功能</small>
+            <strong>角色能做什么</strong>
+            <span>模板不带特权，也不自动授予数据</span>
+          </div>
+          <div>
+            <small>每个用户角色绑定</small>
+            <strong>在哪些源管理</strong>
+            <span>功能与源来自同一绑定，不跨角色拼接</span>
+          </div>
         </div>
-        <div>
-          <small>角色功能</small>
-          <strong>角色能做什么</strong>
-          <span>模板不带特权，也不自动授予数据</span>
-        </div>
-        <div>
-          <small>每个用户角色绑定</small>
-          <strong>在哪些源管理</strong>
-          <span>功能与源来自同一绑定，不跨角色拼接</span>
-        </div>
-      </div>
+      </details>
       <el-tabs :model-value="activeTab" @update:model-value="selectTab">
         <el-tab-pane label="用户" name="users" />
         <el-tab-pane label="部门" name="departments" />
@@ -654,9 +661,11 @@ watch(actorKey, initialize, { immediate: true, flush: 'sync' })
               v-model="roleKeyword"
               clearable
               placeholder="搜索角色名称或编码"
+              aria-label="搜索角色名称或编码"
               @keyup.enter="loadRoles"
+              @clear="loadRoles"
             />
-            <el-button @click="loadRoles">搜索 / 重读</el-button>
+            <el-button :loading="loading.roles" @click="loadRoles">查询</el-button>
             <el-button v-if="canManageRoles" type="primary" @click="openRole()">新建角色</el-button>
           </div>
         </div>
@@ -812,6 +821,7 @@ watch(actorKey, initialize, { immediate: true, flush: 'sync' })
               reserve-keyword
               :remote-method="loadUsers"
               placeholder="搜索用户（姓名/账号）"
+              aria-label="选择绑定用户"
               :loading="loading.users"
               @change="loadBindings"
             >
@@ -820,6 +830,7 @@ watch(actorKey, initialize, { immediate: true, flush: 'sync' })
             <el-select
               v-model="assignRoleId"
               placeholder="选择要分配的普通角色"
+              aria-label="选择要分配的普通角色"
               :disabled="!canMutateUser || bindingBusy"
               :loading="loading.bindingRoles"
             >
@@ -951,6 +962,7 @@ watch(actorKey, initialize, { immediate: true, flush: 'sync' })
               v-model="catalogKeyword"
               clearable
               placeholder="筛选功能名称/编码/说明"
+              aria-label="筛选功能目录"
               class="catalog-search"
             />
           </div>
@@ -993,6 +1005,17 @@ watch(actorKey, initialize, { immediate: true, flush: 'sync' })
   display: grid;
   gap: 20px;
 }
+.org-explanation > summary {
+  width: fit-content;
+  color: var(--do-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.org-explanation > summary:focus-visible {
+  outline: 2px solid var(--do-primary);
+  outline-offset: 4px;
+}
+.org-explanation[open] > summary { margin-bottom: 12px; }
 .org-contract {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

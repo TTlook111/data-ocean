@@ -111,7 +111,7 @@ watch(session.key,()=>{statsRequest++;readinessRequest++;approvalRequest++;stats
 
 <template>
  <div class="admin-page workbench-page">
-  <TaskPageHeader title="工作台" description="在有权范围内，把数据准备与后续工作接起来。" description-mode="inline">
+  <TaskPageHeader title="工作台" description="在有权范围内，把数据准备与后续工作接起来。">
    <template #actions><button class="plain" @click="helpOpen=true">准备条件说明 <CircleHelp :size="14" aria-hidden="true" /></button><el-button :icon="RefreshCw" :loading="pendingLoading" @click="reload">刷新</el-button></template>
   </TaskPageHeader>
   <LoadingState v-if="!iam.loaded && !iam.errorMessage" text="正在读取当前能力…" />

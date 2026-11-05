@@ -137,6 +137,41 @@ afterEach(() => {
   wrappers = []
   vi.restoreAllMocks()
 })
+
+it('空任务指令保存时明确提示，保留输入且不发写请求',async()=>{
+ const w=await open()
+ await w.find('#prompt-user').setValue('   ')
+ await click(w,'保存并创建新版本')
+ expect(w.text()).toContain('请填写任务指令后再保存')
+ expect(w.find('#prompt-user').attributes('aria-invalid')).toBe('true')
+ expect(api.updatePromptTemplate).not.toHaveBeenCalled()
+})
+it('策略保存只有一个主入口，场景选中和摘要只读可感知',async()=>{
+ rights(['prompt:view'])
+ const w=await open()
+ expect(w.findAll('button').filter((b:any)=>b.text()==='保存并创建新版本')).toHaveLength(1)
+ expect(w.get('.template-list__select[aria-current="true"]').text()).toContain('plan')
+ expect(w.get('input[aria-label="变更摘要"]').attributes('readonly')).toBeDefined()
+})
+it('写入期间不允许重读放弃本地草稿',async()=>{
+ const w=await open(),d=deferred()
+ await w.find('#prompt-user').setValue('pending draft')
+ api.updatePromptTemplate.mockReturnValueOnce(d.promise)
+ await button(w,'保存并创建新版本').trigger('click')
+ expect(button(w,'重读并放弃本地草稿').attributes('disabled')).toBeDefined()
+ await button(w,'重读并放弃本地草稿').trigger('click')
+ expect(ElMessageBox.confirm).not.toHaveBeenCalled()
+ d.resolve({data:{...template('plan',3),content:content('pending draft')}});await flushPromises()
+})
+it('Prompt写故障只诊断对象与状态，不输出内容或请求凭据',async()=>{
+ const warn=vi.spyOn(console,'warn').mockImplementation(()=>{})
+ const w=await open()
+ await w.find('#prompt-user').setValue('PRIVATE_PROMPT')
+ api.updatePromptTemplate.mockRejectedValueOnce({response:{status:409,data:{message:'版本变化'}},config:{authorization:'PRIVATE_TOKEN'}})
+ await click(w,'保存并创建新版本')
+ expect(warn).toHaveBeenCalledWith('[Prompt 操作未完成]',{stage:'PROMPT_WRITE',templateId:1,version:2,httpStatus:409})
+ expect(JSON.stringify(warn.mock.calls)).not.toMatch(/PRIVATE_PROMPT|PRIVATE_TOKEN/)
+})
 describe('Prompt 精确场景与版本生命周期', () => {
   it('无查看权不发目录或策略请求，维护审核不蕴含查看', async () => {
     rights(['prompt:manage', 'prompt:approve'])

@@ -61,6 +61,44 @@ it('差异在途切对象后新对象可再次比较，旧结果不回填',async
 it('公共范围初始化完成后同步真实源名称与辅助入口',async()=>{context.loading=true;iam.codes['datasource:view']=[1];const w=await render(List);expect(w.find('.knowledge-page__stats').exists()).toBe(false);context.loading=false;await settle();expect(w.find('.knowledge-page__stats').exists()).toBe(true);expect(w.find('.knowledge-page__card').text()).toContain('销售经营');expect(h.api.getBatchDatasourceReadiness).toHaveBeenCalled()})
 it('当前源没有维护权时手工新建不默认借用该源',async()=>{iam.codes['knowledge:manage']=[2];const w=await render(Create);expect(w.findComponent({name:'ElSelect'}).props('modelValue')).toBeUndefined();expect(h.api.createKnowledgeDoc).not.toHaveBeenCalled()})
 
+it('空白创建可直接取消，保留数据源上下文且不发写请求',async()=>{
+ const confirm=vi.spyOn(ElMessageBox,'confirm')
+ const w=await render(Create)
+ await button(w,'取消').trigger('click');await settle()
+ expect(confirm).not.toHaveBeenCalled()
+ expect(h.router.push).toHaveBeenCalledWith({name:'admin-semantic-knowledge',query:{datasourceId:1}})
+ expect(h.api.createKnowledgeDoc).not.toHaveBeenCalled()
+})
+it('取消创建的确认关闭后保留人工输入，重复点击只弹一次',async()=>{
+ const d=deferred(),confirm=vi.spyOn(ElMessageBox,'confirm').mockReturnValueOnce(d.promise)
+ const w=await render(Create),input=w.find('input[aria-label="文档标题"]')
+ await input.setValue('人工未保存标题')
+ await button(w,'取消').trigger('click');await button(w,'取消').trigger('click')
+ expect(confirm).toHaveBeenCalledTimes(1)
+ d.reject('cancel');await settle()
+ expect(h.router.push).not.toHaveBeenCalled()
+ expect(input.element).toHaveProperty('value','人工未保存标题')
+ expect(button(w,'取消').attributes('disabled')).toBeUndefined()
+})
+it('取消创建确认后返回列表，账号变化使旧确认失效',async()=>{
+ const d=deferred();vi.spyOn(ElMessageBox,'confirm').mockReturnValueOnce(d.promise)
+ const w=await render(Create)
+ await w.find('input[aria-label="文档标题"]').setValue('A账号人工草稿')
+ await button(w,'取消').trigger('click');auth.token='B';await settle()
+ d.resolve('confirm');await settle()
+ expect(h.router.push).not.toHaveBeenCalled()
+ expect(h.api.createKnowledgeDoc).not.toHaveBeenCalled()
+})
+it('知识创建故障只诊断来源与状态，不输出请求正文或异常对象',async()=>{
+ const warn=vi.spyOn(console,'warn').mockImplementation(()=>{})
+ h.api.createKnowledgeDoc.mockRejectedValue({response:{status:409,data:{message:'版本变化'}},config:{body:'PRIVATE_CONTENT',authorization:'PRIVATE_TOKEN'}})
+ const w=await render(Create)
+ await w.find('input[aria-label="文档标题"]').setValue('PRIVATE_TITLE')
+ await button(w,'创建文档').trigger('click');await settle()
+ expect(warn).toHaveBeenCalledWith('[知识文档创建未完成]',{stage:'DOCUMENT_CREATE',datasourceId:1,httpStatus:409})
+ expect(JSON.stringify(warn.mock.calls)).not.toMatch(/PRIVATE_CONTENT|PRIVATE_TOKEN|PRIVATE_TITLE/)
+})
+
 it('build choices read all published pages independently from the visible draft filter and without metadata permissions',async()=>{
  route.query.tab='index'
  h.api.listKnowledgeDocs.mockImplementation(async (q:any)=>q.status==='PUBLISHED'

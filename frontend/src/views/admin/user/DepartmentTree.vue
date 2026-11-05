@@ -188,6 +188,9 @@ async function fetchDepartments() {
       departments.value = []
       selectedId.value = undefined
       errorMessage.value = message(e, '部门树读取失败')
+      // 原始回执与异常可能含部门/人员信息，诊断只保留当前有效读取的阶段、代次和状态码。
+      const status = (e as { response?: { status?: unknown } } | null)?.response?.status
+      console.warn('[部门树读取失败]', { phase: 'department-tree', requestId: r, httpStatus: typeof status === 'number' ? status : undefined })
     }
   } finally {
     if (owned(k) && r === treeRequest) loading.value = false
@@ -481,7 +484,7 @@ watch(actorKey, initialize, { immediate: true, flush: 'sync' })
       <section class="panel">
         <label class="tree-search">
           定位部门
-          <el-input v-model="keyword" clearable placeholder="搜索名称、编码或ID" />
+          <el-input v-model="keyword" clearable placeholder="搜索名称、编码或ID" aria-label="定位部门" />
         </label>
         <el-tree
           :data="visibleTree"

@@ -239,6 +239,9 @@ async function load() {
     await Promise.all(rows.value.map(row => loadReadiness(row, ticket, token)))
   } catch (cause) {
     if (!current()) return
+    // 只诊断当前列表读取；筛选词、连接配置和 Axios 错误对象都可能带业务或凭据信息。
+    const status = (cause as { response?: { status?: unknown } } | null)?.response?.status
+    console.warn('[数据源列表读取失败]', { phase: 'list', requestId: ticket, httpStatus: typeof status === 'number' ? status : undefined })
     rows.value = []
     total.value = 0
     error.value = apiError(cause, '数据源加载失败，请稍后重试')
@@ -499,9 +502,11 @@ onMounted(async () => {
       </template>
     </TaskPageHeader>
 
-    <section class="source-journey" aria-label="从连接到问数的操作分工">
+    <!-- 操作教学按需展开；每行当前阶段、阻断与版本依据仍直接可见。 -->
+    <details class="source-journey" aria-label="从连接到问数的操作分工">
+      <summary>数据准备流程</summary>
       <ol><li v-for="(stage, index) in preparationStages" :key="stage.title"><span class="source-journey__no" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span><strong>{{ stage.title }}</strong><small>{{ stage.text }}</small></li></ol>
-    </section>
+    </details>
 
     <section class="data-sources-panel do-glass-panel" :class="{ 'admin-list-fill__panel': fillLayout }">
       <div class="data-sources-panel__toolbar">
@@ -514,17 +519,17 @@ onMounted(async () => {
           @clear="query.page = 1; load()"
           @keyup.enter="query.page = 1; load()"
         ><template #prefix><Search :size="16" aria-hidden="true" /></template></el-input>
-        <el-select v-model="query.status" class="data-sources-panel__filter" clearable placeholder="全部状态" @change="query.page = 1; load()">
+        <el-select v-model="query.status" class="data-sources-panel__filter" clearable placeholder="全部状态" aria-label="数据源启用状态" @change="query.page = 1; load()">
           <el-option label="启用" :value="1" />
           <el-option label="禁用" :value="0" />
         </el-select>
-        <el-select v-model="query.healthStatus" class="data-sources-panel__filter" clearable placeholder="全部连接状态" @change="query.page = 1; load()">
+        <el-select v-model="query.healthStatus" class="data-sources-panel__filter" clearable placeholder="全部连接状态" aria-label="数据源连接状态" @change="query.page = 1; load()">
           <el-option label="连接正常" value="HEALTHY" />
           <el-option label="连接异常" value="UNHEALTHY" />
           <el-option label="未检测" value="UNKNOWN" />
         </el-select>
         <span v-if="!loading && !error" class="data-sources-panel__toolbar-spacer" aria-hidden="true"></span>
-        <el-button class="data-sources-panel__refresh" :icon="RefreshCw" @click="load">刷新</el-button>
+        <el-button class="data-sources-panel__refresh" :icon="RefreshCw" :loading="loading" @click="load">刷新</el-button>
       </div>
 
       <ErrorState v-if="error" :message="error" @retry="load" />
@@ -683,6 +688,9 @@ onMounted(async () => {
 
 <style scoped>
 .source-journey { margin: 0 0 14px; padding: 9px 14px; border: 1px solid var(--do-line); border-radius: 10px; background: var(--do-soft); }
+.source-journey summary { width: fit-content; color: var(--do-muted); font-size: 12px; cursor: pointer; }
+.source-journey summary:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 3px; }
+.source-journey[open] summary { margin-bottom: 10px; }
 .source-journey ol { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 22px; padding: 0; margin: 0; list-style: none; }
 .source-journey li { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; }
 .source-journey__no { color: var(--do-primary-strong); font-size: 10px; font-variant-numeric: tabular-nums; letter-spacing: .04em; }

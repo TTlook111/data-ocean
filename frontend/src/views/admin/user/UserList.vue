@@ -276,6 +276,9 @@ async function fetchUsers() {
       users.value = []
       total.value = undefined
       errorMessage.value = message(e, '用户列表读取失败')
+      // 仅记录请求阶段与状态，不打印包含姓名、邮箱、筛选条件或凭据的 Axios 错误对象。
+      const status = (e as { response?: { status?: unknown } } | null)?.response?.status
+      console.warn('[用户列表读取失败]', { phase: 'user-list', requestId: r, httpStatus: typeof status === 'number' ? status : undefined })
     }
   } finally {
     if (session.alive() && k === queryKey.value && r === listRequest) loading.value = false
@@ -317,6 +320,7 @@ watch(
   { flush: 'sync' },
 )
 function search() {
+  // 表单提交与按钮共用入口；fetchUsers 会清除尚未触发的防抖，避免 Enter 后再重复请求。
   query.page = 1
   void fetchUsers()
 }
@@ -716,9 +720,9 @@ onBeforeUnmount(() => {
       </ul>
     </section>
     <section class="panel">
-      <div class="filters">
-        <el-input v-model="query.username" clearable placeholder="搜索用户名" />
-        <el-input v-model="query.realName" clearable placeholder="搜索姓名" />
+      <form class="filters" role="search" aria-label="用户筛选" @submit.prevent="search">
+        <el-input v-model="query.username" clearable placeholder="搜索用户名" aria-label="搜索用户名" />
+        <el-input v-model="query.realName" clearable placeholder="搜索姓名" aria-label="搜索姓名" />
         <el-tree-select
           v-if="canViewDepartments && !optionError"
           v-model="query.departmentId"
@@ -728,14 +732,15 @@ onBeforeUnmount(() => {
           :loading="optionLoading"
           node-key="id"
           placeholder="筛选部门"
+          aria-label="筛选部门"
           :props="{ label: 'deptName', children: 'children' }"
         />
-        <el-select v-model="query.status" clearable placeholder="全部状态">
+        <el-select v-model="query.status" clearable placeholder="全部状态" aria-label="用户状态">
           <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value" />
         </el-select>
-        <el-button type="primary" @click="search">查询</el-button>
+        <el-button type="primary" native-type="submit">查询</el-button>
         <el-button @click="resetFilters">重置</el-button>
-      </div>
+      </form>
       <p v-if="!canViewDepartments">
         没有organization:department:view，部门辅助目录不可用；用户列表不受影响，已有部门按接口事实显示。
       </p>

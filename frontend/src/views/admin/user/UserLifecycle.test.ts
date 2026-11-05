@@ -426,3 +426,32 @@ it('编辑已有短用户名不重验新建格式，不发送只读username/pass
   expect(await state(w).formRef.validate()).toBe(true)
   w.unmount()
 })
+
+it('用户筛选表单立即提交且取消待发防抖，重置恢复第一页和完整筛选', async () => {
+  const w = mount(Panel, { global: { plugins: [ElementPlus] } })
+  await settle()
+  vi.useFakeTimers()
+  await w.get('input[aria-label="搜索用户名"]').setValue('analyst')
+  expect(f.api.listUsers).toHaveBeenCalledTimes(1)
+  await w.get('form[role="search"]').trigger('submit')
+  await settle()
+  expect(f.api.listUsers).toHaveBeenCalledTimes(2)
+  expect(f.api.listUsers).toHaveBeenLastCalledWith(expect.objectContaining({ username: 'analyst', page: 1 }))
+  await vi.advanceTimersByTimeAsync(350)
+  expect(f.api.listUsers).toHaveBeenCalledTimes(2)
+  const reset = w.findAll('button').find((button) => button.text() === '重置')!
+  await reset.trigger('click')
+  await settle()
+  expect(f.api.listUsers).toHaveBeenLastCalledWith(expect.objectContaining({ username: undefined, realName: undefined, departmentId: undefined, status: undefined, page: 1 }))
+  w.unmount()
+})
+
+it('列表失败只记录阶段/请求代次/状态，不输出人员资料、筛选词或请求对象', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  f.api.listUsers.mockRejectedValue(Object.assign(new Error('private-person private-mail@example.test private-token'), { response: { status: 503 }, config: { headers: { Authorization: 'private-token' } } }))
+  const w = page()
+  await settle()
+  expect(warn).toHaveBeenCalledWith('[用户列表读取失败]', { phase: 'user-list', requestId: expect.any(Number), httpStatus: 503 })
+  expect(JSON.stringify(warn.mock.calls)).not.toContain('private-')
+  w.unmount()
+})

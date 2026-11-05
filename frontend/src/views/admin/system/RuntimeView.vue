@@ -680,12 +680,9 @@ watch(
             layout="prev, pager, next, total"
             @current-change="changeRulePage"
           />
+          <!-- 保留影响操作判断的能力边界；控制器与端点细节不作为页面辅助文案。 -->
           <p class="runtime-page__note">
             当前仅保存规则配置，后端尚未实现定时评估；启用状态不代表规则正在执行。
-          </p>
-          <p class="runtime-page__gap">
-            后端缺口：告警规则没有删除端点（AlertController 只有列表、创建、更新、启停四个），
-            因此本页不提供删除操作——不做一个点了会失败的按钮。需要停用规则时请使用启停开关。
           </p>
         </section>
       </el-tab-pane>
@@ -822,16 +819,6 @@ watch(
   padding: 10px 12px;
   border-radius: var(--do-radius-md);
   background: var(--do-bg);
-}
-
-.runtime-page__gap {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--do-radius-md);
-  background: var(--do-bg);
-  color: var(--do-muted);
-  font-size: 12px;
-  line-height: 1.7;
 }
 
 .runtime-page__hint {

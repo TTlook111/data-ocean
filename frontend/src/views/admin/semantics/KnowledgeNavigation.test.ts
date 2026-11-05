@@ -219,6 +219,17 @@ afterEach(() => {
   wrappers.splice(0).forEach((w) => w.unmount())
   document.body.innerHTML = ''
 })
+it('详情只保留单个标题与返回入口，并使用文档精确来源返回列表',async()=>{
+  context.datasourceId=2
+  route.query={datasourceId:'1',tab:'content'}
+  const w=await render()
+  expect(w.find('.object-context-summary').exists()).toBe(false)
+  expect(w.findAll('h1')).toHaveLength(1)
+  const returns=w.findAll('button').filter(button=>button.text()==='返回知识列表')
+  expect(returns).toHaveLength(1)
+  await returns[0]!.trigger('click')
+  expect(h.router.push).toHaveBeenCalledWith({name:'admin-semantic-knowledge',query:{datasourceId:'1'}})
+})
 it.each([
   { tab: 'source', source: 0 },
   { tab: 'source', source: 2 },

@@ -91,7 +91,6 @@ onMounted(async () => {
     <TaskPageHeader
       title="授权配置"
       eyebrow="权限与组织 / 业务数据边界"
-      description-mode="inline"
       description="用一份表单说明“谁能查哪些数据”：对象、数据范围、有效期或生效范围三项必选。字段未选不代表全部字段。"
     />
 

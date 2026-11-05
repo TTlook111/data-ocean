@@ -19,7 +19,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { GitCompareArrows, MessageSquareText, RefreshCw, RotateCcw, Save, Scissors, Send, Sparkles, Upload } from 'lucide-vue-next'
+import { ArrowLeft, GitCompareArrows, MessageSquareText, RefreshCw, RotateCcw, Save, Scissors, Send, Sparkles, Upload } from 'lucide-vue-next'
 import {
   approveDoc,
   diffVersions,
@@ -63,7 +63,6 @@ import { useAuthStore } from '../../../stores/auth'
 import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
 import { pendingKnowledgeWrites, trackKnowledgeWrite } from '../../../composables/knowledgeWriteTracker'
 import { useIamS1Store } from '../../../stores/iamS1'
-import ObjectContextSummary from '../../../components/admin/ObjectContextSummary.vue'
 import KnowledgeSourcePreview from '../../../components/admin/KnowledgeSourcePreview.vue'
 import KnowledgeSemanticAssistant from '../../../components/admin/KnowledgeSemanticAssistant.vue'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
@@ -156,7 +155,15 @@ function ticket() {return {epoch,id:docId.value,identity:auth.token}}
 function current(t:ReturnType<typeof ticket>) {return !disposed && epoch===t.epoch && docId.value===t.id && auth.token===t.identity && mayView.value}
 function readTicket(key:string) {const t=ticket(),request=sequences[key]=(sequences[key]||0)+1,version=doc.value?.version;return ()=>current(t) && request===sequences[key] && (key==='doc' || doc.value?.version===version)}
 function canReadDocument() {return !!doc.value && mayView.value && (iamS1.systemAdmin || iamS1.datasourcesWithFunction('knowledge:view').includes(doc.value.datasourceId))}
-function documentError(cause:unknown,fallback:string) {actionError.value=apiError(cause,fallback);const status=(cause as {response?:{status?:number}})?.response?.status;if(!status || status>=500 || status===408) actionError.value+='；操作结果待确认，请只读核对原文档与版本，不会自动重发。';else if(status===409) actionError.value+='；草稿与审核意见已保留，不会自动重试。';ElMessage.error(actionError.value)}
+function documentError(cause:unknown,fallback:string) {
+  const status=(cause as {response?:{status?:number}})?.response?.status
+  // 诊断只关联对象与 HTTP 状态，避免异常对象夹带正文、审核意见或请求凭据。
+  console.warn('[知识文档操作未完成]',{stage:'DOCUMENT_WRITE',docId:docId.value,httpStatus:Number.isInteger(status)?status:null})
+  actionError.value=apiError(cause,fallback)
+  if(!status || status>=500 || status===408) actionError.value+='；操作结果待确认，请只读核对原文档与版本，不会自动重发。'
+  else if(status===409) actionError.value+='；草稿与审核意见已保留，不会自动重试。'
+  ElMessage.error(actionError.value)
+}
 async function ownedConfirm(message:string,heading:string) {const seq=++confirmSequence;confirmVisible.value=true;try{await ElMessageBox.confirm(message,heading,{type:'warning',confirmButtonText:'确认',cancelButtonText:'取消',cancelButtonClass:confirmClass})}finally{if(seq===confirmSequence)confirmVisible.value=false}}
 async function reloadSavedDraft() {const t=ticket();if(dirty.value) {try{await ownedConfirm('重读已保存版本会替换当前未保存输入，确认继续？','重读已保存版本')}catch{return}}if(current(t)) await loadDoc(true)}
 
@@ -230,7 +237,7 @@ const nextStepHint = computed(() => {
   if (status.value === 'DEPRECATED') {
     return '文档已废弃，不再参与检索，当前页面保持只读。'
   }
-  return '草稿状态。完成编辑后提交审核，审核通过再发布；随后由有权人员确认数据源级 RAG build。'
+  return '保存后可提交审核；文档发布与知识索引构建分别确认。'
 })
 
 function apiError(cause: unknown, fallback: string) {
@@ -347,6 +354,8 @@ async function save() {
   if(!doc.value || !mayManage.value || !canEdit.value || saving.value || actionLoading.value || unknownWrite.value || versionConflict.value)return
   if(!title.value.trim()){ElMessage.warning('文档标题不能为空');return}
   const t=ticket(),value={...doc.value},stamp=formStamp.value
+  // 保存与重读使用同一份冻结载荷；只推进已证实属于本次保存的版本锁，
+  // 等待期间新增输入由 refreshDocument 保留，不能用较新回包静默覆盖。
   const payload={title:title.value,content:content.value,version:formBaseVersion.value,changeSummary:'手动编辑保存'}
   saving.value=true;actionError.value=''
   try {
@@ -627,14 +636,6 @@ watch(() => route.query.tab, (value) => {
 
 <template>
   <div class="admin-page knowledge-doc-page">
-    <p class="knowledge-doc-page__eyebrow">语义中心 / 可信业务知识</p>
-    <ObjectContextSummary
-      :title="doc?.title || '知识文档'"
-      :description="`数据源：${datasourceName}`"
-      back-to="/admin/semantics/knowledge"
-      source-label="语义中心 / 语义知识"
-    />
-
     <ErrorState v-if="error" :message="error" @retry="loadDoc" />
     <LoadingState v-else-if="loading" variant="skeleton" :rows="6" />
 
@@ -644,6 +645,9 @@ watch(() => route.query.tab, (value) => {
         :title="doc.title"
         description="编辑当前知识主题，审核后发布；同一快照的多篇文档共同覆盖业务知识。满足来源与覆盖要求后，在知识列表显式确认 RAG 构建。"
       >
+        <template #title-prefix>
+          <el-button link type="primary" class="knowledge-doc-page__back" :icon="ArrowLeft" @click="router.push({name:'admin-semantic-knowledge',query:{datasourceId:String(doc.datasourceId)}})">返回知识列表</el-button>
+        </template>
         <template #status>
           <BusinessStatusBadge :status="doc.status" :label="knowledgeStatusLabel(doc.status)" />
           <span class="doc-version">v{{ doc.currentVersion }}</span>
@@ -676,7 +680,7 @@ watch(() => route.query.tab, (value) => {
       </TaskPageHeader>
 
       <section v-if="actionError || unknownWrite" role="alert" class="knowledge-write-notice"><strong>{{ actionError || '此文档有执行中或结果待确认的操作' }}</strong><p v-if="unknownWrite">原文档 #{{ unknownWrite.docId }} · {{ unknownWrite.kind }} · 修订锁 {{ unknownWrite.version }}。请只读核对原文档/版本，未确认前不重发；已有旧build不能证明本次成功。</p><p v-if="reviewComment">保留的审核意见：{{ reviewComment }}</p><el-button @click="refreshDocument">重读当前文档与版本</el-button></section>
-      <div class="document-draft-state"><span>{{ dirty ? '有未保存输入，提交/发布前请先保存' : '当前输入与已读保存版本一致' }}</span><span v-if="versionConflict" role="alert">已保存版本已变化；保留当前输入，请核对后重读。</span><el-button link :disabled="saving || actionLoading" @click="reloadSavedDraft">重读已保存版本</el-button></div>
+      <div v-if="dirty || versionConflict" class="document-draft-state"><span v-if="dirty" role="status">有未保存输入，提交/发布前请先保存</span><span v-if="versionConflict" role="alert">已保存版本已变化；保留当前输入，请核对后重读。</span><el-button link :disabled="saving || actionLoading" @click="reloadSavedDraft">重读已保存版本</el-button></div>
       <section class="knowledge-doc-page__lifecycle">
         <LifecycleStepper :steps="lifecycleSteps" />
         <p class="knowledge-doc-page__hint">{{ nextStepHint }}</p>
@@ -684,7 +688,6 @@ watch(() => route.query.tab, (value) => {
 
       <ErrorState v-if="sourceStatusError" :message="sourceStatusError" @retry="loadSourceStatus" />
       <el-alert v-else-if="sourceStatus && !sourceStatus.valid" :title="sourceStatus.reasons.join(' ')" type="warning" :closable="false" show-icon />
-      <el-alert v-else-if="sourceStatus?.valid" title="已保存版本的结构与术语来源校验通过；文档发布和 RAG 构建仍需分别确认。" type="success" :closable="false" />
       <el-tabs :model-value="activeTab" @update:model-value="selectTab">
         <!-- 内容 -->
         <el-tab-pane label="内容" name="content">
@@ -721,6 +724,7 @@ watch(() => route.query.tab, (value) => {
 
         <!-- 来源与覆盖 -->
         <el-tab-pane label="来源与覆盖" name="source">
+          <el-alert v-if="sourceStatus?.valid" title="已保存版本的结构与术语来源校验通过" type="success" :closable="false" show-icon />
           <section class="knowledge-doc-page__card">
             <dl class="facts">
               <div><dt>绑定数据源</dt><dd>{{ datasourceName }}</dd></div>
@@ -1065,13 +1069,12 @@ watch(() => route.query.tab, (value) => {
 </template>
 
 <style scoped>
-.knowledge-doc-page__eyebrow {margin:0;color:var(--do-primary-strong);font-size:12px;font-weight:650;}
 .knowledge-write-notice {border:1px solid var(--do-line);border-left:3px solid var(--do-warning);padding:14px;line-height:1.6;font-size:13px;overflow-wrap:anywhere;}.knowledge-write-notice p {margin:6px 0;}
 .document-draft-state {display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;color:var(--do-muted);font-size:12px;border-bottom:1px solid var(--do-line);padding-bottom:12px;}
 
 .knowledge-doc-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .knowledge-doc-page > * { min-width: 0; }
-.knowledge-doc-page :deep(.object-context-summary) { flex-wrap: wrap; }
+.knowledge-doc-page__back { flex:0 0 auto; }
 
 .doc-version { color: var(--do-muted); font-size: 12px; }
 

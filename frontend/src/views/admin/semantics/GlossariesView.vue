@@ -122,6 +122,11 @@ const invalidMappings = ref<TermInvalidMapping[]>([])
 const termKeyword = ref('')
 const termStatusFilter = ref('')
 
+function clearTermFilters() {
+  termKeyword.value = ''
+  termStatusFilter.value = ''
+}
+
 const linkedColumns = ref<TermColumn[]>([])
 const reviews = ref<TermReview[]>([])
 const needsReview = ref(false)
@@ -287,7 +292,11 @@ async function loadTerms() {
       termError.value = '指定术语不属于当前分组或不可查看，未选择其他术语。'
     } else if (selectedTermId.value) await loadLinkedColumns()
   } catch (cause) {
-    if (owned()) termError.value = apiError(cause, '术语列表加载失败')
+    if (owned()) {
+      // 已离开分组或账号时不记录旧失败；诊断只携带范围 ID，不输出业务定义或异常对象。
+      console.warn('[术语目录读取失败]', { stage: 'TERM_LIST', glossaryId: group })
+      termError.value = apiError(cause, '术语列表加载失败')
+    }
   } finally {
     if (owned()) loadingTerms.value = false
   }
@@ -794,7 +803,6 @@ onBeforeUnmount(() => {
   <div class="admin-page glossaries-page">
     <TaskPageHeader
       eyebrow="语义中心 / 定义与字段映射"
-      description-mode="inline"
       title="业务术语"
       description="维护业务概念、同义词与实际字段的对应关系。可先保存草稿，关联字段后提交定义和映射审核。"
     >
@@ -838,7 +846,7 @@ onBeforeUnmount(() => {
         <EmptyState
           v-else-if="!glossaries.length"
           message="还没有术语分组。先创建术语分组，再在其中维护业务术语。"
-          action-text="新建分组"
+          :action-text="canManage ? '新建分组' : ''"
           @action="openCreateGlossary"
         />
         <ul v-else class="glossary-list">
@@ -848,7 +856,7 @@ onBeforeUnmount(() => {
             class="glossary-list__item"
             :class="{ 'is-active': item.id === selectedGlossaryId }"
           >
-            <button type="button" class="glossary-list__select" @click="selectGlossary(item.id)">
+            <button type="button" class="glossary-list__select" :aria-current="item.id === selectedGlossaryId ? 'true' : undefined" @click="selectGlossary(item.id)">
               <strong>{{ item.displayName || item.name }}</strong>
               <small>{{ item.name }}</small>
             </button>
@@ -858,7 +866,7 @@ onBeforeUnmount(() => {
                 <el-button
                   link
                   :icon="Pencil"
-                  aria-label="编辑术语分组"
+                  :aria-label="`编辑术语分组 ${item.displayName || item.name}`"
                   :disabled="!canManage || actionLoading"
                   @click="openEditGlossary(item)"
                 />
@@ -866,7 +874,7 @@ onBeforeUnmount(() => {
                   link
                   type="danger"
                   :icon="Trash2"
-                  aria-label="删除术语分组"
+                  :aria-label="`删除术语分组 ${item.displayName || item.name}`"
                   :disabled="!canManage || actionLoading"
                   @click="removeGlossary(item)"
                 />
@@ -904,10 +912,11 @@ onBeforeUnmount(() => {
             <el-input
               v-model="termKeyword"
               placeholder="搜索业务名称、定义或同义词"
+              aria-label="搜索业务术语"
               clearable
               style="width: 220px"
             />
-            <el-select v-model="termStatusFilter" placeholder="全部状态" clearable style="width: 140px">
+            <el-select v-model="termStatusFilter" placeholder="全部状态" aria-label="筛选术语状态" clearable style="width: 140px">
               <el-option label="草稿" value="DRAFT" />
               <el-option label="待审核" value="PENDING_REVIEW" />
               <el-option label="已通过" value="APPROVED" />
@@ -920,16 +929,16 @@ onBeforeUnmount(() => {
           <EmptyState
             v-else-if="!selectedGlossary"
             message="业务术语按术语分组组织，请先在左侧选择或创建术语分组。"
-            action-text="新建分组"
+            :action-text="canManage ? '新建分组' : ''"
             @action="openCreateGlossary"
           />
           <EmptyState
             v-else-if="!visibleTerms.length"
             :message="
-              terms.length ? '当前筛选条件下没有术语。' : '该术语分组还没有术语，先新增一条业务术语。'
+              terms.length ? '当前筛选条件下没有术语。' : '该术语分组还没有术语。'
             "
-            action-text="新增术语"
-            @action="openCreateTerm"
+            :action-text="terms.length ? '清除筛选' : canManage ? '新增术语' : ''"
+            @action="terms.length ? clearTermFilters() : openCreateTerm()"
           />
           <ul v-else class="term-list">
             <li
@@ -938,7 +947,7 @@ onBeforeUnmount(() => {
               class="term-list__item"
               :class="{ 'is-active': term.id === selectedTermId }"
             >
-              <button type="button" class="term-list__select" @click="selectTerm(term)">
+              <button type="button" class="term-list__select" :aria-current="term.id === selectedTermId ? 'true' : undefined" @click="selectTerm(term)">
                 <strong>{{ term.displayName || term.name }}</strong>
                 <small>{{ term.description || '尚未填写业务定义' }}</small>
                 <small v-if="term.linkedColumnCount !== undefined">

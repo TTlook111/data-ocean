@@ -28,7 +28,6 @@ watch(
     <TaskPageHeader
       title="查询分析"
       eyebrow="运营与平台 / 查询观察"
-      description-mode="inline"
       description="从已记录的查询观察使用情况与性能，按当前权限核对原始审计证据。"
     />
     <el-tabs :model-value="tab" @update:model-value="selectTab">

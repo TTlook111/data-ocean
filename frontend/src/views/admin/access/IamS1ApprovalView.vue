@@ -589,7 +589,6 @@ watch(actorKey, initialize, { immediate: true, flush: 'sync' })
     <TaskPageHeader
       title="访问申请与审批"
       eyebrow="权限与组织 / 临时业务访问"
-      description-mode="inline"
       description="明确为什么需要哪些字段，再由负责该源的审批人核对。待审批不授予查询权，通过后生成有期限的个人授权。"
     />
     <GovernanceWriteNotice />

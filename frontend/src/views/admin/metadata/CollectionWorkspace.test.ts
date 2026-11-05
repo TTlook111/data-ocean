@@ -37,6 +37,23 @@ describe('采集范围与生命周期',()=>{
  it('来源身份不一致显示错误',async()=>{api.listSyncTasks.mockResolvedValue({data:{records:[{id:7,datasourceId:2,datasourceName:'OTHER'}],total:1}});const w=await render(SyncTask);expect(w.text()).toContain('任务来源与当前数据源不一致');expect(w.text()).not.toContain('OTHER')})
 })
 describe('全局计划合同',()=>{
+ it('保存失败保留草稿并显示持续错误，修正后可显式重试',async()=>{
+  h.iam.systemAdmin=true
+  const warning=vi.spyOn(console,'warn').mockImplementation(()=>{})
+  try {
+   api.updateSyncSchedule.mockRejectedValueOnce({response:{status:503,data:{message:'调度服务暂不可用'}},config:{headers:{Authorization:'private-token'},data:'private-cron'}})
+   const w=await render(SyncSchedule)
+   await w.find('.el-switch').trigger('click');await button(w,'保存配置').trigger('click');await flushPromises()
+   expect(w.find('[role="alert"]').text()).toBe('调度服务暂不可用')
+   expect(w.text()).toContain('当前设置尚未保存')
+   expect(button(w,'保存配置').attributes('disabled')).toBeUndefined()
+   expect(JSON.stringify(warning.mock.calls)).not.toMatch(/private-|Authorization/)
+   await button(w,'保存配置').trigger('click');await flushPromises()
+   expect(api.updateSyncSchedule).toHaveBeenCalledTimes(2)
+   expect(w.find('[role="alert"]').exists()).toBe(false)
+   expect(w.text()).not.toContain('当前设置尚未保存')
+  } finally {warning.mockRestore()}
+ })
  it('负责源采集员只读计划，调度注册不表示正在采集',async()=>{const w=await render(SyncSchedule);expect(w.text()).toContain('只读计划');expect(w.text()).toContain('调度已注册');expect(w.text()).not.toContain('自动同步执行中');expect(button(w,'保存配置')).toBeUndefined()})
  for(const cron of ['30 0 2 * 1 ?','0 */15 * * * ?','0 0 2 * * ? 2026'])it(`仅开关不改写 ${cron}`,async()=>{h.iam.systemAdmin=true;api.getSyncSchedule.mockResolvedValue({code:200,data:{cron,enabled:false,running:false}});const w=await render(SyncSchedule);expect((w.find('input[aria-label="Cron 表达式"]').element as HTMLInputElement).value).toBe(cron);await w.find('.el-switch').trigger('click');await button(w,'保存配置').trigger('click');await flushPromises();expect(api.updateSyncSchedule).toHaveBeenCalledWith({cron,enabled:true})})
  it('保存防重复，撤权不回填迟到结果',async()=>{h.iam.systemAdmin=true;const d=deferred();api.updateSyncSchedule.mockReturnValue(d.promise);const w=await render(SyncSchedule);await w.find('.el-switch').trigger('click');await button(w,'保存配置').trigger('click');await button(w,'保存配置').trigger('click');expect(api.updateSyncSchedule).toHaveBeenCalledTimes(1);h.iam.systemAdmin=false;h.iam.snapshot={revision:2};await flushPromises();d.resolve({code:200,data:{cron:'0 0 9 * * ?',enabled:true,running:true}});await flushPromises();expect(w.text()).toContain('只读计划');expect(w.text()).not.toContain('每天 09:00')})

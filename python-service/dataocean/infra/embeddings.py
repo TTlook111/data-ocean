@@ -124,7 +124,9 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
         embeddings = await _get_embeddings()
         return await embeddings.aembed_documents(texts)
     except Exception as e:
-        logger.error("Embedding 批量生成失败 count=%d error=%s", len(texts), e)
+        # 供应商异常可能带输入正文、端点和鉴权信息；日志仅保留类型与批次规模。
+        # 对调用方的异常类型、内容及异常链保持原合同，由原有上层安全处理裁决。
+        logger.error("Embedding 批量生成失败 count=%d error_type=%s", len(texts), type(e).__name__)
         raise LLMException(f"Embedding 生成失败：{e}") from e
 
 
@@ -140,10 +142,9 @@ async def embed_texts_with_config(
         return await embeddings.aembed_documents(texts)
     except Exception as e:
         logger.error(
-            "Pending Embedding 批量生成失败 model=%s count=%d error=%s",
-            embedding_config.model,
+            "Pending Embedding 批量生成失败 count=%d error_type=%s",
             len(texts),
-            e,
+            type(e).__name__,
         )
         raise LLMException(f"Embedding 生成失败：{e}") from e
 
@@ -158,5 +159,5 @@ async def embed_single(text: str, embedding_config: EmbeddingConfig | None = Non
         )
         return await embeddings.aembed_query(text)
     except Exception as e:
-        logger.error("Embedding 单条生成失败 error=%s", e)
+        logger.error("Embedding 单条生成失败 error_type=%s", type(e).__name__)
         raise LLMException(f"Embedding 生成失败：{e}") from e

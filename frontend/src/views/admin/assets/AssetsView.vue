@@ -55,7 +55,7 @@ let layoutFrame: number | undefined
 let queryTimer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
 
-const helpText = '查找已发布的表和字段，查看所在位置、技术信息、业务含义与关联影响。这里只展示已发布快照同步后的正式目录。表对象代表一张数据库表，字段对象代表表中的一列；业务术语、标签和字段治理状态作为对象关联信息展示，并进入各自的维护工作区处理。搜索支持表名、中文名、技术路径、说明或所属表的部分匹配（大小写不敏感），多个关键词用空格分隔时需同时命中。'
+const helpText = '查找已发布的表和字段，查看所在位置、技术信息、业务含义与关联影响；也可切换到指定快照核对结构。目录只展示已发布快照同步后的正式对象。表对象代表一张数据库表，字段对象代表表中的一列；业务术语、标签和字段治理状态作为对象关联信息展示，并进入各自的维护工作区处理。搜索支持表名、中文名、技术路径、说明或所属表的部分匹配（大小写不敏感），多个关键词用空格分隔时需同时命中。'
 
 const typeOptions = [
   { value: 'TABLE' as const, label: entityTypeLabel('TABLE'), icon: Table2 },
@@ -494,7 +494,6 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
     <TaskPageHeader
       title="数据对象目录"
       eyebrow="数据资产 / 对象与结构"
-      description="从已发布对象理解数据，或回到指定快照核对结构。" description-mode="inline"
       :help="helpText"
     >
       <template #actions>

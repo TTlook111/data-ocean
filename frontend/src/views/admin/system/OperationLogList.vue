@@ -385,9 +385,7 @@ onBeforeUnmount(() => {
     <TaskPageHeader
       eyebrow="运营与平台"
       title="操作日志"
-      description-mode="inline"
-      description="按请求和目标资源追踪后台调用，核对操作人、时间与异常记录。"
-      help="独立全局 operation-log:view。操作类型由 HTTP 方法推断，成功表示未抛异常；目标 ID 是路径的尽力提取，均不等于业务结果证明。"
+      help="按请求和目标资源追踪后台调用。日志总数来自服务端，成功、失败与平均耗时仅统计当前页；未知状态不计入成功或失败。成功表示调用未抛异常，不等于业务动作已完成。操作类型按 HTTP 方法推断，路径目标仅供定位。"
     >
       <template #status>
         <span class="operation-log-page__scope">
@@ -407,6 +405,7 @@ onBeforeUnmount(() => {
       </template>
     </TaskPageHeader>
 
+    <!-- 卡片标签直接区分服务端总数与当前页统计；完整口径放在页头帮助中按需阅读。 -->
     <section v-if="canViewOperationLogs && !loading && !error" class="summary-grid">
       <div class="summary-card">
         <span class="summary-icon"><ClipboardList :size="18" /></span>
@@ -437,15 +436,6 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </section>
-    <p class="operation-log-page__stats-note">
-      统计口径：
-      <strong>日志总数</strong>
-      取自服务端；
-      <strong>成功 / 失败 / 平均耗时</strong>
-      由当前页记录算出。
-      后端没有操作日志的聚合统计接口，因此这三项随翻页变化，不代表全局。本页没有全量聚合或导出接口。成功表示调用未抛异常，不等于业务动作已完成；未知状态不计入成功或失败。
-    </p>
-
     <p v-if="timeError" class="operation-log-page__stats-note" role="alert">
       {{ timeError }}
       <el-button text @click="clearTimeRange">清空时间范围</el-button>
@@ -454,10 +444,7 @@ onBeforeUnmount(() => {
       <div class="panel-toolbar">
         <div class="panel-title">
           <Activity :size="18" />
-          <div>
-            <strong>操作日志</strong>
-            <span>按目标资源定位后台操作轨迹</span>
-          </div>
+          <strong>操作日志</strong>
         </div>
         <div class="filter-area">
           <div class="filter-row">
@@ -889,13 +876,6 @@ onBeforeUnmount(() => {
   display: block;
   color: var(--do-ink);
   font-size: 14px;
-}
-
-.panel-title span {
-  display: block;
-  margin-top: 2px;
-  color: var(--do-muted);
-  font-size: 12px;
 }
 
 .log-table-wrap {

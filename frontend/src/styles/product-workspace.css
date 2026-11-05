@@ -2,6 +2,7 @@
 .query-workspace,
 .query-evidence-dialog,
 .query-datasource-popper,
+.query-user-menu-popper,
 .admin-shell,
 body:has(.admin-shell),
 body:has(.login-page),

@@ -239,6 +239,7 @@ export function useQuerySubmit(options: {
         return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
       }
 
+      const pollStartedAt = Date.now()
       try {
         const res = await iamS1GetTask(taskId)
         if (signal?.aborted || !alive) return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
@@ -256,7 +257,14 @@ export function useQuerySubmit(options: {
       } catch (error) {
         if (signal?.aborted || !alive) return { taskId, status: 'CANCELLED', errorMessage: '查询已取消' }
         consecutiveErrors++
-        console.warn(`轮询任务结果失败 (连续第 ${consecutiveErrors} 次) taskId=${taskId}`, error)
+        // Axios 错误可能包含 Authorization、问题正文和服务端回执，不能直接打印。
+        // taskId 关联服务端任务，状态码、连续次数和耗时用于区分网络波动与持续故障。
+        const status = (error as { response?: { status?: unknown } } | null)?.response?.status
+        console.warn('[问数轮询失败]', {
+          taskId, consecutiveErrors,
+          httpStatus: typeof status === 'number' ? status : undefined,
+          elapsedMs: Date.now() - pollStartedAt,
+        })
         if (consecutiveErrors >= POLL_MAX_CONSECUTIVE_ERRORS) {
           return { taskId, status: 'FAILED', errorMessage: `网络连接异常，连续 ${POLL_MAX_CONSECUTIVE_ERRORS} 次请求失败` }
         }

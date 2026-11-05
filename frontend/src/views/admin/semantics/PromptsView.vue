@@ -336,7 +336,7 @@ async function loadTemplates(preferredCode?: string) {
     if (!session.current(k) || revision !== loadRevision || selectionAtStart !== selectionRevision) return
     if (editAtStart !== editRevision || wasDirty) {
       refreshNotice.value =
-        '当前编辑已保留，刷新未应用；可明确放弃草稿后重读。刷新期间有新修改，当前编辑已保留，未应用刷新结果。'
+        '当前编辑已保留，刷新未应用；可明确放弃草稿后重读。'
       return
     }
     if (
@@ -468,6 +468,8 @@ async function runWrite(
     writeError.value = '精确版本未确认，未提交；请重读策略。'
     return
   }
+  // 固定场景、版本与编辑世代。迟到回执只推进原对象，不能覆盖后来输入；
+  // 故障不重放写请求，未知结果继续由共享写入记录负责核对。
   const k = session.capture(),
     revision = selectionRevision,
     editAtStart = editRevision,
@@ -543,8 +545,11 @@ async function runWrite(
     await selectTemplate(template.templateCode, true)
     await loadTemplates(template.templateCode)
   } catch (cause) {
-    if (session.current(k) && revision === selectionRevision && cause !== 'cancel' && cause !== 'close')
+    if (session.current(k) && revision === selectionRevision && cause !== 'cancel' && cause !== 'close') {
+      const status=(cause as {response?:{status?:number}})?.response?.status
+      console.warn('[Prompt 操作未完成]',{stage:'PROMPT_WRITE',templateId:template.id,version:template.currentVersion,httpStatus:Number.isInteger(status)?status:null})
       writeError.value = apiError(cause, '操作失败，原输入保留；结果未知先核对原版本')
+    }
   } finally {
     if (session.current(k) && request === writeRequest) {
       saving.value = false
@@ -554,6 +559,7 @@ async function runWrite(
 }
 const confirmOptions = { closeOnClickModal: false, cancelButtonClass: session.cancelClass }
 async function discardAndReload() {
+  if(saving.value || actionLoading.value || loading.value)return
   const k = session.capture(),
     revision = selectionRevision,
     code = activeCode.value
@@ -675,7 +681,12 @@ async function loadEffectiveness() {
 
 async function save() {
   const t = selected.value
-  if (!t || !selectedScene.value || !canEdit.value || !editContent.value.trim()) return
+  if (!t || !selectedScene.value || !canEdit.value) return
+  if (!editContent.value.trim()) {
+    writeError.value='请填写任务指令后再保存。'
+    document.getElementById('prompt-user')?.focus()
+    return
+  }
   const code = t.templateCode,
     version = t.currentVersion,
     payload = { content: policyContent(), changeSummary: changeSummary.value || '手动编辑保存' }
@@ -913,9 +924,9 @@ watch(
   <div class="admin-page prompts-page">
     <GovernanceWriteNotice />
     <p v-if="writeError" class="prompt-write-error" role="alert">{{ writeError }}</p>
-    <p v-if="dirty" class="note">
+    <p v-if="dirty" class="note" role="status">
       本地编辑尚未保存。
-      <el-button text @click="discardAndReload">重读并放弃本地草稿</el-button>
+      <el-button text :disabled="saving || actionLoading || loading" @click="discardAndReload">重读并放弃本地草稿</el-button>
     </p>
     <TaskPageHeader
       eyebrow="运营与平台"
@@ -1012,7 +1023,7 @@ watch(
             </p>
           </div>
         </header>
-        <el-input v-model="keyword" placeholder="搜索编码 / 名称 / 场景" clearable :prefix-icon="Search" />
+        <el-input v-model="keyword" aria-label="搜索 AI 场景" placeholder="搜索编码 / 名称 / 场景" clearable :prefix-icon="Search" />
         <LoadingState v-if="loading" text="正在读取模板…" />
         <LoadingState v-else-if="!iamS1.loaded && !iamS1.errorMessage" text="正在确认当前能力…" />
         <ErrorState v-else-if="iamS1.errorMessage" :message="iamS1.errorMessage" @retry="iamS1.load(true)" />
@@ -1025,12 +1036,12 @@ watch(
             class="template-list__item"
             :class="{ 'is-active': item.templateCode === activeCode }"
           >
-            <button type="button" class="template-list__select" @click="selectTemplate(item.templateCode)">
+            <button type="button" class="template-list__select" :aria-current="item.templateCode === activeCode ? 'true' : undefined" @click="selectTemplate(item.templateCode)">
               <strong>{{ item.templateName }}</strong>
               <span class="template-list__meta">
                 {{ scenes.find((scene) => scene.code === item.templateCode)?.group || '历史配置' }}
               </span>
-              <small>{{ item.templateCode }} · {{ consumerLabel(item.templateCode) }}</small>
+              <small>{{ item.templateCode }}</small>
               <span class="template-list__meta">
                 v{{ item.currentVersion }} · {{ item.scenario || '未标注场景' }}
               </span>
@@ -1132,12 +1143,16 @@ watch(
                 type="textarea"
                 :rows="12"
                 :disabled="!canEdit || !canManage"
+                aria-required="true"
+                :aria-invalid="!editContent.trim() && !!writeError"
                 placeholder="模板内容"
                 class="content-editor"
               />
               <el-input
                 v-if="canEdit"
                 v-model="changeSummary"
+                aria-label="变更摘要"
+                :readonly="!canManage"
                 placeholder="变更摘要（可选，用于版本追溯）"
                 class="content-summary"
               />
@@ -1149,18 +1164,9 @@ watch(
                 >
                   校验并预览
                 </el-button>
-                <el-button
-                  type="primary"
-                  :icon="Save"
-                  :loading="saving"
-                  :disabled="!canManage || saving || actionLoading || loading || draftConflict"
-                  @click="save"
-                >
-                  保存并创建新版本
-                </el-button>
               </div>
               <p class="note">
-                保存会新建一个草稿版本，模板状态回到草稿；只有审核通过后新内容才会成为活跃模板。
+                保存仅生成草稿；审核通过后新内容才会生效。
               </p>
               <pre v-if="validation" class="dialog-pre" role="status">{{ validation }}</pre>
               <details v-if="selected.activeVersion" class="prompt-coverage">
@@ -1192,8 +1198,7 @@ watch(
                 </div>
               </dl>
               <p class="note">
-                状态流转为 草稿 → 待审核 → 已批准 或 已拒绝。已批准表示该版本是当前生效的活跃模板，
-                与知识文档的「已发布」含义不同，页面不做混用。
+                审核通过会激活本版本；是否优先使用后台策略由独立开关控制。
               </p>
               <div class="flow-actions">
                 <el-button
@@ -1286,7 +1291,7 @@ watch(
 
             <el-tab-pane v-if="selectedScene" label="调用记录" name="invocations">
               <p class="note">
-                模型返回不等于格式、业务或人工审核通过。回执保存失败会记录服务日志，不能视为完整计费账本。
+                模型返回表示内容仍待校验；调用记录不作为完整计费账本。
               </p>
               <el-button :loading="invocationLoading" @click="loadInvocations(invocationPage)">
                 刷新调用记录
@@ -1327,13 +1332,13 @@ watch(
                 />
                 <el-table-column prop="taskId" label="关联任务" min-width="140" show-overflow-tooltip />
               </el-table>
-              <el-pagination
+              <div class="invocation-pagination"><span>共 {{ invocationTotal }} 条调用记录</span><el-pagination
                 :current-page="invocationPage"
                 :page-size="10"
                 :total="invocationTotal"
-                layout="total, prev, pager, next"
+                layout="prev, pager, next"
                 @current-change="loadInvocations"
-              />
+              /></div>
             </el-tab-pane>
             <el-tab-pane label="效果说明与历史统计" name="effectiveness">
               <p class="note">
@@ -1342,7 +1347,7 @@ watch(
                 }}。下方历史统计来自查询任务审计，不能作为单次模型调用成功率、人工采纳率或当前完整覆盖率。
               </p>
               <div class="tab-actions">
-                <el-select v-model="analysisDays" style="width: 130px">
+                <el-select v-model="analysisDays" aria-label="效果统计时间范围" style="width: 130px">
                   <el-option :label="'近 7 天'" :value="7" />
                   <el-option :label="'近 30 天'" :value="30" />
                   <el-option :label="'近 90 天'" :value="90" />
@@ -1511,6 +1516,7 @@ watch(
   color: var(--do-muted);
   font-size: 11px;
 }
+.template-list__select:focus-visible { outline:2px solid var(--do-primary); outline-offset:4px; border-radius:var(--do-radius-sm); }
 .template-list__meta {
   color: var(--do-muted);
   font-size: 11px;
@@ -1577,6 +1583,7 @@ watch(
   margin-bottom: 12px;
   flex-wrap: wrap;
 }
+.invocation-pagination { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-top:16px; color:var(--do-muted); font-size:12px; }
 .flow-actions {
   display: flex;
   align-items: center;

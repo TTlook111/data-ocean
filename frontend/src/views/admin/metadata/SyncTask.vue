@@ -148,7 +148,9 @@ defineExpose({ openSyncDialog })
 
 <template>
   <main class="sync-task-page post-login-page" :class="{ 'is-fill': fillLayout }">
-    <section class="collection-purpose" aria-label="采集工作说明">
+    <details class="collection-guide">
+      <summary>采集流程</summary>
+      <section class="collection-purpose" aria-label="采集工作说明">
       <div class="collection-purpose__item">
         <span class="collection-purpose__number">01</span>
         <div class="collection-purpose__copy"><strong>读取数据库结构</strong><p>表、字段与关系；统计信息按需采集。</p></div>
@@ -161,7 +163,8 @@ defineExpose({ openSyncDialog })
         <span class="collection-purpose__number">03</span>
         <div class="collection-purpose__copy"><strong>进入治理与审核</strong><p>发布、知识准备和索引构建各自确认。</p></div>
       </div>
-    </section>
+      </section>
+    </details>
     <section class="collections-task" :class="{ 'admin-list-fill__panel': fillLayout }">
       <div class="collections-task__toolbar">
         <div class="collections-task__scope">
@@ -266,7 +269,11 @@ defineExpose({ openSyncDialog })
 <style scoped>
 .sync-task-page { display: grid; gap: 14px; min-width: 0; }
 
-/* 采集工作说明：编号方块 + 文案，作为轻量流程条，不再用满宽分割线。 */
+/* 教学流程按需查看，任务状态、失败原因及具体后续操作始终留在表格内。 */
+.collection-guide { flex: 0 0 auto; }
+.collection-guide summary { width: fit-content; padding-block: 4px; color: var(--do-muted); font-size: 12px; cursor: pointer; }
+.collection-guide summary:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 3px; }
+.collection-guide[open] summary { margin-bottom: 10px; }
 .collection-purpose {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

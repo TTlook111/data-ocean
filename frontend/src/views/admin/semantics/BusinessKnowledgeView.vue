@@ -11,7 +11,6 @@ const context = useAdminContextStore(),
     <TaskPageHeader
       title="业务知识治理"
       eyebrow="语义中心 / 对象业务事实"
-      description-mode="inline"
       description="确认数据源用途、表粒度、关系与指标口径；此处与治理任务使用同一份修订和审核记录。"
     >
       <template #actions>

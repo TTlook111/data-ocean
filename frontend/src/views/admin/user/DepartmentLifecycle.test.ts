@@ -73,6 +73,21 @@ beforeEach(() => {
   f.api.createDepartment.mockResolvedValue({ data: { id: 11 } })
   f.api.deleteDepartment.mockResolvedValue({ data: null })
 })
+
+it('部门树失败日志只记录有效请求阶段和状态，重读后恢复原树', async () => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  f.api.listDepartments.mockRejectedValueOnce(Object.assign(new Error('private-department private-token'), { response: { status: 503 } }))
+  const w = page()
+  await settle()
+  expect(state(w).treeVerified).toBe(false)
+  expect(warn).toHaveBeenCalledWith('[部门树读取失败]', { phase: 'department-tree', requestId: expect.any(Number), httpStatus: 503 })
+  expect(JSON.stringify(warn.mock.calls)).not.toContain('private-')
+  await state(w).fetchDepartments()
+  await settle()
+  expect(state(w).treeVerified).toBe(true)
+  expect(state(w).departments).toHaveLength(2)
+  w.unmount()
+})
 it('最小department:view不请求额外user目录，直属人数保持未知而非0', async () => {
   f.iam.hasGlobal.mockImplementation((c) => c === 'organization:department:view')
   const w = page()

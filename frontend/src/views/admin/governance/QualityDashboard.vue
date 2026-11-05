@@ -489,7 +489,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
  <main class="quality-page post-login-page governance-workspace">
-  <TaskPageHeader title="治理总览" description="当前来源与快照的规模、集中度、处理结构与校验依据。" description-mode="inline"><template #actions><div v-if="scope.ready.value && canViewOverview" class="overview-numbers"><div><b>{{ summaryModel.total ?? '—' }}</b><span>条未解决问题</span></div><div><b>{{ tableCount ?? '—' }}</b><span>个涉及表</span></div></div><el-button :icon="RefreshCw" :loading="loading || batchLoading || issueLoading || aggregateLoading" @click="refresh">刷新</el-button><el-button v-if="canReturnToRelease" :disabled="!iamS1.canOnDatasource('metadata:release:view',datasourceId)" @click="openReleasePage">返回元数据版本</el-button></template></TaskPageHeader>
+  <TaskPageHeader title="治理总览" description="当前来源与快照的规模、集中度、处理结构与校验依据。"><template #actions><div v-if="scope.ready.value && canViewOverview" class="overview-numbers"><div><b>{{ summaryModel.total ?? '—' }}</b><span>条未解决问题</span></div><div><b>{{ tableCount ?? '—' }}</b><span>个涉及表</span></div></div><el-button :icon="RefreshCw" :loading="loading || batchLoading || issueLoading || aggregateLoading" @click="refresh">刷新</el-button><el-button v-if="canReturnToRelease" :disabled="!iamS1.canOnDatasource('metadata:release:view',datasourceId)" @click="openReleasePage">返回元数据版本</el-button></template></TaskPageHeader>
   <GovernanceWriteNotice />
   <ErrorState v-if="pageError || iamS1.errorMessage" :message="pageError || iamS1.errorMessage || ''" @retry="refresh"/>
   <LoadingState v-else-if="!scopeReady || scope.scopeLoading.value" text="正在读取治理范围…"/>

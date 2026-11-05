@@ -39,6 +39,7 @@ vi.mock('../../../stores/iamS1', () => ({ useIamS1Store: () => reactive(s.iam) }
 vi.mock('../../../api/admin/glossary', () => s.api)
 import Glossaries from './GlossariesView.vue'
 import Editor from '../../../components/admin/TermEditor.vue'
+import EmptyState from '../../../components/common/EmptyState.vue'
 
 import { pendingGovernanceWrites } from '../../../composables/governanceWriteTracker'
 const group = { id: 31, name: 'sales', displayName: '销售业务', status: 'PUBLISHED' },
@@ -155,4 +156,40 @@ it.each([0, 2])('已审术语只生成真实有权知识源入口(知识授权�
   } finally {
     w.unmount()
   }
+})
+
+it('术语无匹配时重置筛选，不引导创建重复术语', async () => {
+  const w = page()
+  try {
+    await settle()
+    ;(w.vm as any).termKeyword = 'missing'
+    ;(w.vm as any).termStatusFilter = 'APPROVED'
+    await settle()
+    const empty = w.findAllComponents(EmptyState).find(component => component.props('message') === '当前筛选条件下没有术语。')!
+    expect(empty.props('actionText')).toBe('清除筛选')
+    empty.vm.$emit('action')
+    await settle()
+    expect((w.vm as any).termKeyword).toBe('')
+    expect((w.vm as any).termStatusFilter).toBe('')
+    expect(w.find('.term-list__select').text()).toContain(term.displayName)
+    expect(s.api.saveTermDraft).not.toHaveBeenCalled()
+  } finally { w.unmount() }
+})
+
+it('只读空目录不提供分组或术语创建动作', async () => {
+  s.iam.codes = ['glossary:view']
+  s.route.query = { glossaryId: '31' }
+  s.api.listTerms.mockResolvedValue({ data: [] })
+  const w = page()
+  try {
+    await settle()
+    const empty = w.findAllComponents(EmptyState).find(component => component.props('message') === '该术语分组还没有术语。')!
+    expect(empty.props('actionText')).toBe('')
+    s.api.listGlossaries.mockResolvedValue({ data: [] })
+    await (w.vm as any).loadGlossaries()
+    await settle()
+    expect(w.findAllComponents(EmptyState).every(component => !component.props('actionText'))).toBe(true)
+    expect(s.api.createGlossary).not.toHaveBeenCalled()
+    expect(s.api.saveTermDraft).not.toHaveBeenCalled()
+  } finally { w.unmount() }
 })

@@ -188,6 +188,16 @@ const query = reactive({
   size: 20,
 })
 
+const advancedFilterCount = computed(
+  () => [query.dimension, query.severity, query.assigneeId].filter(Boolean).length,
+)
+// URL 恢复的条件直接展开；手动收起后仍显示计数，避免隐藏筛选被误认为空数据。
+watch(
+  () => [query.dimension, query.severity, query.assigneeId],
+  (values) => { if (values.some(Boolean)) advancedFiltersOpen.value = true },
+  { immediate: true },
+)
+
 /** 责任人筛选是否正落在「我自己」上，用于高亮快捷按钮 */
 const isMyIssuesFilter = computed(
   () => Boolean(currentUserId.value) && query.assigneeId === currentUserId.value,
@@ -317,6 +327,8 @@ async function fetchIssues() {
     resultLoaded.value = true
   } catch (error) {
     if (disposed || currentRequest !== issueRequestId || requestedSnapshot !== snapshotId.value) return
+    // 只诊断仍属于当前范围的失败，不记录问题描述、筛选值或原始请求异常。
+    console.warn('[治理问题读取失败]', { stage: 'ISSUE_LIST', snapshotId: requestedSnapshot })
     issues.value = []
     total.value = null
     resultLoaded.value = false
@@ -865,7 +877,6 @@ onBeforeUnmount(() => {
     <TaskPageHeader
       title="问题中心"
       eyebrow="数据治理 / 问题处理"
-      description-mode="inline"
       description="查找、分派并处理当前范围的问题。暂无问题记录不代表已经完成质量检查；来源与字段语义问题分别处理。"
     >
       <template #actions>
@@ -951,6 +962,7 @@ onBeforeUnmount(() => {
           @click="advancedFiltersOpen = !advancedFiltersOpen"
         >
           更多筛选
+          <el-tag v-if="advancedFilterCount" size="small" round>{{ advancedFilterCount }}</el-tag>
         </el-button>
         <el-button
           class="issue-filter__my-issues"

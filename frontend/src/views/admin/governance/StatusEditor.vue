@@ -304,8 +304,7 @@ onBeforeUnmount(() => {
     <TaskPageHeader
       title="治理状态维护"
       eyebrow="数据治理 / 对象可用性"
-      description-mode="inline"
-      description="维护当前快照的对象可用状态。废弃或阻断会影响后续检索和查询；修改状态不等于修复质量问题。"
+      description="维护当前快照中表与字段的可用状态。"
     >
       <template #actions><el-button :icon="RefreshCw" @click="refresh">刷新</el-button></template>
     </TaskPageHeader>
@@ -332,7 +331,7 @@ onBeforeUnmount(() => {
       <section class="table-list-panel">
         <h3>
           表与治理状态
-          <small>已加载 {{ tables.length }} 张表</small>
+          <small>{{ loading ? '读取中' : tableError ? '读取失败' : `已加载 ${tables.length} 张表` }}</small>
         </h3>
         <el-input v-model="tableSearch" clearable placeholder="搜索表名或说明" aria-label="搜索治理状态表" />
         <div v-loading="loading" class="table-items">
@@ -353,6 +352,7 @@ onBeforeUnmount(() => {
             </button>
             <el-select
               :model-value="t.governanceStatus"
+              :aria-label="`${t.tableName} 的治理状态`"
               :loading="tableActionLoading[t.tableName]"
               size="small"
               style="width: 110px"
@@ -369,7 +369,9 @@ onBeforeUnmount(() => {
             "
             :description="tables.length ? '没有匹配的表' : '当前快照没有表'"
             :image-size="60"
-          />
+          >
+            <el-button v-if="tables.length" @click="tableSearch = ''">清除搜索</el-button>
+          </el-empty>
         </div>
       </section>
 
@@ -406,6 +408,7 @@ onBeforeUnmount(() => {
             <template #default="{ row }">
               <el-select
                 :model-value="row.governanceStatus"
+                :aria-label="`${selectedTable}.${row.columnName} 的治理状态`"
                 :loading="columnActionLoading[row.id]"
                 size="small"
                 :disabled="!canManageStatus || tableActionLoading[selectedTable]"

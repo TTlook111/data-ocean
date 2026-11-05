@@ -59,6 +59,24 @@ describe('useQuerySubmit recovery state', () => {
     expect(isLocallyResumable({ status: result.status, localWaitTimedOut: result.localWaitTimedOut })).toBe(false)
   })
 
+  it('轮询故障日志保留诊断字段，但不输出请求凭据、问题正文和异常回执', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      vi.mocked(iamS1StreamTask).mockResolvedValue(undefined as never)
+      vi.mocked(iamS1GetTask).mockRejectedValue({
+        message: 'private-provider-message',
+        config: { headers: { Authorization: 'Bearer private-token' }, data: 'private-question' },
+        response: { status: 503, data: { message: 'private-response' } },
+      })
+      const submit = createSubmit()
+      await submit.pollTaskResult('task-safe-id', undefined, 3, 1)
+      expect(warning).toHaveBeenLastCalledWith('[问数轮询失败]', {
+        taskId: 'task-safe-id', consecutiveErrors: 3, httpStatus: 503, elapsedMs: expect.any(Number),
+      })
+      expect(JSON.stringify(warning.mock.calls)).not.toMatch(/private-|Authorization|Bearer/)
+    } finally { warning.mockRestore() }
+  })
+
   it('shows a resume failure instead of silently polling the unchanged task', async () => {
     const message: LocalMessage = {
       id: 'assistant-1',

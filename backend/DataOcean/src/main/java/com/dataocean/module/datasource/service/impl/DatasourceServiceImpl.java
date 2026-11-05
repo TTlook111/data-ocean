@@ -37,6 +37,8 @@ import java.util.stream.Collectors;
  * <p>
  * 实现数据源的完整生命周期管理，包括创建、更新、删除、查询、状态变更和连接测试。
  * 所有写操作均在事务中执行，创建和更新前强制进行连接测试以确保数据源可用。
+ * 方法内的写入日志发生在事务提交之前，仅表示已执行数据库写入；最终提交仍由事务拦截器裁决。
+ * 连接参数、凭证及请求正文不进入生命周期日志，排查时通过数据源 ID 关联。
  * </p>
  *
  * @author dataocean
@@ -92,8 +94,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         secretMapper.insert(secret);
         // 记录手动健康检查结果
         recordManualHealth(datasource.getId(), testResult);
-        log.info("数据源创建成功 datasourceId={} name={} host={} database={}",
-                datasource.getId(), datasource.getName(), datasource.getHost(), datasource.getDatabaseName());
+        log.info("数据源创建数据已写入，等待事务提交 datasourceId={}", datasource.getId());
         return getDatasourceById(datasource.getId());
     }
 
@@ -147,7 +148,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         secretMapper.updateById(secret);
         // 记录手动健康检查结果
         recordManualHealth(id, testResult);
-        log.info("数据源更新成功 datasourceId={} passwordChanged={}", id, passwordChanged);
+        log.info("数据源更新数据已写入，等待事务提交 datasourceId={} passwordChanged={}", id, passwordChanged);
         return getDatasourceById(id);
     }
 
@@ -165,7 +166,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         datasourceMapper.updateById(datasource);
         // 通知 Python 服务销毁连接池
         pythonPoolClient.destroyPool(id);
-        log.info("数据源已软删除 datasourceId={}", id);
+        log.info("数据源软删除标记已写入，等待事务提交 datasourceId={}", id);
     }
 
     /**
@@ -240,7 +241,7 @@ public class DatasourceServiceImpl implements DatasourceService {
         }
         datasource.setStatus(status);
         datasourceMapper.updateById(datasource);
-        log.info("数据源状态更新成功 datasourceId={} status={}", id, status);
+        log.info("数据源状态已写入，等待事务提交 datasourceId={} status={}", id, status);
         return getDatasourceById(id);
     }
 

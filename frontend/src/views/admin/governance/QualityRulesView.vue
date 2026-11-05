@@ -1279,7 +1279,6 @@ onBeforeUnmount(() => {
     <TaskPageHeader
       title="质量规则"
       eyebrow="数据治理 / 来源质量配置"
-      description-mode="inline"
       description="配置原始结构和只读数据的质量检查。业务用途、表关系、字段解释及标签缺口在知识治理任务中处理；两类问题分别保留证据。"
     >
       <template #actions>
@@ -1398,7 +1397,8 @@ onBeforeUnmount(() => {
           </el-tag>
           <ChevronDown :size="14" aria-hidden="true" />
         </el-button>
-        <span v-if="!rulesLoading && canViewRules" class="quality-rules-page__result-count">
+        <el-button v-if="hasRuleFilters" text @click="clearAllRuleFilters">清除筛选</el-button>
+        <span v-if="!rulesLoading && !rulesError && canViewRules" class="quality-rules-page__result-count">
           共 {{ rulesTotal }} 条规则
         </span>
       </div>
@@ -1432,7 +1432,6 @@ onBeforeUnmount(() => {
           />
         </el-select>
         <el-checkbox v-model="showDeleted">查看已删除</el-checkbox>
-        <el-button text @click="clearAllRuleFilters">清除筛选</el-button>
       </div>
       <ErrorState v-if="templatesError" :message="templatesError" @retry="loadTemplates" />
       <ErrorState v-if="rulesError" :message="rulesError" @retry="loadRules" />

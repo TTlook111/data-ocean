@@ -864,18 +864,18 @@ onBeforeUnmount(() => {
       </template>
     </TaskPageHeader>
 
-    <section class="release-path" aria-label="元数据到问数的准备路径">
-      <div class="release-path__head">
-        <h2>从采集到问数</h2>
+    <details class="release-path" aria-label="元数据到问数的准备路径">
+      <summary class="release-path__head">
+        <strong>版本准备流程</strong>
         <span>每一步分别核对，不会自动串联</span>
-      </div>
+      </summary>
       <ol class="release-path__list">
         <li class="release-path__item"><span class="release-path__no">01</span><div class="release-path__copy"><strong>核对采集</strong><span>比较结构、查看来源质量</span></div></li>
         <li class="release-path__item"><span class="release-path__no">02</span><div class="release-path__copy"><strong>审核版本</strong><span>人工批准后才能发布</span></div></li>
         <li class="release-path__item"><span class="release-path__no">03</span><div class="release-path__copy"><strong>发布快照</strong><span>成为当前正式元数据来源</span></div></li>
         <li class="release-path__item"><span class="release-path__no">04</span><div class="release-path__copy"><strong>准备知识</strong><span>文档发布与索引构建另行确认</span></div></li>
       </ol>
-    </section>
+    </details>
     <div v-if="scopeError" role="alert" class="release-action-notice">{{ scopeError }}</div>
     <section v-if="unknownAction" role="status" class="release-action-notice">快照 #{{ uncertainWrite?.snapshot }} 的 {{ uncertainWrite?.action }} 结果待确认。切换范围不会清除此记录；离开重进仍保留本次会话记录；整页刷新后仍需人工核对原目标，不可推定请求已取消。<el-button :loading="verifyingWrite" @click="verifyUncertainWrite">核对该快照操作记录</el-button><p>{{ actionNotice }}</p></section>
     <section v-if="actionError" class="release-action-notice" role="alert"><strong>{{ actionError }}</strong><p>{{ actionNotice }}</p><p v-if="revokeReason">已保留撤回原因：{{ revokeReason }}</p><el-button :loading="listLoading" @click="load">重读版本与当前正式版</el-button></section>
@@ -1171,8 +1171,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .release-path { min-width: 0; overflow: hidden; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); box-shadow: var(--do-shadow); }
-.release-path__head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; padding: 14px 18px 10px; }
-.release-path__head h2 { margin: 0; color: var(--do-ink); font-size: 14px; font-weight: 650; }
+.release-path__head { display: list-item; padding: 12px 18px; cursor: pointer; color: var(--do-muted); font-size: 12px; }
+.release-path__head:focus-visible { outline: 2px solid var(--do-primary); outline-offset: -3px; }
+.release-path__head strong { margin-right: 12px; color: var(--do-ink); font-size: 12px; font-weight: 600; }
 .release-path__head span { color: var(--do-muted); font-size: 11.5px; }
 .release-path__list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0 18px 16px; list-style: none; }
 .release-path__item { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 8px 18px 4px 0; }

@@ -554,6 +554,27 @@ describe('问题中心分派详情会话隔离', () => {
 })
 
 describe('问题中心的范围、筛选和结果表达', () => {
+  it('恢复的高级筛选直接可见，手动收起后仍能看到活动条件数', async () => {
+    reactiveRouteState.query = { severity: 'HIGH', dimension: 'COMPLETENESS' }
+    respond(capability({ onDatasource: ['governance:issue:view'] }))
+    const wrapper = mountIssuePage()
+    await settle()
+
+    const toggle = wrapper.get('[aria-controls="issue-advanced-filters"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(toggle.text()).toContain('2')
+    expect(wrapper.get('#issue-advanced-filters').isVisible()).toBe(true)
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(toggle.text()).toContain('2')
+    expect(api.listQualityIssues).toHaveBeenLastCalledWith(8, expect.objectContaining({ severity: 'HIGH', dimension: 'COMPLETENESS' }))
+
+    reactiveRouteState.query = { severity: 'LOW', dimension: 'COMPLETENESS' }
+    await settle()
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(api.listQualityIssues).toHaveBeenLastCalledWith(8, expect.objectContaining({ severity: 'LOW' }))
+  })
+
   it('范围由公共上下文提供，页面只有问题筛选且刷新进入标题操作区', async () => {
     respond(capability({ onDatasource: ['governance:issue:view'] }))
     const wrapper = mountIssuePage()
@@ -803,6 +824,27 @@ describe('问题中心的范围、筛选和结果表达', () => {
 })
 
 describe('治理状态维护的能力控制', () => {
+  it('表搜索无匹配时可以直接清除，状态控件明确标识所属表与字段', async () => {
+    respond(capability({ onDatasource: ['metadata:view', 'governance:rule:manage'] }))
+    const context = useAdminContextStore()
+    context.$patch({ datasources: [{ id: 5, name: '销售库' }], datasourceId: 5, snapshotId: 8, initialized: true })
+    api.listSnapshotTables.mockResolvedValue({ data: [{ id: 1, tableName: 'orders', governanceStatus: 'NORMAL' }] })
+    api.listSnapshotTableColumns.mockResolvedValue({ data: [{ id: 11, columnName: 'amount', governanceStatus: 'NORMAL' }] })
+    const wrapper = mountPage(StatusEditor)
+    await settle()
+    expect(wrapper.find('input[aria-label="orders 的治理状态"]').exists()).toBe(true)
+    await wrapper.get('.table-name').trigger('click')
+    await settle()
+    expect(wrapper.find('input[aria-label="orders.amount 的治理状态"]').exists()).toBe(true)
+
+    await wrapper.get('input[aria-label="搜索治理状态表"]').setValue('missing')
+    expect(wrapper.text()).toContain('没有匹配的表')
+    await wrapper.findAll('button').find(button => button.text() === '清除搜索')!.trigger('click')
+    expect(wrapper.find('.table-name').text()).toContain('orders')
+    expect(api.updateTableGovernanceStatus).not.toHaveBeenCalled()
+    expect(api.updateColumnGovernanceStatus).not.toHaveBeenCalled()
+  })
+
   it('只读取公共范围的历史快照，不重复选择或回退最新快照', async () => {
     respond(capability({ onDatasource: ['metadata:view'] }))
     const context = useAdminContextStore()
@@ -854,6 +896,20 @@ describe('治理状态维护的能力控制', () => {
 })
 
 describe('质量规则管理的能力控制', () => {
+  it('主筛选无匹配时可在工具栏直接重置，不要求展开更多筛选', async () => {
+    respond(capability({ onDatasource: ['governance:rule:view'] }))
+    const wrapper = mountPage(QualityRulesView)
+    await settle()
+    const toolbar = wrapper.get('.quality-rules-page__filters')
+    await toolbar.get('input[aria-label="搜索规则名称"]').setValue('missing')
+    await settle()
+    expect(wrapper.find('#quality-rule-advanced-filters').exists()).toBe(false)
+    await toolbar.findAll('button').find(button => button.text() === '清除筛选')!.trigger('click')
+    await settle()
+    expect((toolbar.get('input[aria-label="搜索规则名称"]').element as HTMLInputElement).value).toBe('')
+    expect(api.listQualityRules).toHaveBeenLastCalledWith(expect.objectContaining({ ruleName: undefined, enabled: undefined }))
+  })
+
   const globalRule = {
     id: 3, ruleCode: 'QR-3', templateCode: 'COMP_COLUMN_COMMENT_MISSING', ruleName: '字段说明规则',
     dimension: 'COMPLETENESS', severity: 'HIGH', description: '', checkTarget: 'COLUMN', checkType: 'SCHEMA',

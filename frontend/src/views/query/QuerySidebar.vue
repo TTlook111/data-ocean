@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import type { DropdownInstance } from 'element-plus'
 import { History, LogOut, MessageSquarePlus, Search, ShieldCheck, Trash2, UserCog, UserRound } from 'lucide-vue-next'
 import brandMark from '../../assets/brand/dataocean-mark.png'
 import type { LocalSession } from '../../composables/useQuerySession'
@@ -30,9 +31,33 @@ const emit = defineEmits<{
   'retry-history': []
 }>()
 
-const searchOpen = ref(false)
+const searchOpen = ref(Boolean(props.keyword))
+const searchInput = ref<HTMLInputElement>()
+const searchToggle = ref<HTMLButtonElement>()
 const userMenuOpen = ref(false)
+const userDropdown = ref<DropdownInstance>()
+const userMenuTrigger = ref<HTMLButtonElement>()
 const sessionCount = computed(() => props.datasourceSessions.length)
+
+// 筛选条件必须始终可见；关闭搜索同时清空父级关键词，避免列表被隐藏条件过滤。
+async function toggleHistorySearch() {
+  searchOpen.value = !searchOpen.value
+  if (!searchOpen.value) emit('update:keyword', '')
+  await nextTick()
+  if (searchOpen.value) searchInput.value?.focus()
+  else searchToggle.value?.focus()
+}
+
+function closeHistorySearch() {
+  if (searchOpen.value) void toggleHistorySearch()
+}
+
+watch(() => props.keyword, value => { if (value) searchOpen.value = true })
+
+function closeUserMenu() {
+  userDropdown.value?.handleClose()
+  userMenuTrigger.value?.focus()
+}
 
 const groupedSessions = computed(() => {
   const now = new Date()
@@ -72,7 +97,6 @@ function formatSessionTime(value: string) {
 }
 
 function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
-  userMenuOpen.value = false
   emit('user-command', command)
 }
 </script>
@@ -101,11 +125,11 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
       <div class="history-heading">
         <span>历史会话</span>
         <small class="history-count">{{ sessionCount }}</small>
-        <button type="button" :aria-pressed="searchOpen" aria-label="搜索历史会话" @click="searchOpen = !searchOpen"><Search :size="15" /></button>
+        <button ref="searchToggle" type="button" :aria-expanded="searchOpen" :aria-label="searchOpen ? '关闭会话搜索' : '搜索历史会话'" @click="toggleHistorySearch"><Search :size="15" aria-hidden="true" /></button>
       </div>
       <label v-if="searchOpen" class="history-search">
         <Search :size="14" aria-hidden="true" />
-        <input :value="keyword" type="search" placeholder="搜索会话" aria-label="搜索历史会话" @input="emit('update:keyword', ($event.target as HTMLInputElement).value)" />
+        <input ref="searchInput" :value="keyword" type="search" placeholder="搜索会话" aria-label="搜索历史会话" @input="emit('update:keyword', ($event.target as HTMLInputElement).value)" @keydown.esc.stop.prevent="closeHistorySearch" />
       </label>
       <div v-if="loading" class="history-empty" role="status">正在读取会话…</div>
       <div v-else-if="errorMessage" class="history-empty history-error" role="alert">{{ errorMessage }}<button class="retry-history" type="button" @click="emit('retry-history')">重试历史会话</button></div>
@@ -141,24 +165,22 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
     </section>
 
     <div class="sidebar-user-wrap">
-      <Transition name="user-menu">
-        <div v-if="userMenuOpen" class="sidebar-user-menu" role="menu" aria-label="用户菜单">
-          <div class="menu-profile">
-            <span class="sidebar-avatar" aria-hidden="true">{{ displayName.slice(0, 1) }}</span>
-            <span class="sidebar-user-copy"><strong>{{ displayName }}</strong><small>{{ roleText }}</small></span>
-          </div>
-          <div class="menu-divider"></div>
-          <button type="button" role="menuitem" @click="runUserCommand('profile')"><UserRound :size="16" aria-hidden="true" /><span>个人资料</span></button>
-          <button type="button" role="menuitem" @click="runUserCommand('password')"><ShieldCheck :size="16" aria-hidden="true" /><span>修改密码</span></button>
-          <button v-if="canEnterAdmin" type="button" role="menuitem" @click="runUserCommand('admin')"><UserCog :size="16" aria-hidden="true" /><span>后台管理</span></button>
-          <div class="menu-divider"></div>
-          <button type="button" role="menuitem" class="danger" @click="runUserCommand('logout')"><LogOut :size="16" aria-hidden="true" /><span>退出登录</span></button>
-        </div>
-      </Transition>
-      <button class="sidebar-user" type="button" :aria-expanded="userMenuOpen" aria-label="打开用户菜单" @click="userMenuOpen = !userMenuOpen">
-        <span class="sidebar-avatar" aria-hidden="true">{{ displayName.slice(0, 1) }}</span>
-        <span class="sidebar-user-copy"><strong>{{ displayName }}</strong><small>{{ roleText }}</small></span>
-      </button>
+      <!-- 复用后台相同的下拉组件，统一点击外部、方向键导航和关闭行为。 -->
+      <el-dropdown ref="userDropdown" class="sidebar-user-dropdown" popper-class="query-user-menu-popper" trigger="click" placement="top-start" @command="runUserCommand" @visible-change="userMenuOpen = $event">
+        <button ref="userMenuTrigger" class="sidebar-user" type="button" :aria-expanded="userMenuOpen" aria-haspopup="menu" aria-label="打开用户菜单" @keydown.esc.stop.prevent="closeUserMenu">
+          <span class="sidebar-avatar" aria-hidden="true">{{ displayName.slice(0, 1) }}</span>
+          <span class="sidebar-user-copy"><strong>{{ displayName }}</strong><small>{{ roleText }}</small></span>
+        </button>
+        <template #dropdown>
+          <el-dropdown-menu aria-label="用户菜单" @keydown.esc.stop.prevent="closeUserMenu">
+            <li class="query-user-menu-profile" role="presentation"><strong>{{ displayName }}</strong><small>{{ roleText }}</small></li>
+            <el-dropdown-item command="profile"><UserRound :size="16" aria-hidden="true" />个人资料</el-dropdown-item>
+            <el-dropdown-item command="password"><ShieldCheck :size="16" aria-hidden="true" />修改密码</el-dropdown-item>
+            <el-dropdown-item v-if="canEnterAdmin" command="admin"><UserCog :size="16" aria-hidden="true" />后台管理</el-dropdown-item>
+            <el-dropdown-item divided command="logout" class="query-user-menu-logout"><LogOut :size="16" aria-hidden="true" />退出登录</el-dropdown-item>
+          </el-dropdown-menu>
+        </template>
+      </el-dropdown>
     </div>
   </aside>
 </template>
@@ -208,6 +230,7 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 .history-delete:hover { color: var(--do-danger); background: var(--do-danger-soft); opacity: 1; }
 .history-empty { padding: 12px 8px; color: var(--do-muted); font-size: 12px; }
 .sidebar-user-wrap { position: relative; padding-top: 8px; border-top: 1px solid var(--do-glass-line); }
+.sidebar-user-dropdown { width: 100%; }
 .sidebar-user { width: 100%; min-height: 48px; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 9px; padding: 6px 7px; border: 0; border-radius: 9px; color: var(--do-ink); background: transparent; text-align: left; cursor: pointer; transition: background var(--do-transition-fast); }
 .sidebar-user:hover { background: color-mix(in srgb, var(--do-primary) 8%, transparent); }
 .sidebar-avatar { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: #fff; background: var(--do-primary); font-size: 11px; font-weight: 900; }
@@ -215,15 +238,7 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 .sidebar-user-copy strong, .sidebar-user-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-user-copy strong { font-size: 13px; line-height: 1.2; }
 .sidebar-user-copy small { margin-top: 3px; color: var(--do-muted); font-size: 11px; }
-.sidebar-user-menu { position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); z-index: 90; padding: 8px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); box-shadow: var(--do-shadow-lg); }
-.menu-profile { min-height: 48px; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 9px; padding: 5px 7px; }
-.sidebar-user-menu > button { width: 100%; min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 9px; border: 0; border-radius: var(--do-radius-sm); color: var(--do-ink); background: transparent; font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
-.sidebar-user-menu > button:hover { background: var(--do-bg); }
-.sidebar-user-menu > button.danger { color: var(--do-danger); }
-.menu-divider { height: 1px; margin: 6px 4px; background: var(--do-line); }
-.user-menu-enter-active, .user-menu-leave-active { transition: opacity 140ms ease, transform 140ms ease; transform-origin: bottom left; }
-.user-menu-enter-from, .user-menu-leave-to { opacity: 0; transform: translateY(6px) scale(.98); }
-.query-brand:focus-visible, .new-session-button:focus-visible, .mobile-history-toggle:focus-visible, .history-heading button:focus-visible, .history-select:focus-visible, .history-delete:focus-visible, .sidebar-user:focus-visible, .sidebar-user-menu > button:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 30%, transparent); outline-offset: 2px; }
+.query-brand:focus-visible, .new-session-button:focus-visible, .mobile-history-toggle:focus-visible, .history-heading button:focus-visible, .history-select:focus-visible, .history-delete:focus-visible, .sidebar-user:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 30%, transparent); outline-offset: 2px; }
 @media (max-width: 1279px) and (min-width: 769px) { .query-sidebar { padding-inline: 10px; } }
 @media (max-width: 768px) {
   .query-sidebar { position: relative; top: 0; height: auto; grid-template-columns: minmax(0, 1fr) auto 44px; grid-template-rows: 44px auto auto; grid-template-areas: "brand new user" "toggle toggle toggle" "history history history"; gap: 8px; padding: 8px 12px; border-radius: 14px; border-bottom: 1px solid var(--do-glass-line); }
@@ -243,9 +258,7 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
   .sidebar-user-wrap { grid-area: user; padding-top: 0; border-top: 0; }
   .sidebar-user { width: 44px; height: 44px; min-height: 44px; display: flex; justify-content: center; padding: 4px; }
   .sidebar-user-copy { display: none; }
-  .sidebar-user-menu { top: calc(100% + 8px); right: 0; bottom: auto; width: min(300px, calc(100vw - 24px)); }
 }
-@media (prefers-reduced-motion: reduce) { .user-menu-enter-active, .user-menu-leave-active { transition-duration: 1ms; } }
 
 .query-sidebar { gap: 22px; padding: 22px 16px 12px; border-radius: 0; border-right: 1px solid var(--do-line); background: var(--do-sidebar); }
 .query-brand { grid-template-columns: 28px minmax(0, 1fr); gap: 12px; padding-inline: 6px; }
@@ -270,6 +283,21 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 </style>
 
 <style>
+.query-user-menu-popper.el-popper { max-width: calc(100vw - 24px); border-color: var(--do-line); border-radius: var(--do-radius-md); box-shadow: var(--do-shadow-lg); }
+.query-user-menu-popper .el-dropdown-menu { min-width: 200px; padding: 6px; background: var(--do-surface); }
+.query-user-menu-popper .query-user-menu-profile { display: none; }
+.query-user-menu-popper .el-dropdown-menu__item { min-height: 40px; gap: 10px; border-radius: var(--do-radius-sm); color: var(--do-ink); font-size: 13px; }
+.query-user-menu-popper .el-dropdown-menu__item:not(.is-disabled):hover,
+.query-user-menu-popper .el-dropdown-menu__item:not(.is-disabled):focus { color: var(--do-primary-strong); background: var(--do-primary-soft); }
+.query-user-menu-popper .query-user-menu-logout { color: var(--do-danger); }
+.query-user-menu-popper .query-user-menu-logout:not(.is-disabled):hover,
+.query-user-menu-popper .query-user-menu-logout:not(.is-disabled):focus { color: var(--do-danger); background: var(--do-danger-soft); }
+@media (max-width: 768px) {
+  /* 窄屏触发器只显示头像，菜单内补回当前身份，方便操作前核对账号。 */
+  .query-user-menu-popper .query-user-menu-profile { display: grid; gap: 4px; padding: 8px 12px 12px; margin-bottom: 4px; border-bottom: 1px solid var(--do-line); color: var(--do-ink); overflow-wrap: anywhere; }
+  .query-user-menu-profile strong { font-size: 13px; }
+  .query-user-menu-profile small { font-size: 12px; color: var(--do-muted); }
+}
 /* 历史标题单行截断后，用浮层补齐悬停与键盘聚焦时的完整标题。 */
 .history-title-tooltip.el-popper.el-tooltip__popper {
   max-width: min(280px, calc(100vw - 24px));

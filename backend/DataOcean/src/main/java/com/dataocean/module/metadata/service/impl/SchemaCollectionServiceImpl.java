@@ -115,6 +115,9 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
 
         // 创建任务并通过代理调用异步方法
         SchemaSyncTask task = syncTaskService.createTask(datasourceId, triggerType, triggeredBy);
+        // 任务 ID 是前端后续轮询的关联依据；创建任务不表示采集已完成，也不表示快照已发布。
+        log.info("元数据采集任务已创建 datasourceId={} taskId={} triggerType={} includeStatistics={}",
+                datasourceId, task.getId(), triggerType, includeStatistics);
         self.doSyncAsync(datasourceId, task, includeStatistics);
         return task.getId();
     }
@@ -131,12 +134,23 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
      */
     @Async
     public void doSyncAsync(Long datasourceId, SchemaSyncTask task, boolean includeStatistics) {
+        long started = System.nanoTime();
         try {
             syncTaskService.updateStatus(task.getId(), SchemaSyncTask.STATUS_RUNNING, null);
+            log.info("元数据采集开始执行 datasourceId={} taskId={} includeStatistics={}",
+                    datasourceId, task.getId(), includeStatistics);
             doSync(datasourceId, task, includeStatistics);
             syncTaskService.updateStatus(task.getId(), SchemaSyncTask.STATUS_SUCCESS, null);
+            // doSync 返回后采集事务已提交，且 SUCCESS 状态已写入；只有此处记录任务完成。
+            // 快照审核、发布和 RAG 构建仍是后续独立流程，不在采集完成时自动推进。
+            log.info("元数据采集任务完成 datasourceId={} taskId={} elapsedMs={}",
+                    datasourceId, task.getId(), (System.nanoTime() - started) / 1_000_000L);
         } catch (Exception e) {
-            log.error("元数据同步失败 datasourceId={}", datasourceId, e);
+            // JDBC/采集异常正文可能包含连接信息或业务字段；运行日志只保留关联 ID、耗时和异常类型。
+            // 前端任务错误的持久化口径沿用现有逻辑，不因日志精简改变任务状态或重试行为。
+            log.error("元数据采集任务失败 datasourceId={} taskId={} elapsedMs={} errorType={} causeType={}",
+                    datasourceId, task.getId(), (System.nanoTime() - started) / 1_000_000L,
+                    e.getClass().getSimpleName(), e.getCause() == null ? null : e.getCause().getClass().getSimpleName());
             syncTaskService.updateStatus(task.getId(), SchemaSyncTask.STATUS_FAILED, e.getMessage());
         }
     }
@@ -210,7 +224,8 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
                             try {
                                 table.setIndexesInfo(objectMapper.writeValueAsString(indexes));
                             } catch (Exception e) {
-                                log.warn("序列化索引信息失败 table={}", table.getTableName(), e);
+                                log.warn("序列化索引信息失败 datasourceId={} taskId={} snapshotId={} errorType={}",
+                                        datasourceId, task.getId(), snapshot.getId(), e.getClass().getSimpleName());
                             }
                         }
                         tableMetaMapper.insert(table);
@@ -259,7 +274,9 @@ public class SchemaCollectionServiceImpl implements SchemaCollectionService {
                     eventPublisher.publishEvent(new MetadataSnapshotCollectedEvent(
                             datasourceId, snapshot.getId(), task.getTriggeredBy()));
 
-                    log.info("元数据同步完成 datasourceId={} 表数={} 字段数={}", datasourceId, tables.size(), totalColumns);
+                    // 这里仍在快照事务内部；提交失败会整体回滚，不能提前输出“同步完成”。
+                    log.debug("元数据快照已写入，等待事务提交 datasourceId={} taskId={} snapshotId={} tables={} columns={} relations={}",
+                            datasourceId, task.getId(), snapshot.getId(), tables.size(), totalColumns, allRelations.size());
                 } catch (Exception e) {
                     // 标记事务回滚
                     status.setRollbackOnly();

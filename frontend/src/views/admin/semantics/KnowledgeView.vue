@@ -202,10 +202,15 @@ async function confirmBuild(){
   if(!buildVisible.value || !source || !snapshot || !Number.isSafeInteger(snapshot) || snapshot<=0 || !canOn('knowledge:publish',source) || ragBuildActionDatasourceId.value!=null || unknownBuild.value)return
   const t=scopeTicket(),seq=++buildSequence;ragBuildActionDatasourceId.value=source;actionError.value=''
   try{
+    // 构建确认固定来源；未知写保留共享记录，旧活动索引不能充当本次成功回执。
     await trackKnowledgeWrite({identity:t.identity,source,snapshotId:snapshot,kind:'rag-build',started:Date.now()},()=>confirmRagBuild(source,snapshot))
     if(!current(t) || seq!==buildSequence)return
     buildVisible.value=false;ElMessage.success('构建请求已接受；仅新build核验通过后才切换，旧build资格由后端判断。');await Promise.all([loadRagBuilds(),loadReadiness()])
-  }catch(cause){if(current(t) && seq===buildSequence)actionError.value=apiError(cause,'构建请求未完成')+'；请重读构建记录核对原来源；旧build不证明本次成功，结果未知不自动重发。'}
+  }catch(cause){if(current(t) && seq===buildSequence){
+    const status=(cause as {response?:{status?:number}})?.response?.status
+    console.warn('[知识索引构建确认未完成]',{stage:'RAG_BUILD_CONFIRM',datasourceId:source,snapshotId:snapshot,httpStatus:Number.isInteger(status)?status:null})
+    actionError.value=apiError(cause,'构建请求未完成')+'；请重读构建记录核对原来源；旧build不证明本次成功，结果未知不自动重发。'
+  }}
   finally{if(current(t) && seq===buildSequence)ragBuildActionDatasourceId.value=null}
 }
 function closeBuild(){buildSequence++;buildVisible.value=false;buildOptionsLoading.value=false;buildOptions.value=[]}
@@ -612,8 +617,8 @@ watch(() => route.query.page, (value) => {
 
 <template>
   <div class="admin-page knowledge-page">
-    <p class="knowledge-page__eyebrow">语义中心 / 知识准备</p>
     <TaskPageHeader
+      eyebrow="语义中心"
       :title="activeTab === 'index' ? '构建与索引' : '知识文档'"
       :description="activeTab === 'index' ? '核对当前活动来源与构建记录；准备和最终确认分开。' : '整理业务知识，分别完成审核、发布与显式索引构建。'"
     >
@@ -625,8 +630,7 @@ watch(() => route.query.page, (value) => {
       </template>
     </TaskPageHeader>
 
-    <p v-if="activeTab!=='index'" class="knowledge-page__purpose">把已核对的业务事实整理成主题文档。审核、发布和检索索引各自留有证据。</p>
-    <ol v-if="activeTab!=='index'" class="knowledge-journey"><li><strong>整理主题</strong><span>结构目录与人工正文</span></li><li><strong>审核依据</strong><span>候选需人工采纳与核对</span></li><li><strong>发布文档</strong><span>固定已审核版本与来源</span></li><li><strong>确认构建</strong><span>隔离核验后切换活动索引</span></li></ol>
+    <ol v-if="activeTab!=='index'" class="knowledge-journey" aria-label="知识准备流程"><li><strong>整理主题</strong></li><li><strong>审核依据</strong></li><li><strong>发布文档</strong></li><li><strong>确认构建</strong></li></ol>
     <p v-if="scopeError" role="alert" class="knowledge-write-notice">{{ scopeError }}</p>
     <section v-if="actionError" role="alert" class="knowledge-write-notice">{{ actionError }}<p v-if="reviewComment">保留意见：{{ reviewComment }}</p></section>
     <template v-if="activeTab!=='index'">
@@ -878,18 +882,17 @@ watch(() => route.query.page, (value) => {
       <p v-if="unknownGeneration" role="alert" class="knowledge-write-notice">此来源生成请求执行中或结果待确认，请重读文档列表核对，不能重复创建同组草稿。</p>
       <template v-if="!generatedDocs.length">
         <p class="generate-hint">
-          按所选 snapshotId 确定性列出该快照的全部表和字段，标出字段来源、治理状态、已确认关系与血缘。
-          缺少可靠释义时保留“待确认”。草稿仍需人工审核、发布，再单独确认数据源级 RAG build。
+          按所选快照生成完整目录；缺少可靠释义时保留“待确认”。草稿仍需审核、发布，索引另行确认构建。
         </p>
         <el-form label-width="88px">
           <el-form-item label="数据源">
-            <el-select v-model="generateForm.datasourceId" :disabled="generateLoading" placeholder="选择数据源" style="width: 100%" @change="onGenerateDatasourceChange">
+            <el-select v-model="generateForm.datasourceId" aria-label="目录生成数据源" :disabled="generateLoading" placeholder="选择数据源" style="width: 100%" @change="onGenerateDatasourceChange">
               <el-option v-for="ds in generatableDatasources" :key="ds.id" :label="ds.name" :value="ds.id" />
             </el-select>
           </el-form-item>
           <el-form-item label="快照">
             <ErrorState v-if="snapshotsError" :message="snapshotsError" @retry="generateForm.datasourceId && loadSnapshots(generateForm.datasourceId)" />
-            <el-select v-model="generateForm.snapshotId" placeholder="选择元数据快照" style="width: 100%" :disabled="generateLoading || !generateForm.datasourceId || snapshotsLoading" :loading="snapshotsLoading" loading-text="正在加载快照">
+            <el-select v-model="generateForm.snapshotId" aria-label="目录生成来源快照" placeholder="选择元数据快照" style="width: 100%" :disabled="generateLoading || !generateForm.datasourceId || snapshotsLoading" :loading="snapshotsLoading" loading-text="正在加载快照">
               <el-option v-for="item in snapshots" :key="item.id" :label="`v${item.snapshotVersion} · ${item.status}`" :value="item.id" />
             </el-select>
           </el-form-item>
@@ -943,8 +946,8 @@ watch(() => route.query.page, (value) => {
   .knowledge-build-action { max-width:100%; flex-basis:100%; }
 }
 
-.knowledge-page__eyebrow{margin:0;color:var(--do-primary-strong);font-size:12px;font-weight:650;}.knowledge-page__purpose{margin:-8px 0 0;color:var(--do-muted);font-size:14px;line-height:1.6;}
-.knowledge-journey{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;padding:16px 0;list-style:none;margin:0;border-block:1px solid var(--do-line);}.knowledge-journey li{display:grid;gap:6px;border-left:2px solid var(--do-line);padding-left:14px;}.knowledge-journey li:first-child{border-color:var(--do-primary);}.knowledge-journey strong{font-size:13px;}.knowledge-journey span{font-size:12px;color:var(--do-muted);line-height:1.5;}
+.knowledge-page__eyebrow{margin:0;color:var(--do-primary-strong);font-size:12px;font-weight:650;}
+.knowledge-journey{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px;padding:12px 0;list-style:none;margin:0;border-block:1px solid var(--do-line);}.knowledge-journey li{border-left:2px solid var(--do-line);padding-left:14px;}.knowledge-journey li:first-child{border-color:var(--do-primary);}.knowledge-journey strong{font-size:13px;}
 .knowledge-index-heading{display:flex;justify-content:space-between;gap:20px;align-items:start;flex-wrap:wrap;}.knowledge-index-heading h2{margin:6px 0;}.knowledge-index-heading p{max-width:80ch;color:var(--do-muted);font-size:13px;line-height:1.6;}.knowledge-build-snapshot{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:18px 0;}.knowledge-write-notice{border-left:3px solid var(--do-warning);padding:12px;background:var(--do-soft);font-size:13px;line-height:1.6;overflow-wrap:anywhere;}
 @media(max-width:760px){.knowledge-page :deep(.task-page-header__actions){width:100%;max-width:100%;min-width:0;flex-wrap:wrap;justify-content:flex-start;gap:8px;}.knowledge-page :deep(.task-page-header__actions .el-button){margin-left:0;}.knowledge-page :deep(.el-table-fixed-column--right){position:static!important;}.knowledge-journey{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 8px;}}
 
