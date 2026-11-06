@@ -2,28 +2,15 @@
 
 <p align="center"><strong>Natural-language analytics and governance for enterprise data scenarios</strong></p>
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
-<p align="center"><a href="#product">Product</a> · <a href="#features">Features</a> · <a href="#architecture">Architecture</a> · <a href="#workflow">Query workflow</a> · <a href="#quickstart">Getting started</a> · <a href="#docs">Docs</a></p>
+<p align="center"><a href="#features">Features</a> · <a href="#architecture">Architecture</a> · <a href="#workflow">Query workflow</a> · <a href="#quickstart">Getting started</a> · <a href="#docs">Docs</a></p>
 
 ![A conceptual journey from governed metadata and reviewed knowledge to protected queries](docs/images/readme/cover.webp)
+
+[Illustration sources](docs/images/readme/README.md)
 
 DataOcean connects natural-language querying (NL2SQL) with metadata governance. Business users select one MySQL datasource and ask questions across tables within that database. Data stewards maintain structure, business meaning, and reviewed evidence; the system uses that context to deliver protected tables, charts, and query evidence.
 
 > PC desktops · Currently targets local development and demonstrations. See [project status](docs/项目现状.md) for verified coverage and limitations.
-
-<a id="product"></a>
-
-## Historical UI previews (2026-11-02)
-
-**Query workspace** · Read answers, tables, and charts in a conversation. Open SQL and source evidence on demand.
-
-[![Actual Vue query workspace with synthetic API responses and demo data](docs/images/readme/query.webp)](docs/images/readme/query.webp)
-
-| Workbench · source readiness | Governance · issue distribution |
-| :---: | :---: |
-| [![Actual Vue workbench, synthetic data preview](docs/images/readme/workbench.webp)](docs/images/readme/workbench.webp) | [![Actual Vue governance overview, synthetic data preview](docs/images/readme/governance.webp)](docs/images/readme/governance.webp) |
-| Focus on a source's readiness, blockers, and authorized next step. | Read issue distribution, handling status, and source-check coverage separately. |
-
-Click an image for the full-size view. These are **historical Vue component captures with synthetic API responses from 2026-11-02**, retaining their demo labels. The UI is in Chinese; these captures do not represent the current redesign or establish live business integration. See the [product renewal acceptance report](docs/acceptance/2026-11-06-全站重设计与基础整治.md) for current screens and verification limits. Explanatory illustrations were generated with the built-in image model, never used to fabricate the product UI. See [asset provenance](docs/images/readme/README.md) for sources and versions.
 
 <a id="features"></a>
 
@@ -168,7 +155,7 @@ Most detailed guides are currently in Chinese. Both READMEs link to the same mai
 | UI behavior and remaining work | [Frontend guide](docs/development/前端开发规范.md), [follow-up work](docs/development/后续开发.md) |
 | Making code changes | [AGENTS.md](AGENTS.md) |
 
-Read acceptance evidence within its environment, version, and coverage. Focused page checks and synthetic API previews do not establish project-wide production acceptance. Current UI changes, foundational fixes and verification limits are recorded in the [product renewal acceptance report](docs/acceptance/2026-11-06-全站重设计与基础整治.md). The [original V3 report](docs/acceptance/2026-10-31-工作台与治理总览V3.md) is retained for historical reference only.
+Read acceptance evidence within its environment, version, and coverage. Focused page checks and synthetic API previews do not establish project-wide production acceptance. Current UI changes, foundational fixes and verification limits are recorded in the [product renewal acceptance report](docs/acceptance/2026-11-06-全站重设计与基础整治.md).
 
 <details>
 <summary>Repository layout</summary>
@@ -178,8 +165,6 @@ frontend/              Vue query UI and governance console
 backend/DataOcean/     Java gateway, authorization, governance, persistence
 python-service/        LangGraph, Schema RAG, SQL sandbox
 docs/                  Current guides and acceptance records
-docs/archive/          Historical designs and previews, for reference
-specs/                 Compatibility entry pointing to current modules
 ```
 
 </details>

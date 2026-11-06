@@ -77,7 +77,7 @@ Java 从选定数据源采集表、字段、索引、关系与统计，形成独
 
 日志与失败状态回归入口：[SchemaCollectionObservabilityTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/metadata/service/impl/SchemaCollectionObservabilityTest.java)。Mock 回归不证明 JDBC 采集、真实事务或数据库迁移已经验收。
 
-## 前端 V2 范围与保护
+## 前端范围与保护
 
 采集页的教学流程按需展开，任务状态、失败原因与生成快照入口仍在主表。同步计划保留全局影响提示；保存失败持续显示在表单中并保留当前设置，可由用户明确重试，输入变化或账号/能力范围失效时清理旧提示。读取和保存故障日志只记录阶段、请求代次与 HTTP 状态，不记录 Cron、令牌或响应正文；刷新迟到不覆盖新草稿，未重新读取前仍沿用原保存门禁。
 

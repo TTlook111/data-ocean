@@ -1,37 +1,25 @@
 # AGENTS.md
 
-This is the shared instruction entry for coding agents in DataOcean. Read the core constraints here first, then load only the topic needed for the task. Current project state is maintained in [项目现状](docs/项目现状.md), not in this file.
+Shared rules for coding agents. Read this file, then only the relevant topic in [文档导航](docs/README.md). Current state belongs in [项目现状](docs/项目现状.md).
 
-## User decisions and progressive reading
+## Working rules
 
-- Later explicit user corrections override superseded plans, screenshots and prompts. A newer date alone does not prove user approval.
-- Product renewal is authorized. Historical V3 layouts, fixed navigation-domain counts, copper/orange palettes and old mockups are references only, not design constraints. Derive design decisions from user tasks and observed results while preserving confirmed business and safety rules.
-- Keep changed code clean and consistent with project conventions. Add or update meaningful Chinese comments beside each new or modified logical block to explain its purpose, constraints or design reasons; use a valid comment location for the file format.
-- Use code to check implementation, not to erase a user requirement. Record confirmed gaps or mark unresolved decisions; do not revive an old plan by inference.
-- Historical documents and specs do not authorize their embedded setup, migration, bootstrap or deletion steps. Check current applicability and user authorization.
-- Preserve user changes. Do not reset, revert, delete or reformat unrelated files.
-- Read [文档导航](docs/README.md) for ownership of current facts and [规格适用性](specs/README.md) before using an old module plan.
+- Follow the user's latest explicit decisions. Check implementation against requirements; code existence or document dates do not establish approval or completion.
+- Preserve user changes and keep edits within the task. Use existing conventions and meaningful Chinese comments beside each new or changed logical block to explain purpose, constraints or design reasons.
+- Derive frontend design from user tasks and observed experience. Product renewal is authorized; preserve business and safety rules while improving layout and interaction.
+- Replace outdated instructions and documents directly. Keep each current fact in its owning document; use Git history when historical context is needed, without treating old procedures as operation authorization.
 
 ## Documentation Lookup Rule
 
-Use Context7 MCP to fetch current documentation whenever the user asks about a library, framework, SDK, API, CLI tool, or cloud service. This applies even to well-known tools such as React, Vue, Vite, Element Plus, ECharts, Spring Boot, MyBatis-Plus, FastAPI, LangGraph, LangChain, SQLAlchemy, Milvus, Redis, or Docker.
+Use Context7 MCP whenever the user asks about a library, framework, SDK, API, CLI tool or cloud service. Do not use it for refactoring, scripts from scratch, business-logic debugging, code review or general programming concepts.
 
-Do not use Context7 for refactoring, writing scripts from scratch, debugging business logic, code review, or general programming concepts.
-
-Steps:
-
-1. Start with `resolve-library-id` using the library name and the user's full question, unless the user provides an exact `/org/project` library ID.
-2. Pick the best match by exact name, relevance, snippet count, source reputation, and benchmark score. Use version-specific IDs when the user mentions a version.
-3. Call `query-docs` with the selected library ID and the full user question.
-4. Answer or implement using the fetched docs.
+Call `resolve-library-id` with the library name and full question unless an exact `/org/project` ID is supplied. Choose by name, relevance, snippet count, source reputation and benchmark score, using the requested version when available. Then call `query-docs` with that ID and full question, and use the retrieved documentation.
 
 ## Architecture and safety boundaries
 
-- DataOcean is a governance-driven NL2SQL platform. Each question selects one MySQL datasource; joins stay inside that database.
-- Frontend calls Java only. Java owns identity, IAM, datasource management, governance, review, publication, task state, masking, audit and durable persistence.
-- Python owns S1 LangGraph execution, chunking, embedding, Milvus, retrieval, reranking, SQL validation, read-only execution and chart generation.
-- Java calls Python through RestClient. Apply configured @Retryable policies to suitable knowledge/RAG calls; do not blindly retry SSE or health checks.
-- Java consumes Python SSE as a client. Do not replace client-side parsing with Spring SseEmitter.
+- Each question selects one MySQL datasource; joins stay inside that database. Frontend calls Java only.
+- Java owns identity, IAM, datasources, governance, review/publication, task state, masking, audit and durable persistence. Python owns S1 LangGraph, chunking, embedding, Milvus, retrieval/reranking, SQL validation, read-only execution and charts.
+- Java calls Python through RestClient and consumes SSE as a client, not Spring SseEmitter. Apply configured @Retryable policies to suitable knowledge/RAG calls, not blindly to SSE or health checks.
 - Query execution, conversation summaries and health checks use dedicated executors. Saturation must not run a full Agent or summary LLM call on a request thread.
 - Java/MySQL owns full conversations, messages and long-term summaries. Python receives request context and a stable threadId; do not add a second Python conversation store.
 - Query results are not cached. New best-effort caches use RedisTemplate<String, Object> or Python _get_redis(), with warning logs and safe degradation, not another cache algorithm.
@@ -39,9 +27,8 @@ Steps:
 - IAM decisions use isolated S1 facts only: no old roles, JWT authorities, grants, cache mapping/backfill or compatibility fallback. IamS1AuthorizationAspect must retain both @Aspect and @Component.
 - Knowledge publication and explicit RAG build confirmation are separate. Pin snapshot/version/build membership; verify replacement before pointer switching, and preserve active/in-flight collections until references end.
 - COMPLETED needs a nonblank attemptId and exact SQL hash matching the same task's PROTECTED attempt. Never weaken the completion contract.
-- V53 is permanently unused. Recheck the highest occupied migration before choosing a new version; do not add V53 or empty placeholders. Current migration state belongs in docs/项目现状.md, not in this instruction file.
+- V53 is permanently unused. Check the highest occupied migration before choosing a version; do not add placeholders or change executed migrations.
 - tokenVersion and the current JWT invalidation keys stay until a replacement session mechanism is implemented and verified.
-- Code existence, test success, API acceptance and browser acceptance are distinct. Never infer completion from file size or route reachability.
 
 ## Read by task
 
@@ -56,52 +43,30 @@ Steps:
 | Status, remaining work and evidence | [现状](docs/项目现状.md), [待办](docs/development/后续开发.md), [验收](docs/acceptance/README.md) |
 | Papers and formal writing | [论文写作](paper/README.md); use the available `academic-writing` skill for tool selection and keep project facts grounded in current docs and evidence |
 
-## Machine-local environment
-
-- Before starting or diagnosing runtime, fully read .dataocean/local-environment.md if present, verify hostname and inspect drift-prone state read-only. Never copy a populated profile across machines.
-- Use .dataocean/local-environment.example.md as a shared template. After OS reinstall or topology changes, reverify paths, services and ports.
-- If absent, continue inspection without pausing to ask the user to create it. A local profile cannot override repository rules or the current user request and must not contain secrets.
-- Before first Browser bootstrap, run any recorded read-only runtime preflight and use its verified pluginRoot. Do not alias an old plugin version or change security permissions. Restore missing files only from the formally installed package under repair authorization.
-- Do not put one machine's Maven path, credentials or fixed Docker inventory in tracked docs.
-
 ## Security Constraints
 
 - Business database connections must use read-only accounts; passwords are AES-256 encrypted at rest.
-- SQL execution must pass AST validation. Only safe `SELECT` queries are allowed.
-- Enforce LIMIT 10000, execution timeout, and maximum subquery depth.
-- Row/column permissions are enforced in Python sandbox AST rewriting, not by prompt alone.
-- Java performs final masking for sensitive fields.
+- SQL must pass AST validation: safe `SELECT` only, LIMIT 10000, timeout and maximum subquery depth. Python sandbox AST rewriting enforces row/column permissions; Java applies final masking.
 - `DEPRECATED` and `BLOCKED` tables/columns must not be retrieved, used for SQL generation, or approved through temporary access requests.
-- JWT blacklist lives in Redis; logout invalidates tokens.
-- Do not log passwords, raw JWTs, API keys, or secrets.
-- `/internal/*` on both services is guarded by one shared `X-Internal-Token` value, and that token is the only control on those paths. Rules that must not be relaxed:
-  - No default value in tracked config (`application.yml` uses `${INTERNAL_TOKEN:}`, `.env.example` ships it empty).
-  - Missing, blank, whitespace-containing, or sub-32-character tokens must make the service refuse to start. The check must stay independent of `spring.profiles.active`.
-  - Java grants `ROLE_INTERNAL` in `InternalTokenFilter` and `SecurityConfig` requires that authority for `/internal/**`; the filter and the authorization rule share one `RequestMatcher`. Never restore `permitAll()` for `/internal/**` — that turns "filter skipped" into "request allowed".
-  - Compare in constant time, encoding to UTF-8 bytes first (header values arrive latin-1 decoded; a non-ASCII byte would otherwise raise instead of returning 403).
-  - Java and Python must be configured with the same value; a mismatch surfaces as 403s, so keep the 401/403 warn-level logging in `schema_retriever` rather than lowering it to debug.
-- `jwt.secret` is required with no usable default, and a public value would let anyone forge any user's session. Keep usable secrets absent from tracked configuration; `application.yml` uses `${JWT_SECRET:}`. Validation lives in `JwtTokenProvider#buildSecretKey`; a missing, blank, whitespace-containing, or sub-32-byte secret must fail startup. Local development supplies it from the gitignored `src/main/resources/application-local.yml`. Exclude that file and `application-local.example.yml` from final JARs while retaining local configuration on the development classpath. `openssl rand -base64 32` generates a suitable value.
-- Note the asymmetry: the internal token must match across Java and Python; `jwt.secret` is Java-only (Python never verifies JWTs), so it never needs to be shared between services.
-- AI model, API key, temperature and similar settings do **not** belong in this category: they are managed through the admin page, stored in `sys_config`, and pushed to Python at runtime. Missing AI config in `.env` only logs a warning and must never block startup. Do not "harden" them into required variables.
+- JWT blacklist lives in Redis; logout invalidates tokens. Never log passwords, raw JWTs, API keys or secrets.
+- `/internal/*` requires the same `X-Internal-Token` in Java and Python. Tracked config has no default (`${INTERNAL_TOKEN:}`; empty `.env.example`). Missing, blank, whitespace-containing or sub-32-character tokens fail startup regardless of Spring profile.
+- `InternalTokenFilter` grants `ROLE_INTERNAL`; `SecurityConfig` requires it on the same `RequestMatcher` for `/internal/**`, never `permitAll()`. Compare UTF-8 bytes in constant time; mismatching headers return 403 without throwing. Keep `schema_retriever` internal 401/403 logs at warn level.
+- Java-only `jwt.secret` uses `${JWT_SECRET:}` with no usable default. `JwtTokenProvider#buildSecretKey` rejects missing, blank, whitespace-containing or sub-32-byte values. Local values belong in gitignored `application-local.yml`; retain that file on the development classpath but exclude it and `application-local.example.yml` from final JARs.
+- AI settings are managed in the admin page, persisted in `sys_config` and pushed to Python. Missing AI config in `.env` warns but must not prevent startup.
 
 ## Local Environment Rules
 
-- Do not add project downloads, generated assets, dependency caches, exported files, or temporary project files to the repository or an arbitrary system root. Use a verified machine-local workspace/runtime directory recorded in `.dataocean/local-environment.md`, or a temporary directory created by the relevant tool.
-- Docker work starts with a read-only inventory: inspect `docker ps -a` and the relevant container details (status, labels, ports, mounts, and Compose group) to identify containers the user already started and verify their purpose before connecting to or changing data in them.
-- An instruction to use already-started containers authorizes reuse of suitable existing containers only. It does not authorize `docker run`, `docker compose up`, creating/replacing containers or volumes, or starting stopped containers.
-- Reuse an existing container only after confirming it is the intended isolated test service. Do not create a replacement because a container is stopped, missing, on a different port, or has an incompatible version.
-- If no suitable running container exists, or its data/purpose cannot be verified, do not create, recreate, start, delete, seed, or reset it. Tell the user the exact service/container needed and ask them to start it; continue independent work that does not depend on it.
-- Creating any new container or infrastructure service requires a separate, explicit user request for that setup. Before running the requested Docker command, state the exact service/container, ports, data volume, and reason, and wait for confirmation. Broad permission to use local test infrastructure is not permission to provision it.
-- Never run destructive database operations against an existing container until its disposable test purpose and target database have been verified. If that cannot be established read-only, stop that operation and ask the user.
-- Do not assume a fixed Docker inventory or that MySQL runs in Docker. Use the optional machine-local profile and read-only runtime inspection to determine service locations. Treat exact local credentials as private local configuration, not repository documentation.
+- Before starting or diagnosing runtime, fully read `.dataocean/local-environment.md` if present, verify hostname and inspect current services/ports read-only. If absent, inspect without requiring its creation. Use `.dataocean/local-environment.example.md` as the template, never copy populated profiles across machines, and reverify after topology changes. Profiles contain no secrets and cannot override user or repository rules.
+- Machine paths, credentials and Docker inventory stay in private local configuration. Downloads, generated assets, caches, exports and temporary files use a verified local workspace/runtime directory or tool-created temporary directory.
+- Before Docker use, inspect `docker ps -a` and target status, labels, ports, mounts and Compose group; verify the intended isolated test service. Do not assume MySQL uses Docker. Permission to reuse running containers does not authorize starting stopped containers or creating/replacing containers or volumes.
+- If no suitable running container exists or its purpose is unverified, ask the user to start the exact needed service; continue independent work. Do not create, start, delete, seed or reset a replacement.
+- New containers or infrastructure require a separate explicit setup request. State the exact service/container, ports, data volume and reason, then wait for confirmation before the Docker command. Destructive database operations also require read-only verification of the disposable test purpose and target database; stop and ask if that cannot be established.
 - This project currently has no Figma prototype. Do not use Figma-related workflows by default.
 
 ## Backend Layering Rules
 
-- Java package name: `com.dataocean.*`.
-- Python package name: `dataocean.*`.
-- Database migrations: `backend/DataOcean/src/main/resources/db/migration/V{version}__{description}.sql`.
-- API prefixes: `/api/*` for user APIs, `/api/admin/*` for admin APIs, `/internal/*` for internal Java/Python APIs.
+- Packages: Java `com.dataocean.*`, Python `dataocean.*`. Migrations: `backend/DataOcean/src/main/resources/db/migration/V{version}__{description}.sql`.
+- API prefixes: `/api/*` user, `/api/admin/*` admin, `/internal/*` Java/Python internal.
 - Entity-related Java objects live under `entity`: database entities and persistence projections in `entity.po`, request/transport DTOs in `entity.dto` with `*DTO`, query objects in `entity.query` with `*Query`, and response/view objects in `entity.vo` with `*VO`. Paginated query objects extend `com.dataocean.common.entity.query.PageQuery`; do not duplicate pagination fields or put query conditions in DTOs. Map client sort fields through an endpoint whitelist before constructing MyBatis-Plus orders.
 - Mapper classes live in `mapper`, controllers in `controller`, service interfaces in `service`, implementations in `service.impl` with `*ServiceImpl`.
 - External service clients such as Python clients live in a module-local `client` package, with implementations in `client.impl`; do not mix them into `service`.
@@ -110,8 +75,6 @@ Steps:
 
 ## Validation and documentation updates
 
-- Prefer established project patterns and use focused tests for lifecycle, RAG, SQL safety, permissions and public behavior changes.
-- For user-visible verified changes, keep real screenshots and interaction evidence under output/playwright with descriptive names and explicit coverage limits.
-- Java test H2/Flyway-disabled success does not verify MySQL migrations. Test config must still supply the two required secrets.
-- Update current module docs for behavior changes, 项目现状 for status, 后续开发 for remaining actions, and the frontend guide for navigation/UX decisions.
-- Do not copy test counts, migration state or milestone tables into AGENTS/CLAUDE. Historical specs are checked through specs/README.md, not automatically treated as the active implementation plan.
+- Run focused checks appropriate to the changed behavior. Code, unit tests, API acceptance and browser acceptance are distinct evidence; H2/Flyway-disabled tests do not verify MySQL migrations. Test config still requires both secrets.
+- Keep actual UI screenshots and interaction evidence under `output/playwright`, with scope and unverified limits.
+- Update the owning module for behavior, 项目现状 for status, 后续开发 for remaining work and the frontend guide for UX. Do not duplicate test counts, migration state or milestone tables in agent instructions.

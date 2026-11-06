@@ -6,11 +6,11 @@
 
 ## 治理分析总览
 
-`/admin/governance` 当前承担指定来源与明确快照的分析任务：问题集中度、来源/语义分域与独立校验覆盖，问题处理在专页完成。页面形态按[现行前端规范](../development/前端开发规范.md)和用户最新目标调整，原V3不构成设计约束。总览入口继续使用治理查看能力；问题统计/明细、规则规划、元数据范围分别按既有功能与负责源读取，缺辅助权不补权。已有来源检查和完整执行依据放在按需展开区域，文档发布/显式RAG、语义正确性与来源质量分仍分开。
+`/admin/governance` 当前承担指定来源与明确快照的分析任务：问题集中度、来源/语义分域与独立校验覆盖，问题处理在专页完成。页面形态按[前端规范](../development/前端开发规范.md)和用户任务调整。总览入口继续使用治理查看能力；问题统计/明细、规则规划、元数据范围分别按既有功能与负责源读取，缺辅助权不补权。已有来源检查和完整执行依据放在按需展开区域，文档发布/显式RAG、语义正确性与来源质量分仍分开。
 
 总量、单状态和分域来自权威 snapshot issue summary；表×状态聚合采用三个单状态的完整分页、ID去重/范围校验和二次摘要对账，有读取预算。任何不完整、错属、漂移或超预算均不提供总体排行；没有事务水位，不宣称原子快照。图形单状态直接跳问题中心，域/表汇总先选真实支持的单状态，不新增后端筛选。REOPENED显示“需重新处理”，表示此前结束的问题再次待确认，既可能人工重开，也可能语义复查触发；枚举和状态机不变。
 
-校验覆盖以真实批次完整规则数为分母，执行成功不等于质量通过；缺 ruleCount/覆盖、有限历史、无批次、失败或无权不补0。停止聚合只影响前端读取/回填，不改变后端任务。当前实现与真实/Mock边界见[全站重设计验收](../acceptance/2026-11-06-全站重设计与基础整治.md)；[原V3验收](../acceptance/2026-10-31-工作台与治理总览V3.md)中的公司只读与独立复核结论只属于其原时点，模块合同不重复运行成绩。
+校验覆盖以真实批次完整规则数为分母，执行成功不等于质量通过；缺 ruleCount/覆盖、有限历史、无批次、失败或无权不补0。停止聚合只影响前端读取/回填，不改变后端任务。当前实现与真实/Mock边界见[全站重设计验收](../acceptance/2026-11-06-全站重设计与基础整治.md)。
 
 前端入口：[QualityDashboard.vue](../../frontend/src/views/admin/governance/QualityDashboard.vue)组织范围、权限、批次与跳转；[governanceOverview.ts](../../frontend/src/utils/governanceOverview.ts)核验摘要、完整分页和覆盖分母；[GovernanceOverviewCharts.vue](../../frontend/src/components/admin/GovernanceOverviewCharts.vue)展示图形与未知状态。聚合上限为 2000 条、24 次分页请求；超过预算保留权威摘要，不绘制部分表排行。对应回归入口为 [governanceOverview.test.ts](../../frontend/src/utils/governanceOverview.test.ts)、[GovernanceOverviewCharts.test.ts](../../frontend/src/components/admin/GovernanceOverviewCharts.test.ts)及 [GovernanceOverviewIssuesLifecycle.test.ts](../../frontend/src/views/admin/governance/GovernanceOverviewIssuesLifecycle.test.ts)。
 

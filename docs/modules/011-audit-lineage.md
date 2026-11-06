@@ -62,7 +62,7 @@ S1 的[QueryTraceProjectionService](../../backend/DataOcean/src/main/java/com/da
 | `/query`／`QueryAnswer.vue` | 每条回答按需展示真实attempt/hash/快照/build白名单；不展示原始trace或编造投影状态，SQL/CSV/历史继续受保护重读。 |
 | `/admin/operations/queries`／`QueryAnalysisView.vue`及审计抽屉 | 当前活跃Tab的统计、筛选/分页和精确记录；慢查询只支持有权源合并分页，原SQL按需再次读审计详情。 |
 
-操作日志是独立全局operation-log:view，不与查询audit:view合并；当前页行内详情、服务端总数、按需历史参数与未知耗时等合同见[平台模块](010-platform-operations.md#操作审计前端-v22026-10-29)。没有新增默认SQL暴露、独立日志详情/导出或全量聚合接口。
+操作日志是独立全局operation-log:view，不与查询audit:view合并；当前页行内详情、服务端总数、按需历史参数与未知耗时等合同见[平台模块](010-platform-operations.md#操作审计前端)。没有新增默认SQL暴露、独立日志详情/导出或全量聚合接口。
 
 血缘页分关系图谱与查询使用/输出来源。图谱明确结构FOREIGN_KEY、加工LINEAGE来源标记及字段DERIVED_FROM；字段查询明细没有aliasName时是使用记录，有aliasName时才是输出来源，表级类型为USAGE。源级覆盖时间/待投影数不是对象级统计。不存在的精确实体或无效URL不回退首表/偏好源；有精确实体时可只凭lineage:view直接读取并核验根源，metadata:view仅用于目录/搜索/录入辅助。
 

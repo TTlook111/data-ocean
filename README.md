@@ -2,28 +2,15 @@
 
 <p align="center"><strong>面向企业数据场景的智能问数与数据治理平台</strong></p>
 <p align="center"><strong>简体中文</strong> · <a href="README.en.md">English</a></p>
-<p align="center"><a href="#product">产品预览</a> · <a href="#features">核心能力</a> · <a href="#architecture">系统架构</a> · <a href="#workflow">问数链路</a> · <a href="#quickstart">快速开始</a> · <a href="#docs">文档</a></p>
+<p align="center"><a href="#features">核心能力</a> · <a href="#architecture">系统架构</a> · <a href="#workflow">问数链路</a> · <a href="#quickstart">快速开始</a> · <a href="#docs">文档</a></p>
 
 ![从治理元数据与审核知识，到受保护问数的概念主视觉](docs/images/readme/cover.webp)
+
+[说明图来源](docs/images/readme/README.md)
 
 DataOcean 将自然语言问数（NL2SQL）与元数据治理连接起来。业务用户选择一个 MySQL 数据源，用自然语言查询同库多表；治理人员维护结构、业务含义和审核依据，系统据此交付受保护的表格、图表和查询依据。
 
 > PC 桌面 · 当前面向本地开发与演示。实际验证范围与限制见[项目现状](docs/项目现状.md)。
-
-<a id="product"></a>
-
-## 历史界面预览（2026-11-02）
-
-**问数工作区** · 在连续对话中阅读回答、表格与图表，按需查看 SQL 和来源依据。
-
-[![真实 Vue 问数工作区，合成 API 与演示数据](docs/images/readme/query.webp)](docs/images/readme/query.webp)
-
-| 工作台 · 来源准备 | 治理总览 · 问题分布 |
-| :---: | :---: |
-| [![真实 Vue 工作台，合成数据预览](docs/images/readme/workbench.webp)](docs/images/readme/workbench.webp) | [![真实 Vue 治理总览，合成数据预览](docs/images/readme/governance.webp)](docs/images/readme/governance.webp) |
-| 聚焦具体来源的准备条件、阻断与有权下一步。 | 分开阅读问题分布、处理状态与来源校验覆盖。 |
-
-点击图片查看全尺寸。以上为 **2026-11-02 的 Vue 组件＋合成 API 历史预览**，保留演示标记；界面为中文，不代表当前重设计样式或真实业务联调成绩。当前界面与验证范围见[全站重设计验收](docs/acceptance/2026-11-06-全站重设计与基础整治.md)。说明性图由内置 image 模型生成，未用于虚构产品界面。来源与版本见[资产说明](docs/images/readme/README.md)。
 
 <a id="features"></a>
 
@@ -166,7 +153,7 @@ npm run dev
 | 页面交互与后续工作 | [前端开发规范](docs/development/前端开发规范.md)、[后续开发](docs/development/后续开发.md) |
 | 参与代码修改 | [AGENTS.md](AGENTS.md) |
 
-验收记录按环境、版本和覆盖范围阅读；定向页面检查与合成 API 预览不代表全项目生产验收。当前界面、基础修复与未测场景见[全站重设计验收](docs/acceptance/2026-11-06-全站重设计与基础整治.md)；[原 V3 验收](docs/acceptance/2026-10-31-工作台与治理总览V3.md)仅供追溯。
+验收记录按环境、版本和覆盖范围阅读；定向页面检查与合成 API 预览不代表全项目生产验收。当前界面、基础修复与未测场景见[全站重设计验收](docs/acceptance/2026-11-06-全站重设计与基础整治.md)。
 
 <details>
 <summary>项目目录</summary>
@@ -176,8 +163,6 @@ frontend/              Vue 问数端与治理后台
 backend/DataOcean/     Java 网关、权限、治理与持久化
 python-service/        LangGraph、Schema RAG 与 SQL 沙箱
 docs/                  现行文档、开发指南与验收记录
-docs/archive/          历史设计与预览，仅供追溯
-specs/                 旧路径兼容入口，指向现行模块
 ```
 
 </details>
