@@ -66,7 +66,11 @@ Milvus/检索异常只有在同快照、同 build 且通过当前 IAM 过滤的�
 
 Python 返回同 taskId、协议和取消接收标志后，投递状态才变为 `ACCEPTED`；这只证明取消意图已接收，不代表模型调用或 SQL 已实际停止。通知与任务读取仍以 Java 持久状态为准，不展示原始远端回执。新字段由 [V75](../../backend/DataOcean/src/main/resources/db/migration/V75__query_cancellation_delivery.sql) 增加，旧记录保持 NULL，不推断或重发历史意图。回退旧代码会暂停补投，不能删除新增字段或未接收意图；恢复新实现后继续补投。真实跨服务停止、数据库迁移和故障恢复须分别验收。
 
-Java/MySQL 保存会话、消息和结构化长期摘要。每轮发送稳定 user/datasource/conversation threadId、最近五轮完成对话和经当前权限复查的较早摘要；摘要具有 scope fingerprint 与 memory revision。
+Java/MySQL 保存会话、消息和结构化长期摘要。每轮发送稳定 user/datasource/conversation threadId、最近五轮已结束的对话和经当前权限复查的较早摘要；摘要具有 scope fingerprint 与 memory revision。轮次结束不等于查询成功，任务状态仍按下述规则保留。
+
+历史回读、最近会话上下文与长期摘要按任务真实状态表达结果。只有 `COMPLETED` 可以采用结果解释、“本轮查询已完成”或脱敏成功文案，且继续经过原有权限和结果保护；`CANCELLED`、`TIMEOUT`、`FAILED` 等不能因缺少错误细节而退回成功描述，已允许公开的失败原因仍保留。
+
+非成功任务进入模型上下文时不附带 SQL、结果解释或已使用结果事实，避免取消、失败或超时被摘要成已完成的数据结论。此修复不批量改写已存长期摘要；真实摘要模型调用与既有摘要内容的核对仍是独立验证，不能由构造摘要载荷的测试通过推定完成。
 
 Redis 8 只存安全 LangGraph checkpoint，初始化或恢复失败时明确停止，不执行无 checkpoint 路径。查询结果不缓存。摘要在助手消息保存后经专用执行器调用 Python，执行器饱和不得让请求线程运行完整 Agent 或摘要 LLM。
 
@@ -107,3 +111,5 @@ COUNT(*) 的唯一输出别名可以排序，其表级来源与无列来源输�
 相关用例在 [Python tests](../../python-service/tests)的 `test_iam_s1_graph_*`、`test_iam_s1_security.py`和 `test_query_service_failures.py`；Java 查询测试在 [query 测试目录](../../backend/DataOcean/src/test/java/com/dataocean/module/query)。
 
 固定题、真实保护与预算、取消恢复、当前权限收紧后的历史重读和故障分类应分别核对。历史成绩从[验收索引](../acceptance/README.md)进入，不能由文件存在推定端到端通过。
+
+2026-11-06 的通知拆分、V75 隔离库迁移、UI 取消、正常重启补投及历史终态文案修复，分别见[全站重设计与基础整治验收](../acceptance/2026-11-06-全站重设计与基础整治.md#v75-与取消交付)。加载 `1c1d88fa` 的 Java 重启后，实际取消会话415的浏览器重读保持“已取消”且不再误称完成；不外推其他会话、真实摘要模型或旧摘要已批量修正。取消接收回执仍不代表 SQL 或供应商调用实际停止。
