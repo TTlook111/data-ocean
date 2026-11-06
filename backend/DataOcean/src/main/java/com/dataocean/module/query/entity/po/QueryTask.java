@@ -74,6 +74,12 @@ public class QueryTask {
     /** 任务状态 */
     private String status;
 
+    /** 持久取消投递状态：PENDING 等待接收回执，ACCEPTED 仅表示 Python 已接收。 */
+    private String cancellationDeliveryStatus;
+
+    /** 控制取消失败后的补投间隔；到期重试，不按任务年龄丢弃意图。 */
+    private LocalDateTime cancellationNextAttemptAt;
+
     /** 当前执行节点（实时进度，来自 Python SSE progress 事件） */
     private String progressNode;
 

@@ -62,6 +62,10 @@ Milvus/检索异常只有在同快照、同 build 且通过当前 IAM 过滤的�
 
 恢复时 Java 返回已保护尝试后，Python 必须复用同 task/attempt/hash 的完整保护数组、列结构和来源，不再执行 SQL 或争抢同一结果模型调用；未知 executing 状态拒绝。已有 checkpoint 也消费该恢复结果，不能重放已结算的核对节点。恢复计数取两端较大值、期限取较早值；旧尝试不能覆盖已推进的新 SQL。冻结引用按规范化 JSON 结构比较，不按键顺序/格式文本比较；身份、版本、摘要、类型、引用数量和内层 ID 顺序仍严格匹配。
 
+取消、删除活动会话、僵尸超时和过期恢复在本地终态更新时同时写入 `cancellation_delivery_status=PENDING`，消息与轮次保持原事务合同；提交后由专用有界线程池尽力投递，线程池拒绝、HTTP 失败或回执落库失败均保留待投递状态。后台按下次尝试时间限批补投，进程重启后继续读取持久意图，不按任务年龄放弃。每次领取与回执更新都核对 S1 协议、取消/超时终态及 PENDING，不能触碰成功任务；同任务重复取消不重复处理消息和轮次。历史保留期清理跳过仍有 PENDING 意图的会话。
+
+Python 返回同 taskId、协议和取消接收标志后，投递状态才变为 `ACCEPTED`；这只证明取消意图已接收，不代表模型调用或 SQL 已实际停止。通知与任务读取仍以 Java 持久状态为准，不展示原始远端回执。新字段由 [V75](../../backend/DataOcean/src/main/resources/db/migration/V75__query_cancellation_delivery.sql) 增加，旧记录保持 NULL，不推断或重发历史意图。回退旧代码会暂停补投，不能删除新增字段或未接收意图；恢复新实现后继续补投。真实跨服务停止、数据库迁移和故障恢复须分别验收。
+
 Java/MySQL 保存会话、消息和结构化长期摘要。每轮发送稳定 user/datasource/conversation threadId、最近五轮完成对话和经当前权限复查的较早摘要；摘要具有 scope fingerprint 与 memory revision。
 
 Redis 8 只存安全 LangGraph checkpoint，初始化或恢复失败时明确停止，不执行无 checkpoint 路径。查询结果不缓存。摘要在助手消息保存后经专用执行器调用 Python，执行器饱和不得让请求线程运行完整 Agent 或摘要 LLM。
