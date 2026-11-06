@@ -2,6 +2,7 @@ package com.dataocean.module.governance.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.entity.query.PageQuery;
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.system.aspect.AdminAuditLog;
@@ -15,6 +16,7 @@ import com.dataocean.module.governance.entity.vo.QualityRuleTemplateVO;
 import com.dataocean.module.governance.entity.vo.QualityRuleSummaryVO;
 import com.dataocean.module.governance.entity.vo.QualityRuleVO;
 import com.dataocean.module.governance.entity.vo.QualityRuleRevisionVO;
+import com.dataocean.module.governance.entity.vo.QualityRuleOperationVO;
 import com.dataocean.module.governance.entity.vo.ReviewRecordVO;
 import com.dataocean.module.governance.entity.query.QualityRuleQuery;
 import com.dataocean.module.governance.service.*;
@@ -63,6 +65,7 @@ public class MetadataGovernanceController {
 
     private final QualityCheckService qualityCheckService;
     private final QualityRuleService qualityRuleService;
+    private final QualityRuleOperationService ruleOperationService;
     private final QualityIssueService qualityIssueService;
     private final GovernanceStatusService governanceStatusService;
     private final MetadataReviewService reviewService;
@@ -177,43 +180,67 @@ public class MetadataGovernanceController {
         return Result.success(qualityRuleService.history(ruleId, UserContext.currentUserId()));
     }
 
+    /** 所有新写入都提交冻结意图；返回的是配置回执，不是质量检查结果。 */
+    @PostMapping("/quality-rules/operations")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<QualityRuleOperationVO> executeRuleOperation(@Valid @RequestBody QualityRuleOperationDTO request) {
+        return ruleOperationResult(ruleOperationService.execute(request, UserContext.currentUserId()));
+    }
+
+    @GetMapping("/quality-rules/operations/{operationId}")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<QualityRuleOperationVO> ruleOperation(@PathVariable String operationId) {
+        return ruleOperationResult(ruleOperationService.get(operationId, UserContext.currentUserId()));
+    }
+
+    /** 无已提交回执时写入拒绝墓碑，封住晚到原请求后才允许用户重新开始。 */
+    @PostMapping("/quality-rules/operations/{operationId}/resolve")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<QualityRuleOperationVO> resolveRuleOperation(@PathVariable String operationId) {
+        return ruleOperationResult(ruleOperationService.resolve(operationId, UserContext.currentUserId()));
+    }
+
+    /** 旧路径保留严格适配：缺操作标识或版本由参数绑定拒绝，不留无条件写入口。 */
     @PostMapping("/quality-rules")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<QualityRuleVO> createRule(@Valid @RequestBody QualityRuleDTO request) {
-        return Result.success(qualityRuleService.createRule(request, UserContext.currentUserId()));
+    public Result<QualityRuleOperationVO> createRule(@Valid @RequestBody QualityRuleDTO request,
+                                                    @RequestParam String operationId) {
+        return submitRuleOperation(operationId, "CREATE", null, null, request);
     }
 
     @PutMapping("/quality-rules/{ruleId}")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<QualityRuleVO> editRule(@PathVariable Long ruleId, @Valid @RequestBody QualityRuleDTO request) {
-        return Result.success(qualityRuleService.updateRule(ruleId, request, UserContext.currentUserId()));
+    public Result<QualityRuleOperationVO> editRule(@PathVariable Long ruleId, @Valid @RequestBody QualityRuleDTO request,
+                                                  @RequestParam String operationId, @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, "UPDATE", ruleId, expectedVersion, request);
     }
 
     @PostMapping("/quality-rules/{ruleId}/copy")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<QualityRuleVO> copyRule(@PathVariable Long ruleId) {
-        return Result.success(qualityRuleService.copyRule(ruleId, UserContext.currentUserId()));
+    public Result<QualityRuleOperationVO> copyRule(@PathVariable Long ruleId, @RequestParam String operationId,
+                                                  @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, "COPY", ruleId, expectedVersion, null);
     }
 
     @PatchMapping("/quality-rules/{ruleId}/enabled")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<Void> setRuleEnabled(@PathVariable Long ruleId, @Valid @RequestBody RuleEnabledDTO request) {
-        qualityRuleService.updateEnabled(ruleId, Boolean.TRUE.equals(request.getEnabled()), UserContext.currentUserId());
-        return Result.success();
+    public Result<QualityRuleOperationVO> setRuleEnabled(@PathVariable Long ruleId, @Valid @RequestBody RuleEnabledDTO request,
+                                                        @RequestParam String operationId, @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, Boolean.TRUE.equals(request.getEnabled()) ? "ENABLE" : "DISABLE", ruleId, expectedVersion, null);
     }
 
     @DeleteMapping("/quality-rules/{ruleId}")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<Void> deleteRule(@PathVariable Long ruleId) {
-        qualityRuleService.deleteRule(ruleId, UserContext.currentUserId());
-        return Result.success();
+    public Result<QualityRuleOperationVO> deleteRule(@PathVariable Long ruleId, @RequestParam String operationId,
+                                                    @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, "DELETE", ruleId, expectedVersion, null);
     }
 
     @PostMapping("/quality-rules/{ruleId}/restore")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<Void> restoreRule(@PathVariable Long ruleId) {
-        qualityRuleService.restoreRule(ruleId, UserContext.currentUserId());
-        return Result.success();
+    public Result<QualityRuleOperationVO> restoreRule(@PathVariable Long ruleId, @RequestParam String operationId,
+                                                     @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, "RESTORE", ruleId, expectedVersion, null);
     }
 
     /**
@@ -225,15 +252,30 @@ public class MetadataGovernanceController {
      */
     @PatchMapping("/quality-rules/{ruleId}")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<Void> updateRuleEnabled(@PathVariable Long ruleId,
-                                           @RequestBody Map<String, Boolean> body) {
-        Boolean enabled = body.get("enabled");
-        if (enabled != null) {
-            // 全局规则没有 datasourceId：Service 会要求受保护系统管理员，
-            // 非系统管理员即使在某个负责源上有 governance:rule:manage 也不能改全局规则。
-            qualityRuleService.updateEnabled(ruleId, enabled, UserContext.currentUserId());
+    public Result<QualityRuleOperationVO> updateRuleEnabled(@PathVariable Long ruleId,
+                                                            @Valid @RequestBody RuleEnabledDTO body,
+                                                            @RequestParam String operationId,
+                                                            @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, Boolean.TRUE.equals(body.getEnabled()) ? "ENABLE" : "DISABLE", ruleId, expectedVersion, null);
+    }
+
+    private Result<QualityRuleOperationVO> submitRuleOperation(String operationId, String action, Long ruleId,
+                                                               Integer expectedVersion, QualityRuleDTO configuration) {
+        QualityRuleOperationDTO operation = new QualityRuleOperationDTO();
+        operation.setOperationId(operationId);
+        operation.setAction(action);
+        operation.setRuleId(ruleId);
+        operation.setExpectedVersion(expectedVersion);
+        operation.setConfiguration(configuration);
+        return ruleOperationResult(ruleOperationService.execute(operation, UserContext.currentUserId()));
+    }
+
+    private Result<QualityRuleOperationVO> ruleOperationResult(QualityRuleOperationVO receipt) {
+        // 拒绝回执先由事务提交，再在 HTTP 层返回 403；失权客户端不得得到对象版本等事实。
+        if (Integer.valueOf(403).equals(receipt.getErrorCode())) {
+            throw new BusinessException(403, "没有维护该范围质量规则的权限");
         }
-        return Result.success();
+        return Result.success(receipt);
     }
 
     // ========== 问题清单 ==========

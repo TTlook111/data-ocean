@@ -127,6 +127,20 @@ class MetadataGovernanceControllerAuthorizationTest {
     }
 
     @Test
+    void operationSubmissionLookupAndResolutionAllRequireTheRuleManageFunction() {
+        Fixture fixture = new Fixture();
+        fixture.login(7L);
+        doThrow(new BusinessException(403, "没有维护规则功能"))
+                .when(fixture.adminGuard).requireGlobalFunction(7L, "governance:rule:manage");
+        assertThatThrownBy(() -> fixture.controller.executeRuleOperation(null)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> fixture.controller.ruleOperation("812f4c1b-7436-4abe-9789-14c1412f186f"))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> fixture.controller.resolveRuleOperation("812f4c1b-7436-4abe-9789-14c1412f186f"))
+                .isInstanceOf(BusinessException.class);
+        org.mockito.Mockito.verifyNoInteractions(fixture.ruleOperationService);
+    }
+
+    @Test
     void notLoggedInNeverReachesTheService() {
         Fixture fixture = new Fixture();
         SecurityContextHolder.clearContext();
@@ -143,6 +157,8 @@ class MetadataGovernanceControllerAuthorizationTest {
         private final QualityCheckService qualityCheckService = mock(QualityCheckService.class);
         private final QualityIssueService qualityIssueService = mock(QualityIssueService.class);
         private final QualityRuleService qualityRuleService = mock(QualityRuleService.class);
+        private final com.dataocean.module.governance.service.QualityRuleOperationService ruleOperationService =
+                mock(com.dataocean.module.governance.service.QualityRuleOperationService.class);
         private final QualityCheckBatchService batchService = mock(QualityCheckBatchService.class);
         private final IamS1AdminGuard adminGuard = mock(IamS1AdminGuard.class);
         private final IamS1CapabilityService capabilityService = mock(IamS1CapabilityService.class);
@@ -153,6 +169,7 @@ class MetadataGovernanceControllerAuthorizationTest {
             MetadataGovernanceController target = new MetadataGovernanceController(
                     qualityCheckService,
                     qualityRuleService,
+                    ruleOperationService,
                     qualityIssueService,
                     mock(GovernanceStatusService.class),
                     mock(MetadataReviewService.class),
