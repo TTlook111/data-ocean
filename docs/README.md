@@ -10,6 +10,7 @@
 | 修改功能、定位实现和测试 | [功能导航](modules/README.md#从修改需求开始) → 模块说明 → 对应专题 |
 | 本地启动、配置与测试 | [本地开发与验证](development/本地开发与验证.md) |
 | 页面、导航、权限显示和交互 | [前端开发规范](development/前端开发规范.md) |
+| 本轮全站重设计的实施决定与提交 | [执行记录](development/全站重设计执行记录.md) |
 | 尚未完成的需求和验收 | [后续开发](development/后续开发.md) |
 | 联调口径与复跑 | [系统联调验收](development/系统联调验收.md) → [验收脚本](../scripts/system-acceptance/README.md) |
 | 实际验证范围和原始证据 | [验收索引](acceptance/README.md) |
