@@ -142,7 +142,8 @@ describe('工作台待处理事项', () => {
     expect(wrapper.findAll('[data-source-choice]')).toHaveLength(1)
     expect(wrapper.find('[data-source-detail]').text()).toContain('销售库')
     expect(wrapper.text()).toContain('存在 2 条高危未解决治理问题')
-    expect(wrapper.find('.board-bottom b').text()).toBe('2')
+    // 问题总数移入能力独立的指标摘要，仍核对服务端真实口径。
+    expect(wrapper.find('[data-metric="issues"] strong').text()).toBe('2')
     expect(wrapper.findAll('.workbench-pending__item')).toHaveLength(0)
     expect(wrapper.text()).toContain('负责范围')
   })
@@ -155,7 +156,9 @@ describe('工作台待处理事项', () => {
     await settle()
 
     expect(api.listIamS1AccessRequestQueue).toHaveBeenCalledWith('PENDING', 1, 2)
-    expect(wrapper.text()).toContain('3 条负责范围申请待审批')
+    // 新摘要将数值和范围分行，断言真实数量及对应范围而非旧布局拼接文本。
+    expect(wrapper.find('[data-metric="approvals"] strong').text()).toBe('3')
+    expect(wrapper.find('[data-metric="approvals"]').text()).toContain('负责范围申请待审批')
   })
 
   it('审批数量读取失败时显示原因而不是零', async () => {

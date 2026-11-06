@@ -491,9 +491,9 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
       'assets-page--fixed-tables': tablesFill,
     }"
   >
+    <!-- 当前资产工作区已由导航定位，页头保留目录标题、范围帮助与对象操作。 -->
     <TaskPageHeader
       title="数据对象目录"
-      eyebrow="数据资产 / 对象与结构"
       :help="helpText"
     >
       <template #actions>

@@ -30,15 +30,15 @@ AI 配置缺失不应阻止服务启动；内部令牌与 JWT 密钥则属于独
 | 修改意图 | 文件与定位符号 | 关联影响 |
 | --- | --- | --- |
 | 工作台入口与统计 | [DashboardServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/dashboard/service/impl/DashboardServiceImpl.java)：`getStats` | 各卡片按所属功能与负责源裁剪。 |
-| 来源预览、选中对象与审批预览 | [AdminHomeView.vue](../../frontend/src/views/AdminHomeView.vue)：`loadReadiness`、`loadApprovals`、`preview`、`selected`、`persistFocus` | 最多三个来源与两条待审预览，显式定位、当前对象高亮和下一步一致。 |
+| 来源目录、准备分布与审批预览 | [AdminHomeView.vue](../../frontend/src/views/AdminHomeView.vue)：`loadReadiness`、`loadApprovals`、`visibleSources`、`readinessDistribution`、`selected`、`persistFocus`、`handleSourceKey` | 完整有权目录与含未知的准备分布；审批仍最多两条预览。显式定位、选中对象、键盘焦点和下一步保持精确归属。 |
 | 准备条件与下一步映射 | [workbenchPresentation.ts](../../frontend/src/utils/workbenchPresentation.ts)：`validWorkbenchReadiness`、`workbenchSourceAction`、`workbenchCondition` | 严格核验回执；只对已知阻断码生成既有工作区链接，不执行后端 actionPath。 |
 | 告警规则维护 | [AlertController.java](../../backend/DataOcean/src/main/java/com/dataocean/module/audit/controller/AlertController.java)：`listRules`、`createRule`、`updateRule`、`toggleRule` | 这里只定位规则 CRUD；不证明告警执行、历史与通知链已完整接通。 |
 
-DashboardController.getStats → DashboardServiceImpl.getStats；工作台采用获准 V3 的来源准备预览（最多三个）与选中来源下一步；无来源查看权时按字段/知识/审批能力提供入口，审批 total 与最多两条预览分开。只读现有 API，不在首页执行发布、审核或授权；后台准备判定不等于个人查询授权。展示规则见[前端规范](../development/前端开发规范.md#工作台与治理总览-v3已批准)。列表选中态、详情与下一步共用经过URL及有权目录核验的当前对象，不能将本地默认项单独作为高亮依据；无效/无权定位不高亮其他来源。不能由工作台入口权限推导所有卡片数据权限，读取失败也不能显示成 0。
+DashboardController.getStats → DashboardServiceImpl.getStats；工作台按独立权限展示真实指标、含未知的数据准备分布、完整有权来源目录与所选来源下一步，不伪造趋势。无来源查看权时按字段/知识/审批能力提供入口，审批 total 与最多两条预览分开。只读现有 API，不在首页执行发布、审核或授权；后台准备判定不等于个人查询授权。展示规则见[前端规范](../development/前端开发规范.md#工作台与治理总览)。列表选中态、详情与下一步共用经过 URL 及有权目录核验的当前对象，无效/无权定位不高亮其他来源。方向键导航等待对应路由完成后才移动焦点，并复核身份、选择代次、目标及焦点归属。不能由工作台入口权限推导所有指标权限，读取失败也不能显示成 0。
 
 | 工作台内容 | 权威读取与范围 | 不得推导的事实 |
 | --- | --- | --- |
-| 来源名称与准备回执 | `datasources/simple`按datasource:view负责源裁剪；readiness/batch每轮至多100来源，显示最多3个预览 | 未读/缺失不是就绪；未知存在时总体分类数未知。后台permissionReady是存在有效授权，不代表本人有查询权，askable不新增knowledgeReady门禁。 |
+| 来源名称与准备回执 | `datasources/simple` 按 datasource:view 负责源裁剪并展示完整有权目录；readiness/batch 每轮至多100来源，分布单列已知满足、已知需关注及待确认数量 | 未读/缺失不是就绪；存在未知时不能声称已完成全目录的就绪分类。后台 permissionReady 是存在有效授权，不代表本人有查询权，askable 不新增 knowledgeReady 门禁。 |
 | 来源版本与下一步 | 同一DTO的publishedSnapshotId/version及latestCollectedSnapshotId/version，目标动作按已知业务码及同源能力映射 | 最新采集不等于已发布；不信历史actionPath任意导航，不额外读取无权元数据。局部focusSourceId不扩散为其他页筛选。 |
 | 未解决问题摘要 | `dashboard/stats.openIssues`按issue:view负责源汇总 | 不是个人分派、选中来源或当前快照的计数；问题中心只是普通入口，不承诺默认精确列出同一集合。 |
 | 审批预览 | `listIamS1AccessRequestQueue('PENDING',1,2)`的total及最多2条，security:approval:view | 查看不等于批准或分派；不额外要求datasource/metadata辅助权；没有个人活动接口就不伪造“继续上次”。 |

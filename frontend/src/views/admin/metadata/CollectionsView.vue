@@ -43,9 +43,9 @@ function openSyncDialog() {
 
 <template>
   <div class="admin-page collections-page" :class="{ 'admin-list-fill': fillLayout }">
+    <!-- 导航已给出采集路径，页头保留任务主操作以及采集不等于发布的业务边界。 -->
     <TaskPageHeader
       title="采集任务"
-      eyebrow="数据接入 / 采集与同步"
       help="把数据库结构收集为可追溯的快照，再进入治理与审核。采集成功不等于审核发布，也不会自动构建 RAG。同步计划是全局设置，由系统管理员维护。"
     >
       <template #actions>

@@ -720,9 +720,9 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <main class="data-lineage-page post-login-page" :class="{ 'admin-list-fill': graphFill }">
+    <!-- 导航承担页面归属，页头保留关系与查询来源的任务区分和真实证据说明。 -->
     <TaskPageHeader
       title="关系与查询来源"
-      eyebrow="数据资产 / 可追溯性"
       help="图谱以实体 ID 为根，不支持快照或时间筛选。这里的关系标记只说明记录来源；实际受保护执行证据在「查询使用与输出来源」中查看。"
     >
       <template #actions>

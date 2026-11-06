@@ -97,7 +97,8 @@ describe('工作台精确读取生命周期', () => {
     await flushPromises()
     a.resolve(stat(900))
     await flushPromises()
-    expect(w.find('.board-bottom b').text()).toBe('7')
+    // 新指标位置仍必须只接纳当前账号的统计，不能回填旧账号晚回值。
+    expect(w.find('[data-metric="issues"] strong').text()).toBe('7')
     expect(w.text()).not.toContain('900')
     w.unmount()
   })
@@ -141,7 +142,8 @@ describe('工作台精确读取生命周期', () => {
     const w = page()
     await flushPromises()
     expect(w.text()).toContain('审批总数未确认')
-    expect(w.find('.brief-count strong').text()).toBe('—')
+    // 缺失总数在新摘要中保持未知，不因布局迁移变成零。
+    expect(w.find('[data-metric="approvals"] strong').text()).toBe('—')
     expect(w.text()).not.toContain('当前没有待审批申请')
     w.unmount()
   })
@@ -150,10 +152,11 @@ describe('工作台精确读取生命周期', () => {
     api.getDashboardStats.mockResolvedValue(stat(2))
     const w = page()
     await flushPromises()
-    expect(w.find('.board-bottom b').text()).toBe('2')
+    // 撤销工作台能力时新指标和所有业务工作面一起清除。
+    expect(w.find('[data-metric="issues"] strong').text()).toBe('2')
     rights([])
     await flushPromises()
-    expect(w.find('.board-bottom').exists()).toBe(false)
+    expect(w.find('[data-metric="issues"]').exists()).toBe(false)
     expect(w.find('.workbench-stats').exists()).toBe(false)
     w.unmount()
   })

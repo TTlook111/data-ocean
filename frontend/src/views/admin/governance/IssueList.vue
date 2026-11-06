@@ -873,10 +873,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="issue-page post-login-page governance-workspace governance-surface">
+  <!-- 页面外层只组织任务和状态，问题列表自己拥有唯一白色工作面，避免重复内缩。 -->
+  <main class="issue-page post-login-page governance-workspace">
+    <!-- 问题范围由公共上下文确定，页头聚焦问题任务和刷新，保留处理依据说明。 -->
     <TaskPageHeader
       title="问题中心"
-      eyebrow="数据治理 / 问题处理"
       description="查找、分派并处理当前范围的问题。暂无问题记录不代表已经完成质量检查；来源与字段语义问题分别处理。"
     >
       <template #actions>
@@ -1522,11 +1523,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.issue-page {
-  display: grid;
-  gap: 20px;
-  min-width: 0;
-}
 .issue-domain-guide {
   padding: 14px 18px;
   border-left: 3px solid var(--do-primary);
@@ -1536,12 +1532,6 @@ onBeforeUnmount(() => {
   color: var(--do-muted);
   margin: 0;
   border-radius: 0 8px 8px 0;
-}
-.issue-workbench {
-  padding: 22px;
-  border: 1px solid var(--do-line);
-  border-radius: 12px;
-  background: var(--do-surface);
 }
 .issue-batch-receipt {
   padding: 16px;
@@ -1557,30 +1547,7 @@ onBeforeUnmount(() => {
 .issue-batch-receipt small {
   color: var(--do-muted);
 }
-@media (max-width: 720px) {
-  .issue-workbench {
-    padding: 14px;
-  }
-}
-
-.issue-page .issue-workbench__filters {
-  padding: 0 0 16px;
-}
-.issue-page .issue-workbench__filters--advanced {
-  padding-top: 0;
-}
-.issue-page .issue-domain-summary {
-  padding: 4px 0 12px;
-  background: transparent;
-}
-.issue-page .issue-workbench__content {
-  padding: 18px 0;
-}
-.issue-page .issue-workbench__results {
-  background: transparent;
-  padding: 12px 0;
-}
-
+/* 页头与状态使用页面空间，白色工作面仅包围真正的筛选、结果和分页。 */
 .issue-page {
   display: grid;
   gap: 16px;
@@ -1590,30 +1557,29 @@ onBeforeUnmount(() => {
   align-items: center;
   margin-bottom: 0;
 }
-.issue-page :deep(.task-page-header h1) {
-  font-size: clamp(24px, 2vw, 28px);
-}
+/* 工作面只设置一次外边界和内边距，避免旧覆盖层叠加压缩表格宽度。 */
 .issue-workbench {
   min-width: 0;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
+  padding: 20px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-surface);
 }
+/* 内部各区域共用工作面的左右边缘，仅用纵向留白区分筛选与结果。 */
 .issue-workbench__filters {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
   min-width: 0;
-  padding: 18px 20px;
+  padding: 0 0 16px;
 }
 .issue-domain-summary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px 18px;
-  padding: 0 20px 12px;
+  padding: 4px 0 12px;
   color: var(--do-muted);
   font-size: 12px;
 }
@@ -1635,10 +1601,11 @@ onBeforeUnmount(() => {
 .issue-filter__clear {
   flex: 0 0 auto;
 }
+/* 辅助目录失败与范围提示和筛选对齐，不以额外横向容器挤压正文。 */
 .issue-workbench__notices {
   display: grid;
   gap: 5px;
-  padding: 0 20px 12px;
+  padding: 0 0 12px;
 }
 .issue-workbench__notice {
   display: flex;
@@ -1653,6 +1620,7 @@ onBeforeUnmount(() => {
 .issue-workbench__notice--error {
   color: var(--do-danger);
 }
+/* 结果口径和批量操作保留分隔线，共用工作面内边缘，不再增加第二层底色。 */
 .issue-workbench__results {
   display: flex;
   align-items: center;
@@ -1660,10 +1628,10 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 10px 16px;
   min-width: 0;
-  padding: 12px 20px;
+  padding: 12px 0;
   border-top: 1px solid var(--do-line);
   border-bottom: 1px solid var(--do-line);
-  background: color-mix(in srgb, var(--do-bg) 40%, var(--do-surface));
+  background: transparent;
 }
 .issue-workbench__result-state,
 .issue-workbench__result-count {
@@ -1702,8 +1670,10 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.45;
 }
+/* 表体以完整可用宽度承接结果，宽表滚动继续由既有内部容器负责。 */
 .issue-workbench__content {
   min-width: 0;
+  padding: 18px 0;
 }
 .issue-table-scroll {
   width: 100%;
@@ -1714,16 +1684,18 @@ onBeforeUnmount(() => {
 .issue-table-scroll :deep(.el-table) {
   min-width: 1080px;
 }
+/* 空页恢复动作沿用表体边缘，避免窄窗口里再扣除一次横向空间。 */
 .issue-workbench__empty-page {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   min-height: 64px;
-  padding: 16px 20px;
+  padding: 16px 0;
   color: var(--do-muted);
   font-size: 14px;
 }
+/* 分页与筛选使用同一左右边界，服务端总数和分页行为保持原合同。 */
 .issue-workbench__pagination {
   display: flex;
   align-items: center;
@@ -1731,7 +1703,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 12px;
   min-width: 0;
-  padding: 12px 20px;
+  padding: 12px 0;
   border-top: 1px solid var(--do-line);
 }
 .issue-workbench__pagination :deep(.el-pagination) {
@@ -1796,7 +1768,8 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 @media (max-width: 760px) {
-  .issue-workbench__filters {
+  /* 缩放后由工作面统一缩小留白，内部区域不再各加一次横向 padding。 */
+  .issue-workbench {
     padding: 14px;
   }
   .issue-filter {
@@ -1806,20 +1779,8 @@ onBeforeUnmount(() => {
   .issue-filter__clear {
     flex: 1 1 auto;
   }
-  .issue-workbench__notices {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
   .issue-workbench__results {
     align-items: flex-start;
-    padding: 12px 14px;
-  }
-  .issue-workbench__pagination {
-    padding: 12px 14px;
-  }
-  .issue-workbench__empty-page {
-    padding-right: 14px;
-    padding-left: 14px;
   }
 }
 </style>

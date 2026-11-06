@@ -617,8 +617,8 @@ watch(() => route.query.page, (value) => {
 
 <template>
   <div class="admin-page knowledge-page">
+    <!-- 页签直接决定当前文档或构建任务标题，发布与显式构建的说明继续保留。 -->
     <TaskPageHeader
-      eyebrow="语义中心"
       :title="activeTab === 'index' ? '构建与索引' : '知识文档'"
       :description="activeTab === 'index' ? '核对当前活动来源与构建记录；准备和最终确认分开。' : '整理业务知识，分别完成审核、发布与显式索引构建。'"
     >

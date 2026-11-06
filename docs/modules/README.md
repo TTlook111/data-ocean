@@ -19,7 +19,7 @@
 | 隐藏字段、脱敏策略、确认脱敏候选 | [IAM](007-iam-s1.md) | [字段保护与脱敏候选](iam/字段保护与脱敏候选.md) |
 | AI 模型、供应商、连接测试与 Embedding 配置 | [平台配置](010-platform-operations.md) | [AI 配置](010-platform-operations.md#ai-配置) |
 | 通知已读、未读数、操作日志 | [平台配置](010-platform-operations.md) | [通知与操作日志](010-platform-operations.md#通知与操作日志) |
-| 工作台来源准备、审批预览、统计与告警规则 | [平台配置](010-platform-operations.md) | [工作台合同](010-platform-operations.md#工作台与告警配置)、[V3页面规则](../development/前端开发规范.md#工作台与治理总览-v3已批准) |
+| 工作台来源准备、审批预览、统计与告警规则 | [平台配置](010-platform-operations.md) | [工作台合同](010-platform-operations.md#工作台与告警配置)、[当前页面规则](../development/前端开发规范.md#工作台与治理总览) |
 | 查询审计、慢查询、查询统计 | [审计与血缘](011-audit-lineage.md) | [查询审计](011-audit-lineage.md#查询审计) |
 | 血缘图、影响分析、关系新增删除 | [审计与血缘](011-audit-lineage.md) | [实体血缘与图谱](011-audit-lineage.md#实体血缘与图谱) |
 | 治理分析图、问题分域/表排行与覆盖 | [治理模块](004-metadata-governance.md#指标与精确跳转合同) | [总览实现](004-metadata-governance.md#v3-治理分析总览) |

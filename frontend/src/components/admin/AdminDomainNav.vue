@@ -120,13 +120,14 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 
 <style scoped>
 .admin-domain-nav {
+  /* 导航保持独立滚动，业务区分组使用间距而非多层卡片。 */
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: 5px;
   min-height: 0;
   overflow: auto;
-  padding: 20px 12px;
+  padding: 16px 12px;
 }
 
 .admin-domain-nav__group {
@@ -135,13 +136,14 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 }
 
 .admin-domain-nav__item {
+  /* 域入口继承深色导航语义；权限与目标路由仍由现有能力映射决定。 */
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
+  min-height: 42px;
   padding: 0 12px;
   border-radius: var(--do-radius-md);
-  color: var(--do-ink);
+  color: var(--do-nav-muted);
   font-size: 13px;
   font-weight: 550;
   transition: background var(--do-transition-fast), color var(--do-transition-fast);
@@ -151,26 +153,31 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 
 .admin-domain-nav__item:hover,
 .admin-domain-nav__item.active {
-  color: var(--do-ink);
-  background: #e9ece5;
+  /* 悬停与当前域使用可读的明亮前景，保留清楚的选择反馈。 */
+  color: var(--do-nav-text);
+  background: var(--do-nav-hover);
 }
 
 .admin-domain-nav__item.active {
-  box-shadow: inset 2px 0 var(--do-primary);
+  /* 当前域强调标题与背景，不再叠加旧主题的装饰边线。 */
+  font-weight: 650;
+  color: var(--do-nav-accent);
 }
 
 .admin-domain-nav__item:focus-visible,
 .admin-domain-nav__workspace-item:focus-visible {
-  outline: 3px solid var(--do-primary);
+  /* 深色表面使用专用高对比焦点色。 */
+  outline: 2px solid var(--do-nav-accent);
   outline-offset: 2px;
 }
 
 .admin-domain-nav__workspace-list {
+  /* 二级任务缩进建立层级，细线只表示父子关系。 */
   display: grid;
   gap: 2px;
   margin: 0 0 4px 14px;
   padding: 3px 0 3px 13px;
-  border-left: 1px solid var(--do-line-strong);
+  border-left: 1px solid var(--do-nav-line);
 }
 
 .admin-domain-nav__workspace-group {
@@ -183,22 +190,23 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 }
 
 .admin-domain-nav__workspace-group-label {
+  /* 组名保持次级但可读，避免用透明度降低中文辨识度。 */
   padding: 2px 10px 1px;
-  color: var(--do-muted);
+  color: var(--do-nav-muted);
   font-size: 11px;
   font-weight: 500;
   letter-spacing: .08em;
-  opacity: .78;
 }
 
 .admin-domain-nav__workspace-item {
+  /* 二级入口保留紧凑密度；实际当前页面仍以 aria-current 指明。 */
   display: flex;
   align-items: center;
   gap: 7px;
   min-height: 34px;
   padding: 0 10px;
   border-radius: var(--do-radius-sm);
-  color: var(--do-muted);
+  color: var(--do-nav-muted);
   font-size: 13px;
   font-weight: 600;
   transition: background var(--do-transition-fast), color var(--do-transition-fast);
@@ -206,8 +214,9 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 
 .admin-domain-nav__workspace-item:hover,
 .admin-domain-nav__workspace-item.active {
-  color: var(--do-primary-strong);
-  background: var(--do-primary-soft);
+  /* 当前工作区与一级域区分，使用深色主题内的实色选中面。 */
+  color: var(--do-nav-text);
+  background: var(--do-nav-active);
 }
 
 .admin-domain-nav__workspace-dot {

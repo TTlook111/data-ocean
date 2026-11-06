@@ -74,11 +74,14 @@ defineProps<{
 }
 
 h1 {
+  /* 全站标题服务于工作内容，压低展示型字号并留出表格与编辑空间。 */
   min-width: 0;
   margin: 0;
   color: var(--do-ink);
-  font-size: clamp(24px, 3vw, 32px);
-  line-height: 1.2;
+  font-size: clamp(23px, 1.8vw, 28px);
+  font-weight: 650;
+  letter-spacing: -.025em;
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
 

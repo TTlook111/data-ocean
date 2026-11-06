@@ -852,9 +852,9 @@ onBeforeUnmount(() => {
 
 <template>
   <main class="admin-page releases-page" :class="{ 'admin-list-fill': fillEnabled }">
+    <!-- 页头保留版本任务和发布操作，具体快照身份与独立审核语义继续在正文展示。 -->
     <TaskPageHeader
       title="元数据版本"
-      eyebrow="数据资产 / 版本与发布"
       description="查看元数据快照、当前正式版和版本间的结构变化。发布、撤回、问题处理与知识发布各自独立。"
     >
       <template #actions>

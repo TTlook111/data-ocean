@@ -640,8 +640,8 @@ watch(() => route.query.tab, (value) => {
     <LoadingState v-else-if="loading" variant="skeleton" :rows="6" />
 
     <template v-else-if="doc">
+      <!-- 页头以当前文档标题为主体，来源、版本、审核与发布状态保持独立显示。 -->
       <TaskPageHeader
-        eyebrow="知识文档"
         :title="doc.title"
         description="编辑当前知识主题，审核后发布；同一快照的多篇文档共同覆盖业务知识。满足来源与覆盖要求后，在知识列表显式确认 RAG 构建。"
       >

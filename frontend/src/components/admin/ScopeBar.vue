@@ -237,15 +237,16 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
 <style scoped>
 .scope-bar__title { position: relative; padding-right: 14px; }
 .scope-bar {
+  /* 范围是页面上下文，用稳定白色工具条表达，不再叠加独立渐变主题。 */
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(360px, 1.2fr);
   gap: 16px;
   align-items: center;
   margin: 18px 24px 0;
   padding: 14px 16px;
-  border: 1px solid rgba(77, 143, 220, .22);
-  border-radius: var(--do-radius-lg);
-  background: linear-gradient(120deg, var(--do-primary-soft), var(--do-surface) 60%);
+  border: 1px solid var(--do-line);
+  border-radius: 8px;
+  background: var(--do-surface);
 }
 
 .scope-bar--compact { display: contents; }

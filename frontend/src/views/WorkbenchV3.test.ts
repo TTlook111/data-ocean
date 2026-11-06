@@ -18,7 +18,8 @@ const codes=['admin:workbench:view','datasource:view','metadata:view','metadata:
 const sources=[{id:2,name:'真实回执名称A'},{id:9,name:'真实回执名称B'},{id:5,name:'真实回执名称C'},{id:12,name:'真实回执名称D'}]
 function result(id=2,overrides={}){return {datasourceId:id,datasourceName:'来源'+id,askable:false,stage:'SNAPSHOT_PENDING',stageLabel:'快照待发布',latestCollectedSnapshotId:id===2?31:id*10+1,latestCollectedSnapshotVersion:4,connectionReady:true,metadataReady:false,governanceReady:true,knowledgeReady:false,permissionReady:false,blockReasons:[{code:'SNAPSHOT_NOT_PUBLISHED',message:'尚未发布元数据快照',ownerRole:'治理负责人',actionText:'发布快照',actionPath:'/untrusted'}],...overrides}}
 function rights(functions=codes){const iam=useIamS1Store();iam.loaded=true;iam.snapshot={protocolVersion:'IAM-SIMPLE-1',userId:1,systemAdmin:false,globalFunctions:functions.filter(x=>x==='admin:workbench:view'||x==='security:approval:view'),datasourceCapabilities:sources.map(x=>({datasourceId:x.id,datasourceName:x.name,functionCodes:functions.filter(x=>!x.startsWith('admin:')),functionNames:[]})),queryUse:false,viewSql:false,export:false,permissionRevision:1}}
-function page(){return mount(Page,{global:{plugins:[ElementPlus],stubs:{TaskPageHeader:{props:['title'],template:'<header>{{title}}<slot name="actions"/></header>'},TitleHelp:true,RouterLink:{props:['to'],template:'<a><slot/></a>'}}}})}
+// 焦点回归挂到真实文档节点，其余合同测试仍使用独立的默认挂载。
+function page(attachTo?:HTMLElement){return mount(Page,{attachTo,global:{plugins:[ElementPlus],stubs:{TaskPageHeader:{props:['title'],template:'<header>{{title}}<slot name="actions"/></header>'},TitleHelp:true,RouterLink:{props:['to'],template:'<a><slot/></a>'}}}})}
 async function settle(){await flushPromises();await nextTick();await flushPromises()}
 function expectFocused(w:ReturnType<typeof page>,id?:number){
  expect(w.findAll('[data-source-choice][aria-pressed="true"]').map(row=>row.attributes('data-source-choice'))).toEqual(id===undefined?[]:[String(id)])
@@ -26,10 +27,12 @@ function expectFocused(w:ReturnType<typeof page>,id?:number){
  if(id!==undefined)expect(w.find('[data-source-detail] .detail-kicker span:last-child').text()).toBe('#'+id)
 }
 beforeEach(()=>{setActivePinia(createPinia());useAuthStore().token='A';Object.values(api).forEach(x=>x.mockReset());reactive(routing).value.query={};api.replace.mockImplementation(target=>{reactive(routing).value.query=target.query;return Promise.resolve()});rights();api.getDashboardStats.mockResolvedValue({data:{openIssues:15,recentActivities:[]}});api.listSimpleDatasources.mockResolvedValue({data:sources});api.getBatchDatasourceReadiness.mockResolvedValue({data:sources.map(x=>result(x.id)),failedDatasourceIds:[]});api.listIamS1AccessRequestQueue.mockResolvedValue({data:{total:0,records:[]}})})
-describe('V3 工作台真实读取合同',()=>{
+// 保留原 V3 的权限与生命周期合同，布局改为完整有权目录与真实分布摘要。
+describe('工作台真实读取与来源分布合同',()=>{
+ // 完整目录不再固定截断三项，精确 URL 定位仍与高亮及详情共用对象。
  it.each([9,12])('刷新来源%s时列表选中态与精确详情使用同一对象',async(id)=>{
   reactive(routing).value.query={focusSourceId:String(id)}
-  const w=page();try{await settle();expectFocused(w,id);expect(routing.value.query.focusSourceId).toBe(String(id));expect(w.findAll('[data-source-choice]')).toHaveLength(3)}finally{w.unmount()}
+  const w=page();try{await settle();expectFocused(w,id);expect(routing.value.query.focusSourceId).toBe(String(id));expect(w.findAll('[data-source-choice]')).toHaveLength(sources.length)}finally{w.unmount()}
  })
  it('默认与路由前后切换保持高亮、详情一致，非法定位不高亮其他来源',async()=>{
   const w=page();try{
@@ -59,7 +62,8 @@ describe('V3 工作台真实读取合同',()=>{
    await settle();expectFocused(w);expect(w.find('[data-source-choice="9"]').exists()).toBe(false);expect(routing.value.query.focusSourceId).toBe('9');expect(w.text()).toContain('指定来源不在当前有权列表中');expect(api.push).not.toHaveBeenCalled()
   }finally{w.unmount()}
  })
- it('只预览三个来源，选中真实来源给出精确且有权的版本入口，不信actionPath',async()=>{const w=page();try{await settle();expect(w.findAll('[data-source-choice]')).toHaveLength(3);expect(w.text()).not.toContain('演示交易库');expect(w.text()).not.toContain('最近工作');await w.find('[data-source-primary]').trigger('click');expect(api.push).toHaveBeenLastCalledWith({path:'/admin/releases',query:{datasourceId:'2'}});expect(api.push).not.toHaveBeenCalledWith(expect.objectContaining({path:'/untrusted'}))}finally{w.unmount()}})
+ // 放开目录展示数量不改变动作白名单、精确源或同源能力校验。
+ it('展示完整有权目录，选中真实来源给出精确且有权的版本入口，不信actionPath',async()=>{const w=page();try{await settle();expect(w.findAll('[data-source-choice]')).toHaveLength(sources.length);expect(w.text()).not.toContain('演示交易库');expect(w.text()).not.toContain('最近工作');await w.find('[data-source-primary]').trigger('click');expect(api.push).toHaveBeenLastCalledWith({path:'/admin/releases',query:{datasourceId:'2'}});expect(api.push).not.toHaveBeenCalledWith(expect.objectContaining({path:'/untrusted'}))}finally{w.unmount()}})
  it('同源无版本查看权时禁用且解释，不用其他能力补权',async()=>{rights(codes.filter(x=>x!=='metadata:release:view'));const w=page();try{await settle();expect(w.find('[data-source-primary]').attributes('disabled')).toBeDefined();expect(w.text()).toContain('元数据版本查看');await w.find('[data-source-primary]').trigger('click');expect(api.push).not.toHaveBeenCalled()}finally{w.unmount()}})
  it('基础条件满足与活动索引独立，不宣称本人已获问数许可',async()=>{api.getBatchDatasourceReadiness.mockResolvedValue({data:[result(2,{askable:true,metadataReady:true,publishedSnapshotId:30,snapshotVersion:3,permissionReady:true,blockReasons:[],stage:'ASKABLE',stageLabel:'可询问'})],failedDatasourceIds:[5,9,12]});const w=page();try{await settle();expect(w.text()).toContain('无活动索引');expect(w.text()).toContain('不代表你已获查询权');await w.find('[data-source-filter="ready"]').trigger('click');expect(w.findAll('[data-source-choice]')).toHaveLength(1);expect(w.text()).not.toContain('你可以问数')}finally{w.unmount()}})
  it('缺失准备回执保留未知，切来源不保留旧快照或旧动作',async()=>{api.getBatchDatasourceReadiness.mockResolvedValue({data:[result(2)],failedDatasourceIds:[9,5,12]});const w=page();try{await settle();await w.find('[data-source-choice="9"]').trigger('click');expect(w.find('[data-source-detail]').text()).toContain('待确认');expect(w.find('[data-source-detail]').text()).not.toContain('#31');await w.find('[data-source-primary]').trigger('click');expect(api.push).toHaveBeenLastCalledWith({path:'/admin/data-sources/9'})}finally{w.unmount()}})
@@ -68,8 +72,86 @@ describe('V3 工作台真实读取合同',()=>{
  it('403恢复不等待旧目录请求，旧load完成不能结束新读取',async()=>{let release!:(v:any)=>void;api.listSimpleDatasources.mockReturnValueOnce(new Promise(r=>{release=r})).mockResolvedValue({data:sources});api.getDashboardStats.mockRejectedValueOnce(Object.assign(new Error('工作台拒绝'),{response:{status:403}})).mockResolvedValue({data:{openIssues:3,recentActivities:[]}});const w=page();try{await settle();await w.find('.noaccess button').trigger('click');await settle();expect(api.getDashboardStats).toHaveBeenCalledTimes(2);expect(w.find('[data-source-detail]').exists()).toBe(true);release({data:[{id:2,name:'旧目录不得覆盖'}]});await settle();expect(w.text()).not.toContain('旧目录不得覆盖')}finally{w.unmount()}})
 
  it('刷新深链只在当前有权目录内恢复，错误定位不自动换源',async()=>{reactive(routing).value.query={focusSourceId:'777'};const w=page();try{await settle();expect(w.find('[data-source-detail]').exists()).toBe(false);expect(w.text()).toContain('指定来源不在当前有权列表');await w.find('[data-source-choice="9"]').trigger('click');await settle();expect(routing.value.query.focusSourceId).toBe('9');expect(w.find('[data-source-detail]').text()).toContain('真实回执名称B')}finally{w.unmount()}})
- it('已授权的第4个来源精确恢复，仍只给三个预览',async()=>{reactive(routing).value.query={focusSourceId:'12'};const w=page();try{await settle();expect(w.findAll('[data-source-choice]')).toHaveLength(3);expect(w.find('[data-source-detail]').text()).toContain('真实回执名称D')}finally{w.unmount()}})
- it('缺失布尔字段不能显示已准备，安全保留未知',async()=>{api.getBatchDatasourceReadiness.mockResolvedValue({data:[{...result(2),permissionReady:undefined}],failedDatasourceIds:[]});const w=page();try{await settle();expect(w.findAll('.condition.unknown')).toHaveLength(15);expect(w.find('[data-source-detail]').text()).toContain('待确认')}finally{w.unmount()}})
+ // 第四个来源不再被三项预览挤掉，深链恢复仍是原来那个精确对象。
+ it('已授权的第4个来源与完整目录一起精确恢复',async()=>{reactive(routing).value.query={focusSourceId:'12'};const w=page();try{await settle();expect(w.findAll('[data-source-choice]')).toHaveLength(sources.length);expect(w.find('[data-source-detail]').text()).toContain('真实回执名称D')}finally{w.unmount()}})
+ // 完整目录里的每个缺失回执都保留五项未知状态，不从布尔缺失推断已准备。
+ it('缺失布尔字段不能显示已准备，安全保留未知',async()=>{api.getBatchDatasourceReadiness.mockResolvedValue({data:[{...result(2),permissionReady:undefined}],failedDatasourceIds:[]});const w=page();try{await settle();expect(w.findAll('.condition.unknown')).toHaveLength(sources.length*5);expect(w.find('[data-source-detail]').text()).toContain('待确认')}finally{w.unmount()}})
  it('大范围读取有上限，未读来源不被算作0或就绪',async()=>{const list=Array.from({length:105},(_,i)=>({id:i+1,name:'来源'+(i+1)}));useIamS1Store().snapshot!.datasourceCapabilities=list.map(s=>({datasourceId:s.id,datasourceName:s.name,functionCodes:['datasource:view'],functionNames:[]}));api.listSimpleDatasources.mockResolvedValue({data:list});api.getBatchDatasourceReadiness.mockImplementation(ids=>Promise.resolve({data:ids.map((id:number)=>result(id)),failedDatasourceIds:[]}));const w=page();try{await settle();expect(api.getBatchDatasourceReadiness.mock.calls[0][0].length).toBeLessThanOrEqual(100);expect(w.text()).toContain('5 个未知');expect(w.find('[data-source-filter="ready"] b').text()).toBe('—')}finally{w.unmount()}})
+
+ // 分布包含未知分母，点击未知段只筛选缺回执来源且不借用已核验来源的快照。
+ it('准备分布保留未知来源并能进入对应核对任务',async()=>{
+  api.getBatchDatasourceReadiness.mockResolvedValue({data:[result(2,{askable:true,metadataReady:true,publishedSnapshotId:30,permissionReady:true,blockReasons:[]}),result(9)],failedDatasourceIds:[5,12]})
+  const w=page();try{
+   await settle()
+   expect(w.find('[data-readiness-segment="ready"] strong').text()).toBe('1')
+   expect(w.find('[data-readiness-segment="attention"] strong').text()).toBe('1')
+   expect(w.find('[data-readiness-segment="unknown"] strong').text()).toBe('2')
+   expect(w.find('.readiness-bar').attributes('aria-label')).toContain('待确认 2 个')
+   await w.find('[data-readiness-segment="unknown"]').trigger('click');await settle()
+   expect(w.findAll('[data-source-choice]').map(row=>row.attributes('data-source-choice'))).toEqual(['5','12'])
+   expectFocused(w,5)
+   expect(w.find('[data-source-detail]').text()).not.toContain('#30')
+   await w.find('[data-source-primary]').trigger('click')
+   expect(api.push).toHaveBeenLastCalledWith({path:'/admin/data-sources/5'})
+  }finally{w.unmount()}
+ })
+
+ // 大目录只保留一个 Tab 停点，键盘首尾与相邻选择仍同步精确 URL 和操作对象。
+ it('来源方向键导航不让Tab遍历整张目录',async()=>{
+  const w=page();try{
+   await settle()
+   expect(w.findAll('[data-source-choice][tabindex="0"]')).toHaveLength(1)
+   await w.find('[data-source-choice="2"]').trigger('keydown',{key:'ArrowDown'});await settle()
+   expectFocused(w,9)
+   expect(routing.value.query.focusSourceId).toBe('9')
+   expect(w.find('[data-source-choice="9"]').attributes('tabindex')).toBe('0')
+   await w.find('[data-source-choice="9"]').trigger('keydown',{key:'End'});await settle()
+   expectFocused(w,12)
+   await w.find('[data-source-choice="12"]').trigger('keydown',{key:'Home'});await settle()
+   expectFocused(w,2)
+   expect(w.findAll('[data-source-choice][tabindex="0"]')).toHaveLength(1)
+  }finally{w.unmount()}
+ })
+
+ // 真实路由在导航 Promise 完成时才更新，不能用同步 mock 掩盖选中态与焦点分离。
+ it('异步路由完成后焦点跟随来源，连续方向键可以继续移动',async()=>{
+  reactive(routing).value.query={focusSourceId:'2'}
+  const pending:Array<()=>void>=[]
+  api.replace.mockImplementation(target=>new Promise<void>(resolve=>pending.push(()=>{reactive(routing).value.query=target.query;resolve()})))
+  const host=document.createElement('div');document.body.append(host)
+  const w=page(host);try{
+   await settle()
+   const first=w.find<HTMLButtonElement>('[data-source-choice="2"]')
+   first.element.focus()
+   await first.trigger('keydown',{key:'ArrowDown'});await settle()
+   expectFocused(w,2)
+   pending.shift()!();await settle()
+   expectFocused(w,9)
+   expect(document.activeElement).toBe(w.find('[data-source-choice="9"]').element)
+   document.activeElement!.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));await settle()
+   pending.shift()!();await settle()
+   expectFocused(w,5)
+   expect(document.activeElement).toBe(w.find('[data-source-choice="5"]').element)
+  }finally{w.unmount();host.remove()}
+ })
+
+ // 导航等待期间用户已移到其他控件时，旧方向键完成不能把焦点拉回来源表。
+ it('异步来源导航完成后不夺走用户后来移动的焦点',async()=>{
+  reactive(routing).value.query={focusSourceId:'2'}
+  let complete!:()=>void
+  api.replace.mockImplementation(target=>new Promise<void>(resolve=>{complete=()=>{reactive(routing).value.query=target.query;resolve()}}))
+  const host=document.createElement('div'),outside=document.createElement('button')
+  document.body.append(host,outside)
+  const w=page(host);try{
+   await settle()
+   const first=w.find<HTMLButtonElement>('[data-source-choice="2"]')
+   first.element.focus()
+   await first.trigger('keydown',{key:'ArrowDown'});await settle()
+   outside.focus()
+   complete();await settle()
+   expectFocused(w,9)
+   expect(document.activeElement).toBe(outside)
+  }finally{w.unmount();host.remove();outside.remove()}
+ })
 
 })

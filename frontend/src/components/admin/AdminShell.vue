@@ -94,6 +94,12 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
+      <!-- 问数是跨后台领域的主任务入口，仍严格按独立 queryUse 能力显示。 -->
+      <RouterLink v-if="iamS1.queryUse" to="/query" class="admin-shell__query-entry" :title="collapsed ? '智能问数' : undefined">
+        <MessageSquareText :size="18" aria-hidden="true" />
+        <span v-if="!collapsed">智能问数</span>
+      </RouterLink>
+
       <AdminDomainNav
         :collapsed="collapsed"
         @navigate="closeUserMenu"
@@ -180,8 +186,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .admin-shell {
+  /* 导航与明亮工作面形成稳定边界，收起导航后释放密集表格阅读宽度。 */
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: 232px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
   height: 100vh;
@@ -200,62 +207,29 @@ onBeforeUnmount(() => {
 .admin-shell :deep(.el-button--primary) { --el-button-bg-color: var(--do-primary-strong); --el-button-border-color: var(--do-primary-strong); --el-button-hover-bg-color: var(--do-primary-strong); --el-button-hover-border-color: var(--do-primary-strong); }
 
 .admin-shell__sidebar {
+  /* 深色仅作用于导航表面，正文和 body 中的浮层继续使用根级明亮主题。 */
   align-self: stretch;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--do-line);
+  border-right: 1px solid var(--do-nav-line);
   border-radius: 0;
-  background: var(--do-sidebar);
+  color: var(--do-nav-text);
+  background: var(--do-nav-bg);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   isolation: isolate;
 }
 
-/* Bound the glass layer while leaving menus, shadows and content unclipped. */
-.admin-shell__sidebar::before,
-.admin-shell__topbar::before {
-  display: none;
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  pointer-events: none;
-  content: '';
-}
-
-.admin-shell__sidebar::before {
-  background: var(--do-glass-shell-bg);
-  backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
-  -webkit-backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
-  clip-path: inset(0 round 16px);
-}
-
-.admin-shell__topbar::before {
-  background: var(--do-glass-panel-bg);
-  backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
-  -webkit-backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
-  clip-path: inset(0 round 15px);
-}
-
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .admin-shell__sidebar::before { background: rgba(239, 247, 255, .96); }
-  .admin-shell__topbar::before { background: rgba(250, 253, 255, .98); }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .admin-shell__sidebar::before { background: rgba(239, 247, 255, .97); backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .admin-shell__topbar::before { background: rgba(250, 253, 255, .98); backdrop-filter: none; -webkit-backdrop-filter: none; }
-}
-
 .admin-shell__brand {
+  /* 品牌与导航同面，不使用额外卡片或装饰层。 */
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   height: 72px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--do-line);
+  border-bottom: 1px solid var(--do-nav-line);
 }
 
 .admin-shell__brand-link {
@@ -264,15 +238,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
   min-width: 0;
-}
-
-.admin-shell__avatar {
-  display: grid;
-  place-items: center;
-  border-radius: var(--do-radius-md);
-  color: #fff;
-  background: linear-gradient(145deg, #1766f4, #2d78f2);
-  font-weight: 900;
 }
 
 .admin-shell__brand-mark {
@@ -294,8 +259,9 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__brand-copy strong {
+  /* 品牌文字使用导航前景，避免随正文主题变暗。 */
   overflow: hidden;
-  color: var(--do-ink);
+  color: var(--do-nav-text);
   font-size: 18px;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -303,37 +269,59 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__brand-copy small {
+  /* 副标题保持可读，不与主任务入口争夺层级。 */
   overflow: hidden;
-  color: var(--do-muted);
+  color: var(--do-nav-muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .admin-shell__collapse {
+  /* 收起按钮保留独立焦点和点击区域，与导航融为一体。 */
   flex: 0 0 auto;
   display: grid;
   width: 32px;
   height: 32px;
   place-items: center;
-  border: 1px solid var(--do-line);
+  border: 1px solid var(--do-nav-line);
   border-radius: var(--do-radius-md);
-  color: var(--do-muted);
-  background: var(--do-surface);
+  color: var(--do-nav-muted);
+  background: transparent;
   cursor: pointer;
 }
 
 .admin-shell__sidebar-footer {
+  /* 账户区域固定在导航末端，长菜单在其上方独立滚动。 */
   flex: 0 0 auto;
   margin-top: auto;
   padding: 12px;
-  border-top: 1px solid var(--do-line);
+  border-top: 1px solid var(--do-nav-line);
 }
+
+/* 提问入口在所有后台页面保持同一位置，缩起时保留可访问名称。 */
+.admin-shell__query-entry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 40px;
+  margin: 18px 14px 4px;
+  padding: 8px;
+  border: 1px solid #38636a;
+  border-radius: 8px;
+  color: var(--do-nav-text);
+  background: var(--do-nav-active);
+  font-size: 13px;
+  font-weight: 600;
+}
+.admin-shell__query-entry:hover { background: #315b62; }
+.admin-shell__query-entry:focus-visible { outline: 2px solid var(--do-nav-accent); outline-offset: 3px; }
 
 .admin-shell__account-menu { width: 100%; }
 
 .admin-shell__main {
-  /* Keep page content above the adjacent sidebar's glass layer. */
+  /* 主工作面管理自己的滚动，不随侧栏菜单高度增长。 */
   position: relative;
   z-index: 0;
   align-self: stretch;
@@ -346,6 +334,7 @@ onBeforeUnmount(() => {
 .admin-shell__main > .scope-bar { flex: 0 0 auto; }
 
 .admin-shell__topbar {
+  /* 轻量页顶只保留位置与全局操作，标题与业务动作留在页面工作面。 */
   position: relative;
   z-index: 10;
   flex: 0 0 auto;
@@ -353,12 +342,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  min-height: 64px;
+  min-height: 56px;
   padding: 0 24px;
   border: 0;
   border-bottom: 1px solid var(--do-line);
   border-radius: 0;
-  background: var(--do-bg);
+  background: var(--do-surface);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   isolation: isolate;
@@ -399,6 +388,7 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__user {
+  /* 账号按钮属于深色导航，不向弹出的账户菜单传播局部色值。 */
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) 15px;
   width: 100%;
@@ -408,35 +398,42 @@ onBeforeUnmount(() => {
   padding: 8px;
   border: 0;
   border-radius: var(--do-radius-md);
-  color: var(--do-ink);
+  color: var(--do-nav-text);
   background: transparent;
   text-align: left;
   cursor: pointer;
 }
 
 .admin-shell__avatar {
+  /* 头像使用安静的色块，避免账号区域出现与主题无关的渐变。 */
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  font-weight: 650;
   width: 36px;
   height: 36px;
-  color: var(--do-ink);
-  background: #e1e5dc;
+  color: var(--do-nav-accent);
+  background: var(--do-nav-hover);
   font-size: 12px;
 }
 
 .admin-shell__user-copy { min-width: 0; display: grid; gap: 4px; }
 .admin-shell__user-copy strong, .admin-shell__user-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .admin-shell__user-copy strong { font-size: 13px; font-weight: 700; }
-.admin-shell__user-copy small { color: var(--do-muted); font-size: 12px; }
-.admin-shell__user-chevron { color: var(--do-muted); }
-.admin-shell__user:hover { background: color-mix(in srgb, var(--do-primary) 8%, transparent); }
-.admin-shell__user:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 28%, transparent); outline-offset: 2px; }
+/* 账号的次级信息与交互反馈统一使用导航语义色。 */
+.admin-shell__user-copy small { color: var(--do-nav-muted); font-size: 12px; }
+.admin-shell__user-chevron { color: var(--do-nav-muted); }
+.admin-shell__user:hover { background: var(--do-nav-hover); }
+.admin-shell__user:focus-visible { outline: 2px solid var(--do-nav-accent); outline-offset: 2px; }
 
 .admin-shell__content {
+  /* 密集工作页获得稳定宽度与留白，正文和表格自行决定内部结构。 */
   width: 100%;
   max-width: 1480px;
   min-height: 0;
   flex: 1 1 0;
   margin: 0 auto;
-  padding: 32px 32px 28px;
+  padding: 26px 28px 24px;
   overflow-y: auto;
   overflow-x: auto;
   overscroll-behavior: contain;
@@ -536,7 +533,7 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
-/* 元数据版本沿用后台公共海蓝画布；此处仅保留本路由的布局尺寸规则。 */
+/* 版本页使用统一主题，此处只保留宽表需要的容器尺寸。 */
 .admin-shell .admin-shell__content:has(.releases-page) {
   max-width: none;
   margin: 0;

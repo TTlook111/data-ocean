@@ -1275,10 +1275,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="quality-rules-page post-login-page governance-workspace governance-surface">
+  <!-- 标题和规则工作面分层，避免嵌套卡片压缩表格的可见内容。 -->
+  <main class="quality-rules-page post-login-page governance-workspace">
     <TaskPageHeader
       title="质量规则"
-      eyebrow="数据治理 / 来源质量配置"
       description="配置原始结构和只读数据的质量检查。业务用途、表关系、字段解释及标签缺口在知识治理任务中处理；两类问题分别保留证据。"
     >
       <template #actions>
@@ -1304,15 +1304,8 @@ onBeforeUnmount(() => {
       </template>
     </TaskPageHeader>
     <GovernanceWriteNotice />
-    <div class="rule-process-guide">
-      <strong>配置检查对象与条件</strong>
-      <span>→</span>
-      <strong>核对当前快照规划</strong>
-      <span>→</span>
-      <strong>在治理总览执行来源检查</strong>
-      <p>保存、启用或恢复配置不会执行检查。历史结果保留当时配置版本，不能用当前规划补造过去覆盖。</p>
-    </div>
     <ErrorState v-if="pageError" :message="pageError" @retry="loadPage" />
+    <!-- 范围、筛选和列表组成一个连续工作面，所有写动作仍由原权限与会话门禁控制。 -->
     <section v-else class="quality-rules-page__workspace">
       <div class="quality-rules-page__toolbar">
         <div class="quality-rules-page__scope-switch" role="group" aria-label="规则管理范围">
@@ -1361,6 +1354,8 @@ onBeforeUnmount(() => {
           />
         </div>
       </div>
+      <!-- 配置与执行的关键区别直接可见，历史证据边界在详情与编辑核对区保留。 -->
+      <p class="quality-rules-page__execution-note">保存、启用或恢复规则仅更新配置；质量检查在治理总览执行。</p>
       <p v-if="scopeMode === 'GLOBAL'" class="quality-rules-page__scope-note">
         全局默认配置用于各数据源的后续检查，仅系统管理员可维护。
       </p>
@@ -1379,6 +1374,7 @@ onBeforeUnmount(() => {
         :message="applicabilityError"
         @retry="loadApplicability"
       />
+      <!-- 常用筛选直接可达，其余条件按需展开，计数使用服务端总数。 -->
       <div class="quality-rules-page__filters">
         <el-input v-model="ruleNameFilter" clearable placeholder="搜索规则名称" aria-label="搜索规则名称" />
         <el-select v-model="enabledFilter" aria-label="启用状态">
@@ -2137,50 +2133,33 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .quality-rules-page {
+  /* 页面外层只负责节奏，列表和编辑面各自拥有唯一表面。 */
   display: grid;
-  gap: 20px;
+  gap: 16px;
   min-width: 0;
 }
-.rule-process-guide {
-  padding: 18px 20px;
-  border: 1px solid var(--do-line);
-  border-radius: 12px;
-  background: var(--do-surface);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  font-size: 12px;
-}
-.rule-process-guide strong {
-  font-weight: 650;
-}
-.rule-process-guide > span {
-  color: var(--do-primary);
-}
-.rule-process-guide p {
-  flex-basis: 100%;
-  margin: 0;
+.quality-rules-page :deep(.task-page-header) { margin-bottom: 4px; }
+
+/* 必要边界占用单行，紧邻范围选择；不再重复整条操作流程。 */
+.quality-rules-page__execution-note {
+  margin: 12px 0 0;
   color: var(--do-muted);
-  line-height: 1.8;
+  font-size: 12px;
+  line-height: 1.6;
 }
 .quality-rules-page__workspace {
+  /* 单层白色表面承载完整规则列表，给内容保留稳定的呼吸空间。 */
+  min-width: 0;
   border: 1px solid var(--do-line);
-  border-radius: 12px;
-  padding: 22px;
+  border-radius: 10px;
+  padding: 18px 20px;
   background: var(--do-surface);
 }
+/* 小窗口只收紧容器边距，不改变范围与分页语义。 */
 @media (max-width: 760px) {
   .quality-rules-page__workspace {
     padding: 14px;
   }
-  .rule-process-guide {
-    gap: 8px;
-  }
-}
-
-.quality-rules-page__workspace {
-  min-width: 0;
 }
 .quality-rules-page__toolbar {
   display: flex;
@@ -2228,11 +2207,12 @@ onBeforeUnmount(() => {
   margin: 12px 0 0;
 }
 .quality-rules-page__filters {
+  /* 列表首屏优先呈现规则，筛选条与边界提示保持紧凑间距。 */
   display: flex;
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
-  margin: 22px 0 16px;
+  margin: 16px 0;
 }
 .quality-rules-page__filters > :deep(.el-input) {
   width: 260px;
@@ -2333,15 +2313,23 @@ onBeforeUnmount(() => {
   align-items: start;
 }
 .quality-rule-form__section {
+  /* 表单主区只使用分隔线；统一放在核对区覆盖之前，避免覆盖其内边距。 */
   grid-column: 1;
+  margin: 0;
+  padding: 14px 0;
+  border: 0;
+  border-bottom: 1px solid var(--do-line);
+  border-radius: 0;
+  background: transparent;
 }
 .quality-rule-form__review {
+  /* 核对区与长表单并列且持续可读，用正常层叠保留内边距，无需 important。 */
   grid-column: 2;
   grid-row: 1 / span 5;
   position: sticky;
   top: 0;
   padding: 18px;
-  background: var(--do-soft) !important;
+  background: var(--do-soft);
   border: 0;
   border-radius: 8px;
 }
@@ -2395,14 +2383,6 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 16px;
-}
-.quality-rule-form__section {
-  margin: 0;
-  padding: 14px 0;
-  border: 0;
-  border-bottom: 1px solid var(--do-line);
-  border-radius: 0;
-  background: transparent;
 }
 .quality-rule-form__section h3 {
   margin: 0 0 4px;

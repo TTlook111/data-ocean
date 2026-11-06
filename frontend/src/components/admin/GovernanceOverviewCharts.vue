@@ -39,7 +39,446 @@ const domainFraction=computed(()=>model.value.total&&model.value.domains?model.v
  </div>
 </template>
 <style scoped>
-.overview-analysis{--overview-semantic:#5c7363;--overview-open:#a45c3b;--overview-confirmed:#95a690;--overview-reopened:#bd7470;border:1px solid var(--do-line);border-radius:10px;background:var(--do-surface);overflow:hidden}
-.analysis-row{display:grid;grid-template-columns:1.42fr 1fr}.main-figure,.domain-figure{padding:20px 21px;margin:0;min-width:0}.domain-figure{border-left:1px solid var(--do-line)}.figure-head{display:flex;justify-content:space-between;gap:15px;align-items:baseline;margin-bottom:14px}.figure-head h2{font-size:15px;margin:0;font-weight:600;line-height:1.4}.figure-head>span{font-size:10px;color:var(--do-muted);white-space:nowrap}
-button{font:inherit;cursor:pointer}button:focus-visible{outline:3px solid var(--do-primary);outline-offset:3px}button:disabled{cursor:not-allowed;color:var(--do-muted)}.status-legend{display:flex;gap:13px;margin-bottom:17px;align-items:center;flex-wrap:wrap}.status-legend button{border:0;background:none;color:var(--do-muted);font-size:10px;display:flex;gap:5px;align-items:center;padding:2px 0;min-height:24px}.status-legend i,.domain-jump i{display:inline-block;width:7px;height:7px;border-radius:2px}.OPEN{background:var(--overview-open)}.CONFIRMED{background:var(--overview-confirmed)}.REOPENED{background:var(--overview-reopened)}.status-legend b{color:var(--do-ink);font-weight:600}.status-help{margin-left:auto}.table-bars{display:grid;gap:11px}.stack-row{display:grid;grid-template-columns:83px minmax(0,1fr) 26px;gap:12px;align-items:center;min-height:24px}.tname{font:11px ui-monospace,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.bar-track{display:flex;height:18px;border-radius:3px;overflow:hidden;background:var(--do-soft);gap:1px}.bar-segment{border:0;color:white;min-width:0;padding:0;font-size:10px;font-weight:500;line-height:18px;text-align:center}.bar-segment.CONFIRMED{color:#253121}.bar-segment.REOPENED{color:#241312}.bar-segment:focus-visible{outline:2px solid var(--do-ink);outline-offset:-3px}.total-jump{font-size:12px;font-weight:600;color:var(--do-ink);border:0;background:none;padding:3px 0;min-height:27px;text-align:right}.axis{display:grid;grid-template-columns:83px 1fr 26px;gap:12px;color:var(--do-muted);font-size:9px;margin-top:7px}.axis div{display:flex;justify-content:space-between}.figure-note{font-size:10px;color:var(--do-muted);line-height:1.8;margin:12px 0 0}.domain-body{display:flex;gap:19px;align-items:center;min-width:0;margin:8px 0 13px}.donut{width:125px;height:125px;flex-shrink:0}.donut text{font-family:inherit;fill:var(--do-ink)}.donut .total{font-size:29px;font-weight:600}.donut .label{font-size:10px;fill:var(--do-muted)}.domain-labels{display:grid;gap:9px;flex:1;min-width:0}.domain-jump{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:5px 0;border:0;background:none;text-align:left;color:var(--do-ink);font-size:11px}.domain-jump span{display:flex;align-items:center;gap:6px;white-space:nowrap}.domain-jump b{font-size:19px;font-weight:550}.domain-jump .SOURCE{background:var(--do-primary)}.domain-jump .SEMANTIC{background:var(--overview-semantic)}.emptyplot{padding:22px 0;color:var(--do-muted);font-size:12px;line-height:1.9}.emptyplot strong{display:block;color:var(--do-ink);font-size:14px;font-weight:550;margin-bottom:5px}.status-fallback{display:grid;gap:13px}.fallback-row{display:grid;grid-template-columns:80px 1fr 25px;gap:12px;align-items:center;font-size:11px;border:0;background:none;text-align:left;padding:3px 0}.track{height:12px;background:var(--do-soft);border-radius:2px;overflow:hidden}.track i{height:100%;display:block}.coverage-figure{margin:0;padding:18px 21px;border-top:1px solid var(--do-line);background:var(--do-soft)}.coverage-title{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:12px}.coverage-title h2{font-size:14px;font-weight:600;margin:0;display:flex;gap:10px;align-items:center}.coverage-title h2 span{font-weight:400;color:var(--do-warning);font-size:11px}.coverage-title>span{font-size:10px;color:var(--do-muted)}.coverage-bar{display:flex;height:31px;border-radius:4px;overflow:hidden;gap:2px}.coverage-part{display:flex;justify-content:center;align-items:center;gap:7px;font-size:10px;min-width:0}.coverage-part b{font-size:13px;font-weight:600}.coverage-part.SUCCESS{background:#c3d1bf;color:#263d2a}.coverage-part.FAILURE{background:#efd2cd;color:#7f352e}.coverage-part.NOT_APPLICABLE{background:#e6e8e0;color:#535c50}.coverage-part.NOT_EXECUTED{background:#e8ddc7;color:#69502d}.coverage-foot{display:flex;justify-content:space-between;gap:20px;font-size:10px;color:var(--do-muted);line-height:1.8;margin-top:10px}.evidence-link{display:flex;align-items:center;gap:6px;border:0;background:none;color:var(--do-muted);font-size:11px;padding:6px 0;margin-top:5px}.batch-error{font-size:12px;color:var(--do-danger);line-height:1.8}
+/* 图形沿用全站语义色；该别名仅供既有 SVG 引用，不维护另一套图表配色。 */
+.overview-analysis {
+  --overview-semantic: var(--do-accent);
+  overflow: hidden;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-surface);
+}
+
+.analysis-row {
+  display: grid;
+  grid-template-columns: 1.42fr 1fr;
+}
+
+.main-figure,
+.domain-figure {
+  min-width: 0;
+  margin: 0;
+  padding: 22px 24px;
+}
+
+.domain-figure {
+  border-left: 1px solid var(--do-line);
+}
+
+/* 标题与统计口径保持可读，较长的范围文字允许换行。 */
+.figure-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+}
+
+.figure-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.figure-head > span {
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible {
+  outline: 3px solid var(--do-primary);
+  outline-offset: 3px;
+}
+
+button:disabled {
+  color: var(--do-muted);
+  cursor: not-allowed;
+}
+
+/* 三种未解决状态保持独立：待处理为警示、已确认为信息、重新处理为风险。 */
+.OPEN {
+  background: var(--do-warning);
+}
+
+.CONFIRMED {
+  background: var(--do-info);
+}
+
+.REOPENED {
+  background: var(--do-danger);
+}
+
+.status-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+}
+
+.status-legend button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 3px 0;
+  border: 0;
+  color: var(--do-muted);
+  background: none;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.status-legend i,
+.domain-jump i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+}
+
+.status-legend b {
+  color: var(--do-ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.status-help {
+  margin-left: auto;
+}
+
+/* 表名、条段与坐标共用列宽，放大文字后仍保持对应关系。 */
+.table-bars {
+  display: grid;
+  gap: 12px;
+}
+
+.stack-row,
+.axis {
+  display: grid;
+  grid-template-columns: minmax(104px, .28fr) minmax(0, 1fr) 32px;
+  gap: 12px;
+}
+
+.stack-row {
+  align-items: center;
+  min-height: 32px;
+}
+
+.tname {
+  overflow: hidden;
+  font: 12px/1.5 ui-monospace, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-track {
+  display: flex;
+  gap: 1px;
+  height: 24px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--do-soft);
+}
+
+.bar-segment {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: var(--do-surface);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 24px;
+  text-align: center;
+}
+
+.bar-segment:focus-visible {
+  outline: 2px solid var(--do-surface);
+  outline-offset: -3px;
+}
+
+.total-jump {
+  min-height: 32px;
+  padding: 3px 0;
+  border: 0;
+  color: var(--do-ink);
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.axis {
+  margin-top: 8px;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.axis div {
+  display: flex;
+  justify-content: space-between;
+}
+
+.figure-note {
+  margin: 14px 0 0;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+/* 来源与语义分域继续使用原环图，数字和文字标签同时表达比例含义。 */
+.domain-body {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+  margin: 8px 0 14px;
+}
+
+.donut {
+  width: 136px;
+  height: 136px;
+  flex-shrink: 0;
+}
+
+.donut text {
+  font-family: inherit;
+  fill: var(--do-ink);
+}
+
+.donut .total {
+  font-size: 29px;
+  font-weight: 600;
+}
+
+.donut .label {
+  font-size: 12px;
+  fill: var(--do-muted);
+}
+
+.domain-labels {
+  display: grid;
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+}
+
+.domain-jump {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 36px;
+  padding: 5px 0;
+  border: 0;
+  color: var(--do-ink);
+  background: none;
+  font-size: 13px;
+  text-align: left;
+}
+
+.domain-jump span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.domain-jump b {
+  font-size: 22px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+}
+
+.domain-jump .SOURCE {
+  background: var(--do-primary);
+}
+
+.domain-jump .SEMANTIC {
+  background: var(--do-accent);
+}
+
+/* 不完整明细和无权状态保留原文，状态摘要仍使用相同语义色。 */
+.emptyplot {
+  padding: 22px 0;
+  color: var(--do-muted);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.emptyplot strong {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--do-ink);
+  font-size: 15px;
+  font-weight: 550;
+}
+
+.status-fallback {
+  display: grid;
+  gap: 14px;
+}
+
+.fallback-row {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  padding: 3px 0;
+  border: 0;
+  color: var(--do-ink);
+  background: none;
+  font-size: 12px;
+  text-align: left;
+}
+
+.track {
+  height: 16px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--do-soft);
+}
+
+.track i {
+  display: block;
+  height: 100%;
+}
+
+/* 执行覆盖按四种回执状态着色，完成文字保持中性，不将完整执行等同质量通过。 */
+.coverage-figure {
+  margin: 0;
+  padding: 20px 24px;
+  border-top: 1px solid var(--do-line);
+  background: var(--do-soft);
+}
+
+.coverage-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+  margin-bottom: 14px;
+}
+
+.coverage-title h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
+.coverage-title h2 span {
+  color: var(--do-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.coverage-title > span {
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.coverage-bar {
+  display: flex;
+  gap: 2px;
+  height: 36px;
+  overflow: hidden;
+  border-radius: 5px;
+}
+
+.coverage-part {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.coverage-part b {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.coverage-part.SUCCESS {
+  color: var(--do-success);
+  background: var(--do-success-soft);
+}
+
+.coverage-part.FAILURE {
+  color: var(--do-danger);
+  background: var(--do-danger-soft);
+}
+
+.coverage-part.NOT_APPLICABLE {
+  color: var(--do-muted);
+  background: var(--do-surface);
+}
+
+.coverage-part.NOT_EXECUTED {
+  color: var(--do-warning);
+  background: var(--do-warning-soft);
+}
+
+/* 分母说明与执行依据保持完整换行，链接使用全站动作色并保留焦点。 */
+.coverage-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 20px;
+  margin-top: 12px;
+  color: var(--do-muted);
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.evidence-link {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  margin-top: 7px;
+  padding: 5px 0;
+  border: 0;
+  color: var(--do-primary-strong);
+  background: none;
+  font-size: 12px;
+}
+
+.batch-error {
+  color: var(--do-danger);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+/* 桌面缩放压缩可用宽度时纵向排列，保留完整坐标与操作区域。 */
+@media (max-width: 1100px) {
+  .analysis-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .domain-figure {
+    border-top: 1px solid var(--do-line);
+    border-left: 0;
+  }
+}
 </style>
