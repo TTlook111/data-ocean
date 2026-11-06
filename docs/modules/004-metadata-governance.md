@@ -34,12 +34,13 @@
 | 修改意图 | 文件与定位符号 | 关联影响 |
 | --- | --- | --- |
 | 质量规则分页、修订、复制与恢复 | [QualityRuleServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityRuleServiceImpl.java)：`listRules`、`createRule`、`updateRule`、`copyRule`、`history`、`restoreRule` | 规则启用不代表已执行。 |
+| 规则操作回执、重复提交与未知结果恢复 | [QualityRuleOperationServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityRuleOperationServiceImpl.java)：`execute`、`get`、`resolve` | 操作归属、原版本、持久终结与当前范围授权。 |
 | 字段分类标签 | [FieldTagServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldtag/service/impl/FieldTagServiceImpl.java)：`addTag`、`batchAddTags`、`removeTag`、`getTagsByColumnMetaId` | 标签来源和字段范围。 |
 | 旧来源可信度 | [FieldConfidenceServiceImpl.java](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldtag/service/impl/FieldConfidenceServiceImpl.java)：`pageConfidence`、`getConfidence`、`adminSetScore`、`getEventHistory` | 旧来源分不等于新版使用参考分。 |
 
 新业务知识与一键治理见[治理任务](governance/治理任务与业务知识.md)；新版本使用参考分与反馈结案见[反馈归因](governance/反馈归因与使用档案.md)。旧来源可信度变更不能覆盖这两条新链路。
 
-验证入口：[QualityRuleServicePersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityRuleServicePersistenceTest.java)（规则持久化）、[FieldGovernanceWriteAndListTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldtag/service/impl/FieldGovernanceWriteAndListTest.java)（标签与范围）、[ConfidenceCalculatorImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldtag/service/impl/ConfidenceCalculatorImplTest.java)（来源可信度计算）。本轮仅核对入口，未执行这些业务测试。
+验证入口：[QualityRuleServicePersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityRuleServicePersistenceTest.java)（规则持久化）、[QualityRuleOperationPersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityRuleOperationPersistenceTest.java)（操作回执、事务与并发）、[FieldGovernanceWriteAndListTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldtag/service/impl/FieldGovernanceWriteAndListTest.java)（标签与范围）、[ConfidenceCalculatorImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldtag/service/impl/ConfidenceCalculatorImplTest.java)（来源可信度计算）。规则本轮实际测试与环境边界见[可靠写入验收](../acceptance/2026-11-07-质量规则可靠写入.md)，不外推标签或可信度验收。
 
 ## 修改定位
 
@@ -161,9 +162,57 @@
 
 实例保存名称、模板、说明、严重程度、扣分、参数、启用状态、范围及配置版本。范围为全局、数据源、表或字段；表/字段目标由已选数据源真实元数据选择，并按数据源 ID 加稳定名称解析到后续快照，不绑定旧快照行 ID。对象缺失或来源不匹配记录为不适用/失败原因，不回退到其他对象。模板声明允许的组合由服务端再次校验。
 
-同模板和目标按全局 < 数据源 < 表 < 字段选择唯一有效配置，覆盖后不对相同检查重复扣分；同级的启用冲突拒绝保存或启用。编辑新增配置版本并记录变更人/时间；复制生成停用的新实例；停用保留配置；删除在单次操作内停用并软删除，恢复只恢复为停用。规则变更写入 `metadata_quality_rule_revision`，执行批次保留当时规则配置快照，因此当前编辑/删除不改写历史依据。迁移时只为当时可读取的旧配置写 `BASELINE`，不伪造迁移前事件。
+同模板和目标按全局 < 数据源 < 表 < 字段选择唯一有效配置，覆盖后不对相同检查重复扣分；同级的启用冲突拒绝保存或启用。编辑、启停、删除和恢复都推进同一配置版本并记录变更人/时间；复制校验源版本，生成停用的 v1 新实例，不推进源版本。停用保留配置；删除在单次操作内停用并软删除，恢复只恢复为停用。规则变更写入 `metadata_quality_rule_revision`，执行批次保留当时规则配置快照，因此当前编辑/删除不改写历史依据。迁移时只为当时可读取的旧配置写 `BASELINE`，不伪造迁移前事件。
 
-恢复会在数据库中明确清除删除时间和删除人，并保持停用。规则编辑按完整配置保存，作用范围变更会清空不再适用的数据源、表和字段；返回对象及新增修订取自同一份配置。显式空值仅用于本次规则配置更新，不改变其他规则状态操作的字段更新策略。
+恢复会在数据库中明确清除删除时间和删除人，并保持停用。规则编辑按完整配置保存，作用范围变更会清空不再适用的数据源、表和字段；持久配置及新增修订取自同一份配置。写接口返回操作回执，读取完整配置仍使用规则详情接口。
+
+### 规则写入合同
+
+新前端通过 [qualityRuleOperations.ts](../../frontend/src/api/admin/qualityRuleOperations.ts) 调用以下 Java 接口。保存配置、启用和恢复都不执行质量检查。
+
+| 接口 | 请求与结果 |
+| --- | --- |
+| `POST /api/admin/quality-rules/operations` | 所有动作必填 `operationId` UUID 与 `action`。`CREATE` 另带配置，不带对象/预期版本；`UPDATE` 另带完整配置及正整数 `ruleId/expectedVersion`；`COPY/ENABLE/DISABLE/DELETE/RESTORE` 另带对象/版本，不带配置。以上内容在提交前一起冻结。 |
+| `GET /api/admin/quality-rules/operations/{operationId}` | 只读取当前账号的原操作回执；未发现已提交回执返回 `NOT_FOUND`，不据此判断在途请求已停止。 |
+| `POST /api/admin/quality-rules/operations/{operationId}/resolve` | 与原提交争用同一账号/操作 ID 唯一键；原提交先完成则返回原回执，否则持久化拒绝记录，阻止后来到达的原请求写入。结束原操作不撤销已提交配置。 |
+
+回执为 `operationId/action/outcome/ruleId/configVersion/errorCode/errorMessage`，不附完整规则正文。`APPLIED` 表示原配置操作已提交；`REJECTED` 表示明确拒绝；`CONFLICT` 表示版本或业务条件冲突。确定的业务结果通常以 HTTP 200 的 `data.outcome` 表达，不能只看 HTTP 成功；权限拒绝返回 HTTP 403，不向失权客户端提供对象版本。请求绑定/格式错误可直接返回 400，同操作 ID 改内容返回 409；这些 HTTP 拒绝与回执内的结果需分别处理。
+
+服务端以当前账号和操作 ID 唯一约束去重，指纹包含账号、动作、对象、预期版本及完整配置。同 ID、同内容只返回原回执；同 ID、不同内容不覆盖原结果。写入先锁定规则实际原范围，再校验原/目标授权及客户端读取时的版本，实际 UPDATE 仍带 `config_version = expectedVersion` 条件；前端不再用保存前重读代替服务端原子检查。
+
+[V76](../../backend/DataOcean/src/main/resources/db/migration/V76__quality_rule_operation_receipts.sql) 定义 `quality_rule_operation` 持久回执和 `quality_rule_write_guard` 单行领域锁。规则、修订与成功回执在同一事务提交；业务拒绝通过嵌套保存点回滚本次配置后记录拒绝，非业务持久化异常回滚整个事务。低频配置写先取得领域锁再读原规则，跨不同规则的同级启用冲突也受保护；列表、规划和实际检查不取得此锁。回执保存原/目标授权范围和结果标识，不保存草稿正文或凭据；查询、重放和终结均重新核验原范围、目标范围及对象当前范围。迁移实际执行环境、并发与故障实测仅以[本轮验收](../acceptance/2026-11-07-质量规则可靠写入.md)和[项目现状](../项目现状.md)为准。
+
+旧写路径仍存在，但已严格适配同一操作服务，不能继续按旧载荷无条件调用：
+
+| 旧路径（均以 `/api/admin` 开头） | 必填 query 参数 | 请求体 |
+| --- | --- | --- |
+| `POST /quality-rules` | `operationId` | 完整 `QualityRuleDTO` |
+| `PUT /quality-rules/{ruleId}` | `operationId`、`expectedVersion` | 完整 `QualityRuleDTO` |
+| `POST /quality-rules/{ruleId}/copy` | `operationId`、`expectedVersion` | 无 |
+| `PATCH /quality-rules/{ruleId}/enabled` | `operationId`、`expectedVersion` | 必填布尔 `enabled` |
+| `PATCH /quality-rules/{ruleId}` | `operationId`、`expectedVersion` | 必填布尔 `enabled`；原兼容入口同样受条件保护 |
+| `DELETE /quality-rules/{ruleId}` | `operationId`、`expectedVersion` | 无 |
+| `POST /quality-rules/{ruleId}/restore` | `operationId`、`expectedVersion` | 无 |
+
+这些路径都返回 `Result<QualityRuleOperationVO>`，不再返回完整 `QualityRuleVO` 或空成功结果。缺参数直接拒绝，调用方必须迁移条件和回执解析；本轮前端已使用统一 operations 接口。
+
+### 工作区职责与恢复
+
+| 职责 | 主责文件 |
+| --- | --- |
+| 页面、编辑会话、目标目录及详情交互 | [QualityRulesView.vue](../../frontend/src/views/admin/governance/QualityRulesView.vue) |
+| 身份、全局/数据源能力、配置范围与独立快照规划键 | [useQualityRuleScope.ts](../../frontend/src/views/admin/governance/rules/useQualityRuleScope.ts) |
+| 列表分页筛选、检查项目录、只读快照规划及各自请求代次 | [useQualityRuleReads.ts](../../frontend/src/views/admin/governance/rules/useQualityRuleReads.ts) |
+| 人工草稿、原配置版本、稳定草稿归属和定向清理 | [qualityRuleDrafts.ts](../../frontend/src/views/admin/governance/rules/qualityRuleDrafts.ts) |
+| 提交互斥、最小恢复标识、回执核对和终结 | [useQualityRuleOperations.ts](../../frontend/src/views/admin/governance/rules/useQualityRuleOperations.ts) |
+
+源级配置读取不要求公共快照或 `metadata:view`；表/字段目录单独判权，已有编辑工作面先打开，辅助目录延迟或失败不覆盖人工输入。全局定义、源级配置、快照规划、配置修订和实际执行历史仍是不同事实；详情主读取与历史辅助读取分开处理。
+
+关闭编辑器、切换有权来源和 SPA 内返回保留内存草稿及原版本；整页刷新恢复的是操作关联，不承诺恢复未保存正文。新建草稿以打开时的稳定 `draftKey` 关联，表单切换全局/源级范围不改写该归属。409 保留原草稿，不自动换版本重发；能力暂时读取失败只隐藏待核验内容，确认撤权/范围失效后定向清理关联草稿和回执标识，旧源迟到 403 不删除后来有权源的草稿，身份结束清空内存草稿。
+
+发请求前，按账号将操作 ID、动作、对象 ID、原/目标范围、时间、草稿定位键及必要的已提交结果 ID/版本写入 `localStorage`。不新增草稿正文、规则名称、参数、令牌或完整服务端配置的持久副本。恢复记录解析失败或无法读写时拒绝新提交；超时、网络错误、5xx 或不完整回执保留原 ID，不自动生成新操作重发。用户先核对原回执；`NOT_FOUND` 必须继续核对，或显式结束原操作并获得持久拒绝结果，才能释放原操作。
+
+收到 `APPLIED` 与工作面处理完该成功结果是两步。提交期间又改稿、关闭或离开时，保留已提交 ID/版本与互斥；用户读取已保存配置、确认替换对应脏草稿后才解除。回读失败仍保留该操作，防止已创建成功的草稿再次按 `CREATE` 提交。定向回归入口为 [useQualityRuleOperations.test.ts](../../frontend/src/views/admin/governance/rules/useQualityRuleOperations.test.ts)及 [GovernanceRulesStatusLifecycle.test.ts](../../frontend/src/views/admin/governance/GovernanceRulesStatusLifecycle.test.ts)；真实角色、异常路径与未验证范围见[本轮验收](../acceptance/2026-11-07-质量规则可靠写入.md)。
 
 ## 批次、覆盖与可信结果
 
@@ -221,9 +270,9 @@
 
 ### 问题与规则的恢复保护
 
-总览把SOURCE诊断、独立SEMANTIC人工事实与当前实际批次/规划分开，实际执行0、未知、部分失败和历史分保留。刷新只重读已核验范围的证据，不隐式选择新快照。问题表/用户目录分别要求metadata:view、organization:user:view，辅助无权或挂起不阻已核验问题范围的合法接口。语义解决/驳回填写已有resolutionNote，服务端继续复核最新语义批次及当前hash；409保留原问题依据。批量保留全部skipped原因，不宣称全业务原子或全部成功。读取与写入按身份/IAM/精确源快照代次失效；未知写共享内存目标锁不替代幂等、真实CAS或跨刷新恢复。详见[第七阶段验收](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d7)。
+总览把SOURCE诊断、独立SEMANTIC人工事实与当前实际批次/规划分开，实际执行0、未知、部分失败和历史分保留。刷新只重读已核验范围的证据，不隐式选择新快照。问题表/用户目录分别要求metadata:view、organization:user:view，辅助无权或挂起不阻已核验问题范围的合法接口。语义解决/驳回填写已有resolutionNote，服务端继续复核最新语义批次及当前hash；409保留原问题依据。批量保留全部skipped原因，不宣称全业务原子或全部成功。问题处理的读取与写入按身份/IAM/精确源快照代次失效，其未知写共享内存目标锁仍不替代幂等、真实CAS或跨刷新恢复；规则配置已使用上文[独立持久协议](#规则写入合同)，不将其能力外推至问题处理。问题页既有覆盖见[第七阶段验收](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d7)。
 
-规则/状态交互：质量规则按配置→只读规划→来源检查呈现，源级规则列表不额外要求metadata或快照，规划只读精确公共快照。最近采集目录辅助预算不等于历史范围；保存基线预检不替代服务端CAS。状态调整不自动修复问题或审核知识，批量updated/excluded缺失保留未知锁。详见第七阶段验收B。
+质量规则按配置→只读规划→来源检查呈现，源级规则列表不额外要求metadata或快照，规划只读精确公共快照；最近采集目录辅助预算不等于历史范围。规则保存以原版本条件和操作回执恢复，详见上文[工作区职责与恢复](#工作区职责与恢复)。治理状态调整不自动修复问题或审核知识，批量updated/excluded缺失仍保留既有未知锁，不能用本轮规则协议宣称状态维护也已具备跨刷新恢复；既有覆盖见第七阶段验收B。
 
 问题中心恢复维度、级别或责任人筛选时自动展开「更多筛选」；用户主动收起后保留活动条件数，收起不清除筛选。质量规则的「清除筛选」位于主工具栏，有活动条件才显示，不必先展开高级条件；规则列表读取失败不显示条数，不把未知补成0。治理状态维护的表搜索无匹配时可直接清除搜索，表计数区分读取中与失败；状态选择器的可访问名称包含所属表或表＋字段，沿用原能力与危险操作确认。
 
