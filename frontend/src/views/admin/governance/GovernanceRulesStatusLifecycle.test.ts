@@ -55,14 +55,11 @@ const state = vi.hoisted(() => ({
     listQualityRules: vi.fn(),
     listQualityRuleTemplates: vi.fn(),
     getQualityRule: vi.fn(),
+    submitQualityRuleOperation: vi.fn(),
+    getQualityRuleOperation: vi.fn(),
+    resolveQualityRuleOperation: vi.fn(),
     getQualityRuleHistory: vi.fn(),
     getQualityRuleRevisions: vi.fn(),
-    createQualityRule: vi.fn(),
-    editQualityRule: vi.fn(),
-    copyQualityRule: vi.fn(),
-    deleteQualityRule: vi.fn(),
-    restoreQualityRule: vi.fn(),
-    updateRuleEnabled: vi.fn(),
     updateTableGovernanceStatus: vi.fn(),
     updateColumnGovernanceStatus: vi.fn(),
     batchUpdateGovernanceStatus: vi.fn(),
@@ -74,11 +71,13 @@ vi.mock('../../../stores/adminContext', () => ({ useAdminContextStore: () => rea
 vi.mock('../../../stores/iamS1', () => ({ useIamS1Store: () => reactive(state.iam) }))
 vi.mock('../../../stores/auth', () => ({ useAuthStore: () => reactive(state.auth) }))
 vi.mock('../../../api/admin/governance', () => state.api)
+vi.mock('../../../api/admin/qualityRuleOperations', () => state.api)
 vi.mock('../../../api/admin/user', () => ({ listUsers: state.api.listUsers }))
 vi.mock('../../../api/admin/metadata', () => ({ listSnapshots: state.api.listSnapshots }))
 import Rules from './QualityRulesView.vue'
 import Status from './StatusEditor.vue'
 import { pendingGovernanceWrites } from '../../../composables/governanceWriteTracker'
+import { clearQualityRuleDrafts } from './rules/qualityRuleDrafts'
 function deferred() {
   let resolve!: (x: any) => void, reject!: (x: any) => void
   const promise = new Promise<any>((a, b) => {
@@ -113,6 +112,8 @@ function page(component: any) {
 }
 beforeEach(() => {
   vi.restoreAllMocks()
+  localStorage.clear()
+  clearQualityRuleDrafts()
   state.auth.token = 'A'
   state.route.query = { datasourceId: '5', snapshotId: '8' }
   state.context.snapshotId = 8
@@ -180,6 +181,8 @@ beforeEach(() => {
     data: [{ id: 101, columnName: 'amount', governanceStatus: 'NORMAL' }],
   })
   state.api.batchUpdateGovernanceStatus.mockResolvedValue({ data: { updated: 0, excluded: 2 } })
+  state.api.submitQualityRuleOperation.mockImplementation(async request => ({ data: { operationId: request.operationId, action: request.action, outcome: 'APPLIED', ruleId: request.ruleId || 81, configVersion: (request.expectedVersion || 0) + 1 } }))
+  state.api.getQualityRuleOperation.mockImplementation(async operationId => ({ data: { operationId, outcome: 'NOT_FOUND' } }))
   pendingGovernanceWrites.value = []
 })
 afterEach(() => vi.restoreAllMocks())
@@ -194,11 +197,47 @@ it('规则核心列表不因无metadata辅助权或公共快照而消失', async
   expect(state.api.getQualityRuleSummary).not.toHaveBeenCalled()
   w.unmount()
 })
+// 草稿属于人工输入；关闭编辑器只隐藏工作面，不能把重新打开变成隐式放弃。
+it('关闭再打开同规则保留人工草稿与原版本', async () => {
+  const w = page(Rules)
+  await settle()
+  await (w.vm as any).editRule(rule)
+  ;(w.vm as any).form.description = '尚未保存的处理建议'
+  ;(w.vm as any).editorOpen = false
+  await settle()
+  await (w.vm as any).editRule({ ...rule, configVersion: 3 })
+  expect((w.vm as any).form.description).toBe('尚未保存的处理建议')
+  expect((w.vm as any).editingRule.configVersion).toBe(2)
+  w.unmount()
+})
+
+// 目录是可选辅助读取，不能让主编辑工作面等待一个没有结束的目录请求。
+it('表规则打开不等待辅助目录且晚响应不覆盖人工输入', async () => {
+  const directory = deferred()
+  state.api.listSnapshots.mockReturnValue(directory.promise)
+  const w = page(Rules)
+  await settle()
+  const opening = (w.vm as any).editRule({ ...rule, scopeType: 'TABLE', targetTableName: 'orders' })
+  await settle()
+  expect((w.vm as any).editorOpen).toBe(true)
+  ;(w.vm as any).form.description = '目录等待中的草稿'
+  directory.resolve({ data: { records: [] } })
+  await opening
+  expect((w.vm as any).form.description).toBe('目录等待中的草稿')
+  w.unmount()
+})
 it('非法显式源不使用偏好源读规则', async () => {
   state.route.query.datasourceId = 'bad'
   const w = page(Rules)
   await settle()
   expect(state.api.listQualityRules).not.toHaveBeenCalled()
+  w.unmount()
+})
+it('缺失权威total的列表回执显示读取失败，不猜测为空成功', async () => {
+  state.api.listQualityRules.mockResolvedValue({ data: { records: [] } })
+  const w = page(Rules)
+  await settle()
+  expect((w.vm as any).rulesError).toContain('读取失败')
   w.unmount()
 })
 it('规则同源账号切换旧列表和错误失效', async () => {
@@ -229,7 +268,7 @@ it('校验等待换稿不能保存新目标，下一次须显式提交', async (
   ;(w.vm as any).form.ruleName = '新草稿'
   d.resolve(true)
   await save
-  expect(state.api.createQualityRule).not.toHaveBeenCalled()
+  expect(state.api.submitQualityRuleOperation).not.toHaveBeenCalled()
   expect((w.vm as any).editorError).toContain('草稿已变化')
   w.unmount()
 })
@@ -245,11 +284,11 @@ it('规则删除确认后撤权零写，双击只一确认', async () => {
   reactive(state.iam).snapshot = { revision: 2 }
   d.resolve('confirm')
   await a
-  expect(state.api.deleteQualityRule).not.toHaveBeenCalled()
+  expect(state.api.submitQualityRuleOperation).not.toHaveBeenCalled()
   w.unmount()
 })
 it('规则409保留原表单并显示原因', async () => {
-  state.api.createQualityRule.mockRejectedValue({
+  state.api.submitQualityRuleOperation.mockRejectedValue({
     response: { status: 409, data: { message: '配置已变化' } },
   })
   const w = page(Rules)
@@ -265,7 +304,7 @@ it('规则409保留原表单并显示原因', async () => {
   w.unmount()
 })
 it('规则网络未知保留锁，重进页面也不重复复制', async () => {
-  state.api.copyQualityRule.mockRejectedValue(new Error('网络未知'))
+  state.api.submitQualityRuleOperation.mockRejectedValue(new Error('网络未知'))
   const w = page(Rules)
   await settle()
   await (w.vm as any).copyRule(rule)
@@ -273,8 +312,8 @@ it('规则网络未知保留锁，重进页面也不重复复制', async () => {
   const next = page(Rules)
   await settle()
   await (next.vm as any).copyRule(rule)
-  expect(state.api.copyQualityRule).toHaveBeenCalledTimes(1)
-  expect(pendingGovernanceWrites.value[0].state).toBe('unknown')
+  expect(state.api.submitQualityRuleOperation).toHaveBeenCalledTimes(1)
+  expect((next.vm as any).pendingOperations).toHaveLength(1)
   next.unmount()
 })
 it('状态高影响确认撤权/同源换账号后不写', async () => {
@@ -319,15 +358,19 @@ it('状态未知数量不显示为0；无metadata不读取对象', async () => {
   w.unmount()
 })
 
-it('保存前精确核对第三方配置版本，变化保留原稿零写', async () => {
+it('保存发送原版本由服务端裁决冲突，保留原草稿', async () => {
+  state.api.submitQualityRuleOperation.mockImplementation(async request => ({ data: { operationId: request.operationId,
+    action: request.action, outcome: 'CONFLICT', errorMessage: '配置已变化' } }))
   const w = page(Rules)
   await settle()
   await (w.vm as any).editRule(rule)
+  ;(w.vm as any).form.description = '待保存建议'
   ;(w.vm as any).formRef = { validate: async () => true, clearValidate: vi.fn() }
-  state.api.getQualityRule.mockResolvedValue({ data: { ...rule, configVersion: 3 } })
   await (w.vm as any).saveRule()
-  expect(state.api.editQualityRule).not.toHaveBeenCalled()
+  expect(state.api.submitQualityRuleOperation).toHaveBeenCalledWith(expect.objectContaining({ action: 'UPDATE', ruleId: 71, expectedVersion: 2 }))
   expect((w.vm as any).editorError).toContain('配置已变化')
+  expect((w.vm as any).form.description).toBe('待保存建议')
+  expect((w.vm as any).editingRule.configVersion).toBe(2)
   expect((w.vm as any).editorOpen).toBe(true)
   w.unmount()
 })
@@ -353,15 +396,91 @@ it('显式快照失效后旧规划晚回不能显示', async () => {
   w.unmount()
 })
 
-it('同配置版本的他人停用不得被旧编辑稿重新启用', async () => {
+it('启停发送列表原版本，不把前端预读当作并发保护', async () => {
+  const w = page(Rules)
+  await settle()
+  await (w.vm as any).toggleRule(rule)
+  expect(state.api.submitQualityRuleOperation).toHaveBeenCalledWith(expect.objectContaining({ action: 'DISABLE', ruleId: 71, expectedVersion: 2 }))
+  expect(state.api.getQualityRule).not.toHaveBeenCalled()
+  w.unmount()
+})
+
+// 原操作回执与当前编辑器分别归属；迟到的无权错误只能清原对象的草稿。
+it('A源保存迟到403不会清除已切换到B源的有权草稿', async () => {
+  state.iam.canOnDatasource.mockImplementation((code, id) => [5, 6].includes(id) && reactive(state.iam).codes.includes(code))
+  const response = deferred()
+  state.api.submitQualityRuleOperation.mockReturnValue(response.promise)
   const w = page(Rules)
   await settle()
   await (w.vm as any).editRule(rule)
+  ;(w.vm as any).form.description = 'A源输入'
   ;(w.vm as any).formRef = { validate: async () => true, clearValidate: vi.fn() }
-  state.api.getQualityRule.mockResolvedValue({ data: { ...rule, enabled: 0 } })
+  const saving = (w.vm as any).saveRule()
+  await settle()
+  reactive(state.route).query.datasourceId = '6'
+  reactive(state.context).datasourceId = 6
+  await settle()
+  await (w.vm as any).editRule({ ...rule, id: 72, datasourceId: 6 })
+  ;(w.vm as any).form.description = 'B源的有权草稿'
+  response.reject({ response: { status: 403 } })
+  await saving
+  expect((w.vm as any).editorOpen).toBe(true)
+  expect((w.vm as any).editingRuleId).toBe(72)
+  expect((w.vm as any).form.description).toBe('B源的有权草稿')
+  w.unmount()
+})
+
+it('创建切全局范围后迟到成功，按稳定草稿标识消费且不会再次CREATE', async () => {
+  state.iam.systemAdmin = true
+  state.iam.globals = ['governance:rule:view']
+  const response = deferred()
+  state.api.submitQualityRuleOperation.mockReturnValue(response.promise)
+  const w = page(Rules)
+  await settle()
+  ;(w.vm as any).createRule()
+  ;(w.vm as any).form.templateCode = rule.templateCode
+  ;(w.vm as any).form.ruleName = '跨范围新规则'
+  await (w.vm as any).changeFormScope('GLOBAL')
+  ;(w.vm as any).formRef = { validate: async () => true, clearValidate: vi.fn() }
+  const saving = (w.vm as any).saveRule()
+  await settle()
+  ;(w.vm as any).editorOpen = false
+  const submitted = state.api.submitQualityRuleOperation.mock.calls[0]![0]
+  response.resolve({ data: { operationId: submitted.operationId, action: 'CREATE', outcome: 'APPLIED', ruleId: 81, configVersion: 1 } })
+  await saving
+  expect((w.vm as any).pendingOperations[0].draftKey).toBe('create:5')
+  ;(w.vm as any).createRule()
+  expect((w.vm as any).form.ruleName).toBe('跨范围新规则')
+  expect((w.vm as any).editorPending).toBe(true)
+  state.api.getQualityRule.mockResolvedValue({ data: { ...rule, id: 81, ruleName: '跨范围新规则', scopeType: 'GLOBAL', datasourceId: undefined, configVersion: 1 } })
+  vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
+  await (w.vm as any).acknowledgeOperation((w.vm as any).pendingOperations[0])
+  expect((w.vm as any).editingRuleId).toBe(81)
+  expect((w.vm as any).pendingOperations).toHaveLength(0)
+  expect(state.api.submitQualityRuleOperation).toHaveBeenCalledTimes(1)
+  w.unmount()
+  state.iam.systemAdmin = false
+})
+
+it('保存成功时的后续输入保留并阻止原新建草稿重复提交', async () => {
+  const response = deferred()
+  state.api.submitQualityRuleOperation.mockReturnValue(response.promise)
+  const w = page(Rules)
+  await settle()
+  ;(w.vm as any).createRule()
+  ;(w.vm as any).form.templateCode = rule.templateCode
+  ;(w.vm as any).form.ruleName = '已提交正文'
+  ;(w.vm as any).formRef = { validate: async () => true, clearValidate: vi.fn() }
+  const saving = (w.vm as any).saveRule()
+  await settle()
+  ;(w.vm as any).form.ruleName = '等待期间的后续输入'
+  const submitted = state.api.submitQualityRuleOperation.mock.calls[0]![0]
+  response.resolve({ data: { operationId: submitted.operationId, action: 'CREATE', outcome: 'APPLIED', ruleId: 81, configVersion: 1 } })
+  await saving
+  expect((w.vm as any).form.ruleName).toBe('等待期间的后续输入')
+  expect((w.vm as any).editorPending).toBe(true)
   await (w.vm as any).saveRule()
-  expect(state.api.editQualityRule).not.toHaveBeenCalled()
-  expect((w.vm as any).editorError).toContain('配置已变化')
+  expect(state.api.submitQualityRuleOperation).toHaveBeenCalledTimes(1)
   w.unmount()
 })
 

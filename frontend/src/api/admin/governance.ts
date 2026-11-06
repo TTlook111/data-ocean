@@ -300,11 +300,6 @@ export async function listQualityRuleTemplates() {
   return data
 }
 
-export async function createQualityRule(payload: QualityRulePayload) {
-  const { data } = await http.post<ApiResult<QualityRule>>('/api/admin/quality-rules', payload)
-  return data
-}
-
 export async function getQualityRule(ruleId: number, includeDeleted = false) {
   const { data } = await http.get<ApiResult<QualityRule>>(`/api/admin/quality-rules/${ruleId}`, { params: { includeDeleted } })
   return data
@@ -317,31 +312,6 @@ export async function getQualityRuleHistory(ruleId: number) {
 
 export async function getQualityRuleRevisions(ruleId: number) {
   const { data } = await http.get<ApiResult<QualityRuleRevision[]>>(`/api/admin/quality-rules/${ruleId}/revisions`)
-  return data
-}
-
-export async function editQualityRule(ruleId: number, payload: QualityRulePayload) {
-  const { data } = await http.put<ApiResult<QualityRule>>(`/api/admin/quality-rules/${ruleId}`, payload)
-  return data
-}
-
-export async function copyQualityRule(ruleId: number) {
-  const { data } = await http.post<ApiResult<QualityRule>>(`/api/admin/quality-rules/${ruleId}/copy`)
-  return data
-}
-
-export async function updateRuleEnabled(ruleId: number, enabled: boolean) {
-  const { data } = await http.patch<ApiResult<null>>(`/api/admin/quality-rules/${ruleId}/enabled`, { enabled })
-  return data
-}
-
-export async function deleteQualityRule(ruleId: number) {
-  const { data } = await http.delete<ApiResult<null>>(`/api/admin/quality-rules/${ruleId}`)
-  return data
-}
-
-export async function restoreQualityRule(ruleId: number) {
-  const { data } = await http.post<ApiResult<null>>(`/api/admin/quality-rules/${ruleId}/restore`)
   return data
 }
 

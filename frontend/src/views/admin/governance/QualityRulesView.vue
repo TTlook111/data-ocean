@@ -2,33 +2,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { ChevronDown, Copy, ListChecks, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
-import { useAuthStore } from '../../../stores/auth'
-import { positiveId } from '../../../utils/lineageContext'
-import { trackGovernanceWrite } from '../../../composables/governanceWriteTracker'
-import GovernanceWriteNotice from '../../../components/admin/GovernanceWriteNotice.vue'
-import { useAdminContextStore } from '../../../stores/adminContext'
-import { useIamS1Store } from '../../../stores/iamS1'
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import QualityCheckItemCatalog from '../../../components/admin/QualityCheckItemCatalog.vue'
 import RuleApplicabilitySummary from '../../../components/admin/RuleApplicabilitySummary.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import {
-  copyQualityRule,
-  createQualityRule,
-  deleteQualityRule,
-  editQualityRule,
-  listQualityRuleTemplates,
-  listQualityRules,
-  restoreQualityRule,
-  updateRuleEnabled,
-  getQualityRuleSummary,
-  type QualityRuleSummary,
   getQualityRule,
   getQualityRuleHistory,
   getQualityRuleRevisions,
   type QualityRule,
-  type QualityRulePayload,
-  type QualityRuleTemplate,
   type QualityCheckBatchRule,
   type QualityRuleRevision,
 } from '../../../api/admin/governance'
@@ -51,65 +33,86 @@ import {
   ruleBusinessGuidance,
   briefRuleCondition,
 } from '../../../utils/qualityRulePresentation'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { buildContextQuery } from '../../../utils/adminNavigation'
 import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
+import { useQualityRuleScope, RULE_VIEW, RULE_MANAGE, METADATA_VIEW } from './rules/useQualityRuleScope'
+import { useQualityRuleReads } from './rules/useQualityRuleReads'
+import { useQualityRuleDrafts, type RuleScope } from './rules/qualityRuleDrafts'
+import { useQualityRuleOperations } from './rules/useQualityRuleOperations'
+import type { QualityRuleAction } from '../../../api/admin/qualityRuleOperations'
+import { getHttpErrorMessage } from '../../../utils/httpError'
 
-type RuleScope = 'GLOBAL' | 'DATASOURCE' | 'TABLE' | 'COLUMN'
-type RuleScopeFilter = 'ALL' | RuleScope
-
-const context = useAdminContextStore(),
-  auth = useAuthStore()
+const scope = useQualityRuleScope()
+const {
+  context,
+  auth,
+  iamS1,
+  route,
+  scopeMode,
+  permissionReady,
+  readKey,
+  planKey,
+  planScopeValid,
+  canViewRules,
+  canManageSelectedScope,
+  canViewCheckItems,
+  canConfigureRule,
+  canManageRule,
+} = scope
+const {
+  applicability,
+  applicabilityLoading,
+  applicabilityError,
+  rules,
+  rulesPage,
+  rulesPageSize,
+  rulesTotal,
+  templates,
+  rulesLoading,
+  templatesLoading,
+  templatesError,
+  rulesError,
+  selectedRuleScope,
+  templateFilter,
+  dimensionFilter,
+  ruleNameFilter,
+  enabledFilter,
+  showDeleted,
+  advancedFiltersOpen,
+  advancedFilterCount,
+  hasRuleFilters,
+  clearAllRuleFilters,
+  changeRulesPage,
+  loadRules,
+  loadTemplates,
+  loadApplicability,
+  invalidateReads,
+} = useQualityRuleReads(scope)
+const filteredRules = rules
 let scopeEpoch = 0,
   pageInitId = 0
 const editorError = ref('')
+const editorErrorAnchor = ref<HTMLElement>()
 const ownCancelClass = `quality-rule-cancel-${Math.random().toString(36).slice(2)}`
 function cancelOwnedConfirmation() {
   document.querySelector<HTMLButtonElement>(`.${ownCancelClass}`)?.click()
 }
-const iamS1 = useIamS1Store()
 const router = useRouter()
-const route = useRoute()
 const pageReady = ref(false)
-const applicability = ref<QualityRuleSummary | null>(null)
-const applicabilityLoading = ref(false)
-const applicabilityError = ref('')
-let applicabilityRequestId = 0
-const RULE_VIEW = 'governance:rule:view'
-const RULE_MANAGE = 'governance:rule:manage'
-const METADATA_VIEW = 'metadata:view'
 
-const scopeMode = ref<'GLOBAL' | 'DATASOURCE'>('DATASOURCE')
-const rules = ref<QualityRule[]>([])
-const rulesPage = ref(1)
-const rulesPageSize = 10
-const rulesTotal = ref(0)
-const templates = ref<QualityRuleTemplate[]>([])
-const rulesLoading = ref(false)
-const templatesLoading = ref(false)
 const pageError = ref('')
-const templatesError = ref('')
-const rulesError = ref('')
 const targetError = ref('')
 const targetLoading = ref(false)
 const targetTables = ref<Array<{ tableName: string; tableComment?: string }>>([])
 const targetColumns = ref<Array<{ columnName: string; columnComment?: string; dataType?: string }>>([])
 const targetSnapshotId = ref<number>()
 const targetSnapshotVersion = ref<number>()
-const selectedRuleScope = ref<RuleScopeFilter>('ALL')
-const templateFilter = ref('')
-const dimensionFilter = ref('')
-const ruleNameFilter = ref('')
-const enabledFilter = ref<'ALL' | 'ENABLED' | 'DISABLED'>('ALL')
-const showDeleted = ref(false)
-const advancedFiltersOpen = ref(false)
 const editorOpen = ref(false)
 const checkCatalogOpen = ref(false)
 const coverageOpen = ref(false)
 const editorCatalogOpen = ref(false)
 const detailOpen = ref(false)
-const editingRuleId = ref<number>()
-const editingRule = ref<QualityRule | null>(null)
 const detailRule = ref<QualityRule | null>(null)
 const detailTab = ref<'description' | 'executions' | 'revisions'>('description')
 const detailHistory = ref<QualityCheckBatchRule[]>([])
@@ -118,19 +121,36 @@ const detailLoading = ref(false)
 const detailError = ref('')
 const saveLoading = ref(false)
 const rowLoading = reactive<Record<number, boolean>>({})
-const form = reactive({
-  ruleName: '',
-  templateCode: '',
-  description: '',
-  scopeType: 'DATASOURCE' as RuleScope,
-  datasourceId: undefined as number | undefined,
-  targetTableName: '',
-  targetColumnName: '',
-  parameters: {} as Record<string, number | boolean>,
-  severity: 'MEDIUM',
-  deductionPoints: 3,
-  enabled: true,
+const {
+  form,
+  editingRuleId,
+  editingRule,
+  draftRestored,
+  draftDirty,
+  payload,
+  rememberDraft,
+  deactivateDraft,
+  activateDraft,
+  discardDraft,
+  pruneDrafts,
+  hasOperationDraft,
+  discardOperationDraft,
+  draftKey,
+} = useQualityRuleDrafts(() => auth.token, canManageRule)
+// 写入回执拥有独立生命周期，离开编辑面不会丢掉结果未知的原操作。
+const operations = useQualityRuleOperations(scope, (record) => {
+  if (discardOperationDraft(record)) {
+    editorOpen.value = false
+    resetForm(scopeMode.value === 'GLOBAL' ? 'GLOBAL' : 'DATASOURCE')
+  }
 })
+const {
+  records: pendingOperations,
+  busy: operationBusy,
+  error: operationError,
+  notice: operationNotice,
+} = operations
+const editorPending = computed(() => operations.conflicts(editingRuleId.value, form))
 const formRef = ref<FormInstance>()
 const parameterErrors = reactive<Record<string, string>>({})
 const sortedAllowedScopes = computed(() => sortRuleScopes(currentTemplate.value?.allowedScopes || []))
@@ -156,64 +176,12 @@ const formRules = computed<FormRules>(() => ({
     { type: 'number', min: 0, max: 100, message: '扣分必须在 0 到 100 之间', trigger: 'change' },
   ],
 }))
-let rulesRequestId = 0
-let templateRequestId = 0
 let targetRequestId = 0
 let detailRequestId = 0
 let editorSessionId = 0
 let saveRequestId = 0
 let disposed = false
 
-const sourceContextValid = computed(
-  () =>
-    !!context.datasourceId &&
-    !context.loading &&
-    !context.routeSyncing &&
-    (route.query.datasourceId === undefined || positiveId(route.query.datasourceId) === context.datasourceId),
-)
-const permissionReady = computed(() => iamS1.loaded && !iamS1.errorMessage)
-const readKey = computed(() =>
-  JSON.stringify([
-    auth.token,
-    iamS1.snapshot,
-    iamS1.loaded,
-    iamS1.errorMessage,
-    context.datasourceId,
-    context.loading,
-    context.routeSyncing,
-    route.query.datasourceId,
-    scopeMode.value,
-  ]),
-)
-const planScopeValid = computed(
-  () =>
-    !!context.snapshotId &&
-    !context.routeSyncError &&
-    (route.query.snapshotId === undefined || positiveId(route.query.snapshotId) === context.snapshotId),
-)
-const planKey = computed(() =>
-  JSON.stringify([readKey.value, context.snapshotId, route.query.snapshotId, context.routeSyncError]),
-)
-const canViewRules = computed(() =>
-  !permissionReady.value
-    ? false
-    : scopeMode.value === 'GLOBAL'
-      ? iamS1.hasGlobal(RULE_VIEW)
-      : Boolean(sourceContextValid.value && iamS1.canOnDatasource(RULE_VIEW, context.datasourceId)),
-)
-const canManageSelectedScope = computed(() =>
-  !permissionReady.value
-    ? false
-    : scopeMode.value === 'GLOBAL'
-      ? iamS1.systemAdmin
-      : Boolean(sourceContextValid.value && iamS1.canOnDatasource(RULE_MANAGE, context.datasourceId)),
-)
-const canViewCheckItems = computed(
-  () =>
-    permissionReady.value &&
-    (iamS1.hasGlobal(RULE_VIEW) || iamS1.datasourcesWithFunction(RULE_VIEW).length > 0),
-)
-const canConfigureRule = computed(() => canViewRules.value && canManageSelectedScope.value)
 const currentTemplate = computed(() =>
   templates.value.find((template) => template.code === form.templateCode),
 )
@@ -243,26 +211,6 @@ const editorSummary = computed(() => {
     },
   ]
 })
-const filteredRules = computed(() => rules.value)
-const advancedFilterCount = computed(
-  () =>
-    [
-      scopeMode.value === 'DATASOURCE' && selectedRuleScope.value !== 'ALL',
-      dimensionFilter.value !== '',
-      showDeleted.value,
-    ].filter(Boolean).length,
-)
-const hasRuleFilters = computed(() =>
-  Boolean(
-    ruleNameFilter.value.trim() ||
-      templateFilter.value ||
-      dimensionFilter.value ||
-      (scopeMode.value === 'DATASOURCE' && selectedRuleScope.value !== 'ALL') ||
-      enabledFilter.value !== 'ALL' ||
-      showDeleted.value,
-  ),
-)
-
 function scopeLabel(scope?: string) {
   return ruleScopeLabel(scope)
 }
@@ -344,150 +292,6 @@ function handleRuleCommand(command: string, rule: QualityRule) {
   if (command === 'delete') void removeRule(rule)
 }
 
-function clearAllRuleFilters() {
-  clearAdvancedFilters()
-  templateFilter.value = ''
-  ruleNameFilter.value = ''
-  enabledFilter.value = 'ALL'
-}
-function clearAdvancedFilters() {
-  selectedRuleScope.value = scopeMode.value === 'GLOBAL' ? 'GLOBAL' : 'ALL'
-  dimensionFilter.value = ''
-  showDeleted.value = false
-}
-
-function canManageRule(rule: QualityRule) {
-  if (!permissionReady.value) return false
-  return rule.scopeType === 'GLOBAL'
-    ? iamS1.systemAdmin
-    : Boolean(rule.datasourceId && iamS1.canOnDatasource(RULE_MANAGE, rule.datasourceId))
-}
-
-function queryParams() {
-  return {
-    datasourceId: scopeMode.value === 'DATASOURCE' ? context.datasourceId : undefined,
-    scopeType:
-      scopeMode.value === 'GLOBAL'
-        ? 'GLOBAL'
-        : selectedRuleScope.value === 'ALL'
-          ? undefined
-          : selectedRuleScope.value,
-    templateCode: templateFilter.value || undefined,
-    ruleName: ruleNameFilter.value.trim() || undefined,
-    dimension: dimensionFilter.value || undefined,
-    enabled: enabledFilter.value === 'ALL' ? undefined : enabledFilter.value === 'ENABLED',
-    deleted: showDeleted.value,
-    page: rulesPage.value,
-    pageSize: rulesPageSize,
-  }
-}
-
-function changeRulesPage(page: number) {
-  if (page === rulesPage.value) return
-  rulesPage.value = page
-  void loadRules()
-}
-
-async function loadRules() {
-  const request = ++rulesRequestId,
-    key = readKey.value
-  rulesError.value = ''
-  if (!canViewRules.value) {
-    rules.value = []
-    return
-  }
-  if (scopeMode.value === 'DATASOURCE' && !context.datasourceId) {
-    rules.value = []
-    return
-  }
-  rulesLoading.value = true
-  try {
-    const response = await listQualityRules(queryParams())
-    if (disposed || request !== rulesRequestId || key !== readKey.value) return
-    // 兼容旧 mock/旧后端返回数组；正式接口返回分页对象。
-    const payload = response.data as unknown
-    rules.value = Array.isArray(payload)
-      ? (payload as QualityRule[])
-      : ((payload as { records?: QualityRule[] } | null)?.records ?? [])
-    rulesTotal.value = Array.isArray(payload)
-      ? payload.length
-      : ((payload as { total?: number } | null)?.total ?? 0)
-    // 删除/筛选后当前页可能已越界，退回最后一页而不是显示空页。
-    if (!rules.value.length && rulesTotal.value > 0 && rulesPage.value > 1) {
-      rulesPage.value = Math.max(1, Math.ceil(rulesTotal.value / rulesPageSize))
-      await loadRules()
-    }
-  } catch {
-    if (!disposed && request === rulesRequestId && key === readKey.value)
-      rulesError.value = '质量规则读取失败，请重试。'
-  } finally {
-    if (!disposed && request === rulesRequestId && key === readKey.value) rulesLoading.value = false
-  }
-}
-
-async function loadTemplates() {
-  const request = ++templateRequestId,
-    key = readKey.value
-  templatesError.value = ''
-  if (!canViewCheckItems.value) {
-    templates.value = []
-    return
-  }
-  templatesLoading.value = true
-  try {
-    const response = await listQualityRuleTemplates()
-    if (disposed || request !== templateRequestId || key !== readKey.value) return
-    templates.value = response.data ?? []
-  } catch {
-    if (!disposed && request === templateRequestId && key === readKey.value)
-      templatesError.value = '支持的检查项读取失败，请重试。'
-  } finally {
-    if (!disposed && request === templateRequestId && key === readKey.value) templatesLoading.value = false
-  }
-}
-
-async function loadApplicability() {
-  const request = ++applicabilityRequestId,
-    key = planKey.value
-  const datasourceId = context.datasourceId
-  const snapshotId = context.snapshotId
-  applicability.value = null
-  applicabilityError.value = ''
-  applicabilityLoading.value = false
-  if (
-    scopeMode.value !== 'DATASOURCE' ||
-    !datasourceId ||
-    !snapshotId ||
-    !planScopeValid.value ||
-    !canViewRules.value ||
-    context.routeSyncing ||
-    context.routeSyncError
-  )
-    return
-  applicabilityLoading.value = true
-  const current = () =>
-    !disposed &&
-    key === planKey.value &&
-    request === applicabilityRequestId &&
-    datasourceId === context.datasourceId &&
-    snapshotId === context.snapshotId &&
-    scopeMode.value === 'DATASOURCE'
-  try {
-    const response = await getQualityRuleSummary(snapshotId)
-    if (!current()) return
-    if (
-      (response.data?.snapshotId && response.data.snapshotId !== snapshotId) ||
-      (response.data?.datasourceId && response.data.datasourceId !== datasourceId)
-    )
-      throw new Error('规划范围不一致')
-    applicability.value = response.data ?? null
-  } catch {
-    if (current()) applicabilityError.value = '当前快照的规则适用性读取失败，不能判断生效情况。'
-  } finally {
-    if (current()) applicabilityLoading.value = false
-  }
-}
-
 function rulePlan(rule: QualityRule) {
   return applicability.value?.rules?.find(
     (item) => item.ruleId === rule.id && item.configVersion === rule.configVersion,
@@ -534,7 +338,7 @@ async function loadPage() {
     consumeTemplateIntent()
     consumeCheckCatalogIntent()
   } catch {
-    if(disposed || init!==pageInitId || token!==auth.token)return
+    if (disposed || init !== pageInitId || token !== auth.token) return
     pageError.value = '规则管理范围或权限读取失败，请重试。'
   }
 }
@@ -553,6 +357,7 @@ function invalidateEditorSession() {
 }
 
 function beginEditorSession() {
+  rememberDraft()
   invalidateEditorSession()
   return editorSessionId
 }
@@ -579,6 +384,7 @@ function isCurrentEditorFlow(
 
 function selectScopeMode(mode: 'GLOBAL' | 'DATASOURCE') {
   if (mode === 'GLOBAL' && !iamS1.hasGlobal(RULE_VIEW)) return
+  rememberDraft()
   invalidateEditorSession()
   if (editorOpen.value) editorOpen.value = false
   resetForm(mode === 'GLOBAL' ? 'GLOBAL' : 'DATASOURCE')
@@ -651,10 +457,11 @@ async function loadColumns(
   ruleId = editingRuleId.value,
   scope = form.scopeType,
   datasourceId = form.datasourceId,
+  clearSelection = true,
 ) {
   if (!isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
   form.targetTableName = tableName
-  form.targetColumnName = ''
+  if (clearSelection) form.targetColumnName = ''
   targetColumns.value = []
   const snapshotId = targetSnapshotId.value
   if (!tableName || !snapshotId || !isCurrentEditorFlow(sessionId, ruleId, scope, datasourceId)) return
@@ -774,6 +581,7 @@ async function changeFormScope(scope: RuleScope) {
 }
 
 function resetForm(scope: RuleScope) {
+  deactivateDraft()
   editingRuleId.value = undefined
   editingRule.value = null
   editorError.value = ''
@@ -888,6 +696,7 @@ function createRule() {
   const initialScope: RuleScope = scopeMode.value === 'GLOBAL' ? 'GLOBAL' : 'DATASOURCE'
   beginEditorSession()
   resetForm(initialScope)
+  activateDraft(undefined, initialScope, form.datasourceId)
   editorCatalogOpen.value = false
   editorOpen.value = true
 }
@@ -921,46 +730,37 @@ async function editRule(rule: QualityRule) {
   form.severity = rule.severity
   form.deductionPoints = Number(rule.deductionPoints)
   form.enabled = rule.enabled === 1
-  const scope = rule.scopeType
+  activateDraft(rule.id, rule.scopeType, rule.datasourceId ?? undefined)
+  // 主编辑立即可用；目录只补充可选对象，不阻塞已有规则和人工输入。
+  editorCatalogOpen.value = false
+  editorOpen.value = true
+  const selectedTable = form.targetTableName,
+    selectedColumn = form.targetColumnName
+  const scope = form.scopeType
   // 后端全局规则的 datasourceId 是 null；会话校验使用 undefined，必须先归一化。
-  const datasourceId = rule.datasourceId ?? undefined
-  if (rule.scopeType === 'TABLE' || rule.scopeType === 'COLUMN') {
-    if (rule.datasourceId) await loadRuleTargets(rule.datasourceId, sessionId, rule.id, scope)
+  const datasourceId = form.datasourceId
+  if (scope === 'TABLE' || scope === 'COLUMN') {
+    if (datasourceId) await loadRuleTargets(datasourceId, sessionId, rule.id, scope)
     if (!isCurrentEditorFlow(sessionId, rule.id, scope, datasourceId)) return
-    if (rule.scopeType === 'COLUMN' && rule.targetTableName) {
-      await loadColumns(rule.targetTableName, sessionId, rule.id, scope, datasourceId)
+    if (scope === 'COLUMN' && selectedTable && form.targetTableName === selectedTable) {
+      await loadColumns(selectedTable, sessionId, rule.id, scope, datasourceId, false)
       if (
         !isCurrentEditorFlow(sessionId, rule.id, scope, datasourceId) ||
-        form.targetTableName !== rule.targetTableName
+        form.targetTableName !== selectedTable
       )
         return
     }
-    form.targetTableName = rule.targetTableName || ''
-    form.targetColumnName = rule.targetColumnName || ''
+    // 初始目录晚回只补选项，已存在的字段选择及其后的人工输入始终保留。
+    if (form.targetTableName === selectedTable && !form.targetColumnName)
+      form.targetColumnName = selectedColumn
   }
   if (!isCurrentEditorFlow(sessionId, rule.id, scope, datasourceId)) return
   editorCatalogOpen.value = false
   editorOpen.value = true
 }
 
-function payload(): QualityRulePayload {
-  return {
-    ruleName: form.ruleName.trim(),
-    templateCode: form.templateCode,
-    description: form.description.trim() || undefined,
-    scopeType: form.scopeType,
-    datasourceId: form.datasourceId,
-    targetTableName: form.targetTableName || undefined,
-    targetColumnName: form.targetColumnName || undefined,
-    parameters: { ...form.parameters },
-    severity: form.severity,
-    deductionPoints: Number(form.deductionPoints),
-    enabled: form.enabled,
-  }
-}
-
 async function saveRule() {
-  if (saveLoading.value || !editorOpen.value || !canConfigureRule.value) return
+  if (saveLoading.value || editorPending.value || !editorOpen.value || !canConfigureRule.value) return
   const template = currentTemplate.value
   if (
     !template ||
@@ -1002,35 +802,36 @@ async function saveRule() {
       editorError.value = targetError.value
       return
     }
-    if (id !== undefined) {
-      const baselineVersion = editingRule.value?.configVersion
-      const fresh = await getQualityRule(id, true)
-      if (!current()) return
-      if (
-        !fresh.data ||
-        fresh.data.id !== id ||
-        fresh.data.configVersion !== baselineVersion ||
-        fresh.data.enabled !== editingRule.value?.enabled ||
-        fresh.data.deletedAt
-      ) {
-        editorError.value = '规则配置已变化，原草稿已保留；请关闭并核对最新配置后再编辑。'
-        return
-      }
-      if (JSON.stringify(payload()) !== signature) {
-        editorError.value = '核对期间草稿已变化，请重新确认保存'
-        return
-      }
-    }
-    const key =
-      id !== undefined
-        ? `quality-rule:${id}`
-        : `quality-rule-new:${source || 'GLOBAL'}:${body.templateCode}:${body.scopeType}:${body.targetTableName || ''}:${body.targetColumnName || ''}`
-    await trackGovernanceWrite(
-      auth.token,
-      [key],
-      id ? `保存规则 #${id}` : `创建${body.scopeType}规则 ${body.ruleName}`,
-      () => (id !== undefined ? editQualityRule(id, body) : createQualityRule(body)),
+    // 服务端在同一事务中裁决原版本和操作 ID；保存前重读不能代替这项原子条件。
+    const receipt = await operations.submit(
+      {
+        action: id === undefined ? 'CREATE' : 'UPDATE',
+        ruleId: id,
+        expectedVersion: editingRule.value?.configVersion,
+        configuration: body,
+      },
+      editingRule.value ?? body,
+      body,
+      draftKey(),
     )
+    if (!current()) return
+    if (receipt.outcome !== 'APPLIED') {
+      editorError.value =
+        receipt.errorMessage ||
+        (receipt.outcome === 'CONFLICT'
+          ? '规则配置已变化，原草稿已保留；请核对最新版本。'
+          : '保存结果尚未确认，请核对原操作。')
+      return
+    }
+    // 后续输入不属于已提交正文；保留草稿和已提交回执，显式重读后才能释放原 CREATE。
+    if (JSON.stringify(payload()) !== signature) {
+      editorError.value = '原提交已保存，后续输入仍保留；请先核对已保存配置再继续。'
+      rememberDraft()
+      await Promise.all([loadRules(), loadApplicability()])
+      return
+    }
+    discardDraft()
+    operations.acknowledge(receipt.operationId)
     if (!current()) return
     editorOpen.value = false
     ElMessage.success(
@@ -1039,21 +840,14 @@ async function saveRule() {
     rulesPage.value = 1
     await Promise.all([loadRules(), loadApplicability()])
   } catch (cause) {
-    if (current())
-      editorError.value =
-        (cause as any)?.response?.data?.message ||
-        (cause instanceof Error ? cause.message : '规则保存未确认完成，请核对当前配置，勿重复提交')
+    if (current()) editorError.value = getHttpErrorMessage(cause, '规则保存未确认完成，请核对原操作。')
   } finally {
     if (ticket === saveRequestId && epoch === scopeEpoch) saveLoading.value = false
   }
 }
-async function mutateRule(
-  rule: QualityRule,
-  label: string,
-  write: (target: QualityRule) => Promise<unknown>,
-  confirm = false,
-) {
-  if (!canManageRule(rule) || rowLoading[rule.id]) return
+// 行操作与表单保存共用原子写入合同，但确认和列表刷新仍由当前工作面负责。
+async function mutateRule(rule: QualityRule, action: QualityRuleAction, label: string, confirm = false) {
+  if (!canManageRule(rule) || rowLoading[rule.id] || operations.conflicts(rule.id, rule)) return
   const target = JSON.parse(JSON.stringify(rule)) as QualityRule,
     epoch = scopeEpoch
   const current = () => !disposed && epoch === scopeEpoch && canManageRule(target)
@@ -1071,37 +865,124 @@ async function mutateRule(
         },
       )
     if (!current()) return
-    await trackGovernanceWrite(
-      auth.token,
-      [`quality-rule:${target.id}`],
-      `${label} · 规则 #${target.id}`,
-      () => write(target),
+    const receipt = await operations.submit(
+      { action, ruleId: target.id, expectedVersion: target.configVersion },
+      target,
     )
     if (!current()) return
+    if (receipt.outcome !== 'APPLIED') {
+      rulesError.value = receipt.errorMessage || '规则操作没有提交，请核对最新配置。'
+      return
+    }
+    operations.acknowledge(receipt.operationId)
     ElMessage.success(label)
     await Promise.all([loadRules(), loadApplicability()])
   } catch (cause) {
     if (current() && cause !== 'cancel' && cause !== 'close')
-      rulesError.value =
-        (cause as any)?.response?.data?.message ||
-        (cause instanceof Error ? cause.message : '规则操作未确认完成，请先核对')
+      rulesError.value = getHttpErrorMessage(cause, '规则操作结果未知，请核对原操作。')
   } finally {
     if (epoch === scopeEpoch) rowLoading[target.id] = false
   }
 }
 async function copyRule(rule: QualityRule) {
-  await mutateRule(rule, '规则副本已创建，默认停用。', (target) => copyQualityRule(target.id))
+  await mutateRule(rule, 'COPY', '规则副本已创建，默认停用。')
 }
 async function toggleRule(rule: QualityRule) {
-  await mutateRule(rule, rule.enabled === 1 ? '规则已停用。' : '规则已启用。', (target) =>
-    updateRuleEnabled(target.id, target.enabled !== 1),
+  await mutateRule(
+    rule,
+    rule.enabled === 1 ? 'DISABLE' : 'ENABLE',
+    rule.enabled === 1 ? '规则已停用。' : '规则已启用。',
   )
 }
 async function removeRule(rule: QualityRule) {
-  await mutateRule(rule, '规则已停用并移入删除历史。', (target) => deleteQualityRule(target.id), true)
+  await mutateRule(rule, 'DELETE', '规则已停用并移入删除历史。', true)
 }
 async function restoreRule(rule: QualityRule) {
-  await mutateRule(rule, '规则已恢复为停用状态。', (target) => restoreQualityRule(target.id))
+  await mutateRule(rule, 'RESTORE', '规则已恢复为停用状态。')
+}
+
+// 刷新只查询原操作；NOT_FOUND 需要用户显式结束围栏，不能据此释放写锁。
+async function reconcileOperation(record: (typeof pendingOperations.value)[number], finish = false) {
+  const receipt = await operations.reconcile(record, finish)
+  if (receipt && receipt.outcome !== 'NOT_FOUND') await Promise.all([loadRules(), loadApplicability()])
+}
+// 已提交回执先精确读取目标，用户确认后只丢弃该操作草稿，再释放后续写入。
+async function acknowledgeOperation(record: (typeof pendingOperations.value)[number]) {
+  if (!record.applied || operationBusy.value.includes(record.operationId)) return
+  const token = auth.token,
+    epoch = scopeEpoch
+  try {
+    if (hasOperationDraft(record))
+      await ElMessageBox.confirm(
+        '原操作已经提交。继续会用已保存配置替换该操作的本地草稿。',
+        '核对已保存配置',
+        {
+          type: 'warning',
+          confirmButtonText: '读取已保存配置',
+          cancelButtonText: '保留草稿',
+          cancelButtonClass: ownCancelClass,
+        },
+      )
+    if (token !== auth.token || epoch !== scopeEpoch) return
+    const response = await getQualityRule(record.applied.ruleId, true)
+    if (token !== auth.token || epoch !== scopeEpoch || !response.data || !canManageRule(response.data))
+      return
+    const wasEditing = discardOperationDraft(record)
+    if (wasEditing) editorOpen.value = false
+    operations.acknowledge(record.operationId)
+    await Promise.all([loadRules(), loadApplicability()])
+    if (token !== auth.token || epoch !== scopeEpoch) return
+    if (
+      !response.data.deletedAt &&
+      (response.data.scopeType === 'GLOBAL' || response.data.datasourceId === context.datasourceId)
+    )
+      await editRule(response.data)
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close' && token === auth.token && epoch === scopeEpoch) {
+      if ((cause as { response?: { status?: number } })?.response?.status === 403) operations.revoke(record)
+      operationError.value = getHttpErrorMessage(cause, '已保存配置读取失败，原操作仍保留。')
+    }
+  }
+}
+
+async function reloadEditor() {
+  if (saveLoading.value || editorPending.value) return
+  const id = editingRuleId.value,
+    session = editorSessionId,
+    token = auth.token
+  try {
+    if (draftDirty.value)
+      await ElMessageBox.confirm('重新读取将放弃此规则的未保存草稿。', '重新读取已保存配置', {
+        type: 'warning',
+        confirmButtonText: '放弃草稿并重读',
+        cancelButtonText: '保留草稿',
+        cancelButtonClass: ownCancelClass,
+      })
+    if (session !== editorSessionId || token !== auth.token || !editorOpen.value) return
+    if (id) {
+      const result = await getQualityRule(id, true)
+      if (session !== editorSessionId || token !== auth.token || !editorOpen.value || !result.data) return
+      if (result.data.deletedAt || !canManageRule(result.data)) {
+        discardDraft()
+        editorOpen.value = false
+        return
+      }
+      discardDraft()
+      await editRule(result.data)
+    } else {
+      discardDraft()
+      createRule()
+    }
+  } catch (cause) {
+    if (cause !== 'cancel' && cause !== 'close' && session === editorSessionId) {
+      if ((cause as { response?: { status?: number } })?.response?.status === 403) {
+        discardDraft()
+        editorOpen.value = false
+        resetForm(scopeMode.value === 'GLOBAL' ? 'GLOBAL' : 'DATASOURCE')
+        void iamS1.load(true)
+      } else editorError.value = getHttpErrorMessage(cause, '重读失败，草稿保留。')
+    }
+  }
 }
 
 async function openDetail(
@@ -1119,18 +1000,33 @@ async function openDetail(
   detailOpen.value = true
   detailLoading.value = true
   try {
-    const [ruleResult, historyResult, revisionsResult] = await Promise.all([
-      getQualityRule(rule.id, true),
+    // 主详情先独立判权；历史辅助读取失败只影响历史，不能抹掉合法的当前配置。
+    const ruleResult = await getQualityRule(rule.id, true)
+    if (disposed || request !== detailRequestId || key !== readKey.value || !detailOpen.value) return
+    detailRule.value = ruleResult.data ?? rule
+    const [historyResult, revisionsResult] = await Promise.allSettled([
       getQualityRuleHistory(rule.id),
       getQualityRuleRevisions(rule.id),
     ])
     if (disposed || request !== detailRequestId || key !== readKey.value || !detailOpen.value) return
-    detailRule.value = ruleResult.data ?? rule
-    detailHistory.value = historyResult.data ?? []
-    detailRevisions.value = revisionsResult.data ?? []
-  } catch {
-    if (!disposed && request === detailRequestId && key === readKey.value && detailOpen.value)
-      detailError.value = '规则详情或历史版本读取失败。'
+    detailHistory.value = historyResult.status === 'fulfilled' ? (historyResult.value.data ?? []) : []
+    detailRevisions.value = revisionsResult.status === 'fulfilled' ? (revisionsResult.value.data ?? []) : []
+    if (historyResult.status === 'rejected' || revisionsResult.status === 'rejected')
+      detailError.value = '部分历史读取失败，当前配置仍可查看。'
+  } catch (cause) {
+    if (!disposed && request === detailRequestId && key === readKey.value && detailOpen.value) {
+      if ((cause as { response?: { status?: number } })?.response?.status === 403) {
+        // 规则主读取明确拒绝后清关联内容，其他来源的草稿继续由当前能力摘要保护。
+        const currentEditor = discardOperationDraft({ action: 'UPDATE', ruleId: rule.id, original: rule })
+        if (currentEditor) {
+          editorOpen.value = false
+          resetForm(scopeMode.value === 'GLOBAL' ? 'GLOBAL' : 'DATASOURCE')
+        }
+        detailOpen.value = false
+        rules.value = rules.value.filter((item) => item.id !== rule.id)
+        void iamS1.load(true)
+      } else detailError.value = '规则详情读取失败。'
+    }
   } finally {
     if (!disposed && request === detailRequestId && key === readKey.value && detailOpen.value)
       detailLoading.value = false
@@ -1164,36 +1060,20 @@ function executionSource(entry: QualityCheckBatchRule) {
 }
 
 watch(
-  [scopeMode, selectedRuleScope, templateFilter, dimensionFilter, ruleNameFilter, enabledFilter, showDeleted],
-  () => {
-    rulesPage.value = 1
-    void loadRules()
-  },
-)
-watch(
   readKey,
-  (next,previous) => {
+  (next, previous) => {
+    // 能力暂时不可读不等于撤权；先保留同身份输入，只有已确认的能力摘要才清无权草稿。
+    rememberDraft(!permissionReady.value)
+    if (permissionReady.value) pruneDrafts()
     scopeEpoch++
     cancelOwnedConfirmation()
-    rulesRequestId++
-    templateRequestId++
-    applicabilityRequestId++
+    invalidateReads()
     detailRequestId++
     invalidateEditorSession()
     editorOpen.value = false
     detailOpen.value = false
     checkCatalogOpen.value = false
     coverageOpen.value = false
-    rules.value = []
-    rulesTotal.value = 0
-    rulesLoading.value = false
-    rulesError.value = ''
-    templates.value = []
-    templatesLoading.value = false
-    templatesError.value = ''
-    applicability.value = null
-    applicabilityLoading.value = false
-    applicabilityError.value = ''
     detailRule.value = null
     detailHistory.value = []
     detailRevisions.value = []
@@ -1201,8 +1081,10 @@ watch(
     detailError.value = ''
     Object.keys(rowLoading).forEach((id) => delete rowLoading[Number(id)])
     resetForm(scopeMode.value === 'GLOBAL' ? 'GLOBAL' : 'DATASOURCE')
-    if(JSON.parse(next)[0]!==JSON.parse(previous)[0]){pageReady.value=false;void loadPage()}
-    else if (pageReady.value) void Promise.all([loadTemplates(), loadRules(), loadApplicability()])
+    if (JSON.parse(next)[0] !== JSON.parse(previous)[0]) {
+      pageReady.value = false
+      void loadPage()
+    } else if (pageReady.value) void Promise.all([loadTemplates(), loadRules(), loadApplicability()])
   },
   { flush: 'sync' },
 )
@@ -1220,10 +1102,30 @@ watch(
   { flush: 'sync' },
 )
 
+watch(editorError, async (message) => {
+  if (!message || !editorOpen.value) return
+  const session = editorSessionId,
+    token = auth.token
+  await nextTick()
+  // 保存按钮在滚动正文之外：失败后定位到摘要，并防止旧错误把焦点带回已关闭或新编辑器。
+  if (
+    !disposed &&
+    editorOpen.value &&
+    session === editorSessionId &&
+    token === auth.token &&
+    editorError.value === message
+  ) {
+    editorErrorAnchor.value?.focus({ preventScroll: true })
+    editorErrorAnchor.value?.scrollIntoView({ block: 'nearest', behavior: 'instant' })
+  }
+})
 watch(
   editorOpen,
   (open) => {
-    if (!open) invalidateEditorSession()
+    if (!open) {
+      rememberDraft()
+      invalidateEditorSession()
+    }
   },
   { flush: 'sync' },
 )
@@ -1261,14 +1163,12 @@ watch(
 )
 onMounted(loadPage)
 onBeforeUnmount(() => {
+  rememberDraft()
   cancelOwnedConfirmation()
   scopeEpoch++
   pageInitId++
   disposed = true
-  applicabilityRequestId++
   invalidateEditorSession()
-  rulesRequestId++
-  templateRequestId++
   targetRequestId++
   detailRequestId++
 })
@@ -1303,7 +1203,51 @@ onBeforeUnmount(() => {
         </el-button>
       </template>
     </TaskPageHeader>
-    <GovernanceWriteNotice />
+    <!-- 恢复面只展示必要操作标识，刷新后仍能核对同一个提交，不重发保存正文。 -->
+    <aside
+      v-if="pendingOperations.length || operationNotice || operationError"
+      class="quality-rule-recovery"
+      aria-label="规则操作回执"
+      role="status"
+    >
+      <p v-if="operationNotice">{{ operationNotice }}</p>
+      <p v-if="operationError" class="quality-rule-form__error">{{ operationError }}</p>
+      <div v-for="record in pendingOperations" :key="record.operationId" class="quality-rule-recovery__item">
+        <div>
+          <strong
+            >{{ operations.label(record) }} ·
+            {{
+              record.applied
+                ? `已提交 v${record.applied.configVersion}`
+                : operationBusy.includes(record.operationId)
+                  ? '正在提交或核对'
+                  : '结果待核对'
+            }}</strong
+          >
+          <small>操作 {{ record.operationId }}</small>
+        </div>
+        <div class="quality-rule-recovery__actions">
+          <el-button
+            v-if="record.applied"
+            :disabled="operationBusy.includes(record.operationId)"
+            @click="acknowledgeOperation(record)"
+            >读取已保存配置</el-button
+          >
+          <template v-else>
+            <el-button
+              :disabled="operationBusy.includes(record.operationId)"
+              @click="reconcileOperation(record)"
+              >核对结果</el-button
+            >
+            <el-button
+              :disabled="operationBusy.includes(record.operationId)"
+              @click="reconcileOperation(record, true)"
+              >核对并结束此操作</el-button
+            >
+          </template>
+        </div>
+      </div>
+    </aside>
     <ErrorState v-if="pageError" :message="pageError" @retry="loadPage" />
     <!-- 范围、筛选和列表组成一个连续工作面，所有写动作仍由原权限与会话门禁控制。 -->
     <section v-else class="quality-rules-page__workspace">
@@ -1355,7 +1299,9 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <!-- 配置与执行的关键区别直接可见，历史证据边界在详情与编辑核对区保留。 -->
-      <p class="quality-rules-page__execution-note">保存、启用或恢复规则仅更新配置；质量检查在治理总览执行。</p>
+      <p class="quality-rules-page__execution-note">
+        保存、启用或恢复规则仅更新配置；质量检查在治理总览执行。
+      </p>
       <p v-if="scopeMode === 'GLOBAL'" class="quality-rules-page__scope-note">
         全局默认配置用于各数据源的后续检查，仅系统管理员可维护。
       </p>
@@ -1509,7 +1455,7 @@ onBeforeUnmount(() => {
                   v-if="showDeleted"
                   link
                   type="primary"
-                  :disabled="!canManageRule(row)"
+                  :disabled="!canManageRule(row) || operations.conflicts(row.id, row)"
                   :loading="rowLoading[row.id]"
                   @click="restoreRule(row)"
                 >
@@ -1535,7 +1481,7 @@ onBeforeUnmount(() => {
                       <el-dropdown-item
                         v-if="!showDeleted"
                         command="toggle"
-                        :disabled="!row.supported || !canManageRule(row)"
+                        :disabled="!row.supported || !canManageRule(row) || operations.conflicts(row.id, row)"
                       >
                         {{ row.enabled === 1 ? '停用规则' : '启用规则' }}
                       </el-dropdown-item>
@@ -1633,7 +1579,20 @@ onBeforeUnmount(() => {
       :show-close="!saveLoading"
     >
       <div class="quality-rule-form">
-        <ErrorState v-if="editorError" :message="editorError" :show-retry="false" />
+        <div
+          v-if="editorError"
+          ref="editorErrorAnchor"
+          class="quality-rule-form__save-error"
+          role="alert"
+          tabindex="-1"
+        >
+          <ErrorState :message="editorError" :show-retry="false" />
+        </div>
+        <div v-if="draftRestored || editorPending" class="quality-rule-form__draft" role="status">
+          <span>{{
+            editorPending ? '原操作结果待核对；草稿保留，核对后再继续。' : '已恢复此规则的未保存草稿'
+          }}</span>
+        </div>
         <details v-if="editingRuleId" class="quality-rule-form__context">
           <summary>规则编号与配置版本</summary>
           <div class="quality-rule-form__derived" aria-label="当前规则摘要">
@@ -1879,11 +1838,17 @@ onBeforeUnmount(() => {
         </el-form>
       </div>
       <template #footer>
-        <el-button @click="editorOpen = false">取消</el-button>
+        <span class="quality-rule-form__save-state">{{
+          draftDirty ? '未保存草稿' : editingRule ? `配置 v${editingRule.configVersion}` : '新规则'
+        }}</span>
+        <el-button :disabled="saveLoading || editorPending" @click="reloadEditor">{{
+          editingRuleId ? '重读已保存配置' : '放弃草稿'
+        }}</el-button>
+        <el-button @click="editorOpen = false">{{ editorPending ? '关闭并核对' : '关闭' }}</el-button>
         <el-button
           type="primary"
           :loading="saveLoading"
-          :disabled="!canManageSelectedScope"
+          :disabled="!canManageSelectedScope || editorPending"
           @click="saveRule"
         >
           保存规则
@@ -2132,13 +2097,64 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 恢复入口与编辑状态可见，错误不只停留在一闪而过的消息中。 */
+.quality-rule-recovery {
+  padding: 12px 16px;
+  border: 1px solid var(--do-line);
+  border-left: 3px solid var(--do-warning);
+  background: var(--do-surface);
+  border-radius: 8px;
+}
+.quality-rule-recovery__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+}
+.quality-rule-recovery__item small {
+  display: block;
+  margin-top: 4px;
+  color: var(--do-muted);
+  overflow-wrap: anywhere;
+}
+.quality-rule-recovery__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.quality-rule-form__draft {
+  padding: 10px 12px;
+  background: var(--do-surface-soft);
+  border-radius: 6px;
+  color: var(--do-muted);
+}
+.quality-rule-form__save-state {
+  margin-right: 12px;
+  color: var(--do-muted);
+  font-size: 12px;
+}
+.quality-rule-form__save-error:focus-visible {
+  outline: 2px solid var(--do-primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+@media (max-width: 800px) {
+  .quality-rule-recovery__item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .quality-rules-page {
   /* 页面外层只负责节奏，列表和编辑面各自拥有唯一表面。 */
   display: grid;
   gap: 16px;
   min-width: 0;
 }
-.quality-rules-page :deep(.task-page-header) { margin-bottom: 4px; }
+.quality-rules-page :deep(.task-page-header) {
+  margin-bottom: 4px;
+}
 
 /* 必要边界占用单行，紧邻范围选择；不再重复整条操作流程。 */
 .quality-rules-page__execution-note {

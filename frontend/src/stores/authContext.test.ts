@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useAuthStore } from './auth'
 import { useAdminContextStore } from './adminContext'
 import { useIamS1Store } from './iamS1'
+import { clearQualityRuleDrafts, useQualityRuleDrafts } from '../views/admin/governance/rules/qualityRuleDrafts'
 
 const api = vi.hoisted(() => ({ login: vi.fn(), logout: vi.fn(), me: vi.fn(),
   getIamS1Capabilities: vi.fn(), listSimpleDatasources: vi.fn(), listSnapshots: vi.fn(), listKnowledgeDocs: vi.fn() }))
@@ -18,6 +19,7 @@ const capability = (userId: number) => ({ protocolVersion: 'IAM-SIMPLE-1' as con
   globalFunctions: [], datasourceCapabilities: [], queryUse: false, viewSql: false, export: false, permissionRevision: 1 })
 
 beforeEach(() => {
+  clearQualityRuleDrafts()
   localStorage.clear()
   localStorage.setItem('dataocean_token', 'test-session-a')
   localStorage.setItem('dataocean_user', JSON.stringify({ userId: 1, username: 'actor-a' }))
@@ -32,6 +34,25 @@ beforeEach(() => {
   api.listKnowledgeDocs.mockResolvedValue({ data: { records: [] } })
   api.login.mockResolvedValue({ data: { token: 'test-session-b', userId: 2, username: 'actor-b', passwordChanged: true } })
   api.logout.mockResolvedValue({ data: null })
+})
+
+// 草稿可能来自已卸载工作区，身份结束时不能只依赖仍挂载页面的 watch 清理。
+it.each(['logout', 'invalidate', 'login'])('身份结束（%s）清理规则内存草稿', async action => {
+  const auth = useAuthStore(), oldToken = auth.token
+  const draft = useQualityRuleDrafts(() => auth.token, () => true)
+  draft.form.datasourceId = 1
+  draft.activateDraft(undefined, 'DATASOURCE', 1)
+  draft.form.ruleName = '旧身份的人工草稿'
+  draft.rememberDraft()
+  if (action === 'logout') await auth.logout()
+  else if (action === 'invalidate') auth.invalidateSession(oldToken)
+  else await auth.login(loginPayload)
+  // 用原身份重新打开草稿模拟复用进程；清理必须已经完成，而非仅隐藏另一身份内容。
+  auth.token = oldToken
+  const reopened = useQualityRuleDrafts(() => auth.token, () => true)
+  reopened.form.datasourceId = 1
+  reopened.activateDraft(undefined, 'DATASOURCE', 1)
+  expect(reopened.form.ruleName).toBe('')
 })
 
 it('revalidates the datasource scope after another account logs in within the SPA', async () => {

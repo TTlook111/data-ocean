@@ -31,21 +31,18 @@ const api = vi.hoisted(() => ({
   batchHandleIssues: vi.fn(),
   assignIssue: vi.fn(),
   listReviewRecords: vi.fn(),
+  submitQualityRuleOperation: vi.fn(),
+  getQualityRuleOperation: vi.fn(),
+  resolveQualityRuleOperation: vi.fn(),
   listQualityRules: vi.fn(),
   listQualityRuleTemplates: vi.fn(),
-  createQualityRule: vi.fn(),
-  editQualityRule: vi.fn(),
-  copyQualityRule: vi.fn(),
   getQualityRule: vi.fn(),
   getQualityRuleHistory: vi.fn(),
   getQualityRuleRevisions: vi.fn(),
-  deleteQualityRule: vi.fn(),
-  restoreQualityRule: vi.fn(),
   getLatestQualityCheckBatch: vi.fn(),
   triggerQualityCheck: vi.fn(),
   getQualityRuleSummary: vi.fn(),
   getSnapshotQualityIssueSummary: vi.fn(),
-  updateRuleEnabled: vi.fn(),
   listSnapshotTables: vi.fn(),
   listSnapshotTableColumns: vi.fn(),
   updateTableGovernanceStatus: vi.fn(),
@@ -63,6 +60,7 @@ const api = vi.hoisted(() => ({
 const mountedPages: Array<{ unmount: () => void }> = []
 
 vi.mock('../../../api/iamS1', () => ({ getIamS1Capabilities: api.getIamS1Capabilities }))
+vi.mock('../../../api/admin/qualityRuleOperations', () => ({ submitQualityRuleOperation: api.submitQualityRuleOperation, getQualityRuleOperation: api.getQualityRuleOperation, resolveQualityRuleOperation: api.resolveQualityRuleOperation }))
 vi.mock('../../../api/admin/governance', () => ({
   listQualityIssues: api.listQualityIssues,
   handleIssue: api.handleIssue,
@@ -71,19 +69,13 @@ vi.mock('../../../api/admin/governance', () => ({
   listReviewRecords: api.listReviewRecords,
   listQualityRules: api.listQualityRules,
   listQualityRuleTemplates: api.listQualityRuleTemplates,
-  createQualityRule: api.createQualityRule,
-  editQualityRule: api.editQualityRule,
-  copyQualityRule: api.copyQualityRule,
   getQualityRule: api.getQualityRule,
   getQualityRuleHistory: api.getQualityRuleHistory,
   getQualityRuleRevisions: api.getQualityRuleRevisions,
-  deleteQualityRule: api.deleteQualityRule,
-  restoreQualityRule: api.restoreQualityRule,
   getLatestQualityCheckBatch: api.getLatestQualityCheckBatch,
   triggerQualityCheck: api.triggerQualityCheck,
   getQualityRuleSummary: api.getQualityRuleSummary,
   getSnapshotQualityIssueSummary: api.getSnapshotQualityIssueSummary,
-  updateRuleEnabled: api.updateRuleEnabled,
   listSnapshotTables: api.listSnapshotTables,
   listSnapshotTableColumns: api.listSnapshotTableColumns,
   updateTableGovernanceStatus: api.updateTableGovernanceStatus,
@@ -120,6 +112,8 @@ import ScopeBar from '../../../components/admin/ScopeBar.vue'
 import QualityCheckItemCatalog from '../../../components/admin/QualityCheckItemCatalog.vue'
 import { useIamS1Store } from '../../../stores/iamS1'
 import { useAdminContextStore } from '../../../stores/adminContext'
+import { useAuthStore } from '../../../stores/auth'
+import { clearQualityRuleDrafts } from './rules/qualityRuleDrafts'
 
 const DATASOURCE_ID = 5
 
@@ -276,7 +270,11 @@ beforeEach(() => {
     reactiveRouteState.query = query
   })
   localStorage.clear()
+  clearQualityRuleDrafts()
+  useAuthStore().token = 'rule-test-session'
+  useAuthStore().currentUser = { id: 7, username: 'rule-test', realName: '规则验收', passwordChanged: true }
   Object.values(api).forEach((fn) => fn.mockReset())
+  api.submitQualityRuleOperation.mockImplementation(async request => ({ data: { operationId: request.operationId, action: request.action, outcome: 'APPLIED', ruleId: request.ruleId || 51, configVersion: (request.expectedVersion || 0) + 1 } }))
   api.listSimpleDatasources.mockResolvedValue({ data: [{ id: DATASOURCE_ID, name: '销售库' }] })
   api.listSnapshots.mockResolvedValue({ data: { records: [{ id: 8, snapshotVersion: 1 }], total: 1 } })
   api.getSnapshotDetail.mockRejectedValue(new Error('快照不存在'))
@@ -284,7 +282,7 @@ beforeEach(() => {
   api.listKnowledgeDocs.mockResolvedValue({ data: { records: [], total: 0 } })
   api.listUsers.mockResolvedValue({ data: { records: [], total: 0 } })
   api.listQualityIssues.mockResolvedValue({ data: { records: [issue], total: 1 } })
-  api.listQualityRules.mockResolvedValue({ data: [] })
+  api.listQualityRules.mockResolvedValue({ data: { records: [], total: 0 } })
   api.listQualityRuleTemplates.mockResolvedValue({ data: [{
     code: 'COMP_COLUMN_COMMENT_MISSING', name: '字段注释缺失', dimension: 'COMPLETENESS',
     targetType: 'COLUMN', checkType: 'SCHEMA', description: '检查字段说明',
@@ -929,7 +927,7 @@ describe('质量规则管理的能力控制', () => {
 
   it('规则表逐条解释当前快照规划，停用和继承来源不混淆', async () => {
     respond(capability({ onDatasource: ['governance:rule:view','metadata:view'] }))
-    api.listQualityRules.mockResolvedValue({ data: [{ ...globalRule, enabled: 1 }, { ...globalRule, id: 4, ruleName: '已停用本源规则', scopeType: 'DATASOURCE', datasourceId: 5, enabled: 0 }] })
+    api.listQualityRules.mockResolvedValue({ data: { records: [{ ...globalRule, enabled: 1 }, { ...globalRule, id: 4, ruleName: '已停用本源规则', scopeType: 'DATASOURCE', datasourceId: 5, enabled: 0 }], total: 2 } })
     api.getQualityRuleSummary.mockResolvedValue({ data: { enabledCount: 1, applicableCount: 0, globalCount: 1, datasourceCount: 0, unsupportedCount: 0, overriddenCount: 0, notApplicableCount: 1, invalidCount: 0,
       rules: [{ ruleId: 3, ruleName: globalRule.ruleName, configVersion: 1, scopeType: 'GLOBAL', status: 'NOT_APPLICABLE', reason: '当前快照没有可用目标', plannedTargetCount: 0, targetCount: 0 }] } })
     const wrapper = mountPage(QualityRulesView)
@@ -949,7 +947,7 @@ describe('质量规则管理的能力控制', () => {
 
   it('切换快照后，较晚返回的旧适用性规划不能覆盖新范围', async () => {
     respond(capability({ onDatasource: ['governance:rule:view','metadata:view'] }))
-    api.listQualityRules.mockResolvedValue({ data: [globalRule] })
+    api.listQualityRules.mockResolvedValue({ data: { records: [globalRule], total: 1 } })
     const pending = deferred<{ data: unknown }>()
     api.getQualityRuleSummary.mockImplementation((id: number) => id === 8 ? pending.promise : Promise.resolve({ data: {
       snapshotId: 9, datasourceId: 5, enabledCount: 1, applicableCount: 0, unsupportedCount: 0, overriddenCount: 0,
@@ -983,7 +981,7 @@ describe('质量规则管理的能力控制', () => {
       onDatasource: ['metadata:view', 'governance:rule:view', 'governance:rule:manage'],
     }))
     api.listQualityRules.mockResolvedValue({
-      data: [globalRule],
+      data: { records: [globalRule], total: 1 },
     })
     const wrapper = mountPage(QualityRulesView)
     await settle()
@@ -994,13 +992,13 @@ describe('质量规则管理的能力控制', () => {
     expect(dropdown.findAllComponents({ name: 'ElDropdownItem' }).find(item => item.props('command') === 'toggle')?.props('disabled')).toBe(true)
     dropdown.vm.$emit('command', 'toggle')
     await settle()
-    expect(api.updateRuleEnabled).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
   })
 
   it('受保护系统管理员可进入全局范围并启停全局规则', async () => {
     respond(capability({ global: ['governance:rule:view'], systemAdmin: true }))
     api.listQualityRules.mockResolvedValue({
-      data: [globalRule],
+      data: { records: [globalRule], total: 1 },
     })
     const wrapper = mountPage(QualityRulesView)
     await settle()
@@ -1011,18 +1009,17 @@ describe('质量规则管理的能力控制', () => {
     expect(dropdown.findAllComponents({ name: 'ElDropdownItem' }).find(item => item.props('command') === 'toggle')?.props('disabled')).toBe(false)
     dropdown.vm.$emit('command', 'toggle')
     await settle()
-    expect(api.updateRuleEnabled).toHaveBeenCalledWith(3, false)
+    expect(api.submitQualityRuleOperation).toHaveBeenCalledWith(expect.objectContaining({ action: 'DISABLE', ruleId: 3, expectedVersion: 1 }))
   })
 
   it('有数据源规则管理权时复制现有规则，新副本由后端建立为停用状态', async () => {
     respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
-    api.listQualityRules.mockResolvedValue({ data: [{
+    api.listQualityRules.mockResolvedValue({ data: { records: [{
       id: 30, ruleCode: 'QR-30', templateCode: 'COMP_COLUMN_COMMENT_MISSING', ruleName: '字段说明',
       dimension: 'COMPLETENESS', severity: 'MEDIUM', checkTarget: 'COLUMN', checkType: 'SCHEMA',
       scopeType: 'DATASOURCE', datasourceId: DATASOURCE_ID, parameters: {}, configVersion: 1,
       enabled: 1, deductionPoints: 2, builtin: 0, supported: true,
-    }] })
-    api.copyQualityRule.mockResolvedValue({ data: { id: 31, enabled: 0 } })
+    }], total: 1 } })
     const wrapper = mountPage(QualityRulesView)
     await settle()
 
@@ -1031,9 +1028,9 @@ describe('质量规则管理的能力控制', () => {
     row.findComponent(ElDropdown).vm.$emit('command', 'copy')
     await settle()
 
-    expect(api.copyQualityRule).toHaveBeenCalledWith(30)
+    expect(api.submitQualityRuleOperation).toHaveBeenCalledWith(expect.objectContaining({ action: 'COPY', ruleId: 30, expectedVersion: 1 }))
     expect(api.listQualityRules).toHaveBeenCalledTimes(readsBeforeCopy + 1)
-    expect(api.updateRuleEnabled).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).toHaveBeenCalledTimes(1)
   })
 
   it('新增表单从可执行模板读取参数定义并发送结构化规则配置', async () => {
@@ -1044,7 +1041,6 @@ describe('质量规则管理的能力控制', () => {
       allowedScopes: ['GLOBAL', 'DATASOURCE', 'TABLE', 'COLUMN'],
       parameters: [{ key: 'threshold', label: '空值率阈值', type: 'NUMBER', minimum: 0, maximum: 1, defaultValue: 0.3 }],
     }] })
-    api.createQualityRule.mockResolvedValue({ data: { id: 51 } })
     const wrapper = mountPage(QualityRulesView)
     await settle()
     await wrapper.findAll('button').find((button) => button.text().includes('新增规则'))!.trigger('click')
@@ -1068,14 +1064,14 @@ describe('质量规则管理的能力控制', () => {
     saveButton!.click()
     await settle()
 
-    expect(api.createQualityRule).toHaveBeenCalledWith(expect.objectContaining({
+    expect(api.submitQualityRuleOperation).toHaveBeenCalledWith(expect.objectContaining({ action: 'CREATE', configuration: expect.objectContaining({
       ruleName: '订单金额空值率',
       templateCode: 'DATA_NULL_RATE_HIGH',
       scopeType: 'DATASOURCE',
       datasourceId: DATASOURCE_ID,
       parameters: { threshold: 0.3 },
       enabled: true,
-    }))
+    }) }))
   })
 
   it('新增表单展示模板派生的检查方式、治理维度和检查目标', async () => {
@@ -1118,7 +1114,7 @@ describe('质量规则管理的能力控制', () => {
     document.body.querySelector<HTMLButtonElement>('.el-dialog__footer .el-button--primary')!.click()
     await settle()
 
-    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
     expect(document.body.textContent).toContain('请填写规则名称')
   })
 
@@ -1151,7 +1147,7 @@ describe('质量规则管理的能力控制', () => {
     document.body.querySelector<HTMLButtonElement>('.el-dialog__footer .el-button--primary')!.click()
     await settle()
 
-    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
     expect(warning).toHaveBeenCalledWith('请填写空值率阈值')
     warning.mockRestore()
   })
@@ -1164,7 +1160,7 @@ describe('质量规则管理的能力控制', () => {
       datasourceId: DATASOURCE_ID,
       description: '先核对负责人再修改字段',
     }
-    api.listQualityRules.mockResolvedValue({ data: [detailRule] })
+    api.listQualityRules.mockResolvedValue({ data: { records: [detailRule], total: 1 } })
     api.getQualityRule.mockResolvedValue({ data: detailRule })
     const wrapper = mountPage(QualityRulesView)
     await settle()
@@ -1189,7 +1185,7 @@ describe('质量规则管理的能力控制', () => {
     expect(catalog.props('selectable')).toBe(true)
     await catalog.find('.quality-check-catalog__item').trigger('click')
     await settle()
-    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
     await catalog.findAll('button').find(button => button.text() === '用此检查项创建规则')!.trigger('click')
     await settle()
     expect(document.body.textContent).toContain('1. 选择检查项')
@@ -1197,7 +1193,7 @@ describe('质量规则管理的能力控制', () => {
     expect(document.body.textContent).toContain('3. 设置异常条件')
     expect(document.body.textContent).toContain('4. 配置风险与处理建议')
     expect(document.body.querySelector<HTMLInputElement>('.quality-rule-editor-dialog input[maxlength="200"]')?.value).toBe('字段注释缺失')
-    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
     expect(routeState.push).not.toHaveBeenCalled()
   })
 
@@ -1212,7 +1208,7 @@ describe('质量规则管理的能力控制', () => {
     catalog.vm.$emit('select', 'COMP_COLUMN_COMMENT_MISSING')
     await settle()
     expect(document.body.querySelector('.quality-rule-editor-dialog')).toBeNull()
-    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
   })
 
   it('全局检查项查看权不代表当前源规则查看权，只读目录仍可在页内打开', async () => {
@@ -1225,7 +1221,7 @@ describe('质量规则管理的能力控制', () => {
     const catalog = wrapper.findComponent(QualityCheckItemCatalog)
     expect(catalog.exists()).toBe(true)
     expect(catalog.props('selectable')).toBe(false)
-    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
   })
 
   it('旧链接只打开规则页内检查项说明，消费标记并保留原范围', async () => {
@@ -1235,7 +1231,7 @@ describe('质量规则管理的能力控制', () => {
     await settle()
     expect(wrapper.findComponent(QualityCheckItemCatalog).exists()).toBe(true)
     expect(routeState.replace).toHaveBeenCalledWith({ query: { datasourceId: '5', snapshotId: '8' } })
-    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
   })
 
   it('从检查项带入创建意图，只打开预填表单且保留其他路由上下文', async () => {
@@ -1246,7 +1242,7 @@ describe('质量规则管理的能力控制', () => {
     expect(document.body.textContent).toContain('新增质量规则')
     expect(document.body.querySelector<HTMLInputElement>('.el-dialog input[maxlength="200"]')?.value).toBe('字段注释缺失')
     expect(document.body.textContent).toContain('配置预览（不执行检查）')
-    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
     expect(routeState.replace).toHaveBeenCalledWith({ query: { datasourceId: '5', snapshotId: '8', keep: 'yes' } })
     expect(wrapper.find('.quality-rules-page__workflow').exists()).toBe(false)
   })
@@ -1258,7 +1254,7 @@ describe('质量规则管理的能力控制', () => {
     await settle()
     expect(document.body.querySelector('.el-dialog')).toBeNull()
     expect(routeState.replace).not.toHaveBeenCalled()
-    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
   })
 
   it('创建链接不能让普通数据源管理员进入全局规则编辑', async () => {
@@ -1267,14 +1263,14 @@ describe('质量规则管理的能力控制', () => {
     mountPage(QualityRulesView)
     await settle()
     expect(document.body.querySelector('.el-dialog')).toBeNull()
-    expect(api.createQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
   })
 
   it('全局规则执行记录按批次实际范围定位问题，不使用当前页面数据源', async () => {
     const permissions = capability({ onDatasource: ['governance:rule:view'] })
     permissions.datasourceCapabilities.push({ datasourceId: 6, datasourceName: '历史源', functionCodes: ['governance:issue:view'], functionNames: [] })
     respond(permissions)
-    api.listQualityRules.mockResolvedValue({ data: [globalRule] })
+    api.listQualityRules.mockResolvedValue({ data: { records: [globalRule], total: 1 } })
     api.getQualityRule.mockResolvedValue({ data: globalRule })
     api.getQualityRuleHistory.mockResolvedValue({ data: [{
       batchId: 202, batchDatasourceId: 6, snapshotId: 99, ruleVersion: 1, ruleName: globalRule.ruleName,
@@ -1298,7 +1294,7 @@ describe('质量规则管理的能力控制', () => {
 
   it('历史缺少实际快照或没有问题查看权时，不伪造问题跳转', async () => {
     respond(capability({ onDatasource: ['governance:rule:view'] }))
-    api.listQualityRules.mockResolvedValue({ data: [globalRule] })
+    api.listQualityRules.mockResolvedValue({ data: { records: [globalRule], total: 1 } })
     api.getQualityRule.mockResolvedValue({ data: globalRule })
     api.getQualityRuleHistory.mockResolvedValue({ data: [{ batchId: 9, ruleVersion: 1, ruleName: globalRule.ruleName, scopeType: 'GLOBAL', dimension: 'COMPLETENESS', status: 'NOT_EXECUTED', checkedTargetCount: 0, targetCount: 0, issueCount: 0 }] })
     const wrapper = mountPage(QualityRulesView)
@@ -1312,7 +1308,7 @@ describe('质量规则管理的能力控制', () => {
 
   it('切换数据源关闭详情并丢弃旧历史响应', async () => {
     respond(capability({ onDatasource: ['governance:rule:view'] }))
-    api.listQualityRules.mockResolvedValue({ data: [globalRule] })
+    api.listQualityRules.mockResolvedValue({ data: { records: [globalRule], total: 1 } })
     const pending = deferred<{ data: [] }>()
     api.getQualityRuleHistory.mockReturnValue(pending.promise)
     const wrapper = mountPage(QualityRulesView)
@@ -1392,7 +1388,7 @@ describe('质量规则管理的能力控制', () => {
 
   it('规则保存失败保留表单并显示后端冲突原因', async () => {
     respond(capability({ onDatasource: ['governance:rule:view', 'governance:rule:manage'] }))
-    api.createQualityRule.mockRejectedValueOnce({ response: { data: { message: '同一检查模板、同一目标和同一级范围已有启用规则' } } })
+    api.submitQualityRuleOperation.mockRejectedValueOnce({ response: { data: { message: '同一检查模板、同一目标和同一级范围已有启用规则' } } })
     const wrapper = mountPage(QualityRulesView)
     await settle()
     await wrapper.findAll('button').find((button) => button.text().includes('新增规则'))!.trigger('click')
@@ -1409,9 +1405,11 @@ describe('质量规则管理的能力控制', () => {
     document.body.querySelector<HTMLButtonElement>('.el-dialog__footer .el-button--primary')!.click()
     await settle()
 
-    expect(api.createQualityRule).toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).toHaveBeenCalled()
     expect(document.body.querySelector('.el-dialog')).toBeTruthy()
     expect(document.body.textContent).toContain('同一检查模板、同一目标和同一级范围已有启用规则')
+    // 保存按钮位于滚动正文之外，失败必须把焦点送回错误摘要，不能只在正文顶部悄悄加字。
+    expect(document.activeElement?.classList.contains('quality-rule-form__save-error')).toBe(true)
   })
 
   it('编辑 A 慢、B 快时保存仍使用 B 的规则 ID、范围和目标', async () => {
@@ -1432,14 +1430,13 @@ describe('质量规则管理的能力控制', () => {
       ...ruleA, id: 102, ruleCode: 'QR-B', ruleName: '规则 B',
       targetTableName: 'customers', targetColumnName: 'customer_id',
     }
-    api.listQualityRules.mockResolvedValue({ data: [ruleA, ruleB] })
+    api.listQualityRules.mockResolvedValue({ data: { records: [ruleA, ruleB], total: 2 } })
     api.listSnapshotTables.mockResolvedValue({ data: [{ tableName: 'orders' }, { tableName: 'customers' }] })
     const slowAColumns = deferred<{ data: Array<{ columnName: string }> }>()
     api.listSnapshotTableColumns.mockImplementation((_snapshotId: number, tableName: string) => {
       if (tableName === 'orders') return slowAColumns.promise
       return Promise.resolve({ data: [{ columnName: 'customer_id' }] })
     })
-    api.editQualityRule.mockResolvedValue({ data: ruleB })
     api.getQualityRule.mockResolvedValue({ data: ruleB })
     const wrapper = mountPage(QualityRulesView)
     await settle()
@@ -1460,10 +1457,10 @@ describe('质量规则管理的能力控制', () => {
     document.body.querySelector<HTMLButtonElement>('.el-dialog__footer .el-button--primary')!.click()
     await settle()
 
-    expect(api.editQualityRule).toHaveBeenCalledWith(102, expect.objectContaining({
+    expect(api.submitQualityRuleOperation).toHaveBeenCalledWith(expect.objectContaining({ action: 'UPDATE', ruleId: 102, expectedVersion: 1, configuration: expect.objectContaining({
       scopeType: 'COLUMN', datasourceId: DATASOURCE_ID,
       targetTableName: 'customers', targetColumnName: 'customer_id',
-    }))
+    }) }))
   })
 
   it('切换到 B 后关闭编辑器，A 的旧字段请求返回不能重新打开弹窗或保存', async () => {
@@ -1481,7 +1478,7 @@ describe('质量规则管理的能力控制', () => {
       parameters: { threshold: 0.4 }, configVersion: 1, enabled: 0, deductionPoints: 3, builtin: 0, supported: true,
     }
     const ruleB = { ...ruleA, id: 104, ruleCode: 'QR-D', ruleName: '规则 D', targetTableName: 'customers', targetColumnName: 'customer_id' }
-    api.listQualityRules.mockResolvedValue({ data: [ruleA, ruleB] })
+    api.listQualityRules.mockResolvedValue({ data: { records: [ruleA, ruleB], total: 2 } })
     api.listSnapshotTables.mockResolvedValue({ data: [{ tableName: 'orders' }, { tableName: 'customers' }] })
     const delayedColumns = deferred<{ data: Array<{ columnName: string }> }>()
     api.listSnapshotTableColumns.mockImplementation((_snapshotId: number, tableName: string) => tableName === 'orders'
@@ -1508,7 +1505,7 @@ describe('质量规则管理的能力控制', () => {
     await settle()
 
     expect(openEditor!.props('modelValue')).toBe(false)
-    expect(api.editQualityRule).not.toHaveBeenCalled()
+    expect(api.submitQualityRuleOperation).not.toHaveBeenCalled()
   })
 
   it('没有 governance:rule:manage 时表状态下拉不可用', async () => {
