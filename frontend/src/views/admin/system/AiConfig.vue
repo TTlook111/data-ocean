@@ -571,7 +571,7 @@ watch(
 
 <template>
   <div class="ai-config-page" v-loading="loading">
-    <p class="ai-eyebrow">运营与平台 / 模型与配置</p>
+    <!-- 页头直接进入配置任务；能力缺口、读写错误与切换风险保持可见。 -->
     <GovernanceWriteNotice />
     <p v-if="writeError" class="config-error" role="alert">{{ writeError }}</p>
     <ErrorState v-if="readError" :message="readError" @retry="fetchConfig" />
@@ -1094,12 +1094,6 @@ watch(
 .provider-opener:focus-visible {
   outline: 2px solid var(--do-primary);
   outline-offset: 5px;
-}
-.ai-eyebrow {
-  margin: 0;
-  color: var(--do-primary);
-  font-size: 12px;
-  font-weight: 650;
 }
 .config-note {
   padding: 14px 0;

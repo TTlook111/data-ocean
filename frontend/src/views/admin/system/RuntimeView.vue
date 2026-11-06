@@ -479,7 +479,7 @@ watch(
 
 <template>
   <main class="admin-page runtime-page">
-    <p class="runtime-eyebrow">运营与平台 / 运行事实</p>
+    <!-- 位置由外壳面包屑说明，本工作面直接呈现运行状态与操作。 -->
     <GovernanceWriteNotice />
     <p v-if="writeError" class="runtime-page__alert" role="alert">{{ writeError }}</p>
     <TaskPageHeader
@@ -732,12 +732,6 @@ watch(
 </template>
 
 <style scoped>
-.runtime-eyebrow {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 650;
-  color: var(--do-primary);
-}
 .runtime-page {
   display: grid;
   gap: 20px;

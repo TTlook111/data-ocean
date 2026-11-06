@@ -572,12 +572,6 @@ a:focus-visible,
   --el-button-active-border-color: var(--do-primary-strong);
 }
 
-.post-login-page .el-tag--success {
-  --el-tag-bg-color: #eff9e9;
-  --el-tag-border-color: #c8e4b5;
-  --el-tag-text-color: var(--do-success);
-}
-
 .admin-page,
 .query-page,
 .profile-page {

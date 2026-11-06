@@ -127,6 +127,9 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
   gap: 5px;
   min-height: 0;
   overflow: auto;
+  /* 矮桌面中的导航滚动条沿用深色表面，避免原生白色轨道切断侧栏。 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--do-nav-line) transparent;
   padding: 16px 12px;
 }
 

@@ -255,16 +255,19 @@ onUnmounted(() => {
 
         <p v-if="loginError" class="login-error" role="alert">{{ loginError }}</p>
         <form class="login-form" @submit.prevent="submit">
+          <!-- 原生必填校验把焦点带到缺失字段，脚本仍保留完整提交校验与身份保护。 -->
           <label class="field">
             <span>账号</span>
             <input
               v-model="form.username"
               type="text"
               autocomplete="username"
+              required
               placeholder="请输入账号"
             />
           </label>
 
+          <!-- 密码必填沿用浏览器语义，不读取或裁剪用户实际提交的密码字节。 -->
           <label class="field">
             <span>密码</span>
             <div class="password-field">
@@ -272,6 +275,7 @@ onUnmounted(() => {
                 v-model="form.password"
                 :type="showPassword ? 'text' : 'password'"
                 autocomplete="current-password"
+                required
                 placeholder="请输入密码"
               />
               <button type="button" :aria-label="showPassword ? '隐藏密码' : '显示密码'" @click="showPassword = !showPassword">
@@ -281,10 +285,11 @@ onUnmounted(() => {
             </div>
           </label>
 
+          <!-- 验证码保留原刷新与错误描述，缺值时同样定位到当前字段。 -->
           <div class="field">
             <label for="login-captcha">验证码</label>
             <div class="captcha-field">
-              <input id="login-captcha" v-model="form.captchaCode" type="text" autocomplete="off"
+              <input id="login-captcha" v-model="form.captchaCode" type="text" autocomplete="off" required
                 placeholder="请输入验证码" maxlength="4" :aria-describedby="captchaError ? 'captcha-error' : undefined" />
               <button class="captcha-image-button" type="button" aria-label="刷新验证码" title="点击图片刷新验证码" :disabled="captchaLoading" @click="refreshCaptcha">
                 <img v-if="captchaImage" :src="captchaImage" alt="验证码" class="captcha-img" />
@@ -306,6 +311,7 @@ onUnmounted(() => {
 
 <style scoped>
 .login-page {
+  /* 登录保持独立双栏入口，画布与表单复用全站主题，不再叠加历史玻璃覆盖。 */
   position: relative;
   isolation: isolate;
   --login-blue: var(--do-primary-strong);
@@ -323,19 +329,21 @@ onUnmounted(() => {
   padding: clamp(14px, 2.4vh, 30px) clamp(18px, 2.6vw, 40px);
   padding: var(--login-gutter-block) var(--login-gutter-inline);
   color: var(--do-ink);
-  background: transparent;
+  background: var(--do-bg);
 }
 .login-page::before {
+  /* 单一细边界围合入口，视觉角色不需要额外发光或悬浮阴影。 */
   position: absolute;
   z-index: -1;
   inset: clamp(14px, 2.4vh, 30px) clamp(18px, 2.6vw, 40px);
   inset: var(--login-gutter-block) var(--login-gutter-inline);
   border-radius: var(--login-radius);
-  box-shadow: var(--do-glass-shadow-raised);
+  border: 1px solid var(--do-line);
   content: "";
   pointer-events: none;
 }
 .login-visual {
+  /* 保留已实现的原生互动角色，用冷色浅底衔接当前工作区主题。 */
   position: relative;
   isolation: isolate;
   display: flex;
@@ -345,24 +353,19 @@ onUnmounted(() => {
   overflow: hidden;
   border-right: 0;
   border-radius: var(--login-radius) 0 0 var(--login-radius);
-  color: white;
-  background:
-    linear-gradient(150deg, rgba(97, 176, 255, .42), rgba(13, 104, 232, .74) 36%, rgba(55, 145, 237, .44) 78%),
-    var(--do-ocean-art);
-  background-size: cover;
-  background-position: 26% center;
+  color: var(--do-ink);
+  background: color-mix(in srgb, var(--do-primary) 8%, var(--do-surface));
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
-.login-visual::before { position: absolute; z-index: -1; inset: 42% -18% -30%; border-radius: 50%; background: radial-gradient(ellipse, rgba(224, 242, 255, 0.42), transparent 67%); content: ""; pointer-events: none; }
-.login-visual::after { position: absolute; z-index: -1; inset: 0; background: linear-gradient(155deg, rgba(255,255,255,.16), transparent 32%, transparent 72%, rgba(255,255,255,.16)); content: ""; pointer-events: none; }
 .brand-pill { position: relative; z-index: 1; display: flex; align-items: center; gap: 14px; width: fit-content; }
-.login-brand-mark { display: grid; place-items: center; width: 56px; height: 56px; border: 1px solid rgba(255,255,255,.35); border-radius: 13px; color: white; background: linear-gradient(145deg, #1264f3, #2878ff); box-shadow: 0 8px 20px rgba(13, 70, 177, .2); font-size: 24px; font-weight: 650; letter-spacing: -1px; }
-.brand-pill strong { color: #10203b; font-size: clamp(24px, 1.9vw, 30px); font-weight: 700; letter-spacing: -1.2px; }
+/* 品牌原图直接呈现，不在图片后面再放一层渐变徽章。 */
+.login-brand-mark { display: block; width: 56px; height: 56px; object-fit: contain; padding: 4px; }
+.brand-pill strong { color: var(--do-ink); font-size: clamp(24px, 1.9vw, 30px); font-weight: 700; letter-spacing: -1.2px; }
 .visual-copy { position: relative; z-index: 1; margin-top: clamp(20px, 3.6dvh, 40px); }
-.visual-copy h1 { margin: 0; color: #fff; font-size: clamp(52px, 5.4vw, 72px); font-weight: 760; line-height: 1.08; letter-spacing: -2px; text-shadow: 0 2px 14px rgba(25, 87, 175, .14); }
-.visual-copy p { margin: clamp(8px, 1.2dvh, 12px) 0 0; color: rgba(255,255,255,.8); font-size: clamp(15px, 1.1vw, 17px); font-weight: 400; line-height: 1.5; }
+/* 产品主张保持简短，正文使用同一套可读文字色。 */
+.visual-copy h1 { margin: 0; color: var(--do-ink); font-size: clamp(42px, 5vw, 68px); font-weight: 760; line-height: 1.08; letter-spacing: -2px; }
+.visual-copy p { margin: clamp(8px, 1.2dvh, 12px) 0 0; color: var(--do-muted); font-size: clamp(15px, 1.1vw, 17px); font-weight: 400; line-height: 1.5; }
 .monster-scene { position: relative; z-index: 1; width: 100%; max-width: 500px; width: min(100%, 500px, 52dvh); aspect-ratio: 520 / 320; flex-shrink: 0; margin: auto 0 0; container-type: inline-size; }
 .monster { position: absolute; bottom: 0; display: block; transform-origin: center bottom; box-shadow: 0 16px 26px rgb(31 63 118 / 17%), inset 0 4px 9px rgba(255,255,255,.2); }
 .monster-orange { z-index: 5; left: 0; width: 40%; height: 40%; border-radius: 110px 110px 3px 3px; background: linear-gradient(135deg, #ffb792, #ff9c75); }
@@ -388,31 +391,36 @@ onUnmounted(() => {
 .mouth { position: absolute; left: 31%; top: 52%; width: 38%; height: 12%; border-bottom: 2px solid #233954; border-radius: 0 0 40px 40px; transition: height 180ms ease; }
 .is-pointer-down .mouth { height: 18%; }
 .ground-line { position: absolute; z-index: 7; inset: auto -2% -3px; height: 3px; border-radius: 50%; background: rgb(79 128 180 / 10%); }
-.login-panel { position: relative; isolation: isolate; display: flex; align-items: center; align-items: safe center; justify-content: center; min-height: 0; padding: clamp(28px, 3.6dvh, 46px) clamp(28px, 3.6vw, 56px) clamp(40px, 5.2dvh, 64px); border-left: 0; border-radius: 0 var(--login-radius) var(--login-radius) 0; background: rgba(249, 253, 255, .52); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .7); backdrop-filter: none; -webkit-backdrop-filter: none; }
-.login-panel::before { position: absolute; z-index: -1; inset: 0; border-radius: inherit; clip-path: inset(0 round 0 var(--login-radius) var(--login-radius) 0); backdrop-filter: blur(20px) saturate(125%); -webkit-backdrop-filter: blur(20px) saturate(125%); content: ''; pointer-events: none; }
+/* 认证表单使用不透明表面，避免透明材质降低字段与错误信息的对比。 */
+.login-panel { position: relative; isolation: isolate; display: flex; align-items: center; align-items: safe center; justify-content: center; min-height: 0; padding: clamp(28px, 3.6dvh, 46px) clamp(28px, 3.6vw, 56px) clamp(40px, 5.2dvh, 64px); border-left: 0; border-radius: 0 var(--login-radius) var(--login-radius) 0; background: var(--do-surface); }
 .form-shell { width: 100%; max-width: 430px; }
 .form-heading { margin-bottom: clamp(20px, 2.8dvh, 28px); }
-.form-heading h2 { margin: 0; font-size: clamp(34px, 3vw, 44px); font-weight: 700; line-height: 1.15; letter-spacing: -.8px; }
+/* 登录标题与主要按钮同属主任务，不与左侧产品主张争抢尺寸。 */
+.form-heading h2 { margin: 0; font-size: clamp(28px, 3vw, 36px); font-weight: 700; line-height: 1.15; letter-spacing: -.8px; }
 .form-heading span { display: block; margin-top: 8px; color: var(--do-muted); font-size: clamp(15px, 1.05vw, 16px); line-height: 1.5; font-weight: 400; }
 .login-form { display: grid; gap: clamp(16px, 2.2dvh, 20px); }
 .field { display: grid; gap: 8px; font-size: 14.5px; font-weight: 500; min-width: 0; }
-.field input { width: 100%; min-width: 0; height: 50px; border: 1px solid rgba(142, 178, 225, .42); border-radius: 9px; padding: 0 16px; color: var(--do-ink); background: rgba(255,255,255,.76); font-size: 15.5px; font-weight: 400; transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease; }
+/* 控件边界与聚焦反馈来自统一令牌，保留原有键盘和密码显隐行为。 */
+.field input { width: 100%; min-width: 0; height: 50px; border: 1px solid var(--do-line); border-radius: 9px; padding: 0 16px; color: var(--do-ink); background: var(--do-surface); font-size: 15.5px; font-weight: 400; transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease; }
 .field input::placeholder { color: var(--do-muted); }
-.field input:focus { outline: none; border-color: var(--login-blue); background: rgba(255,255,255,.96); box-shadow: 0 0 0 3px rgba(45,104,204,.14); }
+.field input:focus { outline: none; border-color: var(--login-blue); box-shadow: 0 0 0 3px var(--do-primary-soft); }
 .password-field { position: relative; }
 .password-field input { padding-right: 54px; }
 .password-field button { position: absolute; inset: 5px 6px 5px auto; width: 40px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--do-muted); background: transparent; cursor: pointer; }
 .password-field button:hover { color: var(--login-blue); background: var(--do-primary-soft); }
 .captcha-field { display: flex; align-items: stretch; gap: 10px; }
 .captcha-field input { flex: 1 1 0; }
-.captcha-image-button { width: clamp(108px, 9.2vw, 136px); height: 50px; flex-shrink: 0; padding: 0; overflow: hidden; border: 1px solid rgba(142,178,225,.42); border-radius: 8px; color: var(--do-muted); background: rgba(255,255,255,.76); cursor: pointer; }
+/* 验证码保持真实图像与刷新入口，仅统一其表面和边界。 */
+.captcha-image-button { width: clamp(108px, 9.2vw, 136px); height: 50px; flex-shrink: 0; padding: 0; overflow: hidden; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-muted); background: var(--do-surface); cursor: pointer; }
 .captcha-img { width: 100%; height: 100%; object-fit: contain; }
 .captcha-error { margin: 0; color: var(--do-danger); font-size: 12.5px; line-height: 1.5; font-weight: 400; }
-.submit-button { display: flex; align-items: center; justify-content: center; gap: 10px; height: 50px; margin-top: 2px; border: 1px solid rgba(255,255,255,.2); border-radius: 10px; color: white; background: linear-gradient(110deg, #1766f4, #2871ef); box-shadow: 0 9px 20px rgba(37,99,235,.18); font-size: 16px; font-weight: 650; cursor: pointer; transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
-.submit-button:hover { background: linear-gradient(110deg, #115bdf, #1f63de); box-shadow: 0 11px 24px rgba(37,99,235,.24); }
+/* 主操作使用产品统一青绿；悬停反馈不再依赖另一套渐变与阴影。 */
+.submit-button { display: flex; align-items: center; justify-content: center; gap: 10px; height: 50px; margin-top: 2px; border: 1px solid var(--do-primary); border-radius: 10px; color: white; background: var(--do-primary); font-size: 16px; font-weight: 650; cursor: pointer; transition: background 160ms ease, transform 160ms ease; }
+.submit-button:hover { background: var(--do-primary-strong); }
 .submit-button:active { transform: translateY(1px); }
 .submit-button:disabled, .captcha-image-button:disabled { opacity: .65; cursor: wait; }
-button:focus-visible { outline: 3px solid rgb(45 104 204 / 45%); outline-offset: 3px; }
+/* 包括密码显隐和验证码按钮在内，键盘焦点保持可见。 */
+button:focus-visible { outline: 3px solid var(--do-primary); outline-offset: 3px; }
 @media (max-height: 820px) and (min-width: 901px) {
   .login-visual { padding: clamp(24px, 3.4dvh, 38px) clamp(28px, 3.6vw, 52px) clamp(28px, 4dvh, 42px); }
   .login-brand-mark { width: 48px; height: 48px; border-radius: 12px; font-size: 21px; }
@@ -465,7 +473,6 @@ button:focus-visible { outline: 3px solid rgb(45 104 204 / 45%); outline-offset:
   .visual-copy p { margin-top: 6px; font-size: 14px; }
   .monster-scene { display: none; }
   .login-panel { align-items: flex-start; justify-content: center; min-height: 0; padding: 24px 20px 30px; border-left: 1px solid var(--do-glass-border); border-top: 0; border-radius: 0 0 var(--login-radius) var(--login-radius); }
-  .login-panel::before { clip-path: inset(0 round 0 0 var(--login-radius) var(--login-radius)); }
   .form-shell { max-width: 430px; }
   .form-heading { margin-bottom: 20px; }
   .form-heading h2 { font-size: 30px; }
@@ -478,24 +485,5 @@ button:focus-visible { outline: 3px solid rgb(45 104 204 / 45%); outline-offset:
   .submit-button { height: 50px; font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .login-panel { background: rgba(249, 253, 255, .96); }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .login-panel { background: rgba(249, 253, 255, .98); }
-  .login-panel::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
-}
-.login-page { background:var(--do-bg); }
-.login-page::before { box-shadow:none; border:1px solid var(--do-line); }
-.login-visual { color:var(--do-ink); background:#eee9df; box-shadow:none; }
-.login-visual::before, .login-visual::after, .login-panel::before { display:none; }
-.login-brand-mark { object-fit:contain; padding:4px; background:transparent; box-shadow:none; border:0; }
-.brand-pill strong, .visual-copy h1 { color:var(--do-ink); text-shadow:none; }
-.visual-copy h1 { font-size:clamp(42px,5vw,68px); }
-.visual-copy p { color:var(--do-muted); }
-.login-panel { background:var(--do-surface); box-shadow:none; }
-.form-heading h2 { font-size:clamp(28px,3vw,36px); }
-.field input { border-color:var(--do-line); background:var(--do-surface); }
-.submit-button, .submit-button:hover { background:var(--do-primary); box-shadow:none; }
 .login-error { padding:12px; border-left:3px solid var(--do-danger); color:var(--do-danger); font-size:13px; line-height:1.6; }
 </style>

@@ -122,8 +122,17 @@
   --el-color-primary-light-8: #d0e8e4;
   --el-color-primary-light-9: var(--do-primary-soft);
   --el-color-success: var(--do-success);
+  --el-color-success-light-9: var(--do-success-soft);
+  --el-color-success-light-8: color-mix(in srgb, var(--do-success) 18%, white);
   --el-color-warning: var(--do-warning);
+  --el-color-warning-light-9: var(--do-warning-soft);
+  --el-color-warning-light-8: color-mix(in srgb, var(--do-warning) 18%, white);
   --el-color-danger: var(--do-danger);
+  --el-color-danger-light-9: var(--do-danger-soft);
+  --el-color-danger-light-8: color-mix(in srgb, var(--do-danger) 18%, white);
+  --el-color-info: var(--do-muted);
+  --el-color-info-light-9: var(--do-soft);
+  --el-color-info-light-8: var(--do-line);
   --el-border-radius-base: var(--do-radius-sm);
   --el-bg-color-overlay: var(--do-glass-data-bg);
   --el-border-color-light: var(--do-glass-line);

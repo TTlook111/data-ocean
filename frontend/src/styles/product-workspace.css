@@ -1,4 +1,11 @@
 /* 工作区交互与容器规则；主题全部由 variables.css 提供，弹层不再覆盖第二套色值。 */
+/* 网格内的状态标签按内容收缩，避免服务状态和卡片摘要被拉成整行色带。 */
+.admin-shell .el-tag,
+.query-workspace .el-tag {
+  width: fit-content;
+  justify-self: start;
+}
+
 .query-workspace button:focus-visible,
 .query-workspace a:focus-visible,
 .query-evidence-dialog button:focus-visible,

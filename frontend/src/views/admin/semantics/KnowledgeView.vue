@@ -92,6 +92,8 @@ const canManageManualJoins = computed(
 )
 
 const activeTab = ref(String(route.query.tab || 'documents'))
+// 准备与关联是辅助核对任务，按需打开，不挤占文档列表或审核队列的首屏。
+const auxiliaryOpen = ref(false)
 const docs = ref<KnowledgeDocItem[]>([])
 const total = ref(0)
 const loading = ref(false)
@@ -270,6 +272,8 @@ function apiError(cause: unknown, fallback: string) {
  * 只有 push 才能让浏览器后退回到上一个 Tab。全站 Tab 统一切换语义。
  */
 function selectTab(tab: string) {
+  // 辅助面属于当前任务，切换到构建或审核时不悬留另一任务的工作面。
+  auxiliaryOpen.value = false
   activeTab.value = tab
   page.value = 1
   router.push({ query: { ...route.query, tab, page: undefined } })
@@ -349,7 +353,9 @@ async function loadDatasources() {
     datasources.value = []
     datasourcesError.value = apiError(cause, '数据源列表加载失败')
   }
-  await loadReadiness()
+  // 准备情况是独立辅助读取，不能让它的延迟阻止主文档、统计与构建记录发起请求。
+  // loadReadiness 自行接纳错误与归属检查，继续保留原有来源/身份代次保护。
+  void loadReadiness()
 }
 
 /** 批量取各数据源的知识就绪度；知识准备情况总览的数据来源 */
@@ -588,18 +594,22 @@ onMounted(async () => {
 })
 
 watch(()=>[datasourceId.value,route.query.datasourceId,auth.token,iamS1.snapshot,iamS1.loaded,iamS1.errorMessage,context.routeSyncing,context.loading],async()=>{
-  scopeEpoch++;requestId++;statsRequestId++;publishedRequestId++;ragRequestId++;readinessSequence++;datasourceSequence++;actionSequence++;closeOwnedConfirm();closeBuild();selectedBuildId.value=undefined;buildSelectionExplicit.value=false;buildListOpen.value=false
+  // 范围变化同时关闭辅助抽屉，避免在新来源下继续阅读旧准备或关联内容。
+  scopeEpoch++;requestId++;statsRequestId++;publishedRequestId++;ragRequestId++;readinessSequence++;datasourceSequence++;actionSequence++;closeOwnedConfirm();closeBuild();auxiliaryOpen.value=false;selectedBuildId.value=undefined;buildSelectionExplicit.value=false;buildListOpen.value=false
   Object.assign(stats,{total:0,published:0,indexing:0,pending:0,draft:0});statsError.value='';publishedSnapshotError.value='';ragBuildError.value='';readinessError.value='';readinessWarning.value='';publishedSnapshotLoading.value=false;ragBuildsLoading.value=false;readinessLoading.value=false;snapshotsLoading.value=false
   generateDialogVisible.value=false;generateLoading.value=false;actionLoading.value=false;ragBuildActionDatasourceId.value=null;docs.value=[];total.value=0;publishedSnapshot.value=null;ragBuilds.value=[];readinessList.value=[];page.value=1;actionError.value='';reviewComment.value=''
   if(!scopeReady.value){loading.value=false;statsLoading.value=false;return}
   datasources.value=context.datasources
   await Promise.all([loadDocs(),loadStats(),loadPublishedSnapshot(),loadRagBuilds(),loadReadiness()])
 },{flush:'sync'})
-useAdminScrollLock(()=>generateDialogVisible.value || buildVisible.value || confirmVisible.value)
+// 辅助抽屉与既有确认窗口共享父工作面的滚动锁，不新增第二套 body 锁。
+useAdminScrollLock(()=>generateDialogVisible.value || buildVisible.value || confirmVisible.value || auxiliaryOpen.value)
 
 watch(() => route.query.tab, (value) => {
   const next = String(value || 'documents')
   if (next !== activeTab.value) {
+    // 浏览器前进后退同样退出上一任务的辅助面，保留各列表原有 URL 恢复规则。
+    auxiliaryOpen.value = false
     activeTab.value = next
     page.value = 1
     loadDocs()
@@ -630,9 +640,34 @@ watch(() => route.query.page, (value) => {
       </template>
     </TaskPageHeader>
 
-    <ol v-if="activeTab!=='index'" class="knowledge-journey" aria-label="知识准备流程"><li><strong>整理主题</strong></li><li><strong>审核依据</strong></li><li><strong>发布文档</strong></li><li><strong>确认构建</strong></li></ol>
     <p v-if="scopeError" role="alert" class="knowledge-write-notice">{{ scopeError }}</p>
     <section v-if="actionError" role="alert" class="knowledge-write-notice">{{ actionError }}<p v-if="reviewComment">保留意见：{{ reviewComment }}</p></section>
+    <!-- 先选择文档、构建或审核任务，统计与辅助准备不再把实际列表推到首屏之外。 -->
+    <el-tabs class="knowledge-task-tabs" :model-value="activeTab" @update:model-value="selectTab">
+      <el-tab-pane label="全部文档" name="documents">
+        <div class="knowledge-page__toolbar">
+          <el-select v-model="filters.status" placeholder="全部状态" clearable style="width: 150px" @change="page = 1; loadDocs()">
+            <el-option label="草稿" value="DRAFT" />
+            <el-option label="待审核" value="PENDING_REVIEW" />
+            <el-option label="已批准" value="APPROVED" />
+            <el-option label="索引中" value="INDEXING" />
+            <el-option label="已发布" value="PUBLISHED" />
+            <el-option label="已废弃" value="DEPRECATED" />
+          </el-select>
+          <el-input v-model="filters.keyword" placeholder="按标题或覆盖表过滤本页" clearable style="width: 240px" />
+        </div>
+      </el-tab-pane>
+      <el-tab-pane label="构建与索引" name="index" />
+      <el-tab-pane label="审核队列" name="review">
+        <p class="knowledge-page__tab-note">
+          审核队列只列出 PENDING_REVIEW 文档。通过后仍需发布文档，再在知识列表显式确认 RAG 构建；符合来源与覆盖要求且构建生效后才可用于检索。
+        </p>
+      </el-tab-pane>
+    </el-tabs>
+
+    <!-- 全量计数仍来自各自服务端 total，紧凑呈现不改变统计范围或未知状态。 -->
+    <div v-if="activeTab!=='index'" class="knowledge-page__summary">
+      <div class="knowledge-page__summary-counts">
     <template v-if="activeTab!=='index'">
     <LoadingState v-if="!scopeReady && !scopeError" text="正在核验账号与知识范围…" />
     <ErrorState v-else-if="statsError" :message="statsError" @retry="loadStats" />
@@ -640,15 +675,138 @@ watch(() => route.query.page, (value) => {
     <section v-else-if="scopeReady" class="knowledge-page__stats">
       <div class="stat"><span>文档总数</span><strong>{{ stats.total }}</strong></div>
       <div class="stat stat--success"><span>已发布文档</span><strong>{{ stats.published }}</strong></div>
-      <div class="stat stat--success"><span>已生效知识索引</span><strong>{{ activeIndexSummary.value }}</strong><small>{{ activeIndexSummary.hint }}</small></div>
+      <div class="stat stat--success stat--index"><span>已生效知识索引</span><strong>{{ activeIndexSummary.value }}</strong><TitleHelp label="已生效知识索引口径" :text="activeIndexSummary.hint" /></div>
       <div class="stat stat--warning"><span>待审核</span><strong>{{ stats.pending }}</strong></div>
       <div class="stat"><span>草稿</span><strong>{{ stats.draft }}</strong></div>
     </section>
 
     </template>
 
-    <!-- 每个数据源的知识准备情况（开发指导 §7.11） -->
-    <details v-if="readinessDatasources.length && activeTab!=='index'" class="knowledge-page__readiness"><summary>数据源准备情况 · 按需核对连接与发布摘要</summary>
+      </div>
+      <el-button class="knowledge-source-tools" :disabled="!scopeReady" @click="auxiliaryOpen=true">准备与关联</el-button>
+    </div>
+    <!-- 辅助读取异常保持直接可见，详细核对按需展开，不把失败伪装成已准备。 -->
+    <p v-if="activeTab!=='index' && (datasourcesError || readinessError || readinessWarning || publishedSnapshotError)" class="knowledge-auxiliary-error" role="alert">
+      {{ datasourcesError || readinessError || readinessWarning || publishedSnapshotError }}
+      <el-button link @click="auxiliaryOpen=true">核对准备情况</el-button>
+    </p>
+
+    <section v-if="activeTab==='index'" class="knowledge-index-workspace">
+      <header class="knowledge-index-heading">
+        <div><h2>当前活动索引与构建记录</h2><p>准备后核对来源，并单独确认；新索引核验后才切换。</p></div>
+        <div class="knowledge-build-action"><el-button type="primary" :disabled="!!buildBlockedReason" aria-describedby="rag-build-reason" @click="openBuild()">准备构建</el-button><p v-if="buildBlockedReason" id="rag-build-reason" role="status">{{ buildBlockedReason }}</p></div>
+      </header>
+      <p v-if="unknownBuild" role="alert" class="knowledge-write-notice">快照 #{{ unknownBuild.snapshotId }} 的构建请求执行中或结果未知。请刷新记录核对；旧build不证明本次成功，不会自动重发。</p>
+      <LoadingState v-if="!scopeReady && !scopeError" text="正在核验知识范围…" />
+      <EmptyState v-else-if="!datasourceId" message="请先选择一个数据源，再查看当前活动索引。" />
+      <ErrorState v-else-if="ragBuildError" :message="ragBuildError+' · 活动索引状态未知'" @retry="loadRagBuilds" />
+      <LoadingState v-else-if="ragBuildsLoading" text="正在读取构建记录…" />
+      <div v-else-if="scopeReady" class="knowledge-index-split" :class="{'show-build-list':buildListOpen || !selectedBuild}">
+        <button class="rag-mobile-toggle" @click="buildListOpen=!buildListOpen">{{ buildListOpen ? '返回当前构建详情' : '选择构建记录' }}</button>
+        <nav class="rag-record-list" aria-label="构建记录">
+          <h3>构建记录 · {{ datasourceName(datasourceId) }}</h3>
+          <p v-if="!ragBuilds.length">当前没有可见的构建记录。</p>
+          <button v-for="row in ragBuilds" :key="row.buildId" :data-build-id="row.buildId" :aria-pressed="selectedBuild?.buildId===row.buildId" :class="{selected:selectedBuild?.buildId===row.buildId}" @click="selectBuild(row)">
+            <strong>{{ ragStatusLabel(row.status) }}</strong><span>来源快照 #{{ row.sourceSnapshotId }}<template v-if="buildSourceVersion(row)"> · v{{ buildSourceVersion(row) }}</template></span><time>{{ row.confirmedAt || '确认时间未提供' }}</time>
+          </button>
+        </nav>
+        <article v-if="selectedBuild" class="rag-build-card rag-build-detail" data-testid="selected-rag-build">
+          <header><div><p class="knowledge-page__eyebrow">{{ selectedBuild.status==='ACTIVE' ? '当前活动记录' : '选中历史 / 非活动记录' }}</p><h3>来源快照 #{{ selectedBuild.sourceSnapshotId }}<template v-if="buildSourceVersion(selectedBuild)"> · v{{ buildSourceVersion(selectedBuild) }}</template></h3></div><BusinessStatusBadge :status="selectedBuild.status" :label="ragStatusLabel(selectedBuild.status)" /></header>
+          <dl class="rag-build-facts"><div><dt>状态</dt><dd>{{ ragStatusLabel(selectedBuild.status) }}</dd></div><div><dt>来源快照</dt><dd>#{{ selectedBuild.sourceSnapshotId }}</dd></div><div><dt>向量核验</dt><dd>{{ selectedBuild.actualVectorCount ?? '未提供' }} / {{ selectedBuild.expectedChunkCount ?? '未提供' }}</dd></div><div><dt>确认时间</dt><dd>{{ selectedBuild.confirmedAt || '未提供' }}</dd></div></dl>
+          <p v-if="selectedBuild.errorMessage" role="alert" class="knowledge-write-notice">{{ selectedBuild.errorMessage }}</p>
+          <p class="knowledge-index-explanation">活动状态与数量核验不代表所有业务口径已验证；实际使用仍需检查来源及授权。新请求与当前活动记录分别核对。</p>
+          <details><summary>技术详情与确认时间</summary><dl><div><dt>Embedding</dt><dd>{{ selectedBuild.embeddingModel || '未提供' }}</dd></div><div><dt>精确 build</dt><dd>{{ selectedBuild.buildId }}</dd></div><div><dt>确认时间</dt><dd>{{ selectedBuild.confirmedAt || '未提供' }}</dd></div><div><dt>生效时间</dt><dd>{{ selectedBuild.activatedAt || '未提供' }}</dd></div></dl></details>
+        </article>
+        <EmptyState v-else message="当前没有活动索引。可选择已有构建查看详情；准备新构建仍需单独确认。" />
+      </div>
+      <details class="knowledge-index-overview"><summary>文档发布概况 · 与索引状态独立</summary>
+    <LoadingState v-if="!scopeReady && !scopeError" text="正在核验账号与知识范围…" />
+    <ErrorState v-else-if="statsError" :message="statsError" @retry="loadStats" />
+    <LoadingState v-else-if="statsLoading" text="正在读取知识统计..." />
+    <section v-else-if="scopeReady" class="knowledge-page__stats">
+      <div class="stat"><span>文档总数</span><strong>{{ stats.total }}</strong></div>
+      <div class="stat stat--success"><span>已发布文档</span><strong>{{ stats.published }}</strong></div>
+      <div class="stat stat--success stat--index"><span>已生效知识索引</span><strong>{{ activeIndexSummary.value }}</strong><TitleHelp label="已生效知识索引口径" :text="activeIndexSummary.hint" /></div>
+      <div class="stat stat--warning"><span>待审核</span><strong>{{ stats.pending }}</strong></div>
+      <div class="stat"><span>草稿</span><strong>{{ stats.draft }}</strong></div>
+    </section>
+
+      </details>
+    </section>
+
+    <LoadingState v-if="!scopeReady && !scopeError" text="正在核验文档查看范围…" />
+    <ErrorState v-else-if="activeTab!=='index' && error" :message="error" @retry="loadDocs" />
+    <LoadingState v-else-if="activeTab!=='index' && loading" variant="skeleton" :rows="6" />
+    <EmptyState
+      v-else-if="scopeReady && activeTab!=='index' && !visibleDocs.length"
+      :message="emptyMessage"
+      :action-text="emptyAction"
+      @action="handleEmptyAction"
+    />
+    <section v-else-if="activeTab!=='index'" class="knowledge-page__card">
+      <el-table :data="visibleDocs" v-loading="actionLoading" stripe>
+        <el-table-column v-if="activeTab === 'review'" type="expand">
+          <template #default="{ row }"><pre class="knowledge-page__review-content">{{ row.content || '文档正文为空' }}</pre></template>
+        </el-table-column>
+        <el-table-column label="文档" min-width="220">
+          <template #default="{ row }">
+            <button type="button" class="doc-link" @click="goDetail(row.id)">
+              <FileText :size="14" />
+              <span>{{ row.title }}</span>
+            </button>
+            <small class="doc-tables">
+              覆盖 {{ parseTableNames(row.tableNames).length }} 张表
+              <template v-if="parseTableNames(row.tableNames).length">
+                ：{{ parseTableNames(row.tableNames).slice(0, 3).join('、') }}{{ parseTableNames(row.tableNames).length > 3 ? ' 等' : '' }}
+              </template>
+            </small>
+          </template>
+        </el-table-column>
+        <el-table-column label="数据源" width="150">
+          <template #default="{ row }">{{ datasourceName(row.datasourceId) }}</template>
+        </el-table-column>
+        <el-table-column label="状态" width="110">
+          <template #default="{ row }">
+            <BusinessStatusBadge :status="row.status" :label="knowledgeStatusLabel(row.status)" />
+          </template>
+        </el-table-column>
+        <el-table-column label="版本" width="82">
+          <template #default="{ row }">v{{ row.currentVersion }}</template>
+        </el-table-column>
+        <el-table-column prop="updatedAt" label="更新时间" width="170" />
+        <el-table-column label="操作" width="230" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="goDetail(row.id)">详情</el-button>
+            <template v-if="activeTab === 'review' && row.status === 'PENDING_REVIEW'">
+              <el-button link type="success" :disabled="!canReviewDoc(row)" :title="canReviewDoc(row) ? '' : APPROVE_HINT" @click="approve(row)"><Check :size="14" />通过</el-button>
+              <el-button link type="danger" :disabled="!canReviewDoc(row)" :title="canReviewDoc(row) ? '' : APPROVE_HINT" @click="reject(row)"><X :size="14" />驳回</el-button>
+            </template>
+            <el-button v-else-if="row.status === 'PUBLISHED' && iamS1.queryUse" link @click="goAsk()">
+              <MessageSquareText :size="14" />去问数
+            </el-button>
+            <el-button v-else-if="row.status === 'DRAFT'" link @click="goDetail(row.id)">继续编辑</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </section>
+
+    <el-pagination
+      v-if="total > pageSize"
+      class="knowledge-page__pager"
+      background
+      layout="total, prev, pager, next"
+      :total="total"
+      :page-size="pageSize"
+      :current-page="page"
+      @current-change="(value: number) => router.replace({ query: { ...route.query, page: value } })"
+    />
+
+    <!-- 辅助工具沿用原能力门禁和来源回执，只在用户主动核对时占据独立阅读空间。 -->
+    <el-drawer v-model="auxiliaryOpen" title="准备与关联" size="min(920px, 94vw)" append-to-body destroy-on-close class="knowledge-auxiliary-drawer">
+      <div class="knowledge-auxiliary-content">
+    <ol v-if="activeTab!=='index'" class="knowledge-journey" aria-label="知识准备流程"><li><strong>整理主题</strong></li><li><strong>审核依据</strong></li><li><strong>发布文档</strong></li><li><strong>确认构建</strong></li></ol>
+    <!-- 准备回执仍按当前能力读取；发布、构建与个人查询许可分别核对。 -->
+    <details v-if="readinessDatasources.length && activeTab!=='index'" class="knowledge-page__readiness" open><summary>数据源准备情况 · 按需核对连接与发布摘要</summary>
       <div class="knowledge-page__readiness-heading">
         <div class="knowledge-page__section-title">
           <TitleHelp label="数据源知识准备情况" text="对照采集、发布和索引版本，确认知识是否已生效。发布文档与构建知识索引是两个独立步骤。" />
@@ -736,137 +894,8 @@ watch(() => route.query.page, (value) => {
     />
     </details>
 
-    <el-tabs :model-value="activeTab" @update:model-value="selectTab">
-      <el-tab-pane label="全部文档" name="documents">
-        <div class="knowledge-page__toolbar">
-          <el-select v-model="filters.status" placeholder="全部状态" clearable style="width: 150px" @change="page = 1; loadDocs()">
-            <el-option label="草稿" value="DRAFT" />
-            <el-option label="待审核" value="PENDING_REVIEW" />
-            <el-option label="已批准" value="APPROVED" />
-            <el-option label="索引中" value="INDEXING" />
-            <el-option label="已发布" value="PUBLISHED" />
-            <el-option label="已废弃" value="DEPRECATED" />
-          </el-select>
-          <el-input v-model="filters.keyword" placeholder="按标题或覆盖表过滤本页" clearable style="width: 240px" />
-        </div>
-      </el-tab-pane>
-      <el-tab-pane label="构建与索引" name="index" />
-      <el-tab-pane label="审核队列" name="review">
-        <p class="knowledge-page__tab-note">
-          审核队列只列出 PENDING_REVIEW 文档。通过后仍需发布文档，再在知识列表显式确认 RAG 构建；符合来源与覆盖要求且构建生效后才可用于检索。
-        </p>
-      </el-tab-pane>
-    </el-tabs>
-
-    <section v-if="activeTab==='index'" class="knowledge-index-workspace">
-      <header class="knowledge-index-heading">
-        <div><h2>当前活动索引与构建记录</h2><p>准备后核对来源，并单独确认；新索引核验后才切换。</p></div>
-        <div class="knowledge-build-action"><el-button type="primary" :disabled="!!buildBlockedReason" aria-describedby="rag-build-reason" @click="openBuild()">准备构建</el-button><p v-if="buildBlockedReason" id="rag-build-reason" role="status">{{ buildBlockedReason }}</p></div>
-      </header>
-      <p v-if="unknownBuild" role="alert" class="knowledge-write-notice">快照 #{{ unknownBuild.snapshotId }} 的构建请求执行中或结果未知。请刷新记录核对；旧build不证明本次成功，不会自动重发。</p>
-      <LoadingState v-if="!scopeReady && !scopeError" text="正在核验知识范围…" />
-      <EmptyState v-else-if="!datasourceId" message="请先选择一个数据源，再查看当前活动索引。" />
-      <ErrorState v-else-if="ragBuildError" :message="ragBuildError+' · 活动索引状态未知'" @retry="loadRagBuilds" />
-      <LoadingState v-else-if="ragBuildsLoading" text="正在读取构建记录…" />
-      <div v-else-if="scopeReady" class="knowledge-index-split" :class="{'show-build-list':buildListOpen || !selectedBuild}">
-        <button class="rag-mobile-toggle" @click="buildListOpen=!buildListOpen">{{ buildListOpen ? '返回当前构建详情' : '选择构建记录' }}</button>
-        <nav class="rag-record-list" aria-label="构建记录">
-          <h3>构建记录 · {{ datasourceName(datasourceId) }}</h3>
-          <p v-if="!ragBuilds.length">当前没有可见的构建记录。</p>
-          <button v-for="row in ragBuilds" :key="row.buildId" :data-build-id="row.buildId" :aria-pressed="selectedBuild?.buildId===row.buildId" :class="{selected:selectedBuild?.buildId===row.buildId}" @click="selectBuild(row)">
-            <strong>{{ ragStatusLabel(row.status) }}</strong><span>来源快照 #{{ row.sourceSnapshotId }}<template v-if="buildSourceVersion(row)"> · v{{ buildSourceVersion(row) }}</template></span><time>{{ row.confirmedAt || '确认时间未提供' }}</time>
-          </button>
-        </nav>
-        <article v-if="selectedBuild" class="rag-build-card rag-build-detail" data-testid="selected-rag-build">
-          <header><div><p class="knowledge-page__eyebrow">{{ selectedBuild.status==='ACTIVE' ? '当前活动记录' : '选中历史 / 非活动记录' }}</p><h3>来源快照 #{{ selectedBuild.sourceSnapshotId }}<template v-if="buildSourceVersion(selectedBuild)"> · v{{ buildSourceVersion(selectedBuild) }}</template></h3></div><BusinessStatusBadge :status="selectedBuild.status" :label="ragStatusLabel(selectedBuild.status)" /></header>
-          <dl class="rag-build-facts"><div><dt>状态</dt><dd>{{ ragStatusLabel(selectedBuild.status) }}</dd></div><div><dt>来源快照</dt><dd>#{{ selectedBuild.sourceSnapshotId }}</dd></div><div><dt>向量核验</dt><dd>{{ selectedBuild.actualVectorCount ?? '未提供' }} / {{ selectedBuild.expectedChunkCount ?? '未提供' }}</dd></div><div><dt>确认时间</dt><dd>{{ selectedBuild.confirmedAt || '未提供' }}</dd></div></dl>
-          <p v-if="selectedBuild.errorMessage" role="alert" class="knowledge-write-notice">{{ selectedBuild.errorMessage }}</p>
-          <p class="knowledge-index-explanation">活动状态与数量核验不代表所有业务口径已验证；实际使用仍需检查来源及授权。新请求与当前活动记录分别核对。</p>
-          <details><summary>技术详情与确认时间</summary><dl><div><dt>Embedding</dt><dd>{{ selectedBuild.embeddingModel || '未提供' }}</dd></div><div><dt>精确 build</dt><dd>{{ selectedBuild.buildId }}</dd></div><div><dt>确认时间</dt><dd>{{ selectedBuild.confirmedAt || '未提供' }}</dd></div><div><dt>生效时间</dt><dd>{{ selectedBuild.activatedAt || '未提供' }}</dd></div></dl></details>
-        </article>
-        <EmptyState v-else message="当前没有活动索引。可选择已有构建查看详情；准备新构建仍需单独确认。" />
       </div>
-      <details class="knowledge-index-overview"><summary>文档发布概况 · 与索引状态独立</summary>
-    <LoadingState v-if="!scopeReady && !scopeError" text="正在核验账号与知识范围…" />
-    <ErrorState v-else-if="statsError" :message="statsError" @retry="loadStats" />
-    <LoadingState v-else-if="statsLoading" text="正在读取知识统计..." />
-    <section v-else-if="scopeReady" class="knowledge-page__stats">
-      <div class="stat"><span>文档总数</span><strong>{{ stats.total }}</strong></div>
-      <div class="stat stat--success"><span>已发布文档</span><strong>{{ stats.published }}</strong></div>
-      <div class="stat stat--success"><span>已生效知识索引</span><strong>{{ activeIndexSummary.value }}</strong><small>{{ activeIndexSummary.hint }}</small></div>
-      <div class="stat stat--warning"><span>待审核</span><strong>{{ stats.pending }}</strong></div>
-      <div class="stat"><span>草稿</span><strong>{{ stats.draft }}</strong></div>
-    </section>
-
-      </details>
-    </section>
-
-    <LoadingState v-if="!scopeReady && !scopeError" text="正在核验文档查看范围…" />
-    <ErrorState v-else-if="activeTab!=='index' && error" :message="error" @retry="loadDocs" />
-    <LoadingState v-else-if="activeTab!=='index' && loading" variant="skeleton" :rows="6" />
-    <EmptyState
-      v-else-if="scopeReady && activeTab!=='index' && !visibleDocs.length"
-      :message="emptyMessage"
-      :action-text="emptyAction"
-      @action="handleEmptyAction"
-    />
-    <section v-else-if="activeTab!=='index'" class="knowledge-page__card">
-      <el-table :data="visibleDocs" v-loading="actionLoading" stripe>
-        <el-table-column v-if="activeTab === 'review'" type="expand">
-          <template #default="{ row }"><pre class="knowledge-page__review-content">{{ row.content || '文档正文为空' }}</pre></template>
-        </el-table-column>
-        <el-table-column label="文档" min-width="220">
-          <template #default="{ row }">
-            <button type="button" class="doc-link" @click="goDetail(row.id)">
-              <FileText :size="14" />
-              <span>{{ row.title }}</span>
-            </button>
-            <small class="doc-tables">
-              覆盖 {{ parseTableNames(row.tableNames).length }} 张表
-              <template v-if="parseTableNames(row.tableNames).length">
-                ：{{ parseTableNames(row.tableNames).slice(0, 3).join('、') }}{{ parseTableNames(row.tableNames).length > 3 ? ' 等' : '' }}
-              </template>
-            </small>
-          </template>
-        </el-table-column>
-        <el-table-column label="数据源" width="150">
-          <template #default="{ row }">{{ datasourceName(row.datasourceId) }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }">
-            <BusinessStatusBadge :status="row.status" :label="knowledgeStatusLabel(row.status)" />
-          </template>
-        </el-table-column>
-        <el-table-column label="版本" width="82">
-          <template #default="{ row }">v{{ row.currentVersion }}</template>
-        </el-table-column>
-        <el-table-column prop="updatedAt" label="更新时间" width="170" />
-        <el-table-column label="操作" width="230" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" @click="goDetail(row.id)">详情</el-button>
-            <template v-if="activeTab === 'review' && row.status === 'PENDING_REVIEW'">
-              <el-button link type="success" :disabled="!canReviewDoc(row)" :title="canReviewDoc(row) ? '' : APPROVE_HINT" @click="approve(row)"><Check :size="14" />通过</el-button>
-              <el-button link type="danger" :disabled="!canReviewDoc(row)" :title="canReviewDoc(row) ? '' : APPROVE_HINT" @click="reject(row)"><X :size="14" />驳回</el-button>
-            </template>
-            <el-button v-else-if="row.status === 'PUBLISHED' && iamS1.queryUse" link @click="goAsk()">
-              <MessageSquareText :size="14" />去问数
-            </el-button>
-            <el-button v-else-if="row.status === 'DRAFT'" link @click="goDetail(row.id)">继续编辑</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </section>
-
-    <el-pagination
-      v-if="total > pageSize"
-      class="knowledge-page__pager"
-      background
-      layout="total, prev, pager, next"
-      :total="total"
-      :page-size="pageSize"
-      :current-page="page"
-      @current-change="(value: number) => router.replace({ query: { ...route.query, page: value } })"
-    />
+    </el-drawer>
 
     <el-dialog v-model="buildVisible" title="明确确认数据源级 RAG 构建" class="knowledge-build-dialog" width="min(680px,94vw)" :close-on-click-modal="ragBuildActionDatasourceId==null" :close-on-press-escape="ragBuildActionDatasourceId==null" :show-close="ragBuildActionDatasourceId==null">
       <p>数据源：{{ buildSource ? datasourceName(buildSource) : '未选择' }}。明确固定来源快照，构建将固定符合条件的文档版本、来源与完整依赖，并核对整组覆盖。</p>
@@ -924,7 +953,6 @@ watch(() => route.query.page, (value) => {
 </template>
 
 <style scoped>
-.stat small { display:block; margin-top:6px; color:var(--do-muted); font-size:11px; line-height:1.5; max-width:24em; }
 .rag-build-records { min-width:0; width:100%; max-width:100%; }
 .knowledge-index-heading { min-width:0; max-width:100%; }
 .knowledge-index-heading > div:first-child { min-width:0; flex:1 1 420px; overflow-wrap:anywhere; }
@@ -958,29 +986,31 @@ watch(() => route.query.page, (value) => {
 .knowledge-page__details[open] summary { margin-bottom: 16px; }
 .knowledge-page__details { display: block; }
 
-.knowledge-page__stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
-.stat {
-  display: grid;
-  gap: 4px;
-  padding: 14px 16px;
-  border-right: 1px solid var(--do-line);
-}
+/* 统计压成一行可换行的事实摘要，任务页签和表格优先占用首屏高度。 */
+.knowledge-page :deep(.task-page-header) { margin-bottom: 0; }
+.knowledge-page__summary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; }
+.knowledge-page__summary-counts { min-width: 0; flex: 1; }
+.knowledge-page__stats { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 24px; }
+.stat { display: inline-flex; align-items: baseline; gap: 8px; padding: 4px 0; }
 .stat span { color: var(--do-muted); font-size: 12px; }
-.stat:last-child { border: 0; }
-.stat strong { color: var(--do-ink); font-size: 24px; }
+.stat strong { color: var(--do-ink); font-size: 18px; font-variant-numeric: tabular-nums; }
+.stat--index { align-items: center; }
+.stat--index :deep(.title-help) { position: static; width: 20px; height: 20px; margin-left: -4px; }
+/* 辅助异常不被收进抽屉；正常准备和关联工具只在独立面中展开。 */
+.knowledge-auxiliary-error { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; color: var(--do-warning); font-size: 12px; line-height: 1.7; }
+.knowledge-auxiliary-content { display: grid; gap: 18px; min-width: 0; }
+.knowledge-source-tools { flex: none; }
+.knowledge-task-tabs :deep(.el-tabs__header) { margin-bottom: 12px; }
 .stat--success strong { color: var(--do-success); }
 .stat--warning strong { color: var(--do-warning); }
 
 .knowledge-page__scope-note { margin: 0; padding: 10px 12px; border-radius: var(--do-radius-md); background: var(--do-bg); color: var(--do-muted); font-size: 12px; }
 
+/* 抽屉已经提供独立表面，内部准备回执不再重复包白卡。 */
 .knowledge-page__readiness {
   display: grid;
   gap: 12px;
-  padding: 18px;
-  border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-lg);
-  background: var(--do-glass-data-bg);
-  box-shadow: var(--do-shadow);
+  min-width: 0;
 }
 .knowledge-page__readiness-heading {
   display: flex;
@@ -1035,10 +1065,6 @@ watch(() => route.query.page, (value) => {
 .generated-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--do-line); border-radius: var(--do-radius-md); background: var(--do-bg); }
 .generated-list strong { display: block; color: var(--do-ink); font-size: 13px; }
 .generated-list small { color: var(--do-muted); font-size: 11px; }
-
-@media (max-width: 1180px) {
-  .knowledge-page__stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 
 .knowledge-index-workspace{border:1px solid var(--do-line);border-radius:8px;background:var(--do-surface);overflow:hidden;min-width:0;}
 .knowledge-index-workspace>.knowledge-index-heading{padding:20px 24px;border-bottom:1px solid var(--do-line);display:flex;align-items:start;justify-content:space-between;gap:20px;}
