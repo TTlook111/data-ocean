@@ -66,6 +66,10 @@ Java/MySQL 保存会话、消息和结构化长期摘要。每轮发送稳定 us
 
 Redis 8 只存安全 LangGraph checkpoint，初始化或恢复失败时明确停止，不执行无 checkpoint 路径。查询结果不缓存。摘要在助手消息保存后经专用执行器调用 Python，执行器饱和不得让请求线程运行完整 Agent 或摘要 LLM。
 
+查询服务通过 [IamS1QueryNotificationService](../../backend/DataOcean/src/main/java/com/dataocean/module/query/service/IamS1QueryNotificationService.java) 交付页面通知，不再依赖 Controller。SSE Controller 保留任务归属、协议、功能和权限修订检查；[通知实现](../../backend/DataOcean/src/main/java/com/dataocean/module/query/service/impl/IamS1QueryNotificationServiceImpl.java) 独立管理每个连接，同任务多个标签页均可订阅，旧连接的完成、超时或错误回调只清理自身。结果与进度发送前仍通过查询读取路径重验当前权限并保护载荷，通知层不缓存查询结果。
+
+前端 [pollTaskResult](../../frontend/src/composables/useQuerySubmit.ts) 并行订阅 SSE 与读取任务；SSE 仅更新进度，最终结果始终来自任务 GET。任务在订阅前完成、通知丢失或 SSE 连接失败时，只要任务读取仍可用，现有轮询就能取得持久化终态，无需先增加事件回放。轮询本身持续失败或达到本地等待上限仍按既有错误与继续等待规则处理，不能把通知修复视为这些场景的真实联调验收。
+
 Java 持久化对象位于 `query/entity/po`。历史查询条件 `entity.query.QueryHistoryQuery` 继承公共 `PageQuery`，兼容现有 `page/pageSize` 参数并接受标准 `pageNo`。默认排序与字段白名单见[架构说明](../技术栈与模块职责.md#java-对象目录与分页查询)。当前用户、S1 协议范围过滤和历史结果权限复查保持在原查询链路中。
 
 ## 关键接口与代码

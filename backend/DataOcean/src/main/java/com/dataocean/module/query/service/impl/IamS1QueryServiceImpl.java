@@ -35,7 +35,7 @@ import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1UserResourceService;
 import com.dataocean.module.query.client.IamS1PythonClient;
-import com.dataocean.module.query.controller.IamS1QuerySseController;
+import com.dataocean.module.query.service.IamS1QueryNotificationService;
 import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.entity.po.QueryAttempt;
 import com.dataocean.module.query.entity.dto.IamS1ExecutionBinding;
@@ -101,7 +101,8 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
     private final IamS1AuthorizationResolver authorizationResolver;
     private final IamS1RowBindingService rowBindingService;
     private final IamS1PythonClient pythonClient;
-    private final IamS1QuerySseController sseController;
+    // 查询编排依赖通知合同，连接管理不再反向依赖 HTTP Controller。
+    private final IamS1QueryNotificationService notificationService;
     private final ConversationService conversationService;
     private final ConversationContextSummaryService conversationContextSummaryService;
     private final GlossaryTermMapper glossaryTermMapper;
@@ -196,9 +197,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                     try {
                         completeInTransaction(taskId, result);
                         try {
-                            sseController.sendResult(taskId, get(taskId, userId));
+                            // 落库后仍通过当前读取权限保护结果，通知层不得直接接收 Python 载荷。
+                            notificationService.sendResult(taskId, get(taskId, userId));
                         } catch (BusinessException ex) {
-                            sseController.sendError(taskId, ex.getMessage());
+                            // 读取资格失效时只交付公开错误，不向任何订阅连接发送结果数据。
+                            notificationService.sendError(taskId, ex.getMessage());
                         } catch (Exception ex) {
                             log.warn("S1 结果 SSE 推送失败 taskId={}", taskId);
                         }
@@ -656,9 +659,11 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
                 .set(QueryTask::getProgressMessage, message));
         if (updated == 0) return;
         try {
-            sseController.sendProgress(taskId, get(taskId, userId));
+            // 进度也沿用当前权限读取路径，保持通知与任务查询的可见范围一致。
+            notificationService.sendProgress(taskId, get(taskId, userId));
         } catch (BusinessException ex) {
-            sseController.sendError(taskId, ex.getMessage());
+            // 撤权后终止页面通知，不将未经复查的任务对象作为进度载荷。
+            notificationService.sendError(taskId, ex.getMessage());
         }
     }
 

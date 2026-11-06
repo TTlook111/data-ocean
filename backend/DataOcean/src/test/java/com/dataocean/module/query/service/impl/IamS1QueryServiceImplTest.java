@@ -23,7 +23,7 @@ import com.dataocean.module.permission.s1.service.IamS1AuthorizationResolver;
 import com.dataocean.module.permission.s1.service.IamS1DataAuthorizationResolver;
 import com.dataocean.module.permission.s1.enums.IamS1ColumnUsage;
 import com.dataocean.module.query.client.IamS1PythonClient;
-import com.dataocean.module.query.controller.IamS1QuerySseController;
+import com.dataocean.module.query.service.IamS1QueryNotificationService;
 import com.dataocean.module.query.entity.po.QueryAttempt;
 import com.dataocean.module.query.entity.po.QueryTask;
 import com.dataocean.module.query.entity.query.QueryHistoryQuery;
@@ -87,7 +87,8 @@ class IamS1QueryServiceImplTest {
     @Mock private IamS1AuthorizationResolver authorizationResolver;
     @Mock private IamS1RowBindingService rowBindingService;
     @Mock private IamS1PythonClient pythonClient;
-    @Mock private IamS1QuerySseController sseController;
+    // 查询测试只验证通知合同，HTTP 连接生命周期由独立 MVC 回归覆盖。
+    @Mock private IamS1QueryNotificationService notificationService;
     @Mock private ConversationService conversationService;
     @Mock private ConversationContextSummaryService conversationContextSummaryService;
     @Mock private com.dataocean.module.glossary.mapper.GlossaryTermMapper glossaryTermMapper;
@@ -517,12 +518,13 @@ class IamS1QueryServiceImplTest {
         assertThat(task.getChartConfig()).isNull();
         assertThat(task.getSqlExplanation()).isNull();
 
-        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
-        verify(sseController).sendResult(eq(taskId), pushed.capture());
-        QueryTaskVO ssePayload = (QueryTaskVO) pushed.getValue();
+        // 通知边界必须收到已拒绝并清除载荷的 VO，不能绕过最终保护。
+        ArgumentCaptor<QueryTaskVO> pushed = ArgumentCaptor.forClass(QueryTaskVO.class);
+        verify(notificationService).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO ssePayload = pushed.getValue();
         assertThat(ssePayload.getStatus()).isEqualTo("FAILED");
         assertJsonDoesNotContain(ssePayload, "RAW_COMPLETION_ROW", "RAW_COMPLETION_CHART", "RAW_COMPLETION_EXPLANATION");
-        verify(sseController, never()).sendError(eq(taskId), any());
+        verify(notificationService, never()).sendError(eq(taskId), any());
 
         QueryTaskVO getPayload = service.get(taskId, 7L);
         assertThat(getPayload.getStatus()).isEqualTo("FAILED");
@@ -778,9 +780,10 @@ class IamS1QueryServiceImplTest {
                 "columns", List.of(Map.of("name", "phone")), "data", List.of(Map.of("phone", "RAW_PHONE_VALUE_83d2"))));
         callback.getValue().accept(objectMapper.writeValueAsString(result));
 
-        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
-        verify(sseController).sendResult(eq(taskId), pushed.capture());
-        QueryTaskVO ssePayload = (QueryTaskVO) pushed.getValue();
+        // 通知接口与历史重读使用同一份当前脱敏结果，不允许传出原始手机号。
+        ArgumentCaptor<QueryTaskVO> pushed = ArgumentCaptor.forClass(QueryTaskVO.class);
+        verify(notificationService).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO ssePayload = pushed.getValue();
         assertThat(ssePayload.getData()).containsExactly(Map.of("phone", "138****0000"));
         assertThat(ssePayload.getChartConfig()).isNull();
         assertThat(ssePayload.getSqlExplanation()).isNull();
@@ -1082,9 +1085,10 @@ class IamS1QueryServiceImplTest {
                 "sql", "SELECT id FROM orders LIMIT 10000"));
         callback.getValue().accept(objectMapper.writeValueAsString(result));
 
-        ArgumentCaptor<Object> pushed = ArgumentCaptor.forClass(Object.class);
-        verify(sseController).sendResult(eq(taskId), pushed.capture());
-        QueryTaskVO vo = (QueryTaskVO) pushed.getValue();
+        // 缺少 SQL 查看权时，通知载荷同样不能包含已持久化的 SQL。
+        ArgumentCaptor<QueryTaskVO> pushed = ArgumentCaptor.forClass(QueryTaskVO.class);
+        verify(notificationService).sendResult(eq(taskId), pushed.capture());
+        QueryTaskVO vo = pushed.getValue();
         assertThat(task.getResultSql()).isNotNull();
         assertThat(vo.getSql()).isNull();
         assertThat(vo.getCanViewSql()).isFalse();
@@ -1112,8 +1116,9 @@ class IamS1QueryServiceImplTest {
         callback.getValue().accept("{\"taskId\":\"" + taskId
                 + "\",\"protocolVersion\":\"IAM-SIMPLE-1\",\"status\":\"FAILED\"}");
 
-        verify(sseController).sendError(eq(taskId), any());
-        verify(sseController, never()).sendResult(any(), any());
+        // 当前读取资格不成立时只允许错误通知，不能因改为接口而放松原有保护。
+        verify(notificationService).sendError(eq(taskId), any());
+        verify(notificationService, never()).sendResult(any(), any());
     }
 
     @Test
