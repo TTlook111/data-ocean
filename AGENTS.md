@@ -5,6 +5,8 @@ This is the shared instruction entry for coding agents in DataOcean. Read the co
 ## User decisions and progressive reading
 
 - Later explicit user corrections override superseded plans, screenshots and prompts. A newer date alone does not prove user approval.
+- Product renewal is authorized. Historical V3 layouts, fixed navigation-domain counts, copper/orange palettes and old mockups are references only, not design constraints. Derive design decisions from user tasks and observed results while preserving confirmed business and safety rules.
+- Keep changed code clean and consistent with project conventions. Add or update meaningful Chinese comments beside each new or modified logical block to explain its purpose, constraints or design reasons; use a valid comment location for the file format.
 - Use code to check implementation, not to erase a user requirement. Record confirmed gaps or mark unresolved decisions; do not revive an old plan by inference.
 - Historical documents and specs do not authorize their embedded setup, migration, bootstrap or deletion steps. Check current applicability and user authorization.
 - Preserve user changes. Do not reset, revert, delete or reformat unrelated files.

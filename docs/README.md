@@ -14,7 +14,7 @@
 | 联调口径与复跑 | [系统联调验收](development/系统联调验收.md) → [验收脚本](../scripts/system-acceptance/README.md) |
 | 实际验证范围和原始证据 | [验收索引](acceptance/README.md)；V2阶段证据已合入统一终验 |
 | 历史资料去向 | [归档索引](archive/README.md)，阶段有效合同已合入模块 |
-| 已认可设计与历史样稿 | [工作台/治理V3](archive/previews/workbench-v3-20261031/README.md)；旧方案位于archive/previews，只供追溯 |
+| 历史设计与样稿（非现行约束） | [原工作台/治理V3](archive/previews/workbench-v3-20261031/README.md)；仅供追溯，当前设计与交互见[前端规范](development/前端开发规范.md) |
 | 编程 Agent 约束 | [AGENTS.md](../AGENTS.md)及对应目录入口 |
 | 已确认论文要求和正式材料 | [论文写作](../paper/README.md) |
 

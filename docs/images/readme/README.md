@@ -26,6 +26,8 @@ Reviewed against the linked implementation and maintained docs: nine architectur
 
 ## 界面截图 / Product captures
 
+以下图片为历史合成预览，仅供追溯，不约束当前设计。现行界面和已验证范围见[全站重设计验收](../../acceptance/2026-11-06-全站重设计与基础整治.md)。These historical previews are not current design requirements; see the linked acceptance report for the implemented renewal.
+
 - 渲染日期：2026-11-02；产品代码：`a180b0eab4380759f63e8fa8ef1701df122fb06f`。
 - 正式 Vue 组件在本机 Chromium 中渲染，所有 `/api/` 请求由仓内合成夹具应答。未连接 Java、Python、数据库或模型；未使用公司截图、账号或真实业务资料。
 - 双语角标是预览标注。耗时、金额、问题数量、授权与准备状态均为夹具值，不是性能指标或真实授权证明。

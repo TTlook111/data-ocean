@@ -12,7 +12,7 @@ DataOcean connects natural-language querying (NL2SQL) with metadata governance. 
 
 <a id="product"></a>
 
-## See the answer and its evidence
+## Historical UI previews (2026-11-02)
 
 **Query workspace** · Read answers, tables, and charts in a conversation. Open SQL and source evidence on demand.
 
@@ -23,7 +23,7 @@ DataOcean connects natural-language querying (NL2SQL) with metadata governance. 
 | [![Actual Vue workbench, synthetic data preview](docs/images/readme/workbench.webp)](docs/images/readme/workbench.webp) | [![Actual Vue governance overview, synthetic data preview](docs/images/readme/governance.webp)](docs/images/readme/governance.webp) |
 | Focus on a source's readiness, blockers, and authorized next step. | Read issue distribution, handling status, and source-check coverage separately. |
 
-Click an image for the full-size view. These are **actual Vue component captures with synthetic API responses**, retaining their demo labels. The UI is currently in Chinese; the captures do not establish live business integration. Explanatory illustrations were generated with the built-in image model, never used to fabricate the product UI. See [asset provenance](docs/images/readme/README.md) for sources and versions.
+Click an image for the full-size view. These are **historical Vue component captures with synthetic API responses from 2026-11-02**, retaining their demo labels. The UI is in Chinese; these captures do not represent the current redesign or establish live business integration. See the [product renewal acceptance report](docs/acceptance/2026-11-06-全站重设计与基础整治.md) for current screens and verification limits. Explanatory illustrations were generated with the built-in image model, never used to fabricate the product UI. See [asset provenance](docs/images/readme/README.md) for sources and versions.
 
 <a id="features"></a>
 
@@ -168,7 +168,7 @@ Most detailed guides are currently in Chinese. Both READMEs link to the same mai
 | UI behavior and remaining work | [Frontend guide](docs/development/前端开发规范.md), [follow-up work](docs/development/后续开发.md) |
 | Making code changes | [AGENTS.md](AGENTS.md) |
 
-Read acceptance evidence within its environment, version, and coverage. Focused page checks and synthetic API previews do not establish project-wide production acceptance. Current workbench and governance evidence, including untested scenarios, is recorded in the [V3 acceptance report](docs/acceptance/2026-10-31-工作台与治理总览V3.md).
+Read acceptance evidence within its environment, version, and coverage. Focused page checks and synthetic API previews do not establish project-wide production acceptance. Current UI changes, foundational fixes and verification limits are recorded in the [product renewal acceptance report](docs/acceptance/2026-11-06-全站重设计与基础整治.md). The [original V3 report](docs/acceptance/2026-10-31-工作台与治理总览V3.md) is retained for historical reference only.
 
 <details>
 <summary>Repository layout</summary>

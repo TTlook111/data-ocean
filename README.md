@@ -12,7 +12,7 @@ DataOcean 将自然语言问数（NL2SQL）与元数据治理连接起来。业�
 
 <a id="product"></a>
 
-## 看见数据，也看见依据
+## 历史界面预览（2026-11-02）
 
 **问数工作区** · 在连续对话中阅读回答、表格与图表，按需查看 SQL 和来源依据。
 
@@ -23,7 +23,7 @@ DataOcean 将自然语言问数（NL2SQL）与元数据治理连接起来。业�
 | [![真实 Vue 工作台，合成数据预览](docs/images/readme/workbench.webp)](docs/images/readme/workbench.webp) | [![真实 Vue 治理总览，合成数据预览](docs/images/readme/governance.webp)](docs/images/readme/governance.webp) |
 | 聚焦具体来源的准备条件、阻断与有权下一步。 | 分开阅读问题分布、处理状态与来源校验覆盖。 |
 
-点击图片查看全尺寸。以上均为**当前正式 Vue 组件＋合成 API 的浏览器截图**，保留演示标记；界面目前为中文，不代表真实业务联调成绩。说明性图由内置 image 模型生成，未用于虚构产品界面。来源与版本见[资产说明](docs/images/readme/README.md)。
+点击图片查看全尺寸。以上为 **2026-11-02 的 Vue 组件＋合成 API 历史预览**，保留演示标记；界面为中文，不代表当前重设计样式或真实业务联调成绩。当前界面与验证范围见[全站重设计验收](docs/acceptance/2026-11-06-全站重设计与基础整治.md)。说明性图由内置 image 模型生成，未用于虚构产品界面。来源与版本见[资产说明](docs/images/readme/README.md)。
 
 <a id="features"></a>
 
@@ -166,7 +166,7 @@ npm run dev
 | 页面交互与后续工作 | [前端开发规范](docs/development/前端开发规范.md)、[后续开发](docs/development/后续开发.md) |
 | 参与代码修改 | [AGENTS.md](AGENTS.md) |
 
-验收记录按环境、版本和覆盖范围阅读；定向页面检查与合成 API 预览不代表全项目生产验收。工作台与治理总览的当前证据及未测场景见 [V3 验收记录](docs/acceptance/2026-10-31-工作台与治理总览V3.md)。
+验收记录按环境、版本和覆盖范围阅读；定向页面检查与合成 API 预览不代表全项目生产验收。当前界面、基础修复与未测场景见[全站重设计验收](docs/acceptance/2026-11-06-全站重设计与基础整治.md)；[原 V3 验收](docs/acceptance/2026-10-31-工作台与治理总览V3.md)仅供追溯。
 
 <details>
 <summary>项目目录</summary>
