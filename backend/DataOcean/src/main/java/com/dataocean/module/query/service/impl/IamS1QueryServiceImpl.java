@@ -626,7 +626,10 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             try {
                 QueryTaskVO safe = get(message.getTaskId(), userId);
                 message.setMetadata(writeJson(safe));
-                if (safe.getMaskedFields() != null && !safe.getMaskedFields().isEmpty()) {
+                // 只有真实 COMPLETED 才能采用结果解释或完成兜底，其他终态不能因缺少错误详情被改写为成功。
+                if (!QueryTaskStatus.COMPLETED.name().equals(safe.getStatus())) {
+                    message.setContent(nonCompletedAssistantContent(safe));
+                } else if (safe.getMaskedFields() != null && !safe.getMaskedFields().isEmpty()) {
                     message.setContent("本轮查询完成，部分字段已按当前规则脱敏");
                 } else if (safe.getSqlExplanation() != null && !safe.getSqlExplanation().isBlank()) {
                     message.setContent(safe.getSqlExplanation());
@@ -639,6 +642,20 @@ public class IamS1QueryServiceImpl implements IamS1QueryService {
             }
         }
         return messagePage;
+    }
+
+    private String nonCompletedAssistantContent(QueryTaskVO result) {
+        // 只消费当前权限重读后的状态和公开错误，不回用旧助手原文、metadata 或未完成的 SQL 解释。
+        String error = result.getErrorMessage();
+        boolean hasError = error != null && !error.isBlank();
+        return switch (result.getStatus() == null ? "" : result.getStatus()) {
+            case "CANCELLED" -> "查询已取消";
+            case "TIMEOUT" -> hasError ? error : "查询已超时";
+            case "FAILED" -> hasError ? error : "本轮查询失败";
+            case "CLARIFICATION_REQUIRED" -> hasError ? error : "请补充查询条件";
+            case "PROCESSING" -> "查询仍在处理中";
+            default -> "查询状态待确认";
+        };
     }
 
     @Override

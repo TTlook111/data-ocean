@@ -51,6 +51,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -1187,6 +1188,32 @@ class IamS1QueryServiceImplTest {
         assertThat(result.getItems().get(0).getContent()).isEqualTo("question");
         assertThat(result.getItems().get(1).getContent()).contains("当前权限隐藏");
         assertThat(result.getItems().get(1).getMetadata()).isNull();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"CANCELLED,,查询已取消", "TIMEOUT,,查询已超时", "FAILED,,本轮查询失败",
+            "TIMEOUT,查询超过总时限,查询超过总时限", "FAILED,AI 服务暂时不可用,AI 服务暂时不可用"})
+    void historicalNonCompletedMessagesKeepTheirTerminalMeaning(String status, String publicError,
+                                                               String expectedContent) throws Exception {
+        // 终态没有错误详情时也不能回退为完成；历史原文与旧 metadata 均不作为安全正文来源。
+        task.setStatus(status);
+        task.setErrorMessage(publicError);
+        task.setConversationId(42L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadataSnapshot(88L));
+        when(dataResolver.resolve(any())).thenReturn(snapshot());
+        when(authorizationResolver.hasGlobalFunction(eq(7L), any())).thenReturn(true);
+        var page = com.dataocean.module.query.entity.vo.ConversationMessagePageVO.builder()
+                .items(new java.util.ArrayList<>(List.of(ConversationMessageVO.builder().id(2L)
+                        .role("assistant").taskId("task-1").content("RAW_PROVIDER_RESPONSE")
+                        .metadata("{\"raw\":\"RAW_PROVIDER_RESPONSE\"}").build())))
+                .hasMore(false).build();
+        when(conversationService.listMessagePage(42L, 7L, null, 50)).thenReturn(page);
+
+        var result = service.conversationMessages(42L, 7L, null, 50).getItems().get(0);
+
+        assertThat(result.getContent()).isEqualTo(expectedContent);
+        assertThat(objectMapper.readTree(result.getMetadata()).path("status").asText()).isEqualTo(status);
+        assertJsonDoesNotContain(result, "RAW_PROVIDER_RESPONSE");
     }
 
     private void verifyNoConversationRead() {
