@@ -83,6 +83,12 @@ public class MetadataGovernanceController {
 
     // ========== 质量校验 ==========
 
+    /** 主任务按同源任一能力准入由服务端逐项裁决；不借元数据目录权限读取完整快照。 */
+    @GetMapping("/snapshots/{snapshotId}/quality-context")
+    public Result<com.dataocean.module.governance.entity.vo.QualityContextVO> qualityContext(@PathVariable Long snapshotId) {
+        return Result.success(batchService.context(snapshotId, UserContext.currentUserId()));
+    }
+
     /**
      * 触发指定快照的质量校验。
      *
@@ -94,18 +100,38 @@ public class MetadataGovernanceController {
     @IamS1Resource(function = CHECK_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
     public Result<QualityCheckResultVO> triggerQualityCheck(
             @PathVariable Long snapshotId,
-            @RequestBody(required = false) QualityCheckRequestDTO request) {
-        List<String> dimensions = request != null ? request.getDimensions() : null;
-        List<String> tableNames = request != null ? request.getTableNames() : null;
+            @Valid @RequestBody QualityCheckRequestDTO request) {
+        List<String> dimensions = request.getDimensions();
+        List<String> tableNames = request.getTableNames();
         QualityCheckResultVO result = qualityCheckService.executeQualityCheck(
-                snapshotId, dimensions, tableNames, UserContext.currentUserId());
+                snapshotId, dimensions, tableNames, UserContext.currentUserId(), request.getOperationId());
         return Result.success(result);
+    }
+
+    /** 只有原操作者能按 UUID 核对自己的执行，不借 latest 推断丢失响应的结果。 */
+    @GetMapping("/snapshots/{snapshotId}/quality-check-operations/{operationId}")
+    @IamS1Resource(function = CHECK_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
+    public Result<QualityCheckBatchVO> qualityCheckOperation(@PathVariable Long snapshotId, @PathVariable String operationId) {
+        return Result.success(batchService.getOperation(snapshotId, operationId, UserContext.currentUserId()));
+    }
+
+    @PostMapping("/snapshots/{snapshotId}/quality-check-operations/{operationId}/resolve")
+    @IamS1Resource(function = CHECK_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
+    public Result<QualityCheckBatchVO> resolveQualityCheckOperation(@PathVariable Long snapshotId, @PathVariable String operationId) {
+        return Result.success(batchService.resolveOperation(snapshotId, operationId, UserContext.currentUserId()));
     }
 
     @GetMapping("/snapshots/{snapshotId}/quality-check-batches/latest")
     @IamS1Resource(function = "governance:view", resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
     public Result<QualityCheckBatchVO> latestQualityCheckBatch(@PathVariable Long snapshotId) {
         return Result.success(batchService.latest(snapshotId));
+    }
+
+    /** 从执行记录打开原批次，按请求快照授权后仍由服务端核对真实归属。 */
+    @GetMapping("/snapshots/{snapshotId}/quality-check-batches/{batchId}")
+    @IamS1Resource(function = "governance:view", resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
+    public Result<QualityCheckBatchVO> qualityCheckBatch(@PathVariable Long snapshotId, @PathVariable Long batchId) {
+        return Result.success(batchService.getForSnapshot(snapshotId, batchId));
     }
 
     @GetMapping("/snapshots/{snapshotId}/quality-rules/summary")
@@ -353,7 +379,7 @@ public class MetadataGovernanceController {
     @IamS1Resource(function = ISSUE_MANAGE_FUNCTION, resourceType = IamS1ResourceType.GOVERNANCE_ISSUE, resourceIds = "#issueId")
     public Result<Void> handleIssue(@PathVariable Long issueId,
                                      @Valid @RequestBody IssueHandleRequestDTO request) {
-        qualityIssueService.handleIssue(issueId, request.getStatus(), request.getResolutionNote(), UserContext.currentUserId());
+        qualityIssueService.handleIssue(issueId, request.getStatus(), request.getResolutionNote(), request.getExpectedVersion(), UserContext.currentUserId());
         return Result.success();
     }
 
@@ -367,7 +393,7 @@ public class MetadataGovernanceController {
     @IamS1ScopedList(ISSUE_MANAGE_FUNCTION)
     public Result<IssueBatchHandleResultVO> batchHandleIssues(@Valid @RequestBody IssueBatchHandleDTO request) {
         return Result.success(qualityIssueService.batchHandle(
-                request.getIssueIds(), request.getStatus(), UserContext.currentUserId()));
+                request.getIssueIds(), request.getStatus(), request.getExpectedVersions(), UserContext.currentUserId()));
     }
 
     /**
@@ -381,7 +407,7 @@ public class MetadataGovernanceController {
     @IamS1Resource(function = ISSUE_MANAGE_FUNCTION, resourceType = IamS1ResourceType.GOVERNANCE_ISSUE, resourceIds = "#issueId")
     public Result<Void> assignIssue(@PathVariable Long issueId,
                                      @Valid @RequestBody IssueAssignDTO request) {
-        qualityIssueService.assignIssue(issueId, request.getAssigneeId());
+        qualityIssueService.assignIssue(issueId, request.getAssigneeId(), request.getExpectedVersion());
         return Result.success();
     }
 

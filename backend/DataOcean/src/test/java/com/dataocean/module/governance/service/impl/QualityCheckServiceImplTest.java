@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -44,6 +45,58 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class QualityCheckServiceImplTest {
+    @Test
+    void blankTableSelectionIsRejectedBeforeItCanExpandIntoAFullCheck() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot.setId(14L);
+        fixture.snapshot.setDatasourceId(1L);
+        assertThatThrownBy(() -> fixture.service().executeQualityCheck(14L, null, List.of(" ")))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> assertThat(ex.getCode()).isEqualTo(400));
+        verify(fixture.batchService, never()).begin(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void duplicateCheckRequestReturnsTheOriginalRunningBatchWithoutExecutingAgain() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot.setId(14L);
+        fixture.snapshot.setDatasourceId(1L);
+        var batch = new com.dataocean.module.governance.entity.vo.QualityCheckBatchVO();
+        batch.setId(77L);
+        batch.setSnapshotId(14L);
+        batch.setStatus("RUNNING");
+        batch.setComplete(false);
+        when(fixture.batchService.beginOperation(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new QualityCheckBatchService.OperationStart(77L, false, batch));
+        var result = fixture.service().executeQualityCheck(14L, null, null, 9L,
+                "812f4c1b-7436-4abe-9789-14c1412f186f");
+        assertThat(result.getCheckBatchId()).isEqualTo(77L);
+        assertThat(result.getStatus()).isEqualTo("RUNNING");
+        assertThat(result.getComplete()).isFalse();
+        assertThat(result.getTotalIssues()).isNull();
+        org.mockito.Mockito.verifyNoInteractions(fixture.ruleService, fixture.issueMapper);
+        verify(fixture.batchService, never()).captureRules(any(), any());
+    }
+
+    @Test
+    void completeCheckRejectsAConcurrentSnapshotStateChangeInsteadOfOverwritingPublication() {
+        Fixture fixture = new Fixture();
+        fixture.snapshot.setId(14L);
+        fixture.snapshot.setDatasourceId(1L);
+        fixture.snapshot.setStatus(MetadataSnapshot.STATUS_APPROVED);
+        fixture.tables(List.of(table(1L, "orders")));
+        fixture.rules(List.of(rule(1L, "COMP_TABLE_COMMENT_MISSING", "GLOBAL", null, null)));
+        QualityChecker checker = mock(QualityChecker.class);
+        when(checker.getDimension()).thenReturn(MetadataQualityRule.DIM_COMPLETENESS);
+        when(checker.check(any())).thenReturn(List.of());
+        fixture.checkers = List.of(checker);
+        when(fixture.snapshotMapper.update(isNull(), any(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class)))
+                .thenReturn(0);
+
+        assertThatThrownBy(() -> fixture.service().executeQualityCheck(14L, null, null))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> assertThat(ex.getCode()).isEqualTo(409));
+        verify(fixture.snapshotMapper, never()).updateById(any(MetadataSnapshot.class));
+    }
+
     @BeforeAll
     static void initTableInfo() {
         for (Class<?> entity : List.of(MetadataQualityIssue.class, QualityCheckResult.class,
@@ -112,10 +165,13 @@ class QualityCheckServiceImplTest {
         @SuppressWarnings({"rawtypes", "unchecked"})
         org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.Wrapper<MetadataQualityIssue>> cleared =
                 org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
-        verify(fixture.issueMapper).delete(cleared.capture());
+        verify(fixture.issueMapper).update(isNull(), cleared.capture());
         assertThat(cleared.getValue().getCustomSqlSegment()).contains("issue_domain");
         assertThat(((com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) cleared.getValue())
                 .getParamNameValuePairs().values().toString()).contains("SOURCE");
+        assertThat(((com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<?>) cleared.getValue()).getSqlSet())
+                .contains("row_version = row_version + 1");
+        verify(fixture.issueMapper, never()).delete(any());
         verify(fixture.batchService).finish(eq(10L), eq("SUCCESS"), eq(true), any(BigDecimal.class), eq(null), any());
     }
 
@@ -154,10 +210,13 @@ class QualityCheckServiceImplTest {
         QualityCheckResultVO result = fixture.service().executeQualityCheck(13L, null, null);
 
         assertThat(result.getStatus()).isEqualTo("SUCCESS");
-        org.mockito.ArgumentCaptor<MetadataSnapshot> updated =
-                org.mockito.ArgumentCaptor.forClass(MetadataSnapshot.class);
-        verify(fixture.snapshotMapper).updateById(updated.capture());
-        assertThat(updated.getValue().getStatus()).isEqualTo(MetadataSnapshot.STATUS_ISSUE_FOUND);
+        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<MetadataSnapshot>> updated =
+                org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class);
+        verify(fixture.snapshotMapper).update(isNull(), updated.capture());
+        assertThat(updated.getValue().getSqlSegment()).contains("status =");
+        assertThat(updated.getValue().getParamNameValuePairs().values()).contains(MetadataSnapshot.STATUS_CHECKING,
+                MetadataSnapshot.STATUS_ISSUE_FOUND);
+        verify(fixture.snapshotMapper, never()).updateById(any(MetadataSnapshot.class));
     }
 
     @Test
@@ -414,6 +473,8 @@ class QualityCheckServiceImplTest {
         private boolean approvable = true;
 
         Fixture() {
+            when(snapshotMapper.update(isNull(), any(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class)))
+                    .thenReturn(1);
             when(snapshotMapper.selectById(anyLong())).thenAnswer(invocation -> {
                 Long id = invocation.getArgument(0);
                 return id.equals(snapshot.getId()) ? snapshot : null;

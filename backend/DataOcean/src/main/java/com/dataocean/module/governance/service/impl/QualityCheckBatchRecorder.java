@@ -2,6 +2,8 @@ package com.dataocean.module.governance.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.dataocean.common.exception.BusinessException;
+import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
+import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import com.dataocean.module.governance.entity.po.MetadataQualityRule;
 import com.dataocean.module.governance.entity.po.QualityCheckBatch;
 import com.dataocean.module.governance.entity.po.QualityCheckBatchRule;
@@ -40,6 +42,111 @@ public class QualityCheckBatchRecorder implements QualityCheckBatchService {
     private final ObjectMapper objectMapper;
     private final IamS1AuthorizationResolver authorizationResolver;
     private final IamS1CapabilityService capabilityService;
+    private final MetadataSnapshotMapper snapshotMapper;
+
+    @Override
+    public com.dataocean.module.governance.entity.vo.QualityContextVO context(Long snapshotId, Long operatorId) {
+        if (operatorId == null) throw new BusinessException(401, "请先登录");
+        MetadataSnapshot snapshot = snapshotMapper.selectById(snapshotId);
+        if (snapshot == null) throw new BusinessException(404, "快照不存在");
+        // 每项主任务能力均核对同一真实负责源，不从全局功能或辅助目录权推导可见范围。
+        boolean view = authorizationResolver.canManageDatasource(operatorId, "governance:view", snapshot.getDatasourceId());
+        boolean issue = authorizationResolver.canManageDatasource(operatorId, "governance:issue:view", snapshot.getDatasourceId());
+        boolean check = authorizationResolver.canManageDatasource(operatorId, "governance:check", snapshot.getDatasourceId());
+        if (!view && !issue && !check) throw new BusinessException(403, "没有查看该快照治理范围的权限");
+        var result = new com.dataocean.module.governance.entity.vo.QualityContextVO();
+        result.setId(snapshot.getId());
+        result.setDatasourceId(snapshot.getDatasourceId());
+        result.setSnapshotVersion(snapshot.getSnapshotVersion());
+        result.setStatus(snapshot.getStatus());
+        if (view) result.setQualityScore(snapshot.getQualityScore());
+        return result;
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public OperationStart beginOperation(Long datasourceId, Long snapshotId, String requestedScope,
+                                         List<String> dimensions, List<String> tableNames, Long operatorId, String operationId) {
+        QualityCheckBatch seed = operationSeed(snapshotId, operatorId, operationId);
+        if (!datasourceId.equals(seed.getDatasourceId())) throw new BusinessException(409, "检查来源已变化，请重新核对");
+        seed.setRequestedScope(requestedScope);
+        seed.setRequestedDimensionsJson(writeJson(dimensions));
+        seed.setRequestedTableNamesJson(writeJson(tableNames));
+        seed.setStatus("RUNNING");
+        seed.setRequestHash(operationHash(snapshotId, dimensions, tableNames));
+        // 独立事务登记先于任何检查；重复标识保留原所有者，崩溃后也不自动重新执行。
+        batchMapper.reserveOperation(seed);
+        QualityCheckBatch existing = batchMapper.selectOperationForUpdate(operatorId, seed.getOperationId());
+        verifyOperationScope(seed, existing);
+        if (existing.getRequestHash() != null && !seed.getRequestHash().equals(existing.getRequestHash())) {
+            throw new BusinessException(409, "操作标识已用于其他检查范围，请先核对原检查");
+        }
+        return new OperationStart(existing.getId(), seed.getExecutionOwner().equals(existing.getExecutionOwner())
+                && existing.getRequestHash() != null, toVO(existing));
+    }
+
+    @Transactional(readOnly = true)
+    @Override
+    public QualityCheckBatchVO getOperation(Long snapshotId, String operationId, Long operatorId) {
+        QualityCheckBatch scope = operationSeed(snapshotId, operatorId, operationId);
+        QualityCheckBatch batch = batchMapper.selectOne(new LambdaQueryWrapper<QualityCheckBatch>()
+                .eq(QualityCheckBatch::getCreatedBy, operatorId)
+                .eq(QualityCheckBatch::getOperationId, scope.getOperationId()));
+        verifyOperationScope(scope, batch);
+        return toVO(batch);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Override
+    public QualityCheckBatchVO resolveOperation(Long snapshotId, String operationId, Long operatorId) {
+        QualityCheckBatch seed = operationSeed(snapshotId, operatorId, operationId);
+        seed.setRequestedScope("NONE");
+        seed.setStatus("FAILED");
+        seed.setFinishedAt(LocalDateTime.now());
+        seed.setErrorSummary("该检查操作已终止，未开始执行");
+        // 与原登记争同一唯一键；已有 RUNNING 仅核对，不将仍可能执行的任务伪造成已停止。
+        batchMapper.reserveOperation(seed);
+        QualityCheckBatch batch = batchMapper.selectOperationForUpdate(operatorId, seed.getOperationId());
+        verifyOperationScope(seed, batch);
+        return toVO(batch);
+    }
+
+    /** 身份、快照和 UUID 是刷新后恢复的最小定位，不接收或复制客户端凭据。 */
+    private QualityCheckBatch operationSeed(Long snapshotId, Long operatorId, String operationId) {
+        if (operatorId == null) throw new BusinessException(401, "请先登录");
+        if (operationId == null || !operationId.matches("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")) {
+            throw new BusinessException(400, "请提供有效的检查操作标识");
+        }
+        MetadataSnapshot snapshot = snapshotMapper.selectById(snapshotId);
+        if (snapshot == null) throw new BusinessException(404, "快照不存在");
+        QualityCheckBatch seed = new QualityCheckBatch();
+        seed.setSnapshotId(snapshotId);
+        seed.setDatasourceId(snapshot.getDatasourceId());
+        seed.setCreatedBy(operatorId);
+        seed.setOperationId(operationId.toLowerCase(java.util.Locale.ROOT));
+        seed.setExecutionOwner(java.util.UUID.randomUUID().toString());
+        return seed;
+    }
+
+    private void verifyOperationScope(QualityCheckBatch expected, QualityCheckBatch actual) {
+        // 错属和不存在均不返回内容；同一 UUID 不能借另一有权快照路径扩大读取。
+        if (actual == null || !expected.getSnapshotId().equals(actual.getSnapshotId())
+                || !java.util.Objects.equals(expected.getDatasourceId(), actual.getDatasourceId())) {
+            throw new BusinessException(404, "该快照下没有此账号的检查操作");
+        }
+    }
+
+    private String operationHash(Long snapshotId, List<String> dimensions, List<String> tableNames) {
+        try {
+            // 范围集合按顺序无关方式固定；请求重放不得用同一标识切换快照、维度或表。
+            String input = snapshotId + "\n" + writeJson(dimensions.stream().sorted().toList()) + "\n"
+                    + writeJson(tableNames == null ? List.of() : tableNames.stream().sorted().toList());
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("检查操作指纹不可用", exception);
+        }
+    }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public Long begin(Long datasourceId, Long snapshotId, String requestedScope,
@@ -131,6 +238,19 @@ public class QualityCheckBatchRecorder implements QualityCheckBatchService {
 
     @Transactional(readOnly = true)
     @Override
+    public QualityCheckBatchVO getForSnapshot(Long snapshotId, Long batchId) {
+        MetadataSnapshot snapshot = snapshotMapper.selectById(snapshotId);
+        QualityCheckBatch batch = batchMapper.selectById(batchId);
+        // 先核对持久归属再读规则快照和检查结果；不能借有权快照路径探测另一来源批次。
+        if (snapshot == null || batch == null || !snapshotId.equals(batch.getSnapshotId())
+                || snapshot.getDatasourceId() == null || !snapshot.getDatasourceId().equals(batch.getDatasourceId())) {
+            throw new BusinessException(404, "该快照下不存在指定检查批次");
+        }
+        return toVO(batch);
+    }
+
+    @Transactional(readOnly = true)
+    @Override
     public List<QualityCheckBatchRuleVO> history(Long ruleId, Long operatorUserId) {
         boolean systemAdmin = authorizationResolver.isSystemAdmin(operatorUserId);
         List<Long> visibleSources = systemAdmin ? List.of() : capabilityService
@@ -188,6 +308,8 @@ public class QualityCheckBatchRecorder implements QualityCheckBatchService {
     private QualityCheckBatchVO toVO(QualityCheckBatch batch) {
         QualityCheckBatchVO vo = new QualityCheckBatchVO();
         vo.setId(batch.getId());
+        vo.setOperationId(batch.getOperationId());
+        vo.setOperationOutcome(batch.getOperationId() == null ? null : batch.getRequestHash() == null ? "NOT_STARTED" : "RECORDED");
         vo.setDatasourceId(batch.getDatasourceId());
         vo.setSnapshotId(batch.getSnapshotId());
         vo.setRequestedScope(batch.getRequestedScope());
