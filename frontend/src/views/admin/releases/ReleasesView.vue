@@ -788,7 +788,19 @@ async function revoke(row: VersionHistoryItem) {
   const scope=ticket(),operation=++actionOperation
   actionLoading.value=true; actionError.value='';actionNotice.value='';confirmVisible.value=true
   try {
-    const result=await ElMessageBox.prompt('请输入撤回原因','撤回已发布快照',{inputValue:revokeReason.value,inputValidator:value=>Boolean(value?.trim()) || '撤回原因不能为空',confirmButtonText:'确认撤回',cancelButtonText:'取消',cancelButtonClass:confirmClass})
+    // 确认框遮住列表时，仍展示本次冻结的来源、版本以及即将撤回的正式指针。
+    const sourceLabel = item.datasourceName?.trim() || currentDatasourceName.value || `数据源 #${item.datasourceId}`
+    const result = await ElMessageBox.prompt(
+      `${sourceLabel}的当前正式版将被撤回。请填写原因。`,
+      `撤回 v${item.snapshotVersion}（快照 #${official}）`,
+      {
+        inputValue: revokeReason.value,
+        inputValidator: value => Boolean(value?.trim()) || '撤回原因不能为空',
+        confirmButtonText: '确认撤回',
+        cancelButtonText: '取消',
+        cancelButtonClass: confirmClass,
+      },
+    )
     confirmVisible.value=false
     if (!current(scope) || operation!==actionOperation || !canPublishSnapshot(item) || !currentRow(item)) return
     revokeReason.value=result.value

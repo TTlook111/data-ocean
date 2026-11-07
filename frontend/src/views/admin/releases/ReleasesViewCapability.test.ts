@@ -511,7 +511,8 @@ describe('元数据版本工作区', () => {
     const prompt = vi.spyOn(ElMessageBox, 'prompt').mockResolvedValue({ value: '回滚原因' } as never)
     await rowButton(wrapper, 1, '撤回')!.trigger('click')
     await settle()
-    expect(prompt).toHaveBeenCalledWith('请输入撤回原因', '撤回已发布快照', expect.objectContaining({
+    // 用户在输入原因时仍能核对原来源和正式快照身份。
+    expect(prompt).toHaveBeenCalledWith('销售库的当前正式版将被撤回。请填写原因。', '撤回 v1（快照 #8）', expect.objectContaining({
       confirmButtonText: '确认撤回',
       cancelButtonText: '取消',
     }))
