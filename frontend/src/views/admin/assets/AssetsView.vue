@@ -695,7 +695,8 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
   border-color: var(--do-line);
   border-radius: var(--do-radius-lg);
   background: var(--do-glass-data-bg);
-  box-shadow: 0 1px 2px rgb(36 39 36 / 4%), 0 16px 32px -28px rgb(36 39 36 / 28%);
+  /* 常驻资产表采用工作区表面的轻阴影。 */
+  box-shadow: var(--do-shadow);
 }
 
 .assets-panel__scope { flex:0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; padding: 12px 20px; border-bottom: 1px solid var(--do-line); background: color-mix(in srgb, var(--do-soft) 58%, var(--do-surface)); }
@@ -723,7 +724,8 @@ watch([() => iam.snapshot, () => iam.loaded, () => iam.errorMessage], load, { fl
 .assets-panel__footer-pager :deep(.el-pager li),
 .assets-panel__footer-pager :deep(.btn-prev),
 .assets-panel__footer-pager :deep(.btn-next) { min-width:28px; height:28px; border-radius:6px; font-size:12px; }
-.assets-panel__footer-pager :deep(.el-pager li.is-active) { background:var(--do-primary); color:#fff; }
+/* 当前页码保持主色实底与配套反白文字。 */
+.assets-panel__footer-pager :deep(.el-pager li.is-active) { background:var(--do-primary); color:var(--do-on-primary); }
 
 .assets-panel__sync-warning { margin:12px 16px 0; border-radius: var(--do-radius-sm); border-width: 1px; border-color: var(--do-line); }
 .assets-panel__filters { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 11px 16px; border-bottom: 1px solid var(--do-line); }

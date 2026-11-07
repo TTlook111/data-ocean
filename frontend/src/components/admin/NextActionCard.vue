@@ -65,15 +65,16 @@ const actions = computed(() => props.reasons.map((reason) => {
 </template>
 
 <style scoped>
+/* 阻断与就绪分别采用对应状态色，边界随同一状态的表面变化。 */
 .next-action-card {
   padding: 20px;
-  border: 1px solid rgba(220, 38, 38, .2);
+  border: 1px solid color-mix(in srgb, var(--do-danger) 26%, var(--do-line));
   border-radius: var(--do-radius-lg);
   background: var(--do-danger-soft);
 }
 
 .next-action-card.empty {
-  border-color: rgba(22, 163, 74, .2);
+  border-color: color-mix(in srgb, var(--do-success) 26%, var(--do-line));
   background: var(--do-success-soft);
 }
 
@@ -111,9 +112,9 @@ p {
   justify-content: space-between;
   gap: 16px;
   padding: 12px;
-  border: 1px solid rgba(220, 38, 38, .12);
+  border: 1px solid color-mix(in srgb, var(--do-danger) 16%, var(--do-line));
   border-radius: var(--do-radius-md);
-  background: rgba(255, 255, 255, .7);
+  background: var(--do-surface);
 }
 
 .next-action-card__item div {

@@ -6,7 +6,7 @@ import { Eye, EyeOff, LogIn } from 'lucide-vue-next'
 import { gsap } from 'gsap'
 import { useAuthStore } from '../stores/auth'
 import { getCaptcha } from '../api/auth'
-import brandMark from '../assets/brand/dataocean-mark.png'
+import BrandMark from '../components/common/BrandMark.vue'
 import { getLoginLookOffset } from '../utils/loginMotion'
 
 const router = useRouter()
@@ -122,11 +122,12 @@ function setupLoginMotion() {
   motionMedia.add('(prefers-reduced-motion: no-preference)', () => {
     const follow = { duration: 0.35, ease: 'power3.out' }
     eyes = Array.from(root.querySelectorAll<HTMLElement>('.eye')).map(element => {
-      const target = element.closest('.monster-orange, .monster-yellow') ? element : element.querySelector<HTMLElement>('em') ?? element
+      // 前景拱形角色移动整只点状眼睛，高角色只移动眼白内的瞳孔。
+      const target = element.closest('.monster-arch, .monster-dome') ? element : element.querySelector<HTMLElement>('em') ?? element
       return { element, target, x: gsap.quickTo(target, 'x', follow), y: gsap.quickTo(target, 'y', follow) }
     })
     bodies = Array.from(root.querySelectorAll<HTMLElement>('.monster')).map((element, index) => {
-      const base = element.classList.contains('monster-purple') ? -3 : 0
+      const base = element.classList.contains('monster-tower') ? -3 : 0
       gsap.set(element, { rotation: base })
       return { element, base, weight: [1, 0.75, 0.55, 0.85][index] ?? 1,
         x: gsap.quickTo(element, 'x', follow), rotation: gsap.quickTo(element, 'rotation', follow) }
@@ -215,7 +216,7 @@ onUnmounted(() => {
   >
     <section class="login-visual" aria-label="DataOcean 平台说明">
       <div class="brand-pill">
-        <img class="login-brand-mark" :src="brandMark" alt="" />
+        <BrandMark class="login-brand-mark" aria-hidden="true" />
         <strong>DataOcean</strong>
       </div>
 
@@ -225,19 +226,19 @@ onUnmounted(() => {
       </div>
 
       <div class="monster-scene" aria-hidden="true">
-        <span class="monster monster-orange">
+        <span class="monster monster-arch">
           <i class="eye eye-left"><em></em></i>
           <i class="eye eye-right"><em></em></i>
         </span>
-        <span class="monster monster-purple">
+        <span class="monster monster-tower">
           <i class="eye eye-left"><em></em></i>
           <i class="eye eye-right"><em></em></i>
         </span>
-        <span class="monster monster-black">
+        <span class="monster monster-column">
           <i class="eye eye-left"><em></em></i>
           <i class="eye eye-right"><em></em></i>
         </span>
-        <span class="monster monster-yellow">
+        <span class="monster monster-dome">
           <i class="eye eye-left"><em></em></i>
           <i class="eye eye-right"><em></em></i>
           <b class="mouth"></b>
@@ -314,7 +315,6 @@ onUnmounted(() => {
   /* 登录保持独立双栏入口，画布与表单复用全站主题，不再叠加历史玻璃覆盖。 */
   position: relative;
   isolation: isolate;
-  --login-blue: var(--do-primary-strong);
   --login-radius: 20px;
   --login-gutter-block: clamp(14px, 2.4vh, 30px);
   --login-gutter-inline: clamp(18px, 2.6vw, 40px);
@@ -343,7 +343,7 @@ onUnmounted(() => {
   pointer-events: none;
 }
 .login-visual {
-  /* 保留已实现的原生互动角色，用冷色浅底衔接当前工作区主题。 */
+  /* 以品牌浅色衬托互动角色，边界与表单沿用全站内容面。 */
   position: relative;
   isolation: isolate;
   display: flex;
@@ -351,46 +351,47 @@ onUnmounted(() => {
   min-height: 0;
   padding: clamp(30px, 4.6dvh, 52px) clamp(32px, 4.4vw, 64px) clamp(34px, 5.2dvh, 60px);
   overflow: hidden;
-  border-right: 0;
+  border-right: 1px solid var(--do-line);
   border-radius: var(--login-radius) 0 0 var(--login-radius);
   color: var(--do-ink);
-  background: color-mix(in srgb, var(--do-primary) 8%, var(--do-surface));
+  background: color-mix(in srgb, var(--do-brand-lilac) 20%, var(--do-bg));
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 .brand-pill { position: relative; z-index: 1; display: flex; align-items: center; gap: 14px; width: fit-content; }
-/* 品牌原图直接呈现，不在图片后面再放一层渐变徽章。 */
-.login-brand-mark { display: block; width: 56px; height: 56px; object-fit: contain; padding: 4px; }
+/* 统一品牌标识保留独立尺寸，旁边的产品名已提供可访问名称。 */
+.login-brand-mark { width: 56px; height: 56px; }
 .brand-pill strong { color: var(--do-ink); font-size: clamp(24px, 1.9vw, 30px); font-weight: 700; letter-spacing: -1.2px; }
 .visual-copy { position: relative; z-index: 1; margin-top: clamp(20px, 3.6dvh, 40px); }
 /* 产品主张保持简短，正文使用同一套可读文字色。 */
 .visual-copy h1 { margin: 0; color: var(--do-ink); font-size: clamp(42px, 5vw, 68px); font-weight: 760; line-height: 1.08; letter-spacing: -2px; }
 .visual-copy p { margin: clamp(8px, 1.2dvh, 12px) 0 0; color: var(--do-muted); font-size: clamp(15px, 1.1vw, 17px); font-weight: 400; line-height: 1.5; }
-.monster-scene { position: relative; z-index: 1; width: 100%; max-width: 500px; width: min(100%, 500px, 52dvh); aspect-ratio: 520 / 320; flex-shrink: 0; margin: auto 0 0; container-type: inline-size; }
-.monster { position: absolute; bottom: 0; display: block; transform-origin: center bottom; box-shadow: 0 16px 26px rgb(31 63 118 / 17%), inset 0 4px 9px rgba(255,255,255,.2); }
-.monster-orange { z-index: 5; left: 0; width: 40%; height: 40%; border-radius: 110px 110px 3px 3px; background: linear-gradient(135deg, #ffb792, #ff9c75); }
-.monster-purple { z-index: 2; left: 27%; width: 29%; height: 100%; border-radius: 15px 15px 3px 3px; background: linear-gradient(150deg, #8ba9ff, #6d8cf4); }
-.monster-black { z-index: 4; left: 48%; width: 23%; height: 71%; border-radius: 8px 8px 3px 3px; background: linear-gradient(140deg, #46516a, #293447); }
-.monster-yellow { z-index: 6; left: 66%; width: 32%; height: 56%; border-radius: 100px 100px 3px 3px; background: linear-gradient(145deg, #fff08a, #ffe367); }
-.eye { position: absolute; display: block; width: 16px; height: 16px; width: clamp(10px, 4cqw, 20px); height: clamp(10px, 4cqw, 20px); overflow: hidden; border-radius: 50%; background: white; }
-.eye em { position: absolute; top: calc(50% - 3.5px); left: calc(50% - 3.5px); width: 7px; height: 7px; border-radius: 50%; background: #172c44; }
-.monster-purple .eye { top: 21%; }
-.monster-purple .eye-left { left: 42%; }
-.monster-purple .eye-right { left: 65%; }
-.monster-black .eye { top: 28%; }
-.monster-black .eye-left { left: 39%; }
-.monster-black .eye-right { left: 65%; }
-.monster-orange .eye, .monster-yellow .eye { width: 11px; height: 11px; width: clamp(7px, 2.2cqw, 11px); height: clamp(7px, 2.2cqw, 11px); background: #233954; overflow: visible; box-shadow: 0 2px 3px rgb(20 40 60 / 12%); }
-.monster-orange .eye em, .monster-yellow .eye em { display: none; }
-.monster-orange .eye { top: 49%; }
-.monster-orange .eye-left { left: 46%; }
-.monster-orange .eye-right { left: 58%; }
-.monster-yellow .eye { top: 31%; }
-.monster-yellow .eye-left { left: 42%; }
-.monster-yellow .eye-right { left: 58%; }
-.mouth { position: absolute; left: 31%; top: 52%; width: 38%; height: 12%; border-bottom: 2px solid #233954; border-radius: 0 0 40px 40px; transition: height 180ms ease; }
+/* 共用基线和四种轮廓，眼睛与身体保留原来的指针跟随区域。 */
+.monster-scene { position: relative; z-index: 1; width: min(94%, 460px, 50dvh); aspect-ratio: 1.8; flex-shrink: 0; margin: auto 0 0; container-type: inline-size; }
+.monster { position: absolute; bottom: 0; display: block; transform-origin: center bottom; }
+.monster-arch { z-index: 5; left: 1%; width: 41%; height: 48%; border-radius: 110px 110px 3px 3px; background: var(--do-brand-warm); }
+.monster-tower { z-index: 2; left: 28%; width: 26%; height: 96%; border-radius: 58px 58px 3px 3px; background: var(--do-primary); }
+.monster-column { z-index: 4; left: 49%; width: 22%; height: 72%; border-radius: 12px 28px 3px 3px; background: var(--do-ink); }
+.monster-dome { z-index: 6; left: 65%; width: 33%; height: 52%; border-radius: 100px 100px 3px 3px; background: var(--do-brand-lilac); }
+.eye { position: absolute; display: block; width: 16px; height: 16px; width: clamp(10px, 4cqw, 20px); height: clamp(10px, 4cqw, 20px); overflow: hidden; border-radius: 50%; background: var(--do-on-primary); }
+.eye em { position: absolute; top: calc(50% - 3.5px); left: calc(50% - 3.5px); width: 7px; height: 7px; border-radius: 50%; background: var(--do-ink); }
+.monster-tower .eye { top: 21%; }
+.monster-tower .eye-left { left: 42%; }
+.monster-tower .eye-right { left: 65%; }
+.monster-column .eye { top: 28%; }
+.monster-column .eye-left { left: 39%; }
+.monster-column .eye-right { left: 65%; }
+.monster-arch .eye, .monster-dome .eye { width: 11px; height: 11px; width: clamp(7px, 2.2cqw, 11px); height: clamp(7px, 2.2cqw, 11px); background: var(--do-ink); overflow: visible; }
+.monster-arch .eye em, .monster-dome .eye em { display: none; }
+.monster-arch .eye { top: 49%; }
+.monster-arch .eye-left { left: 46%; }
+.monster-arch .eye-right { left: 58%; }
+.monster-dome .eye { top: 31%; }
+.monster-dome .eye-left { left: 42%; }
+.monster-dome .eye-right { left: 58%; }
+.mouth { position: absolute; left: 31%; top: 52%; width: 38%; height: 12%; border-bottom: 2px solid var(--do-ink); border-radius: 0 0 40px 40px; transition: height 180ms ease; }
 .is-pointer-down .mouth { height: 18%; }
-.ground-line { position: absolute; z-index: 7; inset: auto -2% -3px; height: 3px; border-radius: 50%; background: rgb(79 128 180 / 10%); }
+.ground-line { position: absolute; z-index: 7; inset: auto 0 -2px; height: 2px; border-radius: 50%; background: var(--do-line-strong); }
 /* 认证表单使用不透明表面，避免透明材质降低字段与错误信息的对比。 */
 .login-panel { position: relative; isolation: isolate; display: flex; align-items: center; align-items: safe center; justify-content: center; min-height: 0; padding: clamp(28px, 3.6dvh, 46px) clamp(28px, 3.6vw, 56px) clamp(40px, 5.2dvh, 64px); border-left: 0; border-radius: 0 var(--login-radius) var(--login-radius) 0; background: var(--do-surface); }
 .form-shell { width: 100%; max-width: 430px; }
@@ -403,19 +404,19 @@ onUnmounted(() => {
 /* 控件边界与聚焦反馈来自统一令牌，保留原有键盘和密码显隐行为。 */
 .field input { width: 100%; min-width: 0; height: 50px; border: 1px solid var(--do-line); border-radius: 9px; padding: 0 16px; color: var(--do-ink); background: var(--do-surface); font-size: 15.5px; font-weight: 400; transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease; }
 .field input::placeholder { color: var(--do-muted); }
-.field input:focus { outline: none; border-color: var(--login-blue); box-shadow: 0 0 0 3px var(--do-primary-soft); }
+.field input:focus { outline: none; border-color: var(--do-primary-strong); box-shadow: 0 0 0 3px var(--do-primary-soft); }
 .password-field { position: relative; }
 .password-field input { padding-right: 54px; }
 .password-field button { position: absolute; inset: 5px 6px 5px auto; width: 40px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--do-muted); background: transparent; cursor: pointer; }
-.password-field button:hover { color: var(--login-blue); background: var(--do-primary-soft); }
+.password-field button:hover { color: var(--do-primary-strong); background: var(--do-primary-soft); }
 .captcha-field { display: flex; align-items: stretch; gap: 10px; }
 .captcha-field input { flex: 1 1 0; }
 /* 验证码保持真实图像与刷新入口，仅统一其表面和边界。 */
 .captcha-image-button { width: clamp(108px, 9.2vw, 136px); height: 50px; flex-shrink: 0; padding: 0; overflow: hidden; border: 1px solid var(--do-line); border-radius: 8px; color: var(--do-muted); background: var(--do-surface); cursor: pointer; }
 .captcha-img { width: 100%; height: 100%; object-fit: contain; }
 .captcha-error { margin: 0; color: var(--do-danger); font-size: 12.5px; line-height: 1.5; font-weight: 400; }
-/* 主操作使用产品统一青绿；悬停反馈不再依赖另一套渐变与阴影。 */
-.submit-button { display: flex; align-items: center; justify-content: center; gap: 10px; height: 50px; margin-top: 2px; border: 1px solid var(--do-primary); border-radius: 10px; color: white; background: var(--do-primary); font-size: 16px; font-weight: 650; cursor: pointer; transition: background 160ms ease, transform 160ms ease; }
+/* 主操作、悬停与反白文字使用对应的品牌令牌。 */
+.submit-button { display: flex; align-items: center; justify-content: center; gap: 10px; height: 50px; margin-top: 2px; border: 1px solid var(--do-primary); border-radius: 10px; color: var(--do-on-primary); background: var(--do-primary); font-size: 16px; font-weight: 650; cursor: pointer; transition: background 160ms ease, transform 160ms ease; }
 .submit-button:hover { background: var(--do-primary-strong); }
 .submit-button:active { transform: translateY(1px); }
 .submit-button:disabled, .captcha-image-button:disabled { opacity: .65; cursor: wait; }

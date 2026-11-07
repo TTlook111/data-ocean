@@ -33,15 +33,14 @@ const domainFraction=computed(()=>model.value.total&&model.value.domains?model.v
      <template v-else><div v-if="model.statuses" class="status-fallback"><button v-for="status in overviewStatuses" :key="status" class="fallback-row" @click="emit('plot',{status})"><span>{{ overviewStatusNames[status] }}</span><span class="track" aria-hidden="true"><i :class="status" :style="{width:model.statuses[status]/Math.max(1,...Object.values(model.statuses))*100+'%'}"/></span><b>{{ model.statuses[status] }}</b></button></div><p class="figure-note" :role="message?'status':undefined">{{ aggregateLoading?'正在取得完整明细，先展示权威状态摘要。':message || '表聚合未确认，不从最近几条问题推算总体。' }}</p><button v-if="aggregateLoading" class="evidence-link" @click="emit('cancel')">停止表聚合</button></template>
     </template>
    </figure>
-   <figure class="domain-figure"><figcaption class="figure-head"><h2>问题来源构成</h2><span>SOURCE / SEMANTIC</span></figcaption><p v-if="!issueAvailable" class="emptyplot">{{ !canViewIssues?'无权读取问题分域，不按0显示。':issueLoading?'正在读取分域…':'分域统计不可用，不沿用旧比例。' }}</p><p v-else-if="model.total===0" class="emptyplot">已读取问题为0，不绘制空饼冒充健康评分。</p><p v-else-if="!model.domains" class="emptyplot">分域计数未核实；缺字段或合计不符时不推算。</p><template v-else><div class="domain-body"><svg class="donut" viewBox="0 0 128 128" role="img" :aria-label="`未解决${model.total}条，来源问题${model.domains.SOURCE}条，语义问题${model.domains.SEMANTIC}条`"><circle cx="64" cy="64" r="45" fill="none" stroke="var(--overview-semantic)" stroke-width="14"/><circle cx="64" cy="64" r="45" fill="none" stroke="var(--do-primary)" stroke-width="14" :stroke-dasharray="`${domainFraction*Math.PI*90} ${Math.PI*90}`" transform="rotate(-90 64 64)"/><text class="total" x="64" y="65" text-anchor="middle">{{ model.total }}</text><text class="label" x="64" y="85" text-anchor="middle">未解决问题</text></svg><div class="domain-labels"><button v-for="domain in (['SOURCE','SEMANTIC'] as const)" :key="domain" class="domain-jump" :aria-label="`${domain==='SOURCE'?'来源问题':'语义问题'}${model.domains[domain]}条，选择状态`" @click="emit('plot',{issueDomain:domain})"><span><i :class="domain" aria-hidden="true"/>{{ domain==='SOURCE'?'来源问题':'语义问题' }}</span><b>{{ model.domains[domain] }}</b></button></div></div><p class="figure-note">同一未解决集合的互斥分域，不是质量分或完成率。先选状态，再进入问题中心。</p></template></figure>
+   <figure class="domain-figure"><figcaption class="figure-head"><h2>问题来源构成</h2><span>SOURCE / SEMANTIC</span></figcaption><p v-if="!issueAvailable" class="emptyplot">{{ !canViewIssues?'无权读取问题分域，不按0显示。':issueLoading?'正在读取分域…':'分域统计不可用，不沿用旧比例。' }}</p><p v-else-if="model.total===0" class="emptyplot">已读取问题为0，不绘制空饼冒充健康评分。</p><p v-else-if="!model.domains" class="emptyplot">分域计数未核实；缺字段或合计不符时不推算。</p><template v-else><div class="domain-body"><svg class="donut" viewBox="0 0 128 128" role="img" :aria-label="`未解决${model.total}条，来源问题${model.domains.SOURCE}条，语义问题${model.domains.SEMANTIC}条`"><circle cx="64" cy="64" r="45" fill="none" stroke="var(--do-chart-2)" stroke-width="14"/><circle cx="64" cy="64" r="45" fill="none" stroke="var(--do-chart-1)" stroke-width="14" :stroke-dasharray="`${domainFraction*Math.PI*90} ${Math.PI*90}`" transform="rotate(-90 64 64)"/><text class="total" x="64" y="65" text-anchor="middle">{{ model.total }}</text><text class="label" x="64" y="85" text-anchor="middle">未解决问题</text></svg><div class="domain-labels"><button v-for="domain in (['SOURCE','SEMANTIC'] as const)" :key="domain" class="domain-jump" :aria-label="`${domain==='SOURCE'?'来源问题':'语义问题'}${model.domains[domain]}条，选择状态`" @click="emit('plot',{issueDomain:domain})"><span><i :class="domain" aria-hidden="true"/>{{ domain==='SOURCE'?'来源问题':'语义问题' }}</span><b>{{ model.domains[domain] }}</b></button></div></div><p class="figure-note">同一未解决集合的互斥分域，不是质量分或完成率。先选状态，再进入问题中心。</p></template></figure>
   </div>
   <figure class="coverage-figure"><figcaption class="coverage-title"><h2>来源校验执行覆盖 <span>{{ batchState }}</span></h2><span v-if="batch">{{ batchLabel || '最近批次' }} #{{ batch.id }} · {{ batchScope }}{{ coverage?` · ${coverage.total}条规则`:'' }}</span></figcaption><p v-if="batchLoading" class="emptyplot" role="status">正在读取校验状态…</p><p v-else-if="batchError" class="emptyplot" role="alert">{{ batchError }}</p><template v-else><p v-if="!batch || !coverage" class="emptyplot">{{ batchDescription }}{{ batch && !coverage ? '规则覆盖明细或分母未完整核实，不推算比例。':'' }}</p><div v-else class="coverage-bar" role="img" :aria-label="`本批次${coverage.total}条规则，${Object.entries(coverage.counts).map(([k,n])=>coverageNames[k as keyof typeof coverageNames]+n).join('、')}；执行成功不等于质量通过`"><div v-for="[status,n] in Object.entries(coverage.counts).filter(([,n])=>n>0)" :key="status" class="coverage-part" :class="status" :style="{width:n/coverage.total*100+'%'}">{{ coverageNames[status as keyof typeof coverageNames] }} <b>{{ n }}</b></div></div><p v-if="batch?.errorSummary" role="alert" class="batch-error">{{ batch.errorSummary }}</p><div class="coverage-foot"><span>分母为该批次规则数，非字段数量；执行成功不等于质量无问题。</span><span>{{ batch ? batch.complete ? '本批次完整性仍按范围核对' : 'complete=false · 不展示本次完整评分' : '无批次不推断历史从未执行' }}</span></div></template><button class="evidence-link" @click="emit('coverage')">查看执行依据 <ArrowUpRight :size="13" /></button></figure>
  </div>
 </template>
 <style scoped>
-/* 图形沿用全站语义色；该别名仅供既有 SVG 引用，不维护另一套图表配色。 */
+/* 分域使用分类色，处理状态与执行覆盖各自采用状态色。 */
 .overview-analysis {
-  --overview-semantic: var(--do-accent);
   overflow: hidden;
   border: 1px solid var(--do-line);
   border-radius: var(--do-radius-lg);
@@ -193,7 +192,7 @@ button:disabled {
   min-width: 0;
   padding: 0;
   border: 0;
-  color: var(--do-surface);
+  color: var(--do-on-primary);
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -237,7 +236,7 @@ button:disabled {
   line-height: 1.75;
 }
 
-/* 来源与语义分域继续使用原环图，数字和文字标签同时表达比例含义。 */
+/* 两个数据域使用序列前两种不同色相，环图和图例同时保留名称与数值。 */
 .domain-body {
   display: flex;
   align-items: center;
@@ -302,11 +301,11 @@ button:disabled {
 }
 
 .domain-jump .SOURCE {
-  background: var(--do-primary);
+  background: var(--do-chart-1);
 }
 
 .domain-jump .SEMANTIC {
-  background: var(--do-accent);
+  background: var(--do-chart-2);
 }
 
 /* 不完整明细和无权状态保留原文，状态摘要仍使用相同语义色。 */

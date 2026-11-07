@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { CircleHelp, LoaderCircle, RefreshCw } from 'lucide-vue-next'
-import brandMark from '../../assets/brand/dataocean-mark.png'
+import BrandMark from '../../components/common/BrandMark.vue'
 import { useAuthStore } from '../../stores/auth'
 import { useIamS1Store } from '../../stores/iamS1'
 import { useQuerySession, type LocalMessage, type LocalSession } from '../../composables/useQuerySession'
@@ -203,17 +203,17 @@ onBeforeUnmount(() => { alive = false; sourceChangeRequest++; datasourceSyncRequ
       <div ref="chatSurface" class="chat-surface" aria-label="当前对话" @scroll="trackScroll">
         <div v-if="session.loading.value || session.historyLoading.value" class="welcome-state" role="status"><LoaderCircle :size="24" aria-hidden="true" /><h2>正在读取数据与会话</h2></div>
         <div v-else-if="session.errorMessage.value" class="welcome-state" role="alert"><h2>数据源读取失败</h2><p>{{ session.errorMessage.value }}</p><button class="state-button" type="button" @click="refreshDatasources">重新读取</button></div>
-        <div v-else-if="!session.selectedId.value" class="welcome-state"><img class="welcome-logo" :src="brandMark" alt="" /><h2>从一份业务数据开始</h2><p>当前账号没有可查询的数据源。请联系组织指定管理员核对授权及知识准备情况。此处不展示无权来源。</p><details class="no-source-next-step"><summary>向管理员提供哪些信息</summary><ul><li>当前账号，以及希望完成的业务问题</li><li>期望业务主题与所需数据范围</li><li>当前页面提示“没有可查询的数据源”</li></ul><p>本页没有配置授权申请或联系入口，请通过组织既有渠道联系；管理员核对后再刷新。</p></details><button class="state-button" type="button" @click="refreshDatasources"><RefreshCw :size="15" aria-hidden="true" />刷新数据源</button></div>
+        <div v-else-if="!session.selectedId.value" class="welcome-state"><BrandMark class="welcome-logo" aria-hidden="true" /><h2>从一份业务数据开始</h2><p>当前账号没有可查询的数据源。请联系组织指定管理员核对授权及知识准备情况。此处不展示无权来源。</p><details class="no-source-next-step"><summary>向管理员提供哪些信息</summary><ul><li>当前账号，以及希望完成的业务问题</li><li>期望业务主题与所需数据范围</li><li>当前页面提示“没有可查询的数据源”</li></ul><p>本页没有配置授权申请或联系入口，请通过组织既有渠道联系；管理员核对后再刷新。</p></details><button class="state-button" type="button" @click="refreshDatasources"><RefreshCw :size="15" aria-hidden="true" />刷新数据源</button></div>
         <!-- 空对话只引导实际提问，不展示未经授权目录核对的业务示例。 -->
         <div v-else-if="!session.activeMessages.value.length" class="welcome-state welcome-prompt">
-          <img class="welcome-logo" :src="brandMark" alt="" />
+          <BrandMark class="welcome-logo" aria-hidden="true" />
           <h2>想从数据中了解什么？</h2>
           <p>描述你想了解的指标、时间范围或比较维度。</p>
         </div>
         <section v-else class="conversation-stream" aria-label="对话消息">
           <button v-if="session.activeSession.value?.hasMoreHistory" class="state-button load-older-messages" type="button" :disabled="session.activeSession.value.historyLoading" @click="session.loadOlderMessages(session.activeSession.value)">{{ session.activeSession.value.historyLoading ? '正在加载…' : '加载更早消息' }}</button>
           <article v-for="message in session.activeMessages.value" :key="message.id" class="message-item" :class="message.role" :data-message-id="message.id">
-            <div class="message-author"><img v-if="message.role === 'assistant'" :src="brandMark" alt="" width="16" height="24" /><strong>{{ message.role === 'assistant' ? 'DataOcean' : '你' }}</strong><time :datetime="message.createdAt">{{ formatMessageTime(message.createdAt) }}</time></div>
+            <div class="message-author"><BrandMark v-if="message.role === 'assistant'" class="message-author-mark" aria-hidden="true" /><strong>{{ message.role === 'assistant' ? 'DataOcean' : '你' }}</strong><time :datetime="message.createdAt">{{ formatMessageTime(message.createdAt) }}</time></div>
             <div class="message-bubble">
               <div v-if="message.role === 'assistant' && messageState(message)" class="message-state" :class="{ processing: isProcessing(message), failed: ['FAILED', 'error', 'TIMEOUT'].includes(message.status || '') }" role="status"><LoaderCircle v-if="isProcessing(message)" :size="14" aria-hidden="true" /><span>{{ messageState(message) }}</span><code v-if="isProcessing(message) && message.queryResult?.progressNode">{{ progressLabel(message) }}</code></div>
               <p v-if="message.role !== 'assistant' || message.status !== 'COMPLETED'">{{ messageText(message) }}</p>
@@ -262,7 +262,8 @@ onBeforeUnmount(() => { alive = false; sourceChangeRequest++; datasourceSyncRequ
 .conversation-stream { max-width: 900px; margin-inline: auto; display: flex; flex-direction: column; gap: 36px; }
 .message-item { min-width: 0; }
 .message-author { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; font-size: 13px; }
-.message-author img { object-fit: contain; }
+/* 作者名称已出现在标识旁，消息行只保留紧凑的品牌图形。 */
+.message-author-mark { width: 18px; height: 24px; flex: none; }
 .message-author strong { font-weight: 650; }
 .message-author time { margin-left: auto; color: var(--do-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .message-bubble { min-width: 0; }
@@ -289,7 +290,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .welcome-state { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 0 40px; text-align: center; }
 .welcome-state h2 { margin: 0 0 14px; font-size: clamp(24px, 2.2vw, 30px); font-weight: 600; letter-spacing: -.6px; }
 .welcome-state p { max-width: 520px; margin: 0 0 24px; color: var(--do-muted); font-size: 14px; line-height: 1.8; }
-.welcome-logo { width: 32px; height: 48px; object-fit: contain; margin-bottom: 24px; }
+.welcome-logo { width: 32px; height: 48px; margin-bottom: 24px; }
 .welcome-prompt { padding-bottom: 56px; }
 .no-source-next-step { max-width:520px; text-align:left; padding:10px 14px; border:1px solid var(--do-line); border-radius:8px; font-size:13px; line-height:1.6; }
 .no-source-next-step summary { min-height:32px; cursor:pointer; color:var(--do-primary-strong); }

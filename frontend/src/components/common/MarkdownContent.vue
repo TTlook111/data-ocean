@@ -95,9 +95,9 @@ const safeHtml = computed(() => {
 .markdown-content :deep(blockquote > :last-child) { margin-bottom: 0; }
 .markdown-content :deep(hr) { margin: 24px 0; border: 0; border-top: 1px solid var(--do-line); }
 
-/* 代码保持字面内容，较宽代码块和表格只在自己的区域横向滚动。 */
+/* 行内代码保留正文节奏，独立代码块与问数 SQL 共享代码表面并自行横向滚动。 */
 .markdown-content :deep(code) { border-radius: 4px; padding: 2px 5px; background: var(--do-soft); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .9em; }
-.markdown-content :deep(pre) { max-width: 100%; overflow-x: auto; margin: 16px 0; padding: 16px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); background: var(--do-soft); line-height: 1.65; }
+.markdown-content :deep(pre) { max-width: 100%; overflow-x: auto; margin: 16px 0; padding: 16px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); background: var(--do-code-bg); color: var(--do-code-text); line-height: 1.65; }
 .markdown-content :deep(pre code) { padding: 0; background: transparent; overflow-wrap: normal; }
 .markdown-content :deep(table) { display: block; max-width: 100%; width: max-content; overflow-x: auto; margin: 18px 0; border-collapse: collapse; font-size: 13px; }
 .markdown-content :deep(th), .markdown-content :deep(td) { padding: 9px 12px; border: 1px solid var(--do-line); text-align: left; vertical-align: top; }

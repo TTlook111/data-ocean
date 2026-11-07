@@ -1190,9 +1190,10 @@ watch(
   background: var(--do-glass-panel-bg);
 }
 
+/* 当前配置采用选中表面，类型图标与真实状态标签各有用途。 */
 .status-tile.active {
   border-color: var(--do-primary);
-  background: var(--do-tone-blue-bg);
+  background: var(--do-primary-soft);
 }
 
 .tile-icon {
@@ -1206,23 +1207,23 @@ watch(
 }
 
 .tile-icon.chat {
-  color: var(--do-tone-blue);
-  background: var(--do-tone-blue-bg);
+  color: var(--do-chart-1);
+  background: color-mix(in srgb, var(--do-chart-1) 9%, var(--do-surface));
 }
 
 .tile-icon.embedding {
-  color: var(--do-tone-green);
-  background: var(--do-tone-green-bg);
+  color: var(--do-chart-2);
+  background: color-mix(in srgb, var(--do-chart-2) 9%, var(--do-surface));
 }
 
 .tile-icon.collection {
-  color: var(--do-tone-purple);
-  background: var(--do-tone-purple-bg);
+  color: var(--do-chart-4);
+  background: color-mix(in srgb, var(--do-chart-4) 9%, var(--do-surface));
 }
 
 .tile-icon.status {
-  color: var(--do-tone-orange);
-  background: var(--do-tone-orange-bg);
+  color: var(--do-muted);
+  background: var(--do-soft);
 }
 
 .status-tile > div {

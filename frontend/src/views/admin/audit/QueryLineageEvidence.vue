@@ -308,9 +308,8 @@ defineExpose({ load })
   background: var(--do-surface);
   border: 1px solid var(--do-line);
   border-radius: 14px;
-  box-shadow:
-    0 1px 2px rgba(36, 39, 36, 0.04),
-    0 18px 36px -34px rgba(36, 39, 36, 0.35);
+  /* 证据表面与相邻工作区保持同一层级。 */
+  box-shadow: var(--do-shadow);
 }
 .eyebrow {
   font-size: 11px;
@@ -614,9 +613,10 @@ h2 {
   color: var(--do-muted);
   background: var(--do-soft);
 }
+/* 派生字段与拓扑图共享同一分类色。 */
 .kind-chip--derived {
-  color: #6f5b8f;
-  background: #f1ecf8;
+  color: color-mix(in srgb, var(--do-chart-4) 75%, var(--do-ink));
+  background: color-mix(in srgb, var(--do-chart-4) 9%, var(--do-surface));
 }
 .source-cell {
   display: inline-flex;

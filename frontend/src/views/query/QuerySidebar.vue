@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { DropdownInstance } from 'element-plus'
 import { ChevronsUpDown, History, LogOut, MessageSquarePlus, Search, ShieldCheck, Trash2, UserCog, UserRound } from 'lucide-vue-next'
-import brandMark from '../../assets/brand/dataocean-mark.png'
+import BrandMark from '../../components/common/BrandMark.vue'
 import type { LocalSession } from '../../composables/useQuerySession'
 import { useIamS1Store } from '../../stores/iamS1'
 
@@ -105,7 +105,7 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
   <aside class="query-sidebar" :class="{ 'mobile-history-open': mobileHistoryOpen }" aria-label="会话导航">
     <!-- 品牌与新建动作保持固定，历史列表滚动不会带走主要入口。 -->
     <RouterLink class="query-brand" to="/query" aria-label="DataOcean 智能问数">
-      <img class="query-brand-mark" :src="brandMark" alt="" width="28" height="42" />
+      <BrandMark class="query-brand-mark" aria-hidden="true" />
       <div><strong>DataOcean</strong><small>智能问数</small></div>
     </RouterLink>
 
@@ -189,17 +189,17 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 </template>
 
 <style scoped>
-/* 深石板导航只使用导航令牌；内容弹层继续使用全站明亮表面。 */
+/* 问数历史与后台导航共用表面和选中对比色。 */
 .query-sidebar { height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 22px; padding: 24px 16px 14px; color: var(--do-nav-text); background: var(--do-nav-bg); }
 .query-brand { min-width: 0; height: 48px; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 12px; padding-inline: 4px; color: var(--do-nav-text); text-decoration: none; }
-.query-brand-mark { width: 32px; height: 44px; padding: 5px; border-radius: var(--do-radius-sm); object-fit: contain; background: var(--do-surface); }
+.query-brand-mark { width: 32px; height: 44px; }
 .query-brand strong, .query-brand small { display: block; }
 .query-brand strong { font-size: 19px; font-weight: 650; letter-spacing: -.45px; line-height: 1.25; }
 .query-brand small { margin-top: 3px; color: var(--do-nav-muted); font-size: 11px; }
 
 /* 新建是导航中的主动作，加载期间沿用原禁用状态。 */
 .new-session-button { min-height: 44px; display: inline-flex; align-items: center; justify-content: flex-start; gap: 10px; padding-inline: 14px; border: 1px solid var(--do-nav-line); border-radius: var(--do-radius-sm); color: var(--do-nav-text); background: var(--do-nav-hover); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: background var(--do-transition-fast), border-color var(--do-transition-fast); }
-.new-session-button:hover:not(:disabled) { border-color: var(--do-nav-accent); background: var(--do-nav-active); }
+.new-session-button:hover:not(:disabled) { border-color: var(--do-nav-active); color: var(--do-nav-active-text); background: var(--do-nav-active); }
 .new-session-button:disabled { opacity: .5; cursor: wait; }
 .mobile-history-toggle { display: none; }
 
@@ -219,18 +219,21 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 .history-group-label { margin: 0 0 5px; padding-inline: 8px; color: var(--do-nav-muted); font-size: 11px; font-weight: 500; }
 .history-row { min-width: 0; min-height: 56px; display: grid; grid-template-columns: minmax(0, 1fr) 30px; align-items: center; border-radius: var(--do-radius-sm); color: var(--do-nav-text); }
 .history-row:hover { background: var(--do-nav-hover); }
-.history-row.active { background: var(--do-nav-active); }
+/* 深色选中行使用配套前景，标题、时间和操作图标保持可读。 */
+.history-row.active { color: var(--do-nav-active-text); background: var(--do-nav-active); }
 .history-select { min-width: 0; min-height: 56px; display: flex; align-items: center; padding: 8px 2px 8px 10px; border: 0; border-radius: var(--do-radius-sm); color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .history-copy { min-width: 0; flex: 1; display: block; }
 .history-copy strong, .history-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-copy strong { font-size: 13px; font-weight: 400; line-height: 1.5; }
-.history-row.active strong { color: var(--do-nav-accent); font-weight: 600; }
+.history-row.active strong { font-weight: 600; }
+.history-row.active .history-copy small, .history-row.active .history-delete:not(:hover) { color: var(--do-nav-active-text); }
+.history-row.active .history-select:focus-visible, .history-row.active .history-delete:focus-visible { outline: 2px solid var(--do-nav-active-text); outline-offset: -3px; }
 .history-copy small { margin-top: 3px; color: var(--do-nav-muted); font-size: 11px; line-height: 1.3; font-variant-numeric: tabular-nums; }
 .history-delete { width: 28px; height: 32px; display: grid; place-items: center; border: 0; border-radius: var(--do-radius-sm); color: var(--do-nav-muted); background: transparent; cursor: pointer; opacity: 0; transition: opacity var(--do-transition-fast); }
 .history-row:hover .history-delete, .history-row:focus-within .history-delete, .history-row.active .history-delete { opacity: 1; }
 .history-delete:hover { color: var(--do-danger); background: var(--do-danger-soft); }
 .history-empty { padding: 14px 8px; color: var(--do-nav-muted); font-size: 12px; line-height: 1.7; }
-.history-error { color: var(--do-danger-soft); }
+.history-error { color: var(--do-danger); }
 .retry-history { display: block; min-height: 36px; margin-top: 10px; border: 1px solid var(--do-nav-line); border-radius: var(--do-radius-sm); padding-inline: 10px; color: var(--do-nav-text); background: var(--do-nav-hover); font: inherit; cursor: pointer; }
 
 /* 当前身份始终位于导航底部，显式箭头表明这里还有账户操作。 */
@@ -238,7 +241,7 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 .sidebar-user-dropdown { width: 100%; }
 .sidebar-user { width: 100%; min-height: 48px; display: grid; grid-template-columns: 34px minmax(0, 1fr) 15px; align-items: center; gap: 10px; padding: 7px 6px; border: 0; border-radius: var(--do-radius-sm); color: var(--do-nav-text); background: transparent; text-align: left; cursor: pointer; transition: background var(--do-transition-fast); }
 .sidebar-user:hover { background: var(--do-nav-hover); }
-.sidebar-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: var(--do-radius-sm); color: var(--do-nav-accent); background: var(--do-nav-active); font-size: 13px; font-weight: 600; }
+.sidebar-avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: var(--do-radius-sm); color: var(--do-nav-active-text); background: var(--do-nav-active); font-size: 13px; font-weight: 600; }
 .sidebar-user-copy { min-width: 0; }
 .sidebar-user-copy strong, .sidebar-user-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-user-copy strong { font-size: 13px; font-weight: 500; line-height: 1.3; }
@@ -251,7 +254,7 @@ function runUserCommand(command: 'profile' | 'password' | 'admin' | 'logout') {
 @media (max-width: 768px) {
   .query-sidebar { height: auto; grid-template-columns: minmax(0, 1fr) auto 44px; grid-template-rows: 44px auto auto; grid-template-areas: "brand new user" "toggle toggle toggle" "history history history"; gap: 8px; padding: 10px 12px; }
   .query-brand { grid-area: brand; height: 44px; grid-template-columns: 28px minmax(0, 1fr); gap: 9px; padding: 0; }
-  .query-brand-mark { width: 28px; height: 38px; padding: 4px; }
+  .query-brand-mark { width: 28px; height: 38px; }
   .query-brand strong { font-size: 16px; }
   .query-brand small { display: none; }
   .new-session-button { grid-area: new; min-height: 40px; padding-inline: 10px; }
