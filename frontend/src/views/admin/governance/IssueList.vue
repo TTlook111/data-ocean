@@ -76,6 +76,7 @@ const USER_PAGE_SIZE = 100
 const userOptions = ref<{ id: number; label: string }[]>([])
 const userOptionsTotal = ref(0)
 const userOptionsLoading = ref(false)
+const userOptionsError = ref('')
 const assigneeError = ref('')
 const assigneeSelection = ref<number | undefined>()
 const assignLoading = ref(false)
@@ -125,6 +126,17 @@ function openCheckEvidence() {
 const canReadIssues = computed(
   () => rangeReady.value && iamS1.loaded && !iamS1.errorMessage && canViewCurrentScope.value,
 )
+// 辅助目录缺授权是稳定的能力边界，只有实际有权请求失败才进入错误与重试状态。
+const canReadTableDirectory = computed(() => iamS1.loaded && !iamS1.errorMessage && iamS1.canOnDatasource('metadata:view', datasourceId.value))
+const canReadUserDirectory = computed(() => iamS1.loaded && !iamS1.errorMessage && iamS1.hasGlobal('organization:user:view'))
+const directoryAccessNotice = computed(() => {
+  if (!canReadIssues.value) return ''
+  if (!canReadTableDirectory.value && !canReadUserDirectory.value) return '表和责任人筛选未开放'
+  if (!canReadTableDirectory.value) return '表筛选未开放'
+  if (!canReadUserDirectory.value) return '责任人筛选与分派未开放'
+  return ''
+})
+
 
 /**
  * 能否处理某条问题。
@@ -247,6 +259,8 @@ const canAssign = computed(() => {
     Boolean(target) &&
     target !== selectedIssue.value?.assigneeId &&
     !assignLoading.value &&
+    canReadUserDirectory.value &&
+    !userOptionsError.value &&
     !assigneeError.value &&
     userOptions.value.some((item) => item.id === target) &&
     canReadIssues.value &&
@@ -334,11 +348,10 @@ async function loadDomainSummary(forSnapshotId: number) {
 }
 
 async function loadTableOptions(forSnapshotId: number): Promise<boolean> {
-  if (!iamS1.canOnDatasource('metadata:view', datasourceId.value)) {
+  if (!canReadTableDirectory.value) {
     tableOptions.value = []
     tableOptionsLoading.value = false
-    tableOptionsError.value =
-      '没有 metadata:view，不能读取辅助表目录；当前精确表名筛选保持不变，问题列表仍按自身权限读取'
+    tableOptionsError.value = ''
     return false
   }
   const currentRequest = ++tableOptionsRequestId
@@ -367,7 +380,7 @@ async function loadTableOptions(forSnapshotId: number): Promise<boolean> {
 }
 
 function retryTableOptions() {
-  if (!canReadIssues.value || !snapshotId.value) return
+  if (!canReadIssues.value || !canReadTableDirectory.value || !snapshotId.value) return
   void loadTableOptions(snapshotId.value).then((filterCleared) => {
     if (filterCleared) fetchIssues()
   })
@@ -481,8 +494,8 @@ async function confirmResolution() {
 }
 
 async function loadUserOptions() {
-  if (!iamS1.loaded || !iamS1.hasGlobal('organization:user:view')) {
-    assigneeError.value = '没有 organization:user:view，无法读取辅助用户目录；分派权限不自动包含用户查看权'
+  if (!canReadUserDirectory.value) {
+    userOptionsError.value = ''
     userOptions.value = []
     return
   }
@@ -490,7 +503,7 @@ async function loadUserOptions() {
   const epoch = scopeEpoch,
     ticket = ++userRequestId
   userOptionsLoading.value = true
-  assigneeError.value = ''
+  userOptionsError.value = ''
   try {
     const res = await listUsers({ page: 1, pageSize: USER_PAGE_SIZE })
     if (disposed || epoch !== scopeEpoch || ticket !== userRequestId) return
@@ -503,11 +516,17 @@ async function loadUserOptions() {
     userOptionsLoaded = true
   } catch (e: any) {
     if (disposed || epoch !== scopeEpoch || ticket !== userRequestId) return
-    // 非 user:manage 账号可能 403。必须显式呈现，不能渲染成空下拉（开发指导 §16.5）。
-    assigneeError.value = e?.response?.data?.message || '用户列表加载失败，暂时无法分派'
+    // 能力摘要允许却读取失败时保留真实错误，重试仅重新读取目录，不提交分派。
+    userOptionsError.value = e?.response?.data?.message || e?.message || '用户目录读取失败，暂时无法选择责任人'
   } finally {
     if (epoch === scopeEpoch && ticket === userRequestId) userOptionsLoading.value = false
   }
+}
+
+function retryUserOptions() {
+  if (!canReadIssues.value || !canReadUserDirectory.value) return
+  userOptionsLoaded = false
+  void loadUserOptions()
 }
 
 async function submitAssignment() {
@@ -811,6 +830,7 @@ watch(
     userOptionsLoaded = false
     userOptions.value = []
     userOptionsLoading.value = false
+    userOptionsError.value = ''
     assigneeError.value = ''
     busyIds.value = []
     batchBusy.value = false
@@ -914,8 +934,8 @@ onBeforeUnmount(() => {
           clearable
           filterable
           :loading="tableOptionsLoading"
-          :disabled="!canReadIssues || tableOptionsLoading || Boolean(tableOptionsError)"
-          aria-label="按表筛选"
+          :disabled="!canReadIssues || !canReadTableDirectory || tableOptionsLoading || Boolean(tableOptionsError)"
+          :aria-label="canReadTableDirectory ? '按表筛选' : '按表筛选：当前账号未开放表目录'"
           @change="applyFilters"
         >
           <el-option label="全部表" value="" />
@@ -1007,8 +1027,8 @@ onBeforeUnmount(() => {
           clearable
           filterable
           :loading="userOptionsLoading"
-          :disabled="!canReadIssues || Boolean(assigneeError)"
-          aria-label="按责任人筛选"
+          :disabled="!canReadIssues || !canReadUserDirectory || Boolean(userOptionsError)"
+          :aria-label="canReadUserDirectory ? '按责任人筛选' : '按责任人筛选：当前账号未开放用户目录'"
           @change="applyFilters"
         >
           <el-option
@@ -1042,19 +1062,24 @@ onBeforeUnmount(() => {
       </p>
 
       <div
-        v-if="tableOptionsError || assigneeError || userOptionsTotal > USER_PAGE_SIZE"
+        v-if="directoryAccessNotice || tableOptionsError || userOptionsError || userOptionsTotal > USER_PAGE_SIZE"
         class="issue-workbench__notices"
       >
+        <details v-if="directoryAccessNotice" class="issue-workbench__directory-access">
+          <summary>{{ directoryAccessNotice }}</summary>
+          <p>当前账号未开放相应目录选择。已有精确筛选保持不变，问题读取与处理按各自权限进行。</p>
+        </details>
         <p
           v-if="tableOptionsError"
           class="issue-workbench__notice issue-workbench__notice--error"
           role="alert"
         >
           数据表选项读取失败：{{ tableOptionsError }}
-          <el-button link type="primary" @click="retryTableOptions">重试</el-button>
+          <el-button link type="primary" @click="retryTableOptions">重试表目录</el-button>
         </p>
-        <p v-if="assigneeError" class="issue-workbench__notice issue-workbench__notice--error" role="alert">
-          {{ assigneeError }}；暂时无法使用责任人筛选或分派。
+        <p v-if="userOptionsError" class="issue-workbench__notice issue-workbench__notice--error" role="alert">
+          责任人目录读取失败：{{ userOptionsError }}
+          <el-button link type="primary" @click="retryUserOptions">重试责任人目录</el-button>
         </p>
         <p v-else-if="userOptionsTotal > USER_PAGE_SIZE" class="issue-workbench__notice" role="note">
           共 {{ userOptionsTotal }} 名用户，责任人下拉仅显示前 {{ USER_PAGE_SIZE }} 名。
@@ -1378,7 +1403,8 @@ onBeforeUnmount(() => {
                   clearable
                   size="small"
                   :loading="userOptionsLoading"
-                  :disabled="Boolean(assigneeError)"
+                  :disabled="!canReadUserDirectory || Boolean(userOptionsError)"
+                  :aria-label="canReadUserDirectory ? '选择责任人' : '选择责任人：当前账号未开放用户目录'"
                   placeholder="选择用户"
                 >
                   <el-option
@@ -1398,7 +1424,9 @@ onBeforeUnmount(() => {
                   分派
                 </el-button>
               </div>
-              <p v-if="assigneeError" class="muted-text">{{ assigneeError }}</p>
+              <p v-if="!canReadUserDirectory" class="muted-text">责任人选择未开放</p>
+              <p v-else-if="userOptionsError" class="issue-workbench__notice--error" role="alert">{{ userOptionsError }} <el-button link type="primary" @click="retryUserOptions">重试责任人目录</el-button></p>
+              <p v-else-if="assigneeError" class="issue-workbench__notice--error" role="alert">{{ assigneeError }}</p>
               <p v-else-if="userOptionsTotal > USER_PAGE_SIZE" class="muted-text">
                 共 {{ userOptionsTotal }} 名用户，下拉仅显示前
                 {{ USER_PAGE_SIZE }} 名，目标用户可能不在列表中。
@@ -1509,6 +1537,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 能力边界用低干扰说明，展开解释不占用正常问题列表的主要工作空间。 */
+.issue-workbench__directory-access { color:var(--do-muted); font-size:12px; line-height:1.7; }
+.issue-workbench__directory-access summary { width:fit-content; cursor:pointer; }
+.issue-workbench__directory-access p { margin:6px 0 0; }
+
 .issue-domain-guide { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.7; }
 .issue-domain-guide summary { width: fit-content; cursor: pointer; }
 .issue-domain-guide p { margin: 8px 0 0; max-width: 80ch; }

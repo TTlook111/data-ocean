@@ -318,6 +318,43 @@ afterEach(() => {
 })
 
 describe('IssueList 的能力控制', () => {
+  it('辅助目录未开放用中性说明和禁用原因，不伪装成可重试故障', async () => {
+    respond(capability({ onDatasource: ['governance:issue:view', 'governance:issue:manage'] }))
+    const wrapper = mountIssuePage()
+    await settle()
+    expect(api.listQualityIssues).toHaveBeenCalled()
+    expect(api.listSnapshotTables).not.toHaveBeenCalled()
+    expect(api.listUsers).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('表和责任人筛选未开放')
+    expect(wrapper.find('.issue-workbench__notice--error').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('metadata:view')
+    expect(wrapper.text()).not.toContain('organization:user:view')
+    const tableInput = wrapper.find('input[aria-label="按表筛选：当前账号未开放表目录"]')
+    expect(tableInput.attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('button').some(button => button.text() === '重试')).toBe(false)
+  })
+
+  it('有权辅助目录读取失败仍显示错误并只重试读取', async () => {
+    respond(capability({ global: ['organization:user:view'], onDatasource: ['metadata:view', 'governance:issue:view'] }))
+    api.listSnapshotTables.mockRejectedValueOnce(new Error('表目录暂时不可用'))
+    api.listUsers.mockRejectedValueOnce(new Error('用户目录暂时不可用'))
+    const wrapper = mountIssuePage()
+    await settle()
+    expect(wrapper.text()).toContain('表目录暂时不可用')
+    expect(wrapper.text()).toContain('用户目录暂时不可用')
+    const tableRetry = wrapper.findAll('button').find(button => button.text() === '重试表目录')!
+    const userRetry = wrapper.findAll('button').find(button => button.text() === '重试责任人目录')!
+    expect(tableRetry).toBeTruthy()
+    expect(userRetry).toBeTruthy()
+    await tableRetry.trigger('click')
+    await userRetry.trigger('click')
+    await settle()
+    expect(api.listSnapshotTables).toHaveBeenCalledTimes(2)
+    expect(api.listUsers).toHaveBeenCalledTimes(2)
+    expect(api.handleIssue).not.toHaveBeenCalled()
+    expect(api.assignIssue).not.toHaveBeenCalled()
+    expect(wrapper.find('.issue-workbench__notice--error').exists()).toBe(false)
+  })
   it('没有处理能力时不渲染任何写操作按钮，只显示原因', async () => {
     respond(capability({ onDatasource: ['governance:issue:view'] }))
     const wrapper = mountIssuePage()
@@ -596,7 +633,7 @@ describe('问题中心的范围、筛选和结果表达', () => {
     expect(wrapper.find('#issue-advanced-filters').isVisible()).toBe(true)
     expect(wrapper.find('#issue-advanced-filters').findAllComponents(ElSelect)).toHaveLength(3)
     expect(filters.findAll('input').map((input) => input.attributes('aria-label'))).toEqual([
-      '按问题域筛选', '按表筛选', '按状态筛选',
+      '按问题域筛选', '按表筛选：当前账号未开放表目录', '按状态筛选',
     ])
     expect(filters.text()).not.toContain('数据源')
     expect(filters.text()).not.toContain('快照')
