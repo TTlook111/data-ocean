@@ -1108,15 +1108,10 @@ watch(
   font-size: 13px;
   line-height: 1.6;
 }
-.ai-config-page .provider-card,
-.ai-config-page .status-tile {
+.ai-config-page .provider-card {
   box-shadow: none;
   background: var(--do-surface);
   border-radius: 12px;
-}
-.ai-config-page .status-tile.active {
-  border-color: var(--do-line);
-  background: var(--do-bg);
 }
 .ai-config-page :deep(.el-dialog) {
   max-width: calc(100vw - 24px);
@@ -1173,64 +1168,45 @@ watch(
   background: var(--do-glass-data-bg);
 }
 
+/* 当前模型和集合并列显示为配置事实，分隔线只承担阅读分组。 */
 .status-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  row-gap: 12px;
   margin-bottom: 12px;
 }
 
 .status-tile {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-md);
-  background: var(--do-glass-panel-bg);
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 3px 14px;
+  border-inline-start: 1px solid var(--do-line);
 }
 
-/* 当前配置采用选中表面，类型图标与真实状态标签各有用途。 */
-.status-tile.active {
-  border-color: var(--do-primary);
-  background: var(--do-primary-soft);
+.status-tile:first-child {
+  padding-inline-start: 0;
+  border-inline-start: 0;
 }
 
+/* 图标辅助区分字段，后端返回的配置状态由文字徽标独立着色。 */
 .tile-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
+  width: 20px;
+  height: 20px;
   flex: 0 0 auto;
-}
-
-.tile-icon.chat {
-  color: var(--do-chart-1);
-  background: color-mix(in srgb, var(--do-chart-1) 9%, var(--do-surface));
-}
-
-.tile-icon.embedding {
-  color: var(--do-chart-2);
-  background: color-mix(in srgb, var(--do-chart-2) 9%, var(--do-surface));
-}
-
-.tile-icon.collection {
-  color: var(--do-chart-4);
-  background: color-mix(in srgb, var(--do-chart-4) 9%, var(--do-surface));
-}
-
-.tile-icon.status {
   color: var(--do-muted);
-  background: var(--do-soft);
 }
 
 .status-tile > div {
   min-width: 0;
 }
 
-.status-tile span {
+.status-tile > div > span:first-child,
+.status-tile .tile-sub {
   display: block;
   font-size: 12px;
   color: var(--do-muted);
@@ -1445,6 +1421,8 @@ watch(
 .ai-config-page .config-note { padding:14px 16px; }
 @media(max-width:1000px) {
  .ai-config-page .status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ /* 两列时各行从同一个左边缘开始。 */
+ .status-tile:nth-child(odd) { padding-inline-start:0; border-inline-start:0; }
  .ai-config-page .card-header { display:grid;grid-template-columns:minmax(0,1fr);gap:12px; }
  .ai-config-page .card-title { max-width:100%;flex-wrap:wrap; }
  .ai-config-page .card-summary { max-width:100%;min-width:0;flex-wrap:wrap;white-space:normal;overflow-wrap:anywhere; }
@@ -1456,5 +1434,8 @@ watch(
  .ai-config-page .model-params label .el-input { width:100%; }
  .ai-config-page .model-actions { justify-content:flex-start;flex-wrap:wrap; }
 }
-@media(max-width:560px) { .ai-config-page .status-grid { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:560px) {
+ .ai-config-page .status-grid { grid-template-columns:minmax(0,1fr); }
+ .status-tile { padding-inline:0; border-inline-start:0; }
+}
 </style>
