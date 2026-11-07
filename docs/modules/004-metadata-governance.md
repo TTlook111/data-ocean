@@ -41,7 +41,7 @@
 
 新业务知识与一键治理见[治理任务](governance/治理任务与业务知识.md)；新版本使用参考分与反馈结案见[反馈归因](governance/反馈归因与使用档案.md)。旧来源可信度变更不能覆盖这两条新链路。
 
-验证入口：[QualityRuleServicePersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityRuleServicePersistenceTest.java)（规则持久化）、[QualityRuleOperationPersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityRuleOperationPersistenceTest.java)（操作回执、事务与并发）、[FieldGovernanceWriteAndListTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldtag/service/impl/FieldGovernanceWriteAndListTest.java)（标签与范围）、[ConfidenceCalculatorImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldtag/service/impl/ConfidenceCalculatorImplTest.java)（来源可信度计算）。规则本轮实际测试与环境边界见[可靠写入验收](../acceptance/2026-11-07-质量规则可靠写入.md)，不外推标签或可信度验收。
+验证入口：[QualityRuleServicePersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityRuleServicePersistenceTest.java)（规则持久化）、[QualityRuleOperationPersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityRuleOperationPersistenceTest.java)（操作回执、事务与并发）、[FieldGovernanceWriteAndListTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldtag/service/impl/FieldGovernanceWriteAndListTest.java)（标签与范围）、[ConfidenceCalculatorImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldtag/service/impl/ConfidenceCalculatorImplTest.java)（来源可信度计算）。规则本轮实际测试与环境边界见[可靠写入验收](../archive/2026-11-07-质量规则可靠写入.md)，不外推标签或可信度验收。
 
 ## 修改定位
 
@@ -55,7 +55,7 @@
 
 来源检查与字段语义是两条链，不能用来源分代表语义通过。字段事实进入文档后继续读[术语与 AI 释义](knowledge/业务术语与AI释义.md)，发布门禁转到版本模块。
 
-验证入口：[QualityCheckServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityCheckServiceImplTest.java)（来源检查）、[QualityCheckOperationPersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityCheckOperationPersistenceTest.java)（原操作与批次登记）、[QualityIssueServiceTransactionIntegrationTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityIssueServiceTransactionIntegrationTest.java)（问题版本与事务）、[FieldSemanticServicePersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticServicePersistenceTest.java)（字段解释及复查）。测试、迁移、真实检查和页面验收分别见[检查闭环验收](../acceptance/2026-11-07-质量检查闭环与视觉对齐.md)，不将 H2 测试当作 MySQL 迁移或真实业务验收。
+验证入口：[QualityCheckServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityCheckServiceImplTest.java)（来源检查）、[QualityCheckOperationPersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityCheckOperationPersistenceTest.java)（原操作与批次登记）、[QualityIssueServiceTransactionIntegrationTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityIssueServiceTransactionIntegrationTest.java)（问题版本与事务）、[FieldSemanticServicePersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticServicePersistenceTest.java)（字段解释及复查）。测试、迁移、真实检查和页面验收分别见[检查闭环验收](../archive/2026-11-07-质量检查闭环与视觉对齐.md)，不将 H2 测试当作 MySQL 迁移或真实业务验收。
 
 ## 概览与主流程
 
@@ -69,7 +69,7 @@
 
 ## 平台内字段解释
 
-当前前端将原始来源/当前有效解释与候选、人工草稿、审核和历史分开。任务页保留五个Tab及源级反馈入口，快照必需与源级工作面分开校验。字段目录读取仍需要metadata:view，无该能力明确说明，未从治理查看能力补权。表单与审核各自固定乐观版本和精确修订；晚AI/保存重读不得覆盖人工输入，409保留依据，批量来源确认逐项展示结果。页面定位及保护详见[治理任务专题](governance/治理任务与业务知识.md)，实际合成浏览器覆盖见[第四阶段验收](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d4)。
+当前前端将原始来源/当前有效解释与候选、人工草稿、审核和历史分开。任务页保留五个Tab及源级反馈入口，快照必需与源级工作面分开校验。字段目录读取仍需要metadata:view，无该能力明确说明，未从治理查看能力补权。表单与审核各自固定乐观版本和精确修订；晚AI/保存重读不得覆盖人工输入，409保留依据，批量来源确认逐项展示结果。页面定位及保护详见[治理任务专题](governance/治理任务与业务知识.md)，实际合成浏览器覆盖见[第四阶段验收](../archive/2026-10-29-统一跨页终验V2.md#v2-d4)。
 
 字段治理阶段：字段工作面新增服务端阶段提示，`GET /api/admin/field-semantics/columns/{columnMetaId}/governance-progress?snapshotId=...` 按现有字段查看权限与真实来源返回待治理、人工补充、待审核、待复查、不适用或本轮完成。仅当前 definition/binding/revision/review/evidenceHash 与规则版本均匹配、且同源同快照批次成功时返回本轮完成；新草稿和待审核修订优先展示。此阶段接口复用已有语义证据；批量任务另有独立治理任务记录，阶段读取不等于文档或 RAG 生效。
 
@@ -107,7 +107,7 @@
 
 字段basic/progress按field:view；details/usage另需knowledge:view；术语选项为field:view＋glossary:view，不额外借knowledge:view。保存/AI/采纳/提交/撤回需要field:manage＋knowledge:manage，审核为field:view＋knowledge:approve，撤销为field:manage＋knowledge:approve，语义复查为check。各码对目标来源分别满足真实绑定，不能拼接角色功能与其他绑定的负责源。
 
-公共快照及表/字段目录仍需要metadata:view；缺辅助权明确说明，不扩权，源级反馈与旧记录仍可用。草稿脏输入不能提交；晚AI不覆盖输入；保存基准版本与审核revision/version分开固定；409保留依据，不换新版本重发。明确替换脏草稿须确认，未知写锁只在当前SPA/身份中，不能替代后端幂等、CAS或跨刷新恢复。历史失败与权限缺口证据见[阶段D4](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d4)、[阶段D7](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d7)。
+公共快照及表/字段目录仍需要metadata:view；缺辅助权明确说明，不扩权，源级反馈与旧记录仍可用。草稿脏输入不能提交；晚AI不覆盖输入；保存基准版本与审核revision/version分开固定；409保留依据，不换新版本重发。明确替换脏草稿须确认，未知写锁只在当前SPA/身份中，不能替代后端幂等、CAS或跨刷新恢复。历史失败与权限缺口证据见[阶段D4](../archive/2026-10-29-统一跨页终验V2.md#v2-d4)、[阶段D7](../archive/2026-10-29-统一跨页终验V2.md#v2-d7)。
 
 ## 关键边界
 
@@ -181,7 +181,7 @@
 
 服务端以当前账号和操作 ID 唯一约束去重，指纹包含账号、动作、对象、预期版本及完整配置。同 ID、同内容只返回原回执；同 ID、不同内容不覆盖原结果。写入先锁定规则实际原范围，再校验原/目标授权及客户端读取时的版本，实际 UPDATE 仍带 `config_version = expectedVersion` 条件；前端不再用保存前重读代替服务端原子检查。
 
-[V76](../../backend/DataOcean/src/main/resources/db/migration/V76__quality_rule_operation_receipts.sql) 定义 `quality_rule_operation` 持久回执和 `quality_rule_write_guard` 单行领域锁。规则、修订与成功回执在同一事务提交；业务拒绝通过嵌套保存点回滚本次配置后记录拒绝，非业务持久化异常回滚整个事务。低频配置写先取得领域锁再读原规则，跨不同规则的同级启用冲突也受保护；列表、规划和实际检查不取得此锁。回执保存原/目标授权范围和结果标识，不保存草稿正文或凭据；查询、重放和终结均重新核验原范围、目标范围及对象当前范围。迁移实际执行环境、并发与故障实测仅以[本轮验收](../acceptance/2026-11-07-质量规则可靠写入.md)和[项目现状](../项目现状.md)为准。
+[V76](../../backend/DataOcean/src/main/resources/db/migration/V76__quality_rule_operation_receipts.sql) 定义 `quality_rule_operation` 持久回执和 `quality_rule_write_guard` 单行领域锁。规则、修订与成功回执在同一事务提交；业务拒绝通过嵌套保存点回滚本次配置后记录拒绝，非业务持久化异常回滚整个事务。低频配置写先取得领域锁再读原规则，跨不同规则的同级启用冲突也受保护；列表、规划和实际检查不取得此锁。回执保存原/目标授权范围和结果标识，不保存草稿正文或凭据；查询、重放和终结均重新核验原范围、目标范围及对象当前范围。迁移实际执行环境、并发与故障实测仅以[本轮验收](../archive/2026-11-07-质量规则可靠写入.md)和[项目现状](../项目现状.md)为准。
 
 旧写路径仍存在，但已严格适配同一操作服务，不能继续按旧载荷无条件调用：
 
@@ -213,7 +213,7 @@
 
 发请求前，按账号将操作 ID、动作、对象 ID、原/目标范围、时间、草稿定位键及必要的已提交结果 ID/版本写入 `localStorage`。不新增草稿正文、规则名称、参数、令牌或完整服务端配置的持久副本。恢复记录解析失败或无法读写时拒绝新提交；超时、网络错误、5xx 或不完整回执保留原 ID，不自动生成新操作重发。用户先核对原回执；`NOT_FOUND` 必须继续核对，或显式结束原操作并获得持久拒绝结果，才能释放原操作。
 
-收到 `APPLIED` 与工作面处理完该成功结果是两步。提交期间又改稿、关闭或离开时，保留已提交 ID/版本与互斥；用户读取已保存配置、确认替换对应脏草稿后才解除。回读失败仍保留该操作，防止已创建成功的草稿再次按 `CREATE` 提交。定向回归入口为 [useQualityRuleOperations.test.ts](../../frontend/src/views/admin/governance/rules/useQualityRuleOperations.test.ts)及 [GovernanceRulesStatusLifecycle.test.ts](../../frontend/src/views/admin/governance/GovernanceRulesStatusLifecycle.test.ts)；真实角色、异常路径与未验证范围见[本轮验收](../acceptance/2026-11-07-质量规则可靠写入.md)。
+收到 `APPLIED` 与工作面处理完该成功结果是两步。提交期间又改稿、关闭或离开时，保留已提交 ID/版本与互斥；用户读取已保存配置、确认替换对应脏草稿后才解除。回读失败仍保留该操作，防止已创建成功的草稿再次按 `CREATE` 提交。定向回归入口为 [useQualityRuleOperations.test.ts](../../frontend/src/views/admin/governance/rules/useQualityRuleOperations.test.ts)及 [GovernanceRulesStatusLifecycle.test.ts](../../frontend/src/views/admin/governance/GovernanceRulesStatusLifecycle.test.ts)；真实角色、异常路径与未验证范围见[本轮验收](../archive/2026-11-07-质量规则可靠写入.md)。
 
 ## 批次、覆盖与可信结果
 
@@ -245,7 +245,7 @@
 
 检查专页的 `batchId` 固定执行证据。旧治理总览中的批次或发布返回链接保留查询参数并跳转到检查专页。问题统计和规则规划读取同快照当前事实。前往问题中心附带 `returnBatchId` 供返回原批次。用户可切回最近一次检查，再选择本次范围并显式执行。
 
-[V77](../../backend/DataOcean/src/main/resources/db/migration/V77__quality_check_operation_and_issue_version.sql)为批次增加操作 UUID、范围指纹、执行所有者及账号/UUID唯一键，并为问题增加行版本。历史批次不补造操作标识；历史问题的初始版本不代表此前修改次数。实际迁移与故障覆盖只见[检查闭环验收](../acceptance/2026-11-07-质量检查闭环与视觉对齐.md)及[项目现状](../项目现状.md)。
+[V77](../../backend/DataOcean/src/main/resources/db/migration/V77__quality_check_operation_and_issue_version.sql)为批次增加操作 UUID、范围指纹、执行所有者及账号/UUID唯一键，并为问题增加行版本。历史批次不补造操作标识；历史问题的初始版本不代表此前修改次数。实际迁移与故障覆盖只见[检查闭环验收](../archive/2026-11-07-质量检查闭环与视觉对齐.md)及[项目现状](../项目现状.md)。
 
 ### 治理主任务范围
 
@@ -307,7 +307,7 @@
 
 ### 问题与规则的恢复保护
 
-检查页把SOURCE诊断、独立SEMANTIC人工事实与当前实际批次/规划分开，实际执行0、未知、部分失败和历史分保留。刷新只重读已核验范围，不隐式选择新快照；实际检查通过原UUID和持久批次恢复，详见[检查操作合同](#检查操作与精确批次)。问题表/用户目录分别独立判权，辅助无权或挂起不阻合法主任务。问题处理已具有上述客户端行版本条件；409保留原问题依据和人工备注，批量保留全部跳过原因。其响应未知仍使用既有内存目标锁，尚无与规则配置/检查任务相同的持久操作回执和跨刷新原操作关联，不能把行版本防覆盖等同于未知结果已确定。历史覆盖见[第七阶段验收](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d7)，本轮边界见[检查闭环验收](../acceptance/2026-11-07-质量检查闭环与视觉对齐.md)。
+检查页把SOURCE诊断、独立SEMANTIC人工事实与当前实际批次/规划分开，实际执行0、未知、部分失败和历史分保留。刷新只重读已核验范围，不隐式选择新快照；实际检查通过原UUID和持久批次恢复，详见[检查操作合同](#检查操作与精确批次)。问题表/用户目录分别独立判权，辅助无权或挂起不阻合法主任务。问题处理已具有上述客户端行版本条件；409保留原问题依据和人工备注，批量保留全部跳过原因。其响应未知仍使用既有内存目标锁，尚无与规则配置/检查任务相同的持久操作回执和跨刷新原操作关联，不能把行版本防覆盖等同于未知结果已确定。历史覆盖见[第七阶段验收](../archive/2026-10-29-统一跨页终验V2.md#v2-d7)，本轮边界见[检查闭环验收](../archive/2026-11-07-质量检查闭环与视觉对齐.md)。
 
 质量规则按配置→只读规划→来源检查呈现，源级规则列表不额外要求metadata或快照，规划只读精确公共快照；最近采集目录辅助预算不等于历史范围。规则保存以原版本条件和操作回执恢复，详见上文[工作区职责与恢复](#工作区职责与恢复)。治理状态调整不自动修复问题或审核知识，批量updated/excluded缺失仍保留既有未知锁，不能用本轮规则协议宣称状态维护也已具备跨刷新恢复；既有覆盖见第七阶段验收B。
 

@@ -149,13 +149,13 @@ Most detailed guides are currently in Chinese. Both READMEs link to the same mai
 | What you need | Entry point |
 | --- | --- |
 | Find documentation by purpose | [Documentation index](docs/README.md) |
-| Capabilities, verified coverage, and limits | [Project status](docs/项目现状.md), [acceptance index](docs/acceptance/README.md) |
+| Delivered features and open work | [Project status](docs/项目现状.md), [remaining work and acceptance criteria](docs/development/后续开发.md) |
 | Environment, initialization, startup, and tests | [Local development guide](docs/development/本地开发与验证.md) |
 | Architecture and individual modules | [Technology and responsibilities](docs/技术栈与模块职责.md), [module index](docs/modules/README.md) |
-| UI behavior and remaining work | [Frontend guide](docs/development/前端开发规范.md), [follow-up work](docs/development/后续开发.md) |
+| UI behavior and historical evidence | [Frontend guide](docs/development/前端开发规范.md), [archived implementation and acceptance records](docs/archive/README.md) |
 | Making code changes | [AGENTS.md](AGENTS.md) |
 
-Read acceptance evidence within its environment, version, and coverage. Focused page checks and synthetic API previews do not establish project-wide production acceptance. Current UI changes, foundational fixes and verification limits are recorded in the [product renewal acceptance report](docs/acceptance/2026-11-06-全站重设计与基础整治.md).
+The [acceptance index](docs/acceptance/README.md) links to each round’s environment, verified scope, failures and untested cases.
 
 <details>
 <summary>Repository layout</summary>

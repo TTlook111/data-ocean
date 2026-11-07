@@ -147,13 +147,13 @@ npm run dev
 | 想了解什么 | 入口 |
 | --- | --- |
 | 按目的查找文档 | [文档导航](docs/README.md) |
-| 当前能力、验证范围与限制 | [项目现状](docs/项目现状.md)、[验收索引](docs/acceptance/README.md) |
+| 已交付与未完成 | [项目现状](docs/项目现状.md)、[后续开发及验收条件](docs/development/后续开发.md) |
 | 环境、初始化、启动与测试 | [本地开发与验证](docs/development/本地开发与验证.md) |
 | 架构与具体模块 | [技术栈与模块职责](docs/技术栈与模块职责.md)、[模块导航](docs/modules/README.md) |
-| 页面交互与后续工作 | [前端开发规范](docs/development/前端开发规范.md)、[后续开发](docs/development/后续开发.md) |
+| 页面交互与历史证据 | [前端开发规范](docs/development/前端开发规范.md)、[已归档的实施与验收记录](docs/archive/README.md) |
 | 参与代码修改 | [AGENTS.md](AGENTS.md) |
 
-验收记录按环境、版本和覆盖范围阅读；定向页面检查与合成 API 预览不代表全项目生产验收。当前界面、基础修复与未测场景见[全站重设计验收](docs/acceptance/2026-11-06-全站重设计与基础整治.md)。
+各轮的环境、已通过范围、失败和未测场景见[验收索引](docs/acceptance/README.md)。
 
 <details>
 <summary>项目目录</summary>
