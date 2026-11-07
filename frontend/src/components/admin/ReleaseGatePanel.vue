@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { RouteLocationRaw } from 'vue-router'
 import { ShieldCheck, ShieldAlert } from 'lucide-vue-next'
 import BusinessStatusBadge from './BusinessStatusBadge.vue'
 import LoadingState from '../common/LoadingState.vue'
@@ -13,12 +12,14 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   error?: string
   compact?: boolean
-  issueTarget?: RouteLocationRaw
+  canViewIssues?: boolean
+  canViewChecks?: boolean
 }>(), {
   loading: false,
   error: '',
   compact: false,
-  issueTarget: undefined,
+  canViewIssues: false,
+  canViewChecks: false,
 })
 
 defineEmits<{ retry: [] }>()
@@ -44,6 +45,24 @@ const summaryTone = computed(() => {
   if (gate.snapshotStatus !== 'APPROVED' && gate.snapshotStatus !== 'PUBLISHED') return 'info'
   if (gate.warningCount > 0) return 'warning'
   return 'success'
+})
+
+// 只有三种状态的权威计数完整对账，才能把每个阻断入口缩到精确的问题集合。
+const blockingLinks = computed(() => {
+  const gate = props.gate
+  if (!props.canViewIssues || !gate?.datasourceId || !gate.unresolvedSourceHighByStatus) return []
+  const counts = gate.unresolvedSourceHighByStatus
+  const statuses = ['OPEN', 'CONFIRMED', 'REOPENED'] as const
+  if (statuses.some(status => !Number.isSafeInteger(counts[status]) || counts[status] < 0) ||
+      statuses.reduce((sum, status) => sum + counts[status], 0) !== gate.unresolvedSourceHigh) return []
+  const names = { OPEN: '待处理', CONFIRMED: '已确认', REOPENED: '需重新处理' }
+  return statuses.filter(status => counts[status] > 0).map(status => ({ status, label: `${names[status]} ${counts[status]} 条`,
+    to: {path:'/admin/governance/issues',query:{datasourceId:String(gate.datasourceId),snapshotId:String(gate.snapshotId),issueDomain:'SOURCE',severity:'HIGH',status}} }))
+})
+const batchTarget = computed(() => {
+  const gate = props.gate
+  if (!props.canViewChecks || !gate?.datasourceId || !Number.isSafeInteger(gate.latestCheckBatchId) || Number(gate.latestCheckBatchId) <= 0) return undefined
+  return { path:'/admin/governance', query:{ datasourceId:String(gate.datasourceId),snapshotId:String(gate.snapshotId),batchId:String(gate.latestCheckBatchId),returnTo:'/admin/releases' } }
 })
 
 function itemLabel(item: ReleaseGateItem) {
@@ -79,11 +98,12 @@ function itemLabel(item: ReleaseGateItem) {
           <span class="release-gate__item-message">{{ item.message }}</span>
         </div>
         <div v-if="item.code === 'SOURCE_HIGH_UNRESOLVED' && item.status === 'FAIL'" class="release-gate__item-actions">
-          <RouterLink v-if="issueTarget" :to="issueTarget" class="release-gate__link">去问题中心处理</RouterLink>
+          <RouterLink v-for="link in blockingLinks" :key="link.status" :to="link.to" class="release-gate__link">{{ link.label }}</RouterLink>
         </div>
       </li>
     </ul>
     <p v-else class="release-gate__empty">暂无门禁数据</p>
+    <RouterLink v-if="batchTarget" :to="batchTarget" class="release-gate__link">查看检查批次 #{{ gate?.latestCheckBatchId }}</RouterLink>
   </section>
 </template>
 
@@ -94,7 +114,7 @@ function itemLabel(item: ReleaseGateItem) {
   padding: 16px;
   border: 1px solid var(--do-line);
   border-radius: 14px;
-  background: var(--do-surface, #fff);
+  background: var(--do-surface);
 }
 
 .release-gate--compact {
@@ -146,12 +166,13 @@ function itemLabel(item: ReleaseGateItem) {
   gap: 4px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: var(--do-surface-soft, #f7fafd);
+  background: var(--do-soft);
 }
 
 .release-gate__item--fail { background: var(--do-danger-soft); }
 .release-gate__item--warn { background: var(--do-warning-soft); }
-.release-gate__item--pass { background: var(--do-success-soft); }
+/* 通过项用徽标传达状态，让警告和阻断保留独立的视觉优先级。 */
+.release-gate__item--pass { background: var(--do-soft); }
 
 .release-gate__item-head {
   display: flex;
@@ -166,8 +187,9 @@ function itemLabel(item: ReleaseGateItem) {
   line-height: 1.5;
 }
 
+.release-gate__item-actions { display:flex; flex-wrap:wrap; gap:8px 16px; }
 .release-gate__link {
-  color: var(--do-primary, #1d4ed8);
+  color: var(--do-primary-strong);
   font-size: 12px;
   font-weight: 700;
 }
