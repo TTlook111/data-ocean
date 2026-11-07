@@ -276,7 +276,7 @@ function chatPreflight(expected: string) {
   return (fresh: AiConfig) => {
     if (hasPending(fresh))
       throw new Error(
-        '已有待切换Embedding；当前Chat保存接口可能取消该配置，本页未提交。需先单独确认后端合同。',
+        '已有待切换的 Embedding 配置。为保留该配置，Chat 参数未保存。',
       )
     if (JSON.stringify(fresh.activeChat) !== expected)
       throw new Error('当前Chat配置已变化，未提交；人工草稿保留，请核对后重开。')
@@ -578,10 +578,7 @@ watch(
     <p v-if="!canViewAiConfig" role="status">
       {{ session.iam.errorMessage || '当前没有AI配置查看权限，未读取配置。' }}
     </p>
-    <TaskPageHeader
-      title="AI 服务配置"
-      description="管理供应商、模型和参数。先核对当前生效与待切换配置，再按供应商维护模型。"
-    >
+    <TaskPageHeader title="AI 服务配置">
       <template #actions>
         <el-button
           :icon="Plus"
@@ -628,7 +625,6 @@ watch(
             <el-tag :type="vectorizeTone" size="small">
               {{ vectorizeStatusLabel }}
             </el-tag>
-            <span class="tile-sub">{{ vectorizeStatus?.status || 'UNKNOWN' }}</span>
           </div>
         </div>
       </div>
@@ -668,17 +664,14 @@ watch(
             失败原因：{{ vectorizeStatus?.errorMessage }}
           </p>
         </div>
-        <el-tag type="info">
-          发布后请在知识文档页显式确认 RAG 构建；Embedding 配置切换与各源 RAG 就绪分别核验。
-        </el-tag>
+        <!-- 索引影响与 Embedding 操作并列展示，Chat 页只保留其实际配置状态。 -->
+        <p v-if="activeTab === 'embedding'">更换 Embedding 模型后，请到知识文档页确认各数据源的索引构建。</p>
       </div>
     </section>
 
     <!-- Tab 切换 -->
     <section v-if="canViewAiConfig && config" class="config-section">
-      <p class="config-note">
-        测试与同步会连接供应商并更新目录。现有自动维度检测尚不能核验所选供应商，暂不可用；请人工确认维度。存在待切换Embedding时，普通Chat保存暂不提交，以保留现有待切换方案。
-      </p>
+      <p v-if="activeTab === 'chat' && hasPending(config)" class="config-note">已有待切换的 Embedding 配置，暂时不能保存 Chat 参数。</p>
       <div class="tab-header">
         <button :class="{ active: activeTab === 'chat' }" @click="selectTab('chat')">
           <Sparkles :size="16" aria-hidden="true" />
@@ -744,7 +737,7 @@ watch(
                 size="small"
                 :disabled="!canManageAiConfig || saving"
                 circle
-                title="测试连接"
+                title="测试与该供应商的连接"
                 aria-label="测试供应商连接"
                 @click="handleTestProvider(provider)"
               />
@@ -752,7 +745,7 @@ watch(
                 :icon="RefreshCw"
                 size="small"
                 circle
-                title="同步模型"
+                title="从供应商更新模型目录"
                 aria-label="同步供应商模型列表"
                 :loading="syncingProviderId === provider.id"
                 :disabled="!canManageAiConfig || saving"
@@ -911,7 +904,7 @@ watch(
                 size="small"
                 :disabled="!canManageAiConfig || saving"
                 circle
-                title="测试连接"
+                title="测试与该供应商的连接"
                 aria-label="测试供应商连接"
                 @click="handleTestProvider(provider)"
               />
@@ -919,7 +912,7 @@ watch(
                 :icon="RefreshCw"
                 size="small"
                 circle
-                title="同步模型"
+                title="从供应商更新模型目录"
                 aria-label="同步供应商模型列表"
                 :loading="syncingProviderId === provider.id"
                 :disabled="!canManageAiConfig || saving"
@@ -975,7 +968,7 @@ watch(
                 </div>
                 <div class="model-params">
                   <label>
-                    <span>向量维度</span>
+                    <span>向量维度（手动填写）</span>
                     <el-input-number
                       :model-value="dimensionFor(provider.id, model)"
                       @update:model-value="
@@ -988,13 +981,13 @@ watch(
                       @click.stop
                     />
                   </label>
-                  <!-- 自动检测维度：后端 /detect-dimension 早已存在，此前页面只能手填 -->
+                  <!-- 维度需要用户按当前供应商确认，在对应控件旁说明限制。 -->
                   <el-button
                     size="small"
                     :icon="Ruler"
                     :loading="detectingDimension"
                     :disabled="true"
-                    title="当前接口不能核验所选供应商，请人工确认维度"
+                    title="请按所选模型的规格手动填写向量维度"
                     aria-label="自动检测向量维度"
                     @click.stop="handleDetectDimension(provider.id, model)"
                   >
@@ -1116,13 +1109,6 @@ watch(
 .ai-config-page :deep(.el-dialog) {
   max-width: calc(100vw - 24px);
 }
-.tile-sub {
-  display: block;
-  margin-top: 4px;
-  color: var(--do-muted);
-  font-size: 11px;
-}
-
 .vectorize-panel {
   display: flex;
   align-items: flex-start;
@@ -1205,8 +1191,7 @@ watch(
   min-width: 0;
 }
 
-.status-tile > div > span:first-child,
-.status-tile .tile-sub {
+.status-tile > div > span:first-child {
   display: block;
   font-size: 12px;
   color: var(--do-muted);

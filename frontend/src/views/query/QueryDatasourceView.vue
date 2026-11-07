@@ -201,14 +201,13 @@ onBeforeUnmount(() => { alive = false; sourceChangeRequest++; datasourceSyncRequ
       <div v-if="selectedReadiness?.ragStale" class="readiness-note" role="status">知识版本落后，按当前快照与权限校验</div>
       <div v-if="iamS1.errorMessage" class="workspace-error" role="alert">{{ iamS1.errorMessage }} <button type="button" @click="iamS1.load(true)">重试能力检查</button></div>
       <div ref="chatSurface" class="chat-surface" aria-label="当前对话" @scroll="trackScroll">
-        <div v-if="session.loading.value || session.historyLoading.value" class="welcome-state" role="status"><LoaderCircle :size="24" aria-hidden="true" /><h2>正在读取数据与会话</h2></div>
+        <div v-if="session.loading.value || session.historyLoading.value" class="welcome-state" role="status"><LoaderCircle :size="24" aria-hidden="true" /><p>正在读取数据与会话…</p></div>
         <div v-else-if="session.errorMessage.value" class="welcome-state" role="alert"><h2>数据源读取失败</h2><p>{{ session.errorMessage.value }}</p><button class="state-button" type="button" @click="refreshDatasources">重新读取</button></div>
-        <div v-else-if="!session.selectedId.value" class="welcome-state"><BrandMark class="welcome-logo" aria-hidden="true" /><h2>从一份业务数据开始</h2><p>当前账号没有可查询的数据源。请联系组织指定管理员核对授权及知识准备情况。此处不展示无权来源。</p><details class="no-source-next-step"><summary>向管理员提供哪些信息</summary><ul><li>当前账号，以及希望完成的业务问题</li><li>期望业务主题与所需数据范围</li><li>当前页面提示“没有可查询的数据源”</li></ul><p>本页没有配置授权申请或联系入口，请通过组织既有渠道联系；管理员核对后再刷新。</p></details><button class="state-button" type="button" @click="refreshDatasources"><RefreshCw :size="15" aria-hidden="true" />刷新数据源</button></div>
-        <!-- 空对话只引导实际提问，不展示未经授权目录核对的业务示例。 -->
+        <!-- 无来源时先说明缺口，联系管理员所需信息继续按需展开。 -->
+        <div v-else-if="!session.selectedId.value" class="welcome-state"><h2>没有可查询的数据源</h2><p>请联系管理员核对数据授权和知识准备情况。</p><details class="no-source-next-step"><summary>向管理员提供哪些信息</summary><ul><li>当前账号与要查询的问题</li><li>期望业务主题与所需数据范围</li></ul></details><button class="state-button" type="button" @click="refreshDatasources"><RefreshCw :size="15" aria-hidden="true" />刷新数据源</button></div>
+        <!-- 空对话仅保留组句提示，具体可问对象由页头的授权范围展示。 -->
         <div v-else-if="!session.activeMessages.value.length" class="welcome-state welcome-prompt">
-          <BrandMark class="welcome-logo" aria-hidden="true" />
-          <h2>想从数据中了解什么？</h2>
-          <p>描述你想了解的指标、时间范围或比较维度。</p>
+          <p>提问时可写明指标、时间范围或比较对象。</p>
         </div>
         <section v-else class="conversation-stream" aria-label="对话消息">
           <button v-if="session.activeSession.value?.hasMoreHistory" class="state-button load-older-messages" type="button" :disabled="session.activeSession.value.historyLoading" @click="session.loadOlderMessages(session.activeSession.value)">{{ session.activeSession.value.historyLoading ? '正在加载…' : '加载更早消息' }}</button>
@@ -290,8 +289,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .welcome-state { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 0 40px; text-align: center; }
 .welcome-state h2 { margin: 0 0 14px; font-size: clamp(24px, 2.2vw, 30px); font-weight: 600; letter-spacing: -.6px; }
 .welcome-state p { max-width: 520px; margin: 0 0 24px; color: var(--do-muted); font-size: 14px; line-height: 1.8; }
-.welcome-logo { width: 32px; height: 48px; margin-bottom: 24px; }
-.welcome-prompt { padding-bottom: 56px; }
+/* 组句提示随输入框对齐，新对话中不单独占据中央展示位。 */
+.chat-surface:has(.welcome-prompt) { padding-bottom: 0; }
+.welcome-prompt { width: min(900px, 100%); margin-inline: auto; padding: 0; align-items: flex-start; justify-content: flex-end; text-align: start; }
+.welcome-prompt p { margin: 0; }
 .no-source-next-step { max-width:520px; text-align:left; padding:10px 14px; border:1px solid var(--do-line); border-radius:8px; font-size:13px; line-height:1.6; }
 .no-source-next-step summary { min-height:32px; cursor:pointer; color:var(--do-primary-strong); }
 .no-source-next-step summary:focus-visible { outline:2px solid var(--do-primary); }

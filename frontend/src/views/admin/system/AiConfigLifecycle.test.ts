@@ -177,7 +177,7 @@ describe('AI配置呈现与写入保护', () => {
     await button(w, '保存参数').trigger('click')
     await flushPromises()
     expect(api.updateAiConfig).not.toHaveBeenCalled()
-    expect(w.text()).toContain('当前Chat保存接口可能取消')
+    expect(w.text()).toContain('为保留该配置，Chat 参数未保存')
   })
   it('409保非秘密草稿、清新输入密钥，不重发', async () => {
     api.updateAiProvider.mockRejectedValue({
@@ -235,7 +235,9 @@ describe('AI配置呈现与写入保护', () => {
     await flushPromises()
     expect(button(w, '自动检测向量维度').attributes('disabled')).toBeDefined()
     expect(api.detectEmbeddingDimension).not.toHaveBeenCalled()
-    expect(w.text()).toContain('不能核验所选供应商')
+    // 人工填写要求位于维度输入旁，保留禁用检测和零网络请求的业务断言。
+    expect(w.text()).toContain('向量维度（手动填写）')
+    expect(button(w, '自动检测向量维度').attributes('title')).toContain('按所选模型的规格')
   })
   it('当前Embedding修改维度可显式创建待配置，不回落旧维度', async () => {
     api.updateAiConfig.mockResolvedValue({
