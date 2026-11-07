@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dataocean.module.dashboard.mapper.QueryExperienceMapper">
+    <!-- 只取当前协议的任务。使用提问时间左闭右开归组，翻页不因跨整点改变时间范围。 -->
+    <sql id="scope">
+        t.iam_protocol_version = #{q.protocol}
+        AND t.created_at &gt;= #{q.start} AND t.created_at &lt; #{q.end}
+        AND t.datasource_id IN
+        <foreach collection="q.sourceIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </sql>
+    <sql id="measurable">
+        t.status = 'COMPLETED' AND t.completed_at &gt;= t.created_at
+    </sql>
+    <sql id="seconds">TIMESTAMPDIFF(SECOND, t.created_at, t.completed_at)</sql>
+
+    <!-- 写入精度为秒；坏的完成时间不补零。只将原始秒数汇总一次，跨桶均值按样本数加权。 -->
+    <select id="buckets" resultType="com.dataocean.module.dashboard.entity.po.QueryExperienceCounts">
+        SELECT FLOOR(CAST(TIMESTAMPDIFF(MINUTE, #{q.start}, t.created_at) AS DECIMAL(18,6)) / #{q.bucketMinutes}) AS slot,
+               COUNT(*) AS total,
+               COUNT(CASE WHEN t.status = 'COMPLETED' THEN 1 END) AS completed,
+               COUNT(CASE WHEN <include refid="measurable"/> THEN 1 END) AS measured,
+               COUNT(CASE WHEN t.status = 'FAILED' THEN 1 END) AS failed,
+               COUNT(CASE WHEN t.status = 'TIMEOUT' THEN 1 END) AS timedOut,
+               COUNT(CASE WHEN t.status = 'PROCESSING' THEN 1 END) AS processing,
+               COUNT(CASE WHEN t.status = 'CANCELLED' THEN 1 END) AS cancelled,
+               COUNT(CASE WHEN t.status = 'CLARIFICATION_REQUIRED' THEN 1 END) AS clarification,
+               SUM(CASE WHEN <include refid="measurable"/> THEN <include refid="seconds"/> ELSE 0 END) AS durationSum,
+               COUNT(CASE WHEN <include refid="measurable"/> AND <include refid="seconds"/> &gt; #{q.targetSeconds}
+                          THEN 1 END) AS slow
+        FROM query_task t WHERE <include refid="scope"/>
+        GROUP BY slot ORDER BY slot
+    </select>
+    <!-- 昨日同时段也只计已完成且可测的任务，AVG 在无样本时返回 NULL。 -->
+    <select id="average" resultType="java.lang.Double">
+        SELECT AVG(<include refid="seconds"/>)
+        FROM query_task t WHERE <include refid="scope"/> AND <include refid="measurable"/>
+    </select>
+    <!-- 最近秩分位数在同一读事务中使用真实样本数定位；不平均各桶的 P95。 -->
+    <select id="rankedDuration" resultType="java.lang.Long">
+        SELECT <include refid="seconds"/> AS answerSeconds
+        FROM query_task t WHERE <include refid="scope"/> AND <include refid="measurable"/>
+        ORDER BY answerSeconds ASC LIMIT 1 OFFSET #{offset}
+    </select>
+
+    <!-- 每任务仅接收任务本人在原来源上的当前有效票。来源匹配防止脏反馈行串域泄漏。 -->
+    <sql id="voteIdentity">
+        f.task_id = t.task_id AND f.user_id = t.user_id AND f.datasource_id = t.datasource_id
+    </sql>
+    <select id="votes" resultType="com.dataocean.module.dashboard.entity.po.QueryExperienceVotes">
+        SELECT COUNT(*) AS eligible,
+               COUNT(CASE WHEN f.feedback_type = 'LIKE' THEN 1 END) AS likes,
+               COUNT(CASE WHEN f.feedback_type = 'DISLIKE' THEN 1 END) AS dislikes
+        FROM query_task t LEFT JOIN governance_feedback f ON <include refid="voteIdentity"/>
+        WHERE <include refid="scope"/> AND t.status = 'COMPLETED'
+    </select>
+
+    <!-- 慢回答按耗时降序，时长相同时按内部主键稳定分页，不读取问题、SQL 或用户身份。 -->
+    <select id="slowPage" resultType="com.dataocean.module.dashboard.entity.vo.QueryExperienceDetailVO">
+        SELECT t.task_id AS taskId, t.datasource_id AS datasourceId, t.created_at AS createdAt,
+               <include refid="seconds"/> AS seconds, NULL AS reasonCode, NULL AS comment
+        FROM query_task t WHERE <include refid="scope"/> AND <include refid="measurable"/>
+          AND <include refid="seconds"/> &gt; #{q.targetSeconds}
+        ORDER BY seconds DESC, t.id DESC
+    </select>
+    <!-- 点踩范围与反馈摘要的分子一致，短备注沿用原反馈域权限，从不按 audit:view 展示。 -->
+    <select id="dislikePage" resultType="com.dataocean.module.dashboard.entity.vo.QueryExperienceDetailVO">
+        SELECT t.task_id AS taskId, t.datasource_id AS datasourceId, t.created_at AS createdAt,
+               NULL AS seconds, f.reason_code AS reasonCode, f.comment AS comment
+        FROM query_task t JOIN governance_feedback f ON <include refid="voteIdentity"/>
+        WHERE <include refid="scope"/> AND t.status = 'COMPLETED' AND f.feedback_type = 'DISLIKE'
+        ORDER BY t.created_at DESC, t.id DESC
+    </select>
+</mapper>
