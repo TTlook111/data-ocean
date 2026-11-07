@@ -2,7 +2,7 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, ArrowRight } from 'lucide-vue-next'
-import brandMark from '../assets/brand/dataocean-mark.png'
+import BrandMark from '../components/common/BrandMark.vue'
 import { useAuthStore } from '../stores/auth'
 import { useIamS1Store } from '../stores/iamS1'
 import { resolveAdminEntry } from '../utils/adminNavigation'
@@ -46,7 +46,7 @@ function back() {
   <main class="not-found-page">
     <section>
       <div class="brand">
-        <img :src="brandMark" alt="" />
+        <BrandMark />
         <strong>DataOcean</strong>
       </div>
       <p class="eyebrow">页面未找到 · 404</p>
@@ -89,11 +89,6 @@ section {
   align-items: center;
   gap: 12px;
   margin-bottom: 56px;
-}
-.brand img {
-  width: 24px;
-  height: 38px;
-  object-fit: contain;
 }
 .brand strong {
   font-size: 19px;

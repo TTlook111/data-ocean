@@ -1,7 +1,9 @@
+/* 三个看板视图共用的令牌按根类生效，Canvas 能从所属页面继承同一组实际色值。 */
+@import './styles/dashboard-palette.css';
+
 html {
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    "Microsoft YaHei", sans-serif;
+  /* 字体从统一令牌读取，正文、表单和弹层使用相同的中文字形尺度。 */
+  font-family: var(--do-font-family);
   color: var(--do-ink);
   background: var(--do-bg);
   font-synthesis: none;
@@ -21,15 +23,12 @@ body,
 }
 
 body {
+  /* 工作页面使用安静的实色画布，不再加载旧装饰图片。 */
   position: relative;
   isolation: isolate;
   min-width: 320px;
   margin: 0;
-  background: var(--do-ocean-canvas);
-  background-color: var(--do-bg);
-  background-size: cover;
-  background-position: center;
-  background-attachment: fixed;
+  background: var(--do-bg);
 }
 
 body:has(.query-workspace),
@@ -55,7 +54,7 @@ a {
   background: transparent;
 }
 
-/* Glass is reserved for real shells and panels; data remains on a nearly opaque surface. */
+/* 历史材质类仍有业务页面消费，所有表面直接使用实色令牌。 */
 .do-glass-shell,
 .do-glass-panel,
 .do-glass-data {
@@ -63,46 +62,19 @@ a {
   box-shadow: var(--do-glass-shadow);
 }
 
-/* Only the background layer is blurred; its paint stays inside the panel. */
-.do-glass-shell:not(.login-visual),
-.do-glass-panel:not(.login-panel) {
+/* 保留已有定位容器，内容与浮层都在自己的层叠上下文内绘制。 */
+.do-glass-shell,
+.do-glass-panel {
   position: relative;
   isolation: isolate;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
-.do-glass-shell:not(.login-visual)::before,
-.do-glass-panel:not(.login-panel)::before {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  clip-path: inset(0 round var(--do-glass-corner, 16px));
-  content: '';
-  pointer-events: none;
-}
-
-.do-glass-shell:not(.login-visual)::before {
-  backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
-  -webkit-backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
-}
-
-.do-glass-panel:not(.login-panel)::before {
-  backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
-  -webkit-backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
 }
 
 .do-glass-shell {
   background: var(--do-glass-shell-bg);
-  backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
-  -webkit-backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
 }
 
 .do-glass-panel {
   background: var(--do-glass-panel-bg);
-  backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
-  -webkit-backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
 }
 
 .do-glass-data {
@@ -110,22 +82,11 @@ a {
   box-shadow: var(--do-shadow);
 }
 
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .do-glass-shell { background: rgba(239, 247, 255, 0.96); }
-  .do-glass-panel { background: rgba(250, 253, 255, 0.98); }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .do-glass-shell { background: rgba(239, 247, 255, 0.97); }
-  .do-glass-panel { background: rgba(250, 253, 255, 0.98); }
-  .do-glass-shell::before, .do-glass-panel::before { backdrop-filter: none; -webkit-backdrop-filter: none; }
-}
-
 button:focus-visible,
 a:focus-visible,
 [role="button"]:focus-visible,
 [tabindex]:not([tabindex="-1"]):focus-visible {
-  outline: 3px solid rgba(37, 99, 235, 0.48);
+  outline: 2px solid var(--do-primary);
   outline-offset: 2px;
 }
 
@@ -171,8 +132,8 @@ a:focus-visible,
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: #fff;
-  background: linear-gradient(145deg, #1766f4, #2d78f2);
+  color: var(--do-on-primary);
+  background: var(--do-primary);
   font-size: 13px;
   font-weight: 900;
 }
@@ -206,7 +167,7 @@ a:focus-visible,
   place-items: center;
   border-radius: 8px;
   color: var(--do-primary-strong);
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--do-surface);
 }
 
 .sidebar-toggle:hover,
@@ -241,7 +202,7 @@ a:focus-visible,
   gap: 12px;
   padding: 0 12px;
   border-radius: 8px;
-  color: #42526a;
+  color: var(--do-nav-text);
   font-size: 14px;
   font-weight: 800;
 }
@@ -341,7 +302,7 @@ a:focus-visible,
 
 .icon-button:hover {
   border-color: var(--do-primary);
-  box-shadow: 0 0 0 3px rgba(77, 143, 220, 0.1);
+  box-shadow: 0 0 0 3px var(--do-primary-soft);
 }
 
 .user-pill {
@@ -360,7 +321,7 @@ a:focus-visible,
 
 .user-pill:hover {
   border-color: var(--do-primary);
-  box-shadow: 0 0 0 3px rgba(77, 143, 220, 0.1);
+  box-shadow: 0 0 0 3px var(--do-primary-soft);
 }
 
 .user-avatar {
@@ -369,8 +330,8 @@ a:focus-visible,
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: #fff;
-  background: linear-gradient(135deg, var(--do-primary), var(--do-accent));
+  color: var(--do-on-primary);
+  background: var(--do-primary);
   font-weight: 900;
   font-size: 14px;
 }
@@ -440,8 +401,8 @@ a:focus-visible,
   display: grid;
   place-items: center;
   border-radius: 10px;
-  color: #fff;
-  background: linear-gradient(145deg, #1766f4, #2d78f2);
+  color: var(--do-on-primary);
+  background: var(--do-primary);
   font-weight: 900;
   font-size: 18px;
 }
@@ -557,7 +518,7 @@ a:focus-visible,
 .post-login-page .el-input__wrapper,
 .post-login-page .el-select__wrapper,
 .post-login-page .el-tree-select__wrapper {
-  background: #ffffff;
+  background: var(--do-surface);
   box-shadow: 0 0 0 1px var(--do-line-strong) inset;
 }
 
@@ -567,7 +528,8 @@ a:focus-visible,
   box-shadow: 0 0 0 1px var(--do-primary) inset, 0 0 0 4px color-mix(in srgb, var(--do-primary) 16%, transparent);
 }
 
-.post-login-page .el-button--primary {
+/* 实心主按钮的文字在正常、悬停、按下时都保持反白，链接和幽灵按钮保留自身样式。 */
+.el-button--primary:not(.is-plain):not(.is-link):not(.is-text) {
   --el-button-bg-color: var(--do-primary);
   --el-button-border-color: var(--do-primary);
   --el-button-hover-bg-color: var(--do-primary-strong);
@@ -576,10 +538,26 @@ a:focus-visible,
   --el-button-active-border-color: var(--do-primary-strong);
 }
 
-.post-login-page .el-tag--success {
-  --el-tag-bg-color: #eff9e9;
-  --el-tag-border-color: #c8e4b5;
-  --el-tag-text-color: var(--do-success);
+/* 实心语义按钮在悬停和按下时加深本色，保证白字始终清晰。 */
+.el-button--success { --do-button-tone: var(--do-success); }
+.el-button--primary { --do-button-tone: var(--do-primary); }
+.el-button--warning { --do-button-tone: var(--do-warning); }
+.el-button--danger { --do-button-tone: var(--do-danger); }
+.el-button--info { --do-button-tone: var(--el-color-info); }
+:is(.el-button--success, .el-button--warning, .el-button--danger, .el-button--info):not(.is-plain):not(.is-text):not(.is-link) {
+  --el-button-hover-bg-color: color-mix(in srgb, var(--do-button-tone) 80%, var(--do-ink));
+  --el-button-hover-border-color: var(--el-button-hover-bg-color);
+  --el-button-active-bg-color: color-mix(in srgb, var(--do-button-tone) 65%, var(--do-ink));
+  --el-button-active-border-color: var(--el-button-active-bg-color);
+}
+
+/* 表格动作和弹窗文字按钮使用较深的同色前景；浅色阶用于底色时不会冲淡文字。 */
+.el-button:is(.is-link, .is-text) {
+  --el-button-hover-link-text-color: color-mix(in srgb, var(--do-button-tone, var(--do-ink)) 75%, var(--do-ink));
+  --el-button-active-color: var(--el-button-hover-link-text-color);
+}
+.el-button:is(.is-link, .is-text):not(.is-disabled):is(:hover, :focus-visible, :active) {
+  color: var(--el-button-hover-link-text-color);
 }
 
 .admin-page,
@@ -630,7 +608,7 @@ a:focus-visible,
   display: inline-block;
   max-width: 100%;
   overflow: hidden;
-  color: #334155;
+  color: var(--do-ink);
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.45;
@@ -644,7 +622,7 @@ a:focus-visible,
 }
 
 .column-code {
-  color: #475569;
+  color: var(--do-muted);
 }
 
 .metric-chip {
@@ -656,7 +634,7 @@ a:focus-visible,
   border: 1px solid var(--do-line);
   border-radius: 8px;
   color: var(--do-muted);
-  background: #f8fafc;
+  background: var(--do-soft);
   font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
@@ -689,10 +667,10 @@ a:focus-visible,
   height: 48px;
   display: grid;
   place-items: center;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--el-color-primary-light-7);
   border-radius: 12px;
   color: var(--do-primary);
-  background: #eff6ff;
+  background: var(--do-primary-soft);
 }
 
 .status-strip {
@@ -715,9 +693,7 @@ a:focus-visible,
   padding: 18px;
   border: 1px solid var(--do-glass-line);
   border-radius: var(--do-radius-lg);
-  background:
-    linear-gradient(135deg, var(--do-primary-soft), rgba(255, 255, 255, 0.96) 76%),
-    var(--do-glass-data-bg);
+  background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
 
@@ -772,10 +748,10 @@ a:focus-visible,
   gap: 6px;
   min-height: 28px;
   padding: 0 10px;
-  border: 1px solid rgba(77, 143, 220, 0.18);
+  border: 1px solid var(--el-color-primary-light-7);
   border-radius: 999px;
   color: var(--do-primary-strong);
-  background: rgba(77, 143, 220, 0.08);
+  background: var(--do-primary-soft);
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;

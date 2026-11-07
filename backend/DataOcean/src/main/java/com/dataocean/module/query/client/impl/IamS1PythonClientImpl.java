@@ -3,7 +3,6 @@ package com.dataocean.module.query.client.impl;
 import com.dataocean.module.query.client.IamS1PythonClient;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Async;
@@ -21,13 +20,21 @@ import java.util.function.Consumer;
 
 /** 不接受旧 Agent 合同，不把 SSE 失败包装成成功。 */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class IamS1PythonClientImpl implements IamS1PythonClient {
 
     private final ObjectMapper objectMapper;
-    @Qualifier("pythonRestClient")
     private final RestClient restClient;
+    private final RestClient cancellationRestClient;
+
+    public IamS1PythonClientImpl(ObjectMapper objectMapper,
+                                @Qualifier("pythonRestClient") RestClient restClient,
+                                @Qualifier("pythonShortTimeoutRestClient") RestClient cancellationRestClient) {
+        // SSE 保留原长超时，取消回执复用既有短超时客户端，且二者共享既有内部鉴权配置。
+        this.objectMapper = objectMapper;
+        this.restClient = restClient;
+        this.cancellationRestClient = cancellationRestClient;
+    }
 
     @Async("queryExecutor")
     @Override
@@ -127,10 +134,14 @@ public class IamS1PythonClientImpl implements IamS1PythonClient {
 
     @Override
     public void cancelTask(String taskId) {
-        try {
-            restClient.post().uri("/internal/iam-s1/query/tasks/{taskId}/cancel", taskId).retrieve().toBodilessEntity();
-        } catch (Exception ex) {
-            log.warn("IAM-SIMPLE-1 取消请求失败 taskId={}", taskId);
+        // HTTP 异常必须交给持久补投层处理；仅 2xx 不能证明回执属于本任务或已接收取消。
+        Map<?, ?> receipt = cancellationRestClient.post()
+                .uri("/internal/iam-s1/query/tasks/{taskId}/cancel", taskId)
+                .retrieve().body(Map.class);
+        if (receipt == null || !taskId.equals(receipt.get("taskId"))
+                || !"IAM-SIMPLE-1".equals(receipt.get("protocolVersion"))
+                || !Boolean.TRUE.equals(receipt.get("cancelled"))) {
+            throw new IllegalStateException("Python 未返回当前任务的有效取消接收回执");
         }
     }
 }

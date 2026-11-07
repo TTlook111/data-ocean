@@ -343,7 +343,8 @@ onBeforeUnmount(() => { disposed = true; generation++ })
 .schedule-frequency :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
   color: var(--do-primary-strong);
   background: var(--do-surface);
-  box-shadow: 0 1px 4px rgba(36, 39, 36, .1);
+  /* 调度面板的层级随全站内容面调整。 */
+  box-shadow: var(--do-shadow);
 }
 .schedule-frequency :deep(.el-radio-button:first-child .el-radio-button__inner),
 .schedule-frequency :deep(.el-radio-button:last-child .el-radio-button__inner) { border-radius: 8px; }

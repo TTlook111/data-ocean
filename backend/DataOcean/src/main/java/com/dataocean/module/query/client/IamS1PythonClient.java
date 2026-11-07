@@ -8,5 +8,6 @@ public interface IamS1PythonClient {
     void executeAsync(String taskId, Map<String, Object> request, Consumer<String> resultConsumer,
                       Consumer<Map<String, Object>> progressConsumer);
 
+    /** 核验同任务的取消接收回执；投递失败抛出异常，接收成功不代表执行已停止。 */
     void cancelTask(String taskId);
 }

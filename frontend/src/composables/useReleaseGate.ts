@@ -20,7 +20,7 @@ export function useReleaseGate() {
   const warningCount = computed(() => gate.value?.warningCount ?? 0)
   const canPublish = computed(() => gate.value?.publishable ?? false)
 
-  async function load(snapshotId: number) {
+  async function load(snapshotId: number, datasourceId?: number, canReadSource?: (source: number) => boolean) {
     const currentRequest = ++requestVersion
     gate.value = null
     error.value = ''
@@ -37,7 +37,9 @@ export function useReleaseGate() {
     try {
       const result = await getReleaseGate(snapshotId)
       if (currentRequest !== requestVersion) return
-      if (!result.data || result.data.snapshotId !== snapshotId) {
+      const source = result.data?.datasourceId
+      // 精确链接可能没有显式来源，返回的来源也要先通过本次授权检查再进入页面。
+      if (!result.data || result.data.snapshotId !== snapshotId || (datasourceId !== undefined && source !== datasourceId) || (canReadSource && (!source || !canReadSource(source)))) {
         error.value = '无法读取指定快照的发布门禁'
         state.value = 'error'
         return

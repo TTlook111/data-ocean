@@ -8,69 +8,86 @@
 :root {
   /* ===== 颜色 ===== */
 
-  /* 主色调 */
-  --do-primary: #1769ee;
-  --do-primary-strong: #0963ff;
-  --do-primary-soft: #edf5ff;
-  --do-accent: #6aa84f;
-  --do-accent-strong: #4f8f36;
+  /* 海蓝只标识可执行动作和选择。成组的数字、正文和大面积表面保持中性。 */
+  --do-primary: #254f76;
+  --do-primary-strong: #173a5a;
+  --do-primary-soft: #e8eff4;
+  --do-on-primary: #ffffff;
+  --do-accent: #32697a;
+  --do-accent-strong: #284d60;
+  --do-code-bg: #252b30;
+  --do-code-text: #eef2f1;
 
-  /* 文本颜色 */
-  --do-ink: #13213a;
-  --do-muted: #52647e;
+  /* 深色正文与次级文字分级，密集表格仍保持足够对比。 */
+  --do-ink: #262b2d;
+  --do-muted: #5e6466;
 
-  /* 背景颜色 */
-  --do-bg: #edf5ff;
-  --do-surface: #ffffff;
-  --do-paper: #ffffff;
-  --do-sidebar: #f2f8ff;
-  --do-sidebar-muted: #52647e;
-  --do-soft: #f5f9ff;
+  /* 纸白画布、浅灰目录和白色编辑面依次分层。选中项在浅蓝底上使用深海蓝文字。 */
+  --do-bg: #f8f8f5;
+  --do-surface: #fffffd;
+  --do-paper: var(--do-surface);
+  --do-soft: #f0f1ed;
+  --do-nav-bg: #eeefeb;
+  --do-nav-text: #31383b;
+  --do-nav-muted: #585f61;
+  --do-nav-line: #d3d6d1;
+  --do-nav-hover: #e3e6e2;
+  --do-nav-active: #dce6ed;
+  --do-nav-active-text: #183a57;
+  --do-nav-accent: var(--do-primary-strong);
+  --do-sidebar: var(--do-nav-bg);
+  --do-sidebar-muted: var(--do-nav-muted);
 
-  /* 边框颜色 */
-  --do-line: #dbe6f5;
-  --do-line-strong: #c4d5ee;
+  /* 细边界承担分区，避免依赖多层阴影和嵌套卡片。 */
+  --do-line: #dcded9;
+  --do-line-strong: #b9bfbc;
 
-  /* ===== 海蓝画布与玻璃材质 ===== */
+  /* 旧组件尚在消费的材质别名指向不透明表面，迁移期间不再叠加玻璃主题。 */
+  --do-ocean-highlight: transparent;
+  --do-ocean-mist: transparent;
+  --do-ocean-art: none;
+  --do-ocean-canvas: var(--do-bg);
+  --do-glass-shell-bg: var(--do-sidebar);
+  --do-glass-panel-bg: var(--do-surface);
+  --do-glass-data-bg: var(--do-surface);
+  --do-glass-ocean-bg: none;
+  --do-glass-border: var(--do-line);
+  --do-glass-line: var(--do-line);
+  --do-glass-shadow: var(--do-shadow);
+  --do-glass-shadow-raised: var(--do-shadow-lg);
+  --do-glass-blur: 0px;
+  --do-glass-panel-blur: 0px;
 
-  --do-ocean-highlight: rgba(96, 159, 255, 0.48);
-  --do-ocean-mist: rgba(119, 181, 247, 0.36);
-  --do-ocean-art: url('../assets/ocean/ocean-light.webp');
-  --do-ocean-canvas: var(--do-ocean-art);
-  --do-glass-shell-bg: rgba(247, 252, 255, 0.48);
-  --do-glass-panel-bg: rgba(255, 255, 255, 0.68);
-  --do-glass-data-bg: rgba(255, 255, 255, 0.95);
-  --do-glass-ocean-bg: url('../assets/ocean/ocean-focus.webp');
-  --do-glass-border: rgba(255, 255, 255, 0.95);
-  --do-glass-line: rgba(118, 158, 211, 0.2);
-  --do-glass-shadow: 0 12px 34px rgba(33, 78, 140, 0.1);
-  --do-glass-shadow-raised: 0 18px 44px rgba(33, 78, 140, 0.14);
-  --do-glass-blur: 22px;
-  --do-glass-panel-blur: 18px;
+  /* 状态色低饱和且相互可辨，成功状态不会抢占主操作的视觉层级。 */
+  --do-success: #296748;
+  --do-success-soft: #e7f2e9;
+  --do-warning: #855719;
+  --do-warning-soft: #fcf0d8;
+  --do-danger: #a33850;
+  --do-danger-soft: #fbe9ed;
+  --do-info: #38638c;
+  --do-info-soft: #e9f1f8;
 
-  /* 语义颜色 */
-  --do-success: #16a34a;
-  --do-success-soft: #f0fdf4;
-  --do-warning: #d97706;
-  --do-warning-soft: #fffbeb;
-  --do-danger: #dc2626;
-  --do-danger-soft: #fef2f2;
-  --do-info: #0ea5e9;
-  --do-info-soft: #e8f7fd;
+  /* 类别按固定顺序取色；失败、待处理等有业务含义的图形仍取对应状态色。 */
+  --do-chart-1: #345d85;
+  --do-chart-2: #397e79;
+  --do-chart-3: #ae693e;
+  --do-chart-4: #91679e;
+  --do-chart-5: #65773d;
+  --do-chart-6: #a65472;
 
-  /* ===== 阴影 ===== */
-
-  --do-shadow: 0 2px 8px rgba(34, 72, 126, 0.07);
-  --do-shadow-hover: 0 8px 22px rgba(34, 72, 126, 0.12);
-  --do-shadow-lg: 0 16px 38px rgba(34, 72, 126, 0.14);
+  /* 阴影仅表达浮层高度，常驻工作面保持克制。 */
+  --do-shadow: 0 1px 2px rgb(43 35 52 / 4%);
+  --do-shadow-hover: 0 4px 14px rgb(43 35 52 / 8%);
+  --do-shadow-lg: 0 18px 52px -12px rgb(35 30 50 / 23%), 0 2px 8px rgb(35 30 50 / 6%);
 
   /* ===== 圆角 ===== */
 
-  --do-radius-sm: 8px;
-  --do-radius-md: 10px;
-  --do-radius-lg: 14px;
-  --do-radius-xl: 16px;
-  --do-radius: 10px;
+  --do-radius-sm: 5px;
+  --do-radius-md: 6px;
+  --do-radius-lg: 8px;
+  --do-radius-xl: 12px;
+  --do-radius: 6px;
   --do-radius-full: 9999px;
 
   /* ===== 间距 ===== */
@@ -82,9 +99,8 @@
   --do-space-xl: 32px;
   --do-space-2xl: 48px;
 
-  /* ===== 字体 ===== */
-
-  --do-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* 优先本机完整中英文字形，避免远端字体加载改变表格与控件尺寸。 */
+  --do-font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', sans-serif;
   --do-font-size-xs: 11px;
   --do-font-size-sm: 12px;
   --do-font-size-md: 14px;
@@ -104,19 +120,52 @@
   --do-tone-green-bg: var(--do-success-soft);
   --do-tone-orange: var(--do-warning);
   --do-tone-orange-bg: var(--do-warning-soft);
-  --do-tone-purple: #7c3aed;
-  --do-tone-purple-bg: #f3eeff;
-  --do-tone-sky: var(--do-primary-strong);
+  --do-tone-purple: #774b84;
+  --do-tone-purple-bg: #f3eaf5;
+  --do-tone-sky: var(--do-info);
   --do-tone-sky-bg: var(--do-info-soft);
 
+  /* 组件库弹层会传送到 body，因此所有色阶都在根级映射同一主题。 */
   --el-color-primary: var(--do-primary);
   --el-color-primary-dark-2: var(--do-primary-strong);
+  --el-color-primary-light-3: color-mix(in srgb, var(--do-primary) 73%, var(--do-surface));
+  --el-color-primary-light-5: color-mix(in srgb, var(--do-primary) 50%, var(--do-surface));
+  --el-color-primary-light-7: color-mix(in srgb, var(--do-primary) 30%, var(--do-surface));
+  --el-color-primary-light-8: color-mix(in srgb, var(--do-primary) 20%, var(--do-surface));
+  --el-color-primary-light-9: var(--do-primary-soft);
   --el-color-success: var(--do-success);
+  --el-color-success-light-9: var(--do-success-soft);
+  --el-color-success-light-8: color-mix(in srgb, var(--do-success) 18%, white);
   --el-color-warning: var(--do-warning);
+  --el-color-warning-light-9: var(--do-warning-soft);
+  --el-color-warning-light-8: color-mix(in srgb, var(--do-warning) 18%, white);
   --el-color-danger: var(--do-danger);
+  /* 表单错误与危险操作采用同一莓红，淡底内仍可直接读出错误文字。 */
+  --el-color-error: var(--do-danger);
+  --el-color-error-light-9: var(--do-danger-soft);
+  --el-color-danger-light-9: var(--do-danger-soft);
+  --el-color-danger-light-8: color-mix(in srgb, var(--do-danger) 18%, white);
+  --el-color-info: var(--do-muted);
+  --el-color-info-light-9: var(--do-soft);
+  --el-color-info-light-8: var(--do-line);
   --el-border-radius-base: var(--do-radius-sm);
   --el-bg-color-overlay: var(--do-glass-data-bg);
   --el-border-color-light: var(--do-glass-line);
   --el-box-shadow-light: var(--do-shadow-lg);
   --el-fill-color-light: var(--do-soft);
+  --el-text-color-primary: var(--do-ink);
+  /* 正文、表头、浮层及输入框沿用同一中性阶，次级文字和禁用控件保持可辨。 */
+  --el-text-color-regular: #454c4f;
+  --el-text-color-secondary: var(--do-muted);
+  --el-text-color-placeholder: #6c7476;
+  --el-border-color: var(--do-line-strong);
+  --el-border-color-lighter: var(--do-line);
+  --el-fill-color-blank: var(--do-surface);
+  --el-fill-color-lighter: var(--do-bg);
+  --el-fill-color: var(--do-soft);
+  --el-font-family: var(--do-font-family);
+  --el-mask-color: color-mix(in srgb, var(--do-surface) 88%, transparent);
+  --el-bg-color-page: var(--do-bg);
+  --el-overlay-color-lighter: rgb(34 28 50 / 38%);
+  --el-bg-color: var(--do-surface);
 }

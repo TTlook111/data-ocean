@@ -11,7 +11,7 @@ public interface SnapshotPublishService {
      * @param snapshotId 快照 ID
      * @param operatorId 操作人 ID
      */
-    void publishSnapshot(Long snapshotId, Long operatorId);
+    void publishSnapshot(Long snapshotId, String expectedStatus, Long expectedPublishedSnapshotId, Long operatorId);
 
     /**
      * 撤回已发布快照。
@@ -20,5 +20,5 @@ public interface SnapshotPublishService {
      * @param operatorId 操作人 ID
      * @param reason     撤回原因
      */
-    void revokeSnapshot(Long snapshotId, Long operatorId, String reason);
+    void revokeSnapshot(Long snapshotId, String expectedStatus, Long expectedPublishedSnapshotId, Long operatorId, String reason);
 }

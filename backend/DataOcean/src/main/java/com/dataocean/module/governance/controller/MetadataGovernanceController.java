@@ -2,6 +2,7 @@ package com.dataocean.module.governance.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.entity.query.PageQuery;
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.common.result.Result;
 import com.dataocean.common.security.UserContext;
 import com.dataocean.module.system.aspect.AdminAuditLog;
@@ -15,6 +16,7 @@ import com.dataocean.module.governance.entity.vo.QualityRuleTemplateVO;
 import com.dataocean.module.governance.entity.vo.QualityRuleSummaryVO;
 import com.dataocean.module.governance.entity.vo.QualityRuleVO;
 import com.dataocean.module.governance.entity.vo.QualityRuleRevisionVO;
+import com.dataocean.module.governance.entity.vo.QualityRuleOperationVO;
 import com.dataocean.module.governance.entity.vo.ReviewRecordVO;
 import com.dataocean.module.governance.entity.query.QualityRuleQuery;
 import com.dataocean.module.governance.service.*;
@@ -63,6 +65,7 @@ public class MetadataGovernanceController {
 
     private final QualityCheckService qualityCheckService;
     private final QualityRuleService qualityRuleService;
+    private final QualityRuleOperationService ruleOperationService;
     private final QualityIssueService qualityIssueService;
     private final GovernanceStatusService governanceStatusService;
     private final MetadataReviewService reviewService;
@@ -80,6 +83,12 @@ public class MetadataGovernanceController {
 
     // ========== 质量校验 ==========
 
+    /** 主任务按同源任一能力准入由服务端逐项裁决；不借元数据目录权限读取完整快照。 */
+    @GetMapping("/snapshots/{snapshotId}/quality-context")
+    public Result<com.dataocean.module.governance.entity.vo.QualityContextVO> qualityContext(@PathVariable Long snapshotId) {
+        return Result.success(batchService.context(snapshotId, UserContext.currentUserId()));
+    }
+
     /**
      * 触发指定快照的质量校验。
      *
@@ -91,18 +100,38 @@ public class MetadataGovernanceController {
     @IamS1Resource(function = CHECK_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
     public Result<QualityCheckResultVO> triggerQualityCheck(
             @PathVariable Long snapshotId,
-            @RequestBody(required = false) QualityCheckRequestDTO request) {
-        List<String> dimensions = request != null ? request.getDimensions() : null;
-        List<String> tableNames = request != null ? request.getTableNames() : null;
+            @Valid @RequestBody QualityCheckRequestDTO request) {
+        List<String> dimensions = request.getDimensions();
+        List<String> tableNames = request.getTableNames();
         QualityCheckResultVO result = qualityCheckService.executeQualityCheck(
-                snapshotId, dimensions, tableNames, UserContext.currentUserId());
+                snapshotId, dimensions, tableNames, UserContext.currentUserId(), request.getOperationId());
         return Result.success(result);
+    }
+
+    /** 只有原操作者能按 UUID 核对自己的执行，不借 latest 推断丢失响应的结果。 */
+    @GetMapping("/snapshots/{snapshotId}/quality-check-operations/{operationId}")
+    @IamS1Resource(function = CHECK_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
+    public Result<QualityCheckBatchVO> qualityCheckOperation(@PathVariable Long snapshotId, @PathVariable String operationId) {
+        return Result.success(batchService.getOperation(snapshotId, operationId, UserContext.currentUserId()));
+    }
+
+    @PostMapping("/snapshots/{snapshotId}/quality-check-operations/{operationId}/resolve")
+    @IamS1Resource(function = CHECK_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
+    public Result<QualityCheckBatchVO> resolveQualityCheckOperation(@PathVariable Long snapshotId, @PathVariable String operationId) {
+        return Result.success(batchService.resolveOperation(snapshotId, operationId, UserContext.currentUserId()));
     }
 
     @GetMapping("/snapshots/{snapshotId}/quality-check-batches/latest")
     @IamS1Resource(function = "governance:view", resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
     public Result<QualityCheckBatchVO> latestQualityCheckBatch(@PathVariable Long snapshotId) {
         return Result.success(batchService.latest(snapshotId));
+    }
+
+    /** 从执行记录打开原批次，按请求快照授权后仍由服务端核对真实归属。 */
+    @GetMapping("/snapshots/{snapshotId}/quality-check-batches/{batchId}")
+    @IamS1Resource(function = "governance:view", resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
+    public Result<QualityCheckBatchVO> qualityCheckBatch(@PathVariable Long snapshotId, @PathVariable Long batchId) {
+        return Result.success(batchService.getForSnapshot(snapshotId, batchId));
     }
 
     @GetMapping("/snapshots/{snapshotId}/quality-rules/summary")
@@ -177,43 +206,67 @@ public class MetadataGovernanceController {
         return Result.success(qualityRuleService.history(ruleId, UserContext.currentUserId()));
     }
 
+    /** 所有新写入都提交冻结意图；返回的是配置回执，不是质量检查结果。 */
+    @PostMapping("/quality-rules/operations")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<QualityRuleOperationVO> executeRuleOperation(@Valid @RequestBody QualityRuleOperationDTO request) {
+        return ruleOperationResult(ruleOperationService.execute(request, UserContext.currentUserId()));
+    }
+
+    @GetMapping("/quality-rules/operations/{operationId}")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<QualityRuleOperationVO> ruleOperation(@PathVariable String operationId) {
+        return ruleOperationResult(ruleOperationService.get(operationId, UserContext.currentUserId()));
+    }
+
+    /** 无已提交回执时写入拒绝墓碑，封住晚到原请求后才允许用户重新开始。 */
+    @PostMapping("/quality-rules/operations/{operationId}/resolve")
+    @IamS1ScopedList(RULE_MANAGE_FUNCTION)
+    public Result<QualityRuleOperationVO> resolveRuleOperation(@PathVariable String operationId) {
+        return ruleOperationResult(ruleOperationService.resolve(operationId, UserContext.currentUserId()));
+    }
+
+    /** 旧路径保留严格适配：缺操作标识或版本由参数绑定拒绝，不留无条件写入口。 */
     @PostMapping("/quality-rules")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<QualityRuleVO> createRule(@Valid @RequestBody QualityRuleDTO request) {
-        return Result.success(qualityRuleService.createRule(request, UserContext.currentUserId()));
+    public Result<QualityRuleOperationVO> createRule(@Valid @RequestBody QualityRuleDTO request,
+                                                    @RequestParam String operationId) {
+        return submitRuleOperation(operationId, "CREATE", null, null, request);
     }
 
     @PutMapping("/quality-rules/{ruleId}")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<QualityRuleVO> editRule(@PathVariable Long ruleId, @Valid @RequestBody QualityRuleDTO request) {
-        return Result.success(qualityRuleService.updateRule(ruleId, request, UserContext.currentUserId()));
+    public Result<QualityRuleOperationVO> editRule(@PathVariable Long ruleId, @Valid @RequestBody QualityRuleDTO request,
+                                                  @RequestParam String operationId, @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, "UPDATE", ruleId, expectedVersion, request);
     }
 
     @PostMapping("/quality-rules/{ruleId}/copy")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<QualityRuleVO> copyRule(@PathVariable Long ruleId) {
-        return Result.success(qualityRuleService.copyRule(ruleId, UserContext.currentUserId()));
+    public Result<QualityRuleOperationVO> copyRule(@PathVariable Long ruleId, @RequestParam String operationId,
+                                                  @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, "COPY", ruleId, expectedVersion, null);
     }
 
     @PatchMapping("/quality-rules/{ruleId}/enabled")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<Void> setRuleEnabled(@PathVariable Long ruleId, @Valid @RequestBody RuleEnabledDTO request) {
-        qualityRuleService.updateEnabled(ruleId, Boolean.TRUE.equals(request.getEnabled()), UserContext.currentUserId());
-        return Result.success();
+    public Result<QualityRuleOperationVO> setRuleEnabled(@PathVariable Long ruleId, @Valid @RequestBody RuleEnabledDTO request,
+                                                        @RequestParam String operationId, @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, Boolean.TRUE.equals(request.getEnabled()) ? "ENABLE" : "DISABLE", ruleId, expectedVersion, null);
     }
 
     @DeleteMapping("/quality-rules/{ruleId}")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<Void> deleteRule(@PathVariable Long ruleId) {
-        qualityRuleService.deleteRule(ruleId, UserContext.currentUserId());
-        return Result.success();
+    public Result<QualityRuleOperationVO> deleteRule(@PathVariable Long ruleId, @RequestParam String operationId,
+                                                    @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, "DELETE", ruleId, expectedVersion, null);
     }
 
     @PostMapping("/quality-rules/{ruleId}/restore")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<Void> restoreRule(@PathVariable Long ruleId) {
-        qualityRuleService.restoreRule(ruleId, UserContext.currentUserId());
-        return Result.success();
+    public Result<QualityRuleOperationVO> restoreRule(@PathVariable Long ruleId, @RequestParam String operationId,
+                                                     @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, "RESTORE", ruleId, expectedVersion, null);
     }
 
     /**
@@ -225,15 +278,30 @@ public class MetadataGovernanceController {
      */
     @PatchMapping("/quality-rules/{ruleId}")
     @IamS1ScopedList(RULE_MANAGE_FUNCTION)
-    public Result<Void> updateRuleEnabled(@PathVariable Long ruleId,
-                                           @RequestBody Map<String, Boolean> body) {
-        Boolean enabled = body.get("enabled");
-        if (enabled != null) {
-            // 全局规则没有 datasourceId：Service 会要求受保护系统管理员，
-            // 非系统管理员即使在某个负责源上有 governance:rule:manage 也不能改全局规则。
-            qualityRuleService.updateEnabled(ruleId, enabled, UserContext.currentUserId());
+    public Result<QualityRuleOperationVO> updateRuleEnabled(@PathVariable Long ruleId,
+                                                            @Valid @RequestBody RuleEnabledDTO body,
+                                                            @RequestParam String operationId,
+                                                            @RequestParam Integer expectedVersion) {
+        return submitRuleOperation(operationId, Boolean.TRUE.equals(body.getEnabled()) ? "ENABLE" : "DISABLE", ruleId, expectedVersion, null);
+    }
+
+    private Result<QualityRuleOperationVO> submitRuleOperation(String operationId, String action, Long ruleId,
+                                                               Integer expectedVersion, QualityRuleDTO configuration) {
+        QualityRuleOperationDTO operation = new QualityRuleOperationDTO();
+        operation.setOperationId(operationId);
+        operation.setAction(action);
+        operation.setRuleId(ruleId);
+        operation.setExpectedVersion(expectedVersion);
+        operation.setConfiguration(configuration);
+        return ruleOperationResult(ruleOperationService.execute(operation, UserContext.currentUserId()));
+    }
+
+    private Result<QualityRuleOperationVO> ruleOperationResult(QualityRuleOperationVO receipt) {
+        // 拒绝回执先由事务提交，再在 HTTP 层返回 403；失权客户端不得得到对象版本等事实。
+        if (Integer.valueOf(403).equals(receipt.getErrorCode())) {
+            throw new BusinessException(403, "没有维护该范围质量规则的权限");
         }
-        return Result.success();
+        return Result.success(receipt);
     }
 
     // ========== 问题清单 ==========
@@ -311,7 +379,7 @@ public class MetadataGovernanceController {
     @IamS1Resource(function = ISSUE_MANAGE_FUNCTION, resourceType = IamS1ResourceType.GOVERNANCE_ISSUE, resourceIds = "#issueId")
     public Result<Void> handleIssue(@PathVariable Long issueId,
                                      @Valid @RequestBody IssueHandleRequestDTO request) {
-        qualityIssueService.handleIssue(issueId, request.getStatus(), request.getResolutionNote(), UserContext.currentUserId());
+        qualityIssueService.handleIssue(issueId, request.getStatus(), request.getResolutionNote(), request.getExpectedVersion(), UserContext.currentUserId());
         return Result.success();
     }
 
@@ -325,7 +393,7 @@ public class MetadataGovernanceController {
     @IamS1ScopedList(ISSUE_MANAGE_FUNCTION)
     public Result<IssueBatchHandleResultVO> batchHandleIssues(@Valid @RequestBody IssueBatchHandleDTO request) {
         return Result.success(qualityIssueService.batchHandle(
-                request.getIssueIds(), request.getStatus(), UserContext.currentUserId()));
+                request.getIssueIds(), request.getStatus(), request.getExpectedVersions(), UserContext.currentUserId()));
     }
 
     /**
@@ -339,7 +407,7 @@ public class MetadataGovernanceController {
     @IamS1Resource(function = ISSUE_MANAGE_FUNCTION, resourceType = IamS1ResourceType.GOVERNANCE_ISSUE, resourceIds = "#issueId")
     public Result<Void> assignIssue(@PathVariable Long issueId,
                                      @Valid @RequestBody IssueAssignDTO request) {
-        qualityIssueService.assignIssue(issueId, request.getAssigneeId());
+        qualityIssueService.assignIssue(issueId, request.getAssigneeId(), request.getExpectedVersion());
         return Result.success();
     }
 

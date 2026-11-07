@@ -5,6 +5,7 @@ import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.governance.constant.GovernanceStatuses;
 import com.dataocean.module.governance.entity.po.MetadataQualityIssue;
 import com.dataocean.module.governance.mapper.MetadataQualityIssueMapper;
+import com.dataocean.module.governance.mapper.QualityCheckBatchMapper;
 import com.dataocean.module.metadata.entity.po.DbTableMeta;
 import com.dataocean.module.metadata.entity.po.MetadataSnapshot;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
@@ -41,20 +42,32 @@ public class SnapshotReleaseGateServiceImpl implements SnapshotReleaseGateServic
     private final MetadataSnapshotMapper snapshotMapper;
     private final MetadataQualityIssueMapper qualityIssueMapper;
     private final DbTableMetaMapper tableMetaMapper;
+    private final QualityCheckBatchMapper batchMapper;
 
     @Override
+    @org.springframework.transaction.annotation.Transactional(readOnly = true,
+            isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public SnapshotReleaseGateVO evaluate(Long snapshotId) {
         MetadataSnapshot snapshot = snapshotMapper.selectById(snapshotId);
         if (snapshot == null) {
             throw new BusinessException(404, "快照不存在");
         }
-        return evaluate(snapshot);
+        // 批次定位仅用于门禁展示；写事务的最终判断只依赖当前来源问题及可用表。
+        SnapshotReleaseGateVO gate = evaluate(snapshot);
+        gate.setLatestCheckBatchId(batchMapper.latestRecordedId(snapshot.getDatasourceId(), snapshotId));
+        return gate;
     }
 
     @Override
     public SnapshotReleaseGateVO evaluate(MetadataSnapshot snapshot) {
-        long sourceHigh = countUnresolvedHigh(snapshot.getId(), MetadataQualityIssue.DOMAIN_SOURCE);
-        long semanticHigh = countUnresolvedHigh(snapshot.getId(), MetadataQualityIssue.DOMAIN_SEMANTIC);
+        // 总数直接来自三种互斥状态的同一批计数，问题链接沿用当前源和快照的精确筛选。
+        java.util.Map<String, Long> sourceByStatus = new java.util.LinkedHashMap<>();
+        for (String status : MetadataQualityIssue.UNRESOLVED_STATUSES) {
+            sourceByStatus.put(status, countHigh(snapshot.getId(), MetadataQualityIssue.DOMAIN_SOURCE, List.of(status)));
+        }
+        long sourceHigh = sourceByStatus.values().stream().mapToLong(Long::longValue).sum();
+        long semanticHigh = countHigh(snapshot.getId(), MetadataQualityIssue.DOMAIN_SEMANTIC,
+                MetadataQualityIssue.UNRESOLVED_STATUSES);
         long validTables = countValidTables(snapshot.getId());
 
         List<SnapshotReleaseGateVO.GateItem> items = new ArrayList<>();
@@ -77,6 +90,7 @@ public class SnapshotReleaseGateServiceImpl implements SnapshotReleaseGateServic
         vo.setBlockingCount(blockingCount);
         vo.setWarningCount(warningCount);
         vo.setUnresolvedSourceHigh(sourceHigh);
+        vo.setUnresolvedSourceHighByStatus(sourceByStatus);
         vo.setUnresolvedSemanticHigh(semanticHigh);
         vo.setValidTableCount(validTables);
         vo.setEvaluatedAt(LocalDateTime.now());
@@ -112,12 +126,12 @@ public class SnapshotReleaseGateServiceImpl implements SnapshotReleaseGateServic
         throw new BusinessException(409, message);
     }
 
-    private long countUnresolvedHigh(Long snapshotId, String domain) {
+    private long countHigh(Long snapshotId, String domain, List<String> statuses) {
         return qualityIssueMapper.selectCount(new LambdaQueryWrapper<MetadataQualityIssue>()
                 .eq(MetadataQualityIssue::getSnapshotId, snapshotId)
                 .eq(MetadataQualityIssue::getIssueDomain, domain)
                 .eq(MetadataQualityIssue::getSeverity, HIGH)
-                .in(MetadataQualityIssue::getStatus, MetadataQualityIssue.UNRESOLVED_STATUSES));
+                .in(MetadataQualityIssue::getStatus, statuses));
     }
 
     private long countValidTables(Long snapshotId) {

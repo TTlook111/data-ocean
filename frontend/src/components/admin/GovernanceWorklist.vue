@@ -92,7 +92,8 @@ onBeforeUnmount(() => { disposed = true; epoch++; operation++; rulesRequest++; i
 <template>
   <section class="workflow-list">
     <div class="workflow-actions">
-      <div><h2>待办与本轮进展</h2><p>AI 整理建议，人工确认业务含义，再按当前修订复查。</p></div>
+      <!-- 队列和按钮已给出本轮操作，候选需确认的边界保留在空状态和规则说明。 -->
+      <h2>治理待办</h2>
       <div class="workflow-actions__buttons">
         <el-button :icon="RefreshCw" :disabled="!canView || busy" @click="load">刷新</el-button>
         <el-button v-if="summary && (summary.queued || summary.running)" :icon="Pause" :disabled="!canPause || busy" @click="pause">暂停 AI</el-button>
@@ -108,7 +109,7 @@ onBeforeUnmount(() => { disposed = true; epoch++; operation++; rulesRequest++; i
     <ErrorState v-else-if="error" :message="error" @retry="load" />
     <LoadingState v-else-if="loading && !rows.length" variant="skeleton" :rows="5" />
     <template v-else>
-      <div class="workflow-status-line" role="status" aria-atomic="true"><strong>共 {{ total }} 项任务</strong><span v-if="summary">AI 待处理 {{ summary.queued }} · 处理中 {{ summary.running }} · 首轮失败 {{ summary.failed }}</span><span v-else>AI 汇总未返回</span><span>任务数来自当前快照后台统计</span></div>
+      <div class="workflow-status-line" role="status" aria-atomic="true"><strong>当前快照共 {{ total }} 项任务</strong><span v-if="summary">AI 待处理 {{ summary.queued }} · 处理中 {{ summary.running }} · 首轮失败 {{ summary.failed }}</span><span v-else>AI 汇总未返回</span></div>
       <div class="workflow-table">
         <el-table v-if="rows.length" :data="rows" v-loading="loading">
           <el-table-column label="治理对象" min-width="230"><template #default="{ row }"><button class="workflow-object" type="button" :disabled="!canOpen(row)" @click="open(row)">{{ row.targetType === 'BUSINESS' ? row.tableName : `${row.tableName}.${row.columnName}` }}</button><p>{{ row.targetType === 'BUSINESS' ? '业务知识' : '字段解释' }} · {{ row.origin === 'FEEDBACK' ? '来自已确认的问数反馈' : '来自知识完整性检查' }}</p></template></el-table-column>
@@ -126,13 +127,12 @@ onBeforeUnmount(() => { disposed = true; epoch++; operation++; rulesRequest++; i
 <style scoped>
 .workflow-list { min-width:0; display:grid; gap:16px; }
 .workflow-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; }
-.workflow-actions h2 { margin:0 0 7px; font-size:18px; font-weight:600; }
-.workflow-actions p,.workflow-list :deep(td p) { font-size:12px; color:var(--do-muted); margin:5px 0; line-height:1.6; }
+.workflow-actions h2 { margin:0; font-size:18px; font-weight:600; }
+.workflow-list :deep(td p) { font-size:12px; color:var(--do-muted); margin:5px 0; line-height:1.6; }
 .workflow-actions__buttons { display:flex; flex-wrap:wrap; gap:8px; }
 .workflow-actions__buttons :deep(.el-button + .el-button) { margin:0; }
 .workflow-status-line { display:flex; flex-wrap:wrap; gap:8px 20px; padding:14px 0; border-top:1px solid var(--do-line); color:var(--do-muted); font-size:12px; }
 .workflow-status-line strong { font-size:14px; font-weight:600; color:var(--do-ink); }
-.workflow-status-line > span:last-child { margin-left:auto; }
 .workflow-table { min-width:0; overflow:hidden; background:var(--do-surface); border:1px solid var(--do-line); border-radius:12px; }
 .workflow-table :deep(.el-table) { width:100%; }
 .workflow-table :deep(.el-pagination) { padding:14px; justify-content:flex-end; }
@@ -145,5 +145,5 @@ onBeforeUnmount(() => { disposed = true; epoch++; operation++; rulesRequest++; i
 .workflow-rules { border:0; color:var(--do-muted); }
 .workflow-rules :deep(.el-collapse-item__header) { background:transparent; color:var(--do-muted); }
 .workflow-rules :deep(.el-collapse-item__wrap) { background:transparent; }
-@media(max-width:760px) { .workflow-actions__buttons { width:100%; } .workflow-status-line > span:last-child { margin-left:0; } }
+@media(max-width:760px) { .workflow-actions__buttons { width:100%; } }
 </style>

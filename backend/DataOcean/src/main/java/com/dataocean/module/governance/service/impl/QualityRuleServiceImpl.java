@@ -29,6 +29,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -173,9 +174,11 @@ public class QualityRuleServiceImpl implements QualityRuleService {
                 .map(this::revisionVO).toList();
     }
 
-    @Transactional
+    // 嵌套事务让业务拒绝回滚本次配置后仍可由外层提交拒绝回执；直接调用时仍开启事务。
+    @Transactional(propagation = Propagation.NESTED)
     @Override
     public QualityRuleVO createRule(QualityRuleDTO request, Long operatorUserId) {
+        lockConfigurationWrites();
         return createRule(request, operatorUserId, "CREATE");
     }
 
@@ -196,11 +199,13 @@ public class QualityRuleServiceImpl implements QualityRuleService {
         return toVO(rule);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NESTED)
     @Override
-    public QualityRuleVO updateRule(Long ruleId, QualityRuleDTO request, Long operatorUserId) {
-        MetadataQualityRule rule = requireRule(ruleId, false);
+    public QualityRuleVO updateRule(Long ruleId, QualityRuleDTO request, Integer expectedVersion, Long operatorUserId) {
+        lockConfigurationWrites();
+        MetadataQualityRule rule = requireRuleForWrite(ruleId, false);
         requireManageScope(rule, operatorUserId);
+        requireVersion(rule, expectedVersion);
         QualityRuleDTO dto = requireRequest(request);
         requireManageTarget(dto.getScopeType(), dto.getDatasourceId(), operatorUserId);
         apply(rule, dto, operatorUserId, false);
@@ -208,16 +213,18 @@ public class QualityRuleServiceImpl implements QualityRuleService {
         rule.setUpdatedBy(operatorUserId);
         if (Integer.valueOf(1).equals(rule.getEnabled())) validateNoConflict(rule, ruleId);
         rule.setUpdatedAt(LocalDateTime.now());
-        if (persistConfiguration(rule) != 1) throw new BusinessException(409, "质量规则配置已变化，请重新读取后再修改");
+        if (persistConfiguration(rule, expectedVersion) != 1) throw new BusinessException(409, "质量规则配置已变化，请重新读取后再修改");
         appendRevision(rule, "UPDATE", operatorUserId);
         return toVO(rule);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NESTED)
     @Override
-    public QualityRuleVO copyRule(Long ruleId, Long operatorUserId) {
-        MetadataQualityRule source = requireRule(ruleId, false);
+    public QualityRuleVO copyRule(Long ruleId, Integer expectedVersion, Long operatorUserId) {
+        lockConfigurationWrites();
+        MetadataQualityRule source = requireRuleForWrite(ruleId, false);
         requireManageScope(source, operatorUserId);
+        requireVersion(source, expectedVersion);
         QualityRuleDTO dto = new QualityRuleDTO();
         dto.setRuleName(source.getRuleName() + "（副本）");
         dto.setTemplateCode(source.getTemplateCode());
@@ -233,62 +240,80 @@ public class QualityRuleServiceImpl implements QualityRuleService {
         return createRule(dto, operatorUserId, "COPY");
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NESTED)
     @Override
-    public void updateEnabled(Long ruleId, boolean enabled, Long operatorUserId) {
-        MetadataQualityRule rule = requireRule(ruleId, false);
+    public void updateEnabled(Long ruleId, boolean enabled, Integer expectedVersion, Long operatorUserId) {
+        lockConfigurationWrites();
+        MetadataQualityRule rule = requireRuleForWrite(ruleId, false);
         requireManageScope(rule, operatorUserId);
+        requireVersion(rule, expectedVersion);
         if (enabled) {
             validateRuleTarget(rule);
             validateNoConflict(rule, ruleId);
         }
         rule.setEnabled(enabled ? 1 : 0);
         rule.setUpdatedBy(operatorUserId);
-        ruleMapper.updateById(rule);
+        persistState(rule, expectedVersion, false);
         appendRevision(rule, enabled ? "ENABLE" : "DISABLE", operatorUserId);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NESTED)
     @Override
-    public void deleteRule(Long ruleId, Long operatorUserId) {
-        MetadataQualityRule rule = requireRule(ruleId, false);
+    public void deleteRule(Long ruleId, Integer expectedVersion, Long operatorUserId) {
+        lockConfigurationWrites();
+        MetadataQualityRule rule = requireRuleForWrite(ruleId, false);
         requireManageScope(rule, operatorUserId);
+        requireVersion(rule, expectedVersion);
         // 一次操作原子停用并软删除；问题、批次快照和历史结果均不级联删除。
         rule.setEnabled(0);
         rule.setDeletedAt(java.time.LocalDateTime.now());
         rule.setDeletedBy(operatorUserId);
         rule.setUpdatedBy(operatorUserId);
-        ruleMapper.updateById(rule);
+        persistState(rule, expectedVersion, false);
         appendRevision(rule, "DELETE", operatorUserId);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NESTED)
     @Override
-    public void restoreRule(Long ruleId, Long operatorUserId) {
-        MetadataQualityRule rule = requireRule(ruleId, true);
-        if (rule.getDeletedAt() == null) throw new BusinessException(409, "该规则未删除");
+    public void restoreRule(Long ruleId, Integer expectedVersion, Long operatorUserId) {
+        lockConfigurationWrites();
+        MetadataQualityRule rule = requireRuleForWrite(ruleId, true);
         requireManageScope(rule, operatorUserId);
+        requireVersion(rule, expectedVersion);
+        if (rule.getDeletedAt() == null) throw new BusinessException(409, "该规则未删除");
         rule.setDeletedAt(null);
         rule.setDeletedBy(null);
         rule.setEnabled(0);
         rule.setUpdatedBy(operatorUserId);
-        rule.setUpdatedAt(LocalDateTime.now());
-        int updated = ruleMapper.update(null, new LambdaUpdateWrapper<MetadataQualityRule>()
-                .eq(MetadataQualityRule::getId, ruleId)
-                .isNotNull(MetadataQualityRule::getDeletedAt)
-                .set(MetadataQualityRule::getDeletedAt, null)
-                .set(MetadataQualityRule::getDeletedBy, null)
-                .set(MetadataQualityRule::getEnabled, 0)
-                .set(MetadataQualityRule::getUpdatedBy, operatorUserId)
-                .set(MetadataQualityRule::getUpdatedAt, rule.getUpdatedAt()));
-        if (updated != 1) throw new BusinessException(409, "质量规则状态已变化，请重新读取后再恢复");
+        persistState(rule, expectedVersion, true);
         appendRevision(rule, "RESTORE", operatorUserId);
     }
 
+    /** 启停、删除和恢复共享配置版本；每次状态写入都必须使旧编辑草稿发生冲突。 */
+    private void persistState(MetadataQualityRule rule, Integer expectedVersion, boolean restoring) {
+        rule.setConfigVersion(expectedVersion + 1);
+        rule.setUpdatedAt(LocalDateTime.now());
+        LambdaUpdateWrapper<MetadataQualityRule> update = new LambdaUpdateWrapper<MetadataQualityRule>()
+                .eq(MetadataQualityRule::getId, rule.getId())
+                .eq(MetadataQualityRule::getConfigVersion, expectedVersion)
+                .set(MetadataQualityRule::getDeletedAt, rule.getDeletedAt())
+                .set(MetadataQualityRule::getDeletedBy, rule.getDeletedBy())
+                .set(MetadataQualityRule::getEnabled, rule.getEnabled())
+                .set(MetadataQualityRule::getConfigVersion, rule.getConfigVersion())
+                .set(MetadataQualityRule::getUpdatedBy, rule.getUpdatedBy())
+                .set(MetadataQualityRule::getUpdatedAt, rule.getUpdatedAt());
+        if (restoring) update.isNotNull(MetadataQualityRule::getDeletedAt);
+        else update.isNull(MetadataQualityRule::getDeletedAt);
+        if (ruleMapper.update(null, update) != 1) {
+            throw new BusinessException(409, "质量规则状态已变化，请重新读取后再操作");
+        }
+    }
+
     /** 规则编辑是完整配置替换；空值字段仅在本次配置 UPDATE 中显式清空。 */
-    private int persistConfiguration(MetadataQualityRule rule) {
+    private int persistConfiguration(MetadataQualityRule rule, Integer expectedVersion) {
         return ruleMapper.update(null, new LambdaUpdateWrapper<MetadataQualityRule>()
                 .eq(MetadataQualityRule::getId, rule.getId())
+                .eq(MetadataQualityRule::getConfigVersion, expectedVersion)
                 .isNull(MetadataQualityRule::getDeletedAt)
                 .set(MetadataQualityRule::getRuleName, rule.getRuleName())
                 .set(MetadataQualityRule::getTemplateCode, rule.getTemplateCode())
@@ -485,7 +510,7 @@ public class QualityRuleServiceImpl implements QualityRuleService {
         if (candidate.getTargetColumnName() == null) wrapper.isNull(MetadataQualityRule::getTargetColumnName);
         else wrapper.eq(MetadataQualityRule::getTargetColumnName, candidate.getTargetColumnName());
         if (excludeRuleId != null) wrapper.ne(MetadataQualityRule::getId, excludeRuleId);
-        // 在事务内对冲突范围加锁，避免并发启用同一模板/同一目标的重复扣分规则。
+        // 所有配置写已持有领域事务锁；当前读核对最新提交的同级规则，不依赖空集间隙锁。
         List<MetadataQualityRule> conflicts = ruleMapper.selectList(wrapper.last("FOR UPDATE"));
         if (conflicts != null && !conflicts.isEmpty()) {
             throw new BusinessException(409, "同一检查模板、同一目标和同一级范围已有启用规则");
@@ -547,6 +572,32 @@ public class QualityRuleServiceImpl implements QualityRuleService {
             throw new BusinessException(404, "质量规则不存在");
         }
         return rule;
+    }
+
+    /** 内部服务调用也遵守相同锁序，不能绕过控制器的跨规则启用互斥保护。 */
+    private void lockConfigurationWrites() {
+        if (!Integer.valueOf(1).equals(ruleMapper.lockConfigurationWrites())) {
+            throw new IllegalStateException("质量规则配置写锁未初始化");
+        }
+    }
+
+    /** 锁定原对象后才核对权限和版本，避免范围在授权与更新之间被另一操作迁走。 */
+    private MetadataQualityRule requireRuleForWrite(Long ruleId, boolean includeDeleted) {
+        MetadataQualityRule rule = ruleMapper.selectForUpdate(ruleId);
+        if (rule == null || (!includeDeleted && rule.getDeletedAt() != null)) {
+            throw new BusinessException(404, "质量规则不存在");
+        }
+        return rule;
+    }
+
+    /** 客户端版本不可缺省或自动刷新；真正的 UPDATE 还会重复使用该条件。 */
+    private void requireVersion(MetadataQualityRule rule, Integer expectedVersion) {
+        if (expectedVersion == null || expectedVersion < 1) {
+            throw new BusinessException(400, "请提供读取规则时的配置版本");
+        }
+        if (!expectedVersion.equals(rule.getConfigVersion())) {
+            throw new BusinessException(409, "质量规则配置已变化，请重新读取并核对草稿");
+        }
     }
 
     private QualityRuleDTO requireRequest(QualityRuleDTO request) {

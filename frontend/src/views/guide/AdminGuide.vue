@@ -9,11 +9,13 @@ onMounted(() => {
   void iam.load()
 })
 const home = computed(() => (iam.loaded && !iam.errorMessage ? resolveAdminEntry(iam) : undefined))
-function target(path: string) {
+// 指南的页签只跟随有权工作区；反馈归因直接进入字段治理的反馈页。
+function target(path: string, tab?: string) {
   const workspace = findWorkspaceByPath(path)
-  return iam.loaded && !iam.errorMessage && workspace && isWorkspaceVisible(workspace, iam)
-    ? buildWorkspaceTarget(path, iam)
-    : undefined
+  if (!iam.loaded || iam.errorMessage || !workspace || !isWorkspaceVisible(workspace, iam)) return undefined
+  const location = buildWorkspaceTarget(path, iam)
+  if (tab) location.query.tab = tab
+  return location
 }
 const steps = [
   {
@@ -42,7 +44,7 @@ const steps = [
   },
   {
     title: '处理质量与语义问题',
-    text: '区分源数据质量问题与语义解释问题，维护规则和治理状态。问题关闭后仍需在原情景核验；质量分和使用分不等于业务正确性。',
+    text: '在治理总览观察问题余量和每天的变化，在质量检查选择检查范围，再到问题中心处理和复核。',
     path: '/admin/governance/issues',
     action: '查看问题中心',
   },
@@ -73,8 +75,9 @@ const steps = [
   {
     title: '把反馈送回人工修订闭环',
     text: '记录字段用途标签、问题归因和修订依据，在治理反馈工作面核对。使用记录、执行成功或正向反馈不会自动批准语义；修订后仍经过审核、发布及必要的显式构建。',
-    path: '/admin/governance',
-    action: '返回治理工作面',
+    path: '/admin/governance/fields',
+    tab: 'feedback',
+    action: '查看反馈归因',
   },
 ]
 </script>
@@ -91,12 +94,18 @@ const steps = [
     <div class="guide-note">
       功能权决定能做什么，后台负责源决定能维护哪些源，业务数据权决定能查哪些数据。三者独立；不同角色绑定不能拼成更大的权限组合。
     </div>
+    <!-- 工作台入口权限独立于问数使用权，日常排查的指标解释仅在用户展开指南时出现。 -->
+    <details v-if="iam.loaded && !iam.errorMessage && iam.hasGlobal('admin:workbench:view')" class="guide-note">
+      <summary>如何查看今天的问数运行情况？</summary>
+      <p>在工作台选择时间范围，从超目标时段查看对应回答，从点踩数查看用户反馈。等待按服务端受理到答案就绪计算；评价占比只统计已评价的回答，业务正确率需要独立核验。</p>
+      <RouterLink to="/admin/workbench" class="guide-link">查看问数运行概况 →</RouterLink>
+    </details>
     <ol class="guide-steps">
       <li v-for="step in steps" :key="step.title" class="guide-step">
         <div>
           <h2>{{ step.title }}</h2>
           <p>{{ step.text }}</p>
-          <RouterLink v-if="target(step.path)" :to="target(step.path)!" class="guide-link">
+          <RouterLink v-if="target(step.path, step.tab)" :to="target(step.path, step.tab)!" class="guide-link">
             {{ step.action }} →
           </RouterLink>
           <span v-else class="guide-unavailable">此入口当前未获授权或能力尚未确认</span>

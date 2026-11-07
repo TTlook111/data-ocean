@@ -23,7 +23,7 @@ public interface SnapshotLifecycleService {
      * @param operatorId    操作人 ID
      * @param reason        变更原因
      */
-    void changeStatus(Long snapshotId, String targetStatus, Long operatorId, String reason);
+    void changeStatus(Long snapshotId, String expectedStatus, String targetStatus, Long operatorId, String reason);
 
     /**
      * 查询数据源快照版本历史。

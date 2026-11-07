@@ -38,6 +38,8 @@ const wrappers: ReturnType<typeof mount>[] = []
 async function page() {
   const wrapper = mount(QueryDatasourceView, { global: { stubs: {
     QuerySidebar: { name: 'QuerySidebar', emits: ['select-session', 'new-session', 'select-datasource', 'remove-session', 'user-command'], template: '<nav />' },
+    // 范围入口已移到页头；这里隔离浮层实现，只验证工作区接收选择后的业务保护。
+    QueryDatasourceSelector: { name: 'QueryDatasourceSelector', emits: ['select', 'refresh'], template: '<button>选择数据源</button>' },
     QueryInput: { name: 'QueryInput', template: '<div />' }, QueryAnswer: { name: 'QueryAnswer', template: '<div>fresh-answer-slot</div>' },
     RouterLink: { template: '<a><slot /></a>' },
   } } })
@@ -88,6 +90,32 @@ it('unconfirmed cancellation keeps the active conversation and source visible', 
   sidebar.vm.$emit('select-session','other'); await flushPromises()
   expect(session.selectSession).not.toHaveBeenCalled()
   expect(session.activeSessionId.value).toBe('current')
+})
+
+// 页头中的新入口必须复用停止确认，不能因位置变化直接切源并遗失在途对话。
+it('header source selection keeps the current scope when cancellation is unconfirmed', async () => {
+  session.datasources.value.push({ id: 2, name: 'other-source' })
+  const wrapper = await page()
+  submit.isQuerying.value = true
+  submit.cancelCurrentQuery.mockResolvedValue(false)
+  wrapper.findComponent({ name: 'QueryDatasourceSelector' }).vm.$emit('select', 2)
+  await flushPromises()
+  expect(session.selectDatasource).not.toHaveBeenCalled()
+  expect(session.selectedId.value).toBe(1)
+  expect(router.push).not.toHaveBeenCalled()
+})
+
+// 本地停止等待与服务端终态分开，恢复入口必须继续指向原任务且不重新提交问题。
+it('locally timed-out messages keep the original task recovery action visible', async () => {
+  session.activeSession.value.messages = [{ id: 'waiting', role: 'assistant', status: 'PROCESSING', taskId: 'pending-task', localWaitTimedOut: true, content: '等待结果', originalQuestion: '原始问题', createdAt: '' }]
+  submit.isLocallyResumable = () => true
+  const wrapper = await page()
+  expect(wrapper.text()).toContain('仍在处理')
+  const resume = wrapper.findAll('button').find(button => button.text() === '恢复等待')!
+  await resume.trigger('click')
+  expect(submit.continueWaiting).toHaveBeenCalledWith('pending-task')
+  expect(submit.sendQuestion).not.toHaveBeenCalled()
+  expect(submit.retryQuery).not.toHaveBeenCalled()
 })
 
 it('failed planning and live progress explain the stage without exposing implementation labels',async()=>{

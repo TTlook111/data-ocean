@@ -170,11 +170,16 @@ class QualityRuleServiceImplTest {
         QualityRuleDTO request = rule("GLOBAL", null, null, null);
         request.setRuleName("新规则名称");
 
-        fixture.service.updateRule(15L, request, 1L);
+        fixture.service.updateRule(15L, request, 3, 1L);
 
         assertThat(existing.getRuleName()).isEqualTo("新规则名称");
         assertThat(existing.getConfigVersion()).isEqualTo(4);
         verify(fixture.ruleMapper).update(isNull(), any(LambdaUpdateWrapper.class));
+        // 客户端读到的配置版本必须进入 UPDATE 条件，不能只在内存中自增后覆盖竞争者。
+        org.mockito.ArgumentCaptor<LambdaUpdateWrapper<MetadataQualityRule>> updateCaptor =
+                org.mockito.ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(fixture.ruleMapper).update(isNull(), updateCaptor.capture());
+        assertThat(updateCaptor.getValue().getSqlSegment()).contains("config_version =");
         org.mockito.ArgumentCaptor<MetadataQualityRuleRevision> captor =
                 org.mockito.ArgumentCaptor.forClass(MetadataQualityRuleRevision.class);
         verify(fixture.revisionMapper).insert(captor.capture());
@@ -205,7 +210,7 @@ class QualityRuleServiceImplTest {
         when(fixture.authorizationResolver.canManageDatasource(9L, "governance:rule:manage", 6L)).thenReturn(false);
         QualityRuleDTO replacement = rule("DATASOURCE", 6L, null, null);
 
-        assertThatThrownBy(() -> fixture.service.updateRule(16L, replacement, 9L))
+        assertThatThrownBy(() -> fixture.service.updateRule(16L, replacement, 1, 9L))
                 .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getCode()).isEqualTo(403));
         verify(fixture.ruleMapper, never()).updateById(any(MetadataQualityRule.class));
         verify(fixture.ruleMapper, never()).update(isNull(), any(LambdaUpdateWrapper.class));
@@ -236,7 +241,7 @@ class QualityRuleServiceImplTest {
             return 1;
         });
 
-        var copy = fixture.service.copyRule(20L, 1L);
+        var copy = fixture.service.copyRule(20L, 3, 1L);
 
         assertThat(copy.getId()).isEqualTo(21L);
         assertThat(copy.getRuleCode()).isNotEqualTo(source.getRuleCode());
@@ -256,15 +261,18 @@ class QualityRuleServiceImplTest {
         rule.setId(8L);
         rule.setEnabled(1);
         rule.setScopeType("GLOBAL");
+        rule.setConfigVersion(1);
         when(fixture.ruleMapper.selectById(8L)).thenReturn(rule);
+        when(fixture.ruleMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
         when(fixture.authorizationResolver.isSystemAdmin(1L)).thenReturn(true);
 
-        fixture.service.deleteRule(8L, 1L);
+        fixture.service.deleteRule(8L, 1, 1L);
 
         assertThat(rule.getEnabled()).isZero();
         assertThat(rule.getDeletedAt()).isNotNull();
         assertThat(rule.getDeletedBy()).isEqualTo(1L);
-        verify(fixture.ruleMapper).updateById(rule);
+        assertThat(rule.getConfigVersion()).isEqualTo(2);
+        verify(fixture.ruleMapper).update(isNull(), any(LambdaUpdateWrapper.class));
     }
 
     @Test
@@ -274,15 +282,17 @@ class QualityRuleServiceImplTest {
         rule.setId(8L);
         rule.setEnabled(0);
         rule.setScopeType("GLOBAL");
+        rule.setConfigVersion(1);
         rule.setDeletedAt(java.time.LocalDateTime.now());
         when(fixture.ruleMapper.selectById(8L)).thenReturn(rule);
         when(fixture.ruleMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
         when(fixture.authorizationResolver.isSystemAdmin(1L)).thenReturn(true);
 
-        fixture.service.restoreRule(8L, 1L);
+        fixture.service.restoreRule(8L, 1, 1L);
 
         assertThat(rule.getDeletedAt()).isNull();
         assertThat(rule.getEnabled()).isZero();
+        assertThat(rule.getConfigVersion()).isEqualTo(2);
         verify(fixture.ruleMapper).update(isNull(), any(LambdaUpdateWrapper.class));
     }
 
@@ -418,5 +428,11 @@ class QualityRuleServiceImplTest {
         private final QualityRuleServiceImpl service = new QualityRuleServiceImpl(ruleMapper, revisionMapper, authorizationResolver,
                 capabilityService, new QualityRuleTemplateRegistry(), snapshotMapper, tableMapper,
                 columnMapper, new ObjectMapper());
+
+        Fixture() {
+            // 单测沿用同一夹具对象，实际 SELECT FOR UPDATE 的事务效果由持久化测试覆盖。
+            when(ruleMapper.lockConfigurationWrites()).thenReturn(1);
+            when(ruleMapper.selectForUpdate(any())).thenAnswer(invocation -> ruleMapper.selectById((Long) invocation.getArgument(0)));
+        }
     }
 }

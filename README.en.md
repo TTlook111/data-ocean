@@ -2,28 +2,15 @@
 
 <p align="center"><strong>Natural-language analytics and governance for enterprise data scenarios</strong></p>
 <p align="center"><a href="README.md">简体中文</a> · <strong>English</strong></p>
-<p align="center"><a href="#product">Product</a> · <a href="#features">Features</a> · <a href="#architecture">Architecture</a> · <a href="#workflow">Query workflow</a> · <a href="#quickstart">Getting started</a> · <a href="#docs">Docs</a></p>
+<p align="center"><a href="#features">Features</a> · <a href="#architecture">Architecture</a> · <a href="#workflow">Query workflow</a> · <a href="#quickstart">Getting started</a> · <a href="#docs">Docs</a></p>
 
 ![A conceptual journey from governed metadata and reviewed knowledge to protected queries](docs/images/readme/cover.webp)
+
+[Illustration sources](docs/images/readme/README.md)
 
 DataOcean connects natural-language querying (NL2SQL) with metadata governance. Business users select one MySQL datasource and ask questions across tables within that database. Data stewards maintain structure, business meaning, and reviewed evidence; the system uses that context to deliver protected tables, charts, and query evidence.
 
 > PC desktops · Currently targets local development and demonstrations. See [project status](docs/项目现状.md) for verified coverage and limitations.
-
-<a id="product"></a>
-
-## See the answer and its evidence
-
-**Query workspace** · Read answers, tables, and charts in a conversation. Open SQL and source evidence on demand.
-
-[![Actual Vue query workspace with synthetic API responses and demo data](docs/images/readme/query.webp)](docs/images/readme/query.webp)
-
-| Workbench · source readiness | Governance · issue distribution |
-| :---: | :---: |
-| [![Actual Vue workbench, synthetic data preview](docs/images/readme/workbench.webp)](docs/images/readme/workbench.webp) | [![Actual Vue governance overview, synthetic data preview](docs/images/readme/governance.webp)](docs/images/readme/governance.webp) |
-| Focus on a source's readiness, blockers, and authorized next step. | Read issue distribution, handling status, and source-check coverage separately. |
-
-Click an image for the full-size view. These are **actual Vue component captures with synthetic API responses**, retaining their demo labels. The UI is currently in Chinese; the captures do not establish live business integration. Explanatory illustrations were generated with the built-in image model, never used to fabricate the product UI. See [asset provenance](docs/images/readme/README.md) for sources and versions.
 
 <a id="features"></a>
 
@@ -162,13 +149,13 @@ Most detailed guides are currently in Chinese. Both READMEs link to the same mai
 | What you need | Entry point |
 | --- | --- |
 | Find documentation by purpose | [Documentation index](docs/README.md) |
-| Capabilities, verified coverage, and limits | [Project status](docs/项目现状.md), [acceptance index](docs/acceptance/README.md) |
+| Delivered features and open work | [Project status](docs/项目现状.md), [remaining work and acceptance criteria](docs/development/后续开发.md) |
 | Environment, initialization, startup, and tests | [Local development guide](docs/development/本地开发与验证.md) |
 | Architecture and individual modules | [Technology and responsibilities](docs/技术栈与模块职责.md), [module index](docs/modules/README.md) |
-| UI behavior and remaining work | [Frontend guide](docs/development/前端开发规范.md), [follow-up work](docs/development/后续开发.md) |
+| UI behavior and historical evidence | [Frontend guide](docs/development/前端开发规范.md), [archived implementation and acceptance records](docs/archive/README.md) |
 | Making code changes | [AGENTS.md](AGENTS.md) |
 
-Read acceptance evidence within its environment, version, and coverage. Focused page checks and synthetic API previews do not establish project-wide production acceptance. Current workbench and governance evidence, including untested scenarios, is recorded in the [V3 acceptance report](docs/acceptance/2026-10-31-工作台与治理总览V3.md).
+The [acceptance index](docs/acceptance/README.md) links to each round’s environment, verified scope, failures and untested cases.
 
 <details>
 <summary>Repository layout</summary>
@@ -178,8 +165,6 @@ frontend/              Vue query UI and governance console
 backend/DataOcean/     Java gateway, authorization, governance, persistence
 python-service/        LangGraph, Schema RAG, SQL sandbox
 docs/                  Current guides and acceptance records
-docs/archive/          Historical designs and previews, for reference
-specs/                 Compatibility entry pointing to current modules
 ```
 
 </details>

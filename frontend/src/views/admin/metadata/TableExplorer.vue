@@ -518,7 +518,8 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   border: 1px solid var(--do-line);
   border-radius: var(--do-radius-lg);
   background: var(--do-surface);
-  box-shadow: 0 1px 2px rgb(36 39 36 / 3%);
+  /* 表与字段目录共用工作面层级。 */
+  box-shadow: var(--do-shadow);
   overflow: hidden;
 }
 .table-list {
@@ -798,7 +799,8 @@ onBeforeUnmount(() => { disposed = true; invalidate() })
   border-radius: 6px;
   font-size: 12px;
 }
-.field-table-pager :deep(.el-pagination .el-pager li.is-active) { background: var(--do-primary); color: #fff; }
+/* 当前字段页码与其他目录分页使用同一选中对比。 */
+.field-table-pager :deep(.el-pagination .el-pager li.is-active) { background: var(--do-primary); color: var(--do-on-primary); }
 .field-table-pager :deep(.el-pagination .el-pager li:hover) { color: var(--do-primary-strong); }
 .table-explorer-page :deep(.el-table) {
   --el-table-bg-color: var(--do-surface);

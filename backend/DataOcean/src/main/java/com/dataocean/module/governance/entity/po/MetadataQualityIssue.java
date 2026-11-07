@@ -52,6 +52,8 @@ public class MetadataQualityIssue {
     private String issueDescription;
     private String suggestion;
     private String status;
+    /** 人工处理、分派及检查刷新共用单调版本；各写路径显式比较并递增，防止状态 ABA。 */
+    private Long rowVersion = 1L;
     private Long assigneeId;
     private Long resolvedBy;
     private LocalDateTime resolvedAt;

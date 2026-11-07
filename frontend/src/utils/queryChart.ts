@@ -9,6 +9,8 @@ export interface QueryChartTheme {
   textColor?: string
   mutedColor?: string
   borderColor?: string
+  /** 饼图分隔线与所在工作面的底色一致，导出后仍能分辨相邻扇区。 */
+  surfaceColor?: string
   fontFamily?: string
 }
 
@@ -168,7 +170,7 @@ export function buildQueryChartOption(
       type: 'pie', radius: ['36%', '64%'], center: ['50%', '44%'],
       ...(points ? { data: points } : {}),
       stillShowZeroSum: false, percentPrecision: 1, avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+      itemStyle: { borderRadius: 4, borderColor: theme.surfaceColor, borderWidth: 2 },
       label: { show: true, position: 'outside', formatter: '{b}\n{c} · {d}%', fontSize: 12, lineHeight: 19, color: theme.textColor, width: 100, overflow: 'truncate' },
       labelLine: { show: true, length: 12, length2: 10 },
       emphasis: { scale: true, scaleSize: 4 },

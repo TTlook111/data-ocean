@@ -326,7 +326,8 @@ defineExpose({ openSyncDialog })
 .collections-task__scope :deep(.scope-bar__warning) { margin-top: 6px; }
 .collections-task__refresh.el-button { flex: 0 0 auto; height: 36px; margin-left: auto; }
 
-.collections-task__note { display: flex; align-items: center; gap: 6px; margin: 0; padding: 9px 16px; border-bottom: 1px solid var(--do-line); color: var(--do-muted); background: color-mix(in srgb, var(--do-primary) 4%, white); font-size: 12px; line-height: 1.5; }
+/* 任务提示在公共表面上混入少量主色，以免压过任务状态。 */
+.collections-task__note { display: flex; align-items: center; gap: 6px; margin: 0; padding: 9px 16px; border-bottom: 1px solid var(--do-line); color: var(--do-muted); background: color-mix(in srgb, var(--do-primary) 4%, var(--do-surface)); font-size: 12px; line-height: 1.5; }
 .collections-task__note svg { flex: 0 0 auto; color: var(--do-primary-strong); }
 
 .collections-task__body { min-width: 0; }
