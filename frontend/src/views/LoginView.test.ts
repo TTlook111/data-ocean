@@ -3,93 +3,74 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import LoginView from './LoginView.vue'
 
-const api = vi.hoisted(() => ({ captcha: vi.fn(), login: vi.fn(), replace: vi.fn(), warning: vi.fn(), error: vi.fn(), success: vi.fn() }))
+const api = vi.hoisted(() => ({
+  captcha: vi.fn(),
+  login: vi.fn(),
+  replace: vi.fn(),
+  warning: vi.fn(),
+  error: vi.fn(),
+  success: vi.fn(),
+}))
 const auth = vi.hoisted(() => ({ token: '', login: api.login }))
-const motion = vi.hoisted(() => ({ reduced: false, trackers: [] as { element: HTMLElement; property: string; to: ReturnType<typeof vi.fn> }[], cleanups: [] as (() => void)[] }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ replace: api.replace }) }))
 vi.mock('../stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('../api/auth', () => ({ getCaptcha: api.captcha }))
-vi.mock('element-plus', () => ({ ElMessage: { warning: api.warning, error: api.error, success: api.success } }))
-vi.mock('gsap', () => ({ gsap: {
-  matchMedia: () => ({
-    add: (_query: string, setup: () => () => void) => { if (!motion.reduced) motion.cleanups.push(setup()) },
-    revert: () => motion.cleanups.splice(0).forEach(cleanup => cleanup()),
-  }),
-  quickTo: (element: HTMLElement, property: string) => {
-    const to = vi.fn()
-    motion.trackers.push({ element, property, to })
-    return to
-  },
-  set: vi.fn(), from: vi.fn(),
-} }))
+vi.mock('element-plus', () => ({
+  ElMessage: { warning: api.warning, error: api.error, success: api.success },
+}))
 
 const wrappers: VueWrapper[] = []
-const frames = new Map<number, FrameRequestCallback>()
-let frameId = 0
 async function render() {
-  const wrapper = mount(LoginView)
+  const wrapper = mount(LoginView, { attachTo: document.body })
   wrappers.push(wrapper)
   await flushPromises()
-  wrapper.findAll('.eye').forEach(eye => {
-    vi.spyOn(eye.element, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 300, 20, 20))
-    const pupil = eye.element.querySelector('em')
-    if (pupil) Object.defineProperty(pupil, 'offsetWidth', { configurable: true, value: 7 })
-  })
-  wrapper.findAll('.monster').forEach(body => vi.spyOn(body.element, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 250, 100, 250)))
   return wrapper
 }
 beforeEach(() => {
-  vi.clearAllMocks()
-  motion.reduced = false
-  motion.trackers = []
-  motion.cleanups = []
-  frames.clear()
-  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: query.includes(': reduce') && motion.reduced })))
-  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.set(++frameId, callback); return frameId })
-  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { frames.delete(id) })
-  api.captcha.mockResolvedValue({ data: { captchaKey: 'captcha-test-key', captchaImage: 'data:image/png;base64,TEST' } })
-  auth.token=''
-  api.login.mockImplementation(async()=>{auth.token='fresh-session';return {data:{token:'fresh-session'}}})
+  vi.resetAllMocks()
+  api.captcha.mockResolvedValue({
+    data: { captchaKey: 'captcha-test-key', captchaImage: 'data:image/png;base64,TEST' },
+  })
+  auth.token = ''
+  api.login.mockImplementation(async () => {
+    auth.token = 'fresh-session'
+    return { data: { token: 'fresh-session' } }
+  })
 })
 afterEach(() => {
-  wrappers.splice(0).forEach(wrapper => wrapper.unmount())
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
+  wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+  document.body.replaceChildren()
 })
 
-describe('登录页互动与原有登录行为', () => {
-  it('快速移动只处理同一帧中最新位置，瞳孔和身体都会回应', async () => {
+describe('登录表单', () => {
+  it('三个必填字段均有原生标签，密码显示切换保持原值', async () => {
     const wrapper = await render()
-    await wrapper.trigger('pointermove', { clientX: 10, clientY: 310, pointerType: 'mouse' })
-    await wrapper.trigger('pointermove', { clientX: 900, clientY: 310, pointerType: 'mouse' })
-    expect(frames.size).toBe(1)
-    const callback = [...frames.values()][0]!
-    frames.clear()
-    callback(16)
-    const pupil = motion.trackers.find(item => item.element.tagName === 'EM' && item.property === 'x')!
-    const body = motion.trackers.find(item => item.element.classList.contains('monster') && item.property === 'rotation')!
-    expect(pupil.to).toHaveBeenCalledTimes(1)
-    expect(pupil.to.mock.calls[0]![0]).toBeGreaterThan(0)
-    expect(body.to).toHaveBeenCalledTimes(1)
+    const fields = wrapper.findAll('input[required]')
+    expect(fields.map((field) => wrapper.find(`label[for="${field.attributes('id')}"]`).text())).toEqual([
+      '账号',
+      '密码',
+      '验证码',
+    ])
+    await wrapper.find('#login-password').setValue('keep me')
+    await wrapper.find('button[aria-label="显示密码"]').trigger('click')
+    expect(wrapper.find('#login-password').attributes('type')).toBe('text')
+    await wrapper.find('button[aria-label="隐藏密码"]').trigger('click')
+    expect((wrapper.find('#login-password').element as HTMLInputElement).value).toBe('keep me')
   })
-  it('离开后回位并取消未执行的移动，卸载也取消帧', async () => {
+  it('拒绝登录后保留账号，清空密码和旧验证码并恢复键盘焦点', async () => {
+    api.login.mockRejectedValue({ response: { data: { message: '账号或密码错误' } } })
     const wrapper = await render()
-    await wrapper.trigger('pointermove', { clientX: 900, clientY: 310, pointerType: 'mouse' })
-    await wrapper.trigger('pointerleave')
-    expect(frames.size).toBe(0)
-    expect(motion.trackers.find(item => item.element.tagName === 'EM' && item.property === 'x')!.to).toHaveBeenLastCalledWith(0)
-    await wrapper.trigger('pointermove', { clientX: 900, clientY: 310, pointerType: 'mouse' })
-    wrapper.unmount()
-    wrappers.splice(wrappers.indexOf(wrapper), 1)
-    expect(frames.size).toBe(0)
-  })
-  it('触摸与减少动态效果模式不会触发跟随', async () => {
-    const wrapper = await render()
-    await wrapper.trigger('pointermove', { clientX: 900, clientY: 310, pointerType: 'touch' })
-    expect(frames.size).toBe(0)
-    motion.reduced = true
-    await wrapper.trigger('pointermove', { clientX: 900, clientY: 310, pointerType: 'mouse' })
-    expect(frames.size).toBe(0)
+    await wrapper.find('#login-username').setValue('reader')
+    await wrapper.find('#login-password').setValue('wrong')
+    await wrapper.find('#login-captcha').setValue('K7M2')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').text()).toBe('账号或密码错误')
+    expect((wrapper.find('#login-username').element as HTMLInputElement).value).toBe('reader')
+    expect((wrapper.find('#login-password').element as HTMLInputElement).value).toBe('')
+    expect((wrapper.find('#login-captcha').element as HTMLInputElement).value).toBe('')
+    expect(document.activeElement).toBe(wrapper.find('#login-password').element)
+    expect(api.captcha).toHaveBeenCalledTimes(2)
   })
   it('仍使用真实验证码 key 和完整密码提交，成功后交给统一默认入口选择', async () => {
     const wrapper = await render()
@@ -98,22 +79,46 @@ describe('登录页互动与原有登录行为', () => {
     await wrapper.find('#login-captcha').setValue('K7M2')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(api.login).toHaveBeenCalledWith({ username: 'reader', password: ' secret ', captchaKey: 'captcha-test-key', captchaCode: 'K7M2' }, expect.any(Function))
+    expect(api.login).toHaveBeenCalledWith(
+      { username: 'reader', password: ' secret ', captchaKey: 'captcha-test-key', captchaCode: 'K7M2' },
+      expect.any(Function),
+    )
     expect(api.login.mock.calls[0][1]()).toBe(true)
     wrapper.unmount()
     expect(api.login.mock.calls[0][1]()).toBe(false)
     expect(api.replace).toHaveBeenCalledWith('/')
   })
-  it('登录成功回调属于旧会话时不跳转或提示新账号登录成功',async()=>{
-    api.login.mockResolvedValue({data:{token:'older-session'}})
-    auth.token='newer-session'
-    const wrapper=await render()
+  it('登录成功回调属于旧会话时不跳转或提示新账号登录成功', async () => {
+    api.login.mockResolvedValue({ data: { token: 'older-session' } })
+    auth.token = 'newer-session'
+    const wrapper = await render()
     await wrapper.find('input[autocomplete="username"]').setValue('reader')
     await wrapper.find('input[autocomplete="current-password"]').setValue('Secret123')
     await wrapper.find('#login-captcha').setValue('K7M2')
-    await wrapper.find('form').trigger('submit');await flushPromises()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
     expect(api.replace).not.toHaveBeenCalled()
     expect(api.success).not.toHaveBeenCalled()
+  })
+  it('账号已切换时旧登录失败不能清空新输入或刷新新验证码', async () => {
+    let reject!: (cause: unknown) => void
+    api.login.mockReturnValue(
+      new Promise((_resolve, failure) => {
+        reject = failure
+      }),
+    )
+    const wrapper = await render()
+    await wrapper.find('#login-username').setValue('reader')
+    await wrapper.find('#login-password').setValue('previous-input')
+    await wrapper.find('#login-captcha').setValue('K7M2')
+    await wrapper.find('form').trigger('submit')
+    auth.token = 'new-session'
+    await wrapper.find('#login-password').setValue('new-input')
+    reject(new Error('旧请求断开'))
+    await flushPromises()
+    expect(api.error).not.toHaveBeenCalled()
+    expect(api.captcha).toHaveBeenCalledTimes(1)
+    expect((wrapper.find('#login-password').element as HTMLInputElement).value).toBe('new-input')
   })
   it('验证码失败明确提示，可用键盘按钮重试', async () => {
     api.captcha.mockRejectedValueOnce(new Error('服务不可用'))
