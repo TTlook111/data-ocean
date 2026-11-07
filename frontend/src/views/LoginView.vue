@@ -12,8 +12,8 @@ const router = useRouter()
 const authStore = useAuthStore()
 const form = reactive({ username: '', password: '', captchaCode: '' })
 const passwordInput = ref<HTMLInputElement>()
-// 插画只接收字段的交互状态，密码值仍由表单独立持有。
-const passwordFocused = ref(false)
+// 用原生焦点同时支持 Tab、触摸和鼠标，插画只知道是否该看向表单或回避密码。
+const focusedControl = ref<'form' | 'password' | null>(null)
 const showPassword = ref(false)
 const loading = ref(false)
 const captchaImage = ref('')
@@ -118,14 +118,22 @@ onUnmounted(() => {
           <span lang="en" translate="no">DataOcean</span>
         </div>
         <p class="login-statement">让数据<br />回答问题</p>
-        <div class="character-frame"><LoginCharacters :conceal="passwordFocused || showPassword" /></div>
+        <div class="character-frame">
+          <LoginCharacters :attentive="focusedControl === 'form'" :conceal="focusedControl === 'password' || showPassword" />
+        </div>
       </aside>
 
       <section class="login-panel" aria-labelledby="login-heading">
         <div class="form-shell">
           <h1 id="login-heading">登录 DataOcean</h1>
           <p v-if="loginError" class="login-error" role="alert">{{ loginError }}</p>
-          <form class="login-form" @submit.prevent="submit">
+          <!-- 捕获原生焦点也覆盖显隐、刷新和提交按钮；Tab 离开表单后角色恢复站姿。 -->
+          <form
+            class="login-form"
+            @focus.capture="focusedControl = $event.target === passwordInput ? 'password' : 'form'"
+            @blur.capture="focusedControl = null"
+            @submit.prevent="submit"
+          >
             <!-- 原生标签和 required 负责读屏名称与缺项定位；输入值不依靠占位文字解释。 -->
             <div class="field">
               <label for="login-username">账号</label>
@@ -147,8 +155,6 @@ onUnmounted(() => {
                   :type="showPassword ? 'text' : 'password'"
                   autocomplete="current-password"
                   required
-                  @focus="passwordFocused = true"
-                  @blur="passwordFocused = false"
                 />
                 <button
                   type="button"
@@ -303,6 +309,10 @@ onUnmounted(() => {
   outline: 2px solid var(--do-primary);
   outline-offset: 1px;
 }
+/* 密码显隐与验证码刷新也属同行操作，键盘移到按钮时仍能辨认当前字段。 */
+.field:focus-within label {
+  color: var(--do-primary);
+}
 .password-field {
   position: relative;
 }
@@ -357,6 +367,16 @@ onUnmounted(() => {
 }
 .submit-button:hover:not(:disabled) {
   background: var(--do-primary-strong);
+}
+/* 按下时反馈落在控件本身，触屏、键盘操作都无需依赖角色动画。 */
+.password-field button:is(:focus-visible, :active),
+.captcha-image-button:active:not(:disabled) {
+  color: var(--do-primary-strong);
+  background: var(--do-primary-soft);
+}
+.submit-button:active:not(:disabled) {
+  background: var(--do-primary-strong);
+  box-shadow: inset 0 2px 3px rgb(0 0 0 / 22%);
 }
 .login-page button:disabled {
   cursor: wait;

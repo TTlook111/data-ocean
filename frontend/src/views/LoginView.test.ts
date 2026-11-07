@@ -72,6 +72,23 @@ describe('登录表单', () => {
     await wrapper.get('button[aria-label="隐藏密码"]').trigger('click')
     expect(scene.classes()).not.toContain('is-concealed')
   })
+  // 复用账号和验证码原本的焦点，表单内的键盘反馈不增加额外停靠点。
+  it('账号或刷新按钮获得焦点时看向表单，离开表单后收回注意', async () => {
+    const wrapper = await render()
+    const scene = wrapper.get('.login-characters')
+    const username = wrapper.get<HTMLInputElement>('#login-username').element
+    const refresh = wrapper.get<HTMLButtonElement>('button[aria-label="刷新验证码"]').element
+    username.focus()
+    await flushPromises()
+    expect(scene.classes()).toContain('is-attentive')
+    refresh.focus()
+    await flushPromises()
+    expect(scene.classes()).toContain('is-attentive')
+    expect(document.activeElement).toBe(refresh)
+    refresh.blur()
+    await flushPromises()
+    expect(scene.classes()).not.toContain('is-attentive')
+  })
   it('拒绝登录后保留账号，清空密码和旧验证码并恢复键盘焦点', async () => {
     api.login.mockRejectedValue({ response: { data: { message: '账号或密码错误' } } })
     const wrapper = await render()
