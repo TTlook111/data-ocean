@@ -57,6 +57,21 @@ describe('登录表单', () => {
     await wrapper.find('button[aria-label="隐藏密码"]').trigger('click')
     expect((wrapper.find('#login-password').element as HTMLInputElement).value).toBe('keep me')
   })
+  // 用户用键盘移到显隐按钮后，角色表情仍要与密码的实际可见状态一致。
+  it('密码获得焦点时闭眼，显示密码期间移开焦点也保持闭眼', async () => {
+    const wrapper = await render()
+    const password = wrapper.get('#login-password')
+    const scene = wrapper.get('.login-characters')
+    await password.trigger('focus')
+    expect(scene.classes()).toContain('is-concealed')
+    await password.trigger('blur')
+    expect(scene.classes()).not.toContain('is-concealed')
+    await wrapper.get('button[aria-label="显示密码"]').trigger('click')
+    await wrapper.get('#login-captcha').trigger('focus')
+    expect(scene.classes()).toContain('is-concealed')
+    await wrapper.get('button[aria-label="隐藏密码"]').trigger('click')
+    expect(scene.classes()).not.toContain('is-concealed')
+  })
   it('拒绝登录后保留账号，清空密码和旧验证码并恢复键盘焦点', async () => {
     api.login.mockRejectedValue({ response: { data: { message: '账号或密码错误' } } })
     const wrapper = await render()

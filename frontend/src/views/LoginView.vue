@@ -6,12 +6,14 @@ import { Eye, EyeOff } from 'lucide-vue-next'
 import { useAuthStore } from '../stores/auth'
 import { getCaptcha } from '../api/auth'
 import BrandMark from '../components/common/BrandMark.vue'
-import coastPhoto from '../assets/ocean/california-surf.webp'
+import LoginCharacters from '../components/login/LoginCharacters.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
 const form = reactive({ username: '', password: '', captchaCode: '' })
 const passwordInput = ref<HTMLInputElement>()
+// 插画只接收字段的交互状态，密码值仍由表单独立持有。
+const passwordFocused = ref(false)
 const showPassword = ref(false)
 const loading = ref(false)
 const captchaImage = ref('')
@@ -108,38 +110,20 @@ onUnmounted(() => {
 
 <template>
   <main class="login-page">
-    <header class="login-masthead" aria-label="DataOcean">
-      <BrandMark class="login-mark" />
-      <span>DataOcean</span>
-    </header>
-
     <div class="login-layout">
-      <!-- 摄影原件已获公有领域标记。本地资源可离线显示，署名链接指向作品原页。 -->
-      <figure class="coast-figure">
-        <div class="coast-image">
-          <img
-            :src="coastPhoto"
-            alt="加利福尼亚海岸上空俯拍的碎浪与鸟群"
-            width="1920"
-            height="1280"
-            fetchpriority="high"
-          />
+      <!-- 延续旧登录页的品牌与四角色构图，窄屏把插画收为表单上方的小组像。 -->
+      <aside class="login-visual" aria-label="DataOcean">
+        <div class="login-brand">
+          <BrandMark class="login-mark" />
+          <span lang="en" translate="no">DataOcean</span>
         </div>
-        <figcaption>
-          <span>加利福尼亚海岸，2019</span>
-          <a
-            href="https://www.usgs.gov/media/images/shorebirds-flying-over-breaking-waves-california-coast"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Laney White / USGS
-          </a>
-        </figcaption>
-      </figure>
+        <p class="login-statement">让数据<br />回答问题</p>
+        <div class="character-frame"><LoginCharacters :conceal="passwordFocused || showPassword" /></div>
+      </aside>
 
       <section class="login-panel" aria-labelledby="login-heading">
         <div class="form-shell">
-          <h1 id="login-heading">登录</h1>
+          <h1 id="login-heading">登录 DataOcean</h1>
           <p v-if="loginError" class="login-error" role="alert">{{ loginError }}</p>
           <form class="login-form" @submit.prevent="submit">
             <!-- 原生标签和 required 负责读屏名称与缺项定位；输入值不依靠占位文字解释。 -->
@@ -163,6 +147,8 @@ onUnmounted(() => {
                   :type="showPassword ? 'text' : 'password'"
                   autocomplete="current-password"
                   required
+                  @focus="passwordFocused = true"
+                  @blur="passwordFocused = false"
                 />
                 <button
                   type="button"
@@ -213,85 +199,71 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* 宽屏使用一幅完整的观测摄影与独立表单，版心、字色和主操作沿用全站令牌。 */
+/* 双栏共用一个外框。版心在大屏限制高度；窗口较矮时由文档自然滚动。 */
 .login-page {
-  box-sizing: border-box;
+  --page-gutter: clamp(16px, 3.4dvh, 40px);
+  display: grid;
+  place-items: center;
   min-height: 100dvh;
-  max-width: 1800px;
-  margin-inline: auto;
-  padding: 0 clamp(24px, 4vw, 72px) clamp(20px, 3.5vh, 42px);
+  padding: var(--page-gutter) clamp(16px, 3.4vw, 72px);
   color: var(--do-ink);
   background: var(--do-bg);
 }
-.login-masthead {
+.login-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.04fr) minmax(0, 1fr);
+  width: min(100%, 1520px);
+  min-height: clamp(540px, calc(100dvh - 2 * var(--page-gutter)), 880px);
+  overflow: clip;
+  border: 1px solid var(--do-line);
+  border-radius: 14px;
+  background: var(--do-surface);
+}
+.login-visual {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: clamp(30px, 5dvh, 58px) clamp(30px, 4.2vw, 70px);
+  background: color-mix(in srgb, var(--do-primary-soft) 52%, var(--do-nav-bg));
+}
+.login-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: clamp(64px, 8.5vh, 92px);
-  font-size: 21px;
+  font-size: 23px;
   font-weight: 650;
   letter-spacing: -0.045em;
 }
 .login-mark {
-  width: 35px;
-  height: 35px;
+  width: 29px;
+  height: 36px;
 }
-.login-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr);
-  align-items: stretch;
+.login-statement {
+  margin: clamp(30px, 5.4dvh, 58px) 0 28px;
+  color: var(--do-ink);
+  font-size: clamp(46px, 4.8vw, 74px);
+  font-weight: 690;
+  letter-spacing: -.055em;
+  line-height: 1.12;
 }
-.coast-figure {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  min-width: 0;
-  margin: 0;
-}
-.coast-image {
-  position: relative;
-  min-height: clamp(470px, 74dvh, 900px);
-  overflow: hidden;
-  background: var(--do-soft);
-}
-.coast-image img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: 61% 48%;
-}
-.coast-figure figcaption {
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  padding-top: 12px;
-  color: var(--do-muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.coast-figure figcaption a {
-  color: inherit;
-  text-underline-offset: 3px;
-  text-decoration-color: var(--do-line);
-}
-.coast-figure figcaption a:hover {
-  color: var(--do-primary-strong);
+.character-frame {
+  width: min(100%, 52dvh, 490px);
+  margin-top: auto;
 }
 .login-panel {
   display: grid;
   place-items: center;
   min-width: 0;
-  padding: clamp(26px, 5vh, 64px) clamp(28px, 5vw, 90px) clamp(45px, 8vh, 96px);
+  padding: clamp(28px, 5vh, 60px) clamp(28px, 4.6vw, 76px);
 }
 .form-shell {
-  width: min(100%, 384px);
+  width: min(100%, 410px);
 }
 .form-shell h1 {
   margin: 0 0 clamp(28px, 4vh, 42px);
   color: var(--do-ink);
-  font-size: clamp(32px, 3vw, 42px);
+  font-size: clamp(29px, 2.5vw, 38px);
   font-weight: 630;
   letter-spacing: -0.045em;
   line-height: 1.18;
@@ -390,8 +362,7 @@ onUnmounted(() => {
   cursor: wait;
   opacity: 0.64;
 }
-.login-page button:focus-visible,
-.coast-figure a:focus-visible {
+.login-page button:focus-visible {
   outline: 2px solid var(--do-primary);
   outline-offset: 3px;
 }
@@ -407,40 +378,41 @@ onUnmounted(() => {
   padding-inline-start: 10px;
   border-inline-start: 2px solid var(--do-danger);
 }
-/* 小窗口优先保留输入与错误空间，矮窗口沿页面自然滚动。 */
+/* 窄屏保留品牌和小角色，省下大标题所占空间给登录表单。 */
 @media (max-width: 760px) {
   .login-page {
-    padding-inline: clamp(20px, 6vw, 42px);
-  }
-  .login-masthead {
-    max-width: 420px;
-    margin: auto;
-    min-height: 72px;
-    border-bottom: 1px solid var(--do-line);
+    padding: 16px;
   }
   .login-layout {
     display: block;
+    max-width: 480px;
+    min-height: auto;
   }
-  .coast-figure {
-    display: none;
+  .login-visual {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 18px clamp(16px, 5vw, 26px) 14px;
+  }
+  .login-brand { font-size: 19px; gap: 7px; }
+  .login-mark { width: 24px; height: 31px; }
+  .login-statement { display: none; }
+  .character-frame {
+    width: min(40%, 128px);
+    margin-top: 0;
   }
   .login-panel {
-    min-height: calc(100dvh - 110px);
-    padding: 36px 0 58px;
+    padding: 30px clamp(18px, 6vw, 32px) 36px;
   }
   .form-shell {
-    width: min(100%, 420px);
+    width: 100%;
   }
 }
+/* 较矮的桌面把留白让给错误消息和操作按钮。 */
 @media (max-height: 680px) and (min-width: 761px) {
-  .login-panel {
-    padding-block: 20px 36px;
-  }
-  .coast-image {
-    min-height: 460px;
-  }
-  .login-form {
-    gap: 15px;
-  }
+  .login-visual, .login-panel { padding-block: 26px; }
+  .login-statement { margin-block: 24px; }
+  .login-form { gap: 15px; }
 }
 </style>
