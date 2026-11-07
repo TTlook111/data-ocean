@@ -143,11 +143,12 @@ function detailTarget(kind: ExperienceDetailKind) {
         <section v-if="usage" class="speed" aria-labelledby="wait-heading">
           <header><h2 id="wait-heading">平均等候时间</h2><small>受理至答案就绪</small></header>
           <div v-if="usage.measured" class="big-value">
-            <strong :class="{ breach: usage.avgSeconds != null && usage.avgSeconds > report.targetSeconds }">{{ waitLabel(usage.avgSeconds, report.targetSeconds) }}</strong><span v-if="usage.avgSeconds != null">秒</span>
+            <strong>{{ waitLabel(usage.avgSeconds, report.targetSeconds) }}</strong><span v-if="usage.avgSeconds != null">秒</span>
             <small v-if="meanDelta != null">{{ Math.abs(meanDelta) < .05 ? '与昨日同时段持平' : '较昨日同时段' + (meanDelta > 0 ? '慢 ' : '快 ') + Math.abs(meanDelta).toFixed(1) + ' 秒' }}</small>
           </div>
           <p v-else class="empty-value">暂无计时样本</p>
-          <div class="chart-key"><span v-if="usage.measured">超目标 {{ usage.slow }} / {{ usage.measured }} 次 <template v-if="usage.p95Seconds != null"> · <abbr title="95% 的可计时回答在此时间内就绪">P95</abbr> {{ usage.p95Seconds }} 秒</template></span><span class="target">目标 {{ report.targetSeconds }} 秒</span></div>
+          <!-- 图例中的菱形与曲线上严格超目标的点对应；文字仍给出回答级的分子和分母。 -->
+          <div class="chart-key"><span v-if="usage.measured"><i v-if="usage.slow" class="alert-key" aria-hidden="true"></i>超目标 {{ usage.slow }} / {{ usage.measured }} 次 <template v-if="usage.p95Seconds != null"> · <abbr title="95% 的可计时回答在此时间内就绪">P95</abbr> {{ usage.p95Seconds }} 秒</template></span><span class="target">目标 {{ report.targetSeconds }} 秒</span></div>
           <WaitingTimeChart v-if="measuredBuckets.length > 1" :buckets="usage.buckets" :period="report.period" :target="report.targetSeconds" :selected="pickedStart" @select="pick" />
           <p v-else-if="measuredBuckets[0]" class="chart-empty">仅 {{ bucketLabel(measuredBuckets[0], report.period) }} 有可计时回答。</p>
           <p v-else class="chart-empty">{{ usage.completed ? '已返回的回答缺少可核对的起止时间。' : '所选周期暂无已完成的回答。' }}</p>
@@ -161,12 +162,15 @@ function detailTarget(kind: ExperienceDetailKind) {
         <!-- 点踩占比的分母为已评价回答；独立答案抽检目前没有来源，不能用赞踩推算正确率。 -->
         <section v-if="feedback" class="feedback" aria-labelledby="feedback-heading">
           <div><h2 id="feedback-heading">用户反馈</h2>
-            <div v-if="votes" class="down-value"><strong :class="{ 'has-dislikes': feedback.dislikes > 0 }">{{ feedback.dislikes }}</strong><span>次点踩</span></div>
+            <div v-if="votes" class="down-value"><strong>{{ feedback.dislikes }}</strong><span>次点踩</span></div>
             <p v-else class="empty-value">暂无评价</p>
             <p v-if="negativePercent != null" class="secondary">占已评价回答 {{ Math.round(negativePercent) }}%<template v-if="priorPercent != null">，昨日同时段 {{ priorPercent }}%</template></p>
-            <div v-if="votes" class="vote-bar" aria-hidden="true"><i v-if="feedback.likes" :style="{ flex: feedback.likes }"></i><i v-if="feedback.dislikes" class="dislike" :style="{ flex: feedback.dislikes }"></i></div>
             <div v-if="votes" class="vote-labels"><span>赞 <b>{{ feedback.likes }}</b></span><span>踩 <b>{{ feedback.dislikes }}</b></span></div>
-            <p v-if="votes" class="secondary coverage">{{ feedback.eligible }} 个回答中有 {{ votes }} 个获得评价</p>
+            <!-- 占比文字仍用有效票作分母；进度条紧贴覆盖说明，表示全部已完成回答中已获评价的数量。 -->
+            <div v-if="votes" class="coverage">
+              <p class="secondary">{{ feedback.eligible }} 个回答中有 {{ votes }} 个获得评价</p>
+              <progress v-if="feedback.eligible" class="coverage-bar" :max="feedback.eligible" :value="votes" aria-hidden="true" />
+            </div>
             <p v-else class="secondary coverage">{{ feedback.eligible ? feedback.eligible + ' 个已返回回答尚未收到评价。' : '负责范围内暂无已返回的回答。' }}</p>
             <RouterLink v-if="feedback.dislikes" :to="detailTarget('feedback')">看点踩反馈 <ArrowUpRight :size="15" aria-hidden="true" /></RouterLink>
           </div>

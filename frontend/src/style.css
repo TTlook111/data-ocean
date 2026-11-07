@@ -1,3 +1,6 @@
+/* 三个看板视图共用的令牌按根类生效，Canvas 能从所属页面继承同一组实际色值。 */
+@import './styles/dashboard-palette.css';
+
 html {
   /* 字体从统一令牌读取，正文、表单和弹层使用相同的中文字形尺度。 */
   font-family: var(--do-font-family);

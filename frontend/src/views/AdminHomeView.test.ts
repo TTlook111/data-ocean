@@ -16,7 +16,9 @@ describe('问数运行工作台', () => {
     expect(wrapper.text()).toContain('占已评价回答 20%')
     expect(wrapper.text()).toContain('暂无独立抽检数据')
     expect(wrapper.find('table').exists()).toBe(false)
-    expect(wrapper.get('.big-value strong').classes()).not.toContain('breach')
+    // 覆盖条与点踩占比的分母不同：二十五个回答有评价，其中五个点踩。
+    const coverage = wrapper.get('progress.coverage-bar').element as HTMLProgressElement
+    expect([coverage.value, coverage.max]).toEqual([25, 60])
     expect(wrapper.get('select').element.value).toBe(secondStart)
     expect(router.resolve(wrapper.get('.chart-footer a').attributes('href')!).query).toEqual({
       kind: 'slow', period: 'today', asOf: cutoff, bucketStart: secondStart,
@@ -51,6 +53,15 @@ describe('问数运行工作台', () => {
     expect(wrapper.find('.speed').exists()).toBe(false)
     expect(wrapper.find('.traffic').exists()).toBe(false)
     expect(wrapper.text()).toContain('用户反馈')
+  })
+  // 服务端分子和分母无法对账时，不能把超出的票数画成已经全部覆盖。
+  it('拒绝有效票数超过该权限域已完成回答数的反馈回执', async () => {
+    const r = summary()
+    r.feedback = { ...r.feedback!, eligible: 1, likes: 1, dislikes: 1 }
+    vi.mocked(getQueryExperience).mockResolvedValue(r)
+    const { wrapper } = await openWorkbench()
+    expect(wrapper.text()).toContain('问数统计返回的范围或指标不完整')
+    expect(wrapper.find('.coverage-bar').exists()).toBe(false)
   })
   it('旧来源书签只打开授权的精确来源，非法来源清晰报错', async () => {
     const { router, wrapper } = await openWorkbench('/admin/workbench?focusSourceId=5')

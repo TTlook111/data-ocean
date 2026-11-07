@@ -88,13 +88,13 @@ const title = computed(() => scope.value?.kind === 'feedback' ? '用户点踩反
 
 <style scoped>
 /* 详情使用可读的来源、时刻和任务标识，长评论或标识换行而不挤出手机屏幕。 */
-.experience-details { max-width: 1100px; margin-inline: auto; color: var(--do-ink); }
-.back { display: inline-flex; align-items: center; gap: 6px; color: var(--do-primary); text-decoration: none; font-weight: 600; }
-header { margin: 20px 0 16px; } header p,.count,small,.empty,nav { font-size: 13px; color: var(--do-muted); }
+.experience-details { max-width: 1100px; margin-inline: auto; color: var(--do-dash-ink); }
+.back { display: inline-flex; align-items: center; gap: 6px; color: var(--do-dash-cobalt); text-decoration: none; font-weight: 600; }
+header { margin: 20px 0 16px; } header p,.count,small,.empty,nav { font-size: 13px; color: var(--do-dash-muted); }
 header h1 { margin: 4px 0; font-size: clamp(26px,3vw,38px); letter-spacing: -.04em; }
-.records { padding: 0; list-style: none; } .records li { padding: 14px 0; border-top: 1px solid var(--do-line); display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+.records { padding: 0; list-style: none; } .records li { padding: 14px 0; border-top: 1px solid var(--do-dash-border); display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
 .records div { min-width: 0; overflow-wrap: anywhere; } .records strong { font-weight: 550; white-space: pre-line; } .records small { display: block; margin-top: 4px; }
-.records b { color: var(--do-danger); white-space: nowrap; } nav { display: flex; gap: 12px; align-items: center; justify-content: flex-end; }
-nav button { border: 1px solid var(--do-line-strong); border-radius: 5px; padding: 5px 12px; color: var(--do-ink); background: var(--do-surface); }
+.records b { color: var(--do-dash-ink); white-space: nowrap; } nav { display: flex; gap: 12px; align-items: center; justify-content: flex-end; }
+nav button { border: 1px solid var(--do-dash-border); border-radius: 5px; padding: 5px 12px; color: var(--do-dash-cobalt); background: var(--do-dash-surface); }
 nav button:disabled { opacity: .5; }
 </style>

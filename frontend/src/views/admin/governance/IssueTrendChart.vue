@@ -14,11 +14,13 @@ const selected = computed(() => props.days.find(day => day.date === props.select
 function draw() {
   if (!canvas.value) return
   const { color, fontFamily } = readChartTheme(canvas.value)
-  const balance = color('--do-primary')
-  const entering = color('--do-chart-3')
-  const leaving = color('--do-chart-2')
-  const muted = color('--do-muted')
-  const line = { color: color('--do-line'), width: 1 }
+  // 与图外图例共用局部看板色。余额、每日进入/移出为独立量，颜色也保留相同含义。
+  const balance = color('--do-dash-cobalt')
+  const entering = color('--do-dash-in')
+  const leaving = color('--do-dash-out')
+  const muted = color('--do-dash-muted')
+  const surface = color('--do-dash-surface')
+  const line = { color: color('--do-dash-grid'), width: 1 }
   const dates = props.days.map(day => day.date)
   // 边缘观测值朝画布内标注；中部峰值上方预留完整数字的高度。
   const pointLabelPosition = props.selectedDate === dates.at(-1) ? 'left'
@@ -35,7 +37,7 @@ function draw() {
   const tick = Math.max(1, Math.ceil(flowBound / 2))
   const guide = {
     silent: true, symbol: 'none', label: { show: false },
-    lineStyle: { type: 'dashed', width: 1, color: muted, opacity: .55 },
+    lineStyle: { type: 'dashed', width: 1, color: color('--do-dash-target') },
     data: [{ xAxis: props.selectedDate }],
   }
   setOption({
@@ -58,15 +60,16 @@ function draw() {
         name: '未解决问题', type: 'line', xAxisIndex: 0, yAxisIndex: 0, connectNulls: false,
         data: props.days.map(day => day.remaining), symbol: 'circle', showAllSymbol: true,
         symbolSize: props.days.length - coveredAt === 1 ? 10 : 5, itemStyle: { color: balance }, lineStyle: { width: 2.5, color: balance },
-        areaStyle: { color: balance, opacity: .05 }, markLine: guide,
+        areaStyle: { color: balance, opacity: .03 }, markLine: guide,
         // 记录刚启用时图上可能只有一个有效点；将前段画成无数据底色，不能连接成历史趋势。
         markArea: coveredAt > 1 ? {
-          silent: true, itemStyle: { color: color('--do-soft'), opacity: .55 },
+          silent: true, itemStyle: { color: color('--do-dash-gap') },
           label: { show: true, position: 'inside', color: muted, formatter: '此前无历史记录' },
           data: [[{ xAxis: dates[0] }, { xAxis: dates[coveredAt - 1] }]],
         } : undefined,
         markPoint: {
-          symbol: 'circle', symbolSize: 8, itemStyle: { color: balance },
+          // 白心蓝圈只标出已观察的值，单独一个点和键盘选中的日期均清晰可辨。
+          symbol: 'circle', symbolSize: 10, itemStyle: { color: surface, borderColor: balance, borderWidth: 3 },
           label: { position: pointLabelPosition, color: balance, fontWeight: 600, formatter: '{c}' },
           data: selected.value?.remaining != null
             ? [{ coord: [props.selectedDate, selected.value.remaining], value: selected.value.remaining }] : [],

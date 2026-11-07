@@ -129,30 +129,32 @@ onBeforeUnmount(() => { request++ })
 </template>
 
 <style scoped>
-/* 余额与同日变化共用一个连续工作面；辅助入口放在读数之后。 */
-.issue-dashboard { min-width: 0; padding-bottom: 18px; color: var(--do-ink); }
+/* 局部白底与图例、日期筛选共用两张看板的令牌，外层导航仍继承全站主题。 */
+.issue-dashboard { min-width: 0; padding-bottom: 18px; color: var(--do-dash-ink); }
 .issue-dashboard p { margin: 0; }
-.trend-period { display: flex; gap: 2px; padding: 3px; background: var(--do-soft); border: 1px solid var(--do-line); border-radius: 7px; }
-.trend-period button { padding: 6px 12px; background: transparent; border: 0; border-radius: 4px; color: var(--do-muted); cursor: pointer; font: inherit; font-size: 13px; }
-.trend-period button[aria-pressed="true"] { background: var(--do-surface); color: var(--do-primary-strong); box-shadow: var(--do-shadow); }
-.scope-identity,.dashboard-notice,.coverage { color: var(--do-muted); font-size: 13px; }
+.trend-period { display: flex; gap: 2px; padding: 3px; background: var(--do-dash-surface); border: 1px solid var(--do-dash-border); border-radius: 7px; }
+.trend-period button { padding: 6px 12px; background: transparent; border: 0; border-radius: 4px; color: var(--do-dash-muted); cursor: pointer; font: inherit; font-size: 13px; }
+.trend-period button[aria-pressed="true"] { background: var(--do-dash-selected); color: var(--do-dash-cobalt); font-weight: 600; }
+.trend-period button:hover,.trend-nav a:hover { color: var(--do-dash-cobalt); }
+.issue-dashboard :is(button,select,a):focus-visible { outline: 2px solid var(--do-dash-cobalt); outline-offset: 2px; }
+.scope-identity,.dashboard-notice,.coverage { color: var(--do-dash-muted); font-size: 13px; }
 .dashboard-notice,.scope-identity { padding: 15px 0; }
-.trend-surface { background: var(--do-surface); border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); padding: clamp(18px, 2.5vw, 34px); }
+.trend-surface { background: var(--do-dash-surface); border: 1px solid var(--do-dash-border); border-radius: var(--do-radius-lg); padding: clamp(18px, 2.5vw, 34px); }
 .balance { display:flex; gap: 26px; align-items: flex-end; flex-wrap: wrap; }
 .balance p { font-size: 14px; font-weight: 550; }
 .balance strong { font-size: clamp(44px, 5.3vw, 74px); font-weight: 550; line-height: 1.15; letter-spacing: -.055em; font-variant-numeric: tabular-nums; }
 .balance strong + span { margin-left: 8px; font-size: 15px; }
-.balance-context { display: grid; gap: 3px; padding-bottom: 5px; color: var(--do-muted); font-size: 12px; }
-.balance-context b { color: var(--do-primary-strong); font-size: 15px; }
+.balance-context { display: grid; gap: 3px; padding-bottom: 5px; color: var(--do-dash-muted); font-size: 12px; }
+.balance-context b { color: var(--do-dash-ink); font-size: 15px; }
 .trend-legend,.trend-detail,.trend-nav { display:flex; align-items:center; flex-wrap:wrap; }
-.trend-legend { gap: 16px; margin-top: 18px; color: var(--do-muted); font-size: 12px; }
+.trend-legend { gap: 16px; margin-top: 18px; color: var(--do-dash-muted); font-size: 12px; }
 .trend-legend i { display:inline-block; width: 8px; height: 8px; margin-right: 5px; border-radius: 2px; }
-.trend-legend .balance-mark { width: 17px; height: 3px; vertical-align: middle; background: var(--do-primary); }
-.in-mark { background: var(--do-chart-3); }.out-mark { background: var(--do-chart-2); }
-.trend-detail { border-top: 1px solid var(--do-line); gap: 12px; padding-top: 14px; font-size: 14px; }
-.trend-detail label { color: var(--do-muted); font-size: 13px; }
-.trend-detail select { margin-left: 5px; padding: 5px; border: 1px solid var(--do-line-strong); border-radius: 4px; color: var(--do-ink); background: var(--do-surface); font: inherit; }
+.trend-legend .balance-mark { width: 17px; height: 3px; vertical-align: middle; background: var(--do-dash-cobalt); }
+.in-mark { background: var(--do-dash-in); }.out-mark { background: var(--do-dash-out); }
+.trend-detail { border-top: 1px solid var(--do-dash-grid); gap: 12px; padding-top: 14px; font-size: 14px; }
+.trend-detail label { color: var(--do-dash-muted); font-size: 13px; }
+.trend-detail select { margin-left: 5px; padding: 5px; border: 1px solid var(--do-dash-border); border-radius: 4px; color: var(--do-dash-ink); background: var(--do-dash-surface); font: inherit; }
 .trend-surface .coverage { margin-top: 8px; font-size: 12px; }
 .trend-nav { justify-content: flex-end; gap: 18px; padding: 12px 0; }
-.trend-nav a { color: var(--do-primary-strong); font-size: 13px; }
+.trend-nav a { color: var(--do-dash-cobalt); font-size: 13px; }
 </style>

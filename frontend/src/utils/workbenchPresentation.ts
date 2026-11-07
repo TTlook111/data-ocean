@@ -22,7 +22,9 @@ export function validExperience(report: QueryExperience | null, period: Experien
     [u.total, u.completed, u.measured, u.slow, u.cancelled, u.clarification, u.failed, u.timedOut, u.processing].every(count) &&
     [u.avgSeconds, u.p95Seconds, u.previousAvgSeconds].every(seconds) && Array.isArray(u.buckets) &&
     u.buckets.every(b => b && isLocalTime(b.start) && isLocalTime(b.end) && count(b.measured) && count(b.slow) && seconds(b.avgSeconds))
+  // 覆盖条按已返回回答计数，同一回答最多一张有效票；原生进度条会把越界值静默截成满幅。
   const validFeedback = f === null || !!f && [f.eligible, f.likes, f.dislikes].every(count) &&
+    f.likes + f.dislikes <= f.eligible &&
     [f.previousLikes, f.previousDislikes].every(n => n === null || count(n))
   return validUsage && validFeedback
 }

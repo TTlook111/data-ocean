@@ -325,6 +325,11 @@ onBeforeUnmount(() => {
 }
 .admin-shell__main > .scope-bar { flex: 0 0 auto; }
 
+/* 看板的白色图面落在极浅的冷灰底上；进入其他工作区时由原有外壳提供背景。 */
+.admin-shell__main:has(> .admin-shell__content > :is(.experience-home, .experience-details, .issue-dashboard)) {
+  background: #f7f9fc;
+}
+
 .admin-shell__topbar {
   /* 轻量页顶只保留位置与全局操作，标题与业务动作留在页面工作面。 */
   position: relative;
