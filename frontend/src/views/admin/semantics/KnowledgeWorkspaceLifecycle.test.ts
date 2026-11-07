@@ -27,16 +27,78 @@ async function render(component:any=Doc,props?:any){const w=mount(component,{pro
 const button=(w:VueWrapper,label:string)=>w.findAll('button').find(x=>x.text()===label)!
 const body=(w:VueWrapper)=>w.find('.pane__textarea textarea')
 const title=(w:VueWrapper)=>w.find('.pane__title-input input')
+// 写入合同从显式编辑入口开始，默认阅读行为由独立用例验证。
+async function renderEditor(){const w=await render();await w.find('[data-doc-edit]').trigger('click');await settle();return w}
 beforeEach(()=>{vi.restoreAllMocks();Object.values(h.api).forEach(x=>x.mockReset());pendingKnowledgeWrites.value=[];route.params={id:'4'};route.query={};auth.token='A';iam.loaded=true;iam.errorMessage='';iam.systemAdmin=false;iam.snapshot={};iam.codes={'knowledge:view':[1,2],'knowledge:manage':[1],'knowledge:approve':[1],'knowledge:publish':[1]};iam.datasourcesWithFunction.mockImplementation(code=>iam.codes[code] || []);iam.canOnDatasource.mockImplementation((code,id)=>(iam.codes[code] || []).includes(id));iam.load.mockResolvedValue(undefined);context.datasourceId=1;context.routeSyncing=false;context.loading=false;context.initialize.mockResolvedValue(undefined);context.selectKnowledgeDoc.mockClear();h.router.push.mockReset();h.router.replace.mockReset();h.server=record();h.api.getKnowledgeDoc.mockImplementation(id=>Promise.resolve({data:id===h.server.id?{...h.server}:record(id,2)}));h.api.updateKnowledgeDoc.mockImplementation(async(_id,p)=>{h.server={...h.server,...p,version:h.server.version+1,currentVersion:h.server.currentVersion+1};return {data:null}});h.api.getKnowledgeSourceStatus.mockResolvedValue({data:{valid:true,reasons:[]}});h.api.listVersions.mockResolvedValue({data:[{id:12,docId:4,versionNo:2,reviewStatus:'APPROVED',metadataSnapshotId:11,content:'保存正文'},{id:11,docId:4,versionNo:1,reviewStatus:'APPROVED',metadataSnapshotId:11,content:'旧正文'}]});h.api.listSourceSnapshots.mockResolvedValue({data:[{snapshotId:11,snapshotVersion:3,status:'EXPIRED',versionNo:2}]});for(const k of ['listReviewTasks','listVectorTasks','previewChunks','diffVersions'])h.api[k].mockResolvedValue({data:[]});h.api.listRagBuilds.mockResolvedValue({data:[{buildId:'OLD_ACTIVE',datasourceId:1,sourceSnapshotId:11,status:'ACTIVE'}]});h.api.confirmRagBuild.mockResolvedValue({data:{buildId:'NEW',datasourceId:1,status:'QUEUED'}});h.api.listKnowledgeDocs.mockResolvedValue({data:{records:[record(4,1,'PUBLISHED'),record(5,2,'PENDING_REVIEW')],total:2}});h.api.getBatchDatasourceReadiness.mockResolvedValue({data:[],failedDatasourceIds:[]});h.api.getPublishedSnapshot.mockResolvedValue({data:null});h.api.listSnapshots.mockResolvedValue({data:{records:[{id:11,datasourceId:1,snapshotVersion:3,status:'PUBLISHED'}],total:1}});h.api.generateFromSnapshot.mockResolvedValue({data:[]});h.api.generateDraft.mockResolvedValue({data:{content:'目录'}});h.api.getGenerationInputs.mockResolvedValue({data:{datasourceId:1,snapshotId:11,tableNames:['orders'],glossaryFacts:[],excludedTerms:[]}});h.api.generateSemanticDraft.mockResolvedValue({data:[{id:1,text:'候选释义',dependencies:['column:orders.amount']}]});for(const k of ['confirmSemanticDraft','submitReview','approveDoc','rejectDoc','publishDoc','rollbackVersion'])h.api[k].mockResolvedValue({data:null});h.api.createKnowledgeDoc.mockResolvedValue({data:{id:9}})})
 afterEach(()=>{wrappers.splice(0).forEach(w=>w.unmount());document.body.innerHTML=''})
+// 已发布正文默认安全阅读，结构 metadata 不进入阅读文本，但显式修订与保存仍逐字保留原文。
+it('已发布文档默认阅读，显式修订不丢原始结构注释',async()=>{
+ const original='## 销售指标\n<!-- dataocean-fact: {"sourceIds":[16]} -->\n\n- 口径：已完成订单'
+ h.server={...record(4,1,'PUBLISHED'),content:original}
+ const w=await render()
+ expect(w.find('.knowledge-doc-reader').text()).toContain('销售指标')
+ expect(w.find('.knowledge-doc-reader').text()).not.toContain('dataocean-fact')
+ expect(body(w).exists()).toBe(false)
+ expect(h.api.updateKnowledgeDoc).not.toHaveBeenCalled()
+ await w.find('[data-doc-edit]').trigger('click');await settle()
+ expect(body(w).element).toHaveProperty('value',original)
+ await title(w).setValue('销售指标修订')
+ await button(w,'保存并新建版本').trigger('click');await settle()
+ expect(h.api.updateKnowledgeDoc).toHaveBeenCalledWith(4,expect.objectContaining({title:'销售指标修订',content:original,version:3}))
+ expect(h.api.publishDoc).not.toHaveBeenCalled()
+ expect(h.api.confirmRagBuild).not.toHaveBeenCalled()
+})
+// 返回阅读展示服务端事实并保留同对象草稿，身份变化仍按原安全合同清掉旧编辑会话。
+it('阅读与编辑切换保留人工稿且不发写，换账号后退出旧编辑',async()=>{
+ const w=await renderEditor()
+ await body(w).setValue('人工未保存正文')
+ await button(w,'返回阅读').trigger('click');await settle()
+ expect(body(w).exists()).toBe(false)
+ expect(w.find('.knowledge-doc-reader').text()).toContain('已保存正文')
+ expect(w.text()).toContain('输入仍保留')
+ expect(h.api.updateKnowledgeDoc).not.toHaveBeenCalled()
+ await w.find('[data-doc-edit]').trigger('click');await settle()
+ expect(body(w).element).toHaveProperty('value','人工未保存正文')
+ auth.token='B';await settle()
+ expect(body(w).exists()).toBe(false)
+ expect(w.find('.knowledge-doc-reader').text()).not.toContain('人工未保存正文')
+})
+// 辅助抽屉不改变知识任务或发起构建，切换来源/页签时及时关闭原辅助工作面。
+it('准备与关联按需打开，切到构建任务时关闭旧辅助面',async()=>{
+ iam.codes['datasource:view']=[1]
+ const w=await render(List)
+ expect(w.findComponent({name:'ElDrawer'}).props('modelValue')).toBe(false)
+ await button(w,'准备与关联').trigger('click');await settle()
+ expect(w.findComponent({name:'ElDrawer'}).props('modelValue')).toBe(true)
+ expect(h.api.confirmRagBuild).not.toHaveBeenCalled()
+ route.query.tab='index';await settle()
+ expect(w.findComponent({name:'ElDrawer'}).props('modelValue')).toBe(false)
+ expect(w.find('[data-testid="selected-rag-build"]').text()).toContain('活动中')
+})
+// 辅助准备接口慢不能挡住主文档任务；其迟到结果仍由原有来源代次保护接纳。
+it('数据源准备读取未结束时主文档列表仍独立加载',async()=>{
+ iam.codes['datasource:view']=[1]
+ const pending=deferred()
+ h.api.getBatchDatasourceReadiness.mockReturnValueOnce(pending.promise)
+ const w=await render(List)
+ expect(h.api.getBatchDatasourceReadiness).toHaveBeenCalled()
+ expect(h.api.listKnowledgeDocs).toHaveBeenCalled()
+ expect(w.find('.knowledge-page__card').text()).toContain('原主题')
+ pending.resolve({data:[],failedDatasourceIds:[]});await settle()
+ expect(w.find('.knowledge-page__card').text()).toContain('原主题')
+})
 it('最小知识查看者不读取metadata或release辅助接口',async()=>{iam.codes={'knowledge:view':[1]};const w=await render();expect(h.api.getKnowledgeDoc).toHaveBeenCalledWith(4);expect(h.api.listSnapshots).not.toHaveBeenCalled();expect(h.api.getPublishedSnapshot).not.toHaveBeenCalled();expect(w.text()).toContain('原主题');route.query.tab='source';await settle();expect(h.api.listSourceSnapshots).toHaveBeenCalledWith(4)})
 it('旧详情不覆盖新对象或切公共范围',async()=>{const d=deferred();h.api.getKnowledgeDoc.mockReturnValueOnce(d.promise);const w=await render();route.params.id='5';await settle();d.resolve({data:{...record(),title:'OLD_SECRET'}});await settle();expect(w.text()).not.toContain('OLD_SECRET');expect(context.selectKnowledgeDoc).not.toHaveBeenCalledWith(4)})
 it('换账号后旧详情不回填',async()=>{const d=deferred();h.api.getKnowledgeDoc.mockReturnValueOnce(d.promise);const w=await render();auth.token='B';await settle();d.resolve({data:{...record(),title:'OLD_SECRET'}});await settle();expect(w.text()).not.toContain('OLD_SECRET')})
 it('显式源不匹配不读版本和构建',async()=>{route.query.datasourceId='2';const w=await render();expect(w.text()).toContain('指定对象或数据源不一致');expect(h.api.listVersions).not.toHaveBeenCalled();expect(h.api.listRagBuilds).not.toHaveBeenCalled()})
-it.each(['title','body'])('未保存%s不能提交旧版本',async(field)=>{const w=await render();await(field==='title'?title(w):body(w)).setValue('新输入');await button(w,'提交审核').trigger('click');expect(h.api.submitReview).not.toHaveBeenCalled();expect(button(w,'提交审核').attributes('disabled')).toBeDefined()})
-it('保存等待新增输入可保留并携带自己的新锁继续保存',async()=>{const w=await render();const d=deferred();h.api.updateKnowledgeDoc.mockReturnValueOnce(d.promise);await body(w).setValue('第一稿');await button(w,'保存').trigger('click');await body(w).setValue('第一稿+新增');h.server={...h.server,content:'第一稿',version:4,currentVersion:3};d.resolve({data:null});await settle();expect(body(w).element).toHaveProperty('value','第一稿+新增');expect(button(w,'保存').attributes('disabled')).toBeUndefined();await button(w,'保存').trigger('click');await settle();expect(h.api.updateKnowledgeDoc).toHaveBeenLastCalledWith(4,expect.objectContaining({version:4,content:'第一稿+新增'}))})
-it('409保留标题正文与锁，不自动重发',async()=>{h.api.updateKnowledgeDoc.mockRejectedValue({response:{status:409,data:{message:'版本冲突'}}});const w=await render();await body(w).setValue('人工不可丢');await title(w).setValue('人工标题');await button(w,'保存').trigger('click');await settle();expect(body(w).element).toHaveProperty('value','人工不可丢');expect(title(w).element).toHaveProperty('value','人工标题');expect(w.text()).toContain('不会自动重试');expect(h.api.updateKnowledgeDoc).toHaveBeenCalledTimes(1)})
-it('普通刷新保留人工稿但第三方版本不能静默换锁',async()=>{const w=await render();await body(w).setValue('保留');h.server={...h.server,version:9,content:'第三方改稿'};await button(w,'刷新').trigger('click');await settle();expect(body(w).element).toHaveProperty('value','保留');expect(button(w,'保存').attributes('disabled')).toBeDefined()})
+// 显式编辑后的脏输入仍阻止提交旧的已保存版本。
+it.each(['title','body'])('未保存%s不能提交旧版本',async(field)=>{const w=await renderEditor();await(field==='title'?title(w):body(w)).setValue('新输入');await button(w,'提交审核').trigger('click');expect(h.api.submitReview).not.toHaveBeenCalled();expect(button(w,'提交审核').attributes('disabled')).toBeDefined()})
+// 新阅读模式不改变保存等待期间追加输入及本次保存版本锁的保护。
+it('保存等待新增输入可保留并携带自己的新锁继续保存',async()=>{const w=await renderEditor();const d=deferred();h.api.updateKnowledgeDoc.mockReturnValueOnce(d.promise);await body(w).setValue('第一稿');await button(w,'保存').trigger('click');await body(w).setValue('第一稿+新增');h.server={...h.server,content:'第一稿',version:4,currentVersion:3};d.resolve({data:null});await settle();expect(body(w).element).toHaveProperty('value','第一稿+新增');expect(button(w,'保存').attributes('disabled')).toBeUndefined();await button(w,'保存').trigger('click');await settle();expect(h.api.updateKnowledgeDoc).toHaveBeenLastCalledWith(4,expect.objectContaining({version:4,content:'第一稿+新增'}))})
+// 冲突继续保留当前编辑会话的正文和标题，不通过重进编辑重置锁。
+it('409保留标题正文与锁，不自动重发',async()=>{h.api.updateKnowledgeDoc.mockRejectedValue({response:{status:409,data:{message:'版本冲突'}}});const w=await renderEditor();await body(w).setValue('人工不可丢');await title(w).setValue('人工标题');await button(w,'保存').trigger('click');await settle();expect(body(w).element).toHaveProperty('value','人工不可丢');expect(title(w).element).toHaveProperty('value','人工标题');expect(w.text()).toContain('不会自动重试');expect(h.api.updateKnowledgeDoc).toHaveBeenCalledTimes(1)})
+// 普通刷新只更新已保存事实，本地人工稿与冲突锁保持独立。
+it('普通刷新保留人工稿但第三方版本不能静默换锁',async()=>{const w=await renderEditor();await body(w).setValue('保留');h.server={...h.server,version:9,content:'第三方改稿'};await button(w,'刷新').trigger('click');await settle();expect(body(w).element).toHaveProperty('value','保留');expect(button(w,'保存').attributes('disabled')).toBeDefined()})
 it('批准确认切文档不发旧写，重复点击一确认',async()=>{h.server=record(4,1,'PENDING_REVIEW');const d=deferred();const confirm=vi.spyOn(ElMessageBox,'confirm').mockReturnValue(d.promise);const w=await render();await button(w,'审核通过').trigger('click');await button(w,'审核通过').trigger('click');expect(confirm).toHaveBeenCalledTimes(1);route.params.id='5';await settle();d.resolve('confirm');await settle();expect(h.api.approveDoc).not.toHaveBeenCalled()})
 it('确认后版本变化不批准',async()=>{h.server=record(4,1,'PENDING_REVIEW');const d=deferred();vi.spyOn(ElMessageBox,'confirm').mockReturnValue(d.promise);const w=await render();await button(w,'审核通过').trigger('click');h.server={...h.server,version:4};d.resolve('confirm');await settle();expect(h.api.approveDoc).not.toHaveBeenCalled();expect(w.text()).toContain('已保存修订发生变化')})
 it('知识发布角色可独立构建历史来源，重复只写一次',async()=>{route.query.tab='index';const w=await render(List);expect(h.api.getBatchDatasourceReadiness).not.toHaveBeenCalled();expect(h.api.getPublishedSnapshot).not.toHaveBeenCalled();await button(w,'准备构建').trigger('click');await settle();expect(w.findAllComponents({name:'ElOption'}).some(x=>String(x.props('label')).includes('曾发布历史来源'))).toBe(true);w.findComponent({name:'ElInputNumber'}).vm.$emit('update:modelValue',11);await settle();const d=deferred();h.api.confirmRagBuild.mockReturnValue(d.promise);await button(w,'确认构建').trigger('click');await button(w,'确认构建').trigger('click');expect(h.api.confirmRagBuild).toHaveBeenCalledTimes(1);expect(h.api.confirmRagBuild).toHaveBeenCalledWith(1,11);d.resolve({data:{buildId:'NEW'}});await settle()})
@@ -50,12 +112,15 @@ it('AI旧版本读取不回填新文档来源',async()=>{const d=deferred();h.ap
 it('AI改表范围丢旧候选及旧确认',async()=>{const w=await render(Assistant,{doc:record()});await(w.vm as any).open();await settle();w.findComponent({name:'KnowledgeSourcePreview'}).vm.$emit('ready',true);await settle();const d=deferred();h.api.generateSemanticDraft.mockReturnValue(d.promise);await button(w,'生成释义候选').trigger('click');expect(h.api.generateSemanticDraft).toHaveBeenCalledTimes(1);w.findComponent({name:'ElSelect'}).vm.$emit('update:modelValue',['orders']);await settle();d.resolve({data:[{id:1,text:'OLD_CANDIDATE',dependencies:[]}]});await settle();expect(w.text()).not.toContain('OLD_CANDIDATE');expect(h.api.confirmSemanticDraft).not.toHaveBeenCalled()})
 it('无维护权的生成预览不请求输入',async()=>{iam.codes={'knowledge:view':[1]};const w=await render(SourcePreview,{datasourceId:1,snapshotId:11});expect(h.api.getGenerationInputs).not.toHaveBeenCalled();expect(w.text()).toContain('没有本数据源的知识维护权')})
 
-it('新保存修订使旧切分缓存失效，重进Tab读取新证据',async()=>{h.api.previewChunks.mockResolvedValueOnce({data:[{chunk_text:'V2_OLD_CHUNK'}]}).mockResolvedValueOnce({data:[{chunk_text:'V3_NEW_CHUNK'}]});const w=await render();route.query.tab='chunks';await settle();expect(w.text()).toContain('V2_OLD_CHUNK');route.query.tab='content';await settle();await body(w).setValue('V3内容');await button(w,'保存').trigger('click');await settle();route.query.tab='chunks';await settle();expect(h.api.previewChunks).toHaveBeenCalledTimes(2);expect(w.text()).not.toContain('V2_OLD_CHUNK');expect(w.text()).toContain('V3_NEW_CHUNK')})
-it('跨页面同源快照组生成共享未知保护',async()=>{iam.codes['metadata:view']=[1];pendingKnowledgeWrites.value.push({identity:'A',source:1,snapshotId:11,kind:'generate-group',started:1});const w=await render();await button(w,'按快照生成目录').trigger('click');await settle();expect(w.text()).toContain('列表与详情共用记录');const run=button(w,'生成目录');expect(run.attributes('disabled')).toBeDefined();expect(h.api.generateFromSnapshot).not.toHaveBeenCalled()})
+// 跨证据页签后回到同一编辑会话，保存的新修订使旧切分证据失效。
+it('新保存修订使旧切分缓存失效，重进Tab读取新证据',async()=>{h.api.previewChunks.mockResolvedValueOnce({data:[{chunk_text:'V2_OLD_CHUNK'}]}).mockResolvedValueOnce({data:[{chunk_text:'V3_NEW_CHUNK'}]});const w=await renderEditor();route.query.tab='chunks';await settle();expect(w.text()).toContain('V2_OLD_CHUNK');route.query.tab='content';await settle();await body(w).setValue('V3内容');await button(w,'保存').trigger('click');await settle();route.query.tab='chunks';await settle();expect(h.api.previewChunks).toHaveBeenCalledTimes(2);expect(w.text()).not.toContain('V2_OLD_CHUNK');expect(w.text()).toContain('V3_NEW_CHUNK')})
+// 生成属于显式编辑任务，但跨页面未知操作保护仍保持同一身份与来源。
+it('跨页面同源快照组生成共享未知保护',async()=>{iam.codes['metadata:view']=[1];pendingKnowledgeWrites.value.push({identity:'A',source:1,snapshotId:11,kind:'generate-group',started:1});const w=await renderEditor();await button(w,'按快照生成目录').trigger('click');await settle();expect(w.text()).toContain('列表与详情共用记录');const run=button(w,'生成目录');expect(run.attributes('disabled')).toBeDefined();expect(h.api.generateFromSnapshot).not.toHaveBeenCalled()})
 
 it('AI采纳409保留人工候选内容、选择和精确版本',async()=>{const w=await render(Assistant,{doc:record()});await(w.vm as any).open();await settle();w.findComponent({name:'KnowledgeSourcePreview'}).vm.$emit('ready',true);await settle();await button(w,'生成释义候选').trigger('click');await settle();await w.find('textarea').setValue('人工修改候选');const checks=w.findAllComponents({name:'ElCheckbox'});checks[0]!.vm.$emit('change',true);checks[1]!.vm.$emit('update:modelValue',true);await settle();h.api.confirmSemanticDraft.mockRejectedValue({response:{status:409,data:{message:'修订已变化'}}});await button(w,'采纳到新草稿版本').trigger('click');await settle();expect(w.find('textarea').element).toHaveProperty('value','人工修改候选');expect(h.api.confirmSemanticDraft).toHaveBeenCalledWith(4,3,[{id:1,text:'人工修改候选'}],true);expect(w.emitted('saved')).toBeUndefined()})
 it('生成预览拒绝错误来源，不发ready通过',async()=>{h.api.getGenerationInputs.mockResolvedValue({data:{datasourceId:2,snapshotId:11}});const w=await render(SourcePreview,{datasourceId:1,snapshotId:11});expect(w.text()).toContain('指定源或快照不一致');expect(w.emitted('ready')?.flat()).not.toContain(true)})
-it('跨入口整组创建挂起后列表不能再发相同生成',async()=>{iam.codes['metadata:view']=[1];const w=await render();await button(w,'按快照生成目录').trigger('click');await settle();w.findComponent({name:'KnowledgeSourcePreview'}).vm.$emit('ready',true);await settle();const d=deferred();h.api.generateFromSnapshot.mockReturnValue(d.promise);await button(w,'生成目录').trigger('click');await settle();expect(h.api.generateFromSnapshot).toHaveBeenCalledTimes(1);w.unmount();const list=await render(List);await button(list,'生成快照目录').trigger('click');await settle();expect(list.text()).toContain('不能重复创建同组草稿');expect(button(list,'开始生成').attributes('disabled')).toBeDefined();d.reject(new Error('原请求断网'));await settle();expect(pendingKnowledgeWrites.value.some(x=>x.kind==='generate-group' && x.snapshotId===11)).toBe(true);expect(h.api.generateFromSnapshot).toHaveBeenCalledTimes(1)})
+// 编辑入口调整不改变列表和详情共用的生成去重边界。
+it('跨入口整组创建挂起后列表不能再发相同生成',async()=>{iam.codes['metadata:view']=[1];const w=await renderEditor();await button(w,'按快照生成目录').trigger('click');await settle();w.findComponent({name:'KnowledgeSourcePreview'}).vm.$emit('ready',true);await settle();const d=deferred();h.api.generateFromSnapshot.mockReturnValue(d.promise);await button(w,'生成目录').trigger('click');await settle();expect(h.api.generateFromSnapshot).toHaveBeenCalledTimes(1);w.unmount();const list=await render(List);await button(list,'生成快照目录').trigger('click');await settle();expect(list.text()).toContain('不能重复创建同组草稿');expect(button(list,'开始生成').attributes('disabled')).toBeDefined();d.reject(new Error('原请求断网'));await settle();expect(pendingKnowledgeWrites.value.some(x=>x.kind==='generate-group' && x.snapshotId===11)).toBe(true);expect(h.api.generateFromSnapshot).toHaveBeenCalledTimes(1)})
 it('差异在途切对象后新对象可再次比较，旧结果不回填',async()=>{const w=await render();route.query.tab='versions';await settle();await button(w,'版本差异').trigger('click');await settle();const d=deferred();h.api.diffVersions.mockReturnValueOnce(d.promise);await button(w,'比较').trigger('click');route.params.id='5';await settle();route.query.tab='versions';await settle();await button(w,'版本差异').trigger('click');await settle();await button(w,'比较').trigger('click');await settle();expect(h.api.diffVersions).toHaveBeenCalledTimes(2);d.resolve({data:[{type:'ADD',content:'OLD_DIFF'}]});await settle();expect(w.text()).not.toContain('OLD_DIFF')})
 
 it('公共范围初始化完成后同步真实源名称与辅助入口',async()=>{context.loading=true;iam.codes['datasource:view']=[1];const w=await render(List);expect(w.find('.knowledge-page__stats').exists()).toBe(false);context.loading=false;await settle();expect(w.find('.knowledge-page__stats').exists()).toBe(true);expect(w.find('.knowledge-page__card').text()).toContain('销售经营');expect(h.api.getBatchDatasourceReadiness).toHaveBeenCalled()})

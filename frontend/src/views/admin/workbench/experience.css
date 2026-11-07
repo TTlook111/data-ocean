@@ -1,0 +1,79 @@
+/* 阅读顺序靠字号与分栏建立；白色图面与墨色数字贯穿速度、反馈和空态。 */
+.experience-home {
+  color: var(--do-dash-ink); font-variant-numeric: tabular-nums;
+}
+.experience-home :is(h1,h2,h3,p,dl,dt,dd) { margin: 0; }
+.experience-heading, .experience-controls, .periods, .speed header, .chart-key, .chart-footer, .chart-footer>div,
+.big-value, .down-value, .vote-labels, .accuracy { display: flex; align-items: center; gap: 10px; }
+.experience-heading { justify-content: space-between; align-items: flex-end; flex-wrap: wrap; margin-bottom: 20px; }
+.experience-heading h1 { font-size: clamp(28px, 3vw, 40px); letter-spacing: -.05em; line-height: 1.2; font-weight: 670; }
+.experience-heading p, .secondary, .traffic p, .traffic dt { color: var(--do-dash-muted); font-size: 13px; }
+.experience-heading p { margin-bottom: 5px; }
+.experience-heading p span { margin-inline: 5px; }
+.periods { gap: 2px; padding: 3px; border: 1px solid var(--do-dash-border); border-radius: 7px; background: var(--do-dash-surface); }
+.experience-controls button { font: inherit; font-size: 13px; background: transparent; color: var(--do-dash-muted); }
+.periods button { border: 0; border-radius: 6px; padding: 6px 14px; }
+.periods button[aria-pressed=true] { background: var(--do-dash-selected); color: var(--do-dash-cobalt); font-weight: 600; }
+.experience-controls button:hover:not(:disabled) { color: var(--do-dash-cobalt); }
+.refresh { display: grid; place-items: center; border: 1px solid var(--do-dash-border); border-radius: 7px; width: 33px; height: 33px; }
+/* 两个指标域共享同一张白色画布；仅剩单个授权域时无需分隔线。 */
+.experience-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(250px, 1fr);
+  background: var(--do-dash-surface);
+  border: 1px solid var(--do-dash-border);
+  border-radius: 12px;
+}
+.speed + .feedback { border-inline-start: 1px solid var(--do-dash-grid); }
+.experience-panels.single { grid-template-columns: minmax(0, 1fr); }
+.availability { padding-block: 30px; color: var(--do-dash-muted); }
+.experience-home h2 { font-size: 18px; line-height: 1.45; font-weight: 620; }
+.speed, .feedback { min-width: 0; padding: clamp(18px, 2.1vw, 30px); }
+.speed header, .chart-key, .chart-footer, .vote-labels, .accuracy { justify-content: space-between; flex-wrap: wrap; }
+.speed small, .chart-key, .big-value>span, .down-value>span { color: var(--do-dash-muted); font-size: 13px; }
+.big-value, .down-value { align-items: baseline; flex-wrap: wrap; }
+.big-value { margin: 12px 0 17px; }
+.big-value strong, .down-value strong { line-height: 1.05; font-weight: 500; letter-spacing: -.065em; }
+.big-value strong { font-size: clamp(50px, 5.8vw, 76px); }
+.experience-home .empty-value { margin: 15px 0 13px; font-size: clamp(23px,2.65vw,33px); line-height: 1.2; letter-spacing: -.035em; font-weight: 550; }
+.big-value>span { font-size: 18px; }
+.chart-key { margin-bottom: 4px; }
+.alert-key { display: inline-block; width: 6px; height: 6px; margin: 0 7px 2px 1px; transform: rotate(45deg); background: var(--do-dash-alert); }
+.target::before { content: ''; display: inline-block; width: 16px; vertical-align: middle; margin-right: 5px; border-bottom: 1.5px dashed var(--do-dash-target); }
+.chart-empty { border-top: 1px solid var(--do-dash-grid); margin-top: 18px !important; padding-top: 16px; color: var(--do-dash-muted); }
+.chart-footer { padding-top: 12px; border-top: 1px solid var(--do-dash-grid); }
+.chart-footer>div { flex-wrap: wrap; }
+.chart-footer select { max-width: 100%; padding: 4px 5px; background: var(--do-dash-surface); color: var(--do-dash-ink); border: 1px solid var(--do-dash-border); border-radius: 4px; font: inherit; font-size: 13px; }
+.experience-home a { display: inline-flex; align-items: center; gap: 4px; color: var(--do-dash-cobalt); font-weight: 600; font-size: 14px; text-decoration: none; }
+.experience-home a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.experience-home :is(a,select,button):focus-visible { outline: 2px solid var(--do-dash-cobalt); outline-offset: 3px; }
+.feedback { display: flex; flex-direction: column; justify-content: space-between; gap: 20px; }
+.down-value { margin: 14px 0 4px; }
+.down-value strong { font-size: clamp(40px, 4.5vw, 58px); }
+.vote-labels { margin-top: 15px; justify-content: flex-start; gap: 18px; font-size: 14px; color: var(--do-dash-muted); }
+.vote-labels b { color: var(--do-dash-ink); }
+.feedback .coverage { margin: 10px 0 13px; }
+/* 实际评价覆盖条随回答总数缩放，保留小样本的实际视觉分量。 */
+.coverage-bar { display: block; width: 100%; height: 4px; margin-top: 8px; appearance: none; border: 0; border-radius: 3px; overflow: hidden; color: var(--do-dash-cobalt); background: var(--do-dash-grid); }
+.coverage-bar::-webkit-progress-bar { background: var(--do-dash-grid); }
+.coverage-bar::-webkit-progress-value { background: var(--do-dash-cobalt); }
+.coverage-bar::-moz-progress-bar { background: var(--do-dash-cobalt); }
+.accuracy { border-top: 1px solid var(--do-dash-grid); padding-top: 14px; }
+.accuracy h3, .accuracy strong { font-size: 14px; font-weight: 600; }
+.accuracy strong { color: var(--do-dash-muted); font-weight: 500; }
+.traffic { display: flex; align-items: center; gap: clamp(14px, 3vw, 42px); margin-top: 20px; border-top: 1px solid var(--do-dash-border); padding-top: 17px; }
+.traffic dl { flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 14px; }
+.traffic dd { font-size: clamp(22px, 2.3vw, 30px); line-height: 1.4; font-weight: 600; letter-spacing: -.04em; }
+/* 窄屏依次展示主趋势、用户评价及任务状态，筛选和排查始终留在各自图旁。 */
+@media (max-width: 950px) {
+  .experience-panels { grid-template-columns: minmax(0, 1.7fr) minmax(195px, 1fr); }
+  .speed, .feedback { padding: 16px; }
+}
+@media (max-width: 760px) {
+  .experience-panels { grid-template-columns: minmax(0, 1fr); }
+  .speed + .feedback { border-inline-start: 0; border-top: 1px solid var(--do-dash-grid); }
+  .traffic { display: block; }.traffic dl { margin-top: 10px; }
+}
+@media (pointer: coarse) {
+  .experience-controls button, .chart-footer select, .experience-home a { min-height: 44px; }
+}

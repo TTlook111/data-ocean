@@ -170,6 +170,19 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
 
     private String protectedAssistantContent(com.dataocean.module.query.entity.vo.QueryTaskVO result) {
         if (result == null) return RESTRICTED_ANSWER;
+        // 最近上下文与长期摘要都按真实状态表达结果；取消、失败或缺失状态不能进入完成文案分支。
+        if (!"COMPLETED".equals(result.getStatus())) {
+            String error = result.getErrorMessage();
+            boolean hasError = error != null && !error.isBlank();
+            return switch (result.getStatus() == null ? "" : result.getStatus()) {
+                case "CANCELLED" -> "查询已取消";
+                case "TIMEOUT" -> hasError ? error : "查询已超时";
+                case "FAILED" -> hasError ? error : "本轮查询失败";
+                case "CLARIFICATION_REQUIRED" -> hasError ? error : "请补充查询条件";
+                case "PROCESSING" -> "查询仍在处理中";
+                default -> "查询状态待确认";
+            };
+        }
         if (result.getMaskedFields() != null && !result.getMaskedFields().isEmpty()) {
             return "本轮查询完成，部分字段已按当前规则脱敏";
         }
@@ -296,14 +309,17 @@ public class ConversationContextSummaryServiceImpl implements ConversationContex
         if (safeAnswer && safeTask != null) {
             Map<String, Object> resultFacts = new LinkedHashMap<>();
             resultFacts.put("status", safeTask.getStatus());
-            resultFacts.put("usedTables", safeTask.getUsedTables());
-            resultFacts.put("usedColumns", safeTask.getUsedColumns());
-            if (safeTask.getMaskedFields() != null && !safeTask.getMaskedFields().isEmpty()) {
-                resultFacts.put("masked", true);
-            } else {
-                resultFacts.put("sqlExplanation", safeTask.getSqlExplanation());
-                resultFacts.put("question", safeTask.getQuestion());
-                if (Boolean.TRUE.equals(safeTask.getCanViewSql())) resultFacts.put("sql", safeTask.getSql());
+            // 未完成任务只提供状态与公开错误，避免摘要把计划中或遗留的 SQL 信息当成成功查询事实。
+            if ("COMPLETED".equals(safeTask.getStatus())) {
+                resultFacts.put("usedTables", safeTask.getUsedTables());
+                resultFacts.put("usedColumns", safeTask.getUsedColumns());
+                if (safeTask.getMaskedFields() != null && !safeTask.getMaskedFields().isEmpty()) {
+                    resultFacts.put("masked", true);
+                } else {
+                    resultFacts.put("sqlExplanation", safeTask.getSqlExplanation());
+                    resultFacts.put("question", safeTask.getQuestion());
+                    if (Boolean.TRUE.equals(safeTask.getCanViewSql())) resultFacts.put("sql", safeTask.getSql());
+                }
             }
             if (safeTask.getErrorMessage() != null) resultFacts.put("errorMessage", safeTask.getErrorMessage());
             resultFacts.keySet().removeIf(key -> !SAFE_RESULT_FIELDS.contains(key));

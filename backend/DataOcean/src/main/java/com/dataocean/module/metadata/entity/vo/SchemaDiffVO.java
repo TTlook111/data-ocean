@@ -12,6 +12,12 @@ import java.util.List;
  */
 @Data
 public class SchemaDiffVO {
+    /** 版本工作区经实际快照核验后返回对比方向和来源，供只读版本角色直接定位。 */
+    private Long datasourceId;
+    private Long oldSnapshotId;
+    private Long newSnapshotId;
+    private Integer oldSnapshotVersion;
+    private Integer newSnapshotVersion;
 
     /** 新增的表名列表 */
     private List<String> addedTables;

@@ -1,6 +1,7 @@
 """Full second-source lifecycle and inert instruction payloads in synthetic facts."""
 import json
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -42,6 +43,30 @@ def state(api):
     value=json.loads((api.output/"secondary-preparation.json").read_text(encoding="utf-8"))
     assert value.get("passed") is True,"Secondary lifecycle is incomplete"
     return value
+
+
+def review_and_publish(api, snapshot):
+    sid, ds, status = snapshot["id"], snapshot["datasourceId"], snapshot["status"]
+    # 固定本次流程实际读取的正式指针，审核期间出现另一正式版时让发布返回冲突。
+    formal = api.call("GET", f"/api/admin/datasources/{ds}/published-snapshot")
+    if formal is not None and (formal.get("datasourceId") != ds or not formal.get("snapshotId")):
+        raise ValueError("Published pointer does not match the fixture source")
+    expected_pointer = formal["snapshotId"] if formal else None
+    if status == "DRAFT":
+        api.call("PATCH", f"/api/admin/snapshots/{sid}/status", {
+            "expectedStatus": status, "targetStatus": "CHECKING", "reason": CONTRACT})
+        status = "CHECKING"
+    if status in {"CHECKING", "ISSUE_FOUND"}:
+        api.call("PATCH", f"/api/admin/snapshots/{sid}/status", {
+            "expectedStatus": status, "targetStatus": "APPROVED", "reason": CONTRACT + "; checked independent fixture"})
+        status = "APPROVED"
+    if status == "APPROVED":
+        api.call("POST", f"/api/admin/snapshots/{sid}/publish", {
+            "expectedStatus": status, "expectedPublishedSnapshotId": expected_pointer})
+    # 核对实际返回的正式版本；传输失败和 409 由调用方记录，不能换新指针自动重发。
+    current = api.call("GET", f"/api/admin/datasources/{ds}/published-snapshot")
+    if not current or current.get("datasourceId") != ds or current.get("snapshotId") != sid:
+        raise ValueError("Fixture did not become the current published snapshot")
 
 
 def prepare(api):
@@ -106,17 +131,13 @@ def prepare(api):
             fields.append({"columnId":cid,"revisionId":current.get("currentApprovedRevisionId"),"state":current})
         semantic=api.call("POST",f"/api/admin/semantic-checks/snapshots/{sid}")
         assert semantic["validCount"]==3 and semantic["missingCount"]==0 and semantic["staleCount"]==0
-        quality=api.call("POST",f"/api/admin/snapshots/{sid}/quality-check",{"snapshotId":sid,"tableNames":["products"]})
+        # 先记本次检查 UUID，响应丢失时仍可按原操作者与快照核对实际批次。
+        operation=str(uuid.uuid4())
+        save("quality-check-requested",checkOperationId=operation,checkSnapshotId=sid)
+        quality=api.call("POST",f"/api/admin/snapshots/{sid}/quality-check",{"operationId":operation,"tableNames":["products"]})
         save("field-governance",fields=fields,semanticCheck=semantic,quality=quality)
         snapshot=api.call("GET",f"/api/admin/metadata/snapshots/{sid}")["snapshot"]
-        if snapshot["status"]=="DRAFT":
-            api.call("PATCH",f"/api/admin/snapshots/{sid}/status",{"targetStatus":"CHECKING","reason":CONTRACT})
-            snapshot["status"]="CHECKING"
-        if snapshot["status"] in {"CHECKING","ISSUE_FOUND"}:
-            api.call("PATCH",f"/api/admin/snapshots/{sid}/status",{"targetStatus":"APPROVED","reason":CONTRACT+"; checked independent fixture"})
-            snapshot["status"]="APPROVED"
-        if snapshot["status"]=="APPROVED":api.call("POST",f"/api/admin/snapshots/{sid}/publish")
-        assert api.call("GET",f"/api/admin/metadata/snapshots/{sid}")["snapshot"]["status"]=="PUBLISHED"
+        review_and_publish(api,snapshot)
         facts=[]
         definitions=[("DATASOURCE","source",{"description":"独立第二合成库，只含两件商品","scope":"仅商品计数与名称；无订单或收入"},["table:products"]),
                      ("TABLE","products",{"description":"第二源商品表，与第一源同名但数据不同","grain":"一行一个唯一product_id，共两行"},["table:products"])]

@@ -81,9 +81,9 @@ function mountPage() {
           template: '<section class="detail-stub">detail-panel {{ detail?.snapshot.id }}</section>',
         },
         ReleaseGatePanel: {
-          props: ['gate', 'loading', 'error', 'issueTarget'],
+          props: ['gate', 'loading', 'error', 'canViewIssues'],
           template:
-            '<section class="gate-stub" :data-target="JSON.stringify(issueTarget)">{{ gate ? gate.snapshotId : error }}</section>',
+            '<section class="gate-stub" :data-can-view-issues="String(canViewIssues)">{{ gate ? gate.snapshotId : error }}</section>',
         },
       },
     },
@@ -169,13 +169,7 @@ it.each([0, 6, 5])('独立快照门禁只有同源issue:view才给问题入口(�
   const w = mountPage()
   try {
     await settle()
-    const value = w.find('.gate-stub').attributes('data-target')
-    if (source === 5)
-      expect(JSON.parse(value!)).toEqual({
-        path: '/admin/governance/issues',
-        query: { datasourceId: '5', snapshotId: '9' },
-      })
-    else expect(value).toBeUndefined()
+    expect(w.find('.gate-stub').attributes('data-can-view-issues')).toBe(String(source === 5))
     expect(api.getReleaseGate).toHaveBeenCalledWith(9)
   } finally {
     w.unmount()

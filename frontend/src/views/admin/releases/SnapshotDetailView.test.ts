@@ -131,3 +131,8 @@ describe('SnapshotDetailView 发布门禁', () => {
 it('非法显式源不回落也不请求精确结构',async()=>{reactiveRoute.query.datasourceId='bad';const w=mountPage();await settle();expect(api.getSnapshotDetail).not.toHaveBeenCalled();expect(api.getReleaseGate).not.toHaveBeenCalled();w.unmount()})
 it('没有结构权不借用发布查看权',async()=>{iam.canOnDatasource.mockImplementation(code=>code!=='metadata:view');const w=mountPage();await settle();expect(api.getSnapshotDetail).not.toHaveBeenCalled();w.unmount()})
 it('账号切换后旧精确结构响应不能回填',async()=>{let resolve!:(x:any)=>void;api.getSnapshotDetail.mockReturnValueOnce(new Promise(r=>{resolve=r}));const w=mountPage();await settle();reactiveIdentity.token='new';await settle();resolve({data:detail(88)});await settle();expect(w.find('.detail-stub').text()).not.toContain('88');expect(w.find('.detail-stub').text()).toContain('9');w.unmount()})
+
+it('仅版本查看角色由门禁核对显式快照，结构目录不发送请求',async()=>{
+  iam.canOnDatasource.mockImplementation((code:string)=>code==='metadata:release:view')
+  const w=mountPage();await settle();expect(api.getReleaseGate).toHaveBeenCalledWith(9);expect(api.getSnapshotDetail).not.toHaveBeenCalled();expect(w.text()).toContain('此账号未开放表字段结构查看');w.unmount()
+})

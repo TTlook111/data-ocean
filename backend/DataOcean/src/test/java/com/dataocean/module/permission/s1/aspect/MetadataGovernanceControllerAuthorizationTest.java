@@ -81,7 +81,7 @@ class MetadataGovernanceControllerAuthorizationTest {
 
         // 拒绝必须发生在业务之前：不创建校验任务、不产生问题、不触发任何异步副作用
         verify(fixture.qualityCheckService, never())
-                .executeQualityCheck(anyLong(), any(), any(), any());
+                .executeQualityCheck(anyLong(), any(), any(), any(), any());
     }
 
     @Test
@@ -90,10 +90,32 @@ class MetadataGovernanceControllerAuthorizationTest {
         fixture.login(7L);
         fixture.snapshotOwnedBy(8L, 5L);
 
-        fixture.controller.triggerQualityCheck(8L, null);
+        com.dataocean.module.governance.entity.dto.QualityCheckRequestDTO request =
+                new com.dataocean.module.governance.entity.dto.QualityCheckRequestDTO();
+        request.setOperationId("812f4c1b-7436-4abe-9789-14c1412f186f");
+        fixture.controller.triggerQualityCheck(8L, request);
 
         verify(fixture.adminGuard).requireDatasourceFunction(7L, "governance:check", 5L);
-        verify(fixture.qualityCheckService).executeQualityCheck(eq(8L), any(), any(), eq(7L));
+        verify(fixture.qualityCheckService).executeQualityCheck(eq(8L), any(), any(), eq(7L), eq(request.getOperationId()));
+    }
+
+    @Test
+    void exactBatchRequiresActualSnapshotGovernanceViewAndOperationRecoveryRequiresCheck() {
+        Fixture fixture = new Fixture();
+        fixture.login(7L);
+        fixture.snapshotOwnedBy(8L, 5L);
+        doThrow(new BusinessException(403, "没有治理查看能力"))
+                .when(fixture.adminGuard).requireDatasourceFunction(7L, "governance:view", 5L);
+        assertThatThrownBy(() -> fixture.controller.qualityCheckBatch(8L, 70L)).isInstanceOf(BusinessException.class);
+        verify(fixture.batchService, never()).getForSnapshot(any(), any());
+        doThrow(new BusinessException(403, "没有检查能力"))
+                .when(fixture.adminGuard).requireDatasourceFunction(7L, "governance:check", 5L);
+        assertThatThrownBy(() -> fixture.controller.qualityCheckOperation(8L, "812f4c1b-7436-4abe-9789-14c1412f186f"))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> fixture.controller.resolveQualityCheckOperation(8L, "812f4c1b-7436-4abe-9789-14c1412f186f"))
+                .isInstanceOf(BusinessException.class);
+        verify(fixture.batchService, never()).getOperation(any(), any(), any());
+        verify(fixture.batchService, never()).resolveOperation(any(), any(), any());
     }
 
     @Test
@@ -127,6 +149,20 @@ class MetadataGovernanceControllerAuthorizationTest {
     }
 
     @Test
+    void operationSubmissionLookupAndResolutionAllRequireTheRuleManageFunction() {
+        Fixture fixture = new Fixture();
+        fixture.login(7L);
+        doThrow(new BusinessException(403, "没有维护规则功能"))
+                .when(fixture.adminGuard).requireGlobalFunction(7L, "governance:rule:manage");
+        assertThatThrownBy(() -> fixture.controller.executeRuleOperation(null)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> fixture.controller.ruleOperation("812f4c1b-7436-4abe-9789-14c1412f186f"))
+                .isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> fixture.controller.resolveRuleOperation("812f4c1b-7436-4abe-9789-14c1412f186f"))
+                .isInstanceOf(BusinessException.class);
+        org.mockito.Mockito.verifyNoInteractions(fixture.ruleOperationService);
+    }
+
+    @Test
     void notLoggedInNeverReachesTheService() {
         Fixture fixture = new Fixture();
         SecurityContextHolder.clearContext();
@@ -134,7 +170,7 @@ class MetadataGovernanceControllerAuthorizationTest {
         assertThatThrownBy(() -> fixture.controller.triggerQualityCheck(8L, null))
                 .isInstanceOf(BusinessException.class);
 
-        verify(fixture.qualityCheckService, never()).executeQualityCheck(anyLong(), any(), any(), any());
+        verify(fixture.qualityCheckService, never()).executeQualityCheck(anyLong(), any(), any(), any(), any());
     }
 
     // ---------- 夹具 ----------
@@ -143,6 +179,8 @@ class MetadataGovernanceControllerAuthorizationTest {
         private final QualityCheckService qualityCheckService = mock(QualityCheckService.class);
         private final QualityIssueService qualityIssueService = mock(QualityIssueService.class);
         private final QualityRuleService qualityRuleService = mock(QualityRuleService.class);
+        private final com.dataocean.module.governance.service.QualityRuleOperationService ruleOperationService =
+                mock(com.dataocean.module.governance.service.QualityRuleOperationService.class);
         private final QualityCheckBatchService batchService = mock(QualityCheckBatchService.class);
         private final IamS1AdminGuard adminGuard = mock(IamS1AdminGuard.class);
         private final IamS1CapabilityService capabilityService = mock(IamS1CapabilityService.class);
@@ -153,6 +191,7 @@ class MetadataGovernanceControllerAuthorizationTest {
             MetadataGovernanceController target = new MetadataGovernanceController(
                     qualityCheckService,
                     qualityRuleService,
+                    ruleOperationService,
                     qualityIssueService,
                     mock(GovernanceStatusService.class),
                     mock(MetadataReviewService.class),

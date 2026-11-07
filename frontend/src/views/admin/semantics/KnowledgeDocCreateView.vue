@@ -129,8 +129,8 @@ onBeforeUnmount(()=>{disposed=true;epoch++;requestId++;document.querySelector<HT
 
 <template>
   <div class="admin-page knowledge-create-page">
+    <!-- 创建页以任务标题定位，保留手工内容与来源覆盖说明，避免重复上级分类。 -->
     <TaskPageHeader
-      eyebrow="语义知识"
       title="新建知识文档"
       description="手工创建的文档需要自己维护内容与覆盖范围。基于已发布快照生成草稿会更省事，且能带上来源信息。"
     >

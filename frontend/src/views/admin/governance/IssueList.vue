@@ -5,7 +5,7 @@ import GovernanceWriteNotice from '../../../components/admin/GovernanceWriteNoti
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { RefreshCw } from 'lucide-vue-next'
+import { RefreshCw, ArrowLeft } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import {
   listQualityIssues,
@@ -30,6 +30,7 @@ import { useAuthStore } from '../../../stores/auth'
 import { useIamS1Store } from '../../../stores/iamS1'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import { useQualityBusinessScope } from '../../../composables/useQualityBusinessScope'
 import LoadingState from '../../../components/common/LoadingState.vue'
 
 const loading = ref(false)
@@ -75,6 +76,7 @@ const USER_PAGE_SIZE = 100
 const userOptions = ref<{ id: number; label: string }[]>([])
 const userOptionsTotal = ref(0)
 const userOptionsLoading = ref(false)
+const userOptionsError = ref('')
 const assigneeError = ref('')
 const assigneeSelection = ref<number | undefined>()
 const assignLoading = ref(false)
@@ -103,54 +105,38 @@ const currentUserId = computed(() => auth.currentUser?.id ?? auth.user?.userId)
 const MANAGE_FUNCTION = 'governance:issue:manage'
 const VIEW_FUNCTION = 'governance:issue:view'
 const RELEASE_VIEW_FUNCTION = 'metadata:release:view'
-const datasourceId = computed(() => adminContext.datasourceId)
-const snapshotId = computed(() => adminContext.snapshotId)
+const businessScope = useQualityBusinessScope()
+const datasourceId = businessScope.datasourceId
+const snapshotId = businessScope.snapshotId
 const requestedDatasourceId = computed(() => positiveId(route.query.datasourceId))
 const requestedSnapshotId = computed(() => positiveId(route.query.snapshotId))
-const routeScopeMatches = computed(
-  () =>
-    (!requestedDatasourceId.value || requestedDatasourceId.value === datasourceId.value) &&
-    (!requestedSnapshotId.value || requestedSnapshotId.value === snapshotId.value),
-)
-const invalidRouteScope = computed(
-  () =>
-    (route.query.datasourceId !== undefined && !requestedDatasourceId.value) ||
-    (route.query.snapshotId !== undefined && !requestedSnapshotId.value),
-)
-const routeScopeUnavailable = computed(() => {
-  if (invalidRouteScope.value) return true
-  if (adminContext.routeSyncError) return true
-  if (!adminContext.initialized || adminContext.routeSyncing) return false
-  if (
-    requestedDatasourceId.value &&
-    !adminContext.datasources.some((item) => item.id === requestedDatasourceId.value)
-  )
-    return true
-  return Boolean(requestedSnapshotId.value && !adminContext.loading && !snapshotId.value)
-})
-const rangeSynchronizing = computed(
-  () =>
-    !routeScopeUnavailable.value &&
-    (!adminContext.initialized ||
-      adminContext.loading ||
-      adminContext.routeSyncing ||
-      !routeScopeMatches.value),
-)
-const rangeReady = computed(
-  () =>
-    adminContext.initialized &&
-    !adminContext.loading &&
-    routeScopeMatches.value &&
-    !routeScopeUnavailable.value &&
-    Boolean(datasourceId.value) &&
-    Boolean(snapshotId.value),
-)
+const rangeSynchronizing = businessScope.scopeLoading
+const rangeReady = businessScope.ready
+const routeScopeUnavailable = computed(() => !rangeSynchronizing.value && !rangeReady.value && Boolean(route.query.datasourceId !== undefined || route.query.snapshotId !== undefined))
 const canViewCurrentScope = computed(
   () => Boolean(datasourceId.value) && iamS1.canOnDatasource(VIEW_FUNCTION, datasourceId.value),
 )
+// 返回入口只带精确范围和原批次；当前问题列表不接收 batchId 过滤。
+const canViewCheck = computed(() => rangeReady.value && iamS1.loaded && !iamS1.errorMessage && iamS1.canOnDatasource('governance:view', datasourceId.value))
+function openCheckEvidence() {
+  if (!canViewCheck.value) return
+  const batchId = positiveId(route.query.returnBatchId)
+  void router.push({ path: '/admin/governance/checks', query: { datasourceId: String(datasourceId.value), snapshotId: String(snapshotId.value), ...(batchId ? { batchId: String(batchId) } : {}) } })
+}
 const canReadIssues = computed(
   () => rangeReady.value && iamS1.loaded && !iamS1.errorMessage && canViewCurrentScope.value,
 )
+// 辅助目录缺授权是稳定的能力边界，只有实际有权请求失败才进入错误与重试状态。
+const canReadTableDirectory = computed(() => iamS1.loaded && !iamS1.errorMessage && iamS1.canOnDatasource('metadata:view', datasourceId.value))
+const canReadUserDirectory = computed(() => iamS1.loaded && !iamS1.errorMessage && iamS1.hasGlobal('organization:user:view'))
+const directoryAccessNotice = computed(() => {
+  if (!canReadIssues.value) return ''
+  if (!canReadTableDirectory.value && !canReadUserDirectory.value) return '表和责任人筛选未开放'
+  if (!canReadTableDirectory.value) return '表筛选未开放'
+  if (!canReadUserDirectory.value) return '责任人筛选与分派未开放'
+  return ''
+})
+
 
 /**
  * 能否处理某条问题。
@@ -158,7 +144,9 @@ const canReadIssues = computed(
  * 处理要求 `governance:issue:manage` 与**该问题所属数据源**落在同一条启用的角色绑定上。
  * 前端只控制按钮可见性，后端仍会独立拒绝；给出中文原因而不是让用户点了才失败。
  */
-function canManageIssue(issue: { datasourceId?: number } | null | undefined): boolean {
+function canManageIssue(issue: { datasourceId?: number; rowVersion?: number } | null | undefined): boolean {
+  // 缺少客户端原版本时只读展示，不能用默认零或保存前重读绕过并发条件。
+  if (!Number.isSafeInteger(issue?.rowVersion) || Number(issue?.rowVersion) < 0) return false
   if (!issue?.datasourceId) return iamS1.systemAdmin
   return iamS1.canOnDatasource(MANAGE_FUNCTION, issue.datasourceId)
 }
@@ -271,6 +259,8 @@ const canAssign = computed(() => {
     Boolean(target) &&
     target !== selectedIssue.value?.assigneeId &&
     !assignLoading.value &&
+    canReadUserDirectory.value &&
+    !userOptionsError.value &&
     !assigneeError.value &&
     userOptions.value.some((item) => item.id === target) &&
     canReadIssues.value &&
@@ -358,11 +348,10 @@ async function loadDomainSummary(forSnapshotId: number) {
 }
 
 async function loadTableOptions(forSnapshotId: number): Promise<boolean> {
-  if (!iamS1.canOnDatasource('metadata:view', datasourceId.value)) {
+  if (!canReadTableDirectory.value) {
     tableOptions.value = []
     tableOptionsLoading.value = false
-    tableOptionsError.value =
-      '没有 metadata:view，不能读取辅助表目录；当前精确表名筛选保持不变，问题列表仍按自身权限读取'
+    tableOptionsError.value = ''
     return false
   }
   const currentRequest = ++tableOptionsRequestId
@@ -391,7 +380,7 @@ async function loadTableOptions(forSnapshotId: number): Promise<boolean> {
 }
 
 function retryTableOptions() {
-  if (!canReadIssues.value || !snapshotId.value) return
+  if (!canReadIssues.value || !canReadTableDirectory.value || !snapshotId.value) return
   void loadTableOptions(snapshotId.value).then((filterCleared) => {
     if (filterCleared) fetchIssues()
   })
@@ -462,10 +451,10 @@ async function performHandle(issue: QualityIssueItem, status: string, note?: str
       auth.token,
       [`issue:${issue.id}`],
       `问题 #${issue.id} · ${issue.tableName} / 快照 #${issue.snapshotId}`,
-      () => handleIssue(issue.id, { status, resolutionNote: note }),
+      () => handleIssue(issue.id, { status, resolutionNote: note, expectedVersion: issue.rowVersion }),
     )
     if (!issueCurrent(issue, epoch)) return false
-    if (selectedIssue.value?.id === issue.id) selectedIssue.value = { ...selectedIssue.value, status }
+    if (selectedIssue.value?.id === issue.id) selectedIssue.value = { ...selectedIssue.value, status, rowVersion: issue.rowVersion + 1 }
     void loadDomainSummary(issue.snapshotId)
     await fetchIssues()
     return issueCurrent(issue, epoch)
@@ -505,8 +494,8 @@ async function confirmResolution() {
 }
 
 async function loadUserOptions() {
-  if (!iamS1.loaded || !iamS1.hasGlobal('organization:user:view')) {
-    assigneeError.value = '没有 organization:user:view，无法读取辅助用户目录；分派权限不自动包含用户查看权'
+  if (!canReadUserDirectory.value) {
+    userOptionsError.value = ''
     userOptions.value = []
     return
   }
@@ -514,7 +503,7 @@ async function loadUserOptions() {
   const epoch = scopeEpoch,
     ticket = ++userRequestId
   userOptionsLoading.value = true
-  assigneeError.value = ''
+  userOptionsError.value = ''
   try {
     const res = await listUsers({ page: 1, pageSize: USER_PAGE_SIZE })
     if (disposed || epoch !== scopeEpoch || ticket !== userRequestId) return
@@ -527,11 +516,17 @@ async function loadUserOptions() {
     userOptionsLoaded = true
   } catch (e: any) {
     if (disposed || epoch !== scopeEpoch || ticket !== userRequestId) return
-    // 非 user:manage 账号可能 403。必须显式呈现，不能渲染成空下拉（开发指导 §16.5）。
-    assigneeError.value = e?.response?.data?.message || '用户列表加载失败，暂时无法分派'
+    // 能力摘要允许却读取失败时保留真实错误，重试仅重新读取目录，不提交分派。
+    userOptionsError.value = e?.response?.data?.message || e?.message || '用户目录读取失败，暂时无法选择责任人'
   } finally {
     if (epoch === scopeEpoch && ticket === userRequestId) userOptionsLoading.value = false
   }
+}
+
+function retryUserOptions() {
+  if (!canReadIssues.value || !canReadUserDirectory.value) return
+  userOptionsLoaded = false
+  void loadUserOptions()
 }
 
 async function submitAssignment() {
@@ -544,6 +539,7 @@ async function submitAssignment() {
     return
   }
   const issueId = issue.id
+  const expectedVersion = issue.rowVersion
   const requestedAssigneeId = assigneeId
   const assigneeName = assigneeOptions.value.find((option) => option.id === requestedAssigneeId)?.label
   const requestedDatasourceId = datasourceId.value
@@ -555,7 +551,7 @@ async function submitAssignment() {
   try {
     const epoch = scopeEpoch
     await trackGovernanceWrite(auth.token, [`issue:${issueId}`], `分派问题 #${issueId}`, () =>
-      assignIssue(issueId, requestedAssigneeId),
+      assignIssue(issueId, requestedAssigneeId, expectedVersion),
     )
     if (epoch !== scopeEpoch) return
     const sameScope =
@@ -571,7 +567,7 @@ async function submitAssignment() {
       selectedIssue.value?.id === issueId
     if (sameDetail) {
       // 分派接口返回 Void；仅仍打开同一问题详情时才补充本次责任人结果。
-      selectedIssue.value = { ...selectedIssue.value!, assigneeId: requestedAssigneeId, assigneeName }
+      selectedIssue.value = { ...selectedIssue.value!, assigneeId: requestedAssigneeId, assigneeName, rowVersion: expectedVersion + 1 }
       ElMessage.success(`已分派给 ${assigneeName || '所选用户'}`)
     }
     // 请求成功后只刷新仍然有效的范围。详情已切换时不改当前对象，也不报告失败。
@@ -588,7 +584,7 @@ async function submitAssignment() {
       detailSessionId === requestedDetailSession &&
       selectedIssue.value?.id === issueId
     if (currentAssignmentRequest === assignmentRequestId && sameDetail) {
-      ElMessage.error(e?.response?.data?.message || '分派失败')
+      assigneeError.value = e?.response?.data?.message || '分派失败，原选择保留；请核对最新问题版本。'
     }
   } finally {
     if (
@@ -609,6 +605,7 @@ async function doBatchHandle(status: string) {
     epoch = scopeEpoch,
     snapshot = snapshotId.value!
   if (ids.some((id) => busyIds.value.includes(id))) return
+  const expectedVersions = Object.fromEntries(ids.map(id => [id, issues.value.find(issue => issue.id === id)!.rowVersion]))
   batchBusy.value = true
   actionError.value = ''
   batchResult.value = null
@@ -618,7 +615,7 @@ async function doBatchHandle(status: string) {
       ids.map((id) => `issue:${id}`),
       `批量问题 ${ids.map((id) => '#' + id).join(' / ')}`,
       async () => {
-        const result = await batchHandleIssues({ issueIds: ids, status })
+        const result = await batchHandleIssues({ issueIds: ids, status, expectedVersions })
         if (
           !result.data ||
           !Number.isInteger(result.data.updated) ||
@@ -803,6 +800,7 @@ watch(
     snapshotId.value,
     requestedDatasourceId.value,
     requestedSnapshotId.value,
+    businessScope.generation.value,
     auth.token,
     iamS1.snapshot,
     iamS1.errorMessage,
@@ -832,6 +830,7 @@ watch(
     userOptionsLoaded = false
     userOptions.value = []
     userOptionsLoading.value = false
+    userOptionsError.value = ''
     assigneeError.value = ''
     busyIds.value = []
     batchBusy.value = false
@@ -843,11 +842,13 @@ watch(
     invalidateDetailSession()
     if (!canReadIssues.value) return
     const key = `${datasourceId.value}:${snapshotId.value}`
-    if (activeScopeKey && activeScopeKey !== key) {
+    // 先接受范围再同步 URL；路由同步会触发同一 watcher，不能让旧 key 重入重复写路由。
+    const scopeChanged = activeScopeKey && activeScopeKey !== key
+    activeScopeKey = key
+    if (scopeChanged) {
       query.page = 1
       persistQuery()
     }
-    activeScopeKey = key
     void loadTableOptions(snapshotId.value!)
     if (disposed || epoch !== scopeEpoch || !canReadIssues.value) return
     void loadDomainSummary(snapshotId.value!)
@@ -873,13 +874,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="issue-page post-login-page governance-workspace governance-surface">
+  <!-- 页面外层只组织任务和状态，问题列表自己拥有唯一白色工作面，避免重复内缩。 -->
+  <main class="issue-page post-login-page governance-workspace">
+    <!-- 问题范围由公共上下文确定，页头聚焦问题任务和刷新，保留处理依据说明。 -->
     <TaskPageHeader
       title="问题中心"
-      eyebrow="数据治理 / 问题处理"
       description="查找、分派并处理当前范围的问题。暂无问题记录不代表已经完成质量检查；来源与字段语义问题分别处理。"
     >
       <template #actions>
+        <el-button v-if="canViewCheck" :icon="ArrowLeft" @click="openCheckEvidence">{{ positiveId(route.query.returnBatchId) ? '返回检查依据' : '查看质量检查' }}</el-button>
         <el-button
           :icon="RefreshCw"
           :loading="loading"
@@ -890,11 +893,15 @@ onBeforeUnmount(() => {
         </el-button>
       </template>
     </TaskPageHeader>
+    <!-- 主接口已验证的范围独立展示，不伪造无权读取的公共快照目录。 -->
+    <div v-if="businessScope.primaryVerified.value" class="governance-primary-scope" role="status" aria-label="主业务已验证范围">
+      <strong>当前处理范围</strong><span>数据源 #{{ datasourceId }}</span><span>快照 v{{ businessScope.currentSnapshot.value?.snapshotVersion }} · #{{ snapshotId }}</span>
+    </div>
 
     <GovernanceWriteNotice />
-    <p class="issue-domain-guide">
+    <details class="issue-domain-guide"><summary>处理依据与边界</summary><p>
       来源质量问题核对原始资料与数据诊断；字段语义问题需同修订复查证据和处理依据。关闭问题不等于原问数情景已通过人工核验。
-    </p>
+    </p></details>
     <ErrorState v-if="actionError" :message="actionError" :show-retry="false" />
     <section v-if="batchResult" class="issue-batch-receipt" role="status">
       <strong>批量回执：已处理 {{ batchResult.updated }}，跳过 {{ batchResult.skipped }}</strong>
@@ -927,8 +934,8 @@ onBeforeUnmount(() => {
           clearable
           filterable
           :loading="tableOptionsLoading"
-          :disabled="!canReadIssues || tableOptionsLoading || Boolean(tableOptionsError)"
-          aria-label="按表筛选"
+          :disabled="!canReadIssues || !canReadTableDirectory || tableOptionsLoading || Boolean(tableOptionsError)"
+          :aria-label="canReadTableDirectory ? '按表筛选' : '按表筛选：当前账号未开放表目录'"
           @change="applyFilters"
         >
           <el-option label="全部表" value="" />
@@ -1020,8 +1027,8 @@ onBeforeUnmount(() => {
           clearable
           filterable
           :loading="userOptionsLoading"
-          :disabled="!canReadIssues || Boolean(assigneeError)"
-          aria-label="按责任人筛选"
+          :disabled="!canReadIssues || !canReadUserDirectory || Boolean(userOptionsError)"
+          :aria-label="canReadUserDirectory ? '按责任人筛选' : '按责任人筛选：当前账号未开放用户目录'"
           @change="applyFilters"
         >
           <el-option
@@ -1055,19 +1062,24 @@ onBeforeUnmount(() => {
       </p>
 
       <div
-        v-if="tableOptionsError || assigneeError || userOptionsTotal > USER_PAGE_SIZE"
+        v-if="directoryAccessNotice || tableOptionsError || userOptionsError || userOptionsTotal > USER_PAGE_SIZE"
         class="issue-workbench__notices"
       >
+        <details v-if="directoryAccessNotice" class="issue-workbench__directory-access">
+          <summary>{{ directoryAccessNotice }}</summary>
+          <p>当前账号未开放相应目录选择。已有精确筛选保持不变，问题读取与处理按各自权限进行。</p>
+        </details>
         <p
           v-if="tableOptionsError"
           class="issue-workbench__notice issue-workbench__notice--error"
           role="alert"
         >
           数据表选项读取失败：{{ tableOptionsError }}
-          <el-button link type="primary" @click="retryTableOptions">重试</el-button>
+          <el-button link type="primary" @click="retryTableOptions">重试表目录</el-button>
         </p>
-        <p v-if="assigneeError" class="issue-workbench__notice issue-workbench__notice--error" role="alert">
-          {{ assigneeError }}；暂时无法使用责任人筛选或分派。
+        <p v-if="userOptionsError" class="issue-workbench__notice issue-workbench__notice--error" role="alert">
+          责任人目录读取失败：{{ userOptionsError }}
+          <el-button link type="primary" @click="retryUserOptions">重试责任人目录</el-button>
         </p>
         <p v-else-if="userOptionsTotal > USER_PAGE_SIZE" class="issue-workbench__notice" role="note">
           共 {{ userOptionsTotal }} 名用户，责任人下拉仅显示前 {{ USER_PAGE_SIZE }} 名。
@@ -1391,7 +1403,8 @@ onBeforeUnmount(() => {
                   clearable
                   size="small"
                   :loading="userOptionsLoading"
-                  :disabled="Boolean(assigneeError)"
+                  :disabled="!canReadUserDirectory || Boolean(userOptionsError)"
+                  :aria-label="canReadUserDirectory ? '选择责任人' : '选择责任人：当前账号未开放用户目录'"
                   placeholder="选择用户"
                 >
                   <el-option
@@ -1411,7 +1424,9 @@ onBeforeUnmount(() => {
                   分派
                 </el-button>
               </div>
-              <p v-if="assigneeError" class="muted-text">{{ assigneeError }}</p>
+              <p v-if="!canReadUserDirectory" class="muted-text">责任人选择未开放</p>
+              <p v-else-if="userOptionsError" class="issue-workbench__notice--error" role="alert">{{ userOptionsError }} <el-button link type="primary" @click="retryUserOptions">重试责任人目录</el-button></p>
+              <p v-else-if="assigneeError" class="issue-workbench__notice--error" role="alert">{{ assigneeError }}</p>
               <p v-else-if="userOptionsTotal > USER_PAGE_SIZE" class="muted-text">
                 共 {{ userOptionsTotal }} 名用户，下拉仅显示前
                 {{ USER_PAGE_SIZE }} 名，目标用户可能不在列表中。
@@ -1419,17 +1434,19 @@ onBeforeUnmount(() => {
             </template>
           </section>
           <div class="issue-detail__actions">
+            <!-- 复查由检查专页执行，问题查看权限不能额外授予批次读取权。 -->
             <RouterLink
+              v-if="selectedIssue.datasourceId && iamS1.canOnDatasource('governance:view', selectedIssue.datasourceId)"
               class="return-link"
               :to="{
-                path: '/admin/governance',
+                path: '/admin/governance/checks',
                 query: {
                   datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined,
                   snapshotId: String(selectedIssue.snapshotId),
                 },
               }"
             >
-              回治理复查
+              前往质量检查
             </RouterLink>
             <RouterLink
               v-if="canViewReleaseRecords(selectedIssue)"
@@ -1522,27 +1539,14 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.issue-page {
-  display: grid;
-  gap: 20px;
-  min-width: 0;
-}
-.issue-domain-guide {
-  padding: 14px 18px;
-  border-left: 3px solid var(--do-primary);
-  background: var(--do-surface);
-  font-size: 12px;
-  line-height: 1.8;
-  color: var(--do-muted);
-  margin: 0;
-  border-radius: 0 8px 8px 0;
-}
-.issue-workbench {
-  padding: 22px;
-  border: 1px solid var(--do-line);
-  border-radius: 12px;
-  background: var(--do-surface);
-}
+/* 能力边界用低干扰说明，展开解释不占用正常问题列表的主要工作空间。 */
+.issue-workbench__directory-access { color:var(--do-muted); font-size:12px; line-height:1.7; }
+.issue-workbench__directory-access summary { width:fit-content; cursor:pointer; }
+.issue-workbench__directory-access p { margin:6px 0 0; }
+
+.issue-domain-guide { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.7; }
+.issue-domain-guide summary { width: fit-content; cursor: pointer; }
+.issue-domain-guide p { margin: 8px 0 0; max-width: 80ch; }
 .issue-batch-receipt {
   padding: 16px;
   border: 1px solid var(--do-line);
@@ -1557,30 +1561,7 @@ onBeforeUnmount(() => {
 .issue-batch-receipt small {
   color: var(--do-muted);
 }
-@media (max-width: 720px) {
-  .issue-workbench {
-    padding: 14px;
-  }
-}
-
-.issue-page .issue-workbench__filters {
-  padding: 0 0 16px;
-}
-.issue-page .issue-workbench__filters--advanced {
-  padding-top: 0;
-}
-.issue-page .issue-domain-summary {
-  padding: 4px 0 12px;
-  background: transparent;
-}
-.issue-page .issue-workbench__content {
-  padding: 18px 0;
-}
-.issue-page .issue-workbench__results {
-  background: transparent;
-  padding: 12px 0;
-}
-
+/* 页头与状态使用页面空间，白色工作面仅包围真正的筛选、结果和分页。 */
 .issue-page {
   display: grid;
   gap: 16px;
@@ -1590,30 +1571,29 @@ onBeforeUnmount(() => {
   align-items: center;
   margin-bottom: 0;
 }
-.issue-page :deep(.task-page-header h1) {
-  font-size: clamp(24px, 2vw, 28px);
-}
+/* 工作面只设置一次外边界和内边距，避免旧覆盖层叠加压缩表格宽度。 */
 .issue-workbench {
   min-width: 0;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
+  padding: 20px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-surface);
 }
+/* 内部各区域共用工作面的左右边缘，仅用纵向留白区分筛选与结果。 */
 .issue-workbench__filters {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
   min-width: 0;
-  padding: 18px 20px;
+  padding: 0 0 16px;
 }
 .issue-domain-summary {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px 18px;
-  padding: 0 20px 12px;
+  padding: 4px 0 12px;
   color: var(--do-muted);
   font-size: 12px;
 }
@@ -1635,10 +1615,11 @@ onBeforeUnmount(() => {
 .issue-filter__clear {
   flex: 0 0 auto;
 }
+/* 辅助目录失败与范围提示和筛选对齐，不以额外横向容器挤压正文。 */
 .issue-workbench__notices {
   display: grid;
   gap: 5px;
-  padding: 0 20px 12px;
+  padding: 0 0 12px;
 }
 .issue-workbench__notice {
   display: flex;
@@ -1653,6 +1634,7 @@ onBeforeUnmount(() => {
 .issue-workbench__notice--error {
   color: var(--do-danger);
 }
+/* 结果口径和批量操作保留分隔线，共用工作面内边缘，不再增加第二层底色。 */
 .issue-workbench__results {
   display: flex;
   align-items: center;
@@ -1660,10 +1642,10 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 10px 16px;
   min-width: 0;
-  padding: 12px 20px;
+  padding: 12px 0;
   border-top: 1px solid var(--do-line);
   border-bottom: 1px solid var(--do-line);
-  background: color-mix(in srgb, var(--do-bg) 40%, var(--do-surface));
+  background: transparent;
 }
 .issue-workbench__result-state,
 .issue-workbench__result-count {
@@ -1702,8 +1684,10 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.45;
 }
+/* 表体以完整可用宽度承接结果，宽表滚动继续由既有内部容器负责。 */
 .issue-workbench__content {
   min-width: 0;
+  padding: 18px 0;
 }
 .issue-table-scroll {
   width: 100%;
@@ -1714,16 +1698,18 @@ onBeforeUnmount(() => {
 .issue-table-scroll :deep(.el-table) {
   min-width: 1080px;
 }
+/* 空页恢复动作沿用表体边缘，避免窄窗口里再扣除一次横向空间。 */
 .issue-workbench__empty-page {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   min-height: 64px;
-  padding: 16px 20px;
+  padding: 16px 0;
   color: var(--do-muted);
   font-size: 14px;
 }
+/* 分页与筛选使用同一左右边界，服务端总数和分页行为保持原合同。 */
 .issue-workbench__pagination {
   display: flex;
   align-items: center;
@@ -1731,7 +1717,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: 12px;
   min-width: 0;
-  padding: 12px 20px;
+  padding: 12px 0;
   border-top: 1px solid var(--do-line);
 }
 .issue-workbench__pagination :deep(.el-pagination) {
@@ -1796,7 +1782,8 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 @media (max-width: 760px) {
-  .issue-workbench__filters {
+  /* 缩放后由工作面统一缩小留白，内部区域不再各加一次横向 padding。 */
+  .issue-workbench {
     padding: 14px;
   }
   .issue-filter {
@@ -1806,20 +1793,8 @@ onBeforeUnmount(() => {
   .issue-filter__clear {
     flex: 1 1 auto;
   }
-  .issue-workbench__notices {
-    padding-right: 14px;
-    padding-left: 14px;
-  }
   .issue-workbench__results {
     align-items: flex-start;
-    padding: 12px 14px;
-  }
-  .issue-workbench__pagination {
-    padding: 12px 14px;
-  }
-  .issue-workbench__empty-page {
-    padding-right: 14px;
-    padding-left: 14px;
   }
 }
 </style>

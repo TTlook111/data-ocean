@@ -52,6 +52,11 @@ it('仅知识维护者保留合法保存，但不请求无权依赖或开放按�
     expect(api.getKnowledgeDoc).toHaveBeenCalledWith(6)
     expect(api.listSimpleDatasources).not.toHaveBeenCalled()
     expect(api.listSnapshots).not.toHaveBeenCalled()
+    // 默认先阅读；知识维护者显式进入编辑后仍可保存，辅助元数据权限不被补授。
+    expect(wrapper.find('.knowledge-doc-reader').exists()).toBe(true)
+    expect(wrapper.find('.pane__textarea').exists()).toBe(false)
+    await wrapper.find('[data-doc-edit]').trigger('click')
+    await flushPromises()
     const generate = wrapper.findAll('button').find(item => item.text() === '按快照生成目录')!
     expect(generate.attributes('disabled')).toBeDefined()
     expect(generate.attributes('title')).toContain('元数据')
@@ -82,9 +87,11 @@ it('没有维护能力的审核者看到只读内容，不出现假编辑表单'
   role.manage = false
   const wrapper = await render()
   try {
-    expect((wrapper.find('.pane__title-input input').element as HTMLInputElement).readOnly).toBe(true)
-    expect((wrapper.find('.pane__textarea textarea').element as HTMLTextAreaElement).readOnly).toBe(true)
-    expect(wrapper.find('.pane__title').text()).toContain('只读')
+    // 审核者阅读安全渲染后的已保存正文，不再用只读 textarea 冒充阅读工作面。
+    expect(wrapper.find('.knowledge-doc-reader').text()).toContain('本源内容')
+    expect(wrapper.find('.pane__title-input').exists()).toBe(false)
+    expect(wrapper.find('.pane__textarea').exists()).toBe(false)
+    expect(wrapper.find('[data-doc-edit]').exists()).toBe(false)
     expect(wrapper.findAll('button').some(item => item.text() === '保存')).toBe(false)
     expect(api.updateKnowledgeDoc).not.toHaveBeenCalled()
   } finally { wrapper.unmount() }
@@ -94,8 +101,11 @@ it('其他源的维护能力不开放当前文档的编辑', async () => {
   role.manageDatasourceId = 1
   const wrapper = await render()
   try {
-    expect((wrapper.find('.pane__title-input input').element as HTMLInputElement).readOnly).toBe(true)
-    expect((wrapper.find('.pane__textarea textarea').element as HTMLTextAreaElement).readOnly).toBe(true)
+    // 其他来源的维护权不能让当前文档从阅读态进入编辑。
+    expect(wrapper.find('.knowledge-doc-reader').text()).toContain('本源内容')
+    expect(wrapper.find('.pane__title-input').exists()).toBe(false)
+    expect(wrapper.find('.pane__textarea').exists()).toBe(false)
+    expect(wrapper.find('[data-doc-edit]').exists()).toBe(false)
     expect(wrapper.findAll('button').some(item => item.text() === '保存')).toBe(false)
     expect(api.updateKnowledgeDoc).not.toHaveBeenCalled()
   } finally { wrapper.unmount() }

@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import brandMark from '../../assets/brand/dataocean-mark.png'
+import BrandMark from './BrandMark.vue'
 defineProps<{ title: string; description: string; eyebrow?: string }>()
 </script>
 <template>
   <main class="account-page">
     <div class="account-frame">
       <header class="account-brand">
-        <img :src="brandMark" alt="" />
+        <BrandMark />
         <strong>DataOcean</strong>
-        <span>账号设置</span>
+        <span class="account-brand__section">账号设置</span>
       </header>
       <nav class="account-nav" aria-label="账号导航"><slot name="navigation" /></nav>
       <section class="account-panel">
@@ -39,15 +39,10 @@ defineProps<{ title: string; description: string; eyebrow?: string }>()
   gap: 12px;
   margin-bottom: 32px;
 }
-.account-brand img {
-  width: 24px;
-  height: 40px;
-  object-fit: contain;
-}
 .account-brand strong {
   font-size: 19px;
 }
-.account-brand span {
+.account-brand__section {
   margin-left: auto;
   color: var(--do-muted);
   font-size: 12px;

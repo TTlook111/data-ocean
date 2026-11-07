@@ -33,6 +33,8 @@ class SnapshotPublishServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(new org.apache.ibatis.builder.MapperBuilderAssistant(
+                new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""), MetadataSnapshot.class);
         snapshotMapper = mock(MetadataSnapshotMapper.class);
         auditLogService = mock(SnapshotAuditLogService.class);
         releaseGateService = mock(SnapshotReleaseGateService.class);
@@ -46,7 +48,7 @@ class SnapshotPublishServiceImplTest {
         MetadataSnapshot snapshot = snapshot(80L, "ISSUE_FOUND");
         when(snapshotMapper.selectById(80L)).thenReturn(snapshot);
 
-        assertThatThrownBy(() -> service.publishSnapshot(80L, 9L))
+        assertThatThrownBy(() -> service.publishSnapshot(80L, "APPROVED", 70L, 9L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("APPROVED");
 
@@ -61,7 +63,7 @@ class SnapshotPublishServiceImplTest {
         doThrow(new BusinessException(409, "无法发布：存在 1 个未解决的高风险问题"))
                 .when(releaseGateService).assertPublishable(snapshot);
 
-        assertThatThrownBy(() -> service.publishSnapshot(80L, 9L))
+        assertThatThrownBy(() -> service.publishSnapshot(80L, "APPROVED", 70L, 9L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("高风险问题");
 
@@ -77,15 +79,16 @@ class SnapshotPublishServiceImplTest {
         MetadataSnapshot previous = snapshot(70L, MetadataSnapshot.STATUS_PUBLISHED);
         when(snapshotMapper.selectById(80L)).thenReturn(snapshot);
         when(snapshotMapper.selectList(any(Wrapper.class))).thenReturn(List.of(previous));
+        when(snapshotMapper.update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class))).thenReturn(1);
 
-        service.publishSnapshot(80L, 9L);
+        service.publishSnapshot(80L, "APPROVED", 70L, 9L);
 
         InOrder order = inOrder(snapshotMapper, releaseGateService);
         order.verify(snapshotMapper).selectById(80L);
         order.verify(releaseGateService).assertPublishable(snapshot);
         order.verify(snapshotMapper).selectList(any(Wrapper.class));
 
-        verify(snapshotMapper, org.mockito.Mockito.times(2)).updateById(any(MetadataSnapshot.class));
+        verify(snapshotMapper, org.mockito.Mockito.times(2)).update(org.mockito.ArgumentMatchers.isNull(), any(Wrapper.class));
         verify(eventPublisher).publishEvent(any(SnapshotPublishedEvent.class));
     }
 

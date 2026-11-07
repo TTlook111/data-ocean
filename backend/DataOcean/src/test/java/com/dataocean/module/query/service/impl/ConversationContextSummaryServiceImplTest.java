@@ -17,6 +17,8 @@ import com.dataocean.module.metadata.service.SchemaSnapshotService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.util.ArrayList;
@@ -63,7 +65,9 @@ class ConversationContextSummaryServiceImplTest {
         when(conversationService.getRecentMessagesBefore(42L, 7L, 21L, 20))
                 .thenReturn(turnMessages(10));
         when(conversationService.getLatestMessageIdBefore(42L, 7L, 11L)).thenReturn(10L);
-        when(queryService.get(any(), eq(7L))).thenReturn(com.dataocean.module.query.entity.vo.QueryTaskVO.builder().build());
+        // 正向完成用例必须提供真实 COMPLETED，不能再把缺失状态隐式视为成功。
+        when(queryService.get(any(), eq(7L))).thenReturn(
+                com.dataocean.module.query.entity.vo.QueryTaskVO.builder().status("COMPLETED").build());
 
         ConversationContextDTO context = service.buildQueryContext(42L, 7L, 21L, currentCatalog(100L, true));
 
@@ -111,7 +115,9 @@ class ConversationContextSummaryServiceImplTest {
                         message(3L, "user", "task-2", "question-2"),
                         message(4L, "assistant", "task-2", "answer-2")));
         when(conversationService.getLatestMessageIdBefore(42L, 7L, 1L)).thenReturn(null);
-        when(queryService.get("task-1", 7L)).thenReturn(com.dataocean.module.query.entity.vo.QueryTaskVO.builder().build());
+        // 保留成功轮次的原有期望，显式声明完成状态，而不是放宽缺失状态的行为。
+        when(queryService.get("task-1", 7L)).thenReturn(
+                com.dataocean.module.query.entity.vo.QueryTaskVO.builder().status("COMPLETED").build());
         when(queryService.get("task-2", 7L)).thenThrow(new BusinessException("permission revoked"));
 
         ConversationContextDTO context = service.buildQueryContext(42L, 7L, 5L, currentCatalog(101L, true));
@@ -170,6 +176,54 @@ class ConversationContextSummaryServiceImplTest {
         verify(summaryMapper).updateById(savedSummary.capture());
         assertThat(savedSummary.getValue().getPermissionScopeFingerprint())
                 .isEqualTo(service.permissionScopeFingerprint(afterExpiry));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"CANCELLED,查询已取消", "TIMEOUT,查询已超时", "FAILED,本轮查询失败",
+            "PROCESSING,查询仍在处理中", "CLARIFICATION_REQUIRED,请补充查询条件", ",查询状态待确认"})
+    void recentContextKeepsTheActualNonCompletedOutcome(String status, String expectedContent) {
+        // 最近轮次必须按当前任务终态重建，不能把原始助手响应或默认完成文案送给下一轮模型。
+        when(summaryMapper.selectOne(any())).thenReturn(null);
+        when(conversationService.getRecentMessagesBefore(42L, 7L, 3L, 20))
+                .thenReturn(List.of(message(1L, "user", "task-1", "question-1"),
+                        message(2L, "assistant", "task-1", "RAW_PROVIDER_RESPONSE")));
+        when(conversationService.getLatestMessageIdBefore(42L, 7L, 1L)).thenReturn(null);
+        when(queryService.get("task-1", 7L)).thenReturn(
+                com.dataocean.module.query.entity.vo.QueryTaskVO.builder().status(status)
+                        .sqlExplanation("STALE_COMPLETED_EXPLANATION").build());
+
+        var context = service.buildQueryContext(42L, 7L, 3L, currentCatalog(100L, true));
+
+        assertThat(context.getHistory().get(1)).containsEntry("content", expectedContent);
+        assertThat(context.getHistory().toString()).doesNotContain("RAW_PROVIDER_RESPONSE", "STALE_COMPLETED_EXPLANATION");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"CANCELLED,查询已取消", "TIMEOUT,查询已超时", "FAILED,本轮查询失败"})
+    void longTermSummaryReceivesOutcomeInsteadOfCompletedResultFacts(String status, String expectedContent) {
+        // 摘要入口实际收到的正文与事实必须一致，取消/失败不能被压缩为一份已完成查询结果。
+        var metadata = new com.dataocean.module.metadata.entity.po.MetadataSnapshot();
+        metadata.setId(88L);
+        when(schemaSnapshotService.getPublishedSnapshot(1L)).thenReturn(metadata);
+        when(userResourceService.candidateCatalog(7L, 1L, 88L)).thenReturn(currentCatalog(100L, true));
+        when(summaryMapper.selectOne(any())).thenReturn(null);
+        when(conversationService.getMessagesAfter(42L, 7L, null)).thenReturn(turnMessages(6));
+        when(conversationService.getRecentMessages(42L, 7L, 10)).thenReturn(turnMessages(6).subList(2, 12));
+        when(queryService.get("task-1", 7L)).thenReturn(
+                com.dataocean.module.query.entity.vo.QueryTaskVO.builder().status(status)
+                        .sqlExplanation("STALE_COMPLETED_EXPLANATION").sql("SELECT STALE_RESULT_SQL")
+                        .canViewSql(true).maskedFields(Map.of("phone", "PHONE")).build());
+        when(summaryClient.summarize(any(), any())).thenReturn(Map.of("memory", "本轮终态摘要"));
+
+        service.refreshAsync(42L, 7L, 1L);
+
+        org.mockito.ArgumentCaptor<List<Map<String, Object>>> messages = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(summaryClient).summarize(messages.capture(), any());
+        Map<String, Object> assistant = messages.getValue().get(1);
+        assertThat(assistant).containsEntry("content", expectedContent);
+        assertThat((Map<String, Object>) assistant.get("queryFacts")).containsEntry("status", status)
+                .doesNotContainKeys("sql", "sqlExplanation", "usedTables", "usedColumns", "masked");
+        assertThat(assistant.toString()).doesNotContain("STALE_COMPLETED_EXPLANATION", "STALE_RESULT_SQL");
     }
 
     private ConversationContextSummary summary(Long coveredId, Long revision,

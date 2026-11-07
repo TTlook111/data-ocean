@@ -88,9 +88,9 @@ onMounted(async () => {
 
 <template>
   <div class="iam-s1-workspace">
+    <!-- 导航已标明权限工作区，页头聚焦授权任务并保留字段范围的业务说明。 -->
     <TaskPageHeader
       title="授权配置"
-      eyebrow="权限与组织 / 业务数据边界"
       description="用一份表单说明“谁能查哪些数据”：对象、数据范围、有效期或生效范围三项必选。字段未选不代表全部字段。"
     />
 

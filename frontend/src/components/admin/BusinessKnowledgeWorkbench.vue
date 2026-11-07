@@ -535,7 +535,8 @@ onBeforeUnmount(() => {
     <p v-if="scope.scopeIssue.value" role="status">{{ scope.scopeIssue.value }}</p>
     <p v-if="generationWrite" role="status">当前源/快照有执行中或结果未知的整组生成，请先到文档工作区核对；不能重复生成。</p>
     <header class="business-heading">
-      <div><h3>{{ readerOpen ? '业务事实详情' : '当前业务事实' }}</h3><p>先核对事实、阶段与依据，再决定是否修订。</p></div>
+      <!-- 标题标识当前列表或详情，修订入口及依据随实际对象展示。 -->
+      <h3>{{ readerOpen ? '业务事实详情' : '当前业务事实' }}</h3>
       <div class="business-workspace-actions">
         <el-button :disabled="!canView || busy" @click="load">刷新</el-button>
         <el-button v-if="!readerOpen" type="primary" :disabled="!canManage || busy" @click="open()">补充业务知识</el-button>
@@ -800,10 +801,6 @@ onBeforeUnmount(() => {
 }
 .business-heading h3 {
   margin: 0;
-}
-.business-heading p {
-  font-size: 13px;
-  color: var(--do-ink-muted);
 }
 .business-grid {
   display: grid;

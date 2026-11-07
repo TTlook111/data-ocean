@@ -16,10 +16,10 @@
  *   V51 之前的历史行被回填为 UNKNOWN 或按审核任务还原，不再是「恒为待审核」的死列。
  * - rollback 仅创建待审核草稿，不会直接改动活动 RAG build。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, GitCompareArrows, MessageSquareText, RefreshCw, RotateCcw, Save, Scissors, Send, Sparkles, Upload } from 'lucide-vue-next'
+import { ArrowLeft, GitCompareArrows, MessageSquareText, Pencil, RefreshCw, RotateCcw, Save, Scissors, Send, Sparkles, Upload } from 'lucide-vue-next'
 import {
   approveDoc,
   diffVersions,
@@ -71,6 +71,7 @@ import BusinessStatusBadge from '../../../components/admin/BusinessStatusBadge.v
 import LoadingState from '../../../components/common/LoadingState.vue'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import MarkdownContent from '../../../components/common/MarkdownContent.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -140,6 +141,9 @@ const ragBuildsError = ref('')
 
 const title = ref('')
 const content = ref('')
+// 阅读使用已保存事实，编辑使用原有本地草稿；切换展示模式不重置正文或版本锁。
+const editing = ref(false), draftPreviewOpen = ref(false)
+const editorRoot = ref<HTMLElement>(), readerRoot = ref<HTMLElement>()
 let epoch=0, disposed=false, initialized=false
 const sequences:Record<string,number>={}
 const expectedOwnSave=ref<{id:number;source:number;version:number;title:string;content:string}>()
@@ -192,6 +196,29 @@ const lifecycleSteps = computed(() => {
 
 const status = computed(() => doc.value?.status || 'DRAFT')
 const canEdit = computed(() => ['DRAFT', 'APPROVED', 'PUBLISHED'].includes(status.value))
+const showEditor = computed(() => editing.value && mayManage.value && canEdit.value)
+// 显式进入编辑时核对当前文档权限并切到内容页，等待导航和渲染完成后再聚焦。
+async function startEditing() {
+  if (!canReadDocument() || !mayManage.value || !canEdit.value || saving.value || actionLoading.value) return
+  const t = ticket()
+  if (activeTab.value !== 'content') {
+    // 被取消或失败的任务导航不打开隐藏编辑器，原页面与草稿继续保留。
+    try { await router.push({ query: { ...route.query, tab: 'content' } }) } catch { return }
+  }
+  if (!current(t) || activeTab.value !== 'content' || !canReadDocument() || !mayManage.value || !canEdit.value) return
+  editing.value = true
+  await nextTick()
+  if (current(t) && showEditor.value) editorRoot.value?.querySelector<HTMLInputElement>('input[aria-label="文档标题"]')?.focus()
+}
+// 返回阅读仅隐藏编辑器，未保存输入与冲突信息继续保留，重新进入仍使用同一份草稿。
+async function returnToReading() {
+  if (saving.value || actionLoading.value) return
+  const t = ticket()
+  editing.value = false
+  draftPreviewOpen.value = false
+  await nextTick()
+  if (current(t) && !editing.value) readerRoot.value?.focus()
+}
 const canSubmitReview = computed(() => status.value === 'DRAFT')
 const canReview = computed(() => status.value === 'PENDING_REVIEW')
 const canPublish = computed(() => status.value === 'APPROVED')
@@ -351,7 +378,8 @@ async function loadChunks() {
 }
 
 async function save() {
-  if(!doc.value || !mayManage.value || !canEdit.value || saving.value || actionLoading.value || unknownWrite.value || versionConflict.value)return
+  // 离开编辑态后保留草稿，但旧保存按钮的迟到事件不能从阅读态发起写入。
+  if(!showEditor.value || !doc.value || !mayManage.value || !canEdit.value || saving.value || actionLoading.value || unknownWrite.value || versionConflict.value)return
   if(!title.value.trim()){ElMessage.warning('文档标题不能为空');return}
   const t=ticket(),value={...doc.value},stamp=formStamp.value
   // 保存与重读使用同一份冻结载荷；只推进已证实属于本次保存的版本锁，
@@ -611,6 +639,8 @@ watch(()=>[diffVisible.value,diffV1.value,diffV2.value],()=>{sequences.runDiff=(
 useAdminScrollLock(()=>generateVisible.value || versionPreviewVisible.value || diffVisible.value || confirmVisible.value)
 async function loadPage(){await loadDoc();if(disposed || !doc.value || !canReadDocument())return;await Promise.all([loadRagBuilds(),loadSnapshots(),loadVersions()]);if(activeTab.value==='source')void loadSourceSnapshots();if(activeTab.value==='review')void loadReviewRecords();if(activeTab.value==='chunks')void loadChunks();if(activeTab.value==='index')void loadVectorTasks()}
 function resetPage(){
+  // 账号、来源或文档身份变化时退出旧编辑会话；保持原有精确对象清理与请求失效边界。
+  editing.value=false;draftPreviewOpen.value=false
   epoch++;invalidateConfirm();expectedOwnSave.value=undefined;doc.value=null;title.value='';content.value='';savedStamp.value=formStamp.value;formBaseVersion.value=0;error.value='';actionError.value='';reviewComment.value=''
   versions.value=[];chunks.value=[];reviewRecords.value=[];vectorTasks.value=[];ragBuilds.value=[];sourceSnapshots.value=[];snapshots.value=[];sourceStatus.value=undefined;sourceStatusError.value=''
   generateVisible.value=false;diffVisible.value=false;versionPreviewVisible.value=false;saving.value=false;actionLoading.value=false;generateLoading.value=false
@@ -640,8 +670,8 @@ watch(() => route.query.tab, (value) => {
     <LoadingState v-else-if="loading" variant="skeleton" :rows="6" />
 
     <template v-else-if="doc">
+      <!-- 页头以当前文档标题为主体，来源、版本、审核与发布状态保持独立显示。 -->
       <TaskPageHeader
-        eyebrow="知识文档"
         :title="doc.title"
         description="编辑当前知识主题，审核后发布；同一快照的多篇文档共同覆盖业务知识。满足来源与覆盖要求后，在知识列表显式确认 RAG 构建。"
       >
@@ -654,11 +684,14 @@ watch(() => route.query.tab, (value) => {
         </template>
         <template #actions>
           <el-button :icon="RefreshCw" :loading="loading" @click="refreshDocument">刷新</el-button>
-          <el-button v-if="canEdit && mayManage" :icon="Save" :loading="saving" :disabled="versionConflict || actionLoading || !!unknownWrite" @click="save">
+          <!-- 阅读态只提供显式编辑入口；保存始终针对当前编辑会话，不从阅读默认发起新版本。 -->
+          <el-button v-if="showEditor" :icon="Save" :loading="saving" :disabled="versionConflict || actionLoading || !!unknownWrite" @click="save">
             {{ status === 'DRAFT' ? '保存' : '保存并新建版本' }}
           </el-button>
-          <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" :disabled="!mayGenerate || dirty || saving || actionLoading || !!unknownWrite" :title="mayGenerate ? '' : GENERATE_HINT" @click="openGenerate">按快照生成目录</el-button>
-          <el-button v-if="status === 'DRAFT' && mayManage" :icon="Sparkles" :disabled="dirty || saving || actionLoading || !!unknownWrite" title="请先保存当前编辑内容，再补写业务释义" @click="semanticAssistant?.open()">AI 辅助补写</el-button>
+          <el-button v-else-if="canEdit && mayManage" :icon="Pencil" data-doc-edit :disabled="saving || actionLoading" @click="startEditing">{{ dirty ? '继续编辑' : status === 'DRAFT' ? '编辑草稿' : '修订文档' }}</el-button>
+          <!-- 生成与补写属于编辑任务；保留精确来源、脏输入与未知写入的原有门禁。 -->
+          <el-button v-if="showEditor && status === 'DRAFT'" :icon="Sparkles" :disabled="!mayGenerate || dirty || saving || actionLoading || !!unknownWrite" :title="mayGenerate ? '' : GENERATE_HINT" @click="openGenerate">按快照生成目录</el-button>
+          <el-button v-if="showEditor && status === 'DRAFT'" :icon="Sparkles" :disabled="dirty || saving || actionLoading || !!unknownWrite" title="请先保存当前编辑内容，再补写业务释义" @click="semanticAssistant?.open()">AI 辅助补写</el-button>
 
           <el-button v-if="canSubmitReview && mayManage" type="primary" :icon="Send" :loading="actionLoading" :disabled="dirty || versionConflict || !!unknownWrite || saving" @click="submit">
             提交审核
@@ -680,20 +713,22 @@ watch(() => route.query.tab, (value) => {
       </TaskPageHeader>
 
       <section v-if="actionError || unknownWrite" role="alert" class="knowledge-write-notice"><strong>{{ actionError || '此文档有执行中或结果待确认的操作' }}</strong><p v-if="unknownWrite">原文档 #{{ unknownWrite.docId }} · {{ unknownWrite.kind }} · 修订锁 {{ unknownWrite.version }}。请只读核对原文档/版本，未确认前不重发；已有旧build不能证明本次成功。</p><p v-if="reviewComment">保留的审核意见：{{ reviewComment }}</p><el-button @click="refreshDocument">重读当前文档与版本</el-button></section>
-      <div v-if="dirty || versionConflict" class="document-draft-state"><span v-if="dirty" role="status">有未保存输入，提交/发布前请先保存</span><span v-if="versionConflict" role="alert">已保存版本已变化；保留当前输入，请核对后重读。</span><el-button link :disabled="saving || actionLoading" @click="reloadSavedDraft">重读已保存版本</el-button></div>
+      <!-- 阅读态仍提示尚存草稿或冲突，切换展示不能掩盖未保存输入与真实已保存版本的区别。 -->
+      <div v-if="dirty || versionConflict" class="document-draft-state"><span v-if="dirty" role="status">有未保存输入，提交/发布前请先保存<template v-if="!showEditor">；当前阅读已保存版本，输入仍保留</template></span><span v-if="versionConflict" role="alert">已保存版本已变化；保留当前输入，请核对后重读。</span><el-button link :disabled="saving || actionLoading" @click="reloadSavedDraft">重读已保存版本</el-button></div>
+      <!-- 当前状态与下一步直接可见，完整流转图按需展开，不再先占用大块阅读高度。 -->
       <section class="knowledge-doc-page__lifecycle">
-        <LifecycleStepper :steps="lifecycleSteps" />
+        <div class="document-context"><span>{{ datasourceName }}</span><span>覆盖 {{ coveredTables.length }} 张表</span><details class="document-lifecycle-details"><summary>流转阶段</summary><LifecycleStepper :steps="lifecycleSteps" /></details></div>
         <p class="knowledge-doc-page__hint">{{ nextStepHint }}</p>
       </section>
 
       <ErrorState v-if="sourceStatusError" :message="sourceStatusError" @retry="loadSourceStatus" />
       <el-alert v-else-if="sourceStatus && !sourceStatus.valid" :title="sourceStatus.reasons.join(' ')" type="warning" :closable="false" show-icon />
       <el-tabs :model-value="activeTab" @update:model-value="selectTab">
-        <!-- 内容 -->
+        <!-- 默认阅读已保存正文，只有主动进入编辑才显示原始 Markdown 与结构元数据。 -->
         <el-tab-pane label="内容" name="content">
-          <section class="knowledge-doc-page__editor">
+          <section v-if="showEditor" ref="editorRoot" class="knowledge-doc-page__editor" :class="{'has-draft-preview':draftPreviewOpen}">
             <div class="pane">
-              <div class="pane__title">{{ mayManage && canEdit ? '编辑' : '只读' }}</div>
+              <div class="pane__toolbar"><strong class="pane__title">编辑正文</strong><div><el-button text :disabled="saving || actionLoading" @click="returnToReading">返回阅读</el-button><el-button text :aria-pressed="draftPreviewOpen" @click="draftPreviewOpen=!draftPreviewOpen">{{ draftPreviewOpen ? '收起预览' : '预览草稿' }}</el-button></div></div>
               <el-input
                 v-model="title"
                 placeholder="文档标题"
@@ -707,12 +742,18 @@ watch(() => route.query.tab, (value) => {
                 :rows="22"
                 :disabled="!canEdit"
                 :readonly="!mayManage"
-                placeholder="在此编写 skills.md 内容（Markdown 格式）"
+                placeholder="编写知识文档正文（Markdown 格式）"
                 resize="vertical"
                 aria-label="知识文档正文" class="pane__textarea"
               />
             </div>
-            <details class="pane pane-preview"><summary>查看当前输入预览</summary><pre class="pane__preview">{{ content || '（暂无内容）' }}</pre></details>
+            <!-- 草稿预览通过共享安全渲染器，不改变编辑原文、metadata 或保存载荷。 -->
+            <section v-if="draftPreviewOpen" class="pane pane-preview" aria-label="当前编辑内容预览"><h2 class="pane__title">{{ dirty ? '未保存草稿预览' : '当前编辑内容预览' }}</h2><MarkdownContent :content="content" /></section>
+          </section>
+          <section v-else ref="readerRoot" class="knowledge-doc-reader" tabindex="-1" aria-label="已保存文档内容">
+            <div class="document-reader-version">已保存版本 v{{ doc.currentVersion }}</div>
+            <MarkdownContent v-if="doc.content?.trim()" :content="doc.content" />
+            <EmptyState v-else message="当前已保存版本还没有正文。" />
           </section>
           <p v-if="!mayManage" class="knowledge-doc-page__locked">当前账号没有维护该文档的能力，内容仅供查看。</p>
           <p v-else-if="!canEdit" class="knowledge-doc-page__locked">
@@ -1078,15 +1119,16 @@ watch(() => route.query.tab, (value) => {
 
 .doc-version { color: var(--do-muted); font-size: 12px; }
 
+/* 来源、覆盖与当前流转含义保持可见，完整步骤图只在主动展开时占用空间。 */
 .knowledge-doc-page__lifecycle {
   display: grid;
-  gap: 12px;
-  padding: 18px;
-  border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-lg);
-  background: var(--do-surface);
-  box-shadow: var(--do-shadow);
+  gap: 8px;
 }
+.document-context { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 18px; color: var(--do-muted); font-size: 12px; }
+.document-lifecycle-details { margin-left: auto; }
+.document-lifecycle-details summary { cursor: pointer; color: var(--do-primary-strong); }
+.document-lifecycle-details[open] { flex-basis: 100%; margin: 0; padding: 12px 0; border-block: 1px solid var(--do-line); }
+.document-lifecycle-details[open] summary { margin-bottom: 16px; }
 
 .knowledge-doc-page__hint { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.7; }
 
@@ -1104,7 +1146,17 @@ watch(() => route.query.tab, (value) => {
   box-shadow: var(--do-shadow);
 }
 
-.knowledge-doc-page__editor { display:grid;grid-template-columns:minmax(0,1fr);gap:12px; }.knowledge-doc-page__editor:has(.pane-preview[open]){grid-template-columns:repeat(2,minmax(0,1fr));}.pane-preview:not([open]){padding:8px 0;border:0;background:transparent;box-shadow:none;}.pane-preview summary{cursor:pointer;color:var(--do-primary-strong);font-size:13px;}
+/* 默认阅读使用独立正文表面，精确保存版本可见，键盘返回后有稳定焦点。 */
+.knowledge-doc-reader { min-width: 0; padding: 26px 30px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
+.knowledge-doc-reader:focus { outline: none; }
+.knowledge-doc-reader:focus-visible { outline: 2px solid var(--do-primary); outline-offset: 2px; }
+.document-reader-version { padding-bottom: 16px; margin-bottom: 18px; border-bottom: 1px solid var(--do-line); color: var(--do-muted); font-size: 11px; }
+/* 编辑与草稿预览按需并列，不用预览控件常驻挤压正文阅读。 */
+.knowledge-doc-page__editor { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.knowledge-doc-page__editor.has-draft-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pane__toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.pane__toolbar > div { display: flex; gap: 4px; }
+.pane-preview { min-width: 0; max-height: 760px; overflow: auto; }
 
 .pane {
   display: flex;
@@ -1118,21 +1170,6 @@ watch(() => route.query.tab, (value) => {
 
 .pane__title { color: var(--do-muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
 .pane__textarea :deep(.el-textarea__inner) { font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; line-height: 1.6; }
-.pane__preview {
-  flex: 1;
-  max-height: 560px;
-  margin: 0;
-  padding: 12px;
-  overflow: auto;
-  border-radius: var(--do-radius-md);
-  background: var(--do-bg);
-  color: var(--do-ink);
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 12px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
 
 .knowledge-doc-page__locked { margin: 12px 0 0; padding: 10px 12px; border-radius: var(--do-radius-md); background: var(--do-bg); color: var(--do-muted); font-size: 12px; }
 
@@ -1169,6 +1206,8 @@ watch(() => route.query.tab, (value) => {
 
 @media (max-width: 1180px) {
   .knowledge-doc-page :deep(.task-page-header__actions){width:100%;max-width:100%;min-width:0;flex-wrap:wrap;justify-content:flex-start;gap:8px;}.knowledge-doc-page :deep(.task-page-header__actions .el-button){margin-left:0;}
-  .knowledge-doc-page__editor,.knowledge-doc-page__editor:has(.pane-preview[open]) { grid-template-columns: minmax(0, 1fr); }
+  /* 缩放后的窄内容区保持编辑与预览纵向可读，不恢复原文左右挤压。 */
+  .knowledge-doc-page__editor,.knowledge-doc-page__editor.has-draft-preview { grid-template-columns: minmax(0, 1fr); }
+  .knowledge-doc-reader { padding: 20px; }
 }
 </style>

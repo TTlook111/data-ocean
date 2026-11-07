@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
-import type { RouteLocationRaw } from 'vue-router'
 import ReleaseGatePanel from './ReleaseGatePanel.vue'
 import type { ReleaseGate } from '../../api/admin/versioning'
 
@@ -31,13 +30,14 @@ interface PanelProps {
   loading?: boolean
   error?: string
   compact?: boolean
-  issueTarget?: RouteLocationRaw
+  canViewIssues?: boolean
+  canViewChecks?: boolean
 }
 
 function mountPanel(props: PanelProps) {
   return mount(ReleaseGatePanel, {
     props,
-    global: { stubs: { RouterLink: { template: '<a class="router-link-stub"><slot /></a>' } } },
+    global: { stubs: { RouterLink: { props:['to'], template: '<a class="router-link-stub" :data-to="JSON.stringify(to)"><slot /></a>' } } },
   })
 }
 
@@ -59,19 +59,27 @@ describe('ReleaseGatePanel', () => {
         approvable: false,
         publishable: false,
         blockingCount: 1,
-        unresolvedSourceHigh: 2,
+        unresolvedSourceHigh: 2, latestCheckBatchId:21, unresolvedSourceHighByStatus:{OPEN:1,CONFIRMED:1,REOPENED:0},
         items: [
           { code: 'SOURCE_HIGH_UNRESOLVED', category: 'SOURCE', severity: 'HIGH', status: 'FAIL', blocksApproval: true, blocksPublish: true, count: 2, message: '无法发布：存在 2 个未解决的高风险问题' },
           { code: 'NO_NORMAL_RECOMMENDED_TABLE', category: 'STRUCTURE', severity: 'HIGH', status: 'PASS', blocksApproval: false, blocksPublish: false, count: 2, message: '存在 2 张 NORMAL/RECOMMENDED 状态的表' },
           { code: 'SEMANTIC_HIGH_UNRESOLVED', category: 'SEMANTIC', severity: 'HIGH', status: 'PASS', blocksApproval: false, blocksPublish: false, count: 0, message: '没有未解决的语义高风险问题' },
         ],
       }),
-      issueTarget: { path: '/admin/governance/issues', query: { datasourceId: '5', snapshotId: '9' } },
+      canViewIssues:true,canViewChecks:true,
     })
 
     expect(wrapper.text()).toContain('存在 1 项阻断，暂不可发布')
     expect(wrapper.text()).toContain('无法发布：存在 2 个未解决的高风险问题')
-    expect(wrapper.text()).toContain('去问题中心处理')
+    expect(wrapper.text()).toContain('待处理 1 条')
+    expect(wrapper.text()).toContain('已确认 1 条')
+    expect(wrapper.text()).not.toContain('需重新处理 0 条')
+    expect(wrapper.text()).toContain('查看检查批次 #21')
+    expect(wrapper.findAll('a').map(link=>JSON.parse(link.attributes('data-to')!))).toEqual([
+      {path:'/admin/governance/issues',query:{datasourceId:'5',snapshotId:'9',issueDomain:'SOURCE',severity:'HIGH',status:'OPEN'}},
+      {path:'/admin/governance/issues',query:{datasourceId:'5',snapshotId:'9',issueDomain:'SOURCE',severity:'HIGH',status:'CONFIRMED'}},
+      {path:'/admin/governance/checks',query:{datasourceId:'5',snapshotId:'9',batchId:'21',returnTo:'/admin/releases'}},
+    ])
     expect(wrapper.find('.release-gate__item--fail').exists()).toBe(true)
   })
 

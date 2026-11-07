@@ -174,7 +174,7 @@ class QualityIssueServiceImplTest {
         issue.setStatus(MetadataQualityIssue.STATUS_REOPENED);
         when(fixture.issueMapper.selectById(1L)).thenReturn(issue);
 
-        assertThatThrownBy(() -> fixture.service.handleIssue(1L, MetadataQualityIssue.STATUS_RESOLVED, "done", 99L))
+        assertThatThrownBy(() -> fixture.service.handleIssue(1L, MetadataQualityIssue.STATUS_RESOLVED, "done", 1L, 99L))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("不允许从 REOPENED 转换到 RESOLVED");
         verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
@@ -189,15 +189,41 @@ class QualityIssueServiceImplTest {
         when(fixture.issueMapper.selectById(1L)).thenReturn(issue);
         when(fixture.issueMapper.update(Mockito.isNull(), any(Wrapper.class))).thenReturn(1);
 
-        fixture.service.handleIssue(1L, MetadataQualityIssue.STATUS_CONFIRMED, null, 99L);
+        fixture.service.handleIssue(1L, MetadataQualityIssue.STATUS_CONFIRMED, null, 1L, 99L);
 
         ArgumentCaptor<Wrapper<MetadataQualityIssue>> update = ArgumentCaptor.forClass(Wrapper.class);
         verify(fixture.issueMapper).update(Mockito.isNull(), update.capture());
         assertThat(update.getValue().getSqlSet()).contains("status", "resolved_by", "resolved_at", "resolution_note");
-        assertThat(update.getValue().getCustomSqlSegment()).contains("status");
+        assertThat(update.getValue().getCustomSqlSegment()).contains("status", "row_version");
     }
 
     // ---------- 批量：权限与归属预校验整批原子 ----------
+
+    // DTO 和服务边界都不接受缺失版本，防止内部调用或旧客户端绕过行版本条件。
+    @Test
+    void missingAndStaleVersionsAreRejectedBeforeAnyMutation() {
+        Fixture fixture = new Fixture();
+        fixture.issue(1L, MetadataQualityIssue.STATUS_OPEN);
+        assertThatThrownBy(() -> fixture.service.handleIssue(1L, MetadataQualityIssue.STATUS_CONFIRMED, null, null, 99L))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getCode()).isEqualTo(400));
+        assertThatThrownBy(() -> fixture.service.assignIssue(1L, 77L, 2L))
+                .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getCode()).isEqualTo(409));
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
+    }
+
+    // 逐项部分成功仅适用于完整请求；缺少某项版本或夹带其他 ID 先整批拒绝。
+    @Test
+    void batchRequiresAnExactPositiveVersionMap() {
+        Fixture fixture = new Fixture();
+        for (java.util.Map<Long, Long> versions : List.of(java.util.Map.of(1L, 1L),
+                java.util.Map.of(1L, 1L, 2L, 1L, 3L, 1L), java.util.Map.of(1L, 1L, 2L, 0L))) {
+            assertThatThrownBy(() -> fixture.service.batchHandle(List.of(1L, 2L),
+                    MetadataQualityIssue.STATUS_CONFIRMED, versions, 99L))
+                    .isInstanceOfSatisfying(BusinessException.class, exception -> assertThat(exception.getCode()).isEqualTo(400));
+        }
+        verify(fixture.issueMapper, never()).selectBatchIds(any());
+        verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
+    }
 
     @Test
     void batchHandleRejectsWholeBatchWhenOneIssueIsNotInScope() {
@@ -219,7 +245,7 @@ class QualityIssueServiceImplTest {
         Mockito.doThrow(new BusinessException(403, "没有负责该数据源"))
                 .when(fixture.adminGuard).requireDatasourceFunction(99L, "governance:issue:manage", 6L);
 
-        assertThatThrownBy(() -> fixture.service.batchHandle(ids, MetadataQualityIssue.STATUS_CONFIRMED, 99L))
+        assertThatThrownBy(() -> fixture.service.batchHandle(ids, MetadataQualityIssue.STATUS_CONFIRMED, versions(ids), 99L))
                 .isInstanceOf(BusinessException.class);
 
         // 整批零修改
@@ -233,7 +259,7 @@ class QualityIssueServiceImplTest {
         // 只查到 1 条：数量不一致 → 整批拒绝
         when(fixture.issueMapper.selectBatchIds(ids)).thenReturn(List.of(new MetadataQualityIssue()));
 
-        assertThatThrownBy(() -> fixture.service.batchHandle(ids, MetadataQualityIssue.STATUS_CONFIRMED, 99L))
+        assertThatThrownBy(() -> fixture.service.batchHandle(ids, MetadataQualityIssue.STATUS_CONFIRMED, versions(ids), 99L))
                 .isInstanceOf(BusinessException.class);
         verify(fixture.issueMapper, never()).update(any(), any(Wrapper.class));
     }
@@ -250,7 +276,7 @@ class QualityIssueServiceImplTest {
         when(fixture.issueResolver.resolve(1L)).thenReturn(
                 IamS1ResolvedResource.of(IamS1ResourceType.GOVERNANCE_ISSUE, 1L, 5L));
 
-        fixture.service.batchHandle(List.of(1L, 1L, 1L), MetadataQualityIssue.STATUS_CONFIRMED, 99L);
+        fixture.service.batchHandle(List.of(1L, 1L, 1L), MetadataQualityIssue.STATUS_CONFIRMED, versions(List.of(1L, 1L, 1L)), 99L);
 
         // 去重后只读取一次、只校验一次
         verify(fixture.issueMapper).selectBatchIds(List.of(1L));
@@ -265,7 +291,7 @@ class QualityIssueServiceImplTest {
         fixture.issue(1L, MetadataQualityIssue.STATUS_OPEN);
         when(fixture.userMapper.selectById(77L)).thenReturn(null);
 
-        assertThatThrownBy(() -> fixture.service.assignIssue(1L, 77L))
+        assertThatThrownBy(() -> fixture.service.assignIssue(1L, 77L, 1L))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getCode()).isEqualTo(404));
 
@@ -278,7 +304,7 @@ class QualityIssueServiceImplTest {
         fixture.issue(1L, MetadataQualityIssue.STATUS_OPEN);
         fixture.user(77L, SysUser.STATUS_DISABLED);
 
-        assertThatThrownBy(() -> fixture.service.assignIssue(1L, 77L))
+        assertThatThrownBy(() -> fixture.service.assignIssue(1L, 77L, 1L))
                 .isInstanceOfSatisfying(BusinessException.class, exception ->
                         assertThat(exception.getCode()).isEqualTo(400));
 
@@ -293,16 +319,22 @@ class QualityIssueServiceImplTest {
         fixture.user(77L, SysUser.STATUS_NORMAL);
         when(fixture.issueMapper.update(Mockito.isNull(), any(Wrapper.class))).thenReturn(1);
 
-        fixture.service.assignIssue(1L, 77L);
+        fixture.service.assignIssue(1L, 77L, 1L);
 
         ArgumentCaptor<Wrapper<MetadataQualityIssue>> update = ArgumentCaptor.forClass(Wrapper.class);
         verify(fixture.issueMapper).update(Mockito.isNull(), update.capture());
-        assertThat(update.getValue().getSqlSet()).contains("assignee_id", "updated_at").doesNotContain("status");
+        assertThat(update.getValue().getSqlSet()).contains("assignee_id", "updated_at", "row_version").doesNotContain("status");
+        assertThat(update.getValue().getCustomSqlSegment()).contains("row_version");
         // 分派是工作归属而不是数据授权：不触碰任何 S1 授权判定入口
         verify(fixture.adminGuard, never()).requireDatasourceFunction(any(), any(), anyLong());
     }
 
     // ---------- 夹具 ----------
+
+    /** 批量夹具明确给出每个读取版本，不能由被测服务自行补齐。 */
+    private static java.util.Map<Long, Long> versions(List<Long> ids) {
+        return ids.stream().distinct().collect(java.util.stream.Collectors.toMap(id -> id, id -> 1L));
+    }
 
     private static final class Fixture {
         private final MetadataQualityIssueMapper issueMapper = mock(MetadataQualityIssueMapper.class);

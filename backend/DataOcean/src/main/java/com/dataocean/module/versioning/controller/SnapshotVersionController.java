@@ -16,6 +16,8 @@ import com.dataocean.module.permission.s1.service.IamS1CapabilityService;
 import com.dataocean.module.permission.s1.support.IamS1AdminGuard;
 import com.dataocean.module.versioning.entity.po.SnapshotAuditLog;
 import com.dataocean.module.versioning.entity.dto.SnapshotStatusChangeDTO;
+import com.dataocean.module.versioning.entity.dto.SnapshotPointerWriteDTO;
+import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.versioning.entity.vo.SnapshotAuditLogVO;
 import com.dataocean.module.versioning.entity.vo.SnapshotReleaseGateVO;
 import com.dataocean.module.versioning.entity.vo.SnapshotVersionHistoryVO;
@@ -81,7 +83,7 @@ public class SnapshotVersionController {
                                       @Valid @RequestBody SnapshotStatusChangeDTO request) {
         Long operatorId = UserContext.currentUserId();
         // 审核码只允许状态流转，发布有独立的功能码，审核不会自动带来发布权。
-        lifecycleService.changeStatus(snapshotId, request.getTargetStatus(), operatorId, request.getReason());
+        lifecycleService.changeStatus(snapshotId, request.getExpectedStatus(), request.getTargetStatus(), operatorId, request.getReason());
         return Result.success();
     }
 
@@ -93,9 +95,11 @@ public class SnapshotVersionController {
      */
     @PostMapping("/snapshots/{snapshotId}/publish")
     @IamS1Resource(function = RELEASE_PUBLISH_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
-    public Result<Void> publish(@PathVariable Long snapshotId) {
+    public Result<Void> publish(@PathVariable Long snapshotId,
+            @Valid @RequestBody(required = false) SnapshotPointerWriteDTO request) {
+        if (request == null) throw new BusinessException(400, "缺少原状态及正式指针，请重新读取后发布");
         Long operatorId = UserContext.currentUserId();
-        publishService.publishSnapshot(snapshotId, operatorId);
+        publishService.publishSnapshot(snapshotId, request.getExpectedStatus(), request.getExpectedPublishedSnapshotId(), operatorId);
         return Result.success();
     }
 
@@ -109,12 +113,13 @@ public class SnapshotVersionController {
     @PostMapping("/snapshots/{snapshotId}/revoke")
     @IamS1Resource(function = RELEASE_PUBLISH_FUNCTION, resourceType = IamS1ResourceType.SNAPSHOT, resourceIds = "#snapshotId")
     public Result<Void> revoke(@PathVariable Long snapshotId,
-                                @RequestBody SnapshotStatusChangeDTO request) {
+                                @Valid @RequestBody(required = false) SnapshotPointerWriteDTO request) {
+        if (request == null) throw new BusinessException(400, "缺少待撤回快照及原正式指针");
         if (request.getReason() == null || request.getReason().isBlank()) {
             return Result.error(400, "撤回操作必须填写原因");
         }
         Long operatorId = UserContext.currentUserId();
-        publishService.revokeSnapshot(snapshotId, operatorId, request.getReason());
+        publishService.revokeSnapshot(snapshotId, request.getExpectedStatus(), request.getExpectedPublishedSnapshotId(), operatorId, request.getReason());
         return Result.success();
     }
 

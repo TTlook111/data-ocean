@@ -300,10 +300,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <main class="status-page post-login-page governance-workspace governance-surface">
+  <!-- 分栏已经拥有表和字段的工作面，外层不再套整页白卡；风险与权限提示保持独立。 -->
+  <main class="status-page post-login-page governance-workspace">
+    <!-- 页头聚焦治理状态任务，具体对象、状态影响与维护权限在工作面直接保留。 -->
     <TaskPageHeader
       title="治理状态维护"
-      eyebrow="数据治理 / 对象可用性"
       description="维护当前快照中表与字段的可用状态。"
     >
       <template #actions><el-button :icon="RefreshCw" @click="refresh">刷新</el-button></template>
@@ -429,6 +430,10 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 移除外层白卡后由页面间距组织内容，页头不再叠加自身底部留白。 */
+.status-page :deep(.task-page-header) {
+  margin-bottom: 0;
+}
 .status-contract,
 .status-receipt {
   padding: 16px 20px;

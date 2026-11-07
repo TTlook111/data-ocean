@@ -288,12 +288,15 @@ defineExpose({ openDetails })
 .status-symbol { display: grid; place-items: center; color: var(--do-primary); }
 .symbol-processing, .symbol-selection-loading { color: var(--do-primary); }
 .symbol-clarification { color: var(--do-warning); }
-.symbol-failed, .symbol-timeout, .symbol-cancelled { color: var(--do-danger); }
+/* 文字和图标区分终态，取消保持中性，超时提示核对，失败标示错误。 */
+.symbol-failed { color: var(--do-danger); }
+.symbol-timeout { color: var(--do-warning); }
+.symbol-cancelled { color: var(--do-muted); }
 .state-success-empty .success-icon { color: var(--do-muted); }
 .status-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 5px; }
 .status-actions button { min-height: 38px; padding: 0 13px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-primary-strong); background: var(--do-surface); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
 .status-actions button:hover { border-color: var(--do-primary); background: var(--do-primary-soft); }
-.status-actions .status-primary { border-color: var(--do-primary); color: #fff; background: var(--do-primary); }
+.status-actions .status-primary { border-color: var(--do-primary); color: var(--do-on-primary); background: var(--do-primary); }
 .status-actions .status-primary:hover { background: var(--do-primary-strong); }
 .details-view { grid-column: 1; grid-row: 1 / -1; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .details-toolbar { justify-content: space-between; }
@@ -301,7 +304,8 @@ defineExpose({ openDetails })
 .details-tabs { display: flex; align-items: center; gap: 4px; }
 .details-tabs button { min-height: 36px; padding-inline: 9px; font-size: 12px; }
 .details-scroll { display: grid; align-content: start; gap: 12px; }
-.sql-block { max-height: 58dvh; overflow: auto; margin: 0; padding: 14px; border: 1px solid var(--do-line); border-radius: var(--do-radius-md); color: #dbeafe; background: var(--do-ink); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* SQL 与知识阅读区的代码块共享前景和底色。 */
+.sql-block { max-height: 58dvh; overflow: auto; margin: 0; padding: 14px; border: 1px solid var(--do-line); border-radius: var(--do-radius-md); color: var(--do-code-text); background: var(--do-code-bg); font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sql-explanation { margin: 0; color: var(--do-muted); font-size: 13px; line-height: 1.65; }
 .detail-state { padding: 14px 12px; border: 1px solid var(--do-line); border-radius: var(--do-radius-sm); color: var(--do-muted); background: var(--do-bg); font-size: 12px; line-height: 1.6; }
 .sql-read-error { display: grid; gap: 8px; border-color: color-mix(in srgb, var(--do-danger) 30%, var(--do-line)); color: var(--do-danger); background: var(--do-danger-soft); }

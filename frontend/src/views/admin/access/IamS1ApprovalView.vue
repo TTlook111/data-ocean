@@ -586,9 +586,9 @@ watch(actorKey, initialize, { immediate: true, flush: 'sync' })
 </script>
 <template>
   <div class="iam-s1-approvals">
+    <!-- 页头保留申请与审批任务；临时授权及待审批语义仍由说明和状态表达。 -->
     <TaskPageHeader
       title="访问申请与审批"
-      eyebrow="权限与组织 / 临时业务访问"
       description="明确为什么需要哪些字段，再由负责该源的审批人核对。待审批不授予查询权，通过后生成有期限的个人授权。"
     />
     <GovernanceWriteNotice />

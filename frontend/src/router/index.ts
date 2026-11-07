@@ -17,6 +17,8 @@ const ChangePassword = () => import('../views/profile/ChangePassword.vue')
 const ProfileView = () => import('../views/profile/ProfileView.vue')
 const QueryDatasourceView = () => import('../views/query/QueryDatasourceView.vue')
 const QualityDashboard = () => import('../views/admin/governance/QualityDashboard.vue')
+// 趋势读数与显式执行各自挂载，浏览看板不会触发检查或消费用户待核对的操作。
+const QualityChecksView = () => import('../views/admin/governance/QualityChecksView.vue')
 const QualityRulesView = () => import('../views/admin/governance/QualityRulesView.vue')
 const IssueList = () => import('../views/admin/governance/IssueList.vue')
 const StatusEditor = () => import('../views/admin/governance/StatusEditor.vue')
@@ -96,6 +98,13 @@ const router = createRouter({
           component: AdminHomeView,
           meta: { title: '工作台', domainKey: 'workbench', workspaceKey: 'workbench', contextMode: 'none' },
         },
+        // 只读下钻从首页带入精确统计范围，归属工作台且不新增导航菜单。
+        {
+          path: 'workbench/details',
+          name: 'admin-workbench-details',
+          component: () => import('../views/admin/workbench/ExperienceDetailsView.vue'),
+          meta: { title: '问数运行明细', domainKey: 'workbench', workspaceKey: 'workbench', contextMode: 'none', breadcrumbParent: '/admin/workbench' },
+        },
         {
           path: 'data-sources',
           name: 'admin-data-sources',
@@ -155,6 +164,12 @@ const router = createRouter({
           name: 'admin-governance',
           component: QualityDashboard,
           meta: { title: '治理总览', domainKey: 'governance', workspaceKey: 'governance', contextMode: 'datasource-snapshot' },
+        },
+        {
+          path: 'governance/checks',
+          name: 'admin-governance-checks',
+          component: QualityChecksView,
+          meta: { title: '质量检查', domainKey: 'governance', workspaceKey: 'governance-checks', contextMode: 'datasource-snapshot' },
         },
         {
           path: 'governance/issues',

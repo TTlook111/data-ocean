@@ -10,7 +10,7 @@ import { findWorkspace, type AdminContextMode } from '../../router/adminNavigati
 import { buildAdminBreadcrumbs } from '../../utils/adminNavigation'
 import AdminDomainNav from './AdminDomainNav.vue'
 import ScopeBar from './ScopeBar.vue'
-import brandMark from '../../assets/brand/dataocean-mark.png'
+import BrandMark from '../common/BrandMark.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -36,6 +36,8 @@ const breadcrumbs = computed(() => buildAdminBreadcrumbs({
   query: route.query,
 }))
 const contextMode = computed<AdminContextMode>(() => (route.meta.contextMode as AdminContextMode) || workspace.value?.contextMode || 'none')
+// 看板、检查和问题共享精确快照，重新读取目录时继续校验该 URL 的对象。
+const qualityScope = computed(() => ['admin-governance', 'admin-governance-checks', 'admin-governance-issues-new'].includes(String(route.name)))
 const hasUnread = computed(() => notifications.value.some((item) => !item.isRead))
 
 function closeUserMenu() {
@@ -82,10 +84,9 @@ onBeforeUnmount(() => {
     <aside class="admin-shell__sidebar">
       <div class="admin-shell__brand">
         <RouterLink to="/admin" class="admin-shell__brand-link" aria-label="DataOcean 后台">
-          <img class="admin-shell__brand-mark" :src="brandMark" alt="" width="28" height="44" />
+          <BrandMark class="admin-shell__brand-mark" />
           <span class="admin-shell__brand-copy">
             <strong class="notranslate" translate="no">DataOcean</strong>
-            <small>数据查询治理平台</small>
           </span>
         </RouterLink>
         <button class="admin-shell__collapse" type="button" :aria-label="collapsed ? '展开导航' : '收起导航'" :aria-expanded="!collapsed" @click="toggleSidebar">
@@ -93,6 +94,12 @@ onBeforeUnmount(() => {
           <PanelLeftClose v-else :size="17" />
         </button>
       </div>
+
+      <!-- 问数是跨后台领域的主任务入口，仍严格按独立 queryUse 能力显示。 -->
+      <RouterLink v-if="iamS1.queryUse" to="/query" class="admin-shell__query-entry" :title="collapsed ? '智能问数' : undefined">
+        <MessageSquareText :size="18" aria-hidden="true" />
+        <span v-if="!collapsed">智能问数</span>
+      </RouterLink>
 
       <AdminDomainNav
         :collapsed="collapsed"
@@ -167,11 +174,11 @@ onBeforeUnmount(() => {
       <ScopeBar
         v-if="(contextMode === 'datasource' || contextMode === 'datasource-snapshot') && route.name !== 'admin-collections' && route.name !== 'admin-assets' && route.name !== 'admin-releases'"
         :mode="contextMode"
-        :show-control-labels="route.name === 'admin-governance' || route.name === 'admin-governance-issues-new'"
-        :track-route-sync="route.name === 'admin-governance-issues-new'"
-        :preserve-route-context-on-refresh="route.name === 'admin-governance-issues-new'"
+        :show-control-labels="qualityScope"
+        :track-route-sync="qualityScope"
+        :preserve-route-context-on-refresh="qualityScope"
       />
-      <section class="admin-shell__content" :class="{ 'admin-shell__content--compact': route.name === 'admin-workbench' || route.name === 'admin-data-sources' || route.name === 'admin-data-source-detail' || route.name === 'admin-collections' || route.name === 'admin-assets' || route.name === 'admin-asset-detail' || route.name === 'admin-releases' || route.name === 'admin-governance' || route.name === 'admin-governance-issues-new' }">
+      <section class="admin-shell__content" :class="{ 'admin-shell__content--compact': qualityScope || route.name === 'admin-workbench' || route.name === 'admin-data-sources' || route.name === 'admin-data-source-detail' || route.name === 'admin-collections' || route.name === 'admin-assets' || route.name === 'admin-asset-detail' || route.name === 'admin-releases' }">
         <RouterView />
       </section>
     </main>
@@ -180,8 +187,9 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .admin-shell {
+  /* 导航与明亮工作面形成稳定边界，收起导航后释放密集表格阅读宽度。 */
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: 232px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
   height: 100vh;
@@ -197,65 +205,31 @@ onBeforeUnmount(() => {
 .admin-shell.is-collapsed {
   grid-template-columns: 76px minmax(0, 1fr);
 }
-.admin-shell :deep(.el-button--primary) { --el-button-bg-color: var(--do-primary-strong); --el-button-border-color: var(--do-primary-strong); --el-button-hover-bg-color: var(--do-primary-strong); --el-button-hover-border-color: var(--do-primary-strong); }
 
 .admin-shell__sidebar {
+  /* 目录与正文以细线分界，浮层使用独立数据面。 */
   align-self: stretch;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--do-line);
+  border-right: 1px solid var(--do-nav-line);
   border-radius: 0;
-  background: var(--do-sidebar);
+  color: var(--do-nav-text);
+  background: var(--do-nav-bg);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   isolation: isolate;
 }
 
-/* Bound the glass layer while leaving menus, shadows and content unclipped. */
-.admin-shell__sidebar::before,
-.admin-shell__topbar::before {
-  display: none;
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  pointer-events: none;
-  content: '';
-}
-
-.admin-shell__sidebar::before {
-  background: var(--do-glass-shell-bg);
-  backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
-  -webkit-backdrop-filter: blur(var(--do-glass-blur)) saturate(128%);
-  clip-path: inset(0 round 16px);
-}
-
-.admin-shell__topbar::before {
-  background: var(--do-glass-panel-bg);
-  backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
-  -webkit-backdrop-filter: blur(var(--do-glass-panel-blur)) saturate(118%);
-  clip-path: inset(0 round 15px);
-}
-
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .admin-shell__sidebar::before { background: rgba(239, 247, 255, .96); }
-  .admin-shell__topbar::before { background: rgba(250, 253, 255, .98); }
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .admin-shell__sidebar::before { background: rgba(239, 247, 255, .97); backdrop-filter: none; -webkit-backdrop-filter: none; }
-  .admin-shell__topbar::before { background: rgba(250, 253, 255, .98); backdrop-filter: none; -webkit-backdrop-filter: none; }
-}
-
 .admin-shell__brand {
+  /* 品牌与导航同面，不使用额外卡片或装饰层。 */
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   height: 72px;
   padding: 0 16px;
-  border-bottom: 1px solid var(--do-line);
+  border-bottom: 1px solid var(--do-nav-line);
 }
 
 .admin-shell__brand-link {
@@ -266,20 +240,10 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
-.admin-shell__avatar {
-  display: grid;
-  place-items: center;
-  border-radius: var(--do-radius-md);
-  color: #fff;
-  background: linear-gradient(145deg, #1766f4, #2d78f2);
-  font-weight: 900;
-}
-
 .admin-shell__brand-mark {
   flex: 0 0 auto;
-  width: 28px;
-  height: 44px;
-  object-fit: contain;
+  width: 27px;
+  height: 34px;
   overflow: hidden;
   font-size: 13px;
   line-height: 1;
@@ -294,46 +258,62 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__brand-copy strong {
+  /* 品牌文字使用导航前景，避免随正文主题变暗。 */
   overflow: hidden;
-  color: var(--do-ink);
-  font-size: 18px;
+  color: var(--do-nav-text);
+  font-family: var(--do-font-family);
+  font-size: 21px;
+  letter-spacing: -.045em;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.admin-shell__brand-copy small {
-  overflow: hidden;
-  color: var(--do-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .admin-shell__collapse {
+  /* 收起按钮保留独立焦点和点击区域，与导航融为一体。 */
   flex: 0 0 auto;
   display: grid;
   width: 32px;
   height: 32px;
   place-items: center;
-  border: 1px solid var(--do-line);
+  border: 1px solid var(--do-nav-line);
   border-radius: var(--do-radius-md);
-  color: var(--do-muted);
-  background: var(--do-surface);
+  color: var(--do-nav-muted);
+  background: transparent;
   cursor: pointer;
 }
 
 .admin-shell__sidebar-footer {
+  /* 账户区域固定在导航末端，长菜单在其上方独立滚动。 */
   flex: 0 0 auto;
   margin-top: auto;
   padding: 12px;
-  border-top: 1px solid var(--do-line);
+  border-top: 1px solid var(--do-nav-line);
 }
+
+/* 提问入口在所有后台页面保持同一位置，缩起时保留可访问名称。 */
+.admin-shell__query-entry {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 40px;
+  margin: 18px 14px 4px;
+  padding: 8px;
+  border: 1px solid var(--do-nav-line);
+  border-radius: var(--do-radius-md);
+  color: var(--do-primary-strong);
+  background: var(--do-surface);
+  font-size: 13px;
+  font-weight: 600;
+}
+.admin-shell__query-entry:hover { border-color: var(--do-primary); background: var(--do-primary-soft); }
+.admin-shell__query-entry:focus-visible { outline: 2px solid var(--do-nav-accent); outline-offset: 3px; }
 
 .admin-shell__account-menu { width: 100%; }
 
 .admin-shell__main {
-  /* Keep page content above the adjacent sidebar's glass layer. */
+  /* 主工作面管理自己的滚动，不随侧栏菜单高度增长。 */
   position: relative;
   z-index: 0;
   align-self: stretch;
@@ -345,7 +325,13 @@ onBeforeUnmount(() => {
 }
 .admin-shell__main > .scope-bar { flex: 0 0 auto; }
 
+/* 看板的白色图面落在极浅的冷灰底上；进入其他工作区时由原有外壳提供背景。 */
+.admin-shell__main:has(> .admin-shell__content > :is(.experience-home, .experience-details, .issue-dashboard)) {
+  background: #f7f9fc;
+}
+
 .admin-shell__topbar {
+  /* 轻量页顶只保留位置与全局操作，标题与业务动作留在页面工作面。 */
   position: relative;
   z-index: 10;
   flex: 0 0 auto;
@@ -353,12 +339,12 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 18px;
-  min-height: 64px;
+  min-height: 56px;
   padding: 0 24px;
   border: 0;
   border-bottom: 1px solid var(--do-line);
   border-radius: 0;
-  background: var(--do-bg);
+  background: var(--do-surface);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   isolation: isolate;
@@ -399,6 +385,7 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__user {
+  /* 账号按钮属于深色导航，不向弹出的账户菜单传播局部色值。 */
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) 15px;
   width: 100%;
@@ -408,35 +395,42 @@ onBeforeUnmount(() => {
   padding: 8px;
   border: 0;
   border-radius: var(--do-radius-md);
-  color: var(--do-ink);
+  color: var(--do-nav-text);
   background: transparent;
   text-align: left;
   cursor: pointer;
 }
 
 .admin-shell__avatar {
+  /* 头像使用安静的色块，避免账号区域出现与主题无关的渐变。 */
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  font-weight: 650;
   width: 36px;
   height: 36px;
-  color: var(--do-ink);
-  background: #e1e5dc;
+  color: var(--do-nav-accent);
+  background: var(--do-nav-hover);
   font-size: 12px;
 }
 
 .admin-shell__user-copy { min-width: 0; display: grid; gap: 4px; }
 .admin-shell__user-copy strong, .admin-shell__user-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .admin-shell__user-copy strong { font-size: 13px; font-weight: 700; }
-.admin-shell__user-copy small { color: var(--do-muted); font-size: 12px; }
-.admin-shell__user-chevron { color: var(--do-muted); }
-.admin-shell__user:hover { background: color-mix(in srgb, var(--do-primary) 8%, transparent); }
-.admin-shell__user:focus-visible { outline: 3px solid color-mix(in srgb, var(--do-primary) 28%, transparent); outline-offset: 2px; }
+/* 账号的次级信息与交互反馈统一使用导航语义色。 */
+.admin-shell__user-copy small { color: var(--do-nav-muted); font-size: 12px; }
+.admin-shell__user-chevron { color: var(--do-nav-muted); }
+.admin-shell__user:hover { background: var(--do-nav-hover); }
+.admin-shell__user:focus-visible { outline: 2px solid var(--do-nav-accent); outline-offset: 2px; }
 
 .admin-shell__content {
+  /* 密集工作页获得稳定宽度与留白，正文和表格自行决定内部结构。 */
   width: 100%;
   max-width: 1480px;
   min-height: 0;
   flex: 1 1 0;
   margin: 0 auto;
-  padding: 32px 32px 28px;
+  padding: 26px 28px 24px;
   overflow-y: auto;
   overflow-x: auto;
   overscroll-behavior: contain;
@@ -485,7 +479,7 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__notification.unread {
-  border-color: rgba(77, 143, 220, .2);
+  border-color: var(--el-color-primary-light-7);
   background: var(--do-primary-soft);
 }
 
@@ -513,8 +507,8 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell.is-collapsed .admin-shell__brand-mark {
-  width: 25px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
 }
 
 .admin-shell.is-collapsed .admin-domain-nav__item {
@@ -536,7 +530,7 @@ onBeforeUnmount(() => {
 </style>
 
 <style>
-/* 元数据版本沿用后台公共海蓝画布；此处仅保留本路由的布局尺寸规则。 */
+/* 版本页使用统一主题，此处只保留宽表需要的容器尺寸。 */
 .admin-shell .admin-shell__content:has(.releases-page) {
   max-width: none;
   margin: 0;
@@ -585,10 +579,10 @@ onBeforeUnmount(() => {
   padding: 0;
   border-color: var(--do-line);
   border-radius: var(--do-radius-md);
-  background: rgba(255, 255, 255, .99);
+  background: var(--do-surface);
   box-shadow: var(--do-shadow-lg);
 }
-.admin-account-actions-popper .el-popper__arrow::before { border-color: var(--do-line); background: #fff; }
+.admin-account-actions-popper .el-popper__arrow::before { border-color: var(--do-line); background: var(--do-surface); }
 .admin-account-actions-popper .el-dropdown-menu { padding: 6px; background: transparent; }
 .admin-account-actions-popper .el-dropdown-menu__item {
   min-height: 38px;

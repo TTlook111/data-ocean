@@ -49,7 +49,7 @@ class SnapshotReleaseGateServiceImplTest {
         snapshotMapper = mock(MetadataSnapshotMapper.class);
         issueMapper = mock(MetadataQualityIssueMapper.class);
         tableMetaMapper = mock(DbTableMetaMapper.class);
-        service = new SnapshotReleaseGateServiceImpl(snapshotMapper, issueMapper, tableMetaMapper);
+        service = new SnapshotReleaseGateServiceImpl(snapshotMapper, issueMapper, tableMetaMapper, mock(com.dataocean.module.governance.mapper.QualityCheckBatchMapper.class));
         snapshot = new MetadataSnapshot();
         snapshot.setId(80L);
         snapshot.setDatasourceId(5L);
@@ -59,7 +59,7 @@ class SnapshotReleaseGateServiceImplTest {
 
     @Test
     void sourceHighBlocksApprovalAndPublishWhileSemanticHighOnlyWarns() {
-        when(issueMapper.selectCount(any(Wrapper.class))).thenReturn(1L, 1L);
+        when(issueMapper.selectCount(any(Wrapper.class))).thenReturn(1L, 0L, 0L, 1L);
         when(tableMetaMapper.selectCount(any(Wrapper.class))).thenReturn(2L);
 
         SnapshotReleaseGateVO gate = service.evaluate(snapshot);
@@ -76,7 +76,7 @@ class SnapshotReleaseGateServiceImplTest {
 
     @Test
     void semanticHighAloneDoesNotBlockPublish() {
-        when(issueMapper.selectCount(any(Wrapper.class))).thenReturn(0L, 1L);
+        when(issueMapper.selectCount(any(Wrapper.class))).thenReturn(0L, 0L, 0L, 1L);
         when(tableMetaMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
 
         SnapshotReleaseGateVO gate = service.evaluate(snapshot);
@@ -89,7 +89,7 @@ class SnapshotReleaseGateServiceImplTest {
 
     @Test
     void noValidTableBlocksPublishButNotApproval() {
-        when(issueMapper.selectCount(any(Wrapper.class))).thenReturn(0L, 0L);
+        when(issueMapper.selectCount(any(Wrapper.class))).thenReturn(0L, 0L, 0L, 0L);
         when(tableMetaMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
 
         SnapshotReleaseGateVO gate = service.evaluate(snapshot);
@@ -103,14 +103,14 @@ class SnapshotReleaseGateServiceImplTest {
 
     @Test
     void sourceQueryUsesUnifiedUnresolvedStatusesAndTableQueryUsesValidStatuses() {
-        when(issueMapper.selectCount(any(Wrapper.class))).thenReturn(0L, 0L);
+        when(issueMapper.selectCount(any(Wrapper.class))).thenReturn(0L, 0L, 0L, 0L);
         when(tableMetaMapper.selectCount(any(Wrapper.class))).thenReturn(1L);
 
         service.evaluate(snapshot);
 
         @SuppressWarnings({"rawtypes", "unchecked"})
         ArgumentCaptor<Wrapper<MetadataQualityIssue>> issueCaptor = ArgumentCaptor.forClass(Wrapper.class);
-        verify(issueMapper, org.mockito.Mockito.times(2)).selectCount(issueCaptor.capture());
+        verify(issueMapper, org.mockito.Mockito.times(4)).selectCount(issueCaptor.capture());
         // 参数映射在首次生成 SQL 片段时才填充，先逐个触发再读取。
         issueCaptor.getAllValues().forEach(Wrapper::getCustomSqlSegment);
         String sourceWhere = issueCaptor.getAllValues().get(0).getCustomSqlSegment().toLowerCase();
@@ -143,7 +143,7 @@ class SnapshotReleaseGateServiceImplTest {
 
     @Test
     void publishAssertionMergesMultipleBlockers() {
-        when(issueMapper.selectCount(any(Wrapper.class))).thenReturn(2L, 0L);
+        when(issueMapper.selectCount(any(Wrapper.class))).thenReturn(2L, 0L, 0L, 0L);
         when(tableMetaMapper.selectCount(any(Wrapper.class))).thenReturn(0L);
 
         assertThatThrownBy(() -> service.assertPublishable(snapshot))

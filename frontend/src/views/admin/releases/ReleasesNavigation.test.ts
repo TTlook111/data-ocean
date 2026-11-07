@@ -204,7 +204,7 @@ function blockedReleaseGate(snapshotId: number) {
     approvable: false,
     publishable: false,
     blockingCount: 1,
-    unresolvedSourceHigh: 2,
+    unresolvedSourceHigh: 2, unresolvedSourceHighByStatus:{OPEN:2,CONFIRMED:0,REOPENED:0},
     items: [
       {
         code: 'SOURCE_HIGH_UNRESOLVED',
@@ -355,7 +355,7 @@ it.each([0, 6, 5])('版本详情门禁问题入口只接受同源issue:view(授�
     await versionButton(w, 1)!.trigger('click')
     await settle()
     expect(api.getReleaseGate).toHaveBeenCalledWith(8)
-    expect(w.findAll('a').some((a) => a.text() === '去问题中心处理')).toBe(source === 5)
+    expect(w.findAll('a').some((a) => a.text() === '待处理 2 条')).toBe(source === 5)
     expect(w.text()).toContain('无法发布：存在 2 个未解决的高风险问题')
   } finally {
     w.unmount()
@@ -370,7 +370,7 @@ it.each([0, 6, 5])('发布确认门禁问题入口只接受同源issue:view且�
     await settle()
     await rowButton(w, 1, '发布')!.trigger('click')
     await settle()
-    expect(w.findAll('a').some((a) => a.text() === '去问题中心处理')).toBe(source === 5)
+    expect(w.findAll('a').some((a) => a.text() === '待处理 2 条')).toBe(source === 5)
     const confirm = w.findAll('button').find((x) => x.text() === '确认发布')!
     expect(confirm.attributes('disabled')).toBeDefined()
     await confirm.trigger('click')
