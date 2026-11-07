@@ -255,12 +255,14 @@ public class QualityIssueServiceImpl implements QualityIssueService {
      */
     @Transactional
     @Override
-    public void handleIssue(Long issueId, String targetStatus, String resolutionNote, Long operatorId) {
+    public void handleIssue(Long issueId, String targetStatus, String resolutionNote, Long expectedVersion, Long operatorId) {
         MetadataQualityIssue issue = issueMapper.selectById(issueId);
         if (issue == null) {
             throw new BusinessException(404, "问题不存在");
         }
 
+        // 客户端原版本先决定处理依据是否仍有效；不能用本次刚读取的状态代替旧页面版本。
+        requireVersion(issue, expectedVersion);
         validateTransition(issue.getStatus(), targetStatus);
         requireCurrentSemanticEvidence(issue, targetStatus, resolutionNote);
 
@@ -268,9 +270,11 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         LocalDateTime handledAt = LocalDateTime.now();
         LambdaUpdateWrapper<MetadataQualityIssue> update = new LambdaUpdateWrapper<MetadataQualityIssue>()
                 .eq(MetadataQualityIssue::getId, issueId)
-                // 预期状态作为 SQL 条件，防止并发流转覆盖已提交状态。
+                // 行版本与状态一起原子比较，阻止陈旧页面、并发处理和状态 ABA 覆盖。
+                .eq(MetadataQualityIssue::getRowVersion, expectedVersion)
                 .eq(MetadataQualityIssue::getStatus, oldStatus)
                 .set(MetadataQualityIssue::getStatus, targetStatus)
+                .set(MetadataQualityIssue::getRowVersion, expectedVersion + 1)
                 .set(MetadataQualityIssue::getUpdatedAt, handledAt);
         if (MetadataQualityIssue.STATUS_RESOLVED.equals(targetStatus)
                 || MetadataQualityIssue.STATUS_REJECTED.equals(targetStatus)) {
@@ -298,7 +302,8 @@ public class QualityIssueServiceImpl implements QualityIssueService {
      */
     @Transactional
     @Override
-    public IssueBatchHandleResultVO batchHandle(List<Long> issueIds, String targetStatus, Long operatorId) {
+    public IssueBatchHandleResultVO batchHandle(List<Long> issueIds, String targetStatus,
+                                              Map<Long, Long> expectedVersions, Long operatorId) {
         // 原子性的准确边界：**权限与归属预校验整批原子**——任一问题无权、不存在或归属断链就整批拒绝，
         // 不能“先改几条再发现越权”。所以校验统一前置，全部通过后才进入修改。
         // 但**状态流转本身不是全有或全无**：单条状态机不允许的流转会被跳过并在响应里如实返回，
@@ -307,6 +312,12 @@ public class QualityIssueServiceImpl implements QualityIssueService {
                 : issueIds.stream().filter(Objects::nonNull).distinct().toList();
         if (distinctIds.isEmpty()) {
             throw new BusinessException(400, "批量处理的问题列表不能为空");
+        }
+        // 完整原版本映射是请求合同；缺项、多项或无效版本均在任何修改之前整批拒绝。
+        if (issueIds.stream().anyMatch(id -> id == null || id <= 0) || expectedVersions == null
+                || !expectedVersions.keySet().equals(new java.util.HashSet<>(distinctIds))
+                || expectedVersions.values().stream().anyMatch(version -> version == null || version < 1)) {
+            throw new BusinessException(400, "批量问题预期版本必须与所选问题完整对应");
         }
         List<MetadataQualityIssue> issues = issueMapper.selectBatchIds(distinctIds);
         if (issues == null || issues.size() != distinctIds.size()) {
@@ -321,7 +332,7 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         List<IssueBatchHandleResultVO.SkippedIssue> skippedIssues = new ArrayList<>();
         for (Long issueId : distinctIds) {
             try {
-                handleIssue(issueId, targetStatus, null, operatorId);
+                handleIssue(issueId, targetStatus, null, expectedVersions.get(issueId), operatorId);
                 updated++;
             } catch (BusinessException e) {
                 // 状态不允许流转是正常结果而非异常：记录下来返回给调用方，
@@ -342,11 +353,13 @@ public class QualityIssueServiceImpl implements QualityIssueService {
      */
     @Transactional
     @Override
-    public void assignIssue(Long issueId, Long assigneeId) {
+    public void assignIssue(Long issueId, Long assigneeId, Long expectedVersion) {
         MetadataQualityIssue issue = issueMapper.selectById(issueId);
         if (issue == null) {
             throw new BusinessException(404, "问题不存在");
         }
+        // 分派也基于旧页面事实；即使状态没变，责任人或复查证据变化也必须让旧提交冲突。
+        requireVersion(issue, expectedVersion);
         if (assigneeId == null) {
             throw new BusinessException(400, "必须指定责任人");
         }
@@ -359,16 +372,28 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         if (assignee.getStatus() == null || assignee.getStatus() != SysUser.STATUS_NORMAL) {
             throw new BusinessException(400, "责任人账号未启用，不能作为负责人");
         }
-        // 分派只写责任人与更新时间，避免把读取后的旧状态写回覆盖并发处理结果。
+        // 分派只写责任人、版本与更新时间，避免覆盖并发状态；版本竞争返回明确冲突。
         // 被分派人不会因此获得该数据源上的任何查询、治理或授权能力。
         int updated = issueMapper.update(null, new LambdaUpdateWrapper<MetadataQualityIssue>()
                 .eq(MetadataQualityIssue::getId, issueId)
+                .eq(MetadataQualityIssue::getRowVersion, expectedVersion)
                 .set(MetadataQualityIssue::getAssigneeId, assigneeId)
+                .set(MetadataQualityIssue::getRowVersion, expectedVersion + 1)
                 .set(MetadataQualityIssue::getUpdatedAt, LocalDateTime.now()));
         if (updated != 1) {
             throw new BusinessException(409, "问题已被其他操作修改，请刷新后重试");
         }
         log.info("问题分派 issueId={} assigneeId={}", issueId, assigneeId);
+    }
+
+    /** 行版本只由成功写入推进；客户端不能缺省，也不能在服务端自动换成最新版本。 */
+    private void requireVersion(MetadataQualityIssue issue, Long expectedVersion) {
+        if (expectedVersion == null || expectedVersion < 1) {
+            throw new BusinessException(400, "请提供读取问题时的预期版本");
+        }
+        if (!expectedVersion.equals(issue.getRowVersion())) {
+            throw new BusinessException(409, "问题已被其他操作修改，请核对最新内容后再处理");
+        }
     }
 
     /**
@@ -494,6 +519,8 @@ public class QualityIssueServiceImpl implements QualityIssueService {
         vo.setIssueDescription(issue.getIssueDescription());
         vo.setSuggestion(issue.getSuggestion());
         vo.setStatus(issue.getStatus());
+        // 与列表事实同时返回版本，前端不从时间或状态推导并发条件。
+        vo.setRowVersion(issue.getRowVersion());
         vo.setAssigneeId(issue.getAssigneeId());
         vo.setCreatedAt(issue.getCreatedAt());
         vo.setResolvedAt(issue.getResolvedAt());
