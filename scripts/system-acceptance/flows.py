@@ -1,6 +1,7 @@
 """Explicit test-only business actions through official APIs, never direct SQL writes."""
 import json
 import time
+import uuid
 from fixture_context import primary_context
 
 CONTRACT = "synthetic-sales-v1"
@@ -93,7 +94,11 @@ def smoke(api):
 
 def quality(api):
     sid = primary_context(api)["snapshotId"]
-    started = api.call("POST", f"/api/admin/snapshots/{sid}/quality-check", {"snapshotId":sid,"tableNames":["sales_orders","products"]})
+    # 先持久记录操作标识和范围，查证丢失响应时可以定位原请求。
+    operation = str(uuid.uuid4())
+    request = {"operationId":operation,"tableNames":["sales_orders","products"]}
+    record(api, f"source-quality-check-{operation}.json", {"snapshotId":sid, **request})
+    started = api.call("POST", f"/api/admin/snapshots/{sid}/quality-check", request)
     record(api,"source-quality-check.json",started)
     return started
 
