@@ -39,6 +39,10 @@ const api = vi.hoisted(() => ({
   getQualityRule: vi.fn(),
   getQualityRuleHistory: vi.fn(),
   getQualityRuleRevisions: vi.fn(),
+  getQualityCheckBatch: vi.fn(),
+  getQualityContext: vi.fn(),
+  getQualityCheckOperation: vi.fn(),
+  resolveQualityCheckOperation: vi.fn(),
   getLatestQualityCheckBatch: vi.fn(),
   triggerQualityCheck: vi.fn(),
   getQualityRuleSummary: vi.fn(),
@@ -72,6 +76,10 @@ vi.mock('../../../api/admin/governance', () => ({
   getQualityRule: api.getQualityRule,
   getQualityRuleHistory: api.getQualityRuleHistory,
   getQualityRuleRevisions: api.getQualityRuleRevisions,
+  getQualityCheckBatch: api.getQualityCheckBatch,
+  getQualityContext: api.getQualityContext,
+  getQualityCheckOperation: api.getQualityCheckOperation,
+  resolveQualityCheckOperation: api.resolveQualityCheckOperation,
   getLatestQualityCheckBatch: api.getLatestQualityCheckBatch,
   triggerQualityCheck: api.triggerQualityCheck,
   getQualityRuleSummary: api.getQualityRuleSummary,
@@ -251,6 +259,7 @@ function rowButton(wrapper: ReturnType<typeof mountPage>, rowText: string, butto
 
 const issue = {
   id: 1,
+  rowVersion: 0,
   snapshotId: 8,
   datasourceId: DATASOURCE_ID,
   datasourceName: '销售库',
@@ -291,6 +300,9 @@ beforeEach(() => {
   api.getQualityRule.mockImplementation(async (ruleId: number) => ({ data: { id: ruleId } }))
   api.getQualityRuleHistory.mockResolvedValue({ data: [] })
   api.getQualityRuleRevisions.mockResolvedValue({ data: [] })
+  api.getQualityContext.mockImplementation(async id => ({ data: { id, datasourceId: 5, snapshotVersion: 1, status: 'DRAFT' } }))
+  api.getQualityCheckBatch.mockImplementation(async (snapshotId, id) => ({ data: { id, datasourceId: 5, snapshotId, status: 'SUCCESS', complete: true, rules: [] } }))
+  api.getQualityCheckOperation.mockResolvedValue({ data: { id: 31, datasourceId: 5, snapshotId: 8, status: 'SUCCESS', complete: true, requestedScope: 'FULL', totalScore: 91 } })
   api.getLatestQualityCheckBatch.mockResolvedValue({ data: null })
   api.getQualityRuleSummary.mockResolvedValue({ data: { enabledCount: 0, applicableCount: 0, unsupportedCount: 0, overriddenCount: 0, executedCount: 0 } })
   api.getSnapshotQualityIssueSummary.mockResolvedValue({ data: { totalUnresolved: 0, statusCounts: { OPEN: 0, CONFIRMED: 0, REOPENED: 0 }, recentIssues: [] } })
@@ -330,7 +342,7 @@ describe('IssueList 的能力控制', () => {
     await confirm!.trigger('click')
     await settle()
     // 处理动作按问题 ID 提交，后端会按该问题的真实归属再做一次判定
-    expect(api.handleIssue).toHaveBeenCalledWith(1, { status: 'CONFIRMED' })
+    expect(api.handleIssue).toHaveBeenCalledWith(1, { status: 'CONFIRMED', expectedVersion: 0 })
   })
 
   it('globalFunctions 有查看码但当前数据源无查看能力时不读取列表', async () => {
@@ -462,7 +474,7 @@ describe('问题中心分派详情会话隔离', () => {
 
     await openIssue(wrapper, 'orders')
     await startAssignment(wrapper, 77)
-    expect(api.assignIssue).toHaveBeenCalledWith(1, 77)
+    expect(api.assignIssue).toHaveBeenCalledWith(1, 77, 0)
     await closeDrawer(wrapper)
     await openIssue(wrapper, 'customers')
     expect(currentDetailHeading(wrapper)).toBe('customers')
@@ -813,7 +825,7 @@ describe('问题中心的范围、筛选和结果表达', () => {
     await confirm!.trigger('click')
     await settle()
 
-    expect(api.batchHandleIssues).toHaveBeenCalledWith({ issueIds: [1, 2], status: 'CONFIRMED' })
+    expect(api.batchHandleIssues).toHaveBeenCalledWith({ issueIds: [1, 2], status: 'CONFIRMED', expectedVersions: { 1: 0, 2: 0 } })
     expect(warning).toHaveBeenCalledWith(expect.stringContaining('当前状态不允许流转'))
     expect(wrapper.find('.issue-batch-receipt').text().replace(/\s/g,'')).toContain('问题#2')
     expect(wrapper.text()).not.toContain('已选 2 项')
@@ -1289,7 +1301,7 @@ describe('质量规则管理的能力控制', () => {
     expect(link).toBeTruthy()
     link.click()
     await settle()
-    expect(routeState.push).toHaveBeenCalledWith({ path: '/admin/governance/issues', query: { datasourceId: '6', snapshotId: '99', issueDomain: 'SOURCE', dimension: 'COMPLETENESS' } })
+    expect(routeState.push).toHaveBeenCalledWith({ path: '/admin/governance/issues', query: { datasourceId: '6', snapshotId: '99', issueDomain: 'SOURCE', dimension: 'COMPLETENESS', returnBatchId: '202' } })
   })
 
   it('历史缺少实际快照或没有问题查看权时，不伪造问题跳转', async () => {
@@ -1526,12 +1538,12 @@ describe('质量规则管理的能力控制', () => {
 })
 
 describe('治理总览的批次恢复与范围隔离', () => {
-  it('知识治理入口进入当前范围的任务，不自动执行来源质量检查', async()=>{
-    respond(capability({onDatasource:['metadata:view','governance:view','governance:field:view']}))
-    const wrapper=mountPage(QualityDashboard);await settle()
-    const entry=wrapper.findAll('button').find(button=>button.text()==='字段治理')
-    expect(entry).toBeDefined();await entry!.trigger('click');await settle()
-    expect(routeState.push).toHaveBeenCalledWith(expect.objectContaining({path:'/admin/governance/fields',query:expect.objectContaining({tab:'tasks',datasourceId:5,snapshotId:8})}))
+  it('配置入口只导航到同范围规则，不自动执行检查', async () => {
+    respond(capability({ onDatasource: ['metadata:view','governance:view','governance:rule:view'] }))
+    const wrapper=mountPage(QualityDashboard); await settle()
+    const entry=wrapper.findAll('button').find(button=>button.text()==='管理规则')
+    expect(entry).toBeDefined(); await entry!.trigger('click')
+    expect(routeState.push).toHaveBeenCalledWith(expect.objectContaining({path:'/admin/governance/rules'}))
     expect(api.triggerQualityCheck).not.toHaveBeenCalled()
   })
   const overviewPermissions = ['metadata:view', 'governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view']
@@ -1607,11 +1619,11 @@ describe('治理总览的批次恢复与范围隔离', () => {
     await settle()
 
     expect(wrapper.text()).toContain('校验状态读取失败')
-    expect(wrapper.text()).toContain('最近一次校验结果读取失败。')
+    expect(wrapper.text()).toContain('所选校验结果读取失败。')
     expect(wrapper.text()).toContain('历史评分')
     expect(wrapper.text().replace(/\s/g, '')).toContain('100分')
     expect(wrapper.text()).not.toContain('暂无可追溯的检查结果')
-    expect(wrapper.find('.quality-page__details').text()).toContain('最近一次校验结果读取失败。')
+    expect(wrapper.find('.quality-page__details').text()).toContain('所选校验结果读取失败。')
   })
 
   it('批次中真实执行数为零时保留零，并直接展示部分失败与覆盖原因', async () => {
@@ -1666,7 +1678,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
   it('保留校验动作和问题中心的当前范围跳转', async () => {
     respond(capability({ onDatasource: overviewPermissions }))
     api.triggerQualityCheck.mockResolvedValue({ data: {
-      snapshotId: 8, status: 'SUCCESS', complete: true, requestedScope: 'FULL', qualityScore: 91,
+      snapshotId: 8, checkBatchId: 31, status: 'SUCCESS', complete: true, requestedScope: 'FULL', qualityScore: 91,
       snapshotStatus: 'APPROVED', dimensionScores: {}, totalIssues: 0, issueCount: {},
       executedRuleCount: 1, failedRuleCount: 0, notApplicableRuleCount: 0,
     } })
@@ -1677,9 +1689,9 @@ describe('治理总览的批次恢复与范围隔离', () => {
     expect(runButton).toBeTruthy()
     await runButton!.trigger('click')
     await settle()
-    expect(api.triggerQualityCheck).toHaveBeenCalledWith(8)
+    expect(api.triggerQualityCheck).toHaveBeenCalledWith(8, expect.objectContaining({ operationId: expect.any(String) }))
 
-    const issueCenterButton = wrapper.findAll('button').find((button) => button.text().includes('问题中心'))
+    const issueCenterButton = wrapper.findAll('button').find((button) => button.text().includes('查看当前问题'))
     expect(issueCenterButton).toBeTruthy()
     await issueCenterButton!.trigger('click')
     expect(routeState.push).toHaveBeenCalledWith(expect.objectContaining({

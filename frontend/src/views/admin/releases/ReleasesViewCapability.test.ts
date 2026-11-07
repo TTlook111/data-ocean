@@ -242,49 +242,16 @@ beforeEach(() => {
 })
 
 describe('元数据版本工作区', () => {
-  it.each([
-    { status: 'PARTIAL', complete: false, executedRuleCount: 2, failedRuleCount: 1, notApplicableRuleCount: 0, qualityScore: null, feedback: 'warning', message: '质量校验部分完成；本次评分不作为完整结果。' },
-    { status: 'FAILED', complete: false, executedRuleCount: 0, failedRuleCount: 1, notApplicableRuleCount: 0, qualityScore: null, feedback: 'error', message: '质量校验未完成，请查看失败覆盖说明。' },
-    { status: 'FAILED', complete: false, executedRuleCount: 0, failedRuleCount: 0, notApplicableRuleCount: 3, qualityScore: null, feedback: 'warning', message: '本次检查没有可执行的适用项；未生成完整校验结果。' },
-    { status: 'SUCCESS', complete: false, executedRuleCount: 2, failedRuleCount: 0, notApplicableRuleCount: 0, qualityScore: null, feedback: 'warning', message: '质量校验部分完成；本次评分不作为完整结果。' },
-    { status: 'SUCCESS', complete: true, executedRuleCount: 3, failedRuleCount: 0, notApplicableRuleCount: 0, qualityScore: 88, feedback: 'success', message: '质量校验已完整完成，综合得分 88。' },
-    { status: 'SUCCESS', complete: true, executedRuleCount: 3, failedRuleCount: 0, notApplicableRuleCount: 0, qualityScore: 0, feedback: 'success', message: '质量校验已完整完成，综合得分 0。' },
-  ] as const)('$status / complete=$complete 按实际检查覆盖反馈，不伪造评分或状态', async (result) => {
+  it('来源检查从版本页导航到同源快照工作面，不另行发起检查或审核', async () => {
     respond(capability(['metadata:release:view', 'governance:check']))
-    const { feedback, message, ...batch } = result
-    const snapshotStatus = batch.complete ? 'ISSUE_FOUND' : 'DRAFT'
-    let currentStatus = 'DRAFT'
-    api.triggerQualityCheck.mockImplementation(async () => {
-      currentStatus = snapshotStatus
-      return { data: { snapshotId: 8, snapshotStatus, requestedScope: 'FULL', ...batch } }
-    })
-    api.listVersionHistory.mockImplementation(() => ({ data: { records: [version(8, 1, currentStatus)], total: 1 } }))
-    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
-    const success = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: vi.fn() }) as never)
-    const warning = vi.spyOn(ElMessage, 'warning').mockImplementation(() => ({ close: vi.fn() }) as never)
-    const error = vi.spyOn(ElMessage, 'error').mockImplementation(() => ({ close: vi.fn() }) as never)
     const wrapper = mountPage()
     try {
       await settle()
-      const initialReads = api.listVersionHistory.mock.calls.length
-      await rowButton(wrapper, 1, '开始检查')!.trigger('click')
-      await settle()
-
-      expect(api.triggerQualityCheck).toHaveBeenCalledWith(8)
-      expect({ success, warning, error }[feedback]).toHaveBeenCalledWith(message)
-      if (feedback !== 'success') expect(success).not.toHaveBeenCalled()
-      if (feedback !== 'warning') expect(warning).not.toHaveBeenCalled()
-      if (feedback !== 'error') expect(error).not.toHaveBeenCalled()
+      await rowButton(wrapper, 1, '前往质量检查')!.trigger('click')
+      expect(routerState.push).toHaveBeenCalledWith({ path: '/admin/governance', query: { datasourceId: '5', snapshotId: '8', returnTo: '/admin/releases' } })
+      expect(api.triggerQualityCheck).not.toHaveBeenCalled()
       expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
-      expect(api.listVersionHistory).toHaveBeenCalledTimes(initialReads + 1)
-      if (!batch.complete) expect(rowButton(wrapper, 1, '开始检查')).toBeDefined()
-    } finally {
-      wrapper.unmount()
-      confirm.mockRestore()
-      success.mockRestore()
-      warning.mockRestore()
-      error.mockRestore()
-    }
+    } finally { wrapper.unmount() }
   })
 
   it('主列表以快照 ID 标记当前正式版，并展示真实发布时间而不显示审校人为发布人', async () => {
@@ -683,7 +650,7 @@ describe('显式人工审核', () => {
       await settle()
       const enter = rowButton(wrapper, 1, '进入审核')
       expect(enter).toBeDefined()
-      expect(rowButton(wrapper, 1, '开始检查')).toBeUndefined()
+      expect(rowButton(wrapper, 1, '前往质量检查')).toBeUndefined()
       expect(rowButton(wrapper, 1, '批准')).toBeUndefined()
       await enter!.trigger('click')
       await settle()
@@ -717,21 +684,21 @@ describe('显式人工审核', () => {
       await settle()
       expect(rowButton(wrapper, 1, '进入审核')).toBeUndefined()
       expect(rowButton(wrapper, 2, '批准')).toBeUndefined()
-      if (role === 'check-only') expect(rowButton(wrapper, 1, '开始检查')).toBeDefined()
+      if (role === 'check-only') expect(rowButton(wrapper, 1, '前往质量检查')).toBeDefined()
       expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
     } finally { wrapper.unmount() }
   })
 
-  it('同时有检查和审核能力时 PARTIAL 检查也不会自动进入审核', async () => {
+  it('同时有检查和审核能力时前往检查不会自动进入审核', async () => {
     respond(capability(['metadata:release:view', 'metadata:release:review', 'governance:check']))
     api.triggerQualityCheck.mockResolvedValue({ data: { status: 'PARTIAL', complete: false, qualityScore: null } })
     const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
     const wrapper = mountPage()
     try {
       await settle()
-      await rowButton(wrapper, 1, '开始检查')!.trigger('click')
+      await rowButton(wrapper, 1, '前往质量检查')!.trigger('click')
       await settle()
-      expect(api.triggerQualityCheck).toHaveBeenCalledWith(8)
+      expect(api.triggerQualityCheck).not.toHaveBeenCalled()
       expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
       expect(rowButton(wrapper, 1, '进入审核')).toBeDefined()
       expect(rowButton(wrapper, 1, '批准')).toBeUndefined()

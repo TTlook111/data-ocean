@@ -5,7 +5,7 @@ import GovernanceWriteNotice from '../../../components/admin/GovernanceWriteNoti
 import TaskPageHeader from '../../../components/admin/TaskPageHeader.vue'
 import { computed, ref, reactive, onBeforeUnmount, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { RefreshCw } from 'lucide-vue-next'
+import { RefreshCw, ArrowLeft } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
 import {
   listQualityIssues,
@@ -30,6 +30,7 @@ import { useAuthStore } from '../../../stores/auth'
 import { useIamS1Store } from '../../../stores/iamS1'
 import ErrorState from '../../../components/common/ErrorState.vue'
 import EmptyState from '../../../components/common/EmptyState.vue'
+import { useQualityBusinessScope } from '../../../composables/useQualityBusinessScope'
 import LoadingState from '../../../components/common/LoadingState.vue'
 
 const loading = ref(false)
@@ -103,51 +104,24 @@ const currentUserId = computed(() => auth.currentUser?.id ?? auth.user?.userId)
 const MANAGE_FUNCTION = 'governance:issue:manage'
 const VIEW_FUNCTION = 'governance:issue:view'
 const RELEASE_VIEW_FUNCTION = 'metadata:release:view'
-const datasourceId = computed(() => adminContext.datasourceId)
-const snapshotId = computed(() => adminContext.snapshotId)
+const businessScope = useQualityBusinessScope()
+const datasourceId = businessScope.datasourceId
+const snapshotId = businessScope.snapshotId
 const requestedDatasourceId = computed(() => positiveId(route.query.datasourceId))
 const requestedSnapshotId = computed(() => positiveId(route.query.snapshotId))
-const routeScopeMatches = computed(
-  () =>
-    (!requestedDatasourceId.value || requestedDatasourceId.value === datasourceId.value) &&
-    (!requestedSnapshotId.value || requestedSnapshotId.value === snapshotId.value),
-)
-const invalidRouteScope = computed(
-  () =>
-    (route.query.datasourceId !== undefined && !requestedDatasourceId.value) ||
-    (route.query.snapshotId !== undefined && !requestedSnapshotId.value),
-)
-const routeScopeUnavailable = computed(() => {
-  if (invalidRouteScope.value) return true
-  if (adminContext.routeSyncError) return true
-  if (!adminContext.initialized || adminContext.routeSyncing) return false
-  if (
-    requestedDatasourceId.value &&
-    !adminContext.datasources.some((item) => item.id === requestedDatasourceId.value)
-  )
-    return true
-  return Boolean(requestedSnapshotId.value && !adminContext.loading && !snapshotId.value)
-})
-const rangeSynchronizing = computed(
-  () =>
-    !routeScopeUnavailable.value &&
-    (!adminContext.initialized ||
-      adminContext.loading ||
-      adminContext.routeSyncing ||
-      !routeScopeMatches.value),
-)
-const rangeReady = computed(
-  () =>
-    adminContext.initialized &&
-    !adminContext.loading &&
-    routeScopeMatches.value &&
-    !routeScopeUnavailable.value &&
-    Boolean(datasourceId.value) &&
-    Boolean(snapshotId.value),
-)
+const rangeSynchronizing = businessScope.scopeLoading
+const rangeReady = businessScope.ready
+const routeScopeUnavailable = computed(() => !rangeSynchronizing.value && !rangeReady.value && Boolean(route.query.datasourceId !== undefined || route.query.snapshotId !== undefined))
 const canViewCurrentScope = computed(
   () => Boolean(datasourceId.value) && iamS1.canOnDatasource(VIEW_FUNCTION, datasourceId.value),
 )
+// 返回入口只带精确范围和原批次；当前问题列表不接收 batchId 过滤。
+const canViewCheck = computed(() => rangeReady.value && iamS1.loaded && !iamS1.errorMessage && iamS1.canOnDatasource('governance:view', datasourceId.value))
+function openCheckEvidence() {
+  if (!canViewCheck.value) return
+  const batchId = positiveId(route.query.returnBatchId)
+  void router.push({ path: '/admin/governance', query: { datasourceId: String(datasourceId.value), snapshotId: String(snapshotId.value), ...(batchId ? { batchId: String(batchId) } : {}) } })
+}
 const canReadIssues = computed(
   () => rangeReady.value && iamS1.loaded && !iamS1.errorMessage && canViewCurrentScope.value,
 )
@@ -158,7 +132,9 @@ const canReadIssues = computed(
  * 处理要求 `governance:issue:manage` 与**该问题所属数据源**落在同一条启用的角色绑定上。
  * 前端只控制按钮可见性，后端仍会独立拒绝；给出中文原因而不是让用户点了才失败。
  */
-function canManageIssue(issue: { datasourceId?: number } | null | undefined): boolean {
+function canManageIssue(issue: { datasourceId?: number; rowVersion?: number } | null | undefined): boolean {
+  // 缺少客户端原版本时只读展示，不能用默认零或保存前重读绕过并发条件。
+  if (!Number.isSafeInteger(issue?.rowVersion) || Number(issue?.rowVersion) < 0) return false
   if (!issue?.datasourceId) return iamS1.systemAdmin
   return iamS1.canOnDatasource(MANAGE_FUNCTION, issue.datasourceId)
 }
@@ -462,10 +438,10 @@ async function performHandle(issue: QualityIssueItem, status: string, note?: str
       auth.token,
       [`issue:${issue.id}`],
       `问题 #${issue.id} · ${issue.tableName} / 快照 #${issue.snapshotId}`,
-      () => handleIssue(issue.id, { status, resolutionNote: note }),
+      () => handleIssue(issue.id, { status, resolutionNote: note, expectedVersion: issue.rowVersion }),
     )
     if (!issueCurrent(issue, epoch)) return false
-    if (selectedIssue.value?.id === issue.id) selectedIssue.value = { ...selectedIssue.value, status }
+    if (selectedIssue.value?.id === issue.id) selectedIssue.value = { ...selectedIssue.value, status, rowVersion: issue.rowVersion + 1 }
     void loadDomainSummary(issue.snapshotId)
     await fetchIssues()
     return issueCurrent(issue, epoch)
@@ -544,6 +520,7 @@ async function submitAssignment() {
     return
   }
   const issueId = issue.id
+  const expectedVersion = issue.rowVersion
   const requestedAssigneeId = assigneeId
   const assigneeName = assigneeOptions.value.find((option) => option.id === requestedAssigneeId)?.label
   const requestedDatasourceId = datasourceId.value
@@ -555,7 +532,7 @@ async function submitAssignment() {
   try {
     const epoch = scopeEpoch
     await trackGovernanceWrite(auth.token, [`issue:${issueId}`], `分派问题 #${issueId}`, () =>
-      assignIssue(issueId, requestedAssigneeId),
+      assignIssue(issueId, requestedAssigneeId, expectedVersion),
     )
     if (epoch !== scopeEpoch) return
     const sameScope =
@@ -571,7 +548,7 @@ async function submitAssignment() {
       selectedIssue.value?.id === issueId
     if (sameDetail) {
       // 分派接口返回 Void；仅仍打开同一问题详情时才补充本次责任人结果。
-      selectedIssue.value = { ...selectedIssue.value!, assigneeId: requestedAssigneeId, assigneeName }
+      selectedIssue.value = { ...selectedIssue.value!, assigneeId: requestedAssigneeId, assigneeName, rowVersion: expectedVersion + 1 }
       ElMessage.success(`已分派给 ${assigneeName || '所选用户'}`)
     }
     // 请求成功后只刷新仍然有效的范围。详情已切换时不改当前对象，也不报告失败。
@@ -588,7 +565,7 @@ async function submitAssignment() {
       detailSessionId === requestedDetailSession &&
       selectedIssue.value?.id === issueId
     if (currentAssignmentRequest === assignmentRequestId && sameDetail) {
-      ElMessage.error(e?.response?.data?.message || '分派失败')
+      assigneeError.value = e?.response?.data?.message || '分派失败，原选择保留；请核对最新问题版本。'
     }
   } finally {
     if (
@@ -609,6 +586,7 @@ async function doBatchHandle(status: string) {
     epoch = scopeEpoch,
     snapshot = snapshotId.value!
   if (ids.some((id) => busyIds.value.includes(id))) return
+  const expectedVersions = Object.fromEntries(ids.map(id => [id, issues.value.find(issue => issue.id === id)!.rowVersion]))
   batchBusy.value = true
   actionError.value = ''
   batchResult.value = null
@@ -618,7 +596,7 @@ async function doBatchHandle(status: string) {
       ids.map((id) => `issue:${id}`),
       `批量问题 ${ids.map((id) => '#' + id).join(' / ')}`,
       async () => {
-        const result = await batchHandleIssues({ issueIds: ids, status })
+        const result = await batchHandleIssues({ issueIds: ids, status, expectedVersions })
         if (
           !result.data ||
           !Number.isInteger(result.data.updated) ||
@@ -803,6 +781,7 @@ watch(
     snapshotId.value,
     requestedDatasourceId.value,
     requestedSnapshotId.value,
+    businessScope.generation.value,
     auth.token,
     iamS1.snapshot,
     iamS1.errorMessage,
@@ -843,11 +822,13 @@ watch(
     invalidateDetailSession()
     if (!canReadIssues.value) return
     const key = `${datasourceId.value}:${snapshotId.value}`
-    if (activeScopeKey && activeScopeKey !== key) {
+    // 先接受范围再同步 URL；路由同步会触发同一 watcher，不能让旧 key 重入重复写路由。
+    const scopeChanged = activeScopeKey && activeScopeKey !== key
+    activeScopeKey = key
+    if (scopeChanged) {
       query.page = 1
       persistQuery()
     }
-    activeScopeKey = key
     void loadTableOptions(snapshotId.value!)
     if (disposed || epoch !== scopeEpoch || !canReadIssues.value) return
     void loadDomainSummary(snapshotId.value!)
@@ -881,6 +862,7 @@ onBeforeUnmount(() => {
       description="查找、分派并处理当前范围的问题。暂无问题记录不代表已经完成质量检查；来源与字段语义问题分别处理。"
     >
       <template #actions>
+        <el-button v-if="canViewCheck" :icon="ArrowLeft" @click="openCheckEvidence">{{ positiveId(route.query.returnBatchId) ? '返回检查依据' : '查看质量检查' }}</el-button>
         <el-button
           :icon="RefreshCw"
           :loading="loading"
@@ -891,11 +873,15 @@ onBeforeUnmount(() => {
         </el-button>
       </template>
     </TaskPageHeader>
+    <!-- 主接口已验证的范围独立展示，不伪造无权读取的公共快照目录。 -->
+    <div v-if="businessScope.primaryVerified.value" class="governance-primary-scope" role="status" aria-label="主业务已验证范围">
+      <strong>当前处理范围</strong><span>数据源 #{{ datasourceId }}</span><span>快照 v{{ businessScope.currentSnapshot.value?.snapshotVersion }} · #{{ snapshotId }}</span>
+    </div>
 
     <GovernanceWriteNotice />
-    <p class="issue-domain-guide">
+    <details class="issue-domain-guide"><summary>处理依据与边界</summary><p>
       来源质量问题核对原始资料与数据诊断；字段语义问题需同修订复查证据和处理依据。关闭问题不等于原问数情景已通过人工核验。
-    </p>
+    </p></details>
     <ErrorState v-if="actionError" :message="actionError" :show-retry="false" />
     <section v-if="batchResult" class="issue-batch-receipt" role="status">
       <strong>批量回执：已处理 {{ batchResult.updated }}，跳过 {{ batchResult.skipped }}</strong>
@@ -1523,16 +1509,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.issue-domain-guide {
-  padding: 14px 18px;
-  border-left: 3px solid var(--do-primary);
-  background: var(--do-surface);
-  font-size: 12px;
-  line-height: 1.8;
-  color: var(--do-muted);
-  margin: 0;
-  border-radius: 0 8px 8px 0;
-}
+.issue-domain-guide { margin: 0; color: var(--do-muted); font-size: 12px; line-height: 1.7; }
+.issue-domain-guide summary { width: fit-content; cursor: pointer; }
+.issue-domain-guide p { margin: 8px 0 0; max-width: 80ch; }
 .issue-batch-receipt {
   padding: 16px;
   border: 1px solid var(--do-line);

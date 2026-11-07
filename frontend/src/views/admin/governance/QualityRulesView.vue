@@ -1037,6 +1037,16 @@ function detailRetry() {
   if (detailRule.value) void openDetail(detailRule.value, detailTab.value)
 }
 
+// 配置只导航到执行工作面；从真实历史打开时固定批次，不自动触发检查。
+function openQualityCheck() {
+  if (scopeMode.value !== 'DATASOURCE' || !planScopeValid.value || !canViewRules.value || !iamS1.canOnDatasource('governance:view', context.datasourceId)) return
+  void router.push({ path: '/admin/governance', query: buildContextQuery('datasource-snapshot', context) })
+}
+function openExecutionBatch(entry: QualityCheckBatchRule) {
+  if (!entry.batchId || !entry.batchDatasourceId || !entry.snapshotId || !iamS1.canOnDatasource('governance:view', entry.batchDatasourceId)) return
+  void router.push({ path: '/admin/governance', query: { datasourceId: String(entry.batchDatasourceId), snapshotId: String(entry.snapshotId), batchId: String(entry.batchId) } })
+}
+
 function openExecutionIssues(entry: QualityCheckBatchRule) {
   const datasourceId = entry.batchDatasourceId
   if (!datasourceId || !entry.snapshotId || !iamS1.canOnDatasource('governance:issue:view', datasourceId))
@@ -1046,6 +1056,7 @@ function openExecutionIssues(entry: QualityCheckBatchRule) {
     query: {
       ...buildContextQuery('datasource-snapshot', { datasourceId, snapshotId: entry.snapshotId }),
       issueDomain: 'SOURCE',
+      ...(entry.batchId ? { returnBatchId: String(entry.batchId) } : {}),
       dimension: entry.dimension,
       ...(entry.targetTableName ? { tableName: entry.targetTableName } : {}),
     },
@@ -1182,17 +1193,7 @@ onBeforeUnmount(() => {
       description="配置原始结构和只读数据的质量检查。业务用途、表关系、字段解释及标签缺口在知识治理任务中处理；两类问题分别保留证据。"
     >
       <template #actions>
-        <el-button
-          :disabled="!planScopeValid || !iamS1.canOnDatasource('governance:field:view', context.datasourceId)"
-          @click="
-            router.push({
-              path: '/admin/governance/fields',
-              query: { tab: 'tasks', datasourceId: context.datasourceId, snapshotId: context.snapshotId },
-            })
-          "
-        >
-          知识治理检查
-        </el-button>
+        <el-button :disabled="scopeMode !== 'DATASOURCE' || !planScopeValid || !canViewRules || !iamS1.canOnDatasource('governance:view', context.datasourceId)" @click="openQualityCheck">前往质量检查</el-button>
         <el-button
           type="primary"
           :icon="Plus"
@@ -2016,12 +2017,12 @@ onBeforeUnmount(() => {
             <section v-else class="quality-rule-detail__history">
               <h3>实际执行版本</h3>
               <p>
-                这里展示历史批次记录；问题入口查看该快照、维度及目标表的当前问题，不是当次批次的问题清单。
+                按当时配置查看检查结果；问题入口查看同范围的当前问题。
               </p>
               <template v-if="detailHistory.length">
                 <article v-for="entry in detailHistory" :key="`${entry.batchId}-${entry.ruleVersion}`">
                   <div>
-                    <strong>v{{ entry.ruleVersion }} · {{ qualityBatchLabel(entry.batchStatus) }}</strong>
+                    <strong>配置 v{{ entry.ruleVersion }} · {{ qualityBatchLabel(entry.batchStatus) }}</strong>
                     <span>{{ formatRuleTime(entry.batchStartedAt) }}</span>
                   </div>
                   <p>
@@ -2038,7 +2039,8 @@ onBeforeUnmount(() => {
                   <p v-if="entry.ruleVersion !== detailRule.configVersion">
                     此记录使用历史配置 v{{ entry.ruleVersion }}，当前配置为 v{{ detailRule.configVersion }}。
                   </p>
-                  <p>{{ ruleEvidenceLimit(entry.templateCode) }}</p>
+                  <details class="quality-rule-detail__evidence-limit"><summary>检查覆盖边界</summary><p>{{ ruleEvidenceLimit(entry.templateCode) }}</p></details>
+                  <el-button v-if="entry.batchId && entry.batchDatasourceId && entry.snapshotId && iamS1.canOnDatasource('governance:view', entry.batchDatasourceId)" link type="primary" @click="openExecutionBatch(entry)">查看此批次 #{{ entry.batchId }}</el-button>
                   <el-button
                     v-if="
                       entry.batchDatasourceId &&
@@ -2481,9 +2483,8 @@ onBeforeUnmount(() => {
   color: var(--do-danger);
   font-size: 13px;
 }
-:global(.quality-rule-detail-drawer .el-drawer__body) {
-  background: var(--do-bg);
-}
+.quality-rule-detail__evidence-limit { margin: 8px 0; color: var(--do-muted); font-size: 12px; }
+.quality-rule-detail__evidence-limit summary { cursor: pointer; }
 :global(.quality-rule-detail-drawer .el-drawer__header) {
   margin-bottom: 0;
   padding-bottom: 12px;

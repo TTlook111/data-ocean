@@ -20,6 +20,21 @@ export interface QualityCheckResult {
   issueCount: Record<string, number>
 }
 
+export interface QualityContext { id: number; datasourceId: number; snapshotVersion: number; status: string; qualityScore?: number }
+/** 主任务可用范围不是元数据目录授权；这里只读取后端裁决的稀疏身份。 */
+export async function getQualityContext(snapshotId: number) {
+  const { data } = await http.get<ApiResult<QualityContext>>(`/api/admin/snapshots/${snapshotId}/quality-context`)
+  return data
+}
+export async function getQualityCheckOperation(snapshotId: number, operationId: string) {
+  const { data } = await http.get<ApiResult<QualityCheckBatch>>(`/api/admin/snapshots/${snapshotId}/quality-check-operations/${operationId}`)
+  return data
+}
+export async function resolveQualityCheckOperation(snapshotId: number, operationId: string) {
+  const { data } = await http.post<ApiResult<QualityCheckBatch>>(`/api/admin/snapshots/${snapshotId}/quality-check-operations/${operationId}/resolve`)
+  return data
+}
+
 export interface QualityCheckBatchRule {
   batchId?: number
   batchDatasourceId?: number
@@ -65,6 +80,7 @@ export interface QualityCheckBatch {
   errorSummary?: string
   startedAt: string
   finishedAt?: string
+  operationOutcome?: 'NOT_STARTED' | 'RECORDED'
   legacyLimited?: boolean
   rules: QualityCheckBatchRule[]
 }
@@ -91,6 +107,7 @@ export interface QualityRuleTemplate {
 
 export interface QualityIssueItem {
   id: number
+  rowVersion: number
   snapshotId: number
   datasourceId?: number
   datasourceName?: string
@@ -222,13 +239,19 @@ export interface ReviewRecord {
   createdAt: string
 }
 
-export async function triggerQualityCheck(snapshotId: number, payload?: { dimensions?: string[]; tableNames?: string[] }) {
+export async function triggerQualityCheck(snapshotId: number, payload: { operationId: string; dimensions?: string[]; tableNames?: string[] }) {
   const { data } = await http.post<ApiResult<QualityCheckResult>>(`/api/admin/snapshots/${snapshotId}/quality-check`, payload || {})
   return data
 }
 
 export async function getLatestQualityCheckBatch(snapshotId: number) {
   const { data } = await http.get<ApiResult<QualityCheckBatch | null>>(`/api/admin/snapshots/${snapshotId}/quality-check-batches/latest`)
+  return data
+}
+
+/** 历史执行按快照和批次精确读取，不用最新批次替代失效或无权的历史依据。 */
+export async function getQualityCheckBatch(snapshotId: number, batchId: number) {
+  const { data } = await http.get<ApiResult<QualityCheckBatch>>(`/api/admin/snapshots/${snapshotId}/quality-check-batches/${batchId}`)
   return data
 }
 
@@ -253,7 +276,7 @@ export async function listQualityIssues(snapshotId: number | undefined, params: 
   return data
 }
 
-export async function handleIssue(issueId: number, payload: { status: string; resolutionNote?: string }) {
+export async function handleIssue(issueId: number, payload: { status: string; resolutionNote?: string; expectedVersion: number }) {
   const { data } = await http.patch<ApiResult<null>>(`/api/admin/quality-issues/${issueId}/status`, payload)
   return data
 }
@@ -270,13 +293,13 @@ export interface BatchHandleResult {
   skippedIssues: Array<{ issueId: number; reason: string }>
 }
 
-export async function batchHandleIssues(payload: { issueIds: number[]; status: string }) {
+export async function batchHandleIssues(payload: { issueIds: number[]; status: string; expectedVersions: Record<number, number> }) {
   const { data } = await http.patch<ApiResult<BatchHandleResult>>('/api/admin/quality-issues/batch-status', payload)
   return data
 }
 
-export async function assignIssue(issueId: number, assigneeId: number) {
-  const { data } = await http.post<ApiResult<null>>(`/api/admin/quality-issues/${issueId}/assign`, { assigneeId })
+export async function assignIssue(issueId: number, assigneeId: number, expectedVersion: number) {
+  const { data } = await http.post<ApiResult<null>>(`/api/admin/quality-issues/${issueId}/assign`, { assigneeId, expectedVersion })
   return data
 }
 

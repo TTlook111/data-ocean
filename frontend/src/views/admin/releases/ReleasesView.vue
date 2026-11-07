@@ -8,7 +8,7 @@ import { useAuthStore } from '../../../stores/auth'
 import { useAdminScrollLock } from '../../../composables/useAdminScrollLock'
 import { useAdminContextStore } from '../../../stores/adminContext'
 import { useIamS1Store } from '../../../stores/iamS1'
-import { listQualityIssues, triggerQualityCheck } from '../../../api/admin/governance'
+import { listQualityIssues } from '../../../api/admin/governance'
 import {
   changeSnapshotStatus,
   getPublishedSnapshot,
@@ -725,16 +725,10 @@ async function changeStatus(item: VersionHistoryItem, targetStatus: string) {
     return runConfirmed(item, () => canReviewSnapshot(item), `确认批准快照 v${item.snapshotVersion}？批准后仍需独立发布。`, '批准快照', () => changeSnapshotStatus(item.snapshotId,{targetStatus}))
   }
   if (targetStatus !== 'CHECKING' || item.status !== 'DRAFT') return
-  const scope=ticket()
-  return runConfirmed(item, () => canRunQualityCheck(item), `确认对快照 v${item.snapshotVersion} 执行来源质量检查？这不等于人工审核或发布。`, '开始质量检查', async () => {
-    const result=await triggerQualityCheck(item.snapshotId)
-    if (!current(scope)) return
-    const check=result.data
-    if (check?.status==='SUCCESS' && check.complete) ElMessage.success(`质量校验已完整完成${check.requestedScope==='FULL' && check.qualityScore!=null ? `，综合得分 ${check.qualityScore}` : ''}。`)
-    else if (check?.status==='PARTIAL' || check?.status==='SUCCESS') ElMessage.warning('质量校验部分完成；本次评分不作为完整结果。')
-    else if (check?.executedRuleCount===0 && check.failedRuleCount===0 && check.notApplicableRuleCount>0) ElMessage.warning('本次检查没有可执行的适用项；未生成完整校验结果。')
-    else ElMessage.error('质量校验未完成，请查看失败覆盖说明。')
-  })
+  // 检查统一进入具备持久回执的治理工作面，版本页不再维护第二套执行恢复流程。
+  if (!currentRow(item) || !canRunQualityCheck(item)) return
+  void router.push({ path: '/admin/governance', query: { datasourceId: String(item.datasourceId), snapshotId: String(item.snapshotId), returnTo: '/admin/releases' } })
+
 }
 function publish(item: VersionHistoryItem) {
   if (actionLoading.value || publishSubmitting.value || unknownAction.value || item.status!=='APPROVED' || !currentRow(item) || !canPublishSnapshot(item)) return
@@ -986,7 +980,7 @@ onBeforeUnmount(() => {
             <template #default="{ row }">
               <div class="release-row-actions">
                 <div class="release-row-actions__main">
-                  <el-button v-if="row.status === 'DRAFT' && canRunQualityCheck(row)" link type="primary" @click="changeStatus(row, 'CHECKING')">开始检查</el-button>
+                  <el-button v-if="row.status === 'DRAFT' && canRunQualityCheck(row)" link type="primary" @click="changeStatus(row, 'CHECKING')">前往质量检查</el-button>
                   <el-button v-if="row.status === 'DRAFT' && canReviewSnapshot(row)" link :disabled="actionLoading" @click="enterReview(row)">进入审核</el-button>
                   <RouterLink v-if="row.status === 'ISSUE_FOUND' && canViewIssuesForRow(row)" class="releases-page__issue-link" :to="issueCenterTarget(row)">进入问题中心</RouterLink>
                   <el-button v-if="['CHECKING', 'ISSUE_FOUND'].includes(row.status) && canReviewSnapshot(row)" link @click="changeStatus(row, 'APPROVED')">批准</el-button>
