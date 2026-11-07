@@ -1,37 +1,57 @@
-import type { RouteLocationRaw } from 'vue-router'
-import type { DatasourceReadiness } from '../api/admin/datasource'
-export const WORKBENCH_READINESS_LIMIT = 100
-export function positiveId(value: unknown): value is number { return Number.isSafeInteger(value) && Number(value) > 0 }
-/** Missing DTO fields stay unknown; never coerce undefined to a successful/false condition. */
-export function validWorkbenchReadiness(value: DatasourceReadiness) {
-  return positiveId(value?.datasourceId) &&
-    ['askable','connectionReady','metadataReady','governanceReady','knowledgeReady','permissionReady'].every(key => typeof value[key as keyof DatasourceReadiness] === 'boolean') &&
-    typeof value.stage === 'string' && typeof value.stageLabel === 'string' &&
-    Array.isArray(value.blockReasons) && value.blockReasons.every(reason => reason && typeof reason.code === 'string' && typeof reason.message === 'string') &&
-    ['publishedSnapshotId','latestCollectedSnapshotId','ragSourceSnapshotId'].every(key => value[key as keyof DatasourceReadiness] == null || positiveId(value[key as keyof DatasourceReadiness]))
+import type { LocationQuery } from 'vue-router'
+import type { ExperienceBucket, ExperienceDetailScope, ExperiencePeriod, QueryExperience } from '../api/admin/dashboard'
+
+export const experiencePeriods = { today: '今天', yesterday: '昨天', week: '近 7 天' }
+
+// 外部书签必须带完整来源时段。坏的 period、截止时间或桶一律不降级为别的业务集合。
+export function isExperiencePeriod(value: unknown): value is ExperiencePeriod {
+  return value === 'today' || value === 'yesterday' || value === 'week'
 }
-export interface WorkbenchAction { label: string; target: RouteLocationRaw; capability?: string; globalAny?: string[]; unavailable?: string }
-/** 动作名称直接标明目的地，路由仅从受支持的业务码和已验证对象生成。 */
-export function workbenchSourceAction(id: number, readiness?: DatasourceReadiness): WorkbenchAction {
-  const fallback:WorkbenchAction={label:'查看来源详情',target:{path:`/admin/data-sources/${id}`},capability:'datasource:view'}
-  if (!readiness) return fallback
-  const reason=readiness.blockReasons[0]
-  switch(reason?.code){
-    case 'DATASOURCE_DISABLED':case 'CONNECTION_NOT_HEALTHY':return {...fallback,label:'核对连接详情'}
-    case 'SNAPSHOT_NOT_PUBLISHED':return {label:'核对元数据版本',target:{path:'/admin/releases',query:{datasourceId:String(id)}},capability:'metadata:release:view'}
-    case 'BLOCKING_GOVERNANCE_ISSUES':return {label:'核对治理问题',target:{path:'/admin/governance/issues',query:{datasourceId:String(id),...(positiveId(readiness.publishedSnapshotId)?{snapshotId:String(readiness.publishedSnapshotId)}:{})}},capability:'governance:issue:view',unavailable:positiveId(readiness.publishedSnapshotId)?undefined:'缺少精确的已发布快照，暂不能进入该范围的问题。'}
-    case 'QUERY_PERMISSION_NOT_CONFIGURED':return {label:'核对授权配置',target:{path:'/admin/access/iam',query:{datasourceId:String(id)}},globalAny:['security:permission:view','security:mask:view','security:effective:view']}
-  }
-  if(!reason && (!readiness.knowledgeReady || readiness.ragStale))return {label:'查看知识准备',target:{path:'/admin/semantics/knowledge',query:{datasourceId:String(id),tab:'index'}},capability:'knowledge:view'}
-  return fallback
+
+function isLocalTime(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?$/.test(value)
 }
-export function workbenchCondition(r: DatasourceReadiness | undefined, key: 'connection'|'metadata'|'governance'|'knowledge'|'permission') {
-  if(!r)return {text:'待确认',tone:'unknown'}
-  switch(key){
-    case 'connection':return {text:r.connectionReady?'已连接':'待检查',tone:r.connectionReady?'good':'attention'}
-    case 'metadata':return {text:r.metadataReady?'已发布':positiveId(r.latestCollectedSnapshotId)?'待发布':'未采集',tone:r.metadataReady?'good':'attention'}
-    case 'governance':return {text:!positiveId(r.publishedSnapshotId)?'无发布版':r.governanceReady?'无高危阻断':'有阻断',tone:!positiveId(r.publishedSnapshotId)?'unknown':r.governanceReady?'good':'attention'}
-    case 'knowledge':return {text:r.knowledgeReady?'有活动索引':'无活动索引',tone:r.knowledgeReady?'good':'unknown'}
-    case 'permission':return {text:r.permissionReady?'已配置':'未配置',tone:r.permissionReady?'good':'attention'}
-  }
+
+// 在展示边界拒绝缺字段的统计：缺票数不能变成 0%，缺耗时不能触发 toFixed 或生成假趋势。
+export function validExperience(report: QueryExperience | null, period: ExperiencePeriod): boolean {
+  if (report?.period !== period || ![report.start, report.end, report.asOf].every(isLocalTime) || !(report.targetSeconds > 0)) return false
+  const count = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n >= 0
+  const seconds = (n: unknown) => n === null || (typeof n === 'number' && Number.isFinite(n) && n >= 0)
+  const { usage: u, feedback: f } = report
+  const validUsage = u === null || !!u &&
+    [u.total, u.completed, u.measured, u.slow, u.cancelled, u.clarification, u.failed, u.timedOut, u.processing].every(count) &&
+    [u.avgSeconds, u.p95Seconds, u.previousAvgSeconds].every(seconds) && Array.isArray(u.buckets) &&
+    u.buckets.every(b => b && isLocalTime(b.start) && isLocalTime(b.end) && count(b.measured) && count(b.slow) && seconds(b.avgSeconds))
+  const validFeedback = f === null || !!f && [f.eligible, f.likes, f.dislikes].every(count) &&
+    [f.previousLikes, f.previousDislikes].every(n => n === null || count(n))
+  return validUsage && validFeedback
+}
+
+export function readDetailScope(query: LocationQuery): ExperienceDetailScope | null {
+  const { period, kind, asOf, bucketStart } = query
+  if (!isExperiencePeriod(period) || !isLocalTime(asOf)) return null
+  if (kind === 'slow' && isLocalTime(bucketStart)) return { period, kind, asOf, bucketStart }
+  if (kind === 'feedback' && bucketStart === undefined) return { period, kind, asOf }
+  return null
+}
+
+// 服务端负责自然日及分桶。这里只截取其本地钟面，不让浏览器时区移动日期或重算桶边界。
+export function timeLabel(value: string): string { return value.substring(11, 16) }
+export function dateLabel(value: string): string { return value.substring(0, 10) }
+// 红线严格按原始均值判断。略超目标但四舍五入与目标相同时，读数仍要能解释红色。
+export function waitLabel(seconds: number | null, target: number): string {
+  if (seconds === null) return '—'
+  const rounded = seconds.toFixed(1)
+  return seconds > target && Number(rounded) === target ? '>' + rounded : rounded
+}
+export function bucketLabel(bucket: ExperienceBucket, period: ExperiencePeriod): string {
+  if (period === 'week') return dateLabel(bucket.start)
+  const end = bucket.end.slice(0, 10) > bucket.start.slice(0, 10) && timeLabel(bucket.end) === '00:00' ? '24:00' : timeLabel(bucket.end)
+  return `${timeLabel(bucket.start)}–${end}`
+}
+
+// 优先选有样本且平均等候时间最长的桶；没有有效测量时不创建虚构的默认排查对象。
+export function slowestMeasuredBucket(buckets: ExperienceBucket[]): ExperienceBucket | undefined {
+  return buckets.reduce<ExperienceBucket | undefined>((best, item) =>
+    item.measured > 0 && item.avgSeconds !== null && (!best || item.avgSeconds > best.avgSeconds!) ? item : best, undefined)
 }

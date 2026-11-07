@@ -36,6 +36,8 @@ const breadcrumbs = computed(() => buildAdminBreadcrumbs({
   query: route.query,
 }))
 const contextMode = computed<AdminContextMode>(() => (route.meta.contextMode as AdminContextMode) || workspace.value?.contextMode || 'none')
+// 看板、检查和问题共享精确快照，重新读取目录时继续校验该 URL 的对象。
+const qualityScope = computed(() => ['admin-governance', 'admin-governance-checks', 'admin-governance-issues-new'].includes(String(route.name)))
 const hasUnread = computed(() => notifications.value.some((item) => !item.isRead))
 
 function closeUserMenu() {
@@ -172,11 +174,11 @@ onBeforeUnmount(() => {
       <ScopeBar
         v-if="(contextMode === 'datasource' || contextMode === 'datasource-snapshot') && route.name !== 'admin-collections' && route.name !== 'admin-assets' && route.name !== 'admin-releases'"
         :mode="contextMode"
-        :show-control-labels="route.name === 'admin-governance' || route.name === 'admin-governance-issues-new'"
-        :track-route-sync="route.name === 'admin-governance-issues-new'"
-        :preserve-route-context-on-refresh="route.name === 'admin-governance-issues-new'"
+        :show-control-labels="qualityScope"
+        :track-route-sync="qualityScope"
+        :preserve-route-context-on-refresh="qualityScope"
       />
-      <section class="admin-shell__content" :class="{ 'admin-shell__content--compact': route.name === 'admin-workbench' || route.name === 'admin-data-sources' || route.name === 'admin-data-source-detail' || route.name === 'admin-collections' || route.name === 'admin-assets' || route.name === 'admin-asset-detail' || route.name === 'admin-releases' || route.name === 'admin-governance' || route.name === 'admin-governance-issues-new' }">
+      <section class="admin-shell__content" :class="{ 'admin-shell__content--compact': qualityScope || route.name === 'admin-workbench' || route.name === 'admin-data-sources' || route.name === 'admin-data-source-detail' || route.name === 'admin-collections' || route.name === 'admin-assets' || route.name === 'admin-asset-detail' || route.name === 'admin-releases' }">
         <RouterView />
       </section>
     </main>

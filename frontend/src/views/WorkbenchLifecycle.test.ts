@@ -1,163 +1,47 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
-import ElementPlus from 'element-plus'
-import { createPinia, setActivePinia } from 'pinia'
-const api = vi.hoisted(() => ({
-  getDashboardStats: vi.fn(),
-  listSimpleDatasources: vi.fn(),
-  getBatchDatasourceReadiness: vi.fn(),
-  listIamS1AccessRequestQueue: vi.fn(),
-}))
-vi.mock('../api/admin/dashboard', () => ({ getDashboardStats: api.getDashboardStats }))
-vi.mock('../api/admin/datasource', () => ({
-  listSimpleDatasources: api.listSimpleDatasources,
-  getBatchDatasourceReadiness: api.getBatchDatasourceReadiness,
-}))
-vi.mock('../api/iamS1', () => ({ listIamS1AccessRequestQueue: api.listIamS1AccessRequestQueue }))
-vi.mock('../api/http', () => ({ http: {} }))
-vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
-import Page from './AdminHomeView.vue'
-import { useAuthStore } from '../stores/auth'
-import { useIamS1Store } from '../stores/iamS1'
-const deferred = () => {
-  let resolve!: (v: any) => void
-  const promise = new Promise((r) => (resolve = r))
-  return { resolve, promise }
-}
-const stat = (n = 0) => ({ data: { openIssues: n, recentActivities: [] } })
-function rights(codes = ['admin:workbench:view']) {
-  const iam = useIamS1Store()
-  iam.snapshot = {
-    protocolVersion: 'IAM-SIMPLE-1',
-    userId: 1,
-    systemAdmin: false,
-    globalFunctions: codes,
-    datasourceCapabilities: [
-      { datasourceId: 5, datasourceName: 'fixture', functionCodes: codes, functionNames: [] },
-    ],
-    queryUse: false,
-    viewSql: false,
-    export: false,
-    permissionRevision: 1,
-  }
-  iam.loaded = true
-}
-function page() {
-  return mount(Page, {
-    global: {
-      plugins: [ElementPlus],
-      stubs: {
-        RouterLink: { props: ['to'], template: '<a><slot/></a>' },
-        TaskPageHeader: true,
-        TitleHelp: true,
-        ReadinessPanel: true,
-        ActivityTimeline: true,
-      },
-    },
+import { flushPromises } from '@vue/test-utils'
+import { getQueryExperience, type QueryExperience } from '../api/admin/dashboard'
+import { deferred, grant, openWorkbench, summary } from './admin/workbench/workbench.fixtures'
+
+vi.mock('../api/admin/dashboard', () => ({ getQueryExperience: vi.fn(), getExperienceDetails: vi.fn() }))
+beforeEach(() => { vi.mocked(getQueryExperience).mockReset().mockImplementation(async p => summary(p)) })
+
+describe('工作台读取生命周期', () => {
+  it('没有工作台权限时零读取，有工作台但没有统计范围不伪造零', async () => {
+    const denied = await openWorkbench(undefined, ['audit:view'], false)
+    expect(denied.wrapper.text()).toContain('没有查看工作台的权限')
+    expect(getQueryExperience).not.toHaveBeenCalled()
+    const limited = await openWorkbench(undefined, [])
+    expect(limited.wrapper.text()).toContain('没有可查看的问数审计或反馈统计')
+    expect(limited.wrapper.find('.big-value').exists()).toBe(false)
   })
-}
-beforeEach(() => {
-  setActivePinia(createPinia())
-  useAuthStore().token = 'A'
-  Object.values(api).forEach((f) => f.mockReset())
-  api.getDashboardStats.mockResolvedValue(stat())
-  api.listSimpleDatasources.mockResolvedValue({ data: [] })
-  api.getBatchDatasourceReadiness.mockResolvedValue({ data: [], failedDatasourceIds: [] })
-  api.listIamS1AccessRequestQueue.mockResolvedValue({ data: { total: 0 } })
-  rights()
-})
-describe('工作台精确读取生命周期', () => {
-  it('最小角色只读合法统计，缺辅助范围不变0', async () => {
-    const w = page()
+  // 时间切换、业务拒绝和撤权必须清理旧指标，迟到的成功不能重新暴露数据。
+  it('旧周期晚回不能覆盖新周期，工作台撤权立即清理', async () => {
+    const late = deferred<QueryExperience>()
+    vi.mocked(getQueryExperience).mockImplementationOnce(() => late.promise)
+    const { wrapper, router } = await openWorkbench()
+    await router.push('/admin/workbench?period=week')
     await flushPromises()
-    expect(api.getDashboardStats).toHaveBeenCalledOnce()
-    expect(api.listSimpleDatasources).not.toHaveBeenCalled()
-    expect(api.listIamS1AccessRequestQueue).not.toHaveBeenCalled()
-    expect(w.text()).toContain('当前没有数据源查看范围')
-    expect(w.findAll('[data-source-choice]')).toHaveLength(0)
-    expect(w.text()).not.toContain('0个数据源')
-    w.unmount()
+    expect(wrapper.text()).toContain('超目标 2 / 6')
+    late.resolve({ ...summary(), usage: null })
+    await flushPromises()
+    expect(wrapper.find('.speed').exists()).toBe(true)
+    grant([], false, 2)
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('超目标 2 / 6')
+    expect(wrapper.text()).toContain('没有查看工作台的权限')
   })
-  it('无工作台权零读取，即使有其他域能力', async () => {
-    rights(['datasource:view'])
-    const w = page()
+  it('接口 403 及响应不完整时不保留旧统计', async () => {
+    const { wrapper } = await openWorkbench()
+    vi.mocked(getQueryExperience).mockRejectedValueOnce({ response: { status: 403, data: { message: '负责范围已撤销' } } })
+    await wrapper.get('.refresh').trigger('click')
     await flushPromises()
-    expect(api.getDashboardStats).not.toHaveBeenCalled()
-    expect(api.listSimpleDatasources).not.toHaveBeenCalled()
-    w.unmount()
-  })
-  it('旧统计晚回不能落新账号', async () => {
-    const a = deferred()
-    api.getDashboardStats.mockReturnValueOnce(a.promise).mockResolvedValue(stat(7))
-    rights(['admin:workbench:view', 'governance:issue:view'])
-    const w = page()
+    expect(wrapper.text()).toContain('负责范围已撤销')
+    expect(wrapper.find('.feedback').exists()).toBe(false)
+    vi.mocked(getQueryExperience).mockResolvedValueOnce({ ...summary(), feedback: undefined } as unknown as QueryExperience)
+    await wrapper.get('.error-retry').trigger('click')
     await flushPromises()
-    useAuthStore().token = 'B'
-    await flushPromises()
-    a.resolve(stat(900))
-    await flushPromises()
-    // 新指标位置仍必须只接纳当前账号的统计，不能回填旧账号晚回值。
-    expect(w.find('[data-metric="issues"] strong').text()).toBe('7')
-    expect(w.text()).not.toContain('900')
-    w.unmount()
-  })
-  it('目录晚回后不得继续旧源批量请求', async () => {
-    rights(['admin:workbench:view', 'datasource:view'])
-    const d = deferred()
-    api.listSimpleDatasources.mockReturnValueOnce(d.promise)
-    const w = page()
-    await flushPromises()
-    useAuthStore().token = 'B'
-    rights()
-    await flushPromises()
-    d.resolve({ data: [{ id: 5, name: 'A' }] })
-    await flushPromises()
-    expect(api.getBatchDatasourceReadiness).not.toHaveBeenCalled()
-    expect(w.text()).not.toContain('A 需要处理')
-    w.unmount()
-  })
-  it('源目录按同绑定功能过滤，错属准备结果不显示健康', async () => {
-    rights(['admin:workbench:view', 'datasource:view'])
-    api.listSimpleDatasources.mockResolvedValue({
-      data: [
-        { id: 5, name: 'mine' },
-        { id: 9, name: 'other' },
-      ],
-    })
-    api.getBatchDatasourceReadiness.mockResolvedValue({
-      data: [{ datasourceId: 9, askable: true, blockReasons: [] }],
-      failedDatasourceIds: [],
-    })
-    const w = page()
-    await flushPromises()
-    expect(api.getBatchDatasourceReadiness).toHaveBeenCalledWith([5])
-    expect(w.text()).toContain('准备情况回执错属')
-    expect(w.text()).not.toContain('other')
-    w.unmount()
-  })
-  it('缺失审批总数不能变0或空成功', async () => {
-    rights(['admin:workbench:view', 'security:approval:view'])
-    api.listIamS1AccessRequestQueue.mockResolvedValue({ data: {} })
-    const w = page()
-    await flushPromises()
-    expect(w.text()).toContain('审批总数未确认')
-    // 缺失总数在新摘要中保持未知，不因布局迁移变成零。
-    expect(w.find('[data-metric="approvals"] strong').text()).toBe('—')
-    expect(w.text()).not.toContain('当前没有待审批申请')
-    w.unmount()
-  })
-  it('撤权立即清旧任务，卸载晚回不追加读取', async () => {
-    rights(['admin:workbench:view', 'governance:issue:view'])
-    api.getDashboardStats.mockResolvedValue(stat(2))
-    const w = page()
-    await flushPromises()
-    // 撤销工作台能力时新指标和所有业务工作面一起清除。
-    expect(w.find('[data-metric="issues"] strong').text()).toBe('2')
-    rights([])
-    await flushPromises()
-    expect(w.find('[data-metric="issues"]').exists()).toBe(false)
-    expect(w.find('.workbench-stats').exists()).toBe(false)
-    w.unmount()
+    expect(wrapper.text()).toContain('返回的范围或指标不完整')
   })
 })

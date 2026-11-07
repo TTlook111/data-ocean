@@ -78,7 +78,7 @@ describe('ReleaseGatePanel', () => {
     expect(wrapper.findAll('a').map(link=>JSON.parse(link.attributes('data-to')!))).toEqual([
       {path:'/admin/governance/issues',query:{datasourceId:'5',snapshotId:'9',issueDomain:'SOURCE',severity:'HIGH',status:'OPEN'}},
       {path:'/admin/governance/issues',query:{datasourceId:'5',snapshotId:'9',issueDomain:'SOURCE',severity:'HIGH',status:'CONFIRMED'}},
-      {path:'/admin/governance',query:{datasourceId:'5',snapshotId:'9',batchId:'21',returnTo:'/admin/releases'}},
+      {path:'/admin/governance/checks',query:{datasourceId:'5',snapshotId:'9',batchId:'21',returnTo:'/admin/releases'}},
     ])
     expect(wrapper.find('.release-gate__item--fail').exists()).toBe(true)
   })

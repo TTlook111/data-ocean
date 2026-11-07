@@ -1040,11 +1040,11 @@ function detailRetry() {
 // 配置只导航到执行工作面；从真实历史打开时固定批次，不自动触发检查。
 function openQualityCheck() {
   if (scopeMode.value !== 'DATASOURCE' || !planScopeValid.value || !canViewRules.value || !iamS1.canOnDatasource('governance:view', context.datasourceId)) return
-  void router.push({ path: '/admin/governance', query: buildContextQuery('datasource-snapshot', context) })
+  void router.push({ path: '/admin/governance/checks', query: buildContextQuery('datasource-snapshot', context) })
 }
 function openExecutionBatch(entry: QualityCheckBatchRule) {
   if (!entry.batchId || !entry.batchDatasourceId || !entry.snapshotId || !iamS1.canOnDatasource('governance:view', entry.batchDatasourceId)) return
-  void router.push({ path: '/admin/governance', query: { datasourceId: String(entry.batchDatasourceId), snapshotId: String(entry.snapshotId), batchId: String(entry.batchId) } })
+  void router.push({ path: '/admin/governance/checks', query: { datasourceId: String(entry.batchDatasourceId), snapshotId: String(entry.snapshotId), batchId: String(entry.batchId) } })
 }
 
 function openExecutionIssues(entry: QualityCheckBatchRule) {
@@ -1301,7 +1301,7 @@ onBeforeUnmount(() => {
       </div>
       <!-- 配置与执行的关键区别直接可见，历史证据边界在详情与编辑核对区保留。 -->
       <p class="quality-rules-page__execution-note">
-        保存、启用或恢复规则仅更新配置；质量检查在治理总览执行。
+        保存、启用或恢复规则仅更新配置。执行检查请前往质量检查页。
       </p>
       <p v-if="scopeMode === 'GLOBAL'" class="quality-rules-page__scope-note">
         全局默认配置用于各数据源的后续检查，仅系统管理员可维护。

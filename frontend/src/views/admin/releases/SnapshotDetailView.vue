@@ -56,7 +56,7 @@ function openGovernance() {
   const sourceId = verifiedSource.value
   if (!sourceId || !canViewGovernance.value) return
   router.push({
-    path: '/admin/governance',
+    path: '/admin/governance/checks',
     query: {
       datasourceId: String(sourceId),
       snapshotId: String(snapshotId.value),
@@ -89,7 +89,7 @@ onBeforeUnmount(() => {
         <span v-if="detail" class="snapshot-detail__version">v{{ detail.snapshot.snapshotVersion }}</span><span v-else-if="gate" class="snapshot-detail__version">数据源 #{{ gate.datasourceId }} · 快照 #{{ gate.snapshotId }}</span>
       </template>
       <template #status><BusinessStatusBadge v-if="detail || gate" :status="detail?.snapshot.status || gate?.snapshotStatus" :label="snapshotStatusLabel(detail?.snapshot.status || gate?.snapshotStatus)" /></template>
-      <template #actions><el-button v-if="canViewGovernance" @click="openGovernance">查看治理情况</el-button></template>
+      <template #actions><el-button v-if="canViewGovernance" @click="openGovernance">查看质量检查</el-button></template>
     </TaskPageHeader>
 
     <ReleaseGatePanel

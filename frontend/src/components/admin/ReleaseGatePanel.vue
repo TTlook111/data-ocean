@@ -62,7 +62,7 @@ const blockingLinks = computed(() => {
 const batchTarget = computed(() => {
   const gate = props.gate
   if (!props.canViewChecks || !gate?.datasourceId || !Number.isSafeInteger(gate.latestCheckBatchId) || Number(gate.latestCheckBatchId) <= 0) return undefined
-  return { path:'/admin/governance', query:{ datasourceId:String(gate.datasourceId),snapshotId:String(gate.snapshotId),batchId:String(gate.latestCheckBatchId),returnTo:'/admin/releases' } }
+  return { path:'/admin/governance/checks', query:{ datasourceId:String(gate.datasourceId),snapshotId:String(gate.snapshotId),batchId:String(gate.latestCheckBatchId),returnTo:'/admin/releases' } }
 })
 
 function itemLabel(item: ReleaseGateItem) {

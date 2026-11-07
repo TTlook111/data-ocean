@@ -113,7 +113,7 @@ vi.mock('vue-router', async (importOriginal) => {
 import IssueList from './IssueList.vue'
 import StatusEditor from './StatusEditor.vue'
 import QualityRulesView from './QualityRulesView.vue'
-import QualityDashboard from './QualityDashboard.vue'
+import QualityChecksView from './QualityChecksView.vue'
 import GovernanceFieldsView from './GovernanceFieldsView.vue'
 import LegacyConfidenceDashboard from '../field/ConfidenceDashboard.vue'
 import ScopeBar from '../../../components/admin/ScopeBar.vue'
@@ -1574,10 +1574,10 @@ describe('质量规则管理的能力控制', () => {
 
 })
 
-describe('治理总览的批次恢复与范围隔离', () => {
+describe('质量检查的批次恢复与范围隔离', () => {
   it('配置入口只导航到同范围规则，不自动执行检查', async () => {
     respond(capability({ onDatasource: ['metadata:view','governance:view','governance:rule:view'] }))
-    const wrapper=mountPage(QualityDashboard); await settle()
+    const wrapper=mountPage(QualityChecksView); await settle()
     const entry=wrapper.findAll('button').find(button=>button.text()==='管理规则')
     expect(entry).toBeDefined(); await entry!.trigger('click')
     expect(routeState.push).toHaveBeenCalledWith(expect.objectContaining({path:'/admin/governance/rules'}))
@@ -1591,7 +1591,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
     api.getQualityRuleSummary.mockResolvedValue({ data: {
       enabledCount: 15, applicableCount: 14, unsupportedCount: 0, overriddenCount: 1, executedCount: 0,
     } })
-    const wrapper = mountPage(QualityDashboard)
+    const wrapper = mountPage(QualityChecksView)
     await settle()
 
     const text = wrapper.text().replace(/\s/g, '')
@@ -1613,7 +1613,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
   it('没有选择快照时给出范围提示并且不请求快照统计', async () => {
     respond(capability({ onDatasource: overviewPermissions }))
     api.listSnapshots.mockResolvedValue({ data: { records: [], total: 0 } })
-    const wrapper = mountPage(QualityDashboard)
+    const wrapper = mountPage(QualityChecksView)
     await settle()
 
     expect(wrapper.text()).toContain('等待选择校验范围')
@@ -1627,7 +1627,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
     respond(capability({ onDatasource: overviewPermissions }))
     const pendingBatch = deferred<{ data: null }>()
     api.getLatestQualityCheckBatch.mockReturnValue(pendingBatch.promise)
-    const wrapper = mountPage(QualityDashboard)
+    const wrapper = mountPage(QualityChecksView)
     await vi.waitFor(() => expect(api.getLatestQualityCheckBatch).toHaveBeenCalledWith(8))
 
     expect(wrapper.text()).toContain('正在读取校验状态')
@@ -1641,7 +1641,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
 
   it('没有治理总览查看权限时显示无权状态而不是无批次', async () => {
     respond(capability({ onDatasource: ['metadata:view','governance:issue:view', 'governance:rule:view'] }))
-    const wrapper = mountPage(QualityDashboard)
+    const wrapper = mountPage(QualityChecksView)
     await settle()
 
     expect(wrapper.text()).toContain('无权查看校验状态')
@@ -1653,7 +1653,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
     respond(capability({ onDatasource: overviewPermissions }))
     api.listSnapshots.mockResolvedValue({ data: { records: [{ id: 8, snapshotVersion: 1, qualityScore: 100 }], total: 1 } })
     api.getLatestQualityCheckBatch.mockRejectedValue(new Error('network unavailable'))
-    const wrapper = mountPage(QualityDashboard)
+    const wrapper = mountPage(QualityChecksView)
     await settle()
 
     expect(wrapper.text()).toContain('校验状态读取失败')
@@ -1678,7 +1678,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
       }],
       dimensionScores: {}, startedAt: '2026-10-20T10:00:00',
     } })
-    const wrapper = mountPage(QualityDashboard)
+    const wrapper = mountPage(QualityChecksView)
     await settle()
 
     expect(wrapper.text()).toContain('校验部分完成')
@@ -1706,7 +1706,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
       failedRuleCount: legacyLimited ? null : 0, notApplicableRuleCount: legacyLimited ? null : 0,
       rules: [], dimensionScores: {}, startedAt: '2026-10-20T10:00:00',
     } })
-    const wrapper = mountPage(QualityDashboard)
+    const wrapper = mountPage(QualityChecksView)
     await settle()
 
     expect(wrapper.text()).toContain(label)
@@ -1720,7 +1720,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
       snapshotStatus: 'APPROVED', dimensionScores: {}, totalIssues: 0, issueCount: {},
       executedRuleCount: 1, failedRuleCount: 0, notApplicableRuleCount: 0,
     } })
-    const wrapper = mountPage(QualityDashboard)
+    const wrapper = mountPage(QualityChecksView)
     await settle()
 
     const runButton = wrapper.findAll('button').find((button) => button.text().includes('执行质量校验'))
@@ -1743,7 +1743,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
       'metadata:view','governance:view', 'governance:check', 'governance:issue:view', 'governance:rule:view',
     ] }))
     api.getSnapshotQualityIssueSummary.mockRejectedValue(new Error('network unavailable'))
-    const wrapper = mountPage(QualityDashboard)
+    const wrapper = mountPage(QualityChecksView)
     await settle()
 
     expect(wrapper.text()).toContain('待处理问题统计读取失败，无法确认问题数量。')
@@ -1764,7 +1764,7 @@ describe('治理总览的批次恢复与范围隔离', () => {
         rules: [], dimensionScores: {}, startedAt: '2026-10-19T10:00:00',
       } })
     })
-    const wrapper = mountPage(QualityDashboard)
+    const wrapper = mountPage(QualityChecksView)
     await vi.waitFor(() => expect(api.getLatestQualityCheckBatch).toHaveBeenCalledWith(8))
     const adminContext = useAdminContextStore()
     adminContext.selectSnapshot(9)

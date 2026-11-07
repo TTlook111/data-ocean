@@ -121,7 +121,7 @@ const canViewCheck = computed(() => rangeReady.value && iamS1.loaded && !iamS1.e
 function openCheckEvidence() {
   if (!canViewCheck.value) return
   const batchId = positiveId(route.query.returnBatchId)
-  void router.push({ path: '/admin/governance', query: { datasourceId: String(datasourceId.value), snapshotId: String(snapshotId.value), ...(batchId ? { batchId: String(batchId) } : {}) } })
+  void router.push({ path: '/admin/governance/checks', query: { datasourceId: String(datasourceId.value), snapshotId: String(snapshotId.value), ...(batchId ? { batchId: String(batchId) } : {}) } })
 }
 const canReadIssues = computed(
   () => rangeReady.value && iamS1.loaded && !iamS1.errorMessage && canViewCurrentScope.value,
@@ -1434,17 +1434,19 @@ onBeforeUnmount(() => {
             </template>
           </section>
           <div class="issue-detail__actions">
+            <!-- 复查由检查专页执行，问题查看权限不能额外授予批次读取权。 -->
             <RouterLink
+              v-if="selectedIssue.datasourceId && iamS1.canOnDatasource('governance:view', selectedIssue.datasourceId)"
               class="return-link"
               :to="{
-                path: '/admin/governance',
+                path: '/admin/governance/checks',
                 query: {
                   datasourceId: selectedIssue.datasourceId ? String(selectedIssue.datasourceId) : undefined,
                   snapshotId: String(selectedIssue.snapshotId),
                 },
               }"
             >
-              回治理复查
+              前往质量检查
             </RouterLink>
             <RouterLink
               v-if="canViewReleaseRecords(selectedIssue)"

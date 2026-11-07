@@ -249,7 +249,7 @@ describe('元数据版本工作区', () => {
     try {
       await settle()
       await rowButton(wrapper, 1, '前往质量检查')!.trigger('click')
-      expect(routerState.push).toHaveBeenCalledWith({ path: '/admin/governance', query: { datasourceId: '5', snapshotId: '8', returnTo: '/admin/releases' } })
+      expect(routerState.push).toHaveBeenCalledWith({ path: '/admin/governance/checks', query: { datasourceId: '5', snapshotId: '8', returnTo: '/admin/releases' } })
       expect(api.triggerQualityCheck).not.toHaveBeenCalled()
       expect(api.changeSnapshotStatus).not.toHaveBeenCalled()
     } finally { wrapper.unmount() }
@@ -334,7 +334,7 @@ describe('元数据版本工作区', () => {
     expect(api.getSnapshotDetail).toHaveBeenCalledWith(8)
     expect(wrapper.find('.test-version-dialog').text()).toContain('版本 v1')
     expect(wrapper.find('.test-version-dialog').text()).toContain('销售库')
-    expect(wrapper.find('.test-version-dialog').text()).toContain('查看治理情况')
+    expect(wrapper.find('.test-version-dialog').text()).toContain('查看质量检查')
     expect(wrapper.find('.test-version-dialog').text()).toContain('采集时间')
     expect(wrapper.find('.test-version-dialog').text()).toContain('约 3 行')
     expect(wrapper.find('.el-tabs__item.is-active').text()).toBe('版本内容')
@@ -412,7 +412,7 @@ describe('元数据版本工作区', () => {
     await versionButton(wrapper, 1)!.trigger('click')
     await settle()
 
-    expect(wrapper.find('.metadata-version-dialog__footer').text()).toContain('查看治理情况')
+    expect(wrapper.find('.metadata-version-dialog__footer').text()).toContain('查看质量检查')
     expect(wrapper.find('.metadata-version-dialog__footer').text()).toContain('处理待处理问题（2）')
     expect(api.listQualityIssues).toHaveBeenCalledWith(8, { status: 'OPEN', page: 1, size: 1 })
     expect(api.listQualityIssues).toHaveBeenCalledWith(8, { status: 'CONFIRMED', page: 1, size: 1 })

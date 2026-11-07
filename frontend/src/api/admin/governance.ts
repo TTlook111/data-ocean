@@ -21,6 +21,32 @@ export interface QualityCheckResult {
 }
 
 export interface QualityContext { id: number; datasourceId: number; snapshotVersion: number; status: string; qualityScore?: number }
+
+export type IssueTrendPeriod = 7 | 30
+export interface IssueTrendDay {
+  date: string
+  coverage: 'NONE' | 'PARTIAL' | 'FULL'
+  remaining: number | null
+  added: number | null
+  reopened: number | null
+  resolved: number | null
+  otherClosed: number | null
+}
+export interface QualityIssueTrend {
+  datasourceId: number
+  snapshotId: number
+  asOf: string
+  coverageStart: string
+  days: IssueTrendDay[]
+}
+
+/** 服务端按上海自然日分桶。覆盖前的空值不参与计数，当前日取截至 asOf 的事实。 */
+export async function getQualityIssueTrend(snapshotId: number, days: IssueTrendPeriod) {
+  const { data } = await http.get<ApiResult<QualityIssueTrend>>(
+    `/api/admin/snapshots/${snapshotId}/quality-issues/trend`, { params: { days } },
+  )
+  return data
+}
 /** 主任务可用范围不是元数据目录授权；这里只读取后端裁决的稀疏身份。 */
 export async function getQualityContext(snapshotId: number) {
   const { data } = await http.get<ApiResult<QualityContext>>(`/api/admin/snapshots/${snapshotId}/quality-context`)

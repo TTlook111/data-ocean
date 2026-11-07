@@ -618,7 +618,7 @@ function openGovernance() {
   const snapshot = snapshotDialogDetail.value?.snapshot
   if (!snapshot || !hasDatasourceFunction(GOVERNANCE_VIEW_FUNCTION, snapshot.datasourceId)) return
   void router.push({
-    path: '/admin/governance',
+    path: '/admin/governance/checks',
     query: {
       datasourceId: String(snapshot.datasourceId),
       snapshotId: String(snapshot.id),
@@ -748,7 +748,7 @@ async function changeStatus(row: VersionHistoryItem, targetStatus: string) {
   if (targetStatus !== 'CHECKING' || item.status !== 'DRAFT') return
   // 检查统一进入具备持久回执的治理工作面，版本页不再维护第二套执行恢复流程。
   if (!currentRow(item) || !canRunQualityCheck(item)) return
-  void router.push({ path: '/admin/governance', query: { datasourceId: String(item.datasourceId), snapshotId: String(item.snapshotId), returnTo: '/admin/releases' } })
+  void router.push({ path: '/admin/governance/checks', query: { datasourceId: String(item.datasourceId), snapshotId: String(item.snapshotId), returnTo: '/admin/releases' } })
 
 }
 function publish(item: VersionHistoryItem) {
@@ -1162,7 +1162,7 @@ onBeforeUnmount(() => {
       <template #footer>
         <div class="metadata-version-dialog__footer">
           <div class="metadata-version-dialog__footer-links">
-            <el-button v-if="canViewDialogGovernance && snapshotDialogDetail" link type="info" @click="openGovernance">查看治理情况</el-button>
+            <el-button v-if="canViewDialogGovernance && snapshotDialogDetail" link type="info" @click="openGovernance">查看质量检查</el-button>
             <el-button
               v-if="canShowIssueAction"
               :type="shouldEmphasizeIssueAction ? 'primary' : 'info'"
