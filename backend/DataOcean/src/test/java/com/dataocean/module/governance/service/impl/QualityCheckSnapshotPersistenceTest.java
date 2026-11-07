@@ -37,6 +37,10 @@ import static org.mockito.Mockito.*;
 })
 @ActiveProfiles("test")
 @Sql(statements = {
+        "DROP TABLE IF EXISTS metadata_quality_issue",
+        "CREATE TABLE metadata_quality_issue(id BIGINT PRIMARY KEY,datasource_id BIGINT,snapshot_id BIGINT,dimension VARCHAR(32),table_name VARCHAR(128),issue_domain VARCHAR(16),severity VARCHAR(16),status VARCHAR(25),assignee_id BIGINT,row_version BIGINT,updated_at TIMESTAMP)",
+        "DELETE FROM datasource WHERE id=1",
+        "INSERT INTO datasource(id,name,deleted) VALUES(1,'检查事务夹具',0)",
         "DROP TABLE IF EXISTS metadata_snapshot",
         "CREATE TABLE metadata_snapshot (id BIGINT PRIMARY KEY,datasource_id BIGINT,snapshot_version INT,schema_hash VARCHAR(64),"
                 + "status VARCHAR(30),table_count INT,column_count INT,total_rows_estimate BIGINT,quality_score DECIMAL(5,2),"
@@ -46,8 +50,26 @@ import static org.mockito.Mockito.*;
 })
 class QualityCheckSnapshotPersistenceTest {
     @Autowired MetadataSnapshotMapper snapshots;
+    @Autowired MetadataQualityIssueMapper issues;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactions;
+
+    @Test
+    void completeFullRecheckClosesOnlyTheSourcesUnresolvedHistoryAndRetainsHumanAssignments() {
+        // 不同来源、语义问题和已处置行都是对照；原 ID 和责任人的保留是需要落库核对的事实。
+        jdbc.update("INSERT INTO metadata_quality_issue(id,datasource_id,snapshot_id,dimension,issue_domain,severity,status,assignee_id,row_version) VALUES"
+                + "(1,1,3,'COMPLETENESS','SOURCE','HIGH','CONFIRMED',19,4),"
+                + "(2,2,8,'COMPLETENESS','SOURCE','HIGH','OPEN',15,2),"
+                + "(3,1,3,'SEMANTIC','SEMANTIC','HIGH','REOPENED',11,7),"
+                + "(4,1,3,'COMPLETENESS','SOURCE','HIGH','RESOLVED',17,3)");
+        new TransactionTemplate(transactions).executeWithoutResult(status ->
+                service(mock(QualityCheckBatchService.class), () -> {}).executeQualityCheck(4L, null, null));
+        assertThat(jdbc.queryForList("SELECT status FROM metadata_quality_issue ORDER BY id", String.class))
+                .containsExactly("AUTO_CLOSED", "OPEN", "REOPENED", "RESOLVED");
+        assertThat(jdbc.queryForList("SELECT row_version FROM metadata_quality_issue ORDER BY id", Long.class))
+                .containsExactly(5L, 2L, 7L, 3L);
+        assertThat(jdbc.queryForObject("SELECT assignee_id FROM metadata_quality_issue WHERE id=1", Long.class)).isEqualTo(19L);
+    }
 
     @Test
     void publicationCommittedDuringCheckSurvivesTheRejectedOldSnapshotWrite() {
@@ -100,7 +122,7 @@ class QualityCheckSnapshotPersistenceTest {
         SnapshotReleaseGateVO permitted = new SnapshotReleaseGateVO(); permitted.setApprovable(true);
         when(gate.evaluate(any(com.dataocean.module.metadata.entity.po.MetadataSnapshot.class))).thenReturn(permitted);
         return new QualityCheckServiceImpl(List.of(checker), rules, snapshots, tables, mock(DbColumnMetaMapper.class),
-                mock(TableRelationMapper.class), mock(MetadataQualityIssueMapper.class), mock(QualityCheckResultMapper.class),
+                mock(TableRelationMapper.class), issues, mock(QualityCheckResultMapper.class),
                 new QualityRuleTemplateRegistry(), batches, gate);
     }
 }

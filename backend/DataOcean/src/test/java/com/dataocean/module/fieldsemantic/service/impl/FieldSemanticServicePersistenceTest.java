@@ -804,7 +804,7 @@ class FieldSemanticServicePersistenceTest {
         semanticHigh.setIssueDescription("测试：语义高优先级不进入来源发布门禁"); semanticHigh.setStatus(MetadataQualityIssue.STATUS_OPEN);
         issueMapper.insert(semanticHigh);
 
-        snapshotLifecycleService.changeStatus(SNAPSHOT_ID, "APPROVED", OPERATOR_ID, "来源质量复核通过");
+        snapshotLifecycleService.changeStatus(SNAPSHOT_ID, "ISSUE_FOUND", "APPROVED", OPERATOR_ID, "来源质量复核通过");
         assertThat(snapshotMapper.selectById(SNAPSHOT_ID).getStatus()).isEqualTo("APPROVED");
 
         jdbc.update("UPDATE metadata_snapshot SET status='ISSUE_FOUND' WHERE id=?", SNAPSHOT_ID);
@@ -815,7 +815,7 @@ class FieldSemanticServicePersistenceTest {
         sourceHigh.setTableName("orders"); sourceHigh.setColumnName("pay_amt");
         sourceHigh.setIssueDescription("来源质量高风险"); sourceHigh.setStatus(MetadataQualityIssue.STATUS_OPEN);
         issueMapper.insert(sourceHigh);
-        assertThatThrownBy(() -> snapshotLifecycleService.changeStatus(SNAPSHOT_ID, "APPROVED", OPERATOR_ID, "复核"))
+        assertThatThrownBy(() -> snapshotLifecycleService.changeStatus(SNAPSHOT_ID, "ISSUE_FOUND", "APPROVED", OPERATOR_ID, "复核"))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("高风险问题");
         assertThat(snapshotMapper.selectById(SNAPSHOT_ID).getStatus()).isEqualTo("ISSUE_FOUND");
 
@@ -829,7 +829,7 @@ class FieldSemanticServicePersistenceTest {
         reopenedSource.setIssueDescription("来源质量高风险（重新打开）");
         reopenedSource.setStatus(MetadataQualityIssue.STATUS_REOPENED);
         issueMapper.insert(reopenedSource);
-        assertThatThrownBy(() -> snapshotLifecycleService.changeStatus(SNAPSHOT_ID, "APPROVED", OPERATOR_ID, "复核"))
+        assertThatThrownBy(() -> snapshotLifecycleService.changeStatus(SNAPSHOT_ID, "ISSUE_FOUND", "APPROVED", OPERATOR_ID, "复核"))
                 .isInstanceOf(BusinessException.class).hasMessageContaining("高风险问题");
         assertThat(snapshotMapper.selectById(SNAPSHOT_ID).getStatus()).isEqualTo("ISSUE_FOUND");
     }

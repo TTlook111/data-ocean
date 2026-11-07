@@ -9,6 +9,7 @@ import com.dataocean.module.metadata.entity.po.DbColumnMeta;
 import com.dataocean.module.metadata.entity.po.DbTableMeta;
 import com.dataocean.module.metadata.mapper.DbColumnMetaMapper;
 import com.dataocean.module.metadata.mapper.DbTableMetaMapper;
+import com.dataocean.module.metadata.mapper.MetadataSnapshotMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,7 @@ public class GovernanceStatusServiceImpl implements GovernanceStatusService {
     private final DbTableMetaMapper tableMetaMapper;
     private final DbColumnMetaMapper columnMetaMapper;
     private final MetadataReviewRecordMapper reviewRecordMapper;
+    private final MetadataSnapshotMapper snapshotMapper;
 
     private static final Set<String> VALID_STATUSES = Set.of(
             "DISCOVERED", "NORMAL", "RECOMMENDED", "DEPRECATED", "SENSITIVE", "BLOCKED");
@@ -38,12 +40,14 @@ public class GovernanceStatusServiceImpl implements GovernanceStatusService {
     /**
      * {@inheritDoc}
      */
-    @Transactional
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     @Override
     public Map<String, String> updateTableStatus(Long snapshotId, String tableName,
                                                  String newStatus, Long operatorId, String remark) {
         validateStatus(newStatus);
 
+        // NORMAL/RECOMMENDED 表数量直接决定发布资格，先与发布事务串行，再读取并修改此表。
+        snapshotMapper.lockReleaseSourceForSnapshot(snapshotId);
         DbTableMeta table = tableMetaMapper.selectOne(
                 new LambdaQueryWrapper<DbTableMeta>()
                         .eq(DbTableMeta::getSnapshotId, snapshotId)

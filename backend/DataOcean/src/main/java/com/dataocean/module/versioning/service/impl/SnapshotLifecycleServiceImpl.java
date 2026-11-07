@@ -1,6 +1,7 @@
 package com.dataocean.module.versioning.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.dataocean.common.exception.BusinessException;
 import com.dataocean.module.datasource.entity.po.Datasource;
@@ -45,9 +46,11 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
     /**
      * {@inheritDoc}
      */
-    @Transactional
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     @Override
-    public void changeStatus(Long snapshotId, String targetStatus, Long operatorId, String reason) {
+    public void changeStatus(Long snapshotId, String expectedStatus, String targetStatus, Long operatorId, String reason) {
+        // 来源锁内重读状态和审核门禁，避免审核使用等待另一个来源写事务之前的数据库快照。
+        snapshotMapper.lockReleaseSourceForSnapshot(snapshotId);
         MetadataSnapshot snapshot = snapshotMapper.selectById(snapshotId);
         if (snapshot == null) {
             throw new BusinessException("快照不存在");
@@ -65,8 +68,11 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
             throw new BusinessException("发布操作请使用专用发布接口");
         }
 
-        if (current == SnapshotStatus.PUBLISHED && target == SnapshotStatus.APPROVED) {
-            throw new BusinessException("撤回操作请使用专用撤回接口");
+        if (current == SnapshotStatus.PUBLISHED) {
+            throw new BusinessException(409, "正式版本只能通过发布替换或专用撤回接口变更");
+        }
+        if (!current.name().equals(expectedStatus)) {
+            throw new BusinessException(409, "快照状态已变化，请重新核对审核依据");
         }
 
         if (!current.canTransitionTo(target)) {
@@ -78,8 +84,15 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
         }
 
         String oldStatus = snapshot.getStatus();
-        snapshot.setStatus(targetStatus);
-        snapshotMapper.updateById(snapshot);
+        LambdaUpdateWrapper<MetadataSnapshot> update = new LambdaUpdateWrapper<MetadataSnapshot>()
+                .eq(MetadataSnapshot::getId, snapshotId).eq(MetadataSnapshot::getStatus, expectedStatus)
+                .set(MetadataSnapshot::getStatus, targetStatus);
+        if (target == SnapshotStatus.APPROVED) {
+            // 人工批准保留实际审核人；发布另由发布审计记录其操作者。
+            update.set(MetadataSnapshot::getReviewedBy, operatorId)
+                    .set(MetadataSnapshot::getReviewedAt, java.time.LocalDateTime.now());
+        }
+        if (snapshotMapper.update(null, update) != 1) throw new BusinessException(409, "快照状态已变化，请重新核对");
 
         auditLogService.recordStatusChange(snapshotId, snapshot.getDatasourceId(),
                 "STATUS_TRANSITION", oldStatus, targetStatus, operatorId, reason);
@@ -125,7 +138,20 @@ public class SnapshotLifecycleServiceImpl implements SnapshotLifecycleService {
      */
     @Override
     public SchemaDiffVO compareVersions(Long oldSnapshotId, Long newSnapshotId) {
-        return schemaDiffService.compareSnapshots(oldSnapshotId, newSnapshotId);
+        // 版本差异以两个获权快照的真实来源为准，避免页面借用元数据目录才能辨认方向。
+        MetadataSnapshot before = snapshotMapper.selectById(oldSnapshotId);
+        MetadataSnapshot after = snapshotMapper.selectById(newSnapshotId);
+        if (before == null || after == null) throw new BusinessException(404, "对比快照不存在");
+        if (before.getDatasourceId() == null || !before.getDatasourceId().equals(after.getDatasourceId())) {
+            throw new BusinessException(400, "只能对比同一数据源的两个版本");
+        }
+        SchemaDiffVO diff = schemaDiffService.compareSnapshots(oldSnapshotId, newSnapshotId);
+        diff.setOldSnapshotId(oldSnapshotId);
+        diff.setNewSnapshotId(newSnapshotId);
+        diff.setOldSnapshotVersion(before.getSnapshotVersion());
+        diff.setNewSnapshotVersion(after.getSnapshotVersion());
+        diff.setDatasourceId(before.getDatasourceId());
+        return diff;
     }
 
     /**

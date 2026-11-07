@@ -261,6 +261,8 @@ public class QualityIssueServiceImpl implements QualityIssueService {
             throw new BusinessException(404, "问题不存在");
         }
 
+        // 来源高风险流转会改变发布门禁；同源批次在统一锁序下核对客户端原版本。
+        if (affectsReleaseGate(issue)) snapshotMapper.lockReleaseSource(issue.getDatasourceId());
         // 客户端原版本先决定处理依据是否仍有效；不能用本次刚读取的状态代替旧页面版本。
         requireVersion(issue, expectedVersion);
         validateTransition(issue.getStatus(), targetStatus);
@@ -328,6 +330,9 @@ public class QualityIssueServiceImpl implements QualityIssueService {
             adminGuard.requireDatasourceFunction(operatorId, BATCH_MANAGE_FUNCTION, resolved.datasourceId());
         }
 
+        // 跨源批量请求固定加锁顺序，避免两组相反顺序的来源高风险问题形成循环等待。
+        issues.stream().filter(this::affectsReleaseGate).map(MetadataQualityIssue::getDatasourceId)
+                .distinct().sorted().forEach(snapshotMapper::lockReleaseSource);
         int updated = 0;
         List<IssueBatchHandleResultVO.SkippedIssue> skippedIssues = new ArrayList<>();
         for (Long issueId : distinctIds) {
@@ -453,6 +458,10 @@ public class QualityIssueServiceImpl implements QualityIssueService {
      * REOPENED → CONFIRMED / REJECTED（必须经过 CONFIRMED 才能再次 RESOLVED）
      * </p>
      */
+    private boolean affectsReleaseGate(MetadataQualityIssue issue) {
+        return MetadataQualityIssue.DOMAIN_SOURCE.equals(issue.getIssueDomain()) && "HIGH".equals(issue.getSeverity());
+    }
+
     private void validateTransition(String currentStatus, String targetStatus) {
         boolean valid = switch (currentStatus) {
             case MetadataQualityIssue.STATUS_OPEN -> VALID_FROM_OPEN.contains(targetStatus);

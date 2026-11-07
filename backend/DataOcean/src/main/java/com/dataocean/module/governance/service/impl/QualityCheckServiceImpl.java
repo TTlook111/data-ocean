@@ -121,13 +121,13 @@ public class QualityCheckServiceImpl implements QualityCheckService {
      * @param tableNames  要检查的表名列表，为空则检查全部表
      * @return 质量检查结果，包含总分、各维度得分、问题统计
      */
-    @Transactional
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     @Override
     public QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions, List<String> tableNames) {
         return executeQualityCheckInternal(snapshotId, dimensions, tableNames, null, null);
     }
 
-    @Transactional
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     @Override
     public QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions,
                                                     List<String> tableNames, Long operatorUserId) {
@@ -135,7 +135,7 @@ public class QualityCheckServiceImpl implements QualityCheckService {
     }
 
     /** 外部请求必须绑定操作标识；内部发布事件保留独立、无客户端重放的入口。 */
-    @Transactional
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     @Override
     public QualityCheckResultVO executeQualityCheck(Long snapshotId, List<String> dimensions,
                                                     List<String> tableNames, Long operatorUserId, String operationId) {
@@ -318,6 +318,8 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             BigDecimal computedScore = dimensionScores.isEmpty() ? null : calculateTotalScore(dimensionScores);
 
             // 不完整检查不得清理旧问题、关闭历史问题、更新快照状态或覆盖可信质量分。
+            // 检查器完成后才取得同源发布锁；包括 PARTIAL 已发现的问题，发布必须看到先提交的阻断。
+            if (complete || !allIssues.isEmpty()) snapshotMapper.lockReleaseSource(snapshot.getDatasourceId());
             if (complete) {
                 if (isFullCheck) closeOldIssues(snapshot.getDatasourceId(), snapshotId);
                 closeCurrentUnfinishedIssues(snapshotId, successfulDimensions, normalizedTables);
@@ -764,26 +766,12 @@ public class QualityCheckServiceImpl implements QualityCheckService {
             return;
         }
 
-        // 查询这些表的当前治理状态
-        List<DbTableMeta> tables = tableMetaMapper.selectList(
-                new LambdaQueryWrapper<DbTableMeta>()
-                        .eq(DbTableMeta::getSnapshotId, snapshotId)
-                        .in(DbTableMeta::getTableName, tablesWithHighIssues));
-
-        int updated = 0;
-        for (DbTableMeta table : tables) {
-            String currentStatus = table.getGovernanceStatus();
-            // 不降级已 BLOCKED/DEPRECATED 的表
-            if ("BLOCKED".equals(currentStatus) || "DEPRECATED".equals(currentStatus)) {
-                continue;
-            }
-            // 仅当状态不是 RECOMMENDED 时才更新
-            if (!"RECOMMENDED".equals(currentStatus)) {
-                table.setGovernanceStatus("RECOMMENDED");
-                tableMetaMapper.updateById(table);
-                updated++;
-            }
-        }
+        // 只改治理状态，并在 UPDATE 当刻检查最新限制。慢检查不能拿旧表对象恢复已被阻断的表。
+        int updated = tableMetaMapper.update(null, new LambdaUpdateWrapper<DbTableMeta>()
+                .eq(DbTableMeta::getSnapshotId, snapshotId).in(DbTableMeta::getTableName, tablesWithHighIssues)
+                .and(w -> w.isNull(DbTableMeta::getGovernanceStatus).or()
+                        .notIn(DbTableMeta::getGovernanceStatus, "BLOCKED", "DEPRECATED", "RECOMMENDED"))
+                .set(DbTableMeta::getGovernanceStatus, "RECOMMENDED"));
 
         if (updated > 0) {
             log.info("质量问题联动治理状态 snapshotId={} highIssueTables={} updated={}",

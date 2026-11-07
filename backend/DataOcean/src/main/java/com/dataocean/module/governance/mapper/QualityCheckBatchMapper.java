@@ -9,6 +9,9 @@ import org.apache.ibatis.annotations.Param;
 
 @Mapper
 public interface QualityCheckBatchMapper extends BaseMapper<QualityCheckBatch> {
+    /** 门禁可定位最近登记的实际批次。排除未执行墓碑，不推断本次阻断由此批次产生。 */
+    @Select("SELECT MAX(id) FROM quality_check_batch WHERE datasource_id=#{source} AND snapshot_id=#{snapshot} AND (operation_id IS NULL OR request_hash IS NOT NULL)")
+    Long latestRecordedId(@Param("source") Long source, @Param("snapshot") Long snapshot);
     /** 操作者与请求标识唯一；重复登记保留原指纹和所有者，不能重新领取执行。 */
     @Insert("""
             INSERT INTO quality_check_batch
