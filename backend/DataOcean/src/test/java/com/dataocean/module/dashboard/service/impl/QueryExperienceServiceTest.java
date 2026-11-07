@@ -128,6 +128,8 @@ class QueryExperienceServiceTest {
         vote("failed", 2, 7, "DISLIKE");
         vote("review-4", 1, 7, "DISLIKE");
         vote("review-4", 2, 88, "DISLIKE");
+        // taskId 是身份标识，排序规则不同或大小写相似都不能将别的反馈归到当前回答。
+        vote("REVIEW-3", 2, 7, "DISLIKE");
 
         var overview = service.summary(4L, "yesterday");
         assertThat(overview.usage()).isNull();
@@ -183,6 +185,22 @@ class QueryExperienceServiceTest {
         assertThat(today.usage().previousAvgSeconds()).isEqualTo(coversFirstSecond ? 12.0 : null);
         assertThat(today.feedback().previousDislikes()).isEqualTo(coversFirstSecond ? 1L : 0L);
         assertThat(today.feedback().previousLikes()).isZero();
+    }
+
+    @Test
+    void disabledSourceBindingDoesNotExposeVotesOrSlowAnswers() {
+        // 普通角色的能力摘要会保留停用来源引用。当前来源 guard 已拒绝这些来源的反馈记录。
+        when(capabilities.responsibleDatasourcesWithFunction(4L, "audit:view"))
+                .thenReturn(List.of(new IamS1DatasourceRefVO(1L, "停用源", false)));
+        when(capabilities.responsibleDatasourcesWithFunction(4L, "governance:field:view"))
+                .thenReturn(List.of(new IamS1DatasourceRefVO(1L, "停用源", false)));
+        task("disabled", 1, "COMPLETED", yesterday, 20);
+        vote("disabled", 1, 7, "DISLIKE");
+        var overview = service.summary(4L, "yesterday");
+        assertThat(overview.usage()).isNull();
+        assertThat(overview.feedback()).isNull();
+        assertThatThrownBy(() -> service.details(4L, query(overview, "feedback")))
+                .isInstanceOfSatisfying(BusinessException.class, ex -> assertThat(ex.getCode()).isEqualTo(403));
     }
 
     /** 所有样例只在随机命名的 H2 内存库中生成。 */

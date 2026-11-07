@@ -42,9 +42,11 @@
         ORDER BY answerSeconds ASC LIMIT 1 OFFSET #{offset}
     </select>
 
-    <!-- 每任务仅接收任务本人在原来源上的当前有效票。来源匹配防止脏反馈行串域泄漏。 -->
+    <!-- 两代标识列的排序规则可能不同。右侧追加零长度二进制串，原 ID 字节不变，按字节匹配；
+         左侧保留原索引列。显式取长度 0 避免兼容库把空 BINARY 补一个零字节。 -->
     <sql id="voteIdentity">
-        f.task_id = t.task_id AND f.user_id = t.user_id AND f.datasource_id = t.datasource_id
+        f.task_id = CONCAT(t.task_id, SUBSTRING(CAST('' AS BINARY), 1, 0))
+        AND f.user_id = t.user_id AND f.datasource_id = t.datasource_id
     </sql>
     <select id="votes" resultType="com.dataocean.module.dashboard.entity.po.QueryExperienceVotes">
         SELECT COUNT(*) AS eligible,

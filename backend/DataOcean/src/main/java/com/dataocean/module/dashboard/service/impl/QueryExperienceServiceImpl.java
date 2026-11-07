@@ -112,8 +112,9 @@ public class QueryExperienceServiceImpl implements QueryExperienceService {
     }
 
     private List<Long> sources(Long userId, String function) {
+        // 普通角色的能力摘要保留停用来源以便显示历史绑定；明细须与逐来源的 S1 访问校验一致。
         return capabilities.responsibleDatasourcesWithFunction(userId, function).stream()
-                .map(IamS1DatasourceRefVO::id).toList();
+                .filter(IamS1DatasourceRefVO::enabled).map(IamS1DatasourceRefVO::id).toList();
     }
 
     private List<Long> requiredSources(Long userId, String function) {

@@ -29,7 +29,7 @@ AI 配置缺失不应阻止服务启动；内部令牌与 JWT 密钥则属于独
 
 工作台 `/admin/workbench` 通过 `GET /api/admin/dashboard/query-experience` 展示当前负责范围内的问数体验。慢回答和点踩反馈在独立只读明细页分页。旧来源书签 `focusSourceId` 仍需在当前身份下校验来源及 `datasource:view`，合法书签进入对应的数据源详情。[工作台界面](../../frontend/src/views/AdminHomeView.vue) · [明细页](../../frontend/src/views/admin/workbench/ExperienceDetailsView.vue) · [前端规范](../development/前端开发规范.md#工作台与治理总览)
 
-**统计范围。** `admin:workbench:view` 控制入口。服务分别用 `audit:view` 和 `governance:field:view` 解析各自角色绑定的负责源。无该域可读来源时，相应的 `usage` 或 `feedback` 为 `null`。有权范围内的真实零记录返回计数 0。两域的回答分母可以不同。[接口](../../backend/DataOcean/src/main/java/com/dataocean/module/dashboard/controller/QueryExperienceController.java) · [范围与授权实现](../../backend/DataOcean/src/main/java/com/dataocean/module/dashboard/service/impl/QueryExperienceServiceImpl.java)
+**统计范围。** `admin:workbench:view` 控制入口。服务分别用 `audit:view` 和 `governance:field:view` 解析各自角色绑定的启用负责源，停用来源不计入统计或明细。无该域可读来源时，相应的 `usage` 或 `feedback` 为 `null`。有权范围内的真实零记录返回计数 0。两域的回答分母可以不同。[接口](../../backend/DataOcean/src/main/java/com/dataocean/module/dashboard/controller/QueryExperienceController.java) · [范围与授权实现](../../backend/DataOcean/src/main/java/com/dataocean/module/dashboard/service/impl/QueryExperienceServiceImpl.java)
 
 **时间与状态。** 仅统计 `IAM-SIMPLE-1` 的 `query_task`。按服务端本地时间的 `created_at` 左闭右开归组。今天按半小时分桶，昨天按小时分桶，近 7 天从六天前零点起按自然日分桶。今天与近 7 天都截止当前整秒 `asOf`。比较“昨日同时段”时，比较的是两个提问时间区间内的任务。状态取本次读取时的记录，失败、超时、取消、待澄清及进行中分别计数。
 
