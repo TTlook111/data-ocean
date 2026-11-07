@@ -6,7 +6,7 @@
 
 ## 治理分析总览
 
-`/admin/governance` 当前承担指定来源与明确快照的分析任务：问题集中度、来源/语义分域与独立校验覆盖，问题处理在专页完成。页面形态按[前端规范](../development/前端开发规范.md)和用户任务调整。总览入口继续使用治理查看能力；问题统计/明细、规则规划、元数据范围分别按既有功能与负责源读取，缺辅助权不补权。已有来源检查和完整执行依据放在按需展开区域，文档发布/显式RAG、语义正确性与来源质量分仍分开。
+`/admin/governance` 当前承担指定来源与明确快照的分析和来源检查任务：问题集中度、来源/语义分域、执行范围、原操作回执与独立校验覆盖，问题处理在专页完成。页面形态按[前端规范](../development/前端开发规范.md)和用户任务调整。总览入口继续使用治理查看能力；执行、问题统计/明细、规则规划、元数据目录分别按既有功能与负责源读取，缺辅助权不补权。执行动作与批次身份直接展示，逐规则依据按需展开；文档发布/显式RAG、语义正确性与来源质量分仍分开。
 
 总量、单状态和分域来自权威 snapshot issue summary；表×状态聚合采用三个单状态的完整分页、ID去重/范围校验和二次摘要对账，有读取预算。任何不完整、错属、漂移或超预算均不提供总体排行；没有事务水位，不宣称原子快照。图形单状态直接跳问题中心，域/表汇总先选真实支持的单状态，不新增后端筛选。REOPENED显示“需重新处理”，表示此前结束的问题再次待确认，既可能人工重开，也可能语义复查触发；枚举和状态机不变。
 
@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | 未解决问题总数、状态与域 | 当前源＋快照`quality-issues/summary`；唯一问题ID的OPEN＋CONFIRMED＋REOPENED，SOURCE/SEMANTIC为同集合互斥分域；均需issue:view | 真0才显示0；缺字段、合计不符或拒绝不推算。摘要的两个边际分布不能补造域×状态数量。 |
 | 表×处理状态集中度／涉及表数 | 同快照按三个单状态完整分页，去重、核验归属及二次摘要对账；最多2000条、24次明细请求，每页100条 | 不完整/漂移/超预算隐藏总体表排行和涉及表数，保留有效摘要；无表名另列，不当真实表名筛选。前8组外明确未绘问题数，非事务快照。 |
-| 来源校验执行覆盖 | 最新`quality-check-batches/latest`的实际rules及匹配ruleCount；分母是该批规则数，需governance:view | SUCCESS是执行成功，不是质量通过。无批次、有限历史、失败、缺分母和PARTIAL分别呈现；complete=false不展示本次完整评分。 |
+| 来源校验执行覆盖 | 未选批次时读取`quality-check-batches/latest`；显式`batchId`读取同快照精确批次的实际rules及匹配ruleCount；分母是该批规则数，需governance:view | SUCCESS是执行成功，不是质量通过。无批次、有限历史、失败、缺分母和PARTIAL分别呈现；complete=false不展示完整评分。显式批次非法/错属/失败不回落latest。 |
 | 图形到问题中心 | 目标只支持单个status及已有tableName/issueDomain；同datasourceId＋snapshotId | 色段可精确单状态跳转；表或域总量先选单状态，不发送UNRESOLVED并集或声称默认全部状态等于未解决。辅助能力与目标页仍各自校验。 |
 
 没有权威时间序列、全模块对象状态/待审积压或统一分母时，不绘趋势、SLA或跨审核/发布/RAG完成率。总览分析情况，具体问题处理在专页；覆盖带没有精确规则执行筛选时，只展开已有执行依据。
@@ -54,7 +54,7 @@
 
 来源检查与字段语义是两条链，不能用来源分代表语义通过。字段事实进入文档后继续读[术语与 AI 释义](knowledge/业务术语与AI释义.md)，发布门禁转到版本模块。
 
-验证入口：[QualityCheckServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityCheckServiceImplTest.java)（来源检查）、[QualityIssueServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityIssueServiceImplTest.java)（问题处理）、[FieldSemanticServicePersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticServicePersistenceTest.java)（字段解释）。本次只核对测试入口，修改实现后按[开发指南](../development/本地开发与验证.md)运行相关测试，再按影响范围补充接口或页面验证。
+验证入口：[QualityCheckServiceImplTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityCheckServiceImplTest.java)（来源检查）、[QualityCheckOperationPersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityCheckOperationPersistenceTest.java)（原操作与批次登记）、[QualityIssueServiceTransactionIntegrationTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/governance/service/impl/QualityIssueServiceTransactionIntegrationTest.java)（问题版本与事务）、[FieldSemanticServicePersistenceTest.java](../../backend/DataOcean/src/test/java/com/dataocean/module/fieldsemantic/service/impl/FieldSemanticServicePersistenceTest.java)（字段解释及复查）。测试、迁移、真实检查和页面验收分别见[检查闭环验收](../acceptance/2026-11-07-质量检查闭环与视觉对齐.md)，不将 H2 测试当作 MySQL 迁移或真实业务验收。
 
 ## 概览与主流程
 
@@ -110,7 +110,7 @@
 
 ## 关键边界
 
-- 未解决问题的统一口径为 `OPEN/CONFIRMED/REOPENED`，定义在 `MetadataQualityIssue#UNRESOLVED_STATUSES`。发布门禁、数据源就绪度、工作台统计、质量分聚合和重新检查清理共用这一口径。
+- 未解决问题的统一口径为 `OPEN/CONFIRMED/REOPENED`，定义在 `MetadataQualityIssue#UNRESOLVED_STATUSES`。发布门禁、数据源就绪度、工作台统计、质量分聚合和重检自动替代共用这一口径。
 - 快照发布门禁由 [SnapshotReleaseGateService](005-metadata-versioning.md#发布门禁) 统一判定：来源高风险阻断审核和发布，语义高风险只提示、不阻断。治理检查仍不生成血缘。
 - DISCOVERED、NORMAL、RECOMMENDED、DEPRECATED、BLOCKED 等治理状态按现有服务规则流转，不等同于审核状态。
 - DEPRECATED/BLOCKED 表字段禁止进入检索、SQL 生成和临时访问批准；NORMAL/RECOMMENDED 本身也不能跳过来源快照、审核、build membership 或当前 IAM 检查。
@@ -136,7 +136,7 @@
 | [SemanticCheckExecutionService](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/service/impl/SemanticCheckExecutionService.java)、[SemanticCheckController](../../backend/DataOcean/src/main/java/com/dataocean/module/fieldsemantic/controller/SemanticCheckController.java) | 独立 SEMANTIC 批次与字段问题处理证据 |
 | [FieldSemanticWorkspace](../../frontend/src/views/admin/governance/FieldSemanticWorkspace.vue) | 沿用公共 ScopeBar 的字段解释、人工/AI 候选、审核与操作历史工作面 |
 
-质量问题统一使用 `issueDomain=SOURCE/SEMANTIC`。全量 SOURCE 检查只清理 SOURCE 问题；语义检查单独写入批次/结果，不调用来源质量评分、快照状态或置信度联动。SEMANTIC 问题关闭需最新成功复查结果及当前字段/修订/审核/绑定 hash 一致；域筛选及分域统计由后端按当前权限范围计算。
+质量问题统一使用 `issueDomain=SOURCE/SEMANTIC`。SOURCE 检查只自动替代对应来源问题并保留历史；语义检查单独写入批次/结果，不调用来源质量评分、快照状态或置信度联动。SEMANTIC 问题关闭需最新成功复查结果及当前字段/修订/审核/绑定 hash 一致；域筛选及分域统计由后端按当前权限范围计算。
 
 复采后的来源绑定可逐字段确认，也可在语义中心的字段解释工作面按当前公共快照批量确认。批量请求先预校验所选字段真实来源及同一源上的 `governance:field:manage`、`knowledge:manage`，任一授权失败则整批不写；通过预检后每项独立事务和并发版本提交，并返回成功数及逐字段失败原因。结构或完整依据变化时绑定持久化为 `NEEDS_REVIEW`，不会被批量确认吞掉。
 
@@ -216,11 +216,39 @@
 
 ## 批次、覆盖与可信结果
 
-每次执行先固定启用规则与配置版本，创建 `quality_check_batch` 和逐规则 `quality_check_batch_rule` 覆盖记录。规则覆盖状态为 `SUCCESS`、`FAILURE`、`NOT_APPLICABLE`、`NOT_EXECUTED`，批次区分成功、部分失败、失败、运行中和仅有限可解释的旧结果。批次记录使用独立事务保存失败状态；检查器异常不再捕获后继续算分。没有适用规则、检查不完整或有失败时不生成“全部通过”结果，不按成功路径清理旧问题、更新分数、批准快照或覆盖此前可信完整结果。完整全量检查才按既有问题生命周期处理 OPEN/CONFIRMED；REOPENED 仍待处置。已发布快照保护和原有评分权重保留。
+每次执行先固定启用规则与配置版本，创建 `quality_check_batch` 和逐规则 `quality_check_batch_rule` 覆盖记录。规则覆盖状态为 `SUCCESS`、`FAILURE`、`NOT_APPLICABLE`、`NOT_EXECUTED`，批次区分成功、部分失败、失败、运行中和仅有限可解释的旧结果。批次记录使用独立事务保存失败状态；检查器失败必须计入不完整覆盖。没有适用规则、检查不完整或有失败时不生成“全部通过”结果，不按成功路径处理旧问题、更新快照分数、批准快照或覆盖此前可信完整结果。
+
+完整检查将当前快照本次覆盖维度/表内的未解决 SOURCE 问题（`OPEN/CONFIRMED/REOPENED`）标为 `AUTO_CLOSED` 并推进 `rowVersion`，保留原问题 ID、责任人、原批次与已有处理字段，不再物理删除。新发现的问题单独绑定新批次，不伪装为原问题的人工解决或同一身份延续。完整全量检查还按既有规则自动关闭同源其他快照的未解决 SOURCE 问题；SEMANTIC 不受此路径改写。快照评分/状态只作必要字段条件更新，检查期间发生的发布状态不能被旧快照对象写回覆盖；已发布快照保护和原评分权重保留。
 
 `DATA_FK_ORPHAN` 检查器接收执行计划筛选后的关系及其安全端点；检查器还会按表和字段治理状态再次拒绝受限关系。元数据类检查继续收到其所需的关系上下文。`DATA_STALE_TABLE` 的规划与执行共用候选字段选择和治理状态过滤；没有可读时间字段时记为不适用并阻止完整覆盖，有多个候选时只读取优先级最高的可用字段。修订历史按每条修订记录的数据源范围过滤；执行历史按真实批次数据源过滤，全局规则批次也不使用空规则归属推断访问范围，系统管理员仍可读取全部历史。
 
 迁移前的 `quality_check_result` 若无法证明规则版本与覆盖，只显示为历史有限结果，不以当前配置补造历史。新数据级模板沿用业务数据源只读连接、固定安全查询与超时；不执行客户端 SQL。当前扫描最多使用 100,000 行样本，因此样本外重复值、空值或孤儿记录可能无法发现，结果说明以实际检查覆盖为准，不视为全表证明。
+
+### 检查操作与精确批次
+
+实际来源检查集中在总览工作面。规则页和版本页只导航到精确源/快照，打开页面、保存规则或进入审核均不自动执行检查。以下路径以 `/api/admin/snapshots/{snapshotId}` 为前缀：
+
+| 接口 | 合同 |
+| --- | --- |
+| `POST /quality-check` | 请求体必填 `operationId` UUID，可选 `dimensions/tableNames`。主权限为该快照来源的 `governance:check`。同账号/UUID只登记一份批次与执行所有者；指纹固定快照及规范化的维度/表集合，同 ID 改维度/表返回409，错快照/错属返回404，同 ID 同范围返回原批次而不重复检查。 |
+| `GET /quality-check-operations/{operationId}` | 按当前操作者、原 UUID 和精确快照核对持久批次，继续要求当前检查权限；不存在或错属返回 404，不等于原请求不会晚到。 |
+| `POST /quality-check-operations/{operationId}/resolve` | 与原登记竞争同一唯一键。未登记时保存“未开始执行”的 `FAILED/NONE` 记录，封住晚到原请求；已有批次则返回原状态，`RUNNING`不会被伪装成已停止。 |
+| `GET /quality-check-batches/{batchId}` | 按 `governance:view` 授权并核对批次真实源/快照，用于精确历史证据。它不只限原操作者，也不将当前latest替换成所请求批次。 |
+| `GET /quality-check-batches/latest` | 当前快照最近批次；不能代替原 UUID 的操作结果核对。 |
+
+[QualityCheckBatchRecorder](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityCheckBatchRecorder.java)在独立事务登记操作，执行与规则覆盖由 [QualityCheckServiceImpl](../../backend/DataOcean/src/main/java/com/dataocean/module/governance/service/impl/QualityCheckServiceImpl.java)完成，主事务结束后再持久化批次终态。POST 的计算返回不作为持久收尾成功证明；前端必须以原 UUID 再读批次，确认范围及终态。网络失败、超时、查证失败或仍在运行时保留原操作，不重新生成 UUID 自动执行；崩溃后不自动接管或重跑已登记的 `RUNNING` 批次。
+
+[useQualityCheckOperations.ts](../../frontend/src/views/admin/governance/useQualityCheckOperations.ts)按账号/操作独立保存 UUID、源、快照、批次 ID、状态及必要消费标识，不保存令牌、请求正文或检查结果正文。整页刷新只恢复定位并查询原操作。终态核对后的消费与页面导航分别处理：主动固定 `batchId` 导致页面代次变化，不能使已核对终态遗留为无从释放的在途锁；另一标签页消费不能替原页面处理尚未观察到的结果。范围或权限变化使旧响应失效，确认撤权后不回填旧回执。
+
+总览 URL 的 `batchId`固定执行证据；当前问题统计和规则规划仍是同快照当前事实，不冒充历史批次的问题快照。进入问题中心只传精确源/快照、已有筛选及 `returnBatchId`返回标识，不以批次 ID 过滤或暗示只显示该批问题。用户可显式切回“最近一次检查”，再选择本次范围和发起新检查。
+
+[V77](../../backend/DataOcean/src/main/resources/db/migration/V77__quality_check_operation_and_issue_version.sql)为批次增加操作 UUID、范围指纹、执行所有者及账号/UUID唯一键，并为问题增加行版本。历史批次不补造操作标识；历史问题的初始版本不代表此前修改次数。实际迁移与故障覆盖只见[检查闭环验收](../acceptance/2026-11-07-质量检查闭环与视觉对齐.md)及[项目现状](../项目现状.md)。
+
+### 治理主任务范围
+
+`GET /api/admin/snapshots/{snapshotId}/quality-context`按快照真实数据源上的 `governance:view`、`governance:issue:view`、`governance:check`任一主能力返回稀疏定位：`id/datasourceId/snapshotVersion/status`；只有治理查看权可获 `qualityScore`。响应不含表字段目录、数据源连接配置或完整元数据快照，不授予其他业务读取权。
+
+[useQualityBusinessScope.ts](../../frontend/src/composables/useQualityBusinessScope.ts)供总览与问题中心在没有 `metadata:view`时核对显式源/快照深链；服务端返回归属必须与 URL 一致，错误不回落其他来源或最新快照。稀疏结果留在该工作面，不注入公共元数据缓存。表/字段目录仍独立要求 `metadata:view`，用户目录仍要求 `organization:user:view`；有权主任务不能被辅助目录阻塞，也不能因读取主任务获得辅助权限。已有元数据权时继续使用公共范围流程。
 
 ## 规则配置与结果查看
 
@@ -232,7 +260,7 @@
 
 质量规则列表突出检查条件、适用对象、覆盖关系、风险与配置状态；顶部说明启用不等于已执行，快照不限定规则配置生命周期。表单提供不执行检查的配置预览，实际目标覆盖和覆盖优先级仍由执行计划判定，不把静态预览当作试运行结果。
 
-行内“执行记录”直接打开真实历史。历史 VO 增加 `batchDatasourceId` 与 `snapshotId`，从已授权的实际批次读取，不能以全局规则的空归属或当前页面范围代替。记录区分执行完成且发现问题、执行完成未发现问题、失败、不适用和未执行，并保留历史配置版本和原因。具备该批次源的问题查看能力时可进入对应快照、SOURCE 维度及目标表的**同范围当前问题**；该入口不声称只展示当次批次或某条规则的问题。缺少实际范围时不提供跳转。
+行内“执行记录”直接打开真实历史。历史 VO 的 `batchDatasourceId/snapshotId/batchId`来自已授权的实际批次，不能以全局规则的空归属或当前页面范围代替；有治理查看权时可打开该精确批次。记录区分执行完成且发现问题、执行完成未发现问题、失败、不适用和未执行，并保留历史配置版本和原因。另有问题查看权时可进入对应快照、SOURCE 维度及目标表的**同范围当前问题**，保留原批次返回入口；该入口不声称只展示当次批次或某条规则的问题。缺少实际范围或目标能力时不提供对应跳转。
 
 `TIME_TABLE_NO_UPDATE` 的检查项显示名修正为“表估算行数为零”，原编码、执行逻辑、已有规则实例名称与历史记录不变；它不能证明表为空或长期未更新。抽样型检查提示 100,000 行上限，数据新鲜度说明需要可读时间字段；未发现问题不等于全表无问题。上述变化不新增迁移或改变规则启用状态，历史范围字段的验证见[项目现状](../项目现状.md)，当前页面模型和人工验收边界见[项目现状](../项目现状.md)。
 
@@ -250,7 +278,7 @@
 
 ## 规则与问题的呈现
 
-治理处理页使用清晰列表；总览按当前来源与快照呈现分析图形，来源检查与规则规划归执行依据，问题处理留在专页。图形、布局和密度可按实际任务调整，统计口径与权限边界保持明确。规则页的只读规划使用检查覆盖抽屉，逐条异常保留需核对入口，完整使用前提和风险在详情中查看。表内不重复展示已启用与可参与等不同口径，启停和执行记录从更多菜单进入，仍执行原有权限与请求隔离。规则列表条件摘要不改变检查逻辑，历史条件与原始参数继续按记录解释。
+治理处理页使用清晰列表；总览按当前来源与快照呈现检查工作面和分析图形，原操作恢复、批次身份、执行及当前问题入口直接可达，逐规则依据按需展开，问题处理留在专页。维度与表范围采用紧凑多选，空选表示全部；表选项来自有权目录，辅助失败不得沿用未核验选择。图形、布局和密度可按实际任务调整，统计口径与权限边界保持明确。规则页的只读规划使用检查覆盖抽屉，逐条异常保留需核对入口，完整使用前提和风险在详情中查看。表内不重复展示已启用与可参与等不同口径，启停和执行记录从更多菜单进入，仍执行原有权限与请求隔离。规则列表条件摘要不改变检查逻辑，历史条件与原始参数继续按记录解释。
 
 问题中心将低频筛选收起；治理状态维护以平面分栏选择表；字段标签在治理工作区内不单独列出或默认选择快照，只读取公共上下文，显式范围同步未完成时显示加载而不回退。未选表、真正无字段、错误分别处理，每个状态只显示一处引导。呈现规则见[前端规范](../development/前端开发规范.md#治理工作区的视觉取舍)。
 
@@ -260,9 +288,15 @@
 
 前端根据 IAM-SIMPLE-1 能力控制呈现；服务端最终授权。数据源规则写入要求该源 `governance:rule:manage`，改范围时同时核验原范围和目标范围；全局规则写入要求受保护系统管理员身份。权限不从旧角色或 JWT authorities 推导。变更修订保留真实操作人；通用操作审计继续记录请求操作。实际验证范围见[项目现状](../项目现状.md)。
 
-2026-10-20 问题中心布局：数据源/快照只从 AdminShell ScopeBar 读取；问题筛选不另行初始化范围或自动选择快照。显式 query 快照由公共上下文按 ID 验证和恢复，失败时不回落。列表总数取服务端分页 `total`；当前页 records 只用于绘制列表，不能推导全量严重程度或状态汇总。零记录、筛选无匹配、加载、读取失败、无权和未选范围分开显示。详情、责任人分派、批量部分成功、同表审核记录与返回发布流程仍按原 IAM-SIMPLE-1 能力控制。实际验证范围见[项目现状](../项目现状.md)。
+问题中心沿用公共来源/快照或上述主任务已核验的显式深链；筛选不另行初始化范围或自动选择快照，范围失败不回落。列表总数取服务端分页 `total`；当前页 records 只用于绘制列表，不能推导全量严重程度或状态汇总。零记录、筛选无匹配、加载、读取失败、无权和未选范围分开显示。详情、责任人分派、批量部分成功、同表审核记录与返回发布流程仍按各自 IAM-SIMPLE-1 能力控制。实际验证范围见[项目现状](../项目现状.md)。
 
-2026-10-20 问题处理一致性：分派只更新 assignee 与更新时间；状态流转使用 ID 和预期状态作为条件更新，受影响行数为 0 时返回冲突。`resolvedBy/resolvedAt/resolutionNote` 表示当前一次解决/驳回；进入 REOPENED 或 CONFIRMED 显式清空，再次解决/驳回写入本轮处理人、时间和备注，null 备注会落库清空。批量仍先整批做 IAM/归属校验，再逐条流转；无效状态和并发状态冲突按真实原因跳过。
+### 问题处理的版本条件
+
+问题列表 VO 返回 `rowVersion`。单条状态处理 `PATCH /api/admin/quality-issues/{issueId}/status`与分派 `POST /api/admin/quality-issues/{issueId}/assign`都必填正整数 `expectedVersion`，固定用户读到的版本；SQL按 ID/原版本更新并递增，状态处理另校验状态机。状态离开后又恢复原值（ABA）、责任人变更或复查证据更新，都使旧页面提交返回 409。缺版本请求直接拒绝，不在服务端替客户端取最新版本。
+
+批量 `PATCH /api/admin/quality-issues/batch-status`保留 `issueIds/status`并必填 `expectedVersions`对象（问题 ID→原版本）。版本映射必须与去重后的所选 ID 完整对应，缺项、多项或非正版本整批拒绝；IAM/归属也先整批核验。通过后逐项流转，版本/状态冲突进入 `skippedIssues`，保留其他成功项，不自动重试跳过项或将部分成功描述为整批原子。
+
+分派只更新责任人、版本与更新时间，不覆盖并发状态或增加被分派人的权限。`resolvedBy/resolvedAt/resolutionNote`表示当前一次解决/驳回；进入 REOPENED 或 CONFIRMED 显式清空，再次解决/驳回写入本轮处理人、时间和备注，null备注会落库清空。`SemanticCheckExecutionService`的自动重开和证据刷新也比较并推进相同行版本；即使状态仍为 OPEN，复查更换依据后旧处理版本也失效。语义问题结束仍必须通过最新成功复查与当前来源/修订/hash验证，行版本不能代替该证据。
 
 问题状态是主事务结果。CONFIRMED/RESOLVED 的置信度联动只在主事务提交后调用 `ConfidenceCalculator.adjustScoreAfterCommit` 的独立 REQUIRES_NEW 事务；联动异常记录警告并回滚该辅助事务，不回滚已提交问题状态。主事务回滚不触发置信度事件。直接跳过 Spring 事务代理的调用不执行联动并记录警告；生产服务调用依赖 Spring 代理。
 
@@ -270,7 +304,7 @@
 
 ### 问题与规则的恢复保护
 
-总览把SOURCE诊断、独立SEMANTIC人工事实与当前实际批次/规划分开，实际执行0、未知、部分失败和历史分保留。刷新只重读已核验范围的证据，不隐式选择新快照。问题表/用户目录分别要求metadata:view、organization:user:view，辅助无权或挂起不阻已核验问题范围的合法接口。语义解决/驳回填写已有resolutionNote，服务端继续复核最新语义批次及当前hash；409保留原问题依据。批量保留全部skipped原因，不宣称全业务原子或全部成功。问题处理的读取与写入按身份/IAM/精确源快照代次失效，其未知写共享内存目标锁仍不替代幂等、真实CAS或跨刷新恢复；规则配置已使用上文[独立持久协议](#规则写入合同)，不将其能力外推至问题处理。问题页既有覆盖见[第七阶段验收](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d7)。
+总览把SOURCE诊断、独立SEMANTIC人工事实与当前实际批次/规划分开，实际执行0、未知、部分失败和历史分保留。刷新只重读已核验范围，不隐式选择新快照；实际检查通过原UUID和持久批次恢复，详见[检查操作合同](#检查操作与精确批次)。问题表/用户目录分别独立判权，辅助无权或挂起不阻合法主任务。问题处理已具有上述客户端行版本条件；409保留原问题依据和人工备注，批量保留全部跳过原因。其响应未知仍使用既有内存目标锁，尚无与规则配置/检查任务相同的持久操作回执和跨刷新原操作关联，不能把行版本防覆盖等同于未知结果已确定。历史覆盖见[第七阶段验收](../acceptance/2026-10-29-统一跨页终验V2.md#v2-d7)，本轮边界见[检查闭环验收](../acceptance/2026-11-07-质量检查闭环与视觉对齐.md)。
 
 质量规则按配置→只读规划→来源检查呈现，源级规则列表不额外要求metadata或快照，规划只读精确公共快照；最近采集目录辅助预算不等于历史范围。规则保存以原版本条件和操作回执恢复，详见上文[工作区职责与恢复](#工作区职责与恢复)。治理状态调整不自动修复问题或审核知识，批量updated/excluded缺失仍保留既有未知锁，不能用本轮规则协议宣称状态维护也已具备跨刷新恢复；既有覆盖见第七阶段验收B。
 
