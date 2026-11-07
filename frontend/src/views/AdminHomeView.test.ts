@@ -156,9 +156,9 @@ describe('工作台待处理事项', () => {
     await settle()
 
     expect(api.listIamS1AccessRequestQueue).toHaveBeenCalledWith('PENDING', 1, 2)
-    // 新摘要将数值和范围分行，断言真实数量及对应范围而非旧布局拼接文本。
+    // 数量和统计范围都应可见，审批数只覆盖当前负责范围。
     expect(wrapper.find('[data-metric="approvals"] strong').text()).toBe('3')
-    expect(wrapper.find('[data-metric="approvals"]').text()).toContain('负责范围申请待审批')
+    expect(wrapper.find('[data-metric="approvals"] .metric-label').text()).toBe('负责范围内的待审批申请')
   })
 
   it('审批数量读取失败时显示原因而不是零', async () => {

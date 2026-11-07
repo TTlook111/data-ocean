@@ -8,44 +8,39 @@
 :root {
   /* ===== 颜色 ===== */
 
-  /* 鸢尾蓝标识操作和选中项。反白前景单列，供按钮和深色信息面共用。 */
-  --do-primary: #5146b8;
-  --do-primary-strong: #3c3292;
-  --do-primary-soft: #eeebfb;
+  /* 海蓝只标识可执行动作和选择。成组的数字、正文和大面积表面保持中性。 */
+  --do-primary: #254f76;
+  --do-primary-strong: #173a5a;
+  --do-primary-soft: #e8eff4;
   --do-on-primary: #ffffff;
   --do-accent: #32697a;
   --do-accent-strong: #284d60;
-  --do-brand-lilac: #c9bcf4;
-  --do-brand-warm: #f1b28f;
-  --do-feature-bg: #332e62;
-  --do-feature-text: #fffdfb;
-  --do-feature-muted: #dcd7ed;
-  --do-code-bg: #282735;
-  --do-code-text: #f4f0fc;
+  --do-code-bg: #252b30;
+  --do-code-text: #eef2f1;
 
   /* 深色正文与次级文字分级，密集表格仍保持足够对比。 */
-  --do-ink: #26252e;
-  --do-muted: #62616e;
+  --do-ink: #262b2d;
+  --do-muted: #5e6466;
 
-  /* 暖白画布托起纸白数据面。雾紫侧栏用独立选中面与反白文字标明当前页。 */
-  --do-bg: #f6f5f2;
-  --do-surface: #fffefd;
+  /* 纸白画布、浅灰目录和白色编辑面依次分层。选中项在浅蓝底上使用深海蓝文字。 */
+  --do-bg: #f8f8f5;
+  --do-surface: #fffffd;
   --do-paper: var(--do-surface);
-  --do-soft: #f2f1ee;
-  --do-nav-bg: #efedf5;
-  --do-nav-text: #33313f;
-  --do-nav-muted: #666373;
-  --do-nav-line: #d7d4e1;
-  --do-nav-hover: #e5e1ef;
-  --do-nav-active: #46406e;
-  --do-nav-active-text: #ffffff;
+  --do-soft: #f0f1ed;
+  --do-nav-bg: #eeefeb;
+  --do-nav-text: #31383b;
+  --do-nav-muted: #585f61;
+  --do-nav-line: #d3d6d1;
+  --do-nav-hover: #e3e6e2;
+  --do-nav-active: #dce6ed;
+  --do-nav-active-text: #183a57;
   --do-nav-accent: var(--do-primary-strong);
   --do-sidebar: var(--do-nav-bg);
   --do-sidebar-muted: var(--do-nav-muted);
 
   /* 细边界承担分区，避免依赖多层阴影和嵌套卡片。 */
-  --do-line: #e1dfdf;
-  --do-line-strong: #c2bfc8;
+  --do-line: #dcded9;
+  --do-line-strong: #b9bfbc;
 
   /* 旧组件尚在消费的材质别名指向不透明表面，迁移期间不再叠加玻璃主题。 */
   --do-ocean-highlight: transparent;
@@ -74,11 +69,11 @@
   --do-info-soft: #e9f1f8;
 
   /* 类别按固定顺序取色；失败、待处理等有业务含义的图形仍取对应状态色。 */
-  --do-chart-1: #6455b5;
+  --do-chart-1: #345d85;
   --do-chart-2: #397e79;
   --do-chart-3: #ae693e;
   --do-chart-4: #91679e;
-  --do-chart-5: #497cac;
+  --do-chart-5: #65773d;
   --do-chart-6: #a65472;
 
   /* 阴影仅表达浮层高度，常驻工作面保持克制。 */
@@ -88,11 +83,11 @@
 
   /* ===== 圆角 ===== */
 
-  --do-radius-sm: 8px;
-  --do-radius-md: 10px;
-  --do-radius-lg: 14px;
-  --do-radius-xl: 16px;
-  --do-radius: 10px;
+  --do-radius-sm: 5px;
+  --do-radius-md: 6px;
+  --do-radius-lg: 8px;
+  --do-radius-xl: 12px;
+  --do-radius: 6px;
   --do-radius-full: 9999px;
 
   /* ===== 间距 ===== */
@@ -160,9 +155,9 @@
   --el-fill-color-light: var(--do-soft);
   --el-text-color-primary: var(--do-ink);
   /* 正文、表头、浮层及输入框沿用同一中性阶，次级文字和禁用控件保持可辨。 */
-  --el-text-color-regular: #45434f;
+  --el-text-color-regular: #454c4f;
   --el-text-color-secondary: var(--do-muted);
-  --el-text-color-placeholder: #74717e;
+  --el-text-color-placeholder: #6c7476;
   --el-border-color: var(--do-line-strong);
   --el-border-color-lighter: var(--do-line);
   --el-fill-color-blank: var(--do-surface);

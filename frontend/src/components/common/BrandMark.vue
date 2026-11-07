@@ -5,21 +5,12 @@
 
 <style scoped>
 .dataocean-mark {
-  display: inline-grid;
+  /* 图标直接使用原轮廓，与各页相邻的文字组成品牌标识。 */
+  display: inline-block;
   flex: none;
-  width: 36px;
+  width: 28px;
   height: 36px;
-  place-items: center;
-  border-radius: 10px;
-  background: var(--do-primary);
-}
-
-/* 使用透明轮廓统一反白图标，侧栏、登录和消息署名可以各自控制外框尺寸。 */
-.dataocean-mark::before {
-  content: '';
-  width: 74%;
-  height: 78%;
-  background: var(--do-on-primary);
+  background: var(--do-primary-strong);
   mask: url('../../assets/brand/dataocean-mark.png') center / contain no-repeat;
 }
 </style>

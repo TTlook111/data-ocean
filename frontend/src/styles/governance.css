@@ -2,7 +2,8 @@
 /* 辅助目录无权时，主业务接口仍必须让操作者看见已核实的精确来源与快照身份。 */
 .governance-primary-scope { display:flex; align-items:center; flex-wrap:wrap; gap:8px 18px; padding:10px 14px; border-left:3px solid var(--do-primary); border-radius:6px; background:var(--do-primary-soft); color:var(--do-ink); font-size:12px; }
 .governance-primary-scope strong { color:var(--do-primary-strong); }
-.governance-surface { padding: 24px 26px; border: 1px solid var(--do-line); border-radius: 14px; background: var(--do-surface); }
+/* 数据工作面共享窄圆角与细边框，按钮和状态标识使用各自的强调色。 */
+.governance-surface { padding: 24px 26px; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
 .governance-surface .task-page-header { margin: 0 0 4px; align-items: center; }
 .governance-surface .task-page-header h1 { font-size: clamp(24px,2.2vw,28px); line-height: 1.25; letter-spacing: -.02em; }
 .governance-workspace .el-table { --el-table-header-bg-color: var(--do-soft); --el-table-border-color: var(--do-line); --el-table-row-hover-bg-color: var(--do-primary-soft); }

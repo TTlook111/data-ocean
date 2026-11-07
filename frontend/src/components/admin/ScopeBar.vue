@@ -30,6 +30,8 @@ const router = useRouter()
 const context = useAdminContextStore()
 const iam = useIamS1Store()
 const invalidContext = ref('')
+// 目录权限由当前账号决定，和临时读取失败使用不同的提示。
+const unavailableSnapshotDirectory = '当前账号没有快照目录查看权限。'
 let syncing = false
 let syncPending = false
 const scopeRefreshLoading = ref(false)
@@ -67,7 +69,7 @@ async function syncFromUrl() {
     }
 
     if (showSnapshot.value && querySnapshotId.value && !iam.canOnDatasource('metadata:view', context.datasourceId)) {
-      invalidContext.value = '当前账号没有 metadata:view，公共范围无法读取快照；不会改用其他快照。'
+      invalidContext.value = unavailableSnapshotDirectory
       context.selectSnapshot(undefined)
       if (props.trackRouteSync) context.routeSyncError = invalidContext.value
       return
@@ -230,22 +232,22 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
       </el-button>
     </div>
 
-    <p v-if="invalidContext" class="scope-bar__warning">{{ invalidContext }}</p>
+    <p v-if="invalidContext" class="scope-bar__warning" :class="{ 'scope-bar__note': invalidContext === unavailableSnapshotDirectory }">{{ invalidContext }}</p>
   </section>
 </template>
 
 <style scoped>
 .scope-bar__title { position: relative; padding-right: 14px; }
 .scope-bar {
-  /* 范围是页面上下文，用稳定白色工具条表达，不再叠加独立渐变主题。 */
+  /* 范围栏直接接在面包屑下方，以一条分隔线标出业务内容的开始。 */
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(360px, 1.2fr);
   gap: 16px;
   align-items: center;
-  margin: 18px 24px 0;
-  padding: 14px 16px;
-  border: 1px solid var(--do-line);
-  border-radius: 8px;
+  margin: 0;
+  padding: 10px 26px;
+  border: 0;
+  border-bottom: 1px solid var(--do-line);
   background: var(--do-surface);
 }
 
@@ -341,7 +343,8 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
   font-size: 12px;
 }
 @media (max-width: 1150px) { .scope-bar { grid-template-columns: 1fr; } }
-@media (max-width: 760px) { .scope-bar { margin: 14px 18px 0; } .scope-bar__controls { flex-wrap: wrap; } .scope-bar__controls :deep(.el-select) { flex: 1 1 150px; } }
+.scope-bar__note { color: var(--do-muted); }
+@media (max-width: 760px) { .scope-bar { padding-inline: 16px; } .scope-bar__controls { flex-wrap: wrap; } .scope-bar__controls :deep(.el-select) { flex: 1 1 150px; } }
 @media (max-width: 760px) {
   .scope-bar--compact .scope-bar__datasource-control { flex: 1 1 100%; max-width: none; }
   .scope-bar--compact .scope-bar__datasource-control :deep(.el-select) { width: auto; min-width: 0; }
@@ -352,7 +355,7 @@ watch(() => [route.query.datasourceId, route.query.snapshotId, props.mode], sync
   grid-template-columns: minmax(190px, .75fr) minmax(560px, 1.8fr);
   gap: 12px 20px;
   margin-top: 0;
-  padding: 10px 14px;
+  padding: 10px 26px;
 }
 .scope-bar--labeled-inline .scope-bar__controls {
   display: grid;

@@ -85,7 +85,6 @@ onBeforeUnmount(() => {
           <BrandMark class="admin-shell__brand-mark" />
           <span class="admin-shell__brand-copy">
             <strong class="notranslate" translate="no">DataOcean</strong>
-            <small>数据查询治理平台</small>
           </span>
         </RouterLink>
         <button class="admin-shell__collapse" type="button" :aria-label="collapsed ? '展开导航' : '收起导航'" :aria-expanded="!collapsed" @click="toggleSidebar">
@@ -206,7 +205,7 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__sidebar {
-  /* 雾紫侧栏在长列表旁保留清晰边界，正文和浮层独立取数据表面色。 */
+  /* 目录与正文以细线分界，浮层使用独立数据面。 */
   align-self: stretch;
   display: flex;
   flex-direction: column;
@@ -241,8 +240,8 @@ onBeforeUnmount(() => {
 
 .admin-shell__brand-mark {
   flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
+  width: 27px;
+  height: 34px;
   overflow: hidden;
   font-size: 13px;
   line-height: 1;
@@ -260,17 +259,10 @@ onBeforeUnmount(() => {
   /* 品牌文字使用导航前景，避免随正文主题变暗。 */
   overflow: hidden;
   color: var(--do-nav-text);
-  font-size: 18px;
+  font-family: var(--do-font-family);
+  font-size: 21px;
+  letter-spacing: -.045em;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.admin-shell__brand-copy small {
-  /* 副标题保持可读，不与主任务入口争夺层级。 */
-  overflow: hidden;
-  color: var(--do-nav-muted);
-  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

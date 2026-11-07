@@ -171,46 +171,47 @@ watch(session.key,()=>{statsRequest++;readinessRequest++;approvalRequest++;stats
     <ErrorState v-else-if="!session.ready.value" :message="iam.errorMessage || '正在读取当前能力，请稍候。'" @retry="reload" />
     <section v-else-if="!canViewWorkbench || workbenchForbidden" class="noaccess" role="alert">
       <h2>{{ workbenchForbidden ? statsError : '没有“查看工作台”功能' }}</h2>
-      <p>当前没有工作台查看能力；未展示摘要或准备回执，无权不表示数量为0。</p>
+      <p>请联系负责此工作区的管理员。</p>
       <el-button v-if="workbenchForbidden" @click="reload">重新核验</el-button>
     </section>
     <LoadingState v-else-if="loading" text="正在读取当前身份与负责范围…" />
     <template v-else>
-      <!-- 每项摘要使用独立权限和真实口径；未知值用占位显示，不借来源权推导审批或治理权。 -->
-      <section v-if="canViewSources || canViewIssues || canViewApprovals" class="workbench-stats" aria-label="当前有权工作摘要">
-        <button v-if="canViewSources" type="button" class="metric" data-metric="sources" @click="openWorkspace('/admin/data-sources','datasource:view')">
-          <span class="metric-label">有权数据源<ArrowUpRight :size="15" aria-hidden="true" /></span>
-          <strong>{{ directoryKnown ? sources.length : '—' }}</strong><span class="metric-scope">当前可查看目录</span>
-        </button>
-        <button v-if="canViewIssues" type="button" class="metric" data-metric="issues" @click="openWorkspace('/admin/governance/issues','governance:issue:view')">
-          <span class="metric-label">未解决治理问题<ArrowUpRight :size="15" aria-hidden="true" /></span>
-          <strong>{{ issueCountText }}</strong><span class="metric-scope">问题查看能力对应的负责范围</span>
-        </button>
-        <button v-if="canViewApprovals" type="button" class="metric" data-metric="approvals" @click="openWorkspace('/admin/access/iam-approvals','security:approval:view',true)">
-          <span class="metric-label">待审批申请<ArrowUpRight :size="15" aria-hidden="true" /></span>
-          <strong>{{ pendingApprovalCount ?? '—' }}</strong><span class="metric-scope">负责范围申请待审批</span>
-        </button>
-      </section>
+      <!-- 概览按有权数据排版，准备分布与总量同排，目录成为主工作区。 -->
+      <div v-if="canViewSources || canViewIssues || canViewApprovals" class="workbench-overview">
+        <!-- 每项摘要使用独立权限和真实口径；未知值用占位显示，不借来源权推导审批或治理权。 -->
+        <section class="workbench-stats" aria-label="当前有权工作摘要">
+          <button v-if="canViewSources" type="button" class="metric" data-metric="sources" @click="openWorkspace('/admin/data-sources','datasource:view')">
+            <span class="metric-label">有权数据源</span>
+            <strong>{{ directoryKnown ? sources.length : '—' }}</strong>
+          </button>
+          <button v-if="canViewIssues" type="button" class="metric" data-metric="issues" title="负责数据源中的未解决问题" @click="openWorkspace('/admin/governance/issues','governance:issue:view')">
+            <span class="metric-label">负责范围内的未解决问题</span>
+            <strong>{{ issueCountText }}</strong>
+          </button>
+          <button v-if="canViewApprovals" type="button" class="metric" data-metric="approvals" title="负责范围内待审批的申请" @click="openWorkspace('/admin/access/iam-approvals','security:approval:view',true)">
+            <span class="metric-label">负责范围内的待审批申请</span>
+            <strong>{{ pendingApprovalCount ?? '—' }}</strong>
+          </button>
+        </section>
+        <!-- 三段分布完整包含未知来源；准备条件与个人问数许可保持分离，不虚构趋势。 -->
+        <section v-if="canViewSources && directoryKnown && sources.length" class="readiness-overview" aria-labelledby="readiness-title">
+          <div class="section-heading"><h2 id="readiness-title">数据准备分布</h2><span>{{ readiness.length }} / {{ sources.length }} 个来源已核验</span></div>
+          <div class="readiness-bar" role="img" :aria-label="distributionLabel">
+            <span v-for="item in readinessDistribution" :key="item.key" :class="item.key" :style="{ flexGrow: item.count }" :hidden="!item.count" />
+          </div>
+          <div class="readiness-legend">
+            <button v-for="item in readinessDistribution" :key="item.key" type="button" :class="item.key" :data-readiness-segment="item.key" :aria-pressed="filter===item.key" @click="changeFilter(item.key)"><i aria-hidden="true" /><span>{{ item.label }}</span><strong>{{ item.count }}</strong></button>
+          </div>
+        </section>
+      </div>
       <ErrorState v-if="statsError && !workbenchForbidden" :message="statsError" @retry="reload" />
       <ErrorState v-if="readinessError && canViewSources" :message="'准备情况暂不可用：'+readinessError" @retry="reload" />
       <ErrorState v-if="approvalError && canViewApprovals" :message="approvalError" @retry="reload" />
-
-      <!-- 三段分布完整包含未知来源；准备条件与个人问数许可保持分离，不虚构趋势。 -->
-      <section v-if="canViewSources && directoryKnown && sources.length" class="readiness-overview" aria-labelledby="readiness-title">
-        <div class="section-heading"><h2 id="readiness-title">数据准备分布</h2><span>{{ readiness.length }} / {{ sources.length }} 个来源已核验</span></div>
-        <div class="readiness-bar" role="img" :aria-label="distributionLabel">
-          <span v-for="item in readinessDistribution" :key="item.key" :class="item.key" :style="{ flexGrow: item.count }" :hidden="!item.count" />
-        </div>
-        <div class="readiness-legend">
-          <button v-for="item in readinessDistribution" :key="item.key" type="button" :class="item.key" :data-readiness-segment="item.key" :aria-pressed="filter===item.key" @click="changeFilter(item.key)"><i aria-hidden="true" /><span>{{ item.label }}</span><strong>{{ item.count }}</strong></button>
-          <span class="readiness-note">授权已配置不代表你已获查询权</span>
-        </div>
-      </section>
       <div v-if="readinessPartialError && canViewSources" class="notice" role="status"><span>{{ readinessPartialError }}</span><button type="button" class="plain" @click="reload">重新读取</button></div>
 
       <!-- 来源目录与下一步共用同一精确对象，完整目录可滚动查看，不再固定截断三个来源。 -->
       <section v-if="canViewSources && (sources.length || !directoryKnown)" class="source-panel">
-        <div class="section-heading source-heading"><h2>来源与下一步</h2><button type="button" class="plain" @click="openWorkspace('/admin/data-sources','datasource:view')">管理数据源<ArrowUpRight :size="14" /></button></div>
+        <div class="section-heading source-heading"><h2>数据源</h2><button type="button" class="plain" @click="openWorkspace('/admin/data-sources','datasource:view')">管理数据源<ArrowUpRight :size="14" /></button></div>
         <div class="source-tools">
           <div class="source-tabs" role="group" aria-label="筛选准备情况">
             <button v-for="item in (['all','attention','ready','unknown'] as const)" :key="item" type="button" :data-source-filter="item" :aria-pressed="filter===item" @click="changeFilter(item)">{{ {all:'全部',attention:'需关注',ready:'基础条件满足',unknown:'待确认'}[item] }}<b>{{ item==='all' ? (directoryKnown?sources.length:'—') : item==='unknown' ? (directoryKnown?unknownCount:'—') : countsKnown ? item==='attention' ? attentionCount : readyCount : '—' }}</b></button>
@@ -228,11 +229,11 @@ watch(session.key,()=>{statsRequest++;readinessRequest++;approvalRequest++;stats
         <!-- 当前来源的状态、版本与操作集中在列表下方，避免固定右栏挤压五项准备事实。 -->
         <section v-if="selected && action" class="next-step" data-source-detail>
           <div class="next-step-main">
-            <div class="detail-kicker"><span>当前来源 · 下一步</span><span>#{{ selected.source.id }}</span></div>
+            <div class="detail-kicker"><span>已选数据源</span><span>#{{ selected.source.id }}</span></div>
             <h3>{{ selected.source.name }}</h3>
             <span class="tag" :class="{attention:selected.readiness && !selected.readiness.askable}">{{ !selected.readiness?'准备情况待确认':selected.readiness.askable?'基础条件满足':selected.readiness.stageLabel }}</span>
-            <h4>{{ selected.readiness?.blockReasons[0]?.message || (selected.readiness ? selected.readiness.knowledgeReady?'核对当前准备情况':'可继续完善知识索引':'准备回执尚未确认') }}</h4>
-            <p>{{ action.description }}</p>
+            <!-- 选中行直接显示真实阻断原因和索引变化；操作本身由右侧按钮命名。 -->
+            <h4 v-if="selected.readiness?.blockReasons[0]?.message">{{ selected.readiness.blockReasons[0].message }}</h4>
             <p v-if="selected.readiness?.ragNotice" class="cap-hint">{{ selected.readiness.ragNotice }}</p>
           </div>
           <div class="next-step-actions">
@@ -271,9 +272,9 @@ watch(session.key,()=>{statsRequest++;readinessRequest++;approvalRequest++;stats
     </template>
     <!-- 帮助保留必要业务区别，页面默认不重复铺开完整说明。 -->
     <el-dialog v-model="helpOpen" title="准备条件与个人权限" width="min(620px,94vw)" append-to-body destroy-on-close>
-      <p>后台准备条件与个人业务数据权分开。授权“已配置”只说明来源存在有效查询授权，不代表你本人有权问数；正式提问仍独立重验。</p>
-      <p>知识索引独立展示，不新增接口未定义的硬门禁。治理只核对已发布快照的高危阻断，没有发布版不表示质量通过。</p>
-      <p>工作台只预览准备情况与可进入的下一步，不执行测试连接、发布、审核、授权或构建。问题摘要是当前角色可查看范围，不是个人分派。</p>
+      <p>“已配置”表示该数据源存在有效查询授权。你的可问范围由当前账号的数据授权决定。</p>
+      <p>治理状态取自已发布快照，知识索引状态取自活动构建。</p>
+      <p>未解决问题统计当前负责范围，包含分派给其他人的问题。</p>
     </el-dialog>
   </main>
 </template>
@@ -301,53 +302,41 @@ button svg { flex-shrink: 0; }
 .plain:hover { color: var(--do-primary-strong); }
 .help-button { margin-right: 8px; }
 
-/* 三种有权指标独立成面。目录作为工作起点用深墨紫，问题与审批使用暖纸面和浅紫面。 */
-.workbench-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
-.metric {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
+/* 数量与统计名称在同一条摘要内排版，桌面右侧留给准备分布。 */
+.workbench-overview {
   display: grid;
-  align-content: start;
+  align-items: stretch;
+  padding-block: 18px;
+  border-block: 1px solid var(--do-line);
+}
+.workbench-overview:has(.readiness-overview) { grid-template-columns: minmax(0, 1.4fr) minmax(280px, 1fr); }
+.workbench-stats { display: flex; align-items: stretch; gap: 12px; }
+.metric {
+  display: grid;
+  flex: 1 1 0;
+  align-content: center;
+  justify-items: start;
   gap: 7px;
-  padding: 20px 24px;
-  border: 1px solid var(--do-line);
-  border-radius: var(--do-radius-lg);
-  background: var(--do-surface);
+  min-width: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--do-radius-sm);
+  background: transparent;
   color: var(--do-ink);
   text-align: left;
 }
-.metric[data-metric="sources"] {
-  border-color: var(--do-feature-bg);
-  background: var(--do-feature-bg);
-  color: var(--do-feature-text);
-}
-/* 轮廓纹样留在数字后方的空白区，宽度变化或按钮聚焦都不遮挡指标。 */
-.metric[data-metric="sources"]::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  background: repeating-radial-gradient(ellipse at 112% 132%, transparent 0 19px, color-mix(in srgb, var(--do-brand-lilac) 16%, transparent) 20px 21px, transparent 22px 31px);
-  mask-image: linear-gradient(90deg, transparent 25%, black 100%);
-  content: '';
-}
-.metric[data-metric="sources"] :is(.metric-label, .metric-scope) { color: var(--do-feature-muted); }
-.metric[data-metric="sources"]:focus-visible { outline-color: var(--do-brand-lilac); }
-.metric[data-metric="issues"] { background: color-mix(in srgb, var(--do-brand-warm) 16%, var(--do-surface)); }
-.metric[data-metric="approvals"] { background: color-mix(in srgb, var(--do-brand-lilac) 21%, var(--do-surface)); }
-.metric:hover { box-shadow: var(--do-shadow-hover); }
-.metric-label { display: flex; justify-content: space-between; align-items: center; gap: 20px; color: var(--do-ink); font-size: 14px; font-weight: 600; }
-.metric-label svg { box-sizing: content-box; padding: 4px; border: 1px solid color-mix(in srgb, currentColor 26%, transparent); border-radius: 50%; }
-.metric strong { font-size: clamp(36px, 3.2vw, 48px); line-height: 1; letter-spacing: -.04em; font-weight: 600; font-variant-numeric: tabular-nums; }
-.metric-scope { color: var(--do-muted); font-size: 12px; line-height: 1.5; }
+.metric:first-child { padding-left: 0; }
+.metric:hover .metric-label { color: var(--do-primary); text-decoration: underline; }
+.metric-label { color: var(--do-muted); font-size: 13px; }
+.metric strong { font-size: clamp(30px, 2.8vw, 42px); line-height: 1.08; font-weight: 550; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
 
 /* 分布同时显示文字与数值，未知段与失败原因不被绿色就绪段覆盖。 */
-.readiness-overview, .source-panel, .approval-panel, .role-panel, .empty-work, .noaccess { min-width: 0; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
-.readiness-overview { padding: 20px 24px; }
+.source-panel, .approval-panel, .role-panel, .empty-work, .noaccess { min-width: 0; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
+.readiness-overview { align-self: center; padding: 4px 0 4px 24px; border-left: 1px solid var(--do-line); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-width: 0; }
 .section-heading h2 { color: var(--do-ink); font-size: 16px; font-weight: 650; }
 .section-heading > span { color: var(--do-muted); font-size: 12px; }
-.readiness-bar { display: flex; gap: 3px; height: 9px; margin: 20px 0 14px; border-radius: 6px; overflow: hidden; background: var(--do-soft); }
+.readiness-bar { display: flex; gap: 3px; height: 5px; margin: 13px 0 8px; border-radius: 6px; overflow: hidden; background: var(--do-soft); }
 .readiness-bar span { flex-basis: 0; min-width: 0; border-radius: 2px; }
 .readiness-bar .ready, .readiness-legend .ready i { background: var(--do-success); }
 .readiness-bar .attention, .readiness-legend .attention i { background: var(--do-warning); }
@@ -357,7 +346,7 @@ button svg { flex-shrink: 0; }
 .readiness-legend button:hover, .readiness-legend button[aria-pressed=true] { color: var(--do-ink); }
 .readiness-legend i { width: 7px; height: 7px; border-radius: 2px; }
 .readiness-legend strong { color: var(--do-ink); font-variant-numeric: tabular-nums; }
-.readiness-note { margin-left: auto; color: var(--do-muted); font-size: 11px; }
+
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; border-left: 3px solid var(--do-warning); color: var(--do-ink); background: var(--do-warning-soft); font-size: 12px; line-height: 1.6; }
 
 /* 表格区域负责自身滚动；完整目录保持可达，选中来源与底部下一步共用精确标识。 */
@@ -381,7 +370,7 @@ button svg { flex-shrink: 0; }
 .source-name small { display: block; margin-top: 5px; color: var(--do-muted); font-size: 11px; line-height: 1.5; }
 .condition { display: flex; justify-content: center; align-items: center; gap: 6px; color: var(--do-muted); font-size: 11px; }
 .condition::before { content: ''; width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: var(--do-line-strong); }
-.condition.good { color: var(--do-success); }
+.condition.good { color: var(--do-ink); }
 .condition.good::before { background: var(--do-success); }
 .condition.attention { color: var(--do-warning); }
 .condition.attention::before { background: var(--do-warning); }
@@ -400,7 +389,7 @@ button svg { flex-shrink: 0; }
 .scope-facts div { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; font-size: 12px; }
 .scope-facts dt { color: var(--do-muted); }
 .scope-facts dd { margin: 0; color: var(--do-ink); font-weight: 550; text-align: right; overflow-wrap: anywhere; }
-.next-step-actions > .primary { width: 100%; }
+.next-step-actions > .primary { display: flex; width: fit-content; margin-left: auto; }
 .cap-hint { margin-top: 9px !important; color: var(--do-warning) !important; }
 .more { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 18px; margin-top: 9px; }
 .selection-empty { padding: 22px 24px; border-top: 1px solid var(--do-line); }
@@ -431,10 +420,11 @@ button svg { flex-shrink: 0; }
   .next-step-actions { border-top: 1px solid var(--do-line); padding-top: 18px; }
   .role-panel { align-items: flex-start; flex-direction: column; }
   .role-actions { justify-content: flex-start; }
-  .readiness-note { flex-basis: 100%; margin-left: 0; }
+  .workbench-overview:has(.readiness-overview) { grid-template-columns: 1fr; }
+  .readiness-overview { margin-top: 14px; border-left: 0; padding: 14px 0 0; border-top: 1px solid var(--do-line); }
 }
 @media (max-width: 720px) {
-  .workbench-stats { grid-template-columns: minmax(0, 1fr); }
+  .workbench-stats { flex-wrap: wrap; }
   .section-heading { flex-wrap: wrap; }
   .readiness-overview, .source-heading, .next-step, .approval-panel, .role-panel, .empty-work, .noaccess { padding-left: 16px; padding-right: 16px; }
   .source-tools { padding-left: 16px; padding-right: 16px; }

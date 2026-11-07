@@ -10,19 +10,19 @@ export function validWorkbenchReadiness(value: DatasourceReadiness) {
     Array.isArray(value.blockReasons) && value.blockReasons.every(reason => reason && typeof reason.code === 'string' && typeof reason.message === 'string') &&
     ['publishedSnapshotId','latestCollectedSnapshotId','ragSourceSnapshotId'].every(key => value[key as keyof DatasourceReadiness] == null || positiveId(value[key as keyof DatasourceReadiness]))
 }
-export interface WorkbenchAction { label: string; description: string; target: RouteLocationRaw; capability?: string; globalAny?: string[]; unavailable?: string }
-/** Only known business codes choose destinations; backend actionPath is never executed. */
+export interface WorkbenchAction { label: string; target: RouteLocationRaw; capability?: string; globalAny?: string[]; unavailable?: string }
+/** 动作名称直接标明目的地，路由仅从受支持的业务码和已验证对象生成。 */
 export function workbenchSourceAction(id: number, readiness?: DatasourceReadiness): WorkbenchAction {
-  const fallback:WorkbenchAction={label:'查看来源详情',description:'打开来源详情核对准备条件；不会自动测试连接、发布或修改配置。',target:{path:`/admin/data-sources/${id}`},capability:'datasource:view'}
-  if (!readiness) return {...fallback,description:'准备情况待确认，不沿用旧快照或推断已就绪。可到来源详情重新核对。'}
+  const fallback:WorkbenchAction={label:'查看来源详情',target:{path:`/admin/data-sources/${id}`},capability:'datasource:view'}
+  if (!readiness) return fallback
   const reason=readiness.blockReasons[0]
   switch(reason?.code){
-    case 'DATASOURCE_DISABLED':case 'CONNECTION_NOT_HEALTHY':return {...fallback,label:'核对连接详情',description:'先在来源详情核对连接和启用条件；不会在工作台执行修改。'}
-    case 'SNAPSHOT_NOT_PUBLISHED':return {label:'核对元数据版本',description:'先核对已采集结构与治理依据，再到版本专页决定审核和发布。',target:{path:'/admin/releases',query:{datasourceId:String(id)}},capability:'metadata:release:view'}
-    case 'BLOCKING_GOVERNANCE_ISSUES':return {label:'核对治理问题',description:'进入已发布快照的问题工作区核对；目标默认全部状态，不冒充只展示这些阻断问题。',target:{path:'/admin/governance/issues',query:{datasourceId:String(id),...(positiveId(readiness.publishedSnapshotId)?{snapshotId:String(readiness.publishedSnapshotId)}:{})}},capability:'governance:issue:view',unavailable:positiveId(readiness.publishedSnapshotId)?undefined:'缺少精确的已发布快照，暂不能进入该范围的问题。'}
-    case 'QUERY_PERMISSION_NOT_CONFIGURED':return {label:'核对授权配置',description:'到授权工作区核对现有配置；查看准备回执不会获得任何业务数据权。',target:{path:'/admin/access/iam',query:{datasourceId:String(id)}},globalAny:['security:permission:view','security:mask:view','security:effective:view']}
+    case 'DATASOURCE_DISABLED':case 'CONNECTION_NOT_HEALTHY':return {...fallback,label:'核对连接详情'}
+    case 'SNAPSHOT_NOT_PUBLISHED':return {label:'核对元数据版本',target:{path:'/admin/releases',query:{datasourceId:String(id)}},capability:'metadata:release:view'}
+    case 'BLOCKING_GOVERNANCE_ISSUES':return {label:'核对治理问题',target:{path:'/admin/governance/issues',query:{datasourceId:String(id),...(positiveId(readiness.publishedSnapshotId)?{snapshotId:String(readiness.publishedSnapshotId)}:{})}},capability:'governance:issue:view',unavailable:positiveId(readiness.publishedSnapshotId)?undefined:'缺少精确的已发布快照，暂不能进入该范围的问题。'}
+    case 'QUERY_PERMISSION_NOT_CONFIGURED':return {label:'核对授权配置',target:{path:'/admin/access/iam',query:{datasourceId:String(id)}},globalAny:['security:permission:view','security:mask:view','security:effective:view']}
   }
-  if(!reason && (!readiness.knowledgeReady || readiness.ragStale))return {label:'查看知识准备',description:'后台基础条件与知识索引分别核对，可到知识工作区查看发布文档和显式构建记录。',target:{path:'/admin/semantics/knowledge',query:{datasourceId:String(id),tab:'index'}},capability:'knowledge:view'}
+  if(!reason && (!readiness.knowledgeReady || readiness.ragStale))return {label:'查看知识准备',target:{path:'/admin/semantics/knowledge',query:{datasourceId:String(id),tab:'index'}},capability:'knowledge:view'}
   return fallback
 }
 export function workbenchCondition(r: DatasourceReadiness | undefined, key: 'connection'|'metadata'|'governance'|'knowledge'|'permission') {

@@ -1606,7 +1606,8 @@ describe('治理总览的批次恢复与范围隔离', () => {
     expect(text).not.toContain('校验明细')
     expect(text).not.toContain('总数来自服务端统计')
     expect(text).not.toContain('0项实际执行')
-    expect(text).toContain('暂无待处理问题')
+    // 空状态使用该快照的未解决问题总量，历史评分和规则执行数仍独立展示。
+    expect(text).toContain('当前快照没有未解决问题。')
   })
 
   it('没有选择快照时给出范围提示并且不请求快照统计', async () => {

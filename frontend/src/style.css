@@ -60,8 +60,8 @@ a {
 }
 
 /* 保留已有定位容器，内容与浮层都在自己的层叠上下文内绘制。 */
-.do-glass-shell:not(.login-visual),
-.do-glass-panel:not(.login-panel) {
+.do-glass-shell,
+.do-glass-panel {
   position: relative;
   isolation: isolate;
 }
@@ -535,6 +535,28 @@ a:focus-visible,
   --el-button-active-border-color: var(--do-primary-strong);
 }
 
+/* 实心语义按钮在悬停和按下时加深本色，保证白字始终清晰。 */
+.el-button--success { --do-button-tone: var(--do-success); }
+.el-button--primary { --do-button-tone: var(--do-primary); }
+.el-button--warning { --do-button-tone: var(--do-warning); }
+.el-button--danger { --do-button-tone: var(--do-danger); }
+.el-button--info { --do-button-tone: var(--el-color-info); }
+:is(.el-button--success, .el-button--warning, .el-button--danger, .el-button--info):not(.is-plain):not(.is-text):not(.is-link) {
+  --el-button-hover-bg-color: color-mix(in srgb, var(--do-button-tone) 80%, var(--do-ink));
+  --el-button-hover-border-color: var(--el-button-hover-bg-color);
+  --el-button-active-bg-color: color-mix(in srgb, var(--do-button-tone) 65%, var(--do-ink));
+  --el-button-active-border-color: var(--el-button-active-bg-color);
+}
+
+/* 表格动作和弹窗文字按钮使用较深的同色前景；浅色阶用于底色时不会冲淡文字。 */
+.el-button:is(.is-link, .is-text) {
+  --el-button-hover-link-text-color: color-mix(in srgb, var(--do-button-tone, var(--do-ink)) 75%, var(--do-ink));
+  --el-button-active-color: var(--el-button-hover-link-text-color);
+}
+.el-button:is(.is-link, .is-text):not(.is-disabled):is(:hover, :focus-visible, :active) {
+  color: var(--el-button-hover-link-text-color);
+}
+
 .admin-page,
 .query-page,
 .profile-page {
@@ -668,9 +690,7 @@ a:focus-visible,
   padding: 18px;
   border: 1px solid var(--do-glass-line);
   border-radius: var(--do-radius-lg);
-  background:
-    linear-gradient(135deg, var(--do-primary-soft), var(--do-surface) 76%),
-    var(--do-glass-data-bg);
+  background: var(--do-surface);
   box-shadow: var(--do-shadow);
 }
 

@@ -220,11 +220,12 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
   background: var(--do-nav-hover);
 }
 
-/* 独立域首页和展开组的当前子页使用相同的深紫底与反白字。 */
+/* 当前项使用海蓝边标与明确的文字权重，便于在长目录中定位。 */
 .admin-domain-nav__workspace-item.active,
 .admin-domain-nav__item.active:not([aria-controls]) {
   color: var(--do-nav-active-text);
   background: var(--do-nav-active);
+  box-shadow: inset 3px 0 var(--do-primary);
 }
 
 .admin-domain-nav__workspace-dot {
