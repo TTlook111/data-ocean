@@ -10,7 +10,7 @@ import { findWorkspace, type AdminContextMode } from '../../router/adminNavigati
 import { buildAdminBreadcrumbs } from '../../utils/adminNavigation'
 import AdminDomainNav from './AdminDomainNav.vue'
 import ScopeBar from './ScopeBar.vue'
-import brandMark from '../../assets/brand/dataocean-mark.png'
+import BrandMark from '../common/BrandMark.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -82,7 +82,7 @@ onBeforeUnmount(() => {
     <aside class="admin-shell__sidebar">
       <div class="admin-shell__brand">
         <RouterLink to="/admin" class="admin-shell__brand-link" aria-label="DataOcean 后台">
-          <img class="admin-shell__brand-mark" :src="brandMark" alt="" width="28" height="44" />
+          <BrandMark class="admin-shell__brand-mark" />
           <span class="admin-shell__brand-copy">
             <strong class="notranslate" translate="no">DataOcean</strong>
             <small>数据查询治理平台</small>
@@ -204,10 +204,9 @@ onBeforeUnmount(() => {
 .admin-shell.is-collapsed {
   grid-template-columns: 76px minmax(0, 1fr);
 }
-.admin-shell :deep(.el-button--primary) { --el-button-bg-color: var(--do-primary-strong); --el-button-border-color: var(--do-primary-strong); --el-button-hover-bg-color: var(--do-primary-strong); --el-button-hover-border-color: var(--do-primary-strong); }
 
 .admin-shell__sidebar {
-  /* 深色仅作用于导航表面，正文和 body 中的浮层继续使用根级明亮主题。 */
+  /* 雾紫侧栏在长列表旁保留清晰边界，正文和浮层独立取数据表面色。 */
   align-self: stretch;
   display: flex;
   flex-direction: column;
@@ -242,9 +241,8 @@ onBeforeUnmount(() => {
 
 .admin-shell__brand-mark {
   flex: 0 0 auto;
-  width: 28px;
-  height: 44px;
-  object-fit: contain;
+  width: 36px;
+  height: 36px;
   overflow: hidden;
   font-size: 13px;
   line-height: 1;
@@ -308,14 +306,14 @@ onBeforeUnmount(() => {
   min-height: 40px;
   margin: 18px 14px 4px;
   padding: 8px;
-  border: 1px solid #38636a;
-  border-radius: 8px;
-  color: var(--do-nav-text);
-  background: var(--do-nav-active);
+  border: 1px solid var(--do-nav-line);
+  border-radius: var(--do-radius-md);
+  color: var(--do-primary-strong);
+  background: var(--do-surface);
   font-size: 13px;
   font-weight: 600;
 }
-.admin-shell__query-entry:hover { background: #315b62; }
+.admin-shell__query-entry:hover { border-color: var(--do-primary); background: var(--do-primary-soft); }
 .admin-shell__query-entry:focus-visible { outline: 2px solid var(--do-nav-accent); outline-offset: 3px; }
 
 .admin-shell__account-menu { width: 100%; }
@@ -482,7 +480,7 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell__notification.unread {
-  border-color: rgba(77, 143, 220, .2);
+  border-color: var(--el-color-primary-light-7);
   background: var(--do-primary-soft);
 }
 
@@ -510,8 +508,8 @@ onBeforeUnmount(() => {
 }
 
 .admin-shell.is-collapsed .admin-shell__brand-mark {
-  width: 25px;
-  height: 38px;
+  width: 32px;
+  height: 32px;
 }
 
 .admin-shell.is-collapsed .admin-domain-nav__item {
@@ -582,10 +580,10 @@ onBeforeUnmount(() => {
   padding: 0;
   border-color: var(--do-line);
   border-radius: var(--do-radius-md);
-  background: rgba(255, 255, 255, .99);
+  background: var(--do-surface);
   box-shadow: var(--do-shadow-lg);
 }
-.admin-account-actions-popper .el-popper__arrow::before { border-color: var(--do-line); background: #fff; }
+.admin-account-actions-popper .el-popper__arrow::before { border-color: var(--do-line); background: var(--do-surface); }
 .admin-account-actions-popper .el-dropdown-menu { padding: 6px; background: transparent; }
 .admin-account-actions-popper .el-dropdown-menu__item {
   min-height: 38px;

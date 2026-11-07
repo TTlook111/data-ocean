@@ -8,35 +8,44 @@
 :root {
   /* ===== 颜色 ===== */
 
-  /* 青绿只强调可执行动作；页面与图表共用这一个权威主题源。 */
-  --do-primary: #0f766e;
-  --do-primary-strong: #115e59;
-  --do-primary-soft: #e8f5f2;
-  --do-accent: #357b99;
-  --do-accent-strong: #255b73;
+  /* 鸢尾蓝标识操作和选中项。反白前景单列，供按钮和深色信息面共用。 */
+  --do-primary: #5146b8;
+  --do-primary-strong: #3c3292;
+  --do-primary-soft: #eeebfb;
+  --do-on-primary: #ffffff;
+  --do-accent: #32697a;
+  --do-accent-strong: #284d60;
+  --do-brand-lilac: #c9bcf4;
+  --do-brand-warm: #f1b28f;
+  --do-feature-bg: #332e62;
+  --do-feature-text: #fffdfb;
+  --do-feature-muted: #dcd7ed;
+  --do-code-bg: #282735;
+  --do-code-text: #f4f0fc;
 
   /* 深色正文与次级文字分级，密集表格仍保持足够对比。 */
-  --do-ink: #182b35;
-  --do-muted: #60717c;
+  --do-ink: #26252e;
+  --do-muted: #62616e;
 
-  /* 内容面保持明亮；导航使用独立深色变量，不向正文继承深色主题。 */
-  --do-bg: #f5f7f9;
-  --do-surface: #ffffff;
-  --do-paper: #ffffff;
-  --do-sidebar: #f0f4f5;
-  --do-sidebar-muted: #60717c;
-  --do-soft: #f1f5f6;
-  --do-nav-bg: #152c33;
-  --do-nav-text: #e5eef0;
-  --do-nav-muted: #9db3bb;
-  --do-nav-line: #30454d;
-  --do-nav-hover: #223e47;
-  --do-nav-active: #284c53;
-  --do-nav-accent: #86d4c3;
+  /* 暖白画布托起纸白数据面。雾紫侧栏用独立选中面与反白文字标明当前页。 */
+  --do-bg: #f6f5f2;
+  --do-surface: #fffefd;
+  --do-paper: var(--do-surface);
+  --do-soft: #f2f1ee;
+  --do-nav-bg: #efedf5;
+  --do-nav-text: #33313f;
+  --do-nav-muted: #666373;
+  --do-nav-line: #d7d4e1;
+  --do-nav-hover: #e5e1ef;
+  --do-nav-active: #46406e;
+  --do-nav-active-text: #ffffff;
+  --do-nav-accent: var(--do-primary-strong);
+  --do-sidebar: var(--do-nav-bg);
+  --do-sidebar-muted: var(--do-nav-muted);
 
   /* 细边界承担分区，避免依赖多层阴影和嵌套卡片。 */
-  --do-line: #dfe6ea;
-  --do-line-strong: #bdcbd2;
+  --do-line: #e1dfdf;
+  --do-line-strong: #c2bfc8;
 
   /* 旧组件尚在消费的材质别名指向不透明表面，迁移期间不再叠加玻璃主题。 */
   --do-ocean-highlight: transparent;
@@ -55,19 +64,27 @@
   --do-glass-panel-blur: 0px;
 
   /* 状态色低饱和且相互可辨，成功状态不会抢占主操作的视觉层级。 */
-  --do-success: #2f7e65;
-  --do-success-soft: #edf7f2;
-  --do-warning: #a36816;
-  --do-warning-soft: #fff7e8;
-  --do-danger: #bd4048;
-  --do-danger-soft: #fff0f1;
-  --do-info: #357b99;
-  --do-info-soft: #eaf4f9;
+  --do-success: #296748;
+  --do-success-soft: #e7f2e9;
+  --do-warning: #855719;
+  --do-warning-soft: #fcf0d8;
+  --do-danger: #a33850;
+  --do-danger-soft: #fbe9ed;
+  --do-info: #38638c;
+  --do-info-soft: #e9f1f8;
+
+  /* 类别按固定顺序取色；失败、待处理等有业务含义的图形仍取对应状态色。 */
+  --do-chart-1: #6455b5;
+  --do-chart-2: #397e79;
+  --do-chart-3: #ae693e;
+  --do-chart-4: #91679e;
+  --do-chart-5: #497cac;
+  --do-chart-6: #a65472;
 
   /* 阴影仅表达浮层高度，常驻工作面保持克制。 */
-  --do-shadow: 0 1px 3px rgb(24 43 53 / 4%);
-  --do-shadow-hover: 0 4px 14px rgb(24 43 53 / 8%);
-  --do-shadow-lg: 0 16px 48px rgb(24 43 53 / 15%);
+  --do-shadow: 0 1px 2px rgb(43 35 52 / 4%);
+  --do-shadow-hover: 0 4px 14px rgb(43 35 52 / 8%);
+  --do-shadow-lg: 0 18px 52px -12px rgb(35 30 50 / 23%), 0 2px 8px rgb(35 30 50 / 6%);
 
   /* ===== 圆角 ===== */
 
@@ -108,18 +125,18 @@
   --do-tone-green-bg: var(--do-success-soft);
   --do-tone-orange: var(--do-warning);
   --do-tone-orange-bg: var(--do-warning-soft);
-  --do-tone-purple: #7c3aed;
-  --do-tone-purple-bg: #f3eeff;
-  --do-tone-sky: var(--do-primary-strong);
+  --do-tone-purple: #774b84;
+  --do-tone-purple-bg: #f3eaf5;
+  --do-tone-sky: var(--do-info);
   --do-tone-sky-bg: var(--do-info-soft);
 
   /* 组件库弹层会传送到 body，因此所有色阶都在根级映射同一主题。 */
   --el-color-primary: var(--do-primary);
   --el-color-primary-dark-2: var(--do-primary-strong);
-  --el-color-primary-light-3: #57a29b;
-  --el-color-primary-light-5: #88bdb8;
-  --el-color-primary-light-7: #b7d8d4;
-  --el-color-primary-light-8: #d0e8e4;
+  --el-color-primary-light-3: color-mix(in srgb, var(--do-primary) 73%, var(--do-surface));
+  --el-color-primary-light-5: color-mix(in srgb, var(--do-primary) 50%, var(--do-surface));
+  --el-color-primary-light-7: color-mix(in srgb, var(--do-primary) 30%, var(--do-surface));
+  --el-color-primary-light-8: color-mix(in srgb, var(--do-primary) 20%, var(--do-surface));
   --el-color-primary-light-9: var(--do-primary-soft);
   --el-color-success: var(--do-success);
   --el-color-success-light-9: var(--do-success-soft);
@@ -128,6 +145,9 @@
   --el-color-warning-light-9: var(--do-warning-soft);
   --el-color-warning-light-8: color-mix(in srgb, var(--do-warning) 18%, white);
   --el-color-danger: var(--do-danger);
+  /* 表单错误与危险操作采用同一莓红，淡底内仍可直接读出错误文字。 */
+  --el-color-error: var(--do-danger);
+  --el-color-error-light-9: var(--do-danger-soft);
   --el-color-danger-light-9: var(--do-danger-soft);
   --el-color-danger-light-8: color-mix(in srgb, var(--do-danger) 18%, white);
   --el-color-info: var(--do-muted);
@@ -139,6 +159,18 @@
   --el-box-shadow-light: var(--do-shadow-lg);
   --el-fill-color-light: var(--do-soft);
   --el-text-color-primary: var(--do-ink);
-  --el-text-color-regular: var(--do-muted);
+  /* 正文、表头、浮层及输入框沿用同一中性阶，次级文字和禁用控件保持可辨。 */
+  --el-text-color-regular: #45434f;
+  --el-text-color-secondary: var(--do-muted);
+  --el-text-color-placeholder: #74717e;
+  --el-border-color: var(--do-line-strong);
+  --el-border-color-lighter: var(--do-line);
+  --el-fill-color-blank: var(--do-surface);
+  --el-fill-color-lighter: var(--do-bg);
+  --el-fill-color: var(--do-soft);
+  --el-font-family: var(--do-font-family);
+  --el-mask-color: color-mix(in srgb, var(--do-surface) 88%, transparent);
+  --el-bg-color-page: var(--do-bg);
+  --el-overlay-color-lighter: rgb(34 28 50 / 38%);
   --el-bg-color: var(--do-surface);
 }

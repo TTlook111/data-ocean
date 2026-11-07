@@ -127,7 +127,7 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
   gap: 5px;
   min-height: 0;
   overflow: auto;
-  /* 矮桌面中的导航滚动条沿用深色表面，避免原生白色轨道切断侧栏。 */
+  /* 矮窗口的滚动条融入导航分区。 */
   scrollbar-width: thin;
   scrollbar-color: var(--do-nav-line) transparent;
   padding: 16px 12px;
@@ -139,15 +139,15 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 }
 
 .admin-domain-nav__item {
-  /* 域入口继承深色导航语义；权限与目标路由仍由现有能力映射决定。 */
+  /* 普通域使用墨色文字，主色留给当前任务和焦点。 */
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: 42px;
   padding: 0 12px;
   border-radius: var(--do-radius-md);
-  color: var(--do-nav-muted);
-  font-size: 13px;
+  color: var(--do-nav-text);
+  font-size: 14px;
   font-weight: 550;
   transition: background var(--do-transition-fast), color var(--do-transition-fast);
 }
@@ -156,7 +156,7 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 
 .admin-domain-nav__item:hover,
 .admin-domain-nav__item.active {
-  /* 悬停与当前域使用可读的明亮前景，保留清楚的选择反馈。 */
+  /* 悬停和展开的域共享浅底，精确的当前页另有实色标记。 */
   color: var(--do-nav-text);
   background: var(--do-nav-hover);
 }
@@ -169,7 +169,7 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
 
 .admin-domain-nav__item:focus-visible,
 .admin-domain-nav__workspace-item:focus-visible {
-  /* 深色表面使用专用高对比焦点色。 */
+  /* 键盘焦点仍能从浅色区和选中项外侧辨认。 */
   outline: 2px solid var(--do-nav-accent);
   outline-offset: 2px;
 }
@@ -215,10 +215,15 @@ function targetFor(domain: { key: string }): RouteLocationRaw {
   transition: background var(--do-transition-fast), color var(--do-transition-fast);
 }
 
-.admin-domain-nav__workspace-item:hover,
-.admin-domain-nav__workspace-item.active {
-  /* 当前工作区与一级域区分，使用深色主题内的实色选中面。 */
+.admin-domain-nav__workspace-item:hover {
   color: var(--do-nav-text);
+  background: var(--do-nav-hover);
+}
+
+/* 独立域首页和展开组的当前子页使用相同的深紫底与反白字。 */
+.admin-domain-nav__workspace-item.active,
+.admin-domain-nav__item.active:not([aria-controls]) {
+  color: var(--do-nav-active-text);
   background: var(--do-nav-active);
 }
 

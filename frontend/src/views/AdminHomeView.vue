@@ -301,14 +301,45 @@ button svg { flex-shrink: 0; }
 .plain:hover { color: var(--do-primary-strong); }
 .help-button { margin-right: 8px; }
 
-/* 摘要按可见能力自动分列；没有权限的指标不保留占位卡。 */
-.workbench-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); overflow: hidden; background: var(--do-surface); }
-.metric { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 20px 24px; text-align: left; border: 0; border-right: 1px solid var(--do-line); background: transparent; color: var(--do-ink); }
-.metric:last-child { border-right: 0; }
-.metric:hover { background: var(--do-soft); }
-.metric-label { display: flex; justify-content: space-between; gap: 20px; width: 100%; color: var(--do-muted); font-size: 13px; }
-.metric strong { font-size: 34px; line-height: 1.2; letter-spacing: -.035em; font-weight: 650; font-variant-numeric: tabular-nums; }
-.metric-scope { color: var(--do-muted); font-size: 11px; line-height: 1.5; }
+/* 三种有权指标独立成面。目录作为工作起点用深墨紫，问题与审批使用暖纸面和浅紫面。 */
+.workbench-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+.metric {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 20px 24px;
+  border: 1px solid var(--do-line);
+  border-radius: var(--do-radius-lg);
+  background: var(--do-surface);
+  color: var(--do-ink);
+  text-align: left;
+}
+.metric[data-metric="sources"] {
+  border-color: var(--do-feature-bg);
+  background: var(--do-feature-bg);
+  color: var(--do-feature-text);
+}
+/* 轮廓纹样留在数字后方的空白区，宽度变化或按钮聚焦都不遮挡指标。 */
+.metric[data-metric="sources"]::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: repeating-radial-gradient(ellipse at 112% 132%, transparent 0 19px, color-mix(in srgb, var(--do-brand-lilac) 16%, transparent) 20px 21px, transparent 22px 31px);
+  mask-image: linear-gradient(90deg, transparent 25%, black 100%);
+  content: '';
+}
+.metric[data-metric="sources"] :is(.metric-label, .metric-scope) { color: var(--do-feature-muted); }
+.metric[data-metric="sources"]:focus-visible { outline-color: var(--do-brand-lilac); }
+.metric[data-metric="issues"] { background: color-mix(in srgb, var(--do-brand-warm) 16%, var(--do-surface)); }
+.metric[data-metric="approvals"] { background: color-mix(in srgb, var(--do-brand-lilac) 21%, var(--do-surface)); }
+.metric:hover { box-shadow: var(--do-shadow-hover); }
+.metric-label { display: flex; justify-content: space-between; align-items: center; gap: 20px; color: var(--do-ink); font-size: 14px; font-weight: 600; }
+.metric-label svg { box-sizing: content-box; padding: 4px; border: 1px solid color-mix(in srgb, currentColor 26%, transparent); border-radius: 50%; }
+.metric strong { font-size: clamp(36px, 3.2vw, 48px); line-height: 1; letter-spacing: -.04em; font-weight: 600; font-variant-numeric: tabular-nums; }
+.metric-scope { color: var(--do-muted); font-size: 12px; line-height: 1.5; }
 
 /* 分布同时显示文字与数值，未知段与失败原因不被绿色就绪段覆盖。 */
 .readiness-overview, .source-panel, .approval-panel, .role-panel, .empty-work, .noaccess { min-width: 0; border: 1px solid var(--do-line); border-radius: var(--do-radius-lg); background: var(--do-surface); }
@@ -404,8 +435,6 @@ button svg { flex-shrink: 0; }
 }
 @media (max-width: 720px) {
   .workbench-stats { grid-template-columns: minmax(0, 1fr); }
-  .metric { border-right: 0; border-bottom: 1px solid var(--do-line); }
-  .metric:last-child { border-bottom: 0; }
   .section-heading { flex-wrap: wrap; }
   .readiness-overview, .source-heading, .next-step, .approval-panel, .role-panel, .empty-work, .noaccess { padding-left: 16px; padding-right: 16px; }
   .source-tools { padding-left: 16px; padding-right: 16px; }
